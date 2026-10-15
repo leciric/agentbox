@@ -191,17 +191,20 @@ AgentBox runs a Cloudflare Tunnel (cloudflared, downloaded the first time) that
 puts the phone page on an https address on the internet. Anyone who has the
 address reaches the pairing page; only a phone paired with a QR code gets further.
 
-By default it's a quick tunnel, on a trycloudflare.com address that needs no
-Cloudflare account and changes each time AgentBox starts, so phones pair again
-then. For an address that stays, make a tunnel in Cloudflare's dashboard, point
-its public hostname at the address "agentbox phone tunnel" shows, and use:
+Connected to a hub (agentbox remote connect) that gives out addresses, it's
+the hub's: an address that stays the same, which phones reach through
+Cloudflare, not through the hub. Otherwise it's a quick tunnel by default, on a
+trycloudflare.com address that needs no Cloudflare account and changes each
+time AgentBox starts, so phones pair again then. For an address of your own,
+make a tunnel in Cloudflare's dashboard, point its public hostname at the
+address "agentbox phone tunnel" shows, and use:
 
   agentbox phone tunnel on --hostname chat.example.com   (asks for its token)`,
 		Args: cobra.NoArgs,
 		RunE: status,
 	}
 	var hostname string
-	var quick, fromStdin bool
+	var quick, hub, fromStdin bool
 	on := &cobra.Command{
 		Use:   "on",
 		Short: "Put the phone page on the internet, and show a QR code to pair a phone",
@@ -214,8 +217,10 @@ its public hostname at the address "agentbox phone tunnel" shows, and use:
 			yes := true
 			req := api.UpdateLANRequest{Enabled: &yes, Tunnel: &yes}
 			switch {
-			case quick && hostname != "":
-				return errors.New("--quick and --hostname are two different tunnels: pick one")
+			case btoi(quick)+btoi(hub)+btoi(hostname != "") > 1:
+				return errors.New("--quick, --hub and --hostname are different tunnels: pick one")
+			case hub:
+				req.TunnelMode = new("hub")
 			case quick:
 				req.TunnelToken = new("")
 			case hostname != "":
@@ -243,6 +248,7 @@ its public hostname at the address "agentbox phone tunnel" shows, and use:
 	on.Flags().StringVar(&hostname, "hostname", "", "use your own named tunnel, on this public hostname; its token is read from stdin")
 	on.Flags().BoolVar(&fromStdin, "token-stdin", false, "read the named tunnel's token from stdin even in a terminal")
 	on.Flags().BoolVar(&quick, "quick", false, "go back to a quick tunnel, forgetting the named tunnel's token")
+	on.Flags().BoolVar(&hub, "hub", false, "use the address the hub this computer connects to gives it, which stays the same")
 
 	off := &cobra.Command{
 		Use:   "off",
@@ -263,6 +269,13 @@ its public hostname at the address "agentbox phone tunnel" shows, and use:
 	}
 	cmd.AddCommand(on, off, &cobra.Command{Use: "status", Short: "Whether the tunnel is on, and its address", Args: cobra.NoArgs, RunE: status})
 	return cmd
+}
+
+func btoi(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // waitTunnel waits for the tunnel to come up: the first time, cloudflared is
@@ -291,8 +304,13 @@ func waitTunnel(ctx context.Context, c *api.Client, st api.LANStatus, out io.Wri
 func printTunnelStatus(out io.Writer, st api.LANStatus) {
 	t := st.Tunnel
 	kind := "a quick tunnel (trycloudflare.com)"
-	if t.Named {
+	switch {
+	case t.Named:
 		kind = "your named tunnel for " + t.Hostname
+	case t.Mode == "hub" && t.Hostname != "":
+		kind = t.Hub + "'s address, " + t.Hostname
+	case t.Mode == "hub":
+		kind = t.Hub + "'s address"
 	}
 	switch {
 	case !t.Enabled:

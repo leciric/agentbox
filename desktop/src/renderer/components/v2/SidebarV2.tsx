@@ -4,24 +4,26 @@
 // failed). Each project's live agents fold under it, one quiet row each:
 // neutral text and one small state mark, with colour only for what needs you
 // (asks, failed); finished ones are in Past agents. Under Home, search and a
-// filter popover (T3Code's: state, project, removable chips; Working until
-// the user picks) narrow it. The projects the user pinned come first, in the
-// order they dragged them, then the rest by the sort menu's switch, then,
-// folded, the Settled shelf (T3Code's) of the ones nobody touched for three
-// days. The reading is lib/leadFirst.ts's and lib/projectOrder.ts's.
+// filter popover (T3Code's: state, project, removable chips) narrow it. The
+// projects the user pinned come first, in the order they dragged them, then
+// the ones with something going on by the sort menu's switch, then, folded,
+// the Idle list of the rest, which opens by itself when nothing is going on.
+// A project's options are on a right-click of its row. The reading is
+// lib/leadFirst.ts's and lib/projectOrder.ts's.
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowUpDown, Check, ChevronRight, CircleArrowUp, Ellipsis, FolderOpen, FolderPlus, House, ListChecks, ListFilter, LoaderCircle, Pin, PinOff, RefreshCw, Search, Settings, ShieldAlert, Smile, SquarePen, X } from 'lucide-react';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { ArrowLeftRight, ArrowUpDown, Check, ChevronRight, CircleArrowUp, FolderOpen, FolderPlus, House, ListChecks, ListFilter, LoaderCircle, Pin, PinOff, Plus, RefreshCw, Search, Settings, ShieldAlert, Smile, SquarePen, X } from 'lucide-react';
+import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from 'react';
 import * as A from '../../../shared/api';
 import type * as T from '../../../shared/api';
 import type { View } from '../../App';
 import { api } from '../../lib/api';
 import { useT, type MessageKey } from '../../lib/i18n';
 import { pageItems, useQuestions, useReviewHead } from '../../lib/inboxPages';
-import { agentSt, attention, awaitsApproval, countSt, filterCount, leadLine, leadBusy, live as isLive, liveOrder, projectRows, toggle, type AgentSt, type Filters, type ProjectRows, type Row } from '../../lib/leadFirst';
+import { activeProjects, agentSt, attention, awaitsApproval, countSt, filterCount, leadLine, leadBusy, liveOrder, projectRows, toggle, type AgentSt, type Filters, type ProjectRows, type Row } from '../../lib/leadFirst';
 import { movePin, orderProjects, sortOptions, togglePin, type SortBy } from '../../lib/projectOrder';
-import { markOpened, setFilterChoice, setPins, setSettledOpen, setSort, useV2Projects } from '../../lib/v2Projects';
+import { setFilterChoice, setIdleOpen, setPins, setSort, useV2Projects } from '../../lib/v2Projects';
+import { useGrace } from '../../lib/grace';
 import { projectLabel } from '../../lib/projectName';
 import { useReviewing } from '../../lib/reviewAlert';
 import { useNow } from '../../lib/useNow';
@@ -37,7 +39,9 @@ import { EnvironmentSwitcher } from '../EnvironmentSwitcher';
 import { Logo } from '../Sidebar';
 import { ProjectIcon, ProjectIconDialog } from '../ProjectIcon';
 import { ReviewCount } from './ReviewV2';
-import { Menu, MenuCheckboxItem, MenuContent, MenuItem, MenuLabel, MenuTrigger } from '../ui/menu';
+import { TalkToProject } from './TalkToProject';
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '../ui/context-menu';
+import { Menu, MenuCheckboxItem, MenuContent, MenuLabel, MenuTrigger } from '../ui/menu';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Tip } from '../ui/tooltip';
 
@@ -60,7 +64,7 @@ const countKeys: { st: AgentSt; key: MessageKey }[] = [
   { st: 'error', key: 'v2.count.error' },
 ];
 
-export function SidebarV2({ view, onSelect, onAddProject }: { view: View; onSelect: (view: View) => void; onAddProject: () => void }) {
+export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: View; onSelect: (view: View) => void; onAddProject: () => void; onNewAgent: (project: string) => void }) {
   const t = useT();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
@@ -72,9 +76,9 @@ export function SidebarV2({ view, onSelect, onAddProject }: { view: View; onSele
   const questions = useQuestions();
   const kept = useV2Projects();
   const [q, setQ] = useState('');
-  const filters: Filters = { st: kept.st, projects: kept.projects, q, all: kept.all };
+  const filters: Filters = { st: kept.st, projects: kept.projects, q };
   const onFilters = (f: Filters) => {
-    if (f.st !== kept.st || f.projects !== kept.projects || f.all !== kept.all) setFilterChoice(f.st, f.projects, f.all);
+    if (f.st !== kept.st || f.projects !== kept.projects) setFilterChoice(f.st, f.projects);
     setQ(f.q);
   };
   const [expanded, setExpanded] = useState<ReadonlyMap<string, boolean>>(new Map());
@@ -82,7 +86,6 @@ export function SidebarV2({ view, onSelect, onAddProject }: { view: View; onSele
   const [drop, setDrop] = useState<{ name: string; edge: 'before' | 'after' } | null>(null);
   const running = jobs.data?.filter((j) => j.status === 'running').length ?? 0;
   const [menuOpen, setMenuOpen] = useState(false);
-  const now = useNow(60_000);
 
   const rows: Row[] = useMemo(() => {
     const ctx = {
@@ -93,11 +96,6 @@ export function SidebarV2({ view, onSelect, onAddProject }: { view: View; onSele
   }, [agents.data, head.data, questions.data, reviewing]);
   const label = (p: T.Project) => projectLabel(p);
   const current = view.kind === 'agent' ? view.ref : undefined;
-  const currentProject = view.kind === 'project' ? view.project : current?.split('/')[0];
-  // Opening a project is the user's doing: it keeps it off the Settled shelf.
-  useEffect(() => {
-    if (currentProject) markOpened(currentProject);
-  }, [currentProject]);
   // The agent on screen opens its project once, so its row is in view; the
   // chevron folds it again like any other.
   const currentAgentProject = current?.split('/')[0];
@@ -106,46 +104,51 @@ export function SidebarV2({ view, onSelect, onAddProject }: { view: View; onSele
   }, [currentAgentProject]);
 
   // Each lead's chat, the same queries its row reads: a lead mid-turn counts
-  // as working, for the filter, the counts and the sort, and keeps its
-  // project off the Settled shelf.
+  // as working, for the filter, the counts and the sort, and with one waiting
+  // on the user's permission keeps its project out of the Idle list.
   const leadChats = useQueries({
     queries: (projects.data ?? []).map((p) => ({ queryKey: ['projectChat', p.name], queryFn: () => api.projectChat(p.name), refetchInterval: 60_000 })),
   });
-  const busyKey = (projects.data ?? []).filter((_, i) => leadBusy(leadChats[i]?.data?.chat)).map((p) => p.name).join('\n');
-  const busy = useMemo(() => new Set(busyKey ? busyKey.split('\n') : []), [busyKey]);
+  const leadKey = (projects.data ?? []).map((p, i) => `${p.name}\t${leadChats[i]?.data?.chat ?? ''}`).join('\n');
+  const leads = useMemo(() => new Map(leadKey ? leadKey.split('\n').map((l) => l.split('\t') as [string, string]) : []), [leadKey]);
+  const busyNow = useMemo(() => new Set([...leads].filter(([, chat]) => leadBusy(chat)).map(([name]) => name)), [leads]);
+  const activeNow = useMemo(() => activeProjects(rows, leads, pageItems(questions.data).map((n) => n.ref)), [rows, leads, questions.data]);
+  // Both with a grace (lib/grace.ts): a busy project goes through moments
+  // with nothing to show for it, between a lead's turns or as an agent
+  // finishes, which would drop it to Idle and bring it back.
+  const busy = useGrace(busyNow);
+  const active = useGrace(activeNow);
 
   const order = useMemo(() => {
     const working = new Map<string, number>();
-    const live = new Set<string>(busy);
     for (const name of busy) working.set(name, 1);
-    for (const r of rows) {
-      if (r.st === 'working') working.set(r.agent.project, (working.get(r.agent.project) ?? 0) + 1);
-      if (isLive(r.st)) live.add(r.agent.project);
-    }
+    for (const r of rows) if (r.st === 'working') working.set(r.agent.project, (working.get(r.agent.project) ?? 0) + 1);
     return orderProjects({
       projects: projects.data ?? [],
       pins: kept.pins,
       sort: kept.sort,
       activity: new Map((activity.data ?? []).map((a) => [a.project, a])),
       working,
-      live,
-      opened: kept.opened,
+      active,
       label,
-      now,
     });
     // label is projectLabel's, the same each render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects.data, activity.data, rows, busy, kept.pins, kept.sort, kept.opened, now]);
+  }, [projects.data, activity.data, rows, busy, active, kept.pins, kept.sort]);
   const pinned = new Set(kept.pins);
   const ctx = { busy, keep: pinned };
   const lists = {
     pinned: projectRows(order.pinned, rows, filters, expanded, label, ctx),
     rest: projectRows(order.rest, rows, filters, expanded, label, ctx),
-    settled: projectRows(order.settled, rows, filters, expanded, label, ctx),
+    idle: projectRows(order.idle, rows, filters, expanded, label, ctx),
   };
-  // A search looks on the shelf too, and opens it on a match.
-  const shelfOpen = kept.settledOpen || (q.trim() !== '' && lists.settled.length > 0);
-  const nothing = projects.data && projects.data.length > 0 && lists.pinned.length + lists.rest.length + lists.settled.length === 0;
+  // Until the agents are in, every project would read idle.
+  const loaded = !!agents.data;
+  // With nothing above it, the Idle list is the list: open, and not a fold.
+  const idleOnly = lists.pinned.length + lists.rest.length === 0;
+  // A search looks in it too, and opens it on a match.
+  const idleOpen = idleOnly || kept.idleOpen || (q.trim() !== '' && lists.idle.length > 0);
+  const nothing = projects.data && projects.data.length > 0 && lists.pinned.length + lists.rest.length + lists.idle.length === 0;
 
   const lead = (p: ProjectRows, pin?: { draggable: true }) => (
     <ProjectLead
@@ -162,6 +165,7 @@ export function SidebarV2({ view, onSelect, onAddProject }: { view: View; onSele
       }
       onPin={() => setPins(togglePin(kept.pins, p.project.name))}
       onSelect={onSelect}
+      onNewAgent={() => onNewAgent(p.project.name)}
       drag={
         pin && {
           over: drop?.name === p.project.name ? drop.edge : undefined,
@@ -203,33 +207,40 @@ export function SidebarV2({ view, onSelect, onAddProject }: { view: View; onSele
             {t('shell.sidebar.addFirst')}
           </button>
         )}
-        {lists.pinned.length > 0 && (
+        {loaded && lists.pinned.length > 0 && (
           <div data-v2-pinned>
             <ListHead>{t('v2.sidebar.pinned')}</ListHead>
             {lists.pinned.map((p) => lead(p, { draggable: true }))}
           </div>
         )}
-        {(lists.rest.length > 0 || (lists.pinned.length === 0 && (projects.data?.length ?? 0) > 0)) && (
+        {loaded && lists.rest.length > 0 && (
           <div data-v2-rest>
             <ListHead action={<SortMenu />}>{t('shell.sidebar.projects')}</ListHead>
             {lists.rest.map((p) => lead(p))}
           </div>
         )}
-        {nothing && <div className="px-2.5 py-1.5 text-[11.5px] text-subtle">{t('v2.sidebar.nothingMatches')}</div>}
-        {lists.settled.length > 0 && (
-          <div className="mt-2" data-v2-settled={shelfOpen ? 'open' : 'closed'}>
-            <button
-              type="button"
-              aria-expanded={shelfOpen}
-              onClick={() => setSettledOpen(!kept.settledOpen)}
-              className="flex w-full items-center gap-1.5 rounded-md px-2.5 py-1.5 text-left text-[10.5px] font-semibold uppercase tracking-[0.08em] text-subtle hover:bg-surface hover:text-secondary"
-              data-v2-settled-toggle
-            >
-              <ChevronRight className={cn('size-3 transition-transform', shelfOpen && 'rotate-90')} />
-              {t('v2.sidebar.settled')}
-              <span className="font-normal tabular-nums normal-case tracking-normal text-faint">{lists.settled.length}</span>
-            </button>
-            {shelfOpen && <div className="opacity-80">{lists.settled.map((p) => lead(p))}</div>}
+        {loaded && nothing && <div className="px-2.5 py-1.5 text-[11.5px] text-subtle">{t('v2.sidebar.nothingMatches')}</div>}
+        {loaded && lists.idle.length > 0 && (
+          <div className={cn(!idleOnly && 'mt-2')} data-v2-idle={idleOnly ? 'only' : idleOpen ? 'open' : 'closed'}>
+            {idleOnly ? (
+              <ListHead action={<SortMenu />}>
+                {t('v2.sidebar.idle')}
+                <span className="ml-1.5 font-normal tabular-nums normal-case tracking-normal text-faint">{lists.idle.length}</span>
+              </ListHead>
+            ) : (
+              <button
+                type="button"
+                aria-expanded={idleOpen}
+                onClick={() => setIdleOpen(!kept.idleOpen)}
+                className="flex w-full items-center gap-1.5 rounded-md px-2.5 py-1.5 text-left text-[10.5px] font-semibold uppercase tracking-[0.08em] text-subtle hover:bg-surface hover:text-secondary"
+                data-v2-idle-toggle
+              >
+                <ChevronRight className={cn('size-3 transition-transform', idleOpen && 'rotate-90')} />
+                {t('v2.sidebar.idle')}
+                <span className="font-normal tabular-nums normal-case tracking-normal text-faint">{lists.idle.length}</span>
+              </button>
+            )}
+            {idleOpen && <div className={cn(!idleOnly && 'opacity-80')}>{lists.idle.map((p) => lead(p))}</div>}
           </div>
         )}
       </nav>
@@ -345,7 +356,6 @@ function FilterBar({ filters, onFilters, projects, rows }: { filters: Filters; o
       label: projectLabel(name, projects),
       remove: () => onFilters({ ...filters, projects: filters.projects.filter((x) => x !== name) }),
     })),
-    ...(filters.all ? [{ key: 'all', label: t('v2.filters.showAll'), remove: () => onFilters({ ...filters, all: false }) }] : []),
   ];
   return (
     <div className="shrink-0 px-1 pb-0.5 pt-2" data-v2-filters>
@@ -383,11 +393,6 @@ function FilterBar({ filters, onFilters, projects, rows }: { filters: Filters; o
             </button>
           </PopoverTrigger>
           <PopoverContent align="start" className="grid w-[300px] gap-3 p-3" data-v2-filter-popover>
-            <div className="flex">
-              <Chip on={filters.all} onClick={() => onFilters({ ...filters, all: !filters.all })} data="all">
-                {t('v2.filters.showAll')}
-              </Chip>
-            </div>
             <FilterGroup title={t('v2.filters.state')}>
               {liveOrder.map((st) => (
                 <Chip key={st} on={filters.st.includes(st)} onClick={() => onFilters({ ...filters, st: toggle(filters.st, st) })} data={`st:${st}`}>
@@ -420,7 +425,7 @@ function FilterBar({ filters, onFilters, projects, rows }: { filters: Filters; o
               </button>
             </span>
           ))}
-          <button type="button" onClick={() => onFilters({ ...filters, st: [], projects: [], all: false })} className="px-1 text-[11px] text-subtle hover:text-title" data-v2-reset>
+          <button type="button" onClick={() => onFilters({ ...filters, st: [], projects: [] })} className="px-1 text-[11px] text-subtle hover:text-title" data-v2-reset>
             {t('v2.filters.reset')}
           </button>
         </div>
@@ -473,12 +478,19 @@ export function StMark({ st, className }: { st: AgentSt; className?: string }) {
   );
 }
 
-function Lead({ active, onClick, children, data }: { active: boolean; onClick: () => void; children: ReactNode; data?: Record<string, string> }) {
+// Lead is a chat's row. A click opens it; a right-click (or Ctrl+click on a
+// Mac) is for the row's menu only, where it has one, and opens nothing. The
+// rest of props is ContextMenuTrigger's, as its asChild child.
+function Lead({ active, onClick, children, data, ...props }: { active: boolean; onClick: () => void; children: ReactNode; data?: Record<string, string> } & Omit<ComponentProps<'div'>, 'onClick'>) {
   return (
     <div
+      {...props}
       role="button"
       tabIndex={0}
-      onClick={onClick}
+      onClick={(e) => {
+        if (e.button !== 0 || e.ctrlKey) return;
+        onClick();
+      }}
       onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onClick())}
       className={cn('group relative flex min-w-0 cursor-pointer items-start gap-2 rounded-lg px-2 py-2 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400/50', active ? 'bg-surface-raised' : 'hover:bg-surface')}
       {...data}
@@ -541,7 +553,9 @@ type Drag = {
 
 // ProjectLead is a project's lead, the main chat, with its icon, its last
 // line and its live agents' counts; the chevron opens its agents under it,
-// and its menu pins it or changes its icon. A pinned one drags among the pins.
+// and a right-click on it opens its menu (what the project header's ⋯ has:
+// New agent, Talk to another project, its icon, folder, settings and pin).
+// A pinned one drags among the pins.
 function ProjectLead({
   project,
   all,
@@ -553,6 +567,7 @@ function ProjectLead({
   onToggle,
   onPin,
   onSelect,
+  onNewAgent,
   drag,
 }: {
   project: T.Project;
@@ -565,14 +580,17 @@ function ProjectLead({
   onToggle: () => void;
   onPin: () => void;
   onSelect: (view: View) => void;
+  onNewAgent: () => void;
   drag?: Drag;
 }) {
   const t = useT();
   const chat = useQuery({ queryKey: ['projectChat', project.name], queryFn: () => api.projectChat(project.name), refetchInterval: 60_000 });
   const now = useNow(60_000);
   const [iconOpen, setIconOpen] = useState(false);
-  // The ⋯ menu, which a right-click on the row opens too.
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [talk, setTalk] = useState(false);
+  const leadRef = `${project.name}/${A.LeadName}`;
+  // Talk to another project needs another project.
+  const others = (useQuery({ queryKey: ['projects'], queryFn: api.projects }).data?.length ?? 0) > 1;
   const line = leadLine(chat.data?.last);
   const counts = countSt(all.map((r) => r.st));
   // The lead at work counts as one working.
@@ -584,12 +602,6 @@ function ProjectLead({
     <div
       className={cn('relative mb-0.5', drag?.over === 'before' && 'before:absolute before:inset-x-2 before:-top-px before:h-0.5 before:rounded-full before:bg-brand-400', drag?.over === 'after' && 'after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded-full after:bg-brand-400')}
       data-v2-project={project.name}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        // An agent's row has a menu of its own (AgentContextMenu).
-        if ((e.target as Element).closest('[data-v2-agent]')) return;
-        setMenuOpen(true);
-      }}
       draggable={!!drag}
       onDragStart={
         drag &&
@@ -616,97 +628,96 @@ function ProjectLead({
         })
       }
     >
-      <Lead
-        active={active}
-        onClick={() => {
-          onSelect({ kind: 'project', project: project.name });
-          requestComposerFocus(`${project.name}/${A.LeadName}`);
-        }}
-        data={{ 'data-v2-lead': project.name }}
-      >
-        <button
-          type="button"
-          aria-label={t(open ? 'v2.sidebar.hideAgents' : 'v2.sidebar.showAgents', { project: name })}
-          aria-expanded={open}
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggle();
-          }}
-          className={cn('mt-1 flex size-4 shrink-0 items-center justify-center rounded text-faint hover:bg-surface-strong hover:text-title', all.length === 0 && 'invisible')}
-          data-v2-toggle={project.name}
-        >
-          <ChevronRight className={cn('size-3.5 transition-transform', open && 'rotate-90')} />
-        </button>
-        <ProjectIcon project={project} className="mt-px" />
-        <span className="min-w-0 flex-1">
-          <span className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate text-[13px] font-medium text-title">{name}</span>
-            {chat.data?.chat === 'running' && <LoaderCircle className="size-3 shrink-0 animate-spin text-subtle" />}
-            {chat.data?.chat === 'waiting' && <span className="size-1.5 shrink-0 rounded-full bg-amber-400" aria-label={t('shell.sidebar.needsYou')} />}
-            {chat.data?.last && <span className="ml-auto shrink-0 text-[11px] text-faint">{timeAgo(chat.data.last.at, now)}</span>}
-          </span>
-          <span className="block truncate text-[11.5px] text-subtle" data-v2-lead-line>
-            {line ? (line.mine ? t('v2.sidebar.you', { text: line.text }) : line.text) : t('v2.sidebar.leadHint')}
-          </span>
-          {/* Its agents' permission requests wait in this chat too, as cards. */}
-          {approvals > 0 && (
-            <span className="mt-1 flex items-center gap-1 text-[10.5px] font-medium tabular-nums text-amber-300" data-v2-approvals={approvals}>
-              <ShieldAlert className="size-3 shrink-0" />
-              {t('v2.sidebar.approvals', { count: approvals })}
-            </span>
-          )}
-          {!open && counted && (
-            <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10.5px] tabular-nums" data-v2-counts>
-              {countKeys.map(({ st, key }) =>
-                counts[st] ? (
-                  <span key={st} className={cn('inline-flex items-center gap-1', st === 'needs' ? 'text-amber-300' : st === 'error' ? 'text-rose-300' : 'text-subtle')} data-v2-count={st}>
-                    <StMark st={st} />
-                    {t(key, { count: counts[st] })}
-                  </span>
-                ) : null,
-              )}
-            </span>
-          )}
-        </span>
-        <ReviewCount project={project.name} variant="button" />
-        <Menu open={menuOpen} onOpenChange={setMenuOpen}>
-          <MenuTrigger asChild>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <Lead
+            active={active}
+            onClick={() => {
+              onSelect({ kind: 'project', project: project.name });
+              requestComposerFocus(leadRef);
+            }}
+            data={{ 'data-v2-lead': project.name }}
+          >
             <button
               type="button"
-              aria-label={t('v2.sidebar.projectMenu', { project: name })}
-              onClick={(e) => e.stopPropagation()}
-              className={cn(
-                '-mr-1 mt-px shrink-0 rounded-md p-0.5 text-subtle transition hover:bg-surface-strong hover:text-primary focus-visible:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100 [@media(hover:hover)]:opacity-0',
-                active && '[@media(hover:hover)]:opacity-100',
-              )}
-              data-v2-project-menu={project.name}
-            >
-              <Ellipsis className="size-3.5" />
-            </button>
-          </MenuTrigger>
-          <MenuContent align="end" onClick={(e) => e.stopPropagation()}>
-            <MenuItem icon={pinned ? PinOff : Pin} onSelect={onPin} data-v2-pin={project.name}>
-              {pinned ? t('v2.sidebar.unpin') : t('v2.sidebar.pin')}
-            </MenuItem>
-            <MenuItem icon={Smile} onSelect={() => setIconOpen(true)} data-v2-change-icon={project.name}>
-              {t('projectIcon.change')}
-            </MenuItem>
-            <MenuItem icon={FolderOpen} onSelect={() => void window.agentbox.openPath(project.root)} data-v2-open-folder={project.name}>
-              {t('project.view.openFolder')}
-            </MenuItem>
-            <MenuItem
-              icon={Settings}
-              onSelect={() => {
-                onSelect({ kind: 'project', project: project.name });
-                openPanelOn(`${project.name}/${A.LeadName}`, 'settings');
+              aria-label={t(open ? 'v2.sidebar.hideAgents' : 'v2.sidebar.showAgents', { project: name })}
+              aria-expanded={open}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggle();
               }}
-              data-v2-project-settings={project.name}
+              className={cn('mt-1 flex size-4 shrink-0 items-center justify-center rounded text-faint hover:bg-surface-strong hover:text-title', all.length === 0 && 'invisible')}
+              data-v2-toggle={project.name}
             >
-              {t('v2.sidebar.projectSettings')}
-            </MenuItem>
-          </MenuContent>
-        </Menu>
-      </Lead>
+              <ChevronRight className={cn('size-3.5 transition-transform', open && 'rotate-90')} />
+            </button>
+            <ProjectIcon project={project} className="mt-px" />
+            <span className="min-w-0 flex-1">
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span className="truncate text-[13px] font-medium text-title">{name}</span>
+                {chat.data?.chat === 'running' && <LoaderCircle className="size-3 shrink-0 animate-spin text-subtle" />}
+                {chat.data?.chat === 'waiting' && <span className="size-1.5 shrink-0 rounded-full bg-amber-400" aria-label={t('shell.sidebar.needsYou')} />}
+                {chat.data?.last && <span className="ml-auto shrink-0 text-[11px] text-faint">{timeAgo(chat.data.last.at, now)}</span>}
+              </span>
+              <span className="block truncate text-[11.5px] text-subtle" data-v2-lead-line>
+                {line ? (line.mine ? t('v2.sidebar.you', { text: line.text }) : line.text) : t('v2.sidebar.leadHint')}
+              </span>
+              {/* Its agents' permission requests wait in this chat too, as cards. */}
+              {approvals > 0 && (
+                <span className="mt-1 flex items-center gap-1 text-[10.5px] font-medium tabular-nums text-amber-300" data-v2-approvals={approvals}>
+                  <ShieldAlert className="size-3 shrink-0" />
+                  {t('v2.sidebar.approvals', { count: approvals })}
+                </span>
+              )}
+              {!open && counted && (
+                <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10.5px] tabular-nums" data-v2-counts>
+                  {countKeys.map(({ st, key }) =>
+                    counts[st] ? (
+                      <span key={st} className={cn('inline-flex items-center gap-1', st === 'needs' ? 'text-amber-300' : st === 'error' ? 'text-rose-300' : 'text-subtle')} data-v2-count={st}>
+                        <StMark st={st} />
+                        {t(key, { count: counts[st] })}
+                      </span>
+                    ) : null,
+                  )}
+                </span>
+              )}
+            </span>
+            <ReviewCount project={project.name} variant="button" />
+          </Lead>
+        </ContextMenuTrigger>
+        <ContextMenuContent data-v2-project-menu={project.name}>
+          <ContextMenuItem icon={Plus} onSelect={onNewAgent} data-v2-new-agent={project.name}>
+            {t('project.view.newAgent')}
+          </ContextMenuItem>
+          {others && (
+            <ContextMenuItem icon={ArrowLeftRight} onSelect={() => setTimeout(() => setTalk(true), 0)} data-v2-talk-to={project.name}>
+              {t('v2.talk.button')}
+            </ContextMenuItem>
+          )}
+          <ContextMenuSeparator />
+          <ContextMenuItem icon={pinned ? PinOff : Pin} onSelect={onPin} data-v2-pin={project.name}>
+            {pinned ? t('v2.sidebar.unpin') : t('v2.sidebar.pin')}
+          </ContextMenuItem>
+          <ContextMenuItem icon={Smile} onSelect={() => setIconOpen(true)} data-v2-change-icon={project.name}>
+            {t('projectIcon.change')}
+          </ContextMenuItem>
+          <ContextMenuItem icon={FolderOpen} onSelect={() => void window.agentbox.openPath(project.root)} data-v2-open-folder={project.name}>
+            {t('project.view.openFolder')}
+          </ContextMenuItem>
+          <ContextMenuItem
+            icon={Settings}
+            onSelect={() => {
+              onSelect({ kind: 'project', project: project.name });
+              openPanelOn(leadRef, 'settings');
+            }}
+            data-v2-project-settings={project.name}
+          >
+            {t('v2.sidebar.projectSettings')}
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+      {/* Talk to another project's picker hangs under the row. */}
+      <TalkToProject project={project.name} leadRef={leadRef} open={talk} onOpenChange={setTalk} anchor={<span aria-hidden className="pointer-events-none absolute right-2 top-11 size-0" />} />
       <ProjectIconDialog project={project} open={iconOpen} onOpenChange={setIconOpen} />
       {open && (
         <div className="relative ml-[17px] border-l border-line-faint pl-1.5" data-v2-agents={project.name}>

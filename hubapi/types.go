@@ -54,6 +54,16 @@ type HubEnvironmentToken struct {
 	Token       string         `json:"token"`
 }
 
+// HubEnvironmentTunnel answers POST PathEnvironmentTunnel: a Cloudflare Tunnel
+// the hub made for the environment, on Hostname, which the environment runs
+// cloudflared with. Phones reach the environment through it at
+// https://<Hostname>/, never through the hub, and still pair with the
+// daemon's own one-time secret: the token runs the tunnel and nothing else.
+type HubEnvironmentTunnel struct {
+	Hostname string `json:"hostname"`
+	Token    string `json:"token"`
+}
+
 // Error is how a hub reports a failure, in any answer that isn't a success. It
 // is the daemon's shape too, so a client reading through the tunnel doesn't
 // have to know whether the hub or the environment behind it refused.

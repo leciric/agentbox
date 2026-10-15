@@ -76,6 +76,9 @@
 //                           saves (fixtures.ts)
 //   ?enforce=1              with ?settings=project:<name>: "Enforce this model" on, so the
 //                           project's model picker warns that Settings' model wins
+//   ?tunnel=hub             with ?settings=phone: chatting from a phone on, reached
+//                           from anywhere at the hub's stable address; the address
+//                           choice switches, as the daemon would (?tunnel=nohub: no hub)
 //   ?topbar=detailed        the top bar's machine as the detailed strip
 //                           (Settings' "Detailed top bar") rather than the bubble
 //   ?conn=connecting|disconnected
@@ -1017,9 +1020,43 @@ function settingsBridge(): void {
   const bridge = (window as unknown as { agentbox: Bridge }).agentbox;
   const inner = bridge.request;
   const answer = (value: unknown) => ({ status: 200, body: JSON.stringify(value), contentType: 'application/json' });
-  const lan: T.LANStatus = { enabled: false, port: 7780, listening: false, urls: [], tunnel: { enabled: false, named: false, state: 'off', origin: 'http://localhost:7780' }, phones: [] };
+  let lan: T.LANStatus = { enabled: false, port: 7780, listening: false, urls: [], tunnel: { enabled: false, mode: 'quick', named: false, state: 'off', origin: 'http://localhost:7781' }, phones: [] };
+  const phone = params.get('tunnel');
+  const hub = phone === 'hub' ? 'https://hub.agentbox.dev' : undefined;
+  // What the tunnel runs on in each mode, once it's up.
+  const tunnelURL: Record<string, string> = {
+    hub: 'https://3fa9c0e1d2b4a5968778695a.agentbox.dev/',
+    quick: 'https://quiet-river-1234.trycloudflare.com/',
+    named: 'https://chat.example.com/',
+  };
+  const withMode = (mode: string): T.LANStatus => ({
+    ...lan,
+    urls: [tunnelURL[mode], 'http://192.168.1.20:7780/'],
+    tunnel: {
+      ...lan.tunnel,
+      mode,
+      named: mode === 'named',
+      hostname: mode === 'quick' ? undefined : new URL(tunnelURL[mode]).hostname,
+      url: tunnelURL[mode],
+    },
+  });
+  if (phone) {
+    lan = { ...lan, enabled: true, listening: true, tunnel: { ...lan.tunnel, enabled: true, state: 'running', hub, namedHostname: 'chat.example.com' } };
+    lan = withMode(hub ? 'hub' : 'quick');
+  }
   bridge.request = async (method, path, body) => {
     if (method === 'GET' && path === '/v1/lan') return answer(lan);
+    if (phone && method === 'PATCH' && path === '/v1/lan') {
+      const req = (typeof body === 'string' ? JSON.parse(body) : body) as T.UpdateLANRequest;
+      if (req.tunnelMode) lan = withMode(req.tunnelMode);
+      return answer(lan);
+    }
+    if (phone && method === 'POST' && path === '/v1/lan/pairings') {
+      // A code-shaped pattern, not a scannable one.
+      const qr = Array.from({ length: 25 }, (_, y) => Array.from({ length: 25 }, (_, x) => ((x * 7 + y * 13 + x * y) % 3 === 0 ? '1' : '0')).join(''));
+      const pairing: T.LANPairing = { urls: lan.urls.map((u) => `${u}#pair=preview`), qr, expires: new Date(Date.now() + 5 * 60_000).toISOString() };
+      return answer(pairing);
+    }
     return inner(method, path, body);
   };
 }

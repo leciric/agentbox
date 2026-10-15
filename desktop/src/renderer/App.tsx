@@ -446,6 +446,7 @@ export function App({ initial }: { initial?: View } = {}) {
             view={view}
             onSelect={select}
             onAddProject={() => setAddingProject(true)}
+            onNewAgent={setNewAgentProject}
           />
         ) : (
           <Sidebar
@@ -470,6 +471,10 @@ export function App({ initial }: { initial?: View } = {}) {
                 onAddProject={() => {
                   setNavOpen(false);
                   setAddingProject(true);
+                }}
+                onNewAgent={(project) => {
+                  setNavOpen(false);
+                  setNewAgentProject(project);
                 }}
               />
             ) : (

@@ -85,6 +85,14 @@ type lanState struct {
 	limiter   *lan.Limiter                                // wrong pairing codes and tokens, by address
 	tunnel    *lanTunnel                                  // the Cloudflare Tunnel, when it runs (lantunnel.go)
 
+	// The tunnel the hub makes for this machine (lantunnel.go), by hubKey:
+	// which hub and environment it was last asked of this run, and the one
+	// that said it gives out none. hubErr is why it couldn't answer.
+	hubAsked, hubNoTunnels, hubErr string
+	// hubRetry is how long it waits to ask the hub again after it couldn't
+	// answer, doubling each time up to ten times as long. A field for tests.
+	hubRetry time.Duration
+
 	// cloudflared finds cloudflared, downloading it the first time, and
 	// tunnelPort is where a named tunnel reaches the daemon (0: any free
 	// port). Fields for tests: nil is tunnel.Installer's.
@@ -102,7 +110,7 @@ func newLANState() *lanState {
 	return &lanState{
 		pairings: map[string]time.Time{}, open: map[string]map[*context.CancelFunc]struct{}{}, seen: map[string]time.Time{},
 		own: hostos.OS() != hostos.Linux, addresses: lan.Addresses,
-		limiter: lan.NewLimiter(), tunnelPort: state.DefaultLANTunnelPort,
+		limiter: lan.NewLimiter(), tunnelPort: state.DefaultLANTunnelPort, hubRetry: 30 * time.Second,
 	}
 }
 

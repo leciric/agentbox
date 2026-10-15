@@ -38,7 +38,10 @@ export function agentSt(a: T.Agent, ctx: StContext): AgentSt {
   // One that failed and finished is in review, with its outcome.
   if (ctx.review.has(a.ref)) return 'review';
   if (tone === 'error') return 'error';
-  if (tone === 'live' || a.chat === 'starting') return 'working';
+  // Held back by the VM's memory (tone 'warning', agentStatus.memoryHold) is
+  // mid-run: it was read as done, and the daemon's memory pressure flipping
+  // it in and out of the hold made its project blink in and out of the list.
+  if (tone === 'live' || tone === 'warning' || a.chat === 'starting') return 'working';
   return 'done';
 }
 
@@ -59,22 +62,15 @@ export type Filters = {
   st: AgentSt[];
   projects: string[];
   q: string;
-  // all is the filter menu's Show all: every project, settled and idle ones
-  // too. Off, with no state chosen, the list is only what is live or needs
-  // the user.
-  all: boolean;
 };
 
-export const noFilters: Filters = { st: [], projects: [], q: '', all: true };
-
-// defaultFilters is what v2's sidebar opens with until the user changes it:
-// no chip, but only the projects with something live (v2Projects.ts keeps
-// their choice after that).
-export const defaultFilters: Filters = { st: [], projects: [], q: '', all: false };
+// noFilters is what v2's sidebar opens with: every project, the idle ones
+// folded in the Idle list (v2Projects.ts keeps the user's choice after that).
+export const noFilters: Filters = { st: [], projects: [], q: '' };
 
 // filterCount is how many filters are on, for the filter button's badge: the
 // search box shows itself.
-export const filterCount = (f: Filters) => f.st.length + f.projects.length + (f.all ? 1 : 0);
+export const filterCount = (f: Filters) => f.st.length + f.projects.length;
 
 // narrowing is whether the filters narrow agents (a state or a search), which
 // hides the projects with no match; a project filter alone only hides the
@@ -134,10 +130,22 @@ export type ProjectCtx = {
 // answering.
 export const leadBusy = (chat: string | undefined) => chat === 'running';
 
+// activeProjects is the projects with something going on, which the sidebar
+// lists above the Idle list: a lead mid-turn or waiting on the user's
+// permission, a live agent (at work, asking, failed or to review), or a
+// question to the user from any of its chats (asks, by ref).
+export function activeProjects(rows: readonly Row[], leads: ReadonlyMap<string, string | undefined>, asks: Iterable<string>): Set<string> {
+  const out = new Set<string>();
+  for (const [project, chat] of leads) if (leadBusy(chat) || chat === 'waiting') out.add(project);
+  for (const r of rows) if (live(r.st)) out.add(r.agent.project);
+  for (const ref of asks) out.add(ref.split('/')[0]);
+  return out;
+}
+
 // projectRows is the sidebar's list of projects, in the order given, each
 // with its live agents, under the filters. A state filter keeps the projects
-// with an agent in one of its states, or, for Working, a busy lead, and
-// with none and Show all off, the projects with nothing live go; a search leaves out a project it narrows to nothing, unless it matches the
+// with an agent in one of its states, or, for Working, a busy lead; a search
+// leaves out a project it narrows to nothing, unless it matches the
 // project's own name, and opens those it found agents in. expanded is what the
 // user opened (true) or closed (false), which a filter never changes; a
 // project they haven't touched is open when one of its agents waits on a
@@ -153,9 +161,6 @@ export function projectRows(projects: readonly T.Project[], rows: readonly Row[]
     if (q && shown.length === 0 && !name.toLowerCase().includes(q)) continue;
     const stMatch = shown.length > 0 || (f.st.includes('working') && ctx.busy.has(project.name));
     if (!q && f.st.length && !stMatch && !ctx.keep.has(project.name)) continue;
-    // With no state chosen and Show all off, a project needs something live:
-    // an agent at work, asking or to review, or a busy lead.
-    if (!q && !f.st.length && !f.all && all.length === 0 && !ctx.busy.has(project.name) && !ctx.keep.has(project.name)) continue;
     const approvals = all.filter((r) => awaitsApproval(r.agent)).length;
     // The chevron alone opens a project, under any state filter, so it
     // folds the same with Working on as with nothing; only a search opens

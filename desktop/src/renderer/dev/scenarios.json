@@ -1400,21 +1400,21 @@
   },
   {
     "id": "window-wide-v2-sidebar-dark",
-    "description": "UI v2 at 1920×1080: Home, the search under it, agentbox and storefront pinned, the rest by recent activity with quill's busy lead counted as working, the Settled shelf folded, project icons, and the lead chat's \"ready to review\" banner — dark",
+    "description": "UI v2 at 1920×1080: Home, the search under it, agentbox and storefront pinned, the rest by recent activity with quill's busy lead counted as working, the Idle list folded, project icons, and the lead chat's \"ready to review\" banner — dark",
     "query": "app=project&v2=1&pins=agentbox,storefront&theme=dark",
     "width": 1920,
     "height": 1080
   },
   {
-    "id": "window-wide-v2-settled-dark",
-    "description": "UI v2 at 1920×1080, no state filter and the Settled shelf open: old-blog and dotfiles, untouched for three days — dark",
+    "id": "window-wide-v2-idle-dark",
+    "description": "UI v2 at 1920×1080, no state filter and the Idle list open: the projects with nothing going on — dark",
     "query": "app=project&v2=1&pins=agentbox,storefront&theme=dark",
     "width": 1920,
     "height": 1080,
     "click": [
       "[data-v2-chip=\"st:working\"] button",
       "[data-v2-chip=\"st:review\"] button",
-      "[data-v2-settled-toggle]"
+      "[data-v2-idle-toggle]"
     ]
   },
   {

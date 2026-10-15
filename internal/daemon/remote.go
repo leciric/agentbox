@@ -36,16 +36,8 @@ func (s *Server) startRemote(ctx context.Context) {
 		s.remoteStop()
 		s.remote, s.remoteStop = nil, nil
 	}
-	data, err := os.ReadFile(s.remoteConfigPath())
-	if err != nil {
-		if !errors.Is(err, fs.ErrNotExist) {
-			s.logf("remote: %v", err)
-		}
-		return
-	}
-	var cfg remoteConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		s.logf("remote: %s: %v", s.remoteConfigPath(), err)
+	cfg := s.readRemoteConfig()
+	if cfg == nil {
 		return
 	}
 	hostname, _ := os.Hostname()
@@ -53,6 +45,26 @@ func (s *Server) startRemote(ctx context.Context) {
 	rctx, cancel := context.WithCancel(ctx)
 	s.remote, s.remoteStop = c, cancel
 	go c.Run(rctx)
+}
+
+// readRemoteConfig is the saved hub, or nil.
+func (s *Server) readRemoteConfig() *remoteConfig {
+	data, err := os.ReadFile(s.remoteConfigPath())
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			s.logf("remote: %v", err)
+		}
+		return nil
+	}
+	var cfg remoteConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		s.logf("remote: %s: %v", s.remoteConfigPath(), err)
+		return nil
+	}
+	if cfg.Hub == "" || cfg.Token == "" {
+		return nil
+	}
+	return &cfg
 }
 
 // remoteHandler serves the hub: the same API as the socket, except what only
@@ -111,6 +123,7 @@ func (s *Server) connectRemote(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	s.startRemote(s.runCtx)
+	s.hubChanged(s.runCtx)
 	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
 		if st := s.remoteStatus(); st.Connected || st.Error != "" {
 			break
@@ -124,6 +137,7 @@ func (s *Server) disconnectRemote(w http.ResponseWriter, r *http.Request) error 
 		return err
 	}
 	s.startRemote(s.runCtx)
+	s.hubChanged(s.runCtx)
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }

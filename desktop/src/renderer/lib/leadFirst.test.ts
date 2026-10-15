@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { agentSt, defaultFilters, changesPending, countSt, filterCount, leadBusy, live, liveOrder, leadLine, matches, narrowing, noFilters, projectRows, sortRows, toggle, type AgentSt, type Filters, type Row } from './leadFirst.ts';
+import { activeProjects, agentSt, changesPending, countSt, filterCount, leadBusy, live, liveOrder, leadLine, matches, narrowing, noFilters, projectRows, sortRows, toggle, type AgentSt, type Filters, type Row } from './leadFirst.ts';
 
 const agent = (name: string, over: Partial<T.Agent> = {}) =>
   ({ name, ref: `${over.project ?? 'p'}/${name}`, project: 'p', title: '', branch: `agentbox/${name}`, state: 'running', chat: 'ready', createdAt: '2026-10-15T10:00:00Z', ...over }) as T.Agent;
@@ -84,7 +84,7 @@ test('projectRows opens what the filters narrow to and hides the rest', () => {
   assert.deepEqual(out.map((p) => p.project.name), ['q']);
 });
 
-test('projectRows by default shows only projects with something live; Show all lists the rest', () => {
+test('projectRows lists every project, live or not; a state filter narrows to matches and pins', () => {
   const projects = [{ name: 'p', displayName: 'Pawly' }, { name: 'q', displayName: 'Quill' }, { name: 'r', displayName: 'Rook' }, { name: 's', displayName: 'Sage' }] as T.Project[];
   const rows: Row[] = [
     { agent: agent('a1'), st: 'review' },
@@ -92,12 +92,28 @@ test('projectRows by default shows only projects with something live; Show all l
   ];
   const label = (p: T.Project) => p.displayName;
   const names = (f: Filters, ctx = { busy: new Set<string>(['r']), keep: new Set<string>(['s']) }) => projectRows(projects, rows, f, new Map(), label, ctx).map((p) => p.project.name);
-  // Live agents, a busy lead and pins stay; the settled one goes.
-  assert.deepEqual(names(defaultFilters), ['p', 'r', 's']);
-  assert.deepEqual(names({ ...defaultFilters, all: true }), ['p', 'q', 'r', 's']);
-  // A state filter narrows on top; a search still finds a settled project.
-  assert.deepEqual(names({ ...defaultFilters, st: ['review'] }), ['p', 's']);
-  assert.deepEqual(names({ ...defaultFilters, q: 'quill' }), ['q']);
+  // Which of them are idle is orderProjects' split, not a filter.
+  assert.deepEqual(names(noFilters), ['p', 'q', 'r', 's']);
+  assert.deepEqual(names({ ...noFilters, st: ['review'] }), ['p', 's']);
+  assert.deepEqual(names({ ...noFilters, q: 'quill' }), ['q']);
+});
+
+test('activeProjects is a busy or asking lead, a live agent or a question; the rest are idle', () => {
+  const rows: Row[] = [
+    { agent: agent('a1', { project: 'p' }), st: 'review' },
+    { agent: agent('a2', { project: 'q' }), st: 'done' },
+  ];
+  const leads = new Map([['p', 'ready'], ['q', 'ready'], ['r', 'running'], ['s', 'waiting'], ['t', 'ready'], ['u', undefined]]);
+  assert.deepEqual([...activeProjects(rows, leads, ['t/agent-3'])].sort(), ['p', 'r', 's', 't']);
+});
+
+test('an agent the VM holds back for memory is still working, so its project stays up', () => {
+  const ctx = { review: new Set<string>(), asking: new Set<string>() };
+  const working = agent('a1', { state: 'running', chat: 'running' });
+  assert.equal(agentSt(working, ctx), 'working');
+  // The daemon's memory pressure flips the hold on and off mid-run: it read as
+  // done, and its project dropped out of the list and came back with it.
+  for (const memory of [{ paused: 1 }, { waiting: 2 }, {}]) assert.equal(agentSt({ ...working, memory } as T.Agent, ctx), 'working');
 });
 
 test('projectRows opens a project with an agent waiting on a permission, until the user closes it', () => {
@@ -124,7 +140,7 @@ test('a project folds and unfolds the same under every filter, and keeps it acro
   ];
   const label = (p: T.Project) => p.displayName;
   const open = (f: Filters, expanded: ReadonlyMap<string, boolean>) => projectRows(projects, rows, f, expanded, label)[0].open;
-  for (const f of [noFilters, defaultFilters, { ...noFilters, st: ['working'] as AgentSt[] }, { ...noFilters, projects: ['p'] }]) {
+  for (const f of [noFilters, { ...noFilters, st: ['working'] as AgentSt[] }, { ...noFilters, projects: ['p'] }]) {
     assert.equal(open(f, new Map()), false, JSON.stringify(f));
     assert.equal(open(f, new Map([['p', true]])), true, JSON.stringify(f));
   }
@@ -143,13 +159,11 @@ test('done agents leave the sidebar for Past agents', () => {
 });
 
 test('filters count and narrow as the sidebar shows them', () => {
-  assert.equal(filterCount({ st: ['needs'], projects: ['p', 'q'], q: 'x', all: false }), 3);
-  assert.equal(filterCount({ ...defaultFilters, all: true }), 1);
-  assert.equal(filterCount(defaultFilters), 0);
+  assert.equal(filterCount({ st: ['needs'], projects: ['p', 'q'], q: 'x' }), 3);
+  assert.equal(filterCount(noFilters), 0);
   assert.equal(narrowing({ ...noFilters, projects: ['p'] }), false);
   assert.equal(narrowing({ ...noFilters, q: ' x ' }), true);
-  assert.deepEqual(defaultFilters.st, []);
-  assert.equal(defaultFilters.all, false);
+  assert.deepEqual(noFilters.st, []);
   assert.deepEqual(toggle(['a', 'b'], 'a'), ['b']);
   assert.deepEqual(toggle(['a'], 'b'), ['a', 'b']);
 });
