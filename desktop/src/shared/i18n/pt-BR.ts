@@ -3058,6 +3058,7 @@ export const ptBR: Messages = {
   'files.link.open': 'Abrir {path} ao lado do chat',
   'files.link.view': 'Ver',
   // UI v2, the lead-first layout (renderer/components/v2)
+  'review.machineKept': 'tem trabalho não enviado — máquina mantida',
   'review.verdict.changes': 'Mudanças pedidas {when}',
   'settings.group.experimental.title': 'Experimental',
   'settings.entry.ui-v2.label': 'Experimentar o novo layout (v2)',

@@ -3057,6 +3057,7 @@ export const enUS = {
   'files.link.open': 'Open {path} beside the chat',
   'files.link.view': 'View',
   // UI v2, the lead-first layout (renderer/components/v2)
+  'review.machineKept': 'has unpushed work — machine kept',
   'review.verdict.changes': 'Changes requested {when}',
   'settings.group.experimental.title': 'Experimental',
   'settings.entry.ui-v2.label': 'Try the new layout (v2)',

@@ -400,6 +400,7 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, end cha
 	if a.IsLead() {
 		return
 	}
+	defer s.freeAfterTurn(ctx, a)
 	v, note := judgeTurn(end)
 	if v == verdictEnded && end.LastMessage == "" {
 		// Read only when the words are what decides: the conversation is

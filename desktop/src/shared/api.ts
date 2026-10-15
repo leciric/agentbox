@@ -1644,6 +1644,7 @@ export interface ReviewItem {
   fingerprint: string;
   verdict?: string;
   reviewedAt?: string;
+  machineKept?: boolean;
 }
 
 export interface ReviewRequest {

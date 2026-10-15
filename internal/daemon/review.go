@@ -141,6 +141,7 @@ func (s *Server) reviewItems(ctx context.Context, p state.Project, agents []stat
 			if json.Unmarshal([]byte(r.Fingerprint), &then) == nil && !then.movedTo(mark) {
 				at := r.At
 				item.Verdict, item.ReviewedAt = r.Verdict, &at
+				item.MachineKept = r.Verdict == api.ReviewReviewed && s.isMachineKept(a.Ref())
 			}
 		}
 		out = append(out, item)
@@ -296,6 +297,9 @@ func (s *Server) reviewAgent(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	s.events.publish(api.EventReview, a.Project)
+	if req.Verdict == api.ReviewReviewed {
+		s.freeReviewed(ctx, a, "marked reviewed", nil)
+	}
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
@@ -333,6 +337,7 @@ func (s *Server) requestChanges(w http.ResponseWriter, r *http.Request) error {
 	} else if json.Unmarshal([]byte(fingerprint), &reviewMark{}) != nil {
 		return fmt.Errorf("fingerprint %q isn't one this list gave", fingerprint)
 	}
+	s.setFreeWhenIdle(a.Ref(), false) // it has work to do again
 	// Recorded first, so the agent is never back in Ready to review on the
 	// work the user just turned down while the message is on its way.
 	if err := s.store.SetAgentReview(ctx, state.AgentReview{

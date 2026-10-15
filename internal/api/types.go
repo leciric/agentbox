@@ -1846,6 +1846,9 @@ type ReviewItem struct {
 	// the user decided, and when, about the work as it still is.
 	Verdict    string     `json:"verdict,omitempty"`
 	ReviewedAt *time.Time `json:"reviewedAt,omitempty"`
+	// MachineKept is set on a reviewed agent whose machine the daemon did
+	// not free, because it holds uncommitted or unpushed work.
+	MachineKept bool `json:"machineKept,omitempty"`
 }
 
 // ReviewPage is GET /v1/review with ?limit= (and the same under a project),

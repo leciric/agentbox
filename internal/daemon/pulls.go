@@ -837,15 +837,20 @@ func (s *Server) mergePullRequest(w http.ResponseWriter, r *http.Request) error 
 		return err
 	}
 	pr.State = "merged"
+	out := toAPIPullRequests([]github.PullRequest{*pr})[0]
 	s.pulls.merged(repo.String(), number)
 	by := agentOfCommit(s.agentsOf(ctx, p), pr.HeadSHA)
 	s.captureEvent(ctx, project, by, "pr_merged", map[string]any{
 		"number": pr.Number, "url": pr.URL, "branch": pr.HeadBranch, "method": string(method),
 	}, "")
 	s.closeAnchoredSoon(project)
+	if by != "" {
+		if a, err := s.store.Agent(ctx, project, by); err == nil {
+			s.freeReviewed(ctx, a, fmt.Sprintf("its pull request #%d was merged", number), &out)
+		}
+	}
 
 	s.countFeature(api.FeaturePullMerge)
-	out := toAPIPullRequests([]github.PullRequest{*pr})[0]
 	return writeJSON(w, http.StatusOK, out)
 }
 

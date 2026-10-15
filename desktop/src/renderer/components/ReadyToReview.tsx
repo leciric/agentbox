@@ -365,6 +365,11 @@ function ReviewCarousel({
                     <VerdictText item={item} />
                   </Badge>
                 )}
+                {item.machineKept && (
+                  <Badge variant="warning" className="shrink-0" data-review-machine-kept>
+                    {t('review.machineKept')}
+                  </Badge>
+                )}
               </div>
               <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-muted">
                 <span className="font-medium text-secondary">{projectLabel(item.project, projects.data)}</span>
