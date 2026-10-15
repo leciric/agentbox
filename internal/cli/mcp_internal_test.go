@@ -382,7 +382,7 @@ func TestCreateAgentNamesTheAgentDefaults(t *testing.T) {
 		want     []string
 	}{
 		{"nothing chosen", api.Settings{DefaultLeadModel: "claude-lead-only"}, api.Project{},
-			[]string{"Leave this out for opus", "Leave this out for 200k"}},
+			[]string{"Leave this out for opus", "Leave this out for 500k"}},
 		{"chosen in Settings", api.Settings{DefaultClaudeModel: "sonnet", DefaultAgentContextWindow: "1000000", DefaultLeadModel: "claude-lead-only"}, api.Project{},
 			[]string{"Leave this out for sonnet", "Leave this out for 1m"}},
 		{"chosen for the project", api.Settings{DefaultClaudeModel: "sonnet"}, api.Project{AgentModel: "claude-fable-5-1"},

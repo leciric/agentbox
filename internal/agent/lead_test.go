@@ -430,7 +430,7 @@ func TestReconfigureLeadRewritesTheBriefForTheProjectsModel(t *testing.T) {
 	if !strings.Contains(string(settings), "claude-fable-5-1") {
 		t.Error("rewriting the brief lost the model the lead itself runs on")
 	}
-	if !strings.Contains(string(settings), `"autoCompactWindow": 200000`) {
+	if !strings.Contains(string(settings), `"autoCompactWindow": 500000`) {
 		t.Errorf("rewriting the brief lost the context the lead compacts at: %s", settings)
 	}
 

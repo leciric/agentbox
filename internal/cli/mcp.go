@@ -100,7 +100,7 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 	// descriptions below: Settings → Models, with AgentBox's own defaults
 	// under them. The lead's own defaults are another section of Settings and
 	// never reach its agents.
-	defaultModel, defaultWindow := state.DefaultClaudeModel, "200k"
+	defaultModel, defaultWindow := state.DefaultClaudeModel, strings.ToLower(state.FormatContextWindow(state.DefaultClaudeCompactWindow))
 	var enforced bool
 	if settings, err := c.ProjectSettings(ctx); err == nil {
 		enforced = settings.EnforceAgentDefaults
@@ -109,6 +109,10 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 		}
 		if n, err := state.ParseContextWindow(settings.DefaultAgentContextWindow); err == nil && n > 0 {
 			defaultWindow = strings.ToLower(state.FormatContextWindow(n))
+		} else if settings.ClaudeCompactWindow > 0 {
+			// "" is the installation's compact window, which is what the
+			// agent gets when Settings leaves its window to the default.
+			defaultWindow = strings.ToLower(state.FormatContextWindow(settings.ClaudeCompactWindow))
 		}
 		for _, choice := range settings.ClaudeModelChoices {
 			models = append(models, choice.Value)
@@ -209,16 +213,16 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 		"or none. For Claude Code it is checked when the agent is " +
 		"made, so a level Claude Code has never offered is refused here rather than silently ignored. Some models have no effort " +
 		"levels at all, and then it simply doesn't apply. Leave this out to use the effort chosen for new agents in AgentBox's " +
-		"settings, and AgentBox's own default (high) when nothing is chosen there.")
+		"settings, and AgentBox's own default (medium) when nothing is chosen there.")
 	if len(efforts) > 0 {
 		effort["enum"] = efforts
 	}
 	params["effort"] = effort
 	params["context_window"] = str("where this agent's chat compacts, \"200k\" or \"1m\" — a Claude Code setting, checked " +
 		"against the model: Haiku has no 1M window, and asking for one is refused. Leave this out for " + defaultWindow +
-		", the window new agents start with in AgentBox's Settings → Models (an agent whose model has no 1M window gets 200k). " +
-		"200k (the installation's compact window) is right for nearly every task: past it, every step of the agent resends the " +
-		"whole conversation, so 1M costs up to five times as much per step late in a long task. Choose 1m only for work that " +
+		", the window new agents start with in AgentBox's Settings → Models (an agent whose model has no 1M window gets the compact one). " +
+		"The compact window is right for nearly every task: past it, every step of the agent resends the " +
+		"whole conversation, so 1M costs up to twice as much per step late in a long task. Choose 1m only for work that " +
 		"really needs a very large codebase or log in view at once.")
 	switch {
 	case enforced:

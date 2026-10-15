@@ -140,7 +140,7 @@ export function NewAgentDialog({
   const contextWindow = contextWindows.includes(Number(form.contextWindow)) ? form.contextWindow : '';
   const settingsWindow = Number(settings.data?.defaultAgentContextWindow || 0);
   const defaultWindow = contextWindows.includes(settingsWindow) ? settingsWindow : contextWindows[0];
-  const fallbackEffort = settingLabel(effortChoices, settings.data?.defaultClaudeEffort ?? '', 'high');
+  const fallbackEffort = settingLabel(effortChoices, settings.data?.defaultClaudeEffort ?? '', 'medium');
 
   const create = useMutation({
     mutationFn: () =>

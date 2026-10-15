@@ -1383,7 +1383,7 @@ let defaultsSettings = {
   errorReports: true,
   errorReportsNoticeSeen: false,
   prWatch: true,
-  defaultClaudeCompactWindow: 200_000,
+  defaultClaudeCompactWindow: 500_000,
   diskFloorMin: 10 * 1024 ** 3,
   diskFloorPercent: 5,
   autoStopIdle: false,

@@ -280,11 +280,12 @@ exit 0`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if chat.Options["model"] != "opus" || chat.Options["effort"] != "high" {
+	if chat.Options["model"] != "opus" || chat.Options["effort"] != "medium" {
 		t.Errorf("a new Claude Code agent's chat defaults = %+v", chat.Options)
 	}
-	if _, chosen := chat.Options[state.ChatOptionContextWindow]; chosen {
-		t.Errorf("nobody chose a context window, so none should be stored: %+v", chat.Options)
+	// A fresh installation starts new agents on the 1M window (state.freshInstallSettings).
+	if got := chat.Options[state.ChatOptionContextWindow]; got != "1000000" {
+		t.Errorf("nobody chose a context window, so the new agent should start on the fresh-install 1M: %+v", chat.Options)
 	}
 
 	// A context window is checked against the model before anything is built

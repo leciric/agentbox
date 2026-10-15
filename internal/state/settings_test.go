@@ -54,3 +54,44 @@ func TestSettings(t *testing.T) {
 		t.Errorf("writing the menu changed the chosen model to %q", got)
 	}
 }
+
+// A brand-new database starts its agents and its lead on the fresh-install
+// settings, and reopening it, as an upgrade does, never writes them again: a
+// setting an installation has left unset stays unset.
+func TestFreshInstallSettingsAreSeededOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.db")
+	ctx := context.Background()
+
+	st, err := state.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]string{
+		state.SettingDefaultAgentContextWindow: "1000000",
+		state.SettingDefaultLeadModel:          "opus",
+		state.SettingDefaultLeadContextWindow:  "1000000",
+	} {
+		if got, err := st.Setting(ctx, key); err != nil || got != want {
+			t.Errorf("a fresh database's %s = %q, %v; want %q", key, got, err, want)
+		}
+	}
+	// Left alone by the seeding: these read the code's own defaults.
+	if got, err := st.Setting(ctx, state.SettingDefaultClaudeModel); err != nil || got != "" {
+		t.Errorf("a fresh database's %s = %q, %v; want unset", state.SettingDefaultClaudeModel, got, err)
+	}
+	if err := st.DeleteSetting(ctx, state.SettingDefaultAgentContextWindow); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err = state.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	if got, err := st.Setting(ctx, state.SettingDefaultAgentContextWindow); err != nil || got != "" {
+		t.Errorf("reopening wrote the fresh-install setting back: %q, %v; want it left unset", got, err)
+	}
+}
