@@ -7,7 +7,7 @@
 // chips) narrow it; narrowing by state or text opens the projects with a match.
 // The reading is lib/leadFirst.ts's.
 import { useQuery } from '@tanstack/react-query';
-import { Archive, Check, ChevronRight, FolderPlus, House, ListChecks, ListFilter, LoaderCircle, Plus, Search, Settings, X } from 'lucide-react';
+import { Archive, Check, ChevronRight, ChevronUp, FolderPlus, House, Images, ListChecks, ListFilter, LoaderCircle, Plus, Search, Settings, X } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import * as A from '../../../shared/api';
 import type * as T from '../../../shared/api';
@@ -22,7 +22,10 @@ import { buildLists } from '../../lib/sidebar';
 import { useNow } from '../../lib/useNow';
 import { cn, timeAgo } from '../../lib/utils';
 import { EnvironmentSwitcher } from '../EnvironmentSwitcher';
-import { Logo, MediaNavItem, NavItem } from '../Sidebar';
+import { shownKinds } from '../AllMediaView';
+import { Logo, NavItem } from '../Sidebar';
+import { Menu, MenuContent, MenuItem, MenuTrigger } from '../ui/menu';
+import { useMediaCounts } from '../../lib/mediaPages';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Tip } from '../ui/tooltip';
 
@@ -56,6 +59,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set());
   const running = jobs.data?.filter((j) => j.status === 'running').length ?? 0;
+  const unseen = useMediaCounts({ kinds: shownKinds }).data?.unseen ?? 0;
 
   // The projects in the sidebar's order, sections or not.
   const ordered = useMemo(() => buildLists(projects.data ?? [], sections.data ?? []).flatMap((l) => l.projects), [projects.data, sections.data]);
@@ -135,22 +139,47 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
         )}
       </nav>
 
+      {/* Only Past agents and Settings stay out: Overview, Media and Jobs
+          are in Settings' menu, so the leads keep the room. */}
       <div className="grid gap-0.5 border-t border-line p-2">
-        <NavItem icon={House} active={view.kind === 'home'} onClick={() => onSelect({ kind: 'home' })}>
-          {t('v2.sidebar.overview')}
-        </NavItem>
-        <MediaNavItem active={view.kind === 'media'} onClick={() => onSelect({ kind: 'media' })} />
         <NavItem icon={Archive} active={view.kind === 'pastAgents'} onClick={() => onSelect({ kind: 'pastAgents' })}>
           {t('pastAgents.title')}
         </NavItem>
-        <NavItem icon={ListChecks} active={view.kind === 'jobs'} onClick={() => onSelect({ kind: 'jobs' })}>
-          {t('shell.nav.jobs')}
-          {running > 0 && <span className="ml-auto rounded-full bg-surface-raised px-1.5 text-[10.5px] text-subtle">{t('shell.sidebar.running', { count: running })}</span>}
-        </NavItem>
-        <NavItem icon={Settings} active={view.kind === 'settings'} onClick={() => onSelect({ kind: 'settings' })}>
-          {t('common.settings')}
-          {setup.data && !setup.data.ready && <span className="ml-auto size-2 rounded-full bg-amber-400" aria-label={t('shell.sidebar.needsAttention').toLowerCase()} />}
-        </NavItem>
+        <Menu>
+          <MenuTrigger asChild>
+            <button
+              type="button"
+              className={cn(
+                'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-muted transition-colors hover:bg-surface hover:text-primary data-[state=open]:bg-surface',
+                (view.kind === 'settings' || view.kind === 'home' || view.kind === 'media' || view.kind === 'jobs') && 'bg-surface-raised text-title',
+              )}
+              data-v2-settings-menu
+            >
+              <Settings className="size-4" />
+              {t('common.settings')}
+              <span className="ml-auto flex items-center gap-1.5">
+                {setup.data && !setup.data.ready && <span className="size-2 rounded-full bg-amber-400" aria-label={t('shell.sidebar.needsAttention').toLowerCase()} />}
+                {running > 0 && <LoaderCircle className="size-3.5 animate-spin text-subtle" aria-label={t('shell.sidebar.running', { count: running })} />}
+                {unseen > 0 && <span className="rounded-full bg-surface-raised px-1.5 text-[10.5px] tabular-nums text-subtle">{unseen}</span>}
+                <ChevronUp className="size-3.5 text-faint" />
+              </span>
+            </button>
+          </MenuTrigger>
+          <MenuContent side="top" align="start" className="w-[256px]">
+            <MenuItem icon={Settings} onSelect={() => onSelect({ kind: 'settings' })} data-v2-menu="settings">
+              {t('common.settings')}
+            </MenuItem>
+            <MenuItem icon={House} onSelect={() => onSelect({ kind: 'home' })} data-v2-menu="overview">
+              {t('v2.sidebar.overview')}
+            </MenuItem>
+            <MenuItem icon={Images} hint={unseen > 0 ? String(unseen) : undefined} onSelect={() => onSelect({ kind: 'media' })} data-v2-menu="media">
+              {t('shell.nav.media')}
+            </MenuItem>
+            <MenuItem icon={ListChecks} hint={running > 0 ? t('shell.sidebar.running', { count: running }) : undefined} onSelect={() => onSelect({ kind: 'jobs' })} data-v2-menu="jobs">
+              {t('shell.nav.jobs')}
+            </MenuItem>
+          </MenuContent>
+        </Menu>
       </div>
     </aside>
   );
