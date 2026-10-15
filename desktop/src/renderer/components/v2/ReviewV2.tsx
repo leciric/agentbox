@@ -15,6 +15,7 @@ import { api } from '../../lib/api';
 import { useT } from '../../lib/i18n';
 import { agentReviewPrefix, refreshInbox, useReviewPages } from '../../lib/inboxPages';
 import { changesPending } from '../../lib/leadFirst';
+import { startWalk } from '../../lib/review';
 import { useMediaCounts } from '../../lib/mediaPages';
 import { cn, errorMessage } from '../../lib/utils';
 import { ReviewDialog, type ReviewSession } from '../ReadyToReview';
@@ -22,17 +23,16 @@ import { Button } from '../ui/button';
 import { Kbd } from '../ui/card';
 import { ReviewDecisionContext, type DecisionProps } from './reviewDecision';
 
-type OpenReview = (ref: string) => void;
-// OpenReviews walks the carousel through every agent waiting for review, or
-// one project's: the sidebar's "N to review", the lead chat's banner, and
-// anything that wants Home's "all" uses it.
-export type OpenReviews = (opts?: { project?: string }) => void;
-const OpenReviewContext = createContext<{ agent: OpenReview; openReview: OpenReviews } | null>(null);
+// OpenReview opens the carousel, the one way in: on an agent (item, the one
+// an agent's card shows), or walking through every agent waiting for review,
+// or one project's (the sidebar's "N to review", the lead chat's banner;
+// Home's "all" can too). Nothing is marked seen or reviewed until the
+// carousel has shown an agent, and only its buttons record a verdict.
+export type OpenReview = (opts?: { project?: string; item?: T.ReviewItem }) => void;
+const OpenReviewContext = createContext<OpenReview | null>(null);
 
-// useOpenReview opens the carousel on an agent, under ReviewV2.
-export const useOpenReview = () => useContext(OpenReviewContext)?.agent ?? null;
-// useOpenReviews is openReview({ project? }), under ReviewV2.
-export const useOpenReviews = () => useContext(OpenReviewContext)?.openReview ?? null;
+// useOpenReview is openReview, under ReviewV2.
+export const useOpenReview = () => useContext(OpenReviewContext);
 
 // projectReviewKey is one project's agents ready to review: a page under
 // ['review'], so refreshInbox refreshes it and opening one drops it at once.
@@ -69,20 +69,15 @@ export function ReviewV2({ onSelect, children }: { onSelect: (view: View) => voi
   const queryClient = useQueryClient();
   const [session, setSession] = useState<ReviewSession | null>(null);
   const pages = useReviewPages(false, session !== null);
-  const agent: OpenReview = (ref) => {
-    void queryClient.fetchQuery({ queryKey: agentReviewKey(ref), queryFn: () => agentReview(ref), staleTime: 0 }).then((item) => {
-      if (item) setSession({ item, order: null });
-    });
-  };
-  const openReview: OpenReviews = ({ project } = {}) => {
+  const openReview: OpenReview = (opts = {}) => {
+    if (opts.item) return setSession(startWalk([], opts));
+    const { project } = opts;
     const page = project ? queryClient.fetchQuery({ queryKey: projectReviewKey(project), queryFn: () => readyFor(project), staleTime: 0 }) : readyFor();
-    void page.then(({ items }) => {
-      if (items.length > 0) setSession({ item: items[0], order: items.map((i) => i.ref), project });
-    });
+    void page.then(({ items }) => setSession(startWalk(items ?? [], opts))).catch((err) => toast.error(errorMessage(err)));
   };
   return (
     <ReviewDecisionContext.Provider value={DecisionBar}>
-      <OpenReviewContext.Provider value={{ agent, openReview }}>
+      <OpenReviewContext.Provider value={openReview}>
         {children}
         <ReviewDialog session={session} pages={pages} onSession={setSession} onSelect={onSelect} />
       </OpenReviewContext.Provider>
@@ -316,7 +311,7 @@ export function AgentReviewCard({ agent }: { agent: T.Agent }) {
         )}
       </span>
       {item && (
-        <Button size="sm" variant={asked ? 'secondary' : 'primary'} className="ml-auto h-7" onClick={() => open(agent.ref)} data-review-open>
+        <Button size="sm" variant={asked ? 'secondary' : 'primary'} className="ml-auto h-7" onClick={() => open?.({ item })} data-review-open>
           {t('v2.card.review')}
           <ArrowRight />
         </Button>
@@ -342,9 +337,9 @@ function prLabel(t: ReturnType<typeof useT>, pr: T.PullRequest): string {
 // agents, one after another (openReview).
 export function ReviewCount({ project, variant }: { project: string; variant: 'button' | 'banner' }) {
   const t = useT();
-  const openReview = useOpenReviews();
+  const openReview = useOpenReview();
   const ready = useProjectReview(project, !!openReview);
-  const count = ready.data?.items.length ?? 0;
+  const count = ready.data?.items?.length ?? 0;
   if (!openReview || count === 0) return null;
   const open = (e: { stopPropagation: () => void }) => {
     e.stopPropagation();

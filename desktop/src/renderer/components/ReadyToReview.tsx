@@ -389,10 +389,13 @@ function ReviewCarousel({
                 })}
               </span>
             )}
-            <Button size="sm" variant="secondary" onClick={() => onSelect({ kind: 'agent', ref: item.ref, tab: 'chat' })} data-review-changes>
-              <MessageSquareText />
-              {t('review.requestChanges')}
-            </Button>
+            {/* v2's decision bar has its own Request changes, sent from here. */}
+            {!Decision && (
+              <Button size="sm" variant="secondary" onClick={() => onSelect({ kind: 'agent', ref: item.ref, tab: 'chat' })} data-review-changes>
+                <MessageSquareText />
+                {t('review.requestChanges')}
+              </Button>
+            )}
             <Button size="sm" variant="secondary" disabled={marking} onClick={markReviewed} data-review-done>
               <Check />
               {t('review.markReviewed')}

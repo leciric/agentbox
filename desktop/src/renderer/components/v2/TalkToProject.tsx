@@ -37,7 +37,7 @@ export function TalkToProject({ project, leadRef }: { project: string; leadRef: 
           {t('v2.talk.button')}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-[300px] p-1.5" data-v2-talk-picker>
+      <PopoverContent align="end" className="w-[340px] max-w-[calc(100vw-1rem)] p-1.5" data-v2-talk-picker>
         <div className="px-2 pb-1.5 pt-1">
           <div className="text-[13px] font-medium text-title">{t('v2.talk.title')}</div>
           <p className="mt-0.5 text-[11.5px] leading-snug text-subtle">{t('v2.talk.hint')}</p>
@@ -47,11 +47,11 @@ export function TalkToProject({ project, leadRef }: { project: string; leadRef: 
             <div key={p.name} className="group flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-surface-raised" data-v2-talk-project={p.name}>
               <ProjectIcon project={p} />
               <span className="min-w-0 flex-1 truncate text-[13px] text-secondary">{projectLabel(p)}</span>
-              <button type="button" onClick={() => write(p, 'ask')} className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11.5px] text-subtle hover:bg-surface-strong hover:text-title" data-v2-talk-ask={p.name}>
+              <button type="button" onClick={() => write(p, 'ask')} className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[11.5px] text-subtle hover:bg-surface-strong hover:text-title" data-v2-talk-ask={p.name}>
                 <MessageCircleQuestion className="size-3.5" />
                 {t('v2.talk.ask')}
               </button>
-              <button type="button" onClick={() => write(p, 'align')} className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11.5px] text-subtle hover:bg-surface-strong hover:text-title" data-v2-talk-align={p.name}>
+              <button type="button" onClick={() => write(p, 'align')} className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[11.5px] text-subtle hover:bg-surface-strong hover:text-title" data-v2-talk-align={p.name}>
                 <Handshake className="size-3.5" />
                 {t('v2.talk.align')}
               </button>

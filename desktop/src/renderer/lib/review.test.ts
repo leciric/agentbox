@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { countLabel, mergeBlock, nextPending, walkItems, queueOf, reviewKeys, reviewShortcut, slidesOf, step, swipeStep } from './review.ts';
+import { countLabel, mergeBlock, nextPending, startWalk, walkItems, queueOf, reviewKeys, reviewShortcut, slidesOf, step, swipeStep } from './review.ts';
 
 const media = (id: string, kind: string, createdAt: string) => ({ id, kind, createdAt }) as T.MediaItem;
 const page = (id: string, createdAt: string) => ({ id, createdAt }) as T.Artifact;
@@ -101,4 +101,15 @@ test("a project's walk goes through its agents only, and ends after its last", (
   assert.equal(nextPending(order, 'p/b', items), undefined);
   // Opened from everything, it goes on to the other projects.
   assert.equal(walkItems(live).length, 3);
+});
+
+test('openReview starts on the agent a card shows, or walks the waiting ones', () => {
+  const item = (ref: string) => ({ ref, project: ref.split('/')[0] }) as T.ReviewItem;
+  // From an agent's card: on that agent, even when the lists don't have it yet.
+  assert.deepEqual(startWalk([], { item: item('p/a') }), { item: item('p/a'), order: null });
+  const waiting = [item('q/x'), item('p/a'), item('p/b')];
+  assert.deepEqual(startWalk(waiting, { project: 'p' }), { item: item('p/a'), order: ['p/a', 'p/b'], project: 'p' });
+  assert.equal(startWalk(waiting)?.order?.length, 3);
+  // Nothing waiting: nothing opens, and nothing is marked.
+  assert.equal(startWalk([], { project: 'p' }), null);
 });

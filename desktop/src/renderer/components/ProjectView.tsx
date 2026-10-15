@@ -305,6 +305,11 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
             )}
             {section === 'general' && (
               <div className="mx-auto w-full max-w-3xl px-4 py-6 md:px-8 md:py-7">
+                {v2 && (
+                  <Card className="mb-4" title={t('projectIcon.label')} icon={Smile} description={t('projectIcon.description')} action={<Button size="sm" onClick={() => setIconOpen(true)} data-project-settings-icon>{t('projectIcon.change')}</Button>}>
+                    <ProjectIcon project={project} className="size-10 rounded-xl text-[16px]" />
+                  </Card>
+                )}
                 <ProjectSettings project={project} />
               </div>
             )}
