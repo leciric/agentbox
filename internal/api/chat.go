@@ -54,8 +54,9 @@ type ChatSession struct {
 	// NextTool is the AI tool a lead's composer chose for its next message,
 	// while it differs from Tool: that message rolls the session over to it.
 	NextTool string `json:"nextTool,omitempty"`
-	// Account is the Claude Code account a lead's chat runs on, "" for
-	// another tool. An agent's is on its own record.
+	// Account is the account a lead's chat runs its tool on: Claude Code's,
+	// Codex's or Cursor's, OpenCode's as "provider: account, …". An agent's
+	// is on its own record.
 	Account string `json:"account,omitempty"`
 	Detail  string `json:"detail,omitempty"` // what it's doing while it starts
 	Error   string `json:"error,omitempty"`
@@ -444,6 +445,11 @@ type LeadRunners struct {
 	Account string       `json:"account,omitempty"`
 	Chosen  string       `json:"chosen,omitempty"`
 	Runners []LeadRunner `json:"runners"`
+	// ToolAccounts are the accounts the chat runs on, or would, with each of
+	// the other tools (codex, cursor and opencode → account; OpenCode's as
+	// "provider: account, …"), and ToolChosen the ones its composer chose.
+	ToolAccounts map[string]string `json:"toolAccounts,omitempty"`
+	ToolChosen   map[string]string `json:"toolChosen,omitempty"`
 }
 
 // LeadRunner is one AI tool a lead can run.
@@ -456,13 +462,15 @@ type LeadRunner struct {
 	// Installed says this machine already has it: without, the first message
 	// installs it, which takes a minute.
 	Installed bool `json:"installed"`
-	// Accounts are the Claude Code accounts the chat may use, Claude Code's
-	// alone, each with its latest usage reading.
+	// Accounts are the accounts the chat may run the tool on: Claude Code's
+	// each with its latest usage reading, Codex's and Cursor's with none.
+	// OpenCode has none to choose: its accounts are the project's, one per
+	// provider.
 	Accounts []LeadAccount `json:"accounts,omitempty"`
 }
 
-// LeadRunnerRequest chooses a lead's AI tool and, for Claude Code, its
-// account ("" for the project's). It applies from the next message.
+// LeadRunnerRequest chooses a lead's AI tool and, for Claude Code, Codex and
+// Cursor, its account ("" for the project's). It applies from the next message.
 type LeadRunnerRequest struct {
 	Tool    string `json:"tool"`
 	Account string `json:"account,omitempty"`

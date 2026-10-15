@@ -114,7 +114,7 @@ func (s *Server) setupStatus(ctx context.Context) (api.SetupStatus, error) {
 		codex.Detail, codex.Fix = "optional: "+image.CodexMissing, "agentbox image build --codex"
 		checks = append(checks, codex)
 	} else {
-		check(codex, creds.HasCodexLogin(), "AgentBox has its own login for agents")
+		check(codex, creds.HasCodexLogin(""), "AgentBox has its own login for agents")
 	}
 
 	// OpenCode is optional in the image and in the credentials too, and reads
@@ -125,14 +125,14 @@ func (s *Server) setupStatus(ctx context.Context) (api.SetupStatus, error) {
 		opencodeCheck.Detail, opencodeCheck.Fix = "optional: "+image.OpenCodeMissing, "agentbox image build --opencode"
 		checks = append(checks, opencodeCheck)
 	} else {
-		check(opencodeCheck, creds.HasOpenCodeLogin(), "AgentBox has its own OpenCode login for agents")
+		check(opencodeCheck, creds.HasOpenCodeLogin(nil), "AgentBox has its own OpenCode login for agents")
 	}
 
 	// Cursor needs only a sign-in: every base image has its SDK. One whose
 	// key ran out reads as not signed in (credentials.CursorLogin).
 	cursorCheck := api.SetupCheck{ID: "cursor", Title: "Cursor sign-in", Status: api.SetupOptional,
 		Detail: "optional: agents can't run Cursor yet", Fix: "agentbox auth cursor"}
-	if login, ok := creds.CursorLogin(); ok {
+	if login, ok := creds.CursorLogin(""); ok {
 		cursorCheck.Status, cursorCheck.Detail = api.SetupOK, "AgentBox has its own Cursor sign-in for agents"
 		if login.Email != "" {
 			cursorCheck.Detail += " (" + login.Email + ")"

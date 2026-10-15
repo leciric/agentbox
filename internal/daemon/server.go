@@ -338,6 +338,7 @@ func New(cfg Config) (*Server, error) {
 		Lost:         s.agentLost,
 		Limits:       s.claudeLimited,
 		LeadAccount:  s.leadAccount,
+		LeadLogins:   s.leadToolLogins,
 		Logf:         s.logf,
 		Version:      Version,
 		ImageDir:     cfg.Paths.ChatImages,
@@ -829,6 +830,10 @@ func (s *Server) routes() http.Handler {
 	h("DELETE /v1/auth/claude/{account}", s.removeClaudeAccount)
 	h("POST /v1/auth/claude/{account}/default", s.setDefaultClaudeAccount)
 	h("POST /v1/auth/claude/{account}/rename", s.renameClaudeAccount)
+	h("POST /v1/auth/accounts/{tool}", s.saveToolAccount)
+	h("DELETE /v1/auth/accounts/{tool}/{account}", s.removeToolAccount)
+	h("POST /v1/auth/accounts/{tool}/{account}/default", s.setDefaultToolAccount)
+	h("POST /v1/auth/accounts/{tool}/{account}/rename", s.renameToolAccount)
 	h("POST /v1/auth/cursor", s.saveCursorKey)
 	h("DELETE /v1/auth/cursor", s.removeCursorLogin)
 	h("POST /v1/auth/cursor/login", s.startCursorLogin)

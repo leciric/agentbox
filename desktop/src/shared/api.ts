@@ -10,6 +10,9 @@ export interface Project {
   claudeAccount: string;
   claudeAccounts: string[];
   githubAccount: string;
+  codexAccount: string;
+  openCodeAccounts: Record<string, string>;
+  cursorAccount: string;
   autonomy: string;
   agentModel: string;
   branchPrefix: string;
@@ -33,6 +36,9 @@ export interface AddProjectRequest {
   name?: string;
   claudeAccount?: string;
   githubAccount?: string;
+  codexAccount?: string;
+  openCodeAccounts?: Record<string, string>;
+  cursorAccount?: string;
   copyToLinux?: boolean;
   create?: boolean;
   commitFiles?: boolean;
@@ -43,6 +49,9 @@ export interface UpdateProjectRequest {
   claudeAccount?: string;
   claudeAccounts?: string[];
   githubAccount?: string;
+  codexAccount?: string;
+  openCodeAccounts?: Record<string, string>;
+  cursorAccount?: string;
   moveClaudeAgents?: boolean;
   moveGitHubAgents?: boolean;
   autonomy?: string;
@@ -187,6 +196,9 @@ export interface Agent {
   worktree: string;
   source: string;
   claudeAccount: string;
+  codexAccount?: string;
+  openCodeAccounts?: Record<string, string>;
+  cursorAccount?: string;
   githubAccount: string;
   interface: string;
   chat?: string;
@@ -252,6 +264,9 @@ export interface CreateAgentRequest {
   from?: string;
   startAt?: string;
   claudeAccount?: string;
+  codexAccount?: string;
+  openCodeAccounts?: Record<string, string>;
+  cursorAccount?: string;
   githubAccount?: string;
   noEnv?: boolean;
   clean?: boolean;
@@ -554,6 +569,9 @@ export interface AuthStatus {
   cursor: boolean;
   cursorEmail?: string;
   claudeAccounts: ClaudeAccount[];
+  codexAccounts: ToolAccount[];
+  openCodeAccounts: ToolAccount[];
+  cursorAccounts: ToolAccount[];
   github: boolean;
   githubAccounts: GitHubAccount[];
   githubUser?: string;
@@ -948,6 +966,7 @@ export interface GitHubTokenRequest {
 
 export interface CursorKeyRequest {
   apiKey: string;
+  account?: string;
 }
 
 export interface CursorKeyResponse {
@@ -956,9 +975,45 @@ export interface CursorKeyResponse {
 
 export interface CursorLogin {
   state: string;
+  account?: string;
   url?: string;
   email?: string;
   error?: string;
+}
+
+export interface CursorLoginRequest {
+  account?: string;
+}
+
+export interface ToolAccount {
+  tool: string;
+  provider?: string;
+  name: string;
+  default: boolean;
+  savedAt: string;
+  kind?: string;
+  email?: string;
+  expired?: boolean;
+  expiry?: string;
+}
+
+export interface ToolAccountRequest {
+  account?: string;
+  provider?: string;
+  apiKey: string;
+}
+
+export interface RenameToolAccountRequest {
+  name: string;
+}
+
+export interface RenamedToolAccount {
+  tool: string;
+  provider?: string;
+  old: string;
+  name: string;
+  projects: string[];
+  agents: string[];
 }
 
 export interface RenameGitHubAccountRequest {
@@ -1401,6 +1456,9 @@ export interface FleetAgent {
   worktree: string;
   source: string;
   claudeAccount: string;
+  codexAccount?: string;
+  openCodeAccounts?: Record<string, string>;
+  cursorAccount?: string;
   githubAccount: string;
   interface: string;
   chat?: string;
@@ -1946,6 +2004,8 @@ export interface LeadRunners {
   account?: string;
   chosen?: string;
   runners: LeadRunner[];
+  toolAccounts?: Record<string, string>;
+  toolChosen?: Record<string, string>;
 }
 
 export interface LeadRunner {

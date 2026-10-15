@@ -42,6 +42,7 @@ func (s *Server) shutdown(w http.ResponseWriter, _ *http.Request) error {
 func (s *Server) projectInfo(ctx context.Context, p state.Project) api.Project {
 	info := api.Project{PRWatch: p.PRWatch, PRWatching: s.prWatchOn(ctx, p), Name: p.Name, DisplayName: p.DisplayName, Root: p.Root, EnvFiles: []string{}, Android: android.IsProject(p.Root),
 		ClaudeAccount: p.ClaudeAccount, ClaudeAccounts: nonNil(p.ClaudeAccounts), GitHubAccount: p.GitHubAccount, Autonomy: p.Autonomy,
+		CodexAccount: p.CodexAccount, OpenCodeAccounts: accountMap(p.OpenCodeAccounts), CursorAccount: p.CursorAccount,
 		AgentModel: p.AgentModel, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
 		RolloverThreshold: p.RolloverThreshold, ContextBudget: p.ContextBudget,
 		Consolidation: p.Consolidation, ConsolidationModel: p.ConsolidationModel,
@@ -130,7 +131,12 @@ func (s *Server) addProjectFrom(w http.ResponseWriter, r *http.Request, req api.
 	if err := s.checkGitHubAccount(githubAccount); err != nil {
 		return err
 	}
-	p, err := s.registerProject(r.Context(), state.Project{DisplayName: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now()})
+	tools, err := s.newProjectToolAccounts(req)
+	if err != nil {
+		return err
+	}
+	p, err := s.registerProject(r.Context(), state.Project{DisplayName: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now(),
+		CodexAccount: tools.CodexAccount, OpenCodeAccounts: tools.OpenCodeAccounts, CursorAccount: tools.CursorAccount})
 	if err != nil {
 		return err
 	}
@@ -171,11 +177,16 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request, req api.A
 	if err := s.checkGitHubAccount(githubAccount); err != nil {
 		return err
 	}
+	tools, err := s.newProjectToolAccounts(req)
+	if err != nil {
+		return err
+	}
 	repo, created, err := gitrepo.Create(path, req.CommitFiles)
 	if err != nil {
 		return err
 	}
-	p, err := s.registerProject(r.Context(), state.Project{DisplayName: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now()})
+	p, err := s.registerProject(r.Context(), state.Project{DisplayName: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now(),
+		CodexAccount: tools.CodexAccount, OpenCodeAccounts: tools.OpenCodeAccounts, CursorAccount: tools.CursorAccount})
 	if err != nil {
 		if created {
 			_ = os.RemoveAll(repo.Root)
@@ -376,6 +387,9 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 				}
 			}
 		}
+	}
+	if err := s.updateProjectToolAccounts(r.Context(), &p, req); err != nil {
+		return err
 	}
 	if req.FinishNotices != nil {
 		notices := strings.TrimSpace(*req.FinishNotices)
@@ -880,9 +894,12 @@ func toAPIAgent(st agent.Status) api.Agent {
 		Worktree:   a.Worktree,
 		Source:     a.Source,
 
-		ClaudeAccount: a.ClaudeAccount,
-		GitHubAccount: a.GitHubAccount,
-		Interface:     a.Interface,
+		ClaudeAccount:    a.ClaudeAccount,
+		CodexAccount:     a.CodexAccount,
+		OpenCodeAccounts: accountMap(a.OpenCodeAccounts),
+		CursorAccount:    a.CursorAccount,
+		GitHubAccount:    a.GitHubAccount,
+		Interface:        a.Interface,
 
 		State:     st.State,
 		IP:        st.IP,
@@ -1060,7 +1077,7 @@ func (s *Server) createAgentJob(ctx context.Context, req api.CreateAgentRequest,
 	// agent is on its way and has nothing left to correct (see the byLead
 	// notice below, for what Create can still fail at once the job is
 	// running).
-	if _, err := s.manager(nil).CheckLogin(req.AI, p, req.ClaudeAccount); err != nil {
+	if _, err := s.manager(nil).CheckLogin(req.AI, p, agent.Logins{Claude: req.ClaudeAccount, Codex: req.CodexAccount, OpenCode: req.OpenCodeAccounts, Cursor: req.CursorAccount}); err != nil {
 		return api.Job{}, err
 	}
 	if req.Connectors != nil {
@@ -1124,8 +1141,11 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 			From:          req.From,
 			StartAt:       req.StartAt,
 
-			ClaudeAccount: req.ClaudeAccount,
-			GitHubAccount: req.GitHubAccount,
+			ClaudeAccount:    req.ClaudeAccount,
+			CodexAccount:     req.CodexAccount,
+			OpenCodeAccounts: req.OpenCodeAccounts,
+			CursorAccount:    req.CursorAccount,
+			GitHubAccount:    req.GitHubAccount,
 
 			CopyEnv: !req.NoEnv,
 			Clean:   req.Clean,
@@ -1658,13 +1678,18 @@ func (s *Server) authStatus(w http.ResponseWriter, _ *http.Request) error {
 	}
 	status := api.AuthStatus{
 		Claude:         len(claude) > 0,
-		Codex:          creds.HasCodexLogin(),
-		OpenCode:       creds.HasOpenCodeLogin(),
+		Codex:          creds.HasCodexLogin(""),
+		OpenCode:       creds.HasOpenCodeLogin(nil),
 		ClaudeAccounts: claude,
 		GitHub:         len(gh) > 0,
 		GitHubAccounts: gh,
 	}
-	if login, ok := creds.CursorLogin(); ok {
+	for tool, list := range map[string]*[]api.ToolAccount{credentials.ToolCodex: &status.CodexAccounts, credentials.ToolOpenCode: &status.OpenCodeAccounts, credentials.ToolCursor: &status.CursorAccounts} {
+		if *list, err = toolAccounts(creds, tool); err != nil {
+			return err
+		}
+	}
+	if login, ok := creds.CursorLogin(""); ok {
 		status.Cursor, status.CursorEmail = true, login.Email
 	}
 	s.refreshClaudeTokens(creds)

@@ -2,8 +2,6 @@ package daemon
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -74,21 +72,44 @@ func TestChatRunnersOfferWhatIsSignedIn(t *testing.T) {
 	}
 
 	// Signed in to Codex, the chat switches; with no session yet, at once.
-	if err := os.MkdirAll(filepath.Dir(creds.CodexAuthPath()), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(creds.CodexAuthPath(), []byte(`{"tokens":{}}`), 0o600); err != nil {
+	if err := creds.SaveToolAccount("codex", "", "", []byte(`{"tokens":{}}`)); err != nil {
 		t.Fatal(err)
 	}
 	if session, err = d.client.SetChatRunner(ctx, p.Name, api.LeadRunnerRequest{Tool: "codex"}); err != nil {
 		t.Fatal(err)
 	}
-	if session.Tool != "codex" || session.Account != "" {
-		t.Errorf("session = %+v, want Codex now, on no Claude Code account", session)
+	if session.Tool != "codex" || session.Account != "default" {
+		t.Errorf("session = %+v, want Codex now, on its default account", session)
 	}
 	stored, err := d.srv.store.Chat(ctx, p.Name, state.LeadName)
 	if err != nil || stored.Tool != "codex" || stored.Account != "work" {
 		t.Errorf("stored %+v, %v: want codex, with Claude Code's account kept for a switch back", stored, err)
+	}
+
+	// A second Codex account is offered, and choosing it moves the chat to it.
+	if err := creds.SaveToolAccount("codex", "", "team", []byte(`{"OPENAI_API_KEY":"sk"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if runners, err = d.client.ChatRunners(ctx, p.Name); err != nil {
+		t.Fatal(err)
+	}
+	var codex api.LeadRunner
+	for _, r := range runners.Runners {
+		if r.Tool == "codex" {
+			codex = r
+		}
+	}
+	if len(codex.Accounts) != 2 || !codex.Accounts[0].Project || runners.ToolAccounts["codex"] != "default" {
+		t.Errorf("Codex's accounts = %+v, running on %v", codex.Accounts, runners.ToolAccounts)
+	}
+	if _, err := d.client.SetChatRunner(ctx, p.Name, api.LeadRunnerRequest{Tool: "codex", Account: "nope"}); err == nil {
+		t.Error("a Codex account that doesn't exist was chosen")
+	}
+	if session, err = d.client.SetChatRunner(ctx, p.Name, api.LeadRunnerRequest{Tool: "codex", Account: "team"}); err != nil || session.Account != "team" {
+		t.Errorf("choosing the team account: %+v, %v", session, err)
+	}
+	if runners, err = d.client.ChatRunners(ctx, p.Name); err != nil || runners.ToolChosen["codex"] != "team" || runners.ToolAccounts["codex"] != "team" {
+		t.Errorf("after choosing team: %+v, %v", runners, err)
 	}
 
 	// The Home chat has the same picker, against the machine's accounts.

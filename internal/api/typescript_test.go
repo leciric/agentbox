@@ -30,7 +30,7 @@ var tsTypes = []any{
 	MediaItem{}, MediaMeta{}, Notification{}, SeeNotificationsRequest{}, SeeNotificationsResult{}, TestCounts{}, ScreenshotRequest{}, RecordRequest{}, RecordingStatus{},
 	AddMediaRequest{}, NoteRequest{}, LogsRequest{}, ExportRequest{}, ExportResult{}, DeleteMediaRequest{}, DeleteMediaResult{}, UpdateMediaRequest{}, MediaPage{}, MediaCounts{}, MediaAgentCount{}, MediaProjectCount{},
 	SetupCheck{}, SetupStatus{}, ImageComponents{}, ImageBuild{}, ImageDownload{}, BuildImageRequest{}, ImageStatus{},
-	ClaudeTokenRequest{}, ClaudeLoginRequest{}, ClaudeLogin{}, ClaudeLoginCodeRequest{}, RenameClaudeAccountRequest{}, RenamedClaudeAccount{}, GitHubTokenRequest{}, CursorKeyRequest{}, CursorKeyResponse{}, CursorLogin{}, RenameGitHubAccountRequest{}, RenamedGitHubAccount{},
+	ClaudeTokenRequest{}, ClaudeLoginRequest{}, ClaudeLogin{}, ClaudeLoginCodeRequest{}, RenameClaudeAccountRequest{}, RenamedClaudeAccount{}, GitHubTokenRequest{}, CursorKeyRequest{}, CursorKeyResponse{}, CursorLogin{}, CursorLoginRequest{}, ToolAccount{}, ToolAccountRequest{}, RenameToolAccountRequest{}, RenamedToolAccount{}, RenameGitHubAccountRequest{}, RenamedGitHubAccount{},
 	Secret{}, SetSecretRequest{},
 	Skill{}, SkillFile{}, SkillDetail{}, SaveSkillRequest{}, UpdateSkillRequest{}, SkillOverrideRequest{}, ScanSkillsRequest{}, SkillCandidate{}, ImportSkillsRequest{},
 	BrowserCookies{}, BrowserCookiesPreviewRequest{}, BrowserCookiesPreview{}, CookieDomain{}, ImportBrowserCookiesRequest{},
