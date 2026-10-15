@@ -357,7 +357,7 @@ export function ChatTab({
     </div>
   );
   return (
-    <div ref={outer} className="flex h-full min-h-0">
+    <div ref={outer} className="relative flex h-full min-h-0">
       {files ? <FileLinksProvider agent={agent}>{chat}</FileLinksProvider> : chat}
       {files && panel.open && available > 0 && <FilePanel agent={agent} available={available} />}
     </div>
@@ -411,7 +411,7 @@ function FilesToggle() {
     <Tip label={t(open ? 'files.panel.hide' : 'files.panel.show')}>
       <Button size="sm" variant="ghost" className={cn('h-7 px-2 sm:px-2.5', open && 'bg-surface-raised text-primary')} aria-pressed={open} onClick={() => setPanelPrefs({ open: !open })} data-files-toggle>
         <FolderTree />
-        <span className="hidden sm:inline">{t('files.panel.files')}</span>
+        <span className="hidden xl:inline">{t('files.panel.files')}</span>
       </Button>
     </Tip>
   );

@@ -92,7 +92,7 @@ func TestFileTreeRoutes(t *testing.T) {
 		t.Errorf("change.Ref = %q", change.Ref)
 	}
 
-	st, err := d.client.FileStatus(ctx, ref)
+	st, err := d.client.FileStatus(ctx, ref, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,6 +102,18 @@ func TestFileTreeRoutes(t *testing.T) {
 	after, err := d.client.ReadFile(ctx, ref, filepath.Join(repo, "README.md"), false, true)
 	if err != nil || after.Status != api.FileModified || after.BaseText != before.Text || !strings.HasSuffix(after.Text, "more\n") {
 		t.Errorf("ReadFile(README, base) = %+v, %v", after, err)
+	}
+
+	// A change in a folder nobody listed isn't watched: the cached status
+	// misses it until asked for fresh.
+	if err := os.WriteFile(filepath.Join(repo, "scripts", "x.sh"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := d.client.FileStatus(ctx, ref, false); st.Changes["scripts/x.sh"] != "" {
+		t.Logf("the cached status saw scripts/x.sh already: %v", st.Changes)
+	}
+	if st, err := d.client.FileStatus(ctx, ref, true); err != nil || st.Changes["scripts/x.sh"] != api.FileUntracked {
+		t.Errorf("FileStatus(fresh) = %+v, %v; want scripts/x.sh untracked", st, err)
 	}
 
 	if _, err := d.client.ListFolder(ctx, "home", "", false); err == nil {

@@ -258,7 +258,7 @@ export const api = {
     call<T.FileList>('GET', `${filesBase(ref)}/list?${new URLSearchParams({ path, ...(ignored ? { ignored: '1' } : {}) })}`),
   readFile: (ref: string, path: string, full = false) =>
     call<T.FileContent>('GET', `${filesBase(ref)}/read?${new URLSearchParams({ path, base: '1', ...(full ? { full: '1' } : {}) })}`),
-  fileStatus: (ref: string) => call<T.FileStatus>('GET', `${filesBase(ref)}/status`),
+  fileStatus: (ref: string, fresh = false) => call<T.FileStatus>('GET', `${filesBase(ref)}/status${fresh ? '?fresh=1' : ''}`),
 
   // Skills (internal/skills): stored by the daemon, installed into every agent
   // and lead whose project has them on. A project's list says, for each,

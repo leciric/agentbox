@@ -201,10 +201,15 @@ func (c *Client) ReadFile(ctx context.Context, ref, file string, full, base bool
 	return out, c.filesDo(ctx, ref, "/read?"+q.Encode(), &out)
 }
 
-// FileStatus is what changed in a worktree since its base.
-func (c *Client) FileStatus(ctx context.Context, ref string) (FileStatus, error) {
+// FileStatus is what changed in a worktree since its base; fresh reads it
+// again rather than from the daemon's cache.
+func (c *Client) FileStatus(ctx context.Context, ref string, fresh bool) (FileStatus, error) {
 	var out FileStatus
-	return out, c.filesDo(ctx, ref, "/status", &out)
+	rest := "/status"
+	if fresh {
+		rest += "?fresh=1"
+	}
+	return out, c.filesDo(ctx, ref, rest, &out)
 }
 
 func (c *Client) filesDo(ctx context.Context, ref, rest string, out any) error {

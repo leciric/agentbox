@@ -10,6 +10,7 @@ import { pastAgentsKey } from './pastAgents.ts';
 import { applySeen } from './notifications.ts';
 import { onChatItem as onPageCall } from './pages.ts';
 import { applyChatEvent, resetChatEvents } from './chat.ts';
+import { changesFiles, refreshFiles } from './files.ts';
 
 const listeners = new Set<() => void>();
 const mediaListeners = new Set<(item: T.MediaItem) => void>();
@@ -95,6 +96,8 @@ export function connectEvents(queryClient: QueryClient): void {
       case T.EventChat: {
         const chat = event.data as T.ChatEvent;
         applyChatEvent(queryClient, chat);
+        // A tool call that finished may have changed files the tree shows.
+        if (chat.item && changesFiles(chat.item)) refreshFiles(queryClient, chat.agent, api.fileStatus);
         // A page published on Hatch joins the project's pages.
         if (chat.item) onPageCall(queryClient, chat.agent, chat.item, api.pages);
         break;

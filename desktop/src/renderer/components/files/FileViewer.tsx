@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Copy, Eye, FileCode2, FileDiff, FolderSearch, LocateFixed, X } from 'lucide-react';
+import { Copy, Ellipsis, Eye, FileCode2, FileDiff, FolderSearch, LocateFixed, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type { ThemedToken } from 'shiki/core';
@@ -72,16 +72,16 @@ export function FileViewer({
     <div className="flex h-full min-w-0 flex-col" data-file-viewer={path}>
       <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line-faint pl-3 pr-1">
         <FileCode2 className="size-3.5 shrink-0 text-subtle" />
-        <span className="min-w-0 flex-1 truncate font-mono text-[12px]" title={path}>
-          <span className="text-faint">{dir}</span>
-          <span className={status ? statusText[status] : 'text-secondary'}>{name}</span>
+        {/* The name stays whole; the folders before it give way. */}
+        <span className="flex min-w-0 flex-1 font-mono text-[12px]" title={path}>
+          <span className="min-w-0 truncate text-faint">{dir}</span>
+          <span className={cn('max-w-full shrink-0 truncate', status ? statusText[status] : 'text-secondary')}>{name}</span>
         </span>
         {status && (
           <span className={cn('shrink-0 font-mono text-[10.5px]', statusText[status])} title={t(`files.status.${status}`)}>
             {statusLetter[status]}
           </span>
         )}
-        {data && <span className="hidden shrink-0 px-1 text-[11px] tabular-nums text-faint sm:inline">{formatSize(data.size)}</span>}
         {isMarkdown(path) && (
           <ModeButton active={shown === 'preview'} label={t(shown === 'preview' ? 'files.viewer.source' : 'files.viewer.preview')} onClick={() => setMode(shown === 'preview' ? 'code' : 'preview')}>
             <Eye />
@@ -94,25 +94,26 @@ export function FileViewer({
         )}
         <Menu>
           <MenuTrigger asChild>
-            <button className="flex size-7 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-raised hover:text-primary" aria-label={t('files.viewer.copyPath')}>
-              <Copy className="size-3.5" />
+            <button className="flex size-7 shrink-0 items-center justify-center rounded-md text-subtle transition hover:bg-surface-raised hover:text-primary" aria-label={t('files.viewer.more')} data-file-more>
+              <Ellipsis className="size-3.5" />
             </button>
           </MenuTrigger>
           <MenuContent align="end">
+            {data && <div className="px-2.5 pb-1 pt-1.5 text-[11px] tabular-nums text-faint">{formatSize(data.size)}</div>}
             <MenuItem icon={Copy} onSelect={() => copy(line ? `${path}:${line}` : path)}>
               {t('files.viewer.copyRelative')}
             </MenuItem>
             <MenuItem icon={Copy} onSelect={() => copy(absolute)}>
               {t('files.viewer.copyAbsolute')}
             </MenuItem>
+            <MenuItem icon={LocateFixed} onSelect={onReveal}>
+              {t('files.viewer.revealInTree')}
+            </MenuItem>
+            <MenuItem icon={FolderSearch} onSelect={() => void window.agentbox.showItem(absolute).catch((err: unknown) => toast.error(errorMessage(err)))}>
+              {t('files.viewer.revealInFolder')}
+            </MenuItem>
           </MenuContent>
         </Menu>
-        <ModeButton label={t('files.viewer.revealInTree')} onClick={onReveal}>
-          <LocateFixed />
-        </ModeButton>
-        <ModeButton label={t('files.viewer.revealInFolder')} onClick={() => void window.agentbox.showItem(absolute).catch((err: unknown) => toast.error(errorMessage(err)))}>
-          <FolderSearch />
-        </ModeButton>
         <ModeButton label={t('files.viewer.close')} onClick={onClose}>
           <X />
         </ModeButton>

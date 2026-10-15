@@ -208,6 +208,14 @@ func sortedKeys(m map[string]bool) []string {
 	return out
 }
 
+// touch says something may have moved that no watch saw, so the next status
+// is read again.
+func (f *fileWatches) touch(ref, root string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.get(ref, root).gen++
+}
+
 // status is ref's status, from the cache when nothing moved since and it is
 // recent; compute reads it again.
 func (f *fileWatches) status(ref, root string, compute func() (api.FileStatus, error)) (api.FileStatus, error) {
@@ -284,6 +292,11 @@ func (s *Server) fileStatus(from agentFrom) func(http.ResponseWriter, *http.Requ
 		a, root, branch, err := s.fileRoot(r, from)
 		if err != nil {
 			return err
+		}
+		// fresh: the app saw a tool call change files, maybe in a folder
+		// nobody watches.
+		if r.URL.Query().Get("fresh") == "1" {
+			s.fileWatches.touch(a.Ref(), root)
 		}
 		st, err := s.worktreeStatus(a, root, branch)
 		if err != nil {

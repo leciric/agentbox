@@ -2927,6 +2927,7 @@ export const ptBR: Messages = {
   'files.viewer.copyAbsolute': 'Copiar o caminho completo',
   'files.viewer.revealInTree': 'Mostrar na árvore',
   'files.viewer.revealInFolder': 'Mostrar na pasta',
+  'files.viewer.more': 'Mais para este arquivo',
   'files.viewer.close': 'Fechar o arquivo',
   'files.viewer.gone': 'Este arquivo não existe mais.',
   'files.viewer.tooLarge': 'Esta imagem é grande demais para pré-visualizar ({size}).',

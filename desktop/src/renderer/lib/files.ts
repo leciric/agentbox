@@ -8,6 +8,7 @@
 // panel's open state and width are remembered (apps/web/src/rightPanelStore.ts,
 // hooks/usePreviewPanelInlineSize.ts).
 import { diffLines } from 'diff';
+import type { QueryClient } from '@tanstack/react-query';
 import { useSyncExternalStore } from 'react';
 import * as T from '../../shared/api.ts';
 import { languageOf } from './highlight.ts';
@@ -221,11 +222,20 @@ export function usePanelPrefs(): PanelPrefs {
   return useSyncExternalStore(subscribe, panelPrefs);
 }
 
-// clampWidth keeps the panel between panelMin and what leaves the chat its
-// own panelMin beside it.
-export function clampWidth(width: number, available: number): number {
-  return Math.round(Math.max(panelMin, Math.min(width, available - panelMin)));
+// panelLayout fits the panel into the width the chat and it share: beside the
+// chat while that leaves the chat chatMin, and over it, as a drawer leaving a
+// strip of the chat in view, when the panel is wider than that. Dragging it
+// wider than the room beside the chat makes it a drawer, narrower puts it back.
+export const chatMin = 420;
+export function panelLayout(width: number, available: number): { width: number; overlay: boolean } {
+  const w = Math.max(Math.min(panelMin, available), width);
+  if (w <= available - chatMin) return { width: Math.round(w), overlay: false };
+  return { width: Math.round(Math.max(Math.min(panelMin, available), Math.min(w, available - 48))), overlay: true };
 }
+
+// narrowPanel is a panel too narrow for the tree and a file side by side: it
+// shows one of them.
+export const narrowPanel = 560;
 
 // What each chat's viewer has open: a file, at a line. nonce makes opening
 // the same place twice scroll there again.
@@ -330,4 +340,30 @@ export function diffRows(oldText: string, newText: string): DiffRow[] {
     }
   }
   return rows;
+}
+
+// changesFiles says a chat item is a tool call that has just finished and may
+// have changed files: an edit, a delete, a move or a command.
+export function changesFiles(item: T.ChatItem): boolean {
+  const tool = item.tool;
+  return !!tool && (tool.status === 'completed' || tool.status === 'failed') && ['edit', 'delete', 'move', 'execute'].includes(tool.kind);
+}
+
+// refreshFiles reads a chat's open tree, open file and status again after its
+// AI tool changed files, a moment after the last such call. The daemon watches
+// only the folders the tree has open, so this is what notices an edit in one
+// that is closed. Nothing is read when no panel shows that chat's files.
+const refreshing = new Map<string, ReturnType<typeof setTimeout>>();
+export function refreshFiles(queryClient: QueryClient, ref: string, status: (ref: string, fresh: boolean) => Promise<T.FileStatus>, delay = 400): void {
+  if (!queryClient.getQueryCache().find({ queryKey: ['fileStatus', ref] })?.isActive()) return;
+  clearTimeout(refreshing.get(ref));
+  refreshing.set(
+    ref,
+    setTimeout(() => {
+      refreshing.delete(ref);
+      void queryClient.fetchQuery({ queryKey: ['fileStatus', ref], queryFn: () => status(ref, true), staleTime: 0 }).catch(() => {});
+      void queryClient.invalidateQueries({ queryKey: ['fileTree', ref] });
+      void queryClient.invalidateQueries({ queryKey: ['file', ref] });
+    }, delay),
+  );
 }

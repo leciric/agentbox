@@ -3,7 +3,7 @@ import { Eye, EyeOff, File, FolderTree, PanelLeftClose, PanelLeftOpen, RefreshCw
 import { createContext, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import type * as T from '../../../shared/api';
 import { api } from '../../lib/api';
-import { clampWidth, closeFile, openFile, panelMin, resolveFile, setPanelPrefs, statusesOf, treeMin, useFindRequests, useOpenedFile, usePanelPrefs } from '../../lib/files';
+import { closeFile, narrowPanel, openFile, panelLayout, resolveFile, setPanelPrefs, statusesOf, treeMin, useFindRequests, useOpenedFile, usePanelPrefs } from '../../lib/files';
 import { matchFiles } from '../../lib/mentions';
 import { useT } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
@@ -38,6 +38,7 @@ export function FileLinksProvider({ agent, children }: { agent: T.Agent; childre
 }
 
 const findLimit = 200;
+const viewerMin = 260;
 
 // FilePanel is the side panel beside a chat: the worktree's tree, and the file
 // open in it. It is toggled from the chat's header, resized from its edge, and
@@ -98,13 +99,26 @@ export function FilePanel({ agent, available }: { agent: T.Agent; available: num
     void queryClient.invalidateQueries({ queryKey: ['files', agent.ref] });
   };
 
-  const width = clampWidth(prefs.width, available);
-  const showTree = !opened || prefs.tree;
-  const treeWidth = opened ? Math.max(treeMin, Math.min(prefs.treeWidth, width - panelMin / 1.5)) : width;
+  const { width, overlay } = panelLayout(prefs.width, available);
+  // A narrow panel shows the tree or the file: a file opening shows it, and
+  // the tree button goes back.
+  const narrow = width < narrowPanel;
+  const [narrowTree, setNarrowTree] = useState(false);
+  useEffect(() => setNarrowTree(false), [opened]);
+  const treeShown = narrow ? narrowTree : prefs.tree;
+  const showTree = !opened || treeShown;
+  const showFile = !!opened && !(narrow && narrowTree);
+  // Beside a file, the tree leaves the file viewerMin.
+  const treeWidth = opened && !narrow ? Math.round(Math.max(treeMin, Math.min(prefs.treeWidth, width - viewerMin))) : width;
 
   return (
-    <aside className="relative flex h-full shrink-0 flex-col border-l border-line bg-sunken" style={{ width }} aria-label={t('files.panel.label')} data-file-panel>
-      <Splitter onDrag={(dx) => setPanelPrefs({ width: clampWidth(width - dx, available) })} onReset={() => setPanelPrefs({ width: 640 })} className="-left-1" />
+    <aside
+      className={cn('flex h-full shrink-0 flex-col border-l border-line bg-sunken', overlay ? 'absolute inset-y-0 right-0 z-30 shadow-[-24px_0_60px_-20px_var(--ab-shadow-deep)]' : 'relative')}
+      style={{ width }}
+      aria-label={t('files.panel.label')}
+      data-file-panel={overlay ? 'overlay' : 'beside'}
+    >
+      <Splitter onDrag={(dx) => setPanelPrefs({ width: panelLayout(width - dx, available).width })} onReset={() => setPanelPrefs({ width: 640 })} className="-left-1" />
       <div className="flex h-10 shrink-0 items-center gap-1 border-b border-line-faint px-2">
         <FolderTree className="ml-1 size-3.5 shrink-0 text-subtle" />
         <div className="relative min-w-0 flex-1">
@@ -127,8 +141,8 @@ export function FilePanel({ agent, available }: { agent: T.Agent; available: num
           <RefreshCw />
         </IconButton>
         {opened && (
-          <IconButton label={t(prefs.tree ? 'files.panel.hideTree' : 'files.panel.showTree')} onClick={() => setPanelPrefs({ tree: !prefs.tree })}>
-            {prefs.tree ? <PanelLeftClose /> : <PanelLeftOpen />}
+          <IconButton label={t(treeShown ? 'files.panel.hideTree' : 'files.panel.showTree')} onClick={() => (narrow ? setNarrowTree(!narrowTree) : setPanelPrefs({ tree: !prefs.tree }))}>
+            {treeShown ? <PanelLeftClose /> : <PanelLeftOpen />}
           </IconButton>
         )}
         <IconButton label={t('files.panel.close')} onClick={() => setPanelPrefs({ open: false })}>
@@ -164,12 +178,15 @@ export function FilePanel({ agent, available }: { agent: T.Agent; available: num
         ) : (
           <>
             {showTree && (
-              <div className={cn('relative min-h-0 shrink-0', opened && 'border-r border-line-faint')} style={{ width: treeWidth }}>
-                <FileTree chatRef={agent.ref} ignored={prefs.ignored} statuses={statuses} selected={opened?.path} reveal={reveal} onOpen={(path) => openFile(agent.ref, path)} />
-                {opened && <Splitter onDrag={(dx) => setPanelPrefs({ treeWidth: Math.max(treeMin, treeWidth + dx) })} onReset={() => setPanelPrefs({ treeWidth: 240 })} className="-right-1" />}
+              <div className={cn('relative min-h-0 shrink-0', showFile && 'border-r border-line-faint')} style={{ width: showFile ? treeWidth : '100%' }}>
+                <FileTree chatRef={agent.ref} ignored={prefs.ignored} statuses={statuses} selected={opened?.path} reveal={reveal} onOpen={(path) => {
+                    openFile(agent.ref, path);
+                    setNarrowTree(false);
+                  }} />
+                {showFile && <Splitter onDrag={(dx) => setPanelPrefs({ treeWidth: Math.max(treeMin, Math.min(treeWidth + dx, width - viewerMin)) })} onReset={() => setPanelPrefs({ treeWidth: 240 })} className="-right-1" />}
               </div>
             )}
-            {opened && (
+            {opened && showFile && (
               <div className="min-w-0 flex-1">
                 <FileViewer
                   chatRef={agent.ref}
@@ -179,7 +196,8 @@ export function FilePanel({ agent, available }: { agent: T.Agent; available: num
                   nonce={opened.nonce}
                   onClose={() => closeFile(agent.ref)}
                   onReveal={() => {
-                    setPanelPrefs({ tree: true });
+                    if (narrow) setNarrowTree(true);
+                    else setPanelPrefs({ tree: true });
                     setReveal((n) => n + 1);
                   }}
                 />

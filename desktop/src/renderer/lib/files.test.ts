@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as T from '../../shared/api.ts';
-import { ancestorsOf, clampWidth, diffRows, treeRows, closeFile, fileLinkOf, formatSize, hasFiles, languageOfPath, openFile, openedFile, panelPrefs, relativeTo, resolveFile, splitPosition, statusOf, statusesOf } from './files.ts';
+import { ancestorsOf, changesFiles, panelLayout, diffRows, refreshFiles, treeRows, closeFile, fileLinkOf, formatSize, hasFiles, languageOfPath, openFile, openedFile, panelPrefs, relativeTo, resolveFile, splitPosition, statusOf, statusesOf } from './files.ts';
 
 test('splitPosition reads a line and column off a path, or a #L hash', () => {
   assert.deepEqual(splitPosition('src/a.go:12'), { path: 'src/a.go', line: 12 });
@@ -73,13 +73,20 @@ test('languageOfPath picks the highlighter language by file name', () => {
   assert.equal(languageOfPath('x.unknownext'), undefined);
 });
 
-test('formatSize and clampWidth', () => {
+test('formatSize and panelLayout', () => {
   assert.equal(formatSize(512), '512 B');
   assert.equal(formatSize(2048), '2.0 KB');
   assert.equal(formatSize(3 * 1024 * 1024), '3.0 MB');
-  assert.equal(clampWidth(100, 2000), 320);
-  assert.equal(clampWidth(1900, 2000), 1680);
-  assert.equal(clampWidth(700, 2000), 700);
+  assert.deepEqual(panelLayout(100, 2000), { width: 320, overlay: false });
+  assert.deepEqual(panelLayout(1580, 2000), { width: 1580, overlay: false });
+  assert.deepEqual(panelLayout(1900, 2000), { width: 1900, overlay: true });
+  assert.deepEqual(panelLayout(700, 2000), { width: 700, overlay: false });
+  // Wider than the room beside the chat: over it, leaving a strip of it.
+  assert.deepEqual(panelLayout(640, 575), { width: 527, overlay: true });
+  assert.deepEqual(panelLayout(400, 575), { width: 400, overlay: true });
+  assert.deepEqual(panelLayout(320, 745), { width: 320, overlay: false });
+  assert.deepEqual(panelLayout(640, 745), { width: 640, overlay: true });
+  assert.deepEqual(panelLayout(640, 300), { width: 300, overlay: true });
 });
 
 test('openFile opens the panel on the file, and each opening is new', () => {
@@ -127,4 +134,35 @@ test('diffRows numbers both sides of a whole-file diff', () => {
     rows.map((r) => `${r.sign}${r.old ?? '-'}:${r.new ?? '-'} ${r.text}`),
     [' 1:1 a', '-2:- b', '+-:2 B', ' 3:3 c', '+-:4 d'],
   );
+});
+
+test('changesFiles: a finished edit, delete, move or command', () => {
+  const item = (kind: string, status: string): T.ChatItem => ({ id: 'i', turn: 't', kind: 'tool', createdAt: '', updatedAt: '', tool: { callId: 'c', title: '', kind, status } });
+  assert.equal(changesFiles(item('edit', 'completed')), true);
+  assert.equal(changesFiles(item('execute', 'failed')), true);
+  assert.equal(changesFiles(item('edit', 'in_progress')), false);
+  assert.equal(changesFiles(item('read', 'completed')), false);
+  assert.equal(changesFiles({ id: 'i', turn: 't', kind: 'assistant', createdAt: '', updatedAt: '' }), false);
+});
+
+test('refreshFiles reads the status fresh, only for a chat whose panel is open', async () => {
+  const { QueryClient, QueryObserver } = await import('@tanstack/react-query');
+  const client = new QueryClient();
+  const calls: string[] = [];
+  const status = async (ref: string, fresh: boolean) => {
+    calls.push(`${ref}:${fresh}`);
+    return { base: 'HEAD', changes: {}, truncated: false };
+  };
+  refreshFiles(client, 'p/a', status, 0);
+  await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(calls, []);
+  const observer = new QueryObserver(client, { queryKey: ['fileStatus', 'p/a'], queryFn: () => status('p/a', false) });
+  const unsubscribe = observer.subscribe(() => {});
+  await new Promise((r) => setTimeout(r, 10));
+  refreshFiles(client, 'p/a', status, 0);
+  refreshFiles(client, 'p/a', status, 0);
+  await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(calls, ['p/a:false', 'p/a:true']);
+  unsubscribe();
+  client.clear();
 });

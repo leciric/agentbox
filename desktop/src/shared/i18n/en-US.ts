@@ -2926,6 +2926,7 @@ export const enUS = {
   'files.viewer.copyAbsolute': 'Copy the full path',
   'files.viewer.revealInTree': 'Show in the tree',
   'files.viewer.revealInFolder': 'Show in its folder',
+  'files.viewer.more': 'More for this file',
   'files.viewer.close': 'Close the file',
   'files.viewer.gone': 'This file isn’t there any more.',
   'files.viewer.tooLarge': 'This image is too large to preview ({size}).',
