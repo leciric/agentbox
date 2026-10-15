@@ -771,7 +771,7 @@ function MediaNavItem({ active, onClick }: { active: boolean; onClick: () => voi
   );
 }
 
-export function NavItem({
+function NavItem({
   icon: Icon,
   active,
   title,

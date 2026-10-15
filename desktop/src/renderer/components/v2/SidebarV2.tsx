@@ -6,8 +6,9 @@
 // failed). Search and a filter popover (T3Code's: state, project, removable
 // chips) narrow it; narrowing by state or text opens the projects with a match.
 // The reading is lib/leadFirst.ts's.
-import { useQuery } from '@tanstack/react-query';
-import { Archive, Check, ChevronRight, ChevronUp, FolderPlus, House, Images, ListChecks, ListFilter, LoaderCircle, Plus, Search, Settings, X } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { Archive, Check, ChevronRight, CircleArrowUp, FolderPlus, House, Images, ListChecks, ListFilter, LoaderCircle, Plus, RefreshCw, Search, Settings, X } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import * as A from '../../../shared/api';
 import type * as T from '../../../shared/api';
@@ -20,13 +21,19 @@ import { projectLabel } from '../../lib/projectName';
 import { useReviewing } from '../../lib/reviewAlert';
 import { buildLists } from '../../lib/sidebar';
 import { useNow } from '../../lib/useNow';
-import { cn, timeAgo } from '../../lib/utils';
+import { updateHint } from '../../lib/appUpdate';
+import { isUpgrade } from '../../lib/nightly';
+import { useAppUpdate } from '../../lib/useAppUpdate';
+import { cn, errorMessage, timeAgo } from '../../lib/utils';
 import { EnvironmentSwitcher } from '../EnvironmentSwitcher';
 import { shownKinds } from '../AllMediaView';
-import { Logo, NavItem } from '../Sidebar';
+import { Logo } from '../Sidebar';
 import { useMediaCounts } from '../../lib/mediaPages';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Tip } from '../ui/tooltip';
+
+// The views Settings' popover opens, which light its icon up.
+const menuViews = new Set<View['kind']>(['settings', 'home', 'pastAgents', 'media', 'jobs']);
 
 const stLabel: Record<AgentSt, MessageKey> = {
   needs: 'v2.st.needs',
@@ -136,30 +143,28 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
         )}
       </nav>
 
-      {/* Only Past agents and Settings stay out: the environment, Overview,
-          Media and Jobs are in Settings' popover, so the leads keep the room. */}
-      <div className="grid gap-0.5 border-t border-line p-2">
-        <NavItem icon={Archive} active={view.kind === 'pastAgents'} onClick={() => onSelect({ kind: 'pastAgents' })}>
-          {t('pastAgents.title')}
-        </NavItem>
+      {/* The foot is Settings, as an icon whose popover has the environment,
+          Overview, Past agents, Media and Jobs, and the update check: the
+          leads keep the room. */}
+      <div className="flex items-center gap-2 border-t border-line p-2">
         <Popover open={menuOpen} onOpenChange={setMenuOpen}>
           <PopoverTrigger asChild>
             <button
               type="button"
+              aria-label={t('common.settings')}
               className={cn(
-                'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-muted transition-colors hover:bg-surface hover:text-primary data-[state=open]:bg-surface',
-                (view.kind === 'settings' || view.kind === 'home' || view.kind === 'media' || view.kind === 'jobs') && 'bg-surface-raised text-title',
+                'relative flex size-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-surface hover:text-primary data-[state=open]:bg-surface data-[state=open]:text-title',
+                menuViews.has(view.kind) && 'bg-surface-raised text-title',
               )}
               data-v2-settings-menu
             >
               <Settings className="size-4" />
-              {t('common.settings')}
-              <span className="ml-auto flex items-center gap-1.5">
-                {setup.data && !setup.data.ready && <span className="size-2 rounded-full bg-amber-400" aria-label={t('shell.sidebar.needsAttention').toLowerCase()} />}
-                {running > 0 && <LoaderCircle className="size-3.5 animate-spin text-subtle" aria-label={t('shell.sidebar.running', { count: running })} />}
-                {unseen > 0 && <span className="rounded-full bg-surface-raised px-1.5 text-[10.5px] tabular-nums text-subtle">{unseen}</span>}
-                <ChevronUp className="size-3.5 text-faint" />
-              </span>
+              {((setup.data && !setup.data.ready) || running > 0 || unseen > 0) && (
+                <span
+                  className={cn('absolute right-1 top-1 size-1.5 rounded-full', setup.data && !setup.data.ready ? 'bg-amber-400' : 'bg-secondary')}
+                  aria-label={setup.data && !setup.data.ready ? t('shell.sidebar.needsAttention').toLowerCase() : undefined}
+                />
+              )}
             </button>
           </PopoverTrigger>
           <PopoverContent side="top" align="start" className="grid w-[264px] gap-0.5 p-1.5" data-v2-settings-popover>
@@ -169,8 +174,9 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
             </div>
             {(
               [
-                { kind: 'settings', icon: Settings, label: t('common.settings') },
+                { kind: 'settings', icon: Settings, label: t('common.settings'), hint: setup.data && !setup.data.ready ? t('shell.sidebar.needsAttention') : undefined },
                 { kind: 'home', icon: House, label: t('v2.sidebar.overview') },
+                { kind: 'pastAgents', icon: Archive, label: t('pastAgents.title') },
                 { kind: 'media', icon: Images, label: t('shell.nav.media'), hint: unseen > 0 ? String(unseen) : undefined },
                 { kind: 'jobs', icon: ListChecks, label: t('shell.nav.jobs'), hint: running > 0 ? t('shell.sidebar.running', { count: running }) : undefined },
               ] as const
@@ -192,6 +198,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
             ))}
           </PopoverContent>
         </Popover>
+        <UpdateCheck />
       </div>
     </aside>
   );
@@ -499,6 +506,58 @@ function AgentRow({ row, active, onClick }: { row: Row; active: boolean; onClick
       <span className={cn('min-w-0 flex-1 truncate text-[12px]', active ? 'text-title' : st === 'done' ? 'text-subtle' : 'text-secondary', !agent.title && 'font-mono text-[11.5px]')}>{agent.title || agent.name}</span>
       {attention(st) && <span className="shrink-0 text-[10.5px] text-subtle">{t(st === 'needs' ? 'v2.tag.asks' : 'v2.tag.failed')}</span>}
       {agent.changesRequested && st === 'working' && <span className="shrink-0 text-[10.5px] text-subtle">{t('v2.tag.changes')}</span>}
+    </button>
+  );
+}
+
+// UpdateCheck is the foot's update button, as T3Code has it: Check for
+// updates asks the daemon for the latest release now (GET /v1/update/release,
+// which also makes a newer one the offer); once there is one, it updates the
+// app in place, or opens the release page where this install can't.
+function UpdateCheck() {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const update = useQuery({ queryKey: ['update'], queryFn: api.update, staleTime: Infinity });
+  const app = useAppUpdate();
+  const [checking, setChecking] = useState(false);
+  const current = update.data?.current ?? '';
+  const offer = update.data?.available && isUpgrade(update.data.available.version, current) ? update.data.available : undefined;
+  const check = async () => {
+    setChecking(true);
+    try {
+      const latest = await api.latestRelease();
+      if (isUpgrade(latest.version, current)) await queryClient.invalidateQueries({ queryKey: ['update'] });
+      else toast(t('v2.update.latest', { version: current }));
+    } catch (err) {
+      toast.error(t('v2.update.failed'), { description: errorMessage(err) });
+    } finally {
+      setChecking(false);
+    }
+  };
+  if (offer)
+    return (
+      <button
+        type="button"
+        disabled={app.updating}
+        title={app.updating ? undefined : updateHint(app.support, offer.version)}
+        onClick={() => void app.start(offer.url)}
+        className="ml-auto inline-flex h-8 min-w-0 items-center gap-1.5 rounded-lg bg-emerald-600 px-2.5 text-[12px] font-medium text-white transition hover:bg-emerald-500 disabled:cursor-progress disabled:opacity-80"
+        data-v2-update={offer.version}
+      >
+        {app.updating ? <LoaderCircle className="size-3.5 shrink-0 animate-spin" /> : <CircleArrowUp className="size-3.5 shrink-0" />}
+        <span className="truncate">{app.label ?? t('v2.update.to', { version: offer.version })}</span>
+      </button>
+    );
+  return (
+    <button
+      type="button"
+      disabled={checking}
+      onClick={() => void check()}
+      className="ml-auto inline-flex h-8 min-w-0 items-center gap-1.5 rounded-lg px-2.5 text-[12px] text-subtle transition hover:bg-surface hover:text-primary disabled:cursor-progress"
+      data-v2-update-check
+    >
+      <RefreshCw className={cn('size-3.5 shrink-0', checking && 'animate-spin')} />
+      <span className="truncate">{checking ? t('v2.update.checking') : t('v2.update.check')}</span>
     </button>
   );
 }

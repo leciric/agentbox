@@ -3120,6 +3120,11 @@ export const enUS = {
   'v2.card.prClosed': 'closed',
   'v2.card.checksPass': 'checks pass',
   'v2.card.checksFailing': 'checks failing',
+  'v2.update.check': 'Check for updates',
+  'v2.update.checking': 'Checking…',
+  'v2.update.latest': 'AgentBox {version} is the latest version.',
+  'v2.update.failed': 'Couldn’t check for updates',
+  'v2.update.to': 'Update to {version}',
 };
 
 export type MessageKey = keyof typeof enUS;

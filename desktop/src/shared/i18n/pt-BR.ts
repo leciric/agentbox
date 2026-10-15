@@ -3121,4 +3121,9 @@ export const ptBR: Messages = {
   'v2.card.prClosed': 'fechado',
   'v2.card.checksPass': 'checagens passam',
   'v2.card.checksFailing': 'checagens falhando',
+  'v2.update.check': 'Buscar atualizações',
+  'v2.update.checking': 'Buscando…',
+  'v2.update.latest': 'O AgentBox {version} é a versão mais recente.',
+  'v2.update.failed': 'Não foi possível buscar atualizações',
+  'v2.update.to': 'Atualizar para {version}',
 };
