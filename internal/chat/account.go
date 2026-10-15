@@ -2,6 +2,7 @@ package chat
 
 import (
 	"fmt"
+	"strings"
 
 	"agentbox/internal/state"
 )
@@ -20,15 +21,30 @@ import (
 // and at once when a turn is waiting out the old account's usage limit, since
 // the new account has no reason to wait.
 
-// AccountChanged is told that an agent, or a project's lead, now runs on the
-// Claude Code account a names. Call it once the change is stored, and for an
-// agent once its machine's environment has the new token
-// (agent.SetClaudeAccount). A chat already on that account, or with no
-// adapter running, has nothing to do: the next adapter reads it as it starts.
-func (m *Manager) AccountChanged(a state.Agent) {
-	if a.AI != "claude" {
-		return
+// runsOn is the account an agent's tool signs in with: its Claude Code,
+// Codex or Cursor account, or its OpenCode accounts, one per provider.
+func runsOn(a state.Agent) string {
+	switch a.AI {
+	case "claude":
+		return a.ClaudeAccount
+	case "codex":
+		return a.CodexAccount
+	case "cursor":
+		return a.CursorAccount
+	case "opencode":
+		return a.OpenCodeAccounts.String()
 	}
+	return ""
+}
+
+// AccountChanged is told that an agent, or a project's lead, now runs on the
+// account a names for its tool (runsOn). Call it once the change is stored,
+// and for an agent once its machine's environment has the new token
+// (agent.SetClaudeAccount); a lead's other tools read their login from its
+// HOME as they start (agent.writeLeadLogin). A chat already on that account,
+// or with no adapter running, has nothing to do: the next adapter reads it as
+// it starts.
+func (m *Manager) AccountChanged(a state.Agent) {
 	c := m.existing(a.Ref())
 	if c == nil {
 		return
@@ -38,19 +54,32 @@ func (m *Manager) AccountChanged(a state.Agent) {
 	if c.gone {
 		return
 	}
+	if c.agent.AI != a.AI {
+		// Switching tools restarts it anyway (runner.go).
+		return
+	}
 	c.agent.ClaudeAccount = a.ClaudeAccount
+	c.agent.CodexAccount, c.agent.OpenCodeAccounts, c.agent.CursorAccount = a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount
 	ad := c.adapter
-	if ad == nil || ad.account == a.ClaudeAccount {
+	if ad == nil || ad.login == runsOn(a) {
 		c.accountRestart = false
 		return
+	}
+	account := runsOn(a)
+	if a.AI == "opencode" {
+		account = strings.ReplaceAll(account, "=", ": ")
+	}
+	what := fmt.Sprintf("the %s account %q", ToolNames[a.AI], account)
+	if a.AI == "opencode" {
+		what = fmt.Sprintf("the OpenCode accounts %s", strings.ReplaceAll(account, ",", ", "))
 	}
 	if !ad.resumable && ad.ready {
 		// Restarting would lose the session: the next one starts on it.
 		if !c.accountRestart {
 			c.accountRestart = true
 			c.add("notice", c.lastTurn()).Text = fmt.Sprintf(
-				"This chat moved to the Claude Code account %q. %s keeps the one it started with until the chat starts again, as its adapter can't resume a session.",
-				a.ClaudeAccount, ToolNames[c.agent.AI])
+				"This chat moved to %s. %s keeps the one it started with until the chat starts again, as its adapter can't resume a session.",
+				what, ToolNames[c.agent.AI])
 			c.flush(true)
 		}
 		return
@@ -61,25 +90,47 @@ func (m *Manager) AccountChanged(a state.Agent) {
 	switch {
 	case c.reloadRefused() != nil:
 		it.Text = fmt.Sprintf(
-			"This chat moved to the Claude Code account %q: %s restarts on it before its next turn and resumes this conversation.",
-			a.ClaudeAccount, tool)
+			"This chat moved to %s: %s restarts on it before its next turn and resumes this conversation.",
+			what, tool)
 	case c.resumeTimer != nil:
 		// A turn waiting out the old account's usage limit carries on now,
 		// on the new one: the turn restarts the adapter as it begins.
 		it.Text = fmt.Sprintf(
-			"This chat moved to the Claude Code account %q: %s restarts on it, resumes this conversation and carries on without waiting for the old account's limit.",
-			a.ClaudeAccount, tool)
+			"This chat moved to %s: %s restarts on it, resumes this conversation and carries on without waiting for the old account's limit.",
+			what, tool)
 		c.resumeTry = 0
 		c.resumeNow()
 	default:
 		it.Text = fmt.Sprintf(
-			"This chat moved to the Claude Code account %q: %s restarts on it and resumes this conversation.",
-			a.ClaudeAccount, tool)
+			"This chat moved to %s: %s restarts on it and resumes this conversation.",
+			what, tool)
 		c.clearLimit()
 		c.stopAdapter()
 		c.accountRestart = false
 		c.startAdapter()
 	}
+	c.markSession()
+	c.flush(true)
+}
+
+// AccountRenamed follows the account a lead or agent runs its tool on to its
+// new name (a carries it): the login is the same, so a running session
+// carries on untouched rather than restarting as AccountChanged would.
+func (m *Manager) AccountRenamed(a state.Agent) {
+	c := m.existing(a.Ref())
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.gone || c.agent.AI != a.AI {
+		return
+	}
+	c.agent.CodexAccount, c.agent.OpenCodeAccounts, c.agent.CursorAccount = a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount
+	if c.adapter != nil {
+		c.adapter.login = runsOn(c.agent)
+	}
+	c.syncRunner()
 	c.markSession()
 	c.flush(true)
 }

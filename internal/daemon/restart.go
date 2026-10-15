@@ -142,7 +142,7 @@ func (s *Server) continueAgent(ctx context.Context, rt state.RunningTurn) {
 			s.notResumed(ctx, rt, err.Error())
 			return
 		}
-		if err := s.startMachine(ctx, s.manager(s.cfg.Log), a); err != nil {
+		if err := s.startMachine(ctx, s.manager(s.cfg.Log), a, "a turn to carry on after a restart"); err != nil {
 			s.notResumed(ctx, rt, fmt.Sprintf("its machine couldn't be started (%v)", err))
 			return
 		}

@@ -80,6 +80,13 @@ function stored<V>(key: string, fallback: V, parse: (raw: string) => V | undefin
   return { get, set, use };
 }
 
+// Whether this computer reviews at all: off hides the Ready to review
+// buttons and their counts, and stops the chime and the "new" marks.
+const on = stored<boolean>('agentbox.review.on', true, (r) => (r === 'false' ? false : r === 'true' ? true : undefined));
+export const reviewingOn = on.get;
+export const setReviewing = on.set;
+export const useReviewing = on.use;
+
 export const defaultVolume = 60;
 const soundOn = stored<boolean>('agentbox.review.sound', true, (r) => (r === 'false' ? false : r === 'true' ? true : undefined));
 const volume = stored<number>('agentbox.review.volume', defaultVolume, (r) => {

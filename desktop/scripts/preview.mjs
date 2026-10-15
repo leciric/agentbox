@@ -8,6 +8,8 @@
 //   npm run preview -- --shots out --lang pt-BR
 //                                             every scenario in another language, whose
 //                                             strings are longer than English's
+//   npm run preview -- --shots out --only phone-
+//                                             only the scenarios whose id starts with phone-
 //   npm run preview -- --shots out --against HEAD~1
 //                                             also capture --against's ref, from a throwaway
 //                                             git worktree, into out/before/*.png, and the
@@ -30,7 +32,7 @@ import { fileURLToPath } from 'node:url';
 
 const desktopDir = join(dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = join(desktopDir, '..');
-const scenarios = JSON.parse(readFileSync(join(desktopDir, 'src/renderer/dev/scenarios.json'), 'utf8'));
+let scenarios = JSON.parse(readFileSync(join(desktopDir, 'src/renderer/dev/scenarios.json'), 'utf8'));
 
 function parseArgs(argv) {
   const args = { shots: null, against: null, lang: null };
@@ -38,6 +40,7 @@ function parseArgs(argv) {
     if (argv[i] === '--shots') args.shots = argv[++i];
     else if (argv[i] === '--against') args.against = argv[++i];
     else if (argv[i] === '--lang') args.lang = argv[++i];
+    else if (argv[i] === '--only') args.only = argv[++i];
     else throw new Error(`Unknown argument: ${argv[i]}`);
   }
   return args;
@@ -170,6 +173,7 @@ async function capture(baseUrl, outDir, lang) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  if (args.only) scenarios = scenarios.filter((s) => s.id.startsWith(args.only));
   const port = await freePort();
   const server = await startVite(desktopDir, port);
   console.log(`Serving the working tree at ${server.url}/dev/preview.html`);

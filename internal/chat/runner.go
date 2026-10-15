@@ -34,8 +34,8 @@ import (
 // restart, the Home chat has one too, and the project's settings stay what a
 // reset chat and new agents start from.
 
-// SetRunner stores the AI tool and Claude Code account a lead's composer
-// chose. account is kept for Claude Code only, "" for the project's. Choosing
+// SetRunner stores the AI tool and account a lead's composer chose: a Claude
+// Code, Codex or Cursor account, "" for the project's; OpenCode takes none. Choosing
 // the tool in effect calls off a pending switch; a chat with no session to
 // roll switches at once. The caller has checked that the tool is signed in and
 // the account allowed, and moves the account itself (AccountChanged).
@@ -51,8 +51,13 @@ func (m *Manager) SetRunner(a state.Agent, tool, account string) (api.ChatSessio
 		return api.ChatSession{}, err
 	}
 	defer c.mu.Unlock()
-	if tool == "claude" {
+	switch tool {
+	case "claude":
 		c.stored.Account = account
+	case "codex", "cursor":
+		chosen := c.stored.ToolAccounts.Clean()
+		chosen[tool] = account
+		c.stored.ToolAccounts = chosen.Clean()
 	}
 	switch {
 	case tool == c.agent.AI:
@@ -222,12 +227,19 @@ func (c *conversation) applyTool(tool string) {
 	c.stored.Tool, c.stored.NextTool = tool, ""
 	c.agent.AI = tool
 	c.agent.ClaudeAccount = ""
+	c.agent.CodexAccount, c.agent.OpenCodeAccounts, c.agent.CursorAccount = "", nil, ""
 	if tool == "claude" && c.m.LeadAccount != nil {
 		account, err := c.m.LeadAccount(c.agent)
 		if err != nil {
 			c.m.logf("chat %s: the Claude Code account to switch to: %v", c.agent.Ref(), err)
 		}
 		c.agent.ClaudeAccount = account
+	} else if tool != "claude" && c.m.LeadLogins != nil {
+		if on, err := c.m.LeadLogins(c.agent); err != nil {
+			c.m.logf("chat %s: the %s account to switch to: %v", c.agent.Ref(), ToolNames[tool], err)
+		} else {
+			c.agent.CodexAccount, c.agent.OpenCodeAccounts, c.agent.CursorAccount = on.CodexAccount, on.OpenCodeAccounts, on.CursorAccount
+		}
 	}
 	c.session.Tool = tool
 	c.session.Options, c.session.Commands = []api.ChatOption{}, []api.ChatCommand{}
@@ -247,9 +259,9 @@ func (c *conversation) syncRunner() {
 		return
 	}
 	c.session.NextTool = c.stored.NextTool
-	c.session.Account = ""
-	if c.agent.AI == "claude" {
-		c.session.Account = c.agent.ClaudeAccount
+	c.session.Account = runsOn(c.agent)
+	if c.agent.AI == "opencode" {
+		c.session.Account = strings.ReplaceAll(strings.ReplaceAll(c.session.Account, "=", ": "), ",", ", ")
 	}
 }
 

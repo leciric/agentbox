@@ -7,14 +7,21 @@ import { t } from '../../shared/i18n/index.ts';
 // the session's tool and account on it. An agent's own are on its record.
 export function leadOn(agent: T.Agent, session?: T.ChatSession): T.Agent {
   if (agent.name !== 'lead' || !session?.tool) return agent;
-  return { ...agent, ai: session.tool, claudeAccount: session.tool === 'claude' ? (session.account ?? agent.claudeAccount) : '' };
+  const on = (tool: string, own?: string) => (session.tool === tool ? (session.account ?? own ?? '') : '');
+  return {
+    ...agent,
+    ai: session.tool,
+    claudeAccount: on('claude', agent.claudeAccount),
+    codexAccount: on('codex', agent.codexAccount),
+    cursorAccount: on('cursor', agent.cursorAccount),
+  };
 }
 
-// RunnerChoice is one row of the picker: a tool, or Claude Code on one of the
-// accounts the chat may use.
+// RunnerChoice is one row of the picker: a tool, or Claude Code, Codex or
+// Cursor on one of the accounts the chat may use.
 export interface RunnerChoice {
   tool: string;
-  account: string; // '' for a tool other than Claude Code
+  account: string; // '' for OpenCode, whose accounts are the project's, one per provider
   name: string;
   ready: boolean;
   // note is what the row says under its name: why it can't be chosen, or that
@@ -25,19 +32,23 @@ export interface RunnerChoice {
 }
 
 // runnerChoices lists the picker's rows: each tool in the daemon's order, and
-// Claude Code once per account when it has more than one, so the account is
-// chosen in the same click as the tool. A tool that isn't signed in stays on
-// the list, disabled, saying how to sign in: hiding it would leave nobody
+// Claude Code, Codex and Cursor once per account when one has more than one,
+// so the account is chosen in the same click as the tool. OpenCode is one row,
+// saying which account each provider is on. A tool that isn't signed in stays
+// on the list, disabled, saying how to sign in: hiding it would leave nobody
 // knowing it could be chosen at all.
 export function runnerChoices(runners: T.LeadRunners): RunnerChoice[] {
   const target = runners.nextTool || runners.tool;
   const out: RunnerChoice[] = [];
   for (const r of runners.runners) {
-    const note = !r.ready ? t('chat.runner.notSignedIn', { tool: r.name }) : !r.installed ? t('chat.runner.installs') : undefined;
-    const accounts = r.tool === 'claude' ? (r.accounts ?? []) : [];
+    const opencode = r.tool === 'opencode' && r.ready ? runners.toolAccounts?.opencode : undefined;
+    const note = !r.ready ? t('chat.runner.notSignedIn', { tool: r.name }) : !r.installed ? t('chat.runner.installs') : opencode || undefined;
+    const accounts = r.accounts ?? [];
+    // The account the chat runs the tool on, or would.
+    const on = r.tool === 'claude' ? runners.account : runners.toolAccounts?.[r.tool];
     if (accounts.length > 1) {
       for (const a of accounts) {
-        out.push({ tool: r.tool, account: a.name, name: r.name, ready: r.ready, note, current: target === 'claude' && runners.account === a.name, reading: a.limit });
+        out.push({ tool: r.tool, account: a.name, name: r.name, ready: r.ready, note, current: target === r.tool && on === a.name, reading: a.limit });
       }
       continue;
     }

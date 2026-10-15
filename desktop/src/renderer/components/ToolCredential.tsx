@@ -27,7 +27,7 @@ export function ToolCredentialText({ cred, className }: { cred: T.ToolCredential
   else if (cred.variable === 'CLAUDE_CODE_OAUTH_TOKEN')
     text = cred.account ? t('agent.credential.account', { account: cred.account }) : t('agent.credential.unknownToken');
   else if (cred.variable) text = cred.account ? t('agent.credential.variableOver', { variable: cred.variable, account: cred.account }) : t('agent.credential.variable', { variable: cred.variable });
-  else text = t('agent.credential.ownLogin');
+  else text = cred.account ? t('agent.credential.toolAccount', { account: cred.account }) : t('agent.credential.ownLogin');
   const others = cred.others?.length ? t('agent.credential.others', { names: cred.others.join(', ') }) : '';
   return (
     <span

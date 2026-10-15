@@ -6,12 +6,11 @@
 //
 // Claude Code logins are named accounts, so one machine can hold several
 // Anthropic accounts: a project picks which one its agents use, and an agent
-// can be moved to another one. Codex, OpenCode and Cursor still have a single
-// login each.
+// can be moved to another one. Codex, OpenCode and Cursor logins are named
+// accounts as well (toolaccounts.go).
 package credentials
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -42,26 +41,7 @@ type Store struct {
 }
 
 // ClaudeDir holds one file per Claude account, plus the default marker.
-func (s Store) ClaudeDir() string     { return filepath.Join(s.Dir, "claude") }
-func (s Store) CodexHome() string     { return filepath.Join(s.Dir, "codex") }
-func (s Store) CodexAuthPath() string { return filepath.Join(s.CodexHome(), "auth.json") }
-
-// OpenCodeDataHome is the XDG data directory AgentBox runs OpenCode with, and
-// OpenCodeHome is what OpenCode makes inside it: it reads and writes its
-// auth.json at $XDG_DATA_HOME/opencode/auth.json, so pointing that one
-// variable at AgentBox's own directory keeps the host's ~/.local/share/opencode
-// out of it entirely (D6), the way CODEX_HOME does for Codex.
-func (s Store) OpenCodeDataHome() string { return filepath.Join(s.Dir, "opencode-data") }
-func (s Store) OpenCodeHome() string     { return filepath.Join(s.OpenCodeDataHome(), "opencode") }
-func (s Store) OpenCodeAuthPath() string { return filepath.Join(s.OpenCodeHome(), "auth.json") }
-
-// CursorHome holds Cursor's sign-in, CursorAuthPath, in the SDK's own
-// credentials format (StoredSdkCredentials in @cursor/sdk): the file its
-// FileCredentialStore reads from ~/.cursor/sdk/auth.json, which is where an
-// agent gets a copy. An API key typed in and a browser sign-in both end up as
-// this one file, since a sign-in is Cursor minting an API key for AgentBox.
-func (s Store) CursorHome() string     { return filepath.Join(s.Dir, "cursor") }
-func (s Store) CursorAuthPath() string { return filepath.Join(s.CursorHome(), "auth.json") }
+func (s Store) ClaudeDir() string { return filepath.Join(s.Dir, "claude") }
 
 // ClaudeTokenPath is where an account's token is stored.
 func (s Store) ClaudeTokenPath(account string) string {
@@ -361,7 +341,10 @@ func writeDefaultMarker(path, name string) error {
 
 // accountNames lists the accounts a tool's directory holds, in name order:
 // one file per account, named "<account>.token", plus a "default-account" marker.
-func accountNames(dir string) ([]string, error) {
+func accountNames(dir string) ([]string, error) { return accountNamesWith(dir, tokenSuffix) }
+
+// accountNamesWith lists the accounts in dir stored as "<account><suffix>".
+func accountNamesWith(dir, suffix string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -371,7 +354,7 @@ func accountNames(dir string) ([]string, error) {
 	}
 	var names []string
 	for _, e := range entries {
-		if name, ok := strings.CutSuffix(e.Name(), tokenSuffix); ok && !e.IsDir() && ValidateAccount(name) == nil {
+		if name, ok := strings.CutSuffix(e.Name(), suffix); ok && !e.IsDir() && ValidateAccount(name) == nil {
 			names = append(names, name)
 		}
 	}
@@ -386,76 +369,6 @@ func slicesContains(names []string, name string) bool {
 		}
 	}
 	return false
-}
-
-func (s Store) HasCodexLogin() bool {
-	_, err := os.Stat(s.CodexAuthPath())
-	return err == nil
-}
-
-// CursorLogin is what AgentBox knows of its Cursor sign-in.
-type CursorLogin struct {
-	APIKey string
-	Email  string    // when Cursor said whose key it is
-	Expiry time.Time // zero for a key that doesn't expire (one typed in)
-}
-
-// CursorLogin reads the stored Cursor sign-in. ok is false when there is none,
-// or the key it holds has expired: the SDK ignores an expired key, so it
-// isn't a sign-in agents could use.
-func (s Store) CursorLogin() (login CursorLogin, ok bool) {
-	b, err := os.ReadFile(s.CursorAuthPath())
-	if err != nil {
-		return CursorLogin{}, false
-	}
-	var stored struct {
-		APIKey            string `json:"apiKey"`
-		Email             string `json:"email"`
-		APIKeyExpiresAtMs int64  `json:"apiKeyExpiresAtMs"`
-	}
-	if json.Unmarshal(b, &stored) != nil || strings.TrimSpace(stored.APIKey) == "" {
-		return CursorLogin{}, false
-	}
-	login = CursorLogin{APIKey: stored.APIKey, Email: stored.Email}
-	if stored.APIKeyExpiresAtMs > 0 {
-		login.Expiry = time.UnixMilli(stored.APIKeyExpiresAtMs)
-		if !login.Expiry.After(time.Now()) {
-			return CursorLogin{}, false
-		}
-	}
-	return login, true
-}
-
-// HasCursorLogin reports whether agents have a Cursor sign-in to use.
-func (s Store) HasCursorLogin() bool {
-	_, ok := s.CursorLogin()
-	return ok
-}
-
-// RemoveCursorLogin forgets the Cursor sign-in. A key Cursor minted at sign-in
-// stays valid until it expires or is revoked in Cursor's dashboard.
-func (s Store) RemoveCursorLogin() error {
-	if err := os.Remove(s.CursorAuthPath()); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
-	return nil
-}
-
-// HasOpenCodeLogin reports whether `agentbox auth opencode` has stored a
-// provider login for agents. OpenCode keeps every provider's key in one
-// auth.json, so this is "at least one provider", not a named account.
-func (s Store) HasOpenCodeLogin() bool {
-	b, err := os.ReadFile(s.OpenCodeAuthPath())
-	if err != nil {
-		return false
-	}
-	// An empty object is what a logout leaves behind: the file exists and says
-	// there is no provider, which is not a login.
-	var providers map[string]json.RawMessage
-	if err := json.Unmarshal(b, &providers); err != nil {
-		return false
-	}
-	return len(providers) > 0
 }
 
 // GitHub logins are named accounts too, so a machine can hold several GitHub

@@ -15,7 +15,7 @@ import { Input } from './ui/input';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from './ui/menu';
 import { Select, SelectOption, selectTrigger } from './ui/select';
 import type { SettingGroup, SettingSection } from '../lib/settingsSearch';
-import { ClaudeAccountPicker, ClaudeAccountsPicker, GitHubAccountPicker } from './ProjectAccounts';
+import { ClaudeAccountPicker, ClaudeAccountsPicker, GitHubAccountPicker, OpenCodeAccountsPicker, ToolAccountPicker } from './ProjectAccounts';
 import { openSettingsSection, SettingGroups } from './SettingsPage';
 import { SettingNote, SettingRow } from './ui/settings';
 import { Switch } from './ui/switch';
@@ -89,6 +89,27 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
           keywords: t('defaults.project.allowedKeywords'),
           modified: project.claudeAccounts.length > 0,
           render: () => <ClaudeAccountsPicker project={project} />,
+        },
+        {
+          id: 'codex-account',
+          label: t('project.accounts.codexLabel'),
+          keywords: t('project.accounts.codexKeywords'),
+          modified: project.codexAccount !== '',
+          render: () => <ToolAccountPicker project={project} tool="codex" />,
+        },
+        {
+          id: 'opencode-accounts',
+          label: t('project.accounts.openCodeLabel'),
+          keywords: t('project.accounts.openCodeKeywords'),
+          modified: Object.keys(project.openCodeAccounts ?? {}).length > 0,
+          render: () => <OpenCodeAccountsPicker project={project} />,
+        },
+        {
+          id: 'cursor-account',
+          label: t('project.accounts.cursorLabel'),
+          keywords: t('project.accounts.cursorKeywords'),
+          modified: project.cursorAccount !== '',
+          render: () => <ToolAccountPicker project={project} tool="cursor" />,
         },
         {
           id: 'tool-credentials',

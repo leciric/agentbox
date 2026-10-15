@@ -33,6 +33,12 @@ func (c *Client) ProjectAccounts(ctx context.Context) ([]LeadAccount, error) {
 	return out, c.do(ctx, http.MethodGet, c.leadPath("/accounts"), nil, &out)
 }
 
+// ProjectToolAccounts are the machine's Codex, OpenCode and Cursor accounts.
+func (c *Client) ProjectToolAccounts(ctx context.Context) ([]ToolAccount, error) {
+	var out []ToolAccount
+	return out, c.do(ctx, http.MethodGet, c.leadPath("/tool-accounts"), nil, &out)
+}
+
 func (c *Client) ProjectSelf(ctx context.Context) (Project, error) {
 	var out Project
 	return out, c.do(ctx, http.MethodGet, c.leadPath(""), nil, &out)

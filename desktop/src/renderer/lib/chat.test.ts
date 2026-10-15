@@ -34,6 +34,7 @@ import {
   windowSide,
   pageSize,
   pendingPermissions,
+  peekThread,
   prependPage,
   timelineRows,
   toolOf,
@@ -617,4 +618,20 @@ test('toolsReload is ready only for an idle running session', () => {
   assert.equal(toolsReload(session({ state: 'waiting' })), 'busy');
   assert.equal(toolsReload(session({ background: ['npm run dev'] })), 'busy');
   assert.equal(toolsReload(session({})), 'ready');
+});
+
+test('peekThread reads only the latest message of a chat it doesn\'t hold, and the usual page of one it does', async (t) => {
+  const asked: (ChatPage | undefined)[] = [];
+  const user = item({ kind: 'user', turn: '' });
+  t.mock.method(api, 'chat', async (_ref: string, page?: ChatPage) => {
+    asked.push(page);
+    return { ...thread([user]), older: true };
+  });
+  const queryClient = new QueryClient();
+  const peeked = await peekThread(queryClient, 'p/agent-01');
+  assert.deepEqual(asked[0], { limit: 1 });
+  assert.deepEqual(peeked.items, [user]);
+  queryClient.setQueryData(chatKey('p/agent-01'), peeked);
+  await peekThread(queryClient, 'p/agent-01');
+  assert.deepEqual(asked[1], { limit: pageSize, from: user.id });
 });

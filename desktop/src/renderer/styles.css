@@ -597,6 +597,18 @@
   color: var(--ab-secondary);
 }
 
+.chat-markdown code.chat-file-link {
+  cursor: pointer;
+  text-decoration: underline dotted var(--ab-line-vivid);
+  text-underline-offset: 3px;
+}
+
+.chat-markdown code.chat-file-link:hover {
+  border-color: var(--ab-line-vivid);
+  color: var(--ab-primary);
+  text-decoration-color: currentColor;
+}
+
 .chat-codeblock {
   overflow: hidden;
   border: 1px solid var(--ab-line);

@@ -7,6 +7,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.3
 	github.com/coder/websocket v1.8.15
 	github.com/creack/pty v1.1.24
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/godbus/dbus/v5 v5.2.2
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/yamux v0.1.2

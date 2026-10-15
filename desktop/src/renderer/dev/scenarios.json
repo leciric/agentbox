@@ -1048,5 +1048,68 @@
     "query": "review=1&theme=light",
     "width": 1000,
     "height": 760
+  },
+  {
+    "id": "phone-list-360-dark",
+    "description": "The phone's chat list at 360px: live status lines, a running command, unread and urgent rows — dark",
+    "query": "phone=list&theme=dark",
+    "width": 360,
+    "height": 780
+  },
+  {
+    "id": "phone-list-430-dark",
+    "description": "The same at 430px — dark",
+    "query": "phone=list&theme=dark",
+    "width": 430,
+    "height": 900
+  },
+  {
+    "id": "phone-chat-390-dark",
+    "description": "agent-12's chat on a phone, its turn running live, the header's status line — dark",
+    "query": "phone=chat&theme=dark",
+    "width": 390,
+    "height": 844
+  },
+  {
+    "id": "phone-lead-360-dark",
+    "description": "The project chat on a 360px phone: rich blocks, code and a running command — dark",
+    "query": "phone=lead&theme=dark",
+    "width": 360,
+    "height": 780
+  },
+  {
+    "id": "phone-list-360-light",
+    "description": "The phone's chat list at 360px: live status lines, a running command, unread and urgent rows — light",
+    "query": "phone=list&theme=light",
+    "width": 360,
+    "height": 780
+  },
+  {
+    "id": "phone-list-430-light",
+    "description": "The same at 430px — light",
+    "query": "phone=list&theme=light",
+    "width": 430,
+    "height": 900
+  },
+  {
+    "id": "phone-chat-390-light",
+    "description": "agent-12's chat on a phone, its turn running live, the header's status line — light",
+    "query": "phone=chat&theme=light",
+    "width": 390,
+    "height": 844
+  },
+  {
+    "id": "phone-lead-360-light",
+    "description": "The project chat on a 360px phone: rich blocks, code and a running command — light",
+    "query": "phone=lead&theme=light",
+    "width": 360,
+    "height": 780
+  },
+  {
+    "id": "phone-offline-390-dark",
+    "description": "The phone's list with the connection dropped: the Reconnecting bar",
+    "query": "phone=list&offline=1&theme=dark",
+    "width": 390,
+    "height": 844
   }
 ]

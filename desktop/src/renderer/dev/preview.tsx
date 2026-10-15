@@ -162,6 +162,9 @@
 //                           open at a tab or a section of its Settings tab
 //                           (?page=tokens, ?page=general…); with ?open=agent-99,
 //                           that agent's page (?page=secrets, ?page=machine…)
+//   ?phone=list|chat|lead|frame
+//                           the phone's web app against chats in every live
+//                           state, one running a turn over and over (dev/phone.tsx)
 //   ?drag=1                 a sidebar to rearrange by dragging: two sections and
 //                           projects in none, saved late and refetched as the
 //                           daemon does, while agents' statuses keep changing;
@@ -1035,7 +1038,14 @@ function Languaged() {
   return <Preview />;
 }
 
-if (loading) {
+const phoneMode = params.get('phone');
+if (phoneMode === 'frame') {
+  const { startPhoneFrame } = await import('./phone');
+  startPhoneFrame(params);
+} else if (phoneMode) {
+  const { startPhonePreview } = await import('./phone');
+  startPhonePreview(phoneMode, params);
+} else if (loading) {
   slowListsBridge(loading === 'hold' ? null : loading === 'refetch' ? null : Number(loading), loading === 'refetch');
   createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={loadingClient}>

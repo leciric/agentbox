@@ -43,6 +43,20 @@ export async function fetchThread(queryClient: QueryClient, ref: string, from?: 
   return keepHeld(next === 'gap' ? thread : next, now);
 }
 
+// peekThread reads only a chat's latest message, with its turn — what it is
+// doing now, and when it last answered — for a list of chats that shows each
+// one's live state without reading every conversation (the phone's,
+// web/PhoneApp.tsx). It goes in the chat's own cache, kept current by its
+// events like any thread; opened, the chat reads back from it a page at a
+// time to fill its view (ChatTab). A chat already held is read the usual way.
+export async function peekThread(queryClient: QueryClient, ref: string): Promise<T.ChatThread> {
+  if (queryClient.getQueryData<T.ChatThread>(chatKey(ref))) return fetchThread(queryClient, ref);
+  const thread = await api.chat(ref, { limit: 1 });
+  const next = advance(thread, recent.get(ref) ?? []);
+  const now = queryClient.getQueryData<T.ChatThread>(chatKey(ref));
+  return keepHeld(next === 'gap' ? thread : next, now);
+}
+
 // keepHeld puts back in front of a thread just read the older items the chat
 // held before it, which reading it again mustn't take away: a page loaded
 // while it was being read, or anything a daemon that pages without from left

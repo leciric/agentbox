@@ -808,11 +808,7 @@ exit 0`))
 // past the login check and on to the image check this test is about.
 func codexLogin(t *testing.T, f fixture) {
 	t.Helper()
-	path := f.m.Creds.CodexAuthPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(`{"tokens": {}}`), 0o600); err != nil {
+	if err := f.m.Creds.SaveToolAccount("codex", "", "", []byte(`{"tokens": {}}`)); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -854,11 +850,7 @@ exit 0`)
 // gets past the login check and on to whatever the test is really about.
 func openCodeLogin(t *testing.T, f fixture) {
 	t.Helper()
-	path := f.m.Creds.OpenCodeAuthPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(`{"anthropic": {"type": "api", "key": "sk-test"}}`), 0o600); err != nil {
+	if err := f.m.Creds.SaveToolAccount("opencode", "anthropic", "", []byte(`{"type": "api", "key": "sk-test"}`)); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"agentbox/internal/api"
+	"agentbox/internal/credentials"
 	"agentbox/internal/state"
 )
 
@@ -102,6 +103,7 @@ func (s *Server) leadRoutes(project string) http.Handler {
 	mux.HandleFunc("GET /v1/project/agents", withProject(s.fleet))
 	mux.HandleFunc("POST /v1/project/agents", withProject(s.leadCreateAgent))
 	mux.HandleFunc("GET /v1/project/accounts", withProject(s.leadAccounts))
+	mux.HandleFunc("GET /v1/project/tool-accounts", withProject(s.leadToolAccounts))
 	mux.HandleFunc("POST /v1/project/retire", withProject(s.retire))
 	mux.HandleFunc("GET /v1/project/agents/{agent}/chat", withProject(s.leadAgentChat))
 	mux.HandleFunc("GET /v1/project/archived-agents", withProject(s.listArchived))
@@ -214,6 +216,23 @@ func (s *Server) leadAccounts(w http.ResponseWriter, r *http.Request) error {
 	out, err := s.leadAccountRows(r.Context(), p)
 	if err != nil {
 		return err
+	}
+	return writeJSON(w, http.StatusOK, out)
+}
+
+// leadToolAccounts are the machine's Codex, OpenCode and Cursor accounts, for
+// create_agent's codex_account, opencode_accounts and cursor_account.
+func (s *Server) leadToolAccounts(w http.ResponseWriter, r *http.Request) error {
+	if _, err := s.store.Project(r.Context(), r.PathValue("project")); err != nil {
+		return err
+	}
+	out := []api.ToolAccount{}
+	for _, tool := range credentials.AccountTools {
+		accounts, err := toolAccounts(s.manager(nil).Creds, tool)
+		if err != nil {
+			return err
+		}
+		out = append(out, accounts...)
 	}
 	return writeJSON(w, http.StatusOK, out)
 }

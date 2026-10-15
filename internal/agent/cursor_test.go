@@ -2,8 +2,6 @@ package agent_test
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -14,11 +12,7 @@ import (
 // cursorLogin gives AgentBox a Cursor sign-in, in the SDK's own format.
 func cursorLogin(t *testing.T, f fixture) {
 	t.Helper()
-	path := f.m.Creds.CursorAuthPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(`{"version":1,"backendUrl":"https://api2.cursor.sh","apiKey":"key_test","createdAtMs":1}`), 0o600); err != nil {
+	if err := f.m.Creds.SaveToolAccount("cursor", "", "", []byte(`{"version":1,"backendUrl":"https://api2.cursor.sh","apiKey":"key_test","createdAtMs":1}`)); err != nil {
 		t.Fatal(err)
 	}
 }

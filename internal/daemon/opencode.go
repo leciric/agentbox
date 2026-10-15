@@ -37,7 +37,15 @@ func (s *Server) refreshOpenCodeModels() {
 	s.mu.Unlock()
 
 	m := s.manager(nil)
-	dataHome, tools := m.Creds.OpenCodeDataHome(), m.Paths.Tools()
+	dataHome, err := m.Creds.OpenCodeModelsHome()
+	if err != nil {
+		s.logf("asking OpenCode which models it can run: %v", err)
+		s.mu.Lock()
+		s.openCodeModels.running = false
+		s.mu.Unlock()
+		return
+	}
+	tools := m.Paths.Tools()
 	go func() {
 		defer func() {
 			s.mu.Lock()
