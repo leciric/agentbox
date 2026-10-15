@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FolderGit2, FolderOpen, FolderPlus, GitPullRequest, LoaderCircle } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
+import { toast } from 'sonner';
 import * as T from '../../shared/api';
 import { api, ApiError } from '../lib/api';
-import { t as translate, useT } from '../lib/i18n';
-import { joinPath, parentOf } from '../lib/paths';
+import { formatList, t as translate, useT } from '../lib/i18n';
+import { joinPath, nameOf, parentOf } from '../lib/paths';
 import { errorMessage } from '../lib/utils';
 import { Button } from './ui/button';
 import { Code, Notice } from './ui/card';
@@ -61,6 +62,13 @@ export function AddProjectDialog({
   const cursorAccounts = accountsOf(auth.data, 'cursor');
   const openCodeAll = accountsOf(auth.data, 'opencode');
   const providers = [...new Set(openCodeAll.map((a) => a.provider ?? ''))].filter(Boolean);
+  const signedOut = [
+    claudeAccounts.length === 0 && aiLabel('claude'),
+    codexAccounts.length === 0 && aiLabel('codex'),
+    providers.length === 0 && aiLabel('opencode'),
+    cursorAccounts.length === 0 && aiLabel('cursor'),
+    githubAccounts.length === 0 && 'GitHub',
+  ].filter((name): name is string => !!name);
   // On Windows, the picker gives a folder on a Windows drive as /mnt/<drive>/...:
   // the daemon adds a copy of it in the WSL distro's ~/src rather than the
   // folder itself, which git would be slow in there (D91).
@@ -85,6 +93,7 @@ export function AddProjectDialog({
       await queryClient.invalidateQueries({ queryKey: ['projects'] });
       onOpenChange(false);
       onAdded(project);
+      toast.success(t('project.add.added', { name: project.name }));
     },
   });
 
@@ -227,25 +236,24 @@ export function AddProjectDialog({
           )}
           {!creating && (
             <Field label={t('project.add.nameLabel')} htmlFor="project-name" hint={t('project.add.nameHint')}>
-              <Input id="project-name" placeholder="My App" value={name} onChange={(event) => setName(event.target.value)} />
+              <Input id="project-name" placeholder={nameOf(path.trim()) || 'my-app'} value={name} onChange={(event) => setName(event.target.value)} />
             </Field>
           )}
           {auth.data && (
             <fieldset className="grid min-w-0 gap-2" data-project-accounts>
               <legend className="mb-1 text-[13px] font-medium text-secondary">{t('project.add.accountsLabel')}</legend>
               <p className="-mt-1 text-xs text-subtle">{t('project.add.accountsHint')}</p>
-              <AccountRow tool="claude" label={aiLabel('claude')} accounts={claudeAccounts} value={claudeAccount} onChange={setClaudeAccount}>
-                <ClaudeAccountState chosen={claudeAccount} />
-              </AccountRow>
-              <AccountRow tool="codex" label={aiLabel('codex')} accounts={codexAccounts} value={codexAccount} onChange={setCodexAccount}>
-                <ToolAccountState accounts={codexAccounts} chosen={codexAccount} />
-              </AccountRow>
-              {providers.length === 0 ? (
-                <AccountRow tool="opencode" label={aiLabel('opencode')} accounts={[]} value="" onChange={() => {}}>
-                  <ToolAccountState accounts={[]} chosen="" />
+              {claudeAccounts.length > 0 && (
+                <AccountRow tool="claude" label={aiLabel('claude')} accounts={claudeAccounts} value={claudeAccount} onChange={setClaudeAccount}>
+                  <ClaudeAccountState chosen={claudeAccount} />
                 </AccountRow>
-              ) : (
-                providers.map((provider) => {
+              )}
+              {codexAccounts.length > 0 && (
+                <AccountRow tool="codex" label={aiLabel('codex')} accounts={codexAccounts} value={codexAccount} onChange={setCodexAccount}>
+                  <ToolAccountState accounts={codexAccounts} chosen={codexAccount} />
+                </AccountRow>
+              )}
+              {providers.map((provider) => {
                   const mine = openCodeAll.filter((a) => a.provider === provider);
                   const value = openCodeAccounts[provider] ?? '';
                   return (
@@ -260,17 +268,28 @@ export function AddProjectDialog({
                       <ToolAccountState accounts={mine} chosen={value} />
                     </AccountRow>
                   );
-                })
+                })}
+              {cursorAccounts.length > 0 && (
+                <AccountRow tool="cursor" label={aiLabel('cursor')} accounts={cursorAccounts} value={cursorAccount} onChange={setCursorAccount}>
+                  <ToolAccountState accounts={cursorAccounts} chosen={cursorAccount} />
+                </AccountRow>
               )}
-              <AccountRow tool="cursor" label={aiLabel('cursor')} accounts={cursorAccounts} value={cursorAccount} onChange={setCursorAccount}>
-                <ToolAccountState accounts={cursorAccounts} chosen={cursorAccount} />
-              </AccountRow>
-              <AccountRow tool="github" label="GitHub" accounts={githubAccounts} value={githubAccount} onChange={setGitHubAccount} named={githubLabel}>
-                <ToolAccountState
-                  accounts={githubAccounts.map((a) => ({ tool: 'github', name: a.name, default: a.default, savedAt: a.savedAt, email: a.login }))}
-                  chosen={githubAccount}
-                />
-              </AccountRow>
+              {githubAccounts.length > 0 && (
+                <AccountRow tool="github" label="GitHub" accounts={githubAccounts} value={githubAccount} onChange={setGitHubAccount} named={githubLabel}>
+                  <ToolAccountState
+                    accounts={githubAccounts.map((a) => ({ tool: 'github', name: a.name, default: a.default, savedAt: a.savedAt, email: a.login }))}
+                    chosen={githubAccount}
+                  />
+                </AccountRow>
+              )}
+              {/* The tools with no login at all are one line, not a row each
+                  saying so. */}
+              {signedOut.length > 0 && (
+                <p className="flex min-w-0 items-start gap-1.5 text-[12px] leading-snug text-subtle" data-accounts-signed-out>
+                  <span className="mt-[5px] size-1.5 shrink-0 rounded-full bg-faint" />
+                  <span className="min-w-0 break-words">{t('project.add.notSignedIn', { tools: formatList(signedOut) })}</span>
+                </p>
+              )}
             </fieldset>
           )}
           {auth.data && githubAccounts.length === 0 && (
@@ -291,7 +310,8 @@ export function AddProjectDialog({
           ) : (
             add.error && <Notice>{errorMessage(add.error)}</Notice>
           )}
-          <DialogFooter>
+          {/* Kept in view at the bottom of the dialog, however long the form. */}
+          <DialogFooter className="sticky -bottom-6 -mx-6 -mb-6 border-t border-line bg-modal px-6 py-4">
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
               {t('common.cancel')}
             </Button>

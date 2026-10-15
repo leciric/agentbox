@@ -1,15 +1,11 @@
 // The order of UI v2's sidebar (components/v2/SidebarV2.tsx): the projects the
 // user pinned first, in the order they dragged them; below them the rest with
-// something going on, sorted by the switch in the sort menu; and at the
-// bottom, folded, the Idle list of those with nothing going on, sorted the
-// same. Here is the reading; where pins and the sort are kept is v2Projects.ts.
+// something going on, most recent first; and at the bottom, folded, the Idle
+// list of those with nothing going on, sorted the same. (A sort menu with Name
+// and Most agents working went: with the few active projects it sorted, it
+// changed nothing you could see.) Here is the reading; where the pins are kept
+// is v2Projects.ts.
 import type * as T from '../../shared/api';
-
-// SortBy is the sort menu's switch, for the projects that aren't pinned.
-export type SortBy = 'recent' | 'name' | 'working';
-export const sortOptions: readonly SortBy[] = ['recent', 'name', 'working'];
-export const defaultSort: SortBy = 'recent';
-export const isSortBy = (x: unknown): x is SortBy => sortOptions.includes(x as SortBy);
 
 const ms = (at: string | undefined) => {
   const n = at ? Date.parse(at) : NaN;
@@ -20,10 +16,7 @@ export type OrderInput = {
   projects: readonly T.Project[];
   // The pinned projects' names, in the user's order.
   pins: readonly string[];
-  sort: SortBy;
   activity: ReadonlyMap<string, T.ProjectActivity>;
-  // How many agents of each project are working.
-  working: ReadonlyMap<string, number>;
   // Which projects have something going on now (leadFirst.activeProjects,
   // with grace.ts's grace): the others are idle.
   active: ReadonlySet<string>;
@@ -37,11 +30,11 @@ export type Ordered = { pinned: T.Project[]; rest: T.Project[]; idle: T.Project[
 export const recentOf = (p: T.Project, activity: ReadonlyMap<string, T.ProjectActivity>) => Math.max(ms(activity.get(p.name)?.lastActivity), ms(p.createdAt));
 
 // orderProjects splits the projects into the pinned ones, in the pins' order;
-// the rest that are active, sorted; and the idle ones, sorted the same. A pin
-// overrides the sort and keeps its place idle or not; a pin of a project
+// the rest that are active, most recent first; and the idle ones, sorted the
+// same. A pin overrides the order and keeps its place idle or not; a pin of a project
 // that's gone is skipped.
 export function orderProjects(input: OrderInput): Ordered {
-  const { projects, pins, sort, activity, working, active, label } = input;
+  const { projects, pins, activity, active, label } = input;
   const byName = new Map(projects.map((p) => [p.name, p]));
   const pinned = pins.flatMap((name) => byName.get(name) ?? []);
   const pinnedSet = new Set(pinned.map((p) => p.name));
@@ -53,9 +46,7 @@ export function orderProjects(input: OrderInput): Ordered {
   }
   const byName2 = (a: T.Project, b: T.Project) => label(a).localeCompare(label(b), undefined, { sensitivity: 'base' }) || a.name.localeCompare(b.name);
   const byRecent = (a: T.Project, b: T.Project) => recentOf(b, activity) - recentOf(a, activity) || byName2(a, b);
-  const compare =
-    sort === 'name' ? byName2 : sort === 'working' ? (a: T.Project, b: T.Project) => (working.get(b.name) ?? 0) - (working.get(a.name) ?? 0) || byRecent(a, b) : byRecent;
-  return { pinned, rest: rest.sort(compare), idle: idle.sort(compare) };
+  return { pinned, rest: rest.sort(byRecent), idle: idle.sort(byRecent) };
 }
 
 // movePin is the pins after dragging name onto target: before it or after it.

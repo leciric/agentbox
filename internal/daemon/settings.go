@@ -291,7 +291,7 @@ func (s *Server) updateRoleDefaults(ctx context.Context, roles []roleDefaults) e
 		stored, err := windows.DefaultContextWindow(windows.NormalizeClaudeModel(model), window, installation)
 		if err != nil {
 			if role.window == nil {
-				return fmt.Errorf("%s start with a 1M context window, which %s doesn't have: choose 200k for them too", role.role, model)
+				return fmt.Errorf("%s start with a 1M context window, which %s doesn't have: choose the compact window for them too", role.role, model)
 			}
 			return fmt.Errorf("the context window for %s: %w", role.role, err)
 		}

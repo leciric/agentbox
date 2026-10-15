@@ -141,5 +141,5 @@ export function githubErrorSentence(err: T.GitHubError): string {
 }
 
 // shortcut is how a Ctrl/⌘ shortcut reads on this computer, for a menu or a hint.
-const onMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent);
+export const onMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent);
 export const shortcut = (key: string) => (onMac ? `⌘${key}` : `Ctrl ${key}`);

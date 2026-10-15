@@ -377,12 +377,12 @@ func MediaRetentionPeriod(value string) (period time.Duration, forever, ok bool)
 }
 
 // DefaultClaudeCompactWindow is the context a Claude Code or Codex chat
-// compacts at when nobody chose (D83): the window the models had before their
-// 1M-context variants. Every model call sends the whole context again, so a
-// session that is left to fill a 1M window costs up to five times as much per
-// call as one held here — for an agent working alone for hours, that is most
-// of what it spends.
-const DefaultClaudeCompactWindow int64 = 200_000
+// compacts at when nobody chose (D83). Every model call sends the whole context
+// again, so a session that is left to fill a 1M window costs up to twice as
+// much per call as one held here — for an agent working alone for hours, that
+// is most of what it spends. It was 200,000 before the installation's own
+// settings moved it.
+const DefaultClaudeCompactWindow int64 = 500_000
 
 // MinClaudeCompactWindow and MaxClaudeCompactWindow are the bounds Claude Code
 // itself holds CLAUDE_CODE_AUTO_COMPACT_WINDOW to. A setting outside them
@@ -428,12 +428,33 @@ func ValidClaudeCompactWindow(n int64) error {
 // "opus" (ClaudeWindows.NormalizeClaudeModel).
 const DefaultClaudeModel = "opus"
 
+// DefaultLeadModel is the model a project's lead is started on in a fresh
+// installation. It is seeded into the settings rather than read as a fallback,
+// because "" for the lead's model is a choice of its own — Claude Code's own
+// default — that the Settings picker still offers (see freshInstallSettings).
+const DefaultLeadModel = "opus"
+
+// freshInstallSettings are written once, when the database is created, and
+// never on an upgrade (migrate): an installation that already exists keeps
+// each setting as it is, unset ones included. They are the settings whose ""
+// is not the value a new install should start with. For the context windows
+// "" is the installation's compact window, a choice the Settings picker still
+// offers as "with default", and for the lead's model it is Claude Code's own
+// default, which the picker offers too. Everything else takes its built-in
+// default from the code above.
+var freshInstallSettings = [][2]string{
+	{SettingDefaultAgentContextWindow, strconv.FormatInt(ClaudeFullWindow, 10)},
+	{SettingDefaultLeadModel, DefaultLeadModel},
+	{SettingDefaultLeadContextWindow, strconv.FormatInt(ClaudeFullWindow, 10)},
+}
+
 // DefaultContextWindow checks a context window chosen as a default in
 // Settings, for the chats of a role whose default model is model, and gives
-// the value to store: "" for the installation's compact window — "200k", as
-// people write it — or ClaudeFullWindow for the model's whole window, which a
-// model without one, like Haiku, can't have. Anything else isn't a default a
-// role can hold: the windows between are the compact window's own setting.
+// the value to store: "" for the installation's compact window, which is the
+// size it is written as here, or ClaudeFullWindow for the model's whole window,
+// which a model without one, like Haiku, can't have. Anything else isn't a
+// default a role can hold: the windows between are the compact window's own
+// setting.
 func (w ClaudeWindows) DefaultContextWindow(model, value string, installation int64) (string, error) {
 	n, err := ParseContextWindow(value)
 	if err != nil {
@@ -441,7 +462,7 @@ func (w ClaudeWindows) DefaultContextWindow(model, value string, installation in
 	}
 	windows := w.ContextWindows(model, installation)
 	switch n {
-	case 0, windows[0], ClaudeShortWindow:
+	case 0, windows[0]:
 		return "", nil
 	case ClaudeFullWindow:
 		if windows[len(windows)-1] < ClaudeFullWindow {
@@ -449,18 +470,17 @@ func (w ClaudeWindows) DefaultContextWindow(model, value string, installation in
 		}
 		return strconv.FormatInt(ClaudeFullWindow, 10), nil
 	}
-	return "", fmt.Errorf("a default context window is 200k or 1m; %s isn't", FormatContextWindow(n))
+	return "", fmt.Errorf("a default context window is %s or 1m; %s isn't", FormatContextWindow(windows[0]), FormatContextWindow(n))
 }
 
 // DefaultClaudeEffort is how hard a new Claude Code agent thinks when you
-// haven't chosen: high, one step below the most (D83). Thinking is billed as
-// output, on every call of every agent, and "xhigh" everywhere was the most
-// expensive setting AgentBox could have picked for someone who never looked;
-// a task that needs more is one agent's choice to make. Unlike the model, the
-// adapter resolves no aliases here — an effort it doesn't advertise is refused
-// outright — so this is a value the tool really offers, not a preference it
-// works out.
-const DefaultClaudeEffort = "high"
+// haven't chosen: medium, the setting the installation's owner runs on (it was
+// high, one step below the most, D83). Thinking is billed as output, on every
+// call of every agent, so the default is the cheapest level that still thinks.
+// Unlike the model, the adapter resolves no aliases here — an effort it doesn't
+// advertise is refused outright — so this is a value the tool really offers,
+// not a preference it works out.
+const DefaultClaudeEffort = "medium"
 
 // ChoiceValues reads the values out of a remembered menu, as stored under
 // SettingClaudeModelChoices, SettingClaudeEffortChoices or

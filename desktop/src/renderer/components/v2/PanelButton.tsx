@@ -22,7 +22,8 @@ export function chatOf(view: View): { project: string; chat: string } | null {
 }
 
 // PanelButton is the chat header's one button that opens and closes the
-// chat's panel, with a dot while it's closed and the chat's project has pages you
+// chat's panel, labelled Panel, its tooltip naming the launcher's letters,
+// with a dot while it's closed and the chat's project has pages you
 // haven't seen.
 export function PanelButton({ project, chat }: { project: string; chat: string }) {
   const t = useT();
@@ -30,17 +31,25 @@ export function PanelButton({ project, chat }: { project: string; chat: string }
   const pages = useProjectPages(project);
   const fresh = livePages(pages.data).some(isNew);
   return (
-    <Tip label={t('panel.toggleTip', { keys: shortcut('D') })}>
+    <Tip
+      label={
+        <span className="grid gap-1">
+          <span>{t('panel.toggleTip', { keys: shortcut('D') })}</span>
+          <span className="text-subtle">{t('panel.toggleKeys')}</span>
+        </span>
+      }
+    >
       <Button
-        size="icon"
+        size="sm"
         variant="ghost"
         aria-label={t('panel.toggle')}
         aria-pressed={open}
-        className={cn('relative', open && 'bg-surface-raised text-primary')}
+        className={cn('relative gap-1.5', open && 'bg-surface-raised text-primary')}
         onClick={() => setPanelOpen(chat, !open)}
         data-panel-toggle
       >
         <PanelRight />
+        <span className="max-md:hidden">{t('panel.button')}</span>
         {!open && fresh && <span className="absolute right-1 top-1 size-2 rounded-full bg-brand-500 ring-2 ring-[var(--ab-chat)]" data-panel-fresh />}
       </Button>
     </Tip>

@@ -1300,28 +1300,28 @@
   },
   {
     "id": "chat-rich-wide-full-dark",
-    "description": "Rich blocks break out of the text column to the chat's full width — dark",
+    "description": "Rich blocks sit in the text column as cards, capped at 44rem — dark",
     "query": "chat=rich&wide=1&theme=dark",
     "width": 1600,
     "height": 1500
   },
   {
     "id": "chat-rich-wide-full-light",
-    "description": "Rich blocks break out of the text column to the chat's full width — light",
+    "description": "Rich blocks sit in the text column as cards, capped at 44rem — light",
     "query": "chat=rich&wide=1&theme=light",
     "width": 1600,
     "height": 1500
   },
   {
     "id": "chat-rich-wide-files-dark",
-    "description": "The same with a 340px Files panel open: they shrink with the chat — dark",
+    "description": "The same with a 340px Files panel open — dark",
     "query": "chat=rich&wide=1&files=1&theme=dark",
     "width": 1280,
     "height": 1500
   },
   {
     "id": "chat-rich-wide-files-light",
-    "description": "The same with a 340px Files panel open: they shrink with the chat — light",
+    "description": "The same with a 340px Files panel open — light",
     "query": "chat=rich&wide=1&files=1&theme=light",
     "width": 1280,
     "height": 1500
@@ -1438,13 +1438,13 @@
   },
   {
     "id": "window-1440-v2-request-dark",
-    "description": "UI v2 at 1440×900, the review's Request changes box open — dark",
+    "description": "UI v2 at 1440×900, Request changes from the review: it closes and lands in agent-41's chat, its composer focused to write the changes in — dark",
     "query": "app=agent-41&v2=1&theme=dark",
     "width": 1440,
     "height": 900,
     "click": [
       "[data-review-open]",
-      "[data-review-request]"
+      "[data-review-actions] [data-review-changes]"
     ]
   },
   {
@@ -1460,35 +1460,30 @@
     "query": "app=project&v2=1&pins=agentbox,storefront&theme=dark",
     "width": 1920,
     "height": 1080,
-    "click": [
-      "[data-v2-chip=\"st:working\"] button",
-      "[data-v2-chip=\"st:review\"] button",
-      "[data-v2-idle-toggle]"
-    ]
-  },
-  {
-    "id": "window-wide-v2-sort-dark",
-    "description": "UI v2 at 1920×1080, the sort menu: Recent activity, Name, Most agents working — dark",
-    "query": "app=project&v2=1&pins=agentbox&theme=dark",
-    "width": 1920,
-    "height": 1080,
-    "click": "[data-v2-sort]"
+    "click": "[data-v2-idle-toggle]"
   },
   {
     "id": "window-wide-v2-talk-dark",
-    "description": "UI v2 at 1920×1080, the lead's Talk to another project picker, each project with its icon, Ask and Align — dark",
+    "description": "UI v2 at 1920×1080, the lead's Talk to another project picker from the project's ⋯, each project with its icon, Ask and Align — dark",
     "query": "app=project&v2=1&theme=dark",
     "width": 1920,
     "height": 1080,
-    "click": "[data-v2-talk]"
+    "click": [
+      "[data-project-menu]",
+      "[data-project-action=talk]"
+    ]
   },
   {
     "id": "window-wide-v2-icon-dark",
-    "description": "UI v2 at 1920×1080, Change icon from the project's header: emoji, upload, and back to the detected icon — dark",
+    "description": "UI v2 at 1920×1080, Change icon from the project's ⋯ → More: emoji, upload, and back to the detected icon — dark",
     "query": "app=project&v2=1&theme=dark",
     "width": 1920,
     "height": 1080,
-    "click": "[data-project-header-icon]"
+    "click": [
+      "[data-project-menu]",
+      "[data-menu-more]",
+      "[data-project-action=icon]"
+    ]
   },
   {
     "id": "window-wide-v2-home-chat-dark",
@@ -1672,5 +1667,57 @@
       "[data-review-row]",
       "[data-review-done]"
     ]
+  },
+  {
+    "id": "window-1440-v2-panel-tabs-dark",
+    "description": "UI v2 at 1440×900, seven panel tabs: each an icon and whose chip (repo, 41, All), the ones that don't fit in the +N menu, + still in view — dark",
+    "query": "app=project&v2=1&panel=files:lead,desktop:agent-41,terminal:agent-41,pages:lead,media:agent-41,browser:agent-41,pulls&first=1&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-panel-tabs-more-dark",
+    "description": "UI v2 at 1440×900, the panel's +N menu open: the tabs that didn't fit, by kind and whose — dark",
+    "query": "app=project&v2=1&panel=files:lead,desktop:agent-41,terminal:agent-41,pages:lead,media:agent-41,browser:agent-41,pulls&first=1&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "click": "[data-panel-more-tabs]"
+  },
+  {
+    "id": "window-wide-v2-project-menu-dark",
+    "description": "UI v2 at 1920×1080, the project's ⋯: New task, Talk to another project, Pin, Project settings, and More — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080,
+    "click": [
+      "[data-project-menu]",
+      "[data-menu-more]"
+    ]
+  },
+  {
+    "id": "window-wide-v2-setup-chip-dark",
+    "description": "UI v2 at 1920×1080, the composer's one setup chip open (\"Claude Code · Opus · 200k\"): AI tool, model and context window as submenus — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080,
+    "click": "[data-chat-setup]"
+  },
+  {
+    "id": "window-wide-v2-mention-dark",
+    "description": "UI v2 at 1920×1080, @ typed in the lead's composer: every project, then files, under a line on what a mention does — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080,
+    "fill": [
+      "[data-chat-composer] textarea",
+      "@"
+    ]
+  },
+  {
+    "id": "window-wide-v2-sidebar-light",
+    "description": "UI v2 at 1920×1080 in light: the sidebar's secondary text (last lines, times, the Idle header) a step darker — light",
+    "query": "app=project&v2=1&pins=agentbox,storefront&theme=light",
+    "width": 1920,
+    "height": 1080
   }
 ]

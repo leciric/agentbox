@@ -7,6 +7,7 @@ import { agentPermissionState } from '../../lib/chat';
 import { useT } from '../../lib/i18n';
 import { cn, errorMessage } from '../../lib/utils';
 import { DiffView } from './ChangedFiles';
+import { PermissionActions } from './PermissionActions';
 
 // A link from a chat to one of its project's agents: App (and the phone)
 // open that agent's view.
@@ -37,13 +38,6 @@ export function AgentPermissionCard({ item }: { item: T.ChatItem }) {
   const state = agentPermissionState(permission);
   const waiting = state === 'waiting';
   const detail = tool?.command || tool?.paths?.[0];
-  const options = [
-    ...permission.options.filter((o) => o.kind.startsWith('reject')).slice(0, 1),
-    ...permission.options.filter((o) => o.kind === 'allow_always').slice(0, 1),
-    ...permission.options.filter((o) => o.kind === 'allow_once').slice(0, 1),
-  ];
-  const label = (o: T.ChatPermissionOption) =>
-    t(o.kind.startsWith('reject') ? 'chat.agentPermission.deny' : o.kind === 'allow_always' ? 'chat.agentPermission.approveAlways' : 'chat.agentPermission.approve');
   const Icon = state === 'approved' || state === 'approvedAlways' ? ShieldCheck : state === 'denied' ? ShieldX : state === 'gone' ? ShieldOff : ShieldAlert;
   const who = ap.title || ap.agent;
   return (
@@ -84,26 +78,16 @@ export function AgentPermissionCard({ item }: { item: T.ChatItem }) {
         </div>
       ) : null}
       {waiting ? (
-        <div className="mt-2.5 flex flex-wrap items-center justify-end gap-1.5">
-          {options.map((o) => (
-            <button
-              key={o.id}
-              type="button"
-              disabled={answer.isPending}
-              onClick={() => answer.mutate(o.id)}
-              title={o.name}
-              data-agent-permission-option={o.kind}
-              className={cn(
-                'h-7 rounded-lg px-2.5 text-[12.5px] transition disabled:opacity-50',
-                o.kind.startsWith('reject') && 'text-rose-200/90 hover:bg-rose-500/10',
-                o.kind === 'allow_always' && 'border border-amber-200/20 text-amber-50 hover:bg-amber-200/10',
-                o.kind === 'allow_once' && 'bg-amber-300 px-3 font-medium text-on-bright hover:bg-amber-200',
-              )}
-            >
-              {label(o)}
-            </button>
-          ))}
-        </div>
+        <PermissionActions
+          options={permission.options}
+          agent={who}
+          action={tool?.kind}
+          pending={answer.isPending}
+          sending={answer.variables}
+          onAnswer={(id) => answer.mutate(id)}
+          approveLabel={t('chat.agentPermission.approve')}
+          denyLabel={t('chat.agentPermission.deny')}
+        />
       ) : (
         <p className={cn('mt-1 text-[12px]', state === 'denied' ? 'text-rose-200/80' : state === 'gone' ? 'text-subtle' : 'text-emerald-200/80')} data-agent-permission-outcome>
           {t(outcomeKey[state])}

@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
 import { ArrowRight, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, GitBranch, GitMerge, GitPullRequest, Image as ImageIcon, MessageSquareText, LoaderCircle, Play } from 'lucide-react';
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { toast } from 'sonner';
@@ -14,7 +14,6 @@ import { type Walk, goBack, goForward, mergeBlock, nextPending, remainingAfter, 
 import { defaultMethod, loadMethodPrefs, rememberMethod } from '../lib/mergeMethod';
 import { isUnseen, markReadySeen, useUnseen } from '../lib/reviewAlert';
 import { useNow } from '../lib/useNow';
-import { requestComposerFocus } from '../lib/newTask';
 import { cn, errorMessage, timeAgo } from '../lib/utils';
 import { Markdown } from './chat/Markdown';
 import { MoreMedia, Recording } from './MediaTab';
@@ -116,12 +115,12 @@ export function ReviewDialog({
   session,
   pages,
   onSession,
-  onSelect,
 }: {
   session: ReviewSession | null;
   pages: ReviewPages;
   onSession: (session: ReviewSession | null) => void;
-  onSelect: (view: View) => void;
+  // Callers still pass onSelect; the review no longer leaves for a chat.
+  onSelect?: (view: View) => void;
 }) {
   const t = useT();
   const items = walkItems(pageItems(pages.data), session?.project);
@@ -168,7 +167,7 @@ export function ReviewDialog({
           </div>
         </DialogContent>
       )}
-      {current && !session?.ended && <ReviewCarousel key={current.ref} item={current} position={position} next={next} canBack={!!session?.trail?.length} onNext={advance} onBack={() => session && onSession(goBack(session))} onClose={() => onSession(null)} onSelect={onSelect} />}
+      {current && !session?.ended && <ReviewCarousel key={current.ref} item={current} position={position} next={next} canBack={!!session?.trail?.length} onNext={advance} onBack={() => session && onSession(goBack(session))} />}
     </Dialog>
   );
 }
@@ -269,8 +268,6 @@ function ReviewCarousel({
   canBack,
   onNext,
   onBack,
-  onClose,
-  onSelect,
 }: {
   item: T.ReviewItem;
   position?: { n: number; count: number };
@@ -279,8 +276,6 @@ function ReviewCarousel({
   canBack: boolean;
   onNext: () => void;
   onBack: () => void;
-  onClose: () => void;
-  onSelect: (view: View) => void;
 }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -314,12 +309,11 @@ function ReviewCarousel({
   // Opening an agent's work is seeing it, which only leaves the inbox's count.
   useEffect(() => markReadySeen({ ref: item.ref, fingerprint: item.fingerprint }), [item.ref, item.fingerprint]);
 
-  // The one set of actions is the footer's. Done reviewing marks the agent
-  // reviewed and goes on; while its pull request is open it asks first
-  // whether to merge it.
+  // The footer's slots never move: Back, Request changes, the merge reason,
+  // Merge, Mark reviewed, and Next (Finish on the last agent).
   const [marking, setMarking] = useState(false);
-  const [asking, setAsking] = useState(false);
   const [picked, setPicked] = useState<string>();
+  const [methodOpen, setMethodOpen] = useState(false);
   const method = picked && merge.methods.includes(picked) ? picked : defaultMethod(merge.methods, loadMethodPrefs(), item.project);
   const pickMethod = (m: string) => {
     setPicked(m);
@@ -331,14 +325,23 @@ function ReviewCarousel({
     void markItemReviewed(queryClient, item, t);
     onNext();
   };
-  const doneReviewing = () => (prOpen ? setAsking(true) : markReviewed());
   const mergeAndGo = () => pr && merge.mergeWith(pr, method, markReviewed);
-  // Request changes goes to the agent's chat, to write in.
-  const requestChanges = () => {
-    requestComposerFocus(item.ref);
-    onClose();
-    onSelect({ kind: 'agent', ref: item.ref, tab: 'chat' });
-  };
+  // Request changes opens a box in the modal and sends the note to the agent's chat.
+  const [changing, setChanging] = useState(false);
+  const [note, setNote] = useState('');
+  const send = useMutation({
+    mutationFn: () => api.sendChat(item.ref, pr ? t('review.changesMessage', { number: pr.number, text: note.trim() }) : note.trim()),
+    onSuccess: () => {
+      toast(t('review.changesSent', { agent: item.title || item.agent }));
+      setNote('');
+      setChanging(false);
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const requestChanges = () => setChanging(true);
+  // The merge slot is always there; it says why it can't merge.
+  const footerReason = !pr ? t('review.mergeBlocked.none') : blocked === 'merged' ? t('review.mergeBlocked.merged') : blocked === 'closed' ? t('review.mergeBlocked.closed') : mergeReason;
+  const mergeDisabled = !prOpen || !!mergeReason || merge.running.has(pr?.number ?? 0);
 
   const act = (action: ReviewAction) => {
     switch (action) {
@@ -363,8 +366,8 @@ function ReviewCarousel({
       case 'requestChanges':
         return requestChanges();
       case 'merge':
-        // The question Done reviewing asks, for an open pull request.
-        if (prOpen) setAsking(true);
+        // The merge methods, for an open pull request that can merge.
+        if (!mergeDisabled) setMethodOpen(true);
     }
   };
 
@@ -499,6 +502,37 @@ function ReviewCarousel({
                 )}
               </div>
             </div>
+            {changing && (
+              <div className="mx-4 mb-3 grid gap-2 rounded-xl border border-line-strong bg-well p-3" data-review-changes-box>
+                <div className="text-[12px] text-muted">{t('review.changesTo', { agent: item.title || item.agent, number: pr?.number ?? 0 })}</div>
+                <textarea
+                  autoFocus
+                  rows={3}
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  onKeyDown={(e) => {
+                    e.stopPropagation();
+                    if (e.key === 'Escape') setChanging(false);
+                    else if (e.key === 'Enter' && !e.shiftKey && note.trim() && !send.isPending) {
+                      e.preventDefault();
+                      send.mutate();
+                    }
+                  }}
+                  placeholder={t('review.changesPlaceholder')}
+                  className="w-full resize-none rounded-lg bg-surface-faint px-2.5 py-2 text-[13px] text-primary outline-none ring-1 ring-line focus:ring-brand-400"
+                  data-review-changes-input
+                />
+                <div className="flex justify-end gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => setChanging(false)}>
+                    {t('common.cancel')}
+                  </Button>
+                  <Button size="sm" variant="primary" disabled={!note.trim() || send.isPending} onClick={() => send.mutate()} data-review-changes-send>
+                    {send.isPending && <LoaderCircle className="animate-spin" />}
+                    {t('review.changesSend')}
+                  </Button>
+                </div>
+              </div>
+            )}
             <div className="flex items-center gap-2 border-t border-line bg-modal px-4 py-2" data-review-actions>
               <Button size="sm" variant="ghost" disabled={!canBack} onClick={onBack} data-review-back title={t('review.backTitle')} aria-label={t('review.back')}>
                 <ChevronLeft />
@@ -507,66 +541,45 @@ function ReviewCarousel({
                   <Kbd>P</Kbd>
                 </span>
               </Button>
-              <Button size="sm" variant="ghost" onClick={requestChanges} data-review-changes title={t('review.requestChanges')} aria-label={t('review.requestChanges')}>
+              <Button size="sm" variant="secondary" onClick={requestChanges} data-review-changes title={t('review.requestChanges')} aria-label={t('review.requestChanges')}>
                 <MessageSquareText />
                 <span className="max-sm:hidden">{t('review.requestChanges')}</span>
                 <span className="max-md:hidden">
                   <Kbd>C</Kbd>
                 </span>
               </Button>
-              <div className="ml-auto flex min-w-0 items-center justify-end gap-2">
-                {asking && pr ? (
-                  <div className="flex min-w-0 items-center justify-end gap-2" data-review-merge-ask>
-                    <span className="truncate text-[13px] font-medium text-title max-sm:hidden">{t('review.mergeAsk', { number: pr.number })}</span>
-                    {mergeReason && (
-                      <span className="max-w-[260px] truncate text-[12px] text-amber-200" data-merge-blocked title={mergeReason}>
-                        {mergeReason}
-                      </span>
-                    )}
-                    {merge.failed[pr.number] && (
-                      <span className="max-w-[260px] truncate text-[12px] text-rose-300" title={merge.failed[pr.number]}>
-                        {t('memory.pulls.mergeFailed', { error: merge.failed[pr.number] })}
-                      </span>
-                    )}
-                    <div className="flex shrink-0 items-stretch" data-review-merge-split>
-                      <Button size="sm" variant="primary" className="rounded-r-none" disabled={!!mergeReason || merge.running.has(pr.number)} title={mergeReason ?? t(methodLabels[method] ?? 'memory.pulls.merge')} onClick={mergeAndGo} data-review-merge data-merge-method={method}>
-                        {merge.running.has(pr.number) ? <LoaderCircle className="animate-spin" /> : <GitMerge />}
-                        {t('memory.pulls.merge')}
-                      </Button>
-                      <Menu>
-                        <MenuTrigger asChild>
-                          <Button size="sm" variant="primary" className="rounded-l-none border-l border-white/25 px-1.5" disabled={!!mergeReason || merge.running.has(pr.number)} aria-label={t('memory.pulls.method')} data-review-merge-method>
-                            <ChevronDown />
-                          </Button>
-                        </MenuTrigger>
-                        <MenuContent className="min-w-40">
-                          {merge.methods.map((m) => (
-                            <MenuItem key={m} icon={m === method ? Check : undefined} onSelect={() => pickMethod(m)} data-merge-option={m}>
-                              {methodLabels[m] ? t(methodLabels[m]) : m}
-                            </MenuItem>
-                          ))}
-                        </MenuContent>
-                      </Menu>
-                    </div>
-                    <Button size="sm" variant="secondary" className="shrink-0" disabled={marking || merge.running.has(pr.number)} onClick={markReviewed} data-review-just-mark>
-                      {t('review.justMark')}
+              <span className="ml-auto min-w-0 truncate text-[12px] text-amber-200 [:root[data-appearance=light]_&]:text-amber-700" data-merge-blocked title={footerReason}>
+                {mergeDisabled ? footerReason : merge.failed[pr?.number ?? 0] ? t('memory.pulls.mergeFailed', { error: merge.failed[pr?.number ?? 0] }) : ''}
+              </span>
+              <div className="flex shrink-0 items-stretch" data-review-merge-split>
+                <Button size="sm" variant="primary" className="rounded-r-none" disabled={mergeDisabled} title={footerReason ?? t(methodLabels[method] ?? 'memory.pulls.merge')} onClick={mergeAndGo} data-review-merge data-merge-method={method}>
+                  {pr && merge.running.has(pr.number) ? <LoaderCircle className="animate-spin" /> : <GitMerge />}
+                  <span className="max-sm:hidden">{t('review.mergeNumber', { number: pr?.number ?? 0 })}</span>
+                </Button>
+                <Menu open={methodOpen} onOpenChange={setMethodOpen}>
+                  <MenuTrigger asChild>
+                    <Button size="sm" variant="primary" className="rounded-l-none border-l border-white/25 px-1.5" disabled={mergeDisabled} aria-label={t('memory.pulls.method')} data-review-merge-method>
+                      <ChevronDown />
                     </Button>
-                  </div>
-                ) : (
-                  <>
-                    {next && (
-                      <Button size="sm" variant="secondary" onClick={onNext} data-review-next title={next.title || next.agent}>
-                        <span className="max-sm:hidden">{t('review.nextAgent')}</span>
-                        <ArrowRight />
-                      </Button>
-                    )}
-                    <Button size="sm" variant="primary" disabled={marking} onClick={doneReviewing} data-review-done>
-                      <Check />
-                      {t('review.doneReviewing')}
-                    </Button>
-                  </>
-                )}
+                  </MenuTrigger>
+                  <MenuContent className="min-w-40">
+                    {merge.methods.map((m) => (
+                      <MenuItem key={m} icon={m === method ? Check : undefined} onSelect={() => pickMethod(m)} data-merge-option={m}>
+                        {methodLabels[m] ? t(methodLabels[m]) : m}
+                      </MenuItem>
+                    ))}
+                  </MenuContent>
+                </Menu>
               </div>
+              <Button size="sm" variant="secondary" disabled={marking} onClick={markReviewed} data-review-done>
+                <Check />
+                <span className="max-md:hidden">{t('review.markReviewed')}</span>
+              </Button>
+              <Button size="sm" variant="default" onClick={onNext} data-review-next title={next ? next.title || next.agent : undefined}>
+                {t(next ? 'review.nextAgent' : 'review.finish')}
+                <Kbd>N</Kbd>
+                <ArrowRight />
+              </Button>
             </div>
           </section>
 
@@ -583,7 +596,7 @@ function ReviewCarousel({
               )}
             </div>
             <div className="border-t border-line-faint px-5 py-3">
-              <Shortcuts canMerge={prOpen} hasNext={!!next} hasBack={canBack} />
+              <Shortcuts canMerge={!mergeDisabled} hasNext={!!next} hasBack={canBack} />
             </div>
           </aside>
         </div>

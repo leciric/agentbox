@@ -14,6 +14,7 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Panel } from './ui/card';
 import { Skeleton } from './ui/skeleton';
+import { openSettingsSection } from './SettingsPage';
 
 // title, project and filter are v2's, where this page is Overview (Home is
 // the home chat there), with a project filter (filter, drawn beside the title)
@@ -41,7 +42,7 @@ export function HomeView({
   const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup, refetchInterval: 15_000 });
 
   if (projects.data?.length === 0) {
-    return <Welcome onAddProject={onAddProject} onSetup={() => onSelect({ kind: 'settings' })} setupReady={setup.data?.ready} />;
+    return <Welcome onAddProject={onAddProject} onSetup={() => openSettingsSection('setup')} setupReady={setup.data?.ready} />;
   }
 
   const all = agents.data ?? [];

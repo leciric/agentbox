@@ -27,7 +27,7 @@ container of its own.
   each agent the slice its task needs.
 - **Token ledger**: `token_usage`, one row per model per turn (`internal/chat/tokens.go`), read by
   `agentbox tokens` and each project's Tokens tab. Claude Code chats compact at the installation's
-  compact window (200k by default); the desktop tools and Playwright belong to a `desktop` subagent,
+  compact window (500k by default); the desktop tools and Playwright belong to a `desktop` subagent,
   searches go to an `Explore` subagent on Haiku, at most three subagents at once (D83–D86).
 - **The brief** is the instructions each AI tool gets about its machine, rendered by `internal/brief`
   from [`brief.md.tmpl`](internal/brief/brief.md.tmpl) (agents) and `lead.md.tmpl` (the lead), with

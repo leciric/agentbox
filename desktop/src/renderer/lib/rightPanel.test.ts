@@ -188,3 +188,20 @@ test('pull requests and settings are the project’s, whoever is picked', () => 
   // One width for every tab: no kind asks for more.
   assert.equal('panelWant' in P, false);
 });
+
+test('shortName keeps an agent number short', () => {
+  const { shortName } = P;
+  assert.equal(shortName('agent-41'), '41');
+  assert.equal(shortName('agent-x'), 'agent-x');
+  assert.equal(shortName('fix-login'), 'fix-login');
+});
+
+test('fitTabs shows what fits, the active tab always, and the rest in the menu', () => {
+  const { fitTabs } = P;
+  const tabs = ['a', 'b', 'c', 'd', 'e'].map((id) => ({ id, width: 60 }));
+  assert.deepEqual(fitTabs(tabs, 'a', 300, 40), { shown: ['a', 'b', 'c', 'd', 'e'], hidden: [] });
+  assert.deepEqual(fitTabs(tabs, 'a', 250, 40), { shown: ['a', 'b', 'c'], hidden: ['d', 'e'] });
+  assert.deepEqual(fitTabs(tabs, 'e', 250, 40), { shown: ['a', 'b', 'e'], hidden: ['c', 'd'] });
+  assert.deepEqual(fitTabs(tabs, 'e', 50, 40), { shown: ['e'], hidden: ['a', 'b', 'c', 'd'] });
+  assert.deepEqual(fitTabs([], null, 100, 40), { shown: [], hidden: [] });
+});

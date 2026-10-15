@@ -640,7 +640,7 @@ func TestATurnWithToolCallsAndAPermissionRequest(t *testing.T) {
 		t.Errorf("the turn ended with %+v", r)
 	}
 	s := th.Session
-	if s.State != api.ChatReady || s.TurnStartedAt != nil || s.ContextUsed != 1234 || s.ContextSize != 200000 || s.Adapter != "Fake Tool 1.0" {
+	if s.State != api.ChatReady || s.TurnStartedAt != nil || s.ContextUsed != 1234 || s.ContextSize != 500000 || s.Adapter != "Fake Tool 1.0" {
 		t.Errorf("session = %+v", s)
 	}
 	// The adapter's mode and model, and AgentBox's own context window beside
@@ -1237,8 +1237,8 @@ func TestModelChangeClearsStaleContextSize(t *testing.T) {
 		t.Fatal(err)
 	}
 	th := waitThread(t, m, testAgent, "the turn", turnsEnded(1))
-	if th.Session.ContextSize != 200000 || th.Session.ContextUsed != 1234 {
-		t.Fatalf("session after the turn = %+v, want a 200000-token reading", th.Session)
+	if th.Session.ContextSize != 500000 || th.Session.ContextUsed != 1234 {
+		t.Fatalf("session after the turn = %+v, want a 500000-token reading", th.Session)
 	}
 
 	if _, err := m.SetOption(ctx, testAgent, "model", "haiku"); err != nil {
@@ -2111,13 +2111,13 @@ func TestTheContextWindowRestartsTheAdapterAndResumesTheSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	th := waitThread(t, m, testAgent, "the first turn", turnsEnded(1))
-	// Sonnet reports 1M, but compacts at the installation's 200k: that is
+	// Sonnet reports 1M, but compacts at the installation's 500k: that is
 	// the room the session has.
 	if th.Session.ContextSize != state.DefaultClaudeCompactWindow {
 		t.Errorf("context size = %d, want the compact window", th.Session.ContextSize)
 	}
-	if got := optionValue(th.Session, state.ChatOptionContextWindow); got != "200000" {
-		t.Errorf("context window = %q, want 200000", got)
+	if got := optionValue(th.Session, state.ChatOptionContextWindow); got != "500000" {
+		t.Errorf("context window = %q, want 500000", got)
 	}
 
 	if _, err := m.SetOption(ctx, testAgent, state.ChatOptionContextWindow, "1m"); err != nil {
@@ -2146,8 +2146,8 @@ func TestTheContextWindowRestartsTheAdapterAndResumesTheSession(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if !slices.Equal(windows, []int64{200_000, 1_000_000}) {
-		t.Errorf("the adapter started on %v, want 200k and then 1M", windows)
+	if !slices.Equal(windows, []int64{500_000, 1_000_000}) {
+		t.Errorf("the adapter started on %v, want 500k and then 1M", windows)
 	}
 	if resumed := f.called(acp.MethodSessionResume); len(resumed) != 1 {
 		t.Errorf("resumed %d times, want the restart to resume the session", len(resumed))
@@ -2190,8 +2190,8 @@ func TestTheContextWindowIsChosenBeforeTheChatStarts(t *testing.T) {
 	if th.Session.State != api.ChatOff {
 		t.Fatalf("state = %s, want a chat that hasn't started", th.Session.State)
 	}
-	if got := optionValue(th.Session, state.ChatOptionContextWindow); got != "200000" {
-		t.Errorf("context window = %q before the chat started, want the 200k default offered", got)
+	if got := optionValue(th.Session, state.ChatOptionContextWindow); got != "500000" {
+		t.Errorf("context window = %q before the chat started, want the 500k default offered", got)
 	}
 
 	s, err := m.SetOption(ctx, testAgent, state.ChatOptionContextWindow, "1m")
@@ -2306,21 +2306,21 @@ func TestTheLeadStartsOnTheLeadDefaults(t *testing.T) {
 	if got := launches[lead.Name]; len(got) != 1 || got[0] != (launch{"sonnet", 1_000_000}) {
 		t.Errorf("the lead started on %+v, want sonnet at 1M", got)
 	}
-	if got := launches[testAgent.Name]; len(got) != 1 || got[0] != (launch{"", 200_000}) {
+	if got := launches[testAgent.Name]; len(got) != 1 || got[0] != (launch{"", 500_000}) {
 		t.Errorf("an agent started on %+v, want nothing of the lead's", got)
 	}
 	mu.Unlock()
 
 	// Chosen in the lead's own composer, the window is the lead's and not
 	// the default's.
-	if _, err := m.SetOption(ctx, lead, state.ChatOptionContextWindow, "200k"); err != nil {
+	if _, err := m.SetOption(ctx, lead, state.ChatOptionContextWindow, "500k"); err != nil {
 		t.Fatal(err)
 	}
 	stored, err := store.Chat(ctx, lead.Project, lead.Name)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored.Options[state.ChatOptionContextWindow] != "200000" {
+	if stored.Options[state.ChatOptionContextWindow] != "500000" {
 		t.Errorf("the lead's own choice was stored as %+v", stored.Options)
 	}
 }

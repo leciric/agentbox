@@ -186,7 +186,7 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
           {lead && <ChatStatus agent={lead} />}
           {chatMenu?.dialogs}
           {chatMenu?.buttons}
-          {lead && <ProjectMenu project={project} leadRef={lead.ref} onNewAgent={onNewAgent} onChangeIcon={() => setIconOpen(true)} />}
+          {lead && <ProjectMenu project={project} leadRef={lead.ref} onNewAgent={onNewAgent} onChangeIcon={() => setIconOpen(true)} more={chatMenu?.reload} />}
           <PanelButton project={name} chat={`${name}/${T.LeadName}`} />
         </InTopBar>
       ) : (

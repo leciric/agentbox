@@ -11,7 +11,8 @@ import { useT, type MessageKey } from '../lib/i18n';
 import { countFeature, type AppFeature } from '../lib/usageStats';
 import { AgentInfoCard } from './AgentInfoCard';
 import { DestroyAgentDialog } from './DestroyAgentDialog';
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from './ui/context-menu';
+import { useUiV2 } from '../lib/uiV2';
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuMore, ContextMenuSeparator, ContextMenuTrigger } from './ui/context-menu';
 import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
 
 // The actions an agent already offers, wherever it's listed: the rail, the
@@ -26,6 +27,9 @@ import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
 // so a real right-click and a real hover each reach the same DOM node: a
 // plain component in between (like this file's own Tip) would swallow
 // ContextMenuTrigger's cloned props instead of forwarding them to children.
+//
+// v2 keeps the menu to six items: Open chat goes (a click on the row opens
+// it), and Stop, Info (the hover card's) and Copy branch go under More.
 export function AgentContextMenu({
   agent,
   pr,
@@ -76,9 +80,40 @@ export function AgentContextMenu({
     run();
   };
 
+  const v2 = useUiV2();
   const actions = lifecycleActions(agent.state);
+  // v2 keeps Pause, Resume and Start in the menu, and Stop under More:
+  // Retire, beside it, stops the agent and frees its machine too.
+  const shown = v2 ? actions.filter((a) => a !== 'stop') : actions;
   const lifecycleIcon = { pause: Pause, resume: Play, start: Play, stop: Square };
   const lifecycleLabel: Record<LifecycleAction, MessageKey> = { pause: 'agent.action.pause', resume: 'agent.action.resume', start: 'common.start', stop: 'common.stop' };
+
+  const info = (
+    <ContextMenuItem icon={Info} onSelect={counted(T.FeatureMenuInfo, () => setShowingInfo(true))}>
+      {t('agent.menu.info')}
+    </ContextMenuItem>
+  );
+  const copyBranch = (
+    <ContextMenuItem
+      icon={GitBranch}
+      onSelect={counted(T.FeatureMenuCopyBranch, () => {
+        window.agentbox.copyText(agent.branch);
+        toast(t('agent.menu.copiedBranch'));
+      })}
+    >
+      {t('agent.menu.copyBranch')}
+    </ContextMenuItem>
+  );
+  const openPr = pr && (
+    <ContextMenuItem icon={GitPullRequest} onSelect={counted(T.FeatureMenuOpenPullRequest, () => void window.agentbox.openExternal(pr.url))}>
+      {t('agent.menu.openPr', { number: pr.number })}
+    </ContextMenuItem>
+  );
+  const stop = (
+    <ContextMenuItem icon={Square} onSelect={counted(T.FeatureMenuLifecycle, () => action.mutate('stop'))}>
+      {t('common.stop')}
+    </ContextMenuItem>
+  );
 
   return (
     <>
@@ -94,7 +129,7 @@ export function AgentContextMenu({
           </TooltipPrimitive.Portal>
         </TooltipPrimitive.Root>
         <ContextMenuContent>
-          {usesChat(agent) && (
+          {!v2 && usesChat(agent) && (
             <ContextMenuItem icon={MessageSquare} onSelect={counted(T.FeatureMenuOpenChat, () => onSelect({ kind: 'agent', ref: agent.ref, tab: 'chat' }))}>
               {t('agent.menu.openChat')}
             </ContextMenuItem>
@@ -102,11 +137,10 @@ export function AgentContextMenu({
           <ContextMenuItem icon={SquareTerminal} onSelect={counted(T.FeatureMenuOpenTerminal, () => onSelect({ kind: 'agent', ref: agent.ref, tab: 'terminal' }))}>
             {t('agent.menu.openTerminal')}
           </ContextMenuItem>
-          <ContextMenuItem icon={Info} onSelect={counted(T.FeatureMenuInfo, () => setShowingInfo(true))}>
-            {t('agent.menu.info')}
-          </ContextMenuItem>
+          {!v2 && info}
+          {v2 && openPr}
           <ContextMenuSeparator />
-          {actions.map((name) => (
+          {shown.map((name) => (
             <ContextMenuItem key={name} icon={lifecycleIcon[name]} onSelect={counted(T.FeatureMenuLifecycle, () => action.mutate(name))}>
               {t(lifecycleLabel[name])}
             </ContextMenuItem>
@@ -114,20 +148,18 @@ export function AgentContextMenu({
           <ContextMenuItem icon={Moon} onSelect={counted(T.FeatureMenuRetire, () => retire.mutate())}>
             {t('agent.menu.retire')}
           </ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem
-            icon={GitBranch}
-            onSelect={counted(T.FeatureMenuCopyBranch, () => {
-              window.agentbox.copyText(agent.branch);
-              toast(t('agent.menu.copiedBranch'));
-            })}
-          >
-            {t('agent.menu.copyBranch')}
-          </ContextMenuItem>
-          {pr && (
-            <ContextMenuItem icon={GitPullRequest} onSelect={counted(T.FeatureMenuOpenPullRequest, () => void window.agentbox.openExternal(pr.url))}>
-              {t('agent.menu.openPr', { number: pr.number })}
-            </ContextMenuItem>
+          {v2 ? (
+            <ContextMenuMore label={t('common.more')}>
+              {actions.includes('stop') && stop}
+              {info}
+              {copyBranch}
+            </ContextMenuMore>
+          ) : (
+            <>
+              <ContextMenuSeparator />
+              {copyBranch}
+              {openPr}
+            </>
           )}
           <ContextMenuSeparator />
           <ContextMenuItem

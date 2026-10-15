@@ -179,9 +179,16 @@ export function leadLine(last: T.ChatLine | undefined): { text: string; mine: bo
   if (!last?.text) return undefined;
   const text = last.text
     .replace(/```[\s\S]*?(```|$)/g, ' ')
+    .replace(/<[^>\n]+>/g, ' ')
     .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/^\s{0,3}(#{1,6}|>|[-*+]\s)\s*/gm, '')
-    .replace(/[*`]+/g, '')
+    // A table's rule row and its pipes, and a horizontal rule, go whole.
+    .replace(/^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/gm, '')
+    .replace(/^\s{0,3}([-*_])(\s*\1){2,}\s*$/gm, '')
+    .replace(/[ \t]*\|[ \t]*/g, ' ')
+    .replace(/^\s{0,3}(#{1,6}|>|[-*+]\s|\d+[.)]\s)\s*/gm, '')
+    .replace(/^\[[ xX]\]\s*/gm, '')
+    .replace(/[*`~]+/g, '')
+    .replace(/(^|\W)__?(\S[^_]*?)__?(?=\W|$)/g, '$1$2')
     .replace(/\s+/g, ' ')
     .trim();
   return text ? { text, mine: last.kind === 'user' } : undefined;

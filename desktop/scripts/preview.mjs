@@ -133,6 +133,9 @@ function overflowing() {
     for (const el of aside.querySelectorAll('*')) {
       const r = el.getBoundingClientRect();
       if (r.width === 0 || (r.right <= box.right + 1 && r.left >= box.left - 1)) continue;
+      // What's laid out unseen, to be measured (the panel's tab widths),
+      // shows nothing past the edge.
+      if (getComputedStyle(el).visibility === 'hidden') continue;
       // Only the outermost element that sticks out, not each of its children.
       if (el.parentElement && found.some((f) => f.el.contains(el))) continue;
       // Nor what's in a strip that scrolls sideways on purpose (Settings'
@@ -157,22 +160,26 @@ async function capture(baseUrl, outDir, lang, only) {
   try {
     for (const s of scenarios.filter((s) => !only || s.id.startsWith(only))) {
       const page = await browser.newPage({ viewport: { width: s.width, height: s.height }, reducedMotion: s.reducedMotion ?? 'no-preference' });
+      // A selector the scenario names that nothing matches is reported, not
+      // skipped quietly: the shot would show nothing of what it describes.
+      const missing = [];
+      const miss = (selector) => () => missing.push(selector);
       await page.goto(`${baseUrl}/dev/preview.html?${s.query}${lang ? `&lang=${lang}` : ''}`, { waitUntil: 'networkidle' });
       // A scenario can hover an element, to show its tooltip.
       if (s.hover) {
-        await page.hover(s.hover, { timeout: 3_000 }).catch(() => {});
+        await page.hover(s.hover, { timeout: 3_000 }).catch(miss(s.hover));
         await page.waitForSelector('[data-radix-popper-content-wrapper]', { timeout: 3_000 }).catch(() => {});
       }
       // A scenario can click an element, to show a popover it opens.
       // Or a list of them, one after the other: a row in the popover.
       for (const click of s.click ? [s.click].flat() : []) {
-        await page.click(click, { timeout: 3_000 }).catch(() => {});
+        await page.click(click, { timeout: 3_000 }).catch(miss(click));
         await page.waitForSelector('[data-radix-popper-content-wrapper]', { timeout: 3_000 }).catch(() => {});
       }
       // A scenario can type into a field, to show what a search leaves:
       // "fill": [selector, text].
       if (s.fill) {
-        await page.fill(s.fill[0], s.fill[1], { timeout: 3_000 }).catch(() => {});
+        await page.fill(s.fill[0], s.fill[1], { timeout: 3_000 }).catch(miss(s.fill[0]));
         await page.waitForTimeout(300);
       }
       // Animations (the avatars') are stopped at their start, so a shot is the
@@ -182,6 +189,7 @@ async function capture(baseUrl, outDir, lang, only) {
       await page.close();
       console.log(`  ${s.id}.png — ${s.description}`);
       for (const o of over) console.log(`    overflows the column by ${o}`);
+      for (const m of missing) console.log(`    nothing matched ${m}`);
     }
   } finally {
     await browser.close();

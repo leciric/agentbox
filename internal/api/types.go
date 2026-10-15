@@ -542,11 +542,11 @@ type Settings struct {
 type UpdateSettingsRequest struct {
 	// DefaultClaudeModel is "" to go back to AgentBox's own default.
 	DefaultClaudeModel *string `json:"defaultClaudeModel,omitempty"`
-	// DefaultAgentContextWindow and DefaultLeadContextWindow are "200k" (or
-	// "") for the installation's compact window, or "1m" for the model's
-	// whole window, which is refused for a default model without one, like
-	// Haiku. A request that moves a role's model to one without a 1M window
-	// has to bring its window back to 200k in the same request.
+	// DefaultAgentContextWindow and DefaultLeadContextWindow are "" for the
+	// installation's compact window, or "1m" for the model's whole window,
+	// which is refused for a default model without one, like Haiku. A request
+	// that moves a role's model to one without a 1M window has to bring its
+	// window back to the compact one in the same request.
 	DefaultAgentContextWindow *string `json:"defaultAgentContextWindow,omitempty"`
 	// EnforceAgentDefaults turns Settings.EnforceAgentDefaults on or off.
 	EnforceAgentDefaults *bool `json:"enforceAgentDefaults,omitempty"`

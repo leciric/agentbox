@@ -31,8 +31,10 @@ import { SettingsView } from "./components/SettingsView";
 import { Sidebar } from "./components/Sidebar";
 import { SidebarV2 } from "./components/v2/SidebarV2";
 import { NewTaskDialog } from "./components/v2/NewTaskDialog";
+import { ShortcutSheet } from "./components/v2/ShortcutSheet";
 import { isNewTaskShortcut, toggleNewTask } from "./lib/newTask";
 import { OverviewV2, PastAgentsV2 } from "./components/v2/PagesV2";
+import { cycleRegion, isSettingsShortcut, isSheetShortcut, toggleSheet } from "./lib/shortcuts";
 import { AgentReviewCard, ReviewV2 } from "./components/v2/ReviewV2";
 import { RightPanelHost } from "./components/v2/RightPanel";
 import { aiLabel } from "./components/state";
@@ -148,6 +150,7 @@ export function App({ initial }: { initial?: View } = {}) {
   );
 
   const select = (next: View) => {
+    setSettingsLink(undefined);
     if (next.kind === "agent" && next.tab)
       setTabs((t) => ({ ...t, [next.ref]: next.tab! }));
     setView(next);
@@ -158,9 +161,11 @@ export function App({ initial }: { initial?: View } = {}) {
   // A link from inside a page to a section of Settings (openSettingsSection):
   // remember the section and remount Settings so it opens there.
   const [settingsVisit, setSettingsVisit] = useState(0);
+  const [settingsLink, setSettingsLink] = useState<string>();
   useEffect(() => {
     const open = (e: Event) => {
       rememberSection((e as CustomEvent<string>).detail);
+      setSettingsLink((e as CustomEvent<string>).detail);
       setSettingsVisit((n) => n + 1);
       setView({ kind: "settings" });
       setNavOpen(false);
@@ -245,6 +250,26 @@ export function App({ initial }: { initial?: View } = {}) {
       if (!isNewTaskShortcut(event)) return;
       event.preventDefault();
       toggleNewTask();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [v2]);
+  // v2's other keys (lib/shortcuts.ts): Ctrl+/ for the shortcut sheet, Ctrl+,
+  // for Settings, and F6 (Shift+F6 back) to move between the sidebar, the
+  // chat and the panel.
+  useEffect(() => {
+    if (!v2) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (isSheetShortcut(event)) {
+        event.preventDefault();
+        toggleSheet();
+      } else if (isSettingsShortcut(event)) {
+        event.preventDefault();
+        setView({ kind: "settings" });
+        setNavOpen(false);
+      } else if (event.key === "F6" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        if (cycleRegion(event.shiftKey)) event.preventDefault();
+      }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
@@ -553,7 +578,7 @@ export function App({ initial }: { initial?: View } = {}) {
                     />
                   ))}
                 {view.kind === "settings" && (
-                  <SettingsView onHome={() => select({ kind: "home" })} />
+                  <SettingsView onHome={() => select({ kind: "home" })} linked={settingsLink} />
                 )}
                 {view.kind === "project" && (
                   <ProjectView
@@ -667,6 +692,7 @@ export function App({ initial }: { initial?: View } = {}) {
       />
       <SearchModal onOpen={openFound} />
       {v2 && <NewTaskDialog onSelect={select} />}
+      {v2 && <ShortcutSheet />}
       <ErrorReports />
       <SnapComposer
         project={view.kind === "project" ? view.project : view.kind === "agent" ? view.ref.split("/")[0] : undefined}

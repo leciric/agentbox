@@ -1,4 +1,5 @@
 import * as ContextMenuPrimitive from '@radix-ui/react-context-menu';
+import { ChevronRight, Ellipsis } from 'lucide-react';
 import type { ComponentProps, ComponentType, ReactNode } from 'react';
 import { cn } from '../../lib/utils';
 
@@ -34,7 +35,7 @@ export function ContextMenuItem({
   return (
     <ContextMenuPrimitive.Item
       className={cn(
-        'flex cursor-default select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-secondary outline-none data-[disabled]:opacity-40 data-[highlighted]:bg-surface-raised',
+        'flex cursor-default select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-secondary outline-none data-[disabled]:opacity-65 data-[highlighted]:bg-surface-raised',
         destructive && 'text-rose-300 data-[highlighted]:bg-rose-500/10',
       )}
       {...props}
@@ -48,4 +49,26 @@ export function ContextMenuItem({
 
 export function ContextMenuSeparator() {
   return <ContextMenuPrimitive.Separator className="my-1 h-px bg-line" />;
+}
+
+// ContextMenuMore is a menu's "More" item: what's used less, in a submenu, so the
+// menu itself keeps to a handful of items.
+export function ContextMenuMore({ label, children }: { label: ReactNode; children: ReactNode }) {
+  return (
+    <ContextMenuPrimitive.Sub>
+      <ContextMenuPrimitive.SubTrigger className="flex cursor-default select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-secondary outline-none data-[highlighted]:bg-surface-raised data-[state=open]:bg-surface-raised" data-menu-more>
+        <Ellipsis className="size-4 text-subtle" />
+        <span className="flex-1">{label}</span>
+        <ChevronRight className="size-3.5 text-subtle" />
+      </ContextMenuPrimitive.SubTrigger>
+      <ContextMenuPrimitive.Portal>
+        <ContextMenuPrimitive.SubContent
+          sideOffset={4}
+          className="z-50 min-w-48 animate-fade-in rounded-xl border border-line-strong bg-overlay p-1 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur"
+        >
+          {children}
+        </ContextMenuPrimitive.SubContent>
+      </ContextMenuPrimitive.Portal>
+    </ContextMenuPrimitive.Sub>
+  );
 }

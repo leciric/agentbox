@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import * as A from '../../../shared/api';
 import type { View } from '../../App';
 import { api } from '../../lib/api';
+import { useFocusReturn } from '../../lib/focusReturn';
 import { useT } from '../../lib/i18n';
 import { closeNewTask, digitPick, requestComposerFocus, taskTargets, useNewTaskOpen, type TaskTarget } from '../../lib/newTask';
 import { projectLabel } from '../../lib/projectName';
@@ -21,6 +22,7 @@ import { ProjectIcon } from '../ProjectIcon';
 export function NewTaskDialog({ onSelect }: { onSelect: (view: View) => void }) {
   const t = useT();
   const open = useNewTaskOpen();
+  const focusReturn = useFocusReturn();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const sections = useQuery({ queryKey: ['sections'], queryFn: api.sections });
   const ordered = useMemo(() => buildLists(projects.data ?? [], sections.data ?? []).flatMap((l) => l.projects), [projects.data, sections.data]);
@@ -79,6 +81,7 @@ export function NewTaskDialog({ onSelect }: { onSelect: (view: View) => void }) 
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 animate-fade-in bg-scrim backdrop-blur-[3px]" />
         <DialogPrimitive.Content
+          {...focusReturn}
           aria-describedby={undefined}
           className="fixed left-1/2 top-[18vh] z-50 w-[calc(100vw-2rem)] max-w-xl -translate-x-1/2 animate-pop-in overflow-hidden rounded-2xl border border-line-strong bg-modal shadow-[0_40px_120px_-30px_var(--ab-shadow-deep)] focus:outline-none"
           data-new-task

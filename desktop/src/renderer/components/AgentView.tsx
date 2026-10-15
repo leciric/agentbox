@@ -29,10 +29,11 @@ import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { lifecycleActions, usesChat, type LifecycleAction } from '../lib/agentActions';
-import { chatLabel, prState, statusTip, type StatusTone } from '../lib/agentStatus';
+import { awaiting, chatLabel, prState, statusTip, type StatusTone } from '../lib/agentStatus';
 import { api, type AgentAction } from '../lib/api';
 import { useMediaCounts } from '../lib/mediaPages';
 import { useChatOpenAt } from '../lib/reveal';
+import { useAgentReview } from './v2/ReviewV2';
 import { useT, type MessageKey } from '../lib/i18n';
 import { agentPlace, type AgentPlaceName, type AgentSection, type AgentTab } from '../lib/tabs';
 import { agentTabFeatures, countFeature } from '../lib/usageStats';
@@ -54,7 +55,7 @@ import { TerminalTab } from './TerminalTab';
 import { Button } from './ui/button';
 import { Notice } from './ui/card';
 import { Badge, type BadgeVariant } from './ui/badge';
-import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from './ui/menu';
+import { Menu, MenuContent, MenuItem, MenuLabel, MenuMore, MenuSeparator, MenuTrigger } from './ui/menu';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Tip } from './ui/tooltip';
@@ -126,9 +127,44 @@ export function AgentView({
   const active: AgentTab = !place.tab || (place.tab === 'chat' && !chatty) ? (chatty ? 'chat' : 'terminal') : place.tab;
   const actions = lifecycleActions(agent?.state ?? '');
   const primary = actions.find((name) => lifecycleButton[name].primary);
-  // In v2 the chat's New chat and Reload tools are the header's icons, and
-  // its ⋯ has the agent's own items only.
+  // In v2 the chat's New chat is the header's icon, and its ⋯ has the
+  // agent's own items, five or so, with the copies and Reload tools under
+  // More (v1 lists everything, the chat's items first).
   const v2 = useUiV2();
+  const copies = agent && (
+    <>
+      {agent.ip && (
+        <MenuItem
+          icon={Network}
+          hint={<span className="font-mono">{agent.ip}</span>}
+          onSelect={() => {
+            window.agentbox.copyText(agent.ip);
+            toast(t('agent.view.copiedIp'));
+          }}
+        >
+          {t('agent.view.copyIp')}
+        </MenuItem>
+      )}
+      <MenuItem
+        icon={Copy}
+        onSelect={() => {
+          window.agentbox.copyText(agent.worktree);
+          toast(t('agent.view.copiedWorktree'));
+        }}
+      >
+        {t('agent.view.copyWorktree')}
+      </MenuItem>
+      <MenuItem
+        icon={SquareTerminal}
+        onSelect={() => {
+          window.agentbox.copyText(`agentbox shell ${agent.ref}`);
+          toast(t('common.copied'), { description: `agentbox shell ${agent.ref}` });
+        }}
+      >
+        {t('agent.view.copyShell')}
+      </MenuItem>
+    </>
+  );
   const menuItems = agent && (
     <>
       {chatMenu && active === 'chat' && !v2 && (
@@ -148,39 +184,17 @@ export function AgentView({
       <MenuItem icon={Pencil} onSelect={() => setEditingTitle(true)}>
         {t('agent.view.editTitle')}
       </MenuItem>
-      {agent.ip && (
-        <MenuItem
-          icon={Network}
-          hint={<span className="font-mono">{agent.ip}</span>}
-          onSelect={() => {
-            window.agentbox.copyText(agent.ip);
-            toast(t('agent.view.copiedIp'));
-          }}
-        >
-          {t('agent.view.copyIp')}
-        </MenuItem>
-      )}
       <MenuItem icon={FolderOpen} onSelect={() => void window.agentbox.openPath(agent.worktree)}>
         {t('agent.view.openWorktree')}
       </MenuItem>
-      <MenuItem
-        icon={Copy}
-        onSelect={() => {
-          window.agentbox.copyText(agent.worktree);
-          toast(t('agent.view.copiedWorktree'));
-        }}
-      >
-        {t('agent.view.copyWorktree')}
-      </MenuItem>
-      <MenuItem
-        icon={SquareTerminal}
-        onSelect={() => {
-          window.agentbox.copyText(`agentbox shell ${agent.ref}`);
-          toast(t('common.copied'), { description: `agentbox shell ${agent.ref}` });
-        }}
-      >
-        {t('agent.view.copyShell')}
-      </MenuItem>
+      {v2 ? (
+        <MenuMore label={t('common.more')}>
+          {copies}
+          {chatMenu && active === 'chat' && chatMenu.reload}
+        </MenuMore>
+      ) : (
+        copies
+      )}
       <MenuSeparator />
       <MenuItem
         icon={CircleX}
@@ -447,11 +461,16 @@ const toneVariant: Record<StatusTone, BadgeVariant> = { urgent: 'warning', error
 // know about it: the machine, its IP and resources, its AI tool and accounts.
 function StatusDetails({ agent, pr }: { agent: T.Agent; pr?: T.PullRequest }) {
   const t = useT();
-  const status = chatLabel(agent);
+  // The review card says "Ready to review" for an agent that finished and
+  // waits on a look, even while it keeps background work going (which chatLabel
+  // calls Awaiting): the header says the same.
+  const review = useAgentReview(agent.ref).data;
+  const ready = !!review && !review.verdict && awaiting(agent);
+  const status = ready ? { text: t('v2.card.ready'), tone: 'live' as const } : chatLabel(agent);
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button type="button" className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40" aria-label={t('agent.view.details')} title={statusTip(agent) ?? t('agent.view.details')} data-agent-status={status.tone}>
+        <button type="button" className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-brand-400" aria-label={t('agent.view.details')} title={statusTip(agent) ?? t('agent.view.details')} data-agent-status={status.tone}>
           <Badge variant={toneVariant[status.tone]} className="cursor-pointer gap-1 transition hover:brightness-125">
             <StatusDot state={agent.state} className="size-1.5" />
             {status.text}

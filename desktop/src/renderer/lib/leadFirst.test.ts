@@ -174,3 +174,9 @@ test('leadLine is one plain line, and says who wrote it', () => {
   assert.equal(leadLine(undefined), undefined);
   assert.equal(leadLine({ kind: 'assistant', text: '```\n```', at: '' }), undefined);
 });
+
+test('leadLine strips tables, rules, lists, emphasis and tags', () => {
+  const table = "Here's a table:\n\n| Fruit | Color |\n|-------|:-----:|\n| Apple | Red |\n\n---\n1. __one__ and _two_\n- [x] ~~old~~ done<br>";
+  assert.equal(leadLine({ kind: 'assistant', text: table, at: '' })?.text, "Here's a table: Fruit Color Apple Red one and two old done");
+  assert.equal(leadLine({ kind: 'assistant', text: 'snake_case_name stays', at: '' })?.text, 'snake_case_name stays');
+});

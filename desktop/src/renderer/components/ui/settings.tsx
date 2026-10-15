@@ -80,7 +80,7 @@ export function SettingRow({
                     aria-expanded={more}
                     data-setting-more
                     onClick={() => setMore((open) => !open)}
-                    className="rounded text-tertiary underline decoration-line-strong underline-offset-2 transition hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50"
+                    className="rounded text-tertiary underline decoration-line-strong underline-offset-2 transition hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
                   >
                     {more ? t('settings.row.less') : t('settings.row.more')}
                   </button>

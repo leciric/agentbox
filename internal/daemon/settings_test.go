@@ -106,7 +106,9 @@ func TestClaudeMenuIsKnownOnceAnAdapterSentOne(t *testing.T) {
 // Agents section, each with its own model and context window. An installation
 // that never chose has what it had before they were split — agents on
 // AgentBox's own default, leads on Claude Code's, both at the compact window —
-// and choosing one role's never moves the other's.
+// and choosing one role's never moves the other's. A fresh installation starts
+// its lead on opus at 1M (state.freshInstallSettings), so the installation
+// from before the split is made by taking those rows back out.
 func TestLeadAndAgentDefaultsAreSeparate(t *testing.T) {
 	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
@@ -114,6 +116,11 @@ func TestLeadAndAgentDefaultsAreSeparate(t *testing.T) {
 	// An installation from before the split chose a model for its agents.
 	if err := d.srv.store.SetSetting(ctx, state.SettingDefaultClaudeModel, "sonnet"); err != nil {
 		t.Fatal(err)
+	}
+	for _, key := range []string{state.SettingDefaultAgentContextWindow, state.SettingDefaultLeadModel, state.SettingDefaultLeadContextWindow} {
+		if err := d.srv.store.DeleteSetting(ctx, key); err != nil {
+			t.Fatal(err)
+		}
 	}
 	out, err := patchSettings(t, d, `{}`)
 	if err != nil {
@@ -142,7 +149,7 @@ func TestLeadAndAgentDefaultsAreSeparate(t *testing.T) {
 		t.Errorf("a refused request still stored its model: %q", model)
 	}
 	// ...nor as a model moved under a 1M window already chosen.
-	if _, err := patchSettings(t, d, `{"defaultLeadModel":"haiku"}`); err == nil || !strings.Contains(err.Error(), "200k") {
+	if _, err := patchSettings(t, d, `{"defaultLeadModel":"haiku"}`); err == nil || !strings.Contains(err.Error(), "the compact window") {
 		t.Errorf("the lead moved to Haiku under its 1M window: err = %v", err)
 	}
 	out, err = patchSettings(t, d, `{"defaultLeadModel":"haiku","defaultLeadContextWindow":"200k"}`)
@@ -153,8 +160,8 @@ func TestLeadAndAgentDefaultsAreSeparate(t *testing.T) {
 		t.Errorf("lead defaults = %q, %q; want Haiku at the compact window", out.DefaultLeadModel, out.DefaultLeadContextWindow)
 	}
 	// Anything but the two windows is the compact window's own setting.
-	if _, err := patchSettings(t, d, `{"defaultAgentContextWindow":"500k"}`); err == nil {
-		t.Error("a 500k default window was accepted")
+	if _, err := patchSettings(t, d, `{"defaultAgentContextWindow":"300k"}`); err == nil {
+		t.Error("a 300k default window was accepted")
 	}
 }
 

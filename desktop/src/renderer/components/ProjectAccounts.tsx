@@ -228,7 +228,7 @@ export function ClaudeAccountsPicker({ project }: { project: T.Project }) {
               title={locked ? t('project.accounts.locked') : undefined}
               onClick={() => toggle(account.name)}
               className={cn(
-                'flex h-8 min-w-0 items-center gap-1.5 rounded-lg border border-line px-2.5 text-[13px] text-muted transition hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 disabled:cursor-default',
+                'flex h-8 min-w-0 items-center gap-1.5 rounded-lg border border-line px-2.5 text-[13px] text-muted transition hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 disabled:cursor-default',
                 on && 'border-transparent bg-surface-strong text-title shadow-[inset_0_1px_0_rgb(255_255_255/0.06)]',
               )}
             >

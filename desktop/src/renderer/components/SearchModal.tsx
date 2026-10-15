@@ -23,6 +23,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { matchesIn } from '../lib/chatFind';
+import { useUiV2 } from '../lib/uiV2';
+import { useFocusReturn } from '../lib/focusReturn';
 import { useLanguage, useT, type MessageKey } from '../lib/i18n';
 import { mediaUrl } from '../lib/media';
 import { projectLabel } from '../lib/projectName';
@@ -71,11 +73,13 @@ export function isSearchShortcut(event: KeyboardEvent): boolean {
 export function SearchModal({ onOpen }: { onOpen: (target: SearchTarget) => void }) {
   const t = useT();
   const { open, scope, opening } = useSearchModal();
+  const focusReturn = useFocusReturn();
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(next) => !next && closeSearch()}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 animate-fade-in bg-scrim backdrop-blur-[3px]" />
         <DialogPrimitive.Content
+          {...focusReturn}
           aria-describedby={undefined}
           className="fixed left-1/2 top-[8vh] z-50 flex h-[80vh] w-[calc(100vw-2rem)] max-w-6xl -translate-x-1/2 animate-pop-in flex-col overflow-hidden rounded-2xl border border-line-strong bg-modal shadow-[0_40px_120px_-30px_var(--ab-shadow-deep)] focus:outline-none"
           data-search-modal
@@ -99,6 +103,8 @@ export function SearchModal({ onOpen }: { onOpen: (target: SearchTarget) => void
 
 function Searching({ scope, onOpen }: { scope: SearchScope; onOpen: (target: SearchTarget) => void }) {
   const t = useT();
+  // v2 calls the Home chat Home, as its sidebar does.
+  const homeName = t(useUiV2() ? 'shell.nav.home' : 'shell.nav.mainChat');
   const [query, setQuery] = useState(scope.query ?? '');
   const [asked, setAsked] = useState((scope.query ?? '').trim());
   const [kind, setKind] = useState(scope.kind ?? '');
@@ -163,7 +169,7 @@ function Searching({ scope, onOpen }: { scope: SearchScope; onOpen: (target: Sea
   const agentTitle = (project: string, name: string) => (name === T.LeadName ? t('chat.find.from.lead') : agents.data?.find((a) => a.ref === `${project}/${name}`)?.title || name);
   const whereOf = ({ kind, hit }: SearchItem) =>
     [
-      hit.project === T.HomeProject ? t('shell.nav.mainChat') : hit.project ? projectLabel(hit.project, projects.data) : kind === T.SearchSkills || kind === T.SearchConnectors ? t('search.agentboxWide') : '',
+      hit.project === T.HomeProject ? homeName : hit.project ? projectLabel(hit.project, projects.data) : kind === T.SearchSkills || kind === T.SearchConnectors ? t('search.agentboxWide') : '',
       hit.agent && kind !== T.SearchAgents ? agentTitle(hit.project ?? '', hit.agent) : '',
       hit.archived ? t('search.pastAgent') : '',
     ].filter(Boolean);
@@ -237,7 +243,7 @@ function Searching({ scope, onOpen }: { scope: SearchScope; onOpen: (target: Sea
           options={[
             ['', t('search.anyProject')],
             ...(projects.data ?? []).map((p): [string, string] => [p.name, projectLabel(p.name, projects.data)]),
-            [T.HomeProject, t('shell.nav.mainChat')],
+            [T.HomeProject, homeName],
           ]}
         />
         <Pick
