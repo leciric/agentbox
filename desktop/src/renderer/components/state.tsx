@@ -96,6 +96,22 @@ export function AIIcon({ ai, className }: { ai: string; className?: string }) {
   return <Icon className={className} />;
 }
 
+// ToolMark is an AI tool's own mark, small and at rest, for a picker or a
+// row: Claude Code's Clawd, Codex's cloud and OpenCode's frame, as the agents'
+// tiles draw them, and Cursor's cube, which has no character.
+export function ToolMark({ ai, className }: { ai: string; className?: string }) {
+  if (hasCharacter(ai)) return <AgentCharacter ai={ai} mood="idle" className={cn('inline-block size-5 shrink-0', className)} />;
+  if (ai === 'cursor') {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden className={cn('size-5 shrink-0', className)} fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round">
+        <path d="M12 2.5l8.2 4.75v9.5L12 21.5l-8.2-4.75v-9.5z" />
+        <path d="M3.8 7.25L12 12l8.2-4.75M12 12v9.5" />
+      </svg>
+    );
+  }
+  return <AIIcon ai={ai} className={className} />;
+}
+
 // AgentAvatar is an agent's AI tool in a tile: its mark as a small character
 // acting out the agent's mood (avatarMood), on a tile tinted by it — amber
 // when it's waiting on you, rose when something broke, grey when its machine

@@ -10,7 +10,7 @@ import { runnerChoices, runnerLabel, runnerReason, type RunnerChoice } from '../
 import { useNow } from '../../lib/useNow';
 import { errorMessage } from '../../lib/utils';
 import { LimitRow } from '../TopBar';
-import { AIIcon, aiLabel } from '../state';
+import { aiLabel, ToolMark } from '../state';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from '../ui/menu';
 
 // RunnerPicker is a lead's AI tool and account, in its composer: what the chat
@@ -50,11 +50,11 @@ export function RunnerPicker({ agent, session }: { agent: T.Agent; session?: T.C
           title={next ? t('chat.runner.nextTip', { tool: aiLabel(next) }) : label}
           className="flex h-7 min-w-0 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[12.5px] text-muted transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40 data-[state=open]:bg-surface-raised data-[state=open]:text-primary [&_svg]:size-4 [&_svg]:shrink-0"
         >
-          <AIIcon ai={tool} />
+          <ToolMark ai={tool} />
           {next && (
             <span className="flex items-center gap-1 rounded-full bg-brand-400/15 px-1.5 py-px text-[11px] text-brand-200">
               <ArrowRight className="!size-3" />
-              <AIIcon ai={next} className="!size-3" />
+              <ToolMark ai={next} className="!size-3.5" />
             </span>
           )}
           <ChevronDown className="!size-3.5 text-faint" />
@@ -95,7 +95,7 @@ export function RunnerPicker({ agent, session }: { agent: T.Agent; session?: T.C
 // toolIcons are the tools' marks as MenuItem icons, made once so a row's icon
 // keeps its identity between renders.
 const toolIcons: Record<string, ComponentType<{ className?: string }>> = Object.fromEntries(
-  ['claude', 'codex', 'opencode', 'cursor'].map((ai) => [ai, ({ className }: { className?: string }) => <AIIcon ai={ai} className={className} />]),
+  ['claude', 'codex', 'opencode', 'cursor'].map((ai) => [ai, ({ className }: { className?: string }) => <ToolMark ai={ai} className={className} />]),
 );
 
 // AccountUsage is an account's limits, as the top bar's meter shows them.
