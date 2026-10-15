@@ -446,6 +446,22 @@ if (appView && params.get('v2') === '1') {
     else if (params.get('first') === '1' && first) activateTab(chat, first);
   }
 }
+// A refetch of a lead's chat or of the skills gets what was seeded, not the
+// bridge's {} for what it doesn't know: the v2 sidebar refetches leads every
+// minute, and a lead with no ref took the page down.
+if (appView) {
+  type Bridge = { request: (method: string, path: string, body?: unknown) => Promise<unknown> };
+  const bridge = (window as unknown as { agentbox: Bridge }).agentbox;
+  const inner = bridge.request;
+  bridge.request = async (method, path, body) => {
+    const lead = method === 'GET' && /^\/v1\/projects\/([^/]+)\/lead$/.exec(path);
+    const seeded = lead && queryClient.getQueryData(['projectChat', decodeURIComponent(lead[1])]);
+    if (seeded) return { status: 200, body: JSON.stringify(seeded), contentType: 'application/json' };
+    const answer = (await inner(method, path, body)) as { status: number; body: string };
+    if (method === 'GET' && /\/skills(\?|$)/.test(path) && answer.body === '{}') return { ...answer, body: '[]' };
+    return answer;
+  };
+}
 // &destroy=4000: destroying an agent takes that long, then succeeds (the
 // v2 sidebar's "removing…"), and its row goes from the fixtures.
 const destroyMs = Number(params.get('destroy') ?? 0);

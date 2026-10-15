@@ -333,7 +333,7 @@ function TabStrip({ project, chat, tabs, active, whose }: { project: string; cha
               if (event.key === 'Delete') closeTab(chat, tab.id);
             }}
             className={cn(
-              'group/tab relative flex max-w-[200px] shrink-0 cursor-default select-none items-center gap-1.5 border-r border-line-faint pl-2.5 pr-1.5 text-[12px]',
+              'group/tab relative flex min-w-[96px] max-w-[200px] shrink cursor-default select-none items-center gap-1.5 border-r border-line-faint pl-2.5 pr-1.5 text-[12px]',
               on ? 'bg-sunken text-title' : 'text-subtle hover:bg-surface hover:text-title',
               over === index && dragged.current !== tab.id && 'shadow-[inset_2px_0_0_var(--color-brand-500)]',
             )}
@@ -346,8 +346,10 @@ function TabStrip({ project, chat, tabs, active, whose }: { project: string; cha
               <Icon className="size-3.5" />
               {dot && <span className="absolute -right-1 -top-1 size-1.5 rounded-full bg-brand-500" />}
             </span>
-            <span className="min-w-0 truncate font-medium">{label}</span>
-            {name && <span className="min-w-0 truncate text-faint">{name}</span>}
+            <span className="min-w-0 flex-1 truncate">
+              <span className="font-medium">{label}</span>
+              {name && <span className="ml-1.5 text-faint">{name}</span>}
+            </span>
             <button
               type="button"
               aria-label={t('panel.closeTab', { tab: name ? `${label} · ${name}` : label })}
@@ -355,7 +357,7 @@ function TabStrip({ project, chat, tabs, active, whose }: { project: string; cha
                 event.stopPropagation();
                 closeTab(chat, tab.id);
               }}
-              className={cn('flex size-5 shrink-0 items-center justify-center rounded text-subtle hover:bg-surface-raised hover:text-title', on ? 'opacity-100' : 'opacity-0 focus-visible:opacity-100 group-hover/tab:opacity-100')}
+              className={cn('flex size-5 shrink-0 items-center justify-center rounded text-subtle hover:bg-surface-raised hover:text-title', !on && '[@media(hover:hover)]:opacity-0 focus-visible:opacity-100 group-hover/tab:opacity-100')}
               data-panel-tab-close
             >
               <X className="size-3" />
