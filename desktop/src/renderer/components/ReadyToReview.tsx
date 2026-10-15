@@ -11,7 +11,7 @@ import { pagesFor } from '../lib/pages';
 import { projectLabel } from '../lib/projectName';
 import { pageItems, pageTotal, refreshInbox, useReviewPages, withoutAgent } from '../lib/inboxPages';
 import { mergeBlock, nextPending, queueOf, reviewKeys, reviewShortcut, slidesOf, step, swipeStep, type MergeBlock, type ReviewAction, type Slide } from '../lib/review';
-import { isUnseen, useUnseen } from '../lib/reviewAlert';
+import { isUnseen, markReadySeen, useUnseen } from '../lib/reviewAlert';
 import { useNow } from '../lib/useNow';
 import { cn, errorMessage, timeAgo } from '../lib/utils';
 import { Markdown } from './chat/Markdown';
@@ -31,8 +31,9 @@ import { Dialog, DialogContent, DialogTitle, fullWhenNarrow } from './ui/dialog'
 // newest first, and below them the ones already reviewed, folded. Both lists
 // load a page at a time as they're scrolled (lib/inboxPages.ts). Picking one
 // opens the review carousel (ReviewDialog), which Review all walks through
-// what's waiting; opening an agent there is reviewing it, so it moves to
-// Reviewed, until its work changes. Reviewing turned off in Settings leaves
+// what's waiting. Opening an agent there is seeing it (it leaves the
+// inbox's count), not reviewing it: Mark reviewed moves it to Reviewed, until
+// its work changes. Reviewing turned off in Settings leaves
 // the section out.
 
 // A review session is the agent on screen and, when it walks through what's
@@ -274,19 +275,8 @@ function ReviewCarousel({
   const mergeReason = blocked && blocked !== 'merged' && blocked !== 'closed' ? t(blockLabels[blocked], { base: pr?.baseBranch ?? '' }) : undefined;
   const swipe = useRef<{ x: number; y: number } | null>(null);
 
-  // Looking at an agent's work is reviewing it: it moves to Reviewed as the
-  // carousel opens, on the work as it is shown, so a change landing while
-  // someone looks still brings it back. One reopened from Reviewed has its
-  // verdict already.
-  useEffect(() => {
-    if (item.verdict) return;
-    queryClient.setQueriesData<T.ReviewPage | InfiniteData<T.ReviewPage, string>>({ queryKey: ['review'] }, (data) => withoutAgent(data, item.ref));
-    api
-      .review(item.ref, { verdict: 'reviewed', fingerprint: item.fingerprint })
-      .catch((err) => toast.error(t('review.failed', { error: errorMessage(err) })))
-      .finally(() => refreshInbox(queryClient));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item.ref, item.fingerprint]);
+  // Opening an agent's work is seeing it, which only leaves the inbox's count.
+  useEffect(() => markReadySeen({ ref: item.ref, fingerprint: item.fingerprint }), [item.ref, item.fingerprint]);
 
   const [marking, setMarking] = useState(false);
   const markReviewed = () => {
@@ -395,9 +385,6 @@ function ReviewCarousel({
                 })}
               </span>
             )}
-            <Button size="sm" variant="ghost" onClick={() => onSelect({ kind: 'agent', ref: item.ref })}>
-              {t('review.openAgent')}
-            </Button>
             <Button size="sm" variant="secondary" onClick={() => onSelect({ kind: 'agent', ref: item.ref, tab: 'chat' })} data-review-changes>
               <MessageSquareText />
               {t('review.requestChanges')}

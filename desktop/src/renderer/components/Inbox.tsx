@@ -11,7 +11,7 @@ import { useMarkSeen } from '../lib/notifications';
 import { projectLabel } from '../lib/projectName';
 import { useDnd } from '../lib/notifyPrefs';
 import { countLabel } from '../lib/review';
-import { isUnseen, markAllSeen, useReviewing, useUnseen } from '../lib/reviewAlert';
+import { isUnseen, markAllSeen, useReviewing, useSeenReady, useUnseen } from '../lib/reviewAlert';
 import { cn, timeAgo } from '../lib/utils';
 import { MoreMedia } from './MediaTab';
 import { useProjectNames } from './Notifications';
@@ -22,7 +22,8 @@ import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 
 // Inbox is the top bar's one way in to what needs you, across projects
 // (lib/inbox.ts): a button whose badge counts agents ready to review,
-// questions, permission requests and errors. Its panel has them in sections —
+// questions, permission requests and errors (agents ready to review count
+// until opened). Its panel has them in sections —
 // Needs you, then Ready to review (whose carousel opens from here) with the
 // Reviewed ones folded below. What agents merely did, such as finishing or
 // keeping a screenshot, is not here: finished work is in the review list.
@@ -44,6 +45,8 @@ export function Inbox({ onOpen, onSelect, defaultOpen = false }: { onOpen: (n: T
   const markSeen = useMarkSeen();
   const { on: quiet } = useDnd();
   const unseen = useUnseen();
+  const seen = useSeenReady();
+  const [filter, setFilter] = useState<'all' | 'needs' | 'review'>('all');
   // What was new in review when the panel opened stays marked while it's open.
   const [shown, setShown] = useState<ReadonlySet<string>>(new Set());
   const waiting = reviewing ? (head.data?.items ?? []) : [];
@@ -53,6 +56,7 @@ export function Inbox({ onOpen, onSelect, defaultOpen = false }: { onOpen: (n: T
     agents: agents.data ?? [],
     questions: asked,
     review: waiting,
+    seen,
     totals: {
       questions: askedTotal,
       review: reviewing ? (head.data?.total ?? 0) : 0,
@@ -67,6 +71,9 @@ export function Inbox({ onOpen, onSelect, defaultOpen = false }: { onOpen: (n: T
   const rows = needRows(needs, agents.data ?? []);
   const hasNeeds = needs.permissions.length + needs.questions.length + needs.errors.length > 0;
 
+  const showNeeds = hasNeeds && filter !== 'review';
+  const showReview = reviewing && filter !== 'needs';
+
   return (
     <>
       <Popover
@@ -76,6 +83,7 @@ export function Inbox({ onOpen, onSelect, defaultOpen = false }: { onOpen: (n: T
           // Opening it is looking at what's new in review.
           setShown(next ? unseen : new Set());
           if (next) markAllSeen();
+          if (next) setFilter('all');
         }}
       >
         <PopoverTrigger asChild>
@@ -141,8 +149,24 @@ export function Inbox({ onOpen, onSelect, defaultOpen = false }: { onOpen: (n: T
               <Settings />
             </Button>
           </div>
+          {reviewing && (
+            <div className="flex gap-1 border-b border-line-faint px-3 py-1.5" data-inbox-filter>
+              {(['all', 'needs', 'review'] as const).map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  data-inbox-filter-option={f}
+                  aria-pressed={filter === f}
+                  onClick={() => setFilter(f)}
+                  className={cn('rounded-full px-2.5 py-0.5 text-[11.5px] transition', filter === f ? 'bg-surface-raised text-primary' : 'text-muted hover:text-primary')}
+                >
+                  {t(`inbox.filter.${f}`)}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="max-h-[min(640px,calc(var(--radix-popover-content-available-height)-60px))] overflow-y-auto p-1.5">
-            {hasNeeds && (
+            {showNeeds && (
               <Section title={t('inbox.needsYou')} data="needs">
                 {rows.map((row) => (
                   <NeedRowView
@@ -160,7 +184,7 @@ export function Inbox({ onOpen, onSelect, defaultOpen = false }: { onOpen: (n: T
                 <MoreMedia pages={questions} />
               </Section>
             )}
-            {reviewing ? (
+            {showReview ? (
               <ReviewSection
                 pages={pages}
                 shown={shown}
@@ -171,7 +195,7 @@ export function Inbox({ onOpen, onSelect, defaultOpen = false }: { onOpen: (n: T
                 }}
               />
             ) : (
-              !hasNeeds && <div className="px-3 py-6 text-center text-[12.5px] text-muted">{t('inbox.empty')}</div>
+              !showNeeds && <div className="px-3 py-6 text-center text-[12.5px] text-muted">{t('inbox.empty')}</div>
             )}
           </div>
         </PopoverContent>
