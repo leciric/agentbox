@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { batch, detectNewlyReady, readyKey } from './reviewAlert.ts';
+import { batch, detectNewlyReady, readyKey, reviewingOn, setReviewing } from './reviewAlert.ts';
 
 const item = (ref: string, fingerprint = 'a'): T.ReviewItem => ({ project: 'p', agent: ref, ref, finishedAt: '2026-10-14T10:00:00Z', fingerprint });
 
@@ -42,4 +42,15 @@ test('batch hands over what arrives together once', async () => {
   b.cancel();
   await new Promise((r) => setTimeout(r, 40));
   assert.equal(calls.length, 1);
+});
+
+test('reviewing is on until turned off, and the choice is kept', () => {
+  const kept = new Map<string, string>();
+  (globalThis as { localStorage?: unknown }).localStorage = { getItem: (k: string) => kept.get(k) ?? null, setItem: (k: string, v: string) => kept.set(k, v) };
+  assert.equal(reviewingOn(), true);
+  setReviewing(false);
+  assert.equal(reviewingOn(), false);
+  assert.equal(kept.get('agentbox.review.on'), 'false');
+  setReviewing(true);
+  assert.equal(kept.get('agentbox.review.on'), 'true');
 });

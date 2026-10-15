@@ -1525,9 +1525,12 @@ export interface ReviewItem {
   branch?: string;
   ai?: string;
   summary?: string;
+  changes?: AgentChanges;
   pr?: PullRequest;
   finishedAt: string;
   fingerprint: string;
+  verdict?: string;
+  reviewedAt?: string;
 }
 
 export interface ReviewRequest {
