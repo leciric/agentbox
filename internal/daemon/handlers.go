@@ -1226,7 +1226,7 @@ func (s *Server) agentAction(action string) func(http.ResponseWriter, *http.Requ
 		}
 		switch action {
 		case "start":
-			if err = s.startMachine(ctx, m, a); err != nil {
+			if err = s.startMachine(ctx, m, a, "a start request"); err != nil {
 				s.recordError(errStartFailed, a.AI)
 			}
 		case "stop":

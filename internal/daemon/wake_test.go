@@ -234,3 +234,32 @@ func TestAnAnswerNobodyWaitsOnIsToldToTheAgent(t *testing.T) {
 		t.Errorf("start at line %d, the chat's preparation at %d: the machine has to start first", at[0], at[1])
 	}
 }
+
+// An answer to a question of an agent that was retired with how=stop doesn't
+// start its machine again; a deliberate start does, and clears the mark.
+func TestAnAnswerDoesNotRestartARetiredAgent(t *testing.T) {
+	t.Parallel()
+	w := newWakeTest(t)
+	ctx := context.Background()
+	w.srv.markRetired(w.agent.Ref(), true)
+	q := state.Question{ID: newID(), Project: "hello-stack", Agent: "agent-01", Text: "Paginate the reminders?",
+		Status: state.QuestionPending, CreatedAt: time.Now()}
+	if err := w.srv.store.AddQuestion(ctx, q); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.srv.answerQuestion(ctx, q.ID, "Yes, twenty a page.", "lead"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if at := w.order(t, "incus start ab-hello-stack-agent-01"); at[0] >= 0 {
+		t.Fatal("a retired agent's machine was started by an answer")
+	}
+	// The lead telling it something is deliberate.
+	lead := api.NewClient(w.srv.leadSocketPath("hello-stack"))
+	if res, err := lead.TellAgent(ctx, "agent-01", "Carry on."); err != nil || res.Woke != "started" {
+		t.Fatalf("tell_agent = woke %q, %v; want the machine started", res.Woke, err)
+	}
+	if w.srv.retired[w.agent.Ref()] {
+		t.Error("starting the machine left it marked as retired")
+	}
+}
