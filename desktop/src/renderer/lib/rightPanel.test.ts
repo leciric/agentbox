@@ -28,12 +28,12 @@ test('the lead and a past agent have files, pages and media, but no machine tabs
   const lead: Whose = { kind: 'lead', ref: 'pawly/lead' };
   const gone: Whose = { kind: 'past', past: past('agent-1') };
   const live: Whose = { kind: 'agent', agent: agent('agent-2', 'stopped') };
-  for (const tab of P.panelTabs) {
+  for (const tab of P.panelKinds) {
     assert.equal(P.hasTab(lead, tab), !P.needsMachine(tab), `lead ${tab}`);
     assert.equal(P.hasTab(gone, tab), !P.needsMachine(tab), `past ${tab}`);
     assert.equal(P.hasTab(live, tab), true, `agent ${tab}`);
   }
-  assert.deepEqual(P.panelTabs.filter(P.needsMachine), ['desktop', 'terminal', 'browser']);
+  assert.deepEqual(P.panelKinds.filter(P.needsMachine), ['desktop', 'terminal', 'browser']);
 });
 
 test('whose is found among the agents, then the past ones; a retired pick is a past agent', () => {
@@ -72,23 +72,93 @@ test('the panel sits beside the chat while the chat keeps 360px, and is a drawer
   assert.ok(P.panelBox(540, 480, 480).width <= 480 - 24);
 });
 
-test('the panel opens closed, remembers its tab, width and filter, and a pick holds for its chat only', () => {
-  assert.equal(P.panelState().open, false);
-  assert.equal(P.panelState().withMachine, true);
-  P.openPanelOn('pawly/lead', 'desktop', 'pawly/agent-2');
-  let s = P.panelState();
-  assert.equal(s.open, true);
-  assert.equal(s.tab, 'desktop');
-  assert.equal(P.pickedFor(s, 'pawly/lead'), 'pawly/agent-2');
-  // Another chat in the middle follows that chat.
-  assert.equal(P.pickedFor(s, 'pawly/agent-3'), 'pawly/agent-3');
-  // Picking the chat itself is no pick.
-  P.openPanelOn('pawly/lead', 'files', 'pawly/lead');
-  s = P.panelState();
-  assert.equal(s.picked, null);
+test('a chat’s panel opens closed, on its launcher, and a card turns into a tab that asks whose it is', () => {
+  const chat = 'pawly/lead';
+  assert.deepEqual(P.chatPanel(P.panelState(), chat), { open: false, tabs: [], active: null });
+  P.setPanelOpen(chat, true);
+  // Opened with nothing in it: no tab, the launcher.
+  let p = P.chatPanel(P.panelState(), chat);
+  assert.equal(p.open, true);
+  assert.deepEqual(p.tabs, []);
+  P.chooseKind(chat, null, 'desktop');
+  p = P.chatPanel(P.panelState(), chat);
+  assert.equal(p.tabs.length, 1);
+  assert.equal(p.active, p.tabs[0].id);
+  assert.equal(P.needsTarget(p.tabs[0]), true);
+  P.chooseTarget(chat, p.tabs[0].id, 'pawly/agent-2');
+  p = P.chatPanel(P.panelState(), chat);
+  assert.deepEqual(p.tabs[0], { id: p.tabs[0].id, kind: 'desktop', target: 'pawly/agent-2' });
+  assert.equal(P.needsTarget(p.tabs[0]), false);
+  // The project's own kinds need no one.
+  assert.equal(P.needsTarget({ id: 'x', kind: 'settings' }), false);
+  assert.equal(P.needsTarget({ id: 'x', kind: null }), false);
+  // + adds a new tab on the launcher; its card turns that same tab.
+  P.addTab(chat);
+  p = P.chatPanel(P.panelState(), chat);
+  const fresh = p.tabs[1];
+  assert.equal(fresh.kind, null);
+  assert.equal(p.active, fresh.id);
+  P.chooseKind(chat, fresh.id, 'files');
+  p = P.chatPanel(P.panelState(), chat);
+  assert.deepEqual(p.tabs.map((t) => [t.id, t.kind]), [
+    [p.tabs[0].id, 'desktop'],
+    [fresh.id, 'files'],
+  ]);
+  // Another chat has its own panel.
+  assert.equal(P.chatPanel(P.panelState(), 'pawly/agent-3').open, false);
+  P.setPanel({ chats: {} });
+});
+
+test('tabs reorder, close onto their neighbour, and the last closes the panel', () => {
+  const chat = 'pawly/agent-2';
+  P.chooseKind(chat, null, 'files', 'pawly/agent-2');
+  P.chooseKind(chat, null, 'terminal', 'pawly/agent-2');
+  P.chooseKind(chat, null, 'media', 'pawly/lead');
+  const ids = () => P.chatPanel(P.panelState(), chat).tabs.map((t) => t.kind);
+  const id = (kind: string) => P.chatPanel(P.panelState(), chat).tabs.find((t) => t.kind === kind)?.id ?? '';
+  P.moveTab(chat, id('media'), 0);
+  assert.deepEqual(ids(), ['media', 'files', 'terminal']);
+  P.moveTab(chat, id('media'), 2);
+  assert.deepEqual(ids(), ['files', 'terminal', 'media']);
+  P.activateTab(chat, id('terminal'));
+  P.closeTab(chat, id('terminal'));
+  // The one to its right shows.
+  assert.equal(P.chatPanel(P.panelState(), chat).active, id('media'));
+  P.closeTab(chat, id('media'));
+  assert.equal(P.chatPanel(P.panelState(), chat).active, id('files'));
+  P.closeTab(chat, id('files'));
+  assert.deepEqual(P.chatPanel(P.panelState(), chat), { open: false, tabs: [], active: null });
+});
+
+test('opening the panel on a kind finds its tab or adds one, and the tabs, width and filter are remembered', () => {
+  const chat = 'pawly/lead';
+  P.openPanelOn(chat, 'files', 'pawly/agent-2');
+  P.openPanelOn(chat, 'settings');
+  P.openPanelOn(chat, 'files', 'pawly/agent-2');
+  let p = P.chatPanel(P.panelState(), chat);
+  assert.equal(p.tabs.length, 2);
+  assert.equal(p.tabs.find((t) => t.id === p.active)?.kind, 'files');
+  // Another target is another tab; the project's own kinds are one tab.
+  P.openPanelOn(chat, 'files', 'pawly/lead');
+  P.openPanelOn(chat, 'settings');
+  p = P.chatPanel(P.panelState(), chat);
+  assert.equal(p.tabs.length, 3);
   P.setPanel({ width: 600, withMachine: false });
   const saved = JSON.parse(store.get('agentbox.ui.v2.panel') ?? '{}');
-  assert.deepEqual(saved, { tab: 'files', width: 600, withMachine: false });
+  assert.equal(saved.width, 600);
+  assert.equal(saved.withMachine, false);
+  assert.deepEqual(saved.chats[chat], p);
+  P.setPanel({ chats: {}, withMachine: true });
+});
+
+test('a tab asks for the repository or an agent, or only an agent with a machine, the chat’s own first', () => {
+  const agents = [agent('agent-1', 'running', '2026-10-01T00:00:00Z'), agent('agent-2', 'stopped', '2026-10-05T00:00:00Z')];
+  const gone = [past('agent-0')];
+  const refs = (list: Whose[]) => list.map(P.whoseRef);
+  assert.deepEqual(refs(P.targets('files', 'pawly', 'pawly/lead', agents, gone, false)), ['pawly/lead', 'pawly/agent-2', 'pawly/agent-1', 'past:pawly/agent-0']);
+  assert.deepEqual(refs(P.targets('files', 'pawly', 'pawly/agent-1', agents, gone, true)), ['pawly/lead', 'pawly/agent-1', 'pawly/agent-2']);
+  // Desktop, Terminal and Browser: agents with a machine, filter or not.
+  assert.deepEqual(refs(P.targets('terminal', 'pawly', 'pawly/lead', agents, gone, false)), ['pawly/agent-2', 'pawly/agent-1']);
 });
 
 test('the Browser tab offers the ports the agent’s Chromium has open, through the preview proxy', () => {
@@ -112,13 +182,9 @@ test('the Browser tab offers the ports the agent’s Chromium has open, through 
 });
 
 test('pull requests and settings are the project’s, whoever is picked', () => {
-  assert.deepEqual(P.panelTabs.filter(P.projectWide), ['pulls', 'settings']);
+  assert.deepEqual(P.panelKinds.filter(P.projectWide), ['pulls', 'settings']);
   assert.equal(P.needsMachine('settings'), false);
   assert.equal(P.panelState().section, 'repository');
-});
-
-test('the project’s settings and pull requests open the panel wide', () => {
-  assert.equal(P.panelWant({ tab: 'settings', width: 540 }), P.panelWide);
-  assert.equal(P.panelWant({ tab: 'pulls', width: 1000 }), 1000);
-  assert.equal(P.panelWant({ tab: 'files', width: 540 }), 540);
+  // One width for every tab: no kind asks for more.
+  assert.equal('panelWant' in P, false);
 });

@@ -8,7 +8,7 @@ import * as A from '../../../shared/api';
 import type { View } from '../../App';
 import { useT } from '../../lib/i18n';
 import { isNew, livePages } from '../../lib/pages';
-import { setPanel, setPanelMenu, usePanel } from '../../lib/rightPanel';
+import { setPanelMenu, setPanelOpen, useChatPanel } from '../../lib/rightPanel';
 import { cn, shortcut } from '../../lib/utils';
 import { useProjectPages } from '../pages/usePages';
 import { Button } from '../ui/button';
@@ -36,11 +36,11 @@ export function usePanelMenu(items: ReactNode | null, on: boolean) {
 }
 
 // PanelButton is the chat header's one button that opens and closes the
-// panel, with a dot while it's closed and the chat's project has pages you
+// chat's panel, with a dot while it's closed and the chat's project has pages you
 // haven't seen.
-export function PanelButton({ project }: { project: string }) {
+export function PanelButton({ project, chat }: { project: string; chat: string }) {
   const t = useT();
-  const { open } = usePanel();
+  const { open } = useChatPanel(chat);
   const pages = useProjectPages(project);
   const fresh = livePages(pages.data).some(isNew);
   return (
@@ -51,7 +51,7 @@ export function PanelButton({ project }: { project: string }) {
         aria-label={t('panel.toggle')}
         aria-pressed={open}
         className={cn('relative', open && 'bg-surface-raised text-primary')}
-        onClick={() => setPanel({ open: !open })}
+        onClick={() => setPanelOpen(chat, !open)}
         data-panel-toggle
       >
         <PanelRight />

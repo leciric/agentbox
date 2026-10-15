@@ -135,8 +135,8 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
     const place = projectPlace(opensAt);
     if (place.tab === 'pulls') openPanelOn(`${name}/${T.LeadName}`, 'pulls');
     else if (place.tab === 'settings') {
-      openPanelOn(`${name}/${T.LeadName}`, 'settings');
       setPanel({ section: place.section });
+      openPanelOn(`${name}/${T.LeadName}`, 'settings');
     }
   }, [v2, opensAt, name]);
   const [iconOpen, setIconOpen] = useState(false);
@@ -226,7 +226,7 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
               {t('project.view.newAgent')}
             </Button>
             {v2 ? (
-              <PanelButton project={name} />
+              <PanelButton project={name} chat={`${name}/${T.LeadName}`} />
             ) : (
               <Menu>
                 <MenuTrigger asChild>

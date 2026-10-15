@@ -238,7 +238,7 @@ export function AgentView({
             </Button>
           )}
           {v2 ? (
-            <PanelButton project={agent.project} />
+            <PanelButton project={agent.project} chat={agent.ref} />
           ) : (
             <Menu>
               <MenuTrigger asChild>

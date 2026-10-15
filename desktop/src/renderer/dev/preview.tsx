@@ -157,11 +157,15 @@
 //                           bridge answers, the agent coming back in 6s
 //                           (dev/review.tsx)
 //   &panel=files            with &v2=1, the right-hand panel open on a tab
-//                           (files, desktop, terminal, browser, pages, media);
-//                           &whose=agent-12 (or lead, or past:agent-80) shows
-//                           that agent's beside the chat, &file=README.md with
-//                           a file open in Files, &section=general Settings
-//                           on that section
+//                           (files, desktop, terminal, browser, pages, media,
+//                           pulls, settings), or on its launcher (launcher);
+//                           several, comma-separated, each kind:whose
+//                           (files:lead,desktop:agent-41,media:past:agent-80),
+//                           the last shown (the first with &first=1); a tab
+//                           with no whose asks for it (&whose= gives every tab
+//                           one), &add=1 adds a new tab's launcher,
+//                           &file=README.md opens a file in Files,
+//                           &section=general Settings on that section
 //   ?newagent=1             the New agent dialog, open on the project, for its
 //                           Size picker and the rest of its form
 //   &free=progress|done|partial|error
@@ -235,7 +239,7 @@ import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
 import { agent12Chat, asleepChat, buildFixtures, claudeLimits, compactionThread, richChat, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
 import { seedPastAgents } from './pastAgents';
-import { openPanelOn, setPanel, type PanelTab } from '../lib/rightPanel';
+import { activateTab, addTab, chatPanel, openPanelOn, panelState, setPanel, setPanelOpen, type PanelKind } from '../lib/rightPanel';
 import type { ProjectSection } from '../lib/tabs';
 import { openFile } from '../lib/files';
 import { PastAgents } from '../components/PastAgents';
@@ -415,16 +419,29 @@ if (appView && params.get('v2') === '1') {
   // its picker the past agents.
   if (!media) seedMedia(queryClient);
   if (!past) seedPastAgents(queryClient);
-  const tab = params.get('panel') as PanelTab | null;
-  if (tab) {
+  // Each page starts with no panel open, whatever the last one left.
+  setPanel({ chats: {} });
+  const tabs = params.get('panel');
+  if (tabs) {
     const chat = appView.startsWith('agent-') ? `${PROJECT}/${appView}` : `${PROJECT}/lead`;
-    const whose = params.get('whose');
-    const ref = whose?.startsWith('past:') ? `past:${PROJECT}/${whose.slice(5)}` : whose ? `${PROJECT}/${whose}` : undefined;
-    openPanelOn(chat, tab, ref);
+    const refOf = (whose: string | undefined) => (whose === 'lead' ? `${PROJECT}/lead` : whose?.startsWith('past:') ? `past:${PROJECT}/${whose.slice(5)}` : whose ? `${PROJECT}/${whose}` : undefined);
     const section = params.get('section') as ProjectSection | null;
     if (section) setPanel({ section });
-    const file = params.get('file');
-    if (file) openFile(ref ?? chat, file);
+    let first: string | undefined;
+    for (const item of tabs.split(',')) {
+      const [kind, whose] = item.split(':') as [PanelKind | 'launcher', string | undefined];
+      if (kind === 'launcher') {
+        setPanelOpen(chat, true);
+        continue;
+      }
+      const ref = refOf(whose ?? params.get('whose') ?? undefined);
+      openPanelOn(chat, kind, ref);
+      first ??= chatPanel(panelState(), chat).active ?? undefined;
+      const file = params.get('file');
+      if (file && kind === 'files' && ref) openFile(ref, file);
+    }
+    if (params.get('add') === '1') addTab(chat);
+    else if (params.get('first') === '1' && first) activateTab(chat, first);
   }
 }
 if (imageUpdate) seedImageUpdate(queryClient);

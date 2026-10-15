@@ -5,22 +5,23 @@
 // default, ⌘D (apps/web/src/components/chat/PanelLayoutControls.tsx, mod+d in
 // packages/shared/src/keybindings.ts); beside the chat while the chat keeps
 // 360px, a sheet over it below 1024px (hooks/usePreviewPanelInlineSize.ts,
-// rightPanelLayout.ts). Its tabs sit in a rail of icons on its outer edge,
-// and the agent whose they are is picked in its header: the chat in the
-// middle's by default.
+// rightPanelLayout.ts). Its tabs run along its top, each chat its own
+// (rightPanelStore.ts), and + opens a launcher of cards, one per kind
+// (components/RightPanelTabs.tsx, RightPanelEmptyState). A tab of a kind that
+// needs one asks whose it shows inside it, again as cards.
 import { useSyncExternalStore } from 'react';
 import type * as T from '../../shared/api.ts';
 import type { ProjectSection } from './tabs.ts';
 
-export type PanelTab = 'files' | 'desktop' | 'terminal' | 'browser' | 'pages' | 'media' | 'pulls' | 'settings';
-export const panelTabs: PanelTab[] = ['files', 'desktop', 'terminal', 'browser', 'pages', 'media', 'pulls', 'settings'];
+export type PanelKind = 'files' | 'desktop' | 'terminal' | 'browser' | 'pages' | 'media' | 'pulls' | 'settings';
+export const panelKinds: PanelKind[] = ['files', 'desktop', 'terminal', 'browser', 'pages', 'media', 'pulls', 'settings'];
 
 // The project's own tabs, the lead's page's tabs before: its pull requests
 // and its settings, the same whoever is picked.
-export const projectWide = (tab: PanelTab) => tab === 'pulls' || tab === 'settings';
+export const projectWide = (tab: PanelKind) => tab === 'pulls' || tab === 'settings';
 
 // The tabs that show a machine: an agent's display, its shell, its dev server.
-export const needsMachine = (tab: PanelTab) => tab === 'desktop' || tab === 'terminal' || tab === 'browser';
+export const needsMachine = (tab: PanelKind) => tab === 'desktop' || tab === 'terminal' || tab === 'browser';
 
 // A past agent (its machine was removed) is picked as "past:<ref>": what it
 // left is read from its branch, its pages and its media.
@@ -49,7 +50,7 @@ export const whoseRef = (w: Whose) => (w.kind === 'lead' ? w.ref : w.kind === 'a
 // hasTab says whether whose has the tab: the lead and a past agent have no
 // machine, so no desktop, terminal or browser; everyone has files, pages and
 // media.
-export function hasTab(w: Whose, tab: PanelTab): boolean {
+export function hasTab(w: Whose, tab: PanelKind): boolean {
   return w.kind === 'agent' || !needsMachine(tab);
 }
 
@@ -83,46 +84,84 @@ export function pickable(project: string, agents: T.Agent[], past: T.ArchivedAge
   return [...live, ...gone];
 }
 
+// targets is whose a tab of kind asks to show, as cards: the repository (the
+// lead's) and the agents for files, pages and media, past ones too unless
+// only those with a machine are wanted; for the desktop, the terminal and the
+// browser, only the agents with a machine. The chat in the middle's own comes
+// first.
+export function targets(kind: PanelKind, project: string, chat: string, agents: T.Agent[], past: T.ArchivedAgent[], withMachine: boolean): Whose[] {
+  const list = pickable(project, agents, past, withMachine || needsMachine(kind));
+  const own = list.findIndex((w) => w.kind === 'agent' && w.agent.ref === chat);
+  if (own > 0) list.unshift(...list.splice(own, 1));
+  return needsMachine(kind) ? list : [{ kind: 'lead', ref: `${project}/lead` }, ...list];
+}
+
 // panelBox is how wide the panel is, and whether it sits beside the chat or
 // over it as a drawer: beside from 1024px of window up, while the chat keeps
-// chatMin; a drawer otherwise.
+// chatMin; a drawer otherwise. Every tab has the one width, as in T3Code
+// (hooks/usePreviewPanelInlineSize.ts: one stored width, the column beside it
+// kept at 360px).
 export const chatMin = 360;
 export const panelMin = 340;
 export const panelDefault = 540;
-// The project's settings and pull requests are pages laid out for a wide
-// column: they open the panel at least this wide, room allowing.
-export const panelWide = 860;
-export const panelWant = (state: Pick<PanelState, 'tab' | 'width'>) => (projectWide(state.tab) ? Math.max(state.width, panelWide) : state.width);
 export function panelBox(want: number, room: number, windowWidth: number): { width: number; drawer: boolean } {
   if (windowWidth < 1024 || room - chatMin < panelMin) return { width: Math.round(Math.min(windowWidth * 0.92, Math.max(want, 420), windowWidth - 24)), drawer: true };
   return { width: Math.round(Math.max(panelMin, Math.min(want, room - chatMin))), drawer: false };
 }
 
-// The panel's state. It opens closed; the tab, its width and the machine
-// filter are remembered. picked is whose the panel shows, chosen for the chat
-// in the middle (for): opening another chat follows that chat again.
-export interface PanelState {
+// A tab of the panel, as T3Code's surfaces (apps/web/src/rightPanelStore.ts):
+// kind is what it shows, null while it is a new tab's launcher, and target
+// whose it is (a ref, as whoseRef makes it), unset until it is chosen inside
+// the tab. The project's own tabs (projectWide) need none.
+export interface PanelTab {
+  id: string;
+  kind: PanelKind | null;
+  target?: string;
+}
+
+// needsTarget says whether a tab still has to ask whose it shows.
+export const needsTarget = (tab: PanelTab) => !!tab.kind && !projectWide(tab.kind) && !tab.target;
+
+// A chat's panel: open or not, its tabs in order, and the one shown.
+export interface ChatPanel {
   open: boolean;
-  tab: PanelTab;
+  tabs: PanelTab[];
+  active: string | null;
+}
+const closedPanel: ChatPanel = { open: false, tabs: [], active: null };
+
+// The panel's state, all remembered: each chat's own panel, keyed by its ref,
+// the one width, the machine filter and the Settings tab's section.
+export interface PanelState {
   width: number;
   withMachine: boolean;
-  picked: { for: string; ref: string } | null;
-  section: ProjectSection; // the Settings tab's
+  section: ProjectSection;
+  chats: Record<string, ChatPanel>;
 }
 
 const storageKey = 'agentbox.ui.v2.panel';
 const listeners = new Set<() => void>();
 let current: PanelState | undefined;
 
+const isTab = (t: unknown): t is PanelTab => {
+  const x = t as PanelTab;
+  return !!x && typeof x.id === 'string' && (x.kind === null || panelKinds.includes(x.kind)) && (x.target === undefined || typeof x.target === 'string');
+};
+
 function load(): PanelState {
-  const base: PanelState = { open: false, tab: 'files', width: panelDefault, withMachine: true, picked: null, section: 'repository' };
+  const base: PanelState = { width: panelDefault, withMachine: true, section: 'repository', chats: {} };
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey) ?? '{}') as Partial<PanelState>;
+    const chats: Record<string, ChatPanel> = {};
+    for (const [chat, p] of Object.entries(saved.chats ?? {})) {
+      const tabs = Array.isArray(p?.tabs) ? p.tabs.filter(isTab) : [];
+      chats[chat] = { open: p.open === true && tabs.length > 0, tabs, active: tabs.some((t) => t.id === p.active) ? p.active : (tabs[0]?.id ?? null) };
+    }
     return {
       ...base,
-      ...(saved.tab && panelTabs.includes(saved.tab) ? { tab: saved.tab } : {}),
       ...(typeof saved.width === 'number' ? { width: saved.width } : {}),
       ...(typeof saved.withMachine === 'boolean' ? { withMachine: saved.withMachine } : {}),
+      chats,
     };
   } catch {
     return base;
@@ -137,8 +176,8 @@ export function panelState(): PanelState {
 export function setPanel(change: Partial<PanelState>): void {
   current = { ...panelState(), ...change };
   try {
-    const { tab, width, withMachine } = current;
-    localStorage.setItem(storageKey, JSON.stringify({ tab, width, withMachine }));
+    const { width, withMachine, chats } = current;
+    localStorage.setItem(storageKey, JSON.stringify({ width, withMachine, chats }));
   } catch {
     // Kept for this session, if not for the next.
   }
@@ -154,15 +193,85 @@ export function usePanel(): PanelState {
   return useSyncExternalStore(subscribe, panelState);
 }
 
-// pickedFor is whose the panel shows beside the chat chat: what was picked
-// for it, or the chat itself.
-export function pickedFor(state: PanelState, chat: string): string {
-  return state.picked?.for === chat ? state.picked.ref : chat;
+// chatPanel is chat's panel: closed with no tabs until it is opened.
+export const chatPanel = (state: PanelState, chat: string): ChatPanel => state.chats[chat] ?? closedPanel;
+
+export function useChatPanel(chat: string): ChatPanel {
+  return chatPanel(usePanel(), chat);
 }
 
-// openPanelOn opens the panel on a tab, showing ref, beside chat.
-export function openPanelOn(chat: string, tab: PanelTab, ref?: string): void {
-  setPanel({ open: true, tab, ...(ref ? { picked: ref === chat ? null : { for: chat, ref } } : {}) });
+function update(chat: string, change: (p: ChatPanel) => ChatPanel): void {
+  const state = panelState();
+  const before = chatPanel(state, chat);
+  const after = change(before);
+  if (after !== before) setPanel({ chats: { ...state.chats, [chat]: after } });
+}
+
+let lastId = 0;
+const newId = () => `${Date.now().toString(36)}${(++lastId).toString(36)}`;
+
+// setPanelOpen opens or closes chat's panel; with no tabs it opens on the
+// launcher.
+export function setPanelOpen(chat: string, open: boolean): void {
+  update(chat, (p) => (p.open === open ? p : { ...p, open }));
+}
+
+// addTab is the tab strip's +: a new tab, on the launcher.
+export function addTab(chat: string): void {
+  const tab: PanelTab = { id: newId(), kind: null };
+  update(chat, (p) => ({ open: true, tabs: [...p.tabs, tab], active: tab.id }));
+}
+
+// chooseKind is a launcher's card: it turns the new tab id into kind, or
+// adds a tab of kind when the launcher is the empty panel's (no id).
+export function chooseKind(chat: string, id: string | null, kind: PanelKind, target?: string): void {
+  update(chat, (p) => {
+    if (id && p.tabs.some((t) => t.id === id)) return { ...p, open: true, tabs: p.tabs.map((t) => (t.id === id ? { id, kind, ...(target ? { target } : {}) } : t)), active: id };
+    const tab: PanelTab = { id: newId(), kind, ...(target ? { target } : {}) };
+    return { open: true, tabs: [...p.tabs, tab], active: tab.id };
+  });
+}
+
+// chooseTarget is whose tab id shows: picked from its cards, or changed.
+export function chooseTarget(chat: string, id: string, target: string): void {
+  update(chat, (p) => ({ ...p, tabs: p.tabs.map((t) => (t.id === id ? { ...t, target } : t)) }));
+}
+
+export function activateTab(chat: string, id: string): void {
+  update(chat, (p) => (p.active === id || !p.tabs.some((t) => t.id === id) ? p : { ...p, active: id }));
+}
+
+// closeTab closes a tab, showing its right-hand neighbour (or the new last),
+// and the panel with its last tab, as T3Code's closeSurface does.
+export function closeTab(chat: string, id: string): void {
+  update(chat, (p) => {
+    const index = p.tabs.findIndex((t) => t.id === id);
+    if (index < 0) return p;
+    const tabs = p.tabs.filter((t) => t.id !== id);
+    const active = p.active === id ? (tabs[Math.min(index, tabs.length - 1)]?.id ?? null) : p.active;
+    return { open: p.open && tabs.length > 0, tabs, active };
+  });
+}
+
+// moveTab puts tab id at index toIndex, a tab dragged along the strip.
+export function moveTab(chat: string, id: string, toIndex: number): void {
+  update(chat, (p) => {
+    const from = p.tabs.findIndex((t) => t.id === id);
+    if (from < 0 || from === toIndex) return p;
+    const tabs = [...p.tabs];
+    tabs.splice(Math.max(0, Math.min(toIndex, tabs.length - 1)), 0, ...tabs.splice(from, 1));
+    return { ...p, tabs };
+  });
+}
+
+// openPanelOn opens chat's panel on a tab of kind: the one showing target
+// already (any of the project's own kind), or a new one, which asks whose it
+// is when no target is given.
+export function openPanelOn(chat: string, kind: PanelKind, target?: string): void {
+  const p = chatPanel(panelState(), chat);
+  const there = p.tabs.find((t) => t.kind === kind && (projectWide(kind) || (target ? t.target === target : !t.target)));
+  if (there) update(chat, (q) => ({ ...q, open: true, active: there.id }));
+  else chooseKind(chat, null, kind, target);
 }
 
 // The ⋯ menu the chat in the middle had, given to the panel: its view sets

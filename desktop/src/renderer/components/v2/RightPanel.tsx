@@ -1,17 +1,20 @@
 // UI v2's right-hand panel: closed by default, opened from one button in the
 // chat's header (PanelButton) or ⌘D, it gathers what an agent has besides
 // its chat: Files (#306), its Desktop, Terminal and Browser, the Hatch pages
-// it published and its Media, in a rail of icons on its outer edge. The
-// picker in its header chooses whose they are, for every tab: the chat in
-// the middle's by default, the project's repository (the lead's), or any of
-// its agents, past ones too. A tab that needs a machine where there is none
-// lists the agents that have one, to pick from. It holds the chat's ⋯ menu
-// too (usePanelMenu). lib/rightPanel.ts has its rules and state; the mock
-// was concept E's &rp=2 (dev/concepts/rightPanel.tsx on
-// agentbox/mock-right-panel).
+// it published and its Media, and the project's Pull requests and Settings.
+// It works as T3Code's right panel (apps/web/src/components/RightPanelTabs.tsx,
+// apps/web/src/rightPanelStore.ts): tabs along its top, each chat its own,
+// dragged to reorder and closed with their ×; with none open, or a new tab
+// (+), a launcher of cards, one per kind. A tab of a kind that shows an
+// agent's asks whose first, again as cards: the repository or any of the
+// project's agents for Files, Pages and Media, the agents with a machine for
+// Desktop, Terminal and Browser; the picker in the tab's header changes it.
+// One width for every tab (PreviewPanelShell.tsx, RightPanelResizeHandle.tsx).
+// It holds the chat's ⋯ menu too (usePanelMenu). lib/rightPanel.ts has its
+// rules and state.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, ChevronDown, Crown, Ellipsis, FolderTree, GitBranch, GitPullRequest, Globe, SlidersHorizontal, HardDrive, Images, Monitor, Moon, Play, Search, SquareTerminal, Unplug, X, type LucideIcon } from 'lucide-react';
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Check, ChevronDown, Crown, Ellipsis, FolderTree, GitBranch, GitPullRequest, Globe, SlidersHorizontal, HardDrive, Images, Monitor, Moon, Play, Plus, Search, SquareTerminal, Unplug, X, type LucideIcon } from 'lucide-react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import * as A from '../../../shared/api';
 import type * as T from '../../../shared/api';
@@ -23,25 +26,33 @@ import { isNew, livePages } from '../../lib/pages';
 import { pastAgentsKey } from '../../lib/pastAgents';
 import { projectLabel } from '../../lib/projectName';
 import {
+  activateTab,
+  addTab,
+  chatPanel,
+  chooseKind,
+  chooseTarget,
+  closeTab,
   hasTab,
   machineOf,
+  moveTab,
   needsMachine,
+  needsTarget,
   projectWide,
   openPanelOn,
   panelBox,
   panelDefault,
   panelMin,
   panelState,
-  panelWant,
-  panelTabs,
   pickable,
-  pickedFor,
   resolveWhose,
   setPanel,
+  setPanelOpen,
+  targets,
   usePanel,
   usePanelMenuItems,
   whoseRef,
   type Machine,
+  type PanelKind,
   type PanelState,
   type PanelTab,
   type Whose,
@@ -66,7 +77,7 @@ import { Tip } from '../ui/tooltip';
 import { PanelBrowser } from './PanelBrowser';
 import { chatOf } from './PanelButton';
 
-const tabIcon: Record<PanelTab, LucideIcon | typeof PageIcon> = {
+const kindIcon: Record<PanelKind, LucideIcon | typeof PageIcon> = {
   files: FolderTree,
   desktop: Monitor,
   terminal: SquareTerminal,
@@ -76,7 +87,7 @@ const tabIcon: Record<PanelTab, LucideIcon | typeof PageIcon> = {
   pulls: GitPullRequest,
   settings: SlidersHorizontal,
 };
-const tabLabel: Record<PanelTab, MessageKey> = {
+const kindLabel: Record<PanelKind, MessageKey> = {
   files: 'panel.tab.files',
   desktop: 'panel.tab.desktop',
   terminal: 'panel.tab.terminal',
@@ -86,12 +97,34 @@ const tabLabel: Record<PanelTab, MessageKey> = {
   pulls: 'panel.tab.pulls',
   settings: 'panel.tab.settings',
 };
-
-const railWidth = 44;
+const kindDescription: Record<PanelKind, MessageKey> = {
+  files: 'panel.desc.files',
+  desktop: 'panel.desc.desktop',
+  terminal: 'panel.desc.terminal',
+  browser: 'panel.desc.browser',
+  pages: 'panel.desc.pages',
+  media: 'panel.desc.media',
+  pulls: 'panel.desc.pulls',
+  settings: 'panel.desc.settings',
+};
+const kindAsk: Record<PanelKind, MessageKey> = {
+  files: 'panel.target.files',
+  desktop: 'panel.target.desktop',
+  terminal: 'panel.target.terminal',
+  browser: 'panel.target.browser',
+  pages: 'panel.target.pages',
+  media: 'panel.target.media',
+  pulls: 'panel.target.files',
+  settings: 'panel.target.files',
+};
+// A launcher's letter for each kind, as T3Code's launcher has (B, T, F…).
+const kindKey: Record<PanelKind, string> = { files: 'F', desktop: 'D', terminal: 'T', browser: 'B', pages: 'P', media: 'M', pulls: 'R', settings: 'S' };
+const agentKinds: PanelKind[] = ['files', 'desktop', 'terminal', 'browser', 'pages', 'media'];
+const projectKinds: PanelKind[] = ['pulls', 'settings'];
 
 // RightPanelHost sits beside the main column of App, for a view with a chat:
-// it lays the panel out beside the chat or as a drawer, and listens for ⌘D,
-// Escape and a file a chat opens.
+// it lays the chat's panel out beside the chat or as a drawer, and listens
+// for ⌘D, Escape and a file a chat opens.
 export function RightPanelHost({ view, onSelect }: { view: View; onSelect: (view: View) => void }) {
   const t = useT();
   const at = chatOf(view);
@@ -121,7 +154,7 @@ export function RightPanelHost({ view, onSelect }: { view: View; onSelect: (view
       if ((event.target as Element | null)?.closest?.('.xterm, canvas')) return;
       if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'd') {
         event.preventDefault();
-        setPanel({ open: !panelState().open });
+        setPanelOpen(chat, !chatPanel(panelState(), chat).open);
       }
     };
     addEventListener('keydown', onKey);
@@ -135,19 +168,19 @@ export function RightPanelHost({ view, onSelect }: { view: View; onSelect: (view
   }, [chat]);
 
   if (!at) return <span ref={probe} hidden />;
-  const box = panelBox(panelWant(state), room, windowWidth);
+  const box = panelBox(state.width, room, windowWidth);
   return (
     <>
       <span ref={probe} hidden />
-      {state.open && room > 0 && (
+      {chatPanel(state, chat).open && room > 0 && (
         <>
-          {box.drawer && <div className="fixed inset-0 z-40 animate-fade-in bg-scrim backdrop-blur-sm" onClick={() => setPanel({ open: false })} data-panel-scrim />}
+          {box.drawer && <div className="fixed inset-0 z-40 animate-fade-in bg-scrim backdrop-blur-sm" onClick={() => setPanelOpen(chat, false)} data-panel-scrim />}
           <aside
             style={{ width: box.width }}
             aria-label={t('panel.label')}
             className={cn('relative flex h-full shrink-0 border-l border-line bg-sunken', box.drawer && 'fixed inset-y-0 right-0 z-50 animate-fade-in bg-modal shadow-[-20px_0_60px_-20px_var(--ab-shadow-deep)]')}
             onKeyDown={(event) => {
-              if (event.key === 'Escape' && box.drawer) setPanel({ open: false });
+              if (event.key === 'Escape' && box.drawer) setPanelOpen(chat, false);
             }}
             data-right-panel={box.drawer ? 'drawer' : 'beside'}
           >
@@ -160,7 +193,8 @@ export function RightPanelHost({ view, onSelect }: { view: View; onSelect: (view
   );
 }
 
-// WidthHandle drags the panel's left edge; a double click puts it back.
+// WidthHandle drags the panel's left edge, the one width of all its tabs; a
+// double click puts it back.
 function WidthHandle({ width }: { width: number }) {
   const last = useRef<number | null>(null);
   const w = useRef(width);
@@ -190,42 +224,28 @@ function WidthHandle({ width }: { width: number }) {
   );
 }
 
-// The project's agents and past agents, and whose the panel shows.
-function useWhose(project: string, chat: string) {
-  const state = usePanel();
+// The project's agents and past agents, for the tabs to find whose they show.
+function useAgents(project: string) {
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
   const past = useQuery({ queryKey: [...pastAgentsKey, 'panel', project], queryFn: () => api.archivedAgents({ project, limit: 50 }), staleTime: 30_000 });
   const mine = useMemo(() => (agents.data ?? []).filter((a) => a.project === project), [agents.data, project]);
-  const gone = past.data ?? [];
-  const ref = pickedFor(state, chat);
-  const whose = resolveWhose(ref, project, mine, gone) ?? resolveWhose(chat, project, mine, gone) ?? { kind: 'lead', ref: `${project}/${A.LeadName}` };
-  return { state, whose, agents: mine, past: gone, loading: agents.isPending };
+  return { agents: mine, past: past.data ?? [], loaded: !agents.isPending && !past.isPending };
 }
 
 function RightPanel({ project, chat, width, onSelect }: { project: string; chat: string; width: number; onSelect: (view: View) => void }) {
   const t = useT();
-  const { state, whose, agents, past } = useWhose(project, chat);
-  const pick = (w: Whose) => setPanel({ picked: whoseRef(w) === chat ? null : { for: chat, ref: whoseRef(w) } });
-  const Icon = tabIcon[state.tab];
-  const pages = useProjectPages(project);
-  const fresh = livePages(pages.data).filter((p) => isNew(p) && (whose.kind === 'lead' || p.agents.includes(whoseRef(whose).replace(/^past:/, '')))).length;
+  const state = usePanel();
+  const panel = chatPanel(state, chat);
+  const { agents, past, loaded } = useAgents(project);
+  const tab = panel.tabs.find((x) => x.id === panel.active) ?? null;
+  const whose = (x: PanelTab) => (x.target ? resolveWhose(x.target, project, agents, past) : undefined);
   const menu = usePanelMenuItems<ReactNode>();
 
   return (
-    <div className="flex min-w-0 flex-1" data-panel-tab={state.tab} data-panel-whose={whoseRef(whose)}>
-      <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex h-11 shrink-0 items-center gap-1.5 border-b border-line-faint pl-3 pr-1.5">
-          <span className="flex shrink-0 items-center gap-1.5 text-[12.5px] font-semibold text-title">
-            <Icon className="size-4 text-subtle" />
-            {t(tabLabel[state.tab])}
-          </span>
-          <span className="text-faint">·</span>
-          {projectWide(state.tab) ? (
-            <ProjectName project={project} />
-          ) : (
-            <Picker project={project} whose={whose} agents={agents} past={past} onPick={pick} />
-          )}
-          <span className="ml-auto" />
+    <div className="flex min-w-0 flex-1 flex-col" data-panel-tab={tab?.kind ?? 'launcher'} data-panel-whose={tab?.target}>
+      <div className="flex h-10 shrink-0 items-stretch border-b border-line-faint bg-rail pr-1.5">
+        <TabStrip project={project} chat={chat} tabs={panel.tabs} active={panel.active} whose={whose} />
+        <span className="flex shrink-0 items-center gap-0.5 pl-1">
           {menu && (
             <Menu>
               <MenuTrigger asChild>
@@ -236,52 +256,214 @@ function RightPanel({ project, chat, width, onSelect }: { project: string; chat:
               <MenuContent>{menu}</MenuContent>
             </Menu>
           )}
-        </div>
-        {projectWide(state.tab) ? (
-          <ProjectTab project={project} tab={state.tab} section={state.section} onSelect={onSelect} />
-        ) : (
-          <Body project={project} whose={whose} tab={state.tab} agents={agents} past={past} width={width - railWidth} onPick={pick} />
-        )}
+          <Tip label={t('panel.closeTip', { keys: shortcut('D') })}>
+            <Button size="icon-sm" variant="ghost" aria-label={t('panel.close')} onClick={() => setPanelOpen(chat, false)} data-panel-close>
+              <X />
+            </Button>
+          </Tip>
+        </span>
       </div>
-      <nav className="flex shrink-0 flex-col items-center gap-1 border-l border-line bg-rail py-1.5" style={{ width: railWidth }} aria-label={t('panel.tabs')}>
-        <Tip label={t('panel.closeTip', { keys: shortcut('D') })} side="left">
-          <button type="button" aria-label={t('panel.close')} onClick={() => setPanel({ open: false })} className="flex size-8 items-center justify-center rounded-md text-subtle hover:bg-surface-raised hover:text-primary" data-panel-close>
-            <X className="size-4" />
-          </button>
+      {tab ? (
+        <TabBody key={tab.id} project={project} chat={chat} tab={tab} whose={whose(tab)} agents={agents} past={past} loaded={loaded} width={width} section={state.section} onSelect={onSelect} />
+      ) : (
+        <Launcher project={project} chat={chat} id={null} />
+      )}
+    </div>
+  );
+}
+
+// ——— The tab strip ———
+
+// TabStrip is the panel's tabs along its top, then +. A tab is dragged
+// along it to reorder (T3Code's SortableTabList), and closed with its ×,
+// which shows on hover and on the tab shown (PanelTabCloseButton), or with
+// a middle click.
+function TabStrip({ project, chat, tabs, active, whose }: { project: string; chat: string; tabs: PanelTab[]; active: string | null; whose: (tab: PanelTab) => Whose | undefined }) {
+  const t = useT();
+  const dragged = useRef<string | null>(null);
+  const [over, setOver] = useState<number | null>(null);
+  const strip = useRef<HTMLDivElement>(null);
+  const pages = useProjectPages(project);
+  const fresh = livePages(pages.data).filter(isNew);
+  useEffect(() => {
+    strip.current?.querySelector('[aria-selected="true"]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [active]);
+  const drop = (index: number) => {
+    if (dragged.current) moveTab(chat, dragged.current, index);
+    dragged.current = null;
+    setOver(null);
+  };
+  return (
+    <div
+      ref={strip}
+      role="tablist"
+      aria-label={t('panel.tabs')}
+      className="flex min-w-0 flex-1 items-stretch overflow-x-auto [scrollbar-width:none]"
+      onWheel={(event) => {
+        if (event.deltaY && !event.deltaX) event.currentTarget.scrollLeft += event.deltaY;
+      }}
+      data-panel-tabs
+    >
+      {tabs.map((tab, index) => {
+        const on = tab.id === active;
+        const Icon = tab.kind ? kindIcon[tab.kind] : Plus;
+        const label = tab.kind ? t(kindLabel[tab.kind]) : t('panel.newTab');
+        const w = whose(tab);
+        const name = tab.kind && projectWide(tab.kind) ? '' : w ? whoseName(t, w) : '';
+        const dot = tab.kind === 'pages' && fresh.some((p) => !w || w.kind === 'lead' || p.agents.includes(whoseRef(w).replace(/^past:/, '')));
+        return (
+          <div
+            key={tab.id}
+            role="tab"
+            tabIndex={on ? 0 : -1}
+            aria-selected={on}
+            title={name ? `${label} · ${name}` : label}
+            draggable
+            onDragStart={(event) => {
+              dragged.current = tab.id;
+              event.dataTransfer.effectAllowed = 'move';
+              event.dataTransfer.setData('text/plain', tab.id);
+            }}
+            onDragOver={(event) => {
+              if (!dragged.current) return;
+              event.preventDefault();
+              setOver(index);
+            }}
+            onDragLeave={() => setOver((o) => (o === index ? null : o))}
+            onDrop={(event) => {
+              event.preventDefault();
+              drop(index);
+            }}
+            onDragEnd={() => {
+              dragged.current = null;
+              setOver(null);
+            }}
+            onClick={() => activateTab(chat, tab.id)}
+            onAuxClick={(event) => {
+              if (event.button === 1) closeTab(chat, tab.id);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') activateTab(chat, tab.id);
+              if (event.key === 'Delete') closeTab(chat, tab.id);
+            }}
+            className={cn(
+              'group/tab relative flex max-w-[200px] shrink-0 cursor-default select-none items-center gap-1.5 border-r border-line-faint pl-2.5 pr-1.5 text-[12px]',
+              on ? 'bg-sunken text-title' : 'text-subtle hover:bg-surface hover:text-title',
+              over === index && dragged.current !== tab.id && 'shadow-[inset_2px_0_0_var(--color-brand-500)]',
+            )}
+            data-panel-tab-id={tab.id}
+            data-panel-tab-kind={tab.kind ?? 'new'}
+          >
+            {on && <span className="absolute inset-x-0 bottom-[-1px] h-px bg-sunken" />}
+            {on && <span className="absolute inset-x-0 top-0 h-0.5 bg-brand-500" />}
+            <span className="relative shrink-0">
+              <Icon className="size-3.5" />
+              {dot && <span className="absolute -right-1 -top-1 size-1.5 rounded-full bg-brand-500" />}
+            </span>
+            <span className="min-w-0 truncate font-medium">{label}</span>
+            {name && <span className="min-w-0 truncate text-faint">{name}</span>}
+            <button
+              type="button"
+              aria-label={t('panel.closeTab', { tab: name ? `${label} · ${name}` : label })}
+              onClick={(event) => {
+                event.stopPropagation();
+                closeTab(chat, tab.id);
+              }}
+              className={cn('flex size-5 shrink-0 items-center justify-center rounded text-subtle hover:bg-surface-raised hover:text-title', on ? 'opacity-100' : 'opacity-0 focus-visible:opacity-100 group-hover/tab:opacity-100')}
+              data-panel-tab-close
+            >
+              <X className="size-3" />
+            </button>
+          </div>
+        );
+      })}
+      <div
+        className="flex shrink-0 items-center px-1"
+        onDragOver={(event) => {
+          if (!dragged.current) return;
+          event.preventDefault();
+          setOver(tabs.length);
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          drop(tabs.length - 1);
+        }}
+      >
+        <Tip label={t('panel.addTab')}>
+          <Button size="icon-sm" variant="ghost" aria-label={t('panel.addTab')} onClick={() => addTab(chat)} data-panel-add>
+            <Plus />
+          </Button>
         </Tip>
-        <span className="my-1 h-px w-6 bg-line" />
-        {panelTabs.map((tab) => {
-          const TabIcon = tabIcon[tab];
-          const on = state.tab === tab;
-          const ok = hasTab(whose, tab);
-          return (
-            <Fragment key={tab}>
-            {tab === 'pulls' && <span className="my-1 h-px w-6 bg-line" />}
-            <Tip label={ok ? t(tabLabel[tab]) : t('panel.needsMachineTip', { tab: t(tabLabel[tab]) })} side="left">
-              <button
-                type="button"
-                aria-label={t(tabLabel[tab])}
-                aria-current={on ? 'page' : undefined}
-                onClick={() => setPanel({ tab })}
-                className={cn('relative flex size-8 items-center justify-center rounded-md', on ? 'bg-surface-raised text-title' : 'text-subtle hover:bg-surface hover:text-title', !ok && !on && 'opacity-50')}
-                data-panel-rail-tab={tab}
-              >
-                {on && <span className="absolute -right-1.5 top-1.5 h-5 w-0.5 rounded-full bg-brand-500" />}
-                <TabIcon className="size-4" />
-                {tab === 'pages' && fresh > 0 && <span className="absolute right-1 top-1 size-1.5 rounded-full bg-brand-500" />}
-              </button>
-            </Tip>
-            </Fragment>
-          );
-        })}
-      </nav>
+      </div>
+    </div>
+  );
+}
+
+// ——— The launcher ———
+
+// Launcher is what the panel shows with no tab open, and a new tab: a card
+// per kind, each with its icon, name and one line of what it shows, as
+// T3Code's RightPanelEmptyState lists its surfaces. Its letters open a card
+// while it has the focus. id is the new tab's, null for the empty panel's.
+function Launcher({ project, chat, id }: { project: string; chat: string; id: string | null }) {
+  const t = useT();
+  const pages = useProjectPages(project);
+  const fresh = livePages(pages.data).some(isNew);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => ref.current?.focus({ preventScroll: true }), []);
+  const choose = (kind: PanelKind) => chooseKind(chat, id, kind);
+  const card = (kind: PanelKind) => {
+    const Icon = kindIcon[kind];
+    return (
+      <button
+        key={kind}
+        type="button"
+        onClick={() => choose(kind)}
+        className="group flex min-w-0 items-start gap-3 rounded-xl border border-line bg-surface-faint p-3 text-left transition-colors hover:border-brand-500/50 hover:bg-surface focus-visible:border-brand-500 focus-visible:outline-none"
+        data-panel-card={kind}
+      >
+        <span className="relative flex size-9 shrink-0 items-center justify-center rounded-lg bg-surface-raised text-secondary group-hover:text-title">
+          <Icon className="size-[18px]" />
+          {kind === 'pages' && fresh && <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-brand-500" />}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-2">
+            <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-title">{t(kindLabel[kind])}</span>
+            <kbd className="shrink-0 rounded border border-line px-1 font-mono text-[10px] text-faint">{kindKey[kind]}</kbd>
+          </span>
+          <span className="mt-0.5 block text-[11.5px] leading-snug text-subtle">{t(kindDescription[kind])}</span>
+        </span>
+      </button>
+    );
+  };
+  return (
+    <div
+      ref={ref}
+      tabIndex={-1}
+      onKeyDown={(event) => {
+        if (event.metaKey || event.ctrlKey || event.altKey || event.target !== event.currentTarget) return;
+        const kind = (Object.keys(kindKey) as PanelKind[]).find((k) => kindKey[k] === event.key.toUpperCase());
+        if (!kind) return;
+        event.preventDefault();
+        choose(kind);
+      }}
+      className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-6 outline-none"
+      aria-label={t('panel.launcher.title')}
+      data-panel-launcher={id ?? 'empty'}
+    >
+      <div className="mx-auto w-full max-w-[640px]">
+        <h3 className="mb-3 text-[13px] font-semibold text-title">{t('panel.launcher.title')}</h3>
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-2">{agentKinds.map(card)}</div>
+        <h4 className="mb-2 mt-5 text-[10.5px] font-semibold uppercase tracking-wide text-faint">{t('panel.launcher.project')}</h4>
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-2">{projectKinds.map(card)}</div>
+      </div>
     </div>
   );
 }
 
 // ——— Whose: the picker ———
 
-function Picker({ project, whose, agents, past, onPick }: { project: string; whose: Whose; agents: T.Agent[]; past: T.ArchivedAgent[]; onPick: (w: Whose) => void }) {
+function Picker({ project, kind, whose, agents, past, onPick }: { project: string; kind: PanelKind; whose: Whose; agents: T.Agent[]; past: T.ArchivedAgent[]; onPick: (w: Whose) => void }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   return (
@@ -300,7 +482,8 @@ function Picker({ project, whose, agents, past, onPick }: { project: string; who
           whose={whose}
           agents={agents}
           past={past}
-          withLead
+          withLead={!needsMachine(kind)}
+          forTab={kind}
           onPick={(w) => {
             setOpen(false);
             onPick(w);
@@ -311,10 +494,10 @@ function Picker({ project, whose, agents, past, onPick }: { project: string; who
   );
 }
 
-// WhoseList is the agents to pick from, with a search and the "With a
-// machine" filter: the picker's, and what a tab that needs a machine shows
-// when there is none (forTab), where only an agent with one can be picked.
-function WhoseList({ project, whose, agents, past, withLead, forTab, onPick }: { project: string; whose?: Whose; agents: T.Agent[]; past: T.ArchivedAgent[]; withLead?: boolean; forTab?: PanelTab; onPick: (w: Whose) => void }) {
+// WhoseList is the header picker's agents, with a search and the "With a
+// machine" filter; for a kind that needs a machine (forTab), only an agent
+// with one can be picked.
+function WhoseList({ project, whose, agents, past, withLead, forTab, onPick }: { project: string; whose?: Whose; agents: T.Agent[]; past: T.ArchivedAgent[]; withLead?: boolean; forTab?: PanelKind; onPick: (w: Whose) => void }) {
   const t = useT();
   const { withMachine } = usePanel();
   const [query, setQuery] = useState('');
@@ -338,18 +521,7 @@ function WhoseList({ project, whose, agents, past, withLead, forTab, onPick }: {
       </div>
       <div className="flex items-center justify-between gap-2 border-b border-line-faint px-3 py-2">
         <span className="text-[11.5px] text-subtle">{withMachine ? t('panel.countOf', { shown: shown.length, count: all.length }) : t('panel.count', { count: all.length })}</span>
-        <button
-          type="button"
-          aria-pressed={withMachine}
-          onClick={() => setPanel({ withMachine: !withMachine })}
-          className={cn('flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px]', withMachine ? 'border-brand-500/60 bg-brand-500/15 text-title' : 'border-line text-subtle hover:text-title')}
-          title={t('panel.withMachineTip')}
-          data-whose-machine-filter
-        >
-          <HardDrive className="size-3" />
-          {t('panel.withMachine')}
-          {withMachine && <X className="size-3" />}
-        </button>
+        <MachineFilter />
       </div>
       <div className={cn('min-h-0 overflow-y-auto p-1', withLead ? 'max-h-[min(420px,calc(var(--radix-popover-content-available-height,100vh)-96px))]' : 'max-h-[420px]')}>
         {withLead && matchesText(t('panel.repository'), query) && (
@@ -463,13 +635,42 @@ function WhoseMark({ whose }: { whose: Whose }) {
 
 // ——— The tabs ———
 
-function Body({ project, whose, tab, agents, past, width, onPick }: { project: string; whose: Whose; tab: PanelTab; agents: T.Agent[]; past: T.ArchivedAgent[]; width: number; onPick: (w: Whose) => void }) {
-  if (!hasTab(whose, tab)) return <ChooseMachine project={project} whose={whose} tab={tab} agents={agents} past={past} onPick={onPick} />;
+// TabBody is a tab: the launcher while it is new, whose it shows to choose
+// while that is unset (or gone), and then what it shows, under a header
+// whose picker changes whose.
+function TabBody({ project, chat, tab, whose, agents, past, loaded, width, section, onSelect }: { project: string; chat: string; tab: PanelTab; whose: Whose | undefined; agents: T.Agent[]; past: T.ArchivedAgent[]; loaded: boolean; width: number; section: PanelState['section']; onSelect: (view: View) => void }) {
+  if (!tab.kind) return <Launcher project={project} chat={chat} id={tab.id} />;
+  const kind = tab.kind;
+  if (projectWide(kind)) {
+    return (
+      <>
+        <div className="flex h-9 shrink-0 items-center border-b border-line-faint px-1.5">
+          <ProjectName project={project} />
+        </div>
+        <ProjectTab project={project} chat={chat} tab={kind} section={section} onSelect={onSelect} />
+      </>
+    );
+  }
+  const pick = (w: Whose) => chooseTarget(chat, tab.id, whoseRef(w));
+  if (needsTarget(tab) || (!whose && loaded)) return <ChooseTarget project={project} chat={chat} kind={kind} agents={agents} past={past} onPick={pick} />;
+  if (!whose) return null;
+  return (
+    <>
+      <div className="flex h-9 shrink-0 items-center border-b border-line-faint px-1.5">
+        <Picker project={project} kind={kind} whose={whose} agents={agents} past={past} onPick={pick} />
+      </div>
+      <Body project={project} chat={chat} whose={whose} tab={kind} agents={agents} past={past} width={width} onPick={pick} />
+    </>
+  );
+}
+
+function Body({ project, chat, whose, tab, agents, past, width, onPick }: { project: string; chat: string; whose: Whose; tab: PanelKind; agents: T.Agent[]; past: T.ArchivedAgent[]; width: number; onPick: (w: Whose) => void }) {
+  if (!hasTab(whose, tab)) return <ChooseTarget project={project} chat={chat} kind={tab} whose={whose} agents={agents} past={past} onPick={onPick} />;
   if (whose.kind === 'agent' && needsMachine(tab) && machineOf(whose.agent) === 'asleep') return <Asleep agent={whose.agent} tab={tab} />;
   return (
     <div className="flex min-h-0 flex-1 flex-col" key={`${whoseRef(whose)}:${tab}`}>
       {tab === 'files' && <Files project={project} whose={whose} width={width} />}
-      {tab === 'desktop' && whose.kind === 'agent' && <BrowserTab agent={whose.agent} onOpenMedia={() => setPanel({ tab: 'media' })} />}
+      {tab === 'desktop' && whose.kind === 'agent' && <BrowserTab agent={whose.agent} onOpenMedia={() => openPanelOn(chat, 'media', whoseRef(whose))} />}
       {tab === 'terminal' && whose.kind === 'agent' && <AgentTerminal agent={whose.agent} />}
       {tab === 'browser' && whose.kind === 'agent' && <PanelBrowser agent={whose.agent} />}
       {tab === 'pages' && <Pages project={project} whose={whose} agents={agents} />}
@@ -478,25 +679,103 @@ function Body({ project, whose, tab, agents, past, width, onPick }: { project: s
   );
 }
 
-// ChooseMachine is a tab that needs a machine, for whose has none: the lead,
-// on this computer, or a past agent, whose machine was freed. It lists the
-// agents that have one.
-function ChooseMachine({ project, whose, tab, agents, past, onPick }: { project: string; whose: Whose; tab: PanelTab; agents: T.Agent[]; past: T.ArchivedAgent[]; onPick: (w: Whose) => void }) {
+// ChooseTarget is a tab asking whose it shows, as cards: targets() for its
+// kind, with a search and, where past agents may be picked, the "With a
+// machine" filter. whose is set when what was picked can't show this kind
+// any more: an agent retired since, whose machine was freed.
+function ChooseTarget({ project, chat, kind, whose, agents, past, onPick }: { project: string; chat: string; kind: PanelKind; whose?: Whose; agents: T.Agent[]; past: T.ArchivedAgent[]; onPick: (w: Whose) => void }) {
   const t = useT();
-  const Icon = tabIcon[tab];
+  const { withMachine } = usePanel();
+  const [query, setQuery] = useState('');
+  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
+  const Icon = kindIcon[kind];
+  const machine = needsMachine(kind);
+  const all = targets(kind, project, chat, agents, past, false);
+  const shown = targets(kind, project, chat, agents, past, withMachine).filter((w) => (w.kind === 'lead' ? matchesText(t('panel.repository'), query) : matches(w, query)));
+  const agentsShown = shown.filter((w) => w.kind !== 'lead').length;
+  const hidden = all.length - targets(kind, project, chat, agents, past, true).length;
+  const projectName = projectLabel(project, projects.data);
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto" data-panel-choose={tab}>
-      <div className="flex flex-col items-center gap-2 px-6 pb-3 pt-8 text-center">
-        <Icon className="size-7 text-faint" />
-        <p className="max-w-[320px] text-[12.5px] text-subtle">
-          {t(whose.kind === 'lead' ? 'panel.choose.lead' : 'panel.choose.freed', { tab: t(tabLabel[tab]).toLowerCase(), name: whose.kind === 'past' ? whose.past.name : '' })}
-        </p>
-        <p className="text-[12px] font-medium text-secondary">{t('panel.choose.pick')}</p>
-      </div>
-      <div className="mx-3 mb-3 overflow-hidden rounded-xl border border-line bg-surface-faint">
-        <WhoseList project={project} agents={agents} past={past} forTab={tab} onPick={onPick} />
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-5" data-panel-choose={kind}>
+      <div className="mx-auto w-full max-w-[640px]">
+        <div className="mb-3 flex items-start gap-3">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-surface-raised text-secondary">
+            <Icon className="size-[18px]" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-[13px] font-semibold text-title">{t(kindAsk[kind])}</span>
+            <span className="block text-[11.5px] text-subtle">
+              {whose && whose.kind !== 'agent'
+                ? t(whose.kind === 'lead' ? 'panel.choose.lead' : 'panel.choose.freed', { tab: t(kindLabel[kind]).toLowerCase(), name: whose.kind === 'past' ? whose.past.name : '' })
+                : t(machine ? 'panel.target.machineSub' : 'panel.target.sub')}
+            </span>
+          </span>
+        </div>
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <span className="flex min-w-[160px] flex-1 items-center gap-2 rounded-lg border border-line bg-surface-faint px-2.5 py-1.5">
+            <Search className="size-3.5 shrink-0 text-faint" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={t('panel.find')}
+              aria-label={t('panel.find')}
+              className="min-w-0 flex-1 bg-transparent text-[12.5px] text-primary outline-none placeholder:text-faint"
+              data-whose-find
+            />
+          </span>
+          {!machine && <MachineFilter />}
+        </div>
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-2">
+          {shown.map((w) => {
+            const ref = whoseRef(w);
+            const sub = w.kind === 'lead' ? t('panel.repositorySub', { project: projectName }) : (w.kind === 'agent' ? w.agent.title : w.past.title) || (w.kind === 'agent' ? w.agent.branch : w.past.branch);
+            const own = ref === chat;
+            return (
+              <button
+                key={ref}
+                type="button"
+                onClick={() => onPick(w)}
+                className={cn('flex min-w-0 flex-col gap-2 rounded-xl border bg-surface-faint p-3 text-left transition-colors hover:border-brand-500/50 hover:bg-surface focus-visible:border-brand-500 focus-visible:outline-none', own ? 'border-brand-500/40' : 'border-line')}
+                data-whose-card={ref}
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <WhoseIcon project={project} whose={w} className="size-7 text-[11px]" />
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-title">{whoseName(t, w)}</span>
+                  <WhoseMark whose={w} />
+                </span>
+                <span className="line-clamp-2 min-h-[2lh] text-[11.5px] leading-snug text-subtle">{sub}</span>
+                <span className="flex items-center justify-between gap-2 text-[10.5px] text-faint">
+                  <span>{t(machineLabel[machineOfWhose(w)])}</span>
+                  {own && <span className="rounded-full bg-brand-500/15 px-1.5 py-px font-medium text-brand-300">{t('panel.thisChat')}</span>}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        {agentsShown === 0 && <p className="px-3 py-4 text-center text-[12px] text-subtle">{query ? t('panel.noMatch') : machine || withMachine ? t('panel.noMachines') : t('panel.noAgents')}</p>}
+        {!machine && withMachine && hidden > 0 && !query && <p className="pt-3 text-[11px] text-faint">{t('panel.hidden', { count: hidden })}</p>}
       </div>
     </div>
+  );
+}
+
+// MachineFilter is the "With a machine" chip, remembered for every picker.
+function MachineFilter() {
+  const t = useT();
+  const { withMachine } = usePanel();
+  return (
+    <button
+      type="button"
+      aria-pressed={withMachine}
+      onClick={() => setPanel({ withMachine: !withMachine })}
+      className={cn('flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px]', withMachine ? 'border-brand-500/60 bg-brand-500/15 text-title' : 'border-line text-subtle hover:text-title')}
+      title={t('panel.withMachineTip')}
+      data-whose-machine-filter
+    >
+      <HardDrive className="size-3" />
+      {t('panel.withMachine')}
+      {withMachine && <X className="size-3" />}
+    </button>
   );
 }
 
@@ -510,13 +789,13 @@ function useWake(agent: T.Agent) {
   });
 }
 
-function Asleep({ agent, tab }: { agent: T.Agent; tab: PanelTab }) {
+function Asleep({ agent, tab }: { agent: T.Agent; tab: PanelKind }) {
   const t = useT();
   const wake = useWake(agent);
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center" data-panel-asleep={agent.ref}>
       <Moon className="size-8 text-faint" />
-      <p className="max-w-[300px] text-[12.5px] text-subtle">{t('panel.asleep', { name: agent.name, tab: t(tabLabel[tab]).toLowerCase() })}</p>
+      <p className="max-w-[300px] text-[12.5px] text-subtle">{t('panel.asleep', { name: agent.name, tab: t(kindLabel[tab]).toLowerCase() })}</p>
       <Button size="sm" variant="primary" disabled={wake.isPending} onClick={() => wake.mutate()} data-panel-wake>
         <Play />
         {t('panel.wake', { name: agent.name })}
@@ -619,20 +898,27 @@ function ProjectName({ project }: { project: string }) {
 
 // ProjectTab is the project's pull requests or its settings, what the
 // lead's page had as tabs over its chat.
-function ProjectTab({ project, tab, section, onSelect }: { project: string; tab: PanelTab; section: PanelState['section']; onSelect: (view: View) => void }) {
+function ProjectTab({ project, chat, tab, section, onSelect }: { project: string; chat: string; tab: PanelKind; section: PanelState['section']; onSelect: (view: View) => void }) {
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const p = projects.data?.find((x) => x.name === project);
   if (tab === 'pulls') {
     return (
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3" data-panel-pulls>
-        <PullRequestsPanel project={project} onSelect={onSelect} onOpenAccount={() => setPanel({ tab: 'settings', section: 'general' })} />
+        <PullRequestsPanel
+          project={project}
+          onSelect={onSelect}
+          onOpenAccount={() => {
+            setPanel({ section: 'general' });
+            openPanelOn(chat, 'settings');
+          }}
+        />
       </div>
     );
   }
   if (!p) return null;
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-panel-settings={section}>
-      <ProjectSettingsBody project={p} section={section} onSection={(next) => setPanel({ section: next })} onSelect={onSelect} onOpenMedia={() => setPanel({ tab: 'media', picked: null })} />
+      <ProjectSettingsBody project={p} section={section} onSection={(next) => setPanel({ section: next })} onSelect={onSelect} onOpenMedia={() => openPanelOn(chat, 'media', `${project}/${A.LeadName}`)} />
     </div>
   );
 }
