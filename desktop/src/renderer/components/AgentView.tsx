@@ -29,10 +29,11 @@ import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { lifecycleActions, usesChat, type LifecycleAction } from '../lib/agentActions';
-import { chatLabel, prState, statusTip, type StatusTone } from '../lib/agentStatus';
+import { awaiting, chatLabel, prState, statusTip, type StatusTone } from '../lib/agentStatus';
 import { api, type AgentAction } from '../lib/api';
 import { useMediaCounts } from '../lib/mediaPages';
 import { useChatOpenAt } from '../lib/reveal';
+import { useAgentReview } from './v2/ReviewV2';
 import { useT, type MessageKey } from '../lib/i18n';
 import { agentPlace, type AgentPlaceName, type AgentSection, type AgentTab } from '../lib/tabs';
 import { agentTabFeatures, countFeature } from '../lib/usageStats';
@@ -447,7 +448,12 @@ const toneVariant: Record<StatusTone, BadgeVariant> = { urgent: 'warning', error
 // know about it: the machine, its IP and resources, its AI tool and accounts.
 function StatusDetails({ agent, pr }: { agent: T.Agent; pr?: T.PullRequest }) {
   const t = useT();
-  const status = chatLabel(agent);
+  // The review card says "Ready to review" for an agent that finished and
+  // waits on a look, even while it keeps background work going (which chatLabel
+  // calls Awaiting): the header says the same.
+  const review = useAgentReview(agent.ref).data;
+  const ready = !!review && !review.verdict && awaiting(agent);
+  const status = ready ? { text: t('v2.card.ready'), tone: 'live' as const } : chatLabel(agent);
   return (
     <Popover>
       <PopoverTrigger asChild>

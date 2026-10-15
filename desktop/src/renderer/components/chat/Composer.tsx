@@ -48,6 +48,7 @@ import { AIIcon, aiLabel } from '../state';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from '../ui/menu';
 import { Tip } from '../ui/tooltip';
 import { DiffView, relativePath } from './ChangedFiles';
+import { PermissionActions } from './PermissionActions';
 import { FileChip } from './Files';
 import { ImageThumb } from './Images';
 import { RunnerPicker } from './RunnerPicker';
@@ -664,22 +665,6 @@ function Attached({ tone, children }: { tone: keyof typeof tones; children: Reac
   return <div className={cn('relative mx-auto -mb-4 w-[calc(100%-2.5rem)] animate-slide-up rounded-t-2xl border border-b-0 px-3.5 pb-6 pt-2.5 backdrop-blur-xl', tones[tone])}>{children}</div>;
 }
 
-function optionLabel(option: T.ChatPermissionOption, approval: boolean): string {
-  // AgentBox's own requests for approval (a lead changing a skill) answer in their own words.
-  if (approval) return translate(option.kind.startsWith('allow') ? 'chat.permission.approve' : 'chat.permission.refuse');
-  switch (option.kind) {
-    case 'allow_once':
-      return translate('chat.permission.allow');
-    case 'reject_once':
-      return translate('chat.permission.deny');
-    case 'reject_always':
-      return translate('chat.permission.alwaysDeny');
-  }
-  // The tool's own words say what "always" covers, like "Yes, allow all edits during this session".
-  const words = option.name.replace(/^yes,?\s*/i, '').replace(/^and\s+/i, '');
-  return words.length > 3 ? words.charAt(0).toUpperCase() + words.slice(1) : translate('chat.permission.alwaysAllow');
-}
-
 function PermissionBanner({ agent, thread, request, count }: { agent: T.Agent; thread: T.ChatThread; request: T.ChatItem; count: number }) {
   const t = useT();
   const permission = request.permission!;
@@ -688,8 +673,6 @@ function PermissionBanner({ agent, thread, request, count }: { agent: T.Agent; t
   const approval = !!permission.approval;
   const detail = approval ? permission.detail : tool?.command || (tool?.paths?.[0] && relativePath(tool.paths[0], agent.worktree));
   const diffs = permission.diffs?.length ? permission.diffs : tool?.diffs;
-  const rejects = permission.options.filter((o) => o.kind.startsWith('reject'));
-  const allows = permission.options.filter((o) => o.kind.startsWith('allow')).sort((a, b) => (a.kind === 'allow_once' ? 1 : 0) - (b.kind === 'allow_once' ? 1 : 0));
   return (
     <Attached tone="amber">
       <div data-chat-permission={request.id}>
@@ -712,32 +695,17 @@ function PermissionBanner({ agent, thread, request, count }: { agent: T.Agent; t
             ))}
           </div>
         ) : null}
-        <div className="mt-2.5 flex flex-wrap items-center justify-end gap-1.5">
-          {rejects.map((option) => (
-            <button
-              key={option.id}
-              disabled={answer.isPending}
-              onClick={() => answer.mutate(option.id)}
-              className="h-7 rounded-lg px-2.5 text-[12.5px] text-rose-200/90 transition hover:bg-rose-500/10 disabled:opacity-50"
-            >
-              {optionLabel(option, approval)}
-            </button>
-          ))}
-          {allows.map((option) => (
-            <button
-              key={option.id}
-              disabled={answer.isPending}
-              onClick={() => answer.mutate(option.id)}
-              title={option.name}
-              className={cn(
-                'h-7 rounded-lg px-2.5 text-[12.5px] transition disabled:opacity-50',
-                option.kind === 'allow_once' ? 'bg-amber-300 px-3 font-medium text-on-bright hover:bg-amber-200' : 'border border-amber-200/20 text-amber-50 hover:bg-amber-200/10',
-              )}
-            >
-              {optionLabel(option, approval)}
-            </button>
-          ))}
-        </div>
+        <PermissionActions
+          options={permission.options}
+          agent={agent.title || agent.name}
+          action={tool?.kind}
+          pending={answer.isPending}
+          sending={answer.variables}
+          onAnswer={(id) => answer.mutate(id)}
+          approveLabel={approval ? t('chat.permission.approve') : t('chat.permission.allow')}
+          denyLabel={approval ? t('chat.permission.refuse') : t('chat.permission.deny')}
+          keys
+        />
       </div>
     </Attached>
   );

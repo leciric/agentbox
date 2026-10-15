@@ -260,7 +260,7 @@ export function PullRequestView({
             {t('pulls.detail.openOnGitHub')}
           </Button>
           {canMerge && (
-            <Button size="sm" disabled={mergeRunning} onClick={onMerge} data-merge-running={mergeRunning || undefined}>
+            <Button size="sm" disabled={mergeRunning || pr.checks === 'failing'} title={pr.checks === 'failing' ? t('review.mergeBlocked.failing') : undefined} onClick={onMerge} data-merge-running={mergeRunning || undefined}>
               {mergeRunning ? <LoaderCircle className="size-3.5 animate-spin" /> : <GitMerge className="size-3.5" />}
               {t('memory.pulls.merge')}
             </Button>

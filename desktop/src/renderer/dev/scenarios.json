@@ -1395,7 +1395,7 @@
     "height": 900,
     "click": [
       "[data-review-open]",
-      "[data-review-request]"
+      "[data-review-changes]"
     ]
   },
   {

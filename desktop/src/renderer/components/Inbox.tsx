@@ -8,6 +8,7 @@ import { useT } from '../lib/i18n';
 import { needRows, needsYou, type NeedRow } from '../lib/inbox';
 import { pageItems, pageTotal, useQuestions, useReviewHead, useReviewPages } from '../lib/inboxPages';
 import { useMarkSeen } from '../lib/notifications';
+import { requestReveal } from '../lib/reveal';
 import { projectLabel } from '../lib/projectName';
 import { useDnd } from '../lib/notifyPrefs';
 import { countLabel } from '../lib/review';
@@ -19,6 +20,10 @@ import { ReviewDialog, ReviewSection, type ReviewSession } from './ReadyToReview
 import { openSettingsSection } from './SettingsPage';
 import { Button } from './ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+
+// The card an agent's chat shows while it waits on the user: a permission
+// request or a secret.
+const waitingCard = '[data-chat-permission], [data-chat-credential]';
 
 // Inbox is the top bar's one way in to what needs you, across projects
 // (lib/inbox.ts): a button whose badge counts agents ready to review,
@@ -177,7 +182,11 @@ export function Inbox({ onOpen, onSelect, defaultOpen = false }: { onOpen: (n: T
                       if (row.notice) {
                         setOpen(false);
                         onOpen(row.notice);
-                      } else go({ kind: 'agent', ref: row.ref, tab: 'chat' });
+                      } else {
+                        go({ kind: 'agent', ref: row.ref, tab: 'chat' });
+                        // A request waits as a card in the chat: scroll to it and flash it.
+                        if (row.kind === 'permission') requestReveal({ selector: waitingCard });
+                      }
                     }}
                   />
                 ))}
