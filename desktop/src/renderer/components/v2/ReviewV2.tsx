@@ -13,7 +13,7 @@ import type * as T from '../../../shared/api';
 import type { View } from '../../App';
 import { api } from '../../lib/api';
 import { useT } from '../../lib/i18n';
-import { refreshInbox, useReviewPages } from '../../lib/inboxPages';
+import { agentReviewPrefix, refreshInbox, useReviewPages } from '../../lib/inboxPages';
 import { changesPending } from '../../lib/leadFirst';
 import { useMediaCounts } from '../../lib/mediaPages';
 import { cn, errorMessage } from '../../lib/utils';
@@ -29,8 +29,10 @@ const OpenReviewContext = createContext<OpenReview | null>(null);
 export const useOpenReview = () => useContext(OpenReviewContext);
 
 // agentReviewKey is one agent's review item, wherever it is: ready, or
-// reviewed on the work as it still is. ['review'] is refetched as the lists change.
-const agentReviewKey = (ref: string) => ['review', 'agent', ref];
+// reviewed on the work as it still is. It is refetched as the lists are
+// (lib/inboxPages.ts refreshInbox, lib/events.ts), but kept out of ['review'],
+// whose entries are all pages.
+const agentReviewKey = (ref: string) => [agentReviewPrefix, ref];
 
 async function agentReview(ref: string): Promise<T.ReviewItem | null> {
   const project = ref.split('/')[0];

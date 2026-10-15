@@ -1353,5 +1353,88 @@
     "query": "phone=list&offline=1&theme=dark",
     "width": 390,
     "height": 844
+  },
+  {
+    "id": "window-wide-v2-project-dark",
+    "description": "UI v2 at 1920×1080 on the project's lead: Home and the leads with their last lines and counts, agentbox's agents opened under it — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080,
+    "click": "[data-v2-toggle=\"agentbox\"]"
+  },
+  {
+    "id": "window-wide-v2-filters-dark",
+    "description": "UI v2 at 1920×1080, the filter popover open: state with counts, and the projects — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080,
+    "click": "[data-v2-filter-button]"
+  },
+  {
+    "id": "window-1440-v2-agent-dark",
+    "description": "UI v2 at 1440×900 on agent-41, ready to review: its card over the composer, with its PR and Review changes — dark",
+    "query": "app=agent-41&v2=1&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-review-dark",
+    "description": "UI v2 at 1440×900, agent-41's review open from its card: Request changes, and Merge disabled with why (its checks fail) — dark",
+    "query": "app=agent-41&v2=1&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "click": [
+      "[data-review-open]"
+    ]
+  },
+  {
+    "id": "window-1440-v2-request-dark",
+    "description": "UI v2 at 1440×900, the review's Request changes box open — dark",
+    "query": "app=agent-41&v2=1&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "click": [
+      "[data-review-open]",
+      "[data-review-request]"
+    ]
+  },
+  {
+    "id": "window-760-v2-project-dark",
+    "description": "UI v2 at 760×900: the sidebar as a drawer over the lead's chat — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 760,
+    "height": 900,
+    "click": [
+      "[data-open-nav]",
+      "[data-v2-toggle=\"agentbox\"]"
+    ]
+  },
+  {
+    "id": "window-min-v2-project-dark",
+    "description": "UI v2 at 480×800, the sidebar's drawer open — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 480,
+    "height": 800,
+    "click": [
+      "[data-open-nav]",
+      "[data-v2-toggle=\"agentbox\"]"
+    ]
+  },
+  {
+    "id": "window-min-v2-review-dark",
+    "description": "UI v2 at 480×800, agent-41's review, full screen — dark",
+    "query": "app=agent-41&v2=1&theme=dark",
+    "width": 480,
+    "height": 800,
+    "click": [
+      "[data-review-open]"
+    ]
+  },
+  {
+    "id": "window-portrait-v2-agent-dark",
+    "description": "UI v2 at 1080×1920 on agent-12 — dark",
+    "query": "app=agent-41&v2=1&theme=dark",
+    "width": 1080,
+    "height": 1920
   }
 ]

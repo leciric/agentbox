@@ -9,12 +9,13 @@
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { Suspense } from 'react';
 import type * as T from '../../shared/api';
+import { HomeProject as T_HOME } from '../../shared/api';
 import type { View } from '../App';
 import { AgentRail } from '../components/AgentRail';
 import { ProjectView } from '../components/ProjectView';
 import { Sidebar } from '../components/Sidebar';
 import { TopBar } from '../components/TopBar';
-import { devRequests, pageOf, PROJECT, setMediaFile } from './fixtures';
+import { devRequests, pageOf, patchDevAgent, PROJECT, setMediaFile } from './fixtures';
 import { useReadyAlerts } from '../lib/useReadyAlerts';
 import { screen } from './notifications';
 import { seedPages } from './pages';
@@ -38,6 +39,7 @@ const pr: T.PullRequest = {
 
 let waiting: T.ReviewItem[] = [];
 let decided: T.ReviewItem[] = [];
+let client: QueryClient | undefined;
 
 function items(): T.ReviewItem[] {
   const item = (agent: string, title: string, branch: string, finished: number, more: Partial<T.ReviewItem> = {}): T.ReviewItem => ({
@@ -148,6 +150,7 @@ async function recording(): Promise<string> {
 }
 
 export function seedReview(queryClient: QueryClient): void {
+  client = queryClient;
   seedPages(queryClient);
   // The top bar's meters, which no other fixture seeds.
   queryClient.setQueryData(['claudeLimits'], []);
@@ -231,6 +234,30 @@ function reviewRequest(method: string, path: string, body?: unknown): { status: 
   if (method === 'GET' && /^\/v1\/projects\/[^/]+\/pulls\/\d+\/files/.test(route)) {
     return { status: 200, body: JSON.stringify({ files: [] } satisfies T.PullRequestFiles), contentType: 'application/json' };
   }
+  // Request changes (UI v2): the agent works on them for 6s, then is back in
+  // Ready to review with new work.
+  const changes = method === 'POST' && /^\/v1\/agents\/[^/]+\/([^/]+)\/request-changes$/.exec(path);
+  if (changes) {
+    const agent = changes[1];
+    const text = (body as T.RequestChangesRequest | undefined)?.text ?? '';
+    const item = [...waiting, ...decided].find((i) => i.agent === agent);
+    waiting = waiting.filter((i) => i.agent !== agent);
+    decided = [...(item ? [{ ...item, verdict: 'changes', reviewedAt: new Date().toISOString() }] : []), ...decided.filter((i) => i.agent !== agent)];
+    const set = (over: Partial<T.Agent>) => {
+      patchDevAgent(`${PROJECT}/${agent}`, over);
+      client?.setQueryData<T.Agent[]>(['agents'], (list) => list?.map((a) => (a.ref === `${PROJECT}/${agent}` ? { ...a, ...over } : a)));
+    };
+    set({ chat: 'running', changesRequested: text });
+    setTimeout(() => {
+      set({ chat: 'ready', outcome: 'done', changesRequested: undefined });
+      decided = decided.filter((i) => i.agent !== agent);
+      if (item) waiting = [{ ...item, verdict: undefined, reviewedAt: undefined, finishedAt: new Date().toISOString(), fingerprint: `{"f":"${agent}-again"}`, summary: `Made the changes you asked for: ${text}` }, ...waiting];
+      void client?.invalidateQueries({ queryKey: ['review'] });
+      void client?.invalidateQueries({ queryKey: ['reviewed'] });
+    }, 6_000);
+    const reply: T.ChatItem = { id: `rc-${Date.now()}`, turn: '', kind: 'user', text, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    return { status: 202, body: JSON.stringify(reply), contentType: 'application/json' };
+  }
   const verdict = method === 'POST' && /^\/v1\/agents\/[^/]+\/([^/]+)\/review$/.exec(path);
   if (!verdict) return undefined;
   const item = waiting.find((i) => i.agent === verdict[1]);
@@ -238,6 +265,19 @@ function reviewRequest(method: string, path: string, body?: unknown): { status: 
   const v = (body as T.ReviewRequest | undefined)?.verdict ?? 'reviewed';
   if (item) decided = [{ ...item, verdict: v, reviewedAt: new Date().toISOString() }, ...decided];
   return { status: 204, body: '', contentType: 'application/json' };
+}
+
+// seedLeadLines gives each lead, and Home, a last line for UI v2's sidebar.
+export function seedLeadLines(queryClient: QueryClient): void {
+  const line = (kind: string, text: string, ms: number): T.ChatLine => ({ kind, text, at: ago(ms) });
+  const lines: Record<string, T.ChatLine> = {
+    [T_HOME]: line('assistant', 'Three agents across your projects are ready to review, and one is stopped on an error.', 14 * min),
+    [PROJECT]: line('assistant', 'agent-12 finished the **New project** button: PR #318 is green, with screenshots and a recording in Media.', 3 * min),
+    'a-project-with-a-name-so-long-it-should-never-be-allowed-to-widen-the-sidebar': line('user', 'https://example.com/a/very/long/unbroken/url/that/should/never/widen/the/sidebar/at/all', 3 * 60 * min),
+  };
+  for (const [project, last] of Object.entries(lines)) {
+    queryClient.setQueryData<T.ProjectChat>(['projectChat', project], (info) => ({ ...(info ?? { project, ref: `${project}/lead`, started: true, chat: 'ready' }), last }));
+  }
 }
 
 // land is what the button below stands for: an agent finishing while the app

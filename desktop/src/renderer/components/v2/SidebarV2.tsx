@@ -456,7 +456,7 @@ function AgentRow({ row, active, onClick }: { row: Row; active: boolean; onClick
     >
       <StMark st={st} className="size-[7px]" />
       <span className={cn('min-w-0 flex-1 truncate text-[12px]', active ? 'text-title' : st === 'done' ? 'text-subtle' : 'text-secondary', !agent.title && 'font-mono text-[11.5px]')}>{agent.title || agent.name}</span>
-      {attention(st) && <span className={cn('shrink-0 text-[10.5px] font-medium', st === 'needs' ? 'text-amber-300' : 'text-rose-300')}>{t(st === 'needs' ? 'v2.tag.asks' : 'v2.tag.failed')}</span>}
+      {attention(st) && <span className="shrink-0 text-[10.5px] text-subtle">{t(st === 'needs' ? 'v2.tag.asks' : 'v2.tag.failed')}</span>}
       {agent.changesRequested && st === 'working' && <span className="shrink-0 text-[10.5px] text-subtle">{t('v2.tag.changes')}</span>}
     </button>
   );

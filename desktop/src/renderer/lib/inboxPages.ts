@@ -17,6 +17,8 @@ export const questionsKey = ['notifications', 'unseen'] as const;
 export const reviewPagesKey = ['review', 'pages'] as const;
 export const reviewedPagesKey = ['reviewed', 'pages'] as const;
 export const reviewHeadKey = ['review', 'head'] as const;
+// UI v2's one agent's review item (components/v2/ReviewV2.tsx), refetched with the lists.
+export const agentReviewPrefix = 'agentReview';
 
 type Pages<V extends { items: unknown[]; total: number }> = InfiniteData<V, string>;
 
@@ -113,4 +115,5 @@ export function refreshInbox(queryClient: QueryClient): void {
   void queryClient.invalidateQueries({ queryKey: ['notifications'] });
   void queryClient.invalidateQueries({ queryKey: ['review'] });
   void queryClient.invalidateQueries({ queryKey: ['reviewed'] });
+  void queryClient.invalidateQueries({ queryKey: [agentReviewPrefix] });
 }

@@ -957,6 +957,12 @@ function agent99Turns(): T.TokenTurn[] {
 // accounts, and what picking a project's GitHub account or renaming one
 // changes, so a scenario that refetches them after a change (?github=1) sees
 // what the daemon would have answered.
+// patchDevAgent changes an agent as the dev bridge answers it, for a
+// preview that plays out what the daemon would do (dev/review.tsx).
+export function patchDevAgent(ref: string, over: Partial<T.Agent>): void {
+  devState.agents = devState.agents?.map((a) => (a.ref === ref ? { ...a, ...over } : a));
+}
+
 const devState: {
   projects: T.Project[];
   media?: T.MediaItem[];

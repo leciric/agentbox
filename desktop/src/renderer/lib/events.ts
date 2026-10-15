@@ -117,7 +117,10 @@ export function connectEvents(queryClient: QueryClient): void {
           events ? [agentEvent, ...events.filter((e) => e.id !== agentEvent.id)] : events,
         );
         // A finish puts the agent on "Ready to review".
-        if (agentEvent.kind === T.AgentFinished) void queryClient.invalidateQueries({ queryKey: ['review'] });
+        if (agentEvent.kind === T.AgentFinished) {
+          void queryClient.invalidateQueries({ queryKey: ['review'] });
+          void queryClient.invalidateQueries({ queryKey: ['agentReview'] });
+        }
         break;
       }
       case T.EventQuestion: {
@@ -183,12 +186,14 @@ export function connectEvents(queryClient: QueryClient): void {
           void queryClient.invalidateQueries({ queryKey: ['fleet', project] });
           // A pull request fixed brings its agent back to "Ready to review".
           void queryClient.invalidateQueries({ queryKey: ['review'] });
+          void queryClient.invalidateQueries({ queryKey: ['agentReview'] });
         }
         break;
       }
       case T.EventReview:
         // A verdict, from this window or another.
         void queryClient.invalidateQueries({ queryKey: ['review'] });
+        void queryClient.invalidateQueries({ queryKey: ['agentReview'] });
         void queryClient.invalidateQueries({ queryKey: ['reviewed'] });
         break;
       case T.EventAgent: {
