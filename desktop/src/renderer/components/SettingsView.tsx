@@ -81,7 +81,7 @@ import { SkillsPanel } from "./SkillsPanel";
 import { ConnectorsTab } from "./ConnectorsTab";
 import { GlobalMemoryPanel } from "./GlobalMemoryPanel";
 import { phoneGroups } from "./PhoneSettings";
-import { SettingsPage, type SectionIcons } from "./SettingsPage";
+import { SettingsPage, keepScroll, openSettingsSection, type SectionIcons } from "./SettingsPage";
 import { SettingNote, SettingRow } from "./ui/settings";
 import { Input, Label } from "./ui/input";
 import { Switch } from "./ui/switch";
@@ -210,11 +210,15 @@ export function SettingsView({
   pages,
   section,
   onSection,
+  linked,
 }: {
   onHome?: () => void;
   pages?: SettingSection[];
   section?: string;
   onSection?: (id: string) => void;
+  // linked is the section a link elsewhere in the app opened Settings at
+  // (openSettingsSection).
+  linked?: string;
 }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -356,12 +360,13 @@ export function SettingsView({
     incus: (
       <HostSetup agentbox={agentbox} onRun={() => setHostSetupRan(true)} />
     ),
+    // Incus's own setup sets the mapping up too, whichever form it takes on
+    // this machine, so this step only says how to run it again.
     host: (
-      <p className="text-[13px] text-muted">
-        {t.rich("settings.setup.hostBody", {
-          b: (c) => <span className="text-secondary">{c}</span>,
-        })}
-      </p>
+      <div className="grid gap-2">
+        <p className="text-[13px] text-muted">{t("settings.setup.hostBodyAfterIncus")}</p>
+        <CommandBox command={check("host")?.fix ?? `sudo ${agentbox} host setup`} />
+      </div>
     ),
     image: (
       <div className="grid gap-3">
@@ -508,14 +513,16 @@ export function SettingsView({
     loaded &&
     (hostSetup.data?.linux?.mode === "host" ||
       steps.every((s) => s.optional || usable(s.status)));
-  // One of v2's pages asked for is a page, not a step: it opens past the wizard.
-  const asked = !!section && !!pages?.some((p) => p.id === section);
+  // One of v2's pages asked for is a page, not a step: it opens past the
+  // wizard, as does a link from elsewhere in the app to another section (the
+  // composer's Log in opens Accounts). A link to Setup is the wizard's while
+  // there's setting up to do: it opens at the next step either way.
+  const asked =
+    (!!section && !!pages?.some((p) => p.id === section)) ||
+    (linked !== undefined && linked !== "setup");
   useEffect(() => {
     if (page === null && loaded) setPage(settled || asked ? "tabs" : "wizard");
   }, [page, loaded, settled, asked]);
-
-  const required = steps.filter((s) => s.required);
-  const done = required.filter((s) => s.status === "ok").length;
 
   if (page === null) {
     return (
@@ -541,8 +548,6 @@ export function SettingsView({
   return (
     <InstalledSettings
       steps={steps}
-      done={done}
-      total={required.length}
       error={setup.error ? errorMessage(setup.error) : undefined}
       info={info.data}
       imageJob={imageJob}
@@ -654,22 +659,7 @@ function SetupWizard({
                     <span className="text-[11px] tabular-nums text-faint">
                       {t("settings.setup.stepOf", { n: at + 1, total: steps.length })}
                     </span>
-                    {step.optional ? (
-                      step.status === "warn" ? (
-                        <Badge variant="warning">{t("settings.setup.badgeCheck")}</Badge>
-                      ) : (
-                        <Badge>{t("settings.setup.badgeOptional")}</Badge>
-                      )
-                    ) : background(step.status) ? (
-                      <Badge>{step.status === "building" ? t("settings.setup.badgeBuilding") : t("settings.setup.badgeUpdating")}</Badge>
-                    ) : (
-                      step.status !== "ok" &&
-                      step.status !== "checking" && (
-                        <Badge variant="warning">
-                          {step.status === "outdated" ? t("settings.setup.badgeOutdated") : t("settings.setup.badgeNeeded")}
-                        </Badge>
-                      )
-                    )}
+                    <StepBadge step={step} />
                     <span className="ml-auto">
                       <StepIcon status={step.status} />
                     </span>
@@ -839,8 +829,6 @@ function Finished({
 // change are marked advanced, and folded at the end of their section.
 function InstalledSettings({
   steps,
-  done,
-  total,
   error,
   info,
   imageJob,
@@ -855,8 +843,6 @@ function InstalledSettings({
   section?: string;
   onSection?: (id: string) => void;
   steps: Step[];
-  done: number;
-  total: number;
   error?: string;
   info?: { version: string; electron: string; socket: string };
   imageJob: string | null;
@@ -932,6 +918,22 @@ function InstalledSettings({
   const machineSteps = steps.filter((step) => environmentIds.has(step.id));
   const accountSteps = steps.filter((step) => accountIds.has(step.id));
   const aiSteps = accountSteps.filter((step) => step.id !== "github");
+  // Setup's checklist: what agents can't run without, in the order it has to
+  // be done, and the Claude Code login they run on.
+  const checklist = [
+    ...machineSteps.filter((step) => step.required),
+    ...accountSteps
+      .filter((step) => step.id === "claude")
+      .map((step) => ({
+        ...step,
+        body: (
+          <Button variant="primary" onClick={() => openSettingsSection("accounts")}>
+            <LogIn />
+            {t("settings.checklist.openAccounts")}
+          </Button>
+        ),
+      })),
+  ];
   const githubSteps = accountSteps.filter((step) => step.id === "github");
 
   const notifyPrefs = usePrefs();
@@ -1448,30 +1450,10 @@ function InstalledSettings({
       description: t("settings.section.setup.description"),
       scope: "installation",
       attention: needsLook(machineSteps),
-      header: (
-        <div className="grid gap-2 px-1">
-          <div className="flex flex-wrap items-center gap-3">
-            <span
-              className="text-[13px] tabular-nums text-muted"
-              data-setup-progress={`${done}/${total}`}
-            >
-              {t("settings.setup.requiredReady", { done, total })}
-            </span>
-            <Button variant="ghost" size="sm" className="ml-auto" onClick={onWizard}>
-              <Wand />
-              {t("settings.setup.runAgain")}
-            </Button>
-          </div>
-          <div className="h-1.5 overflow-hidden rounded-full bg-surface-raised">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-brand-400 to-emerald-400 transition-all duration-500"
-              style={{ width: `${total ? (done / total) * 100 : 0}%` }}
-            />
-          </div>
-        </div>
-      ),
       groups: [
-        ...(hostMode || moving
+        // Moving to a VM is offered where it can happen: without /dev/kvm,
+        // the Incus step says why not instead.
+        ...((hostMode && linux?.kvm) || moving
           ? [
               {
                 id: "where",
@@ -1501,17 +1483,25 @@ function InstalledSettings({
           : []),
         {
           id: "required",
-          title: t("settings.group.required.title"),
+          title: t("settings.checklist.title"),
           cards: true,
-          entries: machineSteps
-            .filter((step) => step.required)
-            .map((step) =>
-              stepEntry(
-                step,
-                (step.id === "image" && imageJob !== null) ||
-                  (step.id === "incus" && hostSetupRan),
+          entries: [
+            {
+              id: "checklist",
+              label: t("settings.checklist.title"),
+              keywords: checklist.map((step) => `${step.title} ${step.description} ${step.detail ?? ""}`).join(" "),
+              render: () => (
+                <SetupChecklist
+                  steps={checklist}
+                  open={[
+                    ...(imageJob !== null ? ["image"] : []),
+                    ...(hostSetupRan ? ["incus"] : []),
+                  ]}
+                  onWizard={onWizard}
+                />
               ),
-            ),
+            },
+          ],
         },
         {
           id: "optional",
@@ -1880,10 +1870,24 @@ function UiV2Setting() {
           data-ui-v2-setting
           aria-label={t("settings.entry.ui-v2.label")}
           checked={on}
-          onCheckedChange={setUiV2}
+          onCheckedChange={(next) => {
+            keepScroll();
+            setUiV2(next);
+          }}
         />
       }
-    />
+    >
+      <div className="min-w-0 break-words text-[12px] leading-relaxed text-subtle">
+        <span className="font-medium text-secondary">{t("settings.uiV2.whatsNew")}</span>
+        <ul className="mt-1 list-disc space-y-0.5 pl-4" data-ui-v2-whats-new>
+          <li>{t("settings.uiV2.new.leads")}</li>
+          <li>{t("settings.uiV2.new.newTask")}</li>
+          <li>{t("settings.uiV2.new.panel")}</li>
+          <li>{t("settings.uiV2.new.review")}</li>
+          <li>{t("settings.uiV2.new.pages")}</li>
+        </ul>
+      </div>
+    </SettingRow>
   );
 }
 
@@ -3129,6 +3133,19 @@ function HostSetup({
   // On Windows, host setup is `agentbox wsl init`, in AgentBox's WSL distro,
   // which needs no password either (D94).
   const wsl = status.data?.wsl != null;
+  // A machine that can't run a VM has no move to make: Incus here is the way.
+  if (linux?.mode === "host" && !linux.kvm) {
+    return (
+      <div className="grid gap-2" data-host-setup="no-kvm">
+        <p className="text-[13px] text-muted">{t("settings.hostSetup.noKVMHere")}</p>
+        <CommandBox command={`sudo ${agentbox} host setup`} />
+        <details className="text-xs text-subtle">
+          <summary className="w-fit cursor-pointer hover:text-secondary">{t("settings.hostSetup.whyNotVM")}</summary>
+          <p className="mt-1.5 leading-relaxed">{t("vm.run.noKVM")}</p>
+        </details>
+      </div>
+    );
+  }
   if (linux?.mode === "host") {
     return (
       <div className="grid gap-2" data-host-setup="moving">
@@ -3263,6 +3280,162 @@ export function CommandBox({ command }: { command: string }) {
   );
 }
 
+// dependsOn is the step each one can't start before: the daemon checks the
+// user mapping and the base image only once Incus answers.
+const dependsOn: Record<string, string> = { host: "incus", image: "incus" };
+
+// SetupChecklist is Setup's one list of what's left, in order: the steps done
+// fold to a line, the first one still to do is the next step, open with what
+// to do about it, and one waiting on another says which. The checks run again
+// every few seconds (SettingsView's queries), so it moves on by itself.
+function SetupChecklist({
+  steps,
+  open,
+  onWizard,
+}: {
+  steps: Step[];
+  // open names steps to keep open, done or not: a build or a host setup
+  // started here, whose log should stay readable.
+  open: string[];
+  onWizard: () => void;
+}) {
+  const t = useT();
+  const [unfolded, setUnfolded] = useState<string[]>([]);
+  const byId = new Map(steps.map((step) => [step.id, step]));
+  const waitsFor = (step: Step) => {
+    const dep = byId.get(dependsOn[step.id] ?? "");
+    return dep && !usable(dep.status) ? dep : undefined;
+  };
+  const next = steps.find(
+    (step) => step.status !== "checking" && !usable(step.status) && !waitsFor(step),
+  );
+  const done = steps.filter((step) => usable(step.status)).length;
+  return (
+    <div className="grid gap-3" data-setup-checklist>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1">
+        <span
+          className="text-[13px] tabular-nums text-muted"
+          data-setup-progress={`${done}/${steps.length}`}
+        >
+          {t("settings.checklist.progress", { done, total: steps.length })}
+        </span>
+        <Button variant="ghost" size="sm" className="ml-auto" onClick={onWizard}>
+          <Wand />
+          {t("settings.setup.runAgain")}
+        </Button>
+      </div>
+      <ol className="overflow-hidden rounded-xl border border-line bg-surface/40">
+        {steps.map((step) => {
+          const isNext = step === next;
+          const after = waitsFor(step);
+          const expanded =
+            isNext ||
+            background(step.status) ||
+            open.includes(step.id) ||
+            unfolded.includes(step.id);
+          const toggle = () =>
+            setUnfolded((was) =>
+              was.includes(step.id) ? was.filter((id) => id !== step.id) : [...was, step.id],
+            );
+          return (
+            <li
+              key={step.id}
+              data-setup-step={step.id}
+              data-status={step.status}
+              data-next-step={isNext || undefined}
+              className={cn(
+                "border-b border-line last:border-b-0",
+                isNext && "border-l-[3px] border-l-amber-400 bg-surface-raised",
+              )}
+            >
+              <button
+                type="button"
+                disabled={isNext || !step.body}
+                onClick={toggle}
+                aria-expanded={step.body ? expanded : undefined}
+                className={cn(
+                  "flex w-full min-w-0 items-center gap-3 px-4 py-3 text-left text-[13px] transition enabled:hover:bg-surface",
+                  after && "opacity-60",
+                )}
+              >
+                {after ? (
+                  <CircleDashed className="size-4 shrink-0 text-subtle" />
+                ) : (
+                  <StepIcon status={step.status} small />
+                )}
+                <span
+                  className={cn(
+                    "min-w-0 flex-1 truncate",
+                    isNext ? "font-semibold text-title" : "text-secondary",
+                  )}
+                >
+                  {isNext ? t("settings.checklist.next", { step: step.title }) : step.title}
+                </span>
+                {isNext ? (
+                  <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-amber-300">
+                    {t("settings.checklist.nextBadge")}
+                  </span>
+                ) : after ? (
+                  <span className="shrink-0 text-xs text-subtle">
+                    {t("settings.checklist.after", { step: after.title })}
+                  </span>
+                ) : (
+                  step.detail && (
+                    <span
+                      className={cn(
+                        "min-w-0 max-w-[50%] truncate text-xs",
+                        usable(step.status) ? "text-emerald-300/80" : "text-subtle",
+                      )}
+                      title={step.detail}
+                    >
+                      {step.detail}
+                    </span>
+                  )
+                )}
+              </button>
+              {expanded && !after && (
+                <div className="grid gap-3 px-4 pb-4 pl-11">
+                  <p className="text-[13px] text-muted">{step.description}</p>
+                  {isNext && step.detail && (
+                    <p className="break-words text-xs text-subtle">{step.detail}</p>
+                  )}
+                  {step.body}
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+      <p className="px-1 text-[13px] text-muted">
+        {next || done < steps.length
+          ? t("settings.checklist.leadMeanwhile")
+          : t("settings.checklist.allDone")}
+      </p>
+    </div>
+  );
+}
+
+// StepBadge says where a step stands, beside its title. "optional" is only
+// for a step that is: a skippable one that's missing, such as the Claude Code
+// login agents can't run without, says it isn't set up.
+function StepBadge({ step }: { step: Step }) {
+  const t = useT();
+  if (step.status === "warn")
+    return <Badge variant="warning">{t("settings.setup.badgeCheck")}</Badge>;
+  if (step.status === "optional")
+    return <Badge>{t("settings.setup.badgeOptional")}</Badge>;
+  if (background(step.status))
+    return <Badge>{step.status === "building" ? t("settings.setup.badgeBuilding") : t("settings.setup.badgeUpdating")}</Badge>;
+  if (step.status === "ok" || step.status === "checking") return null;
+  if (step.optional)
+    return <Badge variant="warning">{t("settings.setup.badgeNotSetUp")}</Badge>;
+  return (
+    <Badge variant="warning">
+      {step.status === "outdated" ? t("settings.setup.badgeOutdated") : t("settings.setup.badgeNeeded")}
+    </Badge>
+  );
+}
+
 function ChecklistStep({
   step,
   alwaysShow,
@@ -3270,7 +3443,6 @@ function ChecklistStep({
   step: Step;
   alwaysShow?: boolean;
 }) {
-  const t = useT();
   const ok = step.status === "ok";
   return (
     <div className="min-w-0" data-setup-step={step.id} data-status={step.status}>
@@ -3293,22 +3465,7 @@ function ChecklistStep({
               <h3 className="text-[14px] font-semibold text-primary">
                 {step.title}
               </h3>
-              {step.optional ? (
-                step.status === "warn" ? (
-                  <Badge variant="warning">{t("settings.setup.badgeCheck")}</Badge>
-                ) : (
-                  <Badge>{t("settings.setup.badgeOptional")}</Badge>
-                )
-              ) : background(step.status) ? (
-                <Badge>{step.status === "building" ? t("settings.setup.badgeBuilding") : t("settings.setup.badgeUpdating")}</Badge>
-              ) : (
-                !ok &&
-                step.status !== "checking" && (
-                  <Badge variant="warning">
-                    {step.status === "outdated" ? t("settings.setup.badgeOutdated") : t("settings.setup.badgeNeeded")}
-                  </Badge>
-                )
-              )}
+              <StepBadge step={step} />
             </div>
             <p className="mt-0.5 text-[13px] text-muted">{step.description}</p>
             {step.detail && (

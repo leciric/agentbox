@@ -14,6 +14,7 @@ import {
   LoaderCircle,
   Lock,
   LockOpen,
+  LogIn,
   Moon,
   PencilLine,
   PencilRuler,
@@ -24,6 +25,7 @@ import {
   ShieldAlert,
   Sparkles,
   SquareArrowOutUpRight,
+  X,
   type LucideIcon,
 } from 'lucide-react';
 import { Fragment, use, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type SyntheticEvent } from 'react';
@@ -51,6 +53,7 @@ import { DiffView, relativePath } from './ChangedFiles';
 import { FileChip } from './Files';
 import { ImageThumb } from './Images';
 import { RunnerPicker } from './RunnerPicker';
+import { openSettingsSection } from '../SettingsPage';
 
 
 // asleep is set while the agent's machine is stopped or paused: the composer
@@ -110,16 +113,32 @@ export function Composer({
       return api.sendChat(agent.ref, message.text, images, files);
     },
     onMutate: () => {
+      setSendError(null);
       setText('');
       setImages([]);
       onSent();
     },
+    // A message that didn't go comes back to the composer, and why stays
+    // above it until the next one is sent or it's dismissed: a toast is gone
+    // before it's read.
     onError: (err, message) => {
       setText((current) => current || message.text);
       setImages((current) => (current.length ? current : message.images));
-      toast.error(errorMessage(err));
+      setSendError(errorMessage(err));
     },
   });
+  const [sendError, setSendError] = useState<string | null>(null);
+
+  // A Claude Code chat with no login anywhere can't start: say so before the
+  // message is sent, with the way to log in, rather than after it fails
+  // (agent.resolveClaudeAccount). The draft stays where it is.
+  const auth = useQuery({
+    queryKey: ['auth'],
+    queryFn: api.auth,
+    enabled: agent.ai === 'claude',
+    refetchInterval: (q) => (q.state.data && q.state.data.claudeAccounts.length === 0 ? 5_000 : false),
+  });
+  const signedOut = agent.ai === 'claude' && auth.data !== undefined && auth.data.claudeAccounts.length === 0;
 
   // Pictures go to the AI tool as ACP image blocks, which only an adapter that
   // said promptCapabilities.image takes; for one that didn't, they go as
@@ -259,7 +278,7 @@ export function Composer({
 
   // Sending while the tool works is the point of the placeholder below: the
   // message joins the running turn and the model decides what it's worth.
-  const canSend = !disabled && (text.trim() !== '' || images.length > 0) && !send.isPending && !held;
+  const canSend = !disabled && !signedOut && (text.trim() !== '' || images.length > 0) && !send.isPending && !held;
   const submit = () => {
     if (!canSend) return;
     if (cacheCard) {
@@ -368,7 +387,36 @@ export function Composer({
   return (
     <div className="relative" data-chat-composer>
       {plan && <TasksBadge plan={plan} />}
-      {asleep ? (
+      {signedOut ? (
+        <Attached tone="amber">
+          <div className="flex items-center gap-2 text-[12.5px]" data-chat-signed-out>
+            <LogIn className="size-3.5 shrink-0 text-amber-300" />
+            <p className="min-w-0 flex-1 break-words leading-relaxed text-amber-100/90">{t('chat.composer.signedOut')}</p>
+            <button
+              className="flex h-6 shrink-0 items-center gap-1 rounded-md bg-brand-500/90 px-2.5 text-[12px] font-medium text-white transition hover:bg-brand-500"
+              onClick={() => openSettingsSection('accounts')}
+            >
+              {t('chat.composer.logIn')}
+            </button>
+          </div>
+        </Attached>
+      ) : sendError ? (
+        <Attached tone="rose">
+          <div className="flex items-start gap-2 text-[12.5px]" data-chat-send-error>
+            <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-rose-300" />
+            <p className="min-w-0 flex-1 break-words leading-relaxed text-rose-100/90">
+              {t('chat.composer.notSent', { error: sendError })}
+            </p>
+            <button
+              className="flex size-6 shrink-0 items-center justify-center rounded-md text-rose-100 transition hover:bg-rose-400/15"
+              aria-label={t('common.close')}
+              onClick={() => setSendError(null)}
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+        </Attached>
+      ) : asleep ? (
         <Attached tone="neutral">
           <div className="flex items-center gap-2 text-[12.5px]" data-chat-asleep={asleep.state}>
             {asleep.starting || send.isPending ? <LoaderCircle className="size-3.5 shrink-0 animate-spin text-muted" /> : <Moon className="size-3.5 shrink-0 text-muted" />}

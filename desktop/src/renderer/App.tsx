@@ -148,6 +148,7 @@ export function App({ initial }: { initial?: View } = {}) {
   );
 
   const select = (next: View) => {
+    setSettingsLink(undefined);
     if (next.kind === "agent" && next.tab)
       setTabs((t) => ({ ...t, [next.ref]: next.tab! }));
     setView(next);
@@ -158,9 +159,11 @@ export function App({ initial }: { initial?: View } = {}) {
   // A link from inside a page to a section of Settings (openSettingsSection):
   // remember the section and remount Settings so it opens there.
   const [settingsVisit, setSettingsVisit] = useState(0);
+  const [settingsLink, setSettingsLink] = useState<string>();
   useEffect(() => {
     const open = (e: Event) => {
       rememberSection((e as CustomEvent<string>).detail);
+      setSettingsLink((e as CustomEvent<string>).detail);
       setSettingsVisit((n) => n + 1);
       setView({ kind: "settings" });
       setNavOpen(false);
@@ -539,6 +542,7 @@ export function App({ initial }: { initial?: View } = {}) {
                     pages={v2Pages}
                     section={pageOf(view)}
                     onSection={(id) => setView(viewOf(id))}
+                    linked={settingsLink}
                   />
                 )}
                 {!v2Settings && view.kind === "home" && (
@@ -559,7 +563,7 @@ export function App({ initial }: { initial?: View } = {}) {
                   />
                 )}
                 {!v2Settings && view.kind === "settings" && (
-                  <SettingsView onHome={() => select({ kind: "home" })} />
+                  <SettingsView onHome={() => select({ kind: "home" })} linked={settingsLink} />
                 )}
                 {view.kind === "project" && (
                   <ProjectView

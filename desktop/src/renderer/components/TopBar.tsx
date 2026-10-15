@@ -13,6 +13,7 @@ import { ProjectCrumb, TopSlot } from './v2/ProjectHeader';
 import { cn, shortcut, timeAgo, timeUntil } from '../lib/utils';
 import { ToolMark } from './state';
 import { DiskGuardPill } from './DiskGuardPill';
+import { openSettingsSection } from './SettingsPage';
 import { ImageBuildChip } from './ImageBuildChip';
 import { MachineStatus } from './MachineStatus';
 import { Inbox } from './Inbox';
@@ -116,7 +117,8 @@ export function TopBar({
         {setup.data && !setup.data.ready && view.kind !== 'settings' && (
           <button
             className="flex items-center gap-1.5 rounded-full bg-amber-400/10 px-2.5 py-1 text-xs font-medium text-amber-200 ring-1 ring-inset ring-amber-400/25 transition hover:bg-amber-400/15"
-            onClick={() => onSelect({ kind: 'settings' })}
+            // Setup's next step, not whichever section Settings was left at.
+            onClick={() => openSettingsSection('setup')}
           >
             <TriangleAlert className="size-3.5" />
             <span className="hidden sm:inline">{t('shell.home.finishSetup')}</span>
