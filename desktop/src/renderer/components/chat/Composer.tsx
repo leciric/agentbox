@@ -51,8 +51,6 @@ import { DiffView, relativePath } from './ChangedFiles';
 import { FileChip } from './Files';
 import { ImageThumb } from './Images';
 import { RunnerPicker } from './RunnerPicker';
-import { useHeaderMock } from '../../lib/headerMock';
-import { ComposerPlus } from '../v2/HeaderMock';
 
 
 // asleep is set while the agent's machine is stopped or paused: the composer
@@ -71,7 +69,6 @@ export function Composer({
   onSent: () => void;
 }) {
   const t = useT();
-  const mock = useHeaderMock();
   const fileLinks = use(FileLinks);
   const [text, setText] = useState(() => getDraft(agent.ref));
   const [dismissed, setDismissed] = useState<string | null>(null);
@@ -599,9 +596,6 @@ export function Composer({
               void attach(files);
             }}
           />
-          {mock === 'b' && isProjectChat(agent.ref) ? (
-            <ComposerPlus project={agent.project} leadRef={agent.ref} noAttach={noAttach} onAttach={() => picker.current?.click()} />
-          ) : (
           <Tip label={noAttach ?? t('chat.composer.attachTip')}>
             {/* A span, so the reason still shows on a disabled button. */}
             <span className="shrink-0">
@@ -616,7 +610,6 @@ export function Composer({
               </button>
             </span>
           </Tip>
-          )}
           {isProjectChat(agent.ref) && <RunnerPicker agent={agent} session={session} />}
           <SessionOptions agent={agent} session={session} />
           <div className="ml-auto flex shrink-0 items-center gap-1.5">

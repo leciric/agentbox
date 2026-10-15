@@ -36,7 +36,6 @@ import { inSettings, pageOf, useV2Pages, viewOf } from "./components/v2/Settings
 import { AgentReviewCard, ReviewV2 } from "./components/v2/ReviewV2";
 import { RightPanelHost } from "./components/v2/RightPanel";
 import { aiLabel } from "./components/state";
-import { newAgentEvent } from "./lib/headerMock";
 import { TopBar } from "./components/TopBar";
 import { VMSetup } from "./components/VMSetup";
 import { LinuxVMSetup, MovePrompt } from "./components/RunInVM";
@@ -83,11 +82,6 @@ export function App({ initial }: { initial?: View } = {}) {
   const [tabs, setTabs] = useState<Record<string, AgentPlaceName>>({});
   const [addingProject, setAddingProject] = useState(false);
   const [newAgentProject, setNewAgentProject] = useState<string | null>(null);
-  useEffect(() => {
-    const open = (event: Event) => setNewAgentProject((event as CustomEvent<string>).detail);
-    window.addEventListener(newAgentEvent, open);
-    return () => window.removeEventListener(newAgentEvent, open);
-  }, []);
   const [whatsNew, setWhatsNew] = useState(false);
   // In a narrow window (below lg, 1024px: a small screen, a portrait monitor,
   // or a phone in the web app), the sidebar slides in over the page from the

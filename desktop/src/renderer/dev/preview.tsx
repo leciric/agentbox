@@ -156,8 +156,6 @@
 //                           review's Merge and Request changes, which the dev
 //                           bridge answers, the agent coming back in 6s
 //                           (dev/review.tsx)
-//   &header=a|b|c           with &v2=1, a mock of the project header without its
-//                           repeated name (lib/headerMock.ts); &panel=launcher for C's cards
 //   &panel=files            with &v2=1, the right-hand panel open on a tab
 //                           (files, desktop, terminal, browser, pages, media,
 //                           pulls, settings), or on its launcher (launcher);
@@ -199,7 +197,6 @@
 //                           daemon does, while agents' statuses keep changing;
 //                           ?drag=slow takes 1.5s to save each move
 // See scenarios.json for the set scripts/preview.mjs captures.
-import { setHeaderMock } from '../lib/headerMock';
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
 import '../styles.css';
@@ -417,9 +414,6 @@ if (notify) seedNotifications(queryClient, mockMedia());
 if (review || appView) seedReview(queryClient);
 // UI v2 only where asked for: the flag is the preview origin's, kept between pages.
 setUiV2(params.get('v2') === '1');
-// MOCK: &header=a|b|c, one of lib/headerMock.ts's project header alternatives.
-const headerParam = params.get('header');
-setHeaderMock(headerParam === 'a' || headerParam === 'b' || headerParam === 'c' ? headerParam : null);
 if (appView && params.get('v2') === '1') {
   seedLeadLines(queryClient);
   seedV2(queryClient, params.get('pins'));

@@ -32,9 +32,7 @@ import { Textarea } from './ui/input';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from './ui/menu';
 import { useUiV2 } from '../lib/uiV2';
 import { ProjectIcon, ProjectIconDialog } from './ProjectIcon';
-import { useHeaderMock } from '../lib/headerMock';
-import { InTopBar, ProjectMenu } from './v2/HeaderMock';
-import { TalkToProject } from './v2/TalkToProject';
+import { InTopBar, ProjectMenu } from './v2/ProjectHeader';
 import { PanelButton } from './v2/PanelButton';
 import { openPanelOn, setPanel } from '../lib/rightPanel';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
@@ -149,14 +147,13 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
   const project = projects.data?.find((p) => p.name === name);
   // The lead's chat controls join the project's ⋯ while the chat is open.
   const lead = project && tab === 'chat' && leadChat.data ? leadAgentFrom(project, leadChat.data) : undefined;
-  const mock = useHeaderMock();
   const chatMenu = useChatMenu(lead);
   const mine = agents.data?.filter((a) => a.project === name) ?? [];
   const { retire, setFreeing, setRemoving, dialogs: projectDialogs } = useProjectActions(name, onSelect);
 
-  // v2 has no ⋯: the chat's New chat and Reload tools are the header's
-  // icons, and the project's items are its sidebar menu's and its Settings'
-  // (ProjectActions).
+  // v1's ⋯. v2's is ProjectMenu in the top bar, with the chat's New chat and
+  // Reload tools as icons beside it; the rest are its sidebar menu's and its
+  // Settings' (ProjectActions).
   const menuItems = project && (
     <>
       {chatMenu && (
@@ -165,11 +162,6 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
           <MenuSeparator />
           <MenuLabel>{t('project.view.projectSection')}</MenuLabel>
         </>
-      )}
-      {v2 && (
-        <MenuItem icon={Smile} onSelect={() => setIconOpen(true)}>
-          {t('projectIcon.change')}
-        </MenuItem>
       )}
       <MenuItem icon={FolderOpen} onSelect={() => void window.agentbox.openPath(project.root)}>
         {t('project.view.openFolder')}
@@ -189,26 +181,20 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
 
   return (
     <Tabs value={tab} onValueChange={setWhere} className="flex h-full min-h-0 flex-col">
-      {v2 && mock ? (
+      {v2 ? (
         <InTopBar>
           {lead && <ChatStatus agent={lead} />}
           {chatMenu?.dialogs}
           {chatMenu?.buttons}
-          {mock === 'a' && lead && <ProjectMenu project={project} leadRef={lead.ref} onChangeIcon={() => setIconOpen(true)} />}
+          {lead && <ProjectMenu project={project} leadRef={lead.ref} onNewAgent={onNewAgent} onChangeIcon={() => setIconOpen(true)} />}
           <PanelButton project={name} chat={`${name}/${T.LeadName}`} />
         </InTopBar>
       ) : (
       <div className="w-full shrink-0 px-4 pb-3 pt-4 md:px-8 md:pb-4 md:pt-5">
         <div className="flex flex-wrap items-center gap-3">
-          {v2 ? (
-            <button type="button" onClick={() => setIconOpen(true)} aria-label={t('projectIcon.change')} className="shrink-0 rounded-xl transition hover:opacity-80" data-project-header-icon>
-              <ProjectIcon project={project} className="size-9 rounded-xl border border-line-strong text-[15px]" />
-            </button>
-          ) : (
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-line-strong bg-surface text-tertiary">
-              <FolderGit2 className="size-4" />
-            </span>
-          )}
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-line-strong bg-surface text-tertiary">
+            <FolderGit2 className="size-4" />
+          </span>
           {/* It gives way to the actions beside it, cutting a long root short,
               before they wrap under it. */}
           <div className="min-w-0 flex-1 basis-40">
@@ -216,37 +202,21 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
             <p className="truncate font-mono text-[11px] text-subtle">{project.root}</p>
           </div>
           <div className="ml-auto flex items-center gap-2">
-            {v2 && lead && <TalkToProject project={name} leadRef={lead.ref} />}
             <Button onClick={onNewAgent}>
               <Plus />
               {t('project.view.newAgent')}
             </Button>
-            {v2 ? (
-              <>
-                {chatMenu?.buttons}
-                <PanelButton project={name} chat={`${name}/${T.LeadName}`} />
-              </>
-            ) : (
-              <Menu>
-                <MenuTrigger asChild>
-                  <Button size="icon" variant="ghost" aria-label={t('project.view.actions')} data-project-menu>
-                    <Ellipsis />
-                  </Button>
-                </MenuTrigger>
-                <MenuContent>{menuItems}</MenuContent>
-              </Menu>
-            )}
+            <Menu>
+              <MenuTrigger asChild>
+                <Button size="icon" variant="ghost" aria-label={t('project.view.actions')} data-project-menu>
+                  <Ellipsis />
+                </Button>
+              </MenuTrigger>
+              <MenuContent>{menuItems}</MenuContent>
+            </Menu>
           </div>
         </div>
-        {v2 ? (
-          lead && (
-            <div className="mt-2 flex items-center gap-2">
-              <ChatStatus agent={lead} />
-              {chatMenu?.dialogs}
-            </div>
-          )
-        ) : (
-          <div className="mt-3 flex items-center gap-3">
+        <div className="mt-3 flex items-center gap-3">
             {/* It scrolls rather than wraps once the tabs outgrow the column, and
                 without a scrollbar: the tabs are the control, and a bar under
                 them only says the last one is a few pixels away. */}
@@ -259,18 +229,14 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
                 <GitPullRequest />
                 {t('project.view.tab.pulls')}
               </TabsTrigger>
-              {!v2 && (
-                <>
-                  <TabsTrigger value="media">
-                    <Image />
-                    {t('project.view.tab.media')}
-                  </TabsTrigger>
-                  <TabsTrigger value="past" data-project-tab="past">
-                    <Archive />
-                    {t('project.view.tab.past')}
-                  </TabsTrigger>
-                </>
-              )}
+              <TabsTrigger value="media">
+                <Image />
+                {t('project.view.tab.media')}
+              </TabsTrigger>
+              <TabsTrigger value="past" data-project-tab="past">
+                <Archive />
+                {t('project.view.tab.past')}
+              </TabsTrigger>
               <TabsTrigger value="settings">
                 <SlidersHorizontal />
                 {t('project.view.tab.settings')}
@@ -279,12 +245,11 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
             {lead && (
               <div className="flex shrink-0 items-center gap-2">
                 <ChatStatus agent={lead} />
-                {!v2 && <FilesOpen agent={lead} />}
+                <FilesOpen agent={lead} />
               </div>
             )}
             {chatMenu?.dialogs}
           </div>
-        )}
       </div>
       )}
 

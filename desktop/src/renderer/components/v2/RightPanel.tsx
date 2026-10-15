@@ -12,9 +12,7 @@
 // One width for every tab (PreviewPanelShell.tsx, RightPanelResizeHandle.tsx).
 // lib/rightPanel.ts has its rules and state.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeftRight, Check, ChevronDown, Crown, FolderTree, GitBranch, GitPullRequest, Globe, SlidersHorizontal, HardDrive, Images, Monitor, Moon, Play, Plus, Search, SquareTerminal, Unplug, X, type LucideIcon } from 'lucide-react';
-import { requestNewAgent, useHeaderMock } from '../../lib/headerMock';
-import { TalkToProject } from './TalkToProject';
+import { Check, ChevronDown, Crown, FolderTree, GitBranch, GitPullRequest, Globe, SlidersHorizontal, HardDrive, Images, Monitor, Moon, Play, Plus, Search, SquareTerminal, Unplug, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import * as A from '../../../shared/api';
@@ -395,37 +393,8 @@ function TabStrip({ project, chat, tabs, active, whose }: { project: string; cha
 // per kind, each with its icon, name and one line of what it shows, as
 // T3Code's RightPanelEmptyState lists its surfaces. Its letters open a card
 // while it has the focus. id is the new tab's, null for the empty panel's.
-// MOCK (lib/headerMock.ts), variant C: the two actions the project header held,
-// as cards beside Pull requests and Settings.
-function MockActionCards({ project, chat }: { project: string; chat: string }) {
-  const t = useT();
-  const [talk, setTalk] = useState(false);
-  const card = (icon: ReactNode, title: string, sub: string, onClick: () => void, key: string) => (
-    <button type="button" onClick={onClick} className="group flex min-w-0 items-start gap-3 rounded-xl border border-line bg-surface-faint p-3 text-left transition-colors hover:border-brand-500/50 hover:bg-surface" data-panel-card={key}>
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-surface-raised text-secondary group-hover:text-title">{icon}</span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] font-semibold text-title">{title}</span>
-        <span className="mt-0.5 block text-[11.5px] leading-snug text-subtle">{sub}</span>
-      </span>
-    </button>
-  );
-  return (
-    <>
-      {card(<Plus className="size-[18px]" />, t('project.view.newAgent'), t('headerMock.launcher.new'), () => requestNewAgent(project), 'new-agent')}
-      <TalkToProject
-        project={project}
-        leadRef={chat}
-        open={talk}
-        onOpenChange={setTalk}
-        anchor={<span className="contents">{card(<ArrowLeftRight className="size-[18px]" />, t('v2.talk.button'), t('headerMock.launcher.talk'), () => setTalk(true), 'talk')}</span>}
-      />
-    </>
-  );
-}
-
 function Launcher({ project, chat, id }: { project: string; chat: string; id: string | null }) {
   const t = useT();
-  const mock = useHeaderMock();
   const pages = useProjectPages(project);
   const fresh = livePages(pages.data).some(isNew);
   const ref = useRef<HTMLDivElement>(null);
@@ -474,10 +443,7 @@ function Launcher({ project, chat, id }: { project: string; chat: string; id: st
         <h3 className="mb-3 text-[13px] font-semibold text-title">{t('panel.launcher.title')}</h3>
         <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-2">{agentKinds.map(card)}</div>
         <h4 className="mb-2 mt-5 text-[10.5px] font-semibold uppercase tracking-wide text-faint">{t('panel.launcher.project')}</h4>
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-2">
-          {projectKinds.map(card)}
-          {mock === 'c' && <MockActionCards project={project} chat={chat} />}
-        </div>
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-2">{projectKinds.map(card)}</div>
       </div>
     </div>
   );
