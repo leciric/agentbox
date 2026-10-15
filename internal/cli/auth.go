@@ -1,12 +1,16 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"text/tabwriter"
@@ -202,11 +206,15 @@ the token was written into them when they were created.`,
 
 func newAuthCodexCmd(a *app) *cobra.Command {
 	var apiKey bool
+	var account string
 	cmd := &cobra.Command{
 		Use:   "codex",
 		Short: "Log agents in to Codex",
-		Long: `Runs 'codex login' against AgentBox's own Codex home, so the login is separate
-from your host's ~/.codex. New agents get a copy of it.`,
+		Long: `Runs 'codex login' against a Codex home of AgentBox's own, so the login is
+separate from your host's ~/.codex, and keeps it as a named account. New agents
+get a copy of their project's account, or the default one.
+
+Run it once per account, with --account, to keep several.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			args := []string{"login"}
@@ -214,11 +222,20 @@ from your host's ~/.codex. New agents get a copy of it.`,
 				args = append(args, "--with-api-key")
 			}
 			creds := a.credentials()
-			if err := os.MkdirAll(creds.CodexHome(), 0o700); err != nil {
+			account = cmp.Or(account, credentials.DefaultAccount)
+			if err := credentials.ValidateAccount(account); err != nil {
 				return err
 			}
+			if err := os.MkdirAll(creds.Dir, 0o700); err != nil {
+				return err
+			}
+			home, err := os.MkdirTemp(creds.Dir, ".codex-login-")
+			if err != nil {
+				return err
+			}
+			defer func() { _ = os.RemoveAll(home) }()
 			login := exec.CommandContext(cmd.Context(), "codex", args...)
-			login.Env = append(os.Environ(), "CODEX_HOME="+creds.CodexHome())
+			login.Env = append(os.Environ(), "CODEX_HOME="+home)
 			login.Stdin, login.Stdout, login.Stderr = cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()
 			if err := login.Run(); err != nil {
 				if errors.Is(err, exec.ErrNotFound) {
@@ -226,30 +243,40 @@ from your host's ~/.codex. New agents get a copy of it.`,
 				}
 				return fmt.Errorf("codex %s: %w", strings.Join(args, " "), err)
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Stored the Codex login for agents in %s\n", creds.CodexHome())
-			return nil
+			auth, err := os.ReadFile(filepath.Join(home, "auth.json"))
+			if err != nil {
+				return fmt.Errorf("codex stored no login: run agentbox auth codex again and finish it (%w)", err)
+			}
+			if err := creds.SaveToolAccount(credentials.ToolCodex, "", account, auth); err != nil {
+				return err
+			}
+			return savedToolAccount(cmd, a, credentials.ToolCodex, "", account)
 		},
 	}
 	cmd.Flags().BoolVar(&apiKey, "api-key-stdin", false, "read an OpenAI API key from stdin instead of logging in with ChatGPT")
+	cmd.Flags().StringVar(&account, "account", "", `store it under this name (default "`+credentials.DefaultAccount+`")`)
+	addToolAccountCmds(cmd, a, credentials.ToolCodex)
 	return cmd
 }
 
 // newAuthOpenCodeCmd logs agents in to OpenCode. OpenCode's logins are
-// provider API keys, all of them in one auth.json, and it reads that file from
-// $XDG_DATA_HOME/opencode — so pointing that one variable at AgentBox's own
-// directory is the whole isolation, as CODEX_HOME is for Codex (D6).
+// provider keys, all of them in one auth.json it reads from
+// $XDG_DATA_HOME/opencode: the login runs with that variable pointing at a
+// directory of AgentBox's own (D6), and each provider it wrote is kept as an
+// account of that provider.
 func newAuthOpenCodeCmd(a *app) *cobra.Command {
-	var provider, method string
+	var provider, method, account string
 	cmd := &cobra.Command{
 		Use:   "opencode",
 		Short: "Log agents in to OpenCode",
-		Long: `Runs 'opencode auth login' against AgentBox's own OpenCode data directory, so
-the login is separate from your host's ~/.local/share/opencode. New agents get a
-copy of its auth.json. The OpenCode it runs is AgentBox's own, the version agents
-run, downloaded the first time.
+		Long: `Runs 'opencode auth login' against a data directory of AgentBox's own, so the
+login is separate from your host's ~/.local/share/opencode, and keeps what it
+stores as a named account of that provider. The OpenCode it runs is AgentBox's
+own, the version agents run, downloaded the first time.
 
-OpenCode's models belong to the providers you log in to: the one you add here is
-what an OpenCode agent can run, and AgentBox asks OpenCode itself for the list.`,
+OpenCode's accounts are per provider: a project picks one for each provider
+(the default otherwise), and an OpenCode agent gets all of them. Run this once
+per account, with --account, to keep several for a provider.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			args := []string{"auth", "login"}
@@ -260,7 +287,19 @@ what an OpenCode agent can run, and AgentBox asks OpenCode itself for the list.`
 				args = append(args, "--method", method)
 			}
 			creds := a.credentials()
-			if err := os.MkdirAll(creds.OpenCodeHome(), 0o700); err != nil {
+			account = cmp.Or(account, credentials.DefaultAccount)
+			if err := credentials.ValidateAccount(account); err != nil {
+				return err
+			}
+			if err := os.MkdirAll(creds.Dir, 0o700); err != nil {
+				return err
+			}
+			dataHome, err := os.MkdirTemp(creds.Dir, ".opencode-login-")
+			if err != nil {
+				return err
+			}
+			defer func() { _ = os.RemoveAll(dataHome) }()
+			if err := os.MkdirAll(filepath.Join(dataHome, "opencode"), 0o700); err != nil {
 				return err
 			}
 			// The machine this runs on is the VM, which has no OpenCode of
@@ -272,20 +311,37 @@ what an OpenCode agent can run, and AgentBox asks OpenCode itself for the list.`
 				return fmt.Errorf("logging agents in to OpenCode needs the OpenCode CLI: %w", err)
 			}
 			login := exec.CommandContext(cmd.Context(), command, args...)
-			login.Env = append(os.Environ(), "XDG_DATA_HOME="+creds.OpenCodeDataHome())
+			login.Env = append(os.Environ(), "XDG_DATA_HOME="+dataHome)
 			login.Stdin, login.Stdout, login.Stderr = cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()
 			if err := login.Run(); err != nil {
 				return fmt.Errorf("opencode %s: %w", strings.Join(args, " "), err)
 			}
-			if !creds.HasOpenCodeLogin() {
-				return fmt.Errorf("opencode stored no provider login in %s: run agentbox auth opencode again and finish the login", creds.OpenCodeHome())
+			auth, err := os.ReadFile(filepath.Join(dataHome, "opencode", "auth.json"))
+			if err != nil {
+				return errors.New("opencode stored no provider login: run agentbox auth opencode again and finish the login")
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Stored the OpenCode login for agents in %s\n", creds.OpenCodeHome())
+			providers, err := credentials.SplitOpenCodeAuth(auth)
+			if err != nil {
+				return err
+			}
+			if len(providers) == 0 {
+				return errors.New("opencode stored no provider login: run agentbox auth opencode again and finish the login")
+			}
+			for _, p := range slices.Sorted(maps.Keys(providers)) {
+				if err := creds.SaveToolAccount(credentials.ToolOpenCode, p, account, providers[p]); err != nil {
+					return err
+				}
+				if err := savedToolAccount(cmd, a, credentials.ToolOpenCode, p, account); err != nil {
+					return err
+				}
+			}
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&provider, "provider", "", "provider id to log in to, skipping OpenCode's own list")
 	cmd.Flags().StringVar(&method, "method", "", "login method, skipping OpenCode's own list")
+	cmd.Flags().StringVar(&account, "account", "", `store it under this name (default "`+credentials.DefaultAccount+`")`)
+	addToolAccountCmds(cmd, a, credentials.ToolOpenCode)
 	return cmd
 }
 
@@ -300,16 +356,11 @@ func newAuthStatusCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			claude, codex := "not configured (run: agentbox auth claude)", "not configured (run: agentbox auth codex)"
-			oc := "not configured (run: agentbox auth opencode)"
-			if creds.HasOpenCodeLogin() {
-				oc = "login stored"
-			}
-			cur := "not signed in (run: agentbox auth cursor)"
-			if login, ok := creds.CursorLogin(); ok {
-				cur = "signed in" + cursorAccount(login.Email)
-				if !login.Expiry.IsZero() {
-					cur += ", until " + login.Expiry.Format("2 January 2006")
+			claude := "not configured (run: agentbox auth claude)"
+			tools := map[string][]credentials.ToolAccount{}
+			for _, tool := range credentials.AccountTools {
+				if tools[tool], err = creds.ToolAccounts(tool); err != nil {
+					return err
 				}
 			}
 			if len(accounts) > 0 {
@@ -322,9 +373,6 @@ func newAuthStatusCmd(a *app) *cobra.Command {
 					names = append(names, acc.Name)
 				}
 				claude = fmt.Sprintf("%d account(s): %s", len(accounts), strings.Join(names, ", "))
-			}
-			if creds.HasCodexLogin() {
-				codex = "login stored"
 			}
 			ghAccounts, err := creds.GitHubAccounts()
 			if err != nil {
@@ -351,9 +399,16 @@ func newAuthStatusCmd(a *app) *cobra.Command {
 			for _, acc := range accounts {
 				_, _ = fmt.Fprintf(w, "  %s\t%s\n", acc.Name, claudeAccountStatus(acc, checked[acc.Name]))
 			}
-			_, _ = fmt.Fprintf(w, "Codex\t%s\n", codex)
-			_, _ = fmt.Fprintf(w, "OpenCode\t%s\n", oc)
-			_, _ = fmt.Fprintf(w, "Cursor\t%s\n", cur)
+			for _, tool := range credentials.AccountTools {
+				if len(tools[tool]) == 0 {
+					_, _ = fmt.Fprintf(w, "%s\tnot configured (run: agentbox auth %s)\n", credentials.ToolName(tool), tool)
+					continue
+				}
+				_, _ = fmt.Fprintf(w, "%s\t%d account(s)\n", credentials.ToolName(tool), len(tools[tool]))
+				for _, acc := range tools[tool] {
+					_, _ = fmt.Fprintf(w, "  %s\t%s\n", toolAccountLabel(acc), toolAccountStatus(acc))
+				}
+			}
 			_, _ = fmt.Fprintf(w, "GitHub\t%s\n", gh)
 			return w.Flush()
 		},

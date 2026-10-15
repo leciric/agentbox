@@ -625,7 +625,7 @@ func (s *Server) tellAnswer(ctx context.Context, q state.Question) {
 	}
 	text := fmt.Sprintf("[AgentBox: you asked %q and stopped waiting before the answer came. The answer, from %s:]\n\n%s",
 		q.Text, from, q.Answer)
-	if _, err := s.tellAgent(context.WithoutCancel(ctx), a, text); err != nil {
+	if _, err := s.tellUnlessRetired(context.WithoutCancel(ctx), a, text); err != nil {
 		s.logf("%s: telling it the answer to its question: %v", a.Ref(), err)
 	}
 }

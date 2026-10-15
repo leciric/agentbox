@@ -51,13 +51,13 @@ import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
 const stateLabels: Record<string, MessageKey> = { open: 'memory.pulls.state.open', merged: 'memory.pulls.state.merged', closed: 'memory.pulls.state.closed' };
-const stateVariants: Record<string, BadgeVariant> = { open: 'info', merged: 'success', closed: 'default' };
+export const stateVariants: Record<string, BadgeVariant> = { open: 'info', merged: 'success', closed: 'default' };
 const checksLabels: Record<string, MessageKey> = {
   passing: 'memory.pulls.checks.passing',
   failing: 'memory.pulls.checks.failing',
   pending: 'memory.pulls.checks.pending',
 };
-const checksVariants: Record<string, BadgeVariant> = { passing: 'success', failing: 'danger', pending: 'warning' };
+export const checksVariants: Record<string, BadgeVariant> = { passing: 'success', failing: 'danger', pending: 'warning' };
 const statusLabels: Record<string, MessageKey> = {
   added: 'pulls.detail.status.added',
   removed: 'pulls.detail.status.removed',
@@ -138,8 +138,12 @@ export function PullRequestView({
   onToggleLabel,
   onOpenAgent,
   inline = false,
+  bare = false,
 }: {
   inline?: boolean;
+  // bare leaves the footer out, for the review, whose bar below the slide
+  // has Merge and Open on GitHub (ReviewCarousel).
+  bare?: boolean;
   project: string;
   pr: T.PullRequest;
   canMerge: boolean;
@@ -248,19 +252,21 @@ export function PullRequestView({
         </TabsContent>
       </Tabs>
 
-      <footer className="flex flex-wrap items-center gap-2 border-t border-line-faint px-6 py-3">
-        {mergeError && <Notice className="w-full">{t('memory.pulls.mergeFailed', { error: mergeError })}</Notice>}
-        <Button variant="ghost" size="sm" className="ml-auto" onClick={() => void window.agentbox.openExternal(pr.url)}>
-          <ExternalLink className="size-3.5" />
-          {t('pulls.detail.openOnGitHub')}
-        </Button>
-        {canMerge && (
-          <Button size="sm" disabled={mergeRunning} onClick={onMerge} data-merge-running={mergeRunning || undefined}>
-            {mergeRunning ? <LoaderCircle className="size-3.5 animate-spin" /> : <GitMerge className="size-3.5" />}
-            {t('memory.pulls.merge')}
+      {!bare && (
+        <footer className="flex flex-wrap items-center gap-2 border-t border-line-faint px-6 py-3">
+          {mergeError && <Notice className="w-full">{t('memory.pulls.mergeFailed', { error: mergeError })}</Notice>}
+          <Button variant="ghost" size="sm" className="ml-auto" onClick={() => void window.agentbox.openExternal(pr.url)}>
+            <ExternalLink className="size-3.5" />
+            {t('pulls.detail.openOnGitHub')}
           </Button>
-        )}
-      </footer>
+          {canMerge && (
+            <Button size="sm" disabled={mergeRunning} onClick={onMerge} data-merge-running={mergeRunning || undefined}>
+              {mergeRunning ? <LoaderCircle className="size-3.5 animate-spin" /> : <GitMerge className="size-3.5" />}
+              {t('memory.pulls.merge')}
+            </Button>
+          )}
+        </footer>
+      )}
     </>
   );
 }

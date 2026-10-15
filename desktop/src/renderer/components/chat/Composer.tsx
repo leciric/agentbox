@@ -1,31 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import {
-  ArrowUp,
-  Brain,
-  Check,
-  ChevronDown,
-  CircleAlert,
-  Ellipsis,
-  File,
-  FolderGit2,
-  Gauge,
-  Hourglass,
-  ImagePlus,
-  ListTodo,
-  LoaderCircle,
-  Lock,
-  LockOpen,
-  Moon,
-  PencilLine,
-  PencilRuler,
-  Play,
-  Plug,
-  Search,
-  ShieldAlert,
-  Sparkles,
-  type LucideIcon,
-} from 'lucide-react';
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type SyntheticEvent } from 'react';
+import { ArrowUp, Brain, Check, ChevronDown, CircleAlert, Ellipsis, File, FolderGit2, Gauge, Hourglass, ImagePlus, ListTodo, LoaderCircle, Lock, LockOpen, Moon, PencilLine, PencilRuler, Play, Plug, Search, ShieldAlert, Sparkles, SquareArrowOutUpRight, type LucideIcon } from 'lucide-react';
+import { Fragment, use, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type SyntheticEvent } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
 import { api, isHomeChat, isProjectChat } from '../../lib/api';
@@ -33,6 +8,7 @@ import { composerSkills, searchSkills, skillMentionAt } from '../../lib/skills';
 import { SkillTile } from '../SkillsPanel';
 import { contextBadge, contextHint, currentPlan, formatTokens, pendingPermissions, toolOf, toolsReload } from '../../lib/chat';
 import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../../lib/modelChoices';
+import { FileLinks } from '../files/FilePanel';
 import { mentionAt, matchFiles, matchProjects, mentionLimit, type MentionItem } from '../../lib/mentions';
 import { getDraft, setDraft } from '../../lib/drafts';
 import { formatTime, t as translate, useT } from '../../lib/i18n';
@@ -64,6 +40,7 @@ export function Composer({
   onSent: () => void;
 }) {
   const t = useT();
+  const fileLinks = use(FileLinks);
   const [text, setText] = useState(() => getDraft(agent.ref));
   const [dismissed, setDismissed] = useState<string | null>(null);
   const [highlighted, setHighlighted] = useState(0);
@@ -296,9 +273,16 @@ export function Composer({
         setMentionHighlighted((i) => (i + (event.key === 'ArrowDown' ? 1 : mentionItems.length - 1)) % mentionItems.length);
         return;
       }
+      // Ctrl+Enter (⌘↵) opens the file in the panel beside the chat instead.
+      const highlighted = mentionItems[mentionHighlighted];
+      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && fileLinks && highlighted?.kind === 'file') {
+        event.preventDefault();
+        fileLinks.open(highlighted.insert);
+        return;
+      }
       if (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey)) {
         event.preventDefault();
-        pickMention(mentionItems[mentionHighlighted]);
+        pickMention(highlighted);
         return;
       }
       if (event.key === 'Escape') {
@@ -483,20 +467,35 @@ export function Composer({
         {mentionItems.length > 0 && (
           <div className="absolute inset-x-2 bottom-full mb-2 overflow-hidden rounded-2xl border border-line-strong bg-overlay p-1 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur-xl" role="listbox" aria-label={t('chat.composer.mentions')}>
             {mentionItems.map((item, i) => (
-              <button
-                key={`${item.kind}:${item.label}`}
-                role="option"
-                aria-selected={i === mentionHighlighted}
-                className={cn('flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left', i === mentionHighlighted && 'bg-surface-raised')}
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  pickMention(item);
-                }}
-                onMouseEnter={() => setMentionHighlighted(i)}
-              >
-                {item.kind === 'project' ? <FolderGit2 className="size-3.5 shrink-0 text-subtle" /> : <File className="size-3.5 shrink-0 text-subtle" />}
-                <span className="min-w-0 truncate font-mono text-[12.5px] text-primary">{item.label}</span>
-              </button>
+              <div key={`${item.kind}:${item.label}`} className={cn('flex items-center rounded-xl', i === mentionHighlighted && 'bg-surface-raised')} onMouseEnter={() => setMentionHighlighted(i)}>
+                <button
+                  role="option"
+                  aria-selected={i === mentionHighlighted}
+                  className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    pickMention(item);
+                  }}
+                >
+                  {item.kind === 'project' ? <FolderGit2 className="size-3.5 shrink-0 text-subtle" /> : <File className="size-3.5 shrink-0 text-subtle" />}
+                  <span className="min-w-0 truncate font-mono text-[12.5px] text-primary">{item.label}</span>
+                </button>
+                {item.kind === 'file' && fileLinks && (
+                  <button
+                    className={cn('mr-1.5 flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[11px] text-subtle transition hover:bg-surface-strong hover:text-primary', i !== mentionHighlighted && 'invisible')}
+                    aria-label={t('files.link.open', { path: item.insert })}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      fileLinks.open(item.insert);
+                    }}
+                    data-mention-open
+                  >
+                    <SquareArrowOutUpRight className="size-3" />
+                    {t('files.link.view')}
+                    <kbd className="font-sans text-faint">{navigator.platform.startsWith('Mac') ? '⌘↵' : 'Ctrl+↵'}</kbd>
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         )}

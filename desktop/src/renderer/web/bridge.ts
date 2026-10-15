@@ -13,6 +13,7 @@
 import type { ApiResponse, Bridge, CliStatus, ConnectionState, EnvironmentTarget, HostSetupStatus, HubAccount, HubEnvironment } from '../../preload';
 import * as T from '../../shared/api.ts';
 import { t, type MessageKey } from '../../shared/i18n/index.ts';
+import { reconnector } from './reconnect.ts';
 import { webStreams } from './streams.ts';
 
 // lan says a daemon serves this page to a phone, not a hub.
@@ -67,19 +68,43 @@ function setConnection(next: ConnectionState) {
   for (const fn of connectionListeners) fn(next);
 }
 
+// The stream is followed again from scratch, rather than trusted to
+// EventSource's own retries, when those can't be relied on (reconnect.ts):
+// an answer that isn't the stream (a tunnel's 502) ends its retries for
+// good, and a phone that slept, or a tunnel that dropped without a word,
+// leaves a stream that looks open and carries nothing. The phone's stream
+// says it is alive every 15 seconds (?ping=1), which is how a silent one is
+// told apart from a quiet one. Each time it opens again, lib/events.ts reads
+// everything again, which is how nothing sent meanwhile is lost.
+const reconnect = reconnector({
+  follow: () => followEvents(),
+  connected: () => connection.state === 'connected',
+  // Only the phone's stream pings; the hub's relays the daemon's comments.
+  silentAfter: () => (lan ? 45_000 : undefined),
+});
+
 function followEvents() {
   source?.close();
   source = undefined;
   if (!lan && !target.environmentId) return;
-  setConnection({ state: 'connecting' });
-  const es = new EventSource(`${apiBase()}/v1/events`, { withCredentials: true });
+  reconnect.started();
+  // Only a first attempt is news: retrying stays "disconnected" until one
+  // gets through, as the desktop's EventStream does.
+  if (connection.state !== 'disconnected') setConnection({ state: 'connecting' });
+  const es = new EventSource(`${apiBase()}/v1/events${lan ? '?ping=1' : ''}`, { withCredentials: true });
   source = es;
-  es.onopen = () => setConnection({ state: 'connected' });
+  es.onopen = () => {
+    reconnect.opened();
+    setConnection({ state: 'connected' });
+  };
+  es.addEventListener('ping', () => reconnect.heard());
   es.onerror = () => {
     if (source !== es) return;
+    // Retried by EventSource itself while it is CONNECTING; once it has
+    // given up (CLOSED), by us, a little later each time.
+    if (es.readyState === EventSource.CLOSED) reconnect.failed();
     if (lan) {
-      // EventSource retries by itself. A phone that was unpaired meanwhile
-      // is sent back to pairing.
+      // A phone that was unpaired meanwhile is sent back to pairing.
       setConnection({ state: 'disconnected', error: t('web.phone.unreachable') });
       void fetch('/lan/session', { credentials: 'same-origin' })
         .then((res) => {
@@ -98,6 +123,7 @@ function followEvents() {
       .catch(() => {});
   };
   const deliver = (message: MessageEvent<string>) => {
+    reconnect.heard();
     try {
       const event = JSON.parse(message.data);
       for (const fn of eventListeners) fn(event);
@@ -252,6 +278,12 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
 export function installWebBridge(): void {
   (window as unknown as { agentbox: typeof webBridge }).agentbox = webBridge;
   if (!lan) followEvents();
+}
+
+// reconnectNow follows the event stream again at once, rather than at its
+// next try (the phone's "Retry now").
+export function reconnectNow(): void {
+  reconnect.now();
 }
 
 export function followPhoneEvents(): void {

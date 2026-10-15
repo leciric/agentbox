@@ -75,3 +75,28 @@ test('the 5-hour reading is gone once its window has started again', () => {
   assert.equal(fiveHour(reading('a', 0.42, '2026-10-13T00:00:00Z'), Date.parse('2026-10-14T00:00:00Z')), null);
   assert.equal(fiveHour(undefined), null);
 });
+
+test('Codex and Cursor are offered once per account too, and the one the chat runs on is current', () => {
+  const codex = [account('default'), account('team')];
+  const rows = runnerChoices({
+    ...runners(),
+    tool: 'codex',
+    toolAccounts: { codex: 'team', opencode: 'anthropic: work' },
+    runners: runners().runners.map((r) => (r.tool === 'codex' ? { ...r, accounts: codex } : r.tool === 'opencode' ? { ...r, ready: true, installed: true } : r)),
+  });
+  assert.deepEqual(
+    rows.filter((r) => r.tool === 'codex').map((r) => [r.account, r.current]),
+    [
+      ['default', false],
+      ['team', true],
+    ],
+  );
+  assert.equal(rows.find((r) => r.tool === 'opencode')!.note, 'anthropic: work');
+  assert.equal(rows.filter((r) => r.tool === 'claude').some((r) => r.current), false);
+});
+
+test("a lead's session puts the account of the tool it runs on the lead", () => {
+  const agent = { name: 'lead', ai: 'claude', claudeAccount: 'work', codexAccount: '', cursorAccount: '' } as T.Agent;
+  const on = leadOn(agent, { tool: 'codex', account: 'team' } as T.ChatSession);
+  assert.deepEqual([on.ai, on.claudeAccount, on.codexAccount], ['codex', '', 'team']);
+});

@@ -5,7 +5,6 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -49,10 +48,11 @@ var leadNPMTools = map[string]struct{ pkg, bin string }{
 }
 
 // LeadChoice is what a lead's composer chose: the tool in effect, the one
-// chosen for the next message ("" for none), and the Claude Code account (""
-// for the project's).
+// chosen for the next message ("" for none), the Claude Code account (""
+// for the project's), and the Codex and Cursor accounts (tool → account).
 type LeadChoice struct {
 	Tool, NextTool, Account string
+	ToolAccounts            state.AccountMap
 }
 
 // LeadChoice reads a lead's choice from its chat. A chat never switched runs
@@ -62,7 +62,7 @@ func (m *Manager) LeadChoice(ctx context.Context, project string) (LeadChoice, e
 	if err != nil {
 		return LeadChoice{Tool: "claude"}, err
 	}
-	return LeadChoice{Tool: cmp.Or(c.Tool, "claude"), NextTool: c.NextTool, Account: c.Account}, nil
+	return LeadChoice{Tool: cmp.Or(c.Tool, "claude"), NextTool: c.NextTool, Account: c.Account, ToolAccounts: c.ToolAccounts}, nil
 }
 
 // LeadToolLogin says why a lead can't run tool: nil when AgentBox has a login
@@ -71,7 +71,7 @@ func (m *Manager) LeadToolLogin(p state.Project, tool string) error {
 	if !slices.Contains(LeadTools, tool) {
 		return fmt.Errorf("a project's chat can't run %q: use claude, codex, opencode or cursor", tool)
 	}
-	_, err := m.CheckLogin(tool, p, "")
+	_, err := m.CheckLogin(tool, p, Logins{})
 	return err
 }
 
@@ -207,6 +207,9 @@ func (m *Manager) leadAdapter(ctx context.Context, a state.Agent, home string, s
 		if err != nil {
 			return "", nil, nil, nil, err
 		}
+		if err := m.writeLeadLogin(ctx, a, home); err != nil {
+			return "", nil, nil, nil, err
+		}
 		// The script reads the sign-in and the brief from HOME, which
 		// writeLeadTool filled.
 		return helper.Node, []string{helper.Script}, []string{cursor.SDKEnv + "=" + helper.SDK}, []string{filepath.Dir(helper.Node)}, nil
@@ -218,6 +221,11 @@ func (m *Manager) leadAdapter(ctx context.Context, a state.Agent, home string, s
 			return "", nil, nil, nil, err
 		}
 		bin = []string{filepath.Dir(path), nodeBin}
+		// The account in effect now: the project's, or the one the composer
+		// chose, may have changed since the lead's HOME was written.
+		if err := m.writeLeadLogin(ctx, a, home); err != nil {
+			return "", nil, nil, nil, err
+		}
 		if gh, err := m.ensureGH(ictx, status); err == nil {
 			bin = append(bin, filepath.Dir(gh))
 		}
@@ -231,10 +239,10 @@ func (m *Manager) leadAdapter(ctx context.Context, a state.Agent, home string, s
 
 // leadToolFiles are what a lead's HOME holds for the tools other than Claude
 // Code (whose files writeLeadHome writes): each one's brief where it reads
-// one, its MCP servers in its own format, and a copy of AgentBox's login for
-// it, as an agent's machine gets them (configure). They are written whichever
-// tool runs, so a switch finds them in place; a login AgentBox doesn't have
-// is left out, and an old copy of it removed.
+// one and its MCP servers in its own format, as an agent's machine gets them
+// (configure). They are written whichever tool runs, so a switch finds them in
+// place. Its login is written as the tool starts (writeLeadLogin), for the
+// account in effect then.
 func (m *Manager) leadToolFiles(home, worktree, text string, servers map[string]any) (files map[string][]byte, remove []string, err error) {
 	files = map[string][]byte{
 		".codex/AGENTS.md":               []byte(text),
@@ -242,21 +250,6 @@ func (m *Manager) leadToolFiles(home, worktree, text string, servers map[string]
 		".codex/config.toml":             []byte(leadCodexConfig(worktree, servers)),
 		".config/opencode/opencode.json": leadOpenCodeConfig(servers),
 		".cursor/mcp.json":               leadCursorMCP(servers),
-	}
-	for rel, src := range map[string]string{
-		".codex/auth.json":                m.Creds.CodexAuthPath(),
-		".local/share/opencode/auth.json": m.Creds.OpenCodeAuthPath(),
-		cursorAuthFile:                    m.Creds.CursorAuthPath(),
-	} {
-		auth, err := os.ReadFile(src)
-		switch {
-		case err == nil:
-			files[rel] = auth
-		case errors.Is(err, os.ErrNotExist):
-			remove = append(remove, filepath.Join(home, rel))
-		default:
-			return nil, nil, err
-		}
 	}
 	return files, remove, nil
 }

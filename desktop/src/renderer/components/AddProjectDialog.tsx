@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { FolderGit2, FolderOpen, FolderPlus, LoaderCircle } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { FolderGit2, FolderOpen, FolderPlus, GitPullRequest, LoaderCircle } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
 import * as T from '../../shared/api';
 import { api, ApiError } from '../lib/api';
 import { t as translate, useT } from '../lib/i18n';
@@ -12,6 +12,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Field, Input } from './ui/input';
 import { Select, SelectOption } from './ui/select';
 import { Tabs, TabsList, TabsTrigger } from './ui/tabs';
+import { ClaudeAccountState, ToolAccountState } from './ProjectAccounts';
+import { AIIcon, aiLabel } from './state';
+import { accountsOf } from './ToolAccounts';
 
 // A project is a repository that's already there, or one AgentBox starts:
 // a new folder, git init on main and an initial commit, so agents have
@@ -51,6 +54,13 @@ export function AddProjectDialog({
   // it picks one; the accounts only show up when there is a choice to make.
   const [claudeAccount, setClaudeAccount] = useState('');
   const [githubAccount, setGitHubAccount] = useState('');
+  const [codexAccount, setCodexAccount] = useState('');
+  const [cursorAccount, setCursorAccount] = useState('');
+  const [openCodeAccounts, setOpenCodeAccounts] = useState<Record<string, string>>({});
+  const codexAccounts = accountsOf(auth.data, 'codex');
+  const cursorAccounts = accountsOf(auth.data, 'cursor');
+  const openCodeAll = accountsOf(auth.data, 'opencode');
+  const providers = [...new Set(openCodeAll.map((a) => a.provider ?? ''))].filter(Boolean);
   // On Windows, the picker gives a folder on a Windows drive as /mnt/<drive>/...:
   // the daemon adds a copy of it in the WSL distro's ~/src rather than the
   // folder itself, which git would be slow in there (D91).
@@ -64,6 +74,9 @@ export function AddProjectDialog({
         name: creating ? undefined : name.trim() || undefined,
         claudeAccount: claudeAccount || undefined,
         githubAccount: githubAccount || undefined,
+        codexAccount: codexAccount || undefined,
+        cursorAccount: cursorAccount || undefined,
+        openCodeAccounts: Object.values(openCodeAccounts).some(Boolean) ? openCodeAccounts : undefined,
         copyToLinux: onWindowsDrive || undefined,
         create: creating || undefined,
         commitFiles: (creating && commitFiles) || undefined,
@@ -84,6 +97,9 @@ export function AddProjectDialog({
     setFolderName('');
     setClaudeAccount('');
     setGitHubAccount('');
+    setCodexAccount('');
+    setCursorAccount('');
+    setOpenCodeAccounts({});
     add.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -214,33 +230,48 @@ export function AddProjectDialog({
               <Input id="project-name" placeholder="My App" value={name} onChange={(event) => setName(event.target.value)} />
             </Field>
           )}
-          {claudeAccounts.length > 1 && (
-            <Field label={t('project.add.claudeAccountLabel')} htmlFor="project-claude-account" hint={t('project.add.claudeAccountHint')}>
-              <Select id="project-claude-account" value={claudeAccount} onChange={setClaudeAccount}>
-                <SelectOption value="">{defaultOption(claudeAccounts)}</SelectOption>
-                {claudeAccounts.map((account) => (
-                  <SelectOption key={account.name} value={account.name}>
-                    {account.name}
-                  </SelectOption>
-                ))}
-              </Select>
-            </Field>
-          )}
-          {githubAccounts.length > 1 && (
-            <Field
-              label={t('project.add.githubAccountLabel')}
-              htmlFor="project-github-account"
-              hint={t('project.add.githubAccountHint')}
-            >
-              <Select id="project-github-account" value={githubAccount} onChange={setGitHubAccount}>
-                <SelectOption value="">{defaultOption(githubAccounts)}</SelectOption>
-                {githubAccounts.map((account) => (
-                  <SelectOption key={account.name} value={account.name}>
-                    {githubLabel(account)}
-                  </SelectOption>
-                ))}
-              </Select>
-            </Field>
+          {auth.data && (
+            <fieldset className="grid min-w-0 gap-2" data-project-accounts>
+              <legend className="mb-1 text-[13px] font-medium text-secondary">{t('project.add.accountsLabel')}</legend>
+              <p className="-mt-1 text-xs text-subtle">{t('project.add.accountsHint')}</p>
+              <AccountRow tool="claude" label={aiLabel('claude')} accounts={claudeAccounts} value={claudeAccount} onChange={setClaudeAccount}>
+                <ClaudeAccountState chosen={claudeAccount} />
+              </AccountRow>
+              <AccountRow tool="codex" label={aiLabel('codex')} accounts={codexAccounts} value={codexAccount} onChange={setCodexAccount}>
+                <ToolAccountState accounts={codexAccounts} chosen={codexAccount} />
+              </AccountRow>
+              {providers.length === 0 ? (
+                <AccountRow tool="opencode" label={aiLabel('opencode')} accounts={[]} value="" onChange={() => {}}>
+                  <ToolAccountState accounts={[]} chosen="" />
+                </AccountRow>
+              ) : (
+                providers.map((provider) => {
+                  const mine = openCodeAll.filter((a) => a.provider === provider);
+                  const value = openCodeAccounts[provider] ?? '';
+                  return (
+                    <AccountRow
+                      key={provider}
+                      tool="opencode"
+                      label={`${aiLabel('opencode')} · ${provider}`}
+                      accounts={mine}
+                      value={value}
+                      onChange={(v) => setOpenCodeAccounts((was) => ({ ...was, [provider]: v }))}
+                    >
+                      <ToolAccountState accounts={mine} chosen={value} />
+                    </AccountRow>
+                  );
+                })
+              )}
+              <AccountRow tool="cursor" label={aiLabel('cursor')} accounts={cursorAccounts} value={cursorAccount} onChange={setCursorAccount}>
+                <ToolAccountState accounts={cursorAccounts} chosen={cursorAccount} />
+              </AccountRow>
+              <AccountRow tool="github" label="GitHub" accounts={githubAccounts} value={githubAccount} onChange={setGitHubAccount} named={githubLabel}>
+                <ToolAccountState
+                  accounts={githubAccounts.map((a) => ({ tool: 'github', name: a.name, default: a.default, savedAt: a.savedAt, email: a.login }))}
+                  chosen={githubAccount}
+                />
+              </AccountRow>
+            </fieldset>
           )}
           {auth.data && githubAccounts.length === 0 && (
             <p className="text-xs text-subtle">
@@ -287,6 +318,50 @@ function submitLabel({ creating, notEmpty, onWindowsDrive, pending }: { creating
 // windowsDrive is where WSL mounts Windows's drives, as the daemon's
 // checkProjectDisk has it.
 const windowsDrive = /^\/mnt\/[a-zA-Z](\/|$)/;
+
+// AccountRow is one tool's account in the new project's form: a choice when
+// there are accounts, and how the one it comes to stands.
+function AccountRow({
+  tool,
+  label,
+  accounts,
+  value,
+  onChange,
+  named,
+  children,
+}: {
+  tool: string;
+  label: string;
+  accounts: { name: string; default: boolean }[];
+  value: string;
+  onChange: (value: string) => void;
+  named?: (account: never) => string;
+  children: ReactNode;
+}) {
+  const t = useT();
+  const id = `project-${label.replace(/\W+/g, '-').toLowerCase()}-account`;
+  return (
+    <div className="grid min-w-0 grid-cols-[9rem_minmax(0,1fr)] items-start gap-x-3 gap-y-0.5" data-account-row={tool}>
+      <label htmlFor={id} className="flex min-w-0 items-start gap-1.5 pt-1.5 text-[13px] leading-snug text-secondary">
+        {tool === 'github' ? <GitPullRequest className="mt-0.5 size-3.5 shrink-0 text-subtle" /> : <AIIcon ai={tool} className="mt-0.5 size-3.5 shrink-0 text-subtle" />}
+        <span className="min-w-0 break-words">{label}</span>
+      </label>
+      <div className="grid min-w-0 gap-0.5">
+        {accounts.length > 0 ? (
+          <Select id={id} aria-label={t('project.add.accountAria', { tool: label })} value={value} onChange={onChange}>
+            <SelectOption value="">{defaultOption(accounts)}</SelectOption>
+            {accounts.map((account) => (
+              <SelectOption key={account.name} value={account.name}>
+                {named ? named(account as never) : account.name}
+              </SelectOption>
+            ))}
+          </Select>
+        ) : null}
+        {children}
+      </div>
+    </div>
+  );
+}
 
 // defaultOption words the account choice that follows the machine's default.
 function defaultOption(accounts: { name: string; default: boolean }[]): string {

@@ -333,6 +333,12 @@ type CreateOptions struct {
 	// ClaudeAccount picks a stored Claude Code account for this agent;
 	// empty means the project's account, then the machine's default.
 	ClaudeAccount string
+	// CodexAccount, OpenCodeAccounts (provider → account) and CursorAccount
+	// do the same for the other tools; each only applies to an agent that
+	// runs its tool.
+	CodexAccount     string
+	OpenCodeAccounts state.AccountMap
+	CursorAccount    string
 	// GitHubAccount picks a stored GitHub account for this agent; empty means
 	// the project's account, then the machine's default, then none.
 	GitHubAccount string
@@ -407,7 +413,7 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 	}
 	// Before anything is copied: the agent needs a login for its AI tool, and
 	// a machine with the tool on it.
-	account, err := m.CheckLogin(opts.AI, p, opts.ClaudeAccount)
+	logins, err := m.CheckLogin(opts.AI, p, Logins{Claude: opts.ClaudeAccount, Codex: opts.CodexAccount, OpenCode: opts.OpenCodeAccounts, Cursor: opts.CursorAccount})
 	if err != nil {
 		return state.Agent{}, err
 	}
@@ -475,7 +481,7 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 		model:         opts.Model,
 		effort:        opts.Effort,
 		contextWindow: opts.ContextWindow,
-		claudeAccount: account,
+		logins:        logins,
 		githubAccount: ghAccount,
 		iface:         iface,
 		source:        source,
@@ -551,7 +557,7 @@ type plan struct {
 	model         *string // the Claude Code model chosen for it; nil falls back
 	effort        *string // how hard it thinks; nil falls back
 	contextWindow *string // where its chat compacts; nil is the installation's
-	claudeAccount string  // the stored Claude Code account whose token it gets
+	logins        Logins  // the stored accounts its AI tool signs in with
 	githubAccount string  // the stored GitHub account whose token it gets; "" for none
 	iface         string  // chat or cli
 	source        string  // instance snapshot to copy
@@ -598,11 +604,14 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		CreatedAt:  time.Now(),
 		Source:     pl.source,
 
-		ClaudeAccount: pl.claudeAccount,
-		GitHubAccount: pl.githubAccount,
-		Interface:     pl.iface,
-		FinishNotice:  pl.finishNotice,
-		Connectors:    pl.connectors,
+		ClaudeAccount:    pl.logins.Claude,
+		CodexAccount:     pl.logins.Codex,
+		OpenCodeAccounts: pl.logins.OpenCode,
+		CursorAccount:    pl.logins.Cursor,
+		GitHubAccount:    pl.githubAccount,
+		Interface:        pl.iface,
+		FinishNotice:     pl.finishNotice,
+		Connectors:       pl.connectors,
 	}
 	if _, err := os.Stat(a.Worktree); err == nil {
 		return state.Agent{}, fmt.Errorf("%s already exists: remove it or choose another --name", a.Worktree)
@@ -819,34 +828,6 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 	return "", nil
 }
 
-// CheckLogin reports that AgentBox can log the new agent in to its AI tool,
-// and returns the Claude Code account it will use ("" for the other tools).
-// Exported so a caller that starts a job for Create can run this check first,
-// synchronously, rather than let the job fail after it has already answered
-// that the agent is on its way (see createAgentFrom).
-func (m *Manager) CheckLogin(ai string, p state.Project, account string) (string, error) {
-	if account != "" && ai != "claude" {
-		return "", fmt.Errorf("a Claude Code account (%s) only applies to agents that run Claude Code, and this one runs %s", account, ai)
-	}
-	switch ai {
-	case "claude":
-		return m.ClaudeAccountFor(p, account)
-	case "codex":
-		if !m.Creds.HasCodexLogin() {
-			return "", errors.New("agents have no Codex login: run agentbox auth codex (or use --ai none)")
-		}
-	case "opencode":
-		if !m.Creds.HasOpenCodeLogin() {
-			return "", errors.New("agents have no OpenCode login: run agentbox auth opencode (or use --ai claude)")
-		}
-	case "cursor":
-		if !m.Creds.HasCursorLogin() {
-			return "", errors.New("agents aren't signed in to Cursor: run agentbox auth cursor, or sign in under Settings → Accounts (or use --ai claude)")
-		}
-	}
-	return "", nil
-}
-
 // checkImageTool reports that the base image has the agent's AI tool built
 // into it. Codex and OpenCode are optional in the image (image.Options), so an
 // agent asking for one on an image built without it is refused here, rather
@@ -881,13 +862,13 @@ func (m *Manager) OpenCodeReady(ctx context.Context) (bool, error) {
 	if err != nil || !on {
 		return false, err
 	}
-	return m.Creds.HasOpenCodeLogin(), nil
+	return m.Creds.HasOpenCodeLogin(nil), nil
 }
 
 // CursorReady reports whether an agent could run Cursor right now. Every base
 // image has the SDK (or gets it from image.UpdateTools, and a chat installs it
 // in a machine that still lacks it), so only the sign-in decides.
-func (m *Manager) CursorReady() bool { return m.Creds.HasCursorLogin() }
+func (m *Manager) CursorReady() bool { return m.Creds.HasCursorLogin("") }
 
 // cursorChatDefaults is the chat options a new Cursor agent starts with.
 func (m *Manager) cursorChatDefaults(ctx context.Context, model, effort *string) (map[string]string, error) {
@@ -1094,31 +1075,17 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 		file{home + "/.tmux.conf", tmuxConfig, 0o644},
 	)
 
-	if m.Creds.HasCodexLogin() {
-		auth, err := os.ReadFile(m.Creds.CodexAuthPath())
-		if err != nil {
-			return err
-		}
-		files = append(files, file{home + "/.codex/auth.json", string(auth), 0o600})
+	// The other tools' logins, each where its tool reads it: Codex's
+	// ~/.codex/auth.json, Cursor's SDK's ~/.cursor/sdk/auth.json (an API key
+	// or a browser sign-in alike, credentials.CursorLogin), and OpenCode's
+	// every provider in $XDG_DATA_HOME/opencode — the agent's own home, never
+	// the host's (D6).
+	logins, err := m.toolLoginFiles(ctx, a)
+	if err != nil {
+		return err
 	}
-	// Cursor's SDK reads the sign-in from ~/.cursor/sdk/auth.json, its own
-	// FileCredentialStore's file, whether it came from an API key or a
-	// browser sign-in (credentials.CursorAuthPath).
-	if m.Creds.HasCursorLogin() {
-		auth, err := os.ReadFile(m.Creds.CursorAuthPath())
-		if err != nil {
-			return err
-		}
-		files = append(files, file{home + "/" + cursorAuthFile, string(auth), 0o600})
-	}
-	// OpenCode keeps every provider's key in one auth.json, and reads it from
-	// $XDG_DATA_HOME/opencode — the agent's own home, never the host's (D6).
-	if m.Creds.HasOpenCodeLogin() {
-		auth, err := os.ReadFile(m.Creds.OpenCodeAuthPath())
-		if err != nil {
-			return err
-		}
-		files = append(files, file{home + "/.local/share/opencode/auth.json", string(auth), 0o600})
+	for rel, auth := range logins {
+		files = append(files, file{home + "/" + rel, string(auth), 0o600})
 	}
 
 	// Skip Claude Code's onboarding and the tools' trust prompts for the

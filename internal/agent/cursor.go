@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"os"
 
 	"agentbox/internal/cursor"
 	"agentbox/internal/state"
@@ -45,11 +44,11 @@ func (m *Manager) prepareAgentCursorSettings(ctx context.Context, a state.Agent)
 	if err := m.Incus.WriteFile(ctx, a.Instance, home+"/"+cursorMCPFile, cursorMCPConfig(agentMCPServers(home, connectors)), m.User.UID, m.User.GID, 0o600); err != nil {
 		return err
 	}
-	if a.AI != "cursor" || !m.Creds.HasCursorLogin() {
+	if a.AI != "cursor" {
 		return nil
 	}
-	auth, err := os.ReadFile(m.Creds.CursorAuthPath())
-	if err != nil {
+	auth, _, err := m.Creds.ToolLogin("cursor", a.CursorAccount)
+	if err != nil || auth == nil {
 		return err
 	}
 	return m.Incus.WriteFile(ctx, a.Instance, home+"/"+cursorAuthFile, auth, m.User.UID, m.User.GID, 0o600)

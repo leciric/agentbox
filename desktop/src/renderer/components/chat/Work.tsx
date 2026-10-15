@@ -28,6 +28,7 @@ import { cn } from '../../lib/utils';
 import { PageIcon } from '../pages/PageThumb';
 import { pagesQuery } from '../pages/usePages';
 import { DiffView } from './ChangedFiles';
+import { OpenFileButton } from '../files/OpenFileButton';
 import { Markdown } from './Markdown';
 
 
@@ -159,10 +160,12 @@ function ToolEntry({ item, root }: { item: T.ChatItem; root: string }) {
   const Icon = iconOf(item);
   const failed = item.tool?.status === 'failed';
   const active = isActive(item);
+  const file = item.tool?.paths?.[0];
   return (
     <div className="min-w-0" data-chat-entry={item.kind}>
+      <div className="group/file flex min-w-0 items-center">
       <button
-        className={cn(rowClass, detail ? 'hover:bg-surface-faint' : 'cursor-default')}
+        className={cn(rowClass, 'min-w-0 flex-1', detail ? 'hover:bg-surface-faint' : 'cursor-default')}
         aria-expanded={detail ? open : undefined}
         onClick={() => detail && setOpen(!open)}
       >
@@ -175,6 +178,8 @@ function ToolEntry({ item, root }: { item: T.ChatItem; root: string }) {
         {item.tool?.status === 'stopped' && <span className="shrink-0 text-xs text-faint">{t('chat.work.stopped')}</span>}
         {detail && <ChevronRight className={cn('size-3 shrink-0 text-faint transition-transform', open && 'rotate-90')} />}
       </button>
+      {file && <OpenFileButton path={file} line={item.tool?.line} className="opacity-0 focus-visible:opacity-100 group-hover/file:opacity-100" />}
+      </div>
       {open && detail && <div className="mb-1.5 ml-7 mt-0.5 overflow-hidden rounded-lg border border-line-faint bg-sunken">{detail}</div>}
     </div>
   );
@@ -189,7 +194,10 @@ function detailOf(it: T.ChatItem, root: string): ReactNode {
   if (tool.diffs?.length) {
     return tool.diffs.map((diff, i) => (
       <div key={i} className={cn(i > 0 && 'border-t border-line-faint')}>
-        <div className="truncate px-3 pt-1.5 font-mono text-[11px] text-subtle">{diff.path.startsWith(`${root}/`) ? diff.path.slice(root.length + 1) : diff.path}</div>
+        <div className="flex min-w-0 items-center gap-1 pl-3 pr-1 pt-1">
+          <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-subtle">{diff.path.startsWith(`${root}/`) ? diff.path.slice(root.length + 1) : diff.path}</span>
+          <OpenFileButton path={diff.path} />
+        </div>
         <DiffView diff={diff} />
       </div>
     ));

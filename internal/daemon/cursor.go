@@ -1,23 +1,27 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"agentbox/internal/api"
+	"agentbox/internal/credentials"
 	"agentbox/internal/cursor"
 	"agentbox/internal/state"
 )
 
 // Cursor's sign-in and model menu. Both are the adapter script's own commands
 // run on this machine (agent.Manager.CursorHelper), against AgentBox's own
-// credentials file (credentials.Store.CursorAuthPath), never the user's
-// ~/.cursor: agents get a copy of that file, as they get Codex's auth.json.
+// credentials files (a Cursor account, credentials.Store.ToolAccountPath),
+// never the user's ~/.cursor: agents get a copy of their account's file, as
+// they get Codex's auth.json.
 
 // cursorModelsEvery is how often the daemon asks Cursor for its menu again.
 // Asking is one request, but the menu only changes when Cursor ships a model.
@@ -44,46 +48,96 @@ func (s *Server) saveCursorKey(w http.ResponseWriter, r *http.Request) error {
 	if key == "" {
 		return errors.New("no API key: make one in Cursor's dashboard, under Integrations → API Keys")
 	}
-	m := s.manager(nil)
+	account := cmp.Or(strings.TrimSpace(req.Account), credentials.DefaultAccount)
+	if err := credentials.ValidateAccount(account); err != nil {
+		return err
+	}
+	creds := s.manager(nil).Creds
 	helper, err := s.cursorHelper(r.Context())
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(m.Creds.CursorHome(), 0o700); err != nil {
-		return err
-	}
-	email, err := helper.CheckKey(r.Context(), key, m.Creds.CursorAuthPath())
+	scratch, err := cursorScratch(creds, account)
 	if err != nil {
 		return err
 	}
+	defer func() { _ = os.Remove(scratch) }()
+	email, err := helper.CheckKey(r.Context(), key, scratch)
+	if err != nil {
+		return err
+	}
+	if err := keepCursorLogin(creds, account, scratch); err != nil {
+		return err
+	}
+	s.logf("Stored the Cursor account %q", account)
 	s.refreshCursorModels(true)
 	return writeJSON(w, http.StatusOK, api.CursorKeyResponse{Email: email})
 }
 
-// removeCursorLogin forgets the sign-in, stopping a browser sign-in under way
-// first so it can't write one back.
-func (s *Server) removeCursorLogin(w http.ResponseWriter, _ *http.Request) error {
-	s.mu.Lock()
-	if s.cursorLoginCancel != nil {
-		s.cursorLoginCancel()
-	}
-	s.cursorLogin = api.CursorLogin{State: api.CursorLoginIdle}
-	s.mu.Unlock()
-	if err := s.manager(nil).Creds.RemoveCursorLogin(); err != nil {
+// cursorScratch is where the SDK writes a sign-in for an account before it is
+// kept: beside the accounts, under a name that isn't one.
+func cursorScratch(creds credentials.Store, account string) (string, error) {
+	path := creds.ToolAccountPath(credentials.ToolCursor, "", account) + ".signin"
+	return path, os.MkdirAll(filepath.Dir(path), 0o700)
+}
+
+// keepCursorLogin stores the sign-in the SDK wrote as the account.
+func keepCursorLogin(creds credentials.Store, account, scratch string) error {
+	b, err := os.ReadFile(scratch)
+	if err != nil {
 		return err
 	}
-	if err := s.store.SetSetting(context.Background(), state.SettingCursorModelChoices, ""); err != nil {
+	return creds.SaveToolAccount(credentials.ToolCursor, "", account, b)
+}
+
+// removeCursorLogin forgets the default Cursor account (DELETE
+// /v1/auth/cursor, from before Cursor had accounts): removeToolAccount with
+// its name.
+func (s *Server) removeCursorLogin(w http.ResponseWriter, r *http.Request) error {
+	account, err := s.manager(nil).Creds.DefaultToolAccount(credentials.ToolCursor, "")
+	if err != nil {
 		return err
+	}
+	if account != "" {
+		if err := s.forgetToolAccount(r.Context(), credentials.ToolCursor, "", account); err != nil {
+			return err
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 	return nil
+}
+
+// cursorAccountGone stops a browser sign-in under way for an account being
+// removed, so it can't write one back, and forgets the model menu when no
+// Cursor account is left to ask.
+func (s *Server) cursorAccountGone(ctx context.Context, account string) error {
+	s.mu.Lock()
+	if s.cursorLoginCancel != nil && s.cursorLogin.Account == account {
+		s.cursorLoginCancel()
+		s.cursorLogin = api.CursorLogin{State: api.CursorLoginIdle}
+	}
+	s.mu.Unlock()
+	if s.manager(nil).Creds.HasCursorLogin("") {
+		return nil
+	}
+	return s.store.SetSetting(ctx, state.SettingCursorModelChoices, "")
 }
 
 // startCursorLogin starts Cursor's browser sign-in, unless one is already
 // under way, and answers with its progress at once: the page to open arrives a
 // moment later (after installing the SDK, the first time), so the caller polls
 // cursorLoginStatus for it.
-func (s *Server) startCursorLogin(w http.ResponseWriter, _ *http.Request) error {
+func (s *Server) startCursorLogin(w http.ResponseWriter, r *http.Request) error {
+	var req api.CursorLoginRequest
+	if r.ContentLength != 0 {
+		if err := readJSON(r, &req); err != nil {
+			return err
+		}
+	}
+	account := cmp.Or(strings.TrimSpace(req.Account), credentials.DefaultAccount)
+	if err := credentials.ValidateAccount(account); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	if s.cursorLogin.State == api.CursorLoginStarting || s.cursorLogin.State == api.CursorLoginWaiting {
 		out := s.cursorLogin
@@ -91,14 +145,14 @@ func (s *Server) startCursorLogin(w http.ResponseWriter, _ *http.Request) error 
 		return writeJSON(w, http.StatusOK, out)
 	}
 	ctx, cancel := context.WithTimeout(s.background(), cursor.LoginTimeout)
-	s.cursorLogin, s.cursorLoginCancel = api.CursorLogin{State: api.CursorLoginStarting}, cancel
+	s.cursorLogin, s.cursorLoginCancel = api.CursorLogin{State: api.CursorLoginStarting, Account: account}, cancel
 	out := s.cursorLogin
 	s.mu.Unlock()
-	go s.runCursorLogin(ctx, cancel)
+	go s.runCursorLogin(ctx, cancel, account)
 	return writeJSON(w, http.StatusOK, out)
 }
 
-func (s *Server) runCursorLogin(ctx context.Context, cancel context.CancelFunc) {
+func (s *Server) runCursorLogin(ctx context.Context, cancel context.CancelFunc, account string) {
 	defer cancel()
 	// A sign-in a sign-out cancelled has nothing left to say; one that ran out
 	// of time says so.
@@ -110,26 +164,37 @@ func (s *Server) runCursorLogin(ctx context.Context, cancel context.CancelFunc) 
 		}
 	}
 	fail := func(err error) {
-		set(func(l *api.CursorLogin) { *l = api.CursorLogin{State: api.CursorLoginFailed, Error: err.Error()} })
+		set(func(l *api.CursorLogin) {
+			*l = api.CursorLogin{State: api.CursorLoginFailed, Account: account, Error: err.Error()}
+		})
 	}
-	m := s.manager(nil)
+	creds := s.manager(nil).Creds
 	helper, err := s.cursorHelper(ctx)
 	if err != nil {
 		fail(err)
 		return
 	}
-	if err := os.MkdirAll(m.Creds.CursorHome(), 0o700); err != nil {
-		fail(err)
-		return
-	}
-	email, err := helper.Login(ctx, m.Creds.CursorAuthPath(), func(url string) {
-		set(func(l *api.CursorLogin) { *l = api.CursorLogin{State: api.CursorLoginWaiting, URL: url} })
-	})
+	scratch, err := cursorScratch(creds, account)
 	if err != nil {
 		fail(err)
 		return
 	}
-	set(func(l *api.CursorLogin) { *l = api.CursorLogin{State: api.CursorLoginDone, Email: email} })
+	defer func() { _ = os.Remove(scratch) }()
+	email, err := helper.Login(ctx, scratch, func(url string) {
+		set(func(l *api.CursorLogin) {
+			*l = api.CursorLogin{State: api.CursorLoginWaiting, Account: account, URL: url}
+		})
+	})
+	if err == nil && !errors.Is(ctx.Err(), context.Canceled) {
+		err = keepCursorLogin(creds, account, scratch)
+	}
+	if err != nil {
+		fail(err)
+		return
+	}
+	set(func(l *api.CursorLogin) {
+		*l = api.CursorLogin{State: api.CursorLoginDone, Account: account, Email: email}
+	})
 	s.refreshCursorModels(true)
 }
 
@@ -149,7 +214,7 @@ func (s *Server) cursorLoginStatus(w http.ResponseWriter, _ *http.Request) error
 // sign-in, no Node, or no answer leaves the menu as it was.
 func (s *Server) refreshCursorModels(force bool) {
 	creds := s.manager(nil).Creds
-	login, ok := creds.CursorLogin()
+	login, ok := creds.CursorLogin("")
 	if !ok {
 		return
 	}

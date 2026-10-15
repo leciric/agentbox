@@ -94,10 +94,11 @@ func (then reviewMark) movedTo(now reviewMark) bool {
 	return (then.Failing && !now.Failing) || (then.Conflict && !now.Conflict)
 }
 
-// reviewItems is what of agents, all of project p, is ready to review, with
-// the verdicts left out when skipDecided is set. Pull requests come from the
-// project's cache, as the fleet's do, so this never waits on GitHub.
-func (s *Server) reviewItems(ctx context.Context, p state.Project, agents []state.Agent, skipDecided bool) []api.ReviewItem {
+// reviewItems is what of agents, all of project p, finished, each with its
+// verdict when the user gave one and the work hasn't moved since: those are
+// Reviewed, the rest ready to review. Pull requests come from the project's
+// cache, as the fleet's do, so this never waits on GitHub.
+func (s *Server) reviewItems(ctx context.Context, p state.Project, agents []state.Agent) []api.ReviewItem {
 	var finished []state.Agent
 	var finishes []api.AgentEvent
 	for _, a := range agents {
@@ -125,27 +126,51 @@ func (s *Server) reviewItems(ctx context.Context, p state.Project, agents []stat
 		pr := prs[a.Name]
 		s.prWatch.overlay(p.Name, pr)
 		mark := markOf(ev, tips[a.Name], pr)
-		if skipDecided {
-			if r, ok, err := s.store.AgentReviewOf(ctx, a.Project, a.Name); err == nil && ok {
-				var then reviewMark
-				if json.Unmarshal([]byte(r.Fingerprint), &then) == nil && !then.movedTo(mark) {
-					continue
-				}
-			}
-		}
 		if pr == nil {
 			pr = ev.PR
 		}
-		out = append(out, api.ReviewItem{
+		item := api.ReviewItem{
 			Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title, Branch: a.Branch, AI: a.AI,
-			Summary: ev.Summary, PR: pr, FinishedAt: ev.At, Fingerprint: mark.String(),
-		})
+			Summary: ev.Summary, Changes: ev.Changes, PR: pr, FinishedAt: ev.At, Fingerprint: mark.String(),
+		}
+		if r, ok, err := s.store.AgentReviewOf(ctx, a.Project, a.Name); err == nil && ok {
+			var then reviewMark
+			if json.Unmarshal([]byte(r.Fingerprint), &then) == nil && !then.movedTo(mark) {
+				at := r.At
+				item.Verdict, item.ReviewedAt = r.Verdict, &at
+			}
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+// reviewedLimit is how many reviewed agents the Reviewed section keeps.
+const reviewedLimit = 50
+
+// reviewList is the answer to both review routes: what's ready to review,
+// newest finish first, or with ?reviewed=1 what the user already reviewed or
+// dismissed, the latest verdict first.
+func reviewList(r *http.Request, items []api.ReviewItem) []api.ReviewItem {
+	reviewed := r.URL.Query().Get("reviewed") != ""
+	out := []api.ReviewItem{}
+	for _, i := range items {
+		if (i.Verdict != "") == reviewed {
+			out = append(out, i)
+		}
+	}
+	if !reviewed {
+		return newestFinished(out)
+	}
+	slices.SortStableFunc(out, func(a, b api.ReviewItem) int { return cmp.Compare(b.ReviewedAt.UnixNano(), a.ReviewedAt.UnixNano()) })
+	if len(out) > reviewedLimit {
+		out = out[:reviewedLimit]
 	}
 	return out
 }
 
 // projectReview is GET /v1/projects/{project}/review: the project's agents
-// ready to review, newest first.
+// ready to review, newest first, or reviewed (reviewList).
 func (s *Server) projectReview(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 	p, err := s.store.Project(ctx, r.PathValue("project"))
@@ -156,11 +181,11 @@ func (s *Server) projectReview(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return writeJSON(w, http.StatusOK, newestFinished(items))
+	return writeJSON(w, http.StatusOK, reviewList(r, items))
 }
 
 // allReview is GET /v1/review: every project's agents ready to review,
-// newest first.
+// newest first, or reviewed (reviewList).
 func (s *Server) allReview(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 	projects, err := s.store.Projects(ctx)
@@ -175,7 +200,7 @@ func (s *Server) allReview(w http.ResponseWriter, r *http.Request) error {
 		}
 		items = append(items, more...)
 	}
-	return writeJSON(w, http.StatusOK, newestFinished(items))
+	return writeJSON(w, http.StatusOK, reviewList(r, items))
 }
 
 func (s *Server) projectReviewItems(ctx context.Context, p state.Project) ([]api.ReviewItem, error) {
@@ -183,7 +208,7 @@ func (s *Server) projectReviewItems(ctx context.Context, p state.Project) ([]api
 	if err != nil {
 		return nil, err
 	}
-	return s.reviewItems(ctx, p, agents, true), nil
+	return s.reviewItems(ctx, p, agents), nil
 }
 
 func newestFinished(items []api.ReviewItem) []api.ReviewItem {
@@ -217,7 +242,7 @@ func (s *Server) reviewAgent(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
-		items := s.reviewItems(ctx, p, []state.Agent{a}, false)
+		items := s.reviewItems(ctx, p, []state.Agent{a})
 		if len(items) == 0 {
 			return fmt.Errorf("%s hasn't finished", a.Ref())
 		}

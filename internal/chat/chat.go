@@ -118,8 +118,11 @@ type Manager struct {
 	// may use it, else the project's. Without it a lead switched to Claude
 	// Code runs on the machine's default until its record is read again.
 	LeadAccount func(a state.Agent) (string, error)
-	Logf        func(format string, args ...any) // may be nil
-	Version     string                           // AgentBox's, told to adapters
+	// LeadLogins, when set, is a lead switching to Codex, OpenCode or Cursor
+	// with the accounts it runs that tool on (agent.Manager.LeadLogins).
+	LeadLogins func(a state.Agent) (state.Agent, error)
+	Logf       func(format string, args ...any) // may be nil
+	Version    string                           // AgentBox's, told to adapters
 	// Now and After are the clock a chat waits on: what time it is, and how
 	// work is scheduled for later. Both are nil outside tests, where the real
 	// clock is used; a test injects one so a wait of hours takes none.
@@ -1464,6 +1467,9 @@ type adapter struct {
 	// project's chat moves with its project's account), so what the session
 	// reports about its account is filed under this one (sessionAgent).
 	account string
+	// login is the account its tool signs in with, whichever tool it is
+	// (runsOn), as it was when it started: what AccountChanged compares.
+	login string
 	// subagents are the subagent sessions it announced, by session id
 	// (subagents.go).
 	subagents map[string]*subagent
@@ -1726,6 +1732,7 @@ func (c *conversation) connect(ad *adapter) error {
 	ad.window = window
 	ad.models, _ = c.windows()
 	ad.account = a.ClaudeAccount
+	ad.login = runsOn(a)
 	c.windowRestart = false
 	c.accountRestart = false
 	// It reads the MCP servers its configuration has now.
@@ -2554,12 +2561,16 @@ func applyTool(t *api.ChatTool, u acp.SessionUpdate) {
 	}
 	if len(u.Locations) > 0 {
 		var paths []string
+		line := 0
 		for _, l := range u.Locations {
 			if l.Path != "" && !slices.Contains(paths, l.Path) {
 				paths = append(paths, l.Path)
+				if len(paths) == 1 {
+					line = l.Line
+				}
 			}
 		}
-		t.Paths = paths
+		t.Paths, t.Line = paths, line
 	}
 	if command := commandOf(u.RawInput); command != "" {
 		t.Command = command
