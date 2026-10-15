@@ -29,6 +29,8 @@ import { PastAgents } from "./components/PastAgents";
 import { SettingsView } from "./components/SettingsView";
 import { Sidebar } from "./components/Sidebar";
 import { SidebarV2 } from "./components/v2/SidebarV2";
+import { NewTaskDialog } from "./components/v2/NewTaskDialog";
+import { isNewTaskShortcut, toggleNewTask } from "./lib/newTask";
 import { AgentReviewCard, ReviewV2 } from "./components/v2/ReviewV2";
 import { aiLabel } from "./components/state";
 import { TopBar } from "./components/TopBar";
@@ -223,6 +225,17 @@ export function App({ initial }: { initial?: View } = {}) {
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, []);
+  // UI v2's New task: Ctrl+N (⌘N on a Mac), or the sidebar's first row.
+  useEffect(() => {
+    if (!v2) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (!isNewTaskShortcut(event)) return;
+      event.preventDefault();
+      toggleNewTask();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [v2]);
   const openFound = (target: SearchTarget) => {
     switch (target.open) {
       case "media":
@@ -616,6 +629,7 @@ export function App({ initial }: { initial?: View } = {}) {
         }
       />
       <SearchModal onOpen={openFound} />
+      {v2 && <NewTaskDialog onSelect={select} />}
       <ErrorReports />
       <SnapComposer
         project={view.kind === "project" ? view.project : view.kind === "agent" ? view.ref.split("/")[0] : undefined}

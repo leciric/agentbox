@@ -37,6 +37,7 @@ import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold,
 import { FileLinks } from '../files/FilePanel';
 import { mentionAt, matchFiles, matchProjects, mentionLimit, type MentionItem } from '../../lib/mentions';
 import { getDraft, setDraft } from '../../lib/drafts';
+import { takeComposerFocus } from '../../lib/newTask';
 import { formatTime, t as translate, useT } from '../../lib/i18n';
 import { useNow } from '../../lib/useNow';
 import { previewUrl } from '../../lib/chatImages';
@@ -175,6 +176,11 @@ export function Composer({
   useEffect(() => {
     setDraft(agent.ref, text);
   }, [agent.ref, text]);
+
+  // A chat opened from UI v2's New task is opened to write in.
+  useEffect(() => {
+    if (!disabled && takeComposerFocus(agent.ref)) area.current?.focus();
+  }, [agent.ref, disabled]);
 
   useLayoutEffect(() => {
     const el = area.current;
