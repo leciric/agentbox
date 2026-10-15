@@ -1,21 +1,25 @@
 package chat
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"agentbox/internal/api"
+	"agentbox/internal/state"
 )
 
 // A spent usage limit is the one way a turn fails that waiting puts right. This
 // file recognises one in what Claude Code said, works out when the limit
 // resets, and schedules the nudge that carries the turn on once it has.
 //
-// Claude Code only. Codex and OpenCode refuse a turn in their own words, none
-// of which have been checked against anything here, and a wrong guess would
-// have AgentBox typing into a conversation on its own for a failure that
-// waiting can't fix.
+// Claude Code's words are the ones checked against real failures. Codex and
+// OpenCode refuse a turn in their own words (usageLimitSigns lists the ones
+// known), kept narrow all the same: a wrong guess would have AgentBox typing
+// into a conversation on its own for a failure that waiting can't fix.
 
 const (
 	// resumeWait is how long a limited turn waits when the tool named no reset
@@ -27,7 +31,7 @@ const (
 	// time rounded to the minute, and two machines' clocks don't agree to the
 	// second, so knocking at exactly the stated moment is the one time it is
 	// most likely to still be refused.
-	resumeSlack = 30 * time.Second
+	resumeSlack = time.Minute
 	// resumeAttempts is how many times a turn is carried on before AgentBox
 	// leaves it alone. A limit still refusing after this many waits isn't the
 	// rolling window everybody hits; it's an account that needs a person.
@@ -35,7 +39,7 @@ const (
 	// resumeNudge is what the resumed turn says. Short on purpose: it is the
 	// same session, with the whole conversation still in it, so this only has
 	// to set the model going again — not describe the work back to it.
-	resumeNudge = "Continue where you left off."
+	resumeNudge = "Your usage limit has reset; carry on where you stopped."
 )
 
 // usageLimitSigns are what a spent usage limit looks like on the error a turn
@@ -52,6 +56,14 @@ var usageLimitSigns = []string{
 	"usage limit reached",
 	`"errorkind":"rate_limit"`,
 	"rate_limit_error",
+	// Codex: "You've hit your usage limit. … try again at 4:10 PM."
+	"you've hit your usage limit",
+	"hit your usage limit",
+	// OpenCode shows its provider's error: the API's own codes for a spent
+	// plan or a rate limit.
+	"rate_limit_exceeded",
+	"insufficient_quota",
+	"exceeded your current quota",
 }
 
 // usageLimitPrefixes are how Claude Code's own "you are out of usage" message
@@ -145,13 +157,13 @@ var (
 	isoPattern = regexp.MustCompile(`\d{4}-\d{2}-\d{2}[t ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:z|[+-]\d{2}:?\d{2})`)
 	// datePattern is "resets Nov 3, 9am": how the tool writes a limit more
 	// than a day off.
-	datePattern = regexp.MustCompile(`reset[a-z]*(?:\s+at)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{1,2}),?\s*(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?`)
+	datePattern = regexp.MustCompile(`(?:reset[a-z]*|try again)(?:\s+at)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{1,2}),?\s*(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?`)
 	// clockPattern is "resets at 3pm", "resets 10:30am (utc)": the common one,
 	// since most limits reset within the day.
-	clockPattern = regexp.MustCompile(`reset[a-z]*(?:\s+at)?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:\(([a-z]+)\))?`)
+	clockPattern = regexp.MustCompile(`(?:reset[a-z]*|try again)(?:\s+at)?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:\(([a-z]+)\))?`)
 	// waitPattern is a wait rather than a time: "try again in 5 minutes",
 	// "retry after 3600 seconds", "retry-after: 60".
-	waitPattern      = regexp.MustCompile(`(?:in|after)\s+(\d+)\s*(second|minute|hour)s?`)
+	waitPattern      = regexp.MustCompile(`(?:in|after)\s+(\d+)\s*(second|minute|hour|day)s?`)
 	retryAfterHeader = regexp.MustCompile(`retry[- ]after["']?\s*[:=]\s*["']?(\d+)`)
 )
 
@@ -216,7 +228,7 @@ func resetTime(text string, now time.Time) time.Time {
 		return now.Add(time.Duration(atoi(m[1])) * time.Second)
 	}
 	if m := waitPattern.FindStringSubmatch(text); m != nil {
-		unit := map[string]time.Duration{"second": time.Second, "minute": time.Minute, "hour": time.Hour}[m[2]]
+		unit := map[string]time.Duration{"second": time.Second, "minute": time.Minute, "hour": time.Hour, "day": 24 * time.Hour}[m[2]]
 		return now.Add(time.Duration(atoi(m[1])) * unit)
 	}
 	return time.Time{}
@@ -268,9 +280,6 @@ func resumeDelay(until, now time.Time, try int) time.Duration {
 // usage limit at all, so the caller can leave the record alone for any other
 // ending. Caller holds c.mu.
 func (c *conversation) limited(t *turn, failure string) bool {
-	if c.agent.AI != "claude" {
-		return false
-	}
 	now := c.m.now()
 	until, limited := UsageLimit(failure, c.lastSaid(t.id), now)
 	if !limited {
@@ -305,13 +314,9 @@ func (c *conversation) lastSaid(turnID string) string {
 // planResume schedules the nudge that carries a limited turn on, unless the
 // setting is off or this conversation has already waited enough times.
 //
-// The wake-up is a timer in memory and nothing else. A daemon that restarts
-// forgets it, and the conversation is left as any other failed one: the turn
-// is failed, the chat says why, and the next message starts a turn as usual.
-// Storing the schedule and re-arming it on load would buy little — the daemon
-// normally outlives the limit it is waiting on — and would cost something real:
-// an AgentBox that came up hours later would start typing into conversations
-// nobody is watching.
+// The wake-up is a timer in memory. What survives a restart is the failed turn
+// in the stored conversation, and the daemon, which records the pause as an
+// agent event, asks for the timer back (RearmLimit) when it starts.
 //
 // Caller holds c.mu.
 func (c *conversation) planResume(until time.Time) {
@@ -400,9 +405,90 @@ func (c *conversation) resume(gen int64) {
 		c.flush(true)
 		return
 	}
+	c.carryOnAfterLimit()
+}
+
+// carryOnAfterLimit starts the turn that carries a limited one on. Caller
+// holds c.mu, and has called off the wake-up.
+func (c *conversation) carryOnAfterLimit() {
 	c.add("notice", c.lastTurn()).Text = fmt.Sprintf(
 		"The usage limit should have reset, so AgentBox asked %s to carry on.", ToolNames[c.agent.AI])
 	it := c.add("user", "")
 	it.Turn, it.Text = it.ID, resumeNudge
 	c.beginTurn(it, resumeNudge, attached{})
+}
+
+// ResumeNow carries a chat paused on a usage limit on at once, for the "Resume
+// now" action: the limit may have been lifted early, or the user wants to see
+// whether it has. It is the same turn the wake-up would have started, and if
+// the limit is still in force the next failure waits again.
+func (m *Manager) ResumeNow(a state.Agent) error {
+	c, err := m.conversation(a)
+	if err != nil {
+		return err
+	}
+	defer c.mu.Unlock()
+	switch {
+	case c.turn != nil:
+		return errors.New("it is working now")
+	case !c.session.Limited && c.session.ResumeAt == nil:
+		return errors.New("it isn't paused on a usage limit")
+	}
+	c.cancelResume()
+	c.carryOnAfterLimit()
+	return nil
+}
+
+// RearmLimit puts back the wake-up of a chat that was paused on a usage limit
+// when the last daemon stopped: the timer lived in memory, and the stored
+// conversation is what remembers the limit. It reads the turn that ended the
+// chat — the newest, failed on an error that is a usage limit, with the reset
+// time worked out against when the error was written, not now — and plans the
+// resume as the turn's end would have. It reports the time it will resume at,
+// or false when the chat isn't paused.
+func (m *Manager) RearmLimit(a state.Agent) (time.Time, bool) {
+	c, err := m.conversation(a)
+	if err != nil {
+		return time.Time{}, false
+	}
+	defer c.mu.Unlock()
+	if c.turn != nil || c.resumeTimer != nil || c.gone {
+		return time.Time{}, false
+	}
+	var user *api.ChatItem
+	for i := len(c.items) - 1; i >= 0 && user == nil; i-- {
+		if c.items[i].Kind == "user" {
+			user = c.items[i]
+		}
+	}
+	if user == nil || user.Result == nil || user.Result.State != "failed" {
+		return time.Time{}, false
+	}
+	var failure *api.ChatItem
+	for _, it := range c.items {
+		if it.Turn == user.ID && it.Kind == "error" {
+			failure = it
+		}
+	}
+	if failure == nil {
+		return time.Time{}, false
+	}
+	until, limited := UsageLimit(failure.Text, c.lastSaid(user.ID), failure.CreatedAt)
+	if !limited {
+		return time.Time{}, false
+	}
+	c.session.Limited, c.session.LimitedUntil = true, nil
+	if !until.IsZero() {
+		at := until
+		c.session.LimitedUntil = &at
+		if now := c.m.now(); until.Before(now) {
+			until = now // reset while AgentBox was down: knock after the slack
+		}
+	}
+	c.markSession()
+	c.planResume(until)
+	if c.session.ResumeAt == nil {
+		return time.Time{}, true
+	}
+	return *c.session.ResumeAt, true
 }

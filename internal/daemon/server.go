@@ -453,6 +453,7 @@ func (s *Server) Run(ctx context.Context) error {
 	// The turns the last daemon left running carry on (restart.go), once the
 	// API that their chats' tools call back is up.
 	loops.Go(func() { s.continueTurns(ctx) })
+	loops.Go(func() { s.rearmLimits(ctx) })
 	// What an earlier release left queued starts now (leftoverqueue.go).
 	loops.Go(func() { s.startLeftoverQueue(ctx) })
 	s.startRemote(ctx)
@@ -799,6 +800,7 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/agents/{project}/{agent}/chat/cancel", s.cancelChat(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/publish", s.publishRender(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/reload", s.reloadChatTools(s.agentFromPath))
+	h("POST /v1/agents/{project}/{agent}/chat/resume", s.resumeChatLimit)
 	h("POST /v1/agents/{project}/{agent}/chat/permissions/{item}", s.answerChat(s.agentFromPath))
 	h("PUT /v1/agents/{project}/{agent}/chat/options/{option}", s.setChatOption(s.agentFromPath))
 	h("GET /v1/agents/{project}/{agent}/browser", s.browser("status", s.agentFromPath))

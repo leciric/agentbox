@@ -1397,7 +1397,7 @@ type queuedNotice struct {
 // outgoing is a message sent mid-turn, waiting for the AI tool. turn is the one
 // it was sent during, which is the one it may still join.
 type outgoing struct {
-	item   string // its "aside" item in the conversation
+	item string // its "aside" item in the conversation
 	text string
 	sent attached
 	turn *turn
@@ -2205,7 +2205,18 @@ func (c *conversation) finishTurn(t *turn, res *acp.PromptResponse, err error) {
 		// Work the turn left running: until it ends, the agent isn't done.
 		result.Background = c.adapter.background()
 	}
+	var resumeAt, until time.Time
+	if limited {
+		if c.session.ResumeAt != nil {
+			resumeAt = *c.session.ResumeAt
+		}
+		if c.session.LimitedUntil != nil {
+			until = *c.session.LimitedUntil
+		}
+	}
 	end := TurnEnd{
+		ResumeAt:    resumeAt,
+		Until:       until,
 		LastMessage: strings.TrimSpace(c.lastSaid(t.id)),
 		Open:        open,
 		Lost:        errors.Is(err, acp.ErrClosed) && !t.cancelled,

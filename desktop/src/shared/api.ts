@@ -206,6 +206,7 @@ export interface Agent {
   background?: string[];
   outcome?: string;
   outcomeNote?: string;
+  outcomeUntil?: string;
   changesRequested?: string;
   state: string;
   memory?: MemoryHold;
@@ -1520,6 +1521,7 @@ export interface FleetAgent {
   background?: string[];
   outcome?: string;
   outcomeNote?: string;
+  outcomeUntil?: string;
   changesRequested?: string;
   state: string;
   memory?: MemoryHold;
@@ -1626,6 +1628,7 @@ export interface AgentEvent {
   changes?: AgentChanges;
   pr?: PullRequest;
   outcome?: string;
+  resumeAt?: string;
   question?: string;
   at: string;
 }

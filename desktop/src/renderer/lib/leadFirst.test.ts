@@ -16,6 +16,8 @@ test('agentSt reads what needs you first, then review, work and the rest', () =>
   assert.equal(agentSt(agent('a', { chat: 'running' }), none), 'working');
   assert.equal(agentSt(agent('a', { outcome: 'done' }), none), 'done');
   assert.equal(agentSt(agent('a', { state: 'stopped', chat: '' }), none), 'done');
+  // Paused on a usage limit it resumes from by itself: working, not done.
+  assert.equal(agentSt(agent('a', { outcome: 'limited', chat: 'ready' }), none), 'working');
   // Working on the changes asked for, it's working, not in review.
   assert.equal(agentSt(agent('a', { chat: 'running', changesRequested: 'Move it' }), { ...none, review: new Set(['p/a']) }), 'working');
 });

@@ -416,6 +416,11 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, end cha
 		s.markToldWaiting(a, false)
 		s.setOutcome(a, api.AgentOutcomeIdle, "")
 		return
+	case verdictPaused:
+		// Not a finish: leadWaits stays as it was, so the finish that follows
+		// the resume reaches a lead that waits on it.
+		s.pauseForLimit(ctx, a, end)
+		return
 	case verdictFailed:
 		s.markToldWaiting(a, false)
 		s.setOutcome(a, api.AgentOutcomeFailed, note)

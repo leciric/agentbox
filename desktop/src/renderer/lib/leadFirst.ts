@@ -33,6 +33,8 @@ export function agentSt(a: T.Agent, ctx: StContext): AgentSt {
   const { tone } = chatLabel(a);
   if (tone === 'urgent' || ctx.asking.has(a.ref)) return 'needs';
   if (changesPending(a)) return 'working';
+  // Paused on a usage limit: it resumes by itself, so nobody has to look.
+  if (a.outcome === 'limited' && a.chat !== 'running') return 'working';
   // One that failed and finished is in review, with its outcome.
   if (ctx.review.has(a.ref)) return 'review';
   if (tone === 'error') return 'error';

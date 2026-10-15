@@ -47,7 +47,7 @@ func (s *Server) finishOf(ctx context.Context, a state.Agent) (api.AgentEvent, b
 		switch ev.Kind {
 		case api.AgentFinished:
 			return ev, ev.Outcome != api.AgentOutcomeIdle
-		case api.AgentAsking, api.AgentFailed, api.AgentChatLost, api.AgentStalled:
+		case api.AgentAsking, api.AgentFailed, api.AgentChatLost, api.AgentStalled, api.AgentLimited:
 			return api.AgentEvent{}, false
 		}
 	}

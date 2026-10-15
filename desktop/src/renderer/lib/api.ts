@@ -245,6 +245,8 @@ export const api = {
   // the desktop downloads it first, a browser saves it.
   openChatFile: (ref: string, file: T.ChatFile) => window.agentbox.openChatFile(`${chatBase(ref)}/files/${encodeURIComponent(file.id)}`, file.name),
   cancelChat: (ref: string) => call<T.ChatSession>('POST', `${chatBase(ref)}/cancel`),
+  // resumeChat is "Resume now" on an agent paused on a usage limit.
+  resumeChat: (ref: string) => call<void>('POST', `${chatBase(ref)}/resume`),
   reloadChatTools: (ref: string) => call<T.ChatSession>('POST', `${chatBase(ref)}/reload`),
   answerChat: (ref: string, item: string, optionId: string) =>
     call<T.ChatItem>('POST', `${chatBase(ref)}/permissions/${encodeURIComponent(item)}`, { optionId } satisfies T.ChatAnswerRequest),

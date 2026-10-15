@@ -25,8 +25,9 @@ import (
 //
 // So every turn's end is judged, from the most reliable signal down:
 //
-//  1. How the chat ended it (chat.TurnEnd): another turn already running, a
-//     usage limit waited out or AgentBox stopping are still work; a
+//  1. How the chat ended it (chat.TurnEnd): another turn already running or
+//     AgentBox stopping are still work; a usage limit is a pause, resumed when
+//     it resets, which is neither finished nor failed; a
 //     cancellation is the user's; an error, the AI tool exiting, or a stop
 //     reason other than end_turn is the agent stopped mid-work (failed).
 //  2. Background work the session reports (Claude Code's tasks and
@@ -50,6 +51,7 @@ type verdict string
 
 const (
 	verdictWorking    verdict = "working"    // still at it: nothing to say
+	verdictPaused     verdict = "paused"     // cut short by a usage limit, resumed when it resets
 	verdictCancelled  verdict = "cancelled"  // stopped by whoever drove it
 	verdictFailed     verdict = "failed"     // stopped mid-work
 	verdictBackground verdict = "background" // waits on work it left running
@@ -65,8 +67,10 @@ const (
 // failed turn stopped on.
 func judgeTurn(end chat.TurnEnd) (v verdict, note string) {
 	switch {
-	case end.Shutdown, end.Continues, end.Limited:
+	case end.Shutdown, end.Continues:
 		return verdictWorking, ""
+	case end.Limited:
+		return verdictPaused, firstLineOf(end.Error)
 	case end.State == "cancelled":
 		return verdictCancelled, ""
 	case end.State == "failed":
@@ -240,6 +244,7 @@ func (s *Server) askTurnModel(ctx context.Context, a state.Agent, closing string
 // agentOutcome is Agent.Outcome as the daemon keeps it.
 type agentOutcome struct {
 	kind, note string
+	until      time.Time // when a limited agent resumes; zero when it won't
 }
 
 // setOutcome records how an agent's last turn left it.
@@ -247,6 +252,13 @@ func (s *Server) setOutcome(a state.Agent, kind, note string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.outcomes[a.Ref()] = agentOutcome{kind: kind, note: note}
+}
+
+// setOutcomeUntil is setOutcome for an outcome with a time.
+func (s *Server) setOutcomeUntil(a state.Agent, o agentOutcome) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.outcomes[a.Ref()] = o
 }
 
 // outcomeOf is how an agent's last turn left it. A daemon that has just
@@ -314,6 +326,12 @@ func outcomeOfEvent(ev api.AgentEvent) (agentOutcome, bool) {
 		return agentOutcome{kind: kind}, true
 	case api.AgentAsking:
 		return agentOutcome{kind: api.AgentOutcomeAsking, note: ev.Summary}, true
+	case api.AgentLimited:
+		o := agentOutcome{kind: api.AgentOutcomeLimited, note: ev.Summary}
+		if ev.ResumeAt != nil {
+			o.until = *ev.ResumeAt
+		}
+		return o, true
 	case api.AgentFailed, api.AgentChatLost:
 		return agentOutcome{kind: api.AgentOutcomeFailed, note: ev.Summary}, true
 	}
@@ -368,4 +386,83 @@ func failedNotice(a state.Agent, why string) string {
 func unwokenNotice(a state.Agent) string {
 	return fmt.Sprintf("[AgentBox: %s (%s) ended its turn saying it waits on work still running, twice, and nothing will wake it when that ends. "+
 		"Look with read_agent(%q), and tell it what to do.]", a.Name, titleOrNone(a.Title), a.Name)
+}
+
+// limitedNotice tells the lead an agent hit its AI tool's usage limit: it is
+// paused, resumes by itself, and isn't finished or failed.
+func limitedNotice(a state.Agent, until time.Time) string {
+	when := "AgentBox won't resume it by itself: tell_agent carries it on"
+	if !until.IsZero() {
+		when = "AgentBox resumes it at " + until.Format("15:04 MST")
+	}
+	return fmt.Sprintf("[AgentBox: %s (%s) hit its usage limit and is paused, not finished: %s. Nothing to do.]",
+		a.Name, titleOrNone(a.Title), when)
+}
+
+// pausedNote is the words that go with a limited outcome.
+func pausedNote(until time.Time) string {
+	if until.IsZero() {
+		return "Paused: usage limit"
+	}
+	return "Paused: usage limit, resumes at " + until.Format("15:04")
+}
+
+// pauseForLimit records that a's turn ended on a usage limit: the outcome, an
+// event that keeps it out of "Ready to review" and the finished notices, and
+// one short notice to the lead, the first time. A resumed turn that meets the
+// limit again moves the time without saying it all again.
+func (s *Server) pauseForLimit(ctx context.Context, a state.Agent, end chat.TurnEnd) {
+	prev := s.outcomeOf(ctx, a.Project, a.Ref())
+	until := end.ResumeAt
+	note := pausedNote(until)
+	s.setOutcomeUntil(a, agentOutcome{kind: api.AgentOutcomeLimited, note: note, until: until})
+	if prev.kind == api.AgentOutcomeLimited && prev.until.Equal(until) {
+		return
+	}
+	ev := api.AgentEvent{
+		Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title,
+		Kind: api.AgentLimited, Outcome: api.AgentOutcomeLimited, Summary: note, At: time.Now(),
+	}
+	if !until.IsZero() {
+		ev.ResumeAt = &until
+	}
+	s.record(ctx, ev)
+	if prev.kind != api.AgentOutcomeLimited {
+		s.tellLead(ctx, a.Project, limitedNotice(a, until), false)
+	}
+}
+
+// resumeLimited is "Resume now": carries a paused agent on at once.
+func (s *Server) resumeLimited(a state.Agent) error {
+	if err := s.chat.ResumeNow(a); err != nil {
+		return err
+	}
+	s.setOutcome(a, "", "")
+	return nil
+}
+
+// rearmLimits puts back the wake-ups of agents paused on a usage limit when
+// the last daemon stopped (chat.RearmLimit): the timers lived in memory, the
+// pause in the events.
+func (s *Server) rearmLimits(ctx context.Context) {
+	projects, err := s.store.Projects(ctx)
+	if err != nil {
+		s.logf("rearming usage-limit waits: %v", err)
+		return
+	}
+	for _, p := range projects {
+		for ref, o := range s.outcomesFromEvents(ctx, p.Name) {
+			if o.kind != api.AgentOutcomeLimited || ctx.Err() != nil {
+				continue
+			}
+			a, err := s.store.Agent(ctx, p.Name, strings.TrimPrefix(ref, p.Name+"/"))
+			if err != nil || a.Status != state.AgentReady {
+				continue
+			}
+			if at, ok := s.chat.RearmLimit(a); ok {
+				s.setOutcomeUntil(a, agentOutcome{kind: api.AgentOutcomeLimited, note: pausedNote(at), until: at})
+				s.logf("%s: waiting out its usage limit, resumes at %s", a.Ref(), at.Format(time.RFC3339))
+			}
+		}
+	}
 }

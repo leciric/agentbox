@@ -170,6 +170,7 @@ export function Composer({
   // Cancelling the turn stops its reply being read aloud too.
   const stop = useMutation({ mutationFn: () => api.cancelChat(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
   const retry = useMutation({ mutationFn: () => api.startChat(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
+  const resumeNow = useMutation({ mutationFn: () => api.resumeChat(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
   const reloadTools = useMutation({ mutationFn: () => api.reloadChatTools(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
 
   useEffect(() => {
@@ -390,17 +391,13 @@ export function Composer({
           <div className="flex items-start gap-2 text-[12.5px]">
             <Hourglass className="mt-0.5 size-3.5 shrink-0 text-amber-300" />
             <p className="min-w-0 flex-1 break-words leading-relaxed text-amber-100/90">{limitMessage(session)}</p>
-            {/* With the resume off there is nothing waiting to happen, so the
-                banner keeps the button every other failure has. */}
-            {!session.resumeAt && (
-              <button
-                className="h-6 shrink-0 rounded-md px-2 text-[12px] font-medium text-amber-100 transition hover:bg-amber-400/15"
-                disabled={retry.isPending}
-                onClick={() => retry.mutate()}
-              >
-                {retry.isPending ? t('chat.composer.starting') : t('chat.composer.startAgain')}
-              </button>
-            )}
+            <button
+              className="h-6 shrink-0 rounded-md px-2 text-[12px] font-medium text-amber-100 transition hover:bg-amber-400/15"
+              disabled={resumeNow.isPending}
+              onClick={() => resumeNow.mutate()}
+            >
+              {t('chat.limit.resumeNow')}
+            </button>
           </div>
         </Attached>
       ) : session?.state === 'error' && !busy ? (
