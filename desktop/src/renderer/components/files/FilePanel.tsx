@@ -114,7 +114,9 @@ export function FilePanel({ agent, available }: { agent: T.Agent; available: num
   return (
     <aside
       className={cn('flex h-full shrink-0 flex-col border-l border-line bg-sunken', overlay ? 'absolute inset-y-0 right-0 z-30 shadow-[-24px_0_60px_-20px_var(--ab-shadow-deep)]' : 'relative')}
-      style={{ width }}
+      // Over the chat, the panel's tint is laid on the chat's own colour, so
+      // nothing behind it shows through.
+      style={{ width, ...(overlay ? { background: 'linear-gradient(var(--ab-sunken), var(--ab-sunken)), var(--ab-chat)' } : {}) }}
       aria-label={t('files.panel.label')}
       data-file-panel={overlay ? 'overlay' : 'beside'}
     >

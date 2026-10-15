@@ -322,7 +322,9 @@ export function ChatTab({
         </button>
       )}
 
-      <div ref={composer} className="pointer-events-none absolute inset-x-0 bottom-0 px-3 pb-3 md:px-6 md:pb-5">
+      {/* While one of its popups is open, the composer comes over a files
+          panel floating over the chat (components/files), so the popup can be used. */}
+      <div ref={composer} className="pointer-events-none absolute inset-x-0 bottom-0 px-3 pb-3 has-[[role=listbox]]:z-40 md:px-6 md:pb-5">
         <div className="pointer-events-auto relative mx-auto w-full max-w-4xl">
           {readOnly ? (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border border-line-strong bg-overlay px-4 py-2.5 shadow-lg backdrop-blur-xl" data-chat-read-only>
