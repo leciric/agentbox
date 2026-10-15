@@ -40,5 +40,56 @@ export function needsYou({
   // An agent that failed and finished is in review already, with its outcome.
   const errors = agents.filter((a) => !asking.has(a.ref) && !reviewing.has(a.ref) && chatLabel(a).tone === 'error');
   const count = permissions.length + Math.max(totals.questions, questions.length) + errors.length + Math.max(totals.review, review.length);
-  return { permissions, questions: [...questions], errors, review: [...review], count };
+  return {
+    permissions,
+    questions: [...questions],
+    errors,
+    review: [...review],
+    count,
+  };
+}
+
+// NeedRow is one thing waiting on the user, whatever it is, in the one shape
+// the inbox draws every "Needs you" row from.
+export type NeedRow = {
+  key: string;
+  kind: 'permission' | 'question' | 'error';
+  ref: string;
+  project: string;
+  // The agent's title, or its name when it has none.
+  title: string;
+  // What it asks (a question's text) or stopped on (the error), when it says.
+  detail?: string;
+  // When it began, if known: agents carry no time for a permission request.
+  at?: string;
+  // The question's notification, which opens through its own handler.
+  notice?: T.Notification;
+};
+
+// needRows lists what needs you in one order: permission requests (the agent
+// is blocked, live), then questions newest first, then errors.
+export function needRows(needs: Pick<NeedsYou, 'permissions' | 'questions' | 'errors'>, agents: readonly T.Agent[]): NeedRow[] {
+  const byRef = new Map(agents.map((a) => [a.ref, a]));
+  const ofAgent = (kind: 'permission' | 'error', a: T.Agent): NeedRow => ({
+    key: `${kind}:${a.ref}`,
+    kind,
+    ref: a.ref,
+    project: a.project,
+    title: a.title || a.name,
+    detail: kind === 'error' ? a.outcomeNote || chatLabel(a).text : undefined,
+    at: kind === 'error' ? a.stalledSince : undefined,
+  });
+  const questions = [...needs.questions]
+    .sort((a, b) => b.at.localeCompare(a.at))
+    .map((n): NeedRow => ({
+      key: `question:${n.id}`,
+      kind: 'question',
+      ref: n.ref,
+      project: n.project,
+      title: n.title || byRef.get(n.ref)?.title || n.agent,
+      detail: n.text,
+      at: n.at,
+      notice: n,
+    }));
+  return [...needs.permissions.map((a) => ofAgent('permission', a)), ...questions, ...needs.errors.map((a) => ofAgent('error', a))];
 }

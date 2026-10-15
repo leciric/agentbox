@@ -1,24 +1,22 @@
 import { useQuery } from '@tanstack/react-query';
-import { BellOff, CheckCheck, Inbox as InboxIcon, Settings } from 'lucide-react';
+import { BellOff, CheckCheck, CircleAlert, Inbox as InboxIcon, MessageCircleQuestion, Settings, ShieldQuestion } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
-import { chatLabel } from '../lib/agentStatus';
 import { api } from '../lib/api';
 import { useT } from '../lib/i18n';
-import { needsYou } from '../lib/inbox';
+import { needRows, needsYou, type NeedRow } from '../lib/inbox';
 import { pageItems, pageTotal, useQuestions, useReviewHead, useReviewPages } from '../lib/inboxPages';
 import { useMarkSeen } from '../lib/notifications';
 import { projectLabel } from '../lib/projectName';
 import { useDnd } from '../lib/notifyPrefs';
 import { countLabel } from '../lib/review';
 import { isUnseen, markAllSeen, useReviewing, useUnseen } from '../lib/reviewAlert';
-import { cn } from '../lib/utils';
+import { cn, timeAgo } from '../lib/utils';
 import { MoreMedia } from './MediaTab';
-import { NoticeRow, useProjectNames } from './Notifications';
+import { useProjectNames } from './Notifications';
 import { ReviewDialog, ReviewSection, type ReviewSession } from './ReadyToReview';
 import { openSettingsSection } from './SettingsPage';
-import { AIIcon } from './state';
 import { Button } from './ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 
@@ -55,7 +53,10 @@ export function Inbox({ onOpen, onSelect, defaultOpen = false }: { onOpen: (n: T
     agents: agents.data ?? [],
     questions: asked,
     review: waiting,
-    totals: { questions: askedTotal, review: reviewing ? (head.data?.total ?? 0) : 0 },
+    totals: {
+      questions: askedTotal,
+      review: reviewing ? (head.data?.total ?? 0) : 0,
+    },
   });
   const fresh = waiting.filter((i) => isUnseen(unseen, i)).length;
   const go = (view: View) => {
@@ -63,6 +64,7 @@ export function Inbox({ onOpen, onSelect, defaultOpen = false }: { onOpen: (n: T
     onSelect(view);
   };
   const label = needs.count ? t('inbox.buttonCount', { count: needs.count }) : t('inbox.title');
+  const rows = needRows(needs, agents.data ?? []);
   const hasNeeds = needs.permissions.length + needs.questions.length + needs.errors.length > 0;
 
   return (
@@ -142,24 +144,20 @@ export function Inbox({ onOpen, onSelect, defaultOpen = false }: { onOpen: (n: T
           <div className="max-h-[min(640px,calc(var(--radix-popover-content-available-height)-60px))] overflow-y-auto p-1.5">
             {hasNeeds && (
               <Section title={t('inbox.needsYou')} data="needs">
-                {needs.permissions.map((agent) => (
-                  <AgentRow key={agent.ref} agent={agent} project={projectLabel(agent.project, projects.data)} text={t('inbox.permission')} tone="urgent" onOpen={() => go({ kind: 'agent', ref: agent.ref, tab: 'chat' })} />
-                ))}
-                {needs.questions.map((n) => (
-                  <NoticeRow
-                    key={n.id}
-                    notice={n}
-                    projectName={projectName(n.project)}
+                {rows.map((row) => (
+                  <NeedRowView
+                    key={row.key}
+                    row={row}
+                    projectName={row.notice ? projectName(row.project) : projectLabel(row.project, projects.data)}
                     onOpen={() => {
-                      setOpen(false);
-                      onOpen(n);
+                      if (row.notice) {
+                        setOpen(false);
+                        onOpen(row.notice);
+                      } else go({ kind: 'agent', ref: row.ref, tab: 'chat' });
                     }}
                   />
                 ))}
                 <MoreMedia pages={questions} />
-                {needs.errors.map((agent) => (
-                  <AgentRow key={agent.ref} agent={agent} project={projectLabel(agent.project, projects.data)} text={chatLabel(agent).text} tone="error" onOpen={() => go({ kind: 'agent', ref: agent.ref, tab: 'chat' })} />
-                ))}
               </Section>
             )}
             {reviewing ? (
@@ -192,22 +190,42 @@ function Section({ title, data, children }: { title: string; data: string; child
   );
 }
 
-// AgentRow is an agent waiting on you that isn't a notification: a
-// permission its AI tool asks for, or an error it stopped on.
-function AgentRow({ agent, project, text, tone, onOpen }: { agent: T.Agent; project: string; text: string; tone: 'urgent' | 'error'; onOpen: () => void }) {
+// NeedRowView is one thing that needs you, whatever it is: who and which
+// project, one line of what it needs, how long ago, and one way in, to the
+// agent's chat. Only an error is coloured.
+function NeedRowView({ row, projectName, onOpen }: { row: NeedRow; projectName: string; onOpen: () => void }) {
+  const t = useT();
+  const Icon = row.kind === 'error' ? CircleAlert : row.kind === 'permission' ? ShieldQuestion : MessageCircleQuestion;
+  const text =
+    row.kind === 'permission'
+      ? t('inbox.permission')
+      : row.kind === 'error'
+        ? t('inbox.error', { text: row.detail ?? '' })
+        : t('inbox.asks', {
+            text: row.detail || t('shell.notice.verb.question'),
+          });
   return (
-    <button type="button" onClick={onOpen} data-inbox-agent={agent.ref} className="flex w-full min-w-0 items-start gap-3 rounded-lg px-3 py-2 text-left transition hover:bg-surface-raised">
-      <AIIcon ai={agent.ai || 'claude'} className="mt-0.5 size-4 shrink-0" />
+    <button
+      type="button"
+      onClick={onOpen}
+      data-need={row.kind}
+      data-inbox-agent={row.ref}
+      className="group flex w-full min-w-0 items-start gap-3 rounded-lg px-3 py-2 text-left transition hover:bg-surface-raised"
+    >
+      <Icon className={cn('mt-0.5 size-4 shrink-0', row.kind === 'error' ? 'text-rose-300' : 'text-muted')} />
       <span className="grid min-w-0 flex-1 gap-0.5">
-        <span className={cn('truncate text-[13px] font-medium text-primary', !agent.title && 'font-mono')}>{agent.title || agent.name}</span>
-        <span className="flex min-w-0 items-center gap-1.5 text-[11.5px]">
-          <span className={cn('size-1.5 shrink-0 rounded-full', tone === 'urgent' ? 'bg-amber-400' : 'bg-rose-400')} />
-          <span className={cn('shrink-0', tone === 'urgent' ? 'text-amber-300' : 'text-rose-300')}>{text}</span>
+        <span className="flex min-w-0 items-baseline gap-1.5 text-[13px]">
+          <span className={cn('truncate font-medium text-primary', row.title.startsWith('agent-') && 'font-mono')}>{row.title}</span>
           <span aria-hidden className="text-faint">
             ·
           </span>
-          <span className="min-w-0 truncate text-muted">{project}</span>
+          <span className="min-w-0 truncate text-[11.5px] text-muted">{projectName}</span>
         </span>
+        <span className={cn('truncate text-[12px]', row.kind === 'error' ? 'text-rose-300' : 'text-secondary')}>{text}</span>
+      </span>
+      <span className="flex shrink-0 flex-col items-end gap-0.5 text-[11px]">
+        {row.at && <span className="tabular-nums text-subtle">{timeAgo(row.at)}</span>}
+        <span className="text-brand-300 [:root[data-appearance=light]_&]:text-brand-600">{t('inbox.open')}</span>
       </span>
     </button>
   );
