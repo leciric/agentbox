@@ -175,9 +175,13 @@
   --ab-secondary: #27272a;
   --ab-tertiary: #3f3f46;
   --ab-muted: #52525b;
-  --ab-subtle: #71717a;
-  --ab-faint: #a1a1aa;
-  --ab-ghost: #c4c4c8;
+  /* Subtle and faint are a step darker than the ramp: timestamps, hints,
+     placeholders and list headers are subtle or faint, and on near-white the
+     ramp's #71717a and #a1a1aa read too pale (4.4:1 and 2.3:1). These are
+     5.5:1 and 4.1:1 against the window. */
+  --ab-subtle: #62626c;
+  --ab-faint: #76767f;
+  --ab-ghost: #a1a1aa;
 
   --ab-surface-faint: rgb(9 9 11 / 0.035);
   --ab-surface: rgb(9 9 11 / 0.05);
@@ -441,8 +445,14 @@
     scrollbar-color: var(--ab-line-vivid) transparent;
   }
 
+  /* Two pixels, offset, in the brand colour: rings drawn with Tailwind's
+     ring utilities at half strength were hard to see, in the review most. */
   :focus-visible {
-    outline-color: var(--ab-brand-400);
+    outline: 2px solid var(--ab-brand-400);
+    outline-offset: 2px;
+  }
+  :root[data-appearance="light"] :focus-visible {
+    outline-color: var(--ab-brand-600, #7c3aed);
   }
 }
 

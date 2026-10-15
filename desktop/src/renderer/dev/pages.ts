@@ -6,7 +6,7 @@
 import type { QueryClient } from '@tanstack/react-query';
 import type * as T from '../../shared/api';
 import { knowProject, resetSeen } from '../lib/pages';
-import { PROJECT } from './fixtures';
+import { leadOptions, PROJECT } from './fixtures';
 
 const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
 const later = (ms: number) => new Date(Date.now() + ms).toISOString();
@@ -86,7 +86,7 @@ function pagesLeadChat(): T.ChatThread {
   return {
     agent: `${PROJECT}/lead`,
     seq: 1,
-    session: { state: 'idle', tool: 'claude', options: [], commands: [] },
+    session: { state: 'idle', tool: 'claude', options: leadOptions(), commands: [] },
     items: [
       { id: 'h1', turn: 'h1', kind: 'user', text: 'Put together a Q3 usage report — agents run, tokens, PRs merged — and publish it on Hatch so I can share it.', result: { state: 'completed', stopReason: 'end_turn', endedAt: ago(9 * min) }, createdAt: ago(12 * min), updatedAt: ago(12 * min) },
       { id: 'h2', turn: 'h1', kind: 'assistant', text: 'Reading the token ledger and the merged pull requests for July to September.', createdAt: ago(11 * min), updatedAt: ago(11 * min) },

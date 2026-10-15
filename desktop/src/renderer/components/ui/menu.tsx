@@ -1,5 +1,5 @@
 import * as MenuPrimitive from '@radix-ui/react-dropdown-menu';
-import { Check } from 'lucide-react';
+import { Check, ChevronRight, Ellipsis } from 'lucide-react';
 import type { ComponentProps, ComponentType, ReactNode } from 'react';
 import { cn } from '../../lib/utils';
 
@@ -32,7 +32,7 @@ export function MenuItem({
   return (
     <MenuPrimitive.Item
       className={cn(
-        'flex cursor-default select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-secondary outline-none data-[disabled]:opacity-40 data-[highlighted]:bg-surface-raised',
+        'flex cursor-default select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-secondary outline-none data-[disabled]:opacity-65 data-[highlighted]:bg-surface-raised',
         destructive && 'text-rose-300 data-[highlighted]:bg-rose-500/10',
       )}
       {...props}
@@ -62,7 +62,7 @@ export function MenuCheckboxItem({
 }: ComponentProps<typeof MenuPrimitive.CheckboxItem> & { icon?: ComponentType<{ className?: string }>; hint?: ReactNode }) {
   return (
     <MenuPrimitive.CheckboxItem
-      className="flex cursor-default select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-secondary outline-none data-[disabled]:opacity-40 data-[highlighted]:bg-surface-raised data-[state=checked]:text-primary"
+      className="flex cursor-default select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-secondary outline-none data-[disabled]:opacity-65 data-[highlighted]:bg-surface-raised data-[state=checked]:text-primary"
       {...props}
     >
       {Icon && <Icon className="size-4 text-subtle" />}
@@ -74,5 +74,38 @@ export function MenuCheckboxItem({
         </MenuPrimitive.ItemIndicator>
       </span>
     </MenuPrimitive.CheckboxItem>
+  );
+}
+
+// MenuSub is an item that opens a submenu: its icon, its name, and what it's
+// set to now (value), dimmer, before the arrow.
+export function MenuSub({ icon: Icon, label, value, children, className, ...rest }: { icon?: ComponentType<{ className?: string }>; label: ReactNode; value?: ReactNode; children: ReactNode; className?: string } & Record<`data-${string}`, string | undefined>) {
+  return (
+    <MenuPrimitive.Sub>
+      <MenuPrimitive.SubTrigger className="flex cursor-default select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-secondary outline-none data-[highlighted]:bg-surface-raised data-[state=open]:bg-surface-raised" {...rest}>
+        {Icon && <Icon className="size-4 shrink-0 text-subtle" />}
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        {value && <span className="max-w-[10rem] truncate text-[12px] text-subtle">{value}</span>}
+        <ChevronRight className="size-3.5 shrink-0 text-subtle" />
+      </MenuPrimitive.SubTrigger>
+      <MenuPrimitive.Portal>
+        <MenuPrimitive.SubContent
+          sideOffset={4}
+          className={cn('z-50 min-w-48 animate-fade-in rounded-xl border border-line-strong bg-overlay p-1 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur', className)}
+        >
+          {children}
+        </MenuPrimitive.SubContent>
+      </MenuPrimitive.Portal>
+    </MenuPrimitive.Sub>
+  );
+}
+
+// MenuMore is a menu's "More" item: what's used less, in a submenu, so the
+// menu itself keeps to a handful of items.
+export function MenuMore({ label, children }: { label: ReactNode; children: ReactNode }) {
+  return (
+    <MenuSub icon={Ellipsis} label={label} data-menu-more="">
+      {children}
+    </MenuSub>
   );
 }

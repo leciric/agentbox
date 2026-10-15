@@ -8,13 +8,14 @@ export interface MentionItem {
 }
 
 export const mentionLimit = 8;
-export const projectMentionLimit = 3;
 
 // matchProjects lists the projects whose name or display name contains the
-// mention query, case-insensitively, name matches that start earlier first.
+// mention query, case-insensitively, name matches that start earlier first:
+// all of them, as there are rarely many, and a cut list left projects out
+// with nothing to say they were there.
 // Picking one inserts the project's name (its slug): the daemon swaps it for
 // the name and repository path when the message is sent.
-export function matchProjects(projects: { name: string; displayName: string }[], query: string, limit = projectMentionLimit): MentionItem[] {
+export function matchProjects(projects: { name: string; displayName: string }[], query: string): MentionItem[] {
   const q = query.trim().toLowerCase();
   const scored: { item: MentionItem; index: number }[] = [];
   for (const p of projects) {
@@ -23,7 +24,7 @@ export function matchProjects(projects: { name: string; displayName: string }[],
     scored.push({ item: { label: p.displayName && p.displayName !== p.name ? `${p.displayName} (${p.name})` : p.name, insert: p.name, kind: 'project' }, index });
   }
   scored.sort((a, b) => a.index - b.index);
-  return scored.slice(0, limit).map(({ item }) => item);
+  return scored.map(({ item }) => item);
 }
 
 // mentionAt finds the @mention that ends at the cursor, so typing "@" opens

@@ -43,6 +43,8 @@ import {
   panelMin,
   panelState,
   pickable,
+  fitTabs,
+  shortName,
   resolveWhose,
   setPanel,
   setPanelOpen,
@@ -69,6 +71,7 @@ import { TerminalTab } from '../TerminalTab';
 import { ProjectSettingsBody } from '../ProjectView';
 import { PullRequestsPanel } from '../PullRequestsPanel';
 import { Button } from '../ui/button';
+import { Menu, MenuContent, MenuItem, MenuTrigger } from '../ui/menu';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Tip } from '../ui/tooltip';
 import { PanelBrowser } from './PanelBrowser';
@@ -116,8 +119,12 @@ const kindAsk: Record<PanelKind, MessageKey> = {
 };
 // A launcher's letter for each kind, as T3Code's launcher has (B, T, F…).
 const kindKey: Record<PanelKind, string> = { files: 'F', desktop: 'D', terminal: 'T', browser: 'B', pages: 'P', media: 'M', pulls: 'R', settings: 'S' };
-const agentKinds: PanelKind[] = ['files', 'desktop', 'terminal', 'browser', 'pages', 'media'];
-const projectKinds: PanelKind[] = ['pulls', 'settings'];
+// The launcher's cards, six: Browser (the Desktop has a browser too) and the
+// project's Settings (also in the project's ⋯) are links under them, under
+// More, and keep their letters.
+const agentKinds: PanelKind[] = ['files', 'desktop', 'terminal', 'pages', 'media'];
+const projectKinds: PanelKind[] = ['pulls'];
+const moreKinds: PanelKind[] = ['browser', 'settings'];
 
 // RightPanelHost sits beside the main column of App, for a view with a chat:
 // it lays the chat's panel out beside the chat or as a drawer, and listens
@@ -260,130 +267,207 @@ function RightPanel({ project, chat, width, onSelect }: { project: string; chat:
 
 // ——— The tab strip ———
 
-// TabStrip is the panel's tabs along its top, then +. A tab is dragged
-// along it to reorder (T3Code's SortableTabList), and closed with its ×,
-// which shows on hover and on the tab shown (PanelTabCloseButton), or with
-// a middle click.
+// TabStrip is the panel's tabs along its top, then + (mock C of the v2 UX
+// audit). A tab is its kind's icon and a chip for whose it shows (repo, 41,
+// All), its full name in a tooltip, so five tabs still read; the ones that
+// don't fit go to a "+N" menu (fitTabs), and + stays in view. A tab is
+// dragged along the strip to reorder (T3Code's SortableTabList), and closed
+// with its ×, which shows on hover and on the tab shown
+// (PanelTabCloseButton), or with a middle click.
 function TabStrip({ project, chat, tabs, active, whose }: { project: string; chat: string; tabs: PanelTab[]; active: string | null; whose: (tab: PanelTab) => Whose | undefined }) {
   const t = useT();
   const dragged = useRef<string | null>(null);
   const [over, setOver] = useState<number | null>(null);
-  const strip = useRef<HTMLDivElement>(null);
+  const box = useRef<HTMLDivElement>(null);
+  const measure = useRef<HTMLDivElement>(null);
+  const [room, setRoom] = useState(0);
+  const [widths, setWidths] = useState<ReadonlyMap<string, number>>(new Map());
   const pages = useProjectPages(project);
   const fresh = livePages(pages.data).filter(isNew);
-  useEffect(() => {
-    strip.current?.querySelector('[aria-selected="true"]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
-  }, [active]);
+  const faces = tabs.map((tab) => {
+    const w = whose(tab);
+    const label = tab.kind ? t(kindLabel[tab.kind]) : t('panel.newTab');
+    const wide = !!tab.kind && projectWide(tab.kind);
+    const name = wide || !w || !tab.kind ? '' : whoseName(t, w, tab.kind);
+    const chip = wide || !w || !tab.kind ? '' : w.kind === 'lead' ? t(tab.kind === 'pages' ? 'panel.all' : 'panel.chip.repo') : shortName(w.kind === 'agent' ? w.agent.name : w.past.name);
+    const dot = tab.kind === 'pages' && fresh.some((p) => !w || w.kind === 'lead' || p.agents.includes(whoseRef(w).replace(/^past:/, '')));
+    return { tab, label, name, chip, dot, full: name ? `${label} · ${name}` : label };
+  });
+  const faceKey = faces.map((f) => `${f.tab.id}:${f.chip}:${f.label}`).join('|');
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => setRoom(el.clientWidth));
+    observer.observe(el);
+    setRoom(el.clientWidth);
+    return () => observer.disconnect();
+  }, []);
+  useLayoutEffect(() => {
+    const next = new Map<string, number>();
+    for (const el of measure.current?.querySelectorAll<HTMLElement>('[data-measure-tab]') ?? []) next.set(el.dataset.measureTab!, el.offsetWidth);
+    setWidths((prev) => ([...next].every(([k, v]) => prev.get(k) === v) && prev.size === next.size ? prev : next));
+  }, [faceKey]);
+  const fit = fitTabs(
+    tabs.map((tab) => ({ id: tab.id, width: widths.get(tab.id) ?? 72 })),
+    active,
+    room,
+    56,
+  );
+  const shown = new Set(fit.shown);
   const drop = (index: number) => {
     if (dragged.current) moveTab(chat, dragged.current, index);
     dragged.current = null;
     setOver(null);
   };
   return (
-    <div
-      ref={strip}
-      role="tablist"
-      aria-label={t('panel.tabs')}
-      className="flex min-w-0 flex-1 items-stretch overflow-x-auto [scrollbar-width:none]"
-      onWheel={(event) => {
-        if (event.deltaY && !event.deltaX) event.currentTarget.scrollLeft += event.deltaY;
-      }}
-      data-panel-tabs
-    >
-      {tabs.map((tab, index) => {
-        const on = tab.id === active;
-        const Icon = tab.kind ? kindIcon[tab.kind] : Plus;
-        const label = tab.kind ? t(kindLabel[tab.kind]) : t('panel.newTab');
-        const w = whose(tab);
-        const name = tab.kind && projectWide(tab.kind) ? '' : w ? whoseName(t, w) : '';
-        const dot = tab.kind === 'pages' && fresh.some((p) => !w || w.kind === 'lead' || p.agents.includes(whoseRef(w).replace(/^past:/, '')));
-        return (
-          <div
-            key={tab.id}
-            role="tab"
-            tabIndex={on ? 0 : -1}
-            aria-selected={on}
-            title={name ? `${label} · ${name}` : label}
-            draggable
-            onDragStart={(event) => {
-              dragged.current = tab.id;
-              event.dataTransfer.effectAllowed = 'move';
-              event.dataTransfer.setData('text/plain', tab.id);
-            }}
-            onDragOver={(event) => {
-              if (!dragged.current) return;
-              event.preventDefault();
-              setOver(index);
-            }}
-            onDragLeave={() => setOver((o) => (o === index ? null : o))}
-            onDrop={(event) => {
-              event.preventDefault();
-              drop(index);
-            }}
-            onDragEnd={() => {
-              dragged.current = null;
-              setOver(null);
-            }}
-            onClick={() => activateTab(chat, tab.id)}
-            onAuxClick={(event) => {
-              if (event.button === 1) closeTab(chat, tab.id);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') activateTab(chat, tab.id);
-              if (event.key === 'Delete') closeTab(chat, tab.id);
-            }}
-            className={cn(
-              'group/tab relative flex min-w-[96px] max-w-[200px] shrink cursor-default select-none items-center gap-1.5 border-r border-line-faint pl-2.5 pr-1.5 text-[12px]',
-              on ? 'bg-sunken text-title' : 'text-subtle hover:bg-surface hover:text-title',
-              over === index && dragged.current !== tab.id && 'shadow-[inset_2px_0_0_var(--color-brand-500)]',
-            )}
-            data-panel-tab-id={tab.id}
-            data-panel-tab-kind={tab.kind ?? 'new'}
-          >
-            {on && <span className="absolute inset-x-0 bottom-[-1px] h-px bg-sunken" />}
-            {on && <span className="absolute inset-x-0 top-0 h-0.5 bg-brand-500" />}
-            <span className="relative shrink-0">
-              <Icon className="size-3.5" />
-              {dot && <span className="absolute -right-1 -top-1 size-1.5 rounded-full bg-brand-500" />}
-            </span>
-            <span className="min-w-0 flex-1 truncate">
-              <span className="font-medium">{label}</span>
-              {name && <span className="ml-1.5 text-faint">{name}</span>}
-            </span>
-            <button
-              type="button"
-              aria-label={t('panel.closeTab', { tab: name ? `${label} · ${name}` : label })}
-              onClick={(event) => {
-                event.stopPropagation();
-                closeTab(chat, tab.id);
-              }}
-              className={cn('flex size-5 shrink-0 items-center justify-center rounded text-subtle hover:bg-surface-raised hover:text-title', !on && '[@media(hover:hover)]:opacity-0 focus-visible:opacity-100 group-hover/tab:opacity-100')}
-              data-panel-tab-close
-            >
-              <X className="size-3" />
-            </button>
-          </div>
-        );
-      })}
-      <div
-        className="flex shrink-0 items-center px-1"
-        onDragOver={(event) => {
-          if (!dragged.current) return;
-          event.preventDefault();
-          setOver(tabs.length);
-        }}
-        onDrop={(event) => {
-          event.preventDefault();
-          drop(tabs.length - 1);
-        }}
-      >
+    <div className="relative flex min-w-0 flex-1 items-stretch">
+      {/* Every tab laid out once, unseen, for its width. */}
+      <div aria-hidden className="pointer-events-none invisible absolute left-0 top-0 size-0 overflow-hidden">
+        <div ref={measure} className="flex w-max">
+        {faces.map((f) => (
+          <span key={f.tab.id} data-measure-tab={f.tab.id} className="flex shrink-0 border-r text-[12px]">
+            <TabFace face={f} on />
+          </span>
+        ))}
+        </div>
+      </div>
+      <div ref={box} role="tablist" aria-label={t('panel.tabs')} className="flex min-w-0 flex-1 items-stretch overflow-hidden" data-panel-tabs>
+        {faces.map((f, index) => {
+          const { tab } = f;
+          if (!shown.has(tab.id)) return null;
+          const on = tab.id === active;
+          return (
+            <Tip key={tab.id} label={f.full}>
+              <div
+                role="tab"
+                tabIndex={on ? 0 : -1}
+                aria-selected={on}
+                aria-label={f.full}
+                draggable
+                onDragStart={(event) => {
+                  dragged.current = tab.id;
+                  event.dataTransfer.effectAllowed = 'move';
+                  event.dataTransfer.setData('text/plain', tab.id);
+                }}
+                onDragOver={(event) => {
+                  if (!dragged.current) return;
+                  event.preventDefault();
+                  setOver(index);
+                }}
+                onDragLeave={() => setOver((o) => (o === index ? null : o))}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  drop(index);
+                }}
+                onDragEnd={() => {
+                  dragged.current = null;
+                  setOver(null);
+                }}
+                onClick={() => activateTab(chat, tab.id)}
+                onAuxClick={(event) => {
+                  if (event.button === 1) closeTab(chat, tab.id);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') activateTab(chat, tab.id);
+                  if (event.key === 'Delete') closeTab(chat, tab.id);
+                }}
+                className={cn(
+                  'group/tab relative flex shrink-0 cursor-default select-none items-stretch border-r border-line-faint text-[12px]',
+                  on ? 'bg-sunken text-title' : 'text-subtle hover:bg-surface hover:text-title',
+                  over === index && dragged.current !== tab.id && 'shadow-[inset_2px_0_0_var(--color-brand-500)]',
+                )}
+                data-panel-tab-id={tab.id}
+                data-panel-tab-kind={tab.kind ?? 'new'}
+              >
+                {on && <span className="absolute inset-x-0 bottom-[-1px] h-px bg-sunken" />}
+                {on && <span className="absolute inset-x-0 top-0 h-0.5 bg-brand-500" />}
+                <TabFace
+                  face={f}
+                  on={on}
+                  onClose={() => closeTab(chat, tab.id)}
+                  closeLabel={t('panel.closeTab', { tab: f.full })}
+                />
+              </div>
+            </Tip>
+          );
+        })}
+        <div
+          className="min-w-2 flex-1"
+          onDragOver={(event) => {
+            if (!dragged.current) return;
+            event.preventDefault();
+            setOver(tabs.length);
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            drop(tabs.length - 1);
+          }}
+        />
+      </div>
+      {fit.hidden.length > 0 && (
+        <Menu>
+          <Tip label={t('panel.moreTabs', { count: fit.hidden.length })}>
+            <MenuTrigger asChild>
+              <button type="button" aria-label={t('panel.moreTabs', { count: fit.hidden.length })} className="flex shrink-0 items-center gap-0.5 px-2 text-[12px] text-subtle hover:bg-surface hover:text-title data-[state=open]:text-title" data-panel-more-tabs={fit.hidden.length}>
+                +{fit.hidden.length}
+                <ChevronDown className="size-3.5" />
+              </button>
+            </MenuTrigger>
+          </Tip>
+          <MenuContent align="end" className="max-w-[320px]" data-panel-more-list>
+            {faces
+              .filter((f) => !shown.has(f.tab.id))
+              .map((f) => (
+                <MenuItem key={f.tab.id} icon={f.tab.kind ? kindIcon[f.tab.kind] : Plus} onSelect={() => activateTab(chat, f.tab.id)} data-panel-more-tab={f.tab.id}>
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate">{f.label}</span>
+                    {f.name && <span className="truncate text-faint">{f.name}</span>}
+                  </span>
+                </MenuItem>
+              ))}
+          </MenuContent>
+        </Menu>
+      )}
+      <span className="flex shrink-0 items-center px-1">
         <Tip label={t('panel.addTab')}>
           <Button size="icon-sm" variant="ghost" aria-label={t('panel.addTab')} onClick={() => addTab(chat)} data-panel-add>
             <Plus />
           </Button>
         </Tip>
-      </div>
+      </span>
     </div>
+  );
+}
+
+type Face = { tab: PanelTab; label: string; name: string; chip: string; dot: boolean; full: string };
+
+// TabFace is what a tab shows: its kind's icon, the chip for whose it is
+// (only the new tab spells its name out), and its ×.
+function TabFace({ face, on, onClose, closeLabel }: { face: Face; on: boolean; onClose?: () => void; closeLabel?: string }) {
+  const { tab, chip, dot, label } = face;
+  const Icon = tab.kind ? kindIcon[tab.kind] : Plus;
+  return (
+    <span className="flex items-center gap-1.5 pl-2.5 pr-1">
+      <span className="relative shrink-0">
+        <Icon className="size-3.5" />
+        {dot && <span className="absolute -right-1 -top-1 size-1.5 rounded-full bg-brand-500" />}
+      </span>
+      {!tab.kind && <span className="font-medium">{label}</span>}
+      {chip && <span className={cn('max-w-[88px] truncate rounded px-1.5 py-px text-[11px] font-medium tabular-nums', on ? 'bg-surface-strong text-title' : 'bg-surface text-subtle')} data-panel-tab-chip>{chip}</span>}
+      <button
+        type="button"
+        aria-label={closeLabel}
+        tabIndex={onClose ? undefined : -1}
+        onClick={(event) => {
+          event.stopPropagation();
+          onClose?.();
+        }}
+        className={cn('flex size-5 shrink-0 items-center justify-center rounded text-subtle hover:bg-surface-raised hover:text-title', !on && '[@media(hover:hover)]:opacity-0 focus-visible:opacity-100 group-hover/tab:opacity-100')}
+        data-panel-tab-close
+      >
+        <X className="size-3" />
+      </button>
+    </span>
   );
 }
 
@@ -444,6 +528,19 @@ function Launcher({ project, chat, id }: { project: string; chat: string; id: st
         <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-2">{agentKinds.map(card)}</div>
         <h4 className="mb-2 mt-5 text-[10.5px] font-semibold uppercase tracking-wide text-faint">{t('panel.launcher.project')}</h4>
         <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-2">{projectKinds.map(card)}</div>
+        <div className="mt-4 flex flex-wrap items-center gap-x-1 gap-y-1 text-[12px]" data-panel-launcher-more>
+          <span className="pr-1 text-subtle">{t('common.more')}:</span>
+          {moreKinds.map((kind) => {
+            const Icon = kindIcon[kind];
+            return (
+              <button key={kind} type="button" onClick={() => choose(kind)} className="flex items-center gap-1.5 rounded-md px-2 py-1 text-secondary hover:bg-surface hover:text-title" data-panel-card={kind}>
+                <Icon className="size-3.5 text-subtle" />
+                {t(kindLabel[kind])}
+                <kbd className="rounded border border-line px-1 font-mono text-[10px] text-faint">{kindKey[kind]}</kbd>
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -459,7 +556,7 @@ function Picker({ project, kind, whose, agents, past, onPick }: { project: strin
       <PopoverTrigger asChild>
         <button type="button" className={cn('flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-left hover:bg-surface', open && 'bg-surface')} aria-label={t('panel.pickerLabel')} data-panel-picker>
           <WhoseIcon project={project} whose={whose} className="size-5" />
-          <span className="min-w-0 truncate text-[12.5px] font-semibold text-title">{whoseName(t, whose)}</span>
+          <span className="min-w-0 truncate text-[12.5px] font-semibold text-title">{whoseName(t, whose, kind)}</span>
           <WhoseMark whose={whose} />
           <ChevronDown className="size-3.5 shrink-0 text-subtle" />
         </button>
@@ -494,6 +591,7 @@ function WhoseList({ project, whose, agents, past, withLead, forTab, onPick }: {
   const shown = pickable(project, agents, past, withMachine).filter((w) => matches(w, query));
   const current = whose && whoseRef(whose);
   const projectName = projectLabel(project, projects.data);
+  const leadName = t(forTab === 'pages' ? 'panel.all' : 'panel.repository');
   return (
     <div className="flex min-h-0 flex-col" data-whose-list>
       <div className="flex items-center gap-2 border-b border-line-faint px-3 py-2">
@@ -512,7 +610,7 @@ function WhoseList({ project, whose, agents, past, withLead, forTab, onPick }: {
         <MachineFilter />
       </div>
       <div className={cn('min-h-0 overflow-y-auto p-1', withLead ? 'max-h-[min(420px,calc(var(--radix-popover-content-available-height,100vh)-96px))]' : 'max-h-[420px]')}>
-        {withLead && matchesText(t('panel.repository'), query) && (
+        {withLead && matchesText(leadName, query) && (
           <>
             <Row
               active={whose?.kind === 'lead'}
@@ -520,10 +618,10 @@ function WhoseList({ project, whose, agents, past, withLead, forTab, onPick }: {
               icon={<WhoseIcon project={project} whose={{ kind: 'lead', ref: `${project}/${A.LeadName}` }} className="size-7 text-[11px]" />}
               title={
                 <>
-                  {t('panel.repository')} <Crown className="size-3 text-amber-300" />
+                  {leadName} <Crown className="size-3 text-amber-300" />
                 </>
               }
-              sub={t('panel.repositorySub', { project: projectName })}
+              sub={t(forTab === 'pages' ? 'panel.allSub' : 'panel.repositorySub', { project: projectName })}
               right={<span className="text-[10.5px] text-faint">{t('panel.host')}</span>}
               data-whose-row="lead"
             />
@@ -596,8 +694,10 @@ function matches(w: Whose, query: string): boolean {
 }
 const matchesText = (text: string, query: string) => !query.trim() || query.toLowerCase().split(/\s+/).every((word) => text.toLowerCase().includes(word));
 
-function whoseName(t: ReturnType<typeof useT>, w: Whose): string {
-  return w.kind === 'lead' ? t('panel.repository') : w.kind === 'agent' ? w.agent.name : w.past.name;
+// whoseName is whose a tab shows, by name. The lead's is the repository,
+// but under Pages it's every page the project has: All.
+function whoseName(t: ReturnType<typeof useT>, w: Whose, kind?: PanelKind): string {
+  return w.kind === 'lead' ? t(kind === 'pages' ? 'panel.all' : 'panel.repository') : w.kind === 'agent' ? w.agent.name : w.past.name;
 }
 
 function WhoseIcon({ project, whose, className }: { project: string; whose: Whose; className?: string }) {
@@ -679,7 +779,7 @@ function ChooseTarget({ project, chat, kind, whose, agents, past, onPick }: { pr
   const Icon = kindIcon[kind];
   const machine = needsMachine(kind);
   const all = targets(kind, project, chat, agents, past, false);
-  const shown = targets(kind, project, chat, agents, past, withMachine).filter((w) => (w.kind === 'lead' ? matchesText(t('panel.repository'), query) : matches(w, query)));
+  const shown = targets(kind, project, chat, agents, past, withMachine).filter((w) => (w.kind === 'lead' ? matchesText(whoseName(t, w, kind), query) : matches(w, query)));
   const agentsShown = shown.filter((w) => w.kind !== 'lead').length;
   const hidden = all.length - targets(kind, project, chat, agents, past, true).length;
   const projectName = projectLabel(project, projects.data);
@@ -716,7 +816,7 @@ function ChooseTarget({ project, chat, kind, whose, agents, past, onPick }: { pr
         <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-2">
           {shown.map((w) => {
             const ref = whoseRef(w);
-            const sub = w.kind === 'lead' ? t('panel.repositorySub', { project: projectName }) : (w.kind === 'agent' ? w.agent.title : w.past.title) || (w.kind === 'agent' ? w.agent.branch : w.past.branch);
+            const sub = w.kind === 'lead' ? t(kind === 'pages' ? 'panel.allSub' : 'panel.repositorySub', { project: projectName }) : (w.kind === 'agent' ? w.agent.title : w.past.title) || (w.kind === 'agent' ? w.agent.branch : w.past.branch);
             const own = ref === chat;
             return (
               <button
@@ -728,7 +828,7 @@ function ChooseTarget({ project, chat, kind, whose, agents, past, onPick }: { pr
               >
                 <span className="flex min-w-0 items-center gap-2">
                   <WhoseIcon project={project} whose={w} className="size-7 text-[11px]" />
-                  <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-title">{whoseName(t, w)}</span>
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-title">{whoseName(t, w, kind)}</span>
                   <WhoseMark whose={w} />
                 </span>
                 <span className="line-clamp-2 min-h-[2lh] text-[11.5px] leading-snug text-subtle">{sub}</span>

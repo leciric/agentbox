@@ -33,7 +33,7 @@ import { Markdown } from './Markdown';
 
 
 const rowClass =
-  'group/row flex min-h-7 w-full min-w-0 items-center gap-1.5 rounded-md px-0.5 py-0.5 text-left text-sm leading-relaxed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-400/40';
+  'group/row flex min-h-7 w-full min-w-0 items-center gap-1.5 rounded-md px-0.5 py-0.5 text-left text-sm leading-relaxed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-400';
 
 const toolIcons: Record<string, LucideIcon> = {
   read: Eye,

@@ -127,7 +127,7 @@ export function FileTree({
   return (
     <div
       ref={scroller}
-      className="h-full overflow-auto py-1 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-400/40"
+      className="h-full overflow-auto py-1 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-400"
       role="tree"
       aria-label={t('files.tree.label')}
       tabIndex={0}

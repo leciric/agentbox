@@ -31,7 +31,9 @@ import { SettingsView } from "./components/SettingsView";
 import { Sidebar } from "./components/Sidebar";
 import { SidebarV2 } from "./components/v2/SidebarV2";
 import { NewTaskDialog } from "./components/v2/NewTaskDialog";
+import { ShortcutSheet } from "./components/v2/ShortcutSheet";
 import { isNewTaskShortcut, toggleNewTask } from "./lib/newTask";
+import { cycleRegion, isSettingsShortcut, isSheetShortcut, toggleSheet } from "./lib/shortcuts";
 import { inSettings, pageOf, useV2Pages, viewOf } from "./components/v2/SettingsPagesV2";
 import { AgentReviewCard, ReviewV2 } from "./components/v2/ReviewV2";
 import { RightPanelHost } from "./components/v2/RightPanel";
@@ -245,6 +247,26 @@ export function App({ initial }: { initial?: View } = {}) {
       if (!isNewTaskShortcut(event)) return;
       event.preventDefault();
       toggleNewTask();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [v2]);
+  // v2's other keys (lib/shortcuts.ts): Ctrl+/ for the shortcut sheet, Ctrl+,
+  // for Settings, and F6 (Shift+F6 back) to move between the sidebar, the
+  // chat and the panel.
+  useEffect(() => {
+    if (!v2) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (isSheetShortcut(event)) {
+        event.preventDefault();
+        toggleSheet();
+      } else if (isSettingsShortcut(event)) {
+        event.preventDefault();
+        setView({ kind: "settings" });
+        setNavOpen(false);
+      } else if (event.key === "F6" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        if (cycleRegion(event.shiftKey)) event.preventDefault();
+      }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
@@ -673,6 +695,7 @@ export function App({ initial }: { initial?: View } = {}) {
       />
       <SearchModal onOpen={openFound} />
       {v2 && <NewTaskDialog onSelect={select} />}
+      {v2 && <ShortcutSheet />}
       <ErrorReports />
       <SnapComposer
         project={view.kind === "project" ? view.project : view.kind === "agent" ? view.ref.split("/")[0] : undefined}

@@ -327,7 +327,7 @@ function SpendOverTime({ report }: { report: T.TokenReport }) {
                       type="button"
                       role="listitem"
                       aria-label={`${slotLabel(s.start, report.bucketSeconds)}: ${t('vm.tokens.nTokens', { n: humanTokens(total) })}`}
-                      className="group flex h-full min-w-0 flex-1 items-end justify-center rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50"
+                      className="group flex h-full min-w-0 flex-1 items-end justify-center rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
                     >
                       <span
                         className="w-full max-w-6 rounded-t-[4px] bg-brand-400 transition-colors group-hover:bg-brand-300"

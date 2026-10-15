@@ -542,7 +542,7 @@ export function MediaCard({
         data-media={item.kind}
         data-media-name={item.name}
         className={cn(
-          'w-full overflow-hidden rounded-xl border border-line bg-surface-faint text-left transition duration-200 hover:border-line-vivid hover:bg-surface hover:shadow-[0_20px_44px_-24px_var(--ab-shadow-deep)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50',
+          'w-full overflow-hidden rounded-xl border border-line bg-surface-faint text-left transition duration-200 hover:border-line-vivid hover:bg-surface hover:shadow-[0_20px_44px_-24px_var(--ab-shadow-deep)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400',
           selecting && selected && 'border-brand-400/60 ring-2 ring-brand-400/40',
         )}
       >

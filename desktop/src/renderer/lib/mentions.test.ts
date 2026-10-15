@@ -68,7 +68,7 @@ test('matchProjects matches the name or the display name, earliest match first',
   assert.deepEqual(matchProjects(projects, 'zzz'), []);
 });
 
-test('matchProjects lists projects for an empty query, up to the limit', () => {
+test('matchProjects lists every project for an empty query', () => {
   const projects = ['a', 'b', 'c', 'd'].map((name) => ({ name, displayName: name }));
-  assert.deepEqual(matchProjects(projects, '').map((m) => m.label), ['a', 'b', 'c']);
+  assert.deepEqual(matchProjects(projects, '').map((m) => m.label), projects.map((p) => p.name));
 });

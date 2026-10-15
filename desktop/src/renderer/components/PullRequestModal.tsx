@@ -566,7 +566,7 @@ function TreeLevel({
               data-tree-file={node.file.path}
               aria-current={node.file.path === selected || undefined}
               className={cn(
-                'flex w-full min-w-0 items-center gap-1.5 py-1 pr-3 text-left text-[12.5px] text-secondary hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-400/50',
+                'flex w-full min-w-0 items-center gap-1.5 py-1 pr-3 text-left text-[12.5px] text-secondary hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-400',
                 node.file.path === selected && 'bg-surface-strong text-title',
               )}
               title={node.file.path}

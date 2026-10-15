@@ -809,12 +809,24 @@ export function untrackedChat(): T.ChatThread {
   };
 }
 
+// leadOptions are what Claude Code's adapter offers a lead's chat, for the
+// composer's setup chip ("Claude Code · Opus · 200k") and its effort and mode
+// menus.
+export function leadOptions(): T.ChatOption[] {
+  return [
+    { id: 'model', name: 'Model', category: 'model', type: 'select', value: 'opus', choices: [{ value: 'opus', name: 'Opus' }, { value: 'sonnet', name: 'Sonnet' }, { value: 'haiku', name: 'Haiku' }] },
+    { id: 'context_window', name: 'Context window', category: 'context_window', type: 'select', value: '200k', choices: [{ value: '200k', name: '200k' }, { value: '1m', name: '1M' }] },
+    { id: 'effort', name: 'Effort', category: 'thought_level', type: 'select', value: 'high', choices: [{ value: 'medium', name: 'Medium' }, { value: 'high', name: 'High' }] },
+    { id: 'mode', name: 'Mode', category: 'mode', type: 'select', value: 'default', choices: [{ value: 'default', name: 'Ask before edits' }, { value: 'acceptEdits', name: 'Accept edits' }, { value: 'plan', name: 'Plan' }] },
+  ];
+}
+
 export function leadChat(): T.ChatThread {
   const at = (ago: number) => new Date(Date.now() - ago).toISOString();
   return {
     agent: `${PROJECT}/lead`,
     seq: 1,
-    session: { state: 'idle', tool: 'claude', options: [], commands: [] },
+    session: { state: 'idle', tool: 'claude', options: leadOptions(), commands: [] },
     items: [
       {
         id: 'l1',

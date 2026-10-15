@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Check, ChevronDown } from 'lucide-react';
+import { ArrowRight, Check } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
@@ -8,23 +8,24 @@ import { chatKey } from '../../lib/chat';
 import { useT } from '../../lib/i18n';
 import { runnerChoices, runnerLabel, runnerReason, type RunnerChoice } from '../../lib/leadRunner';
 import { useNow } from '../../lib/useNow';
-import { errorMessage } from '../../lib/utils';
+import { cn, errorMessage } from '../../lib/utils';
 import { LimitRow } from '../TopBar';
-import { aiLabel, ToolMark } from '../state';
-import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from '../ui/menu';
+import { ToolMark } from '../state';
+import { MenuItem, MenuLabel, MenuSeparator } from '../ui/menu';
 
-// RunnerPicker is a lead's AI tool and account, in its composer: what the chat
-// runs, and the tools and accounts it can switch to, from Settings → Accounts
-// and the project's own list. A choice applies from the next message. Within
-// Claude Code an account switch resumes the same session; another tool starts
-// a new one, carried over by the rollover summary (internal/chat/runner.go).
-// The model stays in its own menu beside this one: switching it within a tool
-// is the adapter's own option, with no new session.
-export function RunnerPicker({ agent, session }: { agent: T.Agent; session?: T.ChatSession }) {
-  const t = useT();
-  const clock = useNow(60_000);
+// A lead's AI tool and account, in its composer: what the chat runs, and the
+// tools and accounts it can switch to, from Settings → Accounts and the
+// project's own list. A choice applies from the next message. Within Claude
+// Code an account switch resumes the same session; another tool starts a new
+// one, carried over by the rollover summary (internal/chat/runner.go). They
+// are the first submenu of the composer's setup chip (SetupChip in
+// Composer.tsx), beside the model, which is the adapter's own option, with
+// no new session.
+
+// useRunner reads what a lead runs and can run, and switches it.
+export function useRunner(agent: T.Agent, session?: T.ChatSession, enabled = true) {
   const queryClient = useQueryClient();
-  const runners = useQuery({ queryKey: ['chatRunners', agent.project], queryFn: () => api.chatRunners(agent.project), refetchInterval: 30_000 });
+  const runners = useQuery({ queryKey: ['chatRunners', agent.project], queryFn: () => api.chatRunners(agent.project), refetchInterval: 30_000, enabled });
   const choose = useMutation({
     mutationFn: (c: RunnerChoice) => api.setChatRunner(agent.project, { tool: c.tool, account: c.account }),
     onSuccess: () => {
@@ -39,57 +40,59 @@ export function RunnerPicker({ agent, session }: { agent: T.Agent; session?: T.C
   const next = session?.nextTool;
   const account = !next ? session?.account || (tool === 'claude' ? runners.data?.account : runners.data?.toolAccounts?.[tool]) : undefined;
   const choices = runners.data ? runnerChoices(runners.data) : [];
-  // A tool with several accounts names the account on each row, and on the trigger.
+  return { runners, choose, tool, next, account, choices, label: runnerLabel(tool, account) };
+}
+
+export type Runner = ReturnType<typeof useRunner>;
+
+// RunnerItems are the tools and accounts to pick from, as a menu's items.
+// One that can't be chosen says why under its name, readable rather than
+// greyed out of sight.
+export function RunnerItems({ runner }: { runner: Runner }) {
+  const t = useT();
+  const clock = useNow(60_000);
+  const { runners, choose, choices } = runner;
+  // A tool with several accounts names the account on each row.
   const several = (of: string) => choices.filter((c) => c.tool === of).length > 1;
-  const label = runnerLabel(tool, account);
   return (
-    <Menu>
-      <MenuTrigger asChild>
-        <button
-          aria-label={label}
-          data-runner-picker
-          title={next ? t('chat.runner.nextTip', { tool: aiLabel(next) }) : label}
-          className="flex h-7 min-w-0 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[12.5px] text-muted transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40 data-[state=open]:bg-surface-raised data-[state=open]:text-primary [&_svg]:size-4 [&_svg]:shrink-0"
+    <>
+      <MenuLabel>{t('chat.runner.title')}</MenuLabel>
+      {runners.isPending && <p className="px-2.5 py-2 text-[12px] text-subtle">{t('common.loading')}</p>}
+      {runners.isError && <p className="px-2.5 py-2 text-[12px] text-rose-300">{errorMessage(runners.error)}</p>}
+      {choices.map((c) => (
+        <MenuItem
+          key={c.tool + '/' + c.account}
+          disabled={!c.ready || choose.isPending}
+          onSelect={() => !c.current && choose.mutate(c)}
+          title={runners.data && runnerReason(runners.data, c.tool)}
+          icon={toolIcons[c.tool]}
+          data-runner={c.tool}
+          data-account={c.account || undefined}
+          hint={c.current ? <Check className="size-3.5 text-brand-300" /> : undefined}
         >
-          <ToolMark ai={tool} />
-          {next && (
-            <span className="flex items-center gap-1 rounded-full bg-brand-400/15 px-1.5 py-px text-[11px] text-brand-200">
-              <ArrowRight className="!size-3" />
-              <ToolMark ai={next} className="!size-3.5" />
+          <div className="grid min-w-0 gap-0.5">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className="truncate">{c.name}</span>
+              {several(c.tool) && c.account && <span className="truncate text-subtle">· {c.account}</span>}
             </span>
-          )}
-          <ChevronDown className="!size-3.5 text-faint" />
-        </button>
-      </MenuTrigger>
-      <MenuContent align="start" side="top" className="max-h-[28rem] w-80 overflow-y-auto">
-        <MenuLabel>{t('chat.runner.title')}</MenuLabel>
-        {runners.isPending && <p className="px-2.5 py-2 text-[12px] text-subtle">{t('common.loading')}</p>}
-        {runners.isError && <p className="px-2.5 py-2 text-[12px] text-rose-300">{errorMessage(runners.error)}</p>}
-        {choices.map((c) => (
-          <MenuItem
-            key={c.tool + '/' + c.account}
-            disabled={!c.ready || choose.isPending}
-            onSelect={() => !c.current && choose.mutate(c)}
-            title={runners.data && runnerReason(runners.data, c.tool)}
-            icon={toolIcons[c.tool]}
-            data-runner={c.tool}
-            data-account={c.account || undefined}
-            hint={c.current ? <Check className="size-3.5 text-brand-300" /> : undefined}
-          >
-            <div className="grid min-w-0 gap-0.5">
-              <span className="flex min-w-0 items-center gap-1.5">
-                <span className="truncate">{c.name}</span>
-                {several(c.tool) && c.account && <span className="truncate text-subtle">· {c.account}</span>}
-              </span>
-              {c.note && <span className="text-[11px] text-subtle">{c.note}</span>}
-              {c.reading && <AccountUsage reading={c.reading} clock={clock} />}
-            </div>
-          </MenuItem>
-        ))}
-        <MenuSeparator />
-        <p className="px-2.5 pb-1.5 pt-1 text-[11px] leading-snug text-subtle">{t('chat.runner.applies')}</p>
-      </MenuContent>
-    </Menu>
+            {c.note && <span className={cn('text-[11px]', c.ready ? 'text-subtle' : 'text-amber-300')}>{c.note}</span>}
+            {c.reading && <AccountUsage reading={c.reading} clock={clock} />}
+          </div>
+        </MenuItem>
+      ))}
+      <MenuSeparator />
+      <p className="px-2.5 pb-1.5 pt-1 text-[11px] leading-snug text-subtle">{t('chat.runner.applies')}</p>
+    </>
+  );
+}
+
+// NextTool is the mark that the chat switches tool at the next message.
+export function NextTool({ next }: { next: string }) {
+  return (
+    <span className="flex items-center gap-1 rounded-full bg-brand-400/15 px-1.5 py-px text-[11px] text-brand-200">
+      <ArrowRight className="!size-3" />
+      <ToolMark ai={next} className="!size-3.5" />
+    </span>
   );
 }
 

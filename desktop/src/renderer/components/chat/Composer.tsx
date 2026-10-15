@@ -5,7 +5,8 @@ import {
   Check,
   ChevronDown,
   CircleAlert,
-  Ellipsis,
+  Cpu,
+  SlidersHorizontal,
   File,
   FolderGit2,
   Gauge,
@@ -26,13 +27,13 @@ import {
   SquareArrowOutUpRight,
   type LucideIcon,
 } from 'lucide-react';
-import { Fragment, use, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type SyntheticEvent } from 'react';
+import { Fragment, use, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type ComponentType, type DragEvent, type KeyboardEvent, type ReactNode, type SyntheticEvent } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
 import { api, isHomeChat, isProjectChat } from '../../lib/api';
 import { composerSkills, searchSkills, skillMentionAt } from '../../lib/skills';
 import { SkillTile } from '../SkillsPanel';
-import { contextBadge, contextHint, currentPlan, formatTokens, pendingPermissions, toolOf, toolsReload } from '../../lib/chat';
+import { contextBadge, contextHint, currentPlan, formatTokens, isMessage, pendingPermissions, toolOf, toolsReload } from '../../lib/chat';
 import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../../lib/modelChoices';
 import { FileLinks } from '../files/FilePanel';
 import { mentionAt, matchFiles, matchProjects, mentionLimit, type MentionItem } from '../../lib/mentions';
@@ -44,13 +45,13 @@ import { previewUrl } from '../../lib/chatImages';
 import { droppedFiles, isFile, prepareAttachment, room, uploads, type Pending } from '../../lib/chatFiles';
 import { ModelByName } from '../ModelByName';
 import { cn, errorMessage } from '../../lib/utils';
-import { AIIcon, aiLabel } from '../state';
-import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from '../ui/menu';
+import { aiLabel, ToolMark } from '../state';
+import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuSub, MenuTrigger } from '../ui/menu';
 import { Tip } from '../ui/tooltip';
 import { DiffView, relativePath } from './ChangedFiles';
 import { FileChip } from './Files';
 import { ImageThumb } from './Images';
-import { RunnerPicker } from './RunnerPicker';
+import { NextTool, RunnerItems, useRunner, type Runner } from './RunnerPicker';
 
 
 // asleep is set while the agent's machine is stopped or paused: the composer
@@ -132,6 +133,10 @@ export function Composer({
       toast.error(noAttach);
       return;
     }
+    if (files.length === 0) {
+      toast.error(t('chat.composer.nothingAttached'));
+      return;
+    }
     let waiting = images;
     for (const file of files) {
       try {
@@ -147,6 +152,31 @@ export function Composer({
         toast.error(errorMessage(err));
       }
     }
+  };
+  // The file dialog can close having picked a file and still hand the page
+  // nothing, no change and no cancel (the v2 UX audit's finding 14: typing a
+  // path with Ctrl+L, Enter, and no chip). The window gets its focus back as
+  // the dialog closes: if neither event follows soon after, say so, rather
+  // than leave the composer as though nothing had been tried.
+  const choosing = useRef(false);
+  useEffect(() => {
+    const el = picker.current;
+    const cancelled = () => (choosing.current = false);
+    el?.addEventListener('cancel', cancelled);
+    return () => el?.removeEventListener('cancel', cancelled);
+  }, []);
+  const choose = () => {
+    choosing.current = true;
+    const back = () => {
+      removeEventListener('focus', back);
+      setTimeout(() => {
+        if (!choosing.current) return;
+        choosing.current = false;
+        toast.error(t('chat.composer.nothingAttached'), { description: t('chat.composer.nothingAttachedHint') });
+      }, 1500);
+    };
+    addEventListener('focus', back);
+    picker.current?.click();
   };
   const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
     const files = droppedFiles(event.clipboardData);
@@ -253,7 +283,7 @@ export function Composer({
   const mentionItems = useMemo(() => {
     if (mentionQuery === undefined || mentionKey === mentionDismissed) return [];
     const projects = matchProjects(projectsQuery.data ?? [], mentionQuery);
-    return [...projects, ...matchFiles(filesQuery.data?.files ?? [], mentionQuery, mentionLimit - projects.length)];
+    return [...projects, ...matchFiles(filesQuery.data?.files ?? [], mentionQuery, mentionLimit)];
   }, [mentionQuery, mentionKey, mentionDismissed, filesQuery.data, projectsQuery.data]);
   useEffect(() => setMentionHighlighted(0), [mentionKey]);
 
@@ -290,6 +320,9 @@ export function Composer({
   };
   const syncCursor = (event: SyntheticEvent<HTMLTextAreaElement>) => setCursor(event.currentTarget.selectionStart);
 
+  const lastMine = thread?.items.findLast((it) => it.kind === 'user' && !it.parent && !it.hidden)?.text;
+  // A chat with nothing in it yet has nothing to follow up on.
+  const empty = !!thread && !thread.older && !thread.items.some(isMessage);
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing) return;
     if (commands.length > 0) {
@@ -347,6 +380,14 @@ export function Composer({
         return;
       }
     }
+    // Up in an empty composer brings your last message back, to send again
+    // or fix, as a shell's history does.
+    if (event.key === 'ArrowUp' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && text === '' && lastMine) {
+      event.preventDefault();
+      pendingCursor.current = lastMine.length;
+      setText(lastMine);
+      return;
+    }
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       submit();
@@ -363,7 +404,9 @@ export function Composer({
       ? t('chat.composer.answerRequest')
       : busy
         ? t('chat.composer.busy', { tool })
-        : t('chat.composer.placeholder');
+        : empty
+          ? t(projectChat && !home ? 'chat.composer.placeholderLead' : 'chat.composer.placeholderEmpty')
+          : t('chat.composer.placeholder');
 
   return (
     <div className="relative" data-chat-composer>
@@ -519,11 +562,18 @@ export function Composer({
         )}
         {mentionItems.length > 0 && (
           <div className="absolute inset-x-2 bottom-full mb-2 overflow-hidden rounded-2xl border border-line-strong bg-overlay p-1 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur-xl" role="listbox" aria-label={t('chat.composer.mentions')}>
+            <p className="px-3 pb-1 pt-1.5 text-[11.5px] text-subtle" data-mention-hint>
+              {t('chat.composer.mentionHint')}
+            </p>
+            <div className="max-h-72 overflow-y-auto">
             {mentionItems.map((item, i) => (
               <div key={`${item.kind}:${item.label}`} className={cn('flex items-center rounded-xl', i === mentionHighlighted && 'bg-surface-raised')} onMouseEnter={() => setMentionHighlighted(i)}>
                 <button
                   role="option"
                   aria-selected={i === mentionHighlighted}
+                  ref={(el) => {
+                    if (i === mentionHighlighted) el?.scrollIntoView?.({ block: 'nearest' });
+                  }}
                   className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left"
                   onMouseDown={(event) => {
                     event.preventDefault();
@@ -550,6 +600,7 @@ export function Composer({
                 )}
               </div>
             ))}
+            </div>
           </div>
         )}
         {images.length > 0 && (
@@ -591,6 +642,7 @@ export function Composer({
             multiple
             hidden
             onChange={(event) => {
+              choosing.current = false;
               const files = Array.from(event.target.files ?? []);
               event.target.value = '';
               void attach(files);
@@ -603,14 +655,13 @@ export function Composer({
                 type="button"
                 aria-label={t('chat.composer.attach')}
                 disabled={!!noAttach}
-                onClick={() => picker.current?.click()}
+                onClick={choose}
                 className="flex size-8 items-center justify-center rounded-full text-subtle transition hover:bg-surface-raised hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
               >
                 <Paperclip className="size-4" />
               </button>
             </span>
           </Tip>
-          {isProjectChat(agent.ref) && <RunnerPicker agent={agent} session={session} />}
           <SessionOptions agent={agent} session={session} />
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
             <ContextMeter session={session} />
@@ -900,13 +951,8 @@ function SessionOptions({ agent, session }: { agent: T.Agent; session?: T.ChatSe
   const modelValue = session?.options.find((o) => o.category === 'model' && o.type === 'select')?.value;
   if (modelValue && session?.contextSize && !session.turnStartedAt) confirmed.current.set(modelValue, session.contextSize);
   const options = session?.options ?? [];
-  // A lead's tool is named by its picker beside this (RunnerPicker).
-  const toolLabel = isProjectChat(agent.ref) ? null : (
-    <span className="flex h-7 items-center gap-1.5 px-2 text-[12.5px] text-subtle">
-      <AIIcon ai={agent.ai} className="size-4" />
-      {aiLabel(agent.ai)}
-    </span>
-  );
+  const lead = isProjectChat(agent.ref);
+  const runner = useRunner(agent, session, lead);
   // While the tool starts, its menus haven't arrived: at most the model menu
   // remembered from an earlier chat is here. Say the rest is on its way,
   // rather than leaving a composer that looks like it has nothing to set.
@@ -919,15 +965,6 @@ function SessionOptions({ agent, session }: { agent: T.Agent; session?: T.ChatSe
       </span>
     </Tip>
   );
-  if (options.length === 0)
-    return loading ? (
-      <div className="flex min-w-0 items-center gap-0.5">
-        {toolLabel}
-        {loadingMark}
-      </div>
-    ) : (
-      toolLabel
-    );
   const find = (category: string) => options.find((o) => o.category === category && o.type === 'select');
   const model = find('model');
   const contextWindow = find('context_window');
@@ -945,64 +982,142 @@ function SessionOptions({ agent, session }: { agent: T.Agent; session?: T.ChatSe
   const pending = !session || session.state === 'off';
   return (
     <div className="flex min-w-0 items-center gap-0.5">
-      {/* No model menu yet (no Claude Code chat has run here) but a context
-          window to choose: name the tool beside it, as with no options at all. */}
-      {!model && toolLabel}
-      {model && (
-        <OptionMenu
-          option={model}
-          icon={<AIIcon ai={agent.ai} />}
-          onPick={pick(model)}
-          contextSize={contextSize}
-          // With a context window of its own beside it, a "1M" on the model
-          // would contradict a chat compacting at 200k.
-          showSizes={!contextWindow}
-          treatMissingAsUnavailable={!pending}
-          // Only Claude Code has the launch-time channel a named model goes
-          // through (see PrepareChatModel). Codex and OpenCode keep their own
-          // menus: OpenCode's session/new advertises every model its providers
-          // can run, and set_config_option takes any of them.
-          allowNaming={agent.ai === 'claude'}
-        />
-      )}
-      {contextWindow && <OptionMenu option={contextWindow} icon={<Gauge />} onPick={pick(contextWindow)} />}
+      <SetupChip
+        agent={agent}
+        runner={lead ? runner : undefined}
+        model={model}
+        contextWindow={contextWindow}
+        others={others}
+        contextSize={contextSize}
+        pending={pending}
+        pick={pick}
+      />
       {effort && <OptionMenu option={effort} icon={<Brain />} label={effort.value === 'default' ? t('chat.options.effort') : undefined} onPick={pick(effort)} />}
       {mode && <OptionMenu option={mode} icon={(() => { const Icon = modeIcon(mode); return <Icon />; })()} onPick={pick(mode)} />}
       {loadingMark}
-      {others.length > 0 && (
-        <Menu>
-          <MenuTrigger asChild>
-            <button
-              aria-label={t('chat.options.more')}
-              className="flex size-7 items-center justify-center rounded-lg text-subtle transition hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40 data-[state=open]:bg-surface-raised"
-            >
-              <Ellipsis className="size-4" />
-            </button>
-          </MenuTrigger>
-          <MenuContent align="start" side="top" className="w-72">
-            {others.map((option, i) => (
-              <div key={option.id}>
-                {i > 0 && <MenuSeparator />}
-                <MenuLabel>{option.name}</MenuLabel>
-                {(option.type === 'boolean'
-                  ? [
-                      { value: 'true', name: t('common.on') },
-                      { value: 'false', name: t('common.off') },
-                    ]
-                  : option.choices
-                ).map((choice) => (
-                  <MenuItem key={choice.value} onSelect={() => pick(option)(choice.value)} hint={choice.value === option.value ? <Check className="size-3.5 text-brand-300" /> : undefined}>
-                    {choice.name}
-                  </MenuItem>
-                ))}
-              </div>
-            ))}
-          </MenuContent>
-        </Menu>
-      )}
     </div>
   );
 }
+
+// SetupChip is the composer's one chip for what runs the chat, read as a
+// sentence: "Claude Code · Opus · 200k", the tool, its model and its context
+// window (the v2 UX audit's finding 9: a bare tool icon, and a "200k" that
+// read like a model). Its menu has a submenu for each: the AI tool and
+// account (a lead's only: an agent's tool is fixed), the model, the context
+// window, and the tool's other settings, which had a ⋯ of their own.
+function SetupChip({
+  agent,
+  runner,
+  model,
+  contextWindow,
+  others,
+  contextSize,
+  pending,
+  pick,
+}: {
+  agent: T.Agent;
+  runner?: Runner;
+  model?: T.ChatOption;
+  contextWindow?: T.ChatOption;
+  others: T.ChatOption[];
+  contextSize?: number;
+  pending: boolean;
+  pick: (option: T.ChatOption) => (value: string) => void;
+}) {
+  const t = useT();
+  const tool = runner?.tool ?? agent.ai;
+  const toolName = aiLabel(tool);
+  const current = model?.choices.find((c) => c.value === model.value);
+  const missing = model && !pending ? unavailableValue(model.choices, model.value) : undefined;
+  const modelName = model ? (missing ?? (current && choiceName(current)) ?? model.value) : undefined;
+  const windowChoice = contextWindow?.choices.find((c) => c.value === contextWindow.value);
+  const size = contextWindow ? (windowChoice ? choiceName(windowChoice) : contextWindow.value) : current ? modelHint(current, true, contextSize) : undefined;
+  const parts = [toolName, modelName, size].filter(Boolean).join(' · ');
+  const label = t('chat.setup.label', { setup: parts });
+  const nothing = !runner && !model && !contextWindow && others.length === 0;
+  const chip = (
+    <span className={cn('flex h-7 min-w-0 items-center gap-1.5 rounded-lg px-2 text-[12.5px] [&_svg]:size-4 [&_svg]:shrink-0', missing ? 'text-amber-300' : 'text-muted')}>
+      {missing ? <CircleAlert className="text-amber-400" /> : <ToolMark ai={tool} />}
+      {runner?.next && <NextTool next={runner.next} />}
+      <span className="min-w-0 truncate" data-chat-setup-text>
+        {toolName}
+        {modelName && <span className="max-sm:hidden"> · {modelName}</span>}
+        {size && <span className="max-sm:hidden text-subtle"> · {size}</span>}
+      </span>
+      {!nothing && <ChevronDown className="!size-3.5 text-faint" />}
+    </span>
+  );
+  // An agent's chat with nothing to set reads its tool, and opens nothing.
+  if (nothing) return chip;
+  return (
+    <Menu>
+      <MenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          title={runner?.next ? t('chat.runner.nextTip', { tool: aiLabel(runner.next) }) : label}
+          className="flex min-w-0 shrink rounded-lg transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 data-[state=open]:bg-surface-raised"
+          data-chat-setup
+          data-runner-picker={runner ? '' : undefined}
+        >
+          {chip}
+        </button>
+      </MenuTrigger>
+      <MenuContent align="start" side="top" className="w-64">
+        {runner && (
+          <MenuSub icon={toolIcon(tool)} label={t('chat.setup.tool')} value={runner.account ? `${toolName} · ${runner.account}` : toolName} className="max-h-[28rem] w-80 overflow-y-auto" data-chat-setup-sub="tool">
+            <RunnerItems runner={runner} />
+          </MenuSub>
+        )}
+        {!runner && <MenuLabel>{toolName}</MenuLabel>}
+        {model && (
+          <MenuSub icon={Cpu} label={model.name} value={modelName} className="max-h-96 w-72 overflow-y-auto" data-chat-setup-sub="model">
+            <OptionChoices
+              option={model}
+              onPick={pick(model)}
+              contextSize={contextSize}
+              // With a context window of its own beside it, a "1M" on the model
+              // would contradict a chat compacting at 200k.
+              showSizes={!contextWindow}
+              treatMissingAsUnavailable={!pending}
+              // Only Claude Code has the launch-time channel a named model goes
+              // through (see PrepareChatModel). Codex and OpenCode keep their own
+              // menus: OpenCode's session/new advertises every model its providers
+              // can run, and set_config_option takes any of them.
+              allowNaming={agent.ai === 'claude'}
+            />
+          </MenuSub>
+        )}
+        {contextWindow && (
+          <MenuSub icon={Gauge} label={contextWindow.name} value={size} className="max-h-96 w-72 overflow-y-auto" data-chat-setup-sub="context">
+            <OptionChoices option={contextWindow} onPick={pick(contextWindow)} />
+          </MenuSub>
+        )}
+        {others.map((option) => (
+          <MenuSub key={option.id} icon={SlidersHorizontal} label={option.name} value={option.type === 'boolean' ? t(option.value === 'true' ? 'common.on' : 'common.off') : choiceName(option.choices.find((c) => c.value === option.value) ?? { value: option.value, name: option.value })} className="w-60" data-chat-setup-sub={option.id}>
+            <MenuLabel>{option.name}</MenuLabel>
+            {(option.type === 'boolean'
+              ? [
+                  { value: 'true', name: t('common.on') },
+                  { value: 'false', name: t('common.off') },
+                ]
+              : option.choices
+            ).map((choice) => (
+              <MenuItem key={choice.value} onSelect={() => pick(option)(choice.value)} hint={choice.value === option.value ? <Check className="size-3.5 text-brand-300" /> : undefined}>
+                {choice.name}
+              </MenuItem>
+            ))}
+          </MenuSub>
+        ))}
+      </MenuContent>
+    </Menu>
+  );
+}
+
+const toolIcon = (ai: string) => toolMarks[ai] ?? toolMarks.claude;
+const toolMarks: Record<string, ComponentType<{ className?: string }>> = Object.fromEntries(
+  ['claude', 'codex', 'opencode', 'cursor'].map((ai) => [ai, ({ className }: { className?: string }) => <ToolMark ai={ai} className={className} />]),
+);
 
 // A model's context window, e.g. "1M": read from the tool's own option data
 // (see contextHint) or, for the model actually running, the size the adapter
@@ -1021,12 +1136,51 @@ function modelHint(choice: T.ChatOptionChoice, isCurrent: boolean, contextSize?:
   return contextHint(choice);
 }
 
-// OptionMenu picks one of a setting's choices. On a phone, only the model keeps its label.
-// contextSize is the current model's last confirmed context-window reading (see modelHint and SessionOptions); only the model menu uses it.
+// OptionMenu picks one of a setting's choices, the effort or the mode: the
+// rest are in SetupChip. On a phone, only its icon shows.
 function OptionMenu({
   option,
   icon,
   label,
+  onPick,
+}: {
+  option: T.ChatOption;
+  icon: ReactNode;
+  label?: string;
+  onPick: (value: string) => void;
+}) {
+  const current = option.choices.find((c) => c.value === option.value);
+  const missing = unavailableValue(option.choices, option.value);
+  return (
+    <Menu>
+      <MenuTrigger asChild>
+        <button
+          aria-label={option.name}
+          data-chat-option={option.id}
+          title={option.description || option.name}
+          className={cn(
+            'flex h-7 min-w-0 items-center gap-1.5 rounded-lg px-2 text-[12.5px] transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 data-[state=open]:bg-surface-raised data-[state=open]:text-primary [&_svg]:size-4 [&_svg]:shrink-0',
+            missing ? 'text-amber-300' : 'text-muted',
+          )}
+        >
+          {missing ? <CircleAlert className="text-amber-400" /> : icon}
+          <span className="max-w-[9rem] truncate max-sm:hidden">{label ?? (current && choiceName(current)) ?? option.value}</span>
+          <ChevronDown className="!size-3.5 text-faint" />
+        </button>
+      </MenuTrigger>
+      <MenuContent align="start" side="top" className="max-h-96 w-72 overflow-y-auto">
+        <OptionChoices option={option} onPick={onPick} />
+      </MenuContent>
+    </Menu>
+  );
+}
+
+// OptionChoices are a setting's choices as a menu's items, under its name,
+// with a search when there are many. The model's carry their context-window
+// sizes (contextSize is the current model's last confirmed reading, see
+// modelHint and SessionOptions).
+function OptionChoices({
+  option,
   onPick,
   contextSize,
   showSizes = true,
@@ -1034,8 +1188,6 @@ function OptionMenu({
   allowNaming = false,
 }: {
   option: T.ChatOption;
-  icon: ReactNode;
-  label?: string;
   onPick: (value: string) => void;
   contextSize?: number;
   showSizes?: boolean;
@@ -1044,94 +1196,72 @@ function OptionMenu({
 }) {
   const t = useT();
   const [query, setQuery] = useState('');
-  const current = option.choices.find((c) => c.value === option.value);
   const isModel = option.category === 'model';
   const sized = isModel && showSizes;
-  const currentHint = current && sized ? modelHint(current, true, contextSize) : undefined;
-  // A chosen value the tool no longer offers still names itself on the
-  // trigger, and gets a row of its own in the menu: showing the tool's
-  // default as though you'd picked it is how agents ran for weeks on a model
-  // nobody chose. treatMissingAsUnavailable is false for a session that
-  // hasn't started: its value may be an unresolved alias, not a rejection.
+  // A chosen value the tool no longer offers still names itself, and gets a
+  // row of its own in the menu: showing the tool's default as though you'd
+  // picked it is how agents ran for weeks on a model nobody chose.
+  // treatMissingAsUnavailable is false for a session that hasn't started:
+  // its value may be an unresolved alias, not a rejection.
   const missing = treatMissingAsUnavailable ? unavailableValue(option.choices, option.value) : undefined;
   const groups = groupChoices(option.choices.filter((c) => matchesQuery(c, query)));
   const searchable = option.choices.length >= searchThreshold;
   return (
-    <Menu onOpenChange={(open) => !open && setQuery('')}>
-      <MenuTrigger asChild>
-        <button
-          aria-label={currentHint ? t('chat.options.withContext', { option: option.name, choice: current!.name, size: currentHint }) : option.name}
-          data-chat-option={option.id}
-          title={option.description || option.name}
-          className={cn(
-            'flex h-7 min-w-0 items-center gap-1.5 rounded-lg px-2 text-[12.5px] transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40 data-[state=open]:bg-surface-raised data-[state=open]:text-primary [&_svg]:size-4 [&_svg]:shrink-0',
-            missing ? 'text-amber-300' : 'text-muted',
-          )}
-        >
-          {missing ? <CircleAlert className="text-amber-400" /> : icon}
-          <span className={cn('max-w-[9rem] truncate', option.category !== 'model' && 'max-sm:hidden')}>
-            {label ?? (current && choiceName(current)) ?? option.value}
-          </span>
-          {currentHint && <ContextBadge hint={currentHint} />}
-          <ChevronDown className="!size-3.5 text-faint" />
-        </button>
-      </MenuTrigger>
-      <MenuContent align="start" side="top" className="max-h-96 w-72 overflow-y-auto">
-        <MenuLabel>{option.name}</MenuLabel>
-        {searchable && (
-          <div className="mb-1 flex items-center gap-2 rounded-lg bg-surface px-2.5 py-1.5">
-            <Search className="size-3.5 shrink-0 text-subtle" />
-            <input
-              autoFocus
-              aria-label={t('chat.options.search', { name: option.name.toLowerCase() })}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => e.stopPropagation()}
-              placeholder={t('common.search')}
-              className="w-full bg-transparent text-[13px] text-primary placeholder:text-faint focus:outline-none"
-            />
-          </div>
-        )}
-        {missing && (
-          <MenuItem disabled hint={<Check className="size-3.5 text-amber-300" />}>
-            <span className="grid">
-              <span className="flex items-center gap-1.5 text-amber-200">
-                {missing}
-                <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-amber-300">{t('chat.options.offMenu')}</span>
-              </span>
-              <span className="text-[11px] text-subtle">{t('chat.options.offMenuHint')}</span>
+    <>
+      <MenuLabel>{option.name}</MenuLabel>
+      {searchable && (
+        <div className="mb-1 flex items-center gap-2 rounded-lg bg-surface px-2.5 py-1.5">
+          <Search className="size-3.5 shrink-0 text-subtle" />
+          <input
+            autoFocus
+            aria-label={t('chat.options.search', { name: option.name.toLowerCase() })}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.stopPropagation()}
+            placeholder={t('common.search')}
+            className="w-full bg-transparent text-[13px] text-primary placeholder:text-faint focus:outline-none"
+          />
+        </div>
+      )}
+      {missing && (
+        <MenuItem disabled hint={<Check className="size-3.5 text-amber-300" />}>
+          <span className="grid">
+            <span className="flex items-center gap-1.5 text-amber-200">
+              {missing}
+              <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-amber-300">{t('chat.options.offMenu')}</span>
             </span>
-          </MenuItem>
-        )}
-        {groups.map((group, gi) => (
-          <div key={group.name || gi}>
-            {group.name && (
-              <>
-                {(gi > 0 || Boolean(missing)) && <MenuSeparator />}
-                <MenuLabel>{group.name}</MenuLabel>
-              </>
-            )}
-            {group.choices.map((choice) => {
-              const sizeHint = sized ? modelHint(choice, choice.value === option.value, contextSize) : undefined;
-              return (
-                <MenuItem key={choice.value} onSelect={() => onPick(choice.value)} hint={choice.value === option.value ? <Check className="size-3.5 text-brand-300" /> : undefined}>
-                  <span className="grid">
-                    <span className="flex items-center gap-1.5">
-                      {choiceName(choice)}
-                      {isRecommended(choice) && <RecommendedBadge />}
-                      {sizeHint && <ContextBadge hint={sizeHint} />}
-                    </span>
-                    {choice.description && <span className="text-[11px] text-subtle">{choice.description}</span>}
+            <span className="text-[11px] text-subtle">{t('chat.options.offMenuHint')}</span>
+          </span>
+        </MenuItem>
+      )}
+      {groups.map((group, gi) => (
+        <div key={group.name || gi}>
+          {group.name && (
+            <>
+              {(gi > 0 || Boolean(missing)) && <MenuSeparator />}
+              <MenuLabel>{group.name}</MenuLabel>
+            </>
+          )}
+          {group.choices.map((choice) => {
+            const sizeHint = sized ? modelHint(choice, choice.value === option.value, contextSize) : undefined;
+            return (
+              <MenuItem key={choice.value} onSelect={() => onPick(choice.value)} hint={choice.value === option.value ? <Check className="size-3.5 text-brand-300" /> : undefined}>
+                <span className="grid">
+                  <span className="flex items-center gap-1.5">
+                    {choiceName(choice)}
+                    {isRecommended(choice) && <RecommendedBadge />}
+                    {sizeHint && <ContextBadge hint={sizeHint} />}
                   </span>
-                </MenuItem>
-              );
-            })}
-          </div>
-        ))}
-        {groups.length === 0 && <div className="px-2.5 py-3 text-center text-[12px] text-subtle">{t('chat.options.noMatch', { query: query.trim() })}</div>}
-        {allowNaming && isModel && <ModelByName onPick={onPick} />}
-      </MenuContent>
-    </Menu>
+                  {choice.description && <span className="text-[11px] text-subtle">{choice.description}</span>}
+                </span>
+              </MenuItem>
+            );
+          })}
+        </div>
+      ))}
+      {groups.length === 0 && <div className="px-2.5 py-3 text-center text-[12px] text-subtle">{t('chat.options.noMatch', { query: query.trim() })}</div>}
+      {allowNaming && isModel && <ModelByName onPick={onPick} />}
+    </>
   );
 }
 

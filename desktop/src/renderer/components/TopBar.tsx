@@ -49,11 +49,13 @@ export function TopBar({
 
   const crumbs: { label: string; mono?: boolean; view?: View }[] = [];
   switch (view.kind) {
+    // v2 calls the Home chat Home, in the sidebar as here, and this page
+    // Overview, as Settings does: one name each.
     case 'home':
-      crumbs.push({ label: t('shell.nav.home') });
+      crumbs.push({ label: t(v2 ? 'v2.sidebar.overview' : 'shell.nav.home') });
       break;
     case 'homeChat':
-      crumbs.push({ label: t('shell.nav.mainChat') });
+      crumbs.push({ label: t(v2 ? 'shell.nav.home' : 'shell.nav.mainChat') });
       break;
     case 'jobs':
       crumbs.push({ label: t('shell.nav.jobs') });

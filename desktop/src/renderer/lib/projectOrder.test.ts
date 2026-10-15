@@ -11,14 +11,12 @@ const project = (name: string, over: Partial<T.Project> = {}) => ({ name, displa
 const input = (over: Partial<OrderInput> = {}): OrderInput => ({
   projects: [project('alpha'), project('beta'), project('gamma'), project('delta')],
   pins: [],
-  sort: 'recent',
   activity: new Map([
     ['alpha', { project: 'alpha', lastActivity: ago(2 * day), lastMessage: ago(2 * day) }],
     ['beta', { project: 'beta', lastActivity: ago(1 * day), lastMessage: ago(1 * day) }],
     ['gamma', { project: 'gamma', lastActivity: ago(1000), lastMessage: ago(1000) }],
     ['delta', { project: 'delta', lastActivity: ago(20 * day), lastMessage: ago(20 * day) }],
   ]),
-  working: new Map([['alpha', 3], ['beta', 1]]),
   active: new Set(['alpha', 'beta', 'gamma']),
   label: (p) => p.displayName,
   ...over,
@@ -26,20 +24,16 @@ const input = (over: Partial<OrderInput> = {}): OrderInput => ({
 
 const names = (ps: T.Project[]) => ps.map((p) => p.name);
 
-test('orderProjects sorts the rest by recent activity, name or agents working', () => {
-  let out = orderProjects(input());
+test('orderProjects sorts the rest by recent activity', () => {
+  const out = orderProjects(input());
   assert.deepEqual(names(out.rest), ['gamma', 'beta', 'alpha']);
   assert.deepEqual(names(out.idle), ['delta']);
-  out = orderProjects(input({ sort: 'name' }));
-  assert.deepEqual(names(out.rest), ['alpha', 'beta', 'gamma']);
-  out = orderProjects(input({ sort: 'working' }));
-  assert.deepEqual(names(out.rest), ['alpha', 'beta', 'gamma']);
 });
 
 test('pins come first in their order, override the sort and stay up idle or not', () => {
-  const out = orderProjects(input({ pins: ['delta', 'gone', 'alpha'], sort: 'name' }));
+  const out = orderProjects(input({ pins: ['delta', 'gone', 'alpha'] }));
   assert.deepEqual(names(out.pinned), ['delta', 'alpha']);
-  assert.deepEqual(names(out.rest), ['beta', 'gamma']);
+  assert.deepEqual(names(out.rest), ['gamma', 'beta']);
   assert.deepEqual(out.idle, []);
 });
 
@@ -47,9 +41,9 @@ test('the projects with nothing going on are idle, sorted like the rest', () => 
   let out = orderProjects(input({ active: new Set(['beta']) }));
   assert.deepEqual(names(out.rest), ['beta']);
   assert.deepEqual(names(out.idle), ['gamma', 'alpha', 'delta']);
-  out = orderProjects(input({ active: new Set(), sort: 'name' }));
+  out = orderProjects(input({ active: new Set() }));
   assert.deepEqual(out.rest, []);
-  assert.deepEqual(names(out.idle), ['alpha', 'beta', 'delta', 'gamma']);
+  assert.deepEqual(names(out.idle), ['gamma', 'beta', 'alpha', 'delta']);
 });
 
 test('pins move by drag and toggle', () => {

@@ -304,3 +304,31 @@ export function browserPorts(pages: Pick<T.BrowserPage, 'url' | 'title'>[]): Bro
 export function previewUrl(agent: Pick<T.Agent, 'name' | 'project'>, port: string, addr: string, path = '/'): string {
   return `http://${port}.${agent.name}.${agent.project}.localhost:${addr.split(':').pop()}${path.startsWith('/') ? path : `/${path}`}`;
 }
+
+// shortName is an agent's name as a tab's chip has room for it: agent-41
+// reads 41, as the sidebar's numbers do; any other name stays itself.
+export const shortName = (name: string) => name.replace(/^agent-(?=\d+$)/, '');
+
+// fitTabs is which tabs the strip shows and which go to its ⋯ menu, from
+// each tab's width and the room there is: the first ones that fit, in order,
+// with room kept for the ⋯ button once any don't. The active tab is always
+// shown, in place of the last ones that would otherwise fit.
+export function fitTabs(tabs: { id: string; width: number }[], active: string | null, room: number, more: number): { shown: string[]; hidden: string[] } {
+  const all = tabs.map((t) => t.id);
+  if (tabs.reduce((sum, t) => sum + t.width, 0) <= room) return { shown: all, hidden: [] };
+  const budget = room - more;
+  const shown: { id: string; width: number }[] = [];
+  let used = 0;
+  for (const t of tabs) {
+    if (used + t.width > budget) break;
+    shown.push(t);
+    used += t.width;
+  }
+  const act = tabs.find((t) => t.id === active);
+  if (act && !shown.includes(act)) {
+    while (shown.length && used + act.width > budget) used -= shown.pop()!.width;
+    shown.push(act);
+  }
+  const on = new Set(shown.map((t) => t.id));
+  return { shown: all.filter((id) => on.has(id)), hidden: all.filter((id) => !on.has(id)) };
+}

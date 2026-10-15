@@ -1,6 +1,7 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import type { ComponentProps, HTMLAttributes } from 'react';
+import { useFocusReturn } from '../../lib/focusReturn';
 import { useT } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
 
@@ -13,8 +14,9 @@ export const fullWhenNarrow =
   'max-lg:h-full max-lg:max-h-none max-lg:w-full max-lg:max-w-none max-lg:rounded-none max-lg:border-0 [@media(max-height:700px)]:h-full [@media(max-height:700px)]:max-h-none [@media(max-height:700px)]:w-full [@media(max-height:700px)]:max-w-none [@media(max-height:700px)]:rounded-none [@media(max-height:700px)]:border-0';
 export const DialogClose = DialogPrimitive.Close;
 
-export function DialogContent({ className, children, ...props }: ComponentProps<typeof DialogPrimitive.Content>) {
+export function DialogContent({ className, children, onOpenAutoFocus, onCloseAutoFocus, ...props }: ComponentProps<typeof DialogPrimitive.Content>) {
   const t = useT();
+  const focus = useFocusReturn({ onOpenAutoFocus, onCloseAutoFocus });
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="fixed inset-0 z-50 animate-fade-in bg-scrim backdrop-blur-[3px]" />
@@ -25,6 +27,7 @@ export function DialogContent({ className, children, ...props }: ComponentProps<
           className,
         )}
         {...props}
+        {...focus}
       >
         {children}
         <DialogPrimitive.Close

@@ -6,13 +6,14 @@
 // (asks, failed); finished ones are in Past agents. Under Home, search and a
 // filter popover (T3Code's: state, project, removable chips) narrow it. The
 // projects the user pinned come first, in the order they dragged them, then
-// the ones with something going on by the sort menu's switch, then, folded,
-// the Idle list of the rest, which opens by itself when nothing is going on.
+// the ones with something going on, most recent first, then, folded, the Idle
+// list of the rest, which opens by itself when nothing is going on. The
+// project on screen never folds into Idle: the chat you're in stays in view.
 // A project's options are on a right-click of its row. The reading is
 // lib/leadFirst.ts's and lib/projectOrder.ts's.
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeftRight, ArrowUpDown, Check, ChevronRight, CircleArrowUp, FolderOpen, FolderPlus, House, ListChecks, ListFilter, LoaderCircle, Pin, PinOff, Plus, RefreshCw, Search, Settings, ShieldAlert, Smile, SquarePen, X } from 'lucide-react';
+import { Check, ChevronRight, CircleArrowUp, FolderPlus, House, ListChecks, ListFilter, LoaderCircle, RefreshCw, Search, Settings, ShieldAlert, SquarePen, X } from 'lucide-react';
 import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from 'react';
 import * as A from '../../../shared/api';
 import type * as T from '../../../shared/api';
@@ -21,8 +22,8 @@ import { api } from '../../lib/api';
 import { useT, type MessageKey } from '../../lib/i18n';
 import { pageItems, useQuestions, useReviewHead } from '../../lib/inboxPages';
 import { activeProjects, agentSt, attention, awaitsApproval, countSt, filterCount, leadLine, leadBusy, liveOrder, projectRows, toggle, type AgentSt, type Filters, type ProjectRows, type Row } from '../../lib/leadFirst';
-import { movePin, orderProjects, sortOptions, togglePin, type SortBy } from '../../lib/projectOrder';
-import { setFilterChoice, setIdleOpen, setPins, setSort, useV2Projects } from '../../lib/v2Projects';
+import { movePin, orderProjects, togglePin } from '../../lib/projectOrder';
+import { setFilterChoice, setIdleOpen, setPins, useV2Projects } from '../../lib/v2Projects';
 import { useGrace } from '../../lib/grace';
 import { projectLabel } from '../../lib/projectName';
 import { useReviewing } from '../../lib/reviewAlert';
@@ -39,9 +40,9 @@ import { EnvironmentSwitcher } from '../EnvironmentSwitcher';
 import { Logo } from '../Sidebar';
 import { ProjectIcon, ProjectIconDialog } from '../ProjectIcon';
 import { ReviewCount } from './ReviewV2';
+import { projectActions, type ProjectAction } from './ProjectHeader';
 import { TalkToProject } from './TalkToProject';
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from '../ui/context-menu';
-import { Menu, MenuCheckboxItem, MenuContent, MenuLabel, MenuTrigger } from '../ui/menu';
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuMore, ContextMenuSeparator, ContextMenuTrigger } from '../ui/context-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Tip } from '../ui/tooltip';
 
@@ -117,24 +118,23 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   // with nothing to show for it, between a lead's turns or as an agent
   // finishes, which would drop it to Idle and bring it back.
   const busy = useGrace(busyNow);
-  const active = useGrace(activeNow);
+  const activeGrace = useGrace(activeNow);
+  // The project on screen, its lead's or one of its agents', counts as
+  // active: folding it away would lose the chat you're reading.
+  const onScreen = view.kind === 'project' ? view.project : currentAgentProject;
+  const active = useMemo(() => (onScreen && !activeGrace.has(onScreen) ? new Set([...activeGrace, onScreen]) : activeGrace), [activeGrace, onScreen]);
 
   const order = useMemo(() => {
-    const working = new Map<string, number>();
-    for (const name of busy) working.set(name, 1);
-    for (const r of rows) if (r.st === 'working') working.set(r.agent.project, (working.get(r.agent.project) ?? 0) + 1);
     return orderProjects({
       projects: projects.data ?? [],
       pins: kept.pins,
-      sort: kept.sort,
       activity: new Map((activity.data ?? []).map((a) => [a.project, a])),
-      working,
       active,
       label,
     });
     // label is projectLabel's, the same each render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects.data, activity.data, rows, busy, active, kept.pins, kept.sort]);
+  }, [projects.data, activity.data, active, kept.pins]);
   const pinned = new Set(kept.pins);
   const ctx = { busy, keep: pinned };
   const lists = {
@@ -190,11 +190,10 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
       <div className="flex h-14 shrink-0 items-center gap-2.5 px-4">
         <Logo className="size-7" />
         <span className="text-[14px] font-semibold tracking-tight text-title">AgentBox</span>
-        <Tip label={t('shell.sidebar.newProject')}>
-          <button aria-label={t('shell.sidebar.newProject')} className="ml-auto rounded-md p-1.5 text-subtle transition hover:bg-surface-strong hover:text-primary" onClick={onAddProject}>
-            <FolderPlus className="size-4" />
-          </button>
-        </Tip>
+        <button type="button" className="ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-subtle transition hover:bg-surface-strong hover:text-primary" onClick={onAddProject} data-v2-add-project>
+          <FolderPlus className="size-4" />
+          {t('shell.home.addProject')}
+        </button>
       </div>
 
       <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 pt-1" aria-label={t('v2.sidebar.chats')}>
@@ -215,7 +214,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
         )}
         {loaded && lists.rest.length > 0 && (
           <div data-v2-rest>
-            <ListHead action={<SortMenu />}>{t('shell.sidebar.projects')}</ListHead>
+            <ListHead>{t('shell.sidebar.projects')}</ListHead>
             {lists.rest.map((p) => lead(p))}
           </div>
         )}
@@ -223,21 +222,22 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
         {loaded && lists.idle.length > 0 && (
           <div className={cn(!idleOnly && 'mt-2')} data-v2-idle={idleOnly ? 'only' : idleOpen ? 'open' : 'closed'}>
             {idleOnly ? (
-              <ListHead action={<SortMenu />}>
+              <ListHead>
                 {t('v2.sidebar.idle')}
-                <span className="ml-1.5 font-normal tabular-nums normal-case tracking-normal text-faint">{lists.idle.length}</span>
+                <span className="ml-1.5 font-normal tabular-nums normal-case tracking-normal text-subtle">{lists.idle.length}</span>
               </ListHead>
             ) : (
               <button
                 type="button"
                 aria-expanded={idleOpen}
                 onClick={() => setIdleOpen(!kept.idleOpen)}
-                className="flex w-full items-center gap-1.5 rounded-md px-2.5 py-1.5 text-left text-[10.5px] font-semibold uppercase tracking-[0.08em] text-subtle hover:bg-surface hover:text-secondary"
+                className="flex w-full items-center gap-1.5 rounded-md border border-dashed border-line px-2.5 py-1.5 text-left text-[12px] text-secondary hover:border-line-strong hover:bg-surface hover:text-title"
                 data-v2-idle-toggle
               >
-                <ChevronRight className={cn('size-3 transition-transform', idleOpen && 'rotate-90')} />
-                {t('v2.sidebar.idle')}
-                <span className="font-normal tabular-nums normal-case tracking-normal text-faint">{lists.idle.length}</span>
+                <ChevronRight className={cn('size-3.5 shrink-0 transition-transform', idleOpen && 'rotate-90')} />
+                <span className="font-medium">{t('v2.sidebar.idle')}</span>
+                <span className="tabular-nums text-subtle">· {lists.idle.length}</span>
+                <span className="min-w-0 truncate text-subtle">· {t('v2.sidebar.idleHint')}</span>
               </button>
             )}
             {idleOpen && <div className={cn(!idleOnly && 'opacity-80')}>{lists.idle.map((p) => lead(p))}</div>}
@@ -303,43 +303,11 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   );
 }
 
-function ListHead({ action, children }: { action?: ReactNode; children: ReactNode }) {
+function ListHead({ children }: { children: ReactNode }) {
   return (
     <div className="flex h-7 items-center px-2.5 pt-2">
       <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-subtle">{children}</span>
-      {action && <span className="ml-auto">{action}</span>}
     </div>
-  );
-}
-
-const sortLabel: Record<SortBy, MessageKey> = {
-  recent: 'v2.sort.recent',
-  name: 'v2.sort.name',
-  working: 'v2.sort.working',
-};
-
-// SortMenu is the switch for how the projects below the pinned ones sort.
-function SortMenu() {
-  const t = useT();
-  const { sort } = useV2Projects();
-  return (
-    <Menu>
-      <Tip label={t('v2.sort.label', { sort: t(sortLabel[sort]) })}>
-        <MenuTrigger asChild>
-          <button type="button" aria-label={t('v2.sort.label', { sort: t(sortLabel[sort]) })} className="flex size-5 items-center justify-center rounded text-faint hover:bg-surface-strong hover:text-title data-[state=open]:text-title" data-v2-sort={sort}>
-            <ArrowUpDown className="size-3.5" />
-          </button>
-        </MenuTrigger>
-      </Tip>
-      <MenuContent align="end" className="w-52">
-        <MenuLabel>{t('v2.sort.title')}</MenuLabel>
-        {sortOptions.map((o) => (
-          <MenuCheckboxItem key={o} checked={sort === o} onCheckedChange={() => setSort(o)} data-v2-sort-option={o}>
-            {t(sortLabel[o])}
-          </MenuCheckboxItem>
-        ))}
-      </MenuContent>
-    </Menu>
   );
 }
 
@@ -378,6 +346,7 @@ function FilterBar({ filters, onFilters, projects, rows }: { filters: Filters; o
           )}
         </label>
         <Popover>
+          <Tip label={t('v2.filters.button')}>
           <PopoverTrigger asChild>
             <button
               type="button"
@@ -392,6 +361,7 @@ function FilterBar({ filters, onFilters, projects, rows }: { filters: Filters; o
               {on > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-surface-raised px-1 text-[9.5px] font-semibold text-title ring-1 ring-line-strong">{on}</span>}
             </button>
           </PopoverTrigger>
+          </Tip>
           <PopoverContent align="start" className="grid w-[300px] gap-3 p-3" data-v2-filter-popover>
             <FilterGroup title={t('v2.filters.state')}>
               {liveOrder.map((st) => (
@@ -487,12 +457,13 @@ function Lead({ active, onClick, children, data, ...props }: { active: boolean; 
       {...props}
       role="button"
       tabIndex={0}
+      aria-current={active ? 'page' : undefined}
       onClick={(e) => {
         if (e.button !== 0 || e.ctrlKey) return;
         onClick();
       }}
       onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onClick())}
-      className={cn('group relative flex min-w-0 cursor-pointer items-start gap-2 rounded-lg px-2 py-2 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400/50', active ? 'bg-surface-raised' : 'hover:bg-surface')}
+      className={cn('group relative flex min-w-0 cursor-pointer items-start gap-2 rounded-lg px-2 py-2 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400', active ? 'bg-surface-raised' : 'hover:bg-surface')}
       {...data}
     >
       {children}
@@ -553,8 +524,8 @@ type Drag = {
 
 // ProjectLead is a project's lead, the main chat, with its icon, its last
 // line and its live agents' counts; the chevron opens its agents under it,
-// and a right-click on it opens its menu (what the project header's ⋯ has:
-// New agent, Talk to another project, its icon, folder, settings and pin).
+// and a right-click on it opens its menu, the project header's ⋯
+// (projectActions).
 // A pinned one drags among the pins.
 function ProjectLead({
   project,
@@ -598,6 +569,30 @@ function ProjectLead({
   const counted = counts.working + counts.review + counts.needs + counts.error > 0;
   const name = projectLabel(project);
   const active = view.kind === 'project' && view.project === project.name;
+  const open_ = () => onSelect({ kind: 'project', project: project.name });
+  const { main, more } = projectActions(t, {
+    project,
+    others,
+    pinned,
+    onNewTask: () => {
+      open_();
+      requestComposerFocus(leadRef);
+    },
+    onTalk: () => setTimeout(() => setTalk(true), 0),
+    onPin,
+    onSettings: () => {
+      open_();
+      openPanelOn(leadRef, 'settings');
+    },
+    onChangeIcon: () => setIconOpen(true),
+    onNewAgent,
+  });
+  const item = (a: ProjectAction) => [
+    a.separatorBefore && <ContextMenuSeparator key={`${a.key}-sep`} />,
+    <ContextMenuItem key={a.key} icon={a.icon} onSelect={a.onSelect} data-v2-project-action={a.key}>
+      {a.label}
+    </ContextMenuItem>,
+  ];
   return (
     <div
       className={cn('relative mb-0.5', drag?.over === 'before' && 'before:absolute before:inset-x-2 before:-top-px before:h-0.5 before:rounded-full before:bg-brand-400', drag?.over === 'after' && 'after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded-full after:bg-brand-400')}
@@ -686,34 +681,7 @@ function ProjectLead({
           </Lead>
         </ContextMenuTrigger>
         <ContextMenuContent data-v2-project-menu={project.name}>
-          <ContextMenuItem icon={Plus} onSelect={onNewAgent} data-v2-new-agent={project.name}>
-            {t('project.view.newAgent')}
-          </ContextMenuItem>
-          {others && (
-            <ContextMenuItem icon={ArrowLeftRight} onSelect={() => setTimeout(() => setTalk(true), 0)} data-v2-talk-to={project.name}>
-              {t('v2.talk.button')}
-            </ContextMenuItem>
-          )}
-          <ContextMenuSeparator />
-          <ContextMenuItem icon={pinned ? PinOff : Pin} onSelect={onPin} data-v2-pin={project.name}>
-            {pinned ? t('v2.sidebar.unpin') : t('v2.sidebar.pin')}
-          </ContextMenuItem>
-          <ContextMenuItem icon={Smile} onSelect={() => setIconOpen(true)} data-v2-change-icon={project.name}>
-            {t('projectIcon.change')}
-          </ContextMenuItem>
-          <ContextMenuItem icon={FolderOpen} onSelect={() => void window.agentbox.openPath(project.root)} data-v2-open-folder={project.name}>
-            {t('project.view.openFolder')}
-          </ContextMenuItem>
-          <ContextMenuItem
-            icon={Settings}
-            onSelect={() => {
-              onSelect({ kind: 'project', project: project.name });
-              openPanelOn(leadRef, 'settings');
-            }}
-            data-v2-project-settings={project.name}
-          >
-            {t('v2.sidebar.projectSettings')}
-          </ContextMenuItem>
+          {[...main.flatMap(item), <ContextMenuMore key="more" label={t('common.more')}>{more.flatMap(item)}</ContextMenuMore>]}
         </ContextMenuContent>
       </ContextMenu>
       {/* Talk to another project's picker hangs under the row. */}
@@ -748,6 +716,7 @@ function AgentRow({ row, active, onSelect }: { row: Row; active: boolean; onSele
           onSelect({ kind: 'agent', ref: agent.ref });
         }}
         onContextMenu={(e) => e.stopPropagation()}
+        aria-current={active ? 'page' : undefined}
         className={cn('flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left', active ? 'bg-surface-raised' : 'hover:bg-surface', removing && 'opacity-60')}
         data-v2-agent={agent.ref}
         data-v2-agent-st={st}

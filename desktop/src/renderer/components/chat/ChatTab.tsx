@@ -365,18 +365,19 @@ export function ChatTab({
         <div className="pointer-events-auto relative mx-auto w-full max-w-4xl">
           {readOnly ? (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border border-line-strong bg-overlay px-4 py-2.5 shadow-lg backdrop-blur-xl" data-chat-read-only>
+              {/* Delete is quiet and at the other end from Continue, so a
+                  slip of the mouse doesn't lose an agent's history. */}
+              <Button size="sm" variant="ghost" className="shrink-0 text-subtle hover:text-rose-300" onClick={readOnly.onDelete} data-past-delete>
+                <Trash2 />
+                {t('common.delete')}
+              </Button>
+              <span className="h-5 w-px shrink-0 bg-line" aria-hidden />
               <Archive className="size-4 shrink-0 text-subtle" />
               <span className="min-w-0 flex-1 text-[12.5px] text-muted">{t('pastAgents.readOnly')}</span>
-              <div className="flex shrink-0 gap-2">
-                <Button size="sm" variant="danger" onClick={readOnly.onDelete} data-past-delete>
-                  <Trash2 />
-                  {t('common.delete')}
-                </Button>
-                <Button size="sm" variant="primary" onClick={readOnly.onContinue} data-past-continue>
-                  <Play />
-                  {t('pastAgents.continue')}
-                </Button>
-              </div>
+              <Button size="sm" variant="primary" className="shrink-0" onClick={readOnly.onContinue} data-past-continue>
+                <Play />
+                {t('pastAgents.continue')}
+              </Button>
             </div>
           ) : (
             <>
@@ -412,9 +413,10 @@ export function ChatTab({
 // in view is ChatStatus, and only when the tool isn't simply ready.
 // It's null without an agent, for a page whose agent is still loading: its
 // hooks run all the same.
-// buttons are New chat and Reload tools as the chat header's icons, where UI
-// v2 has them instead of in a menu (its Find is ⌘F, its Files the panel's).
-export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; buttons: ReactNode; dialogs: ReactNode } | null {
+// buttons is New chat as the chat header's icon, where UI v2 has it instead
+// of in a menu (its Find is ⌘F, its Files the panel's), and reload is Reload
+// tools as an item for the page's ⋯, under More: it's rarely needed.
+export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; buttons: ReactNode; reload: ReactNode; dialogs: ReactNode } | null {
   const t = useT();
   const queryClient = useQueryClient();
   const ref = agent?.ref ?? '';
@@ -431,6 +433,17 @@ export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; but
   const tool = aiLabel(agent.ai);
   const can = toolsReload(session);
   const reloadWhy = can === 'busy' ? t('chat.tab.reloadToolsBusy', { tool }) : can === 'off' ? t('chat.tab.reloadToolsOff', { tool }) : undefined;
+  const reloadItem = (
+    <MenuItem
+      icon={RefreshCw}
+      disabled={can !== 'ready' || reload.isPending}
+      title={reloadWhy ?? t(session?.noResume ? 'chat.tab.reloadToolsNoResumeTip' : 'chat.tab.reloadToolsTip', { tool })}
+      onSelect={() => (session?.noResume ? setConfirming(true) : reload.mutate())}
+      data-chat-reload-tools
+    >
+      {t('chat.tab.reloadTools')}
+    </MenuItem>
+  );
   const items = (
     <>
       <MenuLabel>{t('chat.menu.label')}</MenuLabel>
@@ -450,15 +463,7 @@ export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; but
       <MenuItem icon={MessageSquarePlus} disabled={empty} onSelect={() => setClearing(true)} data-chat-new>
         {t('chat.tab.newChat')}
       </MenuItem>
-      <MenuItem
-        icon={RefreshCw}
-        disabled={can !== 'ready' || reload.isPending}
-        title={reloadWhy ?? t(session?.noResume ? 'chat.tab.reloadToolsNoResumeTip' : 'chat.tab.reloadToolsTip', { tool })}
-        onSelect={() => (session?.noResume ? setConfirming(true) : reload.mutate())}
-        data-chat-reload-tools
-      >
-        {t('chat.tab.reloadTools')}
-      </MenuItem>
+      {reloadItem}
       {/* Only Claude Code's adapter reports background tasks: elsewhere an
           agent waiting on one reads as finished, and never wakes for it. */}
       {(agent.ai === 'codex' || agent.ai === 'opencode' || agent.ai === 'cursor') && (
@@ -483,13 +488,6 @@ export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; but
         <Button size="icon" variant="ghost" aria-label={t('chat.tab.newChat')} disabled={empty} onClick={() => setClearing(true)} data-chat-new>
           <MessageSquarePlus />
         </Button>
-      </Tip>
-      <Tip label={reloadWhy ?? t(session?.noResume ? 'chat.tab.reloadToolsNoResumeTip' : 'chat.tab.reloadToolsTip', { tool })}>
-        <span>
-          <Button size="icon" variant="ghost" aria-label={t('chat.tab.reloadTools')} disabled={can !== 'ready' || reload.isPending} onClick={() => (session?.noResume ? setConfirming(true) : reload.mutate())} data-chat-reload-tools>
-            <RefreshCw className={cn(reload.isPending && 'animate-spin')} />
-          </Button>
-        </span>
       </Tip>
     </>
   );
@@ -518,7 +516,7 @@ export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; but
       />
     </>
   );
-  return { items, buttons, dialogs };
+  return { items, buttons, reload: reloadItem, dialogs };
 }
 
 // ChatMenu is a ⋯ of the chat's own, for a page with no menu to fold it into
