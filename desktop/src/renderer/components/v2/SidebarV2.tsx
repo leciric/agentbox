@@ -633,19 +633,21 @@ function ProjectLead({
             }}
             data={{ 'data-v2-lead': project.name }}
           >
-            <button
-              type="button"
-              aria-label={t(open ? 'v2.sidebar.hideAgents' : 'v2.sidebar.showAgents', { project: name })}
-              aria-expanded={open}
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggle();
-              }}
-              className={cn('mt-1 flex size-4 shrink-0 items-center justify-center rounded text-faint hover:bg-surface-strong hover:text-title', all.length === 0 && 'invisible')}
-              data-v2-toggle={project.name}
-            >
-              <ChevronRight className={cn('size-3.5 transition-transform', open && 'rotate-90')} />
-            </button>
+            <Tip label={t(open ? 'v2.sidebar.hideAgents' : 'v2.sidebar.showAgents', { project: name })}>
+              <button
+                type="button"
+                aria-label={t(open ? 'v2.sidebar.hideAgents' : 'v2.sidebar.showAgents', { project: name })}
+                aria-expanded={open}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggle();
+                }}
+                className={cn('mt-1 flex size-4 shrink-0 items-center justify-center rounded text-faint hover:bg-surface-strong hover:text-title', all.length === 0 && 'invisible')}
+                data-v2-toggle={project.name}
+              >
+                <ChevronRight className={cn('size-3.5 transition-transform', open && 'rotate-90')} />
+              </button>
+            </Tip>
             <ProjectIcon project={project} className="mt-px" />
             <span className="min-w-0 flex-1">
               <span className="flex min-w-0 items-center gap-1.5">

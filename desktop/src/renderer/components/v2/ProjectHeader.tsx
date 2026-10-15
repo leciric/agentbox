@@ -50,9 +50,11 @@ export function ProjectCrumb({ project, then }: { project: T.Project; then: stri
           <span className="max-w-[16rem] truncate font-medium">{projectLabel(project)}</span>
         </button>
       </Tip>
-      <button type="button" aria-label={t('v2.header.copyPath')} onClick={copy} className="shrink-0 rounded p-0.5 text-faint opacity-0 transition hover:text-primary focus-visible:opacity-100 group-hover:opacity-100">
-        {copied ? <Check className="size-3 text-emerald-400" /> : <Copy className="size-3" />}
-      </button>
+      <Tip label={t('v2.header.copyPath')}>
+        <button type="button" aria-label={t('v2.header.copyPath')} onClick={copy} className="shrink-0 rounded p-0.5 text-faint opacity-0 transition hover:text-primary focus-visible:opacity-100 group-hover:opacity-100">
+          {copied ? <Check className="size-3 text-emerald-400" /> : <Copy className="size-3" />}
+        </button>
+      </Tip>
       <ChevronRight className="size-3.5 shrink-0 text-faint" />
       <span className={`truncate ${then === T.LeadName ? 'text-muted' : 'font-medium text-primary'}`}>{then === T.LeadName ? t('v2.header.lead') : then}</span>
     </span>
