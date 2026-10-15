@@ -178,6 +178,9 @@ type ChatItem struct {
 	// session is told of the conversation before it: a context transfer the
 	// app lets you read, not a prompt hidden from you.
 	Handoff string `json:"handoff,omitempty"`
+	// ProjectMessage, on a notice, makes it a message between this project's
+	// lead and another project's: the notice's Text is what was said.
+	ProjectMessage *ChatProjectMessage `json:"projectMessage,omitempty"`
 	// Parent, on a message, thought or tool call a subagent made, is that
 	// subagent's card. The app nests the item under the card instead of
 	// showing it in the conversation itself.
@@ -185,6 +188,33 @@ type ChatItem struct {
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
+
+// ChatProjectMessage is a message one project's lead sent another's
+// (message_project, reply_project), or an alignment between them settled:
+// shown in both projects' chats, from each one's side.
+type ChatProjectMessage struct {
+	// Project is the other project: who sent it, or who it went to.
+	Project   string `json:"project"`
+	Direction string `json:"direction"` // in or out
+	Thread    string `json:"thread"`
+	// Kind is message, reply or settled; for settled the notice's Text is the
+	// summary the two leads agreed.
+	Kind string `json:"kind"`
+	// Topic is an alignment's; empty for a plain message.
+	Topic        string `json:"topic,omitempty"`
+	ExpectsReply bool   `json:"expectsReply,omitempty"`
+	// Hop is the message's place in its thread, from 0.
+	Hop int `json:"hop"`
+}
+
+const (
+	ProjectMessageIn  = "in"
+	ProjectMessageOut = "out"
+
+	ProjectMessageSent    = "message"
+	ProjectMessageReply   = "reply"
+	ProjectMessageSettled = "settled"
+)
 
 // An aside is a message sent while a turn was already running. It belongs to
 // that turn rather than heading one of its own, and Delivery says what became
@@ -277,8 +307,8 @@ type ChatPermission struct {
 	Options []ChatPermissionOption `json:"options"`
 	Outcome string                 `json:"outcome,omitempty"` // the ID of the option chosen, or "cancelled"; empty while it waits
 	// Approval is set when AgentBox asks rather than the AI tool: what it
-	// is about ("skill"), with Detail saying what would change and Diffs
-	// showing it.
+	// is about ("skill", or "project" for a lead's first message to another
+	// project's), with Detail saying what would change and Diffs showing it.
 	Approval string     `json:"approval,omitempty"`
 	Detail   string     `json:"detail,omitempty"`
 	Diffs    []ChatDiff `json:"diffs,omitempty"`

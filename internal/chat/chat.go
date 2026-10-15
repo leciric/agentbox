@@ -571,6 +571,23 @@ func (m *Manager) Record(a state.Agent, tool api.ChatTool) (api.ChatItem, error)
 	return clone(*it), nil
 }
 
+// ShowProjectMessage adds a message between this project's lead and another's
+// to the chat, for the user to read; the AI tool never hears of it. The lead
+// that sent it has its tool call's answer, and the one it went to is told by
+// a hidden notice, fenced (the daemon's projectmessages.go), so the card and
+// that notice say the same thing in the shape each reader needs.
+func (m *Manager) ShowProjectMessage(a state.Agent, text string, pm api.ChatProjectMessage) (api.ChatItem, error) {
+	c, err := m.conversation(a)
+	if err != nil {
+		return api.ChatItem{}, err
+	}
+	defer c.mu.Unlock()
+	it := c.add("notice", c.lastTurn())
+	it.Text, it.ProjectMessage = text, &pm
+	c.flush(true)
+	return clone(*it), nil
+}
+
 // NoticeOptions is how a notice is delivered.
 type NoticeOptions struct {
 	// Act starts a turn on the notice, so the conversation reacts to it now.

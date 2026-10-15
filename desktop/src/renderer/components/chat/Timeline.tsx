@@ -11,6 +11,7 @@ import { aiLabel } from '../state';
 import { ChatCredentialCard } from '../CredentialCard';
 import { Tip } from '../ui/tooltip';
 import { ChangedFiles } from './ChangedFiles';
+import { ProjectMessageCard } from './ProjectMessageCard';
 import { SentImages } from './Images';
 import { Markdown } from './Markdown';
 import { TurnMarker } from './TurnMarker';
@@ -143,7 +144,8 @@ const TimelineRow = memo(
         // What an agent reported no longer reaches here — that is a thread in
         // the rail, not a grey box in the middle of the conversation. What is
         // left is an error, and the mark a rollover leaves where the session
-        // changed.
+        // changed — and a message between this project's lead and another's.
+        if (row.item.projectMessage) return <ProjectMessageCard item={row.item} />;
         return row.item.kind === 'error' ? (
           <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-rose-500/20 bg-rose-500/[0.06] px-3.5 py-2.5 text-[13px] text-rose-100" role="alert" data-chat-item="error" data-chat-id={row.item.id}>
             <CircleAlert className="mt-0.5 size-4 shrink-0 text-rose-300" />

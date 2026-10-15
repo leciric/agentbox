@@ -5,6 +5,7 @@ import { AddProjectDialog } from "./components/AddProjectDialog";
 import { AgentRail } from "./components/AgentRail";
 import { AgentView } from "./components/AgentView";
 import { openSettingsEvent, openSettingsSection, rememberSection } from "./components/SettingsPage";
+import { openProjectEvent } from "./components/chat/ProjectMessageCard";
 import { isSearchShortcut, SearchModal } from "./components/SearchModal";
 import { openSearch, toggleSearch } from "./lib/searchOpen";
 import { ErrorReports } from "./components/ErrorReports";
@@ -133,6 +134,16 @@ export function App() {
     };
     window.addEventListener(openSettingsEvent, open);
     return () => window.removeEventListener(openSettingsEvent, open);
+  }, []);
+
+  // A link from a chat to another project's, on a message between their leads.
+  useEffect(() => {
+    const open = (e: Event) => {
+      setView({ kind: "project", project: (e as CustomEvent<string>).detail });
+      setNavOpen(false);
+    };
+    window.addEventListener(openProjectEvent, open);
+    return () => window.removeEventListener(openProjectEvent, open);
   }, []);
 
   // Leave an agent's view once the agent is gone, destroyed here or from the CLI.
