@@ -20,7 +20,7 @@ import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Select, SelectOption } from './ui/select';
 import { Tip } from './ui/tooltip';
 
-const methodLabels: Record<string, MessageKey> = {
+export const methodLabels: Record<string, MessageKey> = {
   merge: 'memory.pulls.method.merge',
   squash: 'memory.pulls.method.squash',
   rebase: 'memory.pulls.method.rebase',
@@ -338,6 +338,10 @@ export function usePullMerge(project: string, onMerged?: (pr: T.PullRequest) => 
     setMethod(offered[0]);
     setMerging(pr);
   };
+  // mergeWith merges pr by method with no confirmation of its own, for a
+  // caller that has asked already (the review's inline question); done runs
+  // when GitHub took it.
+  const mergeWith = (pr: T.PullRequest, method: string, done?: () => void) => merge.mutate({ number: pr.number, method }, { onSuccess: done });
   const dialog = (
       <ConfirmDialog
         open={merging !== null}
@@ -373,7 +377,7 @@ export function usePullMerge(project: string, onMerged?: (pr: T.PullRequest) => 
         </label>
       </ConfirmDialog>
   );
-  return { request, running, failed, dialog };
+  return { request, mergeWith, methods: offered, running, failed, dialog };
 }
 
 // usePullLabels adds and removes a project's pull requests' labels.

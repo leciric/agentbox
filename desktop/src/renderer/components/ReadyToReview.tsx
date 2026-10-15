@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
 import { ArrowRight, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, GitBranch, GitMerge, GitPullRequest, Image as ImageIcon, MessageSquareText, LoaderCircle, Play } from 'lucide-react';
-import { useContext, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
@@ -10,22 +10,23 @@ import { mediaUrl } from '../lib/media';
 import { pagesFor } from '../lib/pages';
 import { projectLabel } from '../lib/projectName';
 import { pageItems, pageTotal, refreshInbox, useReviewPages, withoutAgent } from '../lib/inboxPages';
-import { mergeBlock, nextPending, walkItems, queueOf, reviewKeys, reviewShortcut, slidesOf, step, swipeStep, type MergeBlock, type ReviewAction, type Slide } from '../lib/review';
+import { type Walk, goBack, goForward, mergeBlock, nextPending, walkItems, queueOf, reviewKeys, reviewShortcut, slidesOf, step, swipeStep, type MergeBlock, type ReviewAction, type Slide } from '../lib/review';
 import { isUnseen, markReadySeen, useUnseen } from '../lib/reviewAlert';
 import { useNow } from '../lib/useNow';
+import { requestComposerFocus } from '../lib/newTask';
 import { cn, errorMessage, timeAgo } from '../lib/utils';
 import { Markdown } from './chat/Markdown';
 import { MoreMedia, Recording } from './MediaTab';
 import { PageIcon } from './pages/PageThumb';
 import { useProjectPages } from './pages/usePages';
 import { checksVariants, PullRequestView, stateVariants } from './PullRequestModal';
-import { checksLabels, stateLabels, usePullLabels, usePullMerge } from './PullRequestsPanel';
+import { checksLabels, methodLabels, stateLabels, usePullLabels, usePullMerge } from './PullRequestsPanel';
 import { AIIcon } from './state';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Kbd, Notice } from './ui/card';
 import { Dialog, DialogContent, DialogTitle, fullWhenNarrow } from './ui/dialog';
-import { ReviewDecisionContext } from './v2/reviewDecision';
+import { Select, SelectOption } from './ui/select';
 
 // "Ready to review" is a section of the top bar's inbox (components/Inbox.tsx):
 // the agents that finished and wait for the user to look at their work,
@@ -41,7 +42,7 @@ import { ReviewDecisionContext } from './v2/reviewDecision';
 // waiting, the order it walks them in (lib/review.ts queueOf). An agent
 // reopened from Reviewed has none.
 // project, when set, keeps the walk to that project's agents (openReview).
-export type ReviewSession = { item: T.ReviewItem; order: string[] | null; project?: string };
+export type ReviewSession = Walk;
 
 type ReviewPages = ReturnType<typeof useReviewPages>;
 
@@ -133,7 +134,7 @@ export function ReviewDialog({
     if (session?.order && !next && hasNextPage && !isFetchingNextPage) void fetchNextPage();
   }, [session?.order, next, hasNextPage, isFetchingNextPage, fetchNextPage]);
   const advance = () => {
-    if (next && session) onSession({ ...session, item: next });
+    if (next && session) onSession(goForward(session, next));
     else {
       if (session?.order) toast(t('review.allDone'));
       onSession(null);
@@ -141,7 +142,7 @@ export function ReviewDialog({
   };
   return (
     <Dialog open={current !== null} onOpenChange={(open) => !open && onSession(null)}>
-      {current && <ReviewCarousel key={current.ref} item={current} position={position} next={next} onNext={advance} onClose={() => onSession(null)} onSelect={onSelect} />}
+      {current && <ReviewCarousel key={current.ref} item={current} position={position} next={next} canBack={!!session?.trail?.length} onNext={advance} onBack={() => session && onSession(goBack(session))} onClose={() => onSession(null)} onSelect={onSelect} />}
     </Dialog>
   );
 }
@@ -222,6 +223,8 @@ const keyLabels: Record<ReviewAction, MessageKey> = {
   first: 'review.key.slides',
   last: 'review.key.slides',
   nextAgent: 'review.key.nextAgent',
+  previousAgent: 'review.key.previousAgent',
+  requestChanges: 'review.key.requestChanges',
   merge: 'review.key.merge',
 };
 
@@ -237,14 +240,19 @@ function ReviewCarousel({
   item,
   position,
   next,
+  canBack,
   onNext,
+  onBack,
   onClose,
   onSelect,
 }: {
   item: T.ReviewItem;
   position?: { n: number; count: number };
   next?: T.ReviewItem;
+  // canBack is whether an agent was shown before this one in the walk.
+  canBack: boolean;
   onNext: () => void;
+  onBack: () => void;
   onClose: () => void;
   onSelect: (view: View) => void;
 }) {
@@ -277,21 +285,35 @@ function ReviewCarousel({
   const mergeReason = blocked && blocked !== 'merged' && blocked !== 'closed' ? t(blockLabels[blocked], { base: pr?.baseBranch ?? '' }) : undefined;
   const swipe = useRef<{ x: number; y: number } | null>(null);
 
-  // UI v2's decision under the header, Merge first (v2/ReviewV2.tsx).
-  const Decision = useContext(ReviewDecisionContext);
   // Opening an agent's work is seeing it, which only leaves the inbox's count.
   useEffect(() => markReadySeen({ ref: item.ref, fingerprint: item.fingerprint }), [item.ref, item.fingerprint]);
 
+  // The one set of actions is the footer's. Done reviewing marks the agent
+  // reviewed and goes on; while its pull request is open it asks first
+  // whether to merge it.
   const [marking, setMarking] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const [method, setMethod] = useState(merge.methods[0]);
+  const prOpen = pr?.state === 'open';
   const markReviewed = () => {
     setMarking(true);
     void markItemReviewed(queryClient, item, t);
     onNext();
   };
+  const doneReviewing = () => (prOpen ? setAsking(true) : markReviewed());
+  const mergeAndGo = () => pr && merge.mergeWith(pr, method, markReviewed);
+  // Request changes goes to the agent's chat, to write in.
+  const requestChanges = () => {
+    requestComposerFocus(item.ref);
+    onClose();
+    onSelect({ kind: 'agent', ref: item.ref, tab: 'chat' });
+  };
 
   const act = (action: ReviewAction) => {
     switch (action) {
       case 'previous':
+        // Before the first slide is the agent before.
+        if (at === 0 && canBack) return onBack();
         return go(-1);
       case 'next':
         // Past the last slide is the next agent.
@@ -304,11 +326,14 @@ function ReviewCarousel({
       case 'nextAgent':
         if (next) onNext();
         return;
+      case 'previousAgent':
+        if (canBack) onBack();
+        return;
+      case 'requestChanges':
+        return requestChanges();
       case 'merge':
-        // To the pull request first; there, its Merge.
-        if (!pr) return;
-        if (slide?.kind !== 'pr') return setIndex(slides.length - 1);
-        if (canMerge && !mergeReason && !merge.running.has(pr.number)) merge.request(pr);
+        // The question Done reviewing asks, for an open pull request.
+        if (prOpen) setAsking(true);
     }
   };
 
@@ -332,17 +357,6 @@ function ReviewCarousel({
     swipe.current = null;
     if (by) go(by);
   };
-
-  const nextButton = next ? (
-    <Button size="sm" variant={last ? 'primary' : 'secondary'} onClick={onNext} data-review-next title={next.title || next.agent}>
-      {t('review.nextAgent')}
-      <ArrowRight />
-    </Button>
-  ) : (
-    <Button size="sm" variant={last ? 'primary' : 'secondary'} onClick={onClose} data-review-close>
-      {t('review.done')}
-    </Button>
-  );
 
   return (
     <>
@@ -394,31 +408,10 @@ function ReviewCarousel({
                 })}
               </span>
             )}
-            {/* v2's decision bar has its own Request changes, sent from here. */}
-            {!Decision && (
-              <Button size="sm" variant="secondary" onClick={() => onSelect({ kind: 'agent', ref: item.ref, tab: 'chat' })} data-review-changes>
-                <MessageSquareText />
-                {t('review.requestChanges')}
-              </Button>
-            )}
-            <Button size="sm" variant="secondary" disabled={marking} onClick={markReviewed} data-review-done>
-              <Check />
-              {t('review.markReviewed')}
-            </Button>
-            {canMerge && slide?.kind !== 'pr' && pr && (
-              <Button size="sm" variant="primary" disabled={!!mergeReason || merge.running.has(pr.number)} title={mergeReason} onClick={() => merge.request(pr)} data-review-merge>
-                <GitMerge />
-                {t('memory.pulls.merge')}
-              </Button>
-            )}
           </div>
           {/* Narrow, the summary has no column of its own. */}
           {item.summary && <NarrowSummary text={item.summary} />}
         </header>
-        {Decision && (
-          <Decision item={item} pr={pr} canMerge={canMerge} mergeReason={mergeReason} merging={!!pr && merge.running.has(pr.number)} onMerge={() => pr && merge.request(pr)} onNext={onNext} />
-        )}
-
         <div className="flex min-h-0 flex-1">
           <section className="flex min-w-0 flex-1 flex-col">
             {/* The pull request is read and selected like the modal's, so it takes no swipe. */}
@@ -467,33 +460,68 @@ function ReviewCarousel({
               <div className="ml-auto flex shrink-0 items-center gap-2">
                 {slide?.kind === 'pr' && (
                   <>
-                    {!Decision && canMerge && mergeReason && (
-                      <span className="max-w-[260px] text-[12px] text-amber-200" data-merge-blocked>
-                        {mergeReason}
-                      </span>
-                    )}
                     <Button size="sm" variant="ghost" onClick={() => void window.agentbox.openExternal(slide.pr.url)}>
                       <ExternalLink />
                       {t('pulls.detail.openOnGitHub')}
                     </Button>
-                    {!Decision && canMerge && (
-                      <Button
-                        size="sm"
-                        variant="primary"
-                        disabled={!!mergeReason || merge.running.has(slide.pr.number)}
-                        title={mergeReason}
-                        onClick={() => merge.request(slide.pr)}
-                        data-review-merge
-                        data-merge-running={merge.running.has(slide.pr.number) || undefined}
-                      >
-                        {merge.running.has(slide.pr.number) ? <LoaderCircle className="animate-spin" /> : <GitMerge />}
-                        {t('memory.pulls.merge')}
-                      </Button>
-                    )}
                   </>
                 )}
-                {last && next && slide?.kind !== 'pr' && <span className="hidden max-w-[220px] truncate text-[12px] text-subtle xl:inline">{next.title || next.agent}</span>}
-                {nextButton}
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 border-t border-line bg-modal px-4 py-2" data-review-actions>
+              <Button size="sm" variant="ghost" disabled={!canBack} onClick={onBack} data-review-back title={t('review.backTitle')}>
+                <ChevronLeft />
+                {t('review.back')}
+                <span className="max-sm:hidden">
+                  <Kbd>P</Kbd>
+                </span>
+              </Button>
+              <Button size="sm" variant="ghost" onClick={requestChanges} data-review-changes>
+                <MessageSquareText />
+                {t('review.requestChanges')}
+                <span className="max-sm:hidden">
+                  <Kbd>C</Kbd>
+                </span>
+              </Button>
+              <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
+                {asking && pr ? (
+                  <div className="flex min-w-0 flex-wrap items-center justify-end gap-2" data-review-merge-ask>
+                    <span className="text-[13px] font-medium text-title">{t('review.mergeAsk', { number: pr.number })}</span>
+                    {mergeReason && (
+                      <span className="max-w-[260px] text-[12px] text-amber-200" data-merge-blocked>
+                        {mergeReason}
+                      </span>
+                    )}
+                    {merge.failed[pr.number] && <span className="max-w-[260px] text-[12px] text-rose-300">{t('memory.pulls.mergeFailed', { error: merge.failed[pr.number] })}</span>}
+                    <Select value={method} onChange={setMethod} aria-label={t('memory.pulls.method')}>
+                      {merge.methods.map((m) => (
+                        <SelectOption key={m} value={m}>
+                          {methodLabels[m] ? t(methodLabels[m]) : m}
+                        </SelectOption>
+                      ))}
+                    </Select>
+                    <Button size="sm" variant="primary" disabled={!!mergeReason || merge.running.has(pr.number)} title={mergeReason} onClick={mergeAndGo} data-review-merge>
+                      {merge.running.has(pr.number) ? <LoaderCircle className="animate-spin" /> : <GitMerge />}
+                      {t('memory.pulls.merge')}
+                    </Button>
+                    <Button size="sm" variant="secondary" disabled={marking || merge.running.has(pr.number)} onClick={markReviewed} data-review-just-mark>
+                      {t('review.justMark')}
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    {next && (
+                      <Button size="sm" variant="secondary" onClick={onNext} data-review-next title={next.title || next.agent}>
+                        {t('review.nextAgent')}
+                        <ArrowRight />
+                      </Button>
+                    )}
+                    <Button size="sm" variant="primary" disabled={marking} onClick={doneReviewing} data-review-done>
+                      <Check />
+                      {t('review.doneReviewing')}
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
           </section>
@@ -511,7 +539,7 @@ function ReviewCarousel({
               )}
             </div>
             <div className="border-t border-line-faint px-5 py-3">
-              <Shortcuts canMerge={canMerge && !mergeReason} hasNext={!!next} />
+              <Shortcuts canMerge={prOpen} hasNext={!!next} hasBack={canBack} />
             </div>
           </aside>
         </div>
@@ -560,9 +588,9 @@ function PrState({ pr }: { pr: T.PullRequest }) {
 }
 
 // Shortcuts lists the review's keys, the ones that do something here.
-function Shortcuts({ canMerge, hasNext }: { canMerge: boolean; hasNext: boolean }) {
+function Shortcuts({ canMerge, hasNext, hasBack }: { canMerge: boolean; hasNext: boolean; hasBack: boolean }) {
   const t = useT();
-  const shown = reviewKeys.filter((k) => (k.action !== 'merge' || canMerge) && (k.action !== 'nextAgent' || hasNext));
+  const shown = reviewKeys.filter((k) => (k.action !== 'merge' || canMerge) && (k.action !== 'nextAgent' || hasNext) && (k.action !== 'previousAgent' || hasBack));
   return (
     <div className="grid gap-1.5 text-[12px] text-muted" data-review-shortcuts>
       <h3 className="text-[11px] font-semibold uppercase tracking-wide text-subtle">{t('review.shortcuts')}</h3>
