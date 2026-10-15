@@ -1399,6 +1399,56 @@
     ]
   },
   {
+    "id": "window-wide-v2-sidebar-dark",
+    "description": "UI v2 at 1920×1080: Home, the search under it, agentbox and storefront pinned, the rest by recent activity with quill's busy lead counted as working, the Settled shelf folded, project icons, and the lead chat's \"ready to review\" banner — dark",
+    "query": "app=project&v2=1&pins=agentbox,storefront&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "window-wide-v2-settled-dark",
+    "description": "UI v2 at 1920×1080, no state filter and the Settled shelf open: old-blog and dotfiles, untouched for three days — dark",
+    "query": "app=project&v2=1&pins=agentbox,storefront&theme=dark",
+    "width": 1920,
+    "height": 1080,
+    "click": [
+      "[data-v2-chip=\"st:working\"] button",
+      "[data-v2-chip=\"st:review\"] button",
+      "[data-v2-settled-toggle]"
+    ]
+  },
+  {
+    "id": "window-wide-v2-sort-dark",
+    "description": "UI v2 at 1920×1080, the sort menu: Recent activity, Name, Most agents working — dark",
+    "query": "app=project&v2=1&pins=agentbox&theme=dark",
+    "width": 1920,
+    "height": 1080,
+    "click": "[data-v2-sort]"
+  },
+  {
+    "id": "window-wide-v2-talk-dark",
+    "description": "UI v2 at 1920×1080, the lead's Talk to another project picker, each project with its icon, Ask and Align — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080,
+    "click": "[data-v2-talk]"
+  },
+  {
+    "id": "window-wide-v2-icon-dark",
+    "description": "UI v2 at 1920×1080, Change icon from the project's header: emoji, upload, and back to the detected icon — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080,
+    "click": "[data-project-header-icon]"
+  },
+  {
+    "id": "window-wide-v2-overview-dark",
+    "description": "UI v2 at 1920×1080, Overview as a section of Settings next to General, with its project filter — dark",
+    "query": "app=home&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
     "id": "window-760-v2-project-dark",
     "description": "UI v2 at 760×900: the sidebar as a drawer over the lead's chat — dark",
     "query": "app=project&v2=1&theme=dark",

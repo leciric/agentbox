@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Archive, Brain, Wand2, Coins, Ellipsis, FileText, FolderGit2, FolderOpen, GitPullRequest, Image, KeyRound, MessagesSquare, Moon, NotebookPen, Plug, Plus, SlidersHorizontal, Trash } from 'lucide-react';
+import { Archive, Brain, Wand2, Coins, Ellipsis, FileText, FolderGit2, FolderOpen, GitPullRequest, Image, KeyRound, MessagesSquare, Moon, NotebookPen, Plug, Plus, SlidersHorizontal, Smile, Trash } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import type { View } from '../App';
@@ -29,6 +29,9 @@ import { Button } from './ui/button';
 import { Card, Row } from './ui/card';
 import { Textarea } from './ui/input';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from './ui/menu';
+import { useUiV2 } from '../lib/uiV2';
+import { ProjectIcon, ProjectIconDialog } from './ProjectIcon';
+import { TalkToProject } from './v2/TalkToProject';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
 // The project's notes: what every agent of it is told, over and above the brief
@@ -119,7 +122,10 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
   const queryClient = useQueryClient();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
-  const [where, setWhere] = useState<string>(opensAt ?? 'chat');
+  // v2 has no Media or Past agents tabs: they're sections of Settings.
+  const v2 = useUiV2();
+  const [where, setWhere] = useState<string>(v2 && (opensAt === 'media' || opensAt === 'past') ? 'chat' : (opensAt ?? 'chat'));
+  const [iconOpen, setIconOpen] = useState(false);
   const { tab, section } = projectPlace(where);
   const [showBrief, setShowBrief] = useState(false);
   const brief = useQuery({ queryKey: ['brief', name], queryFn: () => api.brief(name), enabled: tab === 'settings' && section === 'brief' && showBrief });
@@ -157,9 +163,15 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
     <Tabs value={tab} onValueChange={setWhere} className="flex h-full min-h-0 flex-col">
       <div className="w-full shrink-0 px-4 pb-3 pt-4 md:px-8 md:pb-4 md:pt-5">
         <div className="flex flex-wrap items-center gap-3">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-line-strong bg-surface text-tertiary">
-            <FolderGit2 className="size-4" />
-          </span>
+          {v2 ? (
+            <button type="button" onClick={() => setIconOpen(true)} aria-label={t('projectIcon.change')} className="shrink-0 rounded-xl transition hover:opacity-80" data-project-header-icon>
+              <ProjectIcon project={project} className="size-9 rounded-xl border border-line-strong text-[15px]" />
+            </button>
+          ) : (
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-line-strong bg-surface text-tertiary">
+              <FolderGit2 className="size-4" />
+            </span>
+          )}
           {/* It gives way to the actions beside it, cutting a long root short,
               before they wrap under it. */}
           <div className="min-w-0 flex-1 basis-40">
@@ -167,6 +179,7 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
             <p className="truncate font-mono text-[11px] text-subtle">{project.root}</p>
           </div>
           <div className="ml-auto flex items-center gap-2">
+            {v2 && lead && <TalkToProject project={name} leadRef={lead.ref} />}
             <Button onClick={onNewAgent}>
               <Plus />
               {t('project.view.newAgent')}
@@ -184,6 +197,11 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
                     <MenuSeparator />
                     <MenuLabel>{t('project.view.projectSection')}</MenuLabel>
                   </>
+                )}
+                {v2 && (
+                  <MenuItem icon={Smile} onSelect={() => setIconOpen(true)}>
+                    {t('projectIcon.change')}
+                  </MenuItem>
                 )}
                 <MenuItem icon={FolderOpen} onSelect={() => void window.agentbox.openPath(project.root)}>
                   {t('project.view.openFolder')}
@@ -211,14 +229,18 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
               <GitPullRequest />
               {t('project.view.tab.pulls')}
             </TabsTrigger>
-            <TabsTrigger value="media">
-              <Image />
-              {t('project.view.tab.media')}
-            </TabsTrigger>
-            <TabsTrigger value="past" data-project-tab="past">
-              <Archive />
-              {t('project.view.tab.past')}
-            </TabsTrigger>
+            {!v2 && (
+              <>
+                <TabsTrigger value="media">
+                  <Image />
+                  {t('project.view.tab.media')}
+                </TabsTrigger>
+                <TabsTrigger value="past" data-project-tab="past">
+                  <Archive />
+                  {t('project.view.tab.past')}
+                </TabsTrigger>
+              </>
+            )}
             <TabsTrigger value="settings">
               <SlidersHorizontal />
               {t('project.view.tab.settings')}
@@ -283,6 +305,11 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
             )}
             {section === 'general' && (
               <div className="mx-auto w-full max-w-3xl px-4 py-6 md:px-8 md:py-7">
+                {v2 && (
+                  <Card className="mb-4" title={t('projectIcon.label')} icon={Smile} description={t('projectIcon.description')} action={<Button size="sm" onClick={() => setIconOpen(true)} data-project-settings-icon>{t('projectIcon.change')}</Button>}>
+                    <ProjectIcon project={project} className="size-10 rounded-xl text-[16px]" />
+                  </Card>
+                )}
                 <ProjectSettings project={project} />
               </div>
             )}
@@ -321,6 +348,7 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
         </div>
       </TabsContent>
 
+      {v2 && <ProjectIconDialog project={project} open={iconOpen} onOpenChange={setIconOpen} />}
       <ConfirmDialog
         open={removing}
         onOpenChange={setRemoving}

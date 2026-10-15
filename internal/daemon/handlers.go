@@ -47,6 +47,10 @@ func (s *Server) projectInfo(ctx context.Context, p state.Project) api.Project {
 		RolloverThreshold: p.RolloverThreshold, ContextBudget: p.ContextBudget,
 		Consolidation: p.Consolidation, ConsolidationModel: p.ConsolidationModel,
 		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, CreatedAt: p.CreatedAt}
+	// One primary-key lookup: listProjects runs this for every project.
+	if v, err := s.store.ProjectIconVersion(ctx, p.Name); err == nil {
+		info.IconVersion = v
+	}
 	if repo, err := gitrepo.Open(p.Root); err == nil {
 		info.Branch = repo.CurrentBranch()
 		if files, err := repo.EnvFiles(); err == nil && files != nil {

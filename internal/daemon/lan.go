@@ -817,7 +817,7 @@ var lanWrites = []struct {
 	scope string
 	re    *regexp.Regexp
 }{
-	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/(projects/[^/]+|agents/[^/]+/[^/]+)/chat/(start|messages|cancel|reload|permissions/[^/]+)$`)},
+	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/(projects/[^/]+|agents/[^/]+/[^/]+)/chat/(start|messages|cancel|reload|resume|permissions/[^/]+)$`)},
 	{state.PhoneScopeChat, regexp.MustCompile(`^PUT /v1/(projects/[^/]+|agents/[^/]+/[^/]+)/chat/options/[^/]+$`)},
 	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/projects/[^/]+/chat/cache$`)},
 	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/agents/[^/]+/[^/]+/(start|resume)$`)},

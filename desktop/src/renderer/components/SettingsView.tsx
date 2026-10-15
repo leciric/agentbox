@@ -1,6 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Archive,
   ArrowLeft,
+  House,
+  Images,
   Languages,
   ArrowRight,
   Bot,
@@ -199,7 +202,20 @@ function githubDetail(auth?: T.AuthStatus): string | undefined {
     : t("settings.setup.githubOwn");
 }
 
-export function SettingsView({ onHome }: { onHome?: () => void }) {
+// pages are v2's Overview, Media and Past agents, sections of Settings next
+// to General there; section opens one (or any section), and onSection hears
+// which the user picks (SettingsPage).
+export function SettingsView({
+  onHome,
+  pages,
+  section,
+  onSection,
+}: {
+  onHome?: () => void;
+  pages?: SettingSection[];
+  section?: string;
+  onSection?: (id: string) => void;
+}) {
   const t = useT();
   const queryClient = useQueryClient();
   const setup = useQuery({
@@ -492,9 +508,11 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
     loaded &&
     (hostSetup.data?.linux?.mode === "host" ||
       steps.every((s) => s.optional || usable(s.status)));
+  // One of v2's pages asked for is a page, not a step: it opens past the wizard.
+  const asked = !!section && !!pages?.some((p) => p.id === section);
   useEffect(() => {
-    if (page === null && loaded) setPage(settled ? "tabs" : "wizard");
-  }, [page, loaded, settled]);
+    if (page === null && loaded) setPage(settled || asked ? "tabs" : "wizard");
+  }, [page, loaded, settled, asked]);
 
   const required = steps.filter((s) => s.required);
   const done = required.filter((s) => s.status === "ok").length;
@@ -531,6 +549,9 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
       hostSetupRan={hostSetupRan}
       agentbox={cli.data?.path ? "agentbox" : (cli.data?.binary ?? "agentbox")}
       onWizard={() => setPage("wizard")}
+      pages={pages}
+      section={section}
+      onSection={onSection}
     />
   );
 }
@@ -826,7 +847,13 @@ function InstalledSettings({
   hostSetupRan,
   agentbox,
   onWizard,
+  pages,
+  section,
+  onSection,
 }: {
+  pages?: SettingSection[];
+  section?: string;
+  onSection?: (id: string) => void;
   steps: Step[];
   done: number;
   total: number;
@@ -1509,6 +1536,8 @@ function InstalledSettings({
     },
     ...(projects.data ?? []).map(projectSection),
   ];
+  // v2's pages go right after General.
+  if (pages?.length) sections.splice(sections.findIndex((x) => x.id === "general") + 1, 0, ...pages);
 
   return (
     <SettingsPage
@@ -1518,6 +1547,8 @@ function InstalledSettings({
       }))}
       icons={sectionIcons}
       error={error}
+      section={section}
+      onSection={onSection}
     />
   );
 }
@@ -1533,6 +1564,9 @@ const sectionIcons: SectionIcons = {
   resources: Cpu,
   accounts: KeyRound,
   setup: Wrench,
+  overview: House,
+  media: Images,
+  pastAgents: Archive,
 };
 
 // EnforceAgentDefaults decides what the model and window above mean to a

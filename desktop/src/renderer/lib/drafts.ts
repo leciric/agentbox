@@ -59,3 +59,12 @@ export function setDraft(ref: string, text: string): void {
   }
   scheduleWrite();
 }
+
+// composeIn puts text in a chat's composer, its cursor at the end, as if the
+// user had typed it: kept as its draft, and handed to a composer on screen
+// (Composer listens for composeEvent). v2's "Talk to another project" uses it.
+export const composeEvent = 'agentbox:compose';
+export function composeIn(ref: string, text: string): void {
+  setDraft(ref, text);
+  window.dispatchEvent(new CustomEvent(composeEvent, { detail: { ref, text } }));
+}

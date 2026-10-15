@@ -133,6 +133,46 @@ type Project struct {
 	// PRWatching is what that comes to: whether they are watched now.
 	PRWatching bool      `json:"prWatching"`
 	CreatedAt  time.Time `json:"createdAt"`
+	// IconVersion changes whenever the project's icon does (GET
+	// /v1/projects/{project}/icon): when it was last changed, in unix ms, 0
+	// when it has never been looked for. The app keys its copy by it.
+	IconVersion int64 `json:"iconVersion"`
+}
+
+// ProjectActivity is when a project last did anything, and when the user
+// last wrote to it (GET /v1/project-activity), for ordering the sidebar.
+type ProjectActivity struct {
+	Project string `json:"project"`
+	// LastActivity is the newest chat item of any kind in the project's
+	// lead's or any of its agents' chats.
+	LastActivity *time.Time `json:"lastActivity,omitempty"`
+	// LastMessage is the newest message the user wrote to the lead or any of
+	// its agents: not one AgentBox woke a chat with, nor a hidden prompt.
+	LastMessage *time.Time `json:"lastMessage,omitempty"`
+}
+
+// ProjectIcon is what a project shows as its icon.
+type ProjectIcon struct {
+	// Source is "chosen" (the user's), "detected" (found in the repository
+	// or its GitHub owner's avatar) or "none".
+	Source string `json:"source"`
+	Emoji  string `json:"emoji,omitempty"`
+	// Image is a data: URL (data:image/png;base64,...).
+	Image string `json:"image,omitempty"`
+	// DetectedFrom is the file or URL a detected icon came from, e.g.
+	// "public/favicon.svg" or "github.com/leciric".
+	DetectedFrom string `json:"detectedFrom,omitempty"`
+	// HasDetected is whether there is a detected icon to go back to.
+	HasDetected bool `json:"hasDetected,omitempty"`
+}
+
+// SetProjectIconRequest chooses a project's icon: exactly one of Emoji and
+// Image.
+type SetProjectIconRequest struct {
+	Emoji string `json:"emoji,omitempty"`
+	// Image is a data: URL; png, jpeg, gif, webp, svg+xml or x-icon
+	// (vnd.microsoft.icon), at most 512 KiB decoded.
+	Image string `json:"image,omitempty"`
 }
 
 // Section is a group of projects in the sidebar (D79). It is a thing of its
@@ -636,6 +676,10 @@ type Agent struct {
 	// OutcomeNote is what to show with Outcome: the question it asked, the
 	// error it stopped on, why it isn't resuming.
 	OutcomeNote string `json:"outcomeNote,omitempty"`
+	// OutcomeUntil is when an agent with outcome "limited" resumes by itself.
+	// Absent means AgentBox won't (the setting is off, or it has waited
+	// enough times): "Resume now" is the way on.
+	OutcomeUntil *time.Time `json:"outcomeUntil,omitempty"`
 	// ChangesRequested is what the user asked it to change from the review
 	// (RequestChangesRequest), while it works on that: set from the request
 	// until its chat's turn ends.
@@ -1758,6 +1802,8 @@ type AgentEvent struct {
 	// Outcome is how the turn left the agent, on finished (done or idle),
 	// asking and failed: one of AgentOutcome*.
 	Outcome string `json:"outcome,omitempty"`
+	// ResumeAt is when the agent resumes by itself, on limited.
+	ResumeAt *time.Time `json:"resumeAt,omitempty"`
 	// Question is the ID of the question this event is about, on asked and
 	// answered.
 	Question string    `json:"question,omitempty"`
@@ -1797,6 +1843,10 @@ const (
 	// AgentFailed is an agent whose turn stopped on an error, or was cut
 	// short by a limit, in the middle of its work. Summary says what.
 	AgentFailed = "failed"
+	// AgentLimited is an agent whose turn the AI tool's usage limit cut short:
+	// it is paused, not finished, and AgentBox carries it on when the limit
+	// resets (ResumeAt). Summary says what the tool said.
+	AgentLimited = "limited"
 )
 
 // How an agent's last turn left it (Agent.Outcome, AgentEvent.Outcome). A
@@ -1814,6 +1864,10 @@ const (
 	// AgentOutcomeFailed stopped mid-work: an error, its AI tool exiting, a
 	// limit or a refusal.
 	AgentOutcomeFailed = "failed"
+	// AgentOutcomeLimited is paused on the AI tool's usage limit, carried on
+	// by AgentBox when it resets (Agent.OutcomeUntil). It isn't finished or
+	// failed.
+	AgentOutcomeLimited = "limited"
 	// AgentOutcomeResuming had a turn AgentBox's restart cut short, which is
 	// being carried on.
 	AgentOutcomeResuming = "resuming"
@@ -1846,6 +1900,9 @@ type ReviewItem struct {
 	// the user decided, and when, about the work as it still is.
 	Verdict    string     `json:"verdict,omitempty"`
 	ReviewedAt *time.Time `json:"reviewedAt,omitempty"`
+	// MachineKept is set on a reviewed agent whose machine the daemon did
+	// not free, because it holds uncommitted or unpushed work.
+	MachineKept bool `json:"machineKept,omitempty"`
 }
 
 // ReviewPage is GET /v1/review with ?limit= (and the same under a project),

@@ -114,3 +114,20 @@ export function reviewShortcut(e: { key: string; ctrlKey?: boolean; altKey?: boo
       return null;
   }
 }
+
+// walkItems is what a walk goes through: every agent waiting, or one
+// project's (openReview({ project })), so its end is that project's last.
+export const walkItems = (items: readonly T.ReviewItem[], project?: string): T.ReviewItem[] => (project ? items.filter((i) => i.project === project) : [...items]);
+
+// Walk is where a review walk starts: on one agent, or the first of every
+// agent waiting (or of one project's), with the order to go through.
+export type Walk = { item: T.ReviewItem; order: string[] | null; project?: string };
+
+// startWalk is openReview's walk: on the agent asked for (the one a card
+// shows: it opens on it, whatever the lists say), else through the waiting
+// items, one project's when asked; null when there is nothing to show.
+export function startWalk(waiting: readonly T.ReviewItem[], opts: { project?: string; item?: T.ReviewItem } = {}): Walk | null {
+  if (opts.item) return { item: opts.item, order: null };
+  const items = walkItems(waiting, opts.project);
+  return items.length ? { item: items[0], order: items.map((i) => i.ref), project: opts.project } : null;
+}

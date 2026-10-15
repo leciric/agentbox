@@ -270,7 +270,7 @@ func TestAgentFinishingWakesTheLeadRegardlessOfAutonomy(t *testing.T) {
 	}
 }
 
-// A turn cancelled from the agent's chat, waiting out a usage limit, cut
+// A turn cancelled from the agent's chat, cut
 // short by AgentBox stopping or followed by another turn is not the agent
 // finishing, nor stopping on its own: it must not wake the lead, or the lead
 // would be triggered on every ordinary pause.
@@ -287,7 +287,6 @@ func TestAgentPausingDoesNotWakeTheLead(t *testing.T) {
 
 	for _, end := range []chat.TurnEnd{
 		{ChatTurnResult: api.ChatTurnResult{State: "cancelled", StopReason: "cancelled"}},
-		{ChatTurnResult: api.ChatTurnResult{State: "failed"}, Limited: true},
 		{ChatTurnResult: api.ChatTurnResult{State: "failed"}, Shutdown: true},
 		{ChatTurnResult: api.ChatTurnResult{State: "completed", StopReason: "end_turn"}, Continues: true},
 	} {

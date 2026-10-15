@@ -56,6 +56,10 @@ func (s *Server) agentInfo(st agent.Status) api.Agent {
 	info.Background = s.chat.Background(info.Ref)
 	o := s.outcomeOf(context.Background(), info.Project, info.Ref)
 	info.Outcome, info.OutcomeNote = o.kind, o.note
+	if !o.until.IsZero() {
+		until := o.until
+		info.OutcomeUntil = &until
+	}
 	info.ChangesRequested = s.changesRequested(context.Background(), info.Project, info.Name, info.Chat)
 	info.Memory = s.memoryHold(info.Ref)
 	if p, ok := s.chat.Progress(info.Ref); ok {
@@ -251,6 +255,19 @@ func (s *Server) reloadChatTools(from agentFrom) func(http.ResponseWriter, *http
 		}
 		return writeJSON(w, http.StatusOK, session)
 	}
+}
+
+// resumeChatLimit is "Resume now" on an agent paused on a usage limit.
+func (s *Server) resumeChatLimit(w http.ResponseWriter, r *http.Request) error {
+	a, err := s.agentFromPath(r)
+	if err != nil {
+		return err
+	}
+	if err := s.resumeLimited(a); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
 }
 
 func (s *Server) answerChat(from agentFrom) func(http.ResponseWriter, *http.Request) error {

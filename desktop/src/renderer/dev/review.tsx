@@ -15,7 +15,7 @@ import { AgentRail } from '../components/AgentRail';
 import { ProjectView } from '../components/ProjectView';
 import { Sidebar } from '../components/Sidebar';
 import { TopBar } from '../components/TopBar';
-import { devRequests, pageOf, patchDevAgent, PROJECT, setMediaFile } from './fixtures';
+import { buildFixtures, devRequests, pageOf, patchDevAgent, PROJECT, setMediaFile } from './fixtures';
 import { useReadyAlerts } from '../lib/useReadyAlerts';
 import { screen } from './notifications';
 import { seedPages } from './pages';
@@ -308,4 +308,62 @@ export function ReviewPreview() {
       <AgentRail view={view} onSelect={() => {}} onNewAgent={() => {}} />
     </div>
   );
+}
+
+// seedV2 is UI v2's sidebar with more to order (&v2=1): five more projects,
+// each with when the user last wrote to it (two of them long enough ago to
+// be on the Settled shelf), their icons (an image found in the repository,
+// emoji chosen, a letter), quill's lead mid-turn, and the answers for
+// changing an icon. ?pins=agentbox,storefront pins those, in that order.
+export function seedV2(queryClient: QueryClient, pins: string | null): void {
+  const day = 24 * 60 * min;
+  const base = buildFixtures().projects;
+  const extra: [string, string, number][] = [
+    ['storefront', 'Storefront', 2 * 60 * min],
+    ['quill', 'Quill', 30 * min],
+    ['courier', 'Courier', 1 * day],
+    ['old-blog', 'Old blog', 9 * day],
+    ['dotfiles', 'dotfiles', 20 * day],
+  ];
+  const projects: T.Project[] = [...base, ...extra.map(([name, displayName], i) => ({ ...base[0], name, displayName, root: `/home/me/src/${name}`, iconVersion: 1, position: base.length + i + 1, createdAt: ago(60 * day) }))];
+  const lastSaid: Record<string, number> = { [PROJECT]: 3 * min, 'a-project-with-a-name-so-long-it-should-never-be-allowed-to-widen-the-sidebar': 3 * 60 * min, ...Object.fromEntries(extra.map(([n, , ms]) => [n, ms])) };
+  const logo = `data:image/svg+xml;base64,${btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#6d5dfc"/><path d="M9 22 16 8l7 14z" fill="#fff"/></svg>')}`;
+  const icons: Record<string, T.ProjectIcon> = {
+    [PROJECT]: { source: 'detected', image: logo, detectedFrom: 'desktop/build/icon.svg', hasDetected: true },
+    storefront: { source: 'chosen', emoji: '🛍️', hasDetected: false },
+    quill: { source: 'chosen', emoji: '🪶', hasDetected: false },
+    courier: { source: 'chosen', emoji: '📦', hasDetected: false },
+    'old-blog': { source: 'chosen', emoji: '📝', hasDetected: false },
+  };
+  queryClient.setQueryData(['projects'], projects);
+  if (pins) localStorage.setItem('agentbox.v2.projects', JSON.stringify({ pins: pins.split(',') }));
+  const json = (v: unknown) => ({ status: 200, body: JSON.stringify(v), contentType: 'application/json' });
+  devRequests.push((method, path, body) => {
+    if (method === 'GET' && path === '/v1/projects') return json(projects);
+    // Only agentbox has agents waiting; the other projects' lists are empty pages.
+    if (method === 'GET' && /^\/v1\/projects\/[^/]+\/review/.test(path) && !path.startsWith(`/v1/projects/${PROJECT}/`)) return json(pageOf([]));
+    // The extra projects' leads and lists, which no other fixture answers.
+    const own = /^\/v1\/projects\/([^/?]+)\/([^?]*)/.exec(path);
+    const extraName = own && extra.some(([n]) => n === decodeURIComponent(own[1])) ? decodeURIComponent(own[1]) : null;
+    if (method === 'GET' && extraName && own![2] === 'lead') return json(queryClient.getQueryData(['projectChat', extraName]) ?? { project: extraName, ref: `${extraName}/lead`, started: true, chat: 'ready' });
+    if (method === 'GET' && extraName && own![2] === 'chat/runners') return json({ tool: 'claude', runners: [{ tool: 'claude', name: 'Claude Code', ready: true, installed: true }] });
+    if (method === 'GET' && extraName && own![2] !== 'icon') return json([]);
+    if (method === 'GET' && path.startsWith('/v1/skills')) return json([]);
+    if (method === 'GET' && path === '/v1/project-activity') return json(projects.map((p) => ({ project: p.name, lastActivity: ago(lastSaid[p.name] ?? 10 * day), lastMessage: ago(lastSaid[p.name] ?? 10 * day) })));
+    const icon = /^\/v1\/projects\/([^/]+)\/icon$/.exec(path);
+    if (!icon) return undefined;
+    const name = decodeURIComponent(icon[1]);
+    if (method === 'PUT') {
+      const req = body as T.SetProjectIconRequest;
+      icons[name] = { source: 'chosen', emoji: req.emoji, image: req.image, hasDetected: name === PROJECT };
+      projects.forEach((p) => p.name === name && (p.iconVersion += 1));
+    }
+    if (method === 'DELETE') {
+      icons[name] = name === PROJECT ? { source: 'detected', image: logo, detectedFrom: 'desktop/build/icon.svg', hasDetected: true } : { source: 'none' };
+      projects.forEach((p) => p.name === name && (p.iconVersion += 1));
+    }
+    return json(icons[name] ?? { source: 'none' });
+  });
+  queryClient.setQueryData<T.ProjectChat>(['projectChat', 'quill'], { project: 'quill', ref: 'quill/lead', started: true, chat: 'running', last: { kind: 'assistant', text: 'Reading the editor’s undo stack before I split it.', at: ago(1 * min) } });
+  queryClient.setQueryData<T.ProjectChat>(['projectChat', 'storefront'], { project: 'storefront', ref: 'storefront/lead', started: true, chat: 'ready', last: { kind: 'user', text: 'Ship the checkout copy once courier agrees on the address format', at: ago(2 * 60 * min) } });
 }

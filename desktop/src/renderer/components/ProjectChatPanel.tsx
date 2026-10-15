@@ -4,6 +4,8 @@ import { api } from '../lib/api';
 import { t, useT } from '../lib/i18n';
 import { useChatOpenAt } from '../lib/reveal';
 import { ChatTab } from './chat/ChatTab';
+import { useUiV2 } from '../lib/uiV2';
+import { ReviewCount } from './v2/ReviewV2';
 
 // leadAgentFrom builds the Agent ChatTab expects out of a project's chat: the
 // lead runs on the host, with no machine of its own, so it's not a real entry
@@ -49,10 +51,12 @@ export function ProjectChatPanel({ project }: { project: T.Project }) {
   const chat = useQuery({ queryKey: ['projectChat', project.name], queryFn: () => api.projectChat(project.name) });
   const info = chat.data;
   const openAt = useChatOpenAt(project.name);
+  const v2 = useUiV2();
 
   if (!info) {
     return <div className="flex h-full items-center justify-center text-sm text-subtle">{chat.error ? t('chat.unavailable') : t('common.loading')}</div>;
   }
 
-  return <ChatTab agent={leadAgentFrom(project, info)} starting={false} onStart={() => {}} openAt={openAt} />;
+  // v2 says above the composer how many of its agents wait for review.
+  return <ChatTab agent={leadAgentFrom(project, info)} starting={false} onStart={() => {}} openAt={openAt} aboveComposer={v2 ? <ReviewCount project={project.name} variant="banner" /> : undefined} />;
 }

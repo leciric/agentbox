@@ -405,6 +405,7 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, end cha
 	if cur, err := s.store.Agent(ctx, a.Project, a.Name); err == nil && cur.Status == state.AgentCreating {
 		return
 	}
+	defer s.freeAfterTurn(ctx, a)
 	v, note := judgeTurn(end)
 	if v == verdictEnded && end.LastMessage == "" {
 		// Read only when the words are what decides: the conversation is
@@ -420,6 +421,11 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, end cha
 		// Stopped from its chat: whoever stopped it knows.
 		s.markToldWaiting(a, false)
 		s.setOutcome(a, api.AgentOutcomeIdle, "")
+		return
+	case verdictPaused:
+		// Not a finish: leadWaits stays as it was, so the finish that follows
+		// the resume reaches a lead that waits on it.
+		s.pauseForLimit(ctx, a, end)
 		return
 	case verdictFailed:
 		s.markToldWaiting(a, false)

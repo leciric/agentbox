@@ -149,6 +149,7 @@
 //                           windows, where the shell's columns turn into
 //                           drawers. "Ready to review" has agents waiting
 //                           (dev/review.tsx), for its modal and the PR's
+//   &pins=a,b               with &v2=1, those projects pinned, in that order
 //   &v2=1                   with ?app=, UI v2, the lead-first layout (Settings →
 //                           General → Experimental): leads with their last lines
 //                           and agents folded under them, filters, and the
@@ -234,7 +235,7 @@ import { PagePreviewHost } from '../components/pages/PagePreview';
 import { ScopedMediaPages } from '../components/pages/MediaPages';
 
 import { mockMedia, NotificationsPreview, seedNotifications } from './notifications';
-import { ReviewPreview, seedLeadLines, seedReview } from './review';
+import { ReviewPreview, seedLeadLines, seedReview, seedV2 } from './review';
 import { setUiV2 } from '../lib/uiV2';
 
 installDevBridge();
@@ -398,9 +399,13 @@ if (notify) seedNotifications(queryClient, mockMedia());
 if (review || appView) seedReview(queryClient);
 // UI v2 only where asked for: the flag is the preview origin's, kept between pages.
 setUiV2(params.get('v2') === '1');
-if (appView && params.get('v2') === '1') seedLeadLines(queryClient);
+if (appView && params.get('v2') === '1') {
+  seedLeadLines(queryClient);
+  seedV2(queryClient, params.get('pins'));
+}
 if (imageUpdate) seedImageUpdate(queryClient);
-if (settingsPage || appView === 'settings') seedSettings(queryClient);
+// v2 draws Overview, Media and Past agents inside Settings.
+if (settingsPage || appView === 'settings' || (params.get('v2') === '1' && (appView === 'home' || appView === 'media'))) seedSettings(queryClient);
 if (params.get('drag')) dragBridge(queryClient, params.get('drag') === 'slow' ? 1_500 : 300);
 if (params.get('enforce') === '1') { seedDefaults(queryClient); queryClient.setQueryData<T.Settings>(['settings'], (s) => s && { ...s, enforceAgentDefaults: true }); }
 if (params.get('nightly') === '1') seedNightly(queryClient);

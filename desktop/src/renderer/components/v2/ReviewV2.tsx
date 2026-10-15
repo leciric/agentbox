@@ -15,6 +15,7 @@ import { api } from '../../lib/api';
 import { useT } from '../../lib/i18n';
 import { agentReviewPrefix, refreshInbox, useReviewPages } from '../../lib/inboxPages';
 import { changesPending } from '../../lib/leadFirst';
+import { startWalk } from '../../lib/review';
 import { useMediaCounts } from '../../lib/mediaPages';
 import { cn, errorMessage } from '../../lib/utils';
 import { ReviewDialog, type ReviewSession } from '../ReadyToReview';
@@ -22,11 +23,26 @@ import { Button } from '../ui/button';
 import { Kbd } from '../ui/card';
 import { ReviewDecisionContext, type DecisionProps } from './reviewDecision';
 
-type OpenReview = (ref: string) => void;
+// OpenReview opens the carousel, the one way in: on an agent (item, the one
+// an agent's card shows), or walking through every agent waiting for review,
+// or one project's (the sidebar's "N to review", the lead chat's banner;
+// Home's "all" can too). Nothing is marked seen or reviewed until the
+// carousel has shown an agent, and only its buttons record a verdict.
+export type OpenReview = (opts?: { project?: string; item?: T.ReviewItem }) => void;
 const OpenReviewContext = createContext<OpenReview | null>(null);
 
-// useOpenReview opens the carousel on an agent, under ReviewV2.
+// useOpenReview is openReview, under ReviewV2.
 export const useOpenReview = () => useContext(OpenReviewContext);
+
+// projectReviewKey is one project's agents ready to review: a page under
+// ['review'], so refreshInbox refreshes it and opening one drops it at once.
+const projectReviewKey = (project: string) => ['review', 'project', project];
+const readyFor = (project?: string) => api.readyToReviewPage(new URLSearchParams({ limit: '200' }), project);
+
+// useProjectReview is the agents of a project waiting for review.
+export function useProjectReview(project: string, enabled = true) {
+  return useQuery({ queryKey: projectReviewKey(project), queryFn: () => readyFor(project), refetchInterval: 60_000, enabled });
+}
 
 // agentReviewKey is one agent's review item, wherever it is: ready, or
 // reviewed on the work as it still is. It is refetched as the lists are
@@ -53,14 +69,15 @@ export function ReviewV2({ onSelect, children }: { onSelect: (view: View) => voi
   const queryClient = useQueryClient();
   const [session, setSession] = useState<ReviewSession | null>(null);
   const pages = useReviewPages(false, session !== null);
-  const open: OpenReview = (ref) => {
-    void queryClient.fetchQuery({ queryKey: agentReviewKey(ref), queryFn: () => agentReview(ref), staleTime: 0 }).then((item) => {
-      if (item) setSession({ item, order: null });
-    });
+  const openReview: OpenReview = (opts = {}) => {
+    if (opts.item) return setSession(startWalk([], opts));
+    const { project } = opts;
+    const page = project ? queryClient.fetchQuery({ queryKey: projectReviewKey(project), queryFn: () => readyFor(project), staleTime: 0 }) : readyFor();
+    void page.then(({ items }) => setSession(startWalk(items ?? [], opts))).catch((err) => toast.error(errorMessage(err)));
   };
   return (
     <ReviewDecisionContext.Provider value={DecisionBar}>
-      <OpenReviewContext.Provider value={open}>
+      <OpenReviewContext.Provider value={openReview}>
         {children}
         <ReviewDialog session={session} pages={pages} onSession={setSession} onSelect={onSelect} />
       </OpenReviewContext.Provider>
@@ -92,7 +109,7 @@ function useChangesState(ref: string, sent: string | null) {
 
 // DecisionBar is the carousel's decision, under its header: where a request
 // for changes stands, then Request changes and Merge.
-function DecisionBar({ item, pr, canMerge, mergeReason, merging, onMerge }: DecisionProps) {
+function DecisionBar({ item, pr, canMerge, mergeReason, merging, onMerge, onNext }: DecisionProps) {
   const t = useT();
   const queryClient = useQueryClient();
   const [composing, setComposing] = useState(false);
@@ -129,6 +146,8 @@ function DecisionBar({ item, pr, canMerge, mergeReason, merging, onMerge }: Deci
       setDraft('');
       setComposing(false);
       toast(t('v2.review.sent', { agent: item.agent }));
+      // The agent is on it: the walk goes on to the next one, or ends.
+      onNext();
     } catch (err) {
       toast.error(t('v2.review.sendFailed', { error: errorMessage(err) }));
     } finally {
@@ -292,7 +311,7 @@ export function AgentReviewCard({ agent }: { agent: T.Agent }) {
         )}
       </span>
       {item && (
-        <Button size="sm" variant={asked ? 'secondary' : 'primary'} className="ml-auto h-7" onClick={() => open(agent.ref)} data-review-open>
+        <Button size="sm" variant={asked ? 'secondary' : 'primary'} className="ml-auto h-7" onClick={() => open?.({ item })} data-review-open>
           {t('v2.card.review')}
           <ArrowRight />
         </Button>
@@ -311,3 +330,41 @@ function prLabel(t: ReturnType<typeof useT>, pr: T.PullRequest): string {
   return t('v2.card.prOpen');
 }
 
+
+// ReviewCount is a project's "N to review", drawn only while it has agents
+// waiting: the sidebar's button on its lead (compact) and the lead chat's
+// banner above the composer. Both walk the carousel through that project's
+// agents, one after another (openReview).
+export function ReviewCount({ project, variant }: { project: string; variant: 'button' | 'banner' }) {
+  const t = useT();
+  const openReview = useOpenReview();
+  const ready = useProjectReview(project, !!openReview);
+  const count = ready.data?.items?.length ?? 0;
+  if (!openReview || count === 0) return null;
+  const open = (e: { stopPropagation: () => void }) => {
+    e.stopPropagation();
+    openReview({ project });
+  };
+  if (variant === 'button') {
+    return (
+      <button
+        type="button"
+        onClick={open}
+        className="mt-0.5 shrink-0 rounded-full border border-line-strong bg-surface px-1.5 py-px text-[10.5px] font-medium tabular-nums text-secondary transition hover:border-line-heavy hover:bg-surface-strong hover:text-title"
+        data-v2-review-button={project}
+      >
+        {t('v2.review.toReview', { count })}
+      </button>
+    );
+  }
+  return (
+    <div className="mx-auto mb-2 flex w-full max-w-3xl items-center gap-2 rounded-xl border border-line bg-surface-faint px-3 py-1.5 text-[12.5px]" data-v2-review-banner={project}>
+      <span className="size-1.5 shrink-0 rounded-full ring-1 ring-inset ring-secondary" aria-hidden />
+      <span className="min-w-0 flex-1 truncate text-secondary">{t('v2.review.readyBanner', { count })}</span>
+      <button type="button" onClick={open} className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 font-medium text-title hover:bg-surface-strong" data-v2-review-banner-open>
+        {t('v2.review.review')}
+        <ArrowRight className="size-3.5" />
+      </button>
+    </div>
+  );
+}

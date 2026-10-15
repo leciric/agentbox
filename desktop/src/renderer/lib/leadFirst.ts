@@ -33,6 +33,8 @@ export function agentSt(a: T.Agent, ctx: StContext): AgentSt {
   const { tone } = chatLabel(a);
   if (tone === 'urgent' || ctx.asking.has(a.ref)) return 'needs';
   if (changesPending(a)) return 'working';
+  // Paused on a usage limit: it resumes by itself, so nobody has to look.
+  if (a.outcome === 'limited' && a.chat !== 'running') return 'working';
   // One that failed and finished is in review, with its outcome.
   if (ctx.review.has(a.ref)) return 'review';
   if (tone === 'error') return 'error';
@@ -56,13 +58,18 @@ export type Filters = {
 
 export const noFilters: Filters = { st: [], projects: [], q: '' };
 
+// defaultFilters is what v2's sidebar opens with until the user changes it:
+// the agents at work and the ones to review (v2Projects.ts keeps their
+// choice after that).
+export const defaultFilters: Filters = { st: ['working', 'review'], projects: [], q: '' };
+
 // filterCount is how many filters are on, for the filter button's badge: the
 // search box shows itself.
 export const filterCount = (f: Filters) => f.st.length + f.projects.length;
 
 // narrowing is whether the filters narrow agents (a state or a search), which
-// opens the projects with a match and hides the rest; a project filter alone
-// only hides the other projects.
+// hides the projects with no match; a project filter alone only hides the
+// other projects.
 export const narrowing = (f: Filters) => f.st.length > 0 || f.q.trim() !== '';
 
 export type Row = { agent: T.Agent; st: AgentSt };
@@ -86,39 +93,58 @@ export function sortRows(rows: readonly Row[]): Row[] {
 
 export type ProjectRows = {
   project: T.Project;
-  // Every agent of the project, for its counts.
+  // Its live agents, for its counts: the done ones are in Past agents, not
+  // the sidebar.
   all: Row[];
   // The ones the filters let through, sorted.
   shown: Row[];
-  // Whether its agents' list is open: by the user, or by filters narrowing.
+  // Whether its agents' list is open: by the user, or by a search finding
+  // agents in it.
   open: boolean;
 };
 
+// live is whether an agent belongs in the sidebar: at work, asking, stopped
+// on an error or ready to review. A finished one is in Past agents (#296).
+export const live = (st: AgentSt) => st !== 'done';
+
+// liveOrder is stOrder without done, the states the sidebar shows and filters by.
+export const liveOrder: readonly AgentSt[] = stOrder.filter(live);
+
+// Where the sidebar stands on each project besides its agents.
+export type ProjectCtx = {
+  // Projects whose lead is busy (mid-turn): they count as working.
+  busy: ReadonlySet<string>;
+  // Projects that stay in the list whatever the state filter says: the pinned.
+  keep: ReadonlySet<string>;
+};
+
+// leadBusy is whether a lead's chat is mid-turn: thinking, running tools or
+// answering.
+export const leadBusy = (chat: string | undefined) => chat === 'running';
+
 // projectRows is the sidebar's list of projects, in the order given, each
-// with its agents, under the filters. A project the filters narrow to nothing
-// is left out, unless the search matches its own name.
-export function projectRows(projects: readonly T.Project[], rows: readonly Row[], f: Filters, expanded: ReadonlySet<string>, label: (p: T.Project) => string): ProjectRows[] {
-  const narrow = narrowing(f);
+// with its live agents, under the filters. A state filter keeps the projects
+// with an agent in one of its states, or, for Working, a busy lead, and
+// a search leaves out a project it narrows to nothing, unless it matches the
+// project's own name, and opens those it found agents in. expanded holds the
+// projects the user opened, which a filter never changes.
+export function projectRows(projects: readonly T.Project[], rows: readonly Row[], f: Filters, expanded: ReadonlySet<string>, label: (p: T.Project) => string, ctx: ProjectCtx = { busy: new Set(), keep: new Set() }): ProjectRows[] {
   const q = f.q.trim().toLowerCase();
   const out: ProjectRows[] = [];
   for (const project of projects) {
     if (f.projects.length && !f.projects.includes(project.name)) continue;
     const name = label(project);
-    const all = rows.filter((r) => r.agent.project === project.name);
+    const all = rows.filter((r) => r.agent.project === project.name && live(r.st));
     const shown = sortRows(all.filter((r) => matches(r, f, name)));
-    if (narrow && shown.length === 0 && !(q && f.st.length === 0 && name.toLowerCase().includes(q))) continue;
-    out.push({ project, all, shown, open: narrow ? shown.length > 0 : expanded.has(project.name) });
+    if (q && shown.length === 0 && !name.toLowerCase().includes(q)) continue;
+    const stMatch = shown.length > 0 || (f.st.includes('working') && ctx.busy.has(project.name));
+    if (!q && f.st.length && !stMatch && !ctx.keep.has(project.name)) continue;
+    // The chevron alone opens a project, under any state filter, so it
+    // folds the same with Working on as with nothing; only a search opens
+    // the projects it found agents in.
+    out.push({ project, all, shown, open: (q !== '' && shown.length > 0) || expanded.has(project.name) });
   }
   return out;
-}
-
-// foldDone splits a project's open list into the rows shown and the done ones
-// folded into one "n done" line, unless a filter asked for them or the user
-// unfolded them.
-export function foldDone(shown: readonly Row[], f: Filters, unfolded: boolean): { rows: Row[]; folded: number } {
-  if (unfolded || narrowing(f)) return { rows: [...shown], folded: 0 };
-  const rows = shown.filter((r) => r.st !== 'done');
-  return { rows, folded: shown.length - rows.length };
 }
 
 // toggle adds x to list, or takes it out.
