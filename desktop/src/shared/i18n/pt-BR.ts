@@ -3174,6 +3174,8 @@ export const ptBR: Messages = {
   'panel.tab.browser': 'Navegador',
   'panel.tab.pages': 'Páginas',
   'panel.tab.media': 'Mídia',
+  'panel.tab.pulls': 'Pull requests',
+  'panel.tab.settings': 'Configurações',
   'panel.needsMachineTip': '{tab}: precisa de um agente com máquina',
   'panel.pickerLabel': 'De quem mostrar arquivos, desktop e mídia',
   'panel.find': 'Encontrar um agente…',

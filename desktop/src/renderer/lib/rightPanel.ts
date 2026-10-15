@@ -10,9 +10,14 @@
 // middle's by default.
 import { useSyncExternalStore } from 'react';
 import type * as T from '../../shared/api.ts';
+import type { ProjectSection } from './tabs.ts';
 
-export type PanelTab = 'files' | 'desktop' | 'terminal' | 'browser' | 'pages' | 'media';
-export const panelTabs: PanelTab[] = ['files', 'desktop', 'terminal', 'browser', 'pages', 'media'];
+export type PanelTab = 'files' | 'desktop' | 'terminal' | 'browser' | 'pages' | 'media' | 'pulls' | 'settings';
+export const panelTabs: PanelTab[] = ['files', 'desktop', 'terminal', 'browser', 'pages', 'media', 'pulls', 'settings'];
+
+// The project's own tabs, the lead's page's tabs before: its pull requests
+// and its settings, the same whoever is picked.
+export const projectWide = (tab: PanelTab) => tab === 'pulls' || tab === 'settings';
 
 // The tabs that show a machine: an agent's display, its shell, its dev server.
 export const needsMachine = (tab: PanelTab) => tab === 'desktop' || tab === 'terminal' || tab === 'browser';
@@ -84,6 +89,10 @@ export function pickable(project: string, agents: T.Agent[], past: T.ArchivedAge
 export const chatMin = 360;
 export const panelMin = 340;
 export const panelDefault = 540;
+// The project's settings and pull requests are pages laid out for a wide
+// column: they open the panel at least this wide, room allowing.
+export const panelWide = 860;
+export const panelWant = (state: Pick<PanelState, 'tab' | 'width'>) => (projectWide(state.tab) ? Math.max(state.width, panelWide) : state.width);
 export function panelBox(want: number, room: number, windowWidth: number): { width: number; drawer: boolean } {
   if (windowWidth < 1024 || room - chatMin < panelMin) return { width: Math.round(Math.min(windowWidth * 0.92, Math.max(want, 420), windowWidth - 24)), drawer: true };
   return { width: Math.round(Math.max(panelMin, Math.min(want, room - chatMin))), drawer: false };
@@ -98,6 +107,7 @@ export interface PanelState {
   width: number;
   withMachine: boolean;
   picked: { for: string; ref: string } | null;
+  section: ProjectSection; // the Settings tab's
 }
 
 const storageKey = 'agentbox.ui.v2.panel';
@@ -105,7 +115,7 @@ const listeners = new Set<() => void>();
 let current: PanelState | undefined;
 
 function load(): PanelState {
-  const base: PanelState = { open: false, tab: 'files', width: panelDefault, withMachine: true, picked: null };
+  const base: PanelState = { open: false, tab: 'files', width: panelDefault, withMachine: true, picked: null, section: 'repository' };
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey) ?? '{}') as Partial<PanelState>;
     return {

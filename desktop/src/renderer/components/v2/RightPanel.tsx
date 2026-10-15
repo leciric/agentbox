@@ -10,8 +10,8 @@
 // was concept E's &rp=2 (dev/concepts/rightPanel.tsx on
 // agentbox/mock-right-panel).
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, ChevronDown, Crown, Ellipsis, FolderTree, GitBranch, Globe, HardDrive, Images, Monitor, Moon, Play, Search, SquareTerminal, Unplug, X, type LucideIcon } from 'lucide-react';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Check, ChevronDown, Crown, Ellipsis, FolderTree, GitBranch, GitPullRequest, Globe, SlidersHorizontal, HardDrive, Images, Monitor, Moon, Play, Search, SquareTerminal, Unplug, X, type LucideIcon } from 'lucide-react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import * as A from '../../../shared/api';
 import type * as T from '../../../shared/api';
@@ -26,11 +26,13 @@ import {
   hasTab,
   machineOf,
   needsMachine,
+  projectWide,
   openPanelOn,
   panelBox,
   panelDefault,
   panelMin,
   panelState,
+  panelWant,
   panelTabs,
   pickable,
   pickedFor,
@@ -40,6 +42,7 @@ import {
   usePanelMenuItems,
   whoseRef,
   type Machine,
+  type PanelState,
   type PanelTab,
   type Whose,
 } from '../../lib/rightPanel';
@@ -54,6 +57,8 @@ import { ProjectIcon } from '../ProjectIcon';
 import { ProjectMediaPanel } from '../ProjectMediaPanel';
 import { AIIcon, LiveAgentAvatar } from '../state';
 import { TerminalTab } from '../TerminalTab';
+import { ProjectSettingsBody } from '../ProjectView';
+import { PullRequestsPanel } from '../PullRequestsPanel';
 import { Button } from '../ui/button';
 import { Menu, MenuContent, MenuTrigger } from '../ui/menu';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
@@ -68,6 +73,8 @@ const tabIcon: Record<PanelTab, LucideIcon | typeof PageIcon> = {
   browser: Globe,
   pages: PageIcon,
   media: Images,
+  pulls: GitPullRequest,
+  settings: SlidersHorizontal,
 };
 const tabLabel: Record<PanelTab, MessageKey> = {
   files: 'panel.tab.files',
@@ -76,6 +83,8 @@ const tabLabel: Record<PanelTab, MessageKey> = {
   browser: 'panel.tab.browser',
   pages: 'panel.tab.pages',
   media: 'panel.tab.media',
+  pulls: 'panel.tab.pulls',
+  settings: 'panel.tab.settings',
 };
 
 const railWidth = 44;
@@ -83,7 +92,7 @@ const railWidth = 44;
 // RightPanelHost sits beside the main column of App, for a view with a chat:
 // it lays the panel out beside the chat or as a drawer, and listens for ⌘D,
 // Escape and a file a chat opens.
-export function RightPanelHost({ view }: { view: View }) {
+export function RightPanelHost({ view, onSelect }: { view: View; onSelect: (view: View) => void }) {
   const t = useT();
   const at = chatOf(view);
   const state = usePanel();
@@ -126,7 +135,7 @@ export function RightPanelHost({ view }: { view: View }) {
   }, [chat]);
 
   if (!at) return <span ref={probe} hidden />;
-  const box = panelBox(state.width, room, windowWidth);
+  const box = panelBox(panelWant(state), room, windowWidth);
   return (
     <>
       <span ref={probe} hidden />
@@ -143,7 +152,7 @@ export function RightPanelHost({ view }: { view: View }) {
             data-right-panel={box.drawer ? 'drawer' : 'beside'}
           >
             {!box.drawer && <WidthHandle width={box.width} />}
-            <RightPanel project={at.project} chat={at.chat} width={box.width} />
+            <RightPanel project={at.project} chat={at.chat} width={box.width} onSelect={onSelect} />
           </aside>
         </>
       )}
@@ -193,7 +202,7 @@ function useWhose(project: string, chat: string) {
   return { state, whose, agents: mine, past: gone, loading: agents.isPending };
 }
 
-function RightPanel({ project, chat, width }: { project: string; chat: string; width: number }) {
+function RightPanel({ project, chat, width, onSelect }: { project: string; chat: string; width: number; onSelect: (view: View) => void }) {
   const t = useT();
   const { state, whose, agents, past } = useWhose(project, chat);
   const pick = (w: Whose) => setPanel({ picked: whoseRef(w) === chat ? null : { for: chat, ref: whoseRef(w) } });
@@ -211,7 +220,11 @@ function RightPanel({ project, chat, width }: { project: string; chat: string; w
             {t(tabLabel[state.tab])}
           </span>
           <span className="text-faint">·</span>
-          <Picker project={project} whose={whose} agents={agents} past={past} onPick={pick} />
+          {projectWide(state.tab) ? (
+            <ProjectName project={project} />
+          ) : (
+            <Picker project={project} whose={whose} agents={agents} past={past} onPick={pick} />
+          )}
           <span className="ml-auto" />
           {menu && (
             <Menu>
@@ -224,7 +237,11 @@ function RightPanel({ project, chat, width }: { project: string; chat: string; w
             </Menu>
           )}
         </div>
-        <Body project={project} whose={whose} tab={state.tab} agents={agents} past={past} width={width - railWidth} onPick={pick} />
+        {projectWide(state.tab) ? (
+          <ProjectTab project={project} tab={state.tab} section={state.section} onSelect={onSelect} />
+        ) : (
+          <Body project={project} whose={whose} tab={state.tab} agents={agents} past={past} width={width - railWidth} onPick={pick} />
+        )}
       </div>
       <nav className="flex shrink-0 flex-col items-center gap-1 border-l border-line bg-rail py-1.5" style={{ width: railWidth }} aria-label={t('panel.tabs')}>
         <Tip label={t('panel.closeTip', { keys: shortcut('D') })} side="left">
@@ -238,7 +255,9 @@ function RightPanel({ project, chat, width }: { project: string; chat: string; w
           const on = state.tab === tab;
           const ok = hasTab(whose, tab);
           return (
-            <Tip key={tab} label={ok ? t(tabLabel[tab]) : t('panel.needsMachineTip', { tab: t(tabLabel[tab]) })} side="left">
+            <Fragment key={tab}>
+            {tab === 'pulls' && <span className="my-1 h-px w-6 bg-line" />}
+            <Tip label={ok ? t(tabLabel[tab]) : t('panel.needsMachineTip', { tab: t(tabLabel[tab]) })} side="left">
               <button
                 type="button"
                 aria-label={t(tabLabel[tab])}
@@ -252,6 +271,7 @@ function RightPanel({ project, chat, width }: { project: string; chat: string; w
                 {tab === 'pages' && fresh > 0 && <span className="absolute right-1 top-1 size-1.5 rounded-full bg-brand-500" />}
               </button>
             </Tip>
+            </Fragment>
           );
         })}
       </nav>
@@ -583,4 +603,36 @@ function pastAsAgent(p: T.ArchivedAgent): T.Agent {
     ip: '',
     createdAt: p.createdAt,
   };
+}
+
+// ——— The project's own tabs ———
+
+function ProjectName({ project }: { project: string }) {
+  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
+  return (
+    <span className="flex min-w-0 items-center gap-1.5 px-1.5" data-panel-project>
+      <WhoseIcon project={project} whose={{ kind: 'lead', ref: `${project}/${A.LeadName}` }} className="size-5" />
+      <span className="min-w-0 truncate text-[12.5px] font-semibold text-title">{projectLabel(project, projects.data)}</span>
+    </span>
+  );
+}
+
+// ProjectTab is the project's pull requests or its settings, what the
+// lead's page had as tabs over its chat.
+function ProjectTab({ project, tab, section, onSelect }: { project: string; tab: PanelTab; section: PanelState['section']; onSelect: (view: View) => void }) {
+  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
+  const p = projects.data?.find((x) => x.name === project);
+  if (tab === 'pulls') {
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3" data-panel-pulls>
+        <PullRequestsPanel project={project} onSelect={onSelect} onOpenAccount={() => setPanel({ tab: 'settings', section: 'general' })} />
+      </div>
+    );
+  }
+  if (!p) return null;
+  return (
+    <div className="flex min-h-0 flex-1 flex-col" data-panel-settings={section}>
+      <ProjectSettingsBody project={p} section={section} onSection={(next) => setPanel({ section: next })} onSelect={onSelect} onOpenMedia={() => setPanel({ tab: 'media', picked: null })} />
+    </div>
+  );
 }

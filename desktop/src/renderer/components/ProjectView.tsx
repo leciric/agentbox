@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Archive, Brain, Wand2, Coins, Ellipsis, FileText, FolderGit2, FolderOpen, GitPullRequest, Image, KeyRound, MessagesSquare, Moon, NotebookPen, Plug, Plus, SlidersHorizontal, Smile, Trash } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import * as T from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
 import { useT, type Translate } from '../lib/i18n';
@@ -33,6 +34,7 @@ import { useUiV2 } from '../lib/uiV2';
 import { ProjectIcon, ProjectIconDialog } from './ProjectIcon';
 import { TalkToProject } from './v2/TalkToProject';
 import { PanelButton, usePanelMenu } from './v2/PanelButton';
+import { openPanelOn, setPanel } from '../lib/rightPanel';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
 // The project's notes: what every agent of it is told, over and above the brief
@@ -123,13 +125,22 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
   const queryClient = useQueryClient();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
-  // v2 has no Media or Past agents tabs: they're sections of Settings.
+  // v2 has no tabs: Media and Past agents are sections of Settings, and Pull
+  // requests and Settings are tabs of the right-hand panel, which a link to
+  // them opens.
   const v2 = useUiV2();
-  const [where, setWhere] = useState<string>(v2 && (opensAt === 'media' || opensAt === 'past') ? 'chat' : (opensAt ?? 'chat'));
+  const [where, setWhere] = useState<string>(v2 ? 'chat' : (opensAt ?? 'chat'));
+  useEffect(() => {
+    if (!v2 || !opensAt) return;
+    const place = projectPlace(opensAt);
+    if (place.tab === 'pulls') openPanelOn(`${name}/${T.LeadName}`, 'pulls');
+    else if (place.tab === 'settings') {
+      openPanelOn(`${name}/${T.LeadName}`, 'settings');
+      setPanel({ section: place.section });
+    }
+  }, [v2, opensAt, name]);
   const [iconOpen, setIconOpen] = useState(false);
   const { tab, section } = projectPlace(where);
-  const [showBrief, setShowBrief] = useState(false);
-  const brief = useQuery({ queryKey: ['brief', name], queryFn: () => api.brief(name), enabled: tab === 'settings' && section === 'brief' && showBrief });
   const [removing, setRemoving] = useState(false);
   const [freeing, setFreeing] = useState(false);
   // The past agent read in the Past agents tab, if one is.
@@ -228,44 +239,53 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
             )}
           </div>
         </div>
-        <div className="mt-3 flex items-center gap-3">
-          {/* It scrolls rather than wraps once the tabs outgrow the column, and
-              without a scrollbar: the tabs are the control, and a bar under
-              them only says the last one is a few pixels away. */}
-          <TabsList className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none]">
-            <TabsTrigger value="chat">
-              <MessagesSquare />
-              {t('project.view.tab.chat')}
-            </TabsTrigger>
-            <TabsTrigger value="pulls">
-              <GitPullRequest />
-              {t('project.view.tab.pulls')}
-            </TabsTrigger>
-            {!v2 && (
-              <>
-                <TabsTrigger value="media">
-                  <Image />
-                  {t('project.view.tab.media')}
-                </TabsTrigger>
-                <TabsTrigger value="past" data-project-tab="past">
-                  <Archive />
-                  {t('project.view.tab.past')}
-                </TabsTrigger>
-              </>
-            )}
-            <TabsTrigger value="settings">
-              <SlidersHorizontal />
-              {t('project.view.tab.settings')}
-            </TabsTrigger>
-          </TabsList>
-          {lead && (
-            <div className="flex shrink-0 items-center gap-2">
+        {v2 ? (
+          lead && (
+            <div className="mt-2 flex items-center gap-2">
               <ChatStatus agent={lead} />
-              {!v2 && <FilesOpen agent={lead} />}
+              {chatMenu?.dialogs}
             </div>
-          )}
-          {chatMenu?.dialogs}
-        </div>
+          )
+        ) : (
+          <div className="mt-3 flex items-center gap-3">
+            {/* It scrolls rather than wraps once the tabs outgrow the column, and
+                without a scrollbar: the tabs are the control, and a bar under
+                them only says the last one is a few pixels away. */}
+            <TabsList className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none]">
+              <TabsTrigger value="chat">
+                <MessagesSquare />
+                {t('project.view.tab.chat')}
+              </TabsTrigger>
+              <TabsTrigger value="pulls">
+                <GitPullRequest />
+                {t('project.view.tab.pulls')}
+              </TabsTrigger>
+              {!v2 && (
+                <>
+                  <TabsTrigger value="media">
+                    <Image />
+                    {t('project.view.tab.media')}
+                  </TabsTrigger>
+                  <TabsTrigger value="past" data-project-tab="past">
+                    <Archive />
+                    {t('project.view.tab.past')}
+                  </TabsTrigger>
+                </>
+              )}
+              <TabsTrigger value="settings">
+                <SlidersHorizontal />
+                {t('project.view.tab.settings')}
+              </TabsTrigger>
+            </TabsList>
+            {lead && (
+              <div className="flex shrink-0 items-center gap-2">
+                <ChatStatus agent={lead} />
+                {!v2 && <FilesOpen agent={lead} />}
+              </div>
+            )}
+            {chatMenu?.dialogs}
+          </div>
+        )}
       </div>
 
       <TabsContent value="chat" className="flex flex-col">
@@ -296,67 +316,7 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
 
       <TabsContent value="settings" className="flex flex-col">
         <div className="mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line md:mx-6 md:mb-6">
-          <SettingsSections label={t('project.view.settingsLabel', { name })} sections={projectSettingsSections(t)} value={section} onValueChange={setWhere}>
-            {section === 'repository' && (
-              <div className="mx-auto grid w-full max-w-3xl grid-cols-1 gap-6 px-4 py-6 md:px-8 md:py-7">
-                <Card title={t('project.view.section.repository')} icon={FolderGit2}>
-                  <Row label={t('project.view.folder')} mono>
-                    <span className="truncate" title={project.root}>
-                      {project.root}
-                    </span>
-                  </Row>
-                  <Row label={t('project.view.newAgentsFrom')} mono>
-                    {project.branch}
-                  </Row>
-                  <Row label={t('project.view.envFiles')} mono>
-                    {project.envFiles.length > 0 ? project.envFiles.join(', ') : t('project.view.envNone')}
-                  </Row>
-                </Card>
-                <ProjectBasePanel project={project} onOpenAgent={(ref) => onSelect({ kind: 'agent', ref })} />
-              </div>
-            )}
-            {section === 'general' && (
-              <div className="mx-auto w-full max-w-3xl px-4 py-6 md:px-8 md:py-7">
-                {v2 && (
-                  <Card className="mb-4" title={t('projectIcon.label')} icon={Smile} description={t('projectIcon.description')} action={<Button size="sm" onClick={() => setIconOpen(true)} data-project-settings-icon>{t('projectIcon.change')}</Button>}>
-                    <ProjectIcon project={project} className="size-10 rounded-xl text-[16px]" />
-                  </Card>
-                )}
-                <ProjectSettings project={project} />
-              </div>
-            )}
-            {section === 'brief' && (
-              <div className="mx-auto w-full max-w-3xl px-4 py-6 md:px-8 md:py-7">
-                <ProjectNotes project={name} />
-                <Card
-                  className="mt-4"
-                  title={t('project.view.briefTitle')}
-                  icon={FileText}
-                  description={t('project.view.briefDescription')}
-                  action={
-                    <Button variant="ghost" size="sm" onClick={() => setShowBrief((v) => !v)}>
-                      {showBrief ? t('project.view.hide') : t('project.view.show')}
-                    </Button>
-                  }
-                >
-                  {showBrief && (
-                    <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-xl border border-line-faint bg-sunken p-4 font-mono text-[12px] leading-relaxed text-tertiary">
-                      {brief.data ?? t('common.loading')}
-                    </pre>
-                  )}
-                </Card>
-              </div>
-            )}
-            {section === 'memory' && <ProjectMemoryPanel project={name} onOpenMedia={() => setWhere('media')} />}
-            {section === 'tokens' && (
-              <div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-8 md:py-7">
-                <TokensPanel project={name} onOpenAgent={(ref) => onSelect({ kind: 'agent', ref })} />
-              </div>
-            )}
-            {section === 'secrets' && <SecretsTab target={name} />}
-            {section === 'connectors' && <ConnectorsTab target={name} />}
-            {section === 'skills' && <SkillsPanel project={name} />}
-          </SettingsSections>
+          <ProjectSettingsBody project={project} section={section} onSection={setWhere} onSelect={onSelect} onOpenMedia={() => setWhere('media')} />
         </div>
       </TabsContent>
 
@@ -385,5 +345,83 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
         }}
       />
     </Tabs>
+  );
+}
+
+// ProjectSettingsBody is a project's Settings: its sections down the side,
+// or along the top where it's narrow. The Settings tab of ProjectView, and in
+// UI v2 the right-hand panel's (components/v2/RightPanel.tsx).
+export function ProjectSettingsBody({ project, section, onSection, onSelect, onOpenMedia }: { project: T.Project; section: ProjectSection; onSection: (section: ProjectSection) => void; onSelect: (view: View) => void; onOpenMedia: () => void }) {
+  const t = useT();
+  const v2 = useUiV2();
+  const name = project.name;
+  const [iconOpen, setIconOpen] = useState(false);
+  const [showBrief, setShowBrief] = useState(false);
+  const brief = useQuery({ queryKey: ['brief', name], queryFn: () => api.brief(name), enabled: section === 'brief' && showBrief });
+  return (
+    <>
+    <SettingsSections label={t('project.view.settingsLabel', { name })} sections={projectSettingsSections(t)} value={section} onValueChange={onSection}>
+      {section === 'repository' && (
+        <div className="mx-auto grid w-full max-w-3xl grid-cols-1 gap-6 px-4 py-6 md:px-8 md:py-7">
+          <Card title={t('project.view.section.repository')} icon={FolderGit2}>
+            <Row label={t('project.view.folder')} mono>
+              <span className="truncate" title={project.root}>
+                {project.root}
+              </span>
+            </Row>
+            <Row label={t('project.view.newAgentsFrom')} mono>
+              {project.branch}
+            </Row>
+            <Row label={t('project.view.envFiles')} mono>
+              {project.envFiles.length > 0 ? project.envFiles.join(', ') : t('project.view.envNone')}
+            </Row>
+          </Card>
+          <ProjectBasePanel project={project} onOpenAgent={(ref) => onSelect({ kind: 'agent', ref })} />
+        </div>
+      )}
+      {section === 'general' && (
+        <div className="mx-auto w-full max-w-3xl px-4 py-6 md:px-8 md:py-7">
+          {v2 && (
+            <Card className="mb-4" title={t('projectIcon.label')} icon={Smile} description={t('projectIcon.description')} action={<Button size="sm" onClick={() => setIconOpen(true)} data-project-settings-icon>{t('projectIcon.change')}</Button>}>
+              <ProjectIcon project={project} className="size-10 rounded-xl text-[16px]" />
+            </Card>
+          )}
+          <ProjectSettings project={project} />
+        </div>
+      )}
+      {section === 'brief' && (
+        <div className="mx-auto w-full max-w-3xl px-4 py-6 md:px-8 md:py-7">
+          <ProjectNotes project={name} />
+          <Card
+            className="mt-4"
+            title={t('project.view.briefTitle')}
+            icon={FileText}
+            description={t('project.view.briefDescription')}
+            action={
+              <Button variant="ghost" size="sm" onClick={() => setShowBrief((v) => !v)}>
+                {showBrief ? t('project.view.hide') : t('project.view.show')}
+              </Button>
+            }
+          >
+            {showBrief && (
+              <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-xl border border-line-faint bg-sunken p-4 font-mono text-[12px] leading-relaxed text-tertiary">
+                {brief.data ?? t('common.loading')}
+              </pre>
+            )}
+          </Card>
+        </div>
+      )}
+      {section === 'memory' && <ProjectMemoryPanel project={name} onOpenMedia={onOpenMedia} />}
+      {section === 'tokens' && (
+        <div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-8 md:py-7">
+          <TokensPanel project={name} onOpenAgent={(ref) => onSelect({ kind: 'agent', ref })} />
+        </div>
+      )}
+      {section === 'secrets' && <SecretsTab target={name} />}
+      {section === 'connectors' && <ConnectorsTab target={name} />}
+      {section === 'skills' && <SkillsPanel project={name} />}
+    </SettingsSections>
+      {v2 && <ProjectIconDialog project={project} open={iconOpen} onOpenChange={setIconOpen} />}
+    </>
   );
 }

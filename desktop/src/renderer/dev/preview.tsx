@@ -160,7 +160,8 @@
 //                           (files, desktop, terminal, browser, pages, media);
 //                           &whose=agent-12 (or lead, or past:agent-80) shows
 //                           that agent's beside the chat, &file=README.md with
-//                           a file open in Files
+//                           a file open in Files, &section=general Settings
+//                           on that section
 //   ?newagent=1             the New agent dialog, open on the project, for its
 //                           Size picker and the rest of its form
 //   &free=progress|done|partial|error
@@ -234,7 +235,8 @@ import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
 import { agent12Chat, asleepChat, buildFixtures, compactionThread, richChat, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
 import { seedPastAgents } from './pastAgents';
-import { openPanelOn, type PanelTab } from '../lib/rightPanel';
+import { openPanelOn, setPanel, type PanelTab } from '../lib/rightPanel';
+import type { ProjectSection } from '../lib/tabs';
 import { openFile } from '../lib/files';
 import { PastAgents } from '../components/PastAgents';
 import { PageArrivals } from '../components/pages/PageArrivals';
@@ -394,12 +396,18 @@ setUiV2(params.get('v2') === '1');
 if (appView && params.get('v2') === '1') {
   seedLeadLines(queryClient);
   seedV2(queryClient, params.get('pins'));
+  // The right-hand panel's Media tab has the ?media= gallery to show, and
+  // its picker the past agents.
+  if (!media) seedMedia(queryClient);
+  if (!past) seedPastAgents(queryClient);
   const tab = params.get('panel') as PanelTab | null;
   if (tab) {
     const chat = appView.startsWith('agent-') ? `${PROJECT}/${appView}` : `${PROJECT}/lead`;
     const whose = params.get('whose');
     const ref = whose?.startsWith('past:') ? `past:${PROJECT}/${whose.slice(5)}` : whose ? `${PROJECT}/${whose}` : undefined;
     openPanelOn(chat, tab, ref);
+    const section = params.get('section') as ProjectSection | null;
+    if (section) setPanel({ section });
     const file = params.get('file');
     if (file) openFile(ref ?? chat, file);
   }

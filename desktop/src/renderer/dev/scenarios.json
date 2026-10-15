@@ -1544,5 +1544,19 @@
     "query": "app=agent-41&v2=1&panel=terminal&theme=dark",
     "width": 480,
     "height": 844
+  },
+  {
+    "id": "window-1440-v2-panel-pulls-dark",
+    "description": "UI v2 at 1440×900, the lead's page with no tabs over its chat: the panel on Pull requests, the project's — dark",
+    "query": "app=project&v2=1&panel=pulls&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-panel-settings-dark",
+    "description": "UI v2 at 1440×900, the panel on the project's Settings (General), its sections along the top — dark",
+    "query": "app=project&v2=1&panel=settings&section=general&theme=dark",
+    "width": 1440,
+    "height": 900
   }
 ]

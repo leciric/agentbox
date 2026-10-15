@@ -3173,6 +3173,8 @@ export const enUS = {
   'panel.tab.browser': 'Browser',
   'panel.tab.pages': 'Pages',
   'panel.tab.media': 'Media',
+  'panel.tab.pulls': 'Pull requests',
+  'panel.tab.settings': 'Settings',
   'panel.needsMachineTip': '{tab}: needs an agent with a machine',
   'panel.pickerLabel': 'Whose files, desktop and media to show',
   'panel.find': 'Find an agent…',

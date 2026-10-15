@@ -165,16 +165,20 @@ export function MediaTab({ agent }: { agent: T.Agent }) {
                   </MenuContent>
                 </Menu>
               )}
-              <Button size="sm" onClick={() => setNoting(true)}>
-                <StickyNote />
-                {t('agent.mediaTab.note')}
-              </Button>
-              <Tip label={t('agent.mediaTab.exportTip')}>
+              {/* A past agent's (UI v2's panel, state "archived") is only read:
+                  its routes went with it. */}
+              {agent.state !== 'archived' && (
+                <Button size="sm" onClick={() => setNoting(true)}>
+                  <StickyNote />
+                  {t('agent.mediaTab.note')}
+                </Button>
+              )}
+              {agent.state !== 'archived' && <Tip label={t('agent.mediaTab.exportTip')}>
                 <Button size="sm" variant="ghost" disabled={total === 0 || exportAll.isPending} onClick={() => exportAll.mutate()}>
                   {exportAll.isPending ? <LoaderCircle className="animate-spin" /> : <Download />}
                   {t('agent.mediaTab.export')}
                 </Button>
-              </Tip>
+              </Tip>}
             </>
           )}
           <MediaSelection

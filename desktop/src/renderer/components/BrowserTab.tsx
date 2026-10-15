@@ -36,7 +36,7 @@ export function BrowserTab({ agent, onOpenMedia }: { agent: T.Agent; onOpenMedia
   const desktopUp = running && status.data?.display === true;
   const browserUp = running && status.data?.running === true;
   const { view, connected, paste } = useVncView(browserViewPath(agent.ref), desktopUp, control);
-  const page = status.data?.pages[0];
+  const page = status.data?.pages?.[0];
   const isRecording = recording.data?.recording === true;
 
   const setStatus = (next: T.BrowserStatus) => queryClient.setQueryData(['browser', agent.ref], next);

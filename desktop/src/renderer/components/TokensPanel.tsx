@@ -76,7 +76,7 @@ export function TokensPanel({ project, onOpenAgent }: { project?: string; onOpen
             ))}
           </TabsList>
         </Tabs>
-        <p className="min-w-0 flex-1 text-[12px] leading-relaxed text-subtle">
+        <p className="min-w-0 flex-1 basis-64 text-[12px] leading-relaxed text-subtle">
           {t('vm.tokens.intro')}
         </p>
       </div>

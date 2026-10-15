@@ -110,3 +110,15 @@ test('the Browser tab offers the ports the agent’s Chromium has open, through 
   assert.equal(P.previewUrl({ name: 'agent-2', project: 'pawly' }, '5173', '127.0.0.1:7777', '/preview.html'), 'http://5173.agent-2.pawly.localhost:7777/preview.html');
   assert.equal(P.previewUrl({ name: 'agent-2', project: 'pawly' }, '3000', ':7777'), 'http://3000.agent-2.pawly.localhost:7777/');
 });
+
+test('pull requests and settings are the project’s, whoever is picked', () => {
+  assert.deepEqual(P.panelTabs.filter(P.projectWide), ['pulls', 'settings']);
+  assert.equal(P.needsMachine('settings'), false);
+  assert.equal(P.panelState().section, 'repository');
+});
+
+test('the project’s settings and pull requests open the panel wide', () => {
+  assert.equal(P.panelWant({ tab: 'settings', width: 540 }), P.panelWide);
+  assert.equal(P.panelWant({ tab: 'pulls', width: 1000 }), 1000);
+  assert.equal(P.panelWant({ tab: 'files', width: 540 }), 540);
+});

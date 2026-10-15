@@ -554,7 +554,7 @@ export function App({ initial }: { initial?: View } = {}) {
           </main>
           {/* v2's right-hand panel: files, desktop, terminal, browser,
               pages and media, beside the chat or over it. */}
-          {v2 && !setup && <RightPanelHost view={view} />}
+          {v2 && !setup && <RightPanelHost view={view} onSelect={select} />}
           {!v2 && (view.kind === "project" || view.kind === "agent") && (
             <div className="hidden xl:flex">
               <AgentRail
