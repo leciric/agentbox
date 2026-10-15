@@ -28,7 +28,7 @@ func TestEventStreamKeepalive(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer res.Body.Close()
+		defer func() { _ = res.Body.Close() }()
 		lines := bufio.NewScanner(res.Body)
 		for lines.Scan() {
 			line := lines.Text()
