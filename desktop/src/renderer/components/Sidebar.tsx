@@ -756,7 +756,7 @@ function HomeChatItem({ active, onClick }: { active: boolean; onClick: () => voi
 
 // MediaNavItem opens the all-projects Media view, with how many screenshots
 // and recordings you were told about and haven't opened.
-function MediaNavItem({ active, onClick }: { active: boolean; onClick: () => void }) {
+export function MediaNavItem({ active, onClick }: { active: boolean; onClick: () => void }) {
   const t = useT();
   const unseen = useMediaCounts({ kinds: shownKinds }).data?.unseen ?? 0;
   return (
@@ -771,7 +771,7 @@ function MediaNavItem({ active, onClick }: { active: boolean; onClick: () => voi
   );
 }
 
-function NavItem({
+export function NavItem({
   icon: Icon,
   active,
   title,

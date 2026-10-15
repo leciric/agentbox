@@ -48,6 +48,7 @@ export function ChatTab({
   onOpenAgent,
   openAt,
   readOnly,
+  aboveComposer,
 }: {
   agent: T.Agent;
   starting: boolean;
@@ -56,6 +57,8 @@ export function ChatTab({
   onOpenAgent?: (ref: string) => void;
   openAt?: ChatOpenAt;
   readOnly?: { onContinue: () => void; onDelete: () => void };
+  // Something to show over the composer, such as UI v2's review card.
+  aboveComposer?: ReactNode;
 }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -374,6 +377,7 @@ export function ChatTab({
             </div>
           ) : (
             <>
+              {aboveComposer}
               <PageStack agent={agent} />
               <Composer
                 agent={agent}

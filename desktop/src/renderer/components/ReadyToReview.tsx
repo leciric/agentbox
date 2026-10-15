@@ -12,7 +12,7 @@ import {
   LoaderCircle,
   Play,
 } from 'lucide-react';
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { useContext, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
@@ -37,6 +37,7 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Kbd, Notice } from './ui/card';
 import { Dialog, DialogContent, DialogTitle, fullWhenNarrow } from './ui/dialog';
+import { ReviewDecisionContext } from './v2/reviewDecision';
 
 // "Ready to review" is a section of the top bar's inbox (components/Inbox.tsx):
 // the agents that finished and wait for the user to look at their work,
@@ -188,7 +189,7 @@ function ReviewRow({ item, isNew, now, projects, onOpen }: { item: T.ReviewItem;
 function VerdictText({ item, now }: { item: T.ReviewItem; now?: number }) {
   const t = useT();
   const when = item.reviewedAt ? timeAgo(item.reviewedAt, now) : '';
-  return <>{t(item.verdict === 'dismissed' ? 'review.verdict.dismissed' : 'review.verdict.reviewed', { when })}</>;
+  return <>{t(item.verdict === 'dismissed' ? 'review.verdict.dismissed' : item.verdict === 'changes' ? 'review.verdict.changes' : 'review.verdict.reviewed', { when })}</>;
 }
 
 const blockLabels: Record<Exclude<MergeBlock, 'merged' | 'closed'>, MessageKey> = {
@@ -251,6 +252,8 @@ function ReviewCarousel({
   const canMerge = !!pr && blocked !== 'merged' && blocked !== 'closed';
   const mergeReason = blocked && blocked !== 'merged' && blocked !== 'closed' ? t(blockLabels[blocked], { base: pr?.baseBranch ?? '' }) : undefined;
   const swipe = useRef<{ x: number; y: number } | null>(null);
+  // UI v2's decision under the header, Merge first (v2/ReviewV2.tsx).
+  const Decision = useContext(ReviewDecisionContext);
 
   // Looking at an agent's work is reviewing it: it moves to Reviewed as the
   // carousel opens, on the work as it is shown, so a change landing while
@@ -339,7 +342,7 @@ function ReviewCarousel({
               <div className="flex min-w-0 items-center gap-2">
                 <DialogTitle className={cn('truncate text-[16px] leading-snug', !item.title && 'font-mono')}>{item.title || item.agent}</DialogTitle>
                 {item.verdict && (
-                  <Badge variant={item.verdict === 'dismissed' ? 'default' : 'success'} className="shrink-0" data-review-verdict={item.verdict}>
+                  <Badge variant={item.verdict === 'dismissed' ? 'default' : item.verdict === 'changes' ? 'warning' : 'success'} className="shrink-0" data-review-verdict={item.verdict}>
                     <VerdictText item={item} />
                   </Badge>
                 )}
@@ -370,6 +373,9 @@ function ReviewCarousel({
           {/* Narrow, the summary has no column of its own. */}
           {item.summary && <NarrowSummary text={item.summary} />}
         </header>
+        {Decision && (
+          <Decision item={item} pr={pr} canMerge={canMerge} mergeReason={mergeReason} merging={!!pr && merge.running.has(pr.number)} onMerge={() => pr && merge.request(pr)} />
+        )}
 
         <div className="flex min-h-0 flex-1">
           <section className="flex min-w-0 flex-1 flex-col">
@@ -415,7 +421,7 @@ function ReviewCarousel({
               <div className="ml-auto flex shrink-0 items-center gap-2">
                 {slide?.kind === 'pr' && (
                   <>
-                    {canMerge && mergeReason && (
+                    {!Decision && canMerge && mergeReason && (
                       <span className="max-w-[260px] text-[12px] text-amber-200" data-merge-blocked>
                         {mergeReason}
                       </span>
@@ -424,7 +430,7 @@ function ReviewCarousel({
                       <ExternalLink />
                       {t('pulls.detail.openOnGitHub')}
                     </Button>
-                    {canMerge && (
+                    {!Decision && canMerge && (
                       <Button
                         size="sm"
                         variant={next ? 'secondary' : 'primary'}

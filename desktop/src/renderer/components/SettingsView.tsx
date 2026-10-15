@@ -86,6 +86,7 @@ import { DoNotDisturbSetting, ChimeVolume, NotificationKinds, NotificationModeCh
 import { defaults as notifyDefaults, usePrefs, useDnd } from "../lib/notifyPrefs";
 import { setReviewing, useReviewing } from "../lib/reviewAlert";
 import { setTopBarDetailed, useTopBarDetailed } from "../lib/topBarLayout";
+import { setUiV2, useUiV2 } from "../lib/uiV2";
 import { pageStackModes, setPageStackMode, usePageStackMode } from "../lib/pageStackMode";
 import { useHatchConnected } from "./pages/usePages";
 import { VMMigrate } from "./VMMigrate";
@@ -846,6 +847,7 @@ function InstalledSettings({
   const setup = useQuery({ queryKey: ["setup"], queryFn: api.setup });
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
   const topBarDetailed = useTopBarDetailed();
+  const uiV2 = useUiV2();
   const reviewing = useReviewing();
   const pageStack = usePageStackMode();
   const hatchConnected = useHatchConnected();
@@ -960,6 +962,19 @@ function InstalledSettings({
                   },
                 ]
               : []),
+          ],
+        },
+        {
+          id: "experimental",
+          title: t("settings.group.experimental.title"),
+          entries: [
+            {
+              id: "ui-v2",
+              label: t("settings.entry.ui-v2.label"),
+              keywords: t("settings.entry.ui-v2.keywords"),
+              modified: uiV2,
+              render: () => <UiV2Setting />,
+            },
           ],
         },
         {
@@ -1811,6 +1826,27 @@ function TopBarDetailedSetting() {
           aria-label={t("settings.entry.topbar-detailed.label")}
           checked={on}
           onCheckedChange={setTopBarDetailed}
+        />
+      }
+    />
+  );
+}
+
+// UiV2Setting is "Try the new layout (v2)" (lib/uiV2.ts): the lead-first
+// layout, switched at once, with no restart.
+function UiV2Setting() {
+  const t = useT();
+  const on = useUiV2();
+  return (
+    <SettingRow
+      label={t("settings.entry.ui-v2.label")}
+      description={t("settings.uiV2.description")}
+      control={
+        <Switch
+          data-ui-v2-setting
+          aria-label={t("settings.entry.ui-v2.label")}
+          checked={on}
+          onCheckedChange={setUiV2}
         />
       }
     />

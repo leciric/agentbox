@@ -357,7 +357,7 @@ export const api = {
   // Reviewed: the agents already looked at or dismissed, the latest first.
   reviewedPage: (query: URLSearchParams, name?: string) => call<T.ReviewPage>('GET', `${name ? `${project(name)}/review` : '/v1/review'}?reviewed=1&${query}`),
   review: (ref: string, req: T.ReviewRequest) => call<void>('POST', `${agent(ref)}/review`, req),
-  requestChanges: (ref: string, req: T.RequestChangesRequest) => call<T.TellResult>('POST', `${agent(ref)}/request-changes`, req),
+  requestChanges: (ref: string, req: T.RequestChangesRequest) => call<T.ChatItem>('POST', `${agent(ref)}/request-changes`, req),
   questions: (name: string) => call<T.Question[]>('GET', `${project(name)}/questions?all=1`),
   // An agent's credential request: the value goes to the daemon, which puts it
   // into the agent, and the agent is told only what happened (D95).

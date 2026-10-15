@@ -2073,6 +2073,12 @@ export interface ProjectChat {
   last?: ChatLine;
 }
 
+export interface ChatLine {
+  kind: string;
+  text: string;
+  at: string;
+}
+
 export interface ChatCache {
   project: string;
   idleSince?: string;

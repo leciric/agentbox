@@ -29,6 +29,7 @@ import {
   dropWindow,
   chatWindowKey,
   joinWindow,
+  lastLineOf,
   applyWindowEvent,
   appendPage,
   windowSide,
@@ -660,4 +661,22 @@ test('peekThread reads only the latest message of a chat it doesn\'t hold, and t
   queryClient.setQueryData(chatKey('p/agent-01'), peeked);
   await peekThread(queryClient, 'p/agent-01');
   assert.deepEqual(asked[1], { limit: pageSize, from: user.id });
+});
+
+test('a lead’s finished message becomes its last line, and nothing else does', () => {
+  const at = '2026-10-15T10:00:00Z';
+  const item = (over: Partial<T.ChatItem>) => ({ id: 'i', turn: 't', kind: 'assistant', text: 'Merged #12.', createdAt: at, updatedAt: at, ...over }) as T.ChatItem;
+  assert.deepEqual(lastLineOf(item({})), { kind: 'assistant', text: 'Merged #12.', at });
+  assert.equal(lastLineOf(item({ streaming: true })), undefined);
+  assert.equal(lastLineOf(item({ hidden: true })), undefined);
+  assert.equal(lastLineOf(item({ kind: 'tool' })), undefined);
+  assert.equal(lastLineOf(item({ kind: 'user', woken: true })), undefined);
+  assert.equal(lastLineOf(item({ parent: 'sub' })), undefined);
+  const queryClient = new QueryClient();
+  queryClient.setQueryData(['projectChat', 'p'], { project: 'p', ref: 'p/lead', started: true, chat: 'ready' } satisfies T.ProjectChat);
+  applyChatEvent(queryClient, { agent: 'p/lead', seq: 1, item: item({ kind: 'user', text: 'Ship it' }) });
+  assert.equal(queryClient.getQueryData<T.ProjectChat>(['projectChat', 'p'])?.last?.text, 'Ship it');
+  // An agent of the project isn't its lead.
+  applyChatEvent(queryClient, { agent: 'p/agent-1', seq: 1, item: item({ text: 'Done' }) });
+  assert.equal(queryClient.getQueryData<T.ProjectChat>(['projectChat', 'p'])?.last?.text, 'Ship it');
 });

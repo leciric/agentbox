@@ -252,6 +252,10 @@ export function applyChatEvent(queryClient: QueryClient, ev: T.ChatEvent): void 
       info && info.ref === ev.agent && info.chat !== state ? { ...info, chat: state } : info,
     );
   }
+  // A lead's last message, for UI v2's sidebar row (ProjectChat.last).
+  const line = lastLineOf(ev.item);
+  if (line)
+    queryClient.setQueryData<T.ProjectChat>(['projectChat', ev.agent.split('/')[0]], (info) => (info && info.ref === ev.agent ? { ...info, last: line } : info));
   // A turn's checkpoint was taken, or a rollback dropped the later ones.
   if (ev.checkpoint || ev.after) void queryClient.invalidateQueries({ queryKey: ['checkpoints', ev.agent] });
   const thread = queryClient.getQueryData<T.ChatThread>(chatKey(ev.agent));
@@ -268,6 +272,13 @@ export function applyChatEvent(queryClient: QueryClient, ev: T.ChatEvent): void 
   // A rollback into the window leaves it at the chat's end: it is the chat now.
   const left = queryClient.getQueryData<T.ChatThread | null>(chatWindowKey(ev.agent));
   if (left && !left.newer && next !== 'gap') setWindow(queryClient, ev.agent, left);
+}
+
+// lastLineOf is a chat item as a chat's last line, when it is one: a message
+// the user or the AI tool wrote, finished, that the timeline shows.
+export function lastLineOf(it: T.ChatItem | undefined): T.ChatLine | undefined {
+  if (!it || (it.kind !== 'user' && it.kind !== 'assistant') || !isMessage(it) || it.streaming || it.woken || !it.text?.trim()) return undefined;
+  return { kind: it.kind, text: it.text.trim(), at: it.updatedAt || it.createdAt };
 }
 
 // advance applies events in order. Events the thread already includes are

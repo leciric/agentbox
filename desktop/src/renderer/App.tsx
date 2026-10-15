@@ -28,6 +28,8 @@ import { ProjectView } from "./components/ProjectView";
 import { PastAgents } from "./components/PastAgents";
 import { SettingsView } from "./components/SettingsView";
 import { Sidebar } from "./components/Sidebar";
+import { SidebarV2 } from "./components/v2/SidebarV2";
+import { AgentReviewCard, ReviewV2 } from "./components/v2/ReviewV2";
 import { aiLabel } from "./components/state";
 import { TopBar } from "./components/TopBar";
 import { VMSetup } from "./components/VMSetup";
@@ -38,6 +40,7 @@ import { Notice } from "./components/ui/card";
 import { api } from "./lib/api";
 import { t as tNow, useT } from "./lib/i18n";
 import { useReadyAlerts } from "./lib/useReadyAlerts";
+import { useUiV2 } from "./lib/uiV2";
 import { resetChatEvents } from "./lib/chat";
 import { onNotification, useConnection } from "./lib/events";
 import { chatLabel } from "./lib/agentStatus";
@@ -66,6 +69,10 @@ export type View =
 // (dev/preview.tsx's ?app=), which opens it where a scenario points.
 export function App({ initial }: { initial?: View } = {}) {
   const t = useT();
+  // UI v2, the lead-first layout (Settings → General → Experimental): its own
+  // sidebar, with each project's agents under its lead and no agent rail, and
+  // the review's decision in the carousel. It switches as the setting does.
+  const v2 = useUiV2();
   const [view, setView] = useState<View>(initial ?? { kind: "home" });
   const [tabs, setTabs] = useState<Record<string, AgentPlaceName>>({});
   const [addingProject, setAddingProject] = useState(false);
@@ -396,15 +403,24 @@ export function App({ initial }: { initial?: View } = {}) {
             ? `pastAgents:${view.ref ?? ""}`
             : view.kind;
 
-  return (
+  const shell = (
     <div className="flex h-full">
       <div className="hidden lg:flex">
-        <Sidebar
-          view={view}
-          onSelect={select}
-          onAddProject={() => setAddingProject(true)}
-          onNewAgent={setNewAgentProject}
-        />
+        {v2 ? (
+          <SidebarV2
+            view={view}
+            onSelect={select}
+            onAddProject={() => setAddingProject(true)}
+            onNewAgent={setNewAgentProject}
+          />
+        ) : (
+          <Sidebar
+            view={view}
+            onSelect={select}
+            onAddProject={() => setAddingProject(true)}
+            onNewAgent={setNewAgentProject}
+          />
+        )}
       </div>
       {navOpen && (
         <div className="fixed inset-0 z-40 flex lg:hidden" data-nav-drawer>
@@ -413,18 +429,23 @@ export function App({ initial }: { initial?: View } = {}) {
             onClick={() => setNavOpen(false)}
           />
           <div className="relative flex h-full max-w-[85vw] animate-fade-in bg-modal shadow-[20px_0_60px_-20px_var(--ab-shadow-deep)]">
-            <Sidebar
-              view={view}
-              onSelect={select}
-              onAddProject={() => {
-                setNavOpen(false);
-                setAddingProject(true);
-              }}
-              onNewAgent={(project) => {
-                setNavOpen(false);
-                setNewAgentProject(project);
-              }}
-            />
+            {(() => {
+              const Nav = v2 ? SidebarV2 : Sidebar;
+              return (
+                <Nav
+                  view={view}
+                  onSelect={select}
+                  onAddProject={() => {
+                    setNavOpen(false);
+                    setAddingProject(true);
+                  }}
+                  onNewAgent={(project) => {
+                    setNavOpen(false);
+                    setNewAgentProject(project);
+                  }}
+                />
+              );
+            })()}
           </div>
         </div>
       )}
@@ -433,7 +454,7 @@ export function App({ initial }: { initial?: View } = {}) {
           view={view}
           onSelect={select}
           onOpenNav={() => setNavOpen(true)}
-          onOpenRail={() => setRailOpen(true)}
+          onOpenRail={v2 ? undefined : () => setRailOpen(true)}
           onOpenNotice={openNotice}
           onSearch={() => openSearch()}
         />
@@ -501,12 +522,13 @@ export function App({ initial }: { initial?: View } = {}) {
                     tab={tabs[view.ref]}
                     onTab={(tab) => setTabs((t) => ({ ...t, [view.ref]: tab }))}
                     onSelect={select}
+                    chatCard={v2 ? (agent) => <AgentReviewCard agent={agent} /> : undefined}
                   />
                 )}
               </div>
             )}
           </main>
-          {(view.kind === "project" || view.kind === "agent") && (
+          {!v2 && (view.kind === "project" || view.kind === "agent") && (
             <div className="hidden xl:flex">
               <AgentRail
                 view={view}
@@ -515,7 +537,7 @@ export function App({ initial }: { initial?: View } = {}) {
               />
             </div>
           )}
-          {railOpen && (view.kind === "project" || view.kind === "agent") && (
+          {!v2 && railOpen && (view.kind === "project" || view.kind === "agent") && (
             <div className="fixed inset-0 z-40 flex justify-end xl:hidden" data-rail-drawer>
               <div
                 className="absolute inset-0 animate-fade-in bg-scrim backdrop-blur-sm"
@@ -620,4 +642,5 @@ export function App({ initial }: { initial?: View } = {}) {
         )}
     </div>
   );
+  return v2 ? <ReviewV2 onSelect={select}>{shell}</ReviewV2> : shell;
 }
