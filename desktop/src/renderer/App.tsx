@@ -5,6 +5,7 @@ import { AddProjectDialog } from "./components/AddProjectDialog";
 import { AgentRail } from "./components/AgentRail";
 import { AgentView } from "./components/AgentView";
 import { openSettingsEvent, openSettingsSection, rememberSection } from "./components/SettingsPage";
+import { openProjectEvent } from "./components/chat/ProjectMessageCard";
 import { isSearchShortcut, SearchModal } from "./components/SearchModal";
 import { openSearch, toggleSearch } from "./lib/searchOpen";
 import { ErrorReports } from "./components/ErrorReports";
@@ -39,6 +40,8 @@ import { t as tNow, useT } from "./lib/i18n";
 import { useReadyAlerts } from "./lib/useReadyAlerts";
 import { resetChatEvents } from "./lib/chat";
 import { onNotification, useConnection } from "./lib/events";
+import { kindOf, mayNotify } from "./lib/notifyPrefs";
+import { playReadySound } from "./lib/reviewAlert";
 import type { AgentPlaceName, ProjectPlaceName } from "./lib/tabs";
 import { requestReveal } from "./lib/reveal";
 import type { SearchTarget } from "./lib/search";
@@ -57,15 +60,31 @@ export type View =
   // Every project's past agents, or one of them (ref) read in its chat.
   | { kind: "pastAgents"; ref?: string };
 
-export function App() {
+// initial is the view the app opens on: Home, except in the dev preview
+// (dev/preview.tsx's ?app=), which opens it where a scenario points.
+export function App({ initial }: { initial?: View } = {}) {
   const t = useT();
-  const [view, setView] = useState<View>({ kind: "home" });
+  const [view, setView] = useState<View>(initial ?? { kind: "home" });
   const [tabs, setTabs] = useState<Record<string, AgentPlaceName>>({});
   const [addingProject, setAddingProject] = useState(false);
   const [newAgentProject, setNewAgentProject] = useState<string | null>(null);
   const [whatsNew, setWhatsNew] = useState(false);
-  // On a narrow screen (a phone, in the web app), the sidebar slides in over the page.
+  // In a narrow window (below lg, 1024px: a small screen, a portrait monitor,
+  // or a phone in the web app), the sidebar slides in over the page from the
+  // left; below xl (1280px), the agent rail from the right. Each is a drawer
+  // the top bar opens, so the page keeps the width.
   const [navOpen, setNavOpen] = useState(false);
+  const [railOpen, setRailOpen] = useState(false);
+  useEffect(() => {
+    if (!navOpen && !railOpen) return;
+    const close = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setNavOpen(false);
+      setRailOpen(false);
+    };
+    window.addEventListener("keydown", close);
+    return () => window.removeEventListener("keydown", close);
+  }, [navOpen, railOpen]);
   const agents = useQuery({ queryKey: ["agents"], queryFn: api.agents });
   const connection = useConnection();
   // On a Mac, the daemon lives in AgentBox's Linux VM, and on Windows in its
@@ -119,6 +138,7 @@ export function App() {
       setTabs((t) => ({ ...t, [next.ref]: next.tab! }));
     setView(next);
     setNavOpen(false);
+    setRailOpen(false);
   };
 
   // A link from inside a page to a section of Settings (openSettingsSection):
@@ -133,6 +153,16 @@ export function App() {
     };
     window.addEventListener(openSettingsEvent, open);
     return () => window.removeEventListener(openSettingsEvent, open);
+  }, []);
+
+  // A link from a chat to another project's, on a message between their leads.
+  useEffect(() => {
+    const open = (e: Event) => {
+      setView({ kind: "project", project: (e as CustomEvent<string>).detail });
+      setNavOpen(false);
+    };
+    window.addEventListener(openProjectEvent, open);
+    return () => window.removeEventListener(openProjectEvent, open);
   }, []);
 
   // Leave an agent's view once the agent is gone, destroyed here or from the CLI.
@@ -222,7 +252,13 @@ export function App() {
       // Long enough to reach with the pointer: the toast is the way in.
       { id: n.id, duration: 10_000 },
     );
-    void window.agentbox.notify({ id: n.id, ...noticeText(n, projectName) });
+    const kind = kindOf(n);
+    // A finish's chime is the ready alert's (useReadyAlerts), and a kept
+    // screenshot is quiet: only a question or a failure sounds here.
+    if ((kind === "question" || kind === "error") && mayNotify(kind, "sound"))
+      playReadySound();
+    if (mayNotify(kind, "system"))
+      void window.agentbox.notify({ id: n.id, ...noticeText(n, projectName) });
   };
   const waiting = useRef(new Map<string, () => void>());
 
@@ -301,6 +337,10 @@ export function App() {
       select({ kind: "agent", ref: first.ref, tab: "chat" });
     });
     const projects = queryClient.getQueryData<T.Project[]>(["projects"]);
+    if (!mayNotify("finished", "system")) {
+      waiting.current.delete(id);
+      return;
+    }
     void window.agentbox
       .notify({
         id,
@@ -331,7 +371,7 @@ export function App() {
 
   return (
     <div className="flex h-full">
-      <div className="hidden md:flex">
+      <div className="hidden lg:flex">
         <Sidebar
           view={view}
           onSelect={select}
@@ -340,7 +380,7 @@ export function App() {
         />
       </div>
       {navOpen && (
-        <div className="fixed inset-0 z-40 flex md:hidden" data-nav-drawer>
+        <div className="fixed inset-0 z-40 flex lg:hidden" data-nav-drawer>
           <div
             className="absolute inset-0 animate-fade-in bg-scrim backdrop-blur-sm"
             onClick={() => setNavOpen(false)}
@@ -366,7 +406,7 @@ export function App() {
           view={view}
           onSelect={select}
           onOpenNav={() => setNavOpen(true)}
-          onNewAgent={setNewAgentProject}
+          onOpenRail={() => setRailOpen(true)}
           onOpenNotice={openNotice}
           onSearch={() => openSearch()}
         />
@@ -440,12 +480,31 @@ export function App() {
             )}
           </main>
           {(view.kind === "project" || view.kind === "agent") && (
-            <div className="hidden lg:flex">
+            <div className="hidden xl:flex">
               <AgentRail
                 view={view}
                 onSelect={select}
                 onNewAgent={setNewAgentProject}
               />
+            </div>
+          )}
+          {railOpen && (view.kind === "project" || view.kind === "agent") && (
+            <div className="fixed inset-0 z-40 flex justify-end xl:hidden" data-rail-drawer>
+              <div
+                className="absolute inset-0 animate-fade-in bg-scrim backdrop-blur-sm"
+                onClick={() => setRailOpen(false)}
+              />
+              <div className="relative flex h-full max-w-[85vw] animate-fade-in bg-modal shadow-[-20px_0_60px_-20px_var(--ab-shadow-deep)]">
+                <AgentRail
+                  view={view}
+                  onSelect={select}
+                  onNewAgent={(project) => {
+                    setRailOpen(false);
+                    setNewAgentProject(project);
+                  }}
+                  onClose={() => setRailOpen(false)}
+                />
+              </div>
             </div>
           )}
         </div>

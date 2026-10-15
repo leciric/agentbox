@@ -1086,6 +1086,42 @@ var migrations = []string{
 	`ALTER TABLE agents ADD COLUMN opencode_accounts TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE agents ADD COLUMN cursor_account TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE chats ADD COLUMN tool_accounts TEXT NOT NULL DEFAULT ''`,
+	// Leads of two projects talking (projectthreads.go): a thread is a
+	// message and its replies, or an alignment on a topic until one of them
+	// settles it. project started it and peer is the other; on a message,
+	// project sent it and peer received it. A link is a pair of projects the
+	// user let talk, written both ways round.
+	`CREATE TABLE project_threads (
+		id         TEXT PRIMARY KEY,
+		project    TEXT NOT NULL,
+		peer       TEXT NOT NULL,
+		kind       TEXT NOT NULL,
+		topic      TEXT NOT NULL DEFAULT '',
+		status     TEXT NOT NULL,
+		summary    TEXT NOT NULL DEFAULT '',
+		settled_by TEXT NOT NULL DEFAULT '',
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	)`,
+	`CREATE INDEX project_threads_by_pair ON project_threads (project, peer, created_at)`,
+	`CREATE TABLE project_messages (
+		id            TEXT PRIMARY KEY,
+		thread        TEXT NOT NULL,
+		project       TEXT NOT NULL,
+		peer          TEXT NOT NULL,
+		text          TEXT NOT NULL,
+		hop           INTEGER NOT NULL,
+		expects_reply INTEGER NOT NULL DEFAULT 0,
+		created_at    INTEGER NOT NULL
+	)`,
+	`CREATE INDEX project_messages_by_thread ON project_messages (thread, created_at)`,
+	`CREATE INDEX project_messages_by_pair ON project_messages (project, peer, created_at)`,
+	`CREATE TABLE project_links (
+		project     TEXT NOT NULL,
+		peer        TEXT NOT NULL,
+		approved_at INTEGER NOT NULL,
+		PRIMARY KEY (project, peer)
+	)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -1672,6 +1708,12 @@ func (s *Store) RemoveProject(ctx context.Context, name string) error {
 			return fmt.Errorf("removing project %q's %s: %w", name, table, err)
 		}
 	}
+	// And what another project's lead said to it, or agreed with it.
+	for _, table := range peerOwned {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE peer = ?`, name); err != nil {
+			return fmt.Errorf("removing project %q's %s: %w", name, table, err)
+		}
+	}
 	res, err := tx.ExecContext(ctx, `DELETE FROM projects WHERE name = ?`, name)
 	if err != nil {
 		return err
@@ -1721,7 +1763,15 @@ var projectOwned = []string{
 	"agent_reports",
 	"artifacts",
 	"events",
+	// Its lead's talks with other projects' (projectthreads.go).
+	"project_threads",
+	"project_messages",
+	"project_links",
 }
+
+// peerOwned is the tables that also name a project as peer: the other side
+// of a talk between two projects' leads, which goes with either of them.
+var peerOwned = []string{"project_threads", "project_messages", "project_links"}
 
 // projectKept is the project-keyed tables a removed project leaves alone, and
 // why.

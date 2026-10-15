@@ -47,7 +47,7 @@ import { Markdown } from './chat/Markdown';
 import { Badge, type BadgeVariant } from './ui/badge';
 import { Button } from './ui/button';
 import { Notice } from './ui/card';
-import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
+import { Dialog, DialogContent, DialogTitle, fullWhenNarrow } from './ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
 const stateLabels: Record<string, MessageKey> = { open: 'memory.pulls.state.open', merged: 'memory.pulls.state.merged', closed: 'memory.pulls.state.closed' };
@@ -106,7 +106,7 @@ export function PullRequestModal({
 }) {
   return (
     <Dialog open={pr !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="flex h-[88vh] max-w-6xl flex-col gap-0 overflow-hidden p-0" data-pull-detail={pr?.number}>
+      <DialogContent className={cn('flex h-[88vh] max-w-6xl flex-col gap-0 overflow-hidden p-0', fullWhenNarrow)} data-pull-detail={pr?.number}>
         {pr && (
           <PullRequestView
             project={project}

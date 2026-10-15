@@ -25,6 +25,7 @@ import { Streams } from './streams';
 import { installAppUpdates, restartingForUpdate } from './updater';
 import { learnMode, linuxVM } from './vmmode';
 import { denyMedia } from './permissions';
+import { keepWindowState, windowOptions } from './windowstate';
 import { distro, linuxPath, windowsPath } from './wslpaths';
 import { setLanguage, t } from '../shared/i18n/index.ts';
 import './vmpower';
@@ -260,10 +261,7 @@ installAppUpdates(send);
 
 function createWindow(): void {
   win = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 1024,
-    minHeight: 640,
+    ...windowOptions(),
     title: 'AgentBox',
     backgroundColor: '#07070b',
     autoHideMenuBar: true,
@@ -273,6 +271,7 @@ function createWindow(): void {
       sandbox: true,
     },
   });
+  keepWindowState(win);
   void win.loadFile(join(__dirname, '../renderer/index.html'));
   win.on('closed', () => {
     streams.closeAll();

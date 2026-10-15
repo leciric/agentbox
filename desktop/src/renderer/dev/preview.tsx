@@ -41,7 +41,8 @@
 //                           readable, with Start (Resume) on the composer.
 //                           Start, or sending a message, wakes it after 1.5s
 //   ?chat=rich              a project chat's answer with each kind of rich block
-//                           (lib/rich.ts); &narrow=1 in a 340px column
+//                           (lib/rich.ts); &narrow=1 in a 340px column; &wide=1 in the
+//                           chat's scroller (&files=1 beside a 340px panel)
 //   ?chat=compaction        a project chat's timeline with compaction cards,
 //                           done, failed and running with a held message
 //   ?wsl=create|nowsl       Windows' first screen before setup: the distro to
@@ -141,6 +142,13 @@
 //                           dev bridge (fixtures.ts)
 //   ?power=wsl-running|wsl-off
 //                           the same on Windows, for AgentBox's WSL distro
+//   ?app=home|project|pulls|agent-99|settings
+//                           the whole App, sidebar, top bar, page and rail, as
+//                           the window shows it, open on Home, the project's
+//                           chat, agent-99 or Settings: for narrow and portrait
+//                           windows, where the shell's columns turn into
+//                           drawers. "Ready to review" has agents waiting
+//                           (dev/review.tsx), for its modal and the PR's
 //   ?newagent=1             the New agent dialog, open on the project, for its
 //                           Size picker and the rest of its form
 //   &free=progress|done|partial|error
@@ -252,6 +260,7 @@ const power = params.get('power');
 const free = params.get('free');
 const newAgent = params.get('newagent') === '1';
 const past = params.get('past'); // 'list' every project's past agents, 'chat' one read in its chat
+const appView = params.get('app'); // 'home' | 'project' | 'settings' | an agent's name
 const loading = params.get('loading'); // 'hold' | 'refetch' | milliseconds | null
 const io = params.get('io'); // "1" | "stalling" | "agent" | null
 const imageUpdate = params.get('setup') === 'updating';
@@ -347,7 +356,7 @@ if (artifacts) {
   seedPages(queryClient);
   if (artifacts !== 'lead') queryClient.setQueryData(['chat', `${PROJECT}/${artifacts}`], { ...agent12Chat(), agent: `${PROJECT}/${artifacts}` });
 }
-if (pulls) queryClient.setQueryData(['pulls', PROJECT], pullRequests());
+if (pulls || appView === 'pulls') queryClient.setQueryData(['pulls', PROJECT], pullRequests());
 if (past) seedPastAgents(queryClient);
 if (home) {
   const at = new Date().toISOString();
@@ -364,9 +373,9 @@ if (home) {
 if (media === 'all') seedAllMedia();
 else if (media) seedMedia(queryClient);
 if (notify) seedNotifications(queryClient, mockMedia());
-if (review) seedReview(queryClient);
+if (review || appView) seedReview(queryClient);
 if (imageUpdate) seedImageUpdate(queryClient);
-if (settingsPage) seedSettings(queryClient);
+if (settingsPage || appView === 'settings') seedSettings(queryClient);
 if (params.get('drag')) dragBridge(queryClient, params.get('drag') === 'slow' ? 1_500 : 300);
 if (params.get('enforce') === '1') { seedDefaults(queryClient); queryClient.setQueryData<T.Settings>(['settings'], (s) => s && { ...s, enforceAgentDefaults: true }); }
 if (params.get('nightly') === '1') seedNightly(queryClient);
@@ -508,7 +517,7 @@ function UsagePreview() {
       {views.map(([label, v]) => (
         <section key={label} data-usage-view={v.kind === 'agent' ? v.ref.split('/')[1] : v.kind}>
           <h3 style={{ padding: '14px 20px 4px', color: 'var(--ab-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: 11 }}>{label}</h3>
-          <TopBar view={v} onSelect={() => {}} onOpenNav={() => {}} onNewAgent={() => {}} />
+          <TopBar view={v} onSelect={() => {}} onOpenNav={() => {}} />
         </section>
       ))}
     </div>
@@ -601,7 +610,7 @@ function Preview() {
   if (power) {
     return (
       <div style={{ minHeight: '100vh', background: 'var(--color-ink)', font: '13px var(--font-sans)' }} data-preview-power={power}>
-        <TopBar view={{ kind: 'home' }} onSelect={() => {}} onOpenNav={() => {}} onNewAgent={() => {}} onOpenNotice={() => {}} />
+        <TopBar view={{ kind: 'home' }} onSelect={() => {}} onOpenNav={() => {}} onOpenNotice={() => {}} />
         {seededRun && <SeededFreeRun run={seededRun} />}
       </div>
     );
@@ -610,7 +619,7 @@ function Preview() {
   if (meters) {
     return (
       <div style={{ minHeight: '100vh', background: 'var(--color-ink)', font: '13px var(--font-sans)' }}>
-        <TopBar view={{ kind: 'home' }} onSelect={() => {}} onOpenNav={() => {}} onNewAgent={() => {}} onOpenNotice={() => {}} />
+        <TopBar view={{ kind: 'home' }} onSelect={() => {}} onOpenNav={() => {}} onOpenNotice={() => {}} />
       </div>
     );
   }
@@ -681,7 +690,7 @@ function Preview() {
     const agent = fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-12`)!;
     return (
       <div data-preview-io style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', background: 'var(--color-ink)' }}>
-        <TopBar view={io === 'agent' ? { kind: 'agent', ref: agent.ref } : { kind: 'home' }} onSelect={() => {}} onOpenNav={() => {}} onNewAgent={() => {}} />
+        <TopBar view={io === 'agent' ? { kind: 'agent', ref: agent.ref } : { kind: 'home' }} onSelect={() => {}} onOpenNav={() => {}} />
         <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             {io === 'agent' ? <OverviewTab agent={agent} /> : <HomeView onSelect={() => {}} onAddProject={() => {}} onNewAgent={() => {}} />}
@@ -752,6 +761,17 @@ function Preview() {
         ) : chat === 'stopped' || chat === 'paused' ? (
           <div style={{ height: '100%', margin: -24 }}>
             <AsleepChatPreview state={chat} agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-99`)!} />
+          </div>
+        ) : chat === 'rich' && params.get('wide') ? (
+          // The chat's own scroller and column, to see the blocks break out of the
+          // text; &files=1 beside a 340px panel, as with the Files panel open.
+          <div style={{ display: 'flex', height: '100%', margin: -24 }} data-rich-preview>
+            <div className="chat-scroller" style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
+              <div className="mx-auto w-full max-w-4xl px-4 pt-6 md:px-6">
+                <Timeline agent={{ ...fixtures.agents[0], ref: `${PROJECT}/lead`, name: 'lead' }} thread={richChat()} />
+              </div>
+            </div>
+            {params.get('files') && <div style={{ width: 340, flexShrink: 0, borderLeft: '1px solid var(--ab-line)' }} />}
           </div>
         ) : chat === 'rich' ? (
           <div style={{ maxWidth: params.get('narrow') ? 340 : 720 }} data-rich-preview>
@@ -1065,6 +1085,21 @@ if (phoneMode === 'frame') {
     <QueryClientProvider client={appClient}>
       <TooltipProvider delayDuration={250}>
         <App />
+      </TooltipProvider>
+    </QueryClientProvider>,
+  );
+} else if (appView) {
+  const { App } = await import('../App');
+  const initial: View =
+    appView === 'home' ? { kind: 'home' }
+    : appView === 'settings' ? { kind: 'settings' }
+    : appView === 'project' || appView === 'pulls' ? { kind: 'project', project: PROJECT, tab: appView === 'pulls' ? 'pulls' : 'chat' }
+    : { kind: 'agent', ref: `${PROJECT}/${appView}` };
+  createRoot(document.getElementById('root')!).render(
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider delayDuration={250}>
+        <App initial={initial} />
+        <Toaster position="bottom-right" />
       </TooltipProvider>
     </QueryClientProvider>,
   );

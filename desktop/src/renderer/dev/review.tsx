@@ -245,7 +245,7 @@ export function ReviewPreview() {
     <div style={{ display: 'flex', height: '100vh', width: '100vw' }}>
       <Sidebar view={view} onSelect={() => {}} onAddProject={() => {}} onNewAgent={() => {}} />
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', background: 'var(--color-ink)' }} data-preview-review>
-        <TopBar view={view} onSelect={() => {}} onOpenNav={() => {}} onNewAgent={() => {}} onOpenNotice={() => {}} />
+        <TopBar view={view} onSelect={() => {}} onOpenNav={() => {}} onOpenNotice={() => {}} />
         <button type="button" data-preview-land onClick={() => land(queryClient)} style={{ position: 'fixed', bottom: 12, left: 260, zIndex: 50, padding: '6px 12px', borderRadius: 8, background: '#333', color: '#fff', fontSize: 12 }}>
           Land agent-77
         </button>

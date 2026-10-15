@@ -125,7 +125,7 @@ export function AgentView({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 md:flex-nowrap md:px-6">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 md:px-6 2xl:flex-nowrap">
         <LiveAgentAvatar agent={agent} />
         <AgentTitle agent={agent} editing={editingTitle} onEditing={setEditingTitle} onSave={(title) => rename.mutate(title)} />
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -354,7 +354,7 @@ function AgentTitle({ agent, editing, onEditing, onSave }: { agent: T.Agent; edi
     );
   }
   return (
-    <button className="group flex min-w-0 max-w-64 shrink items-center gap-1.5 text-left" onClick={() => onEditing(true)} aria-label={t('agent.view.editTitleLabel')}>
+    <button className="group flex min-w-24 max-w-64 shrink items-center gap-1.5 text-left" onClick={() => onEditing(true)} aria-label={t('agent.view.editTitleLabel')}>
       <span className="truncate text-[15px] font-semibold tracking-tight text-title">{agent.title || agent.name}</span>
       {!agent.title && <span className="hidden shrink-0 text-xs text-faint opacity-0 transition group-hover:opacity-100 sm:inline">{t('agent.view.addTitle')}</span>}
       <Pencil className="size-3.5 shrink-0 text-faint opacity-0 transition group-hover:opacity-100" />

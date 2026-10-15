@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"time"
 )
 
 // The lead client: what a project's chat calls, on the socket that decides
@@ -245,4 +246,77 @@ func (c *Client) SwitchProjectSkill(ctx context.Context, name string, req LeadSk
 // RemoveProjectSkill deletes a skill once the user approves it.
 func (c *Client) RemoveProjectSkill(ctx context.Context, name string) error {
 	return c.do(ctx, http.MethodDelete, c.leadPath("/skills/"+url.PathEscape(name)), nil, nil)
+}
+
+// Talking to other projects' leads. Each request names the other project or
+// the thread, never its own: the socket still says which project is talking.
+
+// ProjectMessageRequest starts a thread with another project's lead: a
+// message, or, with Topic, an alignment on it.
+type ProjectMessageRequest struct {
+	Project      string `json:"project"`
+	Message      string `json:"message"`
+	ExpectsReply bool   `json:"expectsReply,omitempty"`
+	Topic        string `json:"topic,omitempty"`
+}
+
+// ProjectReplyRequest answers the other lead in a thread.
+type ProjectReplyRequest struct {
+	Message      string `json:"message"`
+	ExpectsReply bool   `json:"expectsReply,omitempty"`
+}
+
+// ProjectSettleRequest settles an alignment with what the two leads agreed.
+type ProjectSettleRequest struct {
+	Summary string `json:"summary"`
+}
+
+// ProjectThread is a conversation between two projects' leads, from one of
+// them's side: Project is the other.
+type ProjectThread struct {
+	ID        string    `json:"id"`
+	Project   string    `json:"project"`
+	Kind      string    `json:"kind"` // message or align
+	Topic     string    `json:"topic,omitempty"`
+	Status    string    `json:"status"` // open or settled
+	Summary   string    `json:"summary,omitempty"`
+	StartedBy string    `json:"startedBy"`
+	Messages  int       `json:"messages"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	// Last is the thread's newest message.
+	Last *ProjectThreadMessage `json:"last,omitempty"`
+}
+
+// ProjectThreadMessage is one message in a thread.
+type ProjectThreadMessage struct {
+	From         string    `json:"from"`
+	Text         string    `json:"text"`
+	Hop          int       `json:"hop"`
+	ExpectsReply bool      `json:"expectsReply,omitempty"`
+	CreatedAt    time.Time `json:"createdAt"`
+}
+
+// MessageProject sends another project's lead a message, starting a thread.
+func (c *Client) MessageProject(ctx context.Context, req ProjectMessageRequest) (ProjectThread, error) {
+	var out ProjectThread
+	return out, c.do(ctx, http.MethodPost, c.leadPath("/threads"), req, &out)
+}
+
+// ReplyProject answers the other project's lead in a thread.
+func (c *Client) ReplyProject(ctx context.Context, thread string, req ProjectReplyRequest) (ProjectThread, error) {
+	var out ProjectThread
+	return out, c.do(ctx, http.MethodPost, c.leadPath("/threads/"+url.PathEscape(thread)+"/replies"), req, &out)
+}
+
+// SettleAlignment settles an alignment thread.
+func (c *Client) SettleAlignment(ctx context.Context, thread, summary string) (ProjectThread, error) {
+	var out ProjectThread
+	return out, c.do(ctx, http.MethodPost, c.leadPath("/threads/"+url.PathEscape(thread)+"/settle"), ProjectSettleRequest{Summary: summary}, &out)
+}
+
+// ProjectThreads lists the project's threads with other projects' leads.
+func (c *Client) ProjectThreads(ctx context.Context) ([]ProjectThread, error) {
+	var out []ProjectThread
+	return out, c.do(ctx, http.MethodGet, c.leadPath("/threads"), nil, &out)
 }

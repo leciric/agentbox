@@ -54,7 +54,7 @@ import { AIIcon } from './state';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Kbd, Notice } from './ui/card';
-import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
+import { Dialog, DialogContent, DialogTitle, fullWhenNarrow } from './ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 
 // ReadyToReview is the way in to "Ready to review": a button with how many
@@ -388,7 +388,7 @@ function ReviewCarousel({
   return (
     <>
       <DialogContent
-        className="flex h-[min(94vh,1040px)] max-h-[94vh] w-[calc(100vw-2rem)] max-w-[1560px] flex-col gap-0 overflow-hidden p-0"
+        className={cn('flex h-[min(94vh,1040px)] max-h-[94vh] w-[calc(100vw-2rem)] max-w-[1560px] flex-col gap-0 overflow-hidden p-0', fullWhenNarrow)}
         data-review-carousel={item.ref}
         onKeyDown={onKeyDown}
         onOpenAutoFocus={(event) => {

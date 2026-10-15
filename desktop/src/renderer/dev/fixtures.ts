@@ -1686,6 +1686,12 @@ export function installDevBridge(): void {
       if (method === 'GET' && devState.memoryUsage && path === '/v1/usage/memory') return { status: 200, body: JSON.stringify(devState.memoryUsage), contentType: 'application/json' };
       // The disk guard with room everywhere, so DiskGuardPill shows nothing
       // rather than reading the catch-all's answer as a guard.
+      // A chat's AI tools for its composer's picker: Claude Code, ready.
+      if (method === 'GET' && /^\/v1\/projects\/[^/]+\/chat\/runners$/.test(path)) {
+        const runners: T.LeadRunners = { tool: 'claude', account: 'default', runners: [{ tool: 'claude', name: 'Claude Code', ready: true, installed: true }] };
+        return { status: 200, body: JSON.stringify(runners), contentType: 'application/json' };
+      }
+      if (method === 'GET' && path === '/v1/snaps') return { status: 200, body: '[]', contentType: 'application/json' };
       if (method === 'GET' && path === '/v1/disk') return { status: 200, body: JSON.stringify({ level: 'ok', disks: [], paused: [], since: '', message: '' }), contentType: 'application/json' };
       if (method === 'GET' && devState.diskUsage && path === '/v1/usage/disk') return { status: 200, body: JSON.stringify(devState.diskUsage), contentType: 'application/json' };
       if (method === 'GET' && devState.cpuUsage && path.startsWith('/v1/usage/cpu')) return { status: 200, body: JSON.stringify(devState.cpuUsage), contentType: 'application/json' };

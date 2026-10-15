@@ -631,6 +631,28 @@
   overflow-x: auto;
 }
 
+/* Rich renders and tables break out of the chat's text column (max-w-4xl) to
+   the scroller's full width, less the column's gutters; the text stays put.
+   Only top-level blocks: inside a list the column's centre isn't theirs. */
+.chat-scroller {
+  container-type: inline-size;
+  --chat-gutter: 1rem;
+}
+
+@media (min-width: 768px) {
+  .chat-scroller {
+    --chat-gutter: 1.5rem;
+  }
+}
+
+.chat-scroller .chat-markdown > .chat-codeblock[data-rich],
+.chat-scroller .chat-markdown > .chat-markdown-table {
+  --chat-wide: max(100%, calc(100cqw - 2 * var(--chat-gutter)));
+  width: var(--chat-wide);
+  max-width: none;
+  margin-inline: calc((100% - var(--chat-wide)) / 2);
+}
+
 .chat-markdown-image {
   display: inline-block;
   max-width: 100%;

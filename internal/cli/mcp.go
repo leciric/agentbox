@@ -23,7 +23,7 @@ import (
 // Protocol on stdin and stdout, and is started by Claude Code from the lead's
 // own configuration, with AGENTBOX_SOCKET pointing at that project's socket.
 // The socket decides which project it acts on: nothing here names one, and
-// nothing it can send reaches another.
+// nothing it can send reaches another but a message to another project's lead.
 func newMCPCmd(a *app) *cobra.Command {
 	return &cobra.Command{
 		Use:    "mcp",
@@ -1245,6 +1245,121 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 			},
 		},
 		{
+			Name: "message_project",
+			Description: "Message another of the user's projects' leads: a question about how it does something, a heads-up " +
+				"about a change that touches it, or an ask the user made (\"@other ask them …\"). Its lead is woken with " +
+				"your message and its reply comes back into this chat. Write it for a colleague who hasn't read your " +
+				"conversation, in a few lines; point at paths rather than pasting files. The first message between two " +
+				"projects waits for the user's approval. For two projects making the same change, align_with_project.",
+			Schema: object([]string{"project", "message"}, map[string]any{
+				"project":       str("the other project's name, as @mentions write it"),
+				"message":       str("what to tell or ask its lead, up to 4000 characters"),
+				"expects_reply": map[string]any{"type": "boolean", "description": "true when you need an answer; leave it out for a heads-up, which its lead doesn't answer"},
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct {
+					Project      string
+					Message      string
+					ExpectsReply bool `json:"expects_reply"`
+				}
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				t, err := c.MessageProject(ctx, api.ProjectMessageRequest{Project: in.Project, Message: in.Message, ExpectsReply: in.ExpectsReply})
+				if err != nil {
+					return "", err
+				}
+				if in.ExpectsReply {
+					return fmt.Sprintf("Sent to %s's lead (thread %s). Its reply will come into this chat; carry on meanwhile.", t.Project, t.ID), nil
+				}
+				return fmt.Sprintf("Sent to %s's lead (thread %s), as a heads-up: it won't reply.", t.Project, t.ID), nil
+			},
+		},
+		{
+			Name: "align_with_project",
+			Description: "Start aligning with another project's lead on a topic, when similar work happens in both: one API " +
+				"shape, one naming, one library. You exchange messages with reply_project until one of you settles it with " +
+				"settle_alignment and a short summary of what you agreed, which is saved to both projects' memory.",
+			Schema: object([]string{"project", "topic", "message"}, map[string]any{
+				"project": str("the other project's name"),
+				"topic":   str("what to align on, in a few words"),
+				"message": str("what this project is doing or proposes, and what you need to agree, up to 4000 characters"),
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct{ Project, Topic, Message string }
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				if strings.TrimSpace(in.Topic) == "" {
+					return "", errors.New("no topic: say what to align on")
+				}
+				t, err := c.MessageProject(ctx, api.ProjectMessageRequest{Project: in.Project, Message: in.Message, Topic: in.Topic})
+				if err != nil {
+					return "", err
+				}
+				return fmt.Sprintf("Asked %s's lead to align on %q (thread %s). Its answer will come into this chat.", t.Project, t.Topic, t.ID), nil
+			},
+		},
+		{
+			Name: "reply_project",
+			Description: "Answer another project's lead in a thread it started or you did, when its last message asked for " +
+				"a reply or the thread is an alignment. A thread holds at most 12 messages.",
+			Schema: object([]string{"thread_id", "message"}, map[string]any{
+				"thread_id":     str("the thread's id, from the message you are answering"),
+				"message":       str("your answer, up to 4000 characters"),
+				"expects_reply": map[string]any{"type": "boolean", "description": "true when you need another answer back; in an alignment the other lead always answers"},
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct {
+					ThreadID     string `json:"thread_id"`
+					Message      string
+					ExpectsReply bool `json:"expects_reply"`
+				}
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				t, err := c.ReplyProject(ctx, in.ThreadID, api.ProjectReplyRequest{Message: in.Message, ExpectsReply: in.ExpectsReply})
+				if err != nil {
+					return "", err
+				}
+				return fmt.Sprintf("Replied to %s's lead (thread %s, %d messages).", t.Project, t.ID, t.Messages), nil
+			},
+		},
+		{
+			Name: "settle_alignment",
+			Description: "Settle an alignment once both leads agree: the summary is saved to both projects' memory and the " +
+				"other lead is told. Then tell your own agents what changes for them.",
+			Schema: object([]string{"thread_id", "summary"}, map[string]any{
+				"thread_id": str("the alignment's thread id"),
+				"summary":   str("what the two of you agreed, in a few lines, for both projects' memory"),
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct {
+					ThreadID string `json:"thread_id"`
+					Summary  string
+				}
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				t, err := c.SettleAlignment(ctx, in.ThreadID, in.Summary)
+				if err != nil {
+					return "", err
+				}
+				return fmt.Sprintf("Settled the alignment with %s on %q; the summary is in both projects' memory.", t.Project, t.Topic), nil
+			},
+		},
+		{
+			Name:        "list_project_threads",
+			Description: "This project's threads with other projects' leads, most recent first: who, what about, and whether it waits on you.",
+			Run: func(json.RawMessage) (string, error) {
+				threads, err := c.ProjectThreads(ctx)
+				if err != nil {
+					return "", err
+				}
+				return describeProjectThreads(threads), nil
+			},
+		},
+		{
 			Name: "list_questions",
 			Description: "The questions this project's agents are waiting on. An agent asking one is " +
 				"blocked until it is answered, so deal with these first.",
@@ -1840,6 +1955,32 @@ func describeSkill(detail api.SkillDetail) string {
 	}
 	if len(others) > 0 {
 		b.WriteString("\n\nOther files:\n" + strings.Join(others, "\n"))
+	}
+	return b.String()
+}
+
+// describeProjectThreads lists a project's threads with other projects' leads.
+func describeProjectThreads(threads []api.ProjectThread) string {
+	if len(threads) == 0 {
+		return "No threads with other projects' leads yet."
+	}
+	var b strings.Builder
+	for _, t := range threads {
+		about := "message"
+		if t.Kind == state.ThreadAlign {
+			about = fmt.Sprintf("alignment on %q", t.Topic)
+		}
+		fmt.Fprintf(&b, "- %s with %s: %s, %s, %d %s", t.ID, t.Project, about, t.Status, t.Messages, plural(t.Messages, "message", "messages"))
+		if t.Status == state.ThreadSettled {
+			fmt.Fprintf(&b, "\n  agreed: %s", t.Summary)
+		} else if t.Last != nil {
+			waits := ""
+			if t.Last.From == t.Project && t.Last.ExpectsReply {
+				waits = " (waits on your reply)"
+			}
+			fmt.Fprintf(&b, "\n  last, from %s%s: %s", t.Last.From, waits, oneLine(t.Last.Text))
+		}
+		b.WriteString("\n")
 	}
 	return b.String()
 }

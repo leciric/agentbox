@@ -1050,6 +1050,217 @@
     "height": 760
   },
   {
+    "id": "window-wide-project-dark",
+    "description": "The whole app at 1920×1080, on the project's chat — dark",
+    "query": "app=project&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "window-wide-agent-dark",
+    "description": "The whole app at 1920×1080, on agent-99 — dark",
+    "query": "app=agent-99&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "window-wide-settings-dark",
+    "description": "The whole app at 1920×1080, on Settings — dark",
+    "query": "app=settings&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "window-portrait-project-dark",
+    "description": "The whole app at 1080×1920, on the project's chat — dark",
+    "query": "app=project&theme=dark",
+    "width": 1080,
+    "height": 1920
+  },
+  {
+    "id": "window-portrait-agent-dark",
+    "description": "The whole app at 1080×1920, on agent-99 — dark",
+    "query": "app=agent-99&theme=dark",
+    "width": 1080,
+    "height": 1920
+  },
+  {
+    "id": "window-portrait-settings-dark",
+    "description": "The whole app at 1080×1920, on Settings — dark",
+    "query": "app=settings&theme=dark",
+    "width": 1080,
+    "height": 1920
+  },
+  {
+    "id": "window-small-project-dark",
+    "description": "The whole app at 800×600, on the project's chat — dark",
+    "query": "app=project&theme=dark",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "window-small-agent-dark",
+    "description": "The whole app at 800×600, on agent-99 — dark",
+    "query": "app=agent-99&theme=dark",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "window-small-settings-dark",
+    "description": "The whole app at 800×600, on Settings — dark",
+    "query": "app=settings&theme=dark",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "window-small-home-light",
+    "description": "The whole app at 800×600, on Home — light",
+    "query": "app=home&theme=light",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "window-small-pulls-dark",
+    "description": "The whole app at 800×600, on the project's Pull requests — dark",
+    "query": "app=pulls&theme=dark",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "window-small-nav-dark",
+    "description": "800×600 with the menu button's drawer open: the sidebar over the page — dark",
+    "query": "app=project&theme=dark",
+    "width": 800,
+    "height": 600,
+    "click": "header [data-open-nav]"
+  },
+  {
+    "id": "window-small-review-dark",
+    "description": "800×600, \"Ready to review\" open on agent-12's carousel — dark",
+    "query": "app=project&theme=dark",
+    "width": 800,
+    "height": 600,
+    "click": [
+      "header [data-ready-to-review]",
+      "[data-review-row]"
+    ]
+  },
+  {
+    "id": "window-small-pr-dark",
+    "description": "800×600, a pull request's detail open from the Pull requests tab — dark",
+    "query": "app=pulls&theme=dark",
+    "width": 800,
+    "height": 600,
+    "click": "[data-pull-request] p"
+  },
+  {
+    "id": "window-portrait-review-dark",
+    "description": "1080×1920, \"Ready to review\" open on agent-12's carousel — dark",
+    "query": "app=project&theme=dark",
+    "width": 1080,
+    "height": 1920,
+    "click": [
+      "header [data-ready-to-review]",
+      "[data-review-row]"
+    ]
+  },
+  {
+    "id": "window-narrow-agent-light",
+    "description": "A 600×900 window, the narrowest the app allows, on agent-99 — light",
+    "query": "app=agent-99&theme=light",
+    "width": 600,
+    "height": 900
+  },
+  {
+    "id": "window-medium-agent-dark",
+    "description": "1000×700, just below the rail's breakpoint, on agent-99 — dark",
+    "query": "app=agent-99&theme=dark",
+    "width": 1000,
+    "height": 700
+  },
+  {
+    "id": "window-narrow-settings-pt",
+    "description": "600×900 Settings in Portuguese, whose labels are longer",
+    "query": "app=settings&theme=dark&lang=pt-BR",
+    "width": 600,
+    "height": 900
+  },
+  {
+    "id": "window-min-project-dark",
+    "description": "480×800, the smallest the window goes (half of a portrait 1080p monitor is 540), on the project's chat — dark",
+    "query": "app=project&theme=dark",
+    "width": 480,
+    "height": 800
+  },
+  {
+    "id": "window-min-rail-dark",
+    "description": "480×800 with the rail's drawer open from the top bar — dark",
+    "query": "app=agent-99&theme=dark",
+    "width": 480,
+    "height": 800,
+    "click": "header [data-open-rail]"
+  },
+  {
+    "id": "window-min-agent-light",
+    "description": "480×800 on agent-99 — light",
+    "query": "app=agent-99&theme=light",
+    "width": 480,
+    "height": 800
+  },
+  {
+    "id": "window-min-review-dark",
+    "description": "480×800, \"Ready to review\" full-window — dark",
+    "query": "app=project&theme=dark",
+    "width": 480,
+    "height": 800,
+    "click": [
+      "header [data-ready-to-review]",
+      "[data-review-row]"
+    ]
+  },
+  {
+    "id": "chat-rich-wide-full-dark",
+    "description": "Rich blocks break out of the text column to the chat's full width — dark",
+    "query": "chat=rich&wide=1&theme=dark",
+    "width": 1600,
+    "height": 1500
+  },
+  {
+    "id": "chat-rich-wide-full-light",
+    "description": "Rich blocks break out of the text column to the chat's full width — light",
+    "query": "chat=rich&wide=1&theme=light",
+    "width": 1600,
+    "height": 1500
+  },
+  {
+    "id": "chat-rich-wide-files-dark",
+    "description": "The same with a 340px Files panel open: they shrink with the chat — dark",
+    "query": "chat=rich&wide=1&files=1&theme=dark",
+    "width": 1280,
+    "height": 1500
+  },
+  {
+    "id": "chat-rich-wide-files-light",
+    "description": "The same with a 340px Files panel open: they shrink with the chat — light",
+    "query": "chat=rich&wide=1&files=1&theme=light",
+    "width": 1280,
+    "height": 1500
+  },
+  {
+    "id": "chat-rich-wide-narrow-dark",
+    "description": "The same in a window narrower than the text column: no horizontal overflow — dark",
+    "query": "chat=rich&wide=1&theme=dark",
+    "width": 700,
+    "height": 1500
+  },
+  {
+    "id": "chat-rich-wide-narrow-light",
+    "description": "The same in a window narrower than the text column: no horizontal overflow — light",
+    "query": "chat=rich&wide=1&theme=light",
+    "width": 700,
+    "height": 1500
+  },
+  {
     "id": "phone-list-360-dark",
     "description": "The phone's chat list at 360px: live status lines, a running command, unread and urgent rows — dark",
     "query": "phone=list&theme=dark",

@@ -212,7 +212,7 @@ export function NotificationsPreview({ scenario }: { scenario: string }) {
     <div className="flex h-screen w-screen" style={{ background: 'var(--color-ink)', font: '13px var(--font-sans)' }} data-preview-notify={scenario}>
       <Sidebar view={view} onSelect={select} onAddProject={() => {}} onNewAgent={() => {}} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar view={view} onSelect={select} onOpenNav={() => {}} onNewAgent={() => {}} onOpenNotice={openNotice} />
+        <TopBar view={view} onSelect={select} onOpenNav={() => {}} onOpenNotice={openNotice} />
         <main className="min-h-0 flex-1">
           <Suspense>
             {view.kind === 'home' && <HomeView onSelect={select} onAddProject={() => {}} onNewAgent={() => {}} />}

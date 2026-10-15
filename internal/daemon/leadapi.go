@@ -86,7 +86,8 @@ func (s *Server) closeLeadAPIs() {
 
 // leadRoutes are everything a lead may do, and nothing else: its own project's
 // agents, its notes, and the questions they asked it. It cannot reach another
-// project, the daemon itself, or the host.
+// project, the daemon itself, or the host, except to message another
+// project's lead.
 func (s *Server) leadRoutes(project string) http.Handler {
 	mux := http.NewServeMux()
 	// The lead's requests carry no project; the socket says which one it is.
@@ -116,6 +117,12 @@ func (s *Server) leadRoutes(project string) http.Handler {
 	mux.HandleFunc("POST /v1/project/copy", withProject(s.leadCopy))
 	mux.HandleFunc("POST /v1/project/copy-from-host", withProject(s.leadCopyFromHost))
 	mux.HandleFunc("GET /v1/project/secrets", withProject(s.leadSecrets))
+	// Other projects' leads (projectmessages.go): the one boundary a lead
+	// crosses, and only to talk, lead to lead.
+	mux.HandleFunc("GET /v1/project/threads", withProject(s.leadProjectThreads))
+	mux.HandleFunc("POST /v1/project/threads", withProject(s.leadSendToProject))
+	mux.HandleFunc("POST /v1/project/threads/{thread}/replies", withProject(s.leadReplyToProject))
+	mux.HandleFunc("POST /v1/project/threads/{thread}/settle", withProject(s.leadSettleAlignment))
 	// The project's connectors: listed for list_connectors, and relayed to
 	// for the chat's own Claude Code, which is given them as MCP servers.
 	mux.HandleFunc("GET /v1/project/connectors", withProject(func(w http.ResponseWriter, r *http.Request) error {

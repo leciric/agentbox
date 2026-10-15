@@ -1903,6 +1903,7 @@ export interface ChatItem {
   subagent?: ChatSubagent;
   compaction?: ChatCompaction;
   handoff?: string;
+  projectMessage?: ChatProjectMessage;
   parent?: string;
   createdAt: string;
   updatedAt: string;
@@ -1968,6 +1969,16 @@ export interface ChatCompaction {
   state: string;
   waiting?: number;
   error?: string;
+}
+
+export interface ChatProjectMessage {
+  project: string;
+  direction: string;
+  thread: string;
+  kind: string;
+  topic?: string;
+  expectsReply?: boolean;
+  hop: number;
 }
 
 export interface ChatTurnResult {
