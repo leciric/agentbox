@@ -3,6 +3,7 @@ package worktreefs
 import (
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,19 @@ import (
 	"agentbox/internal/api"
 	"agentbox/internal/testutil"
 )
+
+// TestMain gives git a configuration of its own, with an identity to commit
+// as, rather than the machine's, which CI doesn't have.
+func TestMain(m *testing.M) {
+	cleanup, err := testutil.IsolateGit()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	code := m.Run()
+	cleanup()
+	os.Exit(code)
+}
 
 func write(t *testing.T, root, rel, content string) {
 	t.Helper()
