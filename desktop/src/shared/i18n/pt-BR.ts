@@ -351,6 +351,8 @@ export const ptBR: Messages = {
   'review.reviewedEmpty': 'Nada revisado ainda.',
   'review.verdict.reviewed': 'Revisado {when}',
   'review.verdict.dismissed': 'Dispensado {when}',
+  'review.moreToReview': 'Mais {count} para revisar',
+  'review.continue': 'Continuar',
   'review.allDone': 'Isso é tudo que estava pronto para revisar.',
   'review.nextAgent': 'Próximo agente',
   'review.agentPosition': 'Agente {n} de {count}',

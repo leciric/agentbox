@@ -10,7 +10,8 @@ import { mediaUrl } from '../lib/media';
 import { pagesFor } from '../lib/pages';
 import { projectLabel } from '../lib/projectName';
 import { pageItems, pageTotal, refreshInbox, useReviewPages, withoutAgent } from '../lib/inboxPages';
-import { type Walk, goBack, goForward, mergeBlock, nextPending, walkItems, queueOf, reviewKeys, reviewShortcut, slidesOf, step, swipeStep, type MergeBlock, type ReviewAction, type Slide } from '../lib/review';
+import { type Walk, goBack, goForward, mergeBlock, nextPending, remainingAfter, wrapWalk, walkItems, queueOf, reviewKeys, reviewShortcut, slidesOf, step, swipeStep, type MergeBlock, type ReviewAction, type Slide } from '../lib/review';
+import { defaultMethod, loadMethodPrefs, rememberMethod } from '../lib/mergeMethod';
 import { isUnseen, markReadySeen, useUnseen } from '../lib/reviewAlert';
 import { useNow } from '../lib/useNow';
 import { requestComposerFocus } from '../lib/newTask';
@@ -26,7 +27,7 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Kbd, Notice } from './ui/card';
 import { Dialog, DialogContent, DialogTitle, fullWhenNarrow } from './ui/dialog';
-import { Select, SelectOption } from './ui/select';
+import { Menu, MenuContent, MenuItem, MenuTrigger } from './ui/menu';
 
 // "Ready to review" is a section of the top bar's inbox (components/Inbox.tsx):
 // the agents that finished and wait for the user to look at their work,
@@ -135,14 +136,39 @@ export function ReviewDialog({
   }, [session?.order, next, hasNextPage, isFetchingNextPage, fetchNextPage]);
   const advance = () => {
     if (next && session) onSession(goForward(session, next));
-    else {
-      if (session?.order) toast(t('review.allDone'));
-      onSession(null);
-    }
+    else if (session?.order) {
+      // The end of the walk: look again at what waits (agents skipped with
+      // Next or Back, or finished since) before saying it's all done.
+      const remaining = remainingAfter(session.order, session.item.ref, items);
+      if (remaining.length) onSession({ ...session, ended: { remaining: remaining.length } });
+      else {
+        toast(t('review.allDone'));
+        onSession(null);
+      }
+    } else onSession(null);
+  };
+  const carryOn = () => {
+    if (!session?.order) return;
+    const remaining = remainingAfter(session.order, session.item.ref, items);
+    onSession(remaining.length ? wrapWalk(session, remaining) : null);
   };
   return (
     <Dialog open={current !== null} onOpenChange={(open) => !open && onSession(null)}>
-      {current && <ReviewCarousel key={current.ref} item={current} position={position} next={next} canBack={!!session?.trail?.length} onNext={advance} onBack={() => session && onSession(goBack(session))} onClose={() => onSession(null)} onSelect={onSelect} />}
+      {current && session?.ended && (
+        <DialogContent className="max-w-sm p-6" data-review-more>
+          <DialogTitle className="text-base">{t('review.moreToReview', { count: session.ended.remaining })}</DialogTitle>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button size="sm" variant="ghost" onClick={() => onSession(null)}>
+              {t('common.close')}
+            </Button>
+            <Button size="sm" variant="primary" onClick={carryOn} data-review-continue>
+              {t('review.continue')}
+              <ArrowRight />
+            </Button>
+          </div>
+        </DialogContent>
+      )}
+      {current && !session?.ended && <ReviewCarousel key={current.ref} item={current} position={position} next={next} canBack={!!session?.trail?.length} onNext={advance} onBack={() => session && onSession(goBack(session))} onClose={() => onSession(null)} onSelect={onSelect} />}
     </Dialog>
   );
 }
@@ -293,7 +319,12 @@ function ReviewCarousel({
   // whether to merge it.
   const [marking, setMarking] = useState(false);
   const [asking, setAsking] = useState(false);
-  const [method, setMethod] = useState(merge.methods[0]);
+  const [picked, setPicked] = useState<string>();
+  const method = picked && merge.methods.includes(picked) ? picked : defaultMethod(merge.methods, loadMethodPrefs(), item.project);
+  const pickMethod = (m: string) => {
+    setPicked(m);
+    rememberMethod(item.project, m);
+  };
   const prOpen = pr?.state === 'open';
   const markReviewed = () => {
     setMarking(true);
@@ -468,43 +499,56 @@ function ReviewCarousel({
                 )}
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2 border-t border-line bg-modal px-4 py-2" data-review-actions>
-              <Button size="sm" variant="ghost" disabled={!canBack} onClick={onBack} data-review-back title={t('review.backTitle')}>
+            <div className="flex items-center gap-2 border-t border-line bg-modal px-4 py-2" data-review-actions>
+              <Button size="sm" variant="ghost" disabled={!canBack} onClick={onBack} data-review-back title={t('review.backTitle')} aria-label={t('review.back')}>
                 <ChevronLeft />
-                {t('review.back')}
-                <span className="max-sm:hidden">
+                <span className="max-sm:hidden">{t('review.back')}</span>
+                <span className="max-md:hidden">
                   <Kbd>P</Kbd>
                 </span>
               </Button>
-              <Button size="sm" variant="ghost" onClick={requestChanges} data-review-changes>
+              <Button size="sm" variant="ghost" onClick={requestChanges} data-review-changes title={t('review.requestChanges')} aria-label={t('review.requestChanges')}>
                 <MessageSquareText />
-                {t('review.requestChanges')}
-                <span className="max-sm:hidden">
+                <span className="max-sm:hidden">{t('review.requestChanges')}</span>
+                <span className="max-md:hidden">
                   <Kbd>C</Kbd>
                 </span>
               </Button>
-              <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
+              <div className="ml-auto flex min-w-0 items-center justify-end gap-2">
                 {asking && pr ? (
-                  <div className="flex min-w-0 flex-wrap items-center justify-end gap-2" data-review-merge-ask>
-                    <span className="text-[13px] font-medium text-title">{t('review.mergeAsk', { number: pr.number })}</span>
+                  <div className="flex min-w-0 items-center justify-end gap-2" data-review-merge-ask>
+                    <span className="truncate text-[13px] font-medium text-title max-sm:hidden">{t('review.mergeAsk', { number: pr.number })}</span>
                     {mergeReason && (
-                      <span className="max-w-[260px] text-[12px] text-amber-200" data-merge-blocked>
+                      <span className="max-w-[260px] truncate text-[12px] text-amber-200" data-merge-blocked title={mergeReason}>
                         {mergeReason}
                       </span>
                     )}
-                    {merge.failed[pr.number] && <span className="max-w-[260px] text-[12px] text-rose-300">{t('memory.pulls.mergeFailed', { error: merge.failed[pr.number] })}</span>}
-                    <Select value={method} onChange={setMethod} aria-label={t('memory.pulls.method')}>
-                      {merge.methods.map((m) => (
-                        <SelectOption key={m} value={m}>
-                          {methodLabels[m] ? t(methodLabels[m]) : m}
-                        </SelectOption>
-                      ))}
-                    </Select>
-                    <Button size="sm" variant="primary" disabled={!!mergeReason || merge.running.has(pr.number)} title={mergeReason} onClick={mergeAndGo} data-review-merge>
-                      {merge.running.has(pr.number) ? <LoaderCircle className="animate-spin" /> : <GitMerge />}
-                      {t('memory.pulls.merge')}
-                    </Button>
-                    <Button size="sm" variant="secondary" disabled={marking || merge.running.has(pr.number)} onClick={markReviewed} data-review-just-mark>
+                    {merge.failed[pr.number] && (
+                      <span className="max-w-[260px] truncate text-[12px] text-rose-300" title={merge.failed[pr.number]}>
+                        {t('memory.pulls.mergeFailed', { error: merge.failed[pr.number] })}
+                      </span>
+                    )}
+                    <div className="flex shrink-0 items-stretch" data-review-merge-split>
+                      <Button size="sm" variant="primary" className="rounded-r-none" disabled={!!mergeReason || merge.running.has(pr.number)} title={mergeReason ?? t(methodLabels[method] ?? 'memory.pulls.merge')} onClick={mergeAndGo} data-review-merge data-merge-method={method}>
+                        {merge.running.has(pr.number) ? <LoaderCircle className="animate-spin" /> : <GitMerge />}
+                        {t('memory.pulls.merge')}
+                      </Button>
+                      <Menu>
+                        <MenuTrigger asChild>
+                          <Button size="sm" variant="primary" className="rounded-l-none border-l border-white/25 px-1.5" disabled={!!mergeReason || merge.running.has(pr.number)} aria-label={t('memory.pulls.method')} data-review-merge-method>
+                            <ChevronDown />
+                          </Button>
+                        </MenuTrigger>
+                        <MenuContent className="min-w-40">
+                          {merge.methods.map((m) => (
+                            <MenuItem key={m} icon={m === method ? Check : undefined} onSelect={() => pickMethod(m)} data-merge-option={m}>
+                              {methodLabels[m] ? t(methodLabels[m]) : m}
+                            </MenuItem>
+                          ))}
+                        </MenuContent>
+                      </Menu>
+                    </div>
+                    <Button size="sm" variant="secondary" className="shrink-0" disabled={marking || merge.running.has(pr.number)} onClick={markReviewed} data-review-just-mark>
                       {t('review.justMark')}
                     </Button>
                   </div>
@@ -512,7 +556,7 @@ function ReviewCarousel({
                   <>
                     {next && (
                       <Button size="sm" variant="secondary" onClick={onNext} data-review-next title={next.title || next.agent}>
-                        {t('review.nextAgent')}
+                        <span className="max-sm:hidden">{t('review.nextAgent')}</span>
                         <ArrowRight />
                       </Button>
                     )}

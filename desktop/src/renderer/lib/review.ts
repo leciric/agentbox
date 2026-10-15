@@ -80,6 +80,21 @@ export function nextPending(order: readonly string[], current: string, live: rea
   return undefined;
 }
 
+// remainingAfter is what still waits for review once current is done, in
+// the walk's order, then the rest: the agents skipped with Next or Back
+// and those that arrived on the way. Empty only when nothing is left.
+export function remainingAfter(order: readonly string[], current: string, live: readonly T.ReviewItem[]): T.ReviewItem[] {
+  const byRef = new Map(live.map((i) => [i.ref, i]));
+  return queueOf(order, live).flatMap((ref) => (ref !== current && byRef.has(ref) ? [byRef.get(ref) as T.ReviewItem] : []));
+}
+
+// wrapWalk is the walk carried on from its end to the first of remaining.
+export const wrapWalk = (walk: Walk, remaining: readonly T.ReviewItem[]): Walk => ({
+  ...goForward(walk, remaining[0]),
+  order: remaining.map((i) => i.ref),
+  ended: undefined,
+});
+
 // ReviewAction is what a key does in the review.
 export type ReviewAction = 'previous' | 'next' | 'first' | 'last' | 'nextAgent' | 'previousAgent' | 'merge' | 'requestChanges';
 
@@ -131,7 +146,7 @@ export const walkItems = (items: readonly T.ReviewItem[], project?: string): T.R
 // agent waiting (or of one project's), with the order to go through.
 // trail is the agents shown before it, the last one first to go back to,
 // reviewed on the way or not.
-export type Walk = { item: T.ReviewItem; order: string[] | null; project?: string; trail?: T.ReviewItem[] };
+export type Walk = { item: T.ReviewItem; order: string[] | null; project?: string; trail?: T.ReviewItem[]; ended?: { remaining: number } };
 
 // goForward is the walk moved on to item, remembering where it was.
 export const goForward = (walk: Walk, item: T.ReviewItem): Walk => ({ ...walk, item, trail: [...(walk.trail ?? []), walk.item] });

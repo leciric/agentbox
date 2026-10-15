@@ -350,6 +350,8 @@ export const enUS = {
   'review.reviewedEmpty': 'Nothing reviewed yet.',
   'review.verdict.reviewed': 'Reviewed {when}',
   'review.verdict.dismissed': 'Dismissed {when}',
+  'review.moreToReview': '{count} more to review',
+  'review.continue': 'Continue',
   'review.allDone': 'That’s everything ready to review.',
   'review.nextAgent': 'Next agent',
   'review.agentPosition': 'Agent {n} of {count}',

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { countLabel, goBack, goForward, mergeBlock, nextPending, startWalk, walkItems, queueOf, reviewKeys, reviewShortcut, slidesOf, step, swipeStep } from './review.ts';
+import { countLabel, remainingAfter, wrapWalk, goBack, goForward, mergeBlock, nextPending, startWalk, walkItems, queueOf, reviewKeys, reviewShortcut, slidesOf, step, swipeStep } from './review.ts';
 
 const media = (id: string, kind: string, createdAt: string) => ({ id, kind, createdAt }) as T.MediaItem;
 const page = (id: string, createdAt: string) => ({ id, createdAt }) as T.Artifact;
@@ -128,4 +128,19 @@ test('Back returns to the agent shown just before, one step at a time', () => {
   assert.equal(goBack(atB).item.ref, 'p/a');
   assert.equal(goBack(goBack(atB)).item.ref, 'p/a');
   assert.deepEqual(atB.order, start.order);
+});
+
+test('remainingAfter finds the agents skipped on the walk and those that arrived', () => {
+  const live = ['a', 'b', 'c', 'd'].map((ref) => ({ ref }) as T.ReviewItem);
+  // c was last in the walk; a was skipped, d arrived since.
+  assert.deepEqual(remainingAfter(['a', 'b', 'c'], 'c', live.filter((i) => i.ref !== 'b')).map((i) => i.ref), ['a', 'd']);
+  assert.deepEqual(remainingAfter(['c'], 'c', [live[2]]), []);
+});
+
+test('wrapWalk goes back to the first remaining agent, walking only them', () => {
+  const [a, d] = ['a', 'd'].map((ref) => ({ ref }) as T.ReviewItem);
+  const walk = wrapWalk({ item: { ref: 'c' } as T.ReviewItem, order: ['a', 'c'], ended: { remaining: 2 } }, [a, d]);
+  assert.equal(walk.item.ref, 'a');
+  assert.deepEqual(walk.order, ['a', 'd']);
+  assert.equal(walk.ended, undefined);
 });

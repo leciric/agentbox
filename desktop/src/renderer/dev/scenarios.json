@@ -1579,5 +1579,29 @@
     "query": "app=project&v2=1&panel=settings&section=general&theme=dark",
     "width": 1440,
     "height": 900
+  },
+  {
+    "id": "window-review-merge-narrow-dark",
+    "description": "480×800, the review's footer asking how to merge: one row with a split Merge button — dark",
+    "query": "app=project&theme=dark",
+    "width": 480,
+    "height": 800,
+    "click": [
+      "header [data-inbox]",
+      "[data-review-row]",
+      "[data-review-done]"
+    ]
+  },
+  {
+    "id": "window-review-merge-wide-dark",
+    "description": "1100×700, the review's footer asking how to merge: one row with a split Merge button — dark",
+    "query": "app=project&theme=dark",
+    "width": 1100,
+    "height": 700,
+    "click": [
+      "header [data-inbox]",
+      "[data-review-row]",
+      "[data-review-done]"
+    ]
   }
 ]
