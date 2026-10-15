@@ -7,11 +7,9 @@ import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { api } from '../lib/api';
 import { useT } from '../lib/i18n';
-import { ErrorReporter, errorReport, fromEvent, type UncaughtError } from '../lib/errorReports';
+import { ErrorReporter, errorReport, fromEvent, shouldShowNotice, type UncaughtError } from '../lib/errorReports';
+import { noticeSeen } from '../lib/errorNotice';
 import { openSettingsSection } from './SettingsPage';
-
-// noticeKey remembers that the user was told error reports are on.
-const noticeKey = 'agentbox:error-reports-notice';
 
 // send sends err's report, with the app's own description beside it. A
 // failure is dropped: there's nobody to tell about an error report that
@@ -54,21 +52,23 @@ export function ErrorReports() {
   // The notice: once, and only while they're on. Whoever turned them off has
   // no need of it, and whoever dismisses it isn't shown it again.
   useEffect(() => {
-    if (localStorage.getItem(noticeKey)) return;
     let id: string | number | undefined;
     let cancelled = false;
     void queryClient
       .fetchQuery({ queryKey: ['settings'], queryFn: api.settings })
       .then((settings) => {
-        if (cancelled || !settings.errorReports) return;
-        const seen = () => localStorage.setItem(noticeKey, '1');
+        if (cancelled || !shouldShowNotice(settings)) return;
+        const seen = () => noticeSeen(queryClient);
         id = toast(t('defaults.errorReports.title'), {
           description: t('defaults.errorReports.description'),
           duration: Infinity,
           closeButton: true,
           action: {
             label: t('defaults.errorReports.settings'),
-            onClick: () => openSettingsSection('general'),
+            onClick: () => {
+              seen();
+              openSettingsSection('general');
+            },
           },
           onDismiss: seen,
           onAutoClose: seen,

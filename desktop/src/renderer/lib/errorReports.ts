@@ -50,6 +50,14 @@ export class ErrorReporter {
   }
 }
 
+// shouldShowNotice says whether to tell the user error reports are on: only
+// while they are, and only until they were told or opened Settings, which the
+// daemon remembers (Settings.errorReportsNoticeSeen) so it is once per install,
+// not once per launch.
+export function shouldShowNotice(settings: Pick<T.Settings, 'errorReports' | 'errorReportsNoticeSeen'>): boolean {
+  return settings.errorReports && !settings.errorReportsNoticeSeen;
+}
+
 // signature tells errors apart: the same error from the same place is one.
 export function signature(err: UncaughtError): string {
   return `${err.where}|${err.name}|${err.message}|${err.stack?.split('\n')[0] ?? ''}`;

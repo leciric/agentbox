@@ -146,3 +146,19 @@ func TestErrorReportsAreOnUntilTurnedOff(t *testing.T) {
 		t.Errorf("sent %+v", fake.sent)
 	}
 }
+
+// The error reports notice is shown once per install: its dismissal is a
+// daemon setting, so it survives the app's restarts.
+func TestErrorReportsNoticeSeenIsRemembered(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	if settings, err := patchSettings(t, d, `{}`); err != nil || settings.ErrorReportsNoticeSeen {
+		t.Fatalf("the notice starts unseen: %+v, %v", settings, err)
+	}
+	if settings, err := patchSettings(t, d, `{"errorReportsNoticeSeen":true}`); err != nil || !settings.ErrorReportsNoticeSeen {
+		t.Fatalf("after seeing it: %+v, %v", settings, err)
+	}
+	if settings, _ := patchSettings(t, d, `{"errorReports":false}`); !settings.ErrorReportsNoticeSeen {
+		t.Errorf("another change forgot the notice was seen: %+v", settings)
+	}
+}

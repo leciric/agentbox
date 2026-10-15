@@ -465,6 +465,9 @@ type Settings struct {
 	// ErrorReports says whether the app sends a report of each uncaught error
 	// by itself (ReportKindError). On unless the user turned it off.
 	ErrorReports bool `json:"errorReports"`
+	// ErrorReportsNoticeSeen says the user was told error reports are on, or
+	// opened Settings, so the app doesn't tell them again.
+	ErrorReportsNoticeSeen bool `json:"errorReportsNoticeSeen"`
 	// PRWatch says whether the daemon watches every agent's open pull request
 	// until it's merged or closed, and tells the agent when it conflicts with
 	// its base, its checks fail or a reviewer asks for changes. On unless it
@@ -575,6 +578,8 @@ type UpdateSettingsRequest struct {
 	UsageStats *bool `json:"usageStats,omitempty"`
 	// ErrorReports turns automatic error reports on or off.
 	ErrorReports *bool `json:"errorReports,omitempty"`
+	// ErrorReportsNoticeSeen records that the notice was shown.
+	ErrorReportsNoticeSeen *bool `json:"errorReportsNoticeSeen,omitempty"`
 	// PRWatch turns the pull request watch on or off.
 	PRWatch *bool `json:"prWatch,omitempty"`
 	// MediaRetention is one of the MediaRetention values.

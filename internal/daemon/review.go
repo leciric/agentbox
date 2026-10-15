@@ -267,6 +267,9 @@ func (s *Server) projectReviewItems(ctx context.Context, p state.Project) ([]api
 func (s *Server) reviewAgent(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 	a, err := s.agentFromPath(r)
+	if errors.Is(err, state.ErrNotFound) {
+		return s.reviewPastAgent(w, r)
+	}
 	if err != nil {
 		return err
 	}
@@ -299,6 +302,39 @@ func (s *Server) reviewAgent(w http.ResponseWriter, r *http.Request) error {
 	s.events.publish(api.EventReview, a.Project)
 	if req.Verdict == api.ReviewReviewed {
 		s.freeReviewed(ctx, a, "marked reviewed", nil)
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+// reviewPastAgent is reviewAgent for an agent that is no longer live: merging
+// its pull request from the review freed its machine (freeReviewed), so it is
+// a past agent by the time the app saves the verdict. The verdict is kept
+// against the fingerprint the user saw; with none there is nothing to compare
+// and the work is already done with, so it succeeds without writing.
+func (s *Server) reviewPastAgent(w http.ResponseWriter, r *http.Request) error {
+	ctx := r.Context()
+	project, name := r.PathValue("project"), r.PathValue("agent")
+	if _, err := s.store.ArchivedAgentByName(ctx, project, name); err != nil {
+		return err
+	}
+	var req api.ReviewRequest
+	if err := readJSON(r, &req); err != nil {
+		return err
+	}
+	if req.Verdict != api.ReviewReviewed && req.Verdict != api.ReviewDismissed {
+		return fmt.Errorf("verdict must be %q or %q", api.ReviewReviewed, api.ReviewDismissed)
+	}
+	if req.Fingerprint != "" {
+		if json.Unmarshal([]byte(req.Fingerprint), &reviewMark{}) != nil {
+			return fmt.Errorf("fingerprint %q isn't one this list gave", req.Fingerprint)
+		}
+		if err := s.store.SetAgentReview(ctx, state.AgentReview{
+			Project: project, Agent: name, Verdict: req.Verdict, Fingerprint: req.Fingerprint, At: time.Now(),
+		}); err != nil {
+			return err
+		}
+		s.events.publish(api.EventReview, project)
 	}
 	w.WriteHeader(http.StatusNoContent)
 	return nil

@@ -121,3 +121,35 @@ func TestReviewedWhileWorkingFreesWhenTheTurnEnds(t *testing.T) {
 		t.Error("an agent with no pending free lost its machine")
 	}
 }
+
+// Merging a pull request from the review frees the machine, so the review the
+// app saves after it finds a past agent: that is no error, with or without
+// the fingerprint it saw, and the verdict is kept.
+func TestReviewAfterTheMachineWasFreedSucceeds(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d, _, agents := reviewFixture(t, "agent-01")
+	a := agents[0]
+	p, err := d.srv.store.Project(ctx, a.Project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := d.srv.reviewItems(ctx, p, agents)
+	fingerprint := items[0].Fingerprint
+	d.srv.freeReviewed(ctx, a, "its pull request #1 was merged", nil)
+	if agentHasMachine(d, a) || !isArchived(t, d, a) {
+		t.Fatal("the machine was not freed")
+	}
+	if err := d.client.Review(ctx, a.Ref(), api.ReviewRequest{Verdict: api.ReviewReviewed, Fingerprint: fingerprint}); err != nil {
+		t.Fatalf("review with a fingerprint after the free: %v", err)
+	}
+	if err := d.client.Review(ctx, a.Ref(), api.ReviewRequest{Verdict: api.ReviewReviewed}); err != nil {
+		t.Fatalf("review without one after the free: %v", err)
+	}
+	if r, ok, _ := d.srv.store.AgentReviewOf(ctx, a.Project, a.Name); !ok || r.Verdict != api.ReviewReviewed {
+		t.Errorf("verdict = %+v, %v; want reviewed", r, ok)
+	}
+	if err := d.client.Review(ctx, a.Project+"/agent-99", api.ReviewRequest{Verdict: api.ReviewReviewed}); err == nil {
+		t.Error("an agent that never existed was accepted")
+	}
+}
