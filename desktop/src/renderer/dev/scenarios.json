@@ -1439,7 +1439,7 @@
   },
   {
     "id": "window-wide-v2-settings-menu-dark",
-    "description": "UI v2 at 1920×1080, Settings' menu open from the sidebar's foot: Settings, Overview, Media and Jobs, with only Past agents beside it — dark",
+    "description": "UI v2 at 1920×1080, Settings' popover open from the sidebar's foot: the environment switcher, then Settings, Overview, Media and Jobs, with only Past agents beside it — dark",
     "query": "app=project&v2=1&theme=dark",
     "width": 1920,
     "height": 1080,

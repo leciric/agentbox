@@ -24,7 +24,6 @@ import { cn, timeAgo } from '../../lib/utils';
 import { EnvironmentSwitcher } from '../EnvironmentSwitcher';
 import { shownKinds } from '../AllMediaView';
 import { Logo, NavItem } from '../Sidebar';
-import { Menu, MenuContent, MenuItem, MenuTrigger } from '../ui/menu';
 import { useMediaCounts } from '../../lib/mediaPages';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Tip } from '../ui/tooltip';
@@ -59,6 +58,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set());
   const running = jobs.data?.filter((j) => j.status === 'running').length ?? 0;
+  const [menuOpen, setMenuOpen] = useState(false);
   const unseen = useMediaCounts({ kinds: shownKinds }).data?.unseen ?? 0;
 
   // The projects in the sidebar's order, sections or not.
@@ -89,9 +89,6 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
             <FolderPlus className="size-4" />
           </button>
         </Tip>
-      </div>
-      <div className="px-3 pb-2">
-        <EnvironmentSwitcher />
       </div>
       <FilterBar filters={filters} onFilters={setFilters} projects={ordered} rows={rows} />
 
@@ -139,14 +136,14 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
         )}
       </nav>
 
-      {/* Only Past agents and Settings stay out: Overview, Media and Jobs
-          are in Settings' menu, so the leads keep the room. */}
+      {/* Only Past agents and Settings stay out: the environment, Overview,
+          Media and Jobs are in Settings' popover, so the leads keep the room. */}
       <div className="grid gap-0.5 border-t border-line p-2">
         <NavItem icon={Archive} active={view.kind === 'pastAgents'} onClick={() => onSelect({ kind: 'pastAgents' })}>
           {t('pastAgents.title')}
         </NavItem>
-        <Menu>
-          <MenuTrigger asChild>
+        <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+          <PopoverTrigger asChild>
             <button
               type="button"
               className={cn(
@@ -164,22 +161,37 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
                 <ChevronUp className="size-3.5 text-faint" />
               </span>
             </button>
-          </MenuTrigger>
-          <MenuContent side="top" align="start" className="w-[256px]">
-            <MenuItem icon={Settings} onSelect={() => onSelect({ kind: 'settings' })} data-v2-menu="settings">
-              {t('common.settings')}
-            </MenuItem>
-            <MenuItem icon={House} onSelect={() => onSelect({ kind: 'home' })} data-v2-menu="overview">
-              {t('v2.sidebar.overview')}
-            </MenuItem>
-            <MenuItem icon={Images} hint={unseen > 0 ? String(unseen) : undefined} onSelect={() => onSelect({ kind: 'media' })} data-v2-menu="media">
-              {t('shell.nav.media')}
-            </MenuItem>
-            <MenuItem icon={ListChecks} hint={running > 0 ? t('shell.sidebar.running', { count: running }) : undefined} onSelect={() => onSelect({ kind: 'jobs' })} data-v2-menu="jobs">
-              {t('shell.nav.jobs')}
-            </MenuItem>
-          </MenuContent>
-        </Menu>
+          </PopoverTrigger>
+          <PopoverContent side="top" align="start" className="grid w-[264px] gap-0.5 p-1.5" data-v2-settings-popover>
+            {/* Which AgentBox this window drives: this machine or a hub's. */}
+            <div className="px-1 pb-1.5 pt-0.5">
+              <EnvironmentSwitcher />
+            </div>
+            {(
+              [
+                { kind: 'settings', icon: Settings, label: t('common.settings') },
+                { kind: 'home', icon: House, label: t('v2.sidebar.overview') },
+                { kind: 'media', icon: Images, label: t('shell.nav.media'), hint: unseen > 0 ? String(unseen) : undefined },
+                { kind: 'jobs', icon: ListChecks, label: t('shell.nav.jobs'), hint: running > 0 ? t('shell.sidebar.running', { count: running }) : undefined },
+              ] as const
+            ).map(({ kind, icon: Icon, label, ...rest }) => (
+              <button
+                key={kind}
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onSelect({ kind });
+                }}
+                className={cn('flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] text-secondary transition-colors hover:bg-surface-raised', view.kind === kind && 'bg-surface text-title')}
+                data-v2-menu={kind}
+              >
+                <Icon className="size-4 text-muted" />
+                {label}
+                {'hint' in rest && rest.hint && <span className="ml-auto text-[11px] tabular-nums text-subtle">{rest.hint}</span>}
+              </button>
+            ))}
+          </PopoverContent>
+        </Popover>
       </div>
     </aside>
   );
