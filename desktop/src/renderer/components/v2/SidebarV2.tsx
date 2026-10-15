@@ -143,8 +143,8 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
         )}
       </nav>
 
-      {/* The foot is Settings, as an icon whose popover has the environment,
-          Overview, Past agents, Media and Jobs, and the update check: the
+      {/* The foot is two icons: Settings, whose popover has the environment,
+          Overview, Past agents, Media and Jobs, and the update check. The
           leads keep the room. */}
       <div className="flex items-center gap-2 border-t border-line p-2">
         <Popover open={menuOpen} onOpenChange={setMenuOpen}>
@@ -510,8 +510,8 @@ function AgentRow({ row, active, onClick }: { row: Row; active: boolean; onClick
   );
 }
 
-// UpdateCheck is the foot's update button, as T3Code has it: Check for
-// updates asks the daemon for the latest release now (GET /v1/update/release,
+// UpdateCheck is the foot's update button, an icon as T3Code has it: Check
+// for updates asks the daemon for the latest release now (GET /v1/update/release,
 // which also makes a newer one the offer); once there is one, it updates the
 // app in place, or opens the release page where this install can't.
 function UpdateCheck() {
@@ -534,30 +534,36 @@ function UpdateCheck() {
       setChecking(false);
     }
   };
-  if (offer)
+  if (offer) {
+    const label = app.label ?? t('v2.update.to', { version: offer.version });
     return (
+      <Tip label={app.updating ? label : `${label} · ${updateHint(app.support, offer.version)}`}>
+        <button
+          type="button"
+          aria-label={label}
+          disabled={app.updating}
+          onClick={() => void app.start(offer.url)}
+          className="ml-auto flex size-8 shrink-0 items-center justify-center rounded-lg text-emerald-300 transition hover:bg-emerald-500/15 disabled:cursor-progress"
+          data-v2-update={offer.version}
+        >
+          {app.updating ? <LoaderCircle className="size-4 animate-spin" /> : <CircleArrowUp className="size-4" />}
+        </button>
+      </Tip>
+    );
+  }
+  const label = checking ? t('v2.update.checking') : t('v2.update.check');
+  return (
+    <Tip label={label}>
       <button
         type="button"
-        disabled={app.updating}
-        title={app.updating ? undefined : updateHint(app.support, offer.version)}
-        onClick={() => void app.start(offer.url)}
-        className="ml-auto inline-flex h-8 min-w-0 items-center gap-1.5 rounded-lg bg-emerald-600 px-2.5 text-[12px] font-medium text-white transition hover:bg-emerald-500 disabled:cursor-progress disabled:opacity-80"
-        data-v2-update={offer.version}
+        aria-label={label}
+        disabled={checking}
+        onClick={() => void check()}
+        className="ml-auto flex size-8 shrink-0 items-center justify-center rounded-lg text-muted transition hover:bg-surface hover:text-primary disabled:cursor-progress"
+        data-v2-update-check
       >
-        {app.updating ? <LoaderCircle className="size-3.5 shrink-0 animate-spin" /> : <CircleArrowUp className="size-3.5 shrink-0" />}
-        <span className="truncate">{app.label ?? t('v2.update.to', { version: offer.version })}</span>
+        <RefreshCw className={cn('size-4', checking && 'animate-spin')} />
       </button>
-    );
-  return (
-    <button
-      type="button"
-      disabled={checking}
-      onClick={() => void check()}
-      className="ml-auto inline-flex h-8 min-w-0 items-center gap-1.5 rounded-lg px-2.5 text-[12px] text-subtle transition hover:bg-surface hover:text-primary disabled:cursor-progress"
-      data-v2-update-check
-    >
-      <RefreshCw className={cn('size-3.5 shrink-0', checking && 'animate-spin')} />
-      <span className="truncate">{checking ? t('v2.update.checking') : t('v2.update.check')}</span>
-    </button>
+    </Tip>
   );
 }
