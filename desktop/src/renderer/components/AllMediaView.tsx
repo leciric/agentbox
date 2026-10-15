@@ -23,9 +23,8 @@ export const shownKinds = ['screenshot', 'recording'];
 
 // AllMediaView is every agent's screenshots and recordings, in every project,
 // grouped by day, so you can find what an agent showed without knowing which
-// project or agent it was. Those a notification told you about and you
-// haven't opened are marked until you do (or mark them seen here or in the
-// bell). An item opens in the viewer with links to its project, its agent and
+// project or agent it was. Those an agent kept and you haven't opened are
+// marked until you do (or mark them seen here). An item opens in the viewer with links to its project, its agent and
 // the agent's pull request.
 export function AllMediaView({ onSelect }: { onSelect: (view: View) => void }) {
   const t = useT();

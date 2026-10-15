@@ -3,7 +3,9 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,17 +13,14 @@ import (
 	"agentbox/internal/state"
 )
 
-// The app's notifications are the three things an agent does that the user
-// would want to hear about wherever they are in the app: it finished, it
-// asks them something, or it kept a screenshot or recording. Each is stored
-// as it happens, so the bell's history survives a restart and a missed one
-// is still there the next day, and published so every window's toast and OS
-// notification shows it at once. One seen state serves the bell and the
-// Media view's unseen marks: a media notification is seen when either is.
-
-// reportFresh is how recent an agent's last report must be to speak for a
-// finish: older, and it's about an earlier task.
-const reportFresh = 30 * time.Minute
+// The app's notifications are what an agent does that only the user can
+// answer: a question, or a credential or connector it asks for. Each is
+// stored as it happens, so the inbox still has the one missed yesterday, and
+// published so every window's toast and OS notification shows it at once.
+// What agents merely did — a finish, a screenshot kept — is not one: finished
+// work is the review list's (review.go). A kept screenshot or recording is
+// still stored, out of the list, as the Media views' unseen mark: one seen
+// state serves the inbox's questions and those marks.
 
 // notify stores n and tells the app about it.
 func (s *Server) notify(ctx context.Context, n api.Notification) {
@@ -45,22 +44,6 @@ func (s *Server) notify(ctx context.Context, n api.Notification) {
 	s.events.publish(api.EventNotification, n)
 }
 
-// notifyFinished is an agent's finish, with what its last report said when
-// it reported for this task.
-func (s *Server) notifyFinished(ctx context.Context, ev api.AgentEvent) {
-	n := api.Notification{Kind: api.NotifyFinished, Project: ev.Project, Agent: ev.Agent, Title: ev.Title, Text: ev.Summary, PR: ev.PR, At: ev.At}
-	if reports, err := s.memory().Reports(ctx, ev.Project, ev.Agent); err == nil && len(reports) > 0 {
-		if last := reports[0]; ev.At.Sub(last.CreatedAt) < reportFresh {
-			n.Status = last.Status
-			if last.Summary != "" {
-				n.Text = last.Summary
-			}
-		}
-	}
-	n.Text = cutNotice(n.Text)
-	s.notify(ctx, n)
-}
-
 // notifyQuestion is a question that reached the user: one the lead passed
 // on, or a credential or connector only they can give. Those the lead
 // answers itself are none of the user's business until it says otherwise.
@@ -71,8 +54,9 @@ func (s *Server) notifyQuestion(ctx context.Context, q state.Question, title str
 	})
 }
 
-// notifyMedia is a screenshot or recording an agent kept. Notes, logs and
-// reports are for reading in the Media tab, not for interrupting anyone.
+// notifyMedia marks a screenshot or recording an agent kept as unseen in the
+// Media views. Notes, logs and reports are for reading in the Media tab, not
+// for interrupting anyone.
 func (s *Server) notifyMedia(ctx context.Context, a state.Agent, item api.MediaItem) {
 	if item.Kind != "screenshot" && item.Kind != "recording" {
 		return
@@ -95,14 +79,28 @@ func cutNotice(text string) string {
 	return text
 }
 
-// notifications is the bell's history: every project's, newest first.
+// notificationsMax is the most notifications a page holds, whatever ?limit=
+// asks.
+const notificationsMax = 200
+
+// notifications is the inbox's questions, newest first: a page of them with
+// ?limit= (and ?cursor=), every one without. ?unseen=1 keeps those not seen.
 func (s *Server) notifications(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
-	rows, err := s.store.Notifications(ctx, time.Now())
+	q := r.URL.Query()
+	limit := 0
+	if v := q.Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			return errors.New("limit must be a positive number")
+		}
+		limit = min(n, notificationsMax)
+	}
+	filter := state.NotificationFilter{Kind: api.NotifyQuestion, Unseen: q.Get("unseen") == "1" || q.Get("unseen") == "true"}
+	rows, next, total, err := s.store.NotificationPage(ctx, time.Now(), filter, q.Get("cursor"), limit)
 	if err != nil {
 		return err
 	}
-	m := s.manager(nil)
 	out := make([]api.Notification, 0, len(rows))
 	for _, row := range rows {
 		var n api.Notification
@@ -110,21 +108,12 @@ func (s *Server) notifications(w http.ResponseWriter, r *http.Request) error {
 			continue
 		}
 		n.Seen = !row.SeenAt.IsZero()
-		if n.Media != nil {
-			// The item may have been deleted since, or its path moved with the
-			// data directory: what's stored is only what it was.
-			item, err := s.store.MediaItem(ctx, n.Media.ID)
-			if err != nil {
-				n.Media.Removed = true
-			} else {
-				fresh := toAPIMedia(item, m.MediaPath(item))
-				fresh.AgentName, fresh.AgentTitle = n.Media.AgentName, n.Media.AgentTitle
-				n.Media = &fresh
-			}
-		}
 		out = append(out, n)
 	}
-	return writeJSON(w, http.StatusOK, out)
+	if limit == 0 {
+		return writeJSON(w, http.StatusOK, out)
+	}
+	return writeJSON(w, http.StatusOK, api.NotificationPage{Items: out, Next: next, Total: total})
 }
 
 // seeNotifications marks notifications seen, and tells every window.
@@ -136,6 +125,13 @@ func (s *Server) seeNotifications(w http.ResponseWriter, r *http.Request) error 
 	n, err := s.store.SeeNotifications(r.Context(), req.IDs, req.Media, req.All, req.AllMedia, time.Now())
 	if err != nil {
 		return err
+	}
+	if req.Kind != "" {
+		more, err := s.store.SeeKind(r.Context(), req.Kind, time.Now())
+		if err != nil {
+			return err
+		}
+		n += more
 	}
 	if n > 0 {
 		s.events.publish(api.EventNotificationsSeen, req)

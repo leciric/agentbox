@@ -7,6 +7,8 @@ import type * as T from '../../shared/api';
 import * as A from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
+import { useMediaCounts } from '../lib/mediaPages';
+import { shownKinds } from './AllMediaView';
 import { t as tNow, useT, type MessageKey } from '../lib/i18n';
 import { projectLabel } from '../lib/projectName';
 import { projectTone, type StatusTone } from '../lib/agentStatus';
@@ -756,8 +758,7 @@ function HomeChatItem({ active, onClick }: { active: boolean; onClick: () => voi
 // and recordings you were told about and haven't opened.
 function MediaNavItem({ active, onClick }: { active: boolean; onClick: () => void }) {
   const t = useT();
-  const notices = useQuery({ queryKey: ['notifications'], queryFn: api.notifications });
-  const unseen = (notices.data ?? []).filter((n) => n.media && !n.media.removed && !n.seen).length;
+  const unseen = useMediaCounts({ kinds: shownKinds }).data?.unseen ?? 0;
   return (
     <NavItem icon={Images} active={active} onClick={onClick}>
       {t('shell.nav.media')}

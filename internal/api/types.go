@@ -1816,7 +1816,8 @@ const (
 )
 
 // ReviewItem is an agent in "Ready to review": it finished its work, and the
-// user hasn't reviewed or dismissed it since — or did, and it changed after.
+// user hasn't looked at it since — opening it in the review marks it reviewed
+// — or did, and it changed after.
 // Newest first, by FinishedAt.
 type ReviewItem struct {
 	Project string `json:"project"`
@@ -1841,6 +1842,17 @@ type ReviewItem struct {
 	// the user decided, and when, about the work as it still is.
 	Verdict    string     `json:"verdict,omitempty"`
 	ReviewedAt *time.Time `json:"reviewedAt,omitempty"`
+}
+
+// ReviewPage is GET /v1/review with ?limit= (and the same under a project),
+// and ?cursor= for the page after Next: ready to review a page at a time, or
+// with ?reviewed=1 the reviewed. Total is how many the list holds in all, so a
+// count doesn't stop at the pages loaded. Without ?limit= the routes answer a
+// plain list of every item.
+type ReviewPage struct {
+	Items []ReviewItem `json:"items"`
+	Next  string       `json:"next,omitempty"`
+	Total int          `json:"total"`
 }
 
 // ReviewRequest is POST /v1/agents/{project}/{agent}/review: the user's verdict
@@ -2411,25 +2423,26 @@ type DeleteMediaResult struct {
 
 const EventMedia = "media"
 
-// Notification is one entry in the app's history of what agents did, across
+// Notification is one thing the app tells the user needs them, across
 // projects (GET /v1/notifications, and EventNotification as it happens): an
-// agent finishing, asking something, or keeping a screenshot or recording.
-// Clicking one goes to its agent, and for media to the item itself.
+// agent asking something, or a credential or connector only they can give.
+// What agents merely did, such as finishing, is not one: it is the review
+// list's. Clicking one goes to the project chat where it is answered.
+//
+// A kept screenshot or recording is stored as a NotifyMedia notification too,
+// as the Media views' record of what's unseen; it is announced on
+// EventNotification for them and left out of the list.
 type Notification struct {
 	ID      string `json:"id"`
-	Kind    string `json:"kind"` // NotifyFinished, NotifyQuestion or NotifyMedia
+	Kind    string `json:"kind"` // NotifyQuestion, or NotifyMedia on the event
 	Project string `json:"project"`
 	Agent   string `json:"agent"` // the agent's name
 	Ref     string `json:"ref"`
 	Title   string `json:"title,omitempty"` // what the agent was called at the time
-	// Text is what to show under the headline: the finish's summary, the
-	// question, or the media item's name.
-	Text string `json:"text,omitempty"`
-	// Status is a finish's last report status (done, partial, blocked or
-	// failed), when the agent reported one before it finished.
-	Status string       `json:"status,omitempty"`
-	PR     *PullRequest `json:"pr,omitempty"`    // on a finish
-	Media  *MediaItem   `json:"media,omitempty"` // on NotifyMedia
+	// Text is what to show under the headline: the question, or the media
+	// item's name.
+	Text  string     `json:"text,omitempty"`
+	Media *MediaItem `json:"media,omitempty"` // on NotifyMedia
 	// Question is the question's ID, on NotifyQuestion.
 	Question string    `json:"question,omitempty"`
 	At       time.Time `json:"at"`
@@ -2438,10 +2451,20 @@ type Notification struct {
 
 // The kinds of Notification.
 const (
-	NotifyFinished = "finished"
 	NotifyQuestion = "question"
 	NotifyMedia    = "media"
 )
+
+// NotificationPage is GET /v1/notifications with ?limit=, and ?cursor= for
+// the page after Next: the inbox's questions a page at a time, newest first.
+// ?unseen=1 keeps those not seen yet. Total is how many the filter keeps in
+// all, so a badge doesn't count only the pages loaded. Without ?limit= the
+// route answers every one as a plain list.
+type NotificationPage struct {
+	Items []Notification `json:"items"`
+	Next  string         `json:"next,omitempty"`
+	Total int            `json:"total"`
+}
 
 // SeeNotificationsRequest marks notifications seen: those listed by ID, those
 // about the listed media items, or all of them.
@@ -2449,6 +2472,9 @@ type SeeNotificationsRequest struct {
 	IDs   []string `json:"ids,omitempty"`
 	Media []string `json:"media,omitempty"`
 	All   bool     `json:"all,omitempty"`
+	// Kind is every notification of that kind, for the inbox's "Mark all
+	// read", which can't list questions it hasn't loaded.
+	Kind string `json:"kind,omitempty"`
 	// AllMedia is every notification about a media item, for the Media
 	// view's "Mark seen", which can't list items it hasn't loaded.
 	AllMedia bool `json:"allMedia,omitempty"`

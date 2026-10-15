@@ -784,8 +784,6 @@ export interface Notification {
   ref: string;
   title?: string;
   text?: string;
-  status?: string;
-  pr?: PullRequest;
   media?: MediaItem;
   question?: string;
   at: string;
@@ -796,6 +794,7 @@ export interface SeeNotificationsRequest {
   ids?: string[];
   media?: string[];
   all?: boolean;
+  kind?: string;
   allMedia?: boolean;
 }
 
@@ -882,6 +881,18 @@ export interface UpdateMediaRequest {
 export interface MediaPage {
   items: MediaItem[];
   next?: string;
+}
+
+export interface NotificationPage {
+  items: Notification[];
+  next?: string;
+  total: number;
+}
+
+export interface ReviewPage {
+  items: ReviewItem[];
+  next?: string;
+  total: number;
 }
 
 export interface MediaCounts {
@@ -2631,7 +2642,6 @@ export const EventProject = "project";
 export const EventMedia = "media";
 export const EventNotification = "notification";
 export const EventNotificationsSeen = "notification.seen";
-export const NotifyFinished = "finished";
 export const NotifyQuestion = "question";
 export const NotifyMedia = "media";
 export const EventPulls = "pulls";

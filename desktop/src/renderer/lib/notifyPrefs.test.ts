@@ -1,31 +1,38 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { allowed, applyMode, defaults, dndActive, dndEnd, forever, kindOf, kinds, modeOf, parsePrefs } from './notifyPrefs.ts';
+import { allowed, applyMode, defaults, dndActive, dndEnd, forever, kinds, modeOf, parsePrefs } from './notifyPrefs.ts';
 
 const noon = new Date(2026, 9, 14, 12, 0).getTime();
 
-test('everything is on by default, but CI is quiet', () => {
+test('everything is on by default, and only what needs you has a switch', () => {
   const p = defaults();
-  for (const k of kinds) assert.equal(p.kinds[k].system, true);
-  assert.equal(p.kinds.finished.sound, true);
-  assert.equal(p.kinds.ci.sound, false);
+  assert.deepEqual([...kinds], ['review', 'question', 'error']);
+  for (const k of kinds) assert.equal(p.kinds[k].system && p.kinds[k].sound, true);
   assert.equal(dndActive(p, noon), false);
   assert.equal(modeOf(p), 'on');
 });
 
 test('parsePrefs keeps what is valid and defaults the rest', () => {
-  const p = parsePrefs(JSON.stringify({ kinds: { question: { sound: false }, ci: { system: 'yes' }, bogus: { sound: false } }, dndUntil: 5 }));
+  const p = parsePrefs(JSON.stringify({ kinds: { question: { sound: false }, error: { system: 'yes' }, bogus: { sound: false } }, dndUntil: 5 }));
   assert.equal(p.kinds.question.sound, false);
   assert.equal(p.kinds.question.system, true);
-  assert.equal(p.kinds.ci.system, true);
+  assert.equal(p.kinds.error.system, true);
   assert.equal(p.dndUntil, 5);
   assert.deepEqual(parsePrefs('not json'), defaults());
 });
 
-test('the chime’s old switch still decides the finished sound until something is stored', () => {
-  assert.equal(parsePrefs(null, 'false').kinds.finished.sound, false);
-  assert.equal(parsePrefs(null, 'true').kinds.finished.sound, true);
-  assert.equal(parsePrefs(JSON.stringify({}), 'false').kinds.finished.sound, true);
+test('the chime’s old switch still decides the review sound until something is stored', () => {
+  assert.equal(parsePrefs(null, 'false').kinds.review.sound, false);
+  assert.equal(parsePrefs(null, 'true').kinds.review.sound, true);
+  assert.equal(parsePrefs(JSON.stringify({}), 'false').kinds.review.sound, true);
+});
+
+test('what was stored for finishing carries over to Ready to review', () => {
+  const p = parsePrefs(JSON.stringify({ kinds: { finished: { sound: false, system: false }, ci: { sound: false } } }));
+  assert.deepEqual(p.kinds.review, { sound: false, system: false });
+  assert.deepEqual(Object.keys(p.kinds).sort(), ['error', 'question', 'review']);
+  // Its own entry wins once there is one.
+  assert.equal(parsePrefs(JSON.stringify({ kinds: { finished: { sound: false }, review: { sound: true } } })).kinds.review.sound, true);
 });
 
 test('do not disturb overrides every switch until it ends', () => {
@@ -38,9 +45,9 @@ test('do not disturb overrides every switch until it ends', () => {
 
 test('a switch off stays off', () => {
   const p = defaults();
-  p.kinds.ci.sound = false;
-  assert.equal(allowed(p, 'ci', 'sound', noon), false);
-  assert.equal(allowed(p, 'ci', 'system', noon), true);
+  p.kinds.error.sound = false;
+  assert.equal(allowed(p, 'error', 'sound', noon), false);
+  assert.equal(allowed(p, 'error', 'system', noon), true);
 });
 
 test('durations end when they say', () => {
@@ -61,12 +68,4 @@ test('the first run’s answer sets every kind and keeps do not disturb', () => 
   assert.equal(modeOf(silent), 'silent');
   assert.equal(silent.dndUntil, 7);
   assert.deepEqual(applyMode(silent, 'on').kinds, defaults().kinds);
-});
-
-test('a notification belongs to a kind', () => {
-  assert.equal(kindOf({ kind: 'question' }), 'question');
-  assert.equal(kindOf({ kind: 'finished', status: 'done' }), 'finished');
-  assert.equal(kindOf({ kind: 'finished', status: 'failed' }), 'error');
-  assert.equal(kindOf({ kind: 'finished', status: 'blocked' }), 'error');
-  assert.equal(kindOf({ kind: 'media' }), 'finished');
 });

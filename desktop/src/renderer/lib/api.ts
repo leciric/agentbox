@@ -351,10 +351,11 @@ export const api = {
   // the credential cards read.
   agentEvents: (name: string) => call<T.AgentEvent[]>('GET', `${project(name)}/agent-events`),
   // "Ready to review": a project's agents that finished and nobody has
-  // reviewed or dismissed since, or every project's; and a verdict on one.
-  readyToReview: (name?: string) => call<T.ReviewItem[]>('GET', name ? `${project(name)}/review` : '/v1/review'),
-  // Reviewed: the agents already reviewed or dismissed, the latest first.
-  reviewed: (name?: string) => call<T.ReviewItem[]>('GET', `${name ? `${project(name)}/review` : '/v1/review'}?reviewed=1`),
+  // looked at since, or every project's, a page at a time (query: limit, cursor);
+  // and a verdict on one.
+  readyToReviewPage: (query: URLSearchParams, name?: string) => call<T.ReviewPage>('GET', `${name ? `${project(name)}/review` : '/v1/review'}?${query}`),
+  // Reviewed: the agents already looked at or dismissed, the latest first.
+  reviewedPage: (query: URLSearchParams, name?: string) => call<T.ReviewPage>('GET', `${name ? `${project(name)}/review` : '/v1/review'}?reviewed=1&${query}`),
   review: (ref: string, req: T.ReviewRequest) => call<void>('POST', `${agent(ref)}/review`, req),
   questions: (name: string) => call<T.Question[]>('GET', `${project(name)}/questions?all=1`),
   // An agent's credential request: the value goes to the daemon, which puts it
@@ -472,7 +473,8 @@ export const api = {
   // A page of a Media list, and the counts on its filters (lib/mediaPages.ts).
   mediaPage: (query: URLSearchParams) => call<T.MediaPage>('GET', `/v1/media?${query}`),
   mediaCounts: (query: URLSearchParams) => call<T.MediaCounts>('GET', `/v1/media/counts?${query}`),
-  notifications: () => call<T.Notification[]>('GET', '/v1/notifications'),
+  // What needs you from the daemon: questions, a page at a time (query: limit, cursor, unseen).
+  notificationPage: (query: URLSearchParams) => call<T.NotificationPage>('GET', `/v1/notifications?${query}`),
   seeNotifications: (req: T.SeeNotificationsRequest) => call<T.SeeNotificationsResult>('POST', '/v1/notifications/seen', req),
   // Bulk deletes: the items named by id, or everything the list filters match.
   deleteProjectMedia: (project: string, req: T.DeleteMediaRequest) =>

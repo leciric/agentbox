@@ -503,7 +503,6 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, end cha
 	if pr != nil {
 		s.setupStep(ctx, setupFirstPR)
 	}
-	s.notifyFinished(ctx, ev)
 	// Whether the lead reacts to this now is the project's to say, or the
 	// agent's when the project leaves it to whichever agent finished — and
 	// only ever for work the lead asked for (D87). A turn somebody drove from

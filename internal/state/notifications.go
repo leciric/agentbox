@@ -2,6 +2,7 @@ package state
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -70,6 +71,70 @@ func (s *Store) Notifications(ctx context.Context, now time.Time) ([]Notificatio
 	return out, rows.Err()
 }
 
+// NotificationFilter narrows NotificationPage: only one kind, only those not
+// seen yet.
+type NotificationFilter struct {
+	Kind   string
+	Unseen bool
+}
+
+// NotificationPage is up to limit notifications of the history, newest first,
+// after cursor (NotificationCursor of the last one a page ended on; "" is the
+// start), with the cursor of the next page when there is one and how many the
+// filter keeps in all. limit 0 is no limit.
+func (s *Store) NotificationPage(ctx context.Context, now time.Time, f NotificationFilter, cursor string, limit int) (out []Notification, next string, total int, err error) {
+	where := `n.created_at >= ? AND EXISTS (SELECT 1 FROM projects p WHERE p.name = n.project)`
+	args := []any{now.Add(-KeepNotifications).UnixMilli()}
+	if f.Kind != "" {
+		where += ` AND n.kind = ?`
+		args = append(args, f.Kind)
+	}
+	if f.Unseen {
+		where += ` AND n.seen_at = 0`
+	}
+	if err = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM notifications n WHERE `+where, args...).Scan(&total); err != nil {
+		return nil, "", 0, err
+	}
+	if cursor != "" {
+		var created, rowid int64
+		if _, err := fmt.Sscanf(cursor, "%d:%d", &created, &rowid); err != nil {
+			return nil, "", 0, fmt.Errorf("cursor %q isn't one this list gave", cursor)
+		}
+		where += ` AND (n.created_at < ? OR (n.created_at = ? AND n.rowid < ?))`
+		args = append(args, created, created, rowid)
+	}
+	query := `SELECT n.id, n.project, n.agent, n.kind, n.media_id, n.created_at, n.seen_at, n.data, n.rowid FROM notifications n
+		WHERE ` + where + ` ORDER BY n.created_at DESC, n.rowid DESC LIMIT ?`
+	size := keepNotificationRows
+	if limit > 0 {
+		size = limit + 1 // one more says whether there is a next page
+	}
+	rows, err := s.db.QueryContext(ctx, query, append(args, size)...)
+	if err != nil {
+		return nil, "", 0, err
+	}
+	defer func() { _ = rows.Close() }()
+	var last int64
+	for rows.Next() {
+		var n Notification
+		var created, seen, rowid int64
+		var data string
+		if err := rows.Scan(&n.ID, &n.Project, &n.Agent, &n.Kind, &n.MediaID, &created, &seen, &data, &rowid); err != nil {
+			return nil, "", 0, err
+		}
+		n.CreatedAt, n.Data = time.UnixMilli(created), []byte(data)
+		if seen > 0 {
+			n.SeenAt = time.UnixMilli(seen)
+		}
+		if limit > 0 && len(out) == limit {
+			next = fmt.Sprintf("%d:%d", out[len(out)-1].CreatedAt.UnixMilli(), last)
+			break
+		}
+		out, last = append(out, n), rowid
+	}
+	return out, next, total, rows.Err()
+}
+
 // UnseenMedia is which of the media items with a notification haven't been
 // seen yet, by item ID.
 func (s *Store) UnseenMedia(ctx context.Context) (map[string]bool, error) {
@@ -118,6 +183,17 @@ func (s *Store) SeeNotifications(ctx context.Context, ids, media []string, all, 
 		return 0, nil
 	}
 	res, err := s.db.ExecContext(ctx, `UPDATE notifications SET seen_at = ? WHERE seen_at = 0 AND (`+strings.Join(where, " OR ")+`)`, args...)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	return int(n), err
+}
+
+// SeeKind marks every notification of one kind seen at "at", and returns how
+// many it changed.
+func (s *Store) SeeKind(ctx context.Context, kind string, at time.Time) (int, error) {
+	res, err := s.db.ExecContext(ctx, `UPDATE notifications SET seen_at = ? WHERE seen_at = 0 AND kind = ?`, at.UnixMilli(), kind)
 	if err != nil {
 		return 0, err
 	}

@@ -1,38 +1,22 @@
-// What the app tells you about agents, across projects: a finish, a question
-// that reached you, a screenshot or recording kept. The daemon keeps them
-// (GET /v1/notifications) and sends each as it happens (EventNotification);
-// here is what they say, and where clicking one goes. The bell, the toasts,
-// the OS notifications and the all-projects Media view all use these.
-import { useQueryClient, type QueryClient } from '@tanstack/react-query';
+// What the app tells you needs you, across projects: a question that reached
+// you, which the daemon keeps (GET /v1/notifications) and sends as it happens
+// (EventNotification). Finished work isn't one: it's in the review list. The
+// toasts, the OS notifications and the inbox all use these. The Media views'
+// unseen marks ride on the same seen state (a kept screenshot or recording is
+// a notification the daemon doesn't list).
+import { useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
 import type * as T from '../../shared/api';
 import type { View } from '../App.tsx';
 import { api } from './api.ts';
 import { formatDate, t } from '../../shared/i18n/index.ts';
-import { kindInfo } from './media.ts';
+import { questionsKey, refreshInbox, withoutSeen } from './inboxPages.ts';
 import { isMediaUnseen, setMediaUnseen } from './mediaPages.ts';
 
 const DAY = 24 * 60 * 60 * 1000;
 
-// What a finish's report status says the agent did.
-export function finishVerb(status: string): string {
-  switch (status) {
-    case 'partial':
-      return t('shell.notice.verb.partial');
-    case 'blocked':
-      return t('shell.notice.verb.blocked');
-    case 'failed':
-      return t('shell.notice.verb.failed');
-    default:
-      return t('shell.notice.verb.done');
-  }
-}
-
-// noticeVerb is what the agent did, after its name: "saved a screenshot".
-export function noticeVerb(n: T.Notification): string {
-  if (n.kind === 'media') return t('shell.notice.verb.media', { kind: kindInfo(n.media?.kind ?? '').one });
-  if (n.kind === 'question') return t('shell.notice.verb.question');
-  return finishVerb(n.status ?? '');
-}
+// noticeVerb is what the agent did, after its name: it asks you, or stopped
+// on an error (a notice the app makes itself, from the agent's state).
+export const noticeVerb = (n: Pick<T.Notification, 'kind'>): string => t(n.kind === 'error' ? 'shell.notice.verb.error' : 'shell.notice.verb.question');
 
 // noticeText is an OS notification's: its title names the agent, and its body
 // the text and where it's from, since the OS shows neither the project nor
@@ -43,14 +27,10 @@ export function noticeText(n: T.Notification, projectName: string): { title: str
   return { title, body: [n.text, from].filter(Boolean).join('\n') };
 }
 
-// noticeView is the page a notification opens: a media item's agent at its
-// Media tab (where the item opens in the viewer, see App), a question's
-// project chat, where you answer it, and a finish's agent at its chat. An
-// agent destroyed since leaves its project.
-export function noticeView(n: T.Notification, agents: readonly T.Agent[] | undefined): View {
-  if (n.kind === 'question') return { kind: 'project', project: n.project, tab: 'chat' };
-  if (agents && !agents.some((a) => a.ref === n.ref)) return { kind: 'project', project: n.project, tab: n.kind === 'media' ? 'media' : undefined };
-  return { kind: 'agent', ref: n.ref, tab: n.kind === 'media' ? 'media' : 'chat' };
+// noticeView is the page a notification opens: its project's chat, where
+// a question is answered.
+export function noticeView(n: T.Notification): View {
+  return { kind: 'project', project: n.project, tab: 'chat' };
 }
 
 // dayLabel is the heading a time goes under: Today, Yesterday, or its date.
@@ -77,19 +57,17 @@ export function byDay<V>(list: readonly V[], at: (v: V) => string, now = Date.no
 // then tells the daemon, which tells every other window.
 export function markSeen(queryClient: QueryClient, req: T.SeeNotificationsRequest): Promise<unknown> {
   applySeen(queryClient, req);
-  return api.seeNotifications(req).catch(() => queryClient.invalidateQueries({ queryKey: ['notifications'] }));
+  return api.seeNotifications(req).catch(() => refreshInbox(queryClient));
 }
 
-// applySeen marks what a SeeNotificationsRequest names seen in the cache:
-// the notifications, and the media items they're about in the Media lists.
+// applySeen marks what a SeeNotificationsRequest names seen in the cache: the
+// questions leave the unseen ones, and the media items it's about lose their
+// mark in the Media lists.
 export function applySeen(queryClient: QueryClient, req: T.SeeNotificationsRequest): void {
-  const ids = new Set(req.ids ?? []);
-  const media = new Set(req.media ?? []);
-  const hit = (n: T.Notification) => req.all || ids.has(n.id) || (n.media !== undefined && (req.allMedia || media.has(n.media.id)));
-  const seenMedia = new Set(media);
-  for (const n of queryClient.getQueryData<T.Notification[]>(['notifications']) ?? []) if (n.media && hit(n)) seenMedia.add(n.media.id);
-  queryClient.setQueryData<T.Notification[]>(['notifications'], (list) => list?.map((n) => (hit(n) && !n.seen ? { ...n, seen: true } : n)));
-  setMediaUnseen(queryClient, false, seenMedia, req.all || req.allMedia);
+  queryClient.setQueryData<InfiniteData<T.NotificationPage, string>>(questionsKey, (data) => withoutSeen(data, req));
+  if (!req.all && !req.allMedia && !req.media?.length) return;
+  setMediaUnseen(queryClient, false, new Set(req.media ?? []), req.all || req.allMedia);
+  void queryClient.invalidateQueries({ queryKey: ['mediaCounts'] });
 }
 
 export function useMarkSeen(): (req: T.SeeNotificationsRequest) => Promise<unknown> {
@@ -97,14 +75,11 @@ export function useMarkSeen(): (req: T.SeeNotificationsRequest) => Promise<unkno
   return (req) => markSeen(queryClient, req);
 }
 
-// useSeeMedia marks a media item seen when it's opened anywhere, if a
-// notification about it is still unseen; otherwise it costs nothing.
+// useSeeMedia marks a media item seen when it's opened anywhere, if the Media
+// lists show it unseen; otherwise it costs nothing.
 export function useSeeMedia(): (id: string | null) => void {
   const queryClient = useQueryClient();
   return (id) => {
-    if (!id) return;
-    const unseen = queryClient.getQueryData<T.Notification[]>(['notifications'])?.some((n) => !n.seen && n.media?.id === id);
-    const marked = isMediaUnseen(queryClient, id);
-    if (unseen || marked) void markSeen(queryClient, { media: [id] });
+    if (id && isMediaUnseen(queryClient, id)) void markSeen(queryClient, { media: [id] });
   };
 }

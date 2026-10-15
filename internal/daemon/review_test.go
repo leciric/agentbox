@@ -2,12 +2,14 @@ package daemon
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"agentbox/internal/api"
+	"agentbox/internal/state"
 	"agentbox/internal/testutil"
 )
 
@@ -106,6 +108,56 @@ func TestReadyToReviewListsFinishedAgentsUntilReviewed(t *testing.T) {
 	}
 	if _, ok, err := d.srv.store.AgentReviewOf(ctx, older.Project, older.Name); err != nil || ok {
 		t.Errorf("the verdict outlived its agent (ok=%v, err=%v)", ok, err)
+	}
+}
+
+// Both lists are read a page at a time: the cursor continues from where the
+// last page ended even when an item left the list meanwhile, and the total
+// counts the whole list.
+func TestReviewListsArePaged(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	repo := d.fixtureRepo(t, "hello-stack")
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	var agents []state.Agent
+	for i := range 5 {
+		a := addAgent(t, d, repo, "hello-stack", fmt.Sprintf("agent-%02d", i+1), fmt.Sprintf("Task %d", i+1))
+		d.srv.record(ctx, finishedEvent(a, api.AgentChanges{}, nil, "Done.", now.Add(-time.Duration(i)*time.Minute)))
+		agents = append(agents, a)
+	}
+	// agent-01 finished last, so it's first.
+	page, err := d.client.ReviewPage(ctx, "", false, 2, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Total != 5 || len(page.Items) != 2 || page.Items[0].Agent != "agent-01" || page.Items[1].Agent != "agent-02" || page.Next == "" {
+		t.Fatalf("first page = %+v", page)
+	}
+	// agent-02, where the page ended, is reviewed before the next is read.
+	if err := d.client.Review(ctx, agents[1].Ref(), api.ReviewRequest{Verdict: api.ReviewReviewed}); err != nil {
+		t.Fatal(err)
+	}
+	next, err := d.client.ReviewPage(ctx, "", false, 2, page.Next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Total != 4 || len(next.Items) != 2 || next.Items[0].Agent != "agent-03" || next.Items[1].Agent != "agent-04" || next.Next == "" {
+		t.Fatalf("second page = %+v, want agent-03 and agent-04 of 4", next)
+	}
+	last, err := d.client.ReviewPage(ctx, "", false, 2, next.Next)
+	if err != nil || len(last.Items) != 1 || last.Items[0].Agent != "agent-05" || last.Next != "" {
+		t.Fatalf("last page = %+v, %v", last, err)
+	}
+	done, err := d.client.ReviewPage(ctx, "hello-stack", true, 1, "")
+	if err != nil || done.Total != 1 || len(done.Items) != 1 || done.Items[0].Agent != "agent-02" || done.Next != "" {
+		t.Fatalf("reviewed page = %+v, %v", done, err)
+	}
+	if _, err := d.client.ReviewPage(ctx, "", false, 2, "nonsense"); err == nil {
+		t.Error("a cursor that isn't one of ours was taken")
 	}
 }
 

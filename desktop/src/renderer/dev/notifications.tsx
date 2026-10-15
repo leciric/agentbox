@@ -1,13 +1,13 @@
 // The notifications scenarios, with fixtures: clickable notifications, the
-// top bar's inbox with their history, the all-projects Media view, and the
+// top bar's inbox with its questions, the all-projects Media view, and the
 // viewer a notification opens. They render the app's own Sidebar, TopBar,
 // Inbox, NoticeToast, AllMediaView, MediaViewer and MediaPlace,
 // put together the way App does, over a dev bridge that answers
 // /v1/notifications and /v1/media from here (fixtures.ts setNotifications).
 //
-//   ?notify=bell     Home, with the inbox open on its sections
+//   ?notify=bell     Home, with the inbox open on its questions
 //   ?notify=media    the all-projects Media view
-//   ?notify=viewer   a notification clicked: its agent's Media, its item open
+//   ?notify=viewer   an agent's Media with an item open in the viewer
 //   ?notify=toast    the in-app toast, the whole of which is the link
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { lazy, Suspense, useEffect, useState } from 'react';
@@ -124,11 +124,9 @@ function mockNotices(media: T.MediaItem[]): T.Notification[] {
   const fromMedia: T.Notification[] = media.slice(0, 12).map((m, i) => ({ id: `nm-${m.id}`, kind: 'media', ...agent(m.agent), at: m.createdAt, seen: i >= 4, media: m, text: m.name }));
   const others: T.Notification[] = [
     { id: 'q1', kind: 'question', ...agent('organic/agent-33'), at: at(7), seen: false, question: 'q1', text: 'Should the digest go out on Mondays or Fridays?' },
-    { id: 'f1', kind: 'finished', ...agent(`${PROJECT}/agent-12`), at: at(14), seen: false, status: 'done', pr: mockPR(`${PROJECT}/agent-12`), text: 'The Projects header has a + button that opens Add project. PR #142 opened.' },
-    { id: 'f2', kind: 'finished', ...agent(`${LONG}/agent-7`), at: at(90), seen: true, status: 'partial', text: 'Steps 1–3 of the tour work; step 4 needs the settings page from #11.' },
-    { id: 'f3', kind: 'finished', ...agent(`${PROJECT}/agent-96`), at: at(DAY / MIN + 60), seen: true, status: 'done', text: 'The rail no longer widens with a long branch name. Merged as #139.' },
-    { id: 'q2', kind: 'question', ...agent(`${PROJECT}/agent-99`), at: at(DAY / MIN + 200), seen: true, question: 'q2', text: 'Should the reminders page paginate?' },
-    { id: 'f4', kind: 'finished', ...agent('organic/agent-31'), at: at(2 * DAY / MIN + 30), seen: true, status: 'blocked', text: 'Needs a Stripe test key: STRIPE_SECRET_KEY.' },
+    { id: 'q3', kind: 'question', ...agent(`${LONG}/agent-7`), at: at(90), seen: false, question: 'q3', text: 'The tour needs the settings page from #11. Build it here, or wait for that PR?' },
+    { id: 'q2', kind: 'question', ...agent(`${PROJECT}/agent-99`), at: at(DAY / MIN + 200), seen: false, question: 'q2', text: 'Should the reminders page paginate?' },
+    { id: 'q4', kind: 'question', ...agent('organic/agent-31'), at: at(2 * DAY / MIN + 30), seen: true, question: 'q4', text: 'Needs a Stripe test key: STRIPE_SECRET_KEY.' },
   ];
   return [...fromMedia, ...others].sort((a, b) => b.at.localeCompare(a.at));
 }
@@ -136,10 +134,13 @@ function mockNotices(media: T.MediaItem[]): T.Notification[] {
 // seedNotifications adds the projects and agents the scenarios name to the
 // fixtures, with their pull requests in each project's fleet, each agent's
 // own media list, the bell's history and the all-projects media.
+// The notifications seeded, for the scenarios that click one.
+let mocked: T.Notification[] = [];
+
 export function seedNotifications(queryClient: QueryClient, media: T.MediaItem[]): void {
   const notices = mockNotices(media);
   setNotifications(notices, media);
-  queryClient.setQueryData(['notifications'], notices);
+  mocked = notices;
   queryClient.setQueryData<T.Project[]>(['projects'], (ps) => {
     if (!ps || ps.some((p) => p.name === 'organic')) return ps;
     const base = ps.find((p) => p.name === PROJECT)!;
@@ -180,23 +181,25 @@ export function NotificationsPreview({ scenario }: { scenario: string }) {
   const queryClient = useQueryClient();
   const [view, setView] = useState<View>(scenario === 'media' ? { kind: 'media' } : { kind: 'home' });
   const [viewing, setViewing] = useState<{ ref: string; id: string; from: string; at: string } | null>(null);
-  const agents = queryClient.getQueryData<T.Agent[]>(['agents']);
 
   const openNotice = (n: T.Notification) => {
     void markSeen(queryClient, { ids: [n.id] });
-    const next = noticeView(n, agents);
-    setView(next);
-    if (n.media && next.kind === 'agent') setViewing({ ref: n.ref, id: n.media.id, from: n.media.id, at: n.at });
+    setView(noticeView(n));
   };
 
   useEffect(() => {
-    const notices = queryClient.getQueryData<T.Notification[]>(['notifications']) ?? [];
-    const shot = notices.find((n) => n.media?.kind === 'screenshot' && !n.seen)!;
-    if (scenario === 'viewer') openNotice(shot);
+    const shot = mocked.find((n) => n.media?.kind === 'screenshot' && !n.seen)!;
+    const asking = mocked.find((n) => n.kind === 'question' && !n.seen)!;
+    // A kept screenshot is no notification now; the viewer opens from the
+    // agent's Media tab.
+    if (scenario === 'viewer') {
+      setView({ kind: 'agent', ref: shot.ref, tab: 'media' });
+      setViewing({ ref: shot.ref, id: shot.media!.id, from: '', at: '' });
+    }
     if (scenario === 'bell') requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('[data-inbox]')?.click());
     if (scenario !== 'toast') return;
-    const projectName = projectLabel(shot.project, queryClient.getQueryData<T.Project[]>(['projects']));
-    const id = toast.custom((t) => <NoticeToast notice={shot} projectName={projectName} onOpen={() => (toast.dismiss(t), openNotice(shot))} />, { duration: Infinity });
+    const projectName = projectLabel(asking.project, queryClient.getQueryData<T.Project[]>(['projects']));
+    const id = toast.custom((t) => <NoticeToast notice={asking} projectName={projectName} onOpen={() => (toast.dismiss(t), openNotice(asking))} />, { duration: Infinity });
     return () => void toast.dismiss(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

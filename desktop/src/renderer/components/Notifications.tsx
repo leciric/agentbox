@@ -1,48 +1,18 @@
 import { useQuery } from '@tanstack/react-query';
-import { ChevronRight, CircleAlert, CircleCheck, CircleDashed, FolderGit2, MessageCircleQuestion, Video } from 'lucide-react';
+import { ChevronRight, CircleAlert, FolderGit2, MessageCircleQuestion } from 'lucide-react';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
-import { clock, kindInfo, mediaUrl } from '../lib/media';
-import { byDay, noticeVerb } from '../lib/notifications';
+import { noticeVerb } from '../lib/notifications';
 import { projectLabel } from '../lib/projectName';
 import { useT } from '../lib/i18n';
 import { cn, timeAgo } from '../lib/utils';
 
-const statusArt: Record<string, { icon: typeof CircleCheck; tone: string }> = {
-  done: { icon: CircleCheck, tone: 'text-emerald-400 bg-emerald-400/10' },
-  partial: { icon: CircleDashed, tone: 'text-amber-300 bg-amber-400/10' },
-  blocked: { icon: CircleAlert, tone: 'text-rose-300 bg-rose-400/10' },
-  failed: { icon: CircleAlert, tone: 'text-rose-300 bg-rose-400/10' },
-};
-
-// NoticeArt is a notification's picture: the screenshot itself, a
-// recording's length, or what kind of news it is.
+// NoticeArt is a notification's picture: a question, or an error.
 function NoticeArt({ notice }: { notice: T.Notification }) {
-  const media = notice.media;
-  if (media && !media.removed) {
-    return (
-      <span className="relative flex h-9 w-14 shrink-0 items-center justify-center overflow-hidden rounded-md border border-line bg-well">
-        {media.kind === 'screenshot' ? (
-          <img src={mediaUrl(media)} alt="" loading="lazy" className="size-full object-cover object-top" />
-        ) : (
-          <>
-            <Video className="size-4 text-rose-300" />
-            {media.meta.duration ? (
-              <span className="absolute bottom-0.5 right-0.5 rounded bg-black/70 px-1 font-mono text-[9px] text-white">{clock(media.meta.duration)}</span>
-            ) : null}
-          </>
-        )}
-      </span>
-    );
-  }
-  const { icon: Icon, tone } =
-    notice.kind === 'question'
-      ? { icon: MessageCircleQuestion, tone: 'text-amber-300 bg-amber-400/10' }
-      : notice.kind === 'media'
-        ? { icon: kindInfo(media?.kind ?? '').icon, tone: 'text-faint bg-surface' }
-        : (statusArt[notice.status ?? ''] ?? statusArt.done);
+  const error = notice.kind === 'error';
+  const Icon = error ? CircleAlert : MessageCircleQuestion;
   return (
-    <span className={cn('flex h-9 w-14 shrink-0 items-center justify-center rounded-md', tone)}>
+    <span className={cn('flex h-9 w-14 shrink-0 items-center justify-center rounded-md', error ? 'bg-rose-400/10 text-rose-300' : 'bg-amber-400/10 text-amber-300')}>
       <Icon className="size-4" />
     </span>
   );
@@ -87,31 +57,6 @@ export function NoticeRow({ notice, projectName, onOpen }: { notice: T.Notificat
       </span>
       <span className={cn('mt-1.5 size-2 shrink-0 rounded-full', notice.seen ? 'bg-transparent' : 'bg-brand-400')} aria-label={notice.seen ? undefined : t('shell.notice.unseen')} />
     </button>
-  );
-}
-
-// NoticeHistory is the inbox's Activity (components/Inbox.tsx): what agents
-// did, in every project, newest first, by day. A row goes where its
-// notification went (App's openNotice).
-export function NoticeHistory({ onOpen }: { onOpen: (n: T.Notification) => void }) {
-  const t = useT();
-  const notices = useQuery({ queryKey: ['notifications'], queryFn: api.notifications });
-  const projectName = useProjectNames();
-  const list = notices.data ?? [];
-  if (list.length === 0) {
-    return <div className="px-3 py-3 text-[12.5px] text-muted">{notices.isPending ? t('common.loading') : t('shell.notice.empty')}</div>;
-  }
-  return (
-    <>
-      {byDay(list, (n) => n.at).map(([day, group]) => (
-        <div key={day}>
-          <div className="px-2.5 pb-1 pt-2 text-[11px] text-subtle">{day}</div>
-          {group.map((n) => (
-            <NoticeRow key={n.id} notice={n} projectName={projectName(n.project)} onOpen={() => onOpen(n)} />
-          ))}
-        </div>
-      ))}
-    </>
   );
 }
 

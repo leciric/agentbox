@@ -1,9 +1,8 @@
-// "Ready to review": the agents that finished and the user hasn't reviewed or
-// dismissed since (the daemon's internal/daemon/review.go decides which), and
-// the carousel of everything one of them made.
+// "Ready to review": the agents that finished and the user hasn't looked at
+// since (the daemon's internal/daemon/review.go decides which; opening one in
+// the review marks it reviewed), and the carousel of everything one of them
+// made.
 import type * as T from '../../shared/api';
-
-export const reviewKey = (project?: string) => (project ? (['review', project] as const) : (['review'] as const));
 
 // A slide is one thing an agent made, in the order it made them, and its
 // pull request last.
@@ -44,14 +43,6 @@ export function swipeStep(dx: number, dy: number): number {
 // countLabel is a button's count, capped so it stays a badge.
 export const countLabel = (n: number) => (n > 99 ? '99+' : String(n));
 
-// withoutAgent is the list with one agent taken off, as a verdict does
-// before the daemon's answer comes back.
-export const withoutAgent = (list: T.ReviewItem[] | undefined, ref: string) => list?.filter((i) => i.ref !== ref);
-
-// reviewedKey is the Reviewed section's list: the agents already reviewed or
-// dismissed, the latest verdict first.
-export const reviewedKey = (project?: string) => (project ? (['reviewed', project] as const) : (['reviewed'] as const));
-
 // MergeBlock is why a pull request can't be merged from the review: it
 // isn't open any more, it's a draft, its checks fail, it conflicts with its
 // base, or the project's account may not merge in this repository.
@@ -90,14 +81,12 @@ export function nextPending(order: readonly string[], current: string, live: rea
 }
 
 // ReviewAction is what a key does in the review.
-export type ReviewAction = 'previous' | 'next' | 'first' | 'last' | 'nextAgent' | 'reviewed' | 'dismiss' | 'merge';
+export type ReviewAction = 'previous' | 'next' | 'first' | 'last' | 'nextAgent' | 'merge';
 
 // The keys, as the review lists them under the slides.
 export const reviewKeys: readonly { keys: readonly string[]; action: ReviewAction }[] = [
   { keys: ['←', '→'], action: 'next' },
   { keys: ['N'], action: 'nextAgent' },
-  { keys: ['R'], action: 'reviewed' },
-  { keys: ['D'], action: 'dismiss' },
   { keys: ['M'], action: 'merge' },
 ];
 
@@ -118,12 +107,6 @@ export function reviewShortcut(e: { key: string; ctrlKey?: boolean; altKey?: boo
     case 'n':
     case 'N':
       return 'nextAgent';
-    case 'r':
-    case 'R':
-      return 'reviewed';
-    case 'd':
-    case 'D':
-      return 'dismiss';
     case 'm':
     case 'M':
       return 'merge';

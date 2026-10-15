@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { countLabel, mergeBlock, nextPending, queueOf, reviewedKey, reviewKey, reviewKeys, reviewShortcut, slidesOf, step, swipeStep, withoutAgent } from './review.ts';
+import { countLabel, mergeBlock, nextPending, queueOf, reviewKeys, reviewShortcut, slidesOf, step, swipeStep } from './review.ts';
 
 const media = (id: string, kind: string, createdAt: string) => ({ id, kind, createdAt }) as T.MediaItem;
 const page = (id: string, createdAt: string) => ({ id, createdAt }) as T.Artifact;
@@ -43,13 +43,8 @@ test('swipeStep only counts a long, mostly sideways drag', () => {
 });
 
 test('the list helpers', () => {
-  assert.deepEqual(reviewKey(), ['review']);
-  assert.deepEqual(reviewKey('pawly'), ['review', 'pawly']);
   assert.equal(countLabel(7), '7');
   assert.equal(countLabel(120), '99+');
-  const list = [{ ref: 'p/agent-01' }, { ref: 'p/agent-02' }] as T.ReviewItem[];
-  assert.deepEqual(withoutAgent(list, 'p/agent-01')?.map((i) => i.ref), ['p/agent-02']);
-  assert.equal(withoutAgent(undefined, 'p/agent-01'), undefined);
 });
 
 test('mergeBlock says why a pull request can’t be merged from the review', () => {
@@ -83,8 +78,9 @@ test('reviewShortcut maps keys to actions, and leaves modified ones alone', () =
   assert.equal(reviewShortcut({ key: 'ArrowRight' }), 'next');
   assert.equal(reviewShortcut({ key: 'ArrowLeft' }), 'previous');
   assert.equal(reviewShortcut({ key: 'n' }), 'nextAgent');
-  assert.equal(reviewShortcut({ key: 'R' }), 'reviewed');
-  assert.equal(reviewShortcut({ key: 'd' }), 'dismiss');
+  // Looking is reviewing: there is no key to mark it.
+  assert.equal(reviewShortcut({ key: 'R' }), null);
+  assert.equal(reviewShortcut({ key: 'd' }), null);
   assert.equal(reviewShortcut({ key: 'm' }), 'merge');
   assert.equal(reviewShortcut({ key: 'End' }), 'last');
   assert.equal(reviewShortcut({ key: 'r', metaKey: true }), null);
@@ -92,9 +88,4 @@ test('reviewShortcut maps keys to actions, and leaves modified ones alone', () =
   assert.equal(reviewShortcut({ key: 'x' }), null);
   // Every key the review lists does what it says.
   for (const k of reviewKeys) for (const key of k.keys) assert.ok(reviewShortcut({ key: key === '←' ? 'ArrowLeft' : key === '→' ? 'ArrowRight' : key }), key);
-});
-
-test('the Reviewed list has a key of its own', () => {
-  assert.deepEqual(reviewedKey(), ['reviewed']);
-  assert.deepEqual(reviewedKey('pawly'), ['reviewed', 'pawly']);
 });

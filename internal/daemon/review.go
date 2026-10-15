@@ -4,9 +4,12 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"agentbox/internal/api"
@@ -145,28 +148,73 @@ func (s *Server) reviewItems(ctx context.Context, p state.Project, agents []stat
 	return out
 }
 
-// reviewedLimit is how many reviewed agents the Reviewed section keeps.
+// reviewedLimit is how many reviewed agents the unpaged Reviewed list keeps.
 const reviewedLimit = 50
+
+// reviewPageMax is the most items a page holds, whatever ?limit= asks.
+const reviewPageMax = 200
+
+// reviewKeyOf is what a review list sorts by, newest first: the finish of
+// what's ready to review, the verdict of what's reviewed.
+func reviewKeyOf(i api.ReviewItem) int64 {
+	if i.Verdict != "" && i.ReviewedAt != nil {
+		return i.ReviewedAt.UnixNano()
+	}
+	return i.FinishedAt.UnixNano()
+}
 
 // reviewList is the answer to both review routes: what's ready to review,
 // newest finish first, or with ?reviewed=1 what the user already reviewed or
-// dismissed, the latest verdict first.
-func reviewList(r *http.Request, items []api.ReviewItem) []api.ReviewItem {
-	reviewed := r.URL.Query().Get("reviewed") != ""
+// dismissed, the latest verdict first. With ?limit= it is a page of that
+// (ReviewPage), after ?cursor=; without, every item as a plain list, the
+// reviewed ones capped at reviewedLimit.
+func reviewList(w http.ResponseWriter, r *http.Request, items []api.ReviewItem) error {
+	q := r.URL.Query()
+	reviewed := q.Get("reviewed") != ""
+	limit := 0
+	if v := q.Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			return errors.New("limit must be a positive number")
+		}
+		limit = min(n, reviewPageMax)
+	}
 	out := []api.ReviewItem{}
 	for _, i := range items {
 		if (i.Verdict != "") == reviewed {
 			out = append(out, i)
 		}
 	}
-	if !reviewed {
-		return newestFinished(out)
+	// The ref breaks a tie, so a cursor always names one place in the list.
+	slices.SortStableFunc(out, func(a, b api.ReviewItem) int {
+		return cmp.Or(cmp.Compare(reviewKeyOf(b), reviewKeyOf(a)), cmp.Compare(a.Ref, b.Ref))
+	})
+	if limit == 0 {
+		if reviewed && len(out) > reviewedLimit {
+			out = out[:reviewedLimit]
+		}
+		return writeJSON(w, http.StatusOK, out)
 	}
-	slices.SortStableFunc(out, func(a, b api.ReviewItem) int { return cmp.Compare(b.ReviewedAt.UnixNano(), a.ReviewedAt.UnixNano()) })
-	if len(out) > reviewedLimit {
-		out = out[:reviewedLimit]
+	page := api.ReviewPage{Total: len(out)}
+	if cursor := q.Get("cursor"); cursor != "" {
+		at, ref, ok := strings.Cut(cursor, ":")
+		key, err := strconv.ParseInt(at, 10, 64)
+		if !ok || err != nil {
+			return fmt.Errorf("cursor %q isn't one this list gave", cursor)
+		}
+		// Whatever left the list since (reviewed, merged) doesn't move the
+		// place: it is the first item sorting after the cursor.
+		out = slices.DeleteFunc(out, func(i api.ReviewItem) bool {
+			return cmp.Or(cmp.Compare(reviewKeyOf(i), key), cmp.Compare(ref, i.Ref)) >= 0
+		})
 	}
-	return out
+	if len(out) > limit {
+		last := out[limit-1]
+		page.Next = fmt.Sprintf("%d:%s", reviewKeyOf(last), last.Ref)
+		out = out[:limit]
+	}
+	page.Items = out
+	return writeJSON(w, http.StatusOK, page)
 }
 
 // projectReview is GET /v1/projects/{project}/review: the project's agents
@@ -181,7 +229,7 @@ func (s *Server) projectReview(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return writeJSON(w, http.StatusOK, reviewList(r, items))
+	return reviewList(w, r, items)
 }
 
 // allReview is GET /v1/review: every project's agents ready to review,
@@ -200,7 +248,7 @@ func (s *Server) allReview(w http.ResponseWriter, r *http.Request) error {
 		}
 		items = append(items, more...)
 	}
-	return writeJSON(w, http.StatusOK, reviewList(r, items))
+	return reviewList(w, r, items)
 }
 
 func (s *Server) projectReviewItems(ctx context.Context, p state.Project) ([]api.ReviewItem, error) {
@@ -209,14 +257,6 @@ func (s *Server) projectReviewItems(ctx context.Context, p state.Project) ([]api
 		return nil, err
 	}
 	return s.reviewItems(ctx, p, agents), nil
-}
-
-func newestFinished(items []api.ReviewItem) []api.ReviewItem {
-	if items == nil {
-		return []api.ReviewItem{}
-	}
-	slices.SortStableFunc(items, func(a, b api.ReviewItem) int { return cmp.Compare(b.FinishedAt.UnixNano(), a.FinishedAt.UnixNano()) })
-	return items
 }
 
 // reviewAgent is POST /v1/agents/{project}/{agent}/review: the user reviewed

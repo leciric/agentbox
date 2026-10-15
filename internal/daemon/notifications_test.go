@@ -2,18 +2,19 @@ package daemon
 
 import (
 	"context"
+	"fmt"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
 	"agentbox/internal/api"
-	"agentbox/internal/memory"
 	"agentbox/internal/state"
 )
 
 // A question the lead answers itself isn't the user's to hear about; one it
-// passes on is, as are a finish (with what the agent last reported) and a
-// screenshot, which the all-projects Media view marks unseen until either
-// it or the bell says it was seen.
+// passes on is. A screenshot is no inbox item, but the all-projects Media
+// view marks it unseen until it or the inbox says it was seen.
 func TestNotificationsReachTheBellAndTheMediaView(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -54,11 +55,6 @@ func TestNotificationsReachTheBellAndTheMediaView(t *testing.T) {
 	}
 	<-asked
 
-	if _, err := d.srv.memory().AddReport(ctx, memory.Report{Project: "hello-stack", Agent: "agent-01", Status: "partial", Summary: "Built the page; paging is left."}); err != nil {
-		t.Fatal(err)
-	}
-	d.srv.notifyFinished(ctx, api.AgentEvent{Project: "hello-stack", Agent: "agent-01", Title: "Reminders page", Summary: "Done.", At: time.Now()})
-
 	shot := state.Media{ID: "shot-1", Project: "hello-stack", Agent: "agent-01", Kind: "screenshot", Name: "the page", Source: "agent", Meta: "{}", CreatedAt: time.Now()}
 	if err := d.srv.store.AddMedia(ctx, shot); err != nil {
 		t.Fatal(err)
@@ -66,20 +62,15 @@ func TestNotificationsReachTheBellAndTheMediaView(t *testing.T) {
 	d.srv.notifyMedia(ctx, a, toAPIMedia(shot, ""))
 	d.srv.notifyMedia(ctx, a, api.MediaItem{ID: "note-1", Kind: "note"}) // not worth a notification
 
+	// The screenshot is kept as the Media view's unseen mark, not listed.
 	list, err := d.client.Notifications(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(list) != 3 {
-		t.Fatalf("Notifications() = %d, want 3: %+v", len(list), list)
+	if len(list) != 1 {
+		t.Fatalf("Notifications() = %d, want just the question: %+v", len(list), list)
 	}
-	media, finished, question := list[0], list[1], list[2]
-	if media.Kind != api.NotifyMedia || media.Media == nil || media.Media.ID != "shot-1" || media.Media.AgentTitle != "Reminders page" || media.Ref != "hello-stack/agent-01" {
-		t.Errorf("media notification = %+v", media)
-	}
-	if finished.Kind != api.NotifyFinished || finished.Status != "partial" || finished.Text != "Built the page; paging is left." {
-		t.Errorf("finished notification = %+v, want the report's status and summary", finished)
-	}
+	question := list[0]
 	if question.Kind != api.NotifyQuestion || question.Question != id || question.Text != "Which payment provider?" {
 		t.Errorf("question notification = %+v", question)
 	}
@@ -95,11 +86,63 @@ func TestNotificationsReachTheBellAndTheMediaView(t *testing.T) {
 		t.Errorf("AllMedia() after seeing = %+v, want shot-1 seen", items)
 	}
 
-	// A deleted item's notification stays, saying so.
-	if err := d.srv.store.DeleteMedia(ctx, "shot-1"); err != nil {
+}
+
+// The inbox reads its questions a page at a time, newest first, with the
+// total and the unseen ones apart; "Mark all read" marks every question, not
+// only the pages loaded, and leaves the Media views' marks alone.
+func TestNotificationsArePaged(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	repo := d.fixtureRepo(t, "hello-stack")
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
-	if list, _ := d.client.Notifications(ctx); !list[0].Media.Removed || !list[0].Seen {
-		t.Errorf("notification of a deleted item = %+v, want removed and seen", list[0].Media)
+	a := addAgent(t, d, repo, "hello-stack", "agent-01", "Reminders page")
+	now := time.Now()
+	for i := range 5 {
+		d.srv.notify(ctx, api.Notification{Kind: api.NotifyQuestion, Project: a.Project, Agent: a.Name, Text: fmt.Sprintf("q%d", i), At: now.Add(time.Duration(i) * time.Minute)})
+	}
+	shot := state.Media{ID: "shot-1", Project: a.Project, Agent: a.Name, Kind: "screenshot", Name: "page", Source: "agent", Meta: "{}", CreatedAt: now}
+	if err := d.srv.store.AddMedia(ctx, shot); err != nil {
+		t.Fatal(err)
+	}
+	d.srv.notifyMedia(ctx, a, toAPIMedia(shot, ""))
+
+	var texts []string
+	cursor := ""
+	for pages := 0; pages < 5; pages++ {
+		q := url.Values{"limit": {"2"}}
+		if cursor != "" {
+			q.Set("cursor", cursor)
+		}
+		page, err := d.client.NotificationPage(ctx, q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if page.Total != 5 {
+			t.Errorf("page %d total = %d, want 5 questions, not the screenshot", pages, page.Total)
+		}
+		for _, n := range page.Items {
+			texts = append(texts, n.Text)
+		}
+		if cursor = page.Next; cursor == "" {
+			break
+		}
+	}
+	if got := strings.Join(texts, ","); got != "q4,q3,q2,q1,q0" {
+		t.Errorf("pages = %s, want every question once, newest first", got)
+	}
+
+	res, err := d.client.SeeNotifications(ctx, api.SeeNotificationsRequest{Kind: api.NotifyQuestion})
+	if err != nil || res.Seen != 5 {
+		t.Fatalf("SeeNotifications(question) = %+v, %v; want 5", res, err)
+	}
+	if page, _ := d.client.NotificationPage(ctx, url.Values{"limit": {"2"}, "unseen": {"1"}}); page.Total != 0 || len(page.Items) != 0 {
+		t.Errorf("unseen after marking all = %+v, want none", page)
+	}
+	if items, _ := d.client.AllMedia(ctx); len(items) != 1 || !items[0].Unseen {
+		t.Errorf("AllMedia() = %+v, want the screenshot still unseen", items)
 	}
 }

@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AddProjectDialog } from "./components/AddProjectDialog";
@@ -40,7 +40,9 @@ import { t as tNow, useT } from "./lib/i18n";
 import { useReadyAlerts } from "./lib/useReadyAlerts";
 import { resetChatEvents } from "./lib/chat";
 import { onNotification, useConnection } from "./lib/events";
-import { kindOf, mayNotify } from "./lib/notifyPrefs";
+import { chatLabel } from "./lib/agentStatus";
+import { reviewHeadKey, questionsKey } from "./lib/inboxPages";
+import { mayNotify, type Kind } from "./lib/notifyPrefs";
 import { playReadySound } from "./lib/reviewAlert";
 import type { AgentPlaceName, ProjectPlaceName } from "./lib/tabs";
 import { requestReveal } from "./lib/reveal";
@@ -194,13 +196,10 @@ export function App({ initial }: { initial?: View } = {}) {
   const viewingIndex = viewing ? viewingItems.findIndex((m) => m.id === viewing.id) : -1;
 
   // openNotice goes where a notification points, from its toast, its OS
-  // notification or the bell, and marks it seen.
+  // notification or the inbox, and marks it seen.
   const openNotice = (n: T.Notification) => {
     void markNoticesSeen(queryClient, { ids: [n.id] });
-    const next = noticeView(n, agents.data);
-    select(next);
-    if (n.media && !n.media.removed && next.kind === "agent")
-      setViewing({ ref: n.ref, id: n.media.id, from: n.media.id, at: n.at });
+    select(noticeView(n));
   };
   const openNoticeRef = useRef(openNotice);
   openNoticeRef.current = openNotice;
@@ -235,7 +234,7 @@ export function App({ initial }: { initial?: View } = {}) {
 
   // toastNotice shows one in the app, the whole toast a link, and in the OS
   // while the window isn't in front (the bridge decides).
-  const toastNotice = (n: T.Notification, onOpen: () => void) => {
+  const toastNotice = (n: T.Notification, onOpen: () => void, kind: Kind = "question") => {
     const projects = queryClient.getQueryData<T.Project[]>(["projects"]);
     const projectName = projectLabel(n.project, projects);
     toast.custom(
@@ -252,18 +251,15 @@ export function App({ initial }: { initial?: View } = {}) {
       // Long enough to reach with the pointer: the toast is the way in.
       { id: n.id, duration: 10_000 },
     );
-    const kind = kindOf(n);
-    // A finish's chime is the ready alert's (useReadyAlerts), and a kept
-    // screenshot is quiet: only a question or a failure sounds here.
-    if ((kind === "question" || kind === "error") && mayNotify(kind, "sound"))
-      playReadySound();
+    // A finish's chime is the ready alert's (useReadyAlerts): only a question
+    // or an error sounds here.
+    if (mayNotify(kind, "sound")) playReadySound();
     if (mayNotify(kind, "system"))
       void window.agentbox.notify({ id: n.id, ...noticeText(n, projectName) });
   };
   const waiting = useRef(new Map<string, () => void>());
 
-  // Tell you when an agent finishes, asks you something or keeps a
-  // screenshot or recording, in any project.
+  // Tell you when something asks you a question, in any project.
   useEffect(
     () =>
       onNotification((n) =>
@@ -280,8 +276,9 @@ export function App({ initial }: { initial?: View } = {}) {
         const local = waiting.current.get(id);
         if (local) return local();
         const n = queryClient
-          .getQueryData<T.Notification[]>(["notifications"])
-          ?.find((x) => x.id === id);
+          .getQueryData<InfiniteData<T.NotificationPage, string>>(questionsKey)
+          ?.pages.flatMap((p) => p.items)
+          .find((x) => x.id === id);
         if (n) openNoticeRef.current(n);
       }),
     [queryClient],
@@ -326,6 +323,36 @@ export function App({ initial }: { initial?: View } = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agents.data]);
 
+  // Tell you when an agent stops on an error while you look elsewhere: one
+  // that failed and finished is in Ready to review, which tells you itself.
+  const errored = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!agents.data) return;
+    const before = errored.current;
+    const inReview = new Set(queryClient.getQueryData<T.ReviewPage>(reviewHeadKey)?.items.map((i) => i.ref));
+    errored.current = new Set(agents.data.filter((a) => chatLabel(a).tone === "error" && !inReview.has(a.ref)).map((a) => a.ref));
+    if (!before) return;
+    for (const a of agents.data) {
+      if (!errored.current.has(a.ref) || before.has(a.ref) || (view.kind === "agent" && view.ref === a.ref)) continue;
+      const open = () => select({ kind: "agent", ref: a.ref, tab: "chat" });
+      toastNotice(
+        {
+          id: `error:${a.ref}:${Date.now()}`,
+          kind: "error",
+          project: a.project,
+          agent: a.name,
+          ref: a.ref,
+          title: a.title,
+          text: chatLabel(a).text,
+          at: new Date().toISOString(),
+        },
+        open,
+        "error",
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agents.data]);
+
   // Tell you when an agent newly lands in Ready to review: the chime and the
   // "new" marks are the hook's (lib/useReadyAlerts.ts); the OS notification,
   // shown only while the window isn't in front, is here.
@@ -337,7 +364,7 @@ export function App({ initial }: { initial?: View } = {}) {
       select({ kind: "agent", ref: first.ref, tab: "chat" });
     });
     const projects = queryClient.getQueryData<T.Project[]>(["projects"]);
-    if (!mayNotify("finished", "system")) {
+    if (!mayNotify("review", "system")) {
       waiting.current.delete(id);
       return;
     }

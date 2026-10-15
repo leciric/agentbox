@@ -9,9 +9,10 @@
 // make no noise. Do not disturb and the per-kind switches decide only the
 // sound and the notification the system shows.
 import { useEffect, useSyncExternalStore } from 'react';
-import type * as T from '../../shared/api';
 
-export const kinds = ['finished', 'question', 'ci', 'error'] as const;
+// review: an agent lands in Ready to review; question: something asks for
+// your answer or permission; error: an agent stopped on an error.
+export const kinds = ['review', 'question', 'error'] as const;
 export type Kind = (typeof kinds)[number];
 export type Channel = 'sound' | 'system';
 export type KindPrefs = Record<Channel, boolean>;
@@ -27,30 +28,29 @@ export const forever = Number.MAX_SAFE_INTEGER;
 export const storageKey = 'agentbox.notifications';
 const legacySoundKey = 'agentbox.review.sound';
 
-// A CI run's sound is the one thing off: it's frequent and rarely urgent.
 export const defaults = (): Prefs => ({
   kinds: {
-    finished: { sound: true, system: true },
+    review: { sound: true, system: true },
     question: { sound: true, system: true },
-    ci: { sound: false, system: true },
     error: { sound: true, system: true },
   },
   dndUntil: 0,
 });
 
 // parsePrefs reads what was stored, keeping whatever is valid and falling back
-// to the default for the rest. With nothing stored, the chime's old switch
-// (before it was one of these) still decides the finished kind's sound.
+// to the default for the rest. What was stored for "finished" (before it was
+// only Ready to review) carries over to review, and with nothing stored the
+// chime's old switch (before it was one of these) still decides its sound.
 export function parsePrefs(raw: string | null, legacySound?: string | null): Prefs {
   const out = defaults();
   if (raw === null) {
-    if (legacySound === 'false') out.kinds.finished.sound = false;
+    if (legacySound === 'false') out.kinds.review.sound = false;
     return out;
   }
   try {
     const data = JSON.parse(raw) as { kinds?: Record<string, Partial<KindPrefs>>; dndUntil?: unknown };
     for (const k of kinds) {
-      const p = data.kinds?.[k];
+      const p = data.kinds?.[k] ?? (k === 'review' ? data.kinds?.finished : undefined);
       if (typeof p?.sound === 'boolean') out.kinds[k].sound = p.sound;
       if (typeof p?.system === 'boolean') out.kinds[k].system = p.system;
     }
@@ -99,14 +99,6 @@ export function modeOf(p: Prefs): Mode {
   const all = kinds.flatMap((k) => [p.kinds[k].sound, p.kinds[k].system]);
   if (!all.some(Boolean)) return 'silent';
   return kinds.some((k) => p.kinds[k].system) ? 'on' : 'sound';
-}
-
-// kindOf is which kind a notification from the daemon is: a question, an
-// agent that failed or got stuck, or a finish.
-export function kindOf(n: Pick<T.Notification, 'kind' | 'status'>): Kind {
-  if (n.kind === 'question') return 'question';
-  if (n.kind !== 'media' && (n.status === 'failed' || n.status === 'blocked')) return 'error';
-  return 'finished';
 }
 
 let current: Prefs | undefined;

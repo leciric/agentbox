@@ -2,9 +2,10 @@
 // agents waiting, in the top bar's inbox (components/Inbox.tsx). agent-12's
 // carousel has two screenshots, a recording (drawn here, on a canvas) and its
 // Hatch pages (dev/pages.ts), then its pull request in full, which merges;
-// agent-41's pull request fails its checks, so it can't. Reviewed and Dismiss
-// move an agent to Reviewed, which the dev bridge remembers (reviewRequest),
-// and two agents are there already.
+// agent-41's pull request fails its checks, so it can't. Opening an agent
+// moves it to Reviewed, which the dev bridge remembers (reviewRequest), and
+// two agents are there already. ?review=many has forty more waiting, for the
+// list to load on scroll.
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { Suspense } from 'react';
 import type * as T from '../../shared/api';
@@ -13,7 +14,7 @@ import { AgentRail } from '../components/AgentRail';
 import { ProjectView } from '../components/ProjectView';
 import { Sidebar } from '../components/Sidebar';
 import { TopBar } from '../components/TopBar';
-import { devRequests, PROJECT, setMediaFile } from './fixtures';
+import { devRequests, pageOf, PROJECT, setMediaFile } from './fixtures';
 import { useReadyAlerts } from '../lib/useReadyAlerts';
 import { screen } from './notifications';
 import { seedPages } from './pages';
@@ -65,6 +66,14 @@ function items(): T.ReviewItem[] {
     }),
     item('agent-98', 'Speed up the daemon’s startup', 'agentbox/agent-98-startup-is-slow-on-a-cold-cache-with-many-projects', 3 * 60 * min),
   ];
+}
+
+// many is forty more agents waiting, each an hour older than the last.
+function many(): T.ReviewItem[] {
+  return Array.from({ length: 40 }, (_, i) => {
+    const agent = `agent-${200 + i}`;
+    return { project: PROJECT, agent, ref: `${PROJECT}/${agent}`, title: `Task ${i + 1}: tidy the settings page`, branch: `agentbox/task-${i + 1}`, ai: 'claude', finishedAt: ago((4 + i) * 60 * min), fingerprint: `{"f":"${agent}"}` };
+  });
 }
 
 // done is what was reviewed before the preview opened.
@@ -143,6 +152,7 @@ export function seedReview(queryClient: QueryClient): void {
   // The top bar's meters, which no other fixture seeds.
   queryClient.setQueryData(['claudeLimits'], []);
   waiting = items();
+  if (new URLSearchParams(location.search).get('review') === 'many') waiting = [...waiting, ...many()];
   decided = done();
   queryClient.setQueryData(['media', `${PROJECT}/agent-12`], media());
   const dark = document.documentElement.dataset.appearance !== 'light';
@@ -167,7 +177,7 @@ function reviewRequest(method: string, path: string, body?: unknown): { status: 
     return { status: 200, body: JSON.stringify(runners), contentType: 'application/json' };
   }
   if (method === 'GET' && (route === '/v1/review' || route === `/v1/projects/${PROJECT}/review`)) {
-    return { status: 200, body: JSON.stringify(query?.includes('reviewed') ? decided : waiting), contentType: 'application/json' };
+    return { status: 200, body: JSON.stringify(pageOf(query?.includes('reviewed') ? decided : waiting, query)), contentType: 'application/json' };
   }
   // The project's pull requests, as the review reads them to merge one.
   if (method === 'GET' && route === `/v1/projects/${PROJECT}/pulls`) {

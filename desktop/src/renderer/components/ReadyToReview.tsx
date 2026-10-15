@@ -1,7 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import {
   ArrowRight,
-  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -12,7 +11,6 @@ import {
   Image as ImageIcon,
   LoaderCircle,
   Play,
-  X,
 } from 'lucide-react';
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { toast } from 'sonner';
@@ -23,27 +21,13 @@ import { useT, type MessageKey } from '../lib/i18n';
 import { mediaUrl } from '../lib/media';
 import { pagesFor } from '../lib/pages';
 import { projectLabel } from '../lib/projectName';
-import {
-  mergeBlock,
-  nextPending,
-  queueOf,
-  reviewedKey,
-  reviewKey,
-  reviewKeys,
-  reviewShortcut,
-  slidesOf,
-  step,
-  swipeStep,
-  withoutAgent,
-  type MergeBlock,
-  type ReviewAction,
-  type Slide,
-} from '../lib/review';
+import { pageItems, pageTotal, refreshInbox, useReviewPages, withoutAgent } from '../lib/inboxPages';
+import { mergeBlock, nextPending, queueOf, reviewKeys, reviewShortcut, slidesOf, step, swipeStep, type MergeBlock, type ReviewAction, type Slide } from '../lib/review';
 import { isUnseen, useUnseen } from '../lib/reviewAlert';
 import { useNow } from '../lib/useNow';
 import { cn, errorMessage, timeAgo } from '../lib/utils';
 import { Markdown } from './chat/Markdown';
-import { Recording } from './MediaTab';
+import { MoreMedia, Recording } from './MediaTab';
 import { PageIcon } from './pages/PageThumb';
 import { useProjectPages } from './pages/usePages';
 import { checksVariants, PullRequestView, stateVariants } from './PullRequestModal';
@@ -56,38 +40,38 @@ import { Dialog, DialogContent, DialogTitle, fullWhenNarrow } from './ui/dialog'
 
 // "Ready to review" is a section of the top bar's inbox (components/Inbox.tsx):
 // the agents that finished and wait for the user to look at their work,
-// newest first, and below them the ones already reviewed, folded. Picking one
+// newest first, and below them the ones already reviewed, folded. Both lists
+// load a page at a time as they're scrolled (lib/inboxPages.ts). Picking one
 // opens the review carousel (ReviewDialog), which Review all walks through
-// what's waiting. Reviewing turned off in Settings leaves the section out.
+// what's waiting; opening an agent there is reviewing it, so it moves to
+// Reviewed, until its work changes. Reviewing turned off in Settings leaves
+// the section out.
 
 // A review session is the agent on screen and, when it walks through what's
 // waiting, the order it walks them in (lib/review.ts queueOf). An agent
 // reopened from Reviewed has none.
 export type ReviewSession = { item: T.ReviewItem; order: string[] | null };
 
-// useReadyToReview is the list of what's waiting. The list changes on the
-// event stream (lib/events.ts): a finish, a pull request re-read, a verdict.
-// The poll is a backstop, and what notices an agent that went back to work.
-export function useReadyToReview(enabled = true) {
-  return useQuery({ queryKey: reviewKey(undefined), queryFn: () => api.readyToReview(undefined), refetchInterval: 60_000, enabled });
-}
+type ReviewPages = ReturnType<typeof useReviewPages>;
 
 // ReviewSection is the inbox's list of what's waiting. shown is what was
 // new when the inbox opened, which stays marked while it's open.
-export function ReviewSection({ items, pending, shown, open, onBegin }: { items: T.ReviewItem[]; pending: boolean; shown: ReadonlySet<string>; open: boolean; onBegin: (session: ReviewSession) => void }) {
+export function ReviewSection({ pages, shown, open, onBegin }: { pages: ReviewPages; shown: ReadonlySet<string>; open: boolean; onBegin: (session: ReviewSession) => void }) {
   const t = useT();
   const [showReviewed, setShowReviewed] = useState(false);
-  const reviewed = useQuery({ queryKey: reviewedKey(undefined), queryFn: () => api.reviewed(undefined), enabled: open && showReviewed });
+  const reviewed = useReviewPages(true, open && showReviewed);
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const now = useNow(60_000);
   const unseen = useUnseen();
   const isNew = (i: T.ReviewItem) => isUnseen(unseen, i) || isUnseen(shown, i);
+  const items = pageItems(pages.data);
+  const done = pageItems(reviewed.data);
   const order = items.map((i) => i.ref);
   return (
     <section className="border-b border-line-faint pb-1" data-review-list>
       <div className="flex items-center gap-2 px-2.5 pb-1 pt-2">
         <span className="text-[11px] font-medium uppercase tracking-wide text-subtle">{t('review.button')}</span>
-        {items.length > 0 && <span className="text-[11px] text-subtle">{t('review.waiting', { count: items.length })}</span>}
+        {items.length > 0 && <span className="text-[11px] text-subtle">{t('review.waiting', { count: pageTotal(pages.data) })}</span>}
         {items.length > 0 && (
           <Button size="sm" variant="primary" className="ml-auto h-7" data-review-all onClick={() => onBegin({ item: items[0], order })}>
             <Play />
@@ -96,9 +80,14 @@ export function ReviewSection({ items, pending, shown, open, onBegin }: { items:
         )}
       </div>
       {items.length === 0 ? (
-        <div className="px-3 py-3 text-[12.5px] text-muted">{pending ? t('common.loading') : t('review.empty')}</div>
+        <div className="px-3 py-3 text-[12.5px] text-muted">{pages.isPending ? t('common.loading') : t('review.empty')}</div>
       ) : (
-        items.map((item) => <ReviewRow key={item.ref} item={item} isNew={isNew(item)} now={now} projects={projects.data} onOpen={() => onBegin({ item, order })} />)
+        <>
+          {items.map((item) => (
+            <ReviewRow key={item.ref} item={item} isNew={isNew(item)} now={now} projects={projects.data} onOpen={() => onBegin({ item, order })} />
+          ))}
+          <MoreMedia pages={pages} />
+        </>
       )}
       <div data-reviewed-section>
         <button
@@ -110,11 +99,16 @@ export function ReviewSection({ items, pending, shown, open, onBegin }: { items:
         >
           <ChevronDown className={cn('size-3.5 transition-transform', !showReviewed && '-rotate-90')} />
           {t('review.reviewedSection')}
-          {reviewed.data && reviewed.data.length > 0 && <span className="text-subtle">{reviewed.data.length}</span>}
+          {done.length > 0 && <span className="text-subtle">{pageTotal(reviewed.data)}</span>}
         </button>
         {showReviewed &&
-          (reviewed.data?.length ? (
-            reviewed.data.map((item) => <ReviewRow key={item.ref} item={item} isNew={false} now={now} projects={projects.data} onOpen={() => onBegin({ item, order: null })} />)
+          (done.length ? (
+            <>
+              {done.map((item) => (
+                <ReviewRow key={item.ref} item={item} isNew={false} now={now} projects={projects.data} onOpen={() => onBegin({ item, order: null })} />
+              ))}
+              <MoreMedia pages={reviewed} />
+            </>
           ) : (
             <div className="px-4 py-3 text-[12px] text-subtle">{reviewed.isPending ? t('common.loading') : t('review.reviewedEmpty')}</div>
           ))}
@@ -125,12 +119,18 @@ export function ReviewSection({ items, pending, shown, open, onBegin }: { items:
 
 // ReviewDialog is the carousel on the session's agent, as the list has it now
 // (its pull request merged, say), with the one after it in the walk.
-export function ReviewDialog({ session, items, onSession, onSelect }: { session: ReviewSession | null; items: T.ReviewItem[]; onSession: (session: ReviewSession | null) => void; onSelect: (view: View) => void }) {
+export function ReviewDialog({ session, pages, onSession, onSelect }: { session: ReviewSession | null; pages: ReviewPages; onSession: (session: ReviewSession | null) => void; onSelect: (view: View) => void }) {
   const t = useT();
+  const items = pageItems(pages.data);
   const current = session && (items.find((i) => i.ref === session.item.ref) ?? session.item);
   const next = session?.order ? nextPending(session.order, session.item.ref, items) : undefined;
   const queue = session?.order ? queueOf(session.order, items) : null;
   const position = queue && session ? { n: queue.indexOf(session.item.ref) + 1, count: queue.length } : undefined;
+  // A walk that reaches the end of what's loaded reads the next page.
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = pages;
+  useEffect(() => {
+    if (session?.order && !next && hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [session?.order, next, hasNextPage, isFetchingNextPage, fetchNextPage]);
   const advance = () => {
     if (next && session) onSession({ ...session, item: next });
     else {
@@ -204,8 +204,6 @@ const keyLabels: Record<ReviewAction, MessageKey> = {
   first: 'review.key.slides',
   last: 'review.key.slides',
   nextAgent: 'review.key.nextAgent',
-  reviewed: 'review.key.reviewed',
-  dismiss: 'review.key.dismiss',
   merge: 'review.key.merge',
 };
 
@@ -214,9 +212,9 @@ const keyLabels: Record<ReviewAction, MessageKey> = {
 // Hatch pages, then its pull request, which can be merged from here. The
 // slide fills the middle, a filmstrip below it, what the agent said beside
 // it. Keys, the arrows, the filmstrip and a swipe move through the slides;
-// past the last one, Next goes on to the next agent waiting. Reviewed and
-// Dismiss take the agent off the list, until its work changes again, and go
-// on too.
+// past the last one, Next goes on to the next agent waiting. Opening an agent
+// here is reviewing it: it leaves the list for Reviewed at once, until its
+// work changes again.
 function ReviewCarousel({
   item,
   position,
@@ -248,29 +246,25 @@ function ReviewCarousel({
   const last = at >= slides.length - 1;
   const go = (by: number) => setIndex(step(at, slides.length, by));
   const labels = usePullLabels(item.project);
-  const merge = usePullMerge(item.project, () => {
-    void queryClient.invalidateQueries({ queryKey: ['review'] });
-    void queryClient.invalidateQueries({ queryKey: ['reviewed'] });
-  });
+  const merge = usePullMerge(item.project, () => refreshInbox(queryClient));
   const blocked = pr ? mergeBlock(pr, pulls.data) : null;
   const canMerge = !!pr && blocked !== 'merged' && blocked !== 'closed';
   const mergeReason = blocked && blocked !== 'merged' && blocked !== 'closed' ? t(blockLabels[blocked], { base: pr?.baseBranch ?? '' }) : undefined;
   const swipe = useRef<{ x: number; y: number } | null>(null);
-  const pending = !item.verdict;
 
-  const verdict = useMutation({
-    mutationFn: (v: string) => api.review(item.ref, { verdict: v, fingerprint: item.fingerprint }),
-    onMutate: () => {
-      queryClient.setQueriesData<T.ReviewItem[]>({ queryKey: ['review'] }, (list) => withoutAgent(list, item.ref));
-      onNext();
-    },
-    onSuccess: (_r, v) => toast(t(v === 'reviewed' ? 'review.marked' : 'review.dismissed', { agent: item.title || item.agent })),
-    onError: (err) => toast.error(t('review.failed', { error: errorMessage(err) })),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ['review'] });
-      void queryClient.invalidateQueries({ queryKey: ['reviewed'] });
-    },
-  });
+  // Looking at an agent's work is reviewing it: it moves to Reviewed as the
+  // carousel opens, on the work as it is shown, so a change landing while
+  // someone looks still brings it back. One reopened from Reviewed has its
+  // verdict already.
+  useEffect(() => {
+    if (item.verdict) return;
+    queryClient.setQueriesData<T.ReviewPage | InfiniteData<T.ReviewPage, string>>({ queryKey: ['review'] }, (data) => withoutAgent(data, item.ref));
+    api
+      .review(item.ref, { verdict: 'reviewed', fingerprint: item.fingerprint })
+      .catch((err) => toast.error(t('review.failed', { error: errorMessage(err) })))
+      .finally(() => refreshInbox(queryClient));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.ref, item.fingerprint]);
 
   const act = (action: ReviewAction) => {
     switch (action) {
@@ -286,10 +280,6 @@ function ReviewCarousel({
         return setIndex(slides.length - 1);
       case 'nextAgent':
         if (next) onNext();
-        return;
-      case 'reviewed':
-      case 'dismiss':
-        if (pending && !verdict.isPending) verdict.mutate(action === 'reviewed' ? 'reviewed' : 'dismissed');
         return;
       case 'merge':
         // To the pull request first; there, its Merge.
@@ -376,18 +366,6 @@ function ReviewCarousel({
             <Button size="sm" variant="ghost" onClick={() => onSelect({ kind: 'agent', ref: item.ref })}>
               {t('review.openAgent')}
             </Button>
-            {pending && (
-              <>
-                <Button size="sm" variant="secondary" disabled={verdict.isPending} onClick={() => act('dismiss')} data-review-dismiss>
-                  <X />
-                  {t('review.dismiss')}
-                </Button>
-                <Button size="sm" variant="primary" disabled={verdict.isPending} onClick={() => act('reviewed')} data-review-done>
-                  <Check />
-                  {t('review.reviewed')}
-                </Button>
-              </>
-            )}
           </div>
           {/* Narrow, the summary has no column of its own. */}
           {item.summary && <NarrowSummary text={item.summary} />}
@@ -481,7 +459,7 @@ function ReviewCarousel({
               )}
             </div>
             <div className="border-t border-line-faint px-5 py-3">
-              <Shortcuts pending={pending} canMerge={canMerge && !mergeReason} hasNext={!!next} />
+              <Shortcuts canMerge={canMerge && !mergeReason} hasNext={!!next} />
             </div>
           </aside>
         </div>
@@ -527,11 +505,9 @@ function PrState({ pr }: { pr: T.PullRequest }) {
 }
 
 // Shortcuts lists the review's keys, the ones that do something here.
-function Shortcuts({ pending, canMerge, hasNext }: { pending: boolean; canMerge: boolean; hasNext: boolean }) {
+function Shortcuts({ canMerge, hasNext }: { canMerge: boolean; hasNext: boolean }) {
   const t = useT();
-  const shown = reviewKeys.filter(
-    (k) => (k.action !== 'reviewed' && k.action !== 'dismiss') || pending,
-  ).filter((k) => (k.action !== 'merge' || canMerge) && (k.action !== 'nextAgent' || hasNext));
+  const shown = reviewKeys.filter((k) => (k.action !== 'merge' || canMerge) && (k.action !== 'nextAgent' || hasNext));
   return (
     <div className="grid gap-1.5 text-[12px] text-muted" data-review-shortcuts>
       <h3 className="text-[11px] font-semibold uppercase tracking-wide text-subtle">{t('review.shortcuts')}</h3>

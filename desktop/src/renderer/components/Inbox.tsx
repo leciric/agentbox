@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { BellOff, CheckCheck, Images, Inbox as InboxIcon, Settings } from 'lucide-react';
+import { BellOff, CheckCheck, Inbox as InboxIcon, Settings } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
@@ -7,14 +7,16 @@ import { chatLabel } from '../lib/agentStatus';
 import { api } from '../lib/api';
 import { useT } from '../lib/i18n';
 import { needsYou } from '../lib/inbox';
+import { pageItems, pageTotal, useQuestions, useReviewHead, useReviewPages } from '../lib/inboxPages';
 import { useMarkSeen } from '../lib/notifications';
 import { projectLabel } from '../lib/projectName';
 import { useDnd } from '../lib/notifyPrefs';
 import { countLabel } from '../lib/review';
 import { isUnseen, markAllSeen, useReviewing, useUnseen } from '../lib/reviewAlert';
 import { cn } from '../lib/utils';
-import { NoticeHistory, NoticeRow, useProjectNames } from './Notifications';
-import { ReviewDialog, ReviewSection, useReadyToReview, type ReviewSession } from './ReadyToReview';
+import { MoreMedia } from './MediaTab';
+import { NoticeRow, useProjectNames } from './Notifications';
+import { ReviewDialog, ReviewSection, type ReviewSession } from './ReadyToReview';
 import { openSettingsSection } from './SettingsPage';
 import { AIIcon } from './state';
 import { Button } from './ui/button';
@@ -22,17 +24,23 @@ import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 
 // Inbox is the top bar's one way in to what needs you, across projects
 // (lib/inbox.ts): a button whose badge counts agents ready to review,
-// questions, permission requests and errors, and a dot for news that waits on
-// nobody. Its panel has them in sections — Needs you, Ready to review (whose
-// carousel opens from here), then the Activity the bell used to hold.
+// questions, permission requests and errors. Its panel has them in sections —
+// Needs you, then Ready to review (whose carousel opens from here) with the
+// Reviewed ones folded below. What agents merely did, such as finishing or
+// keeping a screenshot, is not here: finished work is in the review list.
+// Questions and review load a page at a time as the panel scrolls.
 // Do not disturb is in Settings → Notifications; the panel says when it's on.
 export function Inbox({ onOpen, onSelect, defaultOpen = false }: { onOpen: (n: T.Notification) => void; onSelect: (view: View) => void; defaultOpen?: boolean }) {
   const t = useT();
   const [open, setOpen] = useState(defaultOpen);
   const reviewing = useReviewing();
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
-  const notices = useQuery({ queryKey: ['notifications'], queryFn: api.notifications });
-  const ready = useReadyToReview(reviewing);
+  const questions = useQuestions();
+  const [session, setSession] = useState<ReviewSession | null>(null);
+  // The head says how many wait whether the panel is open or not; the pages
+  // are read for the panel, and the carousel walking them.
+  const head = useReviewHead(reviewing);
+  const pages = useReviewPages(false, reviewing && (open || session !== null));
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const projectName = useProjectNames();
   const markSeen = useMarkSeen();
@@ -40,16 +48,22 @@ export function Inbox({ onOpen, onSelect, defaultOpen = false }: { onOpen: (n: T
   const unseen = useUnseen();
   // What was new in review when the panel opened stays marked while it's open.
   const [shown, setShown] = useState<ReadonlySet<string>>(new Set());
-  const [session, setSession] = useState<ReviewSession | null>(null);
-  const items = reviewing ? (ready.data ?? []) : [];
-  const needs = needsYou({ agents: agents.data ?? [], notices: notices.data ?? [], review: items });
-  const fresh = items.filter((i) => isUnseen(unseen, i)).length;
-  const unread = (notices.data ?? []).filter((n) => !n.seen).length;
+  const waiting = reviewing ? (head.data?.items ?? []) : [];
+  const asked = pageItems(questions.data);
+  const askedTotal = pageTotal(questions.data);
+  const needs = needsYou({
+    agents: agents.data ?? [],
+    questions: asked,
+    review: waiting,
+    totals: { questions: askedTotal, review: reviewing ? (head.data?.total ?? 0) : 0 },
+  });
+  const fresh = waiting.filter((i) => isUnseen(unseen, i)).length;
   const go = (view: View) => {
     setOpen(false);
     onSelect(view);
   };
-  const label = needs.count ? t('inbox.buttonCount', { count: needs.count }) : needs.news ? t('inbox.buttonNews') : t('inbox.title');
+  const label = needs.count ? t('inbox.buttonCount', { count: needs.count }) : t('inbox.title');
+  const hasNeeds = needs.permissions.length + needs.questions.length + needs.errors.length > 0;
 
   return (
     <>
@@ -76,7 +90,7 @@ export function Inbox({ onOpen, onSelect, defaultOpen = false }: { onOpen: (n: T
             )}
           >
             <InboxIcon className="size-4" />
-            {needs.count > 0 ? (
+            {needs.count > 0 && (
               <span
                 data-inbox-badge
                 className={cn(
@@ -86,8 +100,6 @@ export function Inbox({ onOpen, onSelect, defaultOpen = false }: { onOpen: (n: T
               >
                 {countLabel(needs.count)}
               </span>
-            ) : (
-              needs.news > 0 && <span data-inbox-news className="absolute right-0 top-0 size-2.5 rounded-full bg-brand-400 ring-2 ring-[var(--color-ink)]" />
             )}
           </button>
         </PopoverTrigger>
@@ -109,59 +121,9 @@ export function Inbox({ onOpen, onSelect, defaultOpen = false }: { onOpen: (n: T
                 {t('notify.dnd.on')}
               </button>
             )}
-            <Button size="sm" variant="ghost" className="ml-auto" disabled={unread === 0} onClick={() => void markSeen({ all: true })}>
+            <Button size="sm" variant="ghost" className="ml-auto" disabled={askedTotal === 0} onClick={() => void markSeen({ kind: 'question' })}>
               <CheckCheck />
               {t('shell.notice.markAllRead')}
-            </Button>
-          </div>
-          <div className="max-h-[min(640px,calc(var(--radix-popover-content-available-height)-100px))] overflow-y-auto p-1.5">
-            {needs.permissions.length + needs.questions.length + needs.errors.length > 0 && (
-              <Section title={t('inbox.needsYou')} data="needs">
-                {needs.permissions.map((agent) => (
-                  <AgentRow key={agent.ref} agent={agent} project={projectLabel(agent.project, projects.data)} text={t('inbox.permission')} tone="urgent" onOpen={() => go({ kind: 'agent', ref: agent.ref, tab: 'chat' })} />
-                ))}
-                {needs.questions.map((n) => (
-                  <NoticeRow
-                    key={n.id}
-                    notice={n}
-                    projectName={projectName(n.project)}
-                    onOpen={() => {
-                      setOpen(false);
-                      onOpen(n);
-                    }}
-                  />
-                ))}
-                {needs.errors.map((agent) => (
-                  <AgentRow key={agent.ref} agent={agent} project={projectLabel(agent.project, projects.data)} text={chatLabel(agent).text} tone="error" onOpen={() => go({ kind: 'agent', ref: agent.ref, tab: 'chat' })} />
-                ))}
-              </Section>
-            )}
-            {reviewing && (
-              <ReviewSection
-                items={items}
-                pending={ready.isPending}
-                shown={shown}
-                open={open}
-                onBegin={(next) => {
-                  setOpen(false);
-                  setSession(next);
-                }}
-              />
-            )}
-            <Section title={t('inbox.activity')} data="activity">
-              <NoticeHistory
-                onOpen={(n) => {
-                  setOpen(false);
-                  onOpen(n);
-                }}
-              />
-            </Section>
-          </div>
-          <div className="flex items-center gap-1 border-t border-line px-4 py-2 text-[12px] text-subtle">
-            <span className="min-w-0 truncate">{t('shell.notice.kept')}</span>
-            <Button size="sm" variant="ghost" className="ml-auto" onClick={() => go({ kind: 'media' })}>
-              <Images />
-              {t('shell.notice.allMedia')}
             </Button>
             <Button
               size="icon-sm"
@@ -177,9 +139,46 @@ export function Inbox({ onOpen, onSelect, defaultOpen = false }: { onOpen: (n: T
               <Settings />
             </Button>
           </div>
+          <div className="max-h-[min(640px,calc(var(--radix-popover-content-available-height)-60px))] overflow-y-auto p-1.5">
+            {hasNeeds && (
+              <Section title={t('inbox.needsYou')} data="needs">
+                {needs.permissions.map((agent) => (
+                  <AgentRow key={agent.ref} agent={agent} project={projectLabel(agent.project, projects.data)} text={t('inbox.permission')} tone="urgent" onOpen={() => go({ kind: 'agent', ref: agent.ref, tab: 'chat' })} />
+                ))}
+                {needs.questions.map((n) => (
+                  <NoticeRow
+                    key={n.id}
+                    notice={n}
+                    projectName={projectName(n.project)}
+                    onOpen={() => {
+                      setOpen(false);
+                      onOpen(n);
+                    }}
+                  />
+                ))}
+                <MoreMedia pages={questions} />
+                {needs.errors.map((agent) => (
+                  <AgentRow key={agent.ref} agent={agent} project={projectLabel(agent.project, projects.data)} text={chatLabel(agent).text} tone="error" onOpen={() => go({ kind: 'agent', ref: agent.ref, tab: 'chat' })} />
+                ))}
+              </Section>
+            )}
+            {reviewing ? (
+              <ReviewSection
+                pages={pages}
+                shown={shown}
+                open={open}
+                onBegin={(next) => {
+                  setOpen(false);
+                  setSession(next);
+                }}
+              />
+            ) : (
+              !hasNeeds && <div className="px-3 py-6 text-center text-[12.5px] text-muted">{t('inbox.empty')}</div>
+            )}
+          </div>
         </PopoverContent>
       </Popover>
-      <ReviewDialog session={session} items={items} onSession={setSession} onSelect={onSelect} />
+      <ReviewDialog session={session} pages={pages} onSession={setSession} onSelect={onSelect} />
     </>
   );
 }

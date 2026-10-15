@@ -485,7 +485,8 @@ export function buildFixtures(): FixtureData {
 const mediaFiles = new Map<string, string>();
 
 // setMediaFile serves url as item id's file, for fixtures made outside this file.
-// setNotifications gives the dev bridge a bell history and the all-projects
+// setNotifications gives the dev bridge its notifications (the questions are
+// the inbox's) and the all-projects
 // media list to answer with, and marks them seen the way the daemon does.
 export function setNotifications(notifications: T.Notification[], allMedia: T.MediaItem[]): void {
   devState.notifications = notifications;
@@ -496,13 +497,23 @@ function seeNotifications(req: T.SeeNotificationsRequest): T.SeeNotificationsRes
   let seen = 0;
   const media = new Set(req.media ?? []);
   devState.notifications = devState.notifications?.map((n) => {
-    if (n.seen || !(req.all || req.ids?.includes(n.id) || (n.media && (req.allMedia || media.has(n.media.id))))) return n;
+    if (n.seen || !(req.all || req.kind === n.kind || req.ids?.includes(n.id) || (n.media && (req.allMedia || media.has(n.media.id))))) return n;
     seen++;
     if (n.media) media.add(n.media.id);
     return { ...n, seen: true };
   });
   devState.allMedia = devState.allMedia?.map((m) => (m.unseen && (req.all || req.allMedia || media.has(m.id)) ? { ...m, unseen: false } : m));
   return { seen };
+}
+
+// pageOf answers a list route that pages (?limit=, ?cursor=) the way the
+// daemon does, with a position in the list as its cursor.
+export function pageOf<V>(list: V[], query = ''): { items: V[]; next?: string; total: number } {
+  const q = new URLSearchParams(query);
+  const limit = Number(q.get('limit')) || list.length;
+  const from = Number(q.get('cursor')) || 0;
+  const items = list.slice(from, from + limit);
+  return { items, next: from + limit < list.length ? String(from + limit) : undefined, total: list.length };
 }
 
 export function setMediaFile(id: string, url: string): void {
@@ -1730,10 +1741,15 @@ export function installDevBridge(): void {
         return { status: 200, body: JSON.stringify(devState.media), contentType: 'application/json' };
       if (method === 'GET' && devState.media && path === `/v1/agents/${PROJECT}/agent-99/media`)
         return { status: 200, body: JSON.stringify(devState.media.filter((m) => m.agentName === 'agent-99')), contentType: 'application/json' };
-      // Outside the ?notify= scenarios the bell is empty: what fell through to
-      // here instead wasn't a list, and the sidebar's Media count threw on it.
-      if (method === 'GET' && path === '/v1/notifications')
-        return { status: 200, body: JSON.stringify(devState.notifications ?? []), contentType: 'application/json' };
+      // Nothing is ready to review unless a scenario says so (dev/review.tsx).
+      if (method === 'GET' && path.startsWith('/v1/review')) return { status: 200, body: JSON.stringify(pageOf([])), contentType: 'application/json' };
+      // Outside the ?notify= scenarios the inbox has no questions: what fell
+      // through to here instead wasn't a page.
+      if (method === 'GET' && path.startsWith('/v1/notifications')) {
+        const [, query = ''] = path.split('?');
+        const asked = (devState.notifications ?? []).filter((n) => n.kind === 'question' && (!query.includes('unseen=1') || !n.seen));
+        return { status: 200, body: JSON.stringify(pageOf(asked, query)), contentType: 'application/json' };
+      }
       if (method === 'POST' && devState.notifications && path === '/v1/notifications/seen')
         return { status: 200, body: JSON.stringify(seeNotifications(body as T.SeeNotificationsRequest)), contentType: 'application/json' };
       if (method === 'POST' && path === '/v1/agents/stop') return stopAgents((body as T.StopAgentsRequest).refs ?? []);
@@ -1743,8 +1759,6 @@ export function installDevBridge(): void {
         devState.agents = devState.agents.map((a) => (a.ref === ref ? { ...a, state: 'running', chat: 'ready' } : a));
         return { status: 200, body: JSON.stringify(devState.agents.find((a) => a.ref === ref)), contentType: 'application/json' };
       }
-      // No bell history unless a scenario sets one: the Sidebar counts it, and {} isn't a list.
-      if (method === 'GET' && path === '/v1/notifications') return { status: 200, body: '[]', contentType: 'application/json' };
       // No checkpoints: Timeline filters what it gets, and {} isn't a list.
       if (method === 'GET' && path.endsWith('/checkpoints')) return { status: 200, body: '[]', contentType: 'application/json' };
       if (method === 'GET' && path === '/v1/agents' && devState.agents) return { status: 200, body: JSON.stringify(devState.agents), contentType: 'application/json' };

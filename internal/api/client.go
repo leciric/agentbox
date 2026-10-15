@@ -216,6 +216,23 @@ func (c *Client) Reviewed(ctx context.Context, project string) ([]ReviewItem, er
 	return out, c.do(ctx, http.MethodGet, path, nil, &out)
 }
 
+// ReviewPage is one page of ReadyToReview, or with reviewed of Reviewed.
+func (c *Client) ReviewPage(ctx context.Context, project string, reviewed bool, limit int, cursor string) (ReviewPage, error) {
+	path := "/v1/review"
+	if project != "" {
+		path = "/v1/projects/" + url.PathEscape(project) + "/review"
+	}
+	q := url.Values{"limit": {strconv.Itoa(limit)}}
+	if reviewed {
+		q.Set("reviewed", "1")
+	}
+	if cursor != "" {
+		q.Set("cursor", cursor)
+	}
+	var out ReviewPage
+	return out, c.do(ctx, http.MethodGet, path+"?"+q.Encode(), nil, &out)
+}
+
 // Review records the user's verdict on an agent's work, taking it off
 // ReadyToReview until it changes.
 func (c *Client) Review(ctx context.Context, ref string, req ReviewRequest) error {
@@ -418,10 +435,17 @@ func (c *Client) MediaCounts(ctx context.Context, path string, q url.Values) (Me
 	return out, c.do(ctx, http.MethodGet, path+"/counts?"+q.Encode(), nil, &out)
 }
 
-// Notifications is the app's history of what agents did, newest first.
+// Notifications is what needs the user, newest first.
 func (c *Client) Notifications(ctx context.Context) ([]Notification, error) {
 	var out []Notification
 	return out, c.do(ctx, http.MethodGet, "/v1/notifications", nil, &out)
+}
+
+// NotificationPage is one page of Notifications; query is its ?limit=,
+// ?cursor= and ?unseen=.
+func (c *Client) NotificationPage(ctx context.Context, query url.Values) (NotificationPage, error) {
+	var out NotificationPage
+	return out, c.do(ctx, http.MethodGet, "/v1/notifications?"+query.Encode(), nil, &out)
 }
 
 // SeeNotifications marks notifications seen.
