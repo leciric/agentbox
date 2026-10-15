@@ -163,9 +163,9 @@ function Picture({ kind, code, large, onOpen, onCode }: { kind: RichKind; code: 
         src={url}
         alt={label}
         draggable={false}
-        className="mx-auto block h-auto w-full object-contain"
+        className="mx-auto block h-auto max-w-full object-contain"
         // An SVG sized 100% has no height of its own: its viewBox gives the shape.
-        style={{ maxWidth: size ? `${size.width}px` : undefined, aspectRatio: size ? `${size.width} / ${size.height}` : undefined, maxHeight: PICTURE_MAX }}
+        style={{ width: size ? `${size.width}px` : undefined, aspectRatio: size ? `${size.width} / ${size.height}` : undefined, maxHeight: PICTURE_MAX }}
       />
     </button>
   );
