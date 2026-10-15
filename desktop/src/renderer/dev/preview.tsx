@@ -225,7 +225,7 @@ import { HomeChatPanel } from '../components/HomeChatPanel';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
 import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
-import { agent12Chat, asleepChat, buildFixtures, compactionThread, richChat, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, setNotifications } from './fixtures';
+import { agent12Chat, asleepChat, buildFixtures, claudeLimits, compactionThread, richChat, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
 import { seedPastAgents } from './pastAgents';
 import { PastAgents } from '../components/PastAgents';
@@ -356,6 +356,21 @@ const chatAgent = chat ? fixtures.agents.find((a) => a.ref === `${PROJECT}/${cha
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false, refetchOnWindowFocus: false } } });
 seedQueryClient(queryClient, fixtures);
 if (defaults) seedDefaults(queryClient);
+// The project's chat can switch tool and account from its composer: Claude Code
+// on two accounts with their quota, Codex, and Cursor signed out.
+if (chat === 'lead') {
+  const [personal, work] = claudeLimits();
+  queryClient.setQueryData<T.LeadRunners>(['chatRunners', PROJECT], {
+    tool: 'claude',
+    account: 'personal',
+    runners: [
+      { tool: 'claude', name: 'Claude Code', ready: true, installed: true, accounts: [{ name: 'personal', default: true, project: true, agents: 2, limit: personal }, { name: 'work', default: false, project: true, agents: 0, limit: work }] },
+      { tool: 'codex', name: 'Codex', ready: true, installed: true },
+      { tool: 'opencode', name: 'OpenCode', ready: true, installed: true },
+      { tool: 'cursor', name: 'Cursor', ready: false, installed: false, reason: 'Not signed in' },
+    ],
+  });
+}
 // Before the first render, so the chat reads it rather than the dev bridge.
 if (chat === 'stopped' || chat === 'paused') queryClient.setQueryData(['chat', asleepRef], asleepChat(asleepRef));
 const artifacts = params.get('pages');

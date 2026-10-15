@@ -1568,6 +1568,7 @@ export const ptBR: Messages = {
   'chat.tasks.label': 'Tarefas',
   'chat.tasks.allDone': 'Tudo pronto',
   'chat.runner.label': '{tool}: trocar a ferramenta de IA ou a conta',
+  'chat.runner.labelAccount': '{tool} · {account}: trocar a ferramenta de IA ou a conta',
   'chat.runner.tip': 'Ferramenta de IA e conta deste chat',
   'chat.runner.title': 'Ferramenta de IA e conta',
   'chat.runner.nextTip': 'Muda para {tool} na sua próxima mensagem',

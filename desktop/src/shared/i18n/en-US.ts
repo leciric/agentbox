@@ -1567,6 +1567,7 @@ export const enUS = {
   'chat.tasks.label': 'Tasks',
   'chat.tasks.allDone': 'All done',
   'chat.runner.label': '{tool}: change the AI tool or account',
+  'chat.runner.labelAccount': '{tool} · {account}: change the AI tool or account',
   'chat.runner.tip': 'AI tool and account for this chat',
   'chat.runner.title': 'AI tool and account',
   'chat.runner.nextTip': 'Switches to {tool} at your next message',

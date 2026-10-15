@@ -69,3 +69,10 @@ export function fiveHour(reading: T.ClaudeLimit | undefined, now = Date.now()): 
   if (!w || Date.parse(w.resetsAt) <= now) return null;
   return Math.max(0, Math.min(1, w.utilization));
 }
+
+// runnerLabel names the picker's icon-only trigger, as its tooltip and label:
+// the tool, and the account when the chat runs on one.
+export function runnerLabel(tool: string, account?: string): string {
+  const name = tool === 'claude' ? 'Claude Code' : tool === 'codex' ? 'Codex' : tool === 'opencode' ? 'OpenCode' : tool === 'cursor' ? 'Cursor' : tool;
+  return account ? t('chat.runner.labelAccount', { tool: name, account }) : t('chat.runner.label', { tool: name });
+}
