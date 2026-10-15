@@ -542,6 +542,8 @@ function ProjectLead({
   const chat = useQuery({ queryKey: ['projectChat', project.name], queryFn: () => api.projectChat(project.name), refetchInterval: 60_000 });
   const now = useNow(60_000);
   const [iconOpen, setIconOpen] = useState(false);
+  // The ⋯ menu, which a right-click on the row opens too.
+  const [menuOpen, setMenuOpen] = useState(false);
   const line = leadLine(chat.data?.last);
   const counts = countSt(all.map((r) => r.st));
   // The lead at work counts as one working.
@@ -553,6 +555,10 @@ function ProjectLead({
     <div
       className={cn('relative mb-0.5', drag?.over === 'before' && 'before:absolute before:inset-x-2 before:-top-px before:h-0.5 before:rounded-full before:bg-brand-400', drag?.over === 'after' && 'after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded-full after:bg-brand-400')}
       data-v2-project={project.name}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setMenuOpen(true);
+      }}
       draggable={!!drag}
       onDragStart={
         drag &&
@@ -618,13 +624,16 @@ function ProjectLead({
           )}
         </span>
         <ReviewCount project={project.name} variant="button" />
-        <Menu>
+        <Menu open={menuOpen} onOpenChange={setMenuOpen}>
           <MenuTrigger asChild>
             <button
               type="button"
               aria-label={t('v2.sidebar.projectMenu', { project: name })}
               onClick={(e) => e.stopPropagation()}
-              className="absolute right-1.5 top-1.5 rounded-md bg-surface-raised p-1 text-subtle opacity-0 shadow-sm transition hover:bg-surface-strong hover:text-primary focus-visible:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
+              className={cn(
+                'absolute right-1.5 top-1.5 rounded-md bg-surface-raised p-1 text-subtle shadow-sm transition hover:bg-surface-strong hover:text-primary focus-visible:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100 [@media(hover:hover)]:opacity-0',
+                active && '[@media(hover:hover)]:opacity-100',
+              )}
               data-v2-project-menu={project.name}
             >
               <Ellipsis className="size-3.5" />
