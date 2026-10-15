@@ -484,8 +484,9 @@ if (destroyMs > 0) {
   };
 }
 if (imageUpdate) seedImageUpdate(queryClient);
-// v2 draws Overview, Media and Past agents inside Settings.
-if (settingsPage || appView === 'settings' || (params.get('v2') === '1' && (appView === 'home' || appView === 'media'))) seedSettings(queryClient);
+// The whole app can open Settings from its sidebar, which needs Setup's
+// checks: the bare { ready: true } the lists answer with has none.
+if (settingsPage || appView) seedSettings(queryClient);
 if (params.get('drag')) dragBridge(queryClient, params.get('drag') === 'slow' ? 1_500 : 300);
 if (params.get('enforce') === '1') { seedDefaults(queryClient); queryClient.setQueryData<T.Settings>(['settings'], (s) => s && { ...s, enforceAgentDefaults: true }); }
 if (params.get('nightly') === '1') seedNightly(queryClient);
