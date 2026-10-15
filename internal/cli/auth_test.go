@@ -37,7 +37,7 @@ func TestAuthOpenCodeRunsAgentBoxsOwnOpenCode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := run(t, "", "auth", "opencode", "--provider", "anthropic")
+	out, err := run(t, "", "auth", "opencode", "--provider", "anthropic", "--account", "work")
 	if err != nil {
 		t.Fatalf("auth opencode: %v\n%s", err, out)
 	}
@@ -45,7 +45,11 @@ func TestAuthOpenCodeRunsAgentBoxsOwnOpenCode(t *testing.T) {
 		t.Errorf("ran opencode %q", args)
 	}
 	creds := credentials.Store{Dir: filepath.Join(home, ".config", "agentbox", "credentials")}
-	if !creds.HasOpenCodeLogin() {
-		t.Errorf("no login in %s after: %s", creds.OpenCodeAuthPath(), out)
+	// Kept as the provider's account of that name, and nothing else.
+	if ok, _ := creds.HasToolAccount("opencode", "anthropic", "work"); !ok || !creds.HasOpenCodeLogin(nil) {
+		t.Errorf("no anthropic account \"work\" after: %s", out)
+	}
+	if entries, _ := os.ReadDir(creds.Dir); len(entries) != 1 {
+		t.Errorf("the login's scratch directory was left behind: %v", entries)
 	}
 }

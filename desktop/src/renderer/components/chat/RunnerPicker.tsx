@@ -37,11 +37,13 @@ export function RunnerPicker({ agent, session }: { agent: T.Agent; session?: T.C
   });
   const tool = session?.tool || agent.ai;
   const next = session?.nextTool;
-  const account = tool === 'claude' && !next ? session?.account || runners.data?.account : undefined;
+  const account = !next ? session?.account || (tool === 'claude' ? runners.data?.account : runners.data?.toolAccounts?.[tool]) : undefined;
   const choices = runners.data ? runnerChoices(runners.data) : [];
   const shown = choices.find((c) => c.current);
   const used = fiveHour(shown?.reading, clock);
-  const multi = choices.filter((c) => c.tool === 'claude').length > 1;
+  // A tool with several accounts names the account on each row, and on the trigger.
+  const several = (of: string) => choices.filter((c) => c.tool === of).length > 1;
+  const multi = several(tool);
   return (
     <Menu>
       <MenuTrigger asChild>
@@ -83,7 +85,7 @@ export function RunnerPicker({ agent, session }: { agent: T.Agent; session?: T.C
             <div className="grid min-w-0 gap-0.5">
               <span className="flex min-w-0 items-center gap-1.5">
                 <span className="truncate">{c.name}</span>
-                {multi && c.account && <span className="truncate text-subtle">· {c.account}</span>}
+                {several(c.tool) && c.account && <span className="truncate text-subtle">· {c.account}</span>}
               </span>
               {c.note && <span className="text-[11px] text-subtle">{c.note}</span>}
               {c.reading && <AccountUsage reading={c.reading} clock={clock} />}

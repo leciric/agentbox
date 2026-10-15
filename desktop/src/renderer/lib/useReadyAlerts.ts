@@ -2,8 +2,9 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import type * as T from '../../shared/api';
 import { api } from './api';
+import { mayNotify } from './notifyPrefs';
 import { reviewKey } from './review';
-import { batch, detectNewlyReady, markAllSeen, markUnseen, playReadySound, reviewSoundOn, useReviewing } from './reviewAlert';
+import { batch, detectNewlyReady, markAllSeen, markUnseen, playReadySound, useReviewing } from './reviewAlert';
 
 // useReadyAlerts watches Ready to review (every project's) for agents that
 // newly land in it: they get the "new" marks at once, and a chime and
@@ -18,7 +19,7 @@ export function useReadyAlerts(onReady: (items: T.ReviewItem[]) => void) {
   onReadyRef.current = onReady;
   const pending = useRef<ReturnType<typeof batch<T.ReviewItem>> | null>(null);
   pending.current ??= batch<T.ReviewItem>(1500, (items) => {
-    if (reviewSoundOn()) playReadySound();
+    if (mayNotify('finished', 'sound')) playReadySound();
     onReadyRef.current(items);
   });
   // When it was last turned on: a list read before then is the baseline's

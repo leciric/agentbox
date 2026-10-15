@@ -52,6 +52,7 @@ import { JobProgress } from "./JobProgress";
 import { ReportDialog } from "./ReportDialog";
 import { UsageSentDialog } from "./UsageSentDialog";
 import { WhatsNewDialog } from "./WhatsNewDialog";
+import { ToolAccountList, ToolKeyForm } from "./ToolAccounts";
 import {
   AutoStopIdle,
   DockerPruneOnStop,
@@ -81,7 +82,9 @@ import { SettingsPage, type SectionIcons } from "./SettingsPage";
 import { SettingNote, SettingRow } from "./ui/settings";
 import { Input, Label } from "./ui/input";
 import { Switch } from "./ui/switch";
-import { playReadySound, setReviewing, setReviewSound, setReviewVolume, useReviewing, useReviewSound, useReviewVolume } from "../lib/reviewAlert";
+import { DoNotDisturbSetting, ChimeVolume, NotificationKinds, NotificationModeChoice } from "./NotificationSettings";
+import { defaults as notifyDefaults, usePrefs, useDnd } from "../lib/notifyPrefs";
+import { setReviewing, useReviewing } from "../lib/reviewAlert";
 import { setTopBarDetailed, useTopBarDetailed } from "../lib/topBarLayout";
 import { pageStackModes, setPageStackMode, usePageStackMode } from "../lib/pageStackMode";
 import { useHatchConnected } from "./pages/usePages";
@@ -321,6 +324,16 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
     settingsBody: <GitHubAccounts accounts={auth.data?.githubAccounts ?? []} />,
   };
 
+  const notificationsStep: Step = {
+    id: "notifications",
+    title: t("notify.setup.title"),
+    status: "optional",
+    required: false,
+    optional: true,
+    description: t("notify.setup.description"),
+    body: <NotificationModeChoice />,
+  };
+
   // What each daemon check offers to do about itself.
   const bodies: Record<string, ReactNode> = {
     incus: (
@@ -387,7 +400,11 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
     ),
     claude: <ClaudeAccounts accounts={auth.data?.claudeAccounts ?? []} />,
     codex: (
-      <div className="grid gap-2">
+      <div className="grid gap-3">
+        <ToolAccountList tool="codex" accounts={auth.data?.codexAccounts ?? []} />
+        {check("codex")?.fix !== "agentbox image build --codex" && (
+          <ToolKeyForm tool="codex" accounts={auth.data?.codexAccounts ?? []} />
+        )}
         <p className="text-[13px] text-muted">
           {check("codex")?.fix === "agentbox image build --codex" ? (
             t("settings.setup.codexNoImage")
@@ -401,7 +418,11 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
       </div>
     ),
     opencode: (
-      <div className="grid gap-2">
+      <div className="grid gap-3">
+        <ToolAccountList tool="opencode" accounts={auth.data?.openCodeAccounts ?? []} />
+        {check("opencode")?.fix !== "agentbox image build --opencode" && (
+          <ToolKeyForm tool="opencode" accounts={auth.data?.openCodeAccounts ?? []} />
+        )}
         <p className="text-[13px] text-muted">
           {check("opencode")?.fix === "agentbox image build --opencode" ? (
             t("settings.setup.opencodeNoImage")
@@ -447,6 +468,7 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
     });
     if (c.id === "opencode") steps.push(githubStep);
   }
+  steps.push(notificationsStep);
 
   // Which page: the wizard while there is setting up left to do, the tabbed
   // page once there isn't. It waits for both answers — the daemon's checks and
@@ -883,6 +905,11 @@ function InstalledSettings({
   const aiSteps = accountSteps.filter((step) => step.id !== "github");
   const githubSteps = accountSteps.filter((step) => step.id === "github");
 
+  const notifyPrefs = usePrefs();
+  const dnd = useDnd();
+  const notifyChanged =
+    JSON.stringify(notifyPrefs.kinds) !== JSON.stringify(notifyDefaults().kinds);
+
   const sections: SettingSection[] = [
     {
       id: "general",
@@ -922,12 +949,6 @@ function InstalledSettings({
               modified: !reviewing,
               render: () => <ReviewingSetting />,
             },
-            {
-              id: "review-sound",
-              label: t("settings.entry.review-sound.label"),
-              keywords: t("settings.entry.review-sound.keywords"),
-              render: () => <ReviewSoundSetting />,
-            },
             ...(hatchConnected
               ? [
                   {
@@ -939,6 +960,32 @@ function InstalledSettings({
                   },
                 ]
               : []),
+          ],
+        },
+        {
+          id: "notifications",
+          title: t("settings.group.notifications.title"),
+          entries: [
+            {
+              id: "notify-dnd",
+              label: t("notify.dnd.title"),
+              keywords: t("notify.dnd.keywords"),
+              modified: dnd.on,
+              render: () => <DoNotDisturbSetting />,
+            },
+            {
+              id: "notify-kinds",
+              label: t("settings.entry.notify-kinds.label"),
+              keywords: t("settings.entry.notify-kinds.keywords"),
+              modified: notifyChanged,
+              render: () => <NotificationKinds />,
+            },
+            {
+              id: "notify-volume",
+              label: t("settings.reviewSound.volume"),
+              keywords: t("settings.entry.review-sound.keywords"),
+              render: () => <ChimeVolume />,
+            },
           ],
         },
         {
@@ -1341,9 +1388,9 @@ function InstalledSettings({
           id: "ai",
           title: t("settings.group.ai.title"),
           cards: true,
-          // Claude Code's and Cursor's are managed here even once they're done:
-          // accounts to add, a key to change, a sign-in to end.
-          entries: aiSteps.map((step) => stepEntry(step, step.id === "claude" || step.id === "cursor")),
+          // Every tool's accounts are managed here even once they're done:
+          // accounts to add, rename or remove, a key to change.
+          entries: aiSteps.map((step) => stepEntry(step, ["claude", "codex", "opencode", "cursor"].includes(step.id))),
         },
         {
           id: "github",
@@ -1789,48 +1836,6 @@ function ReviewingSetting() {
         />
       }
     />
-  );
-}
-
-// ReviewSoundSetting is the chime for an agent newly in Ready to review
-// (lib/reviewAlert.ts): on by default, with its volume and a test.
-function ReviewSoundSetting() {
-  const t = useT();
-  // With reviewing off there's nothing to chime for.
-  const reviewing = useReviewing();
-  const on = useReviewSound() && reviewing;
-  const volume = useReviewVolume();
-  return (
-    <SettingRow
-      label={t("settings.entry.review-sound.label")}
-      description={t("settings.reviewSound.description")}
-      control={
-        <Switch
-          data-review-sound-setting
-          aria-label={t("settings.entry.review-sound.label")}
-          checked={on}
-          disabled={!reviewing}
-          onCheckedChange={setReviewSound}
-        />
-      }
-    >
-      <div className="flex items-center gap-3">
-        <input
-          type="range"
-          min={0}
-          max={100}
-          value={volume}
-          disabled={!on}
-          aria-label={t("settings.reviewSound.volume")}
-          data-review-sound-volume
-          className="w-40 accent-brand-500"
-          onChange={(e) => setReviewVolume(Number(e.target.value))}
-        />
-        <Button size="sm" variant="secondary" disabled={!on} data-review-sound-test onClick={() => playReadySound()}>
-          {t("settings.reviewSound.test")}
-        </Button>
-      </div>
-    </SettingRow>
   );
 }
 
@@ -2576,14 +2581,16 @@ function ClaudeTokenForm({
   );
 }
 
-// CursorAccount is Cursor's sign-in: an API key pasted here, or Cursor's own
-// browser flow, which the daemon runs while this polls how far it got. Agents
-// share the one sign-in; the key is never shown again once it is saved.
+// CursorAccount is Cursor's accounts: each one an API key pasted here, or
+// Cursor's own browser flow, which the daemon runs while this polls how far it
+// got. The key is never shown again once it is saved.
 function CursorAccount({ command }: { command: string }) {
   const t = useT();
   const queryClient = useQueryClient();
   const auth = useQuery({ queryKey: ["auth"], queryFn: api.auth });
+  const accounts = auth.data?.cursorAccounts ?? [];
   const [key, setKey] = useState("");
+  const [account, setAccount] = useState("");
   const opened = useRef("");
   const refresh = () =>
     Promise.all(
@@ -2604,7 +2611,7 @@ function CursorAccount({ command }: { command: string }) {
         : false,
   });
   const start = useMutation({
-    mutationFn: api.startCursorLogin,
+    mutationFn: () => api.startCursorLogin(account.trim() || undefined),
     onSuccess: (next) => {
       opened.current = "";
       queryClient.setQueryData(["cursor-login"], next);
@@ -2633,18 +2640,11 @@ function CursorAccount({ command }: { command: string }) {
   }, [state]);
 
   const save = useMutation({
-    mutationFn: () => api.saveCursorKey(key.trim()),
+    mutationFn: () => api.saveCursorKey(key.trim(), account.trim() || undefined),
     onSuccess: async () => {
       toast(t("settings.cursor.keySaved"));
       setKey("");
-      await refresh();
-    },
-    onError: (err) => toast.error(errorMessage(err)),
-  });
-  const signOut = useMutation({
-    mutationFn: api.removeCursorLogin,
-    onSuccess: async () => {
-      toast(t("settings.cursor.signedOut"));
+      setAccount("");
       await refresh();
     },
     onError: (err) => toast.error(errorMessage(err)),
@@ -2661,18 +2661,8 @@ function CursorAccount({ command }: { command: string }) {
               : t("settings.cursor.signedInPlain")
             : t("settings.cursor.notSignedIn")}
         </span>
-        {signedIn && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="ml-auto"
-            disabled={signOut.isPending}
-            onClick={() => signOut.mutate()}
-          >
-            {t("settings.cursor.signOut")}
-          </Button>
-        )}
       </div>
+      <ToolAccountList tool="cursor" accounts={accounts} />
       <form
         className="flex flex-wrap items-end gap-2"
         onSubmit={(event) => {
@@ -2680,6 +2670,16 @@ function CursorAccount({ command }: { command: string }) {
           if (key.trim()) save.mutate();
         }}
       >
+        <div className="grid gap-1.5">
+          <Label htmlFor="cursor-account-name">{t("settings.accounts.account")}</Label>
+          <Input
+            id="cursor-account-name"
+            placeholder={accounts.length === 0 ? "default" : "work"}
+            value={account}
+            onChange={(event) => setAccount(event.target.value)}
+            className="w-28 font-mono"
+          />
+        </div>
         <div className="grid gap-1.5">
           <Label htmlFor="cursor-api-key">{t("settings.cursor.keyLabel")}</Label>
           <Input

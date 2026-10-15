@@ -59,6 +59,13 @@ type Project struct {
 	// GitHubAccount is the GitHub account this project's new agents use;
 	// empty means the machine's default account.
 	GitHubAccount string `json:"githubAccount"`
+	// CodexAccount and CursorAccount are the Codex and Cursor accounts this
+	// project's new agents and its chat use; empty means the machine's
+	// default. OpenCodeAccounts is OpenCode's, one per provider (provider →
+	// account); a provider it leaves out gets that provider's default.
+	CodexAccount     string            `json:"codexAccount"`
+	OpenCodeAccounts map[string]string `json:"openCodeAccounts"`
+	CursorAccount    string            `json:"cursorAccount"`
 	// Autonomy is how much this project's chat does on its own: "ask" (propose
 	// and wait for you) or "on" (act, within a budget of turns).
 	Autonomy string `json:"autonomy"`
@@ -226,6 +233,13 @@ type UpdateProjectRequest struct {
 	// account, as it is after ClaudeAccount is applied.
 	ClaudeAccounts *[]string `json:"claudeAccounts,omitempty"`
 	GitHubAccount  *string   `json:"githubAccount,omitempty"` // "" goes back to the machine's default
+	// CodexAccount and CursorAccount pick the project's Codex and Cursor
+	// accounts, "" for the machine's default; OpenCodeAccounts replaces its
+	// OpenCode account per provider. Agents already created keep theirs; the
+	// project's chat moves to them as its tool next starts.
+	CodexAccount     *string            `json:"codexAccount,omitempty"`
+	OpenCodeAccounts *map[string]string `json:"openCodeAccounts,omitempty"`
+	CursorAccount    *string            `json:"cursorAccount,omitempty"`
 	// MoveClaudeAgents, alongside ClaudeAccount, also moves the project's
 	// agents still on the account it replaces to the new one; ignored without
 	// ClaudeAccount, and when there's nothing on the old account to move.
@@ -282,6 +296,11 @@ type AddProjectRequest struct {
 	// UpdateProjectRequest.
 	ClaudeAccount string `json:"claudeAccount,omitempty"`
 	GitHubAccount string `json:"githubAccount,omitempty"`
+	// CodexAccount, OpenCodeAccounts (provider → account) and CursorAccount
+	// are its accounts for the other tools, the same way.
+	CodexAccount     string            `json:"codexAccount,omitempty"`
+	OpenCodeAccounts map[string]string `json:"openCodeAccounts,omitempty"`
+	CursorAccount    string            `json:"cursorAccount,omitempty"`
 	// CopyToLinux, in WSL, makes a Path on a Windows drive a clone of it in
 	// ~/src/<name> on the distro's own disk, and adds that clone instead of
 	// refusing the path (D91). Elsewhere it changes nothing.
@@ -586,6 +605,12 @@ type Agent struct {
 	Source     string `json:"source"`
 	// ClaudeAccount is the Claude Code account whose token the agent holds.
 	ClaudeAccount string `json:"claudeAccount"`
+	// CodexAccount, OpenCodeAccounts (provider → account) and CursorAccount
+	// are the accounts whose login it was given for its tool, when it runs
+	// that tool.
+	CodexAccount     string            `json:"codexAccount,omitempty"`
+	OpenCodeAccounts map[string]string `json:"openCodeAccounts,omitempty"`
+	CursorAccount    string            `json:"cursorAccount,omitempty"`
 	// GitHubAccount is the GitHub account whose token the agent holds; empty
 	// means it has none.
 	GitHubAccount string `json:"githubAccount"`
@@ -724,6 +749,11 @@ type CreateAgentRequest struct {
 	StartAt string `json:"startAt,omitempty"`
 	// ClaudeAccount overrides the project's Claude Code account for this agent.
 	ClaudeAccount string `json:"claudeAccount,omitempty"`
+	// CodexAccount, OpenCodeAccounts (provider → account) and CursorAccount
+	// override the project's for an agent on that tool.
+	CodexAccount     string            `json:"codexAccount,omitempty"`
+	OpenCodeAccounts map[string]string `json:"openCodeAccounts,omitempty"`
+	CursorAccount    string            `json:"cursorAccount,omitempty"`
 	// GitHubAccount overrides the project's GitHub account for this agent.
 	GitHubAccount string `json:"githubAccount,omitempty"`
 	NoEnv         bool   `json:"noEnv,omitempty"`
@@ -1178,6 +1208,12 @@ type AuthStatus struct {
 	Cursor         bool            `json:"cursor"`
 	CursorEmail    string          `json:"cursorEmail,omitempty"`
 	ClaudeAccounts []ClaudeAccount `json:"claudeAccounts"`
+	// CodexAccounts, OpenCodeAccounts and CursorAccounts are the stored logins
+	// for the other tools; Codex, OpenCode and Cursor say there is a default
+	// one agents can use.
+	CodexAccounts    []ToolAccount `json:"codexAccounts"`
+	OpenCodeAccounts []ToolAccount `json:"openCodeAccounts"`
+	CursorAccounts   []ToolAccount `json:"cursorAccounts"`
 	// GitHub is true when at least one GitHub account is stored.
 	GitHub         bool            `json:"github"`
 	GitHubAccounts []GitHubAccount `json:"githubAccounts"`
@@ -1226,10 +1262,68 @@ type GitHubTokenRequest struct {
 	Account string `json:"account,omitempty"`
 }
 
+// ToolAccount is one stored Codex, OpenCode or Cursor login agents can be
+// given.
+type ToolAccount struct {
+	Tool string `json:"tool"` // codex, opencode or cursor
+	// Provider is the OpenCode provider it signs in to ("anthropic"); empty
+	// for Codex and Cursor.
+	Provider string `json:"provider,omitempty"`
+	Name     string `json:"name"`
+	// Default is the account of its tool (and provider) agents get when
+	// neither the agent nor its project names one.
+	Default bool      `json:"default"`
+	SavedAt time.Time `json:"savedAt"`
+	// Kind is how it signs in: apikey, chatgpt (Codex), oauth or wellknown
+	// (OpenCode's), empty when its file doesn't say.
+	Kind string `json:"kind,omitempty"`
+	// Email is whose account it is, when its file says.
+	Email string `json:"email,omitempty"`
+	// Expired is true for a Cursor key that has stopped working, which is no
+	// sign-in agents can use until it is signed in again.
+	Expired bool       `json:"expired,omitempty"`
+	Expiry  *time.Time `json:"expiry,omitempty"`
+}
+
+// ToolAccountRequest stores a Codex or OpenCode login under an account, from
+// an API key: Codex's from OpenAI, OpenCode's from Provider. A ChatGPT or
+// OAuth sign-in is `agentbox auth codex|opencode --account <name>`.
+type ToolAccountRequest struct {
+	// Account names the login; empty means the account called "default".
+	Account  string `json:"account,omitempty"`
+	Provider string `json:"provider,omitempty"` // OpenCode's only
+	APIKey   string `json:"apiKey"`
+}
+
+// RenameToolAccountRequest gives a stored Codex, OpenCode or Cursor account
+// another name.
+type RenameToolAccountRequest struct {
+	Name string `json:"name"`
+}
+
+// RenamedToolAccount is what a rename carried over to the new name. The
+// login is the same, so the agents holding it keep running.
+type RenamedToolAccount struct {
+	Tool     string   `json:"tool"`
+	Provider string   `json:"provider,omitempty"`
+	Old      string   `json:"old"`
+	Name     string   `json:"name"`
+	Projects []string `json:"projects"`
+	Agents   []string `json:"agents"`
+}
+
 // CursorKeyRequest signs agents in to Cursor with an API key from Cursor's
 // dashboard. The daemon asks Cursor whose it is before keeping it.
 type CursorKeyRequest struct {
 	APIKey string `json:"apiKey"`
+	// Account names the login; empty means the account called "default".
+	Account string `json:"account,omitempty"`
+}
+
+// CursorLoginRequest starts Cursor's browser sign-in for an account; empty
+// means the account called "default".
+type CursorLoginRequest struct {
+	Account string `json:"account,omitempty"`
 }
 
 // CursorKeyResponse says whose Cursor account the key belongs to, when
@@ -1252,9 +1346,11 @@ const (
 // GET the same path until it is done or failed).
 type CursorLogin struct {
 	State string `json:"state"`
-	URL   string `json:"url,omitempty"`
-	Email string `json:"email,omitempty"`
-	Error string `json:"error,omitempty"`
+	// Account is the account the sign-in is for.
+	Account string `json:"account,omitempty"`
+	URL     string `json:"url,omitempty"`
+	Email   string `json:"email,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
 // RenameGitHubAccountRequest gives a stored GitHub account another name.

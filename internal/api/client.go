@@ -486,22 +486,57 @@ func (c *Client) SaveGitHubToken(ctx context.Context, account, token string) (st
 
 // SaveCursorKey signs agents in to Cursor with an API key, once Cursor says
 // whose it is, and returns the account's email when Cursor gave one.
-func (c *Client) SaveCursorKey(ctx context.Context, key string) (string, error) {
+func (c *Client) SaveCursorKey(ctx context.Context, account, key string) (string, error) {
 	var out CursorKeyResponse
-	err := c.do(ctx, http.MethodPost, "/v1/auth/cursor", CursorKeyRequest{APIKey: key}, &out)
+	err := c.do(ctx, http.MethodPost, "/v1/auth/cursor", CursorKeyRequest{APIKey: key, Account: account}, &out)
 	return out.Email, err
 }
 
-// RemoveCursorLogin signs agents out of Cursor.
-func (c *Client) RemoveCursorLogin(ctx context.Context) error {
-	return c.do(ctx, http.MethodDelete, "/v1/auth/cursor", nil, nil)
+// StartCursorLogin starts Cursor's browser sign-in for an account, or returns
+// the one already under way.
+func (c *Client) StartCursorLogin(ctx context.Context, account string) (CursorLogin, error) {
+	var out CursorLogin
+	return out, c.do(ctx, http.MethodPost, "/v1/auth/cursor/login", CursorLoginRequest{Account: account}, &out)
 }
 
-// StartCursorLogin starts Cursor's browser sign-in, or returns the one already
-// under way.
-func (c *Client) StartCursorLogin(ctx context.Context) (CursorLogin, error) {
-	var out CursorLogin
-	return out, c.do(ctx, http.MethodPost, "/v1/auth/cursor/login", nil, &out)
+// SaveToolAccount stores a Codex or OpenCode login from an API key.
+func (c *Client) SaveToolAccount(ctx context.Context, tool string, req ToolAccountRequest) error {
+	return c.do(ctx, http.MethodPost, "/v1/auth/accounts/"+url.PathEscape(tool), req, nil)
+}
+
+// toolAccountPath is a Codex, OpenCode or Cursor account's path, with
+// OpenCode's provider.
+func toolAccountPath(tool, provider, account string) string {
+	p := "/v1/auth/accounts/" + url.PathEscape(tool) + "/" + url.PathEscape(account)
+	if provider != "" {
+		return p + "?provider=" + url.QueryEscape(provider)
+	}
+	return p
+}
+
+// RemoveToolAccount forgets a Codex, OpenCode (provider's) or Cursor account.
+func (c *Client) RemoveToolAccount(ctx context.Context, tool, provider, account string) error {
+	return c.do(ctx, http.MethodDelete, toolAccountPath(tool, provider, account), nil, nil)
+}
+
+// SetDefaultToolAccount makes an account its tool's (or provider's) default.
+func (c *Client) SetDefaultToolAccount(ctx context.Context, tool, provider, account string) error {
+	p := toolAccountPath(tool, provider, account)
+	path, query, _ := strings.Cut(p, "?")
+	if query != "" {
+		query = "?" + query
+	}
+	return c.do(ctx, http.MethodPost, path+"/default"+query, nil, nil)
+}
+
+// RenameToolAccount gives a stored Codex, OpenCode or Cursor account another name.
+func (c *Client) RenameToolAccount(ctx context.Context, tool, provider, account, name string) (RenamedToolAccount, error) {
+	var out RenamedToolAccount
+	path, query, _ := strings.Cut(toolAccountPath(tool, provider, account), "?")
+	if query != "" {
+		query = "?" + query
+	}
+	return out, c.do(ctx, http.MethodPost, path+"/rename"+query, RenameToolAccountRequest{Name: name}, &out)
 }
 
 // CursorLoginStatus is how the browser sign-in is getting on.

@@ -128,6 +128,11 @@ const tokenParams = (q: TokenQuery, extra: Record<string, string> = {}) => {
   return s ? `?${s}` : '';
 };
 
+// providerQuery names an OpenCode account's provider in its path.
+function providerQuery(provider?: string): string {
+  return provider ? `?provider=${encodeURIComponent(provider)}` : '';
+}
+
 export const api = {
   settings: () => call<T.Settings>('GET', '/v1/settings'),
   // Chatting from a phone on the local network.
@@ -253,6 +258,12 @@ export const api = {
   chatCache: (name: string) => call<T.ChatCache>('GET', `${project(name)}/chat/cache`),
   chooseChatCache: (name: string, choice: T.ChatCacheChoice) => call<T.ChatItem | undefined>('POST', `${project(name)}/chat/cache`, choice),
   files: (ref: string) => call<T.WorktreeFiles>('GET', filesBase(ref)),
+  // The file tree and viewer beside a chat (components/files).
+  listFolder: (ref: string, path: string, ignored: boolean) =>
+    call<T.FileList>('GET', `${filesBase(ref)}/list?${new URLSearchParams({ path, ...(ignored ? { ignored: '1' } : {}) })}`),
+  readFile: (ref: string, path: string, full = false) =>
+    call<T.FileContent>('GET', `${filesBase(ref)}/read?${new URLSearchParams({ path, base: '1', ...(full ? { full: '1' } : {}) })}`),
+  fileStatus: (ref: string, fresh = false) => call<T.FileStatus>('GET', `${filesBase(ref)}/status${fresh ? '?fresh=1' : ''}`),
 
   // Skills (internal/skills): stored by the daemon, installed into every agent
   // and lead whose project has them on. A project's list says, for each,
@@ -480,9 +491,22 @@ export const api = {
   auth: () => call<T.AuthStatus>('GET', '/v1/auth'),
   // Cursor signs in with an API key (checked with Cursor before it is kept) or
   // through its own browser flow, which the daemon runs and reports on.
-  saveCursorKey: (apiKey: string) => call<T.CursorKeyResponse>('POST', '/v1/auth/cursor', { apiKey } satisfies T.CursorKeyRequest),
-  removeCursorLogin: () => call<void>('DELETE', '/v1/auth/cursor'),
-  startCursorLogin: () => call<T.CursorLogin>('POST', '/v1/auth/cursor/login'),
+  saveCursorKey: (apiKey: string, account?: string) =>
+    call<T.CursorKeyResponse>('POST', '/v1/auth/cursor', { apiKey, account } satisfies T.CursorKeyRequest),
+  startCursorLogin: (account?: string) => call<T.CursorLogin>('POST', '/v1/auth/cursor/login', { account } satisfies T.CursorLoginRequest),
+  // Codex, OpenCode and Cursor accounts: an API key stored under a name
+  // (OpenCode's for a provider), and the stored ones managed like GitHub's.
+  saveToolAccount: (tool: string, req: T.ToolAccountRequest) => call<void>('POST', `/v1/auth/accounts/${encodeURIComponent(tool)}`, req),
+  removeToolAccount: (tool: string, account: string, provider?: string) =>
+    call<void>('DELETE', `/v1/auth/accounts/${encodeURIComponent(tool)}/${encodeURIComponent(account)}${providerQuery(provider)}`),
+  setDefaultToolAccount: (tool: string, account: string, provider?: string) =>
+    call<void>('POST', `/v1/auth/accounts/${encodeURIComponent(tool)}/${encodeURIComponent(account)}/default${providerQuery(provider)}`),
+  renameToolAccount: (tool: string, account: string, name: string, provider?: string) =>
+    call<T.RenamedToolAccount>(
+      'POST',
+      `/v1/auth/accounts/${encodeURIComponent(tool)}/${encodeURIComponent(account)}/rename${providerQuery(provider)}`,
+      { name } satisfies T.RenameToolAccountRequest,
+    ),
   cursorLogin: () => call<T.CursorLogin>('GET', '/v1/auth/cursor/login'),
   saveClaudeToken: (token: string, account?: string) => call<void>('POST', '/v1/auth/claude', { token, account } satisfies T.ClaudeTokenRequest),
   // Logging in from the app: the daemon runs `claude setup-token` as a job, and

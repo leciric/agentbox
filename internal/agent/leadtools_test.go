@@ -58,10 +58,7 @@ func TestLeadRunsTheToolItsChatChose(t *testing.T) {
 	if _, err := f.m.EnsureLead(ctx, "hello-stack"); err == nil || !strings.Contains(err.Error(), "Codex login") {
 		t.Fatalf("EnsureLead() with no Codex login: %v, want it refused", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(f.m.Creds.CodexAuthPath()), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(f.m.Creds.CodexAuthPath(), []byte(`{"tokens":{}}`), 0o600); err != nil {
+	if err := f.m.Creds.SaveToolAccount("codex", "", "", []byte(`{"tokens":{}}`)); err != nil {
 		t.Fatal(err)
 	}
 	a, err := f.m.EnsureLead(ctx, "hello-stack")
@@ -72,7 +69,7 @@ func TestLeadRunsTheToolItsChatChose(t *testing.T) {
 		t.Errorf("EnsureLead() runs %q on the Claude Code account %q, want codex on none", a.AI, a.ClaudeAccount)
 	}
 	home := f.m.Paths.LeadHome("hello-stack")
-	for _, rel := range []string{".codex/auth.json", ".codex/AGENTS.md", ".codex/config.toml", ".config/opencode/AGENTS.md", "AGENTBOX.md"} {
+	for _, rel := range []string{".codex/AGENTS.md", ".codex/config.toml", ".config/opencode/AGENTS.md", "AGENTBOX.md"} {
 		if _, err := os.Stat(filepath.Join(home, rel)); err != nil {
 			t.Errorf("the lead's HOME has no %s: %v", rel, err)
 		}
@@ -88,6 +85,10 @@ func TestLeadRunsTheToolItsChatChose(t *testing.T) {
 	}
 	if cmd.Path != adapter {
 		t.Errorf("the lead's chat runs %s, want %s", cmd.Path, adapter)
+	}
+	// The login goes in as the tool starts, for the account in effect then.
+	if b, err := os.ReadFile(filepath.Join(home, ".codex/auth.json")); err != nil || string(b) != `{"tokens":{}}` {
+		t.Errorf("the lead's Codex login = %s, %v", b, err)
 	}
 	if !slices.Contains(cmd.Env, "CODEX_HOME="+filepath.Join(home, ".codex")) {
 		t.Errorf("env %v has no CODEX_HOME in the lead's HOME", cmd.Env)

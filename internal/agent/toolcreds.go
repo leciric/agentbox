@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"path"
 	"slices"
 	"strconv"
@@ -49,11 +50,11 @@ func (m *Manager) toolHides(a state.Agent) ([]string, error) {
 			return nil, err
 		}
 	case "codex":
-		if !m.Creds.HasCodexLogin() {
+		if !m.Creds.HasCodexLogin(a.CodexAccount) {
 			return nil, nil
 		}
 	case "opencode":
-		if !m.Creds.HasOpenCodeLogin() {
+		if !m.Creds.HasOpenCodeLogin(a.OpenCodeAccounts) {
 			return nil, nil
 		}
 	default:
@@ -93,8 +94,11 @@ type ToolCredential struct {
 	// Variable is the environment variable it authenticates with, or "" when
 	// it has none and uses its own stored sign-in.
 	Variable string
-	// Account is the AgentBox Claude account whose token is in its
-	// environment, whether or not Variable is that token.
+	// Account is the AgentBox account it signs in with: for Claude Code the
+	// one whose token is in its environment, whether or not Variable is that
+	// token; for Codex and OpenCode the one whose login file it has
+	// (OpenCode's as "provider: account, …"), "" when the file matches no
+	// stored account (the tool refreshed it, or it signed in by itself).
 	Account string
 	// Others are its other credential, provider and endpoint variables.
 	Others []string
@@ -112,7 +116,7 @@ type toolProcess struct {
 // leave the machine: only their SHA-256 does, to tell which account a token
 // is; and of a command line, only the program and its first argument, which
 // is all isTool reads, and only for a process that may be a tool.
-func credentialScript(uid int, names []string) string {
+func credentialScript(uid int, names []string, authFile string) string {
 	return `uid=` + strconv.Itoa(uid) + `
 names=' ` + strings.Join(names, " ") + ` '
 for d in /proc/[0-9]*; do
@@ -126,7 +130,20 @@ for d in /proc/[0-9]*; do
     case "$names" in *" $n "*) printf 'E %s %s\n' "$n" "$(printf %s "${kv#*=}" | sha256sum | cut -c1-64)" ;; esac
   done <"$d/environ" 2>/dev/null
 done
+f=` + shellQuote(authFile) + `
+if [ -n "$f" ] && [ -r "$f" ]; then printf 'F %s\n' "$(sha256sum <"$f" | cut -c1-64)"; fi
 `
+}
+
+// authFileSum is the SHA-256 of the tool's login file credentialScript
+// reported, "" when it has none.
+func authFileSum(out string) string {
+	for _, line := range strings.Split(out, "\n") {
+		if sum, ok := strings.CutPrefix(line, "F "); ok {
+			return strings.TrimSpace(sum)
+		}
+	}
+	return ""
 }
 
 func parseToolProcesses(out string) []toolProcess {
@@ -186,7 +203,11 @@ func (m *Manager) ToolCredential(ctx context.Context, a state.Agent) (ToolCreden
 	if a.AI == "claude" {
 		watched = append(slices.Clone(watched), "CLAUDE_CODE_OAUTH_TOKEN")
 	}
-	out, err := m.Incus.Exec(ctx, a.Instance, "bash", "-c", credentialScript(m.User.UID, watched))
+	authFile := ""
+	if a.AI == "codex" || a.AI == "opencode" {
+		authFile = "/home/" + m.User.Name + "/" + toolAuthFile(a.AI)
+	}
+	out, err := m.Incus.Exec(ctx, a.Instance, "bash", "-c", credentialScript(m.User.UID, watched, authFile))
 	if err != nil {
 		return cred, fmt.Errorf("reading %s's processes: %w", a.Ref(), err)
 	}
@@ -218,6 +239,9 @@ func (m *Manager) ToolCredential(ctx context.Context, a state.Agent) (ToolCreden
 	cred.Variable, cred.Others = credentialOf(a.AI, top.env)
 	if sum, ok := top.env["CLAUDE_CODE_OAUTH_TOKEN"]; ok {
 		cred.Account = m.claudeAccountOf(sum)
+	}
+	if sum := authFileSum(out); sum != "" {
+		cred.Account = m.toolAccountOf(a, sum)
 	}
 	return cred, nil
 }
@@ -273,6 +297,40 @@ func (m *Manager) claudeAccountOf(sum string) string {
 		}
 	}
 	return ""
+}
+
+// toolAccountOf names the stored Codex account, or the OpenCode accounts,
+// whose login file hashes to sum: the agent's own first, then any other.
+func (m *Manager) toolAccountOf(a state.Agent, sum string) string {
+	if a.AI == "opencode" {
+		for _, chosen := range []state.AccountMap{a.OpenCodeAccounts, nil} {
+			auth, used, err := m.Creds.OpenCodeAuth(chosen)
+			if err == nil && auth != nil && sha256Hex(string(auth)) == sum {
+				return formatAccounts(used)
+			}
+		}
+		return ""
+	}
+	accounts, err := m.Creds.ToolAccounts(a.AI)
+	if err != nil {
+		return ""
+	}
+	for _, acc := range accounts {
+		auth, _, err := m.Creds.ToolAuth(a.AI, "", acc.Name)
+		if err == nil && auth != nil && sha256Hex(string(auth)) == sum {
+			return acc.Name
+		}
+	}
+	return ""
+}
+
+// formatAccounts says which account each OpenCode provider is on.
+func formatAccounts(m state.AccountMap) string {
+	var parts []string
+	for _, p := range slices.Sorted(maps.Keys(m)) {
+		parts = append(parts, p+": "+m[p])
+	}
+	return strings.Join(parts, ", ")
 }
 
 func sha256Hex(s string) string {

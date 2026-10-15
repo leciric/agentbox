@@ -5,6 +5,7 @@ import type * as T from '../../../shared/api';
 import type { ChangedFile } from '../../lib/chat';
 import { useT } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
+import { OpenFileButton } from '../files/OpenFileButton';
 
 // relativePath shows a path inside the agent's worktree relative to it.
 export function relativePath(path: string, root: string): string {
@@ -34,8 +35,9 @@ export function ChangedFiles({ files, root }: { files: ChangedFile[]; root: stri
         <div className="border-t border-line-faint py-1">
           {files.map((file) => (
             <div key={file.path}>
+              <div className="group/file flex items-center pr-1">
               <button
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left font-mono text-[11.5px] text-tertiary transition-colors hover:bg-surface-faint"
+                className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left font-mono text-[11.5px] text-tertiary transition-colors hover:bg-surface-faint"
                 aria-expanded={openFile === file.path}
                 onClick={() => setOpenFile(openFile === file.path ? null : file.path)}
               >
@@ -46,6 +48,8 @@ export function ChangedFiles({ files, root }: { files: ChangedFile[]; root: stri
                 <span className={file.added ? 'text-emerald-400' : 'text-faint'}>+{file.added}</span>
                 <span className={file.removed ? 'text-rose-400' : 'text-faint'}>−{file.removed}</span>
               </button>
+              <OpenFileButton path={file.path} className="opacity-0 focus-visible:opacity-100 group-hover/file:opacity-100" />
+              </div>
               {openFile === file.path && (
                 <div className="mx-3 mb-2 overflow-hidden rounded-lg border border-line-faint bg-sunken">
                   {file.diffs.map((diff, i) => (

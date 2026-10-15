@@ -29,6 +29,9 @@ type Chat struct {
 	// Account is the Claude Code account chosen for it, "" for the project's.
 	// An agent's chat keeps none of them: its tool and account are its own.
 	Tool, NextTool, Account string
+	// ToolAccounts are the accounts chosen for the other tools, tool →
+	// account (codex, cursor), "" or missing for the project's.
+	ToolAccounts AccountMap
 }
 
 // ChatItems returns an agent's conversation, in order.
@@ -139,8 +142,9 @@ func (s *Store) SaveChatItems(ctx context.Context, project, agent string, items 
 // chatted has no session and no options.
 func (s *Store) Chat(ctx context.Context, project, agent string) (Chat, error) {
 	c := Chat{Options: map[string]string{}}
-	var options string
-	err := s.db.QueryRowContext(ctx, `SELECT session_id, options, handoff, tool, next_tool, account FROM chats WHERE project = ? AND agent = ?`, project, agent).Scan(&c.SessionID, &options, &c.Handoff, &c.Tool, &c.NextTool, &c.Account)
+	var options, toolAccounts string
+	err := s.db.QueryRowContext(ctx, `SELECT session_id, options, handoff, tool, next_tool, account, tool_accounts FROM chats WHERE project = ? AND agent = ?`, project, agent).
+		Scan(&c.SessionID, &options, &c.Handoff, &c.Tool, &c.NextTool, &c.Account, &toolAccounts)
 	if errors.Is(err, sql.ErrNoRows) {
 		return c, nil
 	}
@@ -150,6 +154,7 @@ func (s *Store) Chat(ctx context.Context, project, agent string) (Chat, error) {
 	if json.Unmarshal([]byte(options), &c.Options) != nil || c.Options == nil {
 		c.Options = map[string]string{}
 	}
+	c.ToolAccounts = ParseAccountMap(toolAccounts)
 	return c, nil
 }
 
@@ -161,10 +166,10 @@ func (s *Store) SaveChat(ctx context.Context, project, agent string, c Chat) err
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO chats (project, agent, session_id, options, handoff, tool, next_tool, account) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	_, err = s.db.ExecContext(ctx, `INSERT INTO chats (project, agent, session_id, options, handoff, tool, next_tool, account, tool_accounts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (project, agent) DO UPDATE SET session_id = excluded.session_id, options = excluded.options, handoff = excluded.handoff,
-			tool = excluded.tool, next_tool = excluded.next_tool, account = excluded.account`,
-		project, agent, c.SessionID, string(options), c.Handoff, c.Tool, c.NextTool, c.Account)
+			tool = excluded.tool, next_tool = excluded.next_tool, account = excluded.account, tool_accounts = excluded.tool_accounts`,
+		project, agent, c.SessionID, string(options), c.Handoff, c.Tool, c.NextTool, c.Account, c.ToolAccounts.String())
 	return err
 }
 

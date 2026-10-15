@@ -68,7 +68,7 @@ func (s *Server) tellAgent(ctx context.Context, a state.Agent, text string, imag
 		if err := s.diskPausedRefusal(a.Ref()); err != nil {
 			return told{}, err
 		}
-		if err := s.startMachine(ctx, m, a); err != nil {
+		if err := s.startMachine(ctx, m, a, "a message: "+headWords(text, 60)); err != nil {
 			return told{}, err
 		}
 		woke = "started"
@@ -82,7 +82,11 @@ func (s *Server) tellAgent(ctx context.Context, a state.Agent, text string, imag
 
 // startMachine starts a stopped agent's machine, with its in-agent API: what
 // `agentbox start` does.
-func (s *Server) startMachine(ctx context.Context, m *agent.Manager, a state.Agent) error {
+// why goes to the log: a machine that someone retired and that runs again
+// should leave a line saying who started it.
+func (s *Server) startMachine(ctx context.Context, m *agent.Manager, a state.Agent, why string) error {
+	s.logf("starting %s's machine for %s", a.Ref(), why)
+	s.markRetired(a.Ref(), false)
 	if err := s.serveAgentAPI(a.Instance); err != nil {
 		return err
 	}
@@ -100,6 +104,37 @@ func (s *Server) prTellAgent(ctx context.Context, a state.Agent, text string) (t
 	// message in its chat, where nobody would see it fail.
 	if _, err := s.cfg.Incus.Instance(ctx, a.Instance); err != nil {
 		return told{}, err
+	}
+	return s.tellAgent(ctx, a, text)
+}
+
+// markRetired remembers that a retire stopped or paused an agent, so that
+// automatic messages (an answer, a memory notice) don't start its machine
+// again. Anything that starts the machine clears it (startMachine).
+func (s *Server) markRetired(ref string, retired bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if retired {
+		if s.retired == nil {
+			s.retired = map[string]bool{}
+		}
+		s.retired[ref] = true
+		return
+	}
+	delete(s.retired, ref)
+}
+
+// tellUnlessRetired is tellAgent for messages nobody asked for: an agent
+// retired with how=stop stays stopped rather than being started to hear them.
+func (s *Server) tellUnlessRetired(ctx context.Context, a state.Agent, text string) (told, error) {
+	s.mu.Lock()
+	retired := s.retired[a.Ref()]
+	s.mu.Unlock()
+	if retired {
+		if inst, err := s.cfg.Incus.Instance(ctx, a.Instance); err == nil && inst.Status != "Running" {
+			s.logf("%s was retired and its machine is %s: not starting it for %s", a.Ref(), inst.Status, headWords(text, 60))
+			return told{}, nil
+		}
 	}
 	return s.tellAgent(ctx, a, text)
 }

@@ -1,8 +1,9 @@
 // What tells you an agent just landed in "Ready to review": a chime, an OS
 // notification while the window isn't in front, and a "new" mark on the
-// button's count and the row until the list is opened. Whether to chime and
-// how loud is how this app sounds on this computer, so it lives in
-// localStorage beside the other display settings (pageStackMode.ts).
+// button's count and the row until the list is opened. Whether they sound or
+// notify is notifyPrefs.ts's; how loud the chime is is how this app sounds on
+// this computer, so it lives in localStorage beside the other display
+// settings (pageStackMode.ts).
 import { useSyncExternalStore } from 'react';
 import type * as T from '../../shared/api';
 
@@ -88,14 +89,10 @@ export const setReviewing = on.set;
 export const useReviewing = on.use;
 
 export const defaultVolume = 60;
-const soundOn = stored<boolean>('agentbox.review.sound', true, (r) => (r === 'false' ? false : r === 'true' ? true : undefined));
 const volume = stored<number>('agentbox.review.volume', defaultVolume, (r) => {
   const n = Number(r);
   return Number.isFinite(n) ? Math.min(100, Math.max(0, Math.round(n))) : undefined;
 });
-export const reviewSoundOn = soundOn.get;
-export const setReviewSound = soundOn.set;
-export const useReviewSound = soundOn.use;
 export const reviewVolume = volume.get;
 export const setReviewVolume = volume.set;
 export const useReviewVolume = volume.use;

@@ -11,9 +11,13 @@ import { Notice } from './ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { Select, SelectOption } from './ui/select';
 import { SettingNote, SettingRow } from './ui/settings';
+import { fiveHour } from '../lib/leadRunner';
+import { aiLabel } from './state';
+import { accountKind, accountsOf } from './ToolAccounts';
 
 // The accounts a project's new agents get, from the ones stored in Settings:
-// its Claude Code login, the logins it may use at all, and its GitHub account.
+// its Claude Code login, the logins it may use at all, its Codex, OpenCode and
+// Cursor accounts, and its GitHub account.
 // They're project settings like the rest, so they're drawn with them
 // (ProjectSettings), in Settings and on the project's Overview alike.
 
@@ -74,6 +78,7 @@ export function ClaudeAccountPicker({ project }: { project: T.Project }) {
           )
         }
       >
+        {accounts.length > 0 && <ClaudeAccountState chosen={project.claudeAccount} />}
         {pick.error && <SettingNote tone="error">{errorMessage(pick.error)}</SettingNote>}
       </SettingRow>
       {confirm && (
@@ -329,5 +334,178 @@ export function GitHubAccountPicker({ project }: { project: T.Project }) {
         />
       )}
     </>
+  );
+}
+
+// The project's accounts for the other tools: Codex's and Cursor's, one each,
+// and OpenCode's, one per provider. New agents on the tool get it, and the
+// project's chat moves to it as its tool next starts (the daemon restarts a
+// chat running that tool on it at once).
+
+// ToolAccountPicker chooses the project's Codex or Cursor account.
+export function ToolAccountPicker({ project, tool }: { project: T.Project; tool: 'codex' | 'cursor' }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const auth = useQuery({ queryKey: ['auth'], queryFn: api.auth });
+  const accounts = accountsOf(auth.data, tool);
+  const chosen = tool === 'codex' ? project.codexAccount : project.cursorAccount;
+  const fallback = accounts.find((a) => a.default)?.name;
+  const label = t(tool === 'codex' ? 'project.accounts.codexLabel' : 'project.accounts.cursorLabel');
+  const pick = useMutation({
+    mutationFn: (account: string) => api.updateProject(project.name, tool === 'codex' ? { codexAccount: account } : { cursorAccount: account }),
+    onSuccess: async (updated, account) => {
+      toast(
+        account
+          ? t('project.accounts.toolSet', { tool: aiLabel(tool), name: updated.name, account })
+          : t('project.accounts.toolDefault', { tool: aiLabel(tool), name: updated.name }),
+      );
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+      await queryClient.invalidateQueries({ queryKey: ['chatRunners', project.name] });
+    },
+  });
+  return (
+    <SettingRow
+      label={label}
+      description={auth.isPending ? t('common.loading') : t(tool === 'codex' ? 'project.accounts.codexDescription' : 'project.accounts.cursorDescription')}
+      details={accounts.length > 0 && t('project.accounts.toolDetails')}
+      control={
+        accounts.length > 0 && (
+          <Select aria-label={label} value={chosen} disabled={pick.isPending} onChange={(v) => pick.mutate(v)}>
+            <SelectOption value="">{fallback ? t('project.newAgent.defaultOption', { value: fallback }) : t('common.default')}</SelectOption>
+            {accounts.map((account) => (
+              <SelectOption key={account.name} value={account.name}>
+                {account.name}
+              </SelectOption>
+            ))}
+            {chosen && !accounts.some((a) => a.name === chosen) && (
+              <SelectOption value={chosen} disabled>
+                {t('project.accounts.removed', { account: chosen })}
+              </SelectOption>
+            )}
+          </Select>
+        )
+      }
+    >
+      {!auth.isPending && <ToolAccountState accounts={accounts} chosen={chosen} />}
+      {pick.error && <SettingNote tone="error">{errorMessage(pick.error)}</SettingNote>}
+    </SettingRow>
+  );
+}
+
+// OpenCodeAccountsPicker chooses the project's OpenCode account for each
+// provider that has one.
+export function OpenCodeAccountsPicker({ project }: { project: T.Project }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const auth = useQuery({ queryKey: ['auth'], queryFn: api.auth });
+  const accounts = accountsOf(auth.data, 'opencode');
+  const providers = [...new Set(accounts.map((a) => a.provider ?? ''))].filter(Boolean);
+  const chosen = project.openCodeAccounts ?? {};
+  const pick = useMutation({
+    mutationFn: (next: Record<string, string>) => api.updateProject(project.name, { openCodeAccounts: next }),
+    onSuccess: async () => {
+      toast(t('project.accounts.openCodeSet', { name: project.name }));
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+      await queryClient.invalidateQueries({ queryKey: ['chatRunners', project.name] });
+    },
+  });
+  return (
+    <SettingRow
+      label={t('project.accounts.openCodeLabel')}
+      description={auth.isPending ? t('common.loading') : t('project.accounts.openCodeDescription')}
+      details={providers.length > 0 && t('project.accounts.toolDetails')}
+    >
+      {providers.length === 0 && !auth.isPending && <ToolAccountState accounts={[]} chosen="" />}
+      {providers.length > 0 && (
+        <div className="grid min-w-0 gap-1.5" data-opencode-accounts>
+          {providers.map((provider) => {
+            const mine = accounts.filter((a) => a.provider === provider);
+            const fallback = mine.find((a) => a.default)?.name;
+            const value = chosen[provider] ?? '';
+            return (
+              <div key={provider} className="flex min-w-0 flex-wrap items-center gap-2">
+                <span className="w-24 shrink-0 truncate font-mono text-[12px] text-secondary">{provider}</span>
+                <div className="w-48 min-w-0">
+                  <Select
+                    aria-label={t('project.accounts.providerAria', { provider })}
+                    value={value}
+                    disabled={pick.isPending}
+                    onChange={(v) => pick.mutate({ ...chosen, [provider]: v })}
+                  >
+                    <SelectOption value="">{fallback ? t('project.newAgent.defaultOption', { value: fallback }) : t('common.default')}</SelectOption>
+                    {mine.map((account) => (
+                      <SelectOption key={account.name} value={account.name}>
+                        {account.name}
+                      </SelectOption>
+                    ))}
+                  </Select>
+                </div>
+                <ToolAccountState accounts={mine} chosen={value} inline />
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {pick.error && <SettingNote tone="error">{errorMessage(pick.error)}</SettingNote>}
+    </SettingRow>
+  );
+}
+
+// ToolAccountState says how the account a choice comes to stands: signed in
+// (how, and as whom), expired, gone, or none at all.
+export function ToolAccountState({ accounts, chosen, inline }: { accounts: T.ToolAccount[]; chosen: string; inline?: boolean }) {
+  const t = useT();
+  const on = chosen ? accounts.find((a) => a.name === chosen) : accounts.find((a) => a.default);
+  let tone: 'ok' | 'warning' | 'muted' = 'ok';
+  let text: string;
+  if (accounts.length === 0) {
+    tone = 'muted';
+    text = t('project.accounts.notSignedIn');
+  } else if (!on) {
+    tone = 'warning';
+    text = t('project.accounts.goneState', { account: chosen });
+  } else if (on.expired) {
+    tone = 'warning';
+    text = t('project.accounts.expiredState', { account: on.name });
+  } else {
+    const kind = accountKind(t, on);
+    text = t('project.accounts.signedIn', { account: on.name }) + (kind ? ` · ${kind}` : '');
+  }
+  return (
+    <span
+      className={cn('flex min-w-0 items-start gap-1.5 text-[12px] leading-snug', !inline && 'mt-1', tone === 'warning' ? 'text-amber-300' : 'text-subtle')}
+      data-account-state={tone}
+    >
+      <span className={cn('mt-[5px] size-1.5 shrink-0 rounded-full', tone === 'ok' ? 'bg-emerald-400' : tone === 'warning' ? 'bg-amber-400' : 'bg-faint')} />
+      <span className="min-w-0 break-words">{text}</span>
+    </span>
+  );
+}
+
+// ClaudeAccountState is the same for Claude Code, with what Anthropic last
+// said about the token and how much of its 5-hour limit is used.
+export function ClaudeAccountState({ chosen }: { chosen: string }) {
+  const t = useT();
+  const auth = useQuery({ queryKey: ['auth'], queryFn: api.auth });
+  const limits = useQuery({ queryKey: ['claudeLimits'], queryFn: api.claudeLimits, staleTime: 30_000 });
+  const accounts = auth.data?.claudeAccounts ?? [];
+  const on = chosen ? accounts.find((a) => a.name === chosen) : accounts.find((a) => a.default);
+  if (auth.isPending) return null;
+  if (!on) {
+    return accounts.length === 0 ? (
+      <ToolAccountState accounts={[]} chosen="" />
+    ) : (
+      <ToolAccountState accounts={[{ tool: 'claude', name: '', default: false, savedAt: '' }]} chosen={chosen} />
+    );
+  }
+  const used = fiveHour((limits.data ?? []).find((l) => l.account === on.name));
+  const parts = [t('project.accounts.signedIn', { account: on.name })];
+  if (used !== null) parts.push(t('project.accounts.usage', { percent: Math.round(used * 100) }));
+  const rejected = on.valid === 'rejected';
+  return (
+    <span className={cn('mt-1 flex min-w-0 items-start gap-1.5 text-[12px] leading-snug', rejected ? 'text-amber-300' : 'text-subtle')} data-account-state={rejected ? 'warning' : 'ok'}>
+      <span className={cn('mt-[5px] size-1.5 shrink-0 rounded-full', rejected ? 'bg-amber-400' : 'bg-emerald-400')} />
+      <span className="min-w-0 break-words">{rejected ? t('project.accounts.rejectedState', { account: on.name }) : parts.join(' · ')}</span>
+    </span>
   );
 }

@@ -10,6 +10,7 @@ import { pastAgentsKey } from './pastAgents.ts';
 import { applySeen } from './notifications.ts';
 import { onChatItem as onPageCall } from './pages.ts';
 import { applyChatEvent, resetChatEvents } from './chat.ts';
+import { changesFiles, refreshFiles } from './files.ts';
 
 const listeners = new Set<() => void>();
 const mediaListeners = new Set<(item: T.MediaItem) => void>();
@@ -82,9 +83,21 @@ export function connectEvents(queryClient: QueryClient): void {
   window.agentbox.onEvent((raw) => {
     const event = raw as T.Event;
     switch (event.type) {
+      case T.EventFiles: {
+        // Files moved in a worktree whose tree is open: read again the folders
+        // and files that did, and what changed (components/files).
+        const change = event.data as T.FilesChange;
+        for (const dir of change.dirs) void queryClient.invalidateQueries({ queryKey: ['fileTree', change.ref, dir] });
+        for (const path of change.files) void queryClient.invalidateQueries({ queryKey: ['file', change.ref, path] });
+        if (change.dirs.length > 0) void queryClient.invalidateQueries({ queryKey: ['files', change.ref] });
+        void queryClient.invalidateQueries({ queryKey: ['fileStatus', change.ref] });
+        break;
+      }
       case T.EventChat: {
         const chat = event.data as T.ChatEvent;
         applyChatEvent(queryClient, chat);
+        // A tool call that finished may have changed files the tree shows.
+        if (chat.item && changesFiles(chat.item)) refreshFiles(queryClient, chat.agent, api.fileStatus);
         // A page published on Hatch joins the project's pages.
         if (chat.item) onPageCall(queryClient, chat.agent, chat.item, api.pages);
         break;

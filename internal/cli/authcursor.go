@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"agentbox/internal/api"
+	"agentbox/internal/credentials"
 	"agentbox/internal/cursor"
 )
 
@@ -18,6 +19,7 @@ import (
 // Settings and this command keep the same one sign-in (internal/daemon/cursor.go).
 func newAuthCursorCmd(a *app) *cobra.Command {
 	var fromStdin, login, logout bool
+	var account string
 	cmd := &cobra.Command{
 		Use:   "cursor",
 		Short: "Sign agents in to Cursor",
@@ -27,11 +29,13 @@ paste an API key from Cursor's dashboard (Integrations → API Keys), or use
 "AgentBox" on your account that expires in 90 days.
 
 The key is checked with Cursor before it is stored, in AgentBox's own
-directory: never your host's ~/.cursor. Agents get a copy as their chat starts.`,
+directory: never your host's ~/.cursor. Agents get a copy of their project's
+account, or the default one, as their chat starts. Run it once per account,
+with --account, to keep several.`,
 		Example: `  agentbox auth cursor
   printenv CURSOR_API_KEY | agentbox auth cursor --key-stdin
-  agentbox auth cursor --login
-  agentbox auth cursor --logout`,
+  agentbox auth cursor --login --account work
+  agentbox auth cursor --logout --account work`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			c, err := a.client(cmd)
@@ -41,13 +45,23 @@ directory: never your host's ~/.cursor. Agents get a copy as their chat starts.`
 			out := cmd.OutOrStdout()
 			switch {
 			case logout:
-				if err := c.RemoveCursorLogin(cmd.Context()); err != nil {
+				name := account
+				if name == "" {
+					if name, err = a.credentials().DefaultToolAccount(credentials.ToolCursor, ""); err != nil {
+						return err
+					}
+				}
+				if name == "" {
+					_, _ = fmt.Fprintln(out, "Agents aren't signed in to Cursor")
+					return nil
+				}
+				if err := c.RemoveToolAccount(cmd.Context(), credentials.ToolCursor, "", name); err != nil {
 					return err
 				}
 				_, _ = fmt.Fprintln(out, "Signed agents out of Cursor. A key Cursor made at sign-in stays valid until it expires or you revoke it in Cursor's dashboard.")
 				return nil
 			case login:
-				status, err := c.StartCursorLogin(cmd.Context())
+				status, err := c.StartCursorLogin(cmd.Context(), account)
 				if err != nil {
 					return err
 				}
@@ -92,7 +106,7 @@ directory: never your host's ~/.cursor. Agents get a copy as their chat starts.`
 			if key = strings.TrimSpace(key); key == "" {
 				return errors.New("no API key: paste one from Cursor's dashboard, or use --login")
 			}
-			email, err := c.SaveCursorKey(cmd.Context(), key)
+			email, err := c.SaveCursorKey(cmd.Context(), account, key)
 			if err != nil {
 				return err
 			}
@@ -103,7 +117,9 @@ directory: never your host's ~/.cursor. Agents get a copy as their chat starts.`
 	cmd.Flags().BoolVar(&fromStdin, "key-stdin", false, "read the API key from stdin")
 	cmd.Flags().BoolVar(&login, "login", false, "sign in with Cursor in the browser instead of pasting a key")
 	cmd.Flags().BoolVar(&logout, "logout", false, "forget the Cursor sign-in")
+	cmd.Flags().StringVar(&account, "account", "", `the account to sign in or out (default "`+credentials.DefaultAccount+`")`)
 	cmd.MarkFlagsMutuallyExclusive("key-stdin", "login", "logout")
+	addToolAccountCmds(cmd, a, credentials.ToolCursor)
 	return cmd
 }
 

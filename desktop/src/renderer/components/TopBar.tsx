@@ -12,6 +12,7 @@ import { cn, timeAgo, timeUntil } from '../lib/utils';
 import { DiskGuardPill } from './DiskGuardPill';
 import { ImageBuildChip } from './ImageBuildChip';
 import { MachineStatus } from './MachineStatus';
+import { DoNotDisturb } from './DoNotDisturb';
 import { NotificationBell } from './Notifications';
 import { ReadyToReview } from './ReadyToReview';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
@@ -118,6 +119,7 @@ export function TopBar({
         <DiskGuardPill onSelect={onSelect} />
         <ClaudeUsage view={view} agents={agents.data ?? []} />
         <MachineStatus agents={agents.data ?? []} onSelect={onSelect} />
+        <DoNotDisturb />
         {onOpenNotice && <NotificationBell onOpen={onOpenNotice} onAllMedia={() => onSelect({ kind: 'media' })} />}
       </div>
     </header>

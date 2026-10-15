@@ -72,21 +72,25 @@ func TestCursorSignInWithAKey(t *testing.T) {
 	if c := setupCheck(t, d, "cursor"); c.Status != api.SetupOptional || c.Fix != "agentbox auth cursor" {
 		t.Errorf("before signing in: %+v", c)
 	}
-	if _, err := d.client.SaveCursorKey(ctx, "bad"); err == nil || !strings.Contains(err.Error(), "Invalid User API Key") {
+	if _, err := d.client.SaveCursorKey(ctx, "", "bad"); err == nil || !strings.Contains(err.Error(), "Invalid User API Key") {
 		t.Errorf("a key Cursor refuses: %v", err)
 	}
-	if _, err := d.client.SaveCursorKey(ctx, "  "); err == nil {
+	if _, err := d.client.SaveCursorKey(ctx, "", "  "); err == nil {
 		t.Error("an empty key was taken")
 	}
-	email, err := d.client.SaveCursorKey(ctx, "good\n")
+	email, err := d.client.SaveCursorKey(ctx, "", "good\n")
 	if err != nil || email != "dev@example.com" {
 		t.Fatalf("SaveCursorKey = %q, %v", email, err)
+	}
+	// A second account beside it, which isn't the default.
+	if _, err := d.client.SaveCursorKey(ctx, "team", "good"); err != nil {
+		t.Fatal(err)
 	}
 	if c := setupCheck(t, d, "cursor"); c.Status != api.SetupOK || !strings.Contains(c.Detail, "dev@example.com") {
 		t.Errorf("after signing in: %+v", c)
 	}
 	auth, err := d.client.Auth(ctx)
-	if err != nil || !auth.Cursor || auth.CursorEmail != "dev@example.com" {
+	if err != nil || !auth.Cursor || auth.CursorEmail != "dev@example.com" || len(auth.CursorAccounts) != 2 || !auth.CursorAccounts[0].Default || auth.CursorAccounts[1].Name != "team" {
 		t.Errorf("Auth = %+v, %v", auth, err)
 	}
 	eventually(t, "the model menu arriving", func() bool {
@@ -94,7 +98,14 @@ func TestCursorSignInWithAKey(t *testing.T) {
 		return err == nil && s.CursorReady && len(s.CursorModelChoices) == 2 && strings.Join(s.CursorModelChoices[1].Efforts, ",") == "low,high"
 	})
 
-	if err := d.client.RemoveCursorLogin(ctx); err != nil {
+	// Signing the default out leaves the other account, which takes over.
+	if err := d.client.RemoveToolAccount(ctx, "cursor", "", "default"); err != nil {
+		t.Fatal(err)
+	}
+	if s, err := d.client.Settings(ctx); err != nil || !s.CursorReady {
+		t.Errorf("with one account left: ready %v, %v", s.CursorReady, err)
+	}
+	if err := d.client.RemoveToolAccount(ctx, "cursor", "", "team"); err != nil {
 		t.Fatal(err)
 	}
 	s, err := d.client.Settings(ctx)
@@ -112,14 +123,14 @@ func TestCursorBrowserSignIn(t *testing.T) {
 	if status, err := d.client.CursorLoginStatus(ctx); err != nil || status.State != api.CursorLoginIdle {
 		t.Fatalf("before starting: %+v, %v", status, err)
 	}
-	if _, err := d.client.StartCursorLogin(ctx); err != nil {
+	if _, err := d.client.StartCursorLogin(ctx, "web"); err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, "the sign-in finishing", func() bool {
 		status, err := d.client.CursorLoginStatus(ctx)
-		return err == nil && status.State == api.CursorLoginDone && status.Email == "web@example.com"
+		return err == nil && status.State == api.CursorLoginDone && status.Email == "web@example.com" && status.Account == "web"
 	})
-	login, ok := d.srv.manager(nil).Creds.CursorLogin()
+	login, ok := d.srv.manager(nil).Creds.CursorLogin("web")
 	if !ok || login.APIKey != "minted" || login.Expiry.IsZero() {
 		t.Errorf("the stored sign-in: %+v, %v", login, ok)
 	}
