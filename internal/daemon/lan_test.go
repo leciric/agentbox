@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"agentbox/internal/api"
+	"agentbox/internal/hostos"
 )
 
 func freePort(t *testing.T) int {
@@ -324,6 +325,31 @@ func TestPhoneThroughTheVMsHost(t *testing.T) {
 	code, body := phone.do("GET", "/api/v1/remote", "")
 	if code != http.StatusForbidden || json.Unmarshal([]byte(body), &e) != nil || !strings.Contains(e.Error, "on your computer") {
 		t.Errorf("GET /api/v1/remote = %d %q", code, body)
+	}
+}
+
+// The Mac's vz VM runs under the same supervisor as the Linux host's: once it
+// reports, the port it opened on the Mac is what phones reach.
+func TestPhoneThroughMacVZ(t *testing.T) {
+	t.Setenv(hostos.Env, "darwin")
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	port := freePort(t)
+	on := true
+	st, err := d.client.UpdateLAN(ctx, api.UpdateLANRequest{Enabled: &on, Port: &port})
+	if err != nil || st.Listening || !strings.Contains(st.Error, "can't reach AgentBox's VM on a Mac") {
+		t.Fatalf("on with no report = %+v, %v", st, err)
+	}
+	if err := d.client.ReportLANHost(ctx, api.LANHostReport{Port: port, Listening: true, Addresses: []string{"192.168.1.5"}}); err != nil {
+		t.Fatal(err)
+	}
+	st, _ = d.client.LAN(ctx)
+	want := "http://192.168.1.5:" + strconv.Itoa(port) + "/"
+	if !st.Listening || st.Error != "" || len(st.URLs) != 1 || st.URLs[0] != want {
+		t.Fatalf("after the supervisor's report = %+v", st)
+	}
+	if _, err := d.client.PairLAN(ctx); err != nil {
+		t.Errorf("pairing after the supervisor's report: %v", err)
 	}
 }
 

@@ -41,8 +41,10 @@ import (
 // host (hostos.Linux), the network is the host's: the VM's supervisor opens
 // the port there and passes each request on over the daemon's socket, under
 // /v1/lan/net/, and reports how that went (PUT /v1/lan/host). The socket is
-// already forwarded to the host, so this needs nothing new of the VM. In the
-// Mac's and Windows' VMs nothing brings the network to the daemon yet.
+// already forwarded to the host, so this needs nothing new of the VM. The
+// Mac's vz VM runs under the same supervisor, which does the same there, and
+// its report wins over the daemon's own port. In Lima's VM on a Mac and in
+// Windows' nothing brings the network to the daemon yet.
 //
 // It is plain HTTP: the phone and the daemon share no certificate. The
 // cookie is HttpOnly and SameSite=Strict, and a phone reaches only what its
@@ -209,21 +211,21 @@ func (s *Server) lanStatus(ctx context.Context) (api.LANStatus, error) {
 	l := s.lan
 	l.mu.Lock()
 	switch {
+	case l.host != nil && time.Since(l.hostAt) < hostReportTTL:
+		out.Listening = l.host.Listening && l.host.Port == port
+		out.Error = l.host.Error
+		addrs = l.host.Addresses
 	case l.own:
 		out.Listening = l.srv != nil
 		out.Error = l.listenErr
 		addrs = l.addresses()
 		if on && hostos.InVM() {
-			// Nothing forwards the VM's port to the network of the computer
-			// it runs on yet.
+			// Lima's VM on a Mac and WSL have no supervisor to bring the
+			// VM's port to the network of the computer it runs on.
 			out.Listening = false
 			out.Error = fmt.Sprintf("phones can't reach AgentBox's VM on %s yet: this works on Linux for now", hostos.Name())
 			addrs = nil
 		}
-	case l.host != nil && time.Since(l.hostAt) < hostReportTTL:
-		out.Listening = l.host.Listening && l.host.Port == port
-		out.Error = l.host.Error
-		addrs = l.host.Addresses
 	case on:
 		out.Error = "waiting for AgentBox's VM to open the port on this computer"
 	}

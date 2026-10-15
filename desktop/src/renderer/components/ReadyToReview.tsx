@@ -1,17 +1,5 @@
-import { useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
-import {
-  ArrowRight,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  ExternalLink,
-  GitBranch,
-  GitMerge,
-  GitPullRequest,
-  Image as ImageIcon,
-  LoaderCircle,
-  Play,
-} from 'lucide-react';
+import { useQuery, useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
+import { ArrowRight, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, GitBranch, GitMerge, GitPullRequest, Image as ImageIcon, MessageSquareText, LoaderCircle, Play } from 'lucide-react';
 import { useContext, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
@@ -23,7 +11,7 @@ import { pagesFor } from '../lib/pages';
 import { projectLabel } from '../lib/projectName';
 import { pageItems, pageTotal, refreshInbox, useReviewPages, withoutAgent } from '../lib/inboxPages';
 import { mergeBlock, nextPending, queueOf, reviewKeys, reviewShortcut, slidesOf, step, swipeStep, type MergeBlock, type ReviewAction, type Slide } from '../lib/review';
-import { isUnseen, useUnseen } from '../lib/reviewAlert';
+import { isUnseen, markReadySeen, useUnseen } from '../lib/reviewAlert';
 import { useNow } from '../lib/useNow';
 import { cn, errorMessage, timeAgo } from '../lib/utils';
 import { Markdown } from './chat/Markdown';
@@ -44,8 +32,9 @@ import { ReviewDecisionContext } from './v2/reviewDecision';
 // newest first, and below them the ones already reviewed, folded. Both lists
 // load a page at a time as they're scrolled (lib/inboxPages.ts). Picking one
 // opens the review carousel (ReviewDialog), which Review all walks through
-// what's waiting; opening an agent there is reviewing it, so it moves to
-// Reviewed, until its work changes. Reviewing turned off in Settings leaves
+// what's waiting. Opening an agent there is seeing it (it leaves the
+// inbox's count), not reviewing it: Mark reviewed moves it to Reviewed, until
+// its work changes. Reviewing turned off in Settings leaves
 // the section out.
 
 // A review session is the agent on screen and, when it walks through what's
@@ -120,7 +109,17 @@ export function ReviewSection({ pages, shown, open, onBegin }: { pages: ReviewPa
 
 // ReviewDialog is the carousel on the session's agent, as the list has it now
 // (its pull request merged, say), with the one after it in the walk.
-export function ReviewDialog({ session, pages, onSession, onSelect }: { session: ReviewSession | null; pages: ReviewPages; onSession: (session: ReviewSession | null) => void; onSelect: (view: View) => void }) {
+export function ReviewDialog({
+  session,
+  pages,
+  onSession,
+  onSelect,
+}: {
+  session: ReviewSession | null;
+  pages: ReviewPages;
+  onSession: (session: ReviewSession | null) => void;
+  onSelect: (view: View) => void;
+}) {
   const t = useT();
   const items = pageItems(pages.data);
   const current = session && (items.find((i) => i.ref === session.item.ref) ?? session.item);
@@ -150,40 +149,57 @@ export function ReviewDialog({ session, pages, onSession, onSelect }: { session:
 function ReviewRow({ item, isNew, now, projects, onOpen }: { item: T.ReviewItem; isNew: boolean; now: number; projects?: T.Project[]; onOpen: () => void }) {
   const t = useT();
   const done = !!item.verdict;
+  const queryClient = useQueryClient();
+  const markReviewed = () => markItemReviewed(queryClient, item, t);
   return (
-    <button
-      type="button"
+    <div
       data-review-row={done ? undefined : item.ref}
       data-reviewed-row={done ? item.ref : undefined}
       data-review-new={isNew ? '' : undefined}
-      className={cn('flex w-full min-w-0 items-start gap-3 rounded-lg px-3 py-2.5 text-left transition hover:bg-surface-raised', isNew && 'bg-brand-500/10 ring-1 ring-inset ring-brand-500/30')}
-      onClick={onOpen}
+      className={cn('flex w-full min-w-0 items-start gap-1 rounded-lg pr-2 transition hover:bg-surface-raised', isNew && 'bg-brand-500/10 ring-1 ring-inset ring-brand-500/30')}
     >
-      <AIIcon ai={item.ai || 'claude'} className={cn('mt-0.5 size-4 shrink-0', done && 'opacity-60')} />
-      <span className="grid min-w-0 flex-1 gap-0.5">
-        <span className="flex min-w-0 items-baseline gap-2">
-          <span className={cn('truncate text-[13px] font-medium', done ? 'text-secondary' : 'text-primary', !item.title && 'font-mono')}>{item.title || item.agent}</span>
-          {isNew && <span className="shrink-0 rounded-full bg-brand-500 px-1.5 text-[9.5px] font-semibold uppercase leading-4 text-white">{t('review.new')}</span>}
-          <span className="ml-auto shrink-0 text-[11px] text-subtle">
-            {done && item.reviewedAt ? <VerdictText item={item} now={now} /> : timeAgo(item.finishedAt, now)}
+      <button type="button" className="flex min-w-0 flex-1 items-start gap-3 rounded-lg px-3 py-2.5 text-left" onClick={onOpen}>
+        <AIIcon ai={item.ai || 'claude'} className={cn('mt-0.5 size-4 shrink-0', done && 'opacity-60')} />
+        <span className="grid min-w-0 flex-1 gap-0.5">
+          <span className="flex min-w-0 items-baseline gap-2">
+            <span className={cn('truncate text-[13px] font-medium', done ? 'text-secondary' : 'text-primary', !item.title && 'font-mono')}>{item.title || item.agent}</span>
+            {isNew && <span className="shrink-0 rounded-full bg-brand-500 px-1.5 text-[9.5px] font-semibold uppercase leading-4 text-white">{t('review.new')}</span>}
+            <span className="ml-auto shrink-0 text-[11px] text-subtle">{done && item.reviewedAt ? <VerdictText item={item} now={now} /> : timeAgo(item.finishedAt, now)}</span>
+          </span>
+          <span className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-muted">
+            <span className="shrink-0 truncate">{projectLabel(item.project, projects)}</span>
+            {item.branch && (
+              <>
+                <span aria-hidden className="text-faint">
+                  ·
+                </span>
+                <GitBranch className="size-3 shrink-0 text-faint" />
+                <span className="min-w-0 truncate font-mono text-[11px]">{item.branch}</span>
+              </>
+            )}
+            {item.pr && <span className="ml-auto shrink-0 font-mono text-[11px] text-secondary">#{item.pr.number}</span>}
           </span>
         </span>
-        <span className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-muted">
-          <span className="shrink-0 truncate">{projectLabel(item.project, projects)}</span>
-          {item.branch && (
-            <>
-              <span aria-hidden className="text-faint">
-                ·
-              </span>
-              <GitBranch className="size-3 shrink-0 text-faint" />
-              <span className="min-w-0 truncate font-mono text-[11px]">{item.branch}</span>
-            </>
-          )}
-          {item.pr && <span className="ml-auto shrink-0 font-mono text-[11px] text-secondary">#{item.pr.number}</span>}
-        </span>
-      </span>
-    </button>
+      </button>
+      {!done && (
+        <Button size="sm" variant="secondary" className="mt-2 h-7 shrink-0" onClick={markReviewed} data-review-mark>
+          <Check />
+          {t('review.markReviewed')}
+        </Button>
+      )}
+    </div>
   );
+}
+
+// markItemReviewed records the verdict on the work as shown and takes the
+// agent off the list at once.
+function markItemReviewed(queryClient: QueryClient, item: T.ReviewItem, t: ReturnType<typeof useT>) {
+  queryClient.setQueriesData<T.ReviewPage | InfiniteData<T.ReviewPage, string>>({ queryKey: ['review'] }, (data) => withoutAgent(data, item.ref));
+  return api
+    .review(item.ref, { verdict: 'reviewed', fingerprint: item.fingerprint })
+    .then(() => toast(t('review.marked', { agent: item.title || item.agent })))
+    .catch((err) => toast.error(t('review.failed', { error: errorMessage(err) })))
+    .finally(() => refreshInbox(queryClient));
 }
 
 function VerdictText({ item, now }: { item: T.ReviewItem; now?: number }) {
@@ -233,12 +249,19 @@ function ReviewCarousel({
 }) {
   const t = useT();
   const queryClient = useQueryClient();
-  const media = useQuery({ queryKey: ['media', item.ref], queryFn: () => api.media(item.ref) });
+  const media = useQuery({
+    queryKey: ['media', item.ref],
+    queryFn: () => api.media(item.ref),
+  });
   const pages = useProjectPages(item.project);
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   // The pull request as the project's list has it now, merged under us say,
   // and whether the project's account may merge at all.
-  const pulls = useQuery({ queryKey: ['pulls', item.project], queryFn: () => api.projectPullRequests(item.project), enabled: !!item.pr });
+  const pulls = useQuery({
+    queryKey: ['pulls', item.project],
+    queryFn: () => api.projectPullRequests(item.project),
+    enabled: !!item.pr,
+  });
   const pr = (item.pr && pulls.data?.pullRequests.find((p) => p.number === item.pr?.number)) || item.pr;
   const slides = slidesOf(media.data ?? [], pagesFor(pages.data, item.ref), pr);
   const [index, setIndex] = useState(0);
@@ -252,22 +275,18 @@ function ReviewCarousel({
   const canMerge = !!pr && blocked !== 'merged' && blocked !== 'closed';
   const mergeReason = blocked && blocked !== 'merged' && blocked !== 'closed' ? t(blockLabels[blocked], { base: pr?.baseBranch ?? '' }) : undefined;
   const swipe = useRef<{ x: number; y: number } | null>(null);
+
   // UI v2's decision under the header, Merge first (v2/ReviewV2.tsx).
   const Decision = useContext(ReviewDecisionContext);
+  // Opening an agent's work is seeing it, which only leaves the inbox's count.
+  useEffect(() => markReadySeen({ ref: item.ref, fingerprint: item.fingerprint }), [item.ref, item.fingerprint]);
 
-  // Looking at an agent's work is reviewing it: it moves to Reviewed as the
-  // carousel opens, on the work as it is shown, so a change landing while
-  // someone looks still brings it back. One reopened from Reviewed has its
-  // verdict already.
-  useEffect(() => {
-    if (item.verdict) return;
-    queryClient.setQueriesData<T.ReviewPage | InfiniteData<T.ReviewPage, string>>({ queryKey: ['review'] }, (data) => withoutAgent(data, item.ref));
-    api
-      .review(item.ref, { verdict: 'reviewed', fingerprint: item.fingerprint })
-      .catch((err) => toast.error(t('review.failed', { error: errorMessage(err) })))
-      .finally(() => refreshInbox(queryClient));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item.ref, item.fingerprint]);
+  const [marking, setMarking] = useState(false);
+  const markReviewed = () => {
+    setMarking(true);
+    void markItemReviewed(queryClient, item, t);
+    onNext();
+  };
 
   const act = (action: ReviewAction) => {
     switch (action) {
@@ -363,12 +382,26 @@ function ReviewCarousel({
           <div className="flex shrink-0 items-center gap-2">
             {position && position.count > 1 && (
               <span className="mr-1 text-[12px] tabular-nums text-subtle" data-review-agent-position={`${position.n}/${position.count}`}>
-                {t('review.agentPosition', { n: position.n, count: position.count })}
+                {t('review.agentPosition', {
+                  n: position.n,
+                  count: position.count,
+                })}
               </span>
             )}
-            <Button size="sm" variant="ghost" onClick={() => onSelect({ kind: 'agent', ref: item.ref })}>
-              {t('review.openAgent')}
+            <Button size="sm" variant="secondary" onClick={() => onSelect({ kind: 'agent', ref: item.ref, tab: 'chat' })} data-review-changes>
+              <MessageSquareText />
+              {t('review.requestChanges')}
             </Button>
+            <Button size="sm" variant="secondary" disabled={marking} onClick={markReviewed} data-review-done>
+              <Check />
+              {t('review.markReviewed')}
+            </Button>
+            {canMerge && slide?.kind !== 'pr' && pr && (
+              <Button size="sm" variant="primary" disabled={!!mergeReason || merge.running.has(pr.number)} title={mergeReason} onClick={() => merge.request(pr)} data-review-merge>
+                <GitMerge />
+                {t('memory.pulls.merge')}
+              </Button>
+            )}
           </div>
           {/* Narrow, the summary has no column of its own. */}
           {item.summary && <NarrowSummary text={item.summary} />}
@@ -413,7 +446,11 @@ function ReviewCarousel({
               {slides.length > 1 && !last && <CarouselArrow side="right" disabled={false} label={t('review.next')} onClick={() => go(1)} />}
             </div>
             {slide?.kind === 'pr' && merge.failed[slide.pr.number] && (
-              <Notice className="mx-4 mb-2">{t('memory.pulls.mergeFailed', { error: merge.failed[slide.pr.number] })}</Notice>
+              <Notice className="mx-4 mb-2">
+                {t('memory.pulls.mergeFailed', {
+                  error: merge.failed[slide.pr.number],
+                })}
+              </Notice>
             )}
             {/* One bar under the slide: the filmstrip, where it is, and what to do next. */}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line bg-modal px-4 py-2">
@@ -433,7 +470,7 @@ function ReviewCarousel({
                     {!Decision && canMerge && (
                       <Button
                         size="sm"
-                        variant={next ? 'secondary' : 'primary'}
+                        variant="primary"
                         disabled={!!mergeReason || merge.running.has(slide.pr.number)}
                         title={mergeReason}
                         onClick={() => merge.request(slide.pr)}
@@ -469,7 +506,6 @@ function ReviewCarousel({
             </div>
           </aside>
         </div>
-
       </DialogContent>
       {merge.dialog}
     </>
@@ -503,7 +539,11 @@ function PrState({ pr }: { pr: T.PullRequest }) {
       <span className="font-mono text-[11.5px] text-secondary">#{pr.number}</span>
       {pr.draft ? <Badge>{t('memory.pulls.draft')}</Badge> : <Badge variant={stateVariants[pr.state] ?? 'default'}>{stateLabels[pr.state] ? t(stateLabels[pr.state]) : pr.state}</Badge>}
       {pr.state === 'open' && pr.checks && (
-        <Badge variant={checksVariants[pr.checks] ?? 'default'}>{t('memory.pulls.checks', { state: checksLabels[pr.checks] ? t(checksLabels[pr.checks]) : pr.checks })}</Badge>
+        <Badge variant={checksVariants[pr.checks] ?? 'default'}>
+          {t('memory.pulls.checks', {
+            state: checksLabels[pr.checks] ? t(checksLabels[pr.checks]) : pr.checks,
+          })}
+        </Badge>
       )}
       {pr.state === 'open' && pr.conflict && <Badge variant="danger">{t('memory.pulls.conflicts')}</Badge>}
     </span>
@@ -543,7 +583,11 @@ function Filmstrip({ slides, at, onPick }: { slides: Slide[]; at: number; onPick
   const t = useT();
   const strip = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    strip.current?.children[at]?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+    strip.current?.children[at]?.scrollIntoView({
+      block: 'nearest',
+      inline: 'nearest',
+      behavior: 'smooth',
+    });
   }, [at]);
   return (
     <div className="flex min-w-0 flex-1 items-center gap-3" data-review-position={`${at + 1}/${slides.length}`}>
@@ -630,7 +674,12 @@ function SlideView({ slide, project }: { slide: Exclude<Slide, { kind: 'pr' }>; 
     case 'screenshot':
       return (
         <div className="flex size-full items-center justify-center p-3 sm:p-6" data-review-slide="screenshot">
-          <img src={mediaUrl(slide.media)} alt={slide.media.name} draggable={false} className="max-h-full max-w-full rounded-lg object-contain shadow-[0_24px_80px_-24px_var(--ab-shadow-deep)] ring-1 ring-line" />
+          <img
+            src={mediaUrl(slide.media)}
+            alt={slide.media.name}
+            draggable={false}
+            className="max-h-full max-w-full rounded-lg object-contain shadow-[0_24px_80px_-24px_var(--ab-shadow-deep)] ring-1 ring-line"
+          />
         </div>
       );
     case 'recording':

@@ -1,11 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
-import { ChevronRight, CircleAlert, FolderGit2, MessageCircleQuestion } from 'lucide-react';
+import { CircleAlert, MessageCircleQuestion } from 'lucide-react';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { noticeVerb } from '../lib/notifications';
 import { projectLabel } from '../lib/projectName';
 import { useT } from '../lib/i18n';
-import { cn, timeAgo } from '../lib/utils';
+import { cn } from '../lib/utils';
 
 // NoticeArt is a notification's picture: a question, or an error.
 function NoticeArt({ notice }: { notice: T.Notification }) {
@@ -29,35 +29,6 @@ function Headline({ notice }: { notice: T.Notification }) {
 export function useProjectNames(): (project: string) => string {
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   return (project) => projectLabel(project, projects.data);
-}
-
-export function NoticeRow({ notice, projectName, onOpen }: { notice: T.Notification; projectName: string; onOpen: () => void }) {
-  const t = useT();
-  return (
-    <button
-      onClick={onOpen}
-      data-notice={notice.kind}
-      className={cn('group flex w-full items-start gap-3 rounded-lg px-2.5 py-2 text-left transition hover:bg-surface', !notice.seen && 'bg-brand-500/[0.06]')}
-    >
-      <NoticeArt notice={notice} />
-      <span className="min-w-0 flex-1">
-        <span className={cn('flex items-center gap-1.5 text-[13px]', notice.seen ? 'text-secondary' : 'font-medium text-title')}>
-          <span className="truncate">
-            <Headline notice={notice} />
-          </span>
-          <span className="ml-auto shrink-0 text-[11px] font-normal text-subtle">{timeAgo(notice.at)}</span>
-        </span>
-        {notice.text && <span className="mt-0.5 block truncate text-[12px] text-muted">{notice.text}</span>}
-        <span className="mt-1 flex min-w-0 items-center gap-1 text-[11px] text-subtle">
-          <FolderGit2 className="size-3 shrink-0" />
-          <span className="max-w-[45%] shrink-0 truncate">{projectName}</span>
-          <ChevronRight className="size-3 shrink-0 text-faint" />
-          <span className="truncate">{notice.title || notice.agent}</span>
-        </span>
-      </span>
-      <span className={cn('mt-1.5 size-2 shrink-0 rounded-full', notice.seen ? 'bg-transparent' : 'bg-brand-400')} aria-label={notice.seen ? undefined : t('shell.notice.unseen')} />
-    </button>
-  );
 }
 
 // NoticeToast is a notification's in-app toast, the whole of which is the

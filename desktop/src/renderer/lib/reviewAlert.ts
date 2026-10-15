@@ -71,13 +71,10 @@ function stored<V>(key: string, fallback: V, parse: (raw: string) => V | undefin
     for (const l of listeners) l();
   };
   const use = () =>
-    useSyncExternalStore(
-      (l) => {
-        listeners.add(l);
-        return () => listeners.delete(l);
-      },
-      get,
-    );
+    useSyncExternalStore((l) => {
+      listeners.add(l);
+      return () => listeners.delete(l);
+    }, get);
   return { get, set, use };
 }
 
@@ -156,5 +153,40 @@ export function useUnseen(): ReadonlySet<string> {
       return () => unseenListeners.delete(l);
     },
     () => unseen,
+  );
+}
+
+// The finishes the user has opened, kept across restarts: what the inbox's
+// count leaves out, as opening something is seeing it. That is not reviewing
+// it: it stays in the list until it is marked reviewed.
+const seenKey = 'agentbox.review.seen';
+const seenCap = 500;
+const readSeen = (): ReadonlySet<string> => {
+  try {
+    return new Set<string>(JSON.parse(localStorage.getItem(seenKey) ?? '[]'));
+  } catch {
+    return new Set();
+  }
+};
+let seen: ReadonlySet<string> = readSeen();
+const seenListeners = new Set<() => void>();
+export function markReadySeen(item: Pick<T.ReviewItem, 'ref' | 'fingerprint'>) {
+  const key = readyKey(item);
+  if (seen.has(key)) return;
+  seen = new Set([...seen, key].slice(-seenCap));
+  try {
+    localStorage.setItem(seenKey, JSON.stringify([...seen]));
+  } catch {
+    // Kept for this session, if not for the next.
+  }
+  for (const l of seenListeners) l();
+}
+export function useSeenReady(): ReadonlySet<string> {
+  return useSyncExternalStore(
+    (l) => {
+      seenListeners.add(l);
+      return () => seenListeners.delete(l);
+    },
+    () => seen,
   );
 }
