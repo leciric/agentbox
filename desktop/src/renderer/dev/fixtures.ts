@@ -1655,6 +1655,29 @@ export function seedVMDisk(queryClient: QueryClient, unmeasured = false): void {
 // own file (dev/review.tsx), which can't be imported here without a cycle.
 export const devRequests: ((method: string, path: string, body?: unknown) => { status: number; body: string; contentType: string } | undefined)[] = [];
 
+// filesRequest answers the file panel beside a chat (components/files) with a
+// small worktree, the same for every chat, so Files opens in the preview.
+const devTree: Record<string, [string, boolean][]> = {
+  '': [['desktop', true], ['internal', true], ['AGENTS.md', false], ['go.mod', false], ['README.md', false]],
+  desktop: [['src', true], ['package.json', false]],
+  internal: [['daemon', true], ['chat', true]],
+};
+function filesRequest(method: string, path: string) {
+  if (method !== 'GET') return undefined;
+  const json = (body: unknown) => ({ status: 200, body: JSON.stringify(body), contentType: 'application/json' });
+  const url = new URL(path, 'http://dev');
+  const at = url.pathname.match(/\/files(\/list|\/status|\/read)?$/);
+  if (!at) return undefined;
+  const dir = url.searchParams.get('path') ?? '';
+  if (at[1] === '/list') {
+    const entries = (devTree[dir] ?? []).map(([name, isDir]) => ({ name, path: dir ? `${dir}/${name}` : name, dir: isDir }));
+    return json({ path: dir, entries, truncated: false } satisfies T.FileList);
+  }
+  if (at[1] === '/status') return json({ base: 'main', changes: { 'desktop/package.json': 'M' }, truncated: false } satisfies T.FileStatus);
+  if (at[1] === '/read') return json({ path: dir, text: '# AgentBox\n', size: 11 });
+  return json({ files: ['AGENTS.md', 'README.md', 'go.mod', 'desktop/package.json'], truncated: false } satisfies T.WorktreeFiles);
+}
+
 // installDevBridge stubs window.agentbox: every query above is pre-seeded
 // and staleTime: Infinity keeps them from refetching, so nothing here needs
 // to do real work — it only has to exist so components that call it don't
@@ -1667,6 +1690,8 @@ export function installDevBridge(): void {
       if (page) return page;
       const past = pastRequest(method, path, body);
       if (past) return past;
+      const files = filesRequest(method, path);
+      if (files) return files;
       for (const answer of devRequests) {
         const res = answer(method, path, body);
         if (res) return res;
