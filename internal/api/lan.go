@@ -41,11 +41,25 @@ type LANStatus struct {
 // internet, so a phone can chat from anywhere. Off by default.
 type LANTunnel struct {
 	Enabled bool `json:"enabled"`
+	// Mode is the tunnel it is: "quick", "named" or "hub", the address the
+	// hub this machine connects to gives it, which stays the same. Unless the
+	// user chose, it's "named" when they set their own tunnel up, "hub" when
+	// the daemon connects to a hub that gives out addresses, and "quick"
+	// otherwise.
+	Mode string `json:"mode"`
+	// Hub is the hub this machine connects to, when it does: the "hub" mode
+	// can be chosen. HubHasNoAddresses says it answered it gives out none.
+	Hub               string `json:"hub,omitempty"`
+	HubHasNoAddresses bool   `json:"hubHasNoAddresses,omitempty"`
 	// Named says it's the user's own named tunnel, from a token they made in
 	// Cloudflare's dashboard, on Hostname; otherwise it's a quick tunnel, on
-	// a trycloudflare.com address that changes each time it starts.
+	// a trycloudflare.com address that changes each time it starts, or the
+	// hub's, on Hostname too.
 	Named    bool   `json:"named"`
 	Hostname string `json:"hostname,omitempty"`
+	// NamedHostname is the user's own tunnel's, when they set one up, in any
+	// mode: "named" can be chosen again without its token.
+	NamedHostname string `json:"namedHostname,omitempty"`
 	// State is "off", "starting" (downloading cloudflared, or connecting),
 	// "running" or "failed" (it's tried again after a while).
 	State string `json:"state"`
@@ -111,6 +125,9 @@ type UpdateLANRequest struct {
 	// never sent back.
 	TunnelToken    *string `json:"tunnelToken,omitempty"`
 	TunnelHostname *string `json:"tunnelHostname,omitempty"`
+	// TunnelMode chooses the tunnel: "quick", "named" (the one set up with
+	// TunnelToken and TunnelHostname) or "hub".
+	TunnelMode *string `json:"tunnelMode,omitempty"`
 }
 
 // LANPairing is POST /v1/lan/pairings: a one-time secret, valid until

@@ -46,6 +46,11 @@ const (
 	// PathConnect is the WebSocket an environment dials to open its tunnel,
 	// authenticating with its environment token.
 	PathConnect = "/v1/connect"
+	// PathEnvironmentTunnel is where an environment asks for its stable
+	// address for phones: POST, with its environment token, and no body. A hub
+	// that gives them out answers HubEnvironmentTunnel, the same hostname every
+	// time; one that doesn't answers 404 or 501.
+	PathEnvironmentTunnel = "/v1/environment/tunnel"
 	// PathHealth answers without a session, for a load balancer.
 	PathHealth = "/healthz"
 )
@@ -58,3 +63,9 @@ const (
 func EnvironmentAPI(id string) string {
 	return PathEnvironments + "/" + id + "/api"
 }
+
+// EnvironmentTunnelOrigin is where the tunnel a hub makes for an environment
+// reaches the environment's daemon, on the loopback address of the machine
+// cloudflared runs on: the hub configures its ingress with it, and the daemon
+// listens on it.
+const EnvironmentTunnelOrigin = "http://127.0.0.1:7781"

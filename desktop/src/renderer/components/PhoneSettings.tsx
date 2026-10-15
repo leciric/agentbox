@@ -148,6 +148,10 @@ function PhoneChat() {
   );
 }
 
+// The tunnels phones can reach this computer through, as the daemon names
+// them: the hub's stable address first, the default when connected to a hub.
+const tunnelModes = ['hub', 'quick', 'named'] as const;
+
 function PhoneTunnel() {
   const t = useT();
   const lan = useLAN();
@@ -194,7 +198,7 @@ function PhoneTunnel() {
             (tunnel.state === 'running' && tunnel.url ? (
               <SettingNote>
                 <Globe className="mr-1 inline size-3.5 align-[-2px]" />
-                {t.rich(tunnel.named ? 'defaults.phone.tunnelOpenNamed' : 'defaults.phone.tunnelOpenQuick', {
+                {t.rich(tunnel.mode === 'quick' ? 'defaults.phone.tunnelOpenQuick' : 'defaults.phone.tunnelOpenNamed', {
                   url: (c) => <span className="font-mono text-primary">{c}</span>,
                   address: tunnel.url,
                 })}
@@ -202,6 +206,49 @@ function PhoneTunnel() {
             ) : (
               <SettingNote tone={tunnel.state === 'failed' ? 'error' : 'muted'}>{tunnel.error || t('defaults.phone.startingTunnel')}</SettingNote>
             ))}
+          {on && !editing && (
+            <div className="grid gap-2" role="radiogroup" aria-label={t('defaults.phone.tunnelAddress')} data-tunnel-mode-choice>
+              {tunnelModes.map((m) => {
+                const noHub = m === 'hub' && (!tunnel.hub || !!tunnel.hubHasNoAddresses);
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    role="radio"
+                    aria-checked={tunnel.mode === m}
+                    data-tunnel-mode={m}
+                    disabled={save.isPending || noHub}
+                    onClick={() => {
+                      if (tunnel.mode === m) return;
+                      if (m === 'named' && !tunnel.namedHostname) {
+                        setHostname('');
+                        setEditing(true);
+                        return;
+                      }
+                      save.mutate({ tunnelMode: m });
+                    }}
+                    className={cn(
+                      'grid gap-0.5 rounded-xl border px-4 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 disabled:cursor-not-allowed disabled:opacity-60',
+                      tunnel.mode === m ? 'border-brand-500/60 bg-brand-500/10' : 'border-line bg-surface-faint enabled:hover:bg-surface-raised',
+                    )}
+                  >
+                    <span className="text-[13px] font-medium text-title">{t(`defaults.phone.mode.${m}`)}</span>
+                    <span className="min-w-0 break-words text-[12px] text-muted">
+                      {m === 'hub'
+                        ? !tunnel.hub
+                          ? t('defaults.phone.mode.hub.noHub')
+                          : tunnel.hubHasNoAddresses
+                            ? t('defaults.phone.mode.hub.none', { hub: tunnel.hub })
+                            : t('defaults.phone.mode.hub.hint', { hub: tunnel.hub })
+                        : m === 'named' && tunnel.namedHostname
+                          ? t('defaults.phone.mode.named.set', { hostname: tunnel.namedHostname })
+                          : t(`defaults.phone.mode.${m}.hint`)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
           {tunnel.named && !editing && (
             <SettingNote>
               {t.rich('defaults.phone.namedTunnel', {
@@ -216,7 +263,7 @@ function PhoneTunnel() {
               className="grid gap-3 rounded-xl border border-line p-3"
               onSubmit={(e) => {
                 e.preventDefault();
-                save.mutate({ tunnelHostname: hostname, ...(token || !tunnel.named ? { tunnelToken: token } : {}) });
+                save.mutate({ tunnelHostname: hostname, ...(token || !tunnel.namedHostname ? { tunnelToken: token } : {}) });
               }}
             >
               <SettingNote>
@@ -225,7 +272,7 @@ function PhoneTunnel() {
               <Field label={t('defaults.phone.publicHostname')} htmlFor="tunnel-hostname">
                 <Input id="tunnel-hostname" placeholder="chat.example.com" value={hostname} onChange={(e) => setHostname(e.target.value)} />
               </Field>
-              <Field label={t('defaults.phone.token')} htmlFor="tunnel-token" hint={tunnel.named ? t('defaults.phone.tokenKeep') : t('defaults.phone.tokenNew')}>
+              <Field label={t('defaults.phone.token')} htmlFor="tunnel-token" hint={tunnel.namedHostname ? t('defaults.phone.tokenKeep') : t('defaults.phone.tokenNew')}>
                 <Input
                   id="tunnel-token"
                   type="password"
@@ -236,7 +283,7 @@ function PhoneTunnel() {
                 />
               </Field>
               <div className="flex gap-2">
-                <Button size="sm" type="submit" disabled={save.isPending || !hostname.trim() || (!tunnel.named && !token.trim())}>
+                <Button size="sm" type="submit" disabled={save.isPending || !hostname.trim() || (!tunnel.namedHostname && !token.trim())}>
                   {t('defaults.phone.useTunnel')}
                 </Button>
                 <Button size="sm" variant="ghost" type="button" onClick={() => setEditing(false)}>
@@ -245,23 +292,20 @@ function PhoneTunnel() {
               </div>
             </form>
           ) : (
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => {
-                  setHostname(tunnel.hostname ?? '');
-                  setEditing(true);
-                }}
-              >
-                {tunnel.named ? t('defaults.phone.changeTunnel') : t('defaults.phone.ownTunnel')}
-              </Button>
-              {tunnel.named && (
-                <Button size="sm" variant="ghost" disabled={save.isPending} onClick={() => save.mutate({ tunnelToken: '' })}>
-                  {t('defaults.phone.quickInstead')}
+            tunnel.named && (
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    setHostname(tunnel.hostname ?? '');
+                    setEditing(true);
+                  }}
+                >
+                  {t('defaults.phone.changeTunnel')}
                 </Button>
-              )}
-            </div>
+              </div>
+            )
           )}
         </div>
       )}

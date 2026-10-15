@@ -44,6 +44,28 @@ const (
 	SettingLANTunnelHostname = "lan_tunnel_hostname"
 )
 
+// SettingLANTunnelMode is which tunnel phones reach the daemon through: the
+// LANTunnel* modes, or "" for the default, which is the named tunnel when
+// there's a token, the hub's when the daemon connects to a hub, and a quick
+// one otherwise.
+const SettingLANTunnelMode = "lan_tunnel_mode"
+
+const (
+	LANTunnelQuick = "quick"
+	LANTunnelNamed = "named"
+	LANTunnelHub   = "hub"
+)
+
+// The tunnel a hub made for this environment: its token, sealed by
+// internal/secrets, its hostname, and which hub and environment it belongs to
+// (the hub's URL and a hash of the environment's token), so connecting to
+// another asks again.
+const (
+	SettingLANTunnelHubToken    = "lan_tunnel_hub_token"
+	SettingLANTunnelHubHostname = "lan_tunnel_hub_hostname"
+	SettingLANTunnelHubFor      = "lan_tunnel_hub_for"
+)
+
 // DefaultLANTunnelPort is the port, on the loopback address of AgentBox's own
 // machine or VM, a named tunnel reaches the daemon at: its public hostname
 // points at http://localhost:7781 in Cloudflare's dashboard. A quick tunnel,

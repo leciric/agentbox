@@ -1787,8 +1787,12 @@ export interface LANStatus {
 
 export interface LANTunnel {
   enabled: boolean;
+  mode: string;
+  hub?: string;
+  hubHasNoAddresses?: boolean;
   named: boolean;
   hostname?: string;
+  namedHostname?: string;
   state: string;
   url?: string;
   error?: string;
@@ -1810,6 +1814,7 @@ export interface UpdateLANRequest {
   tunnel?: boolean;
   tunnelToken?: string;
   tunnelHostname?: string;
+  tunnelMode?: string;
 }
 
 export interface LANPairing {

@@ -4,14 +4,20 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	"agentbox/hubapi"
 	"agentbox/internal/api"
+	"agentbox/internal/state"
 )
 
 // fakeCloudflared writes a cloudflared that says what the real one does when
@@ -211,5 +217,138 @@ func TestPhoneThroughATunnel(t *testing.T) {
 	}
 	if stored, _ := d.srv.store.Setting(ctx, "lan_tunnel_token"); stored != "" {
 		t.Error("the token is still stored")
+	}
+}
+
+// fakeTunnelHub is a hub's PathEnvironmentTunnel: it answers the environment
+// whose token is token with hostname and tunnelToken, after failing as many
+// times as fail says; with none of them, it gives out no addresses.
+type fakeTunnelHub struct {
+	token, hostname, tunnelToken string
+	fail                         atomic.Int32
+	asked                        atomic.Int32
+}
+
+func (h *fakeTunnelHub) start(t *testing.T) string {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != hubapi.PathEnvironmentTunnel || h.hostname == "" {
+			http.NotFound(w, r)
+			return
+		}
+		h.asked.Add(1)
+		if r.Header.Get("Authorization") != "Bearer "+h.token {
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(hubapi.Error{Error: "unknown environment token"})
+			return
+		}
+		if h.fail.Add(-1) >= 0 {
+			w.WriteHeader(http.StatusBadGateway)
+			_ = json.NewEncoder(w).Encode(hubapi.Error{Error: "Cloudflare didn't answer"})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(hubapi.HubEnvironmentTunnel{Hostname: h.hostname, Token: h.tunnelToken})
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+func TestPhoneThroughTheHubsTunnel(t *testing.T) {
+	t.Parallel()
+	if want := fmt.Sprintf("http://127.0.0.1:%d", state.DefaultLANTunnelPort); hubapi.EnvironmentTunnelOrigin != want {
+		t.Fatalf("a hub's tunnels reach %s, the daemon listens on %s", hubapi.EnvironmentTunnelOrigin, want)
+	}
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	dir, find := fakeCloudflared(t)
+	d.srv.lan.mu.Lock()
+	d.srv.lan.own = false
+	d.srv.lan.cloudflared = find
+	d.srv.lan.tunnelPort = freePort(t)
+	d.srv.lan.hubRetry = 20 * time.Millisecond
+	d.srv.lan.mu.Unlock()
+
+	raw, _ := json.Marshal(map[string]string{"a": "account", "t": "hub-tunnel", "s": "c2VjcmV0"})
+	hub := &fakeTunnelHub{token: hubapi.EnvironmentTokenPrefix + "env", hostname: "3fa9c0.agentbox.example", tunnelToken: base64.StdEncoding.EncodeToString(raw)}
+	hub.fail.Store(1)
+	hubURL := hub.start(t)
+
+	// Without a hub, the hub's address can't be chosen.
+	if _, err := d.client.UpdateLAN(ctx, api.UpdateLANRequest{TunnelMode: new("hub")}); err == nil {
+		t.Fatal("the hub's address was chosen with no hub")
+	}
+	// Connected to a hub, it's the default: the hub is asked again after it
+	// fails, and its tunnel runs on the hostname it gave.
+	if _, err := d.client.ConnectRemote(ctx, api.RemoteConnectRequest{Hub: hubURL, Token: hub.token}); err != nil {
+		t.Fatal(err)
+	}
+	yes := true
+	st, err := d.client.UpdateLAN(ctx, api.UpdateLANRequest{Enabled: &yes, Tunnel: &yes})
+	if err != nil || st.Tunnel.Mode != "hub" || st.Tunnel.Hub != hubURL {
+		t.Fatalf("the tunnel on = %+v, %v", st.Tunnel, err)
+	}
+	const url = "https://3fa9c0.agentbox.example/"
+	waitFor(t, "the hub's tunnel to run", func() bool {
+		st, err = d.client.LAN(ctx)
+		return err == nil && st.Tunnel.URL == url
+	})
+	if st.Tunnel.Hostname != "3fa9c0.agentbox.example" || st.Tunnel.Named || st.URLs[0] != url || hub.asked.Load() != 2 {
+		t.Fatalf("LAN() = %+v, asked %d times", st, hub.asked.Load())
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, "token")); string(got) != hub.tunnelToken {
+		t.Errorf("cloudflared's TUNNEL_TOKEN = %q", got)
+	}
+	if args, _ := os.ReadFile(filepath.Join(dir, "args")); strings.TrimSpace(string(args)) != "tunnel --no-autoupdate run" {
+		t.Errorf("cloudflared's arguments = %q", args)
+	}
+	if stored, _ := d.srv.store.Setting(ctx, state.SettingLANTunnelHubToken); stored == "" || strings.Contains(stored, hub.tunnelToken) {
+		t.Fatalf("the hub's token is stored as %q", stored)
+	}
+	if b, _ := json.Marshal(st); strings.Contains(string(b), hub.tunnelToken) {
+		t.Fatal("GET /v1/lan says the hub's token")
+	}
+	pairing, err := d.client.PairLAN(ctx)
+	if err != nil || !strings.HasPrefix(pairing.URLs[0], url+"#pair=") {
+		t.Fatalf("PairLAN() = %+v, %v", pairing, err)
+	}
+
+	// A quick tunnel instead, then the hub's again, from what was kept.
+	if _, err := d.client.UpdateLAN(ctx, api.UpdateLANRequest{TunnelMode: new("quick")}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the quick tunnel to run", func() bool {
+		st, err = d.client.LAN(ctx)
+		return err == nil && st.Tunnel.Mode == "quick" && st.Tunnel.URL == "https://quiet-river-1234.trycloudflare.com/"
+	})
+	if _, err := d.client.UpdateLAN(ctx, api.UpdateLANRequest{TunnelMode: new("hub")}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the hub's tunnel again", func() bool {
+		st, err = d.client.LAN(ctx)
+		return err == nil && st.Tunnel.URL == url
+	})
+	if n := hub.asked.Load(); n != 2 {
+		t.Errorf("the hub was asked %d times, want 2", n)
+	}
+	if _, err := d.client.UpdateLAN(ctx, api.UpdateLANRequest{TunnelMode: new("sideways")}); err == nil {
+		t.Error("a mode that isn't one was taken")
+	}
+
+	// A hub that gives out no addresses: the default is a quick tunnel, and
+	// choosing the hub's says why it can't.
+	none := &fakeTunnelHub{token: hubapi.EnvironmentTokenPrefix + "other"}
+	noneURL := none.start(t)
+	if err := d.srv.store.SetSetting(ctx, state.SettingLANTunnelMode, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.client.ConnectRemote(ctx, api.RemoteConnectRequest{Hub: noneURL, Token: none.token}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "a quick tunnel from a hub with no addresses", func() bool {
+		st, err = d.client.LAN(ctx)
+		return err == nil && st.Tunnel.Mode == "quick" && st.Tunnel.HubHasNoAddresses && st.Tunnel.State == "running"
+	})
+	st, err = d.client.UpdateLAN(ctx, api.UpdateLANRequest{TunnelMode: new("hub")})
+	if err != nil || st.Tunnel.State != "failed" || !strings.Contains(st.Tunnel.Error, "doesn't give out addresses") {
+		t.Fatalf("choosing a hub with no addresses = %+v, %v", st.Tunnel, err)
 	}
 }

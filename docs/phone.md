@@ -48,7 +48,16 @@ agentbox phone tunnel          # whether it's on, and its address
 agentbox phone tunnel off      # take the page off the internet; the local network still works
 ```
 
-By default it's a **quick tunnel**: no Cloudflare account, on a random `trycloudflare.com` address
+When this computer is connected to a hub (`agentbox remote connect`), it's the **hub's address** by
+default: the hub gives this computer an address of its own on the hub's domain, which
+stays the same across restarts, so a paired phone keeps working. The hub only hands out the address
+and the tunnel's token: the phone's traffic goes through Cloudflare straight to this computer, never
+through the hub, and phones still pair with a QR code from this computer, which the hub can't make.
+Choose it in **Settings → Phone → Stable address (via hub)**, or `agentbox phone tunnel on --hub`.
+A hub gives out addresses only once whoever runs it gives it a Cloudflare zone (see the hub's
+README); one that doesn't leaves you on a quick tunnel.
+
+Otherwise it's a **quick tunnel**: no Cloudflare account, on a random `trycloudflare.com` address
 that changes every time AgentBox starts. A phone's pairing belongs to the address it paired on, so
 after a restart, pair the phone again with a new QR code.
 
@@ -60,8 +69,8 @@ For an address that stays, use a **named tunnel** of your own, on a domain you h
 4. In **Settings → Phone → Use your own Cloudflare tunnel**, enter the hostname and paste the
    token; or run `agentbox phone tunnel on --hostname chat.example.com` and paste it when asked.
 
-The token is stored encrypted, like your secrets, and never shown again. **Use a quick tunnel
-instead** forgets it (`agentbox phone tunnel on --quick`).
+The token is stored encrypted, like your secrets, and never shown again. **Quick tunnel** switches
+to a quick one and keeps it; `agentbox phone tunnel on --quick` switches and forgets it.
 
 ### What it exposes
 
