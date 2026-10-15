@@ -534,7 +534,7 @@ if (meters) {
   }
 }
 
-if (settingsPage) settingsBridge();
+if (settingsPage || appView) settingsBridge();
 if (page) pageBridge();
 if (power) seedPower(queryClient, power, { tight: params.get('mem') === 'tight', near: params.get('claude') === 'near' });
 if (power) seedMeterUsage(queryClient);
@@ -1015,7 +1015,8 @@ function GitHubPreview() {
 }
 
 // settingsBridge answers what Settings polls and the dev bridge would answer
-// with a bare {}: the phone's LAN status, off and unpaired.
+// with a bare {}: the phone's LAN status, off and unpaired, and the lists of
+// skills, connectors and memories, empty.
 function settingsBridge(): void {
   type Bridge = { request: (method: string, path: string, body?: unknown) => Promise<unknown> };
   const bridge = (window as unknown as { agentbox: Bridge }).agentbox;
@@ -1045,8 +1046,11 @@ function settingsBridge(): void {
     lan = { ...lan, enabled: true, listening: true, tunnel: { ...lan.tunnel, enabled: true, state: 'running', hub, namedHostname: 'chat.example.com' } };
     lan = withMode(hub ? 'hub' : 'quick');
   }
+  // The lists Skills, Connectors, Memory and a project's accounts read, empty.
+  const lists = /^\/v1\/(skills|connectors|global\/memory\/memories|limits)(\?|$)|^\/v1\/projects\/[^/]+\/(skills|connectors)(\?|$)/;
   bridge.request = async (method, path, body) => {
     if (method === 'GET' && path === '/v1/lan') return answer(lan);
+    if (method === 'GET' && lists.test(path)) return answer([]);
     if (phone && method === 'PATCH' && path === '/v1/lan') {
       const req = (typeof body === 'string' ? JSON.parse(body) : body) as T.UpdateLANRequest;
       if (req.tunnelMode) lan = withMode(req.tunnelMode);
