@@ -49,8 +49,15 @@ type ChatSnippetPart struct {
 
 // ChatSession is the state of the AI tool's session behind a conversation.
 type ChatSession struct {
-	State   string `json:"state"`            // off, starting, ready, running, waiting (for your answer) or error
-	Tool    string `json:"tool"`             // claude, codex or opencode
+	State string `json:"state"` // off, starting, ready, running, waiting (for your answer) or error
+	Tool  string `json:"tool"`  // claude, codex, opencode or cursor
+	// NextTool is the AI tool a lead's composer chose for its next message,
+	// while it differs from Tool: that message rolls the session over to it.
+	NextTool string `json:"nextTool,omitempty"`
+	// Account is the account a lead's chat runs its tool on: Claude Code's,
+	// Codex's or Cursor's, OpenCode's as "provider: account, …". An agent's
+	// is on its own record.
+	Account string `json:"account,omitempty"`
 	Detail  string `json:"detail,omitempty"` // what it's doing while it starts
 	Error   string `json:"error,omitempty"`
 	Adapter string `json:"adapter,omitempty"` // the ACP adapter and its version
@@ -172,6 +179,9 @@ type ChatItem struct {
 	// session is told of the conversation before it: a context transfer the
 	// app lets you read, not a prompt hidden from you.
 	Handoff string `json:"handoff,omitempty"`
+	// ProjectMessage, on a notice, makes it a message between this project's
+	// lead and another project's: the notice's Text is what was said.
+	ProjectMessage *ChatProjectMessage `json:"projectMessage,omitempty"`
 	// Parent, on a message, thought or tool call a subagent made, is that
 	// subagent's card. The app nests the item under the card instead of
 	// showing it in the conversation itself.
@@ -179,6 +189,33 @@ type ChatItem struct {
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
+
+// ChatProjectMessage is a message one project's lead sent another's
+// (message_project, reply_project), or an alignment between them settled:
+// shown in both projects' chats, from each one's side.
+type ChatProjectMessage struct {
+	// Project is the other project: who sent it, or who it went to.
+	Project   string `json:"project"`
+	Direction string `json:"direction"` // in or out
+	Thread    string `json:"thread"`
+	// Kind is message, reply or settled; for settled the notice's Text is the
+	// summary the two leads agreed.
+	Kind string `json:"kind"`
+	// Topic is an alignment's; empty for a plain message.
+	Topic        string `json:"topic,omitempty"`
+	ExpectsReply bool   `json:"expectsReply,omitempty"`
+	// Hop is the message's place in its thread, from 0.
+	Hop int `json:"hop"`
+}
+
+const (
+	ProjectMessageIn  = "in"
+	ProjectMessageOut = "out"
+
+	ProjectMessageSent    = "message"
+	ProjectMessageReply   = "reply"
+	ProjectMessageSettled = "settled"
+)
 
 // An aside is a message sent while a turn was already running. It belongs to
 // that turn rather than heading one of its own, and Delivery says what became
@@ -224,15 +261,18 @@ type ChatSubagent struct {
 
 // ChatTool is a tool call: a command, a file read or edit, a search.
 type ChatTool struct {
-	CallID  string     `json:"callId"`
-	Name    string     `json:"name,omitempty"` // the tool's own name, like Bash or Edit
-	Title   string     `json:"title"`
-	Kind    string     `json:"kind"`   // read, edit, delete, move, search, execute, think, fetch or other
-	Status  string     `json:"status"` // pending, in_progress, completed, failed, or stopped when the turn ended first
-	Command string     `json:"command,omitempty"`
-	Paths   []string   `json:"paths,omitempty"`
-	Output  string     `json:"output,omitempty"` // the end of its output
-	Diffs   []ChatDiff `json:"diffs,omitempty"`
+	CallID  string   `json:"callId"`
+	Name    string   `json:"name,omitempty"` // the tool's own name, like Bash or Edit
+	Title   string   `json:"title"`
+	Kind    string   `json:"kind"`   // read, edit, delete, move, search, execute, think, fetch or other
+	Status  string   `json:"status"` // pending, in_progress, completed, failed, or stopped when the turn ended first
+	Command string   `json:"command,omitempty"`
+	Paths   []string `json:"paths,omitempty"`
+	// Line, when the AI tool said, is the line of Paths[0] the call read or
+	// changed from, for the app to open the file there.
+	Line   int        `json:"line,omitempty"`
+	Output string     `json:"output,omitempty"` // the end of its output
+	Diffs  []ChatDiff `json:"diffs,omitempty"`
 	// Page, on a call to Hatch's publish_page or update_page, is what it was
 	// asked to publish, without the HTML: what the project's artifacts are
 	// read from (Artifacts), with what Hatch answered in Output.
@@ -271,8 +311,8 @@ type ChatPermission struct {
 	Options []ChatPermissionOption `json:"options"`
 	Outcome string                 `json:"outcome,omitempty"` // the ID of the option chosen, or "cancelled"; empty while it waits
 	// Approval is set when AgentBox asks rather than the AI tool: what it
-	// is about ("skill"), with Detail saying what would change and Diffs
-	// showing it.
+	// is about ("skill", or "project" for a lead's first message to another
+	// project's), with Detail saying what would change and Diffs showing it.
 	Approval string     `json:"approval,omitempty"`
 	Detail   string     `json:"detail,omitempty"`
 	Diffs    []ChatDiff `json:"diffs,omitempty"`
@@ -423,4 +463,48 @@ type ChatEvent struct {
 type ChatAppend struct {
 	ID   string `json:"id"`
 	Text string `json:"text"`
+}
+
+// LeadRunners is what a lead's composer offers to run on: the AI tools, each
+// with whether AgentBox can run it, and the Claude Code accounts the chat may
+// use (GET …/chat/runners).
+type LeadRunners struct {
+	// Tool is the tool the chat runs, NextTool the one chosen for its next
+	// message while that differs.
+	Tool     string `json:"tool"`
+	NextTool string `json:"nextTool,omitempty"`
+	// Account is the Claude Code account the chat runs on, or would on Claude
+	// Code; Chosen is the one its composer chose, "" for the project's.
+	Account string       `json:"account,omitempty"`
+	Chosen  string       `json:"chosen,omitempty"`
+	Runners []LeadRunner `json:"runners"`
+	// ToolAccounts are the accounts the chat runs on, or would, with each of
+	// the other tools (codex, cursor and opencode → account; OpenCode's as
+	// "provider: account, …"), and ToolChosen the ones its composer chose.
+	ToolAccounts map[string]string `json:"toolAccounts,omitempty"`
+	ToolChosen   map[string]string `json:"toolChosen,omitempty"`
+}
+
+// LeadRunner is one AI tool a lead can run.
+type LeadRunner struct {
+	Tool string `json:"tool"` // claude, codex, opencode or cursor
+	Name string `json:"name"` // how to say it: "Claude Code"
+	// Ready says AgentBox has a login for it; Reason says why not otherwise.
+	Ready  bool   `json:"ready"`
+	Reason string `json:"reason,omitempty"`
+	// Installed says this machine already has it: without, the first message
+	// installs it, which takes a minute.
+	Installed bool `json:"installed"`
+	// Accounts are the accounts the chat may run the tool on: Claude Code's
+	// each with its latest usage reading, Codex's and Cursor's with none.
+	// OpenCode has none to choose: its accounts are the project's, one per
+	// provider.
+	Accounts []LeadAccount `json:"accounts,omitempty"`
+}
+
+// LeadRunnerRequest chooses a lead's AI tool and, for Claude Code, Codex and
+// Cursor, its account ("" for the project's). It applies from the next message.
+type LeadRunnerRequest struct {
+	Tool    string `json:"tool"`
+	Account string `json:"account,omitempty"`
 }

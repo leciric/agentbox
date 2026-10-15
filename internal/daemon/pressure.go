@@ -341,7 +341,7 @@ func (s *Server) tellPaused(ctx context.Context, r pressure.Run) {
 	text := what + " was paused for memory: the VM's memory is under pressure from several agents' tests and builds at once. " +
 		"It resumes by itself, in turn, once that eases, and loses nothing. If it timed out meanwhile, run it again: it waits its turn. " +
 		"Running fewer packages or workers at once (go test -p 2, vitest --maxWorkers=2, make -j2) gets it through sooner."
-	if _, err := s.tellAgent(ctx, a, text); err != nil {
+	if _, err := s.tellUnlessRetired(ctx, a, text); err != nil {
 		s.logf("memory pressure: telling %s its command was paused: %v", r.Agent, err)
 	}
 	s.captureEvent(ctx, a.Project, a.Name, "memory_paused", map[string]any{"command": r.Command}, "")
@@ -703,7 +703,7 @@ func (s *Server) tellKilled(ctx context.Context, a state.Agent, n, limit int64, 
 		"Run fewer packages or workers at once (go test -p 2 ./..., vitest --maxWorkers=2, make -j2, one test file at a time) and try again.",
 		what, why)
 	s.logf("memory: %s: %s", a.Ref(), text)
-	if _, err := s.tellAgent(ctx, a, text); err != nil {
+	if _, err := s.tellUnlessRetired(ctx, a, text); err != nil {
 		s.logf("memory: telling %s a process was killed: %v", a.Ref(), err)
 	}
 	payload := map[string]any{"kills": n, "limit": limit, "own_limit": own}

@@ -155,10 +155,12 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
     <Tabs value={tab} onValueChange={setWhere} className="flex h-full min-h-0 flex-col">
       <div className="w-full shrink-0 px-4 pb-3 pt-4 md:px-8 md:pb-4 md:pt-5">
         <div className="flex flex-wrap items-center gap-3">
-          <span className="flex size-9 items-center justify-center rounded-xl border border-line-strong bg-surface text-tertiary">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-line-strong bg-surface text-tertiary">
             <FolderGit2 className="size-4" />
           </span>
-          <div className="min-w-0">
+          {/* It gives way to the actions beside it, cutting a long root short,
+              before they wrap under it. */}
+          <div className="min-w-0 flex-1 basis-40">
             <h1 className="truncate text-[15px] font-semibold tracking-tight text-title">{projectLabel(project)}</h1>
             <p className="truncate font-mono text-[11px] text-subtle">{project.root}</p>
           </div>

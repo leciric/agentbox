@@ -223,8 +223,8 @@ func (m *Manager) Fork(ctx context.Context, src state.Agent, opts ForkOptions) (
 	if err != nil {
 		return state.Agent{}, err
 	}
-	// The fork keeps the original's Claude Code account.
-	account, err := m.CheckLogin(src.AI, p, src.ClaudeAccount)
+	// The fork keeps the original's accounts.
+	logins, err := m.CheckLogin(src.AI, p, Logins{Claude: src.ClaudeAccount, Codex: src.CodexAccount, OpenCode: src.OpenCodeAccounts, Cursor: src.CursorAccount})
 	if err != nil {
 		return state.Agent{}, err
 	}
@@ -265,20 +265,20 @@ func (m *Manager) Fork(ctx context.Context, src state.Agent, opts ForkOptions) (
 		baseRef = src.Ref()
 	}
 	return m.build(ctx, plan{
-		project:       p,
-		repo:          repo,
-		name:          opts.Name,
-		title:         title,
-		ai:            src.AI,
-		autonomous:    src.Autonomous,
-		claudeAccount: account,
-		iface:         src.Interface,
-		source:        src.Instance + "/" + name,
-		baseRef:       baseRef,
-		baseCommit:    head,
-		tree:          tree,
-		copyEnv:       true,
-		connectors:    src.Connectors, // a copy is given what its source was
+		project:    p,
+		repo:       repo,
+		name:       opts.Name,
+		title:      title,
+		ai:         src.AI,
+		autonomous: src.Autonomous,
+		logins:     logins,
+		iface:      src.Interface,
+		source:     src.Instance + "/" + name,
+		baseRef:    baseRef,
+		baseCommit: head,
+		tree:       tree,
+		copyEnv:    true,
+		connectors: src.Connectors, // a copy is given what its source was
 	})
 }
 

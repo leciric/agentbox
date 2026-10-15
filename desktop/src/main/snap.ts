@@ -12,8 +12,7 @@ export const snapShortcut = 'CommandOrControl+Alt+S';
 
 // enableShortcutPortal must run before the app is ready. On Wayland a global
 // shortcut is the compositor's to grant, through the desktop portal, which
-// Chromium only asks with this feature on. It joins whatever enable-features
-// is already on the command line (voicegpu.ts): Chromium reads the last one.
+// Chromium only asks with this feature on.
 export function enableShortcutPortal(): void {
   if (process.platform !== 'linux') return;
   const features = app.commandLine.getSwitchValue('enable-features');

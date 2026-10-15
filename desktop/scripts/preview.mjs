@@ -8,10 +8,14 @@
 //   npm run preview -- --shots out --lang pt-BR
 //                                             every scenario in another language, whose
 //                                             strings are longer than English's
+//   npm run preview -- --shots out --only phone-
+//                                             only the scenarios whose id starts with phone-
 //   npm run preview -- --shots out --against HEAD~1
 //                                             also capture --against's ref, from a throwaway
 //                                             git worktree, into out/before/*.png, and the
 //                                             working tree into out/after/*.png
+//   npm run preview -- --shots out --only window-
+//                                             only the scenarios whose id starts with window-
 //
 // --against needs the ref to already have this preview harness (dev/preview.html
 // and scenarios.json) — it was added after AgentRail's overflow fix, so it can
@@ -30,14 +34,15 @@ import { fileURLToPath } from 'node:url';
 
 const desktopDir = join(dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = join(desktopDir, '..');
-const scenarios = JSON.parse(readFileSync(join(desktopDir, 'src/renderer/dev/scenarios.json'), 'utf8'));
+let scenarios = JSON.parse(readFileSync(join(desktopDir, 'src/renderer/dev/scenarios.json'), 'utf8'));
 
 function parseArgs(argv) {
-  const args = { shots: null, against: null, lang: null };
+  const args = { shots: null, against: null, lang: null, only: null };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--shots') args.shots = argv[++i];
     else if (argv[i] === '--against') args.against = argv[++i];
     else if (argv[i] === '--lang') args.lang = argv[++i];
+    else if (argv[i] === '--only') args.only = argv[++i];
     else throw new Error(`Unknown argument: ${argv[i]}`);
   }
   return args;
@@ -115,6 +120,12 @@ function removeWorktree(desktop) {
 // rail and the sidebar are <aside>s — so a shot that breaks one says so
 // without anybody having to spot it in the picture.
 function overflowing() {
+  const scrolls = (el, until) => {
+    for (; el && el !== until.parentElement; el = el.parentElement) {
+      if (['auto', 'scroll'].includes(getComputedStyle(el).overflowX)) return true;
+    }
+    return false;
+  };
   const found = [];
   for (const aside of document.querySelectorAll('aside')) {
     const box = aside.getBoundingClientRect();
@@ -124,19 +135,27 @@ function overflowing() {
       if (r.width === 0 || (r.right <= box.right + 1 && r.left >= box.left - 1)) continue;
       // Only the outermost element that sticks out, not each of its children.
       if (el.parentElement && found.some((f) => f.el.contains(el))) continue;
+      // Nor what's in a strip that scrolls sideways on purpose (Settings'
+      // sections in a narrow window): it's meant to run past the edge.
+      if (scrolls(el.parentElement, aside)) continue;
       found.push({ el, text: (el.textContent ?? '').trim().slice(0, 60), by: Math.round(Math.max(r.right - box.right, box.left - r.left)) });
     }
   }
-  return found.map(({ text, by }) => `${by}px: ${text || '(no text)'}`);
+  const lines = found.map(({ text, by }) => `${by}px: ${text || '(no text)'}`);
+  // And the window itself: a page wider than the window scrolls sideways,
+  // which a narrow or portrait window shows as content cut off at its edge.
+  const wide = document.documentElement.scrollWidth - window.innerWidth;
+  if (wide > 1) lines.push(`${wide}px: the page is wider than the window`);
+  return lines;
 }
 
-async function capture(baseUrl, outDir, lang) {
+async function capture(baseUrl, outDir, lang, only) {
   const { chromium } = await import('playwright');
   mkdirSync(outDir, { recursive: true });
   const systemChromium = '/usr/bin/chromium';
   const browser = await chromium.launch(existsSync(systemChromium) ? { executablePath: systemChromium } : {});
   try {
-    for (const s of scenarios) {
+    for (const s of scenarios.filter((s) => !only || s.id.startsWith(only))) {
       const page = await browser.newPage({ viewport: { width: s.width, height: s.height }, reducedMotion: s.reducedMotion ?? 'no-preference' });
       await page.goto(`${baseUrl}/dev/preview.html?${s.query}${lang ? `&lang=${lang}` : ''}`, { waitUntil: 'networkidle' });
       // A scenario can hover an element, to show its tooltip.
@@ -145,8 +164,9 @@ async function capture(baseUrl, outDir, lang) {
         await page.waitForSelector('[data-radix-popper-content-wrapper]', { timeout: 3_000 }).catch(() => {});
       }
       // A scenario can click an element, to show a popover it opens.
-      if (s.click) {
-        await page.click(s.click, { timeout: 3_000 }).catch(() => {});
+      // Or a list of them, one after the other: a row in the popover.
+      for (const click of s.click ? [s.click].flat() : []) {
+        await page.click(click, { timeout: 3_000 }).catch(() => {});
         await page.waitForSelector('[data-radix-popper-content-wrapper]', { timeout: 3_000 }).catch(() => {});
       }
       // A scenario can type into a field, to show what a search leaves:
@@ -170,6 +190,7 @@ async function capture(baseUrl, outDir, lang) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  if (args.only) scenarios = scenarios.filter((s) => s.id.startsWith(args.only));
   const port = await freePort();
   const server = await startVite(desktopDir, port);
   console.log(`Serving the working tree at ${server.url}/dev/preview.html`);
@@ -181,13 +202,13 @@ async function main() {
 
   if (!args.against) {
     console.log(`Capturing ${scenarios.length} scenarios into ${args.shots}/`);
-    await capture(server.url, args.shots, args.lang);
+    await capture(server.url, args.shots, args.lang, args.only);
     await stopVite(server.proc);
     return;
   }
 
   console.log(`Capturing the working tree into ${args.shots}/after/`);
-  await capture(server.url, join(args.shots, 'after'), args.lang);
+  await capture(server.url, join(args.shots, 'after'), args.lang, args.only);
   await stopVite(server.proc);
 
   console.log(`Checking out ${args.against} into a throwaway worktree…`);
@@ -196,7 +217,7 @@ async function main() {
     const beforePort = await freePort();
     const beforeServer = await startVite(beforeDesktop, beforePort);
     console.log(`Capturing ${args.against} into ${args.shots}/before/`);
-    await capture(beforeServer.url, join(args.shots, 'before'), args.lang);
+    await capture(beforeServer.url, join(args.shots, 'before'), args.lang, args.only);
     await stopVite(beforeServer.proc);
   } finally {
     rmSync(join(beforeDesktop, 'node_modules'), { force: true }); // the symlink, not its target

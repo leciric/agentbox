@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { ChevronRight, Menu as MenuIcon, Search as SearchIcon, TriangleAlert } from 'lucide-react';
+import { ChevronRight, Menu as MenuIcon, Search as SearchIcon, TriangleAlert, Users } from 'lucide-react';
 import type { View } from '../App';
 import { api } from '../lib/api';
 import { useT } from '../lib/i18n';
@@ -9,10 +9,10 @@ import { limitTone, windowLeft, windowNow } from '../lib/tokens';
 import { pickMeter } from '../lib/usageMeter';
 import { useNow } from '../lib/useNow';
 import { cn, timeAgo, timeUntil } from '../lib/utils';
-import { AgentSwitcher } from './AgentSwitcher';
 import { DiskGuardPill } from './DiskGuardPill';
 import { ImageBuildChip } from './ImageBuildChip';
 import { MachineStatus } from './MachineStatus';
+import { DoNotDisturb } from './DoNotDisturb';
 import { NotificationBell } from './Notifications';
 import { ReadyToReview } from './ReadyToReview';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
@@ -21,14 +21,16 @@ export function TopBar({
   view,
   onSelect,
   onOpenNav,
-  onNewAgent,
+  onOpenRail,
   onOpenNotice,
   onSearch,
 }: {
   view: View;
   onSelect: (view: View) => void;
+  // onOpenNav opens the sidebar's drawer, and onOpenRail the agent rail's,
+  // in a window too narrow for them to sit beside the page (App).
   onOpenNav: () => void;
-  onNewAgent: (project: string) => void;
+  onOpenRail?: () => void;
   // onOpenNotice goes where a notification in the bell points; without it
   // there's no bell.
   onOpenNotice?: (notice: T.Notification) => void;
@@ -72,15 +74,19 @@ export function TopBar({
   }
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-2 border-b border-line px-3 md:gap-4 md:px-5">
+    // In a narrow window the controls wrap onto a second row rather than
+    // run off the edge: the breadcrumb takes what's left of the first, and
+    // gives way to them only below 8rem.
+    <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-line px-3 py-2 md:gap-x-4 md:px-5" data-top-bar>
       <button
         aria-label={t('shell.top.openMenu')}
-        className="-ml-1 rounded-lg p-2 text-muted transition hover:bg-surface-raised hover:text-primary md:hidden"
+        className="-ml-1 rounded-lg p-2 text-muted transition hover:bg-surface-raised hover:text-primary lg:hidden"
         onClick={onOpenNav}
+        data-open-nav
       >
         <MenuIcon className="size-5" />
       </button>
-      <nav className="flex min-w-0 items-center gap-1.5 text-[13px]" aria-label={t('shell.top.breadcrumb')}>
+      <nav className="flex min-w-32 grow basis-0 items-center gap-1.5 text-[13px]" aria-label={t('shell.top.breadcrumb')}>
         {crumbs.map((crumb, i) => (
           <span key={i} className="flex min-w-0 items-center gap-1.5">
             {i > 0 && <ChevronRight className="size-3.5 shrink-0 text-faint" />}
@@ -95,11 +101,9 @@ export function TopBar({
         ))}
       </nav>
 
-      <div className="lg:hidden">
-        <AgentSwitcher view={view} onSelect={onSelect} onNewAgent={onNewAgent} />
-      </div>
+      {onOpenRail && (view.kind === 'project' || view.kind === 'agent') && <RailButton view={view} onClick={onOpenRail} />}
 
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex min-w-0 items-center gap-2">
         {onSearch && <SearchButton onClick={onSearch} />}
         {setup.data && !setup.data.ready && view.kind !== 'settings' && (
           <button
@@ -115,6 +119,7 @@ export function TopBar({
         <DiskGuardPill onSelect={onSelect} />
         <ClaudeUsage view={view} agents={agents.data ?? []} />
         <MachineStatus agents={agents.data ?? []} onSelect={onSelect} />
+        <DoNotDisturb />
         {onOpenNotice && <NotificationBell onOpen={onOpenNotice} onAllMedia={() => onSelect({ kind: 'media' })} />}
       </div>
     </header>
@@ -147,7 +152,30 @@ function SearchButton({ onClick }: { onClick: () => void }) {
     >
       <SearchIcon className="size-3.5" />
       <span className="hidden text-[12px] md:inline">{t('common.search')}</span>
-      <kbd className="hidden rounded-md bg-surface-raised px-1.5 font-mono text-[10.5px] text-subtle md:inline">{onMac ? '⌘K' : 'Ctrl K'}</kbd>
+      <kbd className="hidden whitespace-nowrap rounded-md bg-surface-raised px-1.5 font-mono text-[10.5px] text-subtle md:inline">{onMac ? '⌘K' : 'Ctrl K'}</kbd>
+    </button>
+  );
+}
+
+// RailButton opens the agent rail's drawer, below xl where the rail doesn't
+// sit beside the page: the project's agents, with how many there are.
+function RailButton({ view, onClick }: { view: View; onClick: () => void }) {
+  const t = useT();
+  const project = view.kind === 'agent' ? view.ref.split('/')[0] : view.kind === 'project' ? view.project : '';
+  const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
+  const mine = agents.data?.filter((agent) => agent.project === project);
+  return (
+    <button
+      type="button"
+      className="flex shrink-0 items-center gap-1.5 rounded-full border border-line bg-surface-faint px-2.5 py-1 text-xs text-muted transition hover:bg-surface-raised hover:text-primary xl:hidden"
+      aria-label={t('agent.rail.show')}
+      title={t('agent.rail.show')}
+      data-open-rail
+      onClick={onClick}
+    >
+      <Users className="size-3.5" />
+      {/* No count before the agents are in: 0 would say there are none. */}
+      {mine && <span className="tabular-nums">{mine.length}</span>}
     </button>
   );
 }
@@ -160,7 +188,11 @@ function ClaudeUsage({ view, agents }: { view: View; agents: T.Agent[] }) {
   const agent = view.kind === 'agent' ? agents.find((a) => a.ref === view.ref) : undefined;
   const projectName = view.kind === 'project' ? view.project : view.kind === 'agent' ? view.ref.split('/')[0] : undefined;
   const project = projectName ? projects.data?.find((p) => p.name === projectName) : undefined;
-  const pick = pickMeter({ limits: limits.data ?? [], project, agent });
+  // On a project's page, or Home, its chat's own tool and account: what the
+  // composer chose spends there (RunnerPicker).
+  const chatOf = view.kind === 'project' ? project?.name : view.kind === 'home' || view.kind === 'homeChat' ? '_home' : undefined;
+  const runners = useQuery({ queryKey: ['chatRunners', chatOf], queryFn: () => api.chatRunners(chatOf!), enabled: !!chatOf, refetchInterval: 30_000 });
+  const pick = pickMeter({ limits: limits.data ?? [], project, agent, lead: chatOf ? runners.data : undefined });
   const account = pick.reading;
   const five = account?.windows.find((w) => w.name === 'five_hour') ?? account?.windows[0];
   const week = account?.windows.find((w) => w.name === 'seven_day');
@@ -230,7 +262,9 @@ function limitText(now: number | null): string {
   return tone === 'high' ? 'text-rose-300' : tone === 'warn' ? 'text-amber-300' : 'text-secondary';
 }
 
-function LimitRow({ window: w, clock }: { window: T.ClaudeLimitWindow; clock: number }) {
+// LimitRow is one of an account's limits: how much is used, and when it
+// starts again. The composer's AI tool picker shows them too.
+export function LimitRow({ window: w, clock }: { window: T.ClaudeLimitWindow; clock: number }) {
   const t = useT();
   const now = windowNow(w, clock);
   const percent = now === null ? 0 : Math.max(0, Math.min(1, now)) * 100;

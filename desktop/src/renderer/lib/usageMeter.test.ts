@@ -55,3 +55,12 @@ test("a project's Tokens tab shows its own account first, then its agents', and 
   assert.deepEqual(accounts(project('work'), [mine('claude', 'work'), mine('claude'), mine('codex', 'side'), mine('claude', 'side', 'other')]), ['work', 'personal']);
   assert.deepEqual(accounts(project('gone'), [mine('claude', 'side')]), ['side']);
 });
+
+test("a chat switched in its composer shows its own tool and account", () => {
+  const lead = (tool: string, account = '') => ({ tool, account, runners: [] }) as T.LeadRunners;
+  assert.equal(pickMeter({ limits, project: project('work'), lead: lead('claude', 'personal') }).reading?.account, 'personal');
+  const codex = pickMeter({ limits, project: project('work'), lead: lead('codex') });
+  assert.equal(codex.tool, 'codex');
+  assert.equal(codex.reading, undefined);
+  assert.equal(pickMeter({ limits, lead: lead('claude', 'work') }).reading?.account, 'work');
+});

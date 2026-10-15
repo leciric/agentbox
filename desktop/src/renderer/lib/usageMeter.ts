@@ -22,12 +22,14 @@ export interface MeterPick {
 // - A project spends its own Claude account, else the machine's default: its
 //   chat runs Claude Code, and so do its new agents unless told otherwise.
 // - With no project (Home, Jobs, Settings), the machine's default account.
+// - A project's chat, or the Home chat, switched to another tool or account in
+//   its composer (lead, from GET …/chat/runners) spends that one instead.
 //
 // Only Claude accounts have readings: claude-agent-acp relays Anthropic's
 // limits on usage_update, while codex-acp keeps Codex's to itself (only its
 // /status text shows them) and OpenCode and Cursor report none. So a Codex, OpenCode or Cursor
 // agent gets no reading, and the meter hides, until the daemon records one.
-export function pickMeter({ limits, project, agent }: { limits: T.ClaudeLimit[]; project?: T.Project; agent?: T.Agent }): MeterPick {
+export function pickMeter({ limits, project, agent, lead }: { limits: T.ClaudeLimit[]; project?: T.Project; agent?: T.Agent; lead?: T.LeadRunners }): MeterPick {
   const byAccount = (name: string, whose: string): MeterPick => {
     const reading = name ? limits.find((l) => l.account === name) : limits.find((l) => l.default);
     return { tool: 'claude', reading, whose: name ? whose : t('vm.usageMeter.defaultAccount') };
@@ -37,7 +39,10 @@ export function pickMeter({ limits, project, agent }: { limits: T.ClaudeLimit[];
     if (agent.ai !== 'claude') return { tool: agent.ai, whose };
     return byAccount(agent.claudeAccount, whose);
   }
-  if (project) return byAccount(project.claudeAccount, t('vm.usageMeter.accountOf', { name: projectLabel(project) }));
+  const whose = project ? t('vm.usageMeter.accountOf', { name: projectLabel(project) }) : '';
+  if (lead && lead.tool !== 'claude') return { tool: lead.tool, whose };
+  if (lead?.account) return byAccount(lead.account, whose || t('vm.usageMeter.accountOf', { name: t('chat.home.agentTitle') }));
+  if (project) return byAccount(project.claudeAccount, whose);
   return byAccount('', '');
 }
 

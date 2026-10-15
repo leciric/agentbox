@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"agentbox/internal/api"
+	"agentbox/internal/credentials"
 	"agentbox/internal/state"
 )
 
@@ -84,7 +86,8 @@ func (s *Server) closeLeadAPIs() {
 
 // leadRoutes are everything a lead may do, and nothing else: its own project's
 // agents, its notes, and the questions they asked it. It cannot reach another
-// project, the daemon itself, or the host.
+// project, the daemon itself, or the host, except to message another
+// project's lead.
 func (s *Server) leadRoutes(project string) http.Handler {
 	mux := http.NewServeMux()
 	// The lead's requests carry no project; the socket says which one it is.
@@ -101,6 +104,7 @@ func (s *Server) leadRoutes(project string) http.Handler {
 	mux.HandleFunc("GET /v1/project/agents", withProject(s.fleet))
 	mux.HandleFunc("POST /v1/project/agents", withProject(s.leadCreateAgent))
 	mux.HandleFunc("GET /v1/project/accounts", withProject(s.leadAccounts))
+	mux.HandleFunc("GET /v1/project/tool-accounts", withProject(s.leadToolAccounts))
 	mux.HandleFunc("POST /v1/project/retire", withProject(s.retire))
 	mux.HandleFunc("GET /v1/project/agents/{agent}/chat", withProject(s.leadAgentChat))
 	mux.HandleFunc("GET /v1/project/archived-agents", withProject(s.listArchived))
@@ -113,6 +117,12 @@ func (s *Server) leadRoutes(project string) http.Handler {
 	mux.HandleFunc("POST /v1/project/copy", withProject(s.leadCopy))
 	mux.HandleFunc("POST /v1/project/copy-from-host", withProject(s.leadCopyFromHost))
 	mux.HandleFunc("GET /v1/project/secrets", withProject(s.leadSecrets))
+	// Other projects' leads (projectmessages.go): the one boundary a lead
+	// crosses, and only to talk, lead to lead.
+	mux.HandleFunc("GET /v1/project/threads", withProject(s.leadProjectThreads))
+	mux.HandleFunc("POST /v1/project/threads", withProject(s.leadSendToProject))
+	mux.HandleFunc("POST /v1/project/threads/{thread}/replies", withProject(s.leadReplyToProject))
+	mux.HandleFunc("POST /v1/project/threads/{thread}/settle", withProject(s.leadSettleAlignment))
 	// The project's connectors: listed for list_connectors, and relayed to
 	// for the chat's own Claude Code, which is given them as MCP servers.
 	mux.HandleFunc("GET /v1/project/connectors", withProject(func(w http.ResponseWriter, r *http.Request) error {
@@ -206,20 +216,48 @@ func (s *Server) leadCreateAgent(w http.ResponseWriter, r *http.Request) error {
 // GET /v1/limits converts one (toClaudeLimit, limits.go), so the two never
 // disagree about what a reading means.
 func (s *Server) leadAccounts(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
-	project := r.PathValue("project")
-	p, err := s.store.Project(ctx, project)
+	p, err := s.store.Project(r.Context(), r.PathValue("project"))
 	if err != nil {
 		return err
 	}
+	out, err := s.leadAccountRows(r.Context(), p)
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, http.StatusOK, out)
+}
+
+// leadToolAccounts are the machine's Codex, OpenCode and Cursor accounts, for
+// create_agent's codex_account, opencode_accounts and cursor_account.
+func (s *Server) leadToolAccounts(w http.ResponseWriter, r *http.Request) error {
+	if _, err := s.store.Project(r.Context(), r.PathValue("project")); err != nil {
+		return err
+	}
+	out := []api.ToolAccount{}
+	for _, tool := range credentials.AccountTools {
+		accounts, err := toolAccounts(s.manager(nil).Creds, tool)
+		if err != nil {
+			return err
+		}
+		out = append(out, accounts...)
+	}
+	return writeJSON(w, http.StatusOK, out)
+}
+
+// leadAccountRows are the Claude Code accounts a project may use, each with
+// how many of its agents run on it and its latest limit reading.
+func (s *Server) leadAccountRows(ctx context.Context, p state.Project) ([]api.LeadAccount, error) {
+	project := p.Name
 	m := s.manager(nil)
 	accounts, err := m.Creds.ClaudeAccounts()
 	if err != nil {
-		return err
+		return nil, err
 	}
+	// How many agents run on each account is worth knowing, not worth the
+	// list: with Incus unreachable, the accounts are still the accounts.
 	statuses, err := m.List(ctx, project)
 	if err != nil {
-		return err
+		s.logf("counting %s's agents per Claude Code account: %v", project, err)
 	}
 	agentsOn := map[string]int{}
 	for _, st := range statuses {
@@ -230,7 +268,7 @@ func (s *Server) leadAccounts(w http.ResponseWriter, r *http.Request) error {
 	}
 	readings, err := s.store.ClaudeLimits(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	byAccount := make(map[string]state.ClaudeLimitReading, len(readings))
 	for _, reading := range readings {
@@ -267,7 +305,7 @@ func (s *Server) leadAccounts(w http.ResponseWriter, r *http.Request) error {
 		}
 		return 0
 	})
-	return writeJSON(w, http.StatusOK, out)
+	return out, nil
 }
 
 // leadAgentChat is one agent's conversation, so the chat can read what it did.

@@ -23,7 +23,8 @@ import { enableShortcutPortal, registerSnapShortcut, showForSnap } from './snap'
 import { Streams } from './streams';
 import { installAppUpdates, restartingForUpdate } from './updater';
 import { learnMode, linuxVM } from './vmmode';
-import { allowMicrophone, enableWebGPU } from './voice';
+import { denyMedia } from './permissions';
+import { keepWindowState, windowOptions } from './windowstate';
 import { distro, linuxPath, windowsPath } from './wslpaths';
 import { setLanguage, t } from '../shared/i18n/index.ts';
 import './vmpower';
@@ -38,7 +39,6 @@ captureConsole(appLog);
 process.on('uncaughtExceptionMonitor', (err) => send('app:error', appLog.error('main', err)));
 registerMediaScheme();
 registerBrowserKeys();
-enableWebGPU();
 enableShortcutPortal();
 
 let win: BrowserWindow | undefined;
@@ -259,10 +259,7 @@ installAppUpdates(send);
 
 function createWindow(): void {
   win = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 1024,
-    minHeight: 640,
+    ...windowOptions(),
     title: 'AgentBox',
     backgroundColor: '#07070b',
     autoHideMenuBar: true,
@@ -272,6 +269,7 @@ function createWindow(): void {
       sandbox: true,
     },
   });
+  keepWindowState(win);
   void win.loadFile(join(__dirname, '../renderer/index.html'));
   win.on('closed', () => {
     streams.closeAll();
@@ -281,7 +279,7 @@ function createWindow(): void {
 
 void app.whenReady().then(async () => {
   handleMedia();
-  allowMicrophone();
+  denyMedia();
   createWindow();
   registerSnapShortcut();
   // The relay answers at once, whether or not WSL does: it only reaches into

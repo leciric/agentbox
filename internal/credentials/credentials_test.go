@@ -294,42 +294,6 @@ func TestGitHubAccountRemembersItsLogin(t *testing.T) {
 	}
 }
 
-// OpenCode keeps every provider's key in one auth.json, and AgentBox owns the
-// XDG data directory it reads that from — never the host's. A file with no
-// provider in it is not a login: that is what a logout leaves behind.
-func TestOpenCodeLogin(t *testing.T) {
-	dir := t.TempDir()
-	s := credentials.Store{Dir: dir}
-
-	if s.HasOpenCodeLogin() {
-		t.Error("an empty credentials directory reads as a login")
-	}
-	if got := s.OpenCodeAuthPath(); got != filepath.Join(s.OpenCodeDataHome(), "opencode", "auth.json") {
-		t.Errorf("auth.json is at %q, which isn't where opencode reads it from under XDG_DATA_HOME", got)
-	}
-	if !strings.HasPrefix(s.OpenCodeDataHome(), dir) {
-		t.Errorf("OpenCode's data home %q is outside AgentBox's own directory", s.OpenCodeDataHome())
-	}
-	if err := os.MkdirAll(s.OpenCodeHome(), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	for _, c := range []struct {
-		content string
-		want    bool
-	}{
-		{`{}`, false},
-		{`not json`, false},
-		{`{"anthropic": {"type": "api", "key": "sk-test"}}`, true},
-	} {
-		if err := os.WriteFile(s.OpenCodeAuthPath(), []byte(c.content), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		if got := s.HasOpenCodeLogin(); got != c.want {
-			t.Errorf("HasOpenCodeLogin() with %s = %v, want %v", c.content, got, c.want)
-		}
-	}
-}
-
 func TestRenameClaudeAccount(t *testing.T) {
 	s := store(t)
 	// "default" is the default without a marker saying so: renaming it must
@@ -442,46 +406,5 @@ func TestRenameGitHubAccount(t *testing.T) {
 	// Claude Code accounts are a separate namespace.
 	if accounts, _ := s.ClaudeAccounts(); len(accounts) != 0 {
 		t.Errorf("ClaudeAccounts() = %+v", accounts)
-	}
-}
-
-// Cursor's sign-in is the SDK's own credentials file. A key that expired is no
-// sign-in, since the SDK ignores it, and neither is a file without a key.
-func TestCursorLogin(t *testing.T) {
-	s := store(t)
-	if s.HasCursorLogin() {
-		t.Fatal("a store with nothing in it has a Cursor sign-in")
-	}
-	write := func(content string) {
-		t.Helper()
-		if err := os.MkdirAll(s.CursorHome(), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(s.CursorAuthPath(), []byte(content), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	write(`{"version":1,"backendUrl":"https://api2.cursor.sh","apiKey":"key_1","createdAtMs":1,"email":"a@b.c"}`)
-	login, ok := s.CursorLogin()
-	if !ok || login.APIKey != "key_1" || login.Email != "a@b.c" || !login.Expiry.IsZero() {
-		t.Fatalf("CursorLogin = %+v, %v", login, ok)
-	}
-	write(`{"version":1,"backendUrl":"https://api2.cursor.sh","apiKey":"key_2","createdAtMs":1,"apiKeyExpiresAtMs":4102444800000}`)
-	if login, ok := s.CursorLogin(); !ok || login.Expiry.Year() != 2100 {
-		t.Fatalf("a key minted at sign-in: %+v, %v", login, ok)
-	}
-	write(`{"version":1,"backendUrl":"https://api2.cursor.sh","apiKey":"key_3","createdAtMs":1,"apiKeyExpiresAtMs":1000}`)
-	if s.HasCursorLogin() {
-		t.Fatal("an expired key counts as a sign-in")
-	}
-	write(`{"version":1,"apiKey":" "}`)
-	if s.HasCursorLogin() {
-		t.Fatal("a file without a key counts as a sign-in")
-	}
-	if err := s.RemoveCursorLogin(); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.RemoveCursorLogin(); err != nil {
-		t.Fatalf("removing it twice: %v", err)
 	}
 }

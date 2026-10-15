@@ -160,3 +160,62 @@ func (c *Client) Files(ctx context.Context, ref string) (WorktreeFiles, error) {
 	}
 	return out, c.do(ctx, http.MethodGet, path, nil, &out)
 }
+
+// ChatRunners lists the AI tools and Claude Code accounts a project's chat (or
+// Home's, HomeProject) can switch to.
+func (c *Client) ChatRunners(ctx context.Context, project string) (LeadRunners, error) {
+	var out LeadRunners
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/chat/runners", nil, &out)
+}
+
+// SetChatRunner chooses the AI tool and account a project's chat runs from its
+// next message.
+func (c *Client) SetChatRunner(ctx context.Context, project string, req LeadRunnerRequest) (ChatSession, error) {
+	var out ChatSession
+	return out, c.do(ctx, http.MethodPut, "/v1/projects/"+url.PathEscape(project)+"/chat/runner", req, &out)
+}
+
+// ListFolder lists one folder of an agent's or a project lead's worktree, for
+// the file tree; withIgnored includes what .gitignore leaves out.
+func (c *Client) ListFolder(ctx context.Context, ref, dir string, withIgnored bool) (FileList, error) {
+	var out FileList
+	q := url.Values{"path": {dir}}
+	if withIgnored {
+		q.Set("ignored", "1")
+	}
+	return out, c.filesDo(ctx, ref, "/list?"+q.Encode(), &out)
+}
+
+// ReadFile reads one file of a worktree for the viewer. full asks for more
+// than the usual cap of a large text file, base for what it was at the
+// worktree's base when it changed.
+func (c *Client) ReadFile(ctx context.Context, ref, file string, full, base bool) (FileContent, error) {
+	var out FileContent
+	q := url.Values{"path": {file}}
+	if full {
+		q.Set("full", "1")
+	}
+	if base {
+		q.Set("base", "1")
+	}
+	return out, c.filesDo(ctx, ref, "/read?"+q.Encode(), &out)
+}
+
+// FileStatus is what changed in a worktree since its base; fresh reads it
+// again rather than from the daemon's cache.
+func (c *Client) FileStatus(ctx context.Context, ref string, fresh bool) (FileStatus, error) {
+	var out FileStatus
+	rest := "/status"
+	if fresh {
+		rest += "?fresh=1"
+	}
+	return out, c.filesDo(ctx, ref, rest, &out)
+}
+
+func (c *Client) filesDo(ctx context.Context, ref, rest string, out any) error {
+	path, err := filesPath(ref)
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, http.MethodGet, path+rest, nil, out)
+}

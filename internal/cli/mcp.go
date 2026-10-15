@@ -1,11 +1,14 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -20,7 +23,7 @@ import (
 // Protocol on stdin and stdout, and is started by Claude Code from the lead's
 // own configuration, with AGENTBOX_SOCKET pointing at that project's socket.
 // The socket decides which project it acts on: nothing here names one, and
-// nothing it can send reaches another.
+// nothing it can send reaches another but a message to another project's lead.
 func newMCPCmd(a *app) *cobra.Command {
 	return &cobra.Command{
 		Use:    "mcp",
@@ -280,6 +283,17 @@ func leadAI(ai string, ready readyTools) (string, error) {
 // describeChoices names the settings a lead asked for, so the reply confirms
 // what was chosen rather than leaving it to be found later in the agent's chat.
 // Anything left to fall back to the project's own defaults goes unmentioned.
+// describeAccountMap is OpenCode's accounts in a few words: "anthropic: work".
+func describeAccountMap(m map[string]string) string {
+	var parts []string
+	for _, p := range slices.Sorted(maps.Keys(m)) {
+		if m[p] != "" {
+			parts = append(parts, p+": "+m[p])
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
 func describeChoices(ai string, model, effort *string, autonomous bool, notify, account string) string {
 	var chosen []string
 	if ai != "" && ai != "claude" {
@@ -366,14 +380,24 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 			Description: "The Claude Code accounts this project may use, so you can spread agents across them instead of piling " +
 				"them onto one: which is the machine's default, which this project uses when an agent doesn't choose " +
 				"its own, how many of this project's running agents already hold each one, and its latest usage " +
-				"reading (5-hour and weekly, and when each resets). Never a token — pass the name to create_agent's " +
-				"claude_account to choose one.",
+				"reading (5-hour and weekly, and when each resets); then the Codex, OpenCode (per provider) and Cursor " +
+				"accounts, with the ones this project uses. Never a token — pass the name to create_agent's " +
+				"claude_account, codex_account, opencode_accounts or cursor_account to choose one.",
 			Run: func(json.RawMessage) (string, error) {
 				accounts, err := c.ProjectAccounts(ctx)
 				if err != nil {
 					return "", err
 				}
-				return describeAccounts(accounts), nil
+				text := describeAccounts(accounts)
+				tools, err := c.ProjectToolAccounts(ctx)
+				if err != nil {
+					return "", err
+				}
+				p, err := c.ProjectSelf(ctx)
+				if err != nil {
+					return "", err
+				}
+				return text + describeToolAccounts(tools, p), nil
 			},
 		},
 		{
@@ -437,11 +461,20 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					"refused, and the error names the ones it may use — use list_accounts to see them, along with how much " +
 					"of each is left. Leave this out to use the project's own account, and the machine's default account when " +
 					"the project has none set."),
+				"codex_account": str("claude_account's sibling for an agent with ai=\"codex\": which of the machine's Codex accounts " +
+					"(list_accounts) it logs in as. Leave it out for the project's own, else the machine's default."),
+				"cursor_account": str("the same for an agent with ai=\"cursor\": which Cursor account (list_accounts) it signs in with."),
+				"opencode_accounts": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"},
+					"description": "the same for an agent with ai=\"opencode\", whose accounts are per provider: provider → account, like " +
+						"{\"anthropic\": \"work\"} (list_accounts). A provider left out gets the project's account for it, else its default."},
 			}, settings)),
 			Run: func(args json.RawMessage) (string, error) {
 				var in struct {
 					Title, Task, From, AI, Branch string
-					ClaudeAccount                 string `json:"claude_account"`
+					ClaudeAccount                 string            `json:"claude_account"`
+					CodexAccount                  string            `json:"codex_account"`
+					CursorAccount                 string            `json:"cursor_account"`
+					OpenCodeAccounts              map[string]string `json:"opencode_accounts"`
 					Research                      bool
 					Queue                         *bool
 					Size                          string
@@ -486,18 +519,21 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				job, err := c.CreateProjectAgent(ctx, api.CreateAgentRequest{
 					Title: in.Title, Task: in.Task, From: in.From, AI: ai, Branch: in.Branch,
 					Autonomous: &autonomous, Model: in.Model, Effort: in.Effort,
-					ContextWindow: in.ContextWindow,
-					ClaudeAccount: in.ClaudeAccount,
-					FinishNotice:  notify,
-					Queue:         in.Queue,
-					Size:          in.Size,
-					Connectors:    in.Connectors,
+					ContextWindow:    in.ContextWindow,
+					ClaudeAccount:    in.ClaudeAccount,
+					CodexAccount:     in.CodexAccount,
+					CursorAccount:    in.CursorAccount,
+					OpenCodeAccounts: in.OpenCodeAccounts,
+					FinishNotice:     notify,
+					Queue:            in.Queue,
+					Size:             in.Size,
+					Connectors:       in.Connectors,
 				})
 				if err != nil {
 					return "", err
 				}
 				return fmt.Sprintf("Creating %q%s; it starts on the task by itself. Job %s.",
-					in.Title, describeChoices(ai, in.Model, in.Effort, autonomous, notify, in.ClaudeAccount)+windowChoice(in.ContextWindow)+connectorChoice(in.Connectors), job.ID), nil
+					in.Title, describeChoices(ai, in.Model, in.Effort, autonomous, notify, cmp.Or(in.ClaudeAccount, in.CodexAccount, in.CursorAccount, describeAccountMap(in.OpenCodeAccounts)))+windowChoice(in.ContextWindow)+connectorChoice(in.Connectors), job.ID), nil
 			},
 		},
 		{
@@ -1209,6 +1245,121 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 			},
 		},
 		{
+			Name: "message_project",
+			Description: "Message another of the user's projects' leads: a question about how it does something, a heads-up " +
+				"about a change that touches it, or an ask the user made (\"@other ask them …\"). Its lead is woken with " +
+				"your message and its reply comes back into this chat. Write it for a colleague who hasn't read your " +
+				"conversation, in a few lines; point at paths rather than pasting files. The first message between two " +
+				"projects waits for the user's approval. For two projects making the same change, align_with_project.",
+			Schema: object([]string{"project", "message"}, map[string]any{
+				"project":       str("the other project's name, as @mentions write it"),
+				"message":       str("what to tell or ask its lead, up to 4000 characters"),
+				"expects_reply": map[string]any{"type": "boolean", "description": "true when you need an answer; leave it out for a heads-up, which its lead doesn't answer"},
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct {
+					Project      string
+					Message      string
+					ExpectsReply bool `json:"expects_reply"`
+				}
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				t, err := c.MessageProject(ctx, api.ProjectMessageRequest{Project: in.Project, Message: in.Message, ExpectsReply: in.ExpectsReply})
+				if err != nil {
+					return "", err
+				}
+				if in.ExpectsReply {
+					return fmt.Sprintf("Sent to %s's lead (thread %s). Its reply will come into this chat; carry on meanwhile.", t.Project, t.ID), nil
+				}
+				return fmt.Sprintf("Sent to %s's lead (thread %s), as a heads-up: it won't reply.", t.Project, t.ID), nil
+			},
+		},
+		{
+			Name: "align_with_project",
+			Description: "Start aligning with another project's lead on a topic, when similar work happens in both: one API " +
+				"shape, one naming, one library. You exchange messages with reply_project until one of you settles it with " +
+				"settle_alignment and a short summary of what you agreed, which is saved to both projects' memory.",
+			Schema: object([]string{"project", "topic", "message"}, map[string]any{
+				"project": str("the other project's name"),
+				"topic":   str("what to align on, in a few words"),
+				"message": str("what this project is doing or proposes, and what you need to agree, up to 4000 characters"),
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct{ Project, Topic, Message string }
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				if strings.TrimSpace(in.Topic) == "" {
+					return "", errors.New("no topic: say what to align on")
+				}
+				t, err := c.MessageProject(ctx, api.ProjectMessageRequest{Project: in.Project, Message: in.Message, Topic: in.Topic})
+				if err != nil {
+					return "", err
+				}
+				return fmt.Sprintf("Asked %s's lead to align on %q (thread %s). Its answer will come into this chat.", t.Project, t.Topic, t.ID), nil
+			},
+		},
+		{
+			Name: "reply_project",
+			Description: "Answer another project's lead in a thread it started or you did, when its last message asked for " +
+				"a reply or the thread is an alignment. A thread holds at most 12 messages.",
+			Schema: object([]string{"thread_id", "message"}, map[string]any{
+				"thread_id":     str("the thread's id, from the message you are answering"),
+				"message":       str("your answer, up to 4000 characters"),
+				"expects_reply": map[string]any{"type": "boolean", "description": "true when you need another answer back; in an alignment the other lead always answers"},
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct {
+					ThreadID     string `json:"thread_id"`
+					Message      string
+					ExpectsReply bool `json:"expects_reply"`
+				}
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				t, err := c.ReplyProject(ctx, in.ThreadID, api.ProjectReplyRequest{Message: in.Message, ExpectsReply: in.ExpectsReply})
+				if err != nil {
+					return "", err
+				}
+				return fmt.Sprintf("Replied to %s's lead (thread %s, %d messages).", t.Project, t.ID, t.Messages), nil
+			},
+		},
+		{
+			Name: "settle_alignment",
+			Description: "Settle an alignment once both leads agree: the summary is saved to both projects' memory and the " +
+				"other lead is told. Then tell your own agents what changes for them.",
+			Schema: object([]string{"thread_id", "summary"}, map[string]any{
+				"thread_id": str("the alignment's thread id"),
+				"summary":   str("what the two of you agreed, in a few lines, for both projects' memory"),
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct {
+					ThreadID string `json:"thread_id"`
+					Summary  string
+				}
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				t, err := c.SettleAlignment(ctx, in.ThreadID, in.Summary)
+				if err != nil {
+					return "", err
+				}
+				return fmt.Sprintf("Settled the alignment with %s on %q; the summary is in both projects' memory.", t.Project, t.Topic), nil
+			},
+		},
+		{
+			Name:        "list_project_threads",
+			Description: "This project's threads with other projects' leads, most recent first: who, what about, and whether it waits on you.",
+			Run: func(json.RawMessage) (string, error) {
+				threads, err := c.ProjectThreads(ctx)
+				if err != nil {
+					return "", err
+				}
+				return describeProjectThreads(threads), nil
+			},
+		},
+		{
 			Name: "list_questions",
 			Description: "The questions this project's agents are waiting on. An agent asking one is " +
 				"blocked until it is answered, so deal with these first.",
@@ -1301,8 +1452,8 @@ func describeFleet(fleet api.Fleet) string {
 		if held := memoryHeld(f.Memory); held != "" {
 			fmt.Fprintf(&b, ", %s", held)
 		}
-		if f.AI == "claude" && f.ClaudeAccount != "" {
-			fmt.Fprintf(&b, ", account: %s", f.ClaudeAccount)
+		if account := cmp.Or(f.ClaudeAccount, f.CodexAccount, f.CursorAccount, describeAccountMap(f.OpenCodeAccounts)); account != "" {
+			fmt.Fprintf(&b, ", account: %s", account)
 		}
 		if f.Idle {
 			b.WriteString(" (finished, still holding its machine)")
@@ -1329,6 +1480,40 @@ func describeFleet(fleet api.Fleet) string {
 // from D85, said the same honest way agentbox tokens says it: a window past
 // its reset is said to have reset, not shown with a number that no longer
 // describes it.
+// describeToolAccounts lists the Codex, OpenCode and Cursor accounts, and
+// says which this project uses; nothing when there are none.
+func describeToolAccounts(accounts []api.ToolAccount, p api.Project) string {
+	if len(accounts) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\nThe other tools' accounts, for an agent that runs them:\n")
+	for _, a := range accounts {
+		name := a.Name
+		own := map[string]string{"codex": p.CodexAccount, "cursor": p.CursorAccount, "opencode": p.OpenCodeAccounts[a.Provider]}[a.Tool]
+		label := map[string]string{"codex": "Codex", "opencode": "OpenCode", "cursor": "Cursor"}[a.Tool]
+		if a.Provider != "" {
+			label += " (" + a.Provider + ")"
+		}
+		var tags []string
+		if a.Default {
+			tags = append(tags, "machine default")
+		}
+		if own == a.Name || own == "" && a.Default {
+			tags = append(tags, "this project's account")
+		}
+		if a.Expired {
+			tags = append(tags, "expired: can't be used")
+		}
+		fmt.Fprintf(&b, "- %s: %s", label, name)
+		if len(tags) > 0 {
+			fmt.Fprintf(&b, " (%s)", strings.Join(tags, ", "))
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
 func describeAccounts(accounts []api.LeadAccount) string {
 	if len(accounts) <= 1 {
 		return "This project has only one Claude Code account, so there is nothing to spread across; " +
@@ -1770,6 +1955,32 @@ func describeSkill(detail api.SkillDetail) string {
 	}
 	if len(others) > 0 {
 		b.WriteString("\n\nOther files:\n" + strings.Join(others, "\n"))
+	}
+	return b.String()
+}
+
+// describeProjectThreads lists a project's threads with other projects' leads.
+func describeProjectThreads(threads []api.ProjectThread) string {
+	if len(threads) == 0 {
+		return "No threads with other projects' leads yet."
+	}
+	var b strings.Builder
+	for _, t := range threads {
+		about := "message"
+		if t.Kind == state.ThreadAlign {
+			about = fmt.Sprintf("alignment on %q", t.Topic)
+		}
+		fmt.Fprintf(&b, "- %s with %s: %s, %s, %d %s", t.ID, t.Project, about, t.Status, t.Messages, plural(t.Messages, "message", "messages"))
+		if t.Status == state.ThreadSettled {
+			fmt.Fprintf(&b, "\n  agreed: %s", t.Summary)
+		} else if t.Last != nil {
+			waits := ""
+			if t.Last.From == t.Project && t.Last.ExpectsReply {
+				waits = " (waits on your reply)"
+			}
+			fmt.Fprintf(&b, "\n  last, from %s%s: %s", t.Last.From, waits, oneLine(t.Last.Text))
+		}
+		b.WriteString("\n")
 	}
 	return b.String()
 }

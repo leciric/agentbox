@@ -1,7 +1,7 @@
 // Whether the top bar shows the machine as one status bubble (the default) or
 // as a strip with its memory, CPU and disk always in view. It's how this app
 // looks on this computer, not something the daemon needs, so it lives in
-// localStorage beside the app's other local choices (voice/settings.ts).
+// localStorage beside the app's other local choices.
 import { useSyncExternalStore } from 'react';
 
 const storageKey = 'agentbox.topbar.detailed';

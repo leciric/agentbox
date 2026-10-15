@@ -1,19 +1,19 @@
-import { AlarmClock, Archive, Brain, Check, ChevronRight, CircleAlert, Copy, Hourglass, Info, LoaderCircle, Square, Volume2 } from 'lucide-react';
+import { AlarmClock, Archive, Brain, Check, ChevronRight, CircleAlert, Copy, Hourglass, Info, LoaderCircle } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, use, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type * as T from '../../../shared/api';
 import { api, isProjectChat } from '../../lib/api';
 import { formatDuration, timelineRows, type Row } from '../../lib/chat';
 import { formatDateTime, formatTime, useT, type MessageKey } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
+import { fileLinkOf } from '../../lib/files';
+import { FileLinks } from '../files/FilePanel';
 import { pastState } from '../../lib/pastAgents';
-import { speak, stop, useReader } from '../../lib/voice/reader';
-import { replaying, toggleReplay } from '../../lib/voice/replay';
-import { fallbackLanguage, useReadAloudSettings } from '../../lib/voice/settings';
 import { aiLabel } from '../state';
 import { ChatCredentialCard } from '../CredentialCard';
 import { Tip } from '../ui/tooltip';
 import { ChangedFiles } from './ChangedFiles';
+import { ProjectMessageCard } from './ProjectMessageCard';
 import { SentImages } from './Images';
 import { Markdown } from './Markdown';
 import { TurnMarker } from './TurnMarker';
@@ -66,7 +66,7 @@ const TimelineRow = memo(
             {!!row.item.images?.length && <SentImages chatRef={chatRef} images={row.item.images} />}
             {row.item.text && (
               <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl bg-surface-raised px-3.5 py-2.5 text-sm leading-relaxed text-primary shadow-[inset_0_1px_0_rgb(255_255_255/0.04)]" data-chat-text>
-                {row.item.text}
+                <Mentions text={row.item.text} />
               </div>
             )}
             {row.item.kind === 'aside' && <Delivered item={row.item} />}
@@ -79,7 +79,7 @@ const TimelineRow = memo(
             <div data-chat-text>
               <Markdown rich text={row.item.text ?? ''} streaming={row.item.streaming} className="text-sm leading-relaxed text-tertiary" />
             </div>
-            {row.final && <Meta item={row.item} className="mt-1.5" replay />}
+            {row.final && <Meta item={row.item} className="mt-1.5" />}
           </div>
         );
       case 'work':
@@ -146,7 +146,8 @@ const TimelineRow = memo(
         // What an agent reported no longer reaches here — that is a thread in
         // the rail, not a grey box in the middle of the conversation. What is
         // left is an error, and the mark a rollover leaves where the session
-        // changed.
+        // changed — and a message between this project's lead and another's.
+        if (row.item.projectMessage) return <ProjectMessageCard item={row.item} />;
         return row.item.kind === 'error' ? (
           <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-rose-500/20 bg-rose-500/[0.06] px-3.5 py-2.5 text-[13px] text-rose-100" role="alert" data-chat-item="error" data-chat-id={row.item.id}>
             <CircleAlert className="mt-0.5 size-4 shrink-0 text-rose-300" />
@@ -289,7 +290,7 @@ function Delivered({ item }: { item: T.ChatItem }) {
   );
 }
 
-function Meta({ item, className, replay }: { item: T.ChatItem; className?: string; replay?: boolean }) {
+function Meta({ item, className }: { item: T.ChatItem; className?: string }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
   return (
@@ -308,28 +309,7 @@ function Meta({ item, className, replay }: { item: T.ChatItem; className?: strin
       >
         {copied ? <Check className="size-3.5 text-emerald-400" /> : <Copy className="size-3.5" />}
       </button>
-      {replay && <Replay item={item} />}
-    </div>
-  );
-}
-
-// Replay reads a reply aloud again from the start (replay.ts), and stops it
-// while it does.
-function Replay({ item }: { item: T.ChatItem }) {
-  const t = useT();
-  const { on } = useReadAloudSettings();
-  const reader = useReader();
-  if (!on) return null;
-  const reading = replaying(reader, item.id);
-  return (
-    <button
-      aria-label={reading ? t('chat.timeline.stopReading') : t('chat.timeline.readAloud')}
-      className={cn('flex size-6 items-center justify-center rounded-md transition hover:bg-surface-raised hover:text-tertiary', reading && 'text-brand-300')}
-      data-chat-replay={reading ? 'reading' : 'idle'}
-      onClick={() => toggleReplay({ speak, stop }, reader, item.id, item.text ?? '', fallbackLanguage())}
-    >
-      {reading ? <Square className="size-3.5" /> : <Volume2 className="size-3.5" />}
-    </button>
+          </div>
   );
 }
 
@@ -347,4 +327,27 @@ export function Elapsed({ since }: { since: string }) {
     return () => clearInterval(timer);
   }, [since, t]);
   return <span ref={ref} />;
+}
+
+// Mentions is a message you sent, with each file it @mentions a link that
+// opens the file beside the chat.
+function Mentions({ text }: { text: string }) {
+  const files = use(FileLinks);
+  if (!files || !text.includes('@')) return <>{text}</>;
+  const parts: ReactNode[] = [];
+  let last = 0;
+  for (const match of text.matchAll(/(^|\s)@(\S+)/g)) {
+    const file = fileLinkOf(match[2], files.root);
+    if (!file) continue;
+    const at = match.index + match[1].length;
+    parts.push(text.slice(last, at));
+    parts.push(
+      <button key={at} className="font-mono text-[0.92em] text-brand-200 underline decoration-dotted underline-offset-[3px] hover:decoration-solid" onClick={() => files.open(file.path, file.line)} data-file-link={file.path}>
+        @{match[2]}
+      </button>,
+    );
+    last = at + match[2].length + 1;
+  }
+  parts.push(text.slice(last));
+  return <>{parts}</>;
 }

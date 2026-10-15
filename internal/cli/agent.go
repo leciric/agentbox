@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -222,6 +223,9 @@ func newCreateCmd(a *app) *cobra.Command {
 	f.StringVar(&effort, "effort", "", "how hard this agent thinks, as Claude Code names it, like xhigh or low (default: the effort new agents start on, then high)")
 	f.StringVar(&req.From, "from", "", "branch or commit to start from (default: the branch checked out in the project)")
 	f.StringVar(&req.ClaudeAccount, "claude-account", "", "a stored Claude Code account for this agent (default: the project's, then this machine's default)")
+	f.StringVar(&req.CodexAccount, "codex-account", "", "with --ai codex, a stored Codex account for this agent (default: the project's, then this machine's default)")
+	f.StringVar(&req.CursorAccount, "cursor-account", "", "with --ai cursor, a stored Cursor account for this agent (default: the project's, then this machine's default)")
+	f.StringToStringVar(&req.OpenCodeAccounts, "opencode-account", nil, "with --ai opencode, a stored OpenCode account for a provider, as provider=account; repeat it for several (default: the project's, then each provider's default)")
 	f.StringVar(&req.GitHubAccount, "github-account", "", "a stored GitHub account for this agent (default: the project's, then this machine's default, then none)")
 	f.BoolVar(&queue, "queue", false, "accepted and ignored: every agent starts at once")
 	f.StringVar(&req.Size, "size", "", "accepted and ignored: the VM's memory pressure, not a size, decides when an agent's tests and builds run")
@@ -261,6 +265,9 @@ func printAgent(cmd *cobra.Command, ag api.Agent, took time.Duration) {
 	}
 	if ag.ClaudeAccount != "" {
 		_, _ = fmt.Fprintf(w, "  account\t%s (Claude Code)\n", ag.ClaudeAccount)
+	}
+	if account := cmp.Or(ag.CodexAccount, ag.CursorAccount, describeAccountMap(ag.OpenCodeAccounts)); account != "" {
+		_, _ = fmt.Fprintf(w, "  account\t%s (%s)\n", account, describeAI(ag.AI, true))
 	}
 	if ag.GitHubAccount != "" {
 		_, _ = fmt.Fprintf(w, "  account\t%s (GitHub)\n", ag.GitHubAccount)

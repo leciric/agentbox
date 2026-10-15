@@ -3,10 +3,6 @@
 // the build, so it installs it in the daemon whenever the daemon has another
 // version, over the same socket everything else goes. That works the same with
 // the daemon on this machine or in AgentBox's VM.
-//
-// The voice models' runtime (onnxruntime's .wasm, most of the build's size)
-// and the voice workers stay behind: a phone's browser records and speaks
-// with its own.
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
@@ -15,7 +11,7 @@ import { isLocal, requestOptions } from './connection';
 const rendererDir = () => join(__dirname, '../renderer');
 
 // left out of what phones are served
-const skip = (name: string) => /\.(wasm|onnx)$/.test(name) || /^(kokoro|whisper)\.worker-/.test(name) || name === 'index.html';
+const skip = (name: string) => name === 'index.html';
 
 function files(dir: string, root = dir): string[] {
   const out: string[] = [];

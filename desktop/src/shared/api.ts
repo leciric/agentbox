@@ -10,6 +10,9 @@ export interface Project {
   claudeAccount: string;
   claudeAccounts: string[];
   githubAccount: string;
+  codexAccount: string;
+  openCodeAccounts: Record<string, string>;
+  cursorAccount: string;
   autonomy: string;
   agentModel: string;
   branchPrefix: string;
@@ -33,6 +36,9 @@ export interface AddProjectRequest {
   name?: string;
   claudeAccount?: string;
   githubAccount?: string;
+  codexAccount?: string;
+  openCodeAccounts?: Record<string, string>;
+  cursorAccount?: string;
   copyToLinux?: boolean;
   create?: boolean;
   commitFiles?: boolean;
@@ -43,6 +49,9 @@ export interface UpdateProjectRequest {
   claudeAccount?: string;
   claudeAccounts?: string[];
   githubAccount?: string;
+  codexAccount?: string;
+  openCodeAccounts?: Record<string, string>;
+  cursorAccount?: string;
   moveClaudeAgents?: boolean;
   moveGitHubAgents?: boolean;
   autonomy?: string;
@@ -187,6 +196,9 @@ export interface Agent {
   worktree: string;
   source: string;
   claudeAccount: string;
+  codexAccount?: string;
+  openCodeAccounts?: Record<string, string>;
+  cursorAccount?: string;
   githubAccount: string;
   interface: string;
   chat?: string;
@@ -203,6 +215,48 @@ export interface Agent {
 export interface WorktreeFiles {
   files: string[];
   truncated: boolean;
+}
+
+export interface FileEntry {
+  name: string;
+  path: string;
+  dir: boolean;
+  size?: number;
+  ignored?: boolean;
+  symlink?: boolean;
+}
+
+export interface FileList {
+  path: string;
+  entries: FileEntry[];
+  truncated: boolean;
+}
+
+export interface FileStatus {
+  base: string;
+  changes: Record<string, string>;
+  truncated: boolean;
+}
+
+export interface FileContent {
+  path: string;
+  size: number;
+  binary?: boolean;
+  image?: string;
+  data?: string;
+  text?: string;
+  truncated?: boolean;
+  tooLarge?: boolean;
+  status?: string;
+  base?: string;
+  baseText?: string;
+  baseMissing?: boolean;
+}
+
+export interface FilesChange {
+  ref: string;
+  dirs: string[];
+  files: string[];
 }
 
 export interface ArchivedAgent {
@@ -252,6 +306,9 @@ export interface CreateAgentRequest {
   from?: string;
   startAt?: string;
   claudeAccount?: string;
+  codexAccount?: string;
+  openCodeAccounts?: Record<string, string>;
+  cursorAccount?: string;
   githubAccount?: string;
   noEnv?: boolean;
   clean?: boolean;
@@ -554,6 +611,9 @@ export interface AuthStatus {
   cursor: boolean;
   cursorEmail?: string;
   claudeAccounts: ClaudeAccount[];
+  codexAccounts: ToolAccount[];
+  openCodeAccounts: ToolAccount[];
+  cursorAccounts: ToolAccount[];
   github: boolean;
   githubAccounts: GitHubAccount[];
   githubUser?: string;
@@ -948,6 +1008,7 @@ export interface GitHubTokenRequest {
 
 export interface CursorKeyRequest {
   apiKey: string;
+  account?: string;
 }
 
 export interface CursorKeyResponse {
@@ -956,9 +1017,45 @@ export interface CursorKeyResponse {
 
 export interface CursorLogin {
   state: string;
+  account?: string;
   url?: string;
   email?: string;
   error?: string;
+}
+
+export interface CursorLoginRequest {
+  account?: string;
+}
+
+export interface ToolAccount {
+  tool: string;
+  provider?: string;
+  name: string;
+  default: boolean;
+  savedAt: string;
+  kind?: string;
+  email?: string;
+  expired?: boolean;
+  expiry?: string;
+}
+
+export interface ToolAccountRequest {
+  account?: string;
+  provider?: string;
+  apiKey: string;
+}
+
+export interface RenameToolAccountRequest {
+  name: string;
+}
+
+export interface RenamedToolAccount {
+  tool: string;
+  provider?: string;
+  old: string;
+  name: string;
+  projects: string[];
+  agents: string[];
 }
 
 export interface RenameGitHubAccountRequest {
@@ -1401,6 +1498,9 @@ export interface FleetAgent {
   worktree: string;
   source: string;
   claudeAccount: string;
+  codexAccount?: string;
+  openCodeAccounts?: Record<string, string>;
+  cursorAccount?: string;
   githubAccount: string;
   interface: string;
   chat?: string;
@@ -1525,9 +1625,12 @@ export interface ReviewItem {
   branch?: string;
   ai?: string;
   summary?: string;
+  changes?: AgentChanges;
   pr?: PullRequest;
   finishedAt: string;
   fingerprint: string;
+  verdict?: string;
+  reviewedAt?: string;
 }
 
 export interface ReviewRequest {
@@ -1737,6 +1840,8 @@ export interface ChatSnippetPart {
 export interface ChatSession {
   state: string;
   tool: string;
+  nextTool?: string;
+  account?: string;
   detail?: string;
   error?: string;
   adapter?: string;
@@ -1797,6 +1902,7 @@ export interface ChatItem {
   subagent?: ChatSubagent;
   compaction?: ChatCompaction;
   handoff?: string;
+  projectMessage?: ChatProjectMessage;
   parent?: string;
   createdAt: string;
   updatedAt: string;
@@ -1810,6 +1916,7 @@ export interface ChatTool {
   status: string;
   command?: string;
   paths?: string[];
+  line?: number;
   output?: string;
   diffs?: ChatDiff[];
   page?: ChatPage;
@@ -1861,6 +1968,16 @@ export interface ChatCompaction {
   state: string;
   waiting?: number;
   error?: string;
+}
+
+export interface ChatProjectMessage {
+  project: string;
+  direction: string;
+  thread: string;
+  kind: string;
+  topic?: string;
+  expectsReply?: boolean;
+  hop: number;
 }
 
 export interface ChatTurnResult {
@@ -1936,6 +2053,38 @@ export interface ChatCacheChoice {
   compact: boolean;
   text?: string;
   images?: ChatImageUpload[];
+}
+
+export interface LeadRunners {
+  tool: string;
+  nextTool?: string;
+  account?: string;
+  chosen?: string;
+  runners: LeadRunner[];
+  toolAccounts?: Record<string, string>;
+  toolChosen?: Record<string, string>;
+}
+
+export interface LeadRunner {
+  tool: string;
+  name: string;
+  ready: boolean;
+  reason?: string;
+  installed: boolean;
+  accounts?: LeadAccount[];
+}
+
+export interface LeadRunnerRequest {
+  tool: string;
+  account?: string;
+}
+
+export interface LeadAccount {
+  name: string;
+  default: boolean;
+  project: boolean;
+  agents: number;
+  limit?: ClaudeLimit;
 }
 
 export interface MemoryEvent {
@@ -2477,6 +2626,11 @@ export const DiskLow = "low";
 export const DiskFull = "full";
 export const EventLAN = "lan";
 export const EventSnap = "snap";
+export const EventFiles = "files";
+export const FileModified = "modified";
+export const FileAdded = "added";
+export const FileDeleted = "deleted";
+export const FileUntracked = "untracked";
 export const SetupOK = "ok";
 export const SetupMissing = "missing";
 export const SetupOutdated = "outdated";

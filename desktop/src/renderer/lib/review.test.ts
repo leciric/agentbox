@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { countLabel, reviewKey, slidesOf, step, swipeStep, withoutAgent } from './review.ts';
+import { countLabel, mergeBlock, nextPending, queueOf, reviewedKey, reviewKey, reviewKeys, reviewShortcut, slidesOf, step, swipeStep, withoutAgent } from './review.ts';
 
 const media = (id: string, kind: string, createdAt: string) => ({ id, kind, createdAt }) as T.MediaItem;
 const page = (id: string, createdAt: string) => ({ id, createdAt }) as T.Artifact;
@@ -50,4 +50,51 @@ test('the list helpers', () => {
   const list = [{ ref: 'p/agent-01' }, { ref: 'p/agent-02' }] as T.ReviewItem[];
   assert.deepEqual(withoutAgent(list, 'p/agent-01')?.map((i) => i.ref), ['p/agent-02']);
   assert.equal(withoutAgent(undefined, 'p/agent-01'), undefined);
+});
+
+test('mergeBlock says why a pull request can’t be merged from the review', () => {
+  assert.equal(mergeBlock(pr), null);
+  assert.equal(mergeBlock({ ...pr, checks: 'pending' }), null, 'pending checks are the confirmation’s to warn about');
+  assert.equal(mergeBlock({ ...pr, checks: 'failing' }), 'failing');
+  assert.equal(mergeBlock({ ...pr, conflict: true, checks: 'failing' }), 'conflict');
+  assert.equal(mergeBlock({ ...pr, draft: true }), 'draft');
+  assert.equal(mergeBlock({ ...pr, state: 'merged' }), 'merged');
+  assert.equal(mergeBlock({ ...pr, state: 'closed' }), 'closed');
+  assert.equal(mergeBlock(pr, { canMergeKnown: true, canMerge: false }), 'noPermission');
+  assert.equal(mergeBlock(pr, { canMergeKnown: false, canMerge: false }), null, 'not known is not a no');
+});
+
+const waiting = (...refs: string[]) => refs.map((ref) => ({ ref }) as T.ReviewItem);
+
+test('Review all walks what was waiting, then what arrived, skipping what was reviewed', () => {
+  const order = ['p/a', 'p/b', 'p/c'];
+  assert.deepEqual(queueOf(order, waiting('p/d', 'p/a')), ['p/a', 'p/b', 'p/c', 'p/d']);
+  assert.equal(nextPending(order, 'p/a', waiting('p/a', 'p/b', 'p/c'))?.ref, 'p/b');
+  // a was just reviewed, and b in another window: c is next.
+  assert.equal(nextPending(order, 'p/a', waiting('p/c'))?.ref, 'p/c');
+  // An agent that finished meanwhile comes after the rest.
+  assert.equal(nextPending(order, 'p/c', waiting('p/d'))?.ref, 'p/d');
+  assert.equal(nextPending(order, 'p/c', waiting('p/c')), undefined);
+  // Earlier ones still waiting aren't gone back to.
+  assert.equal(nextPending(order, 'p/b', waiting('p/a')), undefined);
+});
+
+test('reviewShortcut maps keys to actions, and leaves modified ones alone', () => {
+  assert.equal(reviewShortcut({ key: 'ArrowRight' }), 'next');
+  assert.equal(reviewShortcut({ key: 'ArrowLeft' }), 'previous');
+  assert.equal(reviewShortcut({ key: 'n' }), 'nextAgent');
+  assert.equal(reviewShortcut({ key: 'R' }), 'reviewed');
+  assert.equal(reviewShortcut({ key: 'd' }), 'dismiss');
+  assert.equal(reviewShortcut({ key: 'm' }), 'merge');
+  assert.equal(reviewShortcut({ key: 'End' }), 'last');
+  assert.equal(reviewShortcut({ key: 'r', metaKey: true }), null);
+  assert.equal(reviewShortcut({ key: 'n', ctrlKey: true }), null);
+  assert.equal(reviewShortcut({ key: 'x' }), null);
+  // Every key the review lists does what it says.
+  for (const k of reviewKeys) for (const key of k.keys) assert.ok(reviewShortcut({ key: key === '←' ? 'ArrowLeft' : key === '→' ? 'ArrowRight' : key }), key);
+});
+
+test('the Reviewed list has a key of its own', () => {
+  assert.deepEqual(reviewedKey(), ['reviewed']);
+  assert.deepEqual(reviewedKey('pawly'), ['reviewed', 'pawly']);
 });

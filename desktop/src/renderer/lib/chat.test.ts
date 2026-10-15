@@ -34,6 +34,7 @@ import {
   windowSide,
   pageSize,
   pendingPermissions,
+  peekThread,
   prependPage,
   timelineRows,
   toolOf,
@@ -216,6 +217,19 @@ test('timelineRows heads a turn the session woke for with what woke it, not a me
     rows.map((r) => r.type),
     ['user', 'assistant', 'woken', 'assistant'],
   );
+});
+
+test('timelineRows shows a message from another project\'s lead, and hides the notice that woke the lead with it', () => {
+  const asked = item({ kind: 'user', text: 'ask @api about dates', result: { state: 'completed', endedAt: '2026-01-01T00:01:00Z' } as T.ChatTurnResult });
+  const card = item({ kind: 'notice', turn: asked.id, text: 'RFC 3339, in UTC.', projectMessage: { project: 'api', direction: 'in', thread: 'th1', kind: 'reply', hop: 1 } });
+  const woke = item({ kind: 'user', hidden: true, text: "From api's lead …", result: { state: 'completed', endedAt: '2026-01-01T00:02:00Z' } as T.ChatTurnResult });
+  const answer = item({ kind: 'assistant', turn: woke.id, text: 'api returns RFC 3339.' });
+  const rows = timelineRows(thread([asked, card, woke, answer]), new Set());
+  assert.deepEqual(
+    rows.map((r) => r.type),
+    ['user', 'note', 'assistant'],
+  );
+  assert.equal((rows[1] as { item: T.ChatItem }).item.projectMessage?.project, 'api');
 });
 
 test('timelineRows says what the session waits on between turns, and not while one runs', () => {
@@ -617,4 +631,20 @@ test('toolsReload is ready only for an idle running session', () => {
   assert.equal(toolsReload(session({ state: 'waiting' })), 'busy');
   assert.equal(toolsReload(session({ background: ['npm run dev'] })), 'busy');
   assert.equal(toolsReload(session({})), 'ready');
+});
+
+test('peekThread reads only the latest message of a chat it doesn\'t hold, and the usual page of one it does', async (t) => {
+  const asked: (ChatPage | undefined)[] = [];
+  const user = item({ kind: 'user', turn: '' });
+  t.mock.method(api, 'chat', async (_ref: string, page?: ChatPage) => {
+    asked.push(page);
+    return { ...thread([user]), older: true };
+  });
+  const queryClient = new QueryClient();
+  const peeked = await peekThread(queryClient, 'p/agent-01');
+  assert.deepEqual(asked[0], { limit: 1 });
+  assert.deepEqual(peeked.items, [user]);
+  queryClient.setQueryData(chatKey('p/agent-01'), peeked);
+  await peekThread(queryClient, 'p/agent-01');
+  assert.deepEqual(asked[1], { limit: pageSize, from: user.id });
 });

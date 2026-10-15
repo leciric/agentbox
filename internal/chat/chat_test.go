@@ -564,7 +564,7 @@ func TestATurnWithToolCallsAndAPermissionRequest(t *testing.T) {
 		f.update(s, `{"sessionUpdate":"agent_message_chunk","messageId":"m1","content":{"type":"text","text":"the file."}}`)
 		f.update(s, `{"sessionUpdate":"tool_call","toolCallId":"t1","title":"Preparing file…","kind":"edit","status":"pending","_meta":{"claudeCode":{"toolName":"Write"}}}`)
 		answer := f.ask(s, `{"toolCallId":"t1","title":"Write hello.txt","kind":"edit","status":"pending",`+
-			`"content":[{"type":"diff","path":"/work/hello/hello.txt","oldText":null,"newText":"hi\n"}],"locations":[{"path":"/work/hello/hello.txt"}]}`)
+			`"content":[{"type":"diff","path":"/work/hello/hello.txt","oldText":null,"newText":"hi\n"}],"locations":[{"path":"/work/hello/hello.txt","line":3}]}`)
 		if answer != "allow-once" {
 			return acp.PromptResponse{StopReason: "refusal"}
 		}
@@ -623,7 +623,7 @@ func TestATurnWithToolCallsAndAPermissionRequest(t *testing.T) {
 	}
 	write := find(th, "tool", 0).Tool
 	if write.Name != "Write" || write.Title != "Write hello.txt" || write.Kind != "edit" || write.Status != "completed" ||
-		!slices.Equal(write.Paths, []string{"/work/hello/hello.txt"}) || write.Output != "File created successfully" {
+		!slices.Equal(write.Paths, []string{"/work/hello/hello.txt"}) || write.Line != 3 || write.Output != "File created successfully" {
 		t.Errorf("write = %+v", write)
 	}
 	if len(write.Diffs) != 1 || !write.Diffs[0].Created || write.Diffs[0].NewText != "hi\n" {

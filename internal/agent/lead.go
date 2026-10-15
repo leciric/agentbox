@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -67,8 +68,13 @@ func (m *Manager) EnsureLead(ctx context.Context, project string) (state.Agent, 
 	if !repo.HasCommits() {
 		return state.Agent{}, fmt.Errorf("%s has no commits yet: make one, so the chat has something to read", project)
 	}
-	// Before anything is written: the lead needs a login, like any agent.
-	account, err := m.CheckLogin("claude", p, "")
+	// Before anything is written: the lead needs a login, like any agent, on
+	// the tool and account its composer chose before its first message.
+	choice, err := m.LeadChoice(ctx, project)
+	if err != nil {
+		return state.Agent{}, err
+	}
+	account, err := m.leadAccount(p, choice)
 	if err != nil {
 		return state.Agent{}, err
 	}
@@ -84,7 +90,7 @@ func (m *Manager) EnsureLead(ctx context.Context, project string) (state.Agent, 
 		Title:   "Project chat",
 		// The name is reserved, and the column is UNIQUE. No such machine exists.
 		Instance:   InstanceName(p.Name, state.LeadName),
-		AI:         "claude",
+		AI:         choice.Tool,
 		Branch:     "", // detached: the lead commits nothing
 		BaseRef:    baseRef,
 		BaseCommit: commit,
@@ -204,23 +210,34 @@ func (m *Manager) ReconfigureLead(ctx context.Context, project string) error {
 	return errors.Join(m.configureLead(ctx, a, p, repo.Root, m.LeadSocket(a.Project)), accountErr)
 }
 
-// syncLeadAccount moves the lead to the Claude Code account its project
-// resolves to now. The lead has no account of its own to pick — it follows
-// the project, as agent create does for an agent that names none — but it is
-// resolved once, when the lead is made, and stored on its row, which is where
-// its chat reads the token from (LeadChatCommand). Without this, a project
-// moved to another account kept its chat on the old one for good. The row is
-// all that changes here: a running session keeps the token it was started
-// with until its adapter restarts, which the daemon asks for once the project
-// has changed (chat.Manager.AccountChanged), and the conversation carries on,
-// since Claude Code keeps it in the lead's HOME, whichever account the session
-// logs in with.
+// syncLeadAccount moves the lead to the AI tool its chat runs and the Claude
+// Code account it resolves to now: the one its composer chose, while the
+// project may use it, else the project's (leadAccount). It is resolved when
+// the lead is made, and stored on its row, which is where its chat reads the
+// token from (LeadChatCommand). Without this, a project moved to another
+// account kept its chat on the old one for good. The row is all that changes
+// here: a running session keeps the token it was started with until its
+// adapter restarts, which the daemon asks for once the account has changed
+// (chat.Manager.AccountChanged), and the conversation carries on, since
+// Claude Code keeps it in the lead's HOME, whichever account the session logs
+// in with. A lead on another tool has no Claude Code account.
 // A project whose account no longer resolves (removed, or not on its allow
 // list) is refused rather than left on an account it may not use.
 func (m *Manager) syncLeadAccount(ctx context.Context, a state.Agent, p state.Project) (state.Agent, error) {
-	account, err := m.ClaudeAccountFor(p, "")
+	choice, err := m.LeadChoice(ctx, a.Project)
 	if err != nil {
-		return a, fmt.Errorf("the %s chat's Claude Code account: %w", a.Project, err)
+		return a, err
+	}
+	if choice.Tool != a.AI {
+		m.logf("The %s chat runs %s now, not %s", a.Project, choice.Tool, a.AI)
+		if err := m.Store.SetAgentAI(ctx, a.Project, a.Name, choice.Tool); err != nil {
+			return a, err
+		}
+		a.AI = choice.Tool
+	}
+	account, err := m.leadAccount(p, choice)
+	if err != nil {
+		return a, fmt.Errorf("the %s chat's %s login: %w", a.Project, ChatAdapters[a.AI].Tool, err)
 	}
 	if account == a.ClaudeAccount {
 		return a, nil
@@ -455,6 +472,19 @@ func (m *Manager) writeLeadHome(home, worktree, text, socket string, mcpEnv map[
 		".claude.json":          claudeState,
 		"AGENTBOX.md":           []byte(text),
 		exploreAgentFile:        []byte(explore),
+	}
+	// The other tools' brief, MCP servers and login, so a chat switched to one
+	// of them finds them (leadtools.go).
+	servers, _ := claude["mcpServers"].(map[string]any)
+	others, stale, err := m.leadToolFiles(home, worktree, text, servers)
+	if err != nil {
+		return err
+	}
+	maps.Copy(files, others)
+	for _, path := range stale {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 	}
 	// Git and GitHub, the way an agent has them (see gitConfig): the lead's
 	// HOME is its own, so this is the only git config it reads, and the user's

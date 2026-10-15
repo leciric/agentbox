@@ -57,6 +57,11 @@ func (s *Server) rolloverIfNeeded(ctx context.Context, a state.Agent) {
 	if a.Role != state.RoleLead {
 		return
 	}
+	// A tool switch the composer chose rolls the session over whatever the
+	// threshold says, the same way (leadrunner.go).
+	if s.switchIfPending(ctx, a) {
+		return
+	}
 	p, err := s.store.Project(ctx, a.Project)
 	if err != nil || p.RolloverThreshold == state.RolloverOff {
 		return

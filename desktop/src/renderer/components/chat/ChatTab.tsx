@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, Archive, EyeOff, LoaderCircle, MessageSquarePlus, Play, RefreshCw, Trash2 } from 'lucide-react';
+import { ArrowDown, Archive, EyeOff, FolderTree, LoaderCircle, MessageSquarePlus, Play, RefreshCw, Trash2 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
@@ -8,7 +8,6 @@ import { asleep, chatKey, dropWindow, fetchThread, isSilent, loadOlder, loadWind
 import { useT, type MessageKey } from '../../lib/i18n';
 import { useProjectName } from '../../lib/useProjectName';
 import { cn, errorMessage } from '../../lib/utils';
-import { useReadAloud } from '../../lib/voice/useReadAloud';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { ProjectCredentialCards } from '../CredentialCard';
 import { AIIcon, aiLabel } from '../state';
@@ -17,9 +16,11 @@ import { Notice } from '../ui/card';
 import { Tip } from '../ui/tooltip';
 import { PageStack } from '../pages/PageStack';
 import { Composer } from './Composer';
+import { leadOn } from '../../lib/leadRunner';
 import { FindBar } from './FindBar';
+import { FileLinksProvider, FilePanel } from '../files/FilePanel';
+import { hasFiles, requestFind, setPanelPrefs, usePanelPrefs } from '../../lib/files';
 import { useChatWindow, useRevealItem, type ChatOpenAt } from './reveal';
-import { ReadAloudControls } from './ReadAloud';
 import { Timeline } from './Timeline';
 
 // ChatTab is the conversation with an agent's AI tool: the timeline, with the
@@ -31,7 +32,7 @@ import { Timeline } from './Timeline';
 // readOnly is a past agent's chat (components/PastAgents.tsx): it never
 // starts, and a bar to continue or delete it takes the composer's place.
 export function ChatTab({
-  agent,
+  agent: given,
   starting,
   onStart,
   autoStart = true,
@@ -49,13 +50,15 @@ export function ChatTab({
 }) {
   const t = useT();
   const queryClient = useQueryClient();
-  const thread = useQuery({ queryKey: chatKey(agent.ref), queryFn: () => fetchThread(queryClient, agent.ref) });
+  const thread = useQuery({ queryKey: chatKey(given.ref), queryFn: () => fetchThread(queryClient, given.ref) });
   const session = thread.data?.session;
+  // A lead runs the tool and account its composer chose, which its session
+  // says (RunnerPicker).
+  const agent = leadOn(given, session);
   const running = agent.state === 'running';
   // A stopped or paused agent's chat is still all there to read, with the
   // button that starts it on the composer, which also wakes it by sending.
   const sleeping = asleep(agent);
-  useReadAloud(agent.ref, thread.data?.items);
   // A search result older than the chat's latest page opens a window on it,
   // which the timeline shows instead of the chat's end until you go back
   // there (lib/chat's openWindow). The session is the chat's own, as of now.
@@ -88,6 +91,14 @@ export function ChatTab({
   const composer = useRef<HTMLDivElement>(null);
   const following = useRef(true);
   const lastTop = useRef(0);
+  // When you last touched, wheeled, keyed or grabbed the scroller: only a
+  // scroll up you made stops following. Content that got shorter as it laid
+  // out — a diagram drawn smaller than its placeholder — pulls the scroll up
+  // too, and on a phone that left a chat short of its end.
+  const touched = useRef(0);
+  const touch = () => {
+    touched.current = Date.now();
+  };
   const [atEnd, setAtEnd] = useState(true);
   const [composerHeight, setComposerHeight] = useState(120);
 
@@ -176,6 +187,22 @@ export function ChatTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [older, loadingOlder, newer, loadingNewer, firstId, lastId]);
 
+  // The file tree and viewer beside the chat (components/files), for a chat
+  // with a worktree. available is how wide the chat and the panel are
+  // together, for the panel to leave the chat room.
+  const files = hasFiles(agent.ref, past);
+  const panel = usePanelPrefs();
+  const outer = useRef<HTMLDivElement>(null);
+  const [available, setAvailable] = useState(0);
+  useLayoutEffect(() => {
+    const el = outer.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => setAvailable(el.clientWidth));
+    observer.observe(el);
+    setAvailable(el.clientWidth);
+    return () => observer.disconnect();
+  }, []);
+
   // Ctrl+F (⌘F) finds in the chat on screen. Every chat open in the app
   // listens, and only one is visible.
   const root = useRef<HTMLDivElement>(null);
@@ -185,15 +212,23 @@ export function ChatTab({
   const [openings, setOpenings] = useState(0);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() !== 'f' || !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
+      const key = event.key.toLowerCase();
+      if ((key !== 'f' && key !== 'p') || !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
       if (!root.current?.checkVisibility()) return;
+      // Ctrl+P (⌘P) finds a file in the panel beside the chat.
+      if (key === 'p') {
+        if (!files) return;
+        event.preventDefault();
+        requestFind();
+        return;
+      }
       event.preventDefault();
       setFinding(true);
       setFindFocus((n) => n + 1);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [files]);
 
   const jumped = () => {
     following.current = false;
@@ -215,8 +250,8 @@ export function ChatTab({
   // finished without waking it — has items and still nothing to show, so the
   // hero belongs there too.
   const empty = !view?.items.some((it) => !isSilent(it));
-  return (
-    <div ref={root} className="relative flex h-full min-h-0 flex-col bg-chat" data-chat={agent.ref}>
+  const chat = (
+    <div ref={root} className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col bg-chat" data-chat={agent.ref}>
       {finding && (
         <FindBar
           key={openings}
@@ -234,7 +269,11 @@ export function ChatTab({
       )}
       <div
         ref={scroller}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none]"
+        className="chat-scroller min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none]"
+        onWheel={touch}
+        onTouchMove={touch}
+        onKeyDown={touch}
+        onPointerDown={touch}
         onScroll={(event) => {
           const box = event.currentTarget;
           const end = box.scrollHeight - box.scrollTop - box.clientHeight < 48;
@@ -242,7 +281,7 @@ export function ChatTab({
           // A smooth scroll down to the end passes the middle, which doesn't count.
           // A window's end isn't the chat's: it reads on instead.
           if (end && !win) following.current = true;
-          else if (box.scrollTop < lastTop.current - 1) following.current = false;
+          else if (box.scrollTop < lastTop.current - 1 && Date.now() - touched.current < 1500) following.current = false;
           lastTop.current = box.scrollTop;
           setAtEnd(!win && (end || following.current));
           if (box.scrollTop < 400) loadMore();
@@ -295,7 +334,9 @@ export function ChatTab({
         </button>
       )}
 
-      <div ref={composer} className="pointer-events-none absolute inset-x-0 bottom-0 px-3 pb-3 md:px-6 md:pb-5">
+      {/* While one of its popups is open, the composer comes over a files
+          panel floating over the chat (components/files), so the popup can be used. */}
+      <div ref={composer} className="pointer-events-none absolute inset-x-0 bottom-0 px-3 pb-3 has-[[role=listbox]]:z-40 md:px-6 md:pb-5">
         <div className="pointer-events-auto relative mx-auto w-full max-w-4xl">
           {readOnly ? (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border border-line-strong bg-overlay px-4 py-2.5 shadow-lg backdrop-blur-xl" data-chat-read-only>
@@ -329,6 +370,12 @@ export function ChatTab({
 
     </div>
   );
+  return (
+    <div ref={outer} className="relative flex h-full min-h-0">
+      {files ? <FileLinksProvider agent={agent}>{chat}</FileLinksProvider> : chat}
+      {files && panel.open && available > 0 && <FilePanel agent={agent} available={available} />}
+    </div>
+  );
 }
 
 // ChatHeaderControls is the chat's live status and its "New chat" action: the
@@ -345,8 +392,8 @@ export function ChatHeaderControls({ agent }: { agent: T.Agent }) {
   return (
     <>
       <SessionStatus agent={agent} session={thread.data?.session} />
-      <ReadAloudControls />
       <ReloadTools agent={agent} session={thread.data?.session} />
+      {hasFiles(agent.ref) && <FilesToggle />}
       <Tip label={t('chat.tab.newChatTip')}>
         <Button size="sm" variant="ghost" className="h-7 px-2 sm:px-2.5" disabled={items.length === 0} onClick={() => setClearing(true)}>
           <MessageSquarePlus />
@@ -367,6 +414,20 @@ export function ChatHeaderControls({ agent }: { agent: T.Agent }) {
         onConfirm={() => api.clearChat(agent.ref)}
       />
     </>
+  );
+}
+
+// FilesToggle opens and closes the file tree beside the chat.
+function FilesToggle() {
+  const t = useT();
+  const { open } = usePanelPrefs();
+  return (
+    <Tip label={t(open ? 'files.panel.hide' : 'files.panel.show')}>
+      <Button size="sm" variant="ghost" className={cn('h-7 px-2 sm:px-2.5', open && 'bg-surface-raised text-primary')} aria-pressed={open} onClick={() => setPanelPrefs({ open: !open })} data-files-toggle>
+        <FolderTree />
+        <span className="hidden xl:inline">{t('files.panel.files')}</span>
+      </Button>
+    </Tip>
   );
 }
 

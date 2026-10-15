@@ -46,7 +46,7 @@ export function summarizeCredentials(creds: T.ToolCredential[]): { off: number; 
       variables.add(cred.variable ?? '');
       continue;
     }
-    const on = tone === 'idle' ? 'idle' : cred.variable ? cred.account || 'token' : 'own';
+    const on = tone === 'idle' ? 'idle' : cred.variable ? cred.account || 'token' : cred.account || 'own';
     counts.set(on, (counts.get(on) ?? 0) + 1);
   }
   const groups = [...counts].map(([on, count]) => ({ on, count })).toSorted((a, b) => (a.on === 'idle' ? 1 : b.on === 'idle' ? -1 : b.count - a.count));

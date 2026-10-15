@@ -1,31 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import {
-  ArrowUp,
-  Brain,
-  Check,
-  ChevronDown,
-  CircleAlert,
-  Ellipsis,
-  File,
-  FolderGit2,
-  Gauge,
-  Hourglass,
-  ImagePlus,
-  ListTodo,
-  LoaderCircle,
-  Lock,
-  LockOpen,
-  Moon,
-  PencilLine,
-  PencilRuler,
-  Play,
-  Plug,
-  Search,
-  ShieldAlert,
-  Sparkles,
-  type LucideIcon,
-} from 'lucide-react';
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type SyntheticEvent } from 'react';
+import { ArrowUp, Brain, Check, ChevronDown, CircleAlert, Ellipsis, File, FolderGit2, Gauge, Hourglass, ImagePlus, ListTodo, LoaderCircle, Lock, LockOpen, Moon, PencilLine, PencilRuler, Play, Plug, Search, ShieldAlert, Sparkles, SquareArrowOutUpRight, type LucideIcon } from 'lucide-react';
+import { Fragment, use, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type SyntheticEvent } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
 import { api, isHomeChat, isProjectChat } from '../../lib/api';
@@ -33,6 +8,7 @@ import { composerSkills, searchSkills, skillMentionAt } from '../../lib/skills';
 import { SkillTile } from '../SkillsPanel';
 import { contextBadge, contextHint, currentPlan, formatTokens, pendingPermissions, toolOf, toolsReload } from '../../lib/chat';
 import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../../lib/modelChoices';
+import { FileLinks } from '../files/FilePanel';
 import { mentionAt, matchFiles, matchProjects, mentionLimit, type MentionItem } from '../../lib/mentions';
 import { getDraft, setDraft } from '../../lib/drafts';
 import { formatTime, t as translate, useT } from '../../lib/i18n';
@@ -40,17 +16,13 @@ import { useNow } from '../../lib/useNow';
 import { imageFiles, imageTypes, maxImages, prepareImage, previewUrl, type PendingImage } from '../../lib/chatImages';
 import { ModelByName } from '../ModelByName';
 import { cn, errorMessage } from '../../lib/utils';
-import { stop as stopReading } from '../../lib/voice/reader';
 import { AIIcon, aiLabel } from '../state';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from '../ui/menu';
 import { Tip } from '../ui/tooltip';
 import { DiffView, relativePath } from './ChangedFiles';
 import { ImageThumb } from './Images';
-import { VoiceButton } from './VoiceButton';
-import { voiceSettings } from '../../lib/voice/settings';
+import { RunnerPicker } from './RunnerPicker';
 
-// onPhone is the app on a phone paired with the daemon (web/bridge.ts's lan).
-const onPhone = (window.agentbox as { lan?: boolean } | undefined)?.lan === true;
 
 // asleep is set while the agent's machine is stopped or paused: the composer
 // says so, with the button that starts it, and a message sent wakes it.
@@ -68,6 +40,7 @@ export function Composer({
   onSent: () => void;
 }) {
   const t = useT();
+  const fileLinks = use(FileLinks);
   const [text, setText] = useState(() => getDraft(agent.ref));
   const [dismissed, setDismissed] = useState<string | null>(null);
   const [highlighted, setHighlighted] = useState(0);
@@ -163,7 +136,7 @@ export function Composer({
     else void attach(files);
   };
   // Cancelling the turn stops its reply being read aloud too.
-  const stop = useMutation({ mutationFn: () => api.cancelChat(agent.ref), onMutate: stopReading, onError: (err) => toast.error(errorMessage(err)) });
+  const stop = useMutation({ mutationFn: () => api.cancelChat(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
   const retry = useMutation({ mutationFn: () => api.startChat(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
   const reloadTools = useMutation({ mutationFn: () => api.reloadChatTools(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
 
@@ -240,19 +213,6 @@ export function Composer({
     }
     send.mutate({ text: text.trim(), images });
   };
-  // What push-to-talk heard joins what's already typed, and is sent at once
-  // when Settings → Voice says so and nothing stands in the way; otherwise it
-  // waits in the composer to be edited.
-  const dictated = (words: string) => {
-    const next = [text.trim(), words].filter(Boolean).join(' ');
-    if (voiceSettings().after === 'send' && !disabled && !send.isPending && !held && !cacheCard) {
-      send.mutate({ text: next, images });
-      return;
-    }
-    pendingCursor.current = next.length;
-    setText(next);
-    area.current?.focus();
-  };
   const pick = (item: SlashItem) => {
     setText(item.kind === 'skill' ? `$${item.skill.name} ` : `/${item.command.name} `);
     area.current?.focus();
@@ -313,9 +273,16 @@ export function Composer({
         setMentionHighlighted((i) => (i + (event.key === 'ArrowDown' ? 1 : mentionItems.length - 1)) % mentionItems.length);
         return;
       }
+      // Ctrl+Enter (⌘↵) opens the file in the panel beside the chat instead.
+      const highlighted = mentionItems[mentionHighlighted];
+      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && fileLinks && highlighted?.kind === 'file') {
+        event.preventDefault();
+        fileLinks.open(highlighted.insert);
+        return;
+      }
       if (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey)) {
         event.preventDefault();
-        pickMention(mentionItems[mentionHighlighted]);
+        pickMention(highlighted);
         return;
       }
       if (event.key === 'Escape') {
@@ -500,20 +467,35 @@ export function Composer({
         {mentionItems.length > 0 && (
           <div className="absolute inset-x-2 bottom-full mb-2 overflow-hidden rounded-2xl border border-line-strong bg-overlay p-1 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur-xl" role="listbox" aria-label={t('chat.composer.mentions')}>
             {mentionItems.map((item, i) => (
-              <button
-                key={`${item.kind}:${item.label}`}
-                role="option"
-                aria-selected={i === mentionHighlighted}
-                className={cn('flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left', i === mentionHighlighted && 'bg-surface-raised')}
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  pickMention(item);
-                }}
-                onMouseEnter={() => setMentionHighlighted(i)}
-              >
-                {item.kind === 'project' ? <FolderGit2 className="size-3.5 shrink-0 text-subtle" /> : <File className="size-3.5 shrink-0 text-subtle" />}
-                <span className="min-w-0 truncate font-mono text-[12.5px] text-primary">{item.label}</span>
-              </button>
+              <div key={`${item.kind}:${item.label}`} className={cn('flex items-center rounded-xl', i === mentionHighlighted && 'bg-surface-raised')} onMouseEnter={() => setMentionHighlighted(i)}>
+                <button
+                  role="option"
+                  aria-selected={i === mentionHighlighted}
+                  className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    pickMention(item);
+                  }}
+                >
+                  {item.kind === 'project' ? <FolderGit2 className="size-3.5 shrink-0 text-subtle" /> : <File className="size-3.5 shrink-0 text-subtle" />}
+                  <span className="min-w-0 truncate font-mono text-[12.5px] text-primary">{item.label}</span>
+                </button>
+                {item.kind === 'file' && fileLinks && (
+                  <button
+                    className={cn('mr-1.5 flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[11px] text-subtle transition hover:bg-surface-strong hover:text-primary', i !== mentionHighlighted && 'invisible')}
+                    aria-label={t('files.link.open', { path: item.insert })}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      fileLinks.open(item.insert);
+                    }}
+                    data-mention-open
+                  >
+                    <SquareArrowOutUpRight className="size-3" />
+                    {t('files.link.view')}
+                    <kbd className="font-sans text-faint">{navigator.platform.startsWith('Mac') ? '⌘↵' : 'Ctrl+↵'}</kbd>
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         )}
@@ -577,12 +559,10 @@ export function Composer({
               </button>
             </span>
           </Tip>
+          {isProjectChat(agent.ref) && <RunnerPicker agent={agent} session={session} />}
           <SessionOptions agent={agent} session={session} />
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
             <ContextMeter session={session} />
-            {/* A phone (web/bridge.ts's lan) has its own keyboard's dictation,
-                and isn't sent the models the button runs. */}
-            {!onPhone && <VoiceButton disabled={disabled} onText={dictated} scope={area} />}
             {busy && (
               <Tip label={t('common.stop')}>
                 <button
@@ -665,7 +645,7 @@ function PermissionBanner({ agent, thread, request, count }: { agent: T.Agent; t
         <div className="flex items-center gap-2 text-[12px]">
           <ShieldAlert className="size-3.5 shrink-0 text-amber-300" />
           <span className="font-medium text-amber-100">
-            {approval ? t('chat.permission.approval') : t('chat.permission.asks', { tool: aiLabel(agent.ai), action: tool?.kind ?? '' })}
+            {approval ? t(permission.approval === 'project' ? 'chat.permission.projectApproval' : 'chat.permission.approval') : t('chat.permission.asks', { tool: aiLabel(agent.ai), action: tool?.kind ?? '' })}
           </span>
           {count > 1 && <span className="ml-auto text-[10.5px] tabular-nums text-amber-200/60">{t('chat.permission.oneOf', { count })}</span>}
         </div>
@@ -869,7 +849,8 @@ function SessionOptions({ agent, session }: { agent: T.Agent; session?: T.ChatSe
   const modelValue = session?.options.find((o) => o.category === 'model' && o.type === 'select')?.value;
   if (modelValue && session?.contextSize && !session.turnStartedAt) confirmed.current.set(modelValue, session.contextSize);
   const options = session?.options ?? [];
-  const toolLabel = (
+  // A lead's tool is named by its picker beside this (RunnerPicker).
+  const toolLabel = isProjectChat(agent.ref) ? null : (
     <span className="flex h-7 items-center gap-1.5 px-2 text-[12.5px] text-subtle">
       <AIIcon ai={agent.ai} className="size-4" />
       {aiLabel(agent.ai)}

@@ -70,6 +70,9 @@ function agent(overrides: Partial<T.Agent> & { ref: string }): T.Agent {
     source: 'main',
     claudeAccount: '',
     githubAccount: '',
+    codexAccount: '',
+    openCodeAccounts: {},
+    cursorAccount: '',
     interface: 'claude',
     state: 'running',
     ip: '',
@@ -417,6 +420,9 @@ export function buildFixtures(): FixtureData {
       claudeAccount: '',
       claudeAccounts: [],
       githubAccount: '',
+      codexAccount: '',
+      openCodeAccounts: {},
+      cursorAccount: '',
       autonomy: 'ask',
       agentModel: '',
       branchPrefix: 'agentbox/',
@@ -444,6 +450,9 @@ export function buildFixtures(): FixtureData {
       claudeAccount: '',
       claudeAccounts: [],
       githubAccount: '',
+      codexAccount: '',
+      openCodeAccounts: {},
+      cursorAccount: '',
       autonomy: 'ask',
       agentModel: '',
       branchPrefix: 'agentbox/',
@@ -1017,6 +1026,9 @@ export function seedQueryClient(queryClient: QueryClient, data: FixtureData): vo
     opencode: false,
     cursor: false,
     claudeAccounts: [],
+    codexAccounts: [],
+    openCodeAccounts: [],
+    cursorAccounts: [],
     github: true,
     githubAccounts: [
       { name: 'default', default: true, savedAt: new Date().toISOString(), login: 'leciric-work' },
@@ -1641,7 +1653,7 @@ export function seedVMDisk(queryClient: QueryClient, unmeasured = false): void {
 
 // devRequests are more answers for the dev bridge, added by a scenario's
 // own file (dev/review.tsx), which can't be imported here without a cycle.
-export const devRequests: ((method: string, path: string) => { status: number; body: string; contentType: string } | undefined)[] = [];
+export const devRequests: ((method: string, path: string, body?: unknown) => { status: number; body: string; contentType: string } | undefined)[] = [];
 
 // installDevBridge stubs window.agentbox: every query above is pre-seeded
 // and staleTime: Infinity keeps them from refetching, so nothing here needs
@@ -1656,7 +1668,7 @@ export function installDevBridge(): void {
       const past = pastRequest(method, path, body);
       if (past) return past;
       for (const answer of devRequests) {
-        const res = answer(method, path);
+        const res = answer(method, path, body);
         if (res) return res;
       }
       // Renaming a Claude account answers with what it carried over (the
@@ -1674,6 +1686,12 @@ export function installDevBridge(): void {
       if (method === 'GET' && devState.memoryUsage && path === '/v1/usage/memory') return { status: 200, body: JSON.stringify(devState.memoryUsage), contentType: 'application/json' };
       // The disk guard with room everywhere, so DiskGuardPill shows nothing
       // rather than reading the catch-all's answer as a guard.
+      // A chat's AI tools for its composer's picker: Claude Code, ready.
+      if (method === 'GET' && /^\/v1\/projects\/[^/]+\/chat\/runners$/.test(path)) {
+        const runners: T.LeadRunners = { tool: 'claude', account: 'default', runners: [{ tool: 'claude', name: 'Claude Code', ready: true, installed: true }] };
+        return { status: 200, body: JSON.stringify(runners), contentType: 'application/json' };
+      }
+      if (method === 'GET' && path === '/v1/snaps') return { status: 200, body: '[]', contentType: 'application/json' };
       if (method === 'GET' && path === '/v1/disk') return { status: 200, body: JSON.stringify({ level: 'ok', disks: [], paused: [], since: '', message: '' }), contentType: 'application/json' };
       if (method === 'GET' && devState.diskUsage && path === '/v1/usage/disk') return { status: 200, body: JSON.stringify(devState.diskUsage), contentType: 'application/json' };
       if (method === 'GET' && devState.cpuUsage && path.startsWith('/v1/usage/cpu')) return { status: 200, body: JSON.stringify(devState.cpuUsage), contentType: 'application/json' };

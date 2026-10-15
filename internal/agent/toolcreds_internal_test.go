@@ -53,14 +53,15 @@ func TestAToolOnAnAccountStartsWithoutItsCredentialVariables(t *testing.T) {
 	if hide, _ := m.toolHides(codex); hide != nil {
 		t.Errorf("Codex with no login hides %v", hide)
 	}
-	if err := os.MkdirAll(m.Creds.CodexHome(), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(m.Creds.CodexAuthPath(), []byte(`{}`), 0o600); err != nil {
+	if err := m.Creds.SaveToolAccount("codex", "", "work", []byte(`{"OPENAI_API_KEY":"sk"}`)); err != nil {
 		t.Fatal(err)
 	}
 	if hide, _ := m.toolHides(codex); !strings.Contains(strings.Join(hide, " "), "OPENAI_API_KEY") {
 		t.Errorf("Codex on its login hides %v", hide)
+	}
+	// On an account that was removed since, the variables are how it signs in.
+	if hide, _ := m.toolHides(state.Agent{AI: "codex", CodexAccount: "gone"}); hide != nil {
+		t.Errorf("Codex on an account AgentBox doesn't have hides %v", hide)
 	}
 }
 
@@ -163,13 +164,21 @@ func TestCredentialScriptReadsARealProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	// A login file is reported by its hash alone.
+	authFile := filepath.Join(t.TempDir(), "auth.json")
+	if err := os.WriteFile(authFile, []byte(`{"OPENAI_API_KEY":"sk-secret"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
-	out, err := exec.Command("bash", "-c", credentialScript(os.Getuid(), []string{"ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN"})).Output()
+	out, err := exec.Command("bash", "-c", credentialScript(os.Getuid(), []string{"ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN"}, authFile)).Output()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(out), "sk-ant") {
+	if strings.Contains(string(out), "sk-ant") || strings.Contains(string(out), "sk-secret") {
 		t.Fatal("a value left the machine")
+	}
+	if got := authFileSum(string(out)); got != sha256Hex(`{"OPENAI_API_KEY":"sk-secret"}`) {
+		t.Errorf("the login file's hash = %q", got)
 	}
 	for _, p := range parseToolProcesses(string(out)) {
 		if p.pid != cmd.Process.Pid {
@@ -207,6 +216,50 @@ esac`)}
 	}
 	if !got.Running || got.Variable != "CLAUDE_CODE_OAUTH_TOKEN" || got.Account != "work" || len(got.Others) != 0 {
 		t.Errorf("ToolCredential = %+v", got)
+	}
+}
+
+// A Codex agent's account is the one whose login file it has; OpenCode's is
+// the account each provider's entry came from.
+func TestToolCredentialNamesCodexAndOpenCodeAccounts(t *testing.T) {
+	t.Parallel()
+	creds := credentials.Store{Dir: t.TempDir()}
+	for _, name := range []string{"home", "work"} {
+		if err := creds.SaveToolAccount("codex", "", name, []byte(`{"OPENAI_API_KEY":"sk-`+name+`"}`)); err != nil {
+			t.Fatal(err)
+		}
+		if err := creds.SaveToolAccount("opencode", "anthropic", name, []byte(`{"type":"api","key":"`+name+`"}`)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	opencode, _, err := creds.OpenCodeAuth(map[string]string{"anthropic": "work"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		agent state.Agent
+		file  string
+		want  string
+	}{
+		{state.Agent{AI: "codex", Instance: "i", CodexAccount: "home"}, `{"OPENAI_API_KEY":"sk-work"}`, "work"},
+		{state.Agent{AI: "codex", Instance: "i"}, `{"OPENAI_API_KEY":"refreshed"}`, ""},
+		{state.Agent{AI: "opencode", Instance: "i", OpenCodeAccounts: state.AccountMap{"anthropic": "work"}}, string(opencode), "anthropic: work"},
+	} {
+		argv := `/x/codex-acp`
+		if tc.agent.AI == "opencode" {
+			argv = `/x/opencode\001acp`
+		}
+		m := &Manager{Creds: creds, Incus: fakeIncus(t, `case "$1" in
+  list) echo '[{"name":"i","status":"Running"}]' ;;
+  exec) printf 'P 10 1 `+argv+`\nF `+sha256Hex(tc.file)+`\n' ;;
+esac`)}
+		got, err := m.ToolCredential(context.Background(), tc.agent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !got.Running || got.Variable != "" || got.Account != tc.want {
+			t.Errorf("%s with %s: ToolCredential = %+v, want the account %q", tc.agent.AI, tc.file, got, tc.want)
+		}
 	}
 }
 
