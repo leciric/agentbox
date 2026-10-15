@@ -33,7 +33,7 @@ import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } fr
 import { useUiV2 } from '../lib/uiV2';
 import { ProjectIcon, ProjectIconDialog } from './ProjectIcon';
 import { TalkToProject } from './v2/TalkToProject';
-import { PanelButton, usePanelMenu } from './v2/PanelButton';
+import { PanelButton } from './v2/PanelButton';
 import { openPanelOn, setPanel } from '../lib/rightPanel';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
@@ -122,7 +122,6 @@ const projectSettingsSections = (t: Translate): SettingsSection<ProjectSection>[
 
 export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name: string; tab?: ProjectPlaceName; onSelect: (view: View) => void; onNewAgent: () => void }) {
   const t = useT();
-  const queryClient = useQueryClient();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
   // v2 has no tabs: Media and Past agents are sections of Settings, and Pull
@@ -141,8 +140,6 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
   }, [v2, opensAt, name]);
   const [iconOpen, setIconOpen] = useState(false);
   const { tab, section } = projectPlace(where);
-  const [removing, setRemoving] = useState(false);
-  const [freeing, setFreeing] = useState(false);
   // The past agent read in the Past agents tab, if one is.
   const [past, setPast] = useState<string | null>(null);
   useEffect(() => countFeature(projectTabFeatures[tab === 'settings' ? section : tab]), [tab, section, name]);
@@ -152,23 +149,11 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
   const lead = project && tab === 'chat' && leadChat.data ? leadAgentFrom(project, leadChat.data) : undefined;
   const chatMenu = useChatMenu(lead);
   const mine = agents.data?.filter((a) => a.project === name) ?? [];
-  // Stopping frees the memory an idle agent holds and keeps its disk, so it
-  // comes back in seconds. Nothing is lost: the work is on its branch.
-  const retire = useMutation({
-    mutationFn: () => api.retire(name, { how: 'stop' }),
-    onSuccess: async (result) => {
-      const freed = result.retired.length;
-      toast(freed === 0 ? t('project.view.nothingToFree') : t('project.view.stopped', { count: freed }), {
-        description: freed === 0 ? t('project.view.nothingToFreeDetail') : t('project.view.stoppedDetail'),
-      });
-      await queryClient.invalidateQueries({ queryKey: ['fleet', name] });
-      await queryClient.invalidateQueries({ queryKey: ['agents'] });
-    },
-    onError: (err) => toast.error(String(err)),
-  });
+  const { retire, setFreeing, setRemoving, dialogs: projectDialogs } = useProjectActions(name, onSelect);
 
-  // v2 has no ⋯ in the header: its items are the right-hand panel's ⋯, and
-  // the header has the button that opens the panel.
+  // v2 has no ⋯: the chat's New chat and Reload tools are the header's
+  // icons, and the project's items are its sidebar menu's and its Settings'
+  // (ProjectActions).
   const menuItems = project && (
     <>
       {chatMenu && (
@@ -194,7 +179,6 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
       </MenuItem>
     </>
   );
-  usePanelMenu(menuItems || null, v2);
 
   if (!project) {
     return <div className="p-6 text-sm text-subtle">{projects.isPending ? t('common.loading') : t('project.view.noProject', { name })}</div>;
@@ -226,7 +210,10 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
               {t('project.view.newAgent')}
             </Button>
             {v2 ? (
-              <PanelButton project={name} chat={`${name}/${T.LeadName}`} />
+              <>
+                {chatMenu?.buttons}
+                <PanelButton project={name} chat={`${name}/${T.LeadName}`} />
+              </>
             ) : (
               <Menu>
                 <MenuTrigger asChild>
@@ -321,6 +308,35 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
       </TabsContent>
 
       {v2 && <ProjectIconDialog project={project} open={iconOpen} onOpenChange={setIconOpen} />}
+      {projectDialogs}
+    </Tabs>
+  );
+}
+
+// useProjectActions is what a project offers besides its chat: freeing its
+// idle agents' machines and removing it, with their confirmations. v1's ⋯
+// has them, and in v2 its Settings (ProjectActions).
+function useProjectActions(name: string, onSelect: (view: View) => void) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [removing, setRemoving] = useState(false);
+  const [freeing, setFreeing] = useState(false);
+  // Stopping frees the memory an idle agent holds and keeps its disk, so it
+  // comes back in seconds. Nothing is lost: the work is on its branch.
+  const retire = useMutation({
+    mutationFn: () => api.retire(name, { how: 'stop' }),
+    onSuccess: async (result) => {
+      const freed = result.retired.length;
+      toast(freed === 0 ? t('project.view.nothingToFree') : t('project.view.stopped', { count: freed }), {
+        description: freed === 0 ? t('project.view.nothingToFreeDetail') : t('project.view.stoppedDetail'),
+      });
+      await queryClient.invalidateQueries({ queryKey: ['fleet', name] });
+      await queryClient.invalidateQueries({ queryKey: ['agents'] });
+    },
+    onError: (err) => toast.error(String(err)),
+  });
+  const dialogs = (
+    <>
       <ConfirmDialog
         open={removing}
         onOpenChange={setRemoving}
@@ -344,7 +360,36 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
           await retire.mutateAsync();
         }}
       />
-    </Tabs>
+    </>
+  );
+  return { retire, setFreeing, setRemoving, dialogs };
+}
+
+// ProjectActions is v2's place for them, in Settings → General, with the
+// repository's folder: v2 has no project ⋯.
+function ProjectActions({ project, onSelect }: { project: T.Project; onSelect: (view: View) => void }) {
+  const t = useT();
+  const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
+  const mine = agents.data?.filter((a) => a.project === project.name) ?? [];
+  const { retire, setFreeing, setRemoving, dialogs } = useProjectActions(project.name, onSelect);
+  return (
+    <Card className="mt-4" title={t('project.view.actions')} icon={FolderGit2}>
+      <div className="flex flex-wrap gap-2" data-project-actions>
+        <Button size="sm" variant="secondary" onClick={() => void window.agentbox.openPath(project.root)}>
+          <FolderOpen />
+          {t('project.view.openFolder')}
+        </Button>
+        <Button size="sm" variant="secondary" disabled={mine.length === 0 || retire.isPending} onClick={() => setFreeing(true)}>
+          <Moon />
+          {t('project.view.freeMachines')}
+        </Button>
+        <Button size="sm" variant="danger" disabled={mine.length > 0} title={mine.length > 0 ? t('project.view.hasAgents') : undefined} onClick={() => setRemoving(true)}>
+          <Trash />
+          {t('project.view.removeProject')}
+        </Button>
+      </div>
+      {dialogs}
+    </Card>
   );
 }
 
@@ -387,6 +432,7 @@ export function ProjectSettingsBody({ project, section, onSection, onSelect, onO
             </Card>
           )}
           <ProjectSettings project={project} />
+          {v2 && <ProjectActions project={project} onSelect={onSelect} />}
         </div>
       )}
       {section === 'brief' && (

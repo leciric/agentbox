@@ -1,9 +1,12 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { useT } from '../lib/i18n';
 import { pastAgentsKey } from '../lib/pastAgents';
+import { removeAgent } from '../lib/removing';
+import { errorMessage } from '../lib/utils';
 import { disposeTerminal } from '../lib/terminals';
 import { ConfirmDialog } from './ConfirmDialog';
 import { Code } from './ui/card';
@@ -48,12 +51,21 @@ export function DestroyAgentDialog({
       description={t('agent.destroy.description')}
       confirmLabel={t('agent.destroy.confirm')}
       destructive
+      // It closes at once: the destroy runs in the background, the agent's
+      // row reads "removing…" meanwhile (lib/removing.ts), and a toast says
+      // how it ended.
       onConfirm={async () => {
-        await api.destroyAgent(agent.ref, force, deleteBranch, deleteMedia);
-        disposeTerminal(agent.ref);
-        await queryClient.invalidateQueries({ queryKey: ['agents'] });
-        await queryClient.invalidateQueries({ queryKey: ['fleet', agent.project] });
-        void queryClient.invalidateQueries({ queryKey: pastAgentsKey });
+        const name = agent.title || agent.name;
+        removeAgent(agent.ref, async () => {
+          await api.destroyAgent(agent.ref, force, deleteBranch, deleteMedia);
+          disposeTerminal(agent.ref);
+          await queryClient.invalidateQueries({ queryKey: ['agents'] });
+          await queryClient.invalidateQueries({ queryKey: ['fleet', agent.project] });
+          void queryClient.invalidateQueries({ queryKey: pastAgentsKey });
+        }).then(
+          (how) => how === 'done' && toast.success(t('agent.destroy.done', { name })),
+          (err) => toast.error(t('agent.destroy.failed', { name }), { description: errorMessage(err) }),
+        );
         onDestroyed?.();
       }}
     >

@@ -10,10 +10,9 @@
 // project's agents for Files, Pages and Media, the agents with a machine for
 // Desktop, Terminal and Browser; the picker in the tab's header changes it.
 // One width for every tab (PreviewPanelShell.tsx, RightPanelResizeHandle.tsx).
-// It holds the chat's ⋯ menu too (usePanelMenu). lib/rightPanel.ts has its
-// rules and state.
+// lib/rightPanel.ts has its rules and state.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, ChevronDown, Crown, Ellipsis, FolderTree, GitBranch, GitPullRequest, Globe, SlidersHorizontal, HardDrive, Images, Monitor, Moon, Play, Plus, Search, SquareTerminal, Unplug, X, type LucideIcon } from 'lucide-react';
+import { Check, ChevronDown, Crown, FolderTree, GitBranch, GitPullRequest, Globe, SlidersHorizontal, HardDrive, Images, Monitor, Moon, Play, Plus, Search, SquareTerminal, Unplug, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import * as A from '../../../shared/api';
@@ -49,7 +48,6 @@ import {
   setPanelOpen,
   targets,
   usePanel,
-  usePanelMenuItems,
   whoseRef,
   type Machine,
   type PanelKind,
@@ -71,7 +69,6 @@ import { TerminalTab } from '../TerminalTab';
 import { ProjectSettingsBody } from '../ProjectView';
 import { PullRequestsPanel } from '../PullRequestsPanel';
 import { Button } from '../ui/button';
-import { Menu, MenuContent, MenuTrigger } from '../ui/menu';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Tip } from '../ui/tooltip';
 import { PanelBrowser } from './PanelBrowser';
@@ -239,23 +236,12 @@ function RightPanel({ project, chat, width, onSelect }: { project: string; chat:
   const { agents, past, loaded } = useAgents(project);
   const tab = panel.tabs.find((x) => x.id === panel.active) ?? null;
   const whose = (x: PanelTab) => (x.target ? resolveWhose(x.target, project, agents, past) : undefined);
-  const menu = usePanelMenuItems<ReactNode>();
 
   return (
     <div className="flex min-w-0 flex-1 flex-col" data-panel-tab={tab?.kind ?? 'launcher'} data-panel-whose={tab?.target}>
       <div className="flex h-10 shrink-0 items-stretch border-b border-line-faint bg-rail pr-1.5">
         <TabStrip project={project} chat={chat} tabs={panel.tabs} active={panel.active} whose={whose} />
         <span className="flex shrink-0 items-center gap-0.5 pl-1">
-          {menu && (
-            <Menu>
-              <MenuTrigger asChild>
-                <Button size="icon-sm" variant="ghost" aria-label={t('panel.more')} data-panel-menu>
-                  <Ellipsis />
-                </Button>
-              </MenuTrigger>
-              <MenuContent>{menu}</MenuContent>
-            </Menu>
-          )}
           <Tip label={t('panel.closeTip', { keys: shortcut('D') })}>
             <Button size="icon-sm" variant="ghost" aria-label={t('panel.close')} onClick={() => setPanelOpen(chat, false)} data-panel-close>
               <X />

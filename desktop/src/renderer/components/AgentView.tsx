@@ -59,7 +59,7 @@ import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Tip } from './ui/tooltip';
 import { useUiV2 } from '../lib/uiV2';
-import { PanelButton, usePanelMenu } from './v2/PanelButton';
+import { PanelButton } from './v2/PanelButton';
 
 // An agent's Settings tab: what it says about the agent's machine, code and AI
 // tool (OverviewTab), and the secrets and connectors only it gets.
@@ -126,12 +126,12 @@ export function AgentView({
   const active: AgentTab = !place.tab || (place.tab === 'chat' && !chatty) ? (chatty ? 'chat' : 'terminal') : place.tab;
   const actions = lifecycleActions(agent?.state ?? '');
   const primary = actions.find((name) => lifecycleButton[name].primary);
-  // v2 has no ⋯ in the header: its items are the right-hand panel's ⋯, and
-  // the header has the button that opens the panel.
+  // In v2 the chat's New chat and Reload tools are the header's icons, and
+  // its ⋯ has the agent's own items only.
   const v2 = useUiV2();
   const menuItems = agent && (
     <>
-      {chatMenu && active === 'chat' && (
+      {chatMenu && active === 'chat' && !v2 && (
         <>
           {chatMenu.items}
           <MenuSeparator />
@@ -191,7 +191,6 @@ export function AgentView({
       </MenuItem>
     </>
   );
-  usePanelMenu(menuItems || null, v2);
 
   if (!agent) {
     return (
@@ -237,18 +236,16 @@ export function AgentView({
               {t(lifecycleButton[primary].label)}
             </Button>
           )}
-          {v2 ? (
-            <PanelButton project={agent.project} chat={agent.ref} />
-          ) : (
-            <Menu>
-              <MenuTrigger asChild>
-                <Button size="icon-sm" variant="ghost" aria-label={t('agent.view.moreActions')} data-agent-menu>
-                  <Ellipsis />
-                </Button>
-              </MenuTrigger>
-              <MenuContent>{menuItems}</MenuContent>
-            </Menu>
-          )}
+          {v2 && active === 'chat' && chatMenu?.buttons}
+          <Menu>
+            <MenuTrigger asChild>
+              <Button size="icon-sm" variant="ghost" aria-label={t('agent.view.moreActions')} data-agent-menu>
+                <Ellipsis />
+              </Button>
+            </MenuTrigger>
+            <MenuContent>{menuItems}</MenuContent>
+          </Menu>
+          {v2 && <PanelButton project={agent.project} chat={agent.ref} />}
         </div>
       </div>
       {error && (

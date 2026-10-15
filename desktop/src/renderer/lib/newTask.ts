@@ -63,8 +63,16 @@ export function useNewTaskOpen(): boolean {
 // composer mounts, if that's soon (the page may still be loading its chat).
 const focusWaitMs = 5000;
 let wanted: { ref: string; at: number } | undefined;
+const focusListeners = new Set<() => void>();
 export function requestComposerFocus(ref: string, now = Date.now()): void {
   wanted = { ref, at: now };
+  for (const l of focusListeners) l();
+}
+// onComposerFocus hears a request, for a composer already on screen: a
+// project clicked in the sidebar while its chat is open.
+export function onComposerFocus(fn: () => void): () => void {
+  focusListeners.add(fn);
+  return () => focusListeners.delete(fn);
 }
 // takeComposerFocus says whether the composer of ref should take the focus,
 // once: asking again is false until the next request.

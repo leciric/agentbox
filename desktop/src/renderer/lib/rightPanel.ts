@@ -274,24 +274,6 @@ export function openPanelOn(chat: string, kind: PanelKind, target?: string): voi
   else chooseKind(chat, null, kind, target);
 }
 
-// The ⋯ menu the chat in the middle had, given to the panel: its view sets
-// it while it's on screen (usePanelMenu in components/v2/RightPanel.tsx).
-let menu: unknown = null;
-const menuListeners = new Set<() => void>();
-export function setPanelMenu(items: unknown): void {
-  menu = items;
-  for (const l of menuListeners) l();
-}
-export function usePanelMenuItems<T>(): T | null {
-  return useSyncExternalStore(
-    (l) => {
-      menuListeners.add(l);
-      return () => menuListeners.delete(l);
-    },
-    () => menu as T | null,
-  );
-}
-
 // browserPorts is the ports of the agent's own machine its Chromium has pages
 // open on (localhost:5173/…), one each, for the Browser tab to offer.
 export interface BrowserPort {

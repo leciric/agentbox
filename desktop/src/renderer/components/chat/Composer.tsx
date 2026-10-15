@@ -36,7 +36,7 @@ import { contextBadge, contextHint, currentPlan, formatTokens, pendingPermission
 import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../../lib/modelChoices';
 import { FileLinks } from '../files/FilePanel';
 import { mentionAt, matchFiles, matchProjects, mentionLimit, type MentionItem } from '../../lib/mentions';
-import { takeComposerFocus } from '../../lib/newTask';
+import { onComposerFocus, takeComposerFocus } from '../../lib/newTask';
 import { composeEvent, getDraft, setDraft } from '../../lib/drafts';
 import { formatTime, t as translate, useT } from '../../lib/i18n';
 import { useNow } from '../../lib/useNow';
@@ -178,9 +178,14 @@ export function Composer({
     setDraft(agent.ref, text);
   }, [agent.ref, text]);
 
-  // A chat opened from UI v2's New task is opened to write in.
+  // A chat opened from UI v2's New task, or its sidebar's project, is opened
+  // to write in, on screen already or not.
   useEffect(() => {
-    if (!disabled && takeComposerFocus(agent.ref)) area.current?.focus();
+    const take = () => {
+      if (!disabled && takeComposerFocus(agent.ref)) area.current?.focus();
+    };
+    take();
+    return onComposerFocus(take);
   }, [agent.ref, disabled]);
 
   // Text put here from elsewhere (composeIn), with the cursor at its end.

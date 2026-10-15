@@ -412,7 +412,9 @@ export function ChatTab({
 // in view is ChatStatus, and only when the tool isn't simply ready.
 // It's null without an agent, for a page whose agent is still loading: its
 // hooks run all the same.
-export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; dialogs: ReactNode } | null {
+// buttons are New chat and Reload tools as the chat header's icons, where UI
+// v2 has them instead of in a menu (its Find is ⌘F, its Files the panel's).
+export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; buttons: ReactNode; dialogs: ReactNode } | null {
   const t = useT();
   const queryClient = useQueryClient();
   const ref = agent?.ref ?? '';
@@ -467,6 +469,30 @@ export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; dia
       )}
     </>
   );
+  const untracked = agent.ai === 'codex' || agent.ai === 'opencode' || agent.ai === 'cursor';
+  const buttons = (
+    <>
+      {untracked && (
+        <Tip label={t('chat.background.untrackedTip', { tool })}>
+          <span className="flex size-8 items-center justify-center text-amber-300/80" data-chat-background-untracked>
+            <EyeOff className="size-4" />
+          </span>
+        </Tip>
+      )}
+      <Tip label={t('chat.tab.newChat')}>
+        <Button size="icon" variant="ghost" aria-label={t('chat.tab.newChat')} disabled={empty} onClick={() => setClearing(true)} data-chat-new>
+          <MessageSquarePlus />
+        </Button>
+      </Tip>
+      <Tip label={reloadWhy ?? t(session?.noResume ? 'chat.tab.reloadToolsNoResumeTip' : 'chat.tab.reloadToolsTip', { tool })}>
+        <span>
+          <Button size="icon" variant="ghost" aria-label={t('chat.tab.reloadTools')} disabled={can !== 'ready' || reload.isPending} onClick={() => (session?.noResume ? setConfirming(true) : reload.mutate())} data-chat-reload-tools>
+            <RefreshCw className={cn(reload.isPending && 'animate-spin')} />
+          </Button>
+        </span>
+      </Tip>
+    </>
+  );
   const dialogs = (
     <>
       <ConfirmDialog
@@ -492,7 +518,7 @@ export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; dia
       />
     </>
   );
-  return { items, dialogs };
+  return { items, buttons, dialogs };
 }
 
 // ChatMenu is a ⋯ of the chat's own, for a page with no menu to fold it into

@@ -3,12 +3,11 @@
 // apart so the views that draw the button don't load the panel's tabs, and
 // the desktop view with them.
 import { PanelRight } from 'lucide-react';
-import { useEffect, type ReactNode } from 'react';
 import * as A from '../../../shared/api';
 import type { View } from '../../App';
 import { useT } from '../../lib/i18n';
 import { isNew, livePages } from '../../lib/pages';
-import { setPanelMenu, setPanelOpen, useChatPanel } from '../../lib/rightPanel';
+import { setPanelOpen, useChatPanel } from '../../lib/rightPanel';
 import { cn, shortcut } from '../../lib/utils';
 import { useProjectPages } from '../pages/usePages';
 import { Button } from '../ui/button';
@@ -20,19 +19,6 @@ export function chatOf(view: View): { project: string; chat: string } | null {
   if (view.kind === 'project') return { project: view.project, chat: `${view.project}/${A.LeadName}` };
   if (view.kind === 'agent') return { project: view.ref.split('/')[0], chat: view.ref };
   return null;
-}
-
-// usePanelMenu gives the panel the ⋯ menu's items of the view on screen
-// (ProjectView, AgentView), which UI v2 draws there instead of in the header.
-export function usePanelMenu(items: ReactNode | null, on: boolean) {
-  useEffect(() => {
-    if (!on) return;
-    setPanelMenu(items);
-  });
-  useEffect(() => {
-    if (!on) return;
-    return () => setPanelMenu(null);
-  }, [on]);
 }
 
 // PanelButton is the chat header's one button that opens and closes the

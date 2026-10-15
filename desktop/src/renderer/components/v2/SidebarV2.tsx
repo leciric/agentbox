@@ -11,7 +11,7 @@
 // days. The reading is lib/leadFirst.ts's and lib/projectOrder.ts's.
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowUpDown, Check, ChevronRight, CircleArrowUp, Ellipsis, FolderPlus, House, ListChecks, ListFilter, LoaderCircle, Pin, PinOff, RefreshCw, Search, Settings, ShieldAlert, Smile, SquarePen, X } from 'lucide-react';
+import { ArrowUpDown, Check, ChevronRight, CircleArrowUp, Ellipsis, FolderOpen, FolderPlus, House, ListChecks, ListFilter, LoaderCircle, Pin, PinOff, RefreshCw, Search, Settings, ShieldAlert, Smile, SquarePen, X } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import * as A from '../../../shared/api';
 import type * as T from '../../../shared/api';
@@ -29,7 +29,10 @@ import { updateHint } from '../../lib/appUpdate';
 import { isUpgrade } from '../../lib/nightly';
 import { useAppUpdate } from '../../lib/useAppUpdate';
 import { cn, errorMessage, shortcut, timeAgo } from '../../lib/utils';
-import { openNewTask } from '../../lib/newTask';
+import { openNewTask, requestComposerFocus } from '../../lib/newTask';
+import { useRemoving } from '../../lib/removing';
+import { openPanelOn } from '../../lib/rightPanel';
+import { AgentContextMenu } from '../AgentContextMenu';
 import { EnvironmentSwitcher } from '../EnvironmentSwitcher';
 import { Logo } from '../Sidebar';
 import { ProjectIcon, ProjectIconDialog } from '../ProjectIcon';
@@ -577,6 +580,8 @@ function ProjectLead({
       data-v2-project={project.name}
       onContextMenu={(e) => {
         e.preventDefault();
+        // An agent's row has a menu of its own (AgentContextMenu).
+        if ((e.target as Element).closest('[data-v2-agent]')) return;
         setMenuOpen(true);
       }}
       draggable={!!drag}
@@ -605,7 +610,14 @@ function ProjectLead({
         })
       }
     >
-      <Lead active={active} onClick={() => onSelect({ kind: 'project', project: project.name })} data={{ 'data-v2-lead': project.name }}>
+      <Lead
+        active={active}
+        onClick={() => {
+          onSelect({ kind: 'project', project: project.name });
+          requestComposerFocus(`${project.name}/${A.LeadName}`);
+        }}
+        data={{ 'data-v2-lead': project.name }}
+      >
         <button
           type="button"
           aria-label={t(open ? 'v2.sidebar.hideAgents' : 'v2.sidebar.showAgents', { project: name })}
@@ -673,6 +685,19 @@ function ProjectLead({
             <MenuItem icon={Smile} onSelect={() => setIconOpen(true)} data-v2-change-icon={project.name}>
               {t('projectIcon.change')}
             </MenuItem>
+            <MenuItem icon={FolderOpen} onSelect={() => void window.agentbox.openPath(project.root)} data-v2-open-folder={project.name}>
+              {t('project.view.openFolder')}
+            </MenuItem>
+            <MenuItem
+              icon={Settings}
+              onSelect={() => {
+                onSelect({ kind: 'project', project: project.name });
+                openPanelOn(`${project.name}/${A.LeadName}`, 'settings');
+              }}
+              data-v2-project-settings={project.name}
+            >
+              {t('v2.sidebar.projectSettings')}
+            </MenuItem>
           </MenuContent>
         </Menu>
       </Lead>
@@ -680,7 +705,7 @@ function ProjectLead({
       {open && (
         <div className="relative ml-[17px] border-l border-line-faint pl-1.5" data-v2-agents={project.name}>
           {shown.map((r) => (
-            <AgentRow key={r.agent.ref} row={r} active={view.kind === 'agent' && view.ref === r.agent.ref} onClick={() => onSelect({ kind: 'agent', ref: r.agent.ref })} />
+            <AgentRow key={r.agent.ref} row={r} active={view.kind === 'agent' && view.ref === r.agent.ref} onSelect={onSelect} />
           ))}
           {shown.length === 0 && <div className="px-2 py-1 text-[11.5px] text-faint">{t(all.length === 0 ? 'v2.sidebar.noAgents' : 'v2.sidebar.noneMatch')}</div>}
         </div>
@@ -691,27 +716,42 @@ function ProjectLead({
 
 // AgentRow is one agent under its lead: its state mark, its title in
 // neutral text, a word only when it needs you, and when it last changed.
-function AgentRow({ row, active, onClick }: { row: Row; active: boolean; onClick: () => void }) {
+// A right-click opens its menu (AgentContextMenu) and nothing else; while it
+// is being destroyed it reads "removing…".
+function AgentRow({ row, active, onSelect }: { row: Row; active: boolean; onSelect: (view: View) => void }) {
   const t = useT();
   const { agent, st } = row;
+  const removing = useRemoving().has(agent.ref);
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={t(stLabel[st])}
-      className={cn('flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left', active ? 'bg-surface-raised' : 'hover:bg-surface')}
-      data-v2-agent={agent.ref}
-      data-v2-agent-st={st}
-    >
-      <StMark st={st} className="size-[7px]" />
-      <span className={cn('min-w-0 flex-1 truncate text-[12px]', active ? 'text-title' : st === 'done' ? 'text-subtle' : 'text-secondary', !agent.title && 'font-mono text-[11.5px]')}>{agent.title || agent.name}</span>
-      {attention(st) && (
-        <span className="shrink-0 text-[10.5px] text-subtle" data-v2-tag>
-          {t(st === 'error' ? 'v2.tag.failed' : awaitsApproval(agent) ? 'v2.tag.approval' : 'v2.tag.asks')}
-        </span>
-      )}
-      {agent.changesRequested && st === 'working' && <span className="shrink-0 text-[10.5px] text-subtle">{t('v2.tag.changes')}</span>}
-    </button>
+    <AgentContextMenu agent={agent} active={active} onSelect={onSelect}>
+      <button
+        type="button"
+        onClick={(e) => {
+          if (e.button !== 0 || e.ctrlKey) return;
+          onSelect({ kind: 'agent', ref: agent.ref });
+        }}
+        onContextMenu={(e) => e.stopPropagation()}
+        className={cn('flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left', active ? 'bg-surface-raised' : 'hover:bg-surface', removing && 'opacity-60')}
+        data-v2-agent={agent.ref}
+        data-v2-agent-st={st}
+        data-v2-removing={removing || undefined}
+      >
+        {removing ? <LoaderCircle className="size-[9px] shrink-0 animate-spin text-subtle" /> : <StMark st={st} className="size-[7px]" />}
+        <span className={cn('min-w-0 flex-1 truncate text-[12px]', active ? 'text-title' : st === 'done' ? 'text-subtle' : 'text-secondary', !agent.title && 'font-mono text-[11.5px]')}>{agent.title || agent.name}</span>
+        {removing ? (
+          <span className="shrink-0 text-[10.5px] text-subtle" data-v2-tag>
+            {t('v2.tag.removing')}
+          </span>
+        ) : (
+          attention(st) && (
+            <span className="shrink-0 text-[10.5px] text-subtle" data-v2-tag>
+              {t(st === 'error' ? 'v2.tag.failed' : awaitsApproval(agent) ? 'v2.tag.approval' : 'v2.tag.asks')}
+            </span>
+          )
+        )}
+        {!removing && agent.changesRequested && st === 'working' && <span className="shrink-0 text-[10.5px] text-subtle">{t('v2.tag.changes')}</span>}
+      </button>
+    </AgentContextMenu>
   );
 }
 
