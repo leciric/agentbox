@@ -52,6 +52,7 @@ import { JobProgress } from "./JobProgress";
 import { ReportDialog } from "./ReportDialog";
 import { UsageSentDialog } from "./UsageSentDialog";
 import { WhatsNewDialog } from "./WhatsNewDialog";
+import { ToolAccountList, ToolKeyForm } from "./ToolAccounts";
 import {
   AutoStopIdle,
   DockerPruneOnStop,
@@ -387,7 +388,11 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
     ),
     claude: <ClaudeAccounts accounts={auth.data?.claudeAccounts ?? []} />,
     codex: (
-      <div className="grid gap-2">
+      <div className="grid gap-3">
+        <ToolAccountList tool="codex" accounts={auth.data?.codexAccounts ?? []} />
+        {check("codex")?.fix !== "agentbox image build --codex" && (
+          <ToolKeyForm tool="codex" accounts={auth.data?.codexAccounts ?? []} />
+        )}
         <p className="text-[13px] text-muted">
           {check("codex")?.fix === "agentbox image build --codex" ? (
             t("settings.setup.codexNoImage")
@@ -401,7 +406,11 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
       </div>
     ),
     opencode: (
-      <div className="grid gap-2">
+      <div className="grid gap-3">
+        <ToolAccountList tool="opencode" accounts={auth.data?.openCodeAccounts ?? []} />
+        {check("opencode")?.fix !== "agentbox image build --opencode" && (
+          <ToolKeyForm tool="opencode" accounts={auth.data?.openCodeAccounts ?? []} />
+        )}
         <p className="text-[13px] text-muted">
           {check("opencode")?.fix === "agentbox image build --opencode" ? (
             t("settings.setup.opencodeNoImage")
@@ -1333,9 +1342,9 @@ function InstalledSettings({
           id: "ai",
           title: t("settings.group.ai.title"),
           cards: true,
-          // Claude Code's and Cursor's are managed here even once they're done:
-          // accounts to add, a key to change, a sign-in to end.
-          entries: aiSteps.map((step) => stepEntry(step, step.id === "claude" || step.id === "cursor")),
+          // Every tool's accounts are managed here even once they're done:
+          // accounts to add, rename or remove, a key to change.
+          entries: aiSteps.map((step) => stepEntry(step, ["claude", "codex", "opencode", "cursor"].includes(step.id))),
         },
         {
           id: "github",
@@ -2543,14 +2552,16 @@ function ClaudeTokenForm({
   );
 }
 
-// CursorAccount is Cursor's sign-in: an API key pasted here, or Cursor's own
-// browser flow, which the daemon runs while this polls how far it got. Agents
-// share the one sign-in; the key is never shown again once it is saved.
+// CursorAccount is Cursor's accounts: each one an API key pasted here, or
+// Cursor's own browser flow, which the daemon runs while this polls how far it
+// got. The key is never shown again once it is saved.
 function CursorAccount({ command }: { command: string }) {
   const t = useT();
   const queryClient = useQueryClient();
   const auth = useQuery({ queryKey: ["auth"], queryFn: api.auth });
+  const accounts = auth.data?.cursorAccounts ?? [];
   const [key, setKey] = useState("");
+  const [account, setAccount] = useState("");
   const opened = useRef("");
   const refresh = () =>
     Promise.all(
@@ -2571,7 +2582,7 @@ function CursorAccount({ command }: { command: string }) {
         : false,
   });
   const start = useMutation({
-    mutationFn: api.startCursorLogin,
+    mutationFn: () => api.startCursorLogin(account.trim() || undefined),
     onSuccess: (next) => {
       opened.current = "";
       queryClient.setQueryData(["cursor-login"], next);
@@ -2600,18 +2611,11 @@ function CursorAccount({ command }: { command: string }) {
   }, [state]);
 
   const save = useMutation({
-    mutationFn: () => api.saveCursorKey(key.trim()),
+    mutationFn: () => api.saveCursorKey(key.trim(), account.trim() || undefined),
     onSuccess: async () => {
       toast(t("settings.cursor.keySaved"));
       setKey("");
-      await refresh();
-    },
-    onError: (err) => toast.error(errorMessage(err)),
-  });
-  const signOut = useMutation({
-    mutationFn: api.removeCursorLogin,
-    onSuccess: async () => {
-      toast(t("settings.cursor.signedOut"));
+      setAccount("");
       await refresh();
     },
     onError: (err) => toast.error(errorMessage(err)),
@@ -2628,18 +2632,8 @@ function CursorAccount({ command }: { command: string }) {
               : t("settings.cursor.signedInPlain")
             : t("settings.cursor.notSignedIn")}
         </span>
-        {signedIn && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="ml-auto"
-            disabled={signOut.isPending}
-            onClick={() => signOut.mutate()}
-          >
-            {t("settings.cursor.signOut")}
-          </Button>
-        )}
       </div>
+      <ToolAccountList tool="cursor" accounts={accounts} />
       <form
         className="flex flex-wrap items-end gap-2"
         onSubmit={(event) => {
@@ -2647,6 +2641,16 @@ function CursorAccount({ command }: { command: string }) {
           if (key.trim()) save.mutate();
         }}
       >
+        <div className="grid gap-1.5">
+          <Label htmlFor="cursor-account-name">{t("settings.accounts.account")}</Label>
+          <Input
+            id="cursor-account-name"
+            placeholder={accounts.length === 0 ? "default" : "work"}
+            value={account}
+            onChange={(event) => setAccount(event.target.value)}
+            className="w-28 font-mono"
+          />
+        </div>
         <div className="grid gap-1.5">
           <Label htmlFor="cursor-api-key">{t("settings.cursor.keyLabel")}</Label>
           <Input

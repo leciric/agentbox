@@ -17,6 +17,25 @@ import { ToolCredentialText, useToolCredential } from './ToolCredential';
 // the token ledger (average TPS, tokens, cost) are fetched here, not passed
 // in, so every place an agent is listed can show the same card without
 // carrying that data around itself.
+// agentAccount is the account an agent was given for its AI tool: OpenCode's
+// one per provider.
+export function agentAccount(agent: T.Agent): string {
+  switch (agent.ai) {
+    case 'claude':
+      return agent.claudeAccount;
+    case 'codex':
+      return agent.codexAccount ?? '';
+    case 'cursor':
+      return agent.cursorAccount ?? '';
+    case 'opencode':
+      return Object.entries(agent.openCodeAccounts ?? {})
+        .toSorted(([a], [b]) => a.localeCompare(b))
+        .map(([p, a]) => `${p}: ${a}`)
+        .join(', ');
+  }
+  return '';
+}
+
 export function AgentInfoCard({ agent, pr }: { agent: T.Agent; pr?: T.PullRequest }) {
   const t = useT();
   const [project, name] = agent.ref.split('/');
@@ -57,7 +76,7 @@ export function AgentInfoCard({ agent, pr }: { agent: T.Agent; pr?: T.PullReques
         {effort && <Row label={t('agent.info.effort')} value={effort} />}
         {session?.contextSize ? <Row label={t('agent.info.context')} value={t('agent.info.contextOf', { used: humanTokens(session.contextUsed ?? 0), size: humanTokens(session.contextSize) })} /> : null}
         <Row label={t('agent.info.avgTps')} value={mine ? tps(mine.avgTPS ?? 0) : '—'} />
-        <Row label={t('agent.info.claudeAccount')} value={agent.claudeAccount || '—'} />
+        <Row label={t('agent.info.toolAccount', { tool: aiLabel(agent.ai) })} value={agentAccount(agent) || '—'} />
         {reads && <Row label={t('agent.credential.label')} value={<ToolCredentialText cred={credential.data} />} />}
         <Row label={t('agent.info.githubAccount')} value={agent.githubAccount || '—'} />
         <Row label={t('agent.info.branch')} value={agent.branch} mono />
