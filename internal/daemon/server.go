@@ -707,6 +707,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/projects/{project}/review", s.projectReview)
 	h("GET /v1/review", s.allReview)
 	h("POST /v1/agents/{project}/{agent}/review", s.reviewAgent)
+	h("POST /v1/agents/{project}/{agent}/request-changes", s.requestChanges)
 	h("GET /v1/projects/{project}/questions", s.projectQuestions)
 	h("POST /v1/projects/{project}/questions/{id}/answer", s.answerAsUser)
 	h("POST /v1/projects/{project}/questions/{id}/credential", s.answerCredential)

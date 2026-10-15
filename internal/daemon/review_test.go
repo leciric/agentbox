@@ -196,3 +196,45 @@ func TestReviewMarkMovedTo(t *testing.T) {
 		t.Error("checks that started failing brought it back")
 	}
 }
+
+// Request changes, from the review: the agent is told what to change the way
+// tell_agent tells it, the work it showed is recorded as turned down, and
+// while its chat is on the request the app is told what was asked.
+func TestRequestChangesTellsTheAgentAndRecordsIt(t *testing.T) {
+	t.Parallel()
+	w := newWakeTest(t)
+	ctx := context.Background()
+	a, err := w.srv.store.Agent(ctx, "hello-stack", "agent-02")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.srv.record(ctx, finishedEvent(a, api.AgentChanges{}, nil, "Added the settings page.", time.Now()))
+	list := readyToReview(t, w.testDaemon, "hello-stack")
+	if len(list) != 1 {
+		t.Fatalf("want agent-02 ready to review, got %+v", list)
+	}
+	if _, err := w.client.RequestChanges(ctx, a.Ref(), api.RequestChangesRequest{Text: "  "}); err == nil {
+		t.Error("an empty request was sent")
+	}
+	res, err := w.client.RequestChanges(ctx, a.Ref(), api.RequestChangesRequest{Text: "Move the save button up.", Fingerprint: list[0].Fingerprint})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Kind != "user" {
+		t.Errorf("the request is a %s item, want the user's message", res.Kind)
+	}
+	waitFor(t, "the request to reach the AI tool", func() bool { return w.tool.got("Move the save button up.") })
+	r, ok, err := w.srv.store.AgentReviewOf(ctx, "hello-stack", "agent-02")
+	if err != nil || !ok || r.Verdict != api.ReviewChanges || r.Note != "Move the save button up." || r.Fingerprint != list[0].Fingerprint {
+		t.Fatalf("the verdict = %+v (%v, %v), want changes with what was asked", r, ok, err)
+	}
+	if got := w.srv.changesRequested(ctx, "hello-stack", "agent-02", "running"); got != "Move the save button up." {
+		t.Errorf("a working agent's request = %q", got)
+	}
+	if got := w.srv.changesRequested(ctx, "hello-stack", "agent-02", "ready"); got != "" {
+		t.Errorf("an agent whose turn ended still has the request %q", got)
+	}
+	if _, err := w.client.RequestChanges(ctx, "hello-stack/agent-99", api.RequestChangesRequest{Text: "x"}); err == nil {
+		t.Error("asked an agent that doesn't exist")
+	}
+}

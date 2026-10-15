@@ -50,6 +50,7 @@ func (s *Server) agentInfo(st agent.Status) api.Agent {
 	info.Background = s.chat.Background(info.Ref)
 	o := s.outcomeOf(context.Background(), info.Project, info.Ref)
 	info.Outcome, info.OutcomeNote = o.kind, o.note
+	info.ChangesRequested = s.changesRequested(context.Background(), info.Project, info.Name, info.Chat)
 	info.Memory = s.memoryHold(info.Ref)
 	if p, ok := s.chat.Progress(info.Ref); ok {
 		info.StalledSince = p.Stalled

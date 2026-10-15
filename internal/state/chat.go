@@ -73,6 +73,29 @@ func (s *Store) LastChatItem(ctx context.Context, project, agent string) (ChatIt
 	return it, true, nil
 }
 
+// LastChatLine returns an agent's most recent message that someone wrote:
+// the user's or the AI tool's answer, not a hidden one (the prose AgentBox
+// writes a lead), a subagent's, a tool call or a thought. ok is false when there is none.
+func (s *Store) LastChatLine(ctx context.Context, project, agent string) (ChatItem, bool, error) {
+	var it ChatItem
+	var data string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, position, data FROM chat_items WHERE project = ? AND agent = ? AND json_valid(data)
+		AND json_extract(data, '$.kind') IN ('user', 'assistant') AND coalesce(json_extract(data, '$.hidden'), 0) = 0
+		AND coalesce(json_extract(data, '$.woken'), 0) = 0 AND coalesce(json_extract(data, '$.parent'), '') = ''
+		AND coalesce(json_extract(data, '$.text'), '') != ''
+		ORDER BY position DESC LIMIT 1`,
+		project, agent).Scan(&it.ID, &it.Position, &data)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ChatItem{}, false, nil
+	}
+	if err != nil {
+		return ChatItem{}, false, err
+	}
+	it.Data = []byte(data)
+	return it, true, nil
+}
+
 // ProjectChatItem is an item of one of a project's chats, with whose.
 type ProjectChatItem struct {
 	Agent string

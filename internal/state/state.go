@@ -1122,6 +1122,9 @@ var migrations = []string{
 		approved_at INTEGER NOT NULL,
 		PRIMARY KEY (project, peer)
 	)`,
+	// Request changes, from the review (internal/daemon/review.go): the
+	// verdict "changes" keeps what the user asked the agent to change.
+	`ALTER TABLE agent_reviews ADD COLUMN note TEXT NOT NULL DEFAULT ''`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

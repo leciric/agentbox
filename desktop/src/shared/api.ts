@@ -206,6 +206,7 @@ export interface Agent {
   background?: string[];
   outcome?: string;
   outcomeNote?: string;
+  changesRequested?: string;
   state: string;
   memory?: MemoryHold;
   ip: string;
@@ -1519,6 +1520,7 @@ export interface FleetAgent {
   background?: string[];
   outcome?: string;
   outcomeNote?: string;
+  changesRequested?: string;
   state: string;
   memory?: MemoryHold;
   ip: string;
@@ -1647,6 +1649,11 @@ export interface ReviewItem {
 export interface ReviewRequest {
   verdict: string;
   fingerprint: string;
+}
+
+export interface RequestChangesRequest {
+  text: string;
+  fingerprint?: string;
 }
 
 export interface AndroidStatus {
@@ -2063,6 +2070,7 @@ export interface ProjectChat {
   worktree?: string;
   baseRef?: string;
   chat: string;
+  last?: ChatLine;
 }
 
 export interface ChatCache {

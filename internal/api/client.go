@@ -243,6 +243,17 @@ func (c *Client) Review(ctx context.Context, ref string, req ReviewRequest) erro
 	return c.do(ctx, http.MethodPost, path+"/review", req, nil)
 }
 
+// RequestChanges sends an agent what to change in the work the user
+// reviewed, and records it as their verdict.
+func (c *Client) RequestChanges(ctx context.Context, ref string, req RequestChangesRequest) (TellResult, error) {
+	path, err := AgentPath(ref)
+	if err != nil {
+		return TellResult{}, err
+	}
+	var out TellResult
+	return out, c.do(ctx, http.MethodPost, path+"/request-changes", req, &out)
+}
+
 // RequestCredential asks the user for a credential this agent lacks, from
 // inside it, and waits for the answer.
 func (c *Client) RequestCredential(ctx context.Context, req CredentialRequest) (Question, error) {

@@ -1,8 +1,12 @@
 package daemon
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
+	"unicode/utf8"
 
 	"agentbox/internal/agent"
 	"agentbox/internal/api"
@@ -84,8 +88,37 @@ func (s *Server) projectChat(w http.ResponseWriter, r *http.Request) error {
 		Worktree: a.Worktree,
 		BaseRef:  a.BaseRef,
 		Chat:     session,
+		Last:     s.lastChatLine(r.Context(), a),
 	}
 	return writeJSON(w, http.StatusOK, info)
+}
+
+// lastChatLineMax is how much of the last message ProjectChat.Last keeps.
+const lastChatLineMax = 280
+
+// lastChatLine is a chat's last message someone wrote, cut short.
+func (s *Server) lastChatLine(ctx context.Context, a state.Agent) *api.ChatLine {
+	row, ok, err := s.store.LastChatLine(ctx, a.Project, a.Name)
+	if err != nil || !ok {
+		return nil
+	}
+	var item api.ChatItem
+	if json.Unmarshal(row.Data, &item) != nil {
+		return nil
+	}
+	text := strings.TrimSpace(item.Text)
+	if len(text) > lastChatLineMax {
+		cut := lastChatLineMax
+		for cut > 0 && !utf8.RuneStart(text[cut]) {
+			cut--
+		}
+		text = text[:cut] + "…"
+	}
+	at := item.UpdatedAt
+	if at.IsZero() {
+		at = item.CreatedAt
+	}
+	return &api.ChatLine{Kind: item.Kind, Text: text, At: at}
 }
 
 // resetProjectChat throws the project's chat away: its conversation, its

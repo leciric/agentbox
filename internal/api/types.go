@@ -636,7 +636,11 @@ type Agent struct {
 	// OutcomeNote is what to show with Outcome: the question it asked, the
 	// error it stopped on, why it isn't resuming.
 	OutcomeNote string `json:"outcomeNote,omitempty"`
-	State       string `json:"state"` // running, stopped, paused, initializing, incomplete or missing; queued only for one an earlier release left queued, as the daemon starts it
+	// ChangesRequested is what the user asked it to change from the review
+	// (RequestChangesRequest), while it works on that: set from the request
+	// until its chat's turn ends.
+	ChangesRequested string `json:"changesRequested,omitempty"`
+	State            string `json:"state"` // running, stopped, paused, initializing, incomplete or missing; queued only for one an earlier release left queued, as the daemon starts it
 	// Memory is what the daemon holds of the agent's heavy commands for
 	// memory: paused or waiting to start (package pressure). Absent when it
 	// holds nothing.
@@ -1862,11 +1866,22 @@ type ReviewRequest struct {
 	Fingerprint string `json:"fingerprint"`
 }
 
-// The verdicts of a ReviewRequest.
+// The verdicts of a ReviewRequest, and ReviewChanges, which only
+// RequestChanges records.
 const (
 	ReviewReviewed  = "reviewed"
 	ReviewDismissed = "dismissed"
+	ReviewChanges   = "changes"
 )
+
+// RequestChangesRequest is POST /v1/agents/{project}/{agent}/request-changes:
+// what the user wants changed in the work they saw (by its Fingerprint),
+// sent to the agent as tell_agent sends a message, and recorded as the
+// verdict "changes" until the agent finishes again.
+type RequestChangesRequest struct {
+	Text        string `json:"text"`
+	Fingerprint string `json:"fingerprint,omitempty"`
+}
 
 // EventReview says "Ready to review" changed: an agent finished, or a verdict
 // was recorded. It carries the project.

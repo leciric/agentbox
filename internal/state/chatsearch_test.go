@@ -310,3 +310,29 @@ func TestSearchChatsKindsSinceAndCount(t *testing.T) {
 		t.Error("an unknown kind was taken")
 	}
 }
+
+// A chat's last line is the last message the user or the AI tool wrote, past
+// what the timeline hides and what came after it that nobody wrote.
+func TestLastChatLineSkipsWhatNobodyWrote(t *testing.T) {
+	t.Parallel()
+	s := openSearchStore(t)
+	ctx := context.Background()
+	if _, ok, err := s.LastChatLine(ctx, "pawly", "lead"); ok || err != nil {
+		t.Fatalf("an empty chat has a last line (%v)", err)
+	}
+	if err := s.SaveChatItems(ctx, "pawly", "lead", chatRows(t,
+		map[string]any{"id": "u1", "kind": "user", "text": "Fix the Login page"},
+		map[string]any{"id": "a1", "kind": "assistant", "text": "On it: agent-02 has it."},
+		map[string]any{"id": "t1", "kind": "tool", "text": "start_agent"},
+		map[string]any{"id": "s1", "kind": "assistant", "parent": "sub", "text": "a subagent's"},
+		map[string]any{"id": "h1", "kind": "user", "hidden": true, "text": "agent-02 finished"},
+		map[string]any{"id": "w1", "kind": "user", "woken": true, "text": "monitor spoke"},
+		map[string]any{"id": "n1", "kind": "notice", "text": "Rolled back"},
+	)); err != nil {
+		t.Fatal(err)
+	}
+	it, ok, err := s.LastChatLine(ctx, "pawly", "lead")
+	if err != nil || !ok || it.ID != "a1" {
+		t.Fatalf("LastChatLine = %q (%v, %v), want a1", it.ID, ok, err)
+	}
+}

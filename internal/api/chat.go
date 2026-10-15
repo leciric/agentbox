@@ -435,6 +435,17 @@ type ProjectChat struct {
 	Worktree string `json:"worktree,omitempty"`
 	BaseRef  string `json:"baseRef,omitempty"`
 	Chat     string `json:"chat"` // its session's state, as in ChatSession.State
+	// Last is the chat's last message someone wrote, the user's or the
+	// lead's, for a list of the leads to show; absent before the first.
+	Last *ChatLine `json:"last,omitempty"`
+}
+
+// ChatLine is one message of a chat, cut to its first lines: who wrote it
+// (user or assistant), what it says and when.
+type ChatLine struct {
+	Kind string    `json:"kind"`
+	Text string    `json:"text"`
+	At   time.Time `json:"at"`
 }
 
 // ChatCache is how long a project's chat has been idle against its prompt

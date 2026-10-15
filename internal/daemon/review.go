@@ -299,3 +299,75 @@ func (s *Server) reviewAgent(w http.ResponseWriter, r *http.Request) error {
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
+
+// requestChanges is POST /v1/agents/{project}/{agent}/request-changes: the
+// user looked at an agent's work and wants something changed. The text goes
+// to the agent the way the lead's tell_agent sends it (tellAgent, which
+// wakes a stopped machine), and is recorded as the verdict "changes" on the
+// work they saw: the agent leaves Ready to review while it works, the app
+// shows what was asked (Agent.ChangesRequested), and its next finish is new
+// work, back on the list.
+func (s *Server) requestChanges(w http.ResponseWriter, r *http.Request) error {
+	ctx := r.Context()
+	a, err := s.agentFromPath(r)
+	if err != nil {
+		return err
+	}
+	var req api.RequestChangesRequest
+	if err := readJSON(r, &req); err != nil {
+		return err
+	}
+	text := strings.TrimSpace(req.Text)
+	if text == "" {
+		return errors.New("say what to change")
+	}
+	fingerprint := req.Fingerprint
+	if fingerprint == "" {
+		p, err := s.store.Project(ctx, a.Project)
+		if err != nil {
+			return err
+		}
+		if items := s.reviewItems(ctx, p, []state.Agent{a}); len(items) > 0 {
+			fingerprint = items[0].Fingerprint
+		}
+	} else if json.Unmarshal([]byte(fingerprint), &reviewMark{}) != nil {
+		return fmt.Errorf("fingerprint %q isn't one this list gave", fingerprint)
+	}
+	// Recorded first, so the agent is never back in Ready to review on the
+	// work the user just turned down while the message is on its way.
+	if err := s.store.SetAgentReview(ctx, state.AgentReview{
+		Project: a.Project, Agent: a.Name, Verdict: api.ReviewChanges, Fingerprint: fingerprint, Note: text, At: time.Now(),
+	}); err != nil {
+		return err
+	}
+	t, err := s.tellAgent(ctx, a, changesMessage(text))
+	s.events.publish(api.EventReview, a.Project)
+	if err != nil {
+		return err
+	}
+	s.refreshAgents(ctx)
+	return writeJSON(w, http.StatusAccepted, api.TellResult{ChatItem: t.item, Woke: t.woke})
+}
+
+// changesMessage is what an agent is told when the user asks for changes
+// from the review.
+func changesMessage(text string) string {
+	return "The user reviewed your work and asks for changes:\n\n" + text +
+		"\n\nMake them on the same branch, update the pull request, and finish as before."
+}
+
+// changesRequested is what the user asked a working agent to change from the
+// review, while its chat is still on it: once the turn ends the agent is
+// done, asking or stopped, and the request is behind it.
+func (s *Server) changesRequested(ctx context.Context, project, name, chatState string) string {
+	switch chatState {
+	case "running", "starting", "waiting":
+	default:
+		return ""
+	}
+	r, ok, err := s.store.AgentReviewOf(ctx, project, name)
+	if err != nil || !ok || r.Verdict != api.ReviewChanges {
+		return ""
+	}
+	return r.Note
+}
