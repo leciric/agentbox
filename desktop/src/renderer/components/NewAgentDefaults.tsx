@@ -224,7 +224,7 @@ export function DefaultContextWindow({ role }: { role: Role }) {
   });
 
   const windows = windowsFor(settings.data, role);
-  const standard = windows[0] ?? settings.data?.claudeCompactWindow ?? 200_000;
+  const standard = windows[0] ?? settings.data?.claudeCompactWindow ?? 500_000;
   const hasFull = windows.includes(Number(fullWindow)) && standard !== Number(fullWindow);
   const value = (settings.data && r.window(settings.data)) || '';
 
@@ -891,7 +891,7 @@ const compactWindows = [100_000, 150_000, 200_000, 300_000, 500_000, 1_000_000];
 // sits with the settings that reach every agent because it is the one that
 // decides what a long piece of work costs: every step sends the whole
 // conversation again, so a session left to fill a 1M window pays up to five
-// times per step what one held at 200k does. Like the resume switch it
+// times per step what one held at 500k does. Like the resume switch it
 // applies to agents you already have, from each chat's next session.
 export function CompactWindow() {
   const t = useT();
@@ -903,7 +903,7 @@ export function CompactWindow() {
     onError: (err) => toast.error(errorMessage(err)),
   });
 
-  const fallback = settings.data?.defaultClaudeCompactWindow ?? 200_000;
+  const fallback = settings.data?.defaultClaudeCompactWindow ?? 500_000;
   const value = settings.data?.claudeCompactWindow ?? fallback;
 
   return (

@@ -210,7 +210,8 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { ConnectionState, HostSetupStatus } from '../../preload';
 import type * as T from '../../shared/api';
-import { Toaster, toast } from 'sonner';
+import { toast } from 'sonner';
+import { Toasts } from '../components/Toasts';
 import type { View } from '../App';
 import { AgentRail } from '../components/AgentRail';
 import { HomeView } from '../components/HomeView';
@@ -1248,7 +1249,7 @@ if (phoneMode === 'frame') {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider delayDuration={250}>
         <App initial={initial} />
-        <Toaster position="bottom-right" />
+        <Toasts />
       </TooltipProvider>
     </QueryClientProvider>,
   );
@@ -1256,7 +1257,7 @@ if (phoneMode === 'frame') {
   <QueryClientProvider client={queryClient}>
     <TooltipProvider delayDuration={250}>
       <Languaged />
-      <Toaster position="bottom-right" />
+      <Toasts />
       {params.get('notice') === 'errorReports' && <ErrorReportsNoticePreview />}
       {artifacts && (
         <>

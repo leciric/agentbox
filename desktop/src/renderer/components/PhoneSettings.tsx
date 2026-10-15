@@ -70,6 +70,9 @@ function PhoneChat() {
     onError: (err) => toast.error(errorMessage(err)),
   });
   const st = lan.data;
+  // Serving plain HTTP on the network is asked first: pairing a phone is
+  // what the button is for, and that is what it takes.
+  const [confirming, setConfirming] = useState(false);
   // Turned on, the QR code is shown as soon as there's an address to put in it.
   const wantQR = useRef(false);
   useEffect(() => {
@@ -104,18 +107,30 @@ function PhoneChat() {
       description={t('defaults.phone.chatDescription')}
       details={t('defaults.phone.chatDetails', { port: st?.port ?? 7780 })}
       control={
-        <Switch
-          data-phone-chat
-          aria-label={t('defaults.phone.chatLabel')}
-          disabled={save.isPending || !st}
-          checked={st?.enabled ?? false}
-          onCheckedChange={(next) => {
-            wantQR.current = next;
-            save.mutate(next);
-          }}
-        />
+        st?.enabled ? (
+          <Switch
+            data-phone-chat
+            aria-label={t('defaults.phone.chatLabel')}
+            disabled={save.isPending}
+            checked
+            onCheckedChange={() => save.mutate(false)}
+          />
+        ) : (
+          <Button size="sm" variant="primary" data-phone-start disabled={save.isPending || !st} onClick={() => setConfirming(true)}>
+            <Smartphone className="size-3.5" /> {t('defaults.phone.pair')}
+          </Button>
+        )
       }
     >
+      <ServeConfirm
+        open={confirming}
+        onOpenChange={setConfirming}
+        port={st?.port ?? 7780}
+        onConfirm={() => {
+          wantQR.current = true;
+          return save.mutateAsync(true);
+        }}
+      />
       {st?.enabled && (
         <div className="grid gap-3">
           <SettingNote tone="warning">{t('defaults.phone.plainHttp')}</SettingNote>
@@ -148,6 +163,22 @@ function PhoneChat() {
   );
 }
 
+// ServeConfirm asks before AgentBox serves its phone page over plain HTTP on
+// this computer's network, which both switches here turn on.
+function ServeConfirm({ open, onOpenChange, port, onConfirm }: { open: boolean; onOpenChange: (open: boolean) => void; port: number; onConfirm: () => Promise<unknown> }) {
+  const t = useT();
+  return (
+    <ConfirmDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={t('defaults.phone.serveTitle')}
+      description={t('defaults.phone.serveDescription', { port })}
+      confirmLabel={t('defaults.phone.serveConfirm')}
+      onConfirm={onConfirm}
+    />
+  );
+}
+
 // The tunnels phones can reach this computer through, as the daemon names
 // them: the hub's stable address first, the default when connected to a hub.
 const tunnelModes = ['hub', 'quick', 'named'] as const;
@@ -171,6 +202,7 @@ function PhoneTunnel() {
     onError: (err) => toast.error(errorMessage(err)),
   });
   const on = !!tunnel?.enabled && !!st?.enabled;
+  const [confirming, setConfirming] = useState(false);
   return (
     <SettingRow
       label={t('defaults.phone.tunnelLabel')}
@@ -183,10 +215,19 @@ function PhoneTunnel() {
           disabled={save.isPending || !st}
           checked={on}
           // Turning it on turns chatting from a phone on too: the tunnel only runs with it.
-          onCheckedChange={(next) => save.mutate(next ? { enabled: true, tunnel: true } : { tunnel: false })}
+          onCheckedChange={(next) => {
+            if (next && !st?.enabled) setConfirming(true);
+            else save.mutate(next ? { enabled: true, tunnel: true } : { tunnel: false });
+          }}
         />
       }
     >
+      <ServeConfirm
+        open={confirming}
+        onOpenChange={setConfirming}
+        port={st?.port ?? 7780}
+        onConfirm={() => save.mutateAsync({ enabled: true, tunnel: true })}
+      />
       {tunnel && (on || editing) && (
         <div className="grid gap-3">
           {on && (

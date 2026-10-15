@@ -1240,6 +1240,15 @@ func (s *Store) migrate(ctx context.Context) error {
 			return fmt.Errorf("migration %d: %w", i+1, err)
 		}
 	}
+	// Version 0 is a database made just now: only it gets the fresh-install
+	// settings (freshInstallSettings), so an upgrade keeps what it has.
+	if version == 0 {
+		for _, kv := range freshInstallSettings {
+			if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)`, kv[0], kv[1]); err != nil {
+				return err
+			}
+		}
+	}
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", len(migrations))); err != nil {
 		return err
 	}

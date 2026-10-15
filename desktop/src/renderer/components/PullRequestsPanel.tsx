@@ -523,7 +523,7 @@ function PullRequestRow({
         )}
         <span className="ml-auto text-faint">{pr.updatedAt && timeAgo(pr.updatedAt)}</span>
         {canMerge && (
-          <Button size="sm" variant="ghost" disabled={mergeRunning} onClick={onMerge} data-merge-running={mergeRunning || undefined}>
+          <Button size="sm" variant="ghost" disabled={mergeRunning || pr.checks === 'failing'} title={pr.checks === 'failing' ? t('review.mergeBlocked.failing') : undefined} onClick={onMerge} data-merge-running={mergeRunning || undefined}>
             {mergeRunning ? <LoaderCircle className="size-3.5 animate-spin" /> : <GitMerge className="size-3.5" />}
             {t('memory.pulls.merge')}
           </Button>

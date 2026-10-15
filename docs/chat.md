@@ -84,8 +84,8 @@ table shape and how it's read back.
 
 ## Compaction
 
-A Claude Code chat compacts once its session nears the installation's compact window — 200,000
-tokens by default (`ClaudeShortWindow`, `internal/state/contextwindow.go`), because every model
+A Claude Code chat compacts once its session nears the installation's compact window — 500,000
+tokens by default (`DefaultClaudeCompactWindow`, `internal/state/settings.go`), because every model
 call resends the whole conversation. A project's `rollover_threshold` (`state.go`, default 80%)
 sets how full a session gets, measured against `context_tokens` on the ledger, before AgentBox
 rolls it over into a fresh session rather than letting the tool's own compaction kick in.
