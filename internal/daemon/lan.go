@@ -689,7 +689,7 @@ func (s *Server) lanAPI(w http.ResponseWriter, r *http.Request, addr string) {
 	case route.scope == "":
 		writeLANError(w, http.StatusForbidden, fmt.Sprintf("%s %s works in the app on your computer, not from a phone", r.Method, path))
 		return
-	case !p.Can(route.scope):
+	case !route.allows(p):
 		writeLANError(w, http.StatusForbidden, fmt.Sprintf("this phone may not %s: allow it under Phone in AgentBox's settings on your computer", lanScopeVerb[route.scope]))
 		return
 	}
@@ -751,7 +751,7 @@ func (s *Server) auditPhone(ctx context.Context, p state.Phone, route lanRoute, 
 	}
 	result := "ok"
 	switch {
-	case route.never != "" || route.scope == "" || !p.Can(route.scope) || status == http.StatusPreconditionRequired:
+	case route.never != "" || route.scope == "" || !route.allows(p) || status == http.StatusPreconditionRequired:
 		result = "refused"
 	case status >= 400:
 		result = "failed"
@@ -792,6 +792,12 @@ func (w *statusRecorder) Unwrap() http.ResponseWriter { return w.ResponseWriter 
 type lanRoute struct {
 	never string
 	scope string
+	or    string // another scope that allows it, if any
+}
+
+// allows says p may make a request of route's.
+func (r lanRoute) allows(p state.Phone) bool {
+	return r.scope != "" && (p.Can(r.scope) || r.or != "" && p.Can(r.or))
 }
 
 // lanNever is refused to every phone, whatever its scopes: what hands over
@@ -816,21 +822,26 @@ var lanNever = []struct {
 var lanWrites = []struct {
 	scope string
 	re    *regexp.Regexp
+	or    string
 }{
-	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/(projects/[^/]+|agents/[^/]+/[^/]+)/chat/(start|messages|cancel|reload|permissions/[^/]+)$`)},
-	{state.PhoneScopeChat, regexp.MustCompile(`^PUT /v1/(projects/[^/]+|agents/[^/]+/[^/]+)/chat/options/[^/]+$`)},
-	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/projects/[^/]+/chat/cache$`)},
-	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/agents/[^/]+/[^/]+/(start|resume)$`)},
-	{state.PhoneScopeAnswer, regexp.MustCompile(`^POST /v1/projects/[^/]+/questions/[^/]+/answer$`)},
-	{state.PhoneScopeMerge, regexp.MustCompile(`^POST /v1/projects/[^/]+/pulls/[0-9]+/merge$`)},
-	{state.PhoneScopeRead, regexp.MustCompile(`^POST /v1/usage-stats/[^/]+$`)},
+	// An agent's permission request is answered from its own chat, or from
+	// the card its lead's chat shows (leadpermissions.go): what the agent
+	// asks, like a question.
+	{state.PhoneScopeAnswer, regexp.MustCompile(`^POST /v1/agents/[^/]+/[^/]+/chat/permissions/[^/]+$`), state.PhoneScopeChat},
+	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/(projects/[^/]+|agents/[^/]+/[^/]+)/chat/(start|messages|cancel|reload|permissions/[^/]+)$`), ""},
+	{state.PhoneScopeChat, regexp.MustCompile(`^PUT /v1/(projects/[^/]+|agents/[^/]+/[^/]+)/chat/options/[^/]+$`), ""},
+	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/projects/[^/]+/chat/cache$`), ""},
+	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/agents/[^/]+/[^/]+/(start|resume)$`), ""},
+	{state.PhoneScopeAnswer, regexp.MustCompile(`^POST /v1/projects/[^/]+/questions/[^/]+/answer$`), ""},
+	{state.PhoneScopeMerge, regexp.MustCompile(`^POST /v1/projects/[^/]+/pulls/[0-9]+/merge$`), ""},
+	{state.PhoneScopeRead, regexp.MustCompile(`^POST /v1/usage-stats/[^/]+$`), ""},
 }
 
 // lanScopeVerb is what each scope lets a phone do, for saying it may not.
 var lanScopeVerb = map[string]string{
 	state.PhoneScopeRead:   "read what AgentBox shows",
 	state.PhoneScopeChat:   "chat",
-	state.PhoneScopeAnswer: "answer agents' questions",
+	state.PhoneScopeAnswer: "answer agents' questions and permission requests",
 	state.PhoneScopeMerge:  "merge pull requests",
 }
 
@@ -849,7 +860,7 @@ func lanRouteOf(method, path string) lanRoute {
 	}
 	for _, wr := range lanWrites {
 		if wr.re.MatchString(line) {
-			return lanRoute{scope: wr.scope}
+			return lanRoute{scope: wr.scope, or: wr.or}
 		}
 	}
 	return lanRoute{}

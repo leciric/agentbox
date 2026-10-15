@@ -377,6 +377,19 @@ function turnsOf(items: T.ChatItem[]): Turn[] {
   return turns;
 }
 
+// agentPermissionState is where one of its agents' permission requests a
+// lead's chat shows (T.ChatAgentPermission) stands: waiting, answered one way
+// or the other, or given up with the agent's turn.
+export type AgentPermissionState = 'waiting' | 'approved' | 'approvedAlways' | 'denied' | 'gone';
+
+export function agentPermissionState(p: T.ChatPermission): AgentPermissionState {
+  if (!p.outcome) return 'waiting';
+  const kind = p.options.find((o) => o.id === p.outcome)?.kind;
+  if (!kind) return 'gone';
+  if (kind.startsWith('reject')) return 'denied';
+  return kind === 'allow_always' ? 'approvedAlways' : 'approved';
+}
+
 export const isWork = (it: T.ChatItem) => it.kind === 'tool' || it.kind === 'thought' || (it.kind === 'permission' && !!it.permission?.outcome);
 // A compaction's card ([D73]) reads like a notice: it marks where the session
 // changed, so a settled turn's fold never hides it.

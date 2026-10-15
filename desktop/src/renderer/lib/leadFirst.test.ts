@@ -62,17 +62,33 @@ test('projectRows opens what the filters narrow to and hides the rest', () => {
   ];
   const label = (p: T.Project) => p.displayName;
   // No filters: every project, folded unless expanded.
-  let out = projectRows(projects, rows, noFilters, new Set(['q']), label);
+  let out = projectRows(projects, rows, noFilters, new Map([['q', true]]), label);
   assert.deepEqual(out.map((p) => [p.project.name, p.open, p.all.length]), [['p', false, 2], ['q', true, 1]]);
   // A state opens the projects with a match and drops the others.
-  out = projectRows(projects, rows, { ...noFilters, st: ['review'] }, new Set(), label);
+  out = projectRows(projects, rows, { ...noFilters, st: ['review'] }, new Map(), label);
   assert.deepEqual(out.map((p) => [p.project.name, p.open, p.shown.length]), [['p', true, 1]]);
   // A project filter only hides the other projects.
-  out = projectRows(projects, rows, { ...noFilters, projects: ['q'] }, new Set(), label);
+  out = projectRows(projects, rows, { ...noFilters, projects: ['q'] }, new Map(), label);
   assert.deepEqual(out.map((p) => [p.project.name, p.open]), [['q', false]]);
   // A search matching a project's name keeps it, even with no agent matching.
-  out = projectRows(projects, rows, { ...noFilters, q: 'quill' }, new Set(), label);
+  out = projectRows(projects, rows, { ...noFilters, q: 'quill' }, new Map(), label);
   assert.deepEqual(out.map((p) => p.project.name), ['q']);
+});
+
+test('projectRows opens a project with an agent waiting on a permission, until the user closes it', () => {
+  const projects = [{ name: 'p', displayName: 'Pawly' }, { name: 'q', displayName: 'Quill' }] as T.Project[];
+  const rows: Row[] = [
+    { agent: agent('a1', { chat: 'waiting' }), st: 'needs' },
+    { agent: agent('a2', { chat: 'waiting' }), st: 'needs' },
+    { agent: agent('b1', { project: 'q', chat: 'running' }), st: 'working' },
+  ];
+  const label = (p: T.Project) => p.displayName;
+  let out = projectRows(projects, rows, noFilters, new Map(), label);
+  assert.deepEqual(out.map((p) => [p.project.name, p.open, p.approvals]), [['p', true, 2], ['q', false, 0]]);
+  out = projectRows(projects, rows, noFilters, new Map([['p', false]]), label);
+  assert.deepEqual(out.map((p) => [p.project.name, p.open, p.approvals]), [['p', false, 2], ['q', false, 0]]);
+  // They are among its asks.
+  assert.equal(countSt(out[0].all.map((r) => r.st)).needs, 2);
 });
 
 test('done agents fold into one line unless a filter or the user asks for them', () => {

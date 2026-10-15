@@ -40,6 +40,11 @@ export function agentSt(a: T.Agent, ctx: StContext): AgentSt {
   return 'done';
 }
 
+// awaitsApproval is whether the agent's AI tool waits on the user's
+// permission in its chat: one of the 'needs', and the one its lead's chat
+// shows as a card to answer there.
+export const awaitsApproval = (a: Pick<T.Agent, 'chat'>) => a.chat === 'waiting';
+
 export type Counts = Record<AgentSt, number>;
 
 export function countSt(sts: readonly AgentSt[]): Counts {
@@ -90,14 +95,25 @@ export type ProjectRows = {
   all: Row[];
   // The ones the filters let through, sorted.
   shown: Row[];
-  // Whether its agents' list is open: by the user, or by filters narrowing.
+  // Whether its agents' list is open: by the user, or by filters narrowing,
+  // or, until the user says otherwise, by an agent waiting on a permission.
   open: boolean;
+  // How many of its agents wait on the user's permission (awaitsApproval).
+  approvals: number;
 };
 
 // projectRows is the sidebar's list of projects, in the order given, each
 // with its agents, under the filters. A project the filters narrow to nothing
-// is left out, unless the search matches its own name.
-export function projectRows(projects: readonly T.Project[], rows: readonly Row[], f: Filters, expanded: ReadonlySet<string>, label: (p: T.Project) => string): ProjectRows[] {
+// is left out, unless the search matches its own name. expanded is what the
+// user opened (true) or closed (false); a project they haven't is open when
+// one of its agents waits on a permission, so the request is in view.
+export function projectRows(
+  projects: readonly T.Project[],
+  rows: readonly Row[],
+  f: Filters,
+  expanded: ReadonlyMap<string, boolean>,
+  label: (p: T.Project) => string,
+): ProjectRows[] {
   const narrow = narrowing(f);
   const q = f.q.trim().toLowerCase();
   const out: ProjectRows[] = [];
@@ -107,7 +123,8 @@ export function projectRows(projects: readonly T.Project[], rows: readonly Row[]
     const all = rows.filter((r) => r.agent.project === project.name);
     const shown = sortRows(all.filter((r) => matches(r, f, name)));
     if (narrow && shown.length === 0 && !(q && f.st.length === 0 && name.toLowerCase().includes(q))) continue;
-    out.push({ project, all, shown, open: narrow ? shown.length > 0 : expanded.has(project.name) });
+    const approvals = all.filter((r) => awaitsApproval(r.agent)).length;
+    out.push({ project, all, shown, open: narrow ? shown.length > 0 : (expanded.get(project.name) ?? approvals > 0), approvals });
   }
   return out;
 }

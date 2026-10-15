@@ -6,6 +6,7 @@ import { AgentRail } from "./components/AgentRail";
 import { AgentView } from "./components/AgentView";
 import { openSettingsEvent, openSettingsSection, rememberSection } from "./components/SettingsPage";
 import { openProjectEvent } from "./components/chat/ProjectMessageCard";
+import { openAgentEvent } from "./components/chat/AgentPermissionCard";
 import { isSearchShortcut, SearchModal } from "./components/SearchModal";
 import { openSearch, toggleSearch } from "./lib/searchOpen";
 import { ErrorReports } from "./components/ErrorReports";
@@ -172,6 +173,16 @@ export function App({ initial }: { initial?: View } = {}) {
     };
     window.addEventListener(openProjectEvent, open);
     return () => window.removeEventListener(openProjectEvent, open);
+  }, []);
+
+  // A link from a project's chat to one of its agents, on its permission request.
+  useEffect(() => {
+    const open = (e: Event) => {
+      setView({ kind: "agent", ref: (e as CustomEvent<string>).detail, tab: "chat" });
+      setNavOpen(false);
+    };
+    window.addEventListener(openAgentEvent, open);
+    return () => window.removeEventListener(openAgentEvent, open);
   }, []);
 
   // Leave an agent's view once the agent is gone, destroyed here or from the CLI.

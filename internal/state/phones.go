@@ -61,7 +61,8 @@ const (
 	// PhoneScopeChat sends messages, cancels a turn, answers a chat's
 	// permission requests and starts an agent's chat.
 	PhoneScopeChat = "chat"
-	// PhoneScopeAnswer answers the questions agents ask.
+	// PhoneScopeAnswer answers the questions agents ask, and their AI tools'
+	// permission requests (which "chat" answers too).
 	PhoneScopeAnswer = "answer"
 	// PhoneScopeMerge merges pull requests. Never given at pairing: the user
 	// turns it on for a phone in the app on the computer.

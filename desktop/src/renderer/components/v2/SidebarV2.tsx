@@ -8,7 +8,7 @@
 // The reading is lib/leadFirst.ts's.
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Archive, Check, ChevronRight, CircleArrowUp, FolderPlus, House, Images, ListChecks, ListFilter, LoaderCircle, Plus, RefreshCw, Search, Settings, X } from 'lucide-react';
+import { Archive, Check, ChevronRight, CircleArrowUp, FolderPlus, House, Images, ListChecks, ListFilter, LoaderCircle, Plus, RefreshCw, Search, Settings, ShieldAlert, X } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 import * as A from '../../../shared/api';
 import type * as T from '../../../shared/api';
@@ -16,7 +16,7 @@ import type { View } from '../../App';
 import { api } from '../../lib/api';
 import { useT, type MessageKey } from '../../lib/i18n';
 import { pageItems, useQuestions, useReviewHead } from '../../lib/inboxPages';
-import { agentSt, attention, countSt, filterCount, foldDone, leadLine, narrowing, noFilters, projectRows, stOrder, toggle, type AgentSt, type Filters, type Row } from '../../lib/leadFirst';
+import { agentSt, attention, awaitsApproval, countSt, filterCount, foldDone, leadLine, narrowing, noFilters, projectRows, stOrder, toggle, type AgentSt, type Filters, type Row } from '../../lib/leadFirst';
 import { projectLabel } from '../../lib/projectName';
 import { useReviewing } from '../../lib/reviewAlert';
 import { buildLists } from '../../lib/sidebar';
@@ -62,7 +62,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   const head = useReviewHead(reviewing);
   const questions = useQuestions();
   const [filters, setFilters] = useState<Filters>(noFilters);
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const [expanded, setExpanded] = useState<ReadonlyMap<string, boolean>>(new Map());
   const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set());
   const running = jobs.data?.filter((j) => j.status === 'running').length ?? 0;
   const [menuOpen, setMenuOpen] = useState(false);
@@ -110,29 +110,26 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
             {t('shell.sidebar.addFirst')}
           </button>
         )}
-        {list.map((p) => (
-          <ProjectLead
-            key={p.project.name}
-            project={p.project}
-            all={p.all}
-            shown={p.shown}
-            open={p.open || (!narrow && currentProject === p.project.name)}
-            filters={filters}
-            view={view}
-            unfolded={unfolded.has(p.project.name)}
-            onUnfold={() => setUnfolded((s) => new Set(s).add(p.project.name))}
-            onToggle={() =>
-              setExpanded((s) => {
-                const next = new Set(s);
-                if (next.has(p.project.name)) next.delete(p.project.name);
-                else next.add(p.project.name);
-                return next;
-              })
-            }
-            onSelect={onSelect}
-            onNewAgent={onNewAgent}
-          />
-        ))}
+        {list.map((p) => {
+          const open = p.open || (!narrow && currentProject === p.project.name);
+          return (
+            <ProjectLead
+              key={p.project.name}
+              project={p.project}
+              all={p.all}
+              shown={p.shown}
+              approvals={p.approvals}
+              open={open}
+              filters={filters}
+              view={view}
+              unfolded={unfolded.has(p.project.name)}
+              onUnfold={() => setUnfolded((s) => new Set(s).add(p.project.name))}
+              onToggle={() => setExpanded((s) => new Map(s).set(p.project.name, !open))}
+              onSelect={onSelect}
+              onNewAgent={onNewAgent}
+            />
+          );
+        })}
         {(hidden > 0 || (narrow && list.length === 0)) && projects.data && projects.data.length > 0 && (
           <div className="mx-2 mt-2 flex items-center gap-1.5 rounded-md border border-dashed border-line px-2.5 py-1.5 text-[11.5px] text-subtle" data-v2-hidden={hidden}>
             {list.length === 0 ? t('v2.sidebar.nothingMatches') : t('v2.sidebar.hidden', { count: hidden })}
@@ -383,6 +380,7 @@ function ProjectLead({
   project,
   all,
   shown,
+  approvals,
   open,
   filters,
   view,
@@ -395,6 +393,7 @@ function ProjectLead({
   project: T.Project;
   all: Row[];
   shown: Row[];
+  approvals: number;
   open: boolean;
   filters: Filters;
   view: View;
@@ -442,6 +441,13 @@ function ProjectLead({
           <span className="block truncate text-[11.5px] text-subtle" data-v2-lead-line>
             {line ? (line.mine ? t('v2.sidebar.you', { text: line.text }) : line.text) : t('v2.sidebar.leadHint')}
           </span>
+          {/* Its agents' permission requests wait in this chat too, as cards. */}
+          {approvals > 0 && (
+            <span className="mt-1 flex items-center gap-1 text-[10.5px] font-medium tabular-nums text-amber-300" data-v2-approvals={approvals}>
+              <ShieldAlert className="size-3 shrink-0" />
+              {t('v2.sidebar.approvals', { count: approvals })}
+            </span>
+          )}
           {!open && all.length > 0 && (
             <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10.5px] tabular-nums" data-v2-counts>
               {countKeys.map(({ st, key }) =>
@@ -504,7 +510,11 @@ function AgentRow({ row, active, onClick }: { row: Row; active: boolean; onClick
     >
       <StMark st={st} className="size-[7px]" />
       <span className={cn('min-w-0 flex-1 truncate text-[12px]', active ? 'text-title' : st === 'done' ? 'text-subtle' : 'text-secondary', !agent.title && 'font-mono text-[11.5px]')}>{agent.title || agent.name}</span>
-      {attention(st) && <span className="shrink-0 text-[10.5px] text-subtle">{t(st === 'needs' ? 'v2.tag.asks' : 'v2.tag.failed')}</span>}
+      {attention(st) && (
+        <span className="shrink-0 text-[10.5px] text-subtle" data-v2-tag>
+          {t(st === 'error' ? 'v2.tag.failed' : awaitsApproval(agent) ? 'v2.tag.approval' : 'v2.tag.asks')}
+        </span>
+      )}
       {agent.changesRequested && st === 'working' && <span className="shrink-0 text-[10.5px] text-subtle">{t('v2.tag.changes')}</span>}
     </button>
   );
