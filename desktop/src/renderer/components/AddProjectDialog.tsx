@@ -342,9 +342,9 @@ function AccountRow({
   const id = `project-${label.replace(/\W+/g, '-').toLowerCase()}-account`;
   return (
     <div className="grid min-w-0 grid-cols-[9rem_minmax(0,1fr)] items-start gap-x-3 gap-y-0.5" data-account-row={tool}>
-      <label htmlFor={id} className="flex min-w-0 items-center gap-1.5 pt-1.5 text-[13px] text-secondary">
-        {tool === 'github' ? <GitPullRequest className="size-3.5 shrink-0 text-subtle" /> : <AIIcon ai={tool} className="size-3.5 shrink-0 text-subtle" />}
-        <span className="truncate">{label}</span>
+      <label htmlFor={id} className="flex min-w-0 items-start gap-1.5 pt-1.5 text-[13px] leading-snug text-secondary">
+        {tool === 'github' ? <GitPullRequest className="mt-0.5 size-3.5 shrink-0 text-subtle" /> : <AIIcon ai={tool} className="mt-0.5 size-3.5 shrink-0 text-subtle" />}
+        <span className="min-w-0 break-words">{label}</span>
       </label>
       <div className="grid min-w-0 gap-0.5">
         {accounts.length > 0 ? (

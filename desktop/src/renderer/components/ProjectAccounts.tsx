@@ -473,11 +473,11 @@ export function ToolAccountState({ accounts, chosen, inline }: { accounts: T.Too
   }
   return (
     <span
-      className={cn('flex min-w-0 items-center gap-1.5 text-[12px]', !inline && 'mt-1', tone === 'warning' ? 'text-amber-300' : 'text-subtle')}
+      className={cn('flex min-w-0 items-start gap-1.5 text-[12px] leading-snug', !inline && 'mt-1', tone === 'warning' ? 'text-amber-300' : 'text-subtle')}
       data-account-state={tone}
     >
-      <span className={cn('size-1.5 shrink-0 rounded-full', tone === 'ok' ? 'bg-emerald-400' : tone === 'warning' ? 'bg-amber-400' : 'bg-faint')} />
-      <span className="min-w-0 truncate">{text}</span>
+      <span className={cn('mt-[5px] size-1.5 shrink-0 rounded-full', tone === 'ok' ? 'bg-emerald-400' : tone === 'warning' ? 'bg-amber-400' : 'bg-faint')} />
+      <span className="min-w-0 break-words">{text}</span>
     </span>
   );
 }
@@ -503,9 +503,9 @@ export function ClaudeAccountState({ chosen }: { chosen: string }) {
   if (used !== null) parts.push(t('project.accounts.usage', { percent: Math.round(used * 100) }));
   const rejected = on.valid === 'rejected';
   return (
-    <span className={cn('mt-1 flex min-w-0 items-center gap-1.5 text-[12px]', rejected ? 'text-amber-300' : 'text-subtle')} data-account-state={rejected ? 'warning' : 'ok'}>
-      <span className={cn('size-1.5 shrink-0 rounded-full', rejected ? 'bg-amber-400' : 'bg-emerald-400')} />
-      <span className="min-w-0 truncate">{rejected ? t('project.accounts.rejectedState', { account: on.name }) : parts.join(' · ')}</span>
+    <span className={cn('mt-1 flex min-w-0 items-start gap-1.5 text-[12px] leading-snug', rejected ? 'text-amber-300' : 'text-subtle')} data-account-state={rejected ? 'warning' : 'ok'}>
+      <span className={cn('mt-[5px] size-1.5 shrink-0 rounded-full', rejected ? 'bg-amber-400' : 'bg-emerald-400')} />
+      <span className="min-w-0 break-words">{rejected ? t('project.accounts.rejectedState', { account: on.name }) : parts.join(' · ')}</span>
     </span>
   );
 }
