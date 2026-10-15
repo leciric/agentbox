@@ -41,7 +41,8 @@
 //                           readable, with Start (Resume) on the composer.
 //                           Start, or sending a message, wakes it after 1.5s
 //   ?chat=rich              a project chat's answer with each kind of rich block
-//                           (lib/rich.ts); &narrow=1 in a 340px column
+//                           (lib/rich.ts); &narrow=1 in a 340px column; &wide=1 in the
+//                           chat's scroller (&files=1 beside a 340px panel)
 //   ?chat=compaction        a project chat's timeline with compaction cards,
 //                           done, failed and running with a held message
 //   ?wsl=create|nowsl       Windows' first screen before setup: the distro to
@@ -749,6 +750,17 @@ function Preview() {
         ) : chat === 'stopped' || chat === 'paused' ? (
           <div style={{ height: '100%', margin: -24 }}>
             <AsleepChatPreview state={chat} agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-99`)!} />
+          </div>
+        ) : chat === 'rich' && params.get('wide') ? (
+          // The chat's own scroller and column, to see the blocks break out of the
+          // text; &files=1 beside a 340px panel, as with the Files panel open.
+          <div style={{ display: 'flex', height: '100%', margin: -24 }} data-rich-preview>
+            <div className="chat-scroller" style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
+              <div className="mx-auto w-full max-w-4xl px-4 pt-6 md:px-6">
+                <Timeline agent={{ ...fixtures.agents[0], ref: `${PROJECT}/lead`, name: 'lead' }} thread={richChat()} />
+              </div>
+            </div>
+            {params.get('files') && <div style={{ width: 340, flexShrink: 0, borderLeft: '1px solid var(--ab-line)' }} />}
           </div>
         ) : chat === 'rich' ? (
           <div style={{ maxWidth: params.get('narrow') ? 340 : 720 }} data-rich-preview>
