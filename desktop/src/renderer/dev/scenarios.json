@@ -477,6 +477,55 @@
     "height": 1700
   },
   {
+    "id": "settings-notifications-whole-dark",
+    "description": "Settings open at Notifications, tall enough to show every row of the section, to read its labels and descriptions — dark",
+    "query": "settings=notifications&theme=dark",
+    "width": 1280,
+    "height": 1100
+  },
+  {
+    "id": "settings-skills-whole-dark",
+    "description": "Settings open at Skills, tall enough to show every row of the section, to read its labels and descriptions — dark",
+    "query": "settings=skills&theme=dark",
+    "width": 1280,
+    "height": 1300
+  },
+  {
+    "id": "settings-connectors-whole-dark",
+    "description": "Settings open at Connectors, tall enough to show every row of the section, to read its labels and descriptions — dark",
+    "query": "settings=connectors&theme=dark",
+    "width": 1280,
+    "height": 1300
+  },
+  {
+    "id": "settings-memory-whole-dark",
+    "description": "Settings open at Memory, tall enough to show every row of the section, to read its labels and descriptions — dark",
+    "query": "settings=memory&theme=dark",
+    "width": 1280,
+    "height": 1300
+  },
+  {
+    "id": "settings-setup-whole-dark",
+    "description": "Settings open at Setup, tall enough to show every row of the section, to read its labels and descriptions — dark",
+    "query": "settings=setup&theme=dark",
+    "width": 1280,
+    "height": 2200
+  },
+  {
+    "id": "settings-experimental-whole-dark",
+    "description": "Settings open at Experimental, tall enough to show every row of the section, to read its labels and descriptions — dark",
+    "query": "settings=experimental&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "settings-general-whole-light",
+    "description": "Settings open at General, tall enough to show every row of the section, to read its labels and descriptions — light",
+    "query": "settings=general&theme=light",
+    "width": 1280,
+    "height": 1500
+  },
+  {
     "id": "settings-project-whole-dark",
     "description": "Settings open at a project's own settings, tall enough to show every row of the section, to read its labels and descriptions — dark",
     "query": "settings=project:agentbox&theme=dark",
@@ -1443,7 +1492,7 @@
   },
   {
     "id": "window-wide-v2-overview-dark",
-    "description": "UI v2 at 1920×1080, Overview as a section of Settings next to General, with its project filter — dark",
+    "description": "UI v2 at 1920×1080, Overview, a page of its own opened from the sidebar's foot, with its project filter — dark",
     "query": "app=home&v2=1&theme=dark",
     "width": 1920,
     "height": 1080
@@ -1488,12 +1537,25 @@
     "height": 1920
   },
   {
-    "id": "window-wide-v2-settings-menu-dark",
-    "description": "UI v2 at 1920×1080, Settings' popover open from the sidebar's foot: the environment switcher, then Settings, Overview, Media and Jobs, with only Past agents beside it — dark",
+    "id": "window-wide-v2-foot-dark",
+    "description": "UI v2 at 1920×1080 on the project: the sidebar's foot names Overview, Past agents, Media and Jobs, then the environment switcher, and Settings beside the update check — dark",
     "query": "app=project&v2=1&theme=dark",
     "width": 1920,
-    "height": 1080,
-    "click": "[data-v2-settings-menu]"
+    "height": 1080
+  },
+  {
+    "id": "window-wide-v2-settings-dark",
+    "description": "UI v2 at 1920×1080 on Settings, opened straight from the gear at the sidebar's foot — dark",
+    "query": "app=settings&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "window-1440-v2-settings-light",
+    "description": "UI v2 at 1440×900 on Settings — light",
+    "query": "app=settings&v2=1&theme=light",
+    "width": 1440,
+    "height": 900
   },
   {
     "id": "window-wide-v2-panel-files-dark",

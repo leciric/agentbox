@@ -1,5 +1,5 @@
 // ProjectFilter is the project picker atop v2's Overview and Past agents,
-// sections of Settings that are global: every project, or one.
+// the pages for every project: every project, or one.
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../lib/api';
 import { useT } from '../../lib/i18n';

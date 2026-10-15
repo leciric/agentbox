@@ -38,6 +38,9 @@ export type SettingSection = {
   // description is what the section holds, in one line under its title.
   description: ReactNode;
   scope: 'installation' | 'project';
+  // nav is the heading the section sits under in the sidebar: the sections
+  // that share one follow each other, and the first few have none.
+  nav?: string;
   groups: SettingGroup[];
   // attention is how many things in it want a look, badged in the sidebar.
   attention?: number;
@@ -45,9 +48,6 @@ export type SettingSection = {
   // it's open, and never in a search.
   header?: ReactNode;
   footer?: ReactNode;
-  // page, when set, is a whole page drawn in its place, full width, with no
-  // groups to search: v2's Overview, Media and Past agents.
-  page?: () => ReactNode;
 };
 
 // changedToken finds the settings that are set to something other than their

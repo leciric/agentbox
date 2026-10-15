@@ -12,9 +12,11 @@ import { noticeSeen } from '../lib/errorNotice';
 
 // The Settings page once setup is done: a sidebar of sections, one open at a
 // time, with a search across all of them above it. The installation's own
-// sections come first — what applies to every project on this machine — then
-// each project's, the way Linear puts a workspace's settings above its teams'
-// and Zed keeps user settings apart from a project's. Which section holds what
+// sections come first — what applies to every project on this machine, under
+// a few plain headings — then each project's, the way Linear puts a
+// workspace's settings above its teams' and Zed keeps user settings apart from
+// a project's. Only settings live here: places such as Overview, Media and
+// Past agents have their own entries in the app's sidebar. Which section holds what
 // is SettingsView's to say (InstalledSettings); this is how it's drawn and
 // searched.
 //
@@ -41,27 +43,9 @@ export function openSettingsSection(id: string): void {
   window.dispatchEvent(new CustomEvent(openSettingsEvent, { detail: id }));
 }
 
-// section, when given, is the section to open, and onSection hears which the
-// user picks: v2 keeps its Overview, Media and Past agents views here, so a
-// link to one of them opens its section.
-export function SettingsPage({
-  sections,
-  icons,
-  error,
-  section,
-  onSection,
-}: {
-  sections: SettingSection[];
-  icons: SectionIcons;
-  error?: string;
-  section?: string;
-  onSection?: (id: string) => void;
-}) {
+export function SettingsPage({ sections, icons, error }: { sections: SettingSection[]; icons: SectionIcons; error?: string }) {
   const t = useT();
-  const [stored, setStored] = useState(() => section ?? localStorage.getItem(sectionKey) ?? '');
-  useEffect(() => {
-    if (section) setStored(section);
-  }, [section]);
+  const [stored, setStored] = useState(() => localStorage.getItem(sectionKey) ?? '');
   // Opening Settings is as good as being told error reports are on.
   const queryClient = useQueryClient();
   useEffect(() => noticeSeen(queryClient), [queryClient]);
@@ -74,7 +58,6 @@ export function SettingsPage({
   const select = (id: string) => {
     localStorage.setItem(sectionKey, id);
     setStored(id);
-    onSection?.(id);
     setQuery('');
     main.current?.scrollTo({ top: 0 });
   };
@@ -216,8 +199,20 @@ export function SettingsPage({
             aria-label={t('settings.page.sections')}
             className="-mx-3 flex gap-1 overflow-x-auto px-3 pb-0.5 [mask-image:linear-gradient(to_right,black_calc(100%-3rem),transparent)] [scrollbar-width:none] @3xl:mx-0 @3xl:grid @3xl:gap-0.5 @3xl:overflow-visible @3xl:px-0 @3xl:[mask-image:none]"
           >
-            <NavLabel>{t('settings.page.installation')}</NavLabel>
-            {installation.map(navItem)}
+            {installation.map((section, i) => {
+              const heading = section.nav !== installation[i - 1]?.nav && section.nav;
+              return (
+                <Fragment key={section.id}>
+                  {heading && (
+                    <>
+                      <span className="mx-1 w-px shrink-0 self-stretch bg-line @3xl:hidden" aria-hidden />
+                      <NavLabel className="@3xl:mt-4">{heading}</NavLabel>
+                    </>
+                  )}
+                  {navItem(section)}
+                </Fragment>
+              );
+            })}
             {projects.length > 0 && (
               <>
                 <span className="mx-1 w-px shrink-0 self-stretch bg-line @3xl:hidden" aria-hidden />
@@ -229,11 +224,6 @@ export function SettingsPage({
         </aside>
 
         <main ref={main} className="min-h-0 min-w-0 flex-1 overflow-y-auto" data-settings-main>
-          {!searching && open?.page ? (
-            <div className="h-full" data-settings-section={open.id}>
-              {open.page()}
-            </div>
-          ) : (
           <div className="mx-auto max-w-3xl px-4 py-6 @3xl:px-8 @3xl:py-8">
             {error && <Notice className="mb-5">{error}</Notice>}
             {searching ? (
@@ -242,7 +232,6 @@ export function SettingsPage({
               open && <SectionView key={open.id} section={open} icon={icons[open.id] ?? FolderGit2} />
             )}
           </div>
-          )}
         </main>
       </div>
     </div>

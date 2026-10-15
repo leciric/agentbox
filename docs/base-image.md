@@ -62,7 +62,7 @@ its VM, on the agents' disk, so an image several agents use is downloaded and st
 by default, holds at most 20 GiB or an eighth of its disk, whichever is less (the least recently used
 images go first), and never fills the disk past its floor. A `--max` bigger than the disk can hold is
 capped, with a warning.
-Settings → Resources → "Share Docker images between agents" turns it off, changes its size, shows
+Settings → Storage and machine → "Share Docker images between agents" turns it off, changes its size, shows
 what it holds and empties it; so does `agentbox docker-cache [on|off] [--max 30GiB] [--clear]`.
 
 - Each agent's `/etc/docker/daemon.json` lists the cache in `registry-mirrors`, at
@@ -81,7 +81,7 @@ store, npm's cache and `npx`, Yarn 2+ (Berry), Go's module and build caches, pip
 package managers and Playwright's browsers. They're on the agents' disk, outlive the agents, are on
 by default, hold at most 20 GiB together or an eighth of their disk, whichever is less (what was used
 longest ago goes first), and never fill the disk past its floor.
-Settings → Resources → "Share package caches between agents" turns them off, changes their size,
+Settings → Storage and machine → "Share package caches between agents" turns them off, changes their size,
 shows what they hold and empties them; so does `agentbox package-cache [on|off] [--max 30GiB] [--clear]`.
 
 - They're mounted at `/var/cache/agentbox/packages` in every agent, and the agent's environment

@@ -15,18 +15,21 @@ import { Button } from './ui/button';
 import { Panel } from './ui/card';
 import { Skeleton } from './ui/skeleton';
 
-// project and filter are v2's, where Overview is a section of Settings with a
-// project filter (filter, drawn beside the title) narrowing its lists.
+// title, project and filter are v2's, where this page is Overview (Home is
+// the home chat there), with a project filter (filter, drawn beside the title)
+// narrowing its lists.
 export function HomeView({
   onSelect,
   onAddProject,
   onNewAgent,
+  title,
   project,
   filter,
 }: {
   onSelect: (view: View) => void;
   onAddProject: () => void;
   onNewAgent: () => void;
+  title?: string;
   project?: string;
   filter?: ReactNode;
 }) {
@@ -54,7 +57,7 @@ export function HomeView({
       <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-8">
         <div className="flex flex-wrap items-end gap-4">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-title">{t('shell.home.title')}</h1>
+            <h1 className="text-2xl font-semibold tracking-tight text-title">{title ?? t('shell.home.title')}</h1>
             {counted ? (
               <p className="mt-1 text-sm text-muted">
                 {t('shell.home.summary', { running, total: all.length, projects: projects.data.length })}

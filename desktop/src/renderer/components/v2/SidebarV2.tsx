@@ -12,7 +12,7 @@
 // lib/leadFirst.ts's and lib/projectOrder.ts's.
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowLeftRight, ArrowUpDown, Check, ChevronRight, CircleArrowUp, FolderOpen, FolderPlus, House, ListChecks, ListFilter, LoaderCircle, Pin, PinOff, Plus, RefreshCw, Search, Settings, ShieldAlert, Smile, SquarePen, X } from 'lucide-react';
+import { Archive, ArrowLeftRight, ArrowUpDown, Check, ChevronRight, CircleArrowUp, FolderOpen, FolderPlus, House, Images, LayoutDashboard, ListChecks, ListFilter, LoaderCircle, Pin, PinOff, Plus, RefreshCw, Search, Settings, ShieldAlert, Smile, SquarePen, X } from 'lucide-react';
 import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from 'react';
 import * as A from '../../../shared/api';
 import type * as T from '../../../shared/api';
@@ -44,9 +44,6 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
 import { Menu, MenuCheckboxItem, MenuContent, MenuLabel, MenuTrigger } from '../ui/menu';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Tip } from '../ui/tooltip';
-
-// The views Settings' popover opens, which light its icon up.
-const menuViews = new Set<View['kind']>(['settings', 'home', 'pastAgents', 'media', 'jobs']);
 
 const stLabel: Record<AgentSt, MessageKey> = {
   needs: 'v2.st.needs',
@@ -85,7 +82,6 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   const [dragging, setDragging] = useState<string | null>(null);
   const [drop, setDrop] = useState<{ name: string; edge: 'before' | 'after' } | null>(null);
   const running = jobs.data?.filter((j) => j.status === 'running').length ?? 0;
-  const [menuOpen, setMenuOpen] = useState(false);
 
   const rows: Row[] = useMemo(() => {
     const ctx = {
@@ -245,59 +241,68 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
         )}
       </nav>
 
-      {/* The foot is two icons: Settings, whose popover has the environment,
-          Settings and Jobs (Overview, Media and Past agents are sections of
-          Settings in v2), and the update check. The leads keep the room. */}
-      <div className="flex items-center gap-2 border-t border-line p-2">
-        <Popover open={menuOpen} onOpenChange={setMenuOpen}>
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              aria-label={t('common.settings')}
-              className={cn(
-                'relative flex size-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-surface hover:text-primary data-[state=open]:bg-surface data-[state=open]:text-title',
-                menuViews.has(view.kind) && 'bg-surface-raised text-title',
-              )}
-              data-v2-settings-menu
-            >
-              <Settings className="size-4" />
-              {((setup.data && !setup.data.ready) || running > 0) && (
-                <span
-                  className={cn('absolute right-1 top-1 size-1.5 rounded-full', setup.data && !setup.data.ready ? 'bg-amber-400' : 'bg-secondary')}
-                  aria-label={setup.data && !setup.data.ready ? t('shell.sidebar.needsAttention').toLowerCase() : undefined}
-                />
-              )}
-            </button>
-          </PopoverTrigger>
-          <PopoverContent side="top" align="start" className="grid w-[264px] gap-0.5 p-1.5" data-v2-settings-popover>
-            {/* Which AgentBox this window drives: this machine or a hub's. */}
-            <div className="px-1 pb-1.5 pt-0.5">
-              <EnvironmentSwitcher />
-            </div>
-            {(
-              [
-                { kind: 'settings', icon: Settings, label: t('common.settings'), hint: setup.data && !setup.data.ready ? t('shell.sidebar.needsAttention') : undefined },
-                { kind: 'jobs', icon: ListChecks, label: t('shell.nav.jobs'), hint: running > 0 ? t('shell.sidebar.running', { count: running }) : undefined },
-              ] as const
-            ).map(({ kind, icon: Icon, label, hint }) => (
+      {/* The foot holds the places that span every project, each with its
+          name — Overview, Past agents, Media and Jobs — then which AgentBox
+          this window drives, and Settings, which opens straight away, beside
+          the update check. The leads keep the room above. */}
+      <div className="grid gap-1.5 border-t border-line p-2" data-v2-foot>
+        <div className="grid grid-cols-2 gap-0.5">
+          {(
+            [
+              { kind: 'home', icon: LayoutDashboard, label: t('v2.sidebar.overview') },
+              { kind: 'pastAgents', icon: Archive, label: t('pastAgents.title') },
+              { kind: 'media', icon: Images, label: t('shell.nav.media') },
+              { kind: 'jobs', icon: ListChecks, label: t('shell.nav.jobs'), count: running },
+            ] as const
+          ).map(({ kind, icon: Icon, label, ...rest }) => {
+            const count = 'count' in rest ? rest.count : 0;
+            const active = view.kind === kind;
+            return (
               <button
                 key={kind}
                 type="button"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onSelect({ kind });
-                }}
-                className={cn('flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] text-secondary transition-colors hover:bg-surface-raised', view.kind === kind && 'bg-surface text-title')}
-                data-v2-menu={kind}
+                aria-current={active ? 'page' : undefined}
+                onClick={() => onSelect({ kind })}
+                className={cn(
+                  'flex min-w-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12.5px] text-muted transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50',
+                  active && 'bg-surface-raised text-title',
+                )}
+                data-v2-foot-item={kind}
               >
-                <Icon className="size-4 text-muted" />
-                {label}
-                {hint && <span className="ml-auto text-[11px] tabular-nums text-subtle">{hint}</span>}
+                <Icon className={cn('size-4 shrink-0', active ? 'text-brand-300' : 'text-subtle')} />
+                <span className="min-w-0 truncate">{label}</span>
+                {count > 0 && (
+                  <span className="ml-auto rounded-full bg-sky-400/15 px-1.5 text-[10.5px] tabular-nums text-sky-300" title={t('shell.sidebar.running', { count })}>
+                    {count}
+                  </span>
+                )}
               </button>
-            ))}
-          </PopoverContent>
-        </Popover>
-        <UpdateCheck />
+            );
+          })}
+        </div>
+        <EnvironmentSwitcher />
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            aria-current={view.kind === 'settings' ? 'page' : undefined}
+            onClick={() => onSelect({ kind: 'settings' })}
+            className={cn(
+              'flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] text-muted transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50',
+              view.kind === 'settings' && 'bg-surface-raised text-title',
+            )}
+            data-v2-settings
+          >
+            <Settings className={cn('size-4 shrink-0', view.kind === 'settings' ? 'text-brand-300' : 'text-subtle')} />
+            <span className="min-w-0 truncate">{t('common.settings')}</span>
+            {setup.data && !setup.data.ready && (
+              <span className="ml-auto flex items-center gap-1.5 text-[11px] text-amber-300 [:root[data-appearance=light]_&]:text-amber-700">
+                <span className="size-1.5 rounded-full bg-amber-400" aria-hidden />
+                {t('shell.sidebar.needsAttention')}
+              </span>
+            )}
+          </button>
+          <UpdateCheck />
+        </div>
       </div>
     </aside>
   );

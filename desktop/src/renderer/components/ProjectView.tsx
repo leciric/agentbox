@@ -124,7 +124,7 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
   const t = useT();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
-  // v2 has no tabs: Media and Past agents are sections of Settings, and Pull
+  // v2 has no tabs: Media and Past agents are pages the sidebar's foot opens, and Pull
   // requests and Settings are tabs of the right-hand panel, which a link to
   // them opens.
   const v2 = useUiV2();

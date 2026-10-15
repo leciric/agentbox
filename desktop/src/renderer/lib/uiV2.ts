@@ -1,4 +1,4 @@
-// "Try the new layout (v2)", Settings → General → Experimental: the
+// "Try the new layout (v2)", Settings → Experimental: the
 // lead-first layout (components/v2), off by default. It's how this app looks
 // on this computer, so it lives in localStorage beside the other display
 // settings (pageStackMode.ts), and the app switches as it changes, with no

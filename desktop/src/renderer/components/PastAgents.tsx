@@ -43,7 +43,7 @@ export function PastAgents({
 }: {
   project?: string;
   // filter is v2's project filter, beside the title of the page for every
-  // project (a section of Settings there); project is what it picked.
+  // project; project is what it picked.
   filter?: ReactNode;
   open?: string;
   onOpen: (ref: string | null) => void;

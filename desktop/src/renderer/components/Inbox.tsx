@@ -124,7 +124,7 @@ export function Inbox({ onOpen, onSelect, defaultOpen = false }: { onOpen: (n: T
                 data-inbox-dnd
                 onClick={() => {
                   setOpen(false);
-                  openSettingsSection('general');
+                  openSettingsSection('notifications');
                 }}
               >
                 <BellOff className="size-3" />
@@ -143,7 +143,7 @@ export function Inbox({ onOpen, onSelect, defaultOpen = false }: { onOpen: (n: T
               data-inbox-settings
               onClick={() => {
                 setOpen(false);
-                openSettingsSection('general');
+                openSettingsSection('notifications');
               }}
             >
               <Settings />

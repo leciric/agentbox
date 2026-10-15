@@ -97,7 +97,7 @@ other `agentbox` command runs in the VM, and until it's made says to run `agentb
 
 The VM starts with 4 GiB and takes more memory as its agents need it, up to its cap (three quarters
 of your memory by default), and gives it back as they stop; the top bar's **Free resources** stops
-every agent and turns the VM off. Settings → Resources changes its CPUs and cap, as does
+every agent and turns the VM off. Settings → Storage and machine changes its CPUs and cap, as does
 `agentbox vm resize`: a running VM changes at once, and its agents keep running. Your home folder is
 shared with the VM at the same path, so projects and agents' worktrees stay where they are.
 `agentbox vm delete --yes` removes it, and every agent's machine in it. Android emulators run in
