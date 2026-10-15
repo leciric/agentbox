@@ -224,6 +224,10 @@ func TestIncusWatchClearsOnceIncusAnswersAgain(t *testing.T) {
 	go func() { _ = srv.Serve(l) }()
 	t.Cleanup(func() { _ = srv.Close() })
 	t.Setenv("INCUS_SOCKET", l.Addr().String())
+	// The shared REST connection stays on the socket of the first run, which
+	// is gone by the next one (-count>1).
+	incus.Forget()
+	t.Cleanup(incus.Forget)
 	// Probe wants the incus command installed: the test daemon's fake is it.
 	t.Setenv("PATH", root+string(os.PathListSeparator)+os.Getenv("PATH"))
 

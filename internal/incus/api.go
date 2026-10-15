@@ -24,6 +24,15 @@ var shared struct {
 	server incusclient.InstanceServer
 }
 
+// Forget drops the shared connection, so the next call connects afresh to
+// whatever socket INCUS_SOCKET then names. Tests that serve their own Incus
+// need it: the connection otherwise stays on the first test's socket.
+func Forget() {
+	shared.Lock()
+	defer shared.Unlock()
+	shared.server = nil
+}
+
 // server returns the shared connection, bound to ctx: every request made
 // through it is cancelled with ctx. WithContext would set ctx on the shared
 // connection itself, so it is set on a copy, which UseProject makes.
