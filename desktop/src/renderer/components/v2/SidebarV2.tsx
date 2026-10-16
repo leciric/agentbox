@@ -7,13 +7,16 @@
 // filter popover (T3Code's: state, project, removable chips) narrow it. The
 // projects the user pinned come first, in the order they dragged them, then
 // the ones with something going on, most recent first, then, folded, the Idle
-// list of the rest, which opens by itself when nothing is going on. The
+// list of the rest, always last and folded unless nothing is going on, and
+// last of all the projects the user hid, folded. The user's groups (Groups,
+// in the foot) split the lists under their headers, in their order, with the
+// ungrouped after them; a switcher beside the filters narrows to one. The
 // project on screen never folds into Idle: the chat you're in stays in view.
 // A project's options are on a right-click of its row. The reading is
-// lib/leadFirst.ts's and lib/projectOrder.ts's.
+// lib/leadFirst.ts's, lib/projectOrder.ts's and lib/sidebarGroups.ts's.
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Archive, Check, ChevronRight, CircleArrowUp, FolderPlus, House, ListFilter, LoaderCircle, RefreshCw, Search, Settings, ShieldAlert, SquarePen, X } from 'lucide-react';
+import { Archive, Check, ChevronRight, CircleArrowUp, Eye, EyeOff, FolderInput, FolderPlus, Folders, House, ListFilter, LoaderCircle, Plus, RefreshCw, Search, Settings, ShieldAlert, SquarePen, X } from 'lucide-react';
 import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from 'react';
 import * as A from '../../../shared/api';
 import type * as T from '../../../shared/api';
@@ -23,7 +26,9 @@ import { useT, type MessageKey } from '../../lib/i18n';
 import { pageItems, useQuestions, useReviewHead } from '../../lib/inboxPages';
 import { activeProjects, agentSt, attention, awaitsApproval, countSt, filterCount, leadLine, leadBusy, liveOrder, projectRows, toggle, type AgentSt, type Filters, type ProjectRows, type Row } from '../../lib/leadFirst';
 import { movePin, orderProjects, togglePin } from '../../lib/projectOrder';
-import { setFilterChoice, setIdleOpen, setPins, useV2Projects } from '../../lib/v2Projects';
+import { setCollapsed, setFilterChoice, setGroupFilter, setHiddenOpen, setPins, useV2Projects } from '../../lib/v2Projects';
+import { addGroup, arrange, groupOf, hide, moveToGroup, unhide } from '../../lib/sidebarGroups';
+import { newGroupId, useSidebarLayout } from '../../lib/useSidebarLayout';
 import { useGrace } from '../../lib/grace';
 import { projectLabel } from '../../lib/projectName';
 import { useReviewing } from '../../lib/reviewAlert';
@@ -38,7 +43,8 @@ import { openPanelOn } from '../../lib/rightPanel';
 import { AgentContextMenu } from '../AgentContextMenu';
 import { Logo } from '../Sidebar';
 import { ProjectIcon, ProjectIconDialog } from '../ProjectIcon';
-import { ReviewCount } from './ReviewV2';
+import { ReviewCount, useOpenReview } from './ReviewV2';
+import { GroupHeader, GroupNameDialog, GroupSwitcher, GroupsDialog } from './SidebarGroups';
 import { projectActions, type ProjectAction } from './ProjectHeader';
 import { TalkToProject } from './TalkToProject';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuMore, ContextMenuSeparator, ContextMenuTrigger } from '../ui/context-menu';
@@ -130,18 +136,59 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   }, [projects.data, activity.data, active, kept.pins]);
   const pinned = new Set(kept.pins);
   const ctx = { busy, keep: pinned };
+  const { layout, save } = useSidebarLayout();
+  const hiddenSet = new Set(layout.hidden);
+  // A hidden project comes back while it has something going on, which the
+  // project on screen alone doesn't count as: opened from Hidden, it stays there.
+  const arranged = arrange(order, layout, activeGrace, kept.group);
+  const rowsOf = (projects: T.Project[]) => projectRows(projects, rows, filters, expanded, label, ctx);
+  const byGroup = (lists: typeof arranged.active) => lists.map((l) => ({ group: l.group, rows: rowsOf(l.projects) })).filter((l) => l.rows.length > 0);
   const lists = {
-    pinned: projectRows(order.pinned, rows, filters, expanded, label, ctx),
-    rest: projectRows(order.rest, rows, filters, expanded, label, ctx),
-    idle: projectRows(order.idle, rows, filters, expanded, label, ctx),
+    pinned: rowsOf(arranged.pinned),
+    active: byGroup(arranged.active),
+    idle: byGroup(arranged.idle),
+    hidden: rowsOf(arranged.hidden),
   };
+  const count = (ls: { rows: ProjectRows[] }[]) => ls.reduce((n, l) => n + l.rows.length, 0);
+  const idleCount = count(lists.idle);
+  const grouped = layout.groups.length > 0;
+  const searching = q.trim() !== '';
   // Until the agents are in, every project would read idle.
   const loaded = !!agents.data;
   // With nothing above it, the Idle list is the list: open, and not a fold.
-  const idleOnly = lists.pinned.length + lists.rest.length === 0;
+  const idleOnly = lists.pinned.length + count(lists.active) === 0;
+  // Otherwise it is folded, and a click opens it only until something starts:
+  // an agent starting never leaves it open under the project it started in.
+  const [idleOpened, setIdleOpened] = useState(false);
+  useEffect(() => setIdleOpened(false), [idleOnly]);
   // A search looks in it too, and opens it on a match.
-  const idleOpen = idleOnly || kept.idleOpen || (q.trim() !== '' && lists.idle.length > 0);
-  const nothing = projects.data && projects.data.length > 0 && lists.pinned.length + lists.rest.length + lists.idle.length === 0;
+  const idleOpen = idleOnly || idleOpened || (searching && idleCount > 0);
+  const hiddenOpen = kept.hiddenOpen || (searching && lists.hidden.length > 0) || (!!onScreen && lists.hidden.some((p) => p.project.name === onScreen));
+  const nothing = projects.data && projects.data.length > 0 && lists.pinned.length + count(lists.active) + idleCount + lists.hidden.length === 0;
+  const collapsed = new Set(kept.collapsed);
+  const [newGroupFor, setNewGroupFor] = useState<string | null>(null);
+  const [groupsOpen, setGroupsOpen] = useState(false);
+
+  // Review all goes after the first list's label, whichever list is first.
+  const openReview = useOpenReview();
+  const toReview = reviewing ? (head.data?.total ?? 0) : 0;
+  let reviewPlaced = false;
+  const reviewAll = () => {
+    if (reviewPlaced || !openReview || toReview === 0) return null;
+    reviewPlaced = true;
+    return (
+      <Tip label={t('v2.review.allHint')}>
+        <button
+          type="button"
+          onClick={() => openReview()}
+          className="ml-1.5 shrink-0 rounded-full border border-line-strong bg-surface px-1.5 py-px text-[10.5px] font-medium normal-case tracking-normal tabular-nums text-secondary transition hover:border-line-heavy hover:bg-surface-strong hover:text-title"
+          data-v2-review-all={toReview}
+        >
+          {t('v2.review.all', { count: toReview })}
+        </button>
+      </Tip>
+    );
+  };
 
   const lead = (p: ProjectRows, pin?: { draggable: true }) => (
     <ProjectLead
@@ -152,11 +199,22 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
       approvals={p.approvals}
       open={p.open}
       pinned={pinned.has(p.project.name)}
+      hidden={hiddenSet.has(p.project.name)}
+      groups={layout.groups}
+      group={groupOf(layout, p.project.name)?.id}
       view={view}
       onToggle={() =>
         setExpanded((s) => new Map(s).set(p.project.name, !p.open))
       }
-      onPin={() => setPins(togglePin(kept.pins, p.project.name))}
+      onPin={() => {
+        const pin = !pinned.has(p.project.name);
+        setPins(togglePin(kept.pins, p.project.name));
+        // Pinning a hidden project brings it back.
+        if (pin && hiddenSet.has(p.project.name)) save(unhide(layout, p.project.name));
+      }}
+      onHide={() => save(hiddenSet.has(p.project.name) ? unhide(layout, p.project.name) : hide(layout, [p.project.name]))}
+      onMoveToGroup={(id) => save(moveToGroup(layout, p.project.name, id))}
+      onNewGroup={() => setTimeout(() => setNewGroupFor(p.project.name), 0)}
       onSelect={onSelect}
       onNewAgent={() => onNewAgent(p.project.name)}
       drag={
@@ -178,6 +236,31 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
     />
   );
 
+  // groupLists draws lists split by group: each group under its header,
+  // folded or not (a search shows what it found either way), then the
+  // ungrouped under head.
+  const groupLists = (ls: { group: T.SidebarGroup | null; rows: ProjectRows[] }[], head: (first: boolean) => ReactNode) =>
+    ls.map(({ group, rows: rs }, i) =>
+      group ? (
+        <div key={group.id} data-v2-group-list={group.id}>
+          <GroupHeader
+            group={group}
+            count={rs.length}
+            collapsed={collapsed.has(group.id) && !searching}
+            onCollapse={() => setCollapsed(collapsed.has(group.id) ? kept.collapsed.filter((id) => id !== group.id) : [...kept.collapsed, group.id])}
+            onHide={() => save(hide(layout, group.projects))}
+            extra={reviewAll()}
+          />
+          {(!collapsed.has(group.id) || searching) && rs.map((p) => lead(p))}
+        </div>
+      ) : (
+        <div key="ungrouped" data-v2-ungrouped>
+          {head(i === 0)}
+          {rs.map((p) => lead(p))}
+        </div>
+      ),
+    );
+
   return (
     <aside className="flex w-[288px] shrink-0 flex-col border-r border-line bg-rail backdrop-blur-xl" data-sidebar-v2>
       <div className="flex h-14 shrink-0 items-center gap-2.5 px-4">
@@ -192,7 +275,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
       <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 pt-1" aria-label={t('v2.sidebar.chats')}>
         <NewTaskRow />
         <HomeRow active={view.kind === 'homeChat'} onClick={() => onSelect({ kind: 'homeChat' })} />
-        <FilterBar filters={filters} onFilters={onFilters} projects={projects.data ?? []} rows={rows} />
+        <FilterBar filters={filters} onFilters={onFilters} projects={projects.data ?? []} rows={rows} groups={layout.groups} group={kept.group} />
         {projects.data?.length === 0 && (
           <button className="mx-2 mt-1 flex w-[calc(100%-1rem)] items-center gap-2 rounded-lg border border-dashed border-line-strong px-3 py-3 text-left text-[13px] text-subtle hover:border-line-heavy hover:text-tertiary" onClick={onAddProject}>
             <FolderPlus className="size-4" />
@@ -201,39 +284,61 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
         )}
         {loaded && lists.pinned.length > 0 && (
           <div data-v2-pinned>
-            <ListHead>{t('v2.sidebar.pinned')}</ListHead>
+            <ListHead extra={reviewAll()}>{t('v2.sidebar.pinned')}</ListHead>
             {lists.pinned.map((p) => lead(p, { draggable: true }))}
           </div>
         )}
-        {loaded && lists.rest.length > 0 && (
+        {loaded && lists.active.length > 0 && (
           <div data-v2-rest>
-            <ListHead>{t('shell.sidebar.projects')}</ListHead>
-            {lists.rest.map((p) => lead(p))}
+            {groupLists(lists.active, () => (
+              <ListHead extra={reviewAll()}>{t(grouped ? 'v2.groups.ungrouped' : 'shell.sidebar.projects')}</ListHead>
+            ))}
           </div>
         )}
         {loaded && nothing && <div className="px-2.5 py-1.5 text-[11.5px] text-subtle">{t('v2.sidebar.nothingMatches')}</div>}
-        {loaded && lists.idle.length > 0 && (
+        {loaded && idleCount > 0 && (
           <div className={cn(!idleOnly && 'mt-2')} data-v2-idle={idleOnly ? 'only' : idleOpen ? 'open' : 'closed'}>
             {idleOnly ? (
-              <ListHead>
+              <ListHead extra={reviewAll()}>
                 {t('v2.sidebar.idle')}
-                <span className="ml-1.5 font-normal tabular-nums normal-case tracking-normal text-subtle">{lists.idle.length}</span>
+                <span className="ml-1.5 font-normal tabular-nums normal-case tracking-normal text-subtle">{idleCount}</span>
               </ListHead>
             ) : (
               <button
                 type="button"
                 aria-expanded={idleOpen}
-                onClick={() => setIdleOpen(!kept.idleOpen)}
+                onClick={() => setIdleOpened(!idleOpened)}
                 className="flex w-full items-center gap-1.5 rounded-md border border-dashed border-line px-2.5 py-1.5 text-left text-[12px] text-secondary hover:border-line-strong hover:bg-surface hover:text-title"
                 data-v2-idle-toggle
               >
                 <ChevronRight className={cn('size-3.5 shrink-0 transition-transform', idleOpen && 'rotate-90')} />
                 <span className="font-medium">{t('v2.sidebar.idle')}</span>
-                <span className="tabular-nums text-subtle">· {lists.idle.length}</span>
+                <span className="tabular-nums text-subtle">· {idleCount}</span>
                 <span className="min-w-0 truncate text-subtle">· {t('v2.sidebar.idleHint')}</span>
               </button>
             )}
-            {idleOpen && <div className={cn(!idleOnly && 'opacity-80')}>{lists.idle.map((p) => lead(p))}</div>}
+            {idleOpen && (
+              <div className={cn(!idleOnly && 'opacity-80')}>
+                {groupLists(lists.idle, (first) => (grouped && !first ? <ListHead>{t('v2.groups.ungrouped')}</ListHead> : null))}
+              </div>
+            )}
+          </div>
+        )}
+        {loaded && lists.hidden.length > 0 && (
+          <div className="mt-2 opacity-70" data-v2-hidden={hiddenOpen ? 'open' : 'closed'}>
+            <button
+              type="button"
+              aria-expanded={hiddenOpen}
+              onClick={() => setHiddenOpen(!kept.hiddenOpen)}
+              className="flex w-full items-center gap-1.5 rounded-md px-2.5 py-1 text-left text-[11.5px] text-subtle hover:bg-surface hover:text-secondary"
+              data-v2-hidden-toggle
+            >
+              <ChevronRight className={cn('size-3 shrink-0 transition-transform', hiddenOpen && 'rotate-90')} />
+              <EyeOff className="size-3 shrink-0" />
+              <span>{t('v2.sidebar.hidden')}</span>
+              <span className="tabular-nums">· {lists.hidden.length}</span>
+            </button>
+            {hiddenOpen && lists.hidden.map((p) => lead(p))}
           </div>
         )}
       </nav>
@@ -269,22 +374,44 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
           );
         })}
         <UpdateCheck />
+        <Tip label={t('v2.groups.title')}>
+          <button
+            type="button"
+            aria-label={t('v2.groups.title')}
+            onClick={() => setGroupsOpen(true)}
+            className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted transition hover:bg-surface hover:text-primary"
+            data-v2-foot-item="groups"
+          >
+            <Folders className="size-4" />
+          </button>
+        </Tip>
       </div>
+      <GroupsDialog open={groupsOpen} onOpenChange={setGroupsOpen} />
+      <GroupNameDialog
+        open={newGroupFor !== null}
+        onOpenChange={(open) => !open && setNewGroupFor(null)}
+        title={t('v2.groups.newTitle')}
+        description={newGroupFor ? t('v2.groups.newFor', { project: projectLabel(newGroupFor, projects.data) }) : undefined}
+        confirm={t('v2.groups.create')}
+        onSubmit={(name) => newGroupFor && save(addGroup(layout, newGroupId(), name, [newGroupFor]))}
+      />
     </aside>
   );
 }
 
-function ListHead({ children }: { children: ReactNode }) {
+function ListHead({ children, extra }: { children: ReactNode; extra?: ReactNode }) {
   return (
     <div className="flex h-7 items-center px-2.5 pt-2">
       <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-subtle">{children}</span>
+      {extra}
     </div>
   );
 }
 
 // FilterBar is the search box and the filter button beside it, and under
-// them a chip for each filter that's on, each removable, with Reset.
-function FilterBar({ filters, onFilters, projects, rows }: { filters: Filters; onFilters: (f: Filters) => void; projects: T.Project[]; rows: Row[] }) {
+// them a chip for each filter that's on, each removable, with Reset. With
+// groups, the group switcher sits between the two.
+function FilterBar({ filters, onFilters, projects, rows, groups, group }: { filters: Filters; onFilters: (f: Filters) => void; projects: T.Project[]; rows: Row[]; groups: T.SidebarGroup[]; group: string }) {
   const t = useT();
   const on = filterCount(filters);
   const counts = countSt(rows.map((r) => r.st));
@@ -316,6 +443,7 @@ function FilterBar({ filters, onFilters, projects, rows }: { filters: Filters; o
             </button>
           )}
         </label>
+        {groups.length > 0 && <GroupSwitcher groups={groups} value={group} onChange={setGroupFilter} />}
         <Popover>
           <Tip label={t('v2.filters.button')}>
           <PopoverTrigger asChild>
@@ -505,9 +633,15 @@ function ProjectLead({
   approvals,
   open,
   pinned,
+  hidden,
+  groups,
+  group,
   view,
   onToggle,
   onPin,
+  onHide,
+  onMoveToGroup,
+  onNewGroup,
   onSelect,
   onNewAgent,
   drag,
@@ -518,9 +652,15 @@ function ProjectLead({
   approvals: number;
   open: boolean;
   pinned: boolean;
+  hidden: boolean;
+  groups: T.SidebarGroup[];
+  group?: string;
   view: View;
   onToggle: () => void;
   onPin: () => void;
+  onHide: () => void;
+  onMoveToGroup: (group: string | null) => void;
+  onNewGroup: () => void;
   onSelect: (view: View) => void;
   onNewAgent: () => void;
   drag?: Drag;
@@ -654,7 +794,29 @@ function ProjectLead({
           </Lead>
         </ContextMenuTrigger>
         <ContextMenuContent data-v2-project-menu={project.name}>
-          {[...main.flatMap(item), <ContextMenuMore key="more" label={t('common.more')}>{more.flatMap(item)}</ContextMenuMore>]}
+          {[
+            ...main.flatMap(item),
+            <ContextMenuItem key="hide" icon={hidden ? Eye : EyeOff} onSelect={onHide} data-v2-project-action={hidden ? 'unhide' : 'hide'}>
+              {t(hidden ? 'v2.sidebar.unhide' : 'v2.sidebar.hide')}
+            </ContextMenuItem>,
+            <ContextMenuMore key="group" icon={FolderInput} label={t('v2.groups.moveTo')} data-v2-project-action="move-to-group">
+              {groups.map((g) => (
+                <ContextMenuItem key={g.id} icon={g.id === group ? Check : undefined} onSelect={() => onMoveToGroup(g.id)} data-v2-move-to={g.id}>
+                  <span className={cn(g.id !== group && 'pl-[26px]')}>{g.name}</span>
+                </ContextMenuItem>
+              ))}
+              {group && (
+                <ContextMenuItem onSelect={() => onMoveToGroup(null)} data-v2-move-to="none">
+                  <span className="pl-[26px]">{t('v2.groups.none')}</span>
+                </ContextMenuItem>
+              )}
+              {groups.length > 0 && <ContextMenuSeparator />}
+              <ContextMenuItem icon={Plus} onSelect={onNewGroup} data-v2-move-to="new">
+                {t('v2.groups.new')}
+              </ContextMenuItem>
+            </ContextMenuMore>,
+            <ContextMenuMore key="more" label={t('common.more')}>{more.flatMap(item)}</ContextMenuMore>,
+          ]}
         </ContextMenuContent>
       </ContextMenu>
       {/* Talk to another project's picker hangs under the row. */}

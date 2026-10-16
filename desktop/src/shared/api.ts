@@ -115,6 +115,17 @@ export interface SectionProjects {
   projects: string[];
 }
 
+export interface SidebarLayout {
+  groups: SidebarGroup[];
+  hidden: string[];
+}
+
+export interface SidebarGroup {
+  id: string;
+  name: string;
+  projects: string[];
+}
+
 export interface Notes {
   text: string;
   updatedAt?: string;

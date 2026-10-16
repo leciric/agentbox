@@ -309,6 +309,19 @@ func (c *Client) RemoveSection(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/sections/"+url.PathEscape(id), nil, nil)
 }
 
+// SidebarLayout is UI v2's sidebar's groups and hidden projects.
+func (c *Client) SidebarLayout(ctx context.Context) (SidebarLayout, error) {
+	var out SidebarLayout
+	return out, c.do(ctx, http.MethodGet, "/v1/sidebar", nil, &out)
+}
+
+// SetSidebarLayout replaces the sidebar's groups and hidden projects, and
+// answers with what was kept.
+func (c *Client) SetSidebarLayout(ctx context.Context, layout SidebarLayout) (SidebarLayout, error) {
+	var out SidebarLayout
+	return out, c.do(ctx, http.MethodPut, "/v1/sidebar", layout, &out)
+}
+
 // SetProjectLayout applies a whole new order — the sections, and the projects
 // in and outside them — in one transaction, and answers with the projects as
 // they now read.

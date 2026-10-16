@@ -686,6 +686,9 @@ func (s *Server) routes() http.Handler {
 	h("PATCH /v1/sections/{id}", s.updateSection)
 	h("DELETE /v1/sections/{id}", s.removeSection)
 	h("PUT /v1/projects/layout", s.setProjectLayout)
+	// UI v2's sidebar: its groups and the projects hidden from it.
+	h("GET /v1/sidebar", s.sidebarLayout)
+	h("PUT /v1/sidebar", s.setSidebarLayout)
 	h("GET /v1/projects/{project}", s.getProject)
 	h("PATCH /v1/projects/{project}", s.updateProject)
 	h("DELETE /v1/projects/{project}", s.removeProject)

@@ -53,11 +53,12 @@ export function ContextMenuSeparator() {
 
 // ContextMenuMore is a menu's "More" item: what's used less, in a submenu, so the
 // menu itself keeps to a handful of items.
-export function ContextMenuMore({ label, children }: { label: ReactNode; children: ReactNode }) {
+// With an icon of its own it is any submenu, such as Move to group.
+export function ContextMenuMore({ label, icon: Icon = Ellipsis, children, ...props }: { label: ReactNode; icon?: ComponentType<{ className?: string }>; children: ReactNode } & Record<`data-${string}`, string>) {
   return (
     <ContextMenuPrimitive.Sub>
-      <ContextMenuPrimitive.SubTrigger className="flex cursor-default select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-secondary outline-none data-[highlighted]:bg-surface-raised data-[state=open]:bg-surface-raised" data-menu-more>
-        <Ellipsis className="size-4 text-subtle" />
+      <ContextMenuPrimitive.SubTrigger className="flex cursor-default select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-secondary outline-none data-[highlighted]:bg-surface-raised data-[state=open]:bg-surface-raised" data-menu-more {...props}>
+        <Icon className="size-4 text-subtle" />
         <span className="flex-1">{label}</span>
         <ChevronRight className="size-3.5 text-subtle" />
       </ContextMenuPrimitive.SubTrigger>

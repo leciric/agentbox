@@ -173,6 +173,8 @@ export function connectEvents(queryClient: QueryClient): void {
         // A change with no project named is the list itself: a section made,
         // renamed or deleted, or the projects reordered (D79).
         void queryClient.invalidateQueries({ queryKey: ['sections'] });
+        // And v2's sidebar's groups and hidden projects.
+        void queryClient.invalidateQueries({ queryKey: ['sidebarLayout'] });
         break;
       case T.EventPulls: {
         // The daemon re-read GitHub behind an answer it had already given,
