@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  ArrowLeft,
   Box,
   Camera,
   CircleX,
@@ -19,6 +20,7 @@ import {
   Pencil,
   Play,
   Plug,
+  Settings,
   SlidersHorizontal,
   Smartphone,
   Square,
@@ -71,6 +73,15 @@ const agentSettingsSections = (t: ReturnType<typeof useT>): SettingsSection<Agen
   { id: 'secrets', title: t('agent.section.secrets'), icon: KeyRound },
   { id: 'connectors', title: t('agent.section.connectors'), icon: Plug },
 ];
+
+const placeLabel: Record<string, MessageKey> = {
+  settings: 'agent.tab.settings',
+  snapshots: 'agent.tab.snapshots',
+  android: 'agent.tab.android',
+  terminal: 'agent.tab.terminal',
+  browser: 'agent.tab.desktop',
+  media: 'agent.tab.media',
+};
 
 export function AgentView({
   agentRef,
@@ -187,6 +198,21 @@ export function AgentView({
       <MenuItem icon={FolderOpen} onSelect={() => void window.agentbox.openPath(agent.worktree)}>
         {t('agent.view.openWorktree')}
       </MenuItem>
+      {v2 && (
+        <>
+          <MenuItem icon={Settings} onSelect={() => onTab('machine')}>
+            {t('agent.tab.settings')}
+          </MenuItem>
+          <MenuItem icon={Camera} onSelect={() => onTab('snapshots')}>
+            {t('agent.tab.snapshots')}
+          </MenuItem>
+          {hasAndroid && (
+            <MenuItem icon={Smartphone} onSelect={() => onTab('android')}>
+              {t('agent.tab.android')}
+            </MenuItem>
+          )}
+        </>
+      )}
       {v2 ? (
         <MenuMore label={t('common.more')}>
           {copies}
@@ -269,6 +295,17 @@ export function AgentView({
       )}
 
       <Tabs value={active} onValueChange={(value) => onTab(value as AgentTab)} className="flex min-h-0 flex-1 flex-col">
+        {v2 ? (
+          chatty && active !== 'chat' && (
+            <div className="flex shrink-0 items-center gap-2 px-4 pb-2 md:px-6">
+              <Button size="sm" variant="ghost" onClick={() => onTab('chat')}>
+                <ArrowLeft />
+                {t('agent.view.backToChat')}
+              </Button>
+              <span className="text-sm text-subtle">{t(placeLabel[active])}</span>
+            </div>
+          )
+        ) : (
         <div className="flex shrink-0 items-center gap-3 border-t border-line-faint px-4 py-2 md:px-6">
           <TabsList className="min-w-0 flex-1 overflow-x-auto">
             {chatty && (
@@ -319,6 +356,7 @@ export function AgentView({
             </div>
           )}
         </div>
+        )}
         <div className="mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line bg-sunken shadow-[0_30px_80px_-40px_var(--ab-shadow-deep)] md:mx-6 md:mb-6">
           {chatty && (
             <TabsContent value="chat" className="flex flex-col">

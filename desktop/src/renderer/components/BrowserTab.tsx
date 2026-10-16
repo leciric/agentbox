@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Camera, ClipboardPaste, Circle, Ellipsis, Globe, LoaderCircle, Monitor, MousePointer2, MousePointerClick, Play, Square } from 'lucide-react';
+import { Camera, ClipboardPaste, Circle, Ellipsis, Globe, Maximize, Minimize, LoaderCircle, Monitor, MousePointer2, MousePointerClick, Play, Square } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api, browserViewPath } from '../lib/api';
 import { useT } from '../lib/i18n';
 import { clock } from '../lib/media';
+import { useFullscreen } from '../lib/useFullscreen';
 import { useVncView } from '../lib/useVncView';
 import { cn, errorMessage } from '../lib/utils';
 import { Button } from './ui/button';
@@ -36,6 +37,19 @@ export function BrowserTab({ agent, onOpenMedia }: { agent: T.Agent; onOpenMedia
   const desktopUp = running && status.data?.display === true;
   const browserUp = running && status.data?.running === true;
   const { view, connected, paste } = useVncView(browserViewPath(agent.ref), desktopUp, control);
+  const screen = useFullscreen<HTMLDivElement>();
+  const toggleScreen = screen.toggle;
+  // Shift+F11, not F11: that one is the window's. In control the keys belong to the agent's desktop.
+  useEffect(() => {
+    if (!connected || control) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'F11' || !event.shiftKey) return;
+      event.preventDefault();
+      toggleScreen();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [connected, control, toggleScreen]);
   const page = status.data?.pages?.[0];
   const isRecording = recording.data?.recording === true;
 
@@ -115,6 +129,11 @@ export function BrowserTab({ agent, onOpenMedia }: { agent: T.Agent; onOpenMedia
         )}
 
         <div className="mx-1 h-5 w-px bg-line-strong" />
+        <Tip label={`${t(screen.full ? 'agent.browser.exitFullscreen' : 'agent.browser.fullscreen')} (Shift+F11)`}>
+          <Button size="icon-sm" variant="ghost" disabled={!connected} aria-label={t(screen.full ? 'agent.browser.exitFullscreen' : 'agent.browser.fullscreen')} onClick={screen.toggle} data-fullscreen-toggle>
+            {screen.full ? <Minimize /> : <Maximize />}
+          </Button>
+        </Tip>
         <label className={cn('flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-1.5 py-1 text-[13px] text-tertiary', control && 'text-brand-200')}>
           <Switch id="browser-control" checked={control} disabled={!connected} onCheckedChange={setControl} />
           <MousePointer2 className="size-3.5" />
@@ -160,7 +179,7 @@ export function BrowserTab({ agent, onOpenMedia }: { agent: T.Agent; onOpenMedia
         </div>
       )}
 
-      <div className="relative min-h-0 flex-1 bg-stage">
+      <div ref={screen.ref} className="relative min-h-0 flex-1 bg-stage">
         <div ref={view} className="absolute inset-0" data-browser-view={agent.ref} data-connected={connected} />
         {/* Keeps your mouse and keyboard away from the browser until you take control. */}
         {connected && !control && <div className="absolute inset-0" data-view-guard />}
@@ -190,6 +209,11 @@ export function BrowserTab({ agent, onOpenMedia }: { agent: T.Agent; onOpenMedia
             <LoaderCircle className="mr-2 size-4 animate-spin" />
             {t('agent.browser.connecting')}
           </div>
+        )}
+        {screen.full && (
+          <Button size="icon-sm" className="absolute right-3 top-3 z-10 opacity-60 hover:opacity-100" aria-label={t('agent.browser.exitFullscreen')} onClick={screen.toggle}>
+            <Minimize />
+          </Button>
         )}
         {control && connected && <div className="pointer-events-none absolute inset-0 rounded-b-2xl ring-2 ring-inset ring-brand-400/40" />}
       </div>

@@ -29,6 +29,7 @@ import {
   addTab,
   chatPanel,
   chooseKind,
+  launcherTarget,
   chooseTarget,
   closeTab,
   hasTab,
@@ -483,7 +484,7 @@ function Launcher({ project, chat, id }: { project: string; chat: string; id: st
   const fresh = livePages(pages.data).some(isNew);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => ref.current?.focus({ preventScroll: true }), []);
-  const choose = (kind: PanelKind) => chooseKind(chat, id, kind);
+  const choose = (kind: PanelKind) => chooseKind(chat, id, kind, launcherTarget(chat, kind));
   const card = (kind: PanelKind) => {
     const Icon = kindIcon[kind];
     return (

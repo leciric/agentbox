@@ -50,6 +50,8 @@ import { t as tNow, useT } from "./lib/i18n";
 import { useReadyAlerts } from "./lib/useReadyAlerts";
 import { launchArrival, uiV2, useUiV2 } from "./lib/uiV2";
 import { tourFirst, tourState } from "./lib/tours";
+import { agentPanelKind } from "./lib/tabs";
+import { openPanelOn } from "./lib/rightPanel";
 import { resetChatEvents } from "./lib/chat";
 import { onNotification, useConnection } from "./lib/events";
 import { chatLabel } from "./lib/agentStatus";
@@ -155,6 +157,13 @@ export function App({ initial }: { initial?: View } = {}) {
 
   const select = (next: View) => {
     setSettingsLink(undefined);
+    // v2 has no tabs on an agent's page: the ones that were become the right
+    // panel's, targeted at the agent, and the page stays on its chat.
+    const kind = next.kind === "agent" && v2 && next.tab ? agentPanelKind[next.tab as string] : undefined;
+    if (next.kind === "agent" && kind) {
+      openPanelOn(next.ref, kind, next.ref);
+      next = { kind: "agent", ref: next.ref, tab: "chat" };
+    }
     if (next.kind === "agent" && next.tab)
       setTabs((t) => ({ ...t, [next.ref]: next.tab! }));
     setView(next);
