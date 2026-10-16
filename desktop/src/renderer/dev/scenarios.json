@@ -1525,7 +1525,7 @@
   },
   {
     "id": "window-wide-v2-home-chat-dark",
-    "description": "UI v2 at 1920×1080 on Home's chat, its Status tab beside Chat and Memory, and Media, Jobs, Past agents and Settings at the sidebar's foot — dark",
+    "description": "UI v2 at 1920×1080 on Home's chat, its Status tab beside Chat and Memory, and Settings, Past agents, Media and Jobs as icons at the sidebar's foot — dark",
     "query": "app=homeChat&v2=1&theme=dark",
     "width": 1920,
     "height": 1080
@@ -1578,7 +1578,7 @@
   },
   {
     "id": "window-wide-v2-foot-dark",
-    "description": "UI v2 at 1920×1080 on the project: the sidebar's foot, one row each: Media, Jobs, Past agents and Settings, with the update check at the end of Settings' — dark",
+    "description": "UI v2 at 1920×1080 on the project: the sidebar's foot is one row of icons, Settings, Past agents, Media and Jobs, and the update check — dark",
     "query": "app=project&v2=1&theme=dark",
     "width": 1920,
     "height": 1080

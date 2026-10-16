@@ -320,41 +320,41 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
         )}
       </nav>
 
-      {/* The foot is the places across every project, one row each, so
-          each reads in full in any language: Media, Jobs, Past agents and
-          Settings, which opens straight away, with the update check at the end
-          of its row. Home, the chat and its Status tab, heads the list above;
-          which AgentBox this window drives is under Settings → General. */}
-      <div className="grid gap-px border-t border-line p-2" data-v2-foot>
+      {/* The foot is one row of icons, each named by its tooltip: Settings,
+          which opens straight away, Past agents, Media and Jobs, the places
+          across every project, the one open highlighted, and the update check.
+          Home, the chat and its Status tab, heads the list above; which
+          AgentBox this window drives is under Settings → General. */}
+      <div className="flex items-center gap-1 border-t border-line p-2" data-v2-foot>
         {(
           [
+            { kind: 'settings', icon: Settings, label: t('common.settings'), alert: setup.data && !setup.data.ready },
+            { kind: 'pastAgents', icon: Archive, label: t('pastAgents.title'), alert: false },
             { kind: 'media', icon: Images, label: t('shell.nav.media'), alert: false },
             { kind: 'jobs', icon: ListChecks, label: t('shell.nav.jobs'), alert: false },
-            { kind: 'pastAgents', icon: Archive, label: t('pastAgents.title'), alert: false },
-            { kind: 'settings', icon: Settings, label: t('common.settings'), alert: setup.data && !setup.data.ready },
           ] as const
         ).map(({ kind, icon: Icon, label, alert }) => {
           const active = view.kind === kind;
           return (
-            <div key={kind} className="flex min-w-0 items-center gap-1">
+            <Tip key={kind} label={label}>
               <button
                 type="button"
+                aria-label={label}
                 aria-current={active ? 'page' : undefined}
                 onClick={() => onSelect({ kind })}
                 className={cn(
-                  'relative flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg px-2.5 text-left text-[13px] text-muted transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50',
+                  'relative flex size-8 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50',
                   active && 'bg-surface-raised text-title',
                 )}
                 data-v2-foot-item={kind}
               >
-                <Icon className={cn('size-4 shrink-0', active ? 'text-brand-300' : 'text-subtle')} />
-                <span className="min-w-0 truncate">{label}</span>
-                {alert && <span className="absolute left-6 top-1 size-1.5 rounded-full bg-amber-400" title={t('shell.sidebar.needsAttention')} aria-label={t('shell.sidebar.needsAttention').toLowerCase()} />}
+                <Icon className={cn('size-4', active ? 'text-brand-300' : 'text-subtle')} />
+                {alert && <span className="absolute right-1 top-1 size-1.5 rounded-full bg-amber-400" title={t('shell.sidebar.needsAttention')} aria-label={t('shell.sidebar.needsAttention').toLowerCase()} />}
               </button>
-              {kind === 'settings' && <UpdateCheck />}
-            </div>
+            </Tip>
           );
         })}
+        <UpdateCheck />
       </div>
     </aside>
   );
