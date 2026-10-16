@@ -117,10 +117,13 @@ function TourPlayer({ view, onSelect, onReleaseNotes }: { view: View; onSelect: 
   // Where the anchor is, followed as the app moves under it.
   const [box, setBox] = useState<Box | null>(null);
   useLayoutEffect(() => {
-    let last: Box | null = null;
+    // undefined until the first measure, which always sets the box: a step
+    // whose anchor isn't on screen clears the last step's, rather than
+    // spotlighting what that step pointed at.
+    let last: Box | null | undefined;
     const measure = () => {
       const next = visibleBox(step.anchor);
-      if (!same(next, last)) {
+      if (last === undefined || !same(next, last)) {
         last = next;
         setBox(next);
       }
