@@ -226,7 +226,7 @@ export function MediaTab({ agent }: { agent: T.Agent }) {
               </>
             }
           >
-            <p>{t('agent.mediaTab.emptyBody', { name: agent.title || agent.name })}</p>
+            <p>{t('agent.mediaTab.emptyBody')}</p>
             <pre className="mt-4 rounded-xl border border-line bg-well p-3.5 text-left font-mono text-[12px] leading-relaxed text-muted">
               <span className="text-faint">$ </span>agentbox media screenshot --name checkout{'\n'}
               <span className="text-faint">$ </span>agentbox media record start --name demo{'\n'}

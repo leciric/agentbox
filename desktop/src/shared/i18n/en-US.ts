@@ -2028,7 +2028,7 @@ export const enUS = {
   'agent.mediaTab.export': 'Export',
   'agent.mediaTab.emptyTitle': 'Nothing kept yet',
   'agent.mediaTab.takeScreenshot': 'Take a screenshot',
-  'agent.mediaTab.emptyBody': 'Screenshots, recordings, test reports, logs and notes that show {name}’s work end up here. Agents add them themselves:',
+  'agent.mediaTab.emptyBody': 'Screenshots, recordings, test reports, logs and notes that show this agent’s work end up here. Agents add them themselves:',
   'agent.mediaTab.deleteTitle': 'Delete “{name}”?',
   'agent.mediaTab.deleteDescription': 'It’s removed from this agent’s media for good.',
   'agent.mediaTab.search': 'Search media',

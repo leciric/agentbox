@@ -2029,7 +2029,7 @@ export const ptBR: Messages = {
   'agent.mediaTab.export': 'Exportar',
   'agent.mediaTab.emptyTitle': 'Nada guardado ainda',
   'agent.mediaTab.takeScreenshot': 'Fazer uma captura de tela',
-  'agent.mediaTab.emptyBody': 'Capturas de tela, gravações, relatórios de testes, logs e notas que mostram o trabalho de {name} ficam aqui. Os agentes os adicionam sozinhos:',
+  'agent.mediaTab.emptyBody': 'Capturas de tela, gravações, relatórios de testes, logs e notas que mostram o trabalho deste agente ficam aqui. Os agentes os adicionam sozinhos:',
   'agent.mediaTab.deleteTitle': 'Excluir “{name}”?',
   'agent.mediaTab.deleteDescription': 'Ele é removido definitivamente da mídia deste agente.',
   'agent.mediaTab.search': 'Buscar mídia',
