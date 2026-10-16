@@ -1,4 +1,4 @@
-import { ChevronRight, FolderGit2, Search, SearchX, X, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, ChevronRight, FolderGit2, Search, SearchX, X, type LucideIcon } from 'lucide-react';
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import * as T from '../../shared/api';
 import { countFeature, settingsSectionFeatures } from '../lib/usageStats';
@@ -48,6 +48,13 @@ export function keepScroll(): void {
 export const openSettingsEvent = 'agentbox:open-settings';
 export function openSettingsSection(id: string): void {
   window.dispatchEvent(new CustomEvent(openSettingsEvent, { detail: id }));
+}
+
+// closeSettings takes the app back from Settings to the page it was opened
+// from; App listens for the event.
+export const closeSettingsEvent = 'agentbox:close-settings';
+export function closeSettings(): void {
+  window.dispatchEvent(new CustomEvent(closeSettingsEvent));
 }
 
 export function SettingsPage({ sections, icons, error }: { sections: SettingSection[]; icons: SectionIcons; error?: string }) {
@@ -102,6 +109,20 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // Escape goes back, unless something on top of the page (a dialog, a menu)
+  // or the field being edited has it for itself.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+      if (document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]')) return;
+      closeSettings();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const changed = sections.reduce((n, s) => n + s.groups.reduce((m, g) => m + g.entries.filter((e) => e.modified).length, 0), 0);
   const foundIn = new Map(found.map((s) => [s.id, countEntries(s)]));
   const installation = sections.filter((s) => s.scope === 'installation');
@@ -150,6 +171,16 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
     <div className="@container h-full">
       <div className="flex h-full min-h-0 flex-col @3xl:flex-row">
         <aside className="flex shrink-0 flex-col gap-3 border-b border-line px-3 pb-3 pt-4 @3xl:w-60 @3xl:overflow-y-auto @3xl:border-b-0 @3xl:border-r @3xl:pb-6 @3xl:pt-7">
+          <button
+            type="button"
+            data-settings-back
+            onClick={closeSettings}
+            className="flex w-fit items-center gap-1.5 rounded-lg px-2 py-1 text-[13px] text-muted transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50"
+          >
+            <ArrowLeft className="size-4" />
+            {t('common.back')}
+            <Kbd>Esc</Kbd>
+          </button>
           <h1 className="px-2 text-xl font-semibold tracking-tight text-title">{t('common.settings')}</h1>
           <div className="grid gap-1.5">
             <div className="relative">

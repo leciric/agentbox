@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { AddProjectDialog } from "./components/AddProjectDialog";
 import { AgentRail } from "./components/AgentRail";
 import { AgentView } from "./components/AgentView";
-import { openSettingsEvent, openSettingsSection, rememberSection } from "./components/SettingsPage";
+import { closeSettingsEvent, openSettingsEvent, openSettingsSection, rememberSection } from "./components/SettingsPage";
 import { openProjectEvent } from "./components/chat/ProjectMessageCard";
 import { openAgentEvent } from "./components/chat/AgentPermissionCard";
 import { isSearchShortcut, SearchModal } from "./components/SearchModal";
@@ -186,6 +186,16 @@ export function App({ initial }: { initial?: View } = {}) {
     window.addEventListener(openSettingsEvent, open);
     return () => window.removeEventListener(openSettingsEvent, open);
   }, []);
+
+  // Back out of Settings (its button, or Escape) to the page it was opened
+  // from.
+  const beforeSettings = useRef<View>({ kind: "home" });
+  if (view.kind !== "settings") beforeSettings.current = view;
+  useEffect(() => {
+    const close = () => select(beforeSettings.current);
+    window.addEventListener(closeSettingsEvent, close);
+    return () => window.removeEventListener(closeSettingsEvent, close);
+  });
 
   // A link from a chat to another project's, on a message between their leads.
   useEffect(() => {
