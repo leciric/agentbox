@@ -10,15 +10,17 @@ import { projectLabel } from '../lib/projectName';
 import {
   type ConnectorOverride,
   type ConnectorPreset,
+  type FieldProblem,
+  connectorFormProblems,
   connectorName,
   connectorPresets,
   connectorStatus,
+  connectorURL,
   isWide,
   overrideOf,
   overrideRequest,
+  secretNameFor,
   tokenLine,
-  validConnectorName,
-  validConnectorURL,
 } from '../lib/connectors';
 import { useNow } from '../lib/useNow';
 import { cn, errorMessage, timeAgo } from '../lib/utils';
@@ -379,18 +381,22 @@ function ConnectorForm({
   const [name, setName] = useState(preset?.name ?? '');
   const [nameTouched, setNameTouched] = useState(!!preset);
   const [auth, setAuth] = useState<AuthChoice>(preset?.auth ?? A.ConnectorOAuth);
+  // The secret's name follows the connector's, ACME_TOKEN for acme, until
+  // the user types one of their own.
   const [secretName, setSecretName] = useState(preset?.secret?.name ?? '');
+  const [secretTouched, setSecretTouched] = useState(!!preset?.secret);
   const [header, setHeader] = useState(preset?.secret?.header ?? 'Authorization');
   const [token, setToken] = useState('');
-  const shownName = nameTouched ? name : connectorName(url);
+  const shownName = nameTouched ? name : connectorName(connectorURL(url));
+  const shownSecret = secretTouched ? secretName : secretNameFor(shownName);
 
   const save = useMutation({
     mutationFn: async () => {
-      const req: T.SetConnectorRequest = { url: url.trim(), auth };
+      const req: T.SetConnectorRequest = { url: connectorURL(url), auth };
       if (auth === A.ConnectorSecret) {
         if (target === '') req.secretValue = token;
-        else await api.setSecret(target, secretName.trim(), token);
-        req.secret = secretName.trim();
+        else await api.setSecret(target, shownSecret.trim(), token);
+        req.secret = shownSecret.trim();
         req.header = header.trim();
         // A preset says what goes before the token; a custom header leaves it
         // to the daemon, which puts Bearer before one in Authorization.
@@ -404,9 +410,9 @@ function ConnectorForm({
     },
   });
 
-  const nameOK = validConnectorName(shownName) && !taken.includes(shownName);
-  const secretOK = auth !== A.ConnectorSecret || (/^[A-Z_][A-Z0-9_]*$/.test(secretName.trim()) && header.trim() !== '' && token !== '');
-  const ready = nameOK && validConnectorURL(url.trim()) && secretOK;
+  // Every reason Add is greyed out is said under its field.
+  const problems = connectorFormProblems({ name: shownName, url, auth, secret: shownSecret, header, token, taken });
+  const ready = Object.keys(problems).length === 0;
 
   return (
     <form
@@ -422,7 +428,7 @@ function ConnectorForm({
         <Field
           label={t('project.connectors.nameLabel')}
           htmlFor="connector-name"
-          hint={taken.includes(shownName) ? t('project.connectors.nameTaken') : t('project.connectors.nameHint')}
+          hint={problemHint(problems.name, t('project.connectors.nameHint'))}
         >
           <Input
             id="connector-name"
@@ -430,6 +436,7 @@ function ConnectorForm({
             placeholder="acme"
             autoComplete="off"
             spellCheck={false}
+            aria-invalid={isWrong(problems.name)}
             value={shownName}
             onChange={(event) => {
               setNameTouched(true);
@@ -437,13 +444,14 @@ function ConnectorForm({
             }}
           />
         </Field>
-        <Field label={t('project.connectors.urlLabel')} htmlFor="connector-url" hint={t('project.connectors.urlHint')}>
+        <Field label={t('project.connectors.urlLabel')} htmlFor="connector-url" hint={problemHint(problems.url, t('project.connectors.urlHint'))}>
           <Input
             id="connector-url"
             className="font-mono text-[13px]"
             placeholder="https://mcp.example.com/mcp"
             autoComplete="off"
             spellCheck={false}
+            aria-invalid={isWrong(problems.url)}
             value={url}
             onChange={(event) => setUrl(event.target.value)}
           />
@@ -471,7 +479,7 @@ function ConnectorForm({
           <Field
             label={preset?.secret?.tokenLabel ?? t('project.connectors.tokenLabel')}
             htmlFor="connector-token"
-            hint={target === '' ? t('project.connectors.tokenHintWide') : t('project.connectors.tokenHint')}
+            hint={problemHint(problems.token, target === '' ? t('project.connectors.tokenHintWide') : t('project.connectors.tokenHint'))}
           >
             <Input
               id="connector-token"
@@ -484,23 +492,28 @@ function ConnectorForm({
               onChange={(event) => setToken(event.target.value)}
             />
           </Field>
-          <Field label={t('project.connectors.secretLabel')} htmlFor="connector-secret">
+          <Field label={t('project.connectors.secretLabel')} htmlFor="connector-secret" hint={problemHint(problems.secret)}>
             <Input
               id="connector-secret"
               className="font-mono text-[13px]"
               placeholder="ACME_TOKEN"
               autoComplete="off"
               spellCheck={false}
-              value={secretName}
-              onChange={(event) => setSecretName(event.target.value.toUpperCase())}
+              aria-invalid={isWrong(problems.secret)}
+              value={shownSecret}
+              onChange={(event) => {
+                setSecretTouched(true);
+                setSecretName(event.target.value.toUpperCase());
+              }}
             />
           </Field>
-          <Field label={t('project.connectors.headerLabel')} htmlFor="connector-header" hint={header.trim().toLowerCase() === 'authorization' ? t('project.connectors.headerHint') : undefined}>
+          <Field label={t('project.connectors.headerLabel')} htmlFor="connector-header" hint={problemHint(problems.header, header.trim().toLowerCase() === 'authorization' ? t('project.connectors.headerHint') : undefined)}>
             <Input
               id="connector-header"
               className="font-mono text-[13px]"
               autoComplete="off"
               spellCheck={false}
+              aria-invalid={isWrong(problems.header)}
               value={header}
               onChange={(event) => setHeader(event.target.value)}
             />
@@ -526,6 +539,19 @@ function ConnectorForm({
         </Button>
       </div>
     </form>
+  );
+}
+
+const isWrong = (problem?: FieldProblem) => (problem && !problem.empty ? true : undefined);
+
+// problemHint is what a field says under it: what is wrong with it, in red;
+// what it still needs, in the hint's grey; or its usual hint.
+function problemHint(problem?: FieldProblem, hint?: string): ReactNode {
+  if (!problem) return hint;
+  return (
+    <span data-connector-problem={problem.empty ? 'empty' : 'wrong'} className={cn(!problem.empty && 'text-rose-300')}>
+      {problem.message}
+    </span>
   );
 }
 

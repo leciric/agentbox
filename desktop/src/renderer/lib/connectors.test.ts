@@ -3,15 +3,23 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as T from '../../shared/api.ts';
 import {
+  connectorFormProblems,
+  connectorHeaderProblem,
   connectorName,
+  connectorNameProblem,
   connectorPresets,
   connectorRequest,
+  connectorSecretProblem,
   connectorStatus,
+  connectorTokenProblem,
+  connectorURL,
+  connectorURLProblem,
   isWide,
   overrideOf,
   overrideRequest,
   presetFor,
   RequestConnector,
+  secretNameFor,
   tokenLine,
   validConnectorName,
   validConnectorURL,
@@ -153,4 +161,119 @@ test('an AgentBox-wide connector in a project reads its override three ways', ()
   assert.equal(overrideOf({ ...wide, override: 'on' }), 'on');
   assert.equal(overrideRequest('inherit'), '');
   assert.equal(overrideRequest('off'), 'off');
+});
+
+// The servers people add by hand, as their pages give the address.
+const common = [
+  'https://mcp.notion.com/mcp',
+  'https://mcp.linear.app/mcp',
+  'https://api.githubcopilot.com/mcp/',
+  'https://mcp.example.com:8443/v1/mcp',
+  'https://mcp.deepwiki.com/sse?x=1',
+];
+
+test('connectorName names the common servers, and a country-code domain by the one left of it', () => {
+  assert.deepEqual(common.map(connectorName), ['notion', 'linear', 'githubcopilot', 'example', 'deepwiki']);
+  assert.equal(connectorName('https://mcp.acme.co.uk/mcp'), 'acme');
+  assert.equal(connectorName('https://api.loja.com.br/mcp'), 'loja');
+  assert.equal(connectorName(`https://${'a'.repeat(60)}.com/mcp`).length, 40);
+});
+
+test('connectorURL puts https:// before an address typed without one', () => {
+  assert.equal(connectorURL('  mcp.notion.com/mcp '), 'https://mcp.notion.com/mcp');
+  assert.equal(connectorURL('https://mcp.notion.com/mcp'), 'https://mcp.notion.com/mcp');
+  assert.equal(connectorURL('http://example.com/mcp'), 'http://example.com/mcp');
+  assert.equal(connectorURL('mcp.example.com:8443/mcp'), 'https://mcp.example.com:8443/mcp');
+  assert.equal(connectorURL(''), '');
+});
+
+test('connectorURLProblem takes the common servers and says what is wrong with the rest', () => {
+  for (const u of common) assert.equal(connectorURLProblem(u), undefined, u);
+  assert.equal(connectorURLProblem('mcp.linear.app/mcp'), undefined);
+  assert.deepEqual(connectorURLProblem(''), { message: 'Paste the server’s address, like https://mcp.example.com/mcp.', empty: true });
+  assert.match(connectorURLProblem('http://example.com/mcp')!.message, /^Use https/);
+  assert.match(connectorURLProblem('https://localhost:3000/mcp')!.message, /on this machine/);
+  assert.match(connectorURLProblem('https://127.0.0.1/mcp')!.message, /on this machine/);
+  assert.match(connectorURLProblem('https://[::1]/mcp')!.message, /on this machine/);
+  assert.match(connectorURLProblem('https://me:pw@example.com/mcp')!.message, /user name/);
+  assert.match(connectorURLProblem('https://exa mple.com')!.message, /isn’t a web address/);
+  assert.match(connectorURLProblem('ftp://example.com')!.message, /isn’t a web address/);
+  assert.match(connectorURLProblem('https:/mcp.notion.com/mcp')!.message, /isn’t a web address/);
+  assert.equal(connectorURLProblem('mcp.example.com:8443/mcp'), undefined);
+  assert.equal(connectorURLProblem('ftp://example.com')!.empty, undefined);
+});
+
+test('connectorNameProblem says why a name is refused, as the daemon would', () => {
+  assert.equal(connectorNameProblem('notion'), undefined);
+  assert.equal(connectorNameProblem('')?.empty, true);
+  assert.match(connectorNameProblem('Notion')!.message, /lowercase/);
+  assert.match(connectorNameProblem('a'.repeat(41))!.message, /40/);
+  assert.match(connectorNameProblem('memory')!.message, /AgentBox gives every agent/);
+  assert.equal(connectorNameProblem('notion', ['notion'])!.message, 'There is one of that name already.');
+});
+
+test('the token fields say what they need', () => {
+  assert.equal(connectorTokenProblem('ghp_x'), undefined);
+  assert.equal(connectorTokenProblem(' ')?.empty, true);
+  assert.equal(connectorSecretProblem('GITHUB_COPILOT_TOKEN'), undefined);
+  assert.equal(connectorSecretProblem('')?.empty, true);
+  assert.match(connectorSecretProblem('1TOKEN')!.message, /not starting with a digit/);
+  assert.match(connectorSecretProblem('GH_TOKEN')!.message, /AgentBox sets GH_TOKEN/);
+  assert.match(connectorSecretProblem('A'.repeat(65))!.message, /64/);
+  assert.equal(connectorHeaderProblem('Authorization'), undefined);
+  assert.equal(connectorHeaderProblem('X-Api-Key'), undefined);
+  assert.equal(connectorHeaderProblem('')?.empty, true);
+  assert.match(connectorHeaderProblem('X Api')!.message, /isn’t a header name/);
+  assert.match(connectorHeaderProblem('Mcp-Session-Id')!.message, /AgentBox sets Mcp-Session-Id/);
+});
+
+test('secretNameFor names the token after the connector', () => {
+  assert.equal(secretNameFor('githubcopilot'), 'GITHUBCOPILOT_TOKEN');
+  assert.equal(secretNameFor('my-server'), 'MY_SERVER_TOKEN');
+  assert.equal(secretNameFor('1password'), '_1PASSWORD_TOKEN');
+  assert.equal(secretNameFor(''), '');
+  assert.equal(connectorSecretProblem(secretNameFor('my-server')), undefined);
+});
+
+// The form as ConnectorForm fills it in: the name from the URL, the secret
+// from the name, until the user types either.
+function form(over: Partial<Parameters<typeof connectorFormProblems>[0]> = {}) {
+  const url = over.url ?? '';
+  const name = over.name ?? connectorName(connectorURL(url));
+  return connectorFormProblems({ auth: T.ConnectorOAuth, secret: secretNameFor(name), header: 'Authorization', token: '', taken: [], url, name, ...over });
+}
+
+test('a browser sign-in form is ready with just a URL, for every common server', () => {
+  for (const url of common) assert.deepEqual(form({ url }), {}, url);
+  assert.deepEqual(form({ url: 'mcp.notion.com/mcp' }), {});
+  for (const p of connectorPresets.filter((p) => p.auth === T.ConnectorOAuth)) assert.deepEqual(form({ url: p.url, name: p.name }), {}, p.id);
+});
+
+test('a public server needs nothing more than a browser sign-in does', () => {
+  assert.deepEqual(form({ url: 'https://mcp.deepwiki.com/mcp', auth: T.ConnectorNone }), {});
+});
+
+test('a token form is ready once the token is pasted, the secret named after the connector', () => {
+  const url = 'https://api.githubcopilot.com/mcp/';
+  assert.deepEqual(Object.keys(form({ url, auth: T.ConnectorSecret })), ['token']);
+  assert.deepEqual(form({ url, auth: T.ConnectorSecret, token: 'ghp_x' }), {});
+  const figma = connectorPresets.find((p) => p.id === 'figma')!;
+  assert.deepEqual(form({ url: figma.url, name: figma.name, auth: T.ConnectorSecret, secret: figma.secret!.name, header: figma.secret!.header, token: 'figd_x' }), {});
+});
+
+test('an empty form says what each field still needs, and nothing is ready', () => {
+  const problems = form({ auth: T.ConnectorSecret });
+  assert.deepEqual(Object.keys(problems).sort(), ['name', 'secret', 'token', 'url']);
+  assert.ok(Object.values(problems).every((p) => p?.empty));
+  assert.deepEqual(Object.keys(form({ header: '', auth: T.ConnectorSecret, url: common[0], token: 'x' })), ['header']);
+});
+
+test('an address with no name to give asks for one', () => {
+  const problems = form({ url: 'https://203.0.113.7/mcp' });
+  assert.deepEqual(Object.keys(problems), ['name']);
+  assert.deepEqual(form({ url: 'https://203.0.113.7/mcp', name: 'edge' }), {});
+});
+
+test('a name already taken is said under the name', () => {
+  assert.equal(form({ url: common[0], taken: ['notion'] }).name?.message, 'There is one of that name already.');
 });
