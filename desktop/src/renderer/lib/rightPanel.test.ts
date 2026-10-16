@@ -205,3 +205,13 @@ test('fitTabs shows what fits, the active tab always, and the rest in the menu',
   assert.deepEqual(fitTabs(tabs, 'e', 50, 40), { shown: ['e'], hidden: ['a', 'b', 'c', 'd'] });
   assert.deepEqual(fitTabs([], null, 100, 40), { shown: [], hidden: [] });
 });
+
+test('the launcher opens Files and the machine kinds on the agent whose page it is in, and asks in the lead\'s', () => {
+  for (const kind of ['files', 'desktop', 'terminal', 'browser'] as const) {
+    assert.equal(P.launcherTarget('pawly/agent-2', kind), 'pawly/agent-2');
+    assert.equal(P.launcherTarget('pawly/lead', kind), undefined);
+    assert.equal(P.launcherTarget('pawly', kind), undefined);
+  }
+  // Pages and Media keep asking, and the project's own tabs have no target.
+  for (const kind of ['pages', 'media', 'pulls', 'settings'] as const) assert.equal(P.launcherTarget('pawly/agent-2', kind), undefined);
+});

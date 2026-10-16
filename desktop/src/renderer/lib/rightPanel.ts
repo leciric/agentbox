@@ -11,6 +11,7 @@
 // needs one asks whose it shows inside it, again as cards.
 import { useSyncExternalStore } from 'react';
 import type * as T from '../../shared/api.ts';
+import { isLeadRef } from './pages.ts';
 import type { ProjectSection } from './tabs.ts';
 
 export type PanelKind = 'files' | 'desktop' | 'terminal' | 'browser' | 'pages' | 'media' | 'pulls' | 'settings';
@@ -230,6 +231,14 @@ export function chooseKind(chat: string, id: string | null, kind: PanelKind, tar
     const tab: PanelTab = { id: newId(), kind, ...(target ? { target } : {}) };
     return { open: true, tabs: [...p.tabs, tab], active: tab.id };
   });
+}
+
+// launcherTarget is whose a tab the launcher opens shows: in an agent's own
+// page the machine kinds and Files open straight on that agent (the tab's
+// picker switches), and in the lead's, or for any other kind, it asks.
+export function launcherTarget(chat: string, kind: PanelKind): string | undefined {
+  if (isLeadRef(chat) || projectWide(kind) || !(kind === 'files' || needsMachine(kind))) return undefined;
+  return chat;
 }
 
 // chooseTarget is whose tab id shows: picked from its cards, or changed.
