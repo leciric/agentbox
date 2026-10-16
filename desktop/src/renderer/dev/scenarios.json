@@ -1463,20 +1463,12 @@
     "click": "[data-v2-idle-toggle]"
   },
   {
-    "id": "window-wide-v2-groups-dark",
-    "description": "UI v2 at 1920×1080 with groups (Work, Personal, and a long name), two hidden projects and the Idle list open: pins on top, groups in order, ungrouped, Idle last, Hidden at the bottom — dark",
-    "query": "app=project&v2=1&pins=storefront&groups=Work:agentbox,courier;Personal:quill,dotfiles;A%20group%20name%20that%20is%20much%20too%20long%20for%20the%20sidebar:old-blog&hidden=dotfiles,old-blog&theme=dark",
+    "id": "window-wide-v2-hidden-dark",
+    "description": "UI v2 at 1920×1080 with two projects hidden and the Hidden list open at the very bottom, under the Idle fold — dark",
+    "query": "app=project&v2=1&pins=storefront&hidden=dotfiles,old-blog&theme=dark",
     "width": 1920,
     "height": 1080,
-    "click": "[data-v2-idle-toggle]"
-  },
-  {
-    "id": "window-wide-v2-group-switcher-dark",
-    "description": "UI v2 at 1920×1080 narrowed to one group with the switcher beside the filters — dark",
-    "query": "app=project&v2=1&groups=Work:agentbox,courier;Personal:quill,dotfiles&theme=dark",
-    "width": 1920,
-    "height": 1080,
-    "click": "[data-v2-group-switcher]"
+    "click": "[data-v2-hidden-toggle]"
   },
   {
     "id": "window-wide-v2-talk-dark",

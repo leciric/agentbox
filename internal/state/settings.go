@@ -168,7 +168,7 @@ const (
 	// project, and it replaced projects.media_retention_days, which is no
 	// longer read.
 	SettingMediaRetention = "media_retention"
-	// SettingSidebarLayout is UI v2's sidebar's groups and hidden projects,
+	// SettingSidebarLayout is UI v2's sidebar's hidden projects,
 	// an api.SidebarLayout as JSON; empty is none.
 	SettingSidebarLayout = "sidebar_layout"
 	// SettingLanguage is the language tag the desktop app speaks

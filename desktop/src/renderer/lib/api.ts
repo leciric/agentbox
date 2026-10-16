@@ -176,7 +176,7 @@ export const api = {
   addSection: (name: string) => call<T.Section>('POST', '/v1/sections', { name } satisfies T.AddSectionRequest),
   updateSection: (id: string, req: T.UpdateSectionRequest) => call<T.Section>('PATCH', `/v1/sections/${encodeURIComponent(id)}`, req),
   removeSection: (id: string) => call<void>('DELETE', `/v1/sections/${encodeURIComponent(id)}`),
-  // UI v2's sidebar's groups and hidden projects, replaced whole.
+  // UI v2's sidebar's hidden projects, replaced whole.
   sidebarLayout: () => call<T.SidebarLayout>('GET', '/v1/sidebar'),
   setSidebarLayout: (layout: T.SidebarLayout) => call<T.SidebarLayout>('PUT', '/v1/sidebar', layout),
   setProjectLayout: (layout: T.ProjectLayout) => call<T.Project[]>('PUT', '/v1/projects/layout', layout),

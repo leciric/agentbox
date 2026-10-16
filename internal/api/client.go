@@ -309,13 +309,13 @@ func (c *Client) RemoveSection(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/sections/"+url.PathEscape(id), nil, nil)
 }
 
-// SidebarLayout is UI v2's sidebar's groups and hidden projects.
+// SidebarLayout is UI v2's sidebar's hidden projects.
 func (c *Client) SidebarLayout(ctx context.Context) (SidebarLayout, error) {
 	var out SidebarLayout
 	return out, c.do(ctx, http.MethodGet, "/v1/sidebar", nil, &out)
 }
 
-// SetSidebarLayout replaces the sidebar's groups and hidden projects, and
+// SetSidebarLayout replaces the sidebar's hidden projects, and
 // answers with what was kept.
 func (c *Client) SetSidebarLayout(ctx context.Context, layout SidebarLayout) (SidebarLayout, error) {
 	var out SidebarLayout

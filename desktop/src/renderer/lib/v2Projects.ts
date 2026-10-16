@@ -1,8 +1,7 @@
 // What UI v2's sidebar remembers about the projects on this computer: which
-// are pinned and in what order, which groups are folded,
-// the group switcher's choice, whether the Hidden list is open, and the state
-// and project filters (none until the user picks). The groups themselves and
-// which projects are hidden are the daemon's (sidebarGroups.ts).
+// are pinned and in what order, whether the Hidden list is open, and the
+// state and project filters (none until the user picks). Which projects are
+// hidden is the daemon's (sidebarHidden.ts).
 // v2 is how this app looks here (uiV2.ts), so these live in localStorage
 // beside it, not in the daemon, and v1's order (D79) never sees them. The
 // reading of them is projectOrder.ts's.
@@ -11,10 +10,6 @@ import { noFilters, stOrder, type AgentSt } from './leadFirst.ts';
 
 type V2Projects = {
   pins: string[];
-  // The groups folded under their header.
-  collapsed: string[];
-  // The group the switcher narrows to, '' for all.
-  group: string;
   hiddenOpen: boolean;
   st: AgentSt[];
   projects: string[];
@@ -27,13 +22,11 @@ const listeners = new Set<() => void>();
 let current: V2Projects | undefined;
 
 function read(): V2Projects {
-  const empty: V2Projects = { pins: [], collapsed: [], group: '', hiddenOpen: false, st: noFilters.st, projects: [] };
+  const empty: V2Projects = { pins: [], hiddenOpen: false, st: noFilters.st, projects: [] };
   try {
     const raw = JSON.parse(localStorage.getItem(storageKey) ?? '{}') as Partial<V2Projects>;
     return {
       pins: strings(raw.pins) ?? [],
-      collapsed: strings(raw.collapsed) ?? [],
-      group: typeof raw.group === 'string' ? raw.group : '',
       hiddenOpen: raw.hiddenOpen === true,
       st: strings(raw.st)?.filter((st): st is AgentSt => stOrder.includes(st as AgentSt)) ?? empty.st,
       projects: strings(raw.projects) ?? [],
@@ -60,8 +53,6 @@ function update(change: (s: V2Projects) => Partial<V2Projects>) {
 }
 
 export const setPins = (pins: string[]) => update(() => ({ pins }));
-export const setCollapsed = (collapsed: string[]) => update(() => ({ collapsed }));
-export const setGroupFilter = (group: string) => update(() => ({ group }));
 export const setHiddenOpen = (hiddenOpen: boolean) => update(() => ({ hiddenOpen }));
 export const setFilterChoice = (st: AgentSt[], projects: string[]) => update(() => ({ st, projects }));
 

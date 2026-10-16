@@ -216,29 +216,16 @@ type ProjectLayout struct {
 	Loose []string `json:"loose"`
 }
 
-// SidebarLayout is how UI v2's sidebar organises the projects: the user's
-// groups, in their order, and the projects they hid. It belongs to the
-// installation, so every window and the phone app read the same one; v1's
-// sections (D79) are separate and never see it. It is only an arrangement of
-// the sidebar: nothing else reads it, cross-project messaging included.
-// GET /v1/sidebar reads it and PUT /v1/sidebar replaces it whole, answering
-// with what was kept: a project in two groups stays in the first, a group
-// with no name or a repeated ID goes, and a project that's gone is dropped.
+// SidebarLayout is how UI v2's sidebar arranges the projects: for now, the
+// ones the user hid. It belongs to the installation, so every window and the
+// phone app read the same one; v1's sections (D79) never see it, and nothing
+// but the sidebar reads it. GET /v1/sidebar reads it and PUT /v1/sidebar
+// replaces it whole, answering with what was kept: each project once, and
+// none that's gone.
 type SidebarLayout struct {
-	Groups []SidebarGroup `json:"groups"`
 	// Hidden are the projects hidden from the sidebar, which shows one again
 	// only while it has something going on.
 	Hidden []string `json:"hidden"`
-}
-
-// SidebarGroup is one of the user's named groups of projects.
-type SidebarGroup struct {
-	// ID stays the same through a rename. The app makes it; one sent empty
-	// gets one.
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	// Projects are its members, each in one group at most.
-	Projects []string `json:"projects"`
 }
 
 // SectionProjects is one section of a ProjectLayout: which one, and what is

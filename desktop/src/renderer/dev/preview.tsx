@@ -155,7 +155,6 @@
 //                           drawers. "Ready to review" has agents waiting
 //                           (dev/review.tsx), for its modal and the PR's
 //   &pins=a,b               with &v2=1, those projects pinned, in that order
-//   &groups=Work:a,b;Play:c with &v2=1, the sidebar's groups and their projects
 //   &hidden=a,b             with &v2=1, those projects hidden from the sidebar
 //   &v2=1                   with ?app=, UI v2, the lead-first layout (Settings →
 //                           Experimental): leads with their last lines

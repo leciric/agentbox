@@ -435,18 +435,18 @@ func TestClientMethodsEncodeRequestsAndDecodeResponses(t *testing.T) {
 		},
 		{
 			name: "SidebarLayout", method: http.MethodGet, path: "/v1/sidebar",
-			resp: `{"groups":[{"id":"g1","name":"Work","projects":["a"]}],"hidden":["b"]}`,
+			resp: `{"hidden":["b"]}`,
 			run: func(t *testing.T, c *Client) {
 				l, err := c.SidebarLayout(context.Background())
-				if err != nil || len(l.Groups) != 1 || l.Groups[0].Name != "Work" || l.Hidden[0] != "b" {
+				if err != nil || len(l.Hidden) != 1 || l.Hidden[0] != "b" {
 					t.Errorf("SidebarLayout() = %+v, %v", l, err)
 				}
 			},
 		},
 		{
 			name: "SetSidebarLayout", method: http.MethodPut, path: "/v1/sidebar",
-			body: `{"groups":null,"hidden":["b"]}`,
-			resp: `{"groups":[],"hidden":["b"]}`,
+			body: `{"hidden":["b"]}`,
+			resp: `{"hidden":["b"]}`,
 			run: func(t *testing.T, c *Client) {
 				l, err := c.SetSidebarLayout(context.Background(), SidebarLayout{Hidden: []string{"b"}})
 				if err != nil || l.Hidden[0] != "b" {

@@ -2,20 +2,17 @@ package daemon
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"slices"
-	"strings"
 
 	"agentbox/internal/api"
 	"agentbox/internal/state"
 )
 
-// UI v2's sidebar's groups and hidden projects (api.SidebarLayout), one JSON
-// setting rather than tables: the whole of it is read and written at once,
-// and nothing joins on it.
+// UI v2's sidebar's hidden projects (api.SidebarLayout), one JSON setting
+// rather than a table: the whole of it is read and written at once, and
+// nothing joins on it.
 
 func (s *Server) sidebarLayout(w http.ResponseWriter, r *http.Request) error {
 	out, err := s.readSidebarLayout(r.Context())
@@ -77,46 +74,14 @@ func (s *Server) projectNames(ctx context.Context) (map[string]bool, error) {
 	return known, nil
 }
 
-// tidySidebarLayout keeps what makes sense of layout: groups with a name and
-// an ID of their own (one sent empty gets one), each project of known in one
-// group at most, the first it is in, and each hidden once. The lists are
+// tidySidebarLayout keeps each hidden project of known once. The list is
 // never nil, so the JSON has [] rather than null.
 func tidySidebarLayout(layout api.SidebarLayout, known map[string]bool) api.SidebarLayout {
-	out := api.SidebarLayout{Groups: []api.SidebarGroup{}, Hidden: []string{}}
-	ids := map[string]bool{}
-	grouped := map[string]bool{}
-	for _, g := range layout.Groups {
-		name := strings.TrimSpace(g.Name)
-		if name == "" {
-			continue
-		}
-		id := strings.TrimSpace(g.ID)
-		if id == "" {
-			id = newGroupID()
-		}
-		if ids[id] {
-			continue
-		}
-		ids[id] = true
-		members := []string{}
-		for _, p := range g.Projects {
-			if known[p] && !grouped[p] {
-				grouped[p] = true
-				members = append(members, p)
-			}
-		}
-		out.Groups = append(out.Groups, api.SidebarGroup{ID: id, Name: name, Projects: members})
-	}
+	out := api.SidebarLayout{Hidden: []string{}}
 	for _, p := range layout.Hidden {
 		if known[p] && !slices.Contains(out.Hidden, p) {
 			out.Hidden = append(out.Hidden, p)
 		}
 	}
 	return out
-}
-
-func newGroupID() string {
-	b := make([]byte, 6)
-	_, _ = rand.Read(b)
-	return "g-" + hex.EncodeToString(b)
 }

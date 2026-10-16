@@ -338,17 +338,10 @@ export function seedV2(queryClient: QueryClient, pins: string | null): void {
   queryClient.setQueryData(['projects'], projects);
   if (pins) localStorage.setItem('agentbox.v2.projects', JSON.stringify({ pins: pins.split(',') }));
   const json = (v: unknown) => ({ status: 200, body: JSON.stringify(v), contentType: 'application/json' });
-  // The sidebar's groups and hidden projects (&groups=Work:a,b;Play:c and
-  // &hidden=a,b), kept as the daemon would until the page reloads.
-  const groupsParam = new URLSearchParams(location.search).get('groups');
+  // The sidebar's hidden projects (&hidden=a,b), kept as the daemon would
+  // until the page reloads.
   const hiddenParam = new URLSearchParams(location.search).get('hidden');
-  let sidebar: T.SidebarLayout = {
-    groups: (groupsParam ? groupsParam.split(';') : []).map((g, i) => {
-      const [name, members = ''] = g.split(':');
-      return { id: `g${i + 1}`, name, projects: members.split(',').filter(Boolean) };
-    }),
-    hidden: hiddenParam ? hiddenParam.split(',') : [],
-  };
+  let sidebar: T.SidebarLayout = { hidden: hiddenParam ? hiddenParam.split(',') : [] };
   devRequests.push((method, path, body) => {
     if (path === '/v1/sidebar' && method === 'GET') return json(sidebar);
     if (path === '/v1/sidebar' && method === 'PUT') {

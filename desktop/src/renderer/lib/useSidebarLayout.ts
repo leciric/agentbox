@@ -1,12 +1,12 @@
-// useSidebarLayout is v2's sidebar's groups and hidden projects as the daemon
-// keeps them (sidebarGroups.ts), and save, which shows a change at once and
+// useSidebarLayout is v2's sidebar's hidden projects as the daemon keeps
+// them (sidebarHidden.ts), and save, which shows a change at once and
 // then stores it: the sidebar doesn't wait on the round trip to move a row.
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api } from './api';
 import { useT } from './i18n';
-import { emptyLayout } from './sidebarGroups';
+import { emptyLayout } from './sidebarHidden';
 import { errorMessage } from './utils';
 
 const key = ['sidebarLayout'];
@@ -21,13 +21,10 @@ export function useSidebarLayout(): { layout: T.SidebarLayout; save: (next: T.Si
       .setSidebarLayout(next)
       .then((kept) => queryClient.setQueryData(key, kept))
       .catch((err) => {
-        toast.error(t('v2.groups.failed'), { description: errorMessage(err) });
+        toast.error(t('v2.sidebar.hideFailed'), { description: errorMessage(err) });
         void queryClient.invalidateQueries({ queryKey: key });
       });
   };
   return { layout: query.data ?? emptyLayout, save };
 }
 
-// newGroupId is a group's ID, made here so the group can be shown before the
-// daemon has it.
-export const newGroupId = () => `g-${crypto.randomUUID().slice(0, 12)}`;
