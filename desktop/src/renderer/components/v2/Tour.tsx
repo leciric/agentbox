@@ -36,8 +36,17 @@ function visibleBox(selectors: string[] | undefined): Box | null {
       const y = Math.min(innerHeight - 1, Math.max(0, r.top + Math.min(r.height / 2, 20)));
       const hit = document.elementsFromPoint(x, y).find((h) => !h.closest('[data-tour]'));
       if (hit && !el.contains(hit) && !hit.contains(el)) continue;
-      const top = Math.max(r.top, 0);
-      const bottom = Math.min(r.bottom, innerHeight);
+      // Cut to what the scroller it's in shows (a long project in the sidebar).
+      let top = Math.max(r.top, 0);
+      let bottom = Math.min(r.bottom, innerHeight);
+      for (let p = el.parentElement; p; p = p.parentElement) {
+        if (!/(auto|scroll|hidden)/.test(getComputedStyle(p).overflowY)) continue;
+        const c = p.getBoundingClientRect();
+        top = Math.max(top, c.top);
+        bottom = Math.min(bottom, c.bottom);
+        break;
+      }
+      if (bottom - top < 2) continue;
       return { left: r.left, top, width: r.width, height: bottom - top };
     }
   }
@@ -179,7 +188,7 @@ function TourPlayer({ view, onSelect }: { view: View; onSelect: (view: View) => 
             {hole && <rect rx="12" fill="black" className="transition-all duration-300 ease-out" style={{ x: hole.left, y: hole.top, width: hole.width, height: hole.height }} />}
           </mask>
         </defs>
-        <rect width="100%" height="100%" fill="var(--ab-scrim)" mask="url(#tour-hole)" />
+        <rect width="100%" height="100%" style={{ fill: "var(--ab-scrim)" }} mask="url(#tour-hole)" />
       </svg>
       {hole && (
         <div
