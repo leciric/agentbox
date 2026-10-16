@@ -62,10 +62,12 @@ class IpcChannel {
 }
 
 // connectView shows the display behind a daemon WebSocket path in target. The
-// display resizes to fit, and text copied on it lands on your clipboard.
+// display keeps its own size and aspect ratio, scaled uniformly to fit target
+// (letterboxed and centred, never stretched; mouse coordinates are mapped by
+// noVNC), and text copied on it lands on your clipboard.
 export function connectView(path: string, target: HTMLElement): RFB {
   const rfb = new RFB(target, new IpcChannel(path), { shared: true });
-  rfb.resizeSession = true;
+  rfb.resizeSession = false;
   rfb.scaleViewport = true;
   rfb.background = getComputedStyle(document.documentElement).getPropertyValue('--ab-stage').trim();
   rfb.addEventListener('clipboard', (event) => window.agentbox.copyText((event as CustomEvent<{ text: string }>).detail.text));

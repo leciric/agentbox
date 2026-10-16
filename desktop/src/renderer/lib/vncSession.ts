@@ -3,10 +3,9 @@ import { connectView } from './vnc';
 
 // VncSession shows a VNC display in target, reconnecting if it drops: what
 // useVncView does for the app, without React, so the page of `agentbox
-// machines serve` shows a machine with the same client. noVNC only resizes the
-// remote display for a client that takes input, so the client always does;
-// until control is on, the caller covers the view with an overlay, and the
-// view never takes focus.
+// machines serve` shows a machine with the same client. The display keeps its
+// own size and is scaled to fit; until control is on, the caller covers the
+// view with an overlay, and the view never takes focus.
 export class VncSession {
   private readonly path: string;
   private readonly target: HTMLElement;
