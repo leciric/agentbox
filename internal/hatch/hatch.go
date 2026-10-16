@@ -19,7 +19,16 @@ import (
 
 // Host is where Hatch lives: a connector whose server is here is Hatch,
 // whatever it is called.
-const Host = "hatch.linting.dev"
+const Host = "usehatch.dev"
+
+// LegacyHost is where Hatch lived before it moved to Host. Its connectors and
+// the page links already in chats still count as Hatch's.
+const LegacyHost = "hatch.linting.dev"
+
+// isHost reports whether name is Host or LegacyHost.
+func isHost(name string) bool {
+	return strings.EqualFold(name, Host) || strings.EqualFold(name, LegacyHost)
+}
 
 // DefaultExpiry is how long a page lasts when publish_page doesn't say.
 const DefaultExpiry = 24 * time.Hour
@@ -27,7 +36,7 @@ const DefaultExpiry = 24 * time.Hour
 // IsHatch reports whether a connector's server URL is Hatch's.
 func IsHatch(server string) bool {
 	u, err := url.Parse(server)
-	return err == nil && strings.EqualFold(u.Hostname(), Host)
+	return err == nil && isHost(u.Hostname())
 }
 
 // The two calls that make an artifact.
@@ -180,7 +189,9 @@ func pageOf(output, host string) (id, link string) {
 	for _, m := range pageLink.FindAllStringSubmatchIndex(output, -1) {
 		raw := output[m[0]:m[1]]
 		u, err := url.Parse(raw)
-		if err != nil || !strings.EqualFold(u.Hostname(), host) {
+		// A page published before the move links to the old host, whichever
+		// host the connector is on now.
+		if err != nil || !(strings.EqualFold(u.Hostname(), host) || isHost(host) && isHost(u.Hostname())) {
 			continue
 		}
 		return output[m[2]:m[3]], raw

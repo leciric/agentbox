@@ -48,13 +48,13 @@ func TestAHatchCallKeepsItsPageArguments(t *testing.T) {
 func TestAFinishedPageCallIsStoredBeforeItIsPublished(t *testing.T) {
 	store := openStore(t)
 	out := func(id string) string {
-		return `"Published \"Plan\" (id ` + id + `, version 1): https://hatch.linting.dev/p/` + id + `\n{\"id\":\"` + id + `\",\"version\":1}"`
+		return `"Published \"Plan\" (id ` + id + `, version 1): https://usehatch.dev/p/` + id + `\n{\"id\":\"` + id + `\",\"version\":1}"`
 	}
 	f := newFakeTool(func(f *fakeTool, s, _ string) acp.PromptResponse {
 		f.update(s, `{"sessionUpdate":"tool_call","toolCallId":"t1","title":"mcp__hatch__publish_page","status":"pending","rawInput":{"title":"Plan","html":"<p>1</p>"},"_meta":{"claudeCode":{"toolName":"mcp__hatch__publish_page"}}}`)
 		f.update(s, `{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed","rawOutput":`+out("dR6ygVLcOlGuJfYu")+`}`)
 		f.update(s, `{"sessionUpdate":"tool_call","toolCallId":"t2","title":"mcp__hatch__get_page","status":"pending","rawInput":{"id":"dR6ygVLcOlGuJfYu"},"_meta":{"claudeCode":{"toolName":"mcp__hatch__get_page"}}}`)
-		f.update(s, `{"sessionUpdate":"tool_call_update","toolCallId":"t2","status":"completed","rawOutput":"{\"url\":\"https://hatch.linting.dev/p/dR6ygVLcOlGuJfYu\"}"}`)
+		f.update(s, `{"sessionUpdate":"tool_call_update","toolCallId":"t2","status":"completed","rawOutput":"{\"url\":\"https://usehatch.dev/p/dR6ygVLcOlGuJfYu\"}"}`)
 		f.update(s, `{"sessionUpdate":"tool_call","toolCallId":"t3","title":"ToolSearch","status":"completed","rawInput":{"query":"select:mcp__hatch__update_page,mcp__hatch__set_visibility"},"_meta":{"claudeCode":{"toolName":"ToolSearch"}}}`)
 		f.update(s, `{"sessionUpdate":"tool_call","toolCallId":"t4","title":"mcp__hatch__publish_page","status":"pending","rawInput":{"title":"Plan","html":"<p>2</p>","expires_in_hours":null},"_meta":{"claudeCode":{"toolName":"mcp__hatch__publish_page"}}}`)
 		f.update(s, `{"sessionUpdate":"tool_call_update","toolCallId":"t4","status":"completed","rawOutput":`+out("sVhkyBNMvUt3KxuV")+`}`)

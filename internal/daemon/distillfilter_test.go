@@ -320,7 +320,7 @@ func realisticWindow() []memory.Event {
 		{"Did #250 drop the tasks tables?", "Yes, by an appended migration; old rows are gone and the agent's task text stays on the agent itself."},
 		{"Can the Notes tab replace the plan?", "We tried it as a mock-up (Hatch v1–v3) and you dropped it: the memory items behind it weren't trustworthy enough to plan from."},
 		{"Which items in memory are stale?", "93 of 119 issue memories were still open, with duplicates; #251's anchors close them on merge and tidy resolves anything older than 7 days."},
-		{"How do I preview a page in the chat?", "Pages show as a fanned stack at the composer when there are new ones; clicking opens hatch.linting.dev until hatch#3 is deployed, then in-app."},
+		{"How do I preview a page in the chat?", "Pages show as a fanned stack at the composer when there are new ones; clicking opens usehatch.dev until hatch#3 is deployed, then in-app."},
 		{"Should agents keep their caches between runs?", "Go and npm caches are shared read-only from the base image and per-agent writable on /t; nothing is kept between agents, which is what keeps them isolated."},
 		{"Why did agent-286 take two tries?", "agent-280 built the first version as artifacts; you chose the mix on the options page, so agent-286 reworked it on the same branch as pages."},
 		{"Where does the lead's context come from?", "The ACP adapter owns the session; the daemon only shapes it at start through the brief files and by rolling the session."},

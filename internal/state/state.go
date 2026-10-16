@@ -1167,6 +1167,19 @@ var migrations = []string{
 		at      INTEGER NOT NULL,
 		PRIMARY KEY (tool, account)
 	)`,
+
+	// Hatch moved from hatch.linting.dev to usehatch.dev. A stored sign-in
+	// belongs to the old host (its issuer, the client registered there and
+	// the resource the token was issued for), so the new host can't use it:
+	// an OAuth connector comes out disconnected, which the app shows as
+	// needing sign-in, and a secret or open one only changes address.
+	`UPDATE connectors SET url = 'https://usehatch.dev' || substr(url, length('https://hatch.linting.dev') + 1),
+		issuer = '', token_endpoint = '', resource = '', client_id = '', client_secret = NULL,
+		token_auth = '', redirect_uri = '', access_token = NULL, refresh_token = NULL,
+		expires_at = 0, scope = '', error = '', connected_at = 0
+		WHERE auth = 'oauth' AND lower(url) LIKE 'https://hatch.linting.dev%'`,
+	`UPDATE connectors SET url = 'https://usehatch.dev' || substr(url, length('https://hatch.linting.dev') + 1)
+		WHERE lower(url) LIKE 'https://hatch.linting.dev%'`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

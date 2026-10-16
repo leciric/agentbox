@@ -80,7 +80,7 @@ func (f *fakeHatch) mcp(w http.ResponseWriter, r *http.Request) {
 		id := msg.Params.Arguments["id"]
 		page := map[string]any{"artifact": map[string]any{
 			"id": id, "title": "Q3 report (final)", "visibility": "private", "current_version": 4, "status": "active",
-			"expires_at": "2099-01-01T00:00:00.000Z", "url": "https://hatch.linting.dev/p/" + id,
+			"expires_at": "2099-01-01T00:00:00.000Z", "url": "https://usehatch.dev/p/" + id,
 		}, "versions": []any{}}
 		if withContent {
 			page["content_url"] = f.URL + "/a/" + id + "?t=signed-" + id

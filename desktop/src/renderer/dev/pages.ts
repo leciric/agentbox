@@ -12,7 +12,7 @@ const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
 const later = (ms: number) => new Date(Date.now() + ms).toISOString();
 const min = 60_000;
 const hour = 60 * min;
-const link = (id: string) => `https://hatch.linting.dev/p/${id}`;
+const link = (id: string) => `https://usehatch.dev/p/${id}`;
 
 type Fixture = T.Artifact & { look: Look };
 type Look = 'report' | 'compare' | 'flame' | 'notes' | 'board' | 'none';
@@ -94,7 +94,7 @@ function pagesLeadChat(): T.ChatThread {
         id: 'h3', turn: 'h1', kind: 'tool', createdAt: ago(10 * min), updatedAt: ago(10 * min),
         tool: {
           callId: 'c1', name: 'mcp__hatch__publish_page', title: 'mcp__hatch__publish_page', kind: 'other', status: 'completed', page: { title: 'Q3 usage report' },
-          output: 'Published "Q3 usage report" (id q3Usage7Kd2, version 1): https://hatch.linting.dev/p/q3Usage7Kd2',
+          output: 'Published "Q3 usage report" (id q3Usage7Kd2, version 1): https://usehatch.dev/p/q3Usage7Kd2',
         },
       },
       { id: 'h4', turn: 'h1', kind: 'assistant', text: 'Published: **Q3 usage report**. It is private and expires in 24 hours. I asked agent-12 to add the before/after shots of the sidebar to it.', createdAt: ago(9 * min), updatedAt: ago(9 * min) },

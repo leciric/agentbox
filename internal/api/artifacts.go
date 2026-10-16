@@ -3,7 +3,7 @@ package api
 import "time"
 
 // The artifacts API: the pages a project's chats published on Hatch, the
-// project's own connector for HTML pages (hatch.linting.dev). A project's
+// project's own connector for HTML pages (usehatch.dev). A project's
 // artifacts are read out of its chats — the calls its lead and its agents
 // made to Hatch's publish_page and update_page, and what Hatch answered —
 // not from Hatch's list_pages, which has every page of the account and

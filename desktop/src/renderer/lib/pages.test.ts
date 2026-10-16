@@ -32,7 +32,7 @@ import {
 
 const now = new Date('2026-10-09T12:00:00Z').getTime();
 const page = (a: Partial<T.Artifact>): T.Artifact => ({
-  id: 'x', title: 'X', url: 'https://hatch.linting.dev/p/x', agent: 'pawly/lead', item: 'i', agents: ['pawly/lead'], version: 1,
+  id: 'x', title: 'X', url: 'https://usehatch.dev/p/x', agent: 'pawly/lead', item: 'i', agents: ['pawly/lead'], version: 1,
   createdAt: '2026-10-09T11:00:00Z', updatedAt: '2026-10-09T11:00:00Z', expiresAt: '2026-10-10T11:00:00Z', ...a,
 });
 const hatch = (...artifacts: T.Artifact[]): T.Artifacts => ({ connector: 'hatch', artifacts });
@@ -180,7 +180,7 @@ test('isPageCall knows publish_page and update_page whatever the AI tool calls t
 });
 
 test('a publish_page line opens its page only while it is live and Hatch is connected', () => {
-  const published = tool({ output: 'Published "X" (id abc_1, version 1): https://hatch.linting.dev/p/abc_1' });
+  const published = tool({ output: 'Published "X" (id abc_1, version 1): https://usehatch.dev/p/abc_1' });
   assert.equal(pageIdOf(published), 'abc_1');
   assert.equal(pageIdOf(tool({ name: 'mcp__hatch__update_page', page: { id: 'abc_1' }, output: 'Updated' })), 'abc_1');
   const list = hatch(page({ id: 'abc_1' }));
@@ -218,7 +218,7 @@ test('a page the first read after its publish lacks is read again, and arrives',
   const client = new QueryClient();
   const first = page({ id: 'dR6ygVLcOlGuJfYu', title: 'Plan', updatedAt: '2026-10-09T11:50:00Z' });
   const second = page({ id: 'sVhkyBNMvUt3KxuV', title: 'Plan', updatedAt: '2026-10-09T11:57:00Z', permanent: true, expiresAt: undefined });
-  const link = (id: string) => `Published "Plan" (id ${id}, version 1): https://hatch.linting.dev/p/${id}\n{"id": "${id}", "version": 1}`;
+  const link = (id: string) => `Published "Plan" (id ${id}, version 1): https://usehatch.dev/p/${id}\n{"id": "${id}", "version": 1}`;
   const item = (t: Partial<T.ChatTool>): T.ChatItem => ({ id: 'i', turn: 't', kind: 'tool', createdAt: '', updatedAt: '', tool: tool(t) });
   const reads: T.Artifacts[] = [];
   let answers: T.Artifacts[] = [];
@@ -234,7 +234,7 @@ test('a page the first read after its publish lacks is read again, and arrives',
   answers = [hatch(first)];
   onChatItem(client, 'pawly/lead', item({ output: link(first.id), page: { title: 'Plan' } }), fetch, 1);
   await settle();
-  onChatItem(client, 'pawly/lead', item({ name: 'mcp__hatch__get_page', output: '{"url": "https://hatch.linting.dev/p/dR6ygVLcOlGuJfYu"}' }), fetch, 1);
+  onChatItem(client, 'pawly/lead', item({ name: 'mcp__hatch__get_page', output: '{"url": "https://usehatch.dev/p/dR6ygVLcOlGuJfYu"}' }), fetch, 1);
   onChatItem(client, 'pawly/lead', item({ name: 'ToolSearch', output: 'mcp__hatch__update_page' }), fetch, 1);
   await settle();
   assert.equal(reads.length, 2, 'get_page and ToolSearch read nothing');
