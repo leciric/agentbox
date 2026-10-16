@@ -85,6 +85,17 @@ export const sheet: { title: MessageKey; rows: { keys: string[]; label: MessageK
       { keys: ['Delete'], label: 'keys.closeTab' },
     ],
   },
+  {
+    title: 'keys.group.review',
+    rows: [
+      { keys: ['←', '→'], label: 'keys.reviewSlides' },
+      { keys: ['N'], label: 'keys.reviewNext' },
+      { keys: ['P'], label: 'keys.reviewPrevious' },
+      { keys: ['C'], label: 'keys.reviewChanges' },
+      { keys: ['M'], label: 'keys.reviewMerge' },
+      { keys: ['Esc'], label: 'keys.reviewClose' },
+    ],
+  },
 ];
 
 // The sheet is one for the app, opened by Ctrl+/.
