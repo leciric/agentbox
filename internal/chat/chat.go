@@ -1873,7 +1873,7 @@ func (c *conversation) connect(ad *adapter) error {
 	ad.resumable = init.AgentCapabilities.SessionCapabilities.Resume != nil || init.AgentCapabilities.LoadSession
 	c.session.NoResume = !ad.resumable
 	c.setImageSupport(ad.images)
-	if resumeErr != nil && len(c.items) > 0 {
+	if resumeErr != nil && c.conversed() {
 		it := c.add("notice", c.lastTurn())
 		if c.turn != nil && c.turn.resumes > 0 && c.stored.Handoff == "" {
 			// Carrying on a turn a restart cut short (restart.go): a session
@@ -2320,6 +2320,19 @@ func (c *conversation) cancelPending() {
 		}
 	}
 	c.pending = map[string]func(any, error){}
+}
+
+// conversed says whether the session has anything to remember: an item the
+// model saw or wrote outside the turn being started. A chat whose only items
+// are AgentBox's notices, like the one setting its model leaves, has none.
+// Caller holds c.mu.
+func (c *conversation) conversed() bool {
+	for _, it := range c.items {
+		if it.Kind != "notice" && it.Kind != "error" && (c.turn == nil || it.Turn != c.turn.id) {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *conversation) lastTurn() string {

@@ -174,6 +174,9 @@ func (c *conversation) restartIfWindowMoved() {
 		return
 	}
 	c.windowRestart = true
+	if !c.conversed() {
+		return // nothing to resume yet, so nothing worth saying
+	}
 	name := "the model's whole window"
 	if want > 0 {
 		name = state.FormatContextWindow(want)

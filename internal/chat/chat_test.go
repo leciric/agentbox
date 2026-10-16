@@ -2084,6 +2084,34 @@ func TestOpenCodeModelChosenBeforeTheSessionStarts(t *testing.T) {
 	}
 }
 
+// TestANewChatsFirstMessageSaysNothingAboutResuming: choosing another window
+// (here by the model) before the first message restarts the adapter on that
+// message, whose session has nothing in it yet, so the tool can't resume it.
+// Neither that nor the restart is worth a notice: there is no conversation
+// to forget.
+func TestANewChatsFirstMessageSaysNothingAboutResuming(t *testing.T) {
+	t.Parallel()
+	store := openStore(t)
+	ctx := context.Background()
+	f := newFakeTool(func(*fakeTool, string, string) acp.PromptResponse { return acp.PromptResponse{StopReason: "end_turn"} })
+	f.resume, f.resumeFails = true, true
+	m, _ := newManager(t, store, f)
+	if _, err := m.Start(testAgent); err != nil {
+		t.Fatal(err)
+	}
+	waitThread(t, m, testAgent, "the session", func(th api.ChatThread) bool { return th.Session.State == api.ChatReady })
+	if _, err := m.SetOption(ctx, testAgent, state.ChatOptionContextWindow, "1m"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Send(testAgent, "hi"); err != nil {
+		t.Fatal(err)
+	}
+	th := waitThread(t, m, testAgent, "the first turn", turnsEnded(1))
+	if slices.Contains(kinds(th), "notice") {
+		t.Errorf("a new chat's first message says %q", find(th, "notice", 0).Text)
+	}
+}
+
 // TestTheContextWindowRestartsTheAdapterAndResumesTheSession: the context
 // window is AgentBox's option, applied as the compact window the adapter reads
 // when it starts (D91). Choosing another mid-chat says it applies from the next
