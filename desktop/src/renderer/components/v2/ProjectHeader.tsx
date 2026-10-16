@@ -20,15 +20,20 @@ import { useOpenReview } from './ReviewV2';
 import { TalkToProject } from './TalkToProject';
 
 const topSlotId = 'top-bar-slot';
+const topEndSlotId = 'top-bar-end-slot';
 
-// TopSlot is where a view puts its own controls in the top bar.
+// TopSlot is where a view puts its own controls in the top bar, and
+// TopEndSlot, at its far right, where its ⋯ and Panel go.
 export function TopSlot() {
   return <div id={topSlotId} className="flex min-w-0 items-center gap-1" />;
 }
+export function TopEndSlot() {
+  return <div id={topEndSlotId} className="flex shrink-0 items-center gap-1 empty:hidden" />;
+}
 
-export function InTopBar({ children }: { children: ReactNode }) {
+export function InTopBar({ end, children }: { end?: boolean; children: ReactNode }) {
   const [el, setEl] = useState<HTMLElement | null>(null);
-  useEffect(() => setEl(document.getElementById(topSlotId)), []);
+  useEffect(() => setEl(document.getElementById(end ? topEndSlotId : topSlotId)), [end]);
   return el ? createPortal(children, el) : null;
 }
 

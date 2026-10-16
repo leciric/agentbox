@@ -3351,7 +3351,6 @@ export const enUS = {
   'panel.allSub': 'Every page {project}\'s lead and agents published',
   'panel.chip.repo': 'repo',
   'panel.moreTabs': '{count} more tabs',
-  'panel.button': 'Panel',
   'panel.toggleKeys': 'In it: F Files · D Desktop · T Terminal · B Browser · P Pages · M Media',
   'keys.title': 'Keyboard shortcuts',
   'keys.description': '{keys} opens this list from anywhere.',

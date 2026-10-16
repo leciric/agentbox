@@ -186,8 +186,10 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
           {lead && <ChatStatus agent={lead} />}
           {chatMenu?.dialogs}
           {chatMenu?.untracked}
-          {lead && <ProjectMenu project={project} leadRef={lead.ref} onNewAgent={onNewAgent} onChangeIcon={() => setIconOpen(true)} newChat={chatMenu?.newChat} more={chatMenu?.reload} />}
-          <PanelButton project={name} chat={`${name}/${T.LeadName}`} />
+          <InTopBar end>
+            {lead && <ProjectMenu project={project} leadRef={lead.ref} onNewAgent={onNewAgent} onChangeIcon={() => setIconOpen(true)} newChat={chatMenu?.newChat} more={chatMenu?.reload} />}
+            <PanelButton project={name} chat={`${name}/${T.LeadName}`} />
+          </InTopBar>
         </InTopBar>
       ) : (
       <div className="w-full shrink-0 px-4 pb-3 pt-4 md:px-8 md:pb-4 md:pt-5">

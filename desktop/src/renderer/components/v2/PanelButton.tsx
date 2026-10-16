@@ -22,7 +22,7 @@ export function chatOf(view: View): { project: string; chat: string } | null {
 }
 
 // PanelButton is the chat header's one button that opens and closes the
-// chat's panel, labelled Panel, its tooltip naming the launcher's letters,
+// chat's panel, an icon whose tooltip names it and the launcher's letters,
 // with a dot while it's closed and the chat's project has pages you
 // haven't seen.
 export function PanelButton({ project, chat }: { project: string; chat: string }) {
@@ -40,16 +40,15 @@ export function PanelButton({ project, chat }: { project: string; chat: string }
       }
     >
       <Button
-        size="sm"
+        size="icon"
         variant="ghost"
         aria-label={t('panel.toggle')}
         aria-pressed={open}
-        className={cn('relative gap-1.5', open && 'bg-surface-raised text-primary')}
+        className={cn('relative', open && 'bg-surface-raised text-primary')}
         onClick={() => setPanelOpen(chat, !open)}
         data-panel-toggle
       >
         <PanelRight />
-        <span className="max-md:hidden">{t('panel.button')}</span>
         {!open && fresh && <span className="absolute right-1 top-1 size-2 rounded-full bg-brand-500 ring-2 ring-[var(--ab-chat)]" data-panel-fresh />}
       </Button>
     </Tip>

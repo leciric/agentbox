@@ -3352,7 +3352,6 @@ export const ptBR: Messages = {
   'panel.allSub': 'Todas as páginas que o lead e os agentes de {project} publicaram',
   'panel.chip.repo': 'repo',
   'panel.moreTabs': 'Mais {count} abas',
-  'panel.button': 'Painel',
   'panel.toggleKeys': 'Nele: F Arquivos · D Desktop · T Terminal · B Navegador · P Páginas · M Mídia',
   'keys.title': 'Atalhos de teclado',
   'keys.description': '{keys} abre esta lista de qualquer lugar.',
