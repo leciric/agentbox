@@ -640,10 +640,11 @@ function WhoseList({ project, whose, agents, past, withLead, forTab, onPick }: {
               icon={<WhoseIcon project={project} whose={w} className="size-7" />}
               title={
                 <>
-                  {w.kind === 'agent' ? w.agent.name : w.past.name} <WhoseMark whose={w} />
+                  {w.kind === 'agent' ? w.agent.name : w.past.name}
+                  {(w.kind === 'agent' ? w.agent.title : w.past.title) ? ` · ${w.kind === 'agent' ? w.agent.title : w.past.title}` : ''} <WhoseMark whose={w} />
                 </>
               }
-              sub={(w.kind === 'agent' ? w.agent.title : w.past.title) || (w.kind === 'agent' ? w.agent.branch : w.past.branch)}
+              sub={w.kind === 'agent' ? w.agent.branch : w.past.branch}
               right={<span className="text-[10.5px] text-faint">{t(machineLabel[machineOfWhose(w)])}</span>}
               data-whose-row={ref}
             />

@@ -735,7 +735,7 @@ function ProjectLead({
       <TalkToProject project={project.name} leadRef={leadRef} open={talk} onOpenChange={setTalk} anchor={<span aria-hidden className="pointer-events-none absolute right-2 top-11 size-0" />} />
       <ProjectIconDialog project={project} open={iconOpen} onOpenChange={setIconOpen} />
       {open && (
-        <div className="relative ml-[17px] border-l border-line-faint pl-1.5" data-v2-agents={project.name}>
+        <div className="relative ml-[17px] flex flex-col gap-0.5 border-l border-line-faint py-1 pl-2" data-v2-agents={project.name}>
           {shown.map((r) => (
             <AgentRow key={r.agent.ref} row={r} active={view.kind === 'agent' && view.ref === r.agent.ref} onSelect={onSelect} />
           ))}
@@ -764,13 +764,20 @@ function AgentRow({ row, active, onSelect }: { row: Row; active: boolean; onSele
         }}
         onContextMenu={(e) => e.stopPropagation()}
         aria-current={active ? 'page' : undefined}
-        className={cn('flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left', active ? 'bg-surface-raised' : 'hover:bg-surface', removing && 'opacity-60')}
+        className={cn('flex w-full min-h-[30px] min-w-0 items-center gap-2 rounded-md px-2.5 py-1.5 text-left', active ? 'bg-surface-raised' : 'hover:bg-surface', removing && 'opacity-60')}
         data-v2-agent={agent.ref}
         data-v2-agent-st={st}
         data-v2-removing={removing || undefined}
       >
         {removing ? <LoaderCircle className="size-[9px] shrink-0 animate-spin text-subtle" /> : <StMark st={st} className="size-[7px]" />}
-        <span className={cn('min-w-0 flex-1 truncate text-[12px]', active ? 'text-title' : st === 'done' ? 'text-subtle' : 'text-secondary', !agent.title && 'font-mono text-[11.5px]')}>{agent.title || agent.name}</span>
+        <Tip label={agent.title ? `${agent.name} · ${agent.title}` : agent.name}>
+          <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+            <span className="shrink-0 font-mono text-[10.5px] text-faint" data-v2-agent-num>
+              {agent.name}
+            </span>
+            {agent.title && <span className={cn('min-w-0 flex-1 truncate text-[12.5px]', active ? 'text-title' : st === 'done' ? 'text-subtle' : 'text-secondary')}>{agent.title}</span>}
+          </span>
+        </Tip>
         {removing ? (
           <span className="shrink-0 text-[10.5px] text-subtle" data-v2-tag>
             {t('v2.tag.removing')}
