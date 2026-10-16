@@ -66,24 +66,28 @@ export function JobProgress({
           <span className="ml-auto font-mono text-xs tabular-nums text-subtle">{job.data && duration(job.data.createdAt, job.data.finishedAt)}</span>
         </div>
       )}
-      <div
-        ref={log}
-        className={cn('h-64 overflow-auto rounded-xl border border-line bg-well p-3.5 font-mono text-[11.5px] leading-relaxed text-subtle', logClassName)}
-        aria-label={t('shell.jobs.log')}
-      >
-        {lines.map((line = '', i) => (
-          <div key={i} className={cn('whitespace-pre-wrap break-all', line.startsWith('==>') && 'text-secondary')}>
-            {line.startsWith('==>') ? (
-              <>
-                <span className="text-brand-400">==&gt;</span>
-                {line.slice(3)}
-              </>
-            ) : (
-              line || ' '
-            )}
-          </div>
-        ))}
-      </div>
+      {/* A job that ended before writing anything (one refused at once) has
+          only its error to show: an empty log above it reads as a broken one. */}
+      {(lines.length > 0 || !job.data || job.data.status === 'running') && (
+        <div
+          ref={log}
+          className={cn('h-64 overflow-auto rounded-xl border border-line bg-well p-3.5 font-mono text-[11.5px] leading-relaxed text-subtle', logClassName)}
+          aria-label={t('shell.jobs.log')}
+        >
+          {lines.map((line = '', i) => (
+            <div key={i} className={cn('whitespace-pre-wrap break-all', line.startsWith('==>') && 'text-secondary')}>
+              {line.startsWith('==>') ? (
+                <>
+                  <span className="text-brand-400">==&gt;</span>
+                  {line.slice(3)}
+                </>
+              ) : (
+                line || ' '
+              )}
+            </div>
+          ))}
+        </div>
+      )}
       {job.data?.error && <Notice>{job.data.error}</Notice>}
     </div>
   );
