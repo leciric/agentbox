@@ -354,10 +354,12 @@ function DeletePastDialog({ agents, onClose, onDeleted }: { agents: T.ArchivedAg
       onConfirm={async () => {
         if (one) {
           await api.deleteArchived(one.ref);
+          toast.success(t('pastAgents.deleted', { count: 1 }), { description: one.title || one.name });
           return onDeleted([one.ref]);
         }
         const result = await api.deleteArchivedMany(agents!.map((a) => a.ref));
         onDeleted(result.deleted);
+        if (result.deleted.length > 0) toast.success(t('pastAgents.deleted', { count: result.deleted.length }));
         const failed = Object.entries(result.failed ?? {});
         if (failed.length > 0) toast.error(t('pastAgents.deleteFailed', { count: failed.length }), { description: failed.map(([ref, err]) => `${ref}: ${err}`).join('\n') });
       }}

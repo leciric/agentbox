@@ -3055,6 +3055,7 @@ export const ptBR: Messages = {
   'pastAgents.deleteTitle': 'Excluir {name} de vez?',
   'pastAgents.deleteManyTitle': '{count, plural, one {Excluir # agente anterior de vez?} other {Excluir # agentes anteriores de vez?}}',
   'pastAgents.deleteDescription': 'Exclui o registro e o chat inteiro, que não podem ser recuperados. A branch e a mídia ficam.',
+  'pastAgents.deleted': '{count, plural, one {# agente anterior excluído} other {# agentes anteriores excluídos}}',
   'pastAgents.deleteFailed': '{count, plural, one {Não foi possível excluir # agente anterior} other {Não foi possível excluir # agentes anteriores}}',
   'pastAgents.tokens': '{tokens} tokens',
   'pastAgents.archived': 'Arquivado {when}',

@@ -3054,6 +3054,7 @@ export const enUS = {
   'pastAgents.deleteTitle': 'Delete {name} for good?',
   'pastAgents.deleteManyTitle': '{count, plural, one {Delete # past agent for good?} other {Delete # past agents for good?}}',
   'pastAgents.deleteDescription': 'Deletes the record and the whole chat, which can’t be brought back. The branch and the media stay.',
+  'pastAgents.deleted': '{count, plural, one {# past agent deleted} other {# past agents deleted}}',
   'pastAgents.deleteFailed': '{count, plural, one {Couldn’t delete # past agent} other {Couldn’t delete # past agents}}',
   'pastAgents.tokens': '{tokens} tokens',
   'pastAgents.archived': 'Archived {when}',
