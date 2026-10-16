@@ -325,6 +325,11 @@ export function seedV2(queryClient: QueryClient, pins: string | null): void {
     ['old-blog', 'Old blog', 9 * day],
     ['dotfiles', 'dotfiles', 20 * day],
   ];
+  // &idle=12: that many more projects with nothing going on, each lead with a
+  // last line, some of it markdown, for the Idle list at full length.
+  const idleCount = Number(new URLSearchParams(location.search).get('idle') ?? 0);
+  const idleLines = ['**Merged** #214: the `retry` loop backs off now.', 'Done. | file | change |\n|---|---|\n| a.ts | b |', 'You: can you look at the flaky e2e test on CI?', '- Bumped the SDK\n- Fixed the lint', 'Opened https://github.com/example/a-very-long-repository-name/pull/1234 for review.'];
+  for (let i = 1; i <= idleCount; i++) extra.push([`idle-${i}`, `Idle project ${i}`, (i + 2) * day]);
   const projects: T.Project[] = [...base, ...extra.map(([name, displayName], i) => ({ ...base[0], name, displayName, root: `/home/me/src/${name}`, iconVersion: 1, position: base.length + i + 1, createdAt: ago(60 * day) }))];
   const lastSaid: Record<string, number> = { [PROJECT]: 3 * min, 'a-project-with-a-name-so-long-it-should-never-be-allowed-to-widen-the-sidebar': 3 * 60 * min, ...Object.fromEntries(extra.map(([n, , ms]) => [n, ms])) };
   const logo = `data:image/svg+xml;base64,${btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#6d5dfc"/><path d="M9 22 16 8l7 14z" fill="#fff"/></svg>')}`;
@@ -373,6 +378,10 @@ export function seedV2(queryClient: QueryClient, pins: string | null): void {
     }
     return json(icons[name] ?? { source: 'none' });
   });
+  for (let i = 1; i <= idleCount; i++) {
+    const text = idleLines[(i - 1) % idleLines.length];
+    queryClient.setQueryData<T.ProjectChat>(['projectChat', `idle-${i}`], { project: `idle-${i}`, ref: `idle-${i}/lead`, started: true, chat: 'ready', last: { kind: text.startsWith('You: ') ? 'user' : 'assistant', text: text.replace(/^You: /, ''), at: ago((i + 2) * day) } });
+  }
   queryClient.setQueryData<T.ProjectChat>(['projectChat', 'quill'], { project: 'quill', ref: 'quill/lead', started: true, chat: 'running', last: { kind: 'assistant', text: 'Reading the editor’s undo stack before I split it.', at: ago(1 * min) } });
   queryClient.setQueryData<T.ProjectChat>(['projectChat', 'storefront'], { project: 'storefront', ref: 'storefront/lead', started: true, chat: 'ready', last: { kind: 'user', text: 'Ship the checkout copy once courier agrees on the address format', at: ago(2 * 60 * min) } });
 }

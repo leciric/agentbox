@@ -199,9 +199,14 @@ async function capture(baseUrl, outDir, lang, only) {
       // same every time and a before/after diff shows changes, not timing.
       await page.screenshot({ path: join(outDir, `${s.id}.png`), animations: 'disabled' });
       const over = await page.evaluate(overflowing);
+      // A scenario can cap a row's height, "maxHeight": [selector, px]: every
+      // match taller than that is reported, for rows that grow with no overflow.
+      const tall = s.maxHeight ? await page.$$eval(s.maxHeight[0], (els, max) => els.map((el) => [Math.round(el.getBoundingClientRect().height), (el.textContent ?? '').trim().slice(0, 40)]).filter(([h]) => h > max), s.maxHeight[1]) : [];
+      if (s.maxHeight && !(await page.$(s.maxHeight[0]))) missing.push(s.maxHeight[0]);
       await page.close();
       console.log(`  ${s.id}.png — ${s.description}`);
       for (const o of over) console.log(`    overflows the column by ${o}`);
+      for (const [h, text] of tall) console.log(`    ${h}px tall, over ${s.maxHeight[1]}px: ${text}`);
       for (const m of missing) console.log(`    nothing matched ${m}`);
     }
   } finally {

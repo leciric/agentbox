@@ -6,9 +6,9 @@
 // (asks, failed); finished ones are in Past agents. Under Home, search and a
 // filter popover (T3Code's: state, project, removable chips) narrow it. The
 // projects the user pinned come first, in the order they dragged them, then
-// the ones with something going on, most recent first, then, folded, the Idle
-// list of the rest, always last and folded unless nothing is going on, and
-// last of all the projects the user hid, folded. The
+// the ones with something going on, most recent first, and docked at the
+// bottom, above the foot, the Idle list of the rest, folded unless nothing is
+// going on, and under it the projects the user hid, folded. The
 // project on screen never folds into Idle: the chat you're in stays in view.
 // A project's options are on a right-click of its row. The reading is
 // lib/leadFirst.ts's, lib/projectOrder.ts's and lib/sidebarHidden.ts's.
@@ -26,7 +26,7 @@ import { activeProjects, agentSt, attention, awaitsApproval, countSt, filterCoun
 import { movePin, orderProjects, togglePin } from '../../lib/projectOrder';
 import { HelpMenu } from './Tour';
 import { setFilterChoice, setHiddenOpen, setPins, useV2Projects } from '../../lib/v2Projects';
-import { arrange, hide, pinsAfterHide, unhide } from '../../lib/sidebarHidden';
+import { arrange, hide, pinsAfterHide, sections, unhide, type Section } from '../../lib/sidebarHidden';
 import { useSidebarLayout } from '../../lib/useSidebarLayout';
 import { useGrace } from '../../lib/grace';
 import { projectLabel } from '../../lib/projectName';
@@ -162,6 +162,11 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   // an agent starting never leaves it open under the project it started in.
   const [idleOpened, setIdleOpened] = useState(false);
   useEffect(() => setIdleOpened(false), [idleOnly]);
+  // Docked at the bottom, it opens below the fold: a click scrolls it into view.
+  const idleRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (idleOpened) idleRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [idleOpened]);
   // A search looks in it too, and opens it on a match.
   const idleOpen = idleOnly || idleOpened || (searching && lists.idle.length > 0);
   const hiddenOpen = kept.hiddenOpen || (searching && lists.hidden.length > 0) || (!!onScreen && lists.hidden.some((p) => p.project.name === onScreen));
@@ -235,6 +240,66 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
     />
   );
 
+  const { top, dock } = sections(lists);
+  const section = (s: Section) => {
+    if (s === 'pinned')
+      return (
+        <div key={s} data-v2-pinned>
+          <ListHead extra={reviewAll()}>{t('v2.sidebar.pinned')}</ListHead>
+          {lists.pinned.map((p) => lead(p, { draggable: true }))}
+        </div>
+      );
+    if (s === 'rest')
+      return (
+        <div key={s} data-v2-rest>
+          <ListHead extra={reviewAll()}>{t('shell.sidebar.projects')}</ListHead>
+          {lists.rest.map((p) => lead(p))}
+        </div>
+      );
+    if (s === 'idle')
+      return (
+        <div key={s} ref={idleRef} data-v2-idle={idleOnly ? 'only' : idleOpen ? 'open' : 'closed'}>
+          {idleOnly ? (
+            <ListHead extra={reviewAll()}>
+              {t('v2.sidebar.idle')}
+              <span className="ml-1.5 font-normal tabular-nums normal-case tracking-normal text-subtle">{lists.idle.length}</span>
+            </ListHead>
+          ) : (
+            <button
+              type="button"
+              aria-expanded={idleOpen}
+              onClick={() => setIdleOpened(!idleOpened)}
+              className="flex w-full items-center gap-1.5 rounded-md border border-dashed border-line px-2.5 py-1.5 text-left text-[12px] text-secondary hover:border-line-strong hover:bg-surface hover:text-title"
+              data-v2-idle-toggle
+            >
+              <ChevronRight className={cn('size-3.5 shrink-0 transition-transform', idleOpen && 'rotate-90')} />
+              <span className="font-medium">{t('v2.sidebar.idle')}</span>
+              <span className="tabular-nums text-subtle">· {lists.idle.length}</span>
+              <span className="min-w-0 truncate text-subtle">· {t('v2.sidebar.idleHint')}</span>
+            </button>
+          )}
+          {idleOpen && <div className={cn(!idleOnly && 'opacity-80')}>{lists.idle.map((p) => lead(p))}</div>}
+        </div>
+      );
+    return (
+      <div key={s} className="mt-2 opacity-70 first:mt-0" data-v2-hidden={hiddenOpen ? 'open' : 'closed'}>
+        <button
+          type="button"
+          aria-expanded={hiddenOpen}
+          onClick={() => setHiddenOpen(!kept.hiddenOpen)}
+          className="flex w-full items-center gap-1.5 rounded-md px-2.5 py-1 text-left text-[11.5px] text-subtle hover:bg-surface hover:text-secondary"
+          data-v2-hidden-toggle
+        >
+          <ChevronRight className={cn('size-3 shrink-0 transition-transform', hiddenOpen && 'rotate-90')} />
+          <EyeOff className="size-3 shrink-0" />
+          <span>{t('v2.sidebar.hidden')}</span>
+          <span className="tabular-nums">· {lists.hidden.length}</span>
+        </button>
+        {hiddenOpen && lists.hidden.map((p) => lead(p))}
+      </div>
+    );
+  };
+
   return (
     <aside className="flex w-[288px] shrink-0 flex-col border-r border-line bg-rail backdrop-blur-xl" data-sidebar-v2>
       <div className={cn('flex h-14 shrink-0 items-center gap-2 px-4', nightly && 'nightly-sky')} data-nightly={nightly || undefined}>
@@ -260,7 +325,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
       </div>
 
       {/* Never sideways: what's too long in it truncates (each row's flex children are min-w-0). */}
-      <nav className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-2 pb-3 pt-1" aria-label={t('v2.sidebar.chats')}>
+      <nav className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden px-2 pb-3 pt-1 [&>*]:shrink-0" aria-label={t('v2.sidebar.chats')}>
         <NewTaskRow />
         <HomeRow active={view.kind === 'homeChat' || view.kind === 'home'} onClick={() => onSelect({ kind: 'homeChat' })} />
         <FilterBar filters={filters} onFilters={onFilters} projects={projects.data ?? []} rows={rows} />
@@ -270,58 +335,12 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
             {t('shell.sidebar.addFirst')}
           </button>
         )}
-        {loaded && lists.pinned.length > 0 && (
-          <div data-v2-pinned>
-            <ListHead extra={reviewAll()}>{t('v2.sidebar.pinned')}</ListHead>
-            {lists.pinned.map((p) => lead(p, { draggable: true }))}
-          </div>
-        )}
-        {loaded && lists.rest.length > 0 && (
-          <div data-v2-rest>
-            <ListHead extra={reviewAll()}>{t('shell.sidebar.projects')}</ListHead>
-            {lists.rest.map((p) => lead(p))}
-          </div>
-        )}
+        {loaded && top.map(section)}
         {loaded && nothing && <div className="px-2.5 py-1.5 text-[11.5px] text-subtle">{t('v2.sidebar.nothingMatches')}</div>}
-        {loaded && lists.idle.length > 0 && (
-          <div className={cn(!idleOnly && 'mt-2')} data-v2-idle={idleOnly ? 'only' : idleOpen ? 'open' : 'closed'}>
-            {idleOnly ? (
-              <ListHead extra={reviewAll()}>
-                {t('v2.sidebar.idle')}
-                <span className="ml-1.5 font-normal tabular-nums normal-case tracking-normal text-subtle">{lists.idle.length}</span>
-              </ListHead>
-            ) : (
-              <button
-                type="button"
-                aria-expanded={idleOpen}
-                onClick={() => setIdleOpened(!idleOpened)}
-                className="flex w-full items-center gap-1.5 rounded-md border border-dashed border-line px-2.5 py-1.5 text-left text-[12px] text-secondary hover:border-line-strong hover:bg-surface hover:text-title"
-                data-v2-idle-toggle
-              >
-                <ChevronRight className={cn('size-3.5 shrink-0 transition-transform', idleOpen && 'rotate-90')} />
-                <span className="font-medium">{t('v2.sidebar.idle')}</span>
-                <span className="tabular-nums text-subtle">· {lists.idle.length}</span>
-                <span className="min-w-0 truncate text-subtle">· {t('v2.sidebar.idleHint')}</span>
-              </button>
-            )}
-            {idleOpen && <div className={cn(!idleOnly && 'opacity-80')}>{lists.idle.map((p) => lead(p))}</div>}
-          </div>
-        )}
-        {loaded && lists.hidden.length > 0 && (
-          <div className="mt-2 opacity-70" data-v2-hidden={hiddenOpen ? 'open' : 'closed'}>
-            <button
-              type="button"
-              aria-expanded={hiddenOpen}
-              onClick={() => setHiddenOpen(!kept.hiddenOpen)}
-              className="flex w-full items-center gap-1.5 rounded-md px-2.5 py-1 text-left text-[11.5px] text-subtle hover:bg-surface hover:text-secondary"
-              data-v2-hidden-toggle
-            >
-              <ChevronRight className={cn('size-3 shrink-0 transition-transform', hiddenOpen && 'rotate-90')} />
-              <EyeOff className="size-3 shrink-0" />
-              <span>{t('v2.sidebar.hidden')}</span>
-              <span className="tabular-nums">· {lists.hidden.length}</span>
-            </button>
-            {hiddenOpen && lists.hidden.map((p) => lead(p))}
+        {/* Idle and Hidden dock at the bottom, just above the foot, the free space above them. */}
+        {loaded && dock.length > 0 && (
+          <div className="mt-auto pt-3" data-v2-dock>
+            {dock.map(section)}
           </div>
         )}
       </nav>
@@ -780,8 +799,12 @@ function ProjectLead({
           ]}
         </ContextMenuContent>
       </ContextMenu>
-      {/* Talk to another project's picker hangs under the row. */}
-      <TalkToProject project={project.name} leadRef={leadRef} open={talk} onOpenChange={setTalk} onPicked={open_} anchor={<span aria-hidden className="pointer-events-none absolute right-2 top-11 size-0" />} />
+      {/* Talk to another project's picker hangs under the row, from a point out
+          of the flow: TalkToProject wraps its anchor in an inline-flex span,
+          which here, in the row's block, would add a line under the preview. */}
+      <span aria-hidden className="pointer-events-none absolute right-2 top-11 size-0">
+        <TalkToProject project={project.name} leadRef={leadRef} open={talk} onOpenChange={setTalk} onPicked={open_} anchor={<span className="block size-0" />} />
+      </span>
       <ProjectIconDialog project={project} open={iconOpen} onOpenChange={setIconOpen} />
       {open && (
         <div className="relative ml-[15px] mr-1 mt-0.5 flex flex-col gap-px border-l border-line pl-[7px]" data-v2-agents={project.name}>

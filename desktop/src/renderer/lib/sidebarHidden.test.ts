@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
 import { orderProjects } from './projectOrder.ts';
-import { arrange, emptyLayout, hide, pinsAfterHide, unhide } from './sidebarHidden.ts';
+import { arrange, emptyLayout, hide, pinsAfterHide, sections, unhide } from './sidebarHidden.ts';
 
 const p = (name: string) => ({ name }) as T.Project;
 const names = (ps: T.Project[]) => ps.map((x) => x.name);
@@ -24,16 +24,20 @@ test('a hidden project leaves its list, Idle included, and comes back while it i
   assert.deepEqual([names(live.rest), names(live.hidden)], [['a', 'b'], ['c']]);
 });
 
-test('the sidebar reads pinned, active, Idle, Hidden, top to bottom, whatever is pinned, hidden or on screen', () => {
+test('the sidebar reads pinned and active at the top, then Idle and Hidden docked at the bottom, whatever is pinned, hidden or on screen', () => {
   const projects = ['a', 'b', 'c', 'd', 'e', 'f'].map((name) => ({ name, createdAt: '2026-01-01T00:00:00Z' }) as T.Project);
   const read = (pins: string[], active: string[], hidden: string[]) => {
     const got = arrange(orderProjects({ projects, pins, activity: new Map(), active: new Set(active), label: (x) => x.name }), { hidden }, new Set(active));
-    return [names(got.pinned), names(got.rest), names(got.idle), names(got.hidden)];
+    const { top, dock } = sections(got);
+    return { top: top.map((s) => names(got[s])), dock: dock.map((s) => names(got[s])) };
   };
   // The project on screen counts as active, so it joins the rest and never sits in Idle.
-  assert.deepEqual(read(['f'], ['a', 'c'], ['e']), [['f'], ['a', 'c'], ['b', 'd'], ['e']]);
-  assert.deepEqual(read([], ['d'], ['a', 'd']), [[], ['d'], ['b', 'c', 'e', 'f'], ['a']]);
-  assert.deepEqual(read(['b', 'a'], [], []), [['b', 'a'], [], ['c', 'd', 'e', 'f'], []]);
+  assert.deepEqual(read(['f'], ['a', 'c'], ['e']), { top: [['f'], ['a', 'c']], dock: [['b', 'd'], ['e']] });
+  assert.deepEqual(read([], ['d'], ['a', 'd']), { top: [['d']], dock: [['b', 'c', 'e', 'f'], ['a']] });
+  assert.deepEqual(read(['b', 'a'], [], []), { top: [['b', 'a']], dock: [['c', 'd', 'e', 'f']] });
+  // With nothing above it, Idle is the list, at the top; Hidden stays docked.
+  assert.deepEqual(read([], [], ['f']), { top: [['a', 'b', 'c', 'd', 'e']], dock: [['f']] });
+  assert.deepEqual(sections({ pinned: [], rest: [], idle: [], hidden: [] }), { top: [], dock: [] });
 });
 
 test('hiding a pinned project unpins it, so it lands in Hidden', () => {

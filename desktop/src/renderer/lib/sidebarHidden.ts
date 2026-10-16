@@ -30,3 +30,16 @@ export function arrange(order: Ordered, layout: T.SidebarLayout, active: Readonl
     hidden: [...order.rest, ...order.idle].filter(isHidden),
   };
 }
+
+export type Section = keyof Arranged;
+
+// sections is where the lists go, each only when it has a project: the pins
+// and the rest at the top, and Idle with Hidden under it docked at the
+// bottom, just above the foot, with the free space between. With nothing
+// above it, Idle is the list and heads it instead.
+export function sections(a: Record<Section, readonly unknown[]>): { top: Section[]; dock: Section[] } {
+  const has = (s: Section) => a[s].length > 0;
+  const top = (['pinned', 'rest'] as const).filter(has);
+  if (top.length === 0) return { top: (['idle'] as const).filter(has), dock: (['hidden'] as const).filter(has) };
+  return { top, dock: (['idle', 'hidden'] as const).filter(has) };
+}

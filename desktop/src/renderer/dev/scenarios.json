@@ -1493,6 +1493,23 @@
     "click": "[data-v2-idle-toggle]"
   },
   {
+    "id": "window-v2-idle-dozen-dark",
+    "description": "UI v2 at 1280×800 with a dozen more idle projects and the Idle list open, docked at the sidebar's foot: each project row stays one name line and one preview line (maxHeight), some previews markdown — dark",
+    "query": "app=home&v2=1&pins=storefront&idle=12&theme=dark",
+    "width": 1280,
+    "height": 800,
+    "click": "[data-v2-idle-toggle]",
+    "maxHeight": ["[data-v2-idle] [data-v2-project]", 56]
+  },
+  {
+    "id": "window-v2-idle-docked-dark",
+    "description": "UI v2 at 1280×1000, Idle folded: Projects at the top, the free space, then Idle and Hidden docked just above the foot — dark",
+    "query": "app=home&v2=1&pins=storefront&idle=12&hidden=dotfiles&theme=dark",
+    "width": 1280,
+    "height": 1000,
+    "click": "[data-v2-toggle='agentbox']"
+  },
+  {
     "id": "window-wide-v2-hidden-dark",
     "description": "UI v2 at 1920×1080 with two projects hidden and the Hidden list open at the very bottom, under the Idle fold — dark",
     "query": "app=project&v2=1&pins=storefront&hidden=dotfiles,old-blog&theme=dark",

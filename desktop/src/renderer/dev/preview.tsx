@@ -155,6 +155,7 @@
 //                           (dev/review.tsx), for its modal and the PR's
 //   &pins=a,b               with &v2=1, those projects pinned, in that order
 //   &hidden=a,b             with &v2=1, those projects hidden from the sidebar
+//   &idle=12                with &v2=1, that many more projects with nothing going on, for Idle
 //   &signedout=1            Claude Code with no login: the composer's banner, and Send's tooltip
 //   &v2=1                   with ?app=, UI v2, the lead-first layout (Settings → General
 //                           → Layout): leads with their last lines
