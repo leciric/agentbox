@@ -35,6 +35,9 @@ export type Step = {
   // that can't be opened for the tour, a prompt not yet written.
   exampleAlways?: boolean;
   go?: Go;
+  // needsAgents skips the step while no agent exists: it points at what
+  // only an agent's work puts on screen.
+  needsAgents?: boolean;
 };
 
 export type Tour = {
@@ -97,6 +100,7 @@ const S = {
     title: 'tour.reviewButton.title',
     body: 'tour.reviewButton.body',
     anchor: ['[data-v2-review-button]', '[data-v2-review-banner]', '[data-v2-review-all]'],
+    needsAgents: true,
   },
   review: {
     id: 'review',

@@ -155,9 +155,21 @@ function TourPlayer({ view, onSelect, onReleaseNotes }: { view: View; onSelect: 
   const hole = box && { left: box.left - pad, top: box.top - pad, width: box.width + pad * 2, height: box.height + pad * 2 };
   const at = placeCard(hole, size, vp);
 
-  const next = useCallback(() => setTourState((s) => goTo(s, (s.playing?.step ?? 0) + 1)), []);
-  const back = useCallback(() => setTourState((s) => goTo(s, (s.playing?.step ?? 0) - 1)), []);
+  const going = useRef<'next' | 'back'>('next');
+  const next = useCallback(() => {
+    going.current = 'next';
+    setTourState((s) => goTo(s, (s.playing?.step ?? 0) + 1));
+  }, []);
+  const back = useCallback(() => {
+    going.current = 'back';
+    setTourState((s) => goTo(s, (s.playing?.step ?? 0) - 1));
+  }, []);
   const close = useCallback(() => setTourState(skip), []);
+  // A step that needs an agent is passed over while there is none, in the
+  // direction the tour was going.
+  useEffect(() => {
+    if (step.needsAgents && agents.data?.length === 0) (going.current === 'back' && index > 0 ? back : next)();
+  }, [step, index, agents.data, next, back]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
