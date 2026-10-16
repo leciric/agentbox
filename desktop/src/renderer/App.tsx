@@ -32,6 +32,7 @@ import { Sidebar } from "./components/Sidebar";
 import { SidebarV2 } from "./components/v2/SidebarV2";
 import { NewTaskDialog } from "./components/v2/NewTaskDialog";
 import { ShortcutSheet } from "./components/v2/ShortcutSheet";
+import { TourHost } from "./components/v2/Tour";
 import { isNewTaskShortcut, toggleNewTask } from "./lib/newTask";
 import { OverviewV2, PastAgentsV2 } from "./components/v2/PagesV2";
 import { cycleRegion, isSettingsShortcut, isSheetShortcut, toggleSheet } from "./lib/shortcuts";
@@ -76,7 +77,7 @@ export type View =
 // (dev/preview.tsx's ?app=), which opens it where a scenario points.
 export function App({ initial }: { initial?: View } = {}) {
   const t = useT();
-  // UI v2, the lead-first layout (Settings → Experimental): its own
+  // UI v2, the lead-first layout (Settings → General → Layout): its own
   // sidebar, with each project's agents under its lead and no agent rail, and
   // the review's decision in the carousel. It switches as the setting does.
   const v2 = useUiV2();
@@ -695,6 +696,8 @@ export function App({ initial }: { initial?: View } = {}) {
       <SearchModal onOpen={openFound} />
       {v2 && <NewTaskDialog onSelect={select} />}
       {v2 && <ShortcutSheet />}
+      {/* The first-run tour, and What's new after an update (lib/tours.ts). */}
+      {v2 && !setup && connection.state === "connected" && <TourHost view={view} onSelect={select} />}
       <ErrorReports />
       <SnapComposer
         project={view.kind === "project" ? view.project : view.kind === "agent" ? view.ref.split("/")[0] : undefined}

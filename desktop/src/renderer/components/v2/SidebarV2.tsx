@@ -24,6 +24,7 @@ import { useT, type MessageKey } from '../../lib/i18n';
 import { pageItems, useQuestions, useReviewHead } from '../../lib/inboxPages';
 import { activeProjects, agentSt, attention, awaitsApproval, countSt, filterCount, leadLine, leadBusy, liveOrder, projectRows, toggle, type AgentSt, type Filters, type ProjectRows, type Row } from '../../lib/leadFirst';
 import { movePin, orderProjects, togglePin } from '../../lib/projectOrder';
+import { HelpMenu } from './Tour';
 import { setFilterChoice, setHiddenOpen, setPins, useV2Projects } from '../../lib/v2Projects';
 import { arrange, hide, unhide } from '../../lib/sidebarHidden';
 import { useSidebarLayout } from '../../lib/useSidebarLayout';
@@ -226,7 +227,9 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
       <div className="flex h-14 shrink-0 items-center gap-2.5 px-4">
         <Logo className="size-7" />
         <span className="text-[14px] font-semibold tracking-tight text-title">AgentBox</span>
-        <button type="button" className="ml-auto flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-subtle transition hover:bg-surface-strong hover:text-primary" onClick={onAddProject} data-v2-add-project>
+        <span className="ml-auto" />
+        <HelpMenu />
+        <button type="button" className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-subtle transition hover:bg-surface-strong hover:text-primary" onClick={onAddProject} data-v2-add-project>
           <FolderPlus className="size-4" />
           {t('shell.home.addProject')}
         </button>

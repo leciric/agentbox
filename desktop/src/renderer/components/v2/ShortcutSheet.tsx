@@ -3,6 +3,7 @@
 import { useT } from '../../lib/i18n';
 import { setSheetOpen, sheet, useSheetOpen } from '../../lib/shortcuts';
 import { onMac, shortcut } from '../../lib/utils';
+import { TourButtons } from './Tour';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 
 const keyName = (k: string) => (k === 'Mod' ? (onMac ? '⌘' : 'Ctrl') : k === 'Shift' && onMac ? '⇧' : k);
@@ -38,6 +39,7 @@ export function ShortcutSheet() {
             </section>
           ))}
         </div>
+        <TourButtons />
       </DialogContent>
     </Dialog>
   );

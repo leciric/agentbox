@@ -512,9 +512,9 @@
     "height": 2200
   },
   {
-    "id": "settings-experimental-whole-dark",
-    "description": "Settings open at Experimental, tall enough to show every row of the section, to read its labels and descriptions — dark",
-    "query": "settings=experimental&theme=dark",
+    "id": "settings-general-layout-dark",
+    "description": "Settings open at General, with the Layout choice (New or Classic) — dark",
+    "query": "settings=general&theme=dark",
     "width": 1280,
     "height": 900
   },
@@ -1727,5 +1727,68 @@
     "query": "app=project&v2=1&pins=agentbox,storefront&theme=light",
     "width": 1920,
     "height": 1080
+  },
+  {
+    "id": "tour-welcome-dark",
+    "description": "The first-run tour's first step, a card in the middle of the dimmed app — dark",
+    "query": "app=project&v2=1&tour=welcome&step=0&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "tour-sidebar-light",
+    "description": "The tour's spotlight on a project in the sidebar, its card beside it — light",
+    "query": "app=project&v2=1&tour=welcome&step=1&theme=light",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "tour-lead-dark",
+    "description": "The tour on the lead's composer, with a sample prompt — dark",
+    "query": "app=project&v2=1&tour=welcome&step=4&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "tour-review-dark",
+    "description": "The tour's made-up review: media, Merge ▾, Request changes, Back and Next, the Reviewed tab — dark",
+    "query": "app=project&v2=1&tour=welcome&step=8&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "tour-launcher-light",
+    "description": "The tour on the right-hand panel's launcher, which it opened — light",
+    "query": "app=project&v2=1&tour=welcome&step=10&theme=light",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "tour-classic-dark",
+    "description": "The tour's step on going back to the Classic layout — dark",
+    "query": "app=project&v2=1&tour=welcome&step=11&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "tour-narrow-dark",
+    "description": "The tour in a 480px window: the sidebar a drawer, the card docked with its sample sidebar — dark",
+    "query": "app=project&v2=1&tour=welcome&step=1&theme=dark",
+    "width": 480,
+    "height": 800
+  },
+  {
+    "id": "tour-whats-new-pt-dark",
+    "description": "What's new after an update, the review tour, in Portuguese — dark",
+    "query": "app=project&v2=1&tour=review,panel&step=0&lang=pt-BR&theme=dark",
+    "width": 1280,
+    "height": 800
+  },
+  {
+    "id": "tour-help-dark",
+    "description": "The tour's last step, on Help (?) at the sidebar's top — dark",
+    "query": "app=project&v2=1&tour=welcome&step=12&theme=dark",
+    "width": 1440,
+    "height": 900
   }
 ]

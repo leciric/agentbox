@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Columns3,
+  PanelLeft,
   Bell,
   ArrowLeft,
-  FlaskConical,
   Languages,
   ArrowRight,
   Bot,
@@ -90,6 +91,7 @@ import { defaults as notifyDefaults, usePrefs, useDnd } from "../lib/notifyPrefs
 import { setReviewing, useReviewing } from "../lib/reviewAlert";
 import { setTopBarDetailed, useTopBarDetailed } from "../lib/topBarLayout";
 import { setUiV2, useUiV2 } from "../lib/uiV2";
+import { onSwitchToV2, setTourState, startTour, welcomeTour } from "../lib/tours";
 import { pageStackModes, setPageStackMode, usePageStackMode } from "../lib/pageStackMode";
 import { useHatchConnected } from "./pages/usePages";
 import { VMMigrate } from "./VMMigrate";
@@ -811,7 +813,7 @@ function Finished({
 // once, under three headings: the app itself (how it looks, what notifies
 // you, the phone), AI and agents (the logins, the models, what agents do and
 // what they can use), and this computer (what agents may take of it, what it
-// needs, what's still experimental). Each project's settings follow them, as
+// needs). Each project's settings follow them, as
 // a section per project. Each section leads with the few settings people
 // change; the rest are marked advanced, and folded at the end of it.
 function InstalledSettings({
@@ -946,6 +948,13 @@ function InstalledSettings({
               keywords: t("settings.languageKeywords"),
               modified: changed((s) => s.language !== T.DefaultLanguage),
               render: () => <LanguageSetting />,
+            },
+            {
+              id: "layout",
+              label: t("settings.entry.layout.label"),
+              keywords: t("settings.entry.layout.keywords"),
+              modified: !uiV2,
+              render: () => <LayoutSetting />,
             },
             // v2's sidebar keeps only Settings and Past agents at its foot, so
             // which AgentBox this window drives is chosen here.
@@ -1537,28 +1546,6 @@ function InstalledSettings({
         },
       ],
     },
-    {
-      id: "experimental",
-      title: t("settings.section.experimental.title"),
-      description: t("settings.section.experimental.description"),
-      scope: "installation",
-      nav: t("settings.nav.machine"),
-      groups: [
-        {
-          id: "experimental",
-          title: t("settings.group.experimental.title"),
-          entries: [
-            {
-              id: "ui-v2",
-              label: t("settings.entry.ui-v2.label"),
-              keywords: t("settings.entry.ui-v2.keywords"),
-              modified: uiV2,
-              render: () => <UiV2Setting />,
-            },
-          ],
-        },
-      ],
-    },
     ...(projects.data ?? []).map(projectSection),
   ];
 
@@ -1586,7 +1573,6 @@ const sectionIcons: SectionIcons = {
   accounts: KeyRound,
   setup: Wrench,
   notifications: Bell,
-  experimental: FlaskConical,
 };
 
 // EnforceAgentDefaults decides what the model and window above mean to a
@@ -1901,37 +1887,52 @@ function TopBarDetailedSetting() {
   );
 }
 
-// UiV2Setting is "Try the new layout (v2)" (lib/uiV2.ts): the lead-first
-// layout, switched at once, with no restart.
-function UiV2Setting() {
+// LayoutSetting is New (v2) or Classic (lib/uiV2.ts), switched at once, with
+// no restart. Choosing New the first time plays its tour (lib/tours.ts).
+function LayoutSetting() {
   const t = useT();
   const on = useUiV2();
+  const choose = (v2: boolean) => {
+    if (v2 === on) return;
+    keepScroll();
+    setUiV2(v2);
+    if (v2) setTourState(onSwitchToV2);
+  };
   return (
-    <SettingRow
-      label={t("settings.entry.ui-v2.label")}
-      description={t("settings.uiV2.description")}
-      control={
-        <Switch
-          data-ui-v2-setting
-          aria-label={t("settings.entry.ui-v2.label")}
-          checked={on}
-          onCheckedChange={(next) => {
-            keepScroll();
-            setUiV2(next);
-          }}
-        />
-      }
-    >
-      <div className="min-w-0 break-words text-[12px] leading-relaxed text-subtle">
-        <span className="font-medium text-secondary">{t("settings.uiV2.whatsNew")}</span>
-        <ul className="mt-1 list-disc space-y-0.5 pl-4" data-ui-v2-whats-new>
-          <li>{t("settings.uiV2.new.leads")}</li>
-          <li>{t("settings.uiV2.new.newTask")}</li>
-          <li>{t("settings.uiV2.new.panel")}</li>
-          <li>{t("settings.uiV2.new.review")}</li>
-          <li>{t("settings.uiV2.new.pages")}</li>
-        </ul>
+    <SettingRow label={t("settings.entry.layout.label")} description={t("settings.layout.description")}>
+      <div
+        className="inline-flex w-fit rounded-xl border border-line bg-rail p-0.5"
+        role="radiogroup"
+        aria-label={t("settings.entry.layout.label")}
+        data-layout-choice
+      >
+        {([true, false] as const).map((v2) => (
+          <button
+            key={String(v2)}
+            role="radio"
+            aria-checked={on === v2}
+            data-layout={v2 ? "v2" : "classic"}
+            onClick={() => choose(v2)}
+            className={cn(
+              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-[12.5px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50",
+              on === v2 ? "bg-surface-strong text-title shadow-[inset_0_1px_0_rgb(255_255_255/0.08)]" : "text-muted hover:text-primary",
+            )}
+          >
+            {v2 ? <PanelLeft className="size-[15px]" /> : <Columns3 className="size-[15px]" />}
+            {t(v2 ? "settings.layout.new" : "settings.layout.classic")}
+          </button>
+        ))}
       </div>
+      {on && (
+        <button
+          type="button"
+          className="w-fit text-[12px] text-subtle underline-offset-2 hover:text-primary hover:underline"
+          onClick={() => startTour(welcomeTour.id)}
+          data-layout-tour
+        >
+          {t("settings.layout.tour")}
+        </button>
+      )}
     </SettingRow>
   );
 }

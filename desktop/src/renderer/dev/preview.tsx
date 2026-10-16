@@ -162,6 +162,9 @@
 //                           review's Merge and Request changes, which the dev
 //                           bridge answers, the agent coming back in 6s
 //                           (dev/review.tsx)
+//   &tour=welcome           with &v2=1, that tour playing (lib/tours.ts: welcome,
+//                           v2, review, panel, groups, cross-project; several
+//                           comma-separated), from &step=n (default 0)
 //   &panel=files            with &v2=1, the right-hand panel open on a tab
 //                           (files, desktop, terminal, browser, pages, media,
 //                           pulls, settings), or on its launcher (launcher);
@@ -260,6 +263,7 @@ import { ScopedMediaPages } from '../components/pages/MediaPages';
 import { mockMedia, NotificationsPreview, seedNotifications } from './notifications';
 import { ReviewPreview, seedLeadLines, seedReview, seedV2 } from './review';
 import { setUiV2 } from '../lib/uiV2';
+import { setTourState, tours, welcomeTour } from '../lib/tours';
 
 installDevBridge();
 
@@ -422,6 +426,12 @@ if (notify) seedNotifications(queryClient, mockMedia());
 if (review || appView) seedReview(queryClient);
 // UI v2 only where asked for: the flag is the preview origin's, kept between pages.
 setUiV2(params.get('v2') === '1');
+// No tour plays over a scenario unless &tour= asks for one.
+{
+  const tour = params.get('tour');
+  const all = [welcomeTour.id, ...tours.map((t) => t.id)];
+  setTourState({ seen: all, dismissed: [], playing: tour ? { tours: tour.split(','), step: Number(params.get('step') ?? 0) } : null });
+}
 if (appView && params.get('v2') === '1') {
   seedLeadLines(queryClient);
   seedV2(queryClient, params.get('pins'));
