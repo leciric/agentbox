@@ -517,10 +517,20 @@ func ChoiceValues(raw string) []string {
 // earn a place on the remembered menu the way an ordinary model does before
 // someone has already typed it once (see ModelByName.tsx). opus[1m] was
 // pinned too, until the window became a choice of its own (D91).
-type pinnedClaudeModel struct{ Value, Name string }
+//
+// Alias is the short name Claude Code's own menu lists it by once the account
+// does offer it, like "fable": that entry is the same model, so the pinned
+// one would be a second "Fable 5.1" beside it.
+type pinnedClaudeModel struct{ Value, Alias, Name string }
 
 var pinnedClaudeModels = []pinnedClaudeModel{
-	{Value: "claude-fable-5-1", Name: "Fable 5.1"},
+	{Value: "claude-fable-5-1", Alias: "fable", Name: "Fable 5.1"},
+}
+
+// offers reports whether a menu already has the pinned model, by its value,
+// its alias or its name.
+func (p pinnedClaudeModel) offers(c api.ChatOptionChoice) bool {
+	return c.Value == p.Value || c.Value == p.Alias || c.Name == p.Name
 }
 
 // pinnedClaudeModelNote marks a pinned choice in the UI: pinning one here is
@@ -564,7 +574,7 @@ func MergePinnedClaudeModels(choices []api.ChatOptionChoice) []api.ChatOptionCho
 		return oneM && slices.ContainsFunc(choices, func(o api.ChatOptionChoice) bool { return o.Value == base })
 	})
 	for _, p := range pinnedClaudeModels {
-		if slices.ContainsFunc(choices, func(c api.ChatOptionChoice) bool { return c.Value == p.Value }) {
+		if slices.ContainsFunc(choices, p.offers) {
 			continue
 		}
 		choice, _ := pinnedClaudeChoice(p.Value)
@@ -579,7 +589,7 @@ func MergePinnedClaudeModels(choices []api.ChatOptionChoice) []api.ChatOptionCho
 func MergePinnedClaudeModelValues(values []string) []string {
 	out := slices.Clone(values)
 	for _, p := range pinnedClaudeModels {
-		if !slices.Contains(values, p.Value) {
+		if !slices.Contains(values, p.Value) && !slices.Contains(values, p.Alias) {
 			out = append(out, p.Value)
 		}
 	}

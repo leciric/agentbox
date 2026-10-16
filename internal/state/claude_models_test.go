@@ -25,6 +25,17 @@ func TestMergePinnedClaudeModels(t *testing.T) {
 		t.Fatalf("a menu that already offers a pinned value got overwritten: %+v", got)
 	}
 
+	// Claude Code lists the model by its alias once the account offers it:
+	// that entry is Fable, so no second "Fable 5.1" joins it.
+	alias := api.ChatOptionChoice{Value: "fable", Name: "Fable 5.1", Description: "Fable 5.1 · Most capable"}
+	merged = state.MergePinnedClaudeModels([]api.ChatOptionChoice{alias})
+	if len(merged) != 1 || merged[0].Value != "fable" {
+		t.Fatalf("a menu offering Fable by its alias got the pinned one too: %+v", merged)
+	}
+	if got := state.MergePinnedClaudeModelValues([]string{"fable"}); len(got) != 1 {
+		t.Fatalf("MergePinnedClaudeModelValues([fable]) = %v, want fable alone", got)
+	}
+
 	// A menu with unrelated models keeps them, and gains the pinned ones.
 	other := api.ChatOptionChoice{Value: "sonnet", Name: "Sonnet"}
 	merged = state.MergePinnedClaudeModels([]api.ChatOptionChoice{other})
