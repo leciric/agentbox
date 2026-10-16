@@ -310,7 +310,19 @@ export function Composer({
   // Sending while the tool works is the point of the placeholder below: the
   // message joins the running turn and the model decides what it's worth.
   const canSend = !disabled && !signedOut && (text.trim() !== '' || images.length > 0) && !send.isPending && !held;
+  // Enter or Send while signed out can't send: the banner pulses instead, so
+  // the click isn't silent. The draft stays.
+  const [nudged, setNudged] = useState(false);
+  useEffect(() => {
+    if (!nudged) return;
+    const id = setTimeout(() => setNudged(false), 1200);
+    return () => clearTimeout(id);
+  }, [nudged]);
   const submit = () => {
+    if (signedOut && !disabled) {
+      setNudged(true);
+      return;
+    }
     if (!canSend) return;
     if (cacheCard) {
       setHeld({ text: text.trim(), images });
@@ -432,8 +444,8 @@ export function Composer({
     <div className="relative" data-chat-composer>
       {plan && <TasksBadge plan={plan} />}
       {signedOut ? (
-        <Attached tone="amber">
-          <div className="flex items-center gap-2 text-[12.5px]" data-chat-signed-out>
+        <Attached tone="amber" className={nudged ? 'bg-amber-400/25 ring-2 ring-amber-300/80' : undefined}>
+          <div className="flex items-center gap-2 text-[12.5px]" data-chat-signed-out data-nudged={nudged || undefined}>
             <LogIn className="size-3.5 shrink-0 text-amber-300" />
             <p className="min-w-0 flex-1 break-words leading-relaxed text-amber-100/90">{t('chat.composer.signedOut')}</p>
             <button
@@ -726,12 +738,14 @@ export function Composer({
                 </button>
               </Tip>
             )}
-            <Tip label={busy ? t('chat.composer.sendWhileWorking', { tool }) : t('chat.composer.send')}>
+            <Tip label={signedOut ? t('chat.composer.signInFirst', { tool }) : busy ? t('chat.composer.sendWhileWorking', { tool }) : t('chat.composer.send')}>
               <button
                 aria-label={t('chat.composer.send')}
-                disabled={!canSend}
+                // Signed out it stays clickable (dimmed), to say why it can't.
+                disabled={!canSend && !signedOut}
+                aria-disabled={!canSend || undefined}
                 onClick={submit}
-                className="flex size-8 items-center justify-center rounded-full bg-gradient-to-b from-brand-500 to-indigo-600 text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.2),0_8px_20px_-8px_rgb(99_102_241/0.8)] transition hover:scale-105 hover:brightness-110 disabled:scale-100 disabled:opacity-30 disabled:shadow-none"
+                className={cn('flex size-8 items-center justify-center rounded-full bg-gradient-to-b from-brand-500 to-indigo-600 text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.2),0_8px_20px_-8px_rgb(99_102_241/0.8)] transition hover:scale-105 hover:brightness-110 disabled:scale-100 disabled:opacity-30 disabled:shadow-none', signedOut && 'opacity-30 shadow-none hover:scale-100')}
               >
                 {send.isPending ? <LoaderCircle className="size-3.5 animate-spin" /> : <ArrowUp className="size-4" strokeWidth={2.2} />}
               </button>
@@ -760,8 +774,8 @@ const tones = {
 };
 
 // Attached is a banner that sits on the composer's top edge.
-function Attached({ tone, children }: { tone: keyof typeof tones; children: ReactNode }) {
-  return <div className={cn('relative mx-auto -mb-4 w-[calc(100%-2.5rem)] animate-slide-up rounded-t-2xl border border-b-0 px-3.5 pb-6 pt-2.5 backdrop-blur-xl', tones[tone])}>{children}</div>;
+function Attached({ tone, className, children }: { tone: keyof typeof tones; className?: string; children: ReactNode }) {
+  return <div className={cn('relative mx-auto -mb-4 w-[calc(100%-2.5rem)] animate-slide-up rounded-t-2xl border border-b-0 px-3.5 pb-6 pt-2.5 backdrop-blur-xl transition-[box-shadow,background-color] duration-300', tones[tone], className)}>{children}</div>;
 }
 
 function PermissionBanner({ agent, thread, request, count }: { agent: T.Agent; thread: T.ChatThread; request: T.ChatItem; count: number }) {

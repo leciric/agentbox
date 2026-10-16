@@ -9,7 +9,6 @@ import { ArrowRight, CircleCheck, Film, GitMerge, GitPullRequest, Globe, Images,
 import { createContext, useContext, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
-import type { View } from '../../App';
 import { api } from '../../lib/api';
 import { useT } from '../../lib/i18n';
 import { agentReviewPrefix, inboxPageSize, pageItems, useReviewPages } from '../../lib/inboxPages';
@@ -70,7 +69,7 @@ export function useAgentReview(ref: string) {
 const reviewedKey = (project?: string) => ['reviewed', 'project', project ?? ''];
 
 // ReviewV2 gives what's under it a way to open the carousel on any agent.
-export function ReviewV2({ onSelect, children }: { onSelect: (view: View) => void; children: ReactNode }) {
+export function ReviewV2({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [session, setSession] = useState<ReviewSession | null>(null);
   // The Reviewed tab, while it's on screen: whose agents it lists.
@@ -99,7 +98,7 @@ export function ReviewV2({ onSelect, children }: { onSelect: (view: View) => voi
   const tabs = <ReviewTabs project={scope.project} on={reviewed || session?.item.verdict ? 'reviewed' : 'review'} onReview={() => openReview({ project: scope.project })} onReviewed={() => setReviewed(scope)} />;
   const open = (item: T.ReviewItem) => {
     setReviewed(null);
-    setSession({ item, order: null });
+    setSession({ item, order: null, project: reviewed?.project });
   };
   return (
     <OpenReviewContext.Provider value={openReview}>
@@ -108,7 +107,6 @@ export function ReviewV2({ onSelect, children }: { onSelect: (view: View) => voi
         session={session}
         pages={pages}
         onSession={setSession}
-        onSelect={onSelect}
         tabs={tabs}
         list={reviewed && <ReviewedList project={reviewed.project} tabs={tabs} onOpen={open} />}
         onCloseList={() => setReviewed(null)}

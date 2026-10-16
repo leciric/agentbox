@@ -83,7 +83,7 @@ export function AllAgentsPanel({ project, onSelect, onNewAgent }: { project?: st
           <AgentFleetRow
             key={agent.ref}
             agent={agent}
-            sample={usage.data?.agents.find((u) => u.ref === agent.ref)}
+            sample={usage.data?.agents?.find((u) => u.ref === agent.ref)}
             cpuHistory={history.get(agent.ref) ?? []}
             onSelect={() => onSelect({ kind: 'agent', ref: agent.ref })}
             onOpen={onSelect}

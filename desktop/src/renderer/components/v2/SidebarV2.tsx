@@ -26,7 +26,7 @@ import { activeProjects, agentSt, attention, awaitsApproval, countSt, filterCoun
 import { movePin, orderProjects, togglePin } from '../../lib/projectOrder';
 import { HelpMenu } from './Tour';
 import { setFilterChoice, setHiddenOpen, setPins, useV2Projects } from '../../lib/v2Projects';
-import { arrange, hide, unhide } from '../../lib/sidebarHidden';
+import { arrange, hide, pinsAfterHide, unhide } from '../../lib/sidebarHidden';
 import { useSidebarLayout } from '../../lib/useSidebarLayout';
 import { useGrace } from '../../lib/grace';
 import { projectLabel } from '../../lib/projectName';
@@ -208,7 +208,12 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
         // Pinning a hidden project brings it back.
         if (pin && hiddenSet.has(p.project.name)) save(unhide(layout, p.project.name));
       }}
-      onHide={() => save(hiddenSet.has(p.project.name) ? unhide(layout, p.project.name) : hide(layout, p.project.name))}
+      onHide={() => {
+        if (hiddenSet.has(p.project.name)) return save(unhide(layout, p.project.name));
+        // A pin is never hidden: hiding one unpins it, so it moves to Hidden now.
+        if (pinned.has(p.project.name)) setPins(pinsAfterHide(kept.pins, p.project.name));
+        save(hide(layout, p.project.name));
+      }}
       onSelect={onSelect}
       onNewAgent={() => onNewAgent(p.project.name)}
       drag={

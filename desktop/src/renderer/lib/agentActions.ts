@@ -19,3 +19,8 @@ export function lifecycleActions(state: string): LifecycleAction[] {
 export function usesChat(agent: Pick<T.Agent, 'ai' | 'interface'>): boolean {
   return agent.ai !== 'none' && agent.interface === 'chat';
 }
+
+// An agent's Desktop is its machine's display: there's one to open only while the machine runs.
+export function canOpenDesktop(state: string): boolean {
+  return state === 'running';
+}

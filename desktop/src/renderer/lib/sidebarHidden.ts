@@ -11,6 +11,10 @@ export const hide = (l: T.SidebarLayout, name: string): T.SidebarLayout => ({ ..
 
 export const unhide = (l: T.SidebarLayout, name: string): T.SidebarLayout => ({ ...l, hidden: l.hidden.filter((n) => n !== name) });
 
+// pinsAfterHide is the pins once name is hidden: a pin is never hidden, so
+// hiding a pinned project unpins it and it moves to Hidden at once.
+export const pinsAfterHide = (pins: readonly string[], name: string): string[] => pins.filter((p) => p !== name);
+
 export type Arranged = Ordered & { hidden: T.Project[] };
 
 // arrange takes the hidden projects out of the order's lists, Idle included,

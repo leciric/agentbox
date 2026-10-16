@@ -75,8 +75,11 @@ export function connectorName(url: string): string {
   }
   if (host === 'localhost' || /^[\d.]+$|^\[/.test(host)) return '';
   const parts = host.split('.').filter((p) => !['www', 'mcp', 'api'].includes(p));
+  // A second-level domain under a country's (example.co.uk, acme.com.br)
+  // names the server one label further left.
+  if (parts.length > 2 && /^(co|com|net|org|gov|ac|edu)$/.test(parts[parts.length - 2]) && parts[parts.length - 1].length === 2) parts.pop();
   const name = (parts.length > 1 ? parts[parts.length - 2] : (parts[0] ?? '')).toLowerCase();
-  return name.replace(/[^a-z0-9_-]/g, '-').replace(/^-+/, '');
+  return name.replace(/[^a-z0-9_-]/g, '-').replace(/^-+/, '').slice(0, 40);
 }
 
 // validConnectorURL is what the daemon takes: https, to a server elsewhere.
@@ -90,7 +93,122 @@ export const validConnectorURL = (url: string) => {
 };
 
 const onThisMachine = (host: string) =>
-  host === 'localhost' || host.endsWith('.localhost') || /^127\.|^0\.0\.0\.0$|^169\.254\./.test(host) || host === '[::1]';
+  host === 'localhost' || host.endsWith('.localhost') || /^127\.|^0\.0\.0\.0$|^169\.254\./.test(host) || ['[::1]', '[::]'].includes(host) || /^\[fe[89ab]/i.test(host);
+
+// connectorURL is what the form sends for what was typed: trimmed, and with
+// https:// before an address typed without a scheme, as most are when copied
+// from a page that shows mcp.example.com/mcp.
+export function connectorURL(typed: string): string {
+  const url = typed.trim();
+  // Only http and https count as a scheme here: mcp.example.com:8443 is a
+  // host and a port.
+  if (url === '' || /^https?:/i.test(url) || /^[a-z][a-z0-9+.-]*:\/\//i.test(url)) return url;
+  return `https://${url}`;
+}
+
+// ── The add form's checks ─────────────────────────────────────────────────
+//
+// What the daemon would refuse, said next to the field it is about before
+// the user presses Add, rather than a button that stays grey for no stated
+// reason. Each is a sentence to show, or undefined when the field is fine;
+// empty says the field is still to be filled in, rather than wrong.
+
+// The names the daemon keeps for the MCP servers it gives every agent
+// (connectors.Reserved), and how long a name may be.
+const reservedConnectorNames = ['playwright', 'desktop', 'memory', 'agentbox'];
+const maxConnectorName = 40;
+// The secret names AgentBox writes into every agent itself (secrets.reserved).
+const reservedSecretNames = ['CLAUDE_CODE_OAUTH_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN', 'COMPOSE_PROJECT_NAME'];
+const maxSecretName = 64;
+// The headers the relay sets itself (connectors.validHeader).
+const relayHeaders = ['content-type', 'accept', 'mcp-session-id', 'mcp-protocol-version', 'host', 'content-length'];
+
+export interface FieldProblem {
+  message: string;
+  // empty is a field not filled in yet: shown as a hint, not an error.
+  empty?: boolean;
+}
+
+export function connectorNameProblem(name: string, taken: string[] = []): FieldProblem | undefined {
+  if (name === '') return { message: t('project.connectors.problem.nameEmpty'), empty: true };
+  if (name.length > maxConnectorName) return { message: t('project.connectors.problem.nameLong', { max: maxConnectorName }) };
+  if (!validConnectorName(name)) return { message: t('project.connectors.problem.nameInvalid') };
+  if (reservedConnectorNames.includes(name)) return { message: t('project.connectors.problem.nameReserved', { name }) };
+  if (taken.includes(name)) return { message: t('project.connectors.nameTaken') };
+  return undefined;
+}
+
+export function connectorURLProblem(typed: string): FieldProblem | undefined {
+  const url = connectorURL(typed);
+  if (url === '') return { message: t('project.connectors.problem.urlEmpty'), empty: true };
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return { message: t('project.connectors.problem.urlInvalid') };
+  }
+  // A browser reads https:/host as https://host; the daemon (Go's url.Parse)
+  // finds no host in it.
+  if (!/^https?:\/\/[^/]/i.test(url) || u.hostname === '') return { message: t('project.connectors.problem.urlInvalid') };
+  if (u.username || u.password) return { message: t('project.connectors.problem.urlUser') };
+  if (onThisMachine(u.hostname)) return { message: t('project.connectors.problem.urlLocal') };
+  if (u.protocol !== 'https:') return { message: t('project.connectors.problem.urlHttps') };
+  return undefined;
+}
+
+export function connectorSecretProblem(secret: string): FieldProblem | undefined {
+  if (secret === '') return { message: t('project.connectors.problem.secretEmpty'), empty: true };
+  if (secret.length > maxSecretName) return { message: t('project.connectors.problem.secretLong', { max: maxSecretName }) };
+  if (!/^[A-Z_][A-Z0-9_]*$/.test(secret)) return { message: t('project.connectors.problem.secretInvalid') };
+  if (reservedSecretNames.includes(secret)) return { message: t('project.connectors.problem.secretReserved', { name: secret }) };
+  return undefined;
+}
+
+export function connectorHeaderProblem(header: string): FieldProblem | undefined {
+  if (header === '') return { message: t('project.connectors.problem.headerEmpty'), empty: true };
+  if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(header)) return { message: t('project.connectors.problem.headerInvalid') };
+  if (relayHeaders.includes(header.toLowerCase())) return { message: t('project.connectors.problem.headerReserved', { header }) };
+  return undefined;
+}
+
+export function connectorTokenProblem(token: string): FieldProblem | undefined {
+  return token.trim() === '' ? { message: t('project.connectors.problem.tokenEmpty'), empty: true } : undefined;
+}
+
+// secretNameFor is the secret a token is kept as when the user hasn't named
+// it: ACME_TOKEN for the connector acme.
+export function secretNameFor(connector: string): string {
+  const base = connector.toUpperCase().replace(/[^A-Z0-9_]/g, '_').replace(/^[0-9]/, '_$&');
+  return base ? `${base}_TOKEN` : '';
+}
+
+export interface ConnectorForm {
+  name: string;
+  url: string;
+  auth: string;
+  secret: string;
+  header: string;
+  token: string;
+  taken: string[];
+}
+
+export type ConnectorFormProblems = Partial<Record<'name' | 'url' | 'token' | 'secret' | 'header', FieldProblem>>;
+
+// connectorFormProblems is every reason the form can't be sent yet, by field;
+// the form is ready when there is none.
+export function connectorFormProblems(f: ConnectorForm): ConnectorFormProblems {
+  const problems: ConnectorFormProblems = {
+    name: connectorNameProblem(f.name, f.taken),
+    url: connectorURLProblem(f.url),
+  };
+  if (f.auth === T.ConnectorSecret) {
+    problems.token = connectorTokenProblem(f.token);
+    problems.secret = connectorSecretProblem(f.secret.trim());
+    problems.header = connectorHeaderProblem(f.header.trim());
+  }
+  for (const k of Object.keys(problems) as (keyof ConnectorFormProblems)[]) if (!problems[k]) delete problems[k];
+  return problems;
+}
 
 export type StatusTone = 'success' | 'warning' | 'danger' | 'default';
 

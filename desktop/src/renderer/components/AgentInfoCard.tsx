@@ -60,7 +60,7 @@ export function AgentInfoCard({ agent, pr }: { agent: T.Agent; pr?: T.PullReques
   const mine = spend.data?.agents?.[0];
   // What its machine uses now, which the rail's rows no longer spell out.
   const usage = useQuery({ queryKey: ['usage'], queryFn: api.usage, enabled: agent.state === 'running' });
-  const sample = agent.state === 'running' ? usage.data?.agents.find((u) => u.ref === agent.ref) : undefined;
+  const sample = agent.state === 'running' ? usage.data?.agents?.find((u) => u.ref === agent.ref) : undefined;
 
   return (
     // grid-cols-1 is minmax(0, 1fr): an auto column would grow to the title's

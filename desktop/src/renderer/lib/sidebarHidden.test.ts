@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
 import { orderProjects } from './projectOrder.ts';
-import { arrange, emptyLayout, hide, unhide } from './sidebarHidden.ts';
+import { arrange, emptyLayout, hide, pinsAfterHide, unhide } from './sidebarHidden.ts';
 
 const p = (name: string) => ({ name }) as T.Project;
 const names = (ps: T.Project[]) => ps.map((x) => x.name);
@@ -34,4 +34,12 @@ test('the sidebar reads pinned, active, Idle, Hidden, top to bottom, whatever is
   assert.deepEqual(read(['f'], ['a', 'c'], ['e']), [['f'], ['a', 'c'], ['b', 'd'], ['e']]);
   assert.deepEqual(read([], ['d'], ['a', 'd']), [[], ['d'], ['b', 'c', 'e', 'f'], ['a']]);
   assert.deepEqual(read(['b', 'a'], [], []), [['b', 'a'], [], ['c', 'd', 'e', 'f'], []]);
+});
+
+test('hiding a pinned project unpins it, so it lands in Hidden', () => {
+  const pins = pinsAfterHide(['a', 'pin', 'b'], 'pin');
+  assert.deepEqual(pins, ['a', 'b']);
+  assert.deepEqual(pinsAfterHide(pins, 'x'), ['a', 'b']);
+  const order = orderProjects({ projects: [{ name: 'a' }, { name: 'pin' }, { name: 'b' }] as T.Project[], pins, activity: new Map(), active: new Set(), label: (x) => x.name });
+  assert.deepEqual(arrange(order, hide(emptyLayout, 'pin'), new Set()).hidden.map((p) => p.name), ['pin']);
 });

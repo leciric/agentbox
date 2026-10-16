@@ -1,20 +1,18 @@
-import { useQuery, useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
-import { ArrowRight, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, GitBranch, GitMerge, GitPullRequest, Image as ImageIcon, MessageSquareText, LoaderCircle, Play } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
+import { ArrowRight, Check, ChevronDown, ChevronLeft, ChevronRight, CornerDownLeft, ExternalLink, GitBranch, GitMerge, GitPullRequest, Image as ImageIcon, MessageSquareText, LoaderCircle, Play } from 'lucide-react';
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
-import type { View } from '../App';
 import { api } from '../lib/api';
 import { useT, type MessageKey } from '../lib/i18n';
 import { mediaUrl } from '../lib/media';
 import { pagesFor } from '../lib/pages';
 import { projectLabel } from '../lib/projectName';
 import { pageItems, pageTotal, refreshInbox, useReviewPages, withoutAgent } from '../lib/inboxPages';
-import { type Walk, goBack, goForward, mergeBlock, nextPending, remainingAfter, wrapWalk, walkItems, queueOf, reviewKeys, reviewShortcut, slidesOf, step, swipeStep, type MergeBlock, type ReviewAction, type Slide } from '../lib/review';
+import { type Walk, goBack, goForward, mergeBlock, nextPending, remainingAfter, wrapWalk, walkItems, walkOrder, queueOf, reviewKeys, reviewShortcut, slidesOf, step, swipeStep, type MergeBlock, type ReviewAction, type Slide } from '../lib/review';
 import { defaultMethod, loadMethodPrefs, rememberMethod } from '../lib/mergeMethod';
 import { isUnseen, markReadySeen, useUnseen } from '../lib/reviewAlert';
 import { useNow } from '../lib/useNow';
-import { requestComposerFocus } from '../lib/newTask';
 import { cn, errorMessage, timeAgo } from '../lib/utils';
 import { Markdown } from './chat/Markdown';
 import { MoreMedia, Recording } from './MediaTab';
@@ -118,7 +116,6 @@ export function ReviewDialog({
   session,
   pages,
   onSession,
-  onSelect,
   tabs,
   list,
   onCloseList,
@@ -126,7 +123,6 @@ export function ReviewDialog({
   session: ReviewSession | null;
   pages: ReviewPages;
   onSession: (session: ReviewSession | null) => void;
-  onSelect: (view: View) => void;
   tabs?: ReactNode;
   list?: ReactNode;
   onCloseList?: () => void;
@@ -134,31 +130,27 @@ export function ReviewDialog({
   const t = useT();
   const items = walkItems(pageItems(pages.data), session?.project);
   const current = session && (items.find((i) => i.ref === session.item.ref) ?? session.item);
-  const next = session?.order ? nextPending(session.order, session.item.ref, items) : undefined;
-  const queue = session?.order ? queueOf(session.order, items) : null;
+  const order = session && walkOrder(session);
+  const next = session && order ? nextPending(order, session.item.ref, items) : undefined;
+  const queue = order ? queueOf(order, items) : null;
   const position = queue && session ? { n: queue.indexOf(session.item.ref) + 1, count: queue.length } : undefined;
   // A walk that reaches the end of what's loaded reads the next page.
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = pages;
+  const walking = session !== null;
   useEffect(() => {
-    if (session?.order && !next && hasNextPage && !isFetchingNextPage) void fetchNextPage();
-  }, [session?.order, next, hasNextPage, isFetchingNextPage, fetchNextPage]);
+    if (walking && !next && hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [walking, next, hasNextPage, isFetchingNextPage, fetchNextPage]);
+  // advance goes on to the next agent waiting. At the end of the walk it
+  // looks again at what waits (agents skipped, or finished since) and goes
+  // round to them; only when nothing is left does the review close.
   const advance = () => {
-    if (next && session) onSession(goForward(session, next));
-    else if (session?.order) {
-      // The end of the walk: look again at what waits (agents skipped with
-      // Next or Back, or finished since) before saying it's all done.
-      const remaining = remainingAfter(session.order, session.item.ref, items);
-      if (remaining.length) onSession({ ...session, ended: { remaining: remaining.length } });
-      else {
-        toast(t('review.allDone'));
-        onSession(null);
-      }
-    } else onSession(null);
-  };
-  const carryOn = () => {
-    if (!session?.order) return;
-    const remaining = remainingAfter(session.order, session.item.ref, items);
-    onSession(remaining.length ? wrapWalk(session, remaining) : null);
+    if (!session || !order) return;
+    // A review opened on one agent keeps the order it had then.
+    if (next) return onSession(goForward({ ...session, order: queue ?? order }, next));
+    const remaining = remainingAfter(order, session.item.ref, items);
+    if (remaining.length) return onSession(wrapWalk(session, remaining));
+    toast(t('review.allDone'));
+    onSession(null);
   };
   return (
     <Dialog
@@ -170,21 +162,7 @@ export function ReviewDialog({
       }}
     >
       {list}
-      {!list && current && session?.ended && (
-        <DialogContent className="max-w-sm p-6" data-review-more>
-          <DialogTitle className="text-base">{t('review.moreToReview', { count: session.ended.remaining })}</DialogTitle>
-          <div className="mt-4 flex justify-end gap-2">
-            <Button size="sm" variant="ghost" onClick={() => onSession(null)}>
-              {t('common.close')}
-            </Button>
-            <Button size="sm" variant="primary" onClick={carryOn} data-review-continue>
-              {t('review.continue')}
-              <ArrowRight />
-            </Button>
-          </div>
-        </DialogContent>
-      )}
-      {!list && current && !session?.ended && <ReviewCarousel key={current.ref} item={current} position={position} next={next} canBack={!!session?.trail?.length} onNext={advance} onBack={() => session && onSession(goBack(session))} onClose={() => onSession(null)} onSelect={onSelect} tabs={tabs} />}
+      {!list && current && <ReviewCarousel key={current.ref} item={current} position={position} next={next} canBack={!!session?.trail?.length} onNext={advance} onBack={() => session && onSession(goBack(session))} onClose={() => onSession(null)} tabs={tabs} />}
     </Dialog>
   );
 }
@@ -236,16 +214,22 @@ export function ReviewRow({ item, isNew, now, projects, onOpen }: { item: T.Revi
 }
 
 // markItemReviewed records the verdict on the work as shown and takes the
-// agent off the list at once. quiet leaves out its toast, for a merge, whose
-// own "Merged" toast is the news: "marked reviewed" over it read as if the
-// merge hadn't happened.
+// agent off the list at once. quiet leaves out its toast, for the review,
+// which goes on to the next agent: "marked reviewed" over a "Merged" toast
+// read as if the merge hadn't happened.
 function markItemReviewed(queryClient: QueryClient, item: T.ReviewItem, t: ReturnType<typeof useT>, quiet = false) {
-  queryClient.setQueriesData<T.ReviewPage | InfiniteData<T.ReviewPage, string>>({ queryKey: ['review'] }, (data) => withoutAgent(data, item.ref));
+  dropFromList(queryClient, item.ref);
   return api
     .review(item.ref, { verdict: 'reviewed', fingerprint: item.fingerprint })
     .then(() => !quiet && toast(t('review.marked', { agent: item.title || item.agent })))
     .catch((err) => toast.error(t('review.failed', { error: errorMessage(err) })))
     .finally(() => refreshInbox(queryClient));
+}
+
+// dropFromList takes an agent off the lists on screen at once, before the
+// daemon's answer refreshes them.
+function dropFromList(queryClient: QueryClient, ref: string) {
+  queryClient.setQueriesData<T.ReviewPage | InfiniteData<T.ReviewPage, string>>({ queryKey: ['review'] }, (data) => withoutAgent(data, ref));
 }
 
 function VerdictText({ item, now }: { item: T.ReviewItem; now?: number }) {
@@ -261,12 +245,16 @@ const blockLabels: Record<Exclude<MergeBlock, 'merged' | 'closed'>, MessageKey> 
   noPermission: 'review.mergeBlocked.noPermission',
 };
 
+// settleMs is how long after an agent comes up its Merge and Reviewed wait
+// before taking a click.
+const settleMs = 400;
+
 const keyLabels: Record<ReviewAction, MessageKey> = {
   previous: 'review.key.slides',
   next: 'review.key.slides',
   first: 'review.key.slides',
   last: 'review.key.slides',
-  nextAgent: 'review.key.nextAgent',
+  reviewed: 'review.key.reviewed',
   previousAgent: 'review.key.previousAgent',
   requestChanges: 'review.key.requestChanges',
   merge: 'review.key.merge',
@@ -277,9 +265,9 @@ const keyLabels: Record<ReviewAction, MessageKey> = {
 // Hatch pages, then its pull request, which can be merged from here. The
 // slide fills the middle, a filmstrip below it, what the agent said beside
 // it. Keys, the arrows, the filmstrip and a swipe move through the slides;
-// past the last one, Next goes on to the next agent waiting. Opening an agent
-// here is reviewing it: it leaves the list for Reviewed at once, until its
-// work changes again.
+// past the last one, → goes on to the next agent waiting. Opening an agent
+// only sees it; Merge, Reviewed and Request changes record a verdict and go
+// on to the next agent, and Finish closes the review.
 function ReviewCarousel({
   item,
   position,
@@ -288,7 +276,6 @@ function ReviewCarousel({
   onNext,
   onBack,
   onClose,
-  onSelect,
   tabs,
 }: {
   item: T.ReviewItem;
@@ -299,7 +286,6 @@ function ReviewCarousel({
   onNext: () => void;
   onBack: () => void;
   onClose: () => void;
-  onSelect: (view: View) => void;
   tabs?: ReactNode;
 }) {
   const t = useT();
@@ -325,7 +311,16 @@ function ReviewCarousel({
   const last = at >= slides.length - 1;
   const go = (by: number) => setIndex(step(at, slides.length, by));
   const labels = usePullLabels(item.project);
-  const merge = usePullMerge(item.project, () => refreshInbox(queryClient));
+  // The review's own "Merged" toast says whose it was and where it went.
+  // There's no Undo: a merge can't be taken back.
+  const merge = usePullMerge(
+    item.project,
+    (merged) => {
+      toast.success(t('review.merged', { number: merged.number, agent: item.agent, base: merged.baseBranch || item.pr?.baseBranch || '' }), { description: merged.title });
+      refreshInbox(queryClient);
+    },
+    { quiet: true },
+  );
   const blocked = pr ? mergeBlock(pr, pulls.data) : null;
   const canMerge = !!pr && blocked !== 'merged' && blocked !== 'closed';
   const mergeReason = blocked && blocked !== 'merged' && blocked !== 'closed' ? t(blockLabels[blocked], { base: pr?.baseBranch ?? '' }) : undefined;
@@ -335,8 +330,16 @@ function ReviewCarousel({
   useEffect(() => markReadySeen({ ref: item.ref, fingerprint: item.fingerprint }), [item.ref, item.fingerprint]);
 
   // The footer's slots never move: Back, Request changes, the merge reason,
-  // Merge, Mark reviewed, and Next (Finish on the last agent).
+  // Merge and next, Reviewed and next, and Finish, in a slot of its own so
+  // a double click on the last agent never ends the review.
   const [marking, setMarking] = useState(false);
+  // A click that lands within settleMs of an agent coming up is the second
+  // half of a double click on the one before: it isn't a verdict on this one.
+  const shownAt = useRef(Number.POSITIVE_INFINITY);
+  useEffect(() => {
+    shownAt.current = performance.now();
+  }, []);
+  const settled = () => performance.now() - shownAt.current > settleMs;
   const [picked, setPicked] = useState<string>();
   const [methodOpen, setMethodOpen] = useState(false);
   const method = picked && merge.methods.includes(picked) ? picked : defaultMethod(merge.methods, loadMethodPrefs(), item.project);
@@ -345,18 +348,37 @@ function ReviewCarousel({
     rememberMethod(item.project, m);
   };
   const prOpen = pr?.state === 'open';
-  const markReviewed = (quiet = false) => {
+  // The review going on to the next agent is the news, so it marks quietly:
+  // a "marked reviewed" toast would land over the "Merged" one, or over
+  // "That's everything" at the end.
+  const markReviewed = () => {
     setMarking(true);
-    void markItemReviewed(queryClient, item, t, quiet);
+    void markItemReviewed(queryClient, item, t, true);
     onNext();
   };
-  const mergeAndGo = () => pr && merge.mergeWith(pr, method, () => markReviewed(true));
-  // Request changes goes to the agent's chat, to write in.
-  const requestChanges = () => {
-    requestComposerFocus(item.ref);
-    onClose();
-    onSelect({ kind: 'agent', ref: item.ref, tab: 'chat' });
+  const reviewAndGo = () => !marking && settled() && markReviewed();
+  // Merged, it's reviewed too (quietly: the "Merged" toast is the news) and
+  // the review goes on to the next agent.
+  const mergeAndGo = () => pr && !mergeDisabled && settled() && merge.mergeWith(pr, method, markReviewed);
+  // Request changes opens a box over the footer; what's written goes to the
+  // agent's chat (the daemon wakes its machine), and the review goes on.
+  const [changing, setChanging] = useState(false);
+  const [note, setNote] = useState('');
+  const send = useMutation({
+    mutationFn: (text: string) => api.requestChanges(item.ref, { text, fingerprint: item.fingerprint }),
+    onSuccess: () => {
+      dropFromList(queryClient, item.ref);
+      toast(t('review.changesSent', { agent: item.agent }));
+      refreshInbox(queryClient);
+      onNext();
+    },
+    onError: (err) => toast.error(t('review.changesFailed', { error: errorMessage(err) })),
+  });
+  const sendChanges = () => {
+    const text = note.trim();
+    if (text && !send.isPending) send.mutate(text);
   };
+  const requestChanges = () => setChanging(true);
   // The merge slot is always there; it says why it can't merge.
   const footerReason = !pr ? t('review.mergeBlocked.none') : blocked === 'merged' ? t('review.mergeBlocked.merged') : blocked === 'closed' ? t('review.mergeBlocked.closed') : mergeReason;
   const mergeDisabled = !prOpen || !!mergeReason || merge.running.has(pr?.number ?? 0);
@@ -376,17 +398,15 @@ function ReviewCarousel({
         return setIndex(0);
       case 'last':
         return setIndex(slides.length - 1);
-      case 'nextAgent':
-        if (next) onNext();
-        return;
+      case 'reviewed':
+        return reviewAndGo();
       case 'previousAgent':
         if (canBack) onBack();
         return;
       case 'requestChanges':
         return requestChanges();
       case 'merge':
-        // The merge methods, for an open pull request that can merge.
-        if (!mergeDisabled) setMethodOpen(true);
+        return mergeAndGo();
     }
   };
 
@@ -420,6 +440,12 @@ function ReviewCarousel({
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           (event.currentTarget as HTMLElement | null)?.focus();
+        }}
+        // Esc in the Request changes box closes the box, not the review.
+        onEscapeKeyDown={(event) => {
+          if (!changing) return;
+          event.preventDefault();
+          setChanging(false);
         }}
       >
         <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-5 py-2.5 pr-14">
@@ -522,7 +548,38 @@ function ReviewCarousel({
                 )}
               </div>
             </div>
-            {/* Narrow, the actions wrap rather than drop their labels: icons
+            {changing && (
+              <div className="mx-4 mb-3 grid gap-2 rounded-xl border border-line-strong bg-well p-3" data-review-changes-box>
+                <div className="text-[12px] text-muted">{t('review.changesTo', { agent: item.agent })}</div>
+                <textarea
+                  autoFocus
+                  rows={3}
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                      e.preventDefault();
+                      sendChanges();
+                    }
+                  }}
+                  placeholder={t('review.changesPlaceholder')}
+                  aria-label={t('review.requestChanges')}
+                  className="w-full resize-none rounded-lg bg-surface-faint px-2.5 py-2 text-[13px] text-primary outline-none ring-1 ring-line focus:ring-brand-400"
+                  data-review-changes-input
+                />
+                <div className="flex justify-end gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => setChanging(false)}>
+                    {t('common.cancel')}
+                  </Button>
+                  <Button size="sm" variant="primary" disabled={!note.trim() || send.isPending} onClick={sendChanges} data-review-changes-send>
+                    {send.isPending ? <LoaderCircle className="animate-spin" /> : <MessageSquareText />}
+                    {t('review.changesSend')}
+                    <CornerDownLeft className="opacity-70" />
+                  </Button>
+                </div>
+              </div>
+            )}
+                        {/* Narrow, the actions wrap rather than drop their labels: icons
                 alone left Request changes and Merge to guess (UX test, finding 8). */}
             <div className="flex flex-wrap items-center gap-2 border-t border-line bg-modal px-4 py-2" data-review-actions>
               <Button size="sm" variant="ghost" disabled={!canBack} onClick={onBack} data-review-back title={t('review.backTitle')} aria-label={t('review.back')}>
@@ -532,7 +589,7 @@ function ReviewCarousel({
                   <Kbd>P</Kbd>
                 </span>
               </Button>
-              <Button size="sm" variant="secondary" onClick={requestChanges} data-review-changes title={t('review.requestChanges')} aria-label={t('review.requestChanges')}>
+              <Button size="sm" variant="secondary" aria-expanded={changing} onClick={requestChanges} data-review-changes title={t('review.requestChanges')} aria-label={t('review.requestChanges')}>
                 <MessageSquareText />
                 <span>{t('review.requestChanges')}</span>
                 <span className="max-md:hidden">
@@ -547,7 +604,12 @@ function ReviewCarousel({
               <div className="flex shrink-0 items-stretch" data-review-merge-split>
                 <Button size="sm" variant="primary" className="rounded-r-none" disabled={mergeDisabled} title={footerReason ?? t(methodLabels[method] ?? 'memory.pulls.merge')} onClick={mergeAndGo} data-review-merge data-merge-method={method}>
                   {pr && merge.running.has(pr.number) ? <LoaderCircle className="animate-spin" /> : <GitMerge />}
-                  <span>{t('review.mergeNumber', { number: pr?.number ?? 0 })}</span>
+                  <span>{pr ? t('review.mergeAndNext', { number: pr.number }) : t('review.noPullRequest')}</span>
+                  {!mergeDisabled && (
+                    <span className="max-md:hidden">
+                      <Kbd>M</Kbd>
+                    </span>
+                  )}
                 </Button>
                 <Menu open={methodOpen} onOpenChange={setMethodOpen}>
                   <MenuTrigger asChild>
@@ -564,13 +626,16 @@ function ReviewCarousel({
                   </MenuContent>
                 </Menu>
               </div>
-              <Button size="sm" variant="secondary" disabled={marking} onClick={() => markReviewed()} data-review-done>
+              <Button size="sm" variant="default" disabled={marking} onClick={reviewAndGo} data-review-done title={next ? t('review.nextIs', { agent: next.title || next.agent }) : undefined} aria-label={t('review.reviewedNext')}>
                 <Check />
-                <span>{t('review.markReviewed')}</span>
+                <span>{t('review.reviewedNext')}</span>
+                <span className="max-md:hidden">
+                  <Kbd>N</Kbd>
+                </span>
               </Button>
-              <Button size="sm" variant="default" onClick={onNext} data-review-next title={next ? next.title || next.agent : undefined}>
-                {t(next ? 'review.nextAgent' : 'review.finish')}
-                <Kbd>N</Kbd>
+              <span aria-hidden className="mx-1 h-5 w-px shrink-0 bg-line" />
+              <Button size="sm" variant="ghost" onClick={onClose} data-review-finish>
+                {t('review.finish')}
                 <ArrowRight />
               </Button>
               </div>
@@ -590,7 +655,7 @@ function ReviewCarousel({
               )}
             </div>
             <div className="border-t border-line-faint px-5 py-3">
-              <Shortcuts canMerge={!mergeDisabled} hasNext={!!next} hasBack={canBack} />
+              <Shortcuts canMerge={!mergeDisabled} hasBack={canBack} />
             </div>
           </aside>
         </div>
@@ -642,9 +707,9 @@ function PrState({ pr }: { pr: T.PullRequest }) {
 }
 
 // Shortcuts lists the review's keys, the ones that do something here.
-function Shortcuts({ canMerge, hasNext, hasBack }: { canMerge: boolean; hasNext: boolean; hasBack: boolean }) {
+function Shortcuts({ canMerge, hasBack }: { canMerge: boolean; hasBack: boolean }) {
   const t = useT();
-  const shown = reviewKeys.filter((k) => (k.action !== 'merge' || canMerge) && (k.action !== 'nextAgent' || hasNext) && (k.action !== 'previousAgent' || hasBack));
+  const shown = reviewKeys.filter((k) => (k.action !== 'merge' || canMerge) && (k.action !== 'previousAgent' || hasBack));
   return (
     <div className="grid gap-1.5 text-[12px] text-muted" data-review-shortcuts>
       <h3 className="text-[11px] font-semibold uppercase tracking-wide text-subtle">{t('review.shortcuts')}</h3>

@@ -1,17 +1,19 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import * as TooltipPrimitive from '@radix-ui/react-tooltip';
-import { CircleX, GitBranch, GitPullRequest, Info, MessageSquare, Moon, Pause, Play, Square, SquareTerminal } from 'lucide-react';
+import { CircleX, GitBranch, GitPullRequest, Info, Monitor, MessageSquare, Moon, Pause, Play, Square, SquareTerminal } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import * as T from '../../shared/api';
 import type { View } from '../App';
-import { lifecycleActions, usesChat, type LifecycleAction } from '../lib/agentActions';
+import { canOpenDesktop, lifecycleActions, usesChat, type LifecycleAction } from '../lib/agentActions';
 import { api, type AgentAction } from '../lib/api';
 import { useT, type MessageKey } from '../lib/i18n';
 import { countFeature, type AppFeature } from '../lib/usageStats';
 import { AgentInfoCard } from './AgentInfoCard';
+import { ErrorBoundary } from './ErrorBoundary';
 import { DestroyAgentDialog } from './DestroyAgentDialog';
 import { useUiV2 } from '../lib/uiV2';
+import { openPanelOn } from '../lib/rightPanel';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuMore, ContextMenuSeparator, ContextMenuTrigger } from './ui/context-menu';
 import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
 
@@ -124,7 +126,9 @@ export function AgentContextMenu({
           </ContextMenuTrigger>
           <TooltipPrimitive.Portal>
             <TooltipPrimitive.Content side={infoSide} sideOffset={6} className="z-[60] max-w-none animate-fade-in rounded-lg border border-line-strong bg-overlay p-3 text-xs text-secondary shadow-xl backdrop-blur">
-              <AgentInfoCard agent={agent} pr={pr} />
+              <ErrorBoundary>
+                <AgentInfoCard agent={agent} pr={pr} />
+              </ErrorBoundary>
             </TooltipPrimitive.Content>
           </TooltipPrimitive.Portal>
         </TooltipPrimitive.Root>
@@ -137,6 +141,19 @@ export function AgentContextMenu({
           <ContextMenuItem icon={SquareTerminal} onSelect={counted(T.FeatureMenuOpenTerminal, () => onSelect({ kind: 'agent', ref: agent.ref, tab: 'terminal' }))}>
             {t('agent.menu.openTerminal')}
           </ContextMenuItem>
+          {v2 && (
+            <ContextMenuItem
+              icon={Monitor}
+              disabled={!canOpenDesktop(agent.state)}
+              hint={canOpenDesktop(agent.state) ? undefined : t('agent.menu.openDesktopOff')}
+              onSelect={() => {
+                openPanelOn(agent.ref, 'desktop', agent.ref);
+                onSelect({ kind: 'agent', ref: agent.ref, tab: 'chat' });
+              }}
+            >
+              {t('agent.menu.openDesktop')}
+            </ContextMenuItem>
+          )}
           {!v2 && info}
           {v2 && openPr}
           <ContextMenuSeparator />
@@ -182,7 +199,9 @@ export function AgentContextMenu({
       <Dialog open={showingInfo} onOpenChange={setShowingInfo}>
         <DialogContent className="max-w-sm">
           <DialogTitle className="sr-only">{t('agent.menu.infoTitle', { name: agent.title || agent.name })}</DialogTitle>
-          <AgentInfoCard agent={agent} pr={pr} />
+          <ErrorBoundary>
+                <AgentInfoCard agent={agent} pr={pr} />
+              </ErrorBoundary>
         </DialogContent>
       </Dialog>
     </>

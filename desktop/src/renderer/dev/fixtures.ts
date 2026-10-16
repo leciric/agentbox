@@ -1515,6 +1515,13 @@ export function seedImageUpdate(queryClient: QueryClient): void {
   queryClient.setQueryData(['job', imageToolsJob], devState.job);
 }
 
+// seedSignedOut is Claude Code with no login: the composer's banner, and Send
+// saying why it won't. The dev bridge answers the same, so the refetch keeps it.
+export function seedSignedOut(queryClient: QueryClient): void {
+  devState.auth = { ...devState.auth!, claudeAccounts: [] };
+  queryClient.setQueryData(['auth'], devState.auth);
+}
+
 // seedSettings is the whole Settings page on a machine that is set up
 // (?settings=<section>): every check the daemon makes, most of them ready, one
 // that wants a look and the optional ones skipped; two Claude Code accounts,

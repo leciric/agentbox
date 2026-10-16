@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { countLabel, remainingAfter, wrapWalk, goBack, goForward, mergeBlock, nextPending, startWalk, walkItems, queueOf, reviewKeys, reviewShortcut, slidesOf, step, swipeStep } from './review.ts';
+import { countLabel, remainingAfter, wrapWalk, goBack, goForward, mergeBlock, nextPending, startWalk, walkItems, walkOrder, queueOf, reviewKeys, reviewShortcut, slidesOf, step, swipeStep } from './review.ts';
 
 const media = (id: string, kind: string, createdAt: string) => ({ id, kind, createdAt }) as T.MediaItem;
 const page = (id: string, createdAt: string) => ({ id, createdAt }) as T.Artifact;
@@ -77,7 +77,7 @@ test('Review all walks what was waiting, then what arrived, skipping what was re
 test('reviewShortcut maps keys to actions, and leaves modified ones alone', () => {
   assert.equal(reviewShortcut({ key: 'ArrowRight' }), 'next');
   assert.equal(reviewShortcut({ key: 'ArrowLeft' }), 'previous');
-  assert.equal(reviewShortcut({ key: 'n' }), 'nextAgent');
+  assert.equal(reviewShortcut({ key: 'n' }), 'reviewed');
   // Looking is reviewing: there is no key to mark it.
   assert.equal(reviewShortcut({ key: 'R' }), null);
   assert.equal(reviewShortcut({ key: 'd' }), null);
@@ -108,7 +108,7 @@ test("a project's walk goes through its agents only, and ends after its last", (
 test('openReview starts on the agent a card shows, or walks the waiting ones', () => {
   const item = (ref: string) => ({ ref, project: ref.split('/')[0] }) as T.ReviewItem;
   // From an agent's card: on that agent, even when the lists don't have it yet.
-  assert.deepEqual(startWalk([], { item: item('p/a') }), { item: item('p/a'), order: null });
+  assert.deepEqual(startWalk([], { item: item('p/a') }), { item: item('p/a'), order: null, project: 'p' });
   const waiting = [item('q/x'), item('p/a'), item('p/b')];
   assert.deepEqual(startWalk(waiting, { project: 'p' }), { item: item('p/a'), order: ['p/a', 'p/b'], project: 'p' });
   assert.equal(startWalk(waiting)?.order?.length, 3);
@@ -139,8 +139,16 @@ test('remainingAfter finds the agents skipped on the walk and those that arrived
 
 test('wrapWalk goes back to the first remaining agent, walking only them', () => {
   const [a, d] = ['a', 'd'].map((ref) => ({ ref }) as T.ReviewItem);
-  const walk = wrapWalk({ item: { ref: 'c' } as T.ReviewItem, order: ['a', 'c'], ended: { remaining: 2 } }, [a, d]);
+  const walk = wrapWalk({ item: { ref: 'c' } as T.ReviewItem, order: ['a', 'c'] }, [a, d]);
   assert.equal(walk.item.ref, 'a');
   assert.deepEqual(walk.order, ['a', 'd']);
-  assert.equal(walk.ended, undefined);
+});
+
+test('a review opened on one agent goes on to the others waiting', () => {
+  const live = ['a', 'b', 'c'].map((ref) => ({ ref }) as T.ReviewItem);
+  // Opened on b from its card: b, then the rest in the list's order.
+  const order = walkOrder({ item: live[1], order: null });
+  assert.equal(nextPending(order, 'b', live)?.ref, 'a');
+  // A walk keeps its own order.
+  assert.deepEqual(walkOrder({ item: live[0], order: ['a', 'c'] }), ['a', 'c']);
 });
