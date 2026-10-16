@@ -1,8 +1,8 @@
 // Automatic error reports: what the app does with an uncaught error, of a
 // window or of the main process. Each one goes to the main process's log
 // (main/applog.ts), where a problem report finds it. Beyond that, nothing is
-// sent once the user turned them off (Settings.ErrorReports, on by default,
-// which components/ErrorReports.tsx says once): each new error is sent by
+// sent once the user turned them off (Settings.ErrorReports, on by default):
+// each new error is sent by
 // itself, as a report of kind "error" through the daemon, which redacts it
 // like any report (internal/report).
 import type * as T from '../../shared/api';
@@ -48,14 +48,6 @@ export class ErrorReporter {
     this.sent++;
     return 'send';
   }
-}
-
-// shouldShowNotice says whether to tell the user error reports are on: only
-// while they are, and only until they were told or opened Settings, which the
-// daemon remembers (Settings.errorReportsNoticeSeen) so it is once per install,
-// not once per launch.
-export function shouldShowNotice(settings: Pick<T.Settings, 'errorReports' | 'errorReportsNoticeSeen'>): boolean {
-  return settings.errorReports && !settings.errorReportsNoticeSeen;
 }
 
 // signature tells errors apart: the same error from the same place is one.

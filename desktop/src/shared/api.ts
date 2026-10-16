@@ -151,7 +151,6 @@ export interface Settings {
   updateCheck: boolean;
   usageStats: boolean;
   errorReports: boolean;
-  errorReportsNoticeSeen: boolean;
   prWatch: boolean;
   mediaRetention: string;
   language: string;
@@ -189,7 +188,6 @@ export interface UpdateSettingsRequest {
   updateChannel?: string;
   usageStats?: boolean;
   errorReports?: boolean;
-  errorReportsNoticeSeen?: boolean;
   prWatch?: boolean;
   mediaRetention?: string;
   language?: string;

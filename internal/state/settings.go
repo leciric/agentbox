@@ -153,10 +153,6 @@ const (
 	// SettingErrorReports says whether the app sends a report of each
 	// uncaught error by itself. On until somebody turns it off (FlagOn).
 	SettingErrorReports = "error_reports"
-	// SettingErrorReportsNotice is "1" once the app told the user error
-	// reports are on (or they opened Settings): the notice shows once per
-	// install, so it is kept here and not in the window's storage.
-	SettingErrorReportsNotice = "error_reports_notice"
 	// SettingPRWatch says whether the daemon watches every agent's open pull
 	// request and tells the agent when it breaks: a conflict with its base,
 	// failing checks, changes requested. On until somebody turns it off

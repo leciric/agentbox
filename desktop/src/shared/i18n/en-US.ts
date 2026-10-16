@@ -766,9 +766,6 @@ export const enUS = {
   'settings.github.tokenPlaceholder': 'ghp_… or gho_…',
 
   // defaults
-  'defaults.errorReports.title': 'Error reports are on',
-  'defaults.errorReports.description': 'Unexpected errors are sent to AgentBox’s developers, with personal data removed.',
-  'defaults.errorReports.settings': 'Open the setting',
   'defaults.phone.title': 'Your phone',
   'defaults.phone.chatLabel': 'Chat from your phone',
   'defaults.phone.chatKeywords': 'phone mobile lan network wifi qr code app native pair browser remote',

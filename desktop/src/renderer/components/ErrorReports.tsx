@@ -1,15 +1,10 @@
 // ErrorReports watches for uncaught errors, the window's and the main
 // process's, and does what lib/errorReports.ts decides: sends a report of
-// each while the user has them on (they are, until turned off), and tells
-// them once that they are, with a link to the setting.
+// each while the user has them on (they are, until turned off).
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
-import { toast } from 'sonner';
 import { api } from '../lib/api';
-import { useT } from '../lib/i18n';
-import { ErrorReporter, errorReport, fromEvent, shouldShowNotice, type UncaughtError } from '../lib/errorReports';
-import { noticeSeen } from '../lib/errorNotice';
-import { openSettingsSection } from './SettingsPage';
+import { ErrorReporter, errorReport, fromEvent, type UncaughtError } from '../lib/errorReports';
 
 // send sends err's report, with the app's own description beside it. A
 // failure is dropped: there's nobody to tell about an error report that
@@ -22,7 +17,6 @@ async function send(err: UncaughtError): Promise<void> {
 export function ErrorReports() {
   const queryClient = useQueryClient();
   const reporter = useRef(new ErrorReporter());
-  const t = useT();
 
   useEffect(() => {
     const handle = async (err: UncaughtError) => {
@@ -48,38 +42,6 @@ export function ErrorReports() {
       off();
     };
   }, [queryClient]);
-
-  // The notice: once, and only while they're on. Whoever turned them off has
-  // no need of it, and whoever dismisses it isn't shown it again.
-  useEffect(() => {
-    let id: string | number | undefined;
-    let cancelled = false;
-    void queryClient
-      .fetchQuery({ queryKey: ['settings'], queryFn: api.settings })
-      .then((settings) => {
-        if (cancelled || !shouldShowNotice(settings)) return;
-        const seen = () => noticeSeen(queryClient);
-        id = toast(t('defaults.errorReports.title'), {
-          description: t('defaults.errorReports.description'),
-          duration: Infinity,
-          closeButton: true,
-          action: {
-            label: t('defaults.errorReports.settings'),
-            onClick: () => {
-              seen();
-              openSettingsSection('general');
-            },
-          },
-          onDismiss: seen,
-          onAutoClose: seen,
-        });
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-      if (id !== undefined) toast.dismiss(id);
-    };
-  }, [queryClient, t]);
 
   return null;
 }

@@ -224,11 +224,6 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
-	if req.ErrorReportsNoticeSeen != nil {
-		if err := s.store.SetFlag(r.Context(), state.SettingErrorReportsNotice, *req.ErrorReportsNoticeSeen); err != nil {
-			return err
-		}
-	}
 	if req.PRWatch != nil {
 		if err := s.setPRWatch(r.Context(), *req.PRWatch); err != nil {
 			return err
@@ -396,10 +391,6 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
-	noticeSeen, err := s.store.Setting(r.Context(), state.SettingErrorReportsNotice)
-	if err != nil {
-		return api.Settings{}, err
-	}
 	prWatch, err := s.store.FlagOn(r.Context(), state.SettingPRWatch)
 	if err != nil {
 		return api.Settings{}, err
@@ -476,15 +467,14 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		DefaultCursorModel:  cursorModel,
 		DefaultCursorEffort: cursorEffort,
 
-		ResumeAfterLimit:       resumeAfterLimit,
-		ContinueAfterRestart:   continueAfterRestart,
-		UpdateCheck:            updateCheck,
-		UsageStats:             usageStats,
-		ErrorReports:           errorReports,
-		ErrorReportsNoticeSeen: noticeSeen == "1",
-		PRWatch:                prWatch,
-		MediaRetention:         mediaRetention,
-		Language:               language,
+		ResumeAfterLimit:     resumeAfterLimit,
+		ContinueAfterRestart: continueAfterRestart,
+		UpdateCheck:          updateCheck,
+		UsageStats:           usageStats,
+		ErrorReports:         errorReports,
+		PRWatch:              prWatch,
+		MediaRetention:       mediaRetention,
+		Language:             language,
 
 		ClaudeCompactWindow:        compactWindow,
 		DefaultClaudeCompactWindow: state.DefaultClaudeCompactWindow,

@@ -767,9 +767,6 @@ export const ptBR: Messages = {
   'settings.github.tokenPlaceholder': 'ghp_… ou gho_…',
 
   // defaults
-  'defaults.errorReports.title': 'Relatórios de erros ativados',
-  'defaults.errorReports.description': 'Erros inesperados são enviados aos desenvolvedores do AgentBox, sem dados pessoais.',
-  'defaults.errorReports.settings': 'Abrir a configuração',
   'defaults.phone.title': 'Seu celular',
   'defaults.phone.chatLabel': 'Conversar pelo celular',
   'defaults.phone.chatKeywords': 'celular telefone móvel rede local wifi qr code app native nativo parear navegador remoto phone mobile lan network pair browser',

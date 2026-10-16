@@ -1,6 +1,5 @@
 import { ChevronRight, FolderGit2, Search, SearchX, X, type LucideIcon } from 'lucide-react';
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import * as T from '../../shared/api';
 import { countFeature, settingsSectionFeatures } from '../lib/usageStats';
 import { countEntries, search, splitAdvanced, type SettingEntry, type SettingGroup, type SettingSection } from '../lib/settingsSearch';
@@ -8,7 +7,6 @@ import { cn } from '../lib/utils';
 import { Kbd, Notice, Panel } from './ui/card';
 import { SettingsGroup } from './ui/settings';
 import { useT } from '../lib/i18n';
-import { noticeSeen } from '../lib/errorNotice';
 
 // The Settings page once setup is done: a sidebar of sections, one open at a
 // time, with a search across all of them above it. The installation's own
@@ -55,9 +53,6 @@ export function openSettingsSection(id: string): void {
 export function SettingsPage({ sections, icons, error }: { sections: SettingSection[]; icons: SectionIcons; error?: string }) {
   const t = useT();
   const [stored, setStored] = useState(() => localStorage.getItem(sectionKey) ?? '');
-  // Opening Settings is as good as being told error reports are on.
-  const queryClient = useQueryClient();
-  useEffect(() => noticeSeen(queryClient), [queryClient]);
   const [query, setQuery] = useState('');
   const main = useRef<HTMLDivElement>(null);
   const searchBox = useRef<HTMLInputElement>(null);

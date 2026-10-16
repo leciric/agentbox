@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner, which strips the types).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ErrorReporter, errorReport, fromEvent, maxPerSession, shouldShowNotice, type UncaughtError } from './errorReports.ts';
+import { ErrorReporter, errorReport, fromEvent, maxPerSession, type UncaughtError } from './errorReports.ts';
 
 const err = (message: string, where: UncaughtError['where'] = 'window'): UncaughtError => ({ where, name: 'TypeError', message, stack: 'at f (file:///app/index.js:1:2)' });
 const on = { errorReports: true };
@@ -44,10 +44,4 @@ test('window events become errors', () => {
   const script = fromEvent({ error: null, message: 'Script error.', filename: 'https://x.test/a.js?k=1', lineno: 3, colno: 4 } as ErrorEvent)!;
   assert.equal(script.message, 'Script error.');
   assert.equal(script.stack, 'at https://x.test/a.js:3:4');
-});
-
-test('the notice shows while reports are on, until the daemon says it was seen', () => {
-  assert.equal(shouldShowNotice({ errorReports: true, errorReportsNoticeSeen: false }), true);
-  assert.equal(shouldShowNotice({ errorReports: true, errorReportsNoticeSeen: true }), false, 'dismissed, or Settings opened');
-  assert.equal(shouldShowNotice({ errorReports: false, errorReportsNoticeSeen: false }), false, 'turned off');
 });
