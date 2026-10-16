@@ -22,7 +22,7 @@ export function SettingsGroup({
   children: ReactNode;
 }) {
   return (
-    <section className={cn('grid gap-2.5', className)}>
+    <section className={cn('grid grid-cols-[minmax(0,1fr)] gap-2.5', className)}>
       <header className="px-1">
         <h2 className="text-[13px] font-semibold text-primary">{title}</h2>
         {description && <p className="mt-0.5 text-[12px] leading-relaxed text-subtle">{description}</p>}
@@ -63,8 +63,11 @@ export function SettingRow({
   const Label = htmlFor ? 'label' : 'div';
   const [more, setMore] = useState(false);
   return (
-    <div className={cn('grid gap-3 px-5 py-4', className)} {...props}>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-6">
+    // Its own width, not the window's, decides whether the control goes beside
+    // the words: in v2's narrow right-hand panel a window-wide breakpoint put
+    // a 256px control beside them and pushed the row past the panel's edge.
+    <div className={cn('@container grid grid-cols-[minmax(0,1fr)] gap-3 px-5 py-4', className)} {...props}>
+      <div className="flex flex-col gap-3 @lg:flex-row @lg:items-start @lg:gap-6">
         <div className="min-w-0 flex-1">
           <Label htmlFor={htmlFor} className="block text-[13px] font-medium text-primary">
             {label}
@@ -90,7 +93,7 @@ export function SettingRow({
           )}
           {details && more && <div className="mt-1.5 grid gap-1.5 text-[12px] leading-relaxed text-subtle">{details}</div>}
         </div>
-        {control && <div className="flex min-w-0 shrink-0 items-center sm:w-64 sm:justify-end">{control}</div>}
+        {control && <div className="flex min-w-0 shrink-0 items-center @lg:w-64 @lg:justify-end">{control}</div>}
       </div>
       {children}
     </div>

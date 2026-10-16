@@ -152,6 +152,8 @@ function overflowing() {
     for (const el of [aside, ...aside.querySelectorAll('*')]) {
       const style = getComputedStyle(el);
       if (!['auto', 'scroll'].includes(style.overflowX) || !['auto', 'scroll'].includes(style.overflowY)) continue;
+      // A ScrollRow (Settings' sections) scrolls sideways on purpose.
+      if (el.hasAttribute('data-scrolls-sideways')) continue;
       const by = el.scrollWidth - el.clientWidth;
       if (by > 1) lines.push(`${by}px: scrolls sideways: ${(el.textContent ?? '').trim().slice(0, 60)}`);
     }

@@ -102,14 +102,14 @@ export function ProjectCredentialCards({ project }: { project: string }) {
   if (requests.length === 0) return null;
   const sorted = requests.toSorted((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
   return (
-    <div className="grid gap-3 pb-4" data-project-credentials>
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-3 pb-4" data-project-credentials>
       {sorted.map((q) => {
         const asker = agents.data?.find((a) => a.project === q.project && a.name === q.agent);
         return (
           <div
             key={q.id}
             className={cn(
-              'max-w-xl rounded-xl border px-3.5 py-2.5',
+              'min-w-0 max-w-xl rounded-xl border px-3.5 py-2.5',
               isOpen(q) ? 'border-amber-400/25 bg-amber-400/[0.04]' : 'border-line bg-surface-faint',
             )}
             data-project-credential={q.id}
