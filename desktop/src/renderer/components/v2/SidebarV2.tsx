@@ -14,7 +14,7 @@
 // lib/leadFirst.ts's, lib/projectOrder.ts's and lib/sidebarHidden.ts's.
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Archive, Check, ChevronRight, CircleArrowUp, Eye, EyeOff, FolderPlus, House, ListFilter, LoaderCircle, MoonStar, RefreshCw, Search, Settings, ShieldAlert, SquarePen, X } from 'lucide-react';
+import { Archive, Check, ChevronRight, CircleArrowUp, Eye, EyeOff, FolderPlus, House, Images, ListChecks, ListFilter, LoaderCircle, MoonStar, RefreshCw, Search, Settings, ShieldAlert, SquarePen, X } from 'lucide-react';
 import { Fragment, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import * as A from '../../../shared/api';
 import type * as T from '../../../shared/api';
@@ -256,7 +256,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
 
       <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 pt-1" aria-label={t('v2.sidebar.chats')}>
         <NewTaskRow />
-        <HomeRow active={view.kind === 'homeChat'} onClick={() => onSelect({ kind: 'homeChat' })} />
+        <HomeRow active={view.kind === 'homeChat' || view.kind === 'home'} onClick={() => onSelect({ kind: 'homeChat' })} />
         <FilterBar filters={filters} onFilters={onFilters} projects={projects.data ?? []} rows={rows} />
         {projects.data?.length === 0 && (
           <button className="mx-2 mt-1 flex w-[calc(100%-1rem)] items-center gap-2 rounded-lg border border-dashed border-line-strong px-3 py-3 text-left text-[13px] text-subtle hover:border-line-heavy hover:text-tertiary" onClick={onAddProject}>
@@ -320,37 +320,41 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
         )}
       </nav>
 
-      {/* The foot is one row: Settings, which opens straight away, Past
-          agents, and the update check. Overview opens from the Home chat's
-          header, and Jobs and Media from Overview; which AgentBox this window
-          drives is under Settings → General. The leads keep the room above. */}
-      <div className="flex items-center gap-1 border-t border-line p-2" data-v2-foot>
+      {/* The foot is the places across every project, one row each, so
+          each reads in full in any language: Media, Jobs, Past agents and
+          Settings, which opens straight away, with the update check at the end
+          of its row. Home, the chat and its Status tab, heads the list above;
+          which AgentBox this window drives is under Settings → General. */}
+      <div className="grid gap-px border-t border-line p-2" data-v2-foot>
         {(
           [
-            { kind: 'settings', icon: Settings, label: t('common.settings'), alert: setup.data && !setup.data.ready },
+            { kind: 'media', icon: Images, label: t('shell.nav.media'), alert: false },
+            { kind: 'jobs', icon: ListChecks, label: t('shell.nav.jobs'), alert: false },
             { kind: 'pastAgents', icon: Archive, label: t('pastAgents.title'), alert: false },
+            { kind: 'settings', icon: Settings, label: t('common.settings'), alert: setup.data && !setup.data.ready },
           ] as const
         ).map(({ kind, icon: Icon, label, alert }) => {
           const active = view.kind === kind;
           return (
-            <button
-              key={kind}
-              type="button"
-              aria-current={active ? 'page' : undefined}
-              onClick={() => onSelect({ kind })}
-              className={cn(
-                'relative flex min-w-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] text-muted transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50',
-                active && 'bg-surface-raised text-title',
-              )}
-              data-v2-foot-item={kind}
-            >
-              <Icon className={cn('size-4 shrink-0', active ? 'text-brand-300' : 'text-subtle')} />
-              <span className="min-w-0 truncate">{label}</span>
-              {alert && <span className="absolute left-6 top-1 size-1.5 rounded-full bg-amber-400" title={t('shell.sidebar.needsAttention')} aria-label={t('shell.sidebar.needsAttention').toLowerCase()} />}
-            </button>
+            <div key={kind} className="flex min-w-0 items-center gap-1">
+              <button
+                type="button"
+                aria-current={active ? 'page' : undefined}
+                onClick={() => onSelect({ kind })}
+                className={cn(
+                  'relative flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg px-2.5 text-left text-[13px] text-muted transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50',
+                  active && 'bg-surface-raised text-title',
+                )}
+                data-v2-foot-item={kind}
+              >
+                <Icon className={cn('size-4 shrink-0', active ? 'text-brand-300' : 'text-subtle')} />
+                <span className="min-w-0 truncate">{label}</span>
+                {alert && <span className="absolute left-6 top-1 size-1.5 rounded-full bg-amber-400" title={t('shell.sidebar.needsAttention')} aria-label={t('shell.sidebar.needsAttention').toLowerCase()} />}
+              </button>
+              {kind === 'settings' && <UpdateCheck />}
+            </div>
           );
         })}
-        <UpdateCheck />
       </div>
     </aside>
   );

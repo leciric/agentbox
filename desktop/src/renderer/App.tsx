@@ -34,7 +34,7 @@ import { NewTaskDialog } from "./components/v2/NewTaskDialog";
 import { ShortcutSheet } from "./components/v2/ShortcutSheet";
 import { TourHost } from "./components/v2/Tour";
 import { isNewTaskShortcut, toggleNewTask } from "./lib/newTask";
-import { OverviewV2, PastAgentsV2 } from "./components/v2/PagesV2";
+import { HomeStatusV2, PastAgentsV2 } from "./components/v2/PagesV2";
 import { cycleRegion, isSettingsShortcut, isSheetShortcut, toggleSheet } from "./lib/shortcuts";
 import { AgentReviewCard, ReviewV2 } from "./components/v2/ReviewV2";
 import { RightPanelHost } from "./components/v2/RightPanel";
@@ -466,7 +466,10 @@ export function App({ initial }: { initial?: View } = {}) {
           ? `settings:${settingsVisit}`
           : view.kind === "pastAgents"
             ? `pastAgents:${view.ref ?? ""}`
-            : view.kind;
+            // v2's Home keeps its chat mounted as its tabs switch.
+            : v2 && view.kind === "homeChat"
+              ? "home"
+              : view.kind;
 
   const shell = (
     <div className="flex h-full">
@@ -563,22 +566,33 @@ export function App({ initial }: { initial?: View } = {}) {
             )}
             {!setup && (
               <div key={viewKey} className="min-h-0 flex-1 animate-fade-in">
-                {view.kind === "home" &&
-                  (v2 ? (
-                    <OverviewV2
-                      onSelect={select}
-                      onAddProject={() => setAddingProject(true)}
-                      onNewAgent={() => setNewAgentProject("")}
-                    />
-                  ) : (
-                    <HomeView
-                      onSelect={select}
-                      onAddProject={() => setAddingProject(true)}
-                      onNewAgent={() => setNewAgentProject("")}
-                    />
-                  ))}
-                {view.kind === "homeChat" && (
-                  <HomeChatPanel onOverview={v2 ? () => select({ kind: "home" }) : undefined} />
+                {view.kind === "home" && !v2 && (
+                  <HomeView
+                    onSelect={select}
+                    onAddProject={() => setAddingProject(true)}
+                    onNewAgent={() => setNewAgentProject("")}
+                  />
+                )}
+                {/* v2's Home is one page: the chat (homeChat) and its Status
+                    tab (home), which was Overview. */}
+                {(view.kind === "homeChat" || (v2 && view.kind === "home")) && (
+                  <HomeChatPanel
+                    home={
+                      v2
+                        ? {
+                            onStatus: view.kind === "home",
+                            onTab: (status) => select({ kind: status ? "home" : "homeChat" }),
+                            status: (
+                              <HomeStatusV2
+                                onSelect={select}
+                                onAddProject={() => setAddingProject(true)}
+                                onNewAgent={() => setNewAgentProject("")}
+                              />
+                            ),
+                          }
+                        : undefined
+                    }
+                  />
                 )}
                 {view.kind === "jobs" && <JobsView />}
                 {view.kind === "media" && <AllMediaView onSelect={select} />}

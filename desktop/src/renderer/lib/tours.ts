@@ -65,6 +65,12 @@ const S = {
     body: 'tour.hide.body',
     anchor: ['[data-v2-hidden]', '[data-v2-idle]', '[data-sidebar-v2] nav'],
   },
+  home: {
+    id: 'home',
+    title: 'tour.home.title',
+    body: 'tour.home.body',
+    anchor: ['[data-v2-home]'],
+  },
   lead: {
     id: 'lead',
     title: 'tour.lead.title',
@@ -121,6 +127,12 @@ const S = {
     exampleAlways: true,
     go: 'panel',
   },
+  places: {
+    id: 'places',
+    title: 'tour.places.title',
+    body: 'tour.places.body',
+    anchor: ['[data-v2-foot]'],
+  },
   classic: {
     id: 'classic',
     title: 'tour.classic.title',
@@ -139,12 +151,14 @@ const S = {
 
 // The release these tours came with: the next after 0.12.
 const v013 = '0.13.0';
+// Home took Overview in, and Media and Jobs moved to the sidebar's foot.
+const v014 = '0.14.0';
 
 export const welcomeTour: Tour = {
   id: 'welcome',
   version: v013,
   title: 'tour.welcome.name',
-  steps: [S.welcome, S.sidebar, S.groups, S.hide, S.lead, S.mention, S.cards, S.reviewButton, S.review, S.panel, S.launcher, S.classic, S.help],
+  steps: [S.welcome, S.sidebar, S.home, S.groups, S.hide, S.lead, S.mention, S.cards, S.reviewButton, S.review, S.panel, S.launcher, S.places, S.classic, S.help],
 };
 
 // tours is What's new: each big feature's own short tour, oldest first.
@@ -154,6 +168,7 @@ export const tours: Tour[] = [
   { id: 'panel', version: v013, title: 'tour.panelTour.name', steps: [S.panel, S.launcher] },
   { id: 'groups', version: v013, title: 'tour.groupsTour.name', steps: [S.groups, S.hide] },
   { id: 'cross-project', version: v013, title: 'tour.crossTour.name', steps: [S.mention] },
+  { id: 'places', version: v014, title: 'tour.placesTour.name', steps: [S.home, S.places] },
 ];
 
 export const tourById = (id: string): Tour | undefined => (id === welcomeTour.id ? welcomeTour : tours.find((t) => t.id === id));
