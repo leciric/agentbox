@@ -32,8 +32,10 @@ function visibleBox(selectors: string[] | undefined): Box | null {
       const r = el.getBoundingClientRect();
       if (r.width < 2 || r.height < 2 || r.bottom < 0 || r.right < 0 || r.top > innerHeight || r.left > innerWidth) continue;
       // Behind a drawer or a dialog's scrim: not on screen for the tour.
-      const hit = document.elementFromPoint(Math.min(innerWidth - 1, Math.max(0, r.left + r.width / 2)), Math.min(innerHeight - 1, Math.max(0, r.top + Math.min(r.height / 2, 20))));
-      if (hit && !el.contains(hit) && !hit.closest('[data-tour]')) continue;
+      const x = Math.min(innerWidth - 1, Math.max(0, r.left + r.width / 2));
+      const y = Math.min(innerHeight - 1, Math.max(0, r.top + Math.min(r.height / 2, 20)));
+      const hit = document.elementsFromPoint(x, y).find((h) => !h.closest('[data-tour]'));
+      if (hit && !el.contains(hit) && !hit.contains(el)) continue;
       const top = Math.max(r.top, 0);
       const bottom = Math.min(r.bottom, innerHeight);
       return { left: r.left, top, width: r.width, height: bottom - top };
@@ -94,12 +96,14 @@ function TourPlayer({ view, onSelect }: { view: View; onSelect: (view: View) => 
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step.id, project]);
-  useEffect(
-    () => () => {
+  // Toasts wait while the tour plays (styles.css): they'd sit over its card.
+  useEffect(() => {
+    document.body.dataset.touring = '';
+    return () => {
+      delete document.body.dataset.touring;
       if (opened.current) setPanelOpen(opened.current, false);
-    },
-    [],
-  );
+    };
+  }, []);
 
   // Where the anchor is, followed as the app moves under it.
   const [box, setBox] = useState<Box | null>(null);

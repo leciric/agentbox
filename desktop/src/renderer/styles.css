@@ -1032,3 +1032,8 @@
     box-shadow: 0 0 0 6px transparent;
   }
 }
+
+/* A tour playing (components/v2/Tour.tsx) keeps toasts out of its way. */
+body[data-touring] [data-sonner-toaster] {
+  visibility: hidden;
+}
