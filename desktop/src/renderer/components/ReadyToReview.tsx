@@ -236,12 +236,14 @@ export function ReviewRow({ item, isNew, now, projects, onOpen }: { item: T.Revi
 }
 
 // markItemReviewed records the verdict on the work as shown and takes the
-// agent off the list at once.
-function markItemReviewed(queryClient: QueryClient, item: T.ReviewItem, t: ReturnType<typeof useT>) {
+// agent off the list at once. quiet leaves out its toast, for a merge, whose
+// own "Merged" toast is the news: "marked reviewed" over it read as if the
+// merge hadn't happened.
+function markItemReviewed(queryClient: QueryClient, item: T.ReviewItem, t: ReturnType<typeof useT>, quiet = false) {
   queryClient.setQueriesData<T.ReviewPage | InfiniteData<T.ReviewPage, string>>({ queryKey: ['review'] }, (data) => withoutAgent(data, item.ref));
   return api
     .review(item.ref, { verdict: 'reviewed', fingerprint: item.fingerprint })
-    .then(() => toast(t('review.marked', { agent: item.title || item.agent })))
+    .then(() => !quiet && toast(t('review.marked', { agent: item.title || item.agent })))
     .catch((err) => toast.error(t('review.failed', { error: errorMessage(err) })))
     .finally(() => refreshInbox(queryClient));
 }
@@ -343,12 +345,12 @@ function ReviewCarousel({
     rememberMethod(item.project, m);
   };
   const prOpen = pr?.state === 'open';
-  const markReviewed = () => {
+  const markReviewed = (quiet = false) => {
     setMarking(true);
-    void markItemReviewed(queryClient, item, t);
+    void markItemReviewed(queryClient, item, t, quiet);
     onNext();
   };
-  const mergeAndGo = () => pr && merge.mergeWith(pr, method, markReviewed);
+  const mergeAndGo = () => pr && merge.mergeWith(pr, method, () => markReviewed(true));
   // Request changes goes to the agent's chat, to write in.
   const requestChanges = () => {
     requestComposerFocus(item.ref);
@@ -557,7 +559,7 @@ function ReviewCarousel({
                   </MenuContent>
                 </Menu>
               </div>
-              <Button size="sm" variant="secondary" disabled={marking} onClick={markReviewed} data-review-done>
+              <Button size="sm" variant="secondary" disabled={marking} onClick={() => markReviewed()} data-review-done>
                 <Check />
                 <span className="max-md:hidden">{t('review.markReviewed')}</span>
               </Button>
