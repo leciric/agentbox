@@ -170,6 +170,7 @@ type Server struct {
 	retired      map[string]bool         // agents a stop-retire stopped, by ref (markRetired)
 	freeWhenIdle map[string]bool         // reviewed agents still at work, whose machine goes when the turn ends (reviewfree.go)
 	machineKept  map[string]bool         // reviewed agents whose machine was kept for unpushed work (reviewfree.go)
+	reviewHeld   map[string]bool         // projects whose review list waits for the startup look at GitHub (prreconcile.go)
 	leadAPIs     map[string]*http.Server // per-project lead API servers
 	lastStates   map[string]api.AgentChange
 	previewAddr  string                   // where the preview proxy listens; empty when it's off
@@ -419,6 +420,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	s.reconcile(ctx)
+	s.holdReview(ctx)
 	s.servePreview(ctx)
 	s.serveImageCache(ctx)
 	s.applyLAN(ctx)
@@ -452,6 +454,7 @@ func (s *Server) Run(ctx context.Context) error {
 	loops.Go(func() { s.watchUsage(ctx, realUsageClock()) })
 	loops.Go(func() { s.watchStalls(ctx) })
 	loops.Go(func() { s.watchPullRequests(ctx) })
+	loops.Go(func() { s.reconcilePullRequests(ctx) })
 	loops.Go(func() { s.syncBases(ctx) })
 	// Incus is asked only from here on: nothing before Serve may wait on it.
 	loops.Go(func() { s.watchIncus(ctx) })

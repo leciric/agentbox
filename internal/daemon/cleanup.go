@@ -226,7 +226,14 @@ func (s *Server) lastFinished(ctx context.Context, project string) map[string]ti
 // The agent is archived with its pull request, read while its branch and
 // worktree are still there to find it by (prFor); a caller that already has
 // it passes it in opts.PR.
+//
+// Once begun it runs to the end whoever asked: a request whose client gave
+// up mustn't stop it between deleting the machine and archiving the agent.
 func (s *Server) destroyAgentNow(ctx context.Context, m *agent.Manager, a state.Agent, opts agent.DestroyOptions) error {
+	ctx = context.WithoutCancel(ctx)
+	// The app moves it to Past agents when it hears it was removed, which is
+	// the moment it is archived, not once its worktree is deleted too.
+	opts.Archived = func() { s.agentRemoved(a.Ref()) }
 	if opts.PR.Number == 0 && a.Status != state.AgentQueued {
 		lookup, cancel := context.WithTimeout(ctx, 15*time.Second)
 		if pr := s.prFor(lookup, a); pr != nil {

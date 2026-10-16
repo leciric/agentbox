@@ -2268,6 +2268,10 @@ const (
 	// title and branch are chosen, but it has no worktree and no machine
 	// until the daemon starts it (queue.go).
 	AgentQueued = "queued"
+	// AgentDestroying is an agent whose destroy has begun: its machine is
+	// being deleted, and it is archived once that is done. Lists of live
+	// agents leave it out.
+	AgentDestroying = "destroying"
 )
 
 type Agent struct {

@@ -312,3 +312,114 @@ esac`))
 		})
 	}
 }
+
+// listed is how List shows agent-01, "" when it leaves it out.
+func listed(t *testing.T, f fixture) string {
+	t.Helper()
+	statuses, err := f.m.List(context.Background(), "hello-stack")
+	if err != nil {
+		t.Fatalf("List() = %v", err)
+	}
+	for _, st := range statuses {
+		if st.Name == "agent-01" {
+			return st.State
+		}
+	}
+	return ""
+}
+
+// Nothing ever lists an agent being destroyed as "missing": while its
+// machine is deleted it is left out, and the moment the machine is gone it is
+// a past agent, with its worktree, slow to delete, still to go.
+func TestDestroyNeverListsTheAgentAsMissing(t *testing.T) {
+	dir := t.TempDir()
+	deleting, release, deleted := dir+"/deleting", dir+"/release", dir+"/deleted"
+	f := setup(t, fakeIncus(t, `case "$1" in
+  list) if [ -e `+deleted+` ]; then echo '[]'; else echo '[{"name":"ab-hello-stack-agent-01","status":"Stopped"}]'; fi ;;
+  delete) touch `+deleting+`; while [ ! -e `+release+` ]; do sleep 0.02; done; touch `+deleted+` ;;
+esac`))
+	a := destroyFixture(t, f)
+	if got := listed(t, f); got != "stopped" {
+		t.Fatalf("before the destroy, List() shows agent-01 as %q, want stopped", got)
+	}
+
+	var archivedWith struct {
+		state    string
+		past     int
+		worktree error
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- f.m.Destroy(context.Background(), a, agent.DestroyOptions{Force: true, Archived: func() {
+			archivedWith.state = listed(t, f)
+			past, _ := f.st.ArchivedAgents(context.Background(), state.ArchivedQuery{})
+			archivedWith.past = len(past)
+			_, archivedWith.worktree = os.Stat(a.Worktree)
+		}})
+	}()
+	for {
+		if _, err := os.Stat(deleting); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := listed(t, f); got != "" {
+		t.Errorf("while its machine is deleted, List() shows agent-01 as %q, want it left out", got)
+	}
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	assertGone(t, f, <-done)
+	if archivedWith.state != "" || archivedWith.past != 1 {
+		t.Errorf("once its machine was gone, List() showed %q and %d past agents, want it left out and 1", archivedWith.state, archivedWith.past)
+	}
+	if archivedWith.worktree != nil {
+		t.Errorf("the agent was archived after its worktree was removed (%v), want before", archivedWith.worktree)
+	}
+}
+
+// A worktree that can't be removed — files container root left in it, say —
+// no longer leaves behind a row whose machine is gone: the agent is a past
+// agent, and only the directory is left over.
+func TestDestroyArchivesWhenTheWorktreeWontGo(t *testing.T) {
+	f := setup(t, fakeIncus(t, `case "$1" in
+  list) echo '[]' ;;
+esac`))
+	a := destroyFixture(t, f)
+	locked := filepath.Join(a.Worktree, "root-owned")
+	if err := os.MkdirAll(locked, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(locked, "file"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(locked, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
+	if os.Geteuid() == 0 {
+		t.Skip("root removes whatever the permissions say")
+	}
+
+	err := f.m.Destroy(context.Background(), a, agent.DestroyOptions{Force: true})
+	assertGone(t, f, err)
+	if got := listed(t, f); got != "" {
+		t.Errorf("List() shows agent-01 as %q, want it gone", got)
+	}
+}
+
+// A destroy that fails before the machine is gone puts the agent back as it
+// was, listed with its machine, rather than hidden as being destroyed.
+func TestDestroyFailureListsTheAgentAgain(t *testing.T) {
+	f := setup(t, fakeIncus(t, `case "$1" in
+  list) echo '[{"name":"ab-hello-stack-agent-01","status":"Stopped"}]' ;;
+  delete) echo "Error: instance is busy" >&2; exit 1 ;;
+esac`))
+	a := destroyFixture(t, f)
+	if err := f.m.Destroy(context.Background(), a, agent.DestroyOptions{Force: true}); err == nil {
+		t.Fatal("Destroy() = nil, want the delete's error")
+	}
+	if got := listed(t, f); got != "stopped" {
+		t.Errorf("after a failed destroy, List() shows agent-01 as %q, want stopped", got)
+	}
+}

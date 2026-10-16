@@ -49,6 +49,15 @@ func (s *Server) refreshAgents(ctx context.Context) {
 	s.publishAgentChanges(statuses)
 }
 
+// agentRemoved tells the app an agent is gone from the live ones — it is a
+// past agent now — without waiting for the next look at every agent.
+func (s *Server) agentRemoved(ref string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.lastStates, ref)
+	s.events.publish(api.EventAgent, api.AgentChange{Ref: ref, Removed: true})
+}
+
 func (s *Server) publishAgentChanges(statuses []agent.Status) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -1921,6 +1921,9 @@ type DestroyOptions struct {
 	// PR is the agent's pull request, as the caller found it, kept with the
 	// archived agent; zero for none.
 	PR state.ArchivedPR
+	// Archived, when set, is called the moment the agent is a past agent,
+	// before its worktree is removed, so the caller can say so at once.
+	Archived func()
 }
 
 // BranchDisposable reports whether an agent's local branch holds nothing
@@ -1954,6 +1957,18 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 		}
 	}
 
+	// From here on the agent is going: List leaves it out, so nothing shows a
+	// row whose machine is half deleted as "missing" while this runs. A
+	// failure before the machine is gone puts it back as it was.
+	if err := m.Store.SetAgentStatus(ctx, a.Project, a.Name, state.AgentDestroying); err != nil {
+		return err
+	}
+	restore := func(err error) error {
+		if serr := m.Store.SetAgentStatus(context.WithoutCancel(ctx), a.Project, a.Name, a.Status); serr != nil {
+			m.logf("Putting %s back as %s: %v", a.Ref(), a.Status, serr)
+		}
+		return err
+	}
 	inst, err := m.Incus.Instance(ctx, a.Instance)
 	switch {
 	case err == nil:
@@ -1966,24 +1981,43 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 			// concurrently, between the check above and this call. Only a
 			// delete that still finds something there is a real failure.
 			if _, checkErr := m.Incus.Instance(ctx, a.Instance); !errors.Is(checkErr, incus.ErrNotFound) {
-				return delErr
+				return restore(delErr)
 			}
 			m.logf("Instance %s was already gone: %v", a.Instance, delErr)
 		}
 	case !errors.Is(err, incus.ErrNotFound):
-		return err
+		return restore(err)
 	}
 
+	// The machine is gone, so the agent is a past agent now, before the
+	// worktree, which can take minutes to delete on a slow disk, or fail on
+	// files container root left behind. Archiving after it left a row with
+	// no machine behind for all that time — the sidebar's "missing" — and
+	// for good when it failed. What is left over is only disk: it is logged,
+	// and doesn't fail a destroy that has already happened.
+	if err := m.Store.ArchiveAgent(context.WithoutCancel(ctx), a, "", opts.PR, time.Now()); err != nil {
+		return err
+	}
+	if opts.Archived != nil {
+		opts.Archived()
+	}
+	m.removeLeftovers(context.WithoutCancel(ctx), repo, a, opts)
+	return nil
+}
+
+// removeLeftovers is what Destroy clears once the agent is archived: its
+// worktree, its branch when nothing would be lost, and its media when asked.
+func (m *Manager) removeLeftovers(ctx context.Context, repo gitrepo.Repo, a state.Agent, opts DestroyOptions) {
 	m.logf("Removing worktree %s", a.Worktree)
 	if err := repo.RemoveWorktree(a.Worktree); err != nil {
-		return err
+		m.logf("Removing worktree %s: %v", a.Worktree, err)
 	}
 	deleteAgentRefs(repo, a.Name)
 	if a.Branch != "" && repo.BranchExists(a.Branch) {
 		switch {
 		case opts.DeleteBranch:
 			if err := repo.DeleteBranch(a.Branch); err != nil {
-				return err
+				m.logf("Deleting branch %s: %v", a.Branch, err)
 			}
 		case BranchDisposable(repo, a):
 			// Nobody asked for this, so a branch git won't delete — checked
@@ -2003,12 +2037,11 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 	}
 	if opts.DeleteMedia {
 		if err := m.deleteAgentMedia(ctx, a); err != nil {
-			return err
+			m.logf("Deleting %s's media: %v", a.Ref(), err)
 		}
 	} else if err := m.keepAgentMedia(ctx, a); err != nil {
-		return err
+		m.logf("Keeping %s's media: %v", a.Ref(), err)
 	}
-	return m.Store.ArchiveAgent(ctx, a, "", opts.PR, time.Now())
 }
 
 // DeleteArchived forgets an archived agent for good: its record, its chat and
@@ -2072,6 +2105,11 @@ func (m *Manager) List(ctx context.Context, project string) ([]Status, error) {
 		}
 		if a.Status == state.AgentQueued {
 			s.State = state.AgentQueued // no machine yet, and none looked for
+		}
+		if a.Status == state.AgentDestroying {
+			// Its machine is being deleted, and it is a past agent the moment
+			// that's done: never a row with no machine, "missing".
+			continue
 		}
 		if a.Status == state.AgentCreating {
 			creating, ok := creatingIn[a.Project]

@@ -105,6 +105,9 @@ func (s *Server) reviewItems(ctx context.Context, p state.Project, agents []stat
 	var finished []state.Agent
 	var finishes []api.AgentEvent
 	for _, a := range agents {
+		if a.Status == state.AgentDestroying {
+			continue // a past agent in a moment
+		}
 		if ev, ok := s.finishOf(ctx, a); ok {
 			finished, finishes = append(finished, a), append(finishes, ev)
 		}
@@ -143,6 +146,13 @@ func (s *Server) reviewItems(ctx context.Context, p state.Project, agents []stat
 				item.Verdict, item.ReviewedAt = r.Verdict, &at
 				item.MachineKept = r.Verdict == api.ReviewReviewed && s.isMachineKept(a.Ref())
 			}
+		}
+		if item.Verdict == "" && prEnded(prs[a.Name], a) {
+			// Merged or closed is done with, whoever did it and whenever:
+			// never work to review. The PR watch and the startup reconcile
+			// free its machine (freeReviewed); one kept for work that is only
+			// there stays in the sidebar, not here.
+			continue
 		}
 		out = append(out, item)
 	}
@@ -253,6 +263,11 @@ func (s *Server) allReview(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (s *Server) projectReviewItems(ctx context.Context, p state.Project) ([]api.ReviewItem, error) {
+	if s.prReconciling(p.Name) {
+		// Not before GitHub was asked what was merged while the daemon was
+		// down (prreconcile.go): the list would offer every one of those.
+		return nil, nil
+	}
 	agents, err := s.store.Agents(ctx, p.Name)
 	if err != nil {
 		return nil, err

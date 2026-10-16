@@ -325,6 +325,11 @@ func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo) {
 
 	live := map[int]github.WatchedPR{}
 	fast, changed, ended := false, false, false
+	type prEnd struct {
+		row state.PRWatch
+		pr  github.WatchedPR
+	}
+	var gone []prEnd
 	for _, n := range slices.Sorted(maps.Keys(followed)) {
 		prev := followed[n]
 		pr, ok := read[n]
@@ -332,6 +337,9 @@ func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo) {
 			// Merged or closed — or gone from GitHub altogether: nothing more
 			// to watch.
 			ended = ended || ok
+			if ok {
+				gone = append(gone, prEnd{prev, pr})
+			}
 			if err := s.store.ForgetPRWatch(ctx, p.Name, n); err != nil {
 				s.logf("pull request watch in %s: %v", p.Name, err)
 			}
@@ -377,6 +385,9 @@ func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo) {
 		// What the project remembers as waiting on it may be over too.
 		s.closeAnchoredSoon(p.Name)
 	}
+	for _, g := range gone {
+		s.prWatchEnded(ctx, p, g.row, g.pr)
+	}
 	if !sameLive(before, live) {
 		// The list the Pull requests tab shows is older than this now — a
 		// head moved, one merged or closed — so it is re-read when the app,
@@ -397,6 +408,25 @@ func sameLive(a, b map[int]github.WatchedPR) bool {
 		}
 	}
 	return true
+}
+
+// prWatchEnded retires the agent whose pull request the watch saw merged or
+// closed, as merging it from the review does (freeReviewed): before, the
+// watch only stopped following it, and the agent sat in Ready to review
+// until the cleanup sweep, which judges from the pull request cache, got to
+// it, if it ever did.
+func (s *Server) prWatchEnded(ctx context.Context, p state.Project, row state.PRWatch, pr github.WatchedPR) {
+	a, err := s.store.Agent(ctx, p.Name, row.Agent)
+	if err != nil || (row.AgentID != "" && a.ID != "" && a.ID != row.AgentID) {
+		return // gone already, or another agent of the same name
+	}
+	// No age check here, as prEnded makes: the watch followed this one as
+	// the agent's, by its commits, while it was open.
+	if a.IsLead() || a.Status != state.AgentReady {
+		return
+	}
+	out := watchedToAPI(pr)
+	s.freeReviewed(ctx, a, fmt.Sprintf("its pull request #%d was %s", pr.Number, pr.State), out)
 }
 
 // A prProblem is one way a pull request just broke.
