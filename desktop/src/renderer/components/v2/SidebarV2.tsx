@@ -15,7 +15,7 @@
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Archive, Check, ChevronRight, CircleArrowUp, Eye, EyeOff, FolderPlus, House, ListFilter, LoaderCircle, MoonStar, RefreshCw, Search, Settings, ShieldAlert, SquarePen, X } from 'lucide-react';
-import { Fragment, useEffect, useMemo, useState, type ComponentProps, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import * as A from '../../../shared/api';
 import type * as T from '../../../shared/api';
 import type { View } from '../../App';
@@ -620,6 +620,10 @@ function ProjectLead({
   const history = useCpuHistory(usageNow);
   const [iconOpen, setIconOpen] = useState(false);
   const [talk, setTalk] = useState(false);
+  // Talk to another project, picked: the menu, closing, mustn't take the
+  // focus back to the row, outside the picker opening under it, which closed
+  // the picker as it opened (ProjectMenu's guard, for its ⋯).
+  const talking = useRef(false);
   const leadRef = `${project.name}/${A.LeadName}`;
   // Talk to another project needs another project.
   const others = (useQuery({ queryKey: ['projects'], queryFn: api.projects }).data?.length ?? 0) > 1;
@@ -639,7 +643,10 @@ function ProjectLead({
       open_();
       requestComposerFocus(leadRef);
     },
-    onTalk: () => setTimeout(() => setTalk(true), 0),
+    onTalk: () => {
+      talking.current = true;
+      setTimeout(() => setTalk(true), 0);
+    },
     onPin,
     onSettings: () => {
       open_();
@@ -743,7 +750,14 @@ function ProjectLead({
             <ReviewCount project={project.name} variant="button" />
           </Lead>
         </ContextMenuTrigger>
-        <ContextMenuContent data-v2-project-menu={project.name}>
+        <ContextMenuContent
+          data-v2-project-menu={project.name}
+          onCloseAutoFocus={(e) => {
+            if (!talking.current) return;
+            talking.current = false;
+            e.preventDefault();
+          }}
+        >
           {[
             ...main.flatMap(item),
             <ContextMenuItem key="hide" icon={hidden ? Eye : EyeOff} onSelect={onHide} data-v2-project-action={hidden ? 'unhide' : 'hide'}>
@@ -754,7 +768,7 @@ function ProjectLead({
         </ContextMenuContent>
       </ContextMenu>
       {/* Talk to another project's picker hangs under the row. */}
-      <TalkToProject project={project.name} leadRef={leadRef} open={talk} onOpenChange={setTalk} anchor={<span aria-hidden className="pointer-events-none absolute right-2 top-11 size-0" />} />
+      <TalkToProject project={project.name} leadRef={leadRef} open={talk} onOpenChange={setTalk} onPicked={open_} anchor={<span aria-hidden className="pointer-events-none absolute right-2 top-11 size-0" />} />
       <ProjectIconDialog project={project} open={iconOpen} onOpenChange={setIconOpen} />
       {open && (
         <div className="relative ml-[15px] mr-1 mt-0.5 flex flex-col gap-px border-l border-line pl-[7px]" data-v2-agents={project.name}>

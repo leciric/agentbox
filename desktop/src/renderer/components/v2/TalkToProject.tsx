@@ -20,7 +20,10 @@ import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '../ui/po
 // under that element, controlled by `open`; without it, it has its own button.
 // The anchor (the project's ⋯) is drawn whether there are other projects or
 // not: only the picker needs them.
-export function TalkToProject({ project, leadRef, anchor, open: controlled, onOpenChange }: { project: string; leadRef: string; anchor?: ReactNode; open?: boolean; onOpenChange?: (open: boolean) => void }) {
+// onPicked runs as a pick writes its sentence: the sidebar's opens the lead's
+// chat then, so the sentence is in a composer on screen. Opening it with the
+// picker instead moved the row out of Idle, and the picker went with it.
+export function TalkToProject({ project, leadRef, anchor, open: controlled, onOpenChange, onPicked }: { project: string; leadRef: string; anchor?: ReactNode; open?: boolean; onOpenChange?: (open: boolean) => void; onPicked?: () => void }) {
   const t = useT();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const [own, setOwn] = useState(false);
@@ -34,6 +37,7 @@ export function TalkToProject({ project, leadRef, anchor, open: controlled, onOp
   if (others.length === 0) return anchor ?? null;
   const write = (other: T.Project, how: 'ask' | 'align') => {
     setOpen(false);
+    onPicked?.();
     composeIn(leadRef, t(how === 'ask' ? 'v2.talk.askText' : 'v2.talk.alignText', { project: `@${other.name}` }));
   };
   return (
