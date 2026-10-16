@@ -5,6 +5,7 @@ import { FileLinks } from '../files/FilePanel';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { remarkHTMLImages } from '../../lib/pulls';
+import { heldBack } from '../../lib/plainText';
 import { openFence, richKind } from '../../lib/rich';
 import { cn } from '../../lib/utils';
 import { CodeBlock } from './CodeBlock';
@@ -20,7 +21,7 @@ import { GeneratingCard, RichBlock, RichContext } from './RichBlock';
 // With rich, as in a chat's messages, ```mermaid, ```svg and ```html preview
 // blocks are drawn (RichBlock, lib/rich.ts) once the message has finished.
 export const Markdown = memo(function Markdown({
-  text,
+  text: whole,
   streaming,
   className,
   imageSrc,
@@ -32,6 +33,7 @@ export const Markdown = memo(function Markdown({
   imageSrc?: (src: string) => string | undefined;
   rich?: boolean;
 }) {
+  const text = useMemo(() => (streaming ? heldBack(whole) : whole), [streaming, whole]);
   const withImages = useMemo<Components>(
     () => (imageSrc ? { ...components, img: ({ src, alt, width }) => <MarkdownImage src={typeof src === 'string' ? src : ''} alt={alt} width={width} imageSrc={imageSrc} /> } : components),
     [imageSrc],

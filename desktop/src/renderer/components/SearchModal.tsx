@@ -23,6 +23,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { matchesIn } from '../lib/chatFind';
+import { plainText } from '../lib/plainText';
 import { useUiV2 } from '../lib/uiV2';
 import { useFocusReturn } from '../lib/focusReturn';
 import { useLanguage, useT, type MessageKey } from '../lib/i18n';
@@ -303,13 +304,13 @@ function Searching({ scope, onOpen }: { scope: SearchScope; onOpen: (target: Sea
                       <span className="grid min-w-0 flex-1 gap-0.5">
                         <span className="flex min-w-0 items-baseline gap-2">
                           <span className={cn('truncate text-[13px] text-primary', item.kind === T.SearchEvents && 'font-mono text-[12px]')}>
-                            <Marked text={hit.title} query={asked} />
+                            <Marked text={plainText(hit.title)} query={asked} />
                           </span>
                           {hit.tag && <span className="max-w-[40%] shrink-0 truncate font-mono text-[10.5px] text-subtle">{hit.tag}</span>}
                         </span>
                         {hit.detail && (
                           <span className="line-clamp-2 break-words text-[12px] leading-snug text-muted">
-                            <Marked text={hit.detail} query={asked} />
+                            <Marked text={plainText(hit.detail)} query={asked} />
                           </span>
                         )}
                       </span>

@@ -2,6 +2,7 @@
 // lead, each project's agents folded under it. What it shows of an agent is
 // one of five states, and filters like T3Code's narrow the list by state,
 // project and a search. Here is the reading; the drawing is the component's.
+import { plainText } from './plainText.ts';
 import type * as T from '../../shared/api';
 import { chatLabel } from './agentStatus.ts';
 
@@ -173,23 +174,9 @@ export function projectRows(projects: readonly T.Project[], rows: readonly Row[]
 // toggle adds x to list, or takes it out.
 export const toggle = <X>(list: readonly X[], x: X): X[] => (list.includes(x) ? list.filter((y) => y !== x) : [...list, x]);
 
-// leadLine is a lead's last message for its row: one line, without markdown's
-// marks, and who wrote it.
+// leadLine is a lead's last message for its row: one line (plainText), and who wrote it.
 export function leadLine(last: T.ChatLine | undefined): { text: string; mine: boolean } | undefined {
   if (!last?.text) return undefined;
-  const text = last.text
-    .replace(/```[\s\S]*?(```|$)/g, ' ')
-    .replace(/<[^>\n]+>/g, ' ')
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
-    // A table's rule row and its pipes, and a horizontal rule, go whole.
-    .replace(/^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/gm, '')
-    .replace(/^\s{0,3}([-*_])(\s*\1){2,}\s*$/gm, '')
-    .replace(/[ \t]*\|[ \t]*/g, ' ')
-    .replace(/^\s{0,3}(#{1,6}|>|[-*+]\s|\d+[.)]\s)\s*/gm, '')
-    .replace(/^\[[ xX]\]\s*/gm, '')
-    .replace(/[*`~]+/g, '')
-    .replace(/(^|\W)__?(\S[^_]*?)__?(?=\W|$)/g, '$1$2')
-    .replace(/\s+/g, ' ')
-    .trim();
+  const text = plainText(last.text);
   return text ? { text, mine: last.kind === 'user' } : undefined;
 }
