@@ -36,7 +36,7 @@ import { api, isHomeChat, isProjectChat } from '../../lib/api';
 import { composerSkills, searchSkills, skillMentionAt } from '../../lib/skills';
 import { SkillTile } from '../SkillsPanel';
 import { contextBadge, contextHint, currentPlan, formatTokens, isMessage, pendingPermissions, toolOf, toolsReload } from '../../lib/chat';
-import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../../lib/modelChoices';
+import { choiceName, currentFirst, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../../lib/modelChoices';
 import { FileLinks } from '../files/FilePanel';
 import { mentionAt, matchFiles, matchProjects, mentionLimit, type MentionItem } from '../../lib/mentions';
 import { onComposerFocus, takeComposerFocus } from '../../lib/newTask';
@@ -1220,7 +1220,8 @@ function OptionChoices({
   // treatMissingAsUnavailable is false for a session that hasn't started:
   // its value may be an unresolved alias, not a rejection.
   const missing = treatMissingAsUnavailable ? unavailableValue(option.choices, option.value) : undefined;
-  const groups = groupChoices(option.choices.filter((c) => matchesQuery(c, query)));
+  const listed = groupChoices(option.choices.filter((c) => matchesQuery(c, query)));
+  const groups = isModel ? currentFirst(listed, option.value) : listed;
   const searchable = option.choices.length >= searchThreshold;
   return (
     <>

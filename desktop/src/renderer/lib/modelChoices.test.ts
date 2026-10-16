@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { choiceName, groupChoices, isRecommended, matchesQuery, unavailableValue } from './modelChoices.ts';
+import { choiceName, currentFirst, groupChoices, isRecommended, matchesQuery, unavailableValue } from './modelChoices.ts';
 
 const choice = (value: string, name: string, group?: string, description?: string): T.ChatOptionChoice => ({ value, name, group, description });
 
@@ -49,4 +49,13 @@ test('unavailableValue is undefined for no choice, or one still on the menu', ()
   assert.equal(unavailableValue(choices, ''), undefined);
   assert.equal(unavailableValue(choices, 'a'), undefined);
   assert.equal(unavailableValue(choices, 'gone'), 'gone');
+});
+
+test('currentFirst puts the chosen model at the top of the menu', () => {
+  const groups = currentFirst(groupChoices([choice('default', 'Default'), choice('sonnet', 'Sonnet'), choice('opus', 'Opus')]), 'opus');
+  assert.deepEqual(
+    groups[0].choices.map((c) => c.value),
+    ['opus', 'default', 'sonnet'],
+  );
+  assert.equal(currentFirst(groupChoices([choice('a', 'A')]), 'missing').length, 1);
 });

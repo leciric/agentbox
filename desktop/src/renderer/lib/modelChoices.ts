@@ -20,6 +20,17 @@ export function groupChoices(choices: T.ChatOptionChoice[]): ChoiceGroup[] {
   return groups;
 }
 
+// currentFirst moves the chosen model to the top of its group and that group to
+// the top of the menu, so the first row is the one the chip reads. The tool's
+// "Default" would otherwise sit above the ticked model it resolves to.
+export function currentFirst(groups: ChoiceGroup[], value: string): ChoiceGroup[] {
+  const at = groups.findIndex((g) => g.choices.some((c) => c.value === value));
+  if (at < 0) return groups;
+  const choices = [...groups[at].choices];
+  const [current] = choices.splice(choices.findIndex((c) => c.value === value), 1);
+  return [{ name: groups[at].name, choices: [current, ...choices] }, ...groups.slice(0, at), ...groups.slice(at + 1)];
+}
+
 // isRecommended marks the choice the tool itself calls its default, so the
 // menu can say "Default" once instead of leaving it in the choice's name on
 // every screen. Claude Code sends value "default" named "Default
