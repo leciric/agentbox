@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
+import { orderProjects } from './projectOrder.ts';
 import { arrange, emptyLayout, hide, unhide } from './sidebarHidden.ts';
 
 const p = (name: string) => ({ name }) as T.Project;
@@ -21,4 +22,16 @@ test('a hidden project leaves its list, Idle included, and comes back while it i
   assert.deepEqual([names(got.pinned), names(got.rest), names(got.idle), names(got.hidden)], [['pin'], ['a'], ['d'], ['b', 'c']]);
   const live = arrange(order, l, new Set(['b']));
   assert.deepEqual([names(live.rest), names(live.hidden)], [['a', 'b'], ['c']]);
+});
+
+test('the sidebar reads pinned, active, Idle, Hidden, top to bottom, whatever is pinned, hidden or on screen', () => {
+  const projects = ['a', 'b', 'c', 'd', 'e', 'f'].map((name) => ({ name, createdAt: '2026-01-01T00:00:00Z' }) as T.Project);
+  const read = (pins: string[], active: string[], hidden: string[]) => {
+    const got = arrange(orderProjects({ projects, pins, activity: new Map(), active: new Set(active), label: (x) => x.name }), { hidden }, new Set(active));
+    return [names(got.pinned), names(got.rest), names(got.idle), names(got.hidden)];
+  };
+  // The project on screen counts as active, so it joins the rest and never sits in Idle.
+  assert.deepEqual(read(['f'], ['a', 'c'], ['e']), [['f'], ['a', 'c'], ['b', 'd'], ['e']]);
+  assert.deepEqual(read([], ['d'], ['a', 'd']), [[], ['d'], ['b', 'c', 'e', 'f'], ['a']]);
+  assert.deepEqual(read(['b', 'a'], [], []), [['b', 'a'], [], ['c', 'd', 'e', 'f'], []]);
 });

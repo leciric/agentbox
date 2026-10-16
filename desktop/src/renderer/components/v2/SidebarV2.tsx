@@ -758,13 +758,8 @@ function ProjectLead({
       <ProjectIconDialog project={project} open={iconOpen} onOpenChange={setIconOpen} />
       {open && (
         <div className="relative ml-[15px] mr-1 mt-0.5 flex flex-col gap-px border-l border-line pl-[7px]" data-v2-agents={project.name}>
-          {shown.map((r, i) => (
+          {shown.map((r) => (
             <Fragment key={r.agent.ref}>
-              {grouped() && groupOf(r.st) !== groupOf(shown[i - 1]?.st) && (
-                <div className="px-2 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wider text-faint first:pt-1" data-v2-agent-group>
-                  {t(stLabel[groupOf(r.st) ?? r.st])} <span className="tabular-nums">{shown.filter((x) => groupOf(x.st) === groupOf(r.st)).length}</span>
-                </div>
-              )}
               <AgentRow row={r} active={view.kind === 'agent' && view.ref === r.agent.ref} onSelect={onSelect} sample={usageNow?.agents.find((u) => u.ref === r.agent.ref)} cpu={history.get(r.agent.ref) ?? []} />
             </Fragment>
           ))}
@@ -774,18 +769,6 @@ function ProjectLead({
     </div>
   );
 }
-
-// grouped is whether a project's agents are split under state headers
-// (?rows=grouped, kept in this browser) while that option is tried.
-export function grouped(): boolean {
-  const q = new URLSearchParams(location.search).get('rows');
-  if (q) localStorage.setItem('agentbox.sidebar.rows', q);
-  return localStorage.getItem('agentbox.sidebar.rows') === 'grouped';
-}
-
-// groupOf folds a failed agent in with the ones that need you: both wait on
-// somebody, and two headers of one row each would be noise.
-const groupOf = (st: AgentSt | undefined): AgentSt | undefined => (st === 'error' ? 'needs' : st);
 
 // AgentRow is one agent under its lead, two lines beside its avatar: its
 // title, and under it its number and where it is. Colour is only for what

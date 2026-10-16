@@ -48,7 +48,8 @@ import { Notice } from "./components/ui/card";
 import { api, isProjectChat } from "./lib/api";
 import { t as tNow, useT } from "./lib/i18n";
 import { useReadyAlerts } from "./lib/useReadyAlerts";
-import { useUiV2 } from "./lib/uiV2";
+import { launchArrival, uiV2, useUiV2 } from "./lib/uiV2";
+import { tourFirst, tourState } from "./lib/tours";
 import { resetChatEvents } from "./lib/chat";
 import { onNotification, useConnection } from "./lib/events";
 import { chatLabel } from "./lib/agentStatus";
@@ -117,7 +118,9 @@ export function App({ initial }: { initial?: View } = {}) {
   useEffect(() => {
     const version = info.data?.version;
     if (!version) return;
-    if (shouldShowAutomatically(version)) setWhatsNew(true);
+    // In v2 a What's new tour for this version plays first, and its last step
+    // links to the release notes: they never open over it.
+    if (shouldShowAutomatically(version) && !(uiV2() && tourFirst(tourState(), launchArrival()))) setWhatsNew(true);
     markSeen(version);
   }, [info.data?.version]);
   const hostSetup = useQuery({
@@ -697,7 +700,7 @@ export function App({ initial }: { initial?: View } = {}) {
       {v2 && <NewTaskDialog onSelect={select} />}
       {v2 && <ShortcutSheet />}
       {/* The first-run tour, and What's new after an update (lib/tours.ts). */}
-      {v2 && !setup && connection.state === "connected" && <TourHost view={view} onSelect={select} />}
+      {v2 && !setup && connection.state === "connected" && <TourHost view={view} onSelect={select} onReleaseNotes={() => setWhatsNew(true)} />}
       <ErrorReports />
       <SnapComposer
         project={view.kind === "project" ? view.project : view.kind === "agent" ? view.ref.split("/")[0] : undefined}

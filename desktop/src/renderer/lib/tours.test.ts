@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { goTo, onLaunch, onSwitchToV2, parseState, placeCard, skip, stepsOf, tours, welcomeTour, type TourState } from './tours.ts';
+import { goTo, onLaunch, onSwitchToV2, parseState, placeCard, skip, stepsOf, tourFirst, tours, welcomeTour, type TourState } from './tours.ts';
 
 const none: TourState = { seen: [], dismissed: [], playing: null };
 const whatsNew = tours.map((t) => t.id);
@@ -65,4 +65,11 @@ test('the card sits beside what it points at, or docks when it can\'t', () => {
   // A narrow window: docked at the bottom, or the top for a low target.
   assert.deepEqual(placeCard({ left: 10, top: 100, width: 300, height: 40 }, card, { width: 480, height: 800 }), { left: 60, top: 488 });
   assert.deepEqual(placeCard({ left: 10, top: 700, width: 300, height: 40 }, card, { width: 480, height: 800 }), { left: 60, top: 12 });
+});
+
+test('an update with a tour to play holds the release notes back; one without leaves them to open', () => {
+  assert.equal(tourFirst({ ...none, seen: ['welcome'] }, 'v2'), true);
+  assert.equal(tourFirst({ ...none, seen: ['welcome', ...whatsNew] }, 'v2'), false);
+  assert.equal(tourFirst({ ...none, playing: { tours: ['review'], step: 1 } }, 'v2'), true);
+  assert.equal(tourFirst(none, 'classic'), false);
 });

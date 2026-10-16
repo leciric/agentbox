@@ -58,16 +58,16 @@ const same = (a: Box | null, b: Box | null) =>
 
 // TourHost plays the run lib/tours.ts has, if any, and starts the one this
 // launch should.
-export function TourHost({ view, onSelect }: { view: View; onSelect: (view: View) => void }) {
+export function TourHost({ view, onSelect, onReleaseNotes }: { view: View; onSelect: (view: View) => void; onReleaseNotes?: () => void }) {
   const state = useTourState();
   useEffect(() => {
     setTourState((s) => onLaunch(s, launchArrival()));
   }, []);
   if (!state.playing) return null;
-  return <TourPlayer key={state.playing.tours.join()} view={view} onSelect={onSelect} />;
+  return <TourPlayer key={state.playing.tours.join()} view={view} onSelect={onSelect} onReleaseNotes={onReleaseNotes} />;
 }
 
-function TourPlayer({ view, onSelect }: { view: View; onSelect: (view: View) => void }) {
+function TourPlayer({ view, onSelect, onReleaseNotes }: { view: View; onSelect: (view: View) => void; onReleaseNotes?: () => void }) {
   const t = useT();
   const state = useTourState();
   const playing = state.playing!;
@@ -235,6 +235,20 @@ function TourPlayer({ view, onSelect }: { view: View; onSelect: (view: View) => 
           )}
         </div>
         <div className="flex items-center gap-2 border-t border-line px-4 py-3">
+          {/* The release notes never open over a tour: the last step of a What's new tour offers them. */}
+          {last && whatsNew && onReleaseNotes && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                next();
+                onReleaseNotes();
+              }}
+              data-tour-release-notes
+            >
+              {t('tour.releaseNotes')}
+            </Button>
+          )}
           {!last && (
             <Button variant="ghost" size="sm" onClick={close} data-tour-skip>
               {t('tour.skip')}

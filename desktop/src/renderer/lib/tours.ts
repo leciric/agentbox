@@ -96,7 +96,7 @@ const S = {
     id: 'review-button',
     title: 'tour.reviewButton.title',
     body: 'tour.reviewButton.body',
-    anchor: ['[data-v2-review-all]', '[data-v2-review-button]', '[data-v2-review-banner]'],
+    anchor: ['[data-v2-review-button]', '[data-v2-review-banner]', '[data-v2-review-all]'],
   },
   review: {
     id: 'review',
@@ -216,6 +216,11 @@ export function onLaunch(state: TourState, arrival: Arrival): TourState {
   const fresh = tours.filter((t) => !known.has(t.id)).map((t) => t.id);
   return fresh.length > 0 ? { ...state, playing: { tours: fresh, step: 0 } } : state;
 }
+
+// tourFirst is whether this launch plays a tour (one cut short, or one for
+// this update): the release notes then wait for its last step's link instead
+// of opening over it.
+export const tourFirst = (state: TourState, arrival: Arrival): boolean => !!(state.playing || onLaunch(state, arrival).playing);
 
 // onSwitchToV2 is choosing New in Settings: the welcome tour, once.
 export function onSwitchToV2(state: TourState): TourState {
