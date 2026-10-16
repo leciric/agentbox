@@ -1960,6 +1960,8 @@ export const enUS = {
   'agent.browser.record': 'Record',
   'agent.browser.recordScreen': 'Record the screen',
   'agent.browser.recordInput': 'Record with keys and mouse',
+  'agent.browser.fullscreen': 'Full screen',
+  'agent.browser.exitFullscreen': 'Exit full screen',
   'agent.browser.takeControl': 'Take control',
   'agent.browser.actions': 'Desktop actions',
   'agent.browser.fullPage': 'Full-page screenshot',

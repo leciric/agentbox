@@ -1961,6 +1961,8 @@ export const ptBR: Messages = {
   'agent.browser.record': 'Gravar',
   'agent.browser.recordScreen': 'Gravar a tela',
   'agent.browser.recordInput': 'Gravar com teclado e mouse',
+  'agent.browser.fullscreen': 'Tela cheia',
+  'agent.browser.exitFullscreen': 'Sair da tela cheia',
   'agent.browser.takeControl': 'Assumir controle',
   'agent.browser.actions': 'Ações da área de trabalho',
   'agent.browser.fullPage': 'Captura da página inteira',
