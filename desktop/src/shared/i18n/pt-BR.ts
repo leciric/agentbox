@@ -597,7 +597,7 @@ export const ptBR: Messages = {
   'settings.usageStats.details': 'Como "agent.create.claude: 3", ou a ferramenta de IA, o modelo, o esforço, a duração e os tokens de um turno: todo valor é um número ou vem de uma lista fixa, então um modelo que o AgentBox não conhece é enviado como "other". Sem nomes, caminhos, repositórios nem nada que você digitou.',
   'settings.usageStats.see': 'Ver o que é enviado',
   'settings.usageStats.sentTitle': 'O que a próxima verificação envia',
-  'settings.usageStats.sentDescription': 'As estatísticas de uso anônimas que esperam envio, exatamente como a próxima verificação de atualizações as enviaria.',
+  'settings.usageStats.sentDescription': 'As estatísticas de uso anônimas que esperam envio, exatamente como a próxima verificação de atualizações as enviaria. O servidor que as recebe também registra o país e o estado ou região de cada lote, a partir dos dados de requisição da Cloudflare, nunca o endereço IP nem a cidade.',
   'settings.usageStats.sentOff': 'As estatísticas de uso estão desligadas: nada é contado nem enviado.',
   'settings.usageStats.sentNothing': 'Nada espera envio.',
   'settings.usageStats.sentCounts': 'Contagens de recursos, para {url}',

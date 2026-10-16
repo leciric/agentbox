@@ -596,7 +596,7 @@ export const enUS = {
   'settings.usageStats.details': 'Like "agent.create.claude: 3", or a turn\'s AI tool, model, effort, duration and tokens: every value a number or from a fixed list, so a model AgentBox doesn\'t know is sent as "other". No names, paths, repositories or anything you typed.',
   'settings.usageStats.see': 'See what\'s sent',
   'settings.usageStats.sentTitle': 'What the next check sends',
-  'settings.usageStats.sentDescription': 'The anonymous usage stats waiting to be sent, exactly as the next update check would send them.',
+  'settings.usageStats.sentDescription': 'The anonymous usage stats waiting to be sent, exactly as the next update check would send them. The server that receives them also records the country and state or region of each batch, from Cloudflare\'s request data, never the IP address or city.',
   'settings.usageStats.sentOff': 'Usage stats are off: nothing is counted or sent.',
   'settings.usageStats.sentNothing': 'Nothing is waiting to be sent.',
   'settings.usageStats.sentCounts': 'Feature counts, to {url}',

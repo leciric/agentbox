@@ -271,6 +271,10 @@ got are dropped after 31 days. Switch off **Share anonymous usage stats** under
 **Settings → General** to stop them and delete what wasn't sent yet; they are also off whenever
 the update check is.
 
+The server that receives the usage stats and events also records the country and state or region
+each batch came from, taken from Cloudflare's request data. It never stores the IP address or the
+city, and its admin shows only places with at least 5 installs.
+
 **Nightly builds** are built from the next release as it stands, and published as
 prereleases named `<next version>-nightly.<date>.<run>`, such as `0.11.0-nightly.20260929.12`.
 They are for trying what's coming, and are never marked as the latest release. To be offered them,
