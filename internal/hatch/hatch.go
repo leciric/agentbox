@@ -33,6 +33,12 @@ func isHost(name string) bool {
 // DefaultExpiry is how long a page lasts when publish_page doesn't say.
 const DefaultExpiry = 24 * time.Hour
 
+// sameHost reports whether a link's host is the connector's, or both are
+// Hatch's, old or new.
+func sameHost(link, connector string) bool {
+	return strings.EqualFold(link, connector) || isHost(link) && isHost(connector)
+}
+
 // IsHatch reports whether a connector's server URL is Hatch's.
 func IsHatch(server string) bool {
 	u, err := url.Parse(server)
@@ -191,7 +197,7 @@ func pageOf(output, host string) (id, link string) {
 		u, err := url.Parse(raw)
 		// A page published before the move links to the old host, whichever
 		// host the connector is on now.
-		if err != nil || !(strings.EqualFold(u.Hostname(), host) || isHost(host) && isHost(u.Hostname())) {
+		if err != nil || !sameHost(u.Hostname(), host) {
 			continue
 		}
 		return output[m[2]:m[3]], raw
