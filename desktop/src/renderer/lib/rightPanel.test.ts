@@ -130,6 +130,27 @@ test('tabs reorder, close onto their neighbour, and the last closes the panel', 
   assert.deepEqual(P.chatPanel(P.panelState(), chat), { open: false, tabs: [], active: null });
 });
 
+test('closing a tab shows the nearest one that shows something, not a tab still asking whose', () => {
+  const chat = 'pawly/lead';
+  P.chooseKind(chat, null, 'files', 'pawly/lead');
+  P.chooseKind(chat, null, 'desktop', 'pawly/agent-2');
+  P.chooseKind(chat, null, 'browser');
+  P.addTab(chat);
+  const tabs = () => P.chatPanel(P.panelState(), chat).tabs;
+  const [files, desktop, browser, fresh] = tabs().map((t) => t.id);
+  P.activateTab(chat, desktop);
+  P.closeTab(chat, desktop);
+  // Its right-hand neighbour asks "Whose browser?" and the next is a new
+  // tab: the one on its left shows.
+  assert.equal(P.chatPanel(P.panelState(), chat).active, files);
+  P.closeTab(chat, files);
+  // Only those are left: the right-hand one, as before.
+  assert.equal(P.chatPanel(P.panelState(), chat).active, browser);
+  P.closeTab(chat, browser);
+  assert.equal(P.chatPanel(P.panelState(), chat).active, fresh);
+  P.setPanel({ chats: {} });
+});
+
 test('opening the panel on a kind finds its tab or adds one, and the tabs, width and filter are remembered', () => {
   const chat = 'pawly/lead';
   P.openPanelOn(chat, 'files', 'pawly/agent-2');
@@ -189,13 +210,6 @@ test('pull requests and settings are the project’s, whoever is picked', () => 
   assert.equal('panelWant' in P, false);
 });
 
-test('shortName keeps an agent number short', () => {
-  const { shortName } = P;
-  assert.equal(shortName('agent-41'), '41');
-  assert.equal(shortName('agent-x'), 'agent-x');
-  assert.equal(shortName('fix-login'), 'fix-login');
-});
-
 test('fitTabs shows what fits, the active tab always, and the rest in the menu', () => {
   const { fitTabs } = P;
   const tabs = ['a', 'b', 'c', 'd', 'e'].map((id) => ({ id, width: 60 }));
@@ -204,6 +218,20 @@ test('fitTabs shows what fits, the active tab always, and the rest in the menu',
   assert.deepEqual(fitTabs(tabs, 'e', 250, 40), { shown: ['a', 'b', 'e'], hidden: ['c', 'd'] });
   assert.deepEqual(fitTabs(tabs, 'e', 50, 40), { shown: ['e'], hidden: ['a', 'b', 'c', 'd'] });
   assert.deepEqual(fitTabs([], null, 100, 40), { shown: [], hidden: [] });
+});
+
+test('fitTabs keeps the tabs shown before: picking one from the menu takes the last place, clicking a shown one moves nothing', () => {
+  const { fitTabs } = P;
+  const tabs = ['a', 'b', 'c', 'd', 'e', 'f'].map((id) => ({ id, width: 60 }));
+  const first = fitTabs(tabs, 'a', 280, 40);
+  assert.deepEqual(first.shown, ['a', 'b', 'c', 'd']);
+  // f picked from the menu: d makes room, a, b and c stay.
+  const picked = fitTabs(tabs, 'f', 280, 40, first.shown);
+  assert.deepEqual(picked, { shown: ['a', 'b', 'c', 'f'], hidden: ['d', 'e'] });
+  // Then a clicked: f stays in view rather than d coming back.
+  assert.deepEqual(fitTabs(tabs, 'a', 280, 40, picked.shown).shown, ['a', 'b', 'c', 'f']);
+  // A kept tab that was closed is forgotten, and the room goes to the next.
+  assert.deepEqual(fitTabs(tabs.filter((t) => t.id !== 'b'), 'a', 280, 40, picked.shown).shown, ['a', 'c', 'd', 'f']);
 });
 
 test('the launcher opens Files and the machine kinds on the agent whose page it is in, and asks in the lead\'s', () => {

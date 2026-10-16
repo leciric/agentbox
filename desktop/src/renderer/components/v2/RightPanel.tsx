@@ -45,7 +45,6 @@ import {
   panelState,
   pickable,
   fitTabs,
-  shortName,
   resolveWhose,
   setPanel,
   setPanelOpen,
@@ -268,21 +267,24 @@ function RightPanel({ project, chat, width, onSelect }: { project: string; chat:
 
 // ——— The tab strip ———
 
-// TabStrip is the panel's tabs along its top, then + (mock C of the v2 UX
-// audit). A tab is its kind's icon and a chip for whose it shows (repo, 41,
-// All), its full name in a tooltip, so five tabs still read; the ones that
-// don't fit go to a "+N" menu (fitTabs), and + stays in view. A tab is
-// dragged along the strip to reorder (T3Code's SortableTabList), and closed
-// with its ×, which shows on hover and on the tab shown
-// (PanelTabCloseButton), or with a middle click.
+// TabStrip is the panel's tabs along its top, then + right after the last
+// (mock C of the v2 UX audit). A tab is its kind's icon and name and whose it
+// shows ("Desktop · agent-41"), cut short with an ellipsis, its full name in
+// a tooltip; the ones that don't fit go to a "+N" menu (fitTabs), which + then
+// follows. Tabs stay where they are: picking one from the menu takes the last
+// shown one's place. A tab is dragged along the strip to reorder (T3Code's
+// SortableTabList), and closed with its ×, which shows on hover and on the
+// tab shown (PanelTabCloseButton), or with a middle click.
 function TabStrip({ project, chat, tabs, active, whose }: { project: string; chat: string; tabs: PanelTab[]; active: string | null; whose: (tab: PanelTab) => Whose | undefined }) {
   const t = useT();
   const dragged = useRef<string | null>(null);
   const [over, setOver] = useState<number | null>(null);
   const box = useRef<HTMLDivElement>(null);
+  const add = useRef<HTMLSpanElement>(null);
   const measure = useRef<HTMLDivElement>(null);
   const [room, setRoom] = useState(0);
   const [widths, setWidths] = useState<ReadonlyMap<string, number>>(new Map());
+  const [kept, setKept] = useState<readonly string[]>([]);
   const pages = useProjectPages(project);
   const fresh = livePages(pages.data).filter(isNew);
   const faces = tabs.map((tab) => {
@@ -290,17 +292,18 @@ function TabStrip({ project, chat, tabs, active, whose }: { project: string; cha
     const label = tab.kind ? t(kindLabel[tab.kind]) : t('panel.newTab');
     const wide = !!tab.kind && projectWide(tab.kind);
     const name = wide || !w || !tab.kind ? '' : whoseName(t, w, tab.kind);
-    const chip = wide || !w || !tab.kind ? '' : w.kind === 'lead' ? t(tab.kind === 'pages' ? 'panel.all' : 'panel.chip.repo') : shortName(w.kind === 'agent' ? w.agent.name : w.past.name);
     const dot = tab.kind === 'pages' && fresh.some((p) => !w || w.kind === 'lead' || p.agents.includes(whoseRef(w).replace(/^past:/, '')));
-    return { tab, label, name, chip, dot, full: name ? `${label} · ${name}` : label };
+    return { tab, label, name, dot, full: name ? t('panel.tabName', { kind: label, name }) : label };
   });
-  const faceKey = faces.map((f) => `${f.tab.id}:${f.chip}:${f.label}`).join('|');
+  const faceKey = faces.map((f) => `${f.tab.id}:${f.full}`).join('|');
   useLayoutEffect(() => {
     const el = box.current;
     if (!el) return;
-    const observer = new ResizeObserver(() => setRoom(el.clientWidth));
+    // The room is the strip's less the + that follows the tabs.
+    const measureRoom = () => setRoom(Math.max(0, el.clientWidth - (add.current?.offsetWidth ?? 0)));
+    const observer = new ResizeObserver(measureRoom);
     observer.observe(el);
-    setRoom(el.clientWidth);
+    measureRoom();
     return () => observer.disconnect();
   }, []);
   useLayoutEffect(() => {
@@ -309,11 +312,14 @@ function TabStrip({ project, chat, tabs, active, whose }: { project: string; cha
     setWidths((prev) => ([...next].every(([k, v]) => prev.get(k) === v) && prev.size === next.size ? prev : next));
   }, [faceKey]);
   const fit = fitTabs(
-    tabs.map((tab) => ({ id: tab.id, width: widths.get(tab.id) ?? 72 })),
+    tabs.map((tab) => ({ id: tab.id, width: widths.get(tab.id) ?? 120 })),
     active,
     room,
     56,
+    kept,
   );
+  const shownKey = fit.shown.join('|');
+  useLayoutEffect(() => setKept((prev) => (prev.join('|') === shownKey ? prev : shownKey.split('|').filter(Boolean))), [shownKey]);
   const shown = new Set(fit.shown);
   const drop = (index: number) => {
     if (dragged.current) moveTab(chat, dragged.current, index);
@@ -321,7 +327,7 @@ function TabStrip({ project, chat, tabs, active, whose }: { project: string; cha
     setOver(null);
   };
   return (
-    <div className="relative flex min-w-0 flex-1 items-stretch">
+    <div ref={box} className="relative flex min-w-0 flex-1 items-stretch">
       {/* Every tab laid out once, unseen, for its width. */}
       <div aria-hidden className="pointer-events-none invisible absolute left-0 top-0 size-0 overflow-hidden">
         <div ref={measure} className="flex w-max">
@@ -332,7 +338,7 @@ function TabStrip({ project, chat, tabs, active, whose }: { project: string; cha
         ))}
         </div>
       </div>
-      <div ref={box} role="tablist" aria-label={t('panel.tabs')} className="flex min-w-0 flex-1 items-stretch overflow-hidden" data-panel-tabs>
+      <div role="tablist" aria-label={t('panel.tabs')} className="flex min-w-0 items-stretch overflow-hidden" data-panel-tabs>
         {faces.map((f, index) => {
           const { tab } = f;
           if (!shown.has(tab.id)) return null;
@@ -392,18 +398,6 @@ function TabStrip({ project, chat, tabs, active, whose }: { project: string; cha
             </Tip>
           );
         })}
-        <div
-          className="min-w-2 flex-1"
-          onDragOver={(event) => {
-            if (!dragged.current) return;
-            event.preventDefault();
-            setOver(tabs.length);
-          }}
-          onDrop={(event) => {
-            event.preventDefault();
-            drop(tabs.length - 1);
-          }}
-        />
       </div>
       {fit.hidden.length > 0 && (
         <Menu>
@@ -415,7 +409,7 @@ function TabStrip({ project, chat, tabs, active, whose }: { project: string; cha
               </button>
             </MenuTrigger>
           </Tip>
-          <MenuContent align="end" className="max-w-[320px]" data-panel-more-list>
+          <MenuContent align="start" className="max-w-[320px]" data-panel-more-list>
             {faces
               .filter((f) => !shown.has(f.tab.id))
               .map((f) => (
@@ -429,32 +423,46 @@ function TabStrip({ project, chat, tabs, active, whose }: { project: string; cha
           </MenuContent>
         </Menu>
       )}
-      <span className="flex shrink-0 items-center px-1">
+      <span ref={add} className="flex shrink-0 items-center px-1">
         <Tip label={t('panel.addTab')}>
           <Button size="icon-sm" variant="ghost" aria-label={t('panel.addTab')} onClick={() => addTab(chat)} data-panel-add>
             <Plus />
           </Button>
         </Tip>
       </span>
+      {/* The rest of the strip: a tab dropped here goes last. */}
+      <div
+        className="min-w-0 flex-1"
+        onDragOver={(event) => {
+          if (!dragged.current) return;
+          event.preventDefault();
+          setOver(tabs.length);
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          drop(tabs.length - 1);
+        }}
+      />
     </div>
   );
 }
 
-type Face = { tab: PanelTab; label: string; name: string; chip: string; dot: boolean; full: string };
+type Face = { tab: PanelTab; label: string; name: string; dot: boolean; full: string };
 
-// TabFace is what a tab shows: its kind's icon, the chip for whose it is
-// (only the new tab spells its name out), and its ×.
+// TabFace is what a tab shows: its kind's icon, its name and whose it shows,
+// cut short past 200px, and its ×.
 function TabFace({ face, on, onClose, closeLabel }: { face: Face; on: boolean; onClose?: () => void; closeLabel?: string }) {
-  const { tab, chip, dot, label } = face;
+  const { tab, dot, full } = face;
   const Icon = tab.kind ? kindIcon[tab.kind] : Plus;
   return (
-    <span className="flex items-center gap-1.5 pl-2.5 pr-1">
+    <span className="flex min-w-0 items-center gap-1.5 pl-2.5 pr-1">
       <span className="relative shrink-0">
         <Icon className="size-3.5" />
         {dot && <span className="absolute -right-1 -top-1 size-1.5 rounded-full bg-brand-500" />}
       </span>
-      {!tab.kind && <span className="font-medium">{label}</span>}
-      {chip && <span className={cn('max-w-[88px] truncate rounded px-1.5 py-px text-[11px] font-medium tabular-nums', on ? 'bg-surface-strong text-title' : 'bg-surface text-subtle')} data-panel-tab-chip>{chip}</span>}
+      <span className="max-w-[200px] truncate" data-panel-tab-name>
+        {full}
+      </span>
       <button
         type="button"
         aria-label={closeLabel}

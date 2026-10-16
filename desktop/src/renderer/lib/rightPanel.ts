@@ -250,16 +250,29 @@ export function activateTab(chat: string, id: string): void {
   update(chat, (p) => (p.active === id || !p.tabs.some((t) => t.id === id) ? p : { ...p, active: id }));
 }
 
-// closeTab closes a tab, showing its right-hand neighbour (or the new last),
-// and the panel with its last tab, as T3Code's closeSurface does.
+// closeTab closes a tab, showing its nearest neighbour that shows something
+// (right first, then left, as T3Code's closeSurface does): not a new tab's
+// launcher or a tab still asking whose it shows, unless only those are left.
+// The panel closes with its last tab.
 export function closeTab(chat: string, id: string): void {
   update(chat, (p) => {
     const index = p.tabs.findIndex((t) => t.id === id);
     if (index < 0) return p;
     const tabs = p.tabs.filter((t) => t.id !== id);
-    const active = p.active === id ? (tabs[Math.min(index, tabs.length - 1)]?.id ?? null) : p.active;
+    const active = p.active === id ? (neighbour(tabs, index)?.id ?? null) : p.active;
     return { open: p.open && tabs.length > 0, tabs, active };
   });
+}
+
+// neighbour is the tab nearest index in tabs, once one was taken out there:
+// the closest that shows something, right before left, else the right one.
+function neighbour(tabs: PanelTab[], index: number): PanelTab | undefined {
+  const shows = (t: PanelTab | undefined) => !!t?.kind && !needsTarget(t);
+  for (let d = 0; d < tabs.length; d++) {
+    if (shows(tabs[index + d])) return tabs[index + d];
+    if (shows(tabs[index - 1 - d])) return tabs[index - 1 - d];
+  }
+  return tabs[Math.min(index, tabs.length - 1)];
 }
 
 // moveTab puts tab id at index toIndex, a tab dragged along the strip.
@@ -314,30 +327,32 @@ export function previewUrl(agent: Pick<T.Agent, 'name' | 'project'>, port: strin
   return `http://${port}.${agent.name}.${agent.project}.localhost:${addr.split(':').pop()}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
-// shortName is an agent's name as a tab's chip has room for it: agent-41
-// reads 41, as the sidebar's numbers do; any other name stays itself.
-export const shortName = (name: string) => name.replace(/^agent-(?=\d+$)/, '');
-
-// fitTabs is which tabs the strip shows and which go to its ⋯ menu, from
-// each tab's width and the room there is: the first ones that fit, in order,
-// with room kept for the ⋯ button once any don't. The active tab is always
-// shown, in place of the last ones that would otherwise fit.
-export function fitTabs(tabs: { id: string; width: number }[], active: string | null, room: number, more: number): { shown: string[]; hidden: string[] } {
+// fitTabs is which tabs the strip shows and which go to its +N menu, from
+// each tab's width and the room there is, room kept for the menu's button
+// once any don't fit. The active tab is always shown, then the ones shown
+// before (keep) for as long as they fit, then the rest in order: picking a
+// tab from the menu takes the place of the last shown, and the others stay
+// where they were. Shown tabs keep their order.
+export function fitTabs(tabs: { id: string; width: number }[], active: string | null, room: number, more: number, keep: readonly string[] = []): { shown: string[]; hidden: string[] } {
   const all = tabs.map((t) => t.id);
   if (tabs.reduce((sum, t) => sum + t.width, 0) <= room) return { shown: all, hidden: [] };
+  const byId = new Map(tabs.map((t) => [t.id, t]));
+  const kept = keep.filter((id) => byId.has(id));
+  const order = [...new Set([...(active && byId.has(active) ? [active] : []), ...kept, ...all])];
   const budget = room - more;
-  const shown: { id: string; width: number }[] = [];
+  const on = new Set<string>();
   let used = 0;
-  for (const t of tabs) {
-    if (used + t.width > budget) break;
-    shown.push(t);
-    used += t.width;
+  for (const id of order) {
+    const width = byId.get(id)!.width;
+    // The active tab is shown even when it alone overflows; past the kept
+    // ones, the first that doesn't fit ends it, so a narrow tab further on
+    // doesn't jump the ones before it.
+    if (used + width > budget && on.size) {
+      if (kept.includes(id) || id === active) continue;
+      break;
+    }
+    on.add(id);
+    used += width;
   }
-  const act = tabs.find((t) => t.id === active);
-  if (act && !shown.includes(act)) {
-    while (shown.length && used + act.width > budget) used -= shown.pop()!.width;
-    shown.push(act);
-  }
-  const on = new Set(shown.map((t) => t.id));
   return { shown: all.filter((id) => on.has(id)), hidden: all.filter((id) => !on.has(id)) };
 }

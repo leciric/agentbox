@@ -1708,7 +1708,7 @@
   },
   {
     "id": "window-1440-v2-panel-tabs-dark",
-    "description": "UI v2 at 1440×900, seven panel tabs: each an icon and whose chip (repo, 41, All), the ones that don't fit in the +N menu, + still in view — dark",
+    "description": "UI v2 at 1440×900, seven panel tabs: each an icon, its kind and whose (Files · Repository, Desktop · agent-41), the ones that don't fit in the +N menu, + right after it — dark",
     "query": "app=project&v2=1&panel=files:lead,desktop:agent-41,terminal:agent-41,pages:lead,media:agent-41,browser:agent-41,pulls&first=1&theme=dark",
     "width": 1440,
     "height": 900
