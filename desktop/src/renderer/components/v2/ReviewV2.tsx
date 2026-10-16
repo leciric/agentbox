@@ -154,7 +154,16 @@ function ReviewedList({ project, tabs, onOpen }: { project?: string; tabs: React
   });
   const items = pageItems(pages.data);
   return (
-    <DialogContent className="flex max-h-[80vh] max-w-xl flex-col gap-0 p-0" data-reviewed-list={project ?? ''}>
+    <DialogContent
+      className="flex max-h-[80vh] max-w-xl flex-col gap-0 p-0"
+      data-reviewed-list={project ?? ''}
+      // The dialog itself takes the focus, as the carousel does, not the
+      // first tab, whose ring would read as the one selected.
+      onOpenAutoFocus={(event) => {
+        event.preventDefault();
+        (event.currentTarget as HTMLElement | null)?.focus();
+      }}
+    >
       <header className="flex flex-wrap items-center gap-3 border-b border-line px-5 py-3 pr-14">
         <DialogTitle className="min-w-0 flex-1 truncate text-base">{project ? t('v2.reviewed.titleProject', { project: projectLabel(project, projects.data) }) : t('review.reviewedSection')}</DialogTitle>
         {tabs}
