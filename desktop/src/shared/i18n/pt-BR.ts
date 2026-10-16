@@ -807,6 +807,7 @@ export const ptBR: Messages = {
   'defaults.phone.codeExpired': 'Ele pareia um celular, e já expirou. Ou abra isto no celular:',
   'defaults.phone.codeValid': 'Ele pareia um celular, pelos próximos {minutes, plural, one {# minuto} other {# minutos}}. Ou abra isto no celular:',
   'defaults.phone.newCode': 'Novo código',
+  'defaults.phone.copyAddress': 'Copiar endereço',
   'defaults.phone.qrLabel': 'QR code para parear um celular',
   'defaults.phone.unpairedToast': '{name} despareado',
   'defaults.phone.pairedDescription': 'Desparear um celular o corta na hora; ele precisa de um novo QR code para voltar.',

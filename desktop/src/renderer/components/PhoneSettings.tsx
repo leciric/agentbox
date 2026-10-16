@@ -138,8 +138,8 @@ function PhoneChat() {
           {st.tunnel.url && !st.listening ? null : st.listening && st.urls.length > 0 ? (
             <SettingNote>
               {st.urls.length > 1
-                ? t.rich('defaults.phone.phonesOpenMore', { url: (c) => <span className="font-mono text-primary">{c}</span>, address: st.urls[0], others: st.urls.slice(1).join(', ') })
-                : t.rich('defaults.phone.phonesOpen', { url: (c) => <span className="font-mono text-primary">{c}</span>, address: st.urls[0] })}
+                ? t.rich('defaults.phone.phonesOpenMore', { url: (c) => <span className="break-all font-mono text-primary">{c}</span>, address: st.urls[0], others: st.urls.slice(1).join(', ') })
+                : t.rich('defaults.phone.phonesOpen', { url: (c) => <span className="break-all font-mono text-primary">{c}</span>, address: st.urls[0] })}
             </SettingNote>
           ) : (
             <SettingNote tone={st.error?.startsWith('waiting') ? 'muted' : 'error'}>{st.error || t('defaults.phone.openingPort')}</SettingNote>
@@ -240,7 +240,7 @@ function PhoneTunnel() {
               <SettingNote>
                 <Globe className="mr-1 inline size-3.5 align-[-2px]" />
                 {t.rich(tunnel.mode === 'quick' ? 'defaults.phone.tunnelOpenQuick' : 'defaults.phone.tunnelOpenNamed', {
-                  url: (c) => <span className="font-mono text-primary">{c}</span>,
+                  url: (c) => <span className="break-all font-mono text-primary">{c}</span>,
                   address: tunnel.url,
                 })}
               </SettingNote>
@@ -293,7 +293,7 @@ function PhoneTunnel() {
           {tunnel.named && !editing && (
             <SettingNote>
               {t.rich('defaults.phone.namedTunnel', {
-                mono: (c) => <span className="font-mono text-primary">{c}</span>,
+                mono: (c) => <span className="break-all font-mono text-primary">{c}</span>,
                 hostname: tunnel.hostname,
                 origin: tunnel.origin,
               })}
@@ -308,7 +308,7 @@ function PhoneTunnel() {
               }}
             >
               <SettingNote>
-                {t.rich('defaults.phone.makeTunnel', { mono: (c) => <span className="font-mono text-primary">{c}</span>, origin: tunnel.origin })}
+                {t.rich('defaults.phone.makeTunnel', { mono: (c) => <span className="break-all font-mono text-primary">{c}</span>, origin: tunnel.origin })}
               </SettingNote>
               <Field label={t('defaults.phone.publicHostname')} htmlFor="tunnel-hostname">
                 <Input id="tunnel-hostname" placeholder="chat.example.com" value={hostname} onChange={(e) => setHostname(e.target.value)} />
@@ -371,8 +371,19 @@ function PairingCode({ pairing, onAgain, onDone }: { pairing: T.LANPairing; onAg
       <div className="grid min-w-0 flex-1 gap-2 text-[13px] leading-relaxed text-muted">
         <p className="font-medium text-primary">{t('defaults.phone.scan')}</p>
         <p>{expired ? t('defaults.phone.codeExpired') : t('defaults.phone.codeValid', { minutes: Math.ceil(left / 60_000) })}</p>
-        <p className="break-all font-mono text-[11px] text-subtle">{pairing.urls[0]}</p>
-        <div className="flex gap-2 pt-1">
+        <p className="break-all font-mono text-[11px] text-subtle" data-phone-url>{pairing.urls[0]}</p>
+        <div className="flex flex-wrap gap-2 pt-1">
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              window.agentbox.copyText(pairing.urls[0]);
+              toast(t('common.copied'), { description: pairing.urls[0] });
+            }}
+            data-phone-copy
+          >
+            {t('defaults.phone.copyAddress')}
+          </Button>
           <Button size="sm" variant="secondary" onClick={onAgain}>
             {t('defaults.phone.newCode')}
           </Button>

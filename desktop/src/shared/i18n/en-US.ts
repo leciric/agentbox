@@ -806,6 +806,7 @@ export const enUS = {
   'defaults.phone.codeExpired': 'It pairs one phone, and it has expired. Or open this on the phone:',
   'defaults.phone.codeValid': 'It pairs one phone, for the next {minutes, plural, one {# minute} other {# minutes}}. Or open this on the phone:',
   'defaults.phone.newCode': 'New code',
+  'defaults.phone.copyAddress': 'Copy address',
   'defaults.phone.qrLabel': 'QR code to pair a phone',
   'defaults.phone.unpairedToast': 'Unpaired {name}',
   'defaults.phone.pairedDescription': 'Unpairing a phone cuts it off at once; it needs a new QR code to come back.',
