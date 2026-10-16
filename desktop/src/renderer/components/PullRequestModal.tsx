@@ -169,50 +169,55 @@ export function PullRequestView({
     <>
       <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="flex min-h-0 flex-1 flex-col">
         <header className={cn('grid gap-2 border-b border-line-faint px-6 pb-3 pt-5', !inline && 'pr-14')}>
-          {/* Inline, the dialog around it already has a title. */}
-          {(() => {
-            const Title = inline ? 'h2' : DialogTitle;
-            return (
-              <Title className="flex min-w-0 items-start gap-2 text-[17px] font-semibold leading-snug tracking-tight text-title">
-                <GitPullRequest className="mt-1 size-4 shrink-0 text-subtle" />
-                <span className="min-w-0 break-words">
-                  {pr.title} <span className="font-normal text-subtle">#{pr.number}</span>
-                </span>
-              </Title>
-            );
-          })()}
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[12.5px] text-muted">
-            {pr.draft ? (
-              <Badge>{t('memory.pulls.draft')}</Badge>
-            ) : (
-              <Badge variant={stateVariants[pr.state] ?? 'default'}>{stateLabels[pr.state] ? t(stateLabels[pr.state]) : pr.state}</Badge>
-            )}
-            <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-              {t.rich(into, {
-                author: (
-                  <span className="inline-flex items-center gap-1.5 font-medium text-secondary">
-                    {pr.authorAvatar ? <img src={pr.authorAvatar} alt="" className="size-4 rounded-full" /> : <User className="size-3.5" />}
-                    {pr.author || '?'}
+          {/* In the review the top of the modal says all this (PrState in ReadyToReview). */}
+          {!bare && (
+            <>
+            {/* Inline, the dialog around it already has a title. */}
+            {(() => {
+              const Title = inline ? 'h2' : DialogTitle;
+              return (
+                <Title className="flex min-w-0 items-start gap-2 text-[17px] font-semibold leading-snug tracking-tight text-title">
+                  <GitPullRequest className="mt-1 size-4 shrink-0 text-subtle" />
+                  <span className="min-w-0 break-words">
+                    {pr.title} <span className="font-normal text-subtle">#{pr.number}</span>
                   </span>
-                ),
-                head: <code className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[11.5px] text-tertiary">{pr.headBranch}</code>,
-                base: <code className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[11.5px] text-tertiary">{pr.baseBranch}</code>,
-              })}
-            </span>
-            {pr.updatedAt && <span className="text-faint">· {timeAgo(pr.updatedAt)}</span>}
-            {onOpenAgent && (
-              <button type="button" onClick={onOpenAgent} className="font-medium text-brand-300 hover:underline">
-                {t('memory.pulls.agentOf', { name: pr.agent ?? listed.agent ?? '' })}
-              </button>
-            )}
-          </div>
+                </Title>
+              );
+            })()}
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[12.5px] text-muted">
+              {pr.draft ? (
+                <Badge>{t('memory.pulls.draft')}</Badge>
+              ) : (
+                <Badge variant={stateVariants[pr.state] ?? 'default'}>{stateLabels[pr.state] ? t(stateLabels[pr.state]) : pr.state}</Badge>
+              )}
+              <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+                {t.rich(into, {
+                  author: (
+                    <span className="inline-flex items-center gap-1.5 font-medium text-secondary">
+                      {pr.authorAvatar ? <img src={pr.authorAvatar} alt="" className="size-4 rounded-full" /> : <User className="size-3.5" />}
+                      {pr.author || '?'}
+                    </span>
+                  ),
+                  head: <code className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[11.5px] text-tertiary">{pr.headBranch}</code>,
+                  base: <code className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[11.5px] text-tertiary">{pr.baseBranch}</code>,
+                })}
+              </span>
+              {pr.updatedAt && <span className="text-faint">· {timeAgo(pr.updatedAt)}</span>}
+              {onOpenAgent && (
+                <button type="button" onClick={onOpenAgent} className="font-medium text-brand-300 hover:underline">
+                  {t('memory.pulls.agentOf', { name: pr.agent ?? listed.agent ?? '' })}
+                </button>
+              )}
+            </div>
+            </>
+          )}
           <div className="flex flex-wrap items-center gap-1.5">
-            {pr.checks && (
+            {!bare && pr.checks && (
               <Badge variant={checksVariants[pr.checks] ?? 'default'}>
                 {t('memory.pulls.checks', { state: checksLabels[pr.checks] ? t(checksLabels[pr.checks]) : pr.checks })}
               </Badge>
             )}
-            {listed.conflict && <Badge variant="danger">{t('memory.pulls.conflicts')}</Badge>}
+            {!bare && listed.conflict && <Badge variant="danger">{t('memory.pulls.conflicts')}</Badge>}
             {listed.review === 'changes_requested' && <Badge variant="warning">{t('memory.pulls.changesRequested')}</Badge>}
             {withEdits(detail.data?.labels, pr.number, edits).map((label) => (
               <LabelChip key={label.name} label={label} onRemove={() => onToggleLabel(label, false)} />

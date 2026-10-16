@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
 import { ArrowRight, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, GitBranch, GitMerge, GitPullRequest, Image as ImageIcon, MessageSquareText, LoaderCircle, Play } from 'lucide-react';
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { toast } from 'sonner';
@@ -14,6 +14,7 @@ import { type Walk, goBack, goForward, mergeBlock, nextPending, remainingAfter, 
 import { defaultMethod, loadMethodPrefs, rememberMethod } from '../lib/mergeMethod';
 import { isUnseen, markReadySeen, useUnseen } from '../lib/reviewAlert';
 import { useNow } from '../lib/useNow';
+import { requestComposerFocus } from '../lib/newTask';
 import { cn, errorMessage, timeAgo } from '../lib/utils';
 import { Markdown } from './chat/Markdown';
 import { MoreMedia, Recording } from './MediaTab';
@@ -117,6 +118,7 @@ export function ReviewDialog({
   session,
   pages,
   onSession,
+  onSelect,
   tabs,
   list,
   onCloseList,
@@ -124,8 +126,7 @@ export function ReviewDialog({
   session: ReviewSession | null;
   pages: ReviewPages;
   onSession: (session: ReviewSession | null) => void;
-  // Callers still pass onSelect; the review no longer leaves for a chat.
-  onSelect?: (view: View) => void;
+  onSelect: (view: View) => void;
   tabs?: ReactNode;
   list?: ReactNode;
   onCloseList?: () => void;
@@ -183,7 +184,7 @@ export function ReviewDialog({
           </div>
         </DialogContent>
       )}
-      {!list && current && !session?.ended && <ReviewCarousel key={current.ref} item={current} position={position} next={next} canBack={!!session?.trail?.length} onNext={advance} onBack={() => session && onSession(goBack(session))} tabs={tabs} />}
+      {!list && current && !session?.ended && <ReviewCarousel key={current.ref} item={current} position={position} next={next} canBack={!!session?.trail?.length} onNext={advance} onBack={() => session && onSession(goBack(session))} onClose={() => onSession(null)} onSelect={onSelect} tabs={tabs} />}
     </Dialog>
   );
 }
@@ -284,6 +285,8 @@ function ReviewCarousel({
   canBack,
   onNext,
   onBack,
+  onClose,
+  onSelect,
   tabs,
 }: {
   item: T.ReviewItem;
@@ -293,6 +296,8 @@ function ReviewCarousel({
   canBack: boolean;
   onNext: () => void;
   onBack: () => void;
+  onClose: () => void;
+  onSelect: (view: View) => void;
   tabs?: ReactNode;
 }) {
   const t = useT();
@@ -344,19 +349,12 @@ function ReviewCarousel({
     onNext();
   };
   const mergeAndGo = () => pr && merge.mergeWith(pr, method, markReviewed);
-  // Request changes opens a box in the modal and sends the note to the agent's chat.
-  const [changing, setChanging] = useState(false);
-  const [note, setNote] = useState('');
-  const send = useMutation({
-    mutationFn: () => api.sendChat(item.ref, pr ? t('review.changesMessage', { number: pr.number, text: note.trim() }) : note.trim()),
-    onSuccess: () => {
-      toast(t('review.changesSent', { agent: item.title || item.agent }));
-      setNote('');
-      setChanging(false);
-    },
-    onError: (err) => toast.error(errorMessage(err)),
-  });
-  const requestChanges = () => setChanging(true);
+  // Request changes goes to the agent's chat, to write in.
+  const requestChanges = () => {
+    requestComposerFocus(item.ref);
+    onClose();
+    onSelect({ kind: 'agent', ref: item.ref, tab: 'chat' });
+  };
   // The merge slot is always there; it says why it can't merge.
   const footerReason = !pr ? t('review.mergeBlocked.none') : blocked === 'merged' ? t('review.mergeBlocked.merged') : blocked === 'closed' ? t('review.mergeBlocked.closed') : mergeReason;
   const mergeDisabled = !prOpen || !!mergeReason || merge.running.has(pr?.number ?? 0);
@@ -446,8 +444,7 @@ function ReviewCarousel({
                     <span className="truncate font-mono text-[11.5px]">{item.branch}</span>
                   </span>
                 )}
-                {/* The PR slide has the title and status itself. */}
-                {pr && slide?.kind !== 'pr' && <PrState pr={pr} />}
+                {pr && <PrState pr={pr} />}
                 <span className="text-faint">· {t('review.finished', { when: timeAgo(item.finishedAt) })}</span>
               </div>
             </div>
@@ -522,37 +519,6 @@ function ReviewCarousel({
                 )}
               </div>
             </div>
-            {changing && (
-              <div className="mx-4 mb-3 grid gap-2 rounded-xl border border-line-strong bg-well p-3" data-review-changes-box>
-                <div className="text-[12px] text-muted">{t('review.changesTo', { agent: item.title || item.agent, number: pr?.number ?? 0 })}</div>
-                <textarea
-                  autoFocus
-                  rows={3}
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  onKeyDown={(e) => {
-                    e.stopPropagation();
-                    if (e.key === 'Escape') setChanging(false);
-                    else if (e.key === 'Enter' && !e.shiftKey && note.trim() && !send.isPending) {
-                      e.preventDefault();
-                      send.mutate();
-                    }
-                  }}
-                  placeholder={t('review.changesPlaceholder')}
-                  className="w-full resize-none rounded-lg bg-surface-faint px-2.5 py-2 text-[13px] text-primary outline-none ring-1 ring-line focus:ring-brand-400"
-                  data-review-changes-input
-                />
-                <div className="flex justify-end gap-2">
-                  <Button size="sm" variant="ghost" onClick={() => setChanging(false)}>
-                    {t('common.cancel')}
-                  </Button>
-                  <Button size="sm" variant="primary" disabled={!note.trim() || send.isPending} onClick={() => send.mutate()} data-review-changes-send>
-                    {send.isPending && <LoaderCircle className="animate-spin" />}
-                    {t('review.changesSend')}
-                  </Button>
-                </div>
-              </div>
-            )}
             <div className="flex items-center gap-2 border-t border-line bg-modal px-4 py-2" data-review-actions>
               <Button size="sm" variant="ghost" disabled={!canBack} onClick={onBack} data-review-back title={t('review.backTitle')} aria-label={t('review.back')}>
                 <ChevronLeft />
@@ -651,6 +617,9 @@ function PrState({ pr }: { pr: T.PullRequest }) {
     <span className="flex items-center gap-1.5" data-review-pr-state={pr.state}>
       <GitPullRequest className="size-3 shrink-0 text-faint" />
       <span className="font-mono text-[11.5px] text-secondary">#{pr.number}</span>
+      <span className="min-w-0 max-w-[28ch] truncate text-[11.5px] font-medium text-primary" title={pr.title}>
+        {pr.title}
+      </span>
       {pr.draft ? <Badge>{t('memory.pulls.draft')}</Badge> : <Badge variant={stateVariants[pr.state] ?? 'default'}>{stateLabels[pr.state] ? t(stateLabels[pr.state]) : pr.state}</Badge>}
       {pr.state === 'open' && pr.checks && (
         <Badge variant={checksVariants[pr.checks] ?? 'default'}>
