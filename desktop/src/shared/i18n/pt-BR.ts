@@ -1449,7 +1449,7 @@ export const ptBR: Messages = {
   'pages.toast.updatedShort': 'Página atualizada',
   'pages.toast.open': 'Abrir',
   'chat.tab.newChatTitle': 'Começar um novo chat?',
-  'chat.tab.newChatDescription': '{scope, select, home {{tool} inicia uma nova sessão que não se lembra desta conversa, que será removida. Seus projetos não são afetados.} project {{tool} inicia uma nova sessão que não se lembra desta conversa, que será removida. Os agentes de {project} e o trabalho deles não são afetados.} other {{tool} inicia uma nova sessão que não se lembra desta conversa, que será removida. O que {name} alterou na worktree permanece.}}',
+  'chat.tab.newChatDescription': '{scope, select, home {{tool} inicia uma nova sessão que não se lembra desta conversa, que será excluída do AgentBox. Seus projetos não são afetados.} project {{tool} inicia uma nova sessão que não se lembra desta conversa, que será excluída do AgentBox. Os agentes de {project} e o trabalho deles não são afetados.} other {{tool} inicia uma nova sessão que não se lembra desta conversa, que será excluída do AgentBox. O que {name} alterou na worktree permanece.}}',
   'chat.tab.reloadTools': 'Recarregar ferramentas',
   'chat.tab.reloadToolsTip': 'O {tool} reinicia com os conectores e servidores MCP atuais e retoma esta conversa',
   'chat.tab.reloadToolsNoResumeTip': 'O {tool} reinicia com os conectores e servidores MCP atuais, numa sessão nova: o adaptador dele não consegue retomar esta',

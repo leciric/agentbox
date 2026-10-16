@@ -1448,7 +1448,7 @@ export const enUS = {
   'pages.toast.updatedShort': 'Page updated',
   'pages.toast.open': 'Open',
   'chat.tab.newChatTitle': 'Start a new chat?',
-  'chat.tab.newChatDescription': '{scope, select, home {{tool} starts a new session that doesn’t remember this conversation, which is removed. Your projects are untouched.} project {{tool} starts a new session that doesn’t remember this conversation, which is removed. The agents of {project} and their work are untouched.} other {{tool} starts a new session that doesn’t remember this conversation, which is removed. What {name} changed in its worktree stays.}}',
+  'chat.tab.newChatDescription': '{scope, select, home {{tool} starts a new session that doesn’t remember this conversation, which is deleted from AgentBox. Your projects are untouched.} project {{tool} starts a new session that doesn’t remember this conversation, which is deleted from AgentBox. The agents of {project} and their work are untouched.} other {{tool} starts a new session that doesn’t remember this conversation, which is deleted from AgentBox. What {name} changed in its worktree stays.}}',
   'chat.tab.reloadTools': 'Reload tools',
   'chat.tab.reloadToolsTip': '{tool} restarts with the connectors and MCP servers it has now, and resumes this conversation',
   'chat.tab.reloadToolsNoResumeTip': '{tool} restarts with the connectors and MCP servers it has now, in a new session: its adapter can’t resume this one',
