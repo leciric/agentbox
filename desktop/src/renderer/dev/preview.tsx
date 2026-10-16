@@ -162,7 +162,7 @@
 //                           bridge answers, the agent coming back in 6s
 //                           (dev/review.tsx)
 //   &tour=welcome           with &v2=1, that tour playing (lib/tours.ts: welcome,
-//                           v2, review, panel, groups, cross-project; several
+//                           v2, review, panel, groups, cross-project, places; several
 //                           comma-separated), from &step=n (default 0)
 //   &panel=files            with &v2=1, the right-hand panel open on a tab
 //                           (files, desktop, terminal, browser, pages, media,
@@ -1070,7 +1070,7 @@ function settingsBridge(): void {
   // credentials read, empty.
   const lists = /^\/v1\/(skills|connectors|global\/memory\/memories|limits)(\?|$)|^\/v1\/projects\/[^/]+\/(skills|connectors|credentials)(\?|$)/;
   bridge.request = async (method, path, body) => {
-    if (method === 'GET' && path === '/v1/usage' && queryClient.getQueryData(['usage'])) return answer(queryClient.getQueryData(['usage']));
+    if (method === 'GET' && /^\/v1\/usage(\?|$)/.test(path) && queryClient.getQueryData(['usage'])) return answer(queryClient.getQueryData(['usage']));
     if (method === 'GET' && path === '/v1/lan') return answer(lan);
     if (method === 'GET' && lists.test(path)) return answer([]);
     if (phone && method === 'PATCH' && path === '/v1/lan') {
