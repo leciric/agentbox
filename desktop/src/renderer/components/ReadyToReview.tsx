@@ -145,7 +145,8 @@ export function ReviewDialog({
   // round to them; only when nothing is left does the review close.
   const advance = () => {
     if (!session || !order) return;
-    if (next) return onSession(goForward(session, next));
+    // A review opened on one agent keeps the order it had then.
+    if (next) return onSession(goForward({ ...session, order: queue ?? order }, next));
     const remaining = remainingAfter(order, session.item.ref, items);
     if (remaining.length) return onSession(wrapWalk(session, remaining));
     toast(t('review.allDone'));
@@ -213,9 +214,9 @@ export function ReviewRow({ item, isNew, now, projects, onOpen }: { item: T.Revi
 }
 
 // markItemReviewed records the verdict on the work as shown and takes the
-// agent off the list at once. quiet leaves out its toast, for a merge, whose
-// own "Merged" toast is the news: "marked reviewed" over it read as if the
-// merge hadn't happened.
+// agent off the list at once. quiet leaves out its toast, for the review,
+// which goes on to the next agent: "marked reviewed" over a "Merged" toast
+// read as if the merge hadn't happened.
 function markItemReviewed(queryClient: QueryClient, item: T.ReviewItem, t: ReturnType<typeof useT>, quiet = false) {
   dropFromList(queryClient, item.ref);
   return api
@@ -347,15 +348,18 @@ function ReviewCarousel({
     rememberMethod(item.project, m);
   };
   const prOpen = pr?.state === 'open';
-  const markReviewed = (quiet = false) => {
+  // The review going on to the next agent is the news, so it marks quietly:
+  // a "marked reviewed" toast would land over the "Merged" one, or over
+  // "That's everything" at the end.
+  const markReviewed = () => {
     setMarking(true);
-    void markItemReviewed(queryClient, item, t, quiet);
+    void markItemReviewed(queryClient, item, t, true);
     onNext();
   };
   const reviewAndGo = () => !marking && settled() && markReviewed();
   // Merged, it's reviewed too (quietly: the "Merged" toast is the news) and
   // the review goes on to the next agent.
-  const mergeAndGo = () => pr && !mergeDisabled && settled() && merge.mergeWith(pr, method, () => markReviewed(true));
+  const mergeAndGo = () => pr && !mergeDisabled && settled() && merge.mergeWith(pr, method, markReviewed);
   // Request changes opens a box over the footer; what's written goes to the
   // agent's chat (the daemon wakes its machine), and the review goes on.
   const [changing, setChanging] = useState(false);
