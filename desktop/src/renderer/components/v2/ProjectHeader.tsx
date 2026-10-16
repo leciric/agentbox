@@ -142,9 +142,9 @@ export function ProjectMenu({ project, leadRef, onNewAgent, onChangeIcon, newCha
       anchor={
         <span className="inline-flex">
           <Menu>
-            <Tip label={t('project.view.actions')}>
+            <Tip label={t('v2.header.chatOptions')}>
               <MenuTrigger asChild>
-                <Button size="icon" variant="ghost" aria-label={t('project.view.actions')} data-project-menu>
+                <Button size="icon-sm" variant="ghost" aria-label={t('v2.header.chatOptions')} data-project-menu>
                   <Ellipsis />
                 </Button>
               </MenuTrigger>
