@@ -3,6 +3,30 @@
 All notable, user-facing changes to AgentBox are documented here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Nothing older than 0.3.0 is listed.
 
+## [0.14.0](https://github.com/leciric/agentbox/compare/v0.13.0...v0.14.0) (2026-10-16)
+
+
+### Added
+
+* Media and Jobs as icons at the sidebar's foot in UI v2, and Overview becomes Home's Status tab ([#363](https://github.com/leciric/agentbox/issues/363)) ([2085b7a](https://github.com/leciric/agentbox/commit/2085b7a0f521946fc073bb0ba6419146525b0edd))
+* Open desktop from an agent's right-click menu ([#357](https://github.com/leciric/agentbox/issues/357)) ([732fa52](https://github.com/leciric/agentbox/commit/732fa52e96352102e3ef2fb1ac9b82c110031954))
+
+
+### Fixed
+
+* adding a connector says why Add is greyed out, and a token connector names its secret itself ([#358](https://github.com/leciric/agentbox/issues/358)) ([6a3345c](https://github.com/leciric/agentbox/commit/6a3345c3608df4247e0ce5eb1f6de331d93d2db1))
+* eight bugs from an end-to-end pass: Talk to another project, the tour, first-message notices, the model menu and the review ([#353](https://github.com/leciric/agentbox/issues/353)) ([c5871c2](https://github.com/leciric/agentbox/commit/c5871c23663eb905af67cebe8f57826bef2f2d4c))
+* hovering an agent no longer crashes the app without usage data, and Hide on a pinned project moves it to Hidden ([#355](https://github.com/leciric/agentbox/issues/355)) ([920482b](https://github.com/leciric/agentbox/commit/920482bc0937778901421c227c9e92cbf640a4dc))
+* merged or closed PRs no longer show as ready to review, and freed agents go straight to Past agents instead of "missing" ([#367](https://github.com/leciric/agentbox/issues/367)) ([2f8d745](https://github.com/leciric/agentbox/commit/2f8d7455f6cbc2a5775a2a1ceee877b412b54c16))
+* on Windows, a slow first start after an update shows its progress instead of "Command failed" ([#366](https://github.com/leciric/agentbox/issues/366)) ([09e159d](https://github.com/leciric/agentbox/commit/09e159d29b79e5ff958d043a2ee82d8f2111aac5))
+* Send says why when Claude Code isn't signed in, and the chat options ⋯ sits on the header row ([#359](https://github.com/leciric/agentbox/issues/359)) ([a723785](https://github.com/leciric/agentbox/commit/a72378572ff280f5bfb72c7e46ecbcacbb227ecf))
+* tables and markdown read as plain text in Ctrl+K and the sidebar, and a streaming table waits for its separator row ([#356](https://github.com/leciric/agentbox/issues/356)) ([34a6dcd](https://github.com/leciric/agentbox/commit/34a6dcd1f23309921c3a3e6ba887b9aec43d8570))
+* the review stays open after Merge, Reviewed and Request changes, and goes on to the next agent ([#362](https://github.com/leciric/agentbox/issues/362)) ([6429b6e](https://github.com/leciric/agentbox/commit/6429b6e5589c9bd355311c49761624a496c0960c))
+* the right panel's tabs show their names, + follows the last tab, and closing a tab shows its neighbour ([#361](https://github.com/leciric/agentbox/issues/361)) ([3a2c71e](https://github.com/leciric/agentbox/commit/3a2c71e17989e579669c98175d76842d642289d9))
+* UI v2 sidebar rows are two lines again, and Idle sits at the bottom above the foot ([#365](https://github.com/leciric/agentbox/issues/365)) ([c0314f2](https://github.com/leciric/agentbox/commit/c0314f2969b1ddf319ed93fc04052108047af2ae))
+* UI v2's review card docks on the composer, and the sidebar, Settings and the panel no longer overflow ([#364](https://github.com/leciric/agentbox/issues/364)) ([7b8ebb3](https://github.com/leciric/agentbox/commit/7b8ebb35ba3be8e23f078fb7fc140eb7b1a01aa4))
+* v2 polish from the UX test: wording, Y/N on agent permissions, Settings back button, review keys in the shortcuts sheet and more ([#360](https://github.com/leciric/agentbox/issues/360)) ([30b9b1a](https://github.com/leciric/agentbox/commit/30b9b1a40e800dda9689961de76bdf43d9a03845))
+
 ## [0.13.0](https://github.com/leciric/agentbox/compare/v0.12.1...v0.13.0) (2026-10-16)
 
 
