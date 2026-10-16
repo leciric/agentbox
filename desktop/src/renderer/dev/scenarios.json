@@ -1468,7 +1468,7 @@
   },
   {
     "id": "window-1440-v2-request-dark",
-    "description": "UI v2 at 1440×900, Request changes from the review: it closes and lands in agent-41's chat, its composer focused to write the changes in — dark",
+    "description": "UI v2 at 1440×900, Request changes from the review: a box over the footer that says it goes to agent-41's chat, which restarts it, with Send and next — dark",
     "query": "app=agent-41&v2=1&theme=dark",
     "width": 1440,
     "height": 900,
@@ -1684,26 +1684,24 @@
   },
   {
     "id": "window-review-merge-narrow-dark",
-    "description": "480×800, the review's footer asking how to merge: one row with a split Merge button — dark",
+    "description": "480×800, the review's footer in one row: Back, Request changes, the split Merge #318 and next, Reviewed, next, and Finish in its own slot — dark",
     "query": "app=project&theme=dark",
     "width": 480,
     "height": 800,
     "click": [
       "header [data-inbox]",
-      "[data-review-row]",
-      "[data-review-done]"
+      "[data-review-row]"
     ]
   },
   {
     "id": "window-review-merge-wide-dark",
-    "description": "1100×700, the review's footer asking how to merge: one row with a split Merge button — dark",
+    "description": "1100×700, the review's footer in one row: Back, Request changes, the split Merge #318 and next, Reviewed, next, and Finish in its own slot — dark",
     "query": "app=project&theme=dark",
     "width": 1100,
     "height": 700,
     "click": [
       "header [data-inbox]",
-      "[data-review-row]",
-      "[data-review-done]"
+      "[data-review-row]"
     ]
   },
   {

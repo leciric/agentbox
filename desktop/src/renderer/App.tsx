@@ -736,5 +736,5 @@ export function App({ initial }: { initial?: View } = {}) {
         )}
     </div>
   );
-  return v2 ? <ReviewV2 onSelect={select}>{shell}</ReviewV2> : shell;
+  return v2 ? <ReviewV2>{shell}</ReviewV2> : shell;
 }

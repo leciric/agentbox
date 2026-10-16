@@ -293,8 +293,10 @@ function GitHubErrorFix({ err, onOpenAccount, onOpenSetup }: { err: T.GitHubErro
 // confirmation that always names the branch it merges into and asks for the
 // method, which closes the moment it's confirmed. running and failed say the
 // rest per pull request — a spinner while the merge runs, or why it failed —
-// so other pull requests stay usable meanwhile. Render dialog once.
-export function usePullMerge(project: string, onMerged?: (pr: T.PullRequest) => void) {
+// so other pull requests stay usable meanwhile. Render dialog once. quiet
+// leaves the "Merged" toast to the caller (the review's names the agent and
+// the base).
+export function usePullMerge(project: string, onMerged?: (pr: T.PullRequest) => void, { quiet = false } = {}) {
   const t = useT();
   const queryClient = useQueryClient();
   const [merging, setMerging] = useState<T.PullRequest | null>(null);
@@ -312,7 +314,7 @@ export function usePullMerge(project: string, onMerged?: (pr: T.PullRequest) => 
       setFailed((f) => without(f, number));
     },
     onSuccess: async (pr) => {
-      toast(t('memory.pulls.merged', { number: pr.number }), { description: pr.title });
+      if (!quiet) toast(t('memory.pulls.merged', { number: pr.number }), { description: pr.title });
       onMergedRef.current?.(pr);
       // The daemon answers with the list it had, this pull request marked
       // merged, and re-reads GitHub behind it; the list on screen stays

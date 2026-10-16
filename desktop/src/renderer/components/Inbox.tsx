@@ -209,7 +209,7 @@ export function Inbox({ onOpen, onSelect, defaultOpen = false }: { onOpen: (n: T
           </div>
         </PopoverContent>
       </Popover>
-      <ReviewDialog session={session} pages={pages} onSession={setSession} onSelect={onSelect} />
+      <ReviewDialog session={session} pages={pages} onSession={setSession} />
     </>
   );
 }
