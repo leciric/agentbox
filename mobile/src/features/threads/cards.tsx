@@ -34,7 +34,7 @@ function Options({ permission, onAnswer, busy }: { permission: T.ChatPermission;
       {choices(permission).map((o) => (
         <Button
           key={o.id}
-          label={t(o.kind.startsWith('reject') ? 'chat.agentPermission.deny' : o.kind === 'allow_always' ? 'chat.agentPermission.approveAlways' : 'chat.agentPermission.approve')}
+          label={t(o.kind.startsWith('reject') ? 'chat.permission.deny' : o.kind === 'allow_always' ? 'chat.permission.alwaysAllow' : 'chat.permission.allow')}
           kind={o.kind === 'allow_once' ? 'primary' : o.kind.startsWith('reject') ? 'danger' : 'secondary'}
           disabled={busy}
           onPress={() => onAnswer(o.id)}
