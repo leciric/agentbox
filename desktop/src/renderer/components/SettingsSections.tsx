@@ -25,9 +25,11 @@ export function SettingsSections<Id extends string>({
   return (
     <div className="@container flex h-full min-h-0 flex-col">
       <div className="flex min-h-0 flex-1 flex-col @3xl:flex-row">
+        {/* Narrow, the sections wrap: a row that scrolled sideways, with its
+            scrollbar hidden, left the last ones out of a mouse wheel's reach. */}
         <nav
           aria-label={label}
-          className="flex shrink-0 gap-1 overflow-x-auto px-3 py-2 [scrollbar-width:none] @3xl:w-48 @3xl:flex-col @3xl:gap-0.5 @3xl:overflow-visible @3xl:border-r @3xl:border-line-faint @3xl:py-4"
+          className="flex shrink-0 flex-wrap gap-1 px-3 py-2 @3xl:w-48 @3xl:flex-nowrap @3xl:flex-col @3xl:gap-0.5 @3xl:overflow-visible @3xl:border-r @3xl:border-line-faint @3xl:py-4"
         >
           {sections.map(({ id, title, icon: Icon }) => {
             const active = id === value;
