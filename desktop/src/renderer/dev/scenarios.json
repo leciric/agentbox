@@ -786,6 +786,36 @@
     "height": 1400
   },
   {
+    "id": "nightly-v2-sidebar-dark",
+    "description": "UI v2 as a nightly build: the sidebar's starry header and Nightly badge, on the project's lead — dark",
+    "query": "app=project&v2=1&nightly=1&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "nightly-v2-sidebar-light",
+    "description": "The same UI v2 nightly sidebar — light",
+    "query": "app=project&v2=1&nightly=1&theme=light",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-min-nightly-v2-dark",
+    "description": "UI v2 as a nightly build at 480×800, the sidebar's drawer open from the top bar — dark",
+    "query": "app=project&v2=1&nightly=1&theme=dark",
+    "width": 480,
+    "height": 800,
+    "click": "[data-open-nav]"
+  },
+  {
+    "id": "window-min-nightly-v2-light",
+    "description": "The same UI v2 nightly at 480×800, the sidebar's drawer open — light",
+    "query": "app=project&v2=1&nightly=1&theme=light",
+    "width": 480,
+    "height": 800,
+    "click": "[data-open-nav]"
+  },
+  {
     "id": "stalled-agent-dark",
     "description": "The rail with a stalled agent (agent-88, rose Stalled, not green Working) and one whose chat stopped (agent-87) — dark",
     "query": "theme=dark",

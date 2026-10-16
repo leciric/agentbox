@@ -14,7 +14,7 @@
 // lib/leadFirst.ts's, lib/projectOrder.ts's and lib/sidebarHidden.ts's.
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Archive, Check, ChevronRight, CircleArrowUp, Eye, EyeOff, FolderPlus, House, ListFilter, LoaderCircle, RefreshCw, Search, Settings, ShieldAlert, SquarePen, X } from 'lucide-react';
+import { Archive, Check, ChevronRight, CircleArrowUp, Eye, EyeOff, FolderPlus, House, ListFilter, LoaderCircle, MoonStar, RefreshCw, Search, Settings, ShieldAlert, SquarePen, X } from 'lucide-react';
 import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from 'react';
 import * as A from '../../../shared/api';
 import type * as T from '../../../shared/api';
@@ -33,7 +33,7 @@ import { projectLabel } from '../../lib/projectName';
 import { useReviewing } from '../../lib/reviewAlert';
 import { useNow } from '../../lib/useNow';
 import { updateHint } from '../../lib/appUpdate';
-import { isUpgrade } from '../../lib/nightly';
+import { isNightly, isUpgrade } from '../../lib/nightly';
 import { useAppUpdate } from '../../lib/useAppUpdate';
 import { cn, errorMessage, shortcut, timeAgo } from '../../lib/utils';
 import { openNewTask, requestComposerFocus } from '../../lib/newTask';
@@ -71,6 +71,10 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
   const activity = useQuery({ queryKey: ['projectActivity'], queryFn: api.projectActivity, refetchInterval: 60_000 });
   const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup, refetchInterval: 15_000 });
+  // The same test as Sidebar's: a nightly is one by its version, or by the update check's word.
+  const update = useQuery({ queryKey: ['update'], queryFn: api.update, staleTime: Infinity });
+  const info = useQuery({ queryKey: ['app-info'], queryFn: () => window.agentbox.info(), staleTime: Infinity });
+  const nightly = isNightly(info.data?.version) || !!update.data?.nightly;
   const reviewing = useReviewing();
   const head = useReviewHead(reviewing);
   const questions = useQuestions();
@@ -224,9 +228,20 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
 
   return (
     <aside className="flex w-[288px] shrink-0 flex-col border-r border-line bg-rail backdrop-blur-xl" data-sidebar-v2>
-      <div className="flex h-14 shrink-0 items-center gap-2 px-4">
+      <div className={cn('flex h-14 shrink-0 items-center gap-2 px-4', nightly && 'nightly-sky')} data-nightly={nightly || undefined}>
         <Logo className="size-7" />
-        <span className="text-[14px] font-semibold tracking-tight text-title">AgentBox</span>
+        {/* A nightly's badge goes under the name: beside it, the header's "Add project" overflows the 288px column. */}
+        <div className="flex min-w-0 flex-col items-start gap-0.5">
+          <span className="text-[14px] font-semibold tracking-tight text-title">AgentBox</span>
+          {nightly && (
+            <Tip label={t('shell.sidebar.nightlyTip', { version: info.data?.version ? `, ${info.data.version}` : '' })}>
+              <span className="nightly-badge inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-px text-[10.5px] font-medium">
+                <MoonStar className="size-3" aria-hidden />
+                {t('shell.sidebar.nightly')}
+              </span>
+            </Tip>
+          )}
+        </div>
         <span className="ml-auto" />
         <HelpMenu />
         <button type="button" className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-1.5 py-1 text-[12px] text-subtle transition hover:bg-surface-strong hover:text-primary" onClick={onAddProject} data-v2-add-project>
