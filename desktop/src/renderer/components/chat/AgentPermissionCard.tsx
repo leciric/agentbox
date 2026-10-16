@@ -85,8 +85,9 @@ export function AgentPermissionCard({ item }: { item: T.ChatItem }) {
           pending={answer.isPending}
           sending={answer.variables}
           onAnswer={(id) => answer.mutate(id)}
-          approveLabel={t('chat.agentPermission.approve')}
-          denyLabel={t('chat.agentPermission.deny')}
+          approveLabel={t('chat.permission.allow')}
+          denyLabel={t('chat.permission.deny')}
+          keys
         />
       ) : (
         <p className={cn('mt-1 text-[12px]', state === 'denied' ? 'text-rose-200/80' : state === 'gone' ? 'text-subtle' : 'text-emerald-200/80')} data-agent-permission-outcome>

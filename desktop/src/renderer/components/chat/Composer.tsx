@@ -801,8 +801,8 @@ function PermissionBanner({ agent, thread, request, count }: { agent: T.Agent; t
           pending={answer.isPending}
           sending={answer.variables}
           onAnswer={(id) => answer.mutate(id)}
-          approveLabel={approval ? t('chat.permission.approve') : t('chat.permission.allow')}
-          denyLabel={approval ? t('chat.permission.refuse') : t('chat.permission.deny')}
+          approveLabel={t('chat.permission.allow')}
+          denyLabel={t('chat.permission.deny')}
           keys
         />
       </div>

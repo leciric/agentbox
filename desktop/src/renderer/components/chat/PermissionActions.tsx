@@ -1,5 +1,5 @@
 import { Check, ChevronDown, LoaderCircle } from 'lucide-react';
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import type * as T from '../../../shared/api';
 import { useT } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
@@ -12,7 +12,7 @@ import { Tip } from '../ui/tooltip';
 // primary choice. The permanent one, "Always allow …", sits in a menu on
 // Approve with a tooltip saying what it covers, so it isn't a click away
 // from the usual answer. With keys on, Y approves and N denies (not in a
-// text field); once an answer is on its way the buttons say so.
+// text field), and only the last one on the page answers, so a card above the composer's banner doesn't answer with it; once an answer is on its way the buttons say so.
 export function PermissionActions({
   options,
   agent,
@@ -39,6 +39,7 @@ export function PermissionActions({
   const t = useT();
   const approve = options.find((o) => o.kind === 'allow_once');
   const always = options.find((o) => o.kind === 'allow_always');
+  const root = useRef<HTMLDivElement>(null);
   const deny = options.find((o) => o.kind === 'reject_once') ?? options.find((o) => o.kind.startsWith('reject'));
   useEffect(() => {
     if (!keys || pending) return;
@@ -48,6 +49,8 @@ export function PermissionActions({
       if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
       const option = e.key === 'y' || e.key === 'Y' ? approve : e.key === 'n' || e.key === 'N' ? deny : undefined;
       if (!option) return;
+      const all = document.querySelectorAll('[data-permission-actions][data-keys]');
+      if (all[all.length - 1] !== root.current) return;
       e.preventDefault();
       onAnswer(option.id);
     };
@@ -58,7 +61,7 @@ export function PermissionActions({
   const spin = (id?: string): ReactNode => (pending && sending === id ? <LoaderCircle className="animate-spin" /> : null);
   const scope = always && always.name.length > 3 ? always.name : t('chat.permission.alwaysScope', { agent });
   return (
-    <div className="mt-2.5 flex flex-wrap items-center justify-end gap-1.5" data-permission-actions>
+    <div ref={root} className="mt-2.5 flex flex-wrap items-center justify-end gap-1.5" data-permission-actions data-keys={keys || undefined}>
       {deny && (
         <button
           type="button"
