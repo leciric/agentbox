@@ -224,12 +224,12 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
 
   return (
     <aside className="flex w-[288px] shrink-0 flex-col border-r border-line bg-rail backdrop-blur-xl" data-sidebar-v2>
-      <div className="flex h-14 shrink-0 items-center gap-2.5 px-4">
+      <div className="flex h-14 shrink-0 items-center gap-2 px-4">
         <Logo className="size-7" />
         <span className="text-[14px] font-semibold tracking-tight text-title">AgentBox</span>
         <span className="ml-auto" />
         <HelpMenu />
-        <button type="button" className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] text-subtle transition hover:bg-surface-strong hover:text-primary" onClick={onAddProject} data-v2-add-project>
+        <button type="button" className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-1.5 py-1 text-[12px] text-subtle transition hover:bg-surface-strong hover:text-primary" onClick={onAddProject} data-v2-add-project>
           <FolderPlus className="size-4" />
           {t('shell.home.addProject')}
         </button>
