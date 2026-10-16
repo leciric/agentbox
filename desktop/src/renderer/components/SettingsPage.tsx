@@ -5,6 +5,7 @@ import { countFeature, settingsSectionFeatures } from '../lib/usageStats';
 import { countEntries, search, splitAdvanced, type SettingEntry, type SettingGroup, type SettingSection } from '../lib/settingsSearch';
 import { cn } from '../lib/utils';
 import { Kbd, Notice, Panel } from './ui/card';
+import { ScrollRow } from './ui/scroll-row';
 import { SettingsGroup } from './ui/settings';
 import { useT } from '../lib/i18n';
 
@@ -123,7 +124,7 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
           document.getElementById(`settings-found-${section.id}`)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
         }}
         className={cn(
-          'flex min-w-0 max-w-56 shrink-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 @3xl:max-w-none @3xl:py-[7px]',
+          'flex min-w-0 shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-left text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 @3xl:max-w-none @3xl:py-[7px]',
           active ? 'bg-surface-raised text-title' : 'text-muted hover:bg-surface hover:text-primary',
           searching && hits === 0 && 'opacity-40 hover:bg-transparent hover:text-muted',
         )}
@@ -203,11 +204,13 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
               </button>
             )}
           </div>
-          {/* Narrow, the sections are a row that scrolls sideways, faded at
-              its right edge so the ones past it read as more to come. */}
-          <nav
+          {/* Narrow, the sections are a row that scrolls sideways, faded and
+              with a chevron at each end that has more past it. */}
+          <div className="-mx-3 @3xl:mx-0">
+          <ScrollRow
             aria-label={t('settings.page.sections')}
-            className="-mx-3 flex gap-1 overflow-x-auto px-3 pb-0.5 [mask-image:linear-gradient(to_right,black_calc(100%-3rem),transparent)] [scrollbar-width:none] @3xl:mx-0 @3xl:grid @3xl:gap-0.5 @3xl:overflow-visible @3xl:px-0 @3xl:[mask-image:none]"
+            active={open?.id}
+            className="flex gap-1 px-3 pb-0.5 @3xl:grid @3xl:gap-0.5 @3xl:overflow-visible @3xl:px-0"
           >
             {installation.map((section, i) => {
               const heading = section.nav !== installation[i - 1]?.nav && section.nav;
@@ -230,7 +233,8 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
                 {projects.map(navItem)}
               </>
             )}
-          </nav>
+          </ScrollRow>
+          </div>
         </aside>
 
         <main ref={main} className="min-h-0 min-w-0 flex-1 overflow-y-auto" data-settings-main>

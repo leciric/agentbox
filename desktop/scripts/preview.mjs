@@ -145,6 +145,17 @@ function overflowing() {
     }
   }
   const lines = found.map(({ text, by }) => `${by}px: ${text || '(no text)'}`);
+  // A column that scrolls down and also, by accident, sideways (the sidebar's
+  // list did, overflow-y-auto making x auto too): what sticks out of it was
+  // skipped above, as if the strip were meant to scroll.
+  for (const aside of document.querySelectorAll('aside')) {
+    for (const el of [aside, ...aside.querySelectorAll('*')]) {
+      const style = getComputedStyle(el);
+      if (!['auto', 'scroll'].includes(style.overflowX) || !['auto', 'scroll'].includes(style.overflowY)) continue;
+      const by = el.scrollWidth - el.clientWidth;
+      if (by > 1) lines.push(`${by}px: scrolls sideways: ${(el.textContent ?? '').trim().slice(0, 60)}`);
+    }
+  }
   // And the window itself: a page wider than the window scrolls sideways,
   // which a narrow or portrait window shows as content cut off at its edge.
   const wide = document.documentElement.scrollWidth - window.innerWidth;

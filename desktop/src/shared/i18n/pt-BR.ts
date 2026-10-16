@@ -3335,6 +3335,8 @@ export const ptBR: Messages = {
   'mobile.scope.answer': 'Responder perguntas e pedidos de permissão, marcar trabalho como revisado e pedir mudanças',
   'mobile.scope.merge': 'Fazer merge de pull requests',
   'common.more': 'Mais',
+  'common.scrollBack': 'Rolar para trás',
+  'common.scrollMore': 'Rolar para ver mais',
   'v2.sidebar.idleHint': 'nada rodando',
   'v2.sidebar.hide': 'Ocultar',
   'v2.sidebar.unhide': 'Mostrar de novo',

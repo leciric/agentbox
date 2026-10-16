@@ -254,7 +254,8 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
         </button>
       </div>
 
-      <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 pt-1" aria-label={t('v2.sidebar.chats')}>
+      {/* Never sideways: what's too long in it truncates (each row's flex children are min-w-0). */}
+      <nav className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-2 pb-3 pt-1" aria-label={t('v2.sidebar.chats')}>
         <NewTaskRow />
         <HomeRow active={view.kind === 'homeChat'} onClick={() => onSelect({ kind: 'homeChat' })} />
         <FilterBar filters={filters} onFilters={onFilters} projects={projects.data ?? []} rows={rows} />
@@ -724,8 +725,12 @@ function ProjectLead({
                 {chat.data?.chat === 'waiting' && <span className="size-1.5 shrink-0 rounded-full bg-amber-400" aria-label={t('shell.sidebar.needsYou')} />}
                 {chat.data?.last && <span className="ml-auto shrink-0 text-[11px] text-faint">{timeAgo(chat.data.last.at, now)}</span>}
               </span>
-              <span className="block truncate text-[11.5px] text-subtle" data-v2-lead-line>
-                {line ? (line.mine ? t('v2.sidebar.you', { text: line.text }) : line.text) : t('v2.sidebar.leadHint')}
+              {/* "N to review" ends this line, not the name's: there it left the name a few letters. */}
+              <span className="flex min-w-0 items-center gap-2">
+                <span className="min-w-0 flex-1 truncate text-[11.5px] text-subtle" data-v2-lead-line>
+                  {line ? (line.mine ? t('v2.sidebar.you', { text: line.text }) : line.text) : t('v2.sidebar.leadHint')}
+                </span>
+                <ReviewCount project={project.name} variant="button" />
               </span>
               {/* Its agents' permission requests wait in this chat too, as cards. */}
               {approvals > 0 && (
@@ -747,7 +752,6 @@ function ProjectLead({
                 </span>
               )}
             </span>
-            <ReviewCount project={project.name} variant="button" />
           </Lead>
         </ContextMenuTrigger>
         <ContextMenuContent
@@ -835,10 +839,10 @@ function AgentRow({ row, active, onSelect, sample, cpu }: { row: Row; active: bo
           <span className="flex min-w-0 items-center gap-1 text-[11px] leading-4">
             {agent.title && (
               <>
-                <span className="shrink-0 font-mono text-[10.5px] text-faint" data-v2-agent-num>
+                <span className="min-w-0 max-w-[55%] truncate font-mono text-[10.5px] text-faint" data-v2-agent-num>
                   {agent.name}
                 </span>
-                <span aria-hidden className="text-ghost">·</span>
+                <span aria-hidden className="shrink-0 text-ghost">·</span>
               </>
             )}
             <span

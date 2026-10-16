@@ -172,8 +172,20 @@ export function RightPanelHost({ view, onSelect }: { view: View; onSelect: (view
     };
   }, [chat]);
 
-  if (!at) return <span ref={probe} hidden />;
+  // A window narrowed past where the panel fits beside the chat closes it,
+  // rather than turning it into a drawer over the chat you were reading;
+  // opened again there, it is a drawer (UX test, finding 8).
   const box = panelBox(state.width, room, windowWidth);
+  const measured = room > 0;
+  const wasDrawer = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (!measured) return;
+    const was = wasDrawer.current;
+    wasDrawer.current = box.drawer;
+    if (was === false && box.drawer && chat && chatPanel(panelState(), chat).open) setPanelOpen(chat, false);
+  }, [box.drawer, measured, chat]);
+
+  if (!at) return <span ref={probe} hidden />;
   return (
     <>
       <span ref={probe} hidden />

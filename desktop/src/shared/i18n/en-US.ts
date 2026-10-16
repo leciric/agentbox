@@ -3334,6 +3334,8 @@ export const enUS = {
   'mobile.scope.answer': 'Answer questions and permission requests, mark work reviewed and ask for changes',
   'mobile.scope.merge': 'Merge pull requests',
   'common.more': 'More',
+  'common.scrollBack': 'Scroll back',
+  'common.scrollMore': 'Scroll for more',
   'v2.sidebar.idleHint': 'nothing running',
   'v2.sidebar.hide': 'Hide',
   'v2.sidebar.unhide': 'Unhide',

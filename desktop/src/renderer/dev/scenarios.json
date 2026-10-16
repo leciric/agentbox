@@ -1820,5 +1820,62 @@
     "query": "app=project&v2=1&tour=welcome&step=12&theme=dark",
     "width": 1440,
     "height": 900
+  },
+  {
+    "id": "window-1024-v2-agent-review-dark",
+    "description": "UI v2 at 1024×768 on agent-41, finished: its review card docked on the composer's top edge, not floating over the chat — dark",
+    "query": "app=agent-41&v2=1&theme=dark",
+    "width": 1024,
+    "height": 768
+  },
+  {
+    "id": "window-1024-v2-lead-review-dark",
+    "description": "UI v2 at 1024×768 on the lead's chat: \"3 agents ready to review\" docked on the composer, the end of the chat (Save and give) clear of it — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1024,
+    "height": 768
+  },
+  {
+    "id": "window-1024-v2-panel-dark",
+    "description": "UI v2 at 1024×768 with the panel open on Files: below 1100px it's a drawer, so the chat isn't left 280px beside it — dark",
+    "query": "app=project&v2=1&panel=files:lead&file=README.md&theme=dark",
+    "width": 1024,
+    "height": 768
+  },
+  {
+    "id": "window-1100-v2-panel-settings-dark",
+    "description": "UI v2 at 1100×800, the panel beside the chat at its narrowest on the project's Settings: every section's chip in reach — dark",
+    "query": "app=project&v2=1&panel=settings&section=general&theme=dark",
+    "width": 1100,
+    "height": 800
+  },
+  {
+    "id": "window-1024-v2-settings-dark",
+    "description": "UI v2's Settings at 1024×768: the sections a row that scrolls sideways, faded with a chevron at the end that has more — dark",
+    "query": "app=settings&v2=1&theme=dark",
+    "width": 1024,
+    "height": 768
+  },
+  {
+    "id": "window-1024-v2-settings-scrolled-dark",
+    "description": "The same at 1024×768, its row's chevron clicked: faded at both ends, a chevron each way — dark",
+    "query": "app=settings&v2=1&theme=dark",
+    "width": 1024,
+    "height": 768,
+    "click": "[data-scroll-row-more]"
+  },
+  {
+    "id": "window-480-v2-settings-light",
+    "description": "UI v2's Settings at 480×800: Accounts and AI tools whole in the row, more past the fade — light",
+    "query": "app=settings&v2=1&theme=light",
+    "width": 480,
+    "height": 800
+  },
+  {
+    "id": "window-wide-v2-sidebar-pt-dark",
+    "description": "UI v2's sidebar in Portuguese at 1920×1080, pinned leads with \"N para revisar\" under the name, which keeps its room; the list never scrolls sideways — dark",
+    "query": "app=project&v2=1&pins=agentbox,storefront&lang=pt-BR&theme=dark",
+    "width": 1920,
+    "height": 1080
   }
 ]

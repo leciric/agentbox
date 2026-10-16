@@ -360,6 +360,7 @@ function ReviewCarousel({
   // The merge slot is always there; it says why it can't merge.
   const footerReason = !pr ? t('review.mergeBlocked.none') : blocked === 'merged' ? t('review.mergeBlocked.merged') : blocked === 'closed' ? t('review.mergeBlocked.closed') : mergeReason;
   const mergeDisabled = !prOpen || !!mergeReason || merge.running.has(pr?.number ?? 0);
+  const footerNote = mergeDisabled ? footerReason : merge.failed[pr?.number ?? 0] ? t('memory.pulls.mergeFailed', { error: merge.failed[pr?.number ?? 0] }) : '';
 
   const act = (action: ReviewAction) => {
     switch (action) {
@@ -521,28 +522,32 @@ function ReviewCarousel({
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-2 border-t border-line bg-modal px-4 py-2" data-review-actions>
+            {/* Narrow, the actions wrap rather than drop their labels: icons
+                alone left Request changes and Merge to guess (UX test, finding 8). */}
+            <div className="flex flex-wrap items-center gap-2 border-t border-line bg-modal px-4 py-2" data-review-actions>
               <Button size="sm" variant="ghost" disabled={!canBack} onClick={onBack} data-review-back title={t('review.backTitle')} aria-label={t('review.back')}>
                 <ChevronLeft />
-                <span className="max-sm:hidden">{t('review.back')}</span>
+                <span>{t('review.back')}</span>
                 <span className="max-md:hidden">
                   <Kbd>P</Kbd>
                 </span>
               </Button>
               <Button size="sm" variant="secondary" onClick={requestChanges} data-review-changes title={t('review.requestChanges')} aria-label={t('review.requestChanges')}>
                 <MessageSquareText />
-                <span className="max-sm:hidden">{t('review.requestChanges')}</span>
+                <span>{t('review.requestChanges')}</span>
                 <span className="max-md:hidden">
                   <Kbd>C</Kbd>
                 </span>
               </Button>
-              <span className="ml-auto min-w-0 truncate text-[12px] text-amber-200 [:root[data-appearance=light]_&]:text-amber-700" data-merge-blocked title={footerReason}>
-                {mergeDisabled ? footerReason : merge.failed[pr?.number ?? 0] ? t('memory.pulls.mergeFailed', { error: merge.failed[pr?.number ?? 0] }) : ''}
+              {/* Why Merge can't, beside it; narrow, on a line of its own under the actions. */}
+              <span className={cn('ml-auto min-w-0 flex-1 truncate text-right text-[12px] text-amber-200 [:root[data-appearance=light]_&]:text-amber-700', footerNote && 'max-sm:order-last max-sm:basis-full max-sm:text-left')} data-merge-blocked title={footerReason}>
+                {footerNote}
               </span>
+              <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
               <div className="flex shrink-0 items-stretch" data-review-merge-split>
                 <Button size="sm" variant="primary" className="rounded-r-none" disabled={mergeDisabled} title={footerReason ?? t(methodLabels[method] ?? 'memory.pulls.merge')} onClick={mergeAndGo} data-review-merge data-merge-method={method}>
                   {pr && merge.running.has(pr.number) ? <LoaderCircle className="animate-spin" /> : <GitMerge />}
-                  <span className="max-sm:hidden">{t('review.mergeNumber', { number: pr?.number ?? 0 })}</span>
+                  <span>{t('review.mergeNumber', { number: pr?.number ?? 0 })}</span>
                 </Button>
                 <Menu open={methodOpen} onOpenChange={setMethodOpen}>
                   <MenuTrigger asChild>
@@ -561,13 +566,14 @@ function ReviewCarousel({
               </div>
               <Button size="sm" variant="secondary" disabled={marking} onClick={() => markReviewed()} data-review-done>
                 <Check />
-                <span className="max-md:hidden">{t('review.markReviewed')}</span>
+                <span>{t('review.markReviewed')}</span>
               </Button>
               <Button size="sm" variant="default" onClick={onNext} data-review-next title={next ? next.title || next.agent : undefined}>
                 {t(next ? 'review.nextAgent' : 'review.finish')}
                 <Kbd>N</Kbd>
                 <ArrowRight />
               </Button>
+              </div>
             </div>
           </section>
 

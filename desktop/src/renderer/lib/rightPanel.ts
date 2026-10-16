@@ -98,15 +98,17 @@ export function targets(kind: PanelKind, project: string, chat: string, agents: 
 }
 
 // panelBox is how wide the panel is, and whether it sits beside the chat or
-// over it as a drawer: beside from 1024px of window up, while the chat keeps
-// chatMin; a drawer otherwise. Every tab has the one width, as in T3Code
+// over it as a drawer: beside from besideMin of window up, while the chat
+// keeps chatMin; a drawer otherwise. At 1024px beside, the sidebar and the
+// panel left the chat about 280px (UX test, finding 8). Every tab has the one width, as in T3Code
 // (hooks/usePreviewPanelInlineSize.ts: one stored width, the column beside it
 // kept at 360px).
-export const chatMin = 360;
+export const besideMin = 1100;
+export const chatMin = 440;
 export const panelMin = 340;
 export const panelDefault = 540;
 export function panelBox(want: number, room: number, windowWidth: number): { width: number; drawer: boolean } {
-  if (windowWidth < 1024 || room - chatMin < panelMin) return { width: Math.round(Math.min(windowWidth * 0.92, Math.max(want, 420), windowWidth - 24)), drawer: true };
+  if (windowWidth < besideMin || room - chatMin < panelMin) return { width: Math.round(Math.min(windowWidth * 0.92, Math.max(want, 420), windowWidth - 24)), drawer: true };
   return { width: Math.round(Math.max(panelMin, Math.min(want, room - chatMin))), drawer: false };
 }
 

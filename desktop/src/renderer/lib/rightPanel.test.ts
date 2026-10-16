@@ -58,13 +58,16 @@ test('the picker lists the project’s agents newest first, and past ones withou
   assert.deepEqual(names(P.pickable('pawly', agents, gone, false)), ['new', 'old', 'past:gone-b', 'past:gone-a']);
 });
 
-test('the panel sits beside the chat while the chat keeps 360px, and is a drawer otherwise', () => {
+test('the panel sits beside the chat while the chat keeps 440px, and is a drawer otherwise', () => {
   assert.deepEqual(P.panelBox(540, 1632, 1920), { width: 540, drawer: false });
   // It gives way to the chat's least, down to its own.
-  assert.deepEqual(P.panelBox(540, 800, 1100), { width: 440, drawer: false });
+  assert.deepEqual(P.panelBox(540, 880, 1100), { width: 440, drawer: false });
   assert.deepEqual(P.panelBox(200, 1632, 1920), { width: P.panelMin, drawer: false });
   // No room for both: over the chat.
-  assert.equal(P.panelBox(540, 680, 1100).drawer, true);
+  assert.equal(P.panelBox(540, 720, 1100).drawer, true);
+  // Below 1100px of window, always a drawer, however much room: at 1024 the
+  // chat beside it was left about 280px.
+  assert.equal(P.panelBox(540, 1000, 1024).drawer, true);
   // Below 1024px of window, always a drawer, no wider than the window.
   const small = P.panelBox(540, 800, 800);
   assert.equal(small.drawer, true);

@@ -184,6 +184,12 @@ function ReviewedList({ project, tabs, onOpen }: { project?: string; tabs: React
   );
 }
 
+// dock is how the review card and the banner sit on the composer: a tab
+// joined to its top edge, opaque, so neither floats over the chat as a card
+// of its own would, hiding the end of the conversation behind it (UX test,
+// finding 8). The chat leaves room for it as it does for the composer.
+const dock = 'mx-3 rounded-t-xl border border-b-0 border-line-strong bg-composer';
+
 // AgentReviewCard sits above a finished agent's composer: what it made, its
 // pull request, and Review changes, which opens the carousel on it. While the
 // agent works on changes asked for, it says so instead.
@@ -204,7 +210,7 @@ export function AgentReviewCard({ agent }: { agent: T.Agent }) {
   const pr = item?.pr;
   const prTone = !pr ? '' : pr.state === 'merged' ? 'text-violet-300' : pr.checks === 'failing' || pr.conflict ? 'text-rose-300' : 'text-secondary';
   return (
-    <div className="mb-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-line-strong bg-overlay px-3 py-2 shadow-lg backdrop-blur-xl" data-review-card={agent.ref}>
+    <div className={cn(dock, 'flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2')} data-review-card={agent.ref}>
       <span className="flex min-w-0 items-center gap-2">
         {asked ? <LoaderCircle className="size-4 shrink-0 animate-spin text-subtle" /> : <CircleCheck className="size-4 shrink-0 text-subtle" />}
         <span className="shrink-0 text-[12.5px] font-medium text-title">
@@ -264,7 +270,7 @@ export function ReviewCount({ project, variant }: { project: string; variant: 'b
       <button
         type="button"
         onClick={open}
-        className="mt-0.5 shrink-0 rounded-full border border-line-strong bg-surface px-1.5 py-px text-[10.5px] font-medium tabular-nums text-secondary transition hover:border-line-heavy hover:bg-surface-strong hover:text-title"
+        className="shrink-0 rounded-full border border-line-strong bg-surface px-1.5 py-px text-[10.5px] font-medium tabular-nums text-secondary transition hover:border-line-heavy hover:bg-surface-strong hover:text-title"
         data-v2-review-button={project}
       >
         {t('v2.review.toReview', { count })}
@@ -272,7 +278,7 @@ export function ReviewCount({ project, variant }: { project: string; variant: 'b
     );
   }
   return (
-    <div className="mx-auto mb-2 flex w-full max-w-3xl items-center gap-2 rounded-xl border border-line bg-surface-faint px-3 py-1.5 text-[12.5px]" data-v2-review-banner={project}>
+    <div className={cn(dock, 'flex items-center gap-2 px-3 py-1.5 text-[12.5px]')} data-v2-review-banner={project}>
       <span className="size-1.5 shrink-0 rounded-full ring-1 ring-inset ring-secondary" aria-hidden />
       <span className="min-w-0 flex-1 truncate text-secondary">{t('v2.review.readyBanner', { count })}</span>
       <button type="button" onClick={open} className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 font-medium text-title hover:bg-surface-strong" data-v2-review-banner-open>
