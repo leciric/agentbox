@@ -30,7 +30,8 @@ const repo = join(root, '..');
 const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const run = (cmd, args, cwd = root, env = {}) => execFileSync(cmd, args, { cwd, stdio: 'inherit', env: { ...process.env, ...env } });
 
-const ldflags = `-s -w -X agentbox/internal/cli.version=${version} -X agentbox/internal/daemon.Version=${version}`;
+// main.version is agentbox.exe's: the Windows build has no internal/cli (cmd/agentbox/main_windows.go).
+const ldflags = `-s -w -X agentbox/internal/cli.version=${version} -X agentbox/internal/daemon.Version=${version} -X main.version=${version}`;
 const goBuild = (out, env = {}) =>
   run('go', ['build', '-trimpath', '-ldflags', ldflags, '-o', join(repo, 'bin', out), './cmd/agentbox'], repo, env);
 

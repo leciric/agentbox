@@ -83,6 +83,8 @@ function useSentence(free: FreeResources, status: Status): string {
       return t('shell.machine.connecting');
     case 'offline':
       return t('shell.machine.offline');
+    case 'starting':
+      return t('shell.machine.starting');
     case 'paused':
       return t('shell.machine.paused');
     case 'off':

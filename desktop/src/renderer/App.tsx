@@ -45,6 +45,7 @@ import { LinuxVMSetup, MovePrompt } from "./components/RunInVM";
 import { WhatsNewDialog } from "./components/WhatsNewDialog";
 import { WSLSetup } from "./components/WSLSetup";
 import { Notice } from "./components/ui/card";
+import { StartingNotice } from "./components/StartingNotice";
 import { api, isProjectChat } from "./lib/api";
 import { t as tNow, useT } from "./lib/i18n";
 import { useReadyAlerts } from "./lib/useReadyAlerts";
@@ -562,6 +563,13 @@ export function App({ initial }: { initial?: View } = {}) {
                     <WSLSetup wsl={setup.wsl} />
                   )}
                 </div>
+              </div>
+            ) : connection.starting ? (
+              <div className="px-4 pt-4 md:px-6">
+                <StartingNotice
+                  starting={connection.starting}
+                  windows={info.data?.platform === "win32"}
+                />
               </div>
             ) : (
               connection.state === "disconnected" && (

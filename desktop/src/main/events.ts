@@ -3,13 +3,16 @@
 // if needed; switching environments reconnects it to the new one.
 import type http from 'node:http';
 import { isLocal, requestOptions } from './connection';
-import { ensureDaemon } from './daemon';
+import { ensureDaemon, onStartProgress, type StartProgress } from './daemon';
 import { parseEvents } from './sse';
 import { t } from '../shared/i18n/index.ts';
 
 export interface ConnectionState {
   state: 'connecting' | 'connected' | 'disconnected';
   error?: string;
+  // The daemon is being started: shown instead of the last error until the
+  // start answers or fails.
+  starting?: StartProgress;
 }
 
 export class EventStream {
@@ -67,10 +70,17 @@ export class EventStream {
     // connection, and on Windows before the WSL distro is set up, where each
     // retry fails after a round trip through wsl.exe, that was the setup card.
     if (this.state.state !== 'disconnected') this.setState({ state: 'connecting' });
+    const off = onStartProgress((starting) => {
+      if (generation !== this.generation || this.state.state === 'connected') return;
+      const { starting: _, ...rest } = this.state;
+      this.setState(starting ? { ...rest, starting } : rest);
+    });
     try {
       if (isLocal()) await ensureDaemon();
     } catch (err) {
       return retry(err as Error);
+    } finally {
+      off();
     }
     if (generation !== this.generation) return;
     const { module, options } = requestOptions('/v1/events');

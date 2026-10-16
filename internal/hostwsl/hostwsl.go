@@ -40,6 +40,8 @@ import (
 	"time"
 	"unicode/utf16"
 
+	"golang.org/x/term"
+
 	"agentbox/internal/hostos"
 )
 
@@ -203,7 +205,46 @@ func (d *Distro) command(ctx context.Context, args ...string) *exec.Cmd {
 	// WSL_UTF8 makes wsl.exe's own messages UTF-8 rather than UTF-16.
 	cmd.Env = append(append(os.Environ(), "WSL_UTF8=1"), d.Env...)
 	hideWindow(cmd)
+	// A wsl.exe killed for taking too long can leave a process in the
+	// distro holding its output open: don't wait for that one too.
+	cmd.WaitDelay = 5 * time.Second
 	return cmd
+}
+
+// How long wsl.exe gets to answer the front end's own quick questions before
+// it says WSL is stuck, rather than hang with nothing said, which is all the
+// app could show (#433): listing the distros, which boots nothing, and
+// running a short command in the distro, which may have to boot it first,
+// systemd and all. Variables for tests.
+var (
+	listTimeout = 30 * time.Second
+	execTimeout = 2 * time.Minute
+)
+
+// runWithin is run, given up after limit with an error that says so.
+func (d *Distro) runWithin(ctx context.Context, limit time.Duration, stdin io.Reader, args ...string) (string, error) {
+	tctx, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
+	out, err := d.run(tctx, stdin, args...)
+	if err != nil && ctx.Err() == nil && errors.Is(tctx.Err(), context.DeadlineExceeded) {
+		return out, &stuckError{args: args, limit: limit}
+	}
+	return out, err
+}
+
+// stuckError is a wsl.exe that didn't answer in time.
+type stuckError struct {
+	args  []string
+	limit time.Duration
+}
+
+func (e *stuckError) Error() string {
+	return fmt.Sprintf("wsl.exe didn't answer `wsl %s` in %s: WSL seems stuck. In PowerShell: wsl --shutdown, then start AgentBox again", strings.Join(e.args, " "), e.limit)
+}
+
+// execWithin is exec, given up after execTimeout.
+func (d *Distro) execWithin(ctx context.Context, root bool, stdin io.Reader, command ...string) (string, error) {
+	return d.runWithin(ctx, execTimeout, stdin, d.execArgs(root, "", command...)...)
 }
 
 // run runs wsl.exe and returns what it printed. An error carries what it said.
@@ -222,9 +263,31 @@ func (d *Distro) run(ctx context.Context, stdin io.Reader, args ...string) (stri
 		if msg == "" {
 			return out, fmt.Errorf("wsl %s: %w", strings.Join(args, " "), err)
 		}
-		return out, fmt.Errorf("wsl %s: %s", strings.Join(args, " "), lastLine(msg))
+		return out, &wslError{args: args, said: msg}
 	}
 	return out, nil
+}
+
+// wslError is a wsl.exe that failed, and all it said about it.
+type wslError struct {
+	args []string
+	said string
+}
+
+// Error is the first line of what wsl.exe said, and its last when that's
+// another, which is where WSL puts its error code: "Windows Subsystem for
+// Linux has no installed distributions. (Error code: Wsl/…)".
+func (e *wslError) Error() string {
+	first, last := firstLine(e.said), lastLine(e.said)
+	if first == last {
+		return fmt.Sprintf("wsl %s: %s", strings.Join(e.args, " "), last)
+	}
+	return fmt.Sprintf("wsl %s: %s (%s)", strings.Join(e.args, " "), first, last)
+}
+
+func firstLine(s string) string {
+	first, _, _ := strings.Cut(strings.TrimSpace(strings.ReplaceAll(s, "\r", "")), "\n")
+	return strings.TrimSpace(first)
 }
 
 // exec runs a command in the distro, as root when root is set.
@@ -265,7 +328,7 @@ func lastLine(s string) string {
 // Version is WSL's own version, from `wsl --version`, which only the Store
 // WSL has. The WSL built into older Windows doesn't, and has no systemd.
 func (d *Distro) Version(ctx context.Context) (string, error) {
-	out, err := d.run(ctx, nil, "--version")
+	out, err := d.runWithin(ctx, listTimeout, nil, "--version")
 	if err == nil {
 		for _, line := range strings.Split(strings.ReplaceAll(out, "\r", ""), "\n") {
 			// "WSL version: 2.4.13.0"; the label is translated, the number isn't.
@@ -285,10 +348,12 @@ type State struct {
 }
 
 func (d *Distro) State(ctx context.Context) (State, error) {
-	out, err := d.run(ctx, nil, "--list", "--verbose")
+	out, err := d.runWithin(ctx, listTimeout, nil, "--list", "--verbose")
 	if err != nil {
-		// With no distros at all, wsl --list fails and says so.
-		if strings.Contains(strings.ToLower(err.Error()), "no installed distributions") {
+		// With no distros at all, wsl --list fails and says so, in the
+		// language of Windows, above an error code that's the same in every one.
+		var w *wslError
+		if errors.As(err, &w) && (strings.Contains(strings.ToLower(w.said), "no installed distributions") || strings.Contains(w.said, "WSL_E_DEFAULT_DISTRO_NOT_FOUND")) {
 			return State{}, nil
 		}
 		return State{}, err
@@ -388,25 +453,65 @@ func (d *Distro) EnsureBinary(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	out, _ := d.exec(ctx, true, nil, "sha256sum", distroBinary)
-	if strings.HasPrefix(strings.TrimSpace(out), want) {
-		return false, nil
+	// One wsl.exe compares the two and, when they differ, copies Windows'
+	// from where the distro sees it (/mnt/c/…): tens of megabytes through
+	// wsl.exe's stdin take minutes, the first start after every update
+	// (#433). The relay and `daemon start` both get here as the app starts:
+	// the lock makes the second find the first's copy instead of making its
+	// own.
+	src, _ := LinuxPath(d.Binary, d.Name)
+	start := time.Now()
+	out, err := d.execWithin(ctx, true, nil, "sh", "-c", installScript, "sh", want, distroBinary, src)
+	if err != nil {
+		return false, fmt.Errorf("installing agentbox in %s: %w", d.Name, err)
 	}
+	switch strings.TrimSpace(out) {
+	case "current":
+		return false, nil
+	case "installed":
+		d.progress("Installed agentbox in %s (%s)", d.Name, since(start))
+		return true, nil
+	}
+	// Through stdin when the distro can't see it: automount may be off, and
+	// the front end's folder may be somewhere WSL can't see.
+	d.progress("Copying agentbox into %s…", d.Name)
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return false, err
 	}
-	// Through stdin rather than /mnt/c: automount may be off, and the
-	// front end's folder may be somewhere WSL can't see.
 	if err := d.writeFile(ctx, distroBinary, "0755", f); err != nil {
 		return false, fmt.Errorf("installing agentbox in %s: %w", d.Name, err)
 	}
+	d.progress("Installed agentbox in %s (%s)", d.Name, since(start))
 	return true, nil
 }
+
+// installScript is EnsureBinary's, run as root with the agentbox wanted's
+// SHA-256, where it goes and where the distro sees Windows' copy. It says
+// "current", "installed", or "stdin" for a copy it couldn't read.
+const installScript = `set -e
+mkdir -p /run/lock; exec 9>/run/lock/agentbox-install; flock 9
+sum() { sha256sum "$1" 2>/dev/null | cut -d' ' -f1; }
+if [ "$(sum "$2")" = "$1" ]; then echo current; exit 0; fi
+t="$2.new.$$"
+if [ -n "$3" ] && cp "$3" "$t" 2>/dev/null && [ "$(sum "$t")" = "$1" ]; then
+	chmod 0755 "$t"; mv -f "$t" "$2"; echo installed; exit 0
+fi
+rm -f "$t"; echo stdin`
+
+// progress says what the front end is doing, on its log (stderr), which the
+// app shows while it waits: a first start after an update takes minutes.
+func (d *Distro) progress(format string, a ...any) {
+	if d.Log != nil {
+		_, _ = fmt.Fprintf(d.Log, format+"\n", a...)
+	}
+}
+
+func since(t time.Time) time.Duration { return time.Since(t).Round(time.Second) }
 
 // writeFile writes what r holds to path in the distro, as root, replacing it
 // in one rename so a running agentbox isn't cut short.
 func (d *Distro) writeFile(ctx context.Context, path, mode string, r io.Reader) error {
-	_, err := d.exec(ctx, true, r, "sh", "-c", `set -e; t="$1.new.$$"; cat >"$t"; chmod "$2" "$t"; mv -f "$t" "$1"`, "sh", path, mode)
+	_, err := d.execWithin(ctx, true, r, "sh", "-c", `set -e; t="$1.new.$$"; cat >"$t"; chmod "$2" "$t"; mv -f "$t" "$1"`, "sh", path, mode)
 	return err
 }
 
@@ -414,18 +519,27 @@ func (d *Distro) writeFile(ctx context.Context, path, mode string, r io.Reader) 
 // The distro's agentbox is brought up to date first, and the daemon started
 // through a wsl.exe that keeps the distro running while it does.
 func (d *Distro) Forward(ctx context.Context, args []string) (int, error) {
-	if err := d.ready(ctx); err != nil {
+	st, err := d.readyState(ctx)
+	if err != nil {
 		return 1, err
 	}
-	if installed, err := d.EnsureBinary(ctx); err != nil {
+	// The first command in a stopped distro boots it, systemd and all.
+	if st.State != "Running" {
+		d.progress("Starting %s, AgentBox's WSL distro…", d.Name)
+	}
+	if _, err := d.EnsureBinary(ctx); err != nil {
 		return 1, err
-	} else if installed {
-		_, _ = fmt.Fprintf(d.Log, "Installed agentbox %s in %s\n", d.Binary, d.Name)
 	}
 	if needsDaemon(args) {
 		if err := d.StartDaemon(ctx); err != nil {
 			return 1, err
 		}
+	}
+	// `daemon start` is done: the front end started it, and the distro's own
+	// would only be one more wsl.exe to fail in.
+	if len(args) == 2 && args[0] == "daemon" && args[1] == "start" {
+		_, _ = fmt.Fprintf(os.Stdout, "The AgentBox daemon is running in %s\n", d.Name)
+		return 0, nil
 	}
 	dir, note := d.workdir()
 	if note != "" {
@@ -444,15 +558,42 @@ func (d *Distro) Forward(ctx context.Context, args []string) (int, error) {
 	// The command's own console: a terminal, Ctrl-C and colours.
 	showWindow(cmd)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	err := runForeground(cmd)
+	// Output that isn't a console's, the app's, is watched as it passes, so
+	// that a failure nobody explained can be.
+	var said, printed *tail
+	if !term.IsTerminal(int(os.Stderr.Fd())) {
+		said = &tail{}
+		cmd.Stderr = io.MultiWriter(os.Stderr, said)
+		if !term.IsTerminal(int(os.Stdout.Fd())) {
+			printed = &tail{}
+			cmd.Stdout = io.MultiWriter(os.Stdout, printed)
+		}
+	}
+	err = runForeground(cmd)
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {
-		return exit.ExitCode(), nil
+		return exit.ExitCode(), silentExit(args, d.Name, exit.ExitCode(), said, printed)
 	}
 	if err != nil {
-		return 1, err
+		return 1, fmt.Errorf("running agentbox %s in %s: %w", strings.Join(args, " "), d.Name, err)
 	}
 	return 0, nil
+}
+
+// silentExit explains a forwarded command's failure when nothing else will:
+// wsl.exe's own failures, whose status is no Linux one (WSL's error codes,
+// -1), and whose message, if any, went to stdout; and a command that failed
+// without a word on stderr, watched when it isn't a console (said). nil when
+// the command said why itself.
+func silentExit(args []string, distro string, code int, said, printed *tail) error {
+	command := strings.TrimSpace("agentbox " + strings.Join(args, " "))
+	if code < 0 || code > 255 {
+		return fmt.Errorf("wsl.exe couldn't run %s in %s (error 0x%08x)%s", command, distro, uint32(code), printed.suffix())
+	}
+	if said != nil && said.suffix() == "" {
+		return fmt.Errorf("%s exited with status %d in %s%s", command, code, distro, printed.suffix())
+	}
+	return nil
 }
 
 // hostOnly are the AGENTBOX_ settings that are the front end's own, or name
@@ -569,6 +710,8 @@ func (d *Distro) StartDaemon(ctx context.Context) error {
 	if d.daemonAnswers(ctx, 0) {
 		return nil
 	}
+	d.progress("Starting the AgentBox daemon in %s…", d.Name)
+	start := time.Now()
 	cmd := d.command(context.Background(), d.execArgs(false, "~", append([]string{"sh", "-c",
 		`mkdir -p "$(dirname "` + daemonLog + `")" && exec env "$@" agentbox daemon >>"` + daemonLog + `" 2>&1`, "sh"}, d.daemonEnv()...)...)...)
 	cmd, err := startDetached(cmd)
@@ -576,13 +719,47 @@ func (d *Distro) StartDaemon(ctx context.Context) error {
 		return fmt.Errorf("starting the daemon in %s: %w", d.Name, err)
 	}
 	// Reap it if this process outlives it; nothing waits on it otherwise.
-	go func() { _ = cmd.Wait() }()
-	if !d.daemonAnswers(ctx, 30*time.Second) {
-		return fmt.Errorf("the AgentBox daemon didn't start in %s: see %s there (agentbox wsl shell)", d.Name, "~/.local/share/agentbox/daemon.log")
+	exited := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(exited) }()
+	// A daemon migrates its database before it answers, which the first
+	// start after an update can take minutes to: it's waited for as long as
+	// it runs, up to daemonStartWait, and a daemon that exits is reported at
+	// once, with the last line it logged.
+	said := false
+	for deadline := time.Now().Add(daemonStartWait); ; {
+		if d.daemonAnswers(ctx, 5*time.Second) {
+			break
+		}
+		select {
+		case <-exited:
+			if d.daemonAnswers(ctx, 0) { // another daemon won the socket
+				return nil
+			}
+			last, _ := d.exec(ctx, false, nil, "sh", "-c", `tail -n 1 "`+daemonLog+`"`)
+			if last = strings.TrimSpace(last); last != "" {
+				last = ": " + last
+			}
+			return fmt.Errorf("the AgentBox daemon exited as it started in %s%s (log: ~/.local/share/agentbox/daemon.log there, agentbox wsl shell)", d.Name, last)
+		default:
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("the AgentBox daemon didn't answer in %s after %s: see ~/.local/share/agentbox/daemon.log there (agentbox wsl shell)", d.Name, daemonStartWait)
+		}
+		if !said && time.Since(start) > 15*time.Second {
+			d.progress("Waiting for the AgentBox daemon: its first start after an update can take a few minutes…")
+			said = true
+		}
 	}
-	_, _ = fmt.Fprintf(d.Log, "Started the AgentBox daemon in %s\n", d.Name)
+	d.progress("Started the AgentBox daemon in %s (%s)", d.Name, since(start))
 	return nil
 }
+
+// daemonStartWait is how long a starting daemon that hasn't exited is waited
+// for. A variable for tests.
+var daemonStartWait = 10 * time.Minute
 
 // daemonEnv is what the daemon is told about Windows: where the install ID
 // is kept (hostos.InstallIDFileEnv), beside the distro's directory rather than
@@ -606,7 +783,7 @@ func (d *Distro) daemonEnv() []string {
 // daemonAnswers asks the distro's agentbox whether the daemon answers, waiting
 // up to wait for it to.
 func (d *Distro) daemonAnswers(ctx context.Context, wait time.Duration) bool {
-	_, err := d.exec(ctx, false, nil, "agentbox", "wsl-bridge", "--wait", wait.String())
+	_, err := d.runWithin(ctx, wait+execTimeout, nil, d.execArgs(false, "", "agentbox", "wsl-bridge", "--wait", wait.String())...)
 	return err == nil
 }
 

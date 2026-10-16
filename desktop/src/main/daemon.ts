@@ -7,6 +7,7 @@ import { agentboxBin } from './cli';
 import { isLocal, requestOptions } from './connection';
 import { canUseIncus, vmInitDone } from './hostsetup';
 import { socketPath } from './paths';
+import { progressStep, startFailure } from './startfailure';
 import { t } from '../shared/i18n/index.ts';
 import { NotListeningError, onWindows, relayRefused, startRelay } from './relay';
 import { linuxVM, vmState } from './vmmode';
@@ -87,6 +88,33 @@ async function answers(): Promise<boolean> {
 
 let starting: Promise<void> | undefined;
 let quitting = false;
+
+// StartProgress is a `daemon start` under way: when it began, and the last
+// thing it said it's doing (its stderr), for the app to show while it waits.
+// A first start after an update can take minutes on Windows: booting the WSL
+// distro, installing the new Linux agentbox in it and migrating the database
+// (#433).
+export interface StartProgress {
+  since: number; // ms since the epoch
+  step: string;
+}
+
+let progress: StartProgress | null = null;
+const progressListeners = new Set<(p: StartProgress | null) => void>();
+
+// onStartProgress calls fn with the start under way, now and whenever it
+// changes, and with null once it's over. It answers how to stop.
+export function onStartProgress(fn: (p: StartProgress | null) => void): () => void {
+  progressListeners.add(fn);
+  fn(progress);
+  return () => progressListeners.delete(fn);
+}
+
+function setProgress(p: StartProgress | null): void {
+  progress = p;
+  for (const fn of progressListeners) fn(p);
+}
+
 
 // ensureDaemon starts the daemon unless one already answers. AGENTBOX_BIN picks
 // the agentbox binary; AGENTBOX_NO_AUTOSTART turns this off.
@@ -221,12 +249,30 @@ async function start(): Promise<void> {
   }
   // On Windows, agentbox.exe starts the daemon in AgentBox's WSL distro, which
   // may have to boot first, systemd and Incus with it.
-  await new Promise<void>((resolve, reject) => {
-    const timeout = process.platform === 'darwin' || vm ? 300_000 : onWindows ? 180_000 : 30_000;
-    execFile(bin, ['daemon', 'start'], { timeout, windowsHide: true }, (err, _stdout, stderr) => {
+  setProgress({ since: Date.now(), step: '' });
+  try {
+    await runStart(bin, vm);
+  } finally {
+    setProgress(null);
+  }
+}
+
+function runStart(bin: string, vm: boolean): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    // A first start after an update takes minutes on Windows, and
+    // agentbox.exe gives up by itself, saying why, on a WSL that's stuck
+    // (hostwsl's listTimeout and execTimeout) or a daemon that doesn't
+    // answer (daemonStartWait): this only catches what's left.
+    const timeout = onWindows ? 15 * 60_000 : process.platform === 'darwin' || vm ? 300_000 : 30_000;
+    const child = execFile(bin, ['daemon', 'start'], { timeout, windowsHide: true }, (err, stdout, stderr) => {
       if (!err) return resolve();
-      const notFound = (err as NodeJS.ErrnoException).code === 'ENOENT';
-      reject(new Error(notFound ? t('web.main.binaryNotFound', { bin }) : stderr.trim().replace(/^error: /, '') || err.message));
+      reject(new Error(startFailure(err, stdout, stderr, bin, timeout)));
+    });
+    let said = '';
+    child.stderr?.on('data', (chunk: Buffer | string) => {
+      said = (said + chunk.toString()).slice(-4_000);
+      const step = progressStep(said);
+      if (step && progress && step !== progress.step) setProgress({ ...progress, step });
     });
   });
 }

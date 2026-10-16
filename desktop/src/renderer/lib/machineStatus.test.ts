@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { VMPower } from '../../preload';
 import type * as T from '../../shared/api';
-import { machineStatus } from './machineStatus.ts';
+import { elapsed, machineStatus } from './machineStatus.ts';
 
 const GiB = 1024 ** 3;
 const vm = (state: VMPower['state'], used = 5 * GiB, extra: Partial<VMPower> = {}): VMPower => ({
@@ -52,4 +52,16 @@ test("host mode reads this computer's memory", () => {
   assert.equal(machineStatus(null, connected, host(8 * GiB)).memory?.percent, 25);
   assert.equal(machineStatus(null, connected).memory, null);
   assert.equal(machineStatus(null, { state: 'disconnected' }, host(30 * GiB)).kind, 'offline');
+});
+
+test('a daemon being started is starting, whatever the last attempt said', () => {
+  const starting = { since: 0, step: 'Installed agentbox in AgentBox (41s)' };
+  assert.equal(machineStatus(null, { state: 'disconnected', error: 'Command failed', starting }).kind, 'starting');
+  assert.equal(machineStatus(vm('off'), { state: 'connecting', starting }).tone, 'busy');
+});
+
+test('elapsed reads as a clock', () => {
+  assert.equal(elapsed(-5), '0:00');
+  assert.equal(elapsed(42_900), '0:42');
+  assert.equal(elapsed(125_000), '2:05');
 });

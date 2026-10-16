@@ -14,6 +14,7 @@ export interface ApiResponse {
 export interface ConnectionState {
   state: 'connecting' | 'connected' | 'disconnected';
   error?: string;
+  starting?: { since: number; step: string }; // the daemon is being started (main/daemon.ts StartProgress)
 }
 
 export interface HostSetupStatus {

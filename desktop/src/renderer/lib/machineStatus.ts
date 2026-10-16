@@ -9,6 +9,7 @@ export type MachineKind =
   | 'running' // up, connected, with room
   | 'memory' // up, connected, its memory nearly full
   | 'connecting' // up, the daemon not answering yet
+  | 'starting' // the app is starting the daemon, and the VM or WSL distro with it
   | 'offline' // up, the connection to the daemon lost
   | 'paused'
   | 'off'
@@ -37,6 +38,8 @@ export const memoryFull = 85;
 export function machineStatus(vm: VMPower | null, connection: ConnectionState, host?: T.HostUsage): MachineStatus {
   const memory = memoryOf(vm, host);
   const of = (kind: MachineKind, tone: MachineTone): MachineStatus => ({ kind, tone, memory });
+  // A start boots what it needs: whatever state that's in, it's on its way.
+  if (connection.starting) return of('starting', 'busy');
   if (vm) {
     if (vm.state === 'off') return of('off', vm.error ? 'bad' : 'off');
     if (vm.state === 'paused') return of('paused', 'warn');
@@ -54,4 +57,10 @@ function memoryOf(vm: VMPower | null, host?: T.HostUsage): MachineStatus['memory
   if (total <= 0 || (vm && vm.state !== 'running')) return null;
   const share = (of: number) => Math.max(0, Math.min(1, used / of)) * 100;
   return { used, total, cap, percent: share(total), capPercent: share(cap > 0 ? cap : total) };
+}
+
+// elapsed is how long a start has taken, as a clock: 0:42, 2:05.
+export function elapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }

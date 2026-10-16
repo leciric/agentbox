@@ -8,6 +8,11 @@
 //	FAKEWSL_AGENTBOX a Linux agentbox for the rest of `agentbox`'s commands
 //	FAKEWSL_UTF16    print wsl.exe's own output in UTF-16LE, as wsl.exe does
 //	                 without WSL_UTF8
+//	FAKEWSL_DAEMON_EXIT the daemon the front end starts exits at once
+//	FAKEWSL_NO_MOUNT the distro can't see Windows' files (no automount)
+//	FAKEWSL_LANG     pt-BR: wsl.exe's messages in Portuguese
+//	FAKEWSL_HANG     never answer a wsl.exe command line starting with this
+//	                 argument, as a stuck WSL doesn't
 //
 // `agentbox wsl-bridge` and the daemon the front end starts run in-process, so
 // the relay can be run end to end with no Linux: `fakewsl serve <socket>` is
@@ -85,6 +90,9 @@ func run(args []string) int {
 	if len(args) == 0 {
 		return fail("fakewsl: no arguments")
 	}
+	if h := os.Getenv("FAKEWSL_HANG"); h != "" && args[0] == h {
+		time.Sleep(time.Hour)
+	}
 	switch args[0] {
 	case "--version":
 		say("WSL version: 2.4.13.0\r\nKernel version: 6.6.87.2-1\r\n")
@@ -92,7 +100,14 @@ func run(args []string) int {
 	case "--list":
 		entries, _ := os.ReadDir(filepath.Join(root(), "distros"))
 		if len(entries) == 0 {
-			return fail("Windows Subsystem for Linux has no installed distributions.")
+			// As wsl.exe says it, to stdout, in the language of Windows
+			// (FAKEWSL_LANG=pt-BR), above its error code.
+			if os.Getenv("FAKEWSL_LANG") == "pt-BR" {
+				say("O Subsistema do Windows para Linux não tem distribuições instaladas.\r\nVocê pode resolver isso instalando uma distribuição com as instruções abaixo:\r\n\r\nUse 'wsl.exe --list --online' para listar as distribuições disponíveis\r\ne 'wsl.exe --install <Distro>' para instalar.\r\nCódigo de erro: Wsl/WSL_E_DEFAULT_DISTRO_NOT_FOUND\r\n")
+			} else {
+				say("Windows Subsystem for Linux has no installed distributions.\r\nYou can resolve this by installing a distribution with the instructions below:\r\n\r\nUse 'wsl.exe --list --online' to list available distributions\r\nand 'wsl.exe --install <Distro>' to install.\r\nError code: Wsl/WSL_E_DEFAULT_DISTRO_NOT_FOUND\r\n")
+			}
+			return 1
 		}
 		say("  NAME        STATE           VERSION\r\n")
 		for _, e := range entries {
@@ -200,6 +215,28 @@ func execute(command []string) int {
 		// Distro.Power: 16 GiB, 9.5 of them available, and 8 CPUs.
 		fmt.Print("MemTotal:       16777216 kB\nMemFree:         8388608 kB\nMemAvailable:    9961472 kB\n8\n")
 		return 0
+	case command[0] == "sh" && len(command) == 7 && strings.Contains(command[2], "flock 9"):
+		// Distro.EnsureBinary: compare, and copy from where the distro sees
+		// Windows' copy, unless FAKEWSL_NO_MOUNT says it can't.
+		want, dst, src := command[4], command[5], command[6]
+		if b, err := os.ReadFile(dst); err == nil && sha(b) == want {
+			fmt.Println("current")
+			return 0
+		}
+		b, err := os.ReadFile(src)
+		if os.Getenv("FAKEWSL_NO_MOUNT") != "" || src == "" || err != nil || sha(b) != want {
+			fmt.Println("stdin")
+			return 0
+		}
+		_ = os.MkdirAll(filepath.Dir(dst), 0o755)
+		if err := os.WriteFile(dst+".new", b, 0o755); err != nil {
+			return fail("%v", err)
+		}
+		if err := os.Rename(dst+".new", dst); err != nil {
+			return fail("%v", err)
+		}
+		fmt.Println("installed")
+		return 0
 	case command[0] == "sha256sum":
 		b, err := os.ReadFile(command[1])
 		if err != nil {
@@ -231,6 +268,10 @@ func execute(command []string) int {
 		if err := os.WriteFile(filepath.Join(root(), "daemon-env"), []byte(strings.Join(command[4:], "\n")), 0o644); err != nil {
 			return fail("%v", err)
 		}
+		// FAKEWSL_DAEMON_EXIT: a daemon that exits as it starts.
+		if os.Getenv("FAKEWSL_DAEMON_EXIT") != "" {
+			return 1
+		}
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
 		if err := serve(ctx, os.Getenv("FAKEWSL_SOCKET")); err != nil {
@@ -254,6 +295,11 @@ func execute(command []string) int {
 		return 0
 	}
 	return execLocal(command)
+}
+
+func sha(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
 }
 
 func execLocal(command []string) int {

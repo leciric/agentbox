@@ -49,6 +49,9 @@
 //   ?wsl=create|nowsl       Windows' first screen before setup: the distro to
 //                           make, or WSL to install first. The whole App, with
 //                           no daemon to reach, as a first launch shows it
+//   ?wsl=starting           Windows' first start after an update: the distro
+//                           set up, its daemon being started, 1:35 in, its
+//                           steps going by every few seconds (#433)
 //   ?accounts=1             Settings' Claude Code accounts, with a rename the
 //                           dev bridge answers (fixtures.ts)
 //   ?avatars=working        every AI tool's avatar in one mood (working, asking,
@@ -314,7 +317,9 @@ const windowsBeforeSetup: HostSetupStatus = {
   wsl:
     wsl === 'nowsl'
       ? { wsl: '', name: 'AgentBox', user: '', exists: false, problem: "WSL 2 isn't installed: run wsl --install --no-distribution" }
-      : { wsl: '2.4.13.0', name: 'AgentBox', user: '', exists: false, problem: "AgentBox's WSL distro isn't set up: run agentbox wsl init" },
+      : wsl === 'starting'
+        ? { wsl: '2.4.13.0', name: 'AgentBox', user: 'leandro', exists: true, state: 'Running', version: 2 }
+        : { wsl: '2.4.13.0', name: 'AgentBox', user: '', exists: false, problem: "AgentBox's WSL distro isn't set up: run agentbox wsl init" },
 };
 
 // windowsBeforeSetup makes the dev bridge a Windows machine on first launch:
@@ -328,9 +333,19 @@ function windowsBeforeSetupBridge(): void {
   bridge.request = async () => {
     throw new Error(error);
   };
-  bridge.connection = async () => ({ state: 'disconnected', error }) satisfies ConnectionState;
+  // The steps `agentbox.exe daemon start` says it's at (internal/hostwsl).
+  const steps = [
+    "Starting AgentBox, AgentBox's WSL distro…",
+    'Installed agentbox in AgentBox (41s)',
+    'Starting the AgentBox daemon in AgentBox…',
+    'Waiting for the AgentBox daemon: its first start after an update can take a few minutes…',
+  ];
+  const since = Date.now() - 95_000;
+  const state = (): ConnectionState =>
+    wsl === 'starting' ? { state: 'connecting', starting: { since, step: steps[Math.min(steps.length - 1, Math.floor((Date.now() - since - 95_000) / 4_000))] } } : { state: 'disconnected', error };
+  bridge.connection = async () => state();
   bridge.onConnection = (fn: (state: ConnectionState) => void) => {
-    const timer = setInterval(() => fn({ state: 'disconnected', error }), 1_000);
+    const timer = setInterval(() => fn(state()), 1_000);
     return () => clearInterval(timer);
   };
   bridge.hostSetup = { status: async () => windowsBeforeSetup, run: async () => ({ restarted: false }), onOutput: () => () => {} };

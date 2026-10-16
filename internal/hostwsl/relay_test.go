@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -129,6 +130,21 @@ func TestStatus(t *testing.T) {
 	}
 }
 
+// TestNoDistros: WSL with no distros at all, in English and in another
+// language, is a distro to set up, not an error.
+func TestNoDistros(t *testing.T) {
+	for _, lang := range []string{"en-US", "pt-BR"} {
+		d := fakeDistro(t)
+		d.Env = append(d.Env, "FAKEWSL_LANG="+lang)
+		if st := d.Status(context.Background()); st.Problem != ErrNotCreated.Error() {
+			t.Errorf("%s: %+v", lang, st)
+		}
+		if code, err := d.Forward(context.Background(), []string{"daemon", "start"}); code != 1 || !errors.Is(err, ErrNotCreated) {
+			t.Errorf("%s: Forward = %d, %v", lang, code, err)
+		}
+	}
+}
+
 func TestEnsureBinary(t *testing.T) {
 	d := fakeDistro(t)
 	ctx := context.Background()
@@ -152,6 +168,24 @@ func TestEnsureBinary(t *testing.T) {
 	}
 }
 
+// TestEnsureBinaryThroughStdin: a distro that can't see Windows' copy (no
+// automount) gets it through wsl.exe's stdin instead.
+func TestEnsureBinaryThroughStdin(t *testing.T) {
+	d := fakeDistro(t)
+	imported(t, d)
+	d.Env = append(d.Env, "FAKEWSL_NO_MOUNT=1")
+	var log strings.Builder
+	d.Log = &log
+	if got, err := d.EnsureBinary(context.Background()); err != nil || !got {
+		t.Fatalf("EnsureBinary = %v, %v", got, err)
+	}
+	b, _ := os.ReadFile(filepath.Join(d.fakeEnv("FAKEWSL_ROOT"), "usr", "local", "bin", "agentbox"))
+	want, _ := os.ReadFile(d.Binary)
+	if string(b) != string(want) || !strings.Contains(log.String(), "Copying agentbox into AgentBox") {
+		t.Fatalf("the distro has %q; said %q", b, log.String())
+	}
+}
+
 func TestForwardExitCode(t *testing.T) {
 	d := fakeDistro(t)
 	imported(t, d)
@@ -167,6 +201,140 @@ func TestForwardExitCode(t *testing.T) {
 		code, err := d.Forward(context.Background(), tc.args)
 		if err != nil || code != tc.want {
 			t.Errorf("Forward(%q) = %d, %v; want %d", tc.args, code, err, tc.want)
+		}
+	}
+}
+
+// TestForwardDaemonStart: the front end starts the daemon itself, and says
+// so, rather than run the distro's `agentbox daemon start` after it.
+func TestForwardDaemonStart(t *testing.T) {
+	d := fakeDistro(t)
+	imported(t, d)
+	// The distro's agentbox is fakewsl itself, which can't fake `daemon
+	// start`: running it would fail.
+	d.Env = append(d.Env, "FAKEWSL_AGENTBOX="+d.WSL)
+	ctx := context.Background()
+	t.Cleanup(func() { _, _ = d.exec(ctx, false, nil, "agentbox", "daemon", "stop") })
+	var log strings.Builder
+	d.Log = &log
+	code, err := d.Forward(ctx, []string{"daemon", "start"})
+	if err != nil || code != 0 {
+		t.Fatalf("Forward(daemon start) = %d, %v", code, err)
+	}
+	// What it did, as the app shows it while it waits.
+	for _, step := range []string{"Starting AgentBox, AgentBox's WSL distro…", "Installed agentbox in AgentBox (", "Starting the AgentBox daemon in AgentBox…", "Started the AgentBox daemon in AgentBox ("} {
+		if !strings.Contains(log.String(), step) {
+			t.Errorf("didn't say %q: %q", step, log.String())
+		}
+	}
+	if !d.daemonAnswers(ctx, 0) {
+		t.Fatal("no daemon answers after daemon start")
+	}
+}
+
+// TestDaemonExits: a daemon that exits as it starts is reported then, not
+// waited for.
+func TestDaemonExits(t *testing.T) {
+	d := fakeDistro(t)
+	imported(t, d)
+	d.Env = append(d.Env, "FAKEWSL_DAEMON_EXIT=1")
+	start := time.Now()
+	err := d.StartDaemon(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "exited as it started") {
+		t.Fatalf("StartDaemon = %v", err)
+	}
+	if took := time.Since(start); took > 30*time.Second {
+		t.Fatalf("reported after %s", took)
+	}
+}
+
+// TestInstallScript runs EnsureBinary's script with a real sh, where there's
+// one: current, installed from where the distro sees Windows' copy, and
+// "stdin" when it can't read it.
+func TestInstallScript(t *testing.T) {
+	for _, tool := range []string{"sh", "flock", "sha256sum", "cut"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skipf("no %s here", tool)
+		}
+	}
+	if err := os.MkdirAll("/run/lock", 0o755); err != nil {
+		t.Skip("no /run/lock here")
+	}
+	if f, err := os.OpenFile("/run/lock/agentbox-install", os.O_CREATE|os.O_WRONLY, 0o666); err != nil {
+		t.Skip("can't take /run/lock/agentbox-install here")
+	} else {
+		_ = f.Close()
+	}
+	dir := t.TempDir()
+	src, dst := filepath.Join(dir, "agentbox-linux"), filepath.Join(dir, "agentbox")
+	_ = os.WriteFile(src, []byte("new"), 0o644)
+	want, _ := digest(strings.NewReader("new"))
+	run := func(src string) string {
+		out, err := exec.Command("sh", "-c", installScript, "sh", want, dst, src).CombinedOutput()
+		if err != nil {
+			t.Fatalf("%v: %s", err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	if got := run(filepath.Join(dir, "missing")); got != "stdin" {
+		t.Fatalf("with no copy to read: %q", got)
+	}
+	if got := run(src); got != "installed" {
+		t.Fatalf("first: %q", got)
+	}
+	if b, _ := os.ReadFile(dst); string(b) != "new" {
+		t.Fatalf("installed %q", b)
+	}
+	if fi, _ := os.Stat(dst); fi.Mode().Perm() != 0o755 {
+		t.Fatalf("installed with mode %v", fi.Mode())
+	}
+	if got := run(src); got != "current" {
+		t.Fatalf("again: %q", got)
+	}
+}
+
+// TestStuckWSL: a wsl.exe that never answers is given up on, and the error
+// says so, rather than `agentbox daemon start` hanging with nothing said
+// until the app gives up on it, which is all its banner could show.
+func TestStuckWSL(t *testing.T) {
+	for _, step := range []string{"--list", "--distribution"} {
+		t.Run(step, func(t *testing.T) {
+			d := fakeDistro(t)
+			imported(t, d)
+			d.Env = append(d.Env, "FAKEWSL_HANG="+step)
+			defer func(l, e time.Duration) { listTimeout, execTimeout = l, e }(listTimeout, execTimeout)
+			listTimeout, execTimeout = time.Second, time.Second
+			start := time.Now()
+			code, err := d.Forward(context.Background(), []string{"daemon", "start"})
+			if code == 0 || err == nil || !strings.Contains(err.Error(), "didn't answer") || !strings.Contains(err.Error(), "wsl --shutdown") {
+				t.Fatalf("Forward = %d, %v", code, err)
+			}
+			if took := time.Since(start); took > 20*time.Second {
+				t.Fatalf("gave up after %s", took)
+			}
+		})
+	}
+}
+
+func TestSilentExit(t *testing.T) {
+	quiet, loud, out := &tail{}, &tail{}, &tail{}
+	_, _ = loud.Write([]byte("error: no such project\n"))
+	_, _ = out.Write([]byte("Le nom de la distribution n'existe pas.\r\nWsl/Service/WSL_E_DISTRO_NOT_FOUND\r\n"))
+	for _, tc := range []struct {
+		code      int
+		said, out *tail
+		want      string
+	}{
+		{1, loud, nil, ""},
+		{1, nil, nil, ""}, // a console: it saw whatever was said
+		{1, quiet, nil, "agentbox daemon stop exited with status 1 in AgentBox"},
+		{3, quiet, out, "agentbox daemon stop exited with status 3 in AgentBox: Wsl/Service/WSL_E_DISTRO_NOT_FOUND"},
+		{-1, loud, out, "wsl.exe couldn't run agentbox daemon stop in AgentBox (error 0xffffffff): Wsl/Service/WSL_E_DISTRO_NOT_FOUND"},
+		{0x8007019e, nil, nil, "wsl.exe couldn't run agentbox daemon stop in AgentBox (error 0x8007019e)"},
+	} {
+		err := silentExit([]string{"daemon", "stop"}, "AgentBox", tc.code, tc.said, tc.out)
+		if got := fmt.Sprint(err); (err == nil) != (tc.want == "") || (err != nil && got != tc.want) {
+			t.Errorf("silentExit(%d) = %v, want %q", tc.code, err, tc.want)
 		}
 	}
 }
