@@ -446,7 +446,8 @@ function ReviewCarousel({
                     <span className="truncate font-mono text-[11.5px]">{item.branch}</span>
                   </span>
                 )}
-                {pr && <PrState pr={pr} />}
+                {/* The PR slide has the title and status itself. */}
+                {pr && slide?.kind !== 'pr' && <PrState pr={pr} />}
                 <span className="text-faint">· {t('review.finished', { when: timeAgo(item.finishedAt) })}</span>
               </div>
             </div>
