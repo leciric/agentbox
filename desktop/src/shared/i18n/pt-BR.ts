@@ -3263,7 +3263,7 @@ export const ptBR: Messages = {
   'panel.machine.asleep': 'Dormindo',
   'panel.machine.freed': 'Máquina liberada',
   'panel.noMatch': 'Nenhum agente corresponde.',
-  'panel.noMachines': 'Nenhum agente deste projeto tem máquina. Crie um com Novo agente.',
+  'panel.noMachines': 'Estas abas precisam de uma máquina, e nenhum agente deste projeto tem uma. Peça ao lead para iniciar um agente, ou escolha Iniciar um agente você mesmo no menu ⋯ do projeto, em Mais.',
   'panel.noAgents': 'Este projeto ainda não tem agentes.',
   'panel.hidden': '{count, plural, one {# agente antigo sem máquina oculto} other {# agentes antigos sem máquina ocultos}}',
   'panel.choose.lead': 'O líder roda neste computador, sem {tab} próprio.',

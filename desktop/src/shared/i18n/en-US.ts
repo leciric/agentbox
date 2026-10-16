@@ -3262,7 +3262,7 @@ export const enUS = {
   'panel.machine.asleep': 'Asleep',
   'panel.machine.freed': 'Machine freed',
   'panel.noMatch': 'No agent matches.',
-  'panel.noMachines': 'No agent of this project has a machine. Start one with New agent.',
+  'panel.noMachines': 'These tabs need a machine, and no agent of this project has one. Ask the lead to start an agent, or choose Start an agent yourself in the project’s ⋯ menu, under More.',
   'panel.noAgents': 'This project has no agents yet.',
   'panel.hidden': '{count, plural, one {# past agent without a machine hidden} other {# past agents without a machine hidden}}',
   'panel.choose.lead': 'The lead runs on this computer, with no {tab} of its own.',
