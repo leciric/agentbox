@@ -413,10 +413,12 @@ export function ChatTab({
 // in view is ChatStatus, and only when the tool isn't simply ready.
 // It's null without an agent, for a page whose agent is still loading: its
 // hooks run all the same.
-// buttons is New chat as the chat header's icon, where UI v2 has it instead
-// of in a menu (its Find is ⌘F, its Files the panel's), and reload is Reload
-// tools as an item for the page's ⋯, under More: it's rarely needed.
-export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; buttons: ReactNode; reload: ReactNode; dialogs: ReactNode } | null {
+// buttons is New chat as the chat header's icon, where UI v2 has it on an
+// agent's page instead of in a menu (its Find is ⌘F, its Files the panel's);
+// newChat is the same as an item, for v2's lead header, whose ⋯ has it
+// (ProjectMenu), with untracked, the warning that stays beside it. reload is
+// Reload tools as an item for the page's ⋯, under More: it's rarely needed.
+export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; buttons: ReactNode; newChat: ReactNode; untracked: ReactNode; reload: ReactNode; dialogs: ReactNode } | null {
   const t = useT();
   const queryClient = useQueryClient();
   const ref = agent?.ref ?? '';
@@ -444,6 +446,11 @@ export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; but
       {t('chat.tab.reloadTools')}
     </MenuItem>
   );
+  const newChatItem = (
+    <MenuItem icon={MessageSquarePlus} disabled={empty} onSelect={() => setClearing(true)} data-chat-new>
+      {t('chat.tab.newChat')}
+    </MenuItem>
+  );
   const items = (
     <>
       <MenuLabel>{t('chat.menu.label')}</MenuLabel>
@@ -460,9 +467,7 @@ export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; but
           {t('files.panel.files')}
         </MenuCheckboxItem>
       )}
-      <MenuItem icon={MessageSquarePlus} disabled={empty} onSelect={() => setClearing(true)} data-chat-new>
-        {t('chat.tab.newChat')}
-      </MenuItem>
+      {newChatItem}
       {reloadItem}
       {/* Only Claude Code's adapter reports background tasks: elsewhere an
           agent waiting on one reads as finished, and never wakes for it. */}
@@ -475,15 +480,16 @@ export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; but
     </>
   );
   const untracked = agent.ai === 'codex' || agent.ai === 'opencode' || agent.ai === 'cursor';
+  const untrackedMark = untracked && (
+    <Tip label={t('chat.background.untrackedTip', { tool })}>
+      <span className="flex size-8 items-center justify-center text-amber-300/80" data-chat-background-untracked>
+        <EyeOff className="size-4" />
+      </span>
+    </Tip>
+  );
   const buttons = (
     <>
-      {untracked && (
-        <Tip label={t('chat.background.untrackedTip', { tool })}>
-          <span className="flex size-8 items-center justify-center text-amber-300/80" data-chat-background-untracked>
-            <EyeOff className="size-4" />
-          </span>
-        </Tip>
-      )}
+      {untrackedMark}
       <Tip label={t('chat.tab.newChat')}>
         <Button size="icon" variant="ghost" aria-label={t('chat.tab.newChat')} disabled={empty} onClick={() => setClearing(true)} data-chat-new>
           <MessageSquarePlus />
@@ -516,7 +522,7 @@ export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; but
       />
     </>
   );
-  return { items, buttons, reload: reloadItem, dialogs };
+  return { items, buttons, newChat: newChatItem, untracked: untrackedMark, reload: reloadItem, dialogs };
 }
 
 // ChatMenu is a ⋯ of the chat's own, for a page with no menu to fold it into

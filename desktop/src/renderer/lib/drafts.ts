@@ -60,11 +60,19 @@ export function setDraft(ref: string, text: string): void {
   scheduleWrite();
 }
 
-// composeIn puts text in a chat's composer, its cursor at the end, as if the
-// user had typed it: kept as its draft, and handed to a composer on screen
-// (Composer listens for composeEvent). v2's "Talk to another project" uses it.
+// composeIn puts text at the start of a chat's composer, before what was
+// typed there already, with the cursor right after it, as if the user had
+// typed it: kept as its draft, and handed to a composer on screen (Composer
+// listens for composeEvent). v2's "Talk to another project" uses it, whose
+// text is the start of a sentence the draft may well finish.
 export const composeEvent = 'agentbox:compose';
-export function composeIn(ref: string, text: string): void {
+export function composeIn(ref: string, lead: string): void {
+  const text = composed(lead, getDraft(ref));
   setDraft(ref, text);
-  window.dispatchEvent(new CustomEvent(composeEvent, { detail: { ref, text } }));
+  window.dispatchEvent(new CustomEvent(composeEvent, { detail: { ref, text, cursor: lead.length } }));
+}
+
+// composed is lead before draft, which loses only its leading blanks.
+export function composed(lead: string, draft: string): string {
+  return lead + draft.trimStart();
 }

@@ -151,8 +151,8 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
   const mine = agents.data?.filter((a) => a.project === name) ?? [];
   const { retire, setFreeing, setRemoving, dialogs: projectDialogs } = useProjectActions(name, onSelect);
 
-  // v1's ⋯. v2's is ProjectMenu in the top bar, with the chat's New chat and
-  // Reload tools as icons beside it; the rest are its sidebar menu's and its
+  // v1's ⋯. v2's is ProjectMenu in the top bar, which takes the chat's New
+  // chat and Reload tools as items; the rest are its sidebar menu's and its
   // Settings' (ProjectActions).
   const menuItems = project && (
     <>
@@ -185,8 +185,8 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
         <InTopBar>
           {lead && <ChatStatus agent={lead} />}
           {chatMenu?.dialogs}
-          {chatMenu?.buttons}
-          {lead && <ProjectMenu project={project} leadRef={lead.ref} onNewAgent={onNewAgent} onChangeIcon={() => setIconOpen(true)} more={chatMenu?.reload} />}
+          {chatMenu?.untracked}
+          {lead && <ProjectMenu project={project} leadRef={lead.ref} onNewAgent={onNewAgent} onChangeIcon={() => setIconOpen(true)} newChat={chatMenu?.newChat} more={chatMenu?.reload} />}
           <PanelButton project={name} chat={`${name}/${T.LeadName}`} />
         </InTopBar>
       ) : (

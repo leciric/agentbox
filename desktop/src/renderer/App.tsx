@@ -44,7 +44,7 @@ import { LinuxVMSetup, MovePrompt } from "./components/RunInVM";
 import { WhatsNewDialog } from "./components/WhatsNewDialog";
 import { WSLSetup } from "./components/WSLSetup";
 import { Notice } from "./components/ui/card";
-import { api } from "./lib/api";
+import { api, isProjectChat } from "./lib/api";
 import { t as tNow, useT } from "./lib/i18n";
 import { useReadyAlerts } from "./lib/useReadyAlerts";
 import { useUiV2 } from "./lib/uiV2";
@@ -359,9 +359,11 @@ export function App({ initial }: { initial?: View } = {}) {
       // Not one the daemon keeps: the agent's own chat says it's waiting
       // until it isn't, so it needs no history.
       const id = `waiting:${a.ref}:${Date.now()}`;
+      // v2 answers it from the project's chat, where its card is (#323) and
+      // the lead knows about it; v1 in the agent's own.
       const open = () => {
         waiting.current.delete(id);
-        select({ kind: "agent", ref: a.ref, tab: "chat" });
+        select(v2 && !isProjectChat(a.ref) ? { kind: "project", project: a.project, tab: "chat" } : { kind: "agent", ref: a.ref, tab: "chat" });
       };
       waiting.current.set(id, open);
       toastNotice(

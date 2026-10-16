@@ -238,12 +238,12 @@ export function Composer({
     return onComposerFocus(take);
   }, [agent.ref, disabled]);
 
-  // Text put here from elsewhere (composeIn), with the cursor at its end.
+  // Text put here from elsewhere (composeIn), with the cursor where it says.
   useEffect(() => {
     const put = (e: Event) => {
-      const { ref, text: next } = (e as CustomEvent<{ ref: string; text: string }>).detail;
+      const { ref, text: next, cursor } = (e as CustomEvent<{ ref: string; text: string; cursor?: number }>).detail;
       if (ref !== agent.ref) return;
-      pendingCursor.current = next.length;
+      pendingCursor.current = cursor ?? next.length;
       setText(next);
       area.current?.focus();
     };

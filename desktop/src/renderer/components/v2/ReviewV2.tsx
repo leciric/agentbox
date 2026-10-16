@@ -1,8 +1,10 @@
-// UI v2's review: #301's carousel (ReadyToReview.tsx), opened from the inbox, as
-// in v1, from the sidebar and the lead chat's "N to review", and from an
-// agent's own view, whose card (AgentReviewCard) says what it made. Its one
-// set of actions is the carousel's footer, the same in both layouts.
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+// UI v2's review: #301's carousel (ReadyToReview.tsx), opened from the
+// sidebar and the lead chat's "N to review", and from an agent's own view,
+// whose card (AgentReviewCard) says what it made. Its one set of actions is
+// the carousel's footer, the same in both layouts. v2 has no inbox, so what
+// was its Reviewed section is the modal's Reviewed tab: the agents already
+// reviewed, the latest verdict first, each one reopened in the carousel.
+import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, CircleCheck, Film, GitMerge, GitPullRequest, Globe, Images, LoaderCircle } from 'lucide-react';
 import { createContext, useContext, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
@@ -10,20 +12,25 @@ import type * as T from '../../../shared/api';
 import type { View } from '../../App';
 import { api } from '../../lib/api';
 import { useT } from '../../lib/i18n';
-import { agentReviewPrefix, useReviewPages } from '../../lib/inboxPages';
+import { agentReviewPrefix, inboxPageSize, pageItems, useReviewPages } from '../../lib/inboxPages';
 import { changesPending } from '../../lib/leadFirst';
 import { startWalk } from '../../lib/review';
 import { useMediaCounts } from '../../lib/mediaPages';
+import { projectLabel } from '../../lib/projectName';
+import { useNow } from '../../lib/useNow';
 import { cn, errorMessage } from '../../lib/utils';
-import { ReviewDialog, type ReviewSession } from '../ReadyToReview';
+import { MoreMedia } from '../MediaTab';
+import { ReviewDialog, ReviewRow, type ReviewSession } from '../ReadyToReview';
 import { Button } from '../ui/button';
+import { DialogContent, DialogTitle } from '../ui/dialog';
 
 // OpenReview opens the carousel, the one way in: on an agent (item, the one
 // an agent's card shows), or walking through every agent waiting for review,
 // or one project's (the sidebar's "N to review", the lead chat's banner;
 // Home's "all" can too). Nothing is marked seen or reviewed until the
-// carousel has shown an agent, and only its buttons record a verdict.
-export type OpenReview = (opts?: { project?: string; item?: T.ReviewItem }) => void;
+// carousel has shown an agent, and only its buttons record a verdict. With
+// reviewed it opens on the Reviewed tab instead, of project's agents or all.
+export type OpenReview = (opts?: { project?: string; item?: T.ReviewItem; reviewed?: boolean }) => void;
 const OpenReviewContext = createContext<OpenReview | null>(null);
 
 // useOpenReview is openReview, under ReviewV2.
@@ -58,22 +65,113 @@ export function useAgentReview(ref: string) {
   return useQuery({ queryKey: agentReviewKey(ref), queryFn: () => agentReview(ref) });
 }
 
+// reviewedKey is the agents already reviewed, of one project or ('') all:
+// under ['reviewed'], so refreshInbox refreshes it.
+const reviewedKey = (project?: string) => ['reviewed', 'project', project ?? ''];
+
 // ReviewV2 gives what's under it a way to open the carousel on any agent.
 export function ReviewV2({ onSelect, children }: { onSelect: (view: View) => void; children: ReactNode }) {
   const queryClient = useQueryClient();
   const [session, setSession] = useState<ReviewSession | null>(null);
+  // The Reviewed tab, while it's on screen: whose agents it lists.
+  const [reviewed, setReviewed] = useState<{ project?: string } | null>(null);
   const pages = useReviewPages(false, session !== null);
   const openReview: OpenReview = (opts = {}) => {
+    if (opts.reviewed) {
+      setSession(null);
+      return setReviewed({ project: opts.project });
+    }
     if (opts.item) return setSession(startWalk([], opts));
     const { project } = opts;
     const page = project ? queryClient.fetchQuery({ queryKey: projectReviewKey(project), queryFn: () => readyFor(project), staleTime: 0 }) : readyFor();
-    void page.then(({ items }) => setSession(startWalk(items ?? [], opts))).catch((err) => toast.error(errorMessage(err)));
+    void page
+      .then(({ items }) => {
+        const walk = startWalk(items ?? [], opts);
+        // Nothing left to review from the Reviewed tab: it stays.
+        if (!walk && reviewed) return;
+        setReviewed(null);
+        setSession(walk);
+      })
+      .catch((err) => toast.error(errorMessage(err)));
+  };
+  // The Reviewed tab lists the walk's project, or every project's.
+  const scope = reviewed ?? { project: session?.project };
+  const tabs = <ReviewTabs project={scope.project} on={reviewed || session?.item.verdict ? 'reviewed' : 'review'} onReview={() => openReview({ project: scope.project })} onReviewed={() => setReviewed(scope)} />;
+  const open = (item: T.ReviewItem) => {
+    setReviewed(null);
+    setSession({ item, order: null });
   };
   return (
     <OpenReviewContext.Provider value={openReview}>
       {children}
-      <ReviewDialog session={session} pages={pages} onSession={setSession} onSelect={onSelect} />
+      <ReviewDialog
+        session={session}
+        pages={pages}
+        onSession={setSession}
+        onSelect={onSelect}
+        tabs={tabs}
+        list={reviewed && <ReviewedList project={reviewed.project} tabs={tabs} onOpen={open} />}
+        onCloseList={() => setReviewed(null)}
+      />
     </OpenReviewContext.Provider>
+  );
+}
+
+// ReviewTabs switches the modal between the carousel on what's waiting (To
+// review, with how many) and the Reviewed list. A reviewed agent reopened in
+// the carousel is under Reviewed, where its tab goes back to the list.
+function ReviewTabs({ project, on, onReview, onReviewed }: { project?: string; on: 'review' | 'reviewed'; onReview: () => void; onReviewed: () => void }) {
+  const t = useT();
+  const waiting = useQuery({ queryKey: project ? projectReviewKey(project) : ['review', 'all'], queryFn: () => readyFor(project), refetchInterval: 60_000 });
+  const count = waiting.data?.items?.length ?? 0;
+  const tab = (active: boolean) =>
+    cn('inline-flex h-6 items-center gap-1.5 rounded-md px-2 font-medium transition disabled:opacity-50', active ? 'bg-surface-strong text-title' : 'text-subtle hover:text-primary');
+  return (
+    <div role="tablist" aria-label={t('v2.reviewed.tabs')} className="flex shrink-0 items-center gap-0.5 rounded-lg border border-line bg-surface-faint p-0.5 text-[12px]" data-review-tabs>
+      <button type="button" role="tab" aria-selected={on === 'review'} disabled={on !== 'review' && count === 0} className={tab(on === 'review')} onClick={() => on !== 'review' && onReview()} data-review-tab="review">
+        {t('v2.reviewed.toReview')}
+        {count > 0 && <span className="tabular-nums text-subtle">{count}</span>}
+      </button>
+      <button type="button" role="tab" aria-selected={on === 'reviewed'} className={tab(on === 'reviewed')} onClick={onReviewed} data-review-tab="reviewed">
+        {t('review.reviewedSection')}
+      </button>
+    </div>
+  );
+}
+
+// ReviewedList is the Reviewed tab: the agents already reviewed, the latest
+// verdict first, a page at a time; one picked opens in the carousel.
+function ReviewedList({ project, tabs, onOpen }: { project?: string; tabs: ReactNode; onOpen: (item: T.ReviewItem) => void }) {
+  const t = useT();
+  const now = useNow(60_000);
+  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
+  const pages = useInfiniteQuery({
+    queryKey: reviewedKey(project),
+    queryFn: ({ pageParam }) => api.reviewedPage(new URLSearchParams({ limit: String(inboxPageSize), ...(pageParam ? { cursor: pageParam } : {}) }), project),
+    initialPageParam: '',
+    getNextPageParam: (last) => last.next || undefined,
+    placeholderData: keepPreviousData,
+  });
+  const items = pageItems(pages.data);
+  return (
+    <DialogContent className="flex max-h-[80vh] max-w-xl flex-col gap-0 p-0" data-reviewed-list={project ?? ''}>
+      <header className="flex flex-wrap items-center gap-3 border-b border-line px-5 py-3 pr-14">
+        <DialogTitle className="min-w-0 flex-1 truncate text-base">{project ? t('v2.reviewed.titleProject', { project: projectLabel(project, projects.data) }) : t('review.reviewedSection')}</DialogTitle>
+        {tabs}
+      </header>
+      <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
+        {items.length ? (
+          <>
+            {items.map((item) => (
+              <ReviewRow key={item.ref} item={item} isNew={false} now={now} projects={projects.data} onOpen={() => onOpen(item)} />
+            ))}
+            <MoreMedia pages={pages} />
+          </>
+        ) : (
+          <div className="px-4 py-6 text-center text-[12.5px] text-subtle">{pages.isPending ? t('common.loading') : t('review.reviewedEmpty')}</div>
+        )}
+      </div>
+    </DialogContent>
   );
 }
 

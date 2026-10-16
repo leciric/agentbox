@@ -2,13 +2,12 @@
 // and name, then Lead or the agent), and the project's ⋯ menu beside the
 // chat's controls. The view puts those in the top bar through InTopBar.
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeftRight, Check, ChevronRight, Copy, Ellipsis, FolderOpen, Pin, PinOff, Plus, Settings, Smile, SquarePen, type LucideIcon } from 'lucide-react';
-import { type ReactNode, useEffect, useState } from 'react';
+import { ArrowLeftRight, Check, CheckCheck, ChevronRight, Copy, Ellipsis, FolderOpen, Pin, PinOff, Plus, Settings, Smile, SquarePen, type LucideIcon } from 'lucide-react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import * as T from '../../../shared/api';
 import { api } from '../../lib/api';
 import { useT } from '../../lib/i18n';
-import { requestComposerFocus } from '../../lib/newTask';
 import { projectLabel } from '../../lib/projectName';
 import { togglePin } from '../../lib/projectOrder';
 import { openPanelOn, setPanel } from '../../lib/rightPanel';
@@ -17,6 +16,7 @@ import { ProjectIcon } from '../ProjectIcon';
 import { Button } from '../ui/button';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuMore, MenuSeparator, MenuTrigger } from '../ui/menu';
 import { Tip } from '../ui/tooltip';
+import { useOpenReview } from './ReviewV2';
 import { TalkToProject } from './TalkToProject';
 
 const topSlotId = 'top-bar-slot';
@@ -89,11 +89,19 @@ export function projectActions(
   };
 }
 
-// ProjectMenu is the project's ⋯ in the top bar: projectActions, and under
-// More the lead chat's own rarely-used item (Reload tools).
-export function ProjectMenu({ project, leadRef, onNewAgent, onChangeIcon, more: chatMore }: { project: T.Project; leadRef: string; onNewAgent: () => void; onChangeIcon: () => void; more?: ReactNode }) {
+// ProjectMenu is the project's ⋯ in the top bar: the lead chat's New chat,
+// then projectActions but New task (you're in the chat it would open, its
+// composer right there), and under More the project's reviewed agents (the
+// review modal's Reviewed tab, there even when nothing waits for review) and
+// the chat's rarely-used item (Reload tools).
+export function ProjectMenu({ project, leadRef, onNewAgent, onChangeIcon, newChat, more: chatMore }: { project: T.Project; leadRef: string; onNewAgent: () => void; onChangeIcon: () => void; newChat?: ReactNode; more?: ReactNode }) {
   const t = useT();
   const [talk, setTalk] = useState(false);
+  // Talk to another project, picked: the menu, closing, mustn't take the
+  // focus back to the ⋯, which would be outside the picker opening under it
+  // and so close it again (from the keyboard, it did every time).
+  const talking = useRef(false);
+  const openReview = useOpenReview();
   const { pins } = useV2Projects();
   const others = (useQuery({ queryKey: ['projects'], queryFn: api.projects }).data?.length ?? 0) > 1;
   const pinned = pins.includes(project.name);
@@ -101,8 +109,11 @@ export function ProjectMenu({ project, leadRef, onNewAgent, onChangeIcon, more: 
     project,
     others,
     pinned,
-    onNewTask: () => requestComposerFocus(leadRef),
-    onTalk: () => setTimeout(() => setTalk(true), 0),
+    onNewTask: () => {},
+    onTalk: () => {
+      talking.current = true;
+      setTimeout(() => setTalk(true), 0);
+    },
     onPin: () => setPins(togglePin(pins, project.name)),
     onSettings: () => {
       setPanel({ section: 'general' });
@@ -133,11 +144,23 @@ export function ProjectMenu({ project, leadRef, onNewAgent, onChangeIcon, more: 
                 </Button>
               </MenuTrigger>
             </Tip>
-            <MenuContent>
+            <MenuContent
+              onCloseAutoFocus={(e) => {
+                if (!talking.current) return;
+                talking.current = false;
+                e.preventDefault();
+              }}
+            >
               <MenuLabel>{projectLabel(project)}</MenuLabel>
-              {main.flatMap(item)}
+              {newChat}
+              {main.filter((a) => a.key !== 'new-task').flatMap(item)}
               <MenuMore label={t('common.more')}>
                 {more.flatMap(item)}
+                {openReview && (
+                  <MenuItem icon={CheckCheck} onSelect={() => openReview({ project: project.name, reviewed: true })} data-project-action="reviewed">
+                    {t('v2.menu.reviewed')}
+                  </MenuItem>
+                )}
                 {chatMore}
               </MenuMore>
             </MenuContent>

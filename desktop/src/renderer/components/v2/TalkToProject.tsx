@@ -6,7 +6,7 @@
 // and sends it, and the lead uses message_project or align_with_project.
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeftRight, Handshake, MessageCircleQuestion } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type * as T from '../../../shared/api';
 import { api } from '../../lib/api';
 import { composeIn } from '../../lib/drafts';
@@ -18,14 +18,20 @@ import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '../ui/po
 
 // With `anchor` the picker is opened from elsewhere (a menu item) and hangs
 // under that element, controlled by `open`; without it, it has its own button.
+// The anchor (the project's ⋯) is drawn whether there are other projects or
+// not: only the picker needs them.
 export function TalkToProject({ project, leadRef, anchor, open: controlled, onOpenChange }: { project: string; leadRef: string; anchor?: ReactNode; open?: boolean; onOpenChange?: (open: boolean) => void }) {
   const t = useT();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const [own, setOwn] = useState(false);
   const open = controlled ?? own;
   const setOpen = onOpenChange ?? setOwn;
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  // Closed with Escape, the focus goes back to the ⋯ the picker came from;
+  // closed by a pick, it stays in the composer, where the sentence goes on.
+  const escaped = useRef(false);
   const others = (projects.data ?? []).filter((p) => p.name !== project);
-  if (others.length === 0) return null;
+  if (others.length === 0) return anchor ?? null;
   const write = (other: T.Project, how: 'ask' | 'align') => {
     setOpen(false);
     composeIn(leadRef, t(how === 'ask' ? 'v2.talk.askText' : 'v2.talk.alignText', { project: `@${other.name}` }));
@@ -33,7 +39,11 @@ export function TalkToProject({ project, leadRef, anchor, open: controlled, onOp
   return (
     <Popover open={open} onOpenChange={setOpen}>
       {anchor ? (
-        <PopoverAnchor asChild>{anchor}</PopoverAnchor>
+        <PopoverAnchor asChild>
+          <span ref={anchorRef} className="inline-flex">
+            {anchor}
+          </span>
+        </PopoverAnchor>
       ) : (
       <PopoverTrigger asChild>
         <button
@@ -46,7 +56,20 @@ export function TalkToProject({ project, leadRef, anchor, open: controlled, onOp
         </button>
       </PopoverTrigger>
       )}
-      <PopoverContent align="end" className="w-[340px] max-w-[calc(100vw-1rem)] p-1.5" data-v2-talk-picker>
+      <PopoverContent
+        align="end"
+        className="w-[340px] max-w-[calc(100vw-1rem)] p-1.5"
+        data-v2-talk-picker
+        onEscapeKeyDown={() => {
+          escaped.current = true;
+        }}
+        onCloseAutoFocus={(e) => {
+          if (!anchor) return;
+          e.preventDefault();
+          if (escaped.current) anchorRef.current?.querySelector('button')?.focus();
+          escaped.current = false;
+        }}
+      >
         <div className="px-2 pb-1.5 pt-1">
           <div className="text-[13px] font-medium text-title">{t('v2.talk.title')}</div>
           <p className="mt-0.5 text-[11.5px] leading-snug text-subtle">{t('v2.talk.hint')}</p>

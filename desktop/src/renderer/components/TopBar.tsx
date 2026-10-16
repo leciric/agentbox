@@ -130,7 +130,9 @@ export function TopBar({
         <DiskGuardPill onSelect={onSelect} />
         <ClaudeUsage view={view} agents={agents.data ?? []} />
         <MachineStatus agents={agents.data ?? []} onSelect={onSelect} />
-        <Inbox onOpen={onOpenNotice ?? (() => {})} onSelect={onSelect} />
+        {/* v2 has no inbox: what needs you is where it's answered, the lead
+            chat's cards and the sidebar's rows, and review is the sidebar's. */}
+        {!v2 && <Inbox onOpen={onOpenNotice ?? (() => {})} onSelect={onSelect} />}
       </div>
     </header>
   );

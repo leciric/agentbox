@@ -6,7 +6,7 @@
 // storage does.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { getDraft, setDraft } from './drafts.ts';
+import { composed, getDraft, setDraft } from './drafts.ts';
 
 test('a ref with nothing typed has an empty draft', () => {
   assert.equal(getDraft('agent-never-seen'), '');
@@ -22,4 +22,9 @@ test('setting an empty draft clears it', () => {
   assert.equal(getDraft('agent-02'), 'something');
   setDraft('agent-02', '');
   assert.equal(getDraft('agent-02'), '');
+});
+
+test('text composed into a chat goes before what was typed there, not over it', () => {
+  assert.equal(composed('Ask @pawly’s lead ', ''), 'Ask @pawly’s lead ');
+  assert.equal(composed('Ask @pawly’s lead ', '  about the release notes'), 'Ask @pawly’s lead about the release notes');
 });

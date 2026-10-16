@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
 import { ArrowRight, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, GitBranch, GitMerge, GitPullRequest, Image as ImageIcon, MessageSquareText, LoaderCircle, Play } from 'lucide-react';
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
@@ -111,16 +111,24 @@ export function ReviewSection({ pages, shown, open, onBegin }: { pages: ReviewPa
 
 // ReviewDialog is the carousel on the session's agent, as the list has it now
 // (its pull request merged, say), with the one after it in the walk.
+// UI v2's has a Reviewed tab (ReviewV2): tabs sit in the carousel's header,
+// and list, while there is one, is shown in the dialog in its place.
 export function ReviewDialog({
   session,
   pages,
   onSession,
+  tabs,
+  list,
+  onCloseList,
 }: {
   session: ReviewSession | null;
   pages: ReviewPages;
   onSession: (session: ReviewSession | null) => void;
   // Callers still pass onSelect; the review no longer leaves for a chat.
   onSelect?: (view: View) => void;
+  tabs?: ReactNode;
+  list?: ReactNode;
+  onCloseList?: () => void;
 }) {
   const t = useT();
   const items = walkItems(pageItems(pages.data), session?.project);
@@ -152,8 +160,16 @@ export function ReviewDialog({
     onSession(remaining.length ? wrapWalk(session, remaining) : null);
   };
   return (
-    <Dialog open={current !== null} onOpenChange={(open) => !open && onSession(null)}>
-      {current && session?.ended && (
+    <Dialog
+      open={current !== null || !!list}
+      onOpenChange={(open) => {
+        if (open) return;
+        onSession(null);
+        onCloseList?.();
+      }}
+    >
+      {list}
+      {!list && current && session?.ended && (
         <DialogContent className="max-w-sm p-6" data-review-more>
           <DialogTitle className="text-base">{t('review.moreToReview', { count: session.ended.remaining })}</DialogTitle>
           <div className="mt-4 flex justify-end gap-2">
@@ -167,13 +183,13 @@ export function ReviewDialog({
           </div>
         </DialogContent>
       )}
-      {current && !session?.ended && <ReviewCarousel key={current.ref} item={current} position={position} next={next} canBack={!!session?.trail?.length} onNext={advance} onBack={() => session && onSession(goBack(session))} />}
+      {!list && current && !session?.ended && <ReviewCarousel key={current.ref} item={current} position={position} next={next} canBack={!!session?.trail?.length} onNext={advance} onBack={() => session && onSession(goBack(session))} tabs={tabs} />}
     </Dialog>
   );
 }
 
 // ReviewRow is one agent in the list: waiting, or (with a verdict) reviewed.
-function ReviewRow({ item, isNew, now, projects, onOpen }: { item: T.ReviewItem; isNew: boolean; now: number; projects?: T.Project[]; onOpen: () => void }) {
+export function ReviewRow({ item, isNew, now, projects, onOpen }: { item: T.ReviewItem; isNew: boolean; now: number; projects?: T.Project[]; onOpen: () => void }) {
   const t = useT();
   const done = !!item.verdict;
   const queryClient = useQueryClient();
@@ -268,6 +284,7 @@ function ReviewCarousel({
   canBack,
   onNext,
   onBack,
+  tabs,
 }: {
   item: T.ReviewItem;
   position?: { n: number; count: number };
@@ -276,6 +293,7 @@ function ReviewCarousel({
   canBack: boolean;
   onNext: () => void;
   onBack: () => void;
+  tabs?: ReactNode;
 }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -442,6 +460,7 @@ function ReviewCarousel({
                 })}
               </span>
             )}
+            {tabs}
           </div>
           {/* Narrow, the summary has no column of its own. */}
           {item.summary && <NarrowSummary text={item.summary} />}
