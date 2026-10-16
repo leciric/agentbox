@@ -3271,6 +3271,7 @@ export const ptBR: Messages = {
   'panel.noMachines': 'Nenhum agente deste projeto tem máquina. Crie um com Novo agente.',
   'panel.noAgents': 'Este projeto ainda não tem agentes.',
   'panel.hidden': '{count, plural, one {# agente antigo sem máquina oculto} other {# agentes antigos sem máquina ocultos}}',
+  'panel.failed': 'Esta aba não carregou.',
   'panel.choose.lead': 'O líder roda neste computador, sem {tab} próprio.',
   'panel.choose.freed': 'A máquina de {name} foi liberada, e com ela o {tab}.',
   'panel.asleep': 'A máquina de {name} está dormindo. Acorde-a para ver o {tab}.',

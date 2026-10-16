@@ -23,7 +23,7 @@ export function OverviewTab({ agent, section = 'machine' }: { agent: T.Agent; se
   const events = useQuery({ queryKey: ['agentEvents', agent.project], queryFn: () => api.agentEvents(agent.project) });
   const idleStop = events.data?.find((ev) => ev.ref === agent.ref && ev.kind === 'idle_stopped');
   const dockerPruned = events.data?.find((ev) => ev.ref === agent.ref && ev.kind === 'docker_pruned');
-  const mine = usage.data?.agents.find((a) => a.ref === agent.ref);
+  const mine = usage.data?.agents?.find((a) => a.ref === agent.ref);
   const cpu = mine?.cpu ?? 0;
   const cores = usage.data?.host.cores ?? 0;
   const memoryCap = usage.data?.host.memTotal;

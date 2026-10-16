@@ -11,6 +11,7 @@ import { avatarMood, chatLabel, isAsking, prChecksText, prState, rank, settled, 
 import { cn, timeAgo } from '../lib/utils';
 import { AgentContextMenu } from './AgentContextMenu';
 import { AgentInfoCard } from './AgentInfoCard';
+import { ErrorBoundary } from './ErrorBoundary';
 import { PageIcon } from './pages/PageThumb';
 import { PagesPanel } from './pages/PagesPanel';
 import { useProjectPages } from './pages/usePages';
@@ -95,7 +96,11 @@ export function AgentRail({ view, onSelect, onNewAgent, onClose }: { view: View;
   const mood = (agent: T.Agent) => avatarMood(agent, asking(agent));
 
   const icon = (agent: T.Agent) => (
-    <Tip key={agent.ref} side="right" className="max-w-none p-3" label={<AgentInfoCard agent={agent} pr={prs.get(agent.ref)} />}>
+    <Tip key={agent.ref} side="right" className="max-w-none p-3" label={
+        <ErrorBoundary>
+          <AgentInfoCard agent={agent} pr={prs.get(agent.ref)} />
+        </ErrorBoundary>
+      }>
       <button
         aria-label={agent.title || agent.name}
         data-rail-icon={agent.ref}
