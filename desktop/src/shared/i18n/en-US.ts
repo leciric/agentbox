@@ -3368,7 +3368,7 @@ export const enUS = {
   'chat.composer.placeholderLead': 'Tell the lead what to build: it plans the work and starts agents',
   'chat.setup.label': '{setup}: change the AI tool, model or context window',
   'chat.setup.tool': 'AI tool',
-  'chat.composer.mentionHint': '@ a project sends its name and folder with your message, so the lead can ask it or work with it; @ a file, its path.',
+  'chat.composer.mentionHint': '@ a project sends its name and folder with your message, so the lead can ask it or work with it; @ an agent, its name; @ a file, its path.',
   // first run, Setup checklist, add project, phone, v2 (UX audit)
   'chat.composer.signedOut': 'Claude Code isn’t signed in, so this chat can’t start. Your message stays here until you log in.',
   'chat.composer.logIn': 'Log in',

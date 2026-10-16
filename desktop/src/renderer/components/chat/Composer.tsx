@@ -8,6 +8,7 @@ import {
   Cpu,
   SlidersHorizontal,
   File,
+  Bot,
   FolderGit2,
   Gauge,
   Hourglass,
@@ -38,7 +39,7 @@ import { SkillTile } from '../SkillsPanel';
 import { contextBadge, contextHint, currentPlan, formatTokens, isMessage, pendingPermissions, toolOf, toolsReload } from '../../lib/chat';
 import { choiceName, currentFirst, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../../lib/modelChoices';
 import { FileLinks } from '../files/FilePanel';
-import { mentionAt, matchFiles, matchProjects, mentionLimit, type MentionItem } from '../../lib/mentions';
+import { mentionAt, matchAgents, matchFiles, matchProjects, mentionLimit, type MentionItem } from '../../lib/mentions';
 import { onComposerFocus, takeComposerFocus } from '../../lib/newTask';
 import { composeEvent, getDraft, setDraft } from '../../lib/drafts';
 import { formatTime, t as translate, useT } from '../../lib/i18n';
@@ -300,11 +301,13 @@ export function Composer({
   const mentionQuery = mention?.query;
   const filesQuery = useQuery({ queryKey: ['files', agent.ref], queryFn: () => api.files(agent.ref), enabled: mention !== undefined, staleTime: 4000 });
   const projectsQuery = useQuery({ queryKey: ['projects'], queryFn: api.projects, enabled: mention !== undefined });
+  const agentsQuery = useQuery({ queryKey: ['agents'], queryFn: api.agents, enabled: mention !== undefined });
   const mentionItems = useMemo(() => {
     if (mentionQuery === undefined || mentionKey === mentionDismissed) return [];
     const projects = matchProjects(projectsQuery.data ?? [], mentionQuery);
-    return [...projects, ...matchFiles(filesQuery.data?.files ?? [], mentionQuery, mentionLimit)];
-  }, [mentionQuery, mentionKey, mentionDismissed, filesQuery.data, projectsQuery.data]);
+    const agents = matchAgents((agentsQuery.data ?? []).filter((a) => (home || a.project === agent.project) && a.ref !== agent.ref), mentionQuery);
+    return [...projects, ...agents, ...matchFiles(filesQuery.data?.files ?? [], mentionQuery, mentionLimit)];
+  }, [mentionQuery, mentionKey, mentionDismissed, filesQuery.data, projectsQuery.data, agentsQuery.data, home, agent.project, agent.ref]);
   useEffect(() => setMentionHighlighted(0), [mentionKey]);
 
   // Sending while the tool works is the point of the placeholder below: the
@@ -629,7 +632,7 @@ export function Composer({
                     pickMention(item);
                   }}
                 >
-                  {item.kind === 'project' ? <FolderGit2 className="size-3.5 shrink-0 text-subtle" /> : <File className="size-3.5 shrink-0 text-subtle" />}
+                  {item.kind === 'project' ? <FolderGit2 className="size-3.5 shrink-0 text-subtle" /> : item.kind === 'agent' ? <Bot className="size-3.5 shrink-0 text-subtle" /> : <File className="size-3.5 shrink-0 text-subtle" />}
                   <span className="min-w-0 truncate font-mono text-[12.5px] text-primary">{item.label}</span>
                 </button>
                 {item.kind === 'file' && fileLinks && (

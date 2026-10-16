@@ -1,10 +1,10 @@
 // The composer's "@" popup: what it inserts, and what it matches against.
 // Every row is this shape, whatever it's built from — files and projects
-// today — so the popup itself never needs to know the difference.
+// today, and agents — so the popup itself never needs to know the difference.
 export interface MentionItem {
   label: string; // shown in the popup
   insert: string; // what goes after "@" in the message
-  kind: 'file' | 'project';
+  kind: 'file' | 'project' | 'agent';
 }
 
 export const mentionLimit = 8;
@@ -22,6 +22,21 @@ export function matchProjects(projects: { name: string; displayName: string }[],
     const index = Math.min(...[p.name, p.displayName].map((n) => n.toLowerCase().indexOf(q)).filter((i) => i >= 0), Infinity);
     if (index === Infinity) continue;
     scored.push({ item: { label: p.displayName && p.displayName !== p.name ? `${p.displayName} (${p.name})` : p.name, insert: p.name, kind: 'project' }, index });
+  }
+  scored.sort((a, b) => a.index - b.index);
+  return scored.map(({ item }) => item);
+}
+
+// matchAgents lists the agents whose name or title contains the mention query,
+// the way matchProjects does; picking one inserts its name, which is how the
+// lead addresses it.
+export function matchAgents(agents: { name: string; title: string }[], query: string): MentionItem[] {
+  const q = query.trim().toLowerCase();
+  const scored: { item: MentionItem; index: number }[] = [];
+  for (const a of agents) {
+    const index = Math.min(...[a.name, a.title].map((n) => n.toLowerCase().indexOf(q)).filter((i) => i >= 0), Infinity);
+    if (index === Infinity) continue;
+    scored.push({ item: { label: a.title && a.title !== a.name ? `${a.title} (${a.name})` : a.name, insert: a.name, kind: 'agent' }, index });
   }
   scored.sort((a, b) => a.index - b.index);
   return scored.map(({ item }) => item);

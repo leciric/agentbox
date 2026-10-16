@@ -3369,7 +3369,7 @@ export const ptBR: Messages = {
   'chat.composer.placeholderLead': 'Diga ao lead o que construir: ele planeja o trabalho e inicia agentes',
   'chat.setup.label': '{setup}: trocar ferramenta de IA, modelo ou janela de contexto',
   'chat.setup.tool': 'Ferramenta de IA',
-  'chat.composer.mentionHint': '@ em um projeto envia o nome e a pasta dele com sua mensagem, para o lead perguntar ou trabalhar com ele; @ em um arquivo, o caminho dele.',
+  'chat.composer.mentionHint': '@ em um projeto envia o nome e a pasta dele com sua mensagem, para o lead perguntar ou trabalhar com ele; @ em um agente, o nome dele; @ em um arquivo, o caminho dele.',
   // first run, Setup checklist, add project, phone, v2 (UX audit)
   'chat.composer.signedOut': 'O Claude Code não está conectado, então este chat não pode começar. Sua mensagem fica aqui até você entrar.',
   'chat.composer.logIn': 'Entrar',

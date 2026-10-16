@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner, which strips the types).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { matchFiles, matchProjects, mentionAt } from './mentions.ts';
+import { matchAgents, matchFiles, matchProjects, mentionAt } from './mentions.ts';
 
 test('mentionAt finds an @ at the start of the message', () => {
   assert.deepEqual(mentionAt('@comp', 5), { start: 0, query: 'comp' });
@@ -71,4 +71,17 @@ test('matchProjects matches the name or the display name, earliest match first',
 test('matchProjects lists every project for an empty query', () => {
   const projects = ['a', 'b', 'c', 'd'].map((name) => ({ name, displayName: name }));
   assert.deepEqual(matchProjects(projects, '').map((m) => m.label), projects.map((p) => p.name));
+});
+
+test('matchAgents matches the name or the title, earliest match first', () => {
+  const agents = [
+    { name: 'agent-2', title: 'Fix the tour' },
+    { name: 'agent-3', title: 'Tour polish' },
+    { name: 'agent-4', title: 'Media' },
+  ];
+  assert.deepEqual(
+    matchAgents(agents, 'tour').map((m) => m.insert),
+    ['agent-3', 'agent-2'],
+  );
+  assert.equal(matchAgents(agents, '')[0].label, 'Fix the tour (agent-2)');
 });
