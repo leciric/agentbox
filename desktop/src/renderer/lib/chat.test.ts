@@ -210,6 +210,18 @@ test('timelineRows turns a settled turn with tool calls into a fold and a work r
   assert.deepEqual(kinds, ['user', 'fold', 'assistant']);
 });
 
+test('timelineRows says a turn stopped before it did anything was stopped', () => {
+  const user = item({ kind: 'user', result: { state: 'cancelled', endedAt: '2026-01-01T00:00:05Z' } as T.ChatTurnResult });
+  const rows = timelineRows(thread([user]), new Set());
+  assert.deepEqual(rows.map((r) => r.type), ['user', 'fold']);
+  const fold = rows[1] as Extract<(typeof rows)[number], { type: 'fold' }>;
+  assert.equal(fold.empty, true);
+  assert.match(fold.label, /^Stopped/);
+  // A completed turn with nothing behind its reply has no fold at all.
+  const done = item({ kind: 'user', result: { state: 'completed', endedAt: '2026-01-01T00:00:05Z' } as T.ChatTurnResult });
+  assert.deepEqual(timelineRows(thread([done, item({ kind: 'assistant', turn: done.id })]), new Set()).map((r) => r.type), ['user', 'assistant']);
+});
+
 test('timelineRows heads a turn the session woke for with what woke it, not a message', () => {
   const asked = item({ kind: 'user', text: 'watch CI', result: { state: 'completed', endedAt: '2026-01-01T00:01:00Z' } as T.ChatTurnResult });
   const promise = item({ kind: 'assistant', turn: asked.id, text: "I'll report when it finishes." });

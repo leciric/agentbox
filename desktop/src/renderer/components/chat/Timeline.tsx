@@ -94,6 +94,14 @@ const TimelineRow = memo(
       case 'credential':
         return <ChatCredentialCard agentRef={chatRef} />;
       case 'fold':
+        if (row.empty)
+          return (
+            <div className="mb-3 border-b border-line pb-2 pt-1">
+              <span className="px-1 text-sm tabular-nums text-subtle" data-chat-fold-empty>
+                {row.label}
+              </span>
+            </div>
+          );
         return (
           <div className="mb-3 border-b border-line pb-2 pt-1">
             <button
@@ -210,7 +218,7 @@ function sameRow(a: Row, b: Row): boolean {
       return a.item === other.item && a.children.length === other.children.length && a.children.every((it, i) => it === other.children[i]);
     }
     case 'fold':
-      return a.label === (b as typeof a).label && a.open === (b as typeof a).open;
+      return a.label === (b as typeof a).label && a.open === (b as typeof a).open && a.empty === (b as typeof a).empty;
     case 'working':
       return a.since === (b as typeof a).since && a.stalledSince === (b as typeof a).stalledSince;
     case 'thinking':

@@ -338,7 +338,7 @@ export type Row =
   | { type: 'background'; key: string; tasks: string[] }
   | { type: 'assistant'; key: string; item: T.ChatItem; final: boolean }
   | { type: 'work'; key: string; items: T.ChatItem[]; live: boolean }
-  | { type: 'fold'; key: string; turn: string; label: string; open: boolean }
+  | { type: 'fold'; key: string; turn: string; label: string; open: boolean; empty?: boolean }
   | { type: 'working'; key: string; since: string; stalledSince?: string }
   | { type: 'thinking'; key: string }
   | { type: 'note'; key: string; item: T.ChatItem }
@@ -492,6 +492,9 @@ export function timelineRows(thread: T.ChatThread, openTurns: ReadonlySet<string
     else if (user && !isSilent(user)) rows.push({ type: 'user', key: user.id, item: user });
     if (running) rows.push({ type: 'working', key: `working:${turn.id}`, since: user.createdAt, stalledSince: thread.session?.stalledSince });
     if (hidden > 0) rows.push({ type: 'fold', key: `fold:${turn.id}`, turn: turn.id, label: foldLabel(user!), open });
+    // Stopped before it did or said anything: its label alone says it was,
+    // where the message would otherwise sit there as if never answered.
+    else if (user?.result?.state === 'cancelled' && !final) rows.push({ type: 'fold', key: `fold:${turn.id}`, turn: turn.id, label: foldLabel(user), open: true, empty: true });
 
     let group: T.ChatItem[] = [];
     const endGroup = (live: boolean) => {
