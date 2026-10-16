@@ -1810,6 +1810,8 @@ export const enUS = {
   'agent.menu.stoppedNote': 'Its work stays on its branch. Start it again any time.',
   'agent.menu.openChat': 'Open chat',
   'agent.menu.openTerminal': 'Open terminal',
+  'agent.menu.openDesktop': 'Open desktop',
+  'agent.menu.openDesktopOff': 'Not running',
   'agent.menu.info': 'Info',
   'agent.menu.retire': 'Retire',
   'agent.menu.copiedBranch': 'Copied the branch name',

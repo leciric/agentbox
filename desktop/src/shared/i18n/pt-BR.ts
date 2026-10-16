@@ -1811,6 +1811,8 @@ export const ptBR: Messages = {
   'agent.menu.stoppedNote': 'O trabalho fica na branch. Inicie de novo quando quiser.',
   'agent.menu.openChat': 'Abrir chat',
   'agent.menu.openTerminal': 'Abrir terminal',
+  'agent.menu.openDesktop': 'Abrir desktop',
+  'agent.menu.openDesktopOff': 'Parado',
   'agent.menu.info': 'Informações',
   'agent.menu.retire': 'Aposentar',
   'agent.menu.copiedBranch': 'Nome da branch copiado',

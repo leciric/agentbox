@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner, which strips the types).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { lifecycleActions, usesChat } from './agentActions.ts';
+import { canOpenDesktop, lifecycleActions, usesChat } from './agentActions.ts';
 
 test('a running agent can be paused or stopped', () => {
   assert.deepEqual(lifecycleActions('running'), ['pause', 'stop']);
@@ -28,4 +28,9 @@ test('chat is only offered to an agent with a chat interface and an AI tool', ()
   assert.equal(usesChat({ ai: 'claude', interface: 'chat' }), true);
   assert.equal(usesChat({ ai: 'none', interface: 'chat' }), false);
   assert.equal(usesChat({ ai: 'claude', interface: 'terminal' }), false);
+});
+
+test('canOpenDesktop only while the machine is running', () => {
+  assert.equal(canOpenDesktop('running'), true);
+  for (const s of ['paused', 'stopped', 'creating', '']) assert.equal(canOpenDesktop(s), false);
 });
