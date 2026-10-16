@@ -1716,6 +1716,7 @@ export const enUS = {
   'agent.section.ai': 'AI tool',
   'agent.section.secrets': 'Secrets',
   'agent.section.connectors': 'Connectors',
+  'agent.view.backToChat': 'Back to chat',
   'agent.tab.chat': 'Chat',
   'agent.tab.terminal': 'Terminal',
   'agent.tab.desktop': 'Desktop',

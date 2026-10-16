@@ -1717,6 +1717,7 @@ export const ptBR: Messages = {
   'agent.section.ai': 'Ferramenta de IA',
   'agent.section.secrets': 'Segredos',
   'agent.section.connectors': 'Conectores',
+  'agent.view.backToChat': 'Voltar ao chat',
   'agent.tab.chat': 'Chat',
   'agent.tab.terminal': 'Terminal',
   'agent.tab.desktop': 'Área de trabalho',
