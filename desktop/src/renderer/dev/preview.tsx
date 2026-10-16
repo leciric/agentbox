@@ -593,6 +593,16 @@ if (io) {
         return { ref: a.ref, state: 'running', cpu: [142, 38, 9, 71][i % 4], memory: [6.1, 2.4, 0.9, 3.3][i % 4] * GiB, processes: 40 + i, diskRead, diskWrite };
       }),
   } satisfies T.Usage);
+  // Moving CPU for every running agent the sidebar lists, so its graphs have something to draw.
+  setInterval(() => {
+    const u = queryClient.getQueryData<T.Usage>(['usage']);
+    const running = (queryClient.getQueryData<T.Agent[]>(['agents']) ?? []).filter((a) => a.state === 'running');
+    if (!u) return;
+    queryClient.setQueryData(['usage'], {
+      ...u,
+      agents: running.map((a, i) => ({ ref: a.ref, state: 'running', cpu: [142, 38, 9, 71][i % 4] * (0.6 + 0.8 * Math.abs(Math.sin(Date.now() / 3000 + i))), memory: [6.1, 2.4, 0.9, 3.3][i % 4] * GiB, processes: 40 + i, diskRead: 0.4 * MiB * (i % 3), diskWrite: 96 * 1024 })),
+    });
+  }, 1500);
   queryClient.setQueryData(['claudeLimits'], []);
   queryClient.setQueryData(['diff', `${PROJECT}/agent-12`], '');
   queryClient.setQueryData(['agentEvents', PROJECT], []);
@@ -1060,6 +1070,7 @@ function settingsBridge(): void {
   // credentials read, empty.
   const lists = /^\/v1\/(skills|connectors|global\/memory\/memories|limits)(\?|$)|^\/v1\/projects\/[^/]+\/(skills|connectors|credentials)(\?|$)/;
   bridge.request = async (method, path, body) => {
+    if (method === 'GET' && path === '/v1/usage' && queryClient.getQueryData(['usage'])) return answer(queryClient.getQueryData(['usage']));
     if (method === 'GET' && path === '/v1/lan') return answer(lan);
     if (method === 'GET' && lists.test(path)) return answer([]);
     if (phone && method === 'PATCH' && path === '/v1/lan') {

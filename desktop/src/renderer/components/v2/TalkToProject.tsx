@@ -40,7 +40,7 @@ export function TalkToProject({ project, leadRef, anchor, open: controlled, onOp
     <Popover open={open} onOpenChange={setOpen}>
       {anchor ? (
         <PopoverAnchor asChild>
-          <span ref={anchorRef} className="inline-flex">
+          <span ref={anchorRef} className="block h-0">
             {anchor}
           </span>
         </PopoverAnchor>

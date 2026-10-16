@@ -15,7 +15,7 @@
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Archive, Check, ChevronRight, CircleArrowUp, Eye, EyeOff, FolderPlus, House, ListFilter, LoaderCircle, RefreshCw, Search, Settings, ShieldAlert, SquarePen, X } from 'lucide-react';
-import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useState, type ComponentProps, type ReactNode } from 'react';
 import * as A from '../../../shared/api';
 import type * as T from '../../../shared/api';
 import type { View } from '../../App';
@@ -35,7 +35,11 @@ import { useNow } from '../../lib/useNow';
 import { updateHint } from '../../lib/appUpdate';
 import { isUpgrade } from '../../lib/nightly';
 import { useAppUpdate } from '../../lib/useAppUpdate';
-import { cn, errorMessage, shortcut, timeAgo } from '../../lib/utils';
+import { cn, errorMessage, humanBytes, humanRate, shortcut, timeAgo } from '../../lib/utils';
+import { chatLabel, useMood } from '../../lib/agentStatus';
+import { AgentAvatar } from '../state';
+import { useCpuHistory } from '../../lib/useCpuHistory';
+import { Sparkline } from '../Sparkline';
 import { openNewTask, requestComposerFocus } from '../../lib/newTask';
 import { useRemoving } from '../../lib/removing';
 import { openPanelOn } from '../../lib/rightPanel';
@@ -596,6 +600,9 @@ function ProjectLead({
   const t = useT();
   const chat = useQuery({ queryKey: ['projectChat', project.name], queryFn: () => api.projectChat(project.name), refetchInterval: 60_000 });
   const now = useNow(60_000);
+  const usage = useQuery({ queryKey: ['usage'], queryFn: api.usage, enabled: open, refetchInterval: 5000 });
+  const usageNow = usage.data?.agents ? usage.data : undefined;
+  const history = useCpuHistory(usageNow);
   const [iconOpen, setIconOpen] = useState(false);
   const [talk, setTalk] = useState(false);
   const leadRef = `${project.name}/${A.LeadName}`;
@@ -634,7 +641,7 @@ function ProjectLead({
   ];
   return (
     <div
-      className={cn('relative mb-0.5', drag?.over === 'before' && 'before:absolute before:inset-x-2 before:-top-px before:h-0.5 before:rounded-full before:bg-brand-400', drag?.over === 'after' && 'after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded-full after:bg-brand-400')}
+      className={cn('relative mb-0.5 rounded-xl transition-colors', open && all.length > 0 && 'mb-1.5 bg-surface/50 pb-1 ring-1 ring-inset ring-line-faint', drag?.over === 'before' && 'before:absolute before:inset-x-2 before:-top-px before:h-0.5 before:rounded-full before:bg-brand-400', drag?.over === 'after' && 'after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded-full after:bg-brand-400')}
       data-v2-project={project.name}
       draggable={!!drag}
       onDragStart={
@@ -735,9 +742,16 @@ function ProjectLead({
       <TalkToProject project={project.name} leadRef={leadRef} open={talk} onOpenChange={setTalk} anchor={<span aria-hidden className="pointer-events-none absolute right-2 top-11 size-0" />} />
       <ProjectIconDialog project={project} open={iconOpen} onOpenChange={setIconOpen} />
       {open && (
-        <div className="relative ml-[17px] flex flex-col gap-0.5 border-l border-line-faint py-1 pl-2" data-v2-agents={project.name}>
-          {shown.map((r) => (
-            <AgentRow key={r.agent.ref} row={r} active={view.kind === 'agent' && view.ref === r.agent.ref} onSelect={onSelect} />
+        <div className="relative ml-[15px] mr-1 mt-0.5 flex flex-col gap-px border-l border-line pl-[7px]" data-v2-agents={project.name}>
+          {shown.map((r, i) => (
+            <Fragment key={r.agent.ref}>
+              {grouped() && groupOf(r.st) !== groupOf(shown[i - 1]?.st) && (
+                <div className="px-2 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wider text-faint first:pt-1" data-v2-agent-group>
+                  {t(stLabel[groupOf(r.st) ?? r.st])} <span className="tabular-nums">{shown.filter((x) => groupOf(x.st) === groupOf(r.st)).length}</span>
+                </div>
+              )}
+              <AgentRow row={r} active={view.kind === 'agent' && view.ref === r.agent.ref} onSelect={onSelect} sample={usageNow?.agents.find((u) => u.ref === r.agent.ref)} cpu={history.get(r.agent.ref) ?? []} />
+            </Fragment>
           ))}
           {shown.length === 0 && <div className="px-2 py-1 text-[11.5px] text-faint">{t(all.length === 0 ? 'v2.sidebar.noAgents' : 'v2.sidebar.noneMatch')}</div>}
         </div>
@@ -746,14 +760,39 @@ function ProjectLead({
   );
 }
 
-// AgentRow is one agent under its lead: its state mark, its title in
-// neutral text, a word only when it needs you, and when it last changed.
-// A right-click opens its menu (AgentContextMenu) and nothing else; while it
-// is being destroyed it reads "removing…".
-function AgentRow({ row, active, onSelect }: { row: Row; active: boolean; onSelect: (view: View) => void }) {
+// grouped is whether a project's agents are split under state headers
+// (?rows=grouped, kept in this browser) while that option is tried.
+export function grouped(): boolean {
+  const q = new URLSearchParams(location.search).get('rows');
+  if (q) localStorage.setItem('agentbox.sidebar.rows', q);
+  return localStorage.getItem('agentbox.sidebar.rows') === 'grouped';
+}
+
+// groupOf folds a failed agent in with the ones that need you: both wait on
+// somebody, and two headers of one row each would be noise.
+const groupOf = (st: AgentSt | undefined): AgentSt | undefined => (st === 'error' ? 'needs' : st);
+
+// AgentRow is one agent under its lead, two lines beside its avatar: its
+// title, and under it its number and where it is. Colour is only for what
+// needs you; a running machine adds a quiet CPU graph and its share, with
+// memory and disk in the tooltip. A right-click opens its menu
+// (AgentContextMenu) and nothing else; while it is being destroyed it reads
+// "removing…".
+function AgentRow({ row, active, onSelect, sample, cpu }: { row: Row; active: boolean; onSelect: (view: View) => void; sample?: T.AgentUsage; cpu: number[] }) {
   const t = useT();
   const { agent, st } = row;
   const removing = useRemoving().has(agent.ref);
+  const mood = useMood(agent);
+  const label = chatLabel(agent);
+  const live = !removing && st === 'working' && agent.state === 'running' && sample;
+  const status = removing
+    ? t('v2.tag.removing')
+    : st === 'needs'
+      ? t(awaitsApproval(agent) ? 'v2.tag.approval' : 'v2.tag.asks')
+      : st === 'review' || st === 'done'
+        ? t(stLabel[st])
+        : label.text;
+  const usageTip = live ? t('project.all.usage', { cpu: sample.cpu.toFixed(0), memory: humanBytes(sample.memory), read: humanRate(sample.diskRead), write: humanRate(sample.diskWrite) }) : '';
   return (
     <AgentContextMenu agent={agent} active={active} onSelect={onSelect}>
       <button
@@ -764,32 +803,42 @@ function AgentRow({ row, active, onSelect }: { row: Row; active: boolean; onSele
         }}
         onContextMenu={(e) => e.stopPropagation()}
         aria-current={active ? 'page' : undefined}
-        className={cn('flex w-full min-h-[30px] min-w-0 items-center gap-2 rounded-md px-2.5 py-1.5 text-left', active ? 'bg-surface-raised' : 'hover:bg-surface', removing && 'opacity-60')}
+        title={[agent.title ? `${agent.name} · ${agent.title}` : agent.name, usageTip].filter(Boolean).join('\n')}
+        className={cn(
+          'group relative flex w-full min-w-0 items-center gap-2.5 rounded-lg py-1.5 pl-2 pr-2.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400',
+          active ? 'bg-surface-raised' : 'hover:bg-surface',
+          removing && 'opacity-60',
+        )}
         data-v2-agent={agent.ref}
         data-v2-agent-st={st}
         data-v2-removing={removing || undefined}
       >
-        {removing ? <LoaderCircle className="size-[9px] shrink-0 animate-spin text-subtle" /> : <StMark st={st} className="size-[7px]" />}
-        <Tip label={agent.title ? `${agent.name} · ${agent.title}` : agent.name}>
-          <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
-            <span className="shrink-0 font-mono text-[10.5px] text-faint" data-v2-agent-num>
-              {agent.name}
-            </span>
-            {agent.title && <span className={cn('min-w-0 flex-1 truncate text-[12.5px]', active ? 'text-title' : st === 'done' ? 'text-subtle' : 'text-secondary')}>{agent.title}</span>}
+        {active && <span aria-hidden className="absolute inset-y-2 left-0 w-[2px] rounded-full bg-brand-400" />}
+        <AgentAvatar ai={agent.ai} mood={mood} state={agent.state} seed={agent.ref} className="size-7 rounded-lg" />
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="flex min-w-0 items-center gap-2">
+            <span className={cn('min-w-0 flex-1 truncate text-[12.5px] font-medium leading-[18px]', active ? 'text-title' : st === 'done' ? 'text-subtle' : 'text-primary', !agent.title && 'font-mono text-[11.5px]')}>{agent.title || agent.name}</span>
+            {live && <Sparkline values={cpu} className="text-faint group-hover:text-subtle" />}
           </span>
-        </Tip>
-        {removing ? (
-          <span className="shrink-0 text-[10.5px] text-subtle" data-v2-tag>
-            {t('v2.tag.removing')}
-          </span>
-        ) : (
-          attention(st) && (
-            <span className="shrink-0 text-[10.5px] text-subtle" data-v2-tag>
-              {t(st === 'error' ? 'v2.tag.failed' : awaitsApproval(agent) ? 'v2.tag.approval' : 'v2.tag.asks')}
+          <span className="flex min-w-0 items-center gap-1 text-[11px] leading-4">
+            {agent.title && (
+              <>
+                <span className="shrink-0 font-mono text-[10.5px] text-faint" data-v2-agent-num>
+                  {agent.name}
+                </span>
+                <span aria-hidden className="text-ghost">·</span>
+              </>
+            )}
+            <span
+              className={cn('min-w-0 truncate', st === 'needs' ? 'font-medium text-amber-300' : st === 'error' ? 'font-medium text-rose-300' : 'text-subtle')}
+              data-v2-tag={attention(st) || removing || undefined}
+            >
+              {status}
+              {!removing && agent.changesRequested && st === 'working' && ` · ${t('v2.tag.changes')}`}
             </span>
-          )
-        )}
-        {!removing && agent.changesRequested && st === 'working' && <span className="shrink-0 text-[10.5px] text-subtle">{t('v2.tag.changes')}</span>}
+            {live && <span className="ml-auto shrink-0 pl-1 font-mono text-[10px] tabular-nums text-faint">{sample.cpu.toFixed(0)}%</span>}
+          </span>
+        </span>
       </button>
     </AgentContextMenu>
   );
