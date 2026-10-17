@@ -676,6 +676,7 @@ function ProjectLead({
       talking.current = true;
       setTimeout(() => setTalk(true), 0);
     },
+    onToday: () => onSelect({ kind: 'today', project: project.name }),
     onPin,
     onSettings: () => {
       open_();

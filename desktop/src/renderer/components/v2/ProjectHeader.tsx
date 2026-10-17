@@ -2,7 +2,7 @@
 // and name, then Lead or the agent), and the project's ⋯ menu beside the
 // chat's controls. The view puts those in the top bar through InTopBar.
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeftRight, Check, CheckCheck, ChevronRight, Copy, Ellipsis, FolderOpen, Pin, PinOff, Plus, Settings, Smile, SquarePen, type LucideIcon } from 'lucide-react';
+import { ArrowLeftRight, Check, CheckCheck, ChevronRight, Clapperboard, Copy, Ellipsis, FolderOpen, Pin, PinOff, Plus, Settings, Smile, SquarePen, type LucideIcon } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import * as T from '../../../shared/api';
@@ -77,12 +77,13 @@ export type ProjectAction = { key: string; icon: LucideIcon; label: string; onSe
 // task for giving a project work, wherever it's offered.
 export function projectActions(
   t: ReturnType<typeof useT>,
-  { project, others, pinned, onNewTask, onTalk, onPin, onSettings, onChangeIcon, onNewAgent }: { project: T.Project; others: boolean; pinned: boolean; onNewTask: () => void; onTalk: () => void; onPin: () => void; onSettings: () => void; onChangeIcon: () => void; onNewAgent: () => void },
+  { project, others, pinned, onNewTask, onTalk, onToday, onPin, onSettings, onChangeIcon, onNewAgent }: { project: T.Project; others: boolean; pinned: boolean; onNewTask: () => void; onTalk: () => void; onToday?: () => void; onPin: () => void; onSettings: () => void; onChangeIcon: () => void; onNewAgent: () => void },
 ): { main: ProjectAction[]; more: ProjectAction[] } {
   return {
     main: [
       { key: 'new-task', icon: SquarePen, label: t('v2.sidebar.newTask'), onSelect: onNewTask },
       ...(others ? [{ key: 'talk', icon: ArrowLeftRight, label: t('v2.talk.button'), onSelect: onTalk }] : []),
+      ...(onToday ? [{ key: 'today', icon: Clapperboard, label: t('today.title'), onSelect: onToday }] : []),
       { key: 'pin', icon: pinned ? PinOff : Pin, label: pinned ? t('v2.sidebar.unpin') : t('v2.sidebar.pin'), onSelect: onPin, separatorBefore: true },
       { key: 'settings', icon: Settings, label: t('v2.sidebar.projectSettings'), onSelect: onSettings },
     ],

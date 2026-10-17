@@ -65,6 +65,7 @@ import type { SearchTarget } from "./lib/search";
 import { setupCard } from "./lib/setup";
 import { useHostTheme } from "./lib/theme";
 import { markSeen, shouldShowAutomatically } from "./lib/whatsnew";
+import { TodayView } from "./components/timeline/TodayView";
 
 export type View =
   | { kind: "home" }
@@ -74,6 +75,8 @@ export type View =
   | { kind: "settings" }
   | { kind: "project"; project: string; tab?: ProjectPlaceName }
   | { kind: "agent"; ref: string; tab?: AgentPlaceName }
+  // A project's day: every agent's timeline as one story (components/timeline/TodayView).
+  | { kind: "today"; project: string }
   // Every project's past agents, or one of them (ref) read in its chat.
   | { kind: "pastAgents"; ref?: string };
 
@@ -614,6 +617,7 @@ export function App({ initial }: { initial?: View } = {}) {
                 )}
                 {view.kind === "jobs" && <JobsView />}
                 {view.kind === "media" && <AllMediaView onSelect={select} />}
+                {view.kind === "today" && <TodayView project={view.project} onSelect={select} />}
                 {view.kind === "pastAgents" &&
                   (v2 ? (
                     <PastAgentsV2 open={view.ref} onSelect={select} />

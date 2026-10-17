@@ -12,7 +12,7 @@
 // One width for every tab (PreviewPanelShell.tsx, RightPanelResizeHandle.tsx).
 // lib/rightPanel.ts has its rules and state.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, ChevronDown, Crown, FolderTree, GitBranch, GitPullRequest, Globe, SlidersHorizontal, HardDrive, Images, Monitor, Moon, Play, Plus, Search, SquareTerminal, Unplug, X, type LucideIcon } from 'lucide-react';
+import { Check, ChevronDown, Crown, FolderTree, GanttChart, GitBranch, GitPullRequest, Globe, SlidersHorizontal, HardDrive, Images, Monitor, Moon, Play, Plus, Search, SquareTerminal, Unplug, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import * as A from '../../../shared/api';
@@ -69,6 +69,7 @@ import { ProjectIcon } from '../ProjectIcon';
 import { ProjectMediaPanel } from '../ProjectMediaPanel';
 import { AIIcon, LiveAgentAvatar } from '../state';
 import { TerminalTab } from '../TerminalTab';
+import { TimelinePanel } from '../timeline/Timeline';
 import { ProjectSettingsBody } from '../ProjectView';
 import { PullRequestsPanel } from '../PullRequestsPanel';
 import { Button } from '../ui/button';
@@ -79,6 +80,7 @@ import { PanelBrowser } from './PanelBrowser';
 import { chatOf } from './PanelButton';
 
 const kindIcon: Record<PanelKind, LucideIcon | typeof PageIcon> = {
+  timeline: GanttChart,
   files: FolderTree,
   desktop: Monitor,
   terminal: SquareTerminal,
@@ -89,6 +91,7 @@ const kindIcon: Record<PanelKind, LucideIcon | typeof PageIcon> = {
   settings: SlidersHorizontal,
 };
 const kindLabel: Record<PanelKind, MessageKey> = {
+  timeline: 'panel.tab.timeline',
   files: 'panel.tab.files',
   desktop: 'panel.tab.desktop',
   terminal: 'panel.tab.terminal',
@@ -99,6 +102,7 @@ const kindLabel: Record<PanelKind, MessageKey> = {
   settings: 'panel.tab.settings',
 };
 const kindDescription: Record<PanelKind, MessageKey> = {
+  timeline: 'panel.desc.timeline',
   files: 'panel.desc.files',
   desktop: 'panel.desc.desktop',
   terminal: 'panel.desc.terminal',
@@ -109,6 +113,7 @@ const kindDescription: Record<PanelKind, MessageKey> = {
   settings: 'panel.desc.settings',
 };
 const kindAsk: Record<PanelKind, MessageKey> = {
+  timeline: 'panel.target.timeline',
   files: 'panel.target.files',
   desktop: 'panel.target.desktop',
   terminal: 'panel.target.terminal',
@@ -119,11 +124,11 @@ const kindAsk: Record<PanelKind, MessageKey> = {
   settings: 'panel.target.files',
 };
 // A launcher's letter for each kind, as T3Code's launcher has (B, T, F…).
-const kindKey: Record<PanelKind, string> = { files: 'F', desktop: 'D', terminal: 'T', browser: 'B', pages: 'P', media: 'M', pulls: 'R', settings: 'S' };
+const kindKey: Record<PanelKind, string> = { timeline: 'L', files: 'F', desktop: 'D', terminal: 'T', browser: 'B', pages: 'P', media: 'M', pulls: 'R', settings: 'S' };
 // The launcher's cards, six: Browser (the Desktop has a browser too) and the
 // project's Settings (also in the project's ⋯) are links under them, under
 // More, and keep their letters.
-const agentKinds: PanelKind[] = ['files', 'desktop', 'terminal', 'pages', 'media'];
+const agentKinds: PanelKind[] = ['timeline', 'files', 'desktop', 'terminal', 'pages', 'media'];
 const projectKinds: PanelKind[] = ['pulls'];
 const moreKinds: PanelKind[] = ['browser', 'settings'];
 
@@ -788,6 +793,7 @@ function Body({ project, chat, whose, tab, agents, past, width, onPick }: { proj
       {tab === 'browser' && whose.kind === 'agent' && <PanelBrowser agent={whose.agent} />}
       {tab === 'pages' && <Pages project={project} whose={whose} agents={agents} />}
       {tab === 'media' && <Media project={project} whose={whose} />}
+      {tab === 'timeline' && whose.kind !== 'lead' && <TimelinePanel project={project} agentRef={whose.kind === 'agent' ? whose.agent.ref : whose.past.ref} />}
     </div>
     </ErrorBoundary>
   );

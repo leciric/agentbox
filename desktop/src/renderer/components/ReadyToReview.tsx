@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
-import { ArrowRight, Check, ChevronDown, ChevronLeft, CircleAlert, CornerDownLeft, ExternalLink, FileDiff, Film, GitBranch, GitMerge, GitPullRequest, MessageSquareText, LoaderCircle, Play } from 'lucide-react';
+import { ArrowRight, Check, Clapperboard, ChevronDown, ChevronLeft, CircleAlert, CornerDownLeft, ExternalLink, FileDiff, Film, GitBranch, GitMerge, GitPullRequest, MessageSquareText, LoaderCircle, Play } from 'lucide-react';
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
@@ -16,6 +16,7 @@ import { cn, errorMessage, timeAgo } from '../lib/utils';
 import { Markdown } from './chat/Markdown';
 import { MoreMedia } from './MediaTab';
 import { ReviewProof } from './ReviewProof';
+import { TimelineWide } from './timeline/Timeline';
 import { useProjectPages } from './pages/usePages';
 import { checksVariants, PullRequestView, stateVariants } from './PullRequestModal';
 import { checksLabels, methodLabels, stateLabels, usePullLabels, usePullMerge } from './PullRequestsPanel';
@@ -260,8 +261,8 @@ const keyLabels: Record<ReviewAction, MessageKey> = {
 };
 
 // A view is one of the review's tabs, in the order → walks them.
-type View = 'proof' | 'changes' | 'pr';
-const views: View[] = ['proof', 'changes', 'pr'];
+type View = 'proof' | 'timeline' | 'changes' | 'pr';
+const views: View[] = ['proof', 'timeline', 'changes', 'pr'];
 
 // ReviewCarousel is one agent's review, evidence first. It opens on Proof
 // (ReviewProof): the agent's recording in a chapter for each thing it
@@ -510,6 +511,12 @@ function ReviewCarousel({
                   {proof.recordings[0]?.chapters.length ? <span className="tabular-nums text-subtle">{proof.recordings[0].chapters.length}</span> : null}
                 </>
               )}
+              {v === 'timeline' && (
+                <>
+                  <Clapperboard className="size-3.5" />
+                  {t('review.view.timeline')}
+                </>
+              )}
               {v === 'changes' && (
                 <>
                   <FileDiff className="size-3.5" />
@@ -544,7 +551,7 @@ function ReviewCarousel({
             ) : (
               <ReviewProof key={item.ref} project={item.project} proof={proof} aside={said} />
             ))}
-          {view !== 'proof' && pr && (
+          {(view === 'changes' || view === 'pr') && pr && (
             <div className="flex min-h-0 flex-1 flex-col bg-modal" data-review-slide={view}>
               <PullRequestView
                 inline
@@ -561,10 +568,11 @@ function ReviewCarousel({
               />
             </div>
           )}
+          {view === 'timeline' && <TimelineWide key={item.ref} project={item.project} agentRef={item.ref} />}
           {view === 'changes' && !pr && <AgentDiff agent={item.ref} />}
           {view === 'pr' && !pr && <div className="p-6 text-[13px] text-subtle">{t('review.noPrBody')}</div>}
         </section>
-        {view !== 'proof' && pr && merge.failed[pr.number] && (
+        {(view === 'changes' || view === 'pr') && pr && merge.failed[pr.number] && (
           <Notice className="mx-4 mb-2">
             {t('memory.pulls.mergeFailed', {
               error: merge.failed[pr.number],

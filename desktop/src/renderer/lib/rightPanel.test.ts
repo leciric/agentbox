@@ -24,16 +24,19 @@ test('a machine is running, asleep when stopped or paused, and freed when gone',
   assert.equal(P.machineOf(undefined), 'freed');
 });
 
-test('the lead and a past agent have files, pages and media, but no machine tabs', () => {
+test('the lead and a past agent have files, pages and media, but no machine tabs, and the lead no timeline', () => {
   const lead: Whose = { kind: 'lead', ref: 'pawly/lead' };
   const gone: Whose = { kind: 'past', past: past('agent-1') };
   const live: Whose = { kind: 'agent', agent: agent('agent-2', 'stopped') };
   for (const tab of P.panelKinds) {
-    assert.equal(P.hasTab(lead, tab), !P.needsMachine(tab), `lead ${tab}`);
+    assert.equal(P.hasTab(lead, tab), !P.needsMachine(tab) && tab !== 'timeline', `lead ${tab}`);
     assert.equal(P.hasTab(gone, tab), !P.needsMachine(tab), `past ${tab}`);
     assert.equal(P.hasTab(live, tab), true, `agent ${tab}`);
   }
   assert.deepEqual(P.panelKinds.filter(P.needsMachine), ['desktop', 'terminal', 'browser']);
+  // Whose timeline: an agent's, live or past, never the lead's.
+  const whose = P.targets('timeline', 'pawly', 'pawly/lead', [agent('agent-2', 'running')], [past('agent-1')], false);
+  assert.deepEqual(whose.map((w) => w.kind), ['agent', 'past']);
 });
 
 test('whose is found among the agents, then the past ones; a retired pick is a past agent', () => {
