@@ -3545,6 +3545,7 @@ export const ptBR: Messages = {
   'pip.noDesktop': 'Ainda sem área de trabalho',
   'pip.live': '{count} ao vivo',
   'pip.hide': 'Esconder as áreas de trabalho',
+  'pip.resize': 'Redimensionar as áreas de trabalho',
   'pip.show': 'Mostrar as áreas de trabalho em uso',
   'pip.review': 'Revisar',
   'pip.mention.watch': 'Assistir ao vivo',

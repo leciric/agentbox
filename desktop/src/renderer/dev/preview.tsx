@@ -283,6 +283,9 @@ installDevBridge();
 const params = new URLSearchParams(location.search);
 document.documentElement.dataset.appearance = params.get('theme') === 'light' ? 'light' : '';
 applyLanguage(params.get('lang'));
+// &lanewidth=480: the desktops lane dragged to that width (lib/pipStore.ts).
+const laneWidth = Number(params.get('lanewidth'));
+if (laneWidth > 0) localStorage.setItem('agentbox.ui.v2.pip', JSON.stringify({ [PROJECT]: { width: laneWidth } }));
 localStorage.setItem('agentbox.rail.folded', params.get('folded') === '1' ? '1' : '0');
 localStorage.setItem('agentbox.rail.finished', params.get('finished') === '1' ? '1' : '0');
 const openAgent = params.get('open'); // e.g. "agent-99"

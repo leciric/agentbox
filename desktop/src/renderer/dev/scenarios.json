@@ -1911,6 +1911,13 @@
     "height": 1080
   },
   {
+    "id": "pip-lead-wide-dark",
+    "description": "The desktops lane dragged wide (520px): its tiles in two columns, each keeping the desktop's 16:10 — dark",
+    "query": "app=project&v2=1&pip=1&lanewidth=520&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
     "id": "pip-lead-panel-dark",
     "description": "A lane tile clicked: its desktop in the right-hand panel, and the lane stepped aside so the chat isn't squeezed between them; live agents first in the panel's picker — dark",
     "query": "app=project&v2=1&pip=1&theme=dark",

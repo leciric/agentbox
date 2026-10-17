@@ -24,8 +24,26 @@ export function useInUse(project: string): T.Agent[] {
   return docked(project, agents.data ?? [], desktops.data ?? [], Date.now());
 }
 
-// The lane's width, a column of small tiles each named by its task.
+// The lane's width to begin with, a column of small tiles each named by its
+// task, and the narrowest it is dragged to. It never takes the chat's room
+// below chatMin; from twoColumns on its tiles go two across, and more as it
+// widens, each tile growing to fill its column at the desktop's 16:10.
 const laneWidth = 168;
+const laneMin = laneWidth;
+const chatMin = 420;
+const twoColumns = 340;
+const tileMin = 150;
+
+// laneBox is the lane's width kept within what the chat can spare of room.
+export function laneBox(want: number | undefined, room: number): number {
+  const max = Math.max(laneMin, room - chatMin);
+  return Math.min(Math.max(want ?? laneWidth, laneMin), max);
+}
+
+// laneColumns is how many tiles go across a lane of this width.
+export function laneColumns(width: number): number {
+  return width < twoColumns ? 1 : Math.max(2, Math.floor((width - 16 + 12) / (tileMin + 12)));
+}
 // foldBelow is how wide the chat's box must be for the lane to open by
 // itself: narrower, the chat keeps the room and the lane is a strip.
 const foldBelow = 760;
@@ -45,19 +63,21 @@ export function PipLane({ project, children }: { project: string; onSelect?: (vi
   const open = useChatPanel(chat).open;
   const tiles = useInUse(project);
   const folded = lane.folded ?? width < foldBelow;
+  const box = laneBox(lane.width, width);
 
   return (
     <div ref={row} className="flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">{children}</div>
-      {!open && tiles.length > 0 && (folded ? <Strip count={tiles.length} onOpen={() => setLane(project, () => ({ folded: false }))} /> : <Lane project={project} tiles={tiles} onOpen={(ref) => openPanelOn(chat, 'desktop', ref)} />)}
+      {!open && tiles.length > 0 && (folded ? <Strip count={tiles.length} onOpen={() => setLane(project, () => ({ folded: false }))} /> : <Lane project={project} tiles={tiles} width={box} onOpen={(ref) => openPanelOn(chat, 'desktop', ref)} />)}
     </div>
   );
 }
 
-function Lane({ project, tiles, onOpen }: { project: string; tiles: T.Agent[]; onOpen: (ref: string) => void }) {
+function Lane({ project, tiles, width, onOpen }: { project: string; tiles: T.Agent[]; width: number; onOpen: (ref: string) => void }) {
   const t = useT();
   return (
-    <aside className="flex shrink-0 flex-col border-l border-line" style={{ width: laneWidth }} data-pip-lane="tiles">
+    <aside className="relative flex shrink-0 flex-col border-l border-line" style={{ width }} data-pip-lane="tiles">
+      <WidthHandle project={project} width={width} />
       <div className="flex h-8 shrink-0 items-center gap-1.5 pl-3 pr-1 text-[11px] text-subtle">
         <span className="size-1.5 animate-pulse rounded-full bg-rose-400" />
         <span className="flex-1 truncate">{t('pip.live', { count: tiles.length })}</span>
@@ -67,12 +87,45 @@ function Lane({ project, tiles, onOpen }: { project: string; tiles: T.Agent[]; o
           </button>
         </Tip>
       </div>
-      <div className="grid min-h-0 flex-1 content-start gap-3 overflow-y-auto px-2 pb-2 [scrollbar-width:thin]">
+      <div className="grid min-h-0 flex-1 content-start gap-3 overflow-y-auto px-2 pb-2 [scrollbar-width:thin]" style={{ gridTemplateColumns: `repeat(${laneColumns(width)}, minmax(0, 1fr))` }}>
         {tiles.map((a) => (
           <Tile key={a.ref} agent={a} onClick={() => onOpen(a.ref)} />
         ))}
       </div>
     </aside>
+  );
+}
+
+// WidthHandle drags the lane's left edge, like the panel's; a double click
+// puts it back. The most it takes is checked when it is drawn (laneBox).
+function WidthHandle({ project, width }: { project: string; width: number }) {
+  const t = useT();
+  const last = useRef<number | null>(null);
+  const w = useRef(width);
+  w.current = width;
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={t('pip.resize')}
+      className="absolute inset-y-0 left-0 z-10 w-1.5 -translate-x-1/2 cursor-col-resize transition-colors hover:bg-brand-400/30 active:bg-brand-400/40"
+      onPointerDown={(event) => {
+        event.preventDefault();
+        event.currentTarget.setPointerCapture(event.pointerId);
+        last.current = event.clientX;
+      }}
+      onPointerMove={(event) => {
+        if (last.current === null) return;
+        const dx = event.clientX - last.current;
+        if (!dx) return;
+        last.current = event.clientX;
+        setLane(project, () => ({ width: Math.max(laneMin, w.current - dx) }));
+      }}
+      onPointerUp={() => (last.current = null)}
+      onPointerCancel={() => (last.current = null)}
+      onDoubleClick={() => setLane(project, () => ({ width: undefined }))}
+      data-pip-splitter
+    />
   );
 }
 

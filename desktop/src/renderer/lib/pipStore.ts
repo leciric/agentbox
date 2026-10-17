@@ -7,6 +7,8 @@ export interface Lane {
   // folded is as you set it, or undefined to fold only when the chat is too
   // narrow to give up the room.
   folded?: boolean;
+  // width is as you dragged the lane, or undefined for its default.
+  width?: number;
   big: string | null; // an agent ref
 }
 
@@ -19,7 +21,7 @@ function load(): Record<string, Lane> {
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey) ?? '{}') as Record<string, Partial<Lane>>;
     const out: Record<string, Lane> = {};
-    for (const [project, l] of Object.entries(saved)) out[project] = { folded: typeof l.folded === 'boolean' ? l.folded : undefined, big: null };
+    for (const [project, l] of Object.entries(saved)) out[project] = { folded: typeof l.folded === 'boolean' ? l.folded : undefined, width: typeof l.width === 'number' && l.width > 0 ? l.width : undefined, big: null };
     return out;
   } catch {
     return {};
@@ -33,7 +35,7 @@ export function setLane(project: string, change: (l: Lane) => Partial<Lane>): vo
   const l = laneOf(project);
   lanes = { ...all(), [project]: { ...l, ...change(l) } };
   try {
-    const kept = Object.fromEntries(Object.entries(lanes).map(([p, { folded }]) => [p, { folded }]));
+    const kept = Object.fromEntries(Object.entries(lanes).map(([p, { folded, width }]) => [p, { folded, width }]));
     localStorage.setItem(storageKey, JSON.stringify(kept));
   } catch {
     // Kept for this session, if not for the next.

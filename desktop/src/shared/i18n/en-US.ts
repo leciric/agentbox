@@ -3544,6 +3544,7 @@ export const enUS = {
   'pip.noDesktop': 'No desktop yet',
   'pip.live': '{count} live',
   'pip.hide': 'Hide the desktops',
+  'pip.resize': 'Resize the desktops',
   'pip.show': 'Show the desktops in use',
   'pip.review': 'Review',
   'pip.mention.watch': 'Watch live',
