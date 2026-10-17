@@ -94,7 +94,8 @@ export function PipConcept() {
   };
 
   const working = live.filter((a) => !gone.includes(a.name));
-  const docked = working.filter((a) => a.name !== pinned && a.name !== big && !floats[a.name]);
+  // One that has just finished comes to the top, stacked or not.
+  const docked = working.filter((a) => a.name !== pinned && a.name !== big && !floats[a.name]).sort((a, b) => Number(finished.includes(b.name)) - Number(finished.includes(a.name)));
   const grow = (name: string) => {
     if (pinned === name) return;
     setFloats((f) => without(f, name));
