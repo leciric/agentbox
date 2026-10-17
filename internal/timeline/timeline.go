@@ -109,9 +109,10 @@ func (b *builder) add(it api.ChatItem) {
 		lines := make([]string, 0, len(it.Plan))
 		for _, e := range it.Plan {
 			mark := "[ ] "
-			if e.Status == "completed" {
+			switch e.Status {
+			case "completed":
 				mark = "[x] "
-			} else if e.Status == "in_progress" {
+			case "in_progress":
 				mark = "[~] "
 			}
 			lines = append(lines, mark+e.Content)
