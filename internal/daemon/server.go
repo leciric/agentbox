@@ -824,6 +824,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/agents/{project}/{agent}/terminal", s.terminal)
 	h("GET /v1/agents/{project}/{agent}/chat", s.getChat(s.agentOrArchivedFromPath))
 	h("GET /v1/agents/{project}/{agent}/chat/search", s.searchChat(s.agentOrArchivedFromPath))
+	h("GET /v1/agents/{project}/{agent}/timeline", s.agentTimeline)
 	h("DELETE /v1/agents/{project}/{agent}/chat", s.clearChat(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/start", s.startChat(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/messages", s.sendChat(s.agentFromPath))

@@ -857,6 +857,35 @@ export interface RecordingStatus {
   limitSeconds?: number;
 }
 
+export interface Timeline {
+  steps: TimelineStep[];
+  start: string;
+  end: string;
+  working?: boolean;
+}
+
+export interface TimelineStep {
+  kind: string;
+  title: string;
+  start: string;
+  end: string;
+  status?: string;
+  calls?: number;
+  lines?: string[];
+  paths?: string[];
+  added?: number;
+  removed?: number;
+  media?: MediaItem[];
+  pages?: TimelinePage[];
+  item: string;
+}
+
+export interface TimelinePage {
+  id?: string;
+  title: string;
+  item: string;
+}
+
 export interface AddMediaRequest {
   path: string;
   kind?: string;
