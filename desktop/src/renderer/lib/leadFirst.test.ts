@@ -102,9 +102,11 @@ test('activeProjects is a busy or asking lead, a live agent or a question; the r
   const rows: Row[] = [
     { agent: agent('a1', { project: 'p' }), st: 'review' },
     { agent: agent('a2', { project: 'q' }), st: 'done' },
+    { agent: agent('agent-3', { project: 't' }), st: 'done' },
   ];
   const leads = new Map([['p', 'ready'], ['q', 'ready'], ['r', 'running'], ['s', 'waiting'], ['t', 'ready'], ['u', undefined]]);
-  assert.deepEqual([...activeProjects(rows, leads, ['t/agent-3'])].sort(), ['p', 'r', 's', 't']);
+  // u's question is from an agent that was destroyed: nobody can answer it.
+  assert.deepEqual([...activeProjects(rows, leads, ['t/agent-3', 'u/agent-28'])].sort(), ['p', 'r', 's', 't']);
 });
 
 test('an agent the VM holds back for memory is still working, so its project stays up', () => {

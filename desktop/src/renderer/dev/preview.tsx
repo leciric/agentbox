@@ -164,6 +164,7 @@
 //                           drawers. "Ready to review" has agents waiting
 //                           (dev/review.tsx), for its modal and the PR's
 //   &pins=a,b               with &v2=1, those projects pinned, in that order
+//   &stale=1                with &v2=1 and &idle=1, idle-1 has unseen questions from destroyed agents
 //   &hidden=a,b             with &v2=1, those projects hidden from the sidebar
 //   &idle=12                with &v2=1, that many more projects with nothing going on, for Idle
 //   &signedout=1            Claude Code with no login: the composer's banner, and Send's tooltip
@@ -468,6 +469,10 @@ if (appView && params.get('v2') === '1') {
   seedLeadLines(queryClient);
   seedV2(queryClient, params.get('pins'));
   seedEvidence(queryClient);
+  // &stale=1: idle-1 has unseen questions from agents that no longer exist.
+  if (params.get('stale') === '1') {
+    setNotifications(['agent-28', 'agent-29'].map((a, i) => ({ id: `stale-${a}`, kind: 'question', project: 'idle-1', agent: a, ref: `idle-1/${a}`, at: new Date(Date.now() - (i + 1) * 3600_000).toISOString(), seen: false, question: `stale-${a}`, text: 'Which account should this push to?' })), []);
+  }
   // The right-hand panel's Media tab has the ?media= gallery to show, and
   // its picker the past agents.
   if (!media) seedMedia(queryClient);

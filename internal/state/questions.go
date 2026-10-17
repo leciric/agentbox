@@ -114,7 +114,19 @@ func (s *Store) AnswerQuestion(ctx context.Context, id, answer, by string) (Ques
 		}
 		return q, fmt.Errorf("question %s was already %s", id, q.Status)
 	}
+	if err := s.seeQuestionNotice(ctx, id); err != nil {
+		return Question{}, err
+	}
 	return s.Question(ctx, id)
+}
+
+// seeQuestionNotice marks a question's notification seen: once nobody can
+// answer it, it is no longer something the user is asked.
+func (s *Store) seeQuestionNotice(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE notifications SET seen_at = ? WHERE seen_at = 0 AND kind = 'question' AND json_extract(data, '$.question') = ?`,
+		time.Now().UnixMilli(), id)
+	return err
 }
 
 // EscalateQuestion passes a question to the user, with why the lead couldn't
@@ -139,6 +151,13 @@ func (s *Store) EscalateQuestion(ctx context.Context, id, why string) (Question,
 // CancelQuestions gives up on an agent's unanswered questions, when it is
 // retired or its turn ends without waiting for them.
 func (s *Store) CancelQuestions(ctx context.Context, project, agent string) error {
+	// Their notifications go with them, or the inbox keeps asking what
+	// nobody can answer.
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE notifications SET seen_at = ? WHERE seen_at = 0 AND kind = 'question' AND project = ? AND agent = ?`,
+		time.Now().UnixMilli(), project, agent); err != nil {
+		return err
+	}
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE questions SET status = ? WHERE project = ? AND agent = ? AND status IN (?, ?)`,
 		QuestionCancelled, project, agent, QuestionPending, QuestionEscalated)
@@ -160,6 +179,9 @@ func (s *Store) CancelQuestion(ctx context.Context, id, why string) (Question, e
 			return Question{}, err
 		}
 		return q, fmt.Errorf("question %s was already %s", id, q.Status)
+	}
+	if err := s.seeQuestionNotice(ctx, id); err != nil {
+		return Question{}, err
 	}
 	return s.Question(ctx, id)
 }

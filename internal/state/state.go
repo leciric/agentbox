@@ -1194,6 +1194,15 @@ var migrations = []string{
 		checked_at INTEGER NOT NULL DEFAULT 0,
 		error      TEXT NOT NULL DEFAULT ''
 	)`,
+
+	// A question's notification stays unseen after the question is answered
+	// or cancelled, or when its agent is destroyed: the inbox kept asking
+	// what nobody could answer, and the sidebar kept its project active.
+	// They are seen from now on when the question settles; this settles
+	// those that already did.
+	`UPDATE notifications SET seen_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+		WHERE seen_at = 0 AND kind = 'question' AND NOT EXISTS (
+			SELECT 1 FROM questions q WHERE q.id = json_extract(notifications.data, '$.question') AND q.status IN ('pending', 'escalated'))`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
