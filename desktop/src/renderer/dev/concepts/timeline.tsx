@@ -107,7 +107,12 @@ function usePlayer(a: TAgent, start = 0, speed = 24, until = length(a)) {
     });
     return () => cancelAnimationFrame(raf);
   }, [playing, speed, until]);
-  return { t, setT, playing, setPlaying };
+  // Play at the end starts over.
+  const play = (on: boolean) => {
+    if (on && t >= until) setT(0);
+    setPlaying(on);
+  };
+  return { t, setT, playing, setPlaying: play };
 }
 
 // Frame is the desktop recording at second t: the terminal while the agent
