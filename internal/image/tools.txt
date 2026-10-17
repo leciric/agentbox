@@ -8,7 +8,7 @@
 # Every tool is pinned: two builds of the same image then install the same
 # thing, and a release that breaks agents can't arrive on its own. These were
 # the current stable versions on 2026-09-18, except Claude Code, moved to
-# 2.1.280 on 2026-09-22 for Opus 5.5.
+# 2.1.302 on 2026-10-17.
 #
 # Once a tool has a shim, mise auto-installs whatever version a project pins
 # for it (this repo's own mise.toml, say) the first time it runs, with no
@@ -37,10 +37,10 @@
 -        go@1.27.2                                         go version
 -        node@24.21.0                                      node --version
 -        pnpm@12.4.2                                       pnpm --version
--        claude@2.1.280                                    claude --version
+-        claude@2.1.302                                    claude --version
 -        gh@2.101.0                                        gh --version
 -        npm:@playwright/mcp@0.0.79                        playwright-mcp --version && playwright-mcp --help | grep -q -- --cdp-endpoint
--        npm:@agentclientprotocol/claude-agent-acp@0.88.0  command -v claude-agent-acp
+-        npm:@agentclientprotocol/claude-agent-acp@0.93.0  command -v claude-agent-acp
 -        npm:@cursor/sdk@1.0.35                            d="$(mise where npm:@cursor/sdk)" && ls "$d"/node_modules/@cursor/sdk/package.json "$d"/lib/node_modules/@cursor/sdk/package.json 2>/dev/null | grep -q .
 codex    codex@0.155.0                                     codex --version
 codex    npm:@agentclientprotocol/codex-acp@1.11.0         command -v codex-acp
