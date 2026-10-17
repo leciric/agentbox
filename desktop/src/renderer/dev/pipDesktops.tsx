@@ -1,9 +1,8 @@
-// The concept's agents' desktops, drawn rather than streamed: each scene is a
+// The PiP preview's agents' desktops (dev/pip.tsx), drawn rather than streamed: each scene is a
 // 1280×800 frame of an agent's machine (its panel, Chromium or a terminal)
 // as a function of time, so a dock tile can run live, a capture is the same
 // scene frozen at a moment, and a recording is it played between two.
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { Pause, Play } from 'lucide-react';
 
 export type Scene = 'csv' | 'dark' | 'test' | 'docs' | 'newproject' | 'ci' | 'startup' | 'testdone';
 
@@ -87,45 +86,6 @@ export function SceneAt({ scene, t }: { scene: Scene; t: number }) {
     case 'startup':
       return <StartupScene />;
   }
-}
-
-// Player is a recording: the scene from 0 to duration, with its controls.
-export function Player({ scene, duration, autoPlay = true, className }: { scene: Scene; duration: number; autoPlay?: boolean; className?: string }) {
-  const [playing, setPlaying] = useState(autoPlay);
-  const [at, setAt] = useState(0);
-  const clock = useClock(playing);
-  const last = useRef(clock);
-  useEffect(() => {
-    const dt = clock - last.current;
-    last.current = clock;
-    if (!playing || dt <= 0 || dt > 1) return;
-    setAt((a) => (a + dt >= duration ? 0 : a + dt));
-  }, [clock, playing, duration]);
-  const fmt = (s: number) => `0:${String(Math.floor(s)).padStart(2, '0')}`;
-  return (
-    <div className={`group relative ${className ?? ''}`} data-pip-player>
-      <Frame>
-        <SceneAt scene={scene} t={at} />
-      </Frame>
-      <div className="absolute inset-x-0 bottom-0 flex items-center gap-2 bg-gradient-to-t from-black/75 to-transparent px-2.5 pb-2 pt-6 text-[11px] text-white/90">
-        <button type="button" className="flex size-6 items-center justify-center rounded-md hover:bg-white/15" onClick={() => setPlaying((p) => !p)} aria-label={playing ? 'Pause' : 'Play'}>
-          {playing ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
-        </button>
-        <div
-          className="relative h-1 flex-1 cursor-pointer rounded-full bg-white/25"
-          onClick={(e) => {
-            const r = e.currentTarget.getBoundingClientRect();
-            setAt(((e.clientX - r.left) / r.width) * duration);
-          }}
-        >
-          <div className="absolute inset-y-0 left-0 rounded-full bg-white" style={{ width: `${(at / duration) * 100}%` }} />
-        </div>
-        <span className="tabular-nums">
-          {fmt(at)} / {fmt(duration)}
-        </span>
-      </div>
-    </div>
-  );
 }
 
 // ——— The machine around every scene: wallpaper, the panel, a window. ———

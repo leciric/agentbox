@@ -1892,5 +1892,19 @@
     "query": "app=project&v2=1&pins=agentbox,storefront&lang=pt-BR&theme=dark",
     "width": 1920,
     "height": 1080
+  },
+  {
+    "id": "pip-lead-dark",
+    "description": "The lead's picture-in-picture desktops: a dock of agents at work at the chat's edge, one finished to review, mentions opened on their captures, and Today in the header — dark",
+    "query": "app=project&v2=1&pip=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "pip-lead-light",
+    "description": "The lead's picture-in-picture desktops: a dock of agents at work at the chat's edge, one finished to review, mentions opened on their captures, and Today in the header — light",
+    "query": "app=project&v2=1&pip=1&theme=light",
+    "width": 1920,
+    "height": 1080
   }
 ]

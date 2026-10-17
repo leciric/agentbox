@@ -7,9 +7,17 @@ import RFB from '@novnc/novnc';
 
 const channels = new Map<number, IpcChannel>();
 
-window.agentbox.stream.onOpened((id) => channels.get(id)?.opened());
-window.agentbox.stream.onData((id, data) => channels.get(id)?.received(data));
-window.agentbox.stream.onExited((id, reason) => channels.get(id)?.exited(reason));
+// The streams' events are listened for from the first view on, not as this
+// module loads: a page can load it before its bridge is in place (the dev
+// preview, whose lead chat's desktops import it).
+let listening = false;
+function listen(): void {
+  if (listening) return;
+  listening = true;
+  window.agentbox.stream.onOpened((id) => channels.get(id)?.opened());
+  window.agentbox.stream.onData((id, data) => channels.get(id)?.received(data));
+  window.agentbox.stream.onExited((id, reason) => channels.get(id)?.exited(reason));
+}
 
 // IpcChannel has the parts of the WebSocket interface that noVNC uses.
 class IpcChannel {
@@ -24,6 +32,7 @@ class IpcChannel {
   private closing = false;
 
   constructor(path: string) {
+    listen();
     void window.agentbox.stream.open(path).then((id) => {
       if (this.closing) return window.agentbox.stream.close(id);
       this.id = id;

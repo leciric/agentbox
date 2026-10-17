@@ -265,6 +265,7 @@ import { ScopedMediaPages } from '../components/pages/MediaPages';
 
 import { mockMedia, NotificationsPreview, seedNotifications } from './notifications';
 import { ReviewPreview, seedLeadLines, seedReview, seedV2 } from './review';
+import { PipFinish, seedPip } from './pip';
 import { setUiV2 } from '../lib/uiV2';
 import { setTourState, tours, welcomeTour } from '../lib/tours';
 
@@ -298,10 +299,7 @@ const power = params.get('power');
 const free = params.get('free');
 const newAgent = params.get('newagent') === '1';
 const past = params.get('past'); // 'list' every project's past agents, 'chat' one read in its chat
-const concept = params.get('concept'); // a design mock-up (dev/concepts): 'pip'
-// A concept is drawn over UI v2's project page, seeded as ?app=project&v2=1.
-if (concept) params.set('v2', '1');
-const appView = params.get('app') ?? (concept ? 'project' : null); // 'home' | 'homeChat' | 'project' | 'settings' | an agent's name
+const appView = params.get('app'); // 'home' | 'homeChat' | 'project' | 'settings' | an agent's name
 const loading = params.get('loading'); // 'hold' | 'refetch' | milliseconds | null
 const io = params.get('io'); // "1" | "stalling" | "agent" | null
 const imageUpdate = params.get('setup') === 'updating';
@@ -457,6 +455,8 @@ if (appView && params.get('v2') === '1') {
   // its picker the past agents.
   if (!media) seedMedia(queryClient);
   if (!past) seedPastAgents(queryClient);
+  // &pip=1: the lead's picture-in-picture desktops, with agents at work (dev/pip.tsx).
+  if (params.get('pip') === '1') seedPip(queryClient);
   // Each page starts with no panel open, whatever the last one left.
   setPanel({ chats: {} });
   const tabs = params.get('panel');
@@ -1285,17 +1285,6 @@ if (phoneMode === 'frame') {
       </TooltipProvider>
     </QueryClientProvider>,
   );
-} else if (concept) {
-  const { Concepts, installPip } = await import('./concepts');
-  installPip();
-  createRoot(document.getElementById('root')!).render(
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider delayDuration={250}>
-        <Concepts which={concept} />
-        <Toasts />
-      </TooltipProvider>
-    </QueryClientProvider>,
-  );
 } else if (appView) {
   const { App } = await import('../App');
   const initial: View =
@@ -1309,6 +1298,7 @@ if (phoneMode === 'frame') {
       <TooltipProvider delayDuration={250}>
         <App initial={initial} />
         <Toasts />
+        {params.get('pip') === '1' && <PipFinish />}
       </TooltipProvider>
     </QueryClientProvider>,
   );

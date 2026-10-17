@@ -13,17 +13,26 @@ export class VncSession {
   private rfb: RFB | null = null;
   private active = true;
   private control = false;
+  private readonly small: boolean;
 
-  constructor(path: string, target: HTMLElement, onConnected: (connected: boolean) => void = () => {}) {
+  // small is a view only to watch, at a few hundred pixels: it asks for
+  // coarser, more compressed frames and takes no input (components/pip).
+  constructor(path: string, target: HTMLElement, onConnected: (connected: boolean) => void = () => {}, small = false) {
     this.path = path;
     this.target = target;
     this.onConnected = onConnected;
+    this.small = small;
     this.connect();
   }
 
   private connect(): void {
     const client = connectView(this.path, this.target);
     client.focusOnClick = this.control;
+    if (this.small) {
+      client.viewOnly = true;
+      client.qualityLevel = 2;
+      client.compressionLevel = 9;
+    }
     client.addEventListener('connect', () => this.onConnected(true));
     client.addEventListener('disconnect', () => {
       if (this.rfb !== client) return;

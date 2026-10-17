@@ -8,6 +8,7 @@ import { useT } from '../lib/i18n';
 import { clock } from '../lib/media';
 import { useFullscreen } from '../lib/useFullscreen';
 import { useVncView } from '../lib/useVncView';
+import { standIn } from './pip/standIn';
 import { cn, errorMessage } from '../lib/utils';
 import { Button } from './ui/button';
 import { Code, Notice } from './ui/card';
@@ -183,7 +184,9 @@ export function BrowserTab({ agent, onOpenMedia }: { agent: T.Agent; onOpenMedia
         <div ref={view} className="absolute inset-0" data-browser-view={agent.ref} data-connected={connected} />
         {/* Keeps your mouse and keyboard away from the browser until you take control. */}
         {connected && !control && <div className="absolute inset-0" data-view-guard />}
-        {!desktopUp && (
+        {standIn ? (
+          <div className="absolute inset-0 flex items-center">{standIn(agent)}</div>
+        ) : !desktopUp && (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="grid max-w-md animate-slide-up justify-items-center gap-3 text-center">
               <div className="flex size-12 items-center justify-center rounded-2xl border border-line-strong bg-surface">

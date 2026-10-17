@@ -588,6 +588,12 @@ export function seedMedia(queryClient: QueryClient): void {
   queryClient.setQueryData(['media', `${PROJECT}/agent-99`], devState.media.filter((m) => m.agentName === 'agent-99'));
 }
 
+// setDevMedia is the gallery the dev bridge answers media lists from, for a
+// scenario with its own (dev/pip.tsx).
+export function setDevMedia(items: T.MediaItem[]): void {
+  devState.media = items;
+}
+
 // seedAllMedia gives the all-projects Media view the same gallery's
 // screenshots and recordings, with every third item moved to a second project.
 export function seedAllMedia(): void {

@@ -10,6 +10,8 @@ import { openFence, richKind } from '../../lib/rich';
 import { cn } from '../../lib/utils';
 import { CodeBlock } from './CodeBlock';
 import { GeneratingCard, RichBlock, RichContext } from './RichBlock';
+import { AgentMentions, MentionChip } from '../pip/mentionChip';
+import { mentionOf, remarkAgentMentions } from '../../lib/pip';
 
 // Markdown renders an AI tool's message. While it streams, new blocks fade in.
 //
@@ -42,7 +44,9 @@ export const Markdown = memo(function Markdown({
   // A renderable block still open is a card while its message streams, and
   // its code if the stream ended without closing it, never a half-drawn page.
   const open = useMemo(() => (rich ? openFence(text) : null), [rich, text]);
-  const plugins = imageSrc ? [remarkGfm, remarkHTMLImages] : [remarkGfm];
+  // In a lead's chat, the agents it names are chips (components/pip).
+  const names = use(AgentMentions)?.names;
+  const plugins = useMemo(() => [remarkGfm, ...(imageSrc ? [remarkHTMLImages] : []), ...(names?.size ? [remarkAgentMentions(names)] : [])], [imageSrc, names]);
   if (open) {
     return (
       <div className={cn('chat-markdown', className)} data-streaming={streaming || undefined}>
@@ -101,6 +105,8 @@ function MarkdownImage({ src, alt, width, imageSrc }: { src: string; alt?: strin
 // chat (components/files); any other opens in the browser.
 function Link({ href, children }: { href?: string; children: ReactNode }) {
   const files = use(FileLinks);
+  const agent = mentionOf(href);
+  if (agent) return <MentionChip name={agent}>{children}</MentionChip>;
   const file = files && href && !/^(https?:|mailto:)/.test(href) ? fileLinkOf(decodeURI(href), files.root) : undefined;
   return (
     <a
