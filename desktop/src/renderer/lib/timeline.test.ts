@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { clockAt, dayStart, frameAt, holdFor, layout, marks, minStep, mmss, placedAt, slidesOf, trackAt, workedSince } from './timeline.ts';
+import { clockAt, dayStart, frameAt, holdFor, layout, marks, minStep, mmss, placedAt, slidesOf, spanOf, trackAt, workedSince } from './timeline.ts';
 
 const t0 = Date.parse('2026-10-17T09:00:00Z');
 const iso = (secs: number) => new Date(t0 + secs * 1000).toISOString();
@@ -20,32 +20,35 @@ const tl: T.Timeline = {
   ],
 };
 
-test('layout puts steps end to end, the time between them taken out, each at least minStep', () => {
+test('layout puts steps end to end, the time between them taken out, longer ones longer but not in proportion', () => {
   const track = layout(tl);
+  // The desktop check's recording runs past its last call: 4010 + 150 − 4000.
+  const spans = [spanOf(0), spanOf(600), spanOf(160), spanOf(5)];
+  let at = 0;
   assert.deepEqual(
     track.steps.map((p) => [p.from, p.to]),
-    [
-      [0, minStep],
-      [minStep, minStep + 600],
-      // Its recording runs past the step's last call: 4010 + 150 − 4000.
-      [minStep + 600, minStep + 760],
-      [minStep + 760, minStep * 2 + 760],
-    ],
+    spans.map((s) => [at, (at += s)]),
   );
-  assert.equal(track.length, minStep * 2 + 760);
+  assert.equal(spanOf(0), minStep);
+  assert.equal(spanOf(60), minStep + 60);
+  assert.equal(spanOf(180), minStep + 120);
+  // Ten minutes of edits take under twice the track of the 160 seconds on the desktop.
+  assert.ok(spanOf(600) < 2 * spanOf(160));
   assert.equal(placedAt(track, minStep + 1)?.step.kind, 'edit');
 });
 
 test('clockAt and trackAt turn a point of the track into the time, and back', () => {
   const track = layout(tl);
-  const x = minStep + 300;
+  const edit = track.steps[1]!;
+  const x = (edit.from + edit.to) / 2;
   assert.equal(clockAt(track, x), t0 + 360_000);
   assert.equal(trackAt(track, t0 + 360_000), x);
   // Between steps, the time is at the end of the one before.
-  assert.equal(trackAt(track, t0 + 2000_000), minStep + 600);
+  assert.equal(trackAt(track, t0 + 2000_000), edit.to);
   assert.equal(trackAt(track, t0 - 5000), 0);
-  // A short step is stretched over its minStep.
-  assert.equal(clockAt(track, minStep * 1.5 + 760), t0 + 4202_500);
+  // A short step is stretched over its span.
+  const page = track.steps[3]!;
+  assert.equal(clockAt(track, (page.from + page.to) / 2), t0 + 4202_500);
 });
 
 test('frameAt seeks a recording running at that moment, then a screenshot, then the step', () => {
@@ -62,8 +65,10 @@ test('frameAt seeks a recording running at that moment, then a screenshot, then 
 test('marks place screenshots and pages as ticks and recordings as spans', () => {
   const track = layout(tl);
   const m = marks(track);
-  assert.deepEqual(m.find((x) => x.id === 'rec'), { kind: 'recording', from: minStep + 610, to: minStep + 760, id: 'rec' });
-  assert.deepEqual(m.find((x) => x.id === 'shot'), { kind: 'screenshot', at: minStep + 650, id: 'shot' });
+  const desk = track.steps[2]!;
+  const on = (secs: number) => desk.from + (secs / 160) * (desk.to - desk.from);
+  assert.deepEqual(m.find((x) => x.id === 'rec'), { kind: 'recording', from: on(10), to: desk.to, id: 'rec' });
+  assert.deepEqual(m.find((x) => x.id === 'shot'), { kind: 'screenshot', at: on(50), id: 'shot' });
   assert.equal(m.find((x) => x.id === 'p1')?.kind, 'page');
 });
 

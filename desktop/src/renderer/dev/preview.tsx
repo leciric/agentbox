@@ -11,6 +11,8 @@
 //   ?theme=light            the light appearance (default: dark)
 //   ?concept=timeline       a mock idea, on its own (dev/concepts): timeline is
 //                           agents' work as a timeline over their recording
+//   ?app=today&v2=1         the project's Today page (components/timeline), from
+//                           dev/timeline.ts; any ?app= has the fixture timelines
 //   ?lang=pt-BR             the app in another language (default: en-US), for
 //                           strings longer than English's
 //   ?folded=1               the rail folded to 56px (default: open)
@@ -267,6 +269,7 @@ import { ScopedMediaPages } from '../components/pages/MediaPages';
 
 import { mockMedia, NotificationsPreview, seedNotifications } from './notifications';
 import { ReviewPreview, seedLeadLines, seedReview, seedV2 } from './review';
+import { seedTimelines } from './timeline';
 import { setUiV2 } from '../lib/uiV2';
 import { setTourState, tours, welcomeTour } from '../lib/tours';
 
@@ -442,6 +445,9 @@ if (media === 'all') seedAllMedia();
 else if (media) seedMedia(queryClient);
 if (notify) seedNotifications(queryClient, mockMedia());
 if (review || appView) seedReview(queryClient);
+// The fixture agents' timelines (dev/timeline.ts), for the right panel's
+// Timeline tab, the review's and Today.
+if (appView) seedTimelines();
 // UI v2 only where asked for: the flag is the preview origin's, kept between pages.
 setUiV2(params.get('v2') === '1');
 // No tour plays over a scenario unless &tour= asks for one.
@@ -1292,6 +1298,7 @@ if (phoneMode === 'frame') {
   const { App } = await import('../App');
   const initial: View =
     appView === 'home' ? { kind: 'home' }
+    : appView === 'today' ? { kind: 'today', project: PROJECT }
     : appView === 'settings' ? { kind: 'settings' }
     : appView === 'homeChat' ? { kind: 'homeChat' }
     : appView === 'project' || appView === 'pulls' ? { kind: 'project', project: PROJECT, tab: appView === 'pulls' ? 'pulls' : 'chat' }

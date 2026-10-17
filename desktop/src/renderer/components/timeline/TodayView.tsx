@@ -22,6 +22,8 @@ import { TitleTile } from '../pages/PageThumb';
 import { useProjectPages } from '../pages/usePages';
 import { AIIcon } from '../state';
 import { Button } from '../ui/button';
+import { PanelButton } from '../v2/PanelButton';
+import { InTopBar, ProjectCrumb } from '../v2/ProjectHeader';
 import { useOpenReview, useProjectReview } from '../v2/ReviewV2';
 import { kindIcon, kindTone, Scrubber, timelineKey, useStepTitle } from './Timeline';
 
@@ -69,8 +71,14 @@ export function TodayView({ project, onSelect }: { project: string; onSelect: (v
   const lead = `${project}/${LeadName}`;
   const media = chapters.flatMap((c) => c.timeline.steps.flatMap((s) => s.media ?? []));
   const count = (kind: string) => media.filter((m) => m.kind === kind).length;
+  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
+  const p = projects.data?.find((x) => x.name === project);
   return (
     <div className="min-h-0 flex-1 overflow-y-auto" data-today={project}>
+      <InTopBar>{p && <ProjectCrumb project={p} then={t('today.title')} />}</InTopBar>
+      <InTopBar end>
+        <PanelButton project={project} chat={lead} />
+      </InTopBar>
       <div className="mx-auto max-w-[920px] px-6 py-6">
         <header className="flex flex-wrap items-end gap-x-4 gap-y-3">
           <div className="min-w-[300px] flex-1">
@@ -168,7 +176,7 @@ function ChapterStrip({ timeline }: { timeline: T.Timeline }) {
 
 function Kept({ project, media, page, onOpen }: { project: string; media?: T.MediaItem; page?: T.TimelinePage; onOpen: () => void }) {
   return (
-    <button type="button" onClick={onOpen} className={cn('group shrink-0 text-left', media?.kind === 'recording' ? 'w-60' : 'w-40')} data-today-kept={media?.kind ?? 'page'}>
+    <button type="button" onClick={onOpen} className="group w-44 shrink-0 text-left" data-today-kept={media?.kind ?? 'page'}>
       <span className="relative block aspect-[16/10] overflow-hidden rounded-md bg-black ring-1 ring-line group-hover:ring-brand-400">
         {media?.kind === 'recording' ? (
           <>

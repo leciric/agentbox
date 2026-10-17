@@ -5,18 +5,23 @@
 // The track isn't the clock. An agent works in bursts, and waits between
 // them, for the user's answer, for CI, overnight for a review: drawn to scale
 // the work would be slivers between long gaps. So the track puts the steps
-// end to end with the time between them taken out, and gives each at least
-// minStep, so a two-second test run can still be found. Within a step it runs
-// with the clock (a long step at its own pace, a short one stretched), which
-// is what lets a point of the track seek a recording made during it.
+// end to end with the time between them taken out, and gives each a span
+// that grows with its length but slower (spanOf): a two-second test run can
+// still be found, and a quarter of an hour of edits doesn't squeeze the
+// minute on the desktop, which is what there is to watch, into a sliver.
+// Within a step the track runs evenly with the clock, which is what lets a
+// point of it seek a recording made during the step.
 import type * as T from '../../shared/api';
 
 export type StepKind = 'task' | 'read' | 'plan' | 'edit' | 'test' | 'run' | 'desktop' | 'page' | 'pr';
 export const stepKinds: StepKind[] = ['task', 'read', 'plan', 'edit', 'test', 'run', 'desktop', 'page', 'pr'];
 export const kindOf = (s: T.TimelineStep): StepKind => (stepKinds.includes(s.kind as StepKind) ? (s.kind as StepKind) : 'run');
 
-// minStep is the least a step takes of the track, in seconds.
+// minStep is the least a step takes of the track, in seconds; spanOf is
+// what a step that took secs seconds takes: minStep and another minute for
+// every doubling of its length in minutes.
 export const minStep = 20;
+export const spanOf = (secs: number) => minStep + 60 * Math.log2(1 + Math.max(0, secs) / 60);
 
 const ms = (iso: string) => new Date(iso).getTime();
 
@@ -34,7 +39,7 @@ export function layout(tl: Pick<T.Timeline, 'steps'>): Track {
     // call that started it.
     let end = Math.max(start, ms(step.end));
     for (const m of step.media ?? []) end = Math.max(end, mediaEnd(m));
-    const placed = { step, index, from: at, to: at + Math.max(minStep, (end - start) / 1000), start, end };
+    const placed = { step, index, from: at, to: at + spanOf((end - start) / 1000), start, end };
     at = placed.to;
     return placed;
   });

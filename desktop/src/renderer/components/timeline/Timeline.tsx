@@ -202,7 +202,7 @@ function Player({ track, x, playing, onClock, className }: { track: Track; x: nu
           )}
           <span>{clockTime(clockAt(track, x))}</span>
           <span className="min-w-0 truncate text-white/60">{title(p.step)}</span>
-          <span className="ml-auto shrink-0">{mmss(x)} / {mmss(track.length)}</span>
+          {recording && <span className="ml-auto shrink-0">{mmss(recording.offset)} / {mmss(recording.media.meta.duration ?? 0)}</span>}
         </div>
       )}
     </div>
@@ -402,7 +402,7 @@ function Meta({ p }: { p: Placed }) {
   return (
     <span className="flex min-w-0 items-center gap-1.5 text-[10.5px] text-faint">
       <span className={kindText[kind]}>{t(`timeline.kind.${kind}`)}</span>
-      <span>· {mmss((p.end - p.start) / 1000)}</span>
+      {p.end - p.start >= 1000 && <span>· {mmss((p.end - p.start) / 1000)}</span>}
       {kind === 'edit' && (s.added || s.removed) ? (
         <span>
           · <span className="text-emerald-400">+{s.added ?? 0}</span> <span className="text-rose-400">−{s.removed ?? 0}</span>
