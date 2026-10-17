@@ -26,13 +26,13 @@ export function useInUse(project: string): T.Agent[] {
 
 // The lane's width to begin with, a column of small tiles each named by its
 // task, and the narrowest it is dragged to. It never takes the chat's room
-// below chatMin; from twoColumns on its tiles go two across, and more as it
-// widens, each tile growing to fill its column at the desktop's 16:10.
+// below chatMin; its tiles grow with it, to fill their column at the desktop's 16:10, and go
+// two across once each could stay at least tileMin wide, so a wider lane
+// always means bigger desktops, never just more room around them.
 const laneWidth = 168;
 const laneMin = laneWidth;
 const chatMin = 420;
-const twoColumns = 340;
-const tileMin = 150;
+const tileMin = 200;
 
 // laneBox is the lane's width kept within what the chat can spare of room.
 export function laneBox(want: number | undefined, room: number): number {
@@ -42,7 +42,7 @@ export function laneBox(want: number | undefined, room: number): number {
 
 // laneColumns is how many tiles go across a lane of this width.
 export function laneColumns(width: number): number {
-  return width < twoColumns ? 1 : Math.max(2, Math.floor((width - 16 + 12) / (tileMin + 12)));
+  return Math.max(1, Math.floor((width - 16 + 12) / (tileMin + 12)));
 }
 // foldBelow is how wide the chat's box must be for the lane to open by
 // itself: narrower, the chat keeps the room and the lane is a strip.
