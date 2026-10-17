@@ -178,15 +178,16 @@ async function capture(baseUrl, outDir, lang, only) {
       const missing = [];
       const miss = (selector) => () => missing.push(selector);
       await page.goto(`${baseUrl}/dev/preview.html?${s.query}${lang ? `&lang=${lang}` : ''}`, { waitUntil: 'networkidle' });
-      // A scenario can hover an element, to show its tooltip.
-      if (s.hover) {
-        await page.hover(s.hover, { timeout: 3_000 }).catch(miss(s.hover));
-        await page.waitForSelector('[data-radix-popper-content-wrapper]', { timeout: 3_000 }).catch(() => {});
-      }
       // A scenario can click an element, to show a popover it opens.
       // Or a list of them, one after the other: a row in the popover.
       for (const click of s.click ? [s.click].flat() : []) {
         await page.click(click, { timeout: 3_000 }).catch(miss(click));
+        await page.waitForSelector('[data-radix-popper-content-wrapper]', { timeout: 3_000 }).catch(() => {});
+      }
+      // A scenario can hover an element, to show its tooltip: after its
+      // clicks, which can open what holds it (a project's agents).
+      if (s.hover) {
+        await page.hover(s.hover, { timeout: 3_000 }).catch(miss(s.hover));
         await page.waitForSelector('[data-radix-popper-content-wrapper]', { timeout: 3_000 }).catch(() => {});
       }
       // A scenario can type into a field, to show what a search leaves:

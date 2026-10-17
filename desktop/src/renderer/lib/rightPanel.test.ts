@@ -59,6 +59,21 @@ test('the agent active last is one at work, then the one that did something last
   assert.equal(P.mostRecent('pawly', agents, [{ ref: 'pawly/a', lastActive: '2026-10-09T00:00:00Z' }])?.name, 'a');
   assert.equal(P.mostRecent('pawly', agents, [{ ref: 'pawly/a', lastActive: '2026-10-09T00:00:00Z' }, { ref: 'pawly/c', busy: true, lastActive: '2026-10-02T00:00:00Z' }])?.name, 'c');
   assert.equal(P.mostRecent('other', agents), undefined);
+  // One using its desktop now goes before them all, as the lane shows it.
+  assert.equal(P.mostRecent('pawly', agents, [{ ref: 'pawly/c', busy: true }], ['pawly/a'])?.name, 'a');
+});
+
+test('an agent’s computer is live while its desktop is used, on, or asleep once it finished', () => {
+  assert.equal(P.deskOf(agent('a', 'running'), true), 'live');
+  assert.equal(P.deskOf(agent('a', 'running'), false), 'on');
+  assert.equal(P.deskOf(agent('a', 'stopped'), true), 'asleep');
+  assert.equal(P.deskOf(agent('a', 'paused'), false), 'asleep');
+});
+
+test('beside a lead’s chat the panel keeps its one width; beside an agent’s it takes half the room until dragged', () => {
+  assert.equal(P.panelWant({ width: 560 }, 'pawly/lead', 1600), 560);
+  assert.equal(P.panelWant({ width: 560 }, 'pawly/agent-2', 1600), 800);
+  assert.equal(P.panelWant({ width: 560, agentWidth: 700 }, 'pawly/agent-2', 1600), 700);
 });
 
 test('an agent’s chat shows its own agent until another is picked; the lead’s shows the project’s last', () => {

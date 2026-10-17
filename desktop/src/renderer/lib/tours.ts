@@ -122,6 +122,13 @@ const S = {
     anchor: ['[data-panel-toggle]'],
     go: 'lead',
   },
+  computer: {
+    id: 'computer',
+    title: 'tour.computer.title',
+    body: 'tour.computer.body',
+    anchor: ['[data-v2-agent] [data-desk]', '[data-v2-agents]', '[data-sidebar-v2] nav'],
+    needsAgents: true,
+  },
   switch: {
     id: 'switch',
     title: 'tour.switch.title',
@@ -163,7 +170,7 @@ export const welcomeTour: Tour = {
   id: 'welcome',
   version: v013,
   title: 'tour.welcome.name',
-  steps: [S.welcome, S.sidebar, S.home, S.groups, S.hide, S.lead, S.mention, S.cards, S.reviewButton, S.review, S.panel, S.switch, S.places, S.classic, S.help],
+  steps: [S.welcome, S.sidebar, S.computer, S.home, S.groups, S.hide, S.lead, S.mention, S.cards, S.reviewButton, S.review, S.panel, S.switch, S.places, S.classic, S.help],
 };
 
 // tours is What's new: each big feature's own short tour, oldest first.
@@ -174,7 +181,7 @@ export const tours: Tour[] = [
   { id: 'groups', version: v013, title: 'tour.groupsTour.name', steps: [S.groups, S.hide] },
   { id: 'cross-project', version: v013, title: 'tour.crossTour.name', steps: [S.mention] },
   { id: 'places', version: v014, title: 'tour.placesTour.name', steps: [S.home, S.places] },
-  { id: 'panel-switch', version: v015, title: 'tour.switchTour.name', steps: [S.switch] },
+  { id: 'panel-switch', version: v015, title: 'tour.switchTour.name', steps: [S.computer, S.switch] },
 ];
 
 export const tourById = (id: string): Tour | undefined => (id === welcomeTour.id ? welcomeTour : tours.find((t) => t.id === id));

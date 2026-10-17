@@ -68,6 +68,13 @@ export function hasView(w: Whose, view: PanelView): boolean {
 // desktop, the repository's files, and what a past agent left.
 export const defaultView = (w: Whose): PanelView => (w.kind === 'agent' ? 'desktop' : w.kind === 'lead' ? 'files' : 'evidence');
 
+// Desk is what an agent's computer is doing, in one word, for the glyph on
+// its sidebar row, its page and its hover card: live (its desktop driven in
+// the last minutes), on, or asleep (stopped or paused: it finished, and its
+// machine sleeps until it is reviewed).
+export type Desk = 'live' | 'on' | 'asleep';
+export const deskOf = (agent: Pick<T.Agent, 'state'>, inUse: boolean): Desk => (machineOf(agent) === 'asleep' ? 'asleep' : inUse ? 'live' : 'on');
+
 // resolveWhose finds ref among the project's agents and past agents; the
 // lead for its own ref, and undefined when it is gone.
 export function resolveWhose(ref: string, project: string, agents: T.Agent[], past: T.ArchivedAgent[]): Whose | undefined {
@@ -89,13 +96,15 @@ export function pickable(project: string, agents: T.Agent[]): T.Agent[] {
   return agents.filter((a) => a.project === project && a.name !== 'lead').toSorted((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-// mostRecent is the project's agent that did something last: one at work
-// now before one that isn't, then by when it last did anything (the fleet's
-// lastActive), then the newest.
-export function mostRecent(project: string, agents: T.Agent[], fleet: Pick<T.FleetAgent, 'ref' | 'busy' | 'lastActive'>[] = []): T.Agent | undefined {
+// mostRecent is the project's agent that did something last: one using its
+// desktop now (live, refs) first, as the lane of desktops shows it, then one
+// at work, then by when it last did anything (the fleet's lastActive), then
+// the newest.
+export function mostRecent(project: string, agents: T.Agent[], fleet: Pick<T.FleetAgent, 'ref' | 'busy' | 'lastActive'>[] = [], live: readonly string[] = []): T.Agent | undefined {
   const of = new Map(fleet.map((f) => [f.ref, f]));
   const at = (a: T.Agent) => of.get(a.ref)?.lastActive ?? a.createdAt;
-  return pickable(project, agents).toSorted((a, b) => Number(!!of.get(b.ref)?.busy) - Number(!!of.get(a.ref)?.busy) || at(b).localeCompare(at(a)))[0];
+  const rank = (a: T.Agent) => (live.includes(a.ref) ? 2 : 0) + (of.get(a.ref)?.busy ? 1 : 0);
+  return pickable(project, agents).toSorted((a, b) => rank(b) - rank(a) || at(b).localeCompare(at(a)))[0];
 }
 
 // panelBox is how wide the panel is, and whether it sits beside the chat or
@@ -105,7 +114,11 @@ export function mostRecent(project: string, agents: T.Agent[], fleet: Pick<T.Fle
 export const besideMin = 1100;
 export const chatMin = 440;
 export const panelMin = 340;
-export const panelDefault = 540;
+export const panelDefault = 560;
+// panelWant is how wide chat's panel would be: the one width beside a lead's
+// chat; beside an agent's own, its desktop is what you came for, so half the
+// room until you drag it.
+export const panelWant = (state: Pick<PanelState, 'width' | 'agentWidth'>, chat: string, room: number): number => (isLeadRef(chat) ? state.width : (state.agentWidth ?? Math.round(room / 2)));
 export function panelBox(want: number, room: number, windowWidth: number): { width: number; drawer: boolean } {
   if (windowWidth < besideMin || room - chatMin < panelMin) return { width: Math.round(Math.min(windowWidth * 0.92, Math.max(want, 420), windowWidth - 24)), drawer: true };
   return { width: Math.round(Math.max(panelMin, Math.min(want, room - chatMin))), drawer: false };
@@ -126,9 +139,11 @@ const closedPanel: ChatPanel = { open: false };
 
 // The panel's state, all remembered but the chats' wide and focus: each chat's own panel, keyed
 // by its ref, the view each agent (by ref) was last shown in, the agent each
-// project's panel last showed, the one width and the Settings view's section.
+// project's panel last showed, its width beside a lead's chat and beside an
+// agent's (unset: half the room), and the Settings view's section.
 export interface PanelState {
   width: number;
+  agentWidth?: number;
   section: ProjectSection;
   chats: Record<string, ChatPanel>;
   views: Record<string, PanelView>;
@@ -155,6 +170,7 @@ function load(): PanelState {
     return {
       ...base,
       ...(typeof saved.width === 'number' ? { width: saved.width } : {}),
+      ...(typeof saved.agentWidth === 'number' ? { agentWidth: saved.agentWidth } : {}),
       chats,
       views,
       last: strings(saved.last),
@@ -172,9 +188,9 @@ export function panelState(): PanelState {
 export function setPanel(change: Partial<PanelState>): void {
   current = { ...panelState(), ...change };
   try {
-    const { width, views, last } = current;
+    const { width, agentWidth, views, last } = current;
     const chats = Object.fromEntries(Object.entries(current.chats).map(([k, p]) => [k, bare(p)]));
-    localStorage.setItem(storageKey, JSON.stringify({ width, chats, views, last }));
+    localStorage.setItem(storageKey, JSON.stringify({ width, agentWidth, chats, views, last }));
   } catch {
     // Kept for this session, if not for the next.
   }

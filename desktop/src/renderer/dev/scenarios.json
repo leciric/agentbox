@@ -1807,7 +1807,7 @@
   {
     "id": "tour-panel-switch-light",
     "description": "The tour on the right-hand panel's switch, the panel it opened beside the lead's chat — light",
-    "query": "app=project&v2=1&tour=welcome&step=11&theme=light",
+    "query": "app=project&v2=1&tour=welcome&step=12&theme=light",
     "width": 1440,
     "height": 900
   },
@@ -1898,16 +1898,40 @@
   },
   {
     "id": "pip-lead-dark",
-    "description": "The lead's picture-in-picture desktops: a dock of agents at work at the chat's edge, one finished to review, mentions opened on their captures, and Today in the header — dark",
+    "description": "The lead's picture-in-picture desktops: a lane of agents at work at the chat's edge, each tile named by its task, the sidebar's rows each with its computer's glyph (playing while its desktop is in use) — dark",
     "query": "app=project&v2=1&pip=1&theme=dark",
     "width": 1920,
     "height": 1080
   },
   {
     "id": "pip-lead-light",
-    "description": "The lead's picture-in-picture desktops: a dock of agents at work at the chat's edge, one finished to review, mentions opened on their captures, and Today in the header — light",
+    "description": "The lead's picture-in-picture desktops: a lane of agents at work at the chat's edge, each tile named by its task, the sidebar's rows each with its computer's glyph (playing while its desktop is in use) — light",
     "query": "app=project&v2=1&pip=1&theme=light",
     "width": 1920,
     "height": 1080
+  },
+  {
+    "id": "pip-lead-panel-dark",
+    "description": "A lane tile clicked: its desktop in the right-hand panel, and the lane stepped aside so the chat isn't squeezed between them; live agents first in the panel's picker — dark",
+    "query": "app=project&v2=1&pip=1&theme=dark",
+    "width": 1600,
+    "height": 1000,
+    "click": "[data-pip-tile]"
+  },
+  {
+    "id": "pip-sidebar-peek-dark",
+    "description": "Hovering an agent in the sidebar: its card leads with its computer, its desktop live (or its last frame) and what the machine is doing — dark",
+    "query": "app=project&v2=1&pip=1&theme=dark",
+    "width": 1600,
+    "height": 1000,
+    "hover": "[data-v2-agent][data-v2-agent-st='working']",
+    "click": "[data-v2-toggle='agentbox']"
+  },
+  {
+    "id": "pip-agent-page-dark",
+    "description": "An agent's own page with its panel closed: the bar under its header with its desktop small, its own computer's state, and Desktop, Terminal, Files and Evidence to open the panel on — dark",
+    "query": "app=agent-41&v2=1&theme=dark",
+    "width": 1440,
+    "height": 900
   }
 ]

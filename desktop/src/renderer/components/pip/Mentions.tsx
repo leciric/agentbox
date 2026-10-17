@@ -9,7 +9,6 @@ import { mediaUrl } from '../../lib/media';
 import { mediaQuery } from '../../lib/mediaPages';
 import { pastAgentsKey } from '../../lib/pastAgents';
 import { captureKinds, latestBy, mentionsIn, reported } from '../../lib/pip';
-import { setLane } from '../../lib/pipStore';
 import { leadOf, openPanelOn, pastRef } from '../../lib/rightPanel';
 import { useInUse } from './PipLane';
 import { timeAgo } from '../../lib/utils';
@@ -32,7 +31,7 @@ export function AgentMentionsProvider({ project, onSelect, children }: { project
       project,
       names,
       live,
-      onWatch: (ref: string) => setLane(project, () => ({ big: ref, folded: false })),
+      onWatch: (ref: string) => openPanelOn(leadOf(project), 'desktop', ref),
       onToday: () => onSelect({ kind: 'today', project }),
       // A past agent has no desktop: what it left is its evidence.
       onOpen: (name: string) => {

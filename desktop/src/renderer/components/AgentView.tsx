@@ -63,6 +63,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Tip } from './ui/tooltip';
 import { useUiV2 } from '../lib/uiV2';
 import { PanelButton } from './v2/PanelButton';
+import { AgentMachineBar } from './v2/AgentMachineBar';
 
 // An agent's Settings tab: what it says about the agent's machine, code and AI
 // tool (OverviewTab), and the secrets and connectors only it gets.
@@ -293,6 +294,7 @@ export function AgentView({
           <Notice>{errorMessage(error)}</Notice>
         </div>
       )}
+      {v2 && <AgentMachineBar agent={agent} />}
 
       <Tabs value={active} onValueChange={(value) => onTab(value as AgentTab)} className="flex min-h-0 flex-1 flex-col">
         {v2 ? (

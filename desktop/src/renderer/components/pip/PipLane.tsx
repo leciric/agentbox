@@ -1,15 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
-import { ArrowUpRight, ChevronLeft, ChevronRight, Minimize2, PanelRightOpen } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { ChevronLeft, ChevronRight, PanelRightOpen } from 'lucide-react';
+import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import * as T from '../../../shared/api';
 import type { View } from '../../App';
 import { api } from '../../lib/api';
 import { useT } from '../../lib/i18n';
 import { docked } from '../../lib/pip';
 import { setLane, useLane } from '../../lib/pipStore';
-import { openPanelOn, shown, usePanel } from '../../lib/rightPanel';
-import { cn } from '../../lib/utils';
-import { Button } from '../ui/button';
+import { openPanelOn, useChatPanel } from '../../lib/rightPanel';
 import { Tip } from '../ui/tooltip';
 import { LiveDesktop } from './LiveDesktop';
 
@@ -26,130 +24,77 @@ export function useInUse(project: string): T.Agent[] {
   return docked(project, agents.data ?? [], desktops.data ?? [], Date.now());
 }
 
-// The lane's widths: a column of small tiles, or one desktop grown in it.
-const small = 136;
-const grownMin = 280;
-const grownMax = 440;
+// The lane's width, a column of small tiles each named by its task.
+const laneWidth = 168;
 // foldBelow is how wide the chat's box must be for the lane to open by
 // itself: narrower, the chat keeps the room and the lane is a strip.
 const foldBelow = 760;
 
 // PipLane is the lead's chat with a lane at its right for the desktops its
-// agents are using: small live tiles, one of them grown on a click. The
-// chat, composer and all, gives the lane its room rather than lying under it;
-// a desktop pinned beside the chat is the right-hand panel's Desktop tab.
-export function PipLane({ project, onSelect, children }: { project: string; onSelect: (view: View) => void; children: ReactNode }) {
-  const t = useT();
+// agents are using: small live tiles, each named by its agent's task. A tile
+// opens that desktop in the right-hand panel, the one place a desktop is
+// shown large, and the lane steps aside while the panel is open: the chat is
+// never squeezed between the two, and the panel's picker marks who is live.
+// The chat, composer and all, gives the lane its room rather than lying
+// under it.
+export function PipLane({ project, children }: { project: string; onSelect?: (view: View) => void; children: ReactNode }) {
   const row = useRef<HTMLDivElement>(null);
   const width = useWidth(row);
   const lane = useLane(project);
   const chat = `${project}/${T.LeadName}`;
-  const panel = shown(usePanel(), chat);
-  const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
-  const inUse = useInUse(project);
-  // The agent whose desktop is open in the panel beside the chat has no tile.
-  const pinned = panel && (panel.view ?? 'desktop') === 'desktop' ? panel.target : undefined;
-  const tiles = inUse.filter((a) => a.ref !== pinned);
-  // A desktop you grew stays while its agent runs, in use or not: you're watching it.
-  const big = lane.big && lane.big !== pinned ? (agents.data ?? []).find((a) => a.ref === lane.big && a.state === 'running') : undefined;
-  const others = tiles.filter((a) => a.ref !== big?.ref);
+  const open = useChatPanel(chat).open;
+  const tiles = useInUse(project);
   const folded = lane.folded ?? width < foldBelow;
-  const laneWidth = big ? Math.max(grownMin, Math.min(grownMax, Math.round(width * 0.36))) : small;
-
-  const shrink = () => setLane(project, () => ({ big: null }));
-  const pin = (ref: string) => {
-    setLane(project, (l) => ({ big: l.big === ref ? null : l.big }));
-    openPanelOn(chat, 'desktop', ref);
-  };
-  useEffect(() => {
-    if (!big) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !document.querySelector('[role=dialog]') && setLane(project, () => ({ big: null }));
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [big, project]);
 
   return (
     <div ref={row} className="flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">{children}</div>
-      {(big || others.length > 0) &&
-        (folded ? (
-          <Strip count={tiles.length} onOpen={() => setLane(project, () => ({ folded: false }))} />
-        ) : (
-          <aside className="flex shrink-0 flex-col border-l border-line transition-[width] duration-200" style={{ width: laneWidth }} data-pip-lane={big ? 'grown' : 'tiles'}>
-            <div className="flex h-8 shrink-0 items-center gap-1.5 pl-3 pr-1 text-[11px] text-subtle">
-              <span className={cn('size-1.5 rounded-full', tiles.length > 0 ? 'animate-pulse bg-rose-400' : 'bg-faint')} />
-              <span className="flex-1 truncate">{t('pip.live', { count: tiles.length })}</span>
-              <Tip label={t('pip.hide')}>
-                <button type="button" aria-label={t('pip.hide')} onClick={() => setLane(project, () => ({ folded: true, big: null }))} className="rounded p-1 hover:bg-surface-raised hover:text-primary" data-pip-fold>
-                  <ChevronRight className="size-3.5" />
-                </button>
-              </Tip>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 [scrollbar-width:thin]">
-              {big && <Grown agent={big} inUse={inUse.some((a) => a.ref === big.ref)} onPin={() => pin(big.ref)} onOpen={() => onSelect({ kind: 'agent', ref: big.ref })} onShrink={shrink} />}
-              <div className={cn('grid gap-2.5', big ? 'mt-3 grid-cols-[repeat(auto-fill,minmax(92px,1fr))]' : 'grid-cols-1')}>
-                {others.map((a) => (
-                  <Tile key={a.ref} agent={a} onClick={() => setLane(project, () => ({ big: a.ref }))} />
-                ))}
-              </div>
-            </div>
-          </aside>
-        ))}
+      {!open && tiles.length > 0 && (folded ? <Strip count={tiles.length} onOpen={() => setLane(project, () => ({ folded: false }))} /> : <Lane project={project} tiles={tiles} onOpen={(ref) => openPanelOn(chat, 'desktop', ref)} />)}
     </div>
   );
 }
 
-// Tile is one small live desktop, and whose it is under it.
-function Tile({ agent, onClick }: { agent: T.Agent; onClick: () => void }) {
-  return (
-    <Tip label={agent.title || agent.name} side="left">
-      <button type="button" onClick={onClick} className="group block w-full min-w-0 text-left" data-pip-tile={agent.name}>
-        <div className="overflow-hidden rounded-lg border border-line-strong bg-stage transition group-hover:border-line-heavy">
-          <LiveDesktop agent={agent} small />
-        </div>
-        <div className="mt-1 flex min-w-0 items-center gap-1 px-0.5 text-[10.5px] text-muted group-hover:text-primary">
-          <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-emerald-400" />
-          <span className="truncate">{agent.name}</span>
-        </div>
-      </button>
-    </Tip>
-  );
-}
-
-// Grown is one desktop at the lane's full width: pinned beside the chat,
-// opened on its agent's page, or put back with the others.
-function Grown({ agent, inUse, onPin, onOpen, onShrink }: { agent: T.Agent; inUse: boolean; onPin: () => void; onOpen: () => void; onShrink: () => void }) {
+function Lane({ project, tiles, onOpen }: { project: string; tiles: T.Agent[]; onOpen: (ref: string) => void }) {
   const t = useT();
   return (
-    <div className="animate-fade-in" data-pip-big={agent.name}>
-      <div className="flex min-w-0 items-center gap-1 pb-1.5 pl-1">
-        <span className={cn('size-1.5 shrink-0 rounded-full', inUse ? 'animate-pulse bg-emerald-400' : 'bg-faint')} />
-        <span className="shrink-0 text-[12.5px] font-semibold text-title">{agent.name}</span>
-        <span className="min-w-0 flex-1 truncate pl-0.5 text-[12px] text-muted">{agent.title}</span>
-        <LaneButton label={t('pip.openAgent')} onClick={onOpen}>
-          <ArrowUpRight />
-        </LaneButton>
-        <LaneButton label={t('pip.pin')} onClick={onPin} data="pin">
-          <PanelRightOpen />
-        </LaneButton>
-        <LaneButton label={t('pip.toDock')} onClick={onShrink} data="shrink">
-          <Minimize2 />
-        </LaneButton>
+    <aside className="flex shrink-0 flex-col border-l border-line" style={{ width: laneWidth }} data-pip-lane="tiles">
+      <div className="flex h-8 shrink-0 items-center gap-1.5 pl-3 pr-1 text-[11px] text-subtle">
+        <span className="size-1.5 animate-pulse rounded-full bg-rose-400" />
+        <span className="flex-1 truncate">{t('pip.live', { count: tiles.length })}</span>
+        <Tip label={t('pip.hide')}>
+          <button type="button" aria-label={t('pip.hide')} onClick={() => setLane(project, () => ({ folded: true }))} className="rounded p-1 hover:bg-surface-raised hover:text-primary" data-pip-fold>
+            <ChevronRight className="size-3.5" />
+          </button>
+        </Tip>
       </div>
-      <div className="overflow-hidden rounded-lg border border-line-strong bg-stage">
-        <LiveDesktop agent={agent} />
+      <div className="grid min-h-0 flex-1 content-start gap-3 overflow-y-auto px-2 pb-2 [scrollbar-width:thin]">
+        {tiles.map((a) => (
+          <Tile key={a.ref} agent={a} onClick={() => onOpen(a.ref)} />
+        ))}
       </div>
-      {!inUse && <p className="mt-1.5 px-1 text-[11px] text-subtle">{t('pip.idle')}</p>}
-    </div>
+    </aside>
   );
 }
 
-function LaneButton({ label, onClick, data, children }: { label: string; onClick: () => void; data?: string; children: ReactNode }) {
+// Tile is one small live desktop, and under it whose: its task, as the
+// sidebar names it, and its number. A click opens it in the panel.
+function Tile({ agent, onClick }: { agent: T.Agent; onClick: () => void }) {
+  const t = useT();
   return (
-    <Tip label={label}>
-      <Button size="icon-sm" variant="ghost" className="size-7 shrink-0 [&_svg]:size-3.5" aria-label={label} onClick={onClick} data-pip-action={data}>
-        {children}
-      </Button>
+    <Tip label={t('pip.open', { name: agent.title || agent.name })} side="left">
+      <button type="button" onClick={onClick} className="group block w-full min-w-0 text-left" data-pip-tile={agent.name}>
+        <div className="relative overflow-hidden rounded-lg border border-line-strong bg-stage transition group-hover:border-brand-500/60">
+          <LiveDesktop agent={agent} small />
+          <span className="absolute inset-0 flex items-center justify-center bg-black/40 text-white opacity-0 transition group-hover:opacity-100">
+            <PanelRightOpen className="size-4" />
+          </span>
+        </div>
+        <div className="mt-1 flex min-w-0 items-center gap-1 px-0.5 text-[11px] font-medium text-secondary group-hover:text-title">
+          <span className="mt-[5px] size-1.5 shrink-0 self-start animate-pulse rounded-full bg-emerald-400" />
+          <span className="line-clamp-2 leading-snug">{agent.title || agent.name}</span>
+        </div>
+        {agent.title && <div className="truncate px-0.5 pl-3 font-mono text-[10px] text-faint">{agent.name}</div>}
+      </button>
     </Tip>
   );
 }

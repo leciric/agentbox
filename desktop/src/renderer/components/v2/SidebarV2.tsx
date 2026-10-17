@@ -35,7 +35,7 @@ import { useNow } from '../../lib/useNow';
 import { updateHint } from '../../lib/appUpdate';
 import { isNightly, isUpgrade } from '../../lib/nightly';
 import { useAppUpdate } from '../../lib/useAppUpdate';
-import { cn, errorMessage, humanBytes, humanRate, shortcut, timeAgo } from '../../lib/utils';
+import { cn, errorMessage, shortcut, timeAgo } from '../../lib/utils';
 import { chatLabel, useMood } from '../../lib/agentStatus';
 import { AgentAvatar } from '../state';
 import { useCpuHistory } from '../../lib/useCpuHistory';
@@ -43,6 +43,7 @@ import { Sparkline } from '../Sparkline';
 import { openNewTask, requestComposerFocus } from '../../lib/newTask';
 import { useRemoving } from '../../lib/removing';
 import { openPanelOn } from '../../lib/rightPanel';
+import { DeskGlyph, useDesk } from './DesktopPeek';
 import { AgentContextMenu } from '../AgentContextMenu';
 import { Logo } from '../Sidebar';
 import { ProjectIcon, ProjectIconDialog } from '../ProjectIcon';
@@ -832,6 +833,7 @@ function AgentRow({ row, active, onSelect, sample, cpu }: { row: Row; active: bo
   const { agent, st } = row;
   const removing = useRemoving().has(agent.ref);
   const mood = useMood(agent);
+  const desk = useDesk(agent);
   const label = chatLabel(agent);
   const live = !removing && st === 'working' && agent.state === 'running' && sample;
   const status = removing
@@ -841,7 +843,6 @@ function AgentRow({ row, active, onSelect, sample, cpu }: { row: Row; active: bo
       : st === 'review' || st === 'done'
         ? t(stLabel[st])
         : label.text;
-  const usageTip = live ? t('project.all.usage', { cpu: sample.cpu.toFixed(0), memory: humanBytes(sample.memory), read: humanRate(sample.diskRead), write: humanRate(sample.diskWrite) }) : '';
   return (
     <AgentContextMenu agent={agent} active={active} onSelect={onSelect}>
       <button
@@ -852,7 +853,6 @@ function AgentRow({ row, active, onSelect, sample, cpu }: { row: Row; active: bo
         }}
         onContextMenu={(e) => e.stopPropagation()}
         aria-current={active ? 'page' : undefined}
-        title={[agent.title ? `${agent.name} · ${agent.title}` : agent.name, usageTip].filter(Boolean).join('\n')}
         className={cn(
           'group relative flex w-full min-w-0 items-center gap-2.5 rounded-lg py-1.5 pl-2 pr-2.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400',
           active ? 'bg-surface-raised' : 'hover:bg-surface',
@@ -870,6 +870,7 @@ function AgentRow({ row, active, onSelect, sample, cpu }: { row: Row; active: bo
             {live && <Sparkline values={cpu} className="text-faint group-hover:text-subtle" />}
           </span>
           <span className="flex min-w-0 items-center gap-1 text-[11px] leading-4">
+            <DeskGlyph desk={desk} className="mr-0.5" />
             {agent.title && (
               <>
                 <span className="min-w-0 max-w-[55%] truncate font-mono text-[10.5px] text-faint" data-v2-agent-num>

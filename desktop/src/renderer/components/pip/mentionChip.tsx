@@ -10,7 +10,8 @@ import { cn } from '../../lib/utils';
 export interface Mentions {
   project: string;
   names: ReadonlySet<string>;
-  // live is the agents using their desktops, whose tile onWatch grows.
+  // live is the agents using their desktops, whose desktop onWatch opens in
+  // the panel.
   live: ReadonlySet<string>;
   onWatch: (ref: string) => void;
   // onOpen opens the panel beside the chat on the agent named.

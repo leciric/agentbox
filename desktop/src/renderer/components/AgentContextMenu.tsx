@@ -10,6 +10,7 @@ import { api, type AgentAction } from '../lib/api';
 import { useT, type MessageKey } from '../lib/i18n';
 import { countFeature, type AppFeature } from '../lib/usageStats';
 import { AgentInfoCard } from './AgentInfoCard';
+import { DesktopPeek, useDesk } from './v2/DesktopPeek';
 import { ErrorBoundary } from './ErrorBoundary';
 import { DestroyAgentDialog } from './DestroyAgentDialog';
 import { useUiV2 } from '../lib/uiV2';
@@ -127,7 +128,15 @@ export function AgentContextMenu({
           <TooltipPrimitive.Portal>
             <TooltipPrimitive.Content side={infoSide} sideOffset={6} className="z-[60] max-w-none animate-fade-in rounded-lg border border-line-strong bg-overlay p-3 text-xs text-secondary shadow-xl backdrop-blur">
               <ErrorBoundary>
-                <AgentInfoCard agent={agent} pr={pr} />
+                {v2 ? (
+                  // UI v2's card leads with the agent's computer: its desktop, live or as last seen.
+                  <div className="grid w-64 gap-3">
+                    <AgentPeek agent={agent} />
+                    <AgentInfoCard agent={agent} pr={pr} />
+                  </div>
+                ) : (
+                  <AgentInfoCard agent={agent} pr={pr} />
+                )}
               </ErrorBoundary>
             </TooltipPrimitive.Content>
           </TooltipPrimitive.Portal>
@@ -206,4 +215,8 @@ export function AgentContextMenu({
       </Dialog>
     </>
   );
+}
+
+function AgentPeek({ agent }: { agent: T.Agent }) {
+  return <DesktopPeek agent={agent} desk={useDesk(agent)} />;
 }
