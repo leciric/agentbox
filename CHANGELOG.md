@@ -3,6 +3,25 @@
 All notable, user-facing changes to AgentBox are documented here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Nothing older than 0.3.0 is listed.
 
+## [0.15.0](https://github.com/leciric/agentbox/compare/v0.14.0...v0.15.0) (2026-10-17)
+
+
+### Added
+
+* drag the live desktops lane wider to see bigger desktops ([#388](https://github.com/leciric/agentbox/issues/388)) ([a902399](https://github.com/leciric/agentbox/commit/a902399a65b513f49c0f5a7e6057a8f2a451a7c1))
+* each agent's own computer on its row, hover card and page, and a right panel that shows one agent in four views ([#384](https://github.com/leciric/agentbox/issues/384)) ([aa321fb](https://github.com/leciric/agentbox/commit/aa321fbd4c0aa0af28ee4a3dbc1dbeb0a48a22b3))
+* keep Claude Code up to date without waiting for an AgentBox release ([#386](https://github.com/leciric/agentbox/issues/386)) ([9678048](https://github.com/leciric/agentbox/commit/96780484466e3678501f2724e70ee9b5bd445f9a))
+* see the desktops your agents are using in a lane beside the lead chat ([#379](https://github.com/leciric/agentbox/issues/379)) ([836e0d4](https://github.com/leciric/agentbox/commit/836e0d40b73f46ca241f83102dd89d2eae11312e))
+* see what each agent did as a timeline over its recordings, and a project's day as a Today reel ([#380](https://github.com/leciric/agentbox/issues/380)) ([8ef058e](https://github.com/leciric/agentbox/commit/8ef058ec80c26645647cf316f6f421b288322d55))
+* the review opens on the agent's proof, and the lead chat shows what each agent finished with ([#377](https://github.com/leciric/agentbox/issues/377)) ([35f351c](https://github.com/leciric/agentbox/commit/35f351ca369383e087f2a3ab9e61afe293a9e372))
+
+
+### Fixed
+
+* no more card under lead messages that mention a working agent ([#389](https://github.com/leciric/agentbox/issues/389)) ([8396589](https://github.com/leciric/agentbox/commit/8396589657d5ab74848ae847797213cadbd26dce))
+* the app no longer crashes on start when its daemon is older than it ([#381](https://github.com/leciric/agentbox/issues/381)) ([752d95b](https://github.com/leciric/agentbox/commit/752d95bd2ca81a7bdca72244102ae04845bdd33e))
+* the Today page scrolls when its chapters are taller than the window ([#387](https://github.com/leciric/agentbox/issues/387)) ([6642b52](https://github.com/leciric/agentbox/commit/6642b52954eebb5188608805806b5267355a64f5))
+
 ## [0.14.0](https://github.com/leciric/agentbox/compare/v0.13.0...v0.14.0) (2026-10-16)
 
 
