@@ -134,6 +134,9 @@
 //                           own Media tab, at the width of a narrow window
 //   ?review=1               "Ready to review" in the top bar's inbox, three
 //                           agents waiting, agent-12's carousel
+//   ?concept=evidence       a mock: agents' recordings and screenshots first, in
+//                           the lead chat's cards and the review modal
+//                           (dev/concepts/evidence.tsx lists its own params)
 //   ?notify=bell|media|viewer|toast
 //                           a mock of clickable notifications, the top bar's
 //                           inbox and its history, the all-projects Media view
@@ -290,6 +293,7 @@ const topbar = params.get('topbar');
 const pulls = params.get('pulls') === '1';
 const home = params.get('home') === '1';
 const review = params.get('review'); // "Ready to review" (dev/review.tsx)
+const concept = params.get('concept'); // a mock concept (dev/concepts)
 const notify = params.get('notify'); // 'bell' | 'media' | 'viewer' | 'toast' | null
 const media = params.get('media'); // 'project' the project's Media, 'agent' agent-99's Media tab
 const tokens = params.get('tokens'); // '1' the project's Tokens tab, 'agent' agent-99's own tokens card
@@ -748,7 +752,10 @@ function PagePreview({ at }: { at: string }) {
   );
 }
 
+const Concepts = lazy(() => import('./concepts').then((m) => ({ default: m.Concepts })));
+
 function Preview() {
+  if (concept) return <Suspense fallback={null}><Concepts which={concept} /></Suspense>;
   if (github) return <GitHubPreview />;
   if (page) return <PagePreview at={page} />;
   if (usage) return <UsagePreview />;
