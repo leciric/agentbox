@@ -444,7 +444,10 @@ function PanelBody({ project, tl }: { project: string; tl: T.Timeline }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-timeline-panel>
       <div className="shrink-0 space-y-2 border-b border-line-faint p-3">
-        <Player track={track} x={x} playing={playing} onClock={onClock} />
+        {/* At most two fifths of the panel's height, so the steps keep room. */}
+        <div className="mx-auto max-w-[calc(40vh*1.6)]">
+          <Player track={track} x={x} playing={playing} onClock={onClock} />
+        </div>
         <div className="flex items-center gap-2">
           <PlayButton playing={playing} onClick={() => play(!playing)} />
           <div className="min-w-0 flex-1">
@@ -525,8 +528,9 @@ function WideBody({ project, tl }: { project: string; tl: T.Timeline }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5 py-4" data-timeline-wide>
       <div className="flex min-h-[200px] flex-1 gap-4">
-        <div className="flex min-w-0 flex-1 items-start justify-center">
-          <Player track={track} x={x} playing={playing} onClock={onClock} className="max-h-full w-auto max-w-full" />
+        {/* As tall as the room allows, and as wide as that makes it. */}
+        <div className="flex min-h-0 min-w-0 flex-1 justify-center">
+          <Player track={track} x={x} playing={playing} onClock={onClock} className="h-full w-auto max-w-full" />
         </div>
         <div className="flex min-h-0 w-[260px] shrink-0 flex-col gap-2 overflow-y-auto">
           <div className="flex items-center gap-2">

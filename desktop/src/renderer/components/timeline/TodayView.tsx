@@ -212,8 +212,11 @@ function Slideshow({ project, slides, chapters, start, onClose }: { project: str
   const title = useStepTitle();
   const [i, setI] = useState(start);
   const [paused, setPaused] = useState(false);
-  const [p, setP] = useState(0);
-  const at = useRef(0);
+  // How far through its slide the show is; a new slide starts from nothing.
+  const [prog, setProg] = useState({ i: start, p: 0 });
+  const p = prog.i === i ? prog.p : 0;
+  // Where the slide had got to, for picking up after a pause.
+  const at = useRef(p);
   at.current = p;
   const slide = slides[i]!;
   const chapter = chapters.find((c) => c.ref === slide.ref)!;
@@ -221,7 +224,6 @@ function Slideshow({ project, slides, chapters, start, onClose }: { project: str
   const video = useRef<HTMLVideoElement>(null);
   const isVideo = slide.kind === 'media' && slide.media.kind === 'recording';
   const next = () => setI((k) => Math.min(slides.length - 1, k + 1));
-  useEffect(() => setP(0), [i]);
   // A recording drives its own progress, and ends its slide when it ends
   // (or at the minute); the rest are timed.
   useEffect(() => {
@@ -237,10 +239,10 @@ function Slideshow({ project, slides, chapters, start, onClose }: { project: str
       last = now;
       if (v >= 1) {
         if (i + 1 < slides.length) setI(i + 1);
-        else setP(1);
+        else setProg({ i, p: 1 });
         return;
       }
-      setP(v);
+      setProg({ i, p: v });
       raf = requestAnimationFrame(tick);
     });
     return () => cancelAnimationFrame(raf);
