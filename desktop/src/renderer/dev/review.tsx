@@ -126,6 +126,28 @@ function media(): T.MediaItem[] {
   ];
 }
 
+// settingsDiff is agent-15's pull request, #371, file by file.
+const settingsDiff: Record<string, string> = {
+  'desktop/src/renderer/components/SettingsPage.tsx': [
+    '@@ -88,9 +88,11 @@ export function SettingsPage({ section }: { section: Section }) {',
+    '   return (',
+    '-    <div className="grid h-full grid-cols-[248px_1fr]">',
+    '+    <div className="grid h-full grid-cols-[minmax(180px,248px)_minmax(0,1fr)]">',
+    '       <nav className="overflow-y-auto border-r border-line p-2">',
+    '-        {sections.map((s) => <NavRow key={s.id} {...s} className="whitespace-nowrap" />)}',
+    '+        {sections.map((s) => (',
+    '+          <NavRow key={s.id} {...s} className="min-w-0 text-balance leading-tight" />',
+    '+        ))}',
+    '       </nav>',
+  ].join('\n'),
+  'desktop/src/renderer/dev/scenarios.json': [
+    '@@ -1,3 +1,17 @@',
+    ' [',
+    '+  { "id": "settings-1024-pt", "query": "settings=models&lang=pt-BR", "width": 1024, "height": 640 },',
+    '+  { "id": "settings-800", "query": "settings=accounts", "width": 800, "height": 600 },',
+  ].join('\n'),
+};
+
 // evidence is an agent's recording of what it checked, one of the concept's
 // (dev/concepts/media, the preview itself recorded), with a note marking each
 // check as it began and a screenshot of each: what an agent following the
@@ -295,6 +317,15 @@ function reviewRequest(method: string, path: string, body?: unknown): { status: 
       changedFiles: 4,
     };
     return { status: 200, body: JSON.stringify(detail), contentType: 'application/json' };
+  }
+  // #371's files and their diffs, for the review's Changes tab; the others have none.
+  if (method === 'GET' && route === `/v1/projects/${PROJECT}/pulls/371/files`) {
+    const files: T.PullFile[] = Object.entries(settingsDiff).map(([path, patch]) => ({ path, status: 'modified', additions: patch.split('\n').filter((l) => l.startsWith('+')).length, deletions: patch.split('\n').filter((l) => l.startsWith('-')).length, hasDiff: true }));
+    return { status: 200, body: JSON.stringify({ files } satisfies T.PullRequestFiles), contentType: 'application/json' };
+  }
+  if (method === 'GET' && route === `/v1/projects/${PROJECT}/pulls/371/diff`) {
+    const path = new URLSearchParams(query).get('path') ?? '';
+    return { status: 200, body: JSON.stringify({ path, patch: settingsDiff[path] ?? '' } satisfies T.PullFileDiff), contentType: 'application/json' };
   }
   if (method === 'GET' && /^\/v1\/projects\/[^/]+\/pulls\/\d+\/files/.test(route)) {
     return { status: 200, body: JSON.stringify({ files: [] } satisfies T.PullRequestFiles), contentType: 'application/json' };
