@@ -97,6 +97,10 @@ func finishNotice(ev api.AgentEvent) string {
 // not the app hears about it.
 func (s *Server) record(ctx context.Context, ev api.AgentEvent) api.AgentEvent {
 	ev.ID = newID()
+	// To the millisecond, as the store orders events: an answer dated a
+	// fraction of a millisecond before the question it answers, whose time
+	// came back from the store already cut, read as older than it.
+	ev.At = ev.At.Truncate(time.Millisecond)
 	data, err := json.Marshal(ev)
 	if err != nil {
 		s.logf("recording what %s did: %v", ev.Ref, err)

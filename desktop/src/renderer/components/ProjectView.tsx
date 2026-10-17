@@ -36,7 +36,6 @@ import { ProjectIcon, ProjectIconDialog } from './ProjectIcon';
 import { InTopBar, ProjectMenu } from './v2/ProjectHeader';
 import { AgentMentionsProvider } from './pip/Mentions';
 import { PipLane } from './pip/PipLane';
-import { TodayGallery } from './pip/TodayGallery';
 import { PanelButton } from './v2/PanelButton';
 import { openPanelOn, setPanel } from '../lib/rightPanel';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
@@ -268,11 +267,10 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
         <div className="relative mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line md:mx-6 md:mb-6">
           {v2 ? (
             // UI v2's lead shows the desktops its agents are using beside the chat (components/pip).
-            <AgentMentionsProvider project={name}>
+            <AgentMentionsProvider project={name} onSelect={onSelect}>
               <PipLane project={name} onSelect={onSelect}>
                 <ProjectChatPanel project={project} />
               </PipLane>
-              <TodayGallery project={name} />
             </AgentMentionsProvider>
           ) : (
             <ProjectChatPanel project={project} />

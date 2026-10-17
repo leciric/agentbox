@@ -13,7 +13,8 @@ export interface Mentions {
   // live is the agents using their desktops, whose tile onWatch grows.
   live: ReadonlySet<string>;
   onWatch: (ref: string) => void;
-  onToday: (agent?: string, item?: string) => void;
+  // onToday opens the project's Today (components/timeline/TodayView.tsx).
+  onToday: () => void;
 }
 export const AgentMentions = createContext<Mentions | null>(null);
 

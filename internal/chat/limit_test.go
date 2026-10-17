@@ -517,10 +517,18 @@ func TestARestartedDaemonRearmsTheWait(t *testing.T) {
 	if !ok {
 		t.Fatal("the paused chat wasn't found")
 	}
-	if want := reset.Add(resumeSlack); !at.Equal(want) {
+	// Run within the hour after 3pm, the failure itself came just after the
+	// reset (resetTime reads it as now), so the new daemon knocks a slack
+	// after it comes up rather than after the reset.
+	want := reset
+	if want.Before(clock2.Now()) {
+		want = clock2.Now()
+	}
+	want = want.Add(resumeSlack)
+	if !at.Equal(want) {
 		t.Errorf("resumes at %v, want %v", at, want)
 	}
-	clock2.advance(reset.Sub(clock2.Now()) + resumeSlack)
+	clock2.advance(want.Sub(clock2.Now()))
 	waitThread(t, m2, testAgent, "the resumed turn", turnsEnded(2))
 	if prompts := f2.called(acp.MethodSessionPrompt); len(prompts) != 1 || !strings.Contains(string(prompts[0]), resumeNudge) {
 		t.Errorf("prompts %s, want the nudge", prompts)

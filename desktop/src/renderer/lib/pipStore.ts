@@ -49,13 +49,3 @@ function subscribe(l: () => void) {
 export function useLane(project: string): Lane {
   return useSyncExternalStore(subscribe, () => laneOf(project));
 }
-
-// today is the Today gallery, open on a project's captures (components/pip),
-// filtered to an agent's and on one of them when a mention opened it.
-export type Today = { project: string; agent?: string; item?: string } | null;
-let today: Today = null;
-export function openToday(next: Today): void {
-  today = next;
-  for (const l of listeners) l();
-}
-export const useToday = (): Today => useSyncExternalStore(subscribe, () => today);

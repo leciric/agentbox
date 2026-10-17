@@ -2,20 +2,21 @@ import { useQueries, useQuery } from '@tanstack/react-query';
 import { Film, Image as ImageIcon, Images, X } from 'lucide-react';
 import { use, useMemo, useState, type ReactNode } from 'react';
 import type * as T from '../../../shared/api';
+import type { View } from '../../App';
 import { api } from '../../lib/api';
 import { useT } from '../../lib/i18n';
 import { mediaUrl } from '../../lib/media';
 import { mediaQuery } from '../../lib/mediaPages';
 import { pastAgentsKey } from '../../lib/pastAgents';
 import { captureKinds, latestBy, mentionsIn, reported } from '../../lib/pip';
-import { openToday, setLane } from '../../lib/pipStore';
+import { setLane } from '../../lib/pipStore';
 import { useInUse } from './PipLane';
 import { timeAgo } from '../../lib/utils';
 import { Button } from '../ui/button';
 import { useOpenReview, useProjectReview } from '../v2/ReviewV2';
 import { AgentMentions, MessageMentions, type Mentions } from './mentionChip';
 
-export function AgentMentionsProvider({ project, children }: { project: string; children: ReactNode }) {
+export function AgentMentionsProvider({ project, onSelect, children }: { project: string; onSelect: (view: View) => void; children: ReactNode }) {
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
   const past = useQuery({ queryKey: [...pastAgentsKey, 'mentions', project], queryFn: () => api.archivedAgents({ project, limit: 200 }), staleTime: 60_000 });
   const names = useMemo(
@@ -31,9 +32,9 @@ export function AgentMentionsProvider({ project, children }: { project: string; 
       names,
       live,
       onWatch: (ref: string) => setLane(project, () => ({ big: ref, folded: false })),
-      onToday: (agent?: string, item?: string) => openToday({ project, agent, item }),
+      onToday: () => onSelect({ kind: 'today', project }),
     }),
-    [project, names, live],
+    [project, names, live, onSelect],
   );
   return <AgentMentions value={value}>{children}</AgentMentions>;
 }
@@ -108,9 +109,7 @@ function CaptureCard({ mentions, name, item, loading, onClose }: { mentions: Men
           {item.kind === 'recording' ? (
             <video key={item.id} src={mediaUrl(item)} controls autoPlay muted playsInline className="aspect-[16/10] w-full bg-stage" />
           ) : (
-            <button type="button" className="block w-full" onClick={() => mentions.onToday(name, item.id)}>
-              <img src={mediaUrl(item)} alt={item.name} className="aspect-[16/10] w-full object-contain object-top" />
-            </button>
+            <img src={mediaUrl(item)} alt={item.name} className="aspect-[16/10] w-full object-contain object-top" />
           )}
         </div>
       ) : (
@@ -123,7 +122,7 @@ function CaptureCard({ mentions, name, item, loading, onClose }: { mentions: Men
             {t('pip.mention.watch')}
           </Button>
         )}
-        <Button size="sm" variant="ghost" className="h-7 px-2 text-[12px]" onClick={() => mentions.onToday(name, item?.id)}>
+        <Button size="sm" variant="ghost" className="h-7 px-2 text-[12px]" onClick={() => mentions.onToday()}>
           <Images />
           {t('pip.mention.today')}
         </Button>
