@@ -229,6 +229,14 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if req.ClaudeCodeAutoUpdate != nil {
+		if err := s.setToolAutoUpdate(r.Context(), claudeAutoUpdate, *req.ClaudeCodeAutoUpdate); err != nil {
+			return err
+		}
+	}
+	if req.CheckClaudeCode {
+		s.checkToolUpdateNow(claudeAutoUpdate)
+	}
 	out, err := s.currentSettings(r)
 	if err != nil {
 		return err
@@ -447,6 +455,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		return api.Settings{}, err
 	}
 	packageCacheMax, packageCacheDefault := s.cacheMax(r.Context(), s.cfg.Paths.PackageCache(), packageCacheChosen, state.DefaultPackageCacheMax)
+	claudeUpdate, err := s.toolAutoUpdate(r.Context(), claudeAutoUpdate)
+	if err != nil {
+		return api.Settings{}, err
+	}
 	return api.Settings{
 		DefaultClaudeModel:        model,
 		DefaultAgentContextWindow: agentWindow,
@@ -499,6 +511,8 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		PackageCacheMaxBytes:        packageCacheMax,
 		DefaultPackageCacheMaxBytes: packageCacheDefault,
 		PackageCacheBytes:           s.packageCache.Size(),
+
+		ClaudeCodeUpdate: claudeUpdate,
 	}, nil
 }
 

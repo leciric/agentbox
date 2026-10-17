@@ -185,7 +185,7 @@ func updatePlan(t *testing.T) image.Plan {
 		}
 		specs = append(specs, spec)
 	}
-	plan := image.PlanFor(true, image.Installed{Version: image.Version, ToolsVersion: "0123456789ab", Tools: specs}, image.Components{})
+	plan := image.PlanFor(true, image.Installed{Version: image.Version, ToolsVersion: "0123456789ab", Tools: specs}, image.Components{}, nil)
 	if plan.Action != image.NeedsTools {
 		t.Fatalf("PlanFor = %+v", plan)
 	}

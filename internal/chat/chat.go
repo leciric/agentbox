@@ -676,6 +676,12 @@ func (c *conversation) beginResumedTurn(it *api.ChatItem, text string, sent atta
 		c.stopAdapter()
 		c.windowRestart = false
 	}
+	if c.versionRestart && !c.rolling {
+		// Likewise a newer version of the tool: ChatCommand starts the one
+		// the machine has now, which resumes the same session.
+		c.stopAdapter()
+		c.versionRestart = false
+	}
 	c.switchToolBeforeTurn()
 	c.reloadBeforeTurn()
 	c.restartAccountBeforeTurn()
@@ -1371,6 +1377,10 @@ type conversation struct {
 	// accountRestart says the agent moved to another Claude Code account
 	// since the adapter started, so the next turn restarts it (account.go).
 	accountRestart bool
+	// versionRestart says the agent's machine got a newer version of the
+	// tool since the adapter started, so the next turn restarts it on that
+	// (ToolUpdated).
+	versionRestart bool
 	// switching says the compaction running is a tool switch's, so its
 	// rollover hands the chat to the chosen tool (runner.go).
 	switching bool
@@ -1768,6 +1778,7 @@ func (c *conversation) connect(ad *adapter) error {
 	ad.login = runsOn(a)
 	c.windowRestart = false
 	c.accountRestart = false
+	c.versionRestart = false
 	// It reads the MCP servers its configuration has now.
 	c.toolsChanged(false)
 	c.mu.Unlock()

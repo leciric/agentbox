@@ -57,7 +57,7 @@ func TestUpdateToolsOnIncus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := image.PlanFor(true, staleClaude(installed), installed.Components)
+	plan := image.PlanFor(true, staleClaude(installed), installed.Components, nil)
 	if plan.Action != image.NeedsTools {
 		t.Fatalf("plan = %+v, want a tools update", plan)
 	}
@@ -72,7 +72,7 @@ func TestUpdateToolsOnIncus(t *testing.T) {
 	if after.Version != installed.Version || after.Components != installed.Components || after.ToolsVersion != image.ToolsVersion(image.ToolsFor(installed.Components)) {
 		t.Errorf("after the update the image records %+v", after)
 	}
-	if got := image.PlanFor(true, after, installed.Components); got.Action != image.UpToDate {
+	if got := image.PlanFor(true, after, installed.Components, nil); got.Action != image.UpToDate {
 		t.Errorf("after the update the image still needs %v", got.Action)
 	}
 	if !strings.Contains(log.String(), "Checking every tool") {
@@ -95,7 +95,7 @@ func TestUpdateToolsKeepsTheBaseOnIncus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := image.PlanFor(true, staleClaude(installed), installed.Components)
+	plan := image.PlanFor(true, staleClaude(installed), installed.Components, nil)
 	plan.Tools = append(plan.Tools, image.Tool{Spec: "broken@1.0", Check: "false"})
 	if err := image.UpdateTools(ctx, inc, u, plan, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "verify") {
 		t.Fatalf("UpdateTools with a failing check = %v", err)

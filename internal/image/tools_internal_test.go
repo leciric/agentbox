@@ -132,7 +132,7 @@ func TestPlanFor(t *testing.T) {
 		},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			plan := PlanFor(c.built, c.installed, c.wanted)
+			plan := PlanFor(c.built, c.installed, c.wanted, nil)
 			if plan.Action != c.action {
 				t.Fatalf("action = %v, want %v", plan.Action, c.action)
 			}
@@ -151,7 +151,7 @@ func TestPlanFor(t *testing.T) {
 	// The tools an update puts in are the image's own components', not the
 	// ones someone just turned on: those ask for a rebuild above.
 	codex := ToolsFor(Components{Codex: true})
-	plan := PlanFor(true, Installed{Version: Version, Components: Components{Codex: true}, ToolsVersion: "old", Tools: specsOf(codex)[:1]}, Components{Codex: true})
+	plan := PlanFor(true, Installed{Version: Version, Components: Components{Codex: true}, ToolsVersion: "old", Tools: specsOf(codex)[:1]}, Components{Codex: true}, nil)
 	if plan.Action != NeedsTools || !slices.Contains(specsOf(plan.Install), Pin("codex")) || ToolsVersion(plan.Tools) != ToolsVersion(codex) {
 		t.Errorf("an image with Codex plans %+v", plan)
 	}

@@ -1180,6 +1180,20 @@ var migrations = []string{
 		WHERE auth = 'oauth' AND lower(url) LIKE 'https://hatch.linting.dev%'`,
 	`UPDATE connectors SET url = 'https://usehatch.dev' || substr(url, length('https://hatch.linting.dev') + 1)
 		WHERE lower(url) LIKE 'https://hatch.linting.dev%'`,
+
+	// The agent tools "Keep Claude Code up to date" moves past tools.txt's
+	// pins (ToolVersions), one row per tool by mise's name. version is the
+	// one the base image runs instead of the pin, set only once an update to
+	// it passed its checks ('' for the pin); latest is what the registry
+	// offered at the last check, checked_at when that was (unix ms) and error
+	// why the check or the update failed ('' when neither did).
+	`CREATE TABLE tool_versions (
+		name       TEXT PRIMARY KEY,
+		version    TEXT NOT NULL DEFAULT '',
+		latest     TEXT NOT NULL DEFAULT '',
+		checked_at INTEGER NOT NULL DEFAULT 0,
+		error      TEXT NOT NULL DEFAULT ''
+	)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

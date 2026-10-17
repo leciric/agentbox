@@ -88,6 +88,8 @@ type testConfig struct {
 	dockerPruneTimeout time.Duration
 	// releasesURL is Config.ReleasesURL; empty is a port nothing listens on.
 	releasesURL string
+	// npmRegistry is Config.NPMRegistry; empty is a port nothing listens on.
+	npmRegistry string
 	// loginCallbackUnreachable is the daemon's: a browser that can't reach
 	// its localhost, as in the VM a Linux host runs AgentBox in.
 	loginCallbackUnreachable bool
@@ -165,6 +167,7 @@ func startTestDaemon(t *testing.T, root, script string, config ...testConfig) te
 		User:             image.User{Name: "dev", UID: 1000, GID: 1000},
 		UpdateURL:        cmp.Or(tc.updateURL, "http://127.0.0.1:1"),
 		ReleasesURL:      cmp.Or(tc.releasesURL, "http://127.0.0.1:1"),
+		NPMRegistry:      cmp.Or(tc.npmRegistry, "http://127.0.0.1:1"),
 		UpdateStartDelay: -1,
 		PreviewAddr:      cmp.Or(tc.previewAddr, "off"),
 		GitHubAPI:        gh.URL,

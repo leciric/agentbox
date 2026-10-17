@@ -71,7 +71,7 @@ func TestTheChatStartsWithoutTheCredentialVariables(t *testing.T) {
 	t.Parallel()
 	m := &Manager{Creds: credentials.Store{Dir: t.TempDir()}, Incus: fakeIncus(t, `case "$1" in
   list) echo '[{"name":"ab-sai-agent-01","status":"Running"}]' ;;
-esac`)}
+esac`), Store: openInternalStore(t)}
 	m.User.Name = "dev"
 	if err := m.Creds.SaveClaudeToken("work", "sk-ant-oat01-work"); err != nil {
 		t.Fatal(err)

@@ -124,17 +124,24 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 	if err := m.requireRunning(ctx, a); err != nil {
 		return nil, err
 	}
-	pkg := shellQuote(adapter.Package)
-	if m.Incus.UserExec(ctx, a.Instance, m.User.Name, "mise where "+pkg, nil, io.Discard, io.Discard) != nil {
-		status("Installing the " + adapter.Tool + " adapter in this agent")
-		install, cancel := context.WithTimeout(ctx, installTimeout)
-		defer cancel()
-		var out bytes.Buffer
-		if err := m.Incus.UserExec(install, a.Instance, m.User.Name, "MISE_YES=1 mise install "+pkg, nil, &out, &out); err != nil {
-			lines := strings.Split(strings.TrimSpace(out.String()), "\n")
-			return nil, fmt.Errorf("installing %s in %s: %w: %s", adapter.Package, a.Ref(), err, strings.Join(lines[max(len(lines)-3, 0):], " "))
+	overrides, err := m.Store.ToolOverrides(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// The adapter at the version agents run now: the pin, or the newer one
+	// "Keep Claude Code up to date" moved the base image to, which an agent
+	// made before that gets here, before its next turn (chat.ToolUpdated).
+	spec := image.Overrides(overrides).Apply([]image.Tool{{Spec: adapter.Package}})[0].Spec
+	if err := m.ensureMise(ctx, a, spec, "mise install", "the "+adapter.Tool+" adapter", status); err != nil {
+		return nil, err
+	}
+	if _, moved := overrides[a.AI]; moved {
+		// And the tool's own command line, which the base image has globally.
+		if err := m.ensureMise(ctx, a, image.Overrides(overrides).Spec(a.AI), "mise use -g", adapter.Tool, status); err != nil {
+			return nil, err
 		}
 	}
+	pkg := shellQuote(spec)
 	status("Starting " + adapter.Tool)
 	// mise exec runs the version AgentBox pins, whatever the agent's own mise configuration says.
 	command := shellQuote(adapter.Command)
@@ -165,6 +172,24 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 	}
 	script := fmt.Sprintf("cd %s && %sexec %smise exec %s -- %s", shellQuote(a.Worktree), env, m.withoutCredentials(hide), pkg, command)
 	return m.Incus.Command(ctx, "exec", a.Instance, "-T", "--", "runuser", "-l", m.User.Name, "-c", script), nil
+}
+
+// ensureMise installs spec in the agent with install ("mise install", or
+// "mise use -g" for a command it runs by name) when its machine lacks it,
+// saying so with what.
+func (m *Manager) ensureMise(ctx context.Context, a state.Agent, spec, install, what string, status func(detail string)) error {
+	if m.Incus.UserExec(ctx, a.Instance, m.User.Name, "mise where "+shellQuote(spec), nil, io.Discard, io.Discard) == nil {
+		return nil
+	}
+	status("Installing " + what + " in this agent")
+	ctx, cancel := context.WithTimeout(ctx, installTimeout)
+	defer cancel()
+	var out bytes.Buffer
+	if err := m.Incus.UserExec(ctx, a.Instance, m.User.Name, "MISE_YES=1 "+install+" "+shellQuote(spec), nil, &out, &out); err != nil {
+		lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+		return fmt.Errorf("installing %s in %s: %w: %s", spec, a.Ref(), err, strings.Join(lines[max(len(lines)-3, 0):], " "))
+	}
+	return nil
 }
 
 // interfaceFor checks the interface asked for a new agent: the chat unless it

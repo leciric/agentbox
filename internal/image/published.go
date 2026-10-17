@@ -365,7 +365,7 @@ func fromPublished(ctx context.Context, inc incus.Client, next string, u User, o
 	for _, spec := range p.Tools {
 		has = append(has, Tool{Spec: spec})
 	}
-	plan := PlanFor(true, Installed{Version: Version, ToolsVersion: ToolsVersion(has), Tools: p.Tools}, Components{})
+	plan := PlanFor(true, Installed{Version: Version, ToolsVersion: ToolsVersion(has), Tools: p.Tools}, Components{}, nil)
 	step("Installing the agent tools it leaves out, as on a local build")
 	if err := installTools(ctx, inc, next, Placeholder.Name, plan, log); err != nil {
 		return err

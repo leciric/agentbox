@@ -57,6 +57,9 @@ type Config struct {
 	// ReleasesURL is where the nightly channel looks for nightlies; empty is
 	// update.DefaultReleasesURL.
 	ReleasesURL string
+	// NPMRegistry is where "Keep Claude Code up to date" asks for the newest
+	// versions; empty is defaultNPMRegistry.
+	NPMRegistry string
 	// UpdateStartDelay is how long after start the first update check waits:
 	// update.StartDelay when zero, none when negative (tests).
 	UpdateStartDelay time.Duration
@@ -106,6 +109,7 @@ type Server struct {
 	disks       *agentDiskCache  // each agent's machine and worktree sizes, for its info card
 	themes      *omarchy.Watcher // the desktop theme this machine is running, if any
 	updates     updates          // what the hourly update check last found
+	toolUpdates *toolUpdates     // keeping Claude Code up to date (toolupdates.go)
 	stop        context.CancelFunc
 	incus       *incusWatch   // whether Incus answers, and what to do when it doesn't
 	disk        *diskWatch    // the disk guard: a floor of free space on every disk AgentBox writes to
@@ -309,6 +313,7 @@ func New(cfg Config) (*Server, error) {
 		prWatch:          newPRWatcher(),
 		files:            newFilesCache(),
 		updates:          updates{now: make(chan struct{}, 1)},
+		toolUpdates:      newToolUpdates(),
 		terminalActivity: map[string]time.Time{},
 		lan:              newLANState(),
 		usageEvery:       usageInterval,
@@ -478,6 +483,8 @@ func (s *Server) Run(ctx context.Context) error {
 	// A new AgentBox may pin newer agent tools than the base image has: they
 	// are moved on in the background, while agents go on being made from it.
 	go s.updateBaseTools(ctx)
+	// And past them, to the newest Claude Code, when you asked for that.
+	loops.Go(func() { s.watchToolUpdates(ctx) })
 	// Media made on the VM's own disk goes to the host's share, where the app
 	// can open it; it is served from where it was until it has moved.
 	loops.Go(func() {

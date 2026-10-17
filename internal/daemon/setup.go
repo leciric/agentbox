@@ -76,12 +76,16 @@ func (s *Server) setupStatus(ctx context.Context) (api.SetupStatus, error) {
 		return api.SetupStatus{}, err
 	}
 	installed, _ := image.InstalledBuild(ctx, s.cfg.Incus)
+	overrides, err := s.store.ToolOverrides(ctx)
+	if err != nil {
+		return api.SetupStatus{}, err
+	}
 
 	built, _ := image.Ready(ctx, s.cfg.Incus)
 
 	base := api.SetupCheck{ID: "image", Title: "Base image", Required: true, Status: api.SetupMissing, Detail: "needs Incus first", Fix: "agentbox image build"}
 	if incusErr == nil {
-		base = s.baseImageCheck(image.PlanFor(built, installed, wanted), installed, wanted)
+		base = s.baseImageCheck(image.PlanFor(built, installed, wanted, overrides), installed, wanted)
 	}
 	checks = append(checks, base)
 

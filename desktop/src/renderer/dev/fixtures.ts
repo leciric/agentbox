@@ -1416,6 +1416,7 @@ let defaultsSettings = {
   packageCacheMaxBytes: 20 * 1024 ** 3,
   defaultPackageCacheMaxBytes: 20 * 1024 ** 3,
   packageCacheBytes: 3.1 * 1024 ** 3,
+  claudeCodeUpdate: { on: false, installed: '2.1.280', pinned: '2.1.280', latest: '', checking: false },
 } as T.Settings;
 
 function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: string; contentType: string } {
@@ -1437,6 +1438,12 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   if (req.packageCache !== undefined) next.packageCache = req.packageCache;
   if (req.packageCacheMaxBytes !== undefined) next.packageCacheMaxBytes = req.packageCacheMaxBytes || next.defaultPackageCacheMaxBytes;
   if (req.clearPackageCache) next.packageCacheBytes = 0;
+  if (req.claudeCodeAutoUpdate !== undefined || req.checkClaudeCode) {
+    const on = req.claudeCodeAutoUpdate ?? next.claudeCodeUpdate.on;
+    next.claudeCodeUpdate = on
+      ? { ...next.claudeCodeUpdate, on, installed: '2.1.302', latest: '2.1.302', checkedAt: new Date().toISOString() }
+      : { ...next.claudeCodeUpdate, on, installed: next.claudeCodeUpdate.pinned, latest: '', checkedAt: undefined };
+  }
   // The channel changes what the update check offers (seedNightly).
   if (req.updateChannel !== undefined && devState.update) devState.update = nightlyStatus(devState.update.current, req.updateChannel);
   // The rest are stored as they are sent, the way the daemon stores them.

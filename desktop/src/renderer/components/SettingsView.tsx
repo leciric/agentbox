@@ -49,7 +49,7 @@ import { openLatestRelease } from "../lib/releaseLink";
 import { updateHint } from "../lib/appUpdate";
 import { useAppUpdate } from "../lib/useAppUpdate";
 import type { SettingSection } from "../lib/settingsSearch";
-import { cn, errorMessage } from "../lib/utils";
+import { cn, errorMessage, timeAgo } from "../lib/utils";
 import { ImageDownloads } from "./ImageDownloads";
 import { JobProgress } from "./JobProgress";
 import { ReportDialog } from "./ReportDialog";
@@ -1217,6 +1217,19 @@ function InstalledSettings({
           ],
         },
         {
+          id: "tool-versions",
+          title: t("settings.group.tool-versions.title"),
+          entries: [
+            {
+              id: "claude-code-update",
+              label: t("settings.entry.claude-code-update.label"),
+              keywords: t("settings.entry.claude-code-update.keywords"),
+              modified: changed((s) => s.claudeCodeUpdate.on),
+              render: () => <ClaudeCodeAutoUpdate />,
+            },
+          ],
+        },
+        {
           id: "chats",
           title: t("settings.group.chats.title"),
           description: t("settings.group.chats.description"),
@@ -1669,6 +1682,76 @@ function UpdateCheck() {
             {t("settings.updateCheck.seeWhatsNew")}
           </button>
         </SettingNote>
+      )}
+    </SettingRow>
+  );
+}
+
+// ClaudeCodeAutoUpdate is "Keep Claude Code up to date"
+// (internal/daemon/toolupdates.go): the daemon moving agents' Claude Code and
+// its adapter past the versions this AgentBox pins, to npm's newest, once a
+// day. While a check or its update runs, the settings are read again until
+// it's done.
+function ClaudeCodeAutoUpdate() {
+  const t = useT();
+  const settings = useQuery({
+    queryKey: ["settings"],
+    queryFn: api.settings,
+    refetchInterval: (q) => (q.state.data?.claudeCodeUpdate.checking ? 2000 : false),
+  });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (req: T.UpdateSettingsRequest) => api.updateSettings(req),
+    onSuccess: (next) => queryClient.setQueryData(["settings"], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const u = settings.data?.claudeCodeUpdate;
+  const installed = u?.installed || u?.pinned || "";
+  return (
+    <SettingRow
+      label={t("settings.entry.claude-code-update.label")}
+      htmlFor="claude-code-update"
+      description={t("settings.claudeCodeUpdate.description")}
+      details={t("settings.claudeCodeUpdate.details", { pinned: u?.pinned ?? "" })}
+      control={
+        <Switch
+          id="claude-code-update"
+          data-claude-code-update
+          aria-label={t("settings.entry.claude-code-update.label")}
+          disabled={save.isPending || !u}
+          checked={u?.on ?? false}
+          onCheckedChange={(claudeCodeAutoUpdate) => save.mutate({ claudeCodeAutoUpdate })}
+        />
+      }
+    >
+      {u && (
+        <div data-claude-code-versions className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12px] text-muted">
+          <span className="font-mono">{t("settings.claudeCodeUpdate.installed", { version: installed })}</span>
+          {u.on && u.latest && <span className="font-mono">{t("settings.claudeCodeUpdate.latest", { version: u.latest })}</span>}
+          {u.on && (
+            <span>
+              {u.checkedAt
+                ? t("settings.claudeCodeUpdate.checked", { when: timeAgo(u.checkedAt) })
+                : t("settings.claudeCodeUpdate.neverChecked")}
+            </span>
+          )}
+          {u.on && (
+            <Button
+              size="sm"
+              data-claude-code-check
+              disabled={u.checking || save.isPending}
+              onClick={() => save.mutate({ checkClaudeCode: true })}
+            >
+              {u.checking ? t("settings.claudeCodeUpdate.checking") : t("settings.claudeCodeUpdate.checkNow")}
+            </Button>
+          )}
+        </div>
+      )}
+      {u?.on && !u.checking && u.error && (
+        <SettingNote tone="error">{t("settings.claudeCodeUpdate.failed", { reason: u.error, version: installed })}</SettingNote>
+      )}
+      {u?.on && !u.checking && !u.error && u.latest && u.latest === u.installed && (
+        <SettingNote>{t("settings.claudeCodeUpdate.upToDate")}</SettingNote>
       )}
     </SettingRow>
   );

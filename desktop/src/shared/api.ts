@@ -170,6 +170,18 @@ export interface Settings {
   packageCacheMaxBytes: number;
   defaultPackageCacheMaxBytes: number;
   packageCacheBytes: number;
+  claudeCodeUpdate: ToolAutoUpdate;
+}
+
+export interface ToolAutoUpdate {
+  on: boolean;
+  installed: string;
+  pinned: string;
+  latest: string;
+  checkedAt?: string;
+  error?: string;
+  checking: boolean;
+  job?: string;
 }
 
 export interface UpdateSettingsRequest {
@@ -204,6 +216,8 @@ export interface UpdateSettingsRequest {
   packageCache?: boolean;
   packageCacheMaxBytes?: number;
   clearPackageCache?: boolean;
+  claudeCodeAutoUpdate?: boolean;
+  checkClaudeCode?: boolean;
 }
 
 export interface Agent {

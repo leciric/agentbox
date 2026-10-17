@@ -40,6 +40,15 @@ says "Updating agent tools…" while it runs, and new agents are made from the c
 the updated one is in place. If the update fails, the image stays as it was and keeps working, and
 Setup says why and offers **Rebuild base image**.
 
+To get new Claude Code releases without waiting for an AgentBox release, turn on **Keep Claude Code
+up to date** in Settings → Models. Once a day, and when AgentBox starts, the daemon asks npm for the
+newest Claude Code and its chat adapter and updates them in the base image the same way, checking
+every tool before the new image is used. Agents created after that start on the new versions;
+existing agents move to them when their chat next starts, or before the next turn of a chat that
+is running, never in the middle of one. If an update fails, agents keep the versions they have and
+Settings says why. The version an AgentBox release ships with is the oldest it ever uses, and
+turning the setting off goes back to it. **Check now** checks at once.
+
 ## What `provision.sh` sets up
 
 Run inside the container before it's snapshotted:

@@ -545,6 +545,33 @@ type Settings struct {
 	DefaultPackageCacheMaxBytes int64 `json:"defaultPackageCacheMaxBytes"`
 	// PackageCacheBytes is how much they held when last measured.
 	PackageCacheBytes int64 `json:"packageCacheBytes"`
+
+	// ClaudeCodeUpdate is "Keep Claude Code up to date": the daemon moving
+	// Claude Code and its ACP adapter past the versions this AgentBox pins,
+	// to the newest on npm, without an AgentBox release.
+	ClaudeCodeUpdate ToolAutoUpdate `json:"claudeCodeUpdate"`
+}
+
+// ToolAutoUpdate is where keeping one AI tool up to date has got to. The
+// versions are the tool's own (Claude Code's, not its adapter's).
+type ToolAutoUpdate struct {
+	// On is the setting. Off, the tool runs the version AgentBox pins.
+	On bool `json:"on"`
+	// Installed is the version the agents' base image has, "" before there
+	// is one; Pinned the one this AgentBox pins, which it never goes below.
+	Installed string `json:"installed"`
+	Pinned    string `json:"pinned"`
+	// Latest is the newest release the last check found, "" before one, and
+	// CheckedAt when it ran.
+	Latest    string     `json:"latest"`
+	CheckedAt *time.Time `json:"checkedAt,omitempty"`
+	// Error is why the last check, or the update it started, failed: agents
+	// keep Installed.
+	Error string `json:"error,omitempty"`
+	// Checking is set while a check or its update runs, Job being the
+	// update's job once it has one.
+	Checking bool   `json:"checking"`
+	Job      string `json:"job,omitempty"`
 }
 
 // UpdateSettingsRequest changes what's set; a nil field stays as it is.
@@ -627,6 +654,11 @@ type UpdateSettingsRequest struct {
 	PackageCacheMaxBytes *int64 `json:"packageCacheMaxBytes,omitempty"`
 	// ClearPackageCache empties them.
 	ClearPackageCache bool `json:"clearPackageCache,omitempty"`
+	// ClaudeCodeAutoUpdate turns "Keep Claude Code up to date" on, which
+	// checks at once, or off, which puts agents back on the pinned versions.
+	ClaudeCodeAutoUpdate *bool `json:"claudeCodeAutoUpdate,omitempty"`
+	// CheckClaudeCode checks for a newer Claude Code now, while it's on.
+	CheckClaudeCode bool `json:"checkClaudeCode,omitempty"`
 }
 
 // DefaultLanguage is Settings.Language when nobody chose one.

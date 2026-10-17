@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 )
 
@@ -17,7 +19,9 @@ func TestHatchMoveMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	before := migrations[:len(migrations)-2]
+	// The database as it was just before the move's two migrations, wherever
+	// later ones put them.
+	before := migrations[:slices.IndexFunc(migrations, func(m string) bool { return strings.Contains(m, "usehatch.dev") })]
 	for i, m := range before {
 		if _, err := db.ExecContext(ctx, m); err != nil {
 			t.Fatalf("migration %d: %v", i+1, err)

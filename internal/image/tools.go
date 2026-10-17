@@ -161,15 +161,16 @@ type Plan struct {
 }
 
 // PlanFor decides what the base image needs, from whether it is built, what
-// it was built with, and the components wanted for it now.
-func PlanFor(built bool, installed Installed, wanted Components) Plan {
+// it was built with, and the components wanted for it now, with the tools at
+// the versions overrides moved them to.
+func PlanFor(built bool, installed Installed, wanted Components, overrides Overrides) Plan {
 	switch {
 	case !built:
 		return Plan{Action: NeedsBuild}
 	case installed.Version != Version, installed.Components != wanted:
 		return Plan{Action: NeedsRebuild}
 	}
-	want := ToolsFor(installed.Components)
+	want := overrides.Apply(ToolsFor(installed.Components))
 	plan := Plan{Action: NeedsTools, Tools: want, ToolsVersion: ToolsVersion(want)}
 	if installed.ToolsVersion == plan.ToolsVersion {
 		plan.Action = UpToDate

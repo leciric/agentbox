@@ -75,8 +75,19 @@ func (s *Server) setImagePhase(update func(w *imageWork)) {
 	update(&s.image)
 }
 
-// basePlan is what the base image on this machine needs.
+// basePlan is what the base image on this machine needs, with the tools at
+// the versions "Keep Claude Code up to date" moved them to (toolupdates.go).
 func (s *Server) basePlan(ctx context.Context) (image.Plan, image.Installed, error) {
+	overrides, err := s.store.ToolOverrides(ctx)
+	if err != nil {
+		return image.Plan{}, image.Installed{}, err
+	}
+	return s.basePlanWith(ctx, overrides)
+}
+
+// basePlanWith is what the base image needs with the tools at the versions
+// overrides says.
+func (s *Server) basePlanWith(ctx context.Context, overrides image.Overrides) (image.Plan, image.Installed, error) {
 	built, err := image.Ready(ctx, s.cfg.Incus)
 	if err != nil {
 		return image.Plan{}, image.Installed{}, err
@@ -91,7 +102,7 @@ func (s *Server) basePlan(ctx context.Context) (image.Plan, image.Installed, err
 	if err != nil {
 		return image.Plan{}, image.Installed{}, err
 	}
-	return image.PlanFor(built, installed, wanted), installed, nil
+	return image.PlanFor(built, installed, wanted, overrides), installed, nil
 }
 
 // updateBaseTools starts updating the base image's tools when that is all it
