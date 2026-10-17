@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
@@ -18,14 +19,22 @@ import (
 	"agentbox/internal/state"
 )
 
+// freePort is a port nothing listens on, for a server the test starts later.
+// It's below the ephemeral ranges (Linux 32768–60999, macOS 49152–65535):
+// one the kernel handed out with :0 is free again once closed, and a
+// parallel test's outgoing connection could take it before the server binds.
 func freePort(t *testing.T) int {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	for range 100 {
+		port := 20000 + rand.IntN(12000)
+		ln, err := net.Listen("tcp", ":"+strconv.Itoa(port))
+		if err == nil {
+			_ = ln.Close()
+			return port
+		}
 	}
-	defer func() { _ = ln.Close() }()
-	return ln.Addr().(*net.TCPAddr).Port
+	t.Fatal("no free port between 20000 and 32000")
+	return 0
 }
 
 // phoneClient is a phone's browser: it keeps the cookie pairing gives it.
