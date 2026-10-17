@@ -3534,7 +3534,6 @@ export const enUS = {
   'panel.tab.timeline': 'Timeline',
   'panel.desc.timeline': 'What an agent did, step by step, over its recordings',
   'panel.target.timeline': 'Whose timeline?',
-  'review.view.slides': 'Walkthrough',
   'review.view.timeline': 'Timeline',
   'timeline.kind.task': 'Message',
   'timeline.kind.read': 'Reading',

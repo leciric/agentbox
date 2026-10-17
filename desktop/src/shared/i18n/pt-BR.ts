@@ -3535,7 +3535,6 @@ export const ptBR: Messages = {
   'panel.tab.timeline': 'Linha do tempo',
   'panel.desc.timeline': 'O que um agente fez, passo a passo, sobre as gravações',
   'panel.target.timeline': 'Linha do tempo de quem?',
-  'review.view.slides': 'Apresentação',
   'review.view.timeline': 'Linha do tempo',
   'timeline.kind.task': 'Mensagem',
   'timeline.kind.read': 'Leitura',
