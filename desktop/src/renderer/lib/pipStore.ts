@@ -1,45 +1,39 @@
-// The dock of each lead's chat, as you left it (lib/pip.ts): hidden or not,
-// stacked or not, and where you floated which agents' tiles. Kept between
-// sessions; the tile grown over the chat is not.
+// The desktops lane of each lead's chat, as you left it (components/pip):
+// folded or not, kept between sessions, and the desktop grown in it, this
+// session only.
 import { useSyncExternalStore } from 'react';
-import type { Spot } from './pip';
 
-export interface Dock {
-  hidden: boolean;
-  // stacked is as you set it, or undefined to stack only when there's no room.
-  stacked?: boolean;
-  floats: Record<string, Spot>; // by agent ref
-  big: string | null; // an agent ref, this session only
+export interface Lane {
+  // folded is as you set it, or undefined to fold only when the chat is too
+  // narrow to give up the room.
+  folded?: boolean;
+  big: string | null; // an agent ref
 }
 
 const storageKey = 'agentbox.ui.v2.pip';
-const empty: Dock = { hidden: false, floats: {}, big: null };
+const empty: Lane = { big: null };
 const listeners = new Set<() => void>();
-let docks: Record<string, Dock> | undefined;
+let lanes: Record<string, Lane> | undefined;
 
-function load(): Record<string, Dock> {
+function load(): Record<string, Lane> {
   try {
-    const saved = JSON.parse(localStorage.getItem(storageKey) ?? '{}') as Record<string, Partial<Dock>>;
-    const out: Record<string, Dock> = {};
-    for (const [project, d] of Object.entries(saved)) {
-      const floats: Record<string, Spot> = {};
-      for (const [ref, at] of Object.entries(d.floats ?? {})) if (typeof at?.x === 'number' && typeof at?.y === 'number') floats[ref] = { x: at.x, y: at.y };
-      out[project] = { hidden: d.hidden === true, stacked: typeof d.stacked === 'boolean' ? d.stacked : undefined, floats, big: null };
-    }
+    const saved = JSON.parse(localStorage.getItem(storageKey) ?? '{}') as Record<string, Partial<Lane>>;
+    const out: Record<string, Lane> = {};
+    for (const [project, l] of Object.entries(saved)) out[project] = { folded: typeof l.folded === 'boolean' ? l.folded : undefined, big: null };
     return out;
   } catch {
     return {};
   }
 }
 
-const all = () => (docks ??= load());
-export const dockOf = (project: string): Dock => all()[project] ?? empty;
+const all = () => (lanes ??= load());
+export const laneOf = (project: string): Lane => all()[project] ?? empty;
 
-export function setDock(project: string, change: (d: Dock) => Partial<Dock>): void {
-  const d = dockOf(project);
-  docks = { ...all(), [project]: { ...d, ...change(d) } };
+export function setLane(project: string, change: (l: Lane) => Partial<Lane>): void {
+  const l = laneOf(project);
+  lanes = { ...all(), [project]: { ...l, ...change(l) } };
   try {
-    const kept = Object.fromEntries(Object.entries(docks).map(([p, { hidden, stacked, floats }]) => [p, { hidden, stacked, floats }]));
+    const kept = Object.fromEntries(Object.entries(lanes).map(([p, { folded }]) => [p, { folded }]));
     localStorage.setItem(storageKey, JSON.stringify(kept));
   } catch {
     // Kept for this session, if not for the next.
@@ -47,16 +41,13 @@ export function setDock(project: string, change: (d: Dock) => Partial<Dock>): vo
   for (const l of listeners) l();
 }
 
-// unfloat is d's floats without ref's.
-export const unfloat = (d: Dock, ref: string) => Object.fromEntries(Object.entries(d.floats).filter(([r]) => r !== ref));
-
 function subscribe(l: () => void) {
   listeners.add(l);
   return () => listeners.delete(l);
 }
 
-export function useDock(project: string): Dock {
-  return useSyncExternalStore(subscribe, () => dockOf(project));
+export function useLane(project: string): Lane {
+  return useSyncExternalStore(subscribe, () => laneOf(project));
 }
 
 // today is the Today gallery, open on a project's captures (components/pip),

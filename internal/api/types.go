@@ -2306,6 +2306,15 @@ type BrowserStatus struct {
 	Pages   []BrowserPage `json:"pages"` // most recently used first
 }
 
+// DesktopUse is when one of a project's agents last used its desktop: its AI
+// tool drove the display, or showed or recorded it (GET
+// /v1/projects/{project}/desktops). The lead's chat shows a live view of the
+// desktops in use, and only those.
+type DesktopUse struct {
+	Ref    string    `json:"ref"`
+	UsedAt time.Time `json:"usedAt"`
+}
+
 type BrowserPage struct {
 	ID    string `json:"id"`
 	URL   string `json:"url"`

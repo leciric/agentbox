@@ -3,25 +3,18 @@
 // remark plugin that finds the mentions. components/pip draws them.
 import type * as T from '../../shared/api';
 
-// justFinished is how long an agent that finished keeps its tile, marked
-// ready to review, before it leaves the dock.
-export const justFinished = 15 * 60_000;
+// inUse is how long after an agent last used its desktop its tile stays: long
+// enough to bridge the pauses between an agent's clicks while it thinks, short
+// enough that a desktop it's done with goes.
+export const inUse = 2 * 60_000;
 
-// docked is the project's agents that get a tile: those at work, in the
-// order they were made, then those that finished in the last justFinished
-// and wait for review, each with when it finished.
-export function docked(project: string, agents: T.Agent[], review: T.ReviewItem[], now: number): { agent: T.Agent; finishedAt?: string }[] {
-  const mine = agents.filter((a) => a.project === project && a.state === 'running').sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  const ready = new Map(review.filter((i) => i.project === project).map((i) => [i.ref, i.finishedAt]));
-  const out: { agent: T.Agent; finishedAt?: string }[] = [];
-  for (const agent of mine) {
-    const finishedAt = ready.get(agent.ref);
-    if (finishedAt) {
-      if (now - new Date(finishedAt).getTime() < justFinished) out.push({ agent, finishedAt });
-    } else if (agent.chat === 'running' || agent.chat === 'waiting' || agent.chat === 'starting') out.push({ agent });
-  }
-  // The ones that finished come first: they are what to look at.
-  return [...out.filter((d) => d.finishedAt), ...out.filter((d) => !d.finishedAt)];
+// docked is the project's running agents that are using their desktops, in
+// the order they were made, so a tile doesn't jump about as each one acts.
+export function docked(project: string, agents: T.Agent[], uses: T.DesktopUse[], now: number): T.Agent[] {
+  const used = new Map(uses.map((u) => [u.ref, new Date(u.usedAt).getTime()]));
+  return agents
+    .filter((a) => a.project === project && a.state === 'running' && now - (used.get(a.ref) ?? -Infinity) < inUse)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
 export const captureKinds = ['recording', 'screenshot'];
@@ -102,15 +95,4 @@ export function remarkAgentMentions(names: ReadonlySet<string>) {
     node.children = out;
   };
   return () => (tree: MdNode) => walk(tree);
-}
-
-export type Spot = { x: number; y: number };
-
-// clampSpot keeps a floating tile of size w×h inside an area of size
-// width×height, a margin from its edges.
-export function clampSpot(at: Spot, w: number, h: number, width: number, height: number, margin = 8): Spot {
-  return {
-    x: Math.round(Math.max(margin, Math.min(width - w - margin, at.x))),
-    y: Math.round(Math.max(margin, Math.min(height - h - margin, at.y))),
-  };
 }

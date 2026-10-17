@@ -769,6 +769,11 @@ export interface PreviewInfo {
   addr: string;
 }
 
+export interface DesktopUse {
+  ref: string;
+  usedAt: string;
+}
+
 export interface MediaItem {
   id: string;
   agent: string;

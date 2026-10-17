@@ -2,29 +2,24 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { clampSpot, docked, latestBy, mentionHref, mentionOf, mentionsIn, remarkAgentMentions, reported } from './pip.ts';
+import { docked, latestBy, mentionHref, mentionOf, mentionsIn, remarkAgentMentions, reported } from './pip.ts';
 
 const now = Date.parse('2026-10-17T15:00:00Z');
 const at = (min: number) => new Date(now - min * 60_000).toISOString();
 const agent = (name: string, more: Partial<T.Agent> = {}) => ({ project: 'p', name, ref: `p/${name}`, state: 'running', chat: 'running', createdAt: at(60), ...more }) as T.Agent;
-const item = (agentName: string, finished: number) => ({ project: 'p', agent: agentName, ref: `p/${agentName}`, finishedAt: at(finished) }) as T.ReviewItem;
+const use = (name: string, min: number): T.DesktopUse => ({ ref: `p/${name}`, usedAt: at(min) });
 const media = (id: string, kind: string, min: number) => ({ id, kind, createdAt: at(min) }) as T.MediaItem;
 
-test('agents at work get a tile, in the order they were made', () => {
-  const list = [agent('agent-3', { createdAt: at(10) }), agent('agent-1', { createdAt: at(30) }), agent('agent-2', { chat: 'waiting', createdAt: at(20) })];
-  assert.deepEqual(docked('p', list, [], now).map((d) => d.agent.name), ['agent-1', 'agent-2', 'agent-3']);
+test('agents using their desktops get a tile, in the order they were made', () => {
+  const list = [agent('agent-3', { createdAt: at(10) }), agent('agent-1', { createdAt: at(30) }), agent('agent-2', { createdAt: at(20) })];
+  const uses = [use('agent-3', 0), use('agent-1', 1), use('agent-2', 0.5)];
+  assert.deepEqual(docked('p', list, uses, now).map((a) => a.name), ['agent-1', 'agent-2', 'agent-3']);
 });
 
-test('stopped, idle and other projects’ agents get none', () => {
-  const list = [agent('a', { state: 'stopped' }), agent('b', { chat: 'ready' }), agent('c', { project: 'q' })];
-  assert.deepEqual(docked('p', list, [], now), []);
-});
-
-test('an agent that just finished comes first, until it has waited a while', () => {
-  const list = [agent('agent-1'), agent('agent-2', { chat: 'ready' }), agent('agent-3', { chat: 'ready' })];
-  const out = docked('p', list, [item('agent-2', 3), item('agent-3', 40)], now);
-  assert.deepEqual(out.map((d) => d.agent.name), ['agent-2', 'agent-1']);
-  assert.equal(out[0].finishedAt, at(3));
+test('an idle desktop, a stopped agent or another project’s gets none', () => {
+  const list = [agent('idle'), agent('never'), agent('stopped', { state: 'stopped' }), agent('other', { project: 'q' })];
+  const uses = [use('idle', 3), use('stopped', 0), { ref: 'q/other', usedAt: at(0) }];
+  assert.deepEqual(docked('p', list, uses, now), []);
 });
 
 test('a message reports the latest recording before it, over a newer screenshot', () => {
@@ -74,8 +69,4 @@ test('the remark plugin links names in text, not in code or links', () => {
     p.map((n) => n.type + (n.url ? `:${n.url}` : '') + (n.value !== undefined ? `=${n.value}` : '')),
     [`link:${mentionHref('agent-12')}`, 'text= finished; ask ', `link:${mentionHref('agent-9')}`, 'inlineCode=agent-12', 'link:x'],
   );
-});
-
-test('a floating tile stays inside its area', () => {
-  assert.deepEqual(clampSpot({ x: -40, y: 900 }, 200, 140, 1000, 800), { x: 8, y: 652 });
 });

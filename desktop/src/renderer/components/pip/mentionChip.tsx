@@ -10,7 +10,7 @@ import { cn } from '../../lib/utils';
 export interface Mentions {
   project: string;
   names: ReadonlySet<string>;
-  // live is the agents at work, whose dock tile onWatch grows.
+  // live is the agents using their desktops, whose tile onWatch grows.
   live: ReadonlySet<string>;
   onWatch: (ref: string) => void;
   onToday: (agent?: string, item?: string) => void;

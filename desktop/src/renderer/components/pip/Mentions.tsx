@@ -7,8 +7,9 @@ import { useT } from '../../lib/i18n';
 import { mediaUrl } from '../../lib/media';
 import { mediaQuery } from '../../lib/mediaPages';
 import { pastAgentsKey } from '../../lib/pastAgents';
-import { captureKinds, docked, latestBy, mentionsIn, reported } from '../../lib/pip';
-import { openToday, setDock, unfloat } from '../../lib/pipStore';
+import { captureKinds, latestBy, mentionsIn, reported } from '../../lib/pip';
+import { openToday, setLane } from '../../lib/pipStore';
+import { useInUse } from './PipLane';
 import { timeAgo } from '../../lib/utils';
 import { Button } from '../ui/button';
 import { useOpenReview, useProjectReview } from '../v2/ReviewV2';
@@ -16,19 +17,20 @@ import { AgentMentions, MessageMentions, type Mentions } from './mentionChip';
 
 export function AgentMentionsProvider({ project, children }: { project: string; children: ReactNode }) {
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
-  const review = useProjectReview(project);
   const past = useQuery({ queryKey: [...pastAgentsKey, 'mentions', project], queryFn: () => api.archivedAgents({ project, limit: 200 }), staleTime: 60_000 });
   const names = useMemo(
     () => new Set([...(agents.data ?? []).filter((a) => a.project === project).map((a) => a.name), ...(past.data ?? []).map((a) => a.name)]),
     [agents.data, past.data, project],
   );
-  const live = useMemo(() => new Set(docked(project, agents.data ?? [], review.data?.items ?? [], Date.now()).filter((d) => !d.finishedAt).map((d) => d.agent.name)), [project, agents.data, review.data]);
+  const inUse = useInUse(project);
+  const liveKey = inUse.map((a) => a.name).join(',');
+  const live = useMemo(() => new Set(liveKey ? liveKey.split(',') : []), [liveKey]);
   const value = useMemo(
     () => ({
       project,
       names,
       live,
-      onWatch: (ref: string) => setDock(project, (d) => ({ big: ref, hidden: false, floats: unfloat(d, ref) })),
+      onWatch: (ref: string) => setLane(project, () => ({ big: ref, folded: false })),
       onToday: (agent?: string, item?: string) => openToday({ project, agent, item }),
     }),
     [project, names, live],
@@ -90,7 +92,7 @@ function CaptureCard({ mentions, name, item, loading, onClose }: { mentions: Men
   const ready = review.data?.items?.find((i) => i.agent === name);
   const ref = `${mentions.project}/${name}`;
   return (
-    <div className="mb-1 mt-3 max-w-[520px] animate-pop-in overflow-hidden rounded-xl border border-line-strong bg-surface shadow-[0_20px_50px_-30px_var(--ab-shadow-deep)]" data-pip-capture={name}>
+    <div className="mb-1 mt-3 max-w-[400px] animate-pop-in overflow-hidden rounded-xl border border-line-strong bg-surface shadow-[0_20px_50px_-30px_var(--ab-shadow-deep)]" data-pip-capture={name}>
       <div className="flex items-center gap-2 py-1.5 pl-3 pr-1.5 text-[12px]">
         {item?.kind === 'recording' ? <Film className="size-3.5 shrink-0 text-subtle" /> : <ImageIcon className="size-3.5 shrink-0 text-subtle" />}
         <span className="min-w-0 flex-1 truncate text-muted">

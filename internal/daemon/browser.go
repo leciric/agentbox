@@ -101,3 +101,20 @@ func (s *Server) vncView(w http.ResponseWriter, r *http.Request, dial func(conte
 	_, _ = io.Copy(vnc, stream)
 	return nil
 }
+
+// projectDesktops answers when each of a project's running agents last used
+// its desktop, for those that have since the daemon started: cheap enough
+// for the lead's chat to ask every few seconds while it is open.
+func (s *Server) projectDesktops(w http.ResponseWriter, r *http.Request) error {
+	agents, err := s.store.Agents(r.Context(), r.PathValue("project"))
+	if err != nil {
+		return err
+	}
+	out := []api.DesktopUse{}
+	for _, a := range agents {
+		if at := s.chat.DesktopAt(a.Ref()); !at.IsZero() {
+			out = append(out, api.DesktopUse{Ref: a.Ref(), UsedAt: at})
+		}
+	}
+	return writeJSON(w, http.StatusOK, out)
+}

@@ -361,6 +361,8 @@ export const api = {
     window.agentbox.pageThumb(pagePath(name, id), key),
 
   fleet: (project: string) => call<T.Fleet>('GET', `/v1/projects/${encodeURIComponent(project)}/fleet`),
+  // When each of the project's agents last used its desktop (components/pip).
+  projectDesktops: (project: string) => call<T.DesktopUse[]>('GET', `/v1/projects/${encodeURIComponent(project)}/desktops`),
   projectCredentials: (project: string) => call<T.ToolCredential[]>('GET', `/v1/projects/${encodeURIComponent(project)}/credentials`),
 
   // What a project's agents reported, newest first, which the rail reads for

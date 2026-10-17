@@ -1346,6 +1346,8 @@ type conversation struct {
 	adapter  *adapter // nil while no adapter runs
 	turn     *turn    // the running turn
 	gone     bool     // the agent was destroyed: nothing more is stored
+	// desktopAt is when the AI tool last used the agent's desktop (desktop.go).
+	desktopAt time.Time
 	// queued holds notices that arrived mid-turn, or during a rollover;
 	// finishTurn and rollover deliver them.
 	queued []queuedNotice
@@ -2598,6 +2600,7 @@ func (c *conversation) updateTool(u acp.SessionUpdate) {
 		c.tools[u.ToolCallID] = it
 	}
 	applyTool(it.Tool, u)
+	c.sawTool(it.Tool)
 	c.touch(it)
 }
 

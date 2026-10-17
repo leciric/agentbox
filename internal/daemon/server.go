@@ -730,6 +730,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/projects/{project}/lead", s.projectChat)
 	h("DELETE /v1/projects/{project}/lead", s.resetProjectChat)
 	h("GET /v1/projects/{project}/fleet", s.fleet)
+	h("GET /v1/projects/{project}/desktops", s.projectDesktops)
 	h("GET /v1/projects/{project}/credentials", s.projectCredentials)
 	h("GET /v1/projects/{project}/agent-events", s.projectAgentEvents)
 	h("GET /v1/projects/{project}/review", s.projectReview)

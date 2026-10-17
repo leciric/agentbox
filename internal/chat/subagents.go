@@ -164,6 +164,7 @@ func (sa *subagent) updateTool(c *conversation, u acp.SessionUpdate) {
 		sa.tools[u.ToolCallID] = it
 	}
 	applyTool(it.Tool, u)
+	c.sawTool(it.Tool)
 	c.touch(it)
 }
 

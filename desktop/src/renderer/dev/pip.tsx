@@ -22,7 +22,13 @@ const working: Working[] = [
   { name: 'agent-25', title: 'Dark mode for Settings', ai: 'codex', scene: 'dark', since: 36 },
   { name: 'agent-26', title: 'Fix the flaky reconnect test', ai: 'claude', scene: 'test', since: 35 },
   { name: 'agent-27', title: 'Write the phone app setup guide', ai: 'opencode', scene: 'docs', since: 33 },
+  // At work without its desktop, until "agent-28 opens its desktop".
+  { name: 'agent-28', title: 'Make the release workflow retry flaky uploads', ai: 'claude', scene: 'ci', since: 20 },
 ];
+// using is who is driving its desktop: the daemon's /desktops answers them as
+// just now, and anyone who stopped as a while ago.
+const using = new Set(['agent-24', 'agent-25', 'agent-26', 'agent-27']);
+const desktops = (): T.DesktopUse[] => working.map((w) => ({ ref: `${PROJECT}/${w.name}`, usedAt: ago(using.has(w.name) ? 2_000 : 10 * min) }));
 const sceneOf: Record<string, Scene> = { ...Object.fromEntries(working.map((w) => [w.name, w.scene])), 'agent-12': 'newproject', 'agent-41': 'ci', 'agent-98': 'startup' };
 
 const agent = (name: string, title: string, ai: string, chat: string, createdMin: number): T.Agent =>
@@ -162,6 +168,7 @@ export function seedPip(queryClient: QueryClient): void {
   devRequests.unshift((method, path) => {
     if (method !== 'GET') return undefined;
     if (path === '/v1/agents') return json(agents());
+    if (path === `/v1/projects/${PROJECT}/desktops`) return json(desktops());
     if (/^\/v1\/projects\/[^/]+\/chat(\?|$)/.test(path) && path.startsWith(`/v1/projects/${PROJECT}/`)) return json(thread);
     if (path.startsWith('/v1/archived-agents')) return json([]);
     // The fixtures' agents asking for accounts and secrets aren't this scenario's.
@@ -174,13 +181,16 @@ export function seedPip(queryClient: QueryClient): void {
   queryClient.setQueryData(['questions', PROJECT], []);
 }
 
-// PipFinish lands agent-26 as the preview runs: its tile turns to Review,
-// it saves a screenshot, and the lead says so.
+// PipFinish lands agent-26 as the preview runs: it stops using its desktop,
+// so its tile goes, it saves a screenshot, and the lead says so. Its other
+// button has agent-28, at work without its desktop, start using it.
 export function PipFinish() {
   const queryClient = useQueryClient();
   const finish = () => {
     if (finished) return;
     finished = true;
+    using.delete('agent-26');
+    void queryClient.invalidateQueries({ queryKey: ['desktops'] });
     queryClient.setQueryData(['agents'], agents());
     addCapture({ ...testDone, minutesAgo: 0 });
     queryClient.setQueryData(['media', `${PROJECT}/agent-26`], [mediaItem(testDone)]);
@@ -202,9 +212,19 @@ export function PipFinish() {
       queryClient.setQueryData(chatKey(`${PROJECT}/lead`), thread);
     }, 900);
   };
+  const open = () => {
+    using.add('agent-28');
+    void queryClient.invalidateQueries({ queryKey: ['desktops'] });
+  };
+  const button = 'rounded-lg border border-line-strong bg-overlay px-3 py-1.5 text-[12px] text-secondary shadow-md hover:text-title';
   return (
-    <button type="button" onClick={finish} data-pip-finish className="fixed bottom-3 left-[300px] z-40 rounded-lg border border-line-strong bg-overlay px-3 py-1.5 text-[12px] text-secondary shadow-md hover:text-title">
-      Finish agent-26
-    </button>
+    <div className="fixed bottom-3 left-[300px] z-40 flex gap-2">
+      <button type="button" onClick={open} data-pip-use className={button}>
+        agent-28 opens its desktop
+      </button>
+      <button type="button" onClick={finish} data-pip-finish className={button}>
+        Finish agent-26
+      </button>
+    </div>
   );
 }
