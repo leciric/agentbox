@@ -1,11 +1,13 @@
 name: CI
 
 # The repository is private, so every job's minutes are billed, each rounded
-# up to a whole minute, and macOS at 10x and Windows at 2x. So a PR runs only
-# what its changes can break: `changes` works out which of Go and the desktop
-# app a change touches, and the jobs for the other half skip. macOS and
-# Windows run on a push to main, or on a PR labelled ci:full. govulncheck runs
-# weekly, on main, and on a PR that changes go.mod or go.sum.
+# up to a whole minute, and macOS at 10x and Windows at 2x. So a run runs only
+# what its changes can break: `changes` works out, with scripts/ci-changes.sh,
+# which of Go, the desktop app and the phone app a change touches, and the
+# jobs for the rest skip. macOS and Windows run on a push to main, or on a PR
+# labelled ci:full, when the change reaches what they test. govulncheck runs
+# weekly, on main, and on a PR that changes go.mod or go.sum. A change to this
+# file or to scripts/ci-changes.sh runs everything.
 on:
   push:
     branches: [main]
@@ -49,7 +51,8 @@ jobs:
       desktop: ${{ steps.paths.outputs.desktop }}
       mobile: ${{ steps.paths.outputs.mobile }}
       vuln: ${{ steps.paths.outputs.vuln }}
-      full: ${{ steps.paths.outputs.full }}
+      macos: ${{ steps.paths.outputs.macos }}
+      windows: ${{ steps.paths.outputs.windows }}
     steps:
       - name: Check the title is a conventional commit
         if: github.event_name == 'pull_request'
@@ -61,12 +64,29 @@ jobs:
             exit 1
           fi
 
-      # Go is everything but the desktop and phone apps and the prose, and the
-      # desktop app's api.ts is Go's too: TestTypeScriptTypesAreUpToDate reads
-      # it. The desktop app is desktop/ and the vnc.js its build writes into
-      # the Go tree. The phone app is mobile/ and the desktop's shared/, which
-      # it imports. mise.toml and this file are all three.
-      - name: Which halves the change touches
+      - uses: actions/checkout@v7
+
+      # Whether macOS and Windows can be affected takes Go, to list the
+      # packages they test, so it's worked out only where they may run: on
+      # main, and on a PR labelled ci:full (adding the label runs them
+      # anyway). Without Go, scripts/ci-changes.sh runs them.
+      - id: platforms
+        env:
+          EVENT: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          FULL_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'ci:full') }}
+        run: |
+          if [ "$EVENT" = push ] || { [ "$FULL_LABEL" = true ] && [ "$ACTION" != labeled ]; }; then p=true; else p=false; fi
+          echo "platforms=$p" >>"$GITHUB_OUTPUT"
+      - uses: jdx/mise-action@v5
+        if: steps.platforms.outputs.platforms == 'true'
+        continue-on-error: true
+        with:
+          install_args: go
+
+      # What each half reads, and so what can break it, is in
+      # scripts/ci-changes.sh.
+      - name: What the change touches
         id: paths
         env:
           GH_TOKEN: ${{ github.token }}
@@ -74,7 +94,7 @@ jobs:
           ACTION: ${{ github.event.action }}
           PR: ${{ github.event.pull_request.number }}
           BEFORE: ${{ github.event.before }}
-          FULL_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'ci:full') }}
+          PLATFORMS: ${{ steps.platforms.outputs.platforms }}
         run: |
           files=$(mktemp)
           ok=true
@@ -97,26 +117,19 @@ jobs:
           esac
           if ! $ok || [ ! -s "$files" ]; then
             echo "Can't tell what changed: running everything"
-            go=true desktop=true mobile=true vuln=true
+            go=true desktop=true mobile=true vuln=true macos=true windows=true
           else
             sed 's/^/  /' "$files"
-            grep -qvE '^(desktop/|mobile/|docs/|[^/]+\.md$|LICENSE$|\.github/(workflows/(release|nightly)\.yml|release-please-config\.json|\.release-please-manifest\.json)$)' "$files" \
-              || grep -qx 'desktop/src/shared/api.ts' "$files" && go=true || go=false
-            grep -qE '^(desktop/|internal/machinesweb/static/vnc\.js$|mise\.toml$|\.github/workflows/ci\.yml$)' "$files" && desktop=true || desktop=false
-            grep -qE '^(mobile/|desktop/src/shared/|mise\.toml$|\.github/workflows/ci\.yml$)' "$files" && mobile=true || mobile=false
-            if [ "$EVENT" = push ]; then vuln=$go
-            else grep -qE '^go\.(mod|sum)$' "$files" && vuln=true || vuln=false; fi
+            # Lines of key=true|false.
+            eval "$(scripts/ci-changes.sh "$files")"
           fi
-          # macOS and Windows: on main, a PR labelled ci:full, or by hand.
-          # Labelling runs them whatever the change.
-          case "$EVENT/$ACTION" in
-            push/*) full=$go ;;
-            workflow_dispatch/*) full=true ;;
-            pull_request/labeled) full=true ;;
-            pull_request/*) [ "$FULL_LABEL" = true ] && full=$go || full=false ;;
-          esac
-          echo "go=$go desktop=$desktop mobile=$mobile vuln=$vuln full=$full"
-          { echo "go=$go"; echo "desktop=$desktop"; echo "mobile=$mobile"; echo "vuln=$vuln"; echo "full=$full"; } >>"$GITHUB_OUTPUT"
+          # On main, govulncheck follows Go. Labelling a PR ci:full runs
+          # macOS and Windows whatever the change, and nothing else.
+          [ "$EVENT" = push ] && vuln=$go
+          if [ "$EVENT/$ACTION" = pull_request/labeled ] || [ "$EVENT" = workflow_dispatch ]; then
+            macos=true windows=true
+          fi
+          printf '%s\n' "go=$go" "desktop=$desktop" "mobile=$mobile" "vuln=$vuln" "macos=$macos" "windows=$windows" | tee -a "$GITHUB_OUTPUT"
 
   # The Go test suite, once, with coverage: scripts/check-coverage.sh fails
   # below the floor in .github/coverage-floor.txt. This includes
@@ -127,7 +140,8 @@ jobs:
   # everyone from main's latest: a PR's run never saves one of its own, and
   # the cache follows main rather than freezing at the first go.sum it saw.
   # Test results are in the build cache, so a package no change reaches
-  # isn't tested again.
+  # isn't tested again: the coverage floor still sees every package, from
+  # the cache's results.
   go-test:
     name: Go tests and coverage
     needs: changes
@@ -166,6 +180,32 @@ jobs:
           sudo mkdir -p /t
           sudo mount -t tmpfs -o size=8g,mode=1777 tmpfs /t
           echo TMPDIR=/t >>"$GITHUB_ENV"
+
+      # A test that opens a file in the repository (testdata/, api.ts, a
+      # package's own files) is cached by that file's size and mtime, and a
+      # checkout gives every file a new mtime: those packages, internal/agent
+      # and internal/daemon among them, were tested again on every run. Each
+      # file's and directory's mtime from its git object id instead, so it
+      # changes when, and only when, the content does.
+      - name: Files' times from their contents
+        run: |
+          python3 - <<'EOF'
+          import os, subprocess
+          def mtime(oid):  # 1990 to 2007, to the nanosecond
+              h = int(oid[:16], 16)
+              return (631152000 + (h >> 34) % (1 << 29)) * 10**9 + (h & (1 << 30) - 1) % 10**9
+          git = lambda *a: subprocess.run(["git", *a], capture_output=True, check=True).stdout
+          dirs = [(b".", mtime(git("rev-parse", "HEAD^{tree}").strip()))]
+          for entry in git("ls-tree", "-r", "-t", "-z", "HEAD").split(b"\0")[:-1]:
+              meta, path = entry.split(b"\t", 1)
+              _, kind, oid = meta.split()
+              if kind == b"tree":
+                  dirs.append((path, mtime(oid)))
+              elif kind == b"blob":
+                  os.utime(path, ns=(mtime(oid),) * 2, follow_symlinks=False)
+          for path, ns in reversed(dirs):
+              os.utime(path, ns=(ns, ns))
+          EOF
 
       - run: scripts/check-coverage.sh
 
@@ -221,14 +261,19 @@ jobs:
           version: v2.14.0
 
       # On a Mac, agentbox is the front end of AgentBox's Linux VM
-      # (internal/hostvm), and the VM runs the arm64 Linux build: both have to
-      # keep compiling, whatever this runner is. Without cgo, which only the
-      # macOS job has, so the vz driver is checked there.
-      - name: Build for a Mac and its VM
+      # (internal/hostvm), and the VM runs the arm64 Linux build; on Windows,
+      # of a WSL distro: all have to keep compiling, whatever this runner is.
+      # Without cgo, which only the macOS job has, so the vz driver is checked
+      # there. Vetting every package for a Mac and building for Windows here
+      # is what lets those jobs skip a change that doesn't reach the packages
+      # they test (scripts/ci-changes.sh).
+      - name: Build for a Mac, its VM, and Windows
         run: |
-          GOOS=darwin GOARCH=arm64 go vet ./cmd/agentbox ./internal/hostvm ./internal/paths
+          GOOS=darwin GOARCH=arm64 go vet ./...
           GOOS=darwin GOARCH=arm64 go build -o /dev/null ./cmd/agentbox
           GOOS=linux GOARCH=arm64 go build -o /dev/null ./cmd/agentbox
+          GOOS=windows GOARCH=amd64 go vet ./cmd/agentbox ./internal/hostos ./internal/hostwsl/...
+          GOOS=windows GOARCH=amd64 go build -o /dev/null ./cmd/agentbox
 
       - uses: actions/cache/save@v6
         if: github.event_name == 'push'
@@ -346,11 +391,12 @@ jobs:
   # signed with its entitlement. The unit tests run here too, and the vz
   # driver's own with a test binary signed the same way. The runner can't
   # boot a VM: what only a real Mac shows is in the vz driver's PR.
-  # At 10x a Linux minute, it runs on main and on a PR labelled ci:full.
+  # At 10x a Linux minute, it runs on main and on a PR labelled ci:full, when
+# the change reaches what it builds and tests (scripts/ci-changes.sh).
   macos:
     name: Go on macOS
     needs: changes
-    if: needs.changes.outputs.full == 'true'
+    if: needs.changes.outputs.macos == 'true'
     runs-on: macos-15
     timeout-minutes: 40
     steps:
@@ -412,11 +458,12 @@ jobs:
   # real named pipe — which wine can't do, so this is the only place it runs.
   # GitHub's Windows runners have no nested virtualisation, so no WSL 2 and no
   # real distro: that part is checked by hand (see PR #94).
-  # At 2x a Linux minute, it runs on main and on a PR labelled ci:full.
+  # At 2x a Linux minute, it runs on main and on a PR labelled ci:full, when
+# the change reaches what it builds and tests (scripts/ci-changes.sh).
   windows:
     name: Windows
     needs: changes
-    if: needs.changes.outputs.full == 'true'
+    if: needs.changes.outputs.windows == 'true'
     runs-on: windows-latest
     timeout-minutes: 30
     steps:

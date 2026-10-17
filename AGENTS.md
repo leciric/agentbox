@@ -77,23 +77,34 @@ packages (`internal/daemon`, `internal/chat`, `internal/agent`) run tests in par
 `internal/state`/`internal/memory` migrate a template database once per binary.
 
 [CI](.github/workflows/ci.yml) is billed by the minute (the repository is private; macOS 10x,
-Windows 2x), so a PR runs only what its files can break. A first job checks the PR title as a
-conventional commit (`feat|fix|refactor|docs|chore|test|perf|ci`) and works out whether the change
-touches Go (anything but `desktop/` and prose, plus `desktop/src/shared/api.ts`) or the desktop app
-(`desktop/`, `vnc.js`); the other half's jobs skip. A new push cancels the run it supersedes.
+Windows 2x), so a run runs only what its files can break. A first job checks the PR title as a
+conventional commit (`feat|fix|refactor|docs|chore|test|perf|ci`) and works out, with
+[`scripts/ci-changes.sh`](scripts/ci-changes.sh), what the change touches; the other jobs skip.
+Go is anything but `desktop/`, `mobile/`, `docs/`, `promo/`, `packaging/`, `scripts/`, `.github/` and
+root prose, plus `desktop/src/shared/api.ts`, `scripts/check-coverage.sh` and
+`.github/coverage-floor.txt`: a file Go embeds or a test reads belongs under a package (or in that
+list). The desktop app is `desktop/` and `vnc.js`; the phone app is `mobile/` and the desktop's
+`shared/api.ts` and `shared/i18n/`. A change to `ci.yml` or `ci-changes.sh` runs everything, macOS
+and Windows included. A new push cancels the run it supersedes.
 
 - **Go tests and coverage**: `scripts/check-coverage.sh`, the one `go test ./...`, with a floor in
   [`.github/coverage-floor.txt`](.github/coverage-floor.txt), bumped as coverage rises, never
-  lowered. It includes `TestTypeScriptTypesAreUpToDate`.
+  lowered. It includes `TestTypeScriptTypesAreUpToDate`. Packages a change doesn't reach come from
+  the test cache, coverage included: CI sets each file's mtime from its git object id, since a
+  test that opens a file is cached by that file's mtime and size.
 - **Go vet, lint, tidy**: `go mod tidy` with no diff, `go vet ./...` (and with `-tags integration`:
-  Incus tests are only vetted, D49), `golangci-lint` (`.golangci.yml`), and builds for darwin/arm64
-  and linux/arm64.
+  Incus tests are only vetted, D49), `golangci-lint` (`.golangci.yml`), every package vetted for
+  darwin, and builds for darwin/arm64, linux/arm64 and Windows.
 - **Desktop**: `npm --prefix desktop` `lint` (oxlint, [`desktop/.oxlintrc.json`](desktop/.oxlintrc.json),
   used because typescript-eslint doesn't support TypeScript 7; only `react-hooks`' two rules from its
   React plugin), `typecheck`, `test` (Node's test runner, with coverage), `build`, and the committed
   `vnc.js` matching its build.
-- **macOS** (cgo, signed, the vz driver) and **Windows** (the WSL front end): on pushes to `main`
-  that touch Go, and on a PR labelled `ci:full` (adding the label runs just these two).
+- **macOS** (cgo, signed, the vz driver) and **Windows** (the WSL front end): on pushes to `main`,
+  and on a PR labelled `ci:full` (adding the label runs just these two, whatever changed), when the
+  change reaches what they test: `go.mod`/`go.sum`, `mise.toml`, `cmd/`, a package their tests
+  import (`go list -deps -test` of `internal/hostvm/...`, `internal/paths` and `internal/api` for
+  darwin; `internal/hostos` and `internal/hostwsl/...` for Windows), a file only that OS builds,
+  and for macOS `scripts/mac-sign.sh` and the entitlements.
 - **govulncheck**: weekly, on `main`, and on PRs that change `go.mod`/`go.sum`.
 
 Go caches are saved by `main`'s runs only and restored by PRs, so a PR's tests skip packages it
