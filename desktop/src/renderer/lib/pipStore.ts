@@ -6,13 +6,14 @@ import type { Spot } from './pip';
 
 export interface Dock {
   hidden: boolean;
-  stacked: boolean;
+  // stacked is as you set it, or undefined to stack only when there's no room.
+  stacked?: boolean;
   floats: Record<string, Spot>; // by agent ref
   big: string | null; // an agent ref, this session only
 }
 
 const storageKey = 'agentbox.ui.v2.pip';
-const empty: Dock = { hidden: false, stacked: false, floats: {}, big: null };
+const empty: Dock = { hidden: false, floats: {}, big: null };
 const listeners = new Set<() => void>();
 let docks: Record<string, Dock> | undefined;
 
@@ -23,7 +24,7 @@ function load(): Record<string, Dock> {
     for (const [project, d] of Object.entries(saved)) {
       const floats: Record<string, Spot> = {};
       for (const [ref, at] of Object.entries(d.floats ?? {})) if (typeof at?.x === 'number' && typeof at?.y === 'number') floats[ref] = { x: at.x, y: at.y };
-      out[project] = { hidden: d.hidden === true, stacked: d.stacked === true, floats, big: null };
+      out[project] = { hidden: d.hidden === true, stacked: typeof d.stacked === 'boolean' ? d.stacked : undefined, floats, big: null };
     }
     return out;
   } catch {

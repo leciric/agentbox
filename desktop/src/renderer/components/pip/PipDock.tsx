@@ -43,7 +43,7 @@ export function PipDock({ project, onSelect }: { project: string; onSelect: (vie
   const floating = shown.filter((d) => dock.floats[d.agent.ref] && d !== big);
   const inDock = shown.filter((d) => !dock.floats[d.agent.ref] && d !== big);
   const room = (size.width - textColumn) / 2 >= TILE + 24 && size.height >= 40 + inDock.length * (tileHeight + 10);
-  const stacked = dock.stacked || !room;
+  const stacked = dock.stacked ?? !room;
 
   const grow = (ref: string) => setDock(project, (d) => ({ big: ref, floats: unfloat(d, ref) }));
   const pin = (ref: string) => {
@@ -67,7 +67,7 @@ export function PipDock({ project, onSelect }: { project: string; onSelect: (vie
             {t('pip.live', { count: inDock.length })}
           </button>
         ) : (
-          <Dock project={project} tiles={inDock} stacked={stacked} canSpread={room} area={area} actions={actions} />
+          <Dock project={project} tiles={inDock} atWork={tiles.filter((d) => !d.finishedAt).length} stacked={stacked} maxHeight={size.height - 48} area={area} actions={actions} />
         ))}
       {floating.map((d) => (
         <Floating key={d.agent.ref} project={project} agent={d.agent} finishedAt={d.finishedAt} at={clampSpot(dock.floats[d.agent.ref], TILE, tileHeight, size.width, size.height)} area={area} actions={actions} />
@@ -79,23 +79,20 @@ export function PipDock({ project, onSelect }: { project: string; onSelect: (vie
 
 type Actions = { grow: (ref: string) => void; pin: (ref: string) => void; open: (ref: string) => void };
 
-function Dock({ project, tiles, stacked, canSpread, area, actions }: { project: string; tiles: { agent: T.Agent; finishedAt?: string }[]; stacked: boolean; canSpread: boolean; area: RefObject<HTMLDivElement | null>; actions: Actions }) {
+function Dock({ project, tiles, atWork, stacked, maxHeight, area, actions }: { project: string; tiles: { agent: T.Agent; finishedAt?: string }[]; atWork: number; stacked: boolean; maxHeight: number; area: RefObject<HTMLDivElement | null>; actions: Actions }) {
   const t = useT();
   const [fan, setFan] = useState(false);
   const deck = stacked && !fan;
-  const atWork = tiles.filter((d) => !d.finishedAt).length;
   return (
     <div className="pointer-events-auto absolute right-3 top-3 md:right-4" style={{ width: TILE }} data-pip-dock={stacked ? 'stacked' : 'column'} onMouseLeave={() => setFan(false)}>
       <div className="mb-1.5 flex items-center gap-1 px-0.5 text-[11px] text-subtle">
         <span className="size-1.5 animate-pulse rounded-full bg-rose-400" />
         <span className="flex-1">{t('pip.atWork', { count: atWork })}</span>
-        {canSpread && (
-          <Tip label={stacked ? t('pip.spread') : t('pip.stack')}>
-            <button type="button" onClick={() => setDock(project, (d) => ({ stacked: !d.stacked }))} className="rounded p-1 hover:bg-surface-raised hover:text-primary" data-pip-stack>
-              {stacked ? <Rows3 className="size-3.5" /> : <Layers className="size-3.5" />}
-            </button>
-          </Tip>
-        )}
+        <Tip label={stacked ? t('pip.spread') : t('pip.stack')}>
+          <button type="button" onClick={() => setDock(project, () => ({ stacked: !stacked }))} className="rounded p-1 hover:bg-surface-raised hover:text-primary" data-pip-stack>
+            {stacked ? <Rows3 className="size-3.5" /> : <Layers className="size-3.5" />}
+          </button>
+        </Tip>
         <Tip label={t('pip.hide')}>
           <button type="button" onClick={() => setDock(project, () => ({ hidden: true }))} className="rounded p-1 hover:bg-surface-raised hover:text-primary" data-pip-hide>
             <ChevronRight className="size-3.5" />
@@ -103,7 +100,8 @@ function Dock({ project, tiles, stacked, canSpread, area, actions }: { project: 
         </Tip>
       </div>
       {/* Fanned out, a stack hangs over the chat rather than squeezing in. */}
-      <div className="relative" style={{ height: deck ? tileHeight + Math.min(tiles.length - 1, 2) * 9 : undefined }} onMouseEnter={() => stacked && setFan(true)}>
+      {/* Spread taller than the chat, the column scrolls. */}
+      <div className={cn('relative', !deck && 'overflow-y-auto [scrollbar-width:none]')} style={{ height: deck ? tileHeight + Math.min(tiles.length - 1, 2) * 9 : undefined, maxHeight: deck ? undefined : maxHeight }} onMouseEnter={() => stacked && setFan(true)}>
         {tiles.map((d, i) => (
           <DockTile key={d.agent.ref} project={project} agent={d.agent} finishedAt={d.finishedAt} index={i} deck={deck} count={tiles.length} area={area} actions={actions} />
         ))}

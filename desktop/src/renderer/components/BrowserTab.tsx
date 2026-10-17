@@ -185,7 +185,9 @@ export function BrowserTab({ agent, onOpenMedia }: { agent: T.Agent; onOpenMedia
         {/* Keeps your mouse and keyboard away from the browser until you take control. */}
         {connected && !control && <div className="absolute inset-0" data-view-guard />}
         {standIn ? (
-          <div className="absolute inset-0 flex items-center">{standIn(agent)}</div>
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full">{standIn(agent)}</div>
+          </div>
         ) : !desktopUp && (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="grid max-w-md animate-slide-up justify-items-center gap-3 text-center">
