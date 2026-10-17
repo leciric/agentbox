@@ -4,40 +4,91 @@
 // made.
 import type * as T from '../../shared/api';
 
-// A slide is one thing an agent made, in the order it made them, and its
-// pull request last.
-export type Slide =
-  | { kind: 'screenshot' | 'recording'; id: string; at: string; media: T.MediaItem }
-  | { kind: 'page'; id: string; at: string; page: T.Artifact }
-  | { kind: 'pr'; id: string; pr: T.PullRequest };
+// Proof is what an agent showed it checked, for the review's Proof tab:
+// its recordings, the latest first, each in chapters; its screenshots,
+// oldest first; and its Hatch pages.
+export interface Proof {
+  recordings: Take[];
+  screenshots: T.MediaItem[];
+  pages: T.Artifact[];
+}
 
-// slidesOf is an agent's carousel: its screenshots, recordings and Hatch
-// pages, oldest first, then its pull request when it opened one. Other
-// media (notes, logs, reports) isn't something to look at in a carousel.
-export function slidesOf(media: readonly T.MediaItem[], pages: readonly T.Artifact[], pr?: T.PullRequest): Slide[] {
-  const made: Exclude<Slide, { kind: 'pr' }>[] = [
-    ...media
-      .filter((m) => m.kind === 'screenshot' || m.kind === 'recording')
-      .map((m) => ({ kind: m.kind as 'screenshot' | 'recording', id: m.id, at: m.createdAt, media: m })),
-    ...pages.map((p) => ({ kind: 'page' as const, id: p.id, at: p.createdAt, page: p })),
-  ];
-  made.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
-  return pr ? [...made, { kind: 'pr', id: `pr-${pr.number}`, pr }] : made;
+// A take is one recording and the chapters in it.
+export interface Take {
+  media: T.MediaItem;
+  chapters: Chapter[];
+}
+
+// A chapter is one thing an agent checked while it recorded: a note it saved
+// (`agentbox media note`) or, in a recording with no notes, a screenshot it
+// took, at seconds into the recording. shots are the screenshots taken
+// during it.
+export interface Chapter {
+  at: number;
+  title: string;
+  detail?: string;
+  shots: T.MediaItem[];
+}
+
+const ms = (iso: string) => new Date(iso).getTime();
+
+// proofOf sorts an agent's media into its proof. A recording's item is made
+// when it stops but dated when it started (internal/agent/media.go), so what
+// was saved between that and its duration later happened on screen. Logs,
+// reports and files aren't proof to look at; notes are only chapters.
+export function proofOf(media: readonly T.MediaItem[], pages: readonly T.Artifact[]): Proof {
+  const byTime = [...media].sort((a, b) => ms(a.createdAt) - ms(b.createdAt));
+  const screenshots = byTime.filter((m) => m.kind === 'screenshot');
+  const notes = byTime.filter((m) => m.kind === 'note');
+  const recordings = byTime
+    .filter((m) => m.kind === 'recording')
+    .reverse()
+    .map((rec) => ({ media: rec, chapters: chaptersOf(rec, notes, screenshots) }));
+  return { recordings, screenshots, pages: [...pages].sort((a, b) => ms(a.createdAt) - ms(b.createdAt)) };
+}
+
+function chaptersOf(rec: T.MediaItem, notes: readonly T.MediaItem[], screenshots: readonly T.MediaItem[]): Chapter[] {
+  const start = ms(rec.createdAt);
+  const length = (rec.meta.duration ?? 0) * 1000;
+  const during = (m: T.MediaItem) => ms(m.createdAt) >= start && ms(m.createdAt) <= start + length;
+  const at = (m: T.MediaItem) => (ms(m.createdAt) - start) / 1000;
+  const shots = screenshots.filter(during);
+  const marks = notes.filter(during);
+  const chapters: Chapter[] = marks.length
+    ? marks.map((n) => ({ at: at(n), title: n.name, detail: noteDetail(n), shots: [] }))
+    : shots.map((s) => ({ at: at(s), title: readableName(s.name), shots: [] }));
+  // Each screenshot belongs to the chapter it was taken in; one taken before
+  // the first note, to the first.
+  for (const s of shots) {
+    const i = chapters.findLastIndex((c) => c.at <= at(s));
+    chapters[Math.max(0, i)]?.shots.push(s);
+  }
+  return chapters;
+}
+
+// noteDetail is what a note says past its title, when it says more.
+function noteDetail(n: T.MediaItem): string | undefined {
+  const text = (n.text ?? '').trim();
+  if (!text || text === n.name) return undefined;
+  const rest = text.startsWith(n.name) ? text.slice(n.name.length).trim() : text;
+  return rest || undefined;
+}
+
+// readableName turns a media name like "settings-at-1024" into words.
+export function readableName(name: string): string {
+  const words = name.replace(/\.[a-z0-9]+$/i, '').replace(/[-_]+/g, ' ').trim();
+  return words ? words[0].toUpperCase() + words.slice(1) : name;
+}
+
+// chapterAt is the index of the chapter playing at t seconds.
+export function chapterAt(chapters: readonly Chapter[], t: number): number {
+  return Math.max(0, chapters.findLastIndex((c) => c.at <= t + 0.05));
 }
 
 // step moves through a carousel of count slides, stopping at either end.
 export function step(index: number, count: number, by: number): number {
   if (count <= 0) return 0;
   return Math.min(count - 1, Math.max(0, index + by));
-}
-
-// swipeStep is how far a swipe of (dx, dy) pixels moves: a mostly
-// sideways drag of at least minSwipe goes to the next slide leftwards, the
-// previous one rightwards, and anything else stays put.
-export const minSwipe = 50;
-export function swipeStep(dx: number, dy: number): number {
-  if (Math.abs(dx) < minSwipe || Math.abs(dx) < Math.abs(dy)) return 0;
-  return dx < 0 ? 1 : -1;
 }
 
 // countLabel is a button's count, capped so it stays a badge.

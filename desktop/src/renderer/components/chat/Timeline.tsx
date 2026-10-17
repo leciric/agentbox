@@ -15,6 +15,7 @@ import { Tip } from '../ui/tooltip';
 import { ChangedFiles } from './ChangedFiles';
 import { SentFiles } from './Files';
 import { AgentPermissionCard } from './AgentPermissionCard';
+import { FinishedCards } from './EvidenceCard';
 import { ProjectMessageCard } from './ProjectMessageCard';
 import { SentImages } from './Images';
 import { Markdown } from './Markdown';
@@ -159,6 +160,8 @@ const TimelineRow = memo(
         // left is an error, and the mark a rollover leaves where the session
         // changed — and a message between this project's lead and another's.
         if (row.item.projectMessage) return <ProjectMessageCard item={row.item} />;
+        // And agents finishing, with what they showed they checked.
+        if (row.item.finished?.length) return <FinishedCards item={row.item} />;
         // And one of the project's agents asking permission, answered here.
         if (row.item.agentPermission) return <AgentPermissionCard item={row.item} />;
         return row.item.kind === 'error' ? (

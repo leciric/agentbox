@@ -189,6 +189,11 @@ type ChatItem struct {
 	// request, kept in step with it until it is answered or given up, for the
 	// user to answer from the lead on the agent's own route.
 	AgentPermission *ChatAgentPermission `json:"agentPermission,omitempty"`
+	// Finished, on a hidden notice in a project's lead chat, names the agents
+	// (refs) whose finishing it tells the lead of. The app shows each one's
+	// evidence there, its recordings, screenshots and pull request, in place
+	// of the notice's prose.
+	Finished []string `json:"finished,omitempty"`
 	// Parent, on a message, thought or tool call a subagent made, is that
 	// subagent's card. The app nests the item under the card instead of
 	// showing it in the conversation itself.

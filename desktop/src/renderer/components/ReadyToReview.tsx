@@ -1,22 +1,21 @@
 import { useMutation, useQuery, useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
-import { ArrowRight, Check, ChevronDown, ChevronLeft, ChevronRight, CornerDownLeft, ExternalLink, GitBranch, GitMerge, GitPullRequest, Image as ImageIcon, MessageSquareText, LoaderCircle, Play } from 'lucide-react';
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react';
+import { ArrowRight, Check, ChevronDown, ChevronLeft, CircleAlert, CornerDownLeft, ExternalLink, FileDiff, Film, GitBranch, GitMerge, GitPullRequest, MessageSquareText, LoaderCircle, Play } from 'lucide-react';
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { useT, type MessageKey } from '../lib/i18n';
-import { mediaUrl } from '../lib/media';
 import { pagesFor } from '../lib/pages';
 import { projectLabel } from '../lib/projectName';
 import { pageItems, pageTotal, refreshInbox, useReviewPages, withoutAgent } from '../lib/inboxPages';
-import { type Walk, goBack, goForward, mergeBlock, nextPending, remainingAfter, wrapWalk, walkItems, walkOrder, queueOf, reviewKeys, reviewShortcut, slidesOf, step, swipeStep, type MergeBlock, type ReviewAction, type Slide } from '../lib/review';
+import { type Walk, goBack, goForward, mergeBlock, nextPending, proofOf, remainingAfter, wrapWalk, walkItems, walkOrder, queueOf, reviewKeys, reviewShortcut, step, type MergeBlock, type ReviewAction } from '../lib/review';
 import { defaultMethod, loadMethodPrefs, rememberMethod } from '../lib/mergeMethod';
 import { isUnseen, markReadySeen, useUnseen } from '../lib/reviewAlert';
 import { useNow } from '../lib/useNow';
 import { cn, errorMessage, timeAgo } from '../lib/utils';
 import { Markdown } from './chat/Markdown';
-import { MoreMedia, Recording } from './MediaTab';
-import { PageIcon } from './pages/PageThumb';
+import { MoreMedia } from './MediaTab';
+import { ReviewProof } from './ReviewProof';
 import { useProjectPages } from './pages/usePages';
 import { checksVariants, PullRequestView, stateVariants } from './PullRequestModal';
 import { checksLabels, methodLabels, stateLabels, usePullLabels, usePullMerge } from './PullRequestsPanel';
@@ -217,7 +216,7 @@ export function ReviewRow({ item, isNew, now, projects, onOpen }: { item: T.Revi
 // agent off the list at once. quiet leaves out its toast, for the review,
 // which goes on to the next agent: "marked reviewed" over a "Merged" toast
 // read as if the merge hadn't happened.
-function markItemReviewed(queryClient: QueryClient, item: T.ReviewItem, t: ReturnType<typeof useT>, quiet = false) {
+export function markItemReviewed(queryClient: QueryClient, item: T.ReviewItem, t: ReturnType<typeof useT>, quiet = false) {
   dropFromList(queryClient, item.ref);
   return api
     .review(item.ref, { verdict: 'reviewed', fingerprint: item.fingerprint })
@@ -260,14 +259,18 @@ const keyLabels: Record<ReviewAction, MessageKey> = {
   merge: 'review.key.merge',
 };
 
-// ReviewCarousel is everything one agent made, a slide at a time, in the
-// order it made them: screenshots, recordings (they play right here) and
-// Hatch pages, then its pull request, which can be merged from here. The
-// slide fills the middle, a filmstrip below it, what the agent said beside
-// it. Keys, the arrows, the filmstrip and a swipe move through the slides;
-// past the last one, → goes on to the next agent waiting. Opening an agent
-// only sees it; Merge, Reviewed and Request changes record a verdict and go
-// on to the next agent, and Finish closes the review.
+// A view is one of the review's tabs, in the order → walks them.
+type View = 'proof' | 'changes' | 'pr';
+const views: View[] = ['proof', 'changes', 'pr'];
+
+// ReviewCarousel is one agent's review, evidence first. It opens on Proof
+// (ReviewProof): the agent's recording in a chapter for each thing it
+// checked, its screenshots and pages, and what it said. Changes (its pull
+// request's files, or its diff when it opened none) and the pull request come
+// after, as tabs. ← → and the tabs move through them; past the pull request,
+// → goes on to the next agent waiting, and before Proof ← to the one before.
+// Opening an agent only sees it; Merge, Reviewed and Request changes record
+// a verdict and go on to the next agent, and Finish closes the review.
 function ReviewCarousel({
   item,
   position,
@@ -304,12 +307,10 @@ function ReviewCarousel({
     enabled: !!item.pr,
   });
   const pr = (item.pr && pulls.data?.pullRequests.find((p) => p.number === item.pr?.number)) || item.pr;
-  const slides = slidesOf(media.data ?? [], pagesFor(pages.data, item.ref), pr);
-  const [index, setIndex] = useState(0);
-  const at = Math.min(index, Math.max(0, slides.length - 1));
-  const slide = slides[at];
-  const last = at >= slides.length - 1;
-  const go = (by: number) => setIndex(step(at, slides.length, by));
+  const proof = proofOf(media.data ?? [], pagesFor(pages.data, item.ref));
+  const [view, setView] = useState<View>('proof');
+  const at = views.indexOf(view);
+  const go = (by: number) => setView(views[step(at, views.length, by)]);
   const labels = usePullLabels(item.project);
   // The review's own "Merged" toast says whose it was and where it went.
   // There's no Undo: a merge can't be taken back.
@@ -324,7 +325,6 @@ function ReviewCarousel({
   const blocked = pr ? mergeBlock(pr, pulls.data) : null;
   const canMerge = !!pr && blocked !== 'merged' && blocked !== 'closed';
   const mergeReason = blocked && blocked !== 'merged' && blocked !== 'closed' ? t(blockLabels[blocked], { base: pr?.baseBranch ?? '' }) : undefined;
-  const swipe = useRef<{ x: number; y: number } | null>(null);
 
   // Opening an agent's work is seeing it, which only leaves the inbox's count.
   useEffect(() => markReadySeen({ ref: item.ref, fingerprint: item.fingerprint }), [item.ref, item.fingerprint]);
@@ -387,17 +387,17 @@ function ReviewCarousel({
   const act = (action: ReviewAction) => {
     switch (action) {
       case 'previous':
-        // Before the first slide is the agent before.
+        // Before Proof is the agent before.
         if (at === 0 && canBack) return onBack();
         return go(-1);
       case 'next':
-        // Past the last slide is the next agent.
-        if (last && next) return onNext();
+        // Past the pull request is the next agent.
+        if (at === views.length - 1 && next) return onNext();
         return go(1);
       case 'first':
-        return setIndex(0);
+        return setView('proof');
       case 'last':
-        return setIndex(slides.length - 1);
+        return setView('pr');
       case 'reviewed':
         return reviewAndGo();
       case 'previousAgent':
@@ -421,15 +421,16 @@ function ReviewCarousel({
     e.preventDefault();
     act(action);
   };
-  const onPointerDown = (e: PointerEvent) => {
-    swipe.current = { x: e.clientX, y: e.clientY };
-  };
-  const onPointerUp = (e: PointerEvent) => {
-    if (!swipe.current) return;
-    const by = swipeStep(e.clientX - swipe.current.x, e.clientY - swipe.current.y);
-    swipe.current = null;
-    if (by) go(by);
-  };
+
+  const said = (
+    <section data-review-summary>
+      <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-subtle">{t('review.summary')}</h3>
+      {item.summary ? <Markdown text={item.summary} className="text-[13px]" /> : <p className="text-[12.5px] italic text-subtle">{t('review.noSummary')}</p>}
+      <div className="mt-5 max-lg:hidden">
+        <Shortcuts canMerge={!mergeDisabled} hasBack={canBack} />
+      </div>
+    </section>
+  );
 
   return (
     <>
@@ -489,175 +490,178 @@ function ReviewCarousel({
             )}
             {tabs}
           </div>
-          {/* Narrow, the summary has no column of its own. */}
-          {item.summary && <NarrowSummary text={item.summary} />}
         </header>
-        <div className="flex min-h-0 flex-1">
-          <section className="flex min-w-0 flex-1 flex-col">
-            {/* The pull request is read and selected like the modal's, so it takes no swipe. */}
-            <div
-              className={cn('relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-surface-faint', slide?.kind !== 'pr' && 'touch-pan-y select-none')}
-              onPointerDown={slide?.kind === 'pr' ? undefined : onPointerDown}
-              onPointerUp={slide?.kind === 'pr' ? undefined : onPointerUp}
+        {/* What to look at: the proof first, then the code. */}
+        <div role="tablist" aria-label={t('review.views')} className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-line px-4 py-1.5 text-[12.5px]" data-review-views>
+          {views.map((v) => (
+            <button
+              key={v}
+              type="button"
+              role="tab"
+              aria-selected={view === v}
+              onClick={() => setView(v)}
+              className={cn('inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 transition', view === v ? 'bg-surface-strong text-title' : 'text-secondary hover:bg-surface-raised hover:text-title')}
+              data-review-view={v}
             >
-              {slide?.kind === 'pr' ? (
-                <div className="flex size-full flex-col bg-modal" data-review-slide="pr">
-                  <PullRequestView
-                    inline
-                    bare
-                    project={item.project}
-                    pr={slide.pr}
-                    canMerge={canMerge}
-                    mergeRunning={merge.running.has(slide.pr.number)}
-                    mergeError={merge.failed[slide.pr.number]}
-                    onMerge={() => merge.request(slide.pr)}
-                    edits={labels.edits}
-                    onToggleLabel={(label, on) => labels.toggleLabel(slide.pr, label, on)}
-                  />
-                </div>
-              ) : slide ? (
-                <SlideView key={slide.id} slide={slide} project={item.project} />
-              ) : (
-                <div className="grid max-w-sm justify-items-center gap-2 p-10 text-center">
-                  <ImageIcon className="size-8 text-faint" />
-                  <div className="text-sm font-medium text-secondary">{media.isPending ? t('common.loading') : t('review.nothing')}</div>
-                  {!media.isPending && <div className="text-xs text-subtle">{t('review.nothingBody')}</div>}
-                </div>
+              {v === 'proof' && (
+                <>
+                  <Film className="size-3.5" />
+                  {t('review.tab.proof')}
+                  {proof.recordings[0]?.chapters.length ? <span className="tabular-nums text-subtle">{proof.recordings[0].chapters.length}</span> : null}
+                </>
               )}
-              {slides.length > 1 && slide?.kind !== 'pr' && <CarouselArrow side="left" disabled={at === 0} label={t('review.previous')} onClick={() => go(-1)} />}
-              {slides.length > 1 && !last && <CarouselArrow side="right" disabled={false} label={t('review.next')} onClick={() => go(1)} />}
-            </div>
-            {slide?.kind === 'pr' && merge.failed[slide.pr.number] && (
-              <Notice className="mx-4 mb-2">
-                {t('memory.pulls.mergeFailed', {
-                  error: merge.failed[slide.pr.number],
-                })}
-              </Notice>
-            )}
-            {/* One bar under the slide: the filmstrip, where it is, and what to do next. */}
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line bg-modal px-4 py-2">
-              {slides.length > 0 && <Filmstrip slides={slides} at={at} onPick={setIndex} />}
-              <div className="ml-auto flex shrink-0 items-center gap-2">
-                {slide?.kind === 'pr' && (
-                  <>
-                    <Button size="sm" variant="ghost" onClick={() => void window.agentbox.openExternal(slide.pr.url)}>
-                      <ExternalLink />
-                      {t('pulls.detail.openOnGitHub')}
-                    </Button>
-                  </>
-                )}
-              </div>
-            </div>
-            {changing && (
-              <div className="mx-4 mb-3 grid gap-2 rounded-xl border border-line-strong bg-well p-3" data-review-changes-box>
-                <div className="text-[12px] text-muted">{t('review.changesTo', { agent: item.agent })}</div>
-                <textarea
-                  autoFocus
-                  rows={3}
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                      e.preventDefault();
-                      sendChanges();
-                    }
-                  }}
-                  placeholder={t('review.changesPlaceholder')}
-                  aria-label={t('review.requestChanges')}
-                  className="w-full resize-none rounded-lg bg-surface-faint px-2.5 py-2 text-[13px] text-primary outline-none ring-1 ring-line focus:ring-brand-400"
-                  data-review-changes-input
-                />
-                <div className="flex justify-end gap-2">
-                  <Button size="sm" variant="ghost" onClick={() => setChanging(false)}>
-                    {t('common.cancel')}
-                  </Button>
-                  <Button size="sm" variant="primary" disabled={!note.trim() || send.isPending} onClick={sendChanges} data-review-changes-send>
-                    {send.isPending ? <LoaderCircle className="animate-spin" /> : <MessageSquareText />}
-                    {t('review.changesSend')}
-                    <CornerDownLeft className="opacity-70" />
-                  </Button>
-                </div>
-              </div>
-            )}
-                        {/* Narrow, the actions wrap rather than drop their labels: icons
-                alone left Request changes and Merge to guess (UX test, finding 8). */}
-            <div className="flex flex-wrap items-center gap-2 border-t border-line bg-modal px-4 py-2" data-review-actions>
-              <Button size="sm" variant="ghost" disabled={!canBack} onClick={onBack} data-review-back title={t('review.backTitle')} aria-label={t('review.back')}>
-                <ChevronLeft />
-                <span>{t('review.back')}</span>
-                <span className="max-md:hidden">
-                  <Kbd>P</Kbd>
-                </span>
-              </Button>
-              <Button size="sm" variant="secondary" aria-expanded={changing} onClick={requestChanges} data-review-changes title={t('review.requestChanges')} aria-label={t('review.requestChanges')}>
-                <MessageSquareText />
-                <span>{t('review.requestChanges')}</span>
-                <span className="max-md:hidden">
-                  <Kbd>C</Kbd>
-                </span>
-              </Button>
-              {/* Why Merge can't, beside it; narrow, on a line of its own under the actions. */}
-              <span className={cn('ml-auto min-w-0 flex-1 truncate text-right text-[12px] text-amber-200 [:root[data-appearance=light]_&]:text-amber-700', footerNote && 'max-sm:order-last max-sm:basis-full max-sm:text-left')} data-merge-blocked title={footerReason}>
-                {footerNote}
-              </span>
-              <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-              <div className="flex shrink-0 items-stretch" data-review-merge-split>
-                <Button size="sm" variant="primary" className="rounded-r-none" disabled={mergeDisabled} title={footerReason ?? t(methodLabels[method] ?? 'memory.pulls.merge')} onClick={mergeAndGo} data-review-merge data-merge-method={method}>
-                  {pr && merge.running.has(pr.number) ? <LoaderCircle className="animate-spin" /> : <GitMerge />}
-                  <span>{pr ? t('review.mergeAndNext', { number: pr.number }) : t('review.noPullRequest')}</span>
-                  {!mergeDisabled && (
-                    <span className="max-md:hidden">
-                      <Kbd>M</Kbd>
+              {v === 'changes' && (
+                <>
+                  <FileDiff className="size-3.5" />
+                  {t('review.tab.changes')}
+                  {item.changes && item.changes.files > 0 && (
+                    <span className="font-mono text-[11.5px]">
+                      <span className="text-emerald-300">+{item.changes.insertions}</span> <span className="text-rose-300">−{item.changes.deletions}</span>
                     </span>
                   )}
-                </Button>
-                <Menu open={methodOpen} onOpenChange={setMethodOpen}>
-                  <MenuTrigger asChild>
-                    <Button size="sm" variant="primary" className="rounded-l-none border-l border-white/25 px-1.5" disabled={mergeDisabled} aria-label={t('memory.pulls.method')} data-review-merge-method>
-                      <ChevronDown />
-                    </Button>
-                  </MenuTrigger>
-                  <MenuContent className="min-w-40">
-                    {merge.methods.map((m) => (
-                      <MenuItem key={m} icon={m === method ? Check : undefined} onSelect={() => pickMethod(m)} data-merge-option={m}>
-                        {methodLabels[m] ? t(methodLabels[m]) : m}
-                      </MenuItem>
-                    ))}
-                  </MenuContent>
-                </Menu>
-              </div>
-              <Button size="sm" variant="default" disabled={marking} onClick={reviewAndGo} data-review-done title={next ? t('review.nextIs', { agent: next.title || next.agent }) : undefined} aria-label={t('review.reviewedNext')}>
-                <Check />
-                <span>{t('review.reviewedNext')}</span>
-                <span className="max-md:hidden">
-                  <Kbd>N</Kbd>
-                </span>
-              </Button>
-              <span aria-hidden className="mx-1 h-5 w-px shrink-0 bg-line" />
-              <Button size="sm" variant="ghost" onClick={onClose} data-review-finish>
-                {t('review.finish')}
-                <ArrowRight />
-              </Button>
-              </div>
-            </div>
-          </section>
-
-          <aside className="hidden w-[300px] shrink-0 flex-col border-l border-line bg-modal lg:flex xl:w-[340px]" data-review-summary>
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-              <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-subtle">{t('review.summary')}</h3>
-              {item.summary ? <Markdown text={item.summary} className="text-[13px]" /> : <p className="text-[12.5px] italic text-subtle">{t('review.noSummary')}</p>}
-              {item.changes && item.changes.files > 0 && (
-                <p className="mt-4 flex items-center gap-2 text-[12px] text-muted" data-review-changes>
-                  {t('review.changes', { files: item.changes.files })}
-                  <span className="font-mono text-emerald-300">+{item.changes.insertions}</span>
-                  <span className="font-mono text-rose-300">−{item.changes.deletions}</span>
-                </p>
+                </>
               )}
+              {v === 'pr' && (
+                <>
+                  <GitPullRequest className="size-3.5" />
+                  {pr ? t('review.tab.pr', { number: pr.number }) : t('review.tab.noPr')}
+                  {pr?.state === 'open' && pr.checks === 'failing' && <CircleAlert className="size-3.5 text-rose-300" />}
+                </>
+              )}
+            </button>
+          ))}
+          {view === 'pr' && pr && (
+            <Button size="sm" variant="ghost" className="ml-auto" onClick={() => void window.agentbox.openExternal(pr.url)}>
+              <ExternalLink />
+              {t('pulls.detail.openOnGitHub')}
+            </Button>
+          )}
+        </div>
+        <section className="relative flex min-h-0 flex-1 flex-col overflow-y-auto">
+          {view === 'proof' &&
+            (media.isPending ? (
+              <div className="p-6 text-[13px] text-subtle">{t('common.loading')}</div>
+            ) : (
+              <ReviewProof key={item.ref} project={item.project} proof={proof} aside={said} />
+            ))}
+          {view !== 'proof' && pr && (
+            <div className="flex min-h-0 flex-1 flex-col bg-modal" data-review-slide={view}>
+              <PullRequestView
+                inline
+                bare
+                view={view === 'changes' ? 'files' : 'description'}
+                project={item.project}
+                pr={pr}
+                canMerge={canMerge}
+                mergeRunning={merge.running.has(pr.number)}
+                mergeError={merge.failed[pr.number]}
+                onMerge={() => merge.request(pr)}
+                edits={labels.edits}
+                onToggleLabel={(label, on) => labels.toggleLabel(pr, label, on)}
+              />
             </div>
-            <div className="border-t border-line-faint px-5 py-3">
-              <Shortcuts canMerge={!mergeDisabled} hasBack={canBack} />
+          )}
+          {view === 'changes' && !pr && <AgentDiff agent={item.ref} />}
+          {view === 'pr' && !pr && <div className="p-6 text-[13px] text-subtle">{t('review.noPrBody')}</div>}
+        </section>
+        {view !== 'proof' && pr && merge.failed[pr.number] && (
+          <Notice className="mx-4 mb-2">
+            {t('memory.pulls.mergeFailed', {
+              error: merge.failed[pr.number],
+            })}
+          </Notice>
+        )}
+        {changing && (
+          <div className="mx-4 mb-3 grid gap-2 rounded-xl border border-line-strong bg-well p-3" data-review-changes-box>
+            <div className="text-[12px] text-muted">{t('review.changesTo', { agent: item.agent })}</div>
+            <textarea
+              autoFocus
+              rows={3}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  sendChanges();
+                }
+              }}
+              placeholder={t('review.changesPlaceholder')}
+              aria-label={t('review.requestChanges')}
+              className="w-full resize-none rounded-lg bg-surface-faint px-2.5 py-2 text-[13px] text-primary outline-none ring-1 ring-line focus:ring-brand-400"
+              data-review-changes-input
+            />
+            <div className="flex justify-end gap-2">
+              <Button size="sm" variant="ghost" onClick={() => setChanging(false)}>
+                {t('common.cancel')}
+              </Button>
+              <Button size="sm" variant="primary" disabled={!note.trim() || send.isPending} onClick={sendChanges} data-review-changes-send>
+                {send.isPending ? <LoaderCircle className="animate-spin" /> : <MessageSquareText />}
+                {t('review.changesSend')}
+                <CornerDownLeft className="opacity-70" />
+              </Button>
             </div>
-          </aside>
+          </div>
+        )}
+        {/* Narrow, the actions wrap rather than drop their labels: icons
+            alone left Request changes and Merge to guess (UX test, finding 8). */}
+        <div className="flex flex-wrap items-center gap-2 border-t border-line bg-modal px-4 py-2" data-review-actions>
+          <Button size="sm" variant="ghost" disabled={!canBack} onClick={onBack} data-review-back title={t('review.backTitle')} aria-label={t('review.back')}>
+            <ChevronLeft />
+            <span>{t('review.back')}</span>
+            <span className="max-md:hidden">
+              <Kbd>P</Kbd>
+            </span>
+          </Button>
+          <Button size="sm" variant="secondary" aria-expanded={changing} onClick={requestChanges} data-review-changes title={t('review.requestChanges')} aria-label={t('review.requestChanges')}>
+            <MessageSquareText />
+            <span>{t('review.requestChanges')}</span>
+            <span className="max-md:hidden">
+              <Kbd>C</Kbd>
+            </span>
+          </Button>
+          {/* Why Merge can't, beside it; narrow, on a line of its own under the actions. */}
+          <span className={cn('ml-auto min-w-0 flex-1 truncate text-right text-[12px] text-amber-200 [:root[data-appearance=light]_&]:text-amber-700', footerNote && 'max-sm:order-last max-sm:basis-full max-sm:text-left')} data-merge-blocked title={footerReason}>
+            {footerNote}
+          </span>
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+            <div className="flex shrink-0 items-stretch" data-review-merge-split>
+              <Button size="sm" variant="primary" className="rounded-r-none" disabled={mergeDisabled} title={footerReason ?? t(methodLabels[method] ?? 'memory.pulls.merge')} onClick={mergeAndGo} data-review-merge data-merge-method={method}>
+                {pr && merge.running.has(pr.number) ? <LoaderCircle className="animate-spin" /> : <GitMerge />}
+                <span>{pr ? t('review.mergeAndNext', { number: pr.number }) : t('review.noPullRequest')}</span>
+                {!mergeDisabled && (
+                  <span className="max-md:hidden">
+                    <Kbd>M</Kbd>
+                  </span>
+                )}
+              </Button>
+              <Menu open={methodOpen} onOpenChange={setMethodOpen}>
+                <MenuTrigger asChild>
+                  <Button size="sm" variant="primary" className="rounded-l-none border-l border-white/25 px-1.5" disabled={mergeDisabled} aria-label={t('memory.pulls.method')} data-review-merge-method>
+                    <ChevronDown />
+                  </Button>
+                </MenuTrigger>
+                <MenuContent className="min-w-40">
+                  {merge.methods.map((m) => (
+                    <MenuItem key={m} icon={m === method ? Check : undefined} onSelect={() => pickMethod(m)} data-merge-option={m}>
+                      {methodLabels[m] ? t(methodLabels[m]) : m}
+                    </MenuItem>
+                  ))}
+                </MenuContent>
+              </Menu>
+            </div>
+            <Button size="sm" variant="default" disabled={marking} onClick={reviewAndGo} data-review-done title={next ? t('review.nextIs', { agent: next.title || next.agent }) : undefined} aria-label={t('review.reviewedNext')}>
+              <Check />
+              <span>{t('review.reviewedNext')}</span>
+              <span className="max-md:hidden">
+                <Kbd>N</Kbd>
+              </span>
+            </Button>
+            <span aria-hidden className="mx-1 h-5 w-px shrink-0 bg-line" />
+            <Button size="sm" variant="ghost" onClick={onClose} data-review-finish>
+              {t('review.finish')}
+              <ArrowRight />
+            </Button>
+          </div>
         </div>
       </DialogContent>
       {merge.dialog}
@@ -665,20 +669,30 @@ function ReviewCarousel({
   );
 }
 
-// NarrowSummary is what the agent said, under the header when the window is
-// too narrow for its column: two lines, and the rest on More.
-function NarrowSummary({ text }: { text: string }) {
+// AgentDiff is the agent's whole diff, for an agent that opened no pull
+// request: its lines coloured as a diff, nothing more.
+function AgentDiff({ agent }: { agent: string }) {
   const t = useT();
-  const [more, setMore] = useState(false);
+  const diff = useQuery({ queryKey: ['diff', agent], queryFn: () => api.diff(agent) });
+  if (diff.error) return <Notice className="m-5">{t('review.diffUnavailable', { error: errorMessage(diff.error) })}</Notice>;
+  if (!diff.data) return <div className="p-6 text-[13px] text-subtle">{t('common.loading')}</div>;
   return (
-    <div className="flex w-full min-w-0 items-start gap-2 lg:hidden" data-review-summary-narrow>
-      <div className={cn('min-w-0 flex-1 overflow-hidden text-[12.5px]', !more && 'max-h-[2.9em]')}>
-        <Markdown text={text} className="text-[12.5px] [&_p]:my-0" />
-      </div>
-      <button type="button" className="shrink-0 text-[12px] font-medium text-brand-300 hover:underline" onClick={() => setMore((m) => !m)}>
-        {t(more ? 'review.less' : 'review.more')}
-      </button>
-    </div>
+    <pre className="min-w-0 flex-1 overflow-x-auto bg-sunken py-3 font-mono text-[12px] leading-relaxed" data-review-diff>
+      {diff.data.split('\n').map((line, i) => (
+        <div
+          key={i}
+          className={cn(
+            'px-4',
+            line.startsWith('+') && !line.startsWith('+++') && 'bg-emerald-500/10 text-emerald-200 [:root[data-appearance=light]_&]:text-emerald-800',
+            line.startsWith('-') && !line.startsWith('---') && 'bg-rose-500/10 text-rose-200 [:root[data-appearance=light]_&]:text-rose-800',
+            (line.startsWith('diff ') || line.startsWith('@@')) && 'text-brand-300',
+            !/^[+\-@d]/.test(line) && 'text-muted',
+          )}
+        >
+          {line || ' '}
+        </div>
+      ))}
+    </pre>
   );
 }
 
@@ -731,146 +745,4 @@ function Shortcuts({ canMerge, hasBack }: { canMerge: boolean; hasBack: boolean 
       </span>
     </div>
   );
-}
-
-// Filmstrip is every slide as a thumbnail, the one shown ringed, and where it
-// is among them.
-function Filmstrip({ slides, at, onPick }: { slides: Slide[]; at: number; onPick: (i: number) => void }) {
-  const t = useT();
-  const strip = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    strip.current?.children[at]?.scrollIntoView({
-      block: 'nearest',
-      inline: 'nearest',
-      behavior: 'smooth',
-    });
-  }, [at]);
-  return (
-    <div className="flex min-w-0 flex-1 items-center gap-3" data-review-position={`${at + 1}/${slides.length}`}>
-      <div ref={strip} className="flex min-w-0 gap-2 overflow-x-auto p-0.5 [scrollbar-width:thin]" data-review-filmstrip>
-        {slides.map((s, i) => (
-          <button
-            key={s.id}
-            type="button"
-            aria-label={t('review.goTo', { n: i + 1 })}
-            title={thumbTitle(s)}
-            aria-current={i === at || undefined}
-            data-review-thumb={s.kind}
-            onClick={() => onPick(i)}
-            onPointerDown={(e) => e.stopPropagation()}
-            className={cn(
-              'relative h-12 w-20 shrink-0 overflow-hidden rounded-md bg-surface-raised ring-2 ring-inset transition',
-              i === at ? 'opacity-100 ring-brand-400' : 'opacity-75 ring-line hover:opacity-100',
-            )}
-          >
-            <Thumb slide={s} />
-          </button>
-        ))}
-      </div>
-      <span className="shrink-0 text-[12px] tabular-nums text-subtle">{t('review.position', { n: at + 1, count: slides.length })}</span>
-    </div>
-  );
-}
-
-// thumbTitle is a thumbnail's whole name, as its tooltip.
-const thumbTitle = (s: Slide) => (s.kind === 'page' ? s.page.title : s.kind === 'pr' ? `#${s.pr.number} ${s.pr.title}` : s.media.name);
-
-function Thumb({ slide }: { slide: Slide }) {
-  const t = useT();
-  switch (slide.kind) {
-    case 'screenshot':
-      return <img src={mediaUrl(slide.media)} alt="" draggable={false} className="size-full object-cover" />;
-    case 'recording':
-      return (
-        <span className="flex size-full items-center justify-center bg-black">
-          <video src={mediaUrl(slide.media)} preload="metadata" muted className="absolute inset-0 size-full object-cover opacity-70" />
-          <Play className="relative size-4 fill-white text-white" />
-        </span>
-      );
-    case 'page':
-      return (
-        <span className="flex size-full flex-col items-start gap-1 p-1.5 text-left">
-          <PageIcon className="size-3.5 shrink-0 text-muted" />
-          <span className="w-full truncate text-[10.5px] font-medium leading-tight text-primary">{slide.page.title}</span>
-        </span>
-      );
-    case 'pr':
-      return (
-        <span className="flex size-full flex-col items-center justify-center gap-0.5">
-          <GitPullRequest className="size-4 text-brand-300" />
-          <span className="text-[11px] font-medium text-primary">{t('review.slide.pr', { number: slide.pr.number })}</span>
-        </span>
-      );
-  }
-}
-
-function CarouselArrow({ side, disabled, label, onClick }: { side: 'left' | 'right'; disabled: boolean; label: string; onClick: () => void }) {
-  const Icon = side === 'left' ? ChevronLeft : ChevronRight;
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      disabled={disabled}
-      onClick={onClick}
-      onPointerDown={(e) => e.stopPropagation()}
-      className={cn(
-        'absolute top-1/2 flex size-10 -translate-y-1/2 items-center justify-center rounded-full border border-line-strong bg-modal/90 text-secondary shadow-lg transition hover:text-primary disabled:pointer-events-none disabled:opacity-0',
-        side === 'left' ? 'left-4' : 'right-4',
-      )}
-    >
-      <Icon className="size-5" />
-    </button>
-  );
-}
-
-function SlideView({ slide, project }: { slide: Exclude<Slide, { kind: 'pr' }>; project: string }) {
-  const t = useT();
-  const [loaded, setLoaded] = useState(false);
-  switch (slide.kind) {
-    case 'screenshot':
-      return (
-        <div className="flex size-full items-center justify-center p-3 sm:p-6" data-review-slide="screenshot">
-          <img
-            src={mediaUrl(slide.media)}
-            alt={slide.media.name}
-            draggable={false}
-            className="max-h-full max-w-full rounded-lg object-contain shadow-[0_24px_80px_-24px_var(--ab-shadow-deep)] ring-1 ring-line"
-          />
-        </div>
-      );
-    case 'recording':
-      return (
-        // Recording sizes its video for the Media viewer; here it fits the slide.
-        <div className="flex size-full items-center justify-center bg-black [&_video]:max-h-full [&_video]:w-auto [&_video]:max-w-full" data-review-slide="recording">
-          <Recording item={slide.media} />
-        </div>
-      );
-    case 'page':
-      return (
-        <div className="flex size-full flex-col" data-review-slide="page">
-          <div className="flex min-w-0 items-center gap-2 border-b border-line bg-modal px-4 py-2 text-[12.5px]">
-            <PageIcon className="size-3.5 shrink-0 text-muted" />
-            <span className="truncate font-medium text-primary">{slide.page.title}</span>
-            {slide.page.url && (
-              <Button size="sm" variant="ghost" className="ml-auto" onClick={() => void window.agentbox.openExternal(slide.page.url)}>
-                <ExternalLink />
-                {t('review.openPage')}
-              </Button>
-            )}
-          </div>
-          <div className="relative min-h-0 flex-1">
-            {!loaded && <div className="skeleton absolute inset-0 rounded-none" />}
-            <iframe
-              title={slide.page.title}
-              src={api.pageUrl(project, slide.page.id)}
-              // As the page preview frames it: an opaque origin, no reach into the app.
-              sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-modals"
-              referrerPolicy="no-referrer"
-              onLoad={() => setLoaded(true)}
-              className={cn('absolute inset-0 size-full border-0 bg-white', loaded ? 'opacity-100' : 'opacity-0')}
-            />
-          </div>
-        </div>
-      );
-  }
 }

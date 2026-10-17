@@ -325,6 +325,7 @@ func (c *conversation) deliverQueued() {
 		texts = append(texts, n.text)
 		merged.Act = merged.Act || n.opts.Act
 		merged.Hidden = merged.Hidden && n.opts.Hidden
+		merged.Finished = append(merged.Finished, n.opts.Finished...)
 	}
 	c.deliver(strings.Join(texts, "\n\n---\n\n"), merged)
 }

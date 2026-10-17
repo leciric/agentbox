@@ -309,6 +309,12 @@ func toAPIQuestion(q state.Question) api.Question {
 // benefit, and the user reads the same thing as the agent's thread in the
 // project chat's rail (see agentevents.go).
 func (s *Server) tellLead(ctx context.Context, project, notice string, act bool) {
+	s.tellLeadOf(ctx, project, notice, chat.NoticeOptions{Act: act})
+}
+
+// tellLeadOf is tellLead with the notice's options: Finished, say, for the
+// app to show what the agents finished with. It is always hidden.
+func (s *Server) tellLeadOf(ctx context.Context, project, notice string, opts chat.NoticeOptions) {
 	if _, err := s.store.Project(ctx, project); err != nil {
 		return
 	}
@@ -318,13 +324,14 @@ func (s *Server) tellLead(ctx context.Context, project, notice string, act bool)
 		// waits, and the user sees it in the project's Questions.
 		return
 	}
-	if act {
+	if opts.Act {
 		// The notice is about to start a turn, so this is a moment a full
 		// session can be replaced (D73). The notice then waits for that, and
 		// lands in the fresh session.
 		s.rolloverIfNeeded(ctx, lead)
 	}
-	if err := s.chat.Notice(lead, notice, chat.NoticeOptions{Act: act, Hidden: true}); err != nil {
+	opts.Hidden = true
+	if err := s.chat.Notice(lead, notice, opts); err != nil {
 		s.logf("telling %s's chat: %v", project, err)
 	}
 }
@@ -520,7 +527,7 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, end cha
 	// the agent's own chat is theirs: it is recorded all the same, and waking
 	// the lead to read it would cost a turn of its whole context for nothing.
 	waiting := s.leadWasWaiting(a)
-	s.tellLead(ctx, a.Project, finishNotice(ev), waiting && s.finishStartsTurn(ctx, a))
+	s.tellLeadOf(ctx, a.Project, finishNotice(ev), chat.NoticeOptions{Act: waiting && s.finishStartsTurn(ctx, a), Finished: []string{a.Ref()}})
 }
 
 // nudge claims the one reminder an agent gets to wait on its work inside a

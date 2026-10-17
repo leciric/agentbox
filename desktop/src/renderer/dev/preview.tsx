@@ -168,7 +168,8 @@
 //                           and agents folded under them, filters, and the
 //                           review's Merge and Request changes, which the dev
 //                           bridge answers, the agent coming back in 6s
-//                           (dev/review.tsx)
+//                           (dev/review.tsx); the lead chat ends with agent-17's and
+//                           agent-15's evidence cards, recordings in chapters
 //   &tour=welcome           with &v2=1, that tour playing (lib/tours.ts: welcome,
 //                           v2, review, panel, groups, cross-project, places; several
 //                           comma-separated), from &step=n (default 0)
@@ -267,7 +268,7 @@ import { PagePreviewHost } from '../components/pages/PagePreview';
 import { ScopedMediaPages } from '../components/pages/MediaPages';
 
 import { mockMedia, NotificationsPreview, seedNotifications } from './notifications';
-import { ReviewPreview, seedLeadLines, seedReview, seedV2 } from './review';
+import { ReviewPreview, seedEvidence, seedLeadLines, seedReview, seedV2 } from './review';
 import { setUiV2 } from '../lib/uiV2';
 import { setTourState, tours, welcomeTour } from '../lib/tours';
 
@@ -454,6 +455,7 @@ setUiV2(params.get('v2') === '1');
 if (appView && params.get('v2') === '1') {
   seedLeadLines(queryClient);
   seedV2(queryClient, params.get('pins'));
+  seedEvidence(queryClient);
   // The right-hand panel's Media tab has the ?media= gallery to show, and
   // its picker the past agents.
   if (!media) seedMedia(queryClient);

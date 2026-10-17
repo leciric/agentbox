@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -151,6 +152,14 @@ func TestFinishNoticeCarriesTheAgentsSummary(t *testing.T) {
 	}
 	if strings.Contains(notice, "no summary") || strings.Contains(notice, "start of a longer summary") {
 		t.Errorf("a summary that fits was reported as missing or cut:\n%s", notice)
+	}
+	// The notice names the agent, for the app to show its evidence in its place.
+	th, err := d.srv.chat.Thread(lead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if i := slices.IndexFunc(th.Items, func(it api.ChatItem) bool { return it.Kind == "notice" }); i < 0 || !th.Items[i].Hidden || !slices.Equal(th.Items[i].Finished, []string{a.Ref()}) {
+		t.Errorf("the finish notice doesn't name %s for its evidence card: %+v", a.Ref(), th.Items)
 	}
 }
 
