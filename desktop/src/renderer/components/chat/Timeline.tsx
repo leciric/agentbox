@@ -19,7 +19,6 @@ import { FinishedCards } from './EvidenceCard';
 import { ProjectMessageCard } from './ProjectMessageCard';
 import { SentImages } from './Images';
 import { Markdown } from './Markdown';
-import { MentionScope } from '../pip/Mentions';
 import { TurnMarker } from './TurnMarker';
 import { ChatRefContext } from './chatRef';
 import { SubagentCard, WorkGroup } from './Work';
@@ -81,11 +80,9 @@ const TimelineRow = memo(
       case 'assistant':
         return (
           <div className={cn('group min-w-0 px-1', row.final ? 'pb-4' : 'pb-2.5')} data-chat-item="assistant" data-chat-id={row.item.id}>
-            <MentionScope item={row.item}>
-              <div data-chat-text>
-                <Markdown rich text={row.item.text ?? ''} streaming={row.item.streaming} className="text-sm leading-relaxed text-tertiary" />
-              </div>
-            </MentionScope>
+            <div data-chat-text>
+              <Markdown rich text={row.item.text ?? ''} streaming={row.item.streaming} className="text-sm leading-relaxed text-tertiary" />
+            </div>
             {row.final && <Meta item={row.item} className="mt-1.5" />}
           </div>
         );

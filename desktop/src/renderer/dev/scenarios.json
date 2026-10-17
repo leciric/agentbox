@@ -1919,6 +1919,14 @@
     "click": "[data-pip-tile]"
   },
   {
+    "id": "pip-mention-chip-dark",
+    "description": "An agent's chip clicked in a lead message: no card under the message, the right-hand panel opens on that agent's Desktop — dark",
+    "query": "app=project&v2=1&pip=1&theme=dark",
+    "width": 1600,
+    "height": 1000,
+    "click": "[data-pip-mention]"
+  },
+  {
     "id": "pip-sidebar-peek-dark",
     "description": "Hovering an agent in the sidebar: its card leads with its computer, its desktop live (or its last frame) and what the machine is doing — dark",
     "query": "app=project&v2=1&pip=1&theme=dark",

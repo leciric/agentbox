@@ -206,7 +206,6 @@ export function PipFinish() {
       fingerprint: '{"f":"agent-26"}',
     });
     void queryClient.invalidateQueries({ queryKey: ['mediaPages'] });
-    void queryClient.invalidateQueries({ queryKey: ['pipCaptures'] });
     window.setTimeout(() => {
       setThread([...said, done]);
       queryClient.setQueryData(chatKey(`${PROJECT}/lead`), thread);

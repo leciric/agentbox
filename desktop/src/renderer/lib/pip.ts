@@ -1,5 +1,5 @@
 // Picture-in-picture desktops in the lead's chat (UI v2): which agents get a
-// tile in the dock, which capture a mention of an agent opens on, and the
+// tile in the dock, and the
 // remark plugin that finds the mentions. components/pip draws them.
 import type * as T from '../../shared/api';
 
@@ -17,45 +17,11 @@ export function docked(project: string, agents: T.Agent[], uses: T.DesktopUse[],
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
-export const captureKinds = ['recording', 'screenshot'];
-
-// reportWindow is how long before a message a capture can be what it
-// reports: the agent's work since the lead last heard from it.
-export const reportWindow = 45 * 60_000;
-
-// reported is the capture a message written at `at` reports, from an
-// agent's (newest first): its latest recording from the reportWindow before
-// it (a minute after, for one saved as the message streamed), else its
-// latest screenshot then, else none.
-export function reported(items: T.MediaItem[], at: string): T.MediaItem | undefined {
-  const t = new Date(at).getTime();
-  const near = items.filter((i) => {
-    const c = new Date(i.createdAt).getTime();
-    return captureKinds.includes(i.kind) && c <= t + 60_000 && c >= t - reportWindow;
-  });
-  return near.find((i) => i.kind === 'recording') ?? near[0];
-}
-
-// latestBy is an agent's latest capture as of `at`, or its latest at all: what
-// a mention opens on when it was clicked rather than reported.
-export function latestBy(items: T.MediaItem[], at: string): T.MediaItem | undefined {
-  const t = new Date(at).getTime() + 60_000;
-  const all = items.filter((i) => captureKinds.includes(i.kind));
-  return all.find((i) => new Date(i.createdAt).getTime() <= t) ?? all[0];
-}
-
 // mentionHref is the link a mention becomes in a message's markdown: a
 // fragment, so react-markdown's URL filter keeps it.
 export const mentionPrefix = '#agentbox-agent=';
 export const mentionHref = (name: string) => `${mentionPrefix}${encodeURIComponent(name)}`;
 export const mentionOf = (href: string | undefined) => (href?.startsWith(mentionPrefix) ? decodeURIComponent(href.slice(mentionPrefix.length)) : undefined);
-
-// mentionsIn is the agents a text names, in order, each once.
-export function mentionsIn(text: string, names: ReadonlySet<string>): string[] {
-  const re = mentionPattern(names);
-  if (!re) return [];
-  return [...new Set(Array.from(text.matchAll(re), (m) => m[2]))];
-}
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
