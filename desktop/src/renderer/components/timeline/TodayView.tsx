@@ -74,7 +74,7 @@ export function TodayView({ project, onSelect }: { project: string; onSelect: (v
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const p = projects.data?.find((x) => x.name === project);
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto" data-today={project}>
+    <div className="h-full overflow-y-auto" data-today={project}>
       <InTopBar>{p && <ProjectCrumb project={p} then={t('today.title')} />}</InTopBar>
       <InTopBar end>
         <PanelButton project={project} chat={lead} />

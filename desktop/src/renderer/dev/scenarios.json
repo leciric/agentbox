@@ -1933,5 +1933,12 @@
     "query": "app=agent-41&v2=1&theme=dark",
     "width": 1440,
     "height": 900
+  },
+  {
+    "id": "today-overflow-dark",
+    "description": "The project's Today page in a window too short for its chapters: it must scroll inside the window, not grow past it (the page was 813px in a 500px window) — dark",
+    "query": "app=today&v2=1&theme=dark",
+    "width": 1280,
+    "height": 500
   }
 ]
