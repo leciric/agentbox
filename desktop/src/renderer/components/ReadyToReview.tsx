@@ -17,6 +17,7 @@ import { cn, errorMessage, timeAgo } from '../lib/utils';
 import { Markdown } from './chat/Markdown';
 import { MoreMedia, Recording } from './MediaTab';
 import { PageIcon } from './pages/PageThumb';
+import { TimelineWide } from './timeline/Timeline';
 import { useProjectPages } from './pages/usePages';
 import { checksVariants, PullRequestView, stateVariants } from './PullRequestModal';
 import { checksLabels, methodLabels, stateLabels, usePullLabels, usePullMerge } from './PullRequestsPanel';
@@ -260,6 +261,31 @@ const keyLabels: Record<ReviewAction, MessageKey> = {
   merge: 'review.key.merge',
 };
 
+// The review shows an agent's work as its walkthrough (what it made, a
+// slide at a time) or as its timeline (every step, over its recordings).
+type ReviewView = 'slides' | 'timeline';
+let lastView: ReviewView = 'slides';
+
+function ViewSwitch({ view, onView }: { view: ReviewView; onView: (v: ReviewView) => void }) {
+  const t = useT();
+  return (
+    <div className="flex shrink-0 rounded-lg border border-line p-0.5 text-[12px]" role="group" data-review-view={view}>
+      {(['slides', 'timeline'] as const).map((v) => (
+        <button
+          key={v}
+          type="button"
+          aria-pressed={view === v}
+          onClick={() => onView(v)}
+          className={cn('rounded-md px-2.5 py-1', view === v ? 'bg-surface-strong text-title' : 'text-subtle hover:text-secondary')}
+          data-review-view-option={v}
+        >
+          {t(v === 'slides' ? 'review.view.slides' : 'review.view.timeline')}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ReviewCarousel is everything one agent made, a slide at a time, in the
 // order it made them: screenshots, recordings (they play right here) and
 // Hatch pages, then its pull request, which can be merged from here. The
@@ -306,6 +332,13 @@ function ReviewCarousel({
   const pr = (item.pr && pulls.data?.pullRequests.find((p) => p.number === item.pr?.number)) || item.pr;
   const slides = slidesOf(media.data ?? [], pagesFor(pages.data, item.ref), pr);
   const [index, setIndex] = useState(0);
+  // Walkthrough or Timeline: whichever was last picked, for every agent of
+  // the walk.
+  const [view, setView] = useState<ReviewView>(lastView);
+  const pickView = (v: ReviewView) => {
+    lastView = v;
+    setView(v);
+  };
   const at = Math.min(index, Math.max(0, slides.length - 1));
   const slide = slides[at];
   const last = at >= slides.length - 1;
@@ -418,6 +451,7 @@ function ReviewCarousel({
     if (target.getAttribute('role') === 'tab' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) return;
     const action = reviewShortcut(e);
     if (!action) return;
+    if (view === 'timeline' && (action === 'previous' || action === 'next' || action === 'first' || action === 'last')) return;
     e.preventDefault();
     act(action);
   };
@@ -487,6 +521,7 @@ function ReviewCarousel({
                 })}
               </span>
             )}
+            <ViewSwitch view={view} onView={pickView} />
             {tabs}
           </div>
           {/* Narrow, the summary has no column of its own. */}
@@ -494,60 +529,66 @@ function ReviewCarousel({
         </header>
         <div className="flex min-h-0 flex-1">
           <section className="flex min-w-0 flex-1 flex-col">
-            {/* The pull request is read and selected like the modal's, so it takes no swipe. */}
-            <div
-              className={cn('relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-surface-faint', slide?.kind !== 'pr' && 'touch-pan-y select-none')}
-              onPointerDown={slide?.kind === 'pr' ? undefined : onPointerDown}
-              onPointerUp={slide?.kind === 'pr' ? undefined : onPointerUp}
-            >
-              {slide?.kind === 'pr' ? (
-                <div className="flex size-full flex-col bg-modal" data-review-slide="pr">
-                  <PullRequestView
-                    inline
-                    bare
-                    project={item.project}
-                    pr={slide.pr}
-                    canMerge={canMerge}
-                    mergeRunning={merge.running.has(slide.pr.number)}
-                    mergeError={merge.failed[slide.pr.number]}
-                    onMerge={() => merge.request(slide.pr)}
-                    edits={labels.edits}
-                    onToggleLabel={(label, on) => labels.toggleLabel(slide.pr, label, on)}
-                  />
+            {view === 'timeline' ? (
+              <TimelineWide project={item.project} agentRef={item.ref} />
+            ) : (
+              <>
+                {/* The pull request is read and selected like the modal's, so it takes no swipe. */}
+                <div
+                  className={cn('relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-surface-faint', slide?.kind !== 'pr' && 'touch-pan-y select-none')}
+                  onPointerDown={slide?.kind === 'pr' ? undefined : onPointerDown}
+                  onPointerUp={slide?.kind === 'pr' ? undefined : onPointerUp}
+                >
+                  {slide?.kind === 'pr' ? (
+                    <div className="flex size-full flex-col bg-modal" data-review-slide="pr">
+                      <PullRequestView
+                        inline
+                        bare
+                        project={item.project}
+                        pr={slide.pr}
+                        canMerge={canMerge}
+                        mergeRunning={merge.running.has(slide.pr.number)}
+                        mergeError={merge.failed[slide.pr.number]}
+                        onMerge={() => merge.request(slide.pr)}
+                        edits={labels.edits}
+                        onToggleLabel={(label, on) => labels.toggleLabel(slide.pr, label, on)}
+                      />
+                    </div>
+                  ) : slide ? (
+                    <SlideView key={slide.id} slide={slide} project={item.project} />
+                  ) : (
+                    <div className="grid max-w-sm justify-items-center gap-2 p-10 text-center">
+                      <ImageIcon className="size-8 text-faint" />
+                      <div className="text-sm font-medium text-secondary">{media.isPending ? t('common.loading') : t('review.nothing')}</div>
+                      {!media.isPending && <div className="text-xs text-subtle">{t('review.nothingBody')}</div>}
+                    </div>
+                  )}
+                  {slides.length > 1 && slide?.kind !== 'pr' && <CarouselArrow side="left" disabled={at === 0} label={t('review.previous')} onClick={() => go(-1)} />}
+                  {slides.length > 1 && !last && <CarouselArrow side="right" disabled={false} label={t('review.next')} onClick={() => go(1)} />}
                 </div>
-              ) : slide ? (
-                <SlideView key={slide.id} slide={slide} project={item.project} />
-              ) : (
-                <div className="grid max-w-sm justify-items-center gap-2 p-10 text-center">
-                  <ImageIcon className="size-8 text-faint" />
-                  <div className="text-sm font-medium text-secondary">{media.isPending ? t('common.loading') : t('review.nothing')}</div>
-                  {!media.isPending && <div className="text-xs text-subtle">{t('review.nothingBody')}</div>}
-                </div>
-              )}
-              {slides.length > 1 && slide?.kind !== 'pr' && <CarouselArrow side="left" disabled={at === 0} label={t('review.previous')} onClick={() => go(-1)} />}
-              {slides.length > 1 && !last && <CarouselArrow side="right" disabled={false} label={t('review.next')} onClick={() => go(1)} />}
-            </div>
-            {slide?.kind === 'pr' && merge.failed[slide.pr.number] && (
-              <Notice className="mx-4 mb-2">
-                {t('memory.pulls.mergeFailed', {
-                  error: merge.failed[slide.pr.number],
-                })}
-              </Notice>
-            )}
-            {/* One bar under the slide: the filmstrip, where it is, and what to do next. */}
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line bg-modal px-4 py-2">
-              {slides.length > 0 && <Filmstrip slides={slides} at={at} onPick={setIndex} />}
-              <div className="ml-auto flex shrink-0 items-center gap-2">
-                {slide?.kind === 'pr' && (
-                  <>
-                    <Button size="sm" variant="ghost" onClick={() => void window.agentbox.openExternal(slide.pr.url)}>
-                      <ExternalLink />
-                      {t('pulls.detail.openOnGitHub')}
-                    </Button>
-                  </>
+                {slide?.kind === 'pr' && merge.failed[slide.pr.number] && (
+                  <Notice className="mx-4 mb-2">
+                    {t('memory.pulls.mergeFailed', {
+                      error: merge.failed[slide.pr.number],
+                    })}
+                  </Notice>
                 )}
-              </div>
-            </div>
+                {/* One bar under the slide: the filmstrip, where it is, and what to do next. */}
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line bg-modal px-4 py-2">
+                  {slides.length > 0 && <Filmstrip slides={slides} at={at} onPick={setIndex} />}
+                  <div className="ml-auto flex shrink-0 items-center gap-2">
+                    {slide?.kind === 'pr' && (
+                      <>
+                        <Button size="sm" variant="ghost" onClick={() => void window.agentbox.openExternal(slide.pr.url)}>
+                          <ExternalLink />
+                          {t('pulls.detail.openOnGitHub')}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
             {changing && (
               <div className="mx-4 mb-3 grid gap-2 rounded-xl border border-line-strong bg-well p-3" data-review-changes-box>
                 <div className="text-[12px] text-muted">{t('review.changesTo', { agent: item.agent })}</div>

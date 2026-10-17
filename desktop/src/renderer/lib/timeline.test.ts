@@ -1,0 +1,91 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import type * as T from '../../shared/api';
+import { clockAt, dayStart, frameAt, holdFor, layout, marks, minStep, mmss, placedAt, slidesOf, trackAt, workedSince } from './timeline.ts';
+
+const t0 = Date.parse('2026-10-17T09:00:00Z');
+const iso = (secs: number) => new Date(t0 + secs * 1000).toISOString();
+const step = (kind: string, from: number, to: number, extra: Partial<T.TimelineStep> = {}) => ({ kind, title: '', start: iso(from), end: iso(to), item: kind, ...extra }) as T.TimelineStep;
+const media = (id: string, kind: string, at: number, duration?: number) => ({ id, kind, createdAt: iso(at), meta: duration ? { duration } : {} }) as T.MediaItem;
+
+const tl: T.Timeline = {
+  start: iso(0),
+  end: iso(4000),
+  steps: [
+    step('task', 0, 0),
+    step('edit', 60, 660),
+    // An hour waiting between the edits and the check.
+    step('desktop', 4000, 4100, { media: [media('rec', 'recording', 4010, 150), media('shot', 'screenshot', 4050)] }),
+    step('page', 4200, 4205, { pages: [{ title: 'Before and after', item: 'p1' }] }),
+  ],
+};
+
+test('layout puts steps end to end, the time between them taken out, each at least minStep', () => {
+  const track = layout(tl);
+  assert.deepEqual(
+    track.steps.map((p) => [p.from, p.to]),
+    [
+      [0, minStep],
+      [minStep, minStep + 600],
+      // Its recording runs past the step's last call: 4010 + 150 − 4000.
+      [minStep + 600, minStep + 760],
+      [minStep + 760, minStep * 2 + 760],
+    ],
+  );
+  assert.equal(track.length, minStep * 2 + 760);
+  assert.equal(placedAt(track, minStep + 1)?.step.kind, 'edit');
+});
+
+test('clockAt and trackAt turn a point of the track into the time, and back', () => {
+  const track = layout(tl);
+  const x = minStep + 300;
+  assert.equal(clockAt(track, x), t0 + 360_000);
+  assert.equal(trackAt(track, t0 + 360_000), x);
+  // Between steps, the time is at the end of the one before.
+  assert.equal(trackAt(track, t0 + 2000_000), minStep + 600);
+  assert.equal(trackAt(track, t0 - 5000), 0);
+  // A short step is stretched over its minStep.
+  assert.equal(clockAt(track, minStep * 1.5 + 760), t0 + 4202_500);
+});
+
+test('frameAt seeks a recording running at that moment, then a screenshot, then the step', () => {
+  const track = layout(tl);
+  const at = (secs: number) => frameAt(track, trackAt(track, t0 + secs * 1000));
+  const rec = at(4100);
+  assert.equal(rec?.kind, 'recording');
+  assert.equal(rec?.kind === 'recording' && rec.offset, 90);
+  // Before the recording started, the step's first screenshot.
+  assert.equal(at(4005)?.kind, 'screenshot');
+  assert.equal(at(300)?.kind, 'step');
+});
+
+test('marks place screenshots and pages as ticks and recordings as spans', () => {
+  const track = layout(tl);
+  const m = marks(track);
+  assert.deepEqual(m.find((x) => x.id === 'rec'), { kind: 'recording', from: minStep + 610, to: minStep + 760, id: 'rec' });
+  assert.deepEqual(m.find((x) => x.id === 'shot'), { kind: 'screenshot', at: minStep + 650, id: 'shot' });
+  assert.equal(m.find((x) => x.id === 'p1')?.kind, 'page');
+});
+
+test('slidesOf is a title card per agent, then what it kept', () => {
+  const slides = slidesOf([
+    { ref: 'p/agent-1', timeline: tl },
+    { ref: 'p/agent-2', timeline: { ...tl, steps: [step('task', 0, 0, { media: [media('note', 'note', 1)] })] } },
+  ]);
+  assert.deepEqual(
+    slides.map((s) => `${s.ref.slice(2)}:${s.kind === 'media' ? s.media.id : s.kind === 'page' ? s.page.item : 'intro'}`),
+    ['agent-1:intro', 'agent-1:rec', 'agent-1:shot', 'agent-1:p1', 'agent-2:intro'],
+  );
+  // A recording plays through, up to a minute.
+  assert.equal(holdFor(slides[1]!), 60);
+  assert.equal(holdFor(slides[0]!), 3);
+});
+
+test('workedSince, dayStart and mmss', () => {
+  assert.equal(workedSince(tl, t0 + 4205_000), true);
+  assert.equal(workedSince(tl, t0 + 4206_000), false);
+  const start = dayStart(Date.parse('2026-10-17T15:30:00'));
+  assert.equal(new Date(start).getHours(), 0);
+  assert.equal(mmss(65), '1:05');
+  assert.equal(mmss(3725), '1:02:05');
+});

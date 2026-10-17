@@ -468,6 +468,9 @@ export const api = {
   stopAndroid: (ref: string) => call<T.AndroidStatus>('POST', `${agent(ref)}/android/stop`),
 
   media: (ref: string) => call<T.MediaItem[]>('GET', `${agent(ref)}/media`),
+  // What an agent did, as steps read out of its chat (internal/timeline); a
+  // past agent's too.
+  timeline: (ref: string) => call<T.Timeline>('GET', `${agent(ref)}/timeline`),
   deleteMedia: (id: string) => call<void>('DELETE', `/v1/media/${encodeURIComponent(id)}`),
   setMediaFavorite: (id: string, favorite: boolean) =>
     call<T.MediaItem>('PATCH', `/v1/media/${encodeURIComponent(id)}`, { favorite } satisfies T.UpdateMediaRequest),

@@ -14,8 +14,8 @@ import type * as T from '../../shared/api.ts';
 import { isLeadRef } from './pages.ts';
 import type { ProjectSection } from './tabs.ts';
 
-export type PanelKind = 'files' | 'desktop' | 'terminal' | 'browser' | 'pages' | 'media' | 'pulls' | 'settings';
-export const panelKinds: PanelKind[] = ['files', 'desktop', 'terminal', 'browser', 'pages', 'media', 'pulls', 'settings'];
+export type PanelKind = 'timeline' | 'files' | 'desktop' | 'terminal' | 'browser' | 'pages' | 'media' | 'pulls' | 'settings';
+export const panelKinds: PanelKind[] = ['timeline', 'files', 'desktop', 'terminal', 'browser', 'pages', 'media', 'pulls', 'settings'];
 
 // The project's own tabs, the lead's page's tabs before: its pull requests
 // and its settings, the same whoever is picked.
@@ -23,6 +23,10 @@ export const projectWide = (tab: PanelKind) => tab === 'pulls' || tab === 'setti
 
 // The tabs that show a machine: an agent's display, its shell, its dev server.
 export const needsMachine = (tab: PanelKind) => tab === 'desktop' || tab === 'terminal' || tab === 'browser';
+
+// The tabs only an agent has: the lead does no work of its own to show as a
+// timeline (its project's day is the Today page).
+export const agentsOnly = (tab: PanelKind) => tab === 'timeline';
 
 // A past agent (its machine was removed) is picked as "past:<ref>": what it
 // left is read from its branch, its pages and its media.
@@ -49,9 +53,10 @@ export type AgentWhose = Exclude<Whose, { kind: 'lead' }>;
 export const whoseRef = (w: Whose) => (w.kind === 'lead' ? w.ref : w.kind === 'agent' ? w.agent.ref : pastRef(w.past.ref));
 
 // hasTab says whether whose has the tab: the lead and a past agent have no
-// machine, so no desktop, terminal or browser; everyone has files, pages and
-// media.
+// machine, so no desktop, terminal or browser, and the lead no timeline;
+// everyone has files, pages and media.
 export function hasTab(w: Whose, tab: PanelKind): boolean {
+  if (w.kind === 'lead') return !needsMachine(tab) && !agentsOnly(tab);
   return w.kind === 'agent' || !needsMachine(tab);
 }
 
@@ -94,7 +99,7 @@ export function targets(kind: PanelKind, project: string, chat: string, agents: 
   const list = pickable(project, agents, past, withMachine || needsMachine(kind));
   const own = list.findIndex((w) => w.kind === 'agent' && w.agent.ref === chat);
   if (own > 0) list.unshift(...list.splice(own, 1));
-  return needsMachine(kind) ? list : [{ kind: 'lead', ref: `${project}/lead` }, ...list];
+  return needsMachine(kind) || agentsOnly(kind) ? list : [{ kind: 'lead', ref: `${project}/lead` }, ...list];
 }
 
 // panelBox is how wide the panel is, and whether it sits beside the chat or

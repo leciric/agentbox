@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Archive, Brain, Wand2, Coins, Ellipsis, FileText, FolderGit2, FolderOpen, GitPullRequest, Image, KeyRound, MessagesSquare, Moon, NotebookPen, Plug, Plus, SlidersHorizontal, Smile, Trash } from 'lucide-react';
+import { Archive, Brain, Clapperboard, Wand2, Coins, Ellipsis, FileText, FolderGit2, FolderOpen, GitPullRequest, Image, KeyRound, MessagesSquare, Moon, NotebookPen, Plug, Plus, SlidersHorizontal, Smile, Trash } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import * as T from '../../shared/api';
@@ -27,6 +27,7 @@ import { SettingsSections, type SettingsSection } from './SettingsSections';
 import { SkillsPanel } from './SkillsPanel';
 import { TokensPanel } from './TokensPanel';
 import { Button } from './ui/button';
+import { Tip } from './ui/tooltip';
 import { Card, Row } from './ui/card';
 import { Textarea } from './ui/input';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from './ui/menu';
@@ -187,6 +188,11 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
           {chatMenu?.dialogs}
           {chatMenu?.untracked}
           <InTopBar end>
+            <Tip label={t('today.open')}>
+              <Button size="icon-sm" variant="ghost" aria-label={t('today.open')} onClick={() => onSelect({ kind: 'today', project: name })} data-open-today>
+                <Clapperboard />
+              </Button>
+            </Tip>
             {lead && <ProjectMenu project={project} leadRef={lead.ref} onNewAgent={onNewAgent} onChangeIcon={() => setIconOpen(true)} newChat={chatMenu?.newChat} more={chatMenu?.reload} />}
             <PanelButton project={name} chat={`${name}/${T.LeadName}`} />
           </InTopBar>
