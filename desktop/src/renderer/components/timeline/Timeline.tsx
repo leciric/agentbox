@@ -188,7 +188,7 @@ function Player({ track, x, playing, onClock, className }: { track: Track; x: nu
       ) : frame?.kind === 'screenshot' ? (
         <img src={mediaUrl(frame.media)} alt={frame.media.name} className="absolute inset-0 size-full object-contain" draggable={false} />
       ) : frame?.kind === 'step' ? (
-        <StepText placed={frame.placed} x={x} />
+        <StepText placed={frame.placed} />
       ) : (
         <div className="absolute inset-0 flex items-center justify-center text-[12px] text-white/50">{t('timeline.empty')}</div>
       )}
@@ -210,20 +210,18 @@ function Player({ track, x, playing, onClock, className }: { track: Track; x: nu
 }
 
 // StepText is a step with no picture, as a terminal would have shown it:
-// its lines arriving as the playhead goes through it.
-function StepText({ placed, x }: { placed: Placed; x: number }) {
+// its command and how it ended, the diff, the plan, the files read.
+function StepText({ placed }: { placed: Placed }) {
   const title = useStepTitle();
   const s = placed.step;
   const kind = kindOf(s);
   const lines = s.lines ?? [];
-  const f = Math.min(1, Math.max(0, (x - placed.from) / (placed.to - placed.from)));
-  const shown = Math.max(1, Math.ceil(f * lines.length));
   return (
     <div className="absolute inset-0 flex flex-col bg-[#0e0e14] font-mono text-[clamp(8px,1.6cqw,13px)] leading-relaxed text-zinc-300">
       <div className="min-h-0 flex-1 space-y-0.5 overflow-hidden px-[4%] py-[3%]">
         <p className={cn('truncate', kindText[kind])}>● {title(s)}</p>
         {kind === 'read' && (s.paths ?? []).slice(0, 12).map((p) => <p key={p} className="truncate text-zinc-500">{p}</p>)}
-        {lines.slice(0, shown).map((l, i) => (
+        {lines.map((l, i) => (
           <p
             key={i}
             className={cn(
@@ -570,7 +568,7 @@ function WideBody({ project, tl }: { project: string; tl: T.Timeline }) {
               className={cn('w-36 shrink-0 rounded-lg border p-1.5 text-left', q.index === p.index ? 'border-brand-400 bg-surface' : 'border-line bg-surface-faint hover:border-line-strong')}
             >
               <span className="relative block aspect-[16/10] overflow-hidden rounded bg-black">
-                {shot ? <img src={mediaUrl(shot)} alt="" loading="lazy" className="size-full object-cover" /> : <StepText placed={q} x={q.to} />}
+                {shot ? <img src={mediaUrl(shot)} alt="" loading="lazy" className="size-full object-cover" /> : <StepText placed={q} />}
               </span>
               <span className="mt-1 flex items-center gap-1 text-[10.5px]">
                 <KIcon className={cn('size-3 shrink-0', kindText[k])} />
