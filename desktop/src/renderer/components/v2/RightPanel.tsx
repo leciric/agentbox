@@ -609,7 +609,7 @@ function PanelDesktop({ chat, agent }: { chat: string; agent: T.Agent }) {
             {isRecording && <span className="font-mono text-[11px] tabular-nums">{clock(elapsed)}</span>}
           </Button>
         </Tip>
-        <Tip label={`${t(screen.full ? 'agent.browser.exitFullscreen' : 'agent.browser.fullscreen')} (Shift+F11)`}>
+        <Tip label={t(screen.full ? 'agent.browser.exitFullscreen' : 'agent.browser.fullscreen')}>
           <Button size="icon-sm" variant="ghost" disabled={!connected} aria-label={t(screen.full ? 'agent.browser.exitFullscreen' : 'agent.browser.fullscreen')} onClick={screen.toggle}>
             {screen.full ? <Minimize /> : <Maximize />}
           </Button>
