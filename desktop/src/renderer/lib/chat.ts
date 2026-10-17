@@ -408,12 +408,14 @@ export const isCredentialRequest = (it: T.ChatItem) =>
 // the model, and the app shows the agent's thread in the rail instead; the turn
 // such a notice starts carries the same text as a user message and is marked
 // the same way. The chat's own answer, an ordinary assistant message, stays.
+// A finish notice that names its agents (finished) stays too, shown as their
+// evidence cards rather than its prose (chat/EvidenceCard.tsx).
 //
 // The flag and never the kind: a notice is also how a rollover marks where the
 // session changed ([D73]), and that one is meant to be read. The cost is that
 // conversations written before the flag existed still show their old agent
 // notices, which is history, left as it was.
-export const isSilent = (it: T.ChatItem) => !!it.hidden;
+export const isSilent = (it: T.ChatItem) => !!it.hidden && !it.finished?.length;
 
 // asleep says whether an agent's machine is stopped or paused, the states in
 // which its chat is still read from the database and a message sent wakes it:

@@ -1,8 +1,13 @@
-// ?concept=<name>: mock ideas for the app, drawn in the dev preview only.
-// Nothing here ships or is translated.
+// ?concept=<name>: mock layouts and ideas for the app, to choose from. Mock
+// only: nothing here ships or is translated.
+import { EvidenceConcept } from './evidence';
 import { TimelineConcept } from './timeline';
 
 export function Concepts({ which }: { which: string }) {
-  if (which === 'timeline') return <TimelineConcept />;
-  return <p style={{ padding: 24 }}>No concept “{which}”. Try ?concept=timeline.</p>;
+  return (
+    <div style={{ font: '13px var(--font-sans)' }}>
+      {which === 'evidence' && <EvidenceConcept />}
+      {which === 'timeline' && <TimelineConcept />}
+    </div>
+  );
 }

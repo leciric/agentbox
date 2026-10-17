@@ -219,6 +219,8 @@ export const api = {
   // job whose result is a StopAgentsResult.
   stopAgents: (refs?: string[]) => call<T.Job>('POST', '/v1/agents/stop', { refs } satisfies T.StopAgentsRequest),
   diffStat: (ref: string) => text('GET', `${agent(ref)}/diff?stat=true`),
+  // diff is the agent's whole diff against its base, for a review with no pull request.
+  diff: (ref: string) => text('GET', `${agent(ref)}/diff`),
 
   // Past agents: an agent whose machine was removed is kept, with its chat,
   // until it is deleted here. Its chat reads through the live routes

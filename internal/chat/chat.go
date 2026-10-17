@@ -618,13 +618,16 @@ type NoticeOptions struct {
 	// this text is only here because the model has to read something. See
 	// api.ChatItem.Hidden.
 	Hidden bool
+	// Finished names the agents whose finishing the notice tells of
+	// (api.ChatItem.Finished).
+	Finished []string
 }
 
 // deliver adds a notice and, when asked, starts the turn that reacts to it.
 // The conversation is locked.
 func (c *conversation) deliver(text string, opts NoticeOptions) {
 	it := c.add("notice", c.lastTurn())
-	it.Text, it.Hidden = text, opts.Hidden
+	it.Text, it.Hidden, it.Finished = text, opts.Hidden, opts.Finished
 	if !opts.Act {
 		c.flush(true)
 		return

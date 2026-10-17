@@ -1711,7 +1711,8 @@ function filesRequest(method: string, path: string) {
   const json = (body: unknown) => ({ status: 200, body: JSON.stringify(body), contentType: 'application/json' });
   const url = new URL(path, 'http://dev');
   const at = url.pathname.match(/\/files(\/list|\/status|\/read)?$/);
-  if (!at) return undefined;
+  // A pull request's files are its own (dev/review.tsx).
+  if (!at || url.pathname.includes('/pulls/')) return undefined;
   const dir = url.searchParams.get('path') ?? '';
   if (at[1] === '/list') {
     const entries = (devTree[dir] ?? []).map(([name, isDir]) => ({ name, path: dir ? `${dir}/${name}` : name, dir: isDir }));

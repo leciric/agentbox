@@ -84,6 +84,8 @@ test('isCredentialRequest matches a request_credential tool call by name or titl
 test('isSilent reflects the item\'s hidden flag', () => {
   assert.equal(isSilent(item({ hidden: true })), true);
   assert.equal(isSilent(item({})), false);
+  // A finish notice naming its agents is shown, as their evidence cards.
+  assert.equal(isSilent(item({ kind: 'notice', hidden: true, finished: ['api/agent-02'] })), false);
 });
 
 test('isActive is true for a streaming thought, a running tool, or a running subagent', () => {

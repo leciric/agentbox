@@ -139,8 +139,12 @@ export function PullRequestView({
   onOpenAgent,
   inline = false,
   bare = false,
+  view,
 }: {
   inline?: boolean;
+  // view, set, picks the description or the files from outside, as the
+  // review's own tabs do, and leaves this view's tabs out.
+  view?: 'description' | 'files';
   // bare leaves the footer out, for the review, whose bar below the slide
   // has Merge and Open on GitHub (ReviewCarousel).
   bare?: boolean;
@@ -156,7 +160,8 @@ export function PullRequestView({
 }) {
   const t = useT();
   const detail = useQuery({ queryKey: ['pull', project, listed.number], queryFn: () => api.pullRequestDetail(project, listed.number) });
-  const [tab, setTab] = useState<'description' | 'files'>('description');
+  const [picked, setTab] = useState<'description' | 'files'>('description');
+  const tab = view ?? picked;
   // Where the review is outlives the Files tab, which unmounts whenever the
   // Description tab is shown.
   const [files, setFiles] = useState<FilesState>(() => ({ open: null, loaded: new Set(), folded: new Set() }));
@@ -168,7 +173,8 @@ export function PullRequestView({
   return (
     <>
       <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="flex min-h-0 flex-1 flex-col">
-        <header className={cn('grid gap-2 border-b border-line-faint px-6 pb-3 pt-5', !inline && 'pr-14')}>
+        {/* The review's Changes tab is the files alone. */}
+        <header className={cn('grid gap-2 border-b border-line-faint px-6 pb-3 pt-5', !inline && 'pr-14', bare && view === 'files' && 'hidden')}>
           {/* In the review the top of the modal says all this (PrState in ReadyToReview). */}
           {!bare && (
             <>
@@ -223,7 +229,7 @@ export function PullRequestView({
               <LabelChip key={label.name} label={label} onRemove={() => onToggleLabel(label, false)} />
             ))}
           </div>
-          <TabsList className="mt-1 justify-self-start">
+          <TabsList className={cn('mt-1 justify-self-start', view && 'hidden')}>
             <TabsTrigger value="description">{t('pulls.detail.tab.description')}</TabsTrigger>
             <TabsTrigger value="files" data-pull-files-tab>
               <FileDiff />

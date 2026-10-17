@@ -138,6 +138,9 @@
 //                           own Media tab, at the width of a narrow window
 //   ?review=1               "Ready to review" in the top bar's inbox, three
 //                           agents waiting, agent-12's carousel
+//   ?concept=evidence       a mock: agents' recordings and screenshots first, in
+//                           the lead chat's cards and the review modal
+//                           (dev/concepts/evidence.tsx lists its own params)
 //   ?notify=bell|media|viewer|toast
 //                           a mock of clickable notifications, the top bar's
 //                           inbox and its history, the all-projects Media view
@@ -169,7 +172,8 @@
 //                           and agents folded under them, filters, and the
 //                           review's Merge and Request changes, which the dev
 //                           bridge answers, the agent coming back in 6s
-//                           (dev/review.tsx)
+//                           (dev/review.tsx); the lead chat ends with agent-17's and
+//                           agent-15's evidence cards, recordings in chapters
 //   &tour=welcome           with &v2=1, that tour playing (lib/tours.ts: welcome,
 //                           v2, review, panel, groups, cross-project, places; several
 //                           comma-separated), from &step=n (default 0)
@@ -268,7 +272,7 @@ import { PagePreviewHost } from '../components/pages/PagePreview';
 import { ScopedMediaPages } from '../components/pages/MediaPages';
 
 import { mockMedia, NotificationsPreview, seedNotifications } from './notifications';
-import { ReviewPreview, seedLeadLines, seedReview, seedV2 } from './review';
+import { ReviewPreview, seedEvidence, seedLeadLines, seedReview, seedV2 } from './review';
 import { seedTimelines } from './timeline';
 import { setUiV2 } from '../lib/uiV2';
 import { setTourState, tours, welcomeTour } from '../lib/tours';
@@ -295,7 +299,7 @@ const topbar = params.get('topbar');
 const pulls = params.get('pulls') === '1';
 const home = params.get('home') === '1';
 const review = params.get('review'); // "Ready to review" (dev/review.tsx)
-const concept = params.get('concept'); // a mock idea (dev/concepts), drawn on its own
+const concept = params.get('concept'); // a mock concept (dev/concepts)
 const notify = params.get('notify'); // 'bell' | 'media' | 'viewer' | 'toast' | null
 const media = params.get('media'); // 'project' the project's Media, 'agent' agent-99's Media tab
 const tokens = params.get('tokens'); // '1' the project's Tokens tab, 'agent' agent-99's own tokens card
@@ -459,6 +463,7 @@ setUiV2(params.get('v2') === '1');
 if (appView && params.get('v2') === '1') {
   seedLeadLines(queryClient);
   seedV2(queryClient, params.get('pins'));
+  seedEvidence(queryClient);
   // The right-hand panel's Media tab has the ?media= gallery to show, and
   // its picker the past agents.
   if (!media) seedMedia(queryClient);
