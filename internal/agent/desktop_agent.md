@@ -22,7 +22,7 @@ Every step you take is a model request, and they are what makes this slow — th
 The user reviews what happened in AgentBox's Media tab, and none of this costs you anything to keep:
 
 - `agentbox media screenshot --display --name <name>` saves the whole display.
-- `agentbox media record start --input desktop --name <name>` before a walkthrough and `agentbox media record stop` after it records it with the cursor and the keys you press.
+- `agentbox media record start --input desktop --name <name>` before a walkthrough and `agentbox media record stop` after it records it with the cursor and the keys you press. Just before each thing you check while recording, run `agentbox media note "<what you check>"` (a few words, such as "Settings at 1024px"): each note marks a chapter of the recording in the user's review.
 
 ## Your answer
 

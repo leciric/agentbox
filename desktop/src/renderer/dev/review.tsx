@@ -54,6 +54,19 @@ function items(): T.ReviewItem[] {
     ...more,
   });
   return [
+    // agent-15 and agent-17 recorded what they checked, notes marking each
+    // check (evidence() below): the lead chat's evidence cards in v2.
+    item('agent-15', 'Settings tabs no longer clip at 1024px', 'agentbox/settings-tabs-clip', 2 * min, {
+      pr: { ...pr, number: 371, title: 'fix: Settings’ section list fits at 1024px and in pt-BR', additions: 20, deletions: 4, headBranch: 'agentbox/settings-tabs-clip' },
+      summary:
+        'The section list was a fixed 248px column with nowrap labels, so pt-BR’s longer names pushed the page past the window. It is now `minmax(180px, 248px)` and labels wrap.\n\nChecked dark and light, en-US and pt-BR, at 1024×640 and 800×600.',
+      changes: { files: 2, insertions: 20, deletions: 4, dirty: false },
+    }),
+    item('agent-17', 'Markdown renders in Ctrl+K and sidebar previews', 'agentbox/markdown-previews', 8 * min, {
+      ai: 'codex',
+      summary: 'Previews now go through the inline Markdown renderer, clamped to two lines. Not pushed yet: waiting on your look before opening a PR.',
+      changes: { files: 1, insertions: 3, deletions: 2, dirty: true },
+    }),
     item('agent-12', 'Add a "New project" button to the Sidebar', 'agentbox/new-project-button', 3 * min, {
       pr,
       summary:
@@ -113,6 +126,69 @@ function media(): T.MediaItem[] {
   ];
 }
 
+// settingsDiff is agent-15's pull request, #371, file by file.
+const settingsDiff: Record<string, string> = {
+  'desktop/src/renderer/components/SettingsPage.tsx': [
+    '@@ -88,9 +88,11 @@ export function SettingsPage({ section }: { section: Section }) {',
+    '   return (',
+    '-    <div className="grid h-full grid-cols-[248px_1fr]">',
+    '+    <div className="grid h-full grid-cols-[minmax(180px,248px)_minmax(0,1fr)]">',
+    '       <nav className="overflow-y-auto border-r border-line p-2">',
+    '-        {sections.map((s) => <NavRow key={s.id} {...s} className="whitespace-nowrap" />)}',
+    '+        {sections.map((s) => (',
+    '+          <NavRow key={s.id} {...s} className="min-w-0 text-balance leading-tight" />',
+    '+        ))}',
+    '       </nav>',
+  ].join('\n'),
+  'desktop/src/renderer/dev/scenarios.json': [
+    '@@ -1,3 +1,17 @@',
+    ' [',
+    '+  { "id": "settings-1024-pt", "query": "settings=models&lang=pt-BR", "width": 1024, "height": 640 },',
+    '+  { "id": "settings-800", "query": "settings=accounts", "width": 800, "height": 600 },',
+  ].join('\n'),
+};
+
+// evidence is an agent's recording of what it checked, one of the concept's
+// (dev/concepts/media, the preview itself recorded), with a note marking each
+// check as it began and a screenshot of each: what an agent following the
+// brief leaves, which the review cuts into chapters (lib/review.ts proofOf).
+function evidence(agent: string, story: string, startedAgo: number, duration: number, checks: [number, string, string][]): T.MediaItem[] {
+  const ref = `${PROJECT}/${agent}`;
+  const start = Date.now() - startedAgo;
+  const at = (s: number) => new Date(start + s * 1000).toISOString();
+  const base = { agent: ref, agentName: agent, source: 'agent', size: 0 };
+  setMediaFile(`${agent}-rec`, new URL(`./concepts/media/${story}.webm`, import.meta.url).href);
+  const items: T.MediaItem[] = [{ ...base, id: `${agent}-rec`, kind: 'recording', name: `${story}-walkthrough`, mime: 'video/webm', meta: { duration }, createdAt: at(0) }];
+  checks.forEach(([s, title, more], i) => {
+    items.push({ ...base, id: `${agent}-note-${i}`, kind: 'note', name: title, text: more ? `${title}\n${more}` : title, meta: {}, createdAt: at(s) });
+    setMediaFile(`${agent}-shot-${i}`, new URL(`./concepts/media/${story}-${i + 1}.webp`, import.meta.url).href);
+    items.push({ ...base, id: `${agent}-shot-${i}`, kind: 'screenshot', name: title.toLowerCase().replace(/[^a-z0-9]+/g, '-'), mime: 'image/webp', meta: { width: 1024, height: 640 }, createdAt: at(s + 1.5) });
+  });
+  return items;
+}
+
+// seedEvidence is the lead chat as agent-15 and agent-17 finishing leave it
+// in v2: the notice the daemon writes the lead, which names them (shown as
+// their evidence cards), and the lead's answer.
+export function seedEvidence(queryClient: QueryClient): void {
+  const key = ['chat', `${PROJECT}/lead`];
+  const thread = queryClient.getQueryData<T.ChatThread>(key);
+  if (!thread) return;
+  const now = new Date().toISOString();
+  const notice = (id: string, agents: string[], ms: number): T.ChatItem => ({ id, turn: 'l1', kind: 'notice', hidden: true, finished: agents.map((a) => `${PROJECT}/${a}`), text: `${agents.join(', ')} finished.`, createdAt: ago(ms), updatedAt: ago(ms) });
+  const said = (id: string, text: string, ms: number): T.ChatItem => ({ id, turn: 'l1', kind: 'assistant', text, createdAt: ago(ms), updatedAt: ago(ms) });
+  queryClient.setQueryData<T.ChatThread>(key, {
+    ...thread,
+    items: [
+      ...thread.items,
+      notice('ev17', ['agent-17'], 8 * min),
+      said('ev17a', 'agent-17 finished the markdown previews. It hasn’t opened a PR yet: its diff is on the review’s Changes tab.', 8 * min - 5_000),
+      notice('ev15', ['agent-15'], 2 * min),
+      said('ev15a', 'agent-15 fixed Settings’ clipped tabs (item 8 of the UX report). PR #371 is green, and its recording walks all four sizes.', 2 * min - 5_000),
+    ].map((it) => ({ ...it, updatedAt: it.updatedAt || now })),
+  });
+}
+
 // recording draws a few seconds of a cursor crossing a window, so the
 // carousel has a video to play inline.
 async function recording(): Promise<string> {
@@ -164,6 +240,17 @@ export function seedReview(queryClient: QueryClient): void {
     { id: 'rv-ci', agent: `${PROJECT}/agent-41`, agentName: 'agent-41', kind: 'screenshot', name: 'release-workflow', file: 'release-workflow.png', mime: 'image/png', size: 180_000, source: 'agent', meta: { width: 1280, height: 800 }, createdAt: ago(42 * min) },
   ] satisfies T.MediaItem[]);
   for (const agent of ['agent-98', 'agent-07', 'agent-03']) queryClient.setQueryData(['media', `${PROJECT}/${agent}`], []);
+  queryClient.setQueryData(['media', `${PROJECT}/agent-15`], evidence('agent-15', 'settings', 4 * min, 17, [
+    [0.3, 'General at 1024×640', 'Nothing past the right edge; the search box keeps its width.'],
+    [5.2, 'Models in pt-BR', 'The longest labels wrap to two lines instead of clipping.'],
+    [9.5, 'Resources, light theme', ''],
+    [13.5, 'Accounts at 800×600', 'The narrowest window the app allows: no horizontal scroll.'],
+  ]));
+  queryClient.setQueryData(['media', `${PROJECT}/agent-17`], evidence('agent-17', 'markdown', 10 * min, 14, [
+    [0.3, 'Rich blocks in the lead chat', ''],
+    [5.7, 'The same in a 340px column', 'Long code lines scroll inside their block.'],
+    [9.8, 'Sidebar previews', 'Inline markdown, two lines, no raw asterisks.'],
+  ]));
   void recording().then((url) => setMediaFile('rv-rec', url));
   devRequests.push(reviewRequest);
 }
@@ -231,6 +318,15 @@ function reviewRequest(method: string, path: string, body?: unknown): { status: 
     };
     return { status: 200, body: JSON.stringify(detail), contentType: 'application/json' };
   }
+  // #371's files and their diffs, for the review's Changes tab; the others have none.
+  if (method === 'GET' && route === `/v1/projects/${PROJECT}/pulls/371/files`) {
+    const files: T.PullFile[] = Object.entries(settingsDiff).map(([path, patch]) => ({ path, status: 'modified', additions: patch.split('\n').filter((l) => l.startsWith('+')).length, deletions: patch.split('\n').filter((l) => l.startsWith('-')).length, hasDiff: true }));
+    return { status: 200, body: JSON.stringify({ files } satisfies T.PullRequestFiles), contentType: 'application/json' };
+  }
+  if (method === 'GET' && route === `/v1/projects/${PROJECT}/pulls/371/diff`) {
+    const path = new URLSearchParams(query).get('path') ?? '';
+    return { status: 200, body: JSON.stringify({ path, patch: settingsDiff[path] ?? '' } satisfies T.PullFileDiff), contentType: 'application/json' };
+  }
   if (method === 'GET' && /^\/v1\/projects\/[^/]+\/pulls\/\d+\/files/.test(route)) {
     return { status: 200, body: JSON.stringify({ files: [] } satisfies T.PullRequestFiles), contentType: 'application/json' };
   }
@@ -257,6 +353,21 @@ function reviewRequest(method: string, path: string, body?: unknown): { status: 
     }, 6_000);
     const reply: T.ChatItem = { id: `rc-${Date.now()}`, turn: '', kind: 'user', text, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     return { status: 202, body: JSON.stringify(reply), contentType: 'application/json' };
+  }
+  // agent-17's diff: it opened no pull request.
+  if (method === 'GET' && route === `/v1/agents/${PROJECT}/agent-17/diff`) {
+    const diff = [
+      'diff --git a/desktop/src/renderer/components/v2/SidebarV2.tsx b/desktop/src/renderer/components/v2/SidebarV2.tsx',
+      '--- a/desktop/src/renderer/components/v2/SidebarV2.tsx',
+      '+++ b/desktop/src/renderer/components/v2/SidebarV2.tsx',
+      '@@ -12,7 +12,8 @@ import { cn } from "../../lib/utils";',
+      '+import { InlineMarkdown } from "../chat/Markdown";',
+      '   <span className="line-clamp-2 text-[12px] text-subtle">',
+      '-    {plain(preview)}',
+      '+    <InlineMarkdown text={preview} />',
+      '   </span>',
+    ].join('\n');
+    return { status: 200, body: diff, contentType: 'text/plain' };
   }
   const verdict = method === 'POST' && /^\/v1\/agents\/[^/]+\/([^/]+)\/review$/.exec(path);
   if (!verdict) return undefined;

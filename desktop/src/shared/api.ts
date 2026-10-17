@@ -1958,6 +1958,7 @@ export interface ChatItem {
   handoff?: string;
   projectMessage?: ChatProjectMessage;
   agentPermission?: ChatAgentPermission;
+  finished?: string[];
   parent?: string;
   createdAt: string;
   updatedAt: string;

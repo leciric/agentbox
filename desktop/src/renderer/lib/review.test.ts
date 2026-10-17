@@ -1,31 +1,68 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { countLabel, remainingAfter, wrapWalk, goBack, goForward, mergeBlock, nextPending, startWalk, walkItems, walkOrder, queueOf, reviewKeys, reviewShortcut, slidesOf, step, swipeStep } from './review.ts';
+import { countLabel, remainingAfter, wrapWalk, goBack, goForward, mergeBlock, nextPending, startWalk, walkItems, walkOrder, queueOf, reviewKeys, reviewShortcut, chapterAt, proofOf, readableName, step } from './review.ts';
 
-const media = (id: string, kind: string, createdAt: string) => ({ id, kind, createdAt }) as T.MediaItem;
 const page = (id: string, createdAt: string) => ({ id, createdAt }) as T.Artifact;
 const pr = { number: 12, title: 'feat: dark mode', state: 'open', checks: 'passing', url: '' } as T.PullRequest;
 
-test('slidesOf puts what an agent made in order, and its pull request last', () => {
-  const slides = slidesOf(
-    [media('rec', 'recording', '2026-10-14T10:05:00Z'), media('shot', 'screenshot', '2026-10-14T10:00:00Z'), media('note', 'note', '2026-10-14T09:00:00Z')],
-    [page('pg', '2026-10-14T10:02:00Z')],
-    pr,
-  );
-  assert.deepEqual(
-    slides.map((s) => [s.kind, s.id]),
+const item = (id: string, kind: string, createdAt: string, more: Partial<T.MediaItem> = {}) => ({ id, kind, name: id, createdAt, meta: {}, ...more }) as T.MediaItem;
+
+test('proofOf puts the latest recording first, screenshots and pages oldest first, and leaves out the rest', () => {
+  const proof = proofOf(
     [
-      ['screenshot', 'shot'],
-      ['page', 'pg'],
-      ['recording', 'rec'],
-      ['pr', 'pr-12'],
+      item('rec1', 'recording', '2026-10-14T10:00:00Z', { meta: { duration: 30 } }),
+      item('shot2', 'screenshot', '2026-10-14T10:20:00Z'),
+      item('rec2', 'recording', '2026-10-14T10:10:00Z', { meta: { duration: 30 } }),
+      item('shot1', 'screenshot', '2026-10-14T09:00:00Z'),
+      item('log', 'log', '2026-10-14T10:00:00Z'),
     ],
+    [page('pg2', '2026-10-14T10:02:00Z'), page('pg1', '2026-10-14T10:01:00Z')],
   );
+  assert.deepEqual(proof.recordings.map((r) => r.media.id), ['rec2', 'rec1']);
+  assert.deepEqual(proof.screenshots.map((s) => s.id), ['shot1', 'shot2']);
+  assert.deepEqual(proof.pages.map((p) => p.id), ['pg1', 'pg2']);
 });
 
-test('slidesOf leaves out notes and logs, and the pull request when there is none', () => {
-  assert.deepEqual(slidesOf([media('log', 'log', '2026-10-14T10:00:00Z')], []), []);
+test('the notes saved while a recording ran are its chapters, each with the screenshots taken in it', () => {
+  const at = (s: number) => new Date(Date.parse('2026-10-14T10:00:00Z') + s * 1000).toISOString();
+  const proof = proofOf(
+    [
+      item('rec', 'recording', at(0), { meta: { duration: 60 } }),
+      item('before', 'note', at(-5), { name: 'Before it started' }),
+      item('n1', 'note', at(2), { name: 'Settings at 1024px', text: 'Settings at 1024px' }),
+      item('s0', 'screenshot', at(1)),
+      item('s1', 'screenshot', at(10)),
+      item('n2', 'note', at(20), { name: 'In pt-BR', text: 'In pt-BR\nThe longest labels wrap.' }),
+      item('s2', 'screenshot', at(25)),
+      item('after', 'screenshot', at(90)),
+    ],
+    [],
+  );
+  const chapters = proof.recordings[0].chapters;
+  assert.deepEqual(
+    chapters.map((c) => [c.at, c.title, c.detail, c.shots.map((s) => s.id)]),
+    [
+      [2, 'Settings at 1024px', undefined, ['s0', 's1']],
+      [20, 'In pt-BR', 'The longest labels wrap.', ['s2']],
+    ],
+  );
+  assert.equal(chapterAt(chapters, 0), 0);
+  assert.equal(chapterAt(chapters, 19.99), 1, 'a chapter starts a moment early, as a seek lands');
+  assert.equal(chapterAt(chapters, 40), 1);
+});
+
+test('a recording with no notes is in chapters by its screenshots, and with neither has none', () => {
+  const proof = proofOf(
+    [item('rec', 'recording', '2026-10-14T10:00:00Z', { meta: { duration: 60 } }), item('settings-at-1024', 'screenshot', '2026-10-14T10:00:12Z')],
+    [],
+  );
+  assert.deepEqual(
+    proof.recordings[0].chapters.map((c) => [c.at, c.title]),
+    [[12, 'Settings at 1024']],
+  );
+  assert.deepEqual(proofOf([item('rec', 'recording', '2026-10-14T10:00:00Z')], []).recordings[0].chapters, []);
+  assert.equal(readableName('sidebar_new-project.png'), 'Sidebar new project');
 });
 
 test('step stops at either end', () => {
@@ -33,13 +70,6 @@ test('step stops at either end', () => {
   assert.equal(step(1, 3, 1), 2);
   assert.equal(step(2, 3, 1), 2);
   assert.equal(step(0, 0, 1), 0);
-});
-
-test('swipeStep only counts a long, mostly sideways drag', () => {
-  assert.equal(swipeStep(-80, 10), 1);
-  assert.equal(swipeStep(80, 10), -1);
-  assert.equal(swipeStep(30, 0), 0);
-  assert.equal(swipeStep(-60, 90), 0);
 });
 
 test('the list helpers', () => {

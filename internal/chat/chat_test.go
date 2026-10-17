@@ -1918,8 +1918,8 @@ func TestNoticesDoNotJoinTheRunningTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitThread(t, m, testAgent, "the turn to start", func(th api.ChatThread) bool { return th.Session.State == api.ChatRunning })
-	for _, text := range []string{"agent-02 finished", "agent-03 finished"} {
-		if err := m.Notice(testAgent, text, NoticeOptions{Act: true, Hidden: true}); err != nil {
+	for _, name := range []string{"agent-02", "agent-03"} {
+		if err := m.Notice(testAgent, name+" finished", NoticeOptions{Act: true, Hidden: true, Finished: []string{"api/" + name}}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1939,6 +1939,10 @@ func TestNoticesDoNotJoinTheRunningTurn(t *testing.T) {
 	}
 	if notice := find(th, "notice", 0); !strings.Contains(notice.Text, "agent-02") || !strings.Contains(notice.Text, "agent-03") {
 		t.Errorf("the notice = %+v, want both", notice)
+	}
+	// And names both agents, for the app's evidence cards.
+	if got := find(th, "notice", 0).Finished; !slices.Equal(got, []string{"api/agent-02", "api/agent-03"}) {
+		t.Errorf("the notice's Finished = %v, want both agents", got)
 	}
 }
 
