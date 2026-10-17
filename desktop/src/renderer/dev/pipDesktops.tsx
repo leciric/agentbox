@@ -298,7 +298,7 @@ function TestScene({ t }: { t: number }) {
   if (done) lines.push({ text: 'PASS' }, { text: 'ok  \tgithub.com/leciric/agentbox/internal/daemon\t24.312s', color: '#addb67' }, { text: '' }, { text: '$ git commit -m "fix: wait for the socket to close before reconnecting"', color: '#82aaff' }, { text: '[agentbox/flaky-reconnect 4f2a9c1] fix: wait for the socket to close before reconnecting' }, { text: ' 2 files changed, 31 insertions(+), 9 deletions(-)' });
   return (
     <Machine clock={done ? '14:44' : '14:32'}>
-      <Terminal title="lint@agent-16: ~/agentbox" lines={lines} />
+      <Terminal title="lint@agent-26: ~/agentbox" lines={lines} />
     </Machine>
   );
 }

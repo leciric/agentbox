@@ -22,7 +22,7 @@ export function AgentMentionsProvider({ project, children }: { project: string; 
     () => new Set([...(agents.data ?? []).filter((a) => a.project === project).map((a) => a.name), ...(past.data ?? []).map((a) => a.name)]),
     [agents.data, past.data, project],
   );
-  const live = useMemo(() => new Set(docked(project, agents.data ?? [], review.data?.items ?? [], Date.now()).map((d) => d.agent.name)), [project, agents.data, review.data]);
+  const live = useMemo(() => new Set(docked(project, agents.data ?? [], review.data?.items ?? [], Date.now()).filter((d) => !d.finishedAt).map((d) => d.agent.name)), [project, agents.data, review.data]);
   const value = useMemo(
     () => ({
       project,
@@ -63,9 +63,13 @@ export function MentionScope({ item, children }: { item: T.ChatItem; children: R
 function Scope({ mentions, item, names, reports, children }: { mentions: Mentions; item: T.ChatItem; names: string[]; reports: boolean; children: ReactNode }) {
   const captures = useQueries({ queries: names.map((n) => capturesQuery(mentions.project, n)) });
   // Until a chip is clicked, a message opens on the agent it names first, its
-  // subject ("agent-12 finished…"), when that agent captured something for it.
+  // subject ("agent-14 has the export working…"), when that agent captured
+  // something for it. Not on one that finished: its evidence card, where it
+  // finished, shows its proof already (chat/EvidenceCard.tsx).
+  const review = useProjectReview(mentions.project);
   const [chosen, setChosen] = useState<string | null | undefined>(undefined);
-  const auto = reports && reported(captures[0].data ?? [], item.createdAt) ? names[0] : undefined;
+  const done = review.data?.items?.some((i) => i.agent === names[0]);
+  const auto = reports && !done && reported(captures[0].data ?? [], item.createdAt) ? names[0] : undefined;
   const open = chosen === undefined ? (auto ?? null) : chosen;
   const at = names.indexOf(open ?? '');
   const items = at >= 0 ? (captures[at].data ?? []) : [];
