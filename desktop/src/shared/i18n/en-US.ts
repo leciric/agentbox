@@ -378,6 +378,7 @@ export const enUS = {
   'review.finished': 'finished {when}',
   'review.summary': 'What the agent said',
   'review.noSummary': 'It said nothing when it finished.',
+  'review.changes': '{files, plural, one {# file changed} other {# files changed}}',
   'review.key.slides': 'proof, changes, PR',
   'review.tab.proof': 'Proof',
   'review.tab.changes': 'Changes',

@@ -379,6 +379,7 @@ export const ptBR: Messages = {
   'review.finished': 'terminou {when}',
   'review.summary': 'O que o agente disse',
   'review.noSummary': 'Não disse nada ao terminar.',
+  'review.changes': '{files, plural, one {# arquivo alterado} other {# arquivos alterados}}',
   'review.key.slides': 'provas, alterações, PR',
   'review.tab.proof': 'Provas',
   'review.tab.changes': 'Alterações',
