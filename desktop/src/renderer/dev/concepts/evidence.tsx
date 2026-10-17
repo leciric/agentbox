@@ -309,12 +309,17 @@ export function EvidenceConcept() {
           e={byAgent(open.agent)!}
           tab={open.tab}
           shot={open.shot}
-          queue={waiting.length ? waiting : evidence}
+          queue={evidence}
           merged={merged.includes(open.agent)}
           onTab={(tab) => setOpen({ ...open, tab })}
           onShot={(shot) => setOpen({ ...open, shot })}
           onGo={(agent) => setOpen({ agent, tab: 'proof', shot: null })}
-          onMerge={() => merge(open.agent)}
+          onMerge={() => {
+            // Merged, then on to the next agent still waiting, as the carousel does.
+            merge(open.agent);
+            const next = waiting.find((w) => w.agent !== open.agent);
+            setTimeout(() => (next ? setOpen({ agent: next.agent, tab: 'proof', shot: null }) : setOpen(null)), 900);
+          }}
           onClose={() => setOpen(null)}
         />
       )}
@@ -538,7 +543,7 @@ function ReviewModal({
   const { add, del } = totals(e);
   const fails = failing(e);
   const at = queue.findIndex((q) => q.agent === e.agent);
-  const next = queue[at + 1] ?? (at === -1 ? queue[0] : undefined);
+  const next = queue[at + 1];
   const prev = at > 0 ? queue[at - 1] : undefined;
   const tabs: [Tab, ReactNode][] = [
     [
@@ -602,7 +607,7 @@ function ReviewModal({
             <ChevronLeft className="size-4" />
           </Button>
           <span className="text-[12px] tabular-nums text-subtle">
-            {at === -1 ? '—' : `${at + 1} of ${queue.length}`}
+            {at + 1} of {queue.length}
           </span>
           <Button size="sm" variant="ghost" disabled={!next} onClick={() => next && onGo(next.agent)}>
             <ChevronRight className="size-4" />
