@@ -283,7 +283,13 @@ export function seedLeadLines(queryClient: QueryClient): void {
 // land is what the button below stands for: an agent finishing while the app
 // is open, which the same hook as the app's (useReadyAlerts) announces.
 function land(queryClient: QueryClient) {
-  waiting = [{ project: PROJECT, agent: 'agent-77', ref: `${PROJECT}/agent-77`, title: 'Fix the flaky reconnect test', branch: 'agentbox/flaky-reconnect', ai: 'claude', finishedAt: new Date().toISOString(), fingerprint: `{"f":"agent-77"}` }, ...waiting];
+  landReview(queryClient, { project: PROJECT, agent: 'agent-77', ref: `${PROJECT}/agent-77`, title: 'Fix the flaky reconnect test', branch: 'agentbox/flaky-reconnect', ai: 'claude', finishedAt: new Date().toISOString(), fingerprint: `{"f":"agent-77"}` });
+}
+
+// landReview puts an agent at the front of those waiting for review, for a
+// scenario where one finishes while it's on screen (dev/concepts/pip.tsx).
+export function landReview(queryClient: QueryClient, item: T.ReviewItem) {
+  waiting = [item, ...waiting];
   void queryClient.invalidateQueries({ queryKey: ['review'] });
 }
 

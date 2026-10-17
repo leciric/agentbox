@@ -298,7 +298,10 @@ const power = params.get('power');
 const free = params.get('free');
 const newAgent = params.get('newagent') === '1';
 const past = params.get('past'); // 'list' every project's past agents, 'chat' one read in its chat
-const appView = params.get('app'); // 'home' | 'homeChat' | 'project' | 'settings' | an agent's name
+const concept = params.get('concept'); // a design mock-up (dev/concepts): 'pip'
+// A concept is drawn over UI v2's project page, seeded as ?app=project&v2=1.
+if (concept) params.set('v2', '1');
+const appView = params.get('app') ?? (concept ? 'project' : null); // 'home' | 'homeChat' | 'project' | 'settings' | an agent's name
 const loading = params.get('loading'); // 'hold' | 'refetch' | milliseconds | null
 const io = params.get('io'); // "1" | "stalling" | "agent" | null
 const imageUpdate = params.get('setup') === 'updating';
@@ -1279,6 +1282,17 @@ if (phoneMode === 'frame') {
     <QueryClientProvider client={appClient}>
       <TooltipProvider delayDuration={250}>
         <App />
+      </TooltipProvider>
+    </QueryClientProvider>,
+  );
+} else if (concept) {
+  const { Concepts, installPip } = await import('./concepts');
+  installPip();
+  createRoot(document.getElementById('root')!).render(
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider delayDuration={250}>
+        <Concepts which={concept} />
+        <Toasts />
       </TooltipProvider>
     </QueryClientProvider>,
   );
