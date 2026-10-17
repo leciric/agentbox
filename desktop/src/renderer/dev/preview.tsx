@@ -263,7 +263,7 @@ import { Markdown } from '../components/chat/Markdown';
 import { agent12Chat, asleepChat, buildFixtures, claudeLimits, dropDevAgent, compactionThread, richChat, richStreamText, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedSignedOut, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
 import { seedPastAgents } from './pastAgents';
-import { activateTab, addTab, chatPanel, openPanelOn, panelState, setPanel, setPanelOpen, type PanelKind } from '../lib/rightPanel';
+import { openPanelOn, pickTarget, setPanel, setPanelOpen, setView, type PanelView } from '../lib/rightPanel';
 import type { ProjectSection } from '../lib/tabs';
 import { openFile } from '../lib/files';
 import { PastAgents } from '../components/PastAgents';
@@ -472,28 +472,29 @@ if (appView && params.get('v2') === '1') {
   // &pip=1: the lead's picture-in-picture desktops, with agents at work (dev/pip.tsx).
   if (params.get('pip') === '1') seedPip(queryClient);
   // Each page starts with no panel open, whatever the last one left.
-  setPanel({ chats: {} });
-  const tabs = params.get('panel');
-  if (tabs) {
+  setPanel({ chats: {}, views: {}, last: {} });
+  // &panel=<view>[:<whose>]: the panel open on a view (desktop, terminal,
+  // files, evidence, browser, timeline, pulls, settings) of whose (lead,
+  // agent-41, past:agent-31; &whose= for all), or just open (&panel=open),
+  // where it shows what it would by itself; &focus= a media item in Evidence.
+  const panel = params.get('panel');
+  if (panel) {
     const chat = appView.startsWith('agent-') ? `${PROJECT}/${appView}` : `${PROJECT}/lead`;
     const refOf = (whose: string | undefined) => (whose === 'lead' ? `${PROJECT}/lead` : whose?.startsWith('past:') ? `past:${PROJECT}/${whose.slice(5)}` : whose ? `${PROJECT}/${whose}` : undefined);
     const section = params.get('section') as ProjectSection | null;
     if (section) setPanel({ section });
-    let first: string | undefined;
-    for (const item of tabs.split(',')) {
-      const [kind, whose] = item.split(':') as [PanelKind | 'launcher', string | undefined];
-      if (kind === 'launcher') {
-        setPanelOpen(chat, true);
-        continue;
-      }
-      const ref = refOf(whose ?? params.get('whose') ?? undefined);
-      openPanelOn(chat, kind, ref);
-      first ??= chatPanel(panelState(), chat).active ?? undefined;
-      const file = params.get('file');
-      if (file && kind === 'files' && ref) openFile(ref, file);
+    const [view, whose] = (panel.includes(':') ? [panel.slice(0, panel.indexOf(':')), panel.slice(panel.indexOf(':') + 1)] : [panel]) as [PanelView | 'open', string | undefined];
+    const ref = refOf(whose ?? params.get('whose') ?? undefined);
+    if (view === 'open') {
+      if (ref) pickTarget(chat, ref);
+      setPanelOpen(chat, true);
+    } else {
+      openPanelOn(chat, view, ref);
+      const focus = params.get('focus');
+      if (focus && ref) setView(chat, ref, 'evidence', focus);
     }
-    if (params.get('add') === '1') addTab(chat);
-    else if (params.get('first') === '1' && first) activateTab(chat, first);
+    const file = params.get('file');
+    if (file && ref) openFile(ref, file);
   }
 }
 // A refetch of a lead's chat or of the skills gets what was seeded, not the
@@ -508,7 +509,8 @@ if (appView) {
     const seeded = lead && queryClient.getQueryData(['projectChat', decodeURIComponent(lead[1])]);
     if (seeded) return { status: 200, body: JSON.stringify(seeded), contentType: 'application/json' };
     const answer = (await inner(method, path, body)) as { status: number; body: string };
-    if (method === 'GET' && /\/skills(\?|$)/.test(path) && answer.body === '{}') return { ...answer, body: '[]' };
+    // The skills, and the desktops in use (unless &pip=1 says who), are lists.
+    if (method === 'GET' && /\/(skills|desktops)(\?|$)/.test(path) && answer.body === '{}') return { ...answer, body: '[]' };
     return answer;
   };
 }

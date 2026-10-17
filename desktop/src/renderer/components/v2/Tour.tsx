@@ -9,7 +9,7 @@
 // TourHost starts what a launch should play (onLaunch); HelpMenu, at the
 // sidebar's top, and the shortcut sheet (Ctrl+/) replay them.
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, Check, ChevronDown, CircleHelp, Film, Hand, Image as ImageIcon, Keyboard, MessageCircleQuestion, Monitor, Pin, Sparkles, SquareTerminal, FolderTree, Globe, EyeOff } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ChevronDown, CircleHelp, Film, Hand, Image as ImageIcon, Keyboard, MessageCircleQuestion, Monitor, Pin, Sparkles, SquareTerminal, FolderTree, Images, EyeOff } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { View } from '../../App';
 import { api } from '../../lib/api';
@@ -421,30 +421,28 @@ const examples: Record<Example, (t: Tr, anchored: boolean) => ReactNode> = {
       </div>
     </Frame>
   ),
-  panel: (t, anchored) => (
-    <Frame className="grid gap-1.5">
-      <div className={cn('grid grid-cols-2 gap-1.5', anchored && 'hidden')}>
+  panel: (t) => (
+    <Frame className="flex flex-wrap items-center gap-1.5">
+      <span className="inline-flex min-w-0 items-center gap-1.5 rounded-md bg-surface-raised px-2 py-1 text-[11px] font-semibold text-title">
+        <span className="size-1.5 rounded-full bg-emerald-400" />
+        {t('tour.ex.agentTitle')}
+        <ChevronDown className="size-3 text-subtle" />
+      </span>
+      <span className="inline-flex rounded-lg border border-line p-0.5 text-[10.5px]">
         {(
           [
-            [FolderTree, 'panel.tab.files', 'F'],
-            [Monitor, 'panel.tab.desktop', 'D'],
-            [SquareTerminal, 'panel.tab.terminal', 'T'],
-            [Globe, 'panel.tab.browser', 'B'],
+            [Monitor, 'panel.view.desktop'],
+            [SquareTerminal, 'panel.view.terminal'],
+            [FolderTree, 'panel.view.files'],
+            [Images, 'panel.view.evidence'],
           ] as const
-        ).map(([Icon, key, k]) => (
-          <div key={k} className="flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2 py-1.5">
-            <Icon className="size-3.5 text-secondary" />
-            <span className="min-w-0 flex-1 truncate text-primary">{t(key)}</span>
-            <kbd className="rounded border border-line px-1 font-mono text-[9.5px] text-faint">{k}</kbd>
-          </div>
+        ).map(([Icon, key], i) => (
+          <span key={key} className={cn('inline-flex items-center gap-1 rounded-md px-1.5 py-0.5', i === 0 ? 'bg-surface-raised text-title' : 'text-subtle')}>
+            <Icon className="size-3" />
+            {t(key)}
+          </span>
         ))}
-      </div>
-      <div className="flex items-center gap-1.5 rounded-lg bg-surface-raised px-2 py-1.5 text-[11px]">
-        <Monitor className="size-3.5 text-subtle" />
-        <span className="text-subtle">{t('tour.ex.whose')}</span>
-        <span className="font-mono text-title">fix-login-redirect</span>
-        <span className="ml-auto inline-flex items-center gap-1 text-emerald-300"><Dot tone="done" />{t('tour.ex.machineOn')}</span>
-      </div>
+      </span>
     </Frame>
   ),
   layout: (t) => (

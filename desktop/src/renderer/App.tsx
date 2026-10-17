@@ -52,7 +52,7 @@ import { useReadyAlerts } from "./lib/useReadyAlerts";
 import { launchArrival, uiV2, useUiV2 } from "./lib/uiV2";
 import { tourFirst, tourState } from "./lib/tours";
 import { agentPanelKind } from "./lib/tabs";
-import { openPanelOn } from "./lib/rightPanel";
+import { openAgentChat, openPanelOn } from "./lib/rightPanel";
 import { resetChatEvents } from "./lib/chat";
 import { onNotification, useConnection } from "./lib/events";
 import { chatLabel } from "./lib/agentStatus";
@@ -167,6 +167,9 @@ export function App({ initial }: { initial?: View } = {}) {
     if (next.kind === "agent" && kind) {
       openPanelOn(next.ref, kind, next.ref);
       next = { kind: "agent", ref: next.ref, tab: "chat" };
+    } else if (next.kind === "agent" && v2 && (!next.tab || next.tab === "chat")) {
+      // Opening an agent's chat opens the panel on its Desktop.
+      openAgentChat(next.ref);
     }
     if (next.kind === "agent" && next.tab)
       setTabs((t) => ({ ...t, [next.ref]: next.tab! }));

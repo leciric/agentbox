@@ -48,9 +48,9 @@ export function agentPlace(name: string | undefined): Place<AgentTab | undefined
 // The right panel's tab (lib/rightPanel.ts) that opens in v2 where an agent's
 // page had a tab of this name; v2's page has only the chat (and Settings,
 // Snapshots and Android from its menu).
-export const agentPanelKind: Record<string, 'terminal' | 'desktop' | 'media' | 'files'> = {
+export const agentPanelKind: Record<string, 'terminal' | 'desktop' | 'evidence' | 'files'> = {
   terminal: 'terminal',
   browser: 'desktop',
-  media: 'media',
+  media: 'evidence',
   files: 'files',
 };

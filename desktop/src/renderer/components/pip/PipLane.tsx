@@ -7,7 +7,7 @@ import { api } from '../../lib/api';
 import { useT } from '../../lib/i18n';
 import { docked } from '../../lib/pip';
 import { setLane, useLane } from '../../lib/pipStore';
-import { openPanelOn, useChatPanel } from '../../lib/rightPanel';
+import { openPanelOn, shown, usePanel } from '../../lib/rightPanel';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
 import { Tip } from '../ui/tooltip';
@@ -44,11 +44,11 @@ export function PipLane({ project, onSelect, children }: { project: string; onSe
   const width = useWidth(row);
   const lane = useLane(project);
   const chat = `${project}/${T.LeadName}`;
-  const panel = useChatPanel(chat);
+  const panel = shown(usePanel(), chat);
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
   const inUse = useInUse(project);
   // The agent whose desktop is open in the panel beside the chat has no tile.
-  const pinned = panel.open ? panel.tabs.find((tab) => tab.id === panel.active && tab.kind === 'desktop')?.target : undefined;
+  const pinned = panel && (panel.view ?? 'desktop') === 'desktop' ? panel.target : undefined;
   const tiles = inUse.filter((a) => a.ref !== pinned);
   // A desktop you grew stays while its agent runs, in use or not: you're watching it.
   const big = lane.big && lane.big !== pinned ? (agents.data ?? []).find((a) => a.ref === lane.big && a.state === 'running') : undefined;

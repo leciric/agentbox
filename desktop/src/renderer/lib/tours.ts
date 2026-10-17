@@ -21,7 +21,7 @@ import type { Arrival } from './uiV2.ts';
 export type Example = 'sidebar' | 'prompt' | 'mention' | 'cards' | 'review' | 'panel' | 'layout';
 
 // Go is where a step needs the app to be: a lead's chat, or that chat with its
-// panel open on the launcher. Without a project, the step stays where it is.
+// panel open. Without a project, the step stays where it is.
 export type Go = 'lead' | 'panel';
 
 export type Step = {
@@ -122,13 +122,12 @@ const S = {
     anchor: ['[data-panel-toggle]'],
     go: 'lead',
   },
-  launcher: {
-    id: 'launcher',
-    title: 'tour.launcher.title',
-    body: 'tour.launcher.body',
-    anchor: ['[data-right-panel]'],
+  switch: {
+    id: 'switch',
+    title: 'tour.switch.title',
+    body: 'tour.switch.body',
+    anchor: ['[data-panel-switch]', '[data-right-panel]'],
     example: 'panel',
-    exampleAlways: true,
     go: 'panel',
   },
   places: {
@@ -157,22 +156,25 @@ const S = {
 const v013 = '0.13.0';
 // Home took Overview in, and Media and Jobs moved to the sidebar's foot.
 const v014 = '0.14.0';
+// The panel became one agent at a time, in four views, with no tabs.
+const v015 = '0.15.0';
 
 export const welcomeTour: Tour = {
   id: 'welcome',
   version: v013,
   title: 'tour.welcome.name',
-  steps: [S.welcome, S.sidebar, S.home, S.groups, S.hide, S.lead, S.mention, S.cards, S.reviewButton, S.review, S.panel, S.launcher, S.places, S.classic, S.help],
+  steps: [S.welcome, S.sidebar, S.home, S.groups, S.hide, S.lead, S.mention, S.cards, S.reviewButton, S.review, S.panel, S.switch, S.places, S.classic, S.help],
 };
 
 // tours is What's new: each big feature's own short tour, oldest first.
 export const tours: Tour[] = [
   { id: 'v2', version: v013, title: 'tour.v2.name', steps: [S.welcome, S.sidebar, S.lead, S.classic] },
   { id: 'review', version: v013, title: 'tour.reviewTour.name', steps: [S.reviewButton, S.review] },
-  { id: 'panel', version: v013, title: 'tour.panelTour.name', steps: [S.panel, S.launcher] },
+  { id: 'panel', version: v013, title: 'tour.panelTour.name', steps: [S.panel, S.switch] },
   { id: 'groups', version: v013, title: 'tour.groupsTour.name', steps: [S.groups, S.hide] },
   { id: 'cross-project', version: v013, title: 'tour.crossTour.name', steps: [S.mention] },
   { id: 'places', version: v014, title: 'tour.placesTour.name', steps: [S.home, S.places] },
+  { id: 'panel-switch', version: v015, title: 'tour.switchTour.name', steps: [S.switch] },
 ];
 
 export const tourById = (id: string): Tour | undefined => (id === welcomeTour.id ? welcomeTour : tours.find((t) => t.id === id));

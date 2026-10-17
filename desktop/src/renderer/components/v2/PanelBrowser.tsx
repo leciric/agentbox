@@ -84,7 +84,7 @@ export function PanelBrowser({ agent }: { agent: T.Agent }) {
         {url ? (
           <iframe
             key={`${url}#${reloads}`}
-            title={t('panel.tab.browser')}
+            title={t('panel.view.browser')}
             src={url}
             // Its own origin, a port of the agent's machine, never the app's.
             sandbox="allow-scripts allow-same-origin allow-forms"

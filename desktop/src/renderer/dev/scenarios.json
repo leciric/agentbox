@@ -1499,7 +1499,10 @@
     "width": 1280,
     "height": 800,
     "click": "[data-v2-idle-toggle]",
-    "maxHeight": ["[data-v2-idle] [data-v2-project]", 56]
+    "maxHeight": [
+      "[data-v2-idle] [data-v2-project]",
+      56
+    ]
   },
   {
     "id": "window-v2-idle-docked-dark",
@@ -1616,58 +1619,58 @@
   },
   {
     "id": "window-wide-v2-panel-files-dark",
-    "description": "UI v2 at 1920×1080, the right-hand panel open beside the lead's chat with three tabs along its top, on Files for the repository: the tree narrow on the left, README.md open on its right — dark",
-    "query": "app=project&v2=1&panel=files:lead,terminal:agent-41,media:lead&first=1&file=README.md&theme=dark",
+    "description": "UI v2 at 1920×1080, the right-hand panel beside the lead's chat on the repository's Files: the picker (Repository), the switch on Files, the tree narrow on the left and README.md on its right — dark",
+    "query": "app=project&v2=1&panel=files:lead&file=README.md&theme=dark",
     "width": 1920,
     "height": 1080
   },
   {
-    "id": "window-1440-v2-panel-launcher-dark",
-    "description": "UI v2 at 1440×900, the lead's chat with the panel opened empty: the launcher's cards, one per kind, each with its icon, name and line — dark",
-    "query": "app=project&v2=1&panel=launcher&theme=dark",
+    "id": "window-1440-v2-panel-open-dark",
+    "description": "UI v2 at 1440×900, the lead's panel opened with nothing picked yet: it opens on the agent active last, on its Desktop, its latest captures under it — dark",
+    "query": "app=project&v2=1&panel=open&theme=dark",
     "width": 1440,
     "height": 900
   },
   {
-    "id": "window-1440-v2-panel-launcher-light",
-    "description": "The same launcher, as a new tab (+) beside two open tabs — light",
-    "query": "app=project&v2=1&panel=files:lead,pages:lead&add=1&theme=light",
+    "id": "window-1440-v2-panel-desktop-light",
+    "description": "UI v2 at 1440×900, the panel on agent-41's Desktop: LIVE, at 16:10, its latest screenshots and recordings in a strip under it — light",
+    "query": "app=project&v2=1&panel=desktop:agent-41&theme=light",
     "width": 1440,
     "height": 900
   },
   {
-    "id": "window-1440-v2-panel-choose-files-dark",
-    "description": "UI v2 at 1440×900 on agent-41's chat, a new Files tab asking whose files: the repository, then agent-41's own (This chat), then the other agents — dark",
-    "query": "app=agent-41&v2=1&panel=files&theme=dark",
+    "id": "window-1440-v2-panel-agent-chat-dark",
+    "description": "UI v2 at 1440×900, agent-41's chat with its panel on its own Desktop, as opening an agent's chat opens it — dark",
+    "query": "app=agent-41&v2=1&panel=desktop:agent-41&theme=dark",
     "width": 1440,
     "height": 900
   },
   {
     "id": "window-1440-v2-panel-picker-dark",
-    "description": "UI v2 at 1440×900 on agent-41's chat, a Files tab's picker open: the repository, the agents with a machine and the With a machine filter — dark",
+    "description": "UI v2 at 1440×900 on agent-41's chat, the panel's picker open: the repository, then the project's agents with a machine, each with its status dot and title — dark",
     "query": "app=agent-41&v2=1&panel=files:agent-41&theme=dark",
     "width": 1440,
     "height": 900,
     "click": "[data-panel-picker]"
   },
   {
-    "id": "window-1440-v2-panel-choose-dark",
-    "description": "UI v2 at 1440×900, the lead's chat with a new Desktop tab asking whose desktop, as cards of the agents with a machine — dark",
-    "query": "app=project&v2=1&panel=desktop&theme=dark",
+    "id": "window-1440-v2-panel-evidence-dark",
+    "description": "UI v2 at 1440×900, the panel on agent-12's Evidence: its latest recording large, then its screenshots and recordings, then its pages and reports, newest first — dark",
+    "query": "app=project&v2=1&panel=evidence:agent-12&theme=dark",
     "width": 1440,
     "height": 900
   },
   {
     "id": "window-1440-v2-panel-past-light",
-    "description": "UI v2 at 1440×900, the panel on Files for agent-31, a past agent: read-only, from its branch — light",
-    "query": "app=project&v2=1&panel=files&whose=past:agent-31&file=AGENTS.md&theme=light",
+    "description": "UI v2 at 1440×900, the panel on Files for agent-31, a past agent: read-only, from its branch, Desktop and Terminal greyed on the switch — light",
+    "query": "app=project&v2=1&panel=files:past:agent-31&file=AGENTS.md&theme=light",
     "width": 1440,
     "height": 900
   },
   {
-    "id": "window-1100-v2-panel-media-dark",
-    "description": "UI v2 at 1100×800, the panel on Media for the project beside the lead's chat, the chat kept at 360px — dark",
-    "query": "app=project&v2=1&panel=media:lead&theme=dark",
+    "id": "window-1100-v2-panel-evidence-repo-dark",
+    "description": "UI v2 at 1100×800, the panel on the repository's Evidence, the whole project's beside the lead's chat, only the lit view named on the switch at this width — dark",
+    "query": "app=project&v2=1&panel=evidence:lead&theme=dark",
     "width": 1100,
     "height": 800
   },
@@ -1687,8 +1690,8 @@
   },
   {
     "id": "window-1440-v2-panel-pulls-dark",
-    "description": "UI v2 at 1440×900, the lead's page with no tabs over its chat: the panel on Pull requests, the project's — dark",
-    "query": "app=project&v2=1&panel=pulls&theme=dark",
+    "description": "UI v2 at 1440×900, the panel on the project's Pull requests, opened from its ⋯, no view of the switch lit — dark",
+    "query": "app=project&v2=1&panel=pulls&whose=agent-41&theme=dark",
     "width": 1440,
     "height": 900
   },
@@ -1722,19 +1725,19 @@
     ]
   },
   {
-    "id": "window-1440-v2-panel-tabs-dark",
-    "description": "UI v2 at 1440×900, seven panel tabs: each an icon, its kind and whose (Files · Repository, Desktop · agent-41), the ones that don't fit in the +N menu, + right after it — dark",
-    "query": "app=project&v2=1&panel=files:lead,desktop:agent-41,terminal:agent-41,pages:lead,media:agent-41,browser:agent-41,pulls&first=1&theme=dark",
+    "id": "window-1440-v2-panel-stopped-dark",
+    "description": "UI v2 at 1440×900, the panel on the Desktop of an agent whose machine is stopped: what that means, and Start — dark",
+    "query": "app=project&v2=1&panel=desktop:agent-93&theme=dark",
     "width": 1440,
     "height": 900
   },
   {
-    "id": "window-1440-v2-panel-tabs-more-dark",
-    "description": "UI v2 at 1440×900, the panel's +N menu open: the tabs that didn't fit, by kind and whose — dark",
-    "query": "app=project&v2=1&panel=files:lead,desktop:agent-41,terminal:agent-41,pages:lead,media:agent-41,browser:agent-41,pulls&first=1&theme=dark",
+    "id": "window-1440-v2-panel-more-dark",
+    "description": "UI v2 at 1440×900, the panel's ⋯ open: Browser, Timeline, Pull requests and Project settings — dark",
+    "query": "app=project&v2=1&panel=desktop:agent-41&theme=dark",
     "width": 1440,
     "height": 900,
-    "click": "[data-panel-more-tabs]"
+    "click": "[data-panel-more]"
   },
   {
     "id": "window-wide-v2-project-menu-dark",
@@ -1802,9 +1805,9 @@
     "height": 900
   },
   {
-    "id": "tour-launcher-light",
-    "description": "The tour on the right-hand panel's launcher, which it opened — light",
-    "query": "app=project&v2=1&tour=welcome&step=10&theme=light",
+    "id": "tour-panel-switch-light",
+    "description": "The tour on the right-hand panel's switch, the panel it opened beside the lead's chat — light",
+    "query": "app=project&v2=1&tour=welcome&step=11&theme=light",
     "width": 1440,
     "height": 900
   },
