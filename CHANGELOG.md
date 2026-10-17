@@ -3,6 +3,22 @@
 All notable, user-facing changes to AgentBox are documented here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Nothing older than 0.3.0 is listed.
 
+## [0.15.0](https://github.com/leciric/agentbox/compare/v0.14.0...v0.15.0) (2026-10-17)
+
+
+### Added
+
+* each agent's own computer on its row, hover card and page, and a right panel that shows one agent in four views ([#384](https://github.com/leciric/agentbox/issues/384)) ([aa321fb](https://github.com/leciric/agentbox/commit/aa321fbd4c0aa0af28ee4a3dbc1dbeb0a48a22b3))
+* keep Claude Code up to date without waiting for an AgentBox release ([#386](https://github.com/leciric/agentbox/issues/386)) ([9678048](https://github.com/leciric/agentbox/commit/96780484466e3678501f2724e70ee9b5bd445f9a))
+* see the desktops your agents are using in a lane beside the lead chat ([#379](https://github.com/leciric/agentbox/issues/379)) ([836e0d4](https://github.com/leciric/agentbox/commit/836e0d40b73f46ca241f83102dd89d2eae11312e))
+* see what each agent did as a timeline over its recordings, and a project's day as a Today reel ([#380](https://github.com/leciric/agentbox/issues/380)) ([8ef058e](https://github.com/leciric/agentbox/commit/8ef058ec80c26645647cf316f6f421b288322d55))
+* the review opens on the agent's proof, and the lead chat shows what each agent finished with ([#377](https://github.com/leciric/agentbox/issues/377)) ([35f351c](https://github.com/leciric/agentbox/commit/35f351ca369383e087f2a3ab9e61afe293a9e372))
+
+
+### Fixed
+
+* the app no longer crashes on start when its daemon is older than it ([#381](https://github.com/leciric/agentbox/issues/381)) ([752d95b](https://github.com/leciric/agentbox/commit/752d95bd2ca81a7bdca72244102ae04845bdd33e))
+
 ## [0.14.0](https://github.com/leciric/agentbox/compare/v0.13.0...v0.14.0) (2026-10-16)
 
 
