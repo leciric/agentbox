@@ -36,6 +36,19 @@ async function call<R>(method: string, path: string, body?: unknown): Promise<R>
   return (res.contentType.includes('application/json') ? JSON.parse(res.body) : res.body) as R;
 }
 
+// page is call for a list read a page at a time (?limit=), whose answer is
+// a page with its items in. A daemon from before these lists paged (still
+// running after the app was updated: restartIfStale leaves one busy with jobs
+// alone) answers the plain list, whose page.items was undefined, and the app
+// crashed with "Cannot read properties of undefined (reading 'map')". Such a
+// list is one page holding it all.
+async function page<P extends { items: unknown[]; next?: string; total?: number }>(path: string): Promise<P> {
+  const res = await call<P | P['items'] | null | undefined>('GET', path);
+  if (Array.isArray(res)) return { items: res, total: res.length } as unknown as P;
+  if (!res || typeof res !== 'object') return { items: [], total: 0 } as unknown as P;
+  return { ...res, items: Array.isArray(res.items) ? res.items : [] };
+}
+
 // text is call for an endpoint that answers plain text. An empty answer is ''
 // rather than call's undefined: a job that hasn't logged a line, an agent with
 // no changes or an empty brief is an empty body, and callers treat it as text.
@@ -372,9 +385,9 @@ export const api = {
   // "Ready to review": a project's agents that finished and nobody has
   // looked at since, or every project's, a page at a time (query: limit, cursor);
   // and a verdict on one.
-  readyToReviewPage: (query: URLSearchParams, name?: string) => call<T.ReviewPage>('GET', `${name ? `${project(name)}/review` : '/v1/review'}?${query}`),
+  readyToReviewPage: (query: URLSearchParams, name?: string) => page<T.ReviewPage>(`${name ? `${project(name)}/review` : '/v1/review'}?${query}`),
   // Reviewed: the agents already looked at or dismissed, the latest first.
-  reviewedPage: (query: URLSearchParams, name?: string) => call<T.ReviewPage>('GET', `${name ? `${project(name)}/review` : '/v1/review'}?reviewed=1&${query}`),
+  reviewedPage: (query: URLSearchParams, name?: string) => page<T.ReviewPage>(`${name ? `${project(name)}/review` : '/v1/review'}?reviewed=1&${query}`),
   review: (ref: string, req: T.ReviewRequest) => call<void>('POST', `${agent(ref)}/review`, req),
   requestChanges: (ref: string, req: T.RequestChangesRequest) => call<T.ChatItem>('POST', `${agent(ref)}/request-changes`, req),
   questions: (name: string) => call<T.Question[]>('GET', `${project(name)}/questions?all=1`),
@@ -494,10 +507,10 @@ export const api = {
   // Every project's media, of the given kinds, each marked unseen while its notification is.
   allMedia: (kinds: string[] = []) => call<T.MediaItem[]>('GET', `/v1/media${kinds.length ? `?kind=${kinds.join(',')}` : ''}`),
   // A page of a Media list, and the counts on its filters (lib/mediaPages.ts).
-  mediaPage: (query: URLSearchParams) => call<T.MediaPage>('GET', `/v1/media?${query}`),
+  mediaPage: (query: URLSearchParams) => page<T.MediaPage>(`/v1/media?${query}`),
   mediaCounts: (query: URLSearchParams) => call<T.MediaCounts>('GET', `/v1/media/counts?${query}`),
   // What needs you from the daemon: questions, a page at a time (query: limit, cursor, unseen).
-  notificationPage: (query: URLSearchParams) => call<T.NotificationPage>('GET', `/v1/notifications?${query}`),
+  notificationPage: (query: URLSearchParams) => page<T.NotificationPage>(`/v1/notifications?${query}`),
   seeNotifications: (req: T.SeeNotificationsRequest) => call<T.SeeNotificationsResult>('POST', '/v1/notifications/seen', req),
   // Bulk deletes: the items named by id, or everything the list filters match.
   deleteProjectMedia: (project: string, req: T.DeleteMediaRequest) =>

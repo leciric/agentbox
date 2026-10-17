@@ -416,7 +416,7 @@ export function App({ initial }: { initial?: View } = {}) {
   useEffect(() => {
     if (!agents.data) return;
     const before = errored.current;
-    const inReview = new Set(queryClient.getQueryData<T.ReviewPage>(reviewHeadKey)?.items.map((i) => i.ref));
+    const inReview = new Set(queryClient.getQueryData<T.ReviewPage>(reviewHeadKey)?.items?.map((i) => i.ref));
     errored.current = new Set(agents.data.filter((a) => chatLabel(a).tone === "error" && !inReview.has(a.ref)).map((a) => a.ref));
     if (!before) return;
     for (const a of agents.data) {

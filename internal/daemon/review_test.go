@@ -3,8 +3,10 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -162,6 +164,22 @@ func TestReviewListsArePaged(t *testing.T) {
 	}
 	if _, err := d.client.ReviewPage(ctx, "", false, 2, "nonsense"); err == nil {
 		t.Error("a cursor that isn't one of ours was taken")
+	}
+}
+
+// An empty list is "items":[], never null: the app maps a page's items
+// without a guard, and a null crashed it with "Cannot read properties of
+// null (reading 'map')".
+func TestEmptyReviewPageHasItems(t *testing.T) {
+	t.Parallel()
+	for _, query := range []string{"?limit=20", "?limit=20&reviewed=1", "?limit=1&cursor=1:p/agent-01"} {
+		w := httptest.NewRecorder()
+		if err := reviewList(w, httptest.NewRequest("GET", "/v1/review"+query, nil), nil); err != nil {
+			t.Fatal(err)
+		}
+		if body := w.Body.String(); !strings.Contains(body, `"items":[]`) {
+			t.Errorf("%s: %s, want \"items\":[]", query, body)
+		}
 	}
 }
 
