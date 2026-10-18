@@ -53,6 +53,7 @@ import { TalkToProject } from './TalkToProject';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuMore, ContextMenuSeparator, ContextMenuTrigger } from '../ui/context-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Tip } from '../ui/tooltip';
+import { GroupChips, GroupLetter } from '../groups/GroupChip';
 
 const stLabel: Record<AgentSt, MessageKey> = {
   needs: 'v2.st.needs',
@@ -808,8 +809,16 @@ function ProjectLead({
         <TalkToProject project={project.name} leadRef={leadRef} open={talk} onOpenChange={setTalk} onPicked={open_} anchor={<span className="block size-0" />} />
       </span>
       <ProjectIconDialog project={project} open={iconOpen} onOpenChange={setIconOpen} />
+      {/* A group of agents given one task shows as a chip above them, open
+          or folded, until it is decided. */}
+      {!open && (
+        <div className="ml-[15px] mr-1 flex flex-col gap-px pl-[7px] empty:hidden" data-v2-groups={project.name}>
+          <GroupChips project={project.name} activeId={view.kind === 'group' ? view.id : undefined} />
+        </div>
+      )}
       {open && (
         <div className="relative ml-[15px] mr-1 mt-0.5 flex flex-col gap-px border-l border-line pl-[7px]" data-v2-agents={project.name}>
+          <GroupChips project={project.name} activeId={view.kind === 'group' ? view.id : undefined} />
           {shown.map((r) => (
             <Fragment key={r.agent.ref}>
               <AgentRow row={r} active={view.kind === 'agent' && view.ref === r.agent.ref} onSelect={onSelect} sample={usageNow?.agents.find((u) => u.ref === r.agent.ref)} cpu={history.get(r.agent.ref) ?? []} />
@@ -867,6 +876,7 @@ function AgentRow({ row, active, onSelect, sample, cpu }: { row: Row; active: bo
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="flex min-w-0 items-center gap-2">
             <span className={cn('min-w-0 flex-1 truncate text-[12.5px] font-medium leading-[18px]', active ? 'text-title' : st === 'done' ? 'text-subtle' : 'text-primary', !agent.title && 'font-mono text-[11.5px]')}>{agent.title || agent.name}</span>
+            <GroupLetter agentRef={agent.ref} />
             {live && <Sparkline values={cpu} className="text-faint group-hover:text-subtle" />}
           </span>
           <span className="flex min-w-0 items-center gap-1 text-[11px] leading-4">

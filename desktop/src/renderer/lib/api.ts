@@ -219,6 +219,16 @@ export const api = {
     await ensureVMRunning();
     return call<T.Job>('POST', '/v1/agents', req);
   },
+  // Groups: one task on several agents at once, compared to keep one.
+  fanOut: async (req: T.FanOutRequest) => {
+    await ensureVMRunning();
+    return call<T.FanOutResult>('POST', '/v1/groups', req);
+  },
+  groups: () => call<T.Group[]>('GET', '/v1/groups'),
+  group: (id: string) => call<T.Group>('GET', `/v1/groups/${encodeURIComponent(id)}`),
+  keepInGroup: (id: string, agent: string) => call<T.Group>('POST', `/v1/groups/${encodeURIComponent(id)}/keep`, { agent } satisfies T.KeepRequest),
+  closeGroup: (id: string) => call<T.Group>('POST', `/v1/groups/${encodeURIComponent(id)}/close`),
+  judgeGroup: (id: string) => call<T.Group>('POST', `/v1/groups/${encodeURIComponent(id)}/judge`),
   updateAgent: (ref: string, req: T.UpdateAgentRequest) => call<T.Agent>('PATCH', agent(ref), req),
   destroyAgent: (ref: string, force: boolean, deleteBranch: boolean, deleteMedia: boolean) =>
     call<void>('DELETE', `${agent(ref)}?force=${force}&deleteBranch=${deleteBranch}&deleteMedia=${deleteMedia}`),

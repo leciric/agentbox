@@ -2,7 +2,7 @@
 // and name, then Lead or the agent), and the project's ⋯ menu beside the
 // chat's controls. The view puts those in the top bar through InTopBar.
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeftRight, Check, CheckCheck, ChevronRight, Clapperboard, Copy, Ellipsis, FolderOpen, Pin, PinOff, Plus, Settings, Smile, SquarePen, type LucideIcon } from 'lucide-react';
+import { ArrowLeftRight, Check, CheckCheck, ChevronRight, Clapperboard, Copy, Ellipsis, FolderOpen, Pin, PinOff, Plus, Settings, Smile, Split, SquarePen, type LucideIcon } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import * as T from '../../../shared/api';
@@ -18,6 +18,7 @@ import { Menu, MenuContent, MenuItem, MenuLabel, MenuMore, MenuSeparator, MenuTr
 import { Tip } from '../ui/tooltip';
 import { useOpenReview } from './ReviewV2';
 import { TalkToProject } from './TalkToProject';
+import { openFanOut } from '../../lib/groups';
 
 const topSlotId = 'top-bar-slot';
 const topEndSlotId = 'top-bar-end-slot';
@@ -82,6 +83,7 @@ export function projectActions(
   return {
     main: [
       { key: 'new-task', icon: SquarePen, label: t('v2.sidebar.newTask'), onSelect: onNewTask },
+      { key: 'fan-out', icon: Split, label: t('group.menu.fanOut'), onSelect: () => openFanOut({ project: project.name }) },
       ...(others ? [{ key: 'talk', icon: ArrowLeftRight, label: t('v2.talk.button'), onSelect: onTalk }] : []),
       ...(onToday ? [{ key: 'today', icon: Clapperboard, label: t('today.title'), onSelect: onToday }] : []),
       { key: 'pin', icon: pinned ? PinOff : Pin, label: pinned ? t('v2.sidebar.unpin') : t('v2.sidebar.pin'), onSelect: onPin, separatorBefore: true },

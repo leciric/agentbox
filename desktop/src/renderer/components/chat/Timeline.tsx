@@ -16,6 +16,8 @@ import { ChangedFiles } from './ChangedFiles';
 import { SentFiles } from './Files';
 import { AgentPermissionCard } from './AgentPermissionCard';
 import { FinishedCards } from './EvidenceCard';
+import { GroupCard } from '../groups/GroupChip';
+import { latestGroupNotes } from '../../lib/groups';
 import { ProjectMessageCard } from './ProjectMessageCard';
 import { SentImages } from './Images';
 import { Markdown } from './Markdown';
@@ -33,7 +35,7 @@ export function Timeline({ agent, thread, onOpenAgent }: { agent: T.Agent; threa
   const latest = Math.max(0, ...Array.from(byTurn.values(), (cp) => cp.number));
   // The fold rows' labels are text, so the rows are made again when the language changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const rows = useMemo(() => timelineRows(thread, openTurns, byTurn), [thread, openTurns, byTurn, t.lang]);
+  const rows = useMemo(() => latestGroupNotes(timelineRows(thread, openTurns, byTurn)), [thread, openTurns, byTurn, t.lang]);
   const toggleTurn = useCallback(
     (turn: string) =>
       setOpenTurns((open) => {
@@ -162,6 +164,8 @@ const TimelineRow = memo(
         if (row.item.projectMessage) return <ProjectMessageCard item={row.item} />;
         // And agents finishing, with what they showed they checked.
         if (row.item.finished?.length) return <FinishedCards item={row.item} />;
+        // And a group of agents given one task: made, finished, decided.
+        if (row.item.group) return <GroupCard item={row.item} />;
         // And one of the project's agents asking permission, answered here.
         if (row.item.agentPermission) return <AgentPermissionCard item={row.item} />;
         return row.item.kind === 'error' ? (

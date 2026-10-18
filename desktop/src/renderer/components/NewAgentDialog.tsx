@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronRight, LoaderCircle, MessageSquare, SquareTerminal } from 'lucide-react';
+import { ChevronRight, LoaderCircle, MessageSquare, Split, SquareTerminal } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { projectLabel } from '../lib/projectName';
 import { branchSlug, branchSlugPattern, maxBranchSlugLen } from '../lib/branch';
 import { formatTokens } from '../lib/chat';
+import { openFanOut } from '../lib/groups';
 import { choiceName } from '../lib/modelChoices';
 import { useT, type MessageKey } from '../lib/i18n';
 import { cn, errorMessage } from '../lib/utils';
@@ -544,6 +545,21 @@ export function NewAgentDialog({
             {create.error && <Notice>{errorMessage(create.error)}</Notice>}
 
             <DialogFooter>
+              {/* The same work on several agents at once, to compare. */}
+              <Button
+                variant="ghost"
+                className="mr-auto px-2 text-brand-200"
+                disabled={!form.project}
+                onClick={() => {
+                  const seed = { project: form.project, title: form.title.trim() };
+                  onClose();
+                  openFanOut(seed);
+                }}
+                data-new-agent-fan-out
+              >
+                <Split />
+                {t('group.newAgent.compare')}
+              </Button>
               <Button variant="ghost" onClick={onClose}>
                 {t('common.cancel')}
               </Button>

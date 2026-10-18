@@ -69,6 +69,9 @@ export function TopBar({
     case 'project':
       crumbs.push({ label: projectLabel(view.project, projects.data) });
       break;
+    case 'group':
+      crumbs.push({ label: t('group.crumb') });
+      break;
     case 'pastAgents':
       crumbs.push({ label: t('pastAgents.title'), view: view.ref ? { kind: 'pastAgents' } : undefined });
       if (view.ref) crumbs.push({ label: view.ref.split('/')[1], mono: true });

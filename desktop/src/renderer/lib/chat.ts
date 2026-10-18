@@ -415,7 +415,7 @@ export const isCredentialRequest = (it: T.ChatItem) =>
 // session changed ([D73]), and that one is meant to be read. The cost is that
 // conversations written before the flag existed still show their old agent
 // notices, which is history, left as it was.
-export const isSilent = (it: T.ChatItem) => !!it.hidden && !it.finished?.length;
+export const isSilent = (it: T.ChatItem) => !!it.hidden && !it.finished?.length && !it.group;
 
 // asleep says whether an agent's machine is stopped or paused, the states in
 // which its chat is still read from the database and a message sent wakes it:
