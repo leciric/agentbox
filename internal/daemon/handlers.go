@@ -1046,9 +1046,23 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 // more than the job: the job that makes the agent, or the finished one that
 // queued it.
 func (s *Server) createAgentJob(ctx context.Context, req api.CreateAgentRequest, byLead bool) (api.Job, error) {
-	p, err := s.store.Project(ctx, req.Project)
+	req, err := s.checkCreate(ctx, req, byLead)
 	if err != nil {
 		return api.Job{}, err
+	}
+	create := s.createJob(req, byLead, "")
+	return s.launchJob("create", req.Project, create)
+}
+
+// checkCreate refuses a request to make an agent that could never succeed,
+// before any job starts, and fills in what it leaves to the defaults: the
+// project's own name and the AI tool. A group checks every one of its agents
+// this way before it makes the first.
+func (s *Server) checkCreate(ctx context.Context, req api.CreateAgentRequest, byLead bool) (api.CreateAgentRequest, error) {
+	fail := func(err error) (api.CreateAgentRequest, error) { return api.CreateAgentRequest{}, err }
+	p, err := s.store.Project(ctx, req.Project)
+	if err != nil {
+		return fail(err)
 	}
 	req.Project = p.Name // it may have been named by what it is called
 	if req.AI == "" {
@@ -1058,7 +1072,7 @@ func (s *Server) createAgentJob(ctx context.Context, req api.CreateAgentRequest,
 	// seeing now, in the reply to the request that made it, rather than in a
 	// job that has already started copying a machine.
 	if err := s.manager(nil).ChatChoices(ctx, req.AI, req.Model, req.Effort); err != nil {
-		return api.Job{}, err
+		return fail(err)
 	}
 	// The lead is held to Settings → Models: the model and window chosen there
 	// are either the only ones it may give an agent or the most it may, and
@@ -1067,12 +1081,12 @@ func (s *Server) createAgentJob(ctx context.Context, req api.CreateAgentRequest,
 	// isn't.
 	if byLead {
 		if err := s.manager(nil).CheckLeadChoice(ctx, p, req.AI, req.Model, req.ContextWindow); err != nil {
-			return api.Job{}, err
+			return fail(err)
 		}
 	}
 	// And for a branch that could never be one.
 	if err := agent.CheckBranchSlug(req.Branch); err != nil {
-		return api.Job{}, err
+		return fail(err)
 	}
 	// Same for the account: unknown, outside the project's allow-list, or
 	// named for a tool that isn't Claude Code are all mistakes this can see
@@ -1082,21 +1096,20 @@ func (s *Server) createAgentJob(ctx context.Context, req api.CreateAgentRequest,
 	// notice below, for what Create can still fail at once the job is
 	// running).
 	if _, err := s.manager(nil).CheckLogin(req.AI, p, agent.Logins{Claude: req.ClaudeAccount, Codex: req.CodexAccount, OpenCode: req.OpenCodeAccounts, Cursor: req.CursorAccount}); err != nil {
-		return api.Job{}, err
+		return fail(err)
 	}
 	if req.Connectors != nil {
 		if err := s.manager(nil).CheckConnectorLimit(ctx, p.Name, *req.Connectors); err != nil {
-			return api.Job{}, err
+			return fail(err)
 		}
 	}
 	// Every agent starts at once: Queue and Size are accepted and do
 	// nothing (CreateAgentRequest). The VM's memory pressure holds back
 	// heavy commands, not agents (pressure.go).
 	if err := s.diskRefusal("creating an agent"); err != nil {
-		return api.Job{}, err
+		return fail(err)
 	}
-	create := s.createJob(req, byLead, "")
-	return s.launchJob("create", req.Project, create)
+	return req, nil
 }
 
 // createJob is the job that makes an agent from req: a new one, or, when

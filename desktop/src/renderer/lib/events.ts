@@ -199,6 +199,13 @@ export function connectEvents(queryClient: QueryClient): void {
         }
         break;
       }
+      case T.EventGroup: {
+        // A group of agents moved: made, one finished, a pick, a decision.
+        const { id } = event.data as T.GroupChange;
+        void queryClient.invalidateQueries({ queryKey: ['groups'] });
+        void queryClient.invalidateQueries({ queryKey: ['group', id] });
+        break;
+      }
       case T.EventReview:
         // A verdict, from this window or another.
         void queryClient.invalidateQueries({ queryKey: ['review'] });

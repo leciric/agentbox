@@ -168,6 +168,18 @@ const S = {
     example: 'notes',
     exampleAlways: true,
   },
+  fanOut: {
+    id: 'fan-out',
+    title: 'tour.fanOut.title',
+    body: 'tour.fanOut.body',
+    anchor: ['[data-v2-rest] [data-v2-project]', '[data-v2-pinned] [data-v2-project]', '[data-sidebar-v2] nav'],
+  },
+  compare: {
+    id: 'compare',
+    title: 'tour.compare.title',
+    body: 'tour.compare.body',
+    anchor: ['[data-group-chip]', '[data-group-card]'],
+  },
   schedules: {
     id: 'schedules',
     title: 'tour.schedules.title',
@@ -206,6 +218,7 @@ export const tours: Tour[] = [
   { id: 'cross-project', version: v013, title: 'tour.crossTour.name', steps: [S.mention] },
   { id: 'places', version: v014, title: 'tour.placesTour.name', steps: [S.home, S.places] },
   { id: 'panel-switch', version: v015, title: 'tour.switchTour.name', steps: [S.computer, S.switch] },
+  { id: 'compare', version: v015, title: 'tour.compareTour.name', steps: [S.fanOut, S.compare] },
   { id: 'pick', version: v015, title: 'tour.pickTour.name', steps: [S.pick] },
   { id: 'schedules', version: v015, title: 'tour.schedulesTour.name', steps: [S.schedules] },
   { id: 'diff-notes', version: v015, title: 'tour.diffNotes.name', steps: [S.diffNotes] },

@@ -444,6 +444,10 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, end cha
 			Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title,
 			Kind: api.AgentFailed, Outcome: api.AgentOutcomeFailed, Summary: headWords(note, 200), At: time.Now(),
 		})
+		// Failing is how far a group's agent got: it is compared as it is.
+		if group := s.groupMemberFinished(ctx, a); group != "" {
+			defer s.groupMoved(ctx, group)
+		}
 		// It wakes the lead when the lead waits on this agent, and stays
 		// still waiting for the finish. A turn somebody drove by hand is
 		// theirs to see, and the lead reads it when it next looks.
@@ -527,7 +531,13 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, end cha
 	// the agent's own chat is theirs: it is recorded all the same, and waking
 	// the lead to read it would cost a turn of its whole context for nothing.
 	waiting := s.leadWasWaiting(a)
-	s.tellLeadOf(ctx, a.Project, finishNotice(ev), chat.NoticeOptions{Act: waiting && s.finishStartsTurn(ctx, a), Finished: []string{a.Ref()}})
+	// One of a group's agents waits for the rest: the lead hears once, as
+	// the last one finishes (groupMaybeDone), rather than at each.
+	group := s.groupMemberFinished(ctx, a)
+	s.tellLeadOf(ctx, a.Project, finishNotice(ev), chat.NoticeOptions{Act: waiting && group == "" && s.finishStartsTurn(ctx, a), Finished: []string{a.Ref()}})
+	if group != "" {
+		s.groupMoved(ctx, group)
+	}
 }
 
 // nudge claims the one reminder an agent gets to wait on its work inside a

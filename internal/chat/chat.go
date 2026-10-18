@@ -636,13 +636,15 @@ type NoticeOptions struct {
 	// Finished names the agents whose finishing the notice tells of
 	// (api.ChatItem.Finished).
 	Finished []string
+	// Group is the group of agents the notice tells of (api.ChatItem.Group).
+	Group string
 }
 
 // deliver adds a notice and, when asked, starts the turn that reacts to it.
 // The conversation is locked.
 func (c *conversation) deliver(text string, opts NoticeOptions) {
 	it := c.add("notice", c.lastTurn())
-	it.Text, it.Hidden, it.Finished = text, opts.Hidden, opts.Finished
+	it.Text, it.Hidden, it.Finished, it.Group = text, opts.Hidden, opts.Finished, opts.Group
 	if !opts.Act {
 		c.flush(true)
 		return

@@ -284,6 +284,16 @@ func leadAI(ai string, ready readyTools) (string, error) {
 	}
 }
 
+// variantAI is leadAI for one agent of a group, which may also run Codex:
+// comparing tools is what a group is for. Whether this machine is signed in
+// to Codex is the daemon's to say, in its own words, before anything starts.
+func variantAI(ai string, ready readyTools) (string, error) {
+	if strings.TrimSpace(strings.ToLower(ai)) == "codex" {
+		return "codex", nil
+	}
+	return leadAI(ai, ready)
+}
+
 // describeChoices names the settings a lead asked for, so the reply confirms
 // what was chosen rather than leaving it to be found later in the agent's chat.
 // Anything left to fall back to the project's own defaults goes unmentioned.
@@ -538,6 +548,122 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				}
 				return fmt.Sprintf("Creating %q%s; it starts on the task by itself. Job %s.",
 					in.Title, describeChoices(ai, in.Model, in.Effort, autonomous, notify, cmp.Or(in.ClaudeAccount, in.CodexAccount, in.CursorAccount, describeAccountMap(in.OpenCodeAccounts)))+windowChoice(in.ContextWindow)+connectorChoice(in.Connectors), job.ID), nil
+			},
+		},
+		{
+			Name: "fan_out",
+			Description: "Run one task on several agents at once (2 to 6), each on the AI tool and model you give it, as a group " +
+				"the user compares side by side when they finish: their recordings, diffs, tests, cost and time. The user keeps one, which " +
+				"then opens its pull request; the others are retired with their branches kept. Use it when the user asks to compare " +
+				"models or tools on a task, or to try a hard task several ways at once — not for ordinary work, where one agent is " +
+				"cheaper. Each agent is told it is one of several and not to open a pull request until it is kept. Their finishes " +
+				"don't wake you one by one: you hear once, when the last one finishes.",
+			Schema: object([]string{"title", "task", "variants"}, map[string]any{
+				"title": str("a short name for the group, like \"Login page\"; each agent gets its letter after it, \"Login page · A\""),
+				"task":  str("what to do, directly, the same for every agent: usually a few lines"),
+				"branch": str("the slug every agent's branch starts with, each getting its letter after it (\"feat-login-a\"): short " +
+					"lowercase kebab-case, at most 46 characters. Left out, it is made from the title."),
+				"from": str("the branch or agent branch they all start from; the project's branch by default"),
+				"judge": map[string]any{"type": "boolean", "description": "ask yourself to judge them once they have all finished: " +
+					"you'll be told to compare them and call recommend_agent. The user still decides."},
+				"variants": map[string]any{"type": "array", "minItems": 2, "maxItems": 6,
+					"description": "one entry per agent, in order (A, B, C…): what each runs. Two entries alike run the same task twice " +
+						"on the same model, which is also a fair comparison. Besides create_agent's tools, ai may be \"codex\" (OpenAI's " +
+						"Codex, on the model its login has: give it no model or effort), when this machine is signed in to Codex.",
+					"items": object(nil, merge(map[string]any{
+						"claude_account": str("as create_agent's claude_account, for this agent"),
+						"codex_account":  str("as create_agent's codex_account, for this agent"),
+						"cursor_account": str("as create_agent's cursor_account, for this agent"),
+						"opencode_accounts": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"},
+							"description": "as create_agent's opencode_accounts, for this agent"},
+					}, variantSettings(settings)))},
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct {
+					Title, Task, From, Branch string
+					Judge                     bool
+					Variants                  []struct {
+						AI               string
+						Model, Effort    *string
+						ContextWindow    *string           `json:"context_window"`
+						ClaudeAccount    string            `json:"claude_account"`
+						CodexAccount     string            `json:"codex_account"`
+						CursorAccount    string            `json:"cursor_account"`
+						OpenCodeAccounts map[string]string `json:"opencode_accounts"`
+					}
+				}
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				req := api.FanOutRequest{Title: in.Title, Task: in.Task, From: in.From, Branch: in.Branch, Judge: in.Judge}
+				for i, v := range in.Variants {
+					ai, err := variantAI(v.AI, ready)
+					if err != nil {
+						return "", fmt.Errorf("variant %d: %w", i+1, err)
+					}
+					req.Variants = append(req.Variants, api.FanOutVariant{
+						AI: ai, Model: v.Model, Effort: v.Effort, ContextWindow: v.ContextWindow,
+						ClaudeAccount: v.ClaudeAccount, CodexAccount: v.CodexAccount, CursorAccount: v.CursorAccount, OpenCodeAccounts: v.OpenCodeAccounts,
+					})
+				}
+				out, err := c.ProjectFanOut(ctx, req)
+				if err != nil {
+					return "", err
+				}
+				return describeGroup(out.Group, "Started group "+out.Group.ID+": "), nil
+			},
+		},
+		{
+			Name: "compare_group",
+			Description: "Compare the agents of a group (fan_out, or one the user started): for each, what it runs, whether it has " +
+				"finished, its diff size, pull request and checks, tokens and cost, time taken, what it kept (recordings, screenshots) " +
+				"and its report. Leave group out to list the project's groups. Read a diff with agent_diff.",
+			Schema: object(nil, map[string]any{"group": str("its ID, like grp_1a2b3c4d5e6f")}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct{ Group string }
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				if in.Group == "" {
+					groups, err := c.ProjectGroups(ctx)
+					if err != nil {
+						return "", err
+					}
+					if len(groups) == 0 {
+						return "This project has no groups. Start one with fan_out.", nil
+					}
+					var b strings.Builder
+					for _, g := range groups {
+						b.WriteString(describeGroup(g, "") + "\n")
+					}
+					return b.String(), nil
+				}
+				g, err := c.ProjectGroup(ctx, in.Group)
+				if err != nil {
+					return "", err
+				}
+				return compareText(g), nil
+			},
+		},
+		{
+			Name: "recommend_agent",
+			Description: "Recommend which of a group's agents the user should keep, and why. The Compare view shows your pick and " +
+				"reasons beside theirs; the user still decides, so never retire or keep one yourself.",
+			Schema: object([]string{"group", "agent", "why"}, map[string]any{
+				"group": str("its ID, like grp_1a2b3c4d5e6f"),
+				"agent": str("the agent you would keep, like agent-03"),
+				"why":   str("two or three sentences: what it got right that the others didn't, where they all agree, and what it still lacks"),
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct{ Group, Agent, Why string }
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				g, err := c.RecommendInGroup(ctx, in.Group, api.RecommendRequest{Agent: in.Agent, Why: in.Why})
+				if err != nil {
+					return "", err
+				}
+				return fmt.Sprintf("Recommended %s in group %s; the user sees it in the Compare view and decides.", g.Recommended, g.ID), nil
 			},
 		},
 		{

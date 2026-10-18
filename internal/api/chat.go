@@ -197,6 +197,10 @@ type ChatItem struct {
 	// evidence there, its recordings, screenshots and pull request, in place
 	// of the notice's prose.
 	Finished []string `json:"finished,omitempty"`
+	// Group, on a hidden notice in a project's lead chat, is the group of
+	// agents (Group.ID) it tells of: made, or every agent finished. The app
+	// shows the group there, with a way to compare them.
+	Group string `json:"group,omitempty"`
 	// Parent, on a message, thought or tool call a subagent made, is that
 	// subagent's card. The app nests the item under the card instead of
 	// showing it in the conversation itself.

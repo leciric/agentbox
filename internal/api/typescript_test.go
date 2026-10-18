@@ -56,6 +56,7 @@ var tsTypes = []any{
 	ReportSection{}, ReportDraftRequest{}, ReportDraft{}, ReportRequest{}, ReportSent{},
 	SearchResults{}, SearchGroup{}, SearchHit{},
 	Artifact{}, Artifacts{}, ArtifactPreview{}, PublishRenderRequest{}, PublishRenderResult{},
+	FanOutRequest{}, FanOutVariant{}, FanOutResult{}, Group{}, GroupMember{}, KeepRequest{}, RecommendRequest{}, GroupChange{},
 }
 
 var tsConstants = [][2]string{
@@ -69,7 +70,7 @@ var tsConstants = [][2]string{
 	{"PRStateOpen", PRStateOpen}, {"PRStateMerged", PRStateMerged}, {"PRStateClosed", PRStateClosed}, {"PRStateNone", PRStateNone},
 	{"LeadName", LeadName}, {"HomeProject", HomeProject}, {"AgentModelAuto", AgentModelAuto},
 	{"ConsolidationModelCheap", ConsolidationModelCheap}, {"ConsolidationModelChat", ConsolidationModelChat},
-	{"EventChat", EventChat}, {"EventChatCache", EventChatCache}, {"EventQuestion", EventQuestion}, {"EventSchedule", EventSchedule}, {"EventAgentEvent", EventAgentEvent},
+	{"EventGroup", EventGroup}, {"EventChat", EventChat}, {"EventChatCache", EventChatCache}, {"EventQuestion", EventQuestion}, {"EventSchedule", EventSchedule}, {"EventAgentEvent", EventAgentEvent},
 	{"ReviewReviewed", ReviewReviewed}, {"ReviewDismissed", ReviewDismissed}, {"EventReview", EventReview},
 	{"AgentCreated", AgentCreated}, {"AgentFinished", AgentFinished}, {"AgentAsked", AgentAsked}, {"AgentAnswered", AgentAnswered},
 	{"CredentialGitHub", CredentialGitHub}, {"CredentialSecret", CredentialSecret},

@@ -2077,6 +2077,7 @@ export interface ChatItem {
   scheduledRun?: ChatScheduledRun;
   agentPermission?: ChatAgentPermission;
   finished?: string[];
+  group?: string;
   parent?: string;
   createdAt: string;
   updatedAt: string;
@@ -2885,6 +2886,87 @@ export interface PublishRenderResult {
   url: string;
 }
 
+export interface FanOutRequest {
+  project: string;
+  title: string;
+  task: string;
+  branch?: string;
+  from?: string;
+  variants: FanOutVariant[];
+  judge?: boolean;
+}
+
+export interface FanOutVariant {
+  ai: string;
+  model?: string;
+  effort?: string;
+  contextWindow?: string;
+  claudeAccount?: string;
+  codexAccount?: string;
+  openCodeAccounts?: Record<string, string>;
+  cursorAccount?: string;
+}
+
+export interface FanOutResult {
+  group: Group;
+  jobs: Job[];
+}
+
+export interface Group {
+  id: string;
+  project: string;
+  title: string;
+  task: string;
+  byLead?: boolean;
+  kept?: string;
+  recommended?: string;
+  recommendation?: string;
+  judging?: boolean;
+  judge?: boolean;
+  createdAt: string;
+  settledAt?: string;
+  finished: number;
+  members: GroupMember[];
+}
+
+export interface GroupMember {
+  label: string;
+  ai: string;
+  model?: string;
+  effort?: string;
+  job?: string;
+  agent?: string;
+  ref?: string;
+  error?: string;
+  finishedAt?: string;
+  startedAt?: string;
+  title?: string;
+  branch?: string;
+  state?: string;
+  busy?: boolean;
+  changes?: AgentChanges;
+  pr?: PullRequest;
+  tokens?: number;
+  costUsd?: number;
+  media?: number;
+  reportStatus?: string;
+  reportSummary?: string;
+}
+
+export interface KeepRequest {
+  agent: string;
+}
+
+export interface RecommendRequest {
+  agent: string;
+  why: string;
+}
+
+export interface GroupChange {
+  id: string;
+  project: string;
+}
+
 export const JobRunning = "running";
 export const JobSucceeded = "succeeded";
 export const JobFailed = "failed";
@@ -2934,6 +3016,7 @@ export const HomeProject = "_home";
 export const AgentModelAuto = "auto";
 export const ConsolidationModelCheap = "cheap";
 export const ConsolidationModelChat = "";
+export const EventGroup = "group";
 export const EventChat = "chat";
 export const EventChatCache = "chat.cache";
 export const EventQuestion = "question";

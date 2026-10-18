@@ -31,6 +31,9 @@ import { SettingsView } from "./components/SettingsView";
 import { Sidebar } from "./components/Sidebar";
 import { SidebarV2 } from "./components/v2/SidebarV2";
 import { NewTaskDialog } from "./components/v2/NewTaskDialog";
+import { CompareView } from "./components/groups/CompareView";
+import { FanOutDialog } from "./components/groups/FanOutDialog";
+import { onOpenCompare } from "./lib/groups";
 import { ShortcutSheet } from "./components/v2/ShortcutSheet";
 import { TourHost } from "./components/v2/Tour";
 import { isNewTaskShortcut, toggleNewTask } from "./lib/newTask";
@@ -78,7 +81,9 @@ export type View =
   // A project's day: every agent's timeline as one story (components/timeline/TodayView).
   | { kind: "today"; project: string }
   // Every project's past agents, or one of them (ref) read in its chat.
-  | { kind: "pastAgents"; ref?: string };
+  | { kind: "pastAgents"; ref?: string }
+  // A group of agents given one task, side by side (components/groups).
+  | { kind: "group"; id: string };
 
 // initial is the view the app opens on: Home, except in the dev preview
 // (dev/preview.tsx's ?app=), which opens it where a scenario points.
@@ -177,6 +182,11 @@ export function App({ initial }: { initial?: View } = {}) {
     setNavOpen(false);
     setRailOpen(false);
   };
+
+  // A group's card in a lead chat, or its chip, opens the Compare view.
+  const selectRef = useRef(select);
+  selectRef.current = select;
+  useEffect(() => onOpenCompare((id) => selectRef.current({ kind: "group", id })), []);
 
   // A link from inside a page to a section of Settings (openSettingsSection):
   // remember the section and remount Settings so it opens there.
@@ -483,6 +493,8 @@ export function App({ initial }: { initial?: View } = {}) {
           ? `settings:${settingsVisit}`
           : view.kind === "pastAgents"
             ? `pastAgents:${view.ref ?? ""}`
+            : view.kind === "group"
+              ? `group:${view.id}`
             // v2's Home keeps its chat mounted as its tabs switch.
             : v2 && view.kind === "homeChat"
               ? "home"
@@ -619,6 +631,7 @@ export function App({ initial }: { initial?: View } = {}) {
                   />
                 )}
                 {view.kind === "jobs" && <JobsView />}
+                {view.kind === "group" && <CompareView id={view.id} onSelect={select} />}
                 {view.kind === "media" && <AllMediaView onSelect={select} />}
                 {view.kind === "today" && <TodayView project={view.project} onSelect={select} />}
                 {view.kind === "pastAgents" &&
@@ -746,6 +759,7 @@ export function App({ initial }: { initial?: View } = {}) {
       />
       <SearchModal onOpen={openFound} />
       {v2 && <NewTaskDialog onSelect={select} />}
+      <FanOutDialog onSelect={select} />
       {v2 && <ShortcutSheet />}
       {/* The first-run tour, and What's new after an update (lib/tours.ts). */}
       {v2 && !setup && connection.state === "connected" && <TourHost view={view} onSelect={select} onReleaseNotes={() => setWhatsNew(true)} />}

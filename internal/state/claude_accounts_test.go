@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -19,12 +20,13 @@ func TestClaudeAccountsMigrationAllowsEverything(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i, m := range migrations[:len(migrations)-1] {
+	at := slices.IndexFunc(migrations, func(m string) bool { return strings.Contains(m, "ADD COLUMN claude_accounts ") })
+	for i, m := range migrations[:at] {
 		if _, err := db.ExecContext(ctx, m); err != nil {
 			t.Fatalf("migration %d: %v", i+1, err)
 		}
 	}
-	if _, err := db.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", len(migrations)-1)); err != nil {
+	if _, err := db.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", at)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO projects (name, root, created_at, claude_account) VALUES ('old', '/src/old', 1, 'work')`); err != nil {
