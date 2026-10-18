@@ -51,7 +51,7 @@ func (s *Store) ReviewNotes(ctx context.Context, project, agent string) ([]Revie
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := []ReviewNote{}
 	for rows.Next() {
 		n := ReviewNote{Project: project, Agent: agent}
