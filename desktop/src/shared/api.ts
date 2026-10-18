@@ -1730,6 +1730,35 @@ export interface ReviewRequest {
 export interface RequestChangesRequest {
   text: string;
   fingerprint?: string;
+  notes?: number[];
+}
+
+export interface ReviewNote {
+  id: number;
+  path: string;
+  side: string;
+  start: number;
+  end: number;
+  code: string;
+  body: string;
+  status: string;
+  createdAt: string;
+  sentAt?: string;
+  resolvedAt?: string;
+}
+
+export interface AddReviewNoteRequest {
+  path: string;
+  side: string;
+  start: number;
+  end: number;
+  code: string;
+  body: string;
+}
+
+export interface EditReviewNoteRequest {
+  body?: string;
+  resolved?: boolean;
 }
 
 export interface AndroidStatus {

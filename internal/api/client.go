@@ -254,6 +254,45 @@ func (c *Client) RequestChanges(ctx context.Context, ref string, req RequestChan
 	return out, c.do(ctx, http.MethodPost, path+"/request-changes", req, &out)
 }
 
+// ReviewNotes lists the notes left on an agent's diff, drafts and sent.
+func (c *Client) ReviewNotes(ctx context.Context, ref string) ([]ReviewNote, error) {
+	path, err := AgentPath(ref)
+	if err != nil {
+		return nil, err
+	}
+	var out []ReviewNote
+	return out, c.do(ctx, http.MethodGet, path+"/review-notes", nil, &out)
+}
+
+// AddReviewNote leaves a draft note on lines of an agent's diff.
+func (c *Client) AddReviewNote(ctx context.Context, ref string, req AddReviewNoteRequest) (ReviewNote, error) {
+	path, err := AgentPath(ref)
+	if err != nil {
+		return ReviewNote{}, err
+	}
+	var out ReviewNote
+	return out, c.do(ctx, http.MethodPost, path+"/review-notes", req, &out)
+}
+
+// EditReviewNote rewrites a draft note, or marks a sent one resolved.
+func (c *Client) EditReviewNote(ctx context.Context, ref string, id int64, req EditReviewNoteRequest) (ReviewNote, error) {
+	path, err := AgentPath(ref)
+	if err != nil {
+		return ReviewNote{}, err
+	}
+	var out ReviewNote
+	return out, c.do(ctx, http.MethodPatch, fmt.Sprintf("%s/review-notes/%d", path, id), req, &out)
+}
+
+// DeleteReviewNote removes a note.
+func (c *Client) DeleteReviewNote(ctx context.Context, ref string, id int64) error {
+	path, err := AgentPath(ref)
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, http.MethodDelete, fmt.Sprintf("%s/review-notes/%d", path, id), nil, nil)
+}
+
 // RequestCredential asks the user for a credential this agent lacks, from
 // inside it, and waits for the answer.
 func (c *Client) RequestCredential(ctx context.Context, req CredentialRequest) (Question, error) {

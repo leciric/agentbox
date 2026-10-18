@@ -1979,9 +1979,62 @@ const (
 // what the user wants changed in the work they saw (by its Fingerprint),
 // sent to the agent as tell_agent sends a message, and recorded as the
 // verdict "changes" until the agent finishes again.
+// Notes are the IDs of the draft ReviewNotes to send with it: the agent gets
+// each as its file and lines, the code they quote and the note, after Text,
+// which may then be empty.
 type RequestChangesRequest struct {
-	Text        string `json:"text"`
-	Fingerprint string `json:"fingerprint,omitempty"`
+	Text        string  `json:"text"`
+	Fingerprint string  `json:"fingerprint,omitempty"`
+	Notes       []int64 `json:"notes,omitempty"`
+}
+
+// ReviewNote is a note the user left on lines of an agent's diff in the
+// review (GET/POST /v1/agents/{project}/{agent}/review-notes): the file, the
+// side of the diff its lines are numbered on, ReviewSideNew for added and
+// unchanged lines or ReviewSideOld for removed ones, the lines Start to End,
+// the Code they quote as diff lines (each led by "+", "-" or " ") and Body,
+// what the user wrote. Status is ReviewNoteDraft until Request changes sends
+// it, then ReviewNotePending, or ReviewNoteResolved once the code it quotes
+// has changed in the agent's worktree, or the user said so.
+type ReviewNote struct {
+	ID         int64      `json:"id"`
+	Path       string     `json:"path"`
+	Side       string     `json:"side"`
+	Start      int        `json:"start"`
+	End        int        `json:"end"`
+	Code       string     `json:"code"`
+	Body       string     `json:"body"`
+	Status     string     `json:"status"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	SentAt     *time.Time `json:"sentAt,omitempty"`
+	ResolvedAt *time.Time `json:"resolvedAt,omitempty"`
+}
+
+// The sides a ReviewNote's lines are numbered on, and its statuses.
+const (
+	ReviewSideNew      = "new"
+	ReviewSideOld      = "old"
+	ReviewNoteDraft    = "draft"
+	ReviewNotePending  = "pending"
+	ReviewNoteResolved = "resolved"
+)
+
+// AddReviewNoteRequest is POST /v1/agents/{project}/{agent}/review-notes: a
+// new draft note.
+type AddReviewNoteRequest struct {
+	Path  string `json:"path"`
+	Side  string `json:"side"`
+	Start int    `json:"start"`
+	End   int    `json:"end"`
+	Code  string `json:"code"`
+	Body  string `json:"body"`
+}
+
+// EditReviewNoteRequest is PATCH /v1/agents/{project}/{agent}/review-notes/{id}:
+// a draft's new Body, or a sent note marked resolved or not.
+type EditReviewNoteRequest struct {
+	Body     *string `json:"body,omitempty"`
+	Resolved *bool   `json:"resolved,omitempty"`
 }
 
 // EventReview says "Ready to review" changed: an agent finished, or a verdict

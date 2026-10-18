@@ -373,7 +373,11 @@ func (s *Server) requestChanges(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	text := strings.TrimSpace(req.Text)
-	if text == "" {
+	notes, err := s.draftNotes(ctx, a, req.Notes)
+	if err != nil {
+		return err
+	}
+	if text == "" && len(notes) == 0 {
 		return errors.New("say what to change")
 	}
 	fingerprint := req.Fingerprint
@@ -392,13 +396,17 @@ func (s *Server) requestChanges(w http.ResponseWriter, r *http.Request) error {
 	// Recorded first, so the agent is never back in Ready to review on the
 	// work the user just turned down while the message is on its way.
 	if err := s.store.SetAgentReview(ctx, state.AgentReview{
-		Project: a.Project, Agent: a.Name, Verdict: api.ReviewChanges, Fingerprint: fingerprint, Note: text, At: time.Now(),
+		Project: a.Project, Agent: a.Name, Verdict: api.ReviewChanges, Fingerprint: fingerprint, Note: notesSummary(text, notes), At: time.Now(),
 	}); err != nil {
 		return err
 	}
-	t, err := s.tellAgent(ctx, a, changesMessage(text))
+	t, err := s.tellAgent(ctx, a, changesMessage(text, notes))
 	s.events.publish(api.EventReview, a.Project)
 	if err != nil {
+		return err
+	}
+	// Sent once the agent has them: on failure they stay drafts, to send again.
+	if err := s.markNotesSent(ctx, a, notes); err != nil {
 		return err
 	}
 	s.refreshAgents(ctx)
@@ -406,9 +414,16 @@ func (s *Server) requestChanges(w http.ResponseWriter, r *http.Request) error {
 }
 
 // changesMessage is what an agent is told when the user asks for changes
-// from the review.
-func changesMessage(text string) string {
-	return "The user reviewed your work and asks for changes:\n\n" + text +
+// from the review: what they wrote, then their notes on the diff.
+func changesMessage(text string, notes []state.ReviewNote) string {
+	var parts []string
+	if text != "" {
+		parts = append(parts, text)
+	}
+	if len(notes) > 0 {
+		parts = append(parts, "Notes on lines of your diff:\n\n"+notesText(notes))
+	}
+	return "The user reviewed your work and asks for changes:\n\n" + strings.Join(parts, "\n\n") +
 		"\n\nMake them on the same branch, update the pull request, and finish as before."
 }
 

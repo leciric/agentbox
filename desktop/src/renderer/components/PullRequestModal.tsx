@@ -18,10 +18,8 @@ import {
   User,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
-import type { ThemedToken } from 'shiki/core';
 import * as T from '../../shared/api';
 import { api } from '../lib/api';
-import { highlight } from '../lib/highlight';
 import { useT, type MessageKey } from '../lib/i18n';
 import {
   fileKind,
@@ -35,13 +33,12 @@ import {
   parsePatch,
   treeOrder,
   withEdits,
-  type DiffLine,
   type FileKind,
   type LabelEdit,
   type TreeNode,
 } from '../lib/pulls';
-import { useMode } from '../lib/theme';
 import { cn, errorMessage, timeAgo } from '../lib/utils';
+import { DiffTable, useHighlighted } from './DiffTable';
 import { LabelRemoveButton } from './LabelRemoveButton';
 import { Markdown } from './chat/Markdown';
 import { Badge, type BadgeVariant } from './ui/badge';
@@ -669,15 +666,6 @@ function FileRow({
   );
 }
 
-const lineTints: Record<DiffLine['kind'], string> = {
-  add: 'bg-emerald-500/10',
-  del: 'bg-rose-500/10',
-  hunk: 'bg-sky-500/10 text-subtle',
-  context: '',
-  note: 'text-faint italic',
-};
-const signs: Record<DiffLine['kind'], string> = { add: '+', del: '−', hunk: '', context: ' ', note: '' };
-
 // Diff is one file's diff, read when its turn comes (nextToLoad) and
 // highlighted as its language.
 function Diff({
@@ -708,55 +696,9 @@ function Diff({
   const tokens = useHighlighted(lines, languageOfPath(path));
   if (diff.error) return <p className="px-3 py-2 text-[12px] text-rose-400">{t('pulls.detail.diffFailed', { error: errorMessage(diff.error) })}</p>;
   if (!lines) return <p className="px-3 py-2 text-[12px] text-subtle">{t('common.loading')}</p>;
-  let code = 0;
   return (
     <div className="overflow-x-auto border-t border-line-faint bg-well" data-pull-diff={path}>
-      <table className="w-full border-collapse font-mono text-[11.5px] leading-[1.55]">
-        <tbody>
-          {lines.map((line, i) => {
-            const isCode = line.kind === 'add' || line.kind === 'del' || line.kind === 'context';
-            const lineTokens = isCode ? tokens?.[code++] : undefined;
-            return (
-              <tr key={i} className={lineTints[line.kind]}>
-                <td className="w-10 select-none px-2 text-right align-top text-faint">{isCode ? line.old : ''}</td>
-                <td className="w-10 select-none px-2 text-right align-top text-faint">{isCode ? line.new : ''}</td>
-                <td className="w-4 select-none align-top text-subtle">{signs[line.kind]}</td>
-                <td className="whitespace-pre pr-4 text-tertiary">
-                  {lineTokens
-                    ? lineTokens.map((token, j) => (
-                        <span key={j} style={{ color: token.color, fontStyle: token.fontStyle === 1 ? 'italic' : undefined }}>
-                          {token.content}
-                        </span>
-                      ))
-                    : line.text}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <DiffTable path={path} lines={lines} tokens={tokens} />
     </div>
   );
-}
-
-// useHighlighted highlights a diff's code lines, all together so a line is
-// read in the context of the ones around it, again when the theme turns over.
-function useHighlighted(lines: DiffLine[] | null, lang: string | undefined): ThemedToken[][] | null {
-  const mode = useMode();
-  const code = lines
-    ?.filter((l) => l.kind === 'add' || l.kind === 'del' || l.kind === 'context')
-    .map((l) => l.text)
-    .join('\n');
-  const [out, setOut] = useState<{ code: string; mode: string; tokens: ThemedToken[][] } | null>(null);
-  useEffect(() => {
-    if (!lang || code === undefined) return;
-    let current = true;
-    highlight(code, lang)
-      .then((tokens) => current && setOut({ code, mode, tokens }))
-      .catch(() => {});
-    return () => {
-      current = false;
-    };
-  }, [code, lang, mode]);
-  return out && out.code === code && out.mode === mode ? out.tokens : null;
 }

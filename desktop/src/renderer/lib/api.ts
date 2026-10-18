@@ -390,6 +390,11 @@ export const api = {
   reviewedPage: (query: URLSearchParams, name?: string) => page<T.ReviewPage>(`${name ? `${project(name)}/review` : '/v1/review'}?reviewed=1&${query}`),
   review: (ref: string, req: T.ReviewRequest) => call<void>('POST', `${agent(ref)}/review`, req),
   requestChanges: (ref: string, req: T.RequestChangesRequest) => call<T.ChatItem>('POST', `${agent(ref)}/request-changes`, req),
+  // Notes on lines of an agent's diff, drafts until Request changes sends them.
+  reviewNotes: (ref: string) => call<T.ReviewNote[]>('GET', `${agent(ref)}/review-notes`),
+  addReviewNote: (ref: string, req: T.AddReviewNoteRequest) => call<T.ReviewNote>('POST', `${agent(ref)}/review-notes`, req),
+  editReviewNote: (ref: string, id: number, req: T.EditReviewNoteRequest) => call<T.ReviewNote>('PATCH', `${agent(ref)}/review-notes/${id}`, req),
+  deleteReviewNote: (ref: string, id: number) => call<void>('DELETE', `${agent(ref)}/review-notes/${id}`),
   questions: (name: string) => call<T.Question[]>('GET', `${project(name)}/questions?all=1`),
   // An agent's credential request: the value goes to the daemon, which puts it
   // into the agent, and the agent is told only what happened (D95).

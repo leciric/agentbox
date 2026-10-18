@@ -255,12 +255,49 @@ export function seedReview(queryClient: QueryClient): void {
   devRequests.push(reviewRequest);
 }
 
+// notes are each agent's notes on its diff (components/ReviewNotes.tsx), as
+// the daemon would keep them: drafts until Request changes sends them, then
+// pending, and the first resolved when the agent comes back with new work,
+// as if its code had changed.
+const notes = new Map<string, T.ReviewNote[]>();
+let noteSeq = 0;
+
+function notesRequest(method: string, route: string, body: unknown): { status: number; body: string; contentType: string } | undefined {
+  const m = /^\/v1\/agents\/[^/]+\/([^/]+)\/review-notes(?:\/(\d+))?$/.exec(route);
+  if (!m) return undefined;
+  const [, agent, id] = m;
+  const list = notes.get(agent) ?? [];
+  const json = (status: number, v: unknown) => ({ status, body: v === undefined ? '' : JSON.stringify(v), contentType: 'application/json' });
+  if (method === 'GET' && !id) return json(200, list);
+  if (method === 'POST' && !id) {
+    const req = body as T.AddReviewNoteRequest;
+    const note: T.ReviewNote = { ...req, id: ++noteSeq, status: 'draft', createdAt: new Date().toISOString() };
+    notes.set(agent, [...list, note]);
+    return json(201, note);
+  }
+  const note = list.find((n) => n.id === Number(id));
+  if (!note) return json(404, { error: 'no such note' });
+  if (method === 'DELETE') {
+    notes.set(agent, list.filter((n) => n !== note));
+    return json(204, undefined);
+  }
+  const edit = body as T.EditReviewNoteRequest;
+  if (edit.body !== undefined) note.body = edit.body;
+  if (edit.resolved !== undefined) {
+    note.status = edit.resolved ? 'resolved' : 'pending';
+    note.resolvedAt = edit.resolved ? new Date().toISOString() : undefined;
+  }
+  return json(200, note);
+}
+
 // reviewRequest answers the dev bridge for "Ready to review": the list, and
 // a verdict, which takes the agent off it.
 function reviewRequest(method: string, path: string, body?: unknown): { status: number; body: string; contentType: string } | undefined {
   // The top bar re-reads the Claude limits every 30s, past what was seeded.
   if (method === 'GET' && path === '/v1/limits') return { status: 200, body: '[]', contentType: 'application/json' };
   const [route, query] = path.split('?');
+  const noted = notesRequest(method, route, body);
+  if (noted) return noted;
   // The composer's AI tool picker (#297), which no other fixture answers.
   if (method === 'GET' && route === `/v1/projects/${PROJECT}/chat/runners`) {
     const runners: T.LeadRunners = { tool: 'claude', runners: [{ tool: 'claude', name: 'Claude Code', ready: true, installed: true }] };
@@ -335,7 +372,10 @@ function reviewRequest(method: string, path: string, body?: unknown): { status: 
   const changes = method === 'POST' && /^\/v1\/agents\/[^/]+\/([^/]+)\/request-changes$/.exec(path);
   if (changes) {
     const agent = changes[1];
-    const text = (body as T.RequestChangesRequest | undefined)?.text ?? '';
+    const req = body as T.RequestChangesRequest | undefined;
+    const text = req?.text ?? '';
+    const sentNow = (notes.get(agent) ?? []).filter((n) => req?.notes?.includes(n.id));
+    for (const n of sentNow) Object.assign(n, { status: 'pending', sentAt: new Date().toISOString() });
     const item = [...waiting, ...decided].find((i) => i.agent === agent);
     waiting = waiting.filter((i) => i.agent !== agent);
     decided = [...(item ? [{ ...item, verdict: 'changes', reviewedAt: new Date().toISOString() }] : []), ...decided.filter((i) => i.agent !== agent)];
@@ -346,6 +386,8 @@ function reviewRequest(method: string, path: string, body?: unknown): { status: 
     set({ chat: 'running', changesRequested: text });
     setTimeout(() => {
       set({ chat: 'ready', outcome: 'done', changesRequested: undefined });
+      if (sentNow[0]) sentNow[0].status = 'resolved';
+      void client?.invalidateQueries({ queryKey: ['reviewNotes'] });
       decided = decided.filter((i) => i.agent !== agent);
       if (item) waiting = [{ ...item, verdict: undefined, reviewedAt: undefined, finishedAt: new Date().toISOString(), fingerprint: `{"f":"${agent}-again"}`, summary: `Made the changes you asked for: ${text}` }, ...waiting];
       void client?.invalidateQueries({ queryKey: ['review'] });

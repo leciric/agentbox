@@ -9,7 +9,7 @@
 // TourHost starts what a launch should play (onLaunch); HelpMenu, at the
 // sidebar's top, and the shortcut sheet (Ctrl+/) replay them.
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, Check, ChevronDown, CircleHelp, Film, Hand, Image as ImageIcon, Keyboard, MessageCircleQuestion, Monitor, Pin, Sparkles, SquareTerminal, FolderTree, Images, EyeOff } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ChevronDown, CircleHelp, Film, Hand, Image as ImageIcon, Keyboard, MessageCircleQuestion, Monitor, Pin, Plus, Sparkles, SquareTerminal, FolderTree, Images, EyeOff } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { View } from '../../App';
 import { api } from '../../lib/api';
@@ -418,6 +418,37 @@ const examples: Record<Example, (t: Tr, anchored: boolean) => ReactNode> = {
           <ChevronDown className="size-3" />
         </span>
         <span className="rounded-md border border-line-strong px-2 py-0.5 text-secondary">{t('common.next')} →</span>
+      </div>
+    </Frame>
+  ),
+  notes: (t) => (
+    <Frame className="grid gap-2 p-2.5 font-mono text-[11px]">
+      <div className="truncate text-secondary">src/save.ts</div>
+      <div className="overflow-hidden rounded-md border border-line bg-well">
+        {[
+          ['12', ' ', 'export function save() {', ''],
+          ['13', '+', '  deleteAll();', 'bg-brand-500/20'],
+          ['14', '+', '  write(draft);', 'bg-brand-500/20'],
+        ].map(([n, sign, code, tint], i) => (
+          <div key={n} className={cn('flex items-center gap-2 px-1.5', tint || (sign === '+' && 'bg-emerald-500/10'))}>
+            <span className={cn('flex size-3.5 items-center justify-center rounded bg-brand-500 text-white', i !== 1 && 'invisible')}>
+              <Plus className="size-2.5" strokeWidth={3} />
+            </span>
+            <span className="w-4 text-right text-faint">{n}</span>
+            <span className="text-subtle">{sign}</span>
+            <span className="truncate text-tertiary">{code}</span>
+          </div>
+        ))}
+      </div>
+      <div className="rounded-md border border-brand-400/40 bg-modal p-2 font-sans">
+        <div className="text-[10.5px] text-muted">{t('review.notes.lines', { start: 13, end: 14 })}</div>
+        <div className="mt-1 text-[11.5px] text-primary">{t('tour.ex.notePlaceholder')}</div>
+      </div>
+      <div className="flex items-center gap-1.5 font-sans">
+        <span className="ml-auto inline-flex items-center gap-1 rounded-md border border-line-strong px-2 py-0.5 text-secondary">
+          {t('review.requestChanges')}
+          <span className="rounded-full bg-amber-400/20 px-1 text-amber-200">1</span>
+        </span>
       </div>
     </Frame>
   ),
