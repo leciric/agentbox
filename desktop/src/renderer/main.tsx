@@ -9,6 +9,7 @@ import { App } from './App';
 import { Toasts } from './components/Toasts';
 import { TooltipProvider } from './components/ui/tooltip';
 import { api } from './lib/api';
+import { userTimezone } from './lib/schedules';
 import { connectEvents } from './lib/events';
 import { applyLanguage, restoreLanguage, useLanguage } from './lib/i18n';
 import { restoreMode } from './lib/theme';
@@ -28,10 +29,19 @@ connectEvents(queryClient);
 // keeping its state, with no reload (lib/i18n.tsx).
 function Root() {
   useLanguage();
-  const language = useQuery({ queryKey: ['settings'], queryFn: api.settings }).data?.language;
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings }).data;
+  const language = settings?.language;
   useEffect(() => {
     if (language) applyLanguage(language);
   }, [language]);
+  // The daemon runs in a VM on UTC: scheduled tasks the lead or the command
+  // line set are read in the timezone this app runs in (lib/schedules.ts).
+  const timezone = settings?.timezone;
+  useEffect(() => {
+    if (timezone === undefined) return;
+    const here = userTimezone();
+    if (timezone !== here) void api.updateSettings({ timezone: here }).catch(() => {});
+  }, [timezone]);
   return (
     <TooltipProvider delayDuration={250}>
       <App />

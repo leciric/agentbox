@@ -163,6 +163,13 @@ const S = {
     body: 'tour.compare.body',
     anchor: ['[data-group-chip]', '[data-group-card]'],
   },
+  schedules: {
+    id: 'schedules',
+    title: 'tour.schedules.title',
+    body: 'tour.schedules.body',
+    anchor: ['[data-panel-more]', '[data-panel-toggle]'],
+    go: 'panel',
+  },
   help: {
     id: 'help',
     title: 'tour.help.title',
@@ -195,6 +202,7 @@ export const tours: Tour[] = [
   { id: 'places', version: v014, title: 'tour.placesTour.name', steps: [S.home, S.places] },
   { id: 'panel-switch', version: v015, title: 'tour.switchTour.name', steps: [S.computer, S.switch] },
   { id: 'compare', version: v015, title: 'tour.compareTour.name', steps: [S.fanOut, S.compare] },
+  { id: 'schedules', version: v015, title: 'tour.schedulesTour.name', steps: [S.schedules] },
 ];
 
 export const tourById = (id: string): Tour | undefined => (id === welcomeTour.id ? welcomeTour : tours.find((t) => t.id === id));

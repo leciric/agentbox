@@ -18,6 +18,8 @@ import { AgentPermissionCard } from './AgentPermissionCard';
 import { FinishedCards } from './EvidenceCard';
 import { GroupCard } from '../groups/GroupChip';
 import { latestGroupNotes } from '../../lib/groups';
+import { isLeadRef } from '../../lib/pages';
+import { ScheduledRunChip } from './ScheduledRunChip';
 import { ProjectMessageCard } from './ProjectMessageCard';
 import { SentImages } from './Images';
 import { Markdown } from './Markdown';
@@ -162,6 +164,8 @@ const TimelineRow = memo(
         // left is an error, and the mark a rollover leaves where the session
         // changed — and a message between this project's lead and another's.
         if (row.item.projectMessage) return <ProjectMessageCard item={row.item} />;
+        // And one of the project's scheduled tasks arriving.
+        if (row.item.scheduledRun) return <ScheduledRunChip item={row.item} project={isLeadRef(chatRef) ? chatRef.split('/')[0] : undefined} />;
         // And agents finishing, with what they showed they checked.
         if (row.item.finished?.length) return <FinishedCards item={row.item} />;
         // And a group of agents given one task: made, finished, decided.
