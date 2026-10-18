@@ -284,6 +284,16 @@ func leadAI(ai string, ready readyTools) (string, error) {
 	}
 }
 
+// variantAI is leadAI for one agent of a group, which may also run Codex:
+// comparing tools is what a group is for. Whether this machine is signed in
+// to Codex is the daemon's to say, in its own words, before anything starts.
+func variantAI(ai string, ready readyTools) (string, error) {
+	if strings.TrimSpace(strings.ToLower(ai)) == "codex" {
+		return "codex", nil
+	}
+	return leadAI(ai, ready)
+}
+
 // describeChoices names the settings a lead asked for, so the reply confirms
 // what was chosen rather than leaving it to be found later in the agent's chat.
 // Anything left to fall back to the project's own defaults goes unmentioned.
@@ -558,7 +568,8 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					"you'll be told to compare them and call recommend_agent. The user still decides."},
 				"variants": map[string]any{"type": "array", "minItems": 2, "maxItems": 6,
 					"description": "one entry per agent, in order (A, B, C…): what each runs. Two entries alike run the same task twice " +
-						"on the same model, which is also a fair comparison.",
+						"on the same model, which is also a fair comparison. Besides create_agent's tools, ai may be \"codex\" (OpenAI's " +
+						"Codex, on the model its login has: give it no model or effort), when this machine is signed in to Codex.",
 					"items": object(nil, merge(map[string]any{
 						"claude_account": str("as create_agent's claude_account, for this agent"),
 						"codex_account":  str("as create_agent's codex_account, for this agent"),
@@ -586,7 +597,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				}
 				req := api.FanOutRequest{Title: in.Title, Task: in.Task, From: in.From, Branch: in.Branch, Judge: in.Judge}
 				for i, v := range in.Variants {
-					ai, err := leadAI(v.AI, ready)
+					ai, err := variantAI(v.AI, ready)
 					if err != nil {
 						return "", fmt.Errorf("variant %d: %w", i+1, err)
 					}

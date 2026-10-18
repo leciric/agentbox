@@ -158,11 +158,16 @@ func (s *Server) fanOut(ctx context.Context, req api.FanOutRequest, byLead bool)
 	// The project's chat hears of a group the user made, so it knows these
 	// agents are being compared rather than each one's to follow up; the one
 	// it made itself it already knows of. The notice shows as the group.
+	// The project's chat shows the group from the start, as a card, whoever
+	// made it; a group the user made is news to the lead too, so it knows
+	// these agents are being compared rather than each one's to follow up.
+	who := "You ran"
 	if !byLead {
-		s.tellLeadOf(ctx, g.Project, fmt.Sprintf("The user ran one task on %d agents at once, to compare them and keep one (group %s, %q). "+
-			"They are told not to open pull requests until one is kept; you'll hear when all of them have finished. Task:\n\n%s",
-			len(g.Members), g.ID, g.Title, g.Task), chat.NoticeOptions{Group: g.ID})
+		who = "The user ran"
 	}
+	s.tellLeadOf(ctx, g.Project, fmt.Sprintf("%s one task on %d agents at once, to compare them and keep one (group %s, %q): %s. "+
+		"They are told not to open pull requests until one is kept; you'll hear when all of them have finished. Task:\n\n%s",
+		who, len(g.Members), g.ID, g.Title, memberList(g), g.Task), chat.NoticeOptions{Group: g.ID})
 	return out, nil
 }
 

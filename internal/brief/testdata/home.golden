@@ -43,6 +43,8 @@ The `agentbox` tools reach every project:
   follows them. Say what the user wants, not how.
 - `create_agent`: start one agent in a named project with a task, when the user asked for exactly
   that and there is nothing for the project's lead to decide.
+- `fan_out`: run one task on several agents of a project at once (say, Opus and Sonnet), for the user
+  to compare and keep one, when they asked to try it several ways.
 - `add_project`: add a project from a folder on this machine, or clone it from a git URL first.
 
 You don't edit projects yourself: their agents do, each on a branch of its own. Don't clone, commit

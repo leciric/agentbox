@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -124,6 +125,51 @@ func homeTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					return "", err
 				}
 				return fmt.Sprintf("Creating %q in %s; it starts on the task by itself. Job %s.", in.Title, in.Project, job.ID), nil
+			},
+		},
+		{
+			Name: "fan_out",
+			Description: "Run one task on several agents of a project at once (2 to 6), each on the AI tool and model you give it, " +
+				"as a group the user compares side by side in the app and keeps one of; the others are retired with their branches " +
+				"kept. Use it when the user asks to try a task several ways, such as on two models. The project's lead sees the group " +
+				"in its chat and hears when they have all finished.",
+			Schema: object([]string{"project", "title", "task", "variants"}, map[string]any{
+				"project": project,
+				"title":   str("a short name for the group, like \"Login page\"; each agent gets its letter after it"),
+				"task":    str("what to do, directly, the same for every agent"),
+				"branch":  str("the slug every agent's branch starts with, each getting its letter after it; made from the title when left out"),
+				"judge":   map[string]any{"type": "boolean", "description": "ask the project's lead to recommend one once they have all finished"},
+				"variants": map[string]any{"type": "array", "minItems": 2, "maxItems": 6,
+					"description": "one entry per agent, in order (A, B, C…)",
+					"items": object([]string{"ai"}, map[string]any{
+						"ai":    choiceOf("the AI tool: claude (Claude Code), codex, opencode or cursor", "claude", "codex", "opencode", "cursor"),
+						"model": str("its model, like \"opus\" or \"sonnet\" for Claude Code; leave it out for the default, and always for Codex"),
+					})},
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct {
+					Project, Title, Task, Branch string
+					Judge                        bool
+					Variants                     []struct {
+						AI    string
+						Model *string
+					}
+				}
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				if strings.TrimSpace(in.Project) == "" {
+					return "", errors.New("name the project to run the task in")
+				}
+				req := api.FanOutRequest{Project: in.Project, Title: in.Title, Task: in.Task, Branch: in.Branch, Judge: in.Judge}
+				for _, v := range in.Variants {
+					req.Variants = append(req.Variants, api.FanOutVariant{AI: cmp.Or(strings.ToLower(strings.TrimSpace(v.AI)), "claude"), Model: v.Model})
+				}
+				out, err := c.FanOut(ctx, req)
+				if err != nil {
+					return "", err
+				}
+				return describeGroup(out.Group, "Started group "+out.Group.ID+" in "+in.Project+": "), nil
 			},
 		},
 		{
