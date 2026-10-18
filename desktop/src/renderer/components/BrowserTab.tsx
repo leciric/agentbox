@@ -9,6 +9,7 @@ import { clock } from '../lib/media';
 import { useFullscreen } from '../lib/useFullscreen';
 import { useVncView } from '../lib/useVncView';
 import { standIn } from './pip/standIn';
+import { PickButton, usePicker } from './PickElement';
 import { cn, errorMessage } from '../lib/utils';
 import { Button } from './ui/button';
 import { Code, Notice } from './ui/card';
@@ -37,7 +38,10 @@ export function BrowserTab({ agent, onOpenMedia }: { agent: T.Agent; onOpenMedia
   const [now, setNow] = useState(Date.now());
   const desktopUp = running && status.data?.display === true;
   const browserUp = running && status.data?.running === true;
-  const { view, connected, paste } = useVncView(browserViewPath(agent.ref), desktopUp, control);
+  const picker = usePicker(agent, agent.ref);
+  // Picking takes the pointer, as control does: the overlay is on the page.
+  const pointer = control || picker.picking;
+  const { view, connected, paste } = useVncView(browserViewPath(agent.ref), desktopUp, pointer);
   const screen = useFullscreen<HTMLDivElement>();
   const toggleScreen = screen.toggle;
   // Shift+F11, not F11: that one is the window's. In control the keys belong to the agent's desktop.
@@ -96,6 +100,7 @@ export function BrowserTab({ agent, onOpenMedia }: { agent: T.Agent; onOpenMedia
           </span>
         </span>
         <div className="flex-1" />
+        <PickButton picking={picker.picking} disabled={!browserUp || !connected} onToggle={picker.toggle} />
         <Tip label={t('agent.browser.screenshotTip')}>
           <Button size="sm" disabled={!browserUp || shot.isPending} onClick={() => shot.mutate()}>
             {shot.isPending ? <LoaderCircle className="animate-spin" /> : <Camera />}
@@ -183,7 +188,7 @@ export function BrowserTab({ agent, onOpenMedia }: { agent: T.Agent; onOpenMedia
       <div ref={screen.ref} className="relative min-h-0 flex-1 bg-stage">
         <div ref={view} className="absolute inset-0" data-browser-view={agent.ref} data-connected={connected} />
         {/* Keeps your mouse and keyboard away from the browser until you take control. */}
-        {connected && !control && <div className="absolute inset-0" data-view-guard />}
+        {connected && !pointer && <div className="absolute inset-0" data-view-guard />}
         {standIn ? (
           <div className="absolute inset-0 flex items-center">
             <div className="w-full">{standIn(agent)}</div>
@@ -220,7 +225,7 @@ export function BrowserTab({ agent, onOpenMedia }: { agent: T.Agent; onOpenMedia
             <Minimize />
           </Button>
         )}
-        {control && connected && <div className="pointer-events-none absolute inset-0 rounded-b-2xl ring-2 ring-inset ring-brand-400/40" />}
+        {pointer && connected && <div className={cn('pointer-events-none absolute inset-0 rounded-b-2xl ring-2 ring-inset', picker.picking ? 'ring-brand-400/80' : 'ring-brand-400/40')} />}
       </div>
 
       <div className="flex h-8 shrink-0 items-center gap-3 border-t border-line px-4 text-xs text-subtle">
@@ -230,7 +235,7 @@ export function BrowserTab({ agent, onOpenMedia }: { agent: T.Agent; onOpenMedia
           </span>
         )}
         <span className="ml-auto shrink-0">
-          {!desktopUp ? '' : control ? t('agent.browser.controlOn') : t('agent.browser.viewOnly')}
+          {!desktopUp ? '' : picker.picking ? t('pick.footer') : control ? t('agent.browser.controlOn') : t('agent.browser.viewOnly')}
         </span>
       </div>
     </div>

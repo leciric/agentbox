@@ -6,6 +6,7 @@
 import type * as T from '../../shared/api';
 import { t } from '../../shared/i18n/index.ts';
 import { maxImages, prepareImage, type PendingImage } from './chatImages.ts';
+import { pickImageName, type PendingElement } from './picks.ts';
 
 // The daemon's limits: api.MaxChatFiles, api.MaxChatFileBytes and
 // api.MaxChatFilesBytes.
@@ -19,10 +20,12 @@ export interface PendingFile extends T.ChatFileUpload {
   file: true;
 }
 
-// Pending is one thing waiting in the composer: a picture or a file.
-export type Pending = PendingImage | PendingFile;
+// Pending is one thing waiting in the composer: a picture, a file or an
+// element picked in a browser (picks.ts).
+export type Pending = PendingImage | PendingFile | PendingElement;
 
 export const isFile = (p: Pending): p is PendingFile => 'file' in p;
+export const isElement = (p: Pending): p is PendingElement => 'element' in p;
 
 let next = 0;
 
@@ -45,6 +48,9 @@ export async function prepareAttachment(file: File, images: boolean): Promise<Pe
   return prepareFile(file);
 }
 
+// hasPicture is whether p goes to the AI tool as a picture.
+const hasPicture = (p: Pending) => (isElement(p) ? !!p.element.image : !isFile(p));
+
 // room says why adding next to what waits already would break a limit, or ''.
 export function room(waiting: Pending[], next: Pending): string {
   if (isFile(next)) {
@@ -53,15 +59,26 @@ export function room(waiting: Pending[], next: Pending): string {
     if (files.reduce((sum, f) => sum + f.size, next.size) > maxFilesBytes) return t('chat.files.maxTotal', { max: formatSize(maxFilesBytes) });
     return '';
   }
-  return waiting.filter((p) => !isFile(p)).length >= maxImages ? t('chat.composer.maxImages', { count: maxImages }) : '';
+  if (isElement(next) && !next.element.image) return '';
+  return waiting.filter(hasPicture).length >= maxImages ? t('chat.composer.maxImages', { count: maxImages }) : '';
 }
 
-// uploads is what the daemon takes for what waits in the composer.
-export function uploads(pending: Pending[]): { images: T.ChatImageUpload[]; files: T.ChatFileUpload[] } {
+
+// uploads is what the daemon takes for what waits in the composer. A pick's
+// crop is a picture, or a file for a tool that takes no pictures; its text
+// is withPicks's.
+export function uploads(pending: Pending[], pictures = true): { images: T.ChatImageUpload[]; files: T.ChatFileUpload[] } {
   const images: T.ChatImageUpload[] = [];
   const files: T.ChatFileUpload[] = [];
+  let n = 0;
   for (const p of pending) {
-    if (isFile(p)) files.push({ name: p.name, mimeType: p.mimeType, data: p.data });
+    if (isElement(p)) {
+      n++;
+      const image = p.element.image;
+      if (!image) continue;
+      const crop = { mimeType: image.mimeType, data: image.data, name: pickImageName(n, image) };
+      (pictures ? images : files).push(crop);
+    } else if (isFile(p)) files.push({ name: p.name, mimeType: p.mimeType, data: p.data });
     else images.push({ mimeType: p.mimeType, data: p.data, name: p.name });
   }
   return { images, files };

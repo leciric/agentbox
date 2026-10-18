@@ -781,6 +781,44 @@ export interface BrowserOpenRequest {
   url: string;
 }
 
+export interface ElementPickRequest {
+  hint?: string;
+}
+
+export interface ElementPickResult {
+  element?: ElementPick;
+}
+
+export interface ElementPick {
+  url: string;
+  title?: string;
+  selector: string;
+  tag: string;
+  html: string;
+  text?: string;
+  styles: ElementStyle[];
+  box: ElementBox;
+  viewport: ElementSize;
+  image?: ChatImageUpload;
+}
+
+export interface ElementStyle {
+  name: string;
+  value: string;
+}
+
+export interface ElementBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface ElementSize {
+  width: number;
+  height: number;
+}
+
 export interface PreviewInfo {
   addr: string;
 }

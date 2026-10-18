@@ -86,6 +86,7 @@ import { PanelBrowser } from './PanelBrowser';
 import { DeskGlyph } from './DesktopPeek';
 import { chatOf } from './PanelButton';
 import { useInUse } from '../pip/PipLane';
+import { PickButton, usePicker } from '../PickElement';
 
 const deskShort: Record<Desk, MessageKey> = { live: 'desk.short.live', on: 'desk.short.on', asleep: 'desk.short.asleep' };
 
@@ -588,7 +589,10 @@ function PanelDesktop({ chat, agent }: { chat: string; agent: T.Agent }) {
   const [control, setControl] = useState(false);
   const [now, setNow] = useState(Date.now());
   const desktopUp = !!standIn || (running && status.data?.display === true);
-  const { view, connected } = useVncView(browserViewPath(agent.ref), desktopUp && !standIn, control);
+  const picker = usePicker(agent, chat);
+  // Picking takes the pointer, as control does: the overlay is on the page.
+  const pointer = control || picker.picking;
+  const { view, connected } = useVncView(browserViewPath(agent.ref), desktopUp && !standIn, pointer);
   const live = connected || !!standIn;
   const screen = useFullscreen<HTMLDivElement>();
   const isRecording = recording.data?.recording === true;
@@ -619,7 +623,8 @@ function PanelDesktop({ chat, agent }: { chat: string; agent: T.Agent }) {
           <span className={cn('size-1.5 rounded-full', live ? 'animate-pulse bg-white' : 'bg-faint')} />
           {t('panel.live')}
         </span>
-        <span className="min-w-0 flex-1 truncate text-[11.5px] text-subtle">{page?.title || page?.url || ''}</span>
+        <span className="min-w-0 flex-1 truncate text-[11.5px] text-subtle">{picker.picking ? t('pick.footer') : page?.title || page?.url || ''}</span>
+        <PickButton compact picking={picker.picking} disabled={!live || (!standIn && status.data?.running !== true)} onToggle={picker.toggle} />
         <Tip label={t('agent.browser.screenshotTip')}>
           <Button size="icon-sm" variant="ghost" aria-label={t('agent.browser.screenshot')} disabled={!connected || shot.isPending} onClick={() => shot.mutate()}>
             {shot.isPending ? <LoaderCircle className="animate-spin" /> : <Camera />}
@@ -645,7 +650,7 @@ function PanelDesktop({ chat, agent }: { chat: string; agent: T.Agent }) {
       </div>
       {error && <p className="px-3 pb-2 text-[11.5px] text-rose-300">{errorMessage(error)}</p>}
       <div className="px-3">
-        <div ref={screen.ref} className={cn('relative aspect-[16/10] w-full overflow-hidden rounded-lg border border-line bg-stage', control && connected && 'ring-2 ring-brand-400/50')} data-panel-screen>
+        <div ref={screen.ref} className={cn('relative aspect-[16/10] w-full overflow-hidden rounded-lg border border-line bg-stage', pointer && connected && 'ring-2 ring-brand-400/50', picker.picking && 'ring-brand-400/90')} data-panel-screen>
           {standIn ? (
             <div className="absolute inset-0 flex items-center">
               <div className="w-full">{standIn(agent)}</div>
@@ -653,7 +658,7 @@ function PanelDesktop({ chat, agent }: { chat: string; agent: T.Agent }) {
           ) : (
             <>
               <div ref={view} className="absolute inset-0" data-browser-view={agent.ref} data-connected={connected} />
-              {connected && !control && <div className="absolute inset-0" data-view-guard />}
+              {connected && !pointer && <div className="absolute inset-0" data-view-guard />}
               {!desktopUp && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 px-4 text-center">
                   <Monitor className="size-6 text-faint" />

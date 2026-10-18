@@ -45,7 +45,8 @@ import { composeEvent, getDraft, setDraft } from '../../lib/drafts';
 import { formatTime, t as translate, useT } from '../../lib/i18n';
 import { useNow } from '../../lib/useNow';
 import { previewUrl } from '../../lib/chatImages';
-import { droppedFiles, isFile, prepareAttachment, room, uploads, type Pending } from '../../lib/chatFiles';
+import { droppedFiles, isElement, isFile, prepareAttachment, room, uploads, type Pending } from '../../lib/chatFiles';
+import { splitPicked, takePicks, useWaitingPicks, withPicks } from '../../lib/picks';
 import { ModelByName } from '../ModelByName';
 import { cn, errorMessage } from '../../lib/utils';
 import { aiLabel, ToolMark } from '../state';
@@ -55,6 +56,7 @@ import { DiffView, relativePath } from './ChangedFiles';
 import { PermissionActions } from './PermissionActions';
 import { FileChip } from './Files';
 import { ImageThumb } from './Images';
+import { PickChip } from './PickChip';
 import { NextTool, RunnerItems, useRunner, type Runner } from './RunnerPicker';
 import { openSettingsSection } from '../SettingsPage';
 
@@ -112,8 +114,8 @@ export function Composer({
 
   const send = useMutation({
     mutationFn: (message: { text: string; images: Pending[] }) => {
-      const { images, files } = uploads(message.images);
-      return api.sendChat(agent.ref, message.text, images, files);
+      const { images, files } = uploads(message.images, !session?.noImages);
+      return api.sendChat(agent.ref, withPicks(message.text, message.images.filter(isElement)), images, files);
     },
     onMutate: () => {
       setSendError(null);
@@ -131,6 +133,21 @@ export function Composer({
     },
   });
   const [sendError, setSendError] = useState<string | null>(null);
+
+  // Elements picked in a browser whose chat this is (picks.ts) join what
+  // waits here, as they arrive or when the composer comes back into view.
+  const arriving = useWaitingPicks(agent.ref);
+  useEffect(() => {
+    if (!arriving.length) return;
+    let next = images;
+    for (const pick of takePicks(agent.ref)) {
+      const full = room(next, pick);
+      if (full) toast.error(full);
+      else next = [...next, pick];
+    }
+    setImages(next);
+    area.current?.focus();
+  }, [arriving, agent.ref, images]);
 
   // A Claude Code chat with no login anywhere can't start: say so before the
   // message is sent, with the way to log in, rather than after it fails
@@ -355,7 +372,8 @@ export function Composer({
   };
   const syncCursor = (event: SyntheticEvent<HTMLTextAreaElement>) => setCursor(event.currentTarget.selectionStart);
 
-  const lastMine = thread?.items.findLast((it) => it.kind === 'user' && !it.parent && !it.hidden)?.text;
+  // What was typed of it: the elements it was sent with are picked again.
+  const lastMine = splitPicked(thread?.items.findLast((it) => it.kind === 'user' && !it.parent && !it.hidden)?.text ?? '').text;
   // A chat with nothing in it yet has nothing to follow up on.
   const empty = !!thread && !thread.older && !thread.items.some(isMessage);
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -671,7 +689,9 @@ export function Composer({
           <div className="flex flex-wrap gap-2 px-4 pt-3.5" aria-label={t('chat.composer.attached')}>
             {images.map((image) => {
               const remove = () => setImages((current) => current.filter((other) => other.key !== image.key));
-              return isFile(image) ? (
+              return isElement(image) ? (
+                <PickChip key={image.key} pick={image} n={images.filter(isElement).indexOf(image) + 1} onRemove={remove} />
+              ) : isFile(image) ? (
                 <FileChip key={image.key} name={image.name} size={image.size} mimeType={image.mimeType} onRemove={remove} />
               ) : (
                 <ImageThumb key={image.key} src={previewUrl(image)} name={image.name} className="size-14" onRemove={remove} />
@@ -853,7 +873,7 @@ function CacheCard({
     mutationFn: ({ compact, message }: { compact: boolean; message: { text: string; images: Pending[] } | null }) =>
       api.chooseChatCache(project, {
         compact,
-        text: message?.text,
+        text: message ? withPicks(message.text, message.images.filter(isElement)) : undefined,
         ...(message ? uploads(message.images) : {}),
       }),
     onSuccess: (_, { message }) => onChosen(message),
