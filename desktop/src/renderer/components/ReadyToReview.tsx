@@ -607,9 +607,11 @@ function ReviewCarousel({
                   {t('review.notes.barSent', { list: earlierCounts })}
                 </span>
               )}
-              <Button size="sm" variant="secondary" className="ml-auto h-7" onClick={requestChanges} data-review-notes-send>
-                {pendingNotes.length > 0 ? t('review.notes.send') : t('review.requestChanges')}
-              </Button>
+              {pendingNotes.length > 0 && (
+                <Button size="sm" variant="secondary" className="ml-auto h-7" onClick={requestChanges} data-review-notes-send>
+                  {t('review.notes.send')}
+                </Button>
+              )}
             </div>
           )}
           {changing && (
