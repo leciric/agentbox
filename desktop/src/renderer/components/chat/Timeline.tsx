@@ -7,6 +7,7 @@ import { formatDuration, timelineRows, type Row } from '../../lib/chat';
 import { formatDateTime, formatTime, useT, type MessageKey } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
 import { fileLinkOf } from '../../lib/files';
+import { pickImageNumber, splitPicked } from '../../lib/picks';
 import { FileLinks } from '../files/FilePanel';
 import { pastState } from '../../lib/pastAgents';
 import { aiLabel } from '../state';
@@ -20,6 +21,7 @@ import { isLeadRef } from '../../lib/pages';
 import { ScheduledRunChip } from './ScheduledRunChip';
 import { ProjectMessageCard } from './ProjectMessageCard';
 import { SentImages } from './Images';
+import { SentPicks } from './PickChip';
 import { Markdown } from './Markdown';
 import { TurnMarker } from './TurnMarker';
 import { ChatRefContext } from './chatRef';
@@ -68,13 +70,7 @@ const TimelineRow = memo(
       case 'user':
         return (
           <div className="group flex flex-col items-end gap-1 pb-4 pt-1" data-chat-item={row.item.kind === 'aside' ? 'aside' : 'user'} data-chat-id={row.item.id}>
-            {!!row.item.images?.length && <SentImages chatRef={chatRef} images={row.item.images} />}
-            {!!row.item.files?.length && <SentFiles chatRef={chatRef} files={row.item.files} />}
-            {row.item.text && (
-              <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl bg-surface-raised px-3.5 py-2.5 text-sm leading-relaxed text-primary shadow-[inset_0_1px_0_rgb(255_255_255/0.04)]" data-chat-text>
-                <Mentions text={row.item.text} />
-              </div>
-            )}
+            <UserMessage item={row.item} chatRef={chatRef} />
             {row.item.kind === 'aside' && <Delivered item={row.item} />}
             <Meta item={row.item} className="justify-end pr-1" />
           </div>
@@ -370,4 +366,26 @@ function Mentions({ text }: { text: string }) {
   }
   parts.push(text.slice(last));
   return <>{parts}</>;
+}
+
+// UserMessage is what you sent: its pictures and files, the elements you
+// picked in a browser (lib/picks.ts) as chips with their crops rather than
+// the text and pictures the AI tool reads, and what you wrote.
+function UserMessage({ item, chatRef }: { item: T.ChatItem; chatRef: string }) {
+  const split = useMemo(() => splitPicked(item.text ?? ''), [item.text]);
+  const images = item.images ?? [];
+  const picked = (image: T.ChatImage) => split.picks.some((p) => p.n === pickImageNumber(image.name));
+  const pictures = images.filter((image) => !picked(image));
+  return (
+    <>
+      {pictures.length > 0 && <SentImages chatRef={chatRef} images={pictures} />}
+      {!!item.files?.length && <SentFiles chatRef={chatRef} files={item.files} />}
+      {split.picks.length > 0 && <SentPicks chatRef={chatRef} picks={split.picks} images={images} />}
+      {split.text && (
+        <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl bg-surface-raised px-3.5 py-2.5 text-sm leading-relaxed text-primary shadow-[inset_0_1px_0_rgb(255_255_255/0.04)]" data-chat-text>
+          <Mentions text={split.text} />
+        </div>
+      )}
+    </>
+  );
 }

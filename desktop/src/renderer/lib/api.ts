@@ -490,6 +490,10 @@ export const api = {
 
   browser: (ref: string) => call<T.BrowserStatus>('GET', `${agent(ref)}/browser`),
   browserAction: (ref: string, action: 'start' | 'stop') => call<T.BrowserStatus>('POST', `${agent(ref)}/browser/${action}`),
+  // pickElement shows the element picker on the page in ref's browser and
+  // answers once an element is clicked, or with none once it is cancelled.
+  pickElement: (ref: string, hint: string) => call<T.ElementPickResult>('POST', `${agent(ref)}/browser/pick`, { hint } satisfies T.ElementPickRequest),
+  cancelPick: (ref: string) => call<void>('POST', `${agent(ref)}/browser/pick/cancel`),
   openInBrowser: (ref: string, url: string) =>
     call<T.BrowserStatus>('POST', `${agent(ref)}/browser/open`, { url } satisfies T.BrowserOpenRequest),
   preview: () => call<T.PreviewInfo>('GET', '/v1/preview'),

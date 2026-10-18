@@ -18,7 +18,7 @@ import type { MessageKey } from './i18n';
 import type { Arrival } from './uiV2.ts';
 
 // Example is the made-up content a step shows beside its words.
-export type Example = 'sidebar' | 'prompt' | 'mention' | 'cards' | 'review' | 'panel' | 'layout' | 'notes';
+export type Example = 'sidebar' | 'prompt' | 'mention' | 'cards' | 'review' | 'panel' | 'layout' | 'notes' | 'pick';
 
 // Go is where a step needs the app to be: a lead's chat, or that chat with its
 // panel open. Without a project, the step stays where it is.
@@ -137,6 +137,15 @@ const S = {
     example: 'panel',
     go: 'panel',
   },
+  pick: {
+    id: 'pick',
+    title: 'tour.pick.title',
+    body: 'tour.pick.body',
+    anchor: ['[data-pick-element]', '[data-panel-switch]', '[data-right-panel]'],
+    example: 'pick',
+    exampleAlways: true,
+    go: 'panel',
+  },
   places: {
     id: 'places',
     title: 'tour.places.title',
@@ -185,7 +194,7 @@ export const welcomeTour: Tour = {
   id: 'welcome',
   version: v013,
   title: 'tour.welcome.name',
-  steps: [S.welcome, S.sidebar, S.computer, S.home, S.groups, S.hide, S.lead, S.mention, S.cards, S.reviewButton, S.review, S.panel, S.switch, S.places, S.classic, S.help],
+  steps: [S.welcome, S.sidebar, S.computer, S.home, S.groups, S.hide, S.lead, S.mention, S.cards, S.reviewButton, S.review, S.panel, S.switch, S.pick, S.places, S.classic, S.help],
 };
 
 // tours is What's new: each big feature's own short tour, oldest first.
@@ -197,6 +206,7 @@ export const tours: Tour[] = [
   { id: 'cross-project', version: v013, title: 'tour.crossTour.name', steps: [S.mention] },
   { id: 'places', version: v014, title: 'tour.placesTour.name', steps: [S.home, S.places] },
   { id: 'panel-switch', version: v015, title: 'tour.switchTour.name', steps: [S.computer, S.switch] },
+  { id: 'pick', version: v015, title: 'tour.pickTour.name', steps: [S.pick] },
   { id: 'schedules', version: v015, title: 'tour.schedulesTour.name', steps: [S.schedules] },
   { id: 'diff-notes', version: v015, title: 'tour.diffNotes.name', steps: [S.diffNotes] },
 ];

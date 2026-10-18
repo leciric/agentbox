@@ -86,6 +86,8 @@ type Server struct {
 	// timeline holds a *sync.Mutex per agent ref, taken by its checkpoints
 	// and rollbacks (timeline.go).
 	timeline sync.Map
+	// picks are the element pickers showing, one per agent (browser.go).
+	picks elementPicks
 	// imageCache is the image cache agents' Docker shares (imagecache.go),
 	// and imageCacheUp whether its socket is being served.
 	imageCache   *imagecache.Cache
@@ -860,6 +862,8 @@ func (s *Server) routes() http.Handler {
 		h("POST /v1/agents/{project}/{agent}/browser/"+action, s.browser(action, s.agentFromPath))
 	}
 	h("GET /v1/agents/{project}/{agent}/browser/view", s.browserView)
+	h("POST /v1/agents/{project}/{agent}/browser/pick", s.pickElement)
+	h("POST /v1/agents/{project}/{agent}/browser/pick/cancel", s.cancelPick)
 	h("GET /v1/agents/{project}/{agent}/android", s.android("status", s.agentFromPath, "user"))
 	for _, action := range []string{"start", "stop", "install"} {
 		h("POST /v1/agents/{project}/{agent}/android/"+action, s.android(action, s.agentFromPath, "user"))
