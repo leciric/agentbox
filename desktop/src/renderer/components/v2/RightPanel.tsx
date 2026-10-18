@@ -10,7 +10,7 @@
 // One width, dragged at its left edge. lib/rightPanel.ts has its rules and
 // state.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Camera, Check, ChevronDown, Crown, Ellipsis, Film, FileText, FolderTree, GanttChart, GitBranch, GitPullRequest, Globe, Image as ImageIcon, Images, LoaderCircle, Maximize, Minimize, Monitor, MousePointer2, Play, Power, Search, SlidersHorizontal, SquareTerminal, Unplug, X, type LucideIcon } from 'lucide-react';
+import { AlarmClock, Camera, Check, ChevronDown, Crown, Ellipsis, Film, FileText, FolderTree, GanttChart, GitBranch, GitPullRequest, Globe, Image as ImageIcon, Images, LoaderCircle, Maximize, Minimize, Monitor, MousePointer2, Play, Power, Search, SlidersHorizontal, SquareTerminal, Unplug, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
@@ -71,6 +71,7 @@ import { PageThumb } from '../pages/PageThumb';
 import { useProjectPages } from '../pages/usePages';
 import { standIn } from '../pip/standIn';
 import { ProjectIcon } from '../ProjectIcon';
+import { SchedulesPanel } from '../SchedulesPanel';
 import { ProjectSettingsBody } from '../ProjectView';
 import { PullRequestsPanel } from '../PullRequestsPanel';
 import { LiveAgentAvatar } from '../state';
@@ -96,6 +97,7 @@ const viewIcon: Record<PanelView, LucideIcon> = {
   browser: Globe,
   timeline: GanttChart,
   pulls: GitPullRequest,
+  schedules: AlarmClock,
   settings: SlidersHorizontal,
 };
 const viewLabel: Record<PanelView, MessageKey> = {
@@ -106,6 +108,7 @@ const viewLabel: Record<PanelView, MessageKey> = {
   browser: 'panel.view.browser',
   timeline: 'panel.view.timeline',
   pulls: 'panel.view.pulls',
+  schedules: 'panel.view.schedules',
   settings: 'panel.view.settings',
 };
 
@@ -913,7 +916,7 @@ function Files({ project, whose, width }: { project: string; whose: Whose; width
 
 // ProjectView is the project's pull requests or its settings, over whoever
 // the panel shows until a view of the switch is picked.
-function ProjectView({ project, chat, view, section, onSelect }: { project: string; chat: string; view: 'pulls' | 'settings'; section: PanelState['section']; onSelect: (view: View) => void }) {
+function ProjectView({ project, chat, view, section, onSelect }: { project: string; chat: string; view: 'pulls' | 'schedules' | 'settings'; section: PanelState['section']; onSelect: (view: View) => void }) {
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const p = projects.data?.find((x) => x.name === project);
   const title = <span className="ml-1 min-w-0 truncate font-normal text-subtle">· {projectLabel(project, projects.data)}</span>;
@@ -930,6 +933,16 @@ function ProjectView({ project, chat, view, section, onSelect }: { project: stri
               openPanelOn(chat, 'settings');
             }}
           />
+        </div>
+      </>
+    );
+  }
+  if (view === 'schedules') {
+    return (
+      <>
+        <ViewTitle view={view} after={title} />
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3" data-panel-schedules>
+          <SchedulesPanel project={project} onSelect={onSelect} />
         </div>
       </>
     );

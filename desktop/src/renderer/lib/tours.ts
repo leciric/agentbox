@@ -159,6 +159,13 @@ const S = {
     example: 'notes',
     exampleAlways: true,
   },
+  schedules: {
+    id: 'schedules',
+    title: 'tour.schedules.title',
+    body: 'tour.schedules.body',
+    anchor: ['[data-panel-more]', '[data-panel-toggle]'],
+    go: 'panel',
+  },
   help: {
     id: 'help',
     title: 'tour.help.title',
@@ -190,6 +197,7 @@ export const tours: Tour[] = [
   { id: 'cross-project', version: v013, title: 'tour.crossTour.name', steps: [S.mention] },
   { id: 'places', version: v014, title: 'tour.placesTour.name', steps: [S.home, S.places] },
   { id: 'panel-switch', version: v015, title: 'tour.switchTour.name', steps: [S.computer, S.switch] },
+  { id: 'schedules', version: v015, title: 'tour.schedulesTour.name', steps: [S.schedules] },
   { id: 'diff-notes', version: v015, title: 'tour.diffNotes.name', steps: [S.diffNotes] },
 ];
 

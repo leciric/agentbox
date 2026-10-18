@@ -185,6 +185,8 @@ type Server struct {
 	snaps        snapStore                // SnapShots waiting for the app's composer (snaps.go)
 	leadWaits    map[string]bool          // agents their project's chat asked for something and hasn't heard back from, by ref (D87)
 	toldWaiting  map[string]bool          // agents whose chat has been told they wait on background work, until they finish, by ref
+	// scheduleKick wakes the scheduled tasks' runner (schedules.go).
+	scheduleKick chan struct{}
 	// archivedPRChecked is when each past agent's open pull request was last
 	// read from GitHub, by ref (archive.go).
 	archivedPRChecked map[string]time.Time
@@ -305,6 +307,7 @@ func New(cfg Config) (*Server, error) {
 		distilling:       map[string]bool{},
 		leadWaits:        map[string]bool{},
 		toldWaiting:      map[string]bool{},
+		scheduleKick:     make(chan struct{}, 1),
 		nudged:           map[string]bool{},
 		outcomes:         map[string]agentOutcome{},
 		outcomesRead:     map[string]bool{},
@@ -459,6 +462,8 @@ func (s *Server) Run(ctx context.Context) error {
 	loops.Go(func() { s.watchUsage(ctx, realUsageClock()) })
 	loops.Go(func() { s.watchStalls(ctx) })
 	loops.Go(func() { s.watchPullRequests(ctx) })
+	// Scheduled tasks, starting with any that fell due while it was down.
+	loops.Go(func() { s.runSchedules(ctx) })
 	loops.Go(func() { s.reconcilePullRequests(ctx) })
 	loops.Go(func() { s.syncBases(ctx) })
 	// Incus is asked only from here on: nothing before Serve may wait on it.
@@ -707,6 +712,8 @@ func (s *Server) routes() http.Handler {
 	h("PUT /v1/projects/{project}/icon", s.setProjectIcon)
 	h("DELETE /v1/projects/{project}/icon", s.deleteProjectIcon)
 	h("GET /v1/projects/{project}/brief", s.brief)
+	// Scheduled tasks (schedules.go).
+	s.scheduleRoutes("/v1/projects/{project}", "user", h)
 	h("GET /v1/projects/{project}/notes", s.getNotes)
 	h("PUT /v1/projects/{project}/notes", s.setNotes)
 	h("GET /v1/projects/{project}/chat", s.getChat(s.leadFromPath))

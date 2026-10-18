@@ -77,7 +77,9 @@ func TestQuestionNoticeMigration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	last := slices.IndexFunc(migrations, func(m string) bool { return strings.Contains(m, "kind = 'question'") })
+	last := slices.IndexFunc(migrations, func(m string) bool {
+		return strings.Contains(m, "kind = 'question'") && strings.HasPrefix(m, "UPDATE notifications")
+	})
 	if last < 0 {
 		t.Fatal("the question notice migration is gone; point this test at it")
 	}

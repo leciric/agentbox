@@ -298,6 +298,15 @@ export const api = {
     call<T.FileContent>('GET', `${filesBase(ref)}/read?${new URLSearchParams({ path, base: '1', ...(full ? { full: '1' } : {}) })}`),
   fileStatus: (ref: string, fresh = false) => call<T.FileStatus>('GET', `${filesBase(ref)}/status${fresh ? '?fresh=1' : ''}`),
 
+  // Scheduled tasks (internal/daemon/schedules.go): a project's, and their runs.
+  schedules: (projectName: string) => call<T.Schedule[]>('GET', `${project(projectName)}/schedules`),
+  addSchedule: (projectName: string, req: T.ScheduleRequest) => call<T.Schedule>('POST', `${project(projectName)}/schedules`, req),
+  updateSchedule: (projectName: string, id: string, req: T.ScheduleRequest) =>
+    call<T.Schedule>('PATCH', `${project(projectName)}/schedules/${encodeURIComponent(id)}`, req),
+  removeSchedule: (projectName: string, id: string) => call<void>('DELETE', `${project(projectName)}/schedules/${encodeURIComponent(id)}`),
+  runSchedule: (projectName: string, id: string) => call<T.ScheduleRun>('POST', `${project(projectName)}/schedules/${encodeURIComponent(id)}/run`),
+  scheduleRuns: (projectName: string) => call<T.ScheduleRun[]>('GET', `${project(projectName)}/schedules/runs`),
+
   // Skills (internal/skills): stored by the daemon, installed into every agent
   // and lead whose project has them on. A project's list says, for each,
   // whether its agents get it (active).
