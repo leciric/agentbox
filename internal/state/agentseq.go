@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+
+	"agentbox/internal/trace"
 )
 
 // NewAgentID is an agent's identity, distinct from its name: set once when
@@ -33,7 +35,7 @@ func (s *Store) NextAgentName(ctx context.Context, project string, floor int) (s
 	if floor < 1 {
 		floor = 1
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return "", err
 	}

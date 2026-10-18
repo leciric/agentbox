@@ -57,6 +57,7 @@ var tsTypes = []any{
 	SearchResults{}, SearchGroup{}, SearchHit{},
 	Artifact{}, Artifacts{}, ArtifactPreview{}, PublishRenderRequest{}, PublishRenderResult{},
 	FanOutRequest{}, FanOutVariant{}, FanOutResult{}, Group{}, GroupMember{}, KeepRequest{}, RecommendRequest{}, GroupChange{},
+	TraceSpan{}, SpanStats{}, DiagnosticsSpans{}, DiagnosticsStalls{}, VMResourceSample{}, AgentResourceSample{}, AgentResources{}, DiagnosticsResources{}, ClientSpansRequest{},
 }
 
 var tsConstants = [][2]string{
@@ -103,6 +104,7 @@ var tsConstants = [][2]string{
 	{"FeatureMenuCopyBranch", FeatureMenuCopyBranch}, {"FeatureMenuOpenPullRequest", FeatureMenuOpenPullRequest}, {"FeatureMenuDestroy", FeatureMenuDestroy},
 	{"ModeHost", ModeHost}, {"ModeVM", ModeVM}, {"VMDriverLima", VMDriverLima}, {"VMDriverCloudHypervisor", VMDriverCloudHypervisor},
 	{"VMOff", VMOff}, {"VMStarting", VMStarting}, {"VMRunning", VMRunning}, {"VMPaused", VMPaused}, {"VMStopping", VMStopping}, {"VMMissing", VMMissing},
+	{"SpanLevelWarn", SpanLevelWarn}, {"SpanSourceApp", SpanSourceApp},
 }
 
 func TestTypeScriptTypesAreUpToDate(t *testing.T) {
@@ -187,6 +189,8 @@ func tsType(t reflect.Type) string {
 		return "Record<" + tsType(t.Key()) + ", " + tsType(t.Elem()) + ">"
 	case reflect.Struct:
 		return t.Name()
+	case reflect.Interface:
+		return "unknown"
 	}
 	panic("no TypeScript type for " + t.String())
 }

@@ -191,6 +191,7 @@ func startTestDaemon(t *testing.T, root, script string, config ...testConfig) te
 	// a test does neither, and steps the pressure loop itself.
 	srv.pressureEvery = 0
 	srv.readPressure = func() (pressure.Sample, error) { return pressure.Sample{}, nil }
+	srv.readCPUPressure = func() (pressure.PSI, error) { return pressure.PSI{}, nil }
 	srv.runCgroups = &fakeRunCgroups{}
 	srv.setMemoryLimit = func(string, int64) error { return nil }
 	srv.memoryEvents = func(string) (agent.MemoryCounts, bool) { return agent.MemoryCounts{}, false }

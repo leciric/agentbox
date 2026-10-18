@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"agentbox/internal/trace"
 )
 
 // Scheduled tasks: something a project's lead is to do at a time the user
@@ -145,7 +147,7 @@ func (s *Store) UpdateSchedule(ctx context.Context, sc Schedule) error {
 
 // DeleteSchedule removes a schedule and its runs.
 func (s *Store) DeleteSchedule(ctx context.Context, project, id string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return err
 	}
@@ -232,7 +234,7 @@ var ErrScheduleMoved = errors.New("the schedule changed before it could run")
 // at wasDue and not paused; a manual one (wasDue zero) claims it whatever it
 // is, and leaves its next run alone.
 func (s *Store) ClaimScheduleRun(ctx context.Context, run ScheduleRun, wasDue, next time.Time) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return err
 	}

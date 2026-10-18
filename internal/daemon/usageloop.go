@@ -43,9 +43,11 @@ const usageSample = time.Second
 
 // sampleUsage measures what every agent uses now, and keeps it.
 func (s *Server) sampleUsage(ctx context.Context) {
-	_, agents, err := s.manager(nil).Usage(ctx, usageSample)
+	host, agents, err := s.manager(nil).Usage(ctx, usageSample)
 	if err != nil {
 		s.logf("sampling usage: %v", err)
+	} else {
+		s.resources.add(time.Now(), host, agents)
 	}
 	now := make(map[string]agent.AgentUsage, len(agents))
 	for _, a := range agents {

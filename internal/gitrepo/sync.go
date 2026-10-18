@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"agentbox/internal/trace"
 )
 
 // FetchTimeout is how long Fetch waits on a remote before giving up on it.
@@ -61,10 +63,12 @@ func (r Repo) BaseBranch() (branch string, up Upstream, ok bool) {
 // Fetch brings remote's branches up to date, as git fetch does, and gives up
 // after FetchTimeout. It never asks for a password or a passphrase, since
 // nobody is there to answer: a remote that needs one fails instead.
-func (r Repo) Fetch(ctx context.Context, remote string) error {
+func (r Repo) Fetch(ctx context.Context, remote string) (err error) {
 	ctx, cancel := context.WithTimeout(ctx, FetchTimeout)
 	defer cancel()
 	args := []string{"-C", r.Root, "fetch", "--quiet", "--no-write-fetch-head", remote}
+	_, span := trace.Start(ctx, "git fetch", "dir", r.Root)
+	defer func() { span.End(err) }()
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "SSH_ASKPASS_REQUIRE=never", "GCM_INTERACTIVE=never")
 	// ssh, started by git, holds the output open after git is killed.

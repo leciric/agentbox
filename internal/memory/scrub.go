@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"agentbox/internal/redact"
+	"agentbox/internal/trace"
 )
 
 // Scrubbing what was stored before secrets were removed on the way in.
@@ -137,7 +138,7 @@ func (s *Store) rewrite(ctx context.Context, project string, t scrubbable, rows 
 	if len(rows) == 0 {
 		return 0, nil
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return 0, err
 	}

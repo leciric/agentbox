@@ -285,6 +285,7 @@ func NewRootCmd() *cobra.Command {
 		newMemoryCmd(a),
 		newAskCmd(a),
 		newHeavyCmd(a),
+		newTraceCmd(a),
 		newHeavyHookCmd(),
 		newHeavyJoinCmd(),
 		newQuestionsCmd(a),

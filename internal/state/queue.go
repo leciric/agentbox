@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"agentbox/internal/trace"
 )
 
 // What is left of the agent queue, which an earlier release had: agents a
@@ -73,7 +75,7 @@ func (s *Store) LeftoverQueue(ctx context.Context, project string) ([]QueuedAgen
 // in. It fails with ErrNotFound when the agent isn't queued any more, so two
 // starts of the same agent can't both go ahead.
 func (s *Store) StartQueued(ctx context.Context, a Agent) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return err
 	}

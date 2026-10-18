@@ -27,6 +27,8 @@ import (
 
 	incusclient "github.com/lxc/incus/v7/client"
 	"github.com/lxc/incus/v7/shared/api"
+
+	"agentbox/internal/trace"
 )
 
 var ErrNotFound = errors.New("instance not found")
@@ -70,7 +72,9 @@ func (c Client) runInput(ctx context.Context, stdin io.Reader, args ...string) (
 }
 
 // runUnchecked is runInput whatever Health says: the watch's own probe.
-func (c Client) runUnchecked(ctx context.Context, stdin io.Reader, args ...string) (string, error) {
+func (c Client) runUnchecked(ctx context.Context, stdin io.Reader, args ...string) (out string, err error) {
+	_, span := startSpan(ctx, args)
+	defer func() { span.End(err) }()
 	cmd := c.Command(ctx, args...)
 	cmd.Stdin = stdin
 	var stdout, stderr bytes.Buffer
@@ -84,6 +88,20 @@ func (c Client) runUnchecked(ctx context.Context, stdin io.Reader, args ...strin
 		return stdout.String(), fmt.Errorf("incus %s: %s", strings.Join(args, " "), msg)
 	}
 	return stdout.String(), nil
+}
+
+// startSpan starts the span of an Incus call: named after what it does
+// ("incus start"), with what it does it to, never the rest of its arguments,
+// which may carry an exec's environment.
+func startSpan(ctx context.Context, args []string) (context.Context, *trace.Live) {
+	if trace.Default() == nil || len(args) == 0 {
+		return ctx, nil
+	}
+	ctx, span := trace.Start(ctx, "incus "+args[0])
+	if len(args) > 1 && !strings.HasPrefix(args[1], "-") {
+		span.Set("target", args[1])
+	}
+	return ctx, span
 }
 
 // query runs `incus query path` and decodes its JSON into v; what names what

@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"agentbox/internal/trace"
 )
 
 // Anchors: what would close an open item.
@@ -150,7 +152,7 @@ func OpenItem(m Memory) bool {
 
 // setAnchors records a memory's anchors, replacing any it had.
 func (s *Store) setAnchors(ctx context.Context, project, id string, anchors []Anchor) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return err
 	}

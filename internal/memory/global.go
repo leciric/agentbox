@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
+	"agentbox/internal/trace"
 )
 
 // AgentBox-wide memory: what holds in every project rather than one — the
@@ -71,7 +73,7 @@ func (s *Store) DeleteMemory(ctx context.Context, project, id string) error {
 	if _, err := s.Memory(ctx, project, id); err != nil {
 		return err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return err
 	}

@@ -25,6 +25,7 @@ import (
 	"agentbox/internal/api"
 	"agentbox/internal/hatch"
 	"agentbox/internal/state"
+	"agentbox/internal/trace"
 )
 
 var errStopped = errors.New("the chat was stopped")
@@ -2112,10 +2113,13 @@ func (c *conversation) prompt(ad *adapter, t *turn) {
 	c.mu.Unlock()
 
 	var res acp.PromptResponse
-	err := ad.conn.Call(context.Background(), acp.MethodSessionPrompt, acp.PromptRequest{
+	ctx, span := trace.Start(context.Background(), "acp turn", "agent", a.Ref(), "tool", a.AI)
+	err := ad.conn.Call(ctx, acp.MethodSessionPrompt, acp.PromptRequest{
 		SessionID: sessionID,
 		Prompt:    c.promptBlocks(dir, skillPrompt(a.AI, projectMentionText(text, c.m.projectRoots()), c.m.skillNames(a)), sent, embed),
 	}, &res)
+	span.Set("stopReason", res.StopReason)
+	span.End(err)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	// A turn that failed still spent what it spent before it did: its

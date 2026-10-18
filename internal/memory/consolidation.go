@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"agentbox/internal/trace"
 )
 
 // Consolidation is what keeps a project's memory from being only bigger than
@@ -419,7 +421,7 @@ func jaccard(a, b map[string]bool) float64 {
 // merged, superseded or resolved stops being listed without anything having
 // to notice that it did.
 func (s *Store) recordDuplicates(ctx context.Context, project string, pairs []duplicatePair, now time.Time) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return err
 	}

@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"agentbox/internal/trace"
 )
 
 // How the user organised the projects list
@@ -114,7 +116,7 @@ func (s *Store) AddSection(ctx context.Context, name string, now time.Time) (Sec
 		return Section{}, err
 	}
 	sec := Section{ID: newSectionID(), Name: name, CreatedAt: now.Truncate(time.Second)}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return Section{}, err
 	}
@@ -160,7 +162,7 @@ func (s *Store) UpdateSection(ctx context.Context, id string, name *string, coll
 // go back to being in no section, at the end of that list. Nothing about a
 // project is deleted here.
 func (s *Store) RemoveSection(ctx context.Context, id string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return err
 	}
@@ -184,7 +186,7 @@ func (s *Store) RemoveSection(ctx context.Context, id string) error {
 // and the projects within each and outside them all. Positions are written
 // from 1, so nothing it leaves behind has a gap or a duplicate.
 func (s *Store) SetProjectLayout(ctx context.Context, l Layout) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return err
 	}
@@ -286,7 +288,7 @@ type projectPlace struct {
 	section string
 }
 
-func projectPlacesTx(ctx context.Context, tx *sql.Tx) ([]projectPlace, error) {
+func projectPlacesTx(ctx context.Context, tx *trace.Tx) ([]projectPlace, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT name, section FROM projects `+projectPlaceOrder)
 	if err != nil {
 		return nil, err
@@ -308,7 +310,7 @@ func projectPlacesTx(ctx context.Context, tx *sql.Tx) ([]projectPlace, error) {
 // first, in their order, then the ones nobody has placed, by what they are called.
 const projectPlaceOrder = `ORDER BY section, CASE WHEN position = 0 THEN 1 ELSE 0 END, position, lower(display_name), name`
 
-func sectionsTx(ctx context.Context, tx *sql.Tx) ([]Section, error) {
+func sectionsTx(ctx context.Context, tx *trace.Tx) ([]Section, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT `+sectionColumns+` FROM project_sections `+sectionOrder)
 	if err != nil {
 		return nil, err
@@ -322,7 +324,7 @@ func sectionsTx(ctx context.Context, tx *sql.Tx) ([]Section, error) {
 // isn't a layout — a section deleted, a project removed — ends with, so the
 // invariant holds after every write: each list is 1..n, and a project in no
 // section is in no section by saying so.
-func renumber(ctx context.Context, tx *sql.Tx) error {
+func renumber(ctx context.Context, tx *trace.Tx) error {
 	if _, err := tx.ExecContext(ctx,
 		`UPDATE projects SET section = '', position = 0
 		 WHERE section <> '' AND section NOT IN (SELECT id FROM project_sections)`); err != nil {

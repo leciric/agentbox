@@ -6,6 +6,8 @@ import (
 	"maps"
 	"slices"
 	"strings"
+
+	"agentbox/internal/trace"
 )
 
 // The Codex, OpenCode and Cursor accounts projects, agents and leads' chats
@@ -129,7 +131,7 @@ func (s *Store) RenameToolAccount(ctx context.Context, tool, provider, old, name
 	if err != nil {
 		return done, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return done, err
 	}

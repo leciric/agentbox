@@ -73,6 +73,9 @@ type Config struct {
 	// GitHubAPI is the GitHub API root; empty is github.Client's own, which
 	// AGENTBOX_GITHUB_API can move.
 	GitHubAPI string
+	// TraceDir is where the span and stall files go (diagnostics.go): next
+	// to state.db for the real daemon, empty for none (tests).
+	TraceDir string
 }
 
 type Server struct {
@@ -251,6 +254,12 @@ type Server struct {
 	// last sampled, by ref, under mu.
 	usageEvery time.Duration // usageInterval; 0 runs no loop
 	usageNow   map[string]agent.AgentUsage
+	// Diagnostics (diagnostics.go): the usage loop's samples for the last
+	// hour, the VM's memory and CPU stalls, and what reads its CPU PSI, the
+	// kernel's or a test's.
+	resources       resourceHistory
+	psi             psiWatch
+	readCPUPressure func() (pressure.PSI, error)
 	// Memory (pressure.go): the heavy commands the VM's pressure holds back,
 	// and what reads and applies it, agent's and package pressure's
 	// functions or a test's. oomSeen, under mu, is each machine's count of
@@ -326,6 +335,7 @@ func New(cfg Config) (*Server, error) {
 		heavy:            newHeavyRuns(),
 		pressureEvery:    pressureInterval,
 		readPressure:     readSample(),
+		readCPUPressure:  func() (pressure.PSI, error) { return pressure.Read(cpuPressureFile) },
 		runCgroups:       agentRunCgroups{},
 		vmMemory:         agent.HostMemory,
 		setMemoryLimit:   agent.SetMemoryLimit,
@@ -408,6 +418,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	defer unlock()
 	moved := s.moveDataToPool(ctx)
+	defer s.startTracing()()
 
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
@@ -803,6 +814,10 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/projects/{project}/base/revert", s.revertBase)
 
 	h("GET /v1/pressure", s.getPressure)
+	h("GET /v1/diagnostics/spans", s.diagnosticsSpans)
+	h("GET /v1/diagnostics/stalls", s.diagnosticsStalls)
+	h("GET /v1/diagnostics/resources", s.diagnosticsResources)
+	h("POST /v1/diagnostics/client-spans", s.clientSpans)
 	h("GET /v1/agents", s.listAgents)
 	// Past agents (archive.go): their chats read through the routes above.
 	h("GET /v1/archived-agents", s.listArchived)
@@ -947,7 +962,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/jobs/{id}/log", s.jobLog)
 	h("POST /v1/jobs/{id}/cancel", s.cancelJob)
 	h("GET /v1/events", s.eventStream)
-	return mux
+	return traceAPI("", mux, true)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) error {

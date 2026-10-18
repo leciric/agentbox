@@ -151,5 +151,5 @@ func (s *Server) inAgentRoutes(instance string) http.Handler {
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		_ = writeJSON(w, http.StatusForbidden, api.Error{Error: "not available inside an agent"})
 	})
-	return mux
+	return traceAPI("agent", mux, false)
 }

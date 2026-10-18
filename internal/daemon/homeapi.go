@@ -48,7 +48,7 @@ func (s *Server) homeRoutes() http.Handler {
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		_ = writeJSON(w, http.StatusForbidden, api.Error{Error: "the Home chat can't do that"})
 	})
-	return mux
+	return traceAPI("home", mux, false)
 }
 
 // homeCreateAgent makes an agent in the project the Home chat names, held to

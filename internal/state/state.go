@@ -19,6 +19,7 @@ import (
 	"agentbox/internal/gitrepo"
 	"agentbox/internal/memory"
 	"agentbox/internal/naming"
+	"agentbox/internal/trace"
 )
 
 var (
@@ -1366,7 +1367,7 @@ func (s *Store) migrate(ctx context.Context) error {
 	if version >= len(migrations) {
 		return nil
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return err
 	}
@@ -1884,7 +1885,7 @@ func (s *Store) RemoveProject(ctx context.Context, name string) error {
 	// One transaction, so a project is never left half removed. The store's
 	// connection takes the write lock when it begins, which also keeps an
 	// agent from being added between the count and the delete.
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return err
 	}
@@ -2046,7 +2047,7 @@ type ClaudeAccountRename struct {
 // it undoes the whole rename.
 func (s *Store) RenameClaudeAccount(ctx context.Context, old, name string, move func() error) (ClaudeAccountRename, error) {
 	var done ClaudeAccountRename
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return done, err
 	}
@@ -2629,7 +2630,7 @@ type GitHubAccountRename struct {
 // token — and an error from it undoes the whole rename.
 func (s *Store) RenameGitHubAccount(ctx context.Context, old, name string, move func() error) (GitHubAccountRename, error) {
 	var done GitHubAccountRename
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return done, err
 	}

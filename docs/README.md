@@ -65,6 +65,8 @@ flowchart LR
   the context builder that assembles what an agent is told.
 - [The token ledger and Claude accounts](tokens.md) — `token_usage`, `agentbox tokens`, multiple
   Claude accounts, and their five-hour and weekly limits.
+- [Diagnostics](diagnostics.md) — the daemon's local performance trace and stalls,
+  `agentbox trace summary`, and the diagnostics API.
 - [Connectors](connectors.md) — remote MCP servers (Notion, Linear…) that agents use, signed in
   to with OAuth on the host and relayed so no token reaches an agent; the API routes.
 - [SnapShots](snapshots.md) — a shortcut, or `agentbox snap`, that sends the window you're in to a

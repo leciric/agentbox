@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"agentbox/internal/trace"
 )
 
 // Repo is the main checkout of a git repository.
@@ -425,18 +427,34 @@ func run(dir string, args ...string) (string, error) {
 	return strings.TrimSpace(out), err
 }
 
-func output(dir string, env []string, args ...string) (string, error) {
+func output(dir string, env []string, args ...string) (out string, err error) {
+	span := trace.Begin(gitSpan(args), "dir", dir)
+	defer func() { span.End(err) }()
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
 	if env != nil {
 		cmd.Env = append(os.Environ(), env...)
 	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	b, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
-	return string(out), nil
+	return string(b), nil
+}
+
+// gitSpan names a git command's span after its subcommand ("git rev-list"),
+// past the options before it.
+func gitSpan(args []string) string {
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == "-c" || a == "-C":
+			i++
+		case !strings.HasPrefix(a, "-"):
+			return "git " + a
+		}
+	}
+	return "git"
 }
 
 // BranchCommits is where a branch is, and the commits on it that are its own:

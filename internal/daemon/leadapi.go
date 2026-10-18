@@ -167,7 +167,7 @@ func (s *Server) leadRoutes(project string) http.Handler {
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		_ = writeJSON(w, http.StatusForbidden, api.Error{Error: "a project's chat can only reach its own project"})
 	})
-	return mux
+	return traceAPI("lead", mux, false)
 }
 
 // leadAgent finds one agent of the lead's project, refusing the lead itself.

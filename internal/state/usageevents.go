@@ -3,6 +3,8 @@ package state
 import (
 	"context"
 	"encoding/json"
+
+	"agentbox/internal/trace"
 )
 
 // UsageEvent is one anonymous usage event waiting to be sent.
@@ -21,7 +23,7 @@ const MaxUsageEvents = 5000
 // AddUsageEvent keeps e until it is sent, dropping the oldest past
 // MaxUsageEvents.
 func (s *Store) AddUsageEvent(ctx context.Context, e UsageEvent) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return err
 	}

@@ -41,6 +41,7 @@ func newDaemonCmd(a *app) *cobra.Command {
 				UpdateURL:   os.Getenv("AGENTBOX_UPDATE_URL"),
 				ReleasesURL: os.Getenv("AGENTBOX_RELEASES_URL"),
 				PreviewAddr: os.Getenv("AGENTBOX_PREVIEW_ADDR"),
+				TraceDir:    filepath.Dir(a.paths.StateDB()),
 			})
 			if err != nil {
 				return err

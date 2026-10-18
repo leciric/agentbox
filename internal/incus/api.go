@@ -79,11 +79,14 @@ func (c Client) do(ctx context.Context, args []string, call func(incusclient.Ins
 		_, err := c.run(ctx, args...)
 		return err
 	}
+	_, span := startSpan(ctx, args)
 	s, err := c.server(ctx)
 	if err == nil {
 		err = call(s)
 	}
-	return c.fail(args, err)
+	err = c.fail(args, err)
+	span.End(err)
+	return err
 }
 
 // fail wraps err the way run does a failed incus command: its own message,

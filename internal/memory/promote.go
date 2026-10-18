@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"agentbox/internal/trace"
 )
 
 // Promotion: a memory the context builder keeps putting in agents' briefs is
@@ -75,7 +77,7 @@ func (s *Store) recordServes(ctx context.Context, project, agent string, ids []s
 	if agent == "" || len(ids) == 0 {
 		return nil
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return err
 	}

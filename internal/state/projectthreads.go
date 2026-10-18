@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"agentbox/internal/trace"
 )
 
 // Two projects' leads talking. A lead messages another project's lead when
@@ -70,7 +72,7 @@ const threadColumns = `id, project, peer, kind, topic, status, summary, settled_
 
 // AddProjectThread starts a thread with its first message, in one transaction.
 func (s *Store) AddProjectThread(ctx context.Context, t ProjectThread, first ProjectMessage) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return err
 	}
@@ -87,7 +89,7 @@ func (s *Store) AddProjectThread(ctx context.Context, t ProjectThread, first Pro
 
 // AddProjectMessage adds a reply to a thread, and marks the thread as moved.
 func (s *Store) AddProjectMessage(ctx context.Context, m ProjectMessage) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return err
 	}
@@ -101,7 +103,7 @@ func (s *Store) AddProjectMessage(ctx context.Context, m ProjectMessage) error {
 	return tx.Commit()
 }
 
-func addProjectMessage(ctx context.Context, tx *sql.Tx, m ProjectMessage) error {
+func addProjectMessage(ctx context.Context, tx *trace.Tx, m ProjectMessage) error {
 	_, err := tx.ExecContext(ctx, `INSERT INTO project_messages (id, thread, project, peer, text, hop, expects_reply, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, m.ID, m.Thread, m.Project, m.Peer, m.Text, m.Hop, m.ExpectsReply, m.CreatedAt.UnixMilli())
 	return err

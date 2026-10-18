@@ -241,6 +241,7 @@ func (s *Server) stepPressure(ctx context.Context) {
 		sample = pressure.Sample{}
 	}
 	now := time.Now()
+	s.watchPSI(now, sample.PSI)
 	gone := h.g.Expire(now, func(r *pressure.Run) bool {
 		if r.Placed {
 			return s.runCgroups.Populated(h.instance[r.ID()], r.Key)

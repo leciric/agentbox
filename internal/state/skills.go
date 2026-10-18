@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"agentbox/internal/trace"
 )
 
 // Skill is one stored skill: its name, which is also its folder's name in
@@ -44,7 +46,7 @@ func (s Skill) EnabledFor(project string) bool {
 // SetSkill stores a skill and its files whole, replacing the files it had.
 // Its overrides are kept: editing a skill doesn't change where it's on.
 func (s *Store) SetSkill(ctx context.Context, sk Skill, files []SkillFile) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return err
 	}

@@ -2967,6 +2967,78 @@ export interface GroupChange {
   project: string;
 }
 
+export interface TraceSpan {
+  id?: string;
+  parent?: string;
+  name: string;
+  source?: string;
+  start: string;
+  durationMs: number;
+  attrs?: Record<string, unknown>;
+  error?: string;
+  level?: string;
+}
+
+export interface SpanStats {
+  name: string;
+  count: number;
+  errors: number;
+  p50Ms: number;
+  p95Ms: number;
+  maxMs: number;
+  totalMs: number;
+}
+
+export interface DiagnosticsSpans {
+  since: string;
+  stats: SpanStats[];
+  slowest: TraceSpan[];
+  failures: TraceSpan[];
+  dropped: number;
+}
+
+export interface DiagnosticsStalls {
+  since: string;
+  stalls: TraceSpan[];
+}
+
+export interface VMResourceSample {
+  at: string;
+  cpu: number;
+  cores: number;
+  memUsed: number;
+  memTotal: number;
+  diskRead: number;
+  diskWrite: number;
+  pressure?: HostPressure;
+}
+
+export interface AgentResourceSample {
+  at: string;
+  state: string;
+  cpu: number;
+  memory: number;
+  processes: number;
+  diskRead: number;
+  diskWrite: number;
+}
+
+export interface AgentResources {
+  ref: string;
+  samples: AgentResourceSample[];
+}
+
+export interface DiagnosticsResources {
+  since: string;
+  intervalSeconds: number;
+  vm: VMResourceSample[];
+  agents: AgentResources[];
+}
+
+export interface ClientSpansRequest {
+  spans: TraceSpan[];
+}
+
 export const JobRunning = "running";
 export const JobSucceeded = "succeeded";
 export const JobFailed = "failed";
@@ -3138,3 +3210,5 @@ export const VMRunning = "running";
 export const VMPaused = "paused";
 export const VMStopping = "stopping";
 export const VMMissing = "missing";
+export const SpanLevelWarn = "warn";
+export const SpanSourceApp = "app";

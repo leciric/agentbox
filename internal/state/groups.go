@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"agentbox/internal/trace"
 )
 
 // Groups: one task run on several agents at once, each perhaps on another
@@ -100,7 +102,7 @@ func (s *Store) AddGroup(ctx context.Context, g Group) (Group, error) {
 	if g.CreatedAt.IsZero() {
 		g.CreatedAt = time.Now()
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return Group{}, err
 	}

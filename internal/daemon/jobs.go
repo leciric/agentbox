@@ -14,6 +14,7 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/state"
+	"agentbox/internal/trace"
 )
 
 // jobStore is what jobs needs from the store: small enough for a test to fake,
@@ -78,7 +79,9 @@ func (js *jobs) start(kind, target string, fn func(ctx context.Context, log io.W
 	go func() {
 		defer js.wg.Done()
 		defer cancel()
+		ctx, span := trace.Start(ctx, "job "+kind, "target", target)
 		result, err := fn(ctx, j)
+		span.End(err)
 		info, record := j.prepareFinish(result, err, ctx.Err())
 		// Persist before this job's terminal status becomes visible to
 		// anyone (a follower, a lookup, an event), so a client can never see

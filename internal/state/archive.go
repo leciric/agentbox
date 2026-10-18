@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"agentbox/internal/trace"
 )
 
 // ArchivedAgent is what is kept of an agent whose machine was removed: who it
@@ -77,7 +79,7 @@ func (s *Store) ArchiveAgent(ctx context.Context, a Agent, task string, pr Archi
 	if a.IsLead() || a.Project == HomeProject {
 		return fmt.Errorf("%s is a project's chat, which is never archived", a.Ref())
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return err
 	}
@@ -121,7 +123,7 @@ func (s *Store) ArchiveAgent(ctx context.Context, a Agent, task string, pr Archi
 }
 
 // firstMessage is the text of the first message somebody sent in a chat.
-func firstMessage(ctx context.Context, tx *sql.Tx, project, agent string) (string, error) {
+func firstMessage(ctx context.Context, tx *trace.Tx, project, agent string) (string, error) {
 	var text sql.NullString
 	err := tx.QueryRowContext(ctx, `SELECT json_extract(data, '$.text') FROM chat_items
 		WHERE project = ? AND agent = ? AND json_extract(data, '$.kind') = 'user' AND coalesce(json_extract(data, '$.woken'), 0) = 0
@@ -208,7 +210,7 @@ func (s *Store) SetArchivedPR(ctx context.Context, project, name string, pr Arch
 // conversation. Its name stays taken (agent_seq and PastAgentNames never go
 // back), and its token rows stay, as for any agent, for accounting.
 func (s *Store) DeleteArchivedAgent(ctx context.Context, project, name string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return err
 	}

@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+
+	"agentbox/internal/trace"
 )
 
 // ChatItem is one stored entry of an agent's conversation. Package chat decides
@@ -142,7 +144,7 @@ func (s *Store) SaveChatItems(ctx context.Context, project, agent string, items 
 	if len(items) == 0 {
 		return nil
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return err
 	}
@@ -198,7 +200,7 @@ func (s *Store) SaveChat(ctx context.Context, project, agent string, c Chat) err
 
 // ClearChat removes a conversation's items and forgets its session. The options stay.
 func (s *Store) ClearChat(ctx context.Context, project, agent string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return err
 	}

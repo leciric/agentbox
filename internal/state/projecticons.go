@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+
+	"agentbox/internal/trace"
 )
 
 // ProjectIcon is a project's project_icons row.
@@ -74,7 +76,7 @@ func (s *Store) ChooseProjectIcon(ctx context.Context, project, chosen, emoji st
 // nil for nothing. updated_at moves only when the detected icon changed: a
 // look that finds the same icon again leaves the app's copy good.
 func (s *Store) SaveDetectedProjectIcon(ctx context.Context, project string, data []byte, mime, from string, now time.Time) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return err
 	}

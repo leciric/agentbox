@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"agentbox/internal/api"
+	"agentbox/internal/trace"
 )
 
 // The token ledger (D83): what every chat spent, turn by turn, kept after the
@@ -69,7 +70,7 @@ func (s *Store) AddTokenRows(ctx context.Context, rows []TokenRow) error {
 	if len(rows) == 0 {
 		return nil
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return err
 	}
