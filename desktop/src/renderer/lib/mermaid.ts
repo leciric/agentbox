@@ -61,6 +61,10 @@ export function drawMermaid(source: string, mode: 'dark' | 'light'): Promise<str
       ...(mode === 'dark' ? { theme: 'base' as const, darkMode: true, themeVariables: darkTheme } : { theme: 'default' as const }),
       // A font every machine has: the SVG is measured here and drawn as an
       // <img>, which can't use the app's own fonts.
+      // mermaid 12 defaults to a "neo" look (gradients, new colours) on the
+      // base theme; classic with dagre draws diagrams as 11 did.
+      look: 'classic',
+      layout: 'dagre',
       fontFamily: 'ui-sans-serif, system-ui, sans-serif',
       htmlLabels: false,
       flowchart: { htmlLabels: false },
