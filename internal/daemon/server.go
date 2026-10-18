@@ -172,6 +172,7 @@ type Server struct {
 	mu           sync.Mutex
 	agentAPIs    map[string]*http.Server // in-agent API servers, by instance
 	retired      map[string]bool         // agents a stop-retire stopped, by ref (markRetired)
+	groupsDone   map[string]bool         // groups whose lead was told every agent finished (groupMaybeDone)
 	freeWhenIdle map[string]bool         // reviewed agents still at work, whose machine goes when the turn ends (reviewfree.go)
 	machineKept  map[string]bool         // reviewed agents whose machine was kept for unpushed work (reviewfree.go)
 	reviewHeld   map[string]bool         // projects whose review list waits for the startup look at GitHub (prreconcile.go)
@@ -802,6 +803,12 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/archived-agents/{project}/{agent}/files/read", s.archivedRead)
 	h("GET /v1/archived-agents/{project}/{agent}/files/status", s.archivedStatus)
 	h("POST /v1/agents", s.createAgent)
+	h("POST /v1/groups", s.createGroup)
+	h("GET /v1/groups", s.listGroups)
+	h("GET /v1/groups/{id}", s.getGroup)
+	h("POST /v1/groups/{id}/keep", s.keepGroup)
+	h("POST /v1/groups/{id}/close", s.closeGroup)
+	h("POST /v1/groups/{id}/judge", s.judgeGroup)
 	h("POST /v1/agents/stop", s.stopAgents)
 	h("GET /v1/agents/{project}/{agent}", s.getAgent)
 	h("PATCH /v1/agents/{project}/{agent}", s.updateAgent)

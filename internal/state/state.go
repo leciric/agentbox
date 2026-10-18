@@ -1203,6 +1203,45 @@ var migrations = []string{
 	`UPDATE notifications SET seen_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
 		WHERE seen_at = 0 AND kind = 'question' AND NOT EXISTS (
 			SELECT 1 FROM questions q WHERE q.id = json_extract(notifications.data, '$.question') AND q.status IN ('pending', 'escalated'))`,
+
+	// A group is one task run on several agents at once, to compare what
+	// each made of it and keep one (groups.go). kept is the agent the user
+	// chose ('' until then), recommended and recommendation the lead's pick
+	// and why, when it was asked to judge (judge: as soon as every agent
+	// finishes; judging: asked, not answered yet), and settled_at when the group was
+	// decided: kept, or closed keeping none (unix ms, 0 while open).
+	`CREATE TABLE agent_groups (
+		id             TEXT PRIMARY KEY,
+		project        TEXT NOT NULL,
+		title          TEXT NOT NULL DEFAULT '',
+		task           TEXT NOT NULL DEFAULT '',
+		by_lead        INTEGER NOT NULL DEFAULT 0,
+		kept           TEXT NOT NULL DEFAULT '',
+		recommended    TEXT NOT NULL DEFAULT '',
+		recommendation TEXT NOT NULL DEFAULT '',
+		judge          INTEGER NOT NULL DEFAULT 0,
+		judging        INTEGER NOT NULL DEFAULT 0,
+		created_at     INTEGER NOT NULL,
+		settled_at     INTEGER NOT NULL DEFAULT 0
+	)`,
+	`CREATE INDEX agent_groups_project ON agent_groups (project, created_at)`,
+	// One row per agent a group asked for, in the order it asked: the tool
+	// and model it runs, the job making it, the agent once made ('' before,
+	// and error when it couldn't be), and when it first finished (unix ms).
+	`CREATE TABLE agent_group_members (
+		group_id    TEXT NOT NULL REFERENCES agent_groups (id) ON DELETE CASCADE,
+		position    INTEGER NOT NULL,
+		project     TEXT NOT NULL,
+		agent       TEXT NOT NULL DEFAULT '',
+		ai          TEXT NOT NULL,
+		model       TEXT NOT NULL DEFAULT '',
+		effort      TEXT NOT NULL DEFAULT '',
+		job         TEXT NOT NULL DEFAULT '',
+		error       TEXT NOT NULL DEFAULT '',
+		finished_at INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY (group_id, position)
+	)`,
+	`CREATE INDEX agent_group_members_agent ON agent_group_members (project, agent)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -1827,6 +1866,9 @@ func (s *Store) RemoveProject(ctx context.Context, name string) error {
 var projectOwned = []string{
 	// agent_seq has a foreign key to projects: an agent ever made leaves a row.
 	"agent_seq",
+	// Members first: they point at their group.
+	"agent_group_members",
+	"agent_groups",
 	"pr_watches",
 	"agent_queue",
 	"agent_events",

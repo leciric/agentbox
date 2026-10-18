@@ -1984,6 +1984,17 @@ type RequestChangesRequest struct {
 	Fingerprint string `json:"fingerprint,omitempty"`
 }
 
+// EventGroup says a group of agents given one task changed: it was made, one
+// of its agents was made or finished, the lead recommended one, or it was
+// decided. It carries the group's ID and project (GroupChange).
+const EventGroup = "group"
+
+// GroupChange is EventGroup's data.
+type GroupChange struct {
+	ID      string `json:"id"`
+	Project string `json:"project"`
+}
+
 // EventReview says "Ready to review" changed: an agent finished, or a verdict
 // was recorded. It carries the project.
 const EventReview = "review"
@@ -2880,6 +2891,8 @@ const (
 	FeatureAgentDestroy        = "agent.destroy"
 	FeatureAgentRetire         = "agent.retire"
 	FeatureAgentFork           = "agent.fork"
+	FeatureGroupFanOut         = "group.fan_out"
+	FeatureGroupKeep           = "group.keep"
 	FeatureAgentSnapshot       = "agent.snapshot"
 	FeatureAgentRestore        = "agent.restore"
 	FeatureAgentRollback       = "agent.rollback"

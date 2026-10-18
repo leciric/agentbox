@@ -320,3 +320,29 @@ func (c *Client) ProjectThreads(ctx context.Context) ([]ProjectThread, error) {
 	var out []ProjectThread
 	return out, c.do(ctx, http.MethodGet, c.leadPath("/threads"), nil, &out)
 }
+
+// ProjectFanOut runs one task on several agents of the project behind the
+// lead socket, as a group to compare.
+func (c *Client) ProjectFanOut(ctx context.Context, req FanOutRequest) (FanOutResult, error) {
+	var out FanOutResult
+	return out, c.do(ctx, http.MethodPost, c.leadPath("/groups"), req, &out)
+}
+
+// ProjectGroups lists the project's groups: every open one and the recently
+// decided.
+func (c *Client) ProjectGroups(ctx context.Context) ([]Group, error) {
+	var out []Group
+	return out, c.do(ctx, http.MethodGet, c.leadPath("/groups"), nil, &out)
+}
+
+// ProjectGroup is one group, its agents compared.
+func (c *Client) ProjectGroup(ctx context.Context, id string) (Group, error) {
+	var out Group
+	return out, c.do(ctx, http.MethodGet, c.leadPath("/groups/"+url.PathEscape(id)), nil, &out)
+}
+
+// RecommendInGroup records the lead's pick of a group's agents.
+func (c *Client) RecommendInGroup(ctx context.Context, id string, req RecommendRequest) (Group, error) {
+	var out Group
+	return out, c.do(ctx, http.MethodPost, c.leadPath("/groups/"+url.PathEscape(id)+"/recommend"), req, &out)
+}
