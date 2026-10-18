@@ -1,6 +1,8 @@
 // Typed calls to the daemon's HTTP API, sent through the main process.
 import type { ApiResponse } from '../../preload';
 import * as T from '../../shared/api.ts';
+import { recordRequest, clientSpansPath } from './appTiming.ts';
+import type * as D from './diagnostics.ts';
 import { errorMessage } from './utils.ts';
 import { ensureVMRunning } from './vm.ts';
 
@@ -17,11 +19,15 @@ export class ApiError extends Error {
 
 async function call<R>(method: string, path: string, body?: unknown): Promise<R> {
   let res: ApiResponse;
+  // Each round trip is a span of the app's own (appTiming.ts).
+  const started = performance.now();
   try {
     res = await window.agentbox.request(method, path, body);
   } catch (err) {
+    recordRequest(method, path, started, 0, errorMessage(err));
     throw new ApiError(errorMessage(err), 0);
   }
+  recordRequest(method, path, started, res.status);
   if (res.status >= 400) {
     let message = res.body.trim();
     let code: string | undefined;
@@ -553,6 +559,12 @@ export const api = {
   exportMedia: (ref: string) => call<T.ExportResult>('POST', `${agent(ref)}/media/export`, {}),
 
   usage: () => call<T.Usage>('GET', '/v1/usage?interval=500ms'),
+  // Settings → Diagnostics: spans and stalls since a stretch back from now
+  // ("30m"), resource samples over a window ("1h"), and the app's own spans.
+  diagnosticSpans: (since: string) => call<T.DiagnosticsSpans>('GET', `/v1/diagnostics/spans?since=${encodeURIComponent(since)}`),
+  diagnosticStalls: (since: string) => call<T.DiagnosticsStalls>('GET', `/v1/diagnostics/stalls?since=${encodeURIComponent(since)}`),
+  diagnosticResources: (span: D.ResourceWindow) => call<T.DiagnosticsResources>('GET', `/v1/diagnostics/resources?window=${span}`),
+  sendClientSpans: (spans: T.TraceSpan[]) => call<void>('POST', clientSpansPath, { spans } satisfies T.ClientSpansRequest),
   diskUsage: () => call<T.DiskUsage>('GET', '/v1/usage/disk'),
   diskGuard: () => call<T.DiskGuard>('GET', '/v1/disk'),
   memoryUsage: () => call<T.MemoryUsage>('GET', '/v1/usage/memory'),

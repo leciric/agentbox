@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Activity,
   Columns3,
   PanelLeft,
   Bell,
@@ -79,6 +80,7 @@ import { Code, Notice, Panel } from "./ui/card";
 import { projectSection } from "./ProjectSettings";
 import { SkillsPanel } from "./SkillsPanel";
 import { ConnectorsTab } from "./ConnectorsTab";
+import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { GlobalMemoryPanel } from "./GlobalMemoryPanel";
 import { phoneGroups } from "./PhoneSettings";
 import { SettingsPage, keepScroll, openSettingsSection, type SectionIcons } from "./SettingsPage";
@@ -1559,6 +1561,28 @@ function InstalledSettings({
         },
       ],
     },
+    {
+      id: "diagnostics",
+      title: t("settings.section.diagnostics.title"),
+      description: t("settings.section.diagnostics.description"),
+      scope: "installation",
+      nav: t("settings.nav.machine"),
+      groups: [
+        {
+          id: "diagnostics",
+          title: t("settings.group.diagnostics.title"),
+          cards: true,
+          entries: [
+            {
+              id: "diagnostics",
+              label: t("settings.section.diagnostics.title"),
+              keywords: t("settings.entry.diagnostics.keywords"),
+              render: () => <DiagnosticsPanel version={info?.version} />,
+            },
+          ],
+        },
+      ],
+    },
     ...(projects.data ?? []).map(projectSection),
   ];
 
@@ -1586,6 +1610,7 @@ const sectionIcons: SectionIcons = {
   accounts: KeyRound,
   setup: Wrench,
   notifications: Bell,
+  diagnostics: Activity,
 };
 
 // EnforceAgentDefaults decides what the model and window above mean to a
