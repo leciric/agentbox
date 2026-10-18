@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Check, Copy, RefreshCw } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { Fragment, useState, type ReactNode } from 'react';
 import * as T from '../../shared/api';
 import { api } from '../lib/api';
 import {
@@ -264,9 +264,21 @@ function Cell({ name, num, className, children }: { name?: boolean; num?: boolea
         className,
       )}
     >
-      {children}
+      {name && typeof children === 'string' ? breakable(children) : children}
     </td>
   );
+}
+
+// breakable lets a route name wrap after each slash, so a word is split only
+// when even one of its segments can't fit.
+function breakable(name: string): ReactNode {
+  return name.split('/').map((part, i) => (
+    <Fragment key={i}>
+      {i > 0 && '/'}
+      {i > 0 && <wbr />}
+      {part}
+    </Fragment>
+  ));
 }
 
 function Empty({ children }: { children: ReactNode }) {
@@ -296,7 +308,7 @@ function SpanTable({ spans, loading, empty, version, errors }: { spans?: T.Trace
           <tr key={`${s.id ?? ''}:${s.start}:${i}`} className="group">
             <Cell name>
               {s.source === T.SpanSourceApp && <span className="mr-1.5 rounded bg-surface-strong px-1 py-px font-sans text-[10px] uppercase text-subtle">{t('diagnostics.source.app')}</span>}
-              {s.name}
+              {breakable(s.name)}
             </Cell>
             {errors ? (
               <Cell className="max-w-[28rem] break-words text-rose-300/90">{s.error}</Cell>
