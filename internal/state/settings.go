@@ -170,6 +170,9 @@ const (
 	// SettingLanguage is the language tag the desktop app speaks
 	// (Settings.Language). Empty means api.DefaultLanguage.
 	SettingLanguage = "language"
+	// SettingTimezone is the IANA timezone the app runs in
+	// (Settings.Timezone). Empty means the daemon's own.
+	SettingTimezone = "timezone"
 	// SettingInstallID is the random UUID the update check sends, so the
 	// server can count installations without anything that identifies the
 	// machine. Made on the first check or problem report, so an installation

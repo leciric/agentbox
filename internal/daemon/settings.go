@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"agentbox/internal/api"
+	"agentbox/internal/schedule"
 	"agentbox/internal/state"
 )
 
@@ -139,6 +140,15 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			}
 		}
 		if err := s.store.SetSetting(r.Context(), state.SettingLanguage, want); err != nil {
+			return err
+		}
+	}
+	if req.Timezone != nil {
+		want := strings.TrimSpace(*req.Timezone)
+		if _, err := schedule.LoadLocation(want, time.Local); err != nil {
+			return err
+		}
+		if err := s.store.SetSetting(r.Context(), state.SettingTimezone, want); err != nil {
 			return err
 		}
 	}
@@ -428,6 +438,7 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	timezone, _ := s.store.Setting(r.Context(), state.SettingTimezone)
 	language, err := s.store.Language(r.Context())
 	if err != nil {
 		return api.Settings{}, err
@@ -487,6 +498,7 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		PRWatch:              prWatch,
 		MediaRetention:       mediaRetention,
 		Language:             language,
+		Timezone:             timezone,
 
 		ClaudeCompactWindow:        compactWindow,
 		DefaultClaudeCompactWindow: state.DefaultClaudeCompactWindow,

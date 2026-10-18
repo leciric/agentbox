@@ -350,7 +350,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 		startsOn = "This project asks you to choose the model for each agent you create, from how hard " +
 			"the task is; the effort and permissions below are the ones new agents start on here unless you set them."
 	}
-	return []mcp.Tool{
+	return append([]mcp.Tool{
 		{
 			Name: "list_agents",
 			Description: "List this project's agents: what each one is for, what it is doing now, " +
@@ -1414,7 +1414,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				return "Passed to the user; say in your reply what you need from them. The agent waits.", nil
 			},
 		},
-	}
+	}, scheduleTools(ctx, c, decode)...)
 }
 
 // sizeParam is create_agent's size, accepted from leads that still send it
