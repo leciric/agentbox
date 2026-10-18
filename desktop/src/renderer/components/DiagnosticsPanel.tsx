@@ -1,22 +1,22 @@
 import { useQuery } from '@tanstack/react-query';
 import { Check, Copy, RefreshCw } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
+import * as T from '../../shared/api';
 import { api } from '../lib/api';
 import {
+  attrText,
   buckets,
   formatMs,
   periods,
   resourceWindows,
+  spanAgent,
   spanDetails,
   type Bucket,
   type Period,
-  type ResourceSeries,
   type ResourceWindow,
-  type Span,
 } from '../lib/diagnostics';
 import { formatNumber, useT } from '../lib/i18n';
 import { cn, errorMessage, humanBytes, timeAgo } from '../lib/utils';
-import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Notice, Panel } from './ui/card';
 import { Tip } from './ui/tooltip';
@@ -43,7 +43,6 @@ export function DiagnosticsPanel({ version }: { version?: string }) {
     queryFn: () => api.diagnosticStalls(period),
     refetchInterval: 30_000,
   });
-  const sample = spans.data?.sample || stalls.data?.sample;
   const refresh = () => {
     void spans.refetch();
     void stalls.refetch();
@@ -67,15 +66,11 @@ export function DiagnosticsPanel({ version }: { version?: string }) {
             <RefreshCw className={cn(spans.isFetching && 'animate-spin')} />
           </Button>
         </Tip>
-        {sample && (
-          <Tip label={t('diagnostics.sample.hint')}>
-            <Badge variant="warning" data-diagnostics-sample>
-              {t('diagnostics.sample')}
-            </Badge>
-          </Tip>
-        )}
       </div>
       {spans.error && <Notice>{errorMessage(spans.error)}</Notice>}
+      {(spans.data?.dropped ?? 0) > 0 && (
+        <Notice tone="warning">{t('diagnostics.dropped', { count: spans.data!.dropped })}</Notice>
+      )}
 
       <Panel className="grid grid-cols-2 divide-x divide-line-faint overflow-hidden sm:grid-cols-4">
         <Stat label={t('diagnostics.stat.spans')} value={spans.data ? formatNumber(total) : '…'} />
@@ -102,12 +97,12 @@ export function DiagnosticsPanel({ version }: { version?: string }) {
               t('diagnostics.col.p50'),
               t('diagnostics.col.p95'),
               t('diagnostics.col.max'),
+              t('diagnostics.col.total'),
             ]}
-            numeric={[1, 2, 3, 4, 5]}
+            numeric={[1, 2, 3, 4, 5, 6]}
           >
-            {[...stats]
-              .sort((a, b) => b.count - a.count)
-              .map((s) => (
+            {/* In the daemon's order: the busiest, by total time, first. */}
+            {stats.map((s) => (
                 <tr key={s.name} data-diagnostics-op={s.name}>
                   <Cell name>{s.name}</Cell>
                   <Cell num>{formatNumber(s.count)}</Cell>
@@ -118,6 +113,9 @@ export function DiagnosticsPanel({ version }: { version?: string }) {
                   <Cell num>{formatMs(s.p95Ms)}</Cell>
                   <Cell num className="text-muted">
                     {formatMs(s.maxMs)}
+                  </Cell>
+                  <Cell num className="text-muted">
+                    {formatMs(s.totalMs)}
                   </Cell>
                 </tr>
               ))}
@@ -135,13 +133,20 @@ export function DiagnosticsPanel({ version }: { version?: string }) {
         {stalls.error ? (
           <Empty>{errorMessage(stalls.error)}</Empty>
         ) : stallList.length > 0 ? (
-          <Table headers={[t('diagnostics.col.kind'), t('diagnostics.col.detail'), t('diagnostics.col.duration'), t('diagnostics.col.when')]} numeric={[2]}>
-            {stallList.map((s) => (
-              <tr key={`${s.kind}:${s.start}`}>
-                <Cell name>{s.kind}</Cell>
-                <Cell className="text-muted">{s.detail}</Cell>
+          <Table
+            headers={[t('diagnostics.col.kind'), t('diagnostics.col.operation'), t('diagnostics.col.detail'), t('diagnostics.col.duration'), t('diagnostics.col.when'), '']}
+            numeric={[3]}
+          >
+            {stallList.map((s, i) => (
+              <tr key={`${s.id ?? ''}:${s.start}:${i}`}>
+                <Cell className="whitespace-nowrap text-amber-300/90">{s.attrs?.stall === undefined ? '' : attrText(s.attrs.stall)}</Cell>
+                <Cell name>{s.name}</Cell>
+                <Cell className="break-words text-muted">{stallDetail(s)}</Cell>
                 <Cell num>{formatMs(s.durationMs)}</Cell>
                 <Cell className="whitespace-nowrap text-subtle">{timeAgo(s.start)}</Cell>
+                <td className="w-px px-2 py-1 align-top">
+                  <CopySpan span={s} version={version} />
+                </td>
               </tr>
             ))}
           </Table>
@@ -153,6 +158,14 @@ export function DiagnosticsPanel({ version }: { version?: string }) {
       <ResourceHistory />
     </div>
   );
+}
+
+// stallDetail is a stall's attributes but its kind, as "key value" pairs.
+function stallDetail(s: T.TraceSpan): string {
+  return Object.entries(s.attrs ?? {})
+    .filter(([k]) => k !== 'stall')
+    .map(([k, v]) => `${k} ${attrText(v)}`)
+    .join(' · ');
 }
 
 function Segmented<Id extends string>({
@@ -227,7 +240,7 @@ function Table({ headers, numeric = [], children }: { headers: string[]; numeric
         <thead className="border-b border-line-faint text-[11px] uppercase tracking-wider text-subtle">
           <tr>
             {headers.map((h, i) => (
-              <th key={h} className={cn('whitespace-nowrap px-4 py-2 font-medium', numeric.includes(i) && 'text-right')}>
+              <th key={h} className={cn('whitespace-nowrap px-3 py-2 first:pl-4 last:pr-4 font-medium', numeric.includes(i) && 'text-right')}>
                 {h}
               </th>
             ))}
@@ -243,8 +256,10 @@ function Cell({ name, num, className, children }: { name?: boolean; num?: boolea
   return (
     <td
       className={cn(
-        'px-4 py-2 align-top',
-        name && 'break-words font-mono text-[12px] text-primary',
+        'px-3 py-2 align-top first:pl-4 last:pr-4',
+        // A route name breaks inside a path only when it must, so the table
+        // fits its card rather than scrolling sideways.
+        name && '[overflow-wrap:anywhere] font-mono text-[12px] text-primary',
         num && 'whitespace-nowrap text-right font-mono tabular-nums',
         className,
       )}
@@ -260,7 +275,7 @@ function Empty({ children }: { children: ReactNode }) {
 
 // SpanTable lists spans, the slowest or the latest failures, folded to the
 // first few, each with a button that copies its details.
-function SpanTable({ spans, loading, empty, version, errors }: { spans?: Span[]; loading: boolean; empty: string; version?: string; errors?: boolean }) {
+function SpanTable({ spans, loading, empty, version, errors }: { spans?: T.TraceSpan[]; loading: boolean; empty: string; version?: string; errors?: boolean }) {
   const t = useT();
   const [all, setAll] = useState(false);
   if (!spans || spans.length === 0) return <Empty>{loading ? t('common.loading') : empty}</Empty>;
@@ -278,12 +293,15 @@ function SpanTable({ spans, loading, empty, version, errors }: { spans?: Span[];
         numeric={[2]}
       >
         {shown.map((s, i) => (
-          <tr key={`${s.traceId ?? ''}:${s.spanId ?? ''}:${s.start}:${i}`} className="group">
-            <Cell name>{s.name}</Cell>
+          <tr key={`${s.id ?? ''}:${s.start}:${i}`} className="group">
+            <Cell name>
+              {s.source === T.SpanSourceApp && <span className="mr-1.5 rounded bg-surface-strong px-1 py-px font-sans text-[10px] uppercase text-subtle">{t('diagnostics.source.app')}</span>}
+              {s.name}
+            </Cell>
             {errors ? (
               <Cell className="max-w-[28rem] break-words text-rose-300/90">{s.error}</Cell>
             ) : (
-              <Cell className="whitespace-nowrap text-muted">{s.attrs?.agent ?? s.attrs?.project ?? ''}</Cell>
+              <Cell className="whitespace-nowrap text-muted">{spanAgent(s)}</Cell>
             )}
             <Cell num>{formatMs(s.durationMs)}</Cell>
             <Cell className="whitespace-nowrap text-subtle">{timeAgo(s.start)}</Cell>
@@ -306,7 +324,7 @@ function SpanTable({ spans, loading, empty, version, errors }: { spans?: Span[];
   );
 }
 
-function CopySpan({ span, version }: { span: Span; version?: string }) {
+function CopySpan({ span, version }: { span: T.TraceSpan; version?: string }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
   const label = copied ? t('common.copied') : t('diagnostics.copy');
@@ -331,16 +349,21 @@ function CopySpan({ span, version }: { span: Span; version?: string }) {
 
 // ResourceHistory charts CPU and memory for the VM and each agent over a
 // window, in bars of a stretch each: the average filled, the peak behind it.
+// The daemon samples through Incus every 30 seconds and keeps an hour; a
+// machine without Incus (an agent's own) has nothing to chart.
 function ResourceHistory() {
   const t = useT();
   const [win, setWin] = useState<ResourceWindow>('15m');
   const resources = useQuery({
     queryKey: ['diagnostics', 'resources', win],
     queryFn: () => api.diagnosticResources(win),
-    refetchInterval: 10_000,
+    refetchInterval: 30_000,
   });
   const spec = resourceWindows.find((w) => w.id === win)!;
-  const series = resources.data?.series ?? [];
+  const bucketMs = Math.max(spec.bucketMs, (resources.data?.intervalSeconds ?? 0) * 1000);
+  const vm = resources.data?.vm ?? [];
+  const agents = (resources.data?.agents ?? []).filter((a) => a.samples.length > 0);
+  const lastVM = vm.at(-1);
   return (
     <Section
       title={t('diagnostics.resources.title')}
@@ -356,12 +379,43 @@ function ResourceHistory() {
     >
       {resources.error ? (
         <Empty>{errorMessage(resources.error)}</Empty>
-      ) : series.length === 0 ? (
-        <Empty>{resources.isPending ? t('common.loading') : t('diagnostics.resources.empty')}</Empty>
+      ) : vm.length === 0 && agents.length === 0 ? (
+        resources.isPending ? (
+          <Empty>{t('common.loading')}</Empty>
+        ) : (
+          <div className="grid gap-1 px-4 py-5 text-center" data-diagnostics-resources-empty>
+            <span className="text-[13px] font-medium text-title">{t('diagnostics.resources.empty')}</span>
+            <span className="text-[12px] text-muted">{t('diagnostics.resources.emptyHint')}</span>
+          </div>
+        )
       ) : (
         <div className="divide-y divide-line-faint">
-          {series.map((s) => (
-            <SeriesRow key={s.ref} series={s} windowMs={spec.ms} bucketMs={spec.bucketMs} />
+          {vm.length > 0 && (
+            <SeriesRow
+              id="vm"
+              name={t('diagnostics.resources.vm')}
+              samples={vm}
+              cpu={(s) => s.cpu}
+              memory={(s) => s.memUsed}
+              cpuMax={100}
+              memMax={lastVM!.memTotal}
+              windowMs={spec.ms}
+              bucketMs={bucketMs}
+            />
+          )}
+          {agents.map((a) => (
+            <SeriesRow
+              key={a.ref}
+              id={a.ref}
+              name={a.ref}
+              mono
+              samples={a.samples}
+              cpu={(s) => s.cpu}
+              memory={(s) => s.memory}
+              memMax={lastVM?.memTotal}
+              windowMs={spec.ms}
+              bucketMs={bucketMs}
+            />
           ))}
         </div>
       )}
@@ -369,34 +423,57 @@ function ResourceHistory() {
   );
 }
 
-function SeriesRow({ series, windowMs, bucketMs }: { series: ResourceSeries; windowMs: number; bucketMs: number }) {
+// SeriesRow is one machine's two charts. The VM's CPU is a percentage of all
+// its cores; an agent's is 100 to a core, so its scale grows past 100.
+function SeriesRow<S extends { at: string }>({
+  id,
+  name,
+  mono,
+  samples,
+  cpu,
+  memory,
+  cpuMax,
+  memMax,
+  windowMs,
+  bucketMs,
+}: {
+  id: string;
+  name: string;
+  mono?: boolean;
+  samples: S[];
+  cpu: (s: S) => number;
+  memory: (s: S) => number;
+  cpuMax?: number;
+  memMax?: number;
+  windowMs: number;
+  bucketMs: number;
+}) {
   const t = useT();
-  const last = series.samples.at(-1);
-  const cpu = buckets(series.samples, (s) => s.cpu, windowMs, bucketMs);
-  const mem = buckets(series.samples, (s) => s.memory, windowMs, bucketMs);
-  const name = series.kind === 'vm' ? t('diagnostics.resources.vm') : series.ref;
+  const last = samples.at(-1);
+  const cpuBars = buckets(samples, cpu, windowMs, bucketMs);
+  const memBars = buckets(samples, memory, windowMs, bucketMs);
   return (
-    <div className="grid min-w-0 gap-2 px-4 py-3" data-diagnostics-series={series.ref}>
+    <div className="grid min-w-0 gap-2 px-4 py-3" data-diagnostics-series={id}>
       <div className="flex min-w-0 items-baseline justify-between gap-3">
-        <span className={cn('truncate text-[13px] font-medium text-title', series.kind === 'agent' && 'font-mono text-[12px]')}>{name}</span>
+        <span className={cn('truncate text-[13px] font-medium text-title', mono && 'font-mono text-[12px]')}>{name}</span>
         {last && (
           <span className="shrink-0 font-mono text-[11px] tabular-nums text-subtle">
-            {t('diagnostics.resources.now', { cpu: `${Math.round(last.cpu)}%`, memory: humanBytes(last.memory) })}
+            {t('diagnostics.resources.now', { cpu: `${Math.round(cpu(last))}%`, memory: humanBytes(memory(last)) })}
           </span>
         )}
       </div>
       <div className="grid min-w-0 gap-3 md:grid-cols-2">
         <Chart
           label={t('diagnostics.resources.cpu')}
-          data={cpu}
-          max={Math.max(100, ...cpu.map((b) => b.peak))}
+          data={cpuBars}
+          max={cpuMax ?? Math.max(100, ...cpuBars.map((b) => b.peak))}
           format={(v) => `${Math.round(v)}%`}
           tone="bg-sky-400"
         />
         <Chart
           label={t('diagnostics.resources.memory')}
-          data={mem}
-          max={series.memTotal ?? Math.max(1, ...mem.map((b) => b.peak))}
+          data={memBars}
+          max={memMax || Math.max(1, ...memBars.map((b) => b.peak))}
           format={humanBytes}
           tone="bg-violet-400"
         />

@@ -5,7 +5,7 @@
 // daemon's /v1/diagnostics/client-spans in one batch at a time; a daemon
 // without that endpoint turns the whole thing off for the session, silently,
 // and a batch that fails to send is dropped rather than retried.
-import type { ClientSpan } from './diagnostics.ts';
+import type * as T from '../../shared/api.ts';
 
 export const clientSpansPath = '/v1/diagnostics/client-spans';
 
@@ -15,12 +15,12 @@ export const longTaskMs = 200;
 // How long spans wait to be sent, and how many a batch carries: past that,
 // the oldest go, so a burst of polling can't grow the buffer.
 const flushMs = 30_000;
-const maxBuffered = 500;
+const maxBuffered = 500; // api.MaxClientSpans, the most the daemon takes at once
 
-type Send = (spans: ClientSpan[]) => Promise<unknown>;
+type Send = (spans: T.TraceSpan[]) => Promise<unknown>;
 
 let send: Send | null = null;
-let buffer: ClientSpan[] = [];
+let buffer: T.TraceSpan[] = [];
 let timer: ReturnType<typeof setTimeout> | null = null;
 let observer: { disconnect(): void } | null = null;
 
@@ -52,7 +52,7 @@ export function routeName(method: string, path: string): string {
   return `${method} ${out.join('/')}`;
 }
 
-function push(span: ClientSpan): void {
+function push(span: T.TraceSpan): void {
   if (!send) return;
   buffer.push(span);
   if (buffer.length > maxBuffered) buffer.splice(0, buffer.length - maxBuffered);
@@ -68,13 +68,14 @@ function push(span: ClientSpan): void {
 export function recordRequest(method: string, path: string, started: number, status: number, error?: string): void {
   if (!send || path.startsWith(clientSpansPath)) return;
   const durationMs = performance.now() - started;
+  // The daemon's failures count as the app's too; a 4xx is an answer.
+  const failed = error ?? (status >= 500 ? `HTTP ${status}` : undefined);
   push({
-    kind: 'request',
     name: `app ${routeName(method, path)}`,
     start: new Date(Date.now() - durationMs).toISOString(),
     durationMs: Math.round(durationMs * 10) / 10,
-    status,
-    ...(error ? { error } : {}),
+    attrs: { status },
+    ...(failed ? { error: failed } : {}),
   });
 }
 
@@ -82,7 +83,6 @@ export function recordRequest(method: string, path: string, started: number, sta
 export function recordLongTask(startTime: number, duration: number): void {
   if (duration <= longTaskMs) return;
   push({
-    kind: 'longtask',
     name: 'app long task',
     start: new Date(performance.timeOrigin + startTime).toISOString(),
     durationMs: Math.round(duration),
@@ -129,4 +129,4 @@ export function stopAppTiming(): void {
 }
 
 // pending is what's waiting to be sent, for tests.
-export const pending = (): readonly ClientSpan[] => buffer;
+export const pending = (): readonly T.TraceSpan[] => buffer;

@@ -2,7 +2,7 @@
 import type { ApiResponse } from '../../preload';
 import * as T from '../../shared/api.ts';
 import { recordRequest, clientSpansPath } from './appTiming.ts';
-import * as D from './diagnostics.ts';
+import type * as D from './diagnostics.ts';
 import { errorMessage } from './utils.ts';
 import { ensureVMRunning } from './vm.ts';
 
@@ -152,19 +152,6 @@ const tokenParams = (q: TokenQuery, extra: Record<string, string> = {}) => {
 // providerQuery names an OpenCode account's provider in its path.
 function providerQuery(provider?: string): string {
   return provider ? `?provider=${encodeURIComponent(provider)}` : '';
-}
-
-// sampled is a diagnostics read that falls back on fixtures while the daemon
-// has no /v1/diagnostics (TODO(daemon tracing): goes once it does). The page
-// says when what it shows is sample data.
-export type Sampled<R> = R & { sample?: true };
-async function sampled<R extends object>(path: string, fixture: () => R): Promise<Sampled<R>> {
-  try {
-    return await call<Sampled<R>>('GET', path);
-  } catch (err) {
-    if (err instanceof ApiError && (err.status === 404 || err.status === 405)) return { ...fixture(), sample: true };
-    throw err;
-  }
 }
 
 export const api = {
@@ -574,15 +561,10 @@ export const api = {
   usage: () => call<T.Usage>('GET', '/v1/usage?interval=500ms'),
   // Settings → Diagnostics: spans and stalls since a stretch back from now
   // ("30m"), resource samples over a window ("1h"), and the app's own spans.
-  diagnosticSpans: (since: string) =>
-    sampled(`/v1/diagnostics/spans?since=${encodeURIComponent(since)}`, () => D.fixtureSpans()),
-  diagnosticStalls: (since: string) =>
-    sampled(`/v1/diagnostics/stalls?since=${encodeURIComponent(since)}`, () => D.fixtureStalls()),
-  diagnosticResources: (span: D.ResourceWindow) =>
-    sampled(`/v1/diagnostics/resources?window=${span}`, () =>
-      D.fixtureResources(D.resourceWindows.find((w) => w.id === span)!.ms),
-    ),
-  sendClientSpans: (spans: D.ClientSpan[]) => call<void>('POST', clientSpansPath, { spans }),
+  diagnosticSpans: (since: string) => call<T.DiagnosticsSpans>('GET', `/v1/diagnostics/spans?since=${encodeURIComponent(since)}`),
+  diagnosticStalls: (since: string) => call<T.DiagnosticsStalls>('GET', `/v1/diagnostics/stalls?since=${encodeURIComponent(since)}`),
+  diagnosticResources: (span: D.ResourceWindow) => call<T.DiagnosticsResources>('GET', `/v1/diagnostics/resources?window=${span}`),
+  sendClientSpans: (spans: T.TraceSpan[]) => call<void>('POST', clientSpansPath, { spans } satisfies T.ClientSpansRequest),
   diskUsage: () => call<T.DiskUsage>('GET', '/v1/usage/disk'),
   diskGuard: () => call<T.DiskGuard>('GET', '/v1/disk'),
   memoryUsage: () => call<T.MemoryUsage>('GET', '/v1/usage/memory'),

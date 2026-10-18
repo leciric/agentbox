@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ApiError, api } from './api.ts';
 import { clientSpansPath, flush, pending, recordLongTask, recordRequest, routeName, startAppTiming, stopAppTiming } from './appTiming.ts';
-import type { ClientSpan } from './diagnostics.ts';
+import type * as T from '../../shared/api.ts';
 
 test('routeName keeps the route and drops the names and ids in it', () => {
   assert.equal(routeName('GET', '/v1/agents'), 'GET /v1/agents');
@@ -22,7 +22,7 @@ test('nothing is recorded until the timing is started', () => {
 });
 
 test('requests and long tasks over the threshold are batched and sent together', async () => {
-  const sent: ClientSpan[][] = [];
+  const sent: T.TraceSpan[][] = [];
   startAppTiming(async (spans) => void sent.push(spans));
   recordRequest('GET', '/v1/agents/p/a', performance.now() - 12, 200);
   recordRequest('POST', clientSpansPath, performance.now(), 204);
@@ -32,10 +32,10 @@ test('requests and long tasks over the threshold are batched and sent together',
   await flush();
   assert.equal(sent.length, 1);
   assert.deepEqual(
-    sent[0].map((s) => [s.kind, s.name]),
+    sent[0].map((s) => [s.name, s.attrs?.status]),
     [
-      ['request', 'app GET /v1/agents/{}/{}'],
-      ['longtask', 'app long task'],
+      ['app GET /v1/agents/{}/{}', 200],
+      ['app long task', undefined],
     ],
   );
   assert.ok(sent[0][0].durationMs >= 12);
@@ -68,6 +68,18 @@ test('a batch that fails to send for another reason is dropped and timing goes o
   stopAppTiming();
 });
 
+test('a request the daemon failed, or that never got an answer, is an error', () => {
+  startAppTiming(async () => {});
+  recordRequest('GET', '/v1/agents', performance.now(), 404);
+  recordRequest('GET', '/v1/agents', performance.now(), 502);
+  recordRequest('GET', '/v1/agents', performance.now(), 0, 'socket closed');
+  assert.deepEqual(
+    pending().map((s) => s.error),
+    [undefined, 'HTTP 502', 'socket closed'],
+  );
+  stopAppTiming();
+});
+
 test('api calls are timed, but not the posts of the spans themselves', async () => {
   (globalThis as unknown as { window: unknown }).window = {
     agentbox: { request: async () => ({ status: 200, body: '[]', contentType: 'application/json' }) },
@@ -76,7 +88,7 @@ test('api calls are timed, but not the posts of the spans themselves', async () 
   await api.agents();
   await api.sendClientSpans([]);
   assert.deepEqual(
-    pending().map((s) => [s.name, s.status]),
+    pending().map((s) => [s.name, s.attrs?.status]),
     [['app GET /v1/agents', 200]],
   );
   stopAppTiming();
