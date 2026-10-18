@@ -35,7 +35,7 @@ test('the lead and a past agent have files and evidence, but no machine views, a
     assert.equal(P.hasView(live, view), true, `agent ${view}`);
   }
   assert.deepEqual(P.panelViews.filter(P.needsMachine), ['desktop', 'terminal', 'browser']);
-  assert.deepEqual(P.panelViews.filter(P.projectWide), ['pulls', 'settings']);
+  assert.deepEqual(P.panelViews.filter(P.projectWide), ['pulls', 'schedules', 'settings']);
   // The switch's four, and the ⋯'s the rest: every view is in one of them.
   assert.deepEqual(P.switchViews, ['desktop', 'terminal', 'files', 'evidence']);
   assert.deepEqual([...P.switchViews, ...P.moreViews].toSorted(), [...P.panelViews].toSorted());

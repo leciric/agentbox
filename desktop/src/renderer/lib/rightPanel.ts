@@ -14,16 +14,16 @@ import type * as T from '../../shared/api.ts';
 import { isLeadRef } from './pages.ts';
 import type { ProjectSection } from './tabs.ts';
 
-export type PanelView = 'desktop' | 'terminal' | 'files' | 'evidence' | 'browser' | 'timeline' | 'pulls' | 'settings';
-export const panelViews: PanelView[] = ['desktop', 'terminal', 'files', 'evidence', 'browser', 'timeline', 'pulls', 'settings'];
+export type PanelView = 'desktop' | 'terminal' | 'files' | 'evidence' | 'browser' | 'timeline' | 'pulls' | 'schedules' | 'settings';
+export const panelViews: PanelView[] = ['desktop', 'terminal', 'files', 'evidence', 'browser', 'timeline', 'pulls', 'schedules', 'settings'];
 // The switch's four, always there, in this order; the rest are in the ⋯.
 export const switchViews: PanelView[] = ['desktop', 'terminal', 'files', 'evidence'];
-export const moreViews: PanelView[] = ['browser', 'timeline', 'pulls', 'settings'];
+export const moreViews: PanelView[] = ['browser', 'timeline', 'pulls', 'schedules', 'settings'];
 
-// The project's own views: its pull requests and its settings, the same
-// whoever is picked.
-export type WideView = 'pulls' | 'settings';
-export const projectWide = (view: PanelView): view is WideView => view === 'pulls' || view === 'settings';
+// The project's own views: its pull requests, its scheduled tasks and its
+// settings, the same whoever is picked.
+export type WideView = 'pulls' | 'schedules' | 'settings';
+export const projectWide = (view: PanelView): view is WideView => view === 'pulls' || view === 'schedules' || view === 'settings';
 
 // The views that show a machine: an agent's display, its shell, its dev server.
 export const needsMachine = (view: PanelView) => view === 'desktop' || view === 'terminal' || view === 'browser';

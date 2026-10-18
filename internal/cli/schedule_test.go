@@ -37,7 +37,7 @@ func TestScheduleCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustContain(t, out, "paused")
-	if out, err = run(t, "", "schedule", "rm", "hello-stack", id[1]); err != nil {
+	if _, err = run(t, "", "schedule", "rm", "hello-stack", id[1]); err != nil {
 		t.Fatal(err)
 	}
 	if out, err = run(t, "", "schedule", "ls", "hello-stack"); err != nil {

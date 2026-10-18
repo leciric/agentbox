@@ -2870,6 +2870,7 @@ export const ConsolidationModelChat = "";
 export const EventChat = "chat";
 export const EventChatCache = "chat.cache";
 export const EventQuestion = "question";
+export const EventSchedule = "schedule";
 export const EventAgentEvent = "agent.event";
 export const ReviewReviewed = "reviewed";
 export const ReviewDismissed = "dismissed";
