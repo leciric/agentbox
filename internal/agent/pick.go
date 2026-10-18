@@ -57,10 +57,26 @@ func pickElement(ctx context.Context, client *http.Client, pages []BrowserPage, 
 		return nil, err
 	}
 	defer func() { _ = s.conn.CloseNow() }()
+	// The connection's calls never run on ctx: the websocket closes when the
+	// context of a read in flight ends, and cancelling must still reach the
+	// page to take the overlay off it. ctx is watched between calls instead.
+	call := func(timeout time.Duration) (context.Context, context.CancelFunc) {
+		return context.WithTimeout(context.WithoutCancel(ctx), timeout)
+	}
+	evaluate := func(world int, expression string) (json.RawMessage, error) {
+		c, cancel := call(5 * time.Second)
+		defer cancel()
+		return s.evaluate(c, world, expression)
+	}
+	install := func(script string) (int, error) {
+		c, cancel := call(10 * time.Second)
+		defer cancel()
+		return s.installPicker(c, script)
+	}
 	hintJSON, _ := json.Marshal(hint)
-	install := fmt.Sprintf("(%s)(%s)", strings.TrimRight(strings.TrimSpace(pickerScript), ";"), hintJSON)
+	script := fmt.Sprintf("(%s)(%s)", strings.TrimRight(strings.TrimSpace(pickerScript), ";"), hintJSON)
 
-	world, err := s.installPicker(ctx, install)
+	world, err := install(script)
 	if err != nil {
 		return nil, err
 	}
@@ -69,22 +85,18 @@ func pickElement(ctx context.Context, client *http.Client, pages []BrowserPage, 
 	for {
 		select {
 		case <-ctx.Done():
-			// Take the overlay off the page, on a context of its own: ctx is over.
-			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
-			defer cancel()
-			_, _ = s.evaluate(cleanup, world, "globalThis.__agentboxPicker?.cancel()")
+			// Take the overlay off the page.
+			_, _ = evaluate(world, "globalThis.__agentboxPicker?.cancel()")
 			return nil, nil
 		case <-tick.C:
 		}
-		value, err := s.evaluate(ctx, world, pickResult)
+		value, err := evaluate(world, pickResult)
 		var cdp *devtoolsError
 		switch {
-		case ctx.Err() != nil:
-			continue
 		case errors.As(err, &cdp) || string(value) == "null":
 			// The page navigated, taking the world and the overlay with it:
 			// put them on the new page, as soon as it has a document.
-			if w, err := s.installPicker(ctx, install); err == nil {
+			if w, err := install(script); err == nil {
 				world = w
 			}
 			continue
@@ -104,7 +116,9 @@ func pickElement(ctx context.Context, client *http.Client, pages []BrowserPage, 
 		}
 		el := picked.ElementPick
 		// Without its picture the element is still worth sending.
-		el.Image, _ = s.crop(ctx, el.Box, el.Viewport, picked.Scroll.X, picked.Scroll.Y)
+		shot, cancel := call(15 * time.Second)
+		el.Image, _ = s.crop(shot, el.Box, el.Viewport, picked.Scroll.X, picked.Scroll.Y)
+		cancel()
 		return &el, nil
 	}
 }

@@ -36,12 +36,22 @@ func startChromium(t *testing.T) (*http.Client, []BrowserPage) {
 	}
 	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(pickPage)) }))
 	t.Cleanup(site.Close)
-	profile := t.TempDir()
+	// Not t.TempDir: Chromium's helpers still write the profile for a moment
+	// after it is killed, which fails TempDir's cleanup.
+	profile, err := os.MkdirTemp("", "pick-chromium-")
+	if err != nil {
+		t.Fatal(err)
+	}
 	cmd := exec.Command(bin, "--headless=new", "--no-sandbox", "--remote-debugging-port=0", "--user-data-dir="+profile, "--window-size=800,600", "--hide-scrollbars", site.URL)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		time.Sleep(200 * time.Millisecond)
+		_ = os.RemoveAll(profile)
+	})
 	var port string
 	for deadline := time.Now().Add(15 * time.Second); port == "" && time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
 		if b, err := os.ReadFile(filepath.Join(profile, "DevToolsActivePort")); err == nil {
