@@ -58,7 +58,9 @@ func (f *fakePage) serve(t *testing.T) string {
 func (f *fakePage) answer(method string, params map[string]any) (any, string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	value := func(v string) any { return map[string]any{"result": map[string]any{"type": "object", "value": json.RawMessage(v)}} }
+	value := func(v string) any {
+		return map[string]any{"result": map[string]any{"type": "object", "value": json.RawMessage(v)}}
+	}
 	switch method {
 	case "Page.getFrameTree":
 		return map[string]any{"frameTree": map[string]any{"frame": map[string]any{"id": "main"}}}, ""
