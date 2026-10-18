@@ -9,6 +9,7 @@ import { App } from './App';
 import { Toasts } from './components/Toasts';
 import { TooltipProvider } from './components/ui/tooltip';
 import { api } from './lib/api';
+import { startAppTiming } from './lib/appTiming';
 import { userTimezone } from './lib/schedules';
 import { connectEvents } from './lib/events';
 import { applyLanguage, restoreLanguage, useLanguage } from './lib/i18n';
@@ -23,6 +24,8 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 5_000 } },
 });
 connectEvents(queryClient);
+// The app's own spans, for Settings → Diagnostics (lib/appTiming.ts).
+startAppTiming(api.sendClientSpans);
 
 // Root speaks the daemon's Settings.language, and draws the app again the
 // moment it changes: every component under it re-renders in the new language,

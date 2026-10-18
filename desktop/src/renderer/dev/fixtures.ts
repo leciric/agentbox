@@ -1837,6 +1837,8 @@ export function installDevBridge(): void {
         const got = { old, name, projects: projects.map((p) => p.name), agents: [`${PROJECT}/agent-01`] };
         return { status: 200, body: JSON.stringify(got), contentType: 'application/json' };
       }
+      // No daemon tracing yet: Settings → Diagnostics shows its sample data.
+      if (path.startsWith('/v1/diagnostics/')) return { status: 404, body: '404 page not found', contentType: 'text/plain' };
       // Answering a credential request gives back the question, answered, the
       // way the daemon does, so the rail and the chat can both be seen to
       // settle.
