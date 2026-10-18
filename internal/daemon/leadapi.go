@@ -153,6 +153,10 @@ func (s *Server) leadRoutes(project string) http.Handler {
 	mux.HandleFunc("PUT /v1/project/skills/{name}", withProject(s.leadEditSkill))
 	mux.HandleFunc("DELETE /v1/project/skills/{name}", withProject(s.leadRemoveSkill))
 	mux.HandleFunc("PUT /v1/project/skills/{name}/switch", withProject(s.leadSwitchSkill))
+	// Scheduled tasks (schedules.go): the lead's schedule_task and the rest.
+	s.scheduleRoutes("/v1/project", "lead", func(pattern string, fn func(http.ResponseWriter, *http.Request) error) {
+		mux.HandleFunc(pattern, withProject(fn))
+	})
 	mux.HandleFunc("GET /v1/project/questions", withProject(s.leadQuestions))
 	mux.HandleFunc("POST /v1/project/questions/{id}/answer", withProject(s.leadAnswerQuestion))
 	mux.HandleFunc("POST /v1/project/questions/{id}/escalate", withProject(s.leadEscalateQuestion))

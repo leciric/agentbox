@@ -184,6 +184,9 @@ type ChatItem struct {
 	// ProjectMessage, on a notice, makes it a message between this project's
 	// lead and another project's: the notice's Text is what was said.
 	ProjectMessage *ChatProjectMessage `json:"projectMessage,omitempty"`
+	// ScheduledRun, on a notice in a project's lead chat, makes it one of the
+	// project's scheduled tasks arriving: the notice's Text is the task.
+	ScheduledRun *ChatScheduledRun `json:"scheduledRun,omitempty"`
 	// AgentPermission, on a notice in a project's lead chat, makes it one of
 	// the project's agents asking permission in its own chat: a copy of that
 	// request, kept in step with it until it is answered or given up, for the

@@ -608,6 +608,21 @@ func (m *Manager) ShowProjectMessage(a state.Agent, text string, pm api.ChatProj
 	return clone(*it), nil
 }
 
+// ShowScheduledRun adds one of the project's scheduled tasks arriving to its
+// lead's chat, as the chip the app shows it with; the lead itself reads it
+// from a hidden notice (daemon.tellLead). It starts no turn.
+func (m *Manager) ShowScheduledRun(a state.Agent, task string, run api.ChatScheduledRun) (api.ChatItem, error) {
+	c, err := m.conversation(a)
+	if err != nil {
+		return api.ChatItem{}, err
+	}
+	defer c.mu.Unlock()
+	it := c.add("notice", c.lastTurn())
+	it.Text, it.ScheduledRun = task, &run
+	c.flush(true)
+	return clone(*it), nil
+}
+
 // NoticeOptions is how a notice is delivered.
 type NoticeOptions struct {
 	// Act starts a turn on the notice, so the conversation reacts to it now.

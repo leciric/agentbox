@@ -262,6 +262,7 @@ func NewRootCmd() *cobra.Command {
 		newRemoveCmd(a),
 		newBriefCmd(a),
 		newNotesCmd(a),
+		newScheduleCmd(a),
 		newAuthCmd(a),
 		newClaudeAccountCmd(a),
 		newGitHubAccountCmd(a),

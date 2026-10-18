@@ -123,6 +123,13 @@ export function connectEvents(queryClient: QueryClient): void {
         }
         break;
       }
+      case T.EventSchedule: {
+        // A schedule was made, changed or removed, or one of them ran.
+        const change = event.data as T.ScheduleChange;
+        void queryClient.invalidateQueries({ queryKey: ['schedules', change.project] });
+        void queryClient.invalidateQueries({ queryKey: ['scheduleRuns', change.project] });
+        break;
+      }
       case T.EventQuestion: {
         // A question was asked, escalated or answered: the avatars wave while
         // one waits on you, and the credential cards show what it came to.

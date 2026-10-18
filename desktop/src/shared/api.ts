@@ -154,6 +154,7 @@ export interface Settings {
   prWatch: boolean;
   mediaRetention: string;
   language: string;
+  timezone: string;
   defaultClaudeCompactWindow: number;
   diskFloorMin: number;
   diskFloorPercent: number;
@@ -203,6 +204,7 @@ export interface UpdateSettingsRequest {
   prWatch?: boolean;
   mediaRetention?: string;
   language?: string;
+  timezone?: string;
   autoStopIdle?: boolean;
   dockerPruneOnStop?: boolean;
   idleTimeSeconds?: number;
@@ -2043,6 +2045,7 @@ export interface ChatItem {
   compaction?: ChatCompaction;
   handoff?: string;
   projectMessage?: ChatProjectMessage;
+  scheduledRun?: ChatScheduledRun;
   agentPermission?: ChatAgentPermission;
   finished?: string[];
   parent?: string;
@@ -2120,6 +2123,81 @@ export interface ChatProjectMessage {
   topic?: string;
   expectsReply?: boolean;
   hop: number;
+}
+
+export interface ChatScheduledRun {
+  schedule: string;
+  run: string;
+  title: string;
+  trigger: string;
+  dueAt?: string;
+  late?: boolean;
+  missed?: number;
+  target: string;
+  agent?: string;
+}
+
+export interface Schedule {
+  id: string;
+  project: string;
+  title: string;
+  task: string;
+  kind: string;
+  at?: string;
+  everyMinutes?: number;
+  cron?: string;
+  timezone: string;
+  describe: string;
+  target: string;
+  session?: string;
+  model?: string;
+  effort?: string;
+  precheck?: string;
+  graceMinutes?: number;
+  paused: boolean;
+  nextRun?: string;
+  lastRun?: ScheduleRun;
+  runs: number;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ScheduleRun {
+  id: string;
+  schedule: string;
+  title?: string;
+  trigger: string;
+  dueAt?: string;
+  ranAt: string;
+  late?: boolean;
+  missed?: number;
+  outcome: string;
+  agent?: string;
+  job?: string;
+  chatItem?: string;
+  error?: string;
+}
+
+export interface ScheduleRequest {
+  title?: string;
+  task?: string;
+  at?: string;
+  in?: string;
+  every?: string;
+  cron?: string;
+  timezone?: string;
+  target?: string;
+  session?: string;
+  model?: string;
+  effort?: string;
+  precheck?: string;
+  graceMinutes?: number;
+  paused?: boolean;
+}
+
+export interface ScheduleChange {
+  project: string;
 }
 
 export interface ChatAgentPermission {
@@ -2830,6 +2908,7 @@ export const ConsolidationModelChat = "";
 export const EventChat = "chat";
 export const EventChatCache = "chat.cache";
 export const EventQuestion = "question";
+export const EventSchedule = "schedule";
 export const EventAgentEvent = "agent.event";
 export const ReviewReviewed = "reviewed";
 export const ReviewDismissed = "dismissed";

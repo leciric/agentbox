@@ -491,6 +491,10 @@ type Settings struct {
 	// new one is a catalog there and nothing here. The CLI, the brief and the
 	// chats stay in English whatever it is.
 	Language string `json:"language"`
+	// Timezone is the IANA timezone the desktop app last ran in, which
+	// scheduled tasks are read in when they name none: the daemon runs in a
+	// VM whose clock is in UTC. Empty until an app has said.
+	Timezone string `json:"timezone"`
 	// DefaultClaudeCompactWindow is what ClaudeCompactWindow is when nobody
 	// chose, so a client can offer to go back to it.
 	DefaultClaudeCompactWindow int64 `json:"defaultClaudeCompactWindow"`
@@ -621,6 +625,9 @@ type UpdateSettingsRequest struct {
 	// Language sets Settings.Language: a language tag, "" going back to
 	// DefaultLanguage.
 	Language *string `json:"language,omitempty"`
+	// Timezone sets Settings.Timezone: an IANA name, which the app sends as
+	// it starts.
+	Timezone *string `json:"timezone,omitempty"`
 	// AutoStopIdle turns "auto-stop idle agents" on or off.
 	AutoStopIdle *bool `json:"autoStopIdle,omitempty"`
 	// DockerPruneOnStop turns freeing an agent's Docker space on stop on or

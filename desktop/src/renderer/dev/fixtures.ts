@@ -1377,6 +1377,7 @@ let defaultsSettings = {
   defaultLeadModel: '',
   defaultLeadContextWindow: '',
   language: new URLSearchParams(location.search).get('lang') ?? 'en-US',
+  timezone: 'Europe/Lisbon',
   mediaRetention: '1d',
   claudeModelChoices: [
     { value: 'default', name: 'Default (recommended)', description: 'Opus 5.5 with 1M context' },

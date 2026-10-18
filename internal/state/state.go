@@ -1203,6 +1203,52 @@ var migrations = []string{
 	`UPDATE notifications SET seen_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
 		WHERE seen_at = 0 AND kind = 'question' AND NOT EXISTS (
 			SELECT 1 FROM questions q WHERE q.id = json_extract(notifications.data, '$.question') AND q.status IN ('pending', 'escalated'))`,
+
+	// Scheduled tasks (schedules.go): when each runs (kind once, every or
+	// cron; at and next_run are unix ms, 0 for none; every_ms the interval;
+	// timezone an IANA name, '' for the daemon's), how late a missed run may
+	// still run (grace_minutes, 0 for any), a shell command that must pass
+	// first (precheck), and for an agent's run whether it reuses the last
+	// run's agent (session 'reuse') and its model and effort. One row per run.
+	`CREATE TABLE schedules (
+		id         TEXT PRIMARY KEY,
+		project    TEXT NOT NULL,
+		title      TEXT NOT NULL,
+		task       TEXT NOT NULL,
+		kind       TEXT NOT NULL,
+		at         INTEGER NOT NULL DEFAULT 0,
+		every_ms   INTEGER NOT NULL DEFAULT 0,
+		cron       TEXT NOT NULL DEFAULT '',
+		timezone   TEXT NOT NULL DEFAULT '',
+		target     TEXT NOT NULL DEFAULT 'lead',
+		session    TEXT NOT NULL DEFAULT '',
+		model      TEXT NOT NULL DEFAULT '',
+		effort     TEXT NOT NULL DEFAULT '',
+		precheck   TEXT NOT NULL DEFAULT '',
+		grace_minutes INTEGER NOT NULL DEFAULT 0,
+		paused     INTEGER NOT NULL DEFAULT 0,
+		next_run   INTEGER NOT NULL DEFAULT 0,
+		created_by TEXT NOT NULL DEFAULT '',
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	)`,
+	`CREATE INDEX schedules_by_next ON schedules (paused, next_run)`,
+	`CREATE TABLE schedule_runs (
+		id        TEXT PRIMARY KEY,
+		schedule  TEXT NOT NULL,
+		project   TEXT NOT NULL,
+		trigger   TEXT NOT NULL,
+		due_at    INTEGER NOT NULL DEFAULT 0,
+		ran_at    INTEGER NOT NULL,
+		late      INTEGER NOT NULL DEFAULT 0,
+		missed    INTEGER NOT NULL DEFAULT 0,
+		outcome   TEXT NOT NULL DEFAULT '',
+		agent     TEXT NOT NULL DEFAULT '',
+		job       TEXT NOT NULL DEFAULT '',
+		chat_item TEXT NOT NULL DEFAULT '',
+		error     TEXT NOT NULL DEFAULT ''
+	)`,
+	`CREATE INDEX schedule_runs_by_schedule ON schedule_runs (project, schedule, ran_at)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -1858,6 +1904,9 @@ var projectOwned = []string{
 	"project_messages",
 	"project_links",
 	"project_icons",
+	// Its scheduled tasks and what they did (schedules.go).
+	"schedules",
+	"schedule_runs",
 }
 
 // peerOwned is the tables that also name a project as peer: the other side
