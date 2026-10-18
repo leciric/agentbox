@@ -2357,6 +2357,56 @@ type BrowserOpenRequest struct {
 	URL string `json:"url"`
 }
 
+// ElementPickRequest starts the element picker on the page an agent's browser
+// shows (POST .../browser/pick): Hint is what the overlay says over the page,
+// in the app's language.
+type ElementPickRequest struct {
+	Hint string `json:"hint,omitempty"`
+}
+
+// ElementPickResult is what the picker ended with: the element clicked, or
+// none when it was cancelled, with Escape or POST .../browser/pick/cancel.
+type ElementPickResult struct {
+	Element *ElementPick `json:"element,omitempty"`
+}
+
+// ElementPick is an element picked on a page in an agent's browser, to send
+// to a chat with a message: where it is, what it is and how it looks.
+type ElementPick struct {
+	URL      string `json:"url"`
+	Title    string `json:"title,omitempty"`
+	Selector string `json:"selector"`
+	Tag      string `json:"tag"`
+	// HTML is its outer HTML, trimmed: long text and attributes cut, SVG paths
+	// dropped, at most 3,000 characters.
+	HTML   string         `json:"html"`
+	Text   string         `json:"text,omitempty"`
+	Styles []ElementStyle `json:"styles"` // computed, those not at their default
+	// Box is where it is in the page's viewport (Viewport), in CSS pixels.
+	Box      ElementBox  `json:"box"`
+	Viewport ElementSize `json:"viewport"`
+	// Image is the element cropped from a screenshot of the page, with a
+	// little of what is around it.
+	Image *ChatImageUpload `json:"image,omitempty"`
+}
+
+type ElementStyle struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+type ElementBox struct {
+	X      float64 `json:"x"`
+	Y      float64 `json:"y"`
+	Width  float64 `json:"width"`
+	Height float64 `json:"height"`
+}
+
+type ElementSize struct {
+	Width  float64 `json:"width"`
+	Height float64 `json:"height"`
+}
+
 // PreviewInfo is where the preview proxy listens, which serves
 // http://<port>.<agent>.<project>.localhost:<its port>. Addr is empty when it's off.
 type PreviewInfo struct {

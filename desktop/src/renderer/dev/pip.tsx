@@ -158,6 +158,13 @@ function setThread(lines: Said[]) {
   thread = { ...leadChat(), seq: lines.length, items: chatItems(lines) };
 }
 
+// sayInPip adds item to the lead's chat (dev/pick.tsx's message), and is
+// the chat with it.
+export function sayInPip(item: T.ChatItem): T.ChatThread {
+  thread = { ...thread, seq: thread.seq + 1, items: [...thread.items, item] };
+  return thread;
+}
+
 // seedPip puts the scenario in place of the v2 fixtures' agents, media and
 // lead's chat; after seedV2, seedReview and seedMedia.
 export function seedPip(queryClient: QueryClient): void {

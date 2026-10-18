@@ -9,7 +9,7 @@
 // TourHost starts what a launch should play (onLaunch); HelpMenu, at the
 // sidebar's top, and the shortcut sheet (Ctrl+/) replay them.
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, Check, ChevronDown, CircleHelp, Film, Hand, Image as ImageIcon, Keyboard, MessageCircleQuestion, Monitor, Pin, Sparkles, SquareTerminal, FolderTree, Images, EyeOff } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ChevronDown, CircleHelp, Film, Hand, Image as ImageIcon, Keyboard, MessageCircleQuestion, Monitor, Pin, Sparkles, SquareDashedMousePointer, SquareTerminal, FolderTree, Images, EyeOff } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { View } from '../../App';
 import { api } from '../../lib/api';
@@ -319,6 +319,23 @@ function Head({ children }: { children: ReactNode }) {
 
 // Each is given whether the step's anchor is on screen, to leave out what it shows.
 const examples: Record<Example, (t: Tr, anchored: boolean) => ReactNode> = {
+  pick: (t) => (
+    <Frame className="grid gap-2">
+      <div className="relative h-20 overflow-hidden rounded-lg border border-line bg-surface-raised">
+        <div className="absolute left-3 right-3 top-3 h-2.5 rounded bg-surface-strong" />
+        <div className="absolute left-3 top-8 h-2 w-1/2 rounded bg-surface-strong/70" />
+        <span className="absolute bottom-3 left-3 rounded-md bg-emerald-500/70 px-2.5 py-1 text-[10px] font-medium text-white outline outline-2 outline-offset-2 outline-brand-400">Save</span>
+        <span className="absolute bottom-[38px] left-2 rounded bg-brand-500 px-1 font-mono text-[9px] text-white">button.save</span>
+      </div>
+      <div className="flex items-center gap-1.5 rounded-xl border border-line-strong bg-surface px-2 py-1.5 text-[11px]">
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-brand-400/40 bg-brand-500/10 px-1.5 py-0.5 font-mono text-primary">
+          <SquareDashedMousePointer className="size-3 text-brand-300" />
+          button.save
+        </span>
+        <span className="truncate text-secondary">{t('tour.ex.pickMessage')}</span>
+      </div>
+    </Frame>
+  ),
   sidebar: (t) => (
     <Frame className="grid gap-0.5">
       <Head>

@@ -178,6 +178,9 @@
 //   &tour=welcome           with &v2=1, that tour playing (lib/tours.ts: welcome,
 //                           v2, review, panel, groups, cross-project, places; several
 //                           comma-separated), from &step=n (default 0)
+//   &pick=1                 with &pip=1&panel=desktop:agent-25, the element picker:
+//                           Pick element, a click on agent-25's page, and the
+//                           element in the lead's composer (dev/pick.tsx)
 //   &panel=files            with &v2=1, the right-hand panel open on a tab
 //                           (files, desktop, terminal, browser, pages, media,
 //                           pulls, settings), or on its launcher (launcher);
@@ -275,6 +278,7 @@ import { ScopedMediaPages } from '../components/pages/MediaPages';
 import { mockMedia, NotificationsPreview, seedNotifications } from './notifications';
 import { ReviewPreview, seedEvidence, seedLeadLines, seedReview, seedV2 } from './review';
 import { PipFinish, seedPip } from './pip';
+import { seedPick } from './pick';
 import { seedTimelines } from './timeline';
 import { setUiV2 } from '../lib/uiV2';
 import { setTourState, tours, welcomeTour } from '../lib/tours';
@@ -479,6 +483,8 @@ if (appView && params.get('v2') === '1') {
   if (!past) seedPastAgents(queryClient);
   // &pip=1: the lead's picture-in-picture desktops, with agents at work (dev/pip.tsx).
   if (params.get('pip') === '1') seedPip(queryClient);
+  // &pick=1, with &pip=1: agent-25's desktop is a page to pick elements on (dev/pick.tsx).
+  if (params.get('pick') === '1') seedPick(queryClient);
   // Each page starts with no panel open, whatever the last one left.
   setPanel({ chats: {}, views: {}, last: {} });
   // &panel=<view>[:<whose>]: the panel open on a view (desktop, terminal,

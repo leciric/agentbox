@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/coder/websocket"
 
@@ -66,6 +67,72 @@ func (s *Server) browser(action string, agentOf func(*http.Request) (state.Agent
 		}
 		return writeJSON(w, http.StatusOK, toAPIBrowser(status))
 	}
+}
+
+// elementPicks cancels each agent's element picker: one at a time per agent,
+// so a second pick ends the first.
+type elementPicks struct {
+	mu     sync.Mutex
+	cancel map[string]*context.CancelFunc
+}
+
+func (p *elementPicks) start(ref string, cancel context.CancelFunc) (done func()) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.cancel == nil {
+		p.cancel = map[string]*context.CancelFunc{}
+	}
+	if previous := p.cancel[ref]; previous != nil {
+		(*previous)()
+	}
+	mine := &cancel
+	p.cancel[ref] = mine
+	return func() {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		if p.cancel[ref] == mine {
+			delete(p.cancel, ref)
+		}
+	}
+}
+
+func (p *elementPicks) stop(ref string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if cancel := p.cancel[ref]; cancel != nil {
+		(*cancel)()
+	}
+}
+
+// pickElement shows the element picker on the page the agent's browser shows
+// and answers once an element is clicked, or with none once it is cancelled.
+func (s *Server) pickElement(w http.ResponseWriter, r *http.Request) error {
+	a, err := s.agentFromPath(r)
+	if err != nil {
+		return err
+	}
+	var req api.ElementPickRequest
+	if err := readJSON(r, &req); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	defer s.picks.start(a.Ref(), cancel)()
+	el, err := s.manager(nil).PickElement(ctx, a, req.Hint)
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, http.StatusOK, api.ElementPickResult{Element: el})
+}
+
+func (s *Server) cancelPick(w http.ResponseWriter, r *http.Request) error {
+	a, err := s.agentFromPath(r)
+	if err != nil {
+		return err
+	}
+	s.picks.stop(a.Ref())
+	w.WriteHeader(http.StatusNoContent)
+	return nil
 }
 
 func (s *Server) browserView(w http.ResponseWriter, r *http.Request) error {

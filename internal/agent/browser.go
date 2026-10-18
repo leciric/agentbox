@@ -383,7 +383,7 @@ func (s *devtoolsSession) call(ctx context.Context, method string, params, resul
 			continue // an event, or the reply to another command
 		}
 		if reply.Error != nil {
-			return fmt.Errorf("%s: %s", method, reply.Error.Message)
+			return &devtoolsError{method: method, message: reply.Error.Message}
 		}
 		if result == nil {
 			return nil

@@ -8,7 +8,8 @@ import { Dialog, DialogContent, DialogTitle } from '../ui/dialog';
 
 // ImageThumb is one picture of a message, as a thumbnail that opens it whole.
 // With onRemove it is one waiting in the composer, and can be taken off again.
-export function ImageThumb({ src, name, onRemove, className }: { src: string; name?: string; onRemove?: () => void; className?: string }) {
+// contain shows all of it, for a picture far from square (an element's crop).
+export function ImageThumb({ src, name, onRemove, contain, className }: { src: string; name?: string; onRemove?: () => void; contain?: boolean; className?: string }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const label = name || t('chat.image.default');
@@ -20,7 +21,7 @@ export function ImageThumb({ src, name, onRemove, className }: { src: string; na
         onClick={() => setOpen(true)}
         className="block size-full overflow-hidden rounded-xl border border-line-strong bg-surface-raised transition hover:border-line-vivid"
       >
-        <img src={src} alt={label} loading="lazy" className="size-full object-cover" />
+        <img src={src} alt={label} loading="lazy" className={cn('size-full', contain ? 'object-contain' : 'object-cover')} />
       </button>
       {onRemove && (
         <button
