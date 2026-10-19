@@ -67,7 +67,7 @@ test('beside a lead’s chat the panel keeps its one width; beside an agent’s 
   assert.equal(P.panelWant({ width: 560, agentWidth: 700 }, 'pawly/agent-2', 1600), 700);
 });
 
-test('an agent’s chat shows its own agent until another is picked; the lead’s shows the project’s last', () => {
+test('an agent’s chat shows its own agent until another is picked; the lead’s shows what was picked in it, else its list', () => {
   P.setPanel({ chats: {}, views: {}, last: {} });
   const lead = 'pawly/lead';
   const chat = 'pawly/agent-2';
@@ -79,8 +79,8 @@ test('an agent’s chat shows its own agent until another is picked; the lead’
   P.pickTarget(chat, 'pawly/agent-3');
   assert.equal(P.panelTarget(P.panelState(), chat), 'pawly/agent-3');
   assert.equal(P.chatPanel(P.panelState(), chat).open, true);
-  // What was looked at last is what the lead's opens on.
-  assert.equal(P.panelTarget(P.panelState(), lead), 'pawly/agent-3');
+  // The lead's keeps its own: its list, until something is picked there.
+  assert.equal(P.panelTarget(P.panelState(), lead), undefined);
   P.pickTarget(lead, 'pawly/lead');
   assert.equal(P.panelTarget(P.panelState(), lead), 'pawly/lead');
   assert.equal(P.chatPanel(P.panelState(), lead).target, undefined);
@@ -127,7 +127,8 @@ test('opening an agent’s chat opens its panel on its Desktop, where it fits be
   P.openAgentChat('pawly/agent-2');
   assert.deepEqual(P.chatPanel(P.panelState(), 'pawly/agent-2'), { open: true, target: 'pawly/agent-2' });
   assert.equal(P.panelState().views['pawly/agent-2'], 'desktop');
-  assert.equal(P.panelState().last.pawly, 'pawly/agent-2');
+  // The lead's panel keeps its own: back there, it shows what it showed.
+  assert.equal(P.panelState().last.pawly, undefined);
 });
 
 test('the panel is remembered, but not what Evidence was opened on; a panel saved with tabs opens again', async () => {

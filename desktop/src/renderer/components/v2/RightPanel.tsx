@@ -1,16 +1,18 @@
-// UI v2's right-hand panel, toggled from one button in the chat's header
-// (PanelButton) or ⌘D: beside a lead's chat it is open until closed, on the
-// project's agents (AgentList), as v1's rail was. A row of it shows that
-// agent, or the repository (the lead's checkout), and the header becomes,
-// left to right: a back arrow to the list, whose it shows (a click opens its
-// chat), a fixed switch of four views, Desktop, Terminal, Files and Evidence,
-// then ⋯ for Browser, Timeline and Schedules, and ✕. The project's Pull
-// requests and Settings, opened from the project's header, go over either.
-// Opening an agent's chat (a row of the list does) opens it on that agent's
-// Desktop, and its back arrow goes back to the lead's chat and list; the
-// lead's opens on the agent it last showed, or the list. Dragged at its left edge, but on
-// the list, which keeps the rail's width. lib/rightPanel.ts has its rules
-// and state.
+// UI v2's right-hand panel, always beside a chat, as v1's rail was. Its home
+// is the project's agents (AgentList), which fold to a strip of their
+// avatars (») and back from the chat header's button (PanelButton) or ⌘D;
+// it never closes. Where the list doesn't fit beside the chat, the strip
+// stays there and the rest opens over the chat as a drawer.
+// The repository (the lead's checkout), an agent, or the project's Pull
+// requests and Settings (opened from the project's header) show in it with
+// ✕ back to the list; for whose it shows, the header is, left to right: a
+// back arrow, whose it is (a click opens its chat), a fixed switch of four
+// views, Desktop, Terminal, Files and Evidence, then ⋯ for Browser,
+// Timeline and Schedules. Opening an agent's chat (a row of the list does)
+// shows that agent's Desktop, and its back arrow goes back to the lead's
+// chat; the lead's panel keeps what it showed, its list unless something
+// was picked there. Dragged at its left edge, the list and an agent each
+// keep their own width. lib/rightPanel.ts has its rules and state.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlarmClock, ArrowLeft, ChevronsRight, Camera, Check, Crown, Ellipsis, Film, FileText, FolderTree, GanttChart, GitBranch, GitPullRequest, Globe, Image as ImageIcon, Images, LoaderCircle, Maximize, Minimize, Monitor, MousePointer2, Play, Plus, Power, SlidersHorizontal, SquareTerminal, Unplug, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';

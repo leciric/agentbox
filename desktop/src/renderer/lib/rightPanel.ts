@@ -257,11 +257,12 @@ export function setPanelOpen(chat: string, open: boolean): void {
   update(chat, (p) => (p.open === open ? p : { ...p, open }));
 }
 
-// pickTarget shows ref in chat's panel: the picker. It's the project's last,
-// for its lead's panel, and leaves the project's own view.
+// pickTarget shows ref in chat's panel, leaving the project's own view: in
+// the lead's, as the project's last, what its panel shows again later.
 export function pickTarget(chat: string, ref: string): void {
   const state = panelState();
-  update(chat, (p) => ({ ...bare(p), open: true, ...(isLeadRef(chat) ? {} : { target: ref }) }), { last: { ...state.last, [projectOf(chat)]: ref } });
+  if (isLeadRef(chat)) update(chat, (p) => ({ ...bare(p), open: true }), { last: { ...state.last, [projectOf(chat)]: ref } });
+  else update(chat, (p) => ({ ...bare(p), open: true, target: ref }));
 }
 
 // setView shows ref in view, remembered for it, in chat's panel: the
@@ -325,11 +326,12 @@ export const fitsBeside = () => beside;
 
 // openAgentChat is opening an agent's chat: its panel shows its Desktop,
 // where there is room for it beside the chat; where there isn't, the strip
-// stays as it is, rather than a drawer over the chat you came to read.
+// stays as it is, rather than a drawer over the chat you came to read. The
+// lead's panel keeps what it showed, its list most often, for coming back.
 export function openAgentChat(ref: string): void {
   if (!beside) return;
   const state = panelState();
-  update(ref, () => ({ open: true, target: ref }), { views: { ...state.views, [ref]: 'desktop' }, last: { ...state.last, [projectOf(ref)]: ref } });
+  update(ref, () => ({ open: true, target: ref }), { views: { ...state.views, [ref]: 'desktop' } });
 }
 
 // chaptersOf is a recording's chapters: the titled steps of its agent's
