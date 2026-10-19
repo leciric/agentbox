@@ -47,6 +47,21 @@ export function proofOf(media: readonly T.MediaItem[], pages: readonly T.Artifac
   return { recordings, screenshots, pages: [...pages].sort((a, b) => ms(a.createdAt) - ms(b.createdAt)) };
 }
 
+// A shown item is one piece of proof the review's gallery steps through:
+// a recording, a screenshot or a page.
+export type Shown = { kind: 'recording'; take: Take } | { kind: 'screenshot'; media: T.MediaItem } | { kind: 'page'; page: T.Artifact };
+
+// gallery is every piece of proof in the order the review shows it: the
+// recordings, the latest first, then the screenshots and the pages, oldest
+// first. ← → step through it, whatever the kind.
+export function gallery(proof: Proof): Shown[] {
+  return [
+    ...proof.recordings.map((take): Shown => ({ kind: 'recording', take })),
+    ...proof.screenshots.map((media): Shown => ({ kind: 'screenshot', media })),
+    ...proof.pages.map((page): Shown => ({ kind: 'page', page })),
+  ];
+}
+
 function chaptersOf(rec: T.MediaItem, notes: readonly T.MediaItem[], screenshots: readonly T.MediaItem[]): Chapter[] {
   const start = ms(rec.createdAt);
   const length = (rec.meta.duration ?? 0) * 1000;
@@ -159,17 +174,31 @@ export type ReviewAction =
   | 'toggleDetails'
   | 'nextFile'
   | 'previousFile'
+  | 'previousMedia'
+  | 'nextMedia'
+  | 'play'
+  | 'previousChapter'
+  | 'nextChapter'
+  | 'expand'
   | 'help';
 
-// The keys, as the review's ? overlay lists them: the verdicts, then moving
-// about. Single letters, as GitHub's and Gmail's are, so a hand on the keys
-// never leaves them; none fires while typing (ReviewCarousel).
-export const reviewKeys: readonly { keys: readonly string[]; action: ReviewAction }[] = [
+// The keys, as the review's ? overlay lists them: the verdicts, then the
+// proof, then the diff and the rest. Letters, as GitHub's and Gmail's are, so
+// a hand on the keys never leaves them; none fires while typing
+// (ReviewCarousel). keys is what the overlay shows, match the KeyboardEvent
+// keys that stand for it, when they differ.
+export const reviewKeys: readonly { keys: readonly string[]; match?: readonly string[]; action: ReviewAction }[] = [
   { keys: ['M'], action: 'merge' },
   { keys: ['C'], action: 'requestChanges' },
   { keys: ['R'], action: 'reviewed' },
   { keys: ['N'], action: 'nextItem' },
   { keys: ['P'], action: 'previousItem' },
+  { keys: ['←'], match: ['ArrowLeft'], action: 'previousMedia' },
+  { keys: ['→'], match: ['ArrowRight'], action: 'nextMedia' },
+  { keys: ['Space'], match: [' '], action: 'play' },
+  { keys: ['['], action: 'previousChapter' },
+  { keys: [']'], action: 'nextChapter' },
+  { keys: ['F'], action: 'expand' },
   { keys: ['D'], action: 'toggleDiff' },
   { keys: ['J'], action: 'nextFile' },
   { keys: ['K'], action: 'previousFile' },
@@ -178,7 +207,7 @@ export const reviewKeys: readonly { keys: readonly string[]; action: ReviewActio
   { keys: ['?'], action: 'help' },
 ];
 
-const byKey = new Map(reviewKeys.flatMap((k) => k.keys.map((key) => [key.toLowerCase(), k.action] as const)));
+const byKey = new Map(reviewKeys.flatMap((k) => (k.match ?? k.keys).map((key) => [key.toLowerCase(), k.action] as const)));
 
 // reviewShortcut is the action a key press stands for in the review, or
 // null: none with Ctrl, Alt or Cmd held, which belong to the app and the
@@ -188,9 +217,15 @@ export function reviewShortcut(e: { key: string; ctrlKey?: boolean; altKey?: boo
   return byKey.get(e.key.toLowerCase()) ?? null;
 }
 
+// proofKey is whether action works the proof's gallery, which only the proof
+// pane takes: in the diff, the arrows scroll.
+export const proofKey = (action: ReviewAction) =>
+  action === 'previousMedia' || action === 'nextMedia' || action === 'play' || action === 'previousChapter' || action === 'nextChapter' || action === 'expand';
+
 // repeatable is whether holding a key down may act again: moving through
 // files and agents may, a verdict or a toggle may not.
-export const repeatable = (action: ReviewAction) => action === 'nextFile' || action === 'previousFile' || action === 'nextItem' || action === 'previousItem';
+export const repeatable = (action: ReviewAction) =>
+  action === 'nextFile' || action === 'previousFile' || action === 'nextItem' || action === 'previousItem' || action === 'previousMedia' || action === 'nextMedia' || action === 'previousChapter' || action === 'nextChapter';
 
 // isTyping is whether a key press belongs to what has focus rather than to
 // the review: a field, an editable element, or a menu's typeahead.
@@ -200,6 +235,12 @@ export function isTyping(target: { tagName?: string; isContentEditable?: boolean
   const tag = target.tagName?.toUpperCase();
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
   return !!target.closest?.('[role="menu"],[role="listbox"],[role="combobox"]');
+}
+
+// pressable is whether Space belongs to what has focus: a button, a link
+// or a control presses on Space, so the review's play key leaves it be.
+export function pressable(target: { tagName?: string; closest?: (selector: string) => unknown } | null): boolean {
+  return !!target?.closest?.('button,a[href],summary,[role="button"],[role="tab"],[role="radio"],[role="checkbox"],[role="switch"]');
 }
 
 // firstLine is a summary cut to its first line, without Markdown's heading

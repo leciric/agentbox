@@ -1,133 +1,261 @@
-import { Check, ChevronLeft, ChevronRight, CircleAlert, ExternalLink, Film, Image as ImageIcon, Pause, Play, X } from 'lucide-react';
-import { useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react';
+import { Check, ChevronLeft, ChevronRight, CircleAlert, ExternalLink, Film, Image as ImageIcon, Maximize2, Minimize2, Pause, Play } from 'lucide-react';
+import { useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type Ref } from 'react';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { useT } from '../lib/i18n';
 import { mediaUrl } from '../lib/media';
-import { chapterAt, readableName, type Proof, type Take } from '../lib/review';
+import { chapterAt, gallery, readableName, step, type Proof, type Shown, type Take } from '../lib/review';
 import { cn } from '../lib/utils';
 import { PageIcon } from './pages/PageThumb';
 import { Button } from './ui/button';
+import { Kbd } from './ui/card';
 
-// The review's Proof tab, what it opens on: what the agent showed it checked
-// before what it changed. Its latest recording plays at the top, cut into a
-// chapter for each thing it checked (lib/review.ts proofOf), listed beside it
-// to jump to; its screenshots are a strip under it, each lit while its
-// chapter plays and opened large on a click; its Hatch pages after them.
-// Beside it are the chapters; aside, when given, goes under them.
+// The review's proof, what it opens on: everything the agent showed it
+// checked, in one gallery (lib/review.ts gallery). The stage shows one piece
+// of it, a recording, a screenshot or a page, and the strip under it lists
+// all of them, the one on stage lit; a recording's chapters (what it checked
+// at each moment) are beside it, to jump to. ← → step through the gallery
+// whatever the kind, Space plays and pauses, [ ] move through the chapters
+// and F fills the review with the piece on stage (ProofHandle, the keys
+// being the review's: ReviewCarousel).
 
 // clock is seconds as m:ss.
 export const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
-// Open is what's shown large over the proof: a screenshot or a page.
-type Open = { kind: 'shot'; n: number } | { kind: 'page'; n: number } | null;
+// ProofHandle is what the review's keys do to the proof.
+export interface ProofHandle {
+  step: (by: number) => void;
+  togglePlay: () => void;
+  chapter: (by: number) => void;
+  toggleExpand: () => void;
+  // collapse leaves the expanded view, and says whether it was in it, so
+  // Esc does that before it closes the review.
+  collapse: () => boolean;
+}
 
-export function ReviewProof({ project, proof, aside }: { project: string; proof: Proof; aside?: ReactNode }) {
+export function ReviewProof({ ref, project, proof }: { ref?: Ref<ProofHandle>; project: string; proof: Proof }) {
   const t = useT();
-  const [take, setTake] = useState(0);
+  const shown = gallery(proof);
+  const [at, setAt] = useState(0);
   const [time, setTime] = useState(0);
-  const [open, setOpen] = useState<Open>(null);
+  const [expanded, setExpanded] = useState(false);
   const player = useRef<PlayerHandle>(null);
-  const rec = proof.recordings[Math.min(take, proof.recordings.length - 1)];
+  const root = useRef<HTMLDivElement>(null);
+  const current = shown[Math.min(at, shown.length - 1)];
+  const rec = current?.kind === 'recording' ? current.take : undefined;
   const chapter = rec ? chapterAt(rec.chapters, time) : -1;
+  // The screenshots taken during the chapter playing are lit in the strip.
   const lit = new Set(rec?.chapters[chapter]?.shots.map((s) => s.id));
-  const nothing = !rec && proof.screenshots.length === 0 && proof.pages.length === 0;
+  const pick = (n: number) => {
+    setAt(n);
+    setTime(0);
+    // The strip follows the stage, for the keys.
+    root.current?.querySelector(`[data-review-media="${n + 1}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  };
+  const expand = (on: boolean) => {
+    setExpanded(on);
+    // Expanded fills the body from its top.
+    if (on) root.current?.parentElement?.scrollTo({ top: 0 });
+  };
+  useImperativeHandle(ref, () => ({
+    step: (by) => shown.length && pick(step(at, shown.length, by)),
+    togglePlay: () => player.current?.toggle(),
+    chapter: (by) => player.current?.chapter(by),
+    toggleExpand: () => current && expand(!expanded),
+    collapse: () => {
+      if (!expanded) return false;
+      setExpanded(false);
+      return true;
+    },
+  }));
+
+  if (!current) {
+    return (
+      <div className="p-4 sm:p-5" data-review-proof>
+        <div className="grid justify-items-center gap-2 rounded-xl border border-line bg-surface-faint px-6 py-14 text-center">
+          <ImageIcon className="size-8 text-faint" />
+          <div className="text-sm font-medium text-secondary">{t('review.noProof')}</div>
+          <div className="max-w-sm text-xs text-subtle">{t('review.noProofBody')}</div>
+        </div>
+      </div>
+    );
+  }
+
+  const stage = (
+    <Stage
+      key={current.kind === 'recording' ? current.take.media.id : current.kind === 'screenshot' ? current.media.id : current.page.id}
+      shown={current}
+      project={project}
+      expanded={expanded}
+      player={player}
+      chapter={chapter}
+      onTime={setTime}
+      onExpand={() => expand(!expanded)}
+    />
+  );
+  const bar = (
+    <StageBar
+      shown={current}
+      n={at}
+      count={shown.length}
+      expanded={expanded}
+      onStep={(by) => pick(step(at, shown.length, by))}
+      onExpand={() => expand(!expanded)}
+    />
+  );
 
   return (
-    <div className={cn('relative grid min-h-full content-start gap-5 p-4 sm:p-5', (rec || aside) && 'lg:grid-cols-[minmax(0,1fr)_minmax(260px,320px)]')} data-review-proof>
-      <div className="flex min-w-0 flex-col gap-4">
-        {nothing ? (
-          <div className="grid justify-items-center gap-2 rounded-xl border border-line bg-surface-faint px-6 py-14 text-center">
-            <ImageIcon className="size-8 text-faint" />
-            <div className="text-sm font-medium text-secondary">{t('review.noProof')}</div>
-            <div className="max-w-sm text-xs text-subtle">{t('review.noProofBody')}</div>
+    <div ref={root} className={cn('relative grid min-h-full content-start gap-4 p-4 sm:p-5', expanded && 'h-full')} data-review-proof data-review-media-at={at + 1}>
+      {expanded ? (
+        // Expanded, the piece on stage fills the body, its bar over it.
+        <div className="absolute inset-0 z-10 flex flex-col gap-3 bg-black/95 p-4" data-review-expanded>
+          {bar}
+          <div className="flex min-h-0 flex-1 items-center justify-center">{stage}</div>
+        </div>
+      ) : (
+        <div className={cn('grid min-w-0 gap-5', rec && 'lg:grid-cols-[minmax(0,1fr)_minmax(240px,300px)]')}>
+          <div className="grid min-w-0 content-start gap-2">
+            {stage}
+            {bar}
           </div>
-        ) : rec ? (
-          <>
-            {proof.recordings.length > 1 && (
-              <div className="flex min-w-0 flex-wrap gap-1.5" data-review-takes>
-                {proof.recordings.map((r, i) => (
-                  <button
-                    key={r.media.id}
-                    type="button"
-                    aria-pressed={i === take}
-                    onClick={() => {
-                      setTake(i);
-                      setTime(0);
-                    }}
-                    className={cn(
-                      'inline-flex max-w-[16rem] items-center gap-1.5 rounded-md border px-2 py-1 text-[12px] transition',
-                      i === take ? 'border-line-strong bg-surface-strong text-title' : 'border-line text-secondary hover:text-title',
-                    )}
-                  >
-                    <Film className="size-3.5 shrink-0" />
-                    <span className="truncate">{readableName(r.media.name)}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-            <Player key={rec.media.id} ref={player} take={rec} chapter={chapter} onTime={setTime} />
-          </>
-        ) : (
-          // No recording: the first screenshot takes its place.
-          proof.screenshots[0] && (
-            <button type="button" className="overflow-hidden rounded-xl border border-line-strong bg-black" onClick={() => setOpen({ kind: 'shot', n: 0 })}>
-              <img src={mediaUrl(proof.screenshots[0])} alt={proof.screenshots[0].name} className="mx-auto max-h-[55vh] object-contain" />
-            </button>
-          )
-        )}
-        {proof.screenshots.length > 0 && (
-          <section>
-            <h3 className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-subtle">
-              <ImageIcon className="size-3.5" />
-              {t('review.screenshots')} <span className="tabular-nums">{proof.screenshots.length}</span>
-            </h3>
-            <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin]" data-review-shots>
-              {proof.screenshots.map((s, i) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  title={s.name}
-                  onClick={() => setOpen({ kind: 'shot', n: i })}
-                  className={cn('w-40 shrink-0 overflow-hidden rounded-lg border bg-surface text-left transition hover:border-line-heavy', lit.has(s.id) ? 'border-brand-400' : 'border-line-strong')}
-                  data-review-shot={i + 1}
-                >
-                  <img src={mediaUrl(s)} alt="" draggable={false} className="aspect-[16/10] w-full bg-black object-cover object-top" />
-                  <span className="block truncate px-2 py-1.5 text-[11.5px] text-secondary">{readableName(s.name)}</span>
-                </button>
-              ))}
-            </div>
-          </section>
-        )}
-        {proof.pages.length > 0 && (
-          <section className="grid gap-1.5">
-            <h3 className="mb-0.5 text-[11px] font-semibold uppercase tracking-wide text-subtle">{t('review.pages')}</h3>
-            {proof.pages.map((p, i) => (
-              <div key={p.id} className="flex min-w-0 items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2" data-review-page={p.id}>
-                <PageIcon className="size-4 shrink-0 text-muted" />
-                <button type="button" className="min-w-0 flex-1 truncate text-left text-[13px] text-primary hover:underline" onClick={() => setOpen({ kind: 'page', n: i })}>
-                  {p.title}
-                </button>
-                {p.url && (
-                  <Button size="sm" variant="ghost" onClick={() => void window.agentbox.openExternal(p.url)}>
-                    <ExternalLink />
-                    {t('review.openPage')}
-                  </Button>
-                )}
-              </div>
-            ))}
-          </section>
-        )}
-      </div>
-      {(rec || aside) && (
-        <aside className="flex min-w-0 flex-col gap-5">
           {rec && <Chapters take={rec} at={chapter} onPick={(s) => player.current?.seek(s)} />}
-          {aside}
-        </aside>
+        </div>
       )}
-      {open?.kind === 'shot' && <ShotView shots={proof.screenshots} n={open.n} onPick={(n) => setOpen({ kind: 'shot', n })} onClose={() => setOpen(null)} />}
-      {open?.kind === 'page' && proof.pages[open.n] && <PageView project={project} page={proof.pages[open.n]} onClose={() => setOpen(null)} />}
+      <Strip shown={shown} at={at} lit={lit} onPick={pick} />
     </div>
+  );
+}
+
+// nameOf is what a piece of proof is called.
+const nameOf = (s: Shown) => (s.kind === 'recording' ? readableName(s.take.media.name) : s.kind === 'screenshot' ? readableName(s.media.name) : s.page.title);
+
+// StageBar is under the stage: where the piece is in the gallery, its name,
+// and Expand.
+function StageBar({ shown, n, count, expanded, onStep, onExpand }: { shown: Shown; n: number; count: number; expanded: boolean; onStep: (by: number) => void; onExpand: () => void }) {
+  const t = useT();
+  return (
+    <div className={cn('flex min-w-0 items-center gap-2 text-[12.5px]', expanded ? 'text-white/80' : 'text-secondary')} data-review-stage-bar>
+      <Button size="icon-sm" variant="ghost" disabled={n === 0} onClick={() => onStep(-1)} aria-label={t('review.previous')} title={`${t('review.previous')} (←)`}>
+        <ChevronLeft />
+      </Button>
+      <span className="shrink-0 tabular-nums text-subtle">{t('review.position', { n: n + 1, count })}</span>
+      <Button size="icon-sm" variant="ghost" disabled={n === count - 1} onClick={() => onStep(1)} aria-label={t('review.next')} title={`${t('review.next')} (→)`}>
+        <ChevronRight />
+      </Button>
+      <KindIcon shown={shown} className="size-3.5 shrink-0 text-subtle" />
+      <span className="min-w-0 flex-1 truncate">{nameOf(shown)}</span>
+      {shown.kind === 'page' && shown.page.url && (
+        <Button size="sm" variant="ghost" className="h-7" onClick={() => void window.agentbox.openExternal(shown.page.url)}>
+          <ExternalLink />
+          {t('review.openPage')}
+        </Button>
+      )}
+      <Button size="sm" variant="ghost" className="h-7" aria-pressed={expanded} onClick={onExpand} data-review-expand>
+        {expanded ? <Minimize2 /> : <Maximize2 />}
+        {t(expanded ? 'review.collapse' : 'review.expand')}
+        <span className="max-md:hidden" aria-hidden>
+          <Kbd>{expanded ? 'Esc' : 'F'}</Kbd>
+        </span>
+      </Button>
+    </div>
+  );
+}
+
+function KindIcon({ shown, className }: { shown: Shown; className?: string }) {
+  if (shown.kind === 'recording') return <Film className={className} />;
+  if (shown.kind === 'screenshot') return <ImageIcon className={className} />;
+  return <PageIcon className={className} />;
+}
+
+// Stage is the piece of proof on show, at the size of the recording's
+// player, or filling the body when expanded.
+function Stage({
+  shown,
+  project,
+  expanded,
+  player,
+  chapter,
+  onTime,
+  onExpand,
+}: {
+  shown: Shown;
+  project: string;
+  expanded: boolean;
+  player: Ref<PlayerHandle>;
+  chapter: number;
+  onTime: (seconds: number) => void;
+  onExpand: () => void;
+}) {
+  const box = expanded ? 'size-full' : 'mx-auto aspect-[16/10] w-full';
+  const width = expanded ? undefined : { maxWidth: 'calc(50vh * 1.6)' };
+  if (shown.kind === 'recording') return <Player ref={player} take={shown.take} chapter={chapter} onTime={onTime} expanded={expanded} />;
+  if (shown.kind === 'screenshot') {
+    return (
+      <button type="button" onClick={onExpand} className={cn(box, 'block overflow-hidden rounded-xl border border-line-strong bg-black')} style={width} data-review-stage="screenshot">
+        <img src={mediaUrl(shown.media)} alt={shown.media.name} draggable={false} className="size-full object-contain" />
+      </button>
+    );
+  }
+  return <PageFrame project={project} page={shown.page} className={cn(box, 'overflow-hidden rounded-xl border border-line-strong')} style={width} />;
+}
+
+// Strip is every piece of proof, the one on stage lit; a click puts it there.
+function Strip({ shown, at, lit, onPick }: { shown: Shown[]; at: number; lit: ReadonlySet<string>; onPick: (n: number) => void }) {
+  const t = useT();
+  const counts = [
+    shown.filter((s) => s.kind === 'recording').length && t('review.count.recordings', { count: shown.filter((s) => s.kind === 'recording').length }),
+    shown.filter((s) => s.kind === 'screenshot').length && t('review.count.screenshots', { count: shown.filter((s) => s.kind === 'screenshot').length }),
+    shown.filter((s) => s.kind === 'page').length && t('review.count.pages', { count: shown.filter((s) => s.kind === 'page').length }),
+  ].filter(Boolean);
+  if (shown.length < 2) return null;
+  return (
+    <section>
+      <h3 className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-subtle">
+        {t('review.media')}
+        <span className="font-normal normal-case tracking-normal">{counts.join(' · ')}</span>
+        <span className="ml-auto font-normal normal-case tracking-normal max-md:hidden">{t('review.mediaKeys')}</span>
+      </h3>
+      <div className="flex gap-2 overflow-x-auto p-0.5 pb-1 [scrollbar-width:thin]" data-review-shots>
+        {shown.map((s, i) => (
+          <button
+            key={s.kind === 'recording' ? s.take.media.id : s.kind === 'screenshot' ? s.media.id : s.page.id}
+            type="button"
+            title={nameOf(s)}
+            aria-current={i === at || undefined}
+            onClick={() => onPick(i)}
+            className={cn(
+              'w-36 shrink-0 overflow-hidden rounded-lg border bg-surface text-left transition hover:border-line-heavy',
+              i === at ? 'border-brand-400 ring-1 ring-brand-400' : s.kind === 'screenshot' && lit.has(s.media.id) ? 'border-brand-400/50' : 'border-line-strong',
+            )}
+            data-review-media={i + 1}
+            data-review-media-kind={s.kind}
+          >
+            <Thumb shown={s} />
+            <span className="flex min-w-0 items-center gap-1.5 px-2 py-1.5 text-[11.5px] text-secondary">
+              <KindIcon shown={s} className="size-3 shrink-0 text-subtle" />
+              <span className="min-w-0 truncate">{nameOf(s)}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function Thumb({ shown }: { shown: Shown }) {
+  if (shown.kind === 'screenshot') return <img src={mediaUrl(shown.media)} alt="" draggable={false} className="aspect-[16/10] w-full bg-black object-cover object-top" />;
+  if (shown.kind === 'recording') {
+    return (
+      <span className="relative flex aspect-[16/10] w-full items-center justify-center bg-black text-white/80">
+        <Play className="size-6 fill-current" />
+        {shown.take.media.meta.duration ? <span className="absolute bottom-1 right-1.5 rounded bg-black/70 px-1 text-[10.5px] tabular-nums">{clock(shown.take.media.meta.duration)}</span> : null}
+      </span>
+    );
+  }
+  return (
+    <span className="flex aspect-[16/10] w-full items-center justify-center bg-surface-faint">
+      <PageIcon className="size-6 text-subtle" />
+    </span>
   );
 }
 
@@ -137,7 +265,15 @@ function Chapters({ take, at, onPick }: { take: Take; at: number; onPick: (secon
   const t = useT();
   return (
     <section data-review-chapters>
-      <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-subtle">{t('review.checked')}</h3>
+      <h3 className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-subtle">
+        {t('review.checked')}
+        {take.chapters.length > 1 && (
+          <span className="ml-auto flex gap-1 font-normal normal-case max-md:hidden" aria-hidden>
+            <Kbd>[</Kbd>
+            <Kbd>]</Kbd>
+          </span>
+        )}
+      </h3>
       {take.chapters.length === 0 ? (
         <p className="text-[12px] leading-relaxed text-subtle">{t('review.noChapters')}</p>
       ) : (
@@ -172,11 +308,13 @@ function Chapters({ take, at, onPick }: { take: Take; at: number; onPick: (secon
 
 export interface PlayerHandle {
   seek: (seconds: number) => void;
+  toggle: () => void;
+  chapter: (by: number) => void;
 }
 
 // Player plays a recording muted, with a scrubber cut into its chapters and
 // the one playing named over the picture.
-function Player({ ref, take, chapter, onTime }: { ref: Ref<PlayerHandle>; take: Take; chapter: number; onTime: (seconds: number) => void }) {
+function Player({ ref, take, chapter, onTime, expanded }: { ref: Ref<PlayerHandle>; take: Take; chapter: number; onTime: (seconds: number) => void; expanded: boolean }) {
   const t = useT();
   const video = useRef<HTMLVideoElement>(null);
   const [time, setTime] = useState(0);
@@ -189,11 +327,19 @@ function Player({ ref, take, chapter, onTime }: { ref: Ref<PlayerHandle>; take: 
     v.currentTime = s;
     void v.play().catch(() => {});
   };
-  useImperativeHandle(ref, () => ({ seek }));
   const toggle = () => {
     const v = video.current;
     if (v) void (v.paused ? v.play().catch(() => {}) : v.pause());
   };
+  useImperativeHandle(ref, () => ({
+    seek,
+    toggle,
+    chapter: (by) => {
+      if (!take.chapters.length) return;
+      const to = take.chapters[step(Math.max(chapter, 0), take.chapters.length, by)];
+      if (to) seek(to.at);
+    },
+  }));
   const current = take.chapters[chapter];
   // The scrubber's segments: one per chapter, or the whole recording.
   const marks = take.chapters.length ? take.chapters.map((c) => c.at) : [0];
@@ -207,8 +353,12 @@ function Player({ ref, take, chapter, onTime }: { ref: Ref<PlayerHandle>; take: 
     );
   }
   return (
-    <div className="mx-auto w-full overflow-hidden rounded-xl border border-line-strong bg-black" style={{ maxWidth: 'calc(50vh * 1.6)' }} data-review-player={take.media.id}>
-      <div className="relative">
+    <div
+      className={cn('mx-auto w-full overflow-hidden rounded-xl border border-line-strong bg-black', expanded && 'flex h-full flex-col')}
+      style={expanded ? undefined : { maxWidth: 'calc(50vh * 1.6)' }}
+      data-review-player={take.media.id}
+    >
+      <div className={cn('relative', expanded && 'min-h-0 flex-1')}>
         <video
           ref={video}
           src={mediaUrl(take.media)}
@@ -224,7 +374,7 @@ function Player({ ref, take, chapter, onTime }: { ref: Ref<PlayerHandle>; take: 
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}
           onError={() => setBroken(true)}
-          className="block aspect-[16/10] w-full cursor-pointer object-contain"
+          className={cn('block w-full cursor-pointer object-contain', expanded ? 'h-full' : 'aspect-[16/10]')}
         />
         {current && (
           <span className="pointer-events-none absolute left-3 top-3 max-w-[80%] truncate rounded-md bg-black/65 px-2 py-1 text-[12px] text-white backdrop-blur">
@@ -233,7 +383,7 @@ function Player({ ref, take, chapter, onTime }: { ref: Ref<PlayerHandle>; take: 
         )}
       </div>
       <div className="flex items-center gap-3 px-3 py-2 text-white">
-        <button type="button" onClick={toggle} aria-label={t(playing ? 'review.pause' : 'review.play')} className="text-white/85 hover:text-white">
+        <button type="button" onClick={toggle} aria-label={t(playing ? 'review.pause' : 'review.play')} title={`${t(playing ? 'review.pause' : 'review.play')} (Space)`} className="text-white/85 hover:text-white">
           {playing ? <Pause className="size-4 fill-current" /> : <Play className="size-4 fill-current" />}
         </button>
         <div className="flex h-5 min-w-0 flex-1 items-center gap-1">
@@ -269,80 +419,22 @@ function Player({ ref, take, chapter, onTime }: { ref: Ref<PlayerHandle>; take: 
   );
 }
 
-// ShotView is one screenshot over the proof, the arrows (and ← →) to the
-// others. Esc closes the review; this has its own close.
-function ShotView({ shots, n, onPick, onClose }: { shots: T.MediaItem[]; n: number; onPick: (n: number) => void; onClose: () => void }) {
-  const t = useT();
-  const shot = shots[n];
-  useEffect(() => {
-    const key = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight' && n < shots.length - 1) onPick(n + 1);
-      else if (e.key === 'ArrowLeft' && n > 0) onPick(n - 1);
-      else return;
-      e.preventDefault();
-      e.stopPropagation();
-    };
-    addEventListener('keydown', key, true);
-    return () => removeEventListener('keydown', key, true);
-  }, [n, shots.length, onPick]);
-  if (!shot) return null;
-  return (
-    <div className="absolute inset-0 z-10 flex flex-col bg-black/95 p-4" data-review-shot-open={n + 1}>
-      <div className="flex min-w-0 items-center gap-3 pb-3 text-[12.5px] text-white/80">
-        <span className="tabular-nums text-white/50">{t('review.position', { n: n + 1, count: shots.length })}</span>
-        <span className="min-w-0 flex-1 truncate">{readableName(shot.name)}</span>
-        <button type="button" onClick={onClose} aria-label={t('review.closeShot')} className="rounded-md p-1 text-white/70 hover:bg-white/10 hover:text-white" data-review-shot-close>
-          <X className="size-4" />
-        </button>
-      </div>
-      <div className="relative flex min-h-0 flex-1 items-center justify-center">
-        <img src={mediaUrl(shot)} alt={shot.name} draggable={false} className="max-h-full max-w-full rounded-md object-contain" />
-        {n > 0 && (
-          <button type="button" aria-label={t('review.previous')} onClick={() => onPick(n - 1)} className="absolute left-0 rounded-full bg-white/10 p-2 text-white hover:bg-white/20">
-            <ChevronLeft className="size-5" />
-          </button>
-        )}
-        {n < shots.length - 1 && (
-          <button type="button" aria-label={t('review.next')} onClick={() => onPick(n + 1)} className="absolute right-0 rounded-full bg-white/10 p-2 text-white hover:bg-white/20">
-            <ChevronRight className="size-5" />
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// PageView is a Hatch page over the proof, framed as the page preview frames
-// it: an opaque origin, no reach into the app.
-function PageView({ project, page, onClose }: { project: string; page: T.Artifact; onClose: () => void }) {
-  const t = useT();
+// PageFrame is a Hatch page, framed as the page preview frames it: an opaque
+// origin, no reach into the app.
+function PageFrame({ project, page, className, style }: { project: string; page: T.Artifact; className?: string; style?: CSSProperties }) {
   const [loaded, setLoaded] = useState(false);
+  useEffect(() => setLoaded(false), [page.id]);
   return (
-    <div className="absolute inset-0 z-10 flex flex-col bg-modal" data-review-page-open={page.id}>
-      <div className="flex min-w-0 items-center gap-2 border-b border-line px-4 py-2 text-[12.5px]">
-        <PageIcon className="size-3.5 shrink-0 text-muted" />
-        <span className="min-w-0 flex-1 truncate font-medium text-primary">{page.title}</span>
-        {page.url && (
-          <Button size="sm" variant="ghost" onClick={() => void window.agentbox.openExternal(page.url)}>
-            <ExternalLink />
-            {t('review.openPage')}
-          </Button>
-        )}
-        <button type="button" onClick={onClose} aria-label={t('review.closeShot')} className="rounded-md p-1 text-subtle hover:bg-surface-raised hover:text-primary">
-          <X className="size-4" />
-        </button>
-      </div>
-      <div className="relative min-h-0 flex-1">
-        {!loaded && <div className="skeleton absolute inset-0 rounded-none" />}
-        <iframe
-          title={page.title}
-          src={api.pageUrl(project, page.id)}
-          sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-modals"
-          referrerPolicy="no-referrer"
-          onLoad={() => setLoaded(true)}
-          className={cn('absolute inset-0 size-full border-0 bg-white', loaded ? 'opacity-100' : 'opacity-0')}
-        />
-      </div>
+    <div className={cn('relative bg-white', className)} style={style} data-review-stage="page" data-review-page={page.id}>
+      {!loaded && <div className="skeleton absolute inset-0 rounded-none" />}
+      <iframe
+        title={page.title}
+        src={api.pageUrl(project, page.id)}
+        sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-modals"
+        referrerPolicy="no-referrer"
+        onLoad={() => setLoaded(true)}
+        className={cn('absolute inset-0 size-full border-0 bg-white', loaded ? 'opacity-100' : 'opacity-0')}
+      />
     </div>
   );
 }

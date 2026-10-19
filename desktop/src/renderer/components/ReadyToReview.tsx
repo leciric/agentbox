@@ -9,7 +9,7 @@ import { useT, type MessageKey } from '../lib/i18n';
 import { pagesFor } from '../lib/pages';
 import { projectLabel } from '../lib/projectName';
 import { pageItems, pageTotal, refreshInbox, useReviewPages, withoutAgent } from '../lib/inboxPages';
-import { type Walk, firstLine, goBack, goForward, isTyping, mergeBlock, nextPending, proofOf, remainingAfter, repeatable, wrapWalk, walkItems, walkOrder, queueOf, reviewKeys, reviewShortcut, step, type MergeBlock, type ReviewAction } from '../lib/review';
+import { type Walk, firstLine, goBack, goForward, isTyping, mergeBlock, pressable, proofKey, nextPending, proofOf, remainingAfter, repeatable, wrapWalk, walkItems, walkOrder, queueOf, reviewKeys, reviewShortcut, step, type MergeBlock, type ReviewAction } from '../lib/review';
 import { defaultMethod, loadMethodPrefs, rememberMethod } from '../lib/mergeMethod';
 import { isUnseen, markReadySeen, useUnseen } from '../lib/reviewAlert';
 import { useNow } from '../lib/useNow';
@@ -20,7 +20,7 @@ import { Markdown } from './chat/Markdown';
 import { DiffTable, useHighlighted } from './DiffTable';
 import { NotesList, ReviewNotesContext, reviewNotesKey, useReviewNotes } from './ReviewNotes';
 import { MoreMedia } from './MediaTab';
-import { ReviewProof } from './ReviewProof';
+import { ReviewProof, type ProofHandle } from './ReviewProof';
 import { useProjectPages } from './pages/usePages';
 import { checksVariants, PullRequestView, stateVariants } from './PullRequestModal';
 import { checksLabels, methodLabels, stateLabels, usePullLabels, usePullMerge } from './PullRequestsPanel';
@@ -265,6 +265,12 @@ const keyLabels: Record<ReviewAction, MessageKey> = {
   toggleDiff: 'review.key.toggleDiff',
   nextFile: 'review.key.nextFile',
   previousFile: 'review.key.previousFile',
+  previousMedia: 'review.key.previousMedia',
+  nextMedia: 'review.key.nextMedia',
+  play: 'review.key.play',
+  previousChapter: 'review.key.previousChapter',
+  nextChapter: 'review.key.nextChapter',
+  expand: 'review.key.expand',
   toggleDetails: 'review.key.toggleDetails',
   openPr: 'review.key.openPr',
   help: 'review.key.help',
@@ -424,6 +430,7 @@ function ReviewCarousel({
   // J and K move through the diff's files: in the tree, the file picked; in
   // the list, the one scrolled to the top. From the proof they open the diff.
   const body = useRef<HTMLElement>(null);
+  const proofView = useRef<ProofHandle>(null);
   const fileAt = useRef(-1);
   const stepFile = (by: number) => {
     if (pane !== 'diff') return setPane('diff');
@@ -474,6 +481,18 @@ function ReviewCarousel({
       case 'openPr':
         if (pr) void window.agentbox.openExternal(pr.url);
         return;
+      case 'previousMedia':
+        return proofView.current?.step(-1);
+      case 'nextMedia':
+        return proofView.current?.step(1);
+      case 'play':
+        return proofView.current?.togglePlay();
+      case 'previousChapter':
+        return proofView.current?.chapter(-1);
+      case 'nextChapter':
+        return proofView.current?.chapter(1);
+      case 'expand':
+        return proofView.current?.toggleExpand();
       case 'help':
         return setHelp((h) => !h);
     }
@@ -483,6 +502,9 @@ function ReviewCarousel({
     if (e.defaultPrevented || isTyping(e.target as HTMLElement)) return;
     const action = reviewShortcut(e);
     if (!action || (e.repeat && !repeatable(action))) return;
+    // The gallery's keys are the proof's: in the diff the arrows scroll, and
+    // Space presses the button that has focus.
+    if (proofKey(action) && (pane !== 'proof' || (action === 'play' && pressable(e.target as HTMLElement)))) return;
     // With the keys listed, only ? (or Esc) does anything: it closes them.
     if (help && action !== 'help') return;
     e.preventDefault();
@@ -505,8 +527,12 @@ function ReviewCarousel({
           (event.currentTarget as HTMLElement | null)?.focus();
         }}
         // Esc closes what's over the review first: the keys, a note's box,
-        // the Request changes box. Then the review.
+        // the Request changes box, an expanded screenshot. Then the review.
         onEscapeKeyDown={(event) => {
+          if (!help && !changing && proofView.current?.collapse()) {
+            event.preventDefault();
+            return;
+          }
           if (help) {
             event.preventDefault();
             setHelp(false);
@@ -589,7 +615,7 @@ function ReviewCarousel({
           </header>
           <section ref={body} className="relative flex min-h-0 flex-1 flex-col overflow-y-auto" inert={help} data-review-body>
             {pane === 'proof' &&
-              (media.isPending ? <div className="p-6 text-[13px] text-subtle">{t('common.loading')}</div> : <ReviewProof key={item.ref} project={item.project} proof={proof} />)}
+              (media.isPending ? <div className="p-6 text-[13px] text-subtle">{t('common.loading')}</div> : <ReviewProof ref={proofView} key={item.ref} project={item.project} proof={proof} />)}
             {pane === 'diff' &&
               (pr ? (
                 <div className="flex min-h-0 flex-1 flex-col bg-modal" data-review-slide="changes">

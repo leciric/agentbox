@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { countLabel, remainingAfter, wrapWalk, goBack, goForward, mergeBlock, nextPending, startWalk, walkItems, walkOrder, queueOf, reviewKeys, reviewShortcut, repeatable, isTyping, firstLine, chapterAt, proofOf, readableName, step } from './review.ts';
+import { countLabel, remainingAfter, wrapWalk, goBack, goForward, mergeBlock, nextPending, startWalk, walkItems, walkOrder, queueOf, reviewKeys, reviewShortcut, repeatable, isTyping, firstLine, pressable, proofKey, gallery, chapterAt, proofOf, readableName, step } from './review.ts';
 
 const page = (id: string, createdAt: string) => ({ id, createdAt }) as T.Artifact;
 const pr = { number: 12, title: 'feat: dark mode', state: 'open', checks: 'passing', url: '' } as T.PullRequest;
@@ -116,13 +116,18 @@ test('reviewShortcut maps keys to actions, and leaves modified ones alone', () =
   assert.equal(reviewShortcut({ key: 'i' }), 'toggleDetails');
   assert.equal(reviewShortcut({ key: 'o' }), 'openPr');
   assert.equal(reviewShortcut({ key: '?' }), 'help');
-  // The arrows belong to the video and the screenshots now.
-  assert.equal(reviewShortcut({ key: 'ArrowRight' }), null);
+  // The arrows, Space, [ ] and F work the proof's gallery.
+  assert.equal(reviewShortcut({ key: 'ArrowRight' }), 'nextMedia');
+  assert.equal(reviewShortcut({ key: 'ArrowLeft' }), 'previousMedia');
+  assert.equal(reviewShortcut({ key: ' ' }), 'play');
+  assert.equal(reviewShortcut({ key: ']' }), 'nextChapter');
+  assert.equal(reviewShortcut({ key: 'f' }), 'expand');
+  assert.ok(proofKey('nextMedia') && !proofKey('toggleDiff'));
   assert.equal(reviewShortcut({ key: 'r', metaKey: true }), null);
   assert.equal(reviewShortcut({ key: 'm', ctrlKey: true }), null);
   assert.equal(reviewShortcut({ key: 'x' }), null);
   // Every key the review lists does what it says.
-  for (const k of reviewKeys) for (const key of k.keys) assert.equal(reviewShortcut({ key }), k.action, key);
+  for (const k of reviewKeys) for (const key of k.match ?? k.keys) assert.equal(reviewShortcut({ key }), k.action, key);
   // A held key moves through files, never merges twice.
   assert.ok(repeatable('nextFile'));
   assert.ok(!repeatable('merge'));
@@ -136,6 +141,23 @@ test('isTyping leaves keys to fields, editable text and menus', () => {
   assert.ok(isTyping(el('DIV', true)));
   assert.ok(!isTyping(el('BUTTON')));
   assert.ok(!isTyping(null));
+});
+
+test('pressable leaves Space to buttons and links', () => {
+  const el = (pressed: boolean) => ({ tagName: 'DIV', closest: () => (pressed ? {} : null) });
+  assert.ok(pressable(el(true)));
+  assert.ok(!pressable(el(false)));
+  assert.ok(!pressable(null));
+});
+
+test('gallery is the recordings, then the screenshots, then the pages', () => {
+  const m = (id: string, kind: string) => ({ id, kind }) as unknown as T.MediaItem;
+  const shown = gallery({ recordings: [{ media: m('r', 'recording'), chapters: [] }], screenshots: [m('s1', 'screenshot'), m('s2', 'screenshot')], pages: [{ id: 'p' } as T.Artifact] });
+  assert.deepEqual(
+    shown.map((s) => s.kind),
+    ['recording', 'screenshot', 'screenshot', 'page'],
+  );
+  assert.deepEqual(gallery({ recordings: [], screenshots: [], pages: [] }), []);
 });
 
 test('firstLine is the summary as one plain line', () => {
