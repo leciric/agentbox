@@ -171,6 +171,50 @@ const GiB = 1024 ** 3;
 const cpuUsage = (): T.CPUUsage => ({ hostCPU: 0, hostCores: 8, otherCPU: 0, agents: Object.entries(load).map(([name, [cpu]]) => ({ ref: `${PROJECT}/${name}`, state: 'running', cpu })) });
 const memoryUsage = (): T.MemoryUsage => ({ hostTotal: 32 * GiB, agentsUsed: 0, otherUsed: 0, swapTotal: 0, swapUsed: 0, agentsSwap: 0, agents: Object.entries(load).map(([name, [, gib]]) => ({ ref: `${PROJECT}/${name}`, state: 'running', memory: gib * GiB, swap: 0 })) });
 
+// What each agent's chat is at, for the panel's rows: its tool call now,
+// model, context used, and its changes and pull request so far, made up.
+const now: Record<string, { tool?: string; command?: string; model: string; context: [number, number]; changes?: [number, number, number]; pr?: [number, string] }> = {
+  'agent-24': { command: 'go test ./internal/daemon -run TestExport', model: 'Opus', context: [184_000, 1_000_000], changes: [142, 17, 5] },
+  'agent-25': { tool: 'Edit desktop/src/renderer/styles.css', model: 'GPT-5.5', context: [61_000, 400_000], changes: [88, 31, 7], pr: [402, 'pending'] },
+  'agent-26': { command: 'go test -count=20 ./internal/chat -run TestReconnect', model: 'Sonnet', context: [420_000, 1_000_000], changes: [12, 9, 2] },
+  'agent-27': { tool: 'Write docs/phone.md', model: 'Opus', context: [33_000, 200_000], changes: [210, 0, 1] },
+  'agent-28': { command: 'gh run watch 18842 --exit-status', model: 'Opus', context: [96_000, 1_000_000], changes: [40, 12, 2], pr: [401, 'failing'] },
+};
+const pipThread = (name: string): T.ChatThread | undefined => {
+  const n = now[name];
+  if (!n) return undefined;
+  const at = ago(min);
+  return {
+    agent: `${PROJECT}/${name}`,
+    seq: 1,
+    session: {
+      state: 'ready',
+      tool: 'claude',
+      options: [{ id: 'model', name: 'Model', category: 'model', type: 'select', value: n.model, choices: [{ value: n.model, name: n.model }] }],
+      commands: [],
+      contextUsed: n.context[0],
+      contextSize: n.context[1],
+    },
+    items: [{ id: `${name}-now`, turn: 't', kind: 'tool', tool: { callId: 'c', title: n.tool ?? n.command ?? '', kind: n.command ? 'execute' : 'edit', status: 'in_progress', ...(n.command ? { command: n.command } : {}) }, createdAt: at, updatedAt: at }],
+  };
+};
+const fleet = (): T.Fleet => ({
+  project: PROJECT,
+  creating: [],
+  idle: 0,
+  agents: agents().map((a, i) => {
+    const n = now[a.name];
+    return {
+      ...a,
+      changes: n?.changes ? { insertions: n.changes[0], deletions: n.changes[1], files: n.changes[2], dirty: true } : { insertions: 0, deletions: 0, files: 0, dirty: false },
+      media: 0,
+      lastActive: ago((i + 1) * min),
+      retire: { safe: false },
+      ...(n?.pr ? { pr: { number: n.pr[0], state: 'open', checks: n.pr[1], title: a.title, url: `https://github.com/example/agentbox/pull/${n.pr[0]}` } as T.PullRequest } : {}),
+    };
+  }),
+});
+
 // seedPip puts the scenario in place of the v2 fixtures' agents, media and
 // lead's chat; after seedV2, seedReview and seedMedia.
 export function seedPip(queryClient: QueryClient): void {
@@ -181,6 +225,10 @@ export function seedPip(queryClient: QueryClient): void {
   devRequests.unshift((method, path) => {
     if (method !== 'GET') return undefined;
     if (path === '/v1/agents') return json(agents());
+    if (path === `/v1/projects/${PROJECT}/fleet`) return json(fleet());
+    const chat = /^\/v1\/agents\/[^/]+\/([^/]+)\/chat(\?|$)/.exec(path);
+    const agentThread = chat && pipThread(decodeURIComponent(chat[1]));
+    if (agentThread) return json(agentThread);
     if (path === `/v1/projects/${PROJECT}/desktops`) return json(desktops());
     if (/^\/v1\/projects\/[^/]+\/chat(\?|$)/.test(path) && path.startsWith(`/v1/projects/${PROJECT}/`)) return json(thread);
     if (path.startsWith('/v1/archived-agents')) return json([]);
@@ -193,6 +241,7 @@ export function seedPip(queryClient: QueryClient): void {
   });
   queryClient.setQueryData(['agents'], agents());
   queryClient.setQueryData(['cpuUsage'], cpuUsage());
+  queryClient.setQueryData(['fleet', PROJECT], fleet());
   queryClient.setQueryData(['memoryUsage'], memoryUsage());
   queryClient.setQueryData(chatKey(`${PROJECT}/lead`), thread);
   queryClient.setQueryData(['media', `${PROJECT}/agent-26`], []);

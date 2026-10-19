@@ -6,8 +6,9 @@
 // chat), a fixed switch of four views, Desktop, Terminal, Files and Evidence,
 // then ⋯ for Browser, Timeline and Schedules, and ✕. The project's Pull
 // requests and Settings, opened from the project's header, go over either.
-// Opening an agent's chat opens it on that agent's Desktop; the lead's opens
-// on the agent it last showed, or the list. Dragged at its left edge, but on
+// Opening an agent's chat (a row of the list does) opens it on that agent's
+// Desktop, and its back arrow goes back to the lead's chat and list; the
+// lead's opens on the agent it last showed, or the list. Dragged at its left edge, but on
 // the list, which keeps the rail's width. lib/rightPanel.ts has its rules
 // and state.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -257,13 +258,27 @@ function RightPanel({ project, chat, width, onSelect, onNewAgent }: { project: s
   const labels = width >= 520 ? 'all' : width >= 400 ? 'on' : 'none';
   const projectName = projectLabel(project, useQuery({ queryKey: ['projects'], queryFn: api.projects }).data);
 
-  if (!whose && !panel.wide && state.listFolded) return <AgentStrip project={project} chat={chat} />;
+  if (!whose && !panel.wide && state.listFolded) return <AgentStrip project={project} chat={chat} onSelect={onSelect} />;
   return (
     <div className="flex min-w-0 flex-1 flex-col" data-panel-view={view ?? listTarget} data-panel-whose={ref}>
       <div className="flex h-11 shrink-0 items-center gap-1.5 border-b border-line-faint bg-rail pl-2 pr-1.5">
         {(whose || panel.wide) && (
           <Tip label={t('panel.back')}>
-            <Button size="icon-sm" variant="ghost" aria-label={t('panel.back')} onClick={() => panelBack(chat)} data-panel-back>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label={t('panel.back')}
+              onClick={() => {
+                // In an agent's chat, opened from the lead's list, back is to
+                // the lead's chat and its list, in one click.
+                if (!lead && !panel.wide) {
+                  panelBack(leadOf(project));
+                  setPanelOpen(leadOf(project), true);
+                  onSelect({ kind: 'project', project });
+                } else panelBack(chat);
+              }}
+              data-panel-back
+            >
               <ArrowLeft />
             </Button>
           </Tip>

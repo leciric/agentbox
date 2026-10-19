@@ -225,7 +225,8 @@ export function AgentRail({ view, onSelect, onNewAgent, onClose }: { view: View;
 // useRailAgents is what the rail reads of a project's agents, and v2's
 // panel list (v2/AgentList.tsx) with it: its agents in the rail's order,
 // those still at something and the finished ones, each one's pull request,
-// when it last reported and what, and whether it asks you something.
+// when it last reported and what, and whether it asks you something; for v2,
+// each one's fleet entry (its changes, last activity) and its question.
 export function useRailAgents(project: string | null) {
   const enabled = project !== null;
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents, enabled });
@@ -261,8 +262,11 @@ export function useRailAgents(project: string | null) {
   const moving = mine.filter((a) => !settled(a) || asking(a));
   const finished = mine.filter((a) => settled(a) && !asking(a));
   const prs = new Map((fleet.data?.agents ?? []).map((a) => [a.ref, a.pr]));
+  const fleetOf = new Map((fleet.data?.agents ?? []).map((a) => [a.ref, a]));
   const mood = (agent: T.Agent) => avatarMood(agent, asking(agent));
-  return { agents, loaded: !!agents.data, lead, mine, moving, finished, prs, lastReport, lastSummary, asking, mood, showFinished, setShowFinished };
+  // The question it waits on you for, in its words.
+  const question = (ref: string) => (questions.data ?? []).find((q) => q.ref === ref && isAsking([q], ref))?.question;
+  return { agents, loaded: !!agents.data, lead, mine, moving, finished, prs, fleetOf, lastReport, lastSummary, asking, question, mood, showFinished, setShowFinished };
 }
 
 // RailSkeleton is rows where the agents will be until the first list

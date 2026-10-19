@@ -1,26 +1,29 @@
 // UI v2's right-hand panel opens on its project's agents, beside the lead's
 // chat, as v1's rail had them, in one narrow column with the sidebar's quiet
-// rows: a state mark, its AI tool's, the agent's task, its pull request or
-// that it's ready to review, and when it last reported; under it, its latest
-// report and what its machine uses, CPU and memory, when there are. An agent
+// rows (AgentLine): what it is, what it's doing now, and what it runs on and
+// has made. An agent
 // using its desktop has it in its row, small and live, where the lane of
 // desktops beside the chat used to show it. The
 // repository, the lead's checkout, heads the list; the finished agents fold
 // under the rest, and Past agents is at its foot.
 //
-// A row opens the agent in the panel, on its Desktop; the panel's back arrow
-// comes back here. Folded (AgentStrip), the list is a strip of avatars.
-import { useQuery } from '@tanstack/react-query';
+// A row opens the agent's chat, with its Desktop in the panel; the panel's
+// back arrow there comes back to the lead and this list. Folded (AgentStrip),
+// the list is a strip of avatars.
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Archive, ChevronRight, ChevronsLeft } from 'lucide-react';
 import type * as T from '../../../shared/api';
 import type { View } from '../../App';
 import { api } from '../../lib/api';
-import { prChecksText, statusTip } from '../../lib/agentStatus';
+import { chatLabel, prChecksText, statusTip } from '../../lib/agentStatus';
+import { chatKey, peekThread } from '../../lib/chat';
+import { choiceName } from '../../lib/modelChoices';
+import { humanTokens } from '../../lib/tokens';
 import { useT } from '../../lib/i18n';
 import { agentSt, type AgentSt } from '../../lib/leadFirst';
 import { pastAgentsKey } from '../../lib/pastAgents';
 import { projectLabel } from '../../lib/projectName';
-import { leadOf, openPanelOn, pickTarget, setPanel } from '../../lib/rightPanel';
+import { leadOf, pickTarget, setPanel } from '../../lib/rightPanel';
 import { cn, timeAgo } from '../../lib/utils';
 import { AgentContextMenu } from '../AgentContextMenu';
 import { FinishedSection, RailEmpty, RailSkeleton, useRailAgents } from '../AgentRail';
@@ -67,11 +70,12 @@ export function AgentList({ project, chat, onSelect, onNewAgent }: { project: st
       live={live.has(agent.ref)}
       ready={ready.has(agent.ref)}
       pr={rail.prs.get(agent.ref)}
+      fleet={rail.fleetOf.get(agent.ref)}
       at={rail.lastReport.get(agent.ref)}
       report={rail.lastSummary.get(agent.ref)}
+      question={rail.question(agent.ref)}
       usage={agent.state === 'running' ? usage.get(agent.ref) : undefined}
       onOpen={onSelect}
-      onClick={() => openPanelOn(chat, 'desktop', agent.ref)}
     />
   );
 
@@ -112,88 +116,136 @@ export function AgentList({ project, chat, onSelect, onNewAgent }: { project: st
 const checkMark: Record<string, string> = { passing: '✓', failing: '✕', pending: '•' };
 const checkTone: Record<string, string> = { passing: 'text-emerald-300', failing: 'text-rose-300', pending: 'text-amber-300' };
 
+// shortAgo is timeAgo in a few characters, for a narrow row: "4m", "2h".
+function shortAgo(t: ReturnType<typeof useT>, iso: string, now = Date.now()): string {
+  const s = Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000));
+  if (s < 45) return t('panel.list.agoNow');
+  if (s < 3600) return t('panel.list.agoMinutes', { n: Math.max(1, Math.round(s / 60)) });
+  if (s < 86400) return t('panel.list.agoHours', { n: Math.round(s / 3600) });
+  return t('panel.list.agoDays', { n: Math.round(s / 86400) });
+}
+
 // memShort is memory in a few characters: "1.4G", "820M".
 const memShort = (n: number) => (n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)}G` : `${Math.round(n / 1024 ** 2)}M`);
 
-// AgentLine is one agent: a line of its state mark, AI tool, task, pull
-// request (or ready to review) and time, and a line of its latest report
-// when it has one, what needs you saying so there instead, in its colour,
-// with its machine's CPU and memory at its end. Using its desktop, its mark
-// gives way to the desktop, small and live. A right-click opens its menu
-// (AgentContextMenu).
-function AgentLine({ agent, st, active, live, ready, pr, at, report, usage, onOpen, onClick }: { agent: T.Agent; st: AgentSt; active: boolean; live: boolean; ready: boolean; pr?: T.PullRequest; at?: string; report?: string; usage?: { cpu?: number; memory?: number }; onOpen: (view: View) => void; onClick: () => void }) {
+// doingNow is the row's second line: the question it waits on you for, its
+// permission request, its tool call or what it's writing while its turn
+// runs, else what it last reported. tone colours what needs you.
+function doingNow(t: ReturnType<typeof useT>, agent: T.Agent, st: AgentSt, last: T.ChatItem | undefined, question: string | undefined, report: string | undefined): { text?: string; tone?: 'needs' | 'error' } {
+  if (question) return { text: question, tone: 'needs' };
+  if (agent.chat === 'waiting') return { text: t('v2.tag.approval'), tone: 'needs' };
+  if (agent.chat === 'running' && last) {
+    if (last.tool) return { text: last.tool.command ? t('panel.list.running', { command: last.tool.command }) : last.tool.title };
+    if (last.kind === 'assistant' && last.text) return { text: last.text.split('\n').find((l) => l.trim())?.trim() };
+  }
+  if (st === 'error') return { text: chatLabel(agent).text, tone: 'error' };
+  return { text: report };
+}
+
+// AgentLine is one agent in up to three lines, each only when it has
+// something: its state mark, task, time since it last did anything and its
+// machine's CPU and memory; what it's doing now (doingNow); and, small, its
+// AI tool, its pull request (or that it's ready to review), its changes, how
+// much of its context it used and its model, the first to go when the row is
+// too narrow. Using its desktop, its mark gives
+// way to the desktop, small and live. A click opens its chat (with its
+// Desktop in the panel); a right-click, its menu (AgentContextMenu). Its
+// chat's latest item and session are read as the phone's list reads them
+// (peekThread), kept current by the chat's events.
+function AgentLine({ agent, st, active, live, ready, pr, fleet, at, report, question, usage, onOpen }: { agent: T.Agent; st: AgentSt; active: boolean; live: boolean; ready: boolean; pr?: T.PullRequest; fleet?: T.FleetAgent; at?: string; report?: string; question?: string; usage?: { cpu?: number; memory?: number }; onOpen: (view: View) => void }) {
   const t = useT();
+  const queryClient = useQueryClient();
+  const thread = useQuery({ queryKey: chatKey(agent.ref), queryFn: () => peekThread(queryClient, agent.ref), staleTime: 30_000 });
+  const session = thread.data?.session;
   const title = agent.title || agent.name;
-  const needs = st === 'needs' ? t('v2.tag.asks') : st === 'error' ? t('v2.st.error') : '';
-  const second = needs || report;
-  const load = usage && [usage.cpu !== undefined && `${Math.round(usage.cpu)}%`, usage.memory && memShort(usage.memory)].filter(Boolean).join(' · ');
+  const now = doingNow(t, agent, st, thread.data?.items.at(-1), question, report);
+  const load = usage && [usage.cpu !== undefined && `${Math.round(usage.cpu)}%`, usage.memory && memShort(usage.memory)].filter(Boolean).join(' ');
+  const modelOption = session?.options.find((o) => o.category === 'model' && o.type === 'select');
+  const modelChoice = modelOption?.choices.find((c) => c.value === modelOption.value);
+  const model = modelOption && (modelChoice ? choiceName(modelChoice) : modelOption.value);
+  const context = session?.contextSize ? t('panel.list.context', { percent: Math.round(((session.contextUsed ?? 0) / session.contextSize) * 100), size: humanTokens(session.contextSize).replace(/\.0(?=[KMB])/, '') }) : undefined;
+  const changes = fleet?.changes && fleet.changes.files > 0 ? fleet.changes : undefined;
+  const when = fleet?.lastActive ?? at;
+  const open = () => onOpen({ kind: 'agent', ref: agent.ref });
   return (
     <AgentContextMenu agent={agent} pr={pr} active={active} onSelect={onOpen}>
       <button
         type="button"
         onClick={(e) => {
           if (e.button !== 0 || e.ctrlKey) return;
-          onClick();
+          open();
         }}
         title={statusTip(agent)}
         aria-current={active ? 'true' : undefined}
-        className={cn('group flex w-full min-w-0 items-start gap-2 rounded-lg px-2 py-1.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400', active ? 'bg-surface-raised' : 'hover:bg-surface')}
+        className={cn('group flex w-full min-w-0 flex-col rounded-lg px-2 py-1.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400', active ? 'bg-surface-raised' : 'hover:bg-surface')}
         data-list-agent={agent.ref}
         data-list-st={st}
         data-list-live={live || undefined}
       >
-        {live ? (
-          <Tip label={t('pip.open', { name: title })} side="left">
-            <span className="relative mt-0.5 block w-14 shrink-0 overflow-hidden rounded border border-line-strong transition group-hover:border-brand-500/60" data-list-desktop>
-              <LiveDesktop agent={agent} small />
-              <span className="absolute right-0.5 top-0.5 size-1.5 animate-pulse rounded-full bg-emerald-400" />
+        <span className="flex min-w-0 items-start gap-2">
+          {live ? (
+            <Tip label={t('panel.openChat', { name: title })} side="left">
+              <span className="relative mt-0.5 block w-12 shrink-0 overflow-hidden rounded border border-line-strong transition group-hover:border-brand-500/60" data-list-desktop>
+                <LiveDesktop agent={agent} small />
+                <span className="absolute right-0.5 top-0.5 size-1.5 animate-pulse rounded-full bg-emerald-400" />
+              </span>
+            </Tip>
+          ) : (
+            <span className="flex h-[18px] w-2 shrink-0 items-center justify-center">
+              <StMark st={st} />
             </span>
-          </Tip>
-        ) : (
-          <span className="flex h-[18px] w-2 shrink-0 items-center justify-center">
-            <StMark st={st} />
-          </span>
-        )}
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span className="flex min-w-0 items-center gap-1.5">
-            <ToolMark ai={agent.ai} className="size-3.5 shrink-0 opacity-80" />
-            <span className={cn('min-w-0 flex-1 truncate text-[12.5px] font-medium leading-[18px]', active ? 'text-title' : st === 'done' ? 'text-subtle' : 'text-primary', !agent.title && 'font-mono text-[11.5px]')}>{title}</span>
-            {ready ? (
-              <span className="shrink-0 rounded bg-surface-strong px-1 text-[10px] font-medium leading-4 text-secondary" data-list-ready>
-                {t('v2.st.review')}
-              </span>
-            ) : (
-              pr && (
-                <a
-                  href={pr.url}
-                  title={[`#${pr.number}`, pr.checks && t('agent.pr.checks', { checks: prChecksText(pr.checks) }), pr.title].filter(Boolean).join(' · ')}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    void window.agentbox.openExternal(pr.url);
-                  }}
-                  className={cn('shrink-0 font-mono text-[10.5px] leading-4 hover:text-title', pr.state === 'merged' ? 'text-violet-300' : 'text-subtle')}
-                  data-list-pr={pr.number}
-                >
-                  #{pr.number}
-                  {pr.checks && <span className={cn('ml-0.5', checkTone[pr.checks])}>{checkMark[pr.checks]}</span>}
-                </a>
-              )
-            )}
-            {at && <span className="shrink-0 text-[10.5px] tabular-nums leading-4 text-faint">{timeAgo(at)}</span>}
-          </span>
-          {(second || load) && (
-            <span className="flex min-w-0 items-center gap-1.5 text-[11.5px] leading-4">
-              <span className={cn('min-w-0 flex-1 truncate', st === 'needs' ? 'font-medium text-amber-300' : st === 'error' ? 'font-medium text-rose-300' : 'text-subtle')} data-list-report>
-                {second}
-              </span>
+          )}
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span title={title} className={cn('min-w-0 flex-1 truncate text-[12.5px] font-medium leading-[18px]', active ? 'text-title' : st === 'done' ? 'text-subtle' : 'text-primary', !agent.title && 'font-mono text-[11.5px]')}>{title}</span>
+              {when && (
+                <span className="shrink-0 text-[10.5px] tabular-nums leading-4 text-faint" title={timeAgo(when)}>
+                  {shortAgo(t, when)}
+                </span>
+              )}
               {load && (
-                <span className="shrink-0 font-mono text-[10px] tabular-nums text-faint" title={t('panel.list.usage')} data-list-usage>
+                <span className="shrink-0 font-mono text-[10px] tabular-nums leading-4 text-faint" title={t('panel.list.usage')} data-list-usage>
                   {load}
                 </span>
               )}
             </span>
+            {now.text && (
+              <span className={cn('truncate text-[11.5px] leading-4', now.tone === 'needs' ? 'font-medium text-amber-300' : now.tone === 'error' ? 'font-medium text-rose-300' : 'text-secondary')} data-list-now>
+                {now.text}
+              </span>
+            )}
+          </span>
+        </span>
+        <span className={cn('mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-[10.5px] leading-4 text-faint', !live && 'pl-4')} data-list-meta>
+          <ToolMark ai={agent.ai} className="size-3 shrink-0 opacity-70" />
+          {pr && (
+            <a
+              href={pr.url}
+              title={[`#${pr.number}`, pr.checks && t('agent.pr.checks', { checks: prChecksText(pr.checks) }), pr.title].filter(Boolean).join(' · ')}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                void window.agentbox.openExternal(pr.url);
+              }}
+              className={cn('shrink-0 font-mono hover:text-title', pr.state === 'merged' ? 'text-violet-300' : 'text-subtle')}
+              data-list-pr={pr.number}
+            >
+              #{pr.number}
+              {pr.checks && <span className={cn('ml-0.5', checkTone[pr.checks])}>{checkMark[pr.checks]}</span>}
+            </a>
           )}
+          {ready && (
+            <span className="shrink-0 rounded bg-surface-strong px-1 font-medium text-secondary" data-list-ready>
+              {t('v2.st.review')}
+            </span>
+          )}
+          {changes && (
+            <span className="shrink-0 tabular-nums" data-list-changes>
+              <span className="text-emerald-300/80">+{changes.insertions}</span> <span className="text-rose-300/80">−{changes.deletions}</span> {t('panel.list.files', { count: changes.files })}
+            </span>
+          )}
+          {context && <span className="min-w-0 truncate tabular-nums" data-list-context>{context}</span>}
+          {model && <span className="min-w-0 truncate">{model}</span>}
         </span>
       </button>
     </AgentContextMenu>
@@ -202,8 +254,8 @@ function AgentLine({ agent, st, active, live, ready, pr, at, report, usage, onOp
 
 // AgentStrip is the list folded: a strip of the agents' avatars, each with
 // its state mark, the ones at something first, that keeps the chat wide. A
-// click opens the agent in the panel; the arrow on top unfolds the list.
-export function AgentStrip({ project, chat }: { project: string; chat: string }) {
+// click opens the agent's chat; the arrow on top unfolds the list.
+export function AgentStrip({ project, chat, onSelect }: { project: string; chat: string; onSelect: (view: View) => void }) {
   const t = useT();
   const { rail, live, st } = useListAgents(project);
   return (
@@ -215,7 +267,7 @@ export function AgentStrip({ project, chat }: { project: string; chat: string })
       </Tip>
       {[...rail.moving, ...rail.finished].map((agent) => (
         <Tip key={agent.ref} label={agent.title || agent.name} side="left">
-          <button type="button" aria-label={agent.title || agent.name} onClick={() => openPanelOn(chat, 'desktop', agent.ref)} className={cn('relative rounded-lg p-0.5 transition hover:bg-surface-strong', chat === agent.ref && 'bg-surface-raised')} data-strip-agent={agent.ref}>
+          <button type="button" aria-label={agent.title || agent.name} onClick={() => onSelect({ kind: 'agent', ref: agent.ref })} className={cn('relative rounded-lg p-0.5 transition hover:bg-surface-strong', chat === agent.ref && 'bg-surface-raised')} data-strip-agent={agent.ref}>
             <AgentAvatar ai={agent.ai} mood={rail.mood(agent)} state={agent.state} seed={agent.ref} className="size-8 rounded-lg" />
             <span className="absolute -bottom-px -right-px flex size-2.5 items-center justify-center rounded-full bg-sunken">
               {live.has(agent.ref) ? <span className="size-1.5 animate-pulse rounded-full bg-emerald-400" /> : <StMark st={st(agent)} />}
