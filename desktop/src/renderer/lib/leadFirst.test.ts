@@ -45,6 +45,13 @@ test('matches filters by state, project and a search on title, name, branch and 
   assert.equal(matches(row, { ...noFilters, q: 'light' }, 'Pawly'), false);
 });
 
+test('matches finds the agent whose pull request is the number typed', () => {
+  const row: Row = { agent: agent('agent-7', { title: 'Dark mode' }), st: 'review', pr: 404 };
+  for (const q of ['404', '#404', 'pr 404', 'PR#404', ' pr #404 ']) assert.equal(matches(row, { ...noFilters, q }, 'Pawly'), true, q);
+  for (const q of ['405', 'pr 40', 'pr']) assert.equal(matches(row, { ...noFilters, q }, 'Pawly'), false, q);
+  assert.equal(matches({ ...row, pr: undefined }, { ...noFilters, q: '404' }, 'Pawly'), false);
+});
+
 test('sortRows puts what needs you first, then the newest', () => {
   const rows: Row[] = [
     { agent: agent('old', { createdAt: '2026-10-01T00:00:00Z' }), st: 'working' },

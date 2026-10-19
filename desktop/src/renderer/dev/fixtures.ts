@@ -424,7 +424,11 @@ export function buildFixtures(): FixtureData {
       chat: undefined,
       changes: { files: 0, insertions: 0, deletions: 0, dirty: false },
       media: 0,
-      pr: a.ref === `${PROJECT}/agent-99` ? { number: 78, title: 'PR', state: 'open', checks: 'failing', conflict: true, review: 'changes_requested', watched: true, url: WIDE.longUrl } : undefined,
+      pr: a.ref === `${PROJECT}/agent-41` ? { number: 404, title: 'feat: PR chip', state: 'open', checks: 'passing', url: 'https://github.com/acme/hello/pull/404' }
+        : a.ref === `${PROJECT}/agent-12` ? { number: 391, title: 'feat: draft', state: 'open', draft: true, checks: '', url: 'https://github.com/acme/hello/pull/391' }
+        : a.ref === `${PROJECT}/agent-36` ? { number: 388, title: 'fix: merged', state: 'merged', checks: 'passing', url: 'https://github.com/acme/hello/pull/388' }
+        : a.ref === `${PROJECT}/agent-37` ? { number: 380, title: 'fix: closed', state: 'closed', checks: '', url: 'https://github.com/acme/hello/pull/380' }
+        : a.ref === `${PROJECT}/agent-99` ? { number: 78, title: 'PR', state: 'open', checks: 'failing', conflict: true, review: 'changes_requested', watched: true, url: WIDE.longUrl } : undefined,
       retire: { safe: false },
     })),
     creating: [],

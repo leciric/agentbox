@@ -78,15 +78,25 @@ export const filterCount = (f: Filters) => f.st.length + f.projects.length;
 // other projects.
 export const narrowing = (f: Filters) => f.st.length > 0 || f.q.trim() !== '';
 
-export type Row = { agent: T.Agent; st: AgentSt };
+// prNumberQuery reads a search as a pull request's number the way people type
+// one: "404", "#404", "pr 404", "PR#404".
+export function prNumberQuery(q: string): number | undefined {
+  const m = /^(?:pr\s*)?#?\s*(\d+)$/i.exec(q.trim());
+  return m && Number(m[1]) > 0 ? Number(m[1]) : undefined;
+}
+
+// Row is an agent with its state and, when it has one, its pull request's number.
+export type Row = { agent: T.Agent; st: AgentSt; pr?: number };
 
 // matches is whether an agent passes the filters. q matches its title, its
-// name, its branch and its project's name, ignoring case.
+// name, its branch and its project's name, ignoring case; a pull request's
+// number (prNumberQuery) finds the agent whose it is.
 export function matches(row: Row, f: Filters, projectName: string): boolean {
   if (f.st.length && !f.st.includes(row.st)) return false;
   if (f.projects.length && !f.projects.includes(row.agent.project)) return false;
   const q = f.q.trim().toLowerCase();
   if (!q) return true;
+  if (row.pr !== undefined && row.pr === prNumberQuery(q)) return true;
   return [row.agent.title, row.agent.name, row.agent.branch, projectName].some((x) => x?.toLowerCase().includes(q));
 }
 

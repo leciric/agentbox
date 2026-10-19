@@ -15,7 +15,7 @@ import { Archive, ChevronRight, ChevronsLeft } from 'lucide-react';
 import type * as T from '../../../shared/api';
 import type { View } from '../../App';
 import { api } from '../../lib/api';
-import { chatLabel, prChecksText, statusTip } from '../../lib/agentStatus';
+import { chatLabel, statusTip } from '../../lib/agentStatus';
 import { chatKey, peekThread } from '../../lib/chat';
 import { choiceName } from '../../lib/modelChoices';
 import { humanTokens } from '../../lib/tokens';
@@ -27,6 +27,7 @@ import { leadOf, pickTarget } from '../../lib/rightPanel';
 import { cn, timeAgo } from '../../lib/utils';
 import { AgentContextMenu } from '../AgentContextMenu';
 import { FinishedSection, RailEmpty, RailSkeleton, useRailAgents } from '../AgentRail';
+import { PrChip } from '../PrChip';
 import { LiveDesktop } from '../pip/LiveDesktop';
 import { useInUse } from '../pip/inUse';
 import { ProjectIcon } from '../ProjectIcon';
@@ -112,9 +113,6 @@ export function AgentList({ project, chat, onSelect, onNewAgent }: { project: st
     </div>
   );
 }
-
-const checkMark: Record<string, string> = { passing: '✓', failing: '✕', pending: '•' };
-const checkTone: Record<string, string> = { passing: 'text-emerald-300', failing: 'text-rose-300', pending: 'text-amber-300' };
 
 // shortAgo is timeAgo in a few characters, for a narrow row: "4m", "2h".
 function shortAgo(t: ReturnType<typeof useT>, iso: string, now = Date.now()): string {
@@ -218,22 +216,7 @@ function AgentLine({ agent, st, active, live, ready, pr, fleet, at, report, ques
         </span>
         <span className={cn('mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-[10.5px] leading-4 text-faint', !live && 'pl-4')} data-list-meta>
           <ToolMark ai={agent.ai} className="size-3 shrink-0 opacity-70" />
-          {pr && (
-            <a
-              href={pr.url}
-              title={[`#${pr.number}`, pr.checks && t('agent.pr.checks', { checks: prChecksText(pr.checks) }), pr.title].filter(Boolean).join(' · ')}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                void window.agentbox.openExternal(pr.url);
-              }}
-              className={cn('shrink-0 font-mono hover:text-title', pr.state === 'merged' ? 'text-violet-300' : 'text-subtle')}
-              data-list-pr={pr.number}
-            >
-              #{pr.number}
-              {pr.checks && <span className={cn('ml-0.5', checkTone[pr.checks])}>{checkMark[pr.checks]}</span>}
-            </a>
-          )}
+          {pr && <PrChip pr={pr} dataAttr="data-list-pr" />}
           {ready && (
             <span className="shrink-0 rounded bg-surface-strong px-1 font-medium text-secondary" data-list-ready>
               {t('v2.st.review')}

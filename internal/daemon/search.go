@@ -380,6 +380,19 @@ func (s *Server) searchAgents(ctx context.Context, agents []state.Agent, filter 
 			tasks[a.Ref()] = payload.Task
 		}
 	}
+	// An agent whose pull request is the number typed ("404", "#404", "pr 404")
+	// is a match too, best of all.
+	number, isNumber := state.PRNumberQuery(strings.Join(ws, " "))
+	prOf := map[string]int{}
+	if isNumber {
+		for project, prs := range s.pulls.known() {
+			for _, pr := range prs {
+				if pr.Agent != "" {
+					prOf[project+"/"+pr.Agent] = pr.Number
+				}
+			}
+		}
+	}
 	var out []searchFound
 	for _, a := range agents {
 		if a.IsLead() {
@@ -388,6 +401,9 @@ func (s *Server) searchAgents(ctx context.Context, agents []state.Agent, filter 
 		ref := a.Project + "/" + a.Name
 		task := tasks[ref]
 		score := ws.score(cmp.Or(a.Title, a.Name), a.Name, a.Branch, task)
+		if isNumber && prOf[ref] == number {
+			score = max(score, 0) + 20
+		}
 		if score < 0 {
 			continue
 		}

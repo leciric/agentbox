@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -134,11 +135,22 @@ func firstMessage(ctx context.Context, tx *trace.Tx, project, agent string) (str
 	return strings.TrimSpace(text.String), err
 }
 
+// PRNumberQuery reads text as a pull request number the way people type one:
+// "404", "#404", "pr 404", "PR#404" or "pr #404".
+func PRNumberQuery(text string) (int, bool) {
+	t := strings.ToLower(strings.TrimSpace(text))
+	t = strings.TrimSpace(strings.TrimPrefix(t, "pr"))
+	t = strings.TrimSpace(strings.TrimPrefix(t, "#"))
+	n, err := strconv.Atoi(t)
+	return n, err == nil && n > 0 && t == strconv.Itoa(n)
+}
+
 // ArchivedQuery is which archived agents ArchivedAgents lists.
 type ArchivedQuery struct {
 	Project string // "" for every project
 	// Query, when set, keeps the agents whose name, title, task, branch or
-	// pull request title holds it, ignoring case.
+	// pull request title holds it, ignoring case, or whose pull request number
+	// it is (PRNumberQuery).
 	Query string
 	// PRState keeps only those whose pull request is in it, or with none
 	// (PRNone); "" keeps every one.
@@ -158,8 +170,10 @@ func (s *Store) ArchivedAgents(ctx context.Context, q ArchivedQuery) ([]Archived
 	}
 	if text := strings.TrimSpace(q.Query); text != "" {
 		like := "%" + likeEscaper.Replace(text) + "%"
-		where = append(where, `(name LIKE ? ESCAPE '\' OR title LIKE ? ESCAPE '\' OR task LIKE ? ESCAPE '\' OR branch LIKE ? ESCAPE '\' OR pr_title LIKE ? ESCAPE '\' OR (pr_number > 0 AND '#' || pr_number = ?))`)
-		args = append(args, like, like, like, like, like, text)
+		// A pull request number is 0 when the text isn't one, which no agent has.
+		number, _ := PRNumberQuery(text)
+		where = append(where, `(name LIKE ? ESCAPE '\' OR title LIKE ? ESCAPE '\' OR task LIKE ? ESCAPE '\' OR branch LIKE ? ESCAPE '\' OR pr_title LIKE ? ESCAPE '\' OR (pr_number > 0 AND pr_number = ?))`)
+		args = append(args, like, like, like, like, like, number)
 	}
 	switch q.PRState {
 	case "":
