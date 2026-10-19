@@ -24,8 +24,37 @@ export DEBIAN_FRONTEND=noninteractive
 step() { printf '\n==> %s\n' "$*"; }
 skip() { printf '\n==> Skipping %s (%s)\n' "$1" "$2"; }
 
+# Nothing below may hang silently: apt and curl give up after a bounded time.
+cat >/etc/apt/apt.conf.d/80agentbox-timeouts <<'APT'
+Acquire::http::Timeout "20";
+Acquire::https::Timeout "20";
+Acquire::Retries "3";
+APT
+CURL=(curl -fsSL --connect-timeout 20 --max-time 900 --retry 3)
+
+# check_network says which hop to the Debian archive fails, and stops there:
+# no route, no DNS, or no connection. It uses bash's /dev/tcp for the last,
+# since curl isn't installed until the first apt-get.
+check_network() {
+  local host=${AGENTBOX_NETCHECK_HOST:-deb.debian.org} why=""
+  if ! awk 'NR>1 && $2=="00000000" {f=1} END {exit !f}' /proc/net/route; then
+    why="the machine has no network address or route"
+  elif ! getent hosts "$host" >/dev/null; then
+    why="the machine has a route but can't resolve $host (DNS)"
+  elif ! timeout 10 bash -c "exec 3<>/dev/tcp/$host/80" 2>/dev/null; then
+    why="$host resolves but a connection to it times out or is refused"
+  fi
+  [[ -z $why ]] && return 0
+  {
+    echo "No network for the base image build: $why."
+    echo "Likely causes: Docker's firewall (DOCKER-USER/FORWARD DROP), WSL networkingMode=mirrored in .wslconfig, or a VPN/proxy."
+  } >&2
+  return 1
+}
+
 step "Waiting for the network"
-for _ in $(seq 1 60); do getent hosts deb.debian.org >/dev/null && break; sleep 1; done
+for _ in $(seq 1 60); do getent hosts "${AGENTBOX_NETCHECK_HOST:-deb.debian.org}" >/dev/null && break; sleep 1; done
+check_network || exit 1
 
 step "Base packages"
 apt-get update -q
@@ -36,7 +65,7 @@ apt-get install -y -q --no-install-recommends \
 
 step "Docker"
 install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+"${CURL[@]}" https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
   >/etc/apt/sources.list.d/docker.list
 apt-get update -q
@@ -89,7 +118,7 @@ SCRCPY_VERSION=v4.1
 SCRCPY_SHA256=ad56ae8bfeedf41e824945c11dbf55fcb092b3e615b9b486f48a50e30d389635
 if [[ $WITH_ANDROID == 1 ]]; then
   step "scrcpy $SCRCPY_VERSION, which shows Android emulators"
-  curl -fsSLo /tmp/scrcpy.tar.gz "https://github.com/Genymobile/scrcpy/releases/download/$SCRCPY_VERSION/scrcpy-linux-x86_64-$SCRCPY_VERSION.tar.gz"
+  "${CURL[@]}" -o /tmp/scrcpy.tar.gz "https://github.com/Genymobile/scrcpy/releases/download/$SCRCPY_VERSION/scrcpy-linux-x86_64-$SCRCPY_VERSION.tar.gz"
   echo "$SCRCPY_SHA256  /tmp/scrcpy.tar.gz" | sha256sum -c -
   rm -rf /opt/scrcpy && mkdir -p /opt/scrcpy
   tar -xzf /tmp/scrcpy.tar.gz -C /opt/scrcpy --strip-components=1
@@ -99,7 +128,7 @@ else
 fi
 
 step "mise"
-curl -fsSL https://mise.run | MISE_INSTALL_PATH=/usr/local/bin/mise sh
+"${CURL[@]}" https://mise.run | MISE_INSTALL_PATH=/usr/local/bin/mise timeout 600 sh
 
 step "The groups and sudo of $USER_NAME"
 # kvm: agents with Android get /dev/kvm, which Debian gives to this group at boot.

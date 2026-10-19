@@ -33,6 +33,7 @@ var Changes = []Change{
 	{"2026.09.26.1", "Incus, for images built with it, so projects can turn nesting on"},
 	{"2026.09.27.1", "Mesa's DRI, VA-API and Vulkan drivers, and vainfo, for GPU for agents"},
 	{"2026.10.02.1", "/etc/agentbox-image, a marker that tells the agentbox binary it's on an agent's machine"},
+	{"2026.10.19.1", "a network check that stops the build with the hop that fails, and time limits on apt and downloads"},
 }
 
 // OlderVersion reports whether image version a comes before b. Versions are
@@ -251,9 +252,11 @@ func CatchUp(ctx context.Context, inc incus.Client, instance string, u User, b B
 			cmd = append(cmd, "--env", e)
 		}
 		c := inc.Command(ctx, append(append(cmd, "--"), args...)...)
-		c.Stdout, c.Stderr = log, log
+		tail := &tailWriter{w: log}
+		c.Stdout, c.Stderr = tail, tail
 		if err := c.Run(); err != nil {
-			return fmt.Errorf("%s: %w", what, err)
+			fmt.Fprintf(log, "==> %s\n", HostNetworkNote(context.WithoutCancel(ctx)))
+			return tail.failure(what+" ("+strings.Join(args, " ")+")", err)
 		}
 		return nil
 	}

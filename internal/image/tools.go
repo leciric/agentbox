@@ -285,9 +285,11 @@ func installTools(ctx context.Context, inc incus.Client, name, user string, plan
 	}
 	tools := func(mode, list string) error {
 		cmd := inc.Command(ctx, "exec", name, "-T", "--", "/root/tools.sh", mode, user, list)
-		cmd.Stdout, cmd.Stderr = log, log
+		tail := &tailWriter{w: log}
+		cmd.Stdout, cmd.Stderr = tail, tail
 		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("tools.sh %s: %w", mode, err)
+			fmt.Fprintf(log, "==> %s\n", HostNetworkNote(context.WithoutCancel(ctx)))
+			return tail.failure("/root/tools.sh "+mode+" "+user+" "+list, err)
 		}
 		return nil
 	}

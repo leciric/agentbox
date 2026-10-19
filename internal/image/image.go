@@ -94,7 +94,7 @@ func CheckHost(u User) error {
 // (ToolsVersion) moves them on in place, without a rebuild. Bumping it means
 // saying what changed in Changes, which is what a project base saved before it
 // is shown.
-const Version = "2026.10.02.1"
+const Version = "2026.10.19.1"
 
 // CodexMissing is what Setup and agent creation say about an image built
 // without Codex. Both use the same words, because the fix is the same one.
@@ -487,12 +487,14 @@ func buildLocally(ctx context.Context, inc incus.Client, next string, u User, co
 	}
 	cmd := inc.Command(ctx, append(args, "--", "/root/provision.sh",
 		Placeholder.Name, strconv.Itoa(Placeholder.UID), strconv.Itoa(Placeholder.GID))...)
-	cmd.Stdout, cmd.Stderr = log, log
+	tail := &tailWriter{w: log}
+	cmd.Stdout, cmd.Stderr = tail, tail
 	if err := cmd.Run(); err != nil {
+		step("%s", HostNetworkNote(context.WithoutCancel(ctx)))
 		if hint := dockerfw.Hint(context.WithoutCancel(ctx), firewall); hint != "" {
 			step("%s", hint)
 		}
-		return fmt.Errorf("provisioning %s: %w", next, err)
+		return tail.failure("provisioning "+next, err)
 	}
 	return all(
 		func() error {
