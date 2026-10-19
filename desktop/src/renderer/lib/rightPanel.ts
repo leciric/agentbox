@@ -1,13 +1,15 @@
 // UI v2's right-hand panel (components/v2/RightPanel.tsx): what is pure about
 // it, and its state.
 //
-// One header button opens it, closed by default, or ⌘D; beside the chat while
-// the chat keeps 440px, a drawer over it otherwise. It always shows one of the
-// project's agents (or its repository, the lead's checkout), picked at its
-// top, in one of four views on a fixed switch: Desktop, Terminal, Files and
-// Evidence (its media and Hatch pages, newest first). The rest, Browser,
-// Timeline, and the project's Pull requests and Settings, open from its ⋯.
-// There are no tabs and nothing to choose first: it remembers the view each
+// One header button opens it, or ⌘D; beside the chat while the chat keeps
+// 440px, a drawer over it otherwise. Beside a lead's chat it is open until
+// it is closed, as v1's rail of agents was, and opens on the project's agents
+// (the list); a row of it, or a tile of the lane of desktops, shows that
+// agent (or the repository, the lead's checkout) in one of four views on a
+// fixed switch: Desktop, Terminal, Files and Evidence (its media and Hatch
+// pages, newest first), with a back arrow to the list. Browser and Timeline
+// open from its ⋯; the project's Pull requests and Settings, from the
+// project's header (ProjectView), go over it. It remembers the view each
 // agent was last shown in, and the agent each project's lead last looked at.
 import { useSyncExternalStore } from 'react';
 import type * as T from '../../shared/api.ts';
@@ -18,7 +20,8 @@ export type PanelView = 'desktop' | 'terminal' | 'files' | 'evidence' | 'browser
 export const panelViews: PanelView[] = ['desktop', 'terminal', 'files', 'evidence', 'browser', 'timeline', 'pulls', 'schedules', 'settings'];
 // The switch's four, always there, in this order; the rest are in the ⋯.
 export const switchViews: PanelView[] = ['desktop', 'terminal', 'files', 'evidence'];
-export const moreViews: PanelView[] = ['browser', 'timeline', 'pulls', 'schedules', 'settings'];
+// The project's Pull requests and Settings are off it: they're on the project's header.
+export const moreViews: PanelView[] = ['browser', 'timeline', 'schedules'];
 
 // The project's own views: its pull requests, its scheduled tasks and its
 // settings, the same whoever is picked.
@@ -96,17 +99,6 @@ export function pickable(project: string, agents: T.Agent[]): T.Agent[] {
   return agents.filter((a) => a.project === project && a.name !== 'lead').toSorted((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-// mostRecent is the project's agent that did something last: one using its
-// desktop now (live, refs) first, as the lane of desktops shows it, then one
-// at work, then by when it last did anything (the fleet's lastActive), then
-// the newest.
-export function mostRecent(project: string, agents: T.Agent[], fleet: Pick<T.FleetAgent, 'ref' | 'busy' | 'lastActive'>[] = [], live: readonly string[] = []): T.Agent | undefined {
-  const of = new Map(fleet.map((f) => [f.ref, f]));
-  const at = (a: T.Agent) => of.get(a.ref)?.lastActive ?? a.createdAt;
-  const rank = (a: T.Agent) => (live.includes(a.ref) ? 2 : 0) + (of.get(a.ref)?.busy ? 1 : 0);
-  return pickable(project, agents).toSorted((a, b) => rank(b) - rank(a) || at(b).localeCompare(at(a)))[0];
-}
-
 // panelBox is how wide the panel is, and whether it sits beside the chat or
 // over it as a drawer: beside from besideMin of window up, while the chat
 // keeps chatMin; a drawer otherwise. At 1024px beside, the sidebar and the
@@ -115,6 +107,9 @@ export const besideMin = 1100;
 export const chatMin = 440;
 export const panelMin = 340;
 export const panelDefault = 560;
+// listWidth is the panel's width while it shows the list of agents: v1's
+// rail's, about, which its rows were made for.
+export const listWidth = 340;
 // panelWant is how wide chat's panel would be: the one width beside a lead's
 // chat; beside an agent's own, its desktop is what you came for, so half the
 // room until you drag it.
@@ -151,6 +146,9 @@ export interface PanelState {
 }
 
 const storageKey = 'agentbox.ui.v2.panel';
+// A state saved before the list (listed unset) had every lead's panel closed
+// by default: those come back to the default, open on the list, once.
+const listed = 1;
 const listeners = new Set<() => void>();
 let current: PanelState | undefined;
 
@@ -163,6 +161,7 @@ function load(): PanelState {
     const saved = JSON.parse(localStorage.getItem(storageKey) ?? '{}') as Partial<PanelState>;
     const chats: Record<string, ChatPanel> = {};
     for (const [chat, p] of Object.entries(saved.chats ?? {})) {
+      if ((saved as { listed?: number }).listed !== listed && isLeadRef(chat) && p?.open !== true) continue;
       // A panel saved with tabs, before the switch, opens again on its own.
       chats[chat] = { open: p?.open === true, ...(typeof p?.target === 'string' ? { target: p.target } : {}) };
     }
@@ -190,7 +189,7 @@ export function setPanel(change: Partial<PanelState>): void {
   try {
     const { width, agentWidth, views, last } = current;
     const chats = Object.fromEntries(Object.entries(current.chats).map(([k, p]) => [k, bare(p)]));
-    localStorage.setItem(storageKey, JSON.stringify({ width, agentWidth, chats, views, last }));
+    localStorage.setItem(storageKey, JSON.stringify({ width, agentWidth, chats, views, last, listed }));
   } catch {
     // Kept for this session, if not for the next.
   }
@@ -214,12 +213,13 @@ export function useChatPanel(chat: string): ChatPanel {
 }
 
 // panelTarget is whose chat's panel shows, as a ref, before it is checked
-// against the agents there are (RightPanel falls back from one gone): in the
-// lead's, the agent the project's panel last showed; in an agent's, the one
-// picked there, else the agent itself.
+// against the agents there are (RightPanel shows the list for one gone): in
+// the lead's, the agent the project's panel last showed; in an agent's, the
+// one picked there, else the agent itself. listTarget, or none, is the list.
+export const listTarget = 'list';
 export function panelTarget(state: PanelState, chat: string): string | undefined {
-  if (isLeadRef(chat)) return state.last[projectOf(chat)];
-  return state.chats[chat]?.target ?? chat;
+  const target = isLeadRef(chat) ? state.last[projectOf(chat)] : (state.chats[chat]?.target ?? chat);
+  return target === listTarget ? undefined : target;
 }
 
 // viewOf is the view whose ref is shown in.
@@ -271,6 +271,15 @@ export function setView(chat: string, ref: string, view: PanelView, focus?: stri
     return;
   }
   update(chat, (p) => ({ ...bare(p), open: true, ...(focus ? { focus } : {}) }), { views: { ...state.views, [ref]: view } });
+}
+
+// panelBack is the panel's back arrow: from the project's own view to whose
+// it went over, else to the list.
+export function panelBack(chat: string): void {
+  const state = panelState();
+  if (chatPanel(state, chat).wide) return update(chat, bare);
+  if (isLeadRef(chat)) update(chat, bare, { last: { ...state.last, [projectOf(chat)]: listTarget } });
+  else update(chat, (p) => ({ ...bare(p), target: listTarget }));
 }
 
 // openPanelOn opens chat's panel on view, of target when given (then picked

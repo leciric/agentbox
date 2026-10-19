@@ -8,6 +8,29 @@ import type * as T from '../../shared/api';
 // enough that a desktop it's done with goes.
 export const inUse = 2 * 60_000;
 
+// The lane's sizes, beside the lead's chat: its width to begin with, a column
+// of small tiles each named by its task, which is also the narrowest it is
+// dragged to; and folded, a strip with how many desktops are in use.
+export const laneWidth = 168;
+export const laneStrip = 28;
+
+// laneFit is how the lane sits in room, the chat's box and its own, with the
+// right-hand panel beside them or not: its tiles while the chat keeps chatMin
+// beside them, and as the user left it (folded, or unset to fold below
+// foldBelow); else a strip while that fits; else nothing. The chat is never
+// what gives way.
+export const foldBelow = 760;
+export function laneFit(room: number, chatMin: number, folded: boolean | undefined): 'tiles' | 'strip' | 'none' {
+  if (room - laneWidth >= chatMin && !(folded ?? room < foldBelow)) return 'tiles';
+  return room - laneStrip >= chatMin ? 'strip' : 'none';
+}
+
+// laneBox is the lane's width, as dragged, kept within what the chat can
+// spare of room.
+export function laneBox(want: number | undefined, room: number, chatMin: number): number {
+  return Math.min(Math.max(want ?? laneWidth, laneWidth), Math.max(laneWidth, room - chatMin));
+}
+
 // docked is the project's running agents that are using their desktops, in
 // the order they were made, so a tile doesn't jump about as each one acts.
 export function docked(project: string, agents: T.Agent[], uses: T.DesktopUse[], now: number): T.Agent[] {

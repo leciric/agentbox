@@ -23,8 +23,9 @@ export function HomeStatusV2({ onSelect, onAddProject, onNewAgent }: { onSelect:
   );
 }
 
-export function PastAgentsV2({ open, onSelect }: { open?: string; onSelect: (view: View) => void }) {
-  const [project, setProject] = useState('');
+export function PastAgentsV2({ open, project: from, onSelect }: { open?: string; project?: string; onSelect: (view: View) => void }) {
+  // Opened from a project's list of agents, on that project's.
+  const [project, setProject] = useState(from ?? '');
   return (
     <PastAgents
       open={open}

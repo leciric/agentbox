@@ -126,7 +126,8 @@ const S = {
     id: 'computer',
     title: 'tour.computer.title',
     body: 'tour.computer.body',
-    anchor: ['[data-v2-agent] [data-desk]', '[data-v2-agents]', '[data-sidebar-v2] nav'],
+    anchor: ['[data-panel-list] [data-desk]', '[data-panel-list]', '[data-panel-toggle]'],
+    go: 'lead',
     needsAgents: true,
   },
   switch: {

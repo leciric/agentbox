@@ -33,7 +33,7 @@ import { Textarea } from './ui/input';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from './ui/menu';
 import { useUiV2 } from '../lib/uiV2';
 import { ProjectIcon, ProjectIconDialog } from './ProjectIcon';
-import { InTopBar, ProjectMenu } from './v2/ProjectHeader';
+import { InTopBar, ProjectMenu, ProjectPlaces } from './v2/ProjectHeader';
 import { AgentMentionsProvider } from './pip/Mentions';
 import { PipLane } from './pip/PipLane';
 import { PanelButton } from './v2/PanelButton';
@@ -190,6 +190,7 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
           {chatMenu?.dialogs}
           {chatMenu?.untracked}
           <InTopBar end>
+            <ProjectPlaces project={name} leadRef={`${name}/${T.LeadName}`} />
             <Tip label={t('today.open')}>
               <Button size="icon-sm" variant="ghost" aria-label={t('today.open')} onClick={() => onSelect({ kind: 'today', project: name })} data-open-today>
                 <Clapperboard />

@@ -5,9 +5,9 @@ import * as T from '../../../shared/api';
 import type { View } from '../../App';
 import { api } from '../../lib/api';
 import { useT } from '../../lib/i18n';
-import { docked } from '../../lib/pip';
+import { docked, laneBox, laneFit, laneWidth } from '../../lib/pip';
 import { setLane, useLane } from '../../lib/pipStore';
-import { openPanelOn, useChatPanel } from '../../lib/rightPanel';
+import { chatMin, openPanelOn, shown, usePanel } from '../../lib/rightPanel';
 import { Tip } from '../ui/tooltip';
 import { LiveDesktop } from './LiveDesktop';
 
@@ -24,51 +24,38 @@ export function useInUse(project: string): T.Agent[] {
   return docked(project, agents.data ?? [], desktops.data ?? [], Date.now());
 }
 
-// The lane's width to begin with, a column of small tiles each named by its
-// task, and the narrowest it is dragged to. It never takes the chat's room
-// below chatMin; its tiles grow with it, to fill their column at the desktop's 16:10, and go
-// two across once each could stay at least tileMin wide, so a wider lane
-// always means bigger desktops, never just more room around them.
-const laneWidth = 168;
-const laneMin = laneWidth;
-const chatMin = 420;
+// The lane's tiles grow with it, to fill their column at the desktop's 16:10,
+// and go two across once each could stay at least tileMin wide, so a wider
+// lane always means bigger desktops, never just more room around them. Its
+// sizes, and how it gives way to the chat, are lib/pip.ts's.
 const tileMin = 200;
-
-// laneBox is the lane's width kept within what the chat can spare of room.
-export function laneBox(want: number | undefined, room: number): number {
-  const max = Math.max(laneMin, room - chatMin);
-  return Math.min(Math.max(want ?? laneWidth, laneMin), max);
-}
 
 // laneColumns is how many tiles go across a lane of this width.
 export function laneColumns(width: number): number {
   return Math.max(1, Math.floor((width - 16 + 12) / (tileMin + 12)));
 }
-// foldBelow is how wide the chat's box must be for the lane to open by
-// itself: narrower, the chat keeps the room and the lane is a strip.
-const foldBelow = 760;
-
 // PipLane is the lead's chat with a lane at its right for the desktops its
 // agents are using: small live tiles, each named by its agent's task. A tile
 // opens that desktop in the right-hand panel, the one place a desktop is
-// shown large, and the lane steps aside while the panel is open: the chat is
-// never squeezed between the two, and the panel's picker marks who is live.
-// The chat, composer and all, gives the lane its room rather than lying
-// under it.
+// shown large, as that agent's row in the panel's list does; the one the
+// panel shows is left out. With the panel beside it, the lane narrows, then
+// folds to a strip, then goes, before the chat gets under chatMin; the
+// panel's list marks who is live. The chat, composer and all, gives the lane
+// its room rather than lying under it.
 export function PipLane({ project, children }: { project: string; onSelect?: (view: View) => void; children: ReactNode }) {
   const row = useRef<HTMLDivElement>(null);
   const width = useWidth(row);
   const lane = useLane(project);
   const chat = `${project}/${T.LeadName}`;
-  const open = useChatPanel(chat).open;
-  const tiles = useInUse(project);
-  const folded = lane.folded ?? width < foldBelow;
-  const box = laneBox(lane.width, width);
+  const onPanel = shown(usePanel(), chat);
+  const tiles = useInUse(project).filter((a) => !(onPanel?.target === a.ref && (onPanel.view ?? 'desktop') === 'desktop'));
+  const fit = laneFit(width, chatMin, lane.folded);
+  const box = laneBox(lane.width, width, chatMin);
 
   return (
     <div ref={row} className="flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">{children}</div>
-      {!open && tiles.length > 0 && (folded ? <Strip count={tiles.length} onOpen={() => setLane(project, () => ({ folded: false }))} /> : <Lane project={project} tiles={tiles} width={box} onOpen={(ref) => openPanelOn(chat, 'desktop', ref)} />)}
+      {width > 0 && tiles.length > 0 && fit !== 'none' && (fit === 'strip' ? <Strip count={tiles.length} onOpen={() => setLane(project, () => ({ folded: false }))} /> : <Lane project={project} tiles={tiles} width={box} onOpen={(ref) => openPanelOn(chat, 'desktop', ref)} />)}
     </div>
   );
 }
@@ -119,7 +106,7 @@ function WidthHandle({ project, width }: { project: string; width: number }) {
         const dx = event.clientX - last.current;
         if (!dx) return;
         last.current = event.clientX;
-        setLane(project, () => ({ width: Math.max(laneMin, w.current - dx) }));
+        setLane(project, () => ({ width: Math.max(laneWidth, w.current - dx) }));
       }}
       onPointerUp={() => (last.current = null)}
       onPointerCancel={() => (last.current = null)}

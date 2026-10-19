@@ -81,7 +81,7 @@ export type View =
   // A project's day: every agent's timeline as one story (components/timeline/TodayView).
   | { kind: "today"; project: string }
   // Every project's past agents, or one of them (ref) read in its chat.
-  | { kind: "pastAgents"; ref?: string }
+  | { kind: "pastAgents"; ref?: string; project?: string }
   // A group of agents given one task, side by side (components/groups).
   | { kind: "group"; id: string };
 
@@ -492,7 +492,7 @@ export function App({ initial }: { initial?: View } = {}) {
         : view.kind === "settings"
           ? `settings:${settingsVisit}`
           : view.kind === "pastAgents"
-            ? `pastAgents:${view.ref ?? ""}`
+            ? `pastAgents:${view.ref ?? ""}:${view.project ?? ""}`
             : view.kind === "group"
               ? `group:${view.id}`
             // v2's Home keeps its chat mounted as its tabs switch.
@@ -636,7 +636,7 @@ export function App({ initial }: { initial?: View } = {}) {
                 {view.kind === "today" && <TodayView project={view.project} onSelect={select} />}
                 {view.kind === "pastAgents" &&
                   (v2 ? (
-                    <PastAgentsV2 open={view.ref} onSelect={select} />
+                    <PastAgentsV2 open={view.ref} project={view.project} onSelect={select} />
                   ) : (
                     <PastAgents
                       open={view.ref}
@@ -669,7 +669,7 @@ export function App({ initial }: { initial?: View } = {}) {
           </main>
           {/* v2's right-hand panel: files, desktop, terminal, browser,
               pages and media, beside the chat or over it. */}
-          {v2 && !setup && <RightPanelHost view={view} onSelect={select} />}
+          {v2 && !setup && <RightPanelHost view={view} onSelect={select} onNewAgent={setNewAgentProject} />}
           {!v2 && (view.kind === "project" || view.kind === "agent") && (
             <div className="hidden xl:flex">
               <AgentRail

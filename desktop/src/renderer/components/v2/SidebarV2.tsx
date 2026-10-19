@@ -1,28 +1,29 @@
 // UI v2's sidebar, lead-first: most of the time is spent talking to each
 // project's lead, so the list is Home and one row per lead, with its icon,
 // its last line and its live agents' counts (working, to review, asks,
-// failed). Each project's live agents fold under it, one quiet row each:
-// neutral text and one small state mark, with colour only for what needs you
-// (asks, failed); finished ones are in Past agents. Under Home, search and a
+// failed) and what you haven't seen. Its agents aren't here: they're in the
+// right-hand panel, beside its chat (v2/AgentList.tsx), and finished ones
+// in Past agents. Under Home, search and a
 // filter popover (T3Code's: state, project, removable chips) narrow it. The
 // projects the user pinned come first, in the order they dragged them, then
 // the ones with something going on, most recent first, and docked at the
 // bottom, above the foot, the Idle list of the rest, folded unless nothing is
 // going on, and under it the projects the user hid, folded. The
 // project on screen never folds into Idle: the chat you're in stays in view.
-// A project's options are on a right-click of its row. The reading is
+// A project's options are on a right-click of its row, its Settings on a
+// gear its row shows on hover. The reading is
 // lib/leadFirst.ts's, lib/projectOrder.ts's and lib/sidebarHidden.ts's.
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Archive, Check, ChevronRight, CircleArrowUp, Eye, EyeOff, FolderPlus, House, Images, ListChecks, ListFilter, LoaderCircle, MoonStar, RefreshCw, Search, Settings, ShieldAlert, SquarePen, X } from 'lucide-react';
-import { Fragment, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import * as A from '../../../shared/api';
 import type * as T from '../../../shared/api';
 import type { View } from '../../App';
 import { api } from '../../lib/api';
 import { useT, type MessageKey } from '../../lib/i18n';
 import { pageItems, useQuestions, useReviewHead } from '../../lib/inboxPages';
-import { activeProjects, agentSt, attention, awaitsApproval, countSt, filterCount, leadLine, leadBusy, liveOrder, projectRows, toggle, type AgentSt, type Filters, type ProjectRows, type Row } from '../../lib/leadFirst';
+import { activeProjects, agentSt, countSt, filterCount, leadLine, leadBusy, liveOrder, projectRows, toggle, type AgentSt, type Filters, type ProjectRows, type Row } from '../../lib/leadFirst';
 import { movePin, orderProjects, togglePin } from '../../lib/projectOrder';
 import { HelpMenu } from './Tour';
 import { setFilterChoice, setHiddenOpen, setPins, useV2Projects } from '../../lib/v2Projects';
@@ -36,15 +37,8 @@ import { updateHint } from '../../lib/appUpdate';
 import { isNightly, isUpgrade } from '../../lib/nightly';
 import { useAppUpdate } from '../../lib/useAppUpdate';
 import { cn, errorMessage, shortcut, timeAgo } from '../../lib/utils';
-import { chatLabel, useMood } from '../../lib/agentStatus';
-import { AgentAvatar } from '../state';
-import { useCpuHistory } from '../../lib/useCpuHistory';
-import { Sparkline } from '../Sparkline';
 import { openNewTask, requestComposerFocus } from '../../lib/newTask';
-import { useRemoving } from '../../lib/removing';
-import { openPanelOn } from '../../lib/rightPanel';
-import { DeskGlyph, useDesk } from './DesktopPeek';
-import { AgentContextMenu } from '../AgentContextMenu';
+import { openPanelOn, setPanel } from '../../lib/rightPanel';
 import { Logo } from '../Sidebar';
 import { ProjectIcon, ProjectIconDialog } from '../ProjectIcon';
 import { ReviewCount, useOpenReview } from './ReviewV2';
@@ -53,7 +47,7 @@ import { TalkToProject } from './TalkToProject';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuMore, ContextMenuSeparator, ContextMenuTrigger } from '../ui/context-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Tip } from '../ui/tooltip';
-import { GroupChips, GroupLetter } from '../groups/GroupChip';
+import { GroupChips } from '../groups/GroupChip';
 
 const stLabel: Record<AgentSt, MessageKey> = {
   needs: 'v2.st.needs',
@@ -91,7 +85,8 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
     if (f.st !== kept.st || f.projects !== kept.projects) setFilterChoice(f.st, f.projects);
     setQ(f.q);
   };
-  const [expanded, setExpanded] = useState<ReadonlyMap<string, boolean>>(new Map());
+  // No project opens its agents here any more: they're in the panel.
+  const expanded: ReadonlyMap<string, boolean> = useMemo(() => new Map(), []);
   const [dragging, setDragging] = useState<string | null>(null);
   const [drop, setDrop] = useState<{ name: string; edge: 'before' | 'after' } | null>(null);
 
@@ -103,13 +98,10 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
     return (agents.data ?? []).map((agent) => ({ agent, st: agentSt(agent, ctx) }));
   }, [agents.data, head.data, questions.data, reviewing]);
   const label = (p: T.Project) => projectLabel(p);
-  const current = view.kind === 'agent' ? view.ref : undefined;
-  // The agent on screen opens its project once, so its row is in view; the
-  // chevron folds it again like any other.
-  const currentAgentProject = current?.split('/')[0];
-  useEffect(() => {
-    if (currentAgentProject) setExpanded((s) => (s.has(currentAgentProject) ? s : new Map(s).set(currentAgentProject, true)));
-  }, [currentAgentProject]);
+  const currentAgentProject = view.kind === 'agent' ? view.ref.split('/')[0] : undefined;
+  // What you haven't seen, by project: its questions, failures and media.
+  const unread = new Map<string, number>();
+  for (const n of pageItems(questions.data)) unread.set(n.project, (unread.get(n.project) ?? 0) + 1);
 
   // Each lead's chat, the same queries its row reads: a lead mid-turn counts
   // as working, for the filter, the counts and the sort, and with one waiting
@@ -200,15 +192,11 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
       key={p.project.name}
       project={p.project}
       all={p.all}
-      shown={p.shown}
       approvals={p.approvals}
-      open={p.open}
+      unread={unread.get(p.project.name) ?? 0}
       pinned={pinned.has(p.project.name)}
       hidden={hiddenSet.has(p.project.name)}
       view={view}
-      onToggle={() =>
-        setExpanded((s) => new Map(s).set(p.project.name, !p.open))
-      }
       onPin={() => {
         const pin = !pinned.has(p.project.name);
         setPins(togglePin(kept.pins, p.project.name));
@@ -608,20 +596,19 @@ type Drag = {
 };
 
 // ProjectLead is a project's lead, the main chat, with its icon, its last
-// line and its live agents' counts; the chevron opens its agents under it,
-// and a right-click on it opens its menu, the project header's ⋯
-// (projectActions).
+// line, its live agents' counts and how many things you haven't seen; on
+// hover a gear opens its Settings, and a right-click on it opens its menu,
+// the project header's ⋯ (projectActions). It is lit while its chat or one
+// of its agents' is on screen.
 // A pinned one drags among the pins.
 function ProjectLead({
   project,
   all,
-  shown,
   approvals,
-  open,
+  unread,
   pinned,
   hidden,
   view,
-  onToggle,
   onPin,
   onHide,
   onSelect,
@@ -630,13 +617,11 @@ function ProjectLead({
 }: {
   project: T.Project;
   all: Row[];
-  shown: Row[];
   approvals: number;
-  open: boolean;
+  unread: number;
   pinned: boolean;
   hidden: boolean;
   view: View;
-  onToggle: () => void;
   onPin: () => void;
   onHide: () => void;
   onSelect: (view: View) => void;
@@ -646,9 +631,6 @@ function ProjectLead({
   const t = useT();
   const chat = useQuery({ queryKey: ['projectChat', project.name], queryFn: () => api.projectChat(project.name), refetchInterval: 60_000 });
   const now = useNow(60_000);
-  const usage = useQuery({ queryKey: ['usage'], queryFn: api.usage, enabled: open, refetchInterval: 5000 });
-  const usageNow = usage.data?.agents ? usage.data : undefined;
-  const history = useCpuHistory(usageNow);
   const [iconOpen, setIconOpen] = useState(false);
   const [talk, setTalk] = useState(false);
   // Talk to another project, picked: the menu, closing, mustn't take the
@@ -662,10 +644,15 @@ function ProjectLead({
   const counts = countSt(all.map((r) => r.st));
   // The lead at work counts as one working.
   if (leadBusy(chat.data?.chat)) counts.working++;
-  const counted = counts.working + counts.review + counts.needs + counts.error > 0;
+  const counted = counts.working + counts.review + counts.needs + counts.error + unread > 0;
   const name = projectLabel(project);
-  const active = view.kind === 'project' && view.project === project.name;
+  const active = (view.kind === 'project' && view.project === project.name) || (view.kind === 'agent' && view.ref.startsWith(`${project.name}/`));
   const open_ = () => onSelect({ kind: 'project', project: project.name });
+  const openSettings = () => {
+    open_();
+    setPanel({ section: 'general' });
+    openPanelOn(leadRef, 'settings');
+  };
   const { main, more } = projectActions(t, {
     project,
     others,
@@ -680,10 +667,7 @@ function ProjectLead({
     },
     onToday: () => onSelect({ kind: 'today', project: project.name }),
     onPin,
-    onSettings: () => {
-      open_();
-      openPanelOn(leadRef, 'settings');
-    },
+    onSettings: openSettings,
     onChangeIcon: () => setIconOpen(true),
     onNewAgent,
   });
@@ -695,7 +679,7 @@ function ProjectLead({
   ];
   return (
     <div
-      className={cn('relative mb-0.5 rounded-xl transition-colors', open && all.length > 0 && 'mb-1.5 bg-surface/50 pb-1 ring-1 ring-inset ring-line-faint', drag?.over === 'before' && 'before:absolute before:inset-x-2 before:-top-px before:h-0.5 before:rounded-full before:bg-brand-400', drag?.over === 'after' && 'after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded-full after:bg-brand-400')}
+      className={cn('group/lead relative mb-0.5 rounded-xl transition-colors', drag?.over === 'before' && 'before:absolute before:inset-x-2 before:-top-px before:h-0.5 before:rounded-full before:bg-brand-400', drag?.over === 'after' && 'after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded-full after:bg-brand-400')}
       data-v2-project={project.name}
       draggable={!!drag}
       onDragStart={
@@ -733,28 +717,27 @@ function ProjectLead({
             }}
             data={{ 'data-v2-lead': project.name }}
           >
-            <Tip label={t(open ? 'v2.sidebar.hideAgents' : 'v2.sidebar.showAgents', { project: name })}>
-              <button
-                type="button"
-                aria-label={t(open ? 'v2.sidebar.hideAgents' : 'v2.sidebar.showAgents', { project: name })}
-                aria-expanded={open}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggle();
-                }}
-                className={cn('mt-1 flex size-4 shrink-0 items-center justify-center rounded text-faint hover:bg-surface-strong hover:text-title', all.length === 0 && 'invisible')}
-                data-v2-toggle={project.name}
-              >
-                <ChevronRight className={cn('size-3.5 transition-transform', open && 'rotate-90')} />
-              </button>
-            </Tip>
             <ProjectIcon project={project} className="mt-px" />
             <span className="min-w-0 flex-1">
               <span className="flex min-w-0 items-center gap-1.5">
                 <span className="truncate text-[13px] font-medium text-title">{name}</span>
                 {chat.data?.chat === 'running' && <LoaderCircle className="size-3 shrink-0 animate-spin text-subtle" />}
                 {chat.data?.chat === 'waiting' && <span className="size-1.5 shrink-0 rounded-full bg-amber-400" aria-label={t('shell.sidebar.needsYou')} />}
-                {chat.data?.last && <span className="ml-auto shrink-0 text-[11px] text-faint">{timeAgo(chat.data.last.at, now)}</span>}
+                {chat.data?.last && <span className="ml-auto shrink-0 text-[11px] text-faint group-hover/lead:hidden">{timeAgo(chat.data.last.at, now)}</span>}
+                <Tip label={t('v2.sidebar.projectSettings')}>
+                  <button
+                    type="button"
+                    aria-label={t('v2.sidebar.projectSettingsOf', { project: name })}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openSettings();
+                    }}
+                    className="-my-1 ml-auto hidden size-5 shrink-0 items-center justify-center rounded text-subtle hover:bg-surface-strong hover:text-title focus-visible:flex group-hover/lead:flex"
+                    data-v2-project-settings={project.name}
+                  >
+                    <Settings className="size-3.5" />
+                  </button>
+                </Tip>
               </span>
               {/* "N to review" ends this line, not the name's: there it left the name a few letters. */}
               <span className="flex min-w-0 items-center gap-2">
@@ -770,7 +753,7 @@ function ProjectLead({
                   {t('v2.sidebar.approvals', { count: approvals })}
                 </span>
               )}
-              {!open && counted && (
+              {counted && (
                 <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10.5px] tabular-nums" data-v2-counts>
                   {countKeys.map(({ st, key }) =>
                     counts[st] ? (
@@ -779,6 +762,11 @@ function ProjectLead({
                         {t(key, { count: counts[st] })}
                       </span>
                     ) : null,
+                  )}
+                  {unread > 0 && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-brand-500/15 px-1.5 font-medium text-brand-300 [:root[data-appearance=light]_&]:text-brand-600" data-v2-count="unread">
+                      {t('v2.count.unread', { count: unread })}
+                    </span>
                   )}
                 </span>
               )}
@@ -809,98 +797,12 @@ function ProjectLead({
         <TalkToProject project={project.name} leadRef={leadRef} open={talk} onOpenChange={setTalk} onPicked={open_} anchor={<span className="block size-0" />} />
       </span>
       <ProjectIconDialog project={project} open={iconOpen} onOpenChange={setIconOpen} />
-      {/* A group of agents given one task shows as a chip above them, open
-          or folded, until it is decided. */}
-      {!open && (
-        <div className="ml-[15px] mr-1 flex flex-col gap-px pl-[7px] empty:hidden" data-v2-groups={project.name}>
-          <GroupChips project={project.name} activeId={view.kind === 'group' ? view.id : undefined} />
-        </div>
-      )}
-      {open && (
-        <div className="relative ml-[15px] mr-1 mt-0.5 flex flex-col gap-px border-l border-line pl-[7px]" data-v2-agents={project.name}>
-          <GroupChips project={project.name} activeId={view.kind === 'group' ? view.id : undefined} />
-          {shown.map((r) => (
-            <Fragment key={r.agent.ref}>
-              <AgentRow row={r} active={view.kind === 'agent' && view.ref === r.agent.ref} onSelect={onSelect} sample={usageNow?.agents.find((u) => u.ref === r.agent.ref)} cpu={history.get(r.agent.ref) ?? []} />
-            </Fragment>
-          ))}
-          {shown.length === 0 && <div className="px-2 py-1 text-[11.5px] text-faint">{t(all.length === 0 ? 'v2.sidebar.noAgents' : 'v2.sidebar.noneMatch')}</div>}
-        </div>
-      )}
+      {/* A group of agents given one task shows as a chip under its lead
+          until it is decided. */}
+      <div className="ml-[15px] mr-1 flex flex-col gap-px pl-[7px] empty:hidden" data-v2-groups={project.name}>
+        <GroupChips project={project.name} activeId={view.kind === 'group' ? view.id : undefined} />
+      </div>
     </div>
-  );
-}
-
-// AgentRow is one agent under its lead, two lines beside its avatar: its
-// title, and under it its number and where it is. Colour is only for what
-// needs you; a running machine adds a quiet CPU graph and its share, with
-// memory and disk in the tooltip. A right-click opens its menu
-// (AgentContextMenu) and nothing else; while it is being destroyed it reads
-// "removing…".
-function AgentRow({ row, active, onSelect, sample, cpu }: { row: Row; active: boolean; onSelect: (view: View) => void; sample?: T.AgentUsage; cpu: number[] }) {
-  const t = useT();
-  const { agent, st } = row;
-  const removing = useRemoving().has(agent.ref);
-  const mood = useMood(agent);
-  const desk = useDesk(agent);
-  const label = chatLabel(agent);
-  const live = !removing && st === 'working' && agent.state === 'running' && sample;
-  const status = removing
-    ? t('v2.tag.removing')
-    : st === 'needs'
-      ? t(awaitsApproval(agent) ? 'v2.tag.approval' : 'v2.tag.asks')
-      : st === 'review' || st === 'done'
-        ? t(stLabel[st])
-        : label.text;
-  return (
-    <AgentContextMenu agent={agent} active={active} onSelect={onSelect}>
-      <button
-        type="button"
-        onClick={(e) => {
-          if (e.button !== 0 || e.ctrlKey) return;
-          onSelect({ kind: 'agent', ref: agent.ref });
-        }}
-        onContextMenu={(e) => e.stopPropagation()}
-        aria-current={active ? 'page' : undefined}
-        className={cn(
-          'group relative flex w-full min-w-0 items-center gap-2.5 rounded-lg py-1.5 pl-2 pr-2.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400',
-          active ? 'bg-surface-raised' : 'hover:bg-surface',
-          removing && 'opacity-60',
-        )}
-        data-v2-agent={agent.ref}
-        data-v2-agent-st={st}
-        data-v2-removing={removing || undefined}
-      >
-        {active && <span aria-hidden className="absolute inset-y-2 left-0 w-[2px] rounded-full bg-brand-400" />}
-        <AgentAvatar ai={agent.ai} mood={mood} state={agent.state} seed={agent.ref} className="size-7 rounded-lg" />
-        <span className="flex min-w-0 flex-1 flex-col">
-          <span className="flex min-w-0 items-center gap-2">
-            <span className={cn('min-w-0 flex-1 truncate text-[12.5px] font-medium leading-[18px]', active ? 'text-title' : st === 'done' ? 'text-subtle' : 'text-primary', !agent.title && 'font-mono text-[11.5px]')}>{agent.title || agent.name}</span>
-            <GroupLetter agentRef={agent.ref} />
-            {live && <Sparkline values={cpu} className="text-faint group-hover:text-subtle" />}
-          </span>
-          <span className="flex min-w-0 items-center gap-1 text-[11px] leading-4">
-            <DeskGlyph desk={desk} className="mr-0.5" />
-            {agent.title && (
-              <>
-                <span className="min-w-0 max-w-[55%] truncate font-mono text-[10.5px] text-faint" data-v2-agent-num>
-                  {agent.name}
-                </span>
-                <span aria-hidden className="shrink-0 text-ghost">·</span>
-              </>
-            )}
-            <span
-              className={cn('min-w-0 truncate', st === 'needs' ? 'font-medium text-amber-300' : st === 'error' ? 'font-medium text-rose-300' : 'text-subtle')}
-              data-v2-tag={attention(st) || removing || undefined}
-            >
-              {status}
-              {!removing && agent.changesRequested && st === 'working' && ` · ${t('v2.tag.changes')}`}
-            </span>
-            {live && <span className="ml-auto shrink-0 pl-1 font-mono text-[10px] tabular-nums text-faint">{sample.cpu.toFixed(0)}%</span>}
-          </span>
-        </span>
-      </button>
-    </AgentContextMenu>
   );
 }
 

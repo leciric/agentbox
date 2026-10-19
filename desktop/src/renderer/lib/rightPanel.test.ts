@@ -38,7 +38,8 @@ test('the lead and a past agent have files and evidence, but no machine views, a
   assert.deepEqual(P.panelViews.filter(P.projectWide), ['pulls', 'schedules', 'settings']);
   // The switch's four, and the ⋯'s the rest: every view is in one of them.
   assert.deepEqual(P.switchViews, ['desktop', 'terminal', 'files', 'evidence']);
-  assert.deepEqual([...P.switchViews, ...P.moreViews].toSorted(), [...P.panelViews].toSorted());
+  // Pull requests and Settings open from the project's header, not the ⋯.
+  assert.deepEqual([...P.switchViews, ...P.moreViews, 'pulls', 'settings'].toSorted(), [...P.panelViews].toSorted());
   // What each opens on before it was shown in any.
   assert.equal(P.defaultView(live), 'desktop');
   assert.equal(P.defaultView(lead), 'files');
@@ -51,16 +52,6 @@ test('the picker lists the project’s agents with a machine, newest first', () 
     P.pickable('pawly', agents).map((a) => a.name),
     ['new', 'old'],
   );
-});
-
-test('the agent active last is one at work, then the one that did something last, then the newest', () => {
-  const agents = [agent('a', 'running', '2026-10-01T00:00:00Z'), agent('b', 'running', '2026-10-05T00:00:00Z'), agent('c', 'stopped', '2026-10-03T00:00:00Z')];
-  assert.equal(P.mostRecent('pawly', agents)?.name, 'b');
-  assert.equal(P.mostRecent('pawly', agents, [{ ref: 'pawly/a', lastActive: '2026-10-09T00:00:00Z' }])?.name, 'a');
-  assert.equal(P.mostRecent('pawly', agents, [{ ref: 'pawly/a', lastActive: '2026-10-09T00:00:00Z' }, { ref: 'pawly/c', busy: true, lastActive: '2026-10-02T00:00:00Z' }])?.name, 'c');
-  assert.equal(P.mostRecent('other', agents), undefined);
-  // One using its desktop now goes before them all, as the lane shows it.
-  assert.equal(P.mostRecent('pawly', agents, [{ ref: 'pawly/c', busy: true }], ['pawly/a'])?.name, 'a');
 });
 
 test('an agent’s computer is live while its desktop is used, on, or asleep once it finished', () => {
@@ -82,7 +73,7 @@ test('an agent’s chat shows its own agent until another is picked; the lead’
   const chat = 'pawly/agent-2';
   assert.equal(P.chatPanel(P.panelState(), chat).open, false);
   assert.equal(P.panelTarget(P.panelState(), chat), chat);
-  // Nothing picked yet: RightPanel falls back on the agent active last.
+  // Nothing picked yet: the lead's shows the list.
   assert.equal(P.panelTarget(P.panelState(), lead), undefined);
 
   P.pickTarget(chat, 'pawly/agent-3');
@@ -224,4 +215,25 @@ test('the Browser view offers the ports the agent’s Chromium has open, through
   );
   assert.equal(P.previewUrl({ name: 'agent-2', project: 'pawly' }, '5173', '127.0.0.1:7777', '/preview.html'), 'http://5173.agent-2.pawly.localhost:7777/preview.html');
   assert.equal(P.previewUrl({ name: 'agent-2', project: 'pawly' }, '3000', ':7777'), 'http://3000.agent-2.pawly.localhost:7777/');
+});
+
+test('the back arrow leaves the project’s own view first, then goes to the list', () => {
+  P.setPanel({ chats: {}, views: {}, last: {} });
+  const lead = 'pawly/lead';
+  const chat = 'pawly/agent-2';
+  P.openPanelOn(lead, 'desktop', 'pawly/agent-3');
+  P.openPanelOn(lead, 'settings');
+  P.panelBack(lead);
+  assert.equal(P.chatPanel(P.panelState(), lead).wide, undefined);
+  assert.equal(P.panelTarget(P.panelState(), lead), 'pawly/agent-3');
+  P.panelBack(lead);
+  assert.equal(P.panelTarget(P.panelState(), lead), undefined);
+  assert.equal(P.chatPanel(P.panelState(), lead).open, true);
+  assert.equal(P.shown(P.panelState(), lead), undefined);
+  // An agent's chat shows itself until its back arrow; opening its chat again shows it again.
+  P.panelBack(chat);
+  assert.equal(P.panelTarget(P.panelState(), chat), undefined);
+  P.setFitsBeside(true);
+  P.openAgentChat(chat);
+  assert.equal(P.panelTarget(P.panelState(), chat), chat);
 });

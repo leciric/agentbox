@@ -40,39 +40,15 @@ import { Tip } from './ui/tooltip';
 export function AgentRail({ view, onSelect, onNewAgent, onClose }: { view: View; onSelect: (view: View) => void; onNewAgent: (project: string) => void; onClose?: () => void }) {
   const t = useT();
   const project = view.kind === 'agent' ? view.ref.split('/')[0] : view.kind === 'project' ? view.project : null;
-  const enabled = project !== null;
   const projectName = useProjectName(project ?? '');
-  const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents, enabled });
-  // Pull requests come from the fleet, which already carries one per agent,
-  // matched against the repository list the daemon keeps (D54). ['agents'] is
-  // every project's agents and would have to read GitHub per project to say
-  // the same thing. It polls slowly: what moves in between arrives as an
-  // event.
-  const fleet = useQuery({
-    queryKey: ['fleet', project],
-    queryFn: () => api.fleet(project as string),
-    enabled,
-    refetchInterval: 30_000,
-  });
-  // When each agent last reported, for the time on its row, and whether it
-  // has a question waiting on you, for its avatar.
-  const events = useQuery({ queryKey: ['agentEvents', project], queryFn: () => api.agentEvents(project as string), enabled });
-  const questions = useQuery({ queryKey: ['questions', project], queryFn: () => api.questions(project as string), enabled });
-  // The lead's own state, for its avatar: whether it's mid-turn or asking.
-  const lead = useQuery({ queryKey: ['projectChat', project], queryFn: () => api.projectChat(project as string), enabled });
+  const rail = useRailAgents(project);
   const [foldedHere, setFolded] = useFolded();
   const folded = foldedHere && !onClose;
-  const [showFinished, setShowFinished] = useShowFinished();
   // The Pages tab, beside Agents while Hatch is connected and the project has
   // a page Hatch still has; an agent's page icon opens it on that agent.
   const pagesQuery = useProjectPages(project);
   const [railTab, setRailTab] = useState<'agents' | 'pages'>('agents');
   const [pagesAgent, setPagesAgent] = useState('');
-
-  // The events arrive newest first, so the first one seen is each agent's last.
-  // Freeing its Docker space on stop is the daemon's doing, not a report.
-  const lastReport = new Map<string, string>();
-  for (const ev of events.data ?? []) if (ev.kind !== 'docker_pruned' && !lastReport.has(ev.ref)) lastReport.set(ev.ref, ev.at);
 
   if (!project) return null;
   const pages = livePages(pagesQuery.data);
@@ -84,16 +60,11 @@ export function AgentRail({ view, onSelect, onNewAgent, onClose }: { view: View;
     setPagesAgent(ref);
     setRailTab('pages');
   };
-  const mine = (agents.data ?? []).filter((a) => a.project === project).toSorted((a, b) => rank(a) - rank(b));
-  const asking = (agent: T.Agent) => isAsking(questions.data, agent.ref);
-  // An agent with a question waiting on you stays on top, whatever its chat is doing.
-  const moving = mine.filter((a) => !settled(a) || asking(a));
-  const finished = mine.filter((a) => settled(a) && !asking(a));
-  const finishedOpen = showFinished || finished.some((a) => view.kind === 'agent' && view.ref === a.ref);
-  const prs = new Map((fleet.data?.agents ?? []).map((a) => [a.ref, a.pr]));
+  const { agents, mine, moving, finished, prs, lastReport, asking, mood, lead } = rail;
+  const finishedOpen = rail.showFinished || finished.some((a) => view.kind === 'agent' && view.ref === a.ref);
+  const setShowFinished = rail.setShowFinished;
   const onLead = view.kind === 'project';
   const leadMood = avatarMood({ state: 'running', chat: lead.data?.chat });
-  const mood = (agent: T.Agent) => avatarMood(agent, asking(agent));
 
   const icon = (agent: T.Agent) => (
     <Tip key={agent.ref} side="right" className="max-w-none p-3" label={
@@ -234,49 +205,111 @@ export function AgentRail({ view, onSelect, onNewAgent, onClose }: { view: View;
 
           {/* Until the first list arrives, rows where the agents will be: "No
               agents yet" would be a guess. */}
-          {!agents.data && (
-            <div aria-busy data-rail-loading>
-              {skeletonWidths.slice(0, 3).map((width) => (
-                <div key={width} className="flex items-center gap-2.5 px-2.5 py-2 xl:py-2.5">
-                  <Skeleton className="size-10 shrink-0 rounded-xl" />
-                  <span className="grid min-w-0 flex-1 gap-1.5">
-                    <Skeleton className={cn('h-3.5', width)} />
-                    <Skeleton className="h-2.5 w-1/3" />
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
+          {!agents.data && <RailSkeleton />}
 
           {moving.map(row)}
 
           {finished.length > 0 && (
-            <section className="mt-1.5 border-t border-line-faint pt-1.5" data-rail-finished={finishedOpen ? 'open' : 'closed'}>
-              <button
-                aria-expanded={finishedOpen}
-                className="flex w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-subtle transition hover:bg-surface hover:text-primary"
-                onClick={() => setShowFinished(!finishedOpen)}
-              >
-                <ChevronRight className={cn('size-3.5 shrink-0 transition-transform', finishedOpen && 'rotate-90')} />
-                {t('agent.rail.finished')}
-                <span className="rounded-full bg-surface-raised px-1.5 text-[10.5px] font-normal normal-case tracking-normal tabular-nums">{finished.length}</span>
-              </button>
-              {finishedOpen && finished.map(row)}
-            </section>
+            <FinishedSection count={finished.length} open={finishedOpen} onToggle={setShowFinished}>
+              {finished.map(row)}
+            </FinishedSection>
           )}
 
-          {agents.data && mine.length === 0 && (
-            <div className="mt-2 grid justify-items-center gap-2 px-2 py-8 text-center">
-              <p className="text-[12.5px] leading-relaxed text-subtle">{t('agent.rail.empty', { project: projectName })}</p>
-              <button className="flex items-center gap-1.5 rounded-lg border border-line-strong px-2.5 py-1.5 text-[12.5px] text-tertiary transition hover:bg-surface-raised" onClick={() => onNewAgent(project)}>
-                <Plus className="size-3.5" />
-                {t('agent.rail.newAgent')}
-              </button>
-            </div>
-          )}
+          {agents.data && mine.length === 0 && <RailEmpty project={projectName} onNewAgent={() => onNewAgent(project)} />}
         </div>
       )}
     </aside>
+  );
+}
+
+// useRailAgents is what the rail reads of a project's agents, and v2's
+// panel list (v2/AgentList.tsx) with it: its agents in the rail's order,
+// those still at something and the finished ones, each one's pull request,
+// when it last reported and whether it asks you something.
+export function useRailAgents(project: string | null) {
+  const enabled = project !== null;
+  const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents, enabled });
+  // Pull requests come from the fleet, which already carries one per agent,
+  // matched against the repository list the daemon keeps (D54). ['agents'] is
+  // every project's agents and would have to read GitHub per project to say
+  // the same thing. It polls slowly: what moves in between arrives as an
+  // event.
+  const fleet = useQuery({
+    queryKey: ['fleet', project],
+    queryFn: () => api.fleet(project as string),
+    enabled,
+    refetchInterval: 30_000,
+  });
+  // When each agent last reported, for the time on its row, and whether it
+  // has a question waiting on you, for its avatar.
+  const events = useQuery({ queryKey: ['agentEvents', project], queryFn: () => api.agentEvents(project as string), enabled });
+  const questions = useQuery({ queryKey: ['questions', project], queryFn: () => api.questions(project as string), enabled });
+  // The lead's own state, for its avatar: whether it's mid-turn or asking.
+  const lead = useQuery({ queryKey: ['projectChat', project], queryFn: () => api.projectChat(project as string), enabled });
+  const [showFinished, setShowFinished] = useShowFinished();
+
+  // The events arrive newest first, so the first one seen is each agent's last.
+  // Freeing its Docker space on stop is the daemon's doing, not a report.
+  const lastReport = new Map<string, string>();
+  for (const ev of events.data ?? []) if (ev.kind !== 'docker_pruned' && !lastReport.has(ev.ref)) lastReport.set(ev.ref, ev.at);
+  const mine = (agents.data ?? []).filter((a) => a.project === project).toSorted((a, b) => rank(a) - rank(b));
+  const asking = (agent: T.Agent) => isAsking(questions.data, agent.ref);
+  // An agent with a question waiting on you stays on top, whatever its chat is doing.
+  const moving = mine.filter((a) => !settled(a) || asking(a));
+  const finished = mine.filter((a) => settled(a) && !asking(a));
+  const prs = new Map((fleet.data?.agents ?? []).map((a) => [a.ref, a.pr]));
+  const mood = (agent: T.Agent) => avatarMood(agent, asking(agent));
+  return { agents, loaded: !!agents.data, lead, mine, moving, finished, prs, lastReport, asking, mood, showFinished, setShowFinished };
+}
+
+// RailSkeleton is rows where the agents will be until the first list
+// arrives: "No agents yet" would be a guess.
+export function RailSkeleton() {
+  return (
+    <div aria-busy data-rail-loading>
+      {skeletonWidths.slice(0, 3).map((width) => (
+        <div key={width} className="flex items-center gap-2.5 px-2.5 py-2 xl:py-2.5">
+          <Skeleton className="size-10 shrink-0 rounded-xl" />
+          <span className="grid min-w-0 flex-1 gap-1.5">
+            <Skeleton className={cn('h-3.5', width)} />
+            <Skeleton className="h-2.5 w-1/3" />
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// FinishedSection is the agents that are done, folded under their header.
+export function FinishedSection({ count, open, onToggle, children }: { count: number; open: boolean; onToggle: (open: boolean) => void; children: React.ReactNode }) {
+  const t = useT();
+  return (
+    <section className="mt-1.5 border-t border-line-faint pt-1.5" data-rail-finished={open ? 'open' : 'closed'}>
+      <button
+        aria-expanded={open}
+        className="flex w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-subtle transition hover:bg-surface hover:text-primary"
+        onClick={() => onToggle(!open)}
+      >
+        <ChevronRight className={cn('size-3.5 shrink-0 transition-transform', open && 'rotate-90')} />
+        {t('agent.rail.finished')}
+        <span className="rounded-full bg-surface-raised px-1.5 text-[10.5px] font-normal normal-case tracking-normal tabular-nums">{count}</span>
+      </button>
+      {open && children}
+    </section>
+  );
+}
+
+// RailEmpty is a project with no agents, and the button to start one.
+export function RailEmpty({ project, onNewAgent }: { project: string; onNewAgent: () => void }) {
+  const t = useT();
+  return (
+    <div className="mt-2 grid justify-items-center gap-2 px-2 py-8 text-center">
+      <p className="text-[12.5px] leading-relaxed text-subtle">{t('agent.rail.empty', { project })}</p>
+      <button className="flex items-center gap-1.5 rounded-lg border border-line-strong px-2.5 py-1.5 text-[12.5px] text-tertiary transition hover:bg-surface-raised" onClick={onNewAgent}>
+        <Plus className="size-3.5" />
+        {t('agent.rail.newAgent')}
+      </button>
+    </div>
   );
 }
 
@@ -299,7 +332,7 @@ function RailTab({ active, count, onClick, children, ...rest }: { active: boolea
   );
 }
 
-function AgentRow({
+export function AgentRow({
   agent,
   active,
   pr,
@@ -310,6 +343,7 @@ function AgentRow({
   mood,
   onSelect,
   onOpen,
+  marks,
 }: {
   agent: T.Agent;
   active: boolean;
@@ -321,6 +355,8 @@ function AgentRow({
   mood: Mood;
   onSelect: () => void;
   onOpen: (view: View) => void;
+  // What v2's list adds after the status: a desktop in use, ready to review.
+  marks?: React.ReactNode;
 }) {
   const t = useT();
   // A question or a credential request waiting on you is said in words too,
@@ -361,6 +397,7 @@ function AgentRow({
               >
                 {status.text}
               </span>
+              {marks}
               {at && <span className="ml-auto shrink-0 tabular-nums text-faint">{timeAgo(at)}</span>}
             </span>
             {/* Its branch, or its pull request in the badge over the row. */}

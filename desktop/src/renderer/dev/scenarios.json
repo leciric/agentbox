@@ -1435,11 +1435,10 @@
   },
   {
     "id": "window-wide-v2-project-dark",
-    "description": "UI v2 at 1920×1080 on the project's lead: Home and the leads with their last lines and counts, agentbox's agents opened under it — dark",
+    "description": "UI v2 at 1920×1080 on the project's lead: Home and the leads with their last lines and counts, and the panel open on agentbox's agents beside the chat — dark",
     "query": "app=project&v2=1&theme=dark",
     "width": 1920,
-    "height": 1080,
-    "click": "[data-v2-toggle=\"agentbox\"]"
+    "height": 1080
   },
   {
     "id": "window-wide-v2-filters-dark",
@@ -1509,8 +1508,7 @@
     "description": "UI v2 at 1280×1000, Idle folded: Projects at the top, the free space, then Idle and Hidden docked just above the foot — dark",
     "query": "app=home&v2=1&pins=storefront&idle=12&hidden=dotfiles&theme=dark",
     "width": 1280,
-    "height": 1000,
-    "click": "[data-v2-toggle='agentbox']"
+    "height": 1000
   },
   {
     "id": "window-wide-v2-hidden-dark",
@@ -1564,8 +1562,7 @@
     "width": 760,
     "height": 900,
     "click": [
-      "[data-open-nav]",
-      "[data-v2-toggle=\"agentbox\"]"
+      "[data-open-nav]"
     ]
   },
   {
@@ -1575,8 +1572,7 @@
     "width": 480,
     "height": 800,
     "click": [
-      "[data-open-nav]",
-      "[data-v2-toggle=\"agentbox\"]"
+      "[data-open-nav]"
     ]
   },
   {
@@ -1646,12 +1642,12 @@
     "height": 900
   },
   {
-    "id": "window-1440-v2-panel-picker-dark",
-    "description": "UI v2 at 1440×900 on agent-41's chat, the panel's picker open: the repository, then the project's agents with a machine, each with its status dot and title — dark",
+    "id": "window-1440-v2-panel-list-dark",
+    "description": "UI v2 at 1440×900 on agent-41's chat, the panel back on the list: the repository, the project's agents as the rail had them, and Past agents — dark",
     "query": "app=agent-41&v2=1&panel=files:agent-41&theme=dark",
     "width": 1440,
     "height": 900,
-    "click": "[data-panel-picker]"
+    "click": "[data-panel-back]"
   },
   {
     "id": "window-1440-v2-panel-evidence-dark",
@@ -1934,13 +1930,11 @@
     "click": "[data-pip-mention]"
   },
   {
-    "id": "pip-sidebar-peek-dark",
-    "description": "Hovering an agent in the sidebar: its card leads with its computer, its desktop live (or its last frame) and what the machine is doing — dark",
+    "id": "pip-panel-list-lane-dark",
+    "description": "The lead's chat with the lane of desktops in use beside it and the panel on the list, its live agents marked — dark",
     "query": "app=project&v2=1&pip=1&theme=dark",
     "width": 1600,
-    "height": 1000,
-    "hover": "[data-v2-agent][data-v2-agent-st='working']",
-    "click": "[data-v2-toggle='agentbox']"
+    "height": 1000
   },
   {
     "id": "pip-agent-page-dark",

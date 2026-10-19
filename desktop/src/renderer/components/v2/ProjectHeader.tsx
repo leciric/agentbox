@@ -2,7 +2,7 @@
 // and name, then Lead or the agent), and the project's ⋯ menu beside the
 // chat's controls. The view puts those in the top bar through InTopBar.
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeftRight, Check, CheckCheck, ChevronRight, Clapperboard, Copy, Ellipsis, FolderOpen, Pin, PinOff, Plus, Settings, Smile, Split, SquarePen, type LucideIcon } from 'lucide-react';
+import { ArrowLeftRight, Check, CheckCheck, ChevronRight, Clapperboard, Copy, Ellipsis, FolderOpen, GitPullRequest, Pin, PinOff, Plus, Settings, Smile, Split, SquarePen, type LucideIcon } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import * as T from '../../../shared/api';
@@ -10,13 +10,14 @@ import { api } from '../../lib/api';
 import { useT } from '../../lib/i18n';
 import { projectLabel } from '../../lib/projectName';
 import { togglePin } from '../../lib/projectOrder';
-import { openPanelOn, setPanel } from '../../lib/rightPanel';
+import { openPanelOn, panelBack, setPanel, useChatPanel } from '../../lib/rightPanel';
 import { setPins, useV2Projects } from '../../lib/v2Projects';
 import { ProjectIcon } from '../ProjectIcon';
 import { Button } from '../ui/button';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuMore, MenuSeparator, MenuTrigger } from '../ui/menu';
 import { Tip } from '../ui/tooltip';
-import { useOpenReview } from './ReviewV2';
+import { useOpenReview, useProjectReview } from './ReviewV2';
+import { cn } from '../../lib/utils';
 import { TalkToProject } from './TalkToProject';
 import { openFanOut } from '../../lib/groups';
 
@@ -72,13 +73,14 @@ export function ProjectCrumb({ project, then }: { project: T.Project; then: stri
 export type ProjectAction = { key: string; icon: LucideIcon; label: string; onSelect: () => void; separatorBefore?: boolean };
 
 // projectActions is a project's menu: New task (its lead's chat, to write the
-// task in), Talk to another project, pinning and its settings in view, and
+// task in), Talk to another project, pinning and, on a right-click of its
+// sidebar row, its settings in view (the top bar has them as a button), and
 // under More what's rarely needed: its icon, its folder, and starting an
 // agent yourself rather than through the lead. "New agent" went: v2 says New
 // task for giving a project work, wherever it's offered.
 export function projectActions(
   t: ReturnType<typeof useT>,
-  { project, others, pinned, onNewTask, onTalk, onToday, onPin, onSettings, onChangeIcon, onNewAgent }: { project: T.Project; others: boolean; pinned: boolean; onNewTask: () => void; onTalk: () => void; onToday?: () => void; onPin: () => void; onSettings: () => void; onChangeIcon: () => void; onNewAgent: () => void },
+  { project, others, pinned, onNewTask, onTalk, onToday, onPin, onSettings, onChangeIcon, onNewAgent }: { project: T.Project; others: boolean; pinned: boolean; onNewTask: () => void; onTalk: () => void; onToday?: () => void; onPin: () => void; onSettings?: () => void; onChangeIcon: () => void; onNewAgent: () => void },
 ): { main: ProjectAction[]; more: ProjectAction[] } {
   return {
     main: [
@@ -87,7 +89,7 @@ export function projectActions(
       ...(others ? [{ key: 'talk', icon: ArrowLeftRight, label: t('v2.talk.button'), onSelect: onTalk }] : []),
       ...(onToday ? [{ key: 'today', icon: Clapperboard, label: t('today.title'), onSelect: onToday }] : []),
       { key: 'pin', icon: pinned ? PinOff : Pin, label: pinned ? t('v2.sidebar.unpin') : t('v2.sidebar.pin'), onSelect: onPin, separatorBefore: true },
-      { key: 'settings', icon: Settings, label: t('v2.sidebar.projectSettings'), onSelect: onSettings },
+      ...(onSettings ? [{ key: 'settings', icon: Settings, label: t('v2.sidebar.projectSettings'), onSelect: onSettings }] : []),
     ],
     more: [
       { key: 'icon', icon: Smile, label: t('projectIcon.change'), onSelect: onChangeIcon },
@@ -95,6 +97,46 @@ export function projectActions(
       { key: 'new-agent', icon: Plus, label: t('v2.menu.agentYourself'), onSelect: onNewAgent },
     ],
   };
+}
+
+// ProjectPlaces is the project's Pull requests, with how many are open and
+// ready to review, and its Settings: one click from the lead's chat, in the
+// right-hand panel, over whatever it shows. Clicked again, the panel goes
+// back to what it showed.
+export function ProjectPlaces({ project, leadRef }: { project: string; leadRef: string }) {
+  const t = useT();
+  const panel = useChatPanel(leadRef);
+  const pulls = useQuery({ queryKey: ['pulls', project], queryFn: () => api.projectPullRequests(project), refetchInterval: 60_000 });
+  const open = (pulls.data?.pullRequests ?? []).filter((pr) => pr.state === 'open').length;
+  const ready = useProjectReview(project, !!useOpenReview()).data?.items?.length ?? 0;
+  const on = (view: 'pulls' | 'settings') => panel.open && panel.wide === view;
+  const toggle = (view: 'pulls' | 'settings') => {
+    if (on(view)) return panelBack(leadRef);
+    if (view === 'settings') setPanel({ section: 'general' });
+    openPanelOn(leadRef, view);
+  };
+  const pullsTip = [t('panel.view.pulls'), open > 0 && t('v2.header.openPulls', { count: open }), ready > 0 && t('v2.header.readyPulls', { count: ready })].filter(Boolean).join(' · ');
+  return (
+    <>
+      <Tip label={pullsTip}>
+        <Button size="sm" variant="ghost" aria-label={pullsTip} aria-pressed={on('pulls')} className={cn('h-8 gap-1.5 px-2', on('pulls') && 'bg-surface-raised text-primary')} onClick={() => toggle('pulls')} data-project-pulls={open}>
+          <GitPullRequest />
+          <span className="hidden text-[12px] lg:inline">{t('panel.view.pulls')}</span>
+          {open > 0 && <span className="rounded-full bg-surface-strong px-1.5 text-[10.5px] tabular-nums text-secondary">{open}</span>}
+          {ready > 0 && (
+            <span className="rounded-full bg-brand-500/15 px-1.5 text-[10.5px] font-medium tabular-nums text-brand-300 [:root[data-appearance=light]_&]:text-brand-600" data-project-pulls-ready={ready}>
+              {t('v2.header.ready', { count: ready })}
+            </span>
+          )}
+        </Button>
+      </Tip>
+      <Tip label={t('v2.sidebar.projectSettings')}>
+        <Button size="icon-sm" variant="ghost" aria-label={t('v2.sidebar.projectSettings')} aria-pressed={on('settings')} className={cn(on('settings') && 'bg-surface-raised text-primary')} onClick={() => toggle('settings')} data-project-settings>
+          <Settings />
+        </Button>
+      </Tip>
+    </>
+  );
 }
 
 // ProjectMenu is the project's ⋯ in the top bar: the lead chat's New chat,
@@ -123,10 +165,6 @@ export function ProjectMenu({ project, leadRef, onNewAgent, onChangeIcon, newCha
       setTimeout(() => setTalk(true), 0);
     },
     onPin: () => setPins(togglePin(pins, project.name)),
-    onSettings: () => {
-      setPanel({ section: 'general' });
-      openPanelOn(leadRef, 'settings');
-    },
     onChangeIcon,
     onNewAgent,
   });

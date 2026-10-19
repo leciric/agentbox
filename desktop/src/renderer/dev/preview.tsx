@@ -524,7 +524,7 @@ if (appView) {
     if (seeded) return { status: 200, body: JSON.stringify(seeded), contentType: 'application/json' };
     const answer = (await inner(method, path, body)) as { status: number; body: string };
     // The skills, and the desktops in use (unless &pip=1 says who), are lists.
-    if (method === 'GET' && /\/(skills|desktops)(\?|$)/.test(path) && answer.body === '{}') return { ...answer, body: '[]' };
+    if (method === 'GET' && /\/(skills|desktops|groups)(\?|$)/.test(path) && answer.body === '{}') return { ...answer, body: '[]' };
     return answer;
   };
 }

@@ -14,7 +14,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import type { View } from '../../App';
 import { api } from '../../lib/api';
 import { useT } from '../../lib/i18n';
-import { setPanelOpen } from '../../lib/rightPanel';
+import { chatPanel, panelState, setPanelOpen } from '../../lib/rightPanel';
 import { setSheetOpen } from '../../lib/shortcuts';
 import { goTo, onLaunch, placeCard, setTourState, skip, startTour, stepsOf, tours, useTourState, welcomeTour, type Box, type Example } from '../../lib/tours';
 import { launchArrival } from '../../lib/uiV2';
@@ -94,7 +94,8 @@ function TourPlayer({ view, onSelect, onReleaseNotes }: { view: View; onSelect: 
     if (step.go && project) {
       if (view.kind !== 'project' || view.project !== project) onSelect({ kind: 'project', project, tab: 'chat' });
       const lead = `${project}/lead`;
-      if (step.go === 'panel' && opened.current !== lead) {
+      // A panel that was open already (a lead's is, by default) stays open after.
+      if (step.go === 'panel' && opened.current !== lead && !chatPanel(panelState(), lead).open) {
         setPanelOpen(lead, true);
         opened.current = lead;
       }
