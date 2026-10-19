@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/netip"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -149,7 +150,7 @@ func TestCheckEverythingWorks(t *testing.T) {
 		t.Fatalf("probed %d times, want once", len(p.specs))
 	}
 	want := Spec{Addr4: "10.80.39.253/24", Gateway: "10.80.39.1", MTU: 1500}
-	if p.specs[0] != want {
+	if !reflect.DeepEqual(p.specs[0], want) {
 		t.Errorf("spec = %+v, want %+v", p.specs[0], want)
 	}
 	if len(w.net.config) != 1 {
@@ -240,5 +241,142 @@ func TestFreeAddr(t *testing.T) {
 		if s := got.String(); ok && s != tc.want || !ok && tc.want != "" {
 			t.Errorf("freeAddr(%s, %v) = %v, %v; want %q", tc.prefix, tc.leases, got, ok, tc.want)
 		}
+	}
+}
+
+// mirrored is a machine whose bridge address can't be bound, its dnsmasq
+// serving DHCP but no DNS, with systemd-resolved forwarding to WSL's tunnel
+// and to the office's server.
+func mirrored(p *probes) (*world, Env) {
+	w, env := working(p)
+	w.mirrored = true
+	w.bridge = func(string) bool { return false }
+	w.resolvd = "nameserver 10.255.255.254\nnameserver 192.168.1.1\n"
+	return w, env
+}
+
+func TestCheckMirrored(t *testing.T) {
+	withDNS := func(answering ...string) Report {
+		r := good
+		r.Answering = answering
+		return r
+	}
+	for _, tc := range []struct {
+		name      string
+		setup     func(w *world)
+		report    Report
+		probeErr  error
+		want      map[string]string // the bridge's keys after; "" is unset
+		says      string
+		candidate string // one the namespace must have been asked about
+	}{
+		{
+			name:      "this machine's own server answers from the bridge",
+			report:    withDNS("192.168.1.1", "1.1.1.1", "8.8.8.8"),
+			want:      map[string]string{Nameservers: "192.168.1.1", Owned: Nameservers, Key: ""},
+			says:      "192.168.1.1, this machine's own",
+			candidate: "10.255.255.254",
+		},
+		{
+			name:   "only public servers answer",
+			report: withDNS("1.1.1.1", "8.8.8.8"),
+			want:   map[string]string{Nameservers: "1.1.1.1,8.8.8.8"},
+			says:   "They lose the gateway's .incus names",
+		},
+		{
+			name:   "nothing answers",
+			report: withDNS(),
+			want:   map[string]string{Nameservers: ""},
+			says:   "containers have no DNS",
+		},
+		{
+			name:      "the user's own dns.nameservers",
+			setup:     func(w *world) { w.net.config[Nameservers] = "10.0.0.53" },
+			report:    withDNS("10.0.0.53"),
+			want:      map[string]string{Nameservers: "10.0.0.53", Owned: ""},
+			candidate: "10.0.0.53",
+		},
+		{
+			name:   "an Incus without dns.nameservers: dnsmasq's own option",
+			setup:  func(w *world) { w.net.reject = Nameservers },
+			report: withDNS("192.168.1.1"),
+			want:   map[string]string{Nameservers: "", Key: Marker + " DNS servers for containers, as dnsmasq can't listen on the gateway\ndhcp-option=6,192.168.1.1"},
+			says:   "as this Incus has no dns.nameservers",
+		},
+		{
+			name:     "no namespace: what answers from here, short of this machine's own addresses",
+			probeErr: errors.New("sudo: a password is required"),
+			setup:    func(w *world) { w.answers["192.168.1.1"] = true },
+			want:     map[string]string{Nameservers: "192.168.1.1"},
+			says:     "Could not check incusbr0 from a network namespace",
+		},
+		{
+			name: "and the MTU too",
+			report: func() Report {
+				r := withDNS("192.168.1.1")
+				r.Download4, r.Payload = false, 1372
+				return r
+			}(),
+			want: map[string]string{Nameservers: "192.168.1.1", "bridge.mtu": "1400", Owned: Nameservers + ",bridge.mtu"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &probes{reports: []Report{tc.report}, err: tc.probeErr}
+			w, env := mirrored(p)
+			if tc.setup != nil {
+				tc.setup(w)
+			}
+			res, err := Check(context.Background(), env)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(res.Message, "ignores binds to incusbr0's address, 10.80.39.1") {
+				t.Errorf("message %q doesn't say why", res.Message)
+			}
+			for k, v := range tc.want {
+				if got := w.net.config[k]; got != v {
+					t.Errorf("%s = %q, want %q", k, got, v)
+				}
+			}
+			if !strings.Contains(res.Message, tc.says) {
+				t.Errorf("message %q doesn't say %q", res.Message, tc.says)
+			}
+			if len(w.net.sets) > 0 && tc.want[Key] == "" {
+				t.Errorf("set raw.dnsmasq, which can't help here: %q", w.net.sets)
+			}
+			if tc.candidate != "" && (len(p.specs) == 0 || !slices.Contains(p.specs[0].Candidates, tc.candidate)) {
+				t.Errorf("the namespace wasn't asked about %s: %+v", tc.candidate, p.specs)
+			}
+		})
+	}
+}
+
+func TestCheckMirroredUsersRaw(t *testing.T) {
+	p := &probes{reports: []Report{{DNS: true, Connect4: true, Download4: true, Payload: fullPayload, Answering: []string{"1.1.1.1"}}}}
+	w, env := mirrored(p)
+	w.net.reject = Nameservers
+	w.net.config[Key] = "log-queries"
+	if _, err := Check(context.Background(), env); err == nil || !strings.Contains(err.Error(), "Invalid option") {
+		t.Fatalf("Check with neither dns.nameservers nor a raw.dnsmasq of its own = %v", err)
+	}
+	if w.net.config[Key] != "log-queries" {
+		t.Errorf("the user's raw.dnsmasq became %q", w.net.config[Key])
+	}
+}
+
+func TestBindIgnored(t *testing.T) {
+	// Where bind works, as everywhere but mirrored WSL: bound, so not ignored.
+	if bindIgnored("127.0.0.1") {
+		t.Error("a bind to 127.0.0.1 reads as ignored")
+	}
+	// An address this machine doesn't have fails to bind: not mirrored either.
+	if bindIgnored("192.0.2.77") || bindIgnored("not an address") {
+		t.Error("a failed bind reads as ignored")
+	}
+}
+
+func TestIsLocal(t *testing.T) {
+	if !isLocal("127.0.0.1") || isLocal("192.0.2.77") {
+		t.Error("isLocal is wrong about 127.0.0.1 or 192.0.2.77")
 	}
 }

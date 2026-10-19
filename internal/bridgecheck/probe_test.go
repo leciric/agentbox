@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -25,7 +26,7 @@ func TestRunProbe(t *testing.T) {
 		return nil, nil
 	}
 	r, err := RunProbe(context.Background(), spec, "/bin/agentbox", run)
-	if err != nil || r != good {
+	if err != nil || !reflect.DeepEqual(r, good) {
 		t.Fatalf("RunProbe = %+v, %v", r, err)
 	}
 	all := strings.Join(ran, "\n")
@@ -104,5 +105,22 @@ func TestDownloadsShortFile(t *testing.T) {
 	}
 	if downloads(context.Background(), "tcp4", "127.0.0.1", srv.URL+"/missing") {
 		t.Error("a 404 is a download")
+	}
+}
+
+func TestInsideAsksCandidates(t *testing.T) {
+	old := dnsPort
+	t.Cleanup(func() { dnsPort = old })
+	dnsPort = serveDNS(t, dnsmessage.RCodeSuccess, false)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	// The gateway can't serve DNS; of the candidates, only 127.0.0.1 has a server.
+	r := Inside(ctx, Spec{Gateway: "192.0.2.1", Candidates: []string{"127.0.0.2", "127.0.0.1"}, Connect4: "127.0.0.1:1", Ping4: "x"})
+	if !r.DNS || !reflect.DeepEqual(r.Answering, []string{"127.0.0.1"}) {
+		t.Errorf("Inside = %+v; want DNS through 127.0.0.1 alone", r)
+	}
+	r = Inside(ctx, Spec{Gateway: "127.0.0.1", Candidates: []string{"127.0.0.2"}, Connect4: "127.0.0.1:1", Ping4: "x"})
+	if r.DNS || len(r.Answering) > 0 {
+		t.Errorf("Inside with no candidate answering = %+v; want no DNS, even with the gateway answering", r)
 	}
 }

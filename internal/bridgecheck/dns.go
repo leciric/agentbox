@@ -1,16 +1,18 @@
-// The bridge's DNS.
+// The bridge's DNS, where dnsmasq can listen on it (see mirrored.go where it
+// can't).
 //
 // Incus runs a dnsmasq on the bridge for its containers' DHCP and DNS, and
 // starts it with no --resolv-file, --server or --no-resolv: it forwards every
-// name it doesn't own to the servers in /etc/resolv.conf. Where that file names
-// a resolver dnsmasq can't use — on WSL, systemd-resolved's stub or WSL's own,
-// rewritten at every boot — the containers get addresses and routes but no
-// names. The machine itself resolves fine, which hides it.
+// name it doesn't own to the servers in /etc/resolv.conf. When those don't
+// answer it — the machine moved networks, or names a resolver only reachable
+// another way — dnsmasq still listens on the gateway, but answers nothing.
 //
-// EnsureDNS asks the gateway directly and, only when it doesn't answer but this
-// machine does, points the bridge's dnsmasq at servers that answer from here:
-// systemd-resolved's upstreams, else public ones. It writes raw.dnsmasq,
-// marked as AgentBox's, and never touches one the user set.
+// EnsureDNS asks the gateway directly and, only when something listens there
+// but doesn't answer while this machine resolves, points the bridge's dnsmasq
+// at servers that answer from here: systemd-resolved's upstreams, else public
+// ones. It writes raw.dnsmasq, marked as AgentBox's, and never touches one the
+// user set. With nothing listening on the gateway, other upstreams can't help,
+// and it only says so.
 
 package bridgecheck
 
@@ -43,8 +45,8 @@ var Public = []string{"1.1.1.1", "8.8.8.8"}
 // Probe is the name looked up: the first one an image build needs.
 const Probe = "deb.debian.org."
 
-// EnsureDNS checks that the bridge's DNS answers and, when it doesn't but this
-// machine resolves, sets the bridge's dnsmasq upstreams to servers that do.
+// EnsureDNS checks that the bridge's DNS answers and, when its dnsmasq listens
+// but doesn't answer while this machine resolves, sets the bridge's dnsmasq upstreams to servers that do.
 // Each choice is checked by asking the gateway again; when none works, the
 // earlier raw.dnsmasq is put back.
 func EnsureDNS(ctx context.Context, env Env) (Result, error) {
@@ -61,6 +63,9 @@ func EnsureDNS(ctx context.Context, env Env) (Result, error) {
 		return Result{}, nil
 	}
 	dead := fmt.Sprintf("%s's DNS (%s) doesn't answer", Bridge, gw)
+	if !env.Listens(ctx, net.JoinHostPort(gw, "53")) {
+		return Result{Message: dead + ": nothing listens there, so its dnsmasq isn't serving DNS, which other upstream servers can't fix"}, nil
+	}
 	was, err := env.Net.NetworkConfig(ctx, Bridge, Key)
 	if err != nil {
 		return Result{}, err
@@ -188,4 +193,10 @@ func answers(ctx context.Context, server string) bool {
 	_, err := r.LookupNetIP(ctx, "ip4", Probe)
 	var dnsErr *net.DNSError
 	return err == nil || errors.As(err, &dnsErr) && dnsErr.IsNotFound
+}
+
+// listens reports whether a TCP connection to addr opens: dnsmasq listens on
+// TCP as on UDP, and UDP can't tell a server that is silent from no server.
+func listens(ctx context.Context, addr string) bool {
+	return connects(ctx, "tcp4", addr)
 }

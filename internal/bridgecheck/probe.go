@@ -23,6 +23,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -37,6 +38,9 @@ type Spec struct {
 	Addr6    string `json:"addr6,omitempty"` // "" when the bridge has no IPv6
 	Gateway6 string `json:"gateway6,omitempty"`
 	MTU      int    `json:"mtu"` // the bridge's, which containers get by DHCP
+	// Candidates are DNS servers to ask instead of the gateway, which can't
+	// serve DNS (mirrored.go). The first that answers resolves the downloads.
+	Candidates []string `json:"candidates,omitempty"`
 	// Targets, for tests; empty is Default's.
 	Connect4 string `json:"connect4,omitempty"`
 	URL      string `json:"url,omitempty"`
@@ -56,7 +60,7 @@ const downloadSize = 64 << 10
 
 // Report is what the namespace found.
 type Report struct {
-	DNS       bool `json:"dns"`       // the gateway answered a lookup
+	DNS       bool `json:"dns"`       // the gateway, or a candidate, answered a lookup
 	Connect4  bool `json:"connect4"`  // a TCP connection opened over IPv4
 	Download4 bool `json:"download4"` // downloadSize came down over IPv4
 	V6        bool `json:"v6"`        // the namespace had IPv6 to check
@@ -65,6 +69,8 @@ type Report struct {
 	// Ping4 answered: fullPayload for a path that carries 1500 bytes, 0 when
 	// it answered none.
 	Payload int `json:"payload"`
+	// Answering are the Spec's candidates that answered, in its order.
+	Answering []string `json:"answering,omitempty"`
 }
 
 // Self is the agentbox binary, which the namespace runs.
@@ -170,16 +176,42 @@ func parseReport(out []byte) (Report, error) {
 func Inside(ctx context.Context, spec Spec) Report {
 	connect4, url, ping4 := or(spec.Connect4, DefaultConnect4), or(spec.URL, DefaultURL), or(spec.Ping4, DefaultPing4)
 	r := Report{V6: spec.Addr6 != ""}
-	r.DNS = answers(ctx, spec.Gateway)
+	resolver := spec.Gateway
+	if len(spec.Candidates) > 0 {
+		r.Answering = answering(ctx, spec.Candidates)
+		resolver = ""
+		if len(r.Answering) > 0 {
+			resolver = r.Answering[0]
+		}
+	}
+	r.DNS = resolver != "" && answers(ctx, resolver)
 	r.Connect4 = connects(ctx, "tcp4", connect4)
 	if r.DNS && r.Connect4 {
-		r.Download4 = downloads(ctx, "tcp4", spec.Gateway, url)
+		r.Download4 = downloads(ctx, "tcp4", resolver, url)
 	}
 	if r.V6 && r.DNS {
-		r.Download6 = downloads(ctx, "tcp6", spec.Gateway, url)
+		r.Download6 = downloads(ctx, "tcp6", resolver, url)
 	}
 	r.Payload = largestPayload(ctx, ping4)
 	return r
+}
+
+// answering are the servers that answer a lookup, asked all at once, in
+// their order.
+func answering(ctx context.Context, servers []string) []string {
+	ok := make([]bool, len(servers))
+	var wg sync.WaitGroup
+	for i, s := range servers {
+		wg.Go(func() { ok[i] = answers(ctx, s) })
+	}
+	wg.Wait()
+	var out []string
+	for i, s := range servers {
+		if ok[i] {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func or(s, def string) string {

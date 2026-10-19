@@ -18,6 +18,7 @@ type fakeNet struct {
 	config map[string]string
 	sets   []string
 	leases []string
+	reject string // a key this Incus doesn't know
 }
 
 func (f *fakeNet) NetworkConfig(_ context.Context, name, key string) (string, error) {
@@ -35,6 +36,9 @@ func (f *fakeNet) SetNetworkConfig(_ context.Context, name, key, value string) e
 	if name != Bridge {
 		return errors.New("unexpected set of " + name + " " + key)
 	}
+	if key == f.reject {
+		return errors.New("Invalid option \"" + key + "\"")
+	}
 	f.config[key] = value
 	if key == Key {
 		f.sets = append(f.sets, value)
@@ -49,6 +53,8 @@ type world struct {
 	resolvd string          // ResolvedConf's text; "" is no such file
 	// bridge reports whether the gateway answers with this raw.dnsmasq.
 	bridge func(raw string) bool
+	// deaf is a gateway nothing listens on; mirrored, one that can't be bound.
+	deaf, mirrored bool
 }
 
 func (w *world) env() Env {
@@ -60,6 +66,9 @@ func (w *world) env() Env {
 			}
 			return w.answers[server]
 		},
+		Listens:     func(context.Context, string) bool { return !w.deaf },
+		BindIgnored: func(string) bool { return w.mirrored },
+		Local:       func(addr string) bool { return addr == "10.255.255.254" },
 		ReadFile: func(name string) ([]byte, error) {
 			if name != ResolvedConf || w.resolvd == "" {
 				return nil, fs.ErrNotExist
@@ -102,6 +111,11 @@ func TestEnsureDNS(t *testing.T) {
 			setup:   func(w *world) { w.net.config[Key] = "server=10.0.0.53"; w.bridge = func(string) bool { return false } },
 			raw:     "server=10.0.0.53",
 			message: "is your own, so AgentBox left it alone",
+		},
+		{
+			name:    "nothing listens on the gateway: other upstreams can't help",
+			setup:   func(w *world) { w.deaf = true },
+			message: "nothing listens there",
 		},
 		{
 			name:    "the machine doesn't resolve either",
