@@ -19,6 +19,7 @@ const input = (over: Partial<OrderInput> = {}): OrderInput => ({
   ]),
   active: new Set(['alpha', 'beta', 'gamma']),
   label: (p) => p.displayName,
+  groupIdle: true,
   ...over,
 });
 
@@ -52,4 +53,13 @@ test('pins move by drag and toggle', () => {
   assert.deepEqual(movePin(['a', 'b'], 'a', 'x', 'after'), ['a', 'b']);
   assert.deepEqual(togglePin(['a'], 'b'), ['a', 'b']);
   assert.deepEqual(togglePin(['a', 'b'], 'a'), ['b']);
+});
+
+test('orderProjects without grouping keeps one stable list that activity never reorders', () => {
+  const out = orderProjects(input({ groupIdle: false, pins: ['delta'] }));
+  assert.deepEqual(names(out.pinned), ['delta']);
+  assert.deepEqual(names(out.rest), ['alpha', 'beta', 'gamma']);
+  assert.deepEqual(out.idle, []);
+  const later = orderProjects(input({ groupIdle: false, active: new Set(['gamma']) }));
+  assert.deepEqual(names(later.rest), ['alpha', 'beta', 'delta', 'gamma']);
 });

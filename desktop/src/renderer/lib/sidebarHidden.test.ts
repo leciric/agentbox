@@ -27,7 +27,7 @@ test('a hidden project leaves its list, Idle included, and comes back while it i
 test('the sidebar reads pinned and active at the top, then Idle and Hidden docked at the bottom, whatever is pinned, hidden or on screen', () => {
   const projects = ['a', 'b', 'c', 'd', 'e', 'f'].map((name) => ({ name, createdAt: '2026-01-01T00:00:00Z' }) as T.Project);
   const read = (pins: string[], active: string[], hidden: string[]) => {
-    const got = arrange(orderProjects({ projects, pins, activity: new Map(), active: new Set(active), label: (x) => x.name }), { hidden }, new Set(active));
+    const got = arrange(orderProjects({ projects, pins, activity: new Map(), active: new Set(active), label: (x) => x.name, groupIdle: true }), { hidden }, new Set(active));
     const { top, dock } = sections(got);
     return { top: top.map((s) => names(got[s])), dock: dock.map((s) => names(got[s])) };
   };
@@ -44,6 +44,6 @@ test('hiding a pinned project unpins it, so it lands in Hidden', () => {
   const pins = pinsAfterHide(['a', 'pin', 'b'], 'pin');
   assert.deepEqual(pins, ['a', 'b']);
   assert.deepEqual(pinsAfterHide(pins, 'x'), ['a', 'b']);
-  const order = orderProjects({ projects: [{ name: 'a' }, { name: 'pin' }, { name: 'b' }] as T.Project[], pins, activity: new Map(), active: new Set(), label: (x) => x.name });
+  const order = orderProjects({ projects: [{ name: 'a' }, { name: 'pin' }, { name: 'b' }] as T.Project[], pins, activity: new Map(), active: new Set(), label: (x) => x.name, groupIdle: true });
   assert.deepEqual(arrange(order, hide(emptyLayout, 'pin'), new Set()).hidden.map((p) => p.name), ['pin']);
 });

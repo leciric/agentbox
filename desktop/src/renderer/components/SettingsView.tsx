@@ -90,6 +90,7 @@ import { Input, Label } from "./ui/input";
 import { Switch } from "./ui/switch";
 import { DoNotDisturbSetting, ChimeVolume, NotificationKinds, NotificationModeChoice } from "./NotificationSettings";
 import { defaults as notifyDefaults, usePrefs, useDnd } from "../lib/notifyPrefs";
+import { setGroupIdle, useGroupIdle } from "../lib/groupIdle";
 import { setReviewing, useReviewing } from "../lib/reviewAlert";
 import { setTopBarDetailed, useTopBarDetailed } from "../lib/topBarLayout";
 import { setUiV2, useUiV2 } from "../lib/uiV2";
@@ -847,6 +848,7 @@ function InstalledSettings({
   const topBarDetailed = useTopBarDetailed();
   const uiV2 = useUiV2();
   const reviewing = useReviewing();
+  const groupIdle = useGroupIdle();
   const pageStack = usePageStackMode();
   const hatchConnected = useHatchConnected();
   // On a Mac, the VM everything runs in, whose size can be changed here.
@@ -958,6 +960,17 @@ function InstalledSettings({
               modified: !uiV2,
               render: () => <LayoutSetting />,
             },
+            ...(uiV2
+              ? [
+                  {
+                    id: "group-idle",
+                    label: t("settings.entry.group-idle.label"),
+                    keywords: t("settings.entry.group-idle.keywords"),
+                    modified: groupIdle,
+                    render: () => <GroupIdleSetting />,
+                  },
+                ]
+              : []),
             // v2's sidebar keeps only Settings and Past agents at its foot, so
             // which AgentBox this window drives is chosen here.
             ...(uiV2
@@ -2042,6 +2055,20 @@ function LayoutSetting() {
         </button>
       )}
     </SettingRow>
+  );
+}
+
+// GroupIdleSetting is whether v2's sidebar groups idle projects at the bottom
+// and sorts by activity (lib/groupIdle.ts), applied at once.
+function GroupIdleSetting() {
+  const t = useT();
+  const on = useGroupIdle();
+  return (
+    <SettingRow
+      label={t("settings.entry.group-idle.label")}
+      description={t("settings.groupIdle.description")}
+      control={<Switch data-group-idle-setting aria-label={t("settings.entry.group-idle.label")} checked={on} onCheckedChange={setGroupIdle} />}
+    />
   );
 }
 

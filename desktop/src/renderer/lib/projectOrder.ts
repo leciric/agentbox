@@ -1,7 +1,9 @@
 // The order of UI v2's sidebar (components/v2/SidebarV2.tsx): the projects the
-// user pinned first, in the order they dragged them; below them the rest with
-// something going on, most recent first; and at the bottom, folded, the Idle
-// list of those with nothing going on, sorted the same. (A sort menu with Name
+// user pinned first, in the order they dragged them; then the rest by name,
+// which activity never reorders. With "Group idle projects and sort by
+// activity" on (groupIdle.ts), the rest with something going on come next,
+// most recent first, and at the bottom, folded, the Idle list of those with
+// nothing going on, sorted the same. (A sort menu with Name
 // and Most agents working went: with the few active projects it sorted, it
 // changed nothing you could see.) Here is the reading; where the pins are kept
 // is v2Projects.ts.
@@ -21,6 +23,8 @@ export type OrderInput = {
   // with grace.ts's grace): the others are idle.
   active: ReadonlySet<string>;
   label: (p: T.Project) => string;
+  // Group the idle ones apart and sort by activity; off, one stable list.
+  groupIdle: boolean;
 };
 
 export type Ordered = { pinned: T.Project[]; rest: T.Project[]; idle: T.Project[] };
@@ -34,17 +38,18 @@ export const recentOf = (p: T.Project, activity: ReadonlyMap<string, T.ProjectAc
 // same. A pin overrides the order and keeps its place idle or not; a pin of a project
 // that's gone is skipped.
 export function orderProjects(input: OrderInput): Ordered {
-  const { projects, pins, activity, active, label } = input;
+  const { projects, pins, activity, active, label, groupIdle } = input;
   const byName = new Map(projects.map((p) => [p.name, p]));
   const pinned = pins.flatMap((name) => byName.get(name) ?? []);
   const pinnedSet = new Set(pinned.map((p) => p.name));
+  const byName2 = (a: T.Project, b: T.Project) => label(a).localeCompare(label(b), undefined, { sensitivity: 'base' }) || a.name.localeCompare(b.name);
+  if (!groupIdle) return { pinned, rest: projects.filter((p) => !pinnedSet.has(p.name)).sort(byName2), idle: [] };
   const rest: T.Project[] = [];
   const idle: T.Project[] = [];
   for (const p of projects) {
     if (pinnedSet.has(p.name)) continue;
     (active.has(p.name) ? rest : idle).push(p);
   }
-  const byName2 = (a: T.Project, b: T.Project) => label(a).localeCompare(label(b), undefined, { sensitivity: 'base' }) || a.name.localeCompare(b.name);
   const byRecent = (a: T.Project, b: T.Project) => recentOf(b, activity) - recentOf(a, activity) || byName2(a, b);
   return { pinned, rest: rest.sort(byRecent), idle: idle.sort(byRecent) };
 }

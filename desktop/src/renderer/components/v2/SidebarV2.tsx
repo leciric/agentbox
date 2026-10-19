@@ -10,6 +10,8 @@
 // bottom, above the foot, the Idle list of the rest, folded unless nothing is
 // going on, and under it the projects the user hid, folded. The
 // project on screen never folds into Idle: the chat you're in stays in view.
+// That grouping is a setting, off by default (lib/groupIdle.ts): off, every
+// project is listed in a stable order and activity never moves one.
 // A project's options are on a right-click of its row, its Settings on a
 // gear its row shows on hover. The reading is
 // lib/leadFirst.ts's, lib/projectOrder.ts's and lib/sidebarHidden.ts's.
@@ -24,6 +26,7 @@ import { api } from '../../lib/api';
 import { useT, type MessageKey } from '../../lib/i18n';
 import { pageItems, useQuestions, useReviewHead } from '../../lib/inboxPages';
 import { activeProjects, agentSt, countSt, filterCount, leadLine, leadBusy, liveOrder, projectRows, toggle, type AgentSt, type Filters, type ProjectRows, type Row } from '../../lib/leadFirst';
+import { useGroupIdle } from '../../lib/groupIdle';
 import { movePin, orderProjects, togglePin } from '../../lib/projectOrder';
 import { HelpMenu } from './Tour';
 import { setFilterChoice, setHiddenOpen, setPins, useV2Projects } from '../../lib/v2Projects';
@@ -130,8 +133,10 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   const onScreen = view.kind === 'project' ? view.project : currentAgentProject;
   const active = useMemo(() => (onScreen && !activeGrace.has(onScreen) ? new Set([...activeGrace, onScreen]) : activeGrace), [activeGrace, onScreen]);
 
+  const grouping = useGroupIdle();
   const order = useMemo(() => {
     return orderProjects({
+      groupIdle: grouping,
       projects: projects.data ?? [],
       pins: kept.pins,
       activity: new Map((activity.data ?? []).map((a) => [a.project, a])),
@@ -140,7 +145,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
     });
     // label is projectLabel's, the same each render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects.data, activity.data, active, kept.pins]);
+  }, [projects.data, activity.data, active, kept.pins, grouping]);
   const pinned = new Set(kept.pins);
   const ctx = { busy, keep: pinned };
   const { layout, save } = useSidebarLayout();
