@@ -376,6 +376,25 @@ func (c Client) NetworkConfig(ctx context.Context, name, key string) (string, er
 	return value, err
 }
 
+// NetworkLeases are the addresses a network's DHCP has handed out:
+// `incus network list-leases name`.
+func (c Client) NetworkLeases(ctx context.Context, name string) ([]string, error) {
+	args := []string{"network", "list-leases", name, "--format", "csv", "--columns", "a"}
+	if c.cli() {
+		out, err := c.run(ctx, args...)
+		return strings.Fields(out), err
+	}
+	var addrs []string
+	err := c.do(ctx, args, func(s incusclient.InstanceServer) error {
+		leases, err := s.GetNetworkLeases(name)
+		for _, l := range leases {
+			addrs = append(addrs, l.Address)
+		}
+		return err
+	})
+	return addrs, err
+}
+
 // SetNetworkConfig sets one configuration key of a network, and unsets it
 // when value is "": `incus network set name key=value`. Incus restarts the
 // network's dnsmasq when a key it reads changes.

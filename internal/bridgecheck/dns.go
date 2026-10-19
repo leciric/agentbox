@@ -1,19 +1,18 @@
-// Package bridgedns makes sure the Incus bridge answers DNS.
+// The bridge's DNS.
 //
 // Incus runs a dnsmasq on the bridge for its containers' DHCP and DNS, and
 // starts it with no --resolv-file, --server or --no-resolv: it forwards every
 // name it doesn't own to the servers in /etc/resolv.conf. Where that file names
 // a resolver dnsmasq can't use — on WSL, systemd-resolved's stub or WSL's own,
 // rewritten at every boot — the containers get addresses and routes but no
-// names, so image builds and agents fail on their first download. The machine
-// itself resolves fine, which hides it.
+// names. The machine itself resolves fine, which hides it.
 //
-// Ensure asks the gateway directly and, only when it doesn't answer but this
+// EnsureDNS asks the gateway directly and, only when it doesn't answer but this
 // machine does, points the bridge's dnsmasq at servers that answer from here:
 // systemd-resolved's upstreams, else public ones. It writes raw.dnsmasq,
-// marked as AgentBox's, and never touches one the user set. host setup, the
-// daemon's start and an image build call it.
-package bridgedns
+// marked as AgentBox's, and never touches one the user set.
+
+package bridgecheck
 
 import (
 	"bufio"
@@ -23,13 +22,9 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
-	"os"
 	"strings"
 	"time"
 )
-
-// Bridge is AgentBox's Incus network.
-const Bridge = "incusbr0"
 
 // Key is the network key whose text Incus hands dnsmasq as a configuration file.
 const Key = "raw.dnsmasq"
@@ -48,44 +43,11 @@ var Public = []string{"1.1.1.1", "8.8.8.8"}
 // Probe is the name looked up: the first one an image build needs.
 const Probe = "deb.debian.org."
 
-// Network reads and sets a network's configuration: incus.Client.
-type Network interface {
-	NetworkConfig(ctx context.Context, name, key string) (string, error)
-	SetNetworkConfig(ctx context.Context, name, key, value string) error
-}
-
-// Env is what Ensure checks and changes; tests fake every part.
-type Env struct {
-	Net Network
-	// Answers reports whether a DNS server answers a lookup of Probe, with an
-	// address or with "no such name". "" is this machine's own resolver.
-	Answers func(ctx context.Context, server string) bool
-	// ReadFile reads ResolvedConf.
-	ReadFile func(name string) ([]byte, error)
-	// Settle is how long the bridge gets to answer after raw.dnsmasq
-	// changes, while Incus restarts its dnsmasq.
-	Settle time.Duration
-}
-
-// System is the Env of this machine's Incus.
-func System(n Network) Env {
-	return Env{Net: n, Answers: answers, ReadFile: os.ReadFile, Settle: 10 * time.Second}
-}
-
-// Result is what Ensure found and did.
-type Result struct {
-	// Changed is true when it set raw.dnsmasq.
-	Changed bool
-	// Message says what it found and did, for a log; "" when the bridge
-	// answers, or has no IPv4 address to ask.
-	Message string
-}
-
-// Ensure checks that the bridge's DNS answers and, when it doesn't but this
+// EnsureDNS checks that the bridge's DNS answers and, when it doesn't but this
 // machine resolves, sets the bridge's dnsmasq upstreams to servers that do.
 // Each choice is checked by asking the gateway again; when none works, the
 // earlier raw.dnsmasq is put back.
-func Ensure(ctx context.Context, env Env) (Result, error) {
+func EnsureDNS(ctx context.Context, env Env) (Result, error) {
 	addr, err := env.Net.NetworkConfig(ctx, Bridge, "ipv4.address")
 	if err != nil {
 		return Result{}, err

@@ -1,4 +1,4 @@
-package bridgedns
+package bridgecheck
 
 import (
 	"context"
@@ -17,6 +17,7 @@ import (
 type fakeNet struct {
 	config map[string]string
 	sets   []string
+	leases []string
 }
 
 func (f *fakeNet) NetworkConfig(_ context.Context, name, key string) (string, error) {
@@ -26,12 +27,18 @@ func (f *fakeNet) NetworkConfig(_ context.Context, name, key string) (string, er
 	return f.config[key], nil
 }
 
+func (f *fakeNet) NetworkLeases(context.Context, string) ([]string, error) {
+	return f.leases, nil
+}
+
 func (f *fakeNet) SetNetworkConfig(_ context.Context, name, key, value string) error {
-	if name != Bridge || key != Key {
+	if name != Bridge {
 		return errors.New("unexpected set of " + name + " " + key)
 	}
 	f.config[key] = value
-	f.sets = append(f.sets, value)
+	if key == Key {
+		f.sets = append(f.sets, value)
+	}
 	return nil
 }
 
@@ -73,7 +80,7 @@ func wsl() *world {
 	}
 }
 
-func TestEnsure(t *testing.T) {
+func TestEnsureDNS(t *testing.T) {
 	ctx := context.Background()
 	for _, tc := range []struct {
 		name    string
@@ -156,7 +163,7 @@ func TestEnsure(t *testing.T) {
 			if tc.setup != nil {
 				tc.setup(w)
 			}
-			res, err := Ensure(ctx, w.env())
+			res, err := EnsureDNS(ctx, w.env())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -179,11 +186,11 @@ func TestEnsure(t *testing.T) {
 	}
 }
 
-func TestEnsureLeavesTheUsersOwnUntouched(t *testing.T) {
+func TestEnsureDNSLeavesTheUsersOwnUntouched(t *testing.T) {
 	w := wsl()
 	w.net.config[Key] = "server=10.0.0.53"
 	w.bridge = func(string) bool { return false }
-	if _, err := Ensure(context.Background(), w.env()); err != nil {
+	if _, err := EnsureDNS(context.Background(), w.env()); err != nil {
 		t.Fatal(err)
 	}
 	if len(w.net.sets) > 0 {
@@ -191,12 +198,12 @@ func TestEnsureLeavesTheUsersOwnUntouched(t *testing.T) {
 	}
 }
 
-func TestEnsureFails(t *testing.T) {
+func TestEnsureDNSFails(t *testing.T) {
 	w := wsl()
 	w.net.config = map[string]string{"ipv4.address": "10.80.39.1/24"}
 	env := w.env()
 	env.Net = failing{w.net}
-	if _, err := Ensure(context.Background(), env); err == nil || !strings.Contains(err.Error(), "refused") {
+	if _, err := EnsureDNS(context.Background(), env); err == nil || !strings.Contains(err.Error(), "refused") {
 		t.Fatalf("Ensure with a failing set = %v", err)
 	}
 }

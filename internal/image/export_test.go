@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"agentbox/internal/bridgedns"
+	"agentbox/internal/bridgecheck"
 	"agentbox/internal/incus"
 )
 
@@ -23,9 +23,9 @@ func TestMain(m *testing.M) {
 	firewall = func(context.Context, string, ...string) ([]byte, error) {
 		return nil, errors.New("no firewall in tests")
 	}
-	// Nor its bridge's DNS.
-	bridgeDNS = func(context.Context, incus.Client) (bridgedns.Result, error) {
-		return bridgedns.Result{}, nil
+	// Nor its bridge.
+	checkBridge = func(context.Context, incus.Client) (bridgecheck.Result, error) {
+		return bridgecheck.Result{}, nil
 	}
 	os.Exit(m.Run())
 }

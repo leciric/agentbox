@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -11,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"agentbox/internal/api"
-	"agentbox/internal/bridgedns"
+	"agentbox/internal/bridgecheck"
 	"agentbox/internal/hostsetup"
 	"agentbox/internal/incus"
 )
@@ -26,7 +27,7 @@ func newHostCmd(a *app) *cobra.Command {
 		// host, agentbox vm init sets AgentBox up.
 		Hidden: true,
 	}
-	cmd.AddCommand(newHostSetupCmd(), newHostCheckCmd(a))
+	cmd.AddCommand(newHostSetupCmd(), newHostCheckCmd(a), newProbeBridgeCmd())
 	return cmd
 }
 
@@ -100,13 +101,14 @@ Mac's VM needs it, since Incus can't find a free subnet on Lima's network.`,
 			if err := run.Run(); err != nil {
 				return err
 			}
-			// The bridge's dnsmasq forwards to /etc/resolv.conf's servers, which
-			// on WSL it may not be able to use: said only when something's off.
-			res, err := bridgedns.Ensure(cmd.Context(), bridgedns.System(incus.Client{}))
+			// Containers on the bridge may not resolve, or reach out over IPv6
+			// or with full-size packets, while this machine does (WSL
+			// especially): said only when something's off.
+			res, err := bridgecheck.Check(cmd.Context(), bridgecheck.System(incus.Client{}))
 			if err != nil {
-				_, _ = fmt.Fprintf(out, "\n==> %s's DNS\nCouldn't check it: %v\n", bridgedns.Bridge, err)
+				_, _ = fmt.Fprintf(out, "\n==> %s\nCouldn't check it: %v\n", bridgecheck.Bridge, err)
 			} else if res.Message != "" {
-				_, _ = fmt.Fprintf(out, "\n==> %s's DNS\n%s\n", bridgedns.Bridge, res.Message)
+				_, _ = fmt.Fprintf(out, "\n==> %s\n%s\n", bridgecheck.Bridge, res.Message)
 			}
 			return nil
 		},
@@ -114,6 +116,43 @@ Mac's VM needs it, since Incus can't find a free subnet on Lima's network.`,
 	cmd.Flags().BoolVar(&print, "print", false, "only print the script")
 	cmd.Flags().StringVar(&forUser, "user", "", "the user to set this machine up for, when sudo and pkexec don't say")
 	cmd.Flags().StringVar(&bridgeSubnet, "bridge-subnet", "", "the Incus bridge's address and subnet, like 10.87.0.1/24, instead of one Incus picks")
+	return cmd
+}
+
+// newProbeBridgeCmd is what bridgecheck runs as root to check the Incus
+// bridge from a network namespace on it: once to make the namespace, and
+// again, with --inside, in it. It prints a bridgecheck.Report.
+func newProbeBridgeCmd() *cobra.Command {
+	var inside bool
+	cmd := &cobra.Command{
+		Use:    "probe-bridge <spec>",
+		Short:  "Check the Incus bridge from a network namespace on it (as root)",
+		Args:   cobra.ExactArgs(1),
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var spec bridgecheck.Spec
+			if err := json.Unmarshal([]byte(args[0]), &spec); err != nil {
+				return err
+			}
+			var report bridgecheck.Report
+			if inside {
+				report = bridgecheck.Inside(cmd.Context(), spec)
+			} else {
+				if os.Geteuid() != 0 {
+					return errors.New("probe-bridge makes a network namespace, which takes root")
+				}
+				self, err := bridgecheck.Self()
+				if err != nil {
+					return err
+				}
+				if report, err = bridgecheck.RunProbe(cmd.Context(), spec, self, nil); err != nil {
+					return err
+				}
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(report)
+		},
+	}
+	cmd.Flags().BoolVar(&inside, "inside", false, "run the checks from this namespace")
 	return cmd
 }
 

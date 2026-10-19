@@ -138,7 +138,7 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 	defer f.mu.Unlock()
 	switch {
 	case path == "":
-		reply(w, api.Server{APIExtensions: []string{"container_full", "instance_get_full", "api_filtering", "instance_all_projects", "resources", "storage", "storage_volume_state", "network"}, Environment: api.ServerEnvironment{Server: "incus"}})
+		reply(w, api.Server{APIExtensions: []string{"container_full", "instance_get_full", "api_filtering", "instance_all_projects", "resources", "storage", "storage_volume_state", "network", "network_leases"}, Environment: api.ServerEnvironment{Server: "incus"}})
 	case path == "/operations/op":
 		op := f.lastOp // still running, unless it failed fast
 		if !f.failFast {
@@ -196,6 +196,8 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 			_ = json.Unmarshal(body, &p.ProfilePut)
 			reply(w, nil)
 		}
+	case len(parts) == 3 && parts[0] == "networks" && parts[2] == "leases":
+		reply(w, []api.NetworkLease{{Hostname: "agent-01", Address: "10.80.39.226"}, {Hostname: "agent-02", Address: "10.80.39.254"}})
 	case len(parts) == 2 && parts[0] == "networks":
 		n, ok := f.networks[parts[1]]
 		switch {
@@ -445,6 +447,9 @@ func TestAPINetworkConfig(t *testing.T) {
 	}
 	if _, ok := f.networks["incusbr0"].Config["raw.dnsmasq"]; ok {
 		t.Fatal("setting a key to \"\" left it set")
+	}
+	if got, err := c.NetworkLeases(ctx, "incusbr0"); err != nil || strings.Join(got, " ") != "10.80.39.226 10.80.39.254" {
+		t.Fatalf("NetworkLeases = %q, %v", got, err)
 	}
 	if _, err := c.NetworkConfig(ctx, "missing", "a"); err == nil || err.Error() != "incus network get missing a: Network not found" {
 		t.Fatalf("NetworkConfig of a missing network: %v", err)

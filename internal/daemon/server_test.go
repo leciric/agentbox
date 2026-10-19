@@ -24,7 +24,7 @@ import (
 
 	"agentbox/internal/agent"
 	"agentbox/internal/api"
-	"agentbox/internal/bridgedns"
+	"agentbox/internal/bridgecheck"
 	"agentbox/internal/credentials"
 	"agentbox/internal/image"
 	"agentbox/internal/incus"
@@ -102,8 +102,8 @@ func TestMain(m *testing.M) {
 	firewall = func(context.Context, string, ...string) ([]byte, error) {
 		return nil, errors.New("no firewall in tests")
 	}
-	bridgeDNS = func(context.Context, incus.Client) (bridgedns.Result, error) {
-		return bridgedns.Result{}, nil
+	checkBridge = func(context.Context, incus.Client) (bridgecheck.Result, error) {
+		return bridgecheck.Result{}, nil
 	}
 	// The tests' daemons listen on their own paths.Paths, never on a socket
 	// the developer's shell points at.
