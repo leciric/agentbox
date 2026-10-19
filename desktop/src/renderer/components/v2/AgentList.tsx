@@ -11,6 +11,7 @@
 // back arrow there comes back to the lead and this list. Folded (AgentStrip),
 // the list is a strip of avatars.
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useLayoutEffect, useRef } from 'react';
 import { Archive, ChevronRight, ChevronsLeft } from 'lucide-react';
 import type * as T from '../../../shared/api';
 import type { View } from '../../App';
@@ -152,6 +153,29 @@ function doingNow(t: ReturnType<typeof useT>, agent: T.Agent, st: AgentSt, last:
 // Desktop in the panel); a right-click, its menu (AgentContextMenu). Its
 // chat's latest item and session are read as the phone's list reads them
 // (peekThread), kept current by the chat's events.
+// useToolGlide moves the tool mark between the tile and the meta line as the
+// row goes in and out of use: each render notes where the mark is in its row,
+// and when `live` has changed the new mark is animated from the old spot
+// (transform only; none under prefers-reduced-motion).
+function useToolGlide(live: boolean) {
+  const mark = useRef<HTMLSpanElement>(null);
+  const last = useRef<{ live: boolean; x: number; y: number; w: number } | undefined>(undefined);
+  useLayoutEffect(() => {
+    const node = mark.current;
+    const row = node?.closest('[data-list-agent]');
+    if (!node || !row) return;
+    const r = node.getBoundingClientRect();
+    const o = row.getBoundingClientRect();
+    const now = { live, x: r.left - o.left, y: r.top - o.top, w: r.width };
+    const prev = last.current;
+    last.current = now;
+    if (!prev || prev.live === live || window.matchMedia('(prefers-reduced-motion: reduce)').matches || typeof node.animate !== 'function') return;
+    const from = `translate(${prev.x - now.x}px, ${prev.y - now.y}px) scale(${prev.w / now.w})`;
+    node.animate([{ transform: from }, { transform: 'none' }], { duration: 420, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
+  });
+  return mark;
+}
+
 function AgentLine({ agent, st, active, live, ready, pr, fleet, at, report, question, usage, onOpen }: { agent: T.Agent; st: AgentSt; active: boolean; live: boolean; ready: boolean; pr?: T.PullRequest; fleet?: T.FleetAgent; at?: string; report?: string; question?: string; usage?: { cpu?: number; memory?: number }; onOpen: (view: View) => void }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -167,6 +191,7 @@ function AgentLine({ agent, st, active, live, ready, pr, fleet, at, report, ques
   const changes = fleet?.changes && fleet.changes.files > 0 ? fleet.changes : undefined;
   const when = fleet?.lastActive ?? at;
   const open = () => onOpen({ kind: 'agent', ref: agent.ref });
+  const mark = useToolGlide(live);
   return (
     <AgentContextMenu agent={agent} pr={pr} active={active} onSelect={onOpen}>
       <button
@@ -185,14 +210,16 @@ function AgentLine({ agent, st, active, live, ready, pr, fleet, at, report, ques
         <span className="flex min-w-0 items-start gap-2">
           {live ? (
             <Tip label={t('panel.openChat', { name: title })} side="left">
-              <span className="relative mt-0.5 block w-12 shrink-0 overflow-hidden rounded border border-line-strong transition group-hover:border-brand-500/60" data-list-desktop>
+              <span className="row-swap-in relative mt-0.5 block w-24 shrink-0 overflow-hidden rounded border border-line-strong transition group-hover:border-brand-500/60" data-list-desktop>
                 <LiveDesktop agent={agent} small />
                 <span className="absolute right-0.5 top-0.5 size-1.5 animate-pulse rounded-full bg-emerald-400" />
               </span>
             </Tip>
           ) : (
-            <span className="relative mt-0.5 flex aspect-[16/10] w-12 shrink-0 items-center justify-center rounded border border-line bg-surface" data-list-tool>
-              <ToolMark ai={agent.ai} className="size-5" />
+            <span className="row-swap-in relative mt-0.5 flex aspect-[16/10] w-12 shrink-0 items-center justify-center rounded border border-line bg-surface" data-list-tool>
+              <span ref={mark} className={cn('inline-flex', st === 'working' && 'tool-breathe')}>
+                <ToolMark ai={agent.ai} className="size-5" />
+              </span>
               <span className="absolute right-0.5 top-0.5 flex size-2 items-center justify-center">
                 <StMark st={st} />
               </span>
@@ -219,8 +246,12 @@ function AgentLine({ agent, st, active, live, ready, pr, fleet, at, report, ques
             )}
           </span>
         </span>
-        <span className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-[10.5px] leading-4 text-faint" data-list-meta>
-          {live && <ToolMark ai={agent.ai} className="size-3 shrink-0 opacity-70" />}
+        <span className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-x-clip whitespace-nowrap text-[10.5px] leading-4 text-faint" data-list-meta>
+          {live && (
+            <span ref={mark} className="inline-flex shrink-0">
+              <ToolMark ai={agent.ai} className="size-3 opacity-70" />
+            </span>
+          )}
           {pr && (
             <a
               href={pr.url}

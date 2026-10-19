@@ -1037,3 +1037,34 @@
 body[data-touring] [data-sonner-toaster] {
   visibility: hidden;
 }
+
+/* The agent list's rows (components/v2/AgentList.tsx): the desktop thumbnail
+   and the tool tile fade and scale in as a row switches between them, and a
+   working agent's tool mark breathes. Transform and opacity only, and none of
+   it under prefers-reduced-motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .row-swap-in {
+    animation: row-swap-in 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    transform-origin: top left;
+  }
+  .tool-breathe {
+    animation: tool-breathe 2.4s ease-in-out infinite;
+  }
+  @keyframes row-swap-in {
+    from {
+      opacity: 0;
+      transform: scale(0.8);
+    }
+  }
+  @keyframes tool-breathe {
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.6;
+      transform: scale(0.92);
+    }
+  }
+}

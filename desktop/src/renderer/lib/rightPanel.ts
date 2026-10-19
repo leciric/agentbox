@@ -110,7 +110,7 @@ export const panelDefault = 560;
 // The panel's width while it shows the list of agents: narrow, one line or
 // two per agent, dragged from listMin up and remembered; folded, a strip of
 // their avatars, so the chat keeps the room.
-export const listDefault = 272;
+export const listDefault = 352;
 export const listMin = 220;
 export const listStrip = 48;
 // listBox is panelBox's twin for the list: as wide as dragged while the chat
