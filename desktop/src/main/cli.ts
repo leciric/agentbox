@@ -8,6 +8,7 @@
 // it looks for beside itself: both are kept in %LOCALAPPDATA%\AgentBox\bin, and
 // "Install command-line tool" puts that folder on the user's PATH.
 import { execFile } from 'node:child_process';
+import { firstCli } from './clipath';
 import { createHash } from 'node:crypto';
 import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, symlinkSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -163,7 +164,8 @@ async function addToUserPath(dir: string): Promise<void> {
 async function windowsCliStatus(): Promise<CliStatus> {
   const dir = bundledBin() ? managedDir : process.env.AGENTBOX_BIN ? dirname(process.env.AGENTBOX_BIN) : managedDir;
   const onPath = (await userPath()).some((p) => p.replace(/\\+$/, '').toLowerCase() === dir.toLowerCase());
-  const path = (await run('where.exe', ['agentbox']))?.split(/\r?\n/)[0] ?? (onPath ? join(dir, exe) : null);
+  // Never the app's own AgentBox.exe, which where.exe finds first (clipath.ts).
+  const path = firstCli(await run('where.exe', ['agentbox']), process.execPath) ?? (onPath ? join(dir, exe) : null);
   return {
     linkPath: join(dir, exe),
     linked: onPath,
