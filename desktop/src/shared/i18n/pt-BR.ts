@@ -431,6 +431,8 @@ export const ptBR: Messages = {
   'review.details': 'Detalhes',
   'review.github': 'GitHub',
   'review.mergeArmed': 'Pressione M de novo para fazer merge do #{number}',
+  'review.agentPosition': 'Agente {n} de {count}',
+  'review.back': 'Voltar',
   'review.mergeNumber': 'Merge do #{number}',
   'review.backTitle': 'O agente revisado logo antes',
   'review.key.requestChanges': 'Pedir alterações (foca a caixa)',

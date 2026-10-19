@@ -430,6 +430,8 @@ export const enUS = {
   'review.details': 'Details',
   'review.github': 'GitHub',
   'review.mergeArmed': 'Press M again to merge #{number}',
+  'review.agentPosition': 'Agent {n} of {count}',
+  'review.back': 'Back',
   'review.mergeNumber': 'Merge #{number}',
   'review.backTitle': 'The agent reviewed just before',
   'review.key.requestChanges': 'Request changes (focuses the box)',
