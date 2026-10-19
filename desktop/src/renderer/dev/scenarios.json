@@ -1907,19 +1907,12 @@
     "height": 1080
   },
   {
-    "id": "pip-lead-wide-dark",
-    "description": "The desktops lane dragged wide (520px): its tiles in two columns, each keeping the desktop's 16:10 — dark",
-    "query": "app=project&v2=1&pip=1&lanewidth=520&theme=dark",
-    "width": 1920,
-    "height": 1080
-  },
-  {
     "id": "pip-lead-panel-dark",
-    "description": "A lane tile clicked: its desktop in the right-hand panel, and the lane stepped aside so the chat isn't squeezed between them; live agents first in the panel's picker — dark",
+    "description": "An agent using its desktop, clicked in the panel's list: its desktop large in the panel, with the back arrow to the list — dark",
     "query": "app=project&v2=1&pip=1&theme=dark",
     "width": 1600,
     "height": 1000,
-    "click": "[data-pip-tile]"
+    "click": "[data-list-live] [data-list-desktop]"
   },
   {
     "id": "pip-mention-chip-dark",
@@ -1931,7 +1924,7 @@
   },
   {
     "id": "pip-panel-list-lane-dark",
-    "description": "The lead's chat with the lane of desktops in use beside it and the panel on the list, its live agents marked — dark",
+    "description": "The lead's chat with the panel on its agents: one narrow column, the ones using their desktops with a small live one in their row — dark",
     "query": "app=project&v2=1&pip=1&theme=dark",
     "width": 1600,
     "height": 1000
@@ -1949,5 +1942,35 @@
     "query": "app=today&v2=1&theme=dark",
     "width": 1280,
     "height": 500
+  },
+  {
+    "id": "window-1440-v2-lead-hover-dark",
+    "description": "UI v2 at 1440×900, the pointer on agentbox's lead: its time gives way to the gear that opens its Settings — dark",
+    "query": "app=project&v2=1&pip=1&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "hover": "[data-v2-lead=\"agentbox\"]"
+  },
+  {
+    "id": "agents-right-1920-dark",
+    "description": "UI v2 at 1920×1080 on the lead's chat with agents at work: the panel's list of agents beside it — dark",
+    "query": "app=project&v2=1&pip=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "agents-right-1366-dark",
+    "description": "UI v2 at 1366×768 on the lead's chat with agents at work: the panel's list of agents beside it — dark",
+    "query": "app=project&v2=1&pip=1&theme=dark",
+    "width": 1366,
+    "height": 768
+  },
+  {
+    "id": "agents-right-1366-strip-dark",
+    "description": "UI v2 at 1366×768, the list folded to a strip of avatars, the chat wide — dark",
+    "query": "app=project&v2=1&pip=1&theme=dark",
+    "width": 1366,
+    "height": 768,
+    "click": "[data-panel-fold]"
   }
 ]

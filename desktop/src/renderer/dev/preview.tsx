@@ -288,9 +288,6 @@ installDevBridge();
 const params = new URLSearchParams(location.search);
 document.documentElement.dataset.appearance = params.get('theme') === 'light' ? 'light' : '';
 applyLanguage(params.get('lang'));
-// &lanewidth=480: the desktops lane dragged to that width (lib/pipStore.ts).
-const laneWidth = Number(params.get('lanewidth'));
-if (laneWidth > 0) localStorage.setItem('agentbox.ui.v2.pip', JSON.stringify({ [PROJECT]: { width: laneWidth } }));
 localStorage.setItem('agentbox.rail.folded', params.get('folded') === '1' ? '1' : '0');
 localStorage.setItem('agentbox.rail.finished', params.get('finished') === '1' ? '1' : '0');
 const openAgent = params.get('open'); // e.g. "agent-99"
@@ -486,7 +483,7 @@ if (appView && params.get('v2') === '1') {
   // &pick=1, with &pip=1: agent-25's desktop is a page to pick elements on (dev/pick.tsx).
   if (params.get('pick') === '1') seedPick(queryClient);
   // Each page starts with no panel open, whatever the last one left.
-  setPanel({ chats: {}, views: {}, last: {} });
+  setPanel({ chats: {}, views: {}, last: {}, listFolded: false, listWidth: undefined });
   // &panel=<view>[:<whose>]: the panel open on a view (desktop, terminal,
   // files, evidence, browser, timeline, pulls, settings) of whose (lead,
   // agent-41, past:agent-31; &whose= for all), or just open (&panel=open),

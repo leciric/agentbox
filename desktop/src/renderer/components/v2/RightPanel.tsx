@@ -11,7 +11,7 @@
 // the list, which keeps the rail's width. lib/rightPanel.ts has its rules
 // and state.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlarmClock, ArrowLeft, Camera, Check, Crown, Ellipsis, Film, FileText, FolderTree, GanttChart, GitBranch, GitPullRequest, Globe, Image as ImageIcon, Images, LoaderCircle, Maximize, Minimize, Monitor, MousePointer2, Play, Plus, Power, SlidersHorizontal, SquareTerminal, Unplug, X, type LucideIcon } from 'lucide-react';
+import { AlarmClock, ArrowLeft, ChevronsRight, Camera, Check, Crown, Ellipsis, Film, FileText, FolderTree, GanttChart, GitBranch, GitPullRequest, Globe, Image as ImageIcon, Images, LoaderCircle, Maximize, Minimize, Monitor, MousePointer2, Play, Plus, Power, SlidersHorizontal, SquareTerminal, Unplug, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
@@ -24,7 +24,6 @@ import { loadedItems, useMediaPages } from '../../lib/mediaPages';
 import { useSeeMedia } from '../../lib/notifications';
 import { isLeadRef, livePages, openPage } from '../../lib/pages';
 import { pastAgentsKey } from '../../lib/pastAgents';
-import { laneStrip } from '../../lib/pip';
 import { projectLabel } from '../../lib/projectName';
 import {
   chaptersOf,
@@ -33,7 +32,8 @@ import {
   isPastRef,
   leadOf,
   listTarget,
-  listWidth,
+  listBox,
+  listMin,
   machineOf,
   moreViews,
   needsMachine,
@@ -80,7 +80,7 @@ import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '../ui/m
 import { Switch } from '../ui/switch';
 import { Tip } from '../ui/tooltip';
 import { PanelBrowser } from './PanelBrowser';
-import { AgentList } from './AgentList';
+import { AgentList, AgentStrip } from './AgentList';
 import { chatOf } from './PanelButton';
 import { PickButton, usePicker } from '../PickElement';
 
@@ -155,12 +155,10 @@ export function RightPanelHost({ view, onSelect, onNewAgent }: { view: View; onS
   // A window narrowed past where the panel fits beside the chat closes it,
   // rather than turning it into a drawer over the chat you were reading;
   // opened again there, it is a drawer (UX test, finding 8).
-  // On the list, the rail's width. Beside a lead's chat, the lane of
-  // desktops keeps at least its strip: it folds to that, rather than the
-  // chat going under its least (components/pip/PipLane.tsx).
+  // On the list, its own narrow width, or its strip.
   const list = !panelTarget(state, chat) && !chatPanel(state, chat).wide;
   const lead = isLeadRef(chat);
-  const box = panelBox(list ? listWidth : panelWant(state, chat, room), room - (lead ? laneStrip : 0), windowWidth);
+  const box = list ? listBox(state, room, windowWidth) : panelBox(panelWant(state, chat, room), room, windowWidth);
   const measured = room > 0;
   // A lead's panel opens by itself the first time, where it fits beside the
   // chat: its agents are what the rail showed there.
@@ -192,7 +190,7 @@ export function RightPanelHost({ view, onSelect, onNewAgent }: { view: View; onS
             }}
             data-right-panel={box.drawer ? 'drawer' : 'beside'}
           >
-            {!box.drawer && !list && <WidthHandle width={box.width} lead={lead} />}
+            {!box.drawer && !(list && state.listFolded) && <WidthHandle width={box.width} which={list ? 'list' : lead ? 'lead' : 'agent'} />}
             <RightPanel project={at.project} chat={at.chat} width={box.width} onSelect={onSelect} onNewAgent={onNewAgent} />
           </aside>
         </>
@@ -201,9 +199,9 @@ export function RightPanelHost({ view, onSelect, onNewAgent }: { view: View; onS
   );
 }
 
-// WidthHandle drags the panel's left edge, a lead's or an agent's width; a
-// double click puts it back.
-function WidthHandle({ width, lead }: { width: number; lead: boolean }) {
+// WidthHandle drags the panel's left edge, the list's, a lead's or an
+// agent's width; a double click puts it back.
+function WidthHandle({ width, which }: { width: number; which: 'list' | 'lead' | 'agent' }) {
   const last = useRef<number | null>(null);
   const w = useRef(width);
   w.current = width;
@@ -222,12 +220,13 @@ function WidthHandle({ width, lead }: { width: number; lead: boolean }) {
         const dx = event.clientX - last.current;
         if (!dx) return;
         last.current = event.clientX;
+        if (which === 'list') return setPanel({ listWidth: Math.max(listMin, w.current - dx) });
         const next = Math.max(panelMin, w.current - dx);
-        setPanel(lead ? { width: next } : { agentWidth: next });
+        setPanel(which === 'lead' ? { width: next } : { agentWidth: next });
       }}
       onPointerUp={() => (last.current = null)}
       onPointerCancel={() => (last.current = null)}
-      onDoubleClick={() => setPanel(lead ? { width: panelDefault } : { agentWidth: undefined })}
+      onDoubleClick={() => setPanel(which === 'list' ? { listWidth: undefined } : which === 'lead' ? { width: panelDefault } : { agentWidth: undefined })}
       data-panel-splitter
     />
   );
@@ -258,6 +257,7 @@ function RightPanel({ project, chat, width, onSelect, onNewAgent }: { project: s
   const labels = width >= 520 ? 'all' : width >= 400 ? 'on' : 'none';
   const projectName = projectLabel(project, useQuery({ queryKey: ['projects'], queryFn: api.projects }).data);
 
+  if (!whose && !panel.wide && state.listFolded) return <AgentStrip project={project} chat={chat} />;
   return (
     <div className="flex min-w-0 flex-1 flex-col" data-panel-view={view ?? listTarget} data-panel-whose={ref}>
       <div className="flex h-11 shrink-0 items-center gap-1.5 border-b border-line-faint bg-rail pl-2 pr-1.5">
@@ -288,6 +288,13 @@ function RightPanel({ project, chat, width, onSelect, onNewAgent }: { project: s
           </Tip>
         )}
         <MoreMenu chat={chat} whose={whose ?? { kind: 'lead', ref: leadOf(project) }} view={view} />
+        {!whose && !panel.wide && (
+          <Tip label={t('panel.list.fold')}>
+            <Button size="icon-sm" variant="ghost" aria-label={t('panel.list.fold')} onClick={() => setPanel({ listFolded: true })} data-panel-fold>
+              <ChevronsRight />
+            </Button>
+          </Tip>
+        )}
         <Tip label={t('panel.closeTip', { keys: shortcut('D') })}>
           <Button size="icon-sm" variant="ghost" aria-label={t('panel.close')} onClick={() => setPanelOpen(chat, false)} data-panel-close>
             <X />

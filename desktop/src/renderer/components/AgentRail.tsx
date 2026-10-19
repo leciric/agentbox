@@ -225,7 +225,7 @@ export function AgentRail({ view, onSelect, onNewAgent, onClose }: { view: View;
 // useRailAgents is what the rail reads of a project's agents, and v2's
 // panel list (v2/AgentList.tsx) with it: its agents in the rail's order,
 // those still at something and the finished ones, each one's pull request,
-// when it last reported and whether it asks you something.
+// when it last reported and what, and whether it asks you something.
 export function useRailAgents(project: string | null) {
   const enabled = project !== null;
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents, enabled });
@@ -252,6 +252,9 @@ export function useRailAgents(project: string | null) {
   // Freeing its Docker space on stop is the daemon's doing, not a report.
   const lastReport = new Map<string, string>();
   for (const ev of events.data ?? []) if (ev.kind !== 'docker_pruned' && !lastReport.has(ev.ref)) lastReport.set(ev.ref, ev.at);
+  // And what the latest one with words said, for v2's list.
+  const lastSummary = new Map<string, string>();
+  for (const ev of events.data ?? []) if (ev.summary && !lastSummary.has(ev.ref)) lastSummary.set(ev.ref, ev.summary);
   const mine = (agents.data ?? []).filter((a) => a.project === project).toSorted((a, b) => rank(a) - rank(b));
   const asking = (agent: T.Agent) => isAsking(questions.data, agent.ref);
   // An agent with a question waiting on you stays on top, whatever its chat is doing.
@@ -259,7 +262,7 @@ export function useRailAgents(project: string | null) {
   const finished = mine.filter((a) => settled(a) && !asking(a));
   const prs = new Map((fleet.data?.agents ?? []).map((a) => [a.ref, a.pr]));
   const mood = (agent: T.Agent) => avatarMood(agent, asking(agent));
-  return { agents, loaded: !!agents.data, lead, mine, moving, finished, prs, lastReport, asking, mood, showFinished, setShowFinished };
+  return { agents, loaded: !!agents.data, lead, mine, moving, finished, prs, lastReport, lastSummary, asking, mood, showFinished, setShowFinished };
 }
 
 // RailSkeleton is rows where the agents will be until the first list
@@ -332,7 +335,7 @@ function RailTab({ active, count, onClick, children, ...rest }: { active: boolea
   );
 }
 
-export function AgentRow({
+function AgentRow({
   agent,
   active,
   pr,
@@ -343,7 +346,6 @@ export function AgentRow({
   mood,
   onSelect,
   onOpen,
-  marks,
 }: {
   agent: T.Agent;
   active: boolean;
@@ -355,8 +357,6 @@ export function AgentRow({
   mood: Mood;
   onSelect: () => void;
   onOpen: (view: View) => void;
-  // What v2's list adds after the status: a desktop in use, ready to review.
-  marks?: React.ReactNode;
 }) {
   const t = useT();
   // A question or a credential request waiting on you is said in words too,
@@ -397,7 +397,6 @@ export function AgentRow({
               >
                 {status.text}
               </span>
-              {marks}
               {at && <span className="ml-auto shrink-0 tabular-nums text-faint">{timeAgo(at)}</span>}
             </span>
             {/* Its branch, or its pull request in the badge over the row. */}

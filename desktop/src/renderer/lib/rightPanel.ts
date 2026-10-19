@@ -107,9 +107,20 @@ export const besideMin = 1100;
 export const chatMin = 440;
 export const panelMin = 340;
 export const panelDefault = 560;
-// listWidth is the panel's width while it shows the list of agents: v1's
-// rail's, about, which its rows were made for.
-export const listWidth = 340;
+// The panel's width while it shows the list of agents: narrow, one line or
+// two per agent, dragged from listMin up and remembered; folded, a strip of
+// their avatars, so the chat keeps the room.
+export const listDefault = 272;
+export const listMin = 220;
+export const listStrip = 48;
+// listBox is panelBox's twin for the list: as wide as dragged while the chat
+// keeps chatMin, a drawer below besideMin as the panel is.
+export function listBox(state: Pick<PanelState, 'listWidth' | 'listFolded'>, room: number, windowWidth: number): { width: number; drawer: boolean } {
+  if (state.listFolded) return { width: listStrip, drawer: windowWidth < besideMin };
+  const want = Math.max(listMin, state.listWidth ?? listDefault);
+  if (windowWidth < besideMin || room - chatMin < listMin) return { width: Math.round(Math.min(Math.max(want, 300), windowWidth - 24)), drawer: true };
+  return { width: Math.round(Math.min(want, room - chatMin)), drawer: false };
+}
 // panelWant is how wide chat's panel would be: the one width beside a lead's
 // chat; beside an agent's own, its desktop is what you came for, so half the
 // room until you drag it.
@@ -139,6 +150,8 @@ const closedPanel: ChatPanel = { open: false };
 export interface PanelState {
   width: number;
   agentWidth?: number;
+  listWidth?: number;
+  listFolded?: boolean;
   section: ProjectSection;
   chats: Record<string, ChatPanel>;
   views: Record<string, PanelView>;
@@ -170,6 +183,8 @@ function load(): PanelState {
       ...base,
       ...(typeof saved.width === 'number' ? { width: saved.width } : {}),
       ...(typeof saved.agentWidth === 'number' ? { agentWidth: saved.agentWidth } : {}),
+      ...(typeof saved.listWidth === 'number' ? { listWidth: saved.listWidth } : {}),
+      ...(saved.listFolded === true ? { listFolded: true } : {}),
       chats,
       views,
       last: strings(saved.last),
@@ -187,9 +202,9 @@ export function panelState(): PanelState {
 export function setPanel(change: Partial<PanelState>): void {
   current = { ...panelState(), ...change };
   try {
-    const { width, agentWidth, views, last } = current;
+    const { width, agentWidth, listWidth, listFolded, views, last } = current;
     const chats = Object.fromEntries(Object.entries(current.chats).map(([k, p]) => [k, bare(p)]));
-    localStorage.setItem(storageKey, JSON.stringify({ width, agentWidth, chats, views, last, listed }));
+    localStorage.setItem(storageKey, JSON.stringify({ width, agentWidth, listWidth, listFolded, chats, views, last, listed }));
   } catch {
     // Kept for this session, if not for the next.
   }

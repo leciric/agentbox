@@ -13,7 +13,7 @@ import { mediaQuery } from '../../lib/mediaPages';
 import { deskOf, type Desk } from '../../lib/rightPanel';
 import { cn, timeAgo } from '../../lib/utils';
 import { LiveDesktop } from '../pip/LiveDesktop';
-import { useInUse } from '../pip/PipLane';
+import { useInUse } from '../pip/inUse';
 import { standIn } from '../pip/standIn';
 
 export const deskLabel: Record<Desk, MessageKey> = {

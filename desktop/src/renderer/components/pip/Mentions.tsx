@@ -3,7 +3,7 @@ import { useMemo, type ReactNode } from 'react';
 import { api } from '../../lib/api';
 import { pastAgentsKey } from '../../lib/pastAgents';
 import { leadOf, openPanelOn, pastRef } from '../../lib/rightPanel';
-import { useInUse } from './PipLane';
+import { useInUse } from './inUse';
 import { AgentMentions } from './mentionChip';
 
 export function AgentMentionsProvider({ project, children }: { project: string; children: ReactNode }) {

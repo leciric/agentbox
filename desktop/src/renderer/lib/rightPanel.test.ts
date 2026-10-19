@@ -237,3 +237,12 @@ test('the back arrow leaves the project’s own view first, then goes to the lis
   P.openAgentChat(chat);
   assert.equal(P.panelTarget(P.panelState(), chat), chat);
 });
+
+test('the list is narrow, as dragged while the chat keeps its least, and folds to a strip', () => {
+  assert.deepEqual(P.listBox({}, 1600, 1900), { width: P.listDefault, drawer: false });
+  assert.deepEqual(P.listBox({ listWidth: 900 }, 1000, 1300), { width: 1000 - P.chatMin, drawer: false });
+  assert.deepEqual(P.listBox({ listWidth: 100 }, 1600, 1900), { width: P.listMin, drawer: false });
+  assert.deepEqual(P.listBox({ listFolded: true }, 1600, 1900), { width: P.listStrip, drawer: false });
+  // Below besideMin, a drawer, as the panel is.
+  assert.equal(P.listBox({}, 900, 1000).drawer, true);
+});
