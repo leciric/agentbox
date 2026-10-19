@@ -80,7 +80,7 @@ func TestSearchFindsEveryKind(t *testing.T) {
 	d.srv.pulls.readFor("acme/hello", a.Project)
 	d.srv.pulls.mu.Lock()
 	d.srv.pulls.byRepo["acme/hello"] = pullsEntry{prs: []api.PullRequest{
-		{Number: 271, Title: "feat: a Hatch connector preset", State: "open", URL: "https://github.com/acme/hello/pull/271"},
+		{Number: 271, Agent: a.Name, Title: "feat: a Hatch connector preset", State: "open", URL: "https://github.com/acme/hello/pull/271"},
 		{Number: 12, Title: "fix: something else", State: "merged"},
 	}}
 	d.srv.pulls.mu.Unlock()
@@ -88,6 +88,16 @@ func TestSearchFindsEveryKind(t *testing.T) {
 	got, err := d.client.Search(ctx, "hatc", 0)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// An agent is found by its pull request's number, however it's typed.
+	for _, q := range []string{"271", "#271", "pr 271", "PR#271"} {
+		byPR, err := d.client.Search(ctx, q, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if g := byPR.Groups[0]; g.Kind != api.SearchAgents || g.Hits[0].ID != a.Ref() {
+			t.Errorf("%q: first group %s %+v, want the agent %s", q, g.Kind, g.Hits, a.Ref())
+		}
 	}
 	kinds := map[string]api.SearchGroup{}
 	var order []string

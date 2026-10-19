@@ -90,13 +90,20 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   const [dragging, setDragging] = useState<string | null>(null);
   const [drop, setDrop] = useState<{ name: string; edge: 'before' | 'after' } | null>(null);
 
+  // Each agent's pull request number, from the fleet the panel's list reads
+  // (the same query), so a search can find an agent by it.
+  const fleets = useQueries({
+    queries: (projects.data ?? []).map((p) => ({ queryKey: ['fleet', p.name], queryFn: () => api.fleet(p.name), staleTime: 30_000 })),
+  });
+  const prKey = fleets.flatMap((f) => (f.data?.agents ?? []).flatMap((a) => (a.pr?.number ? [`${a.ref}\t${a.pr.number}`] : []))).join('\n');
+  const prs = useMemo(() => new Map(prKey ? prKey.split('\n').map((l) => { const [ref, n] = l.split('\t'); return [ref, Number(n)] as const; }) : []), [prKey]);
   const rows: Row[] = useMemo(() => {
     const ctx = {
       review: new Set((reviewing ? (head.data?.items ?? []) : []).map((i) => i.ref)),
       asking: new Set(pageItems(questions.data).map((n) => n.ref)),
     };
-    return (agents.data ?? []).map((agent) => ({ agent, st: agentSt(agent, ctx) }));
-  }, [agents.data, head.data, questions.data, reviewing]);
+    return (agents.data ?? []).map((agent) => ({ agent, st: agentSt(agent, ctx), pr: prs.get(agent.ref) }));
+  }, [agents.data, head.data, questions.data, reviewing, prs]);
   const label = (p: T.Project) => projectLabel(p);
   const currentAgentProject = view.kind === 'agent' ? view.ref.split('/')[0] : undefined;
   // What you haven't seen, by project: its questions, failures and media.

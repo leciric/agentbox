@@ -1,11 +1,11 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Archive, ArrowLeft, ArrowRight, CalendarDays, GitBranch, GitPullRequest, LoaderCircle, Search, Trash2 } from 'lucide-react';
+import { Archive, ArrowLeft, ArrowRight, CalendarDays, GitBranch, LoaderCircle, Search, Trash2 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { api, ApiError } from '../lib/api';
-import { useT, type MessageKey } from '../lib/i18n';
+import { useT } from '../lib/i18n';
 import { asAgent, filtered, pastAgentsKey, toggled, type PastPR, type PastSince } from '../lib/pastAgents';
 import { projectLabel } from '../lib/projectName';
 import { useChatOpenAt } from '../lib/reveal';
@@ -15,17 +15,13 @@ import { cn, errorMessage, timeAgo } from '../lib/utils';
 import { ChatTab } from './chat/ChatTab';
 import { ConfirmDialog } from './ConfirmDialog';
 import { JobProgress } from './JobProgress';
-import { Badge, type BadgeVariant } from './ui/badge';
+import { PrChip } from './PrChip';
 import { Button } from './ui/button';
 import { Notice, Panel } from './ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { Field, Input, Textarea } from './ui/input';
 import { Select, SelectOption } from './ui/select';
 import { Skeleton } from './ui/skeleton';
-
-// The same colours and words as the Pull requests tab's state badges.
-const prVariants: Record<string, BadgeVariant> = { open: 'info', merged: 'success', closed: 'default' };
-const prLabels: Record<string, MessageKey> = { open: 'memory.pulls.state.open', merged: 'memory.pulls.state.merged', closed: 'memory.pulls.state.closed' };
 
 // How long the search box waits for the typing to pause.
 const debounceMs = 250;
@@ -237,13 +233,7 @@ function PastAgentRow({
 }
 
 function PRBadge({ pr }: { pr: T.PullRequest }) {
-  const t = useT();
-  return (
-    <Badge variant={prVariants[pr.state] ?? 'default'} className="shrink-0" title={pr.title}>
-      <GitPullRequest />#{pr.number}
-      {prLabels[pr.state] && <span className="hidden sm:inline">{t(prLabels[pr.state])}</span>}
-    </Badge>
-  );
+  return <PrChip pr={pr} dataAttr="data-past-pr-chip" />;
 }
 
 // PastAgentChat is one past agent read in its chat: what it was, its pull

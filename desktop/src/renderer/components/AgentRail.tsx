@@ -7,7 +7,7 @@ import { api } from '../lib/api';
 import { countByAgent, livePages } from '../lib/pages';
 import { useT } from '../lib/i18n';
 import { useProjectName } from '../lib/useProjectName';
-import { avatarMood, chatLabel, isAsking, prChecksText, prState, rank, settled, statusTip, type Mood } from '../lib/agentStatus';
+import { avatarMood, chatLabel, isAsking, rank, settled, statusTip, type Mood } from '../lib/agentStatus';
 import { cn, timeAgo } from '../lib/utils';
 import { AgentContextMenu } from './AgentContextMenu';
 import { AgentInfoCard } from './AgentInfoCard';
@@ -17,6 +17,7 @@ import { PagesPanel } from './pages/PagesPanel';
 import { useProjectPages } from './pages/usePages';
 import { AgentAvatar } from './state';
 import { Skeleton, skeletonWidths } from './ui/skeleton';
+import { PrChip } from './PrChip';
 import { Tip } from './ui/tooltip';
 
 // AgentRail is a project's agents, kept visible beside whatever you're looking
@@ -469,44 +470,8 @@ function PagesBadge({ count, onClick }: { count: number; onClick: () => void }) 
   );
 }
 
-const checkMark: Record<string, string> = { passing: '✓', failing: '✕', pending: '•' };
-const checkTone: Record<string, string> = { passing: 'text-emerald-300', failing: 'text-rose-300', pending: 'text-amber-300' };
-
-// PullRequestBadge is the agent's pull request at a glance — its number, and
-// whether its checks pass. Clicking it opens the pull request in the browser,
-// the way the Pull requests tab does. An agent without one shows nothing.
+// PullRequestBadge is the agent's pull request at a glance (PrChip), in the
+// row's corner. An agent without one shows nothing.
 function PullRequestBadge({ pr }: { pr: T.PullRequest }) {
-  const t = useT();
-  const state = prState(pr);
-  const parts = [`#${pr.number} ${state}`];
-  if (pr.checks) parts.push(t('agent.pr.checks', { checks: prChecksText(pr.checks) }));
-  if (pr.conflict) parts.push(t('agent.pr.conflictsBase'));
-  if (pr.review === 'changes_requested') parts.push(t('agent.pr.changesRequested'));
-  return (
-    <Tip label={`${parts.join(', ')} — ${pr.title}`}>
-      <a
-        href={pr.url}
-        data-rail-pr={pr.number}
-        aria-label={t('agent.pr.label', { number: pr.number, state })}
-        onClick={(event) => {
-          event.preventDefault();
-          void window.agentbox.openExternal(pr.url);
-        }}
-        className={cn(
-          'absolute right-2 top-2 flex items-center gap-1 rounded-full px-1.5 py-0.5 font-mono text-[10.5px] ring-1 ring-inset transition',
-          pr.state === 'merged'
-            ? 'bg-violet-400/10 text-violet-300 ring-violet-400/25 hover:bg-violet-400/20'
-            : 'bg-surface-raised text-muted ring-line-strong hover:bg-surface-vivid hover:text-primary',
-        )}
-      >
-        #{pr.number}
-        {pr.checks && <span className={checkTone[pr.checks]}>{checkMark[pr.checks]}</span>}
-        {pr.conflict && (
-          <span className="text-rose-300" data-rail-pr-conflict aria-label={t('agent.pr.conflicts')}>
-            ⚠
-          </span>
-        )}
-      </a>
-    </Tip>
-  );
+  return <PrChip pr={pr} dataAttr="data-rail-pr" className="absolute right-2 top-2" />;
 }
