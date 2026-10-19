@@ -33,6 +33,9 @@ export function WSLSetup({ wsl }: { wsl: WSLStatus }) {
   // Installing WSL itself takes an administrator and, the first time, a
   // restart: that stays the user's to do.
   const noWSL = wsl.wsl === '';
+  // WSL is there but can't start a WSL 2 VM: `agentbox wsl init` says so,
+  // before downloading anything (hostwsl.ErrNoVirtualization).
+  const noVirtualization = run.error ? errorMessage(run.error).includes('Virtual Machine Platform is off') : false;
   // "Not set up" is what this whole card says; anything else (a WSL 1 distro,
   // a missing Linux binary) is worth showing on its own.
   const otherProblem = wsl.problem && !(!wsl.exists && wsl.problem.includes("isn't set up")) ? wsl.problem : '';
@@ -64,7 +67,17 @@ export function WSLSetup({ wsl }: { wsl: WSLStatus }) {
         </div>
       )}
       {(lines.length > 0 || run.isPending) && <SetupLog lines={lines} label={t('vm.wsl.log')} />}
-      {run.error && <Notice>{errorMessage(run.error)}</Notice>}
+      {noVirtualization ? (
+        <div className="grid gap-2">
+          <Notice>{t('vm.wsl.noVirtualization')}</Notice>
+          <CommandBox command="wsl --install --no-distribution" />
+          <p className="text-[13px] text-muted">{t('vm.wsl.noVirtualizationDism')}</p>
+          <CommandBox command="dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart" />
+          <p className="text-[13px] text-muted">{t('vm.wsl.noVirtualizationBios')}</p>
+        </div>
+      ) : (
+        run.error && <Notice>{errorMessage(run.error)}</Notice>
+      )}
       {!noWSL && otherProblem && !run.isPending && !run.error && lines.length === 0 && <Notice tone="warning">{otherProblem}</Notice>}
       {!noWSL && (
         <div className="grid gap-2">

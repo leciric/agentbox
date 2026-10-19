@@ -105,13 +105,16 @@ func (d *Distro) Import(ctx context.Context) error {
 	if err := os.MkdirAll(d.Dir, 0o755); err != nil {
 		return err
 	}
+	if err := d.checkVirtualization(ctx); err != nil {
+		return err
+	}
 	tarball, err := d.rootfs(ctx)
 	if err != nil {
 		return err
 	}
 	_, _ = fmt.Fprintf(d.Log, "==> Making the %s distro in %s\n", d.Name, d.Dir)
 	if _, err := d.run(ctx, nil, "--import", d.Name, d.Dir, tarball, "--version", "2"); err != nil {
-		return err
+		return explainImport(err)
 	}
 	if tarball == filepath.Join(d.Dir, "rootfs.tar.gz") {
 		_ = os.Remove(tarball)
@@ -301,4 +304,71 @@ func (d *Distro) Shell(ctx context.Context) (int, error) {
 		return exit.ExitCode(), nil
 	}
 	return 0, err
+}
+
+// ErrNoVirtualization is why WSL 2 can't start a distro: the Virtual Machine
+// Platform feature is off, or virtualization is off in the firmware. Its text
+// is what the app's setup card looks for to show the same steps with a copy
+// button.
+var ErrNoVirtualization = errors.New("WSL can't start a WSL 2 distro: Windows' Virtual Machine Platform is off, or virtualization is off in the BIOS/UEFI. " +
+	"In PowerShell, as administrator, run: wsl --install --no-distribution (or: dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart), then restart Windows. " +
+	"If it still fails, turn on virtualization (Intel VT-x / AMD SVM) in the BIOS/UEFI: Task Manager > Performance > CPU shows \"Virtualization: Enabled\"")
+
+// noVirtualization reports whether what wsl.exe said means WSL 2 can't create
+// its VM for want of the Virtual Machine Platform or of virtualization. Its
+// messages are translated, but its error codes (HCS_E_SERVICE_NOT_AVAILABLE,
+// HCS_E_HYPERV_NOT_INSTALLED, WSL_E_VIRTUAL_MACHINE_PLATFORM_REQUIRED, …) and
+// the 0x80370102 HRESULTs are not.
+func noVirtualization(said string) bool {
+	s := strings.ToLower(said)
+	for _, m := range []string{
+		"required feature is not installed",
+		"virtual machine platform",
+		"virtualmachineplatform",
+		"hcs_e_service_not_available",
+		"hcs_e_hyperv_not_installed",
+		"wsl_e_virtual_machine_platform_required",
+		"wsl_e_virtualization_not_enabled",
+		"0x80370102",
+		"0x80370114",
+	} {
+		if strings.Contains(s, m) {
+			return true
+		}
+	}
+	return false
+}
+
+// explainImport turns a failed import into ErrNoVirtualization when that is why.
+func explainImport(err error) error {
+	var we *wslError
+	if errors.As(err, &we) && noVirtualization(we.said) {
+		return fmt.Errorf("%w (wsl said: %s)", ErrNoVirtualization, err)
+	}
+	return err
+}
+
+// checkVirtualization imports a tiny empty image as a throwaway WSL 2 distro,
+// which fails the way the real import would, so a machine that can't run WSL 2
+// is told before the 300 MB Ubuntu image is downloaded.
+func (d *Distro) checkVirtualization(ctx context.Context) error {
+	probe := d.Name + "-probe"
+	dir, err := os.MkdirTemp(d.Dir, "probe-")
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	tarball := filepath.Join(dir, "empty.tar")
+	// A tar archive ends with two zero blocks: this is an empty one.
+	if err := os.WriteFile(tarball, make([]byte, 1024), 0o644); err != nil {
+		return nil
+	}
+	_, err = d.run(ctx, nil, "--import", probe, filepath.Join(dir, "disk"), tarball, "--version", "2")
+	if err == nil {
+		_, _ = d.run(ctx, nil, "--unregister", probe)
+		return nil
+	}
+	// Only this failure is the probe's to report: anything else, the real
+	// import will meet and say.
+	return explainImport(err)
 }

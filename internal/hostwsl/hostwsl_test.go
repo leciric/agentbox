@@ -1,6 +1,7 @@
 package hostwsl
 
 import (
+	"errors"
 	"testing"
 )
 
@@ -123,5 +124,28 @@ func TestFindSum(t *testing.T) {
 	}
 	if got := findSum(sums, "missing"); got != "" {
 		t.Errorf("findSum(missing) = %q", got)
+	}
+}
+
+func TestNoVirtualization(t *testing.T) {
+	real := "The operation could not be started because a required feature is not installed.\r\nError code: Wsl/Service/RegisterDistro/CreateVm/HCS/HCS_E_SERVICE_NOT_AVAILABLE\r\n"
+	for said, want := range map[string]bool{
+		real: true,
+		"WSL2 is not supported with your current machine configuration.\nPlease enable the \"Virtual Machine Platform\" optional component and ensure virtualization is enabled in the BIOS.": true,
+		"Error: 0x80370102 The virtual machine could not be started because a required feature is not installed.":                                                                             true,
+		"A operação não pôde ser iniciada.\nCódigo de erro: Wsl/Service/RegisterDistro/CreateVm/HCS/HCS_E_SERVICE_NOT_AVAILABLE":                                                              true,
+		"The system cannot find the file specified.": false,
+	} {
+		if got := noVirtualization(said); got != want {
+			t.Errorf("noVirtualization(%q) = %v", said, got)
+		}
+	}
+	err := explainImport(&wslError{args: []string{"--import"}, said: real})
+	if !errors.Is(err, ErrNoVirtualization) {
+		t.Errorf("explainImport = %v, want ErrNoVirtualization", err)
+	}
+	other := &wslError{said: "disk full"}
+	if explainImport(other) != error(other) {
+		t.Error("explainImport changed an unrelated error")
 	}
 }

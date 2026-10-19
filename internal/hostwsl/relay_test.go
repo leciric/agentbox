@@ -10,12 +10,14 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -497,5 +499,23 @@ func TestRelayWithoutDistro(t *testing.T) {
 	b, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusServiceUnavailable || !strings.Contains(string(b), "agentbox wsl init") {
 		t.Fatalf("%s %s", resp.Status, b)
+	}
+}
+
+// TestImportWithoutVirtualization: a machine that can't run WSL 2 is told so
+// before the Ubuntu image is downloaded.
+func TestImportWithoutVirtualization(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
+	defer srv.Close()
+	t.Setenv("AGENTBOX_WSL_ROOTFS", srv.URL+"/rootfs.tar.gz")
+	d := fakeDistro(t)
+	d.Env = append(d.Env, "FAKEWSL_NO_VMP=1")
+	err := d.Import(context.Background())
+	if !errors.Is(err, ErrNoVirtualization) {
+		t.Fatalf("Import = %v, want ErrNoVirtualization", err)
+	}
+	if n := hits.Load(); n != 0 {
+		t.Errorf("the image was requested %d times", n)
 	}
 }

@@ -120,6 +120,10 @@ func run(args []string) int {
 		}
 		return 0
 	case "--import":
+		if os.Getenv("FAKEWSL_NO_VMP") != "" {
+			say("The operation could not be started because a required feature is not installed.\r\nError code: Wsl/Service/RegisterDistro/CreateVm/HCS/HCS_E_SERVICE_NOT_AVAILABLE\r\n")
+			return 1
+		}
 		if len(args) < 4 {
 			return fail("fakewsl: --import Name Dir Tarball")
 		}
