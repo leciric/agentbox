@@ -191,8 +191,11 @@ function AgentLine({ agent, st, active, live, ready, pr, fleet, at, report, ques
               </span>
             </Tip>
           ) : (
-            <span className="flex h-[18px] w-2 shrink-0 items-center justify-center">
-              <StMark st={st} />
+            <span className="relative mt-0.5 flex aspect-[16/10] w-12 shrink-0 items-center justify-center rounded border border-line bg-surface" data-list-tool>
+              <ToolMark ai={agent.ai} className="size-5" />
+              <span className="absolute right-0.5 top-0.5 flex size-2 items-center justify-center">
+                <StMark st={st} />
+              </span>
             </span>
           )}
           <span className="flex min-w-0 flex-1 flex-col">
@@ -216,8 +219,8 @@ function AgentLine({ agent, st, active, live, ready, pr, fleet, at, report, ques
             )}
           </span>
         </span>
-        <span className={cn('mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-[10.5px] leading-4 text-faint', !live && 'pl-4')} data-list-meta>
-          <ToolMark ai={agent.ai} className="size-3 shrink-0 opacity-70" />
+        <span className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-[10.5px] leading-4 text-faint" data-list-meta>
+          {live && <ToolMark ai={agent.ai} className="size-3 shrink-0 opacity-70" />}
           {pr && (
             <a
               href={pr.url}
