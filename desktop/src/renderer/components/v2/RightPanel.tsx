@@ -35,16 +35,18 @@ import {
   listTarget,
   listBox,
   listMin,
+  listStrip,
   machineOf,
   moreViews,
   needsMachine,
   openPanelOn,
   panelBack,
   panelClose,
+  panelToggle,
+  onList,
   panelBox,
   panelDefault,
   panelMin,
-  panelState,
   panelTarget,
   panelWant,
   projectWide,
@@ -64,7 +66,7 @@ import {
 } from '../../lib/rightPanel';
 import { useFullscreen } from '../../lib/useFullscreen';
 import { useVncView } from '../../lib/useVncView';
-import { cn, errorMessage, shortcut, timeAgo } from '../../lib/utils';
+import { cn, errorMessage, timeAgo } from '../../lib/utils';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { ErrorBoundary } from '../ErrorBoundary';
 import { FileBrowser } from '../files/FilePanel';
@@ -141,8 +143,7 @@ export function RightPanelHost({ view, onSelect, onNewAgent }: { view: View; onS
       if ((event.target as Element | null)?.closest?.('.xterm, canvas')) return;
       if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'd') {
         event.preventDefault();
-        if (chatPanel(panelState(), chat).open) panelClose(chat, true);
-        else setPanelOpen(chat, true);
+        panelToggle(chat);
       }
     };
     addEventListener('keydown', onKey);
@@ -155,46 +156,48 @@ export function RightPanelHost({ view, onSelect, onNewAgent }: { view: View; onS
     };
   }, [chat]);
 
-  // A window narrowed past where the panel fits beside the chat closes it,
-  // rather than turning it into a drawer over the chat you were reading;
-  // opened again there, it is a drawer (UX test, finding 8).
-  // On the list, its own narrow width, or its strip.
-  const list = !panelTarget(state, chat) && !chatPanel(state, chat).wide;
+  // On the list, its own narrow width, or its strip. Where even the list
+  // doesn't fit beside the chat, the strip stays beside it and the rest
+  // opens over the chat as a drawer, from the strip or the header's button.
+  const list = onList(state, chat);
   const lead = isLeadRef(chat);
   const box = list ? listBox(state, room, windowWidth) : panelBox(panelWant(state, chat, room), room, windowWidth);
+  const narrow = box.drawer || (list && state.listFolded && listBox({ ...state, listFolded: false }, room, windowWidth).drawer);
+  const drawerWidth = list ? listBox({ ...state, listFolded: false }, room, windowWidth).width : box.width;
   const measured = room > 0;
-  // A lead's panel opens by itself the first time, where it fits beside the
-  // chat: its agents are what the rail showed there.
   useEffect(() => {
-    if (measured && lead && !box.drawer && !(chat in panelState().chats)) setPanelOpen(chat, true);
-  }, [measured, lead, box.drawer, chat]);
-  const wasDrawer = useRef<boolean | null>(null);
-  useEffect(() => {
-    if (!measured) return;
-    setFitsBeside(!box.drawer);
-    const was = wasDrawer.current;
-    wasDrawer.current = box.drawer;
-    if (was === false && box.drawer && chat && chatPanel(panelState(), chat).open) setPanelOpen(chat, false);
-  }, [box.drawer, measured, chat]);
+    if (measured) setFitsBeside(!narrow);
+  }, [narrow, measured]);
 
   if (!at) return <span ref={probe} hidden />;
+  const panel = (drawer: boolean, width: number) => <RightPanel project={at.project} chat={at.chat} width={width} drawer={drawer} onSelect={onSelect} onNewAgent={onNewAgent} />;
   return (
     <>
       <span ref={probe} hidden />
-      {chatPanel(state, chat).open && room > 0 && (
+      {measured && (
+        <aside
+          style={{ width: narrow ? listStrip : box.width }}
+          aria-label={t('panel.label')}
+          className="relative flex h-full shrink-0 border-l border-line bg-sunken"
+          data-right-panel={narrow ? 'strip' : 'beside'}
+        >
+          {!narrow && !(list && state.listFolded) && <WidthHandle width={box.width} which={list ? 'list' : lead ? 'lead' : 'agent'} />}
+          {narrow ? <AgentStrip project={at.project} chat={at.chat} onSelect={onSelect} onUnfold={() => setPanelOpen(chat, true)} /> : panel(false, box.width)}
+        </aside>
+      )}
+      {measured && narrow && chatPanel(state, chat).open && (
         <>
-          {box.drawer && <div className="fixed inset-0 z-40 animate-fade-in bg-scrim backdrop-blur-sm" onClick={() => setPanelOpen(chat, false)} data-panel-scrim />}
+          <div className="fixed inset-0 z-40 animate-fade-in bg-scrim backdrop-blur-sm" onClick={() => setPanelOpen(chat, false)} data-panel-scrim />
           <aside
-            style={{ width: box.width }}
+            style={{ width: drawerWidth }}
             aria-label={t('panel.label')}
-            className={cn('relative flex h-full shrink-0 border-l border-line bg-sunken', box.drawer && 'fixed inset-y-0 right-0 z-50 animate-fade-in bg-modal shadow-[-20px_0_60px_-20px_var(--ab-shadow-deep)]')}
+            className="fixed inset-y-0 right-0 z-50 flex h-full animate-fade-in border-l border-line bg-modal shadow-[-20px_0_60px_-20px_var(--ab-shadow-deep)]"
             onKeyDown={(event) => {
-              if (event.key === 'Escape' && box.drawer) setPanelOpen(chat, false);
+              if (event.key === 'Escape') setPanelOpen(chat, false);
             }}
-            data-right-panel={box.drawer ? 'drawer' : 'beside'}
+            data-right-panel="drawer"
           >
-            {!box.drawer && !(list && state.listFolded) && <WidthHandle width={box.width} which={list ? 'list' : lead ? 'lead' : 'agent'} />}
-            <RightPanel project={at.project} chat={at.chat} width={box.width} onSelect={onSelect} onNewAgent={onNewAgent} />
+            {panel(true, drawerWidth)}
           </aside>
         </>
       )}
@@ -243,7 +246,7 @@ function useAgents(project: string) {
   return { agents: mine, past: past.data ?? [] };
 }
 
-function RightPanel({ project, chat, width, onSelect, onNewAgent }: { project: string; chat: string; width: number; onSelect: (view: View) => void; onNewAgent: (project: string) => void }) {
+function RightPanel({ project, chat, width, drawer, onSelect, onNewAgent }: { project: string; chat: string; width: number; drawer: boolean; onSelect: (view: View) => void; onNewAgent: (project: string) => void }) {
   const t = useT();
   const state = usePanel();
   const panel = chatPanel(state, chat);
@@ -260,7 +263,7 @@ function RightPanel({ project, chat, width, onSelect, onNewAgent }: { project: s
   const labels = width >= 520 ? 'all' : width >= 400 ? 'on' : 'none';
   const projectName = projectLabel(project, useQuery({ queryKey: ['projects'], queryFn: api.projects }).data);
 
-  if (!whose && !panel.wide && state.listFolded) return <AgentStrip project={project} chat={chat} onSelect={onSelect} />;
+  if (!whose && !panel.wide && state.listFolded && !drawer) return <AgentStrip project={project} chat={chat} onSelect={onSelect} onUnfold={() => setPanel({ listFolded: false })} />;
   return (
     <div className="flex min-w-0 flex-1 flex-col" data-panel-view={view ?? listTarget} data-panel-whose={ref}>
       <div className="flex h-11 shrink-0 items-center gap-1.5 border-b border-line-faint bg-rail pl-2 pr-1.5">
@@ -307,16 +310,18 @@ function RightPanel({ project, chat, width, onSelect, onNewAgent }: { project: s
         <MoreMenu chat={chat} whose={whose ?? { kind: 'lead', ref: leadOf(project) }} view={view} />
         {!whose && !panel.wide && (
           <Tip label={t('panel.list.fold')}>
-            <Button size="icon-sm" variant="ghost" aria-label={t('panel.list.fold')} onClick={() => setPanel({ listFolded: true })} data-panel-fold>
+            <Button size="icon-sm" variant="ghost" aria-label={t('panel.list.fold')} onClick={() => (drawer ? setPanelOpen(chat, false) : setPanel({ listFolded: true }))} data-panel-fold>
               <ChevronsRight />
             </Button>
           </Tip>
         )}
-        <Tip label={lead && (whose || panel.wide) ? t('panel.back') : t('panel.closeTip', { keys: shortcut('D') })}>
-          <Button size="icon-sm" variant="ghost" aria-label={lead && (whose || panel.wide) ? t('panel.back') : t('panel.close')} onClick={() => panelClose(chat)} data-panel-close>
-            <X />
-          </Button>
-        </Tip>
+        {(whose || panel.wide) && (
+          <Tip label={t('panel.back')}>
+            <Button size="icon-sm" variant="ghost" aria-label={t('panel.back')} onClick={() => panelClose(chat)} data-panel-close>
+              <X />
+            </Button>
+          </Tip>
+        )}
       </div>
       <ErrorBoundary key={`${ref ?? listTarget}:${view ?? ''}`} fallback={<p className="p-4 text-xs text-subtle">{t('panel.failed')}</p>}>
         {panel.wide ? (

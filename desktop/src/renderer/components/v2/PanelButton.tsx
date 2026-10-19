@@ -7,7 +7,7 @@ import * as A from '../../../shared/api';
 import type { View } from '../../App';
 import { useT } from '../../lib/i18n';
 import { isNew, livePages } from '../../lib/pages';
-import { panelClose, setPanelOpen, useChatPanel } from '../../lib/rightPanel';
+import { chatPanel, fitsBeside, onList, panelToggle, usePanel } from '../../lib/rightPanel';
 import { cn, shortcut } from '../../lib/utils';
 import { useProjectPages } from '../pages/usePages';
 import { Button } from '../ui/button';
@@ -21,13 +21,14 @@ export function chatOf(view: View): { project: string; chat: string } | null {
   return null;
 }
 
-// PanelButton is the chat header's one button that opens and closes the
-// chat's panel, an icon whose tooltip names it and the launcher's letters,
-// with a dot while it's closed and the chat's project has pages you
-// haven't seen.
+// PanelButton is the chat header's one button that folds the chat's panel
+// to its strip of agents and shows it again (panelToggle; it never closes),
+// an icon whose tooltip names it and the launcher's letters, with a dot
+// while it's folded and the chat's project has pages you haven't seen.
 export function PanelButton({ project, chat }: { project: string; chat: string }) {
   const t = useT();
-  const { open } = useChatPanel(chat);
+  const state = usePanel();
+  const open = fitsBeside() ? !onList(state, chat) || !state.listFolded : chatPanel(state, chat).open;
   const pages = useProjectPages(project);
   const fresh = livePages(pages.data).some(isNew);
   return (
@@ -45,7 +46,7 @@ export function PanelButton({ project, chat }: { project: string; chat: string }
         aria-label={t('panel.toggle')}
         aria-pressed={open}
         className={cn('relative', open && 'bg-surface-raised text-primary')}
-        onClick={() => (open ? panelClose(chat, true) : setPanelOpen(chat, true))}
+        onClick={() => panelToggle(chat)}
         data-panel-toggle
       >
         <PanelRight />

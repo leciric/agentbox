@@ -108,13 +108,12 @@ test('each agent keeps the view it was last shown in; the project’s own views 
   P.openPanelOn(lead, 'pulls');
   assert.equal(P.chatPanel(P.panelState(), lead).wide, 'pulls');
   assert.equal(P.viewOf(P.panelState(), two), 'terminal');
-  assert.equal(P.shown(P.panelState(), lead), undefined);
+  assert.equal(P.onList(P.panelState(), lead), false);
   // A view of the switch, or another agent, leaves it.
   P.pickTarget(lead, 'pawly/agent-2');
   assert.equal(P.chatPanel(P.panelState(), lead).wide, undefined);
-  assert.deepEqual(P.shown(P.panelState(), lead), { target: 'pawly/agent-2', view: 'terminal' });
-  P.setPanelOpen(lead, false);
-  assert.equal(P.shown(P.panelState(), lead), undefined);
+  assert.equal(P.panelTarget(P.panelState(), lead), 'pawly/agent-2');
+  assert.equal(P.panelState().views['pawly/agent-2'], 'terminal');
 });
 
 test('opening an agent’s chat opens its panel on its Desktop, where it fits beside the chat', () => {
@@ -229,7 +228,7 @@ test('the back arrow leaves the project’s own view first, then goes to the lis
   P.panelBack(lead);
   assert.equal(P.panelTarget(P.panelState(), lead), undefined);
   assert.equal(P.chatPanel(P.panelState(), lead).open, true);
-  assert.equal(P.shown(P.panelState(), lead), undefined);
+  assert.equal(P.onList(P.panelState(), lead), true);
   // An agent's chat shows itself until its back arrow; opening its chat again shows it again.
   P.panelBack(chat);
   assert.equal(P.panelTarget(P.panelState(), chat), undefined);
@@ -247,26 +246,35 @@ test('the list is narrow, as dragged while the chat keeps its least, and folds t
   assert.equal(P.listBox({}, 900, 1000).drawer, true);
 });
 
-test('in a lead’s panel ✕ goes back to the list first, then closes', () => {
-  P.setPanel({ chats: {}, views: {}, last: {} });
+test('✕ goes back to the list; the panel button folds the list and back, and never closes it', () => {
+  P.setPanel({ chats: {}, views: {}, last: {}, listFolded: false });
+  P.setFitsBeside(true);
   const lead = 'pawly/lead';
   P.pickTarget(lead, lead);
   P.panelClose(lead);
-  assert.equal(P.panelTarget(P.panelState(), lead), undefined);
-  assert.equal(P.chatPanel(P.panelState(), lead).open, true);
+  assert.equal(P.onList(P.panelState(), lead), true);
   P.openPanelOn(lead, 'settings');
   P.panelClose(lead);
-  assert.equal(P.chatPanel(P.panelState(), lead).wide, undefined);
-  assert.equal(P.chatPanel(P.panelState(), lead).open, true);
-  P.panelClose(lead);
-  assert.equal(P.chatPanel(P.panelState(), lead).open, false);
-  // ⌘D closes it on its list.
-  P.pickTarget(lead, lead);
-  P.panelClose(lead, true);
-  assert.equal(P.chatPanel(P.panelState(), lead).open, false);
-  assert.equal(P.panelTarget(P.panelState(), lead), undefined);
-  // An agent's chat closes straight away.
+  assert.equal(P.onList(P.panelState(), lead), true);
+  // An agent's chat goes back to its list too.
   P.openAgentChat('pawly/agent-2');
   P.panelClose('pawly/agent-2');
-  assert.equal(P.chatPanel(P.panelState(), 'pawly/agent-2').open, false);
+  assert.equal(P.onList(P.panelState(), 'pawly/agent-2'), true);
+  // The button and ⌘D: from an agent, to the list; on the list, fold and back.
+  P.openPanelOn(lead, 'files', 'pawly/agent-3');
+  P.panelToggle(lead);
+  assert.equal(P.onList(P.panelState(), lead), true);
+  assert.equal(P.panelState().listFolded, false);
+  P.panelToggle(lead);
+  assert.equal(P.panelState().listFolded, true);
+  P.panelToggle(lead);
+  assert.equal(P.panelState().listFolded, false);
+  // Where it doesn't fit beside the chat, it opens and closes the drawer over the strip.
+  P.setFitsBeside(false);
+  P.setPanelOpen(lead, false);
+  P.panelToggle(lead);
+  assert.equal(P.chatPanel(P.panelState(), lead).open, true);
+  P.panelToggle(lead);
+  assert.equal(P.chatPanel(P.panelState(), lead).open, false);
+  P.setFitsBeside(true);
 });

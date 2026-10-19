@@ -23,7 +23,7 @@ import { useT } from '../../lib/i18n';
 import { agentSt, type AgentSt } from '../../lib/leadFirst';
 import { pastAgentsKey } from '../../lib/pastAgents';
 import { projectLabel } from '../../lib/projectName';
-import { leadOf, pickTarget, setPanel } from '../../lib/rightPanel';
+import { leadOf, pickTarget } from '../../lib/rightPanel';
 import { cn, timeAgo } from '../../lib/utils';
 import { AgentContextMenu } from '../AgentContextMenu';
 import { FinishedSection, RailEmpty, RailSkeleton, useRailAgents } from '../AgentRail';
@@ -255,13 +255,13 @@ function AgentLine({ agent, st, active, live, ready, pr, fleet, at, report, ques
 // AgentStrip is the list folded: a strip of the agents' avatars, each with
 // its state mark, the ones at something first, that keeps the chat wide. A
 // click opens the agent's chat; the arrow on top unfolds the list.
-export function AgentStrip({ project, chat, onSelect }: { project: string; chat: string; onSelect: (view: View) => void }) {
+export function AgentStrip({ project, chat, onSelect, onUnfold }: { project: string; chat: string; onSelect: (view: View) => void; onUnfold: () => void }) {
   const t = useT();
   const { rail, live, st } = useListAgents(project);
   return (
     <div className="flex min-h-0 w-full flex-col items-center gap-1 overflow-y-auto overflow-x-hidden py-1.5" data-panel-strip={project}>
       <Tip label={t('panel.list.unfold')} side="left">
-        <button type="button" aria-label={t('panel.list.unfold')} onClick={() => setPanel({ listFolded: false })} className="mb-1 rounded-md p-1.5 text-subtle transition hover:bg-surface-strong hover:text-primary" data-panel-unfold>
+        <button type="button" aria-label={t('panel.list.unfold')} onClick={onUnfold} className="mb-1 rounded-md p-1.5 text-subtle transition hover:bg-surface-strong hover:text-primary" data-panel-unfold>
           <ChevronsLeft className="size-4" />
         </button>
       </Tip>

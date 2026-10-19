@@ -1,13 +1,13 @@
 // UI v2's right-hand panel (components/v2/RightPanel.tsx): what is pure about
 // it, and its state.
 //
-// One header button opens it, or ⌘D; beside the chat while the chat keeps
-// 440px, a drawer over it otherwise. Beside a lead's chat it is open until
-// it is closed, as v1's rail of agents was, and opens on the project's agents
-// (the list); a row of it, or a tile of the lane of desktops, shows that
-// agent (or the repository, the lead's checkout) in one of four views on a
-// fixed switch: Desktop, Terminal, Files and Evidence (its media and Hatch
-// pages, newest first), with a back arrow to the list. Browser and Timeline
+// It is always there beside a chat, as v1's rail of agents was: its home is
+// the project's agents (the list), which folds to a strip of their avatars
+// (one header button, or ⌘D) but never closes. Where it doesn't fit beside
+// the chat, the strip stays and the rest opens over the chat as a drawer.
+// The repository (the lead's checkout) or an agent shows in it in one of
+// four views on a fixed switch: Desktop, Terminal, Files and Evidence (its
+// media and Hatch pages, newest first), with ✕ back to the list. Browser and Timeline
 // open from its ⋯; the project's Pull requests and Settings, from the
 // project's header (ProjectView), go over it. It remembers the view each
 // agent was last shown in, and the agent each project's lead last looked at.
@@ -130,10 +130,11 @@ export function panelBox(want: number, room: number, windowWidth: number): { wid
   return { width: Math.round(Math.max(panelMin, Math.min(want, room - chatMin))), drawer: false };
 }
 
-// A chat's panel: open or not, whose it shows when that was picked in this
-// chat (an agent's chat shows its own agent until another is picked; the
-// lead's shows the project's last), and the project's own view over it while
-// one is open from the ⋯. focus is a media item to show first in Evidence,
+// A chat's panel: its drawer open or not, where it doesn't fit beside the
+// chat; whose it shows when that was picked in this chat (an agent's chat
+// shows its own agent until another is picked; the lead's shows the
+// project's last); and the project's own view over it while one is open
+// (Pull requests, Settings, Schedules). focus is a media item to show first in Evidence,
 // for this session only.
 export interface ChatPanel {
   open: boolean;
@@ -159,9 +160,6 @@ export interface PanelState {
 }
 
 const storageKey = 'agentbox.ui.v2.panel';
-// A state saved before the list (listed unset) had every lead's panel closed
-// by default: those come back to the default, open on the list, once.
-const listed = 1;
 const listeners = new Set<() => void>();
 let current: PanelState | undefined;
 
@@ -174,7 +172,6 @@ function load(): PanelState {
     const saved = JSON.parse(localStorage.getItem(storageKey) ?? '{}') as Partial<PanelState>;
     const chats: Record<string, ChatPanel> = {};
     for (const [chat, p] of Object.entries(saved.chats ?? {})) {
-      if ((saved as { listed?: number }).listed !== listed && isLeadRef(chat) && p?.open !== true) continue;
       // A panel saved with tabs, before the switch, opens again on its own.
       chats[chat] = { open: p?.open === true, ...(typeof p?.target === 'string' ? { target: p.target } : {}) };
     }
@@ -204,7 +201,7 @@ export function setPanel(change: Partial<PanelState>): void {
   try {
     const { width, agentWidth, listWidth, listFolded, views, last } = current;
     const chats = Object.fromEntries(Object.entries(current.chats).map(([k, p]) => [k, bare(p)]));
-    localStorage.setItem(storageKey, JSON.stringify({ width, agentWidth, listWidth, listFolded, chats, views, last, listed }));
+    localStorage.setItem(storageKey, JSON.stringify({ width, agentWidth, listWidth, listFolded, chats, views, last }));
   } catch {
     // Kept for this session, if not for the next.
   }
@@ -243,16 +240,6 @@ export const viewOf = (state: PanelState, w: Whose): PanelView => {
   return v && hasView(w, v) ? v : defaultView(w);
 };
 
-// shown is what chat's panel shows while it is open, for the lane of
-// desktops to leave out the one it has: whose ref and in which view, the
-// view unset when whose was never shown in one.
-export function shown(state: PanelState, chat: string): { target: string; view: PanelView | undefined } | undefined {
-  const p = chatPanel(state, chat);
-  const target = panelTarget(state, chat);
-  if (!p.open || p.wide || !target) return undefined;
-  return { target, view: state.views[target] };
-}
-
 // bare is a chat's panel without the project's own view or the item Evidence
 // was opened on: what picking whose, or a view, leaves of it.
 const bare = ({ open, target }: ChatPanel): ChatPanel => ({ open, ...(target ? { target } : {}) });
@@ -264,7 +251,8 @@ function update(chat: string, change: (p: ChatPanel) => ChatPanel, more: Partial
   if (after !== before || Object.keys(more).length) setPanel({ ...more, chats: { ...state.chats, [chat]: after } });
 }
 
-// setPanelOpen opens or closes chat's panel.
+// setPanelOpen opens or closes chat's panel where it doesn't fit beside the
+// chat, a drawer over its strip; beside the chat it is always open.
 export function setPanelOpen(chat: string, open: boolean): void {
   update(chat, (p) => (p.open === open ? p : { ...p, open }));
 }
@@ -297,15 +285,26 @@ export function panelBack(chat: string): void {
   else update(chat, (p) => ({ ...bare(p), target: listTarget }));
 }
 
-// panelClose is the panel's ✕. A lead's panel showing something besides
-// its list (the repository, an agent, Pull requests or Settings) goes back
-// to the list, as it was before; on the list, and in an agent's chat, it
-// closes. all (⌘D) closes it there too, on its list for when it opens again.
-export function panelClose(chat: string, all = false): void {
+// panelClose is the panel's ✕, there only while it shows something besides
+// its list (the repository, an agent, Pull requests or Settings): back to the
+// list, as it was before.
+export function panelClose(chat: string): void {
   const state = panelState();
-  const p = chatPanel(state, chat);
-  if (isLeadRef(chat) && (p.wide || panelTarget(state, chat))) update(chat, (q) => ({ ...bare(q), open: !all }), { last: { ...state.last, [projectOf(chat)]: listTarget } });
-  else setPanelOpen(chat, false);
+  if (isLeadRef(chat)) update(chat, bare, { last: { ...state.last, [projectOf(chat)]: listTarget } });
+  else update(chat, (p) => ({ ...bare(p), target: listTarget }));
+}
+
+// onList is whether chat's panel shows its list.
+export const onList = (state: PanelState, chat: string) => !panelTarget(state, chat) && !chatPanel(state, chat).wide;
+
+// panelToggle is the header's panel button and ⌘D. Beside the chat it folds
+// the list to its strip and back, from whatever the panel shows by way of the
+// list; where it doesn't fit, it opens and closes the drawer over the strip.
+export function panelToggle(chat: string): void {
+  const state = panelState();
+  if (!fitsBeside()) return setPanelOpen(chat, !chatPanel(state, chat).open);
+  if (!onList(state, chat)) return panelClose(chat);
+  setPanel({ listFolded: !state.listFolded });
 }
 
 // openPanelOn opens chat's panel on view, of target when given (then picked
@@ -324,8 +323,9 @@ let beside = true;
 export const setFitsBeside = (fits: boolean) => void (beside = fits);
 export const fitsBeside = () => beside;
 
-// openAgentChat is opening an agent's chat: its panel opens on its Desktop,
-// where there is room for it beside the chat.
+// openAgentChat is opening an agent's chat: its panel shows its Desktop,
+// where there is room for it beside the chat; where there isn't, the strip
+// stays as it is, rather than a drawer over the chat you came to read.
 export function openAgentChat(ref: string): void {
   if (!beside) return;
   const state = panelState();

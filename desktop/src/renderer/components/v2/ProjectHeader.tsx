@@ -10,7 +10,7 @@ import { api } from '../../lib/api';
 import { useT } from '../../lib/i18n';
 import { projectLabel } from '../../lib/projectName';
 import { togglePin } from '../../lib/projectOrder';
-import { openPanelOn, panelBack, setPanel, useChatPanel } from '../../lib/rightPanel';
+import { fitsBeside, openPanelOn, panelBack, setPanel, useChatPanel } from '../../lib/rightPanel';
 import { setPins, useV2Projects } from '../../lib/v2Projects';
 import { ProjectIcon } from '../ProjectIcon';
 import { Button } from '../ui/button';
@@ -109,7 +109,7 @@ export function ProjectPlaces({ project, leadRef }: { project: string; leadRef: 
   const pulls = useQuery({ queryKey: ['pulls', project], queryFn: () => api.projectPullRequests(project), refetchInterval: 60_000 });
   const open = (pulls.data?.pullRequests ?? []).filter((pr) => pr.state === 'open').length;
   const ready = useProjectReview(project, !!useOpenReview()).data?.items?.length ?? 0;
-  const on = (view: 'pulls' | 'settings') => panel.open && panel.wide === view;
+  const on = (view: 'pulls' | 'settings') => (fitsBeside() || panel.open) && panel.wide === view;
   const toggle = (view: 'pulls' | 'settings') => {
     if (on(view)) return panelBack(leadRef);
     if (view === 'settings') setPanel({ section: 'general' });

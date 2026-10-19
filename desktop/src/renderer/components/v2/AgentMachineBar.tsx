@@ -6,7 +6,7 @@
 import { FolderTree, Images, Monitor, SquareTerminal, type LucideIcon } from 'lucide-react';
 import type * as T from '../../../shared/api';
 import { useT, type MessageKey } from '../../lib/i18n';
-import { chatPanel, hasView, openPanelOn, panelTarget, switchViews, usePanel, viewOf, type PanelView } from '../../lib/rightPanel';
+import { chatPanel, fitsBeside, hasView, openPanelOn, panelTarget, switchViews, usePanel, viewOf, type PanelView } from '../../lib/rightPanel';
 import { cn } from '../../lib/utils';
 import { deskLine, DesktopPeek, DeskGlyph, useDesk, useDeskUp } from './DesktopPeek';
 
@@ -20,7 +20,8 @@ export function AgentMachineBar({ agent }: { agent: T.Agent }) {
   const state = usePanel();
   const panel = chatPanel(state, agent.ref);
   const whose = { kind: 'agent', agent } as const;
-  if (panel.open && !panel.wide && panelTarget(state, agent.ref) === agent.ref) return null;
+  // Shown in the panel beside the chat (always there where it fits), or in its drawer.
+  if ((fitsBeside() || panel.open) && !panel.wide && panelTarget(state, agent.ref) === agent.ref) return null;
   const last = viewOf(state, whose);
   return (
     <div className="mx-2 mb-2 flex min-w-0 items-center gap-3 rounded-xl border border-line bg-surface-faint py-1.5 pl-1.5 pr-2 md:mx-6" data-agent-machine={desk}>
