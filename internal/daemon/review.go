@@ -122,9 +122,14 @@ func (s *Server) reviewItems(ctx context.Context, p state.Project, agents []stat
 	} else {
 		heads = agentHeads(p.Root, finished)
 	}
+	// An agent with several branches has moved when any of them has: its
+	// tips, first branch first, which for one branch is that branch's tip.
 	tips := make(map[string]string, len(heads))
 	for _, h := range heads {
-		tips[h.agent] = h.tip
+		if tips[h.agent] != "" && h.tip != "" {
+			tips[h.agent] += ","
+		}
+		tips[h.agent] += h.tip
 	}
 	var out []api.ReviewItem
 	for i, a := range finished {
@@ -132,11 +137,12 @@ func (s *Server) reviewItems(ctx context.Context, p state.Project, agents []stat
 		pr := prs[a.Name]
 		s.prWatch.overlay(p.Name, pr)
 		mark := markOf(ev, tips[a.Name], pr)
+		branch := branchOf(heads, a, pr)
 		if pr == nil {
 			pr = ev.PR
 		}
 		item := api.ReviewItem{
-			Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title, Branch: a.Branch, AI: a.AI,
+			Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title, Branch: branch, AI: a.AI,
 			Summary: ev.Summary, Changes: ev.Changes, PR: pr, FinishedAt: ev.At, Fingerprint: mark.String(),
 		}
 		if r, ok, err := s.store.AgentReviewOf(ctx, a.Project, a.Name); err == nil && ok {
@@ -157,6 +163,19 @@ func (s *Server) reviewItems(ctx context.Context, p state.Project, agents []stat
 		out = append(out, item)
 	}
 	return out
+}
+
+// branchOf is the branch of a's that pr, its pull request, came from: a
+// follow-up's own branch rather than the one a was made with.
+func branchOf(heads []agentHead, a state.Agent, pr *api.PullRequest) string {
+	if pr != nil {
+		for _, h := range heads {
+			if h.agent == a.Name && h.accepts(*pr, pr.HeadSHA) {
+				return h.branch
+			}
+		}
+	}
+	return a.Branch
 }
 
 // reviewedLimit is how many reviewed agents the unpaged Reviewed list keeps.

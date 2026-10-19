@@ -85,10 +85,17 @@ const (
 // feat/…, fix/…, anything — so a pull request is the agent's when its head is
 // one of the agent's own commits. That also keeps an old pull request from a
 // branch whose name is being reused off an agent that never made its commits.
+//
+// An agent may have more than one branch: told to open a follow-up pull
+// request, it switches to a new branch in its worktree. The daemon never sees
+// that happen — the push and `gh pr create` go from its machine straight to
+// GitHub — but the worktree's reflog keeps it, so each branch the agent made
+// there is a head of its own (gitrepo.CheckedOutSince), its first branch first.
 type agentHead struct {
-	agent string
-	tip   string   // where the agent's branch is; "" when it has none, or hasn't moved from where it started
-	own   []string // the agent's own commits, newest first: on its branch, not on where it started or its base branch
+	agent  string
+	branch string
+	tip    string   // where the branch is; "" when it has none, or hasn't moved from where the agent started
+	own    []string // the agent's own commits, newest first: on the branch, not on where it started or its base branch
 }
 
 func (h agentHead) owns(sha string) bool {
@@ -103,20 +110,28 @@ func (h agentHead) accepts(pr api.PullRequest, via string) bool {
 }
 
 // agentHeads reads each worker agent's commits from the project's repository,
-// a git process or two per agent, a few at a time.
+// a git process or two per branch, a few at a time: one head per branch, each
+// agent's first branch first.
 func agentHeads(root string, agents []state.Agent) []agentHead {
-	var workers []state.Agent
+	type job struct {
+		a      state.Agent
+		branch string
+	}
+	var jobs []job
 	for _, a := range agents {
-		if !a.IsLead() && a.Branch != "" {
-			workers = append(workers, a)
+		if a.IsLead() || a.Branch == "" {
+			continue
+		}
+		for _, branch := range agentBranches(a, agents) {
+			jobs = append(jobs, job{a, branch})
 		}
 	}
-	out := make([]agentHead, len(workers))
+	out := make([]agentHead, len(jobs))
 	var g errgroup.Group
 	g.SetLimit(changesConcurrency)
-	for i, a := range workers {
+	for i, j := range jobs {
 		g.Go(func() error {
-			out[i] = agentHeadOf(root, a)
+			out[i] = agentHeadOf(root, j.a, j.branch)
 			return nil
 		})
 	}
@@ -124,8 +139,26 @@ func agentHeads(root string, agents []state.Agent) []agentHead {
 	return out
 }
 
-func agentHeadOf(root string, a state.Agent) agentHead {
-	h := agentHead{agent: a.Name}
+// agentBranches is every branch of a's: the one it was made with, then the
+// ones it made in its worktree since, newest first. A branch that is its base
+// or another of agents' own isn't one of its, whoever checked it out.
+func agentBranches(a state.Agent, agents []state.Agent) []string {
+	out := []string{a.Branch}
+	if a.Worktree == "" {
+		return out
+	}
+	for _, branch := range gitrepo.CheckedOutSince(a.Worktree, a.CreatedAt) {
+		if branch == a.Branch || branch == a.BaseRef || slices.ContainsFunc(agents, func(o state.Agent) bool { return o.Branch == branch }) {
+			continue
+		}
+		out = append(out, branch)
+	}
+	return out
+}
+
+// agentHeadOf reads one of a's branches.
+func agentHeadOf(root string, a state.Agent, branch string) agentHead {
+	h := agentHead{agent: a.Name, branch: branch}
 	var not []string
 	if a.BaseCommit != "" {
 		not = append(not, a.BaseCommit)
@@ -136,13 +169,13 @@ func agentHeadOf(root string, a state.Agent) agentHead {
 	// origin/main is never the agent's own, even when the local main is
 	// behind it — an agent made from a stale main that caught up with
 	// origin's would otherwise own every pull request merged in between.
-	if a.BaseRef != "" && a.BaseRef != a.Branch {
+	if a.BaseRef != "" && a.BaseRef != branch {
 		not = append(not, a.BaseRef)
 		if a.BaseRef != "HEAD" {
 			not = append(not, "--glob=refs/remotes/*/"+a.BaseRef)
 		}
 	}
-	tip, own, err := gitrepo.BranchCommits(root, a.Branch, agentCommitsLimit, not...)
+	tip, own, err := gitrepo.BranchCommits(root, branch, agentCommitsLimit, not...)
 	if err != nil {
 		return h
 	}
@@ -403,14 +436,21 @@ func (e pullsEntry) knows(heads []agentHead, now time.Time, lookupTTL time.Durat
 
 // listed is the agent's pull request from the list page, if it carries one.
 // The list is sorted by when each pull request last moved, so an agent with
-// several gets the one that moved last.
+// several gets the open one that moved last, or the one that moved last when
+// none is open: a follow-up stacked on a merged one carries its commits too.
 func (e pullsEntry) listed(h agentHead) *api.PullRequest {
+	var out *api.PullRequest
 	for i := range e.prs {
 		if h.owns(e.prs[i].HeadSHA) {
-			return &e.prs[i]
+			if e.prs[i].State == "open" {
+				return &e.prs[i]
+			}
+			if out == nil {
+				out = &e.prs[i]
+			}
 		}
 	}
-	return nil
+	return out
 }
 
 // found is the agent's pull request from a lookup, if one found it.
@@ -428,8 +468,9 @@ func (e pullsEntry) found(h agentHead) *api.PullRequest {
 }
 
 // byAgent is each agent's pull request, the list first and the lookups behind
-// it. The values are copies: the entry itself is shared with whoever else is
-// reading the cache.
+// it. An agent with a branch of its own for each of several pull requests gets
+// the one that matters now (laterPR). The values are copies: the entry itself
+// is shared with whoever else is reading the cache.
 func (e pullsEntry) byAgent(heads []agentHead) map[string]*api.PullRequest {
 	out := make(map[string]*api.PullRequest, len(heads))
 	for _, h := range heads {
@@ -437,12 +478,28 @@ func (e pullsEntry) byAgent(heads []agentHead) map[string]*api.PullRequest {
 		if pr == nil {
 			pr = e.found(h)
 		}
-		if pr != nil {
+		if pr != nil && laterPR(pr, out[h.agent]) {
 			c := *pr
 			out[h.agent] = &c
 		}
 	}
 	return out
+}
+
+// laterPR reports whether pr, one of an agent's pull requests, is the one to
+// show and judge it by over another, than: an open one over one merged or
+// closed, which is done with, then the one that moved last, then the one
+// opened last. While any is open the agent isn't done (prEnded).
+func laterPR(pr, than *api.PullRequest) bool {
+	switch {
+	case than == nil:
+		return true
+	case (pr.State == "open") != (than.State == "open"):
+		return pr.State == "open"
+	case pr.UpdatedAt != nil && than.UpdatedAt != nil && !pr.UpdatedAt.Equal(*than.UpdatedAt):
+		return pr.UpdatedAt.After(*than.UpdatedAt)
+	}
+	return pr.Number > than.Number
 }
 
 // same reports whether two answers say the same thing, ignoring when they
@@ -839,13 +896,19 @@ func (s *Server) mergePullRequest(w http.ResponseWriter, r *http.Request) error 
 	pr.State = "merged"
 	out := toAPIPullRequests([]github.PullRequest{*pr})[0]
 	s.pulls.merged(repo.String(), number)
-	by := agentOfCommit(s.agentsOf(ctx, p), pr.HeadSHA)
+	heads := s.agentsOf(ctx, p)
+	by := agentOfCommit(heads, pr.HeadSHA)
 	s.captureEvent(ctx, project, by, "pr_merged", map[string]any{
 		"number": pr.Number, "url": pr.URL, "branch": pr.HeadBranch, "method": string(method),
 	}, "")
 	s.closeAnchoredSoon(project)
 	if by != "" {
-		if a, err := s.store.Agent(ctx, project, by); err == nil {
+		// Not while another of its pull requests is open, as far as the cache
+		// knows: the watch frees it when that one ends.
+		entry, _ := s.pulls.state(repo.String())
+		if other := entry.byAgent(heads)[by]; other != nil && other.State == "open" && other.Number != number {
+			s.logf("%s/%s: its pull request #%d was merged; kept, with #%d still open", project, by, number, other.Number)
+		} else if a, err := s.store.Agent(ctx, project, by); err == nil {
 			s.freeReviewed(ctx, a, fmt.Sprintf("its pull request #%d was merged", number), &out)
 		}
 	}

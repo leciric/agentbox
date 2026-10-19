@@ -8,6 +8,7 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/state"
+	"agentbox/internal/testutil"
 )
 
 // endedPR is a list or lookup item for a pull request that was merged (or,
@@ -163,5 +164,83 @@ func TestStartupFinishesAnInterruptedDestroy(t *testing.T) {
 	d.srv.reconcilePullRequests(ctx)
 	if agentHasMachine(d, a) || !isArchived(t, d, a) {
 		t.Fatalf("the interrupted destroy wasn't finished (live %v, past %v)", agentHasMachine(d, a), isArchived(t, d, a))
+	}
+}
+
+// followUp has agent a open a second pull request as agent-469 did for #407:
+// a new branch of its own, made in its worktree, with a commit on it.
+func followUp(t *testing.T, a state.Agent, branch string) string {
+	t.Helper()
+	testutil.Git(t, a.Worktree, "switch", "--quiet", "-c", branch)
+	return commitOn(t, a, "follow-up.txt")
+}
+
+// agent-469 opened #405, then a follow-up #407 from a new branch; merging
+// #405 freed it, and #407 left the review list with it. An agent is done
+// when its last pull request ends, not its first: until then it stays, and
+// its open one is what the review shows.
+func TestFollowUpPullRequestKeepsTheAgent(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	gh := newSlowGitHub(t, d, "[]", 0)
+	_, agents := pullsProject(t, d, "agent-01")
+	a := agents["agent-01"]
+	first := commitOn(t, a, "first.txt")
+	second := followUp(t, a, "agentbox/follow-up")
+	d.srv.record(ctx, finishedEvent(a, api.AgentChanges{}, nil, "Opened the follow-up pull request, from a branch of its own.", time.Now()))
+
+	gh.setList("[" + endedPR(7, first, true) + "," + openPR(8, second) + "]")
+	d.srv.reconcilePullRequests(ctx)
+	if !agentHasMachine(d, a) {
+		t.Fatal("the first pull request's merge freed an agent whose follow-up is open")
+	}
+	items, err := d.client.ReadyToReview(ctx, "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].PR == nil || items[0].PR.Number != 8 {
+		t.Fatalf("ready to review = %+v, want agent-01 with its open #8", items)
+	}
+	if got := items[0]; got.Branch != "agentbox/follow-up" || got.Summary != "Opened the follow-up pull request, from a branch of its own." {
+		t.Errorf("the item shows branch %q, summary %q; want the follow-up's", got.Branch, got.Summary)
+	}
+
+	gh.setList("[" + endedPR(8, second, true) + "," + endedPR(7, first, true) + "]")
+	d.srv.reconcilePullRequests(ctx)
+	if agentHasMachine(d, a) || !isArchived(t, d, a) {
+		t.Fatal("both pull requests merged and the agent is still live")
+	}
+	if past, _ := d.srv.store.ArchivedAgentByName(ctx, a.Project, a.Name); past.PR.Number != 8 {
+		t.Errorf("archived with %+v, want its last pull request, #8", past.PR)
+	}
+}
+
+// The PR watch follows both, and frees the agent when the second ends.
+func TestPRWatchKeepsTheAgentWhileAFollowUpIsOpen(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	gh := newFakeGraphQL(t, d)
+	recordPRWatch(d)
+	_, agents := pullsProject(t, d, "agent-01")
+	a := agents["agent-01"]
+	first := commitOn(t, a, "first.txt")
+	second := followUp(t, a, "agentbox/follow-up")
+
+	gh.set(9, first, "OPEN", "MERGEABLE", "SUCCESS", "")
+	gh.set(10, second, "OPEN", "MERGEABLE", "SUCCESS", "")
+	pollNow(d)
+	gh.set(9, first, "MERGED", "UNKNOWN", "SUCCESS", "")
+	pollNow(d)
+	if !agentHasMachine(d, a) {
+		t.Fatal("#9's merge freed the agent while its #10 is open")
+	}
+	gh.set(10, second, "MERGED", "UNKNOWN", "SUCCESS", "")
+	pollNow(d)
+	if agentHasMachine(d, a) || !isArchived(t, d, a) {
+		t.Fatal("both merged and the agent is still live")
+	}
+	if past, _ := d.srv.store.ArchivedAgentByName(context.Background(), a.Project, a.Name); past.PR.Number != 10 {
+		t.Errorf("archived with %+v, want #10", past.PR)
 	}
 }

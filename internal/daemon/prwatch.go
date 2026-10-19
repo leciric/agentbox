@@ -385,7 +385,17 @@ func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo) {
 		// What the project remembers as waiting on it may be over too.
 		s.closeAnchoredSoon(p.Name)
 	}
+	// An agent with another pull request still open — a follow-up from a
+	// branch of its own — isn't done: it is freed when the last one ends.
+	open := map[string]bool{}
+	for n := range live {
+		open[followed[n].Agent] = true
+	}
 	for _, g := range gone {
+		if open[g.row.Agent] {
+			s.logf("%s/%s: its pull request #%d was %s; kept, with another still open", p.Name, g.row.Agent, g.pr.Number, g.pr.State)
+			continue
+		}
 		s.prWatchEnded(ctx, p, g.row, g.pr)
 	}
 	if !sameLive(before, live) {

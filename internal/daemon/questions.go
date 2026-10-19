@@ -615,17 +615,27 @@ func (s *Server) prFor(ctx context.Context, a state.Agent) *api.PullRequest {
 	// just finished may have opened its pull request seconds ago, and the
 	// cache remembers "this agent has none" for longer than that. It is
 	// found by the agent's commits, whatever branch they were pushed to.
-	h := agentHeadOf(p.Root, a)
-	if h.tip == "" {
-		return nil
-	}
-	l := lookUp(ctx, s.gitHub(token), repo, h)
-	for _, pr := range l.prs {
-		if h.accepts(pr, l.via) {
-			return &api.PullRequest{Number: pr.Number, Title: pr.Title, State: pr.State, URL: pr.URL, Draft: pr.Draft}
+	// Each of its branches, should it have opened a follow-up from another.
+	var best *api.PullRequest
+	for _, branch := range agentBranches(a, nil) {
+		h := agentHeadOf(p.Root, a, branch)
+		if h.tip == "" {
+			continue
+		}
+		l := lookUp(ctx, s.gitHub(token), repo, h)
+		for i := range l.prs {
+			if h.accepts(l.prs[i], l.via) {
+				if laterPR(&l.prs[i], best) {
+					best = &l.prs[i]
+				}
+				break
+			}
 		}
 	}
-	return nil
+	if best == nil {
+		return nil
+	}
+	return &api.PullRequest{Number: best.Number, Title: best.Title, State: best.State, URL: best.URL, Draft: best.Draft}
 }
 
 // agentFinished is what package chat calls when an agent's turn ends. The

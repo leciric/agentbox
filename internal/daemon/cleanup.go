@@ -185,10 +185,22 @@ func (s *Server) removeFinishedIn(ctx context.Context, p state.Project, now time
 	return removed
 }
 
-// unpushed reports whether an agent's branch has commits that exist only in
-// this repository: not merged into the project's branch, not on a remote,
-// and not in the head of its pull request as GitHub last saw it.
+// unpushed reports whether any of an agent's branches has commits that exist
+// only in this repository: not merged into the project's branch, not on a
+// remote, and not in the head of its pull request as GitHub last saw it.
 func unpushed(repo gitrepo.Repo, a state.Agent, pr *api.PullRequest) bool {
+	for _, branch := range agentBranches(a, nil) {
+		on := a
+		on.Branch = branch
+		if branchUnpushed(repo, on, pr) {
+			return true
+		}
+	}
+	return false
+}
+
+// branchUnpushed is unpushed for a.Branch alone.
+func branchUnpushed(repo gitrepo.Repo, a state.Agent, pr *api.PullRequest) bool {
 	tip, err := repo.ResolveCommit("refs/heads/" + a.Branch)
 	if err != nil {
 		return false // no branch left, so nothing on it to lose

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"agentbox/internal/gitrepo"
 	"agentbox/internal/testutil"
@@ -460,5 +461,38 @@ func TestAddWorktreeConcurrently(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// An agent that opens a second pull request from a branch of its own leaves
+// that branch in its worktree's reflog; a base branch it only looked at,
+// created before it was, isn't its.
+func TestCheckedOutSince(t *testing.T) {
+	root := testutil.FixtureRepo(t, "hello-stack")
+	old := exec.Command("git", "-C", root, "branch", "develop")
+	old.Env = append(os.Environ(), "GIT_COMMITTER_DATE=2020-01-01T00:00:00Z")
+	if out, err := old.CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	since := time.Now()
+	repo, _ := gitrepo.Open(root)
+	base, _ := repo.ResolveCommit("main")
+	wt := filepath.Join(t.TempDir(), "agent-01")
+	if err := repo.AddWorktree(wt, "agentbox/agent-01", base, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if got := gitrepo.CheckedOutSince(wt, since); !slices.Equal(got, []string{"agentbox/agent-01"}) {
+		t.Errorf("a fresh worktree has checked out %q, want only its own branch", got)
+	}
+	testutil.Git(t, wt, "switch", "--quiet", "-c", "feat/two")
+	testutil.Git(t, wt, "switch", "--quiet", "develop")
+	testutil.Git(t, wt, "checkout", "--quiet", "-b", "three")
+	testutil.Git(t, wt, "switch", "--quiet", "--detach")
+	want := []string{"three", "feat/two", "agentbox/agent-01"}
+	if got := gitrepo.CheckedOutSince(wt, since); !slices.Equal(got, want) {
+		t.Errorf("CheckedOutSince = %q, want %q", got, want)
+	}
+	if got := gitrepo.CheckedOutSince(filepath.Join(t.TempDir(), "gone"), since); got != nil {
+		t.Errorf("a missing worktree has checked out %q", got)
 	}
 }
