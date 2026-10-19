@@ -148,6 +148,24 @@ const settingsDiff: Record<string, string> = {
   ].join('\n'),
 };
 
+// crowded is ?review=media: agent-12 with six recordings and four screenshots,
+// the first recording's checks titled at length, for the strip and the
+// "What it checked" column to be squeezed (a long strip must scroll on its
+// own, the column wraps).
+function crowded(): T.MediaItem[] {
+  const items = evidence('agent-15', 'settings', 4 * min, 17, [
+    [0.3, 'General at 1024×640 with the search box, the long section list and every tab open at once', 'Nothing past the right edge; the search box keeps its width and the Unbrokenly_long_identifier_that_would_not_wrap_unless_told_to stays inside.'],
+    [5.2, 'Models in pt-BR: the longest labels wrap to two lines instead of clipping', ''],
+    [9.5, 'Resources, light theme', ''],
+    [13.5, 'Accounts at 800×600, the narrowest window the app allows', 'No horizontal scroll.'],
+  ]);
+  for (let i = 2; i <= 6; i++) {
+    setMediaFile(`agent-15-rec${i}`, new URL('./concepts/media/settings.webm', import.meta.url).href);
+    items.push({ ...items[0], id: `agent-15-rec${i}`, name: `walkthrough-${i}-at-another-size`, createdAt: ago((4 + i) * min) });
+  }
+  return items;
+}
+
 // evidence is an agent's recording of what it checked, one of the concept's
 // (dev/concepts/media, the preview itself recorded), with a note marking each
 // check as it began and a screenshot of each: what an agent following the
@@ -241,7 +259,7 @@ export function seedReview(queryClient: QueryClient): void {
     { id: 'rv-ci', agent: `${PROJECT}/agent-41`, agentName: 'agent-41', kind: 'screenshot', name: 'release-workflow', file: 'release-workflow.png', mime: 'image/png', size: 180_000, source: 'agent', meta: { width: 1280, height: 800 }, createdAt: ago(42 * min) },
   ] satisfies T.MediaItem[]);
   for (const agent of ['agent-98', 'agent-07', 'agent-03']) queryClient.setQueryData(['media', `${PROJECT}/${agent}`], []);
-  queryClient.setQueryData(['media', `${PROJECT}/agent-15`], evidence('agent-15', 'settings', 4 * min, 17, [
+  queryClient.setQueryData(['media', `${PROJECT}/agent-15`], new URLSearchParams(location.search).get('review') === 'media' ? crowded() : evidence('agent-15', 'settings', 4 * min, 17, [
     [0.3, 'General at 1024×640', 'Nothing past the right edge; the search box keeps its width.'],
     [5.2, 'Models in pt-BR', 'The longest labels wrap to two lines instead of clipping.'],
     [9.5, 'Resources, light theme', ''],

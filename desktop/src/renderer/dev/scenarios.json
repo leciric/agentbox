@@ -2008,5 +2008,49 @@
     "width": 1024,
     "height": 768,
     "click": "[data-panel-unfold]"
+  },
+  {
+    "id": "window-1920-review-media-dark",
+    "description": "1920×1080, \"Ready to review\" on agent-15 with 6 recordings and 4 screenshots and long check titles: the strip scrolls on its own and the checks column stays inside the modal — dark",
+    "query": "app=project&review=media&theme=dark",
+    "width": 1920,
+    "height": 1080,
+    "click": [
+      "header [data-inbox]",
+      "[data-review-row]"
+    ]
+  },
+  {
+    "id": "window-1366-review-media-dark",
+    "description": "1366×768, \"Ready to review\" on agent-15 with 6 recordings and 4 screenshots and long check titles: the strip scrolls on its own and the checks column stays inside the modal — dark",
+    "query": "app=project&review=media&theme=dark",
+    "width": 1366,
+    "height": 768,
+    "click": [
+      "header [data-inbox]",
+      "[data-review-row]"
+    ]
+  },
+  {
+    "id": "window-800-review-media-dark",
+    "description": "800×600, \"Ready to review\" on agent-15 with 6 recordings and 4 screenshots and long check titles: the strip scrolls on its own and the checks column stays inside the modal — dark",
+    "query": "app=project&review=media&theme=dark",
+    "width": 800,
+    "height": 600,
+    "click": [
+      "header [data-inbox]",
+      "[data-review-row]"
+    ]
+  },
+  {
+    "id": "window-480-review-media-dark",
+    "description": "480×800, \"Ready to review\" on agent-15 with 6 recordings and 4 screenshots and long check titles: the strip scrolls on its own and the checks column stays inside the modal — dark",
+    "query": "app=project&review=media&theme=dark",
+    "width": 480,
+    "height": 800,
+    "click": [
+      "header [data-inbox]",
+      "[data-review-row]"
+    ]
   }
 ]

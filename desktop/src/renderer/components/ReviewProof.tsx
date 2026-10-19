@@ -105,7 +105,7 @@ export function ReviewProof({ ref, project, proof }: { ref?: Ref<ProofHandle>; p
   );
 
   return (
-    <div ref={root} className={cn('relative grid min-h-full content-start gap-4 p-4 sm:p-5', expanded && 'h-full')} data-review-proof data-review-media-at={at + 1}>
+    <div ref={root} className={cn('relative grid min-h-full min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-4 p-4 sm:p-5', expanded && 'h-full')} data-review-proof data-review-media-at={at + 1}>
       {expanded ? (
         // Expanded, the piece on stage fills the body, its bar over it.
         <div className="absolute inset-0 z-10 flex flex-col gap-3 bg-black/95 p-4" data-review-expanded>
@@ -113,7 +113,7 @@ export function ReviewProof({ ref, project, proof }: { ref?: Ref<ProofHandle>; p
           <div className="flex min-h-0 flex-1 items-center justify-center">{stage}</div>
         </div>
       ) : (
-        <div className={cn('grid min-w-0 gap-5', rec && 'lg:grid-cols-[minmax(0,1fr)_minmax(240px,300px)]')}>
+        <div className={cn('grid min-w-0 gap-5', rec && 'lg:grid-cols-[minmax(0,1fr)_280px]')}>
           <div className="grid min-w-0 content-start gap-2">
             {stage}
             {bar}
@@ -209,7 +209,7 @@ function Strip({ shown, at, lit, onPick }: { shown: Shown[]; at: number; lit: Re
   ].filter(Boolean);
   if (shown.length < 2) return null;
   return (
-    <section>
+    <section className="min-w-0">
       <h3 className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-subtle">
         {t('review.media')}
         <span className="font-normal normal-case tracking-normal">{counts.join(' · ')}</span>
@@ -264,7 +264,7 @@ function Thumb({ shown }: { shown: Shown }) {
 function Chapters({ take, at, onPick }: { take: Take; at: number; onPick: (seconds: number) => void }) {
   const t = useT();
   return (
-    <section data-review-chapters>
+    <section className="min-w-0" data-review-chapters>
       <h3 className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-subtle">
         {t('review.checked')}
         {take.chapters.length > 1 && (
@@ -277,7 +277,7 @@ function Chapters({ take, at, onPick }: { take: Take; at: number; onPick: (secon
       {take.chapters.length === 0 ? (
         <p className="text-[12px] leading-relaxed text-subtle">{t('review.noChapters')}</p>
       ) : (
-        <ol className="grid gap-0.5">
+        <ol className="grid grid-cols-[minmax(0,1fr)] gap-0.5">
           {take.chapters.map((c, i) => (
             <li key={`${c.at}-${i}`}>
               <button
@@ -292,10 +292,10 @@ function Chapters({ take, at, onPick }: { take: Take; at: number; onPick: (secon
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-baseline gap-2">
-                    <span className={cn('min-w-0 flex-1 break-words text-[13px]', i === at ? 'text-title' : 'text-primary')}>{c.title}</span>
+                    <span className={cn('min-w-0 flex-1 [overflow-wrap:anywhere] text-[13px]', i === at ? 'text-title' : 'text-primary')}>{c.title}</span>
                     <span className="shrink-0 text-[11px] tabular-nums text-faint">{clock(c.at)}</span>
                   </span>
-                  {c.detail && <span className="mt-0.5 line-clamp-3 block text-[12px] leading-snug text-subtle">{c.detail}</span>}
+                  {c.detail && <span className="mt-0.5 line-clamp-3 block [overflow-wrap:anywhere] text-[12px] leading-snug text-subtle">{c.detail}</span>}
                 </span>
               </button>
             </li>
