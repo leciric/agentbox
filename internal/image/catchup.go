@@ -3,7 +3,6 @@ package image
 import (
 	"context"
 	_ "embed"
-	"fmt"
 	"io"
 	"os"
 	"slices"
