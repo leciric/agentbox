@@ -6,7 +6,7 @@ import { onMac, shortcut } from '../../lib/utils';
 import { TourButtons } from './Tour';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 
-const keyName = (k: string) => (k === 'Mod' ? (onMac ? '⌘' : 'Ctrl') : k === 'Shift' && onMac ? '⇧' : k);
+const keyName = (k: string) => (k === 'Mod' ? (onMac ? '⌘' : 'Ctrl') : k === 'Shift' && onMac ? '⇧' : k === 'Alt' && onMac ? '⌥' : k);
 
 export function ShortcutSheet() {
   const t = useT();

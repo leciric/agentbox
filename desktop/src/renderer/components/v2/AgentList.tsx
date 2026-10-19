@@ -3,16 +3,16 @@
 // rows (AgentLine): what it is, what it's doing now, and what it runs on and
 // has made. An agent
 // using its desktop has it in its row, small and live, where the lane of
-// desktops beside the chat used to show it. The
-// repository, the lead's checkout, heads the list; the finished agents fold
-// under the rest, and Past agents is at its foot.
+// desktops beside the chat used to show it. The finished agents fold under
+// the rest, and Past agents is at its foot; the repository, the lead's
+// checkout, is the panel's other tab, Files (RightPanel's LeadSwitch).
 //
 // A row opens the agent's chat, with its Desktop in the panel; the panel's
 // back arrow there comes back to the lead and this list. Folded (AgentStrip),
 // the list is a strip of avatars.
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLayoutEffect, useRef } from 'react';
-import { Archive, ChevronRight, ChevronsLeft } from 'lucide-react';
+import { Archive, ChevronsLeft } from 'lucide-react';
 import type * as T from '../../../shared/api';
 import type { View } from '../../App';
 import { api } from '../../lib/api';
@@ -24,14 +24,12 @@ import { useT } from '../../lib/i18n';
 import { agentSt, type AgentSt } from '../../lib/leadFirst';
 import { pastAgentsKey } from '../../lib/pastAgents';
 import { projectLabel } from '../../lib/projectName';
-import { leadOf, pickTarget } from '../../lib/rightPanel';
 import { cn, timeAgo } from '../../lib/utils';
 import { AgentContextMenu } from '../AgentContextMenu';
 import { FinishedSection, RailEmpty, RailSkeleton, useRailAgents } from '../AgentRail';
 import { PrChip } from '../PrChip';
 import { LiveDesktop } from '../pip/LiveDesktop';
 import { useInUse } from '../pip/inUse';
-import { ProjectIcon } from '../ProjectIcon';
 import { AgentAvatar, ToolMark } from '../state';
 import { Tip } from '../ui/tooltip';
 import { useOpenReview, useProjectReview } from './ReviewV2';
@@ -60,7 +58,6 @@ export function AgentList({ project, chat, onSelect, onNewAgent }: { project: st
   const { rail, live, ready, st, usage } = useListAgents(project);
   const past = useQuery({ queryKey: [...pastAgentsKey, 'panel', project], queryFn: () => api.archivedAgents({ project, limit: 50 }), staleTime: 30_000 });
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
-  const p = projects.data?.find((x) => x.name === project);
   const name = projectLabel(project, projects.data);
 
   const row = (agent: T.Agent) => (
@@ -83,13 +80,6 @@ export function AgentList({ project, chat, onSelect, onNewAgent }: { project: st
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-1.5 pb-3 pt-1.5" data-panel-list={project}>
-      <button type="button" onClick={() => pickTarget(chat, leadOf(project))} className="group flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-surface" data-list-repository>
-        {p ? <ProjectIcon project={p} className="size-5 rounded-md text-[10px]" /> : <span className="size-5 shrink-0 rounded-md bg-surface-strong" />}
-        <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-primary">{t('panel.repository')}</span>
-        <ChevronRight className="size-3.5 shrink-0 text-faint opacity-0 transition group-hover:opacity-100" />
-      </button>
-
-      {(rail.moving.length > 0 || !rail.loaded) && <div className="mx-2 my-1 border-t border-line-faint" />}
       {!rail.loaded && <RailSkeleton />}
       <div className="flex flex-col gap-px">{rail.moving.map(row)}</div>
       {rail.finished.length > 0 && (

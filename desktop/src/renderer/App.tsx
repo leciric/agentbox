@@ -38,7 +38,8 @@ import { ShortcutSheet } from "./components/v2/ShortcutSheet";
 import { TourHost } from "./components/v2/Tour";
 import { isNewTaskShortcut, toggleNewTask } from "./lib/newTask";
 import { HomeStatusV2, PastAgentsV2 } from "./components/v2/PagesV2";
-import { cycleRegion, isSettingsShortcut, isSheetShortcut, toggleSheet } from "./lib/shortcuts";
+import { cycleRegion, isBackToLeadShortcut, isSettingsShortcut, isSheetShortcut, toggleSheet } from "./lib/shortcuts";
+import { onMac } from "./lib/utils";
 import { AgentReviewCard, ReviewV2 } from "./components/v2/ReviewV2";
 import { RightPanelHost } from "./components/v2/RightPanel";
 import { aiLabel } from "./components/state";
@@ -295,8 +296,10 @@ export function App({ initial }: { initial?: View } = {}) {
     return () => window.removeEventListener("keydown", onKey, true);
   }, [v2]);
   // v2's other keys (lib/shortcuts.ts): Ctrl+/ for the shortcut sheet, Ctrl+,
-  // for Settings, and F6 (Shift+F6 back) to move between the sidebar, the
-  // chat and the panel.
+  // for Settings, F6 (Shift+F6 back) to move between the sidebar, the
+  // chat and the panel, and Alt+← from an agent's chat to its lead's.
+  const viewRef = useRef(view);
+  viewRef.current = view;
   useEffect(() => {
     if (!v2) return;
     const onKey = (event: KeyboardEvent) => {
@@ -309,6 +312,9 @@ export function App({ initial }: { initial?: View } = {}) {
         setNavOpen(false);
       } else if (event.key === "F6" && !event.ctrlKey && !event.metaKey && !event.altKey) {
         if (cycleRegion(event.shiftKey)) event.preventDefault();
+      } else if (viewRef.current.kind === "agent" && isBackToLeadShortcut(event, onMac)) {
+        event.preventDefault();
+        selectRef.current({ kind: "project", project: viewRef.current.ref.split("/")[0] });
       }
     };
     window.addEventListener("keydown", onKey, true);

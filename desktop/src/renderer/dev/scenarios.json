@@ -1615,7 +1615,7 @@
   },
   {
     "id": "window-wide-v2-panel-files-dark",
-    "description": "UI v2 at 1920×1080, the right-hand panel beside the lead's chat on the repository's Files: the picker (Repository), the switch on Files, the tree narrow on the left and README.md on its right — dark",
+    "description": "UI v2 at 1920×1080, the right-hand panel beside the lead's chat on its Files tab: the Agents/Files switch on Files, the tree narrow on the left and README.md on its right — dark",
     "query": "app=project&v2=1&panel=files:lead&file=README.md&theme=dark",
     "width": 1920,
     "height": 1080
@@ -1643,11 +1643,32 @@
   },
   {
     "id": "window-1440-v2-panel-list-dark",
-    "description": "UI v2 at 1440×900 on agent-41's chat, the panel back on the list: the repository, the project's agents as the rail had them, and Past agents — dark",
+    "description": "UI v2 at 1440×900 on agent-41's chat, the panel back on the list: the project's agents as the rail had them, and Past agents — dark",
     "query": "app=agent-41&v2=1&panel=files:agent-41&theme=dark",
     "width": 1440,
     "height": 900,
     "click": "[data-panel-back]"
+  },
+  {
+    "id": "window-1440-v2-lead-agents-tab-dark",
+    "description": "UI v2 at 1440×900, the lead's chat with its panel on the Agents tab of its Agents/Files switch, no repository row in the list — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1100-v2-lead-files-tab-light",
+    "description": "UI v2 at 1100×800, the narrowest beside the chat, the lead's panel on its Files tab with README.md open — light",
+    "query": "app=project&v2=1&panel=files:lead&file=README.md&theme=light",
+    "width": 1100,
+    "height": 800
+  },
+  {
+    "id": "window-1100-v2-agent-back-to-lead-dark",
+    "description": "UI v2 at 1100×800, agent-41's chat: ← and the breadcrumb 'project › agent title' in the top bar, whose project part opens the lead's chat — dark",
+    "query": "app=agent-41&v2=1&panel=desktop:agent-41&theme=dark",
+    "width": 1100,
+    "height": 800
   },
   {
     "id": "window-1440-v2-panel-evidence-dark",

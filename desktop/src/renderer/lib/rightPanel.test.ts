@@ -279,3 +279,29 @@ test('✕ goes back to the list; the panel button folds the list and back, and n
   assert.equal(P.chatPanel(P.panelState(), lead).open, false);
   P.setFitsBeside(true);
 });
+
+test('the lead’s panel switches between Agents and Files, remembered per project', async () => {
+  P.setPanel({ chats: {}, views: {}, last: {} });
+  const lead = 'pawly/lead';
+  assert.equal(P.leadTab(P.panelState(), 'pawly'), 'agents');
+  P.setView(lead, lead, 'evidence');
+  P.setLeadTab('pawly', 'files');
+  assert.equal(P.leadTab(P.panelState(), 'pawly'), 'files');
+  assert.equal(P.panelTarget(P.panelState(), lead), lead);
+  // Files is the repository's files, whatever it was last shown in.
+  assert.equal(P.viewOf(P.panelState(), { kind: 'lead', ref: lead }), 'files');
+  assert.equal(P.leadTab(P.panelState(), 'other'), 'agents');
+  // Another project's lead keeps its own tab.
+  P.setLeadTab('other', 'files');
+  P.setLeadTab('pawly', 'agents');
+  assert.equal(P.leadTab(P.panelState(), 'pawly'), 'agents');
+  assert.equal(P.onList(P.panelState(), lead), true);
+  assert.equal(P.leadTab(P.panelState(), 'other'), 'files');
+  // Remembered across a launch.
+  const again = './rightPanel.ts?tabs';
+  const fresh = (await import(again)) as typeof P;
+  assert.equal(fresh.leadTab(fresh.panelState(), 'other'), 'files');
+  // An agent shown in the lead's panel is neither tab: back goes to Agents.
+  P.openPanelOn(lead, 'desktop', 'pawly/agent-3');
+  assert.equal(P.leadTab(P.panelState(), 'pawly'), 'agents');
+});

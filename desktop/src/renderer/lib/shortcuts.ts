@@ -16,6 +16,14 @@ export const isSheetShortcut = (event: Keyish) => mod(event) && !event.shiftKey 
 // isSettingsShortcut is Ctrl+, (⌘, on a Mac), as most desktop apps have it.
 export const isSettingsShortcut = (event: Keyish) => mod(event) && !event.shiftKey && event.key === ',' && !inTerminal(event);
 
+// isBackToLeadShortcut is Alt+← (⌥← on a Mac), from an agent's chat back to
+// its lead's, as a browser's Back: not in a terminal or a desktop you
+// control, which get their keys, nor on a Mac in a text field, where ⌥←
+// moves a word.
+const closest = (event: Keyish, selector: string) => !!(event.target as { closest?: (s: string) => unknown } | null)?.closest?.(selector);
+export const isBackToLeadShortcut = (event: Keyish, mac: boolean) =>
+  event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.key === 'ArrowLeft' && !closest(event, '.xterm, canvas') && !(mac && closest(event, 'input, textarea, [contenteditable="true"]'));
+
 // The places F6 moves between, in order, each found by its selector; one that
 // isn't on screen (the panel, closed) is skipped. focus is what in it takes
 // the focus, the first that is there.
@@ -62,6 +70,7 @@ export const sheet: { title: MessageKey; rows: { keys: string[]; label: MessageK
       { keys: ['Mod', 'N'], label: 'keys.newTask' },
       { keys: ['Mod', ','], label: 'keys.settings' },
       { keys: ['Mod', '/'], label: 'keys.sheet' },
+      { keys: ['Alt', '←'], label: 'keys.backToLead' },
       { keys: ['F6'], label: 'keys.f6' },
       { keys: ['Shift', 'F6'], label: 'keys.f6back' },
     ],

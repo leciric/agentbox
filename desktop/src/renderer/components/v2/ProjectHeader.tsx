@@ -40,8 +40,9 @@ export function InTopBar({ end, children }: { end?: boolean; children: ReactNode
 }
 
 // ProjectCrumb is "Project › Lead" (or the agent): the project's root is in
-// a tooltip and copied on click.
-export function ProjectCrumb({ project, then }: { project: T.Project; then: string }) {
+// a tooltip and copied on click. With onProject (an agent's chat), a click on
+// the project opens its lead's chat instead, and the copy icon copies.
+export function ProjectCrumb({ project, then, onProject }: { project: T.Project; then: string; onProject?: () => void }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
   const copy = () => {
@@ -51,8 +52,8 @@ export function ProjectCrumb({ project, then }: { project: T.Project; then: stri
   };
   return (
     <span className="group flex min-w-0 items-center gap-1.5">
-      <Tip label={project.root}>
-        <button type="button" onClick={copy} className="-mx-1 flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-primary hover:bg-surface-raised" data-project-crumb>
+      <Tip label={onProject ? t('v2.header.openLead') : project.root}>
+        <button type="button" onClick={onProject ?? copy} className="-mx-1 flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-primary hover:bg-surface-raised" data-project-crumb={onProject ? 'lead' : 'copy'}>
           <ProjectIcon project={project} className="size-5 shrink-0 rounded-md text-[11px]" />
           <span className="max-w-[16rem] truncate font-medium">{projectLabel(project)}</span>
         </button>

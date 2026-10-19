@@ -5,8 +5,8 @@
 // the project's agents (the list), which folds to a strip of their avatars
 // (one header button, or ⌘D) but never closes. Where it doesn't fit beside
 // the chat, the strip stays and the rest opens over the chat as a drawer.
-// The repository (the lead's checkout) or an agent shows in it in one of
-// four views on a fixed switch: Desktop, Terminal, Files and Evidence (its
+// The lead's panel switches between the list and the repository's Files
+// (setLeadTab); an agent shows in it in one of four views on a fixed switch: Desktop, Terminal, Files and Evidence (its
 // media and Hatch pages, newest first), with ✕ back to the list. Browser and Timeline
 // open from its ⋯; the project's Pull requests and Settings, from the
 // project's header (ProjectView), go over it. It remembers the view each
@@ -293,6 +293,18 @@ export function panelClose(chat: string): void {
   const state = panelState();
   if (isLeadRef(chat)) update(chat, bare, { last: { ...state.last, [projectOf(chat)]: listTarget } });
   else update(chat, (p) => ({ ...bare(p), target: listTarget }));
+}
+
+// The lead's panel is two tabs on a switch at its top: Agents, the list, and
+// Files, the repository's tree. Files is the lead picked as whose, so which
+// tab is on is remembered per project in last, with whoever else it showed.
+export type LeadTab = 'agents' | 'files';
+export const leadTab = (state: PanelState, project: string): LeadTab => (state.last[project] === leadOf(project) ? 'files' : 'agents');
+export function setLeadTab(project: string, tab: LeadTab): void {
+  const lead = leadOf(project);
+  if (tab === 'agents') return panelBack(lead);
+  const state = panelState();
+  update(lead, (p) => ({ ...bare(p), open: true }), { last: { ...state.last, [project]: lead }, views: { ...state.views, [lead]: 'files' } });
 }
 
 // onList is whether chat's panel shows its list.

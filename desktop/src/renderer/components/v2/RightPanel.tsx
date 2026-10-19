@@ -3,9 +3,11 @@
 // avatars (») and back from the chat header's button (PanelButton) or ⌘D;
 // it never closes. Where the list doesn't fit beside the chat, the strip
 // stays there and the rest opens over the chat as a drawer.
-// The repository (the lead's checkout), an agent, or the project's Pull
-// requests and Settings (opened from the project's header) show in it with
-// ✕ back to the list; for whose it shows, the header is, left to right: a
+// Beside the lead's chat its top is a switch of two tabs, Agents (the list)
+// and Files (the repository's tree, the lead's checkout), the last one kept
+// per project (LeadSwitch). An agent, or the project's Pull requests and
+// Settings (opened from the project's header), show in it with ✕ back to
+// where it was; for an agent, the header is, left to right: a
 // back arrow, whose it is (a click opens its chat), a fixed switch of four
 // views, Desktop, Terminal, Files and Evidence, then ⋯ for Browser,
 // Timeline and Schedules. Opening an agent's chat (a row of the list does)
@@ -14,7 +16,7 @@
 // was picked there. Dragged at its left edge, the list and an agent each
 // keep their own width. lib/rightPanel.ts has its rules and state.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlarmClock, ArrowLeft, ChevronsRight, Camera, Check, Crown, Ellipsis, Film, FileText, FolderTree, GanttChart, GitBranch, GitPullRequest, Globe, Image as ImageIcon, Images, LoaderCircle, Maximize, Minimize, Monitor, MousePointer2, Play, Plus, Power, SlidersHorizontal, SquareTerminal, Unplug, X, type LucideIcon } from 'lucide-react';
+import { AlarmClock, ArrowLeft, ChevronsRight, Camera, Check, Crown, Ellipsis, Film, FileText, FolderTree, GanttChart, GitBranch, GitPullRequest, Globe, Image as ImageIcon, Images, LoaderCircle, Maximize, Minimize, Monitor, MousePointer2, Play, Plus, Power, SlidersHorizontal, SquareTerminal, Unplug, Users, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
@@ -34,6 +36,7 @@ import {
   hasView,
   isPastRef,
   leadOf,
+  leadTab,
   listTarget,
   listBox,
   listMin,
@@ -55,6 +58,7 @@ import {
   resolveWhose,
   setFitsBeside,
   setPanel,
+  setLeadTab,
   setPanelOpen,
   setView,
   switchViews,
@@ -63,6 +67,7 @@ import {
   viewOf,
   whoseRef,
   type PanelState,
+  type LeadTab,
   type PanelView,
   type Whose,
 } from '../../lib/rightPanel';
@@ -264,12 +269,15 @@ function RightPanel({ project, chat, width, drawer, onSelect, onNewAgent }: { pr
   // The switch's labels, as there is room: all of them, the lit one's, none.
   const labels = width >= 520 ? 'all' : width >= 400 ? 'on' : 'none';
   const projectName = projectLabel(project, useQuery({ queryKey: ['projects'], queryFn: api.projects }).data);
+  // Beside the lead's chat, the list and the repository are its two tabs:
+  // no back arrow, title or ✕ for them, the switch instead.
+  const home = lead && !panel.wide && (!whose || whose.kind === 'lead');
 
   if (!whose && !panel.wide && state.listFolded && !drawer) return <AgentStrip project={project} chat={chat} onSelect={onSelect} onUnfold={() => setPanel({ listFolded: false })} />;
   return (
     <div className="flex min-w-0 flex-1 flex-col" data-panel-view={view ?? listTarget} data-panel-whose={ref}>
       <div className="flex h-11 shrink-0 items-center gap-1.5 border-b border-line-faint bg-rail pl-2 pr-1.5">
-        {(whose || panel.wide) && (
+        {(whose || panel.wide) && !home && (
           <Tip label={t('panel.back')}>
             <Button
               size="icon-sm"
@@ -290,7 +298,9 @@ function RightPanel({ project, chat, width, drawer, onSelect, onNewAgent }: { pr
             </Button>
           </Tip>
         )}
-        {whose ? (
+        {home ? (
+          <LeadSwitch project={project} tab={leadTab(state, project)} files={view === 'files'} count={agents.length} />
+        ) : whose ? (
           <WhoseTitle project={project} chat={chat} whose={whose} onSelect={onSelect} />
         ) : (
           !panel.wide && (
@@ -300,7 +310,7 @@ function RightPanel({ project, chat, width, drawer, onSelect, onNewAgent }: { pr
             </span>
           )
         )}
-        {whose && <ViewSwitch chat={chat} whose={whose} view={view} labels={labels} />}
+        {whose && !home && <ViewSwitch chat={chat} whose={whose} view={view} labels={labels} />}
         <span className="min-w-0 flex-1" />
         {!whose && !panel.wide && (
           <Tip label={t('agent.rail.newAgentIn', { project: projectName })}>
@@ -317,7 +327,7 @@ function RightPanel({ project, chat, width, drawer, onSelect, onNewAgent }: { pr
             </Button>
           </Tip>
         )}
-        {(whose || panel.wide) && (
+        {(whose || panel.wide) && !home && (
           <Tip label={t('panel.back')}>
             <Button size="icon-sm" variant="ghost" aria-label={t('panel.back')} onClick={() => panelClose(chat)} data-panel-close>
               <X />
@@ -367,6 +377,36 @@ function WhoseTitle({ project, chat, whose, onSelect }: { project: string; chat:
   );
 }
 
+// LeadSwitch is the lead's panel's two tabs, Agents (with how many) and
+// Files, in ViewSwitch's look. Files is lit only while the repository shows
+// its files: its Evidence, from the ⋯, lights neither.
+function LeadSwitch({ project, tab, files, count }: { project: string; tab: LeadTab; files: boolean; count: number }) {
+  const t = useT();
+  const tabs: { tab: LeadTab; icon: LucideIcon; label: string; on: boolean }[] = [
+    { tab: 'agents', icon: Users, label: t('panel.lead.agents'), on: tab === 'agents' },
+    { tab: 'files', icon: FolderTree, label: t('panel.view.files'), on: tab === 'files' && files },
+  ];
+  return (
+    <div role="radiogroup" aria-label={t('panel.lead.switch')} className="flex min-w-0 shrink items-center rounded-lg border border-line bg-surface-faint p-0.5" data-panel-lead-switch={tab}>
+      {tabs.map(({ tab: v, icon: Icon, label, on }) => (
+        <button
+          key={v}
+          type="button"
+          role="radio"
+          aria-checked={on}
+          onClick={() => setLeadTab(project, v)}
+          className={cn('flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2.5 text-[11.5px] font-medium transition-colors', on ? 'bg-surface-raised text-title shadow-sm' : 'text-subtle hover:text-title')}
+          data-panel-lead-tab={v}
+        >
+          <Icon className="size-3.5 shrink-0" />
+          <span className="truncate">{label}</span>
+          {v === 'agents' && count > 0 && <span className="rounded-full bg-surface-strong px-1.5 text-[10.5px] tabular-nums text-subtle">{count}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ViewSwitch is the four views, always in place; one whose can't show (the
 // repository has no machine) is greyed, with why in its tooltip. Narrower,
 // only the lit one is named, then none.
@@ -412,23 +452,26 @@ function ViewSwitch({ chat, whose, view, labels }: { chat: string; whose: Whose;
   );
 }
 
-// MoreMenu is the panel's ⋯: the views off the switch.
+// MoreMenu is the panel's ⋯: the views off the switch. The lead's has the
+// repository's Evidence, off its switch, and none it can't show.
 function MoreMenu({ chat, whose, view }: { chat: string; whose: Whose; view: PanelView | undefined }) {
   const t = useT();
+  const views: PanelView[] = whose.kind === 'lead' && isLeadRef(chat) ? ['evidence', ...moreViews.filter((v) => hasView(whose, v))] : moreViews;
+  const pick = (v: PanelView) => (whose.kind === 'lead' && !projectWide(v) ? openPanelOn(chat, v, whose.ref) : setView(chat, whoseRef(whose), v));
   return (
     <Menu>
       <Tip label={t('panel.more')}>
         <MenuTrigger asChild>
-          <Button size="icon-sm" variant="ghost" aria-label={t('panel.more')} className={cn(view && moreViews.includes(view) && 'text-title')} data-panel-more>
+          <Button size="icon-sm" variant="ghost" aria-label={t('panel.more')} className={cn(view && views.includes(view) && 'text-title')} data-panel-more>
             <Ellipsis />
           </Button>
         </MenuTrigger>
       </Tip>
       <MenuContent align="end">
-        {moreViews.map((v, i) => (
+        {views.map((v, i) => (
           <span key={v}>
-            {i > 0 && projectWide(v) && !projectWide(moreViews[i - 1]) && <MenuSeparator />}
-            <MenuItem icon={viewIcon[v]} disabled={!hasView(whose, v)} onSelect={() => setView(chat, whoseRef(whose), v)} hint={view === v ? <Check className="size-3.5" /> : undefined} data-panel-more-view={v}>
+            {i > 0 && projectWide(v) && !projectWide(views[i - 1]) && <MenuSeparator />}
+            <MenuItem icon={viewIcon[v]} disabled={!hasView(whose, v)} onSelect={() => pick(v)} hint={view === v ? <Check className="size-3.5" /> : undefined} data-panel-more-view={v}>
               {t(viewLabel[v])}
             </MenuItem>
           </span>

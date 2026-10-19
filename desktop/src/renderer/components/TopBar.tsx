@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { ChevronRight, Menu as MenuIcon, Search as SearchIcon, TriangleAlert, Users } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Menu as MenuIcon, Search as SearchIcon, TriangleAlert, Users } from 'lucide-react';
 import type { View } from '../App';
 import { api } from '../lib/api';
 import { useT } from '../lib/i18n';
@@ -10,14 +10,17 @@ import { noLimits, pickMeter } from '../lib/usageMeter';
 import { useNow } from '../lib/useNow';
 import { useUiV2 } from '../lib/uiV2';
 import { ProjectCrumb, TopEndSlot, TopSlot } from './v2/ProjectHeader';
-import { cn, shortcut, timeAgo, timeUntil } from '../lib/utils';
+import { cn, onMac, shortcut, timeAgo, timeUntil } from '../lib/utils';
 import { ToolMark } from './state';
+import { Tip } from './ui/tooltip';
 import { DiskGuardPill } from './DiskGuardPill';
 import { openSettingsSection } from './SettingsPage';
 import { ImageBuildChip } from './ImageBuildChip';
 import { MachineStatus } from './MachineStatus';
 import { Inbox } from './Inbox';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
+
+const backToLeadKeys = onMac ? '⌥←' : 'Alt+←';
 
 export function TopBar({
   view,
@@ -97,8 +100,22 @@ export function TopBar({
         <MenuIcon className="size-5" />
       </button>
       <nav className="flex min-w-32 grow basis-0 items-center gap-1.5 text-[13px]" aria-label={t('shell.top.breadcrumb')}>
+        {/* In an agent's chat, the way back to its lead's: ←, Alt+← (App), or the project's name. */}
+        {crumbProject && view.kind === 'agent' && (
+          <Tip label={`${t('v2.header.backToLead')} (${backToLeadKeys})`}>
+            <button
+              type="button"
+              aria-label={t('v2.header.backToLead')}
+              onClick={() => onSelect({ kind: 'project', project: crumbProject.name })}
+              className="-ml-1 shrink-0 rounded-md p-1 text-muted transition hover:bg-surface-raised hover:text-primary"
+              data-back-to-lead
+            >
+              <ArrowLeft className="size-4" />
+            </button>
+          </Tip>
+        )}
         {crumbProject ? (
-          <ProjectCrumb project={crumbProject} then={crumbThen} />
+          <ProjectCrumb project={crumbProject} then={crumbThen} onProject={view.kind === 'agent' ? () => onSelect({ kind: 'project', project: crumbProject.name }) : undefined} />
         ) : crumbs.map((crumb, i) => (
           <span key={i} className="flex min-w-0 items-center gap-1.5">
             {i > 0 && <ChevronRight className="size-3.5 shrink-0 text-faint" />}
