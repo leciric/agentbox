@@ -14,7 +14,7 @@ import { Button } from './ui/button';
 // chapter for each thing it checked (lib/review.ts proofOf), listed beside it
 // to jump to; its screenshots are a strip under it, each lit while its
 // chapter plays and opened large on a click; its Hatch pages after them.
-// Beside, under the chapters, is what the agent said (aside).
+// Beside it are the chapters; aside, when given, goes under them.
 
 // clock is seconds as m:ss.
 export const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
@@ -22,7 +22,7 @@ export const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s
 // Open is what's shown large over the proof: a screenshot or a page.
 type Open = { kind: 'shot'; n: number } | { kind: 'page'; n: number } | null;
 
-export function ReviewProof({ project, proof, aside }: { project: string; proof: Proof; aside: ReactNode }) {
+export function ReviewProof({ project, proof, aside }: { project: string; proof: Proof; aside?: ReactNode }) {
   const t = useT();
   const [take, setTake] = useState(0);
   const [time, setTime] = useState(0);
@@ -34,7 +34,7 @@ export function ReviewProof({ project, proof, aside }: { project: string; proof:
   const nothing = !rec && proof.screenshots.length === 0 && proof.pages.length === 0;
 
   return (
-    <div className="relative grid min-h-full gap-5 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_minmax(260px,320px)]" data-review-proof>
+    <div className={cn('relative grid min-h-full content-start gap-5 p-4 sm:p-5', (rec || aside) && 'lg:grid-cols-[minmax(0,1fr)_minmax(260px,320px)]')} data-review-proof>
       <div className="flex min-w-0 flex-col gap-4">
         {nothing ? (
           <div className="grid justify-items-center gap-2 rounded-xl border border-line bg-surface-faint px-6 py-14 text-center">
@@ -119,10 +119,12 @@ export function ReviewProof({ project, proof, aside }: { project: string; proof:
           </section>
         )}
       </div>
-      <aside className="flex min-w-0 flex-col gap-5">
-        {rec && <Chapters take={rec} at={chapter} onPick={(s) => player.current?.seek(s)} />}
-        {aside}
-      </aside>
+      {(rec || aside) && (
+        <aside className="flex min-w-0 flex-col gap-5">
+          {rec && <Chapters take={rec} at={chapter} onPick={(s) => player.current?.seek(s)} />}
+          {aside}
+        </aside>
+      )}
       {open?.kind === 'shot' && <ShotView shots={proof.screenshots} n={open.n} onPick={(n) => setOpen({ kind: 'shot', n })} onClose={() => setOpen(null)} />}
       {open?.kind === 'page' && proof.pages[open.n] && <PageView project={project} page={proof.pages[open.n]} onClose={() => setOpen(null)} />}
     </div>

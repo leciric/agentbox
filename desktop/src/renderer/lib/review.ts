@@ -145,49 +145,68 @@ export const wrapWalk = (walk: Walk, remaining: readonly T.ReviewItem[]): Walk =
   order: remaining.map((i) => i.ref),
 });
 
-// ReviewAction is what a key does in the review.
-// reviewed marks the agent reviewed and goes on to the next one; merge
-// merges its pull request and goes on too.
-export type ReviewAction = 'previous' | 'next' | 'first' | 'last' | 'reviewed' | 'previousAgent' | 'merge' | 'requestChanges';
+// ReviewAction is what a key does in the review. merge, reviewed and
+// requestChanges are the verdicts (each goes on to the next agent waiting);
+// nextItem and previousItem move through the walk without one.
+export type ReviewAction =
+  | 'merge'
+  | 'requestChanges'
+  | 'reviewed'
+  | 'nextItem'
+  | 'previousItem'
+  | 'openPr'
+  | 'toggleDiff'
+  | 'toggleDetails'
+  | 'nextFile'
+  | 'previousFile'
+  | 'help';
 
-// The keys, as the review lists them under the slides, in the footer's order.
+// The keys, as the review's ? overlay lists them: the verdicts, then moving
+// about. Single letters, as GitHub's and Gmail's are, so a hand on the keys
+// never leaves them; none fires while typing (ReviewCarousel).
 export const reviewKeys: readonly { keys: readonly string[]; action: ReviewAction }[] = [
-  { keys: ['←', '→'], action: 'next' },
-  { keys: ['P'], action: 'previousAgent' },
-  { keys: ['C'], action: 'requestChanges' },
   { keys: ['M'], action: 'merge' },
-  { keys: ['N'], action: 'reviewed' },
+  { keys: ['C'], action: 'requestChanges' },
+  { keys: ['R'], action: 'reviewed' },
+  { keys: ['N'], action: 'nextItem' },
+  { keys: ['P'], action: 'previousItem' },
+  { keys: ['D'], action: 'toggleDiff' },
+  { keys: ['J'], action: 'nextFile' },
+  { keys: ['K'], action: 'previousFile' },
+  { keys: ['I'], action: 'toggleDetails' },
+  { keys: ['O'], action: 'openPr' },
+  { keys: ['?'], action: 'help' },
 ];
+
+const byKey = new Map(reviewKeys.flatMap((k) => k.keys.map((key) => [key.toLowerCase(), k.action] as const)));
 
 // reviewShortcut is the action a key press stands for in the review, or
 // null: none with Ctrl, Alt or Cmd held, which belong to the app and the
-// system.
+// system. Shift is allowed: ? is Shift+/ on most layouts.
 export function reviewShortcut(e: { key: string; ctrlKey?: boolean; altKey?: boolean; metaKey?: boolean }): ReviewAction | null {
   if (e.ctrlKey || e.altKey || e.metaKey) return null;
-  switch (e.key) {
-    case 'ArrowLeft':
-      return 'previous';
-    case 'ArrowRight':
-      return 'next';
-    case 'Home':
-      return 'first';
-    case 'End':
-      return 'last';
-    case 'n':
-    case 'N':
-      return 'reviewed';
-    case 'p':
-    case 'P':
-      return 'previousAgent';
-    case 'c':
-    case 'C':
-      return 'requestChanges';
-    case 'm':
-    case 'M':
-      return 'merge';
-    default:
-      return null;
-  }
+  return byKey.get(e.key.toLowerCase()) ?? null;
+}
+
+// repeatable is whether holding a key down may act again: moving through
+// files and agents may, a verdict or a toggle may not.
+export const repeatable = (action: ReviewAction) => action === 'nextFile' || action === 'previousFile' || action === 'nextItem' || action === 'previousItem';
+
+// isTyping is whether a key press belongs to what has focus rather than to
+// the review: a field, an editable element, or a menu's typeahead.
+export function isTyping(target: { tagName?: string; isContentEditable?: boolean; closest?: (selector: string) => unknown } | null): boolean {
+  if (!target) return false;
+  if (target.isContentEditable) return true;
+  const tag = target.tagName?.toUpperCase();
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  return !!target.closest?.('[role="menu"],[role="listbox"],[role="combobox"]');
+}
+
+// firstLine is a summary cut to its first line, without Markdown's heading
+// and list marks, for the review's header.
+export function firstLine(text: string | undefined): string {
+  const line = (text ?? '').split('\n').map((l) => l.trim()).find((l) => l && !/^[-*_]{3,}$/.test(l)) ?? '';
+  return line.replace(/^(#{1,6}\s+|[-*+]\s+|\d+\.\s+|>\s*)/, '').replace(/\*\*|__|`/g, '');
 }
 
 // walkItems is what a walk goes through: every agent waiting, or one
