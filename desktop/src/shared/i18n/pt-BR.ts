@@ -3410,6 +3410,7 @@ export const ptBR: Messages = {
   'panel.back': 'Voltar aos agentes',
   'panel.list.fold': 'Recolher os agentes numa faixa',
   'panel.list.unfold': 'Mostrar os agentes',
+  'panel.list.usage': 'CPU (100% é um núcleo) · memória',
   'panel.openChat': 'Abrir o chat de {name}',
   'panel.find': 'Encontrar um agente…',
   'panel.repository': 'Repositório',

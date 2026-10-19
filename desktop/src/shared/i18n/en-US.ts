@@ -3409,6 +3409,7 @@ export const enUS = {
   'panel.back': 'Back to the agents',
   'panel.list.fold': 'Fold the agents to a strip',
   'panel.list.unfold': 'Show the agents',
+  'panel.list.usage': 'CPU (100% is one core) · memory',
   'panel.openChat': 'Open the chat of {name}',
   'panel.find': 'Find an agent…',
   'panel.repository': 'Repository',

@@ -165,6 +165,12 @@ export function sayInPip(item: T.ChatItem): T.ChatThread {
   return thread;
 }
 
+// The working agents' CPU (percent of one core) and memory, made up.
+const load: Record<string, [number, number]> = { 'agent-24': [38, 1.4], 'agent-25': [72, 2.1], 'agent-26': [140, 3.6], 'agent-27': [9, 0.8], 'agent-28': [55, 1.9] };
+const GiB = 1024 ** 3;
+const cpuUsage = (): T.CPUUsage => ({ hostCPU: 0, hostCores: 8, otherCPU: 0, agents: Object.entries(load).map(([name, [cpu]]) => ({ ref: `${PROJECT}/${name}`, state: 'running', cpu })) });
+const memoryUsage = (): T.MemoryUsage => ({ hostTotal: 32 * GiB, agentsUsed: 0, otherUsed: 0, swapTotal: 0, swapUsed: 0, agentsSwap: 0, agents: Object.entries(load).map(([name, [, gib]]) => ({ ref: `${PROJECT}/${name}`, state: 'running', memory: gib * GiB, swap: 0 })) });
+
 // seedPip puts the scenario in place of the v2 fixtures' agents, media and
 // lead's chat; after seedV2, seedReview and seedMedia.
 export function seedPip(queryClient: QueryClient): void {
@@ -178,11 +184,16 @@ export function seedPip(queryClient: QueryClient): void {
     if (path === `/v1/projects/${PROJECT}/desktops`) return json(desktops());
     if (/^\/v1\/projects\/[^/]+\/chat(\?|$)/.test(path) && path.startsWith(`/v1/projects/${PROJECT}/`)) return json(thread);
     if (path.startsWith('/v1/archived-agents')) return json([]);
+    // What each agent's machine uses, for the panel's list.
+    if (path.startsWith('/v1/usage/cpu')) return json(cpuUsage());
+    if (path === '/v1/usage/memory') return json(memoryUsage());
     // The fixtures' agents asking for accounts and secrets aren't this scenario's.
     if (path.startsWith(`/v1/projects/${PROJECT}/questions`)) return json([]);
     return undefined;
   });
   queryClient.setQueryData(['agents'], agents());
+  queryClient.setQueryData(['cpuUsage'], cpuUsage());
+  queryClient.setQueryData(['memoryUsage'], memoryUsage());
   queryClient.setQueryData(chatKey(`${PROJECT}/lead`), thread);
   queryClient.setQueryData(['media', `${PROJECT}/agent-26`], []);
   queryClient.setQueryData(['questions', PROJECT], []);

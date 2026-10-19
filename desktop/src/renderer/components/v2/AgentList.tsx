@@ -1,9 +1,10 @@
 // UI v2's right-hand panel opens on its project's agents, beside the lead's
 // chat, as v1's rail had them, in one narrow column with the sidebar's quiet
-// rows: a state mark, the agent's task, its pull request or that it's ready
-// to review, and when it last reported; under it, only when there is one, its
-// latest report. An agent using its desktop has it in its row, small and
-// live, where the lane of desktops beside the chat used to show it. The
+// rows: a state mark, its AI tool's, the agent's task, its pull request or
+// that it's ready to review, and when it last reported; under it, its latest
+// report and what its machine uses, CPU and memory, when there are. An agent
+// using its desktop has it in its row, small and live, where the lane of
+// desktops beside the chat used to show it. The
 // repository, the lead's checkout, heads the list; the finished agents fold
 // under the rest, and Past agents is at its foot.
 //
@@ -26,7 +27,7 @@ import { FinishedSection, RailEmpty, RailSkeleton, useRailAgents } from '../Agen
 import { LiveDesktop } from '../pip/LiveDesktop';
 import { useInUse } from '../pip/inUse';
 import { ProjectIcon } from '../ProjectIcon';
-import { AgentAvatar } from '../state';
+import { AgentAvatar, ToolMark } from '../state';
 import { Tip } from '../ui/tooltip';
 import { useOpenReview, useProjectReview } from './ReviewV2';
 import { StMark } from './SidebarV2';
@@ -39,12 +40,19 @@ function useListAgents(project: string) {
   const ready = new Set((useProjectReview(project, !!useOpenReview()).data?.items ?? []).map((i) => i.ref));
   const asking = new Set(rail.mine.filter(rail.asking).map((a) => a.ref));
   const st = (agent: T.Agent) => agentSt(agent, { review: ready, asking });
-  return { rail, live, ready, st };
+  // What each running machine uses, as the rail showed it, read every few
+  // seconds while the list is on screen.
+  const cpu = useQuery({ queryKey: ['cpuUsage'], queryFn: api.cpuUsage, refetchInterval: 5_000 });
+  const memory = useQuery({ queryKey: ['memoryUsage'], queryFn: api.memoryUsage, refetchInterval: 5_000 });
+  const usage = new Map<string, { cpu?: number; memory?: number }>();
+  for (const a of cpu.data?.agents ?? []) usage.set(a.ref, { cpu: a.cpu });
+  for (const a of memory.data?.agents ?? []) usage.set(a.ref, { ...usage.get(a.ref), memory: a.memory });
+  return { rail, live, ready, st, usage };
 }
 
 export function AgentList({ project, chat, onSelect, onNewAgent }: { project: string; chat: string; onSelect: (view: View) => void; onNewAgent: (project: string) => void }) {
   const t = useT();
-  const { rail, live, ready, st } = useListAgents(project);
+  const { rail, live, ready, st, usage } = useListAgents(project);
   const past = useQuery({ queryKey: [...pastAgentsKey, 'panel', project], queryFn: () => api.archivedAgents({ project, limit: 50 }), staleTime: 30_000 });
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const p = projects.data?.find((x) => x.name === project);
@@ -61,6 +69,7 @@ export function AgentList({ project, chat, onSelect, onNewAgent }: { project: st
       pr={rail.prs.get(agent.ref)}
       at={rail.lastReport.get(agent.ref)}
       report={rail.lastSummary.get(agent.ref)}
+      usage={agent.state === 'running' ? usage.get(agent.ref) : undefined}
       onOpen={onSelect}
       onClick={() => openPanelOn(chat, 'desktop', agent.ref)}
     />
@@ -103,16 +112,21 @@ export function AgentList({ project, chat, onSelect, onNewAgent }: { project: st
 const checkMark: Record<string, string> = { passing: '✓', failing: '✕', pending: '•' };
 const checkTone: Record<string, string> = { passing: 'text-emerald-300', failing: 'text-rose-300', pending: 'text-amber-300' };
 
-// AgentLine is one agent: a line of its state mark, task, pull request (or
-// ready to review) and time, and a line of its latest report when it has
-// one; what needs you says so there instead, in its colour. Using its desktop,
-// its mark gives way to the desktop, small and live. A right-click opens its
-// menu (AgentContextMenu).
-function AgentLine({ agent, st, active, live, ready, pr, at, report, onOpen, onClick }: { agent: T.Agent; st: AgentSt; active: boolean; live: boolean; ready: boolean; pr?: T.PullRequest; at?: string; report?: string; onOpen: (view: View) => void; onClick: () => void }) {
+// memShort is memory in a few characters: "1.4G", "820M".
+const memShort = (n: number) => (n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)}G` : `${Math.round(n / 1024 ** 2)}M`);
+
+// AgentLine is one agent: a line of its state mark, AI tool, task, pull
+// request (or ready to review) and time, and a line of its latest report
+// when it has one, what needs you saying so there instead, in its colour,
+// with its machine's CPU and memory at its end. Using its desktop, its mark
+// gives way to the desktop, small and live. A right-click opens its menu
+// (AgentContextMenu).
+function AgentLine({ agent, st, active, live, ready, pr, at, report, usage, onOpen, onClick }: { agent: T.Agent; st: AgentSt; active: boolean; live: boolean; ready: boolean; pr?: T.PullRequest; at?: string; report?: string; usage?: { cpu?: number; memory?: number }; onOpen: (view: View) => void; onClick: () => void }) {
   const t = useT();
   const title = agent.title || agent.name;
   const needs = st === 'needs' ? t('v2.tag.asks') : st === 'error' ? t('v2.st.error') : '';
   const second = needs || report;
+  const load = usage && [usage.cpu !== undefined && `${Math.round(usage.cpu)}%`, usage.memory && memShort(usage.memory)].filter(Boolean).join(' · ');
   return (
     <AgentContextMenu agent={agent} pr={pr} active={active} onSelect={onOpen}>
       <button
@@ -142,6 +156,7 @@ function AgentLine({ agent, st, active, live, ready, pr, at, report, onOpen, onC
         )}
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="flex min-w-0 items-center gap-1.5">
+            <ToolMark ai={agent.ai} className="size-3.5 shrink-0 opacity-80" />
             <span className={cn('min-w-0 flex-1 truncate text-[12.5px] font-medium leading-[18px]', active ? 'text-title' : st === 'done' ? 'text-subtle' : 'text-primary', !agent.title && 'font-mono text-[11.5px]')}>{title}</span>
             {ready ? (
               <span className="shrink-0 rounded bg-surface-strong px-1 text-[10px] font-medium leading-4 text-secondary" data-list-ready>
@@ -167,9 +182,16 @@ function AgentLine({ agent, st, active, live, ready, pr, at, report, onOpen, onC
             )}
             {at && <span className="shrink-0 text-[10.5px] tabular-nums leading-4 text-faint">{timeAgo(at)}</span>}
           </span>
-          {second && (
-            <span className={cn('truncate text-[11.5px] leading-4', st === 'needs' ? 'font-medium text-amber-300' : st === 'error' ? 'font-medium text-rose-300' : 'text-subtle')} data-list-report>
-              {second}
+          {(second || load) && (
+            <span className="flex min-w-0 items-center gap-1.5 text-[11.5px] leading-4">
+              <span className={cn('min-w-0 flex-1 truncate', st === 'needs' ? 'font-medium text-amber-300' : st === 'error' ? 'font-medium text-rose-300' : 'text-subtle')} data-list-report>
+                {second}
+              </span>
+              {load && (
+                <span className="shrink-0 font-mono text-[10px] tabular-nums text-faint" title={t('panel.list.usage')} data-list-usage>
+                  {load}
+                </span>
+              )}
             </span>
           )}
         </span>
