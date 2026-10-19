@@ -28,13 +28,34 @@ import { useAgentReview, useOpenReview } from '../v2/ReviewV2';
 // agent (ReviewV2), Proof first. Merge asks first, as the Pull requests list
 // does, and marks the agent reviewed. With no review (UI v1) or nothing to
 // show, there's no card, as there was no notice.
-export function FinishedCards({ item }: { item: T.ChatItem }) {
+//
+// An agent that finishes again has a notice for each time, and every card draws
+// its current state, so only the notice that is its latest (`latest`, from
+// lib/finished) shows the card; the earlier ones are a line that scrolls to it.
+export function FinishedCards({ item, latest }: { item: T.ChatItem; latest: Map<string, string> }) {
   return (
     <div className="mb-4 grid gap-3" data-chat-item="finished" data-chat-id={item.id}>
-      {(item.finished ?? []).map((ref) => (
-        <EvidenceCard key={ref} agentRef={ref} />
-      ))}
+      {(item.finished ?? []).map((ref) =>
+        latest.get(ref) === item.id ? <EvidenceCard key={ref} agentRef={ref} /> : <SupersededFinish key={ref} agentRef={ref} />,
+      )}
     </div>
+  );
+}
+
+function SupersededFinish({ agentRef }: { agentRef: string }) {
+  const t = useT();
+  const review = useAgentReview(agentRef);
+  const name = agentRef.split('/')[1];
+  const title = review.data?.title || name;
+  const show = () => {
+    const cards = document.querySelectorAll(`[data-evidence-card="${CSS.escape(agentRef)}"]`);
+    cards[cards.length - 1]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+  return (
+    <button type="button" onClick={show} className="flex min-w-0 items-center gap-1.5 px-1 text-left text-[12.5px] text-subtle hover:text-title" data-finished-earlier={agentRef}>
+      <Check className="size-3.5 shrink-0" />
+      <span className="min-w-0 truncate">{t('evidence.finishedEarlier', { title })}</span>
+    </button>
   );
 }
 

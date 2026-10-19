@@ -408,6 +408,7 @@ export const enUS = {
   'review.noProofBody': 'This agent saved no recordings, screenshots or pages. Press D for its diff.',
   'review.diffUnavailable': 'Couldn’t read the changes: {error}',
   'evidence.finished': '{agent} finished',
+  'evidence.finishedEarlier': '{title} finished · see below',
   'evidence.review': 'Review proof',
   'evidence.merge': 'Merge',
   'evidence.merged': 'Merged',

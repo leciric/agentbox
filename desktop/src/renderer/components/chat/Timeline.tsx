@@ -18,6 +18,7 @@ import { SentFiles } from './Files';
 import { AgentPermissionCard } from './AgentPermissionCard';
 import { FinishedCards } from './EvidenceCard';
 import { GroupCard } from '../groups/GroupChip';
+import { latestFinishes } from '../../lib/finished';
 import { latestGroupNotes } from '../../lib/groups';
 import { isLeadRef } from '../../lib/pages';
 import { ScheduledRunChip } from './ScheduledRunChip';
@@ -40,6 +41,7 @@ export function Timeline({ agent, thread, onOpenAgent }: { agent: T.Agent; threa
   // The fold rows' labels are text, so the rows are made again when the language changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const rows = useMemo(() => latestGroupNotes(timelineRows(thread, openTurns, byTurn)), [thread, openTurns, byTurn, t.lang]);
+  const finishes = useMemo(() => latestFinishes(thread.items), [thread.items]);
   const toggleTurn = useCallback(
     (turn: string) =>
       setOpenTurns((open) => {
@@ -57,7 +59,7 @@ export function Timeline({ agent, thread, onOpenAgent }: { agent: T.Agent; threa
           row.type === 'turn' ? (
             <TurnMarker key={row.key} agent={agent} checkpoint={row.checkpoint} latest={row.checkpoint.number === latest} onOpenAgent={onOpenAgent} />
           ) : (
-            <TimelineRow key={row.key} row={row} chatRef={agent.ref} root={agent.worktree} starting={row.type === 'thinking' ? starting : undefined} onToggleTurn={toggleTurn} />
+            <TimelineRow key={row.key} row={row} chatRef={agent.ref} root={agent.worktree} finishes={finishes} starting={row.type === 'thinking' ? starting : undefined} onToggleTurn={toggleTurn} />
           ),
         )}
       </div>
@@ -66,7 +68,7 @@ export function Timeline({ agent, thread, onOpenAgent }: { agent: T.Agent; threa
 }
 
 const TimelineRow = memo(
-  function TimelineRow({ row, chatRef, root, starting, onToggleTurn }: { row: Row; chatRef: string; root: string; starting?: string; onToggleTurn: (turn: string) => void }) {
+  function TimelineRow({ row, chatRef, root, finishes, starting, onToggleTurn }: { row: Row; chatRef: string; root: string; finishes: Map<string, string>; starting?: string; onToggleTurn: (turn: string) => void }) {
     const t = useT();
     switch (row.type) {
       case 'user':
@@ -163,7 +165,7 @@ const TimelineRow = memo(
         // And one of the project's scheduled tasks arriving.
         if (row.item.scheduledRun) return <ScheduledRunChip item={row.item} project={isLeadRef(chatRef) ? chatRef.split('/')[0] : undefined} />;
         // And agents finishing, with what they showed they checked.
-        if (row.item.finished?.length) return <FinishedCards item={row.item} />;
+        if (row.item.finished?.length) return <FinishedCards item={row.item} latest={finishes} />;
         // And a group of agents given one task: made, finished, decided.
         if (row.item.group) return <GroupCard item={row.item} />;
         // And one of the project's agents asking permission, answered here.
@@ -202,8 +204,14 @@ const TimelineRow = memo(
         return null; // Timeline renders it, with the agent it needs
     }
   },
-  (a, b) => a.chatRef === b.chatRef && a.root === b.root && a.starting === b.starting && a.onToggleTurn === b.onToggleTurn && sameRow(a.row, b.row),
+  (a, b) => a.chatRef === b.chatRef && a.root === b.root && sameFinishes(a, b) && a.starting === b.starting && a.onToggleTurn === b.onToggleTurn && sameRow(a.row, b.row),
 );
+
+// A finish notice's card depends on whether a later notice has taken its agents.
+function sameFinishes(a: { row: Row; finishes: Map<string, string> }, b: { row: Row; finishes: Map<string, string> }): boolean {
+  const refs = a.row.type === 'note' ? a.row.item.finished : undefined;
+  return !refs || refs.every((ref) => a.finishes.get(ref) === b.finishes.get(ref));
+}
 
 function sameRow(a: Row, b: Row): boolean {
   if (a.type !== b.type || a.key !== b.key) return false;

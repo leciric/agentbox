@@ -183,7 +183,8 @@ export function seedEvidence(queryClient: QueryClient): void {
       ...thread.items,
       notice('ev17', ['agent-17'], 8 * min),
       said('ev17a', 'agent-17 finished the markdown previews. It hasn’t opened a PR yet: its diff is on the review’s Changes tab.', 8 * min - 5_000),
-      notice('ev15', ['agent-15'], 2 * min),
+      notice('ev15', ['agent-15'], 4 * min),
+      notice('ev15b', ['agent-15'], 2 * min),
       said('ev15a', 'agent-15 fixed Settings’ clipped tabs (item 8 of the UX report). PR #371 is green, and its recording walks all four sizes.', 2 * min - 5_000),
     ].map((it) => ({ ...it, updatedAt: it.updatedAt || now })),
   });

@@ -409,6 +409,7 @@ export const ptBR: Messages = {
   'review.noProofBody': 'Este agente não salvou gravações, capturas de tela nem páginas. Pressione D para ver o diff.',
   'review.diffUnavailable': 'Não foi possível ler as alterações: {error}',
   'evidence.finished': '{agent} terminou',
+  'evidence.finishedEarlier': '{title} terminou · veja abaixo',
   'evidence.review': 'Revisar provas',
   'evidence.merge': 'Merge',
   'evidence.merged': 'Mesclado',
