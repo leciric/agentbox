@@ -253,6 +253,9 @@ const blockLabels: Record<Exclude<MergeBlock, 'merged' | 'closed'>, MessageKey> 
 // before taking a click.
 const settleMs = 400;
 
+// armMs is how long M waits for its second press.
+const armMs = 3000;
+
 const keyLabels: Record<ReviewAction, MessageKey> = {
   merge: 'review.key.merge',
   requestChanges: 'review.key.requestChanges',
@@ -369,6 +372,21 @@ function ReviewCarousel({
   // Merged, it's reviewed too (quietly: the "Merged" toast is the news) and
   // the review goes on to the next agent.
   const mergeAndGo = () => pr && !mergeDisabled && settled() && merge.mergeWith(pr, method, markReviewed);
+  // A merge can't be undone and M is one key, so from the keyboard it takes
+  // two: the first arms it (the footer says so), a second within armMs merges.
+  // A click on Merge is deliberate enough on its own.
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const id = setTimeout(() => setArmed(false), armMs);
+    return () => clearTimeout(id);
+  }, [armed]);
+  const mergeKey = () => {
+    if (!pr || mergeDisabled) return;
+    if (!armed) return setArmed(true);
+    setArmed(false);
+    mergeAndGo();
+  };
   // Request changes opens a box over the footer; what's written goes to the
   // agent's chat (the daemon wakes its machine), and the review goes on.
   // Notes on the diff's lines go with it (ReviewNotes), the drafts listed
@@ -434,7 +452,7 @@ function ReviewCarousel({
   const act = (action: ReviewAction) => {
     switch (action) {
       case 'merge':
-        return mergeAndGo();
+        return mergeKey();
       case 'requestChanges':
         return requestChanges();
       case 'reviewed':
@@ -700,7 +718,7 @@ function ReviewCarousel({
             </Button>
             {/* Why Merge can't, beside it; narrow, on a line of its own under the actions. */}
             <span className={cn('ml-auto min-w-0 flex-1 truncate text-right text-[12px] text-amber-200 [:root[data-appearance=light]_&]:text-amber-700', footerNote && 'max-sm:order-last max-sm:basis-full max-sm:text-left')} data-merge-blocked title={footerReason}>
-              {footerNote}
+              {armed && pr && !mergeDisabled ? <span className="text-primary" data-review-merge-armed>{t('review.mergeArmed', { number: pr.number })}</span> : footerNote}
             </span>
             <div className="flex shrink-0 items-stretch" data-review-merge-split>
               <Button size="sm" variant="primary" className="rounded-r-none" disabled={mergeDisabled} title={footerReason ?? t(methodLabels[method] ?? 'memory.pulls.merge')} onClick={mergeAndGo} data-review-merge data-merge-method={method}>
