@@ -309,6 +309,20 @@ export function goTo(state: TourState, step: number): TourState {
 // skip ends the run, every tour in it dismissed.
 export const skip = (state: TourState): TourState => finish(state, 'dismissed');
 
+// A Watch is the view under a playing tour (as a key) and the last one the
+// tour went to itself, for a step that needs a lead's chat.
+export type Watch = { at: string; sent: string | null };
+
+// watchView says whether the view moving to now is the user leaving the tour:
+// any move the tour didn't make (a click in the sidebar, Ctrl+,, a link)
+// skips it, so the tour never takes them back and the two can't take turns.
+export function watchView(w: Watch, now: string): { watch: Watch; left: boolean } {
+  if (now === w.at) return { watch: w, left: false };
+  // The tour's own move counts once: it's spent on arriving.
+  if (now === w.sent) return { watch: { at: now, sent: null }, left: false };
+  return { watch: { ...w, at: now }, left: true };
+}
+
 // ——— The store ———
 
 const listeners = new Set<() => void>();

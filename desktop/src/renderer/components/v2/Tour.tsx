@@ -1,7 +1,8 @@
 // Tour plays lib/tours.ts's tours over the real UI: a spotlight on each
 // step's anchor, dimming the rest, and a card beside it with the step's words,
 // a made-up example where the real thing may not be on screen, a progress
-// bar, and Back, Next and Skip (← → and Esc). With nothing to point at — a
+// bar, and Back, Next and Skip (← → and Esc). A click outside the card, or a
+// move to another page the tour didn't make, skips it too. With nothing to point at — a
 // narrow window whose sidebar is a drawer, no projects yet — the card sits in
 // the middle with its example. A step that needs a lead's chat, or its panel,
 // opens it; the panel the tour opened it closes again.
@@ -16,7 +17,7 @@ import { api } from '../../lib/api';
 import { useT } from '../../lib/i18n';
 import { chatPanel, panelState, setPanelOpen } from '../../lib/rightPanel';
 import { setSheetOpen } from '../../lib/shortcuts';
-import { goTo, onLaunch, placeCard, setTourState, skip, startTour, stepsOf, tours, useTourState, welcomeTour, type Box, type Example } from '../../lib/tours';
+import { goTo, onLaunch, placeCard, setTourState, skip, startTour, stepsOf, tours, useTourState, watchView, welcomeTour, type Watch, type Box, type Example } from '../../lib/tours';
 import { launchArrival } from '../../lib/uiV2';
 import { cn, shortcut } from '../../lib/utils';
 import { Button } from '../ui/button';
@@ -52,6 +53,9 @@ function visibleBox(selectors: string[] | undefined): Box | null {
   }
   return null;
 }
+
+// viewKey is a view as a string, to tell one from another.
+const viewKey = (v: View) => JSON.stringify(v);
 
 const same = (a: Box | null, b: Box | null) =>
   a === b || (!!a && !!b && Math.abs(a.left - b.left) < 0.5 && Math.abs(a.top - b.top) < 0.5 && Math.abs(a.width - b.width) < 0.5 && Math.abs(a.height - b.height) < 0.5);
@@ -89,10 +93,18 @@ function TourPlayer({ view, onSelect, onReleaseNotes }: { view: View; onSelect: 
     return agents.data?.filter((a) => a.project === name).length ?? 0;
   }
 
+  // The view under the tour, and the one it last opened itself: any other
+  // move is the user leaving, and ends it (lib/tours.ts's watchView).
+  const here = viewKey(view);
+  const watch = useRef<Watch>({ at: here, sent: null });
   const opened = useRef<string | null>(null);
   useEffect(() => {
     if (step.go && project) {
-      if (view.kind !== 'project' || view.project !== project) onSelect({ kind: 'project', project, tab: 'chat' });
+      if (view.kind !== 'project' || view.project !== project) {
+        const to: View = { kind: 'project', project, tab: 'chat' };
+        watch.current = { ...watch.current, sent: viewKey(to) };
+        onSelect(to);
+      }
       const lead = `${project}/lead`;
       // A panel that was open already (a lead's is, by default) stays open after.
       if (step.go === 'panel' && opened.current !== lead && !chatPanel(panelState(), lead).open) {
@@ -106,6 +118,11 @@ function TourPlayer({ view, onSelect, onReleaseNotes }: { view: View; onSelect: 
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step.id, project]);
+  useEffect(() => {
+    const { watch: next, left } = watchView(watch.current, here);
+    watch.current = next;
+    if (left) setTourState(skip);
+  }, [here]);
   // Toasts wait while the tour plays (styles.css): they'd sit over its card.
   useEffect(() => {
     document.body.dataset.touring = '';
@@ -166,6 +183,15 @@ function TourPlayer({ view, onSelect, onReleaseNotes }: { view: View; onSelect: 
     setTourState((s) => goTo(s, (s.playing?.step ?? 0) - 1));
   }, []);
   const close = useCallback(() => setTourState(skip), []);
+  // A click anywhere but the card goes through to what's under it, and leaves
+  // the tour: it's never a wall between the user and the app.
+  useEffect(() => {
+    const down = (e: PointerEvent) => {
+      if (!cardRef.current?.contains(e.target as Node)) close();
+    };
+    addEventListener('pointerdown', down, true);
+    return () => removeEventListener('pointerdown', down, true);
+  }, [close]);
   // A step that needs an agent is passed over while there is none, in the
   // direction the tour was going.
   useEffect(() => {
@@ -194,7 +220,7 @@ function TourPlayer({ view, onSelect, onReleaseNotes }: { view: View; onSelect: 
   const label = whatsNew ? t('tour.whatsNewLabel', { name: t(tour.title) }) : t(tour.title);
 
   return (
-    <div className="fixed inset-0 z-[70]" data-tour={tour.id} data-tour-step={step.id}>
+    <div className="pointer-events-none fixed inset-0 z-[70]" data-tour={tour.id} data-tour-step={step.id}>
       {/* The dimming, with a hole cut where the anchor is: a mask, since a
           shadow wide enough to cover the window is clipped by Chromium. */}
       <svg className="absolute inset-0 size-full animate-fade-in" aria-hidden>
@@ -213,8 +239,6 @@ function TourPlayer({ view, onSelect, onReleaseNotes }: { view: View; onSelect: 
           data-tour-spot
         />
       )}
-      {/* Clicks around the card do nothing: the tour is read, then left. */}
-      <div className="absolute inset-0" onMouseDown={(e) => e.preventDefault()} />
       <div
         ref={cardRef}
         role="dialog"
@@ -222,7 +246,7 @@ function TourPlayer({ view, onSelect, onReleaseNotes }: { view: View; onSelect: 
         aria-labelledby="tour-title"
         aria-describedby="tour-body"
         tabIndex={-1}
-        className="absolute flex max-h-[calc(100vh-24px)] w-[min(400px,calc(100vw-24px))] flex-col overflow-hidden rounded-2xl border border-line-strong bg-modal shadow-[0_30px_90px_-30px_var(--ab-shadow-deep)] outline-none transition-[left,top] duration-300 ease-out"
+        className="pointer-events-auto absolute flex max-h-[calc(100vh-24px)] w-[min(400px,calc(100vw-24px))] flex-col overflow-hidden rounded-2xl border border-line-strong bg-modal shadow-[0_30px_90px_-30px_var(--ab-shadow-deep)] outline-none transition-[left,top] duration-300 ease-out"
         style={{ left: at.left, top: at.top }}
         data-tour-card
       >

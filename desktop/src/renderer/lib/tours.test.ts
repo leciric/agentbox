@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { goTo, onLaunch, onSwitchToV2, parseState, placeCard, skip, stepsOf, tourFirst, tours, welcomeTour, type TourState } from './tours.ts';
+import { goTo, onLaunch, onSwitchToV2, parseState, placeCard, skip, watchView, stepsOf, tourFirst, tours, welcomeTour, type TourState } from './tours.ts';
 
 const none: TourState = { seen: [], dismissed: [], playing: null };
 const whatsNew = tours.map((t) => t.id);
@@ -19,6 +19,24 @@ test('an update plays the tours not seen yet, once', () => {
   const after = goTo(s, stepsOf(s.playing!).length);
   assert.equal(after.playing, null);
   assert.equal(onLaunch(after, 'v2').playing, null);
+});
+
+test('a move the tour made keeps it playing, and any other one leaves it', () => {
+  // The tour opens a lead's chat for its step: it plays on.
+  let w = watchView({ at: 'home', sent: null }, 'home').watch;
+  w = { ...w, sent: 'project:a:chat' };
+  let r = watchView(w, 'project:a:chat');
+  assert.equal(r.left, false);
+  // Re-renders on the same view aren't moves.
+  r = watchView(r.watch, 'project:a:chat');
+  assert.equal(r.left, false);
+  // The user opens Settings: the tour ends, never pulled back to the chat.
+  r = watchView(r.watch, 'settings');
+  assert.equal(r.left, true);
+  // The tour's move counts once: coming back to that chat later is the user's.
+  assert.equal(watchView(watchView(w, 'project:a:chat').watch, 'home').left, true);
+  assert.equal(watchView({ at: 'settings', sent: null }, 'project:a:chat').left, true);
+  assert.equal(skip({ seen: [], dismissed: [], playing: { tours: ['welcome'], step: 6 } }).playing, null);
 });
 
 test('Classic plays nothing until v2 is chosen, then the welcome once', () => {
