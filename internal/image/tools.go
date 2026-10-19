@@ -288,7 +288,7 @@ func installTools(ctx context.Context, inc incus.Client, name, user string, plan
 		tail := &tailWriter{w: log}
 		cmd.Stdout, cmd.Stderr = tail, tail
 		if err := cmd.Run(); err != nil {
-			fmt.Fprintf(log, "==> %s\n", HostNetworkNote(context.WithoutCancel(ctx)))
+			stepper(log)("%s", HostNetworkNote(context.WithoutCancel(ctx)))
 			return tail.failure("/root/tools.sh "+mode+" "+user+" "+list, err)
 		}
 		return nil

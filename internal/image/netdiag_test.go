@@ -13,7 +13,7 @@ func TestTailWriterKeepsTheEndOfTheOutput(t *testing.T) {
 	var log bytes.Buffer
 	tw := &tailWriter{w: &log}
 	for i := 1; i <= 40; i++ {
-		fmt.Fprintf(tw, "line %d\n", i)
+		_, _ = fmt.Fprintf(tw, "line %d\n", i)
 	}
 	err := tw.failure("tools.sh install", errors.New("exit status 1"))
 	for _, want := range []string{"tools.sh install", "exit status 1", "line 40", "line 26"} {

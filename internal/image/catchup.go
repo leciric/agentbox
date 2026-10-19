@@ -255,7 +255,7 @@ func CatchUp(ctx context.Context, inc incus.Client, instance string, u User, b B
 		tail := &tailWriter{w: log}
 		c.Stdout, c.Stderr = tail, tail
 		if err := c.Run(); err != nil {
-			fmt.Fprintf(log, "==> %s\n", HostNetworkNote(context.WithoutCancel(ctx)))
+			stepper(log)("%s", HostNetworkNote(context.WithoutCancel(ctx)))
 			return tail.failure(what+" ("+strings.Join(args, " ")+")", err)
 		}
 		return nil
