@@ -596,10 +596,10 @@ type Drag = {
 };
 
 // ProjectLead is a project's lead, the main chat, with its icon, its last
-// line, its live agents' counts and how many things you haven't seen; on
-// hover a gear opens its Settings, and a right-click on it opens its menu,
-// the project header's ⋯ (projectActions). It is lit while its chat or one
-// of its agents' is on screen.
+// line, its live agents' counts and how many things you haven't seen. A
+// gear, on hover and on the project open, opens its Settings; a right-click
+// opens its menu, the project header's ⋯ (projectActions). It is lit while
+// its chat or one of its agents' is on screen.
 // A pinned one drags among the pins.
 function ProjectLead({
   project,
@@ -723,7 +723,7 @@ function ProjectLead({
                 <span className="truncate text-[13px] font-medium text-title">{name}</span>
                 {chat.data?.chat === 'running' && <LoaderCircle className="size-3 shrink-0 animate-spin text-subtle" />}
                 {chat.data?.chat === 'waiting' && <span className="size-1.5 shrink-0 rounded-full bg-amber-400" aria-label={t('shell.sidebar.needsYou')} />}
-                {chat.data?.last && <span className="ml-auto shrink-0 text-[11px] text-faint group-hover/lead:hidden">{timeAgo(chat.data.last.at, now)}</span>}
+                {chat.data?.last && <span className={cn('ml-auto shrink-0 text-[11px] text-faint group-hover/lead:hidden', active && 'hidden')}>{timeAgo(chat.data.last.at, now)}</span>}
                 <Tip label={t('v2.sidebar.projectSettings')}>
                   <button
                     type="button"
@@ -732,7 +732,7 @@ function ProjectLead({
                       e.stopPropagation();
                       openSettings();
                     }}
-                    className="-my-1 ml-auto hidden size-5 shrink-0 items-center justify-center rounded text-subtle hover:bg-surface-strong hover:text-title focus-visible:flex group-hover/lead:flex"
+                    className={cn('-my-1 ml-auto hidden size-5 shrink-0 items-center justify-center rounded text-subtle hover:bg-surface-strong hover:text-title focus-visible:flex group-hover/lead:flex', active && 'flex')}
                     data-v2-project-settings={project.name}
                   >
                     <Settings className="size-3.5" />
