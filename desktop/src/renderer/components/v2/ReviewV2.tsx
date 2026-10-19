@@ -5,6 +5,7 @@
 // was its Reviewed section is the modal's Reviewed tab: the agents already
 // reviewed, the latest verdict first, each one reopened in the carousel.
 import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
+import { PrNumberLink } from '../PrNumberLink';
 import { ArrowRight, CircleCheck, Film, GitMerge, GitPullRequest, Globe, Images, LoaderCircle } from 'lucide-react';
 import { createContext, useContext, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
@@ -224,7 +225,7 @@ export function AgentReviewCard({ agent }: { agent: T.Agent }) {
         ))}
         {pr && (
           <span className={cn('inline-flex items-center gap-1', prTone)} data-review-card-pr={pr.number}>
-            {pr.state === 'merged' ? <GitMerge className="size-3.5" /> : <GitPullRequest className="size-3.5" />}#{pr.number} {prLabel(t, pr)}
+            {pr.state === 'merged' ? <GitMerge className="size-3.5" /> : <GitPullRequest className="size-3.5" />}<PrNumberLink pr={pr} /> {prLabel(t, pr)}
           </span>
         )}
       </span>

@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { PrNumberLink } from '../PrNumberLink';
 import { Check, CircleAlert, CircleCheck, GitMerge, GitPullRequest, Play } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -139,7 +140,7 @@ function EvidenceCard({ agentRef }: { agentRef: string }) {
           <div className="mt-auto flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11.5px] text-subtle">
             {pr && (
               <span className={cn('inline-flex items-center gap-1', pr.state === 'merged' ? 'text-violet-300' : 'text-secondary')}>
-                {pr.state === 'merged' ? <GitMerge className="size-3.5" /> : <GitPullRequest className="size-3.5" />}#{pr.number}
+                {pr.state === 'merged' ? <GitMerge className="size-3.5" /> : <GitPullRequest className="size-3.5" />}<PrNumberLink pr={pr} />
               </span>
             )}
             {changes && changes.files > 0 && (

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
+import { PrNumberLink } from './PrNumberLink';
 import { ArrowRight, Check, Clapperboard, ChevronDown, ChevronLeft, CircleAlert, CornerDownLeft, ExternalLink, FileDiff, Film, GitBranch, GitMerge, GitPullRequest, MessageSquarePlus, MessageSquareText, LoaderCircle, Play } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { toast } from 'sonner';
@@ -762,7 +763,7 @@ function PrState({ pr }: { pr: T.PullRequest }) {
   return (
     <span className="flex items-center gap-1.5" data-review-pr-state={pr.state}>
       <GitPullRequest className="size-3 shrink-0 text-faint" />
-      <span className="font-mono text-[11.5px] text-secondary">#{pr.number}</span>
+      <PrNumberLink pr={pr} className="font-mono text-[11.5px]" />
       <span className="min-w-0 max-w-[28ch] truncate text-[11.5px] font-medium text-primary" title={pr.title}>
         {pr.title}
       </span>
