@@ -260,6 +260,30 @@ func (s *Server) deleteMedia(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	return s.removeMedia(w, r, item)
+}
+
+// selfDeleteMedia is deleteMedia on an agent's own socket, for its own items
+// only: how it clears proof a rework made outdated. Another agent's item is
+// reported as not found.
+func (s *Server) selfDeleteMedia(self func(*http.Request) (state.Agent, error)) func(http.ResponseWriter, *http.Request) error {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		a, err := self(r)
+		if err != nil {
+			return err
+		}
+		item, err := s.store.MediaItem(r.Context(), r.PathValue("id"))
+		if err != nil {
+			return err
+		}
+		if item.Project != a.Project || item.Agent != a.Name {
+			return fmt.Errorf("media %s: %w", item.ID, state.ErrNotFound)
+		}
+		return s.removeMedia(w, r, item)
+	}
+}
+
+func (s *Server) removeMedia(w http.ResponseWriter, r *http.Request, item state.Media) error {
 	if err := s.manager(nil).DeleteMedia(r.Context(), item); err != nil {
 		return err
 	}

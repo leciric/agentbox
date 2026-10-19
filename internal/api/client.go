@@ -751,6 +751,11 @@ func (c *Client) MediaFile(ctx context.Context, ref, id string) (io.ReadCloser, 
 	return resp.Body, nil
 }
 
+// DeleteSelfMedia deletes one of the caller's own items, on the in-agent API.
+func (c *Client) DeleteSelfMedia(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/self/media/"+url.PathEscape(id), nil, nil)
+}
+
 func (c *Client) DeleteMedia(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/media/"+url.PathEscape(id), nil, nil)
 }
@@ -770,7 +775,7 @@ func (c *Client) DeleteProjectMedia(ctx context.Context, project string, req Del
 }
 
 // DeleteAgentMedia is DeleteProjectMedia for one agent's own gallery. Like
-// every delete, it's on the host API only: agents can't delete their media.
+// the bulk delete, it's on the host API only: an agent deletes one item at a time (DeleteSelfMedia).
 func (c *Client) DeleteAgentMedia(ctx context.Context, ref string, req DeleteMediaRequest) (DeleteMediaResult, error) {
 	var out DeleteMediaResult
 	return out, c.mediaDo(ctx, http.MethodPost, ref, "/delete", req, &out)

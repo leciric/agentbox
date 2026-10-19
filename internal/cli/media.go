@@ -475,10 +475,21 @@ func newMediaOpenCmd(a *app) *cobra.Command {
 
 func newMediaRmCmd(a *app) *cobra.Command {
 	return &cobra.Command{
-		Use:   "rm <project/agent> <id>",
-		Short: "Delete an item (on the host; agents can't delete media)",
-		Args:  cobra.ExactArgs(2),
+		Use:   "rm [project/agent] <id>",
+		Short: "Delete an item; inside an agent, name only the id: it deletes its own",
+		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 1 {
+				c, err := a.client(cmd)
+				if err != nil {
+					return err
+				}
+				if err := c.DeleteSelfMedia(cmd.Context(), args[0]); err != nil {
+					return err
+				}
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Deleted %s\n", args[0])
+				return nil
+			}
 			item, err := hostMediaItem(cmd, a, args[0], args[1])
 			if err != nil {
 				return err
@@ -504,7 +515,7 @@ func newMediaDeleteCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delete <project|project/agent> [id...]",
 		Short: "Delete several items at once, or everything a filter matches",
-		Long: `Deletes media in bulk, on the host: agents can't delete media.
+		Long: `Deletes media in bulk, on the host: an agent deletes its own one at a time, with media rm <id>.
 
 Name a project and the IDs to delete, or pass --all for everything, narrowed by
 --agent and --kind the same way media list is. Naming an agent

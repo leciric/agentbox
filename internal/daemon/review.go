@@ -443,7 +443,8 @@ func changesMessage(text string, notes []state.ReviewNote) string {
 		parts = append(parts, "Notes on lines of your diff:\n\n"+notesText(notes))
 	}
 	return "The user reviewed your work and asks for changes:\n\n" + strings.Join(parts, "\n\n") +
-		"\n\nMake them on the same branch, update the pull request, and finish as before."
+		"\n\nMake them on the same branch, update the pull request, and finish as before. " +
+		"Delete media the changes outdate (agentbox media rm <id>) and record it again under the same names."
 }
 
 // changesRequested is what the user asked a working agent to change from the

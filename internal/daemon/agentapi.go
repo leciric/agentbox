@@ -126,13 +126,14 @@ func (s *Server) inAgentRoutes(instance string) http.Handler {
 	for _, action := range []string{"start", "stop", "install"} {
 		handle("POST /v1/self/android/"+action, s.android(action, self, "agent"))
 	}
-	// Its own media: it can add items, but not delete or export them.
+	// Its own media: it can add and delete items, but not export them.
 	for _, route := range mediaRoutes {
 		if route.action != "export" {
 			handle(route.method+" /v1/self/media"+route.path, s.media(route.action, self, "agent"))
 		}
 	}
 	handle("GET /v1/self/media/{id}/file", s.selfMediaFile(self))
+	handle("DELETE /v1/self/media/{id}", s.selfDeleteMedia(self))
 	// Its project's memory: it reads all of it, and appends what it found,
 	// what it produced and how its task went. Writing a memory down and
 	// saying what the project is doing now are not an agent's to do.

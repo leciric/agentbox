@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -497,5 +498,39 @@ func TestBulkDeleteProjectMediaByFilter(t *testing.T) {
 
 	if _, err := d.client.DeleteProjectMedia(ctx, "no-such-project", api.DeleteMediaRequest{All: true}); err == nil {
 		t.Error("deleting all of a project that doesn't exist was accepted")
+	}
+}
+
+func TestAgentDeletesOnlyItsOwnMedia(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), oneAgentIncus)
+	ctx := context.Background()
+	a := addTestAgent(t, d)
+	for _, item := range []state.Media{
+		{ID: "mine", Agent: a.Name},
+		{ID: "theirs", Agent: "someone-else"},
+	} {
+		item.Project, item.Kind, item.Name, item.Source, item.Meta, item.CreatedAt = a.Project, "note", item.ID, "agent", "{}", time.Now()
+		if err := d.srv.store.AddMedia(ctx, item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := d.srv.selfDeleteMedia(func(*http.Request) (state.Agent, error) { return a, nil })
+	del := func(id string) error {
+		r := httptest.NewRequest(http.MethodDelete, "/v1/self/media/"+id, nil)
+		r.SetPathValue("id", id)
+		return h(httptest.NewRecorder(), r)
+	}
+	if err := del("theirs"); !errors.Is(err, state.ErrNotFound) {
+		t.Errorf("deleting another agent's item = %v, want not found", err)
+	}
+	if _, err := d.srv.store.MediaItem(ctx, "theirs"); err != nil {
+		t.Errorf("another agent's item is gone: %v", err)
+	}
+	if err := del("mine"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.srv.store.MediaItem(ctx, "mine"); !errors.Is(err, state.ErrNotFound) {
+		t.Errorf("own item after delete: %v, want not found", err)
 	}
 }
