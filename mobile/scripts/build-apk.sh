@@ -4,13 +4,14 @@
 #
 # Needs a JDK 17+ (JAVA_HOME or `java` on PATH) and the Android SDK (ANDROID_HOME,
 # default ~/android-sdk; missing parts are downloaded by Gradle once the licenses are accepted).
-# Signing: ~/.config/agentbox/mobile-release.jks, generated on first run and kept outside git.
+# Signing: $AGENTBOX_MOBILE_KEYSTORE, default ~/.config/agentbox-mobile/mobile-release.jks (password in mobile-release.pass beside it),
+# generated on first run and kept outside git.
 # Keep it: only an APK signed with the same key installs over an earlier one.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 export ANDROID_HOME="${ANDROID_HOME:-$HOME/android-sdk}"
-KEYSTORE="${AGENTBOX_APK_KEYSTORE:-$HOME/.config/agentbox/mobile-release.jks}"
+KEYSTORE="${AGENTBOX_MOBILE_KEYSTORE:-$HOME/.config/agentbox-mobile/mobile-release.jks}"
 PASSFILE="${KEYSTORE%.jks}.pass"
 
 if [ ! -d "$ANDROID_HOME/licenses" ]; then
