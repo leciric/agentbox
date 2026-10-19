@@ -7,7 +7,7 @@ import * as A from '../../../shared/api';
 import type { View } from '../../App';
 import { useT } from '../../lib/i18n';
 import { isNew, livePages } from '../../lib/pages';
-import { setPanelOpen, useChatPanel } from '../../lib/rightPanel';
+import { panelClose, setPanelOpen, useChatPanel } from '../../lib/rightPanel';
 import { cn, shortcut } from '../../lib/utils';
 import { useProjectPages } from '../pages/usePages';
 import { Button } from '../ui/button';
@@ -45,7 +45,7 @@ export function PanelButton({ project, chat }: { project: string; chat: string }
         aria-label={t('panel.toggle')}
         aria-pressed={open}
         className={cn('relative', open && 'bg-surface-raised text-primary')}
-        onClick={() => setPanelOpen(chat, !open)}
+        onClick={() => (open ? panelClose(chat, true) : setPanelOpen(chat, true))}
         data-panel-toggle
       >
         <PanelRight />

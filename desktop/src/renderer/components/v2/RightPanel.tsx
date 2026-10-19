@@ -40,6 +40,7 @@ import {
   needsMachine,
   openPanelOn,
   panelBack,
+  panelClose,
   panelBox,
   panelDefault,
   panelMin,
@@ -140,7 +141,8 @@ export function RightPanelHost({ view, onSelect, onNewAgent }: { view: View; onS
       if ((event.target as Element | null)?.closest?.('.xterm, canvas')) return;
       if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'd') {
         event.preventDefault();
-        setPanelOpen(chat, !chatPanel(panelState(), chat).open);
+        if (chatPanel(panelState(), chat).open) panelClose(chat, true);
+        else setPanelOpen(chat, true);
       }
     };
     addEventListener('keydown', onKey);
@@ -310,8 +312,8 @@ function RightPanel({ project, chat, width, onSelect, onNewAgent }: { project: s
             </Button>
           </Tip>
         )}
-        <Tip label={t('panel.closeTip', { keys: shortcut('D') })}>
-          <Button size="icon-sm" variant="ghost" aria-label={t('panel.close')} onClick={() => setPanelOpen(chat, false)} data-panel-close>
+        <Tip label={lead && (whose || panel.wide) ? t('panel.back') : t('panel.closeTip', { keys: shortcut('D') })}>
+          <Button size="icon-sm" variant="ghost" aria-label={lead && (whose || panel.wide) ? t('panel.back') : t('panel.close')} onClick={() => panelClose(chat)} data-panel-close>
             <X />
           </Button>
         </Tip>

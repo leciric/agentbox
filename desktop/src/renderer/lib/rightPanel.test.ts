@@ -246,3 +246,27 @@ test('the list is narrow, as dragged while the chat keeps its least, and folds t
   // Below besideMin, a drawer, as the panel is.
   assert.equal(P.listBox({}, 900, 1000).drawer, true);
 });
+
+test('in a lead’s panel ✕ goes back to the list first, then closes', () => {
+  P.setPanel({ chats: {}, views: {}, last: {} });
+  const lead = 'pawly/lead';
+  P.pickTarget(lead, lead);
+  P.panelClose(lead);
+  assert.equal(P.panelTarget(P.panelState(), lead), undefined);
+  assert.equal(P.chatPanel(P.panelState(), lead).open, true);
+  P.openPanelOn(lead, 'settings');
+  P.panelClose(lead);
+  assert.equal(P.chatPanel(P.panelState(), lead).wide, undefined);
+  assert.equal(P.chatPanel(P.panelState(), lead).open, true);
+  P.panelClose(lead);
+  assert.equal(P.chatPanel(P.panelState(), lead).open, false);
+  // ⌘D closes it on its list.
+  P.pickTarget(lead, lead);
+  P.panelClose(lead, true);
+  assert.equal(P.chatPanel(P.panelState(), lead).open, false);
+  assert.equal(P.panelTarget(P.panelState(), lead), undefined);
+  // An agent's chat closes straight away.
+  P.openAgentChat('pawly/agent-2');
+  P.panelClose('pawly/agent-2');
+  assert.equal(P.chatPanel(P.panelState(), 'pawly/agent-2').open, false);
+});

@@ -297,6 +297,17 @@ export function panelBack(chat: string): void {
   else update(chat, (p) => ({ ...bare(p), target: listTarget }));
 }
 
+// panelClose is the panel's ✕. A lead's panel showing something besides
+// its list (the repository, an agent, Pull requests or Settings) goes back
+// to the list, as it was before; on the list, and in an agent's chat, it
+// closes. all (⌘D) closes it there too, on its list for when it opens again.
+export function panelClose(chat: string, all = false): void {
+  const state = panelState();
+  const p = chatPanel(state, chat);
+  if (isLeadRef(chat) && (p.wide || panelTarget(state, chat))) update(chat, (q) => ({ ...bare(q), open: !all }), { last: { ...state.last, [projectOf(chat)]: listTarget } });
+  else setPanelOpen(chat, false);
+}
+
 // openPanelOn opens chat's panel on view, of target when given (then picked
 // there), else of whoever it shows: the project's own views need none.
 export function openPanelOn(chat: string, view: PanelView, target?: string): void {
