@@ -25,6 +25,7 @@ type fakeAPI struct {
 	mu        sync.Mutex
 	instances map[string]*api.InstanceFull
 	profiles  map[string]*api.Profile
+	networks  map[string]*api.Network
 	failOp    string // an operation whose request path has this suffix fails
 	failFast  bool   // and has already failed when it is first looked at
 	lastOp    api.Operation
@@ -33,7 +34,7 @@ type fakeAPI struct {
 
 func startFakeAPI(t *testing.T) *fakeAPI {
 	t.Helper()
-	f := &fakeAPI{instances: map[string]*api.InstanceFull{}, profiles: map[string]*api.Profile{}}
+	f := &fakeAPI{instances: map[string]*api.InstanceFull{}, profiles: map[string]*api.Profile{}, networks: map[string]*api.Network{}}
 	socket := filepath.Join(t.TempDir(), "incus.sock")
 	l, err := net.Listen("unix", socket)
 	if err != nil {
@@ -137,7 +138,7 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 	defer f.mu.Unlock()
 	switch {
 	case path == "":
-		reply(w, api.Server{APIExtensions: []string{"container_full", "instance_get_full", "api_filtering", "instance_all_projects", "resources", "storage", "storage_volume_state"}, Environment: api.ServerEnvironment{Server: "incus"}})
+		reply(w, api.Server{APIExtensions: []string{"container_full", "instance_get_full", "api_filtering", "instance_all_projects", "resources", "storage", "storage_volume_state", "network"}, Environment: api.ServerEnvironment{Server: "incus"}})
 	case path == "/operations/op":
 		op := f.lastOp // still running, unless it failed fast
 		if !f.failFast {
@@ -193,6 +194,18 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 			reply(w, p)
 		default:
 			_ = json.Unmarshal(body, &p.ProfilePut)
+			reply(w, nil)
+		}
+	case len(parts) == 2 && parts[0] == "networks":
+		n, ok := f.networks[parts[1]]
+		switch {
+		case !ok:
+			replyError(w, http.StatusNotFound, "Network not found")
+		case r.Method == http.MethodGet:
+			reply(w, n)
+		default:
+			n.NetworkPut = api.NetworkPut{}
+			_ = json.Unmarshal(body, &n.NetworkPut)
 			reply(w, nil)
 		}
 	case path == "/profiles":
@@ -407,6 +420,34 @@ func TestAPIProfiles(t *testing.T) {
 	}
 	if err := c.SetProfileConfig(ctx, "missing", "a=b"); err == nil || err.Error() != "incus profile set missing a=b: Profile not found" {
 		t.Fatalf("SetProfileConfig of a missing profile: %v", err)
+	}
+}
+
+func TestAPINetworkConfig(t *testing.T) {
+	f := startFakeAPI(t)
+	f.networks["incusbr0"] = &api.Network{Name: "incusbr0", NetworkPut: api.NetworkPut{Config: map[string]string{"ipv4.address": "10.80.39.1/24"}}}
+	ctx := context.Background()
+	c := Client{}
+	if got, err := c.NetworkConfig(ctx, "incusbr0", "ipv4.address"); err != nil || got != "10.80.39.1/24" {
+		t.Fatalf("NetworkConfig = %q, %v", got, err)
+	}
+	if got, err := c.NetworkConfig(ctx, "incusbr0", "raw.dnsmasq"); err != nil || got != "" {
+		t.Fatalf("NetworkConfig of an unset key = %q, %v", got, err)
+	}
+	if err := c.SetNetworkConfig(ctx, "incusbr0", "raw.dnsmasq", "no-resolv\nserver=1.1.1.1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.networks["incusbr0"].Config; got["raw.dnsmasq"] != "no-resolv\nserver=1.1.1.1" || got["ipv4.address"] != "10.80.39.1/24" {
+		t.Fatalf("after SetNetworkConfig the network has %v", got)
+	}
+	if err := c.SetNetworkConfig(ctx, "incusbr0", "raw.dnsmasq", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := f.networks["incusbr0"].Config["raw.dnsmasq"]; ok {
+		t.Fatal("setting a key to \"\" left it set")
+	}
+	if _, err := c.NetworkConfig(ctx, "missing", "a"); err == nil || err.Error() != "incus network get missing a: Network not found" {
+		t.Fatalf("NetworkConfig of a missing network: %v", err)
 	}
 }
 

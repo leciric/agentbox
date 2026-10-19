@@ -11,7 +11,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"agentbox/internal/api"
+	"agentbox/internal/bridgedns"
 	"agentbox/internal/hostsetup"
+	"agentbox/internal/incus"
 )
 
 func newHostCmd(a *app) *cobra.Command {
@@ -95,7 +97,18 @@ Mac's VM needs it, since Incus can't find a free subnet on Lima's network.`,
 			}
 			run := exec.CommandContext(cmd.Context(), "bash", append([]string{f.Name()}, args...)...)
 			run.Stdin, run.Stdout, run.Stderr = os.Stdin, cmd.OutOrStdout(), cmd.ErrOrStderr()
-			return run.Run()
+			if err := run.Run(); err != nil {
+				return err
+			}
+			// The bridge's dnsmasq forwards to /etc/resolv.conf's servers, which
+			// on WSL it may not be able to use: said only when something's off.
+			res, err := bridgedns.Ensure(cmd.Context(), bridgedns.System(incus.Client{}))
+			if err != nil {
+				_, _ = fmt.Fprintf(out, "\n==> %s's DNS\nCouldn't check it: %v\n", bridgedns.Bridge, err)
+			} else if res.Message != "" {
+				_, _ = fmt.Fprintf(out, "\n==> %s's DNS\n%s\n", bridgedns.Bridge, res.Message)
+			}
+			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&print, "print", false, "only print the script")

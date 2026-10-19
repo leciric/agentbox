@@ -5,6 +5,9 @@ import (
 	"errors"
 	"os"
 	"testing"
+
+	"agentbox/internal/bridgedns"
+	"agentbox/internal/incus"
 )
 
 // SetPartSize changes how big BuildForPublishing's parts are, until the
@@ -19,6 +22,10 @@ func TestMain(m *testing.M) {
 	// Build must not change the firewall of the machine running the tests.
 	firewall = func(context.Context, string, ...string) ([]byte, error) {
 		return nil, errors.New("no firewall in tests")
+	}
+	// Nor its bridge's DNS.
+	bridgeDNS = func(context.Context, incus.Client) (bridgedns.Result, error) {
+		return bridgedns.Result{}, nil
 	}
 	os.Exit(m.Run())
 }

@@ -356,6 +356,49 @@ func (c Client) SetProfileConfig(ctx context.Context, name string, pairs ...stri
 	})
 }
 
+// NetworkConfig reads one configuration key of a network, "" when it isn't
+// set: `incus network get name key`.
+func (c Client) NetworkConfig(ctx context.Context, name, key string) (string, error) {
+	args := []string{"network", "get", name, key}
+	if c.cli() {
+		out, err := c.run(ctx, args...)
+		return strings.TrimSpace(out), err
+	}
+	var value string
+	err := c.do(ctx, args, func(s incusclient.InstanceServer) error {
+		network, _, err := s.GetNetwork(name)
+		if err != nil {
+			return err
+		}
+		value = network.Config[key]
+		return nil
+	})
+	return value, err
+}
+
+// SetNetworkConfig sets one configuration key of a network, and unsets it
+// when value is "": `incus network set name key=value`. Incus restarts the
+// network's dnsmasq when a key it reads changes.
+func (c Client) SetNetworkConfig(ctx context.Context, name, key, value string) error {
+	args := []string{"network", "set", name, key + "=" + value}
+	return c.do(ctx, args, func(s incusclient.InstanceServer) error {
+		network, etag, err := s.GetNetwork(name)
+		if err != nil {
+			return err
+		}
+		put := network.Writable()
+		if put.Config == nil {
+			put.Config = map[string]string{}
+		}
+		if value == "" {
+			delete(put.Config, key)
+		} else {
+			put.Config[key] = value
+		}
+		return s.UpdateNetwork(name, put, etag)
+	})
+}
+
 // Init makes an instance from an image, with the given profiles:
 // `incus init image name --profile p...`. It always runs the incus command,
 // which resolves image remotes ("images:debian/13") from the user's own

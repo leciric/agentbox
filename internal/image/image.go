@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	"agentbox/internal/bridgedns"
 	"agentbox/internal/dockerfw"
 	"agentbox/internal/incus"
 )
@@ -304,6 +305,12 @@ type Options struct {
 // tests replace it so they never touch this machine's.
 var firewall dockerfw.Run = dockerfw.System
 
+// bridgeDNS makes sure the Incus bridge answers DNS; tests replace it so they
+// never touch this machine's bridge.
+var bridgeDNS = func(ctx context.Context, inc incus.Client) (bridgedns.Result, error) {
+	return bridgedns.Ensure(ctx, bridgedns.System(inc))
+}
+
 // readyTimeout is how long an instance gets to boot and take an address.
 const readyTimeout = 2 * time.Minute
 
@@ -327,6 +334,13 @@ func Build(ctx context.Context, inc incus.Client, u User, opts Options, log io.W
 		step("Let Docker's firewall pass %s: added %d %s rule(s)", dockerfw.Bridge, n, dockerfw.Chain)
 	} else if err != nil && !errors.Is(err, dockerfw.ErrNoTool) {
 		step("Could not let Docker's firewall pass %s: %v", dockerfw.Bridge, err)
+	}
+	// Nor may its DNS answer (on WSL, its dnsmasq can't always use the
+	// distro's resolver), which fails the build at its first download.
+	if res, err := bridgeDNS(ctx, inc); err != nil {
+		step("Could not check %s's DNS: %v", bridgedns.Bridge, err)
+	} else if res.Message != "" {
+		step("%s", res.Message)
 	}
 	// Build under another name and swap it in at the end: agents can still be
 	// created from the current image meanwhile, and a failed build keeps it.

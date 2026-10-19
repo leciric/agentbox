@@ -486,6 +486,8 @@ func (s *Server) Run(ctx context.Context) error {
 	// Docker's firewall drops what the Incus bridge forwards, and a Docker
 	// Desktop that starts after this daemon rebuilds the chain without our rules.
 	loops.Go(func() { dockerfw.Watch(ctx, time.Minute, firewall, s.logf) })
+	// Its DNS may not answer though the machine resolves (bridgedns).
+	loops.Go(func() { s.checkBridgeDNS(ctx) })
 	loops.Go(func() { s.balanceCPU(ctx) })
 	loops.Go(func() { s.watchDisk(ctx) })
 	loops.Go(func() { s.watchPackageCache(ctx) })
