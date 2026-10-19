@@ -509,7 +509,7 @@ function ReviewCarousel({
       >
         <ReviewNotesContext.Provider value={notes}>
           {/* What changed, and where its pull request stands. */}
-          <header className="grid gap-1 border-b border-line px-5 py-3 pr-14">
+          <header className="grid gap-1 border-b border-line px-5 py-3 pr-14" inert={help}>
             <div className="flex min-w-0 items-center gap-3">
               <AIIcon ai={item.ai || 'claude'} className="size-5 shrink-0" />
               <DialogTitle className={cn('min-w-0 truncate text-[16px] leading-snug', !item.title && 'font-mono')} title={item.title || item.agent}>
@@ -569,7 +569,7 @@ function ReviewCarousel({
               </div>
             </div>
           </header>
-          <section ref={body} className="relative flex min-h-0 flex-1 flex-col overflow-y-auto" data-review-body>
+          <section ref={body} className="relative flex min-h-0 flex-1 flex-col overflow-y-auto" inert={help} data-review-body>
             {pane === 'proof' &&
               (media.isPending ? <div className="p-6 text-[13px] text-subtle">{t('common.loading')}</div> : <ReviewProof key={item.ref} project={item.project} proof={proof} />)}
             {pane === 'diff' &&
@@ -639,7 +639,7 @@ function ReviewCarousel({
             )}
           </section>
           {changing && (
-            <div className="mx-4 mb-3 grid gap-2 rounded-xl border border-line-strong bg-well p-3" data-review-changes-box>
+            <div className="mx-4 mb-3 grid gap-2 rounded-xl border border-line-strong bg-well p-3" inert={help} data-review-changes-box>
               <div className="text-[12px] text-muted">{t('review.changesTo', { agent: item.agent })}</div>
               <NotesList notes={notes.notes} />
               <textarea
@@ -682,7 +682,7 @@ function ReviewCarousel({
           {/* The verdicts, Merge last and loudest. Narrow, they wrap rather
               than drop their labels: icons alone left Request changes and
               Merge to guess (UX test, finding 8). */}
-          <div className="flex flex-wrap items-center gap-2 border-t border-line bg-modal px-4 py-2.5" data-review-actions>
+          <div className="flex flex-wrap items-center gap-2 border-t border-line bg-modal px-4 py-2.5" inert={help} data-review-actions>
             <Button size="sm" variant="ghost" className="max-md:hidden" onClick={() => setHelp(true)} aria-label={t('review.keys.title')} data-review-keys>
               <Keyboard />
               <Hint k="?" />
@@ -814,7 +814,7 @@ function PrStatus({ pr }: { pr: T.PullRequest }) {
 }
 
 // KeysHelp is the ? overlay: every key the review takes. It holds focus
-// while it's open (the dialog keeps Tab inside), and ?, Esc or a click
+// while it's open (the review behind it is inert), and ?, Esc or a click
 // outside it closes it.
 function KeysHelp({ onClose }: { onClose: () => void }) {
   const t = useT();
