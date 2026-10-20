@@ -67,15 +67,30 @@ RUN fetch-git crosvm "$CROSVM_COMMIT" "$CROSVM_REPO" "$CROSVM_MIRROR" && \
     test "$(git ls-tree HEAD third_party/minijail | awk '{print $3}')" = "$MINIJAIL_COMMIT" && \
     rmdir third_party/minijail && \
     fetch-git third_party/minijail "$MINIJAIL_COMMIT" "$MINIJAIL_REPO" "$MINIJAIL_MIRROR"
-# Our patch to crosvm (patches/README.md).
+# Our patches to crosvm and to rutabaga_gfx (patches/README.md).
 COPY patches/crosvm/ /src/patches/crosvm/
+COPY patches/rutabaga_gfx/ /src/patches/rutabaga_gfx/
+COPY test/render-node-path.sh /src/test-render-node-path.sh
 RUN for p in /src/patches/crosvm/*.patch; do \
       patch -d crosvm -p1 --no-backup-if-mismatch < "$p" || exit 1; \
     done
+# rutabaga_gfx, the crates.io crate crosvm renders with, patched: fetched at
+# the version crosvm's Cargo.lock pins and checks, then used from a path. From
+# here cargo builds --offline, so nothing else can change: the lock loses only
+# rutabaga's registry source.
+RUN cd crosvm && cargo fetch --locked && \
+    src=$(ls -d /usr/local/cargo/registry/src/*/rutabaga_gfx-0.1.75) && \
+    cp -r "$src" /src/rutabaga_gfx && \
+    for p in /src/patches/rutabaga_gfx/*.patch; do \
+      patch -d /src/rutabaga_gfx -p1 --no-backup-if-mismatch < "$p" || exit 1; \
+    done && \
+    sed -i 's|^\[patch.crates-io\]$|&\nrutabaga_gfx = { path = "../rutabaga_gfx" }|' Cargo.toml && \
+    grep -q '^rutabaga_gfx = { path = "../rutabaga_gfx" }' Cargo.toml
 RUN cd crosvm && \
     export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig" CROSVM_USE_SYSTEM_VIRGLRENDERER=1 && \
     export RUSTFLAGS='-C link-arg=-Wl,-rpath,$ORIGIN/../lib --remap-path-prefix=/src=. --remap-path-prefix=/usr/local/cargo=cargo' && \
-    cargo build --release --locked --features virgl_renderer && \
+    /src/test-render-node-path.sh /src/rutabaga_gfx/src/virgl_renderer.rs && \
+    cargo build --release --offline --features virgl_renderer && \
     install -D -m 755 target/release/crosvm "$PREFIX/bin/crosvm"
 
 # --- Cloud Hypervisor with the GPU patchset (patches/README.md) -------------

@@ -137,6 +137,7 @@ has "crosvm: surfaceless off (EGL from the GBM device)" "$cl" '"surfaceless":fal
 has "crosvm: render-node" "$cl" '"render-node":"/dev/dri/renderD128"'
 has "crosvm: external-blob" "$cl" '"external-blob":true'
 hasnt "crosvm: no device-select layer for virgl_render_server (breaks Venus)" "$cl" "MESA_VK_DEVICE_SELECT"
+eq "crosvm: no isolation by default" "${crosvm[0]} $isolation" "env none"
 CHVGPU_ISOLATE=unshare crosvm_command
 cl="${crosvm[*]}"
 has "crosvm: kept to its node (unshare)" "$cl" "unshare --user --map-root-user --mount $here/lib/gpu-ns.sh /dev/dri/renderD128 /dev/dri"
@@ -255,6 +256,21 @@ hasnt "where: no node problems" "$out" "ran on /dev"
 problems=() host_nodes='' gl_nodes=''
 out=$(summary "$tmp/right")
 has "where: unknown GL node" "$out" "GL ran on:       unknown (crosvm had no render node open)"
+
+# What crosvm said about the node (rutabaga, patched), and no isolation line by default.
+mkdir -p "$tmp/w"
+printf '%s\n' '[2026-10-21T08:00:00.000000000+00:00 INFO  rutabaga_gfx::virgl_renderer] virglrenderer: using GPU path "/dev/dri/renderD128"' > "$tmp/w/crosvm.log"
+problems=() work=$tmp/w isolation=none
+out=$(summary "$tmp/right")
+has "node asked: rutabaga's line" "$out" 'GL node asked:   virglrenderer: using GPU path "/dev/dri/renderD128"'
+hasnt "no isolation line by default" "$out" "GPU isolation:"
+printf '%s\n' '[2026-10-21T08:00:00.000000000+00:00 INFO  rutabaga_gfx::virgl_renderer] virglrenderer: no GPU path, it opens a render node itself' > "$tmp/w/crosvm.log"
+out=$(summary "$tmp/right")
+has "node asked: none given" "$out" "GL node asked:   virglrenderer: no GPU path, it opens a render node itself"
+: > "$tmp/w/crosvm.log"
+out=$(summary "$tmp/right")
+has "node asked: an unpatched rutabaga says nothing" "$out" "GL node asked:   crosvm didn't say"
+work='' isolation=''
 
 # Venus failing, glmark2 on the GPU falling back to llvmpipe.
 serial guest:guest-info.txt:0 glxinfo-gpu:glxinfo-sw.txt:0 eglinfo-gpu:eglinfo-sw.txt:0 \

@@ -14,6 +14,8 @@
 #   --memory MiB      the guest's memory (default 4096)
 #   --timeout MIN     give up on the guest after this long (default 30)
 #   --keep            keep the work directory (disk, serial log, process logs)
+#   --isolate-gpu     also run crosvm where /dev/dri holds only the render node
+#                     (an experiment: it broke vrend's winsys on an RX 6750 XT)
 #   --check           only check the prerequisites
 #
 # Runs as your user, with no root and no network setup: passt gives the guest
@@ -41,6 +43,7 @@ work=
 pids=()
 gl_nodes=''
 isolation=''
+isolate_gpu=false
 host_nodes=''
 declare -A pid
 problems=()
@@ -139,7 +142,7 @@ check_prereqs() {
 		echo "  also: $n (driver ${info%%|*}, PCI ${info#*|}); --render-node $n to use it"
 	done
 	case "$(gpu_isolation)" in
-	none) echo "  GPU isolation: none (no unprivileged user namespaces or bwrap here): GL takes the first render node, whatever --render-node says" ;;
+	none) $isolate_gpu && echo "  GPU isolation: asked for, but no unprivileged user namespaces or bwrap here" ;;
 	*) echo "  GPU isolation: $(gpu_isolation) (crosvm sees only $render_node)" ;;
 	esac
 	echo "  host Mesa: $(host_mesa)"
@@ -355,12 +358,15 @@ cleanup() {
 	exit "$rc"
 }
 
-# gpu_isolation: how crosvm is kept to the chosen GPU: "unshare" (a user and
-# mount namespace, lib/gpu-ns.sh), "bwrap" (bubblewrap, setuid or with user
-# namespaces), or "none" when neither works here. CHVGPU_ISOLATE overrides.
+# gpu_isolation: whether, and how, crosvm runs where /dev/dri holds only the
+# render node: "none" (the default: render-node does it), or with
+# --isolate-gpu "unshare" (lib/gpu-ns.sh) or "bwrap", whichever works here.
+# CHVGPU_ISOLATE overrides.
 gpu_isolation() {
 	if [ -n "${CHVGPU_ISOLATE:-}" ]; then
 		echo "$CHVGPU_ISOLATE"
+	elif ! $isolate_gpu; then
+		echo none
 	elif unshare --user --map-root-user --mount true 2>/dev/null; then
 		echo unshare
 	elif command -v bwrap >/dev/null && bwrap --dev-bind / / true 2>/dev/null; then
@@ -375,17 +381,18 @@ gpu_isolation() {
 crosvm_command() {
 	local params node dri=${CHVGPU_DRI_DIR:-/dev/dri}
 	node=$(readlink -m "$render_node")
-	# Which GPU: crosvm runs where /dev/dri holds only the render node
-	# (gpu_isolation). virglrenderer (GL) takes the first renderD* there is,
-	# and rutabaga's get_drm_fd, which our render-node key feeds, never
-	# accepts a render node (rutabaga 0.1.75 checks
-	# Path::starts_with("/dev/dri/renderD"), whole components), so render-node
-	# does nothing yet; it's kept for when that's fixed. Venus's Vulkan, in
-	# virgl_render_server (crosvm's child, in the same namespace), sees the
-	# same single GPU. Not Mesa's device-select layer nor DRI_PRIME: in
-	# virgl_render_server the layer breaks Venus (vkEnumeratePhysicalDeviceGroups
-	# returns devices vkr never saw, ERROR_INITIALIZATION_FAILED), and
-	# virglrenderer's own node choice ignores DRI_PRIME.
+	# Which GPU: render-node (our crosvm patch) hands rutabaga the node as a
+	# GPU path, and rutabaga (patched: 0.1.75 rejected every render node, its
+	# Path::starts_with comparing whole components) gives virglrenderer its
+	# fd, for GL's GBM device. crosvm.log says "virglrenderer: using GPU path".
+	# Venus's Vulkan, in virgl_render_server, lists every host GPU; the guest
+	# puts this one first (run-tests.sh). Not Mesa's device-select layer here
+	# nor DRI_PRIME: in virgl_render_server the layer breaks Venus
+	# (vkEnumeratePhysicalDeviceGroups returns devices vkr never saw,
+	# ERROR_INITIALIZATION_FAILED), and virglrenderer's own node choice
+	# ignores DRI_PRIME. --isolate-gpu also hides the other render nodes from
+	# crosvm (gpu_isolation), but on a user's RX 6750 XT that made vrend's
+	# winsys fail and both GL and Venus fall back to software.
 	# surfaceless off: EGL from the GBM device on that node, not Mesa's
 	# default device.
 	# external-blob: every blob the guest maps must reach Cloud Hypervisor as
@@ -579,7 +586,9 @@ summary() {
 	[ -n "$vk_ids_shown" ] || vk_ids_shown=$(section "$tmp" vulkaninfo-gpu | vulkan_ids -)
 	where_vk=${vk_ids_shown:+$vk_ids_shown}
 	[ -n "$where_vk" ] && where_vk="$where_vk ($(node_of "$vk_ids_shown" "${host_nodes:-}" | grep . || echo "no render node here"))"
-	echo "GPU isolation:   ${isolation:-?}$(grep -m1 -o "in crosvm's namespace: .*" "$work/crosvm.log" 2>/dev/null | sed 's/^/ (/; s/$/)/')"
+	echo "GL node asked:   $(grep -m1 -oE "virglrenderer: (using GPU path .*|no GPU path.*|GPU path .* isn't a render node.*)" "$work/crosvm.log" 2>/dev/null || echo "crosvm didn't say")"
+	[ "${isolation:-none}" = none ] ||
+		echo "GPU isolation:   $isolation$(grep -m1 -o "in crosvm's namespace: .*" "$work/crosvm.log" 2>/dev/null | sed 's/^/ (/; s/$/)/')"
 	echo "GL ran on:       ${where_gl:-unknown (crosvm had no render node open)}"
 	echo "Vulkan ran on:   ${where_vk:-unknown}"
 
@@ -669,6 +678,7 @@ main() {
 		--memory) memory=$2; shift ;;
 		--timeout) timeout_min=$2; shift ;;
 		--keep) keep=true ;;
+		--isolate-gpu) isolate_gpu=true ;;
 		--check) check_only=true ;;
 		-h | --help) sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
 		*) die "unknown option $1 (see --help)" ;;

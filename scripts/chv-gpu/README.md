@@ -173,14 +173,17 @@ llvmpipe or fail, as they should with no 3D.
 - **Which GPU**: `--render-node` (default `renderD128`; `--check` lists them) picks the host GPU,
   and AgentBox picks a discrete GPU before one on the CPU (`pickRenderNode`;
   `AGENTBOX_VM_RENDER_NODE=renderD129` in the environment `agentbox vm start` runs in picks another).
-  - **Both:** crosvm, and the Venus render server it starts, run in a user and mount namespace
-    whose `/dev/dri` holds only that node (try.sh: `lib/gpu-ns.sh` with `unshare`, else `bwrap`;
-    AgentBox's supervisor: `agentbox vm gpu-device`, when the host has more than one render node).
-    virglrenderer takes the first render node it finds and can't be told another: rutabaga
-    0.1.75's `get_drm_fd`, which our crosvm patch's `render-node` feeds, rejects every render node
-    (`Path::starts_with("/dev/dri/renderD")` compares whole components), so the patch does nothing
-    until that's fixed. Without user namespaces, try.sh's GL takes whichever node comes first, and
-    the summary flags it; AgentBox's VM then gets no GPU, and says why.
+  - **GL:** our crosvm patch's `render-node` passes the node to rutabaga as a GPU path, and
+    rutabaga (also patched: 0.1.75 rejected every render node, because `Path::starts_with` compares
+    whole components) hands virglrenderer its fd. With `surfaceless` off, EGL comes from the GBM
+    device on that node. crosvm.log says `virglrenderer: using GPU path "/dev/dri/renderD…"`, and
+    the summary repeats it.
+  - **Vulkan:** Venus lists every host GPU, and the guest puts the chosen one first (Mesa's
+    device-select layer, in the guest; AgentBox's agents get `MESA_VK_DEVICE_SELECT` in their
+    profile from what the supervisor tells the VM).
+  - `--isolate-gpu` (try.sh only) also runs crosvm where `/dev/dri` holds only that node. It's an
+    experiment: on an RX 6750 XT, vrend's winsys failed to initialise there and GL and Venus both
+    fell back to software.
   - **Not** Mesa's device-select layer on the host: in the render server it breaks Venus (vkr
     fails `vkEnumeratePhysicalDeviceGroups` with `ERROR_INITIALIZATION_FAILED`). Nor `DRI_PRIME`:
     virglrenderer's node choice ignores it, and that same layer reads it. The guest still puts the

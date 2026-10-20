@@ -1,0 +1,79 @@
+--- a/src/virgl_renderer.rs
++++ b/src/virgl_renderer.rs
+@@ -20,6 +20,7 @@
+ use std::os::raw::c_int;
+ use std::os::raw::c_void;
+ use std::os::unix::fs::OpenOptionsExt;
++use std::path::Path;
+ use std::panic::catch_unwind;
+ use std::process::abort;
+ use std::ptr::null_mut;
+@@ -75,15 +76,28 @@
+ /// find an available GPU itself.
+ const DEFAULT_DRM_FD: i32 = -1;
+ 
++/// Whether a canonical path names a DRM render node (/dev/dri/renderD*). Compared as a string:
++/// Path::starts_with compares whole components, so "/dev/dri/renderD128" doesn't start with
++/// "/dev/dri/renderD" and no render node was ever accepted.
++fn is_render_node_path(path: &Path) -> bool {
++    path.to_str()
++        .and_then(|p| p.strip_prefix("/dev/dri/renderD"))
++        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
++}
++
+ /// Check if the given rutabaga path is a valid GPU path.
+ fn is_valid_gpu_path(rpath: &RutabagaPath) -> bool {
+     if rpath.path_type != RUTABAGA_PATH_TYPE_GPU {
+         return false;
+     }
+ 
+-    canonicalize(&rpath.path)
+-        .map(|path| path.starts_with("/dev/dri/renderD") && path.exists())
+-        .unwrap_or_default()
++    let valid = canonicalize(&rpath.path)
++        .map(|path| is_render_node_path(&path) && path.exists())
++        .unwrap_or_default();
++    if !valid {
++        warn!("virglrenderer: GPU path {:?} isn't a render node, ignored", rpath.path);
++    }
++    valid
+ }
+ 
+ fn dup(rd: RawDescriptor) -> RutabagaResult<OwnedDescriptor> {
+@@ -302,7 +316,10 @@
+             .map(|file| file.into_raw_fd())
+             // If no path was provided or opening it failed, use the
+             // default drm fd.
+-            .unwrap_or(DEFAULT_DRM_FD)
++            .unwrap_or_else(|| {
++                info!("virglrenderer: no GPU path, it opens a render node itself");
++                DEFAULT_DRM_FD
++            })
+     })
+     .unwrap_or_else(|_| abort())
+ }
+@@ -946,3 +963,24 @@
+         Ok(Box::new(VirglRendererContext { ctx_id }))
+     }
+ }
++
++#[cfg(test)]
++mod render_node_path_tests {
++    use super::is_render_node_path;
++    use std::path::Path;
++
++    #[test]
++    fn render_nodes() {
++        assert!(is_render_node_path(Path::new("/dev/dri/renderD128")));
++        assert!(is_render_node_path(Path::new("/dev/dri/renderD129")));
++    }
++
++    #[test]
++    fn not_render_nodes() {
++        assert!(!is_render_node_path(Path::new("/dev/dri/card0")));
++        assert!(!is_render_node_path(Path::new("/dev/dri/renderD")));
++        assert!(!is_render_node_path(Path::new("/dev/dri/renderD128/x")));
++        assert!(!is_render_node_path(Path::new("/dev/dri/renderDx")));
++        assert!(!is_render_node_path(Path::new("/tmp/dev/dri/renderD128")));
++    }
++}

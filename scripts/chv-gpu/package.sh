@@ -28,7 +28,7 @@ cp -r /src/patches "$stage/licenses/patches"
 {
 	echo "cloud-hypervisor $CHV_VERSION, AgentBox build $CHV_BUILD: Spectrum OS's GPU patchset (50.0-spectrum0) rebased onto it, $(ls /src/patches/cloud-hypervisor | paste -sd' ') (static, musl, --features mshv)"
 	echo "vhost $VHOST_URL, patched: $(ls /src/patches/vhost | paste -sd' ')"
-	echo "crosvm $CROSVM_COMMIT (minijail $MINIJAIL_COMMIT), features: default + virgl_renderer, patched: $(ls /src/patches/crosvm | paste -sd' ')"
+	echo "crosvm $CROSVM_COMMIT (minijail $MINIJAIL_COMMIT), features: default + virgl_renderer, patched: $(ls /src/patches/crosvm | paste -sd' '), rutabaga_gfx 0.1.75 patched: $(ls /src/patches/rutabaga_gfx | paste -sd' ')"
 	echo "virglrenderer $VIRGLRENDERER_VERSION ($VIRGLRENDERER_COMMIT): venus, render-server, egl+glx, minigbm_allocation (system libgbm)"
 	echo "built with $(rustc --version) (crosvm), $(rustc "+$CHV_RUST" --version) (Cloud Hypervisor), on Debian 12 (snapshot.debian.org $DEBIAN_SNAPSHOT)"
 } > "$stage/VERSIONS"
