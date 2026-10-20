@@ -77,6 +77,29 @@ func TestContinueAfterRestartIsOnUntilItIsTurnedOff(t *testing.T) {
 	}
 }
 
+func TestCreditAIToolIsOffUntilItIsTurnedOn(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+
+	r := httptest.NewRequest(http.MethodGet, "/v1/settings", nil)
+	out, err := d.srv.currentSettings(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.CreditAITool {
+		t.Error("an installation that has never chosen credits the AI tool")
+	}
+	if out, err := patchSettings(t, d, `{"creditAITool":true}`); err != nil || !out.CreditAITool {
+		t.Errorf("after turning it on: %+v, %v", out, err)
+	}
+	if out, err := patchSettings(t, d, `{"resumeAfterLimit":true}`); err != nil || !out.CreditAITool {
+		t.Errorf("another setting turned it back off: %+v, %v", out, err)
+	}
+	if out, err := patchSettings(t, d, `{"creditAITool":false}`); err != nil || out.CreditAITool {
+		t.Errorf("after turning it back off: %+v, %v", out, err)
+	}
+}
+
 // TestClaudeMenuIsKnownOnceAnAdapterSentOne: the pinned models are always on
 // the menu, so the app can't tell from the choices alone that Claude Code
 // hasn't sent the account's own yet, and says so from this.

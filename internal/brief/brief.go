@@ -49,6 +49,12 @@ type Data struct {
 	// and open their own pull request. Off, the brief tells the agent not to
 	// push and leaves both to the user and the lead.
 	AgentPRs bool
+	// CreditAITool is whether the user lets commits and pull requests credit
+	// the AI tool (state.SettingCreditAITool). Off, the brief asks the agent
+	// not to: Claude Code's settings and a commit-msg hook already keep its
+	// trailer out, but nothing else reaches the "Generated with …" line Codex
+	// and Cursor put in a pull request's body.
+	CreditAITool bool
 	// VM is set when AgentBox runs in a Linux VM on another OS: WSL 2 on
 	// Windows (package hostwsl, D94), or the VM it makes on a Mac (package
 	// hostvm, D92). The agent's address is then inside that VM, which the

@@ -1,0 +1,36 @@
+#!/bin/sh
+# AgentBox's commit-msg hook, installed because "Credit the AI tool in commits
+# and pull requests" is off (internal/agent/attribution.go). It runs the
+# repository's own commit-msg first, then takes the AI tools' credit out of the
+# message: their Co-authored-by trailers, Claude Code's Claude-Session trailer
+# and a "Generated with …" line. A co-author is an AI tool only by an address
+# no person has (noreply@anthropic.com, noreply@openai.com, a [bot]), so a
+# human co-author stays, whatever their name.
+hook="$(git rev-parse --git-common-dir)/hooks/commit-msg"
+if [ -x "$hook" ]; then
+	"$hook" "$@" || exit
+fi
+msg="$1"
+tmp="$msg.agentbox"
+if awk '
+	{ l = tolower($0) }
+	l ~ /^co-authored-by:/ && (l ~ /<noreply@(anthropic|openai|opencode|cursor)\.(com|ai)>/ || l ~ /<cursoragent@cursor\.com>/ || l ~ /<([0-9]+\+)?(claude|codex|cursor|opencode)[a-z0-9-]*\[bot\]@users\.noreply\.github\.com>/) { dropped = 1; next }
+	l ~ /^claude-session:/ { dropped = 1; next }
+	l ~ /^[^a-z]*generated (with|by) \[?(claude code|codex|opencode|cursor)/ { dropped = 1; next }
+	{ lines[n++] = $0 }
+	END {
+		if (!dropped) exit 1
+		# What was taken out leaves blank lines behind: no two in a row, and
+		# none at the end.
+		while (n > 0 && lines[n-1] ~ /^[ \t]*$/) n--
+		blank = 0
+		for (i = 0; i < n; i++) {
+			if (lines[i] ~ /^[ \t]*$/) { if (blank) continue; blank = 1 } else blank = 0
+			print lines[i]
+		}
+	}
+' "$msg" >"$tmp"; then
+	mv "$tmp" "$msg"
+else
+	rm -f "$tmp"
+fi

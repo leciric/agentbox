@@ -457,6 +457,11 @@ type Settings struct {
 	// and carry on with that turn when it starts again. On unless it was
 	// turned off.
 	ContinueAfterRestart bool `json:"continueAfterRestart"`
+	// CreditAITool says whether agents' commits and pull requests credit the
+	// AI tool that wrote them, with its Co-authored-by trailer and "Generated
+	// with …" line. Off unless it was turned on; it reaches an agent as it
+	// starts, and a Claude Code agent's chat as it starts too.
+	CreditAITool bool `json:"creditAITool"`
 	// ClaudeCompactWindow is how many tokens of context a Claude Code or Codex
 	// chat holds before its tool compacts it (D83); 0 is the model's whole
 	// window. OpenCode has no equivalent to set: its own compaction settings
@@ -605,6 +610,9 @@ type UpdateSettingsRequest struct {
 	ResumeAfterLimit *bool `json:"resumeAfterLimit,omitempty"`
 	// ContinueAfterRestart turns "Continue agents after restarts" on or off.
 	ContinueAfterRestart *bool `json:"continueAfterRestart,omitempty"`
+	// CreditAITool turns "Credit the AI tool in commits and pull requests"
+	// on or off.
+	CreditAITool *bool `json:"creditAITool,omitempty"`
 	// ClaudeCompactWindow is 0 for the model's whole window, or between
 	// 100000 and 1000000 tokens.
 	ClaudeCompactWindow *int64 `json:"claudeCompactWindow,omitempty"`

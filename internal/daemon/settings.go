@@ -108,6 +108,12 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if req.CreditAITool != nil {
+		// Off until turned on, so a plain flag. Agents read it as they start.
+		if err := s.store.SetFlag(r.Context(), state.SettingCreditAITool, *req.CreditAITool); err != nil {
+			return err
+		}
+	}
 	if req.ClaudeCompactWindow != nil {
 		// Stored as a count, and checked against the bounds Claude Code holds
 		// its own variable to: past them, it would clamp or ignore the value
@@ -397,6 +403,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	creditAITool, err := s.store.Flag(r.Context(), state.SettingCreditAITool)
+	if err != nil {
+		return api.Settings{}, err
+	}
 	updateCheck, err := s.store.FlagOn(r.Context(), state.SettingUpdateCheck)
 	if err != nil {
 		return api.Settings{}, err
@@ -492,6 +502,7 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 
 		ResumeAfterLimit:     resumeAfterLimit,
 		ContinueAfterRestart: continueAfterRestart,
+		CreditAITool:         creditAITool,
 		UpdateCheck:          updateCheck,
 		UsageStats:           usageStats,
 		ErrorReports:         errorReports,

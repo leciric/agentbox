@@ -147,6 +147,7 @@ export interface Settings {
   defaultCursorEffort: string;
   resumeAfterLimit: boolean;
   continueAfterRestart: boolean;
+  creditAITool: boolean;
   claudeCompactWindow: number;
   updateCheck: boolean;
   usageStats: boolean;
@@ -196,6 +197,7 @@ export interface UpdateSettingsRequest {
   defaultCursorEffort?: string;
   resumeAfterLimit?: boolean;
   continueAfterRestart?: boolean;
+  creditAITool?: boolean;
   claudeCompactWindow?: number;
   updateCheck?: boolean;
   updateChannel?: string;

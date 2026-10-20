@@ -1,0 +1,7 @@
+#!/bin/sh
+# AgentBox points core.hooksPath at this directory for its commit-msg hook, and
+# git then stops looking in the repository's own hooks: this runs the
+# repository's hook of the same name, when it has one.
+hook="$(git rev-parse --git-common-dir)/hooks/${0##*/}"
+[ -x "$hook" ] || exit 0
+exec "$hook" "$@"

@@ -207,7 +207,7 @@ func withClaudeKey(existing []byte, key string, value any, want bool) ([]byte, e
 		if err != nil {
 			return nil, err
 		}
-		if had && bytes.Equal(before, raw) {
+		if had && jsonEqual(before, raw) {
 			return nil, nil
 		}
 		settings[key] = raw
@@ -250,8 +250,11 @@ func (m *Manager) PrepareChatModel(ctx context.Context, a state.Agent, model str
 		if err := m.writeBashEnv(ctx, a); err != nil {
 			return err
 		}
+		// Whether to credit Claude in commits goes in here as well as at
+		// creation, so a running agent's next chat follows the setting
+		// without waiting for its machine to restart.
 		return m.prepareAgentClaudeSettings(ctx, a, func(b []byte) ([]byte, error) {
-			return withClaudeSettings(b, merge, m.withBashEnv)
+			return withClaudeSettings(b, merge, m.withBashEnv, withClaudeAttribution(m.creditAITool(ctx)))
 		})
 	case "codex":
 		return m.prepareAgentCodexSettings(ctx, a, compactWindow)
