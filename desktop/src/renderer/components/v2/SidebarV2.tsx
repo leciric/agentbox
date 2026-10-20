@@ -109,9 +109,6 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   }, [agents.data, head.data, questions.data, reviewing, prs]);
   const label = (p: T.Project) => projectLabel(p);
   const currentAgentProject = view.kind === 'agent' ? view.ref.split('/')[0] : undefined;
-  // What you haven't seen, by project: its questions, failures and media.
-  const unread = new Map<string, number>();
-  for (const n of pageItems(questions.data)) unread.set(n.project, (unread.get(n.project) ?? 0) + 1);
 
   // Each lead's chat, the same queries its row reads: a lead mid-turn counts
   // as working, for the filter, the counts and the sort, and with one waiting
@@ -205,7 +202,6 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
       project={p.project}
       all={p.all}
       approvals={p.approvals}
-      unread={unread.get(p.project.name) ?? 0}
       pinned={pinned.has(p.project.name)}
       hidden={hiddenSet.has(p.project.name)}
       view={view}
@@ -617,7 +613,6 @@ function ProjectLead({
   project,
   all,
   approvals,
-  unread,
   pinned,
   hidden,
   view,
@@ -630,7 +625,6 @@ function ProjectLead({
   project: T.Project;
   all: Row[];
   approvals: number;
-  unread: number;
   pinned: boolean;
   hidden: boolean;
   view: View;
@@ -656,7 +650,7 @@ function ProjectLead({
   const counts = countSt(all.map((r) => r.st));
   // The lead at work counts as one working.
   if (leadBusy(chat.data?.chat)) counts.working++;
-  const counted = counts.working + counts.review + counts.needs + counts.error + unread > 0;
+  const counted = counts.working + counts.review + counts.needs + counts.error > 0;
   const name = projectLabel(project);
   const active = (view.kind === 'project' && view.project === project.name) || (view.kind === 'agent' && view.ref.startsWith(`${project.name}/`));
   const open_ = () => onSelect({ kind: 'project', project: project.name });
@@ -774,11 +768,6 @@ function ProjectLead({
                         {t(key, { count: counts[st] })}
                       </span>
                     ) : null,
-                  )}
-                  {unread > 0 && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-brand-500/15 px-1.5 font-medium text-brand-300 [:root[data-appearance=light]_&]:text-brand-600" data-v2-count="unread">
-                      {t('v2.count.unread', { count: unread })}
-                    </span>
                   )}
                 </span>
               )}

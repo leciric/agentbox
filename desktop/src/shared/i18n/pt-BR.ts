@@ -3299,7 +3299,6 @@ export const ptBR: Messages = {
   'v2.count.review': '{count} para revisar',
   'v2.count.needs': '{count, plural, one {# pergunta} other {# perguntam}}',
   'v2.count.error': '{count, plural, one {# falhou} other {# falharam}}',
-  'v2.count.unread': '{count, plural, one {# não lido} other {# não lidos}}',
   'v2.tag.asks': 'Pergunta',
   'v2.tag.failed': 'Falhou',
   'v2.tag.removing': 'removendo…',

@@ -3298,7 +3298,6 @@ export const enUS = {
   'v2.count.review': '{count} to review',
   'v2.count.needs': '{count, plural, one {# ask} other {# asks}}',
   'v2.count.error': '{count} failed',
-  'v2.count.unread': '{count} unread',
   'v2.tag.asks': 'Asks',
   'v2.tag.failed': 'Failed',
   'v2.tag.removing': 'removing…',
