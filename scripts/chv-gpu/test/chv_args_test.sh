@@ -44,12 +44,14 @@ fake_kvm_run() {
 	timeout 60 unshare --user --map-root-user --mount sh -c '
 		set -e
 		d=$(mktemp -d)
-		mount -t tmpfs tmpfs "$d"
+		# -n: util-linux 2.39 (Ubuntu 24.04) mounts but fails writing
+		# /run/mount/utab in a user namespace, and exits non-zero.
+		mount -n -t tmpfs tmpfs "$d"
 		for n in null zero random urandom full; do
-			touch "$d/$n"; mount --bind "/dev/$n" "$d/$n"
+			touch "$d/$n"; mount -n --bind "/dev/$n" "$d/$n"
 		done
 		touch "$d/kvm"
-		mount --move "$d" /dev
+		mount -n --move "$d" /dev
 		exec "$@"' sh "$tmp/fake-kvm" "$@" 2>&1
 }
 

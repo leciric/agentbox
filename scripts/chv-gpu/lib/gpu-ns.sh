@@ -17,10 +17,12 @@ shift 4
 name=$(basename "$node")
 
 d=$(mktemp -d)
-mount -t tmpfs -o mode=755 tmpfs "$d"
+# -n: in a user namespace, util-linux's mount (2.39, Ubuntu 24.04) mounts but
+# fails writing /run/mount/utab, and says so with a non-zero exit.
+mount -n -t tmpfs -o mode=755 tmpfs "$d"
 touch "$d/$name"
-mount --bind "$node" "$d/$name"
-mount --move "$d" "$dri"
+mount -n --bind "$node" "$d/$name"
+mount -n --move "$d" "$dri"
 rmdir "$d"
 echo "chv-gpu: $dri in crosvm's namespace: $(ls "$dri" | tr '\n' ' ')(device $(stat -L -c '%t:%T' "$dri/$name"))" >&2
 
