@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"agentbox/internal/api"
+	"agentbox/internal/hostvm/chv"
 )
 
 // A krunkit VM is made from Debian's generic image, whose kernel has the
@@ -209,11 +210,31 @@ func TestNoGPU(t *testing.T) {
 		{api.VMDriverLima, "", "Apple's Virtualization framework"},
 		{api.VMDriverVZ, "", "Apple's Virtualization framework"},
 		{api.VMDriverLima, "qemu", "Lima's qemu VM has no 3D"},
-		{api.VMDriverCloudHypervisor, "", "this VM has none"},
+		{api.VMDriverCloudHypervisor, "", ""},
 	} {
 		got := noGPU(tc.driver, tc.vmType)
 		if (tc.want == "") != (got == "") || !strings.Contains(got, tc.want) {
 			t.Errorf("noGPU(%q, %q) = %q, want %q", tc.driver, tc.vmType, got, tc.want)
+		}
+	}
+}
+
+func TestCHVGPUReport(t *testing.T) {
+	for _, tc := range []struct {
+		st   chv.GPUStatus
+		want []string
+	}{
+		{chv.GPUStatus{Want: true, State: chv.GPUOn, Node: "/dev/dri/renderD129", GPU: "amdgpu, 1002:73df"}, []string{"GPU for agents: on", "/dev/dri/renderD129 (amdgpu, 1002:73df)", "the VM has it"}},
+		{chv.GPUStatus{State: chv.GPUOff, Node: "/dev/dri/renderD128", GPU: "i915, 8086:a780"}, []string{"GPU for agents: off", "turn on \"GPU for agents\""}},
+		{chv.GPUStatus{Want: true, State: chv.GPUNone, Reason: "NVIDIA's proprietary driver can't share its memory."}, []string{"the VM has none", "why:            NVIDIA's"}},
+		{chv.GPUStatus{Want: true, State: chv.GPURestart, Reason: "restart."}, []string{"when it next starts"}},
+		{chv.GPUStatus{}, []string{"not known yet"}},
+	} {
+		got := chvGPUReport(tc.st)
+		for _, want := range tc.want {
+			if !strings.Contains(got, want) {
+				t.Errorf("no %q in:\n%s", want, got)
+			}
 		}
 	}
 }

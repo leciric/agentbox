@@ -102,7 +102,7 @@ func (m *chMachine) startCloud(ctx context.Context) error {
 // on and planGPU finds a render node it can use, and says why in the log when
 // not. Nothing that goes wrong here stops the VM: it starts without the GPU.
 func (m *chMachine) startGPU(ctx context.Context) {
-	m.gpuPlan = planGPU(ReadGPUStatus(m.l).Want, findRenderNodes(), os.Getenv("AGENTBOX_VM_RENDER_NODE"), openRW)
+	m.gpuPlan = planGPU(ReadGPUStatus(m.l).Want, findRenderNodes(), os.Getenv("AGENTBOX_VM_RENDER_NODE"), openRenderNode)
 	if !m.gpuPlan.ok() {
 		if ReadGPUStatus(m.l).Want {
 			m.logf("the VM starts without the GPU: %s", m.gpuPlan.reason)
@@ -110,6 +110,10 @@ func (m *chMachine) startGPU(ctx context.Context) {
 		return
 	}
 	n := m.gpuPlan.node
+	if err := crosvmRuns(ctx, m.l); err != nil {
+		m.gpuFailed(err.Error())
+		return
+	}
 	gpu, err := startChildEnv("crosvm", m.l.Bin(gpuDir+"/bin/crosvm"), crosvmArgs(m.l, n.Path), gpuEnv(m.l, n, os.Environ()), m.log)
 	if err == nil {
 		if err = waitSocket(ctx, gpu, m.l.GPUSocket()); err != nil {

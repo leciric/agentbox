@@ -163,7 +163,7 @@ unpack() {
 	if [ -n "$dir" ]; then
 		bin=$(cd "$dir" && pwd)
 	else
-		[ -n "$tarball" ] || tarball=$(ls "$here"/out/chv-gpu-*.tar.gz 2>/dev/null | head -n1 || true)
+		[ -n "$tarball" ] || tarball=$(ls "$here"/out/chv-*.tar.gz 2>/dev/null | head -n1 || true)
 		[ -f "$tarball" ] || die "no tarball: run build.sh first, or pass --tarball or --dir"
 		mkdir -p "$work/bin"
 		tar -xzf "$tarball" -C "$work/bin" --strip-components=1
@@ -367,9 +367,8 @@ device_select_layer() {
 	return 1
 }
 
-# chv_command: Cloud Hypervisor's command line, into the array chv. Its
-# options are v50's (the patchset's release), not those of the v53 AgentBox's
-# VM runs: v50's --disk has no image_type or sparse, for one.
+# chv_command: Cloud Hypervisor's command line, into the array chv: the
+# tarball's v53.0 with the patchset, the one AgentBox's VM runs.
 # test/chv_args_test.sh runs the tarball's binary on exactly this.
 chv_command() {
 	# shared=on: vhost-user devices (passt, the GPU) map the guest's memory.

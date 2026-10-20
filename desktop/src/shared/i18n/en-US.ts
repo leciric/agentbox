@@ -623,6 +623,8 @@ export const enUS = {
   'settings.agentGPU.unavailable': 'Unavailable: {reason}',
   'settings.agentGPU.wsl': 'WSL\'s GPU ({node}), through Mesa\'s Direct3D 12 driver.',
   'settings.agentGPU.renderNode': 'The VM\'s GPU ({node}).',
+  'settings.agentGPU.host': 'Your computer\'s GPU ({node}): AgentBox\'s VM gets it the next time it starts with this on.',
+  'settings.agentGPU.hostPending': 'Your computer\'s GPU ({node}): {reason}',
   'settings.entry.docker-prune.label': 'Free Docker space when an agent stops',
   'settings.entry.docker-prune.keywords': 'docker prune images build cache disk space stop clean',
   'settings.entry.media-retention.label': 'Keep a removed agent\'s media for',

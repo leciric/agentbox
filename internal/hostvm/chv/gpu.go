@@ -2,14 +2,17 @@ package chv
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // GPU for agents on Linux. The VM gets the host's GPU as a virtio-gpu device
@@ -239,6 +242,10 @@ func planGPU(want bool, nodes []renderNode, override string, open func(string) e
 	return p
 }
 
+// openRenderNode checks that the user can use a render node: a variable for
+// tests.
+var openRenderNode = openRW
+
 // openRW checks that path can be opened for reading and writing.
 func openRW(path string) error {
 	f, err := os.OpenFile(path, os.O_RDWR, 0)
@@ -246,6 +253,25 @@ func openRW(path string) error {
 		return err
 	}
 	return f.Close()
+}
+
+// crosvmRuns checks that crosvm starts here at all: it links the host's
+// graphics libraries (the tarball's HOST-LIBRARIES), which a machine may lack.
+func crosvmRuns(ctx context.Context, l Layout) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, l.Bin(gpuDir+"/bin/crosvm"), "version").CombinedOutput()
+	if err == nil {
+		return nil
+	}
+	msg := strings.TrimSpace(string(out))
+	if i := strings.LastIndexByte(msg, '\n'); i >= 0 {
+		msg = msg[i+1:]
+	}
+	if strings.Contains(msg, "error while loading shared libraries") {
+		return fmt.Errorf("crosvm, the VM's GPU device, can't run here (%s): install your distribution's libepoxy, libgbm, libdrm and Vulkan loader", msg)
+	}
+	return fmt.Errorf("crosvm, the VM's GPU device, can't run here (%v: %s)", err, cmp.Or(msg, "no output"))
 }
 
 // gpuParams is crosvm's `device gpu --params`, as scripts/chv-gpu/try.sh
@@ -310,16 +336,21 @@ func guestStatusScript(st GPUStatus) string {
 }
 
 // grubEntries is shell that finds GRUB's menu entry for a kernel version
-// (entry VERSION) and the submenu they're in (sub), in the guest's
-// grub.cfg, as grub-reboot and grub-set-default take them.
-const grubEntries = `cfg=/boot/grub/grub.cfg
-sub=$(sudo -n sed -n "s/^submenu .*menuentry_id_option '\([^']*\)'.*/\1/p" "$cfg" | head -n1)
+// (entry VERSION) and the submenu they're in, in the guest's grub.cfg, as
+// grub-reboot and grub-set-default take them, and the newest generic kernel
+// in /boot (newest_generic). SUDO, BOOT, SYS and ETC are for tests.
+const grubEntries = `SUDO=${SUDO-sudo -n}
+BOOT=${BOOT:-/boot}
+SYS=${SYS:-/sys}
+ETC=${ETC:-/etc}
+cfg=$BOOT/grub/grub.cfg
 entry() {
-  id=$(sudo -n sed -n "s/.*menuentry_id_option '\(gnulinux-$1-advanced-[^']*\)'.*/\1/p" "$cfg" | head -n1)
+  sub=$($SUDO sed -n "s/^submenu .*menuentry_id_option '\([^']*\)'.*/\1/p" "$cfg" | head -n1)
+  id=$($SUDO sed -n "s/.*menuentry_id_option '\(gnulinux-$1-advanced-[^']*\)'.*/\1/p" "$cfg" | head -n1)
   [ -n "$id" ] || { echo "GRUB has no entry for the kernel $1" >&2; exit 1; }
   echo "${sub:+$sub>}$id"
 }
-newest_generic() { (cd /boot && ls vmlinuz-*-amd64 2>/dev/null) | sed 's/^vmlinuz-//' | grep -v -- '-cloud-' | sort -V | tail -n1; }
+newest_generic() { (cd "$BOOT" && ls vmlinuz-*-amd64 2>/dev/null) | sed 's/^vmlinuz-//' | grep -v -- '-cloud-' | sort -V | tail -n1; }
 `
 
 // kernelScript readies the guest's kernel for the GPU: nothing, printing
@@ -328,17 +359,19 @@ newest_generic() { (cd /boot && ls vmlinuz-*-amd64 2>/dev/null) | sed 's/^vmlinu
 // the next start, printing "trial VERSION". GRUB_DEFAULT=saved is what lets
 // grub-reboot make a one-shot boot; the default stays the running kernel.
 const kernelScript = `set -eu
-if [ -d /sys/module/virtio_gpu ] || modinfo virtio_gpu >/dev/null 2>&1; then echo driver; exit 0; fi
+` + grubEntries + `if [ -d "$SYS/module/virtio_gpu" ] || modinfo virtio_gpu >/dev/null 2>&1; then echo driver; exit 0; fi
 running=$(uname -r)
-export DEBIAN_FRONTEND=noninteractive
-sudo -n -E apt-get -q -o DPkg::Lock::Timeout=300 update >/dev/null
-sudo -n -E apt-get -q -y -o DPkg::Lock::Timeout=300 install --no-install-recommends linux-image-amd64 >/dev/null
-` + grubEntries + `generic=$(newest_generic)
-[ -n "$generic" ] || { echo "no generic kernel in /boot after installing linux-image-amd64" >&2; exit 1; }
-echo 'GRUB_DEFAULT=saved' | sudo -n tee /etc/default/grub.d/91-agentbox-gpu.cfg >/dev/null
-sudo -n update-grub 2>/dev/null
-sudo -n grub-set-default "$(entry "$running")"
-sudo -n grub-reboot "$(entry "$generic")"
+$SUDO env DEBIAN_FRONTEND=noninteractive apt-get -q -o DPkg::Lock::Timeout=300 update >/dev/null
+$SUDO env DEBIAN_FRONTEND=noninteractive apt-get -q -y -o DPkg::Lock::Timeout=300 install --no-install-recommends linux-image-amd64 >/dev/null
+generic=$(newest_generic)
+[ -n "$generic" ] || { echo "no generic kernel in $BOOT after installing linux-image-amd64" >&2; exit 1; }
+echo 'GRUB_DEFAULT=saved' | $SUDO tee "$ETC/default/grub.d/91-agentbox-gpu.cfg" >/dev/null
+$SUDO update-grub 2>/dev/null
+# Assigned first: set -e doesn't see a failed $(...) in an argument.
+default=$(entry "$running")
+once=$(entry "$generic")
+$SUDO grub-set-default "$default"
+$SUDO grub-reboot "$once"
 echo "trial $generic"
 `
 
@@ -347,9 +380,10 @@ echo "trial $generic"
 // whose entry the saved default doesn't follow; it prints "default VERSION",
 // or "cloud" when the cloud kernel runs, which it leaves as it is.
 const defaultKernelScript = `set -eu
-running=$(uname -r)
+` + grubEntries + `running=$(uname -r)
 case $running in *-cloud-*) echo cloud; exit 0 ;; esac
-` + grubEntries + `generic=$(newest_generic)
-sudo -n grub-set-default "$(entry "${generic:-$running}")"
+generic=$(newest_generic)
+default=$(entry "${generic:-$running}")
+$SUDO grub-set-default "$default"
 echo "default ${generic:-$running}"
 `

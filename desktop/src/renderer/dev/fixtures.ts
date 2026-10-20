@@ -15,6 +15,24 @@ import { pastRequest } from './pastAgents';
 
 export const PROJECT = 'agentbox';
 
+// The VM's GPU in Settings, by the preview's ?gpu=.
+function fixtureVMGPU(gpu: string | null): T.VMGPU {
+  switch (gpu) {
+    case 'none':
+      return { kind: '', node: '', reason: "WSL gives AgentBox's distro no GPU (no /dev/dxg): it needs Windows 10 21H2 or later, a current WSL (wsl --update) and a GPU driver with WSL support" };
+    case 'vm':
+      // What a Linux (Cloud Hypervisor) VM said before it could have the GPU.
+      return { kind: '', node: '', reason: "AgentBox's VM has no GPU to give agents" };
+    case 'host':
+      return { kind: 'host', node: '/dev/dri/renderD129', reason: '' };
+    case 'restart':
+      return { kind: 'host', node: '/dev/dri/renderD129', reason: 'the VM gets this GPU when it next starts: restart AgentBox\'s VM for agents to get it (agentbox vm stop, then agentbox vm start; agents stop with it).' };
+    case 'nvidia':
+      return { kind: '', node: '', reason: "NVIDIA's proprietary driver can't share its memory with the VM (no dma-buf export in its Vulkan driver), which the VM's GPU needs: Venus and virgl run on AMD and Intel GPUs, and on NVIDIA's with nouveau" };
+  }
+  return { kind: 'dxg', node: '/dev/dxg', reason: '' };
+}
+
 export const WIDE = {
   longPath: '/home/user/.local/share/agentbox/worktrees/agentbox/agent-96/desktop/src/renderer/components/chat/Markdown.tsx',
   longUrl: 'https://github.com/leciric/agentbox/pull/78/files#diff-1a2b3c4d5e6f7890abcdef1234567890abcdef1234567890abcdef1234567890',
@@ -1427,11 +1445,10 @@ let defaultsSettings = {
   updateCheck: true,
   usageStats: true,
   agentGPU: false,
-  // WSL's GPU, or ?gpu=none for a VM with none.
-  vmGPU:
-    typeof location !== 'undefined' && new URLSearchParams(location.search).get('gpu') === 'none'
-      ? { kind: '', node: '', reason: "WSL gives AgentBox's distro no GPU (no /dev/dxg): it needs Windows 10 21H2 or later, a current WSL (wsl --update) and a GPU driver with WSL support" }
-      : { kind: 'dxg', node: '/dev/dxg', reason: '' },
+  // WSL's GPU, or ?gpu=none for a VM with none, ?gpu=host for a Linux host's
+  // the VM gets at its next start, ?gpu=restart for one turned on, waiting,
+  // ?gpu=nvidia for one it can't have, ?gpu=vm for a VM with none.
+  vmGPU: fixtureVMGPU(typeof location !== 'undefined' ? new URLSearchParams(location.search).get('gpu') : null),
   errorReports: true,
   prWatch: true,
   defaultClaudeCompactWindow: 500_000,

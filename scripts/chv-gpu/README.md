@@ -1,9 +1,14 @@
-# A shared GPU for the Linux VM: phase 0
+# AgentBox's Cloud Hypervisor, and the Linux VM's GPU
 
-A spike, not a feature: can AgentBox's Cloud Hypervisor VM share the host's GPU with its agents,
-the way the Mac (krunkit) and Windows (WSL) VMs do? Nothing here is used by AgentBox; nothing in
-`internal/hostvm` changes. Two scripts answer it: `build.sh` makes the binaries, `try.sh` boots a
-throwaway guest with them on a machine with KVM and a GPU and says what the guest got.
+The Cloud Hypervisor every Linux VM runs: upstream's v53.0 with Spectrum OS's virtio-gpu patchset
+rebased onto it ([`patches/`](patches/README.md)), and beside it crosvm's GPU device and
+virglrenderer, which give the VM the host's GPU when "GPU for agents" is on
+(`internal/hostvm/chv/gpu.go`). `build.sh` makes the tarball, the Cloud Hypervisor workflow
+(`.github/workflows/chv.yml`) builds and publishes it as the release
+`chv-<version>-agentbox<build>` (`publish.sh`), and `internal/hostvm/chv/tools.go` (`chvBundle`)
+downloads it by its SHA256: nobody compiles anything. `try.sh`, from the spike that started it
+(#427), boots a throwaway guest with the tarball on a machine with KVM and a GPU and says what
+the guest got.
 
 ## The pieces
 
@@ -23,8 +28,9 @@ host Mesa / GPU driver on /dev/dri/renderD128
   keeps a patchset adding one: `--gpu socket=…`, a vhost-user frontend for crosvm's GPU backend
   (not QEMU's `vhost-user-gpu` protocol), with patches to rust-vmm's `vhost` crates for the shared
   memory region that host-visible blobs (and so Venus) need. Their newest, `50.0-spectrum0`,
-  targets Cloud Hypervisor v50.0. AgentBox's VM runs v53.0 today; the GPU would mean running a
-  patched v50 or porting the patches forward.
+  targets Cloud Hypervisor v50.0; [`patches/`](patches/README.md) has it rebased onto v53.0, and
+  says how, and what the next version costs. Without `--gpu` none of it runs: the binary takes
+  AgentBox's VM's command line exactly as upstream's v53.0 does (`test/chv_args_test.sh`).
 - **crosvm's `device gpu`** is crosvm's virtio-gpu device as a standalone vhost-user backend. It
   has no releases; the commit is the one Spectrum tested the patchset with.
 - **virglrenderer** turns the guest's virgl (OpenGL) and Venus (Vulkan) command streams into host
@@ -37,14 +43,13 @@ All pinned in [`versions.env`](versions.env):
 
 | | version | licence |
 |---|---|---|
-| Cloud Hypervisor | v50.0, static (musl) | Apache-2.0 AND BSD-3-Clause |
-| Spectrum OS GPU patchset | 50.0-spectrum0 | Apache-2.0 AND BSD-3-Clause (Google) |
-| upstream backport ([`patches/`](patches/README.md)) | 57e766bd (#7906, v52): no double activation with 2+ vCPUs | Apache-2.0 AND BSD-3-Clause |
-| rust-vmm vhost, vhost-user-backend | vhost-user-backend-v0.20.0, patched | Apache-2.0 OR BSD-3-Clause |
+| Cloud Hypervisor | v53.0, static (musl, `--features mshv`, as upstream's release) | Apache-2.0 AND BSD-3-Clause |
+| Spectrum OS GPU patchset | 50.0-spectrum0, rebased onto v53.0 ([`patches/`](patches/README.md)) | Apache-2.0 AND BSD-3-Clause (Google) |
+| rust-vmm vhost, vhost-user-backend | vhost-user-backend-v0.22.0 (vhost 0.16.0), patched | Apache-2.0 OR BSD-3-Clause |
 | crosvm | 18bc84d0 (2025-11-24), default features + `virgl_renderer` | BSD-3-Clause |
 | minijail (linked into crosvm) | bfd22f25 | BSD-3-Clause |
 | virglrenderer | 1.2.0, `-Dvenus=true -Drender-server=true` | MIT |
-| Rust | 1.88.0 (crosvm's pin), 1.89.0 (Cloud Hypervisor's minimum) | |
+| Rust | 1.88.0 (crosvm's pin), 1.89.0 (Cloud Hypervisor v53's minimum) | |
 | build system | Debian 12, packages from snapshot.debian.org 2026-10-15 | |
 
 The Rust crates linked in are almost all MIT and/or Apache-2.0; nothing copyleft is linked. The
@@ -52,8 +57,8 @@ tarball carries each project's licence files under `licenses/` and Spectrum's pa
 
 try.sh downloads, on the machine it runs on and not into the tarball: Debian 13's generic cloud
 image `20260914-2601` (the build AgentBox's VM uses; Debian's own licences), Cloud Hypervisor's
-EDK2 firmware `ch-a54f262b09`, the build CHV v50's own tests boot (BSD-2-Clause-Patent), and passt (GPL-2.0-or-later) when the host
-has none.
+EDK2 firmware `ch-97eeb7b09`, AgentBox's VM's (BSD-2-Clause-Patent), and passt (GPL-2.0-or-later)
+when the host has none.
 
 ## build.sh
 
@@ -63,10 +68,13 @@ scripts/chv-gpu/build.sh [OUTPUT_DIR]     # default scripts/chv-gpu/out/
 
 Builds in Docker (BuildKit), linux/amd64 only, in about 15 minutes on 4 cores.
 `CARGO_BUILD_JOBS` (default 4) bounds the Rust builds: Cloud Hypervisor links with LTO. Out come
-`chv-gpu-50.0-spectrum0-x86_64.tar.gz`, its `.sha256`, `VERSIONS` and `HOST-LIBRARIES`:
+`chv-53.0-agentbox<CHV_BUILD>-x86_64.tar.gz`, its `.sha256`, `VERSIONS` and `HOST-LIBRARIES`.
+Change anything in it and `CHV_BUILD` in `versions.env` goes up, since a published build is never
+replaced; then pin the new tarball and its files in `tools.go` (the workflow prints their sums
+when they don't match).
 
 ```
-bin/cloud-hypervisor, bin/ch-remote   static
+bin/cloud-hypervisor, bin/ch-remote   static; says v53.0.0-agentbox<CHV_BUILD>
 bin/crosvm                            glibc ≥ 2.36, RUNPATH $ORIGIN/../lib
 libexec/virgl_render_server
 lib/libvirglrenderer.so.1             bundled: distributions' builds often lack Venus
@@ -128,19 +136,21 @@ files, sockets and processes aren't touched, and it can run at the same time.
 
 ```bash
 scripts/chv-gpu/test/parse_test.sh        # the parsing and the summary, against fixtures/
-scripts/chv-gpu/test/chv_args_test.sh     # the tarball's cloud-hypervisor on try.sh's command line
+scripts/chv-gpu/test/chv_args_test.sh     # the tarball's binaries on try.sh's and AgentBox's command lines
 scripts/chv-gpu/test/seed_test.sh         # the cloud-init seed, with each tool installed
 scripts/chv-gpu/test/guest-in-qemu.sh     # the guest half under QEMU, no GPU or KVM needed
 ```
 
-`chv_args_test.sh` proves Cloud Hypervisor v50 parses and validates the command line try.sh gives
-it (`chv_command`), with no KVM. v50's options aren't v53's (AgentBox's VM): its `--disk` has no
-`image_type` or `sparse`. v50 opens `/dev/kvm` and checks its API version before it reads its
-options, so the test runs it in a user and mount namespace where `/dev/kvm` is an empty file,
-under [`fake-kvm`](test/fake-kvm.c). That ptrace supervisor answers `KVM_GET_API_VERSION` and lets
-every other KVM ioctl fail. The first one after parsing, as the VM is created, ends the run and
-proves the options got through. The test also checks that the harness catches `image_type` and
-vhost-user without shared memory. It needs `gcc` and unprivileged user namespaces.
+`chv_args_test.sh` proves the tarball's Cloud Hypervisor parses and validates the command lines
+try.sh (`chv_command`) and AgentBox's VM (`chArgs`, with the GPU and without, written by the Go
+test `TestWriteCHArgs`) give it, with no KVM, and that upstream's v53.0 says exactly the same of
+AgentBox's line without the GPU. Cloud Hypervisor opens `/dev/kvm` and checks its API version
+before it reads its options, so the test runs it in a user and mount namespace where `/dev/kvm` is
+an empty file, under [`fake-kvm`](test/fake-kvm.c). That ptrace supervisor answers
+`KVM_GET_API_VERSION` and lets every other KVM ioctl fail. The first one after parsing, as the VM
+is created, ends the run and proves the options got through. The test also checks that the harness
+catches an unknown option and vhost-user without shared memory, and that crosvm takes try.sh's
+and AgentBox's `--params`. It needs `gcc`, `go` and unprivileged user namespaces.
 
 `guest-in-qemu.sh` boots the same image, seed and guest script under QEMU with its 2D virtio GPU:
 cloud-init, the packages, Xorg, the framing and the summary are checked; the GPU runs fall back to
@@ -160,16 +170,18 @@ llvmpipe or fail, as they should with no 3D.
   driver exports them (RADV and ANV do). A blob that can't be exported fails to map in the guest
   and the summary counts it; without `external-blob`, the first such blob (resource 23 on an RX
   6750 XT) made Cloud Hypervisor drop the device and crosvm panic.
-- **Which GPU**: virglrenderer opens the first render node itself, so on a machine with two GPUs
-  the guest's OpenGL runs on `renderD128`, often the integrated one; `--render-node` only changes
-  what try.sh checks. Venus lists every Vulkan device of the host, and the guest picks.
+- **Which GPU**: virglrenderer would open the first render node itself; our crosvm patch's
+  `render-node` names it, and `MESA_VK_DEVICE_SELECT` keeps Venus on the same GPU. AgentBox picks
+  a discrete GPU before one on the CPU (`pickRenderNode`); `AGENTBOX_VM_RENDER_NODE=renderD129`
+  in the environment `agentbox vm start` runs in picks another.
 - **No display**: crosvm runs with its stub display, so the guest has a scanout (its X server
   works) but nothing is shown on the host. AgentBox's agents draw on their own virtual displays,
   so it's what we'd want, but crosvm's Wayland/X display paths aren't exercised.
 - **virgl's OpenGL** tops out at what virglrenderer translates (OpenGL 4.3 / GLES 3.2 on most
   hosts) and costs a copy per frame; Venus is near native but needs a guest kernel 5.16 or later
   with blob resources and context init (Debian 13's 6.12 has them).
-- **Spectrum's patchset** is for Cloud Hypervisor v50.0 and was written for crosvm's
-  cross-domain (Wayland) contexts, Spectrum's use; virgl and Venus contexts over it are what this
-  spike finds out. Snapshot, restore and live migration of a VM with the GPU device weren't tried.
+- **Spectrum's patchset** was written for crosvm's cross-domain (Wayland) contexts, Spectrum's
+  use; virgl and Venus over it ran on the user's RX 6750 XT with the v50 build. Snapshot, restore
+  and live migration of a VM with the GPU device weren't tried, nor was `ch-remote add-gpu`
+  (AgentBox gives the device only as the VM starts).
 - **amd64 only**, see build.sh above.

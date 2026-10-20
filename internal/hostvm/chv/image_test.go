@@ -1,19 +1,23 @@
 package chv
 
 import (
+	"archive/tar"
 	"archive/zip"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -167,9 +171,26 @@ func TestToolPins(t *testing.T) {
 			t.Errorf("%s: bad URL or version", tl.name)
 		}
 	}
-	for _, want := range []string{"cloud-hypervisor", "virtiofsd", "passt", "CLOUDHV.fd"} {
+	for _, want := range []string{"virtiofsd", "passt", "CLOUDHV.fd"} {
 		if !names[want] {
 			t.Errorf("no %s", want)
+		}
+	}
+	// Cloud Hypervisor is AgentBox's own build, from its releases.
+	b := chvBundle
+	if !hexRE.MatchString(b.sha256) || !strings.HasPrefix(b.url, "https://github.com/leciric/agentbox/releases/download/chv-") || !strings.HasSuffix(b.url, "-x86_64.tar.gz") {
+		t.Errorf("bad pin for %s: %s %s", b.name, b.url, b.sha256)
+	}
+	installed := map[string]bool{}
+	for _, f := range b.files {
+		installed[f.name] = true
+		if !hexRE.MatchString(f.sha256) || f.member == "" {
+			t.Errorf("%s: bad pin", f.name)
+		}
+	}
+	for _, want := range []string{"cloud-hypervisor", gpuDir + "/bin/crosvm", gpuDir + "/libexec/virgl_render_server", gpuDir + "/lib/libvirglrenderer.so.1"} {
+		if !installed[want] || names[want] {
+			t.Errorf("%s isn't the bundle's alone", want)
 		}
 	}
 	if len(names) != len(tools) {
@@ -546,5 +567,101 @@ func TestGrowSparse(t *testing.T) {
 	}
 	if fi, _ := os.Stat(file); fi.Size() != 30*GiB {
 		t.Errorf("shrunk to %d", fi.Size())
+	}
+}
+
+// tarGz is a .tar.gz with files under top/, as package.sh makes one, with a
+// symlink as libvirglrenderer's soname is.
+func tarGz(t *testing.T, top string, files map[string]string) []byte {
+	t.Helper()
+	var b bytes.Buffer
+	gz := gzip.NewWriter(&b)
+	tw := tar.NewWriter(gz)
+	_ = tw.WriteHeader(&tar.Header{Name: top + "/", Typeflag: tar.TypeDir, Mode: 0o755})
+	for _, name := range slices.Sorted(maps.Keys(files)) {
+		_ = tw.WriteHeader(&tar.Header{Name: top + "/" + name, Typeflag: tar.TypeReg, Mode: 0o755, Size: int64(len(files[name]))})
+		_, _ = tw.Write([]byte(files[name]))
+	}
+	_ = tw.WriteHeader(&tar.Header{Name: top + "/lib/libv.so.1", Typeflag: tar.TypeSymlink, Linkname: "libv.so.1.0"})
+	_ = tw.Close()
+	_ = gz.Close()
+	return b.Bytes()
+}
+
+// A bundle is fetched when a file of it isn't there at its pin, each file
+// checked and put in place, and skipped when all are; a bad tarball or file
+// installs nothing.
+func TestEnsureBundle(t *testing.T) {
+	files := map[string]string{"bin/ch": "ch v1", "bin/crosvm": "crosvm", "lib/libv.so.1.0": "lib", "VERSIONS": "v"}
+	good := tarGz(t, "chv-1", files)
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		_, _ = w.Write(good)
+	}))
+	defer srv.Close()
+	l := Layout{Root: t.TempDir(), Name: "t"}
+	_ = os.MkdirAll(filepath.Dir(l.Bin("x")), 0o755)
+	ctx := context.Background()
+	b := bundle{name: "ch", version: "1", url: srv.URL, sha256: sum256(good), files: []bundleFile{
+		{member: "bin/ch", name: "ch", sha256: sum256([]byte("ch v1")), exec: true},
+		{member: "bin/crosvm", name: "gpu/bin/crosvm", sha256: sum256([]byte("crosvm")), exec: true},
+		{member: "lib/libv.so.1.0", name: "gpu/lib/libv.so.1", sha256: sum256([]byte("lib"))},
+	}}
+	if err := ensureBundle(ctx, l, b, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{"ch": "ch v1", "gpu/bin/crosvm": "crosvm", "gpu/lib/libv.so.1": "lib"} {
+		if got, err := os.ReadFile(l.Bin(name)); err != nil || string(got) != want {
+			t.Errorf("%s: %q %v", name, got, err)
+		}
+	}
+	if fi, _ := os.Stat(l.Bin("gpu/bin/crosvm")); fi == nil || fi.Mode().Perm() != 0o755 {
+		t.Errorf("crosvm: %v", fi)
+	}
+	if fi, _ := os.Stat(l.Bin("gpu/lib/libv.so.1")); fi == nil || fi.Mode().Perm() != 0o644 {
+		t.Errorf("lib: %v", fi)
+	}
+	if err := ensureBundle(ctx, l, b, io.Discard); err != nil || hits != 1 {
+		t.Errorf("fetched again (%d fetches): %v", hits, err)
+	}
+
+	// A file changed (an update of AgentBox pins another build) fetches it all again.
+	_ = os.WriteFile(l.Bin("gpu/bin/crosvm"), []byte("old"), 0o755)
+	if err := ensureBundle(ctx, l, b, io.Discard); err != nil || hits != 2 {
+		t.Errorf("not fetched again (%d fetches): %v", hits, err)
+	}
+
+	// A file in the tarball that isn't its pin installs nothing in its place,
+	// and a tarball that isn't its pin isn't opened.
+	l2 := Layout{Root: t.TempDir(), Name: "t"}
+	_ = os.MkdirAll(filepath.Dir(l2.Bin("x")), 0o755)
+	_ = os.WriteFile(l2.Bin("ch"), []byte("ch v0"), 0o755)
+	bad := b
+	bad.files = slices.Clone(b.files)
+	bad.files[1].sha256 = sum256([]byte("other"))
+	if err := ensureBundle(ctx, l2, bad, io.Discard); !errors.Is(err, errChecksum) {
+		t.Errorf("err = %v", err)
+	}
+	if _, err := os.Stat(l2.Bin("gpu/bin/crosvm")); err == nil {
+		t.Error("a file that isn't its pin was installed")
+	}
+	bad = b
+	bad.sha256 = sum256([]byte("other"))
+	if err := ensureBundle(ctx, l2, bad, io.Discard); !errors.Is(err, errChecksum) {
+		t.Errorf("err = %v", err)
+	}
+	if got, _ := os.ReadFile(l2.Bin("ch")); string(got) != "ch v0" {
+		t.Errorf("ch is %q", got)
+	}
+	missing := b
+	missing.files = append(slices.Clone(b.files), bundleFile{member: "libexec/server", name: "gpu/libexec/server", sha256: sum256(nil)})
+	if err := ensureBundle(ctx, l2, missing, io.Discard); err == nil || !strings.Contains(err.Error(), "has no libexec/server") {
+		t.Errorf("err = %v", err)
+	}
+	left, _ := filepath.Glob(l2.Bin("*.part"))
+	tars, _ := filepath.Glob(l2.Bin("*.tar.gz"))
+	if len(left)+len(tars) > 0 {
+		t.Errorf("left behind: %v %v", left, tars)
 	}
 }

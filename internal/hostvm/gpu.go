@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"agentbox/internal/api"
+	"agentbox/internal/hostvm/chv"
 )
 
 // GPU for agents on a Mac. A krunkit VM always has a virtio-gpu that speaks
@@ -27,7 +28,8 @@ import (
 //
 // Apple's Virtualization framework gives a Linux guest a 2D framebuffer and
 // nothing for 3D, so a vz VM, Lima's or AgentBox's own, has no GPU for
-// agents, nor has Cloud Hypervisor's on Linux.
+// agents. Cloud Hypervisor's on Linux gets the host's GPU when "GPU for
+// agents" is on, at its next start (chv/gpu.go).
 //
 // Agents get the render node and the driver from the daemon in the VM when
 // "GPU for agents" is on (package agent).
@@ -132,7 +134,7 @@ true
 // krunkit VM, which has one.
 func noGPU(driver, vmType string) string {
 	switch {
-	case driver == api.VMDriverLima && vmType == krunkitVMType:
+	case driver == api.VMDriverLima && vmType == krunkitVMType, driver == api.VMDriverCloudHypervisor:
 		return ""
 	case driver == api.VMDriverLima && vmType == "qemu":
 		return "no GPU: Lima's qemu VM has no 3D for agents."
@@ -142,6 +144,33 @@ func noGPU(driver, vmType string) string {
 			"then agentbox vm delete and agentbox vm init make the VM again with it."
 	}
 	return "no GPU: this VM has none to give agents."
+}
+
+// chvGPUReport says what the Linux VM's supervisor found of the host's GPU
+// (chv.GPUStatus): whether the switch is on, which GPU, and whether the VM
+// has it, or why not.
+func chvGPUReport(st chv.GPUStatus) string {
+	var b strings.Builder
+	b.WriteString("This machine (Cloud Hypervisor):\n")
+	fmt.Fprintf(&b, "  GPU for agents: %s\n", map[bool]string{true: "on", false: "off"}[st.Want])
+	if st.Node != "" {
+		fmt.Fprintf(&b, "  GPU:            %s (%s)\n", st.Node, st.GPU)
+	}
+	state := map[string]string{
+		chv.GPUOn:      "the VM has it",
+		chv.GPUOff:     "the VM can have it: turn on \"GPU for agents\" in Settings",
+		chv.GPURestart: "the VM gets it when it next starts",
+		chv.GPUNone:    "the VM has none",
+		"":             "not known yet: the VM hasn't run since this AgentBox started it",
+	}[st.State]
+	if st.State == chv.GPUOff && st.Want {
+		state = "the VM keeps it until it restarts, and agents don't get it"
+	}
+	fmt.Fprintf(&b, "  state:          %s\n", state)
+	if st.Reason != "" {
+		fmt.Fprintf(&b, "  why:            %s\n", st.Reason)
+	}
+	return b.String()
 }
 
 // gpuReport turns gpuScript's lines into what `vm gpu` prints about where
@@ -196,8 +225,10 @@ func newGPUCmd() *cobra.Command {
 		Short: "Say which GPU the VM gives agents, and which renderer Vulkan and OpenGL get",
 		Long: `Says whether the VM has a GPU for agents, and which renderers Vulkan and OpenGL get in it:
 on a Mac, a VM made with krunkit has one (Venus: Vulkan on the Mac's Metal, and OpenGL on
-that through Zink); a vz VM has none. With --agent, it says the same for that agent, which
-has the VM's GPU when "GPU for agents" is on.`,
+that through Zink); a vz VM has none. On Linux, the VM gets this machine's GPU (Venus and
+virgl, through crosvm) at its next start once "GPU for agents" is on, and this says which
+GPU, or why it can't. With --agent, it says the same for that agent, which has the VM's GPU
+when "GPU for agents" is on.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			vm, err := New()
@@ -219,6 +250,12 @@ has the VM's GPU when "GPU for agents" is on.`,
 				_, err := fmt.Fprintln(cmd.OutOrStdout(), why)
 				return err
 			}
+			w := cmd.OutOrStdout()
+			where := "The VM (krunkit)"
+			if vm.CHV != nil {
+				_, _ = io.WriteString(w, chvGPUReport(chv.ReadGPUStatus(vm.CHV.Layout)))
+				where = "The VM"
+			}
 			if err := vm.Up(cmd.Context()); err != nil {
 				return err
 			}
@@ -226,8 +263,7 @@ has the VM's GPU when "GPU for agents" is on.`,
 			if err != nil {
 				return err
 			}
-			w := cmd.OutOrStdout()
-			_, _ = io.WriteString(w, gpuReport("The VM (krunkit)", out))
+			_, _ = io.WriteString(w, gpuReport(where, out))
 			if agent == "" {
 				return nil
 			}

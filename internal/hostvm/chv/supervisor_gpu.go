@@ -18,11 +18,16 @@ const (
 	// gpuPoll is how often the supervisor asks the daemon for "GPU for
 	// agents".
 	gpuPoll = 15 * time.Second
-	// kernelTrialTimeout is how long a kernel booted on trial has to come
-	// up (ssh answers) before the VM is started again on its default one.
-	kernelTrialTimeout = 5 * time.Minute
 	// kernelInstallTimeout bounds installing the generic kernel in the VM.
 	kernelInstallTimeout = 15 * time.Minute
+)
+
+// kernelTrialTimeout is how long a kernel booted on trial has to come up (ssh
+// answers) before the VM is started again on its default one, and
+// trialPoll how often it's asked: variables for tests.
+var (
+	kernelTrialTimeout = 5 * time.Minute
+	trialPoll          = 5 * time.Second
 )
 
 // gpuLoop keeps the VM's GPU as "GPU for agents" says, while the VM runs
@@ -70,7 +75,7 @@ func (s *supervisor) trialCameUp(ctx context.Context, m *chMachine, st *GPUStatu
 		select {
 		case <-ctx.Done():
 			return false
-		case <-time.After(5 * time.Second):
+		case <-time.After(trialPoll):
 		}
 	}
 	s.logf("the VM didn't come up on the generic kernel %s within %s: starting it again on its cloud kernel", st.Trial, kernelTrialTimeout)
@@ -118,7 +123,7 @@ func (s *supervisor) settleGPU(ctx context.Context, m *chMachine, g *gpuSettler,
 		crosvmGone: g.attached && m.gpu != nil && m.gpu.exited(),
 		driver:     g.driver,
 		started:    g.plan,
-		now:        planGPU(true, findRenderNodes(), os.Getenv("AGENTBOX_VM_RENDER_NODE"), openRW),
+		now:        planGPU(true, findRenderNodes(), os.Getenv("AGENTBOX_VM_RENDER_NODE"), openRenderNode),
 	})
 	s.publishGPU(ctx, g)
 }
@@ -127,7 +132,7 @@ func (s *supervisor) settleGPU(ctx context.Context, m *chMachine, g *gpuSettler,
 // installed and on trial at the next start when the cloud one runs, and the
 // newest generic made the default when it runs.
 func (s *supervisor) readyKernel(ctx context.Context, g *gpuSettler) {
-	out, err := runSSHFor(ctx, s.c, s.l, s.self, defaultKernelScript, time.Minute)
+	out, err := s.sshFor(ctx, defaultKernelScript, time.Minute)
 	if err != nil {
 		s.logf("making the VM's generic kernel its default: %v", err)
 		return
@@ -140,7 +145,7 @@ func (s *supervisor) readyKernel(ctx context.Context, g *gpuSettler) {
 	g.st.Reason = "AgentBox's VM is installing a kernel with the GPU driver, in the background."
 	g.st.State = GPURestart
 	s.publishGPU(ctx, g)
-	out, err = runSSHFor(ctx, s.c, s.l, s.self, kernelScript, kernelInstallTimeout)
+	out, err = s.sshFor(ctx, kernelScript, kernelInstallTimeout)
 	if err != nil {
 		s.logf("installing the generic kernel in the VM: %v", err)
 		g.st.KernelFailed = kernelInstallFailed + err.Error()

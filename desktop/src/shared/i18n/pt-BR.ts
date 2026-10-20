@@ -624,6 +624,8 @@ export const ptBR: Messages = {
   'settings.agentGPU.unavailable': 'Indisponível: {reason}',
   'settings.agentGPU.wsl': 'A GPU do WSL ({node}), pelo driver Direct3D 12 do Mesa.',
   'settings.agentGPU.renderNode': 'A GPU da VM ({node}).',
+  'settings.agentGPU.host': 'A GPU do seu computador ({node}): a VM do AgentBox a recebe na próxima vez que iniciar com isto ligado.',
+  'settings.agentGPU.hostPending': 'A GPU do seu computador ({node}): {reason}',
   'settings.entry.docker-prune.label': 'Liberar espaço do Docker quando um agente parar',
   'settings.entry.docker-prune.keywords': 'docker limpar imagens cache de build disco espaço parar prune images build cache disk space stop clean',
   'settings.entry.media-retention.label': 'Manter a mídia de um agente removido por',

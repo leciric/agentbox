@@ -54,6 +54,8 @@ type supervisor struct {
 	// restartVM says the VM was ended to start it again (gpuLoop, when a
 	// kernel on trial doesn't come up), not to stop.
 	restartVM bool
+	// runScript, when set, runs what ssh would in the VM: for tests.
+	runScript func(ctx context.Context, script string) (string, error)
 }
 
 // Supervise is `agentbox vm run`: it runs the VM in the foreground (passt,
@@ -199,6 +201,9 @@ func (s *supervisor) run(ctx context.Context) error {
 				s.stopChildren()
 				err := s.m.boot(ctx)
 				if err == nil {
+					if m, ok := s.m.(*chMachine); ok {
+						go s.gpuLoop(loops, m)
+					}
 					continue
 				}
 				s.logf("starting the VM again: %v", err)
@@ -488,5 +493,13 @@ func (s *supervisor) sampleMemory(ctx context.Context) (memSample, error) {
 // ssh runs a shell command in the VM, through the ControlMaster every
 // command shares.
 func (s *supervisor) ssh(ctx context.Context, script string) (string, error) {
-	return runSSH(ctx, s.c, s.l, s.self, script)
+	return s.sshFor(ctx, script, sshTryTimeout)
+}
+
+// sshFor is ssh for a script that may take longer than a probe.
+func (s *supervisor) sshFor(ctx context.Context, script string, timeout time.Duration) (string, error) {
+	if s.runScript != nil {
+		return s.runScript(ctx, script)
+	}
+	return runSSHFor(ctx, s.c, s.l, s.self, script, timeout)
 }

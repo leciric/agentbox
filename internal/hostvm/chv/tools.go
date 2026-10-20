@@ -117,14 +117,14 @@ var chvBundle = bundle{
 	name:    "cloud-hypervisor",
 	version: "v53.0 (AgentBox build 1)",
 	url:     "https://github.com/leciric/agentbox/releases/download/chv-53.0-agentbox1/chv-53.0-agentbox1-x86_64.tar.gz",
-	sha256:  "TARBALL_SHA256",
+	sha256:  "cf73f41aec3d8c7e799eb5b1dac3539374513dfad8e944d19f5cd653a51b0c84",
 	files: []bundleFile{
 		// We don't need ch-remote: the supervisor talks to Cloud
 		// Hypervisor's REST API over its socket itself.
-		{member: "bin/cloud-hypervisor", name: "cloud-hypervisor", sha256: "CH_SHA256", exec: true},
-		{member: "bin/crosvm", name: gpuDir + "/bin/crosvm", sha256: "CROSVM_SHA256", exec: true},
-		{member: "libexec/virgl_render_server", name: gpuDir + "/libexec/virgl_render_server", sha256: "VRS_SHA256", exec: true},
-		{member: "VIRGL_SO_MEMBER", name: gpuDir + "/lib/libvirglrenderer.so.1", sha256: "VIRGL_SHA256"},
+		{member: "bin/cloud-hypervisor", name: "cloud-hypervisor", sha256: "9f11eeba6777a91c780eb23cafd04bc88e0539c6d11c1b8edb090c5bf6a3a1e9", exec: true},
+		{member: "bin/crosvm", name: gpuDir + "/bin/crosvm", sha256: "0d227d20f60646892e05a9ac7d071b25c834236e14f070b68054fe344dd0d004", exec: true},
+		{member: "libexec/virgl_render_server", name: gpuDir + "/libexec/virgl_render_server", sha256: "cea12216a97d65f4f31d69b2586aa0c90fa33ecc97a5b96cf535924217673f3c", exec: true},
+		{member: "lib/libvirglrenderer.so.1.10.0", name: gpuDir + "/lib/libvirglrenderer.so.1", sha256: "d037c6f3eee2614b779118b6c9245dac441c73111bbff7486b1598088a6e178f"},
 	},
 }
 
@@ -145,7 +145,13 @@ func EnsureTools(ctx context.Context, l Layout, log io.Writer) error {
 		return err
 	}
 	if err := ensureBundle(ctx, l, chvBundle, log); err != nil {
-		return err
+		// A VM that ran before has a Cloud Hypervisor: it starts with that
+		// one rather than not at all, and without the GPU when the GPU
+		// device isn't there (gpu.go says so).
+		if _, statErr := os.Stat(l.Bin("cloud-hypervisor")); statErr != nil {
+			return err
+		}
+		imageLogf(log, "warning: %v; the VM runs the Cloud Hypervisor it has, and AgentBox tries again at its next start\n", err)
 	}
 	for _, t := range tools {
 		if err := ensureTool(ctx, l, t, log); err != nil {
@@ -186,8 +192,9 @@ func ensureBundle(ctx context.Context, l Layout, b bundle, log io.Writer) error 
 }
 
 // untarFiles installs files from the .tar.gz at tarball, whose members are
-// under one top directory, into l.Bin: each into a .part first, checked, and
-// renamed. Every file must be in it.
+// under one top directory, into l.Bin: each into a .part first and checked,
+// and renamed only once all are, so a bad file installs none. Every file must
+// be in it.
 func untarFiles(tarball string, files []bundleFile, l Layout) error {
 	f, err := os.Open(tarball)
 	if err != nil {
@@ -202,6 +209,12 @@ func untarFiles(tarball string, files []bundleFile, l Layout) error {
 	for _, bf := range files {
 		want[bf.member] = bf
 	}
+	var parts []string
+	defer func() {
+		for _, p := range parts {
+			_ = os.Remove(p)
+		}
+	}()
 	tr := tar.NewReader(gz)
 	for len(want) > 0 {
 		hdr, err := tr.Next()
@@ -217,23 +230,28 @@ func untarFiles(tarball string, files []bundleFile, l Layout) error {
 			continue
 		}
 		delete(want, member)
-		if err := installFile(tr, l.Bin(bf.name), bf.sha256, bf.exec); err != nil {
+		part := l.Bin(bf.name) + ".part"
+		parts = append(parts, part)
+		if err := writePart(tr, part, bf.sha256, bf.exec); err != nil {
 			return fmt.Errorf("%s: %w", member, err)
 		}
 	}
 	if len(want) > 0 {
 		return fmt.Errorf("%s has no %s", filepath.Base(tarball), strings.Join(slices.Sorted(maps.Keys(want)), ", "))
 	}
+	for _, p := range parts {
+		if err := os.Rename(p, strings.TrimSuffix(p, ".part")); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-// installFile writes r to dst, through dst+".part", if its SHA256 is want.
-func installFile(r io.Reader, dst, want string, exec bool) error {
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+// writePart writes r to part, if its SHA256 is want.
+func writePart(r io.Reader, part, want string, exec bool) error {
+	if err := os.MkdirAll(filepath.Dir(part), 0o755); err != nil {
 		return err
 	}
-	part := dst + ".part"
-	defer func() { _ = os.Remove(part) }()
 	mode := os.FileMode(0o644)
 	if exec {
 		mode = 0o755
@@ -253,10 +271,7 @@ func installFile(r io.Reader, dst, want string, exec bool) error {
 	if got := hex.EncodeToString(h.Sum(nil)); got != want {
 		return fmt.Errorf("%w (got %s, want %s)", errChecksum, got, want)
 	}
-	if err := os.Chmod(part, mode); err != nil {
-		return err
-	}
-	return os.Rename(part, dst)
+	return os.Chmod(part, mode)
 }
 
 func ensureTool(ctx context.Context, l Layout, t tool, log io.Writer) error {

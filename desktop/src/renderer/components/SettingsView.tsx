@@ -1909,7 +1909,9 @@ function UpdateChannel() {
 // override it from its own settings.
 // AgentGPU gives every agent the GPU of AgentBox's VM: WSL's /dev/dxg on
 // Windows, a render node elsewhere. Off by default; shown off and unavailable,
-// with the daemon's reason, when the VM has none.
+// with the daemon's reason, when the VM has none. On Linux the VM gets the
+// host's GPU only as it starts ("host"): the switch works, and the note says
+// the VM gets it at its next start.
 export function AgentGPU() {
   const t = useT();
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
@@ -1940,7 +1942,11 @@ export function AgentGPU() {
         <SettingNote>
           {unavailable
             ? t("settings.agentGPU.unavailable", { reason: gpu.reason })
-            : t(gpu.kind === "dxg" ? "settings.agentGPU.wsl" : "settings.agentGPU.renderNode", { node: gpu.node })}
+            : gpu.kind === "host"
+              ? gpu.reason
+                ? t("settings.agentGPU.hostPending", { node: gpu.node, reason: gpu.reason })
+                : t("settings.agentGPU.host", { node: gpu.node })
+              : t(gpu.kind === "dxg" ? "settings.agentGPU.wsl" : "settings.agentGPU.renderNode", { node: gpu.node })}
         </SettingNote>
       )}
     </SettingRow>

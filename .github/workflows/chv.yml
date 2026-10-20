@@ -1,0 +1,100 @@
+# Builds AgentBox's Cloud Hypervisor (scripts/chv-gpu/build.sh): upstream's
+# v53.0 with Spectrum OS's virtio-gpu patchset rebased onto it, crosvm's GPU
+# device and virglrenderer, which every Linux VM downloads
+# (internal/hostvm/chv/tools.go, chvBundle) by a pinned SHA256. On a PR it
+# checks that the build reproduces the pinned tarball and that the binaries
+# take AgentBox's command lines (test/chv_args_test.sh, which also compares
+# Cloud Hypervisor with upstream's v53.0 on the VM's line without the GPU). On
+# main it publishes the build as the release chv-<version>-agentbox<build>
+# (scripts/chv-gpu/publish.sh), which is never replaced: users never compile
+# anything. Run by hand on a PR's branch, it publishes that PR's build, so a PR
+# that moves the pin can be merged with its release already there.
+name: Cloud Hypervisor
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - scripts/chv-gpu/**
+      - internal/hostvm/chv/tools.go
+      - internal/hostvm/chv/gpu.go
+      - .github/workflows/chv.yml
+  push:
+    branches: [main]
+    paths:
+      - scripts/chv-gpu/**
+      - internal/hostvm/chv/tools.go
+      - .github/workflows/chv.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chv-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: go
+
+      - name: Build (Docker, reproducible)
+        env:
+          CARGO_BUILD_JOBS: 4
+        run: scripts/chv-gpu/build.sh out
+
+      - name: The tarball is the one tools.go pins
+        run: |
+          sum=$(cut -d' ' -f1 out/*.tar.gz.sha256)
+          grep -q "sha256:  \"$sum\"" internal/hostvm/chv/tools.go || {
+            echo "::error::tools.go doesn't pin this build ($sum). Its files' sums:"
+            tar -xzOf out/*.tar.gz --wildcards '*/SHA256SUMS' | grep -E ' \./(bin/cloud-hypervisor|bin/crosvm|libexec/virgl_render_server|lib/libvirglrenderer\.so\.1\.[0-9.]+)$'
+            exit 1
+          }
+
+      # Ubuntu 24.04 keeps unprivileged user namespaces from unconfined
+      # programs, which the fake /dev/kvm needs.
+      - name: The binaries take AgentBox's command lines
+        run: |
+          sudo sysctl -q kernel.apparmor_restrict_unprivileged_userns=0
+          sudo apt-get -q install -y libepoxy0 libgbm1 libvulkan1 >/dev/null
+          scripts/chv-gpu/test/chv_args_test.sh out/*.tar.gz
+          scripts/chv-gpu/test/parse_test.sh
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: chv
+          path: out
+          compression-level: 0
+          retention-days: 7
+
+  publish:
+    name: Publish to GitHub releases
+    needs: build
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    concurrency:
+      group: chv-publish
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: chv
+          path: out
+
+      - name: Publish, unless it already is
+        run: scripts/chv-gpu/publish.sh out
