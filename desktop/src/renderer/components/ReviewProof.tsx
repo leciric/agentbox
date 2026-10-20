@@ -105,7 +105,7 @@ export function ReviewProof({ ref, project, proof }: { ref?: Ref<ProofHandle>; p
   );
 
   return (
-    <div ref={root} className={cn('relative grid min-h-full min-w-0 grid-cols-[minmax(0,1fr)] content-start gap-4 p-4 sm:p-5', expanded && 'h-full')} data-review-proof data-review-media-at={at + 1}>
+    <div ref={root} className={cn('relative grid min-h-full min-w-0 max-w-full grid-cols-[minmax(0,1fr)] content-start overflow-x-clip gap-4 p-4 sm:p-5', expanded && 'h-full')} data-review-proof data-review-media-at={at + 1}>
       {expanded ? (
         // Expanded, the piece on stage fills the body, its bar over it.
         <div className="absolute inset-0 z-10 flex flex-col gap-3 bg-black/95 p-4" data-review-expanded>
@@ -113,7 +113,7 @@ export function ReviewProof({ ref, project, proof }: { ref?: Ref<ProofHandle>; p
           <div className="flex min-h-0 flex-1 items-center justify-center">{stage}</div>
         </div>
       ) : (
-        <div className={cn('grid min-w-0 gap-5', rec && 'lg:grid-cols-[minmax(0,1fr)_280px]')}>
+        <div className={cn('grid min-w-0 max-w-full gap-5', rec && 'lg:grid-cols-[minmax(0,1fr)_280px]')}>
           <div className="grid min-w-0 content-start gap-2">
             {stage}
             {bar}
@@ -215,7 +215,7 @@ function Strip({ shown, at, lit, onPick }: { shown: Shown[]; at: number; lit: Re
         <span className="font-normal normal-case tracking-normal">{counts.join(' · ')}</span>
         <span className="ml-auto font-normal normal-case tracking-normal max-md:hidden">{t('review.mediaKeys')}</span>
       </h3>
-      <div className="flex gap-2 overflow-x-auto p-0.5 pb-1 [scrollbar-width:thin]" data-review-shots>
+      <div className="flex max-w-full gap-2 overflow-x-auto overscroll-x-contain p-0.5 pb-1 [scrollbar-width:thin]" data-review-shots>
         {shown.map((s, i) => (
           <button
             key={s.kind === 'recording' ? s.take.media.id : s.kind === 'screenshot' ? s.media.id : s.page.id}

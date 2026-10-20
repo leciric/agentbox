@@ -2052,5 +2052,49 @@
       "header [data-inbox]",
       "[data-review-row]"
     ]
+  },
+  {
+    "id": "window-1920-review-lots-dark",
+    "description": "1920×1080, \"Ready to review\" on agent-15 with 36 pieces of media (recordings and screenshots): the modal stays inside the window, the strip scrolls on its own, the checks, body and buttons stay reachable — dark",
+    "query": "app=project&review=lots&theme=dark",
+    "width": 1920,
+    "height": 1080,
+    "click": [
+      "header [data-inbox]",
+      "[data-review-row]"
+    ]
+  },
+  {
+    "id": "window-1440-review-lots-dark",
+    "description": "1440×990, \"Ready to review\" on agent-15 with 36 pieces of media (recordings and screenshots): the modal stays inside the window, the strip scrolls on its own, the checks, body and buttons stay reachable — dark",
+    "query": "app=project&review=lots&theme=dark",
+    "width": 1440,
+    "height": 990,
+    "click": [
+      "header [data-inbox]",
+      "[data-review-row]"
+    ]
+  },
+  {
+    "id": "window-1280-review-lots-dark",
+    "description": "1280×800, \"Ready to review\" on agent-15 with 36 pieces of media (recordings and screenshots): the modal stays inside the window, the strip scrolls on its own, the checks, body and buttons stay reachable — dark",
+    "query": "app=project&review=lots&theme=dark",
+    "width": 1280,
+    "height": 800,
+    "click": [
+      "header [data-inbox]",
+      "[data-review-row]"
+    ]
+  },
+  {
+    "id": "window-800-review-lots-dark",
+    "description": "800×600, \"Ready to review\" on agent-15 with 36 pieces of media (recordings and screenshots): the modal stays inside the window, the strip scrolls on its own, the checks, body and buttons stay reachable — dark",
+    "query": "app=project&review=lots&theme=dark",
+    "width": 800,
+    "height": 600,
+    "click": [
+      "header [data-inbox]",
+      "[data-review-row]"
+    ]
   }
 ]

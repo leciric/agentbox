@@ -166,6 +166,26 @@ function crowded(): T.MediaItem[] {
   return items;
 }
 
+// lots is ?review=lots: agent-15 with 36 pieces of proof, every third a
+// recording and the rest screenshots, for the modal to stay inside the window
+// (the strip scrolls or wraps in a bounded area, the body and footer stay
+// reachable).
+function lots(): T.MediaItem[] {
+  const items = crowded();
+  const shot = items.find((m) => m.kind === 'screenshot');
+  for (let i = items.length; i < 36; i++) {
+    const id = `agent-15-lot${i}`;
+    if (i % 3 === 0) {
+      setMediaFile(id, new URL('./concepts/media/settings.webm', import.meta.url).href);
+      items.push({ ...items[0], id, name: `walkthrough-${i}-at-another-size`, createdAt: ago((4 + i) * min) });
+    } else {
+      setMediaFile(id, new URL(`./concepts/media/settings-${(i % 4) + 1}.webp`, import.meta.url).href);
+      items.push({ ...(shot ?? items[0]), id, kind: 'screenshot', mime: 'image/webp', name: `screen-${i}-settings`, createdAt: ago((4 + i) * min) });
+    }
+  }
+  return items;
+}
+
 // evidence is an agent's recording of what it checked, one of the concept's
 // (dev/concepts/media, the preview itself recorded), with a note marking each
 // check as it began and a screenshot of each: what an agent following the
@@ -259,7 +279,7 @@ export function seedReview(queryClient: QueryClient): void {
     { id: 'rv-ci', agent: `${PROJECT}/agent-41`, agentName: 'agent-41', kind: 'screenshot', name: 'release-workflow', file: 'release-workflow.png', mime: 'image/png', size: 180_000, source: 'agent', meta: { width: 1280, height: 800 }, createdAt: ago(42 * min) },
   ] satisfies T.MediaItem[]);
   for (const agent of ['agent-98', 'agent-07', 'agent-03']) queryClient.setQueryData(['media', `${PROJECT}/${agent}`], []);
-  queryClient.setQueryData(['media', `${PROJECT}/agent-15`], new URLSearchParams(location.search).get('review') === 'media' ? crowded() : evidence('agent-15', 'settings', 4 * min, 17, [
+  queryClient.setQueryData(['media', `${PROJECT}/agent-15`], new URLSearchParams(location.search).get('review') === 'media' ? crowded() : new URLSearchParams(location.search).get('review') === 'lots' ? lots() : evidence('agent-15', 'settings', 4 * min, 17, [
     [0.3, 'General at 1024×640', 'Nothing past the right edge; the search box keeps its width.'],
     [5.2, 'Models in pt-BR', 'The longest labels wrap to two lines instead of clipping.'],
     [9.5, 'Resources, light theme', ''],

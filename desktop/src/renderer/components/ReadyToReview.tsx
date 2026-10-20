@@ -613,7 +613,7 @@ function ReviewCarousel({
               </div>
             </div>
           </header>
-          <section ref={body} className="relative flex min-h-0 flex-1 flex-col overflow-y-auto" inert={help} data-review-body>
+          <section ref={body} className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden" inert={help} data-review-body>
             {pane === 'proof' &&
               (media.isPending ? <div className="p-6 text-[13px] text-subtle">{t('common.loading')}</div> : <ReviewProof ref={proofView} key={item.ref} project={item.project} proof={proof} />)}
             {pane === 'diff' &&
