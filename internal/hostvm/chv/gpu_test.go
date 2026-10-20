@@ -195,6 +195,9 @@ func TestGPUState(t *testing.T) {
 		if got.Reason != "" && !strings.HasSuffix(got.Reason, ".") {
 			t.Errorf("%s: %q isn't a sentence", tc.name, got.Reason)
 		}
+		if (got.Vulkan == "1002:73df") != tc.f.attached {
+			t.Errorf("%s: vulkan %q", tc.name, got.Vulkan)
+		}
 		if (got.State == GPUOn || got.State == GPUOff || got.State == GPURestart) && got.Node != amdDiscrete.Path {
 			t.Errorf("%s: node %q", tc.name, got.Node)
 		}

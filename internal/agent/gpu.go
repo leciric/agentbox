@@ -108,6 +108,10 @@ type VMGPU struct {
 	Node string // /dev/dxg or the render node; "" for GPUNone
 	// Reason says why there is none, for Settings to show beside the switch.
 	Reason string
+	// Vulkan is the host GPU's PCI vendor:device ids, for the Linux VM's
+	// render node: Venus lists every GPU of the host, and agents' Vulkan is
+	// pointed at this one (vulkanProfile). "" elsewhere.
+	Vulkan string
 }
 
 // FindVMGPU looks for the VM's GPU: a device file and, on WSL, its driver's
@@ -130,7 +134,7 @@ func FindVMGPU() VMGPU {
 			if source, _ := venusDriver(); venus && source == "" {
 				return VMGPU{Reason: "the VM's GPU has no driver that works on a Mac yet: turning GPU for agents on builds one"}
 			}
-			return VMGPU{Kind: GPURender, Node: node}
+			return VMGPU{Kind: GPURender, Node: node, Vulkan: vmVulkanDevice()}
 		}
 	}
 	if venus {
@@ -143,6 +147,35 @@ func FindVMGPU() VMGPU {
 		return gpu
 	}
 	return VMGPU{Reason: "AgentBox's VM has no GPU to give agents"}
+}
+
+// pciIDs is a PCI vendor:device pair, as MESA_VK_DEVICE_SELECT takes it.
+var pciIDs = regexp.MustCompile(`^[0-9a-f]{4}:[0-9a-f]{4}$`)
+
+// vmVulkanDevice is the host GPU the Linux VM's supervisor gave the VM
+// (chv.GPUStatus.Vulkan), or "".
+func vmVulkanDevice() string {
+	b, err := os.ReadFile(vmGPUStatusFile)
+	if err != nil {
+		return ""
+	}
+	var st struct {
+		Vulkan string `json:"vulkan"`
+	}
+	if json.Unmarshal(b, &st) != nil || !pciIDs.MatchString(st.Vulkan) {
+		return ""
+	}
+	return st.Vulkan
+}
+
+// vulkanProfile points an agent's Vulkan at the VM's GPU among those Venus
+// lists, with Mesa's device-select layer, which is harmless in the guest
+// (on the host, in Venus's render server, it breaks Venus).
+func vulkanProfile(ids string) string {
+	return `# Written by AgentBox: "GPU for agents" (internal/agent/gpu.go).
+# Venus lists every GPU of the host: Vulkan uses the one AgentBox's VM was given.
+export MESA_VK_DEVICE_SELECT=` + ids + `
+`
 }
 
 // hostGPU is what the Linux VM's supervisor says of the host's GPU when the
@@ -195,6 +228,9 @@ func (m *Manager) wantGPU(ctx context.Context) (VMGPU, error) {
 type gpuDevice struct {
 	name, kind string
 	options    []string // key=value
+	// content, for a profile, is what its source file is written with
+	// before the device mounts it.
+	content string
 }
 
 // devices are the Incus devices gpu needs in an agent; profile is the host
@@ -204,16 +240,22 @@ func (gpu VMGPU) devices(profile string) []gpuDevice {
 	switch gpu.Kind {
 	case GPUDXG:
 		ds := []gpuDevice{
-			{vgpuDevice, "unix-char", []string{"source=" + gpu.Node, "path=/dev/dxg", "mode=0666"}},
-			{vgpuLibDevice, "disk", []string{"source=" + wslLib, "path=/usr/lib/wsl/lib", "readonly=true"}},
+			{vgpuDevice, "unix-char", []string{"source=" + gpu.Node, "path=/dev/dxg", "mode=0666"}, ""},
+			{vgpuLibDevice, "disk", []string{"source=" + wslLib, "path=/usr/lib/wsl/lib", "readonly=true"}, ""},
 		}
 		if _, err := os.Stat(wslDrivers); err == nil {
-			ds = append(ds, gpuDevice{vgpuDriversDevice, "disk", []string{"source=" + wslDrivers, "path=/usr/lib/wsl/drivers", "readonly=true"}})
+			ds = append(ds, gpuDevice{vgpuDriversDevice, "disk", []string{"source=" + wslDrivers, "path=/usr/lib/wsl/drivers", "readonly=true"}, ""})
 		}
-		return append(ds, gpuDevice{vgpuProfileDevice, "disk", []string{"source=" + profile, "path=" + gpuProfilePath, "readonly=true"}})
+		return append(ds, gpuDevice{vgpuProfileDevice, "disk", []string{"source=" + profile, "path=" + gpuProfilePath, "readonly=true"}, gpuProfile})
 	case GPURender:
 		// Incus's own gpu device passes the GPU's card and render nodes.
-		return []gpuDevice{{vgpuDevice, "gpu", []string{"gputype=physical", "mode=0666"}}}
+		ds := []gpuDevice{{name: vgpuDevice, kind: "gpu", options: []string{"gputype=physical", "mode=0666"}}}
+		if gpu.Vulkan != "" {
+			// Named for the GPU, so another GPU replaces the device.
+			source := filepath.Join(filepath.Dir(profile), "vulkan-"+strings.ReplaceAll(gpu.Vulkan, ":", "-")+".sh")
+			ds = append(ds, gpuDevice{vgpuProfileDevice, "disk", []string{"source=" + source, "path=" + gpuProfilePath, "readonly=true"}, vulkanProfile(gpu.Vulkan)})
+		}
+		return ds
 	}
 	return nil
 }
@@ -237,16 +279,15 @@ func (m *Manager) gpuProfileFile() string {
 	return filepath.Join(m.Paths.Data, "gpu", "profile.sh")
 }
 
-// writeGPUProfile writes gpuProfileFile, before a device mounts it.
-func (m *Manager) writeGPUProfile() error {
-	path := m.gpuProfileFile()
+// writeProfile writes a profile a device mounts, before it does.
+func writeProfile(path, content string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	if b, err := os.ReadFile(path); err == nil && string(b) == gpuProfile {
+	if b, err := os.ReadFile(path); err == nil && string(b) == content {
 		return nil
 	}
-	return os.WriteFile(path, []byte(gpuProfile), 0o644)
+	return os.WriteFile(path, []byte(content), 0o644)
 }
 
 // gpuSteps are the changes that give instance want's GPU, from devices, its
@@ -268,8 +309,8 @@ func (m *Manager) gpuSteps(instance string, want VMGPU, devices map[string]map[s
 			steps = append(steps, func(ctx context.Context, c incus.Client) error { return c.RemoveDevice(ctx, instance, d.name) })
 		}
 		steps = append(steps, func(ctx context.Context, c incus.Client) error {
-			if d.name == vgpuProfileDevice {
-				if err := m.writeGPUProfile(); err != nil {
+			if d.content != "" {
+				if err := writeProfile(strings.TrimPrefix(d.options[0], "source="), d.content); err != nil {
 					return err
 				}
 			}

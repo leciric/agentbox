@@ -6,10 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
-	"syscall"
 	"time"
 
 	"agentbox/internal/api"
@@ -20,7 +16,6 @@ import (
 type chMachine struct {
 	c    Config
 	l    Layout
-	self string // this agentbox, which `vm gpu-device` is
 	log  io.Writer
 	logf func(string, ...any)
 	ch   *chClient
@@ -119,69 +114,21 @@ func (m *chMachine) startGPU(ctx context.Context) {
 		m.gpuFailed(err.Error())
 		return
 	}
-	var errs []string
-	for _, launch := range m.gpuLaunches(n, len(findRenderNodes())) {
-		gpu, err := startChildEnv("crosvm", launch.path, launch.args, gpuEnv(m.l, os.Environ()), launch.attr, m.log)
-		if err == nil {
-			if err = waitSocket(ctx, gpu, m.l.GPUSocket()); err != nil {
-				gpu.stop(childGrace)
-			}
+	// A fresh crosvm each time the VM starts: it serves one Cloud Hypervisor,
+	// and exits (with a panic, "failed to recover queue from worker") when
+	// that one's connection closes, which halt expects.
+	gpu, err := startChildEnv("crosvm", m.l.Bin(gpuDir+"/bin/crosvm"), crosvmArgs(m.l, n.Path), gpuEnv(m.l, os.Environ()), m.log)
+	if err == nil {
+		if err = waitSocket(ctx, gpu, m.l.GPUSocket()); err != nil {
+			gpu.stop(childGrace)
 		}
-		if err == nil {
-			m.gpu = gpu
-			m.logf("the VM gets the GPU on %s (%s)%s", n.Path, n.name(), launch.how)
-			return
-		}
-		m.logf("crosvm%s didn't start: %v", launch.how, err)
-		errs = append(errs, err.Error())
-		_ = os.Remove(m.l.GPUSocket())
 	}
-	if len(errs) > 1 || m.gpuLaunches(n, len(findRenderNodes()))[0].attr != nil {
-		m.gpuFailed(fmt.Sprintf("crosvm, the VM's GPU device, couldn't start seeing only one of this machine's GPUs, which keeps GL and Vulkan on the same one (%s; its lines in %s say more): unprivileged user namespaces may be off here (on Ubuntu 24.04, installing bubblewrap lets it use those)", strings.Join(errs, "; "), m.l.Log()))
+	if err != nil {
+		m.gpuFailed(fmt.Sprintf("crosvm's GPU device didn't start (%v; its lines in %s say more)", err, m.l.Log()))
 		return
 	}
-	m.gpuFailed(fmt.Sprintf("crosvm's GPU device didn't start (%s; its lines in %s say more)", errs[0], m.l.Log()))
-}
-
-// gpuLaunch is one way to start crosvm.
-type gpuLaunch struct {
-	path string
-	args []string
-	attr *syscall.SysProcAttr // nil: childAttr
-	how  string               // for the log
-}
-
-// bwrapPath finds bubblewrap: a variable for tests.
-var bwrapPath = func() string { p, _ := exec.LookPath("bwrap"); return p }
-
-// gpuLaunches are the ways to start crosvm for node, on a host with nodes
-// render nodes, to try in order. With one, crosvm itself. With more, crosvm
-// must see only node (RunGPUDevice says why): through `agentbox vm
-// gpu-device`, in a user and mount namespace of its own, and then through
-// bubblewrap, where there is one, for a host that keeps unprivileged
-// programs from mounting in their namespaces (Ubuntu 24.04's AppArmor
-// restriction), which bwrap's own profile is let past.
-func (m *chMachine) gpuLaunches(n renderNode, nodes int) []gpuLaunch {
-	crosvm := m.l.Bin(gpuDir + "/bin/crosvm")
-	args := crosvmArgs(m.l, n.Path)
-	if nodes <= 1 {
-		return []gpuLaunch{{path: crosvm, args: args}}
-	}
-	launches := []gpuLaunch{{
-		path: m.self,
-		args: append([]string{"vm", "gpu-device", n.Path, "--", crosvm}, args...),
-		attr: gpuDeviceAttr(),
-		how:  ", in a namespace of its own",
-	}}
-	if bwrap := bwrapPath(); bwrap != "" {
-		dri := filepath.Dir(n.Path)
-		launches = append(launches, gpuLaunch{
-			path: bwrap,
-			args: append([]string{"--dev-bind", "/", "/", "--tmpfs", dri, "--dev-bind", n.Path, n.Path, "--", crosvm}, args...),
-			how:  ", in bubblewrap",
-		})
-	}
-	return launches
+	m.gpu = gpu
+	m.logf("the VM gets the GPU on %s (%s)", n.Path, n.name())
 }
 
 // gpuFailed records that the VM starts without the GPU it was to have.

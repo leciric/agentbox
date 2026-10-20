@@ -59,6 +59,10 @@ type GPUStatus struct {
 	// Node is the host's render node the VM gets, and GPU what it is.
 	Node string `json:"node,omitempty"`
 	GPU  string `json:"gpu,omitempty"`
+	// Vulkan is the GPU's PCI vendor:device ids, when the VM has it: Venus
+	// lists every GPU of the host, and agents' Vulkan picks this one
+	// (MESA_VK_DEVICE_SELECT, package agent).
+	Vulkan string `json:"vulkan,omitempty"`
 	// Reason says what's wrong, or what the user has to do, in a sentence.
 	Reason string `json:"reason,omitempty"`
 	// Trial is the generic kernel the VM boots once at its next start, to
@@ -278,9 +282,9 @@ func crosvmRuns(ctx context.Context, l Layout) error {
 // runs it on the user's machine:
 //
 //   - virgl, virgl2 and venus contexts: OpenGL and Vulkan.
-//   - render-node (our crosvm patch): the node virglrenderer is to render GL
-//     on. rutabaga 0.1.75 drops it (see RunGPUDevice, which keeps crosvm to
-//     the node where there are more); it's there for when that's fixed.
+//   - render-node (our crosvm patch, with our rutabaga_gfx patch that lets
+//     it through): the node virglrenderer renders GL on, rather than the
+//     first one readdir finds.
 //   - surfaceless off: a surfaceless EGL display is Mesa's default device
 //     whatever the fd; off, EGL comes from the GBM device on the node.
 //   - external-blob: every blob the guest maps reaches Cloud Hypervisor as
@@ -311,8 +315,9 @@ func crosvmArgs(l Layout, node string) []string {
 // gpuEnv is crosvm's environment: the host's, but for a display, with the
 // render server it starts for Venus. Nothing picks a Vulkan device: Mesa's
 // device-select layer (MESA_VK_DEVICE_SELECT, DRI_PRIME) in the render
-// server breaks Venus (vkEnumeratePhysicalDeviceGroups fails), and where the
-// host has more than one GPU crosvm sees only the VM's (RunGPUDevice).
+// server breaks Venus (vkEnumeratePhysicalDeviceGroups fails). Venus lists
+// every host GPU, and the guest picks: agents get MESA_VK_DEVICE_SELECT for
+// the VM's (GPUStatus.Vulkan, package agent).
 func gpuEnv(l Layout, environ []string) []string {
 	env := slices.DeleteFunc(slices.Clone(environ), func(kv string) bool {
 		k, _, _ := strings.Cut(kv, "=")

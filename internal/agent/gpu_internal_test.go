@@ -232,3 +232,38 @@ GPU0:
 		t.Errorf("no desktop: %+v", none)
 	}
 }
+
+// On the Linux VM, whose supervisor names the host GPU it gave the VM,
+// agents' Vulkan is pointed at that one (Venus lists every host GPU): a
+// profile written before the device that mounts it, named for the GPU.
+func TestGPUStepsLinuxVulkan(t *testing.T) {
+	if hostos.WSL() {
+		t.Skip("WSL")
+	}
+	fakeGPU(t, "", "/dev/nul*", false)
+	vmGPUStatusFile = filepath.Join(t.TempDir(), "status.json")
+	_ = os.WriteFile(vmGPUStatusFile, []byte(`{"want":true,"state":"on","vulkan":"1002:73df"}`), 0o644)
+	gpu := FindVMGPU()
+	if gpu.Kind != GPURender || gpu.Vulkan != "1002:73df" {
+		t.Fatalf("%+v", gpu)
+	}
+	m := &Manager{Paths: paths.Paths{Data: t.TempDir()}}
+	got := stepArgs(t, m.gpuSteps("i", gpu, map[string]map[string]string{}))
+	source := filepath.Join(m.Paths.Data, "gpu", "vulkan-1002-73df.sh")
+	want := [][]string{
+		{"config", "device", "add", "i", "agentbox-vgpu", "gpu", "gputype=physical", "mode=0666"},
+		{"config", "device", "add", "i", "agentbox-vgpu-profile", "disk", "source=" + source, "path=/etc/profile.d/agentbox-gpu.sh", "readonly=true"},
+	}
+	if !slices.EqualFunc(got, want, slices.Equal[[]string]) {
+		t.Errorf("got %q", got)
+	}
+	if b, _ := os.ReadFile(source); !strings.Contains(string(b), "export MESA_VK_DEVICE_SELECT=1002:73df\n") {
+		t.Errorf("profile: %q", b)
+	}
+
+	// A status that isn't ids (or none, as on a Mac) adds no profile.
+	_ = os.WriteFile(vmGPUStatusFile, []byte(`{"vulkan":"1002:73df; rm -rf /"}`), 0o644)
+	if gpu := FindVMGPU(); gpu.Vulkan != "" || len(gpu.devices("p")) != 1 {
+		t.Errorf("%+v", gpu)
+	}
+}

@@ -120,7 +120,9 @@ func (s *supervisor) settleGPU(ctx context.Context, m *chMachine, g *gpuSettler,
 	}
 	g.st = gpuState(g.st, gpuFacts{
 		attached:   g.attached,
-		crosvmGone: g.attached && m.gpu != nil && m.gpu.exited(),
+		// crosvm exits when Cloud Hypervisor does (one per VM start): only
+		// while the VM runs is that a failure.
+		crosvmGone: g.attached && m.gpu != nil && m.gpu.exited() && m.running(),
 		driver:     g.driver,
 		started:    g.plan,
 		now:        planGPU(true, findRenderNodes(), os.Getenv("AGENTBOX_VM_RENDER_NODE"), openRenderNode),
@@ -173,8 +175,12 @@ type gpuFacts struct {
 func gpuState(st GPUStatus, f gpuFacts) GPUStatus {
 	attached, started, now := f.attached, f.started, f.now
 	st.State, st.Reason, st.Node, st.GPU = GPUNone, "", "", ""
+	st.Vulkan = ""
 	if attached {
 		st.Node, st.GPU = started.node.Path, started.node.name()
+		if started.node.Vendor != "" && started.node.Device != "" {
+			st.Vulkan = started.node.Vendor + ":" + started.node.Device
+		}
 	} else if now.ok() {
 		st.Node, st.GPU = now.node.Path, now.node.name()
 	}

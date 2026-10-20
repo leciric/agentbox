@@ -50,6 +50,15 @@ jobs:
           CARGO_BUILD_JOBS: 4
         run: scripts/chv-gpu/build.sh out
 
+      # Before the checks: a build that isn't the pinned one is what to pin
+      # (this workflow's builds are what's published), or to compare.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: chv
+          path: out
+          compression-level: 0
+          retention-days: 7
+
       - name: The tarball is the one tools.go pins
         run: |
           sum=$(cut -d' ' -f1 out/*.tar.gz.sha256)
@@ -67,13 +76,6 @@ jobs:
           sudo apt-get -q install -y libepoxy0 libgbm1 libvulkan1 >/dev/null
           scripts/chv-gpu/test/chv_args_test.sh out/*.tar.gz
           scripts/chv-gpu/test/parse_test.sh
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: chv
-          path: out
-          compression-level: 0
-          retention-days: 7
 
   publish:
     name: Publish to GitHub releases
