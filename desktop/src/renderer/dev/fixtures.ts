@@ -15,6 +15,23 @@ import { pastRequest } from './pastAgents';
 
 export const PROJECT = 'agentbox';
 
+// fixtureVMGPU is Settings' vmGPU for ?gpu=.
+function fixtureVMGPU(gpu: string | null): T.VMGPU {
+  const krunkit = "the VM's kernel has no GPU driver yet: turning GPU for agents on installs one";
+  switch (gpu) {
+    case 'none':
+      return { kind: '', node: '', setup: '', reason: "WSL gives AgentBox's distro no GPU (no /dev/dxg): it needs Windows 10 21H2 or later, a current WSL (wsl --update) and a GPU driver with WSL support" };
+    case 'krunkit':
+      return { kind: '', node: '', setup: 'available', reason: krunkit };
+    case 'running':
+    case 'restart':
+      return { kind: '', node: '', setup: gpu, reason: krunkit };
+    case 'failed':
+      return { kind: '', node: '', setup: 'failed', reason: "GPU: Debian's generic kernel (6.12.48+deb13-arm64) didn't boot, so the VM went back to its cloud kernel" };
+  }
+  return { kind: 'dxg', node: '/dev/dxg', setup: '', reason: '' };
+}
+
 export const WIDE = {
   longPath: '/home/user/.local/share/agentbox/worktrees/agentbox/agent-96/desktop/src/renderer/components/chat/Markdown.tsx',
   longUrl: 'https://github.com/leciric/agentbox/pull/78/files#diff-1a2b3c4d5e6f7890abcdef1234567890abcdef1234567890abcdef1234567890',
@@ -1427,11 +1444,9 @@ let defaultsSettings = {
   updateCheck: true,
   usageStats: true,
   agentGPU: false,
-  // WSL's GPU, or ?gpu=none for a VM with none.
-  vmGPU:
-    typeof location !== 'undefined' && new URLSearchParams(location.search).get('gpu') === 'none'
-      ? { kind: '', node: '', reason: "WSL gives AgentBox's distro no GPU (no /dev/dxg): it needs Windows 10 21H2 or later, a current WSL (wsl --update) and a GPU driver with WSL support" }
-      : { kind: 'dxg', node: '/dev/dxg', reason: '' },
+  // WSL's GPU, or ?gpu=none for a VM with none, or ?gpu=krunkit|running|restart|failed
+  // for a Mac's krunkit VM whose GPU isn't ready.
+  vmGPU: fixtureVMGPU(typeof location !== 'undefined' ? new URLSearchParams(location.search).get('gpu') : null),
   errorReports: true,
   prWatch: true,
   defaultClaudeCompactWindow: 500_000,

@@ -17,9 +17,11 @@ func fakeGPU(t *testing.T, dxg, render string, lib bool) {
 	t.Helper()
 	dir := t.TempDir()
 	missing := filepath.Join(dir, "missing")
-	old := []string{dxgPath, wslLib, wslDrivers, renderNodeGlob}
-	t.Cleanup(func() { dxgPath, wslLib, wslDrivers, renderNodeGlob = old[0], old[1], old[2], old[3] })
-	dxgPath, renderNodeGlob = missing, missing
+	old := []string{dxgPath, wslLib, wslDrivers, renderNodeGlob, VenusScript}
+	t.Cleanup(func() {
+		dxgPath, wslLib, wslDrivers, renderNodeGlob, VenusScript = old[0], old[1], old[2], old[3], old[4]
+	})
+	dxgPath, renderNodeGlob, VenusScript = missing, missing, missing
 	if dxg != "" {
 		dxgPath = dxg
 	}
@@ -110,8 +112,8 @@ func TestGPUStepsWSL(t *testing.T) {
 	}
 }
 
-// Turned off, or with no GPU in the VM, this file's devices come off and
-// nothing else: not the macOS code's driver mount, nor #66's device, which
+// Turned off, or with no GPU in the VM, this file's devices and the Mac's
+// driver mount come off and nothing else: not #66's device, which
 // oldlimits.go takes off.
 func TestGPUStepsOff(t *testing.T) {
 	m := &Manager{Paths: paths.Paths{Data: t.TempDir()}}
@@ -131,7 +133,7 @@ func TestGPUStepsOff(t *testing.T) {
 		}
 		removed = append(removed, args[4])
 	}
-	if want := []string{vgpuDevice, vgpuLibDevice, vgpuProfileDevice}; !slices.Equal(removed, want) {
+	if want := []string{vgpuDevice, vgpuLibDevice, vgpuProfileDevice, "agentbox-vgpu-driver"}; !slices.Equal(removed, want) {
 		t.Errorf("removed %q, want %q", removed, want)
 	}
 }

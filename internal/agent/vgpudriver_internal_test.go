@@ -2,12 +2,12 @@ package agent
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
-
-	"agentbox/internal/state"
 )
 
 // withVenus points VenusDir at a directory of its own, with the driver the
@@ -83,18 +83,63 @@ func TestVGPUDriverSteps(t *testing.T) {
 	}
 }
 
-// ApplyVGPUDriver reads the machine's devices and makes the steps.
-func TestApplyVGPUDriver(t *testing.T) {
-	withVenus(t, true)
-	log := filepath.Join(t.TempDir(), "log")
-	m := &Manager{Incus: fakeIncus(t, `case "$1" in
-  query) echo '{"config":{},"devices":{}}' ;;
-  *) echo "$1 $2 $3 $4 $5" >> `+log+` ;;
-esac`)}
-	if err := m.ApplyVGPUDriver(context.Background(), state.Agent{Instance: "i"}, true); err != nil {
-		t.Fatal(err)
+// withVenusVM makes this a krunkit VM, whose GPU venus.sh readies, or not.
+func withVenusVM(t *testing.T, venus bool) {
+	t.Helper()
+	old := VenusScript
+	t.Cleanup(func() { VenusScript = old })
+	VenusScript = filepath.Join(t.TempDir(), "venus.sh")
+	if venus {
+		_ = os.WriteFile(VenusScript, nil, 0o644)
 	}
-	if out, _ := os.ReadFile(log); string(out) != "config device add i agentbox-vgpu-driver\n" {
-		t.Errorf("ran %q", out)
+}
+
+// In a krunkit VM, a render node is a GPU for agents only once venus.sh has
+// built the driver that works on a Mac, and the driver goes in beside it.
+func TestVenusGPU(t *testing.T) {
+	fakeGPU(t, "", "/dev/nul*", false)
+	withVenusVM(t, true)
+	withVenus(t, false)
+	if got := FindVMGPU(); got.Kind != GPUNone || !strings.Contains(got.Reason, "builds one") {
+		t.Errorf("render node, no driver: %+v", got)
+	}
+	dir := withVenus(t, true)
+	gpu := FindVMGPU()
+	if gpu.Kind != GPURender {
+		t.Fatalf("render node and driver: %+v", gpu)
+	}
+	m := &Manager{}
+	want := [][]string{
+		{"config", "device", "add", "i", "agentbox-vgpu", "gpu", "gputype=physical", "mode=0666"},
+		{"config", "device", "add", "i", "agentbox-vgpu-driver", "disk", "source=" + filepath.Join(dir, "libvulkan_virtio.so"),
+			"path=/usr/lib/aarch64-linux-gnu/libvulkan_virtio.so", "readonly=true"},
+	}
+	if got := stepArgs(t, m.gpuSteps("i", gpu, nil)); !slices.EqualFunc(got, want, slices.Equal) {
+		t.Errorf("steps:\n got %q\nwant %q", got, want)
+	}
+
+	// No render node: the kernel has no driver yet.
+	fakeGPU(t, "", "", false)
+	withVenusVM(t, true)
+	if got := FindVMGPU(); got.Kind != GPUNone || !strings.Contains(got.Reason, "installs one") {
+		t.Errorf("no render node: %+v", got)
+	}
+}
+
+// ReadyVenus runs venus.sh, saying whether a kernel that didn't boot may be
+// tried again, and its error is the last thing venus.sh said.
+func TestReadyVenus(t *testing.T) {
+	withVenusVM(t, true)
+	old := VenusSudo
+	VenusSudo = nil
+	t.Cleanup(func() { VenusSudo = old })
+	_ = os.WriteFile(VenusScript, []byte("echo \"retry=$AGENTBOX_VENUS_RETRY\"\n"), 0o644)
+	var out strings.Builder
+	if err := ReadyVenus(context.Background(), true, &out); err != nil || out.String() != "retry=1\n" {
+		t.Errorf("ReadyVenus = %v, said %q", err, out.String())
+	}
+	_ = os.WriteFile(VenusScript, []byte("echo working; echo 'GPU: it broke' >&2; echo >&2; exit 1\n"), 0o644)
+	if err := ReadyVenus(context.Background(), false, io.Discard); err == nil || err.Error() != "GPU: it broke" {
+		t.Errorf("failing: %v", err)
 	}
 }

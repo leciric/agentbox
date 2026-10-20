@@ -35,6 +35,9 @@
 //   ?vm=krunkit|nokrunkit   the VM to set up on Apple Silicon, with krunkit
 //                           installed (it gives memory back), or without it
 //   ?gpu=none               Settings' GPU for agents with no GPU in the VM
+//   ?gpu=krunkit|running|restart|failed
+//                           a Mac's krunkit VM whose GPU turning it on readies,
+//                           being readied, waiting for a restart, or failed
 //   ?vm=resize              Settings' panel for the VM's CPUs and memory, whose
 //                           resize streams made-up output
 //   ?chat=awaiting          agent-41's chat: its turn ended on a CI watch still

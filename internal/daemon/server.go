@@ -175,6 +175,9 @@ type Server struct {
 	// connectors starts in the background (connectors.go), for the same
 	// reason, and so a test can wait for one to have marked the chats.
 	connectorSyncs sync.WaitGroup
+	// vgpu is the readying of a Mac's VM's GPU (vgpu.go), which Run waits
+	// for too.
+	vgpu vgpuSetup
 
 	mu           sync.Mutex
 	agentAPIs    map[string]*http.Server // in-agent API servers, by instance
@@ -462,6 +465,7 @@ func (s *Server) Run(ctx context.Context) error {
 		s.bgChecks.Wait()
 		s.skillSyncs.Wait()
 		s.connectorSyncs.Wait()
+		s.vgpu.wg.Wait()
 	}()
 	s.firstSweeps.Add(3)
 	loops.Go(func() { s.watch(ctx) })

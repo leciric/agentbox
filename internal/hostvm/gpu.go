@@ -21,9 +21,11 @@ import (
 // krunkit turns it on by itself (there's no flag for it, and Lima passes
 // none), so what the VM needs is a kernel with the virtio-gpu driver and a
 // Venus driver that works with the Mac's 16 KiB pages: venus/venus.sh, which
-// Setup runs in a krunkit VM. A new VM is made from Debian's generic image
-// (agentbox.yaml), whose kernel has the driver; a VM made before gets that
-// kernel from venus.sh, and has to restart once for it.
+// Setup puts in a krunkit VM and the daemon there runs when "GPU for agents"
+// is turned on. A new VM is made from Debian's generic image (agentbox.yaml),
+// whose kernel has the driver; a VM made before gets that kernel from
+// venus/kernel.sh, and has to restart once for it, falling back to its cloud
+// kernel if the new one doesn't boot.
 //
 // Apple's Virtualization framework gives a Linux guest a 2D framebuffer and
 // nothing for 3D, so a vz VM, Lima's or AgentBox's own, has no GPU for
@@ -35,7 +37,8 @@ import (
 //go:embed venus
 var venusFiles embed.FS
 
-// venusSrc is where Setup puts venus.sh and its patches in the VM.
+// venusSrc is where Setup puts venus.sh and its patches in the VM: where
+// agent.VenusScript looks for it.
 const venusSrc = "/usr/local/share/agentbox/venus"
 
 // venusTar is venus/ as a tar stream, which the VM unpacks into venusSrc.
@@ -66,14 +69,15 @@ func venusTar() (*bytes.Buffer, error) {
 	return &b, tw.Close()
 }
 
-// restartMarker is what venus.sh leaves when the VM has to restart for the
+// restartMarker is what kernel.sh leaves when the VM has to restart for the
 // kernel it installed: in /run, which a restart empties.
 const restartMarker = "/run/agentbox-gpu-restart"
 
-// setupGPU readies a krunkit VM's GPU for agents, for Setup: venus.sh, which
-// installs the kernel and builds the driver the first time and does nothing
-// after. A failure doesn't stop Setup, since agents run without a GPU too: it
-// says what went wrong.
+// setupGPU puts venus/ in a krunkit VM, for Setup: the daemon there runs
+// venus.sh when "GPU for agents" is on (agent.ReadyVenus), and only then, since
+// it changes the VM's kernel and builds a driver; that it's there is how the
+// daemon knows its VM's GPU can be readied. A failure doesn't stop Setup,
+// since agents run without a GPU too: it says what went wrong.
 func (v *VM) setupGPU(ctx context.Context) {
 	if v.CHV != nil {
 		return
@@ -85,16 +89,8 @@ func (v *VM) setupGPU(ctx context.Context) {
 	if err == nil {
 		_, err = v.exec(ctx, files, "sudo", "sh", "-c", "rm -rf "+venusSrc+" && mkdir -p "+venusSrc+" && tar -x -o -C "+venusSrc)
 	}
-	if err == nil {
-		err = v.execLog(ctx, "sudo", "bash", venusSrc+"/venus.sh")
-	}
 	if err != nil {
-		_, _ = fmt.Fprintf(v.Log, "note: agents get no GPU in this VM, for now: readying it failed (%v). agentbox vm init tries again.\n", err)
-		return
-	}
-	if r, _ := v.exec(ctx, nil, "sh", "-c", "[ -e "+restartMarker+" ] && echo yes || true"); strings.TrimSpace(r) == "yes" {
-		_, _ = fmt.Fprintln(v.Log, "note: the VM has a kernel with the GPU driver now, which it boots the next time it starts: agentbox vm stop,\n"+
-			"      then agentbox vm start, when it suits you (its agents stop with it).")
+		_, _ = fmt.Fprintf(v.Log, "note: agents can't get a GPU in this VM, for now: copying what readies it failed (%v). agentbox vm init tries again.\n", err)
 	}
 }
 
@@ -160,7 +156,7 @@ func gpuReport(where, out string) string {
 	case node == "" && fields["restart"] == "yes":
 		b.WriteString("  render node:  none yet: the VM boots the kernel with the GPU driver when it restarts (agentbox vm stop, then agentbox vm start)\n")
 	case node == "":
-		b.WriteString("  render node:  none (no /dev/dri/renderD*)\n")
+		b.WriteString("  render node:  none (no /dev/dri/renderD*: turning on \"GPU for agents\" in Settings readies one)\n")
 	default:
 		fmt.Fprintf(&b, "  render node:  %s (%s)\n", node, or(driver, "unknown driver"))
 	}

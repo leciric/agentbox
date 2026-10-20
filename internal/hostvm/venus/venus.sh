@@ -1,7 +1,8 @@
 #!/bin/bash
-# GPU for agents in a krunkit VM on a Mac (gpu.go), run as root by `agentbox
-# vm init`, with the patches beside it; safe to run again, and quick when
-# there is nothing to do.
+# GPU for agents in a krunkit VM on a Mac (gpu.go), run as root by the daemon
+# in the VM when "GPU for agents" is on (agent.ReadyVenus), with kernel.sh and
+# the patches beside it; safe to run again, and quick when there is nothing
+# to do.
 #
 # krunkit always gives the VM a virtio-gpu that speaks Venus, Vulkan forwarded
 # to the Mac and run there on Metal by MoltenVK. Two things in the VM stand
@@ -9,7 +10,8 @@
 #
 #   - The kernel. Lima's Debian image boots Debian's cloud kernel, which is
 #     built without DRM at all, so it has no virtio-gpu driver and no render
-#     node. Debian's generic kernel has it as a module.
+#     node. Debian's generic kernel has it as a module: kernel.sh installs it
+#     and boots it once, keeping the cloud kernel to fall back to.
 #   - Mesa's Venus driver as Debian builds it: macOS pages are 16 KiB, and
 #     Venus maps what the guest allocates with the guest's 4 KiB alignment,
 #     which the Mac can't map. libkrun's maintainer carries the fix as a patch
@@ -19,8 +21,6 @@
 #     agent, vgpudriver.go). OpenGL needs nothing more: Mesa's Zink runs it
 #     on whichever Vulkan driver there is.
 #
-# It leaves /run/agentbox-gpu-restart when the VM has to restart for the new
-# kernel.
 set -eu -o pipefail
 export DEBIAN_FRONTEND=noninteractive
 
@@ -31,23 +31,20 @@ mesa_sha256=592272df3cf01e85e7db300c449df5061092574d099da275d19e97ef0510f8a6
 # tests, which build it in a container.
 dest=${AGENTBOX_VENUS_DIR:-/usr/local/lib/agentbox/venus}
 log=/var/log/agentbox-venus.log
-arch=$(dpkg --print-architecture)
 # Debian's multiarch directory, aarch64-linux-gnu on a Mac.
 multiarch=$(uname -m)-linux-gnu
 
 say() { echo "==> $*"; }
 
-restart=
-if [[ ${AGENTBOX_VENUS_KERNEL:-1} == 1 ]] && ! grep -qs '^CONFIG_DRM_VIRTIO_GPU=[ym]' "/boot/config-$(uname -r)"; then
-  say "GPU: Debian's generic kernel, which has the virtio-gpu driver the cloud kernel lacks"
-  apt-get update -q >>"$log"
-  apt-get install -y -q "linux-image-$arch" >>"$log"
-  # The running kernel goes too: noninteractive, its removal doesn't ask.
-  mapfile -t cloud < <(dpkg-query -W -f '${Package}\n' "linux-image-cloud-$arch" "linux-image-*-cloud-$arch" 2>/dev/null || true)
-  if ((${#cloud[@]})); then
-    apt-get purge -y -q "${cloud[@]}" >>"$log"
-  fi
-  restart=1
+# One at a time: a daemon that stopped leaves its run to finish, which the
+# next one's waits for.
+exec 9>/run/agentbox-venus.lock
+flock 9
+
+# The kernel comes first: kernel.sh says when it fails, and leaves
+# /run/agentbox-gpu-restart when the VM has to restart for it.
+if [[ ${AGENTBOX_VENUS_KERNEL:-1} == 1 ]]; then
+  bash "$patches/kernel.sh" try
 fi
 modprobe virtio_gpu 2>/dev/null || true
 
@@ -95,6 +92,3 @@ if [[ $(cat "$dest/stamp" 2>/dev/null) != "$stamp" ]]; then
   echo "$stamp" >"$dest/stamp"
   echo "$multiarch" >"$dest/multiarch"
 fi
-
-# Setup says so, and `agentbox vm gpu`; a restart empties /run.
-[[ -z $restart ]] || touch /run/agentbox-gpu-restart

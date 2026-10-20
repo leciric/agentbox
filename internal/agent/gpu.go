@@ -34,8 +34,8 @@ import (
 //     it, and copies each frame into Xvnc.
 //   - A DRM render node (GPURender): an Incus gpu device; the desktop's Xvnc
 //     takes it with -rendernode, so its clients get DRI3. The Mac's VM
-//     (virtio-gpu) is one; agentbox-vgpu-driver, its darwin-only Mesa, is
-//     added beside it by the macOS code.
+//     (virtio-gpu) is one; agentbox-vgpu-driver, the Venus driver it built
+//     (vgpudriver.go), is added beside it.
 
 // Kinds of GPU FindVMGPU can find.
 const (
@@ -45,8 +45,8 @@ const (
 )
 
 // The devices "GPU for agents" adds. vgpuDevice is the GPU itself; the others
-// go with /dev/dxg. agentbox-vgpu-driver is the macOS code's, and left alone
-// here.
+// go with /dev/dxg. agentbox-vgpu-driver is the macOS code's (vgpudriver.go),
+// which gpuSteps adds beside a render node.
 const (
 	vgpuDevice        = "agentbox-vgpu"
 	vgpuLibDevice     = "agentbox-vgpu-wsl-lib"
@@ -110,10 +110,19 @@ func FindVMGPU() VMGPU {
 	}
 	nodes, _ := filepath.Glob(renderNodeGlob)
 	sort.Strings(nodes)
+	venus := VenusVM()
 	for _, node := range nodes {
 		if fi, err := os.Stat(node); err == nil && fi.Mode()&os.ModeCharDevice != 0 {
+			// Debian's own Venus driver can't work with the Mac's pages:
+			// until venus.sh has built one that does, agents get none.
+			if source, _ := venusDriver(); venus && source == "" {
+				return VMGPU{Reason: "the VM's GPU has no driver that works on a Mac yet: turning GPU for agents on builds one"}
+			}
 			return VMGPU{Kind: GPURender, Node: node}
 		}
+	}
+	if venus {
+		return VMGPU{Reason: "the VM's kernel has no GPU driver yet: turning GPU for agents on installs one"}
 	}
 	if hostos.WSL() {
 		return VMGPU{Reason: "WSL gives AgentBox's distro no GPU (no /dev/dxg): it needs Windows 10 21H2 or later, a current WSL (wsl --update) and a GPU driver with WSL support"}
@@ -230,7 +239,8 @@ func (m *Manager) gpuSteps(instance string, want VMGPU, devices map[string]map[s
 			steps = append(steps, func(ctx context.Context, c incus.Client) error { return c.RemoveDevice(ctx, instance, name) })
 		}
 	}
-	return steps
+	// A Mac's VM has its own Venus driver to go with its render node.
+	return append(steps, vgpuDriverSteps(instance, devices, want.Kind == GPURender)...)
 }
 
 // settleGPU gives one instance the GPU it should have, as it starts or is

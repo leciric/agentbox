@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"agentbox/internal/agent"
 	"agentbox/internal/api"
 	"agentbox/internal/schedule"
 	"agentbox/internal/state"
@@ -240,9 +239,13 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 		if err := s.store.SetFlag(r.Context(), state.SettingAgentGPU, *req.AgentGPU); err != nil {
 			return err
 		}
-		// It reaches the agents you already have at once.
+		// It reaches the agents you already have at once. A Mac's VM may have
+		// to ready its GPU first, which gives it to them when it's done.
 		if _, err := s.manager(nil).ApplyGPU(r.Context()); err != nil {
 			return err
+		}
+		if *req.AgentGPU {
+			s.readyVMGPU(s.runCtx, true)
 		}
 	}
 	if req.ErrorReports != nil {
@@ -429,7 +432,7 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
-	vmGPU := agent.FindVMGPU()
+	vmGPU := s.vmGPU()
 	errorReports, err := s.store.FlagOn(r.Context(), state.SettingErrorReports)
 	if err != nil {
 		return api.Settings{}, err
@@ -521,7 +524,7 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		UpdateCheck:          updateCheck,
 		UsageStats:           usageStats,
 		AgentGPU:             agentGPU,
-		VMGPU:                api.VMGPU{Kind: vmGPU.Kind, Node: vmGPU.Node, Reason: vmGPU.Reason},
+		VMGPU:                vmGPU,
 		ErrorReports:         errorReports,
 		PRWatch:              prWatch,
 		MediaRetention:       mediaRetention,

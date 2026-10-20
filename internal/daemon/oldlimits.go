@@ -30,4 +30,7 @@ func (s *Server) dropOldLimits(ctx context.Context) {
 	} else if changed > 0 {
 		s.logf("changed the GPU of %d agent machine(s)", changed)
 	}
+	// A Mac's VM readies its GPU while the setting is on: quick when it's
+	// ready, and how a kernel that needed a restart gets its driver built.
+	s.readyVMGPU(ctx, false)
 }

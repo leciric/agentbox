@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -41,7 +40,8 @@ func TestDefinitionKrunkitImage(t *testing.T) {
 	}
 }
 
-// venusTar carries venus.sh, executable, and every patch it applies.
+// venusTar carries venus.sh and kernel.sh, executable, and every patch it
+// applies.
 func TestVenusTar(t *testing.T) {
 	b, err := venusTar()
 	if err != nil {
@@ -58,8 +58,10 @@ func TestVenusTar(t *testing.T) {
 		}
 		files[h.Name] = h.Mode
 	}
-	if files["venus.sh"] != 0o755 {
-		t.Errorf("venus.sh: mode %o in %v", files["venus.sh"], files)
+	for _, name := range []string{"venus.sh", "kernel.sh"} {
+		if files[name] != 0o755 {
+			t.Errorf("%s: mode %o in %v", name, files[name], files)
+		}
 	}
 	patches := 0
 	for name, mode := range files {
@@ -75,8 +77,8 @@ func TestVenusTar(t *testing.T) {
 	}
 }
 
-// venus.sh parses, leaves the marker Setup and gpuScript look for, and checks
-// the Mesa it downloads.
+// venus.sh parses, leaves the kernel to kernel.sh, and checks the Mesa it
+// downloads.
 func TestVenusScript(t *testing.T) {
 	script, err := venusFiles.ReadFile("venus/venus.sh")
 	if err != nil {
@@ -85,7 +87,7 @@ func TestVenusScript(t *testing.T) {
 	if out, err := exec.Command("bash", "-n", "-c", string(script)).CombinedOutput(); err != nil {
 		t.Fatalf("venus.sh doesn't parse: %v\n%s", err, out)
 	}
-	for _, want := range []string{"touch " + restartMarker, "sha256sum -c", "-Dvulkan-drivers=virtio", "CONFIG_DRM_VIRTIO_GPU"} {
+	for _, want := range []string{"kernel.sh\" try", "sha256sum -c", "-Dvulkan-drivers=virtio"} {
 		if !bytes.Contains(script, []byte(want)) {
 			t.Errorf("venus.sh has no %q", want)
 		}
@@ -96,46 +98,40 @@ func TestVenusScript(t *testing.T) {
 	}
 }
 
-// Setup sends a krunkit VM venus.sh and runs it, and says when the VM has to
-// restart for its kernel; a VM of another type gets neither.
+// Setup puts venus/ in a krunkit VM and doesn't run it: the daemon does,
+// when "GPU for agents" is on. A VM of another type gets nothing.
 func TestSetupGPU(t *testing.T) {
 	for _, tc := range []struct {
-		name, vmType     string
-		restart, fails   bool
-		runs             bool
-		wantLog, notWant string
+		name, vmType string
+		fails, sends bool
+		wantLog      string
 	}{
-		{name: "krunkit", vmType: krunkitVMType, runs: true, notWant: "note:"},
-		{name: "krunkit, new kernel", vmType: krunkitVMType, restart: true, runs: true, wantLog: "agentbox vm stop,\n      then agentbox vm start"},
-		{name: "krunkit, build fails", vmType: krunkitVMType, fails: true, runs: true, wantLog: "agents get no GPU in this VM, for now"},
+		{name: "krunkit", vmType: krunkitVMType, sends: true},
+		{name: "krunkit, copy fails", vmType: krunkitVMType, fails: true, wantLog: "agents can't get a GPU in this VM, for now"},
 		{name: "vz", vmType: "vz"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			vm, dir := newFake(t)
 			_ = os.WriteFile(filepath.Join(dir, "list"), []byte(`{"name":"agentbox","status":"Running","vmType":"`+tc.vmType+`"}`+"\n"), 0o644)
-			if tc.restart {
-				_ = os.WriteFile(filepath.Join(dir, "gpu-restart"), []byte("yes\n"), 0o644)
-			}
 			if tc.fails {
 				_ = os.WriteFile(filepath.Join(dir, "venus-fails"), nil, 0o644)
 			}
 			vm.setupGPU(context.Background())
-			ran := slices.Contains(calls(t, dir), "shell --workdir "+vm.Home+" agentbox -- sudo bash "+venusSrc+"/venus.sh")
-			if ran != tc.runs {
-				t.Errorf("ran venus.sh: %v, want %v: %q", ran, tc.runs, calls(t, dir))
-			}
-			if tc.runs {
-				sent, _ := os.ReadFile(filepath.Join(dir, "installed"))
-				if h, err := tar.NewReader(bytes.NewReader(sent)).Next(); err != nil || h.Name == "" {
-					t.Errorf("sent no tar of venus/: %v", err)
+			for _, call := range calls(t, dir) {
+				if strings.Contains(call, "venus.sh") || strings.Contains(call, "kernel.sh") {
+					t.Errorf("Setup ran %q", call)
 				}
+			}
+			sent, _ := os.ReadFile(filepath.Join(dir, "installed"))
+			if h, err := tar.NewReader(bytes.NewReader(sent)).Next(); (err == nil && h.Name != "") != tc.sends {
+				t.Errorf("sent a tar of venus/: %v, want %v", err == nil, tc.sends)
 			}
 			log := vm.Log.(*bytes.Buffer).String()
 			if tc.wantLog != "" && !strings.Contains(log, tc.wantLog) {
 				t.Errorf("log has no %q:\n%s", tc.wantLog, log)
 			}
-			if tc.notWant != "" && strings.Contains(log, tc.notWant) {
-				t.Errorf("log has %q:\n%s", tc.notWant, log)
+			if tc.wantLog == "" && log != "" {
+				t.Errorf("log: %q", log)
 			}
 		})
 	}

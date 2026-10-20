@@ -3206,9 +3206,29 @@ type VMGPU struct {
 	Kind string `json:"kind"`
 	// Node is the device: /dev/dxg or /dev/dri/renderD128.
 	Node string `json:"node"`
-	// Reason says why the VM has none, when Kind is "".
+	// Reason says why the VM has none, when Kind is "", or why readying it
+	// failed (VMGPUSetupFailed).
 	Reason string `json:"reason"`
+	// Setup is how far readying the GPU has got when the VM's can be readied
+	// but isn't ready, as on a Mac's krunkit VM: one of the VMGPUSetup values.
+	// "" when there's nothing to ready, Kind's GPU being there or there being
+	// none to have.
+	Setup string `json:"setup"`
 }
+
+// VMGPU.Setup's values.
+const (
+	// VMGPUSetupAvailable: turning "GPU for agents" on readies the GPU (on a
+	// Mac, Debian's generic kernel and a Venus driver built in the VM).
+	VMGPUSetupAvailable = "available"
+	// VMGPUSetupRunning: it's being readied, which takes minutes.
+	VMGPUSetupRunning = "running"
+	// VMGPUSetupRestart: ready once the VM restarts on its new kernel.
+	VMGPUSetupRestart = "restart"
+	// VMGPUSetupFailed: readying it failed, Reason says why. Turning "GPU for
+	// agents" off and on tries again.
+	VMGPUSetupFailed = "failed"
+)
 
 // GPUReport is GET .../browser/gpu: what an agent's desktop renders on, as
 // its own glxinfo and vulkaninfo see it.

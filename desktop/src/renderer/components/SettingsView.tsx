@@ -1909,10 +1909,16 @@ function UpdateChannel() {
 // override it from its own settings.
 // AgentGPU gives every agent the GPU of AgentBox's VM: WSL's /dev/dxg on
 // Windows, a render node elsewhere. Off by default; shown off and unavailable,
-// with the daemon's reason, when the VM has none.
+// with the daemon's reason, when the VM has none. A Mac's krunkit VM has one
+// to ready (vmGPU.setup), which turning it on starts: it says how far that
+// has got, asking again every few seconds while it runs.
 export function AgentGPU() {
   const t = useT();
-  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const settings = useQuery({
+    queryKey: ["settings"],
+    queryFn: api.settings,
+    refetchInterval: (q) => (q.state.data?.vmGPU.setup === "running" ? 5000 : false),
+  });
   const queryClient = useQueryClient();
   const save = useMutation({
     mutationFn: (agentGPU: boolean) => api.updateSettings({ agentGPU }),
@@ -1920,7 +1926,7 @@ export function AgentGPU() {
     onError: (err) => toast.error(errorMessage(err)),
   });
   const gpu = settings.data?.vmGPU;
-  const unavailable = gpu !== undefined && gpu.kind === "";
+  const unavailable = gpu !== undefined && gpu.kind === "" && !gpu.setup;
   return (
     <SettingRow
       label={t("settings.entry.agent-gpu.label")}
@@ -1938,13 +1944,28 @@ export function AgentGPU() {
     >
       {gpu && (
         <SettingNote>
-          {unavailable
-            ? t("settings.agentGPU.unavailable", { reason: gpu.reason })
-            : t(gpu.kind === "dxg" ? "settings.agentGPU.wsl" : "settings.agentGPU.renderNode", { node: gpu.node })}
+          {unavailable ? t("settings.agentGPU.unavailable", { reason: gpu.reason }) : vmGPUNote(t, gpu)}
         </SettingNote>
       )}
     </SettingRow>
   );
+}
+
+// gpuSetupNotes say how far readying the VM's GPU has got (T.VMGPU's setup).
+const gpuSetupNotes: Record<string, MessageKey> = {
+  available: "settings.agentGPU.setup.available",
+  running: "settings.agentGPU.setup.running",
+  restart: "settings.agentGPU.setup.restart",
+  failed: "settings.agentGPU.setup.failed",
+};
+
+// vmGPUNote says which GPU agents get, or how far readying it has got.
+function vmGPUNote(t: ReturnType<typeof useT>, gpu: T.VMGPU): string {
+  const setup = gpuSetupNotes[gpu.setup];
+  if (setup) {
+    return t(setup, { reason: gpu.reason });
+  }
+  return t(gpu.kind === "dxg" ? "settings.agentGPU.wsl" : "settings.agentGPU.renderNode", { node: gpu.node });
 }
 
 export function PRWatch() {
