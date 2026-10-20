@@ -1296,3 +1296,9 @@ func (c *Client) PullFileDiff(ctx context.Context, project string, number int, p
 	p := "/v1/projects/" + url.PathEscape(project) + "/pulls/" + strconv.Itoa(number) + "/diff?path=" + url.QueryEscape(path)
 	return out, c.do(ctx, http.MethodGet, p, nil, &out)
 }
+
+// TerminalTails reads the end of the named agents' terminals in project.
+func (c *Client) TerminalTails(ctx context.Context, project string, agents []string) (TerminalTails, error) {
+	var out TerminalTails
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/terminals?agents="+url.QueryEscape(strings.Join(agents, ",")), nil, &out)
+}

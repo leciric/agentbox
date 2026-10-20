@@ -632,6 +632,18 @@ export interface CPUUsage {
   agents: CPUUsageAgent[];
 }
 
+export interface TerminalTail {
+  ref: string;
+  window: string;
+  command?: string;
+  busy: boolean;
+  lines: string[];
+}
+
+export interface TerminalTails {
+  agents: TerminalTail[];
+}
+
 export interface ClaudeAccount {
   name: string;
   default: boolean;

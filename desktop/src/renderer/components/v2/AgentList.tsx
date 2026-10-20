@@ -1,24 +1,25 @@
 // UI v2's right-hand panel opens on its project's agents, beside the lead's
 // chat, as v1's rail had them, in one narrow column with the sidebar's quiet
 // rows (AgentLine): what it is, what it's doing now, and what it runs on and
-// has made. An agent
-// using its desktop has it in its row, small and live, where the lane of
-// desktops beside the chat used to show it. The finished agents fold under
+// has made. Each row leads with one slot of a fixed size: an agent using its
+// desktop has it there, small and live, where the lane of desktops beside the
+// chat used to show it, and any other agent the end of its terminal. The finished agents fold under
 // the rest, and Past agents is at its foot; the repository, the lead's
 // checkout, is the panel's other tab, Files (RightPanel's LeadSwitch).
 //
 // A row opens the agent's chat, with its Desktop in the panel; the panel's
 // back arrow there comes back to the lead and this list. Folded (AgentStrip),
 // the list is a strip of avatars.
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useLayoutEffect, useRef } from 'react';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Archive, ChevronsLeft } from 'lucide-react';
 import type * as T from '../../../shared/api';
 import type { View } from '../../App';
 import { api } from '../../lib/api';
-import { chatLabel, statusTip } from '../../lib/agentStatus';
+import { chatLabel, statusTip, type Mood } from '../../lib/agentStatus';
 import { chatKey, peekThread } from '../../lib/chat';
 import { choiceName } from '../../lib/modelChoices';
+import { heavy, terminalLines } from '../../lib/terminalTail';
 import { humanTokens } from '../../lib/tokens';
 import { useT } from '../../lib/i18n';
 import { agentSt, type AgentSt } from '../../lib/leadFirst';
@@ -30,7 +31,7 @@ import { FinishedSection, RailEmpty, RailSkeleton, useRailAgents } from '../Agen
 import { PrChip } from '../PrChip';
 import { LiveDesktop } from '../pip/LiveDesktop';
 import { useInUse } from '../pip/inUse';
-import { AgentAvatar, ToolMark } from '../state';
+import { AgentAvatar } from '../state';
 import { Tip } from '../ui/tooltip';
 import { useOpenReview, useProjectReview } from './ReviewV2';
 import { StMark } from './SidebarV2';
@@ -50,12 +51,65 @@ function useListAgents(project: string) {
   const usage = new Map<string, { cpu?: number; memory?: number }>();
   for (const a of cpu.data?.agents ?? []) usage.set(a.ref, { cpu: a.cpu });
   for (const a of memory.data?.agents ?? []) usage.set(a.ref, { ...usage.get(a.ref), memory: a.memory });
-  return { rail, live, ready, st, usage };
+  return { rail, live, ready, st, usage, hostMemory: memory.data?.hostTotal };
+}
+
+// useSeenRows is which of the list's rows are on screen: watch is a row's ref
+// callback, and seen the refs of the rows an IntersectionObserver last saw.
+function useSeenRows() {
+  const [seen, setSeen] = useState<ReadonlySet<string>>(() => new Set());
+  const observer = useMemo(
+    () =>
+      typeof IntersectionObserver === 'undefined'
+        ? undefined
+        : new IntersectionObserver((entries) =>
+            setSeen((prev) => {
+              const next = new Set(prev);
+              for (const e of entries) {
+                const ref = (e.target as HTMLElement).dataset.listAgent;
+                if (ref && e.isIntersecting) next.add(ref);
+                else if (ref) next.delete(ref);
+              }
+              return next;
+            }),
+          ),
+    [],
+  );
+  useEffect(() => () => observer?.disconnect(), [observer]);
+  const watch = useCallback(
+    (el: HTMLElement | null) => {
+      if (!el || !observer) return;
+      observer.observe(el);
+      return () => observer.unobserve(el);
+    },
+    [observer],
+  );
+  return { seen, watch };
+}
+
+// useTerminalTails is the end of the terminals of the running agents whose
+// rows are on screen and show their terminal, read every two seconds (the
+// daemon keeps each for a moment, so other windows asking share the read).
+function useTerminalTails(project: string, refs: string[]) {
+  const names = refs.map((ref) => ref.slice(ref.indexOf('/') + 1)).sort();
+  const tails = useQuery({
+    queryKey: ['terminalTails', project, names],
+    queryFn: () => api.terminalTails(project, names),
+    enabled: names.length > 0,
+    refetchInterval: 2_000,
+    placeholderData: keepPreviousData,
+  });
+  return new Map((tails.data?.agents ?? []).map((t) => [t.ref, t]));
 }
 
 export function AgentList({ project, chat, onSelect, onNewAgent }: { project: string; chat: string; onSelect: (view: View) => void; onNewAgent: (project: string) => void }) {
   const t = useT();
-  const { rail, live, ready, st, usage } = useListAgents(project);
+  const { rail, live, ready, st, usage, hostMemory } = useListAgents(project);
+  const { seen, watch } = useSeenRows();
+  const tails = useTerminalTails(
+    project,
+    rail.mine.filter((a) => a.state === 'running' && seen.has(a.ref) && !live.has(a.ref)).map((a) => a.ref),
+  );
   const past = useQuery({ queryKey: [...pastAgentsKey, 'panel', project], queryFn: () => api.archivedAgents({ project, limit: 50 }), staleTime: 30_000 });
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const name = projectLabel(project, projects.data);
@@ -65,6 +119,7 @@ export function AgentList({ project, chat, onSelect, onNewAgent }: { project: st
       key={agent.ref}
       agent={agent}
       st={st(agent)}
+      mood={rail.mood(agent)}
       active={chat === agent.ref}
       live={live.has(agent.ref)}
       ready={ready.has(agent.ref)}
@@ -74,6 +129,9 @@ export function AgentList({ project, chat, onSelect, onNewAgent }: { project: st
       report={rail.lastSummary.get(agent.ref)}
       question={rail.question(agent.ref)}
       usage={agent.state === 'running' ? usage.get(agent.ref) : undefined}
+      hostMemory={hostMemory}
+      tail={tails.get(agent.ref)}
+      watch={watch}
       onOpen={onSelect}
     />
   );
@@ -131,47 +189,44 @@ function doingNow(t: ReturnType<typeof useT>, agent: T.Agent, st: AgentSt, last:
   return { text: report };
 }
 
-// AgentLine is one agent in up to three lines, each only when it has
-// something: its state mark, task, time since it last did anything and its
-// machine's CPU and memory; what it's doing now (doingNow); and, small, its
-// AI tool, its pull request (or that it's ready to review), its changes, how
-// much of its context it used and its model, the first to go when the row is
-// too narrow. Using its desktop, its mark gives
-// way to the desktop, small and live. A click opens its chat (with its
-// Desktop in the panel); a right-click, its menu (AgentContextMenu). Its
-// chat's latest item and session are read as the phone's list reads them
-// (peekThread), kept current by the chat's events.
-// useToolGlide moves the tool mark between the tile and the meta line as the
-// row goes in and out of use: each render notes where the mark is in its row,
-// and when `live` has changed the new mark is animated from the old spot
-// (transform only; none under prefers-reduced-motion).
-function useToolGlide(live: boolean) {
-  const mark = useRef<HTMLSpanElement>(null);
-  const last = useRef<{ live: boolean; x: number; y: number; w: number } | undefined>(undefined);
-  useLayoutEffect(() => {
-    const node = mark.current;
-    const row = node?.closest('[data-list-agent]');
-    if (!node || !row) return;
-    const r = node.getBoundingClientRect();
-    const o = row.getBoundingClientRect();
-    const now = { live, x: r.left - o.left, y: r.top - o.top, w: r.width };
-    const prev = last.current;
-    last.current = now;
-    if (!prev || prev.live === live || window.matchMedia('(prefers-reduced-motion: reduce)').matches || typeof node.animate !== 'function') return;
-    const from = `translate(${prev.x - now.x}px, ${prev.y - now.y}px) scale(${prev.w / now.w})`;
-    node.animate([{ transform: from }, { transform: 'none' }], { duration: 420, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
-  });
-  return mark;
+// TerminalThumb is a terminal in the row's slot: its last lines in tiny
+// monospace on a dark ground, the newest at the bottom, with a cursor that
+// blinks while the agent works.
+function TerminalThumb({ lines, working }: { lines: string[]; working: boolean }) {
+  return (
+    <span aria-hidden className="row-swap-in flex size-full flex-col justify-end overflow-hidden bg-[#0b0d12] px-1 pb-3 pt-1 font-mono text-[7px] leading-[8px] text-slate-300" data-list-terminal>
+      {lines.map((line, i) => (
+        <span key={i} className={cn('block overflow-hidden whitespace-pre', line.startsWith('$ ') && 'text-emerald-300/90')}>
+          {line}
+          {i === lines.length - 1 && working && <span className="term-cursor ml-px inline-block h-[7px] w-[3.5px] translate-y-px bg-slate-300" />}
+        </span>
+      ))}
+      {lines.length === 0 && <span className="block text-emerald-300/90">${working && <span className="term-cursor ml-0.5 inline-block h-[7px] w-[3.5px] translate-y-px bg-slate-300" />}</span>}
+    </span>
+  );
 }
 
-function AgentLine({ agent, st, active, live, ready, pr, fleet, at, report, question, usage, onOpen }: { agent: T.Agent; st: AgentSt; active: boolean; live: boolean; ready: boolean; pr?: T.PullRequest; fleet?: T.FleetAgent; at?: string; report?: string; question?: string; usage?: { cpu?: number; memory?: number }; onOpen: (view: View) => void }) {
+// AgentLine is one agent: a slot of a fixed size, then its lines. The slot
+// holds its desktop, small and live, while it uses it, and the end of its
+// terminal otherwise (terminalLines), with its avatar in a corner (its mood:
+// working, asleep, asking) and its machine's CPU and memory along the bottom,
+// amber when heavy. Beside it, each only when it has something: its task and
+// the time since it last did anything; what it's doing now (doingNow); and,
+// small, its pull request (or that it's ready to review), its changes, how
+// much of its context it used and its model, the last to go when the row is
+// too narrow. A click opens its chat (with its Desktop in the panel); a
+// right-click, its menu (AgentContextMenu). Its chat's latest items and
+// session are read as the phone's list reads them (peekThread), kept current
+// by the chat's events.
+function AgentLine({ agent, st, mood, active, live, ready, pr, fleet, at, report, question, usage, hostMemory, tail, watch, onOpen }: { agent: T.Agent; st: AgentSt; mood: Mood; active: boolean; live: boolean; ready: boolean; pr?: T.PullRequest; fleet?: T.FleetAgent; at?: string; report?: string; question?: string; usage?: { cpu?: number; memory?: number }; hostMemory?: number; tail?: T.TerminalTail; watch: (el: HTMLElement | null) => void; onOpen: (view: View) => void }) {
   const t = useT();
   const queryClient = useQueryClient();
   const thread = useQuery({ queryKey: chatKey(agent.ref), queryFn: () => peekThread(queryClient, agent.ref), staleTime: 30_000 });
   const session = thread.data?.session;
   const title = agent.title || agent.name;
   const now = doingNow(t, agent, st, thread.data?.items.at(-1), question, report);
-  const load = usage && [usage.cpu !== undefined && `${Math.round(usage.cpu)}%`, usage.memory && memShort(usage.memory)].filter(Boolean).join(' ');
+  const load = usage && (usage.cpu !== undefined || usage.memory !== undefined) ? usage : undefined;
+  const loadTip = load && t('panel.list.usage', { cpu: (load.cpu ?? 0).toFixed(1), memory: load.memory ? `${(load.memory / 1024 ** 2).toFixed(0)} MiB` : '–' });
   const modelOption = session?.options.find((o) => o.category === 'model' && o.type === 'select');
   const modelChoice = modelOption?.choices.find((c) => c.value === modelOption.value);
   const model = modelOption && (modelChoice ? choiceName(modelChoice) : modelOption.value);
@@ -179,80 +234,78 @@ function AgentLine({ agent, st, active, live, ready, pr, fleet, at, report, ques
   const changes = fleet?.changes && fleet.changes.files > 0 ? fleet.changes : undefined;
   const when = fleet?.lastActive ?? at;
   const open = () => onOpen({ kind: 'agent', ref: agent.ref });
-  const mark = useToolGlide(live);
+  const slot = (
+    <span className="relative mt-0.5 block aspect-[16/10] w-24 shrink-0 overflow-hidden rounded border border-line-strong bg-[#0b0d12] transition group-hover:border-brand-500/60" data-list-slot>
+      {live ? (
+        <span className="row-swap-in block size-full" data-list-desktop>
+          <LiveDesktop agent={agent} small />
+        </span>
+      ) : (
+        <TerminalThumb lines={terminalLines(tail, thread.data?.items, now.text)} working={st === 'working'} />
+      )}
+      {load && (
+        <span className={cn('absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-1 pb-px pt-1.5 font-mono text-[9px] tabular-nums leading-[10px]', heavy(load, hostMemory) ? 'font-medium text-amber-300' : 'text-white/75')} data-list-usage data-list-heavy={heavy(load, hostMemory) || undefined}>
+          {[load.cpu !== undefined && `${Math.round(load.cpu)}%`, load.memory && memShort(load.memory)].filter(Boolean).join(' · ')}
+        </span>
+      )}
+      <AgentAvatar ai={agent.ai} mood={mood} seed={agent.ref} className="absolute right-0.5 top-0.5 size-5 rounded-md border-white/15 bg-black/70" />
+      <span className="absolute left-1 top-1 flex size-2 items-center justify-center">
+        <StMark st={st} />
+      </span>
+    </span>
+  );
   return (
     <AgentContextMenu agent={agent} pr={pr} active={active} onSelect={onOpen}>
       <button
+        ref={watch}
         type="button"
         onClick={(e) => {
           if (e.button !== 0 || e.ctrlKey) return;
           open();
         }}
-        title={statusTip(agent)}
+        title={[statusTip(agent), loadTip].filter(Boolean).join('\n')}
         aria-current={active ? 'true' : undefined}
-        className={cn('group flex w-full min-w-0 flex-col rounded-lg px-2 py-1.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400', active ? 'bg-surface-raised' : 'hover:bg-surface')}
+        className={cn('group flex w-full min-w-0 items-start gap-2 rounded-lg px-2 py-1.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400', active ? 'bg-surface-raised' : 'hover:bg-surface')}
         data-list-agent={agent.ref}
         data-list-st={st}
         data-list-live={live || undefined}
       >
-        <span className="flex min-w-0 items-start gap-2">
-          {live ? (
-            <Tip label={t('panel.openChat', { name: title })} side="left">
-              <span className="row-swap-in relative mt-0.5 block w-24 shrink-0 overflow-hidden rounded border border-line-strong transition group-hover:border-brand-500/60" data-list-desktop>
-                <LiveDesktop agent={agent} small />
-                <span className="absolute right-0.5 top-0.5 size-1.5 animate-pulse rounded-full bg-emerald-400" />
-              </span>
-            </Tip>
-          ) : (
-            <span className="row-swap-in relative mt-0.5 flex aspect-[16/10] w-12 shrink-0 items-center justify-center rounded border border-line bg-surface" data-list-tool>
-              <span ref={mark} className={cn('inline-flex', st === 'working' && 'tool-breathe')}>
-                <ToolMark ai={agent.ai} className="size-5" />
-              </span>
-              <span className="absolute right-0.5 top-0.5 flex size-2 items-center justify-center">
-                <StMark st={st} />
-              </span>
-            </span>
-          )}
-          <span className="flex min-w-0 flex-1 flex-col">
-            <span className="flex min-w-0 items-center gap-1.5">
-              <span title={title} className={cn('min-w-0 flex-1 truncate text-[12.5px] font-medium leading-[18px]', active ? 'text-title' : st === 'done' ? 'text-subtle' : 'text-primary', !agent.title && 'font-mono text-[11.5px]')}>{title}</span>
-              {when && (
-                <span className="shrink-0 text-[10.5px] tabular-nums leading-4 text-faint" title={timeAgo(when)}>
-                  {shortAgo(t, when)}
-                </span>
-              )}
-              {load && (
-                <span className="shrink-0 font-mono text-[10px] tabular-nums leading-4 text-faint" title={t('panel.list.usage')} data-list-usage>
-                  {load}
-                </span>
-              )}
-            </span>
-            {now.text && (
-              <span className={cn('truncate text-[11.5px] leading-4', now.tone === 'needs' ? 'font-medium text-amber-300' : now.tone === 'error' ? 'font-medium text-rose-300' : 'text-secondary')} data-list-now>
-                {now.text}
+        {live ? (
+          <Tip label={t('panel.openChat', { name: title })} side="left">
+            {slot}
+          </Tip>
+        ) : (
+          slot
+        )}
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span title={title} className={cn('min-w-0 flex-1 truncate text-[12.5px] font-medium leading-[18px]', active ? 'text-title' : st === 'done' ? 'text-subtle' : 'text-primary', !agent.title && 'font-mono text-[11.5px]')}>{title}</span>
+            {when && (
+              <span className="shrink-0 text-[10.5px] tabular-nums leading-4 text-faint" title={timeAgo(when)}>
+                {shortAgo(t, when)}
               </span>
             )}
           </span>
-        </span>
-        <span className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-x-clip whitespace-nowrap text-[10.5px] leading-4 text-faint" data-list-meta>
-          {live && (
-            <span ref={mark} className="inline-flex shrink-0">
-              <ToolMark ai={agent.ai} className="size-3 opacity-70" />
+          {now.text && (
+            <span className={cn('truncate text-[11.5px] leading-4', now.tone === 'needs' ? 'font-medium text-amber-300' : now.tone === 'error' ? 'font-medium text-rose-300' : 'text-secondary')} data-list-now>
+              {now.text}
             </span>
           )}
-          {pr && <PrChip pr={pr} dataAttr="data-list-pr" />}
-          {ready && (
-            <span className="shrink-0 rounded bg-surface-strong px-1 font-medium text-secondary" data-list-ready>
-              {t('v2.st.review')}
-            </span>
-          )}
-          {changes && (
-            <span className="shrink-0 tabular-nums" data-list-changes>
-              <span className="text-emerald-300/80">+{changes.insertions}</span> <span className="text-rose-300/80">−{changes.deletions}</span> {t('panel.list.files', { count: changes.files })}
-            </span>
-          )}
-          {context && <span className="min-w-0 truncate tabular-nums" data-list-context>{context}</span>}
-          {model && <span className="min-w-0 truncate">{model}</span>}
+          <span className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-x-clip whitespace-nowrap text-[10.5px] leading-4 text-faint empty:hidden" data-list-meta>
+            {pr && <PrChip pr={pr} dataAttr="data-list-pr" />}
+            {ready && (
+              <span className="shrink-0 rounded bg-surface-strong px-1 font-medium text-secondary" data-list-ready>
+                {t('v2.st.review')}
+              </span>
+            )}
+            {changes && (
+              <span className="shrink-0 tabular-nums" data-list-changes>
+                <span className="text-emerald-300/80">+{changes.insertions}</span> <span className="text-rose-300/80">−{changes.deletions}</span> {t('panel.list.files', { count: changes.files })}
+              </span>
+            )}
+            {context && <span className="min-w-0 truncate tabular-nums" data-list-context>{context}</span>}
+            {model && <span className="min-w-0 truncate">{model}</span>}
+          </span>
         </span>
       </button>
     </AgentContextMenu>

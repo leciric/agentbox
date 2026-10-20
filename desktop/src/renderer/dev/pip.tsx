@@ -166,10 +166,30 @@ export function sayInPip(item: T.ChatItem): T.ChatThread {
 }
 
 // The working agents' CPU (percent of one core) and memory, made up.
-const load: Record<string, [number, number]> = { 'agent-24': [38, 1.4], 'agent-25': [72, 2.1], 'agent-26': [140, 3.6], 'agent-27': [9, 0.8], 'agent-28': [55, 1.9] };
+const load: Record<string, [number, number]> = { 'agent-24': [38, 1.4], 'agent-25': [72, 2.1], 'agent-26': [140, 3.6], 'agent-27': [9, 0.8], 'agent-28': [55, 1.9], 'agent-12': [3, 0.6], 'agent-41': [1, 0.4] };
 const GiB = 1024 ** 3;
 const cpuUsage = (): T.CPUUsage => ({ hostCPU: 0, hostCores: 8, otherCPU: 0, agents: Object.entries(load).map(([name, [cpu]]) => ({ ref: `${PROJECT}/${name}`, state: 'running', cpu })) });
 const memoryUsage = (): T.MemoryUsage => ({ hostTotal: 32 * GiB, agentsUsed: 0, otherUsed: 0, swapTotal: 0, swapUsed: 0, agentsSwap: 0, agents: Object.entries(load).map(([name, [, gib]]) => ({ ref: `${PROJECT}/${name}`, state: 'running', memory: gib * GiB, swap: 0 })) });
+
+// The end of each agent's terminal, for the rows without a desktop: agent-28
+// watches a CI run that moves on a step every two seconds, the finished ones
+// sit at their shell's prompt after their last command.
+const steps = ['✓ checkout', '✓ setup-go', '✓ go vet ./...', '✓ build linux/amd64', '✓ build darwin/arm64', '* upload agentbox-linux-amd64', '✓ upload agentbox-linux-amd64', '* upload agentbox-darwin-arm64', 'X upload agentbox-darwin-arm64: 502', '* retry 1/3 upload agentbox-darwin-arm64', '✓ upload agentbox-darwin-arm64'];
+const idleTail: Record<string, string[]> = {
+  'agent-12': ['ok  agentbox/internal/daemon 4.1s', 'ok  agentbox/internal/api 0.6s', 'me@agent-12:~/w$ git push -u origin', 'me@agent-12:~/w$'],
+  'agent-41': ['run 18840 failed: upload', 'me@agent-41:~/w$ gh run rerun 18840', '✓ Requested rerun of run 18840', 'me@agent-41:~/w$'],
+  'agent-98': ['daemon ready in 312ms (was 1.9s)', 'me@agent-98:~/w$ hyperfine ./bin/agentbox', '  Time (mean): 318.4 ms', 'me@agent-98:~/w$'],
+};
+const terminalTails = (names: string[]): T.TerminalTails => {
+  const step = Math.floor(Date.now() / 2_000) % (steps.length + 3);
+  return {
+    agents: names.flatMap((name): T.TerminalTail[] => {
+      const ref = `${PROJECT}/${name}`;
+      if (name === 'agent-28') return [{ ref, window: 'shell', command: 'gh', busy: true, lines: ['$ gh run watch 18842 --exit-status', ...steps.slice(0, Math.min(step, steps.length))].slice(-4) }];
+      return idleTail[name] ? [{ ref, window: 'shell', command: 'bash', busy: false, lines: idleTail[name] }] : [];
+    }),
+  };
+};
 
 // What each agent's chat is at, for the panel's rows: its tool call now,
 // model, context used, and its changes and pull request so far, made up.
@@ -235,6 +255,8 @@ export function seedPip(queryClient: QueryClient): void {
     // What each agent's machine uses, for the panel's list.
     if (path.startsWith('/v1/usage/cpu')) return json(cpuUsage());
     if (path === '/v1/usage/memory') return json(memoryUsage());
+    const tails = new RegExp(`^/v1/projects/${PROJECT}/terminals\\?agents=(.*)$`).exec(path);
+    if (tails) return json(terminalTails(decodeURIComponent(tails[1]).split(',')));
     // The fixtures' agents asking for accounts and secrets aren't this scenario's.
     if (path.startsWith(`/v1/projects/${PROJECT}/questions`)) return json([]);
     return undefined;

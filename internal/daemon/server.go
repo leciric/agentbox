@@ -89,6 +89,8 @@ type Server struct {
 	// timeline holds a *sync.Mutex per agent ref, taken by its checkpoints
 	// and rollbacks (timeline.go).
 	timeline sync.Map
+	// tails are the agents' terminal tails last read (terminaltail.go).
+	tails tailCache
 	// picks are the element pickers showing, one per agent (browser.go).
 	picks elementPicks
 	// imageCache is the image cache agents' Docker shares (imagecache.go),
@@ -725,6 +727,7 @@ func (s *Server) routes() http.Handler {
 	h("DELETE /v1/projects/{project}", s.removeProject)
 	// Each project's icon: the one chosen, or the one its repository has.
 	h("GET /v1/projects/{project}/icon", s.getProjectIcon)
+	h("GET /v1/projects/{project}/terminals", s.terminalTails)
 	h("PUT /v1/projects/{project}/icon", s.setProjectIcon)
 	h("DELETE /v1/projects/{project}/icon", s.deleteProjectIcon)
 	h("GET /v1/projects/{project}/brief", s.brief)

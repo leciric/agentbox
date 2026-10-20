@@ -3430,7 +3430,7 @@ export const ptBR: Messages = {
   'panel.back': 'Voltar aos agentes',
   'panel.list.fold': 'Recolher os agentes numa faixa',
   'panel.list.unfold': 'Mostrar os agentes',
-  'panel.list.usage': 'CPU (100% é um núcleo) · memória',
+  'panel.list.usage': 'CPU {cpu}% (100% é um núcleo) · memória {memory}',
   'panel.list.agoNow': 'agora',
   'panel.list.agoMinutes': '{n}min',
   'panel.list.agoHours': '{n}h',

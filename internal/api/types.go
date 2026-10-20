@@ -3149,3 +3149,22 @@ type ReportRequest struct {
 type ReportSent struct {
 	ID string `json:"id"` // the server's ID for it, to quote when asking about it
 }
+
+// TerminalTail is the end of one agent's terminal, for the thumbnail in its
+// row of the agent list: the tmux window read (its AI tool's when it is used
+// from the terminal, else the shell), the pane's foreground command, whether
+// that is something other than a shell at its prompt, and the pane's last
+// few lines of text, oldest first.
+type TerminalTail struct {
+	Ref     string   `json:"ref"`
+	Window  string   `json:"window"`
+	Command string   `json:"command,omitempty"`
+	Busy    bool     `json:"busy"`
+	Lines   []string `json:"lines"`
+}
+
+// TerminalTails answers GET /v1/projects/{project}/terminals: one tail per
+// agent asked for that could be read; an agent that isn't running is left out.
+type TerminalTails struct {
+	Agents []TerminalTail `json:"agents"`
+}

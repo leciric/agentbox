@@ -24,7 +24,7 @@ var tsTypes = []any{
 	StopAgentsRequest{}, StopAgentsResult{}, StoppedAgent{}, StopAgentFailure{},
 	MemoryHold{}, PressureStatus{}, HeavyRun{},
 	Job{}, HostUsage{}, HostPressure{}, AgentUsage{}, Usage{}, DiskUsageItem{}, DiskUsageCategory{}, DiskUsage{}, AgentDisk{}, ToolCredential{}, DiskGuard{}, DiskGuardDisk{},
-	MemoryUsageAgent{}, ZramUsage{}, MemoryUsage{}, CPUUsageAgent{}, CPUUsage{}, ClaudeAccount{}, GitHubAccount{}, AuthStatus{},
+	MemoryUsageAgent{}, ZramUsage{}, MemoryUsage{}, CPUUsageAgent{}, CPUUsage{}, TerminalTail{}, TerminalTails{}, ClaudeAccount{}, GitHubAccount{}, AuthStatus{},
 	Event{}, JobLogLine{}, AgentChange{}, Theme{}, UpdateThemeRequest{}, UpdateStatus{}, UpdateAvailable{}, UpdateRelease{}, ReleaseAsset{}, IncusStatus{}, ProjectChange{}, PullsChange{}, Self{}, Error{}, TerminalResize{},
 	BrowserStatus{}, BrowserPage{}, BrowserOpenRequest{}, ElementPickRequest{}, ElementPickResult{}, ElementPick{}, ElementStyle{}, ElementBox{}, ElementSize{}, PreviewInfo{}, DesktopUse{},
 	MediaItem{}, MediaMeta{}, Notification{}, SeeNotificationsRequest{}, SeeNotificationsResult{}, TestCounts{}, ScreenshotRequest{}, RecordRequest{}, RecordingStatus{}, Timeline{}, TimelineStep{}, TimelinePage{},

@@ -3429,7 +3429,7 @@ export const enUS = {
   'panel.back': 'Back to the agents',
   'panel.list.fold': 'Fold the agents to a strip',
   'panel.list.unfold': 'Show the agents',
-  'panel.list.usage': 'CPU (100% is one core) · memory',
+  'panel.list.usage': 'CPU {cpu}% (100% is one core) · memory {memory}',
   'panel.list.agoNow': 'now',
   'panel.list.agoMinutes': '{n}m',
   'panel.list.agoHours': '{n}h',
