@@ -1123,7 +1123,7 @@ func TestClientMethodsEncodeRequestsAndDecodeResponses(t *testing.T) {
 			name: "TerminalTails", method: http.MethodGet, path: "/v1/projects/p/terminals?agents=a%2Cb",
 			resp: `{"agents":[{"ref":"p/a","window":"shell","busy":true,"lines":["go test"]}]}`,
 			run: func(t *testing.T, c *Client) {
-				tails, err := c.TerminalTails(context.Background(), "p", []string{"a", "b"})
+				tails, err := c.TerminalTails(context.Background(), "p", []string{"a", "b"}, 0)
 				if err != nil || len(tails.Agents) != 1 || !tails.Agents[0].Busy {
 					t.Errorf("TerminalTails() = %+v, %v; want one busy tail", tails, err)
 				}

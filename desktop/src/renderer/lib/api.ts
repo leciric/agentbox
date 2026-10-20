@@ -570,7 +570,8 @@ export const api = {
   memoryUsage: () => call<T.MemoryUsage>('GET', '/v1/usage/memory'),
   cpuUsage: () => call<T.CPUUsage>('GET', '/v1/usage/cpu?interval=500ms'),
   // The end of the named agents' terminals, for the agent list's thumbnails.
-  terminalTails: (project: string, agents: string[]) => call<T.TerminalTails>('GET', `/v1/projects/${encodeURIComponent(project)}/terminals?agents=${encodeURIComponent(agents.join(','))}`),
+  terminalTails: (project: string, agents: string[], lines?: number) =>
+    call<T.TerminalTails>('GET', `/v1/projects/${encodeURIComponent(project)}/terminals?agents=${encodeURIComponent(agents.join(','))}${lines ? `&lines=${lines}` : ''}`),
   auth: () => call<T.AuthStatus>('GET', '/v1/auth'),
   // Cursor signs in with an API key (checked with Cursor before it is kept) or
   // through its own browser flow, which the daemon runs and reports on.

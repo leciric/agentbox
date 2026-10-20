@@ -3435,7 +3435,7 @@ export const enUS = {
   'panel.list.agoHours': '{n}h',
   'panel.list.agoDays': '{n}d',
   'panel.list.running': 'running {command}',
-  'panel.list.context': '{percent}% of {size}',
+  'panel.list.contextTip': 'Context: {percent}% of {size}',
   'panel.list.files': '{count, plural, one {# file} other {# files}}',
   'panel.openChat': 'Open the chat of {name}',
   'panel.find': 'Find an agent…',

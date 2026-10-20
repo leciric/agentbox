@@ -3436,7 +3436,7 @@ export const ptBR: Messages = {
   'panel.list.agoHours': '{n}h',
   'panel.list.agoDays': '{n}d',
   'panel.list.running': 'executando {command}',
-  'panel.list.context': '{percent}% de {size}',
+  'panel.list.contextTip': 'Contexto: {percent}% de {size}',
   'panel.list.files': '{count, plural, one {# arquivo} other {# arquivos}}',
   'panel.openChat': 'Abrir o chat de {name}',
   'panel.find': 'Encontrar um agente…',

@@ -11,7 +11,8 @@
 // back arrow there comes back to the lead and this list. Folded (AgentStrip),
 // the list is a strip of avatars.
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import * as TooltipPrimitive from '@radix-ui/react-tooltip';
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { Archive, ChevronsLeft } from 'lucide-react';
 import type * as T from '../../../shared/api';
 import type { View } from '../../App';
@@ -189,32 +190,74 @@ function doingNow(t: ReturnType<typeof useT>, agent: T.Agent, st: AgentSt, last:
   return { text: report };
 }
 
-// TerminalThumb is a terminal in the row's slot: its last lines in tiny
-// monospace on a dark ground, the newest at the bottom, with a cursor that
-// blinks while the agent works.
-function TerminalThumb({ lines, working }: { lines: string[]; working: boolean }) {
+// Terminal is the end of an agent's terminal on a dark ground, the newest
+// line at the bottom, with a cursor that blinks while the agent works: tiny
+// in the row's slot, legible in its hover preview (big).
+function Terminal({ lines, working, big }: { lines: string[]; working: boolean; big?: boolean }) {
+  const cursor = <span className={cn('term-cursor inline-block translate-y-px bg-slate-300', big ? 'ml-0.5 h-[11px] w-[6px]' : 'ml-px h-[7px] w-[3.5px]')} />;
   return (
-    <span aria-hidden className="row-swap-in flex size-full flex-col justify-end overflow-hidden bg-[#0b0d12] px-1 pb-3 pt-1 font-mono text-[7px] leading-[8px] text-slate-300" data-list-terminal>
+    <span aria-hidden className={cn('flex size-full flex-col justify-end overflow-hidden bg-[#0b0d12] font-mono text-slate-300', big ? 'px-2.5 py-2 text-[11px] leading-[14px]' : 'row-swap-in px-1 py-1 text-[7px] leading-[8px]')} data-list-terminal={big ? 'preview' : 'thumb'}>
       {lines.map((line, i) => (
         <span key={i} className={cn('block overflow-hidden whitespace-pre', line.startsWith('$ ') && 'text-emerald-300/90')}>
           {line}
-          {i === lines.length - 1 && working && <span className="term-cursor ml-px inline-block h-[7px] w-[3.5px] translate-y-px bg-slate-300" />}
+          {i === lines.length - 1 && working && cursor}
         </span>
       ))}
-      {lines.length === 0 && <span className="block text-emerald-300/90">${working && <span className="term-cursor ml-0.5 inline-block h-[7px] w-[3.5px] translate-y-px bg-slate-300" />}</span>}
+      {lines.length === 0 && (
+        <span className="block text-emerald-300/90">
+          ${working && cursor}
+        </span>
+      )}
     </span>
+  );
+}
+
+// previewLines is how many lines of its terminal the hover preview shows.
+const previewLines = 20;
+
+// TerminalPreview is the hover preview's terminal: the last previewLines
+// lines, read every two seconds while it shows (the daemon serves them from
+// the same read as the thumbnail's).
+function TerminalPreview({ agent, items, fallback, working }: { agent: T.Agent; items?: T.ChatItem[]; fallback?: string; working: boolean }) {
+  const tail = useQuery({
+    queryKey: ['terminalTails', agent.project, [agent.name], previewLines],
+    queryFn: () => api.terminalTails(agent.project, [agent.name], previewLines),
+    enabled: agent.state === 'running',
+    refetchInterval: 2_000,
+  });
+  return (
+    <span className="block aspect-[16/10] w-full">
+      <Terminal lines={terminalLines(tail.data?.agents[0], items, fallback, previewLines)} working={working} big />
+    </span>
+  );
+}
+
+// SlotPreview is the row's slot shown large beside the list after a short
+// hover: the live desktop, or the terminal with more lines. While the pointer
+// is on the slot, it is the only tip: the row's own (its title=) is on the
+// rest of the row.
+function SlotPreview({ children, preview }: { children: ReactNode; preview: ReactNode }) {
+  return (
+    <TooltipPrimitive.Root delayDuration={350}>
+      <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
+      <TooltipPrimitive.Portal>
+        <TooltipPrimitive.Content side="left" align="start" sideOffset={14} collisionPadding={8} className="z-[60] w-[480px] max-w-[calc(100vw-16px)] animate-fade-in overflow-hidden rounded-lg border border-line-strong bg-[#0b0d12] shadow-2xl" data-list-preview>
+          {preview}
+        </TooltipPrimitive.Content>
+      </TooltipPrimitive.Portal>
+    </TooltipPrimitive.Root>
   );
 }
 
 // AgentLine is one agent: a slot of a fixed size, then its lines. The slot
 // holds its desktop, small and live, while it uses it, and the end of its
 // terminal otherwise (terminalLines), with its avatar in a corner (its mood:
-// working, asleep, asking) and its machine's CPU and memory along the bottom,
-// amber when heavy. Beside it, each only when it has something: its task and
-// the time since it last did anything; what it's doing now (doingNow); and,
-// small, its pull request (or that it's ready to review), its changes, how
-// much of its context it used and its model, the last to go when the row is
-// too narrow. A click opens its chat (with its Desktop in the panel); a
+// working, asleep, asking); hovered, it shows large (SlotPreview). Beside it,
+// each only when it has something: its task and the time since it last did
+// anything; what it's doing now (doingNow); and, small, its pull request (or
+// that it's ready to review), its machine's CPU and memory (amber when
+// heavy), its changes and its model, the last to go when the row is too
+// narrow. How much of its context it used is in the row's tooltip. A click opens its chat (with its Desktop in the panel); a
 // right-click, its menu (AgentContextMenu). Its chat's latest items and
 // session are read as the phone's list reads them (peekThread), kept current
 // by the chat's events.
@@ -230,10 +273,11 @@ function AgentLine({ agent, st, mood, active, live, ready, pr, fleet, at, report
   const modelOption = session?.options.find((o) => o.category === 'model' && o.type === 'select');
   const modelChoice = modelOption?.choices.find((c) => c.value === modelOption.value);
   const model = modelOption && (modelChoice ? choiceName(modelChoice) : modelOption.value);
-  const context = session?.contextSize ? t('panel.list.context', { percent: Math.round(((session.contextUsed ?? 0) / session.contextSize) * 100), size: humanTokens(session.contextSize).replace(/\.0(?=[KMB])/, '') }) : undefined;
+  const context = session?.contextSize ? t('panel.list.contextTip', { percent: Math.round(((session.contextUsed ?? 0) / session.contextSize) * 100), size: humanTokens(session.contextSize).replace(/\.0(?=[KMB])/, '') }) : undefined;
   const changes = fleet?.changes && fleet.changes.files > 0 ? fleet.changes : undefined;
   const when = fleet?.lastActive ?? at;
   const open = () => onOpen({ kind: 'agent', ref: agent.ref });
+  const lines = terminalLines(tail, thread.data?.items, now.text);
   const slot = (
     <span className="relative mt-0.5 block aspect-[16/10] w-24 shrink-0 overflow-hidden rounded border border-line-strong bg-[#0b0d12] transition group-hover:border-brand-500/60" data-list-slot>
       {live ? (
@@ -241,12 +285,7 @@ function AgentLine({ agent, st, mood, active, live, ready, pr, fleet, at, report
           <LiveDesktop agent={agent} small />
         </span>
       ) : (
-        <TerminalThumb lines={terminalLines(tail, thread.data?.items, now.text)} working={st === 'working'} />
-      )}
-      {load && (
-        <span className={cn('absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-1 pb-px pt-1.5 font-mono text-[9px] tabular-nums leading-[10px]', heavy(load, hostMemory) ? 'font-medium text-amber-300' : 'text-white/75')} data-list-usage data-list-heavy={heavy(load, hostMemory) || undefined}>
-          {[load.cpu !== undefined && `${Math.round(load.cpu)}%`, load.memory && memShort(load.memory)].filter(Boolean).join(' · ')}
-        </span>
+        <Terminal lines={lines} working={st === 'working'} />
       )}
       <AgentAvatar ai={agent.ai} mood={mood} seed={agent.ref} className="absolute right-0.5 top-0.5 size-5 rounded-md border-white/15 bg-black/70" />
       <span className="absolute left-1 top-1 flex size-2 items-center justify-center">
@@ -263,21 +302,16 @@ function AgentLine({ agent, st, mood, active, live, ready, pr, fleet, at, report
           if (e.button !== 0 || e.ctrlKey) return;
           open();
         }}
-        title={[statusTip(agent), loadTip].filter(Boolean).join('\n')}
         aria-current={active ? 'true' : undefined}
         className={cn('group flex w-full min-w-0 items-start gap-2 rounded-lg px-2 py-1.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400', active ? 'bg-surface-raised' : 'hover:bg-surface')}
         data-list-agent={agent.ref}
         data-list-st={st}
         data-list-live={live || undefined}
       >
-        {live ? (
-          <Tip label={t('panel.openChat', { name: title })} side="left">
-            {slot}
-          </Tip>
-        ) : (
-          slot
-        )}
-        <span className="flex min-w-0 flex-1 flex-col">
+        <SlotPreview preview={live ? <LiveDesktop agent={agent} /> : <TerminalPreview agent={agent} items={thread.data?.items} fallback={now.text} working={st === 'working'} />}>
+          {slot}
+        </SlotPreview>
+        <span className="flex min-w-0 flex-1 flex-col self-stretch" title={[statusTip(agent), loadTip, context].filter(Boolean).join('\n')}>
           <span className="flex min-w-0 items-center gap-1.5">
             <span title={title} className={cn('min-w-0 flex-1 truncate text-[12.5px] font-medium leading-[18px]', active ? 'text-title' : st === 'done' ? 'text-subtle' : 'text-primary', !agent.title && 'font-mono text-[11.5px]')}>{title}</span>
             {when && (
@@ -298,13 +332,17 @@ function AgentLine({ agent, st, mood, active, live, ready, pr, fleet, at, report
                 {t('v2.st.review')}
               </span>
             )}
-            {changes && (
-              <span className="shrink-0 tabular-nums" data-list-changes>
-                <span className="text-emerald-300/80">+{changes.insertions}</span> <span className="text-rose-300/80">−{changes.deletions}</span> {t('panel.list.files', { count: changes.files })}
+            {load && (
+              <span className={cn('shrink-0 rounded font-mono text-[10px] tabular-nums', heavy(load, hostMemory) ? 'bg-amber-400/15 px-1 font-medium text-amber-300' : 'text-secondary')} data-list-usage data-list-heavy={heavy(load, hostMemory) || undefined}>
+                {[load.cpu !== undefined && `${Math.round(load.cpu)}%`, load.memory && memShort(load.memory)].filter(Boolean).join(' · ')}
               </span>
             )}
-            {context && <span className="min-w-0 truncate tabular-nums" data-list-context>{context}</span>}
-            {model && <span className="min-w-0 truncate">{model}</span>}
+            {changes && (
+              <span className="min-w-0 truncate tabular-nums" title={t('panel.list.files', { count: changes.files })} data-list-changes>
+                <span className="text-emerald-300/80">+{changes.insertions}</span> <span className="text-rose-300/80">−{changes.deletions}</span>
+              </span>
+            )}
+            {model && <span className="shrink-0">{model}</span>}
           </span>
         </span>
       </button>

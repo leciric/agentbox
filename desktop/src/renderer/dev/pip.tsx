@@ -180,12 +180,12 @@ const idleTail: Record<string, string[]> = {
   'agent-41': ['run 18840 failed: upload', 'me@agent-41:~/w$ gh run rerun 18840', '✓ Requested rerun of run 18840', 'me@agent-41:~/w$'],
   'agent-98': ['daemon ready in 312ms (was 1.9s)', 'me@agent-98:~/w$ hyperfine ./bin/agentbox', '  Time (mean): 318.4 ms', 'me@agent-98:~/w$'],
 };
-const terminalTails = (names: string[]): T.TerminalTails => {
+const terminalTails = (names: string[], n: number): T.TerminalTails => {
   const step = Math.floor(Date.now() / 2_000) % (steps.length + 3);
   return {
     agents: names.flatMap((name): T.TerminalTail[] => {
       const ref = `${PROJECT}/${name}`;
-      if (name === 'agent-28') return [{ ref, window: 'shell', command: 'gh', busy: true, lines: ['$ gh run watch 18842 --exit-status', ...steps.slice(0, Math.min(step, steps.length))].slice(-4) }];
+      if (name === 'agent-28') return [{ ref, window: 'shell', command: 'gh', busy: true, lines: ['$ gh run watch 18842 --exit-status', ...steps.slice(0, Math.min(step, steps.length))].slice(-n) }];
       return idleTail[name] ? [{ ref, window: 'shell', command: 'bash', busy: false, lines: idleTail[name] }] : [];
     }),
   };
@@ -255,8 +255,8 @@ export function seedPip(queryClient: QueryClient): void {
     // What each agent's machine uses, for the panel's list.
     if (path.startsWith('/v1/usage/cpu')) return json(cpuUsage());
     if (path === '/v1/usage/memory') return json(memoryUsage());
-    const tails = new RegExp(`^/v1/projects/${PROJECT}/terminals\\?agents=(.*)$`).exec(path);
-    if (tails) return json(terminalTails(decodeURIComponent(tails[1]).split(',')));
+    const tails = new RegExp(`^/v1/projects/${PROJECT}/terminals\\?agents=([^&]*)(?:&lines=(\\d+))?$`).exec(path);
+    if (tails) return json(terminalTails(decodeURIComponent(tails[1]).split(','), Number(tails[2] ?? 4)));
     // The fixtures' agents asking for accounts and secrets aren't this scenario's.
     if (path.startsWith(`/v1/projects/${PROJECT}/questions`)) return json([]);
     return undefined;
