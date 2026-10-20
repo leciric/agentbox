@@ -138,6 +138,14 @@ jobs:
         with:
           install_args: node
 
+      # Every install downloads the Cloud Hypervisor build tools.go pins
+      # (chvBundle), a release of its own (chv-<version>-agentbox<build>,
+      # published by the Cloud Hypervisor workflow), nightly or not: a nightly
+      # that pins one nobody published couldn't start its VM.
+      - name: The pinned Cloud Hypervisor build is published
+        if: steps.pick.outputs.build == 'true'
+        run: scripts/chv-gpu/check-published.sh --download
+
       # The version comes from the checkout's desktop/package.json and the
       # date and run number: scripts/release-build.sh --check then refuses a
       # checkout that isn't clean, a package version that isn't a release,

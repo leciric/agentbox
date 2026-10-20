@@ -142,6 +142,13 @@ jobs:
       - name: Check the release
         run: scripts/release-build.sh --tag "$TAG" --check
 
+      # Every install downloads the Cloud Hypervisor build tools.go pins
+      # (chvBundle), a release of its own published by the Cloud Hypervisor
+      # workflow: a release that pins one nobody published couldn't start
+      # its VM.
+      - name: The pinned Cloud Hypervisor build is published
+        run: scripts/chv-gpu/check-published.sh --download
+
   # The AppImage, the .deb, the .pacman and the command-line tool for Linux
   # (amd64, arm64) — all plain cross-compiles, so they don't need to wait on
   # the Mac job, which builds the macOS command-line tool (it needs cgo).
