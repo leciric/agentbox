@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"syscall"
 	"time"
 
 	"agentbox/internal/api"
@@ -16,6 +17,7 @@ import (
 type chMachine struct {
 	c    Config
 	l    Layout
+	self string // this agentbox, which `vm gpu-device` is
 	log  io.Writer
 	logf func(string, ...any)
 	ch   *chClient
@@ -114,11 +116,16 @@ func (m *chMachine) startGPU(ctx context.Context) {
 		m.gpuFailed(err.Error())
 		return
 	}
-	gpu, err := startChildEnv("crosvm", m.l.Bin(gpuDir+"/bin/crosvm"), crosvmArgs(m.l, n.Path), gpuEnv(m.l, n, os.Environ()), m.log)
+	path, args, attr := m.gpuCommand(n, len(findRenderNodes()))
+	gpu, err := startChildEnv("crosvm", path, args, gpuEnv(m.l, os.Environ()), attr, m.log)
 	if err == nil {
 		if err = waitSocket(ctx, gpu, m.l.GPUSocket()); err != nil {
 			gpu.stop(childGrace)
 		}
+	}
+	if err != nil && attr != nil {
+		m.gpuFailed(fmt.Sprintf("crosvm, the VM's GPU device, couldn't start in a namespace of its own, which keeps the VM to one of this machine's GPUs (%v; its lines in %s say more): unprivileged user namespaces may be off here (on Ubuntu: sysctl kernel.apparmor_restrict_unprivileged_userns)", err, m.l.Log()))
+		return
 	}
 	if err != nil {
 		m.gpuFailed(fmt.Sprintf("crosvm's GPU device didn't start (%v; its lines in %s say more)", err, m.l.Log()))
@@ -126,6 +133,18 @@ func (m *chMachine) startGPU(ctx context.Context) {
 	}
 	m.gpu = gpu
 	m.logf("the VM gets the GPU on %s (%s)", n.Path, n.name())
+}
+
+// gpuCommand is how crosvm starts for node, on a host with nodes render
+// nodes: itself when there's one, and with more through `agentbox vm
+// gpu-device` (RunGPUDevice), which shows it only node, in namespaces of
+// its own (attr).
+func (m *chMachine) gpuCommand(n renderNode, nodes int) (path string, args []string, attr *syscall.SysProcAttr) {
+	crosvm := m.l.Bin(gpuDir + "/bin/crosvm")
+	if nodes <= 1 {
+		return crosvm, crosvmArgs(m.l, n.Path), nil
+	}
+	return m.self, append([]string{"vm", "gpu-device", n.Path, "--", crosvm}, crosvmArgs(m.l, n.Path)...), gpuDeviceAttr()
 }
 
 // gpuFailed records that the VM starts without the GPU it was to have.

@@ -117,7 +117,7 @@ var chvBundle = bundle{
 	name:    "cloud-hypervisor",
 	version: "v53.0 (AgentBox build 1)",
 	url:     "https://github.com/leciric/agentbox/releases/download/chv-53.0-agentbox1/chv-53.0-agentbox1-x86_64.tar.gz",
-	sha256:  "cf73f41aec3d8c7e799eb5b1dac3539374513dfad8e944d19f5cd653a51b0c84",
+	sha256:  "aaf764da396793402399a1666207f7125be085308c2a44c938dcf845db6ead38",
 	files: []bundleFile{
 		// We don't need ch-remote: the supervisor talks to Cloud
 		// Hypervisor's REST API over its socket itself.
@@ -179,9 +179,20 @@ func ensureBundle(ctx context.Context, l Layout, b bundle, log io.Writer) error 
 	imageLogf(log, "Fetching %s %s…\n", b.name, b.version)
 	start := time.Now()
 	tarball := l.Bin(b.name + ".tar.gz")
-	defer func() { _ = os.Remove(tarball) }()
+	defer func() { _ = os.Remove(l.Bin(b.name + ".tar.gz")) }()
 	fail := func(err error) error { return fmt.Errorf("fetching %s %s: %w", b.name, b.version, err) }
-	if _, err := download(ctx, b.url, tarball, sha256.New(), b.sha256, log); err != nil {
+	if local := os.Getenv("AGENTBOX_CHV_TARBALL"); local != "" {
+		// A build not published yet, to try it (scripts/chv-gpu/check-vm.sh):
+		// it must still be the pinned one.
+		sum, err := fileSum(local, sha256.New())
+		if err != nil {
+			return fail(err)
+		}
+		if sum != b.sha256 {
+			return fail(fmt.Errorf("%s: %w (got %s, want %s)", local, errChecksum, sum, b.sha256))
+		}
+		tarball = local
+	} else if _, err := download(ctx, b.url, tarball, sha256.New(), b.sha256, log); err != nil {
 		return fail(err)
 	}
 	if err := untarFiles(tarball, b.files, l); err != nil {

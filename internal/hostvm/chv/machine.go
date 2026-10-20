@@ -3,6 +3,7 @@ package chv
 import (
 	"context"
 	"io"
+	"os"
 	"time"
 
 	"agentbox/internal/api"
@@ -60,5 +61,9 @@ func newMachine(c Config, l Layout, log io.Writer, logf func(string, ...any)) (m
 	if c.VZ() {
 		return newVZMachine(c, l, logf)
 	}
-	return &chMachine{c: c, l: l, log: log, logf: logf, ch: newCHClient(l.APISocket()), room: roomFor(c, hostCPUs(), hostMemory())}, nil
+	self, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	return &chMachine{c: c, l: l, self: self, log: log, logf: logf, ch: newCHClient(l.APISocket()), room: roomFor(c, hostCPUs(), hostMemory())}, nil
 }

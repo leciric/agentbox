@@ -665,3 +665,28 @@ func TestEnsureBundle(t *testing.T) {
 		t.Errorf("left behind: %v %v", left, tars)
 	}
 }
+
+// AGENTBOX_CHV_TARBALL installs a build from a file, which must still be the
+// pinned one, and is left where it is.
+func TestEnsureBundleLocal(t *testing.T) {
+	good := tarGz(t, "chv-1", map[string]string{"bin/ch": "ch v1"})
+	local := filepath.Join(t.TempDir(), "chv.tar.gz")
+	_ = os.WriteFile(local, good, 0o644)
+	t.Setenv("AGENTBOX_CHV_TARBALL", local)
+	l := Layout{Root: t.TempDir(), Name: "t"}
+	_ = os.MkdirAll(filepath.Dir(l.Bin("x")), 0o755)
+	b := bundle{name: "ch", version: "1", url: "https://example.invalid/none", sha256: sum256(good), files: []bundleFile{
+		{member: "bin/ch", name: "ch", sha256: sum256([]byte("ch v1")), exec: true},
+	}}
+	if err := ensureBundle(context.Background(), l, b, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(local); err != nil {
+		t.Errorf("the local tarball went: %v", err)
+	}
+	b.sha256 = sum256([]byte("other"))
+	_ = os.Remove(l.Bin("ch"))
+	if err := ensureBundle(context.Background(), l, b, io.Discard); !errors.Is(err, errChecksum) {
+		t.Errorf("err = %v", err)
+	}
+}

@@ -278,8 +278,11 @@ func crosvmRuns(ctx context.Context, l Layout) error {
 // runs it on the user's machine:
 //
 //   - virgl, virgl2 and venus contexts: OpenGL and Vulkan.
-//   - render-node (our crosvm patch): the node virglrenderer renders GL on,
-//     the one Vulkan is pinned to with MESA_VK_DEVICE_SELECT (gpuEnv).
+//   - render-node (our crosvm patch): the node virglrenderer is to render GL
+//     on. rutabaga 0.1.75 drops it (see RunGPUDevice, which keeps crosvm to
+//     the node where there are more); it's there for when that's fixed.
+//   - surfaceless off: a surfaceless EGL display is Mesa's default device
+//     whatever the fd; off, EGL comes from the GBM device on the node.
 //   - external-blob: every blob the guest maps reaches Cloud Hypervisor as
 //     an fd (SHMEM_MAP), the only kind its patchset takes; virglrenderer is
 //     built with minigbm_allocation, so GL buffers are GBM buffers exported
@@ -291,6 +294,7 @@ func gpuParams(node string) string {
 	b, _ := json.Marshal(map[string]any{
 		"context-types":          "virgl:virgl2:venus",
 		"egl":                    true,
+		"surfaceless":            false,
 		"vulkan":                 true,
 		"implicit-render-server": true,
 		"external-blob":          true,
@@ -305,22 +309,20 @@ func crosvmArgs(l Layout, node string) []string {
 }
 
 // gpuEnv is crosvm's environment: the host's, but for a display, with the
-// render server it starts for Venus, and Mesa's Vulkan device selection
-// keeping Venus on the same GPU as GL.
-func gpuEnv(l Layout, n renderNode, environ []string) []string {
+// render server it starts for Venus. Nothing picks a Vulkan device: Mesa's
+// device-select layer (MESA_VK_DEVICE_SELECT, DRI_PRIME) in the render
+// server breaks Venus (vkEnumeratePhysicalDeviceGroups fails), and where the
+// host has more than one GPU crosvm sees only the VM's (RunGPUDevice).
+func gpuEnv(l Layout, environ []string) []string {
 	env := slices.DeleteFunc(slices.Clone(environ), func(kv string) bool {
 		k, _, _ := strings.Cut(kv, "=")
 		switch k {
-		case "DISPLAY", "WAYLAND_DISPLAY", "RENDER_SERVER_EXEC_PATH", "MESA_VK_DEVICE_SELECT", "MESA_VK_DEVICE_SELECT_FORCE_DEFAULT_DEVICE":
+		case "DISPLAY", "WAYLAND_DISPLAY", "RENDER_SERVER_EXEC_PATH", "MESA_VK_DEVICE_SELECT", "MESA_VK_DEVICE_SELECT_FORCE_DEFAULT_DEVICE", "DRI_PRIME":
 			return true
 		}
 		return false
 	})
-	env = append(env, "RENDER_SERVER_EXEC_PATH="+l.Bin(gpuDir+"/libexec/virgl_render_server"))
-	if n.Vendor != "" && n.Device != "" {
-		env = append(env, "MESA_VK_DEVICE_SELECT="+n.Vendor+":"+n.Device, "MESA_VK_DEVICE_SELECT_FORCE_DEFAULT_DEVICE=1")
-	}
-	return env
+	return append(env, "RENDER_SERVER_EXEC_PATH="+l.Bin(gpuDir+"/libexec/virgl_render_server"))
 }
 
 // guestGPUFile is where the supervisor tells the daemon in the VM about the

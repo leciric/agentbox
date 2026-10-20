@@ -94,7 +94,7 @@ keeps working as it is until agentbox vm migrate moves it into the VM.`,
 		Version:       version,
 	}
 	root.AddCommand(newCHVInitCmd(), newMigrateCmd(), newStartCmd(), newStopCmd(), newPauseCmd(), newResumeCmd(), newStatusCmd(), newPowerCmd(), newDiskCmd(),
-		newShellCmd(), newCHVResizeCmd(), newSwapCmd(), newUpgradeCmd(), newDeleteCmd(), newRunCmd(), newProxyCmd(), newGPUCmd())
+		newShellCmd(), newCHVResizeCmd(), newSwapCmd(), newUpgradeCmd(), newDeleteCmd(), newRunCmd(), newProxyCmd(), newGPUCmd(), newGPUDeviceCmd())
 	return root
 }
 
@@ -347,6 +347,20 @@ func newRunCmd() *cobra.Command {
 				return err
 			}
 			return chv.Supervise(cmd.Context(), vm.CHV.Config, vm.CHV.Layout, vm.Paths)
+		},
+	}
+}
+
+// newGPUDeviceCmd runs crosvm's GPU device seeing only one render node, for
+// the supervisor (chv.RunGPUDevice), which starts it in namespaces of its own.
+func newGPUDeviceCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "gpu-device NODE -- COMMAND...",
+		Short:  "Run the VM's GPU device with only NODE in /dev/dri",
+		Args:   cobra.MinimumNArgs(2),
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return chv.RunGPUDevice(args[0], args[1:])
 		},
 	}
 }

@@ -165,7 +165,7 @@ else
 		mkdir -p "$tmp/dri"
 		render_node=/dev/null CHVGPU_DRI_DIR=$tmp/dri CHVGPU_ISOLATE=unshare
 		crosvm_command
-		got=$(crosvm_bound "${crosvm[@]}")
+		got=$(crosvm_bound "$work/gpu.sock" "${crosvm[@]}")
 		[ "$got" = bound ] && echo "ok   crosvm runs in its own /dev/dri" ||
 			{ echo "FAIL crosvm in its namespace: $got"; failed=1; }
 		has_line=$(grep -c "chv-gpu: $tmp/dri in crosvm's namespace: null (device 1:3)" "$tmp/crosvm.log")

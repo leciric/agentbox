@@ -3,6 +3,7 @@ package chv
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -28,16 +29,17 @@ type child struct {
 // startChild starts a program whose output goes to log, a line at a time,
 // each prefixed with its name. It dies with the supervisor (childAttr).
 func startChild(name, path string, args []string, log io.Writer) (*child, error) {
-	return startChildEnv(name, path, args, nil, log)
+	return startChildEnv(name, path, args, nil, nil, log)
 }
 
-// startChildEnv is startChild with env as its environment (nil: ours).
-func startChildEnv(name, path string, args, env []string, log io.Writer) (*child, error) {
+// startChildEnv is startChild with env as its environment (nil: ours) and
+// attr as its process attributes (nil: childAttr).
+func startChildEnv(name, path string, args, env []string, attr *syscall.SysProcAttr, log io.Writer) (*child, error) {
 	cmd := exec.Command(path, args...)
 	cmd.Env = env
 	w := &prefixWriter{prefix: name + ": ", w: log}
 	cmd.Stdout, cmd.Stderr = w, w
-	cmd.SysProcAttr = childAttr()
+	cmd.SysProcAttr = cmp.Or(attr, childAttr())
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("starting %s: %w", name, err)
 	}

@@ -82,8 +82,9 @@ func TestPlanGPU(t *testing.T) {
 	}
 }
 
-// crosvm's line is try.sh's, as it ran on the user's machine: GL and Vulkan
-// on the chosen node, external blobs, and no display.
+// crosvm's line is try.sh's, as it ran on the user's machine: EGL on the
+// GBM device rather than surfaceless, external blobs, no display, and no
+// Vulkan device selection, which breaks Venus in the render server.
 func TestCrosvmArgsAndEnv(t *testing.T) {
 	l := Layout{Root: "/v", Name: "agentbox"}
 	args := crosvmArgs(l, amdDiscrete.Path)
@@ -94,7 +95,7 @@ func TestCrosvmArgsAndEnv(t *testing.T) {
 	if err := json.Unmarshal([]byte(args[6]), &params); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]any{"context-types": "virgl:virgl2:venus", "egl": true, "vulkan": true, "implicit-render-server": true, "external-blob": true, "render-node": amdDiscrete.Path}
+	want := map[string]any{"context-types": "virgl:virgl2:venus", "egl": true, "surfaceless": false, "vulkan": true, "implicit-render-server": true, "external-blob": true, "render-node": amdDiscrete.Path}
 	if len(params) != len(want) {
 		t.Errorf("params: %v", params)
 	}
@@ -104,19 +105,8 @@ func TestCrosvmArgsAndEnv(t *testing.T) {
 		}
 	}
 
-	env := gpuEnv(l, amdDiscrete, []string{"HOME=/h", "DISPLAY=:0", "WAYLAND_DISPLAY=wayland-1", "MESA_VK_DEVICE_SELECT=8086:a780"})
-	for _, kv := range []string{"HOME=/h", "RENDER_SERVER_EXEC_PATH=/v/bin/gpu/libexec/virgl_render_server", "MESA_VK_DEVICE_SELECT=1002:73df", "MESA_VK_DEVICE_SELECT_FORCE_DEFAULT_DEVICE=1"} {
-		if !slices.Contains(env, kv) {
-			t.Errorf("env has no %s: %q", kv, env)
-		}
-	}
-	for _, kv := range env {
-		if strings.HasPrefix(kv, "DISPLAY=") || strings.HasPrefix(kv, "WAYLAND_DISPLAY=") || kv == "MESA_VK_DEVICE_SELECT=8086:a780" {
-			t.Errorf("env keeps %s", kv)
-		}
-	}
-	// Without PCI ids, Vulkan isn't pinned to a device it can't name.
-	if env := gpuEnv(l, renderNode{Path: "/dev/dri/renderD128"}, nil); slices.ContainsFunc(env, func(kv string) bool { return strings.HasPrefix(kv, "MESA_VK") }) {
+	env := gpuEnv(l, []string{"HOME=/h", "DISPLAY=:0", "WAYLAND_DISPLAY=wayland-1", "MESA_VK_DEVICE_SELECT=8086:a780", "DRI_PRIME=1"})
+	if !slices.Equal(env, []string{"HOME=/h", "RENDER_SERVER_EXEC_PATH=/v/bin/gpu/libexec/virgl_render_server"}) {
 		t.Errorf("env: %q", env)
 	}
 }
