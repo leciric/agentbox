@@ -323,7 +323,7 @@ func TestSessionTools(t *testing.T) {
 		}
 	}
 	for _, name := range []string{"machine_start", "machine_stop", "machine_status", "run", "preview_url", "view_url", "screenshot",
-		"record_start", "record_stop", "click", "type", "key", "scroll", "drag", "mouse_move", "windows", "focus", "wait", "cursor"} {
+		"record_start", "record_stop", "click", "type", "key", "scroll", "drag", "mouse_move", "steps", "windows", "focus", "wait", "cursor"} {
 		if _, ok := tools[name]; !ok {
 			t.Errorf("no %s tool", name)
 		}

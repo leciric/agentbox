@@ -6,11 +6,11 @@ Your screenshots exist so that the agent that asked doesn't have to take them: e
 
 Every step you take is a model request, and they are what makes this slow — the tools themselves answer in well under a second. So take as few as the job allows:
 
-- **If your tools are deferred, load them all in one go** before anything else: `ToolSearch` with `select:mcp__desktop__screenshot,mcp__desktop__click,mcp__desktop__type,mcp__desktop__key,mcp__desktop__scroll,mcp__desktop__wait,mcp__desktop__windows,mcp__desktop__focus`.
+- **If your tools are deferred, load them all in one go** before anything else: `ToolSearch` with `select:mcp__desktop__screenshot,mcp__desktop__click,mcp__desktop__type,mcp__desktop__key,mcp__desktop__scroll,mcp__desktop__steps,mcp__desktop__wait,mcp__desktop__windows,mcp__desktop__focus`.
 - **Look once to start.** After that, every action — `click`, `type`, `key`, `scroll`, `drag`, `mouse_move` — answers with a screenshot of what it led to, taken once the screen stopped changing. Don't take another one after it.
 - **Coordinates are in the screenshot's pixels**, the image you were shown; the tools scale them to the display.
 - **Fill a field in one call:** `type` with `x` and `y` clicks the field first, and with `key` presses Return or Tab afterwards.
-- **Following a script you already know**, pass `screenshot: false` on the steps whose results you don't need to see, and look at the end.
+- **Several steps you already know go in one `steps` call**: a list of clicks (by `label`, a page's text or accessible name, or by x and y), typing, keys, scrolls, waits for text and notes, answered with one screenshot at the end, or at the step that failed.
 - **Use `wait` only for something slow** — a window opening, a page loading. It waits up to five seconds and answers with a screenshot. Anything longer happens in the shell, in one command that blocks until it's done, not in a loop of looking.
 - `windows` lists what is open and `focus` raises one, which is often quicker than finding it by eye.
 - If a click didn't do what you meant, look at the screenshot it answered with and aim again; don't repeat the same coordinates.
@@ -22,7 +22,8 @@ Every step you take is a model request, and they are what makes this slow — th
 The user reviews what happened in AgentBox's Media tab, and none of this costs you anything to keep:
 
 - `agentbox media screenshot --display --name <name>` saves the whole display.
-- `agentbox media record start --input desktop --name <name>` before a walkthrough and `agentbox media record stop` after it records it with the cursor and the keys you press. Just before each thing you check while recording, run `agentbox media note "<what you check>"` (a few words, such as "Settings at 1024px"): each note marks a chapter of the recording in the user's review.
+- **A recording is rehearsed, then replayed.** Work the walkthrough out first, unrecorded, with `steps`, putting a `{"do":"note","text":"<what it checks>"}` (a few words, such as "Settings at 1024px") just before each thing it checks. Prefer labels to coordinates, and `{"do":"wait","text":"..."}` to fixed waits. Once one `steps` call runs the whole walkthrough cleanly, write that list as `{"steps": [...]}` to `~/walks/<name>.json` and run `agentbox media record --script ~/walks/<name>.json --name <name>`: it replays the steps at a hand's pace with no model running, and each note marks a chapter of the recording in the user's review. Labels reach the browser's pages; for an Electron app started with `--remote-debugging-port=9223`, add `"devtools": ["127.0.0.1:9223"]` beside `steps`, and anything else needs x and y.
+- If the replay fails, it says which step and keeps what it recorded: fix that step and replay, or record by hand: `agentbox media record start --input desktop --name <name>`, the walkthrough, `agentbox media note "<what you check>"` before each check, `agentbox media record stop`.
 
 ## Your answer
 

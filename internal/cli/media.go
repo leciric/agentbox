@@ -54,6 +54,7 @@ It appears in the app's Media tab. Inside an agent, leave out the agent: the com
 	}
 	record := &cobra.Command{Use: "record", Short: "Record the agent's display as a video"}
 	record.AddCommand(newRecordStartCmd(a), newRecordStopCmd(a), newRecordStatusCmd(a))
+	addRecordScript(a, record)
 	cmd.AddCommand(
 		newMediaListCmd(a),
 		newMediaScreenshotCmd(a),
@@ -480,7 +481,7 @@ func newMediaRmCmd(a *app) *cobra.Command {
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 1 {
-				c, err := a.client(cmd)
+				c, err := a.scopedClient(cmd, "")
 				if err != nil {
 					return err
 				}

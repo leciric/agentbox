@@ -3,6 +3,7 @@ package desktop
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -180,6 +181,66 @@ func Tools(ctx context.Context) []mcp.Tool {
 				}
 				return "Pressed " + strings.TrimSpace(in.Combo) + ".", nil
 			}),
+		},
+		{
+			// A walkthrough is rehearsed in one call rather than one a step,
+			// and the steps that worked are the script a recording replays
+			// with no model in the loop (`agentbox media record --script`).
+			Name: "steps",
+			Description: "Do a list of steps in one call — click, move, type, key, scroll, wait, note — and answer with one " +
+				"screenshot at the end, or at the first step that failed, naming it. Each step is an object with \"do\" and its " +
+				"arguments: {\"do\":\"click\",\"x\":120,\"y\":80} or {\"do\":\"click\",\"label\":\"Save\"} (a page's button, link or " +
+				"field by its text or accessible name), {\"do\":\"type\",\"text\":\"hi\",\"label\":\"Search\",\"key\":\"Return\"}, " +
+				"{\"do\":\"key\",\"combo\":\"ctrl+l\"}, {\"do\":\"scroll\",\"x\":500,\"y\":400,\"direction\":\"down\",\"amount\":3}, " +
+				"{\"do\":\"wait\",\"text\":\"Saved\"} (until a page shows it, 10 s by default, \"timeout\" up to 30) or " +
+				"{\"do\":\"wait\",\"seconds\":1}, {\"do\":\"note\",\"text\":\"what this checks\"} (a chapter when replayed into a " +
+				"recording; skipped here). Coordinates are the screenshot's pixels. Labels and waits for text reach the browser's " +
+				"pages, and an Electron app's when it runs with --remote-debugging-port and devtools names it. The same steps, " +
+				"saved as {\"steps\":[...]} in a file, replay as a recording: agentbox media record --script <file> --name <name>.",
+			Schema: object([]string{"steps"}, map[string]any{
+				"steps": map[string]any{"type": "array", "description": "the steps, in order", "items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"do":        choice("what the step does", "click", "move", "type", "key", "scroll", "wait", "note"),
+						"x":         integer("in the screenshot's pixels"),
+						"y":         integer("in the screenshot's pixels"),
+						"label":     str("instead of x and y: an element's text or accessible name, on a page"),
+						"button":    choice("click: which button; left by default", "left", "right", "middle"),
+						"double":    boolean("click: double-click"),
+						"text":      str("type: what to type; wait: text to wait for; note: the chapter's title"),
+						"key":       str("type: a key to press afterwards, like Return"),
+						"combo":     str("key: the key or combination, like ctrl+l"),
+						"direction": choice("scroll: which way", "up", "down", "left", "right"),
+						"amount":    integer("scroll: notches, 3 by default"),
+						"seconds":   number("wait: how long to sleep, without text"),
+						"timeout":   number("wait: how long text may take to appear, in seconds; 10 by default"),
+					},
+					"required": []string{"do"},
+				}},
+				"devtools": map[string]any{"type": "array", "items": str("host:port"),
+					"description": "optional: more DevTools endpoints to find labels in, like 127.0.0.1:9223 for an Electron app"},
+			}),
+			RunContent: func(raw json.RawMessage) ([]mcp.Content, error) {
+				s, err := ParseScript(raw)
+				if err != nil {
+					return nil, err
+				}
+				start := time.Now()
+				done, err := s.Run(ctx, RunOptions{})
+				said := fmt.Sprintf("Did all %d steps in %.1fs.", done, time.Since(start).Seconds())
+				if err != nil {
+					var se *StepError
+					if !errors.As(err, &se) {
+						return nil, err
+					}
+					said = fmt.Sprintf("Did %d of %d steps; %v. The screenshot is of the screen then.", done, len(s.Steps), err)
+				}
+				jpg, sc, serr := SettledScreenshot(ctx)
+				if serr != nil {
+					return []mcp.Content{mcp.Text(said + " The screenshot afterwards failed: " + serr.Error())}, nil
+				}
+				return shotContent(jpg, sc, said+" "), nil
+			},
 		},
 		{
 			Name:        "windows",
