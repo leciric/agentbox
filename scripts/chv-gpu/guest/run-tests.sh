@@ -5,6 +5,9 @@
 # between CHVGPU-BEGIN and CHVGPU-END. Then it powers the guest off.
 set -u
 out=/var/log/chv-gpu-results.txt
+VK_DEVICE=''
+# shellcheck disable=SC1091 # written by try.sh's cloud-init
+. /etc/chv-gpu.conf 2>/dev/null
 : > "$out"
 
 # run NAME SECONDS COMMAND...: one framed section of the results.
@@ -28,6 +31,7 @@ guest_info() {
 	echo "kernel: $(uname -r)"
 	echo "mesa: $(dpkg-query -W -f '${Version}' libgl1-mesa-dri 2>/dev/null)"
 	echo "cpus: $(nproc)"
+	echo "vulkan device asked for: ${VK_DEVICE:-none}"
 	echo "devices:"
 	lspci -nn | grep -iE 'vga|display|3d' | sed 's/^/  /'
 	ls /dev/dri | sed 's/^/  \/dev\/dri\//'
@@ -57,6 +61,10 @@ icd=/usr/share/vulkan/icd.d
 # Venus that doesn't work fails rather than quietly falling back to lavapipe.
 (
 	export VK_DRIVER_FILES=$icd/virtio_icd.json VK_ICD_FILENAMES=$icd/virtio_icd.json
+	# Venus offers every host GPU: the one try.sh chose goes first, which is
+	# the one vkmark and vulkaninfo's first device are (Mesa's device-select
+	# layer, here in the guest; it only reorders).
+	[ -n "$VK_DEVICE" ] && export MESA_VK_DEVICE_SELECT=$VK_DEVICE
 	run glxinfo-gpu 60 glxinfo -B
 	run eglinfo-gpu 60 eglinfo -B -p surfaceless
 	run vulkaninfo-gpu 60 vulkaninfo --summary

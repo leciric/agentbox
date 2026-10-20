@@ -170,10 +170,23 @@ llvmpipe or fail, as they should with no 3D.
   driver exports them (RADV and ANV do). A blob that can't be exported fails to map in the guest
   and the summary counts it; without `external-blob`, the first such blob (resource 23 on an RX
   6750 XT) made Cloud Hypervisor drop the device and crosvm panic.
-- **Which GPU**: virglrenderer would open the first render node itself; our crosvm patch's
-  `render-node` names it, and `MESA_VK_DEVICE_SELECT` keeps Venus on the same GPU. AgentBox picks
-  a discrete GPU before one on the CPU (`pickRenderNode`); `AGENTBOX_VM_RENDER_NODE=renderD129`
-  in the environment `agentbox vm start` runs in picks another.
+- **Which GPU**: `--render-node` (default `renderD128`; `--check` lists them) picks the host GPU,
+  and AgentBox picks a discrete GPU before one on the CPU (`pickRenderNode`;
+  `AGENTBOX_VM_RENDER_NODE=renderD129` in the environment `agentbox vm start` runs in picks another).
+  - **Both:** crosvm, and the Venus render server it starts, run in a user and mount namespace
+    whose `/dev/dri` holds only that node (try.sh: `lib/gpu-ns.sh` with `unshare`, else `bwrap`;
+    AgentBox's supervisor: `agentbox vm gpu-device`, when the host has more than one render node).
+    virglrenderer takes the first render node it finds and can't be told another: rutabaga
+    0.1.75's `get_drm_fd`, which our crosvm patch's `render-node` feeds, rejects every render node
+    (`Path::starts_with("/dev/dri/renderD")` compares whole components), so the patch does nothing
+    until that's fixed. Without user namespaces, try.sh's GL takes whichever node comes first, and
+    the summary flags it; AgentBox's VM then gets no GPU, and says why.
+  - **Not** Mesa's device-select layer on the host: in the render server it breaks Venus (vkr
+    fails `vkEnumeratePhysicalDeviceGroups` with `ERROR_INITIALIZATION_FAILED`). Nor `DRI_PRIME`:
+    virglrenderer's node choice ignores it, and that same layer reads it. The guest still puts the
+    chosen GPU first with the layer, in the guest, where it's harmless.
+  - **The summary** says where each ran: GL from the render node crosvm had open (by device number), Vulkan from the
+    vendor:device vkmark used. It flags either one not on the chosen node.
 - **No display**: crosvm runs with its stub display, so the guest has a scanout (its X server
   works) but nothing is shown on the host. AgentBox's agents draw on their own virtual displays,
   so it's what we'd want, but crosvm's Wayland/X display paths aren't exercised.

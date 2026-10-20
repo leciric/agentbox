@@ -51,9 +51,14 @@ the GPU and checks they say the same.
 
 - `0001-gpu-render-node-parameter.patch`: ours, not upstream (crosvm's main has no equivalent). A
   `render-node` key in `device gpu --params`, added as a GPU path for rutabaga, which hands its fd
-  to virglrenderer (`get_drm_fd`). Without it virglrenderer renders GL on the first
-  `/dev/dri/renderD*` that `readdir` returns, which on a machine with an integrated and a
-  discrete GPU was the integrated one while Venus used the discrete one.
+  to virglrenderer (`get_drm_fd`). **Inert for now**: rutabaga 0.1.75's `get_drm_fd` drops every
+  render node (`is_valid_gpu_path` checks `Path::starts_with("/dev/dri/renderD")`, which compares
+  whole components and so is false for `/dev/dri/renderD128`), and virglrenderer renders GL on
+  the first `/dev/dri/renderD*` that `readdir` returns: on a machine with an integrated and a
+  discrete GPU, the integrated one. So crosvm runs in a mount namespace whose `/dev/dri` holds
+  only the chosen node (try.sh's `lib/gpu-ns.sh`, AgentBox's `agentbox vm gpu-device`), which
+  keeps GL and Venus on it; and with `"surfaceless": false`, since a surfaceless EGL display is
+  Mesa's default device whatever the fd.
 
 ## Moving to a newer Cloud Hypervisor
 

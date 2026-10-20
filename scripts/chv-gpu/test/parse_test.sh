@@ -2,7 +2,7 @@
 # Tests lib/parse.sh and try.sh's summary against tool output in fixtures/.
 #
 #   scripts/chv-gpu/test/parse_test.sh
-# shellcheck disable=SC2034 # try.sh's globals, set here for its summary
+# shellcheck disable=SC2034,SC2154 # try.sh's globals, set here or by its functions
 set -uo pipefail
 
 tdir=$(cd "$(dirname "$0")" && pwd)
@@ -115,6 +115,37 @@ same_gpu "amd radeon rx 6750 xt/navi22" "amd radeon rx 6750 xt/navi22" && eq "sa
 same_gpu "amd radeon graphics/raphael" "amd radeon rx 6750 xt/navi22" && eq "different gpus" same different || eq "different gpus" different different
 same_gpu "intel(r) uhd graphics 630/" "intel(r) uhd graphics 630/" && eq "same gpu, no codename" yes yes || eq "same gpu, no codename" no yes
 same_gpu "amd radeon graphics/raphael" "amd radeon graphics/phoenix" && eq "same name, other chip" same different || eq "same name, other chip" different different
+eq "vulkan ids: vkmark" "$(vulkan_ids "$fx/vkmark-venus.txt")" "1002:73ff"
+eq "vulkan ids: vulkaninfo's first GPU" "$(vulkan_ids "$fx/vulkaninfo-venus.txt")" "1002:73ff"
+eq "vulkan ids: a CPU listed first is skipped" "$(vulkan_ids "$tmp/cpu-first")" "1002:73ff"
+eq "vulkan ids: only lavapipe" "$(vulkan_ids "$fx/vulkaninfo-sw.txt")" ""
+eq "vulkan ids: failed" "$(vulkan_ids "$fx/vulkaninfo-fail.txt")" ""
+eq "pci ids padded" "$(pci_ids 0x8086 0x9bc)" "8086:09bc"
+eq "node of ids" "$(node_of 1002:13c0 $'/dev/dri/renderD128|1002:73df\n/dev/dri/renderD129|1002:13c0')" "/dev/dri/renderD129"
+eq "node of unknown ids" "$(node_of 10de:2684 $'/dev/dri/renderD128|1002:73df')" ""
+mkdir -p "$tmp/proc/42/fd"
+ln -s /dev/dri/renderD129 "$tmp/proc/42/fd/7"; ln -s /dev/dri/renderD129 "$tmp/proc/42/fd/9"
+ln -s /dev/null "$tmp/proc/42/fd/0"; ln -s 'socket:[1234]' "$tmp/proc/42/fd/3"
+eq "open render nodes" "$(open_render_nodes 42 "$tmp/proc")" "/dev/dri/renderD129"
+eq "open render nodes: none" "$(open_render_nodes 43 "$tmp/proc")" ""
+
+# crosvm's line: GL on the render node, and nothing that breaks Venus.
+render_node=/dev/dri/renderD128 bin=/opt/x work=/w
+crosvm_command
+cl="${crosvm[*]}"
+has "crosvm: surfaceless off (EGL from the GBM device)" "$cl" '"surfaceless":false'
+has "crosvm: render-node" "$cl" '"render-node":"/dev/dri/renderD128"'
+has "crosvm: external-blob" "$cl" '"external-blob":true'
+hasnt "crosvm: no device-select layer for virgl_render_server (breaks Venus)" "$cl" "MESA_VK_DEVICE_SELECT"
+CHVGPU_ISOLATE=unshare crosvm_command
+cl="${crosvm[*]}"
+has "crosvm: kept to its node (unshare)" "$cl" "unshare --user --map-root-user --mount $here/lib/gpu-ns.sh /dev/dri/renderD128 /dev/dri"
+eq "crosvm: isolation recorded" "$isolation" "unshare"
+CHVGPU_ISOLATE=bwrap crosvm_command
+has "crosvm: kept to its node (bwrap)" "${crosvm[*]}" "bwrap --dev-bind / / --tmpfs /dev/dri --dev-bind /dev/dri/renderD128 /dev/dri/renderD128 --"
+CHVGPU_ISOLATE=none crosvm_command
+eq "crosvm: no isolation, crosvm itself" "${crosvm[0]} ${crosvm[6]}" "env /opt/x/bin/crosvm"
+render_node=/dev/dri/renderD128 bin='' work='' isolation=''
 eq "ratio" "$(ratio 8015 4381)" "1.8"
 eq "ratio, nothing to divide" "$(ratio "" 4381)" "?"
 eq "ratio by zero" "$(ratio 5 0)" "?"
@@ -201,6 +232,30 @@ problems=()
 out=$(summary "$tmp/split")
 has "split: says so" "$out" "  - GL and Vulkan ran on different host GPUs: GL on amd radeon graphics/raphael, Vulkan on amd radeon rx 6600/navi23"
 
+# Where GL and Vulkan ran, on the user's machine's two nodes.
+two=$'/dev/dri/renderD128|1002:73ff\n/dev/dri/renderD129|1002:13c0'
+serial guest:guest-info.txt:0 glxinfo-gpu:glxinfo-virgl-igpu.txt:0 vulkaninfo-gpu:vulkaninfo-venus.txt:0 \
+	vkmark-gpu:vkmark-venus.txt:0 > "$tmp/where"
+problems=() host_nodes=$two gl_nodes=/dev/dri/renderD129
+out=$(summary "$tmp/where")
+has "where: GL's node" "$out" "GL ran on:       /dev/dri/renderD129 (1002:13c0)"
+has "where: Vulkan's" "$out" "Vulkan ran on:   1002:73ff (/dev/dri/renderD128)"
+has "where: GL on the wrong node" "$out" "  - GL ran on /dev/dri/renderD129, not /dev/dri/renderD128"
+hasnt "where: Vulkan where asked" "$out" "  - Vulkan ran on"
+hasnt "where: names not compared when the node is known" "$out" "different host GPUs"
+problems=() gl_nodes=/dev/dri/renderD128 render_node=/dev/dri/renderD129
+out=$(summary "$tmp/where")
+has "where: Vulkan elsewhere" "$out" "  - Vulkan ran on 1002:73ff (/dev/dri/renderD128), not /dev/dri/renderD129's 1002:13c0"
+problems=() gl_nodes=/dev/dri/renderD128 render_node=/dev/dri/renderD128
+serial guest:guest-info.txt:0 glxinfo-gpu:glxinfo-virgl.txt:0 vulkaninfo-gpu:vulkaninfo-venus.txt:0 \
+	vkmark-gpu:vkmark-venus.txt:0 > "$tmp/right"
+out=$(summary "$tmp/right")
+has "where: both right" "$out" "GL ran on:       /dev/dri/renderD128 (1002:73ff)"
+hasnt "where: no node problems" "$out" "ran on /dev"
+problems=() host_nodes='' gl_nodes=''
+out=$(summary "$tmp/right")
+has "where: unknown GL node" "$out" "GL ran on:       unknown (crosvm had no render node open)"
+
 # Venus failing, glmark2 on the GPU falling back to llvmpipe.
 serial guest:guest-info.txt:0 glxinfo-gpu:glxinfo-sw.txt:0 eglinfo-gpu:eglinfo-sw.txt:0 \
 	vulkaninfo-gpu:vulkaninfo-fail.txt:1 glmark2-gpu:glmark2-sw.txt:0 vkmark-gpu:vulkaninfo-fail.txt:1 \
@@ -255,12 +310,13 @@ if command -v python3 >/dev/null && python3 -c 'import yaml' 2>/dev/null; then
 	got=$(python3 -I -c '
 import base64, sys, yaml
 d = yaml.safe_load(open(sys.argv[1]))
-f = d["write_files"][0]
+f = [w for w in d["write_files"] if w["path"].endswith("run-tests")][0]
 print(" ".join(d["packages"]))
 print(base64.b64decode(f["content"]).decode() == open(sys.argv[2]).read(), d["runcmd"][0][0] == f["path"])
 ' "$tmp/user-data" "$tdir/../guest/run-tests.sh")
 	has "user-data: packages" "$got" "mesa-vulkan-drivers"
 	has "user-data: script round-trips and runs" "$got" "True True"
+	has "user-data: the GPU for Venus" "$(cat "$tmp/user-data")" "VK_DEVICE="
 else
 	echo "skip user-data YAML (no python3 yaml)"
 fi

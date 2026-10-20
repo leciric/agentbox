@@ -139,7 +139,8 @@ crosvm_bound() { # SOCKET COMMAND...: "bound", or crosvm's last line
 if ldd "$bin/bin/crosvm" | grep -q 'not found'; then
 	echo "skip crosvm (this machine lacks its libraries: $(ldd "$bin/bin/crosvm" | awk '/not found/ {print $1}' | tr '\n' ' '))"
 else
-	render_node=/dev/dri/renderD128
+	# The params alone first: no namespace, the node needn't exist.
+	render_node=/dev/dri/renderD128 CHVGPU_ISOLATE=none
 	crosvm_command
 	echo "try.sh runs: ${crosvm[*]//"$tmp"\//}"
 	got=$(crosvm_bound "$work/gpu.sock" "${crosvm[@]}")
@@ -156,6 +157,28 @@ else
 	got=$(crosvm_bound "$work/gpu.sock" "${bad[@]}")
 	[ "$got" != bound ] && echo "ok   crosvm refuses an unknown key ($got)" ||
 		{ echo "FAIL crosvm took an unknown --params key"; failed=1; }
+
+	# The same crosvm kept to one render node (lib/gpu-ns.sh): /dev/null
+	# stands in for the node and a directory of ours for /dev/dri, which this
+	# machine may not have.
+	if unshare --user --map-root-user --mount true 2>/dev/null; then
+		mkdir -p "$tmp/dri"
+		render_node=/dev/null CHVGPU_DRI_DIR=$tmp/dri CHVGPU_ISOLATE=unshare
+		crosvm_command
+		got=$(crosvm_bound "${crosvm[@]}")
+		[ "$got" = bound ] && echo "ok   crosvm runs in its own /dev/dri" ||
+			{ echo "FAIL crosvm in its namespace: $got"; failed=1; }
+		has_line=$(grep -c "chv-gpu: $tmp/dri in crosvm's namespace: null (device 1:3)" "$tmp/crosvm.log")
+		[ "$has_line" = 1 ] && echo "ok   it says which node it sees" ||
+			{ echo "FAIL no namespace line in crosvm.log:"; sed 's/^/     /' "$tmp/crosvm.log" | head -5; failed=1; }
+		[ -z "$(ls -A "$tmp/dri")" ] && echo "ok   the host's directory is untouched" ||
+			{ echo "FAIL the namespace leaked into the host: $(ls "$tmp/dri")"; failed=1; }
+		[ "$(find "${TMPDIR:-/tmp}" -maxdepth 1 -newer "$tmp/dri" -type d -empty -name 'tmp.*' | wc -l)" = 0 ] &&
+			echo "ok   no directory left behind" || echo "note: an empty tmp.* directory appeared (another process?)"
+		unset CHVGPU_DRI_DIR CHVGPU_ISOLATE
+	else
+		echo "skip crosvm in a namespace (no unprivileged user namespaces here)"
+	fi
 fi
 
 if [ $failed -ne 0 ]; then

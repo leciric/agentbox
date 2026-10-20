@@ -170,6 +170,37 @@ same_gpu() {
 	[ -z "${1#*/}" ] || [ -z "${2#*/}" ] || [ "${1#*/}" = "${2#*/}" ]
 }
 
+# pci_ids VENDOR DEVICE: "vvvv:dddd", lower case, from hex with or without 0x.
+pci_ids() {
+	printf '%04x:%04x\n' "0x${1#0x}" "0x${2#0x}" 2>/dev/null
+}
+
+# vulkan_ids FILE: "vendor:device" of the GPU a Vulkan run used: vkmark's
+# "Vendor ID"/"Device ID", else the first non-CPU device of vulkaninfo
+# --summary. Nothing when neither says.
+vulkan_ids() {
+	local in v d
+	in=$(cat -- "$1")
+	v=$(kv - "Vendor ID" <<<"$in")
+	d=$(kv - "Device ID" <<<"$in")
+	if [ -z "$v" ] || [ -z "$d" ]; then
+		read -r v d < <(awk '
+			/^GPU[0-9]+:/ { if (v != "" && t != "PHYSICAL_DEVICE_TYPE_CPU") { print v, d; done = 1; exit } v = d = t = "" }
+			/^[ \t]+vendorID[ \t]*=/ { v = $NF }
+			/^[ \t]+deviceID[ \t]*=/ { d = $NF }
+			/^[ \t]+deviceType[ \t]*=/ { t = $NF }
+			END { if (!done && v != "" && t != "PHYSICAL_DEVICE_TYPE_CPU") print v, d }' <<<"$in")
+	fi
+	[ -n "$v" ] && [ -n "$d" ] && pci_ids "$v" "$d"
+	return 0
+}
+
+# node_of IDS NODES: the render node (from NODES, "node|ids" lines) whose GPU
+# is IDS, or nothing.
+node_of() {
+	awk -F'|' -v ids="$1" '$2 == ids { print $1; exit }' <<<"$2"
+}
+
 # ratio A B: A/B to one decimal, or "?" when either is missing or B is 0.
 ratio() {
 	awk -v a="$1" -v b="$2" 'BEGIN {

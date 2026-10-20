@@ -39,6 +39,9 @@ tarball=
 dir=
 work=
 pids=()
+gl_nodes=''
+isolation=''
+host_nodes=''
 declare -A pid
 problems=()
 
@@ -131,15 +134,14 @@ check_prereqs() {
 	local n
 	for n in /dev/dri/renderD*; do
 		[ -e "$n" ] || continue
-		[ "$(readlink -f "$n")" = "$(readlink -f "$render_node")" ] && continue
+		[ "$(readlink -f "$n")" = "$(readlink -m "$render_node")" ] && continue
 		info=$(render_node_info "$n")
 		echo "  also: $n (driver ${info%%|*}, PCI ${info#*|}); --render-node $n to use it"
 	done
-	if device_select_layer; then
-		echo "  Vulkan device-select layer: yes (Venus keeps to the render node's GPU)"
-	else
-		echo "  Vulkan device-select layer: no (Venus offers every GPU; on Arch it's vulkan-mesa-layers)"
-	fi
+	case "$(gpu_isolation)" in
+	none) echo "  GPU isolation: none (no unprivileged user namespaces or bwrap here): GL takes the first render node, whatever --render-node says" ;;
+	*) echo "  GPU isolation: $(gpu_isolation) (crosvm sees only $render_node)" ;;
+	esac
 	echo "  host Mesa: $(host_mesa)"
 	echo "  host virglrenderer: $(host_virglrenderer) (try.sh uses the tarball's own $VIRGLRENDERER_VERSION)"
 	echo "  host Vulkan: $(host_vulkan)"
@@ -216,6 +218,25 @@ passt_bin() {
 guest_packages=(mesa-utils mesa-utils-bin vulkan-tools mesa-vulkan-drivers
 	libgl1-mesa-dri libegl-mesa0 glmark2-x11 vkmark xserver-xorg-core pciutils)
 
+# render_ids NODE: a render node's "vendor:device", as Mesa's device-select
+# layer takes it, or nothing.
+render_ids() {
+	local ids
+	ids=$(render_node_info "$1")
+	ids=${ids#*|}
+	[ "$ids" = "?" ] || echo "$ids"
+}
+
+# node_ids NODE: render_ids, from host_nodes when it has the node (tests set
+# it), else from sysfs.
+node_ids() {
+	local n ids
+	n=$(readlink -m "$1")
+	ids=$(awk -F'|' -v n="$n" '$1 == n { print $2; exit }' <<<"${host_nodes:-}")
+	[ -n "$ids" ] && { echo "$ids"; return; }
+	render_ids "$1"
+}
+
 user_data() {
 	cat <<EOF
 #cloud-config
@@ -223,6 +244,10 @@ user_data() {
 package_update: true
 packages: [$(IFS=,; echo "${guest_packages[*]}" | sed 's/,/, /g')]
 write_files:
+  - path: /etc/chv-gpu.conf
+    content: |
+      # The host GPU try.sh chose (--render-node), for Venus in the guest.
+      VK_DEVICE=$(render_ids "$render_node")
   - path: /usr/local/sbin/chv-gpu-run-tests
     permissions: '0755'
     encoding: b64
@@ -330,41 +355,91 @@ cleanup() {
 	exit "$rc"
 }
 
-# crosvm_command: crosvm's GPU device command line, into the array crosvm.
+# gpu_isolation: how crosvm is kept to the chosen GPU: "unshare" (a user and
+# mount namespace, lib/gpu-ns.sh), "bwrap" (bubblewrap, setuid or with user
+# namespaces), or "none" when neither works here. CHVGPU_ISOLATE overrides.
+gpu_isolation() {
+	if [ -n "${CHVGPU_ISOLATE:-}" ]; then
+		echo "$CHVGPU_ISOLATE"
+	elif unshare --user --map-root-user --mount true 2>/dev/null; then
+		echo unshare
+	elif command -v bwrap >/dev/null && bwrap --dev-bind / / true 2>/dev/null; then
+		echo bwrap
+	else
+		echo none
+	fi
+}
+
+# crosvm_command: crosvm's GPU device command line, into the array crosvm,
+# and how it's kept to the render node, into isolation.
 crosvm_command() {
-	local node ids params
-	node=$(readlink -f "$render_node")
-	ids=$(render_node_info "$render_node")
-	ids=${ids#*|}
-	# virgl (GL): rendered on the render node (render-node, our crosvm patch:
-	# without it virglrenderer takes whichever renderD* readdir returns first).
-	# Venus (Vulkan) runs in virgl_render_server, which crosvm starts, and
-	# lists every Vulkan device of the host; Mesa's device-select layer, when
-	# the host has it, keeps only the render node's GPU.
+	local params node dri=${CHVGPU_DRI_DIR:-/dev/dri}
+	node=$(readlink -m "$render_node")
+	# Which GPU: crosvm runs where /dev/dri holds only the render node
+	# (gpu_isolation). virglrenderer (GL) takes the first renderD* there is,
+	# and rutabaga's get_drm_fd, which our render-node key feeds, never
+	# accepts a render node (rutabaga 0.1.75 checks
+	# Path::starts_with("/dev/dri/renderD"), whole components), so render-node
+	# does nothing yet; it's kept for when that's fixed. Venus's Vulkan, in
+	# virgl_render_server (crosvm's child, in the same namespace), sees the
+	# same single GPU. Not Mesa's device-select layer nor DRI_PRIME: in
+	# virgl_render_server the layer breaks Venus (vkEnumeratePhysicalDeviceGroups
+	# returns devices vkr never saw, ERROR_INITIALIZATION_FAILED), and
+	# virglrenderer's own node choice ignores DRI_PRIME.
+	# surfaceless off: EGL from the GBM device on that node, not Mesa's
+	# default device.
 	# external-blob: every blob the guest maps must reach Cloud Hypervisor as
 	# an fd (SHMEM_MAP). Without it crosvm falls back, for GL buffers, to
 	# EXTERNAL_MAP (a pointer into its own memory), which Spectrum's patchset
 	# doesn't implement: Cloud Hypervisor drops the device (InvalidMessage)
 	# and crosvm panics. With it, virglrenderer allocates those buffers with
 	# GBM (built with minigbm_allocation) and exports them as dma-bufs.
-	params=$(printf '{"context-types":"virgl:virgl2:venus","egl":true,"vulkan":true,"implicit-render-server":true,"external-blob":true,"render-node":"%s"}' "$node")
+	params=$(printf '{"context-types":"virgl:virgl2:venus","egl":true,"surfaceless":false,"vulkan":true,"implicit-render-server":true,"external-blob":true,"render-node":"%s"}' \
+		"$dri/$(basename "$node")")
 	# Headless: without DISPLAY and WAYLAND_DISPLAY crosvm's display is its
 	# stub, which still gives the guest a scanout for its X server.
-	crosvm=(env -u DISPLAY -u WAYLAND_DISPLAY
-		RENDER_SERVER_EXEC_PATH="$bin/libexec/virgl_render_server")
-	if [ "$ids" != "?" ]; then
-		crosvm+=(MESA_VK_DEVICE_SELECT="$ids" MESA_VK_DEVICE_SELECT_FORCE_DEFAULT_DEVICE=1)
-	fi
-	crosvm+=("$bin/bin/crosvm" --no-syslog device gpu --socket-path "$work/gpu.sock" --params "$params")
+	local base=(env -u DISPLAY -u WAYLAND_DISPLAY
+		RENDER_SERVER_EXEC_PATH="$bin/libexec/virgl_render_server"
+		"$bin/bin/crosvm" --no-syslog device gpu --socket-path "$work/gpu.sock" --params "$params")
+	isolation=$(gpu_isolation)
+	case "$isolation" in
+	unshare)
+		crosvm=(unshare --user --map-root-user --mount
+			"$here/lib/gpu-ns.sh" "$node" "$dri" "$(id -u)" "$(id -g)" "${base[@]}") ;;
+	bwrap)
+		# shellcheck disable=SC2016 # expanded by the sh inside bwrap
+		crosvm=(bwrap --dev-bind / / --tmpfs "$dri" --dev-bind "$node" "$dri/$(basename "$node")" --
+			sh -c 'echo "chv-gpu: $0 in crosvm'"'"'s namespace: $(ls "$0" | tr "\n" " ")" >&2; exec "$@"' "$dri" "${base[@]}") ;;
+	*)
+		crosvm=("${base[@]}") ;;
+	esac
 }
 
-# device_select_layer: whether the host has Mesa's Vulkan device-select layer.
-device_select_layer() {
-	local d
-	for d in /usr/share/vulkan/implicit_layer.d /etc/vulkan/implicit_layer.d /usr/local/share/vulkan/implicit_layer.d; do
-		ls "$d"/*device_select*.json >/dev/null 2>&1 && return 0
+# open_render_nodes PID [PROC]: the render nodes a process has open, one per
+# line, as this host names them: for crosvm, the one GL renders on (Venus's
+# are virgl_render_server's). Matched by device number, since crosvm sees
+# them through its own /dev/dri; a node that doesn't stat is given as named.
+open_render_nodes() {
+	local f t dev n
+	for f in "${2:-/proc}/$1"/fd/*; do
+		t=$(readlink "$f" 2>/dev/null) || continue
+		case "$t" in /dev/dri/renderD*) ;; *) continue ;; esac
+		dev=$(stat -L -c '%t:%T' "$f" 2>/dev/null) || { echo "$t"; continue; }
+		for n in /dev/dri/renderD*; do
+			[ "$(stat -c '%t:%T' "$n" 2>/dev/null)" = "$dev" ] && { echo "$n"; continue 2; }
+		done
+		echo "$t"
+	done | sort -u
+}
+
+# render_nodes: every render node here, "node|vendor:device" per line.
+render_nodes() {
+	local n info
+	for n in /dev/dri/renderD*; do
+		[ -e "$n" ] || continue
+		info=$(render_node_info "$n")
+		echo "$n|${info#*|}"
 	done
-	return 1
 }
 
 # chv_command: Cloud Hypervisor's command line, into the array chv: the
@@ -400,6 +475,11 @@ run_guest() {
 	say "Booting; the guest installs Mesa and the benchmarks, then runs them (a few minutes)"
 	local deadline=$((SECONDS + timeout_min * 60)) shown='' crosvm_gone=''
 	while [ $SECONDS -lt $deadline ]; do
+		# What crosvm has open is what GL renders on; it opens it as the guest
+		# first uses the GPU, so the last look before the end counts.
+		local nodes
+		nodes=$(open_render_nodes "${pid[crosvm]}")
+		[ -n "$nodes" ] && gl_nodes=$nodes
 		if grep -q '^CHVGPU-END' "$work/serial.log" 2>/dev/null; then
 			return 0
 		fi
@@ -491,6 +571,17 @@ summary() {
 	vk_line "Vulkan (software):" "$vk_sw"
 	echo "glmark2:         GPU ${g_gpu:-failed}, software ${g_sw:-failed} (x$(ratio "$g_gpu" "$g_sw"))"
 	echo "vkmark:          GPU ${v_gpu:-failed}, software ${v_sw:-failed} (x$(ratio "$v_gpu" "$v_sw"))"
+	# Where GL and Vulkan ran, as lines of their own (computed below).
+	local where_gl where_vk vk_ids_shown
+	where_gl=$(head -n1 <<<"${gl_nodes:-}")
+	[ -n "$where_gl" ] && where_gl="$where_gl ($(node_ids "$where_gl"))"
+	vk_ids_shown=$(section "$tmp" vkmark-gpu | vulkan_ids -)
+	[ -n "$vk_ids_shown" ] || vk_ids_shown=$(section "$tmp" vulkaninfo-gpu | vulkan_ids -)
+	where_vk=${vk_ids_shown:+$vk_ids_shown}
+	[ -n "$where_vk" ] && where_vk="$where_vk ($(node_of "$vk_ids_shown" "${host_nodes:-}" | grep . || echo "no render node here"))"
+	echo "GPU isolation:   ${isolation:-?}$(grep -m1 -o "in crosvm's namespace: .*" "$work/crosvm.log" 2>/dev/null | sed 's/^/ (/; s/$/)/')"
+	echo "GL ran on:       ${where_gl:-unknown (crosvm had no render node open)}"
+	echo "Vulkan ran on:   ${where_vk:-unknown}"
 
 	# What went wrong, from what the guest printed.
 	local name rc
@@ -502,11 +593,25 @@ summary() {
 		*) problem "$name: exit $rc: $(section "$tmp" "$name" | grep -v '^[[:space:]]*$' | tail -n 1 | cut -c1-160)" ;;
 		esac
 	done
-	local gl_host vk_host
+	# Where each ran, against the render node asked for: GL's node is what
+	# crosvm had open, Vulkan's the GPU (vendor:device) vkmark reported.
+	local want_ids gl_node vk_ids vk_node gl_host vk_host
+	want_ids=$(node_ids "$render_node")
+	gl_node=$(head -n1 <<<"${gl_nodes:-}")
+	vk_ids=$(section "$tmp" vkmark-gpu | vulkan_ids -)
+	[ -n "$vk_ids" ] || vk_ids=$(section "$tmp" vulkaninfo-gpu | vulkan_ids -)
+	vk_node=$(node_of "$vk_ids" "${host_nodes:-}")
+	if [ -n "$gl_node" ] && [ "$gl_node" != "$(readlink -m "$render_node")" ]; then
+		problem "GL ran on $gl_node, not $render_node"
+	fi
+	if [ -n "$vk_ids" ] && [ -n "$want_ids" ] && [ "$vk_ids" != "$want_ids" ]; then
+		problem "Vulkan ran on $vk_ids${vk_node:+ ($vk_node)}, not $render_node's $want_ids"
+	fi
+	# Without crosvm's node (a log read later), the GPUs' names tell.
 	gl_host=$(host_gpu "${gl_gpu%%|*}")
 	IFS='|' read -r _ _ vk_host _ <<<"$vk_gpu"
 	vk_host=$(host_gpu "$vk_host")
-	if [ -n "$gl_host" ] && [ -n "$vk_host" ] && ! same_gpu "$gl_host" "$vk_host"; then
+	if [ -z "$gl_node" ] && [ -n "$gl_host" ] && [ -n "$vk_host" ] && ! same_gpu "$gl_host" "$vk_host"; then
 		problem "GL and Vulkan ran on different host GPUs: GL on ${gl_host%/}, Vulkan on ${vk_host%/}"
 	fi
 	is_software "${gl_gpu%%|*}" && problem "GL with the GPU fell back to software (${gl_gpu%%|*})"
@@ -549,6 +654,7 @@ host_facts() {
 	host_mesa_v=$(host_mesa)
 	host_vulkan_v=$(host_vulkan)
 	host_virgl_v=$(host_virglrenderer)
+	host_nodes=$(render_nodes)
 	binaries=$(head -n1 "$bin/VERSIONS" 2>/dev/null || echo "?")
 	[ -n "$tarball" ] && binaries="$binaries; $(basename "$tarball") $(sha256sum "$tarball" | cut -c1-16)"
 }
