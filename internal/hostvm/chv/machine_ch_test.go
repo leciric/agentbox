@@ -154,3 +154,43 @@ func TestBootWhenCrosvmCantRun(t *testing.T) {
 		t.Errorf("cloud-hypervisor: %q", ch)
 	}
 }
+
+// On a host with two GPUs whose user namespaces can't mount (Ubuntu 24.04),
+// crosvm starts through bubblewrap instead; with neither, the VM starts
+// without the GPU, saying why.
+func TestBootTwoGPUsFallsBackToBwrap(t *testing.T) {
+	b := newFakeBoot(t, true, "never", "exit 0")
+	_ = os.MkdirAll(filepath.Join(sysDRM, "renderD129"), 0o755)
+	self := filepath.Join(b.l.Root, "agentbox")
+	_ = os.WriteFile(self, []byte("#!/bin/sh\necho \"agentbox $*\" >>\""+b.log+"\"\necho 'making the mounts private: permission denied' >&2\nexit 1\n"), 0o755)
+	b.m.self = self
+	old := bwrapPath
+	t.Cleanup(func() { bwrapPath = old })
+	bwrapPath = func() string { return "" }
+	if err := b.m.boot(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if b.m.gpu != nil || !strings.Contains(b.m.gpuPlan.reason, "bubblewrap") {
+		t.Fatalf("without bwrap: gpu %v, reason %q", b.m.gpu, b.m.gpuPlan.reason)
+	}
+	for _, c := range []*child{b.m.cloud, b.m.passt} {
+		c.stop(childGrace)
+	}
+	_ = os.Remove(b.l.APISocket())
+
+	bwrap := filepath.Join(b.l.Root, "bwrap")
+	_ = os.WriteFile(bwrap, []byte("#!/bin/sh\necho \"bwrap $*\" >>\""+b.log+"\"\nwhile [ \"$1\" != -- ]; do shift; done\nshift\nexec \"$@\"\n"), 0o755)
+	bwrapPath = func() string { return bwrap }
+	if err := b.m.boot(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if b.m.gpu == nil {
+		t.Fatalf("no GPU: %q", b.m.gpuPlan.reason)
+	}
+	if got := b.calls("bwrap"); len(got) != 1 || !strings.Contains(got[0], "--tmpfs /dev/dri --dev-bind /dev/dri/renderD128 /dev/dri/renderD128 --") {
+		t.Errorf("bwrap: %q", got)
+	}
+	if ch := b.calls("cloud-hypervisor"); !strings.Contains(ch[len(ch)-1], "--gpu") {
+		t.Errorf("cloud-hypervisor: %q", ch)
+	}
+}
