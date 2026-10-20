@@ -816,6 +816,7 @@ export interface VMGPU {
   kind: string;
   node: string;
   reason: string;
+  setup: string;
 }
 
 export interface ElementPickRequest {

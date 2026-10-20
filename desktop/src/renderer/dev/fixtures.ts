@@ -15,22 +15,30 @@ import { pastRequest } from './pastAgents';
 
 export const PROJECT = 'agentbox';
 
-// The VM's GPU in Settings, by the preview's ?gpu=.
+// fixtureVMGPU is Settings' vmGPU for ?gpu=.
 function fixtureVMGPU(gpu: string | null): T.VMGPU {
+  const krunkit = "the VM's kernel has no GPU driver yet: turning GPU for agents on installs one";
   switch (gpu) {
     case 'none':
-      return { kind: '', node: '', reason: "WSL gives AgentBox's distro no GPU (no /dev/dxg): it needs Windows 10 21H2 or later, a current WSL (wsl --update) and a GPU driver with WSL support" };
+      return { kind: '', node: '', setup: '', reason: "WSL gives AgentBox's distro no GPU (no /dev/dxg): it needs Windows 10 21H2 or later, a current WSL (wsl --update) and a GPU driver with WSL support" };
     case 'vm':
       // What a Linux (Cloud Hypervisor) VM said before it could have the GPU.
-      return { kind: '', node: '', reason: "AgentBox's VM has no GPU to give agents" };
+      return { kind: '', node: '', setup: '', reason: "AgentBox's VM has no GPU to give agents" };
     case 'host':
-      return { kind: 'host', node: '/dev/dri/renderD129', reason: '' };
-    case 'restart':
-      return { kind: 'host', node: '/dev/dri/renderD129', reason: 'the VM gets this GPU when it next starts: restart AgentBox\'s VM for agents to get it (agentbox vm stop, then agentbox vm start; agents stop with it).' };
+      return { kind: 'host', node: '/dev/dri/renderD129', setup: '', reason: '' };
+    case 'hostrestart':
+      return { kind: 'host', node: '/dev/dri/renderD129', setup: '', reason: 'the VM gets this GPU when it next starts: restart AgentBox\'s VM for agents to get it (agentbox vm stop, then agentbox vm start; agents stop with it).' };
     case 'nvidia':
-      return { kind: '', node: '', reason: "NVIDIA's proprietary driver can't share its memory with the VM (no dma-buf export in its Vulkan driver), which the VM's GPU needs: Venus and virgl run on AMD and Intel GPUs, and on NVIDIA's with nouveau" };
+      return { kind: '', node: '', setup: '', reason: "NVIDIA's proprietary driver can't share its memory with the VM (no dma-buf export in its Vulkan driver), which the VM's GPU needs: Venus and virgl run on AMD and Intel GPUs, and on NVIDIA's with nouveau" };
+    case 'krunkit':
+      return { kind: '', node: '', setup: 'available', reason: krunkit };
+    case 'running':
+    case 'restart':
+      return { kind: '', node: '', setup: gpu, reason: krunkit };
+    case 'failed':
+      return { kind: '', node: '', setup: 'failed', reason: "GPU: Debian's generic kernel (6.12.48+deb13-arm64) didn't boot, so the VM went back to its cloud kernel" };
   }
-  return { kind: 'dxg', node: '/dev/dxg', reason: '' };
+  return { kind: 'dxg', node: '/dev/dxg', setup: '', reason: '' };
 }
 
 export const WIDE = {
@@ -1445,9 +1453,10 @@ let defaultsSettings = {
   updateCheck: true,
   usageStats: true,
   agentGPU: false,
-  // WSL's GPU, or ?gpu=none for a VM with none, ?gpu=host for a Linux host's
-  // the VM gets at its next start, ?gpu=restart for one turned on, waiting,
-  // ?gpu=nvidia for one it can't have, ?gpu=vm for a VM with none.
+  // WSL's GPU, or ?gpu=none for a VM with none, or ?gpu=krunkit|running|restart|failed
+  // for a Mac's krunkit VM whose GPU isn't ready; ?gpu=host for a Linux host's GPU the VM
+  // gets at its next start, ?gpu=hostrestart for one turned on, waiting, ?gpu=nvidia for
+  // one it can't have, ?gpu=vm for a Linux VM with none.
   vmGPU: fixtureVMGPU(typeof location !== 'undefined' ? new URLSearchParams(location.search).get('gpu') : null),
   errorReports: true,
   prWatch: true,

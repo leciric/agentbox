@@ -2,12 +2,16 @@ package agent
 
 import (
 	"context"
+	"errors"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
+	"time"
 
 	"agentbox/internal/incus"
-	"agentbox/internal/state"
 )
 
 // On a Mac, AgentBox's VM runs on krunkit, whose GPU speaks Venus: Vulkan
@@ -48,8 +52,8 @@ func venusDriver() (source, path string) {
 }
 
 // vgpuDriverSteps are the changes that give an instance the VM's Venus
-// driver, from devices, its own: added when on ("GPU for agents" is on) and
-// there's a driver to give, replaced when it's mounted from somewhere else,
+// driver, from devices, its own, for gpuSteps: added when on (the agent gets
+// the VM's render node) and there's a driver to give, replaced when it's mounted from somewhere else,
 // and taken off otherwise. Both happen live.
 func vgpuDriverSteps(instance string, devices map[string]map[string]string, on bool) []incusStep {
 	source, path := venusDriver()
@@ -72,19 +76,80 @@ func vgpuDriverSteps(instance string, devices map[string]map[string]string, on b
 	return steps
 }
 
-// ApplyVGPUDriver gives an agent's machine the VM's Venus driver when on is
-// set, or takes it off, as "GPU for agents" changes and as a machine is made,
-// started or restored, beside its agentbox-vgpu device. Nothing when it
-// already is as it should be, or there's no driver and never was.
-func (m *Manager) ApplyVGPUDriver(ctx context.Context, a state.Agent, on bool) error {
-	devices, err := m.Incus.Devices(ctx, a.Instance)
+// VenusScript is venus.sh in the VM, where the Mac's front end puts it in a
+// krunkit VM (hostvm's venusSrc): there only, so it's also how the daemon
+// knows that its VM's GPU speaks Venus and can be readied. A variable for
+// tests.
+var VenusScript = "/usr/local/share/agentbox/venus/venus.sh"
+
+// VenusRestartMarker is what venus.sh leaves when the VM has to restart for
+// the kernel it installed. A variable for tests.
+var VenusRestartMarker = "/run/agentbox-gpu-restart"
+
+// VenusSudo runs venus.sh as root; tests run it as themselves.
+var VenusSudo = []string{"sudo", "-n"}
+
+// VenusVM says whether this is a krunkit VM, whose GPU venus.sh readies.
+func VenusVM() bool {
+	_, err := os.Stat(VenusScript)
+	return err == nil
+}
+
+// VenusRestart says whether the VM has to restart for its GPU: venus.sh
+// installed a kernel with the driver, which it boots next.
+func VenusRestart() bool {
+	_, err := os.Stat(VenusRestartMarker)
+	return err == nil
+}
+
+// ReadyVenus runs venus.sh, which readies the VM's GPU for agents: a kernel
+// with the virtio-gpu driver and the Venus driver the Mac needs. Minutes the
+// first time, milliseconds after. retry lets it try a kernel again that
+// didn't boot (kernel.sh); without it, that is an error, the last thing
+// venus.sh said. Its progress goes to out.
+//
+// ctx ending stops the wait, not venus.sh: killed half-way through apt, it
+// would leave the VM's packages half-installed. It writes to files rather
+// than pipes, which would kill it when they closed, and a venus.sh started
+// meanwhile waits for it (flock).
+func ReadyVenus(ctx context.Context, retry bool, out io.Writer) error {
+	again := "0"
+	if retry {
+		again = "1"
+	}
+	stdout, err := os.CreateTemp("", "agentbox-venus-*.out")
 	if err != nil {
 		return err
 	}
-	for _, step := range vgpuDriverSteps(a.Instance, devices, on) {
-		if err := step(ctx, m.Incus); err != nil {
-			return err
+	defer func() { _ = stdout.Close(); _ = os.Remove(stdout.Name()) }()
+	stderr, err := os.CreateTemp("", "agentbox-venus-*.err")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = stderr.Close(); _ = os.Remove(stderr.Name()) }()
+	args := append(slices.Clone(VenusSudo), "env", "AGENTBOX_VENUS_RETRY="+again, "bash", VenusScript)
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	cmd.Stdout, cmd.Stderr = stdout, stderr
+	cmd.Cancel = func() error { return nil }
+	cmd.WaitDelay = time.Second
+	runErr := cmd.Run()
+	for _, f := range []*os.File{stdout, stderr} {
+		if _, err := f.Seek(0, io.SeekStart); err == nil {
+			_, _ = io.Copy(out, f)
 		}
 	}
+	if runErr != nil {
+		b, _ := os.ReadFile(stderr.Name())
+		if last := lastLine(string(b)); last != "" {
+			return errors.New(last)
+		}
+		return runErr
+	}
 	return nil
+}
+
+// lastLine is s's last line that isn't blank.
+func lastLine(s string) string {
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	return strings.TrimSpace(lines[len(lines)-1])
 }

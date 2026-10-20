@@ -36,8 +36,11 @@
 //                           installed (it gives memory back), or without it
 //   ?gpu=none               Settings' GPU for agents with no GPU in the VM; =host
 //                           a Linux host's the VM gets at its next start,
-//                           =restart turned on and waiting, =nvidia one it
+//                           =hostrestart turned on and waiting, =nvidia one it
 //                           can't have, =vm the no-GPU VM of before
+//   ?gpu=krunkit|running|restart|failed
+//                           a Mac's krunkit VM whose GPU turning it on readies,
+//                           being readied, waiting for a restart, or failed
 //   ?vm=resize              Settings' panel for the VM's CPUs and memory, whose
 //                           resize streams made-up output
 //   ?chat=awaiting          agent-41's chat: its turn ended on a CI watch still
