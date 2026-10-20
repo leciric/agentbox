@@ -98,6 +98,9 @@ Every tool call sends this whole conversation to the model again: at {{.CompactW
 {{- else}}
 - Don't push. The user reviews your branch and pushes from the host.
 {{- end}}
+{{- if not .CreditAITool}}
+- Don't credit yourself or your AI tool: no `Co-authored-by` trailer for it in a commit, no "Generated with …" line in a pull request.
+{{- end}}
 - `.git` is shared with the host and other agents: don't switch or delete branches, or rewrite history outside `{{.Branch}}`.
 - **Delegate merges**: in Claude Code, hand merging the base in, resolving conflicts, regenerating generated files and rerunning tests to a Sonnet subagent, then check its result.
 

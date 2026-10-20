@@ -52,6 +52,7 @@ Every tool call sends this whole conversation to the model again: at your model'
 
 - Commit your work on `agentbox/agent-01`.
 - Don't push. The user reviews your branch and pushes from the host.
+- Don't credit yourself or your AI tool: no `Co-authored-by` trailer for it in a commit, no "Generated with …" line in a pull request.
 - `.git` is shared with the host and other agents: don't switch or delete branches, or rewrite history outside `agentbox/agent-01`.
 - **Delegate merges**: in Claude Code, hand merging the base in, resolving conflicts, regenerating generated files and rerunning tests to a Sonnet subagent, then check its result.
 

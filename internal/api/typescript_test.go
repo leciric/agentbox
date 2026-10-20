@@ -27,7 +27,7 @@ var tsTypes = []any{
 	MemoryUsageAgent{}, ZramUsage{}, MemoryUsage{}, CPUUsageAgent{}, CPUUsage{}, TerminalTail{}, TerminalTails{}, ClaudeAccount{}, GitHubAccount{}, AuthStatus{},
 	Event{}, JobLogLine{}, AgentChange{}, Theme{}, UpdateThemeRequest{}, UpdateStatus{}, UpdateAvailable{}, UpdateRelease{}, ReleaseAsset{}, IncusStatus{}, ProjectChange{}, PullsChange{}, Self{}, Error{}, TerminalResize{},
 	BrowserStatus{}, BrowserPage{}, BrowserOpenRequest{}, ElementPickRequest{}, ElementPickResult{}, ElementPick{}, ElementStyle{}, ElementBox{}, ElementSize{}, PreviewInfo{}, DesktopUse{},
-	MediaItem{}, MediaMeta{}, Notification{}, SeeNotificationsRequest{}, SeeNotificationsResult{}, TestCounts{}, ScreenshotRequest{}, RecordRequest{}, RecordingStatus{}, Timeline{}, TimelineStep{}, TimelinePage{},
+	MediaItem{}, MediaMeta{}, MediaCut{}, Notification{}, SeeNotificationsRequest{}, SeeNotificationsResult{}, TestCounts{}, ScreenshotRequest{}, RecordRequest{}, RecordingStatus{}, Timeline{}, TimelineStep{}, TimelinePage{},
 	AddMediaRequest{}, NoteRequest{}, LogsRequest{}, ExportRequest{}, ExportResult{}, DeleteMediaRequest{}, DeleteMediaResult{}, UpdateMediaRequest{}, MediaPage{}, NotificationPage{}, ReviewPage{}, MediaCounts{}, MediaAgentCount{}, MediaProjectCount{},
 	SetupCheck{}, SetupStatus{}, ImageComponents{}, ImageBuild{}, ImageDownload{}, BuildImageRequest{}, ImageStatus{},
 	ClaudeTokenRequest{}, ClaudeLoginRequest{}, ClaudeLogin{}, ClaudeLoginCodeRequest{}, RenameClaudeAccountRequest{}, RenamedClaudeAccount{}, GitHubTokenRequest{}, CursorKeyRequest{}, CursorKeyResponse{}, CursorLogin{}, CursorLoginRequest{}, ToolAccount{}, ToolAccountRequest{}, RenameToolAccountRequest{}, RenamedToolAccount{}, RenameGitHubAccountRequest{}, RenamedGitHubAccount{},

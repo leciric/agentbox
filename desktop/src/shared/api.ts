@@ -147,6 +147,7 @@ export interface Settings {
   defaultCursorEffort: string;
   resumeAfterLimit: boolean;
   continueAfterRestart: boolean;
+  creditAITool: boolean;
   claudeCompactWindow: number;
   updateCheck: boolean;
   usageStats: boolean;
@@ -196,6 +197,7 @@ export interface UpdateSettingsRequest {
   defaultCursorEffort?: string;
   resumeAfterLimit?: boolean;
   continueAfterRestart?: boolean;
+  creditAITool?: boolean;
   claudeCompactWindow?: number;
   updateCheck?: boolean;
   updateChannel?: string;
@@ -871,6 +873,13 @@ export interface MediaMeta {
   url?: string;
   entry?: string;
   tests?: TestCounts;
+  recorded?: number;
+  cuts?: MediaCut[];
+}
+
+export interface MediaCut {
+  from: number;
+  to: number;
 }
 
 export interface Notification {
@@ -916,6 +925,7 @@ export interface RecordRequest {
   input?: string;
   name?: string;
   limitSeconds?: number;
+  noTrim?: boolean;
 }
 
 export interface RecordingStatus {

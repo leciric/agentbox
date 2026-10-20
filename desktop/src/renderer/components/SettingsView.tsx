@@ -1019,6 +1019,19 @@ function InstalledSettings({
           ],
         },
         {
+          id: "commits",
+          title: t("settings.group.commits.title"),
+          entries: [
+            {
+              id: "credit-ai-tool",
+              label: t("settings.entry.credit-ai-tool.label"),
+              keywords: t("settings.entry.credit-ai-tool.keywords"),
+              modified: changed((s) => s.creditAITool),
+              render: () => <CreditAIToolSetting />,
+            },
+          ],
+        },
+        {
           id: "updates",
           title: t("settings.group.updates.title"),
           entries: [
@@ -2149,6 +2162,37 @@ function ErrorReportsSetting() {
           aria-label={t("settings.entry.error-reports.label")}
           disabled={save.isPending || settings.data === undefined}
           checked={settings.data?.errorReports ?? true}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      }
+    />
+  );
+}
+
+// CreditAIToolSetting decides whether agents' commits and pull requests
+// credit the AI tool that wrote them (internal/agent/attribution.go). Off
+// until turned on; an agent follows it from its next start, and a Claude Code
+// agent from its next chat.
+function CreditAIToolSetting() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (creditAITool: boolean) => api.updateSettings({ creditAITool }),
+    onSuccess: (next) => queryClient.setQueryData(["settings"], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  return (
+    <SettingRow
+      label={t("settings.entry.credit-ai-tool.label")}
+      description={t("settings.creditAITool.description")}
+      details={t("settings.creditAITool.details")}
+      control={
+        <Switch
+          data-credit-ai-tool
+          aria-label={t("settings.entry.credit-ai-tool.label")}
+          disabled={save.isPending || settings.data === undefined}
+          checked={settings.data?.creditAITool ?? false}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }

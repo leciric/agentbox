@@ -538,7 +538,7 @@ const leadCredentialHelper = `!f() { test "$1" = get && test -n "$GH_TOKEN" || r
 // credential helper of its own. The lead's git would otherwise reach
 // git@github.com over ssh, which works on a host whose user has keys but not
 // in the VM, whose home has none (and no known_hosts either).
-func leadGitConfig() string { return gitConfigWith(gitQuote(leadCredentialHelper)) }
+func leadGitConfig() string { return gitConfigWith(gitQuote(leadCredentialHelper), "") }
 
 // leadSettings is the lead's permission policy: none of its own (D89). It
 // runs on the user's machine as the user, with every tool Claude Code has and

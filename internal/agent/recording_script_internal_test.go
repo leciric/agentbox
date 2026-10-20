@@ -15,12 +15,12 @@ func TestStartRecordingScript(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"agentbox desktop record --target auto --input playwright --limit 60s", `--ready "$dir/recording.ready"`, `out="$dir/recording.mp4"`, `echo "$target"`} {
+	for _, want := range []string{"agentbox desktop record --target auto --input playwright --limit 60s", `--ready "$dir/recording.ready"`, `--cuts "$dir/recording.cuts"`, `out="$dir/recording.mp4"`, `echo "$target"`} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("display script lacks %q", want)
 		}
 	}
-	for _, unwanted := range []string{"x11grab", "input-log", "overlay", "vaapi", "nvenc"} {
+	for _, unwanted := range []string{"x11grab", "input-log", "overlay", "vaapi", "nvenc", "--no-trim"} {
 		if strings.Contains(plain, unwanted) {
 			t.Errorf("display script has %q", unwanted)
 		}
@@ -34,6 +34,14 @@ func TestStartRecordingScript(t *testing.T) {
 		if !strings.Contains(staged, want) {
 			t.Errorf("staged script lacks %q", want)
 		}
+	}
+
+	whole, err := startRecordingScript(recordingState{Target: "display", Input: RecordInputDesktop, Limit: 60, NoTrim: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(whole, "--bottom 38 --no-trim --ready") {
+		t.Errorf("a recording kept whole isn't recorded with --no-trim:\n%s", whole)
 	}
 
 	android, err := startRecordingScript(recordingState{Target: "android", Limit: 30})

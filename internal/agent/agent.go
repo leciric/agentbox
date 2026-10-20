@@ -1058,7 +1058,11 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 	if err != nil {
 		return err
 	}
-	files = append(files, file{home + "/.gitconfig", gitConfig(gh != ""), 0o644})
+	hooks, err := m.writeGitHooks(ctx, a)
+	if err != nil {
+		return err
+	}
+	files = append(files, file{home + "/.gitconfig", gitConfig(gh != "", hooks), 0o644})
 
 	env, err := m.agentEnv(a)
 	if err != nil {
@@ -1178,6 +1182,7 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 				// pressure, by themselves (heavyhooks.go).
 				withHeavyHooks,
 				m.withBashEnv,
+				withClaudeAttribution(m.creditAITool(ctx)),
 			)
 		}); err != nil {
 			return err
@@ -1385,23 +1390,24 @@ func (m *Manager) brief(ctx context.Context, a state.Agent, ip string, envFiles 
 		return "", err
 	}
 	return brief.Render(brief.Data{
-		Project:     a.Project,
-		ProjectName: p.DisplayName,
-		Agent:       a.Name,
-		Title:       a.Title,
-		Worktree:    a.Worktree,
-		Branch:      a.Branch,
-		BaseRef:     a.BaseRef,
-		IP:          ip,
-		EnvFiles:    envFiles,
-		Secrets:     secretNames,
-		Android:     android.IsProject(a.Worktree),
-		GitHub:      m.Creds.HasGitHubLogin(),
-		VM:          hostos.InVM(),
-		Host:        hostos.Name(),
-		Notes:       projectNotes,
-		Nesting:     p.Nesting,
-		AgentPRs:    p.AgentPRs,
+		Project:      a.Project,
+		ProjectName:  p.DisplayName,
+		Agent:        a.Name,
+		Title:        a.Title,
+		Worktree:     a.Worktree,
+		Branch:       a.Branch,
+		BaseRef:      a.BaseRef,
+		IP:           ip,
+		EnvFiles:     envFiles,
+		Secrets:      secretNames,
+		Android:      android.IsProject(a.Worktree),
+		GitHub:       m.Creds.HasGitHubLogin(),
+		VM:           hostos.InVM(),
+		Host:         hostos.Name(),
+		Notes:        projectNotes,
+		Nesting:      p.Nesting,
+		AgentPRs:     p.AgentPRs,
+		CreditAITool: m.creditAITool(ctx),
 
 		Knowledge:     knowledge,
 		CompactWindow: compactWindow,
@@ -1478,14 +1484,18 @@ func (m *Manager) writeAgentEnvIfRunning(ctx context.Context, a state.Agent) err
 }
 
 // writeGitConfig writes an agent's ~/.gitconfig fresh, from its current
-// GitHub account: see gitConfig.
+// GitHub account and whether to credit the AI tool: see gitConfig.
 func (m *Manager) writeGitConfig(ctx context.Context, a state.Agent) error {
 	gh, err := m.Creds.GitHubToken(a.GitHubAccount)
 	if err != nil {
 		return err
 	}
+	hooks, err := m.writeGitHooks(ctx, a)
+	if err != nil {
+		return err
+	}
 	home := "/home/" + m.User.Name
-	return m.Incus.WriteFile(ctx, a.Instance, home+"/.gitconfig", []byte(gitConfig(gh != "")), m.User.UID, m.User.GID, 0o644)
+	return m.Incus.WriteFile(ctx, a.Instance, home+"/.gitconfig", []byte(gitConfig(gh != "", hooks)), m.User.UID, m.User.GID, 0o644)
 }
 
 // writeGitConfigIfRunning writes an agent's .gitconfig when its machine is
@@ -2192,20 +2202,25 @@ func gitIdentity() (name, email string) {
 // rewriting git@github.com: and ssh://git@github.com/ remotes to HTTPS, since
 // an agent gets a token but never an SSH key. It's written whole every time
 // (configure, Start, SetGitHubAccount) so losing the account removes this
-// config again rather than leaving it stale.
-func gitConfig(hasGitHub bool) string {
+// config again rather than leaving it stale. hooksPath is where the hooks
+// that take the AI tools' credit out of commits are (writeGitHooks), or "" to
+// leave git's hooks where they are.
+func gitConfig(hasGitHub bool, hooksPath string) string {
 	if !hasGitHub {
-		return gitConfigWith("")
+		return gitConfigWith("", hooksPath)
 	}
-	return gitConfigWith("!gh auth git-credential")
+	return gitConfigWith("!gh auth git-credential", hooksPath)
 }
 
 // gitConfigWith is gitConfig with the github.com credential helper spelled out,
 // already encoded as a git config value; "" leaves GitHub out altogether.
-func gitConfigWith(helper string) string {
+func gitConfigWith(helper, hooksPath string) string {
 	var b strings.Builder
 	if name, email := gitIdentity(); name != "" && email != "" {
 		fmt.Fprintf(&b, "[user]\n\tname = %s\n\temail = %s\n", gitQuote(name), gitQuote(email))
+	}
+	if hooksPath != "" {
+		fmt.Fprintf(&b, "[core]\n\thooksPath = %s\n", gitQuote(hooksPath))
 	}
 	if helper != "" {
 		fmt.Fprintf(&b, `[credential "https://github.com"]

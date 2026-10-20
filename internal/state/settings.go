@@ -128,6 +128,12 @@ const (
 	// SettingResumeAfterLimit it is the installation's and on until turned
 	// off, read with FlagOn.
 	SettingContinueAfterRestart = "continue_after_restart"
+	// SettingCreditAITool says whether agents' commits and pull requests may
+	// credit the AI tool that wrote them: its Co-authored-by trailer and its
+	// "Generated with …" line. Off until somebody turns it on (Flag), and
+	// written into each agent's tool configuration and git hooks as it starts
+	// (internal/agent/attribution.go).
+	SettingCreditAITool = "credit_ai_tool"
 	// SettingClaudeCompactWindow is how full a chat's context may get before
 	// its AI tool compacts it (D83), as a count of tokens. Empty means
 	// DefaultClaudeCompactWindow and "0" means the model's whole window. Named

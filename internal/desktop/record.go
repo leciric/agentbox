@@ -72,6 +72,12 @@ type RecordOptions struct {
 	Started func(target string)
 	// Log gets ffmpeg's errors.
 	Log io.Writer
+	// NoTrim keeps every frame: the screen standing still plays as long as
+	// it stood still (trim.go).
+	NoTrim bool
+	// Cuts, when set, is a file to write what the trimming cut to (Cuts), once
+	// the recording is finished.
+	Cuts string
 }
 
 // Record records until ctx ends or opts.Limit passes, and leaves the file
@@ -198,7 +204,7 @@ func recordDisplay(ctx context.Context, opts RecordOptions) error {
 	// XFIXES, so the cursor lands in the frames; it is spelled out here
 	// because the whole point of desktop input is seeing it.
 	grab := []string{"-f", "x11grab", "-draw_mouse", "1", "-framerate", strconv.Itoa(FrameRate), "-i", Display}
-	if opts.Input != "desktop" {
+	if opts.Input != "desktop" && opts.NoTrim {
 		return runFFmpeg(ctx, opts, RecordDisplay, ffmpegArgs(grab, EvenSize, opts), nil, nil)
 	}
 	x, err := dialX(Display)
@@ -209,6 +215,9 @@ func recordDisplay(ctx context.Context, opts RecordOptions) error {
 	size := image.Pt(x.width, x.height)
 	if size.X == 0 || size.Y == 0 {
 		return errors.New("the display didn't say how big it is")
+	}
+	if opts.Input != "desktop" {
+		return runFFmpeg(ctx, opts, RecordDisplay, captureArgs(grab, size, opts), nil, composite(nil, size, opts))
 	}
 	ov, err := newOverlay(opts.Bottom, false)
 	if err != nil {
@@ -255,8 +264,11 @@ func recordBrowser(ctx context.Context, opts RecordOptions) error {
 	// The video keeps the first frame's size, even, whatever the page is
 	// resized to: an encoder can't change it midway.
 	size := image.Pt(cfg.Width&^1, cfg.Height&^1)
-	if !sc.cursor {
+	if !sc.cursor && opts.NoTrim {
 		return runFFmpeg(ctx, opts, RecordBrowser, ffmpegArgs(pageInput, fmt.Sprintf("scale=%d:%d", size.X, size.Y), opts), pageFrames, nil)
+	}
+	if !sc.cursor {
+		return runFFmpeg(ctx, opts, RecordBrowser, captureArgs(pageInput, size, opts), pageFrames, composite(nil, size, opts))
 	}
 	ov, err := newOverlay(0, true)
 	if err != nil {
@@ -302,6 +314,9 @@ func captureArgs(input []string, size image.Point, opts RecordOptions) []string 
 		"-t", strconv.Itoa(int(opts.Limit.Seconds())), "-pix_fmt", "bgr0", "-f", "rawvideo", "pipe:1")
 }
 
+// The same stage is where a recording is trimmed (trim.go), which is why a
+// recording with nothing to draw goes through it too, unless it is kept whole.
+
 // compositor is the stage between the capture and the encoder.
 type compositor struct {
 	args   []string // the encoder's
@@ -317,23 +332,43 @@ func composite(ov *overlay, size image.Point, opts RecordOptions) *compositor {
 		frame := make([]byte, size.X*size.Y*4)
 		canvas := image.NewRGBA(image.Rectangle{Max: size})
 		var drawn []image.Rectangle
+		write := func(f []byte) error { _, err := w.Write(f); return err }
+		var trim *trimmer
+		if !opts.NoTrim {
+			trim = newTrimmer(size.X, size.Y)
+		}
 		for {
 			if _, err := io.ReadFull(r, frame); err != nil {
 				if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-					return nil
+					if trim == nil {
+						return nil
+					}
+					err := trim.finish(write)
+					if opts.Cuts != "" {
+						_ = writeCuts(opts.Cuts, trim.result())
+					}
+					return err
 				}
 				return err
 			}
-			for _, rect := range drawn {
-				clearRect(canvas, rect)
+			if ov != nil {
+				for _, rect := range drawn {
+					clearRect(canvas, rect)
+				}
+				// The frame was taken a moment ago, the time ffmpeg took to
+				// hand it over: a few milliseconds, well inside one frame.
+				drawn = mergeRects(ov.draw(canvas, float64(time.Now().UnixMicro())/1e6))
+				for _, rect := range drawn {
+					blend(frame, size.X*4, canvas, rect)
+				}
 			}
-			// The frame was taken a moment ago, the time ffmpeg took to
-			// hand it over: a few milliseconds, well inside one frame.
-			drawn = mergeRects(ov.draw(canvas, float64(time.Now().UnixMicro())/1e6))
-			for _, rect := range drawn {
-				blend(frame, size.X*4, canvas, rect)
+			var err error
+			if trim == nil {
+				err = write(frame)
+			} else {
+				err = trim.next(frame, write)
 			}
-			if _, err := w.Write(frame); err != nil {
+			if err != nil {
 				return err
 			}
 		}
