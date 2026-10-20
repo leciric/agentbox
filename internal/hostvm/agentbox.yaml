@@ -13,6 +13,16 @@ vmType: [[.VMType]]
 cpus: [[.CPUs]]
 memory: [[.Memory]]
 disk: [[.Disk]]
+[[- if eq .VMType "krunkit"]]
+
+# krunkit gives the VM a GPU (Venus: Vulkan on the Mac's Metal), which agents
+# get with "GPU for agents" on. Debian's cloud kernel, the template's image's,
+# is built without DRM and so has no driver for it; its generic image's kernel
+# has. Listed first, it's the image Lima picks (internal/hostvm/gpu.go).
+images:
+  - location: https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-arm64.qcow2
+    arch: aarch64
+[[- end]]
 
 # Lima's own containerd (nerdctl) is on by default; AgentBox runs Incus, and
 # Docker inside each agent, and has no use for it.

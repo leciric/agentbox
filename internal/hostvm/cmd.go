@@ -68,7 +68,7 @@ Your home directory is shared with the VM at the same path.`,
 		SilenceErrors: true,
 		Version:       version,
 	}
-	root.AddCommand(newInitCmd(), newStartCmd(), newStopCmd(), newStatusCmd(), newPowerCmd(), newDiskCmd(), newShellCmd(), newResizeCmd(), newSwapCmd(), newUpgradeCmd(), newDeleteCmd())
+	root.AddCommand(newInitCmd(), newStartCmd(), newStopCmd(), newStatusCmd(), newPowerCmd(), newDiskCmd(), newShellCmd(), newResizeCmd(), newSwapCmd(), newUpgradeCmd(), newDeleteCmd(), newGPUCmd())
 	return root
 }
 
@@ -94,7 +94,7 @@ keeps working as it is until agentbox vm migrate moves it into the VM.`,
 		Version:       version,
 	}
 	root.AddCommand(newCHVInitCmd(), newMigrateCmd(), newStartCmd(), newStopCmd(), newPauseCmd(), newResumeCmd(), newStatusCmd(), newPowerCmd(), newDiskCmd(),
-		newShellCmd(), newCHVResizeCmd(), newSwapCmd(), newUpgradeCmd(), newDeleteCmd(), newRunCmd(), newProxyCmd())
+		newShellCmd(), newCHVResizeCmd(), newSwapCmd(), newUpgradeCmd(), newDeleteCmd(), newRunCmd(), newProxyCmd(), newGPUCmd())
 	return root
 }
 
@@ -115,7 +115,7 @@ agentbox vm init then makes Lima's VM, the default, again.`,
 		Version:       version,
 	}
 	root.AddCommand(newInitCmd(), newStartCmd(), newStopCmd(), newPauseCmd(), newResumeCmd(), newStatusCmd(), newPowerCmd(), newDiskCmd(),
-		newShellCmd(), newCHVResizeCmd(), newSwapCmd(), newUpgradeCmd(), newDeleteCmd(), newRunCmd(), newProxyCmd())
+		newShellCmd(), newCHVResizeCmd(), newSwapCmd(), newUpgradeCmd(), newDeleteCmd(), newRunCmd(), newProxyCmd(), newGPUCmd())
 	return root
 }
 

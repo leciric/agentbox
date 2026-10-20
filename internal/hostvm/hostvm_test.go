@@ -17,8 +17,9 @@ import (
 
 // fakeLima is a limactl that records its arguments, one call per line, keeps
 // what it's sent on stdin and the last definition it was asked to create, and
-// answers `list`, `info`, the digest check, the balloon's features and the
-// swap probe the way Lima does. With refuse-krunkit, it refuses to create a krunkit VM, as Lima
+// answers `list`, `info`, the digest check, the balloon's features, the
+// swap probe and the GPU's restart marker the way Lima does, failing venus.sh
+// with venus-fails. With refuse-krunkit, it refuses to create a krunkit VM, as Lima
 // does with a krunkit too old.
 const fakeLima = `#!/bin/sh
 log=$FAKE_DIR/calls
@@ -39,6 +40,8 @@ case "$1" in
       */sys/bus/virtio/devices*) cat "$FAKE_DIR/reporting" 2>/dev/null ;;
       *"id -un"*) echo alice ;;
       *"df -B1"*) cat "$FAKE_DIR/swapprobe" 2>/dev/null ;;
+      *agentbox-gpu-restart*) cat "$FAKE_DIR/gpu-restart" 2>/dev/null ;;
+      *"sudo bash"*) [ ! -e "$FAKE_DIR/venus-fails" ] || exit 1 ;;
       *"sudo sh -c"*) cat >"$FAKE_DIR/installed" ;;
     esac ;;
 esac

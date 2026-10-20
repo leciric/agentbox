@@ -1,0 +1,107 @@
+From 0569a6add5135c115e5206bf0a4251a019370fb3 Mon Sep 17 00:00:00 2001
+From: Yiwei Zhang <zzyiwei@chromium.org>
+Date: Fri, 8 Aug 2025 00:48:22 -0700
+Subject: [PATCH] venus: fix a race condition in ring shmem reuse
+
+With the shmem cache, vkDestroyRingMESA must be a synchronous call to
+ensure renderer side ring destruction has finished before the same shmem
+gets reused by other things.
+
+Cc: mesa-stable
+Closes: https://gitlab.freedesktop.org/mesa/mesa/-/issues/13672
+---
+ src/virtio/vulkan/vn_renderer_util.c | 40 ++++++++++++++++++++++++++++
+ src/virtio/vulkan/vn_renderer_util.h |  5 ++++
+ src/virtio/vulkan/vn_ring.c          |  9 +++++--
+ 3 files changed, 52 insertions(+), 2 deletions(-)
+
+diff --git a/src/virtio/vulkan/vn_renderer_util.c b/src/virtio/vulkan/vn_renderer_util.c
+index ca95fe75c94..5a86251a4a4 100644
+--- a/src/virtio/vulkan/vn_renderer_util.c
++++ b/src/virtio/vulkan/vn_renderer_util.c
+@@ -5,6 +5,46 @@
+ 
+ #include "vn_renderer_util.h"
+ 
++VkResult
++vn_renderer_submit_simple_sync(struct vn_renderer *renderer,
++                               const void *cs_data,
++                               size_t cs_size)
++{
++   VN_TRACE_FUNC();
++   struct vn_renderer_sync *sync;
++   VkResult result =
++      vn_renderer_sync_create(renderer, 0, VN_RENDERER_SYNC_BINARY, &sync);
++   if (result != VK_SUCCESS)
++      return result;
++
++   const struct vn_renderer_submit submit = {
++      .batches =
++         &(const struct vn_renderer_submit_batch){
++            .cs_data = cs_data,
++            .cs_size = cs_size,
++            .ring_idx = 0, /* CPU ring */
++            .syncs = &sync,
++            .sync_values = &(const uint64_t){ 1 },
++            .sync_count = 1,
++         },
++      .batch_count = 1,
++   };
++   const struct vn_renderer_wait wait = {
++      .timeout = UINT64_MAX,
++      .syncs = &sync,
++      .sync_values = &(const uint64_t){ 1 },
++      .sync_count = 1,
++   };
++
++   result = vn_renderer_submit(renderer, &submit);
++   if (result == VK_SUCCESS)
++      result = vn_renderer_wait(renderer, &wait);
++
++   vn_renderer_sync_destroy(renderer, sync);
++
++   return result;
++}
++
+ void
+ vn_renderer_shmem_pool_init(UNUSED struct vn_renderer *renderer,
+                             struct vn_renderer_shmem_pool *pool,
+diff --git a/src/virtio/vulkan/vn_renderer_util.h b/src/virtio/vulkan/vn_renderer_util.h
+index 0a334617200..5b09e1dd45c 100644
+--- a/src/virtio/vulkan/vn_renderer_util.h
++++ b/src/virtio/vulkan/vn_renderer_util.h
+@@ -35,6 +35,11 @@ vn_renderer_submit_simple(struct vn_renderer *renderer,
+    return vn_renderer_submit(renderer, &submit);
+ }
+ 
++VkResult
++vn_renderer_submit_simple_sync(struct vn_renderer *renderer,
++                               const void *cs_data,
++                               size_t cs_size);
++
+ void
+ vn_renderer_shmem_pool_init(struct vn_renderer *renderer,
+                             struct vn_renderer_shmem_pool *pool,
+diff --git a/src/virtio/vulkan/vn_ring.c b/src/virtio/vulkan/vn_ring.c
+index 8782cb1836e..2de497893e5 100644
+--- a/src/virtio/vulkan/vn_ring.c
++++ b/src/virtio/vulkan/vn_ring.c
+@@ -375,8 +375,13 @@ vn_ring_destroy(struct vn_ring *ring)
+    struct vn_cs_encoder local_enc = VN_CS_ENCODER_INITIALIZER_LOCAL(
+       destroy_ring_data, sizeof(destroy_ring_data));
+    vn_encode_vkDestroyRingMESA(&local_enc, 0, ring->id);
+-   vn_renderer_submit_simple(ring->instance->renderer, destroy_ring_data,
+-                             vn_cs_encoder_get_len(&local_enc));
++
++   /* With the shmem cache, vkDestroyRingMESA must be a synchronous call to
++    * ensure renderer side ring destruction has finished before the same shmem
++    * gets reused by other things.
++    */
++   vn_renderer_submit_simple_sync(ring->instance->renderer, destroy_ring_data,
++                                  vn_cs_encoder_get_len(&local_enc));
+ 
+    mtx_destroy(&ring->roundtrip_mutex);
+ 
+-- 
+2.50.1
+

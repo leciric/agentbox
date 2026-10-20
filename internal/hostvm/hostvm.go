@@ -656,6 +656,7 @@ func (v *VM) setup(ctx context.Context, daemon bool) error {
 	if err := v.writeProfile(ctx); err != nil {
 		return err
 	}
+	v.setupGPU(ctx)
 	if !daemon {
 		return nil
 	}

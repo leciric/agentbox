@@ -153,6 +153,13 @@ used until it stops. A VM keeps the kind it was made with: to switch an existing
 `agentbox vm delete --yes` then `agentbox vm init`, which removes every agent's machine (your
 projects and worktrees stay).
 
+A krunkit VM also has a **GPU for agents**: Vulkan, run on your Mac's GPU through Metal, and
+OpenGL on top of it. `agentbox vm init` readies it, building a Vulkan driver in the VM the first
+time (a few minutes); a VM made before needs one restart afterwards (`agentbox vm stop`, then
+`agentbox vm start`). `agentbox vm gpu` says what the VM has, and `agentbox vm gpu --agent
+project/agent` what an agent gets. Apple's Virtualization framework gives a Linux VM no 3D, so a
+VM made without krunkit has none.
+
 On a Mac there is also an **experimental** way without Lima: `agentbox vm init --driver vz` (or
 **Apple Virtualization, without Lima** in the app's Setup) has AgentBox run the VM itself with
 Apple's Virtualization framework, on macOS 13 or later. It hasn't been tried on a real Mac yet; its
