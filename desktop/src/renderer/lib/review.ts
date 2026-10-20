@@ -3,6 +3,7 @@
 // the review marks it reviewed), and the carousel of everything one of them
 // made.
 import type * as T from '../../shared/api';
+import { recordedFor, videoAt } from './recording.ts';
 
 // Proof is what an agent showed it checked, for the review's Proof tab:
 // its recordings, the latest first, each in chapters; its screenshots,
@@ -64,9 +65,11 @@ export function gallery(proof: Proof): Shown[] {
 
 function chaptersOf(rec: T.MediaItem, notes: readonly T.MediaItem[], screenshots: readonly T.MediaItem[]): Chapter[] {
   const start = ms(rec.createdAt);
-  const length = (rec.meta.duration ?? 0) * 1000;
+  const length = recordedFor(rec.meta) * 1000;
   const during = (m: T.MediaItem) => ms(m.createdAt) >= start && ms(m.createdAt) <= start + length;
-  const at = (m: T.MediaItem) => (ms(m.createdAt) - start) / 1000;
+  // Where it was made, on the video's timeline, which a trimmed recording's
+  // cuts make shorter than the wall clock's.
+  const at = (m: T.MediaItem) => videoAt(rec.meta, (ms(m.createdAt) - start) / 1000);
   const shots = screenshots.filter(during);
   const marks = notes.filter(during);
   const chapters: Chapter[] = marks.length

@@ -2534,6 +2534,17 @@ type MediaMeta struct {
 	URL      string      `json:"url,omitempty"`
 	Entry    string      `json:"entry,omitempty"` // for a directory, the file to open
 	Tests    *TestCounts `json:"tests,omitempty"`
+	// Recorded is how long a trimmed recording took on the wall clock, in
+	// seconds, and Cuts the stretches of it, in the same seconds, its video
+	// leaves out: where the screen stood still. A note made during one is
+	// placed in the video by taking out what was cut before it.
+	Recorded float64    `json:"recorded,omitempty"`
+	Cuts     []MediaCut `json:"cuts,omitempty"`
+}
+
+type MediaCut struct {
+	From float64 `json:"from"`
+	To   float64 `json:"to"`
 }
 
 type TestCounts struct {
@@ -2553,6 +2564,9 @@ type RecordRequest struct {
 	Input        string `json:"input,omitempty"`  // playwright (default) or desktop, which overlays the keys and shows the cursor
 	Name         string `json:"name,omitempty"`
 	LimitSeconds int    `json:"limitSeconds,omitempty"`
+	// NoTrim keeps every frame, where a recording otherwise plays a stretch
+	// the screen stood still for as a moment of it.
+	NoTrim bool `json:"noTrim,omitempty"`
 }
 
 type RecordingStatus struct {

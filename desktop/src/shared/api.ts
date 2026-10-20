@@ -871,6 +871,13 @@ export interface MediaMeta {
   url?: string;
   entry?: string;
   tests?: TestCounts;
+  recorded?: number;
+  cuts?: MediaCut[];
+}
+
+export interface MediaCut {
+  from: number;
+  to: number;
 }
 
 export interface Notification {
@@ -916,6 +923,7 @@ export interface RecordRequest {
   input?: string;
   name?: string;
   limitSeconds?: number;
+  noTrim?: boolean;
 }
 
 export interface RecordingStatus {

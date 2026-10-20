@@ -58,6 +58,10 @@ type MediaMeta struct {
 	URL      string      `json:"url,omitempty"`      // the page a browser screenshot shows
 	Entry    string      `json:"entry,omitempty"`    // the file to open in a directory, like index.html
 	Tests    *TestCounts `json:"tests,omitempty"`
+	// Recorded and Cuts are a trimmed recording's (desktop.Cuts): how long it
+	// took, and what its video leaves out.
+	Recorded float64       `json:"recorded,omitempty"`
+	Cuts     []desktop.Cut `json:"cuts,omitempty"`
 }
 
 type TestCounts struct {
@@ -294,6 +298,7 @@ type recordingState struct {
 	Source    string    `json:"source"`
 	StartedAt time.Time `json:"startedAt"`
 	Limit     int       `json:"limit"` // seconds
+	NoTrim    bool      `json:"noTrim,omitempty"`
 	// Staged is a recording written straight into the agent's media, through
 	// the recordings device, rather than inside the agent and copied out.
 	Staged bool `json:"staged,omitempty"`
@@ -303,7 +308,7 @@ type recordingState struct {
 // display or its browser's page, with the recorder in the agentbox binary
 // (desktop.Record), or its Android emulator's screen with scrcpy. The target
 // "auto", the default, takes the page when the browser is all there is to see.
-func (m *Manager) StartRecording(ctx context.Context, a state.Agent, target, input, name string, limit time.Duration, source string) (RecordingStatus, error) {
+func (m *Manager) StartRecording(ctx context.Context, a state.Agent, target, input, name string, limit time.Duration, noTrim bool, source string) (RecordingStatus, error) {
 	if err := m.requireRunning(ctx, a); err != nil {
 		return RecordingStatus{}, err
 	}
@@ -311,7 +316,7 @@ func (m *Manager) StartRecording(ctx context.Context, a state.Agent, target, inp
 		limit = DefaultRecordLimit
 	}
 	limit = min(limit, maxRecordLimit)
-	st := recordingState{Target: cmpOr(target, desktop.RecordAuto), Input: cmpOr(input, RecordInputPlaywright), Name: cmpOr(strings.TrimSpace(name), "recording"), Source: cmpOr(source, "user"), StartedAt: time.Now().UTC(), Limit: int(limit.Seconds())}
+	st := recordingState{Target: cmpOr(target, desktop.RecordAuto), Input: cmpOr(input, RecordInputPlaywright), Name: cmpOr(strings.TrimSpace(name), "recording"), Source: cmpOr(source, "user"), StartedAt: time.Now().UTC(), Limit: int(limit.Seconds()), NoTrim: noTrim}
 	if st.Input != RecordInputPlaywright && st.Input != RecordInputDesktop {
 		return RecordingStatus{}, fmt.Errorf("unknown recording input %q: use playwright or desktop", st.Input)
 	}
@@ -398,8 +403,8 @@ func startRecordingScript(st recordingState) (string, error) {
 	switch st.Target {
 	case desktop.RecordAuto, desktop.RecordDisplay, desktop.RecordBrowser:
 		recorder = fmt.Sprintf(`command -v agentbox >/dev/null || { echo "agentbox isn't installed in this machine" >&2; exit 1; }
-setsid agentbox desktop record --target %s --input %s --limit %ds --bottom %d --ready "$dir/recording.ready" "$out" >"$dir/recording.log" 2>&1 </dev/null &`,
-			st.Target, st.Input, st.Limit, dockMargin+dockHeight/2)
+setsid agentbox desktop record --target %s --input %s --limit %ds --bottom %d%s --ready "$dir/recording.ready" --cuts "$dir/recording.cuts" "$out" >"$dir/recording.log" 2>&1 </dev/null &`,
+			st.Target, st.Input, st.Limit, dockMargin+dockHeight/2, noTrimFlag(st.NoTrim))
 		started = `i=0
 while [ ! -s "$dir/recording.ready" ] && kill -0 "$(cat "$dir/recording.pid")" 2>/dev/null && [ "$i" -lt 200 ]; do sleep 0.05; i=$((i + 1)); done
 target=$(cat "$dir/recording.ready" 2>/dev/null || true)`
@@ -432,6 +437,13 @@ kill -0 "$(cat "$dir/recording.pid")" 2>/dev/null && [ -n "$target" ] || { echo 
 printf '%%s' %[4]s | sed "s/\"target\":\"[a-z]*\"/\"target\":\"$target\"/" >"$dir/recording.json"
 echo "$target"`,
 		agentStateDir, out, recorder, shellQuote(string(encoded)), started), nil
+}
+
+func noTrimFlag(noTrim bool) string {
+	if noTrim {
+		return " --no-trim"
+	}
+	return ""
 }
 
 // Recording inputs: how the flow being recorded is driven, which decides
@@ -490,6 +502,7 @@ fi
 [ -s "$out" ] || { echo "the recording is empty:" >&2; tail -n 5 "$dir/recording.log" >&2; rm -f "$dir"/recording.* "$out"; exit 1; }
 cat "$dir/recording.json"
 echo
+if [ -s "$dir/recording.cuts" ]; then printf 'cuts '; cat "$dir/recording.cuts"; echo; fi
 ffprobe -v error -show_entries stream=width,height:format=duration -of csv=p=0 "$out" || true`, agentStateDir)
 }
 
@@ -510,6 +523,13 @@ func (m *Manager) StopRecording(ctx context.Context, a state.Agent) (state.Media
 	}
 	meta := MediaMeta{Target: cmpOr(st.Target, "display")}
 	for _, line := range lines[1:] {
+		if c, ok := strings.CutPrefix(line, "cuts "); ok {
+			var cuts desktop.Cuts
+			if json.Unmarshal([]byte(c), &cuts) == nil && len(cuts.Cuts) > 0 {
+				meta.Recorded, meta.Cuts = cuts.Recorded, cuts.Cuts
+			}
+			continue
+		}
 		line = strings.Trim(strings.TrimSpace(line), ",")
 		if w, h, ok := strings.Cut(line, ","); ok {
 			meta.Width, _ = strconv.Atoi(w)

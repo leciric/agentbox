@@ -57,6 +57,10 @@ func TestDesktopRecordingShowsTheCursorAndTheKeys(t *testing.T) {
 	if !strings.Contains(out, `"input":"desktop"`) {
 		t.Errorf("the recording's details don't name the input mode: %s", out)
 	}
+	// The 1.5s the display stood still for at the end is cut to 0.4s.
+	if !strings.Contains(out, "\ncuts {") {
+		t.Errorf("the recording's details don't say what was cut: %s", out)
+	}
 	video := filepath.Join(dir, "recording.mp4")
 	if info, err := os.Stat(video); err != nil || info.Size() == 0 {
 		t.Fatalf("no video: %v", err)

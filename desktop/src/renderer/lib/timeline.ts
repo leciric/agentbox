@@ -12,6 +12,7 @@
 // Within a step the track runs evenly with the clock, which is what lets a
 // point of it seek a recording made during the step.
 import type * as T from '../../shared/api';
+import { recordedFor, videoAt } from './recording.ts';
 
 export type StepKind = 'task' | 'read' | 'plan' | 'edit' | 'test' | 'run' | 'desktop' | 'page' | 'pr';
 export const stepKinds: StepKind[] = ['task', 'read', 'plan', 'edit', 'test', 'run', 'desktop', 'page', 'pr'];
@@ -48,7 +49,7 @@ export function layout(tl: Pick<T.Timeline, 'steps'>): Track {
 
 // mediaEnd is when a recording stopped (it is kept with when it started),
 // or when anything else was made, in milliseconds.
-export const mediaEnd = (m: Pick<T.MediaItem, 'createdAt' | 'meta'>) => ms(m.createdAt) + (m.meta?.duration ?? 0) * 1000;
+export const mediaEnd = (m: Pick<T.MediaItem, 'createdAt' | 'meta'>) => ms(m.createdAt) + recordedFor(m.meta) * 1000;
 
 // placedAt is the step at point x of the track.
 export function placedAt(track: Track, x: number): Placed | undefined {
@@ -91,7 +92,7 @@ export function frameAt(track: Track, x: number): Frame | undefined {
   for (const m of media) {
     if (m.kind !== 'recording' || !m.meta?.duration) continue;
     const from = ms(m.createdAt);
-    if (t >= from && t <= mediaEnd(m)) return { kind: 'recording', media: m, offset: (t - from) / 1000 };
+    if (t >= from && t <= mediaEnd(m)) return { kind: 'recording', media: m, offset: videoAt(m.meta, (t - from) / 1000) };
   }
   const shots = media.filter((m) => m.kind === 'screenshot');
   const shot = shots.filter((m) => ms(m.createdAt) <= t).pop() ?? shots[0];
