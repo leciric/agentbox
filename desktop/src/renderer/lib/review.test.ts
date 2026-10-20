@@ -52,6 +52,28 @@ test('the notes saved while a recording ran are its chapters, each with the scre
   assert.equal(chapterAt(chapters, 40), 1);
 });
 
+test('a trimmed recording places its chapters on the video, without what was cut', () => {
+  const at = (s: number) => new Date(Date.parse('2026-10-14T10:00:00Z') + s * 1000).toISOString();
+  const proof = proofOf(
+    [
+      // 63s on the clock, 15s of video: 10s–40s and 45s–63s stood still.
+      item('rec', 'recording', at(0), { meta: { duration: 15, recorded: 63, cuts: [{ from: 10, to: 40 }, { from: 45, to: 63 }] } }),
+      item('n1', 'note', at(5), { name: 'Opens settings' }),
+      item('n2', 'note', at(42), { name: 'Saves' }),
+      item('n3', 'note', at(50), { name: 'Done, while nothing moved' }),
+    ],
+    [],
+  );
+  assert.deepEqual(
+    proof.recordings[0].chapters.map((c) => [c.at, c.title]),
+    [
+      [5, 'Opens settings'],
+      [12, 'Saves'],
+      [15, 'Done, while nothing moved'],
+    ],
+  );
+});
+
 test('a recording with no notes is in chapters by its screenshots, and with neither has none', () => {
   const proof = proofOf(
     [item('rec', 'recording', '2026-10-14T10:00:00Z', { meta: { duration: 60 } }), item('settings-at-1024', 'screenshot', '2026-10-14T10:00:12Z')],

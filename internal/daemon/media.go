@@ -98,7 +98,7 @@ func (s *Server) media(action string, agentOf func(*http.Request) (state.Agent, 
 			if err := readJSON(r, &req); err != nil {
 				return err
 			}
-			status, err := m.StartRecording(ctx, a, req.Target, req.Input, req.Name, time.Duration(req.LimitSeconds)*time.Second, source)
+			status, err := m.StartRecording(ctx, a, req.Target, req.Input, req.Name, time.Duration(req.LimitSeconds)*time.Second, req.NoTrim, source)
 			if err != nil {
 				return err
 			}

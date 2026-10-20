@@ -249,6 +249,7 @@ func newMediaScreenshotCmd(a *app) *cobra.Command {
 func newRecordStartCmd(a *app) *cobra.Command {
 	var name, input, target string
 	var limit time.Duration
+	var noTrim bool
 	cmd := &cobra.Command{
 		Use:   "start [agent]",
 		Short: "Start recording the agent's display",
@@ -264,7 +265,12 @@ With --input desktop the recording also shows how it was driven: the mouse
 cursor, a ripple where it clicks, and the keys pressed as a caption, drawn as
 it records. Use it for a flow driven through the desktop, with xdotool;
 Playwright's input is synthesized inside Chromium, where neither the cursor
-nor the overlay sees it.`,
+nor the overlay sees it.
+
+A stretch where the screen stands still for more than a second plays as 0.4s
+of it, so the video shows the action and not the waiting between steps; the
+notes made meanwhile still mark the moments they were made at. --no-trim
+keeps every frame. Android recordings are always kept whole.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ref := optionalRef(args)
@@ -272,7 +278,7 @@ nor the overlay sees it.`,
 			if err != nil {
 				return err
 			}
-			status, err := c.StartRecording(cmd.Context(), ref, api.RecordRequest{Target: target, Input: input, Name: name, LimitSeconds: int(limit.Seconds())})
+			status, err := c.StartRecording(cmd.Context(), ref, api.RecordRequest{Target: target, Input: input, Name: name, LimitSeconds: int(limit.Seconds()), NoTrim: noTrim})
 			if err != nil {
 				return err
 			}
@@ -285,6 +291,7 @@ nor the overlay sees it.`,
 	cmd.Flags().StringVar(&target, "target", "auto", "auto, display (the whole desktop) or browser (the page alone)")
 	cmd.Flags().StringVar(&input, "input", "playwright", "playwright, or desktop to show the mouse cursor and the keys pressed")
 	cmd.Flags().DurationVar(&limit, "limit", 10*time.Minute, "stop by itself after this long (at most 1h)")
+	cmd.Flags().BoolVar(&noTrim, "no-trim", false, "keep every frame, where the screen standing still otherwise plays as a moment of it")
 	return cmd
 }
 
@@ -294,6 +301,10 @@ func recordTarget(target string) string {
 		return " of the browser's page"
 	}
 	return ""
+}
+
+func roundSeconds(s float64) time.Duration {
+	return time.Duration(s * float64(time.Second)).Round(time.Second)
 }
 
 // recordInput names the mode in a sentence, and says nothing for the default.
@@ -320,6 +331,10 @@ func newRecordStopCmd(a *app) *cobra.Command {
 				return err
 			}
 			printSaved(cmd, item)
+			if m := item.Meta; m.Recorded > 0 && m.Duration > 0 {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "It plays in %s of the %s recorded: %d still stretches cut\n",
+					roundSeconds(m.Duration), roundSeconds(m.Recorded), len(m.Cuts))
+			}
 			return nil
 		},
 	}

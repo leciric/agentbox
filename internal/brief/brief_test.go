@@ -55,6 +55,17 @@ func TestRender(t *testing.T) {
 			GitHub:   true,
 			AgentPRs: true,
 		},
+		// The user lets commits credit the AI tool: no line asking not to.
+		"credit-ai-tool": {
+			Project:      "pawly",
+			Agent:        "agent-08",
+			Worktree:     "/home/dev/.local/share/agentbox/worktrees/pawly/agent-08",
+			Branch:       "agentbox/agent-08",
+			BaseRef:      "main",
+			IP:           "10.239.149.28",
+			AgentPRs:     true,
+			CreditAITool: true,
+		},
 		"secrets": {
 			Project:  "pawly",
 			Agent:    "agent-04",

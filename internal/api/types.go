@@ -457,6 +457,11 @@ type Settings struct {
 	// and carry on with that turn when it starts again. On unless it was
 	// turned off.
 	ContinueAfterRestart bool `json:"continueAfterRestart"`
+	// CreditAITool says whether agents' commits and pull requests credit the
+	// AI tool that wrote them, with its Co-authored-by trailer and "Generated
+	// with …" line. Off unless it was turned on; it reaches an agent as it
+	// starts, and a Claude Code agent's chat as it starts too.
+	CreditAITool bool `json:"creditAITool"`
 	// ClaudeCompactWindow is how many tokens of context a Claude Code or Codex
 	// chat holds before its tool compacts it (D83); 0 is the model's whole
 	// window. OpenCode has no equivalent to set: its own compaction settings
@@ -611,6 +616,9 @@ type UpdateSettingsRequest struct {
 	ResumeAfterLimit *bool `json:"resumeAfterLimit,omitempty"`
 	// ContinueAfterRestart turns "Continue agents after restarts" on or off.
 	ContinueAfterRestart *bool `json:"continueAfterRestart,omitempty"`
+	// CreditAITool turns "Credit the AI tool in commits and pull requests"
+	// on or off.
+	CreditAITool *bool `json:"creditAITool,omitempty"`
 	// ClaudeCompactWindow is 0 for the model's whole window, or between
 	// 100000 and 1000000 tokens.
 	ClaudeCompactWindow *int64 `json:"claudeCompactWindow,omitempty"`
@@ -2542,6 +2550,17 @@ type MediaMeta struct {
 	URL      string      `json:"url,omitempty"`
 	Entry    string      `json:"entry,omitempty"` // for a directory, the file to open
 	Tests    *TestCounts `json:"tests,omitempty"`
+	// Recorded is how long a trimmed recording took on the wall clock, in
+	// seconds, and Cuts the stretches of it, in the same seconds, its video
+	// leaves out: where the screen stood still. A note made during one is
+	// placed in the video by taking out what was cut before it.
+	Recorded float64    `json:"recorded,omitempty"`
+	Cuts     []MediaCut `json:"cuts,omitempty"`
+}
+
+type MediaCut struct {
+	From float64 `json:"from"`
+	To   float64 `json:"to"`
 }
 
 type TestCounts struct {
@@ -2561,6 +2580,9 @@ type RecordRequest struct {
 	Input        string `json:"input,omitempty"`  // playwright (default) or desktop, which overlays the keys and shows the cursor
 	Name         string `json:"name,omitempty"`
 	LimitSeconds int    `json:"limitSeconds,omitempty"`
+	// NoTrim keeps every frame, where a recording otherwise plays a stretch
+	// the screen stood still for as a moment of it.
+	NoTrim bool `json:"noTrim,omitempty"`
 }
 
 type RecordingStatus struct {
