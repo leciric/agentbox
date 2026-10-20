@@ -776,6 +776,13 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 	// A copy of a machine made by an earlier release, or of a base saved from
 	// one, carries the limits that release set on it.
 	steps = append(steps, oldLimitSteps(a.Instance, copied.Config, copied.Devices)...)
+	// The VM's GPU, when "GPU for agents" is on (gpu.go); a copy of another
+	// agent may carry it when it's off.
+	gpu, err := m.wantGPU(ctx)
+	if err != nil {
+		return "instance", err
+	}
+	steps = append(steps, m.gpuSteps(a.Instance, gpu, copied.Devices)...)
 	steps = append(steps,
 		func(ctx context.Context, _ incus.Client) error { return m.setStartShare(ctx, a.Instance) },
 		func(ctx context.Context, c incus.Client) error { return c.Start(ctx, a.Instance) },
@@ -1803,6 +1810,9 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 		// A machine only changes cgroup when it starts: this is when one an
 		// earlier release put in its shared budget moves out of it.
 		if err := m.dropOldLimits(ctx, a.Instance); err != nil {
+			return inst, err
+		}
+		if err := m.settleGPU(ctx, a.Instance); err != nil {
 			return inst, err
 		}
 		if err := m.setStartShare(ctx, a.Instance); err != nil {

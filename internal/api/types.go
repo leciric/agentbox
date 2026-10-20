@@ -474,6 +474,12 @@ type Settings struct {
 	// else. On unless it was turned off, and never sent while UpdateCheck is
 	// off or something blocks it.
 	UsageStats bool `json:"usageStats"`
+	// AgentGPU says whether every agent gets the GPU of AgentBox's VM, when
+	// VMGPU finds one: added to the agents you have, and to each new one, the
+	// moment it changes. Off unless it was turned on.
+	AgentGPU bool `json:"agentGPU"`
+	// VMGPU is the GPU AgentBox's VM has to give agents.
+	VMGPU VMGPU `json:"vmGPU"`
 	// ErrorReports says whether the app sends a report of each uncaught error
 	// by itself (ReportKindError). On unless the user turned it off.
 	ErrorReports bool `json:"errorReports"`
@@ -616,6 +622,8 @@ type UpdateSettingsRequest struct {
 	// UsageStats turns the anonymous usage stats on or off. Off also forgets
 	// the counts not sent yet.
 	UsageStats *bool `json:"usageStats,omitempty"`
+	// AgentGPU turns "GPU for agents" on or off.
+	AgentGPU *bool `json:"agentGPU,omitempty"`
 	// ErrorReports turns automatic error reports on or off.
 	ErrorReports *bool `json:"errorReports,omitempty"`
 	// PRWatch turns the pull request watch on or off.
@@ -3167,4 +3175,41 @@ type TerminalTail struct {
 // agent asked for that could be read; an agent that isn't running is left out.
 type TerminalTails struct {
 	Agents []TerminalTail `json:"agents"`
+}
+
+// VMGPU is the GPU AgentBox's VM has to give agents (Settings.VMGPU).
+type VMGPU struct {
+	// Kind is "dxg" (WSL's /dev/dxg), "render" (a DRM render node), or ""
+	// when the VM has none.
+	Kind string `json:"kind"`
+	// Node is the device: /dev/dxg or /dev/dri/renderD128.
+	Node string `json:"node"`
+	// Reason says why the VM has none, when Kind is "".
+	Reason string `json:"reason"`
+}
+
+// GPUReport is GET .../browser/gpu: what an agent's desktop renders on, as
+// its own glxinfo and vulkaninfo see it.
+type GPUReport struct {
+	// Device is the GPU device in the agent (/dev/dxg, a render node), ""
+	// when it has none.
+	Device string `json:"device"`
+	// Display says whether the desktop answered: the renderer is empty when
+	// it didn't.
+	Display bool `json:"display"`
+	// Renderer is OpenGL's renderer string on the desktop, and Accelerated
+	// whether it is a GPU's rather than Mesa's software one (llvmpipe).
+	Renderer    string `json:"renderer"`
+	Accelerated bool   `json:"accelerated"`
+	// Vulkan are the Vulkan devices the agent sees.
+	Vulkan []VulkanDevice `json:"vulkan"`
+	// Error is what went wrong asking, when something did.
+	Error string `json:"error,omitempty"`
+}
+
+// VulkanDevice is one Vulkan physical device: its name and type
+// ("DISCRETE_GPU", "INTEGRATED_GPU", "CPU", ...).
+type VulkanDevice struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
 }

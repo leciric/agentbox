@@ -54,6 +54,34 @@ func TestResumeAfterLimitIsOnUntilItIsTurnedOff(t *testing.T) {
 	}
 }
 
+// "GPU for agents" is off until it is turned on, and Settings says what the
+// VM has to give, or why it has nothing.
+func TestAgentGPUIsOffUntilItIsTurnedOn(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+
+	r := httptest.NewRequest(http.MethodGet, "/v1/settings", nil)
+	out, err := d.srv.currentSettings(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.AgentGPU {
+		t.Error("an installation that has never chosen gives agents the GPU")
+	}
+	if (out.VMGPU.Kind == "") == (out.VMGPU.Reason == "") {
+		t.Errorf("a GPU with a reason, or none without one: %+v", out.VMGPU)
+	}
+	if out, err := patchSettings(t, d, `{"agentGPU":true}`); err != nil || !out.AgentGPU {
+		t.Errorf("after turning it on: %+v, %v", out.AgentGPU, err)
+	}
+	if out, err := patchSettings(t, d, `{"prWatch":true}`); err != nil || !out.AgentGPU {
+		t.Errorf("another setting turned it off: %+v, %v", out.AgentGPU, err)
+	}
+	if out, err := patchSettings(t, d, `{"agentGPU":false}`); err != nil || out.AgentGPU {
+		t.Errorf("after turning it off: %+v, %v", out.AgentGPU, err)
+	}
+}
+
 func TestContinueAfterRestartIsOnUntilItIsTurnedOff(t *testing.T) {
 	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)

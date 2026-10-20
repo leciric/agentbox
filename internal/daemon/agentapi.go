@@ -118,6 +118,7 @@ func (s *Server) inAgentRoutes(instance string) http.Handler {
 	handle("POST /v1/self/credential", s.requestCredential(instance))
 	handle("POST /v1/self/connector", s.requestConnector(instance))
 	handle("GET /v1/self/browser", s.browser("status", self))
+	handle("GET /v1/self/browser/gpu", s.browserGPU(self))
 	for _, action := range []string{"start", "stop", "open"} {
 		handle("POST /v1/self/browser/"+action, s.browser(action, self))
 	}

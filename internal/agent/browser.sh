@@ -89,6 +89,19 @@ export XCURSOR_THEME="$cursor_theme" XCURSOR_SIZE="$cursor_size"
 devtools() { curl -sf --max-time 1 "http://127.0.0.1:9222/json/version" >/dev/null; }
 listening() { ss -ltn "sport = :$1" | grep -q LISTEN; }
 display_answering() { xdpyinfo -display "$DISPLAY" >/dev/null 2>&1; }
+# render_node is the GPU's DRM render node, when "GPU for agents" gave the
+# agent one (gpu.go): Xvnc takes it for DRI3, so the desktop's OpenGL and
+# Vulkan clients render on the GPU. WSL's GPU (/dev/dxg) has none: there,
+# Mesa's d3d12 driver renders under its software winsys, set up by
+# /etc/profile.d/agentbox-gpu.sh, and needs nothing from Xvnc.
+render_node() {
+  for node in /dev/dri/renderD*; do
+    if [ -c "$node" ] && [ -r "$node" ] && [ -w "$node" ]; then
+      echo "$node"
+      return
+    fi
+  done
+}
 wait_for() {
   i=0
   until "$@"; do
@@ -536,8 +549,10 @@ start)
   if ! pgrep -u "$uid" -f "Xvnc $DISPLAY " >/dev/null && ! display_answering; then
     # A snapshot taken while the display ran keeps its lock files.
     rm -f "/tmp/.X$display-lock" "/tmp/.X11-unix/X$display"
+    node=$(render_node)
+    # shellcheck disable=SC2086 # a device path, or nothing
     setsid Xvnc "$DISPLAY" -geometry 1440x900 -depth 24 -desktop agentbox \
-      -rfbport 5900 -localhost -SecurityTypes None -AlwaysShared >"$state/display.log" 2>&1 </dev/null &
+      -rfbport 5900 -localhost -SecurityTypes None -AlwaysShared ${node:+-rendernode $node} >"$state/display.log" 2>&1 </dev/null &
     wait_for test -e "/tmp/.X11-unix/X$display" || { echo "the display didn't start: see $state/display.log" >&2; exit 1; }
     wait_for listening 5900 || { echo "the VNC server didn't start: see $state/display.log" >&2; exit 1; }
   fi

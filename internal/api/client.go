@@ -845,6 +845,16 @@ func (c *Client) Browser(ctx context.Context, ref string) (BrowserStatus, error)
 	return status, c.do(ctx, http.MethodGet, path, nil, &status)
 }
 
+// BrowserGPU asks what an agent's desktop renders on.
+func (c *Client) BrowserGPU(ctx context.Context, ref string) (GPUReport, error) {
+	var report GPUReport
+	path, err := BrowserPath(ref)
+	if err != nil {
+		return report, err
+	}
+	return report, c.do(ctx, http.MethodGet, path+"/gpu", nil, &report)
+}
+
 // BrowserAction starts or stops an agent's browser.
 func (c *Client) BrowserAction(ctx context.Context, ref, action string) (BrowserStatus, error) {
 	var status BrowserStatus

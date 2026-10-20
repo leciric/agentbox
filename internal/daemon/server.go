@@ -885,6 +885,7 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/agents/{project}/{agent}/chat/permissions/{item}", s.answerChat(s.agentFromPath))
 	h("PUT /v1/agents/{project}/{agent}/chat/options/{option}", s.setChatOption(s.agentFromPath))
 	h("GET /v1/agents/{project}/{agent}/browser", s.browser("status", s.agentFromPath))
+	h("GET /v1/agents/{project}/{agent}/browser/gpu", s.browserGPU(s.agentFromPath))
 	for _, action := range []string{"start", "stop", "open"} {
 		h("POST /v1/agents/{project}/{agent}/browser/"+action, s.browser(action, s.agentFromPath))
 	}

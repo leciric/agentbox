@@ -103,16 +103,13 @@ apt-get install -y -q --no-install-recommends tigervnc-standalone-server chromiu
   xwallpaper adwaita-icon-theme librsvg2-common fonts-liberation fonts-dejavu-core fonts-noto-color-emoji ffmpeg
 
 # Mesa's DRI drivers, VA-API and Vulkan: in every image, whether or not
-# "GPU for agents" is ever turned on for this installation, because that
-# setting only decides whether an agent's container gets a GPU device
-# (internal/agent/gpu.go) — the userspace that renders and encodes on one has
-# to already be here, or turning it on would do nothing. mesa-va-drivers
-# covers AMD and Intel; NVIDIA agents render and encode through the
-# proprietary driver's own libraries, which Incus's gpu device brings in with
-# nvidia.runtime=true rather than anything installed here. vainfo lets an
-# agent check chrome://gpu-style whether VA-API actually found the device.
+# "GPU for agents" is ever turned on, because that setting only gives an
+# agent the VM's GPU device (internal/agent/gpu.go): the userspace that
+# renders on it has to be here already. libgl1-mesa-dri has the d3d12 driver
+# WSL's /dev/dxg renders through, as well as AMD's, Intel's and virtio-gpu's;
+# glxinfo (mesa-utils) and vulkaninfo are what `agentbox browser gpu` asks.
 apt-get install -y -q --no-install-recommends \
-  mesa-va-drivers mesa-vulkan-drivers libgl1-mesa-dri libegl-mesa0 vainfo vulkan-tools
+  mesa-va-drivers mesa-vulkan-drivers libgl1-mesa-dri libegl-mesa0 vainfo vulkan-tools mesa-utils
 
 SCRCPY_VERSION=v4.1
 SCRCPY_SHA256=ad56ae8bfeedf41e824945c11dbf55fcb092b3e615b9b486f48a50e30d389635

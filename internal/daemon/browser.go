@@ -69,6 +69,26 @@ func (s *Server) browser(action string, agentOf func(*http.Request) (state.Agent
 	}
 }
 
+// browserGPU reports what an agent's desktop renders on (agent.GPUReport).
+func (s *Server) browserGPU(agentOf func(*http.Request) (state.Agent, error)) func(http.ResponseWriter, *http.Request) error {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		a, err := agentOf(r)
+		if err != nil {
+			return err
+		}
+		report, err := s.manager(s.cfg.Log).GPUReport(r.Context(), a)
+		if err != nil {
+			return err
+		}
+		out := api.GPUReport{Device: report.Device, Display: report.Display, Renderer: report.Renderer,
+			Accelerated: report.Accelerated, Vulkan: []api.VulkanDevice{}, Error: report.Error}
+		for _, d := range report.Vulkan {
+			out.Vulkan = append(out.Vulkan, api.VulkanDevice{Name: d.Name, Type: d.Type})
+		}
+		return writeJSON(w, http.StatusOK, out)
+	}
+}
+
 // elementPicks cancels each agent's element picker: one at a time per agent,
 // so a second pick ends the first.
 type elementPicks struct {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -23,6 +24,7 @@ func newBrowserCmd(a *app) *cobra.Command {
 		newBrowserActionCmd(a, "start", "Start the browser, unless it's running"),
 		newBrowserActionCmd(a, "stop", "Stop the browser and its display"),
 		newBrowserOpenCmd(a),
+		newBrowserGPUCmd(a),
 	)
 	return cmd
 }
@@ -130,5 +132,53 @@ func newBrowserOpenCmd(a *app) *cobra.Command {
 			}
 			return printBrowser(cmd, status)
 		},
+	}
+}
+
+func newBrowserGPUCmd(a *app) *cobra.Command {
+	return &cobra.Command{
+		Use:   "gpu [agent]",
+		Short: "Show what the desktop renders on: its OpenGL renderer and Vulkan devices",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ref := optionalRef(args)
+			c, err := a.scopedClient(cmd, ref)
+			if err != nil {
+				return err
+			}
+			report, err := c.BrowserGPU(cmd.Context(), ref)
+			if err != nil {
+				return err
+			}
+			printGPU(cmd, report)
+			return nil
+		},
+	}
+}
+
+func printGPU(cmd *cobra.Command, r api.GPUReport) {
+	out := cmd.OutOrStdout()
+	device := r.Device
+	if device == "" {
+		device = "none (GPU for agents is off, or AgentBox's VM has no GPU)"
+	}
+	_, _ = fmt.Fprintf(out, "GPU device: %s\n", device)
+	switch {
+	case r.Error != "":
+		_, _ = fmt.Fprintf(out, "OpenGL:     %s\n", r.Error)
+	case r.Accelerated:
+		_, _ = fmt.Fprintf(out, "OpenGL:     %s (on the GPU)\n", r.Renderer)
+	default:
+		_, _ = fmt.Fprintf(out, "OpenGL:     %s (software)\n", r.Renderer)
+	}
+	if len(r.Vulkan) == 0 {
+		_, _ = fmt.Fprintln(out, "Vulkan:     no devices")
+	}
+	for i, d := range r.Vulkan {
+		label := "Vulkan:    "
+		if i > 0 {
+			label = "           "
+		}
+		_, _ = fmt.Fprintf(out, "%s %s (%s)\n", label, d.Name, strings.ToLower(strings.ReplaceAll(d.Type, "_", " ")))
 	}
 }

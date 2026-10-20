@@ -13,8 +13,8 @@ import (
 // could put every agent under one shared cgroup budget, all to keep agents
 // from freezing the desktop of the host they ran on; and "GPU for agents"
 // passed the host's GPU into each machine. AgentBox now runs in a VM of its
-// own, whose size is what the agents share and which has no GPU to pass on,
-// so it sets none of that.
+// own, whose size is what the agents share, so it sets none of that. (The VM's
+// own GPU, when it has one, is gpu.go's, under other names.)
 //
 // A machine made by an earlier release still carries those keys, and so does
 // a snapshot of one, which brings them back when it is restored, or a copy of
@@ -118,6 +118,15 @@ func (m *Manager) dropOldLimits(ctx context.Context, instance string) error {
 // and reports how many it changed. A machine that already has none of it is
 // left alone, so after the first start this is one `incus list`.
 func (m *Manager) DropOldLimits(ctx context.Context) (changed int, err error) {
+	return m.eachAgentMachine(ctx, func(inst incus.Instance) []incusStep {
+		return oldLimitSteps(inst.Name, inst.Config, inst.Devices)
+	})
+}
+
+// eachAgentMachine makes stepsOf's changes to every agent's machine, and
+// reports how many it changed: one `incus list`, and nothing more for a
+// machine that needs nothing.
+func (m *Manager) eachAgentMachine(ctx context.Context, stepsOf func(incus.Instance) []incusStep) (changed int, err error) {
 	agents, err := m.Store.Agents(ctx, "")
 	if err != nil || len(agents) == 0 {
 		return 0, err
@@ -134,7 +143,7 @@ func (m *Manager) DropOldLimits(ctx context.Context) (changed int, err error) {
 		if !ours[inst.Name] {
 			continue
 		}
-		steps := oldLimitSteps(inst.Name, inst.Config, inst.Devices)
+		steps := stepsOf(inst)
 		for _, step := range steps {
 			if err := step(ctx, m.Incus); err != nil {
 				return changed, err

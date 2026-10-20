@@ -33,6 +33,7 @@ var Changes = []Change{
 	{"2026.09.27.1", "Mesa's DRI, VA-API and Vulkan drivers, and vainfo, for GPU for agents"},
 	{"2026.10.02.1", "/etc/agentbox-image, a marker that tells the agentbox binary it's on an agent's machine"},
 	{"2026.10.19.1", "a network check that stops the build with the hop that fails, and time limits on apt and downloads"},
+	{"2026.10.20.1", "glxinfo (mesa-utils), which says what an agent's desktop renders on with GPU for agents"},
 }
 
 // OlderVersion reports whether image version a comes before b. Versions are

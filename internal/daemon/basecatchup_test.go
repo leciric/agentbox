@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -62,7 +63,7 @@ exit 0
 	if b.ImageFrom != "2026.09.21.1" || b.ImageTo != image.Version {
 		t.Errorf("image %q → %q", b.ImageFrom, b.ImageTo)
 	}
-	if len(b.Changes) < 2 || !strings.Contains(b.Changes[len(b.Changes)-2].What, "agentbox-image") {
+	if !slices.ContainsFunc(b.Changes, func(c api.BaseImageChange) bool { return strings.Contains(c.What, "agentbox-image") }) {
 		t.Errorf("changes = %+v, want the agent image marker among them", b.Changes)
 	}
 	if len(b.Tools) != 1 || b.Tools[0].Name != "claude" || b.Tools[0].From != "0.0.1" || b.Tools[0].To == "" {

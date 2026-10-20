@@ -1337,6 +1337,19 @@ function InstalledSettings({
             },
           ],
         },
+        {
+          id: "machines",
+          title: t("settings.group.machines.title"),
+          entries: [
+            {
+              id: "agent-gpu",
+              label: t("settings.entry.agent-gpu.label"),
+              keywords: t("settings.entry.agent-gpu.keywords"),
+              modified: changed((s) => s.agentGPU),
+              render: () => <AgentGPU />,
+            },
+          ],
+        },
       ],
     },
     {
@@ -1881,6 +1894,46 @@ function UpdateChannel() {
 // PRWatch is the pull request watch (internal/daemon/prwatch.go): every
 // agent's open pull request, until it's merged or closed. A project can
 // override it from its own settings.
+// AgentGPU gives every agent the GPU of AgentBox's VM: WSL's /dev/dxg on
+// Windows, a render node elsewhere. Off by default; shown off and unavailable,
+// with the daemon's reason, when the VM has none.
+export function AgentGPU() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (agentGPU: boolean) => api.updateSettings({ agentGPU }),
+    onSuccess: (next) => queryClient.setQueryData(["settings"], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const gpu = settings.data?.vmGPU;
+  const unavailable = gpu !== undefined && gpu.kind === "";
+  return (
+    <SettingRow
+      label={t("settings.entry.agent-gpu.label")}
+      description={t("settings.agentGPU.description")}
+      details={t("settings.agentGPU.details")}
+      control={
+        <Switch
+          data-agent-gpu
+          aria-label={t("settings.entry.agent-gpu.label")}
+          disabled={save.isPending || settings.data === undefined || unavailable}
+          checked={!unavailable && (settings.data?.agentGPU ?? false)}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      }
+    >
+      {gpu && (
+        <SettingNote>
+          {unavailable
+            ? t("settings.agentGPU.unavailable", { reason: gpu.reason })
+            : t(gpu.kind === "dxg" ? "settings.agentGPU.wsl" : "settings.agentGPU.renderNode", { node: gpu.node })}
+        </SettingNote>
+      )}
+    </SettingRow>
+  );
+}
+
 export function PRWatch() {
   const t = useT();
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });

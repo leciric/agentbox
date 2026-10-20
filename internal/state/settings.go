@@ -158,6 +158,10 @@ const (
 	// failing checks, changes requested. On until somebody turns it off
 	// (FlagOn); a project can override it (Project.PRWatch).
 	SettingPRWatch = "pr_watch"
+	// SettingAgentGPU says whether every agent gets the GPU of AgentBox's VM
+	// (agent.FindVMGPU), when it has one. Off until somebody turns it on
+	// (Flag). Not #66's gpu_for_agents, which a migration deletes.
+	SettingAgentGPU = "agent_gpu"
 	// SettingMediaRetention is how long a removed agent's media is kept: one
 	// of the api.MediaRetention values, empty meaning
 	// DefaultMediaRetention. It belongs to the installation rather than to a

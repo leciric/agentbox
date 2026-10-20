@@ -150,6 +150,8 @@ export interface Settings {
   claudeCompactWindow: number;
   updateCheck: boolean;
   usageStats: boolean;
+  agentGPU: boolean;
+  vmGPU: VMGPU;
   errorReports: boolean;
   prWatch: boolean;
   mediaRetention: string;
@@ -200,6 +202,7 @@ export interface UpdateSettingsRequest {
   updateCheck?: boolean;
   updateChannel?: string;
   usageStats?: boolean;
+  agentGPU?: boolean;
   errorReports?: boolean;
   prWatch?: boolean;
   mediaRetention?: string;
@@ -791,6 +794,26 @@ export interface BrowserPage {
 
 export interface BrowserOpenRequest {
   url: string;
+}
+
+export interface GPUReport {
+  device: string;
+  display: boolean;
+  renderer: string;
+  accelerated: boolean;
+  vulkan: VulkanDevice[];
+  error?: string;
+}
+
+export interface VulkanDevice {
+  name: string;
+  type: string;
+}
+
+export interface VMGPU {
+  kind: string;
+  node: string;
+  reason: string;
 }
 
 export interface ElementPickRequest {

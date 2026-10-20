@@ -698,3 +698,21 @@ func mustJSON(t *testing.T, v any) []byte {
 	}
 	return b
 }
+
+func TestPrintGPU(t *testing.T) {
+	cmd, buf := outCmd()
+	printGPU(cmd, api.GPUReport{Device: "/dev/dxg", Display: true, Renderer: "D3D12 (NVIDIA GeForce RTX 3060)", Accelerated: true,
+		Vulkan: []api.VulkanDevice{{Name: "llvmpipe", Type: "CPU"}}})
+	for _, want := range []string{"GPU device: /dev/dxg", "D3D12 (NVIDIA GeForce RTX 3060) (on the GPU)", "Vulkan:     llvmpipe (cpu)"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("printGPU(WSL) = %q, want %q in it", buf.String(), want)
+		}
+	}
+	buf.Reset()
+	printGPU(cmd, api.GPUReport{Error: "the agent's desktop isn't running"})
+	for _, want := range []string{"GPU device: none", "OpenGL:     the agent's desktop isn't running", "Vulkan:     no devices"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("printGPU(nothing) = %q, want %q in it", buf.String(), want)
+		}
+	}
+}

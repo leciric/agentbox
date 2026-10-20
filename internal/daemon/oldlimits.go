@@ -23,4 +23,11 @@ func (s *Server) dropOldLimits(ctx context.Context) {
 	} else if changed > 0 {
 		s.logf("took an earlier release's limits off %d agent machine(s)", changed)
 	}
+	// The VM's GPU may have come or gone since the last daemon: a WSL or a
+	// driver update, or a Mac's VM made again.
+	if changed, err := s.manager(nil).ApplyGPU(ctx); err != nil {
+		s.logf("giving agents the VM's GPU: %v", err)
+	} else if changed > 0 {
+		s.logf("changed the GPU of %d agent machine(s)", changed)
+	}
 }

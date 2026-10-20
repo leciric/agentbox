@@ -125,7 +125,9 @@ func (m *Manager) SaveBase(ctx context.Context, a state.Agent) (Base, error) {
 	// saved from a machine an earlier release made would carry the limits it
 	// set, and its place in the shared budget's cgroup: started with that
 	// raw.lxc, it would try to run in the very directory the agent runs in.
-	for _, step := range oldLimitSteps(next, copied.Config, copied.Devices) {
+	// A base has no GPU of its own: each agent made from it gets the VM's.
+	steps := append(oldLimitSteps(next, copied.Config, copied.Devices), m.gpuSteps(next, VMGPU{}, copied.Devices)...)
+	for _, step := range steps {
 		if err := step(ctx, m.Incus); err != nil {
 			return fail(err)
 		}
