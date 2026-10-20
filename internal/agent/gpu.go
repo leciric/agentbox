@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -35,13 +37,19 @@ import (
 //   - A DRM render node (GPURender): an Incus gpu device; the desktop's Xvnc
 //     takes it with -rendernode, so its clients get DRI3. The Mac's VM
 //     (virtio-gpu) is one; agentbox-vgpu-driver, its darwin-only Mesa, is
-//     added beside it by the macOS code.
+//     added beside it by the macOS code. So is the Linux VM's (Cloud
+//     Hypervisor and crosvm), which it gets only as it starts: until then
+//     its supervisor says what the host has (vmGPUStatusFile), GPUHost.
 
 // Kinds of GPU FindVMGPU can find.
 const (
 	GPUNone   = ""
 	GPUDXG    = "dxg"
 	GPURender = "render"
+	// GPUHost is the Linux host's GPU, which AgentBox's VM gets when it
+	// next starts with "GPU for agents" on: the switch can be turned on,
+	// and agents get nothing until then.
+	GPUHost = "host"
 )
 
 // The devices "GPU for agents" adds. vgpuDevice is the GPU itself; the others
@@ -66,6 +74,10 @@ var (
 	wslLib         = "/usr/lib/wsl/lib"
 	wslDrivers     = "/usr/lib/wsl/drivers"
 	renderNodeGlob = "/dev/dri/renderD*"
+	// vmGPUStatusFile is where the Linux VM's supervisor says what GPU the
+	// host has for it, and why the VM has none (chv.GPUStatus, written to
+	// chv's guestGPUFile).
+	vmGPUStatusFile = "/run/agentbox-vm-gpu.json"
 )
 
 // gpuProfilePath is where the agent's login shells read gpuProfile from.
@@ -118,7 +130,37 @@ func FindVMGPU() VMGPU {
 	if hostos.WSL() {
 		return VMGPU{Reason: "WSL gives AgentBox's distro no GPU (no /dev/dxg): it needs Windows 10 21H2 or later, a current WSL (wsl --update) and a GPU driver with WSL support"}
 	}
+	if gpu, ok := hostGPU(); ok {
+		return gpu
+	}
 	return VMGPU{Reason: "AgentBox's VM has no GPU to give agents"}
+}
+
+// hostGPU is what the Linux VM's supervisor says of the host's GPU when the
+// VM has no render node; false when it said nothing (another VM, or an
+// older AgentBox). Its states and fields are chv.GPUStatus's.
+func hostGPU() (VMGPU, bool) {
+	b, err := os.ReadFile(vmGPUStatusFile)
+	if err != nil {
+		return VMGPU{}, false
+	}
+	var st struct {
+		State  string `json:"state"`
+		Node   string `json:"node"`
+		GPU    string `json:"gpu"`
+		Reason string `json:"reason"`
+	}
+	if json.Unmarshal(b, &st) != nil {
+		return VMGPU{}, false
+	}
+	switch st.State {
+	case "off", "restart":
+		return VMGPU{Kind: GPUHost, Node: st.Node, Reason: st.Reason}, true
+	case "on":
+		// It has the device, but the kernel made no render node of it.
+		return VMGPU{Reason: "AgentBox's VM has the GPU (" + st.GPU + "), but its kernel made no render node of it: see agentbox vm gpu"}, true
+	}
+	return VMGPU{Reason: strings.TrimSuffix(cmp.Or(st.Reason, "AgentBox's VM has no GPU to give agents"), ".")}, true
 }
 
 // AgentGPU reads the installation's "GPU for agents" choice, apart from
@@ -130,7 +172,7 @@ func (m *Manager) AgentGPU(ctx context.Context) (bool, error) {
 // wantGPU is the GPU agents should have now: chosen and there, or none.
 func (m *Manager) wantGPU(ctx context.Context) (VMGPU, error) {
 	gpu := FindVMGPU()
-	if gpu.Kind == GPUNone {
+	if gpu.Kind != GPUDXG && gpu.Kind != GPURender {
 		return VMGPU{}, nil
 	}
 	on, err := m.AgentGPU(ctx)

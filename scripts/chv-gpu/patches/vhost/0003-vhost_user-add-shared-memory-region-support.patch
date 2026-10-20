@@ -1,0 +1,497 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: David Stevens <stevensd@chromium.org>
+Date: Wed, 15 Jun 2022 16:45:12 +0900
+Subject: [PATCH 3/4] vhost_user: add shared memory region support
+
+Add support for shared memory regions to vhost-user. This is adding
+support for a front-end message to query for necessary shared memory
+regions plus back-end message to support mapping/unmapping files from
+the shared memory region.
+
+go/vvu-shared-memory
+
+BUG=b:201745804
+TEST=compiles
+
+Change-Id: I35c5d260ee09175b68f6778b81883e0070ee0265
+Reviewed-on: https://chromium-review.googlesource.com/c/chromiumos/platform/crosvm/+/3716344
+Reviewed-by: Keiichi Watanabe <keiichiw@chromium.org>
+Commit-Queue: David Stevens <stevensd@chromium.org>
+Reviewed-by: Alexandre Courbot <acourbot@chromium.org>
+Tested-by: kokoro <noreply+kokoro@google.com>
+(cherry-picked from commit f436e2706011fa5f34dc415972434aa3299ebc43)
+Signed-off-by: Alyssa Ross <alyssa.ross@unikie.com>
+[renumbered for crosvm commit e428c4ba88a26695f63929c680b4101a9b8d5cbc]
+Signed-off-by: Alyssa Ross <hi@alyssa.is>
+
+[AgentBox: rebased from vhost-user-backend-v0.20.0 onto v0.22.0. v0.22
+ standardised SHMEM_MAP/SHMEM_UNMAP (backend messages 9 and 10, with
+ VhostUserMMap) and GET_SHMEM_CONFIG (44), which crosvm doesn't speak.
+ Those are kept unchanged; crosvm's messages 1000 and 1001 are added
+ beside them as CROSVM_SHMEM_MAP and CROSVM_SHMEM_UNMAP, handled by new
+ crosvm_shmem_map/crosvm_shmem_unmap methods, and only they always get a
+ reply.]
+---
+ vhost-user-backend/src/handler.rs            |  12 +-
+ vhost/src/vhost_user/backend_req.rs          |  24 +++-
+ vhost/src/vhost_user/backend_req_handler.rs  |  15 +++
+ vhost/src/vhost_user/dummy_backend.rs        |   4 +
+ vhost/src/vhost_user/frontend.rs             |  23 ++++
+ vhost/src/vhost_user/frontend_req_handler.rs |  65 +++++++++-
+ vhost/src/vhost_user/message.rs              | 126 +++++++++++++++++++
+ 7 files changed, 258 insertions(+), 11 deletions(-)
+
+diff --git a/vhost-user-backend/src/handler.rs b/vhost-user-backend/src/handler.rs
+index e81d1f9..23ef45a 100644
+--- a/vhost-user-backend/src/handler.rs
++++ b/vhost-user-backend/src/handler.rs
+@@ -17,10 +17,10 @@ use crate::bitmap::{BitmapReplace, MemRegionBitmap, MmapLogReg};
+ #[cfg(feature = "postcopy")]
+ use userfaultfd::{Uffd, UffdBuilder};
+ use vhost::vhost_user::message::{
+-    VhostTransferStateDirection, VhostTransferStatePhase, VhostUserConfigFlags, VhostUserLog,
+-    VhostUserMemoryRegion, VhostUserProtocolFeatures, VhostUserShMemConfig, VhostUserSharedMsg,
+-    VhostUserSingleMemoryRegion, VhostUserVirtioFeatures, VhostUserVringAddrFlags,
+-    VhostUserVringState,
++    VhostSharedMemoryRegion, VhostTransferStateDirection, VhostTransferStatePhase,
++    VhostUserConfigFlags, VhostUserLog, VhostUserMemoryRegion, VhostUserProtocolFeatures,
++    VhostUserShMemConfig, VhostUserSharedMsg, VhostUserSingleMemoryRegion, VhostUserVirtioFeatures,
++    VhostUserVringAddrFlags, VhostUserVringState,
+ };
+ use vhost::vhost_user::GpuBackend;
+ use vhost::vhost_user::{
+@@ -671,6 +671,10 @@ where
+         Ok(())
+     }
+ 
++    fn get_shared_memory_regions(&mut self) -> VhostUserResult<Vec<VhostSharedMemoryRegion>> {
++        Ok(Vec::new())
++    }
++
+     fn set_device_state_fd(
+         &mut self,
+         direction: VhostTransferStateDirection,
+diff --git a/vhost/src/vhost_user/backend_req.rs b/vhost/src/vhost_user/backend_req.rs
+index 3b28bcf..4c14634 100644
+--- a/vhost/src/vhost_user/backend_req.rs
++++ b/vhost/src/vhost_user/backend_req.rs
+@@ -58,12 +58,16 @@ impl BackendInternal {
+         }
+         self.sock.send_message(&hdr, body, fds)?;
+ 
+-        self.wait_for_ack(&hdr)
++        self.wait_for_reply(&hdr)
+     }
+ 
+-    fn wait_for_ack(&mut self, hdr: &VhostUserMsgHeader<BackendReq>) -> Result<u64> {
++    fn wait_for_reply(&mut self, hdr: &VhostUserMsgHeader<BackendReq>) -> Result<u64> {
+         self.check_state()?;
+-        if !self.reply_ack_negotiated {
++        if !matches!(
++            hdr.get_code(),
++            Ok(BackendReq::CROSVM_SHMEM_MAP | BackendReq::CROSVM_SHMEM_UNMAP)
++        ) && !self.reply_ack_negotiated
++        {
+             return Ok(0);
+         }
+ 
+@@ -198,6 +202,20 @@ impl VhostUserFrontendReqHandler for Backend {
+         }
+         Ok(guard.send_message(BackendReq::SHMEM_UNMAP, req, None)?)
+     }
++
++    /// Forward crosvm's (non-standard) memory map file request to the frontend.
++    fn crosvm_shmem_map(&self, req: &VhostUserShmemMapMsg, fd: &dyn AsRawFd) -> HandlerResult<u64> {
++        Ok(self.inner.lock().unwrap().send_message(
++            BackendReq::CROSVM_SHMEM_MAP,
++            req,
++            Some(&[fd.as_raw_fd()]),
++        )?)
++    }
++
++    /// Forward crosvm's (non-standard) memory unmap file request to the frontend.
++    fn crosvm_shmem_unmap(&self, req: &VhostUserShmemUnmapMsg) -> HandlerResult<u64> {
++        Ok(self.inner.lock().unwrap().send_message(BackendReq::CROSVM_SHMEM_UNMAP, req, None)?)
++    }
+ }
+ 
+ #[cfg(test)]
+diff --git a/vhost/src/vhost_user/backend_req_handler.rs b/vhost/src/vhost_user/backend_req_handler.rs
+index e857e60..9404420 100644
+--- a/vhost/src/vhost_user/backend_req_handler.rs
++++ b/vhost/src/vhost_user/backend_req_handler.rs
+@@ -74,6 +74,7 @@ pub trait VhostUserBackendReqHandler {
+     fn get_max_mem_slots(&self) -> Result<u64>;
+     fn add_mem_region(&self, region: &VhostUserSingleMemoryRegion, fd: File) -> Result<()>;
+     fn remove_mem_region(&self, region: &VhostUserSingleMemoryRegion) -> Result<()>;
++    fn get_shared_memory_regions(&self) -> Result<Vec<VhostSharedMemoryRegion>>;
+     fn set_device_state_fd(
+         &self,
+         direction: VhostTransferStateDirection,
+@@ -140,6 +141,7 @@ pub trait VhostUserBackendReqHandlerMut {
+     fn get_max_mem_slots(&mut self) -> Result<u64>;
+     fn add_mem_region(&mut self, region: &VhostUserSingleMemoryRegion, fd: File) -> Result<()>;
+     fn remove_mem_region(&mut self, region: &VhostUserSingleMemoryRegion) -> Result<()>;
++    fn get_shared_memory_regions(&mut self) -> Result<Vec<VhostSharedMemoryRegion>>;
+     fn set_device_state_fd(
+         &mut self,
+         direction: VhostTransferStateDirection,
+@@ -276,6 +278,10 @@ impl<T: VhostUserBackendReqHandlerMut> VhostUserBackendReqHandler for Mutex<T> {
+         self.lock().unwrap().remove_mem_region(region)
+     }
+ 
++    fn get_shared_memory_regions(&self) -> Result<Vec<VhostSharedMemoryRegion>> {
++        self.lock().unwrap().get_shared_memory_regions()
++    }
++
+     fn set_device_state_fd(
+         &self,
+         direction: VhostTransferStateDirection,
+@@ -640,6 +646,15 @@ impl<S: VhostUserBackendReqHandler> BackendReqHandler<S> {
+                 let res = self.backend.remove_mem_region(&msg);
+                 self.send_ack_message(&hdr, res)?;
+             }
++            Ok(FrontendReq::GET_SHARED_MEMORY_REGIONS) => {
++                let regions = self.backend.get_shared_memory_regions()?;
++                let mut buf = Vec::new();
++                let msg = VhostUserU64::new(regions.len() as u64);
++                for r in regions {
++                    buf.extend_from_slice(r.as_slice())
++                }
++                self.send_reply_with_payload(&hdr, &msg, buf.as_slice())?;
++            }
+             Ok(FrontendReq::SET_DEVICE_STATE_FD) => {
+                 let file = take_single_file(files).ok_or(Error::IncorrectFds)?;
+                 let msg =
+diff --git a/vhost/src/vhost_user/dummy_backend.rs b/vhost/src/vhost_user/dummy_backend.rs
+index da89f76..2edf4f1 100644
+--- a/vhost/src/vhost_user/dummy_backend.rs
++++ b/vhost/src/vhost_user/dummy_backend.rs
+@@ -317,6 +317,10 @@ impl VhostUserBackendReqHandlerMut for DummyBackendReqHandler {
+         Ok(())
+     }
+ 
++    fn get_shared_memory_regions(&mut self) -> Result<Vec<VhostSharedMemoryRegion>> {
++        Ok(Vec::new())
++    }
++
+     fn set_device_state_fd(
+         &mut self,
+         _direction: VhostTransferStateDirection,
+diff --git a/vhost/src/vhost_user/frontend.rs b/vhost/src/vhost_user/frontend.rs
+index 9898181..0fd25cf 100644
+--- a/vhost/src/vhost_user/frontend.rs
++++ b/vhost/src/vhost_user/frontend.rs
+@@ -96,6 +96,8 @@ pub trait VhostUserFrontend: VhostBackend {
+     /// that have occurred after transferring state from/to
+     /// the back-end via vhost_set_device_state_fd().
+     fn check_device_state(&self) -> Result<()>;
++    /// Gets the shared memory regions used by the device.
++    fn get_shared_memory_regions(&self) -> Result<Vec<VhostSharedMemoryRegion>>;
+ 
+     /// Sends VHOST_USER_POSTCOPY_ADVISE msg to the backend
+     /// initiating the beginning of the postcopy process.
+@@ -643,6 +645,27 @@ impl VhostUserFrontend for Frontend {
+         Ok(())
+     }
+ 
++    fn get_shared_memory_regions(&self) -> Result<Vec<VhostSharedMemoryRegion>> {
++        let mut node = self.node();
++        let hdr = node.send_request_header(FrontendReq::GET_SHARED_MEMORY_REGIONS, None)?;
++        let (body_reply, buf_reply, rfds) = node.recv_reply_with_payload::<VhostUserU64>(&hdr)?;
++        let struct_size = mem::size_of::<VhostSharedMemoryRegion>();
++        if rfds.is_some() || buf_reply.len() != body_reply.value as usize * struct_size {
++            return error_code(VhostUserError::InvalidMessage);
++        }
++        let mut regions = Vec::new();
++        let mut offset = 0;
++        for _ in 0..body_reply.value {
++            regions.push(
++                // Can't fail because the input is the correct size.
++                *VhostSharedMemoryRegion::from_slice(&buf_reply[offset..(offset + struct_size)])
++                    .unwrap(),
++            );
++            offset += struct_size;
++        }
++        Ok(regions)
++    }
++
+     #[cfg(feature = "postcopy")]
+     fn postcopy_advise(&mut self) -> Result<File> {
+         let mut node = self.node();
+diff --git a/vhost/src/vhost_user/frontend_req_handler.rs b/vhost/src/vhost_user/frontend_req_handler.rs
+index 1047b85..66f7f63 100644
+--- a/vhost/src/vhost_user/frontend_req_handler.rs
++++ b/vhost/src/vhost_user/frontend_req_handler.rs
+@@ -62,6 +62,20 @@ pub trait VhostUserFrontendReqHandler {
+         Err(std::io::Error::from_raw_os_error(libc::ENOSYS))
+     }
+ 
++    /// Handle crosvm's (non-standard) shared memory region mapping requests.
++    fn crosvm_shmem_map(
++        &self,
++        _req: &VhostUserShmemMapMsg,
++        _fd: &dyn AsRawFd,
++    ) -> HandlerResult<u64> {
++        Err(std::io::Error::from_raw_os_error(libc::ENOSYS))
++    }
++
++    /// Handle crosvm's (non-standard) shared memory region unmapping requests.
++    fn crosvm_shmem_unmap(&self, _req: &VhostUserShmemUnmapMsg) -> HandlerResult<u64> {
++        Err(std::io::Error::from_raw_os_error(libc::ENOSYS))
++    }
++
+     // fn handle_iotlb_msg(&mut self, iotlb: VhostUserIotlb);
+     // fn handle_vring_host_notifier(&mut self, area: VhostUserVringArea, fd: &dyn AsRawFd);
+ }
+@@ -104,6 +118,20 @@ pub trait VhostUserFrontendReqHandlerMut {
+         Err(std::io::Error::from_raw_os_error(libc::ENOSYS))
+     }
+ 
++    /// Handle crosvm's (non-standard) shared memory region mapping requests.
++    fn crosvm_shmem_map(
++        &mut self,
++        _req: &VhostUserShmemMapMsg,
++        _fd: &dyn AsRawFd,
++    ) -> HandlerResult<u64> {
++        Err(std::io::Error::from_raw_os_error(libc::ENOSYS))
++    }
++
++    /// Handle crosvm's (non-standard) shared memory region unmapping requests.
++    fn crosvm_shmem_unmap(&mut self, _req: &VhostUserShmemUnmapMsg) -> HandlerResult<u64> {
++        Err(std::io::Error::from_raw_os_error(libc::ENOSYS))
++    }
++
+     // fn handle_iotlb_msg(&mut self, iotlb: VhostUserIotlb);
+     // fn handle_vring_host_notifier(&mut self, area: VhostUserVringArea, fd: RawFd);
+ }
+@@ -139,6 +167,14 @@ impl<S: VhostUserFrontendReqHandlerMut> VhostUserFrontendReqHandler for Mutex<S>
+     fn shmem_unmap(&self, req: &VhostUserMMap) -> HandlerResult<u64> {
+         self.lock().unwrap().shmem_unmap(req)
+     }
++
++    fn crosvm_shmem_map(&self, req: &VhostUserShmemMapMsg, fd: &dyn AsRawFd) -> HandlerResult<u64> {
++        self.lock().unwrap().crosvm_shmem_map(req, fd)
++    }
++
++    fn crosvm_shmem_unmap(&self, req: &VhostUserShmemUnmapMsg) -> HandlerResult<u64> {
++        self.lock().unwrap().crosvm_shmem_unmap(req)
++    }
+ }
+ 
+ /// Server to handle service requests from backends from the backend communication channel.
+@@ -281,10 +317,23 @@ impl<S: VhostUserFrontendReqHandler> FrontendReqHandler<S> {
+                     .shmem_unmap(&msg)
+                     .map_err(Error::ReqHandlerError)
+             }
++            Ok(BackendReq::CROSVM_SHMEM_MAP) => {
++                let msg = self.extract_msg_body::<VhostUserShmemMapMsg>(&hdr, size, &buf)?;
++                // check_attached_files() has validated files
++                self.backend
++                    .crosvm_shmem_map(&msg, &files.unwrap()[0])
++                    .map_err(Error::ReqHandlerError)
++            }
++            Ok(BackendReq::CROSVM_SHMEM_UNMAP) => {
++                let msg = self.extract_msg_body::<VhostUserShmemUnmapMsg>(&hdr, size, &buf)?;
++                self.backend
++                    .crosvm_shmem_unmap(&msg)
++                    .map_err(Error::ReqHandlerError)
++            }
+             _ => Err(Error::InvalidMessage),
+         };
+ 
+-        self.send_ack_message(&hdr, &res)?;
++        self.send_reply(&hdr, &res)?;
+ 
+         res
+     }
+@@ -318,7 +367,11 @@ impl<S: VhostUserFrontendReqHandler> FrontendReqHandler<S> {
+         files: &Option<Vec<File>>,
+     ) -> Result<()> {
+         match hdr.get_code() {
+-            Ok(BackendReq::SHARED_OBJECT_LOOKUP | BackendReq::SHMEM_MAP) => {
++            Ok(
++                BackendReq::SHARED_OBJECT_LOOKUP
++                | BackendReq::SHMEM_MAP
++                | BackendReq::CROSVM_SHMEM_MAP,
++            ) => {
+                 // Expect a single file is passed.
+                 match files {
+                     Some(files) if files.len() == 1 => Ok(()),
+@@ -360,12 +413,16 @@ impl<S: VhostUserFrontendReqHandler> FrontendReqHandler<S> {
+         ))
+     }
+ 
+-    fn send_ack_message(
++    fn send_reply(
+         &mut self,
+         req: &VhostUserMsgHeader<BackendReq>,
+         res: &Result<u64>,
+     ) -> Result<()> {
+-        if self.reply_ack_negotiated && req.is_need_reply() {
++        if matches!(
++            req.get_code(),
++            Ok(BackendReq::CROSVM_SHMEM_MAP | BackendReq::CROSVM_SHMEM_UNMAP)
++        ) || (self.reply_ack_negotiated && req.is_need_reply())
++        {
+             let hdr = self.new_reply_header::<VhostUserU64>(req)?;
+             let def_err = libc::EINVAL;
+             let val = match res {
+diff --git a/vhost/src/vhost_user/message.rs b/vhost/src/vhost_user/message.rs
+index 8d0852a..2b5290a 100644
+--- a/vhost/src/vhost_user/message.rs
++++ b/vhost/src/vhost_user/message.rs
+@@ -174,6 +174,8 @@ enum_value! {
+         CHECK_DEVICE_STATE = 43,
+         /// Get shared memory regions configuration from the backend.
+         GET_SHMEM_CONFIG = 44,
++        /// Get a list of the device's shared memory regions.
++        GET_SHARED_MEMORY_REGIONS = 1004,
+     }
+ }
+ 
+@@ -203,6 +205,12 @@ enum_value! {
+         SHMEM_MAP = 9,
+         /// Unmap memory from guest address space
+         SHMEM_UNMAP = 10,
++
++        // Non-standard message types: crosvm's, which its GPU device sends.
++        /// Indicates a request to map a fd into a shared memory region.
++        CROSVM_SHMEM_MAP = 1000,
++        /// Indicates a request to unmap part of a shared memory region.
++        CROSVM_SHMEM_UNMAP = 1001,
+     }
+ }
+ 
+@@ -1079,6 +1087,99 @@ impl VhostUserMsgValidator for VhostUserMMap {
+             && VhostUserMMapFlags::from_bits(self.flags).is_some()
+     }
+ }
++bitflags! {
++    #[derive(Default, Copy, Clone)]
++    /// Flags for SHMEM_MAP messages.
++    pub struct VhostUserShmemMapMsgFlags: u8 {
++        /// Empty permission.
++        const EMPTY = 0x0;
++        /// Read permission.
++        const MAP_R = 0x1;
++        /// Write permission.
++        const MAP_W = 0x2;
++    }
++}
++
++/// Backend request message to map a file into a shared memory region.
++#[repr(C, packed)]
++#[derive(Default, Copy, Clone)]
++pub struct VhostUserShmemMapMsg {
++    /// Flags for the mmap operation
++    pub flags: VhostUserShmemMapMsgFlags,
++    /// Shared memory region id.
++    pub shmid: u8,
++    padding: [u8; 6],
++    /// Offset into the shared memory region.
++    pub shm_offset: u64,
++    /// File offset.
++    pub fd_offset: u64,
++    /// Size of region to map.
++    pub len: u64,
++}
++// Safe because it only has data and has no implicit padding.
++unsafe impl ByteValued for VhostUserShmemMapMsg {}
++
++impl VhostUserMsgValidator for VhostUserShmemMapMsg {
++    fn is_valid(&self) -> bool {
++        (self.flags.bits() & !VhostUserShmemMapMsgFlags::all().bits()) == 0
++            && self.fd_offset.checked_add(self.len).is_some()
++            && self.shm_offset.checked_add(self.len).is_some()
++    }
++}
++
++impl VhostUserShmemMapMsg {
++    /// New instance of VhostUserShmemMapMsg struct
++    pub fn new(
++        shmid: u8,
++        shm_offset: u64,
++        fd_offset: u64,
++        len: u64,
++        flags: VhostUserShmemMapMsgFlags,
++    ) -> Self {
++        Self {
++            flags,
++            shmid,
++            padding: [0; 6],
++            shm_offset,
++            fd_offset,
++            len,
++        }
++    }
++}
++
++/// Backend request message to unmap part of a shared memory region.
++#[repr(C, packed)]
++#[derive(Default, Copy, Clone)]
++pub struct VhostUserShmemUnmapMsg {
++    /// Shared memory region id.
++    pub shmid: u8,
++    padding: [u8; 7],
++    /// Offset into the shared memory region.
++    pub shm_offset: u64,
++    /// Size of region to unmap.
++    pub len: u64,
++}
++// Safe because it only has data and has no implicit padding.
++unsafe impl ByteValued for VhostUserShmemUnmapMsg {}
++
++impl VhostUserMsgValidator for VhostUserShmemUnmapMsg {
++    fn is_valid(&self) -> bool {
++        self.shm_offset.checked_add(self.len).is_some()
++    }
++}
++
++impl VhostUserShmemUnmapMsg {
++    /// New instance of VhostUserShmemUnmapMsg struct
++    pub fn new(shmid: u8, shm_offset: u64, len: u64) -> Self {
++        Self {
++            shmid,
++            padding: [0; 7],
++            shm_offset,
++            len,
++        }
++    }
++}
++
+ /// Inflight I/O descriptor state for split virtqueues
+ #[repr(C, packed)]
+ #[derive(Clone, Copy, Default)]
+@@ -1210,6 +1311,31 @@ impl QueueRegionPacked {
+     }
+ }
+ 
++/// Virtio shared memory descriptor.
++#[repr(C, packed)]
++#[derive(Default, Copy, Clone)]
++pub struct VhostSharedMemoryRegion {
++    /// The shared memory region's shmid.
++    pub id: u8,
++    /// Padding
++    padding: [u8; 7],
++    /// The length of the shared memory region.
++    pub length: u64,
++}
++// Safe because it only has data and has no implicit padding.
++unsafe impl ByteValued for VhostSharedMemoryRegion {}
++
++impl VhostSharedMemoryRegion {
++    /// New instance of VhostSharedMemoryRegion struct
++    pub fn new(id: u8, length: u64) -> Self {
++        VhostSharedMemoryRegion {
++            id,
++            padding: [0; 7],
++            length,
++        }
++    }
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;

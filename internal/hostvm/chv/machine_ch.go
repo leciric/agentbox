@@ -22,11 +22,35 @@ type chMachine struct {
 	room Room // how far it can be resized without a restart
 
 	cloud, passt, fs *child
+	// gpu is crosvm's GPU device, when the VM has the GPU (gpu.go), and
+	// gpuPlan whether it was to.
+	gpu     *child
+	gpuPlan gpuPlan
 }
 
-// boot starts virtiofsd, passt and Cloud Hypervisor, and waits for Cloud
-// Hypervisor's API to answer.
+// boot starts crosvm's GPU device when the VM is to have the GPU (startGPU),
+// virtiofsd, passt and Cloud Hypervisor, and waits for Cloud Hypervisor's API
+// to answer. Cloud Hypervisor connects to every vhost-user device as it
+// starts, and exits when one fails, the GPU's too: then everything starts
+// again without it, since passt and virtiofsd exit with their one client.
 func (m *chMachine) boot(ctx context.Context) error {
+	m.startGPU(ctx)
+	err := m.bootVM(ctx)
+	if err != nil && m.gpu != nil && ctx.Err() == nil {
+		m.cloud.stop(childGrace)
+		m.passt.stop(childGrace)
+		m.fs.stop(childGrace)
+		m.gpuFailed(fmt.Sprintf("Cloud Hypervisor couldn't start with the GPU (%v)", err))
+		for _, f := range m.runFiles() {
+			_ = os.Remove(f)
+		}
+		err = m.bootVM(ctx)
+	}
+	return err
+}
+
+// bootVM starts virtiofsd, passt and Cloud Hypervisor.
+func (m *chMachine) bootVM(ctx context.Context) error {
 	if m.c.Home != "" {
 		// virtiofsd takes as many files as it may: the hard limit, or a
 		// million. What the VM keeps cached of the home costs one each.
@@ -49,7 +73,14 @@ func (m *chMachine) boot(ctx context.Context) error {
 	if err := waitSocket(ctx, m.passt, m.l.PasstSocket()); err != nil {
 		return err
 	}
-	if m.cloud, err = startChild("cloud-hypervisor", m.l.Bin("cloud-hypervisor"), chArgs(m.c, m.l, m.room), m.log); err != nil {
+	return m.startCloud(ctx)
+}
+
+// startCloud starts Cloud Hypervisor, with the GPU when crosvm runs, and
+// waits for its API to answer.
+func (m *chMachine) startCloud(ctx context.Context) error {
+	var err error
+	if m.cloud, err = startChild("cloud-hypervisor", m.l.Bin("cloud-hypervisor"), chArgs(m.c, m.l, m.room, m.gpu != nil), m.log); err != nil {
 		return err
 	}
 	if err := waitSocket(ctx, m.cloud, m.l.APISocket()); err != nil {
@@ -59,9 +90,46 @@ func (m *chMachine) boot(ctx context.Context) error {
 		if err := m.ch.Ping(ctx); err == nil {
 			return nil
 		}
+		if m.cloud.exited() {
+			return fmt.Errorf("cloud-hypervisor exited: %v", m.cloud.err)
+		}
 		time.Sleep(100 * time.Millisecond)
 	}
 	return errors.New("cloud-hypervisor's API didn't answer")
+}
+
+// startGPU starts crosvm's GPU device when gpu.json says "GPU for agents" is
+// on and planGPU finds a render node it can use, and says why in the log when
+// not. Nothing that goes wrong here stops the VM: it starts without the GPU.
+func (m *chMachine) startGPU(ctx context.Context) {
+	m.gpuPlan = planGPU(ReadGPUStatus(m.l).Want, findRenderNodes(), os.Getenv("AGENTBOX_VM_RENDER_NODE"), openRW)
+	if !m.gpuPlan.ok() {
+		if ReadGPUStatus(m.l).Want {
+			m.logf("the VM starts without the GPU: %s", m.gpuPlan.reason)
+		}
+		return
+	}
+	n := m.gpuPlan.node
+	gpu, err := startChildEnv("crosvm", m.l.Bin(gpuDir+"/bin/crosvm"), crosvmArgs(m.l, n.Path), gpuEnv(m.l, n, os.Environ()), m.log)
+	if err == nil {
+		if err = waitSocket(ctx, gpu, m.l.GPUSocket()); err != nil {
+			gpu.stop(childGrace)
+		}
+	}
+	if err != nil {
+		m.gpuFailed(fmt.Sprintf("crosvm's GPU device didn't start (%v; its lines in %s say more)", err, m.l.Log()))
+		return
+	}
+	m.gpu = gpu
+	m.logf("the VM gets the GPU on %s (%s)", n.Path, n.name())
+}
+
+// gpuFailed records that the VM starts without the GPU it was to have.
+func (m *chMachine) gpuFailed(why string) {
+	m.logf("the VM starts without the GPU: %s", why)
+	m.gpu.stop(childGrace)
+	m.gpu = nil
+	m.gpuPlan.reason = why
 }
 
 func (m *chMachine) startVirtiofsd(ctx context.Context, sandbox string) (*child, error) {
@@ -155,6 +223,7 @@ func (m *chMachine) halt() {
 		}
 	}
 	m.cloud.stop(childGrace)
+	m.gpu.stop(childGrace)
 	m.passt.stop(childGrace)
 	m.fs.stop(childGrace)
 }
@@ -198,7 +267,7 @@ func (m *chMachine) resident() (vm, all int64) {
 	if m.running() {
 		vm = resident(m.cloud.pid())
 	}
-	for _, c := range []*child{m.cloud, m.passt, m.fs} {
+	for _, c := range []*child{m.cloud, m.gpu, m.passt, m.fs} {
 		if c != nil && !c.exited() {
 			all += resident(c.pid())
 		}
@@ -223,5 +292,6 @@ func (m *chMachine) runFiles() []string {
 		m.l.VsockSocket(),
 		m.l.PasstSocket(), m.l.PasstSocket() + ".repair",
 		m.l.FSSocket(), m.l.FSSocket() + ".pid",
+		m.l.GPUSocket(),
 	}
 }

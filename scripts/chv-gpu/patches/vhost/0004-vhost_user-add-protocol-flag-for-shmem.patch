@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: David Stevens <stevensd@chromium.org>
+Date: Thu, 13 Oct 2022 10:37:47 +0900
+Subject: [PATCH 4/4] vhost_user: add protocol flag for shmem
+
+Add a vhost protocol feature flag for shared memory region support. This
+is necessary to avoid sending the GET_SHARED_MEMORY_REGIONS message to
+backends which don't support it.
+
+BUG=b:252901073
+TEST=crosvm device wl
+
+Change-Id: I044926e982526c3c76063b5386cab0db72524707
+Reviewed-on: https://chromium-review.googlesource.com/c/crosvm/crosvm/+/3951472
+Reviewed-by: Daniel Verkamp <dverkamp@chromium.org>
+Commit-Queue: David Stevens <stevensd@chromium.org>
+(cherry-picked from commit 60aa43629ae9be2cc3df37c648ab7e0e5ff2172c)
+[renumbered for crosvm commit 6795b3edf3ddc0b3a2e2b928033f21dabcf8be78]
+Signed-off-by: Alyssa Ross <hi@alyssa.is>
+
+[AgentBox: rebased onto vhost-user-backend-v0.22.0; the bit sits after
+ v0.22's GET_VRING_BASE_INFLIGHT and SHMEM bits.]
+---
+ vhost/src/vhost_user/message.rs | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/vhost/src/vhost_user/message.rs b/vhost/src/vhost_user/message.rs
+index 2b5290a..f45cd5d 100644
+--- a/vhost/src/vhost_user/message.rs
++++ b/vhost/src/vhost_user/message.rs
+@@ -455,6 +455,8 @@ bitflags! {
+         /// Allow the backend to request file descriptors be mapped into virtio shared memory
+         /// regions.
+         const SHMEM = 0x0020_0000;
++        /// Support shared memory regions. (Non-standard: crosvm's.)
++        const SHARED_MEMORY_REGIONS = 0x8000_0000;
+     }
+ }
+ 

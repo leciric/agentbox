@@ -28,7 +28,13 @@ type child struct {
 // startChild starts a program whose output goes to log, a line at a time,
 // each prefixed with its name. It dies with the supervisor (childAttr).
 func startChild(name, path string, args []string, log io.Writer) (*child, error) {
+	return startChildEnv(name, path, args, nil, log)
+}
+
+// startChildEnv is startChild with env as its environment (nil: ours).
+func startChildEnv(name, path string, args, env []string, log io.Writer) (*child, error) {
 	cmd := exec.Command(path, args...)
+	cmd.Env = env
 	w := &prefixWriter{prefix: name + ": ", w: log}
 	cmd.Stdout, cmd.Stderr = w, w
 	cmd.SysProcAttr = childAttr()
@@ -221,8 +227,9 @@ func regionSize(c Config, room Room) int64 {
 	return max((room.Memory-c.MemoryMin)/memHotplugAlign*memHotplugAlign, 0)
 }
 
-// chArgs is Cloud Hypervisor's command line for the VM.
-func chArgs(c Config, l Layout, room Room) []string {
+// chArgs is Cloud Hypervisor's command line for the VM; gpu adds the GPU
+// device crosvm serves on Layout.GPUSocket.
+func chArgs(c Config, l Layout, room Room, gpu bool) []string {
 	// shared=on: vhost-user (passt) and virtiofsd map the VM's memory.
 	// thp=on asks for transparent huge pages on it, which shared memory only
 	// gets when asked (shmem_enabled=advise, the usual default): each 2 MiB
@@ -265,6 +272,12 @@ func chArgs(c Config, l Layout, room Room) []string {
 	)
 	if c.Home != "" {
 		args = append(args, "--fs", "tag=home,socket="+l.FSSocket())
+	}
+	if gpu {
+		// The device's 8 GiB shared-memory window, which host-visible
+		// blobs are mapped into, is a PCI BAR above the guest's memory and
+		// its virtio-mem region: it takes address space, not memory.
+		args = append(args, "--gpu", "socket="+l.GPUSocket())
 	}
 	return append(args,
 		"--vsock", fmt.Sprintf("cid=%d,socket=%s", GuestCID, l.VsockSocket()),

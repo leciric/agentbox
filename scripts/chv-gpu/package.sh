@@ -2,7 +2,7 @@
 # Runs inside the build (Dockerfile): turns $PREFIX into the tarball, in $1.
 set -eu
 out=$1
-name="chv-gpu-${CHV_VERSION}-spectrum0-x86_64"
+name="chv-${CHV_VERSION}-agentbox${CHV_BUILD}-x86_64"
 stage="/stage/$name"
 
 mkdir -p "$stage/bin" "$stage/lib" "$stage/libexec" "$stage/licenses" "$out"
@@ -22,16 +22,13 @@ for d in cloud-hypervisor vhost crosvm crosvm/third_party/minijail virglrenderer
 	find "/src/$d" -maxdepth 1 \( -name 'LICENSE*' -o -name 'COPYING*' -o -name 'NOTICE*' \) \
 		-exec cp -r {} "$stage/licenses/$d/" \;
 done
-mkdir -p "$stage/licenses/spectrum-patches"
-cp /src/spectrum/LICENSES/* "$stage/licenses/spectrum-patches/"
-cp /src/spectrum/*.patch "$stage/licenses/spectrum-patches/"
-mkdir -p "$stage/licenses/patches"
-cp /src/patches/*.patch /src/patches/README.md "$stage/licenses/patches/"
+# The patches as applied, with the licences of Spectrum's (LICENSES/).
+cp -r /src/patches "$stage/licenses/patches"
 
 {
-	echo "cloud-hypervisor $CHV_VERSION + Spectrum OS GPU patchset ${CHV_VERSION}-spectrum0 + backports: $(cd /src/patches && ls cloud-hypervisor-*.patch | sed 's/^cloud-hypervisor-//; s/\.patch$//' | paste -sd' ') (static, musl)"
-	echo "vhost $VHOST_URL (patched by the same patchset)"
-	echo "crosvm $CROSVM_COMMIT (minijail $MINIJAIL_COMMIT), features: default + virgl_renderer, patched: $(cd /src/patches && ls crosvm-*.patch | sed 's/^crosvm-//; s/\.patch$//' | paste -sd' ')"
+	echo "cloud-hypervisor $CHV_VERSION, AgentBox build $CHV_BUILD: Spectrum OS's GPU patchset (50.0-spectrum0) rebased onto it, $(ls /src/patches/cloud-hypervisor | paste -sd' ') (static, musl, --features mshv)"
+	echo "vhost $VHOST_URL, patched: $(ls /src/patches/vhost | paste -sd' ')"
+	echo "crosvm $CROSVM_COMMIT (minijail $MINIJAIL_COMMIT), features: default + virgl_renderer, patched: $(ls /src/patches/crosvm | paste -sd' ')"
 	echo "virglrenderer $VIRGLRENDERER_VERSION ($VIRGLRENDERER_COMMIT): venus, render-server, egl+glx, minigbm_allocation (system libgbm)"
 	echo "built with $(rustc --version) (crosvm), $(rustc "+$CHV_RUST" --version) (Cloud Hypervisor), on Debian 12 (snapshot.debian.org $DEBIAN_SNAPSHOT)"
 } > "$stage/VERSIONS"

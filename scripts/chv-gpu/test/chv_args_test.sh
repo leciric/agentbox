@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 # Runs the tarball's own cloud-hypervisor on try.sh's exact command line
-# (chv_command), far enough to prove v50 parses and validates it, on a
-# machine with no KVM: v50 opens /dev/kvm and asks KVM_GET_API_VERSION before
-# it reads its options, so the run happens in a user and mount namespace whose
-# /dev/kvm is an empty file, under fake-kvm, which answers that one ioctl.
-# The first KVM ioctl after it (KVM_CHECK_EXTENSION, as the VM is created)
-# fails, and means the options were parsed and validated. Nothing else on the
-# machine sees the fake /dev/kvm, a real one included.
+# (chv_command) and on AgentBox's VM's (chArgs, with the GPU and without), far
+# enough to prove it parses and validates them, on a machine with no KVM: it
+# opens /dev/kvm and asks KVM_GET_API_VERSION before it reads its options, so
+# the run happens in a user and mount namespace whose /dev/kvm is an empty
+# file, under fake-kvm, which answers that one ioctl. The first KVM ioctl
+# after it (KVM_CHECK_EXTENSION, as the VM is created) fails, and means the
+# options were parsed and validated. Nothing else on the machine sees the fake
+# /dev/kvm, a real one included. AgentBox's line without the GPU also goes to
+# upstream's v53.0 (downloaded, pinned), which must say exactly what ours does.
 #
 #   scripts/chv-gpu/test/chv_args_test.sh [TARBALL]   (default: out/*.tar.gz)
 #
-# Needs gcc, and unshare with unprivileged user namespaces.
+# Needs gcc, go, curl, and unshare with unprivileged user namespaces.
 # shellcheck disable=SC2034,SC2154 # try.sh's globals, and chv from chv_command
 set -uo pipefail
 
@@ -19,7 +21,7 @@ tdir=$(cd "$(dirname "$0")" && pwd)
 . "$tdir/../try.sh"
 set +e
 
-tarball=${1:-$(ls "$tdir"/../out/chv-gpu-*.tar.gz 2>/dev/null | head -n1)}
+tarball=${1:-$(ls "$tdir"/../out/chv-*.tar.gz 2>/dev/null | head -n1)}
 [ -f "$tarball" ] || { echo "no tarball: run build.sh first, or pass one"; exit 1; }
 for c in gcc unshare; do command -v "$c" >/dev/null || { echo "needs $c"; exit 1; }; done
 
@@ -55,7 +57,7 @@ failed=0
 check() { # NAME OUTPUT WANT-PARSED(yes|no) [NEEDLE]
 	local parsed=no
 	grep -q 'fake-kvm: KVM ioctl' <<<"$2" && ! grep -q 'Error parsing config' <<<"$2" && parsed=yes
-	if [ "$parsed" = "$3" ] && { [ -z "${4:-}" ] || grep -qF "$4" <<<"$2"; }; then
+	if [ "$parsed" = "$3" ] && { [ -z "${4:-}" ] || grep -qF -- "$4" <<<"$2"; }; then
 		echo "ok   $1"
 	else
 		echo "FAIL $1 (parsed: $parsed, want $3${4:+, and \"$4\"}):"
@@ -69,15 +71,14 @@ echo "try.sh runs: ${chv[*]//"$tmp"\//}"
 check "try.sh's command line parses and validates" "$(fake_kvm_run "${chv[@]}")" yes \
 	"KVM ioctl 0xae03"
 
-# The harness catches what it's there to catch: the image_type try.sh used
-# to pass (v53's), and a config v50 parses but refuses (vhost-user needs
-# shared memory).
+# The harness catches what it's there to catch: an option it doesn't know,
+# and a config it parses but refuses (vhost-user needs shared memory).
 bad=("${chv[@]}")
 for i in "${!bad[@]}"; do
-	case "${bad[$i]}" in path="$work/disk.raw") bad[i]+=",image_type=raw" ;; esac
+	case "${bad[$i]}" in path="$work/disk.raw") bad[i]+=",image_typo=raw" ;; esac
 done
-check "image_type (v53's option) is refused" "$(fake_kvm_run "${bad[@]}")" no \
-	"unknown option: image_type"
+check "an unknown option is refused" "$(fake_kvm_run "${bad[@]}")" no \
+	"unknown option: image_typo"
 bad=("${chv[@]}")
 for i in "${!bad[@]}"; do
 	case "${bad[$i]}" in size=*M,shared=on) bad[i]=${bad[i]%,shared=on} ;; esac
@@ -85,20 +86,53 @@ done
 check "vhost-user without shared memory is refused" "$(fake_kvm_run "${bad[@]}")" no \
 	"Using vhost-user requires using shared memory"
 
+# AgentBox's VM's own command line (internal/hostvm/chv chArgs), as
+# TestWriteCHArgs writes it: with the GPU it parses; without, ours and
+# upstream's v53.0 say the same, but for where they were built.
+upstream_url=https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/v53.0/cloud-hypervisor-static
+upstream_sha256=448af3d4e59b22c2987f7df94c213ad40fb53a10d437e42b5ee6c4fce7c29ecc
+root=$(cd "$tdir/../../.." && pwd)
+args=$tmp/agentbox
+mkdir -p "$args"
+if ! (cd "$root" && CHV_ARGS_OUT=$args go test -count=1 -run '^TestWriteCHArgs$' ./internal/hostvm/chv >/dev/null); then
+	echo "FAIL TestWriteCHArgs"; failed=1
+else
+	mapfile -t with_gpu <"$args/gpu.args"
+	mapfile -t without <"$args/nogpu.args"
+	check "AgentBox's VM's line, with the GPU" "$(fake_kvm_run "$bin/bin/cloud-hypervisor" "${with_gpu[@]}")" yes "KVM ioctl 0xae03"
+	ours=$(fake_kvm_run "$bin/bin/cloud-hypervisor" "${without[@]}")
+	check "AgentBox's VM's line, without the GPU" "$ours" yes "KVM ioctl 0xae03"
+	if curl -fsSL --retry 3 -o "$tmp/upstream" "$upstream_url" && echo "$upstream_sha256  $tmp/upstream" | sha256sum -c --quiet; then
+		chmod +x "$tmp/upstream"
+		theirs=$(fake_kvm_run "$tmp/upstream" "${without[@]}")
+		norm() { sed -E 's/[0-9]+\.[0-9]+s:/T:/; s#ERROR:[^ ]*cloud-hypervisor/src/#ERROR:src/#; s/vm\.rs:[0-9]+:[0-9]+/vm.rs:N/'; }
+		if [ "$(norm <<<"$ours")" = "$(norm <<<"$theirs")" ]; then
+			echo "ok   upstream's v53.0 says the same of it"
+		else
+			echo "FAIL upstream's v53.0 says otherwise:"; diff <(norm <<<"$theirs") <(norm <<<"$ours") | sed 's/^/     /'; failed=1
+		fi
+		check "upstream's v53.0 has no --gpu" "$(fake_kvm_run "$tmp/upstream" "${with_gpu[@]}")" no "unexpected argument '--gpu'"
+	else
+		echo "skip upstream's v53.0 (couldn't fetch it)"
+	fi
+fi
+
 # crosvm on try.sh's line (crosvm_command): it binds its socket only once
 # --params parsed, and refuses keys it doesn't know, so this also proves the
 # render-node key (our patch) is there. Nothing connects, so it never opens
 # the render node, which needn't exist.
-crosvm_bound() { # COMMAND...: "bound", or crosvm's last line
-	rm -f "$work/gpu.sock"
+crosvm_bound() { # SOCKET COMMAND...: "bound", or crosvm's last line
+	local sock=$1 p
+	shift
+	rm -f "$sock"
 	"$@" > "$tmp/crosvm.log" 2>&1 &
-	local p=$!
+	p=$!
 	for _ in $(seq 50); do
-		[ -S "$work/gpu.sock" ] && break
+		[ -S "$sock" ] && break
 		kill -0 "$p" 2>/dev/null || break
 		sleep 0.1
 	done
-	if [ -S "$work/gpu.sock" ]; then echo bound; else tail -n 1 "$tmp/crosvm.log"; fi
+	if [ -S "$sock" ]; then echo bound; else tail -n 1 "$tmp/crosvm.log"; fi
 	kill "$p" 2>/dev/null
 	wait "$p" 2>/dev/null
 }
@@ -108,12 +142,18 @@ else
 	render_node=/dev/dri/renderD128
 	crosvm_command
 	echo "try.sh runs: ${crosvm[*]//"$tmp"\//}"
-	got=$(crosvm_bound "${crosvm[@]}")
+	got=$(crosvm_bound "$work/gpu.sock" "${crosvm[@]}")
 	[ "$got" = bound ] && echo "ok   crosvm takes try.sh's --params (render-node included)" ||
 		{ echo "FAIL crosvm on try.sh's line: $got"; failed=1; }
+	if [ -f "$args/crosvm.args" ]; then
+		mapfile -t agentbox_crosvm <"$args/crosvm.args"
+		got=$(crosvm_bound "$args/vm/run/gpu.sock" "$bin/bin/crosvm" "${agentbox_crosvm[@]}")
+		[ "$got" = bound ] && echo "ok   crosvm takes AgentBox's line (crosvmArgs)" ||
+			{ echo "FAIL crosvm on AgentBox's line: $got"; failed=1; }
+	fi
 	bad=("${crosvm[@]}")
 	bad[-1]=${bad[-1]//render-node/render-nodee}
-	got=$(crosvm_bound "${bad[@]}")
+	got=$(crosvm_bound "$work/gpu.sock" "${bad[@]}")
 	[ "$got" != bound ] && echo "ok   crosvm refuses an unknown key ($got)" ||
 		{ echo "FAIL crosvm took an unknown --params key"; failed=1; }
 fi

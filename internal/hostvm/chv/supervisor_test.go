@@ -183,7 +183,7 @@ func TestCHArgs(t *testing.T) {
 	c := Config{Name: "agentbox", CPUs: 4, MemoryMin: 4 * GiB, MemoryCap: 12*GiB + 100, Home: "/home/lint"}
 	// Room for every core and all of the host's memory, not only the cap.
 	room := roomFor(c, 16, 32*GiB+100)
-	args := strings.Join(chArgs(c, l, room), " ")
+	args := strings.Join(chArgs(c, l, room, false), " ")
 	for _, want := range []string{
 		"--cpus boot=4,max=16",
 		"--memory size=4294967296,shared=on,thp=on,hotplug_method=virtio-mem,hotplug_size=30064771072",
@@ -203,7 +203,7 @@ func TestCHArgs(t *testing.T) {
 	c.IOLimit = 64 << 20
 	_ = os.MkdirAll(l.Dir(), 0o755)
 	_ = os.WriteFile(l.Seed(), nil, 0o644)
-	args = strings.Join(chArgs(c, l, room), " ")
+	args = strings.Join(chArgs(c, l, room, false), " ")
 	for _, want := range []string{
 		"--rate-limit-group id=disks,bw_size=67108864,bw_refill_time=1000",
 		"path=" + l.RootDisk() + ",image_type=raw,rate_limit_group=disks",

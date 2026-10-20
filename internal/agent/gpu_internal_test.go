@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"agentbox/internal/hostos"
 	"agentbox/internal/paths"
 )
 
@@ -17,9 +18,11 @@ func fakeGPU(t *testing.T, dxg, render string, lib bool) {
 	t.Helper()
 	dir := t.TempDir()
 	missing := filepath.Join(dir, "missing")
-	old := []string{dxgPath, wslLib, wslDrivers, renderNodeGlob}
-	t.Cleanup(func() { dxgPath, wslLib, wslDrivers, renderNodeGlob = old[0], old[1], old[2], old[3] })
-	dxgPath, renderNodeGlob = missing, missing
+	old := []string{dxgPath, wslLib, wslDrivers, renderNodeGlob, vmGPUStatusFile}
+	t.Cleanup(func() {
+		dxgPath, wslLib, wslDrivers, renderNodeGlob, vmGPUStatusFile = old[0], old[1], old[2], old[3], old[4]
+	})
+	dxgPath, renderNodeGlob, vmGPUStatusFile = missing, missing, missing
 	if dxg != "" {
 		dxgPath = dxg
 	}
@@ -63,6 +66,43 @@ func TestFindVMGPU(t *testing.T) {
 	fakeGPU(t, file, file, true)
 	if got := FindVMGPU(); got.Kind != GPUNone || got.Reason == "" {
 		t.Errorf("no GPU: %+v", got)
+	}
+}
+
+// The Linux VM gets the host's GPU only as it starts: until it has a render
+// node, its supervisor's status says whether the switch can be turned on
+// (the host has a GPU) and why the VM has none.
+func TestFindVMGPUHost(t *testing.T) {
+	if hostos.WSL() {
+		t.Skip("WSL has its own reasons")
+	}
+	for _, tc := range []struct {
+		status string
+		kind   string
+		node   string
+		reason string
+	}{
+		{`{"state":"off","node":"/dev/dri/renderD129","gpu":"amdgpu, 1002:73df"}`, GPUHost, "/dev/dri/renderD129", ""},
+		{`{"want":true,"state":"restart","node":"/dev/dri/renderD128","reason":"the VM gets this GPU when it next starts: restart."}`, GPUHost, "/dev/dri/renderD128", "next starts"},
+		{`{"want":true,"state":"none","reason":"NVIDIA's proprietary driver can't share its memory."}`, GPUNone, "", "NVIDIA's proprietary driver can't share its memory"},
+		{`{"want":true,"state":"on","gpu":"amdgpu"}`, GPUNone, "", "no render node"},
+		{`not json`, GPUNone, "", "no GPU to give agents"},
+	} {
+		fakeGPU(t, "", "", false)
+		vmGPUStatusFile = filepath.Join(t.TempDir(), "status.json")
+		if err := os.WriteFile(vmGPUStatusFile, []byte(tc.status), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		got := FindVMGPU()
+		if got.Kind != tc.kind || got.Node != tc.node || !strings.Contains(got.Reason, tc.reason) || strings.HasSuffix(got.Reason, ".") && tc.kind == GPUNone {
+			t.Errorf("%s: %+v", tc.status, got)
+		}
+	}
+
+	// The host's GPU isn't the VM's: agents get nothing from it.
+	m := &Manager{Paths: paths.Paths{Data: t.TempDir()}}
+	if steps := m.gpuSteps("i", VMGPU{Kind: GPUHost, Node: "/dev/dri/renderD128"}, map[string]map[string]string{vgpuDevice: {"type": "gpu", "gputype": "physical", "mode": "0666"}}); len(stepArgs(t, steps)) != 1 {
+		t.Errorf("steps for the host's GPU: %v", stepArgs(t, steps))
 	}
 }
 

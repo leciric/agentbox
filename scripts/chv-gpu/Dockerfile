@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Builds the GPU spike's binaries; run by build.sh, which passes every pin in
+# Builds AgentBox's Cloud Hypervisor and its GPU device; run by build.sh, which passes every pin in
 # versions.env as a build argument. The last stage is only the tarball.
 # The default is versions.env's RUST_IMAGE (build.sh checks they match), so
 # FROM has a valid image even before the build arguments arrive.
@@ -28,7 +28,7 @@ RUN rm -f /etc/apt/sources.list.d/* /etc/apt/sources.list && \
       wayland-protocols && \
     rm -rf /var/lib/apt/lists/*
 
-# crosvm pins Rust 1.88.0 (the image's); Cloud Hypervisor v50 needs 1.89.
+# crosvm pins Rust 1.88.0 (the image's); Cloud Hypervisor v53 needs 1.89.
 ARG CHV_RUST=1.89.0
 RUN rustup toolchain install "$CHV_RUST" --profile minimal --target x86_64-unknown-linux-musl
 ARG CARGO_BUILD_JOBS=4
@@ -67,10 +67,9 @@ RUN fetch-git crosvm "$CROSVM_COMMIT" "$CROSVM_REPO" "$CROSVM_MIRROR" && \
     test "$(git ls-tree HEAD third_party/minijail | awk '{print $3}')" = "$MINIJAIL_COMMIT" && \
     rmdir third_party/minijail && \
     fetch-git third_party/minijail "$MINIJAIL_COMMIT" "$MINIJAIL_REPO" "$MINIJAIL_MIRROR"
-# Our patches to crosvm and the upstream fixes for Cloud Hypervisor
-# (patches/README.md).
-COPY patches/ /src/patches/
-RUN for p in /src/patches/crosvm-*.patch; do \
+# Our patch to crosvm (patches/README.md).
+COPY patches/crosvm/ /src/patches/crosvm/
+RUN for p in /src/patches/crosvm/*.patch; do \
       patch -d crosvm -p1 --no-backup-if-mismatch < "$p" || exit 1; \
     done
 RUN cd crosvm && \
@@ -79,38 +78,44 @@ RUN cd crosvm && \
     cargo build --release --locked --features virgl_renderer && \
     install -D -m 755 target/release/crosvm "$PREFIX/bin/crosvm"
 
-# --- Cloud Hypervisor with Spectrum's GPU patchset ---------------------------
+# --- Cloud Hypervisor with the GPU patchset (patches/README.md) -------------
+COPY patches/vhost/ /src/patches/vhost/
+COPY patches/cloud-hypervisor/ /src/patches/cloud-hypervisor/
 ARG CHV_URL
 ARG CHV_SHA256
 ARG VHOST_URL
 ARG VHOST_SHA256
-ARG SPECTRUM_PATCHES_URL
-ARG SPECTRUM_PATCHES_SHA256
 RUN fetch() { curl -fsSL --retry 5 -o "$1" "$2" && echo "$3  $1" | sha256sum -c --quiet; } && \
     fetch chv.tar.gz "$CHV_URL" "$CHV_SHA256" && \
     fetch vhost.tar.gz "$VHOST_URL" "$VHOST_SHA256" && \
-    fetch spectrum.tar.gz "$SPECTRUM_PATCHES_URL" "$SPECTRUM_PATCHES_SHA256" && \
-    mkdir cloud-hypervisor vhost spectrum && \
+    mkdir cloud-hypervisor vhost && \
     tar xzf chv.tar.gz --strip-components=1 -C cloud-hypervisor && \
     tar xzf vhost.tar.gz --strip-components=1 -C vhost && \
-    tar xzf spectrum.tar.gz --strip-components=1 -C spectrum && \
-    patch -d vhost -p1 --no-backup-if-mismatch < spectrum/vhost.patch && \
-    patch -d cloud-hypervisor -p1 --no-backup-if-mismatch < spectrum/cloud-hypervisor.patch
-# Upstream fixes v50 lacks, after Spectrum's patchset (patches/README.md).
-RUN for p in /src/patches/cloud-hypervisor-*.patch; do \
+    for p in /src/patches/vhost/*.patch; do \
+      patch -d vhost -p1 --no-backup-if-mismatch < "$p" || exit 1; \
+    done && \
+    for p in /src/patches/cloud-hypervisor/*.patch; do \
       patch -d cloud-hypervisor -p1 --no-backup-if-mismatch < "$p" || exit 1; \
     done
-# Static (musl), like Cloud Hypervisor's own release binaries.
+# Static (musl), as Cloud Hypervisor's own release builds its
+# cloud-hypervisor-static (v53's .github/workflows/release.yaml: --all
+# --release --features mshv), so that it differs from upstream's binary only by
+# the patches.
+ARG CHV_BUILD
 RUN cd cloud-hypervisor && \
     export RUSTFLAGS='--remap-path-prefix=/src=. --remap-path-prefix=/usr/local/cargo=cargo' && \
-    cargo "+$CHV_RUST" build --release --locked --target x86_64-unknown-linux-musl \
-      --bin cloud-hypervisor --bin ch-remote && \
+    export CH_EXTRA_VERSION="agentbox$CHV_BUILD" && \
+    cargo "+$CHV_RUST" build --all --release --features mshv --locked \
+      --target x86_64-unknown-linux-musl && \
     install -m 755 target/x86_64-unknown-linux-musl/release/cloud-hypervisor \
       target/x86_64-unknown-linux-musl/release/ch-remote "$PREFIX/bin/"
 
 # --- the tarball --------------------------------------------------------------
+COPY patches/LICENSES/ /src/patches/LICENSES/
+COPY patches/README.md /src/patches/README.md
 COPY package.sh /package.sh
 ARG CHV_VERSION
+ARG CHV_BUILD
 ARG VIRGLRENDERER_VERSION
 RUN /package.sh /out
 
