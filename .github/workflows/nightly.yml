@@ -139,7 +139,7 @@ jobs:
           install_args: node
 
       # Every install downloads the Cloud Hypervisor build tools.go pins
-      # (chvBundle), a release of its own (chv-<version>-agentbox<build>,
+      # (chvBundle), a release of its own (chv-<version>-<hash>,
       # published by the Cloud Hypervisor workflow), nightly or not: a nightly
       # that pins one nobody published couldn't start its VM.
       - name: The pinned Cloud Hypervisor build is published

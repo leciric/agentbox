@@ -17,7 +17,7 @@ pin=$(sed -n 's/^\tsha256: *"\([0-9a-f]*\)",$/\1/p' <<<"$bundle")
 [ -n "$url" ] && [ ${#pin} = 64 ] || { echo "::error::can't read chvBundle's url and sha256 from tools.go" >&2; exit 1; }
 
 fail() {
-	echo "::error::$1. Publish it first: run the Cloud Hypervisor workflow (.github/workflows/chv.yml) on the commit that pins it." >&2
+	echo "::error::$1. The Cloud Hypervisor workflow (.github/workflows/chv.yml) publishes a build when its inputs change on main and opens the pull request that pins it: wait for it, or merge that pull request." >&2
 	exit 1
 }
 published=$(curl -fsSL --retry 3 "$url.sha256" 2>/dev/null | cut -d' ' -f1) || fail "the pinned Cloud Hypervisor build isn't published: $url.sha256 isn't there"

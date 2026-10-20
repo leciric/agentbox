@@ -6,8 +6,9 @@
 #
 # TARBALL is the Cloud Hypervisor build (build.sh's, or the Cloud Hypervisor
 # workflow's artifact: by default out/chv-*.tar.gz, or else the last run's
-# artifact on this branch, through gh), installed as tools.go pins it before
-# it's published (AGENTBOX_CHV_TARBALL). It turns "GPU for agents" on,
+# artifact on this branch, through gh). The agentbox built here pins it
+# (pin.sh, on a copy of tools.go put back after) and installs it from the
+# file (AGENTBOX_CHV_TARBALL), published or not. It turns "GPU for agents" on,
 # restarts the VM (twice when it needs Debian's generic kernel: the first
 # start installs it, the second boots it), and prints what the VM, and an
 # agent if you name one (AGENT=project/agent), render on. Restarting the VM
@@ -28,8 +29,13 @@ if [ -z "$tarball" ]; then
 fi
 tarball=$(cd "$(dirname "$tarball")" && pwd)/$(basename "$tarball")
 
-echo "==> Building agentbox"
+echo "==> Building agentbox, pinning this tarball for the build"
+cp "$root/internal/hostvm/chv/tools.go" "$root/internal/hostvm/chv/tools.go.check-vm"
+trap 'mv -f "$root/internal/hostvm/chv/tools.go.check-vm" "$root/internal/hostvm/chv/tools.go"' EXIT
+"$here/pin.sh" "$tarball"
 (cd "$root" && go build -o bin/agentbox ./cmd/agentbox)
+mv -f "$root/internal/hostvm/chv/tools.go.check-vm" "$root/internal/hostvm/chv/tools.go"
+trap - EXIT
 ab=$root/bin/agentbox
 data=${XDG_DATA_HOME:-$HOME/.local/share}/agentbox
 sock=${AGENTBOX_SOCKET:-$data/run/agentbox.sock}

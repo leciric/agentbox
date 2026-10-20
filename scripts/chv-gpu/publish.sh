@@ -1,66 +1,58 @@
 #!/usr/bin/env bash
 # Publishes AgentBox's Cloud Hypervisor (build.sh's output) as a release of
-# this repository, which internal/hostvm/chv/tools.go (chvBundle) downloads:
+# this repository, which internal/hostvm/chv/tools.go (chvBundle) downloads,
+# nightlies and releases alike:
 #
-#   release chv-<CHV_VERSION>-agentbox<CHV_BUILD>, a prerelease, never latest, with
+#   release chv-<CHV_VERSION>-<hash>, a prerelease, never latest, with
 #   chv-<...>-x86_64.tar.gz            the tarball
-#   chv-<...>-x86_64.tar.gz.sha256     its sum
+#   chv-<...>-x86_64.tar.gz.sha256     its sum, uploaded last
 #   VERSIONS, HOST-LIBRARIES           what's in it, what the host must have
 #
 #   scripts/chv-gpu/publish.sh OUT_DIR
 #
-# A published build is never replaced, and never deleted: every AgentBox
-# release pins one by its SHA256, so an older AgentBox keeps finding its own.
-# When the release already has the tarball, its sum must be the one just
-# built (the build reproduces), or this fails: change anything, and
-# versions.env's CHV_BUILD goes up with it. The Cloud Hypervisor workflow
-# runs it; it needs gh (GH_TOKEN, with contents: write) and GITHUB_SHA (or
-# TARGET_COMMITISH) for a new release's tag.
+# <hash> is the hash of the build's inputs (inputs-hash.sh). A published build
+# is never replaced, nor deleted: every AgentBox pins one by its SHA256, so an
+# older one keeps finding its own. When this hash is published already, this
+# uploads nothing and leaves the published tarball in OUT_DIR/published/, as
+# it does a new one: that's what pin.sh pins (crosvm doesn't build byte for
+# byte alike twice, so a rebuild's sums aren't the published ones). It prints
+# the tarball's path last. The Cloud Hypervisor workflow runs it on main; it
+# needs gh (GH_TOKEN, with contents: write) and GITHUB_SHA for a new tag.
 set -euo pipefail
 
 out=${1:?usage: $0 OUT_DIR}
 here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=versions.env
 . "$here/versions.env"
-name=chv-$CHV_VERSION-agentbox$CHV_BUILD
-tag=$name
-tarball=$out/$name-x86_64.tar.gz
-[ -f "$tarball" ] || { echo "no $tarball: did build.sh run with this versions.env?" >&2; exit 1; }
-(cd "$out" && sha256sum --quiet -c "$(basename "$tarball").sha256")
-sum=$(cut -d' ' -f1 "$tarball.sha256")
+tag=chv-$CHV_VERSION-$("$here/inputs-hash.sh")
+file=$tag-x86_64.tar.gz
+pub=$out/published
+mkdir -p "$pub"
 
-# The pin AgentBox downloads must be this build.
-pin=$(sed -n '/^var chvBundle = bundle{/,/^}/s/^\tsha256: *"\([0-9a-f]*\)",$/\1/p' "$here/../../internal/hostvm/chv/tools.go")
-if [ "$pin" != "$sum" ]; then
-	echo "tools.go pins $name as ${pin:-nothing}, but this build is $sum: pin it, with the files' sums from SHA256SUMS" >&2
-	exit 1
+if gh release view "$tag" >/dev/null 2>&1 &&
+	gh release download "$tag" -p "$file.sha256" -p "$file" -D "$pub" --clobber 2>/dev/null &&
+	(cd "$pub" && sha256sum --quiet -c "$file.sha256"); then
+	echo "==> $tag is published already ($(cut -d' ' -f1 "$pub/$file.sha256")): keeping it" >&2
+	echo "$pub/$file"
+	exit 0
 fi
 
-if gh release view "$tag" >/dev/null 2>&1; then
-	tmp=$(mktemp -d)
-	trap 'rm -rf "$tmp"' EXIT
-	if gh release download "$tag" -p "$(basename "$tarball").sha256" -D "$tmp" 2>/dev/null; then
-		have=$(cut -d' ' -f1 "$tmp/$(basename "$tarball").sha256")
-		if [ "$have" = "$sum" ]; then
-			echo "==> $tag already has this build ($sum)"
-			exit 0
-		fi
-		echo "$tag has another build ($have), and published builds are never replaced: bump CHV_BUILD in versions.env" >&2
-		exit 1
-	fi
-	echo "==> $tag exists without the tarball: uploading it"
-else
-	echo "==> Creating $tag"
+[ -f "$out/$file" ] || { echo "no $out/$file: did build.sh run with these inputs?" >&2; exit 1; }
+(cd "$out" && sha256sum --quiet -c "$file.sha256")
+if ! gh release view "$tag" >/dev/null 2>&1; then
+	echo "==> Creating $tag" >&2
 	notes=$(mktemp)
 	cat >"$notes" <<NOTES
-Cloud Hypervisor $CHV_VERSION as AgentBox's Linux VM runs it: upstream's v$CHV_VERSION with Spectrum OS's virtio-gpu patchset rebased onto it, and crosvm's GPU device with virglrenderer (Venus), which give agents the host's GPU when "GPU for agents" is on. AgentBox downloads it by itself; nothing to install by hand.
+Cloud Hypervisor $CHV_VERSION as AgentBox's Linux VM runs it: upstream's v$CHV_VERSION with Spectrum OS's virtio-gpu patchset rebased onto it, and crosvm's GPU device with virglrenderer (Venus), which give agents the host's GPU when "GPU for agents" is on. AgentBox downloads it by itself, nightly or release; nothing to install by hand.
 
-Built by the Cloud Hypervisor workflow from \`${GITHUB_SHA:-main}\` with \`scripts/chv-gpu/build.sh\`, reproducibly. \`VERSIONS\` says what's in it; \`HOST-LIBRARIES\` what crosvm needs from the host; the tarball's \`licenses/\` holds each project's licence and the patches as applied.
+Built by the Cloud Hypervisor workflow from \`${GITHUB_SHA:-main}\` with \`scripts/chv-gpu/build.sh\`; the tag's hash is its inputs'. \`VERSIONS\` says what's in it, \`HOST-LIBRARIES\` what crosvm needs from the host; the tarball's \`licenses/\` holds each project's licence and the patches as applied.
 NOTES
-	gh release create "$tag" --title "Cloud Hypervisor $CHV_VERSION (AgentBox build $CHV_BUILD)" --notes-file "$notes" \
-		--prerelease --latest=false --target "${GITHUB_SHA:-${TARGET_COMMITISH:-main}}"
+	gh release create "$tag" --title "Cloud Hypervisor $CHV_VERSION ($tag)" --notes-file "$notes" \
+		--prerelease --latest=false --target "${GITHUB_SHA:-${TARGET_COMMITISH:-main}}" >&2
 fi
 # The sum goes last: a release with it has the whole build.
-gh release upload "$tag" "$tarball" "$out/VERSIONS" "$out/HOST-LIBRARIES" --clobber
-gh release upload "$tag" "$tarball.sha256" --clobber
-echo "==> Published $tag ($sum)"
+gh release upload "$tag" "$out/$file" "$out/VERSIONS" "$out/HOST-LIBRARIES" --clobber >&2
+gh release upload "$tag" "$out/$file.sha256" --clobber >&2
+cp "$out/$file" "$out/$file.sha256" "$pub/"
+echo "==> Published $tag" >&2
+echo "$pub/$file"

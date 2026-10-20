@@ -1,14 +1,23 @@
 # Builds AgentBox's Cloud Hypervisor (scripts/chv-gpu/build.sh): upstream's
 # v53.0 with Spectrum OS's virtio-gpu patchset rebased onto it, crosvm's GPU
-# device and virglrenderer, which every Linux VM downloads
-# (internal/hostvm/chv/tools.go, chvBundle) by a pinned SHA256. On a PR it
-# checks that the build reproduces the pinned tarball and that the binaries
-# take AgentBox's command lines (test/chv_args_test.sh, which also compares
-# Cloud Hypervisor with upstream's v53.0 on the VM's line without the GPU). On
-# main it publishes the build as the release chv-<version>-agentbox<build>
-# (scripts/chv-gpu/publish.sh), which is never replaced: users never compile
-# anything. Run by hand on a PR's branch, it publishes that PR's build, so a PR
-# that moves the pin can be merged with its release already there.
+# device and virglrenderer, which every Linux install, nightly or release,
+# downloads (internal/hostvm/chv/tools.go, chvBundle) by a pinned SHA256.
+# Modelled on the base image's workflows, and nothing to run by hand:
+#
+#   - On a PR that changes its inputs: build it, and check the binaries take
+#     AgentBox's command lines (test/chv_args_test.sh, which also compares
+#     Cloud Hypervisor with upstream's v53.0 on the VM's line without the GPU).
+#   - On main, when its inputs changed: build it, publish it as the release
+#     chv-<version>-<hash of its inputs> unless that's published already
+#     (never replaced: publish.sh), and open a pull request pinning the
+#     published build in tools.go (pin.sh) when main doesn't pin it yet.
+#     crosvm doesn't build byte for byte alike twice, so the pin can only
+#     follow the publishing.
+#
+# Nightly and release builds refuse a pin that isn't published
+# (check-published.sh). workflow_dispatch is the same as a push, as an extra.
+# Docker's layers are cached in GitHub's cache, so a run whose inputs barely
+# changed rebuilds little.
 name: Cloud Hypervisor
 
 on:
@@ -22,7 +31,16 @@ on:
   push:
     branches: [main]
     paths:
-      - scripts/chv-gpu/**
+      - scripts/chv-gpu/build.sh
+      - scripts/chv-gpu/Dockerfile
+      - scripts/chv-gpu/fetch-git.sh
+      - scripts/chv-gpu/package.sh
+      - scripts/chv-gpu/versions.env
+      - scripts/chv-gpu/inputs-hash.sh
+      - scripts/chv-gpu/publish.sh
+      - scripts/chv-gpu/pin.sh
+      - scripts/chv-gpu/patches/**
+      - scripts/chv-gpu/test/render-node-path.sh
       - internal/hostvm/chv/tools.go
       - .github/workflows/chv.yml
 
@@ -31,13 +49,15 @@ permissions:
 
 concurrency:
   group: chv-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   build:
     name: Build and check
     runs-on: ubuntu-24.04
-    timeout-minutes: 75
+    timeout-minutes: 90
+    outputs:
+      hash: ${{ steps.hash.outputs.hash }}
     steps:
       - uses: actions/checkout@v7
 
@@ -45,28 +65,27 @@ jobs:
         with:
           install_args: go
 
-      - name: Build (Docker, reproducible)
+      - name: Its inputs' hash, which names it
+        id: hash
+        run: echo "hash=$(scripts/chv-gpu/inputs-hash.sh)" >>"$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      # The cache backend's token and URL, for buildx's type=gha.
+      - uses: crazy-max/ghaction-github-runtime@v3
+
+      - name: Build (Docker, layers cached in GitHub's cache)
         env:
           CARGO_BUILD_JOBS: 4
+          DOCKER_BUILD_FLAGS: --cache-from type=gha,scope=chv --cache-to type=gha,scope=chv,mode=max
         run: scripts/chv-gpu/build.sh out
 
-      # Before the checks: a build that isn't the pinned one is what to pin
-      # (this workflow's builds are what's published), or to compare.
       - uses: actions/upload-artifact@v7
         with:
           name: chv
           path: out
           compression-level: 0
           retention-days: 7
-
-      - name: The tarball is the one tools.go pins
-        run: |
-          sum=$(cut -d' ' -f1 out/*.tar.gz.sha256)
-          grep -q "sha256:  \"$sum\"" internal/hostvm/chv/tools.go || {
-            echo "::error::tools.go doesn't pin this build ($sum). Its files' sums:"
-            tar -xzOf out/*.tar.gz --wildcards '*/SHA256SUMS' | grep -E ' \./(bin/cloud-hypervisor|bin/crosvm|libexec/virgl_render_server|lib/libvirglrenderer\.so\.1\.[0-9.]+)$'
-            exit 1
-          }
 
       # Ubuntu 24.04 keeps unprivileged user namespaces from unconfined
       # programs, which the fake /dev/kvm needs.
@@ -78,18 +97,20 @@ jobs:
           scripts/chv-gpu/test/parse_test.sh
 
   publish:
-    name: Publish to GitHub releases
+    name: Publish and pin
     needs: build
-    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: write
+      pull-requests: write
     concurrency:
       group: chv-publish
       cancel-in-progress: false
     env:
       GH_TOKEN: ${{ github.token }}
+      HASH: ${{ needs.build.outputs.hash }}
     steps:
       - uses: actions/checkout@v7
 
@@ -98,5 +119,31 @@ jobs:
           name: chv
           path: out
 
-      - name: Publish, unless it already is
-        run: scripts/chv-gpu/publish.sh out
+      - name: Publish, unless this build's inputs are published already
+        id: publish
+        run: echo "tarball=$(scripts/chv-gpu/publish.sh out | tail -n1)" >>"$GITHUB_OUTPUT"
+
+      - name: Check it's there as published
+        run: |
+          tarball=${{ steps.publish.outputs.tarball }}
+          url=https://github.com/$GITHUB_REPOSITORY/releases/download/$(basename "$tarball" -x86_64.tar.gz)/$(basename "$tarball")
+          [ "$(curl -fsSL --retry 5 "$url.sha256" | cut -d' ' -f1)" = "$(sha256sum "$tarball" | cut -d' ' -f1)" ]
+
+      # A bot's pull request runs no workflows: like release-please's, close
+      # and reopen it to get CI on it. Until it's merged, main pins the build
+      # before, which is published, so nightlies keep building.
+      - name: Open a pull request pinning it
+        run: |
+          out=$(scripts/chv-gpu/pin.sh "${{ steps.publish.outputs.tarball }}")
+          echo "$out"
+          git diff --quiet internal/hostvm/chv/tools.go && exit 0
+          branch=chv-pin-$HASH
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git commit -qm "chore: pin Cloud Hypervisor build $HASH" internal/hostvm/chv/tools.go
+          git push -f origin "$branch"
+          if [ -z "$(gh pr list --head "$branch" --state open --json number -q '.[].number')" ]; then
+            gh pr create --head "$branch" --base main --title "chore: pin Cloud Hypervisor build $HASH" \
+              --body "Pins the Cloud Hypervisor build the Cloud Hypervisor workflow published from $GITHUB_SHA (release \`chv-*-$HASH\`) in \`internal/hostvm/chv/tools.go\`: the tarball's SHA256 and its files'. Opened by the workflow; close and reopen it to run CI."
+          fi

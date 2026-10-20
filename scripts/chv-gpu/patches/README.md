@@ -43,7 +43,7 @@ Spectrum's backport of upstream 57e766bd (no double activation with 2+ vCPUs, is
 needed: it is in v52.0 and so in v53.0.
 
 The binary is built as upstream's `cloud-hypervisor-static` is (`--all --release --features
-mshv`, musl), with `CH_EXTRA_VERSION=agentbox<CHV_BUILD>`: it says `v53.0.0-agentbox1`.
+mshv`, musl), with `CH_EXTRA_VERSION=agentbox-<hash of the build's inputs>`: it says `v53.0.0-agentbox-<hash>`.
 `test/chv_args_test.sh` runs it and upstream's own v53.0 on AgentBox's VM's command line without
 the GPU and checks they say the same.
 
@@ -76,10 +76,9 @@ offline from there.
    the `VirtioDevice` API change, which meant porting `gpu.rs` after `vhost_user/fs.rs`.
 2. `cargo clippy`, and `cargo test -p vmm -p virtio-devices -p cloud-hypervisor` (the tests that
    need `/dev/kvm` fail without it, as upstream's do).
-3. `git format-patch` into these directories, bump `CHV_VERSION` and reset `CHV_BUILD` in
-   `versions.env` (any other change to the patches or pins: bump `CHV_BUILD`), run `build.sh` and
-   `test/chv_args_test.sh`, pin the tarball and its files in `internal/hostvm/chv/tools.go`
-   (`chvBundle`), and run `try.sh` on a machine with KVM and a GPU.
+3. `git format-patch` into these directories, bump `CHV_VERSION` in `versions.env`, run `build.sh`
+   and `test/chv_args_test.sh` here, and `try.sh` on a machine with KVM and a GPU. Merged, the
+   Cloud Hypervisor workflow publishes the build and opens the pull request that pins it.
 4. Watch upstream for the GPU: if crosvm moves to the standard vhost-user shared-memory messages,
    or Cloud Hypervisor grows them, `vhost/0003` and most of `0002` can go.
 

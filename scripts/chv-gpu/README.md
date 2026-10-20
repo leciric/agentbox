@@ -5,7 +5,7 @@ rebased onto it ([`patches/`](patches/README.md)), and beside it crosvm's GPU de
 virglrenderer, which give the VM the host's GPU when "GPU for agents" is on
 (`internal/hostvm/chv/gpu.go`). `build.sh` makes the tarball, the Cloud Hypervisor workflow
 (`.github/workflows/chv.yml`) builds and publishes it as the release
-`chv-<version>-agentbox<build>` (`publish.sh`), and `internal/hostvm/chv/tools.go` (`chvBundle`)
+`chv-<version>-<hash of its inputs>` (`publish.sh`) and pins it in `internal/hostvm/chv/tools.go` (`chvBundle`, through a pull request `pin.sh` makes)
 downloads it by its SHA256: nobody compiles anything. `try.sh`, from the spike that started it
 (#427), boots a throwaway guest with the tarball on a machine with KVM and a GPU and says what
 the guest got.
@@ -68,13 +68,13 @@ scripts/chv-gpu/build.sh [OUTPUT_DIR]     # default scripts/chv-gpu/out/
 
 Builds in Docker (BuildKit), linux/amd64 only, in about 15 minutes on 4 cores.
 `CARGO_BUILD_JOBS` (default 4) bounds the Rust builds: Cloud Hypervisor links with LTO. Out come
-`chv-53.0-agentbox<CHV_BUILD>-x86_64.tar.gz`, its `.sha256`, `VERSIONS` and `HOST-LIBRARIES`.
-Change anything in it and `CHV_BUILD` in `versions.env` goes up, since a published build is never
-replaced; then pin the new tarball and its files in `tools.go` (the workflow prints their sums
-when they don't match).
+`chv-53.0-<hash>-x86_64.tar.gz`, its `.sha256`, `VERSIONS` and `HOST-LIBRARIES`, where `<hash>` is
+`inputs-hash.sh`'s, of every file the build reads. Change any, and main's next run publishes a new
+release, since a published build is never replaced, and opens a pull request pinning it (crosvm
+doesn't build byte for byte alike twice, so the pin follows what's published, not a local build).
 
 ```
-bin/cloud-hypervisor, bin/ch-remote   static; says v53.0.0-agentbox<CHV_BUILD>
+bin/cloud-hypervisor, bin/ch-remote   static; says v53.0.0-agentbox-<hash>
 bin/crosvm                            glibc ≥ 2.36, RUNPATH $ORIGIN/../lib
 libexec/virgl_render_server
 lib/libvirglrenderer.so.1             bundled: distributions' builds often lack Venus

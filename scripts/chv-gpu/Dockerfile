@@ -119,7 +119,7 @@ RUN fetch() { curl -fsSL --retry 5 -o "$1" "$2" && echo "$3  $1" | sha256sum -c 
 ARG CHV_BUILD
 RUN cd cloud-hypervisor && \
     export RUSTFLAGS='--remap-path-prefix=/src=. --remap-path-prefix=/usr/local/cargo=cargo' && \
-    export CH_EXTRA_VERSION="agentbox$CHV_BUILD" && \
+    export CH_EXTRA_VERSION="agentbox-$CHV_BUILD" && \
     cargo "+$CHV_RUST" build --all --release --features mshv --locked \
       --target x86_64-unknown-linux-musl && \
     install -m 755 target/x86_64-unknown-linux-musl/release/cloud-hypervisor \

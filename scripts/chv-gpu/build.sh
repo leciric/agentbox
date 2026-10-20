@@ -31,6 +31,8 @@ while IFS='=' read -r key value; do
 	args+=(--build-arg "$key=$value")
 done < "$here/versions.env"
 args+=(--build-arg "CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-4}")
+# The build is named for its inputs: chv-<CHV_VERSION>-<hash>.
+args+=(--build-arg "CHV_BUILD=$("$here/inputs-hash.sh")")
 
 # The Dockerfile's default base image is a copy of versions.env's.
 rust_image=$(sed -n 's/^RUST_IMAGE=//p' "$here/versions.env")
@@ -40,8 +42,12 @@ grep -qxF "ARG RUST_IMAGE=$rust_image" "$here/Dockerfile" || {
 }
 
 mkdir -p "$out"
+# buildx where there is one, which can cache layers elsewhere (the Cloud
+# Hypervisor workflow: DOCKER_BUILD_FLAGS="--cache-from type=gha ...").
+build=(build)
+docker buildx version >/dev/null 2>&1 && build=(buildx build)
 # shellcheck disable=SC2086 # flags, split on purpose
-DOCKER_BUILDKIT=1 docker build ${DOCKER_BUILD_FLAGS:-} "${args[@]}" \
+DOCKER_BUILDKIT=1 docker "${build[@]}" ${DOCKER_BUILD_FLAGS:-} "${args[@]}" \
 	--output "type=local,dest=$out" \
 	-f "$here/Dockerfile" "$here"
 

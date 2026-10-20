@@ -2,7 +2,7 @@
 # Runs inside the build (Dockerfile): turns $PREFIX into the tarball, in $1.
 set -eu
 out=$1
-name="chv-${CHV_VERSION}-agentbox${CHV_BUILD}-x86_64"
+name="chv-${CHV_VERSION}-${CHV_BUILD}-x86_64"
 stage="/stage/$name"
 
 mkdir -p "$stage/bin" "$stage/lib" "$stage/libexec" "$stage/licenses" "$out"
@@ -26,7 +26,7 @@ done
 cp -r /src/patches "$stage/licenses/patches"
 
 {
-	echo "cloud-hypervisor $CHV_VERSION, AgentBox build $CHV_BUILD: Spectrum OS's GPU patchset (50.0-spectrum0) rebased onto it, $(ls /src/patches/cloud-hypervisor | paste -sd' ') (static, musl, --features mshv)"
+	echo "cloud-hypervisor $CHV_VERSION, AgentBox build $CHV_BUILD (the hash of its inputs): Spectrum OS's GPU patchset (50.0-spectrum0) rebased onto it, $(ls /src/patches/cloud-hypervisor | paste -sd' ') (static, musl, --features mshv)"
 	echo "vhost $VHOST_URL, patched: $(ls /src/patches/vhost | paste -sd' ')"
 	echo "crosvm $CROSVM_COMMIT (minijail $MINIJAIL_COMMIT), features: default + virgl_renderer, patched: $(ls /src/patches/crosvm | paste -sd' '), rutabaga_gfx 0.1.75 patched: $(ls /src/patches/rutabaga_gfx | paste -sd' ')"
 	echo "virglrenderer $VIRGLRENDERER_VERSION ($VIRGLRENDERER_COMMIT): venus, render-server, egl+glx, minigbm_allocation (system libgbm)"
