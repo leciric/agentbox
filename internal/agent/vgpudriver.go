@@ -60,7 +60,9 @@ func vgpuDriverSteps(instance string, devices map[string]map[string]string, on b
 	}
 	var steps []incusStep
 	if ok {
-		steps = append(steps, func(ctx context.Context, c incus.Client) error { return c.RemoveDevice(ctx, instance, vgpuDriverDevice) })
+		steps = append(steps, func(ctx context.Context, c incus.Client) error {
+			return c.RemoveDevice(ctx, instance, vgpuDriverDevice)
+		})
 	}
 	if want {
 		steps = append(steps, func(ctx context.Context, c incus.Client) error {
