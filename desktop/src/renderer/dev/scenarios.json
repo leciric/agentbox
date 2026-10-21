@@ -154,6 +154,48 @@
     "height": 900
   },
   {
+    "id": "chat-thinking-live-dark",
+    "description": "A Claude Code turn thinking, phase live: the summarized thought still arriving — dark",
+    "query": "chat=thinking&phase=live&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "chat-thinking-live-light",
+    "description": "A Claude Code turn thinking, phase live: the summarized thought still arriving — light",
+    "query": "chat=thinking&phase=live&theme=light",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "chat-thinking-answer-dark",
+    "description": "A Claude Code turn thinking, phase answer: the reply arriving after the thought — dark",
+    "query": "chat=thinking&phase=answer&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "chat-thinking-answer-light",
+    "description": "A Claude Code turn thinking, phase answer: the reply arriving after the thought — light",
+    "query": "chat=thinking&phase=answer&theme=light",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "chat-thinking-done-dark",
+    "description": "A Claude Code turn thinking, phase done: the turn settled, its thought folded — dark",
+    "query": "chat=thinking&phase=done&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "chat-thinking-done-light",
+    "description": "A Claude Code turn thinking, phase done: the turn settled, its thought folded — light",
+    "query": "chat=thinking&phase=done&theme=light",
+    "width": 1280,
+    "height": 900
+  },
+  {
     "id": "chat-compaction-dark",
     "description": "Compaction cards in a project chat: done, failed with a long error, and running with a held message — dark",
     "query": "chat=compaction&theme=dark",
