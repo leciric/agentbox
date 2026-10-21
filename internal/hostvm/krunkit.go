@@ -300,7 +300,7 @@ func (v *VM) InstallKrunkit(ctx context.Context) error {
 	}
 	krunkitOnPath()
 	if h = v.krunkitHost(ctx); h == nil || !h.krunkit || !h.driver {
-		return errors.New("Homebrew finished, but " + krunkitManual(h))
+		return errors.New("brew finished, but " + krunkitManual(h))
 	}
 	_, _ = fmt.Fprintln(v.Log, "==> krunkit is installed: a VM made now is made with it")
 	return nil
