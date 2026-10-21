@@ -77,7 +77,8 @@ func (s *Server) buildImage(w http.ResponseWriter, r *http.Request) error {
 }
 
 // startImageBuild starts the job that makes the base image: from the
-// published one when it can (#275), built here otherwise or when that fails.
+// published one when it can (#275), with the Codex and OpenCode tools added
+// on top, built here for the other components or when that fails.
 func (s *Server) startImageBuild(ctx context.Context, req api.BuildImageRequest) (api.Job, error) {
 	if err := s.diskRefusal("building the base image"); err != nil {
 		return api.Job{}, err

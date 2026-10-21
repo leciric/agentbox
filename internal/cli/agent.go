@@ -33,9 +33,11 @@ func newImageCmd(a *app) *cobra.Command {
 		Short: "Build the base image (replaces an existing one; existing agents are unaffected)",
 		Long: `Makes the base image agents are copied from. With no optional component, it
 downloads the image AgentBox publishes for this version (Debian and the agent tools
-it may redistribute), then installs the rest, Claude Code first of all, here. With
-a component, with --local, or when there is no published image to download, it
-builds the image here from Debian instead, which takes a few minutes longer.
+it may redistribute), then installs the rest, Claude Code first of all, here, and
+so does it with --codex or --opencode, whose tools it installs the same way. With
+--android, --dev-caches or --incus, with --local, or when there is no published
+image to download, it builds the image here from Debian instead, which takes a few
+minutes longer.
 
 Five components are optional and off until you ask, because most agents use
 none of them: --android adds scrcpy, which mirrors an Android emulator's screen,
@@ -76,9 +78,13 @@ turn one off again with --android=false, --codex=false, --opencode=false,
 				return err
 			}
 			req.Local = local
-			if !local && !components.Any() && image.ImagesURL() != "" {
-				_, _ = fmt.Fprintf(out, "Downloading the published base image, then installing Claude Code and the tools it leaves out. Should that fail, it is built here, which downloads:\n\n%s\n%s.\n\n",
-					image.DownloadTable(image.DownloadsFor(components)), image.DownloadsHint)
+			if !local && !components.NeedsLocalBuild() && image.ImagesURL() != "" {
+				also := ""
+				if components.Any() {
+					also = ", and " + components.Summary()
+				}
+				_, _ = fmt.Fprintf(out, "Downloading the published base image, then installing Claude Code and the tools it leaves out%s. Should that fail, it is built here, which downloads:\n\n%s\n%s.\n\n",
+					also, image.DownloadTable(image.DownloadsFor(components)), image.DownloadsHint)
 			} else {
 				_, _ = fmt.Fprintf(out, "Making the base image here, with %s. It downloads:\n\n%s\n%s.\n\n",
 					components.Summary(), image.DownloadTable(image.DownloadsFor(components)), image.DownloadsHint)

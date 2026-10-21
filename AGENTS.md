@@ -137,7 +137,8 @@ screenshot` of the preview in the agent's display, made by the desktop subagent.
 
 ## The agents' base image
 
-Setup downloads it when no optional component is on (`internal/image/published.go`) from the
+Setup downloads it (`internal/image/published.go`), adding the Codex and OpenCode tools on top when they
+are on, unless Android, dev caches or Incus are (`Components.NeedsLocalBuild`), from the
 `image-<version>` prerelease on this repository's GitHub releases, split in parts under GitHub's 2 GiB
 asset cap and joined and checked by Setup (`scripts/github-images.sh` publishes it, and keeps only the
 newest image release; app releases, release-please and the update check never see it), and

@@ -3,8 +3,8 @@
 // The image is Debian plus provision.sh, around a placeholder user that
 // personalise.sh then renames to the host's own before the image is
 // snapshotted as ready. A new machine downloads it, as CI built and published
-// it (published.go), when it wants no optional component, and builds it
-// otherwise, or when the download fails. The published image leaves out what
+// it (published.go), unless it wants a component only provision.sh puts in
+// (NeedsLocalBuild), and builds it then, or when the download fails. The published image leaves out what
 // AgentBox may not redistribute, Claude Code first of all: every machine
 // installs those itself, so they stay the user's own install. Its Debian
 // packages are published with a list of their sources, as the GPL asks.
@@ -245,6 +245,35 @@ func (c Components) Any() bool {
 	return c.Android || c.Codex || c.OpenCode || c.DevCaches || c.Incus
 }
 
+// NeedsLocalBuild reports whether a component asked for is one only a local
+// build makes, because provision.sh puts it in: scrcpy and its libraries, the
+// development caches, Incus and its packages. Codex and OpenCode are no more
+// than tools.txt pins, which a machine installs on top of the published image
+// as it does the tools that image leaves out (fromPublished).
+func (c Components) NeedsLocalBuild() bool {
+	return c.Android || c.DevCaches || c.Incus
+}
+
+// provisioned is the components without the ones that are only tools.
+func (c Components) provisioned() Components {
+	c.Codex, c.OpenCode = false, false
+	return c
+}
+
+// homeDirs are the directories in the user's home that provision.sh makes for
+// these components, which AgentBox writes into later and so must belong to the
+// user rather than root: fromPublished makes them for the ones it installs.
+func (c Components) homeDirs() []string {
+	var dirs []string
+	if c.Codex {
+		dirs = append(dirs, "~/.codex")
+	}
+	if c.OpenCode {
+		dirs = append(dirs, "~/.local/share/opencode", "~/.config/opencode")
+	}
+	return dirs
+}
+
 // Env renders the components as the environment variables provision.sh checks.
 func (c Components) Env() []string {
 	return []string{
@@ -437,8 +466,8 @@ func makeNext(ctx context.Context, inc incus.Client, next string, u User, opts O
 	step := stepper(log)
 	switch {
 	case opts.ImagesURL == "":
-	case opts.Components.Any():
-		step("Building the image here: the published one has none of the optional components, and this one has %s", opts.Components.Summary())
+	case opts.Components.NeedsLocalBuild():
+		step("Building the image here: the published one has none of the optional components, and this one has %s", opts.Components.provisioned().Summary())
 	default:
 		err := fromPublished(ctx, inc, next, u, opts, log)
 		if err == nil {

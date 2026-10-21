@@ -476,7 +476,7 @@ export const enUS = {
   'settings.setup.desc.cli': 'The agentbox command, for your terminal and scripts, and for the next step. Agents get their own copy.',
   'settings.setup.desc.incus': 'Runs each agent in its own Linux machine.',
   'settings.setup.desc.host': 'Makes the files agents write in their worktrees belong to you.',
-  'settings.setup.desc.image': 'The template every agent’s machine is copied from: Debian with Docker, Node.js, Claude Code, Chromium and ffmpeg. It’s downloaded ready-made and set up for this machine, or built here in a few minutes if the download fails or you add an optional component.',
+  'settings.setup.desc.image': 'The template every agent’s machine is copied from: Debian with Docker, Node.js, Claude Code, Chromium and ffmpeg. It’s downloaded ready-made and set up for this machine, or built here in a few minutes if the download fails or you add the Android tools, the development caches or Incus.',
   'settings.setup.desc.storage': 'Where agents’ machines are kept. On btrfs or zfs a new agent’s machine is ready instantly; on other drivers the whole base image is copied each time.',
   'settings.setup.desc.claude': 'Claude Code logins AgentBox gives its agents. Your own ~/.claude isn’t shared with them.',
   'settings.setup.desc.codex': 'For agents that run Codex.',
@@ -1182,7 +1182,7 @@ export const enUS = {
   'defaults.newAgent.mediaDetails': 'They stay in the project’s Media after the agent is removed — by you, or automatically once its pull request is merged or closed — and are deleted when this time runs out. An agent that still exists keeps all of its media.',
   'defaults.newAgent.openCodeLabel': 'OpenCode in the base image',
   'defaults.newAgent.openCodeDescription': 'Adds the OpenCode AI tool to the base image, so you can create agents that run it.',
-  'defaults.newAgent.openCodeDetails': 'About 120 MB. Changing it rebuilds the base image; agents you already have aren’t affected.',
+  'defaults.newAgent.openCodeDetails': 'About 185 MB on disk. Changing it downloads the base image again and adds OpenCode to it, rather than building it here; agents you already have aren’t affected.',
   'defaults.newAgent.openCodeMissing': 'The image doesn’t have OpenCode yet: rebuild it under Base image above, or run agentbox image build.',
 
   // memory

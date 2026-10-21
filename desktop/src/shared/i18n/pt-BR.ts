@@ -477,7 +477,7 @@ export const ptBR: Messages = {
   'settings.setup.desc.cli': 'O comando agentbox, para o seu terminal e scripts, e para o próximo passo. Os agentes recebem a própria cópia.',
   'settings.setup.desc.incus': 'Executa cada agente na sua própria máquina Linux.',
   'settings.setup.desc.host': 'Faz os arquivos que os agentes escrevem nos worktrees deles pertencerem a você.',
-  'settings.setup.desc.image': 'O modelo de onde a máquina de cada agente é copiada: Debian com Docker, Node.js, Claude Code, Chromium e ffmpeg. Ela é baixada pronta e ajustada para esta máquina, ou construída aqui em alguns minutos se o download falhar ou se você adicionar um componente opcional.',
+  'settings.setup.desc.image': 'O modelo de onde a máquina de cada agente é copiada: Debian com Docker, Node.js, Claude Code, Chromium e ffmpeg. Ela é baixada pronta e ajustada para esta máquina, ou construída aqui em alguns minutos se o download falhar ou se você adicionar as ferramentas do Android, os caches de desenvolvimento ou o Incus.',
   'settings.setup.desc.storage': 'Onde ficam as máquinas dos agentes. Em btrfs ou zfs a máquina de um novo agente fica pronta na hora; nos outros drivers a imagem base inteira é copiada a cada vez.',
   'settings.setup.desc.claude': 'Logins do Claude Code que o AgentBox dá aos agentes. O seu próprio ~/.claude não é compartilhado com eles.',
   'settings.setup.desc.codex': 'Para agentes que usam o Codex.',
@@ -1183,7 +1183,7 @@ export const ptBR: Messages = {
   'defaults.newAgent.mediaDetails': 'Eles ficam na Mídia do projeto depois que o agente é removido — por você, ou automaticamente quando o pull request dele é mesclado ou fechado — e são apagados quando esse prazo acaba. Um agente que ainda existe mantém toda a sua mídia.',
   'defaults.newAgent.openCodeLabel': 'OpenCode na imagem base',
   'defaults.newAgent.openCodeDescription': 'Adiciona a ferramenta de IA OpenCode à imagem base, para que você possa criar agentes que a usam.',
-  'defaults.newAgent.openCodeDetails': 'Cerca de 120 MB. Mudar isso reconstrói a imagem base; os agentes que você já tem não são afetados.',
+  'defaults.newAgent.openCodeDetails': 'Cerca de 185 MB em disco. Mudar isso baixa a imagem base de novo e adiciona o OpenCode a ela, em vez de construí-la aqui; os agentes que você já tem não são afetados.',
   'defaults.newAgent.openCodeMissing': 'A imagem ainda não tem o OpenCode: reconstrua-a em Imagem base acima, ou execute agentbox image build.',
 
   // memory

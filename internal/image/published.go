@@ -25,7 +25,7 @@ import (
 // optional components and without the tools AgentBox may not redistribute:
 // Debian plus provision.sh, around the placeholder user. A new machine
 // downloads it instead of building one (Build), installs the tools it leaves
-// out at their tools.txt pins, and makes it its own as it would a local build.
+// out at their tools.txt pins, and those of Codex and OpenCode when they're on, and makes it its own as it would a local build.
 // It lives on this repository's GitHub releases, one prerelease per image
 // version, tagged image-<version> and never marked latest, so app releases and
 // their update check don't see it. Assets are flat, so each carries its
@@ -326,7 +326,8 @@ func sha256Hex(b []byte) string {
 
 // fromPublished makes next from the published image, up to where a local
 // build would have it: the placeholder user, every tool tools.txt pins for an
-// image with no components, stopped. The image is downloaded, checked and
+// image with opts' components, stopped. Only components that are tools alone
+// (Codex, OpenCode) can be added this way; makeNext builds the others here. The image is downloaded, checked and
 // imported into Incus for as long as next is made from it, then deleted.
 func fromPublished(ctx context.Context, inc incus.Client, next string, u User, opts Options, log io.Writer) error {
 	step := stepper(log)
@@ -365,8 +366,20 @@ func fromPublished(ctx context.Context, inc incus.Client, next string, u User, o
 	for _, spec := range p.Tools {
 		has = append(has, Tool{Spec: spec})
 	}
-	plan := PlanFor(true, Installed{Version: Version, ToolsVersion: ToolsVersion(has), Tools: p.Tools}, Components{}, nil)
-	step("Installing the agent tools it leaves out, as on a local build")
+	// It's planned as if it had the components already, so the plan installs
+	// their tools too.
+	components := opts.Components
+	plan := PlanFor(true, Installed{Version: Version, Components: components, ToolsVersion: ToolsVersion(has), Tools: p.Tools}, components, nil)
+	if components.Any() {
+		step("Installing the agent tools it leaves out and those of %s, as on a local build", components.Summary())
+	} else {
+		step("Installing the agent tools it leaves out, as on a local build")
+	}
+	if dirs := components.homeDirs(); len(dirs) > 0 {
+		if _, err := inc.Exec(ctx, next, "runuser", "-l", Placeholder.Name, "-c", "mkdir -p "+strings.Join(dirs, " ")); err != nil {
+			return err
+		}
+	}
 	if err := installTools(ctx, inc, next, Placeholder.Name, plan, log); err != nil {
 		return err
 	}

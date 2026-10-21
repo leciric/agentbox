@@ -297,12 +297,56 @@ func TestBuildFallsBackWhenTheToolsFail(t *testing.T) {
 	}
 }
 
-// No published image has an optional component, so a build with one, or one
-// asked to be local, doesn't look.
+// Codex and OpenCode are only tools, so a build with them downloads the
+// published image as one without does, and installs their tools on top with
+// the ones it leaves out, at their pins, into home directories of the user's.
+func TestBuildWithCodexOrOpenCodeAddsThemToThePublishedImage(t *testing.T) {
+	for name, c := range map[string]image.Components{
+		"codex":    {Codex: true},
+		"opencode": {OpenCode: true},
+		"both":     {Codex: true, OpenCode: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := publish(t, specs(image.PublishedTools()), nil)
+			inc := fakeIncus(t, "")
+			opts := publishedOptions(t, p)
+			opts.Components = c
+			var log bytes.Buffer
+			if err := image.Build(t.Context(), inc.Client, host, opts, &log); err != nil {
+				t.Fatalf("Build() = %v\n%s", err, log.String())
+			}
+			inc.ran(t, "image|import|")
+			inc.neverRan(t, "/root/provision.sh")
+			inc.neverRan(t, "init|"+image.Source)
+			dirs := inc.ran(t, "runuser|-l|agent|-c|mkdir -p ")
+			installed := inc.ran(t, "/root/tools.sh|install|agent|/root/tools.list|")
+			if dirs >= installed {
+				t.Errorf("the home directories should be made before the tools.sh run that cleans up:\n%s", strings.Join(inc.commands(t), "\n"))
+			}
+			for _, tool := range image.ToolsFor(c) {
+				if tool.Option != "" && !strings.Contains(log.String(), tool.Spec) {
+					t.Errorf("the build should install %s:\n%s", tool.Spec, log.String())
+				}
+			}
+			// It records the components and their tools, as a local build
+			// does, so PlanFor finds it up to date.
+			inc.ran(t, "user.agentbox.with-codex="+map[bool]string{true: "1", false: "0"}[c.Codex]+"|user.agentbox.with-opencode="+map[bool]string{true: "1", false: "0"}[c.OpenCode]+"|")
+			inc.ran(t, "user.agentbox.tools-version="+image.ToolsVersion(image.ToolsFor(c))+"|")
+		})
+	}
+}
+
+// No published image has the components provision.sh puts in, so a build with
+// one, or one asked to be local, doesn't look, even with Codex on too.
 func TestBuildWithAComponentOrLocalBuildsHere(t *testing.T) {
 	p := publish(t, specs(image.PublishedTools()), nil)
 	for name, opts := range map[string]image.Options{
-		"codex": func() image.Options { o := publishedOptions(t, p); o.Components.Codex = true; return o }(),
+		"dev-caches": func() image.Options { o := publishedOptions(t, p); o.Components.DevCaches = true; return o }(),
+		"incus and codex": func() image.Options {
+			o := publishedOptions(t, p)
+			o.Components.Incus, o.Components.Codex = true, true
+			return o
+		}(),
 		"local": {},
 	} {
 		t.Run(name, func(t *testing.T) {

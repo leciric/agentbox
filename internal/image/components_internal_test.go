@@ -196,3 +196,22 @@ func TestDownloadTable(t *testing.T) {
 		}
 	}
 }
+
+// Only what provision.sh puts in needs a local build: Codex and OpenCode are
+// tools, which go on top of the published image.
+func TestNeedsLocalBuild(t *testing.T) {
+	for c, want := range map[Components]bool{
+		{}:                            false,
+		{Codex: true}:                 false,
+		{OpenCode: true}:              false,
+		{Codex: true, OpenCode: true}: false,
+		{Android: true}:               true,
+		{DevCaches: true}:             true,
+		{Incus: true}:                 true,
+		{Incus: true, OpenCode: true}: true,
+	} {
+		if got := c.NeedsLocalBuild(); got != want {
+			t.Errorf("%+v.NeedsLocalBuild() = %v, want %v", c, got, want)
+		}
+	}
+}
