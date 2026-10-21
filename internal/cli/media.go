@@ -250,7 +250,7 @@ func newMediaScreenshotCmd(a *app) *cobra.Command {
 func newRecordStartCmd(a *app) *cobra.Command {
 	var name, input, target string
 	var limit time.Duration
-	var noTrim bool
+	var noTrim, wholeDisplay bool
 	cmd := &cobra.Command{
 		Use:   "start [agent]",
 		Short: "Start recording the agent's display",
@@ -268,6 +268,10 @@ it records. Use it for a flow driven through the desktop, with xdotool;
 Playwright's input is synthesized inside Chromium, where neither the cursor
 nor the overlay sees it.
 
+A recording of the display with the browser in front makes the browser fullscreen
+first, so it shows the page as a screenshot does, and puts the window back after.
+--whole-display films the desktop as it is: tab strip, taskbar and all.
+
 A stretch where the screen stands still for more than a second plays as 0.4s
 of it, so the video shows the action and not the waiting between steps; the
 notes made meanwhile still mark the moments they were made at. --no-trim
@@ -279,7 +283,7 @@ keeps every frame. Android recordings are always kept whole.`,
 			if err != nil {
 				return err
 			}
-			status, err := c.StartRecording(cmd.Context(), ref, api.RecordRequest{Target: target, Input: input, Name: name, LimitSeconds: int(limit.Seconds()), NoTrim: noTrim})
+			status, err := c.StartRecording(cmd.Context(), ref, api.RecordRequest{Target: target, Input: input, Name: name, LimitSeconds: int(limit.Seconds()), NoTrim: noTrim, WholeDisplay: wholeDisplay})
 			if err != nil {
 				return err
 			}
@@ -292,6 +296,7 @@ keeps every frame. Android recordings are always kept whole.`,
 	cmd.Flags().StringVar(&target, "target", "auto", "auto, display (the whole desktop) or browser (the page alone)")
 	cmd.Flags().StringVar(&input, "input", "playwright", "playwright, or desktop to show the mouse cursor and the keys pressed")
 	cmd.Flags().DurationVar(&limit, "limit", 10*time.Minute, "stop by itself after this long (at most 1h)")
+	cmd.Flags().BoolVar(&wholeDisplay, "whole-display", false, "film the desktop as it is, without making the browser fullscreen first")
 	cmd.Flags().BoolVar(&noTrim, "no-trim", false, "keep every frame, where the screen standing still otherwise plays as a moment of it")
 	return cmd
 }

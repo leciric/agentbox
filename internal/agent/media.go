@@ -292,13 +292,14 @@ type RecordingStatus struct {
 }
 
 type recordingState struct {
-	Target    string    `json:"target"`
-	Input     string    `json:"input,omitempty"`
-	Name      string    `json:"name"`
-	Source    string    `json:"source"`
-	StartedAt time.Time `json:"startedAt"`
-	Limit     int       `json:"limit"` // seconds
-	NoTrim    bool      `json:"noTrim,omitempty"`
+	Target       string    `json:"target"`
+	Input        string    `json:"input,omitempty"`
+	Name         string    `json:"name"`
+	Source       string    `json:"source"`
+	StartedAt    time.Time `json:"startedAt"`
+	Limit        int       `json:"limit"` // seconds
+	NoTrim       bool      `json:"noTrim,omitempty"`
+	WholeDisplay bool      `json:"wholeDisplay,omitempty"`
 	// Staged is a recording written straight into the agent's media, through
 	// the recordings device, rather than inside the agent and copied out.
 	Staged bool `json:"staged,omitempty"`
@@ -308,7 +309,7 @@ type recordingState struct {
 // display or its browser's page, with the recorder in the agentbox binary
 // (desktop.Record), or its Android emulator's screen with scrcpy. The target
 // "auto", the default, takes the page when the browser is all there is to see.
-func (m *Manager) StartRecording(ctx context.Context, a state.Agent, target, input, name string, limit time.Duration, noTrim bool, source string) (RecordingStatus, error) {
+func (m *Manager) StartRecording(ctx context.Context, a state.Agent, target, input, name string, limit time.Duration, noTrim, wholeDisplay bool, source string) (RecordingStatus, error) {
 	if err := m.requireRunning(ctx, a); err != nil {
 		return RecordingStatus{}, err
 	}
@@ -316,7 +317,7 @@ func (m *Manager) StartRecording(ctx context.Context, a state.Agent, target, inp
 		limit = DefaultRecordLimit
 	}
 	limit = min(limit, maxRecordLimit)
-	st := recordingState{Target: cmpOr(target, desktop.RecordAuto), Input: cmpOr(input, RecordInputPlaywright), Name: cmpOr(strings.TrimSpace(name), "recording"), Source: cmpOr(source, "user"), StartedAt: time.Now().UTC(), Limit: int(limit.Seconds()), NoTrim: noTrim}
+	st := recordingState{Target: cmpOr(target, desktop.RecordAuto), Input: cmpOr(input, RecordInputPlaywright), Name: cmpOr(strings.TrimSpace(name), "recording"), Source: cmpOr(source, "user"), StartedAt: time.Now().UTC(), Limit: int(limit.Seconds()), NoTrim: noTrim, WholeDisplay: wholeDisplay}
 	if st.Input != RecordInputPlaywright && st.Input != RecordInputDesktop {
 		return RecordingStatus{}, fmt.Errorf("unknown recording input %q: use playwright or desktop", st.Input)
 	}
@@ -404,7 +405,7 @@ func startRecordingScript(st recordingState) (string, error) {
 	case desktop.RecordAuto, desktop.RecordDisplay, desktop.RecordBrowser:
 		recorder = fmt.Sprintf(`command -v agentbox >/dev/null || { echo "agentbox isn't installed in this machine" >&2; exit 1; }
 setsid agentbox desktop record --target %s --input %s --limit %ds --bottom %d%s --ready "$dir/recording.ready" --cuts "$dir/recording.cuts" "$out" >"$dir/recording.log" 2>&1 </dev/null &`,
-			st.Target, st.Input, st.Limit, dockMargin+dockHeight/2, noTrimFlag(st.NoTrim))
+			st.Target, st.Input, st.Limit, dockMargin+dockHeight/2, noTrimFlag(st.NoTrim)+wholeDisplayFlag(st.WholeDisplay))
 		started = `i=0
 while [ ! -s "$dir/recording.ready" ] && kill -0 "$(cat "$dir/recording.pid")" 2>/dev/null && [ "$i" -lt 200 ]; do sleep 0.05; i=$((i + 1)); done
 target=$(cat "$dir/recording.ready" 2>/dev/null || true)`
@@ -437,6 +438,13 @@ kill -0 "$(cat "$dir/recording.pid")" 2>/dev/null && [ -n "$target" ] || { echo 
 printf '%%s' %[4]s | sed "s/\"target\":\"[a-z]*\"/\"target\":\"$target\"/" >"$dir/recording.json"
 echo "$target"`,
 		agentStateDir, out, recorder, shellQuote(string(encoded)), started), nil
+}
+
+func wholeDisplayFlag(whole bool) string {
+	if whole {
+		return " --whole-display"
+	}
+	return ""
 }
 
 func noTrimFlag(noTrim bool) string {

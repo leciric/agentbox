@@ -16,28 +16,35 @@ import (
 func newMediaSaveCmd(a *app) *cobra.Command {
 	var name string
 	cmd := &cobra.Command{
-		Use:   "save [agent] --name <media> <path>",
+		Use:   "save [agent] <media> <path>",
 		Short: "Copy a screenshot or recording out of the Media tab into a file here, to attach it to a pull request",
-		Long: `Copies the file of the media named --name (the newest, when several share the name) to
-<path>, or into <path> under its own file name when <path> is a directory. Inside an agent,
+		Long: `Copies the file of a media item, given by its id or its name (the newest, when several
+share the name; --name works too), to <path>, or into <path> under its own file name when <path> is a directory. Inside an agent,
 leave out the agent: it saves its own media into the agent's machine. On the host, name
 the agent.
 
 It is what gh's --attach needs to put a screenshot in a pull request:
 
-  agentbox media save --name empty-state /tmp/empty-state.png
+  agentbox media save empty-state /tmp/empty-state.png
   gh pr create --attach '/tmp/empty-state.png#The empty state' --body '![The empty state](/tmp/empty-state.png)' ...`,
-		Example: `  agentbox media save --name empty-state /tmp/empty-state.png
-  agentbox media save pawly/agent-01 --name empty-state /tmp`,
-		Args: cobra.RangeArgs(1, 2),
+		Example: `  agentbox media save empty-state /tmp/empty-state.png
+  agentbox media save m12 /tmp/empty-state.png
+  agentbox media save pawly/agent-01 empty-state /tmp`,
+		Args: cobra.RangeArgs(1, 3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ref, rest := splitRef(args, 1)
+			// The media is --name or the argument before the path; an agent
+			// goes first when there is one more argument than that takes.
+			want := 2
+			if name != "" {
+				want = 1
+			}
+			ref, rest := splitRef(args, want)
 			// A lone agent is a forgotten path, not a file to write called pawly/agent-01.
-			if len(rest) != 1 || ref == "" && refPattern.MatchString(rest[0]) {
-				return errors.New("usage: agentbox media save [agent] --name <media> <path>")
+			if len(rest) != want || ref == "" && refPattern.MatchString(rest[len(rest)-1]) {
+				return errors.New("usage: agentbox media save [agent] <id or name> <path>")
 			}
 			if name == "" {
-				return errors.New("pass --name <media> for what to save (see agentbox media list)")
+				name, rest = rest[0], rest[1:]
 			}
 			c, err := a.scopedClient(cmd, ref)
 			if err != nil {
@@ -51,16 +58,16 @@ It is what gh's --attach needs to put a screenshot in a pull request:
 			// Newest first, so the first match is the latest take.
 			i := -1
 			for n, it := range items {
-				if it.Name == name {
+				if it.ID == name || it.Name == name {
 					i = n
 					break
 				}
 			}
 			if i < 0 {
 				if info, err := os.Stat(rest[0]); err == nil && info.Mode().IsRegular() {
-					return fmt.Errorf("no media named %q: save copies out of Media, it doesn't store a file. To keep %s in Media first: agentbox media add %s --name %s", name, rest[0], rest[0], name)
+					return fmt.Errorf("no media with id or name %q: save copies out of Media, it doesn't store a file. To keep %s in Media first: agentbox media add %s --name %s", name, rest[0], rest[0], name)
 				}
-				return fmt.Errorf("no media named %q: see agentbox media list", name)
+				return fmt.Errorf("no media with id or name %q: see agentbox media list", name)
 			}
 			item := items[i]
 			switch {
@@ -94,6 +101,6 @@ It is what gh's --attach needs to put a screenshot in a pull request:
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&name, "name", "", "the name of the media to save; required")
+	cmd.Flags().StringVar(&name, "name", "", "the name of the media to save, instead of giving it before the path")
 	return cmd
 }

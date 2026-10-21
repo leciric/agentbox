@@ -247,7 +247,7 @@ func TestRenderLeadAgentPRs(t *testing.T) {
 		t.Errorf("off: the lead's brief says agents open their own pull requests")
 	}
 	// Whoever opens the pull request puts the agent's media in it.
-	if !strings.Contains(off, "agentbox media save pawly/<agent> --name") || strings.Contains(on, "agentbox media save pawly/") {
+	if !strings.Contains(off, "agentbox media save pawly/<agent> <media>") || strings.Contains(on, "agentbox media save pawly/") {
 		t.Errorf("only the lead that opens pull requests itself is told to attach the agent's media")
 	}
 	for _, brief := range []string{on, off} {
@@ -274,7 +274,7 @@ func TestRenderAgentPRs(t *testing.T) {
 	}
 	on, off := render(true), render(false)
 	for _, want := range []string{"push `agentbox/feat-x` to `origin` and open a pull request",
-		"conventional commit", "agentbox media save --name", "--attach '/tmp/<media>.png#", "Never push to `main`, merge or close a pull request"} {
+		"conventional commit", "agentbox media save <media>", "--attach '/tmp/<media>.png#", "Never push to `main`, merge or close a pull request"} {
 		if !strings.Contains(on, want) {
 			t.Errorf("on: the brief doesn't say %q", want)
 		}

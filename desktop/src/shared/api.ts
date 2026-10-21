@@ -950,6 +950,7 @@ export interface RecordRequest {
   name?: string;
   limitSeconds?: number;
   noTrim?: boolean;
+  wholeDisplay?: boolean;
 }
 
 export interface RecordingStatus {

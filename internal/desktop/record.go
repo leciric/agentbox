@@ -75,6 +75,10 @@ type RecordOptions struct {
 	// NoTrim keeps every frame: the screen standing still plays as long as
 	// it stood still (trim.go).
 	NoTrim bool
+	// WholeDisplay films the display as it is. Otherwise a display recording
+	// first makes the browser's window fullscreen when it is the window in
+	// front, so it shows the page as a screenshot does.
+	WholeDisplay bool
 	// Cuts, when set, is a file to write what the trimming cut to (Cuts), once
 	// the recording is finished.
 	Cuts string
@@ -194,11 +198,32 @@ func browserOnly(windows []window) bool {
 	return browser
 }
 
+// browserInFront is whether the window in front is Chromium's.
+func browserInFront(ctx context.Context) bool {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	xprop := func(args ...string) string {
+		cmd := exec.CommandContext(ctx, "xprop", args...)
+		cmd.Env = append(os.Environ(), "DISPLAY="+Display)
+		out, _ := cmd.Output()
+		return string(out)
+	}
+	_, id, ok := strings.Cut(xprop("-root", "_NET_ACTIVE_WINDOW"), "# ")
+	id = strings.TrimSpace(id)
+	if !ok || id == "" || id == "0x0" {
+		return false
+	}
+	return strings.HasPrefix(strings.ToLower(parseWindow(xprop("-id", id, "WM_CLASS")).class), `"chromium`)
+}
+
 // recordDisplay captures the display with x11grab, with the input drawn on
 // when there is input to draw.
 func recordDisplay(ctx context.Context, opts RecordOptions) error {
 	if _, err := os.Stat("/tmp/.X11-unix/X" + strings.TrimPrefix(Display, ":")); err != nil {
 		return errors.New("the display isn't running: start the browser first")
+	}
+	if !opts.WholeDisplay && browserInFront(ctx) {
+		defer fullscreenBrowser(ctx, opts.DevTools)()
 	}
 	// draw_mouse is x11grab's default, and Xvnc serves the pointer through
 	// XFIXES, so the cursor lands in the frames; it is spelled out here

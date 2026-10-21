@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/coder/websocket"
 )
@@ -152,3 +153,58 @@ func (c *cdpConn) send(ctx context.Context, method string, params any) {
 }
 
 func (c *cdpConn) Close() { _ = c.ws.CloseNow() }
+
+// fullscreenBrowser makes the window of the browser's current page fullscreen,
+// so a recording of the display shows the page and not the tab strip, the
+// address bar and the dock around it (a screenshot of the page has none of
+// them). It returns what puts the window back as it was; with no browser
+// window to change, both are no-ops.
+func fullscreenBrowser(ctx context.Context, devtools string) (restore func()) {
+	restore = func() {}
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	pages, err := listPages(ctx, devtools)
+	if err != nil || len(pages) == 0 {
+		return restore
+	}
+	c, err := dialCDP(ctx, pages[0].WebSocket, nil)
+	if err != nil {
+		return restore
+	}
+	var win struct {
+		WindowID int `json:"windowId"`
+		Bounds   struct {
+			WindowState string `json:"windowState"`
+		} `json:"bounds"`
+	}
+	if c.call(ctx, "Browser.getWindowForTarget", nil, &win) != nil || win.Bounds.WindowState == "fullscreen" {
+		c.Close()
+		return restore
+	}
+	set := func(ctx context.Context, state string) error {
+		return c.call(ctx, "Browser.setWindowBounds", map[string]any{"windowId": win.WindowID, "bounds": map[string]any{"windowState": state}}, nil)
+	}
+	if set(ctx, "fullscreen") != nil {
+		c.Close()
+		return restore
+	}
+	// Chromium animates into fullscreen; the first frames shouldn't show it.
+	select {
+	case <-time.After(500 * time.Millisecond):
+	case <-ctx.Done():
+	}
+	was := win.Bounds.WindowState
+	return func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = set(ctx, cmpState(was))
+		c.Close()
+	}
+}
+
+func cmpState(s string) string {
+	if s == "" {
+		return "normal"
+	}
+	return s
+}

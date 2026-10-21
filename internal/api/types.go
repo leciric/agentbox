@@ -2583,6 +2583,9 @@ type RecordRequest struct {
 	// NoTrim keeps every frame, where a recording otherwise plays a stretch
 	// the screen stood still for as a moment of it.
 	NoTrim bool `json:"noTrim,omitempty"`
+	// WholeDisplay films the desktop as it is, where a display recording
+	// otherwise makes the browser in front fullscreen first.
+	WholeDisplay bool `json:"wholeDisplay,omitempty"`
 }
 
 type RecordingStatus struct {

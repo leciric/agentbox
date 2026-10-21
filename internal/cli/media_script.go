@@ -29,6 +29,7 @@ const (
 func addRecordScript(a *app, record *cobra.Command) {
 	var script, name, target string
 	var limit time.Duration
+	var whole bool
 	record.Use = "record --script <file> --name <name>"
 	record.Long = `Record the agent's display as a video.
 
@@ -64,18 +65,19 @@ Without --script, use start and stop around a walkthrough driven by hand.`
 		if err != nil {
 			return err
 		}
-		return replay(cmd, c, s, script, name, target, limit)
+		return replay(cmd, c, s, script, name, target, limit, whole)
 	}
 	record.Flags().StringVar(&script, "script", "", "a walkthrough to replay, as the steps tool takes it")
 	record.Flags().StringVar(&name, "name", "", `with --script: a name, like "settings-after"`)
 	record.Flags().StringVar(&target, "target", "auto", "with --script: auto, display or browser")
+	record.Flags().BoolVar(&whole, "whole-display", false, "film the desktop as it is, without making the browser fullscreen first")
 	record.Flags().DurationVar(&limit, "limit", 10*time.Minute, "with --script: stop after this long")
 }
 
-func replay(cmd *cobra.Command, c *api.Client, s desktop.Script, script, name, target string, limit time.Duration) error {
+func replay(cmd *cobra.Command, c *api.Client, s desktop.Script, script, name, target string, limit time.Duration, whole bool) error {
 	ctx := cmd.Context()
 	out := cmd.OutOrStdout()
-	status, err := c.StartRecording(ctx, "", api.RecordRequest{Target: target, Input: "desktop", Name: name, LimitSeconds: int(limit.Seconds())})
+	status, err := c.StartRecording(ctx, "", api.RecordRequest{Target: target, Input: "desktop", Name: name, LimitSeconds: int(limit.Seconds()), WholeDisplay: whole})
 	if err != nil {
 		return err
 	}

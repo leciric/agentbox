@@ -86,6 +86,7 @@ func newDesktopRecordCmd() *cobra.Command {
 	cmd.Flags().IntVar(&opts.Bottom, "bottom", 0, "how far above the display's bottom edge the key caption's centre sits")
 	cmd.Flags().StringVar(&ready, "ready", "", "a file to write what is recorded to, once it is")
 	cmd.Flags().BoolVar(&opts.NoTrim, "no-trim", false, "keep every frame, the screen standing still included")
+	cmd.Flags().BoolVar(&opts.WholeDisplay, "whole-display", false, "film the display as it is, without making the browser fullscreen first")
 	cmd.Flags().StringVar(&opts.Cuts, "cuts", "", "a file to write the stretches cut out to, as JSON, once the recording is finished")
 	return cmd
 }

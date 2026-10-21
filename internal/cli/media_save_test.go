@@ -73,6 +73,15 @@ func TestMediaSaveCmd(t *testing.T) {
 		t.Errorf("saved %q, %v; want the newest take", b, err)
 	}
 
+	// By its name or id given before the path, with no --name.
+	byName := filepath.Join(t.TempDir(), "by-name.png")
+	if _, err := run(t, "", "media", "save", "hello-stack/agent-01", "empty-state", byName); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(byName); err != nil || string(b) != "new take" {
+		t.Errorf("saved by name %q, %v", b, err)
+	}
+
 	// Into a directory: under the item's own file name.
 	dir := t.TempDir()
 	if _, err := run(t, "", "media", "save", "hello-stack/agent-01", "--name", "empty-state", dir); err != nil {
@@ -86,9 +95,10 @@ func TestMediaSaveCmd(t *testing.T) {
 		name, want string
 		args       []string
 	}{
-		{"no name", "pass --name", []string{"media", "save", "hello-stack/agent-01", dest}},
+		{"no media", "usage:", []string{"media", "save", dest}},
+		{"unknown positional", `no media with id or name "nope"`, []string{"media", "save", "hello-stack/agent-01", "nope", dest}},
 		{"no path", "usage:", []string{"media", "save", "hello-stack/agent-01", "--name", "empty-state"}},
-		{"unknown name", `no media named "nope"`, []string{"media", "save", "hello-stack/agent-01", "--name", "nope", dest}},
+		{"unknown name", `no media with id or name "nope"`, []string{"media", "save", "hello-stack/agent-01", "--name", "nope", dest}},
 		{"existing file", "agentbox media add " + dest + " --name nope", []string{"media", "save", "hello-stack/agent-01", "--name", "nope", dest}},
 		{"a note", "is a note", []string{"media", "save", "hello-stack/agent-01", "--name", "summary", dest}},
 	} {
