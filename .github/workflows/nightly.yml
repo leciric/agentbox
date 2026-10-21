@@ -3,7 +3,8 @@ name: Nightly
 # Nightly builds: everything release.yml builds — the AppImage, .deb and
 # .pacman, the Windows installer and portable .exe, the command-line tool for
 # linux-amd64, linux-arm64, darwin-arm64 and darwin-amd64, and the Mac app —
-# from the head of release-please's PR, published as a GitHub prerelease with
+# from the head of release-please's PR (or main's tip when that head is behind
+# main), published as a GitHub prerelease with
 # SHA256SUMS. The PR's head is the next release as it stands (its commit
 # already bumps desktop/package.json), so a nightly is versioned <next
 # release>-nightly.<YYYYMMDD>.<run>: a semver prerelease, ordered by date then
@@ -100,7 +101,7 @@ jobs:
       - name: Pick the commit
         id: pick
         run: |
-          publish=true
+          publish=true release_sha=
           case $EVENT in
             pull_request)
               sha=$PR_SHA pr=$PR_NUMBER
@@ -120,10 +121,32 @@ jobs:
               fi
               ;;
           esac
+          # The release PR's head only is the next release if it contains main's
+          # tip. release-please leaves its branch alone when a change adds no
+          # changelog line (a `ci:` one), so it can lag main, and a tag on a
+          # commit whose workflow files differ from main's is refused to
+          # GITHUB_TOKEN (no `workflows` permission). Then build main's tip.
+          if [ -n "$pr" ]; then
+            main=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)
+            status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$main...$sha" --jq .status)
+            case $status in
+              ahead|identical) ;;
+              *)
+                msg="Release PR #$pr (${sha:0:7}) doesn't contain main's tip (compare: $status), so this builds main at ${main:0:7} instead."
+                echo "::notice::$msg"
+                echo "$msg" >>"$GITHUB_STEP_SUMMARY"
+                # main's own desktop/package.json is still the last release,
+                # older than the nightlies of the next one: the version comes
+                # from the release PR's head, which bumped it.
+                release_sha=$sha sha=$main pr=
+                ;;
+            esac
+          fi
           {
             echo "build=true"
             echo "sha=$sha"
             echo "pr=$pr"
+            echo "release_sha=$release_sha"
             echo "publish=$publish"
           } >>"$GITHUB_OUTPUT"
           echo "Building $sha${pr:+ (release PR #$pr)}; publish: $publish"
@@ -146,16 +169,24 @@ jobs:
         if: steps.pick.outputs.build == 'true'
         run: scripts/chv-gpu/check-published.sh --download
 
-      # The version comes from the checkout's desktop/package.json and the
-      # date and run number: scripts/release-build.sh --check then refuses a
+      # The version comes from the checkout's desktop/package.json (the release
+      # PR head's, when main's tip is built instead: see "Pick the commit") and
+      # the date and run number: scripts/release-build.sh --check then refuses a
       # checkout that isn't clean, a package version that isn't a release,
       # and a tag that is already taken.
       - name: Version it and check it
         id: version
         if: steps.pick.outputs.build == 'true'
+        env:
+          RELEASE_SHA: ${{ steps.pick.outputs.release_sha }}
         run: |
           nightly=$(date -u +%Y%m%d).$GITHUB_RUN_NUMBER
-          release=$(node -p "require('./desktop/package.json').version.split('-')[0]")
+          if [ -n "$RELEASE_SHA" ]; then
+            release=$(gh api "repos/$GITHUB_REPOSITORY/contents/desktop/package.json?ref=$RELEASE_SHA" \
+              -H 'Accept: application/vnd.github.raw+json' | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version.split('-')[0]")
+          else
+            release=$(node -p "require('./desktop/package.json').version.split('-')[0]")
+          fi
           version=$release-nightly.$nightly
           scripts/release-build.sh --nightly "$nightly" --tag "v$version" --check
           {

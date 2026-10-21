@@ -189,7 +189,7 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
           {chatMenu?.dialogs}
           {chatMenu?.untracked}
           <InTopBar end>
-            <ProjectPlaces project={name} leadRef={`${name}/${T.LeadName}`} />
+            <ProjectPlaces leadRef={`${name}/${T.LeadName}`} />
             <Tip label={t('today.open')}>
               <Button size="icon-sm" variant="ghost" aria-label={t('today.open')} onClick={() => onSelect({ kind: 'today', project: name })} data-open-today>
                 <Clapperboard />

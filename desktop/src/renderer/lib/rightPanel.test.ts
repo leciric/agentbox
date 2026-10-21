@@ -280,7 +280,7 @@ test('✕ goes back to the list; the panel button folds the list and back, and n
   P.setFitsBeside(true);
 });
 
-test('the lead’s panel switches between Agents and Files, remembered per project', async () => {
+test('the lead’s panel switches between Agents, Pull requests and Files, remembered per project', async () => {
   P.setPanel({ chats: {}, views: {}, last: {} });
   const lead = 'pawly/lead';
   assert.equal(P.leadTab(P.panelState(), 'pawly'), 'agents');
@@ -303,5 +303,31 @@ test('the lead’s panel switches between Agents and Files, remembered per proje
   assert.equal(fresh.leadTab(fresh.panelState(), 'other'), 'files');
   // An agent shown in the lead's panel is neither tab: back goes to Agents.
   P.openPanelOn(lead, 'desktop', 'pawly/agent-3');
+  assert.equal(P.leadTab(P.panelState(), 'pawly'), 'agents');
+});
+
+test('Pull requests is a tab of the lead’s panel, over whoever it showed, and what opens them switches to it', () => {
+  P.setPanel({ chats: {}, views: {}, last: {} });
+  const lead = 'pawly/lead';
+  P.setLeadTab('pawly', 'files');
+  P.setLeadTab('pawly', 'pulls');
+  assert.equal(P.leadTab(P.panelState(), 'pawly'), 'pulls');
+  assert.equal(P.chatPanel(P.panelState(), lead).wide, 'pulls');
+  // Files again, as it was under them.
+  P.setLeadTab('pawly', 'files');
+  assert.equal(P.leadTab(P.panelState(), 'pawly'), 'files');
+  assert.equal(P.chatPanel(P.panelState(), lead).wide, undefined);
+  // From Pull requests, Agents is the list, not the Files they went over.
+  P.setLeadTab('pawly', 'pulls');
+  P.setLeadTab('pawly', 'agents');
+  assert.equal(P.leadTab(P.panelState(), 'pawly'), 'agents');
+  assert.equal(P.onList(P.panelState(), lead), true);
+  // A link or the search opens them as the panel's tab, over an agent too.
+  P.openPanelOn(lead, 'desktop', 'pawly/agent-3');
+  P.openPanelOn(lead, 'pulls');
+  assert.equal(P.leadTab(P.panelState(), 'pawly'), 'pulls');
+  assert.equal(P.chatPanel(P.panelState(), lead).open, true);
+  // ✕, the back arrow and ⌘D beside the chat leave them for the list.
+  P.panelClose(lead);
   assert.equal(P.leadTab(P.panelState(), 'pawly'), 'agents');
 });
