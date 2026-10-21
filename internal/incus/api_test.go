@@ -28,6 +28,7 @@ type fakeAPI struct {
 	networks  map[string]*api.Network
 	failOp    string // an operation whose request path has this suffix fails
 	failFast  bool   // and has already failed when it is first looked at
+	etagFails int    // how many instance updates are refused with "ETag doesn't match"
 	lastOp    api.Operation
 	changes   []string
 }
@@ -166,6 +167,11 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("ETag", "etag")
 			reply(w, inst)
 		case len(parts) == 2 && r.Method == http.MethodPut:
+			if f.etagFails > 0 {
+				f.etagFails--
+				replyError(w, http.StatusPreconditionFailed, "ETag doesn't match")
+				return
+			}
 			var put api.InstancePut
 			_ = json.Unmarshal(body, &put)
 			if put.Restore == "" {
@@ -480,5 +486,24 @@ func TestExitCode(t *testing.T) {
 	}
 	if got := (&ExitError{Code: 2}).Error(); got != "exit status 2" {
 		t.Errorf("ExitError reads %q", got)
+	}
+}
+
+func TestUpdateInstanceRetriesETagMismatch(t *testing.T) {
+	f := startFakeAPI(t)
+	f.add(api.InstanceFull{Instance: api.Instance{Name: "agent-01", Config: map[string]string{"limits.cpu": "2"}}})
+	c := Client{}
+	ctx := context.Background()
+	f.etagFails = 1
+	if err := c.UnsetConfig(ctx, "agent-01", "limits.cpu"); err != nil {
+		t.Fatalf("one refused write should be retried: %v", err)
+	}
+	if _, ok := f.instances["agent-01"].Config["limits.cpu"]; ok {
+		t.Error("limits.cpu is still set")
+	}
+	f.etagFails = 100
+	err := c.SetConfig(ctx, "agent-01", "limits.cpu=1")
+	if err == nil || !strings.Contains(err.Error(), "ETag doesn't match") {
+		t.Errorf("a write that is always refused should fail with the ETag error, got %v", err)
 	}
 }

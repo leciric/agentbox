@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -295,8 +296,33 @@ func (c Client) RemoveDevice(ctx context.Context, name, device string) error {
 }
 
 // updateInstance changes an instance's own configuration and devices, guarded
-// by its ETag, as `incus config` does.
+// by its ETag, as `incus config` does. Another writer (the CPU-share
+// rebalancer, a start) can change the instance between the read and the write,
+// and Incus refuses the loser with "ETag doesn't match": the change is read
+// and applied again on the new state, a few times.
 func (c Client) updateInstance(ctx context.Context, s incusclient.InstanceServer, name string, change func(*api.InstancePut) error) error {
+	for attempt := 1; ; attempt++ {
+		err := c.updateInstanceOnce(ctx, s, name, change)
+		if err == nil || attempt == etagAttempts || !isETagMismatch(err) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(time.Duration(attempt) * 50 * time.Millisecond):
+		}
+	}
+}
+
+// etagAttempts is how many times updateInstance tries before giving up on a
+// busy instance.
+const etagAttempts = 5
+
+func isETagMismatch(err error) bool {
+	return api.StatusErrorCheck(err, http.StatusPreconditionFailed) || strings.Contains(err.Error(), "ETag doesn't match")
+}
+
+func (c Client) updateInstanceOnce(ctx context.Context, s incusclient.InstanceServer, name string, change func(*api.InstancePut) error) error {
 	inst, etag, err := s.GetInstance(name)
 	if err != nil {
 		return err
