@@ -132,15 +132,31 @@ type EnvVariable struct {
 }
 
 type NewSessionRequest struct {
-	Cwd        string      `json:"cwd"`
-	McpServers []McpServer `json:"mcpServers"`
+	Cwd        string         `json:"cwd"`
+	McpServers []McpServer    `json:"mcpServers"`
+	Meta       map[string]any `json:"_meta,omitempty"`
 }
 
 // ResumeSessionRequest is for session/resume and session/load, which take the same fields.
 type ResumeSessionRequest struct {
-	SessionID  string      `json:"sessionId"`
-	Cwd        string      `json:"cwd"`
-	McpServers []McpServer `json:"mcpServers"`
+	SessionID  string         `json:"sessionId"`
+	Cwd        string         `json:"cwd"`
+	McpServers []McpServer    `json:"mcpServers"`
+	Meta       map[string]any `json:"_meta,omitempty"`
+}
+
+// ClaudeThinkingMeta is session/new's, session/resume's and session/load's
+// _meta asking claude-agent-acp for Claude's thinking as summarized text. The
+// adapter spreads _meta.claudeCode.options into the Agent SDK's options; left
+// to itself, the SDK asks current models for display "omitted", whose thinking
+// blocks stream with no text, which the adapter drops, so the client sees no
+// agent_thought_chunk at all. Adaptive is current models' default anyway, and
+// the only thinking type they take: "enabled" with a budget, and "disabled",
+// are refused.
+func ClaudeThinkingMeta() map[string]any {
+	return map[string]any{"claudeCode": map[string]any{"options": map[string]any{
+		"thinking": map[string]any{"type": "adaptive", "display": "summarized"},
+	}}}
 }
 
 // SessionResponse answers session/new (with a session ID), session/resume and session/load.

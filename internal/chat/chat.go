@@ -1869,10 +1869,14 @@ func (c *conversation) connect(ad *adapter) error {
 	}
 
 	mcp := []acp.McpServer{} // the agent's own configuration gives the tools their MCP servers
+	var meta map[string]any
+	if a.AI == "claude" {
+		meta = acp.ClaudeThinkingMeta() // Claude's thinking, shown as thought items
+	}
 	var resp acp.SessionResponse
 	var resumeErr error
 	if previous != "" {
-		req := acp.ResumeSessionRequest{SessionID: previous, Cwd: a.Worktree, McpServers: mcp}
+		req := acp.ResumeSessionRequest{SessionID: previous, Cwd: a.Worktree, McpServers: mcp, Meta: meta}
 		switch caps := init.AgentCapabilities; {
 		case caps.SessionCapabilities.Resume != nil:
 			resumeErr = ad.conn.Call(ctx, acp.MethodSessionResume, req, &resp)
@@ -1887,7 +1891,7 @@ func (c *conversation) connect(ad *adapter) error {
 	}
 	if previous == "" || resumeErr != nil {
 		resp = acp.SessionResponse{}
-		if err := ad.conn.Call(ctx, acp.MethodSessionNew, acp.NewSessionRequest{Cwd: a.Worktree, McpServers: mcp}, &resp); err != nil {
+		if err := ad.conn.Call(ctx, acp.MethodSessionNew, acp.NewSessionRequest{Cwd: a.Worktree, McpServers: mcp, Meta: meta}, &resp); err != nil {
 			return explain(err)
 		}
 		if resp.SessionID == "" {

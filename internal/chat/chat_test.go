@@ -48,6 +48,7 @@ func TestMain(m *testing.M) {
 // test's turn function sends updates and asks for permission.
 type fakeTool struct {
 	resume      bool // offers session/resume
+	load        bool // offers session/load
 	steering    bool // takes a message into a running turn, like the real adapters
 	steerFails  bool // ...but the request errors
 	steerIdle   bool // ...or answers that no turn was running
@@ -156,7 +157,7 @@ func (f *fakeTool) Request(method string, params json.RawMessage, reply func(any
 		}
 		res := map[string]any{
 			"protocolVersion":   1,
-			"agentCapabilities": map[string]any{"loadSession": false, "sessionCapabilities": sessionCaps, "promptCapabilities": map[string]any{"image": f.images, "embeddedContext": f.embedded}},
+			"agentCapabilities": map[string]any{"loadSession": f.load, "sessionCapabilities": sessionCaps, "promptCapabilities": map[string]any{"image": f.images, "embeddedContext": f.embedded}},
 			"agentInfo":         map[string]any{"name": "fake", "title": "Fake Tool", "version": "1.0"},
 		}
 		if f.steering {
@@ -169,7 +170,7 @@ func (f *fakeTool) Request(method string, params json.RawMessage, reply func(any
 		id := fmt.Sprintf("session-%d", f.sessions)
 		f.mu.Unlock()
 		reply(map[string]any{"sessionId": id, "configOptions": f.options()}, nil)
-	case acp.MethodSessionResume:
+	case acp.MethodSessionResume, acp.MethodSessionLoad:
 		if f.resumeFails {
 			reply(nil, &acp.Error{Code: -32002, Message: "no such session"})
 			return
@@ -667,6 +668,55 @@ func TestATurnWithToolCallsAndAPermissionRequest(t *testing.T) {
 	sameJSON(t, "stored items", stored.Items, th.Items)
 	if stored.Session.State != api.ChatOff {
 		t.Errorf("a new daemon's session is %s", stored.Session.State)
+	}
+}
+
+// Claude Code's sessions ask for its thinking as summarized text, whether new,
+// resumed or loaded: without it current models stream none. The other tools
+// get no _meta.
+func TestClaudeSessionsAskForSummarizedThinking(t *testing.T) {
+	t.Parallel()
+	want := `"_meta":{"claudeCode":{"options":{"thinking":{"display":"summarized","type":"adaptive"}}}}`
+	for _, tc := range []struct {
+		name, ai, method string
+		resume, load     bool
+	}{
+		{"claude, resumed", "claude", acp.MethodSessionResume, true, false},
+		{"claude, loaded", "claude", acp.MethodSessionLoad, false, true},
+		{"codex, resumed", "codex", acp.MethodSessionResume, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := openStore(t)
+			a := testAgent
+			a.AI = tc.ai
+			first := newFakeTool(answerHello)
+			m, _ := newManager(t, store, first)
+			if _, err := m.Send(a, "hi"); err != nil {
+				t.Fatal(err)
+			}
+			waitThread(t, m, a, "the first turn", turnsEnded(1))
+			m.Close()
+			second := newFakeTool(answerHello)
+			second.resume, second.load = tc.resume, tc.load
+			m2, _ := newManager(t, store, second)
+			if _, err := m2.Send(a, "hi again"); err != nil {
+				t.Fatal(err)
+			}
+			waitThread(t, m2, a, "the second turn", turnsEnded(2))
+			created, again := first.called(acp.MethodSessionNew), second.called(tc.method)
+			if len(created) != 1 || len(again) != 1 {
+				t.Fatalf("%d new sessions, %d calls to %s", len(created), len(again), tc.method)
+			}
+			for _, params := range [][]byte{created[0], again[0]} {
+				if got := strings.Contains(string(params), want); got != (tc.ai == "claude") {
+					t.Errorf("%s asked with %s", tc.ai, params)
+				}
+				if tc.ai != "claude" && strings.Contains(string(params), "_meta") {
+					t.Errorf("%s got a _meta: %s", tc.ai, params)
+				}
+			}
+		})
 	}
 }
 
