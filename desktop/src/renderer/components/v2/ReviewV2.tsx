@@ -87,6 +87,9 @@ export function ReviewV2({ children }: { children: ReactNode }) {
     void page
       .then(({ items }) => {
         const walk = startWalk(items ?? [], opts);
+        // A count that opens nothing was out of date: every count is read
+        // again, so none stays on screen offering what isn't there.
+        if (!walk) void queryClient.invalidateQueries({ queryKey: ['review'] });
         // Nothing left to review from the Reviewed tab: it stays.
         if (!walk && reviewed) return;
         setReviewed(null);

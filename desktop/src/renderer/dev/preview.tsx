@@ -175,6 +175,10 @@
 //   &pins=a,b               with &v2=1, those projects pinned, in that order
 //   &stale=1                with &v2=1 and &idle=1, idle-1 has unseen questions from destroyed agents
 //   &hidden=a,b             with &v2=1, those projects hidden from the sidebar
+//   &sections=1             with &v2=1, the user's sections (Classic's): Work, Side
+//                           projects and an empty Later, kept as the daemon would
+//   &groupidle=1            with &v2=1, "Group idle projects and sort by activity" on
+//                           (lib/groupIdle.ts; off otherwise)
 //   &idle=12                with &v2=1, that many more projects with nothing going on, for Idle
 //   &signedout=1            Claude Code with no login: the composer's banner, and Send's tooltip
 //   &v2=1                   with ?app=, UI v2, the lead-first layout (Settings → General
@@ -290,6 +294,7 @@ import { PipFinish, seedPip } from './pip';
 import { seedPick } from './pick';
 import { seedTimelines } from './timeline';
 import { setUiV2 } from '../lib/uiV2';
+import { setGroupIdle } from '../lib/groupIdle';
 import { setTourState, tours, welcomeTour } from '../lib/tours';
 
 installDevBridge();
@@ -429,6 +434,10 @@ if (params.get('gpu')) {
   queryClient.invalidateQueries = ((filters?: Parameters<typeof invalidate>[0]) => invalidate(filters ?? { queryKey: ['settings'] })) as typeof invalidate;
 }
 seedQueryClient(queryClient, fixtures);
+// The project chat's runner answers with the account it spends, "work" here.
+if (usage) {
+  queryClient.setQueryData<T.LeadRunners>(['chatRunners', PROJECT], { tool: 'claude', account: 'work', runners: [{ tool: 'claude', name: 'Claude Code', ready: true, installed: true }] });
+}
 if (defaults) seedDefaults(queryClient);
 // The project's chat can switch tool and account from its composer: Claude Code
 // on two accounts with their quota, Codex, and Cursor signed out.
@@ -494,6 +503,7 @@ setUiV2(params.get('v2') === '1');
 if (appView && params.get('v2') === '1') {
   seedLeadLines(queryClient);
   seedV2(queryClient, params.get('pins'));
+  setGroupIdle(params.get('groupidle') === '1');
   seedEvidence(queryClient);
   // &stale=1: idle-1 has unseen questions from agents that no longer exist.
   if (params.get('stale') === '1') {
@@ -689,7 +699,7 @@ if (usage || account) {
   const at = new Date(Date.now() - 12 * 60_000).toISOString();
   const resets = (hours: number) => new Date(Date.now() + hours * 3_600_000).toISOString();
   queryClient.setQueryData(['claudeLimits'], [
-    { account: 'personal', default: true, at, status: 'allowed', windows: [
+    { account: 'default', default: true, at, status: 'allowed', windows: [
       { name: 'five_hour', label: '5-hour', utilization: 0.23, resetsAt: resets(3) },
       { name: 'seven_day', label: 'Weekly', utilization: 0.41, resetsAt: resets(80) },
     ] },
@@ -698,6 +708,18 @@ if (usage || account) {
       { name: 'seven_day', label: 'Weekly', utilization: 0.52, resetsAt: resets(40) },
     ] },
   ] satisfies T.ClaudeLimit[]);
+  // Codex: the default account (the pill says "Codex") and "atlan" (it says "atlan").
+  queryClient.setQueryData(['codexLimits'], [
+    { tool: 'codex', account: 'default', default: true, at, status: 'allowed', windows: [
+      { name: 'five_hour', label: '5-hour', utilization: 0.31, resetsAt: resets(2) },
+      { name: 'seven_day', label: 'Weekly', utilization: 0.18, resetsAt: resets(90) },
+    ] },
+    { tool: 'codex', account: 'atlan', default: false, at, status: 'allowed', windows: [
+      { name: 'five_hour', label: '5-hour', utilization: 0.54, resetsAt: resets(1.5) },
+      { name: 'seven_day', label: 'Weekly', utilization: 0.27, resetsAt: resets(60) },
+    ] },
+  ] satisfies T.ClaudeLimit[]);
+  queryClient.setQueryData<T.Agent[]>(['agents'], (as) => as?.map((a) => (a.ref === `${PROJECT}/agent-98` ? { ...a, codexAccount: 'atlan' } : a)));
 }
 
 if (account) {
@@ -715,6 +737,8 @@ function UsagePreview() {
     [`Project ${PROJECT}, on "work"`, { kind: 'project', project: PROJECT }],
     ['Claude agent-99, on "work"', { kind: 'agent', ref: `${PROJECT}/agent-99` }],
     ['Codex agent-96: nothing known, no meter', { kind: 'agent', ref: `${PROJECT}/agent-96` }],
+    ['Codex agent-98, on "atlan"', { kind: 'agent', ref: `${PROJECT}/agent-98` }],
+    ['Codex agent-37, on the default account', { kind: 'agent', ref: `${PROJECT}/agent-37` }],
   ];
   return (
     <div style={{ minHeight: '100vh', background: 'var(--color-ink)', font: '13px var(--font-sans)' }}>

@@ -268,7 +268,7 @@ function ClaudeUsage({ view, agents }: { view: View; agents: T.Agent[] }) {
           data-claude-account={account.account}
         >
           {codex ? <ToolMark ai="codex" className="!size-3.5" /> : <ClaudeMark />}
-          <span className="text-[12px] font-medium text-primary">{toolName(pick.tool)}</span>
+          <span className="text-[12px] font-medium text-primary">{account.account && account.account !== 'default' ? account.account : toolName(pick.tool)}</span>
           <span className="text-[11px] text-muted">{fiveLeft ?? t('shell.top.fiveHourShort')}</span>
           <span className={cn('font-mono text-[11px] font-semibold tabular-nums', limitText(fiveNow))}>{percent(fiveNow)}</span>
           {week && (
