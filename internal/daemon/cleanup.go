@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -142,36 +143,54 @@ func (s *Server) removeFinishedIn(ctx context.Context, p state.Project, now time
 	}
 	// From the cache, which refreshes itself behind this: a pull request
 	// merged since the last refresh is caught by the next pass. It is the
-	// agent's by its commits, whatever branch they were pushed to.
+	// agent's by its commits, whatever branch they were pushed to. A project
+	// with no GitHub has none; one whose pull requests can't be read now —
+	// git failing, GitHub not answering or never asked yet — is left alone
+	// until they can, as "no pull request" is half of a reason to remove.
 	var prs map[string]*api.PullRequest
-	if _, entry, heads, _, err := s.projectPulls(p, agents); err == nil && !entry.listErr.failed() {
-		prs = entry.byAgent(heads)
+	var unread map[string]bool
+	switch _, entry, heads, _, err := s.projectPulls(p, agents); {
+	case err != nil && !pullsAbsent(err):
+		s.logf("remove finished agents in %s: its pull requests can't be read: %v", p.Name, err)
+		return 0
+	case err == nil && (entry.listErr.failed() || entry.at.IsZero()):
+		return 0
+	case err == nil:
+		prs, unread = entry.byAgent(heads), unreadHeads(heads)
 	}
 	repo, err := gitrepo.Open(p.Root)
 	if err != nil {
 		return 0
 	}
-	finished := s.lastFinished(ctx, p.Name)
+	finished, err := s.lastFinished(ctx, p.Name)
+	if err != nil {
+		s.logf("remove finished agents in %s: %v", p.Name, err)
+		return 0
+	}
 
 	removed := 0
 	for _, st := range candidates {
-		changes := changesOf(st.Agent)
-		busy, _, last, _ := s.idleOf(ctx, st, changes)
-		f := cleanupFacts{
-			Busy:       busy,
-			Attended:   st.Interface == state.InterfaceCLI && st.State == "running",
-			Dirty:      changes.Dirty,
-			Changed:    changes.Files > 0,
-			PR:         prs[st.Name],
-			CreatedAt:  st.CreatedAt,
-			LastActive: last,
+		if unread[st.Name] {
+			s.logf("keeping %s for now: its branch can't be read", st.Ref())
+			continue
 		}
-		if at, ok := finished[st.Name]; ok {
-			f.FinishedAt = &at
+		f, err := s.cleanupFactsOf(ctx, repo, st, prs[st.Name], finished)
+		if err != nil {
+			s.logf("keeping %s for now: %v", st.Ref(), err)
+			continue
 		}
-		f.Unpushed = unpushed(repo, st.Agent, f.PR)
 		reason := removeReason(f, now)
 		if reason == "" {
+			continue
+		}
+		// What was read above is up to several seconds old, and read in bulk:
+		// read it all again, this agent alone, right before doing what can't
+		// be undone, and keep it on any error or any other answer.
+		if again, err := s.recheckRemoval(ctx, m, repo, st, f.PR, now); err != nil || again != reason {
+			if err == nil {
+				err = fmt.Errorf("a fresh look says %q", cmp.Or(again, "keep it"))
+			}
+			s.logf("not removing %s (%s): %v", st.Ref(), reason, err)
 			continue
 		}
 		s.logf("removing %s: %s", st.Ref(), reason)
@@ -185,39 +204,100 @@ func (s *Server) removeFinishedIn(ctx context.Context, p state.Project, now time
 	return removed
 }
 
-// unpushed reports whether any of an agent's branches has commits that exist
-// only in this repository: not merged into the project's branch, not on a
-// remote, and not in the head of its pull request as GitHub last saw it.
-func unpushed(repo gitrepo.Repo, a state.Agent, pr *api.PullRequest) bool {
-	for _, branch := range agentBranches(a, nil) {
-		on := a
-		on.Branch = branch
-		if branchUnpushed(repo, on, pr) {
-			return true
-		}
+// cleanupFactsOf reads what removeReason decides st from, pr being its pull
+// request as the caller found it. Any read that fails is an error, never a
+// "no": no changes, nothing uncommitted and nothing unpushed are each a
+// reason to remove.
+func (s *Server) cleanupFactsOf(ctx context.Context, repo gitrepo.Repo, st agent.Status, pr *api.PullRequest, finished map[string]time.Time) (cleanupFacts, error) {
+	changes, err := measureChanges(st.Agent)
+	if err != nil {
+		return cleanupFacts{}, fmt.Errorf("its changes can't be read: %w", err)
 	}
-	return false
+	busy, _, last, _ := s.idleOf(ctx, st, changes)
+	f := cleanupFacts{
+		Busy:       busy,
+		Attended:   st.Interface == state.InterfaceCLI && st.State == "running",
+		Dirty:      changes.Dirty,
+		Changed:    changes.Files > 0,
+		PR:         pr,
+		CreatedAt:  st.CreatedAt,
+		LastActive: last,
+	}
+	if at, ok := finished[st.Name]; ok {
+		f.FinishedAt = &at
+	}
+	if f.Unpushed, err = unpushed(repo, st.Agent, pr); err != nil {
+		return cleanupFacts{}, fmt.Errorf("its branch can't be read: %w", err)
+	}
+	return f, nil
 }
 
-// branchUnpushed is unpushed for a.Branch alone.
-func branchUnpushed(repo gitrepo.Repo, a state.Agent, pr *api.PullRequest) bool {
-	tip, err := repo.ResolveCommit("refs/heads/" + a.Branch)
+// recheckRemoval is removeReason for st again from fresh reads of its record,
+// its finish, its branch and its worktree, with the pull request the pass
+// found (the cache's, which a GitHub hiccup can't empty: #447).
+func (s *Server) recheckRemoval(ctx context.Context, m *agent.Manager, repo gitrepo.Repo, st agent.Status, pr *api.PullRequest, now time.Time) (string, error) {
+	a, err := s.store.Agent(ctx, st.Project, st.Name)
 	if err != nil {
-		return false // no branch left, so nothing on it to lose
+		return "", err
+	}
+	if a.Status != state.AgentReady || a.Branch != st.Branch || a.Worktree != st.Worktree {
+		return "", nil // it moved on since the pass listed it
+	}
+	fresh := st
+	fresh.Agent = a
+	finished, err := s.lastFinished(ctx, a.Project)
+	if err != nil {
+		return "", err
+	}
+	f, err := s.cleanupFactsOf(ctx, repo, fresh, pr, finished)
+	if err != nil {
+		return "", err
+	}
+	return removeReason(f, now), nil
+}
+
+// unpushed reports whether any of an agent's branches has commits that exist
+// only in this repository: not merged into the project's branch, not on a
+// remote, and not in the head of its pull request as GitHub last saw it. An
+// error is a branch git couldn't read, whose commits may be anywhere.
+func unpushed(repo gitrepo.Repo, a state.Agent, pr *api.PullRequest) (bool, error) {
+	branches, err := agentBranches(a, nil)
+	if err != nil {
+		return false, err
+	}
+	for _, branch := range branches {
+		on := a
+		on.Branch = branch
+		if out, err := branchUnpushed(repo, on, pr); out || err != nil {
+			return out, err
+		}
+	}
+	return false, nil
+}
+
+// branchUnpushed is unpushed for a.Branch alone. A git command failing past
+// the tip only makes it look unpushed, which keeps the agent.
+func branchUnpushed(repo gitrepo.Repo, a state.Agent, pr *api.PullRequest) (bool, error) {
+	tip, err := repo.BranchTip(a.Branch)
+	if err != nil {
+		return false, err
+	}
+	if tip == "" {
+		return false, nil // no branch left, so nothing on it to lose
 	}
 	if repo.Pushed(tip) || agent.BranchDisposable(repo, a) {
-		return false
+		return false, nil
 	}
-	return pr == nil || pr.HeadSHA == "" || !repo.IsAncestor(tip, pr.HeadSHA)
+	return pr == nil || pr.HeadSHA == "" || !repo.IsAncestor(tip, pr.HeadSHA), nil
 }
 
 // lastFinished is when each of a project's agents last genuinely finished,
 // from the events the rail's threads are made of.
-func (s *Server) lastFinished(ctx context.Context, project string) map[string]time.Time {
+func (s *Server) lastFinished(ctx context.Context, project string) (map[string]time.Time, error) {
 	out := map[string]time.Time{}
 	events, err := s.store.AgentEvents(ctx, project)
 	if err != nil {
-		return out
+		return nil, err
 	}
 	for _, row := range events { // newest first
 		if _, seen := out[row.Agent]; seen {
@@ -228,7 +308,7 @@ func (s *Server) lastFinished(ctx context.Context, project string) map[string]ti
 			out[row.Agent] = row.CreatedAt
 		}
 	}
-	return out
+	return out, nil
 }
 
 // destroyAgentNow stops what the daemon runs for an agent and destroys it,

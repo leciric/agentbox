@@ -84,8 +84,12 @@ func (m reviewMark) String() string {
 // request or new commits on it, or its failing checks or conflict fixed. A
 // pull request that started failing isn't work to review. Nor is one the
 // cache doesn't know yet, as after the daemon restarts: that's no news.
+//
+// No tip now, when there was one, is no news either: it is what a branch git
+// couldn't read looks like (ENFILE once brought back every reviewed agent in
+// eight projects at once), and a branch can't lose its commits by moving on.
 func (then reviewMark) movedTo(now reviewMark) bool {
-	if now.Finish != then.Finish || now.Tip != then.Tip {
+	if now.Finish != then.Finish || (now.Tip != then.Tip && now.Tip != "") {
 		return true
 	}
 	if now.PR == 0 {
@@ -123,18 +127,30 @@ func (s *Server) reviewItems(ctx context.Context, p state.Project, agents []stat
 	if len(finished) == 0 {
 		return nil
 	}
+	// An agent is unknown when what its item is made of can't be read now:
+	// its branches (git failing), or, for the list, whether its work has a
+	// pull request (#447). An unknown agent is shown as it was last read in
+	// full, for the same finish, or not at all: a read error never adds an
+	// item, nor brings one back that the user reviewed.
 	_, entry, heads, _, err := s.projectPulls(p, finished)
 	var prs map[string]*api.PullRequest
 	unknown := map[string]bool{}
-	if err == nil {
+	switch {
+	case err == nil:
 		prs = entry.byAgent(heads)
 		for _, h := range heads {
-			if listing && !entry.answered(h) {
+			if h.failed || (listing && !entry.answered(h)) {
 				unknown[h.agent] = true
 			}
 		}
-	} else {
+	case pullsAbsent(err):
+		// No GitHub to ask: the branches alone.
 		heads = agentHeads(p.Root, finished)
+		unknown = unreadHeads(heads)
+	default:
+		for _, a := range finished {
+			unknown[a.Name] = true
+		}
 	}
 	// An agent with several branches has moved when any of them has: its
 	// tips, first branch first, which for one branch is that branch's tip.
@@ -147,39 +163,79 @@ func (s *Server) reviewItems(ctx context.Context, p state.Project, agents []stat
 	}
 	var out []api.ReviewItem
 	for i, a := range finished {
-		if unknown[a.Name] {
-			continue
-		}
 		ev := finishes[i]
-		pr := prs[a.Name]
-		s.prWatch.overlay(p.Name, pr)
-		mark := markOf(ev, tips[a.Name], pr)
-		branch := branchOf(heads, a, pr)
-		if pr == nil {
-			pr = ev.PR
+		var item api.ReviewItem
+		var ended bool
+		if unknown[a.Name] {
+			known, ok := s.knownReviewOf(a.Ref(), ev.ID)
+			if !ok {
+				continue
+			}
+			item, ended = known.item, known.ended
+		} else {
+			pr := prs[a.Name]
+			s.prWatch.overlay(p.Name, pr)
+			mark := markOf(ev, tips[a.Name], pr)
+			branch := branchOf(heads, a, pr)
+			// Merged or closed is done with, whoever did it and whenever:
+			// never work to review. The PR watch and the startup reconcile
+			// free its machine (freeReviewed); one kept for work that is
+			// only there stays in the sidebar, not here.
+			ended = prEnded(pr, a)
+			if pr == nil {
+				pr = ev.PR
+			}
+			item = api.ReviewItem{
+				Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title, Branch: branch, AI: a.AI,
+				Summary: ev.Summary, Changes: ev.Changes, PR: pr, FinishedAt: ev.At, Fingerprint: mark.String(),
+			}
+			s.rememberReview(a.Ref(), ev.ID, item, ended)
 		}
-		item := api.ReviewItem{
-			Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title, Branch: branch, AI: a.AI,
-			Summary: ev.Summary, Changes: ev.Changes, PR: pr, FinishedAt: ev.At, Fingerprint: mark.String(),
+		r, ok, err := s.store.AgentReviewOf(ctx, a.Project, a.Name)
+		if err != nil {
+			continue // its verdict unread, it may well be one the user gave
 		}
-		if r, ok, err := s.store.AgentReviewOf(ctx, a.Project, a.Name); err == nil && ok {
-			var then reviewMark
-			if json.Unmarshal([]byte(r.Fingerprint), &then) == nil && !then.movedTo(mark) {
+		if ok {
+			var then, mark reviewMark
+			if json.Unmarshal([]byte(r.Fingerprint), &then) == nil && json.Unmarshal([]byte(item.Fingerprint), &mark) == nil && !then.movedTo(mark) {
 				at := r.At
 				item.Verdict, item.ReviewedAt = r.Verdict, &at
 				item.MachineKept = r.Verdict == api.ReviewReviewed && s.isMachineKept(a.Ref())
 			}
 		}
-		if item.Verdict == "" && prEnded(prs[a.Name], a) {
-			// Merged or closed is done with, whoever did it and whenever:
-			// never work to review. The PR watch and the startup reconcile
-			// free its machine (freeReviewed); one kept for work that is only
-			// there stays in the sidebar, not here.
+		if item.Verdict == "" && ended {
 			continue
 		}
 		out = append(out, item)
 	}
 	return out
+}
+
+// knownReview is an agent's review item, before its verdict, as last read
+// with everything it is made of readable: what the review list shows of it
+// while some of that can't be read.
+type knownReview struct {
+	finish string // the finish it was read for; another finish is other work
+	item   api.ReviewItem
+	ended  bool // its pull request was merged or closed
+}
+
+func (s *Server) rememberReview(ref, finish string, item api.ReviewItem, ended bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.reviewKnown == nil {
+		s.reviewKnown = map[string]knownReview{}
+	}
+	s.reviewKnown[ref] = knownReview{finish: finish, item: item, ended: ended}
+}
+
+// knownReviewOf is what rememberReview last kept of ref, if it was for this
+// finish.
+func (s *Server) knownReviewOf(ref, finish string) (knownReview, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	k, ok := s.reviewKnown[ref]
+	return k, ok && k.finish == finish
 }
 
 // branchOf is the branch of a's that pr, its pull request, came from: a

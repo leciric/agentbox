@@ -1,6 +1,7 @@
 package gitrepo_test
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -481,7 +483,7 @@ func TestCheckedOutSince(t *testing.T) {
 	if err := repo.AddWorktree(wt, "agentbox/agent-01", base, "test"); err != nil {
 		t.Fatal(err)
 	}
-	if got := gitrepo.CheckedOutSince(wt, since); !slices.Equal(got, []string{"agentbox/agent-01"}) {
+	if got, _ := gitrepo.CheckedOutSince(wt, since); !slices.Equal(got, []string{"agentbox/agent-01"}) {
 		t.Errorf("a fresh worktree has checked out %q, want only its own branch", got)
 	}
 	testutil.Git(t, wt, "switch", "--quiet", "-c", "feat/two")
@@ -489,10 +491,57 @@ func TestCheckedOutSince(t *testing.T) {
 	testutil.Git(t, wt, "checkout", "--quiet", "-b", "three")
 	testutil.Git(t, wt, "switch", "--quiet", "--detach")
 	want := []string{"three", "feat/two", "agentbox/agent-01"}
-	if got := gitrepo.CheckedOutSince(wt, since); !slices.Equal(got, want) {
+	if got, _ := gitrepo.CheckedOutSince(wt, since); !slices.Equal(got, want) {
 		t.Errorf("CheckedOutSince = %q, want %q", got, want)
 	}
-	if got := gitrepo.CheckedOutSince(filepath.Join(t.TempDir(), "gone"), since); got != nil {
-		t.Errorf("a missing worktree has checked out %q", got)
+	if got, err := gitrepo.CheckedOutSince(filepath.Join(t.TempDir(), "gone"), since); got != nil || err != nil {
+		t.Errorf("a missing worktree has checked out %q (%v)", got, err)
+	}
+	// The ENFILE of 21 Oct 2026: .git/worktrees/*/commondir couldn't be
+	// opened. That is no answer, not "no other branches".
+	for _, fault := range readFaults {
+		undo := gitrepo.FailUnder(filepath.Join(root, ".git", "worktrees"), fault)
+		got, err := gitrepo.CheckedOutSince(wt, since)
+		undo()
+		if err == nil {
+			t.Errorf("with %v, CheckedOutSince = %q and no error", fault, got)
+		}
+	}
+}
+
+// readFaults are the failures a read is put through: the system's file table
+// full, this process's, and git failing for a reason of its own.
+var readFaults = []error{syscall.ENFILE, syscall.EMFILE, errors.New("fatal: unable to read index")}
+
+// TestReadFailuresAreNotAnswers checks that what callers decide from — a
+// branch's tip and commits, a worktree's dirt and diff — fails when git does,
+// and that a branch that doesn't exist is still an answer.
+func TestReadFailuresAreNotAnswers(t *testing.T) {
+	root := testutil.FixtureRepo(t, "hello-stack")
+	repo, _ := gitrepo.Open(root)
+	if tip, err := repo.BranchTip("no-such-branch"); tip != "" || err != nil {
+		t.Errorf("a missing branch: BranchTip = %q, %v; want none, no error", tip, err)
+	}
+	if tip, own, err := gitrepo.BranchCommits(root, "no-such-branch", 10); tip != "" || own != nil || err != nil {
+		t.Errorf("a missing branch: BranchCommits = %q, %q, %v; want none, no error", tip, own, err)
+	}
+	if tip, err := repo.BranchTip("main"); tip == "" || err != nil {
+		t.Fatalf("BranchTip(main) = %q, %v", tip, err)
+	}
+	for _, fault := range readFaults {
+		undo := gitrepo.FailUnder(root, fault)
+		if _, err := repo.BranchTip("main"); err == nil || gitrepo.NotFound(err) {
+			t.Errorf("with %v, BranchTip(main) = %v, want a failure that isn't \"not found\"", fault, err)
+		}
+		if _, _, err := gitrepo.BranchCommits(root, "main", 10); err == nil {
+			t.Errorf("with %v, BranchCommits succeeded", fault)
+		}
+		if _, err := gitrepo.Dirty(root); err == nil {
+			t.Errorf("with %v, Dirty succeeded", fault)
+		}
+		if _, err := gitrepo.DiffWorktree(root, "HEAD", true); err == nil {
+			t.Errorf("with %v, DiffWorktree succeeded", fault)
+		}
+		undo()
 	}
 }
