@@ -10,8 +10,10 @@ import (
 	"image"
 	"image/jpeg"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,8 +22,9 @@ import (
 )
 
 // Record makes a recording in one pass: ffmpeg encodes what it captures as it
-// captures it, with the input drawn on as it happens, straight into the file
-// the recording is kept as. It captures one of two things:
+// captures it, with the input drawn on as it happens, into a part file beside
+// the one the recording is kept as (PartFile), made from it once it is
+// finished (keep). It captures one of two things:
 //
 //   - The display (RecordDisplay), with x11grab: anything on it, a desktop or
 //     an Electron app, and the real cursor.
@@ -54,6 +57,22 @@ const FrameRate = 15
 var EncodeArgs = []string{"-c:v", "libx264", "-preset", "veryfast", "-crf", "28", "-pix_fmt", "yuv420p", "-movflags", "+faststart"}
 
 const EvenSize = "scale=trunc(iw/2)*2:trunc(ih/2)*2"
+
+// partArgs are EncodeArgs for the part file a recording is written to as it
+// goes: fragmented, its index up front and a fragment flushed every second.
+// +faststart writes the index only once ffmpeg finishes, so a recorder that
+// was killed, crashed or ran out of time to finish left a file that doesn't
+// play at all; a part plays up to its last second, and keep remuxes it into
+// what EncodeArgs make, without encoding it again.
+func partArgs() []string {
+	args := slices.Clone(EncodeArgs)
+	args[slices.Index(args, "+faststart")] = "+frag_keyframe+empty_moov+default_base_moof"
+	return append(args, "-frag_duration", "1000000", "-flush_packets", "1", "-f", "mp4")
+}
+
+// PartFile is where a recording kept as out is written while it records,
+// and where what was captured stays when it couldn't be finished.
+func PartFile(out string) string { return out + ".part" }
 
 type RecordOptions struct {
 	Target string // RecordAuto, RecordDisplay or RecordBrowser
@@ -96,13 +115,54 @@ func Record(ctx context.Context, opts RecordOptions) error {
 	if target == "" || target == RecordAuto {
 		target = chooseTarget(ctx, opts.Input, opts.DevTools)
 	}
+	out := opts.Out
+	opts.Out = PartFile(out)
+	_ = os.Remove(opts.Out)
+	var err error
 	switch target {
 	case RecordDisplay:
-		return recordDisplay(ctx, opts)
+		err = recordDisplay(ctx, opts)
 	case RecordBrowser:
-		return recordBrowser(ctx, opts)
+		err = recordBrowser(ctx, opts)
+	default:
+		return fmt.Errorf("unknown recording target %q: use auto, display or browser", target)
 	}
-	return fmt.Errorf("unknown recording target %q: use auto, display or browser", target)
+	// Whatever stopped it, what was captured is kept.
+	return errors.Join(err, keep(opts.Out, out, opts.Log))
+}
+
+// keep makes the recording at out from its part: remuxed with its index at
+// the front, or, should ffmpeg not manage that, the part as it is, which
+// plays as far as it got. A part with nothing in it is no recording.
+func keep(part, out string, log io.Writer) error {
+	info, err := os.Stat(part)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil // nothing was recorded, and the recorder said why
+	}
+	if err != nil {
+		return fmt.Errorf("keeping the recording: %w", err)
+	}
+	if info.Size() == 0 {
+		_ = os.Remove(part)
+		return nil
+	}
+	tmp := out + ".tmp"
+	remux := exec.Command("ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-i", part,
+		"-c", "copy", "-movflags", "+faststart", "-f", "mp4", "-y", tmp)
+	remux.Stderr = log
+	if err := remux.Run(); err == nil {
+		if err := os.Rename(tmp, out); err == nil {
+			_ = os.Remove(part)
+			return nil
+		}
+	} else {
+		_, _ = fmt.Fprintf(log, "remuxing the recording with its index first: %v; keeping it as it was written\n", err)
+	}
+	_ = os.Remove(tmp)
+	if err := os.Rename(part, out); err != nil {
+		return fmt.Errorf("keeping the recording: %w (what was captured is in %s)", err, part)
+	}
+	return nil
 }
 
 // chooseTarget records the browser's page when there is one and the flow is
@@ -294,7 +354,7 @@ func recordBrowser(ctx context.Context, opts RecordOptions) error {
 func ffmpegArgs(input []string, vf string, opts RecordOptions) []string {
 	args := append([]string{"-hide_banner", "-loglevel", "error", "-nostdin"}, input...)
 	args = append(args, "-vf", vf, "-t", strconv.Itoa(int(opts.Limit.Seconds())))
-	args = append(args, EncodeArgs...)
+	args = append(args, partArgs()...)
 	return append(args, "-y", opts.Out)
 }
 
@@ -327,7 +387,7 @@ func composite(ov *overlay, size image.Point, opts RecordOptions) *compositor {
 	args := []string{"-hide_banner", "-loglevel", "error", "-nostdin",
 		"-f", "rawvideo", "-pixel_format", "bgr0", "-video_size", fmt.Sprintf("%dx%d", size.X, size.Y), "-framerate", strconv.Itoa(FrameRate), "-i", "pipe:0",
 		"-vf", EvenSize}
-	args = append(append(args, EncodeArgs...), "-y", opts.Out)
+	args = append(append(args, partArgs()...), "-y", opts.Out)
 	return &compositor{args: args, frames: func(r io.Reader, w io.Writer) error {
 		frame := make([]byte, size.X*size.Y*4)
 		canvas := image.NewRGBA(image.Rectangle{Max: size})
@@ -488,12 +548,18 @@ func runFFmpeg(ctx context.Context, opts RecordOptions, target string, args []st
 		// An encoder that stops first leaves the frames blocked on a pipe
 		// nobody reads: closing it ends them.
 		_ = rawR.Close()
-		<-frames
-		if encErr != nil {
-			exited <- encErr
-			return
+		framesErr := <-frames
+		switch {
+		case encErr != nil:
+			// Said apart from the capture, so an error says which failed.
+			exited <- fmt.Errorf("the encoder: %w", encErr)
+		case err != nil:
+			exited <- err
+		case framesErr != nil && !errors.Is(framesErr, os.ErrClosed):
+			exited <- fmt.Errorf("drawing the frames: %w", framesErr)
+		default:
+			exited <- nil
 		}
-		exited <- err
 	}()
 
 	feedCtx, stopFeeds := context.WithCancel(context.Background())
@@ -524,7 +590,7 @@ func runFFmpeg(ctx context.Context, opts RecordOptions, target string, args []st
 		select {
 		case err := <-exited:
 			stop()
-			return fmt.Errorf("ffmpeg stopped: %v", err)
+			return fmt.Errorf("ffmpeg stopped before it wrote anything: %w", cmpErr(err, errors.New("it exited")))
 		case <-ctx.Done():
 			kill()
 			stop()
@@ -552,8 +618,16 @@ func runFFmpeg(ctx context.Context, opts RecordOptions, target string, args []st
 		return finished(err)
 	case <-time.After(20 * time.Second):
 		kill()
-		return errors.New("ffmpeg didn't finish the file")
+		<-exited
+		return errors.New("ffmpeg didn't finish the file in 20s and was killed: what it wrote is kept")
 	}
+}
+
+func cmpErr(err, otherwise error) error {
+	if err != nil {
+		return err
+	}
+	return otherwise
 }
 
 // finished is nil for an ffmpeg that stopped because it was told to, or at

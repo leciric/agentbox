@@ -46,7 +46,7 @@ _NET_WM_STATE(ATOM) = _NET_WM_STATE_MAXIMIZED_VERT`)
 func TestFFmpegArgs(t *testing.T) {
 	opts := RecordOptions{Out: "/t/r.mp4", Limit: time.Minute}
 	plain := strings.Join(ffmpegArgs([]string{"-f", "x11grab", "-i", ":99"}, EvenSize, opts), " ")
-	if !strings.Contains(plain, "-t 60 "+strings.Join(EncodeArgs, " ")+" -y /t/r.mp4") {
+	if !strings.Contains(plain, "-t 60 "+strings.Join(partArgs(), " ")+" -y /t/r.mp4") {
 		t.Errorf("not encoded to the file: %s", plain)
 	}
 	capture := strings.Join(captureArgs([]string{"-f", "x11grab", "-i", ":99"}, image.Pt(1262, 749), opts), " ")
@@ -59,11 +59,20 @@ func TestFFmpegArgs(t *testing.T) {
 		t.Errorf("the capture encodes: %s", capture)
 	}
 	encode := strings.Join(composite(nil, image.Pt(1262, 749), opts).args, " ")
-	if !strings.Contains(encode, "-video_size 1262x749 -framerate 15 -i pipe:0 -vf "+EvenSize+" "+strings.Join(EncodeArgs, " ")+" -y /t/r.mp4") {
+	if !strings.Contains(encode, "-video_size 1262x749 -framerate 15 -i pipe:0 -vf "+EvenSize+" "+strings.Join(partArgs(), " ")+" -y /t/r.mp4") {
 		t.Errorf("the encoder doesn't encode the frames to the file: %s", encode)
 	}
 	if !slices.Contains(EncodeArgs, "yuv420p") || !slices.Contains(EncodeArgs, "+faststart") {
 		t.Errorf("EncodeArgs = %v: Chromium plays 4:2:0 with its moov first", EncodeArgs)
+	}
+	// The part is fragmented and flushed as it goes, so a recorder that
+	// never finishes leaves one that plays; EncodeArgs themselves are kept.
+	part := strings.Join(partArgs(), " ")
+	if !strings.Contains(part, "+frag_keyframe+empty_moov") || !strings.Contains(part, "-flush_packets 1") || strings.Contains(part, "+faststart") {
+		t.Errorf("partArgs() = %s", part)
+	}
+	if !slices.Contains(EncodeArgs, "+faststart") {
+		t.Errorf("partArgs() changed EncodeArgs: %v", EncodeArgs)
 	}
 }
 

@@ -97,6 +97,9 @@ func (m *Manager) MediaPath(item state.Media) string {
 type pendingMedia struct {
 	item state.Media
 	dir  string
+	// keep is for content that exists nowhere else, a recording: should it
+	// fail to be saved, its file stays, and the error says where.
+	keep bool
 }
 
 func (m *Manager) startMedia(a state.Agent, kind, name, source string) (*pendingMedia, error) {
@@ -140,6 +143,9 @@ func removeTree(path string) error {
 func (m *Manager) saveMedia(ctx context.Context, p *pendingMedia, file string, meta MediaMeta) (state.Media, error) {
 	item := p.item
 	fail := func(err error) (state.Media, error) {
+		if p.keep && file != "" {
+			return state.Media{}, fmt.Errorf("saving %s: %w (its file is kept at %s)", item.Kind, err, file)
+		}
 		p.discard()
 		return state.Media{}, err
 	}
@@ -447,11 +453,11 @@ dir="$HOME/%[1]s"
 out=%[2]s
 mkdir -p "$dir"
 if [ -f "$dir/recording.pid" ] && kill -0 "$(cat "$dir/recording.pid")" 2>/dev/null; then echo "a recording is already running: stop it first" >&2; exit 1; fi
-rm -f "$dir"/recording.* "$out"
+rm -f "$dir"/recording.* "$out" "$out.part"
 %[3]s
 echo $! >"$dir/recording.pid"
 %[5]s
-kill -0 "$(cat "$dir/recording.pid")" 2>/dev/null && [ -n "$target" ] || { echo "the recording didn't start:" >&2; tail -n 5 "$dir/recording.log" >&2; kill "$(cat "$dir/recording.pid")" 2>/dev/null || true; rm -f "$dir"/recording.* "$out"; exit 1; }
+kill -0 "$(cat "$dir/recording.pid")" 2>/dev/null && [ -n "$target" ] || { echo "the recording didn't start:" >&2; tail -n 5 "$dir/recording.log" >&2; kill "$(cat "$dir/recording.pid")" 2>/dev/null || true; rm -f "$dir"/recording.* "$out" "$out.part"; exit 1; }
 printf '%%s' %[4]s | sed "s/\"target\":\"[a-z]*\"/\"target\":\"$target\"/" >"$dir/recording.json"
 echo "$target"`,
 		agentStateDir, out, recorder, shellQuote(string(encoded)), started), nil
@@ -510,14 +516,28 @@ dir="$HOME/%s"
 out="$dir/recording.mp4"
 if grep -q '"staged":true' "$dir/recording.json"; then out="$dir/out/recording.mp4"; fi
 pid=$(cat "$dir/recording.pid" 2>/dev/null || true)
+running=no
 if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+  running=yes
   # Both finish the file when told to stop. scrcpy ignores INT, which a
   # background process starts out ignoring, so it gets TERM.
   if grep -q '"target":"android"' "$dir/recording.json"; then kill -TERM "$pid"; else kill -INT "$pid"; fi
   i=0
   while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 500 ]; do sleep 0.05; i=$((i + 1)); done
+  # One that hasn't finished in 25s won't: what it wrote is in its part.
+  if kill -0 "$pid" 2>/dev/null; then kill -KILL "$pid" 2>/dev/null || true; echo "the recorder didn't finish in 25s and was killed" >>"$dir/recording.log"; fi
 fi
-[ -s "$out" ] || { echo "the recording is empty:" >&2; tail -n 5 "$dir/recording.log" >&2; rm -f "$dir"/recording.* "$out"; exit 1; }
+# A recorder that was killed or crashed left what it captured in its part,
+# which plays up to its last second: remuxed with its index first, as the
+# recorder would have, or kept as it is.
+if [ ! -s "$out" ] && [ -s "$out.part" ]; then
+  if ffmpeg -hide_banner -loglevel error -nostdin -i "$out.part" -c copy -movflags +faststart -f mp4 -y "$out.tmp" 2>>"$dir/recording.log"; then mv -f "$out.tmp" "$out"; rm -f "$out.part"; else rm -f "$out.tmp"; mv -f "$out.part" "$out"; fi
+fi
+[ -s "$out" ] || {
+  if [ "$running" = no ]; then echo "nothing was recorded: the recorder had already stopped by itself. Its log:" >&2; else echo "nothing was recorded. The recorder's log:" >&2; fi
+  tail -n 5 "$dir/recording.log" >&2
+  rm -f "$dir/recording.json" "$dir/recording.pid" "$out" "$out.part"; exit 1
+}
 cat "$dir/recording.json"
 echo
 if [ -s "$dir/recording.cuts" ]; then printf 'cuts '; cat "$dir/recording.cuts"; echo; fi
@@ -557,27 +577,47 @@ func (m *Manager) StopRecording(ctx context.Context, a state.Agent) (state.Media
 		}
 	}
 
+	remote := home + "/" + agentStateDir
+	inAgent := remote + "/recording.mp4"
+	if st.Staged {
+		inAgent = remote + "/out/recording.mp4"
+	}
+	// Until the recording is kept, nothing captured is removed: a failure
+	// below leaves it where the error says it is.
 	p, err := m.startMedia(a, MediaRecording, st.Name, st.Source)
 	if err != nil {
-		return state.Media{}, err
+		return state.Media{}, fmt.Errorf("keeping the recording: %w (it is still in the agent, at %s)", err, inAgent)
 	}
 	p.item.CreatedAt = st.StartedAt
+	p.keep = true
 	file := filepath.Join(p.dir, fileName(st.Name, "recording", ".mp4"))
-	remote := home + "/" + agentStateDir
-	defer func() {
-		_, _ = m.Incus.Exec(context.WithoutCancel(ctx), a.Instance, "sh", "-c", "rm -f "+remote+"/recording.* "+remote+"/input.*")
-	}()
 	if st.Staged {
 		err = takeStaged(filepath.Join(m.recordingStage(a), "recording.mp4"), file)
+		if err != nil && !errors.Is(err, errStagedNotFile) {
+			// The stage wasn't mounted when it started (it isn't required),
+			// so the agent wrote to its own disk instead.
+			if pullErr := m.Incus.PullFile(ctx, a.Instance, inAgent, file); pullErr == nil {
+				err = nil
+			} else {
+				err = fmt.Errorf("%w, nor could it be copied out of the agent: %w", err, pullErr)
+			}
+		}
 	} else {
-		err = m.Incus.PullFile(ctx, a.Instance, remote+"/recording.mp4", file)
+		err = m.Incus.PullFile(ctx, a.Instance, inAgent, file)
 	}
 	if err != nil {
 		p.discard()
+		return state.Media{}, fmt.Errorf("keeping the recording: %w (it is still in the agent, at %s)", err, inAgent)
+	}
+	item, err := m.saveMedia(ctx, p, file, meta)
+	if err != nil {
 		return state.Media{}, err
 	}
-	return m.saveMedia(ctx, p, file, meta)
+	_, _ = m.Incus.Exec(context.WithoutCancel(ctx), a.Instance, "sh", "-c", "rm -f "+remote+"/recording.* "+remote+"/input.*")
+	return item, nil
 }
+
+var errStagedNotFile = errors.New("the recording the agent left isn't a file")
 
 // takeStaged moves a recording the agent wrote to its stage into the item it
 // is kept as. The agent could have left anything there, so it has to be a
@@ -590,7 +630,7 @@ func takeStaged(staged, file string) error {
 	}
 	if !info.Mode().IsRegular() {
 		_ = os.Remove(staged)
-		return errors.New("the recording the agent left isn't a file")
+		return errStagedNotFile
 	}
 	return os.Rename(staged, file)
 }

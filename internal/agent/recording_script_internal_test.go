@@ -2,6 +2,7 @@ package agent
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -87,5 +88,69 @@ func TestTakeStaged(t *testing.T) {
 	}
 	if err := takeStaged(staged, file); err == nil {
 		t.Error("an empty stage gave a recording")
+	}
+}
+
+// stopRecording runs the stop script in a home whose recording is the one
+// given: its details, a pid that has exited, the recorder's log and files.
+func stopRecording(t *testing.T, staged bool, files map[string]string) (string, string, error) {
+	t.Helper()
+	home := t.TempDir()
+	dir := filepath.Join(home, agentStateDir)
+	if err := os.MkdirAll(filepath.Join(dir, "out"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	details := `{"name":"flow","target":"display","staged":false}`
+	if staged {
+		details = `{"name":"flow","target":"display","staged":true}`
+	}
+	files["recording.json"] = details
+	files["recording.pid"] = "2147483646" // no such process: the recorder had stopped
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cmd := exec.Command("sh", "-c", stopRecordingScript())
+	cmd.Env = append(os.Environ(), "HOME="+home)
+	var stdout, stderr strings.Builder
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	err := cmd.Run()
+	return dir, stdout.String() + stderr.String(), err
+}
+
+// A recorder that was killed, or crashed, before it finished the file left
+// what it captured in its part: stopping keeps that as the recording, rather
+// than saying it is empty and deleting it (agent-80's lost recording).
+func TestStopRecordingKeepsTheRecordersPart(t *testing.T) {
+	for _, staged := range []bool{false, true} {
+		out := "recording.mp4"
+		if staged {
+			out = "out/recording.mp4"
+		}
+		dir, output, err := stopRecording(t, staged, map[string]string{out + ".part": "frames so far", "recording.log": ""})
+		if err != nil {
+			t.Fatalf("staged=%v: stop = %v\n%s", staged, err, output)
+		}
+		// Not an MP4, so ffmpeg (if there is one) can't remux it: kept as it is.
+		if b, err := os.ReadFile(filepath.Join(dir, out)); err != nil || string(b) != "frames so far" {
+			t.Errorf("staged=%v: the recording is %q, %v; want the part", staged, b, err)
+		}
+		if !strings.Contains(output, `"name":"flow"`) {
+			t.Errorf("staged=%v: the details weren't printed: %s", staged, output)
+		}
+	}
+}
+
+// With nothing captured, stopping says so, and what the recorder said.
+func TestStopRecordingSaysWhyNothingWasRecorded(t *testing.T) {
+	_, output, err := stopRecording(t, false, map[string]string{"recording.log": "Error: the display isn't running: start the browser first\n"})
+	if err == nil {
+		t.Fatalf("stop with nothing recorded succeeded: %s", output)
+	}
+	for _, want := range []string{"nothing was recorded: the recorder had already stopped by itself", "the display isn't running"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("stop said %q, want %q in it", output, want)
+		}
 	}
 }
