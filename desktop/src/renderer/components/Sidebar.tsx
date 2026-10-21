@@ -376,9 +376,8 @@ export function Sidebar({
         </button>
         {nightly && (
           <Tip label={t('shell.sidebar.nightlyTip', { version: info.data?.version ? `, ${info.data.version}` : '' })}>
-            <span className="nightly-badge ml-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-medium">
+            <span className="nightly-badge ml-2 inline-flex items-center rounded-full p-1" aria-label={t('shell.sidebar.nightlyTip', { version: info.data?.version ? `, ${info.data.version}` : '' })}>
               <MoonStar className="size-3" aria-hidden />
-              {t('shell.sidebar.nightly')}
             </span>
           </Tip>
         )}

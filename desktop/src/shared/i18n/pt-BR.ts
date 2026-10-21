@@ -271,7 +271,6 @@ export const ptBR: Messages = {
   'shell.sidebar.dropHere': 'Solte um projeto aqui',
   'shell.sidebar.home': 'Início do AgentBox',
   'shell.sidebar.nightlyTip': 'Um build noturno{version}: o que vem na próxima versão, não uma versão',
-  'shell.sidebar.nightly': 'Noturno',
   'shell.sidebar.projects': 'Projetos',
   'shell.sidebar.newProject': 'Novo projeto',
   'shell.sidebar.newSection': 'Nova seção',

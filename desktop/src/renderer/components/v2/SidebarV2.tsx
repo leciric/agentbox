@@ -302,24 +302,21 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
     <aside className="flex w-[288px] shrink-0 flex-col border-r border-line bg-rail backdrop-blur-xl" data-sidebar-v2>
       <div className={cn('flex h-14 shrink-0 items-center gap-2 px-4', nightly && 'nightly-sky')} data-nightly={nightly || undefined}>
         <Logo className="size-7" />
-        {/* A nightly's badge goes under the name: beside it, the header's "Add project" overflows the 288px column. */}
-        <div className="flex min-w-0 flex-col items-start gap-0.5">
-          <span className="text-[14px] font-semibold tracking-tight text-title">AgentBox</span>
-          {nightly && (
-            <Tip label={t('shell.sidebar.nightlyTip', { version: info.data?.version ? `, ${info.data.version}` : '' })}>
-              <span className="nightly-badge inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-px text-[10.5px] font-medium">
-                <MoonStar className="size-3" aria-hidden />
-                {t('shell.sidebar.nightly')}
-              </span>
-            </Tip>
-          )}
-        </div>
+        <span className="text-[14px] font-semibold tracking-tight text-title">AgentBox</span>
+        {nightly && (
+          <Tip label={t('shell.sidebar.nightlyTip', { version: info.data?.version ? `, ${info.data.version}` : '' })}>
+            <span className="nightly-badge inline-flex shrink-0 items-center rounded-full p-1" aria-label={t('shell.sidebar.nightlyTip', { version: info.data?.version ? `, ${info.data.version}` : '' })}>
+              <MoonStar className="size-3" aria-hidden />
+            </span>
+          </Tip>
+        )}
         <span className="ml-auto" />
         <HelpMenu />
-        <button type="button" className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-1.5 py-1 text-[12px] text-subtle transition hover:bg-surface-strong hover:text-primary" onClick={onAddProject} data-v2-add-project>
-          <FolderPlus className="size-4" />
-          {t('shell.home.addProject')}
-        </button>
+        <Tip label={t('shell.home.addProject')}>
+          <button type="button" className="flex shrink-0 items-center rounded-md p-1.5 text-subtle transition hover:bg-surface-strong hover:text-primary" onClick={onAddProject} aria-label={t('shell.home.addProject')} data-v2-add-project>
+            <FolderPlus className="size-4" />
+          </button>
+        </Tip>
       </div>
 
       {/* Never sideways: what's too long in it truncates (each row's flex children are min-w-0). */}

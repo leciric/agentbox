@@ -270,7 +270,6 @@ export const enUS = {
   'shell.sidebar.dropHere': 'Drop a project here',
   'shell.sidebar.home': 'AgentBox home',
   'shell.sidebar.nightlyTip': 'A nightly build{version}: what\'s coming in the next release, not a release',
-  'shell.sidebar.nightly': 'Nightly',
   'shell.sidebar.projects': 'Projects',
   'shell.sidebar.newProject': 'New project',
   'shell.sidebar.newSection': 'New section',
