@@ -17,6 +17,11 @@ name: Release
 # trigger other workflows — irrelevant here, since the build jobs are steps of
 # this same run, not a workflow the tag push would have to trigger.
 #
+# "always-update" in the config makes release-please refresh that PR's branch
+# on every push, even when the changelog doesn't change: a merged chore: or
+# ci: is a hidden section, but it can still move a pin the nightly builds from
+# the PR's head (the Cloud Hypervisor build), which must not go stale.
+#
 # CI (ci.yml) does not run on the release PR itself, since release-please
 # opens and updates it with GITHUB_TOKEN too, whose own pushes don't trigger
 # workflows either: close it and reopen it (no need to touch its branch) to
