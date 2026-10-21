@@ -130,6 +130,11 @@ export function PhoneApp({ phone }: { phone: T.LANPhone }) {
     window.addEventListener(openAgentEvent, open);
     return () => window.removeEventListener(openAgentEvent, open);
   }, []);
+  // The phone's own CSS (styles.css) keys on this, portals included.
+  useEffect(() => {
+    document.documentElement.dataset.phone = '';
+    return () => void delete document.documentElement.dataset.phone;
+  }, []);
   const chats = useChats(phone);
   const here = routeHash(route);
   const [switching, setSwitching] = useState(false);
@@ -670,6 +675,11 @@ function PullsScreen({ project, highlight, header, onOpen }: { project: string; 
   const pulls = useOpenPulls(project, true);
   const [merging, setMerging] = useState<T.PullRequest | null>(null);
   const open = pulls.open;
+  // The pull request opened from its agent's chat, in view once the list is.
+  const loaded = !!pulls.data;
+  useEffect(() => {
+    if (loaded && highlight) document.querySelector(`[data-phone-pull="${highlight}"]`)?.scrollIntoView({ block: 'nearest' });
+  }, [loaded, highlight]);
   const method = pulls.data?.mergeMethods?.[0] ?? 'merge';
   return (
     <>
@@ -703,9 +713,6 @@ function PullsScreen({ project, highlight, header, onOpen }: { project: string; 
             return (
               <li
                 key={pr.number}
-                ref={(el) => {
-                  if (el && pr.number === highlight) el.scrollIntoView({ block: 'nearest' });
-                }}
                 className={cn('flex min-w-0 items-center gap-2 rounded-2xl border border-line py-1.5 pl-1.5 pr-3', pr.number === highlight && 'border-brand-400/60 bg-brand-500/10')}
                 data-phone-pull={pr.number}
               >

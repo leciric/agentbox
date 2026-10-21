@@ -1067,46 +1067,76 @@ body[data-touring] [data-sonner-toaster] {
 
 /* The phone's web app (web/PhoneApp.tsx) wraps the desktop's chat: what a
    finger and a phone's browser need from it, and nothing the desktop sees.
-   Unlayered, so it wins over the utilities it adjusts. */
-[data-phone-app] {
+   Unlayered, so it wins over the utilities it adjusts; on the root, which
+   PhoneApp marks, so dialogs and menus portalled out of the app follow. */
+:root[data-phone] {
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 }
-[data-phone-app] .overflow-y-auto {
+:root[data-phone] .overflow-y-auto {
   /* A pull at the top of a chat doesn't reload the page and lose a draft. */
   overscroll-behavior-y: contain;
 }
 /* Under 16 px, Safari zooms the page in on focusing the composer. */
-[data-phone-app] [data-chat-composer] textarea {
+:root[data-phone] [data-chat-composer] textarea {
   font-size: 16px;
 }
 /* Attach, stop and send: a fingertip's 44 px, not a pointer's 32. */
-[data-phone-app] [data-chat-composer] button.size-8 {
+:root[data-phone] [data-chat-composer] button.size-8 {
   width: 2.75rem;
   height: 2.75rem;
 }
 /* A permission to give, in the chat or the composer: buttons a thumb can hit,
    without the Y and N a phone has no keys for. */
-[data-phone-app] [data-permission-actions] button {
+:root[data-phone] [data-permission-actions] button {
   height: 2.75rem;
   padding-inline: 1rem;
   font-size: 14px;
 }
-[data-phone-app] kbd {
+:root[data-phone] kbd {
   display: none;
 }
 /* The chat's icon buttons (copy, show the code, open large) stay their
    size and take a fingertip's touch around them. */
-[data-phone-app] :is(button.size-6, button.size-7):not(.absolute, .fixed) {
+:root[data-phone] :is(button.size-6, button.size-7):not(.absolute, .fixed) {
   position: relative;
 }
-[data-phone-app] :is(button.size-6, button.size-7)::after {
+:root[data-phone] :is(button.size-6, button.size-7)::after {
   content: "";
   position: absolute;
   inset: -8px;
 }
 /* What the desktop shows on hover a phone shows: there's no hovering, and a
    tap on something unseen does something unseen. */
-[data-phone-app] .group-hover\:opacity-100 {
+:root[data-phone] .group-hover\:opacity-100 {
   opacity: 1;
+}
+/* A dialog is a sheet from the bottom, under the thumb, with buttons across
+   it; the full-window ones (fullWhenNarrow) and the switcher are left be. */
+:root[data-phone] [role="dialog"]:not([data-phone-switcher], .max-lg\:h-full) {
+  top: auto;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  max-width: none;
+  translate: none;
+  transform: none;
+  border-radius: 1.5rem 1.5rem 0 0;
+  border-width: 1px 0 0;
+  padding-bottom: calc(1.25rem + env(safe-area-inset-bottom));
+  animation: var(--animate-sheet-up);
+}
+:root[data-phone] [role="dialog"]:not([data-phone-switcher], .max-lg\:h-full) .justify-end > button {
+  flex: 1;
+  min-height: 3rem;
+  font-size: 15px;
+}
+:root[data-phone] [role="dialog"]:not([data-phone-switcher]) > button:last-child {
+  top: 0.5rem;
+  right: 0.5rem;
+  display: flex;
+  width: 2.75rem;
+  height: 2.75rem;
+  align-items: center;
+  justify-content: center;
 }
