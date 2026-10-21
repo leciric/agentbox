@@ -18,8 +18,9 @@
 #     on Fedora's Mesa (copr slp/mesa-libkrun-vulkan); it isn't upstream.
 #     This builds that driver alone, from the same Mesa as Debian 13's, with
 #     the same patches, and agents get it in place of their own (package
-#     agent, vgpudriver.go). OpenGL needs nothing more: Mesa's Zink runs it
-#     on whichever Vulkan driver there is.
+#     agent, vgpudriver.go). Our own patch (0004) lets it present and run
+#     ANGLE without dma-buf, which the Mac doesn't have: that's what gives
+#     Chromium's WebGL the GPU (browser.sh). Mesa's Zink runs OpenGL on it.
 #
 set -eu -o pipefail
 export DEBIAN_FRONTEND=noninteractive
@@ -55,11 +56,15 @@ if [[ $(cat "$dest/stamp" 2>/dev/null) != "$stamp" ]]; then
     python3-packaging glslang-tools bison flex libdrm-dev libexpat1-dev zlib1g-dev libzstd-dev
     libx11-dev libx11-xcb-dev libxext-dev libxfixes-dev libxrandr-dev libxxf86vm-dev libxshmfence-dev
     libxcb1-dev libxcb-dri3-dev libxcb-present-dev libxcb-randr0-dev libxcb-shm0-dev libxcb-sync-dev
-    libxcb-xfixes0-dev libxcb-keysyms1-dev)
+    libxcb-xfixes0-dev)
   # What's here already stays: only what this installs comes off again.
   mapfile -t added < <(for p in "${build[@]}"; do dpkg-query -W -f '${db:Status-Status}\n' "$p" 2>/dev/null | grep -qx installed || echo "$p"; done)
   apt-get update -q >>"$log"
   apt-get install -y -q --no-install-recommends "${build[@]}" libvulkan1 vulkan-tools mesa-utils >>"$log"
+  # Mesa links xcb-keysyms when it finds it, and agents don't have it, so
+  # their Vulkan loader would drop the driver: a failed build of a version
+  # that installed it left it behind.
+  apt-get purge -y -q libxcb-keysyms1-dev >>"$log" 2>&1 || true
   src=$(mktemp -d /var/tmp/agentbox-venus.XXXXXX)
   trap 'rm -rf "$src"' EXIT
   curl -fsSL --retry 3 -o "$src/mesa.tar.xz" "https://archive.mesa3d.org/mesa-$mesa_version.tar.xz"

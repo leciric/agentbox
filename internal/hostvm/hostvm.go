@@ -550,7 +550,9 @@ func (v *VM) Current(ctx context.Context) (bool, error) {
 
 // Install puts the Linux binary in the VM, replacing the old one in one
 // rename: a daemon running from it keeps running the old file until it's
-// restarted (the app restarts a daemon of another version itself).
+// restarted (the app restarts a daemon of another version itself). venus/
+// goes with it (setupGPU), so the GPU driver the daemon builds is this
+// version's.
 func (v *VM) Install(ctx context.Context) error {
 	f, err := os.Open(v.Binary)
 	if err != nil {
@@ -559,8 +561,11 @@ func (v *VM) Install(ctx context.Context) error {
 	defer func() { _ = f.Close() }()
 	_, _ = fmt.Fprintf(v.Log, "==> Installing %s in the VM as %s\n", v.Binary, vmBinary)
 	script := fmt.Sprintf(`set -e; t=%[1]s.new.$$; cat >"$t"; chmod 0755 "$t"; mv -f "$t" %[1]s`, vmBinary)
-	_, err = v.exec(ctx, f, "sudo", "sh", "-c", script)
-	return err
+	if _, err := v.exec(ctx, f, "sudo", "sh", "-c", script); err != nil {
+		return err
+	}
+	v.setupGPU(ctx)
+	return nil
 }
 
 // Ready starts the VM if it's stopped, and brings its agentbox up to date:
@@ -656,7 +661,6 @@ func (v *VM) setup(ctx context.Context, daemon bool) error {
 	if err := v.writeProfile(ctx); err != nil {
 		return err
 	}
-	v.setupGPU(ctx)
 	if !daemon {
 		return nil
 	}

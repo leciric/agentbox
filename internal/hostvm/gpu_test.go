@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -73,8 +74,27 @@ func TestVenusTar(t *testing.T) {
 			}
 		}
 	}
-	if patches != 3 {
+	if patches != 4 {
 		t.Errorf("%d patches in %v", patches, files)
+	}
+}
+
+// An upgrade brings venus/ with the binary, so a krunkit VM rebuilds its GPU
+// driver with this version's patches; a VM of another type gets the binary
+// alone.
+func TestInstallBringsVenus(t *testing.T) {
+	for _, vmType := range []string{krunkitVMType, "vz"} {
+		t.Run(vmType, func(t *testing.T) {
+			vm, dir := newFake(t)
+			_ = os.WriteFile(filepath.Join(dir, "list"), []byte(`{"name":"agentbox","status":"Running","vmType":"`+vmType+`"}`+"\n"), 0o644)
+			if err := vm.Install(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			sent := slices.ContainsFunc(calls(t, dir), func(call string) bool { return strings.Contains(call, "rm -rf "+venusSrc) })
+			if sent != (vmType == krunkitVMType) {
+				t.Errorf("sent venus/: %v, calls %q", sent, calls(t, dir))
+			}
+		})
 	}
 }
 

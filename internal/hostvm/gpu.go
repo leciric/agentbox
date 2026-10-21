@@ -75,11 +75,11 @@ func venusTar() (*bytes.Buffer, error) {
 // kernel it installed: in /run, which a restart empties.
 const restartMarker = "/run/agentbox-gpu-restart"
 
-// setupGPU puts venus/ in a krunkit VM, for Setup: the daemon there runs
-// venus.sh when "GPU for agents" is on (agent.ReadyVenus), and only then, since
-// it changes the VM's kernel and builds a driver; that it's there is how the
-// daemon knows its VM's GPU can be readied. A failure doesn't stop Setup,
-// since agents run without a GPU too: it says what went wrong.
+// setupGPU puts venus/ in a krunkit VM, with the binary (Install): the daemon
+// there runs venus.sh when "GPU for agents" is on (agent.ReadyVenus), and only
+// then, since it changes the VM's kernel and builds a driver; that it's there
+// is how the daemon knows its VM's GPU can be readied. A failure doesn't stop
+// the install, since agents run without a GPU too: it says what went wrong.
 func (v *VM) setupGPU(ctx context.Context) {
 	if v.CHV != nil {
 		return
