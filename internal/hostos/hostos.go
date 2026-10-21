@@ -58,7 +58,19 @@ var osrelease = "/proc/sys/kernel/osrelease"
 // Variables for tests.
 var markers = []struct{ file, os string }{
 	{"/etc/agentbox/vm", ""},
-	{"/etc/agentbox/host-guard.nft", Linux},
+	{CHVMarker, Linux},
+}
+
+// CHVMarker is in every Cloud Hypervisor VM and nowhere else: not in host
+// mode, in a Mac's or Windows' VM, or in an agent's container. A variable for
+// tests.
+var CHVMarker = "/etc/agentbox/host-guard.nft"
+
+// CloudHypervisorVM reports whether this runs in AgentBox's Cloud Hypervisor
+// VM on a Linux host, where a restart is `agentbox vm stop` and `start`.
+func CloudHypervisorVM() bool {
+	_, err := os.Stat(CHVMarker)
+	return err == nil
 }
 
 // OS is the OS of the computer this Linux runs in a VM on: what Env says, or

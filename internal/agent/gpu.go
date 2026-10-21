@@ -188,7 +188,7 @@ export MESA_VK_DEVICE_SELECT=` + ids + `
 func hostGPU() (VMGPU, bool) {
 	b, err := os.ReadFile(vmGPUStatusFile)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) && hostos.OS() == hostos.Linux {
+		if errors.Is(err, os.ErrNotExist) && hostos.CloudHypervisorVM() {
 			// The Cloud Hypervisor VM was started by an AgentBox whose
 			// supervisor knew no GPU: it learns of the host's only when it
 			// restarts, which is also when it gets the GPU, so the switch

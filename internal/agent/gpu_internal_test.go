@@ -269,21 +269,31 @@ func TestGPUStepsLinuxVulkan(t *testing.T) {
 }
 
 // A Cloud Hypervisor VM started by an older AgentBox has no status file: it
-// can have the GPU after one restart, so the switch can be turned on.
+// can have the GPU after one restart, so the switch can be turned on. Host
+// mode, root installs and nested agents have no VM to restart: they keep the
+// plain "no GPU" reason.
 func TestFindVMGPUOldVM(t *testing.T) {
 	if hostos.WSL() {
 		t.Skip("WSL has its own reasons")
 	}
-	t.Setenv(hostos.Env, hostos.Linux)
+	oldMarker := hostos.CHVMarker
+	t.Cleanup(func() { hostos.CHVMarker = oldMarker })
 	fakeGPU(t, "", "", false)
+
+	marker := filepath.Join(t.TempDir(), "host-guard.nft")
+	if err := os.WriteFile(marker, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hostos.CHVMarker = marker
 	got := FindVMGPU()
 	if got.Kind != GPUHost || got.Node != "" || got.Reason != OldVMReason {
 		t.Errorf("an old Linux VM: %+v", got)
 	}
 
-	// Not in that VM, there is nothing to restart.
-	t.Setenv(hostos.Env, "")
-	if got := FindVMGPU(); got.Kind != GPUNone {
-		t.Errorf("a machine of its own: %+v", got)
+	hostos.CHVMarker = filepath.Join(t.TempDir(), "missing")
+	t.Setenv(hostos.Env, hostos.Linux) // even a front end's variable is no VM
+	got = FindVMGPU()
+	if got.Kind != GPUNone || !strings.Contains(got.Reason, "no GPU to give agents") {
+		t.Errorf("host mode: %+v", got)
 	}
 }
