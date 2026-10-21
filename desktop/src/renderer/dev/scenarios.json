@@ -1428,6 +1428,13 @@
     "height": 900
   },
   {
+    "id": "phone-pulls-375-light",
+    "description": "A project's open pull requests on a phone: titles on two lines, checks in colour, a draft that can't merge — light",
+    "query": "phone=pulls&theme=light",
+    "width": 375,
+    "height": 812
+  },
+  {
     "id": "phone-chat-390-dark",
     "description": "agent-12's chat on a phone, its turn running live, the header's status line — dark",
     "query": "phone=chat&theme=dark",

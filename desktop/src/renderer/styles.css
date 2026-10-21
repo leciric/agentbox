@@ -1058,3 +1058,24 @@ body[data-touring] [data-sonner-toaster] {
     }
   }
 }
+
+/* The phone's web app (web/PhoneApp.tsx) wraps the desktop's chat: what a
+   finger and a phone's browser need from it, and nothing the desktop sees.
+   Unlayered, so it wins over the utilities it adjusts. */
+[data-phone-app] {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+[data-phone-app] .overflow-y-auto {
+  /* A pull at the top of a chat doesn't reload the page and lose a draft. */
+  overscroll-behavior-y: contain;
+}
+/* Under 16 px, Safari zooms the page in on focusing the composer. */
+[data-phone-app] [data-chat-composer] textarea {
+  font-size: 16px;
+}
+/* Attach, stop and send: a fingertip's 44 px, not a pointer's 32. */
+[data-phone-app] [data-chat-composer] button.size-8 {
+  width: 2.75rem;
+  height: 2.75rem;
+}

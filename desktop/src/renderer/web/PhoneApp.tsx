@@ -31,7 +31,7 @@ import { Elapsed } from '../components/chat/Timeline';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { ProjectChatPanel } from '../components/ProjectChatPanel';
 import { AIIcon, LiveAgentAvatar } from '../components/state';
-import { rank, type StatusTone } from '../lib/agentStatus';
+import { prChecksText, rank, type StatusTone } from '../lib/agentStatus';
 import { api } from '../lib/api';
 import { chatKey, fetchThread, peekThread } from '../lib/chat';
 import { agentChatStatus, lastReply, leadChatStatus, type ChatStatus } from '../lib/chatActivity';
@@ -124,7 +124,9 @@ export function PhoneApp({ phone }: { phone: T.LANPhone }) {
     return () => window.removeEventListener(openAgentEvent, open);
   }, []);
   return (
-    <div className="flex h-dvh flex-col" data-phone-app>
+    // The page runs under the notch and the home bar (web.html's
+    // viewport-fit=cover), and keeps clear of them itself.
+    <div className="flex h-dvh flex-col pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] pt-[env(safe-area-inset-top)]" data-phone-app>
       <ConnectionBar />
       {route.kind === 'list' ? (
         <ChatList phone={phone} onOpen={go} />
@@ -172,7 +174,7 @@ function ConnectionBar() {
         </span>
         <LoaderCircle className="size-3.5 shrink-0 animate-spin" />
         {connection.state === 'disconnected' && (
-          <button type="button" className="shrink-0 rounded-full px-2 py-1 font-medium underline-offset-2 active:bg-amber-500/20" onClick={reconnectNow} data-phone-retry>
+          <button type="button" className="-my-1 min-h-11 shrink-0 rounded-full px-3 font-medium active:bg-amber-500/20" onClick={reconnectNow} data-phone-retry>
             {t('web.phone.retryNow')}
           </button>
         )}
@@ -205,6 +207,7 @@ function ChatList({ phone, onOpen }: { phone: T.LANPhone; onOpen: (route: Route)
   });
   const threadOf = (ref: string | undefined) => (ref ? threads[refs.indexOf(ref)]?.data : undefined);
   useSyncExternalStore(seen.subscribe, seen.version);
+  const offline = useConnection().state !== 'connected';
   const unread = (ref: string | undefined, status: ChatStatus) => !!ref && !status.live && seen.unread(ref, lastReply(threadOf(ref)));
   const unpair = useMutation({
     mutationFn: async () => {
@@ -221,9 +224,19 @@ function ChatList({ phone, onOpen }: { phone: T.LANPhone; onOpen: (route: Route)
         <MessagesSquare className="size-5 text-brand-300" />
         <h1 className="text-[17px] font-semibold tracking-tight text-title">{t('web.phone.chats')}</h1>
       </header>
-      <div className="grid gap-6 px-3 py-4">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 px-3 py-4">
         {projects.isPending && <p className="px-2 text-sm text-subtle">{t('common.loading')}</p>}
-        {projects.error && <p className="px-2 text-sm text-rose-300">{errorMessage(projects.error)}</p>}
+        {projects.error &&
+          (offline ? (
+            // The bar above says it is reconnecting: what's missing is why
+            // the list is empty, not the request's own error.
+            <div className="grid justify-items-center gap-3 px-6 py-16 text-center" data-phone-unreachable>
+              <WifiOff className="size-8 text-faint" />
+              <p className="text-sm text-subtle">{t('web.phone.unreachable')}</p>
+            </div>
+          ) : (
+            <p className="px-2 text-sm text-rose-300">{errorMessage(projects.error)}</p>
+          ))}
         {projects.data?.length === 0 && <p className="px-2 text-sm text-subtle">{t('web.phone.noProjects')}</p>}
         {projects.data?.map((p, i) => {
           const lead = chats[i]?.data;
@@ -236,8 +249,8 @@ function ChatList({ phone, onOpen }: { phone: T.LANPhone; onOpen: (route: Route)
             .map((a) => ({ a, status: agentChatStatus(a, threadOf(a.ref)) }))
             .sort((x, y) => rank(x.a) - rank(y.a) || x.a.name.localeCompare(y.a.name));
           return (
-            <section key={p.name} className="grid gap-1" data-phone-project={p.name}>
-              <h2 className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-faint">{projectLabel(p)}</h2>
+            <section key={p.name} className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1" data-phone-project={p.name}>
+              <h2 className="px-2 pb-1 text-[12px] font-semibold uppercase tracking-[0.12em] text-subtle">{projectLabel(p)}</h2>
               <ChatRow
                 icon={
                   <div className="flex size-9 items-center justify-center rounded-full bg-surface-raised">
@@ -283,7 +296,7 @@ function ChatList({ phone, onOpen }: { phone: T.LANPhone; onOpen: (route: Route)
           </p>
           <PlainHTTPNote />
           <div>
-            <button type="button" className="text-[12px] text-rose-300 underline-offset-2 hover:underline" disabled={unpair.isPending} onClick={() => unpair.mutate()}>
+            <button type="button" className="-mx-2 min-h-11 rounded-full px-2 text-[13px] text-rose-300 active:bg-rose-500/10" disabled={unpair.isPending} onClick={() => unpair.mutate()}>
               {t('web.phone.unpair')}
             </button>
           </div>
@@ -452,11 +465,16 @@ function PullsScreen({ project, onBack }: { project: string; onBack: () => void 
           {open.map((pr) => (
             <li key={pr.number} className="flex min-w-0 items-center gap-3 rounded-2xl border border-line px-3 py-2.5" data-phone-pull={pr.number}>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-[14px] font-medium text-primary">{pr.title}</p>
+                <p className="line-clamp-2 break-words text-[14px] font-medium text-primary">{pr.title}</p>
                 <p className="truncate text-[12px] text-subtle">
                   #{pr.number}
                   {pr.baseBranch && ` → ${pr.baseBranch}`}
-                  {pr.checks && ` · ${pr.checks}`}
+                  {pr.checks && (
+                    <>
+                      {' · '}
+                      <span className={cn(pr.checks === 'failing' && 'text-rose-300', pr.checks === 'passing' && 'text-emerald-300')}>{prChecksText(pr.checks)}</span>
+                    </>
+                  )}
                   {pr.draft && ` · ${t('web.phone.draft')}`}
                 </p>
               </div>
@@ -464,7 +482,7 @@ function PullsScreen({ project, onBack }: { project: string; onBack: () => void 
                 type="button"
                 disabled={pr.draft}
                 onClick={() => setMerging(pr)}
-                className="shrink-0 rounded-full bg-brand-500/20 px-3 py-1.5 text-[13px] font-medium text-brand-200 active:bg-brand-500/30 disabled:opacity-40"
+                className="min-h-11 shrink-0 rounded-full bg-brand-500/20 px-4 text-[14px] font-medium text-brand-200 active:bg-brand-500/30 disabled:opacity-40"
               >
                 {t('web.phone.merge')}
               </button>
