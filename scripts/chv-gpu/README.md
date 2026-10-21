@@ -94,7 +94,9 @@ of crosvm and minijail. Whichever serves it, the commit must be the pinned one.
 Reproducibility: every source is pinned by commit or SHA-256, Debian's packages by snapshot date,
 the Rust images by digest; paths are remapped, file times set to `SOURCE_DATE_EPOCH`, and the
 tarball written in a fixed order with fixed owners. A build and a `DOCKER_BUILD_FLAGS=--no-cache`
-rebuild gave the same tarball, byte for byte; nobody has compared builds from two machines yet.
+rebuild on one machine gave the same tarball, byte for byte, but that doesn't hold across machines:
+CI's crosvm and its cloud-hypervisor binary both hashed differently from an agent's build of the
+same inputs. So the claim is only same-machine, and the pin follows what CI published.
 
 **arm64** isn't built. It would build the same way on an arm64 host (with
 `aarch64-unknown-linux-musl`), but cross-building crosvm and virglrenderer needs an arm64 sysroot

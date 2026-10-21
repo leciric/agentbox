@@ -17,7 +17,14 @@ on:
     types: [opened, synchronize, reopened, labeled]
   schedule:
     - cron: '17 6 * * 1'
+  # With `pr`, the run is that pull request's, on its branch: chv.yml
+  # dispatches it for the pin PR it opens, which GITHUB_TOKEN can't get a
+  # pull_request run for. Its checks land on the PR's head commit.
   workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number, to run its checks as a pull_request would
+        required: false
 
 permissions:
   contents: read
@@ -55,10 +62,13 @@ jobs:
       windows: ${{ steps.paths.outputs.windows }}
     steps:
       - name: Check the title is a conventional commit
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || inputs.pr != ''
         env:
+          GH_TOKEN: ${{ github.token }}
           TITLE: ${{ github.event.pull_request.title }}
+          PR: ${{ inputs.pr }}
         run: |
+          [ -n "$PR" ] && TITLE=$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json title -q .title)
           if [[ ! "$TITLE" =~ ^(feat|fix|refactor|docs|chore|test|perf|ci)(\(.+\))?!?:\ .+ ]]; then
             echo "PR title isn't a conventional commit (feat|fix|refactor|docs|chore|test|perf|ci): $TITLE" >&2
             exit 1
@@ -92,15 +102,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           EVENT: ${{ github.event_name }}
           ACTION: ${{ github.event.action }}
-          PR: ${{ github.event.pull_request.number }}
+          PR: ${{ github.event.pull_request.number || inputs.pr }}
           BEFORE: ${{ github.event.before }}
           PLATFORMS: ${{ steps.platforms.outputs.platforms }}
         run: |
           files=$(mktemp)
           ok=true
           case "$EVENT" in
-            pull_request)
-              gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[].filename' >"$files" || ok=false ;;
+            pull_request|workflow_dispatch)
+              if [ -n "$PR" ]; then
+                gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[].filename' >"$files" || ok=false
+              else
+                ok=false
+              fi ;;
             push)
               if [[ "$BEFORE" =~ ^0+$ ]]; then
                 ok=false
@@ -126,7 +140,7 @@ jobs:
           # On main, govulncheck follows Go. Labelling a PR ci:full runs
           # macOS and Windows whatever the change, and nothing else.
           [ "$EVENT" = push ] && vuln=$go
-          if [ "$EVENT/$ACTION" = pull_request/labeled ] || [ "$EVENT" = workflow_dispatch ]; then
+          if [ "$EVENT/$ACTION" = pull_request/labeled ] || { [ "$EVENT" = workflow_dispatch ] && [ -z "$PR" ]; }; then
             macos=true windows=true
           fi
           printf '%s\n' "go=$go" "desktop=$desktop" "mobile=$mobile" "vuln=$vuln" "macos=$macos" "windows=$windows" | tee -a "$GITHUB_OUTPUT"

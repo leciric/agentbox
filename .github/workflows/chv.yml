@@ -26,7 +26,6 @@ on:
     paths:
       - scripts/chv-gpu/**
       - internal/hostvm/chv/tools.go
-      - internal/hostvm/chv/gpu.go
       - .github/workflows/chv.yml
   push:
     branches: [main]
@@ -58,6 +57,7 @@ jobs:
     timeout-minutes: 90
     outputs:
       hash: ${{ steps.hash.outputs.hash }}
+      published: ${{ steps.published.outputs.published }}
     steps:
       - uses: actions/checkout@v7
 
@@ -69,18 +69,40 @@ jobs:
         id: hash
         run: echo "hash=$(scripts/chv-gpu/inputs-hash.sh)" >>"$GITHUB_OUTPUT"
 
-      - uses: docker/setup-buildx-action@v3
+      # Inputs that are published already (a pin pull request, its merge, a
+      # change to tools.go alone) don't build again: the published tarball is
+      # checked instead, and nothing is published or pinned.
+      - name: Is this build published already?
+        id: published
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          . scripts/chv-gpu/versions.env
+          tag=chv-$CHV_VERSION-${{ steps.hash.outputs.hash }}
+          if gh release view "$tag" >/dev/null 2>&1; then
+            mkdir out
+            gh release download "$tag" --pattern '*-x86_64.tar.gz' --dir out
+            echo "published=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "published=false" >>"$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.published.outputs.published != 'true'
+        uses: docker/setup-buildx-action@v3
 
       # The cache backend's token and URL, for buildx's type=gha.
-      - uses: crazy-max/ghaction-github-runtime@v3
+      - if: steps.published.outputs.published != 'true'
+        uses: crazy-max/ghaction-github-runtime@v3
 
       - name: Build (Docker, layers cached in GitHub's cache)
+        if: steps.published.outputs.published != 'true'
         env:
           CARGO_BUILD_JOBS: 4
           DOCKER_BUILD_FLAGS: --cache-from type=gha,scope=chv --cache-to type=gha,scope=chv,mode=max
         run: scripts/chv-gpu/build.sh out
 
-      - uses: actions/upload-artifact@v7
+      - if: steps.published.outputs.published != 'true'
+        uses: actions/upload-artifact@v7
         with:
           name: chv
           path: out
@@ -99,12 +121,13 @@ jobs:
   publish:
     name: Publish and pin
     needs: build
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && needs.build.outputs.published != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: write
       pull-requests: write
+      actions: write
     concurrency:
       group: chv-publish
       cancel-in-progress: false
@@ -129,9 +152,11 @@ jobs:
           url=https://github.com/$GITHUB_REPOSITORY/releases/download/$(basename "$tarball" -x86_64.tar.gz)/$(basename "$tarball")
           [ "$(curl -fsSL --retry 5 "$url.sha256" | cut -d' ' -f1)" = "$(sha256sum "$tarball" | cut -d' ' -f1)" ]
 
-      # A bot's pull request runs no workflows: like release-please's, close
-      # and reopen it to get CI on it. Until it's merged, main pins the build
-      # before, which is published, so nightlies keep building.
+      # A pull request opened with GITHUB_TOKEN runs no workflows, so CI is
+      # dispatched on its branch, for that pull request (ci.yml's `pr`): its
+      # checks land on the branch's head commit, which the PR shows. Until
+      # it's merged, main pins the build before, which is published, so
+      # nightlies keep building.
       - name: Open a pull request pinning it
         run: |
           out=$(scripts/chv-gpu/pin.sh "${{ steps.publish.outputs.tarball }}")
@@ -145,5 +170,9 @@ jobs:
           git push -f origin "$branch"
           if [ -z "$(gh pr list --head "$branch" --state open --json number -q '.[].number')" ]; then
             gh pr create --head "$branch" --base main --title "chore: pin Cloud Hypervisor build $HASH" \
-              --body "Pins the Cloud Hypervisor build the Cloud Hypervisor workflow published from $GITHUB_SHA (release \`chv-*-$HASH\`) in \`internal/hostvm/chv/tools.go\`: the tarball's SHA256 and its files'. Opened by the workflow; close and reopen it to run CI."
+              --body "Pins the Cloud Hypervisor build the Cloud Hypervisor workflow published from $GITHUB_SHA (release \`chv-*-$HASH\`) in \`internal/hostvm/chv/tools.go\`: the tarball's SHA256 and its files'. Opened by the workflow, which also dispatches CI on this branch."
           fi
+          # Also when the PR already exists: a force-push of the branch
+          # starts no run of its own either.
+          pr=$(gh pr list --head "$branch" --state open --json number -q '.[0].number')
+          gh workflow run ci.yml --ref "$branch" -f pr="$pr"
