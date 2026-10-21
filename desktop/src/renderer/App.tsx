@@ -2,7 +2,7 @@ import { useQuery, useQueryClient, type InfiniteData } from "@tanstack/react-que
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AddProjectDialog } from "./components/AddProjectDialog";
-import { AgentRail } from "./components/AgentRail";
+import { AgentRail, useRailFolded } from "./components/AgentRail";
 import { AgentView } from "./components/AgentView";
 import { closeSettingsEvent, openSettingsEvent, openSettingsSection, rememberSection } from "./components/SettingsPage";
 import { openProjectEvent } from "./components/chat/ProjectMessageCard";
@@ -39,7 +39,7 @@ import { TourHost } from "./components/v2/Tour";
 import { isNewTaskShortcut, toggleNewTask } from "./lib/newTask";
 import { HomeStatusV2, PastAgentsV2 } from "./components/v2/PagesV2";
 import { cycleRegion, isBackToLeadShortcut, isSettingsShortcut, isSheetShortcut, toggleSheet } from "./lib/shortcuts";
-import { onMac } from "./lib/utils";
+import { cn, onMac } from "./lib/utils";
 import { AgentReviewCard, ReviewV2 } from "./components/v2/ReviewV2";
 import { RightPanelHost } from "./components/v2/RightPanel";
 import { aiLabel } from "./components/state";
@@ -56,7 +56,8 @@ import { useReadyAlerts } from "./lib/useReadyAlerts";
 import { launchArrival, uiV2, useUiV2 } from "./lib/uiV2";
 import { tourFirst, tourState } from "./lib/tours";
 import { agentPanelKind } from "./lib/tabs";
-import { openAgentChat, openPanelOn } from "./lib/rightPanel";
+import { onList, openAgentChat, openPanelOn, usePanel } from "./lib/rightPanel";
+import { chatOf } from "./components/v2/PanelButton";
 import { resetChatEvents } from "./lib/chat";
 import { onNotification, useConnection } from "./lib/events";
 import { chatLabel } from "./lib/agentStatus";
@@ -99,12 +100,17 @@ export function App({ initial }: { initial?: View } = {}) {
   const [addingProject, setAddingProject] = useState(false);
   const [newAgentProject, setNewAgentProject] = useState<string | null>(null);
   const [whatsNew, setWhatsNew] = useState(false);
-  // In a narrow window (below lg, 1024px: a small screen, a portrait monitor,
-  // or a phone in the web app), the sidebar slides in over the page from the
-  // left; below xl (1280px), the agent rail from the right. Each is a drawer
-  // the top bar opens, so the page keeps the width.
+  // In a narrow window (below lg, 1024px: a small screen, or a phone in the
+  // web app), the sidebar slides in over the page from the left; below 900px,
+  // the agent rail from the right. Each is a drawer the top bar opens, so the
+  // page keeps the width. A portrait monitor (1080px) fits the chat beside the
+  // rail but not beside both, so on a project's pages the open rail stays
+  // docked and the sidebar is the one that gives way, up to xl (1280px);
+  // folding the rail brings the sidebar back.
   const [navOpen, setNavOpen] = useState(false);
   const [railOpen, setRailOpen] = useState(false);
+  const [railFolded, setRailFolded] = useRailFolded();
+  const panel = usePanel();
   useEffect(() => {
     if (!navOpen && !railOpen) return;
     const close = (e: KeyboardEvent) => {
@@ -506,9 +512,14 @@ export function App({ initial }: { initial?: View } = {}) {
               ? "home"
               : view.kind;
 
+  const hasRail = !v2 && (view.kind === "project" || view.kind === "agent");
+  // v2's panel, beside the chat unless folded to its strip of agents.
+  const panelChat = v2 && !setup ? chatOf(view)?.chat : undefined;
+  const panelBeside = !!panelChat && !(onList(panel, panelChat) && panel.listFolded);
+  const navDocksAtXl = (hasRail && !railFolded) || panelBeside;
   const shell = (
     <div className="flex h-full">
-      <div className="hidden lg:flex">
+      <div className={cn("hidden", navDocksAtXl ? "xl:flex" : "lg:flex")}>
         {v2 ? (
           <SidebarV2
             view={view}
@@ -526,7 +537,7 @@ export function App({ initial }: { initial?: View } = {}) {
         )}
       </div>
       {navOpen && (
-        <div className="fixed inset-0 z-40 flex lg:hidden" data-nav-drawer>
+        <div className={cn("fixed inset-0 z-40 flex", navDocksAtXl ? "xl:hidden" : "lg:hidden")} data-nav-drawer>
           <div
             className="absolute inset-0 animate-fade-in bg-scrim backdrop-blur-sm"
             onClick={() => setNavOpen(false)}
@@ -568,6 +579,7 @@ export function App({ initial }: { initial?: View } = {}) {
           onSelect={select}
           onOpenNav={() => setNavOpen(true)}
           onOpenRail={v2 ? undefined : () => setRailOpen(true)}
+          navDocksAtXl={navDocksAtXl}
           onOpenNotice={openNotice}
           onSearch={() => openSearch()}
         />
@@ -676,17 +688,19 @@ export function App({ initial }: { initial?: View } = {}) {
           {/* v2's right-hand panel: files, desktop, terminal, browser,
               pages and media, beside the chat or over it. */}
           {v2 && !setup && <RightPanelHost view={view} onSelect={select} onNewAgent={setNewAgentProject} />}
-          {!v2 && (view.kind === "project" || view.kind === "agent") && (
-            <div className="hidden xl:flex">
+          {hasRail && (
+            <div className="hidden min-[900px]:flex">
               <AgentRail
                 view={view}
                 onSelect={select}
                 onNewAgent={setNewAgentProject}
+                folded={railFolded}
+                onFold={setRailFolded}
               />
             </div>
           )}
-          {!v2 && railOpen && (view.kind === "project" || view.kind === "agent") && (
-            <div className="fixed inset-0 z-40 flex justify-end xl:hidden" data-rail-drawer>
+          {hasRail && railOpen && (
+            <div className="fixed inset-0 z-40 flex justify-end min-[900px]:hidden" data-rail-drawer>
               <div
                 className="absolute inset-0 animate-fade-in bg-scrim backdrop-blur-sm"
                 onClick={() => setRailOpen(false)}

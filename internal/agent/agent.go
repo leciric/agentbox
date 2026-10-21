@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -265,6 +266,14 @@ type Manager struct {
 	// PackageCacheDir, when set, returns the directory of the package caches
 	// agents share, or "" while they're off (pkgcache.go).
 	PackageCacheDir func(ctx context.Context) string
+	// ShareRoom, when set, waits for the shared home to have room for a
+	// worktree to be made or removed: on a Linux host, virtiofsd holds a file
+	// for every inode the VM has looked at, and walking a worktree's
+	// node_modules looks at a great many (internal/daemon/share.go).
+	ShareRoom func(ctx context.Context, what string)
+	// ShareBusy, when set, says whether the shared home is that short of
+	// files now: what only measures worktrees skips them then.
+	ShareBusy func() bool
 	// Cores is how many cores the agents share (cpushare.go); 0 for the
 	// machine the daemon runs on, which is the VM.
 	Cores int
@@ -674,6 +683,7 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		}
 	}
 
+	m.shareRoom(ctx, "creating "+a.Ref()+"'s worktree")
 	m.logf("Creating worktree %s on branch %s (from %s)", a.Worktree, a.Branch, a.BaseRef)
 	if err := pl.repo.AddWorktree(a.Worktree, a.Branch, a.BaseCommit, "agentbox: "+a.Ref()); err != nil {
 		return fail("worktree", err)
@@ -1946,6 +1956,16 @@ type DestroyOptions struct {
 	Archived func()
 }
 
+// worktreeExists reports whether path may still hold a worktree: anything but
+// a path that is certainly not there.
+func worktreeExists(path string) bool {
+	if path == "" {
+		return false
+	}
+	_, err := os.Stat(path)
+	return !errors.Is(err, fs.ErrNotExist)
+}
+
 // BranchDisposable reports whether an agent's local branch holds nothing
 // that isn't somewhere else: it is merged into the branch the agent was made
 // from or the project's current one, here or on a remote, or a remote has the
@@ -1972,7 +1992,13 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 		return err
 	}
 	if !opts.Force {
-		if dirty, err := gitrepo.Dirty(a.Worktree); err == nil && dirty {
+		// A status git couldn't read is no proof of a clean worktree: the
+		// machine out of files (ENFILE) once read that way about agents with
+		// thousands of lines of work. Only a worktree that isn't there is.
+		switch dirty, err := gitrepo.Dirty(a.Worktree); {
+		case err != nil && worktreeExists(a.Worktree):
+			return fmt.Errorf("%s: can't tell whether it has uncommitted changes (%v): try again, or use --force to discard any", a.Ref(), err)
+		case err == nil && dirty:
 			return fmt.Errorf("%s has uncommitted changes: commit them in the agent, or use --force to discard them", a.Ref())
 		}
 	}
@@ -2025,9 +2051,20 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 	return nil
 }
 
+// shareRoom is ShareRoom, when set.
+func (m *Manager) shareRoom(ctx context.Context, what string) {
+	if m.ShareRoom != nil {
+		m.ShareRoom(ctx, what)
+	}
+}
+
+// shareBusy is ShareBusy, when set.
+func (m *Manager) shareBusy() bool { return m.ShareBusy != nil && m.ShareBusy() }
+
 // removeLeftovers is what Destroy clears once the agent is archived: its
 // worktree, its branch when nothing would be lost, and its media when asked.
 func (m *Manager) removeLeftovers(ctx context.Context, repo gitrepo.Repo, a state.Agent, opts DestroyOptions) {
+	m.shareRoom(ctx, "removing "+a.Ref()+"'s worktree")
 	m.logf("Removing worktree %s", a.Worktree)
 	if err := repo.RemoveWorktree(a.Worktree); err != nil {
 		m.logf("Removing worktree %s: %v", a.Worktree, err)

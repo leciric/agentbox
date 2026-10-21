@@ -8,6 +8,8 @@ import { useChatOpenAt } from '../lib/reveal';
 import { ChatMenu, ChatStatus, ChatTab } from './chat/ChatTab';
 import { GlobalMemoryPanel } from './GlobalMemoryPanel';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { cn } from '../lib/utils';
+import { useUiV2 } from '../lib/uiV2';
 
 // homeAgentFrom builds the Agent ChatTab expects out of the Home chat: a lead
 // like a project's, kept under T.HomeProject, standing in ~/.agentbox rather
@@ -48,6 +50,7 @@ export type HomeTabs = { status: ReactNode; onStatus: boolean; onTab: (status: b
 
 export function HomeChatPanel({ home }: { home?: HomeTabs }) {
   const t = useT();
+  const v2 = useUiV2();
   const chat = useQuery({ queryKey: ['projectChat', T.HomeProject], queryFn: () => api.projectChat(T.HomeProject) });
   const info = chat.data;
   const openAt = useChatOpenAt(T.HomeProject);
@@ -95,7 +98,7 @@ export function HomeChatPanel({ home }: { home?: HomeTabs }) {
         </div>
       </div>
       <TabsContent value="chat" className="flex flex-col">
-        <div className="mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line md:mx-6 md:mb-6">
+        <div className={cn('flex min-h-0 flex-1 flex-col overflow-hidden', !v2 && 'mx-2 mb-2 rounded-2xl border border-line md:mx-6 md:mb-6')}>
           {info ? (
             <ChatTab agent={homeAgentFrom(info)} starting={false} onStart={() => {}} openAt={openAt} />
           ) : (

@@ -313,3 +313,236 @@ func provisionScripts(def string) []string {
 	}
 	return scripts
 }
+
+// fakeBrew is Homebrew's brew, as far as InstallKrunkit uses it: it notes
+// what it's asked, installs krunkit beside itself, and gives Lima the krunkit
+// driver when it upgrades it.
+const fakeBrew = `#!/bin/sh
+printf '%s\n' "$*" >>"$FAKE_DIR/brew-calls"
+[ ! -e "$FAKE_DIR/brew-fails" ] || exit 1
+case "$*" in
+  "trust slp/krun") [ ! -e "$FAKE_DIR/no-trust" ] || { echo 'Error: Unknown command: brew trust' >&2; exit 1; } ;;
+  "install krunkit") printf '#!/bin/sh\necho krunkit 1.3.2\n' >"$(dirname "$0")/krunkit"; chmod +x "$(dirname "$0")/krunkit" ;;
+  "upgrade lima") cat "$FAKE_DIR/info-upgraded" >"$FAKE_DIR/info" ;;
+esac
+`
+
+// withBrew makes a Homebrew prefix in dir with brew in its bin, where
+// findBrew and findKrunkit look, and, with limaBrew, the VM's limactl one of
+// its formulae.
+func withBrew(t *testing.T, vm *VM, dir string, limaBrew bool) {
+	t.Helper()
+	prefix := filepath.Join(dir, "homebrew")
+	bin := filepath.Join(prefix, "bin")
+	_ = os.MkdirAll(bin, 0o755)
+	if err := os.WriteFile(filepath.Join(bin, "brew"), []byte(fakeBrew), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	krunkitDirs = []string{bin}
+	if limaBrew {
+		cellar := filepath.Join(prefix, "Cellar", "lima", "1.2.0", "bin")
+		_ = os.MkdirAll(cellar, 0o755)
+		if err := os.Rename(vm.Limactl, filepath.Join(cellar, "limactl")); err != nil {
+			t.Fatal(err)
+		}
+		vm.Limactl = filepath.Join(bin, "limactl")
+		if err := os.Symlink("../Cellar/lima/1.2.0/bin/limactl", vm.Limactl); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = os.WriteFile(filepath.Join(dir, "info-upgraded"), []byte(macInfo(true)), 0o644)
+}
+
+func brewCalls(dir string) string {
+	b, _ := os.ReadFile(filepath.Join(dir, "brew-calls"))
+	return string(b)
+}
+
+func TestKrunkitCheckBrew(t *testing.T) {
+	for _, tc := range []struct {
+		name                  string
+		driver, krunkit, brew bool
+		limaBrew              bool
+		want                  KrunkitCheck
+	}{
+		{"krunkit, with Homebrew", true, false, true, false, KrunkitCheck{Missing: "krunkit", Brew: true}},
+		{"krunkit, without Homebrew", true, false, false, false, KrunkitCheck{Missing: "krunkit"}},
+		{"driver, Homebrew's Lima", false, true, true, true, KrunkitCheck{Missing: "driver", Brew: true}},
+		{"driver, another Lima", false, true, true, false, KrunkitCheck{Missing: "driver"}},
+		{"both, Homebrew's Lima", false, false, true, true, KrunkitCheck{Missing: "krunkit", Brew: true}},
+		{"both, another Lima", false, false, true, false, KrunkitCheck{Missing: "krunkit"}},
+		{"installed", true, true, true, true, KrunkitCheck{Available: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			vm, dir := newFake(t)
+			_ = os.WriteFile(filepath.Join(dir, "info"), []byte(macInfo(tc.driver)), 0o644)
+			withKrunkit(t, dir, tc.krunkit)
+			if tc.brew {
+				withBrew(t, vm, dir, tc.limaBrew)
+				krunkitDirs = append(krunkitDirs, filepath.Join(dir, "brew-bin"))
+			}
+			if got := vm.krunkitCheck(context.Background()); got == nil || *got != tc.want {
+				t.Errorf("got %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestInstallKrunkit(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		driver    bool
+		limaBrew  bool
+		noTrust   bool
+		wantCalls string
+	}{
+		{"krunkit", true, false, false, "tap slp/krun\ntrust slp/krun\ninstall krunkit\n"},
+		{"a Homebrew without brew trust", true, false, true, "tap slp/krun\ntrust slp/krun\ninstall krunkit\n"},
+		{"krunkit and the driver", false, true, false, "tap slp/krun\ntrust slp/krun\ninstall krunkit\nupgrade lima\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			vm, dir := newFake(t)
+			_ = os.WriteFile(filepath.Join(dir, "info"), []byte(macInfo(tc.driver)), 0o644)
+			withKrunkit(t, dir, false)
+			withBrew(t, vm, dir, tc.limaBrew)
+			if tc.noTrust {
+				_ = os.WriteFile(filepath.Join(dir, "no-trust"), nil, 0o644)
+			}
+			if err := vm.InstallKrunkit(context.Background()); err != nil {
+				t.Fatalf("%v\n%s", err, vm.Log)
+			}
+			if got := brewCalls(dir); got != tc.wantCalls {
+				t.Errorf("brew ran:\n%s\nwant:\n%s", got, tc.wantCalls)
+			}
+			if c := vm.krunkitCheck(context.Background()); c == nil || !c.Available {
+				t.Errorf("not available afterwards: %+v", c)
+			}
+			log := vm.Log.(*bytes.Buffer).String()
+			if !strings.Contains(log, "$ brew install krunkit") || !strings.Contains(log, "a VM made now is made with it") {
+				t.Errorf("the log doesn't show the install: %q", log)
+			}
+		})
+	}
+}
+
+// Only the driver missing, from Homebrew's Lima: brew upgrades Lima alone.
+func TestInstallKrunkitDriver(t *testing.T) {
+	vm, dir := newFake(t)
+	_ = os.WriteFile(filepath.Join(dir, "info"), []byte(macInfo(false)), 0o644)
+	withKrunkit(t, dir, true)
+	withBrew(t, vm, dir, true)
+	krunkitDirs = append(krunkitDirs, filepath.Join(dir, "brew-bin"))
+	if err := vm.InstallKrunkit(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := brewCalls(dir); got != "upgrade lima\n" {
+		t.Errorf("brew ran %q", got)
+	}
+}
+
+func TestInstallKrunkitCant(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		info     string
+		brew     bool
+		limaBrew bool
+		failing  bool
+		want     string
+	}{
+		{"no Homebrew", macInfo(true), false, false, false, "there's no Homebrew"},
+		{"no driver, Lima not Homebrew's", macInfo(false), true, false, false, "isn't Homebrew's"},
+		{"brew fails", macInfo(true), true, false, true, "brew tap slp/krun"},
+		{"intel", `{"hostOS":"darwin","hostArch":"x86_64","vmTypesEx":{"vz":{}}}`, true, false, false, "Apple Silicon"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			vm, dir := newFake(t)
+			_ = os.WriteFile(filepath.Join(dir, "info"), []byte(tc.info), 0o644)
+			withKrunkit(t, dir, false)
+			if tc.brew {
+				withBrew(t, vm, dir, tc.limaBrew)
+			}
+			if tc.failing {
+				_ = os.WriteFile(filepath.Join(dir, "brew-fails"), nil, 0o644)
+			}
+			err := vm.InstallKrunkit(context.Background())
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("got %v, want an error saying %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// A vz VM is installed for, deleted and made again with krunkit at its size.
+func TestRemakeWithKrunkit(t *testing.T) {
+	vm, dir := newFake(t)
+	_ = os.WriteFile(filepath.Join(dir, "info"), []byte(macInfo(true)), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "track-list"), nil, 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "list"), []byte(`{"name":"agentbox","status":"Running","vmType":"vz","cpus":6,"memory":12884901888,"disk":214748364800}`+"\n"), 0o644)
+	withKrunkit(t, dir, false)
+	withBrew(t, vm, dir, false)
+	if err := remakeWithKrunkit(context.Background(), func() (*VM, error) { return vm, nil }); err != nil {
+		t.Fatalf("%v\n%s", err, vm.Log)
+	}
+	got := calls(t, dir)
+	del := slices.Index(got, "delete --force agentbox")
+	create := slices.IndexFunc(got, func(c string) bool { return strings.HasPrefix(c, "create ") })
+	if del < 0 || create < del {
+		t.Errorf("not deleted, then made: %q", got)
+	}
+	if !strings.Contains(brewCalls(dir), "install krunkit") {
+		t.Error("krunkit wasn't installed")
+	}
+	def := created(t, dir)
+	for _, want := range []string{"\nvmType: krunkit\n", "cpus: 6\n", "memory: 12GiB\n", "disk: 200GiB\n"} {
+		if !strings.Contains(def, want) {
+			t.Errorf("made without %q:\n%s", want, def)
+		}
+	}
+	if !slices.ContainsFunc(got, func(c string) bool { return strings.Contains(c, "agentbox daemon start") }) {
+		t.Errorf("AgentBox wasn't set up in the new VM: %q", got)
+	}
+}
+
+// Nothing is deleted when krunkit can't be installed, nor when the VM is
+// krunkit's already.
+func TestRemakeWithKrunkitKeeps(t *testing.T) {
+	for _, tc := range []struct {
+		name, vmType string
+		brew         bool
+	}{
+		{"no Homebrew", "vz", false},
+		{"krunkit's already", "krunkit", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			vm, dir := newFake(t)
+			_ = os.WriteFile(filepath.Join(dir, "info"), []byte(macInfo(true)), 0o644)
+			_ = os.WriteFile(filepath.Join(dir, "list"), []byte(`{"name":"agentbox","status":"Running","vmType":"`+tc.vmType+`"}`+"\n"), 0o644)
+			withKrunkit(t, dir, tc.vmType == "krunkit")
+			if tc.brew {
+				withBrew(t, vm, dir, false)
+			}
+			err := remakeWithKrunkit(context.Background(), func() (*VM, error) { return vm, nil })
+			if (err == nil) != (tc.vmType == "krunkit") {
+				t.Errorf("got %v", err)
+			}
+			if slices.ContainsFunc(calls(t, dir), func(c string) bool { return strings.HasPrefix(c, "delete") || strings.HasPrefix(c, "create") }) {
+				t.Errorf("the VM was touched: %q", calls(t, dir))
+			}
+		})
+	}
+}
+
+// Lima falling back to vz after the VM was deleted is an error: the point
+// was a GPU.
+func TestRemakeWithKrunkitFallsBack(t *testing.T) {
+	vm, dir := newFake(t)
+	_ = os.WriteFile(filepath.Join(dir, "info"), []byte(macInfo(true)), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "track-list"), nil, 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "refuse-krunkit"), nil, 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "list"), []byte(`{"name":"agentbox","status":"Running","vmType":"vz"}`+"\n"), 0o644)
+	withKrunkit(t, dir, true)
+	err := remakeWithKrunkit(context.Background(), func() (*VM, error) { return vm, nil })
+	if err == nil || !strings.Contains(err.Error(), "after all") {
+		t.Errorf("got %v", err)
+	}
+}

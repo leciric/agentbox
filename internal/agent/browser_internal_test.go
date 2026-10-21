@@ -86,9 +86,9 @@ func TestBrowserScriptMarksACrashedProfileClean(t *testing.T) {
 // keeps its own choice.
 func TestBrowserScriptGivesChromiumTheVenusGPU(t *testing.T) {
 	t.Parallel()
-	fn := regexp.MustCompile(`(?s)\ngpu_flags\(\) \{.*?\n\}\n`).FindString(string(BrowserScript()))
+	fn := regexp.MustCompile(`(?s)\nvenus_flags\(\) \{.*?\n\}\n`).FindString(string(BrowserScript()))
 	if fn == "" {
-		t.Fatal("browser.sh has no gpu_flags")
+		t.Fatal("browser.sh has no venus_flags")
 	}
 	dir := t.TempDir()
 	patched := filepath.Join(dir, "patched", "libvulkan_virtio.so")
@@ -114,14 +114,14 @@ func TestBrowserScriptGivesChromiumTheVenusGPU(t *testing.T) {
 		if err := os.WriteFile(mountinfo, []byte(tc.mounts), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		cmd := exec.Command("sh", "-c", fn+"gpu_flags")
+		cmd := exec.Command("sh", "-c", fn+"venus_flags")
 		cmd.Env = append(os.Environ(), "mountinfo="+mountinfo)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("%s: %v: %s", tc.name, err, out)
 		}
 		if got := strings.TrimSpace(string(out)); got != tc.want {
-			t.Errorf("%s: gpu_flags = %q, want %q", tc.name, got, tc.want)
+			t.Errorf("%s: venus_flags = %q, want %q", tc.name, got, tc.want)
 		}
 	}
 }

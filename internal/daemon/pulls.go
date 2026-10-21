@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"reflect"
 	"slices"
@@ -31,7 +32,9 @@ var errNoGitHubToken = errors.New("no GitHub token for this project")
 // account has something to read and no way to, which githubErrorFor tells
 // apart. github.ErrNoRepo itself comes in the two shapes remoteProblemOf
 // tells apart. The repository is returned alongside errNoGitHubToken, so the
-// error can name what wasn't read.
+// error can name what wasn't read. Any other error is a read that failed —
+// git, or the credentials' files — which says nothing either way
+// (pullsAbsent).
 func (s *Server) githubFor(p state.Project) (github.Client, github.Repo, error) {
 	repo, err := github.RepoOf(p.Root)
 	if err != nil {
@@ -40,13 +43,26 @@ func (s *Server) githubFor(p state.Project) (github.Client, github.Repo, error) 
 	m := s.manager(nil)
 	account, err := m.GitHubAccountFor(p, "")
 	if err != nil {
+		if errors.As(err, new(*fs.PathError)) {
+			return github.Client{}, repo, fmt.Errorf("reading the GitHub accounts: %w", err)
+		}
 		return github.Client{}, repo, errNoGitHubToken
 	}
 	token, err := m.Creds.GitHubToken(account)
+	if err != nil && errors.As(err, new(*fs.PathError)) {
+		return github.Client{}, repo, fmt.Errorf("reading the GitHub token: %w", err)
+	}
 	if err != nil || token == "" {
 		return github.Client{}, repo, errNoGitHubToken
 	}
 	return s.gitHub(token), repo, nil
+}
+
+// pullsAbsent reports whether err, from githubFor, says a project has no pull
+// requests to read — no GitHub remote, or no account to read it with — as
+// opposed to a read failing, after which they are unknown.
+func pullsAbsent(err error) bool {
+	return errors.Is(err, errNoGitHubToken) || errors.Is(err, github.ErrNoRepo)
 }
 
 // gitHub is a GitHub client with token, on the API root the daemon was given.
@@ -100,6 +116,20 @@ type agentHead struct {
 	branch string
 	tip    string   // where the branch is; "" when it has none, or hasn't moved from where the agent started
 	own    []string // the agent's own commits, newest first: on the branch, not on where it started or its base branch
+	// failed is git failing to read the branch (ENFILE, say): tip and own
+	// are then unknown, not empty, and nothing is to be decided from them.
+	failed bool
+}
+
+// unreadHeads is the agents any of whose heads git couldn't read.
+func unreadHeads(heads []agentHead) map[string]bool {
+	out := map[string]bool{}
+	for _, h := range heads {
+		if h.failed {
+			out[h.agent] = true
+		}
+	}
+	return out
 }
 
 func (h agentHead) owns(sha string) bool {
@@ -120,14 +150,18 @@ func agentHeads(root string, agents []state.Agent) []agentHead {
 	type job struct {
 		a      state.Agent
 		branch string
+		failed bool
 	}
 	var jobs []job
 	for _, a := range agents {
 		if a.IsLead() || a.Branch == "" {
 			continue
 		}
-		for _, branch := range agentBranches(a, agents) {
-			jobs = append(jobs, job{a, branch})
+		// Its other branches unread, its first is all there is to go by,
+		// and that is known to be partial.
+		branches, err := agentBranches(a, agents)
+		for _, branch := range branches {
+			jobs = append(jobs, job{a, branch, err != nil})
 		}
 	}
 	out := make([]agentHead, len(jobs))
@@ -136,6 +170,7 @@ func agentHeads(root string, agents []state.Agent) []agentHead {
 	for i, j := range jobs {
 		g.Go(func() error {
 			out[i] = agentHeadOf(root, j.a, j.branch)
+			out[i].failed = out[i].failed || j.failed
 			return nil
 		})
 	}
@@ -145,19 +180,21 @@ func agentHeads(root string, agents []state.Agent) []agentHead {
 
 // agentBranches is every branch of a's: the one it was made with, then the
 // ones it made in its worktree since, newest first. A branch that is its base
-// or another of agents' own isn't one of its, whoever checked it out.
-func agentBranches(a state.Agent, agents []state.Agent) []string {
+// or another of agents' own isn't one of its, whoever checked it out. With
+// an error the others couldn't be read, and the first is still there.
+func agentBranches(a state.Agent, agents []state.Agent) ([]string, error) {
 	out := []string{a.Branch}
 	if a.Worktree == "" {
-		return out
+		return out, nil
 	}
-	for _, branch := range gitrepo.CheckedOutSince(a.Worktree, a.CreatedAt) {
+	others, err := gitrepo.CheckedOutSince(a.Worktree, a.CreatedAt)
+	for _, branch := range others {
 		if branch == a.Branch || branch == a.BaseRef || slices.ContainsFunc(agents, func(o state.Agent) bool { return o.Branch == branch }) {
 			continue
 		}
 		out = append(out, branch)
 	}
-	return out
+	return out, err
 }
 
 // agentHeadOf reads one of a's branches.
@@ -181,6 +218,7 @@ func agentHeadOf(root string, a state.Agent, branch string) agentHead {
 	}
 	tip, own, err := gitrepo.BranchCommits(root, branch, agentCommitsLimit, not...)
 	if err != nil {
+		h.failed = true
 		return h
 	}
 	h.tip, h.own = tip, own
@@ -441,8 +479,9 @@ func (e pullsEntry) knows(heads []agentHead, now time.Time, lookupTTL time.Durat
 // answered reports whether the entry can say if h has a pull request: GitHub
 // answered, and either h's work is on the list page or a lookup asked about
 // its tip. With the list refused, what is served is all there is to go by.
+// A head git couldn't read has no tip to ask about, and no answer.
 func (e pullsEntry) answered(h agentHead) bool {
-	if e.at.IsZero() {
+	if e.at.IsZero() || h.failed {
 		return false
 	}
 	if h.tip == "" || e.listErr.failed() || e.listed(h) != nil {

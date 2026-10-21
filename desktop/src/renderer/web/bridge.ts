@@ -196,6 +196,8 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
     power: () => Promise.resolve(null),
     act: unavailable('web.bridge.vmPower'),
     disk: () => Promise.resolve(null),
+    remakeWithKrunkit: unavailable('web.bridge.vmKrunkit'),
+    onKrunkitOutput: () => () => {},
   },
   hubs: {
     list: async () => {

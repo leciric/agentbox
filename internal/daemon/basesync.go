@@ -28,7 +28,10 @@ func (s *Server) syncBases(ctx context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
-			if !p.BaseSyncOff {
+			// A fetch writes into the repository on the shared home, and may
+			// move a checked-out base: not while the share is short of files
+			// (share.go). The next round does it.
+			if !p.BaseSyncOff && !s.shareBusy() {
 				s.syncBase(ctx, p)
 			}
 		}

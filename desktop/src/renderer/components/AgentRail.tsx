@@ -38,12 +38,13 @@ import { Tip } from './ui/tooltip';
 //
 // In a narrow window the rail is a drawer over the page (App), given onClose:
 // it is always open there, and its fold button closes the drawer instead.
-export function AgentRail({ view, onSelect, onNewAgent, onClose }: { view: View; onSelect: (view: View) => void; onNewAgent: (project: string) => void; onClose?: () => void }) {
+// App keeps whether the docked rail is folded (useRailFolded), since the
+// sidebar docks beside it only when there's room for both.
+export function AgentRail({ view, onSelect, onNewAgent, onClose, folded: foldedHere = false, onFold = () => {} }: { view: View; onSelect: (view: View) => void; onNewAgent: (project: string) => void; onClose?: () => void; folded?: boolean; onFold?: (folded: boolean) => void }) {
   const t = useT();
   const project = view.kind === 'agent' ? view.ref.split('/')[0] : view.kind === 'project' ? view.project : null;
   const projectName = useProjectName(project ?? '');
   const rail = useRailAgents(project);
-  const [foldedHere, setFolded] = useFolded();
   const folded = foldedHere && !onClose;
   // The Pages tab, beside Agents while Hatch is connected and the project has
   // a page Hatch still has; an agent's page icon opens it on that agent.
@@ -103,7 +104,7 @@ export function AgentRail({ view, onSelect, onNewAgent, onClose }: { view: View;
     return (
       <aside className="flex w-[56px] shrink-0 flex-col items-center gap-1 border-l border-line bg-rail py-2 backdrop-blur-xl" data-agent-rail="folded" aria-label={t('agent.rail.agentsOf', { project })}>
         <Tip label={t('agent.rail.show')}>
-          <button aria-label={t('agent.rail.show')} className="rounded-lg p-2 text-subtle transition hover:bg-surface-strong hover:text-primary" onClick={() => setFolded(false)}>
+          <button aria-label={t('agent.rail.show')} className="rounded-lg p-2 text-subtle transition hover:bg-surface-strong hover:text-primary" onClick={() => onFold(false)}>
             <PanelRight className="size-4" />
           </button>
         </Tip>
@@ -176,7 +177,7 @@ export function AgentRail({ view, onSelect, onNewAgent, onClose }: { view: View;
             aria-label={t('agent.rail.hide')}
             data-rail-fold
             className="rounded-md p-1.5 text-subtle transition hover:bg-surface-strong hover:text-primary"
-            onClick={() => (onClose ? onClose() : setFolded(true))}
+            onClick={() => (onClose ? onClose() : onFold(true))}
           >
             <PanelRight className="size-3.5" />
           </button>
@@ -424,7 +425,7 @@ function AgentRow({
 // choice about this window, and the rail is the same rail on every view.
 const foldedKey = 'agentbox.rail.folded';
 
-function useFolded(): [boolean, (folded: boolean) => void] {
+export function useRailFolded(): [boolean, (folded: boolean) => void] {
   const [folded, set] = useState(() => localStorage.getItem(foldedKey) === '1');
   return [
     folded,

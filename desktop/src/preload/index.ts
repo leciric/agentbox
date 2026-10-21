@@ -22,6 +22,9 @@ export interface HostSetupStatus {
   user: string;
   running: boolean;
   resizing: boolean; // `agentbox vm resize` is running
+  // On a Mac, `agentbox vm krunkit --remake` is running: the VM is gone for
+  // a while, which isn't a VM to set up.
+  remaking?: boolean;
   // On a Mac, AgentBox runs in a Linux VM, and "host setup" is `agentbox vm
   // init`: what `agentbox vm status --json` says about that VM. null elsewhere.
   vm: VMStatus | null;
@@ -78,8 +81,10 @@ export interface VMStatus {
   limits?: VMLimits; // what `agentbox vm resize` takes on this Mac
   vmType?: string; // vz, krunkit
   // Whether `agentbox vm init` would make the VM with krunkit, which gives
-  // memory back to the Mac: only before there's a VM, on Apple Silicon.
-  krunkit?: { available: boolean; missing?: 'krunkit' | 'driver' };
+  // memory back to the Mac and has a GPU for agents: on Apple Silicon, before
+  // there's a VM and for one made without krunkit. brew: Homebrew can install
+  // what's missing.
+  krunkit?: { available: boolean; missing?: 'krunkit' | 'driver'; brew?: boolean };
   swap?: T.VMSwap; // what `agentbox vm swap` set (size only)
 }
 
@@ -195,8 +200,9 @@ const bridge = {
     // { vm: true } runs AgentBox in a VM instead, on a Linux machine (`agentbox
     // vm init`, no password), stopping the daemon it ran itself first; cpus
     // and memoryCap (like 12GiB) size it. On a Mac, { driver: 'vz' } makes the
-    // experimental vz driver's VM instead of Lima's.
-    run: (options?: { vm?: boolean; cpus?: number; memoryCap?: string; driver?: 'vz' }): Promise<{ restarted: boolean }> =>
+    // experimental vz driver's VM instead of Lima's, and { krunkit: true }
+    // installs krunkit with Homebrew first, so the VM is made with it.
+    run: (options?: { vm?: boolean; cpus?: number; memoryCap?: string; driver?: 'vz'; krunkit?: boolean }): Promise<{ restarted: boolean }> =>
       ipcRenderer.invoke('hostsetup:run', options),
     onOutput: (fn: (text: string) => void) => listen('hostsetup:output', fn),
   },
@@ -234,6 +240,12 @@ const bridge = {
     // outside the VM's disk images; null when AgentBox isn't in VM mode. It
     // walks both, so it's asked for on demand rather than polled.
     disk: (): Promise<T.VMHomeDisk | null> => ipcRenderer.invoke('vm:disk'),
+    // On a Mac whose VM wasn't made with krunkit, `agentbox vm krunkit
+    // --remake --yes`: krunkit installed with Homebrew, then the VM deleted,
+    // agents' machines and all, and made again with it. Its output arrives on
+    // onKrunkitOutput.
+    remakeWithKrunkit: (): Promise<void> => ipcRenderer.invoke('vm:krunkit'),
+    onKrunkitOutput: (fn: (text: string) => void) => listen('vm:krunkit-output', fn),
   },
   // Hubs you signed in to, and their environments.
   hubs: {

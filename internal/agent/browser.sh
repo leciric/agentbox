@@ -87,13 +87,13 @@ cursor_size=48
 export XCURSOR_THEME="$cursor_theme" XCURSOR_SIZE="$cursor_size"
 
 devtools() { curl -sf --max-time 1 "http://127.0.0.1:9222/json/version" >/dev/null; }
-# gpu_flags are Chromium's when the agent has the Mac's GPU, through the VM's
+# venus_flags are Chromium's when the agent has the Mac's GPU, through the VM's
 # Venus driver mounted over Mesa's (vgpudriver.go): WebGL runs on ANGLE's
 # Vulkan backend, which Chromium neither picks nor allows there by itself.
 # Only a driver with venus/0004 can run it, so it's looked for in the driver:
 # one built before, or mounted before the VM rebuilt it, keeps the default.
-gpu_flags() {
-  driver=$(awk '$5 ~ /\/libvulkan_virtio\.so$/ { print $5; exit }' "${mountinfo:-/proc/self/mountinfo}")
+venus_flags() {
+  driver=$(awk '$5 ~ /\/libvulkan_virtio\.so$/ { print $5; exit }' "${mountinfo:-/proc/self/mountinfo}" 2>/dev/null) || true
   if [ -n "$driver" ] && grep -qa 'software wsi: the renderer has no dma-buf' "$driver"; then
     echo "--use-angle=vulkan --ignore-gpu-blocklist"
   fi
@@ -113,6 +113,23 @@ render_node() {
     fi
   done
 }
+# On WSL's GPU (/dev/dxg and no render node) the desktop stays on the CPU:
+# Xvnc's GLX, the dock, the terminal and Chromium. There Mesa's d3d12 driver
+# renders under drisw and reads every frame back to copy it into Xvnc, and
+# with a Chromium in every agent's desktop that kept Windows' GPU busy enough
+# to reset its driver (TDR: displays blank, HDMI audio crackles). So the
+# desktop loses WSL's libraries (which d3d12's GL and VA-API drivers load),
+# Mesa uses llvmpipe, and Chromium uses ANGLE on SwiftShader (WebGL still
+# works) with no Vulkan. Programs an agent runs from its own shells still get
+# the GPU (gpu.go's profile). On a Mac's GPU chromium_gpu_flags are
+# venus_flags; elsewhere it's empty.
+chromium_gpu_flags=""
+if [ -c /dev/dxg ] && [ -z "$(render_node)" ]; then
+  LD_LIBRARY_PATH=$(printf '%s' "${LD_LIBRARY_PATH:-}" | tr ':' '\n' | grep -vx '/usr/lib/wsl/lib' | paste -sd: -) || true
+  [ -n "$LD_LIBRARY_PATH" ] && export LD_LIBRARY_PATH || unset LD_LIBRARY_PATH
+  export GALLIUM_DRIVER=llvmpipe
+  chromium_gpu_flags="--use-gl=angle --use-angle=swiftshader --disable-features=Vulkan"
+fi
 wait_for() {
   i=0
   until "$@"; do
@@ -591,8 +608,9 @@ start)
     # Same for the lock of a browser that was running.
     rm -f "$profile"/Singleton*
     mark_clean_exit
-    # shellcheck disable=SC2046 # flags, or nothing
-    setsid chromium --no-first-run --hide-crash-restore-bubble --disable-session-crashed-bubble --no-default-browser-check --disable-dev-shm-usage --password-store=basic $(gpu_flags) \
+    [ -n "$chromium_gpu_flags" ] || chromium_gpu_flags=$(venus_flags)
+    # shellcheck disable=SC2086 # flags, or nothing
+    setsid chromium --no-first-run --hide-crash-restore-bubble --disable-session-crashed-bubble --no-default-browser-check --disable-dev-shm-usage --password-store=basic $chromium_gpu_flags \
       --user-data-dir="$profile" --remote-debugging-port=9222 --start-maximized about:blank >"$state/chromium.log" 2>&1 </dev/null &
     wait_for devtools || { echo "the browser didn't start: see $state/chromium.log" >&2; tail -n 5 "$state/chromium.log" >&2; exit 1; }
   fi

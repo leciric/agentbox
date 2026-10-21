@@ -51,6 +51,8 @@ import { updateHint } from "../lib/appUpdate";
 import { useAppUpdate } from "../lib/useAppUpdate";
 import { useConnection } from "../lib/events";
 import { RestartVM } from "./RestartVM";
+import { KrunkitRemake } from "./KrunkitRemake";
+import { offersRemake } from "../lib/krunkit";
 import type { SettingSection } from "../lib/settingsSearch";
 import { cn, errorMessage, timeAgo } from "../lib/utils";
 import { ImageDownloads } from "./ImageDownloads";
@@ -1915,7 +1917,9 @@ function UpdateChannel() {
 // to ready (vmGPU.setup), which turning it on starts: it says how far that
 // has got, asking again every few seconds while it runs. On Linux the VM gets
 // the host's GPU only as it starts ("host"): the switch works, and the note
-// says the VM gets it at its next start.
+// says the VM gets it at its next start. A Mac's VM made with Apple's
+// Virtualization framework has none, and is offered a remake with krunkit
+// (KrunkitRemake), installed by Homebrew first when it's missing.
 export function AgentGPU() {
   const t = useT();
   const settings = useQuery({
@@ -1932,6 +1936,11 @@ export function AgentGPU() {
     if (connected) void refetchSettings();
   }, [connected, refetchSettings]);
   const queryClient = useQueryClient();
+  const hostSetup = useQuery({
+    queryKey: ["host-setup"],
+    queryFn: () => window.agentbox.hostSetup.status(),
+  });
+  const vm = hostSetup.data?.vm;
   const save = useMutation({
     mutationFn: (agentGPU: boolean) => api.updateSettings({ agentGPU }),
     onSuccess: (next) => queryClient.setQueryData(["settings"], next),
@@ -1963,6 +1972,7 @@ export function AgentGPU() {
         </SettingNote>
       )}
       {needsRestart && <RestartVM />}
+      {vm && offersRemake(vm) && <KrunkitRemake vm={vm} />}
     </SettingRow>
   );
 }

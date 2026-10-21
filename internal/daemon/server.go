@@ -186,6 +186,7 @@ type Server struct {
 	freeWhenIdle map[string]bool         // reviewed agents still at work, whose machine goes when the turn ends (reviewfree.go)
 	machineKept  map[string]bool         // reviewed agents whose machine was kept for unpushed work (reviewfree.go)
 	reviewHeld   map[string]bool         // projects whose review list waits for the startup look at GitHub (prreconcile.go)
+	reviewKnown  map[string]knownReview  // each finished agent's review item as last read in full, by ref (review.go)
 	leadAPIs     map[string]*http.Server // per-project lead API servers
 	lastStates   map[string]api.AgentChange
 	previewAddr  string                   // where the preview proxy listens; empty when it's off
@@ -219,6 +220,7 @@ type Server struct {
 	imageWaiters    int               // jobs waiting for the base image to be built (imagebuild.go)
 	remote          *remote.Connector // the connection to a hub, when this machine is an environment
 	lan             *lanState         // phones chatting from the local network or a tunnel (lan.go)
+	share           shareState        // virtiofsd's open files, from the VM's supervisor (share.go)
 	// connectorsGiven is whether each connector was last given to agents,
 	// by scope and name, so only a change to that rewrites their MCP
 	// servers (connectors.go).
@@ -643,6 +645,8 @@ func (s *Server) manager(log io.Writer) *agent.Manager {
 		DesktopTheme:     s.desktopTheme,
 		ImageCacheSocket: s.imageCacheSocket,
 		PackageCacheDir:  s.packageCacheDir,
+		ShareRoom:        s.shareRoom,
+		ShareBusy:        s.shareBusy,
 	}
 }
 
@@ -826,6 +830,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/diagnostics/spans", s.diagnosticsSpans)
 	h("GET /v1/diagnostics/stalls", s.diagnosticsStalls)
 	h("GET /v1/diagnostics/resources", s.diagnosticsResources)
+	h("GET /v1/diagnostics/files", s.diagnosticsFiles)
 	h("POST /v1/diagnostics/client-spans", s.clientSpans)
 	h("GET /v1/agents", s.listAgents)
 	// Past agents (archive.go): their chats read through the routes above.
@@ -958,6 +963,7 @@ func (s *Server) routes() http.Handler {
 	h("PATCH /v1/lan/phones/{id}", s.updateLANPhone)
 	h("GET /v1/lan/phones/{id}/audit", s.lanPhoneAudit)
 	h("PUT /v1/lan/host", s.lanHostReport)
+	h("PUT /v1/vm/share", s.shareReport)
 	h("PUT /v1/lan/web/{version}/files/{path...}", s.putLANWebFile)
 	h("POST /v1/lan/web/{version}", s.installLANWeb)
 	mux.Handle(lanNetPrefix+"/", http.StripPrefix(lanNetPrefix, s.lanHandler(lanViaSocket)))

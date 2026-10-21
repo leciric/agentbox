@@ -34,10 +34,20 @@
 //                           driver's VM, made and not finished (no Lima needed)
 //   ?vm=krunkit|nokrunkit   the VM to set up on Apple Silicon, with krunkit
 //                           installed (it gives memory back), or without it
+//   ?vm=brew|brewdriver|nodriver
+//                           without krunkit, which Homebrew installs, or without
+//                           Lima's krunkit driver, which a newer Homebrew Lima
+//                           has, or a Lima Homebrew can't upgrade
+//   ?gpu=vz&mac=brew|driver|manual|nodriver|ready
+//                           Settings' GPU for agents on a Mac whose VM was made
+//                           with vz: remake it with krunkit, which Homebrew
+//                           installs first (or a Lima with its driver), or by
+//                           hand without Homebrew, or krunkit installed already
 //   ?gpu=none               Settings' GPU for agents with no GPU in the VM; =host
 //                           a Linux host's the VM gets at its next start,
 //                           =hostrestart turned on and waiting, =nvidia one it
-//                           can't have, =vm the no-GPU VM of before
+//                           can't have, =vm the no-GPU VM of before, =vz a
+//                           Mac's VM made without krunkit
 //   ?gpu=krunkit|running|restart|failed
 //                           a Mac's krunkit VM whose GPU turning it on readies,
 //                           being readied, waiting for a restart, or failed
@@ -277,7 +287,7 @@ import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
 import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
 import { Markdown } from '../components/chat/Markdown';
-import { agent12Chat, asleepChat, buildFixtures, claudeLimits, dropDevAgent, compactionThread, richChat, richStreamText, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedSignedOut, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, setNotifications } from './fixtures';
+import { agent12Chat, asleepChat, buildFixtures, claudeLimits, dropDevAgent, compactionThread, richChat, richStreamText, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedSignedOut, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
 import { seedPastAgents } from './pastAgents';
 import { openPanelOn, pickTarget, setPanel, setPanelOpen, setView, type PanelView } from '../lib/rightPanel';
@@ -337,6 +347,7 @@ const linuxHost = params.get('linux'); // 'setup' | 'nokvm' | 'move' | null
 const chvSize = params.get('chv'); // 'live' | 'old' | 'off' | null
 if (chvSize) localStorage.setItem('agentbox.settings.section', 'resources');
 if (settingsPage) localStorage.setItem('agentbox.settings.section', settingsPage);
+if (params.get('mac')) localStorage.setItem('agentbox.settings.section', 'agents');
 
 const windowsBeforeSetup: HostSetupStatus = {
   pkexec: null,
@@ -431,7 +442,9 @@ if (params.get('gpu')) {
   // Restarting the VM invalidates every query; the bridge has no answer for
   // most of them, so only Settings (which it does answer) is refetched.
   const invalidate = queryClient.invalidateQueries.bind(queryClient);
-  queryClient.invalidateQueries = ((filters?: Parameters<typeof invalidate>[0]) => invalidate(filters ?? { queryKey: ['settings'] })) as typeof invalidate;
+  // A remade VM (?mac=) changes the VM's status too.
+  queryClient.invalidateQueries = ((filters?: Parameters<typeof invalidate>[0]) =>
+    invalidate(filters ?? { predicate: (q) => q.queryKey[0] === 'settings' || q.queryKey[0] === 'host-setup' })) as typeof invalidate;
 }
 seedQueryClient(queryClient, fixtures);
 // The project chat's runner answers with the account it spends, "work" here.
@@ -584,6 +597,8 @@ if (params.get('drag')) dragBridge(queryClient, params.get('drag') === 'slow' ? 
 if (params.get('enforce') === '1') { seedDefaults(queryClient); queryClient.setQueryData<T.Settings>(['settings'], (s) => s && { ...s, enforceAgentDefaults: true }); }
 if (params.get('nightly') === '1') seedNightly(queryClient);
 if (chvSize) seedLinuxVM(queryClient, chvSize);
+const macVZ = params.get('mac'); // 'brew' | 'driver' | 'manual' | 'nodriver' | 'ready' | null
+if (macVZ) seedMacVZ(queryClient, macVZ);
 // ?page= shows whole pages, and their sections ask for what no other
 // scenario seeds: no limits read yet, and no secrets or
 // connectors.
@@ -1079,7 +1094,18 @@ function Preview() {
                       name: 'agentbox',
                       exists: false,
                       problem: "AgentBox's Linux VM isn't set up: run agentbox vm init",
-                      krunkit: vm === 'krunkit' ? { available: true } : vm === 'nokrunkit' ? { available: false, missing: 'krunkit' } : undefined,
+                      krunkit:
+                        vm === 'krunkit'
+                          ? { available: true }
+                          : vm === 'nokrunkit'
+                            ? { available: false, missing: 'krunkit' }
+                            : vm === 'brew'
+                              ? { available: false, missing: 'krunkit', brew: true }
+                              : vm === 'brewdriver'
+                                ? { available: false, missing: 'driver', brew: true }
+                                : vm === 'nodriver'
+                                  ? { available: false, missing: 'driver' }
+                                  : undefined,
                     }
             }
           />

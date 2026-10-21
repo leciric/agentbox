@@ -187,10 +187,11 @@ test('the panel sits beside the chat while the chat keeps 440px, and is a drawer
   assert.deepEqual(P.panelBox(200, 1632, 1920), { width: P.panelMin, drawer: false });
   // No room for both: over the chat.
   assert.equal(P.panelBox(540, 720, 1100).drawer, true);
-  // Below 1100px of window, always a drawer, however much room: at 1024 the
-  // chat beside it was left about 280px.
-  assert.equal(P.panelBox(540, 1000, 1024).drawer, true);
-  // Below 1024px of window, always a drawer, no wider than the window.
+  // Below 900px of window, always a drawer, however much room.
+  assert.equal(P.panelBox(540, 899, 899).drawer, true);
+  // A portrait monitor's 1080px, the sidebar a drawer (App): beside the chat.
+  assert.deepEqual(P.panelBox(540, 1080, 1080), { width: 540, drawer: false });
+  // A small window: a drawer, no wider than the window.
   const small = P.panelBox(540, 800, 800);
   assert.equal(small.drawer, true);
   assert.ok(small.width <= 800 * 0.92);
@@ -244,7 +245,9 @@ test('the list is narrow, as dragged while the chat keeps its least, and folds t
   assert.deepEqual(P.listBox({ listWidth: 100 }, 1600, 1900), { width: P.listMin, drawer: false });
   assert.deepEqual(P.listBox({ listFolded: true }, 1600, 1900), { width: P.listStrip, drawer: false });
   // Below besideMin, a drawer, as the panel is.
-  assert.equal(P.listBox({}, 900, 1000).drawer, true);
+  assert.equal(P.listBox({}, 899, 899).drawer, true);
+  // A portrait monitor's window, the sidebar a drawer: beside the chat.
+  assert.deepEqual(P.listBox({}, 1080, 1080), { width: P.listDefault, drawer: false });
 });
 
 test('✕ goes back to the list; the panel button folds the list and back, and never closes it', () => {

@@ -10,7 +10,7 @@ import { useProjectName } from '../lib/useProjectName';
 import { projectLabel } from '../lib/projectName';
 import { projectPlace, type ProjectPlaceName, type ProjectSection } from '../lib/tabs';
 import { countFeature, projectTabFeatures } from '../lib/usageStats';
-import { errorMessage, timeAgo } from '../lib/utils';
+import { cn, errorMessage, timeAgo } from '../lib/utils';
 import { ChatStatus, FilesOpen, useChatMenu } from './chat/ChatTab';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ConnectorsTab } from './ConnectorsTab';
@@ -264,7 +264,7 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
       )}
 
       <TabsContent value="chat" className="flex flex-col">
-        <div className="relative mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line md:mx-6 md:mb-6">
+        <div className={cn('relative flex min-h-0 flex-1 flex-col overflow-hidden', !v2 && 'mx-2 mb-2 rounded-2xl border border-line md:mx-6 md:mb-6')}>
           {v2 ? (
             // UI v2's lead links its agents' names in the chat (components/pip);
             // the desktops they're using are in the right-hand panel's list.

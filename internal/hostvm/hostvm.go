@@ -588,7 +588,11 @@ func (v *VM) ready(ctx context.Context) error {
 		return err
 	}
 	if !current {
-		return v.Install(ctx)
+		if err := v.Install(ctx); err != nil {
+			return err
+		}
+		// A VM made before Setup wrote it learns why it has no GPU.
+		v.writeGPUReason(ctx)
 	}
 	return nil
 }
@@ -661,6 +665,7 @@ func (v *VM) setup(ctx context.Context, daemon bool) error {
 	if err := v.writeProfile(ctx); err != nil {
 		return err
 	}
+	v.writeGPUReason(ctx)
 	if !daemon {
 		return nil
 	}

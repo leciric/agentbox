@@ -56,6 +56,34 @@
     "height": 800
   },
   {
+    "id": "mac-vm-brew-dark",
+    "description": "A Mac's first screen on Apple Silicon without krunkit, with Homebrew: a button installs it, then makes the VM — dark, xl width",
+    "query": "vm=brew&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "mac-vm-brewdriver-light",
+    "description": "A Mac's first screen with a Homebrew Lima that has no krunkit driver: a button updates Lima — light, lg width",
+    "query": "vm=brewdriver&theme=light",
+    "width": 1024,
+    "height": 800
+  },
+  {
+    "id": "mac-gpu-vz-brew-dark",
+    "description": "Settings' GPU for agents on a Mac whose VM was made with vz: install krunkit and remake the VM — dark, xl width",
+    "query": "app=settings&gpu=vz&mac=brew&theme=dark",
+    "width": 1280,
+    "height": 1700
+  },
+  {
+    "id": "mac-gpu-vz-manual-light",
+    "description": "Settings' GPU for agents on a Mac with a vz VM and no Homebrew: the commands to run — light, lg width",
+    "query": "app=settings&gpu=vz&mac=manual&theme=light",
+    "width": 1024,
+    "height": 1700
+  },
+  {
     "id": "mac-vm-lima-light",
     "description": "A Mac's first screen without Lima: brew install lima first — light, lg width",
     "query": "vm=lima&theme=light",
@@ -1195,6 +1223,21 @@
     "height": 1920
   },
   {
+    "id": "window-portrait-nav-dark",
+    "description": "1080×1920 with the menu button's drawer open: the sidebar over the page, the rail docked beside the chat — dark",
+    "query": "app=project&theme=dark",
+    "width": 1080,
+    "height": 1920,
+    "click": "header [data-open-nav]"
+  },
+  {
+    "id": "window-rail-edge-dark",
+    "description": "900×700, the narrowest window that docks the rail beside the project's chat — dark",
+    "query": "app=project&theme=dark",
+    "width": 900,
+    "height": 700
+  },
+  {
     "id": "window-portrait-settings-dark",
     "description": "The whole app at 1080×1920, on Settings — dark",
     "query": "app=settings&theme=dark",
@@ -1283,7 +1326,7 @@
   },
   {
     "id": "window-medium-agent-dark",
-    "description": "1000×700, just below the rail's breakpoint, on agent-99 — dark",
+    "description": "1000×700, the rail docked beside the page and the sidebar a drawer, on agent-99 — dark",
     "query": "app=agent-99&theme=dark",
     "width": 1000,
     "height": 700
@@ -1621,6 +1664,36 @@
     ]
   },
   {
+    "id": "window-portrait-v2-project-dark",
+    "description": "UI v2 at 1080×1920 on the lead's chat: the panel's list of agents beside it, the sidebar a drawer — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1080,
+    "height": 1920
+  },
+  {
+    "id": "window-portrait-v2-panel-dark",
+    "description": "UI v2 at 1080×1920, the panel opened from its strip of agents (before 900px docked it, a drawer over the dimmed chat): beside the chat — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1080,
+    "height": 1920,
+    "click": "[data-panel-unfold]"
+  },
+  {
+    "id": "window-portrait-v2-nav-dark",
+    "description": "UI v2 at 1080×1920, the menu button's drawer open: the sidebar over the page, the panel beside the chat — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1080,
+    "height": 1920,
+    "click": "[data-open-nav]"
+  },
+  {
+    "id": "window-rail-edge-v2-dark",
+    "description": "UI v2 at 900×700, the narrowest window that keeps the panel beside the lead's chat — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 900,
+    "height": 700
+  },
+  {
     "id": "window-portrait-v2-agent-dark",
     "description": "UI v2 at 1080×1920 on agent-12 — dark",
     "query": "app=agent-41&v2=1&theme=dark",
@@ -1693,7 +1766,7 @@
   },
   {
     "id": "window-1100-v2-lead-files-tab-light",
-    "description": "UI v2 at 1100×800, the narrowest beside the chat, the lead's panel on its Files tab with README.md open — light",
+    "description": "UI v2 at 1100×800, beside the chat with the sidebar a drawer, the lead's panel on its Files tab with README.md open — light",
     "query": "app=project&v2=1&panel=files:lead&file=README.md&theme=light",
     "width": 1100,
     "height": 800
@@ -1907,7 +1980,7 @@
   },
   {
     "id": "window-1024-v2-panel-dark",
-    "description": "UI v2 at 1024×768 with the panel open on Files: below 1100px it's a drawer, so the chat isn't left 280px beside it — dark",
+    "description": "UI v2 at 1024×768 with the panel open on Files: beside the chat, the sidebar a drawer so the chat isn't left 280px — dark",
     "query": "app=project&v2=1&panel=files:lead&file=README.md&theme=dark",
     "width": 1024,
     "height": 768
@@ -2030,17 +2103,17 @@
     "click": "[data-panel-fold]"
   },
   {
-    "id": "agents-right-1024-dark",
-    "description": "UI v2 at 1024×768, too narrow for the list beside the chat: the strip of agents stays beside it — dark",
+    "id": "agents-right-880-dark",
+    "description": "UI v2 at 880×768, too narrow for the list beside the chat: the strip of agents stays beside it — dark",
     "query": "app=project&v2=1&pip=1&theme=dark",
-    "width": 1024,
+    "width": 880,
     "height": 768
   },
   {
-    "id": "agents-right-1024-drawer-dark",
+    "id": "agents-right-880-drawer-dark",
     "description": "The same, the strip's « clicked: the list as a drawer over the chat — dark",
     "query": "app=project&v2=1&pip=1&theme=dark",
-    "width": 1024,
+    "width": 880,
     "height": 768,
     "click": "[data-panel-unfold]"
   },

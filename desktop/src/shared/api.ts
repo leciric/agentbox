@@ -3086,6 +3086,26 @@ export interface ClientSpansRequest {
   spans: TraceSpan[];
 }
 
+export interface ShareReport {
+  open: number;
+  limit: number;
+  trims: number;
+  lastTrim?: string;
+  pinned: number;
+}
+
+export interface FileCount {
+  open: number;
+  limit: number;
+}
+
+export interface DiagnosticsFiles {
+  daemon: FileCount;
+  system: FileCount;
+  share?: ShareReport;
+  waiting: boolean;
+}
+
 export const JobRunning = "running";
 export const JobSucceeded = "succeeded";
 export const JobFailed = "failed";
