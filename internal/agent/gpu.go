@@ -84,6 +84,12 @@ var (
 	vmGPUStatusFile = "/run/agentbox-vm-gpu.json"
 )
 
+// VMGPUReasonFile is where Setup on a Mac says why a VM made without krunkit
+// (vz, or Lima's qemu) has no GPU and what gives it one, for Settings: the
+// daemon can't tell its VM's type from inside it. {"vmType": …, "reason": …},
+// written by hostvm's writeGPUReason.
+var VMGPUReasonFile = "/usr/local/share/agentbox/vm-gpu.json"
+
 // gpuProfilePath is where the agent's login shells read gpuProfile from.
 const gpuProfilePath = "/etc/profile.d/agentbox-gpu.sh"
 
@@ -151,7 +157,26 @@ func FindVMGPU() VMGPU {
 	if gpu, ok := hostGPU(); ok {
 		return gpu
 	}
+	if reason := macVMReason(); reason != "" {
+		return VMGPU{Reason: reason}
+	}
 	return VMGPU{Reason: "AgentBox's VM has no GPU to give agents"}
+}
+
+// macVMReason is why a Mac's VM has no GPU, as Setup wrote it
+// (VMGPUReasonFile), or "".
+func macVMReason() string {
+	b, err := os.ReadFile(VMGPUReasonFile)
+	if err != nil {
+		return ""
+	}
+	var st struct {
+		Reason string `json:"reason"`
+	}
+	if json.Unmarshal(b, &st) != nil {
+		return ""
+	}
+	return strings.TrimSuffix(strings.TrimSpace(st.Reason), ".")
 }
 
 // pciIDs is a PCI vendor:device pair, as MESA_VK_DEVICE_SELECT takes it.

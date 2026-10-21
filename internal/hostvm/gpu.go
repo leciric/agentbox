@@ -3,15 +3,19 @@ package hostvm
 import (
 	"archive/tar"
 	"bytes"
+	"cmp"
 	"context"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"agentbox/internal/agent"
 	"agentbox/internal/api"
 	"agentbox/internal/hostvm/chv"
 )
@@ -140,6 +144,53 @@ func noGPU(driver, vmType string) string {
 			"then agentbox vm delete and agentbox vm init make the VM again with it."
 	}
 	return "no GPU: this VM has none to give agents."
+}
+
+// gpuReason is noGPU for Settings, beside the "GPU for agents" switch: one
+// line, no trailing period, the same advice. "" for a VM that has a GPU or
+// gets one (krunkit, Cloud Hypervisor), which the daemon finds itself.
+func gpuReason(driver, vmType string) string {
+	const remake = "install krunkit (" + krunkitInstall + "), then agentbox vm delete --yes (it removes the agents' machines) and agentbox vm init"
+	switch {
+	case driver == api.VMDriverLima && vmType == krunkitVMType, driver == api.VMDriverCloudHypervisor:
+		return ""
+	case driver == api.VMDriverLima && vmType == "qemu":
+		return "Lima's qemu VM has no 3D for agents"
+	case driver == api.VMDriverLima:
+		return "AgentBox's VM runs on Apple's Virtualization framework (vz), which gives it no 3D. A VM made with krunkit has a GPU: " + remake
+	case driver == api.VMDriverVZ:
+		return "AgentBox's vz driver gives the VM no 3D. Lima's VM made with krunkit has a GPU: " + remake
+	}
+	return ""
+}
+
+// writeGPUReason tells the daemon in the VM why it has no GPU for agents
+// (gpuReason, in agent.VMGPUReasonFile), which it can't tell from inside: for
+// Setup, and after an upgrade puts a new binary in a VM made before. Nothing
+// for a VM that has a GPU, and nothing said when it fails: Settings then
+// says only that there's none.
+func (v *VM) writeGPUReason(ctx context.Context) {
+	vmType := ""
+	if v.CHV == nil {
+		st, err := v.State(ctx)
+		if err != nil || !st.Exists {
+			return
+		}
+		vmType = st.VMType
+	}
+	reason := gpuReason(v.Driver(), vmType)
+	if reason == "" {
+		return
+	}
+	b, err := json.Marshal(struct {
+		VMType string `json:"vmType"`
+		Reason string `json:"reason"`
+	}{cmp.Or(vmType, v.Driver()), reason})
+	if err != nil {
+		return
+	}
+	f := agent.VMGPUReasonFile
+	_, _ = v.exec(ctx, bytes.NewReader(b), "sudo", "sh", "-c", "mkdir -p "+filepath.Dir(f)+" && cat >"+f+".new && mv -f "+f+".new "+f)
 }
 
 // chvGPUReport says what the Linux VM's supervisor found of the host's GPU
