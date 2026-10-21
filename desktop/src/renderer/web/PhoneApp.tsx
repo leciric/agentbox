@@ -56,8 +56,27 @@ const depth = () => (typeof history.state?.depth === 'number' ? (history.state.d
 
 function useRoute(): [Route, Nav] {
   const [route, setRoute] = useState(() => parseRoute(location.hash));
+  // The depth of the entry on screen, for an entry that comes without one.
+  const shown = useRef(0);
   useEffect(() => {
-    const onHash = () => setRoute(parseRoute(location.hash));
+    // The bottom of the app's history is always the list, so back and "All
+    // chats" end there: a page opened on a chat (a link, a bookmark) gets
+    // the list put under it. A reload keeps its entries' depths.
+    if (typeof history.state?.depth !== 'number') {
+      const hash = location.hash;
+      if (parseRoute(hash).kind === 'list') history.replaceState({ depth: 0 }, '', hash);
+      else {
+        history.replaceState({ depth: 0 }, '', routeHash({ kind: 'list' }));
+        history.pushState({ depth: 1 }, '', hash);
+      }
+    }
+    shown.current = depth();
+    const onHash = () => {
+      // A fragment typed or followed by hand is a screen pushed on this one.
+      if (typeof history.state?.depth !== 'number') history.replaceState({ depth: shown.current + 1 }, '', location.hash);
+      shown.current = depth();
+      setRoute(parseRoute(location.hash));
+    };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
@@ -66,6 +85,7 @@ function useRoute(): [Route, Nav] {
     open: (next) => {
       if (routeHash(next) === routeHash(route)) return;
       history.pushState({ depth: depth() + 1 }, '', routeHash(next));
+      shown.current = depth();
       setRoute(next);
     },
     swap: (next) => {
@@ -77,7 +97,7 @@ function useRoute(): [Route, Nav] {
       else nav.swap(list);
     },
     home: () => {
-      if (depth() > 0 && route.kind !== 'list') history.go(-depth());
+      if (depth() > 0) history.go(-depth());
       else nav.swap(list);
     },
   };
@@ -502,6 +522,11 @@ function Switcher({
           aria-describedby={undefined}
           className="fixed inset-x-0 bottom-0 z-50 flex max-h-[85dvh] animate-sheet-up flex-col rounded-t-3xl border-t border-line-strong bg-modal pb-[env(safe-area-inset-bottom)] shadow-[0_-24px_60px_-20px_var(--ab-shadow-deep)] focus:outline-none"
           data-phone-switcher
+          // Back on the title that opened it, or the next screen's.
+          onCloseAutoFocus={(e) => {
+            e.preventDefault();
+            document.querySelector<HTMLElement>('[data-phone-switch]')?.focus();
+          }}
         >
           <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-line-strong" />
           <div className="flex shrink-0 items-center gap-2 px-4 pb-2 pt-2">
@@ -749,7 +774,18 @@ function PullsScreen({ project, highlight, header, onOpen }: { project: string; 
         open={merging !== null}
         onOpenChange={(o) => !o && setMerging(null)}
         title={merging ? t('web.phone.mergeTitle', { number: merging.number, base: merging.baseBranch || '—' }) : ''}
-        description={merging ? [merging.title, merging.checks === 'failing' && t('web.phone.mergeFailing')].filter(Boolean).join(' ') : undefined}
+        description={
+          merging && (
+            <>
+              {merging.title}
+              {(merging.checks === 'failing' || merging.checks === 'pending') && (
+                <span className={cn('mt-2 block font-medium', merging.checks === 'failing' ? 'text-rose-300' : 'text-amber-300')} data-phone-merge-warning={merging.checks}>
+                  {t(merging.checks === 'failing' ? 'web.phone.mergeFailing' : 'web.phone.mergePending')}
+                </span>
+              )}
+            </>
+          )
+        }
         confirmLabel={t('web.phone.merge')}
         destructive
         onConfirm={async () => {

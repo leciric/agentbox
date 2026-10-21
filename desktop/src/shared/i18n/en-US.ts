@@ -3051,6 +3051,7 @@ export const enUS = {
   'web.phone.openPull': 'Pull request #{number}',
   'web.phone.openAgent': 'Open {agent}’s chat',
   'web.phone.mergeFailing': 'Its checks are failing.',
+  'web.phone.mergePending': 'Its checks haven’t finished.',
   'web.pair.plainHTTP': 'This connection is plain HTTP on your local network, not encrypted: use it on a network you trust.',
   'web.pair.title': 'Pair this phone with AgentBox',
   'web.pair.steps': 'On your computer, open AgentBox\'s <hl>Settings</hl>, then <hl>Phone</hl>, turn on <hl>Chat from your phone</hl>, and scan the QR code with this phone\'s camera.',

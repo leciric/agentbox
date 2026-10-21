@@ -3052,6 +3052,7 @@ export const ptBR: Messages = {
   'web.phone.openPull': 'Pull request #{number}',
   'web.phone.openAgent': 'Abrir a conversa de {agent}',
   'web.phone.mergeFailing': 'As verificações estão falhando.',
+  'web.phone.mergePending': 'As verificações ainda não terminaram.',
   'web.pair.plainHTTP': 'Esta conexão é HTTP simples na sua rede local, sem criptografia: use-a em uma rede em que você confia.',
   'web.pair.title': 'Pareie este celular com o AgentBox',
   'web.pair.steps': 'No seu computador, abra as <hl>Configurações</hl> do AgentBox, depois <hl>Celular</hl>, ative <hl>Conversar pelo celular</hl> e escaneie o QR code com a câmera deste celular.',

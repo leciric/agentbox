@@ -1123,6 +1123,8 @@ body[data-touring] [data-sonner-toaster] {
   transform: none;
   border-radius: 1.5rem 1.5rem 0 0;
   border-width: 1px 0 0;
+  max-height: 90dvh;
+  overflow-y: auto;
   padding-bottom: calc(1.25rem + env(safe-area-inset-bottom));
   animation: var(--animate-sheet-up);
 }
