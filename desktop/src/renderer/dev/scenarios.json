@@ -1449,6 +1449,41 @@
     "click": "[data-v2-filter-button]"
   },
   {
+    "id": "window-wide-v2-pulls-dark",
+    "description": "UI v2 at 1920×1080, the lead's panel on its Pull requests tab, between Agents and Files: the tab counts the open ones and those ready to review, and the top bar has no Pull requests button — dark",
+    "query": "app=pulls&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "window-1280-v2-pulls-light",
+    "description": "UI v2 at 1280×800, the Pull requests tab beside the chat — light",
+    "query": "app=pulls&v2=1&theme=light",
+    "width": 1280,
+    "height": 800
+  },
+  {
+    "id": "window-1024-v2-pulls-dark",
+    "description": "UI v2 at 1024×768, where the panel is a drawer: the Pull requests tab open in it over the chat — dark",
+    "query": "app=pulls&v2=1&theme=dark",
+    "width": 1024,
+    "height": 768
+  },
+  {
+    "id": "window-min-v2-pulls-dark",
+    "description": "UI v2 at 480×800, the Pull requests tab in the drawer — dark",
+    "query": "app=pulls&v2=1&theme=dark",
+    "width": 480,
+    "height": 800
+  },
+  {
+    "id": "window-wide-v2-pulls-agents-dark",
+    "description": "UI v2 at 1920×1080, the lead's list: its three tabs at the list's narrow width, only Agents named, Pull requests by its icon and counts — dark",
+    "query": "app=project&v2=1&pulls=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
     "id": "window-1440-v2-agent-dark",
     "description": "UI v2 at 1440×900 on agent-41, ready to review: its card over the composer, with its PR and Review changes — dark",
     "query": "app=agent-41&v2=1&theme=dark",

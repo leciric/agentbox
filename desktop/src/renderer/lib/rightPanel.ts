@@ -5,11 +5,11 @@
 // the project's agents (the list), which folds to a strip of their avatars
 // (one header button, or ⌘D) but never closes. Where it doesn't fit beside
 // the chat, the strip stays and the rest opens over the chat as a drawer.
-// The lead's panel switches between the list and the repository's Files
-// (setLeadTab); an agent shows in it in one of four views on a fixed switch: Desktop, Terminal, Files and Evidence (its
+// The lead's panel switches between the list, the project's Pull requests
+// and the repository's Files (setLeadTab); an agent shows in it in one of four views on a fixed switch: Desktop, Terminal, Files and Evidence (its
 // media and Hatch pages, newest first), with ✕ back to the list. Browser and Timeline
-// open from its ⋯; the project's Pull requests and Settings, from the
-// project's header (ProjectView), go over it. It remembers the view each
+// open from its ⋯; the project's Settings, from the project's header
+// (ProjectView), and its Pull requests, the lead's tab, go over it. It remembers the view each
 // agent was last shown in, and the agent each project's lead last looked at.
 import { useSyncExternalStore } from 'react';
 import type * as T from '../../shared/api.ts';
@@ -20,7 +20,7 @@ export type PanelView = 'desktop' | 'terminal' | 'files' | 'evidence' | 'browser
 export const panelViews: PanelView[] = ['desktop', 'terminal', 'files', 'evidence', 'browser', 'timeline', 'pulls', 'schedules', 'settings'];
 // The switch's four, always there, in this order; the rest are in the ⋯.
 export const switchViews: PanelView[] = ['desktop', 'terminal', 'files', 'evidence'];
-// The project's Pull requests and Settings are off it: they're on the project's header.
+// The project's Pull requests and Settings are off it: a tab of the lead's panel, and on the project's header.
 export const moreViews: PanelView[] = ['browser', 'timeline', 'schedules'];
 
 // The project's own views: its pull requests, its scheduled tasks and its
@@ -295,15 +295,22 @@ export function panelClose(chat: string): void {
   else update(chat, (p) => ({ ...bare(p), target: listTarget }));
 }
 
-// The lead's panel is two tabs on a switch at its top: Agents, the list, and
-// Files, the repository's tree. Files is the lead picked as whose, so which
-// tab is on is remembered per project in last, with whoever else it showed.
-export type LeadTab = 'agents' | 'files';
-export const leadTab = (state: PanelState, project: string): LeadTab => (state.last[project] === leadOf(project) ? 'files' : 'agents');
+// The lead's panel is three tabs on a switch at its top: Agents, the list;
+// Pull requests, the project's, over whoever it showed as the project's own
+// view; and Files, the repository's tree. Files is the lead picked as whose,
+// so which of Agents and Files is on is remembered per project in last, with
+// whoever else it showed; Pull requests, for this session only.
+export type LeadTab = 'agents' | 'pulls' | 'files';
+export const leadTabs: LeadTab[] = ['agents', 'pulls', 'files'];
+export function leadTab(state: PanelState, project: string): LeadTab {
+  if (chatPanel(state, leadOf(project)).wide === 'pulls') return 'pulls';
+  return state.last[project] === leadOf(project) ? 'files' : 'agents';
+}
 export function setLeadTab(project: string, tab: LeadTab): void {
   const lead = leadOf(project);
-  if (tab === 'agents') return panelBack(lead);
   const state = panelState();
+  if (tab === 'pulls') return setView(lead, lead, 'pulls');
+  if (tab === 'agents') return update(lead, (p) => ({ ...bare(p), open: true }), { last: { ...state.last, [project]: listTarget } });
   update(lead, (p) => ({ ...bare(p), open: true }), { last: { ...state.last, [project]: lead }, views: { ...state.views, [lead]: 'files' } });
 }
 
