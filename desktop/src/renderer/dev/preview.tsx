@@ -177,6 +177,8 @@
 //   &hidden=a,b             with &v2=1, those projects hidden from the sidebar
 //   &sections=1             with &v2=1, the user's sections (Classic's): Work, Side
 //                           projects and an empty Later, kept as the daemon would
+//   &groupidle=1            with &v2=1, "Group idle projects and sort by activity" on
+//                           (lib/groupIdle.ts; off otherwise)
 //   &idle=12                with &v2=1, that many more projects with nothing going on, for Idle
 //   &signedout=1            Claude Code with no login: the composer's banner, and Send's tooltip
 //   &v2=1                   with ?app=, UI v2, the lead-first layout (Settings → General
@@ -292,6 +294,7 @@ import { PipFinish, seedPip } from './pip';
 import { seedPick } from './pick';
 import { seedTimelines } from './timeline';
 import { setUiV2 } from '../lib/uiV2';
+import { setGroupIdle } from '../lib/groupIdle';
 import { setTourState, tours, welcomeTour } from '../lib/tours';
 
 installDevBridge();
@@ -496,6 +499,7 @@ setUiV2(params.get('v2') === '1');
 if (appView && params.get('v2') === '1') {
   seedLeadLines(queryClient);
   seedV2(queryClient, params.get('pins'));
+  setGroupIdle(params.get('groupidle') === '1');
   seedEvidence(queryClient);
   // &stale=1: idle-1 has unseen questions from agents that no longer exist.
   if (params.get('stale') === '1') {

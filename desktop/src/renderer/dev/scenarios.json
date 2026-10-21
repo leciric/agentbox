@@ -2125,5 +2125,13 @@
     "query": "app=project&v2=1&pins=storefront&sections=1&lang=pt-BR&theme=dark",
     "width": 1280,
     "height": 900
+  },
+  {
+    "id": "window-v2-sections-groupidle-dark",
+    "description": "UI v2 sections with \"Group idle projects and sort by activity\" on and Idle open: a section keeps its idle projects, in the user's order; only projects in no section go to Idle — dark",
+    "query": "app=project&v2=1&pins=storefront&sections=1&idle=4&groupidle=1&theme=dark",
+    "width": 1280,
+    "height": 1000,
+    "click": "[data-v2-idle-toggle]"
   }
 ]
