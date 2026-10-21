@@ -18,7 +18,8 @@ import (
 // fakeLima is a limactl that records its arguments, one call per line, keeps
 // what it's sent on stdin and the last definition it was asked to create, and
 // answers `list`, `info`, the digest check, the balloon's features, the
-// swap probe and the GPU's restart marker the way Lima does, failing to copy
+// swap probe and the GPU's restart marker the way Lima does, keeps the GPU
+// reason it's sent in gpu-reason, failing to copy
 // venus/ into the VM with venus-fails. With refuse-krunkit, it refuses to create a krunkit VM, as Lima
 // does with a krunkit too old.
 const fakeLima = `#!/bin/sh
@@ -41,6 +42,7 @@ case "$1" in
       *"id -un"*) echo alice ;;
       *"df -B1"*) cat "$FAKE_DIR/swapprobe" 2>/dev/null ;;
       *agentbox-gpu-restart*) cat "$FAKE_DIR/gpu-restart" 2>/dev/null ;;
+      *vm-gpu.json*) cat >"$FAKE_DIR/gpu-reason" ;;
       *"sudo sh -c rm -rf "*venus*) [ ! -e "$FAKE_DIR/venus-fails" ] || exit 1; cat >"$FAKE_DIR/installed" ;;
       *"sudo sh -c"*) cat >"$FAKE_DIR/installed" ;;
     esac ;;
@@ -170,6 +172,10 @@ func TestReady(t *testing.T) {
 	got, err := os.ReadFile(filepath.Join(dir, "installed"))
 	if err != nil || string(got) != "the linux agentbox" {
 		t.Fatalf("the binary wasn't installed: %q, %v", got, err)
+	}
+	// A vz VM made before learns why it has no GPU.
+	if reason, _ := os.ReadFile(filepath.Join(dir, "gpu-reason")); !strings.Contains(string(reason), "install krunkit") {
+		t.Errorf("GPU reason: %q", reason)
 	}
 
 	_ = os.Remove(filepath.Join(dir, "installed"))

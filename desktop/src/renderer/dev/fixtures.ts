@@ -24,6 +24,9 @@ function fixtureVMGPU(gpu: string | null): T.VMGPU {
     case 'vm':
       // What a Linux (Cloud Hypervisor) VM said before it could have the GPU.
       return { kind: '', node: '', setup: '', reason: "AgentBox's VM has no GPU to give agents" };
+    case 'vz':
+      // A Mac's VM made without krunkit (hostvm's gpuReason).
+      return { kind: '', node: '', setup: '', reason: "AgentBox's VM runs on Apple's Virtualization framework (vz), which gives it no 3D. A VM made with krunkit has a GPU: install krunkit (brew tap slp/krun && brew trust slp/krun && brew install krunkit), then agentbox vm delete --yes (it removes the agents' machines) and agentbox vm init" };
     case 'host':
       return { kind: 'host', node: '/dev/dri/renderD129', setup: '', reason: '' };
     case 'old':
@@ -1463,7 +1466,8 @@ let defaultsSettings = {
   // WSL's GPU, or ?gpu=none for a VM with none, or ?gpu=krunkit|running|restart|failed
   // for a Mac's krunkit VM whose GPU isn't ready; ?gpu=host for a Linux host's GPU the VM
   // gets at its next start, ?gpu=hostrestart for one turned on, waiting, ?gpu=nvidia for
-  // one it can't have, ?gpu=vm for a Linux VM with none.
+  // one it can't have, ?gpu=vm for a Linux VM with none, ?gpu=vz for a Mac's VM made
+  // without krunkit.
   vmGPU: fixtureVMGPU(typeof location !== 'undefined' ? new URLSearchParams(location.search).get('gpu') : null),
   errorReports: true,
   prWatch: true,

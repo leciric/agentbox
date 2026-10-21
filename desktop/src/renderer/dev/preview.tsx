@@ -37,7 +37,8 @@
 //   ?gpu=none               Settings' GPU for agents with no GPU in the VM; =host
 //                           a Linux host's the VM gets at its next start,
 //                           =hostrestart turned on and waiting, =nvidia one it
-//                           can't have, =vm the no-GPU VM of before
+//                           can't have, =vm the no-GPU VM of before, =vz a
+//                           Mac's VM made without krunkit
 //   ?gpu=krunkit|running|restart|failed
 //                           a Mac's krunkit VM whose GPU turning it on readies,
 //                           being readied, waiting for a restart, or failed
