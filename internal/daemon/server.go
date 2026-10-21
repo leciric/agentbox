@@ -159,7 +159,7 @@ type Server struct {
 	hatchHost string
 
 	// firstSweeps is done once the sweeps Run starts have each made their
-	// first pass, the one at startup: what a test waits for, so that pass
+	// first pass, and dropOldLimits its one, the ones at startup: what a test waits for, so that pass
 	// can't land in the middle of what it is checking.
 	firstSweeps sync.WaitGroup
 
@@ -467,7 +467,7 @@ func (s *Server) Run(ctx context.Context) error {
 		s.connectorSyncs.Wait()
 		s.vgpu.wg.Wait()
 	}()
-	s.firstSweeps.Add(3)
+	s.firstSweeps.Add(4)
 	loops.Go(func() { s.watch(ctx) })
 	loops.Go(func() { s.sweepMedia(ctx) })
 	loops.Go(func() { s.sweepFinishedAgents(ctx) })

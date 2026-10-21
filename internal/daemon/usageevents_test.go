@@ -217,6 +217,9 @@ func TestSetupFunnelSkipsAnInstallationInUse(t *testing.T) {
 	asVersion(t, "0.16.0")
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
+	// The daemon's update check begins the funnel in the background, and
+	// keeps its setup_started a moment later: let it finish before starting over.
+	waitFor(t, "the daemon's own setup_started", func() bool { return len(setupEvents(d)) > 0 })
 	_ = d.srv.store.DeleteSetting(ctx, settingUsageSetupAt)
 	if err := d.srv.store.AddProject(ctx, state.Project{Name: "p", Root: t.TempDir()}); err != nil {
 		t.Fatal(err)

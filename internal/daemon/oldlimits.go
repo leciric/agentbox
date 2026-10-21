@@ -13,6 +13,7 @@ import (
 // agent machine's own caps (agent.DropOldLimits). It runs once, as the daemon
 // starts; a machine it misses has them taken off when it next starts.
 func (s *Server) dropOldLimits(ctx context.Context) {
+	defer s.firstSweeps.Done()
 	if reset, err := agent.ResetLegacyBudget(); err != nil {
 		s.logf("lifting an earlier release's shared budget: %v", err)
 	} else if len(reset) > 0 {

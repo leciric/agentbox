@@ -95,8 +95,15 @@ func TestSearchFindsEveryKind(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if g := byPR.Groups[0]; g.Kind != api.SearchAgents || g.Hits[0].ID != a.Ref() {
-			t.Errorf("%q: first group %s %+v, want the agent %s", q, g.Kind, g.Hits, a.Ref())
+		// Not Groups[0]: a project whose random path holds the digits comes first.
+		var agents api.SearchGroup
+		for _, g := range byPR.Groups {
+			if g.Kind == api.SearchAgents {
+				agents = g
+			}
+		}
+		if len(agents.Hits) == 0 || agents.Hits[0].ID != a.Ref() {
+			t.Errorf("%q: agents %+v, want the agent %s first", q, agents.Hits, a.Ref())
 		}
 	}
 	kinds := map[string]api.SearchGroup{}
