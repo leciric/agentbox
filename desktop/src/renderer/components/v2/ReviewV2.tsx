@@ -6,7 +6,7 @@
 // reviewed, the latest verdict first, each one reopened in the carousel.
 import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { PrNumberLink } from '../PrNumberLink';
-import { ArrowRight, CircleCheck, Film, GitMerge, GitPullRequest, Globe, Images, LoaderCircle } from 'lucide-react';
+import { ArrowRight, CircleCheck, Film, GitMerge, GitPullRequest, Globe, Images, LoaderCircle, Moon, Play } from 'lucide-react';
 import { createContext, useContext, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
@@ -192,7 +192,20 @@ const dock = 'mx-3 rounded-t-xl border border-b-0 border-line-strong bg-composer
 // AgentReviewCard sits above a finished agent's composer: what it made, its
 // pull request, and Review changes, which opens the carousel on it. While the
 // agent works on changes asked for, it says so instead.
-export function AgentReviewCard({ agent }: { agent: T.Agent }) {
+//
+// An agent whose machine is stopped or paused passes wake: the card then says
+// so beside its title and carries the Start button, in place of the
+// composer's own "asleep" bar (useReviewCardShown), so the two never stack.
+export type Wake = { state: 'stopped' | 'paused'; starting: boolean; onStart: () => void };
+
+// useReviewCardShown is whether AgentReviewCard draws anything for the agent.
+export function useReviewCardShown(agent: T.Agent): boolean {
+  const open = useOpenReview();
+  const review = useAgentReview(agent.ref);
+  return !!open && (!!review.data || changesPending(agent));
+}
+
+export function AgentReviewCard({ agent, wake }: { agent: T.Agent; wake?: Wake }) {
   const t = useT();
   const open = useOpenReview();
   const review = useAgentReview(agent.ref);
@@ -215,6 +228,12 @@ export function AgentReviewCard({ agent }: { agent: T.Agent }) {
         <span className="shrink-0 text-[12.5px] font-medium text-title">
           {asked ? t('v2.card.requested') : item?.verdict ? t('v2.card.reviewed') : t('v2.card.ready')}
         </span>
+        {wake && (
+          <span className="inline-flex shrink-0 items-center gap-1 text-[12px] text-muted" data-review-card-asleep={wake.state}>
+            <Moon className="size-3.5" />
+            {t('v2.card.asleep', { state: wake.state })}
+          </span>
+        )}
       </span>
       <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1 text-[11.5px] text-subtle">
         {made.map(({ icon: Icon, text }) => (
@@ -229,11 +248,21 @@ export function AgentReviewCard({ agent }: { agent: T.Agent }) {
           </span>
         )}
       </span>
-      {item && (
-        <Button size="sm" variant={asked ? 'secondary' : 'primary'} className="ml-auto h-7" onClick={() => open?.({ item })} data-review-open>
-          {t('v2.card.review')}
-          <ArrowRight />
-        </Button>
+      {(item || wake) && (
+        <span className="ml-auto flex shrink-0 items-center gap-2">
+          {wake && (
+            <Button size="sm" variant="secondary" className="h-7" disabled={wake.starting} onClick={wake.onStart} data-review-card-wake>
+              {wake.starting ? <LoaderCircle className="animate-spin" /> : <Play />}
+              {t('chat.composer.wake', { state: wake.state })}
+            </Button>
+          )}
+          {item && (
+            <Button size="sm" variant={asked ? 'secondary' : 'primary'} className="h-7" onClick={() => open?.({ item })} data-review-open>
+              {t('v2.card.review')}
+              <ArrowRight />
+            </Button>
+          )}
+        </span>
       )}
     </div>
   );

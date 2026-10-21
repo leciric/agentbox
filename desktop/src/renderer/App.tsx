@@ -667,7 +667,7 @@ export function App({ initial }: { initial?: View } = {}) {
                     tab={tabs[view.ref]}
                     onTab={(tab) => setTabs((t) => ({ ...t, [view.ref]: tab }))}
                     onSelect={select}
-                    chatCard={v2 ? (agent) => <AgentReviewCard agent={agent} /> : undefined}
+                    chatCard={v2 ? (agent, wake) => <AgentReviewCard agent={agent} wake={wake} /> : undefined}
                   />
                 )}
               </div>

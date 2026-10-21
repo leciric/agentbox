@@ -50,6 +50,7 @@
 //   ?chat=stopped|paused    a stopped (or paused) agent's stored conversation,
 //                           readable, with Start (Resume) on the composer.
 //                           Start, or sending a message, wakes it after 1.5s
+//   ?app=agent-15&v2=1&review=1&sleep=stopped  a finished agent awaiting review whose machine sleeps: one bar
 //   ?chat=richstream        a rich block still arriving (a card); &done=1 the stream ended
 //                           unclosed (its code); &tall=1 a closed page taller than the frame
 //   ?chat=rich              a project chat's answer with each kind of rich block
@@ -446,6 +447,16 @@ if (chat === 'lead') {
 }
 // Before the first render, so the chat reads it rather than the dev bridge.
 if (chat === 'stopped' || chat === 'paused') queryClient.setQueryData(['chat', asleepRef], asleepChat(asleepRef));
+// &sleep=stopped|paused, with ?app=agent-15&v2=1&review=1: that agent has
+// finished awaiting review and its machine is asleep, so the review card and
+// the wake button share one bar.
+const sleep = params.get('sleep');
+if (sleep && appView?.startsWith('agent-')) {
+  const sleeper = fixtures.agents.find((a) => a.ref === `${PROJECT}/${appView}`);
+  if (sleeper) Object.assign(sleeper, { state: sleep === 'paused' ? 'paused' : 'stopped', interface: 'chat' });
+  queryClient.setQueryData(['agents'], fixtures.agents);
+  queryClient.setQueryData(['chat', `${PROJECT}/${appView}`], asleepChat(`${PROJECT}/${appView}`));
+}
 const artifacts = params.get('pages');
 if (artifacts) {
   seedPages(queryClient);

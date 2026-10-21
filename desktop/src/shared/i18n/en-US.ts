@@ -3407,6 +3407,7 @@ export const enUS = {
   'v2.review.review': 'Review',
   'v2.card.ready': 'Ready to review',
   'v2.card.reviewed': 'Finished',
+  'v2.card.asleep': '· {state, select, paused {paused} other {sleeping}}',
   'v2.card.requested': 'Changes requested — working',
   'v2.card.review': 'Review changes',
   'v2.card.screenshots': '{count, plural, one {# screenshot} other {# screenshots}}',

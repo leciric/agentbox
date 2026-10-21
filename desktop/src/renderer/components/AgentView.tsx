@@ -35,7 +35,7 @@ import { awaiting, chatLabel, prState, statusTip, type StatusTone } from '../lib
 import { api, type AgentAction } from '../lib/api';
 import { useMediaCounts } from '../lib/mediaPages';
 import { useChatOpenAt } from '../lib/reveal';
-import { useAgentReview } from './v2/ReviewV2';
+import { useAgentReview, type Wake } from './v2/ReviewV2';
 import { useT, type MessageKey } from '../lib/i18n';
 import { agentPlace, type AgentPlaceName, type AgentSection, type AgentTab } from '../lib/tabs';
 import { agentTabFeatures, countFeature } from '../lib/usageStats';
@@ -96,7 +96,7 @@ export function AgentView({
   onTab: (tab: AgentPlaceName) => void;
   onSelect: (view: View) => void;
   // Over the chat's composer: UI v2's review card (v2/ReviewV2.tsx).
-  chatCard?: (agent: T.Agent) => ReactNode;
+  chatCard?: (agent: T.Agent, wake?: Wake) => ReactNode;
 }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -362,7 +362,7 @@ export function AgentView({
         <div className="mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line bg-sunken shadow-[0_30px_80px_-40px_var(--ab-shadow-deep)] md:mx-6 md:mb-6">
           {chatty && (
             <TabsContent value="chat" className="flex flex-col">
-              <ChatTab agent={agent} starting={busy} onStart={() => run(agent.state === 'paused' ? 'resume' : 'start')} onOpenAgent={(ref) => onSelect({ kind: 'agent', ref })} openAt={openAt} aboveComposer={chatCard?.(agent)} />
+              <ChatTab agent={agent} starting={busy} onStart={() => run(agent.state === 'paused' ? 'resume' : 'start')} onOpenAgent={(ref) => onSelect({ kind: 'agent', ref })} openAt={openAt} aboveComposer={chatCard && ((wake) => chatCard(agent, wake))} />
             </TabsContent>
           )}
           <TabsContent value="terminal" className="flex flex-col">

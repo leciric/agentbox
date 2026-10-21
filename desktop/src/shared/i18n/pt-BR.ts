@@ -3408,6 +3408,7 @@ export const ptBR: Messages = {
   'v2.review.review': 'Revisar',
   'v2.card.ready': 'Pronto para revisar',
   'v2.card.reviewed': 'Terminou',
+  'v2.card.asleep': '· {state, select, paused {pausado} other {dormindo}}',
   'v2.card.requested': 'Mudanças pedidas — trabalhando',
   'v2.card.review': 'Revisar mudanças',
   'v2.card.screenshots': '{count, plural, one {# captura de tela} other {# capturas de tela}}',
