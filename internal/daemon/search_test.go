@@ -80,7 +80,7 @@ func TestSearchFindsEveryKind(t *testing.T) {
 	d.srv.pulls.readFor("acme/hello", a.Project)
 	d.srv.pulls.mu.Lock()
 	d.srv.pulls.byRepo["acme/hello"] = pullsEntry{prs: []api.PullRequest{
-		{Number: 271, Agent: a.Name, Title: "feat: a Hatch connector preset", State: "open", URL: "https://github.com/acme/hello/pull/271"},
+		{Number: 864209, Agent: a.Name, Title: "feat: a Hatch connector preset", State: "open", URL: "https://github.com/acme/hello/pull/864209"},
 		{Number: 12, Title: "fix: something else", State: "merged"},
 	}}
 	d.srv.pulls.mu.Unlock()
@@ -90,7 +90,7 @@ func TestSearchFindsEveryKind(t *testing.T) {
 		t.Fatal(err)
 	}
 	// An agent is found by its pull request's number, however it's typed.
-	for _, q := range []string{"271", "#271", "pr 271", "PR#271"} {
+	for _, q := range []string{"864209", "#864209", "pr 864209", "PR#864209"} {
 		byPR, err := d.client.Search(ctx, q, 0)
 		if err != nil {
 			t.Fatal(err)
@@ -141,7 +141,7 @@ func TestSearchFindsEveryKind(t *testing.T) {
 	if h := kinds[api.SearchNotes].Hits; len(h) != 1 || h[0].ID != "4" || h[0].Title != "Hatch's MCP needs a token." {
 		t.Errorf("note hits = %+v", h)
 	}
-	if h := kinds[api.SearchPulls].Hits; len(h) != 1 || h[0].ID != "271" || h[0].Project != a.Project || h[0].Tag != "open" {
+	if h := kinds[api.SearchPulls].Hits; len(h) != 1 || h[0].ID != "864209" || h[0].Project != a.Project || h[0].Tag != "open" {
 		t.Errorf("pull hits = %+v", h)
 	}
 
@@ -150,8 +150,8 @@ func TestSearchFindsEveryKind(t *testing.T) {
 	if got, err := d.client.Search(ctx, "hello", 0); err != nil || len(got.Groups) == 0 || got.Groups[0].Kind != api.SearchProjects || got.Groups[0].Hits[0].ID != a.Project {
 		t.Errorf("search hello = %+v, %v", got, err)
 	}
-	if got, err := d.client.Search(ctx, "#27", 0); err != nil || len(got.Groups) != 1 || got.Groups[0].Hits[0].ID != "271" {
-		t.Errorf("search #27 = %+v, %v", got, err)
+	if got, err := d.client.Search(ctx, "#8642", 0); err != nil || len(got.Groups) != 1 || got.Groups[0].Hits[0].ID != "864209" {
+		t.Errorf("search #8642 = %+v, %v", got, err)
 	}
 	if got, err := d.client.Search(ctx, "linear", 0); err != nil || len(got.Groups) != 1 || got.Groups[0].Hits[0].Project != a.Project {
 		t.Errorf("search linear = %+v, %v", got, err)
