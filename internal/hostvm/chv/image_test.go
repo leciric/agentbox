@@ -94,7 +94,7 @@ func TestUserData(t *testing.T) {
 		cmd := exec.Command("python3", "-c", `import sys, yaml
 d = yaml.safe_load(sys.stdin)
 assert d["users"][0]["name"] == "lint", d["users"]
-assert len(d["write_files"]) == 16, len(d["write_files"])
+assert len(d["write_files"]) == 15, len(d["write_files"])
 assert d["runcmd"] == [["/usr/local/lib/agentbox/provision.sh"]]
 assert d["bootcmd"][0][:5] == ["cloud-init-per", "instance", "agentbox-user", "sh", "-c"]
 `)
