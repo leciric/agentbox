@@ -2018,8 +2018,9 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 	inst, err := m.Incus.Instance(ctx, a.Instance)
 	switch {
 	case err == nil:
-		if inst.Status == "Running" {
-			m.handBackFiles(ctx, a)
+		cleared := inst.Status == "Running"
+		if cleared {
+			m.clearWorktree(ctx, a)
 		}
 		m.logf("Deleting instance %s", a.Instance)
 		if delErr := m.Incus.Delete(ctx, a.Instance); delErr != nil {
@@ -2027,6 +2028,11 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 			// concurrently, between the check above and this call. Only a
 			// delete that still finds something there is a real failure.
 			if _, checkErr := m.Incus.Instance(ctx, a.Instance); !errors.Is(checkErr, incus.ErrNotFound) {
+				if cleared {
+					// Its commits are on its branch; what the worktree held
+					// besides is gone, and git can't read it any more.
+					delErr = fmt.Errorf("%s's worktree is already emptied, but deleting its machine failed (%w): destroy it again with --force", a.Ref(), delErr)
+				}
 				return restore(delErr)
 			}
 			m.logf("Instance %s was already gone: %v", a.Instance, delErr)
@@ -2110,6 +2116,21 @@ func (m *Manager) DeleteArchived(ctx context.Context, project, name string) erro
 	}
 	_ = os.RemoveAll(m.Paths.ChatImages(project, name))
 	return nil
+}
+
+// clearWorktree stops everything the agent's user runs in its machine (a
+// browser, dev servers) and empties its worktree from inside, as root, which
+// can delete what container root left there too. That's one pass over the
+// worktree, which on a Mac is a walk through its share: handing every file
+// back first (handBackFiles) and deleting them all again from the VM was
+// two, node_modules and all, with the browser still rendering meanwhile.
+// It stays on the worktree's filesystem: a mount the agent made inside it
+// isn't its to empty. What it leaves is removed from the VM after
+// (removeLeftovers).
+func (m *Manager) clearWorktree(ctx context.Context, a state.Agent) {
+	m.logf("Stopping %s and emptying its worktree", a.Ref())
+	script := `pkill -KILL -u "$1"; find "$2" -xdev -mindepth 1 -delete`
+	_, _ = m.Incus.Exec(ctx, a.Instance, "sh", "-c", script, "sh", strconv.Itoa(m.User.UID), a.Worktree)
 }
 
 // handBackFiles gives files that container root created in the worktree

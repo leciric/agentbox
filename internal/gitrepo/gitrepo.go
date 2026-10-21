@@ -276,20 +276,20 @@ func MoveWorktree(worktree, commit string) error {
 
 // RemoveWorktree removes the worktree at path, discarding uncommitted changes.
 // A worktree git no longer knows, because its entry under .git/worktrees was
-// pruned, is only a directory now, and is removed as one.
+// pruned, is only a directory now, and is removed as one. So is one whose
+// files are already gone, whose entry prune then drops: unlocked first, since
+// prune keeps a locked one.
 func (r Repo) RemoveWorktree(path string) error {
 	unlock := r.lockWorktrees()
 	defer unlock()
+	_ = r.UnlockWorktree(path)
 	if _, err := os.Stat(path); err == nil {
 		if !r.HasWorktree(path) {
 			if err := os.RemoveAll(path); err != nil {
 				return err
 			}
-		} else {
-			_ = r.UnlockWorktree(path)
-			if _, err := run(r.Root, "worktree", "remove", "--force", path); err != nil {
-				return err
-			}
+		} else if _, err := run(r.Root, "worktree", "remove", "--force", path); err != nil {
+			return err
 		}
 	}
 	_, err := run(r.Root, "worktree", "prune")

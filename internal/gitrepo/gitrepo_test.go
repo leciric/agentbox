@@ -279,6 +279,41 @@ func TestRemoveWorktreeGitForgot(t *testing.T) {
 	}
 }
 
+// A locked worktree whose files are already gone (emptied from inside its
+// agent's machine, or deleted by hand) is forgotten for good: prune alone
+// skips a locked entry, which then kept the branch "checked out" and refused
+// a new worktree at the same path ("a missing but locked worktree").
+func TestRemoveWorktreeWhoseFilesAreGone(t *testing.T) {
+	root := testutil.FixtureRepo(t, "hello-stack")
+	repo, _ := gitrepo.Open(root)
+	wt := filepath.Join(t.TempDir(), "worktrees", "agent-01")
+	if err := repo.AddWorktree(wt, "agentbox/agent-01", "main", "agentbox: proj/agent-01"); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if err := os.RemoveAll(filepath.Join(wt, e.Name())); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := repo.RemoveWorktree(wt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(wt); !os.IsNotExist(err) {
+		t.Errorf("worktree directory still exists: %v", err)
+	}
+	if err := repo.DeleteBranch("agentbox/agent-01"); err != nil {
+		t.Errorf("DeleteBranch() after the worktree went: %v", err)
+	}
+	if err := repo.AddWorktree(wt, "agentbox/agent-01", "main", "agentbox: proj/agent-01"); err != nil {
+		t.Errorf("AddWorktree() at the same path: %v", err)
+	}
+}
+
 // TestLockedWorktreeSurvivesPrune is the bug this locking exists to fix: one
 // agent running `git worktree prune` inside its own machine, where every
 // other agent's worktree path doesn't exist, must not unregister them.
