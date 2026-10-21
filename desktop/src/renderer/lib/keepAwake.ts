@@ -3,7 +3,7 @@
 // state the daemon already sends; the main process only holds the blocker.
 import { useQuery, useQueries } from '@tanstack/react-query';
 import { useEffect } from 'react';
-import * as T from '../../shared/api';
+import * as T from '../../shared/api.ts';
 import { isAsking } from './agentStatus.ts';
 import { api } from './api.ts';
 import { useGrace } from './grace.ts';
