@@ -275,6 +275,13 @@ func TestMergedLongAgoStaysOffReview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// cleanupRead reads the cache as the cleanup pass does, for the running agents only.
+	cleanupRead := func() {
+		t.Helper()
+		if _, _, _, _, err := d.srv.projectPulls(p, []state.Agent{agents["agent-03"]}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	settled := func() bool { _, busy := d.srv.pulls.state("acme/hello-stack"); return !busy }
 	want := func(when string) {
 		t.Helper()
@@ -293,14 +300,14 @@ func TestMergedLongAgoStaysOffReview(t *testing.T) {
 
 	// The cleanup pass reads the cache for the running agents only.
 	offset.Store(int64(time.Minute))
-	d.srv.projectPulls(p, []state.Agent{agents["agent-03"]})
+	cleanupRead()
 	waitFor(t, "the cleanup pass's read", settled)
 	want("after a read for some agents only")
 
 	// GitHub stops answering.
 	offset.Store(int64(2 * time.Minute))
 	gh.setDown(true)
-	d.srv.projectPulls(p, []state.Agent{agents["agent-03"]})
+	cleanupRead()
 	waitFor(t, "the failed read", settled)
 	want("while GitHub doesn't answer")
 
