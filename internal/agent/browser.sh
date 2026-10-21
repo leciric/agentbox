@@ -102,6 +102,22 @@ render_node() {
     fi
   done
 }
+# On WSL's GPU (/dev/dxg and no render node) the desktop stays on the CPU:
+# Xvnc's GLX, the dock, the terminal and Chromium. There Mesa's d3d12 driver
+# renders under drisw and reads every frame back to copy it into Xvnc, and
+# with a Chromium in every agent's desktop that kept Windows' GPU busy enough
+# to reset its driver (TDR: displays blank, HDMI audio crackles). So the
+# desktop loses WSL's libraries (which d3d12's GL and VA-API drivers load),
+# Mesa uses llvmpipe, and Chromium uses ANGLE on SwiftShader (WebGL still
+# works) with no Vulkan. Programs an agent runs from its own shells still get
+# the GPU (gpu.go's profile). chromium_gpu_flags is empty elsewhere.
+chromium_gpu_flags=""
+if [ -c /dev/dxg ] && [ -z "$(render_node)" ]; then
+  LD_LIBRARY_PATH=$(printf '%s' "${LD_LIBRARY_PATH:-}" | tr ':' '\n' | grep -vx '/usr/lib/wsl/lib' | paste -sd: -) || true
+  [ -n "$LD_LIBRARY_PATH" ] && export LD_LIBRARY_PATH || unset LD_LIBRARY_PATH
+  export GALLIUM_DRIVER=llvmpipe
+  chromium_gpu_flags="--use-gl=angle --use-angle=swiftshader --disable-features=Vulkan"
+fi
 wait_for() {
   i=0
   until "$@"; do
@@ -580,7 +596,8 @@ start)
     # Same for the lock of a browser that was running.
     rm -f "$profile"/Singleton*
     mark_clean_exit
-    setsid chromium --no-first-run --hide-crash-restore-bubble --disable-session-crashed-bubble --no-default-browser-check --disable-dev-shm-usage --password-store=basic \
+    # shellcheck disable=SC2086 # flags, or nothing
+    setsid chromium --no-first-run --hide-crash-restore-bubble --disable-session-crashed-bubble --no-default-browser-check --disable-dev-shm-usage --password-store=basic $chromium_gpu_flags \
       --user-data-dir="$profile" --remote-debugging-port=9222 --start-maximized about:blank >"$state/chromium.log" 2>&1 </dev/null &
     wait_for devtools || { echo "the browser didn't start: see $state/chromium.log" >&2; tail -n 5 "$state/chromium.log" >&2; exit 1; }
   fi

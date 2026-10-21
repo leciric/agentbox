@@ -620,7 +620,7 @@ export const enUS = {
   'settings.agentGPU.description': 'Gives every agent the GPU of AgentBox\'s VM, so its desktop, browser and apps render with OpenGL on it instead of the CPU.',
   'settings.agentGPU.details': 'Reaches the agents you have and every new one. Programs started before it changed keep what they had: restart an agent for all of it. The command agentbox browser gpu <agent> says what an agent\'s desktop renders on.',
   'settings.agentGPU.unavailable': 'Unavailable: {reason}',
-  'settings.agentGPU.wsl': 'WSL\'s GPU ({node}), through Mesa\'s Direct3D 12 driver.',
+  'settings.agentGPU.wsl': 'WSL\'s GPU ({node}), through Mesa\'s Direct3D 12 driver, for the programs agents run. Their desktop and browser stay on the CPU: on Windows they kept the GPU busy enough to reset its driver.',
   'settings.agentGPU.renderNode': 'The VM\'s GPU ({node}).',
   'settings.agentGPU.host': 'Your computer\'s GPU ({node}): AgentBox\'s VM gets it the next time it starts with this on.',
   'settings.agentGPU.hostOld': 'AgentBox\'s VM was started by an older AgentBox, so it can\'t offer your computer\'s GPU until it restarts. Turn this on, then restart the VM: one restart does both.',

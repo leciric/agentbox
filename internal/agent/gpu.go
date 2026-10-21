@@ -31,9 +31,11 @@ import (
 //     Windows driver's user-mode half in /usr/lib/wsl/lib and /usr/lib/wsl/drivers,
 //     both mounted read-only. Mesa's d3d12 gallium driver (in Debian's
 //     libgl1-mesa-dri) renders OpenGL on it once LD_LIBRARY_PATH finds
-//     libd3d12.so and libdxcore.so; there is no DRM render node, so the
-//     desktop renders through Mesa's software winsys (drisw) with d3d12 under
-//     it, and copies each frame into Xvnc.
+//     libd3d12.so and libdxcore.so; there is no DRM render node, so a program
+//     renders through Mesa's software winsys (drisw) with d3d12 under it,
+//     reading each frame back. The desktop and its Chromium don't: they kept
+//     Windows' GPU busy enough to reset its driver (TDR), so browser.sh keeps
+//     them on llvmpipe and SwiftShader, and only what agents run uses d3d12.
 //   - A DRM render node (GPURender): an Incus gpu device; the desktop's Xvnc
 //     takes it with -rendernode, so its clients get DRI3. The Mac's VM
 //     (virtio-gpu) is one; agentbox-vgpu-driver, the Venus driver it built
