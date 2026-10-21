@@ -2096,5 +2096,34 @@
       "header [data-inbox]",
       "[data-review-row]"
     ]
+  },
+  {
+    "id": "window-v2-sections-dark",
+    "description": "UI v2 at 1280×900 with the user's sections (Classic's): Work and Side projects between Pinned and Projects, storefront pinned out of its place, and an empty Later to drop into — dark",
+    "query": "app=project&v2=1&pins=storefront&sections=1&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "window-v2-sections-light",
+    "description": "The same UI v2 sections — light",
+    "query": "app=project&v2=1&pins=storefront&sections=1&theme=light",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "window-v2-sections-hidden-dark",
+    "description": "UI v2 sections with dotfiles (in Side projects) hidden: it shows under Hidden, not in its section — dark",
+    "query": "app=project&v2=1&sections=1&hidden=dotfiles&theme=dark",
+    "width": 1280,
+    "height": 900,
+    "click": "[data-v2-hidden-toggle]"
+  },
+  {
+    "id": "window-v2-sections-pt-BR-dark",
+    "description": "UI v2 sections in Portuguese — dark",
+    "query": "app=project&v2=1&pins=storefront&sections=1&lang=pt-BR&theme=dark",
+    "width": 1280,
+    "height": 900
   }
 ]
