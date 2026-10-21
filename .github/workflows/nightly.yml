@@ -101,7 +101,7 @@ jobs:
       - name: Pick the commit
         id: pick
         run: |
-          publish=true
+          publish=true release_sha=
           case $EVENT in
             pull_request)
               sha=$PR_SHA pr=$PR_NUMBER
@@ -135,7 +135,10 @@ jobs:
                 msg="Release PR #$pr (${sha:0:7}) doesn't contain main's tip (compare: $status), so this builds main at ${main:0:7} instead."
                 echo "::notice::$msg"
                 echo "$msg" >>"$GITHUB_STEP_SUMMARY"
-                sha=$main pr=
+                # main's own desktop/package.json is still the last release,
+                # older than the nightlies of the next one: the version comes
+                # from the release PR's head, which bumped it.
+                release_sha=$sha sha=$main pr=
                 ;;
             esac
           fi
@@ -143,6 +146,7 @@ jobs:
             echo "build=true"
             echo "sha=$sha"
             echo "pr=$pr"
+            echo "release_sha=$release_sha"
             echo "publish=$publish"
           } >>"$GITHUB_OUTPUT"
           echo "Building $sha${pr:+ (release PR #$pr)}; publish: $publish"
@@ -165,16 +169,24 @@ jobs:
         if: steps.pick.outputs.build == 'true'
         run: scripts/chv-gpu/check-published.sh --download
 
-      # The version comes from the checkout's desktop/package.json and the
-      # date and run number: scripts/release-build.sh --check then refuses a
+      # The version comes from the checkout's desktop/package.json (the release
+      # PR head's, when main's tip is built instead: see "Pick the commit") and
+      # the date and run number: scripts/release-build.sh --check then refuses a
       # checkout that isn't clean, a package version that isn't a release,
       # and a tag that is already taken.
       - name: Version it and check it
         id: version
         if: steps.pick.outputs.build == 'true'
+        env:
+          RELEASE_SHA: ${{ steps.pick.outputs.release_sha }}
         run: |
           nightly=$(date -u +%Y%m%d).$GITHUB_RUN_NUMBER
-          release=$(node -p "require('./desktop/package.json').version.split('-')[0]")
+          if [ -n "$RELEASE_SHA" ]; then
+            release=$(gh api "repos/$GITHUB_REPOSITORY/contents/desktop/package.json?ref=$RELEASE_SHA" \
+              -H 'Accept: application/vnd.github.raw+json' | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version.split('-')[0]")
+          else
+            release=$(node -p "require('./desktop/package.json').version.split('-')[0]")
+          fi
           version=$release-nightly.$nightly
           scripts/release-build.sh --nightly "$nightly" --tag "v$version" --check
           {
