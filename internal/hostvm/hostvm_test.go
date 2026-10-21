@@ -33,7 +33,12 @@ case "$1" in
     if [ -e "$FAKE_DIR/refuse-krunkit" ] && grep -q '^vmType: krunkit' "$f"; then
       echo 'krunkit version "1.1.0" is older than required minimum 1.2.1' >&2
       exit 1
+    fi
+    if [ -e "$FAKE_DIR/track-list" ]; then
+      vt=$(sed -n 's/^vmType: //p' "$f")
+      printf '{"name":"agentbox","status":"Stopped","vmType":"%s"}\n' "${vt:-vz}" >"$FAKE_DIR/list"
     fi ;;
+  delete) [ ! -e "$FAKE_DIR/track-list" ] || rm -f "$FAKE_DIR/list" ;;
   shell)
     case "$*" in
       *sha256sum*) cat "$FAKE_DIR/digest" 2>/dev/null ;;

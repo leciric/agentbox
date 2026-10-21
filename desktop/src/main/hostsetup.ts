@@ -45,6 +45,9 @@ export interface HostSetupStatus {
   user: string; // who the setup is for: whoever is running the app
   running: boolean;
   resizing: boolean; // `agentbox vm resize` is running
+  // `agentbox vm krunkit --remake` is running: the VM is gone for a while,
+  // which isn't a VM to set up (remakeWithKrunkit).
+  remaking?: boolean;
   vm: VMStatus | null; // AgentBox's VM, on a Mac; null elsewhere
   wsl: WSLStatus | null; // AgentBox's WSL distro, on Windows; null elsewhere
   linux: LinuxSetup | null; // where AgentBox runs, on Linux; null elsewhere
@@ -96,7 +99,8 @@ export interface VMStatus {
   limits?: VMLimits;
   vmType?: string; // vz, krunkit
   // Whether `agentbox vm init` would make the VM with krunkit, which gives
-  // memory back to the Mac: only before there's a VM, on Apple Silicon.
+  // memory back to the Mac and has a GPU for agents: on Apple Silicon, before
+  // there's a VM and for one made without krunkit.
   krunkit?: KrunkitCheck;
   // What `agentbox vm swap` set: size only, Lima's VM isn't asked what it
   // uses. Missing before there's a VM, and from an older front end.
@@ -106,6 +110,8 @@ export interface VMStatus {
 export interface KrunkitCheck {
   available: boolean;
   missing?: "krunkit" | "driver"; // what isn't installed
+  // Homebrew can install what's missing: `agentbox vm krunkit` does.
+  brew?: boolean;
 }
 
 export interface VMLimits {
@@ -170,6 +176,7 @@ export async function hostSetupStatus(): Promise<HostSetupStatus> {
     user: userInfo().username,
     running: running !== undefined,
     resizing: resizing !== undefined,
+    remaking: remaking !== undefined,
     vm: await vmStatus(),
     wsl: await wslStatus(),
     linux: onMac || onWindows ? null : linuxSetup(),
@@ -348,6 +355,9 @@ export interface HostSetupOptions {
   // On a Mac, "vz" makes the VM with Apple's Virtualization framework, run by
   // AgentBox itself, instead of with Lima: experimental.
   driver?: "vz";
+  // On a Mac, krunkit installs krunkit with Homebrew first (`agentbox vm
+  // krunkit`), so Lima makes the VM with it.
+  krunkit?: boolean;
   before?: (onOutput: (text: string) => void) => Promise<void>;
 }
 
@@ -381,7 +391,7 @@ export function runHostSetup(
 }
 
 function run(onOutput: (text: string) => void, linuxVMInit: boolean, options: HostSetupOptions): Promise<void> {
-  if (onMac) return initVM(onOutput, options.driver);
+  if (onMac) return initVM(onOutput, options.driver, options.krunkit === true);
   if (onWindows) return initWSL(onOutput);
   if (linuxVMInit) {
     const args = ["init"];
@@ -529,10 +539,37 @@ function initWSL(onOutput: (text: string) => void): Promise<void> {
 // initVM makes AgentBox's VM on a Mac and sets AgentBox up in it: `agentbox vm
 // init`, which is safe to run again. It takes a few minutes the first time:
 // Lima downloads Debian, and host setup installs Incus inside. With driver
-// "vz" the VM is the experimental vz driver's, which needs no Lima.
-function initVM(onOutput: (text: string) => void, driver?: "vz"): Promise<void> {
-  return runVM(driver === "vz" ? ["init", "--driver", "vz"] : ["init"], t('web.main.vmInitFailed'), onOutput);
+// "vz" the VM is the experimental vz driver's, which needs no Lima. With
+// krunkit, krunkit is installed with Homebrew first, and the VM made with it.
+async function initVM(onOutput: (text: string) => void, driver?: "vz", krunkit = false): Promise<void> {
+  if (driver === "vz") return runVM(["init", "--driver", "vz"], t('web.main.vmInitFailed'), onOutput);
+  if (krunkit) await runVM(["krunkit"], t('web.main.krunkitInstallFailed'), onOutput);
+  return runVM(["init"], t('web.main.vmInitFailed'), onOutput);
 }
+
+// remakeWithKrunkit is `agentbox vm krunkit --remake --yes` on a Mac whose VM
+// wasn't made with krunkit: krunkit installed with Homebrew, then the VM
+// deleted, with every agent's machine, the base image and AgentBox's state,
+// and made again with krunkit, which has a GPU for agents. The app asks the
+// user first. It counts as a setup run: Setup's own button waits for it.
+let remaking: Promise<void> | undefined;
+
+export function remakeWithKrunkit(onOutput: (text: string) => void): Promise<void> {
+  if (!onMac) return Promise.reject(new Error(t('web.main.krunkitMacOnly')));
+  if (running) return Promise.reject(new Error(t('web.main.setupRunning')));
+  remaking = runVM(["krunkit", "--remake", "--yes"], t('web.main.krunkitRemakeFailed'), onOutput).finally(() => {
+    running = undefined;
+    remaking = undefined;
+  });
+  running = remaking;
+  return remaking;
+}
+
+ipcMain.handle("vm:krunkit", (event) =>
+  remakeWithKrunkit((text) => {
+    if (!event.sender.isDestroyed()) event.sender.send("vm:krunkit-output", text);
+  }),
+);
 
 let resizing: Promise<void> | undefined;
 

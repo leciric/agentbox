@@ -56,6 +56,34 @@
     "height": 800
   },
   {
+    "id": "mac-vm-brew-dark",
+    "description": "A Mac's first screen on Apple Silicon without krunkit, with Homebrew: a button installs it, then makes the VM — dark, xl width",
+    "query": "vm=brew&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "mac-vm-brewdriver-light",
+    "description": "A Mac's first screen with a Homebrew Lima that has no krunkit driver: a button updates Lima — light, lg width",
+    "query": "vm=brewdriver&theme=light",
+    "width": 1024,
+    "height": 800
+  },
+  {
+    "id": "mac-gpu-vz-brew-dark",
+    "description": "Settings' GPU for agents on a Mac whose VM was made with vz: install krunkit and remake the VM — dark, xl width",
+    "query": "app=settings&gpu=vz&mac=brew&theme=dark",
+    "width": 1280,
+    "height": 1700
+  },
+  {
+    "id": "mac-gpu-vz-manual-light",
+    "description": "Settings' GPU for agents on a Mac with a vz VM and no Homebrew: the commands to run — light, lg width",
+    "query": "app=settings&gpu=vz&mac=manual&theme=light",
+    "width": 1024,
+    "height": 1700
+  },
+  {
     "id": "mac-vm-lima-light",
     "description": "A Mac's first screen without Lima: brew install lima first — light, lg width",
     "query": "vm=lima&theme=light",

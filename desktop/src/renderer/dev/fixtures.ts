@@ -40,6 +40,9 @@ function fixtureVMGPU(gpu: string | null): T.VMGPU {
       return { kind: '', node: '', setup: gpu, reason: krunkit };
     case 'failed':
       return { kind: '', node: '', setup: 'failed', reason: "GPU: Debian's generic kernel (6.12.48+deb13-arm64) didn't boot, so the VM went back to its cloud kernel" };
+    case 'vz':
+      // A Mac's VM made with Apple's Virtualization framework (hostvm.noGPU).
+      return { kind: '', node: '', setup: '', reason: "no GPU: Apple's Virtualization framework (vz) gives a Linux VM no 3D. A VM made with krunkit has a GPU for agents" };
   }
   return { kind: 'dxg', node: '/dev/dxg', setup: '', reason: '' };
 }
@@ -1299,6 +1302,7 @@ export function freeRun(queryClient: QueryClient, phase: string): FreeRun {
 function fakeVM() {
   const listeners = new Set<(text: string) => void>();
   const swapListeners = new Set<(text: string) => void>();
+  const krunkitListeners = new Set<(text: string) => void>();
   return {
     onSwapOutput: (fn: (text: string) => void) => {
       swapListeners.add(fn);
@@ -1307,6 +1311,31 @@ function fakeVM() {
     onOutput: (fn: (text: string) => void) => {
       listeners.add(fn);
       return () => listeners.delete(fn);
+    },
+    // `agentbox vm krunkit --remake --yes` against ?mac='s VM: Homebrew, the
+    // delete and the new VM, a line at a time, ending with a krunkit VM.
+    onKrunkitOutput: (fn: (text: string) => void) => {
+      krunkitListeners.add(fn);
+      return () => krunkitListeners.delete(fn);
+    },
+    remakeWithKrunkit: async () => {
+      const vm = devState.hostSetup?.vm;
+      if (!vm) throw new Error('krunkit runs only on a Mac');
+      const brew = vm.krunkit?.brew ? (vm.krunkit.missing === 'driver' ? ['$ brew upgrade lima\n', '==> Upgrading lima 1.2.0 -> 2.2.1\n'] : ['$ brew tap slp/krun\n', '$ brew trust slp/krun\n', '$ brew install krunkit\n', '==> Pouring krunkit--1.3.2.arm64_tahoe.bottle.tar.gz\n']) : [];
+      const lines = [
+        '$ agentbox vm krunkit --remake --yes\n',
+        ...brew,
+        '==> krunkit is installed: a VM made now is made with it\n',
+        "==> Deleting the VM (Apple's Virtualization framework), and every agent's machine in it\n",
+        '==> Making the VM with krunkit, so it gives the memory it stops using back to your Mac, and has a GPU for agents\n',
+        '==> Setting AgentBox up in the VM\n',
+      ];
+      for (const line of lines) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        for (const fn of krunkitListeners) fn(line);
+      }
+      devState.hostSetup = { ...devState.hostSetup!, vm: { ...vm, vmType: 'krunkit', krunkit: undefined } };
+      defaultsSettings = { ...defaultsSettings, vmGPU: { kind: '', node: '', setup: 'available', reason: "the VM's kernel has no GPU driver yet: turning GPU for agents on installs one" } };
     },
     resize: async (cpus: number, memory: string, restart?: boolean, disk?: string) => {
       // On Linux (?chv=), the Cloud Hypervisor VM changes while it runs.
@@ -1667,6 +1696,36 @@ export function seedLinuxHost(queryClient: QueryClient, kvm: boolean): void {
   queryClient.setQueryData(['host-setup'], devState.hostSetup);
   devState.migration = { state: 'available', projects: [PROJECT, 'organic'], agents: [`${PROJECT}/agent-01`, `${PROJECT}/agent-12`, `${PROJECT}/agent-99`, 'organic/agent-3'] };
   queryClient.setQueryData(['vm-migration'], devState.migration);
+}
+
+// seedMacVZ is Settings on a Mac whose VM was made with Apple's
+// Virtualization framework (?gpu=vz&mac=…), at its Agents section, where GPU
+// for agents offers to make it again with krunkit: Homebrew installs krunkit
+// (brew) or a Lima with its driver (driver), there's no Homebrew (manual) or a
+// Lima Homebrew can't upgrade (nodriver), or krunkit is installed already
+// (ready). Its remake streams made-up output and ends with a krunkit VM.
+export function seedMacVZ(queryClient: QueryClient, kind: string): void {
+  seedSettings(queryClient);
+  const GiB = 1024 ** 3;
+  const krunkit =
+    kind === 'ready'
+      ? { available: true }
+      : kind === 'driver'
+        ? { available: false, missing: 'driver' as const, brew: true }
+        : kind === 'nodriver'
+          ? { available: false, missing: 'driver' as const }
+          : { available: false, missing: 'krunkit' as const, brew: kind !== 'manual' };
+  devState.hostSetup = {
+    pkexec: null,
+    user: 'leandro',
+    running: false,
+    resizing: false,
+    vm: { lima: '/opt/homebrew/bin/limactl', name: 'agentbox', exists: true, status: 'Running', cpus: 6, memory: 12 * GiB, disk: 200 * GiB, vmType: 'vz', krunkit },
+    wsl: null,
+    linux: null,
+    chv: null,
+  };
+  queryClient.setQueryData(['host-setup'], devState.hostSetup);
 }
 
 // seedLinuxVM is Settings on a Linux machine in VM mode (?chv=…), at its

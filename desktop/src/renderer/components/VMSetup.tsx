@@ -1,9 +1,10 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { FlaskConical, LoaderCircle, MonitorCog } from 'lucide-react';
+import { Download, FlaskConical, LoaderCircle, MonitorCog } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import type { VMStatus } from '../../preload';
 import { useT, type MessageKey } from '../lib/i18n';
+import { krunkitPlan, type KrunkitPlan } from '../lib/krunkit';
 import { cn, errorMessage } from '../lib/utils';
 import { appendOutput, CommandBox, SetupLog } from './SettingsView';
 import { Badge } from './ui/badge';
@@ -26,7 +27,9 @@ const drivers: { driver: Driver; label: MessageKey | null; hint: MessageKey }[] 
 // this makes the VM from the app, with `agentbox vm init`, and streams what it
 // prints. The daemon it starts is the app's to connect to when it finishes.
 // A VM that exists keeps the driver it was made with; a new one is Lima's
-// unless the experimental vz driver is chosen.
+// unless the experimental vz driver is chosen. When krunkit is missing and
+// Homebrew can install it, the main button installs it first, so the VM is
+// made with krunkit; setting up without it stays a button away.
 export function VMSetup({ vm }: { vm: VMStatus }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -36,8 +39,12 @@ export function VMSetup({ vm }: { vm: VMStatus }) {
   const driver: Driver = vm.driver === 'vz' ? 'vz' : vm.exists ? 'lima' : chosen;
   const vz = driver === 'vz';
 
+  // What Lima's new VM can do about krunkit, which gives agents a GPU.
+  const krunkit = !vm.exists && !vz ? krunkitPlan(vm.krunkit) : null;
+  const brew = krunkit?.kind === 'brew' ? krunkit : null;
   const run = useMutation({
-    mutationFn: () => window.agentbox.hostSetup.run(vz ? { driver: 'vz' } : undefined),
+    mutationFn: (withKrunkit: boolean) =>
+      window.agentbox.hostSetup.run(vz ? { driver: 'vz' } : withKrunkit ? { krunkit: true } : undefined),
     onMutate: () => setLines([]),
     onSuccess: async () => {
       toast(t('vm.setup.toast'), { description: t('vm.setup.toastDescription') });
@@ -49,7 +56,7 @@ export function VMSetup({ vm }: { vm: VMStatus }) {
   // "Not set up" is what this whole card says; anything else (a broken VM, a
   // missing Linux binary) is worth showing on its own.
   const otherProblem = vm.problem && !(!vm.exists && vm.problem.includes("isn't set up")) ? vm.problem : '';
-  const command = vz ? 'agentbox vm init --driver vz' : 'agentbox vm init';
+  const command = vz ? 'agentbox vm init --driver vz' : brew ? 'agentbox vm krunkit && agentbox vm init' : 'agentbox vm init';
   return (
     <Panel className="grid gap-3 p-4" data-vm-setup={noLima ? 'lima' : vm.exists ? 'repair' : 'create'} data-vm-driver={driver}>
       <div className="flex items-start gap-3">
@@ -106,12 +113,25 @@ export function VMSetup({ vm }: { vm: VMStatus }) {
         </div>
       ) : (
         <>
-          {!vm.exists && !vz && vm.krunkit && <KrunkitNote check={vm.krunkit} />}
+          {krunkit && <KrunkitNote plan={krunkit} />}
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="primary" disabled={run.isPending} onClick={() => run.mutate()}>
-              {run.isPending ? <LoaderCircle className="animate-spin" /> : <MonitorCog />}
-              {vm.exists ? t('vm.setup.finish') : t('vm.setup.setUp')}
-            </Button>
+            {brew ? (
+              <>
+                <Button variant="primary" data-install-krunkit disabled={run.isPending} onClick={() => run.mutate(true)}>
+                  {run.isPending && run.variables ? <LoaderCircle className="animate-spin" /> : <Download />}
+                  {brew.missing === 'driver' ? t('vm.setup.upgradeLima') : t('vm.setup.installKrunkit')}
+                </Button>
+                <Button variant="ghost" disabled={run.isPending} onClick={() => run.mutate(false)}>
+                  {run.isPending && !run.variables && <LoaderCircle className="animate-spin" />}
+                  {t('vm.setup.withoutKrunkit')}
+                </Button>
+              </>
+            ) : (
+              <Button variant="primary" disabled={run.isPending} onClick={() => run.mutate(false)}>
+                {run.isPending ? <LoaderCircle className="animate-spin" /> : <MonitorCog />}
+                {vm.exists ? t('vm.setup.finish') : t('vm.setup.setUp')}
+              </Button>
+            )}
             <span className="text-xs text-subtle">{run.isPending ? t('vm.setup.takesAWhile') : t('vm.setup.noPassword')}</span>
           </div>
         </>
@@ -129,19 +149,30 @@ export function VMSetup({ vm }: { vm: VMStatus }) {
   );
 }
 
-// KrunkitNote says whether the VM about to be made gives memory back to the
-// Mac. Made with krunkit, it hands back what its agents stop using; made with
-// Apple's Virtualization framework, Lima's default, it keeps whatever it has
-// used until it stops. Setup doesn't install krunkit itself: it says how.
-function KrunkitNote({ check }: { check: NonNullable<VMStatus['krunkit']> }) {
+// KrunkitNote says whether the VM about to be made has a GPU for its agents
+// and gives memory back to the Mac: made with krunkit, it does both; made with
+// Apple's Virtualization framework, Lima's default, it has no GPU and keeps
+// whatever it has used until it stops. When Homebrew can install what's
+// missing, it shows what Homebrew will run; otherwise how to install it.
+function KrunkitNote({ plan }: { plan: KrunkitPlan }) {
   const t = useT();
-  if (check.available)
+  if (plan.kind === 'ready')
     return (
       <p className="text-[13px] text-muted" data-krunkit="available">
         {t('vm.setup.krunkitAvailable')}
       </p>
     );
-  if (check.missing === 'driver')
+  if (plan.kind === 'brew')
+    return (
+      <div className="grid gap-2" data-krunkit={`brew-${plan.missing}`}>
+        <p className="text-[13px] text-muted">
+          {plan.missing === 'driver' ? t('vm.setup.krunkitDriverBrew') : t('vm.setup.krunkitBrew')}
+        </p>
+        <p className="text-xs text-subtle">{t('vm.setup.brewRuns')}</p>
+        <CommandBox command={plan.command} />
+      </div>
+    );
+  if (plan.missing === 'driver')
     return (
       <p className="text-[13px] text-muted" data-krunkit="driver">
         {t('vm.setup.krunkitDriver')}
@@ -152,7 +183,7 @@ function KrunkitNote({ check }: { check: NonNullable<VMStatus['krunkit']> }) {
       <p className="text-[13px] text-muted">
         {t('vm.setup.krunkitMissing')}
       </p>
-      <CommandBox command="brew tap slp/krun && brew trust slp/krun && brew install krunkit" />
+      <CommandBox command={plan.command} />
     </div>
   );
 }
