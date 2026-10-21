@@ -421,6 +421,12 @@ if (usage) {
 const chatAgent = chat ? fixtures.agents.find((a) => a.ref === `${PROJECT}/${chat}`) : undefined;
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false, refetchOnWindowFocus: false } } });
+if (params.get('gpu')) {
+  // Restarting the VM invalidates every query; the bridge has no answer for
+  // most of them, so only Settings (which it does answer) is refetched.
+  const invalidate = queryClient.invalidateQueries.bind(queryClient);
+  queryClient.invalidateQueries = ((filters?: Parameters<typeof invalidate>[0]) => invalidate(filters ?? { queryKey: ['settings'] })) as typeof invalidate;
+}
 seedQueryClient(queryClient, fixtures);
 if (defaults) seedDefaults(queryClient);
 // The project's chat can switch tool and account from its composer: Claude Code

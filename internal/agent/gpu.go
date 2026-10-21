@@ -52,6 +52,10 @@ const (
 	GPUHost = "host"
 )
 
+// OldVMReason is VMGPU.Reason of a GPUHost with no Node: the Linux VM runs
+// from an older AgentBox, which wrote no status (vmGPUStatusFile).
+const OldVMReason = "started by an older AgentBox"
+
 // The devices "GPU for agents" adds. vgpuDevice is the GPU itself; the others
 // go with /dev/dxg. agentbox-vgpu-driver is the macOS code's (vgpudriver.go),
 // which gpuSteps adds beside a render node.
@@ -184,6 +188,13 @@ export MESA_VK_DEVICE_SELECT=` + ids + `
 func hostGPU() (VMGPU, bool) {
 	b, err := os.ReadFile(vmGPUStatusFile)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) && hostos.OS() == hostos.Linux {
+			// The Cloud Hypervisor VM was started by an AgentBox whose
+			// supervisor knew no GPU: it learns of the host's only when it
+			// restarts, which is also when it gets the GPU, so the switch
+			// can go on now and one restart does both.
+			return VMGPU{Kind: GPUHost, Reason: OldVMReason}, true
+		}
 		return VMGPU{}, false
 	}
 	var st struct {

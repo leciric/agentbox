@@ -26,6 +26,9 @@ function fixtureVMGPU(gpu: string | null): T.VMGPU {
       return { kind: '', node: '', setup: '', reason: "AgentBox's VM has no GPU to give agents" };
     case 'host':
       return { kind: 'host', node: '/dev/dri/renderD129', setup: '', reason: '' };
+    case 'old':
+      // An old VM: the host's GPU, with no node known until it restarts.
+      return { kind: 'host', node: '', setup: '', reason: 'started by an older AgentBox' };
     case 'hostrestart':
       return { kind: 'host', node: '/dev/dri/renderD129', setup: '', reason: 'the VM gets this GPU when it next starts: restart AgentBox\'s VM for agents to get it (agentbox vm stop, then agentbox vm start; agents stop with it).' };
     case 'nvidia':
@@ -1413,6 +1416,10 @@ function fakeVM() {
             : vm.driver === 'wsl'
               ? { ...vm, state: 'running', memoryGranted: 16 * GiB, memoryCap: 16 * GiB, memoryUsed: 2.4 * GiB, cpus: 8 }
               : { ...vm, state: 'running', memoryGranted: vm.memoryGranted || 8 * GiB, memoryUsed: vm.memoryUsed || 3.1 * GiB };
+      // The restarted VM has its GPU (?gpu=old|hostrestart|restart).
+      if (action === 'start' && defaultsSettings.vmGPU.setup !== 'failed' && (defaultsSettings.vmGPU.kind === 'host' || defaultsSettings.vmGPU.setup === 'restart')) {
+        defaultsSettings = { ...defaultsSettings, vmGPU: { kind: 'render', node: '/dev/dri/renderD128', setup: '', reason: '' } };
+      }
       return devState.vmPower;
     },
   };
@@ -1806,6 +1813,7 @@ export function installDevBridge(): void {
   (window as unknown as { agentbox: unknown }).agentbox = {
     request: async (method: string, path: string, body?: unknown) => {
       if (method === 'PATCH' && path === '/v1/settings') return patchDefaults(body as T.UpdateSettingsRequest);
+      if (method === 'GET' && path === '/v1/settings' && defaultsSettings.claudeCodeUpdate) return { status: 200, body: JSON.stringify(defaultsSettings), contentType: 'application/json' };
       const page = pageRequest(method, path);
       if (page) return page;
       // No project has a saved base: Settings' Repository says so.

@@ -49,6 +49,8 @@ import { isNightly, isUpgrade } from "../lib/nightly";
 import { openLatestRelease } from "../lib/releaseLink";
 import { updateHint } from "../lib/appUpdate";
 import { useAppUpdate } from "../lib/useAppUpdate";
+import { useConnection } from "../lib/events";
+import { RestartVM } from "./RestartVM";
 import type { SettingSection } from "../lib/settingsSearch";
 import { cn, errorMessage, timeAgo } from "../lib/utils";
 import { ImageDownloads } from "./ImageDownloads";
@@ -1920,7 +1922,15 @@ export function AgentGPU() {
     queryKey: ["settings"],
     queryFn: api.settings,
     refetchInterval: (q) => (q.state.data?.vmGPU.setup === "running" ? 5000 : false),
+    // The VM's GPU changes when the VM restarts, with the app open.
+    refetchOnWindowFocus: "always",
   });
+  // ...and when the daemon comes back from a restart.
+  const connected = useConnection().state === "connected";
+  const refetchSettings = settings.refetch;
+  useEffect(() => {
+    if (connected) void refetchSettings();
+  }, [connected, refetchSettings]);
   const queryClient = useQueryClient();
   const save = useMutation({
     mutationFn: (agentGPU: boolean) => api.updateSettings({ agentGPU }),
@@ -1929,6 +1939,9 @@ export function AgentGPU() {
   });
   const gpu = settings.data?.vmGPU;
   const unavailable = gpu !== undefined && gpu.kind === "" && !gpu.setup;
+  // The VM has to restart for the GPU: an old VM or a new kernel, or the
+  // switch on with the GPU still to come.
+  const needsRestart = gpu !== undefined && (gpu.setup === "restart" || (gpu.kind === "host" && settings.data?.agentGPU === true));
   return (
     <SettingRow
       label={t("settings.entry.agent-gpu.label")}
@@ -1949,6 +1962,7 @@ export function AgentGPU() {
           {unavailable ? t("settings.agentGPU.unavailable", { reason: gpu.reason }) : vmGPUNote(t, gpu)}
         </SettingNote>
       )}
+      {needsRestart && <RestartVM />}
     </SettingRow>
   );
 }
@@ -1968,6 +1982,9 @@ function vmGPUNote(t: ReturnType<typeof useT>, gpu: T.VMGPU): string {
     return t(setup, { reason: gpu.reason });
   }
   if (gpu.kind === "host") {
+    if (!gpu.node) {
+      return t("settings.agentGPU.hostOld");
+    }
     return gpu.reason
       ? t("settings.agentGPU.hostPending", { node: gpu.node, reason: gpu.reason })
       : t("settings.agentGPU.host", { node: gpu.node });

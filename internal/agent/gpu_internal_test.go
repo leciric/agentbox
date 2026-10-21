@@ -267,3 +267,23 @@ func TestGPUStepsLinuxVulkan(t *testing.T) {
 		t.Errorf("%+v", gpu)
 	}
 }
+
+// A Cloud Hypervisor VM started by an older AgentBox has no status file: it
+// can have the GPU after one restart, so the switch can be turned on.
+func TestFindVMGPUOldVM(t *testing.T) {
+	if hostos.WSL() {
+		t.Skip("WSL has its own reasons")
+	}
+	t.Setenv(hostos.Env, hostos.Linux)
+	fakeGPU(t, "", "", false)
+	got := FindVMGPU()
+	if got.Kind != GPUHost || got.Node != "" || got.Reason != OldVMReason {
+		t.Errorf("an old Linux VM: %+v", got)
+	}
+
+	// Not in that VM, there is nothing to restart.
+	t.Setenv(hostos.Env, "")
+	if got := FindVMGPU(); got.Kind != GPUNone {
+		t.Errorf("a machine of its own: %+v", got)
+	}
+}

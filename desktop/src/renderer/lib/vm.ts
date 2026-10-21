@@ -71,3 +71,28 @@ export async function ensureVMRunning(): Promise<void> {
     }
   }
 }
+
+// restartVM stops the VM and starts it again, calling onPhase as it goes, and
+// resolves once the daemon inside answers `ready`, which tells it to stop
+// waiting by resolving. Every agent in the VM stops with it.
+export async function restartVM(
+  onPhase: (phase: 'stopping' | 'starting' | 'waiting') => void,
+  ready: () => Promise<unknown>,
+): Promise<void> {
+  const power = await window.agentbox.vm.power();
+  if (power && power.state !== 'off') {
+    onPhase('stopping');
+    await actOnVM('stop');
+  }
+  onPhase('starting');
+  await actOnVM('start');
+  onPhase('waiting');
+  for (let deadline = Date.now() + 2 * 60_000; ; await new Promise((resolve) => setTimeout(resolve, 1_000))) {
+    try {
+      await ready();
+      return;
+    } catch (err) {
+      if (Date.now() > deadline) throw err;
+    }
+  }
+}
