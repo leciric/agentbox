@@ -43,9 +43,6 @@ function fixtureVMGPU(gpu: string | null): T.VMGPU {
       return { kind: '', node: '', setup: gpu, reason: krunkit };
     case 'failed':
       return { kind: '', node: '', setup: 'failed', reason: "GPU: Debian's generic kernel (6.12.48+deb13-arm64) didn't boot, so the VM went back to its cloud kernel" };
-    case 'vz':
-      // A Mac's VM made with Apple's Virtualization framework (hostvm.noGPU).
-      return { kind: '', node: '', setup: '', reason: "no GPU: Apple's Virtualization framework (vz) gives a Linux VM no 3D. A VM made with krunkit has a GPU for agents" };
   }
   return { kind: 'dxg', node: '/dev/dxg', setup: '', reason: '' };
 }
