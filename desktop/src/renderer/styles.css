@@ -641,15 +641,11 @@
   overflow-x: auto;
 }
 
-/* Rich renders sit in the text column as cards, aligned with the text. They
-   never outgrow a modest width: a page or a wide diagram scrolls or opens
+/* Rich renders sit in the text column as cards, exactly as wide as the text
+   (a block's default width, no cap): a page or a wide diagram scrolls or opens
    large instead. Plain SVGs wrap their content, so a short one isn't stretched (a diagram
    is drawn after, so its card keeps the column to avoid a jump).
    Tables keep the text width and scroll sideways. */
-.chat-codeblock[data-rich],
-.chat-codeblock[data-rich-generating] {
-  max-width: min(100%, 44rem);
-}
 
 .chat-codeblock[data-rich='svg'] {
   width: fit-content;

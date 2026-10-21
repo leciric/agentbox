@@ -1330,14 +1330,14 @@
   },
   {
     "id": "chat-rich-wide-full-dark",
-    "description": "Rich blocks sit in the text column as cards, capped at 44rem — dark",
+    "description": "Rich blocks sit in the text column as cards, as wide as the text — dark",
     "query": "chat=rich&wide=1&theme=dark",
     "width": 1600,
     "height": 1500
   },
   {
     "id": "chat-rich-wide-full-light",
-    "description": "Rich blocks sit in the text column as cards, capped at 44rem — light",
+    "description": "Rich blocks sit in the text column as cards, as wide as the text — light",
     "query": "chat=rich&wide=1&theme=light",
     "width": 1600,
     "height": 1500
