@@ -25,3 +25,7 @@ test('waiting on a permission or a question does not hold it', () => {
   assert.equal(busy([agent('p/a', 'running', 'running')], none, [], new Set(['p/a'])), false);
   assert.equal(busy([agent('p/a', 'running', 'running'), agent('p/b', 'running', 'running')], none, [], new Set(['p/a'])), true);
 });
+
+test('a stalled turn does not hold it', () => {
+  assert.equal(busy([{ ref: 'p/a', state: 'running', chat: 'running', stalledSince: '2026-10-21T10:00:00Z' }], none, []), false);
+});
