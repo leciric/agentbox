@@ -193,7 +193,11 @@ func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
 // idempotent, so it retries that exact error a few times with a short
 // backoff; any other error returns at once.
 func (c Client) WriteFile(ctx context.Context, name, path string, content []byte, uid, gid int, mode os.FileMode) error {
-	const script = `set -e; mkdir -p "$(dirname "$1")"; (umask 077 && cat >"$1"); chown "$2" "$1"; chmod "$3" "$1"`
+	// The parent directories this creates belong to uid:gid too, not to root
+	// (who runs this): the file's owner must be able to add to its directory.
+	const script = `set -e; d="$(dirname "$1")"; top=; while [ ! -e "$d" ] && [ "$d" != / ] && [ "$d" != . ]; do top="$d"; d="$(dirname "$d")"; done; ` +
+		`mkdir -p "$(dirname "$1")"; if [ -n "$top" ]; then find "$top" -type d -exec chown "$2" {} +; fi; ` +
+		`(umask 077 && cat >"$1"); chown "$2" "$1"; chmod "$3" "$1"`
 	args := []string{"sh", "-c", script, "sh", path, fmt.Sprintf("%d:%d", uid, gid), strconv.FormatUint(uint64(mode.Perm()), 8)}
 	var err error
 	for attempt := 0; attempt < pidRetries; attempt++ {

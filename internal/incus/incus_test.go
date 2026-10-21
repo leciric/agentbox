@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -457,6 +459,49 @@ func TestWriteFileSendsContentThroughStdinNotTheCommandLine(t *testing.T) {
 	}
 	if string(got) != "export FOO=1\n" {
 		t.Errorf("WriteFile() piped %q, want the content on stdin", got)
+	}
+}
+
+// A file written as root into directories that don't exist yet must leave
+// those directories to its owner, or the owner can't add to them (agents
+// failed to start when ln -s ran as the user in a root-owned git-hooks dir).
+func TestWriteFileGivesTheDirectoriesItCreatesToTheOwner(t *testing.T) {
+	if os.Geteuid() != 0 {
+		if err := exec.Command("sudo", "-n", "true").Run(); err != nil {
+			t.Skip("needs root to chown")
+		}
+	}
+	root := t.TempDir()
+	t.Cleanup(func() { _ = exec.Command("sudo", "-n", "rm", "-rf", root+"/home").Run() })
+	if err := os.Chmod(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Runs what follows "--" as root, standing in for a machine's exec.
+	c := fakeIncus(t, `while [ "$1" != -- ]; do shift; done; shift; if [ "$(id -u)" = 0 ]; then exec "$@"; fi; exec sudo -n "$@"`)
+	target := filepath.Join(root, "home", ".config", "agentbox", "git-hooks", "commit-msg")
+	if err := os.MkdirAll(filepath.Join(root, "home"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.WriteFile(context.Background(), "agent-01", target, []byte("x"), 4321, 4321, 0o755); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	for _, p := range []string{
+		filepath.Join(root, "home", ".config"),
+		filepath.Join(root, "home", ".config", "agentbox"),
+		filepath.Join(root, "home", ".config", "agentbox", "git-hooks"),
+		target,
+	} {
+		fi, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if uid := fi.Sys().(*syscall.Stat_t).Uid; uid != 4321 {
+			t.Errorf("%s is owned by %d, want 4321", p, uid)
+		}
+	}
+	// What already existed is left as it was.
+	if fi, _ := os.Stat(filepath.Join(root, "home")); fi.Sys().(*syscall.Stat_t).Uid == 4321 {
+		t.Error("an existing directory was chowned")
 	}
 }
 
