@@ -3,7 +3,8 @@ name: Nightly
 # Nightly builds: everything release.yml builds — the AppImage, .deb and
 # .pacman, the Windows installer and portable .exe, the command-line tool for
 # linux-amd64, linux-arm64, darwin-arm64 and darwin-amd64, and the Mac app —
-# from the head of release-please's PR, published as a GitHub prerelease with
+# from the head of release-please's PR (or main's tip when that head is behind
+# main), published as a GitHub prerelease with
 # SHA256SUMS. The PR's head is the next release as it stands (its commit
 # already bumps desktop/package.json), so a nightly is versioned <next
 # release>-nightly.<YYYYMMDD>.<run>: a semver prerelease, ordered by date then
@@ -120,6 +121,24 @@ jobs:
               fi
               ;;
           esac
+          # The release PR's head only is the next release if it contains main's
+          # tip. release-please leaves its branch alone when a change adds no
+          # changelog line (a `ci:` one), so it can lag main, and a tag on a
+          # commit whose workflow files differ from main's is refused to
+          # GITHUB_TOKEN (no `workflows` permission). Then build main's tip.
+          if [ -n "$pr" ]; then
+            main=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)
+            status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$main...$sha" --jq .status)
+            case $status in
+              ahead|identical) ;;
+              *)
+                msg="Release PR #$pr (${sha:0:7}) doesn't contain main's tip (compare: $status), so this builds main at ${main:0:7} instead."
+                echo "::notice::$msg"
+                echo "$msg" >>"$GITHUB_STEP_SUMMARY"
+                sha=$main pr=
+                ;;
+            esac
+          fi
           {
             echo "build=true"
             echo "sha=$sha"
