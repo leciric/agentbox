@@ -429,6 +429,10 @@ if (params.get('gpu')) {
   queryClient.invalidateQueries = ((filters?: Parameters<typeof invalidate>[0]) => invalidate(filters ?? { queryKey: ['settings'] })) as typeof invalidate;
 }
 seedQueryClient(queryClient, fixtures);
+// The project chat's runner answers with the account it spends, "work" here.
+if (usage) {
+  queryClient.setQueryData<T.LeadRunners>(['chatRunners', PROJECT], { tool: 'claude', account: 'work', runners: [{ tool: 'claude', name: 'Claude Code', ready: true, installed: true }] });
+}
 if (defaults) seedDefaults(queryClient);
 // The project's chat can switch tool and account from its composer: Claude Code
 // on two accounts with their quota, Codex, and Cursor signed out.
