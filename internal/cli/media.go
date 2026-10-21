@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -495,13 +496,25 @@ func newMediaRmCmd(a *app) *cobra.Command {
 		Short: "Delete an item; inside an agent, name only the id: it deletes its own",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// An agent naming itself, as the host form and media save have
+			// it do, deletes on its own socket too: the host's API isn't
+			// there, and reaching for it tried to start a daemon in the
+			// agent, which failed on a permission error.
+			if self, ok := selfClient(cmd, args); ok {
+				id := args[len(args)-1]
+				if err := self.DeleteSelfMedia(cmd.Context(), id); err != nil {
+					return fmt.Errorf("deleting %s: %w", id, err)
+				}
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Deleted %s\n", id)
+				return nil
+			}
 			if len(args) == 1 {
 				c, err := a.scopedClient(cmd, "")
 				if err != nil {
 					return err
 				}
 				if err := c.DeleteSelfMedia(cmd.Context(), args[0]); err != nil {
-					return err
+					return fmt.Errorf("deleting %s: %w", args[0], err)
 				}
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Deleted %s\n", args[0])
 				return nil
@@ -515,12 +528,30 @@ func newMediaRmCmd(a *app) *cobra.Command {
 				return err
 			}
 			if err := c.DeleteMedia(cmd.Context(), item.ID); err != nil {
-				return err
+				return fmt.Errorf("deleting %s: %w", item.ID, err)
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Deleted %q\n", item.Name)
 			return nil
 		},
 	}
+}
+
+// selfClient is the in-agent API, when rm runs inside an agent and names that
+// agent (project/agent, or just its name) before the id.
+func selfClient(cmd *cobra.Command, args []string) (*api.Client, bool) {
+	if len(args) != 2 {
+		return nil, false
+	}
+	socket := inAgentSocket()
+	if _, err := os.Stat(socket); err != nil {
+		return nil, false
+	}
+	c := api.NewClient(socket)
+	self, err := c.Self(cmd.Context())
+	if err != nil || (args[0] != self.Ref && args[0] != self.Agent) {
+		return nil, false
+	}
+	return c, true
 }
 
 // newMediaDeleteCmd is the bulk form of media rm: several items at once, or

@@ -188,6 +188,36 @@ func TestDeleteMediaRemovesTheRowAndItsFile(t *testing.T) {
 	}
 }
 
+// A directory pulled out of an agent keeps its modes, and one without write
+// permission (a read-only report, a module cache) made os.RemoveAll fail with
+// "permission denied": the item's files have to go all the same.
+func TestDeleteMediaRemovesReadOnlyDirectories(t *testing.T) {
+	f := setup(t, fakeIncus(t, "exit 0"))
+	a := destroyFixture(t, f)
+	item := addMediaFixture(t, f, a)
+	dir := filepath.Join(f.m.MediaDir(item.Project, item.Agent), item.ID)
+	sub := filepath.Join(dir, "report", "assets")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "app.js"), []byte("x"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{sub, filepath.Dir(sub)} {
+		if err := os.Chmod(d, 0o555); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Dir(sub), 0o755); _ = os.Chmod(sub, 0o755) })
+
+	if err := f.m.DeleteMedia(context.Background(), item); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("DeleteMedia() left the read-only directory behind: %v", err)
+	}
+}
+
 // TestExportMediaWritesAReadmeAndCopiesEachItem checks that a note ends up in
 // the README as text, that a file item is copied out beside it, and that an
 // agent with nothing to export is refused.

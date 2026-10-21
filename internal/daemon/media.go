@@ -284,10 +284,16 @@ func (s *Server) selfDeleteMedia(self func(*http.Request) (state.Agent, error)) 
 }
 
 func (s *Server) removeMedia(w http.ResponseWriter, r *http.Request, item state.Media) error {
-	if err := s.manager(nil).DeleteMedia(r.Context(), item); err != nil {
+	err := s.manager(nil).DeleteMedia(r.Context(), item)
+	if err != nil && !errors.Is(err, agent.ErrMediaFilesLeft) {
 		return err
 	}
+	// Gone from the store, so gone from every Media view, even if some of
+	// its files couldn't be removed: the caller hears about those.
 	s.events.publish(api.EventMedia, api.MediaItem{ID: item.ID, Agent: item.Ref(), Kind: item.Kind, Name: item.Name, Removed: true})
+	if err != nil {
+		return err
+	}
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }

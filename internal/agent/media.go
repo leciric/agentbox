@@ -115,7 +115,25 @@ func (m *Manager) startMedia(a state.Agent, kind, name, source string) (*pending
 	}}, nil
 }
 
-func (p *pendingMedia) discard() { _ = os.RemoveAll(p.dir) }
+func (p *pendingMedia) discard() { _ = removeTree(p.dir) }
+
+// removeTree is os.RemoveAll for what was pulled out of an agent, which keeps
+// the modes it had there: a directory without write permission, like a
+// read-only report or a Go module cache, can't be emptied until it is given
+// it back.
+func removeTree(path string) error {
+	err := os.RemoveAll(path)
+	if err == nil || !errors.Is(err, fs.ErrPermission) {
+		return err
+	}
+	_ = filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && d.IsDir() {
+			_ = os.Chmod(p, 0o700)
+		}
+		return nil
+	})
+	return os.RemoveAll(path)
+}
 
 // saveMedia records the item. file is its file or directory inside p.dir, or ""
 // for a note.
@@ -731,10 +749,17 @@ func (m *Manager) DeleteMedia(ctx context.Context, item state.Media) error {
 		return err
 	}
 	if old := m.legacyMediaDir(); old != "" {
-		_ = os.RemoveAll(filepath.Join(old, item.Project, item.Agent, item.ID))
+		_ = removeTree(filepath.Join(old, item.Project, item.Agent, item.ID))
 	}
-	return os.RemoveAll(filepath.Join(m.MediaDir(item.Project, item.Agent), item.ID))
+	if err := removeTree(filepath.Join(m.MediaDir(item.Project, item.Agent), item.ID)); err != nil {
+		return fmt.Errorf("%w: %s is deleted, but not all of its files: %w", ErrMediaFilesLeft, item.ID, err)
+	}
+	return nil
 }
+
+// ErrMediaFilesLeft is DeleteMedia having deleted the item but not all of its
+// files: it is gone from Media, and what is left on disk is said.
+var ErrMediaFilesLeft = errors.New("files left behind")
 
 // deleteAgentMedia deletes an agent's media as it goes, but for its
 // favorites: those are kept as if the agent's media were, their retention
@@ -748,7 +773,7 @@ func (m *Manager) deleteAgentMedia(ctx context.Context, a state.Agent) error {
 		removeAllBut(filepath.Join(old, a.Project, a.Name), kept)
 	}
 	if len(kept) == 0 {
-		return os.RemoveAll(m.MediaDir(a.Project, a.Name))
+		return removeTree(m.MediaDir(a.Project, a.Name))
 	}
 	removeAllBut(m.MediaDir(a.Project, a.Name), kept)
 	return m.keepAgentMedia(ctx, a)
@@ -758,7 +783,7 @@ func (m *Manager) deleteAgentMedia(ctx context.Context, a state.Agent) error {
 // kept items' own directories, each named for its item's ID.
 func removeAllBut(dir string, kept []state.Media) {
 	if len(kept) == 0 {
-		_ = os.RemoveAll(dir)
+		_ = removeTree(dir)
 		return
 	}
 	keep := make(map[string]bool, len(kept))
@@ -768,7 +793,7 @@ func removeAllBut(dir string, kept []state.Media) {
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
 		if !keep[e.Name()] {
-			_ = os.RemoveAll(filepath.Join(dir, e.Name()))
+			_ = removeTree(filepath.Join(dir, e.Name()))
 		}
 	}
 }

@@ -65,6 +65,13 @@ func (a *app) client(cmd *cobra.Command) (*api.Client, error) {
 		return nil, fmt.Errorf("the AgentBox daemon isn't running on %s: start it with agentbox daemon", c.Socket())
 	}
 	if err := a.launchDaemon(cmd, c); err != nil {
+		if insideAgent() {
+			// Most often a host command in an agent, where AgentBox's own
+			// directories aren't the agent's to write ("permission denied").
+			return nil, fmt.Errorf("%w: this runs inside an agent, which has no AgentBox daemon of its own; "+
+				"what acts on the host's projects and agents works on the host only, "+
+				"and an agent names only its own items (agentbox media rm <id>)", err)
+		}
 		return nil, err
 	}
 	return c, nil
