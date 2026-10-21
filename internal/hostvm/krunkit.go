@@ -386,7 +386,7 @@ func remakeWithKrunkit(ctx context.Context, newVM func() (*VM, error)) error {
 		return err
 	}
 	if st, err := vm.State(ctx); err == nil && st.VMType != krunkitVMType {
-		return errors.New("Lima made the VM with Apple's Virtualization framework after all (see above), so its agents have no GPU")
+		return errors.New("the VM was made with Apple's Virtualization framework after all (Lima refused krunkit, see above), so its agents have no GPU")
 	}
 	return nil
 }
