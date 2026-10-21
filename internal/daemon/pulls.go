@@ -64,6 +64,10 @@ const (
 	// holds answers about agents whose pull request is older than the whole
 	// page. A new commit on the agent's branch is a new lookup.
 	pullsBranchTTL = 10 * time.Minute
+	// pullsLookupKeep is how long a lookup no refresh asked about again is
+	// kept: the agents that finished are asked about whenever the review list
+	// is read, so this only lets go of the tips of agents long gone.
+	pullsLookupKeep = 24 * time.Hour
 	// pullsFetchTimeout bounds one background refresh.
 	pullsFetchTimeout = 60 * time.Second
 	// pullsBranchLookups is how many per-agent lookups run at once.
@@ -434,6 +438,20 @@ func (e pullsEntry) knows(heads []agentHead, now time.Time, lookupTTL time.Durat
 	return true
 }
 
+// answered reports whether the entry can say if h has a pull request: GitHub
+// answered, and either h's work is on the list page or a lookup asked about
+// its tip. With the list refused, what is served is all there is to go by.
+func (e pullsEntry) answered(h agentHead) bool {
+	if e.at.IsZero() {
+		return false
+	}
+	if h.tip == "" || e.listErr.failed() || e.listed(h) != nil {
+		return true
+	}
+	_, ok := e.lookups[h.tip]
+	return ok
+}
+
 // listed is the agent's pull request from the list page, if it carries one.
 // The list is sorted by when each pull request last moved, so an agent with
 // several gets the open one that moved last, or the one that moved last when
@@ -661,7 +679,11 @@ func (s *Server) fetchPulls(ctx context.Context, client github.Client, repo gith
 	}
 
 	if entry.listErr.failed() {
-		// Don't ask GitHub agent by agent when it just refused the list.
+		// Don't ask GitHub agent by agent when it just refused the list. What
+		// it said last is still served, as a stale answer is: an empty list
+		// would have every agent whose pull request was merged look like one
+		// that never opened any, back on Ready to review until GitHub answers.
+		entry.prs = before.prs
 		entry.lookups = before.lookups
 		return entry
 	}
@@ -674,9 +696,21 @@ func (s *Server) fetchPulls(ctx context.Context, client github.Client, repo gith
 // either has none or has one nobody has touched in a while — either way the
 // answer keeps until the agent commits again, and one opened later arrives in
 // the list itself.
+//
+// What it isn't asked about is kept, for up to pullsLookupKeep: a refresh is
+// made for some of a project's agents (the cleanup pass reads only the
+// running ones, a group only its members), and forgetting the others' answers
+// would forget the pull requests, merged long ago, that only a lookup knows,
+// bringing every stopped agent behind one back to Ready to review. A lookup
+// that fails keeps the answer it had, and is asked again on the next refresh.
 func (s *Server) lookupPulls(ctx context.Context, client github.Client, repo github.Repo, heads []agentHead, entry pullsEntry, before map[string]lookedUp) map[string]lookedUp {
 	now := s.pulls.now()
 	out := map[string]lookedUp{}
+	for tip, l := range before {
+		if now.Sub(l.at) < pullsLookupKeep {
+			out[tip] = l
+		}
+	}
 	var ask []agentHead
 	for _, h := range heads {
 		if h.tip == "" || entry.listed(h) != nil {
@@ -697,6 +731,10 @@ func (s *Server) lookupPulls(ctx context.Context, client github.Client, repo git
 	for _, h := range ask {
 		g.Go(func() error {
 			l := lookUp(ctx, client, repo, h)
+			if had, ok := before[h.tip]; ok && l.failed {
+				l = had
+				l.failed = true
+			}
 			l.at = now
 			mu.Lock()
 			defer mu.Unlock()

@@ -101,7 +101,15 @@ func (then reviewMark) movedTo(now reviewMark) bool {
 // verdict when the user gave one and the work hasn't moved since: those are
 // Reviewed, the rest ready to review. Pull requests come from the project's
 // cache, as the fleet's do, so this never waits on GitHub.
-func (s *Server) reviewItems(ctx context.Context, p state.Project, agents []state.Agent) []api.ReviewItem {
+//
+// With listing, it is the review list, which leaves out an agent the cache
+// can't yet say has no merged pull request (pullsEntry.answered): the cache
+// was emptied, or never read for its commits. Offered meanwhile, an agent
+// whose pull request was merged long ago, only a lookup knows that, came back
+// as work to review across every project and vanished again once GitHub
+// answered, by which time clicking it opened nothing. The read this starts
+// announces itself (EventPulls), and the app reads the list again.
+func (s *Server) reviewItems(ctx context.Context, p state.Project, agents []state.Agent, listing bool) []api.ReviewItem {
 	var finished []state.Agent
 	var finishes []api.AgentEvent
 	for _, a := range agents {
@@ -117,8 +125,14 @@ func (s *Server) reviewItems(ctx context.Context, p state.Project, agents []stat
 	}
 	_, entry, heads, _, err := s.projectPulls(p, finished)
 	var prs map[string]*api.PullRequest
+	unknown := map[string]bool{}
 	if err == nil {
 		prs = entry.byAgent(heads)
+		for _, h := range heads {
+			if listing && !entry.answered(h) {
+				unknown[h.agent] = true
+			}
+		}
 	} else {
 		heads = agentHeads(p.Root, finished)
 	}
@@ -133,6 +147,9 @@ func (s *Server) reviewItems(ctx context.Context, p state.Project, agents []stat
 	}
 	var out []api.ReviewItem
 	for i, a := range finished {
+		if unknown[a.Name] {
+			continue
+		}
 		ev := finishes[i]
 		pr := prs[a.Name]
 		s.prWatch.overlay(p.Name, pr)
@@ -291,7 +308,7 @@ func (s *Server) projectReviewItems(ctx context.Context, p state.Project) ([]api
 	if err != nil {
 		return nil, err
 	}
-	return s.reviewItems(ctx, p, agents), nil
+	return s.reviewItems(ctx, p, agents, true), nil
 }
 
 // reviewAgent is POST /v1/agents/{project}/{agent}/review: the user reviewed
@@ -320,7 +337,7 @@ func (s *Server) reviewAgent(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
-		items := s.reviewItems(ctx, p, []state.Agent{a})
+		items := s.reviewItems(ctx, p, []state.Agent{a}, false)
 		if len(items) == 0 {
 			return fmt.Errorf("%s hasn't finished", a.Ref())
 		}
@@ -405,7 +422,7 @@ func (s *Server) requestChanges(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
-		if items := s.reviewItems(ctx, p, []state.Agent{a}); len(items) > 0 {
+		if items := s.reviewItems(ctx, p, []state.Agent{a}, false); len(items) > 0 {
 			fingerprint = items[0].Fingerprint
 		}
 	} else if json.Unmarshal([]byte(fingerprint), &reviewMark{}) != nil {
