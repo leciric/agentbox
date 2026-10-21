@@ -38,7 +38,7 @@ const pulls = (project: string): T.ProjectPullRequests => ({
       ? []
       : [
           { number: 482, title: 'feat: the reminders page lists reminders by due date, and Snooze moves one to tomorrow', state: 'open', checks: 'passing', url: '', baseBranch: 'main', agent: 'agent-12', additions: 412, deletions: 38 },
-          { number: 479, title: 'fix: a reminder due at midnight shows on the right day', state: 'open', checks: 'failing', url: '', baseBranch: 'main', agent: 'agent-9', additions: 23, deletions: 4 },
+          { number: 479, title: 'fix: a reminder due at midnight shows on the right day', state: 'open', checks: 'failing', url: '', baseBranch: 'main', agent: 'agent-09', additions: 23, deletions: 4 },
           { number: 477, title: 'refactor: one clock for every reminder', state: 'open', checks: 'pending', url: '', baseBranch: 'main', additions: 88, deletions: 120 },
           { number: 470, title: 'WIP: push notifications', state: 'open', checks: '', url: '', baseBranch: 'main', draft: true },
         ],
@@ -171,6 +171,11 @@ export function startPhonePreview(mode: string, params: URLSearchParams): void {
     if (method === 'GET' && route === '/v1/settings') return answer({ language: params.get('lang') ?? 'en-US' });
     const leadOf = method === 'GET' ? /^\/v1\/projects\/([^/]+)\/lead$/.exec(route) : null;
     if (leadOf) return answer(leads[decodeURIComponent(leadOf[1])]);
+    // Claude Code signed in, as on a computer the phone was paired from: or
+    // every composer says to log in first, over a permission to give.
+    if (method === 'GET' && route === '/v1/auth') {
+      return answer({ claude: true, codex: false, opencode: false, cursor: false, claudeAccounts: [{ name: 'default', default: true, savedAt: at(86_400_000) }], codexAccounts: [], openCodeAccounts: [], cursorAccounts: [], github: true, githubAccounts: [] } satisfies T.AuthStatus);
+    }
     const pullsOf = method === 'GET' ? /^\/v1\/projects\/([^/]+)\/pulls$/.exec(route) : null;
     if (pullsOf) return answer(pulls(decodeURIComponent(pullsOf[1])));
     const ref = chatRef(route);
