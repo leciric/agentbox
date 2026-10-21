@@ -56,7 +56,8 @@ import { useReadyAlerts } from "./lib/useReadyAlerts";
 import { launchArrival, uiV2, useUiV2 } from "./lib/uiV2";
 import { tourFirst, tourState } from "./lib/tours";
 import { agentPanelKind } from "./lib/tabs";
-import { openAgentChat, openPanelOn } from "./lib/rightPanel";
+import { onList, openAgentChat, openPanelOn, usePanel } from "./lib/rightPanel";
+import { chatOf } from "./components/v2/PanelButton";
 import { resetChatEvents } from "./lib/chat";
 import { onNotification, useConnection } from "./lib/events";
 import { chatLabel } from "./lib/agentStatus";
@@ -109,6 +110,7 @@ export function App({ initial }: { initial?: View } = {}) {
   const [navOpen, setNavOpen] = useState(false);
   const [railOpen, setRailOpen] = useState(false);
   const [railFolded, setRailFolded] = useRailFolded();
+  const panel = usePanel();
   useEffect(() => {
     if (!navOpen && !railOpen) return;
     const close = (e: KeyboardEvent) => {
@@ -511,7 +513,10 @@ export function App({ initial }: { initial?: View } = {}) {
               : view.kind;
 
   const hasRail = !v2 && (view.kind === "project" || view.kind === "agent");
-  const navDocksAtXl = hasRail && !railFolded;
+  // v2's panel, beside the chat unless folded to its strip of agents.
+  const panelChat = v2 && !setup ? chatOf(view)?.chat : undefined;
+  const panelBeside = !!panelChat && !(onList(panel, panelChat) && panel.listFolded);
+  const navDocksAtXl = (hasRail && !railFolded) || panelBeside;
   const shell = (
     <div className="flex h-full">
       <div className={cn("hidden", navDocksAtXl ? "xl:flex" : "lg:flex")}>

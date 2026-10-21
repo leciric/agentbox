@@ -102,8 +102,10 @@ export function pickable(project: string, agents: T.Agent[]): T.Agent[] {
 // panelBox is how wide the panel is, and whether it sits beside the chat or
 // over it as a drawer: beside from besideMin of window up, while the chat
 // keeps chatMin; a drawer otherwise. At 1024px beside, the sidebar and the
-// panel left the chat about 280px (UX test, finding 8).
-export const besideMin = 1100;
+// panel left the chat about 280px (UX test, finding 8), so below xl the
+// sidebar gives way to the panel (App) and a portrait monitor (1080px) keeps
+// the chat and the panel side by side.
+export const besideMin = 900;
 export const chatMin = 440;
 export const panelMin = 340;
 export const panelDefault = 560;
