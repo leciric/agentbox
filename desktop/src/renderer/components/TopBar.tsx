@@ -27,6 +27,7 @@ export function TopBar({
   onSelect,
   onOpenNav,
   onOpenRail,
+  navDocksAtXl,
   onOpenNotice,
   onSearch,
 }: {
@@ -36,6 +37,9 @@ export function TopBar({
   // in a window too narrow for them to sit beside the page (App).
   onOpenNav: () => void;
   onOpenRail?: () => void;
+  // navDocksAtXl: the sidebar is a drawer up to xl, not lg, because the
+  // agent rail takes its place beside the page (App).
+  navDocksAtXl?: boolean;
   // onOpenNotice goes where a notification in the inbox points.
   onOpenNotice?: (notice: T.Notification) => void;
   // onSearch opens the search palette; without it there's no search button.
@@ -93,7 +97,7 @@ export function TopBar({
     <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-line px-3 py-2 md:gap-x-4 md:px-5" data-top-bar>
       <button
         aria-label={t('shell.top.openMenu')}
-        className="-ml-1 rounded-lg p-2 text-muted transition hover:bg-surface-raised hover:text-primary lg:hidden"
+        className={cn('-ml-1 rounded-lg p-2 text-muted transition hover:bg-surface-raised hover:text-primary', navDocksAtXl ? 'xl:hidden' : 'lg:hidden')}
         onClick={onOpenNav}
         data-open-nav
       >
@@ -198,7 +202,7 @@ function RailButton({ view, onClick }: { view: View; onClick: () => void }) {
   return (
     <button
       type="button"
-      className="flex shrink-0 items-center gap-1.5 rounded-full border border-line bg-surface-faint px-2.5 py-1 text-xs text-muted transition hover:bg-surface-raised hover:text-primary xl:hidden"
+      className="flex shrink-0 items-center gap-1.5 rounded-full border border-line bg-surface-faint px-2.5 py-1 text-xs text-muted transition hover:bg-surface-raised hover:text-primary min-[900px]:hidden"
       aria-label={t('agent.rail.show')}
       title={t('agent.rail.show')}
       data-open-rail

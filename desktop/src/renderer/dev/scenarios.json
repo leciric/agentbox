@@ -1195,6 +1195,21 @@
     "height": 1920
   },
   {
+    "id": "window-portrait-nav-dark",
+    "description": "1080×1920 with the menu button's drawer open: the sidebar over the page, the rail docked beside the chat — dark",
+    "query": "app=project&theme=dark",
+    "width": 1080,
+    "height": 1920,
+    "click": "header [data-open-nav]"
+  },
+  {
+    "id": "window-rail-edge-dark",
+    "description": "900×700, the narrowest window that docks the rail beside the project's chat — dark",
+    "query": "app=project&theme=dark",
+    "width": 900,
+    "height": 700
+  },
+  {
     "id": "window-portrait-settings-dark",
     "description": "The whole app at 1080×1920, on Settings — dark",
     "query": "app=settings&theme=dark",
@@ -1283,7 +1298,7 @@
   },
   {
     "id": "window-medium-agent-dark",
-    "description": "1000×700, just below the rail's breakpoint, on agent-99 — dark",
+    "description": "1000×700, the rail docked beside the page and the sidebar a drawer, on agent-99 — dark",
     "query": "app=agent-99&theme=dark",
     "width": 1000,
     "height": 700
