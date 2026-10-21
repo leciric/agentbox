@@ -119,11 +119,13 @@ func krunkitNote(c *KrunkitCheck) string {
 	case c.Available:
 		return "==> Making the VM with krunkit, so it gives the memory it stops using back to your Mac\n"
 	case c.Missing == "driver":
-		return "note: this Lima has no krunkit driver (lima-driver-krunkit), so the VM is made with Apple's Virtualization framework\n" +
-			"      and keeps the memory it has used until it stops. Made with krunkit, it gives it back as it stops using it.\n"
+		return "note: this Lima has no krunkit driver (lima-driver-krunkit), so the VM is made with Apple's Virtualization framework,\n" +
+			"      keeps the memory it has used until it stops and gives agents no GPU. Made with krunkit, it gives the memory back\n" +
+			"      as it stops using it, and agents get a GPU.\n"
 	}
-	return "note: krunkit isn't installed, so the VM is made with Apple's Virtualization framework and keeps the memory it has\n" +
-		"      used until it stops. With krunkit installed first (" + krunkitInstall + "), it gives it back as the VM stops using it.\n"
+	return "note: krunkit isn't installed, so the VM is made with Apple's Virtualization framework, keeps the memory it has\n" +
+		"      used until it stops and gives agents no GPU. With krunkit installed first (" + krunkitInstall + "), it gives the memory\n" +
+		"      back as the VM stops using it, and agents get a GPU.\n"
 }
 
 // createVM is Create for `vm init`, choosing the VM type when AGENTBOX_VM_TYPE
