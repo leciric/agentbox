@@ -107,6 +107,11 @@ func removeReason(f cleanupFacts, now time.Time) string {
 
 // removeFinishedAgents does one pass over every project, as of now.
 func (s *Server) removeFinishedAgents(ctx context.Context, now time.Time) {
+	// Judging an agent asks git about its worktree, and removing one walks
+	// it: not while the shared home is short of files (share.go).
+	if s.shareBusy() {
+		return
+	}
 	projects, err := s.store.Projects(ctx)
 	if err != nil {
 		s.logf("remove finished agents: %v", err)

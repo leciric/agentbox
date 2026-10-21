@@ -139,3 +139,55 @@ func (c *Client) DiagnosticsResources(ctx context.Context, window time.Duration)
 func (c *Client) SendClientSpans(ctx context.Context, spans []TraceSpan) error {
 	return c.do(ctx, http.MethodPost, "/v1/diagnostics/client-spans", ClientSpansRequest{Spans: spans}, nil)
 }
+
+// ShareReport is PUT /v1/vm/share: the VM's supervisor on a Linux host
+// saying how many file descriptors virtiofsd, which shares the home into the
+// VM, holds open. It holds one for every inode of the share the VM's kernel
+// has cached, and answers the VM with ENFILE ("Too many open files in system")
+// once it has used Limit of them. Sent every few seconds; one older than a
+// few of those is taken as the supervisor gone.
+type ShareReport struct {
+	Open  int64 `json:"open"`
+	Limit int64 `json:"limit"` // virtiofsd's RLIMIT_NOFILE
+	// Trims is how many times the supervisor has had the VM drop its inode
+	// cache since the VM started, and LastTrim when it last did.
+	Trims    int        `json:"trims"`
+	LastTrim *time.Time `json:"lastTrim,omitempty"`
+	// Pinned is what was still open after the last trim: inodes the VM can't
+	// let go of, held by open files, working directories and inotify watches.
+	Pinned int64 `json:"pinned"`
+}
+
+// FileCount is how many files something has open, against the most it may.
+// Limit is 0 when there is none to speak of.
+type FileCount struct {
+	Open  int64 `json:"open"`
+	Limit int64 `json:"limit"`
+}
+
+// DiagnosticsFiles is GET /v1/diagnostics/files: open file descriptors.
+type DiagnosticsFiles struct {
+	// Daemon is the daemon's own, against its RLIMIT_NOFILE.
+	Daemon FileCount `json:"daemon"`
+	// System is the kernel's open files (file-nr) against fs.file-max, on
+	// the machine the daemon runs on.
+	System FileCount `json:"system"`
+	// Share is virtiofsd's on the host, when the daemon runs in AgentBox's
+	// VM on Linux and its supervisor has said lately.
+	Share *ShareReport `json:"share,omitempty"`
+	// Waiting is set while the daemon holds its git work back because the
+	// share is close to its limit.
+	Waiting bool `json:"waiting"`
+}
+
+// DiagnosticsFiles asks for the open file counts.
+func (c *Client) DiagnosticsFiles(ctx context.Context) (DiagnosticsFiles, error) {
+	var out DiagnosticsFiles
+	err := c.do(ctx, http.MethodGet, "/v1/diagnostics/files", nil, &out)
+	return out, err
+}
+
+// ReportShare is the VM's supervisor saying how many files virtiofsd has open.
+func (c *Client) ReportShare(ctx context.Context, r ShareReport) error {
+	return c.do(ctx, http.MethodPut, "/v1/vm/share", r, nil)
+}

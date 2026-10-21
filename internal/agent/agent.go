@@ -265,6 +265,14 @@ type Manager struct {
 	// PackageCacheDir, when set, returns the directory of the package caches
 	// agents share, or "" while they're off (pkgcache.go).
 	PackageCacheDir func(ctx context.Context) string
+	// ShareRoom, when set, waits for the shared home to have room for a
+	// worktree to be made or removed: on a Linux host, virtiofsd holds a file
+	// for every inode the VM has looked at, and walking a worktree's
+	// node_modules looks at a great many (internal/daemon/share.go).
+	ShareRoom func(ctx context.Context, what string)
+	// ShareBusy, when set, says whether the shared home is that short of
+	// files now: what only measures worktrees skips them then.
+	ShareBusy func() bool
 	// Cores is how many cores the agents share (cpushare.go); 0 for the
 	// machine the daemon runs on, which is the VM.
 	Cores int
@@ -674,6 +682,7 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		}
 	}
 
+	m.shareRoom(ctx, "creating "+a.Ref()+"'s worktree")
 	m.logf("Creating worktree %s on branch %s (from %s)", a.Worktree, a.Branch, a.BaseRef)
 	if err := pl.repo.AddWorktree(a.Worktree, a.Branch, a.BaseCommit, "agentbox: "+a.Ref()); err != nil {
 		return fail("worktree", err)
@@ -2025,9 +2034,20 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 	return nil
 }
 
+// shareRoom is ShareRoom, when set.
+func (m *Manager) shareRoom(ctx context.Context, what string) {
+	if m.ShareRoom != nil {
+		m.ShareRoom(ctx, what)
+	}
+}
+
+// shareBusy is ShareBusy, when set.
+func (m *Manager) shareBusy() bool { return m.ShareBusy != nil && m.ShareBusy() }
+
 // removeLeftovers is what Destroy clears once the agent is archived: its
 // worktree, its branch when nothing would be lost, and its media when asked.
 func (m *Manager) removeLeftovers(ctx context.Context, repo gitrepo.Repo, a state.Agent, opts DestroyOptions) {
+	m.shareRoom(ctx, "removing "+a.Ref()+"'s worktree")
 	m.logf("Removing worktree %s", a.Worktree)
 	if err := repo.RemoveWorktree(a.Worktree); err != nil {
 		m.logf("Removing worktree %s: %v", a.Worktree, err)

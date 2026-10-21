@@ -58,6 +58,7 @@ var tsTypes = []any{
 	Artifact{}, Artifacts{}, ArtifactPreview{}, PublishRenderRequest{}, PublishRenderResult{},
 	FanOutRequest{}, FanOutVariant{}, FanOutResult{}, Group{}, GroupMember{}, KeepRequest{}, RecommendRequest{}, GroupChange{},
 	TraceSpan{}, SpanStats{}, DiagnosticsSpans{}, DiagnosticsStalls{}, VMResourceSample{}, AgentResourceSample{}, AgentResources{}, DiagnosticsResources{}, ClientSpansRequest{},
+	ShareReport{}, FileCount{}, DiagnosticsFiles{},
 }
 
 var tsConstants = [][2]string{
