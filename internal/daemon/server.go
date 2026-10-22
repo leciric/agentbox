@@ -31,6 +31,7 @@ import (
 	"agentbox/internal/imagecache"
 	"agentbox/internal/incus"
 	"agentbox/internal/memory"
+	"agentbox/internal/nodemods"
 	"agentbox/internal/omarchy"
 	"agentbox/internal/paths"
 	"agentbox/internal/pkgcache"
@@ -148,6 +149,11 @@ type Server struct {
 	// (pkgcache.go), and packageCacheKick asks for a trim now.
 	packageCache     *pkgcache.Cache
 	packageCacheKick chan struct{}
+	// nodeModules is agents' node_modules on the VM's disk (nodemodules.go),
+	// and sharedWorktrees whether worktrees are in a shared folder, found once.
+	nodeModules         *nodemods.Store
+	sharedWorktreesOnce sync.Once
+	sharedWorktrees     bool
 
 	// connectors are the remote MCP servers agents use, signed in to here
 	// (connectors.go, internal/connectors).
@@ -186,6 +192,7 @@ type Server struct {
 	freeWhenIdle map[string]bool         // reviewed agents still at work, whose machine goes when the turn ends (reviewfree.go)
 	machineKept  map[string]bool         // reviewed agents whose machine was kept for unpushed work (reviewfree.go)
 	reviewHeld   map[string]bool         // projects whose review list waits for the startup look at GitHub (prreconcile.go)
+	reviewKnown  map[string]knownReview  // each finished agent's review item as last read in full, by ref (review.go)
 	leadAPIs     map[string]*http.Server // per-project lead API servers
 	lastStates   map[string]api.AgentChange
 	previewAddr  string                   // where the preview proxy listens; empty when it's off
@@ -219,6 +226,7 @@ type Server struct {
 	imageWaiters    int               // jobs waiting for the base image to be built (imagebuild.go)
 	remote          *remote.Connector // the connection to a hub, when this machine is an environment
 	lan             *lanState         // phones chatting from the local network or a tunnel (lan.go)
+	share           shareState        // virtiofsd's open files, from the VM's supervisor (share.go)
 	// connectorsGiven is whether each connector was last given to agents,
 	// by scope and name, so only a change to that rewrites their MCP
 	// servers (connectors.go).
@@ -270,10 +278,17 @@ type Server struct {
 	// functions or a test's. oomSeen, under mu, is each machine's count of
 	// processes killed for its memory.max when last looked at, and
 	// loggedOnce what logOnce last logged under each key.
-	heavy          *heavyRuns
+	heavy *heavyRuns
+	// frozen (agentfreeze.go) is whole agents' machines paused for memory,
+	// with Settings → Experimental's switch, and machineCgroups what
+	// freezes them.
+	frozen         *fleetState
+	machineCgroups machineCgroups
 	pressureEvery  time.Duration // pressureInterval; 0 runs no loop
 	readPressure   func() (pressure.Sample, error)
 	runCgroups     runCgroups
+	idle           *idleState
+	idleCgroups    idleCgroups
 	vmMemory       func() int64
 	setMemoryLimit func(instance string, limit int64) error
 	memoryEvents   func(instance string) (agent.MemoryCounts, bool)
@@ -283,6 +298,9 @@ type Server struct {
 	// wakeMu makes one start of a stopped machine for a message at a time
 	// (wake.go).
 	wakeMu sync.Mutex
+	// waking, under mu, are the agents whose machines start aside for a
+	// message, waiting for memory to boot (wakeAside).
+	waking map[string]bool
 	// The lead recheck (leadrecheck.go), under mu: when each project's lead
 	// was last rechecked, and what it was told then, so the same state isn't
 	// sent twice.
@@ -338,10 +356,14 @@ func New(cfg Config) (*Server, error) {
 		lan:              newLANState(),
 		usageEvery:       usageInterval,
 		heavy:            newHeavyRuns(),
+		frozen:           newFleetState(),
+		machineCgroups:   agentMachineCgroups{},
 		pressureEvery:    pressureInterval,
 		readPressure:     readSample(),
 		readCPUPressure:  func() (pressure.PSI, error) { return pressure.Read(cpuPressureFile) },
 		runCgroups:       agentRunCgroups{},
+		idle:             newIdleState(),
+		idleCgroups:      agentIdleCgroups{},
 		vmMemory:         agent.HostMemory,
 		setMemoryLimit:   agent.SetMemoryLimit,
 		memoryEvents:     agent.MemoryEvents,
@@ -377,6 +399,7 @@ func New(cfg Config) (*Server, error) {
 		LeadIdle:          s.leadCacheIdle,
 		Idle:              s.leadIdle,
 		TurnEnded:         s.checkpointTurn,
+		TurnStarted:       func(a state.Agent) { s.wakeIdle(a.Ref()) },
 		TurnFinished:      s.recordTurn,
 		AuthFailed:        s.claudeAuthFailed,
 		Lost:              s.agentLost,
@@ -394,6 +417,7 @@ func New(cfg Config) (*Server, error) {
 	s.disk = s.newDiskWatch()
 	s.imageCache = s.newImageCache()
 	s.packageCache = s.newPackageCache()
+	s.nodeModules = s.newNodeModules()
 	s.packageCacheKick = make(chan struct{}, 1)
 	s.dockerPruneTimeout = agent.DockerPruneTimeout
 	return s, nil
@@ -423,6 +447,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	defer unlock()
 	moved := s.moveDataToPool(ctx)
+	s.placeNodeModules()
 	defer s.startTracing()()
 
 	ctx, stop := context.WithCancel(ctx)
@@ -473,6 +498,7 @@ func (s *Server) Run(ctx context.Context) error {
 	loops.Go(func() { s.sweepFinishedAgents(ctx) })
 	loops.Go(func() { s.sweepMemories(ctx) })
 	loops.Go(func() { s.sweepIdleAgents(ctx) })
+	loops.Go(func() { s.runIdleReclaim(ctx) })
 	loops.Go(func() { s.runUsage(ctx) })
 	loops.Go(func() {
 		s.giveZram()
@@ -643,6 +669,11 @@ func (s *Server) manager(log io.Writer) *agent.Manager {
 		DesktopTheme:     s.desktopTheme,
 		ImageCacheSocket: s.imageCacheSocket,
 		PackageCacheDir:  s.packageCacheDir,
+		Admit:            s.admitMachine,
+		NodeModules:      s.nodeModules,
+		NodeModulesOn:    s.nodeModulesOn,
+		ShareRoom:        s.shareRoom,
+		ShareBusy:        s.shareBusy,
 	}
 }
 
@@ -827,6 +858,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/diagnostics/stalls", s.diagnosticsStalls)
 	h("GET /v1/diagnostics/resources", s.diagnosticsResources)
 	h("GET /v1/diagnostics/package-cache", s.diagnosticsPackageCache)
+	h("GET /v1/diagnostics/files", s.diagnosticsFiles)
 	h("POST /v1/diagnostics/client-spans", s.clientSpans)
 	h("GET /v1/agents", s.listAgents)
 	// Past agents (archive.go): their chats read through the routes above.
@@ -959,6 +991,7 @@ func (s *Server) routes() http.Handler {
 	h("PATCH /v1/lan/phones/{id}", s.updateLANPhone)
 	h("GET /v1/lan/phones/{id}/audit", s.lanPhoneAudit)
 	h("PUT /v1/lan/host", s.lanHostReport)
+	h("PUT /v1/vm/share", s.shareReport)
 	h("PUT /v1/lan/web/{version}/files/{path...}", s.putLANWebFile)
 	h("POST /v1/lan/web/{version}", s.installLANWeb)
 	mux.Handle(lanNetPrefix+"/", http.StripPrefix(lanNetPrefix, s.lanHandler(lanViaSocket)))

@@ -130,6 +130,10 @@ type Project struct {
 	// behind — never a diverged branch, and a checked-out one only when its
 	// checkout has no changes. On by default.
 	SyncBase bool `json:"syncBase"`
+	// FullTestSuite is whether this project's agents may run a whole test
+	// suite while Settings.BlockFullSuite refuses them; it means nothing
+	// while that is off. Off by default.
+	FullTestSuite bool `json:"fullTestSuite"`
 	// PRWatching is what that comes to: whether they are watched now.
 	PRWatching bool      `json:"prWatching"`
 	CreatedAt  time.Time `json:"createdAt"`
@@ -334,6 +338,9 @@ type UpdateProjectRequest struct {
 	// SyncBase turns on or off keeping this project's base branch up to date
 	// with its remote.
 	SyncBase *bool `json:"syncBase,omitempty"`
+	// FullTestSuite turns on or off whether this project's agents may run a
+	// whole test suite while Settings.BlockFullSuite refuses them.
+	FullTestSuite *bool `json:"fullTestSuite,omitempty"`
 }
 
 type AddProjectRequest struct {
@@ -483,6 +490,11 @@ type Settings struct {
 	// VMGPU finds one: added to the agents you have, and to each new one, the
 	// moment it changes. Off unless it was turned on.
 	AgentGPU bool `json:"agentGPU"`
+	// BlockFullSuite says whether a Claude Code agent's whole test suite
+	// (`go test ./...`, a bare `npm test`) is refused before it runs, with
+	// the tests of what it changed to run instead, unless its project allows
+	// them (Project.FullTestSuite). Experimental, off unless turned on.
+	BlockFullSuite bool `json:"blockFullSuite"`
 	// VMGPU is the GPU AgentBox's VM has to give agents.
 	VMGPU VMGPU `json:"vmGPU"`
 	// ErrorReports says whether the app sends a report of each uncaught error
@@ -493,6 +505,12 @@ type Settings struct {
 	// its base, its checks fail or a reviewer asks for changes. On unless it
 	// was turned off; a project can override it (Project.PRWatch).
 	PRWatch bool `json:"prWatch"`
+	// AgentFreeze is the experimental memory governor: under memory
+	// pressure whole agents' machines are frozen, newest first, never the
+	// oldest working one, and thaw oldest first; a new machine starts once
+	// the VM really has the memory to boot it. Off, only heavy commands are
+	// held, as ever.
+	AgentFreeze bool `json:"agentFreeze"`
 	// MediaRetention is how long a removed agent's media is kept before the
 	// daemon purges it: one of the MediaRetention values.
 	MediaRetention string `json:"mediaRetention"`
@@ -529,6 +547,16 @@ type Settings struct {
 	// IdleTimeSeconds is how long an agent may go idle before AutoStopIdle
 	// stops it; DefaultIdleTimeSeconds when nobody chose.
 	IdleTimeSeconds int `json:"idleTimeSeconds"`
+	// IdleReclaim is "reclaim idle agents' memory", an experiment: while on,
+	// an agent whose chat has been idle IdleFreezeSeconds has what it left
+	// running (dev servers, the desktop's browser, watchers, Docker) frozen
+	// and its memory pushed out to swap, woken as soon as something touches
+	// it, and one that finished and stayed idle IdleStopSeconds has its
+	// machine stopped, started again by the next message. Off unless it was
+	// turned on.
+	IdleReclaim       bool `json:"idleReclaim"`
+	IdleFreezeSeconds int  `json:"idleFreezeSeconds"`
+	IdleStopSeconds   int  `json:"idleStopSeconds"`
 	// LeadRecheck is "lead rechecks agents": while on, every
 	// LeadRecheckMinutes the daemon wakes each project's chat with a short
 	// status of its running agents — only when an agent has been idle a
@@ -560,6 +588,12 @@ type Settings struct {
 	DefaultPackageCacheMaxBytes int64 `json:"defaultPackageCacheMaxBytes"`
 	// PackageCacheBytes is how much they held when last measured.
 	PackageCacheBytes int64 `json:"packageCacheBytes"`
+	// LocalNodeModules is "Keep agents' node_modules in the VM": while on, a
+	// new agent's node_modules are on a disk of AgentBox's VM rather than in
+	// its worktree, where the worktree is in a folder the VM shares, and
+	// start filled when its lockfile was installed by an agent before. The
+	// computer AgentBox runs on sees them empty. On unless it was turned off.
+	LocalNodeModules bool `json:"localNodeModules"`
 
 	// ClaudeCodeUpdate is "Keep Claude Code up to date": the daemon moving
 	// Claude Code and its ACP adapter past the versions this AgentBox pins,
@@ -632,10 +666,14 @@ type UpdateSettingsRequest struct {
 	UsageStats *bool `json:"usageStats,omitempty"`
 	// AgentGPU turns "GPU for agents" on or off.
 	AgentGPU *bool `json:"agentGPU,omitempty"`
+	// BlockFullSuite turns refusing agents' whole test suites on or off.
+	BlockFullSuite *bool `json:"blockFullSuite,omitempty"`
 	// ErrorReports turns automatic error reports on or off.
 	ErrorReports *bool `json:"errorReports,omitempty"`
 	// PRWatch turns the pull request watch on or off.
 	PRWatch *bool `json:"prWatch,omitempty"`
+	// AgentFreeze turns the experimental memory governor on or off.
+	AgentFreeze *bool `json:"agentFreeze,omitempty"`
 	// MediaRetention is one of the MediaRetention values.
 	MediaRetention *string `json:"mediaRetention,omitempty"`
 	// Language sets Settings.Language: a language tag, "" going back to
@@ -652,6 +690,12 @@ type UpdateSettingsRequest struct {
 	// IdleTimeSeconds is how long AutoStopIdle waits before stopping an idle
 	// agent, at least 60.
 	IdleTimeSeconds *int `json:"idleTimeSeconds,omitempty"`
+	// IdleReclaim turns "reclaim idle agents' memory" on or off;
+	// IdleFreezeSeconds and IdleStopSeconds set its waits, from 60 seconds
+	// to a day.
+	IdleReclaim       *bool `json:"idleReclaim,omitempty"`
+	IdleFreezeSeconds *int  `json:"idleFreezeSeconds,omitempty"`
+	IdleStopSeconds   *int  `json:"idleStopSeconds,omitempty"`
 	// LeadRecheck turns "lead rechecks agents" on or off, and
 	// LeadRecheckMinutes is how often, from 5 to 1440.
 	LeadRecheck        *bool `json:"leadRecheck,omitempty"`
@@ -677,6 +721,9 @@ type UpdateSettingsRequest struct {
 	PackageCacheMaxBytes *int64 `json:"packageCacheMaxBytes,omitempty"`
 	// ClearPackageCache empties them.
 	ClearPackageCache bool `json:"clearPackageCache,omitempty"`
+	// LocalNodeModules turns "Keep agents' node_modules in the VM" on or off,
+	// for agents made from now on.
+	LocalNodeModules *bool `json:"localNodeModules,omitempty"`
 	// ClaudeCodeAutoUpdate turns "Keep Claude Code up to date" on, which
 	// checks at once, or off, which puts agents back on the pinned versions.
 	ClaudeCodeAutoUpdate *bool `json:"claudeCodeAutoUpdate,omitempty"`
@@ -755,9 +802,14 @@ type Agent struct {
 	// Memory is what the daemon holds of the agent's heavy commands for
 	// memory: paused or waiting to start (package pressure). Absent when it
 	// holds nothing.
-	Memory    *MemoryHold `json:"memory,omitempty"`
-	IP        string      `json:"ip"`
-	CreatedAt time.Time   `json:"createdAt"`
+	Memory *MemoryHold `json:"memory,omitempty"`
+	// Reclaimed says idle reclaim has its memory (Settings.IdleReclaim):
+	// "frozen" when what it left running is frozen and pushed out to swap,
+	// "stopped" when its machine was stopped after it finished. Absent
+	// otherwise.
+	Reclaimed string    `json:"reclaimed,omitempty"`
+	IP        string    `json:"ip"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // ArchivedAgent is a past agent: one whose machine was removed, by the user or
@@ -904,6 +956,12 @@ type MemoryHold struct {
 	// is under pressure, and Waiting how many wait to start until it eases.
 	Paused  int `json:"paused,omitempty"`
 	Waiting int `json:"waiting,omitempty"`
+	// Machine is what Settings.AgentFreeze holds of the agent's whole
+	// machine: "paused" (frozen for memory, it thaws by itself) or "waiting"
+	// (to start until the VM has the memory to boot it); "" for neither.
+	// Ahead is how many machines thaw or start before it.
+	Machine string `json:"machine,omitempty"`
+	Ahead   int    `json:"ahead,omitempty"`
 	// Since is when the oldest of them was paused or began to wait.
 	Since time.Time `json:"since"`
 	// Why is what holds them now (pressure.Reason): "stalling" (tasks stall
@@ -2283,7 +2341,15 @@ type AgentChange struct {
 	// Memory is what the daemon holds of the agent's heavy commands
 	// (Agent.Memory).
 	Memory *MemoryHold `json:"memory,omitempty"`
+	// Reclaimed is Agent.Reclaimed.
+	Reclaimed string `json:"reclaimed,omitempty"`
 }
+
+// The ways idle reclaim holds an agent's memory (Agent.Reclaimed).
+const (
+	ReclaimedFrozen  = "frozen"
+	ReclaimedStopped = "stopped"
+)
 
 // HeavyRequest asks, from inside an agent, to start a heavy command (a test
 // run, a build): at once while the VM's memory is calm, else once it eases,
@@ -2308,6 +2374,14 @@ type HeavyStart struct {
 	// Why is why it hasn't, a clause like "the VM's memory is under
 	// pressure (some 34%) and 2 commands are ahead of it".
 	Why string `json:"why,omitempty"`
+}
+
+// TestPolicy is what the in-agent API says about the agent's test runs
+// (GET /v1/self/tests): whether a whole suite is refused, and the commit its
+// branch started from, which what it changed is counted against.
+type TestPolicy struct {
+	BlockFullSuite bool   `json:"blockFullSuite"`
+	Base           string `json:"base,omitempty"`
 }
 
 // HeavyJoin puts a process of the agent's, by its PID inside the agent, in

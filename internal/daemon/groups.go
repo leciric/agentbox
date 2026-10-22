@@ -390,7 +390,7 @@ func (s *Server) compareGroup(ctx context.Context, g state.Group) (api.Group, er
 			prs = entry.byAgent(heads)
 		}
 	}
-	changes := agentChanges(agents, changesOf)
+	changes := agentChanges(agents, polledChanges)
 	changed := map[string]api.AgentChanges{}
 	for i, a := range agents {
 		changed[a.Name] = changes[i]

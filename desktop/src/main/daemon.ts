@@ -225,7 +225,8 @@ function neededGroups(): { name: string; gid: number }[] {
 // its daemon is left so: the error says why there's no daemon.
 async function start(): Promise<void> {
   // `agentbox vm init` from the Setup page stopped this machine's own daemon
-  // to switch it to a VM: the daemon to start is the VM's, when it's done.
+  // to switch it to a VM, or makes a Mac's VM, as the remake with krunkit
+  // does: the daemon to start is the new VM's, when it's done.
   await vmInitDone();
   const bin = agentboxBin();
   if (onWindows) await startRelay(bin);

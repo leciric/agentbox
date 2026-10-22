@@ -719,6 +719,36 @@ export function SharedPackageCaches() {
   );
 }
 
+// LocalNodeModules is "Keep agents' node_modules in the VM": a new agent's
+// node_modules on a disk of the VM rather than in its worktree, in a folder
+// the VM shares, and filled from an earlier agent's install of its lockfile.
+export function LocalNodeModules() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (req: T.UpdateSettingsRequest) => api.updateSettings(req),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  return (
+    <SettingRow
+      label={t('defaults.newAgent.localNodeModulesLabel')}
+      description={t('defaults.newAgent.localNodeModulesDescription')}
+      details={t('defaults.newAgent.localNodeModulesDetails')}
+      control={
+        <Switch
+          data-local-node-modules
+          aria-label={t('defaults.newAgent.localNodeModulesLabel')}
+          disabled={save.isPending || settings.data === undefined}
+          checked={settings.data?.localNodeModules ?? true}
+          onCheckedChange={(localNodeModules) => save.mutate({ localNodeModules })}
+        />
+      }
+    />
+  );
+}
+
 // idleTimes are the presets offered for how long an agent may go idle before
 // "auto-stop idle agents" stops it.
 const idleTimes = [30 * 60, 60 * 60, 2 * 60 * 60, 4 * 60 * 60, 8 * 60 * 60];
