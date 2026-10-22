@@ -27,6 +27,7 @@ export interface Project {
   agentPRs: boolean;
   prWatch: string;
   syncBase: boolean;
+  fullTestSuite: boolean;
   prWatching: boolean;
   createdAt: string;
   iconVersion: number;
@@ -86,6 +87,7 @@ export interface UpdateProjectRequest {
   agentPRs?: boolean;
   prWatch?: string;
   syncBase?: boolean;
+  fullTestSuite?: boolean;
 }
 
 export interface Section {
@@ -152,6 +154,7 @@ export interface Settings {
   updateCheck: boolean;
   usageStats: boolean;
   agentGPU: boolean;
+  blockFullSuite: boolean;
   vmGPU: VMGPU;
   errorReports: boolean;
   prWatch: boolean;
@@ -205,6 +208,7 @@ export interface UpdateSettingsRequest {
   updateChannel?: string;
   usageStats?: boolean;
   agentGPU?: boolean;
+  blockFullSuite?: boolean;
   errorReports?: boolean;
   prWatch?: boolean;
   mediaRetention?: string;

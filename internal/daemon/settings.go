@@ -248,6 +248,22 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			s.readyVMGPU(s.runCtx, true)
 		}
 	}
+	if req.BlockFullSuite != nil {
+		if err := s.store.SetFlag(r.Context(), state.SettingBlockFullSuite, *req.BlockFullSuite); err != nil {
+			return err
+		}
+		// A project that allows whole suites says so in its agents' briefs
+		// only while they are blocked.
+		if projects, err := s.store.Projects(r.Context()); err == nil {
+			for _, p := range projects {
+				if p.FullTestSuite {
+					if err := s.manager(nil).RewriteBriefs(r.Context(), p.Name); err != nil {
+						s.logf("rewriting %s's briefs after a full test suite change: %v", p.Name, err)
+					}
+				}
+			}
+		}
+	}
 	if req.ErrorReports != nil {
 		if err := s.store.SetFlag(r.Context(), state.SettingErrorReports, *req.ErrorReports); err != nil {
 			return err
@@ -432,6 +448,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	blockFullSuite, err := s.store.Flag(r.Context(), state.SettingBlockFullSuite)
+	if err != nil {
+		return api.Settings{}, err
+	}
 	vmGPU := s.vmGPU()
 	errorReports, err := s.store.FlagOn(r.Context(), state.SettingErrorReports)
 	if err != nil {
@@ -524,6 +544,7 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		UpdateCheck:          updateCheck,
 		UsageStats:           usageStats,
 		AgentGPU:             agentGPU,
+		BlockFullSuite:       blockFullSuite,
 		VMGPU:                vmGPU,
 		ErrorReports:         errorReports,
 		PRWatch:              prWatch,

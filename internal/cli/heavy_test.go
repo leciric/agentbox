@@ -22,7 +22,10 @@ type fakeHeavy struct {
 	asked  []api.HeavyRequest
 	joined []string // key=pid
 	ended  []string
+	policy api.TestPolicy
 }
+
+func (f *fakeHeavy) TestPolicy(context.Context) (api.TestPolicy, error) { return f.policy, nil }
 
 func (f *fakeHeavy) StartHeavy(_ context.Context, req api.HeavyRequest) (api.HeavyStart, error) {
 	f.mu.Lock()
