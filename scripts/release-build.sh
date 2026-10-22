@@ -58,7 +58,7 @@ while [ $# -gt 0 ]; do
   case $1 in
     --tag) want=${2:-}; [ -n "$want" ] || { echo "--tag needs a tag" >&2; exit 2; }; shift 2 ;;
     --nightly) nightly=${2:-}; [[ $nightly =~ ^[0-9]{8}\.[1-9][0-9]*$ ]] || { echo "--nightly needs <YYYYMMDD>.<run>, not \"$nightly\"" >&2; exit 2; }; shift 2 ;;
-    --release) release_arg=${2:-}; [[ $release_arg =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "--release needs X.Y.Z, not \"$release_arg\"" >&2; exit 2; }; shift 2 ;;
+    --release) release_arg=${2:-}; [ -z "$release_arg" ] || [[ $release_arg =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "--release needs X.Y.Z, not \"$release_arg\"" >&2; exit 2; }; shift 2 ;;
     --check|--stamp|--linux|--windows|--mac-cli) part=${1#--}; shift ;;
     *) echo "usage: scripts/release-build.sh [--nightly <YYYYMMDD>.<run> [--release X.Y.Z]] [--tag v<version>] [--check | --stamp | --linux | --windows | --mac-cli]" >&2; exit 2 ;;
   esac
