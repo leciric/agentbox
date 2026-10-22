@@ -1444,10 +1444,22 @@ func (m *Manager) brief(ctx context.Context, a state.Agent, ip string, envFiles 
 		Nesting:      p.Nesting,
 		AgentPRs:     p.AgentPRs,
 		CreditAITool: m.creditAITool(ctx),
+		FullSuite:    p.FullTestSuite && m.blockFullSuite(ctx),
 
 		Knowledge:     knowledge,
 		CompactWindow: compactWindow,
 	})
+}
+
+// blockFullSuite says whether the installation blocks agents' whole test
+// suites (state.SettingBlockFullSuite).
+func (m *Manager) blockFullSuite(ctx context.Context) bool {
+	on, err := m.Store.Flag(ctx, state.SettingBlockFullSuite)
+	if err != nil {
+		m.logf("reading whether whole test suites are blocked: %v", err)
+		return false
+	}
+	return on
 }
 
 // briefPaths are the files the brief is written to inside an agent: one for any

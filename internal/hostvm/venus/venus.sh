@@ -20,7 +20,8 @@
 #     the same patches, and agents get it in place of their own (package
 #     agent, vgpudriver.go). Our own patch (0004) lets it present and run
 #     ANGLE without dma-buf, which the Mac doesn't have: that's what gives
-#     Chromium's WebGL the GPU (browser.sh). Mesa's Zink runs OpenGL on it.
+#     Chromium's WebGL the GPU (package agent's venus-chromium.sh), and 0005
+#     keeps WebGL's timer queries from hanging it. Mesa's Zink runs OpenGL on it.
 #
 set -eu -o pipefail
 export DEBIAN_FRONTEND=noninteractive

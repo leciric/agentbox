@@ -163,6 +163,13 @@ func (c *Client) StartHeavy(ctx context.Context, req HeavyRequest) (HeavyStart, 
 	return out, c.do(ctx, http.MethodPost, "/v1/self/heavy", req, &out)
 }
 
+// TestPolicy says, inside an agent, whether its whole test suites are
+// refused, and what its branch started from.
+func (c *Client) TestPolicy(ctx context.Context) (TestPolicy, error) {
+	var out TestPolicy
+	return out, c.do(ctx, http.MethodGet, "/v1/self/tests", nil, &out)
+}
+
 // JoinHeavy puts a process of the agent's in a started heavy command's
 // cgroup, so pausing the command pauses it and what it starts.
 func (c *Client) JoinHeavy(ctx context.Context, key string, pid int) error {

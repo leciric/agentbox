@@ -59,8 +59,7 @@ const (
 const OldVMReason = "started by an older AgentBox"
 
 // The devices "GPU for agents" adds. vgpuDevice is the GPU itself; the others
-// go with /dev/dxg. agentbox-vgpu-driver is the macOS code's (vgpudriver.go),
-// which gpuSteps adds beside a render node.
+// go with /dev/dxg, or with a Mac's render node (vgpudriver.go).
 const (
 	vgpuDevice        = "agentbox-vgpu"
 	vgpuLibDevice     = "agentbox-vgpu-wsl-lib"
@@ -69,7 +68,7 @@ const (
 )
 
 // vgpuDevices are every device this file adds, to take off when it is off.
-var vgpuDevices = []string{vgpuDevice, vgpuLibDevice, vgpuDriversDevice, vgpuProfileDevice}
+var vgpuDevices = []string{vgpuDevice, vgpuLibDevice, vgpuDriversDevice, vgpuProfileDevice, vgpuDriverDevice, vgpuChromiumDevice}
 
 // Where WSL puts the GPU and its driver, in its distro: variables for tests,
 // which point them at files of their own. wslLib holds libd3d12.so and
@@ -295,7 +294,7 @@ func (gpu VMGPU) devices(profile string) []gpuDevice {
 			source := filepath.Join(filepath.Dir(profile), "vulkan-"+strings.ReplaceAll(gpu.Vulkan, ":", "-")+".sh")
 			ds = append(ds, gpuDevice{vgpuProfileDevice, "disk", []string{"source=" + source, "path=" + gpuProfilePath, "readonly=true"}, vulkanProfile(gpu.Vulkan)})
 		}
-		return ds
+		return append(ds, venusDevices(filepath.Join(filepath.Dir(profile), "venus-chromium.sh"))...)
 	}
 	return nil
 }
@@ -362,8 +361,7 @@ func (m *Manager) gpuSteps(instance string, want VMGPU, devices map[string]map[s
 			steps = append(steps, func(ctx context.Context, c incus.Client) error { return c.RemoveDevice(ctx, instance, name) })
 		}
 	}
-	// A Mac's VM has its own Venus driver to go with its render node.
-	return append(steps, vgpuDriverSteps(instance, devices, want.Kind == GPURender)...)
+	return steps
 }
 
 // settleGPU gives one instance the GPU it should have, as it starts or is

@@ -58,6 +58,11 @@ type Data struct {
 	// trailer out, but nothing else reaches the "Generated with …" line Codex
 	// and Cursor put in a pull request's body.
 	CreditAITool bool
+	// FullSuite is whether the agent may run a whole test suite once before
+	// it finishes: its project allows them while the installation blocks
+	// them (state.SettingBlockFullSuite). Otherwise it runs the tests its
+	// change touches, and the whole suite only when asked by name.
+	FullSuite bool
 	// VM is set when AgentBox runs in a Linux VM on another OS: WSL 2 on
 	// Windows (package hostwsl, D94), or the VM it makes on a Mac (package
 	// hostvm, D92). The agent's address is then inside that VM, which the

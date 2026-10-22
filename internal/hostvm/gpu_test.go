@@ -75,7 +75,7 @@ func TestVenusTar(t *testing.T) {
 			}
 		}
 	}
-	if patches != 4 {
+	if patches != 5 {
 		t.Errorf("%d patches in %v", patches, files)
 	}
 }

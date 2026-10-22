@@ -168,6 +168,12 @@ const (
 	// (agent.FindVMGPU), when it has one. Off until somebody turns it on
 	// (Flag). Not #66's gpu_for_agents, which a migration deletes.
 	SettingAgentGPU = "agent_gpu"
+	// SettingBlockFullSuite says whether a Claude Code agent's whole test
+	// suite (`go test ./...`, a bare `npm test`) is refused before it runs,
+	// with what to run instead (internal/cli/fullsuite.go), unless its
+	// project allows them (Project.FullTestSuite). Experimental: off until
+	// somebody turns it on (Flag).
+	SettingBlockFullSuite = "block_full_suite"
 	// SettingMediaRetention is how long a removed agent's media is kept: one
 	// of the api.MediaRetention values, empty meaning
 	// DefaultMediaRetention. It belongs to the installation rather than to a

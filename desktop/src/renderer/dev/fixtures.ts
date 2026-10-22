@@ -528,6 +528,7 @@ export function buildFixtures(): FixtureData {
       nesting: false,
       agentPRs: false,
       syncBase: true,
+      fullTestSuite: false,
       prWatch: '',
       prWatching: true,
       createdAt: new Date().toISOString(),
@@ -559,6 +560,7 @@ export function buildFixtures(): FixtureData {
       nesting: false,
       agentPRs: false,
       syncBase: true,
+      fullTestSuite: false,
       prWatch: '',
       prWatching: true,
       createdAt: new Date().toISOString(),
@@ -1524,6 +1526,7 @@ let defaultsSettings = {
   updateCheck: true,
   usageStats: true,
   agentGPU: false,
+  blockFullSuite: false,
   // WSL's GPU, or ?gpu=none for a VM with none, or ?gpu=krunkit|running|restart|failed
   // for a Mac's krunkit VM whose GPU isn't ready; ?gpu=host for a Linux host's GPU the VM
   // gets at its next start, ?gpu=hostrestart for one turned on, waiting, ?gpu=nvidia for
