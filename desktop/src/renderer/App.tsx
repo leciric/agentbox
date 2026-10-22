@@ -29,6 +29,7 @@ import { ProjectView } from "./components/ProjectView";
 import { PastAgents } from "./components/PastAgents";
 import { SettingsView } from "./components/SettingsView";
 import { Sidebar } from "./components/Sidebar";
+import { useKeepAwake } from "./lib/keepAwake";
 import { SidebarV2 } from "./components/v2/SidebarV2";
 import { NewTaskDialog } from "./components/v2/NewTaskDialog";
 import { CompareView } from "./components/groups/CompareView";
@@ -122,6 +123,7 @@ export function App({ initial }: { initial?: View } = {}) {
     return () => window.removeEventListener("keydown", close);
   }, [navOpen, railOpen]);
   const agents = useQuery({ queryKey: ["agents"], queryFn: api.agents });
+  useKeepAwake();
   const connection = useConnection();
   // On a Mac, the daemon lives in AgentBox's Linux VM, and on Windows in its
   // WSL distro: while it can't be reached, ask whether that's because the VM

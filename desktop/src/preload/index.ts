@@ -173,6 +173,8 @@ function listen<A extends unknown[]>(channel: string, fn: (...args: A) => void):
 }
 
 const bridge = {
+  // Holds the system awake (not the display) while on: agents are at work.
+  keepAwake: (on: boolean): Promise<void> => ipcRenderer.invoke('keepawake:set', on),
   request: (method: string, path: string, body?: unknown): Promise<ApiResponse> =>
     ipcRenderer.invoke('api:request', method, path, body),
   connection: (): Promise<ConnectionState> => ipcRenderer.invoke('daemon:connection'),

@@ -29,6 +29,7 @@ import { keepWindowState, windowOptions } from './windowstate';
 import { distro, linuxPath, windowsPath } from './wslpaths';
 import { setLanguage, t } from '../shared/i18n/index.ts';
 import './vmpower';
+import './keepawake';
 
 guardStdio();
 // The app's log, for problem reports (applog.ts): console and every uncaught

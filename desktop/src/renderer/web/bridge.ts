@@ -152,6 +152,7 @@ const unavailable = (message: MessageKey) => () => Promise.reject(new Error(t(me
 export const webBridge: Bridge & { web: true; lan: boolean } = {
   web: true,
   lan,
+  keepAwake: async () => {},
   request: async (method: string, path: string, body?: unknown): Promise<ApiResponse> => {
     const res = await fetch(apiBase() + path, {
       method,

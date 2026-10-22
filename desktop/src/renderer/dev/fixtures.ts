@@ -199,6 +199,35 @@ export function richChat(): T.ChatThread {
   };
 }
 
+// thinkingThread is a project chat on Claude Code whose last turn thinks
+// (summarized thinking, as claude-agent-acp streams it): phase "live" is the
+// thought still arriving, "answer" the reply arriving after it, "done" the
+// turn settled, its work folded behind "Worked for …". An earlier turn
+// thought and settled, for the row it leaves.
+export function thinkingThread(phase: string): T.ChatThread {
+  const at = (secondsAgo: number) => new Date(Date.now() - secondsAgo * 1000).toISOString();
+  const thought = [
+    "I'm working with the Pell equation x² − 13y² = 1, so the fundamental solution comes from the continued fraction of √13, whose period is 5: that gives (649, 180), and 649² − 13·180² = 421201 − 421200 = 1 checks out.",
+    '',
+    'Each next solution is (x₁ + y₁√13)ⁿ, so (842401, 233640) follows from squaring, and the third, x ≈ 1.09·10⁹, is already past a million: the list stops there.',
+  ].join('\n');
+  const live = phase === 'live';
+  const settled = phase === 'done';
+  return {
+    agent: `${PROJECT}/lead`,
+    seq: 1,
+    session: { state: settled ? 'ready' : 'running', tool: 'claude', options: [], commands: [], ...(settled ? {} : { turnStartedAt: at(12) }) },
+    items: [
+      { id: 't1', turn: 't1', kind: 'user', text: 'Is 2^61 − 1 prime?', result: { state: 'completed', endedAt: at(110) }, createdAt: at(120), updatedAt: at(110) },
+      { id: 't2', turn: 't1', kind: 'thought', text: 'Recalling that 2^61 − 1 is M61, the Mersenne prime Pervushin proved in 1883.', createdAt: at(118), updatedAt: at(116) },
+      { id: 't3', turn: 't1', kind: 'assistant', text: 'Yes: 2^61 − 1 = 2305843009213693951 is the Mersenne prime M61.', createdAt: at(115), updatedAt: at(110) },
+      { id: 't4', turn: 't4', kind: 'user', text: 'Without tools: find all integer solutions of x^2 − 13y^2 = 1 with 0 < x < 1000000.', ...(settled ? { result: { state: 'completed', endedAt: at(1) } } : {}), createdAt: at(12), updatedAt: at(12) },
+      { id: 't5', turn: 't4', kind: 'thought', text: live ? thought.slice(0, 330) : thought, streaming: live, createdAt: at(11), updatedAt: at(live ? 0 : 6) },
+      ...(live ? [] : [{ id: 't6', turn: 't4', kind: 'assistant', text: 'The fundamental solution is (649, 180); the next is (842401, 233640).\n\n(x, y) = (1, 0), (649, ±180), (842401, ±233640)', streaming: !settled, createdAt: at(5), updatedAt: at(settled ? 1 : 0) }]),
+    ],
+  };
+}
+
 // compactionThread is a project chat that has compacted three times (D73):
 // once cleanly, once without managing to save the conversation, and once
 // still running, with a message the user sent meanwhile held under the card.
