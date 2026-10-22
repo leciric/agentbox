@@ -1,7 +1,7 @@
 // Package pkgcache is the package managers' caches every agent shares: one
 // directory in AgentBox's VM, mounted into each agent at the same path
-// (agent/pkgcache.go), that pnpm, npm, Yarn, Go, pip, uv, Corepack and
-// Playwright download into. A dependency, a module or a browser several agents
+// (agent/pkgcache.go), that pnpm, npm, Yarn, Go, pip, uv, Corepack,
+// Playwright and Electron download into. A dependency, a module or a browser several agents
 // need is downloaded once, and outlives the agents that downloaded it.
 //
 // Agents write into it themselves, through their own package managers: the
@@ -23,7 +23,9 @@
 //   - pip's HTTP cache and wheels are written to a temporary file then
 //     renamed, and uv locks its cache;
 //   - Playwright locks its browsers' directory while it installs, and
-//     Corepack downloads into a temporary directory it renames.
+//     Corepack downloads into a temporary directory it renames;
+//   - Electron's downloader (@electron/get) writes a zip to a temporary
+//     directory and renames it into the cache.
 //
 // Two caches are left out on purpose. Yarn 1's cache unpacks a package straight
 // into its final directory and deletes one it finds incomplete, so two agents
@@ -60,6 +62,7 @@ const (
 	Uv         = "uv"
 	Playwright = "ms-playwright"
 	Corepack   = "corepack"
+	Electron   = "electron"
 )
 
 // unit says how much of a subdirectory goes at once when it's evicted.
@@ -106,6 +109,9 @@ var parts = []part{
 	{Playwright, 1},
 	// v1/<package manager>/<version>.
 	{Corepack, 2},
+	// Electron's binaries, one directory a download's URL: Electron 44 and
+	// later fetch theirs when first run, ~120 MB an agent otherwise.
+	{Electron, 1},
 }
 
 // Dirs are the subdirectories the tools are pointed at, which Prepare makes.

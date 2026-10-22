@@ -48,6 +48,7 @@ func TestMain(m *testing.M) {
 // test's turn function sends updates and asks for permission.
 type fakeTool struct {
 	resume      bool // offers session/resume
+	load        bool // offers session/load
 	steering    bool // takes a message into a running turn, like the real adapters
 	steerFails  bool // ...but the request errors
 	steerIdle   bool // ...or answers that no turn was running
@@ -59,6 +60,7 @@ type fakeTool struct {
 	plainOpus   bool // model choices are "opus", not "opus[1m]" — an account with no 1M-context entry
 	noKinds     bool // modes carry no _meta.kind, like claude-agent-acp 0.85 for a client that is not AIR
 	plan        bool // modes include plan, like Claude Code's
+	oldSonnet   bool // also offers Sonnet 4.5, which takes no adaptive thinking
 	// strictModel refuses a model that isn't literally one of its choices,
 	// the way claude-agent-acp answers an unresolvable one ("Invalid value for
 	// config option model: fable").
@@ -157,7 +159,7 @@ func (f *fakeTool) Request(method string, params json.RawMessage, reply func(any
 		}
 		res := map[string]any{
 			"protocolVersion":   1,
-			"agentCapabilities": map[string]any{"loadSession": false, "sessionCapabilities": sessionCaps, "promptCapabilities": map[string]any{"image": f.images, "embeddedContext": f.embedded}},
+			"agentCapabilities": map[string]any{"loadSession": f.load, "sessionCapabilities": sessionCaps, "promptCapabilities": map[string]any{"image": f.images, "embeddedContext": f.embedded}},
 			"agentInfo":         map[string]any{"name": "fake", "title": "Fake Tool", "version": "1.0"},
 		}
 		if f.steering {
@@ -170,7 +172,7 @@ func (f *fakeTool) Request(method string, params json.RawMessage, reply func(any
 		id := fmt.Sprintf("session-%d", f.sessions)
 		f.mu.Unlock()
 		reply(map[string]any{"sessionId": id, "configOptions": f.options()}, nil)
-	case acp.MethodSessionResume:
+	case acp.MethodSessionResume, acp.MethodSessionLoad:
 		if f.resumeFails {
 			reply(nil, &acp.Error{Code: -32002, Message: "no such session"})
 			return
@@ -265,6 +267,9 @@ func (f *fakeTool) options() []map[string]any {
 		modelChoices = append(modelChoices, map[string]any{"value": "opus", "name": "Opus 5"})
 	} else {
 		modelChoices = append(modelChoices, map[string]any{"value": "opus[1m]", "name": "Opus 5", "description": "Opus 5 with 1M context"})
+	}
+	if f.oldSonnet {
+		modelChoices = append(modelChoices, map[string]any{"value": "claude-sonnet-4-5", "name": "Sonnet 4.5"})
 	}
 	modes := []map[string]any{
 		{"value": "default", "name": "Manual", "_meta": map[string]string{"kind": "standard"}},
@@ -677,6 +682,133 @@ func TestATurnWithToolCallsAndAPermissionRequest(t *testing.T) {
 	if stored.Session.State != api.ChatOff {
 		t.Errorf("a new daemon's session is %s", stored.Session.State)
 	}
+}
+
+// Claude Code's sessions ask for its thinking as summarized text, whether new,
+// resumed or loaded: without it current models stream none. The other tools
+// get no _meta.
+func TestClaudeSessionsAskForSummarizedThinking(t *testing.T) {
+	t.Parallel()
+	want := `"_meta":{"claudeCode":{"options":{"thinking":{"display":"summarized","type":"adaptive"}}}}`
+	for _, tc := range []struct {
+		name, ai, method string
+		resume, load     bool
+	}{
+		{"claude, resumed", "claude", acp.MethodSessionResume, true, false},
+		{"claude, loaded", "claude", acp.MethodSessionLoad, false, true},
+		{"codex, resumed", "codex", acp.MethodSessionResume, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := openStore(t)
+			a := testAgent
+			a.AI = tc.ai
+			first := newFakeTool(answerHello)
+			m, _ := newManager(t, store, first)
+			if _, err := m.Send(a, "hi"); err != nil {
+				t.Fatal(err)
+			}
+			waitThread(t, m, a, "the first turn", turnsEnded(1))
+			m.Close()
+			second := newFakeTool(answerHello)
+			second.resume, second.load = tc.resume, tc.load
+			m2, _ := newManager(t, store, second)
+			if _, err := m2.Send(a, "hi again"); err != nil {
+				t.Fatal(err)
+			}
+			waitThread(t, m2, a, "the second turn", turnsEnded(2))
+			created, again := first.called(acp.MethodSessionNew), second.called(tc.method)
+			if len(created) != 1 || len(again) != 1 {
+				t.Fatalf("%d new sessions, %d calls to %s", len(created), len(again), tc.method)
+			}
+			for _, params := range [][]byte{created[0], again[0]} {
+				if got := strings.Contains(string(params), want); got != (tc.ai == "claude") {
+					t.Errorf("%s asked with %s", tc.ai, params)
+				}
+				if tc.ai != "claude" && strings.Contains(string(params), "_meta") {
+					t.Errorf("%s got a _meta: %s", tc.ai, params)
+				}
+			}
+		})
+	}
+}
+
+// A model older than adaptive thinking (Haiku 4.5, Sonnet 4.5) answers it
+// with a 400, so its sessions don't ask for it: neither one it starts on, nor
+// one moved to it mid-chat, which restarts the adapter on the next message
+// (claude-agent-acp reads _meta only as a session starts) and resumes the
+// session without it. Moving back asks for it again.
+func TestOlderClaudeModelsAreNotAskedForAdaptiveThinking(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	adaptive := `"thinking":{"display":"summarized","type":"adaptive"}`
+	asks := func(params json.RawMessage) bool { return strings.Contains(string(params), adaptive) }
+
+	t.Run("started on it", func(t *testing.T) {
+		t.Parallel()
+		store := openStore(t)
+		if err := store.SaveChat(ctx, testAgent.Project, testAgent.Name, state.Chat{Options: map[string]string{"model": "claude-sonnet-4-5"}}); err != nil {
+			t.Fatal(err)
+		}
+		f := newFakeTool(answerHello)
+		f.oldSonnet = true
+		m, _ := newManager(t, store, f)
+		if _, err := m.Send(testAgent, "hi"); err != nil {
+			t.Fatal(err)
+		}
+		waitThread(t, m, testAgent, "the turn", turnsEnded(1))
+		if created := f.called(acp.MethodSessionNew); len(created) != 1 || strings.Contains(string(created[0]), "_meta") {
+			t.Errorf("Sonnet 4.5's session/new: %s", created)
+		}
+	})
+
+	t.Run("moved to it and back", func(t *testing.T) {
+		t.Parallel()
+		store := openStore(t)
+		// Sonnet 4.5 has Sonnet's window here, so the window doesn't move
+		// with the model and restart the adapter for a reason of its own.
+		if err := store.SetSetting(ctx, state.SettingClaudeModelWindows, `{"sonnet":1000000,"claude-sonnet-4-5":1000000}`); err != nil {
+			t.Fatal(err)
+		}
+		f := newFakeTool(answerHello)
+		f.oldSonnet, f.resume = true, true
+		m, _ := newManager(t, store, f)
+		turns := 0
+		send := func(text string) {
+			t.Helper()
+			if _, err := m.Send(testAgent, text); err != nil {
+				t.Fatal(err)
+			}
+			turns++
+			waitThread(t, m, testAgent, text, turnsEnded(turns))
+		}
+		setModel := func(model string) {
+			t.Helper()
+			if _, err := m.SetOption(ctx, testAgent, "model", model); err != nil {
+				t.Fatal(err)
+			}
+		}
+		send("hi")
+		if created := f.called(acp.MethodSessionNew); len(created) != 1 || !asks(created[0]) {
+			t.Fatalf("Sonnet's session/new: %s", created)
+		}
+		setModel("claude-sonnet-4-5")
+		send("on sonnet 4.5")
+		resumed := f.called(acp.MethodSessionResume)
+		if len(resumed) != 1 || asks(resumed[0]) {
+			t.Fatalf("after moving to Sonnet 4.5, session/resume: %s", resumed)
+		}
+		send("still on sonnet 4.5")
+		if n := len(f.called(acp.MethodSessionResume)); n != 1 {
+			t.Errorf("restarted again with no change: %d resumes", n)
+		}
+		setModel("sonnet")
+		send("back on sonnet")
+		resumed = f.called(acp.MethodSessionResume)
+		if len(resumed) != 2 || !asks(resumed[1]) {
+			t.Errorf("after moving back to Sonnet, session/resume: %s", resumed)
+		}
+	})
 }
 
 func TestTheSessionIsResumedByTheNextAdapter(t *testing.T) {

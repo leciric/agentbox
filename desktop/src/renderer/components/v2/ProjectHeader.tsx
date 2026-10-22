@@ -2,7 +2,7 @@
 // and name, then Lead or the agent), and the project's ⋯ menu beside the
 // chat's controls. The view puts those in the top bar through InTopBar.
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeftRight, Check, CheckCheck, ChevronRight, Clapperboard, Copy, Ellipsis, FolderOpen, GitPullRequest, Pin, PinOff, Plus, Settings, Smile, Split, SquarePen, type LucideIcon } from 'lucide-react';
+import { ArrowLeftRight, Check, CheckCheck, ChevronRight, Clapperboard, Copy, Ellipsis, FolderOpen, Pin, PinOff, Plus, Settings, Smile, Split, SquarePen, type LucideIcon } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import * as T from '../../../shared/api';
@@ -16,7 +16,7 @@ import { ProjectIcon } from '../ProjectIcon';
 import { Button } from '../ui/button';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuMore, MenuSeparator, MenuTrigger } from '../ui/menu';
 import { Tip } from '../ui/tooltip';
-import { useOpenReview, useProjectReview } from './ReviewV2';
+import { useOpenReview } from './ReviewV2';
 import { cn } from '../../lib/utils';
 import { TalkToProject } from './TalkToProject';
 import { openFanOut } from '../../lib/groups';
@@ -100,43 +100,24 @@ export function projectActions(
   };
 }
 
-// ProjectPlaces is the project's Pull requests, with how many are open and
-// ready to review, and its Settings: one click from the lead's chat, in the
-// right-hand panel, over whatever it shows. Clicked again, the panel goes
-// back to what it showed.
-export function ProjectPlaces({ project, leadRef }: { project: string; leadRef: string }) {
+// ProjectPlaces is the project's Settings: one click from the lead's chat, in
+// the right-hand panel, over whatever it shows. Clicked again, the panel goes
+// back to what it showed. Its Pull requests are a tab of that panel.
+export function ProjectPlaces({ leadRef }: { leadRef: string }) {
   const t = useT();
   const panel = useChatPanel(leadRef);
-  const pulls = useQuery({ queryKey: ['pulls', project], queryFn: () => api.projectPullRequests(project), refetchInterval: 60_000 });
-  const open = (pulls.data?.pullRequests ?? []).filter((pr) => pr.state === 'open').length;
-  const ready = useProjectReview(project, !!useOpenReview()).data?.items?.length ?? 0;
-  const on = (view: 'pulls' | 'settings') => (fitsBeside() || panel.open) && panel.wide === view;
-  const toggle = (view: 'pulls' | 'settings') => {
-    if (on(view)) return panelBack(leadRef);
-    if (view === 'settings') setPanel({ section: 'general' });
-    openPanelOn(leadRef, view);
+  const on = (fitsBeside() || panel.open) && panel.wide === 'settings';
+  const toggle = () => {
+    if (on) return panelBack(leadRef);
+    setPanel({ section: 'general' });
+    openPanelOn(leadRef, 'settings');
   };
-  const pullsTip = [t('panel.view.pulls'), open > 0 && t('v2.header.openPulls', { count: open }), ready > 0 && t('v2.header.readyPulls', { count: ready })].filter(Boolean).join(' · ');
   return (
-    <>
-      <Tip label={pullsTip}>
-        <Button size="sm" variant="ghost" aria-label={pullsTip} aria-pressed={on('pulls')} className={cn('h-8 gap-1.5 px-2', on('pulls') && 'bg-surface-raised text-primary')} onClick={() => toggle('pulls')} data-project-pulls={open}>
-          <GitPullRequest />
-          <span className="hidden text-[12px] lg:inline">{t('panel.view.pulls')}</span>
-          {open > 0 && <span className="rounded-full bg-surface-strong px-1.5 text-[10.5px] tabular-nums text-secondary">{open}</span>}
-          {ready > 0 && (
-            <span className="rounded-full bg-brand-500/15 px-1.5 text-[10.5px] font-medium tabular-nums text-brand-300 [:root[data-appearance=light]_&]:text-brand-600" data-project-pulls-ready={ready}>
-              {t('v2.header.ready', { count: ready })}
-            </span>
-          )}
-        </Button>
-      </Tip>
-      <Tip label={t('v2.sidebar.projectSettings')}>
-        <Button size="icon-sm" variant="ghost" aria-label={t('v2.sidebar.projectSettings')} aria-pressed={on('settings')} className={cn(on('settings') && 'bg-surface-raised text-primary')} onClick={() => toggle('settings')} data-project-settings>
-          <Settings />
-        </Button>
-      </Tip>
-    </>
+    <Tip label={t('v2.sidebar.projectSettings')}>
+      <Button size="icon-sm" variant="ghost" aria-label={t('v2.sidebar.projectSettings')} aria-pressed={on} className={cn(on && 'bg-surface-raised text-primary')} onClick={toggle} data-project-settings>
+        <Settings />
+      </Button>
+    </Tip>
   );
 }
 

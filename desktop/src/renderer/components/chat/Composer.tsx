@@ -45,6 +45,7 @@ import { onComposerFocus, takeComposerFocus } from '../../lib/newTask';
 import { composeEvent, getDraft, setDraft } from '../../lib/drafts';
 import { formatTime, t as translate, useT } from '../../lib/i18n';
 import { useNow } from '../../lib/useNow';
+import { useReviewCardShown } from '../v2/ReviewV2';
 import { previewUrl } from '../../lib/chatImages';
 import { droppedFiles, isElement, isFile, prepareAttachment, room, uploads, type Pending } from '../../lib/chatFiles';
 import { splitPicked, takePicks, useWaitingPicks, withPicks } from '../../lib/picks';
@@ -78,6 +79,8 @@ export function Composer({
   onSent: () => void;
 }) {
   const t = useT();
+  // The review card carries the wake button itself while it shows.
+  const reviewCard = useReviewCardShown(agent);
   const fileLinks = use(FileLinks);
   const [text, setText] = useState(() => getDraft(agent.ref));
   const [dismissed, setDismissed] = useState<string | null>(null);
@@ -494,7 +497,7 @@ export function Composer({
             </button>
           </div>
         </Attached>
-      ) : asleep ? (
+      ) : asleep && reviewCard ? null : asleep ? (
         <Attached tone="neutral">
           <div className="flex items-center gap-2 text-[12.5px]" data-chat-asleep={asleep.state}>
             {asleep.starting || send.isPending ? <LoaderCircle className="size-3.5 shrink-0 animate-spin text-muted" /> : <Moon className="size-3.5 shrink-0 text-muted" />}

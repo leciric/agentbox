@@ -560,6 +560,12 @@ type Settings struct {
 	DefaultPackageCacheMaxBytes int64 `json:"defaultPackageCacheMaxBytes"`
 	// PackageCacheBytes is how much they held when last measured.
 	PackageCacheBytes int64 `json:"packageCacheBytes"`
+	// LocalNodeModules is "Keep agents' node_modules in the VM": while on, a
+	// new agent's node_modules are on a disk of AgentBox's VM rather than in
+	// its worktree, where the worktree is in a folder the VM shares, and
+	// start filled when its lockfile was installed by an agent before. The
+	// computer AgentBox runs on sees them empty. On unless it was turned off.
+	LocalNodeModules bool `json:"localNodeModules"`
 
 	// ClaudeCodeUpdate is "Keep Claude Code up to date": the daemon moving
 	// Claude Code and its ACP adapter past the versions this AgentBox pins,
@@ -677,6 +683,9 @@ type UpdateSettingsRequest struct {
 	PackageCacheMaxBytes *int64 `json:"packageCacheMaxBytes,omitempty"`
 	// ClearPackageCache empties them.
 	ClearPackageCache bool `json:"clearPackageCache,omitempty"`
+	// LocalNodeModules turns "Keep agents' node_modules in the VM" on or off,
+	// for agents made from now on.
+	LocalNodeModules *bool `json:"localNodeModules,omitempty"`
 	// ClaudeCodeAutoUpdate turns "Keep Claude Code up to date" on, which
 	// checks at once, or off, which puts agents back on the pinned versions.
 	ClaudeCodeAutoUpdate *bool `json:"claudeCodeAutoUpdate,omitempty"`

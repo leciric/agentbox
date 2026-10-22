@@ -6,7 +6,8 @@
 #   (window manager), tint2 as a centred dock (launchers, the open windows and
 #   a clock) and pcmanfm and a terminal for the agent to browse files or run
 #   commands from the display itself;
-# - Chromium, maximized, with the DevTools protocol on 127.0.0.1:9222.
+# - Chromium, maximized, with the DevTools protocol on 127.0.0.1:9222;
+# - with a GPU, an idle VNC client that keeps Xvnc's vblank at 60 Hz (hold_vnc).
 # Runs as the agent's user. AgentBox reaches both ports through Incus proxy
 # devices, so nothing listens on the agent's network.
 # Windows are kept inside the display as the viewer resizes it: openbox opens
@@ -87,6 +88,17 @@ cursor_size=48
 export XCURSOR_THEME="$cursor_theme" XCURSOR_SIZE="$cursor_size"
 
 devtools() { curl -sf --max-time 1 "http://127.0.0.1:9222/json/version" >/dev/null; }
+# venus_flags are Chromium's when the agent has the Mac's GPU, through the VM's
+# Venus driver mounted over Mesa's (vgpudriver.go): WebGL runs on ANGLE's
+# Vulkan backend, which Chromium neither picks nor allows there by itself.
+# Only a driver with venus/0004 can run it, so it's looked for in the driver:
+# one built before, or mounted before the VM rebuilt it, keeps the default.
+venus_flags() {
+  driver=$(awk '$5 ~ /\/libvulkan_virtio\.so$/ { print $5; exit }' "${mountinfo:-/proc/self/mountinfo}" 2>/dev/null) || true
+  if [ -n "$driver" ] && grep -qa 'software wsi: the renderer has no dma-buf' "$driver"; then
+    echo "--use-angle=vulkan --ignore-gpu-blocklist"
+  fi
+}
 listening() { ss -ltn "sport = :$1" | grep -q LISTEN; }
 display_answering() { xdpyinfo -display "$DISPLAY" >/dev/null 2>&1; }
 # render_node is the GPU's DRM render node, when "GPU for agents" gave the
@@ -102,6 +114,42 @@ render_node() {
     fi
   done
 }
+# On WSL's GPU (/dev/dxg and no render node) the desktop stays on the CPU:
+# Xvnc's GLX, the dock, the terminal and Chromium. There Mesa's d3d12 driver
+# renders under drisw and reads every frame back to copy it into Xvnc, and
+# with a Chromium in every agent's desktop that kept Windows' GPU busy enough
+# to reset its driver (TDR: displays blank, HDMI audio crackles). So the
+# desktop loses WSL's libraries (which d3d12's GL and VA-API drivers load),
+# Mesa uses llvmpipe, and Chromium uses ANGLE on SwiftShader (WebGL still
+# works) with no Vulkan. Programs an agent runs from its own shells still get
+# the GPU (gpu.go's profile). On a Mac's GPU chromium_gpu_flags are
+# venus_flags; elsewhere it's empty.
+chromium_gpu_flags=""
+if [ -c /dev/dxg ] && [ -z "$(render_node)" ]; then
+  LD_LIBRARY_PATH=$(printf '%s' "${LD_LIBRARY_PATH:-}" | tr ':' '\n' | grep -vx '/usr/lib/wsl/lib' | paste -sd: -) || true
+  [ -n "$LD_LIBRARY_PATH" ] && export LD_LIBRARY_PATH || unset LD_LIBRARY_PATH
+  export GALLIUM_DRIVER=llvmpipe
+  chromium_gpu_flags="--use-gl=angle --use-angle=swiftshader --disable-features=Vulkan"
+fi
+
+# hold_vnc keeps a VNC client connected to Xvnc's port $1 that never asks for
+# a frame, so costs it no encoding, for as long as Xvnc runs. Xvnc (TigerVNC)
+# advances Present's vblank only on its frame clock, which ticks once a second
+# while no client is connected: a program that waits for vblank, as
+# GPU-rendered Chromium and Mesa's OpenGL and Vulkan do by default, then draws
+# one frame a second whenever nobody watches the desktop, as when an agent
+# tests in the browser or records. With a client the clock runs at 60 Hz.
+# Not vblank_mode=0 or --disable-gpu-vsync: unpaced, Chromium floods Xvnc with
+# frames it reads back from the GPU, and draws slower than this once a viewer
+# connects. Software rendering (SwiftShader, llvmpipe) never waits for vblank.
+# The client handshake: version 3.8, security type None, a shared session;
+# then it reads what Xvnc sends until Xvnc goes. bash, for /dev/tcp, and one
+# process, its own reader, so killing it (pgrep finds it by $0, vnc_clock)
+# closes the connection: a cat it forked would keep it open.
+vnc_clock=agentbox-vnc-clock
+hold_vnc='exec 3<>"/dev/tcp/127.0.0.1/$1" || exit 1
+printf "RFB 003.008\n\001\001" >&3
+while read -r -u 3 -N 4096 _ 2>/dev/null; do :; done'
 wait_for() {
   i=0
   until "$@"; do
@@ -556,6 +604,9 @@ start)
     wait_for test -e "/tmp/.X11-unix/X$display" || { echo "the display didn't start: see $state/display.log" >&2; exit 1; }
     wait_for listening 5900 || { echo "the VNC server didn't start: see $state/display.log" >&2; exit 1; }
   fi
+  if [ -n "$(render_node)" ] && ! pgrep -u "$uid" -f "$vnc_clock" >/dev/null; then
+    setsid bash -c "$hold_vnc" "$vnc_clock" 5900 </dev/null >/dev/null 2>&1 &
+  fi
   # Not only on a fresh display: a start after the binary shipped a new
   # wallpaper is what puts it up.
   set_cursor
@@ -580,7 +631,9 @@ start)
     # Same for the lock of a browser that was running.
     rm -f "$profile"/Singleton*
     mark_clean_exit
-    setsid chromium --no-first-run --hide-crash-restore-bubble --disable-session-crashed-bubble --no-default-browser-check --disable-dev-shm-usage --password-store=basic \
+    [ -n "$chromium_gpu_flags" ] || chromium_gpu_flags=$(venus_flags)
+    # shellcheck disable=SC2086 # flags, or nothing
+    setsid chromium --no-first-run --hide-crash-restore-bubble --disable-session-crashed-bubble --no-default-browser-check --disable-dev-shm-usage --password-store=basic $chromium_gpu_flags \
       --user-data-dir="$profile" --remote-debugging-port=9222 --start-maximized about:blank >"$state/chromium.log" 2>&1 </dev/null &
     wait_for devtools || { echo "the browser didn't start: see $state/chromium.log" >&2; tail -n 5 "$state/chromium.log" >&2; exit 1; }
   fi
@@ -618,6 +671,7 @@ stop)
   pkill -u "$uid" -f "tint2 -c $config/tint2/tint2rc" || true
   pkill -u "$uid" -f "xev -display $DISPLAY -root" || true
   pkill -u "$uid" -f "openbox --config-file $config/openbox/rc.xml" || true
+  pkill -u "$uid" -f "$vnc_clock" || true
   pkill -u "$uid" -f "Xvnc $DISPLAY " || true
   ;;
 watch)
