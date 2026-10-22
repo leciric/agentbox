@@ -236,6 +236,10 @@ const (
 	// SettingPackageCacheMax is the most the shared package caches may hold,
 	// in bytes. Empty means DefaultPackageCacheMax.
 	SettingPackageCacheMax = "package_cache_max"
+	// SettingLocalNodeModules says whether new agents' node_modules are on
+	// the VM's disk rather than in their worktrees, where worktrees are in a
+	// shared folder. On until somebody turns it off (FlagOn).
+	SettingLocalNodeModules = "local_node_modules"
 )
 
 // DefaultPackageCacheMax is the shared package caches' cap when nobody chose,

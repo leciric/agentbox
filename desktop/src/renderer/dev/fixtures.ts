@@ -1542,6 +1542,7 @@ let defaultsSettings = {
   packageCacheMaxBytes: 20 * 1024 ** 3,
   defaultPackageCacheMaxBytes: 20 * 1024 ** 3,
   packageCacheBytes: 3.1 * 1024 ** 3,
+  localNodeModules: true,
   claudeCodeUpdate: { on: false, installed: '2.1.280', pinned: '2.1.280', latest: '', checking: false },
 } as T.Settings;
 
@@ -1564,6 +1565,7 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   if (req.packageCache !== undefined) next.packageCache = req.packageCache;
   if (req.packageCacheMaxBytes !== undefined) next.packageCacheMaxBytes = req.packageCacheMaxBytes || next.defaultPackageCacheMaxBytes;
   if (req.clearPackageCache) next.packageCacheBytes = 0;
+  if (req.localNodeModules !== undefined) next.localNodeModules = req.localNodeModules;
   if (req.claudeCodeAutoUpdate !== undefined || req.checkClaudeCode) {
     const on = req.claudeCodeAutoUpdate ?? next.claudeCodeUpdate.on;
     next.claudeCodeUpdate = on

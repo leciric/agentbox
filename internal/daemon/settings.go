@@ -173,6 +173,11 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if req.LocalNodeModules != nil {
+		if err := s.store.SetFlag(r.Context(), state.SettingLocalNodeModules, *req.LocalNodeModules); err != nil {
+			return err
+		}
+	}
 	if req.IdleTimeSeconds != nil {
 		if *req.IdleTimeSeconds < 60 {
 			return fmt.Errorf("idle time is at least 60 seconds; %d isn't", *req.IdleTimeSeconds)
@@ -494,6 +499,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		return api.Settings{}, err
 	}
 	packageCacheMax, packageCacheDefault := s.cacheMax(r.Context(), s.cfg.Paths.PackageCache(), packageCacheChosen, state.DefaultPackageCacheMax)
+	localNodeModules, err := s.store.FlagOn(r.Context(), state.SettingLocalNodeModules)
+	if err != nil {
+		return api.Settings{}, err
+	}
 	claudeUpdate, err := s.toolAutoUpdate(r.Context(), claudeAutoUpdate)
 	if err != nil {
 		return api.Settings{}, err
@@ -554,6 +563,7 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		PackageCacheMaxBytes:        packageCacheMax,
 		DefaultPackageCacheMaxBytes: packageCacheDefault,
 		PackageCacheBytes:           s.packageCache.Size(),
+		LocalNodeModules:            localNodeModules,
 
 		ClaudeCodeUpdate: claudeUpdate,
 	}, nil

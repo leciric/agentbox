@@ -31,6 +31,7 @@ import (
 	"agentbox/internal/imagecache"
 	"agentbox/internal/incus"
 	"agentbox/internal/memory"
+	"agentbox/internal/nodemods"
 	"agentbox/internal/omarchy"
 	"agentbox/internal/paths"
 	"agentbox/internal/pkgcache"
@@ -148,6 +149,11 @@ type Server struct {
 	// (pkgcache.go), and packageCacheKick asks for a trim now.
 	packageCache     *pkgcache.Cache
 	packageCacheKick chan struct{}
+	// nodeModules is agents' node_modules on the VM's disk (nodemodules.go),
+	// and sharedWorktrees whether worktrees are in a shared folder, found once.
+	nodeModules         *nodemods.Store
+	sharedWorktreesOnce sync.Once
+	sharedWorktrees     bool
 
 	// connectors are the remote MCP servers agents use, signed in to here
 	// (connectors.go, internal/connectors).
@@ -396,6 +402,7 @@ func New(cfg Config) (*Server, error) {
 	s.disk = s.newDiskWatch()
 	s.imageCache = s.newImageCache()
 	s.packageCache = s.newPackageCache()
+	s.nodeModules = s.newNodeModules()
 	s.packageCacheKick = make(chan struct{}, 1)
 	s.dockerPruneTimeout = agent.DockerPruneTimeout
 	return s, nil
@@ -425,6 +432,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	defer unlock()
 	moved := s.moveDataToPool(ctx)
+	s.placeNodeModules()
 	defer s.startTracing()()
 
 	ctx, stop := context.WithCancel(ctx)
@@ -645,6 +653,8 @@ func (s *Server) manager(log io.Writer) *agent.Manager {
 		DesktopTheme:     s.desktopTheme,
 		ImageCacheSocket: s.imageCacheSocket,
 		PackageCacheDir:  s.packageCacheDir,
+		NodeModules:      s.nodeModules,
+		NodeModulesOn:    s.nodeModulesOn,
 		ShareRoom:        s.shareRoom,
 		ShareBusy:        s.shareBusy,
 	}

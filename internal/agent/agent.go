@@ -29,6 +29,7 @@ import (
 	"agentbox/internal/image"
 	"agentbox/internal/incus"
 	"agentbox/internal/naming"
+	"agentbox/internal/nodemods"
 	"agentbox/internal/notes"
 	"agentbox/internal/paths"
 	"agentbox/internal/secrets"
@@ -266,6 +267,11 @@ type Manager struct {
 	// PackageCacheDir, when set, returns the directory of the package caches
 	// agents share, or "" while they're off (pkgcache.go).
 	PackageCacheDir func(ctx context.Context) string
+	// NodeModules, when set, is the VM's store of agents' node_modules and of
+	// their snapshots (nodemodules.go), and NodeModulesOn says whether a new
+	// agent gets its node_modules there.
+	NodeModules   *nodemods.Store
+	NodeModulesOn func(ctx context.Context) bool
 	// ShareRoom, when set, waits for the shared home to have room for a
 	// worktree to be made or removed: on a Linux host, virtiofsd holds a file
 	// for every inode the VM has looked at, and walking a worktree's
@@ -713,6 +719,9 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		}
 	}
 
+	if m.NodeModules != nil {
+		undo = append(undo, func() { m.NodeModules.Remove(a.Instance) })
+	}
 	if step, err := m.makeMachine(ctx, a, pl.repo, pl.source, envFiles, pl.task, "", &undo); err != nil {
 		return fail(step, err)
 	}
@@ -770,6 +779,12 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 	// A copy of another agent brings that agent's devices along: replace them.
 	for _, device := range copiedDevices {
 		if _, ok := copied.Devices[device]; ok {
+			steps = append(steps, func(ctx context.Context, c incus.Client) error { return c.RemoveDevice(ctx, a.Instance, device) })
+		}
+	}
+	// And its node_modules, which ensureNodeModules mounts this agent's own of.
+	for device := range copied.Devices {
+		if strings.HasPrefix(device, nodeModulesDevice) {
 			steps = append(steps, func(ctx context.Context, c incus.Client) error { return c.RemoveDevice(ctx, a.Instance, device) })
 		}
 	}
@@ -832,6 +847,9 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 			return "home", err
 		}
 	}
+	// Before the brief, which names them, and the session, so the AI tool
+	// finds node_modules already there when its lockfile was installed before.
+	m.ensureNodeModules(ctx, a)
 	m.logf("Configuring git, AI tool logins and the agent brief")
 	if err := m.configure(ctx, a, inst.IPv4(), envFiles, task); err != nil {
 		return "configure", err
@@ -1416,6 +1434,7 @@ func (m *Manager) brief(ctx context.Context, a state.Agent, ip string, envFiles 
 		BaseRef:      a.BaseRef,
 		IP:           ip,
 		EnvFiles:     envFiles,
+		NodeModules:  m.nodeModulesDirs(a),
 		Secrets:      secretNames,
 		Android:      android.IsProject(a.Worktree),
 		GitHub:       m.Creds.HasGitHubLogin(),
@@ -1838,6 +1857,7 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 		if err := m.setStartShare(ctx, a.Instance); err != nil {
 			return inst, err
 		}
+		m.nodeModulesSources(ctx, a)
 		if err := m.Incus.Start(ctx, a.Instance); err != nil {
 			return inst, err
 		}
@@ -2016,6 +2036,9 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 		return err
 	}
 	inst, err := m.Incus.Instance(ctx, a.Instance)
+	// Read before the worktree is emptied: which lockfiles its node_modules
+	// were installed from, kept once the machine is gone.
+	installs := m.nodeModulesInstalls(ctx, a, err == nil && inst.Status == "Running")
 	switch {
 	case err == nil:
 		cleared := inst.Status == "Running"
@@ -2040,6 +2063,9 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 	case !errors.Is(err, incus.ErrNotFound):
 		return restore(err)
 	}
+	// Now, with the machine gone and before the agent is archived: from
+	// then on its directories are a gone agent's, which a trim removes.
+	m.keepNodeModules(a, installs)
 
 	// The machine is gone, so the agent is a past agent now, before the
 	// worktree, which can take minutes to delete on a slow disk, or fail on
@@ -2129,8 +2155,17 @@ func (m *Manager) DeleteArchived(ctx context.Context, project, name string) erro
 // (removeLeftovers).
 func (m *Manager) clearWorktree(ctx context.Context, a state.Agent) {
 	m.logf("Stopping %s and emptying its worktree", a.Ref())
+	// Its node_modules on the VM's disk are kept or deleted from the VM
+	// after, by a daemon that may not be root: what container root made in
+	// them (sudo npm, Docker) is handed back to the user first. Only them:
+	// they're on the VM's disk, not a walk through the share.
 	script := `pkill -KILL -u "$1"; find "$2" -xdev -mindepth 1 -delete`
-	_, _ = m.Incus.Exec(ctx, a.Instance, "sh", "-c", script, "sh", strconv.Itoa(m.User.UID), a.Worktree)
+	args := []string{strconv.Itoa(m.User.UID), a.Worktree}
+	if mounts := m.nodeModulesMounts(a); len(mounts) > 0 {
+		script += `; owner=$3; shift 3; for d; do chown -R "$owner" "$d"; done`
+		args = append(append(args, fmt.Sprintf("%d:%d", m.User.UID, m.User.GID)), mounts...)
+	}
+	_, _ = m.Incus.Exec(ctx, a.Instance, append([]string{"sh", "-c", script, "sh"}, args...)...)
 }
 
 // handBackFiles gives files that container root created in the worktree
