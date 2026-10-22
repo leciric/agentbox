@@ -235,3 +235,29 @@ func TestIdleReclaimSaysWhatItStopped(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+// TestIdleReclaimSettings: off with the defaults until changed, its waits
+// kept to a minute to a day.
+func TestIdleReclaimSettings(t *testing.T) {
+	t.Parallel()
+	d, _, _ := newIdleReclaimTest(t, false)
+	ctx := context.Background()
+	got, err := d.client.Settings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.IdleReclaim || got.IdleFreezeSeconds != 300 || got.IdleStopSeconds != 600 {
+		t.Errorf("fresh: on %v, waits %d and %d; want off, 300 and 600", got.IdleReclaim, got.IdleFreezeSeconds, got.IdleStopSeconds)
+	}
+	on, freeze, stop := true, 120, 3600
+	if got, err = d.client.UpdateSettings(ctx, api.UpdateSettingsRequest{IdleReclaim: &on, IdleFreezeSeconds: &freeze, IdleStopSeconds: &stop}); err != nil {
+		t.Fatal(err)
+	}
+	if !got.IdleReclaim || got.IdleFreezeSeconds != 120 || got.IdleStopSeconds != 3600 {
+		t.Errorf("after setting: %v, %d, %d", got.IdleReclaim, got.IdleFreezeSeconds, got.IdleStopSeconds)
+	}
+	short := 30
+	if _, err := d.client.UpdateSettings(ctx, api.UpdateSettingsRequest{IdleFreezeSeconds: &short}); err == nil {
+		t.Error("took a 30-second wait")
+	}
+}

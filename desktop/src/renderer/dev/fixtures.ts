@@ -2045,6 +2045,7 @@ export function installDevBridge(): void {
     showItem: async () => {},
     openExternal: async () => {},
     notify: async () => false,
+    keepAwake: async () => {},
     onNotificationClick: () => () => {},
     copyText: () => {},
     readText: async () => '',

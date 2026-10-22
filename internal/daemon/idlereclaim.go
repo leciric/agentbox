@@ -63,7 +63,10 @@ func (agentIdleCgroups) Reclaim(instance string) (int64, int64, error) {
 
 // idleState is idle reclaim's, under mu.
 type idleState struct {
-	mu sync.Mutex
+	// step is held through a step, so the loop's and the one a change of
+	// the setting starts don't both freeze the same machine.
+	step sync.Mutex
+	mu   sync.Mutex
 	// frozen is what was frozen in each agent's machine, by ref.
 	frozen map[string]*idleFrozen
 	// stopped are the agents whose machines it stopped, by ref.
@@ -111,6 +114,8 @@ func (s *Server) runIdleReclaim(ctx context.Context) {
 // idle, stops the finished, and wakes what shouldn't stay frozen. Off, it
 // only wakes what it froze before it was turned off.
 func (s *Server) stepIdleReclaim(ctx context.Context, now time.Time) {
+	s.idle.step.Lock()
+	defer s.idle.step.Unlock()
 	on, freezeAfter, stopAfter, err := s.store.IdleReclaim(ctx)
 	if err != nil {
 		s.logf("idle reclaim: %v", err)
@@ -157,7 +162,7 @@ func (s *Server) stepIdleReclaim(ctx context.Context, now time.Time) {
 			if first {
 				// What a daemon before this one froze and didn't get to
 				// wake: this one knows nothing of it.
-				if err := s.idleCgroups.Thaw(st.Agent.Instance, nil); err != nil {
+				if err := s.idleCgroups.Thaw(st.Instance, nil); err != nil {
 					s.logf("idle reclaim: waking what an earlier daemon froze in %s: %v", st.Ref(), err)
 				}
 			}
