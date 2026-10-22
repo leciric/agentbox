@@ -280,6 +280,22 @@ export function buildFixtures(): FixtureData {
       chat: 'running',
       memory: { paused: 1, since: new Date(Date.now() - 3 * 60_000).toISOString(), why: 'falling', rate: 190 * 1024 ** 2, available: 5.9 * 1024 ** 3, total: 17.8 * 1024 ** 3 },
     }),
+    // Settings → Experimental's "Pause whole agents for memory": one frozen
+    // mid-turn, two machines thawing before it, and one waiting for the
+    // memory to boot its machine.
+    agent({
+      ref: `${PROJECT}/agent-85`,
+      title: 'Profile the search endpoint',
+      state: 'paused',
+      chat: 'running',
+      memory: { machine: 'paused', ahead: 2, since: new Date(Date.now() - 60_000).toISOString(), why: 'low', available: 1.1 * 1024 ** 3, total: 17.8 * 1024 ** 3 },
+    }),
+    agent({
+      ref: `${PROJECT}/agent-84`,
+      title: 'Add the export button',
+      state: 'initializing',
+      memory: { machine: 'waiting', ahead: 3, since: new Date(Date.now() - 30_000).toISOString(), why: 'easing', available: 2.4 * 1024 ** 3, total: 17.8 * 1024 ** 3 },
+    }),
     // A name given to create by hand, as long as the title beside it: the
     // row's name must give way before it pushes the title out.
     agent({
