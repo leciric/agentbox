@@ -31,6 +31,7 @@ import (
 	"agentbox/internal/imagecache"
 	"agentbox/internal/incus"
 	"agentbox/internal/memory"
+	"agentbox/internal/nodemods"
 	"agentbox/internal/omarchy"
 	"agentbox/internal/paths"
 	"agentbox/internal/pkgcache"
@@ -148,6 +149,11 @@ type Server struct {
 	// (pkgcache.go), and packageCacheKick asks for a trim now.
 	packageCache     *pkgcache.Cache
 	packageCacheKick chan struct{}
+	// nodeModules is agents' node_modules on the VM's disk (nodemodules.go),
+	// and sharedWorktrees whether worktrees are in a shared folder, found once.
+	nodeModules         *nodemods.Store
+	sharedWorktreesOnce sync.Once
+	sharedWorktrees     bool
 
 	// connectors are the remote MCP servers agents use, signed in to here
 	// (connectors.go, internal/connectors).
@@ -186,6 +192,7 @@ type Server struct {
 	freeWhenIdle map[string]bool         // reviewed agents still at work, whose machine goes when the turn ends (reviewfree.go)
 	machineKept  map[string]bool         // reviewed agents whose machine was kept for unpushed work (reviewfree.go)
 	reviewHeld   map[string]bool         // projects whose review list waits for the startup look at GitHub (prreconcile.go)
+	reviewKnown  map[string]knownReview  // each finished agent's review item as last read in full, by ref (review.go)
 	leadAPIs     map[string]*http.Server // per-project lead API servers
 	lastStates   map[string]api.AgentChange
 	previewAddr  string                   // where the preview proxy listens; empty when it's off
@@ -219,6 +226,7 @@ type Server struct {
 	imageWaiters    int               // jobs waiting for the base image to be built (imagebuild.go)
 	remote          *remote.Connector // the connection to a hub, when this machine is an environment
 	lan             *lanState         // phones chatting from the local network or a tunnel (lan.go)
+	share           shareState        // virtiofsd's open files, from the VM's supervisor (share.go)
 	// connectorsGiven is whether each connector was last given to agents,
 	// by scope and name, so only a change to that rewrites their MCP
 	// servers (connectors.go).
@@ -404,6 +412,7 @@ func New(cfg Config) (*Server, error) {
 	s.disk = s.newDiskWatch()
 	s.imageCache = s.newImageCache()
 	s.packageCache = s.newPackageCache()
+	s.nodeModules = s.newNodeModules()
 	s.packageCacheKick = make(chan struct{}, 1)
 	s.dockerPruneTimeout = agent.DockerPruneTimeout
 	return s, nil
@@ -433,6 +442,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	defer unlock()
 	moved := s.moveDataToPool(ctx)
+	s.placeNodeModules()
 	defer s.startTracing()()
 
 	ctx, stop := context.WithCancel(ctx)
@@ -654,6 +664,10 @@ func (s *Server) manager(log io.Writer) *agent.Manager {
 		ImageCacheSocket: s.imageCacheSocket,
 		PackageCacheDir:  s.packageCacheDir,
 		Admit:            s.admitMachine,
+		NodeModules:      s.nodeModules,
+		NodeModulesOn:    s.nodeModulesOn,
+		ShareRoom:        s.shareRoom,
+		ShareBusy:        s.shareBusy,
 	}
 }
 
@@ -837,6 +851,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/diagnostics/spans", s.diagnosticsSpans)
 	h("GET /v1/diagnostics/stalls", s.diagnosticsStalls)
 	h("GET /v1/diagnostics/resources", s.diagnosticsResources)
+	h("GET /v1/diagnostics/files", s.diagnosticsFiles)
 	h("POST /v1/diagnostics/client-spans", s.clientSpans)
 	h("GET /v1/agents", s.listAgents)
 	// Past agents (archive.go): their chats read through the routes above.
@@ -969,6 +984,7 @@ func (s *Server) routes() http.Handler {
 	h("PATCH /v1/lan/phones/{id}", s.updateLANPhone)
 	h("GET /v1/lan/phones/{id}/audit", s.lanPhoneAudit)
 	h("PUT /v1/lan/host", s.lanHostReport)
+	h("PUT /v1/vm/share", s.shareReport)
 	h("PUT /v1/lan/web/{version}/files/{path...}", s.putLANWebFile)
 	h("POST /v1/lan/web/{version}", s.installLANWeb)
 	mux.Handle(lanNetPrefix+"/", http.StripPrefix(lanNetPrefix, s.lanHandler(lanViaSocket)))

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { arrange, buildLists, drop, flatten, moveProject, moveSection, place, targetKey, toLayout, type SidebarList } from './sidebar.ts';
+import { arrange, buildLists, drop, flatten, listEnd, moveProject, moveSection, place, sectionsAside, stepTarget, targetKey, toLayout, type SidebarList } from './sidebar.ts';
 
 const project = (name: string, section = ''): T.Project => ({ name, section }) as T.Project;
 const section = (id: string, name = id): T.Section => ({ id, name }) as T.Section;
@@ -273,4 +273,52 @@ test('arrange shows a project once, even in a layout that names it twice', () =>
     ['s1', ['a']],
     [null, []],
   ]);
+});
+
+// UI v2's sidebar: the sections as it shows them, and its keyboard's steps.
+const shownOf = (lists: SidebarList[]) => lists.map((l) => [l.section?.id ?? null, l.projects.map((p) => p.name)]);
+
+test('sectionsAside leaves out of the sections the projects shown elsewhere', () => {
+  const lists = buildLists([project('a', 's1'), project('pin', 's1'), project('b'), project('c', 's2')], [section('s1'), section('s2')]);
+  const { sections, shown } = sectionsAside(lists, new Set(['pin', 'b']));
+  assert.deepEqual(shownOf(sections), [
+    ['s1', ['a']],
+    ['s2', ['c']],
+  ]);
+  assert.deepEqual([...shown], ['a', 'c']);
+});
+
+test('listEnd is after the last row, or the header of a section with none shown', () => {
+  const lists = buildLists([project('a', 's1')], [section('s1'), section('s2')]);
+  assert.deepEqual(listEnd(lists[0]), { kind: 'project', name: 'a', edge: 'after' });
+  assert.deepEqual(listEnd(lists[1]), { kind: 'section', id: 's2' });
+  assert.deepEqual(listEnd({ section: { ...section('s1'), collapsed: true }, projects: [project('a')] }), { kind: 'section', id: 's1' });
+  assert.deepEqual(listEnd(lists[2]), { kind: 'list', section: null });
+});
+
+test('stepTarget steps over the projects shown, and drop lands it among them all', () => {
+  // pin is in s1 but shown with the pins: a step passes over it as if it weren't there.
+  const all = buildLists([project('a', 's1'), project('pin', 's1'), project('b', 's1'), project('c', 's2'), project('x'), project('y')], [section('s1'), section('s2'), section('s3')]);
+  const shown = [...sectionsAside(all, new Set(['pin'])).sections, { section: null, projects: [project('y'), project('x')] }];
+  const step = (name: string, delta: -1 | 1) => {
+    const at = stepTarget(shown, name, delta);
+    return at && shownOf(drop(all, { kind: 'project', name }, at) ?? []);
+  };
+  // Within a section.
+  assert.deepEqual(step('a', 1), [['s1', ['pin', 'b', 'a']], ['s2', ['c']], ['s3', []], [null, ['x', 'y']]]);
+  // Past its end, the top of the next; past its top, the end of the one before.
+  assert.deepEqual(step('b', 1), [['s1', ['a', 'pin']], ['s2', ['b', 'c']], ['s3', []], [null, ['x', 'y']]]);
+  assert.deepEqual(step('c', -1), [['s1', ['a', 'pin', 'b', 'c']], ['s2', []], ['s3', []], [null, ['x', 'y']]]);
+  // Into an empty section, either way.
+  assert.deepEqual(step('c', 1), [['s1', ['a', 'pin', 'b']], ['s2', []], ['s3', ['c']], [null, ['x', 'y']]]);
+  // The top of the sidebar is as far as it goes.
+  assert.equal(stepTarget(shown, 'a', -1), null);
+  // Down past the last section is out of any; from there, up is back into the last one.
+  const last = [...sectionsAside(all, new Set()).sections.slice(0, 2), { section: null, projects: [project('x')] }];
+  assert.deepEqual(stepTarget(last, 'c', 1), { kind: 'list', section: null });
+  assert.deepEqual(stepTarget(last, 'x', -1), { kind: 'project', name: 'c', edge: 'after' });
+  assert.deepEqual(stepTarget(shown, 'x', -1), { kind: 'list', section: 's3' });
+  // The projects in no section have no order of their own in v2: down goes nowhere.
+  assert.equal(stepTarget(shown, 'y', 1), null);
+  assert.equal(stepTarget([{ section: null, projects: [project('x')] }], 'x', -1), null);
 });

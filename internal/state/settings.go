@@ -180,6 +180,12 @@ const (
 	// SettingBootCosts is what the last machines' boots took, a JSON list of
 	// bytes, newest last: what the fleet holds a new machine's start to.
 	SettingBootCosts = "boot_costs"
+	// SettingBlockFullSuite says whether a Claude Code agent's whole test
+	// suite (`go test ./...`, a bare `npm test`) is refused before it runs,
+	// with what to run instead (internal/cli/fullsuite.go), unless its
+	// project allows them (Project.FullTestSuite). Experimental: off until
+	// somebody turns it on (Flag).
+	SettingBlockFullSuite = "block_full_suite"
 	// SettingMediaRetention is how long a removed agent's media is kept: one
 	// of the api.MediaRetention values, empty meaning
 	// DefaultMediaRetention. It belongs to the installation rather than to a
@@ -248,6 +254,10 @@ const (
 	// SettingPackageCacheMax is the most the shared package caches may hold,
 	// in bytes. Empty means DefaultPackageCacheMax.
 	SettingPackageCacheMax = "package_cache_max"
+	// SettingLocalNodeModules says whether new agents' node_modules are on
+	// the VM's disk rather than in their worktrees, where worktrees are in a
+	// shared folder. On until somebody turns it off (FlagOn).
+	SettingLocalNodeModules = "local_node_modules"
 )
 
 // DefaultPackageCacheMax is the shared package caches' cap when nobody chose,

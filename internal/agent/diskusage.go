@@ -75,7 +75,7 @@ func (m *Manager) DiskUsage(ctx context.Context) (DiskUsage, error) {
 
 	worktrees := DiskUsageCategory{Kind: api.DiskWorktrees, Label: "Worktrees"}
 	for _, a := range agents {
-		if a.Worktree == "" {
+		if a.Worktree == "" || m.shareBusy() {
 			continue
 		}
 		if size, err := dirSize(a.Worktree); err == nil {
@@ -116,6 +116,10 @@ func sortItemsDesc(items []DiskUsageItem) {
 	sort.SliceStable(items, func(i, j int) bool { return items[i].Bytes > items[j].Bytes })
 }
 
+// errShareBusy is a worktree not measured: walking it would cost virtiofsd
+// a file for each of its files while the shared home is short of them.
+var errShareBusy = errors.New("not measured while the shared home is close to its limit of open files")
+
 // AgentDisk is one agent's two sizes, each with its own error, so a machine
 // Incus can't read still shows its worktree.
 type AgentDisk struct {
@@ -135,6 +139,8 @@ func (m *Manager) AgentDisk(ctx context.Context, a state.Agent) AgentDisk {
 	d.Machine, d.MachineErr = m.Incus.VolumeUsage(ctx, pool, a.Instance)
 	if a.Worktree == "" {
 		d.WorktreeErr = errors.New(a.Ref() + " has no worktree")
+	} else if m.shareBusy() {
+		d.WorktreeErr = errShareBusy
 	} else {
 		d.Worktree, d.WorktreeErr = dirSize(a.Worktree)
 	}

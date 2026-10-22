@@ -130,6 +130,10 @@ type Project struct {
 	// behind — never a diverged branch, and a checked-out one only when its
 	// checkout has no changes. On by default.
 	SyncBase bool `json:"syncBase"`
+	// FullTestSuite is whether this project's agents may run a whole test
+	// suite while Settings.BlockFullSuite refuses them; it means nothing
+	// while that is off. Off by default.
+	FullTestSuite bool `json:"fullTestSuite"`
 	// PRWatching is what that comes to: whether they are watched now.
 	PRWatching bool      `json:"prWatching"`
 	CreatedAt  time.Time `json:"createdAt"`
@@ -334,6 +338,9 @@ type UpdateProjectRequest struct {
 	// SyncBase turns on or off keeping this project's base branch up to date
 	// with its remote.
 	SyncBase *bool `json:"syncBase,omitempty"`
+	// FullTestSuite turns on or off whether this project's agents may run a
+	// whole test suite while Settings.BlockFullSuite refuses them.
+	FullTestSuite *bool `json:"fullTestSuite,omitempty"`
 }
 
 type AddProjectRequest struct {
@@ -483,6 +490,11 @@ type Settings struct {
 	// VMGPU finds one: added to the agents you have, and to each new one, the
 	// moment it changes. Off unless it was turned on.
 	AgentGPU bool `json:"agentGPU"`
+	// BlockFullSuite says whether a Claude Code agent's whole test suite
+	// (`go test ./...`, a bare `npm test`) is refused before it runs, with
+	// the tests of what it changed to run instead, unless its project allows
+	// them (Project.FullTestSuite). Experimental, off unless turned on.
+	BlockFullSuite bool `json:"blockFullSuite"`
 	// VMGPU is the GPU AgentBox's VM has to give agents.
 	VMGPU VMGPU `json:"vmGPU"`
 	// ErrorReports says whether the app sends a report of each uncaught error
@@ -566,6 +578,12 @@ type Settings struct {
 	DefaultPackageCacheMaxBytes int64 `json:"defaultPackageCacheMaxBytes"`
 	// PackageCacheBytes is how much they held when last measured.
 	PackageCacheBytes int64 `json:"packageCacheBytes"`
+	// LocalNodeModules is "Keep agents' node_modules in the VM": while on, a
+	// new agent's node_modules are on a disk of AgentBox's VM rather than in
+	// its worktree, where the worktree is in a folder the VM shares, and
+	// start filled when its lockfile was installed by an agent before. The
+	// computer AgentBox runs on sees them empty. On unless it was turned off.
+	LocalNodeModules bool `json:"localNodeModules"`
 
 	// ClaudeCodeUpdate is "Keep Claude Code up to date": the daemon moving
 	// Claude Code and its ACP adapter past the versions this AgentBox pins,
@@ -638,6 +656,8 @@ type UpdateSettingsRequest struct {
 	UsageStats *bool `json:"usageStats,omitempty"`
 	// AgentGPU turns "GPU for agents" on or off.
 	AgentGPU *bool `json:"agentGPU,omitempty"`
+	// BlockFullSuite turns refusing agents' whole test suites on or off.
+	BlockFullSuite *bool `json:"blockFullSuite,omitempty"`
 	// ErrorReports turns automatic error reports on or off.
 	ErrorReports *bool `json:"errorReports,omitempty"`
 	// PRWatch turns the pull request watch on or off.
@@ -685,6 +705,9 @@ type UpdateSettingsRequest struct {
 	PackageCacheMaxBytes *int64 `json:"packageCacheMaxBytes,omitempty"`
 	// ClearPackageCache empties them.
 	ClearPackageCache bool `json:"clearPackageCache,omitempty"`
+	// LocalNodeModules turns "Keep agents' node_modules in the VM" on or off,
+	// for agents made from now on.
+	LocalNodeModules *bool `json:"localNodeModules,omitempty"`
 	// ClaudeCodeAutoUpdate turns "Keep Claude Code up to date" on, which
 	// checks at once, or off, which puts agents back on the pinned versions.
 	ClaudeCodeAutoUpdate *bool `json:"claudeCodeAutoUpdate,omitempty"`
@@ -2322,6 +2345,14 @@ type HeavyStart struct {
 	// Why is why it hasn't, a clause like "the VM's memory is under
 	// pressure (some 34%) and 2 commands are ahead of it".
 	Why string `json:"why,omitempty"`
+}
+
+// TestPolicy is what the in-agent API says about the agent's test runs
+// (GET /v1/self/tests): whether a whole suite is refused, and the commit its
+// branch started from, which what it changed is counted against.
+type TestPolicy struct {
+	BlockFullSuite bool   `json:"blockFullSuite"`
+	Base           string `json:"base,omitempty"`
 }
 
 // HeavyJoin puts a process of the agent's, by its PID inside the agent, in

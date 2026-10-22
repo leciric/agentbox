@@ -16,6 +16,7 @@ import {
   Copy,
   Cpu,
   ExternalLink,
+  FlaskConical,
   KeyRound,
   Lightbulb,
   ListChecks,
@@ -23,7 +24,6 @@ import {
   LogIn,
   Plug,
   Wand2,
-  FlaskConical,
   Monitor,
   Moon,
   MoonStar,
@@ -52,6 +52,8 @@ import { updateHint } from "../lib/appUpdate";
 import { useAppUpdate } from "../lib/useAppUpdate";
 import { useConnection } from "../lib/events";
 import { RestartVM } from "./RestartVM";
+import { KrunkitRemake } from "./KrunkitRemake";
+import { offersRemake } from "../lib/krunkit";
 import type { SettingSection } from "../lib/settingsSearch";
 import { cn, errorMessage, timeAgo } from "../lib/utils";
 import { ImageDownloads } from "./ImageDownloads";
@@ -72,6 +74,7 @@ import {
   DiskFloor,
   DockerImageCache,
   SharedPackageCaches,
+  LocalNodeModules,
   NewAgentEffort,
   OpenCodeInImage,
   ResumeAfterLimit,
@@ -1144,6 +1147,40 @@ function InstalledSettings({
         ]
       : []),
     {
+      id: "experimental",
+      title: t("settings.section.experimental.title"),
+      description: t("settings.section.experimental.description"),
+      scope: "installation",
+      groups: [
+        {
+          id: "experimental-tests",
+          title: t("settings.group.experimental-tests.title"),
+          entries: [
+            {
+              id: "block-full-suite",
+              label: t("settings.entry.block-full-suite.label"),
+              keywords: t("settings.entry.block-full-suite.keywords"),
+              modified: changed((s) => s.blockFullSuite),
+              render: () => <BlockFullSuite />,
+            },
+          ],
+        },
+        {
+          id: "experimental",
+          title: t("settings.group.experimental.title"),
+          entries: [
+            {
+              id: "agent-freeze",
+              label: t("settings.entry.agent-freeze.label"),
+              keywords: t("settings.entry.agent-freeze.keywords"),
+              modified: changed((s) => s.agentFreeze),
+              render: () => <AgentFreezeSetting />,
+            },
+          ],
+        },
+      ],
+    },
+    {
       id: "accounts",
       title: t("settings.section.accounts.title"),
       description: t("settings.section.accounts.description"),
@@ -1484,6 +1521,14 @@ function InstalledSettings({
               modified: changed((s) => !s.packageCache || s.packageCacheMaxBytes !== s.defaultPackageCacheMaxBytes),
               render: () => <SharedPackageCaches />,
             },
+            {
+              id: "local-node-modules",
+              advanced: true,
+              label: t("settings.entry.local-node-modules.label"),
+              keywords: t("settings.entry.local-node-modules.keywords"),
+              modified: changed((s) => !s.localNodeModules),
+              render: () => <LocalNodeModules />,
+            },
           ],
         },
         ...(vm?.exists || chv
@@ -1620,28 +1665,6 @@ function InstalledSettings({
               label: t("settings.section.diagnostics.title"),
               keywords: t("settings.entry.diagnostics.keywords"),
               render: () => <DiagnosticsPanel version={info?.version} />,
-            },
-          ],
-        },
-      ],
-    },
-    {
-      id: "experimental",
-      title: t("settings.section.experimental.title"),
-      description: t("settings.section.experimental.description"),
-      scope: "installation",
-      nav: t("settings.nav.machine"),
-      groups: [
-        {
-          id: "experimental",
-          title: t("settings.group.experimental.title"),
-          entries: [
-            {
-              id: "agent-freeze",
-              label: t("settings.entry.agent-freeze.label"),
-              keywords: t("settings.entry.agent-freeze.keywords"),
-              modified: changed((s) => s.agentFreeze),
-              render: () => <AgentFreezeSetting />,
             },
           ],
         },
@@ -1939,7 +1962,9 @@ function UpdateChannel() {
 // to ready (vmGPU.setup), which turning it on starts: it says how far that
 // has got, asking again every few seconds while it runs. On Linux the VM gets
 // the host's GPU only as it starts ("host"): the switch works, and the note
-// says the VM gets it at its next start.
+// says the VM gets it at its next start. A Mac's VM made with Apple's
+// Virtualization framework has none, and is offered a remake with krunkit
+// (KrunkitRemake), installed by Homebrew first when it's missing.
 export function AgentGPU() {
   const t = useT();
   const settings = useQuery({
@@ -1956,6 +1981,11 @@ export function AgentGPU() {
     if (connected) void refetchSettings();
   }, [connected, refetchSettings]);
   const queryClient = useQueryClient();
+  const hostSetup = useQuery({
+    queryKey: ["host-setup"],
+    queryFn: () => window.agentbox.hostSetup.status(),
+  });
+  const vm = hostSetup.data?.vm;
   const save = useMutation({
     mutationFn: (agentGPU: boolean) => api.updateSettings({ agentGPU }),
     onSuccess: (next) => queryClient.setQueryData(["settings"], next),
@@ -1987,6 +2017,7 @@ export function AgentGPU() {
         </SettingNote>
       )}
       {needsRestart && <RestartVM />}
+      {vm && offersRemake(vm) && <KrunkitRemake vm={vm} />}
     </SettingRow>
   );
 }
@@ -2041,6 +2072,40 @@ export function PRWatch() {
           aria-label={t("settings.entry.pr-watch.label")}
           disabled={save.isPending || settings.data === undefined}
           checked={settings.data?.prWatch ?? true}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      }
+    />
+  );
+}
+
+// BlockFullSuite refuses a Claude Code agent's whole test suite (`go test
+// ./...`, a bare `npm test`) before it runs, and says what to run instead,
+// from the files it changed (internal/cli/fullsuite.go). A project can let its
+// agents run them anyway (Project.fullTestSuite). Codex and OpenCode have no
+// hook to refuse with: only their brief tells them.
+export function BlockFullSuite() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (blockFullSuite: boolean) => api.updateSettings({ blockFullSuite }),
+    onSuccess: (next) => queryClient.setQueryData(["settings"], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  return (
+    <SettingRow
+      label={t("settings.entry.block-full-suite.label")}
+      htmlFor="block-full-suite"
+      description={t("settings.blockFullSuite.description")}
+      details={t("settings.blockFullSuite.details")}
+      control={
+        <Switch
+          id="block-full-suite"
+          data-block-full-suite
+          aria-label={t("settings.entry.block-full-suite.label")}
+          disabled={save.isPending || settings.data === undefined}
+          checked={settings.data?.blockFullSuite ?? false}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }

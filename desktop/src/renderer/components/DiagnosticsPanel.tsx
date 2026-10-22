@@ -155,8 +155,46 @@ export function DiagnosticsPanel({ version }: { version?: string }) {
         )}
       </Section>
 
+      <OpenFiles />
       <ResourceHistory />
     </div>
+  );
+}
+
+// OpenFiles is virtiofsd's open files against its limit (the shared home on a
+// Linux host, internal/hostvm/chv/share.go), and the daemon's and the VM's.
+function OpenFiles() {
+  const t = useT();
+  const files = useQuery({ queryKey: ['diagnostics', 'files'], queryFn: () => api.diagnosticFiles(), refetchInterval: 5_000 });
+  const d = files.data;
+  const of = (c?: T.FileCount) => (!c ? '…' : c.limit > 0 ? t('diagnostics.files.of', { open: formatNumber(c.open), limit: formatNumber(c.limit) }) : formatNumber(c.open));
+  const share = d?.share;
+  const used = share && share.limit > 0 ? share.open / share.limit : 0;
+  return (
+    <section className="grid min-w-0 gap-2" data-diagnostics-files>
+      <header className="min-w-0">
+        <h3 className="text-[13px] font-semibold text-title">{t('diagnostics.files.title')}</h3>
+        <p className="text-[12px] text-muted">{t('diagnostics.files.description')}</p>
+      </header>
+      {files.error && <Notice>{errorMessage(files.error)}</Notice>}
+      {d?.waiting && <Notice tone="warning">{t('diagnostics.files.waiting')}</Notice>}
+      <Panel className="grid grid-cols-1 divide-y divide-line-faint overflow-hidden sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+        <Stat
+          label={t('diagnostics.files.share')}
+          value={!d ? '…' : share ? of(share) : t('diagnostics.files.none')}
+          tone={used >= 0.7 ? 'danger' : used >= 0.4 ? 'warning' : undefined}
+        />
+        <Stat label={t('diagnostics.files.daemon')} value={of(d?.daemon)} />
+        <Stat label={t('diagnostics.files.system')} value={of(d?.system)} />
+      </Panel>
+      {share && (
+        <p className="text-[12px] text-muted" data-diagnostics-trims>
+          {share.trims > 0 && share.lastTrim
+            ? t('diagnostics.files.trims', { count: formatNumber(share.trims), when: timeAgo(share.lastTrim), pinned: formatNumber(share.pinned) })
+            : t('diagnostics.files.noTrims')}
+        </p>
+      )}
+    </section>
   );
 }
 
