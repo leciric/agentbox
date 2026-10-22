@@ -296,6 +296,10 @@ export function buildFixtures(): FixtureData {
     agent({ ref: `${PROJECT}/agent-37`, title: 'Landing page', ai: 'codex', chat: 'ready', outcome: 'asking', outcomeNote: 'What do you want me to do next: launch, change, or stop?' }),
     agent({ ref: `${PROJECT}/agent-38`, title: 'Migrate the reminders table', chat: 'ready', outcome: 'failed', outcomeNote: 'API Error: WebSocket closed with code 1006 (abnormal closure)' }),
     agent({ ref: `${PROJECT}/agent-39`, title: 'Paginate the reminders page', chat: 'ready', outcome: 'done' }),
+    // Idle reclaim holds their memory (T.Agent.reclaimed): one's dev server
+    // and browser frozen in swap, one's machine stopped after it finished.
+    agent({ ref: `${PROJECT}/agent-35`, title: 'Dark mode for settings', chat: 'ready', outcome: 'idle', reclaimed: 'frozen' }),
+    agent({ ref: `${PROJECT}/agent-34`, title: 'Fix the CSV export', state: 'stopped', outcome: 'done', reclaimed: 'stopped' }),
     agent({ ref: `${PROJECT}/agent-36`, title: 'Search the docs', ai: 'opencode', state: 'stopped', outcome: 'resuming' }),
     agent({ ref: `${PROJECT}/agent-92`, title: 'Lost its machine', ai: 'claude', state: 'incomplete' }),
     agent({ ref: `${PROJECT}/agent-89`, title: 'Still being created', ai: 'claude', state: 'initializing' }),

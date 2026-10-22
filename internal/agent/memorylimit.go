@@ -313,6 +313,22 @@ func reclaimRun(root, instance, key string, write func(path, value string) error
 	return nil
 }
 
+// writeKernfs writes a cgroup file with plain blocking system calls. Not
+// os.WriteFile: cgroup files can be polled, so os makes them non-blocking,
+// and a memory.reclaim the kernel falls short on (EAGAIN) then waits for the
+// file to become writable, which it never does, rather than failing.
+func writeKernfs(path, value string) error {
+	fd, err := syscall.Open(path, syscall.O_WRONLY|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return &fs.PathError{Op: "open", Path: path, Err: err}
+	}
+	defer func() { _ = syscall.Close(fd) }()
+	if _, err := syscall.Write(fd, []byte(value)); err != nil {
+		return &fs.PathError{Op: "write", Path: path, Err: err}
+	}
+	return nil
+}
+
 // errReclaimShort is what writing memory.reclaim fails with when the kernel
 // couldn't reclaim all that was asked (EAGAIN).
 var errReclaimShort = errors.New("reclaimed less than asked")
@@ -348,7 +364,7 @@ func RemoveRun(instance, key string) error {
 // writeCgroup writes a cgroup file, through sudo when it isn't the daemon's
 // and the daemon runs in AgentBox's VM.
 func writeCgroup(path, value string) error {
-	err := os.WriteFile(path, []byte(value), 0)
+	err := writeKernfs(path, value)
 	if errors.Is(err, syscall.EAGAIN) {
 		return errReclaimShort
 	}

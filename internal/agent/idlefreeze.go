@@ -411,8 +411,12 @@ func cgroupCurrent(dir string) (int64, error) {
 // stopProcess asks a process to end (SIGTERM), through sudo when it isn't
 // the daemon's and the daemon runs in AgentBox's VM.
 func stopProcess(pid int) error {
-	err := syscall.Kill(pid, syscall.SIGTERM)
-	if err == nil || !errors.Is(err, syscall.EPERM) || !hostos.InVM() {
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	err = p.Signal(syscall.SIGTERM)
+	if err == nil || !errors.Is(err, fs.ErrPermission) || !hostos.InVM() {
 		return err
 	}
 	return sudo("kill", "", "-TERM", strconv.Itoa(pid))
