@@ -220,18 +220,33 @@ func (s *Store) emptyTrash() {
 }
 
 // Capture keeps what instance installed for each of installs as the
-// project's snapshot of its key, when there's none yet and the install is
-// newer than its lockfile, then removes instance's directories. Its machine
-// must be gone: nothing may write in them meanwhile.
+// project's snapshot of its key, when there's none yet, the install is newer
+// than its lockfile, and nothing in it changed after the install (untouched),
+// then removes instance's directories. Its machine must be gone: nothing may
+// write in them meanwhile.
 func (s *Store) Capture(instance, project string, installs []Install) {
 	defer s.emptyTrash()
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	// Checked before mu, which is never held through a walk: nothing writes
+	// in a gone machine's directories.
+	var keep []Install
 	for _, in := range installs {
 		if in.Key == "" || s.HasSnapshot(project, in.Key) {
 			continue
 		}
-		if !installedAfter(s.MountDir(instance, in.Root()), in.LockTime) {
+		installed, ok := installTime(s.MountDir(instance, in.Root()))
+		if !ok || installed.Before(in.LockTime) {
+			continue
+		}
+		if changed, ok := s.untouched(instance, in, installed); !ok {
+			s.logf("node_modules: not keeping %s of %s: %s changed after it was installed", in.Lockfile, instance, changed)
+			continue
+		}
+		keep = append(keep, in)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, in := range keep {
+		if s.HasSnapshot(project, in.Key) {
 			continue
 		}
 		if err := s.capture(instance, project, in); err != nil {
@@ -261,6 +276,11 @@ func (s *Store) capture(instance, project string, in Install) error {
 		if err := os.Rename(s.MountDir(instance, dir), filepath.Join(tmp, name(dir))); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
+		for _, c := range Caches {
+			if err := s.dispose(filepath.Join(tmp, name(dir), c)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return err
+			}
+		}
 	}
 	meta, err := json.Marshal(snapshotMeta{Lockfile: in.Lockfile, Bytes: treeBytes(tmp)})
 	if err != nil {
@@ -272,15 +292,69 @@ func (s *Store) capture(instance, project string, in Install) error {
 	return os.Rename(tmp, s.snapshotDir(project, in.Key))
 }
 
-// installedAfter says whether node_modules has an install marker newer than
-// the lockfile.
-func installedAfter(nodeModules string, lockTime time.Time) bool {
+// installTime is when node_modules was last installed: its newest install
+// marker's time, if it has one.
+func installTime(nodeModules string) (time.Time, bool) {
+	var newest time.Time
 	for _, m := range Markers {
-		if info, err := os.Stat(filepath.Join(nodeModules, m)); err == nil && !info.ModTime().Before(lockTime) {
-			return true
+		if info, err := os.Stat(filepath.Join(nodeModules, m)); err == nil && info.ModTime().After(newest) {
+			newest = info.ModTime()
 		}
 	}
-	return false
+	return newest, !newest.IsZero()
+}
+
+// installSlack is how much later than its marker an install may still have
+// written: npm renames its hidden lockfile into place, which touches
+// node_modules itself a moment after the file.
+const installSlack = 2 * time.Second
+
+// Caches are what tools write in a node_modules after the install, there for
+// that machine's runs and not part of what was installed: they are neither
+// checked nor kept (untouched, capture).
+var Caches = []string{".cache", ".vite", ".vite-temp"}
+
+// untouched says whether nothing in what instance installed for in, a file,
+// a link or a directory (which a file added or removed touches), changed after
+// installed. A snapshot is copied to every later agent of the project with
+// that lockfile, so it must be the install itself: not a fix made by hand in a
+// package, nor anything else written into it since. When something did, it
+// returns where.
+func (s *Store) untouched(instance string, in Install, installed time.Time) (string, bool) {
+	limit := installed.Add(installSlack)
+	var changed string
+	for _, dir := range in.Dirs {
+		root := s.MountDir(instance, dir)
+		// Making a cache touched node_modules itself: that much later is
+		// the cache's, and no reason not to keep the rest.
+		rootLimit := limit
+		for _, c := range Caches {
+			if info, err := os.Lstat(filepath.Join(root, c)); err == nil && info.ModTime().Add(installSlack).After(rootLimit) {
+				rootLimit = info.ModTime().Add(installSlack)
+			}
+		}
+		_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil // gone, or unreadable: not kept either way if it matters
+			}
+			if d.IsDir() && filepath.Dir(path) == root && slices.Contains(Caches, d.Name()) {
+				return filepath.SkipDir
+			}
+			info, err := d.Info()
+			if err != nil {
+				return nil
+			}
+			if path == root && !info.ModTime().After(rootLimit) || path != root && !info.ModTime().After(limit) {
+				return nil
+			}
+			changed = filepath.Join(dir, "node_modules", strings.TrimPrefix(path, root))
+			return filepath.SkipAll
+		})
+		if changed != "" {
+			return changed, false
+		}
+	}
+	return "", true
 }
 
 // Remove removes instance's directories without keeping anything: a machine

@@ -2044,6 +2044,8 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 		cleared := inst.Status == "Running"
 		if cleared {
 			m.clearWorktree(ctx, a)
+		} else {
+			m.handBackNodeModules(ctx, a)
 		}
 		m.logf("Deleting instance %s", a.Instance)
 		if delErr := m.Incus.Delete(ctx, a.Instance); delErr != nil {

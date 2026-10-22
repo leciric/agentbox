@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path"
@@ -203,6 +204,29 @@ func nodeModulesInstalls(worktree string, meta nodeModulesMeta) []nodemods.Insta
 		out = append(out, in)
 	}
 	return out
+}
+
+// handBackNodeModules is clearWorktree's chown for a machine that isn't
+// running: without it, what container root made in a's node_modules stays
+// root's, which a daemon that isn't root can neither keep as a snapshot nor
+// delete, and it piles up in the store's trash. Only when the store finds
+// something there that isn't the user's is the machine started for it (or
+// thawed, when paused), just long enough to hand it back: Destroy deletes it
+// next. Best-effort, like clearWorktree.
+func (m *Manager) handBackNodeModules(ctx context.Context, a state.Agent) {
+	mounts := m.nodeModulesMounts(a)
+	if len(mounts) == 0 || os.Geteuid() == 0 || !m.NodeModules.Foreign(a.Instance, m.User.UID) {
+		return
+	}
+	m.logf("Starting %s to hand its node_modules back to you", a.Ref())
+	if err := m.Incus.Start(ctx, a.Instance); err != nil {
+		m.logf("Starting %s: %v; what root made in its node_modules stays", a.Ref(), err)
+		return
+	}
+	args := append([]string{"chown", "-R", fmt.Sprintf("%d:%d", m.User.UID, m.User.GID)}, mounts...)
+	if _, err := m.Incus.Exec(ctx, a.Instance, args...); err != nil {
+		m.logf("Handing %s's node_modules back: %v", a.Ref(), err)
+	}
 }
 
 // keepNodeModules keeps what a installed as its project's snapshots, once its

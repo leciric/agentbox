@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -125,5 +126,51 @@ esac`))
 	}
 	if !store.HasSnapshot(a.Project, nodemods.Key(g, lock, "")) {
 		t.Error("Destroy didn't keep the install")
+	}
+}
+
+// A stopped agent's machine can't hand back what container root made in its
+// node_modules, which a daemon that isn't root then can't keep or delete:
+// Destroy starts it for that, and only when something there isn't the user's.
+func TestDestroyHandsBackAStoppedAgentsNodeModules(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root deletes anything: nothing to hand back")
+	}
+	for name, foreign := range map[string]bool{"root's files": true, "all the user's": false} {
+		t.Run(name, func(t *testing.T) {
+			log := filepath.Join(t.TempDir(), "calls")
+			f := setup(t, fakeIncus(t, `echo "$*" >> `+log+`
+case "$1" in
+  list) echo '[{"name":"ab-hello-stack-agent-01","status":"Stopped"}]' ;;
+esac`))
+			a := destroyFixture(t, f)
+			store := &nodemods.Store{Dir: t.TempDir()}
+			f.m.NodeModules = store
+			if err := os.MkdirAll(store.MountDir(a.Instance, "."), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(store.AgentFile(a.Instance, "installs.json"), []byte(`{"groups":[{"lockfile":"package-lock.json","dirs":["."]}]}`), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			// Files that aren't the user's are made by container root; here,
+			// the user is someone else.
+			f.m.User.UID = os.Getuid()
+			if foreign {
+				f.m.User.UID++
+			}
+			if err := f.m.Destroy(context.Background(), a, agent.DestroyOptions{Force: true}); err != nil {
+				t.Fatal(err)
+			}
+			b, _ := os.ReadFile(log)
+			calls := string(b)
+			chown := fmt.Sprintf("exec ab-hello-stack-agent-01 -- chown -R %d:%d %s", f.m.User.UID, f.m.User.GID, filepath.Join(a.Worktree, "node_modules"))
+			started := strings.Contains(calls, "start ab-hello-stack-agent-01")
+			if started != foreign || strings.Contains(calls, chown) != foreign {
+				t.Errorf("started %v, want %v; calls:\n%s", started, foreign, calls)
+			}
+			if foreign && strings.Index(calls, chown) > strings.Index(calls, "delete") {
+				t.Errorf("handed back after the delete:\n%s", calls)
+			}
+		})
 	}
 }

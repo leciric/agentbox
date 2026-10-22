@@ -224,6 +224,86 @@ func TestCaptureSkipsStaleOrUnfinishedInstalls(t *testing.T) {
 	}
 }
 
+// A snapshot reaches every later agent with its lockfile, so it is only the
+// install: one whose files changed after it — a fix by hand in a package, a
+// file written in, one deleted — isn't kept. Caches tools write there later
+// are no reason not to keep it, and aren't kept with it.
+func TestCaptureSkipsInstallsChangedAfterwards(t *testing.T) {
+	g := Group{Lockfile: "package-lock.json", Dirs: []string{".", "libs/a"}}
+	installed := time.Now().Add(-time.Hour)
+	before := installed.Add(-time.Minute)
+	for name, tc := range map[string]struct {
+		after func(t *testing.T, s *Store)
+		kept  bool
+	}{
+		"untouched": {func(*testing.T, *Store) {}, true},
+		"a file edited": {func(t *testing.T, s *Store) {
+			write(t, filepath.Join(s.MountDir("i", "."), "react", "index.js"), "patched", time.Time{})
+		}, false},
+		"a file added in a workspace's": {func(t *testing.T, s *Store) {
+			write(t, filepath.Join(s.MountDir("i", "libs/a"), "left-pad", "evil.js"), "x", time.Time{})
+		}, false},
+		"a file removed": {func(t *testing.T, s *Store) {
+			if err := os.Remove(filepath.Join(s.MountDir("i", "."), "react", "index.js")); err != nil {
+				t.Fatal(err)
+			}
+		}, false},
+		"only caches written": {func(t *testing.T, s *Store) {
+			write(t, filepath.Join(s.MountDir("i", "."), ".cache", "babel", "x.json"), "{}", time.Time{})
+			write(t, filepath.Join(s.MountDir("i", "."), ".vite", "deps", "react.js"), "x", time.Time{})
+		}, true},
+		"a package removed after a cache was made": {func(t *testing.T, s *Store) {
+			write(t, filepath.Join(s.MountDir("i", "."), ".vite", "deps", "react.js"), "x", installed.Add(time.Minute))
+			cache := filepath.Join(s.MountDir("i", "."), ".vite")
+			if err := os.Chtimes(cache, installed.Add(time.Minute), installed.Add(time.Minute)); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.RemoveAll(filepath.Join(s.MountDir("i", "."), "react")); err != nil {
+				t.Fatal(err)
+			}
+		}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := &Store{Dir: t.TempDir()}
+			in := Install{Group: g, Key: Key(g, []byte(name), ""), LockTime: installed.Add(-time.Hour)}
+			if _, err := s.Prepare("i", "p", []Install{in}); err != nil {
+				t.Fatal(err)
+			}
+			root, lib := s.MountDir("i", "."), s.MountDir("i", "libs/a")
+			write(t, filepath.Join(root, "react", "index.js"), "react", before)
+			write(t, filepath.Join(lib, "left-pad", "index.js"), "pad", before)
+			for _, dir := range []string{filepath.Join(root, "react"), filepath.Join(lib, "left-pad"), lib} {
+				if err := os.Chtimes(dir, before, before); err != nil {
+					t.Fatal(err)
+				}
+			}
+			write(t, filepath.Join(root, ".package-lock.json"), "{}", installed)
+			if err := os.Chtimes(root, installed, installed); err != nil {
+				t.Fatal(err)
+			}
+			tc.after(t, s)
+			s.Capture("i", "p", []Install{in})
+			if s.HasSnapshot("p", in.Key) != tc.kept {
+				t.Fatalf("kept = %v, want %v", !tc.kept, tc.kept)
+			}
+			if !tc.kept {
+				return
+			}
+			if _, err := s.Prepare("j", "p", []Install{in}); err != nil {
+				t.Fatal(err)
+			}
+			if b, err := os.ReadFile(filepath.Join(s.MountDir("j", "."), "react", "index.js")); err != nil || string(b) != "react" {
+				t.Errorf("restored react/index.js = %q, %v", b, err)
+			}
+			for _, c := range Caches {
+				if _, err := os.Lstat(filepath.Join(s.MountDir("j", "."), c)); !errors.Is(err, fs.ErrNotExist) {
+					t.Errorf("the next agent got the cache %s: %v", c, err)
+				}
+			}
+		})
+	}
+}
+
 func TestTrim(t *testing.T) {
 	s := &Store{Dir: t.TempDir()}
 	now := time.Now()
