@@ -882,9 +882,7 @@ export const ptBR: Messages = {
   'settings.section.notifications.title': 'Notificações',
   'settings.section.notifications.description': 'Sobre o que o AgentBox avisa você, quando fica em silêncio e o volume dos sons.',
   // diagnostics (Settings → Diagnostics)
-  'settings.section.experimental.title': 'Experimental',
-  'settings.section.experimental.description': 'Recursos ainda em teste. Cada um fica desligado até você ligar, e o AgentBox funciona como antes enquanto estiver desligado.',
-  'settings.group.experimental.title': 'Experimentos',
+  'settings.group.experimental-memory.title': 'Memória',
   'settings.entry.idle-reclaim.keywords': 'experimental ocioso memória recuperar congelar swap zram parar servidor dev navegador docker ram',
   'settings.idleReclaim.label': 'Recuperar a memória de agentes ociosos',
   'settings.idleReclaim.description': 'Libera a memória que os agentes ocupam enquanto ninguém os usa. A máquina de um agente que terminou para, e a próxima mensagem a inicia de novo.',

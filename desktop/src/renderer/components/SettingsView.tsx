@@ -1166,6 +1166,19 @@ function InstalledSettings({
             },
           ],
         },
+        {
+          id: "experimental-memory",
+          title: t("settings.group.experimental-memory.title"),
+          entries: [
+            {
+              id: "idle-reclaim",
+              label: t("settings.idleReclaim.label"),
+              keywords: t("settings.entry.idle-reclaim.keywords"),
+              modified: changed((s) => s.idleReclaim),
+              render: () => <IdleReclaim />,
+            },
+          ],
+        },
       ],
     },
     {
@@ -1631,28 +1644,6 @@ function InstalledSettings({
               keywords: t("settings.entry.opencode-image.keywords"),
               modified: setup.data ? setup.data.image.components.opencode : undefined,
               render: () => <OpenCodeInImage />,
-            },
-          ],
-        },
-      ],
-    },
-    {
-      id: "experimental",
-      title: t("settings.section.experimental.title"),
-      description: t("settings.section.experimental.description"),
-      scope: "installation",
-      nav: t("settings.nav.machine"),
-      groups: [
-        {
-          id: "experimental",
-          title: t("settings.group.experimental.title"),
-          entries: [
-            {
-              id: "idle-reclaim",
-              label: t("settings.idleReclaim.label"),
-              keywords: t("settings.entry.idle-reclaim.keywords"),
-              modified: changed((s) => s.idleReclaim),
-              render: () => <IdleReclaim />,
             },
           ],
         },

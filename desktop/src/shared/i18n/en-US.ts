@@ -881,9 +881,7 @@ export const enUS = {
   'settings.section.notifications.title': 'Notifications',
   'settings.section.notifications.description': 'What AgentBox tells you about, when it stays quiet, and how loud its sounds are.',
   // diagnostics (Settings → Diagnostics)
-  'settings.section.experimental.title': 'Experimental',
-  'settings.section.experimental.description': 'Features still being tried out. Each is off until you turn it on, and AgentBox works as before while it is off.',
-  'settings.group.experimental.title': 'Experiments',
+  'settings.group.experimental-memory.title': 'Memory',
   'settings.entry.idle-reclaim.keywords': 'experimental idle memory reclaim freeze swap zram stop dev server browser docker ram',
   'settings.idleReclaim.label': 'Reclaim idle agents\' memory',
   'settings.idleReclaim.description': 'Frees the memory agents hold while nobody uses them. A finished agent\'s machine stops, and the next message starts it again.',
