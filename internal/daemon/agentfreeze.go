@@ -68,8 +68,11 @@ func (agentMachineCgroups) Memory(instance string) int64  { return agent.Machine
 // fleetState is the fleet and what the daemon keeps beside it, under mu,
 // which may be taken under heavyRuns.mu but never the other way round.
 type fleetState struct {
-	mu sync.Mutex
-	f  *pressure.Fleet
+	// step is held across a step and applying it, so two steps' freezes and
+	// thaws aren't applied out of order.
+	step sync.Mutex
+	mu   sync.Mutex
+	f    *pressure.Fleet
 	// on is the setting as last read.
 	on bool
 	// instance is each agent's machine, by ref.
@@ -256,6 +259,8 @@ func (s *Server) syncFleet(ctx context.Context, agents []state.Agent) {
 // let boot. On the pressure loop: nothing here waits on SQLite or Incus.
 func (s *Server) stepFleet(ctx context.Context, now time.Time, sample pressure.Sample) {
 	fl := s.frozen
+	fl.step.Lock()
+	defer fl.step.Unlock()
 	fl.mu.Lock()
 	if !fl.on {
 		fl.mu.Unlock()

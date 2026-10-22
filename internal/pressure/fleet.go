@@ -276,7 +276,7 @@ func (f *Fleet) Step(now time.Time, s Sample) FleetActions {
 	psi := s.PSI
 	tr := f.trends.observe(p, now, s)
 	f.trend = tr
-	room, why := p.Judge(s.Mem, tr)
+	room, why := f.judge(s.Mem, tr)
 	high := psi.Full.Avg10 >= p.Freeze
 	calm := psi.Full.Avg10 < p.Calm && psi.Some.Avg10 < p.Admit && p.roomy(s.Mem, tr)
 	if !high {
@@ -357,6 +357,27 @@ func (f *Fleet) Step(now time.Time, s Sample) FleetActions {
 		f.why = Low
 	}
 	return out
+}
+
+// judge is Policy.Judge, and Short sooner: under the floor with swap at
+// SwapBusy, rather than full. Judge waits for full swap, as with room in it
+// the kernel makes more; but swap fills only as fast as its device takes
+// it, and what a machine still growing doesn't fit, it is killed for, the
+// oldest working one first among them as it is the biggest. In the fleet lab
+// on 2026-10-22, six machines growing 5 MiB/s each in 2 GiB with 1 GiB of
+// swap had 92 KiB available at 71% swap, Room to Judge, and were Out only
+// at 95%: freezing five then left the oldest no room, and the kernel killed
+// it. Freezing a machine stops all its growth, and what it holds goes out to
+// swap and stays out, so it is worth doing before swap is full.
+func (f *Fleet) judge(m Mem, tr Trend) (Headroom, Reason) {
+	h, why := f.Policy.Judge(m, tr)
+	if h >= Short || !m.AtCap() {
+		return h, why
+	}
+	if float64(m.Available) < f.Policy.floor(m) && m.SwapUsed() >= f.Policy.SwapBusy {
+		return Short, Low
+	}
+	return h, why
 }
 
 func (f *Fleet) start(now time.Time) string {

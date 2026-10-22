@@ -253,3 +253,20 @@ func TestMedianBootCost(t *testing.T) {
 		t.Fatalf("huge %d", got)
 	}
 }
+
+func TestUnderTheFloorWithSwapHalfFullTheNewestFreezesBeforeSwapIsFull(t *testing.T) {
+	// The fleet lab's 2026-10-22 reading: nothing available, swap 71% used.
+	f := NewFleet(DefaultPolicy)
+	f.Sync(machines("p/a", "p/b", "p/c"))
+	s := Sample{Mem: Mem{Total: 16 * gb, Available: gb / 2, SwapTotal: 4 * gb, SwapFree: 4 * gb * 29 / 100}}
+	if got := f.Step(t0, s); !slices.Equal(got.Freeze, []string{"p/d"}) {
+		t.Fatalf("froze %v, want the newest only", got.Freeze)
+	}
+	// With swap mostly free, the kernel makes room: nothing freezes.
+	g := NewFleet(DefaultPolicy)
+	g.Sync(machines("p/a", "p/b", "p/c"))
+	s.Mem.SwapFree = 4 * gb * 8 / 10
+	if got := g.Step(t0, s); len(got.Freeze) != 0 {
+		t.Fatalf("with swap 20%% used froze %v", got.Freeze)
+	}
+}

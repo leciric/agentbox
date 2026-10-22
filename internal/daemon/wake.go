@@ -79,6 +79,16 @@ func (s *Server) tellAgentMessage(ctx context.Context, a state.Agent, msg api.Ch
 		if err := s.diskPausedRefusal(a.Ref()); err != nil {
 			return told{}, err
 		}
+		if s.fleetOn() {
+			// Its boot may wait for memory (admitMachine): the message
+			// waits in its chat meanwhile, and nobody waits on it.
+			item, err := s.chat.HoldMessage(a, msg)
+			if err != nil {
+				return told{}, err
+			}
+			s.wakeAside(ctx, m, a, "a message: "+headWords(msg.Text, 60))
+			return told{item: item, woke: "started"}, nil
+		}
 		if err := s.startMachine(ctx, m, a, "a message: "+headWords(msg.Text, 60)); err != nil {
 			return told{}, err
 		}
@@ -89,6 +99,38 @@ func (s *Server) tellAgentMessage(ctx context.Context, a state.Agent, msg api.Ch
 	}
 	item, err := s.chat.SendMessage(a, msg)
 	return told{item: item, woke: woke}, err
+}
+
+// wakeAside starts a stopped agent's machine aside, once at a time for each
+// agent, and hands its chat what was held for it once it runs.
+func (s *Server) wakeAside(ctx context.Context, m *agent.Manager, a state.Agent, why string) {
+	ref := a.Ref()
+	s.mu.Lock()
+	if s.waking == nil {
+		s.waking = map[string]bool{}
+	}
+	already := s.waking[ref]
+	s.waking[ref] = true
+	s.mu.Unlock()
+	if already {
+		return
+	}
+	go func() {
+		ctx := context.WithoutCancel(ctx)
+		defer func() {
+			s.mu.Lock()
+			delete(s.waking, ref)
+			s.mu.Unlock()
+		}()
+		if err := s.startMachine(ctx, m, a, why); err != nil {
+			s.logf("%s: starting its machine for a message: %v", ref, err)
+			return
+		}
+		s.refreshAgents(ctx)
+		if err := s.chat.Release(a); err != nil {
+			s.logf("%s: handing over what was held for it: %v", ref, err)
+		}
+	}()
 }
 
 // startMachine starts a stopped agent's machine, with its in-agent API: what

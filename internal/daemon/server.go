@@ -288,6 +288,9 @@ type Server struct {
 	// wakeMu makes one start of a stopped machine for a message at a time
 	// (wake.go).
 	wakeMu sync.Mutex
+	// waking, under mu, are the agents whose machines start aside for a
+	// message, waiting for memory to boot (wakeAside).
+	waking map[string]bool
 	// The lead recheck (leadrecheck.go), under mu: when each project's lead
 	// was last rechecked, and what it was told then, so the same state isn't
 	// sent twice.
