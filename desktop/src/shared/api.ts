@@ -2172,12 +2172,14 @@ export interface ChatPermission {
   approval?: string;
   detail?: string;
   diffs?: ChatDiff[];
+  planApprove?: string;
 }
 
 export interface ChatPermissionOption {
   id: string;
   name: string;
   kind: string;
+  modeKind?: string;
 }
 
 export interface ChatSubagent {
@@ -3183,6 +3185,7 @@ export const ChatReady = "ready";
 export const ChatRunning = "running";
 export const ChatWaiting = "waiting";
 export const ChatError = "error";
+export const ChatOptionPlan = "plan";
 export const MemoryKindProject = "project";
 export const MemoryKindEpisodic = "episodic";
 export const MemoryKindDecision = "decision";

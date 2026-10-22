@@ -58,6 +58,7 @@ type fakeTool struct {
 	embedded    bool // says it takes resource blocks in a prompt, as all three adapters do
 	plainOpus   bool // model choices are "opus", not "opus[1m]" — an account with no 1M-context entry
 	noKinds     bool // modes carry no _meta.kind, like claude-agent-acp 0.85 for a client that is not AIR
+	plan        bool // modes include plan, like Claude Code's
 	// strictModel refuses a model that isn't literally one of its choices,
 	// the way claude-agent-acp answers an unresolvable one ("Invalid value for
 	// config option model: fable").
@@ -273,6 +274,9 @@ func (f *fakeTool) options() []map[string]any {
 		// claude-agent-acp 0.85 only sends _meta.kind to "AIR" clients.
 		modes = []map[string]any{{"value": "default", "name": "Manual"}, {"value": "bypassPermissions", "name": "Bypass permissions"}}
 	}
+	if f.plan {
+		modes = append(modes, map[string]any{"value": "plan", "name": "Plan Mode", "_meta": map[string]string{"kind": "plan"}})
+	}
 	options := []map[string]any{
 		{"id": "mode", "name": "Mode", "category": "mode", "type": "select", "currentValue": f.values["mode"], "options": modes},
 		{"id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": f.values["model"], "options": modelChoices},
@@ -299,14 +303,19 @@ func (f *fakeTool) update(sessionID, update string) {
 
 // ask requests permission for a tool call and returns the option chosen, or "cancelled".
 func (f *fakeTool) ask(sessionID, toolCall string) string {
+	return f.askWith(sessionID, toolCall, []map[string]string{
+		{"optionId": "allow-once", "name": "Yes", "kind": "allow_once"},
+		{"optionId": "reject", "name": "No", "kind": "reject_once"},
+	})
+}
+
+// askWith is ask with the request's own options.
+func (f *fakeTool) askWith(sessionID, toolCall string, options []map[string]string) string {
 	var out acp.RequestPermissionResponse
 	err := f.connection().Call(context.Background(), acp.MethodRequestPermission, map[string]any{
 		"sessionId": sessionID,
 		"toolCall":  json.RawMessage(toolCall),
-		"options": []map[string]string{
-			{"optionId": "allow-once", "name": "Yes", "kind": "allow_once"},
-			{"optionId": "reject", "name": "No", "kind": "reject_once"},
-		},
+		"options":   options,
 	}, &out)
 	switch {
 	case err != nil:

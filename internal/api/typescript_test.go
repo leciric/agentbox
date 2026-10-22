@@ -83,7 +83,7 @@ var tsConstants = [][2]string{
 	{"ConnectorProblemStdio", ConnectorProblemStdio}, {"ConnectorProblemSSE", ConnectorProblemSSE}, {"ConnectorProblemURL", ConnectorProblemURL}, {"ConnectorProblemVariable", ConnectorProblemVariable},
 	{"ArtifactActive", ArtifactActive}, {"ArtifactExpired", ArtifactExpired}, {"ArtifactUnavailable", ArtifactUnavailable},
 	{"GitHubNoAccount", GitHubNoAccount}, {"GitHubNoAccess", GitHubNoAccess}, {"GitHubBadToken", GitHubBadToken}, {"GitHubOtherErr", GitHubOtherErr},
-	{"ChatOff", ChatOff}, {"ChatStarting", ChatStarting}, {"ChatReady", ChatReady}, {"ChatRunning", ChatRunning}, {"ChatWaiting", ChatWaiting}, {"ChatError", ChatError},
+	{"ChatOff", ChatOff}, {"ChatStarting", ChatStarting}, {"ChatReady", ChatReady}, {"ChatRunning", ChatRunning}, {"ChatWaiting", ChatWaiting}, {"ChatError", ChatError}, {"ChatOptionPlan", ChatOptionPlan},
 	{"MemoryKindProject", MemoryKindProject}, {"MemoryKindEpisodic", MemoryKindEpisodic}, {"MemoryKindDecision", MemoryKindDecision},
 	{"MemoryKindDiscovery", MemoryKindDiscovery}, {"MemoryKindIssue", MemoryKindIssue},
 	{"ReportKindProblem", ReportKindProblem}, {"ReportKindError", ReportKindError},

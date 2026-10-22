@@ -151,7 +151,7 @@ func (m *Manager) setContextWindow(c *conversation, value string) (api.ChatSessi
 	c.restartIfWindowMoved()
 	c.markSession()
 	c.flush(false)
-	return clone(c.session), nil
+	return c.view(), nil
 }
 
 // restartIfWindowMoved notes that the running adapter was started on another

@@ -878,7 +878,9 @@ export function leadOptions(): T.ChatOption[] {
     { id: 'model', name: 'Model', category: 'model', type: 'select', value: 'opus', choices: [{ value: 'opus', name: 'Opus' }, { value: 'sonnet', name: 'Sonnet' }, { value: 'haiku', name: 'Haiku' }] },
     { id: 'context_window', name: 'Context window', category: 'context_window', type: 'select', value: '200k', choices: [{ value: '200k', name: '200k' }, { value: '1m', name: '1M' }] },
     { id: 'effort', name: 'Effort', category: 'thought_level', type: 'select', value: 'high', choices: [{ value: 'medium', name: 'Medium' }, { value: 'high', name: 'High' }] },
-    { id: 'mode', name: 'Mode', category: 'mode', type: 'select', value: 'default', choices: [{ value: 'default', name: 'Ask before edits' }, { value: 'acceptEdits', name: 'Accept edits' }, { value: 'plan', name: 'Plan' }] },
+    { id: 'mode', name: 'Mode', category: 'mode', type: 'select', value: 'bypassPermissions', choices: [{ value: 'default', name: 'Ask before edits', kind: 'standard' }, { value: 'acceptEdits', name: 'Accept edits' }, { value: 'bypassPermissions', name: 'Bypass Permissions', kind: 'full_access' }] },
+    // AgentBox's own toggle beside the mode (internal/chat/plan.go).
+    { id: 'plan', name: 'Plan', category: 'plan', type: 'boolean', value: 'true', choices: [] },
   ];
 }
 
