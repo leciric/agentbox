@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -19,8 +20,8 @@ import (
 //	agents/<instance>/<dir>/      what each agent's node_modules are, mounted over them
 //	snapshots/<project>/<key>/    one install kept, <dir>/ a directory, and meta.json
 //
-// both on one file system, so that a snapshot is taken by renaming and given
-// by linking.
+// both on one file system, so that a snapshot is taken by renaming, and
+// given by cloning where the file system can.
 
 // DefaultMax is what the snapshots may hold together, when Max isn't set.
 const DefaultMax int64 = 10 << 30
@@ -143,7 +144,7 @@ func (s *Store) Prepare(instance, project string, installs []Install) (restored 
 			if _, err := os.Lstat(src); err != nil {
 				continue
 			}
-			errs = append(errs, s.linkTree(src, s.MountDir(instance, dir)))
+			errs = append(errs, s.copyTree(src, s.MountDir(instance, dir)))
 		}
 		if err := errors.Join(errs...); err != nil {
 			// Half a node_modules is worse than none: the agent installs.
@@ -380,11 +381,14 @@ func (s *Store) logf(format string, args ...any) {
 	}
 }
 
-// linkTree makes dst, an empty directory, a copy of src that shares its
-// files' data: clones where the file system can, hard links where it can't.
-// Directories get src's modification times back, which npm compares with its
-// hidden lockfile's to trust it.
-func (s *Store) linkTree(src, dst string) error {
+// copyTree makes dst, an empty directory, a copy of src: clones where the file
+// system can (btrfs, XFS), which share data only until either is written, and
+// plain copies where it can't (ext4). Never hard links: a file an agent edits
+// in place — patch-package, a postinstall, a debugging edit — would change in
+// the snapshot and in every agent given it. Files and directories get src's
+// modification times back, which npm compares with its hidden lockfile's to
+// trust it.
+func (s *Store) copyTree(src, dst string) error {
 	type dirTime struct {
 		path string
 		mod  time.Time
@@ -432,7 +436,10 @@ func (s *Store) linkTree(src, dst string) error {
 				}
 				clone = false
 			}
-			return os.Link(p, target)
+			if err := copyFile(p, target, info); err != nil {
+				return err
+			}
+			return s.chown(target)
 		}
 		return nil
 	})
@@ -443,6 +450,30 @@ func (s *Store) linkTree(src, dst string) error {
 		_ = os.Chtimes(dirs[i].path, dirs[i].mod, dirs[i].mod)
 	}
 	return nil
+}
+
+// copyFile copies src to dst, a new file, with src's mode and times.
+func copyFile(src, dst string, info fs.FileInfo) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, info.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	if err := out.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(dst, info.Mode().Perm()); err != nil {
+		return err
+	}
+	return os.Chtimes(dst, info.ModTime(), info.ModTime())
 }
 
 func (s *Store) chown(path string) error {

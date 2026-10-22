@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -153,6 +154,27 @@ func TestCaptureThenRestore(t *testing.T) {
 	}
 	if info, err := os.Stat(filepath.Join(root2, "react")); err != nil || !info.ModTime().Equal(old) {
 		t.Errorf("a restored directory's time is %v, want %v (%v)", info.ModTime(), old, err)
+	}
+
+	// An edit in place in one agent's (patch-package, a postinstall) reaches
+	// neither the snapshot nor the next agent given it.
+	edited := filepath.Join(root2, "react", "index.js")
+	f, err := os.OpenFile(edited, os.O_WRONLY|os.O_TRUNC, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("patched"); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+	if info, err := os.Stat(edited); err != nil || info.Sys().(*syscall.Stat_t).Nlink != 1 {
+		t.Errorf("a restored file has other links: %v", err)
+	}
+	if _, err := s.Prepare("ab-p-agent-3", "p", []Install{in}); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(s.MountDir("ab-p-agent-3", "."), "react", "index.js")); string(b) != "react" {
+		t.Errorf("the next agent got %q, another agent's edit", b)
 	}
 
 	// A machine made again keeps what its directories hold.

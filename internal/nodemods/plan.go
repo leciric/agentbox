@@ -10,8 +10,9 @@
 // agent installed is kept when it's destroyed, as a snapshot keyed by its
 // lockfile, and a new agent whose lockfile is the same starts with it in
 // place: cloned where the disk can (btrfs, the agents' disk of a Cloud
-// Hypervisor VM), hard-linked where it can't (ext4, a Lima VM's). Its install
-// then finds nothing to do.
+// Hypervisor VM), copied where it can't (ext4, a Lima VM's), never sharing a
+// writable file with the snapshot or another agent. Its install then finds
+// nothing to do.
 package nodemods
 
 import (

@@ -9,7 +9,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// errNoClone is the file system can't clone a file (ext4): linkTree hard-links
+// errNoClone is the file system can't clone a file (ext4): copyTree copies
 // instead.
 var errNoClone = errors.New("cloning isn't supported here")
 

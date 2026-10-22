@@ -7,7 +7,7 @@ import (
 	"io/fs"
 )
 
-// errNoClone is the file system can't clone a file: linkTree hard-links
+// errNoClone is the file system can't clone a file: copyTree copies
 // instead. Agents only run on Linux.
 var errNoClone = errors.New("cloning isn't supported here")
 
