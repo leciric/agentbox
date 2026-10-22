@@ -59,6 +59,7 @@ type fakeTool struct {
 	embedded    bool // says it takes resource blocks in a prompt, as all three adapters do
 	plainOpus   bool // model choices are "opus", not "opus[1m]" — an account with no 1M-context entry
 	noKinds     bool // modes carry no _meta.kind, like claude-agent-acp 0.85 for a client that is not AIR
+	oldSonnet   bool // also offers Sonnet 4.5, which takes no adaptive thinking
 	// strictModel refuses a model that isn't literally one of its choices,
 	// the way claude-agent-acp answers an unresolvable one ("Invalid value for
 	// config option model: fable").
@@ -265,6 +266,9 @@ func (f *fakeTool) options() []map[string]any {
 		modelChoices = append(modelChoices, map[string]any{"value": "opus", "name": "Opus 5"})
 	} else {
 		modelChoices = append(modelChoices, map[string]any{"value": "opus[1m]", "name": "Opus 5", "description": "Opus 5 with 1M context"})
+	}
+	if f.oldSonnet {
+		modelChoices = append(modelChoices, map[string]any{"value": "claude-sonnet-4-5", "name": "Sonnet 4.5"})
 	}
 	modes := []map[string]any{
 		{"value": "default", "name": "Manual", "_meta": map[string]string{"kind": "standard"}},
@@ -718,6 +722,84 @@ func TestClaudeSessionsAskForSummarizedThinking(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A model older than adaptive thinking (Haiku 4.5, Sonnet 4.5) answers it
+// with a 400, so its sessions don't ask for it: neither one it starts on, nor
+// one moved to it mid-chat, which restarts the adapter on the next message
+// (claude-agent-acp reads _meta only as a session starts) and resumes the
+// session without it. Moving back asks for it again.
+func TestOlderClaudeModelsAreNotAskedForAdaptiveThinking(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	adaptive := `"thinking":{"display":"summarized","type":"adaptive"}`
+	asks := func(params json.RawMessage) bool { return strings.Contains(string(params), adaptive) }
+
+	t.Run("started on it", func(t *testing.T) {
+		t.Parallel()
+		store := openStore(t)
+		if err := store.SaveChat(ctx, testAgent.Project, testAgent.Name, state.Chat{Options: map[string]string{"model": "claude-sonnet-4-5"}}); err != nil {
+			t.Fatal(err)
+		}
+		f := newFakeTool(answerHello)
+		f.oldSonnet = true
+		m, _ := newManager(t, store, f)
+		if _, err := m.Send(testAgent, "hi"); err != nil {
+			t.Fatal(err)
+		}
+		waitThread(t, m, testAgent, "the turn", turnsEnded(1))
+		if created := f.called(acp.MethodSessionNew); len(created) != 1 || strings.Contains(string(created[0]), "_meta") {
+			t.Errorf("Sonnet 4.5's session/new: %s", created)
+		}
+	})
+
+	t.Run("moved to it and back", func(t *testing.T) {
+		t.Parallel()
+		store := openStore(t)
+		// Sonnet 4.5 has Sonnet's window here, so the window doesn't move
+		// with the model and restart the adapter for a reason of its own.
+		if err := store.SetSetting(ctx, state.SettingClaudeModelWindows, `{"sonnet":1000000,"claude-sonnet-4-5":1000000}`); err != nil {
+			t.Fatal(err)
+		}
+		f := newFakeTool(answerHello)
+		f.oldSonnet, f.resume = true, true
+		m, _ := newManager(t, store, f)
+		turns := 0
+		send := func(text string) {
+			t.Helper()
+			if _, err := m.Send(testAgent, text); err != nil {
+				t.Fatal(err)
+			}
+			turns++
+			waitThread(t, m, testAgent, text, turnsEnded(turns))
+		}
+		setModel := func(model string) {
+			t.Helper()
+			if _, err := m.SetOption(ctx, testAgent, "model", model); err != nil {
+				t.Fatal(err)
+			}
+		}
+		send("hi")
+		if created := f.called(acp.MethodSessionNew); len(created) != 1 || !asks(created[0]) {
+			t.Fatalf("Sonnet's session/new: %s", created)
+		}
+		setModel("claude-sonnet-4-5")
+		send("on sonnet 4.5")
+		resumed := f.called(acp.MethodSessionResume)
+		if len(resumed) != 1 || asks(resumed[0]) {
+			t.Fatalf("after moving to Sonnet 4.5, session/resume: %s", resumed)
+		}
+		send("still on sonnet 4.5")
+		if n := len(f.called(acp.MethodSessionResume)); n != 1 {
+			t.Errorf("restarted again with no change: %d resumes", n)
+		}
+		setModel("sonnet")
+		send("back on sonnet")
+		resumed = f.called(acp.MethodSessionResume)
+		if len(resumed) != 2 || !asks(resumed[1]) {
+			t.Errorf("after moving back to Sonnet, session/resume: %s", resumed)
+		}
+	})
 }
 
 func TestTheSessionIsResumedByTheNextAdapter(t *testing.T) {

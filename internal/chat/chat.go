@@ -694,6 +694,12 @@ func (c *conversation) beginResumedTurn(it *api.ChatItem, text string, sent atta
 		c.stopAdapter()
 		c.windowRestart = false
 	}
+	if c.thinkingRestart && !c.rolling {
+		// The model moved across adaptive thinking (restartIfThinkingMoved),
+		// which the adapter reads only when it starts the session.
+		c.stopAdapter()
+		c.thinkingRestart = false
+	}
 	if c.versionRestart && !c.rolling {
 		// Likewise a newer version of the tool: ChatCommand starts the one
 		// the machine has now, which resumes the same session.
@@ -1125,6 +1131,7 @@ func (m *Manager) SetOption(ctx context.Context, a state.Agent, id, value string
 		// Another model can have another window, and so another place to
 		// compact: that only reaches the tool on a restart (window.go).
 		c.restartIfWindowMoved()
+		c.restartIfThinkingMoved()
 		c.markSession()
 	}
 	c.flush(false)
@@ -1389,6 +1396,10 @@ type conversation struct {
 	// windowRestart says the context window changed since the adapter
 	// started, so the next turn restarts it (window.go).
 	windowRestart bool
+	// thinkingRestart says the model moved to or from one that takes
+	// adaptive thinking since the adapter started, so the next turn
+	// restarts it (restartIfThinkingMoved).
+	thinkingRestart bool
 	// toolsRestart says the chat's MCP servers changed since the adapter
 	// started, so the next turn restarts it (tools.go).
 	toolsRestart bool
@@ -1510,6 +1521,7 @@ type adapter struct {
 	replaying bool   // a loaded session replays history that's already here
 	spend     spend  // what it has cost, for the token ledger (tokens.go)
 	window    int64  // the compact window it was started with, 0 for the whole (window.go)
+	thinking  bool   // it was started asking for adaptive thinking (acp.ClaudeThinkingMeta)
 	sizeOf    string // the model and window last remembered from its usage_update
 	lostTurn  bool   // a turn's prompt failed because its output closed: it exited mid-turn
 	// models is what the store knew of Claude model windows when it started,
@@ -1791,10 +1803,12 @@ func (c *conversation) connect(ad *adapter) error {
 	a := c.agent
 	model, window := c.launchSettings()
 	ad.window = window
+	ad.thinking = a.AI == "claude" && acp.ClaudeAdaptiveThinking(model)
 	ad.models, _ = c.windows()
 	ad.account = a.ClaudeAccount
 	ad.login = runsOn(a)
 	c.windowRestart = false
+	c.thinkingRestart = false
 	c.accountRestart = false
 	c.versionRestart = false
 	// It reads the MCP servers its configuration has now.
@@ -1871,7 +1885,9 @@ func (c *conversation) connect(ad *adapter) error {
 	mcp := []acp.McpServer{} // the agent's own configuration gives the tools their MCP servers
 	var meta map[string]any
 	if a.AI == "claude" {
-		meta = acp.ClaudeThinkingMeta() // Claude's thinking, shown as thought items
+		// Claude's thinking, shown as thought items, for a model that takes
+		// adaptive thinking: an older one would refuse every turn with it.
+		meta = acp.ClaudeThinkingMeta(model)
 	}
 	var resp acp.SessionResponse
 	var resumeErr error
