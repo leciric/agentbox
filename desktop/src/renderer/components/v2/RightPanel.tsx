@@ -268,8 +268,8 @@ function RightPanel({ project, chat, width, drawer, onSelect, onNewAgent }: { pr
   if (lead && whose?.kind === 'past' && stored && !isPastRef(stored)) whose = undefined;
   const ref = whose && whoseRef(whose);
   const view: PanelView | undefined = panel.wide ?? (whose && viewOf(state, whose));
-  // The switch's labels, as there is room: all of them, the lit one's, none.
-  const labels = width >= 520 ? 'all' : width >= 400 ? 'on' : 'none';
+  // The switch's labels, as there is room: the lit one's, none.
+  const labels = width >= 400 ? 'on' : 'none';
   const projectName = projectLabel(project, useQuery({ queryKey: ['projects'], queryFn: api.projects }).data);
   // Beside the lead's chat, the list, the pull requests and the repository
   // are its three tabs: no back arrow, title or ✕ for them, the switch instead.
@@ -302,7 +302,7 @@ function RightPanel({ project, chat, width, drawer, onSelect, onNewAgent }: { pr
           </Tip>
         )}
         {home ? (
-          <LeadSwitch project={project} tab={leadTab(state, project)} files={view === 'files'} count={agents.length} width={width} />
+          <LeadSwitch project={project} tab={leadTab(state, project)} files={view === 'files'} count={agents.length} />
         ) : whose ? (
           <WhoseTitle project={project} chat={chat} whose={whose} onSelect={onSelect} />
         ) : (
@@ -384,15 +384,14 @@ function WhoseTitle({ project, chat, whose, onSelect }: { project: string; chat:
 // requests (how many are open, and how many of the project's agents are
 // ready to review) and Files, in ViewSwitch's look. Files is lit only while
 // the repository shows its files: its Evidence, from the ⋯, lights none.
-// Narrower, only the lit one is named, the others by their icon and count
+// Only the lit one is named, at any width, the others by their icon and count
 // (Pull requests by those ready only, when some are: how many are open is
 // in its tooltip).
-function LeadSwitch({ project, tab, files, count, width }: { project: string; tab: LeadTab; files: boolean; count: number; width: number }) {
+function LeadSwitch({ project, tab, files, count }: { project: string; tab: LeadTab; files: boolean; count: number }) {
   const t = useT();
   const pulls = useQuery({ queryKey: ['pulls', project], queryFn: () => api.projectPullRequests(project), refetchInterval: 60_000 });
   const open = (pulls.data?.pullRequests ?? []).filter((pr) => pr.state === 'open').length;
   const ready = useProjectReview(project, !!useOpenReview()).data?.items?.length ?? 0;
-  const all = width >= 520;
   const tabs: Record<LeadTab, { icon: LucideIcon; label: string; on: boolean; tip?: string }> = {
     agents: { icon: Users, label: t('panel.lead.agents'), on: tab === 'agents' },
     pulls: {
@@ -407,7 +406,7 @@ function LeadSwitch({ project, tab, files, count, width }: { project: string; ta
     <div role="radiogroup" aria-label={t('panel.lead.switch')} className="flex min-w-0 shrink items-center rounded-lg border border-line bg-surface-faint p-0.5" data-panel-lead-switch={tab}>
       {leadTabs.map((v) => {
         const { icon: Icon, label, on, tip } = tabs[v];
-        const named = all || on;
+        const named = on;
         const button = (
           <button
             key={v}
@@ -443,9 +442,9 @@ function LeadSwitch({ project, tab, files, count, width }: { project: string; ta
 }
 
 // ViewSwitch is the four views, always in place; one whose can't show (the
-// repository has no machine) is greyed, with why in its tooltip. Narrower,
-// only the lit one is named, then none.
-function ViewSwitch({ chat, whose, view, labels }: { chat: string; whose: Whose; view: PanelView | undefined; labels: 'all' | 'on' | 'none' }) {
+// repository has no machine) is greyed, with why in its tooltip. Only the lit
+// one is named, then none when narrow.
+function ViewSwitch({ chat, whose, view, labels }: { chat: string; whose: Whose; view: PanelView | undefined; labels: 'on' | 'none' }) {
   const t = useT();
   return (
     <div role="radiogroup" aria-label={t('panel.switch')} className="flex shrink-0 items-center rounded-lg border border-line bg-surface-faint p-0.5" data-panel-switch>
@@ -454,7 +453,7 @@ function ViewSwitch({ chat, whose, view, labels }: { chat: string; whose: Whose;
         const can = hasView(whose, v);
         const on = view === v;
         const label = t(viewLabel[v]);
-        const named = labels === 'all' || (labels === 'on' && on);
+        const named = labels === 'on' && on;
         const button = (
           <button
             key={v}
