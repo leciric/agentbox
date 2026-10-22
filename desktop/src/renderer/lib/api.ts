@@ -564,6 +564,7 @@ export const api = {
   diagnosticSpans: (since: string) => call<T.DiagnosticsSpans>('GET', `/v1/diagnostics/spans?since=${encodeURIComponent(since)}`),
   diagnosticStalls: (since: string) => call<T.DiagnosticsStalls>('GET', `/v1/diagnostics/stalls?since=${encodeURIComponent(since)}`),
   diagnosticResources: (span: D.ResourceWindow) => call<T.DiagnosticsResources>('GET', `/v1/diagnostics/resources?window=${span}`),
+  diagnosticPackageCache: () => call<T.DiagnosticsPackageCache>('GET', '/v1/diagnostics/package-cache'),
   sendClientSpans: (spans: T.TraceSpan[]) => call<void>('POST', clientSpansPath, { spans } satisfies T.ClientSpansRequest),
   diskUsage: () => call<T.DiskUsage>('GET', '/v1/usage/disk'),
   diskGuard: () => call<T.DiskGuard>('GET', '/v1/disk'),

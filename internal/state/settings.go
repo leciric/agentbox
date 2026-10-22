@@ -241,7 +241,7 @@ const (
 // DefaultPackageCacheMax is the shared package caches' cap when nobody chose,
 // on a disk big enough for it: a few projects' dependencies, Go modules and
 // Playwright browsers.
-const DefaultPackageCacheMax int64 = 20 << 30
+const DefaultPackageCacheMax int64 = 10 << 30
 
 // PackageCache reads the shared package caches' settings: whether they're
 // on, and the cap chosen for them in bytes, 0 when nobody chose. The daemon

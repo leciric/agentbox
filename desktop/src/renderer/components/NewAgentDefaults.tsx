@@ -677,7 +677,7 @@ export function SharedPackageCaches() {
     onError: (err) => toast.error(errorMessage(err)),
   });
   const on = settings.data?.packageCache ?? true;
-  const max = settings.data?.packageCacheMaxBytes ?? 20 * 1024 ** 3;
+  const max = settings.data?.packageCacheMaxBytes ?? 10 * 1024 ** 3;
   const held = settings.data?.packageCacheBytes ?? 0;
   const disabled = save.isPending || settings.data === undefined;
   return (
@@ -699,7 +699,7 @@ export function SharedPackageCaches() {
         <ResourceField
           id="package-cache-max"
           label={t('defaults.newAgent.holdAtMost')}
-          placeholder="20GiB"
+          placeholder="10GiB"
           hint={t('defaults.newAgent.holdHint')}
           value={max % 1024 ** 3 === 0 ? `${max / 1024 ** 3}GiB` : humanBytes(max).replace(' ', '')}
           disabled={disabled}
@@ -707,7 +707,7 @@ export function SharedPackageCaches() {
             if (value.trim() === '') return save.mutate({ packageCacheMaxBytes: 0 });
             const bytes = parseBytes(value);
             if (bytes === undefined) {
-              toast.error(t('defaults.newAgent.sizeLike', { example: '20GiB' }));
+              toast.error(t('defaults.newAgent.sizeLike', { example: '10GiB' }));
               return;
             }
             save.mutate({ packageCacheMaxBytes: bytes });

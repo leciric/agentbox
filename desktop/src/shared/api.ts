@@ -3082,6 +3082,18 @@ export interface DiagnosticsResources {
   agents: AgentResources[];
 }
 
+export interface PackageCachePart {
+  name: string;
+  bytes: number;
+}
+
+export interface DiagnosticsPackageCache {
+  on: boolean;
+  bytes: number;
+  maxBytes: number;
+  parts: PackageCachePart[];
+}
+
 export interface ClientSpansRequest {
   spans: TraceSpan[];
 }

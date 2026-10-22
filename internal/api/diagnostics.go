@@ -104,6 +104,23 @@ type DiagnosticsResources struct {
 	Agents          []AgentResources   `json:"agents"`
 }
 
+// PackageCachePart is how much one tool's directory in the shared package
+// caches holds ("go/build", "npm", "ms-playwright"; "other" for the rest).
+type PackageCachePart struct {
+	Name  string `json:"name"`
+	Bytes int64  `json:"bytes"`
+}
+
+// DiagnosticsPackageCache is GET /v1/diagnostics/package-cache: what the
+// shared package caches held when last measured, against their cap, biggest
+// tool first.
+type DiagnosticsPackageCache struct {
+	On       bool               `json:"on"`
+	Bytes    int64              `json:"bytes"`
+	MaxBytes int64              `json:"maxBytes"`
+	Parts    []PackageCachePart `json:"parts"`
+}
+
 // ClientSpansRequest is POST /v1/diagnostics/client-spans: spans the desktop
 // app measured (long tasks, request round trips), stored with Source "app".
 // At most MaxClientSpans a batch.
@@ -132,6 +149,13 @@ func (c *Client) DiagnosticsStalls(ctx context.Context, since time.Duration) (Di
 func (c *Client) DiagnosticsResources(ctx context.Context, window time.Duration) (DiagnosticsResources, error) {
 	var out DiagnosticsResources
 	err := c.do(ctx, http.MethodGet, "/v1/diagnostics/resources?window="+url.QueryEscape(window.String()), nil, &out)
+	return out, err
+}
+
+// DiagnosticsPackageCache asks what the shared package caches hold.
+func (c *Client) DiagnosticsPackageCache(ctx context.Context) (DiagnosticsPackageCache, error) {
+	var out DiagnosticsPackageCache
+	err := c.do(ctx, http.MethodGet, "/v1/diagnostics/package-cache", nil, &out)
 	return out, err
 }
 

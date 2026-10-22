@@ -155,6 +155,8 @@ export function DiagnosticsPanel({ version }: { version?: string }) {
         )}
       </Section>
 
+      <PackageCacheSize />
+
       <ResourceHistory />
     </div>
   );
@@ -230,6 +232,35 @@ function Section({ title, description, action, children }: { title: string; desc
       </header>
       <Panel className="min-w-0 overflow-hidden">{children}</Panel>
     </section>
+  );
+}
+
+// PackageCacheSize is what the shared package caches (pnpm, npm, Go, Playwright…)
+// hold on the VM's disk, by tool, against the cap set under Settings → Agents.
+function PackageCacheSize() {
+  const t = useT();
+  const cache = useQuery({ queryKey: ['diagnostics', 'package-cache'], queryFn: api.diagnosticPackageCache, refetchInterval: 60_000 });
+  const data = cache.data;
+  return (
+    <Section
+      title={t('diagnostics.pkgcache.title')}
+      description={data?.on === false ? t('diagnostics.pkgcache.off') : t('diagnostics.pkgcache.description', { used: humanBytes(data?.bytes ?? 0), max: humanBytes(data?.maxBytes ?? 0) })}
+    >
+      {cache.error ? (
+        <Empty>{errorMessage(cache.error)}</Empty>
+      ) : data && data.parts.length > 0 ? (
+        <Table headers={[t('diagnostics.pkgcache.tool'), t('diagnostics.pkgcache.size')]} numeric={[1]}>
+          {data.parts.map((p) => (
+            <tr key={p.name}>
+              <Cell name>{p.name}</Cell>
+              <Cell num>{humanBytes(p.bytes)}</Cell>
+            </tr>
+          ))}
+        </Table>
+      ) : (
+        <Empty>{cache.isPending ? t('common.loading') : t('diagnostics.pkgcache.empty')}</Empty>
+      )}
+    </Section>
   );
 }
 

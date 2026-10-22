@@ -3,11 +3,13 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
 
 	"agentbox/internal/agent"
+	"agentbox/internal/api"
 	"agentbox/internal/pkgcache"
 	"agentbox/internal/state"
 )
@@ -17,7 +19,8 @@ import (
 // (internal/pkgcache, agent/pkgcache.go). Agents write in it themselves, so
 // the daemon measures it every packageCacheEvery, and sooner when the disk
 // guard finds a disk near its floor, and evicts what was used longest ago
-// beyond SettingPackageCacheMax or below the floor.
+// beyond SettingPackageCacheMax (10 GiB unless chosen) or below the floor, and
+// not while a heavy run is under way, unless the caches are far over the cap.
 
 // packageCacheEvery is how often the caches are measured and trimmed.
 const packageCacheEvery = 10 * time.Minute
@@ -41,6 +44,9 @@ func (s *Server) newPackageCache() *pkgcache.Cache {
 			}
 			return free - s.diskFloor(context.Background()).For(total)
 		},
+		// A heavy run (an install, a build, tests) may be reading and
+		// writing the caches: not the time to evict from them.
+		Busy: s.heavyRunActive,
 		Logf: s.logf,
 	}
 	// Agents write in it as their user, which a daemon running as root
@@ -49,6 +55,32 @@ func (s *Server) newPackageCache() *pkgcache.Cache {
 		c.Owner = &[2]int{s.cfg.User.UID, s.cfg.User.GID}
 	}
 	return c
+}
+
+// heavyRunActive says an agent has a heavy command running or waiting to
+// run (pressure.go).
+func (s *Server) heavyRunActive() bool {
+	s.heavy.mu.Lock()
+	defer s.heavy.mu.Unlock()
+	return len(s.heavy.g.Running())+len(s.heavy.g.Waiting()) > 0
+}
+
+// diagnosticsPackageCache is what the shared package caches hold, by tool.
+func (s *Server) diagnosticsPackageCache(w http.ResponseWriter, r *http.Request) error {
+	on, chosen, err := s.store.PackageCache(r.Context())
+	if err != nil {
+		return err
+	}
+	max, _ := s.cacheMax(r.Context(), s.cfg.Paths.PackageCache(), chosen, state.DefaultPackageCacheMax)
+	out := api.DiagnosticsPackageCache{On: on, Bytes: s.packageCache.Size(), MaxBytes: max, Parts: []api.PackageCachePart{}}
+	for _, p := range s.packageCache.Breakdown() {
+		name := p.Dir
+		if name == "" {
+			name = "other"
+		}
+		out.Parts = append(out.Parts, api.PackageCachePart{Name: name, Bytes: p.Bytes})
+	}
+	return writeJSON(w, http.StatusOK, out)
 }
 
 // packageCacheDir is the directory agents mount, or "" while the caches are

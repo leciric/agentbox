@@ -40,6 +40,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -127,6 +128,12 @@ type Cache struct {
 	// Room, when set, is how many more bytes the disk can take before it's at
 	// its floor. Below it, Trim evicts until the disk is above it again.
 	Room func() int64
+	// Busy, when set, says an agent may be installing into or building with
+	// the caches right now (a heavy run is under way). Trim leaves them
+	// alone then, unless they hold more than BusyCeiling times Max: with
+	// many agents there is always one at work, and waiting for none would
+	// never trim.
+	Busy func() bool
 	// Owner, when set, is who the directories Prepare makes belong to: the
 	// agents' user, when the daemon runs as root.
 	Owner *[2]int
@@ -141,7 +148,25 @@ type Cache struct {
 	mu    sync.Mutex // held through a walk
 	size  atomic.Int64
 	sized atomic.Bool
+	// parts is what each tool's directory held when last measured.
+	partsMu sync.Mutex
+	held    []PartSize
 }
+
+// PartSize is how much one tool's directory holds, as Dirs names them.
+type PartSize struct {
+	Dir   string
+	Bytes int64
+}
+
+// BusyCeiling is how far over Max the caches may grow while Busy says an
+// agent is at work, before Trim evicts anyway.
+const BusyCeiling = 1.5
+
+// SupersededAfter is how long a browser version that a newer one of the same
+// browser replaced is left unused before Trim drops it, whatever the caches
+// hold: no project that moved to the newer one reads it.
+const SupersededAfter = 7 * 24 * time.Hour
 
 // DefaultRecent is how long Trim leaves a piece alone after it was last used:
 // a download in progress is younger than that.
@@ -187,7 +212,9 @@ func (c *Cache) Size() int64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if !c.sized.Load() {
-		c.measured(sum(c.pieces()))
+		all := c.pieces()
+		c.measuredParts(all)
+		c.measured(sum(all))
 	}
 	return c.size.Load()
 }
@@ -195,6 +222,37 @@ func (c *Cache) Size() int64 {
 func (c *Cache) measured(n int64) {
 	c.size.Store(n)
 	c.sized.Store(true)
+}
+
+// Breakdown is what each tool's directory held when last measured, biggest
+// first, empty ones left out.
+func (c *Cache) Breakdown() []PartSize {
+	c.Size()
+	c.partsMu.Lock()
+	defer c.partsMu.Unlock()
+	return slices.Clone(c.held)
+}
+
+func (c *Cache) measuredParts(all []piece) {
+	by := map[string]int64{}
+	for _, p := range all {
+		by[p.part] += p.size
+	}
+	var out []PartSize
+	for dir, n := range by {
+		if n > 0 {
+			out = append(out, PartSize{Dir: dir, Bytes: n})
+		}
+	}
+	slices.SortFunc(out, func(a, b PartSize) int {
+		if a.Bytes != b.Bytes {
+			return int(b.Bytes - a.Bytes)
+		}
+		return strings.Compare(a.Dir, b.Dir)
+	})
+	c.partsMu.Lock()
+	c.held = out
+	c.partsMu.Unlock()
 }
 
 // Trim measures the caches, and evicts what was used longest ago while they
@@ -207,6 +265,8 @@ func (c *Cache) Trim() int64 {
 	all := c.pieces()
 	size := sum(all)
 	c.measured(size)
+	c.measuredParts(all)
+	defer func() { c.measuredParts(all) }()
 	defer func() { c.measured(size) }()
 	limit := int64(0)
 	if c.Max != nil {
@@ -214,6 +274,37 @@ func (c *Cache) Trim() int64 {
 	}
 	if limit <= 0 {
 		return 0
+	}
+	if c.Busy != nil && c.Busy() && float64(size) <= float64(limit)*BusyCeiling {
+		return 0
+	}
+	recent := c.Recent
+	if recent == 0 {
+		recent = DefaultRecent
+	}
+	now := c.clock()
+	cutoff := now.Add(-recent)
+	var freed int64
+	evict := func(p piece) bool {
+		if err := removeAll(p.path); err != nil {
+			c.logf("package cache: evicting %s: %v", p.path, err)
+			return false
+		}
+		size -= p.size
+		freed += p.size
+		for i := range all {
+			if all[i].path == p.path {
+				all = slices.Delete(all, i, i+1)
+				break
+			}
+		}
+		return true
+	}
+	// Browsers a newer version replaced, and nothing has read for a week.
+	for _, p := range slices.Clone(all) {
+		if p.superseded && p.used.Before(now.Add(-SupersededAfter)) {
+			evict(p)
+		}
 	}
 	target := size
 	if size > limit {
@@ -225,25 +316,23 @@ func (c *Cache) Trim() int64 {
 		}
 	}
 	if target >= size {
-		return 0
+		return freed
 	}
-	slices.SortFunc(all, func(a, b piece) int { return a.used.Compare(b.used) })
-	recent := c.Recent
-	if recent == 0 {
-		recent = DefaultRecent
-	}
-	cutoff := c.clock().Add(-recent)
-	var freed int64
-	for _, p := range all {
+	// Replaced browsers go before anything else that's as old.
+	slices.SortStableFunc(all, func(a, b piece) int {
+		if a.superseded != b.superseded && !a.used.Equal(never) && !b.used.Equal(never) {
+			if a.superseded {
+				return -1
+			}
+			return 1
+		}
+		return a.used.Compare(b.used)
+	})
+	for _, p := range slices.Clone(all) {
 		if size <= target || p.used.After(cutoff) {
 			break
 		}
-		if err := removeAll(p.path); err != nil {
-			c.logf("package cache: evicting %s: %v", p.path, err)
-			continue
-		}
-		size -= p.size
-		freed += p.size
+		evict(p)
 	}
 	return freed
 }
@@ -260,7 +349,9 @@ func (c *Cache) Clear() error {
 	for _, e := range entries {
 		errs = append(errs, removeAll(filepath.Join(c.Dir, e.Name())))
 	}
-	c.measured(sum(c.pieces()))
+	all := c.pieces()
+	c.measured(sum(all))
+	c.measuredParts(all)
 	if err := errors.Join(errs...); err != nil {
 		return err
 	}
@@ -286,6 +377,10 @@ type piece struct {
 	path string
 	size int64
 	used time.Time
+	// part is the tool's directory it's in; "" for what's in none.
+	part string
+	// superseded is a browser version a newer one of the same browser replaced.
+	superseded bool
 }
 
 func sum(all []piece) int64 {
@@ -306,7 +401,14 @@ func (c *Cache) pieces() []piece {
 	}
 	for _, p := range parts {
 		root := filepath.Join(c.Dir, p.dir)
-		out = append(out, partPieces(root, p.unit, func(path string) bool { return path != root && roots[path] })...)
+		got := partPieces(root, p.unit, func(path string) bool { return path != root && roots[path] })
+		for i := range got {
+			got[i].part = p.dir
+		}
+		if p.dir == Playwright {
+			markSuperseded(got)
+		}
+		out = append(out, got...)
 	}
 	stray := piece{used: never}
 	_ = filepath.WalkDir(c.Dir, func(path string, d fs.DirEntry, err error) error {
@@ -325,6 +427,34 @@ func (c *Cache) pieces() []piece {
 		out = append(out, stray)
 	}
 	return out
+}
+
+// markSuperseded marks each browser version's directory (chromium-1187) when
+// the cache has a newer one of the same browser (chromium-1194). Which
+// versions the pinned tools use isn't written down anywhere but in the
+// browsers' own directories; the newest of each is what the most recent
+// Playwright wanted.
+func markSuperseded(pieces []piece) {
+	newest := map[string]int{}
+	rev := func(p piece) (string, int, bool) {
+		name := filepath.Base(p.path)
+		i := strings.LastIndex(name, "-")
+		if i <= 0 {
+			return "", 0, false
+		}
+		n, err := strconv.Atoi(name[i+1:])
+		return name[:i], n, err == nil
+	}
+	for _, p := range pieces {
+		if name, n, ok := rev(p); ok && n > newest[name] {
+			newest[name] = n
+		}
+	}
+	for i, p := range pieces {
+		if name, n, ok := rev(p); ok && n < newest[name] {
+			pieces[i].superseded = true
+		}
+	}
 }
 
 // never is when a piece that's never evicted was last used: after
