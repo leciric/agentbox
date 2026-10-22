@@ -398,7 +398,7 @@ func (c *conversation) page(start, end int) api.ChatThread {
 	for _, it := range c.items[start:end] {
 		items = append(items, clone(*it))
 	}
-	return api.ChatThread{Agent: c.agent.Ref(), Seq: c.seq, Session: clone(c.session), Items: items, Older: start > 0, Newer: start < end && end < len(c.items)}
+	return api.ChatThread{Agent: c.agent.Ref(), Seq: c.seq, Session: c.view(), Items: items, Older: start > 0, Newer: start < end && end < len(c.items)}
 }
 
 // pageOf is where Page's page lies in items: items[start:end].
@@ -501,7 +501,7 @@ func (m *Manager) Start(a state.Agent) (api.ChatSession, error) {
 	c.clearLimit()
 	c.startAdapter()
 	c.flush(false)
-	return clone(c.session), nil
+	return c.view(), nil
 }
 
 // Send adds your message and starts a turn, starting the AI tool first if needed.
@@ -693,6 +693,12 @@ func (c *conversation) beginResumedTurn(it *api.ChatItem, text string, sent atta
 		// that only at launch: a new adapter resumes the same session on it.
 		c.stopAdapter()
 		c.windowRestart = false
+	}
+	if c.thinkingRestart && !c.rolling {
+		// The model moved across adaptive thinking (restartIfThinkingMoved),
+		// which the adapter reads only when it starts the session.
+		c.stopAdapter()
+		c.thinkingRestart = false
 	}
 	if c.versionRestart && !c.rolling {
 		// Likewise a newer version of the tool: ChatCommand starts the one
@@ -936,7 +942,7 @@ func (m *Manager) Cancel(a state.Agent) (api.ChatSession, error) {
 	t := c.turn
 	if t == nil || t.cancelled {
 		c.flush(true)
-		return clone(c.session), nil
+		return c.view(), nil
 	}
 	t.cancelled = true
 	c.cancelPending()
@@ -969,7 +975,7 @@ func (m *Manager) Cancel(a state.Agent) (api.ChatSession, error) {
 	c.session.State = c.stateNow()
 	c.markSession()
 	c.flush(true)
-	return clone(c.session), nil
+	return c.view(), nil
 }
 
 // Answer answers a permission request with one of its options; an empty option
@@ -1025,6 +1031,16 @@ func (m *Manager) SetOption(ctx context.Context, a state.Agent, id, value string
 		value = w.NormalizeClaudeModel(value)
 	}
 	i := slices.IndexFunc(c.session.Options, func(o api.ChatOption) bool { return o.ID == id })
+	if id == api.ChatOptionPlan {
+		return m.setPlan(ctx, c, value == "true")
+	}
+	if i >= 0 && planChoice(c.session.Options[i]) != "" {
+		// Plan is a toggle beside the mode (plan.go).
+		if value == planChoice(c.session.Options[i]) {
+			return m.setPlan(ctx, c, true)
+		}
+		return m.setLevel(ctx, c, c.session.Options[i], value)
+	}
 	if i < 0 {
 		// No live session yet — a new agent whose chat hasn't started, or a
 		// project chat that first message creates. The model is still worth
@@ -1041,7 +1057,7 @@ func (m *Manager) SetOption(ctx context.Context, a state.Agent, id, value string
 			if err := m.Store.SaveChat(context.Background(), a.Project, a.Name, c.stored); err != nil {
 				return api.ChatSession{}, err
 			}
-			return clone(c.session), nil
+			return c.view(), nil
 		}
 		if !ok {
 			c.mu.Unlock()
@@ -1065,7 +1081,7 @@ func (m *Manager) SetOption(ctx context.Context, a state.Agent, id, value string
 		c.markSession()
 		c.flush(false)
 		defer c.mu.Unlock()
-		return clone(c.session), nil
+		return c.view(), nil
 	}
 	option := c.session.Options[i]
 	// A named model the live menu doesn't list can still be chosen: the tool
@@ -1096,7 +1112,7 @@ func (m *Manager) SetOption(ctx context.Context, a state.Agent, id, value string
 		c.markSession()
 		c.flush(false)
 		defer c.mu.Unlock()
-		return clone(c.session), nil
+		return c.view(), nil
 	}
 	if ad == nil || !ad.ready {
 		// Applied when the session starts.
@@ -1108,7 +1124,7 @@ func (m *Manager) SetOption(ctx context.Context, a state.Agent, id, value string
 		c.markSession()
 		c.flush(false)
 		defer c.mu.Unlock()
-		return clone(c.session), nil
+		return c.view(), nil
 	}
 	req := setRequest(ad.sessionID, option, value)
 	c.mu.Unlock()
@@ -1118,17 +1134,18 @@ func (m *Manager) SetOption(ctx context.Context, a state.Agent, id, value string
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err != nil {
-		return clone(c.session), err
+		return c.view(), err
 	}
 	if c.adapter == ad && out.ConfigOptions != nil {
 		c.setOptions(toOptions(out.ConfigOptions))
 		// Another model can have another window, and so another place to
 		// compact: that only reaches the tool on a restart (window.go).
 		c.restartIfWindowMoved()
+		c.restartIfThinkingMoved()
 		c.markSession()
 	}
 	c.flush(false)
-	return clone(c.session), nil
+	return c.view(), nil
 }
 
 // modelNamedOutsideMenu reports a model chosen by naming it rather than by
@@ -1389,6 +1406,10 @@ type conversation struct {
 	// windowRestart says the context window changed since the adapter
 	// started, so the next turn restarts it (window.go).
 	windowRestart bool
+	// thinkingRestart says the model moved to or from one that takes
+	// adaptive thinking since the adapter started, so the next turn
+	// restarts it (restartIfThinkingMoved).
+	thinkingRestart bool
 	// toolsRestart says the chat's MCP servers changed since the adapter
 	// started, so the next turn restarts it (tools.go).
 	toolsRestart bool
@@ -1510,6 +1531,7 @@ type adapter struct {
 	replaying bool   // a loaded session replays history that's already here
 	spend     spend  // what it has cost, for the token ledger (tokens.go)
 	window    int64  // the compact window it was started with, 0 for the whole (window.go)
+	thinking  bool   // it was started asking for adaptive thinking (acp.ClaudeThinkingMeta)
 	sizeOf    string // the model and window last remembered from its usage_update
 	lostTurn  bool   // a turn's prompt failed because its output closed: it exited mid-turn
 	// models is what the store knew of Claude model windows when it started,
@@ -1791,10 +1813,12 @@ func (c *conversation) connect(ad *adapter) error {
 	a := c.agent
 	model, window := c.launchSettings()
 	ad.window = window
+	ad.thinking = a.AI == "claude" && acp.ClaudeAdaptiveThinking(model)
 	ad.models, _ = c.windows()
 	ad.account = a.ClaudeAccount
 	ad.login = runsOn(a)
 	c.windowRestart = false
+	c.thinkingRestart = false
 	c.accountRestart = false
 	c.versionRestart = false
 	// It reads the MCP servers its configuration has now.
@@ -1869,10 +1893,16 @@ func (c *conversation) connect(ad *adapter) error {
 	}
 
 	mcp := []acp.McpServer{} // the agent's own configuration gives the tools their MCP servers
+	var meta map[string]any
+	if a.AI == "claude" {
+		// Claude's thinking, shown as thought items, for a model that takes
+		// adaptive thinking: an older one would refuse every turn with it.
+		meta = acp.ClaudeThinkingMeta(model)
+	}
 	var resp acp.SessionResponse
 	var resumeErr error
 	if previous != "" {
-		req := acp.ResumeSessionRequest{SessionID: previous, Cwd: a.Worktree, McpServers: mcp}
+		req := acp.ResumeSessionRequest{SessionID: previous, Cwd: a.Worktree, McpServers: mcp, Meta: meta}
 		switch caps := init.AgentCapabilities; {
 		case caps.SessionCapabilities.Resume != nil:
 			resumeErr = ad.conn.Call(ctx, acp.MethodSessionResume, req, &resp)
@@ -1887,7 +1917,7 @@ func (c *conversation) connect(ad *adapter) error {
 	}
 	if previous == "" || resumeErr != nil {
 		resp = acp.SessionResponse{}
-		if err := ad.conn.Call(ctx, acp.MethodSessionNew, acp.NewSessionRequest{Cwd: a.Worktree, McpServers: mcp}, &resp); err != nil {
+		if err := ad.conn.Call(ctx, acp.MethodSessionNew, acp.NewSessionRequest{Cwd: a.Worktree, McpServers: mcp, Meta: meta}, &resp); err != nil {
 			return explain(err)
 		}
 		if resp.SessionID == "" {
@@ -2014,13 +2044,8 @@ func (c *conversation) wanted(id string) (api.ChatOption, string, bool) {
 		return option, "", false // AgentBox's own, applied at launch (window.go)
 	}
 	value, ok := c.stored.Options[id]
-	if !ok && c.agent.Autonomous && option.Category == "mode" {
-		for _, choice := range option.Choices {
-			if choice.Kind == "full_access" {
-				value, ok = choice.Value, true
-				break
-			}
-		}
+	if option.Category == "mode" {
+		value, ok = c.wantedMode(option) // plan.go
 	}
 	if !ok || value == option.Value {
 		return option, value, false
@@ -2446,14 +2471,22 @@ func (h handler) Notify(method string, params json.RawMessage) {
 		c.markSession()
 		return
 	case "config_option_update":
+		from, _ := c.modeOption()
 		c.setOptions(toOptions(u.ConfigOptions))
+		if !h.ad.replaying {
+			c.modeMoved(from.Value)
+		}
 		c.markSession()
 		return
 	case "current_mode_update":
+		from, _ := c.modeOption()
 		for i, o := range c.session.Options {
 			if o.Category == "mode" {
 				c.session.Options[i].Value = u.CurrentModeID
 			}
+		}
+		if !h.ad.replaying {
+			c.modeMoved(from.Value)
 		}
 		c.markSession()
 		return
@@ -2560,11 +2593,19 @@ func (h handler) Request(method string, params json.RawMessage, reply func(any, 
 			}
 		}
 	}
+	if option, ok := c.autoAllow(req.Options); ok {
+		// Planning on bypass permissions (plan.go).
+		reply(acp.RequestPermissionResponse{Outcome: acp.PermissionOutcome{Outcome: "selected", OptionID: option}}, nil)
+		return
+	}
 	c.closeOpen()
 	it := c.add("permission", c.turn.id)
 	it.Permission = &api.ChatPermission{CallID: req.ToolCall.ToolCallID, Title: title, Options: []api.ChatPermissionOption{}}
 	for _, o := range req.Options {
 		it.Permission.Options = append(it.Permission.Options, api.ChatPermissionOption{ID: o.OptionID, Name: o.Name, Kind: o.Kind})
+	}
+	if isPlanApproval(req.Options) {
+		c.markPlanApproval(it.Permission)
 	}
 	c.pending[it.ID] = reply
 	c.session.State = c.stateNow()
@@ -2805,7 +2846,7 @@ func (c *conversation) flush(save bool) {
 		c.dirty = map[string]bool{}
 	}
 	if c.sessionDirty {
-		session := clone(c.session)
+		session := c.view()
 		c.emit(api.ChatEvent{Session: &session})
 		c.sessionDirty = false
 	}

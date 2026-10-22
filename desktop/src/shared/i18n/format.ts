@@ -93,15 +93,29 @@ function closingBrace(s: string, start: number): number {
   return -1;
 }
 
-const pluralRules = new Map<string, Intl.PluralRules>();
+// null is an engine without Intl.PluralRules: Hermes, the phone app's, has
+// none on Android, where its absence crashed every message with a plural.
+const pluralRules = new Map<string, Intl.PluralRules | null>();
 
 function pluralCategory(lang: string, n: number): string {
   let rules = pluralRules.get(lang);
-  if (!rules) {
-    rules = new Intl.PluralRules(lang);
+  if (rules === undefined) {
+    rules = typeof Intl.PluralRules === 'function' ? new Intl.PluralRules(lang) : null;
     pluralRules.set(lang, rules);
   }
-  return rules.select(n);
+  return rules ? rules.select(n) : fallbackPlural(lang, n);
+}
+
+// fallbackPlural is CLDR's cardinal rule for the languages the app speaks,
+// where Intl.PluralRules is missing: pt has "one" for 0 and 1 (and what lies
+// between) and "many" for whole millions, en "one" for 1 alone. Every other
+// language gets en's.
+export function fallbackPlural(lang: string, n: number): string {
+  if (lang.toLowerCase().split('-')[0] === 'pt') {
+    if (n >= 0 && n < 2) return 'one';
+    return Number.isInteger(n) && n !== 0 && n % 1_000_000 === 0 ? 'many' : 'other';
+  }
+  return n === 1 ? 'one' : 'other';
 }
 
 // branchesOf reads the "one {…} other {…}" after a plural's or select's kind.

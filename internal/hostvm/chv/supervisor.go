@@ -190,6 +190,7 @@ func (s *supervisor) run(ctx context.Context) error {
 	go s.diskLoop(loops)
 	if m, ok := s.m.(*chMachine); ok {
 		go s.gpuLoop(loops, m)
+		go s.shareLoop(loops, m)
 	}
 
 	var req api.VMStopRequest

@@ -87,6 +87,16 @@ func (r Repo) ResolveCommit(rev string) (string, error) {
 	return commit, nil
 }
 
+// BranchTip is the commit a local branch is at, "" when there is no such
+// branch. An error is git failing to say, never the branch missing.
+func (r Repo) BranchTip(branch string) (string, error) {
+	tip, err := run(r.Root, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch+"^{commit}")
+	if NotFound(err) {
+		return "", nil
+	}
+	return tip, err
+}
+
 func (r Repo) BranchExists(branch string) bool {
 	_, err := run(r.Root, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
 	return err == nil
@@ -266,20 +276,20 @@ func MoveWorktree(worktree, commit string) error {
 
 // RemoveWorktree removes the worktree at path, discarding uncommitted changes.
 // A worktree git no longer knows, because its entry under .git/worktrees was
-// pruned, is only a directory now, and is removed as one.
+// pruned, is only a directory now, and is removed as one. So is one whose
+// files are already gone, whose entry prune then drops: unlocked first, since
+// prune keeps a locked one.
 func (r Repo) RemoveWorktree(path string) error {
 	unlock := r.lockWorktrees()
 	defer unlock()
+	_ = r.UnlockWorktree(path)
 	if _, err := os.Stat(path); err == nil {
 		if !r.HasWorktree(path) {
 			if err := os.RemoveAll(path); err != nil {
 				return err
 			}
-		} else {
-			_ = r.UnlockWorktree(path)
-			if _, err := run(r.Root, "worktree", "remove", "--force", path); err != nil {
-				return err
-			}
+		} else if _, err := run(r.Root, "worktree", "remove", "--force", path); err != nil {
+			return err
 		}
 	}
 	_, err := run(r.Root, "worktree", "prune")
@@ -430,6 +440,9 @@ func run(dir string, args ...string) (string, error) {
 func output(dir string, env []string, args ...string) (out string, err error) {
 	span := trace.Begin(gitSpan(args), "dir", dir)
 	defer func() { span.End(err) }()
+	if ferr := faultAt(dir); ferr != nil {
+		return "", &gitError{args: args, err: ferr}
+	}
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
 	if env != nil {
 		cmd.Env = append(os.Environ(), env...)
@@ -438,7 +451,7 @@ func output(dir string, env []string, args ...string) (out string, err error) {
 	cmd.Stderr = &stderr
 	b, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		return "", &gitError{args: args, err: err, stderr: strings.TrimSpace(stderr.String())}
 	}
 	return string(b), nil
 }
@@ -462,7 +475,8 @@ func gitSpan(args []string) string {
 // them. A name in not that doesn't resolve is left out rather than failing the
 // call, so a base branch that has since been deleted still works; not may also
 // hold rev-list's --glob=<pattern>, for every ref it matches. The tip is
-// returned even when none of the branch's commits are its own.
+// returned even when none of the branch's commits are its own. A branch that
+// doesn't exist has no tip and no commits; an error is git failing to say.
 func BranchCommits(root, branch string, limit int, not ...string) (tip string, own []string, err error) {
 	ref := "refs/heads/" + branch
 	args := append([]string{"rev-list", "--ignore-missing", fmt.Sprintf("--max-count=%d", limit), ref, "--not"}, not...)
@@ -474,5 +488,8 @@ func BranchCommits(root, branch string, limit int, not ...string) (tip string, o
 		return own[0], own, nil
 	}
 	tip, err = run(root, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+	if NotFound(err) {
+		return "", nil, nil
+	}
 	return tip, nil, err
 }

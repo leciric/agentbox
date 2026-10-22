@@ -23,6 +23,15 @@ func TestRender(t *testing.T) {
 			IP:       "10.239.149.23",
 			EnvFiles: []string{".env", "apps/api/.env.local"},
 		},
+		"node-modules": {
+			Project:     "pawly",
+			Agent:       "agent-04",
+			Worktree:    "/home/dev/.local/share/agentbox/worktrees/pawly/agent-04",
+			Branch:      "agentbox/agent-04",
+			BaseRef:     "main",
+			IP:          "10.239.149.25",
+			NodeModules: []string{".", "apps/web"},
+		},
 		"android": {
 			Project:  "pawly",
 			Agent:    "agent-03",

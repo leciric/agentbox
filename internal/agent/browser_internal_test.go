@@ -2,12 +2,16 @@ package agent
 
 import (
 	"context"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
+	"strings"
 	"testing"
+	"time"
 
 	"agentbox/internal/state"
 )
@@ -77,5 +81,124 @@ func TestBrowserScriptMarksACrashedProfileClean(t *testing.T) {
 	got, _ := os.ReadFile(prefs)
 	if string(got) != `{"profile":{"exit_type":"Normal","exited_cleanly":true}}` {
 		t.Errorf("preferences = %s", got)
+	}
+}
+
+// Chromium takes the Mac's GPU for WebGL only in an agent the VM's Venus
+// driver is mounted into, and only one built with venus/0004; elsewhere it
+// keeps its own choice.
+func TestBrowserScriptGivesChromiumTheVenusGPU(t *testing.T) {
+	t.Parallel()
+	fn := regexp.MustCompile(`(?s)\nvenus_flags\(\) \{.*?\n\}\n`).FindString(string(BrowserScript()))
+	if fn == "" {
+		t.Fatal("browser.sh has no venus_flags")
+	}
+	dir := t.TempDir()
+	patched := filepath.Join(dir, "patched", "libvulkan_virtio.so")
+	old := filepath.Join(dir, "old", "libvulkan_virtio.so")
+	for path, body := range map[string]string{patched: "\x7fELF..software wsi: the renderer has no dma-buf\x00..", old: "\x7fELF.."} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mount := func(at string) string {
+		return "388 369 254:1 /usr/local/lib/agentbox/venus/libvulkan_virtio.so " + at + " ro,relatime - ext4 /dev/vda1 rw\n"
+	}
+	other := "29 1 0:26 / /proc rw,nosuid - proc proc rw\n"
+	for _, tc := range []struct{ name, mounts, want string }{
+		{"patched driver", mount(patched) + other, "--use-angle=vulkan --ignore-gpu-blocklist"},
+		{"driver from before 0004", mount(old) + other, ""},
+		{"no driver", other, ""},
+	} {
+		mountinfo := filepath.Join(t.TempDir(), "mountinfo")
+		if err := os.WriteFile(mountinfo, []byte(tc.mounts), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command("sh", "-c", fn+"venus_flags")
+		cmd.Env = append(os.Environ(), "mountinfo="+mountinfo)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s: %v: %s", tc.name, err, out)
+		}
+		if got := strings.TrimSpace(string(out)); got != tc.want {
+			t.Errorf("%s: venus_flags = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// The desktop's idle VNC client, which keeps Xvnc's frame clock at 60 Hz:
+// it shakes hands as a shared client with no security, then stays connected
+// in one process, so that killing it closes the connection.
+func TestBrowserScriptHoldsVNC(t *testing.T) {
+	t.Parallel()
+	if _, err := os.Stat("/proc/self/comm"); err != nil {
+		t.Skip("no /proc")
+	}
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("no bash")
+	}
+	m := regexp.MustCompile(`(?s)\nhold_vnc='([^']*)'\n`).FindStringSubmatch(string(BrowserScript()))
+	if m == nil {
+		t.Fatal("browser.sh has no hold_vnc")
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "bash", "-c", m[1], "agentbox-vnc-clock", port)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	defer func() { _ = cmd.Process.Kill() }()
+
+	conn, err := ln.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	// The server speaks first; the client answers each step with one write
+	// already, which is how Xvnc reads it too.
+	if _, err := conn.Write([]byte("RFB 003.008\n\x01\x01")); err != nil {
+		t.Fatal(err)
+	}
+	want := "RFB 003.008\n\x01\x01"
+	got := make([]byte, len(want))
+	if _, err := io.ReadFull(conn, got); err != nil || string(got) != want {
+		t.Fatalf("handshake = %q, %v; want %q", got, err, want)
+	}
+	// What Xvnc sends (a bell, the clipboard) is read and dropped, NULs too.
+	if _, err := conn.Write([]byte("\x02\x00\x00\x00\x00\x00\x00\x00")); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond)
+	select {
+	case err := <-done:
+		t.Fatalf("the client left: %v", err)
+	default:
+	}
+	// The bash holds the connection itself, with no child to outlive it.
+	children, _ := os.ReadFile(filepath.Join("/proc", strconv.Itoa(cmd.Process.Pid), "task", strconv.Itoa(cmd.Process.Pid), "children"))
+	if c := strings.TrimSpace(string(children)); c != "" {
+		t.Errorf("the client has children: %s", c)
+	}
+	// It ends when the server goes.
+	_ = conn.Close()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("exit: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("the client outlived the server")
 	}
 }

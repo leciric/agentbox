@@ -24,6 +24,9 @@ function fixtureVMGPU(gpu: string | null): T.VMGPU {
     case 'vm':
       // What a Linux (Cloud Hypervisor) VM said before it could have the GPU.
       return { kind: '', node: '', setup: '', reason: "AgentBox's VM has no GPU to give agents" };
+    case 'vz':
+      // A Mac's VM made without krunkit (hostvm's gpuReason).
+      return { kind: '', node: '', setup: '', reason: "AgentBox's VM runs on Apple's Virtualization framework (vz), which gives it no 3D. A VM made with krunkit has a GPU: install krunkit (brew tap slp/krun && brew trust slp/krun && brew install krunkit), then agentbox vm delete --yes (it removes the agents' machines) and agentbox vm init" };
     case 'host':
       return { kind: 'host', node: '/dev/dri/renderD129', setup: '', reason: '' };
     case 'old':
@@ -192,6 +195,35 @@ export function richChat(): T.ChatThread {
     items: [
       { id: 'u1', turn: 'u1', kind: 'user', text: 'Show me how chat items reach the app, and how the agents are doing.', createdAt: at(60_000), updatedAt: at(60_000) },
       { id: 'a1', turn: 'u1', kind: 'assistant', text, createdAt: at(50_000), updatedAt: at(50_000) },
+    ],
+  };
+}
+
+// thinkingThread is a project chat on Claude Code whose last turn thinks
+// (summarized thinking, as claude-agent-acp streams it): phase "live" is the
+// thought still arriving, "answer" the reply arriving after it, "done" the
+// turn settled, its work folded behind "Worked for …". An earlier turn
+// thought and settled, for the row it leaves.
+export function thinkingThread(phase: string): T.ChatThread {
+  const at = (secondsAgo: number) => new Date(Date.now() - secondsAgo * 1000).toISOString();
+  const thought = [
+    "I'm working with the Pell equation x² − 13y² = 1, so the fundamental solution comes from the continued fraction of √13, whose period is 5: that gives (649, 180), and 649² − 13·180² = 421201 − 421200 = 1 checks out.",
+    '',
+    'Each next solution is (x₁ + y₁√13)ⁿ, so (842401, 233640) follows from squaring, and the third, x ≈ 1.09·10⁹, is already past a million: the list stops there.',
+  ].join('\n');
+  const live = phase === 'live';
+  const settled = phase === 'done';
+  return {
+    agent: `${PROJECT}/lead`,
+    seq: 1,
+    session: { state: settled ? 'ready' : 'running', tool: 'claude', options: [], commands: [], ...(settled ? {} : { turnStartedAt: at(12) }) },
+    items: [
+      { id: 't1', turn: 't1', kind: 'user', text: 'Is 2^61 − 1 prime?', result: { state: 'completed', endedAt: at(110) }, createdAt: at(120), updatedAt: at(110) },
+      { id: 't2', turn: 't1', kind: 'thought', text: 'Recalling that 2^61 − 1 is M61, the Mersenne prime Pervushin proved in 1883.', createdAt: at(118), updatedAt: at(116) },
+      { id: 't3', turn: 't1', kind: 'assistant', text: 'Yes: 2^61 − 1 = 2305843009213693951 is the Mersenne prime M61.', createdAt: at(115), updatedAt: at(110) },
+      { id: 't4', turn: 't4', kind: 'user', text: 'Without tools: find all integer solutions of x^2 − 13y^2 = 1 with 0 < x < 1000000.', ...(settled ? { result: { state: 'completed', endedAt: at(1) } } : {}), createdAt: at(12), updatedAt: at(12) },
+      { id: 't5', turn: 't4', kind: 'thought', text: live ? thought.slice(0, 330) : thought, streaming: live, createdAt: at(11), updatedAt: at(live ? 0 : 6) },
+      ...(live ? [] : [{ id: 't6', turn: 't4', kind: 'assistant', text: 'The fundamental solution is (649, 180); the next is (842401, 233640).\n\n(x, y) = (1, 0), (649, ±180), (842401, ±233640)', streaming: !settled, createdAt: at(5), updatedAt: at(settled ? 1 : 0) }]),
     ],
   };
 }
@@ -880,7 +912,9 @@ export function leadOptions(): T.ChatOption[] {
     { id: 'model', name: 'Model', category: 'model', type: 'select', value: 'opus', choices: [{ value: 'opus', name: 'Opus' }, { value: 'sonnet', name: 'Sonnet' }, { value: 'haiku', name: 'Haiku' }] },
     { id: 'context_window', name: 'Context window', category: 'context_window', type: 'select', value: '200k', choices: [{ value: '200k', name: '200k' }, { value: '1m', name: '1M' }] },
     { id: 'effort', name: 'Effort', category: 'thought_level', type: 'select', value: 'high', choices: [{ value: 'medium', name: 'Medium' }, { value: 'high', name: 'High' }] },
-    { id: 'mode', name: 'Mode', category: 'mode', type: 'select', value: 'default', choices: [{ value: 'default', name: 'Ask before edits' }, { value: 'acceptEdits', name: 'Accept edits' }, { value: 'plan', name: 'Plan' }] },
+    { id: 'mode', name: 'Mode', category: 'mode', type: 'select', value: 'bypassPermissions', choices: [{ value: 'default', name: 'Ask before edits', kind: 'standard' }, { value: 'acceptEdits', name: 'Accept edits' }, { value: 'bypassPermissions', name: 'Bypass Permissions', kind: 'full_access' }] },
+    // AgentBox's own toggle beside the mode (internal/chat/plan.go).
+    { id: 'plan', name: 'Plan', category: 'plan', type: 'boolean', value: 'true', choices: [] },
   ];
 }
 
@@ -1301,6 +1335,7 @@ export function freeRun(queryClient: QueryClient, phase: string): FreeRun {
 function fakeVM() {
   const listeners = new Set<(text: string) => void>();
   const swapListeners = new Set<(text: string) => void>();
+  const krunkitListeners = new Set<(text: string) => void>();
   return {
     onSwapOutput: (fn: (text: string) => void) => {
       swapListeners.add(fn);
@@ -1309,6 +1344,31 @@ function fakeVM() {
     onOutput: (fn: (text: string) => void) => {
       listeners.add(fn);
       return () => listeners.delete(fn);
+    },
+    // `agentbox vm krunkit --remake --yes` against ?mac='s VM: Homebrew, the
+    // delete and the new VM, a line at a time, ending with a krunkit VM.
+    onKrunkitOutput: (fn: (text: string) => void) => {
+      krunkitListeners.add(fn);
+      return () => krunkitListeners.delete(fn);
+    },
+    remakeWithKrunkit: async () => {
+      const vm = devState.hostSetup?.vm;
+      if (!vm) throw new Error('krunkit runs only on a Mac');
+      const brew = vm.krunkit?.brew ? (vm.krunkit.missing === 'driver' ? ['$ brew upgrade lima\n', '==> Upgrading lima 1.2.0 -> 2.2.1\n'] : ['$ brew tap slp/krun\n', '$ brew trust slp/krun\n', '$ brew install krunkit\n', '==> Pouring krunkit--1.3.2.arm64_tahoe.bottle.tar.gz\n']) : [];
+      const lines = [
+        '$ agentbox vm krunkit --remake --yes\n',
+        ...brew,
+        '==> krunkit is installed: a VM made now is made with it\n',
+        "==> Deleting the VM (Apple's Virtualization framework), and every agent's machine in it\n",
+        '==> Making the VM with krunkit, so it gives the memory it stops using back to your Mac, and has a GPU for agents\n',
+        '==> Setting AgentBox up in the VM\n',
+      ];
+      for (const line of lines) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        for (const fn of krunkitListeners) fn(line);
+      }
+      devState.hostSetup = { ...devState.hostSetup!, vm: { ...vm, vmType: 'krunkit', krunkit: undefined } };
+      defaultsSettings = { ...defaultsSettings, vmGPU: { kind: '', node: '', setup: 'available', reason: "the VM's kernel has no GPU driver yet: turning GPU for agents on installs one" } };
     },
     resize: async (cpus: number, memory: string, restart?: boolean, disk?: string) => {
       // On Linux (?chv=), the Cloud Hypervisor VM changes while it runs.
@@ -1466,7 +1526,8 @@ let defaultsSettings = {
   // WSL's GPU, or ?gpu=none for a VM with none, or ?gpu=krunkit|running|restart|failed
   // for a Mac's krunkit VM whose GPU isn't ready; ?gpu=host for a Linux host's GPU the VM
   // gets at its next start, ?gpu=hostrestart for one turned on, waiting, ?gpu=nvidia for
-  // one it can't have, ?gpu=vm for a Linux VM with none.
+  // one it can't have, ?gpu=vm for a Linux VM with none, ?gpu=vz for a Mac's VM made
+  // without krunkit.
   vmGPU: fixtureVMGPU(typeof location !== 'undefined' ? new URLSearchParams(location.search).get('gpu') : null),
   errorReports: true,
   prWatch: true,
@@ -1486,6 +1547,7 @@ let defaultsSettings = {
   packageCacheMaxBytes: 20 * 1024 ** 3,
   defaultPackageCacheMaxBytes: 20 * 1024 ** 3,
   packageCacheBytes: 3.1 * 1024 ** 3,
+  localNodeModules: true,
   claudeCodeUpdate: { on: false, installed: '2.1.280', pinned: '2.1.280', latest: '', checking: false },
 } as T.Settings;
 
@@ -1508,6 +1570,7 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   if (req.packageCache !== undefined) next.packageCache = req.packageCache;
   if (req.packageCacheMaxBytes !== undefined) next.packageCacheMaxBytes = req.packageCacheMaxBytes || next.defaultPackageCacheMaxBytes;
   if (req.clearPackageCache) next.packageCacheBytes = 0;
+  if (req.localNodeModules !== undefined) next.localNodeModules = req.localNodeModules;
   if (req.claudeCodeAutoUpdate !== undefined || req.checkClaudeCode) {
     const on = req.claudeCodeAutoUpdate ?? next.claudeCodeUpdate.on;
     next.claudeCodeUpdate = on
@@ -1646,16 +1709,19 @@ export function seedSettings(queryClient: QueryClient): void {
   queryClient.setQueryData(['auth'], devState.auth);
   queryClient.setQueryData(['settings'], defaultsSettings);
   queryClient.setQueryData(['update'], devState.update ?? ({ current: '0.7.0', enabled: true, channel: 'stable' } satisfies T.UpdateStatus));
+  // Tokyo Night in the mode the page asks for: a light page given the dark
+  // palette's background would paint the window's ink mid-grey.
+  const light = new URLSearchParams(location.search).get('theme') === 'light';
   queryClient.setQueryData(['theme'], {
     appearance: 'follow',
     available: true,
-    name: 'Tokyo Night',
-    mode: new URLSearchParams(location.search).get('theme') === 'light' ? 'light' : 'dark',
-    background: '#1a1b26',
-    surface: '#24283b',
-    foreground: '#c0caf5',
-    muted: '#565f89',
-    accent: '#7aa2f7',
+    name: light ? 'Tokyo Night Day' : 'Tokyo Night',
+    mode: light ? 'light' : 'dark',
+    background: light ? '#e1e2e7' : '#1a1b26',
+    surface: light ? '#d5d6db' : '#24283b',
+    foreground: light ? '#3760bf' : '#c0caf5',
+    muted: light ? '#848cb5' : '#565f89',
+    accent: light ? '#2e7de9' : '#7aa2f7',
   } satisfies T.Theme);
   queryClient.setQueryData(['host-setup'], {});
 }
@@ -1670,6 +1736,36 @@ export function seedLinuxHost(queryClient: QueryClient, kvm: boolean): void {
   queryClient.setQueryData(['host-setup'], devState.hostSetup);
   devState.migration = { state: 'available', projects: [PROJECT, 'organic'], agents: [`${PROJECT}/agent-01`, `${PROJECT}/agent-12`, `${PROJECT}/agent-99`, 'organic/agent-3'] };
   queryClient.setQueryData(['vm-migration'], devState.migration);
+}
+
+// seedMacVZ is Settings on a Mac whose VM was made with Apple's
+// Virtualization framework (?gpu=vz&mac=…), at its Agents section, where GPU
+// for agents offers to make it again with krunkit: Homebrew installs krunkit
+// (brew) or a Lima with its driver (driver), there's no Homebrew (manual) or a
+// Lima Homebrew can't upgrade (nodriver), or krunkit is installed already
+// (ready). Its remake streams made-up output and ends with a krunkit VM.
+export function seedMacVZ(queryClient: QueryClient, kind: string): void {
+  seedSettings(queryClient);
+  const GiB = 1024 ** 3;
+  const krunkit =
+    kind === 'ready'
+      ? { available: true }
+      : kind === 'driver'
+        ? { available: false, missing: 'driver' as const, brew: true }
+        : kind === 'nodriver'
+          ? { available: false, missing: 'driver' as const }
+          : { available: false, missing: 'krunkit' as const, brew: kind !== 'manual' };
+  devState.hostSetup = {
+    pkexec: null,
+    user: 'leandro',
+    running: false,
+    resizing: false,
+    vm: { lima: '/opt/homebrew/bin/limactl', name: 'agentbox', exists: true, status: 'Running', cpus: 6, memory: 12 * GiB, disk: 200 * GiB, vmType: 'vz', krunkit },
+    wsl: null,
+    linux: null,
+    chv: null,
+  };
+  queryClient.setQueryData(['host-setup'], devState.hostSetup);
 }
 
 // seedLinuxVM is Settings on a Linux machine in VM mode (?chv=…), at its
