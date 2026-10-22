@@ -382,6 +382,7 @@ func (s *Server) startHeavy(instance string) func(http.ResponseWriter, *http.Req
 		if err != nil {
 			return err
 		}
+		s.wakeIdle(a.Ref())
 		out, err := s.askHeavy(ctx, a.Ref(), instance, key, req.Command, ttl, wait)
 		if err != nil {
 			return err

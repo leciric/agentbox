@@ -1534,6 +1534,9 @@ let defaultsSettings = {
   autoStopIdle: false,
   dockerPruneOnStop: true,
   idleTimeSeconds: 2 * 60 * 60,
+  idleReclaim: false,
+  idleFreezeSeconds: 5 * 60,
+  idleStopSeconds: 10 * 60,
   leadRecheck: false,
   leadRecheckMinutes: 20,
   imageCache: true,
@@ -1561,6 +1564,9 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   if (req.diskFloorPercent !== undefined) next.diskFloorPercent = req.diskFloorPercent < 0 ? 5 : req.diskFloorPercent;
   if (req.autoStopIdle !== undefined) next.autoStopIdle = req.autoStopIdle;
   if (req.idleTimeSeconds !== undefined) next.idleTimeSeconds = req.idleTimeSeconds;
+  if (req.idleReclaim !== undefined) next.idleReclaim = req.idleReclaim;
+  if (req.idleFreezeSeconds !== undefined) next.idleFreezeSeconds = req.idleFreezeSeconds;
+  if (req.idleStopSeconds !== undefined) next.idleStopSeconds = req.idleStopSeconds;
   if (req.imageCache !== undefined) next.imageCache = req.imageCache;
   if (req.imageCacheMaxBytes !== undefined) next.imageCacheMaxBytes = req.imageCacheMaxBytes || next.defaultImageCacheMaxBytes;
   if (req.clearImageCache) next.imageCacheBytes = 0;

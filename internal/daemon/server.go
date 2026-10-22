@@ -282,6 +282,8 @@ type Server struct {
 	pressureEvery  time.Duration // pressureInterval; 0 runs no loop
 	readPressure   func() (pressure.Sample, error)
 	runCgroups     runCgroups
+	idle           *idleState
+	idleCgroups    idleCgroups
 	vmMemory       func() int64
 	setMemoryLimit func(instance string, limit int64) error
 	memoryEvents   func(instance string) (agent.MemoryCounts, bool)
@@ -350,6 +352,8 @@ func New(cfg Config) (*Server, error) {
 		readPressure:     readSample(),
 		readCPUPressure:  func() (pressure.PSI, error) { return pressure.Read(cpuPressureFile) },
 		runCgroups:       agentRunCgroups{},
+		idle:             newIdleState(),
+		idleCgroups:      agentIdleCgroups{},
 		vmMemory:         agent.HostMemory,
 		setMemoryLimit:   agent.SetMemoryLimit,
 		memoryEvents:     agent.MemoryEvents,
@@ -385,6 +389,7 @@ func New(cfg Config) (*Server, error) {
 		LeadIdle:          s.leadCacheIdle,
 		Idle:              s.leadIdle,
 		TurnEnded:         s.checkpointTurn,
+		TurnStarted:       func(a state.Agent) { s.wakeIdle(a.Ref()) },
 		TurnFinished:      s.recordTurn,
 		AuthFailed:        s.claudeAuthFailed,
 		Lost:              s.agentLost,
@@ -483,6 +488,7 @@ func (s *Server) Run(ctx context.Context) error {
 	loops.Go(func() { s.sweepFinishedAgents(ctx) })
 	loops.Go(func() { s.sweepMemories(ctx) })
 	loops.Go(func() { s.sweepIdleAgents(ctx) })
+	loops.Go(func() { s.runIdleReclaim(ctx) })
 	loops.Go(func() { s.runUsage(ctx) })
 	loops.Go(func() {
 		s.giveZram()

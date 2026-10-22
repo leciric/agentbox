@@ -70,6 +70,19 @@ test('paused and stopped machines show their own state', () => {
   assert.deepEqual(chatLabel(agent('stopped')), { text: 'Stopped', tone: 'muted' });
 });
 
+test('an agent idle reclaim holds reads as idle with its memory reclaimed, until it works again', () => {
+  const frozen = { ...agent('running', 'ready'), outcome: 'done', reclaimed: 'frozen' } as T.Agent;
+  assert.deepEqual(chatLabel(frozen), { text: 'Idle, memory reclaimed', tone: 'muted' });
+  assert.match(statusTip(frozen) ?? '', /frozen/);
+  const stopped = { ...agent('stopped'), reclaimed: 'stopped' } as T.Agent;
+  assert.deepEqual(chatLabel(stopped), { text: 'Idle, memory reclaimed', tone: 'muted' });
+  assert.match(statusTip(stopped) ?? '', /message starts it again/);
+  // A turn that started before the daemon caught up is working, and a
+  // question it asked still needs you.
+  assert.equal(chatLabel({ ...frozen, chat: 'running' }).text, 'Working');
+  assert.equal(chatLabel({ ...frozen, outcome: 'asking' }).text, 'Waiting for an answer');
+});
+
 test('rank puts what needs you first, then running, paused, then the rest', () => {
   assert.equal(rank(agent('running', 'waiting')), 0);
   assert.equal(rank(agent('incomplete')), 0);

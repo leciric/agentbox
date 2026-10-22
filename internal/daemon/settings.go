@@ -186,6 +186,24 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	for key, secs := range map[string]*int{state.SettingIdleFreezeAfter: req.IdleFreezeSeconds, state.SettingIdleStopAfter: req.IdleStopSeconds} {
+		if secs == nil {
+			continue
+		}
+		if *secs < 60 || *secs > 24*60*60 {
+			return fmt.Errorf("idle reclaim waits 60 seconds to a day; %d seconds isn't", *secs)
+		}
+		if err := s.store.SetSetting(r.Context(), key, strconv.Itoa(*secs)); err != nil {
+			return err
+		}
+	}
+	if req.IdleReclaim != nil {
+		if err := s.store.SetFlag(r.Context(), state.SettingIdleReclaim, *req.IdleReclaim); err != nil {
+			return err
+		}
+		// Turned off, what it froze wakes now rather than at the next step.
+		go s.stepIdleReclaim(s.background(), time.Now())
+	}
 	if req.AutoStopIdle != nil {
 		if err := s.store.SetFlag(r.Context(), state.SettingAutoStopIdle, *req.AutoStopIdle); err != nil {
 			return err
@@ -477,6 +495,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		return api.Settings{}, err
 	}
 	diskFloor := s.diskFloor(r.Context())
+	idleReclaim, idleFreeze, idleStop, err := s.store.IdleReclaim(r.Context())
+	if err != nil {
+		return api.Settings{}, err
+	}
 	autoStopIdle, idleTime, err := s.store.AutoStopIdle(r.Context())
 	if err != nil {
 		return api.Settings{}, err
@@ -548,6 +570,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 
 		AutoStopIdle:    autoStopIdle,
 		IdleTimeSeconds: int(idleTime / time.Second),
+
+		IdleReclaim:       idleReclaim,
+		IdleFreezeSeconds: int(idleFreeze / time.Second),
+		IdleStopSeconds:   int(idleStop / time.Second),
 
 		DockerPruneOnStop: dockerPrune,
 

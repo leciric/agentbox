@@ -47,10 +47,14 @@ export function chatLabel(agent: T.Agent): { text: string; tone: StatusTone } {
   if (agent.state === 'running' && agent.chat !== 'starting') {
     if (agent.outcome === 'asking') return { text: t('agent.status.asking'), tone: 'urgent' };
     if (agent.outcome === 'failed') return { text: t('agent.status.failed'), tone: 'error' };
+    // Idle reclaim froze what it left running (T.Agent.reclaimed).
+    if (agent.reclaimed === 'frozen') return { text: t('agent.status.reclaimed'), tone: 'muted' };
     if (agent.outcome === 'done') return { text: t('agent.status.done'), tone: 'muted' };
   }
   if (agent.state === 'running') return { text: agent.chat === 'starting' ? t('agent.status.starting') : t('agent.status.idle'), tone: 'muted' };
   if (agent.state === 'paused') return { text: t('agent.status.paused'), tone: 'muted' };
+  // Stopped by idle reclaim after it finished: a message starts it again.
+  if (agent.reclaimed === 'stopped') return { text: t('agent.status.reclaimed'), tone: 'muted' };
   return { text: t('agent.status.stopped'), tone: 'muted' };
 }
 
@@ -63,9 +67,11 @@ function limitedText(agent: Pick<T.Agent, 'outcomeUntil'>): string {
 
 // statusTip is what chatLabel's words leave out, for a tooltip: what holds
 // its commands for memory, the question it asked, the error it stopped on.
-export function statusTip(agent: Pick<T.Agent, 'state' | 'chat' | 'memory' | 'outcome' | 'outcomeNote'>): string | undefined {
+export function statusTip(agent: Pick<T.Agent, 'state' | 'chat' | 'memory' | 'outcome' | 'outcomeNote' | 'reclaimed'>): string | undefined {
   const held = memoryHold(agent);
   if (held) return held.tip;
+  if (agent.chat !== 'running' && agent.reclaimed === 'frozen') return t('agent.status.reclaimedFrozenTip');
+  if (agent.reclaimed === 'stopped') return t('agent.status.reclaimedStoppedTip');
   if (agent.chat === 'running' || !agent.outcomeNote) return undefined;
   if (agent.outcome === 'asking') return t('agent.status.askingTip', { question: agent.outcomeNote });
   if (agent.outcome === 'failed') return agent.outcomeNote;

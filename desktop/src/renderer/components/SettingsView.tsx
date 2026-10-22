@@ -16,6 +16,7 @@ import {
   Copy,
   Cpu,
   ExternalLink,
+  FlaskConical,
   KeyRound,
   Lightbulb,
   ListChecks,
@@ -86,6 +87,7 @@ import { projectSection } from "./ProjectSettings";
 import { SkillsPanel } from "./SkillsPanel";
 import { ConnectorsTab } from "./ConnectorsTab";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
+import { IdleReclaim } from "./IdleReclaim";
 import { GlobalMemoryPanel } from "./GlobalMemoryPanel";
 import { phoneGroups } from "./PhoneSettings";
 import { SettingsPage, keepScroll, openSettingsSection, type SectionIcons } from "./SettingsPage";
@@ -1614,6 +1616,28 @@ function InstalledSettings({
       ],
     },
     {
+      id: "experimental",
+      title: t("settings.section.experimental.title"),
+      description: t("settings.section.experimental.description"),
+      scope: "installation",
+      nav: t("settings.nav.machine"),
+      groups: [
+        {
+          id: "experimental",
+          title: t("settings.group.experimental.title"),
+          entries: [
+            {
+              id: "idle-reclaim",
+              label: t("settings.idleReclaim.label"),
+              keywords: t("settings.entry.idle-reclaim.keywords"),
+              modified: changed((s) => s.idleReclaim),
+              render: () => <IdleReclaim />,
+            },
+          ],
+        },
+      ],
+    },
+    {
       id: "diagnostics",
       title: t("settings.section.diagnostics.title"),
       description: t("settings.section.diagnostics.description"),
@@ -1663,6 +1687,7 @@ const sectionIcons: SectionIcons = {
   setup: Wrench,
   notifications: Bell,
   diagnostics: Activity,
+  experimental: FlaskConical,
 };
 
 // EnforceAgentDefaults decides what the model and window above mean to a
