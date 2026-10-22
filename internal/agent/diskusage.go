@@ -129,6 +129,12 @@ type AgentDisk struct {
 	WorktreeErr error
 }
 
+// MachineDisk is the bytes an agent's machine holds on the pool, without the
+// walk of its worktree AgentDisk adds.
+func (m *Manager) MachineDisk(ctx context.Context, a state.Agent) (int64, error) {
+	return m.Incus.VolumeUsage(ctx, pool, a.Instance)
+}
+
 // AgentDisk measures one agent: its machine's root disk, the bytes its
 // container's volume uses on the pool, and its worktree on the host. It is the
 // per-agent slice of DiskUsage and as cheap as that is for one agent, one

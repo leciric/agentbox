@@ -239,6 +239,11 @@ export const api = {
   destroyAgent: (ref: string, force: boolean, deleteBranch: boolean, deleteMedia: boolean) =>
     call<void>('DELETE', `${agent(ref)}?force=${force}&deleteBranch=${deleteBranch}&deleteMedia=${deleteMedia}`),
   agentDisk: (ref: string) => call<T.AgentDisk>('GET', `${agent(ref)}/disk`),
+  // The agents holding a stopped machine, in project or every project; check
+  // adds what "remove stopped agents' machines" would do with each.
+  stoppedMachines: (project: string, check: boolean) =>
+    call<T.StoppedMachines>('GET', `/v1/stopped-machines?${new URLSearchParams({ ...(project && { project }), ...(check && { check: '1' }) })}`),
+  removeStopped: (agents: string[]) => call<T.RemoveStoppedResult>('POST', '/v1/stopped-machines/remove', { agents } satisfies T.RemoveStoppedRequest),
   agentCredential: (ref: string) => call<T.ToolCredential>('GET', `${agent(ref)}/credential`),
   agentAction: async (ref: string, action: AgentAction) => {
     if (action === 'start' || action === 'resume') await ensureVMRunning();

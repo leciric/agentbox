@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { ChevronRight, GitBranch, PanelRight, Plus } from 'lucide-react';
+import { ChevronRight, GitBranch, HardDrive, PanelRight, Plus } from 'lucide-react';
 import { useState } from 'react';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
@@ -8,7 +8,7 @@ import { countByAgent, livePages } from '../lib/pages';
 import { useT } from '../lib/i18n';
 import { useProjectName } from '../lib/useProjectName';
 import { avatarMood, chatLabel, isAsking, rank, settled, statusTip, type Mood } from '../lib/agentStatus';
-import { cn, timeAgo } from '../lib/utils';
+import { cn, humanBytes, timeAgo } from '../lib/utils';
 import { AgentContextMenu } from './AgentContextMenu';
 import { AgentInfoCard } from './AgentInfoCard';
 import { ErrorBoundary } from './ErrorBoundary';
@@ -62,7 +62,7 @@ export function AgentRail({ view, onSelect, onNewAgent, onClose, folded: foldedH
     setPagesAgent(ref);
     setRailTab('pages');
   };
-  const { agents, mine, moving, finished, prs, lastReport, asking, mood, lead } = rail;
+  const { agents, mine, moving, finished, stopped, done, disk, prs, lastReport, asking, mood, lead } = rail;
   const finishedOpen = rail.showFinished || finished.some((a) => view.kind === 'agent' && view.ref === a.ref);
   const setShowFinished = rail.setShowFinished;
   const onLead = view.kind === 'project';
@@ -84,10 +84,11 @@ export function AgentRail({ view, onSelect, onNewAgent, onClose, folded: foldedH
       </button>
     </Tip>
   );
-  const row = (agent: T.Agent) => (
+  const row = (agent: T.Agent, machine?: number) => (
     <AgentRow
       key={agent.ref}
       agent={agent}
+      disk={machine}
       active={view.kind === 'agent' && view.ref === agent.ref}
       pr={prs.get(agent.ref)}
       pages={pageCounts.get(agent.ref) ?? 0}
@@ -115,22 +116,31 @@ export function AgentRail({ view, onSelect, onNewAgent, onClose, folded: foldedH
         </Tip>
         {!agents.data && skeletonWidths.slice(0, 3).map((width) => <Skeleton key={width} className="m-0.5 size-10 rounded-xl" />)}
         {moving.map(icon)}
-        {finished.length > 0 && (
+        {stopped.length > 0 && (
           <>
             <div className="my-1 w-7 border-t border-line-faint" />
-            <Tip label={finishedOpen ? t('agent.rail.hideFinished') : t('agent.rail.showFinished', { count: finished.length })}>
+            <Tip label={t('agent.rail.stoppedTip')}>
+              <HardDrive aria-label={t('agent.rail.stopped')} className="my-0.5 size-3.5 text-subtle" />
+            </Tip>
+            {stopped.map(icon)}
+          </>
+        )}
+        {done.length > 0 && (
+          <>
+            <div className="my-1 w-7 border-t border-line-faint" />
+            <Tip label={finishedOpen ? t('agent.rail.hideFinished') : t('agent.rail.showFinished', { count: done.length })}>
               <button
-                aria-label={finishedOpen ? t('agent.rail.hideFinished') : t('agent.rail.showFinished', { count: finished.length })}
+                aria-label={finishedOpen ? t('agent.rail.hideFinished') : t('agent.rail.showFinished', { count: done.length })}
                 aria-expanded={finishedOpen}
                 data-rail-finished={finishedOpen ? 'open' : 'closed'}
                 className="flex h-6 items-center gap-0.5 rounded-md px-1 text-[10.5px] tabular-nums text-subtle transition hover:bg-surface-strong hover:text-primary"
                 onClick={() => setShowFinished(!finishedOpen)}
               >
                 <ChevronRight className={cn('size-3 transition-transform', finishedOpen && 'rotate-90')} />
-                {finished.length}
+                {done.length}
               </button>
             </Tip>
-            {finishedOpen && finished.map(icon)}
+            {finishedOpen && done.map(icon)}
           </>
         )}
       </aside>
@@ -209,11 +219,17 @@ export function AgentRail({ view, onSelect, onNewAgent, onClose, folded: foldedH
               agents yet" would be a guess. */}
           {!agents.data && <RailSkeleton />}
 
-          {moving.map(row)}
+          {moving.map((a) => row(a))}
 
-          {finished.length > 0 && (
-            <FinishedSection count={finished.length} open={finishedOpen} onToggle={setShowFinished}>
-              {finished.map(row)}
+          {stopped.length > 0 && (
+            <StoppedSection agents={stopped} disk={disk}>
+              {stopped.map((a) => row(a, disk.get(a.ref)))}
+            </StoppedSection>
+          )}
+
+          {done.length > 0 && (
+            <FinishedSection count={done.length} open={finishedOpen} onToggle={setShowFinished}>
+              {done.map((a) => row(a))}
             </FinishedSection>
           )}
 
@@ -263,12 +279,25 @@ export function useRailAgents(project: string | null) {
   // An agent with a question waiting on you stays on top, whatever its chat is doing.
   const moving = mine.filter((a) => !settled(a) || asking(a));
   const finished = mine.filter((a) => settled(a) && !asking(a));
+  // The finished ones whose machine is stopped but still on disk, 5–12 GB
+  // each, are never folded away with the rest (StoppedSection), and say how
+  // much they hold: measuring a stopped volume is one Incus query each, so
+  // it is read only when there are some, and slowly.
+  const stopped = finished.filter((a) => a.state === 'stopped');
+  const done = finished.filter((a) => a.state !== 'stopped');
+  const machines = useQuery({
+    queryKey: ['stoppedMachines', project],
+    queryFn: () => api.stoppedMachines(project as string, false),
+    enabled: enabled && stopped.length > 0,
+    refetchInterval: 60_000,
+  });
+  const disk = new Map((machines.data?.machines ?? []).map((m) => [m.ref, m.machine]));
   const prs = new Map((fleet.data?.agents ?? []).map((a) => [a.ref, a.pr]));
   const fleetOf = new Map((fleet.data?.agents ?? []).map((a) => [a.ref, a]));
   const mood = (agent: T.Agent) => avatarMood(agent, asking(agent));
   // The question it waits on you for, in its words.
   const question = (ref: string) => (questions.data ?? []).find((q) => q.ref === ref && isAsking([q], ref))?.question;
-  return { agents, loaded: !!agents.data, lead, mine, moving, finished, prs, fleetOf, lastReport, lastSummary, asking, question, mood, showFinished, setShowFinished };
+  return { agents, loaded: !!agents.data, lead, mine, moving, finished, stopped, done, disk, prs, fleetOf, lastReport, lastSummary, asking, question, mood, showFinished, setShowFinished };
 }
 
 // RailSkeleton is rows where the agents will be until the first list
@@ -304,6 +333,26 @@ export function FinishedSection({ count, open, onToggle, children }: { count: nu
         <span className="rounded-full bg-surface-raised px-1.5 text-[10.5px] font-normal normal-case tracking-normal tabular-nums">{count}</span>
       </button>
       {open && children}
+    </section>
+  );
+}
+
+// StoppedSection is the finished agents whose machine is stopped but still
+// on disk, always open, with what they hold together: the rest of the
+// finished fold away, and these used to with them, unseen while they filled
+// the disk. Settings → Agents removes them on their own, or now.
+export function StoppedSection({ agents, disk, children }: { agents: T.Agent[]; disk: Map<string, number | undefined>; children: React.ReactNode }) {
+  const t = useT();
+  const total = agents.reduce((sum, a) => sum + (disk.get(a.ref) ?? 0), 0);
+  return (
+    <section className="mt-1.5 border-t border-line-faint pt-1.5" data-rail-stopped={agents.length}>
+      <div className="flex min-w-0 items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-subtle" title={t('agent.rail.stoppedTip')}>
+        <HardDrive className="size-3.5 shrink-0" />
+        <span className="min-w-0 truncate">{t('agent.rail.stopped')}</span>
+        <span className="rounded-full bg-surface-raised px-1.5 text-[10.5px] font-normal normal-case tracking-normal tabular-nums">{agents.length}</span>
+        {total > 0 && <span className="ml-auto shrink-0 text-[10.5px] font-normal normal-case tracking-normal tabular-nums" data-rail-stopped-bytes>{humanBytes(total)}</span>}
+      </div>
+      {children}
     </section>
   );
 }
@@ -350,10 +399,12 @@ function AgentRow({
   at,
   asking,
   mood,
+  disk,
   onSelect,
   onOpen,
 }: {
   agent: T.Agent;
+  disk?: number;
   active: boolean;
   pr?: T.PullRequest;
   pages: number;
@@ -403,6 +454,11 @@ function AgentRow({
               >
                 {status.text}
               </span>
+              {disk !== undefined && (
+                <span className="shrink-0 tabular-nums text-faint" title={t('agent.rail.machineDisk')} data-rail-disk>
+                  · {humanBytes(disk)}
+                </span>
+              )}
               {at && <span className="ml-auto shrink-0 tabular-nums text-faint">{timeAgo(at)}</span>}
             </span>
             {/* Its branch, or its pull request in the badge over the row. */}

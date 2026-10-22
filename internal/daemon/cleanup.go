@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -146,22 +147,12 @@ func (s *Server) removeFinishedIn(ctx context.Context, p state.Project, now time
 	if len(candidates) == 0 {
 		return 0
 	}
-	// From the cache, which refreshes itself behind this: a pull request
-	// merged since the last refresh is caught by the next pass. It is the
-	// agent's by its commits, whatever branch they were pushed to. A project
-	// with no GitHub has none; one whose pull requests can't be read now —
-	// git failing, GitHub not answering or never asked yet — is left alone
-	// until they can, as "no pull request" is half of a reason to remove.
-	var prs map[string]*api.PullRequest
-	var unread map[string]bool
-	switch _, entry, heads, _, err := s.projectPulls(p, agents); {
-	case err != nil && !pullsAbsent(err):
-		s.logf("remove finished agents in %s: its pull requests can't be read: %v", p.Name, err)
+	prs, unread, err := s.knownPulls(p, agents)
+	if err != nil {
+		if !errors.Is(err, errPullsUnread) {
+			s.logf("remove finished agents in %s: %v", p.Name, err)
+		}
 		return 0
-	case err == nil && (entry.listErr.failed() || entry.at.IsZero()):
-		return 0
-	case err == nil:
-		prs, unread = entry.byAgent(heads), unreadHeads(heads)
 	}
 	repo, err := gitrepo.Open(p.Root)
 	if err != nil {
@@ -207,6 +198,33 @@ func (s *Server) removeFinishedIn(ctx context.Context, p state.Project, now time
 		removed++
 	}
 	return removed
+}
+
+// errPullsUnread is a project whose pull requests haven't been read yet, or
+// whose last read failed: unknown until the next one.
+var errPullsUnread = errors.New("its pull requests haven't been read yet")
+
+// knownPulls is each agent's pull request as the cache has it, for a pass
+// that destroys by what it finds. It never waits for GitHub: the cache
+// refreshes itself behind it, so a pull request merged since the last refresh
+// is caught by the next pass. It is the agent's by its commits, whatever
+// branch they were pushed to. A project with no GitHub has none (nil, no
+// error); one whose pull requests can't be read now — git failing, GitHub not
+// answering or never asked yet — is an error, as "no pull request" is half of
+// a reason to remove. unread is the agents whose branches git couldn't read.
+func (s *Server) knownPulls(p state.Project, agents []state.Agent) (prs map[string]*api.PullRequest, unread map[string]bool, err error) {
+	_, entry, heads, _, err := s.projectPulls(p, agents)
+	switch {
+	case err != nil && pullsAbsent(err):
+		return nil, nil, nil
+	case err != nil:
+		return nil, nil, fmt.Errorf("its pull requests can't be read: %w", err)
+	case entry.listErr.failed():
+		return nil, nil, fmt.Errorf("%w: GitHub didn't answer", errPullsUnread)
+	case entry.at.IsZero():
+		return nil, nil, errPullsUnread
+	}
+	return entry.byAgent(heads), unreadHeads(heads), nil
 }
 
 // cleanupFactsOf reads what removeReason decides st from, pr being its pull

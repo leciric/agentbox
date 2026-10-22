@@ -209,6 +209,19 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if req.RemoveStoppedDays != nil {
+		if n := *req.RemoveStoppedDays; n < 1 || n > 365 {
+			return fmt.Errorf("stopped agents are removed after 1 to 365 days; %d isn't", n)
+		}
+		if err := s.store.SetSetting(r.Context(), state.SettingRemoveStoppedDays, strconv.Itoa(*req.RemoveStoppedDays)); err != nil {
+			return err
+		}
+	}
+	if req.RemoveStopped != nil {
+		if err := s.store.SetFlag(r.Context(), state.SettingRemoveStopped, *req.RemoveStopped); err != nil {
+			return err
+		}
+	}
 	if req.DockerPruneOnStop != nil {
 		if err := s.store.SetFlag(r.Context(), state.SettingDockerPruneOnStop, *req.DockerPruneOnStop); err != nil {
 			return err
@@ -519,6 +532,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	removeStopped, removeStoppedDays, err := s.store.RemoveStopped(r.Context())
+	if err != nil {
+		return api.Settings{}, err
+	}
 	autoStopIdle, idleTime, err := s.store.AutoStopIdle(r.Context())
 	if err != nil {
 		return api.Settings{}, err
@@ -589,8 +606,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		DiskFloorMin:     diskFloor.Min,
 		DiskFloorPercent: diskFloor.Percent,
 
-		AutoStopIdle:    autoStopIdle,
-		IdleTimeSeconds: int(idleTime / time.Second),
+		AutoStopIdle:      autoStopIdle,
+		RemoveStopped:     removeStopped,
+		RemoveStoppedDays: removeStoppedDays,
+		IdleTimeSeconds:   int(idleTime / time.Second),
 
 		IdleReclaim:       idleReclaim,
 		IdleFreezeSeconds: int(idleFreeze / time.Second),

@@ -1312,6 +1312,10 @@ var migrations = []string{
 	// Whether this project's agents may run a whole test suite while the
 	// installation blocks them (SettingBlockFullSuite, Project.FullTestSuite).
 	`ALTER TABLE projects ADD COLUMN full_test_suite INTEGER NOT NULL DEFAULT 0`,
+	// StoppedAt, for "remove stopped agents' machines": when the agent's
+	// machine was last stopped through AgentBox; 0 when never, or not since
+	// this column exists.
+	`ALTER TABLE agents ADD COLUMN stopped_at INTEGER NOT NULL DEFAULT 0`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -2492,6 +2496,11 @@ type Agent struct {
 	// whatever it was last doing before it was paused. Zero when it has never
 	// been paused, or was resumed or started since.
 	PausedAt time.Time
+	// StoppedAt is when this agent's machine was last stopped through
+	// AgentBox (agent.Manager.Stop), for "remove stopped agents' machines".
+	// It isn't cleared on start: a start after it (the machine's last use)
+	// makes it stale, which the reader checks. Zero when never recorded.
+	StoppedAt time.Time
 	// ID is an identity distinct from Name, set once at AddAgent and never
 	// reused: what tells this agent apart from a different one that later
 	// gets its name, for a row that outlives it on purpose (token_usage).
@@ -2806,7 +2815,7 @@ func (s *Store) RemoveAgent(ctx context.Context, project, name string) error {
 }
 
 func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]Agent, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+agentColumns+`, paused_at FROM agents `+clause, args...)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+agentColumns+`, paused_at, stopped_at FROM agents `+clause, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -2814,12 +2823,12 @@ func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]
 	var agents []Agent
 	for rows.Next() {
 		var a Agent
-		var created, pausedAt int64
+		var created, pausedAt, stoppedAt int64
 		var connectors sql.NullString
 		var opencode string
 		if err := rows.Scan(&a.Project, &a.Name, &a.Instance, &a.AI, &a.Autonomous, &a.Branch,
 			&a.BaseRef, &a.BaseCommit, &a.Worktree, &a.Status, &created, &a.Source, &a.Title, &a.ClaudeAccount, &a.Interface, &a.Role, &a.GitHubAccount, &a.FinishNotice, &a.ID, &connectors,
-			&a.CodexAccount, &opencode, &a.CursorAccount, &pausedAt); err != nil {
+			&a.CodexAccount, &opencode, &a.CursorAccount, &pausedAt, &stoppedAt); err != nil {
 			return nil, err
 		}
 		a.OpenCodeAccounts = ParseAccountMap(opencode)
@@ -2833,9 +2842,18 @@ func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]
 		if pausedAt != 0 {
 			a.PausedAt = time.Unix(pausedAt, 0)
 		}
+		if stoppedAt != 0 {
+			a.StoppedAt = time.Unix(stoppedAt, 0)
+		}
 		agents = append(agents, a)
 	}
 	return agents, rows.Err()
+}
+
+// SetStoppedAt records when an agent's machine was stopped.
+func (s *Store) SetStoppedAt(ctx context.Context, project, name string, at time.Time) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE agents SET stopped_at = ? WHERE project = ? AND name = ?`, at.Unix(), project, name)
+	return err
 }
 
 // SetPausedAt records when an agent was paused, or clears it (a zero at) when

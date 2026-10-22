@@ -185,6 +185,10 @@ type Server struct {
 	// for too.
 	vgpu vgpuSetup
 
+	// removingStopped runs one removal of stopped machines at a time, the
+	// sweep's or the user's (removestopped.go).
+	removingStopped sync.Mutex
+
 	mu           sync.Mutex
 	agentAPIs    map[string]*http.Server // in-agent API servers, by instance
 	retired      map[string]bool         // agents a stop-retire stopped, by ref (markRetired)
@@ -486,6 +490,7 @@ func (s *Server) Run(ctx context.Context) error {
 	loops.Go(func() { s.watch(ctx) })
 	loops.Go(func() { s.sweepMedia(ctx) })
 	loops.Go(func() { s.sweepFinishedAgents(ctx) })
+	loops.Go(func() { s.sweepStoppedMachines(ctx) })
 	loops.Go(func() { s.sweepMemories(ctx) })
 	loops.Go(func() { s.sweepIdleAgents(ctx) })
 	loops.Go(func() { s.runIdleReclaim(ctx) })
@@ -876,6 +881,8 @@ func (s *Server) routes() http.Handler {
 	}
 	h("GET /v1/agents/{project}/{agent}/diff", s.diff)
 	h("GET /v1/agents/{project}/{agent}/disk", s.agentDisk)
+	h("GET /v1/stopped-machines", s.getStoppedMachines)
+	h("POST /v1/stopped-machines/remove", s.postRemoveStopped)
 	h("GET /v1/agents/{project}/{agent}/credential", s.agentCredential)
 	h("GET /v1/agents/{project}/{agent}/files", s.listFiles(s.agentFromPath))
 	h("GET /v1/agents/{project}/{agent}/files/list", s.listFolder(s.agentFromPath))

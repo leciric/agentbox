@@ -1937,8 +1937,13 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 
 func (m *Manager) Stop(ctx context.Context, a state.Agent) error {
 	if err := m.Incus.StopWithin(ctx, a.Instance, 30*time.Second); err != nil {
-		err = m.Incus.ForceStop(ctx, a.Instance)
-		return err
+		if err := m.Incus.ForceStop(ctx, a.Instance); err != nil {
+			return err
+		}
+	}
+	// For "remove stopped agents' machines", which counts its days from here.
+	if err := m.Store.SetStoppedAt(ctx, a.Project, a.Name, time.Now()); err != nil {
+		m.logf("recording when %s was stopped: %v", a.Ref(), err)
 	}
 	return nil
 }
@@ -2194,6 +2199,8 @@ type Status struct {
 	state.Agent
 	State string // running, stopped, paused, initializing (create job still running), incomplete (unfinished create, nothing running) or missing
 	IP    string
+	// StartedAt is when Incus last started its machine; zero when unknown.
+	StartedAt time.Time
 }
 
 func (m *Manager) List(ctx context.Context, project string) ([]Status, error) {
@@ -2227,7 +2234,7 @@ func (m *Manager) List(ctx context.Context, project string) ([]Status, error) {
 			}
 		default:
 			if inst, ok := byName[a.Instance]; ok {
-				s.State, s.IP = displayState(inst.Status), inst.IPv4()
+				s.State, s.IP, s.StartedAt = displayState(inst.Status), inst.IPv4(), inst.LastUsedAt
 			}
 		}
 		if a.Status == state.AgentQueued {

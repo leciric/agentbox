@@ -533,6 +533,13 @@ type Settings struct {
 	// recording. Off unless it was turned on. Stopping keeps the worktree and
 	// branch, like stopping by hand.
 	AutoStopIdle bool `json:"autoStopIdle"`
+	// RemoveStopped and RemoveStoppedDays are "remove stopped agents'
+	// machines": while on, the daemon removes the machine and worktree of an
+	// agent stopped for RemoveStoppedDays when nothing would be lost
+	// (StoppedMachines says which). The agent stays as a past agent with its
+	// branch, pull request and chat. Off unless it was turned on.
+	RemoveStopped     bool `json:"removeStopped"`
+	RemoveStoppedDays int  `json:"removeStoppedDays"`
 	// DockerPruneOnStop says whether stopping an agent — by hand, retired,
 	// idle or every agent at once — first frees its Docker space: its build
 	// cache and every image no container uses, never its volumes. On unless
@@ -676,6 +683,10 @@ type UpdateSettingsRequest struct {
 	Timezone *string `json:"timezone,omitempty"`
 	// AutoStopIdle turns "auto-stop idle agents" on or off.
 	AutoStopIdle *bool `json:"autoStopIdle,omitempty"`
+	// RemoveStopped turns "remove stopped agents' machines" on or off, and
+	// RemoveStoppedDays is after how many days, from 1 to 365.
+	RemoveStopped     *bool `json:"removeStopped,omitempty"`
+	RemoveStoppedDays *int  `json:"removeStoppedDays,omitempty"`
 	// DockerPruneOnStop turns freeing an agent's Docker space on stop on or
 	// off.
 	DockerPruneOnStop *bool `json:"dockerPruneOnStop,omitempty"`
@@ -1290,6 +1301,46 @@ type AgentDisk struct {
 	Machine    *int64    `json:"machine,omitempty"`
 	Worktree   *int64    `json:"worktree,omitempty"`
 	MeasuredAt time.Time `json:"measuredAt"`
+}
+
+// StoppedMachine is an agent whose machine is stopped but still on disk,
+// and what "remove stopped agents' machines" would do with it now.
+type StoppedMachine struct {
+	Ref     string `json:"ref"`
+	Project string `json:"project"`
+	Name    string `json:"name"`
+	Title   string `json:"title,omitempty"`
+	Branch  string `json:"branch"`
+	// StoppedSince is when its machine stopped, or, when AgentBox didn't
+	// see that happen, when it was last seen doing anything.
+	StoppedSince time.Time `json:"stoppedSince"`
+	// Machine is the bytes its machine holds on disk; left out when Incus
+	// can't say.
+	Machine *int64 `json:"machine,omitempty"`
+	// Remove says why it would be removed now; Keep, when it wouldn't, why
+	// not. Exactly one is set, unless the safety checks weren't asked for.
+	Remove string `json:"remove,omitempty"`
+	Keep   string `json:"keep,omitempty"`
+}
+
+// StoppedMachines is every agent holding a stopped machine, for one project
+// or all of them, with the setting's days the verdicts were made against.
+type StoppedMachines struct {
+	Days     int              `json:"days"`
+	Machines []StoppedMachine `json:"machines"`
+}
+
+// RemoveStoppedRequest removes the machines of the agents listed, by ref,
+// each only if it is still safe to on a fresh look.
+type RemoveStoppedRequest struct {
+	Agents []string `json:"agents"`
+}
+
+// RemoveStoppedResult is what RemoveStoppedRequest did: the agents removed,
+// and the rest kept, each with why.
+type RemoveStoppedResult struct {
+	Removed []string         `json:"removed"`
+	Kept    []StoppedMachine `json:"kept"`
 }
 
 // MemoryUsageAgent is one agent's share of the host's memory: what its own

@@ -7,7 +7,7 @@ import { api } from '../lib/api';
 import { formatTokens } from '../lib/chat';
 import { useT } from '../lib/i18n';
 import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../lib/modelChoices';
-import { cn, errorMessage, humanBytes, parseBytes } from '../lib/utils';
+import { cn, errorMessage, humanBytes, parseBytes, timeAgo } from '../lib/utils';
 import { JobProgress } from './JobProgress';
 import { Button } from './ui/button';
 import { ModelByName } from './ModelByName';
@@ -812,6 +812,122 @@ export function AutoStopIdle() {
           </Select>
         </div>
       )}
+    </SettingRow>
+  );
+}
+
+// removeStoppedDays are the presets offered for how many days an agent stays
+// stopped before "remove stopped agents' machines" removes it.
+const removeStoppedDays = [1, 3, 7, 14, 30];
+
+// RemoveStopped removes the machine and worktree of an agent stopped for the
+// days below, keeping it as a past agent with its branch, pull request and
+// chat, when nothing would be lost: its branch pushed, its worktree clean,
+// and its pull request merged or closed, or no changes at all
+// (internal/daemon/removestopped.go). Off by default. Below it, on or off, is
+// what it would remove now, so it can be tried, and removed at once.
+export function RemoveStopped() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (req: T.UpdateSettingsRequest) => api.updateSettings(req),
+    onSuccess: (next) => {
+      queryClient.setQueryData(['settings'], next);
+      void queryClient.invalidateQueries({ queryKey: ['stoppedMachines', 'check'] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  // Every project's, judged: it reads git and GitHub, so only on demand.
+  const machines = useQuery({ queryKey: ['stoppedMachines', 'check'], queryFn: () => api.stoppedMachines('', true), staleTime: 30_000 });
+  const remove = useMutation({
+    mutationFn: (refs: string[]) => api.removeStopped(refs),
+    onSuccess: (res) => {
+      if (res.removed.length > 0) toast.success(t('defaults.newAgent.removeStoppedDone', { count: res.removed.length }));
+      if (res.kept.length > 0) toast.warning(t('defaults.newAgent.removeStoppedKept', { count: res.kept.length }));
+      void queryClient.invalidateQueries({ queryKey: ['stoppedMachines'] });
+      void queryClient.invalidateQueries({ queryKey: ['agents'] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const on = settings.data?.removeStopped ?? false;
+  const days = settings.data?.removeStoppedDays ?? 7;
+  const all = machines.data?.machines ?? [];
+  const removable = all.filter((m) => m.remove);
+  const kept = all.length - removable.length;
+  const bytes = removable.reduce((sum, m) => sum + (m.machine ?? 0), 0);
+
+  return (
+    <SettingRow
+      label={t('defaults.newAgent.removeStoppedLabel')}
+      description={t('defaults.newAgent.removeStoppedDescription', { days })}
+      details={t('defaults.newAgent.removeStoppedDetails')}
+      control={
+        <Switch
+          data-remove-stopped
+          aria-label={t('defaults.newAgent.removeStoppedLabel')}
+          disabled={save.isPending || settings.data === undefined}
+          checked={on}
+          onCheckedChange={(removeStopped) => save.mutate({ removeStopped })}
+        />
+      }
+    >
+      <div className="grid min-w-0 gap-3">
+        <div className="max-w-40">
+          <Select
+            data-remove-stopped-days
+            aria-label={t('defaults.newAgent.removeStoppedDays')}
+            disabled={save.isPending || settings.data === undefined}
+            value={String(days)}
+            onChange={(next) => save.mutate({ removeStoppedDays: Number(next) })}
+          >
+            {removeStoppedDays.map((n) => (
+              <SelectOption key={n} value={String(n)}>
+                {n === 7 ? t('defaults.newAgent.withDefault', { label: t('defaults.newAgent.days', { count: n }) }) : t('defaults.newAgent.days', { count: n })}
+              </SelectOption>
+            ))}
+            {!removeStoppedDays.includes(days) && <SelectOption value={String(days)}>{t('defaults.newAgent.days', { count: days })}</SelectOption>}
+          </Select>
+        </div>
+        <div className="grid min-w-0 gap-2 rounded-lg border border-line bg-surface px-3 py-2.5" data-remove-stopped-preview aria-busy={machines.isFetching || undefined}>
+          {machines.isPending ? (
+            <p className="text-[12px] text-subtle">{t('defaults.newAgent.removeStoppedChecking')}</p>
+          ) : machines.isError ? (
+            <p className="text-[12px] text-rose-300">{errorMessage(machines.error)}</p>
+          ) : (
+            <>
+              <p className="text-[12px] text-secondary" data-remove-stopped-summary>
+                {removable.length > 0
+                  ? t('defaults.newAgent.removeStoppedWould', { count: removable.length, size: humanBytes(bytes) })
+                  : t('defaults.newAgent.removeStoppedNone')}
+              </p>
+              {removable.length > 0 && (
+                <ul className="grid min-w-0 gap-1">
+                  {removable.map((m) => (
+                    <li key={m.ref} className="flex min-w-0 items-center gap-2 text-[12px]" data-remove-stopped-agent={m.ref}>
+                      <span className="min-w-0 flex-1 truncate text-primary" title={m.branch}>
+                        {m.title || m.name}
+                        <span className="text-faint"> · {m.project}</span>
+                      </span>
+                      <span className="shrink-0 tabular-nums text-subtle">{t('defaults.newAgent.removeStoppedSince', { ago: timeAgo(m.stoppedSince) })}</span>
+                      {m.machine !== undefined && <span className="w-16 shrink-0 text-right font-mono text-[11px] tabular-nums text-secondary">{humanBytes(m.machine)}</span>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {kept > 0 && <p className="text-[11.5px] text-faint">{t('defaults.newAgent.removeStoppedOthers', { count: kept })}</p>}
+              {removable.length > 0 && (
+                <div>
+                  <Button size="sm" variant="secondary" data-remove-stopped-now disabled={remove.isPending} onClick={() => remove.mutate(removable.map((m) => m.ref))}>
+                    {remove.isPending ? t('defaults.newAgent.removeStoppedRemoving') : t('defaults.newAgent.removeStoppedNow')}
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
     </SettingRow>
   );
 }

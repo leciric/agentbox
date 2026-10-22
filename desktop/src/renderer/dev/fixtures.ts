@@ -1539,6 +1539,8 @@ let defaultsSettings = {
   diskFloorMin: 10 * 1024 ** 3,
   diskFloorPercent: 5,
   autoStopIdle: false,
+  removeStopped: false,
+  removeStoppedDays: 7,
   dockerPruneOnStop: true,
   idleTimeSeconds: 2 * 60 * 60,
   idleReclaim: false,
@@ -1558,6 +1560,29 @@ let defaultsSettings = {
   claudeCodeUpdate: { on: false, installed: '2.1.280', pinned: '2.1.280', latest: '', checking: false },
 } as T.Settings;
 
+// fixtureStoppedMachines is every stopped agent, each holding a machine of a
+// few GB, stopped some days apart; with ?check=1, the older two of them can go
+// and the rest are kept, as "remove stopped agents' machines" would judge.
+function fixtureStoppedMachines(path: string): T.StoppedMachines {
+  const query = new URLSearchParams(path.split('?')[1] ?? '');
+  const project = query.get('project');
+  const check = query.get('check') === '1';
+  const days = defaultsSettings.removeStoppedDays;
+  const stopped = (devState.agents ?? []).filter((a) => a.state === 'stopped' && (!project || a.project === project));
+  const machines = stopped.map((a, i): T.StoppedMachine => {
+    const ago = [25, 12, 3, 1][i % 4];
+    const verdict = !check ? {} : ago >= days && i % 2 === 0 ? { remove: 'it changed nothing' } : ago >= days ? { remove: 'its pull request #31 was merged' } : { keep: `stopped for less than ${days} days` };
+    return { ref: a.ref, project: a.project, name: a.name, title: a.title, branch: a.branch, stoppedSince: new Date(Date.now() - ago * 86_400_000).toISOString(), machine: (5.2 + i * 2.3) * 1024 ** 3, ...verdict };
+  });
+  return { days, machines };
+}
+
+function removeFixtureStopped(refs: string[]): T.RemoveStoppedResult {
+  const gone = new Set(refs);
+  devState.agents = (devState.agents ?? []).filter((a) => !gone.has(a.ref));
+  return { removed: refs, kept: [] };
+}
+
 function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: string; contentType: string } {
   const next = { ...defaultsSettings };
   const window = (v: string) => (/^1m$|^1000000$/i.test(v) ? '1000000' : '');
@@ -1570,6 +1595,8 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   if (req.diskFloorMin !== undefined) next.diskFloorMin = req.diskFloorMin || 10 * 1024 ** 3;
   if (req.diskFloorPercent !== undefined) next.diskFloorPercent = req.diskFloorPercent < 0 ? 5 : req.diskFloorPercent;
   if (req.autoStopIdle !== undefined) next.autoStopIdle = req.autoStopIdle;
+  if (req.removeStopped !== undefined) next.removeStopped = req.removeStopped;
+  if (req.removeStoppedDays !== undefined) next.removeStoppedDays = req.removeStoppedDays;
   if (req.idleTimeSeconds !== undefined) next.idleTimeSeconds = req.idleTimeSeconds;
   if (req.idleReclaim !== undefined) next.idleReclaim = req.idleReclaim;
   if (req.idleFreezeSeconds !== undefined) next.idleFreezeSeconds = req.idleFreezeSeconds;
@@ -1922,6 +1949,8 @@ export function installDevBridge(): void {
   (window as unknown as { agentbox: unknown }).agentbox = {
     request: async (method: string, path: string, body?: unknown) => {
       if (method === 'PATCH' && path === '/v1/settings') return patchDefaults(body as T.UpdateSettingsRequest);
+      if (method === 'GET' && path.startsWith('/v1/stopped-machines')) return { status: 200, body: JSON.stringify(fixtureStoppedMachines(path)), contentType: 'application/json' };
+      if (method === 'POST' && path === '/v1/stopped-machines/remove') return { status: 200, body: JSON.stringify(removeFixtureStopped((body as T.RemoveStoppedRequest).agents)), contentType: 'application/json' };
       if (method === 'GET' && path === '/v1/settings' && defaultsSettings.claudeCodeUpdate) return { status: 200, body: JSON.stringify(defaultsSettings), contentType: 'application/json' };
       const page = pageRequest(method, path);
       if (page) return page;

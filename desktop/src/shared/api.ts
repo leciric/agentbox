@@ -165,6 +165,8 @@ export interface Settings {
   diskFloorMin: number;
   diskFloorPercent: number;
   autoStopIdle: boolean;
+  removeStopped: boolean;
+  removeStoppedDays: number;
   dockerPruneOnStop: boolean;
   idleTimeSeconds: number;
   idleReclaim: boolean;
@@ -219,6 +221,8 @@ export interface UpdateSettingsRequest {
   language?: string;
   timezone?: string;
   autoStopIdle?: boolean;
+  removeStopped?: boolean;
+  removeStoppedDays?: number;
   dockerPruneOnStop?: boolean;
   idleTimeSeconds?: number;
   idleReclaim?: boolean;
@@ -582,6 +586,32 @@ export interface AgentDisk {
   machine?: number;
   worktree?: number;
   measuredAt: string;
+}
+
+export interface StoppedMachine {
+  ref: string;
+  project: string;
+  name: string;
+  title?: string;
+  branch: string;
+  stoppedSince: string;
+  machine?: number;
+  remove?: string;
+  keep?: string;
+}
+
+export interface StoppedMachines {
+  days: number;
+  machines: StoppedMachine[];
+}
+
+export interface RemoveStoppedRequest {
+  agents: string[];
+}
+
+export interface RemoveStoppedResult {
+  removed: string[];
+  kept: StoppedMachine[];
 }
 
 export interface ToolCredential {

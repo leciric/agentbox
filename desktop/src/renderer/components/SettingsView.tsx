@@ -64,6 +64,7 @@ import { WhatsNewDialog } from "./WhatsNewDialog";
 import { ToolAccountList, ToolKeyForm } from "./ToolAccounts";
 import {
   AutoStopIdle,
+  RemoveStopped,
   DockerPruneOnStop,
   CompactWindow,
   DefaultContextWindow,
@@ -1388,6 +1389,13 @@ function InstalledSettings({
               keywords: t("settings.entry.auto-stop.keywords"),
               modified: changed((s) => s.autoStopIdle),
               render: () => <AutoStopIdle />,
+            },
+            {
+              id: "remove-stopped",
+              label: t("settings.entry.remove-stopped.label"),
+              keywords: t("settings.entry.remove-stopped.keywords"),
+              modified: changed((s) => s.removeStopped || s.removeStoppedDays !== 7),
+              render: () => <RemoveStopped />,
             },
           ],
         },

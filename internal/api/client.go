@@ -1168,6 +1168,28 @@ func (c *Client) AgentDisk(ctx context.Context, project, name string) (AgentDisk
 	return out, c.do(ctx, http.MethodGet, "/v1/agents/"+url.PathEscape(project)+"/"+url.PathEscape(name)+"/disk", nil, &out)
 }
 
+// StoppedMachines lists the agents holding a stopped machine, in project or
+// in every project when it is "". check adds what "remove stopped agents'
+// machines" would do with each, which reads git and GitHub.
+func (c *Client) StoppedMachines(ctx context.Context, project string, check bool) (StoppedMachines, error) {
+	q := url.Values{}
+	if project != "" {
+		q.Set("project", project)
+	}
+	if check {
+		q.Set("check", "1")
+	}
+	var out StoppedMachines
+	return out, c.do(ctx, http.MethodGet, "/v1/stopped-machines?"+q.Encode(), nil, &out)
+}
+
+// RemoveStopped removes the stopped machines of the agents in req that are
+// still safe to remove.
+func (c *Client) RemoveStopped(ctx context.Context, req RemoveStoppedRequest) (RemoveStoppedResult, error) {
+	var out RemoveStoppedResult
+	return out, c.do(ctx, http.MethodPost, "/v1/stopped-machines/remove", req, &out)
+}
+
 func (c *Client) MemoryUsage(ctx context.Context) (MemoryUsage, error) {
 	var out MemoryUsage
 	return out, c.do(ctx, http.MethodGet, "/v1/usage/memory", nil, &out)

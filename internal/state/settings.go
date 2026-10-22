@@ -214,6 +214,13 @@ const (
 	// installation that has never touched it keeps exactly the behaviour it
 	// had before this setting existed.
 	SettingAutoStopIdle = "auto_stop_idle"
+	// SettingRemoveStopped says whether the daemon removes the machine and
+	// worktree of an agent stopped for SettingRemoveStoppedDays, when nothing
+	// would be lost (internal/daemon/removestopped.go). The agent stays as a
+	// past agent, with its branch, pull request and chat. Off until somebody
+	// turns it on.
+	SettingRemoveStopped     = "remove_stopped"
+	SettingRemoveStoppedDays = "remove_stopped_days"
 	// SettingDockerPruneOnStop says whether stopping an agent first frees its
 	// Docker space: its build cache and every image no container uses, never
 	// its volumes (agent.Manager.PruneDocker). On until somebody turns it off
@@ -376,6 +383,30 @@ func (s *Store) AutoStopIdle(ctx context.Context) (on bool, idleTime time.Durati
 		idleTime = time.Duration(secs) * time.Second
 	}
 	return on, idleTime, nil
+}
+
+// DefaultRemoveStoppedDays is how many days an agent stays stopped before
+// "remove stopped agents' machines" removes it, when nobody chose: a week
+// is long enough to come back to an agent after a weekend.
+const DefaultRemoveStoppedDays = 7
+
+// RemoveStopped reads "remove stopped agents' machines": off until somebody
+// turns it on, and after how many days, DefaultRemoveStoppedDays when nobody
+// chose.
+func (s *Store) RemoveStopped(ctx context.Context) (on bool, days int, err error) {
+	on, err = s.Flag(ctx, SettingRemoveStopped)
+	if err != nil {
+		return false, 0, err
+	}
+	raw, err := s.Setting(ctx, SettingRemoveStoppedDays)
+	if err != nil {
+		return false, 0, err
+	}
+	days = DefaultRemoveStoppedDays
+	if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+		days = n
+	}
+	return on, days, nil
 }
 
 // DefaultMediaRetention is how long a removed agent's media is kept when
