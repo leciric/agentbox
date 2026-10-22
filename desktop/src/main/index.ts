@@ -2,7 +2,7 @@
 // the event stream, WebSocket streams and media files between the renderer and
 // the current environment (this machine's daemon, or one on a hub), signs in to
 // hubs, installs the command-line tool, and updates the app (updater.ts).
-import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, powerSaveBlocker, shell } from 'electron';
 import { arch, hostname } from 'node:os';
 import { join } from 'node:path';
 import { AppLog, captureConsole, reportSections, type AppError } from './applog';
@@ -29,7 +29,7 @@ import { keepWindowState, windowOptions } from './windowstate';
 import { distro, linuxPath, windowsPath } from './wslpaths';
 import { setLanguage, t } from '../shared/i18n/index.ts';
 import './vmpower';
-import './keepawake';
+import { keepAwake } from './keepawake';
 
 guardStdio();
 // The app's log, for problem reports (applog.ts): console and every uncaught
@@ -82,6 +82,8 @@ ipcMain.handle('api:request', async (_event, method: string, path: string, body?
     return unreachable(err);
   }
 });
+const setKeepAwake = keepAwake(powerSaveBlocker);
+ipcMain.handle('keepawake:set', (event, on: boolean) => setKeepAwake(event.sender, on));
 ipcMain.handle('daemon:connection', () => events.state);
 ipcMain.handle('app:info', () => ({
   socket: onWindows ? localSocket() : socketPath,
