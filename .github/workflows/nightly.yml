@@ -81,6 +81,7 @@ jobs:
       sha: ${{ steps.pick.outputs.sha }}
       pr: ${{ steps.pick.outputs.pr }}
       publish: ${{ steps.pick.outputs.publish }}
+      release: ${{ steps.version.outputs.release }}
       nightly: ${{ steps.version.outputs.nightly }}
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
@@ -188,8 +189,9 @@ jobs:
             release=$(node -p "require('./desktop/package.json').version.split('-')[0]")
           fi
           version=$release-nightly.$nightly
-          scripts/release-build.sh --nightly "$nightly" --tag "v$version" --check
+          scripts/release-build.sh --nightly "$nightly" --release "$release" --tag "v$version" --check
           {
+            echo "release=$release"
             echo "nightly=$nightly"
             echo "version=$version"
             echo "tag=v$version"
@@ -206,6 +208,7 @@ jobs:
     env:
       TAG: ${{ needs.resolve.outputs.tag }}
       NIGHTLY: ${{ needs.resolve.outputs.nightly }}
+      RELEASE: ${{ needs.resolve.outputs.release }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -240,7 +243,7 @@ jobs:
       - run: npm --prefix desktop ci
 
       - name: Build the Linux nightly
-        run: scripts/release-build.sh --nightly "$NIGHTLY" --tag "$TAG" --linux
+        run: scripts/release-build.sh --nightly "$NIGHTLY" --release "$RELEASE" --tag "$TAG" --linux
 
       - uses: actions/upload-artifact@v7
         with:
@@ -257,6 +260,7 @@ jobs:
     env:
       TAG: ${{ needs.resolve.outputs.tag }}
       NIGHTLY: ${{ needs.resolve.outputs.nightly }}
+      RELEASE: ${{ needs.resolve.outputs.release }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -292,7 +296,7 @@ jobs:
       - run: npm --prefix desktop ci
 
       - name: Build the Windows nightly
-        run: scripts/release-build.sh --nightly "$NIGHTLY" --tag "$TAG" --windows
+        run: scripts/release-build.sh --nightly "$NIGHTLY" --release "$RELEASE" --tag "$TAG" --windows
 
       - uses: actions/upload-artifact@v7
         with:
@@ -311,6 +315,7 @@ jobs:
     env:
       TAG: ${{ needs.resolve.outputs.tag }}
       NIGHTLY: ${{ needs.resolve.outputs.nightly }}
+      RELEASE: ${{ needs.resolve.outputs.release }}
       VERSION: ${{ needs.resolve.outputs.version }}
       CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
       CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
@@ -338,7 +343,7 @@ jobs:
       # version is stamped into desktop/package.json for it first.
       - name: Build the Mac app
         run: |
-          scripts/release-build.sh --nightly "$NIGHTLY" --tag "$TAG" --stamp
+          scripts/release-build.sh --nightly "$NIGHTLY" --release "$RELEASE" --tag "$TAG" --stamp
           if [ -z "$CSC_LINK" ]; then
             echo "::warning::No signing certificate: building an ad hoc signed, unnotarized app"
             unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
@@ -365,7 +370,7 @@ jobs:
           else
             echo "::warning::No signing certificate: the command-line tool is signed ad hoc, and not notarized"
           fi
-          scripts/release-build.sh --nightly "$NIGHTLY" --tag "$TAG" --mac-cli
+          scripts/release-build.sh --nightly "$NIGHTLY" --release "$RELEASE" --tag "$TAG" --mac-cli
           if [ -n "${MAC_SIGN_IDENTITY:-}" ] && [ -n "$APPLE_ID" ]; then
             for f in desktop/dist/release/"$TAG"/agentbox-*-darwin-*; do
               ditto -c -k "$f" "$RUNNER_TEMP/notarize.zip"
