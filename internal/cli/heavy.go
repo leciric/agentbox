@@ -189,6 +189,8 @@ var heavyCommand = regexp.MustCompile(`(?m)(?:^|[;&|(\x60]|\$\(|-c\s+["']|\b(?:t
 	`(?:npm|pnpm|yarn|bun)\s+(?:--prefix[\s=]\S+\s+|-C\s+\S+\s+|--filter[\s=]\S+\s+)*(?:(?:run\s+)?(?:test|build|e2e|dist|start|dev|preview)\b|exec\s+(?:vitest|jest|playwright|electron))|` +
 	`(?:npx|pnpx|bunx)\s+(?:vitest|jest|playwright|tsc|electron|next|vite)\b|` +
 	`(?:(?:npx|pnpx|bunx)\s+)?vp\s+(?:test|build|dev|preview)\b|` +
+	`vite(?:\s+(?:build|dev|serve|preview|--host|--port|--config|--mode)\b|\s*(?:$|[;&|)]))|` +
+	`node\s+(?:-\S+\s+)*(?:\S*/)?build[\w.-]*\.[cm]?js\b|` +
 	`(?:vitest|jest|pytest|tox|tsc|electron|gradle|gradlew|mvn|make|cmake|ninja|bazel|dotnet)\b|` +
 	`cargo\s+(?:test|build|run|bench|check|clippy)\b|` +
 	`docker\s+(?:build|buildx|compose\s+(?:up|build))\b|` +

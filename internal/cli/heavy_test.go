@@ -81,6 +81,21 @@ func TestHeavyCommand(t *testing.T) {
 		// 2026-10-12: a script fed to python3 on stdin, which says "make".
 		"python3 - <<'EOF'\nimport re\n# make sure the file ends in a newline\ns = open('a').read()\nEOF": false,
 		"cat > x.sh <<-END\n\tmake all\n\tEND\nchmod +x x.sh":                                             false,
+		// 2026-10-21: dev servers and a build script run without npm, which
+		// filled the VM unseen.
+		"vite":       true,
+		"vite build": true,
+		"./node_modules/.bin/vite --host 0.0.0.0":    true,
+		"cd desktop && vite --config vite.config.ts": true,
+		"node scripts/build.mjs":                     true,
+		"node --max-old-space-size=4096 build.js":    true,
+		"node build-renderer.cjs":                    true,
+		"vite --version":                             false,
+		"vite-node x.ts":                             false,
+		"cat vite.config.ts":                         false,
+		"node scripts/rebuild.js":                    false,
+		"node check-build.js":                        false,
+		"node -e 'console.log(1)'":                   false,
 	} {
 		if got := isHeavy(cmd); got != heavy {
 			t.Errorf("%q heavy = %v, want %v", cmd, got, heavy)
