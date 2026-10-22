@@ -9,7 +9,7 @@ function fakes() {
   let next = 1;
   const blocker = {
     start: () => (running.add(next), next++),
-    stop: (id: number) => void running.delete(id),
+    stop: (id: number) => running.delete(id),
   };
   const window = Object.assign(new EventEmitter(), { id: 7 });
   return { running, blocker, window, set: keepAwake(blocker) };
