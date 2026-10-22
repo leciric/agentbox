@@ -93,7 +93,9 @@ func (v *VM) setupGPU(ctx context.Context) {
 	}
 	files, err := venusTar()
 	if err == nil {
-		_, err = v.exec(ctx, files, "sudo", "sh", "-c", "rm -rf "+venusSrc+" && mkdir -p "+venusSrc+" && tar -x -o -C "+venusSrc)
+		// sync: a VM stopped right after (quitting the app) otherwise keeps
+		// the files empty, and venus.sh then does nothing until the next version.
+		_, err = v.exec(ctx, files, "sudo", "sh", "-c", "rm -rf "+venusSrc+" && mkdir -p "+venusSrc+" && tar -x -o -C "+venusSrc+" && sync")
 	}
 	if err != nil {
 		_, _ = fmt.Fprintf(v.Log, "note: agents can't get a GPU in this VM, for now: copying what readies it failed (%v). agentbox vm init tries again.\n", err)

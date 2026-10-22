@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	_ "embed"
 	"errors"
 	"io"
 	"os"
@@ -10,8 +11,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-
-	"agentbox/internal/incus"
 )
 
 // On a Mac, AgentBox's VM runs on krunkit, whose GPU speaks Venus: Vulkan
@@ -28,9 +27,33 @@ import (
 // Nowhere else is there a VenusDir: a VM on Linux or Windows has no krunkit,
 // and agents keep the driver they have.
 
-// vgpuDriverDevice is the Incus device that mounts the VM's Venus driver into
-// an agent.
-const vgpuDriverDevice = "agentbox-vgpu-driver"
+// The Incus devices that mount the VM's Venus driver into an agent, and
+// venusChromium beside it.
+const (
+	vgpuDriverDevice   = "agentbox-vgpu-driver"
+	vgpuChromiumDevice = "agentbox-vgpu-chromium"
+)
+
+// venusChromium gives every Chromium in an agent the flags that run WebGL on
+// the Venus driver, from Debian's /etc/chromium.d: an agent that launches its
+// own, as a benchmark does, otherwise renders on the CPU.
+//
+//go:embed venus-chromium.sh
+var venusChromium string
+
+// venusDevices are the devices that go beside a render node in a Mac's VM, as
+// devices does: none when it built no driver. chromium is the host file
+// mounted as venusChromium.
+func venusDevices(chromium string) []gpuDevice {
+	source, path := venusDriver()
+	if source == "" {
+		return nil
+	}
+	return []gpuDevice{
+		{vgpuDriverDevice, "disk", []string{"source=" + source, "path=" + path, "readonly=true"}, ""},
+		{vgpuChromiumDevice, "disk", []string{"source=" + chromium, "path=/etc/chromium.d/agentbox-gpu", "readonly=true"}, venusChromium},
+	}
+}
 
 // VenusDir is where the Mac's VM keeps the Venus driver it built: the library
 // and, in "multiarch", Debian's multiarch name for the directory agents have
@@ -49,31 +72,6 @@ func venusDriver() (source, path string) {
 		return "", ""
 	}
 	return source, "/usr/lib/" + strings.TrimSpace(string(multiarch)) + "/libvulkan_virtio.so"
-}
-
-// vgpuDriverSteps are the changes that give an instance the VM's Venus
-// driver, from devices, its own, for gpuSteps: added when on (the agent gets
-// the VM's render node) and there's a driver to give, replaced when it's mounted from somewhere else,
-// and taken off otherwise. Both happen live.
-func vgpuDriverSteps(instance string, devices map[string]map[string]string, on bool) []incusStep {
-	source, path := venusDriver()
-	have, ok := devices[vgpuDriverDevice]
-	want := on && source != ""
-	if ok && want && have["source"] == source && have["path"] == path {
-		return nil
-	}
-	var steps []incusStep
-	if ok {
-		steps = append(steps, func(ctx context.Context, c incus.Client) error {
-			return c.RemoveDevice(ctx, instance, vgpuDriverDevice)
-		})
-	}
-	if want {
-		steps = append(steps, func(ctx context.Context, c incus.Client) error {
-			return c.AddDevice(ctx, instance, vgpuDriverDevice, "disk", "source="+source, "path="+path, "readonly=true")
-		})
-	}
-	return steps
 }
 
 // VenusScript is venus.sh in the VM, where the Mac's front end puts it in a

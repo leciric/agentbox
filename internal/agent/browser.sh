@@ -88,17 +88,6 @@ cursor_size=48
 export XCURSOR_THEME="$cursor_theme" XCURSOR_SIZE="$cursor_size"
 
 devtools() { curl -sf --max-time 1 "http://127.0.0.1:9222/json/version" >/dev/null; }
-# venus_flags are Chromium's when the agent has the Mac's GPU, through the VM's
-# Venus driver mounted over Mesa's (vgpudriver.go): WebGL runs on ANGLE's
-# Vulkan backend, which Chromium neither picks nor allows there by itself.
-# Only a driver with venus/0004 can run it, so it's looked for in the driver:
-# one built before, or mounted before the VM rebuilt it, keeps the default.
-venus_flags() {
-  driver=$(awk '$5 ~ /\/libvulkan_virtio\.so$/ { print $5; exit }' "${mountinfo:-/proc/self/mountinfo}" 2>/dev/null) || true
-  if [ -n "$driver" ] && grep -qa 'software wsi: the renderer has no dma-buf' "$driver"; then
-    echo "--use-angle=vulkan --ignore-gpu-blocklist"
-  fi
-}
 listening() { ss -ltn "sport = :$1" | grep -q LISTEN; }
 display_answering() { xdpyinfo -display "$DISPLAY" >/dev/null 2>&1; }
 # render_node is the GPU's DRM render node, when "GPU for agents" gave the
@@ -122,8 +111,8 @@ render_node() {
 # desktop loses WSL's libraries (which d3d12's GL and VA-API drivers load),
 # Mesa uses llvmpipe, and Chromium uses ANGLE on SwiftShader (WebGL still
 # works) with no Vulkan. Programs an agent runs from its own shells still get
-# the GPU (gpu.go's profile). On a Mac's GPU chromium_gpu_flags are
-# venus_flags; elsewhere it's empty.
+# the GPU (gpu.go's profile). A Mac's GPU needs flags too, which Chromium
+# gets from /etc/chromium.d (venus-chromium.sh); elsewhere it's empty.
 chromium_gpu_flags=""
 if [ -c /dev/dxg ] && [ -z "$(render_node)" ]; then
   LD_LIBRARY_PATH=$(printf '%s' "${LD_LIBRARY_PATH:-}" | tr ':' '\n' | grep -vx '/usr/lib/wsl/lib' | paste -sd: -) || true
@@ -631,7 +620,6 @@ start)
     # Same for the lock of a browser that was running.
     rm -f "$profile"/Singleton*
     mark_clean_exit
-    [ -n "$chromium_gpu_flags" ] || chromium_gpu_flags=$(venus_flags)
     # shellcheck disable=SC2086 # flags, or nothing
     setsid chromium --no-first-run --hide-crash-restore-bubble --disable-session-crashed-bubble --no-default-browser-check --disable-dev-shm-usage --password-store=basic $chromium_gpu_flags \
       --user-data-dir="$profile" --remote-debugging-port=9222 --start-maximized about:blank >"$state/chromium.log" 2>&1 </dev/null &

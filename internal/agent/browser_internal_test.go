@@ -84,51 +84,6 @@ func TestBrowserScriptMarksACrashedProfileClean(t *testing.T) {
 	}
 }
 
-// Chromium takes the Mac's GPU for WebGL only in an agent the VM's Venus
-// driver is mounted into, and only one built with venus/0004; elsewhere it
-// keeps its own choice.
-func TestBrowserScriptGivesChromiumTheVenusGPU(t *testing.T) {
-	t.Parallel()
-	fn := regexp.MustCompile(`(?s)\nvenus_flags\(\) \{.*?\n\}\n`).FindString(string(BrowserScript()))
-	if fn == "" {
-		t.Fatal("browser.sh has no venus_flags")
-	}
-	dir := t.TempDir()
-	patched := filepath.Join(dir, "patched", "libvulkan_virtio.so")
-	old := filepath.Join(dir, "old", "libvulkan_virtio.so")
-	for path, body := range map[string]string{patched: "\x7fELF..software wsi: the renderer has no dma-buf\x00..", old: "\x7fELF.."} {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	mount := func(at string) string {
-		return "388 369 254:1 /usr/local/lib/agentbox/venus/libvulkan_virtio.so " + at + " ro,relatime - ext4 /dev/vda1 rw\n"
-	}
-	other := "29 1 0:26 / /proc rw,nosuid - proc proc rw\n"
-	for _, tc := range []struct{ name, mounts, want string }{
-		{"patched driver", mount(patched) + other, "--use-angle=vulkan --ignore-gpu-blocklist"},
-		{"driver from before 0004", mount(old) + other, ""},
-		{"no driver", other, ""},
-	} {
-		mountinfo := filepath.Join(t.TempDir(), "mountinfo")
-		if err := os.WriteFile(mountinfo, []byte(tc.mounts), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		cmd := exec.Command("sh", "-c", fn+"venus_flags")
-		cmd.Env = append(os.Environ(), "mountinfo="+mountinfo)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("%s: %v: %s", tc.name, err, out)
-		}
-		if got := strings.TrimSpace(string(out)); got != tc.want {
-			t.Errorf("%s: venus_flags = %q, want %q", tc.name, got, tc.want)
-		}
-	}
-}
-
 // The desktop's idle VNC client, which keeps Xvnc's frame clock at 60 Hz:
 // it shakes hands as a shared client with no security, then stays connected
 // in one process, so that killing it closes the connection.
