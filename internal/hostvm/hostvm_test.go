@@ -21,7 +21,8 @@ import (
 // swap probe and the GPU's restart marker the way Lima does, keeps the GPU
 // reason it's sent in gpu-reason, failing to copy
 // venus/ into the VM with venus-fails. With refuse-krunkit, it refuses to create a krunkit VM, as Lima
-// does with a krunkit too old.
+// does with a krunkit too old. With create-waits, create lists the VM and
+// finishes only once create-waits is gone, as Lima downloading its image.
 const fakeLima = `#!/bin/sh
 log=$FAKE_DIR/calls
 printf '%s\n' "$*" >>"$log"
@@ -38,7 +39,8 @@ case "$1" in
     if [ -e "$FAKE_DIR/track-list" ]; then
       vt=$(sed -n 's/^vmType: //p' "$f")
       printf '{"name":"agentbox","status":"Stopped","vmType":"%s"}\n' "${vt:-vz}" >"$FAKE_DIR/list"
-    fi ;;
+    fi
+    while [ -e "$FAKE_DIR/create-waits" ]; do sleep 0.05; done ;;
   delete) [ ! -e "$FAKE_DIR/track-list" ] || rm -f "$FAKE_DIR/list" ;;
   shell)
     case "$*" in

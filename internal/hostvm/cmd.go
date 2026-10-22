@@ -490,8 +490,18 @@ func newInitCmd() *cobra.Command {
 }
 
 // initLima is Lima's `vm init`: the VM made at size unless it exists,
-// started, and AgentBox set up in it.
+// started, and AgentBox set up in it. It holds the VM's lock alone throughout,
+// as a resize does. Lima lists a VM it's still making as stopped, so a
+// command that starts the VM then (the app's daemon start, run as soon as it
+// has no daemon) would run limactl start beside limactl create, and create
+// ends by killing the VM's driver process: krunkit's, which the VM's network
+// runs in.
 func (v *VM) initLima(ctx context.Context, size Size) error {
+	unlock, err := v.lock(ctx, true)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	st, err := v.State(ctx)
 	if err != nil {
 		return err
@@ -501,7 +511,7 @@ func (v *VM) initLima(ctx context.Context, size Size) error {
 			return err
 		}
 	}
-	if err := v.Up(ctx); err != nil {
+	if err := v.up(ctx); err != nil {
 		return err
 	}
 	if err := v.Setup(ctx); err != nil {

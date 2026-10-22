@@ -36,6 +36,10 @@ import (
 //   - Reporting only returns free memory, and Linux keeps what it has read
 //     cached until it runs short, so the VM drops its caches when it's quiet
 //     (the krunkit provision script in agentbox.yaml).
+//   - Lima runs its krunkit driver as a process of its own, with the VM's
+//     user-mode network in it, and limactl create ends by killing it: a VM
+//     started while it's being made loses its network, which initLima's lock
+//     prevents.
 //   - The rest is Lima's and works as with vz: the home share is virtiofs
 //     (libkrun's own), the disk a raw file, ssh and the daemon's socket go
 //     over Lima's user-mode network, its guest agent over vsock.

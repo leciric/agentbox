@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // macInfo is what `limactl info` says on a Mac with Apple Silicon, cut down to
@@ -544,5 +545,50 @@ func TestRemakeWithKrunkitFallsBack(t *testing.T) {
 	err := remakeWithKrunkit(context.Background(), func() (*VM, error) { return vm, nil })
 	if err == nil || !strings.Contains(err.Error(), "after all") {
 		t.Errorf("got %v", err)
+	}
+}
+
+// Nothing starts the VM while vm init is making it, which Lima lists as
+// stopped: limactl create, finishing, would kill the krunkit driver, and the
+// network of the VM started beside it with it.
+func TestUpWaitsForInit(t *testing.T) {
+	vm, dir := newFake(t)
+	vm.VMType = krunkitVMType
+	_ = os.WriteFile(filepath.Join(dir, "track-list"), nil, 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "create-waits"), nil, 0o644)
+	inited := make(chan error, 1)
+	go func() { inited <- vm.initLima(context.Background(), DefaultSize()) }()
+	creating := func(c string) bool { return strings.HasPrefix(c, "create ") }
+	for deadline := time.Now().Add(10 * time.Second); !slices.ContainsFunc(calls(t, dir), creating); time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("vm init never made the VM")
+		}
+	}
+	// The app's daemon start, in a process of its own.
+	app := *vm
+	app.Log = &bytes.Buffer{}
+	upped := make(chan error, 1)
+	go func() { upped <- app.Up(context.Background()) }()
+	select {
+	case err := <-upped:
+		t.Fatalf("Up didn't wait for vm init: %v", err)
+	case <-time.After(600 * time.Millisecond):
+	}
+	if slices.ContainsFunc(calls(t, dir), func(c string) bool { return strings.HasPrefix(c, "start") }) {
+		t.Fatalf("the VM was started while it was being made: %q", calls(t, dir))
+	}
+	_ = os.Remove(filepath.Join(dir, "create-waits"))
+	if err := <-inited; err != nil {
+		t.Fatalf("%v\n%s", err, vm.Log)
+	}
+	if err := <-upped; err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(app.Log.(*bytes.Buffer).String(), "set up") {
+		t.Errorf("Up didn't say what it waits for: %q", app.Log)
+	}
+	got := calls(t, dir)
+	if start := slices.Index(got, "start --tty=false agentbox"); start < slices.IndexFunc(got, creating) {
+		t.Errorf("not made, then started: %q", got)
 	}
 }

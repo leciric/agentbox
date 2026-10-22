@@ -361,11 +361,13 @@ export interface HostSetupOptions {
   before?: (onOutput: (text: string) => void) => Promise<void>;
 }
 
-// initing is a Linux `agentbox vm init` under way, which the app's own
-// daemon start waits for (vmInitDone).
+// initing is an `agentbox vm init` under way, on Linux or on a Mac, or a Mac's
+// remake with krunkit, which the app's own daemon start waits for
+// (vmInitDone): on a Mac it would only wait for the VM being made, as the VM's
+// lock has it, and give up after minutes.
 let initing: Promise<void> | undefined;
 
-// vmInitDone settles once no `agentbox vm init` is running on Linux.
+// vmInitDone settles once no `agentbox vm init` or remake is running.
 export function vmInitDone(): Promise<void> {
   return initing?.catch(() => {}) ?? Promise.resolve();
 }
@@ -386,7 +388,7 @@ export function runHostSetup(
     running = undefined;
     initing = undefined;
   });
-  if (linuxVMInit) initing = running;
+  if (linuxVMInit || onMac) initing = running;
   return running;
 }
 
@@ -560,8 +562,10 @@ export function remakeWithKrunkit(onOutput: (text: string) => void): Promise<voi
   remaking = runVM(["krunkit", "--remake", "--yes"], t('web.main.krunkitRemakeFailed'), onOutput).finally(() => {
     running = undefined;
     remaking = undefined;
+    initing = undefined;
   });
   running = remaking;
+  initing = remaking;
   return remaking;
 }
 

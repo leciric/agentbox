@@ -483,9 +483,10 @@ func (v *VM) up(ctx context.Context) error {
 
 // lock takes the VM's lock, shared by everything that would start the VM and
 // held alone by a resize, which stops it and has to keep it stopped until Lima
-// has changed it: the app, finding no daemon mid-resize, runs agentbox daemon
-// start, and that waits here instead of starting the VM under the resize. A
-// command that has to wait says so. unlock lets it go.
+// has changed it, and by vm init (initLima), until the VM it makes is set up:
+// the app, finding no daemon mid-resize, runs agentbox daemon start, and that
+// waits here instead of starting the VM under the resize. A command that has
+// to wait says so. unlock lets it go.
 func (v *VM) lock(ctx context.Context, exclusive bool) (unlock func(), err error) {
 	file := filepath.Join(v.Paths.Config, "vm", v.Name+".lock")
 	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
