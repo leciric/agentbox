@@ -29,6 +29,7 @@ import (
 	"agentbox/internal/image"
 	"agentbox/internal/incus"
 	"agentbox/internal/naming"
+	"agentbox/internal/nodemods"
 	"agentbox/internal/notes"
 	"agentbox/internal/paths"
 	"agentbox/internal/secrets"
@@ -266,6 +267,11 @@ type Manager struct {
 	// PackageCacheDir, when set, returns the directory of the package caches
 	// agents share, or "" while they're off (pkgcache.go).
 	PackageCacheDir func(ctx context.Context) string
+	// NodeModules, when set, is the VM's store of agents' node_modules and of
+	// their snapshots (nodemodules.go), and NodeModulesOn says whether a new
+	// agent gets its node_modules there.
+	NodeModules   *nodemods.Store
+	NodeModulesOn func(ctx context.Context) bool
 	// ShareRoom, when set, waits for the shared home to have room for a
 	// worktree to be made or removed: on a Linux host, virtiofsd holds a file
 	// for every inode the VM has looked at, and walking a worktree's
@@ -773,6 +779,12 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 			steps = append(steps, func(ctx context.Context, c incus.Client) error { return c.RemoveDevice(ctx, a.Instance, device) })
 		}
 	}
+	// And its node_modules, which ensureNodeModules mounts this agent's own of.
+	for device := range copied.Devices {
+		if strings.HasPrefix(device, nodeModulesDevice) {
+			steps = append(steps, func(ctx context.Context, c incus.Client) error { return c.RemoveDevice(ctx, a.Instance, device) })
+		}
+	}
 	steps = append(steps,
 		setConfig(a.Instance, "raw.idmap="+image.IDMap(m.User)),
 		// Same paths as on the host, so the worktree's .git pointer resolves inside the agent.
@@ -832,6 +844,9 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 			return "home", err
 		}
 	}
+	// Before the brief, which names them, and the session, so the AI tool
+	// finds node_modules already there when its lockfile was installed before.
+	m.ensureNodeModules(ctx, a)
 	m.logf("Configuring git, AI tool logins and the agent brief")
 	if err := m.configure(ctx, a, inst.IPv4(), envFiles, task); err != nil {
 		return "configure", err
@@ -1416,6 +1431,7 @@ func (m *Manager) brief(ctx context.Context, a state.Agent, ip string, envFiles 
 		BaseRef:      a.BaseRef,
 		IP:           ip,
 		EnvFiles:     envFiles,
+		NodeModules:  m.nodeModulesDirs(a),
 		Secrets:      secretNames,
 		Android:      android.IsProject(a.Worktree),
 		GitHub:       m.Creds.HasGitHubLogin(),
@@ -1838,6 +1854,7 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 		if err := m.setStartShare(ctx, a.Instance); err != nil {
 			return inst, err
 		}
+		m.nodeModulesSources(ctx, a)
 		if err := m.Incus.Start(ctx, a.Instance); err != nil {
 			return inst, err
 		}
@@ -2015,6 +2032,9 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 		}
 		return err
 	}
+	// Read before the worktree is emptied: which lockfiles its node_modules
+	// were installed from, kept once the machine is gone.
+	installs := m.nodeModulesInstalls(a)
 	inst, err := m.Incus.Instance(ctx, a.Instance)
 	switch {
 	case err == nil:
@@ -2054,6 +2074,7 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 		opts.Archived()
 	}
 	m.removeLeftovers(context.WithoutCancel(ctx), repo, a, opts)
+	m.keepNodeModules(a, installs)
 	return nil
 }
 

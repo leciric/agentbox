@@ -77,6 +77,7 @@ func (s *Server) watchPackageCache(ctx context.Context) {
 		if freed := s.packageCache.Trim(); freed > 0 {
 			s.logf("package cache: evicted %s used longest ago, holds %s", agent.HumanBytes(freed), agent.HumanBytes(s.packageCache.Size()))
 		}
+		s.trimNodeModules(ctx)
 		select {
 		case <-ctx.Done():
 			return

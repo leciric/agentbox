@@ -174,6 +174,7 @@ export interface Settings {
   packageCacheMaxBytes: number;
   defaultPackageCacheMaxBytes: number;
   packageCacheBytes: number;
+  localNodeModules: boolean;
   claudeCodeUpdate: ToolAutoUpdate;
 }
 
@@ -223,6 +224,7 @@ export interface UpdateSettingsRequest {
   packageCache?: boolean;
   packageCacheMaxBytes?: number;
   clearPackageCache?: boolean;
+  localNodeModules?: boolean;
   claudeCodeAutoUpdate?: boolean;
   checkClaudeCode?: boolean;
 }

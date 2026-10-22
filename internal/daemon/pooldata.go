@@ -51,6 +51,7 @@ type poolItem struct {
 
 var poolItems = []poolItem{
 	{"package-cache", false},
+	{"node-modules", false},
 	{"image-cache", false},
 	{"tools", true},
 	{"projects", true},
