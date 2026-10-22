@@ -38,6 +38,7 @@ package pkgcache
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -268,8 +269,11 @@ func (c *Cache) measuredParts(all []piece) {
 func (c *Cache) Trim() int64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	start := time.Now()
 	all := c.pieces()
+	walked := fmt.Sprintf("walked %d pieces in %s, %d unreadable", len(all), time.Since(start).Round(time.Millisecond), walkErrors.Load())
 	size := sum(all)
+	before := size
 	c.measured(size)
 	c.measuredParts(all)
 	defer func() { c.measuredParts(all) }()
@@ -279,9 +283,11 @@ func (c *Cache) Trim() int64 {
 		limit = c.Max()
 	}
 	if limit <= 0 {
+		c.logf("package cache: off, holds %s (%s)", bytesWords(size), walked)
 		return 0
 	}
 	if c.Busy != nil && c.Busy() && float64(size) <= float64(limit)*BusyCeiling {
+		c.logf("package cache: skipped, an agent has a heavy run going; holds %s of %s (%s)", bytesWords(size), bytesWords(limit), walked)
 		return 0
 	}
 	recent := c.Recent
@@ -322,6 +328,7 @@ func (c *Cache) Trim() int64 {
 		}
 	}
 	if target >= size {
+		c.logf("package cache: holds %s of %s, nothing to evict; freed %s (%s)", bytesWords(size), bytesWords(limit), bytesWords(freed), walked)
 		return freed
 	}
 	// Replaced browsers go before anything else that's as old.
@@ -340,8 +347,34 @@ func (c *Cache) Trim() int64 {
 		}
 		evict(p)
 	}
+	line := fmt.Sprintf("package cache: held %s of %s, now %s, evicted %s (%s)", bytesWords(before), bytesWords(limit), bytesWords(size), bytesWords(freed), walked)
+	if size > target && len(all) > 0 {
+		// It couldn't get down: say what stopped it.
+		oldest := all[0]
+		line += fmt.Sprintf("; short of %s, the oldest piece left, %s, was used %s ago", bytesWords(target), oldest.path, now.Sub(oldest.used).Round(time.Second))
+	}
+	c.logf("%s", line)
 	return freed
 }
+
+// bytesWords is a size for the log.
+func bytesWords(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for rest := n / unit; rest >= unit; rest /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
+}
+
+// RemoveAll removes a file or a directory, read-only directories included:
+// Go's module cache makes its module trees read-only, and a plain os.RemoveAll
+// fails on them with "permission denied".
+func RemoveAll(path string) error { return removeAll(path) }
 
 // Clear empties every cache, and makes their directories again.
 func (c *Cache) Clear() error {
@@ -399,7 +432,12 @@ func sum(all []piece) int64 {
 
 // pieces walks the caches, every byte in them counted in exactly one piece.
 // What's in Dir but in no part is counted in one that's never evicted.
+// walkErrors counts what a walk of the caches couldn't read, for the log; the
+// walks are one at a time, under Cache.mu.
+var walkErrors atomic.Int64
+
 func (c *Cache) pieces() []piece {
+	walkErrors.Store(0)
 	var out []piece
 	roots := map[string]bool{}
 	for _, p := range parts {
@@ -419,6 +457,7 @@ func (c *Cache) pieces() []piece {
 	stray := piece{used: never}
 	_ = filepath.WalkDir(c.Dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
+			walkErrors.Add(1)
 			return nil
 		}
 		if d.IsDir() && roots[path] {
@@ -478,6 +517,7 @@ func partPieces(root string, u unit, skip func(string) bool) []piece {
 	case eachFile:
 		_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
+				walkErrors.Add(1)
 				return nil
 			}
 			if d.IsDir() {
@@ -488,6 +528,7 @@ func partPieces(root string, u unit, skip func(string) bool) []piece {
 			}
 			info, err := d.Info()
 			if err != nil {
+				walkErrors.Add(1)
 				return nil
 			}
 			p := piece{path: path, size: diskSize(info), used: lastUsed(info)}
@@ -508,6 +549,7 @@ func partPieces(root string, u unit, skip func(string) bool) []piece {
 		walk = func(dir string, depth int) {
 			entries, err := os.ReadDir(dir)
 			if err != nil {
+				walkErrors.Add(1)
 				return
 			}
 			for _, e := range entries {
@@ -534,6 +576,7 @@ func tree(root string, skip func(string) bool) piece {
 	var p piece
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
+			walkErrors.Add(1)
 			return nil
 		}
 		if d.IsDir() && path != root && skip(path) {
@@ -546,6 +589,7 @@ func tree(root string, skip func(string) bool) piece {
 		}
 		info, err := d.Info()
 		if err != nil {
+			walkErrors.Add(1)
 			return nil
 		}
 		p.size += diskSize(info)

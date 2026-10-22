@@ -1,6 +1,7 @@
 package pkgcache
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -252,5 +253,37 @@ func TestTrimWorksThroughASymlinkedDirectory(t *testing.T) {
 	put(t, link, "go/build/cc/c-d", 2*time.Minute)
 	if freed := c.Trim(); freed != 2*kib64 || c.Size() != kib64 {
 		t.Errorf("freed %d, holds %d", freed, c.Size())
+	}
+}
+
+func TestEveryTrimPassLogsWhatItDid(t *testing.T) {
+	c := newCache(t, 2*kib64)
+	var lines []string
+	c.Logf = func(format string, args ...any) { lines = append(lines, fmt.Sprintf(format, args...)) }
+	put(t, c.Dir, "go/build/aa/a-d", 0)
+	put(t, c.Dir, "go/build/bb/b-d", time.Minute)
+	put(t, c.Dir, "go/build/cc/c-d", 2*time.Minute)
+	c.Trim()
+	c.Trim()
+	c.Busy = func() bool { return true }
+	c.Max = func() int64 { return 10 * kib64 }
+	c.Trim()
+	c.Max = func() int64 { return 0 }
+	c.Trim()
+	for i, want := range []string{"evicted 128.0 KiB", "nothing to evict", "skipped, an agent has a heavy run", "off, holds"} {
+		if i >= len(lines) || !strings.Contains(lines[i], want) {
+			t.Errorf("line %d is %q, want %q", i, lines, want)
+		}
+	}
+	// Everything too recent to evict says why it stopped.
+	c = newCache(t, kib64)
+	c.now = func() time.Time { return epoch.Add(time.Minute) }
+	lines = nil
+	c.Logf = func(format string, args ...any) { lines = append(lines, fmt.Sprintf(format, args...)) }
+	put(t, c.Dir, "pip/http/a", 0)
+	put(t, c.Dir, "pip/http/b", 0)
+	c.Trim()
+	if len(lines) != 1 || !strings.Contains(lines[0], "short of") {
+		t.Errorf("lines %q", lines)
 	}
 }

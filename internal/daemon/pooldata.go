@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"agentbox/internal/hostos"
+	"agentbox/internal/pkgcache"
 )
 
 // AgentBox's data on the VM's pool disk. A Cloud Hypervisor VM has two disks:
@@ -141,7 +142,7 @@ func (p poolData) moveOne(ctx context.Context, it poolItem) (aside string, err e
 		}
 		p.logf("%s starts afresh on the agents' disk (%s); the old one is removed", src, dst)
 	}
-	if err := os.RemoveAll(aside); err != nil {
+	if err := pkgcache.RemoveAll(aside); err != nil {
 		return "", err
 	}
 	if err := os.Rename(src, aside); err != nil {
@@ -276,7 +277,7 @@ func (s *Server) dropMovedData(ctx context.Context, aside []string) {
 	}
 	s.applyPackageCache(ctx)
 	for _, dir := range aside {
-		if err := os.RemoveAll(dir); err != nil {
+		if err := pkgcache.RemoveAll(dir); err != nil {
 			s.logf("removing %s: %v", dir, err)
 		}
 	}

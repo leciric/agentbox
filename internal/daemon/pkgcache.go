@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"agentbox/internal/agent"
 	"agentbox/internal/api"
 	"agentbox/internal/pkgcache"
 	"agentbox/internal/state"
@@ -106,9 +105,7 @@ func (s *Server) packageCacheDir(ctx context.Context) string {
 // kickPackageCache asks, until ctx ends.
 func (s *Server) watchPackageCache(ctx context.Context) {
 	for {
-		if freed := s.packageCache.Trim(); freed > 0 {
-			s.logf("package cache: evicted %s used longest ago, holds %s", agent.HumanBytes(freed), agent.HumanBytes(s.packageCache.Size()))
-		}
+		s.packageCache.Trim()
 		s.trimNodeModules(ctx)
 		select {
 		case <-ctx.Done():
