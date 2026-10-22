@@ -55,8 +55,14 @@ type Store struct {
 	Room func() int64
 	Logf func(format string, args ...any)
 
-	mu  sync.Mutex
-	now func() time.Time
+	// mu is held for what's quick — checks, renames — never through a copy
+	// or a delete: those happen outside it, a delete by first renaming what
+	// goes into trash/ (dispose).
+	mu sync.Mutex
+	// restoring counts the copies being made from each snapshot, which Trim
+	// leaves alone.
+	restoring map[string]int
+	now       func() time.Time
 }
 
 // Install is a group as an agent has it: its lockfile's key, and when the
@@ -118,8 +124,6 @@ type snapshotMeta struct {
 // something — the agent's own, when its machine is made again — is left as
 // it is.
 func (s *Store) Prepare(instance, project string, installs []Install) (restored []string, err error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if err := s.mkdirs(s.agentDir(instance)); err != nil {
 		return nil, err
 	}
@@ -134,8 +138,11 @@ func (s *Store) Prepare(instance, project string, installs []Install) (restored 
 				empty = false
 			}
 		}
-		snap := s.snapshotDir(project, in.Key)
-		if in.Key == "" || !empty || !s.HasSnapshot(project, in.Key) {
+		if in.Key == "" || !empty {
+			continue
+		}
+		snap, ok := s.useSnapshot(project, in.Key)
+		if !ok {
 			continue
 		}
 		var errs []error
@@ -146,6 +153,7 @@ func (s *Store) Prepare(instance, project string, installs []Install) (restored 
 			}
 			errs = append(errs, s.copyTree(src, s.MountDir(instance, dir)))
 		}
+		s.doneWith(snap)
 		if err := errors.Join(errs...); err != nil {
 			// Half a node_modules is worse than none: the agent installs.
 			for _, dir := range in.Dirs {
@@ -154,11 +162,61 @@ func (s *Store) Prepare(instance, project string, installs []Install) (restored 
 			s.logf("node_modules: restoring %s for %s: %v", in.Lockfile, instance, err)
 			continue
 		}
-		now := s.clock()
-		_ = os.Chtimes(snap, now, now)
 		restored = append(restored, in.Lockfile)
 	}
 	return restored, nil
+}
+
+// useSnapshot finds project's snapshot of key and marks it used now and
+// being copied, until doneWith.
+func (s *Store) useSnapshot(project, key string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.HasSnapshot(project, key) {
+		return "", false
+	}
+	snap := s.snapshotDir(project, key)
+	if s.restoring == nil {
+		s.restoring = map[string]int{}
+	}
+	s.restoring[snap]++
+	now := s.clock()
+	_ = os.Chtimes(snap, now, now)
+	return snap, true
+}
+
+func (s *Store) doneWith(snap string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.restoring[snap]--; s.restoring[snap] <= 0 {
+		delete(s.restoring, snap)
+	}
+}
+
+// dispose moves path into trash/, from where emptyTrash deletes it once mu
+// is let go. Its caller holds mu.
+func (s *Store) dispose(path string) error {
+	trash := filepath.Join(s.Dir, "trash")
+	if err := os.MkdirAll(trash, 0o755); err != nil {
+		return err
+	}
+	dst, err := os.MkdirTemp(trash, "")
+	if err != nil {
+		return err
+	}
+	return os.Rename(path, filepath.Join(dst, "x"))
+}
+
+// emptyTrash deletes what dispose put aside, and what a daemon that stopped
+// meanwhile left there.
+func (s *Store) emptyTrash() {
+	trash := filepath.Join(s.Dir, "trash")
+	entries, _ := os.ReadDir(trash)
+	for _, e := range entries {
+		if err := removeAll(filepath.Join(trash, e.Name())); err != nil {
+			s.logf("node_modules: deleting %s: %v", filepath.Join(trash, e.Name()), err)
+		}
+	}
 }
 
 // Capture keeps what instance installed for each of installs as the
@@ -166,6 +224,7 @@ func (s *Store) Prepare(instance, project string, installs []Install) (restored 
 // newer than its lockfile, then removes instance's directories. Its machine
 // must be gone: nothing may write in them meanwhile.
 func (s *Store) Capture(instance, project string, installs []Install) {
+	defer s.emptyTrash()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, in := range installs {
@@ -179,7 +238,7 @@ func (s *Store) Capture(instance, project string, installs []Install) {
 			s.logf("node_modules: keeping %s of %s: %v", in.Lockfile, instance, err)
 		}
 	}
-	if err := removeAll(s.agentDir(instance)); err != nil {
+	if err := s.dispose(s.agentDir(instance)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		s.logf("node_modules: removing %s's: %v", instance, err)
 	}
 }
@@ -193,7 +252,11 @@ func (s *Store) capture(instance, project string, in Install) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = removeAll(tmp) }()
+	defer func() {
+		if _, err := os.Lstat(tmp); err == nil {
+			_ = s.dispose(tmp)
+		}
+	}()
 	for _, dir := range in.Dirs {
 		if err := os.Rename(s.MountDir(instance, dir), filepath.Join(tmp, name(dir))); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
@@ -223,9 +286,10 @@ func installedAfter(nodeModules string, lockTime time.Time) bool {
 // Remove removes instance's directories without keeping anything: a machine
 // that failed to be made.
 func (s *Store) Remove(instance string) {
+	defer s.emptyTrash()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_ = removeAll(s.agentDir(instance))
+	_ = s.dispose(s.agentDir(instance))
 }
 
 // Trim removes agents' directories whose instance isn't in live, snapshots
@@ -233,6 +297,7 @@ func (s *Store) Remove(instance string) {
 // of a lockfile, and then the snapshots used longest ago while they hold more
 // than Max or the disk is below its floor. It returns how much it freed.
 func (s *Store) Trim(live, projects map[string]bool) int64 {
+	defer s.emptyTrash()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cutoff := s.clock().Add(-recent)
@@ -244,7 +309,7 @@ func (s *Store) Trim(live, projects map[string]bool) int64 {
 		}
 		dir := filepath.Join(s.Dir, "agents", e.Name())
 		n := treeBytes(dir)
-		if err := removeAll(dir); err != nil {
+		if err := s.dispose(dir); err != nil {
 			s.logf("node_modules: removing %s: %v", dir, err)
 			continue
 		}
@@ -272,8 +337,11 @@ func (s *Store) Trim(live, projects map[string]bool) int64 {
 			if err != nil || json.Unmarshal(b, &meta) != nil {
 				// Half made: a capture under way, or one that died.
 				if info.ModTime().Before(cutoff) {
-					_ = removeAll(path)
+					_ = s.dispose(path)
 				}
+				continue
+			}
+			if s.restoring[path] > 0 {
 				continue
 			}
 			all = append(all, snap{path, p.Name(), meta.Lockfile, meta.Bytes, info.ModTime()})
@@ -290,9 +358,15 @@ func (s *Store) Trim(live, projects map[string]bool) int64 {
 	for _, sn := range all {
 		total += sn.bytes
 	}
-	room := int64(0)
-	if s.Room != nil {
-		room = s.Room()
+	// Below the floor, what's evicted is deleted at once and the disk
+	// measured again: a clone's extents are shared with the agents given it,
+	// so a snapshot's size isn't what deleting it frees.
+	room := func() int64 {
+		if s.Room == nil {
+			return 0
+		}
+		s.emptyTrash()
+		return s.Room()
 	}
 	seen := map[[2]string]int{}
 	var kept []snap
@@ -305,27 +379,29 @@ func (s *Store) Trim(live, projects map[string]bool) int64 {
 		}
 		if s.evict(sn.path) {
 			total -= sn.bytes
-			room += sn.bytes
 			freed += sn.bytes
 		}
 	}
 	// Oldest first now, while over the cap or below the floor.
-	for i := len(kept) - 1; i >= 0 && (total > limit || room < 0); i-- {
+	short := room() < 0
+	for i := len(kept) - 1; i >= 0 && (total > limit || short); i-- {
 		sn := kept[i]
 		if sn.used.After(cutoff) {
 			break
 		}
 		if s.evict(sn.path) {
 			total -= sn.bytes
-			room += sn.bytes
 			freed += sn.bytes
+			if short {
+				short = room() < 0
+			}
 		}
 	}
 	return freed
 }
 
 func (s *Store) evict(path string) bool {
-	if err := removeAll(path); err != nil {
+	if err := s.dispose(path); err != nil {
 		s.logf("node_modules: evicting %s: %v", path, err)
 		return false
 	}
@@ -392,6 +468,7 @@ func (s *Store) copyTree(src, dst string) error {
 	type dirTime struct {
 		path string
 		mod  time.Time
+		perm fs.FileMode
 	}
 	var dirs []dirTime
 	clone := true
@@ -408,14 +485,16 @@ func (s *Store) copyTree(src, dst string) error {
 		switch {
 		case d.IsDir():
 			if rel != "." {
-				if err := os.Mkdir(target, info.Mode().Perm()); err != nil {
+				// Writable while it's filled, its own mode after: a
+				// read-only directory would refuse its children.
+				if err := os.Mkdir(target, info.Mode().Perm()|0o700); err != nil {
 					return err
 				}
 				if err := s.chown(target); err != nil {
 					return err
 				}
 			}
-			dirs = append(dirs, dirTime{target, info.ModTime()})
+			dirs = append(dirs, dirTime{target, info.ModTime(), info.Mode().Perm()})
 		case d.Type()&fs.ModeSymlink != 0:
 			link, err := os.Readlink(p)
 			if err != nil {
@@ -447,6 +526,9 @@ func (s *Store) copyTree(src, dst string) error {
 		return err
 	}
 	for i := len(dirs) - 1; i >= 0; i-- {
+		if i > 0 {
+			_ = os.Chmod(dirs[i].path, dirs[i].perm)
+		}
 		_ = os.Chtimes(dirs[i].path, dirs[i].mod, dirs[i].mod)
 	}
 	return nil

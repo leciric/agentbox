@@ -118,15 +118,8 @@ func (m *Manager) ensureNodeModules(ctx context.Context, a state.Agent) {
 // nodeModulesDirs are the directories of a's worktree whose node_modules are
 // on the VM's disk, as the brief names them.
 func (m *Manager) nodeModulesDirs(a state.Agent) []string {
-	if m.NodeModules == nil {
-		return nil
-	}
-	b, err := os.ReadFile(m.nodeModulesMetaPath(a))
-	if err != nil {
-		return nil
-	}
-	var meta nodeModulesMeta
-	if json.Unmarshal(b, &meta) != nil {
+	meta, ok := m.nodeModulesMeta(a)
+	if !ok {
 		return nil
 	}
 	var dirs []string
@@ -159,19 +152,41 @@ func (m *Manager) nodeModulesSources(ctx context.Context, a state.Agent) {
 // nodeModulesInstalls is what a destroyed agent installed, read from its
 // worktree before it's emptied: its lockfiles now, which its node_modules
 // are kept under.
-func (m *Manager) nodeModulesInstalls(a state.Agent) []nodemods.Install {
-	if m.NodeModules == nil {
+// running, its Node.js ABI is read again: the agent may have moved to
+// another Node.js since it was made, and built its native modules for it.
+func (m *Manager) nodeModulesInstalls(ctx context.Context, a state.Agent, running bool) []nodemods.Install {
+	meta, ok := m.nodeModulesMeta(a)
+	if !ok {
 		return nil
 	}
-	b, err := os.ReadFile(m.nodeModulesMetaPath(a))
-	if err != nil {
-		return nil
-	}
-	var meta nodeModulesMeta
-	if json.Unmarshal(b, &meta) != nil {
-		return nil
+	if running {
+		if abi := m.nodeABI(ctx, a); abi != "" {
+			meta.ABI = abi
+		}
 	}
 	return nodeModulesInstalls(a.Worktree, meta)
+}
+
+func (m *Manager) nodeModulesMeta(a state.Agent) (nodeModulesMeta, bool) {
+	var meta nodeModulesMeta
+	if m.NodeModules == nil {
+		return meta, false
+	}
+	b, err := os.ReadFile(m.nodeModulesMetaPath(a))
+	if err != nil || json.Unmarshal(b, &meta) != nil {
+		return meta, false
+	}
+	return meta, true
+}
+
+// nodeModulesMounts are where a's node_modules of the VM's are mounted in
+// its machine.
+func (m *Manager) nodeModulesMounts(a state.Agent) []string {
+	var out []string
+	for _, dir := range m.nodeModulesDirs(a) {
+		out = append(out, filepath.Join(a.Worktree, dir, "node_modules"))
+	}
+	return out
 }
 
 func nodeModulesInstalls(worktree string, meta nodeModulesMeta) []nodemods.Install {
@@ -197,7 +212,6 @@ func (m *Manager) keepNodeModules(a state.Agent, installs []nodemods.Install) {
 		return
 	}
 	m.NodeModules.Capture(a.Instance, a.Project, installs)
-	_ = os.Remove(m.nodeModulesMetaPath(a))
 }
 
 // nodeABI is the ABI of the Node.js a's worktree runs (mise may pin one),

@@ -125,6 +125,18 @@ func TestCaptureThenRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 	write(t, filepath.Join(s.MountDir("ab-p-agent-1", "libs/a"), "left-pad", "index.js"), "pad", time.Time{})
+	write(t, filepath.Join(root, "ro", "file"), "ro", time.Time{})
+	if err := os.Chmod(filepath.Join(root, "ro"), 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = filepath.WalkDir(s.Dir, func(p string, d fs.DirEntry, err error) error {
+			if err == nil && d.IsDir() {
+				_ = os.Chmod(p, 0o755)
+			}
+			return nil
+		})
+	})
 	old := time.Now().Add(-48 * time.Hour).Truncate(time.Second)
 	if err := os.Chtimes(filepath.Join(root, "react"), old, old); err != nil {
 		t.Fatal(err)
@@ -151,6 +163,9 @@ func TestCaptureThenRestore(t *testing.T) {
 		if b, err := os.ReadFile(path); err != nil || string(b) != want {
 			t.Errorf("%s = %q, %v; want %q", path, b, err, want)
 		}
+	}
+	if info, err := os.Stat(filepath.Join(root2, "ro")); err != nil || info.Mode().Perm() != 0o555 {
+		t.Errorf("a read-only directory came back as %v (%v)", info.Mode(), err)
 	}
 	if info, err := os.Stat(filepath.Join(root2, "react")); err != nil || !info.ModTime().Equal(old) {
 		t.Errorf("a restored directory's time is %v, want %v (%v)", info.ModTime(), old, err)

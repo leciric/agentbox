@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"agentbox/internal/agent"
 	"agentbox/internal/nodemods"
 	"agentbox/internal/state"
 )
@@ -92,5 +93,37 @@ func TestNodeModulesOffRemovesTheDevices(t *testing.T) {
 	f.m.EnsureNodeModules(context.Background(), state.Agent{Instance: "ab-p-agent-1", Worktree: nodeModulesWorktree(t)})
 	if got := strings.Join(calls(), "\n"); !strings.Contains(got, "config device remove ab-p-agent-1 node-modules-0") {
 		t.Errorf("the device wasn't removed:\n%s", got)
+	}
+}
+
+// Destroy keeps what the agent installed before it's archived, from when a
+// trim would take its directories for a gone agent's.
+func TestDestroyKeepsTheInstall(t *testing.T) {
+	f := setup(t, fakeIncus(t, `case "$1" in
+  list) echo '[{"name":"ab-hello-stack-agent-01","status":"Running"}]' ;;
+  delete) exit 0 ;;
+esac`))
+	a := destroyFixture(t, f)
+	store := &nodemods.Store{Dir: t.TempDir()}
+	f.m.NodeModules = store
+	g := nodemods.Group{Lockfile: "package-lock.json", Dirs: []string{"."}}
+	lock := []byte(`{"lockfileVersion":3}`)
+	if err := os.WriteFile(filepath.Join(a.Worktree, "package-lock.json"), lock, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(store.MountDir(a.Instance, "."), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(store.AgentFile(a.Instance, "installs.json"), []byte(`{"groups":[{"lockfile":"package-lock.json","dirs":["."]}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store.MountDir(a.Instance, "."), ".package-lock.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.m.Destroy(context.Background(), a, agent.DestroyOptions{Force: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !store.HasSnapshot(a.Project, nodemods.Key(g, lock, "")) {
+		t.Error("Destroy didn't keep the install")
 	}
 }

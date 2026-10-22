@@ -21,4 +21,6 @@ const KeepTurnCheckpoints = keepTurnCheckpoints
 func (m *Manager) EnsureNodeModules(ctx context.Context, a state.Agent) { m.ensureNodeModules(ctx, a) }
 
 // KeepNodeModules is what Destroy does with a's node_modules.
-func (m *Manager) KeepNodeModules(a state.Agent) { m.keepNodeModules(a, m.nodeModulesInstalls(a)) }
+func (m *Manager) KeepNodeModules(a state.Agent) {
+	m.keepNodeModules(a, m.nodeModulesInstalls(context.Background(), a, false))
+}

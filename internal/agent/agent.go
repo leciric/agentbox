@@ -719,6 +719,9 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		}
 	}
 
+	if m.NodeModules != nil {
+		undo = append(undo, func() { m.NodeModules.Remove(a.Instance) })
+	}
 	if step, err := m.makeMachine(ctx, a, pl.repo, pl.source, envFiles, pl.task, "", &undo); err != nil {
 		return fail(step, err)
 	}
@@ -2032,10 +2035,10 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 		}
 		return err
 	}
+	inst, err := m.Incus.Instance(ctx, a.Instance)
 	// Read before the worktree is emptied: which lockfiles its node_modules
 	// were installed from, kept once the machine is gone.
-	installs := m.nodeModulesInstalls(a)
-	inst, err := m.Incus.Instance(ctx, a.Instance)
+	installs := m.nodeModulesInstalls(ctx, a, err == nil && inst.Status == "Running")
 	switch {
 	case err == nil:
 		cleared := inst.Status == "Running"
@@ -2060,6 +2063,9 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 	case !errors.Is(err, incus.ErrNotFound):
 		return restore(err)
 	}
+	// Now, with the machine gone and before the agent is archived: from
+	// then on its directories are a gone agent's, which a trim removes.
+	m.keepNodeModules(a, installs)
 
 	// The machine is gone, so the agent is a past agent now, before the
 	// worktree, which can take minutes to delete on a slow disk, or fail on
@@ -2074,7 +2080,6 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 		opts.Archived()
 	}
 	m.removeLeftovers(context.WithoutCancel(ctx), repo, a, opts)
-	m.keepNodeModules(a, installs)
 	return nil
 }
 
@@ -2150,8 +2155,17 @@ func (m *Manager) DeleteArchived(ctx context.Context, project, name string) erro
 // (removeLeftovers).
 func (m *Manager) clearWorktree(ctx context.Context, a state.Agent) {
 	m.logf("Stopping %s and emptying its worktree", a.Ref())
+	// Its node_modules on the VM's disk are kept or deleted from the VM
+	// after, by a daemon that may not be root: what container root made in
+	// them (sudo npm, Docker) is handed back to the user first. Only them:
+	// they're on the VM's disk, not a walk through the share.
 	script := `pkill -KILL -u "$1"; find "$2" -xdev -mindepth 1 -delete`
-	_, _ = m.Incus.Exec(ctx, a.Instance, "sh", "-c", script, "sh", strconv.Itoa(m.User.UID), a.Worktree)
+	args := []string{strconv.Itoa(m.User.UID), a.Worktree}
+	if mounts := m.nodeModulesMounts(a); len(mounts) > 0 {
+		script += `; owner=$3; shift 3; for d; do chown -R "$owner" "$d"; done`
+		args = append(append(args, fmt.Sprintf("%d:%d", m.User.UID, m.User.GID)), mounts...)
+	}
+	_, _ = m.Incus.Exec(ctx, a.Instance, append([]string{"sh", "-c", script, "sh"}, args...)...)
 }
 
 // handBackFiles gives files that container root created in the worktree
