@@ -493,6 +493,12 @@ type Settings struct {
 	// its base, its checks fail or a reviewer asks for changes. On unless it
 	// was turned off; a project can override it (Project.PRWatch).
 	PRWatch bool `json:"prWatch"`
+	// AgentFreeze is the experimental memory governor: under memory
+	// pressure whole agents' machines are frozen, newest first, never the
+	// oldest working one, and thaw oldest first; a new machine starts once
+	// the VM really has the memory to boot it. Off, only heavy commands are
+	// held, as ever.
+	AgentFreeze bool `json:"agentFreeze"`
 	// MediaRetention is how long a removed agent's media is kept before the
 	// daemon purges it: one of the MediaRetention values.
 	MediaRetention string `json:"mediaRetention"`
@@ -636,6 +642,8 @@ type UpdateSettingsRequest struct {
 	ErrorReports *bool `json:"errorReports,omitempty"`
 	// PRWatch turns the pull request watch on or off.
 	PRWatch *bool `json:"prWatch,omitempty"`
+	// AgentFreeze turns the experimental memory governor on or off.
+	AgentFreeze *bool `json:"agentFreeze,omitempty"`
 	// MediaRetention is one of the MediaRetention values.
 	MediaRetention *string `json:"mediaRetention,omitempty"`
 	// Language sets Settings.Language: a language tag, "" going back to
@@ -904,6 +912,12 @@ type MemoryHold struct {
 	// is under pressure, and Waiting how many wait to start until it eases.
 	Paused  int `json:"paused,omitempty"`
 	Waiting int `json:"waiting,omitempty"`
+	// Machine is what Settings.AgentFreeze holds of the agent's whole
+	// machine: "paused" (frozen for memory, it thaws by itself) or "waiting"
+	// (to start until the VM has the memory to boot it); "" for neither.
+	// Ahead is how many machines thaw or start before it.
+	Machine string `json:"machine,omitempty"`
+	Ahead   int    `json:"ahead,omitempty"`
 	// Since is when the oldest of them was paused or began to wait.
 	Since time.Time `json:"since"`
 	// Why is what holds them now (pressure.Reason): "stalling" (tasks stall

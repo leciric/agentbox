@@ -65,6 +65,20 @@ test('memory pressure holding back a running agent’s commands shows as a warni
   assert.equal(projectTone([agent('running'), waiting]), 'warning');
 });
 
+test('a whole machine paused or waiting for memory says how many are ahead, in its row and its chat', () => {
+  const since = '2026-10-22T10:00:00Z';
+  const gib = 1024 ** 3;
+  // Frozen mid-turn: its chat still says running, and the machine paused.
+  const frozen = { ...agent('paused', 'running'), memory: { machine: 'paused', ahead: 2, since, why: 'stalling', stalled: 40 } } as T.Agent;
+  assert.deepEqual(chatLabel(frozen), { text: 'Paused: waiting for memory, 2 ahead', tone: 'warning' });
+  assert.match(statusTip(frozen) ?? '', /resumes by itself, oldest first.*stalled on it 40%/);
+  assert.deepEqual(memoryHold(frozen), { text: 'Paused: waiting for memory, 2 ahead', tip: statusTip(frozen) });
+  // Waiting to boot, while it is being made.
+  const booting = { ...agent('initializing'), memory: { machine: 'waiting', since, why: 'low', available: gib, total: 16 * gib } } as T.Agent;
+  assert.deepEqual(chatLabel(booting), { text: 'Waiting for memory, 0 ahead', tone: 'warning' });
+  assert.match(statusTip(booting) ?? '', /memory to boot it/);
+});
+
 test('paused and stopped machines show their own state', () => {
   assert.deepEqual(chatLabel(agent('paused')), { text: 'Paused', tone: 'muted' });
   assert.deepEqual(chatLabel(agent('stopped')), { text: 'Stopped', tone: 'muted' });

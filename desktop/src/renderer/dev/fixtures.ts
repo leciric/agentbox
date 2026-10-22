@@ -1466,6 +1466,7 @@ let defaultsSettings = {
   // one it can't have, ?gpu=vm for a Linux VM with none.
   vmGPU: fixtureVMGPU(typeof location !== 'undefined' ? new URLSearchParams(location.search).get('gpu') : null),
   errorReports: true,
+  agentFreeze: false,
   prWatch: true,
   defaultClaudeCompactWindow: 500_000,
   diskFloorMin: 10 * 1024 ** 3,

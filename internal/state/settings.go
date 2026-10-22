@@ -168,6 +168,18 @@ const (
 	// (agent.FindVMGPU), when it has one. Off until somebody turns it on
 	// (Flag). Not #66's gpu_for_agents, which a migration deletes.
 	SettingAgentGPU = "agent_gpu"
+	// SettingAgentFreeze says whether memory pressure freezes whole agents'
+	// machines, newest first, and new machines start on the VM's real free
+	// memory (pressure.Fleet), rather than only heavy commands being held
+	// (pressure.Governor). Experimental: off until somebody turns it on
+	// (Flag).
+	SettingAgentFreeze = "agent_freeze"
+	// SettingAgentFreezeFrozen is the agents the fleet froze, a JSON list of
+	// refs, so a daemon that restarts thaws them.
+	SettingAgentFreezeFrozen = "agent_freeze_frozen"
+	// SettingBootCosts is what the last machines' boots took, a JSON list of
+	// bytes, newest last: what the fleet holds a new machine's start to.
+	SettingBootCosts = "boot_costs"
 	// SettingMediaRetention is how long a removed agent's media is kept: one
 	// of the api.MediaRetention values, empty meaning
 	// DefaultMediaRetention. It belongs to the installation rather than to a

@@ -49,7 +49,9 @@ func (s *Server) agentInfo(st agent.Status) api.Agent {
 	if st.State == "initializing" || st.State == state.AgentQueued {
 		// Still being made: whatever its chat, outcome or memory says is
 		// noise from the machine coming up, not news. It reads as starting
-		// in every client until the create job is done.
+		// in every client until the create job is done, or as waiting for
+		// the memory to boot its machine.
+		info.Memory = s.machineHold(info.Ref)
 		return info
 	}
 	info.Chat = s.chat.State(info.Ref)

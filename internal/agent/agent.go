@@ -242,6 +242,11 @@ type Manager struct {
 	User    image.User
 	Log     io.Writer // progress messages; may be nil
 
+	// Admit, when set, is asked before an agent's machine boots, and returns
+	// once it may: the daemon's memory admission (agentfreeze.go), which
+	// waits while the VM hasn't the memory to boot it.
+	Admit func(ctx context.Context, a state.Agent) error
+
 	// AgentSocket, when set, returns the host path of an agent's in-agent API
 	// socket; the agent reaches it at api.InAgentSocket.
 	AgentSocket func(instance string) string
@@ -785,6 +790,7 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 	steps = append(steps, m.gpuSteps(a.Instance, gpu, copied.Devices)...)
 	steps = append(steps,
 		func(ctx context.Context, _ incus.Client) error { return m.setStartShare(ctx, a.Instance) },
+		func(ctx context.Context, _ incus.Client) error { return m.admit(ctx, a) },
 		func(ctx context.Context, c incus.Client) error { return c.Start(ctx, a.Instance) },
 	)
 	for _, step := range steps {
@@ -1828,6 +1834,9 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 		if err := m.setStartShare(ctx, a.Instance); err != nil {
 			return inst, err
 		}
+		if err := m.admit(ctx, a); err != nil {
+			return inst, err
+		}
 		if err := m.Incus.Start(ctx, a.Instance); err != nil {
 			return inst, err
 		}
@@ -1891,6 +1900,15 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 	m.EnsureImageCache(ctx, a)
 	m.EnsureBrowser(ctx, a)
 	return inst, nil
+}
+
+// admit waits, when the daemon asks it to, until the VM has the memory to
+// boot a's machine.
+func (m *Manager) admit(ctx context.Context, a state.Agent) error {
+	if m.Admit == nil {
+		return nil
+	}
+	return m.Admit(ctx, a)
 }
 
 func (m *Manager) Stop(ctx context.Context, a state.Agent) error {

@@ -270,7 +270,12 @@ type Server struct {
 	// functions or a test's. oomSeen, under mu, is each machine's count of
 	// processes killed for its memory.max when last looked at, and
 	// loggedOnce what logOnce last logged under each key.
-	heavy          *heavyRuns
+	heavy *heavyRuns
+	// frozen (agentfreeze.go) is whole agents' machines paused for memory,
+	// with Settings → Experimental's switch, and machineCgroups what
+	// freezes them.
+	frozen         *fleetState
+	machineCgroups machineCgroups
 	pressureEvery  time.Duration // pressureInterval; 0 runs no loop
 	readPressure   func() (pressure.Sample, error)
 	runCgroups     runCgroups
@@ -338,6 +343,8 @@ func New(cfg Config) (*Server, error) {
 		lan:              newLANState(),
 		usageEvery:       usageInterval,
 		heavy:            newHeavyRuns(),
+		frozen:           newFleetState(),
+		machineCgroups:   agentMachineCgroups{},
 		pressureEvery:    pressureInterval,
 		readPressure:     readSample(),
 		readCPUPressure:  func() (pressure.PSI, error) { return pressure.Read(cpuPressureFile) },
@@ -643,6 +650,7 @@ func (s *Server) manager(log io.Writer) *agent.Manager {
 		DesktopTheme:     s.desktopTheme,
 		ImageCacheSocket: s.imageCacheSocket,
 		PackageCacheDir:  s.packageCacheDir,
+		Admit:            s.admitMachine,
 	}
 }
 
