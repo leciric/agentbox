@@ -95,6 +95,11 @@ type Manager struct {
 	// checkpoint the worktree. Off the lock, in a goroutine of its own: by
 	// then the turn may have been rolled back, which Turn tells.
 	TurnEnded func(a state.Agent, turn string)
+	// TurnStarted, when set, is called as one of an agent's turns starts
+	// (never a lead's), so the daemon can wake what idle reclaim froze in its
+	// machine before the turn's first command reaches it. Off the lock, in a
+	// goroutine of its own.
+	TurnStarted func(a state.Agent)
 	// TurnFinished, when set, is called after any turn ends, a lead's too,
 	// with what the anonymous usage stats count about it (TurnStats). Off the
 	// lock, in a goroutine of its own.
@@ -688,6 +693,10 @@ func (c *conversation) beginResumedTurn(it *api.ChatItem, text string, sent atta
 	c.tools, c.plan, c.open, c.openMessage = map[string]*api.ChatItem{}, nil, nil, ""
 	started := it.CreatedAt
 	c.session.TurnStartedAt = &started
+	if c.m.TurnStarted != nil && !c.agent.IsLead() {
+		agent := c.agent
+		c.m.background.Go(func() { c.m.TurnStarted(agent) })
+	}
 	if c.windowRestart && !c.rolling {
 		// The context window changed since the adapter started, and it reads
 		// that only at launch: a new adapter resumes the same session on it.

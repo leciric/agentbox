@@ -71,7 +71,7 @@ func (s *Server) fleet(w http.ResponseWriter, r *http.Request) error {
 		out.GitHubError = s.githubErrorFor(p, repo, err)
 	}
 
-	changes := agentChanges(agents, changesOf)
+	changes := agentChanges(agents, polledChanges)
 
 	for i, st := range statuses {
 		row := api.FleetAgent{Agent: s.agentInfo(st)}
@@ -136,8 +136,28 @@ func changesOf(a state.Agent) api.AgentChanges {
 	return out
 }
 
+// polledChanges is changesOf for a list a tab polls. A worktree already being
+// measured, by a poll whose git hasn't returned yet, isn't measured again
+// alongside it but shown as last read: polls stacking up on a slow disk kept
+// git running nonstop.
+func polledChanges(a state.Agent) api.AgentChanges {
+	if a.Worktree != "" {
+		if _, busy := measuring.LoadOrStore(a.Worktree, true); busy {
+			if last, ok := knownChanges.Load(a.Worktree); ok {
+				return last.(api.AgentChanges)
+			}
+		} else {
+			defer measuring.Delete(a.Worktree)
+		}
+	}
+	return changesOf(a)
+}
+
 // knownChanges is the last changes measureChanges read for each worktree.
 var knownChanges sync.Map // worktree -> api.AgentChanges
+
+// measuring is the worktrees polledChanges is measuring now.
+var measuring sync.Map // worktree -> true
 
 // measureChanges measures an agent's diff against the commit it started
 // from, and whether it has uncommitted work. A worktree that has been

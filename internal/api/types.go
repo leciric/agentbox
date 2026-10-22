@@ -547,6 +547,16 @@ type Settings struct {
 	// IdleTimeSeconds is how long an agent may go idle before AutoStopIdle
 	// stops it; DefaultIdleTimeSeconds when nobody chose.
 	IdleTimeSeconds int `json:"idleTimeSeconds"`
+	// IdleReclaim is "reclaim idle agents' memory", an experiment: while on,
+	// an agent whose chat has been idle IdleFreezeSeconds has what it left
+	// running (dev servers, the desktop's browser, watchers, Docker) frozen
+	// and its memory pushed out to swap, woken as soon as something touches
+	// it, and one that finished and stayed idle IdleStopSeconds has its
+	// machine stopped, started again by the next message. Off unless it was
+	// turned on.
+	IdleReclaim       bool `json:"idleReclaim"`
+	IdleFreezeSeconds int  `json:"idleFreezeSeconds"`
+	IdleStopSeconds   int  `json:"idleStopSeconds"`
 	// LeadRecheck is "lead rechecks agents": while on, every
 	// LeadRecheckMinutes the daemon wakes each project's chat with a short
 	// status of its running agents — only when an agent has been idle a
@@ -680,6 +690,12 @@ type UpdateSettingsRequest struct {
 	// IdleTimeSeconds is how long AutoStopIdle waits before stopping an idle
 	// agent, at least 60.
 	IdleTimeSeconds *int `json:"idleTimeSeconds,omitempty"`
+	// IdleReclaim turns "reclaim idle agents' memory" on or off;
+	// IdleFreezeSeconds and IdleStopSeconds set its waits, from 60 seconds
+	// to a day.
+	IdleReclaim       *bool `json:"idleReclaim,omitempty"`
+	IdleFreezeSeconds *int  `json:"idleFreezeSeconds,omitempty"`
+	IdleStopSeconds   *int  `json:"idleStopSeconds,omitempty"`
 	// LeadRecheck turns "lead rechecks agents" on or off, and
 	// LeadRecheckMinutes is how often, from 5 to 1440.
 	LeadRecheck        *bool `json:"leadRecheck,omitempty"`
@@ -786,9 +802,14 @@ type Agent struct {
 	// Memory is what the daemon holds of the agent's heavy commands for
 	// memory: paused or waiting to start (package pressure). Absent when it
 	// holds nothing.
-	Memory    *MemoryHold `json:"memory,omitempty"`
-	IP        string      `json:"ip"`
-	CreatedAt time.Time   `json:"createdAt"`
+	Memory *MemoryHold `json:"memory,omitempty"`
+	// Reclaimed says idle reclaim has its memory (Settings.IdleReclaim):
+	// "frozen" when what it left running is frozen and pushed out to swap,
+	// "stopped" when its machine was stopped after it finished. Absent
+	// otherwise.
+	Reclaimed string    `json:"reclaimed,omitempty"`
+	IP        string    `json:"ip"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // ArchivedAgent is a past agent: one whose machine was removed, by the user or
@@ -2320,7 +2341,15 @@ type AgentChange struct {
 	// Memory is what the daemon holds of the agent's heavy commands
 	// (Agent.Memory).
 	Memory *MemoryHold `json:"memory,omitempty"`
+	// Reclaimed is Agent.Reclaimed.
+	Reclaimed string `json:"reclaimed,omitempty"`
 }
+
+// The ways idle reclaim holds an agent's memory (Agent.Reclaimed).
+const (
+	ReclaimedFrozen  = "frozen"
+	ReclaimedStopped = "stopped"
+)
 
 // HeavyRequest asks, from inside an agent, to start a heavy command (a test
 // run, a build): at once while the VM's memory is calm, else once it eases,

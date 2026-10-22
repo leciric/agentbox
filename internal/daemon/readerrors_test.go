@@ -312,3 +312,36 @@ func TestChangesAreUnknownOnReadErrors(t *testing.T) {
 		t.Errorf("a removed worktree: measureChanges = %+v, %v", c, err)
 	}
 }
+
+// TestPolledChangesDoNotStackOnAMeasurement: a poll that arrives while the
+// worktree is still being measured answers with the last changes read, not a
+// second git alongside the first; changesOf, which decides, still reads it.
+func TestPolledChangesDoNotStackOnAMeasurement(t *testing.T) {
+	t.Parallel()
+	root := testutil.FixtureRepo(t, "hello-stack")
+	repo, _ := gitrepo.Open(root)
+	base, _ := repo.ResolveCommit("main")
+	worktree := filepath.Join(t.TempDir(), "agent-01")
+	if err := repo.AddWorktree(worktree, "agentbox/agent-01", base, "test"); err != nil {
+		t.Fatal(err)
+	}
+	a := state.Agent{Worktree: worktree, BaseCommit: base}
+	if c := polledChanges(a); c.Files != 0 {
+		t.Fatalf("polledChanges = %+v, want none", c)
+	}
+	if err := os.WriteFile(filepath.Join(worktree, "work.txt"), []byte("work\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	measuring.Store(worktree, true)
+	if c := polledChanges(a); c.Files != 0 {
+		t.Errorf("while measuring, polledChanges = %+v, want the last read", c)
+	}
+	if c := changesOf(a); c.Files != 1 {
+		t.Errorf("while measuring, changesOf = %+v, want one file: what decides reads it now", c)
+	}
+	measuring.Delete(worktree)
+	if c := polledChanges(a); c.Files != 1 {
+		t.Errorf("after measuring, polledChanges = %+v, want one file", c)
+	}
+}

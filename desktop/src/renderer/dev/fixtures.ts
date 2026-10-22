@@ -296,6 +296,10 @@ export function buildFixtures(): FixtureData {
     agent({ ref: `${PROJECT}/agent-37`, title: 'Landing page', ai: 'codex', chat: 'ready', outcome: 'asking', outcomeNote: 'What do you want me to do next: launch, change, or stop?' }),
     agent({ ref: `${PROJECT}/agent-38`, title: 'Migrate the reminders table', chat: 'ready', outcome: 'failed', outcomeNote: 'API Error: WebSocket closed with code 1006 (abnormal closure)' }),
     agent({ ref: `${PROJECT}/agent-39`, title: 'Paginate the reminders page', chat: 'ready', outcome: 'done' }),
+    // Idle reclaim holds their memory (T.Agent.reclaimed): one's dev server
+    // and browser frozen in swap, one's machine stopped after it finished.
+    agent({ ref: `${PROJECT}/agent-35`, title: 'Dark mode for settings', chat: 'ready', outcome: 'idle', reclaimed: 'frozen' }),
+    agent({ ref: `${PROJECT}/agent-34`, title: 'Fix the CSV export', state: 'stopped', outcome: 'done', reclaimed: 'stopped' }),
     agent({ ref: `${PROJECT}/agent-36`, title: 'Search the docs', ai: 'opencode', state: 'stopped', outcome: 'resuming' }),
     agent({ ref: `${PROJECT}/agent-92`, title: 'Lost its machine', ai: 'claude', state: 'incomplete' }),
     agent({ ref: `${PROJECT}/agent-89`, title: 'Still being created', ai: 'claude', state: 'initializing' }),
@@ -1554,6 +1558,9 @@ let defaultsSettings = {
   autoStopIdle: false,
   dockerPruneOnStop: true,
   idleTimeSeconds: 2 * 60 * 60,
+  idleReclaim: false,
+  idleFreezeSeconds: 5 * 60,
+  idleStopSeconds: 10 * 60,
   leadRecheck: false,
   leadRecheckMinutes: 20,
   imageCache: true,
@@ -1581,6 +1588,9 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   if (req.diskFloorPercent !== undefined) next.diskFloorPercent = req.diskFloorPercent < 0 ? 5 : req.diskFloorPercent;
   if (req.autoStopIdle !== undefined) next.autoStopIdle = req.autoStopIdle;
   if (req.idleTimeSeconds !== undefined) next.idleTimeSeconds = req.idleTimeSeconds;
+  if (req.idleReclaim !== undefined) next.idleReclaim = req.idleReclaim;
+  if (req.idleFreezeSeconds !== undefined) next.idleFreezeSeconds = req.idleFreezeSeconds;
+  if (req.idleStopSeconds !== undefined) next.idleStopSeconds = req.idleStopSeconds;
   if (req.imageCache !== undefined) next.imageCache = req.imageCache;
   if (req.imageCacheMaxBytes !== undefined) next.imageCacheMaxBytes = req.imageCacheMaxBytes || next.defaultImageCacheMaxBytes;
   if (req.clearImageCache) next.imageCacheBytes = 0;
@@ -2055,6 +2065,7 @@ export function installDevBridge(): void {
     showItem: async () => {},
     openExternal: async () => {},
     notify: async () => false,
+    keepAwake: async () => {},
     onNotificationClick: () => () => {},
     copyText: () => {},
     readText: async () => '',
