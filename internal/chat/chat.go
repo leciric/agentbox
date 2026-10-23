@@ -230,6 +230,7 @@ func (m *Manager) conversation(a state.Agent) (*conversation, error) {
 	}
 	prev := c.agent
 	c.agent = a
+	c.usedAt = m.now()
 	if err := c.load(); err != nil {
 		c.mu.Unlock()
 		return nil, err
@@ -1358,6 +1359,7 @@ type conversation struct {
 
 	mu     sync.Mutex
 	loaded bool
+	usedAt time.Time // when it was last read or changed, for Unload
 	seq    int64
 	// finished closes once the last turn's Finished call has returned: the
 	// next one waits for it, so the daemon hears an agent's turns end in the
@@ -2769,6 +2771,7 @@ func (c *conversation) emit(ev api.ChatEvent) {
 // It stores changed items at most once a second, unless save is set, and a
 // finished Hatch page call before anything is published.
 func (c *conversation) flush(save bool) {
+	c.usedAt = c.m.now()
 	if c.timer != nil {
 		c.timer.Stop()
 		c.timer = nil

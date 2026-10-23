@@ -1867,7 +1867,9 @@ func (s *Server) getJob(w http.ResponseWriter, r *http.Request) error {
 func (s *Server) jobLog(w http.ResponseWriter, r *http.Request) error {
 	id := r.PathValue("id")
 	follow, _ := strconv.ParseBool(r.URL.Query().Get("follow"))
-	if j, ok := s.jobs.get(id); ok && follow {
+	// A finished job's log is all there is: read whole below, from the store
+	// once the job has let it go (jobKept).
+	if j, ok := s.jobs.get(id); ok && follow && !j.snapshot().Done() {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		flusher, _ := w.(http.Flusher)

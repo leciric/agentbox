@@ -1317,3 +1317,20 @@ func (c *Client) TerminalTails(ctx context.Context, project string, agents []str
 	}
 	return out, c.do(ctx, http.MethodGet, path, nil, &out)
 }
+
+// Profile copies one of the daemon's Go profiles (net/http/pprof, served on
+// its socket only) to w: "heap", "goroutine", "allocs"; query is pprof's own,
+// "gc=1" or "debug=1".
+func (c *Client) Profile(ctx context.Context, name, query string, w io.Writer) error {
+	path := "/debug/pprof/" + url.PathEscape(name)
+	if query != "" {
+		path += "?" + query
+	}
+	resp, err := c.request(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	_, err = io.Copy(w, resp.Body)
+	return err
+}
