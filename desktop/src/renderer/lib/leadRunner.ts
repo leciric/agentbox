@@ -76,3 +76,23 @@ export function runnerLabel(tool: string, account?: string): string {
   const name = tool === 'claude' ? 'Claude Code' : tool === 'codex' ? 'Codex' : tool === 'opencode' ? 'OpenCode' : tool === 'cursor' ? 'Cursor' : tool;
   return account ? t('chat.runner.labelAccount', { tool: name, account }) : t('chat.runner.label', { tool: name });
 }
+
+// accountTools are the tools whose account an agent's composer can change:
+// OpenCode's are one per provider, which the lead's switch_agent_account sets.
+export const accountTools = ['claude', 'codex', 'cursor'];
+
+// hasRoom says an account's reading leaves room in both its 5-hour and its
+// weekly window; an account with no reading may have room, and is offered.
+export function hasRoom(reading: T.ClaudeLimit | undefined, now = Date.now()): boolean {
+  return !(reading?.windows ?? []).some((w) => (w.name === 'five_hour' || w.name === 'seven_day') && Date.parse(w.resetsAt) > now && w.utilization >= 0.98);
+}
+
+// roomiest is the account of the chat's own tool to move to when its account
+// stopped on a usage limit: another one with room, the least used first, read
+// ones before unread. undefined when there is none.
+export function roomiest(choices: RunnerChoice[], tool: string, now = Date.now()): RunnerChoice | undefined {
+  const score = (c: RunnerChoice) => fiveHour(c.reading, now) ?? (c.reading ? 0 : 0.5);
+  return choices
+    .filter((c) => c.tool === tool && c.account && !c.current && c.ready && hasRoom(c.reading, now))
+    .sort((a, b) => score(a) - score(b))[0];
+}

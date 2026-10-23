@@ -998,6 +998,29 @@ type UpdateAgentRequest struct {
 	Interface *string `json:"interface,omitempty"`
 }
 
+// AgentAccountRequest moves a running agent to another account of its AI
+// tool (the lead's switch_agent_account): Account for Claude Code, Codex or
+// Cursor, "" for the project's; OpenCodeAccounts, provider → account, laid
+// over the ones an OpenCode agent has.
+type AgentAccountRequest struct {
+	Account          string            `json:"account,omitempty"`
+	OpenCodeAccounts map[string]string `json:"openCodeAccounts,omitempty"`
+}
+
+// AgentAccountSwitch is what moving an agent to another account did.
+type AgentAccountSwitch struct {
+	Agent string `json:"agent"`
+	Tool  string `json:"tool"` // how to say it: "Claude Code"
+	// Account is the one it runs on now, OpenCode's as "provider: account, …".
+	Account string `json:"account"`
+	// Note is what its chat said about the move, "" when no chat was running
+	// (the next one starts on the new account).
+	Note string `json:"note,omitempty"`
+	// Resumes says its chat's session carries on on the new account; false
+	// when the tool's adapter can't resume a session.
+	Resumes bool `json:"resumes"`
+}
+
 type Snapshot struct {
 	Name      string    `json:"name"`
 	CreatedAt time.Time `json:"createdAt"`

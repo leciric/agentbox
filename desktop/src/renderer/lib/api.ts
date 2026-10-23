@@ -302,6 +302,10 @@ export const api = {
   // project's name, or T.HomeProject for the Home chat.
   chatRunners: (name: string) => call<T.LeadRunners>('GET', `${project(name)}/chat/runners`),
   setChatRunner: (name: string, req: T.LeadRunnerRequest) => call<T.ChatSession>('PUT', `${project(name)}/chat/runner`, req),
+  // An agent's composer moves it to another account of its own tool, at
+  // once, in the lead's shapes (an agent's tool can't change).
+  agentRunners: (ref: string) => call<T.LeadRunners>('GET', `${chatBase(ref)}/runners`),
+  setAgentRunner: (ref: string, req: T.LeadRunnerRequest) => call<T.ChatSession>('PUT', `${chatBase(ref)}/runner`, req),
   // A project chat's prompt cache, and the card that asks before a message
   // re-sends a context whose cache is about to expire (or has).
   chatCache: (name: string) => call<T.ChatCache>('GET', `${project(name)}/chat/cache`),

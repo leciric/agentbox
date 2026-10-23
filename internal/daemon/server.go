@@ -886,6 +886,8 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/agents/{project}/{agent}/chat/publish", s.publishRender(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/reload", s.reloadChatTools(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/resume", s.resumeChatLimit)
+	h("GET /v1/agents/{project}/{agent}/chat/runners", s.agentRunners)
+	h("PUT /v1/agents/{project}/{agent}/chat/runner", s.setAgentRunner)
 	h("POST /v1/agents/{project}/{agent}/chat/permissions/{item}", s.answerChat(s.agentFromPath))
 	h("PUT /v1/agents/{project}/{agent}/chat/options/{option}", s.setChatOption(s.agentFromPath))
 	h("GET /v1/agents/{project}/{agent}/browser", s.browser("status", s.agentFromPath))
