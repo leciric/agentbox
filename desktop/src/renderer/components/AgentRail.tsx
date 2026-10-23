@@ -445,7 +445,7 @@ function AgentRow({
               <span
                 title={statusTip(agent)}
                 className={cn(
-                  'shrink-0',
+                  'min-w-0 truncate',
                   status.tone === 'urgent' && 'font-medium text-amber-300',
                   status.tone === 'error' && 'font-medium text-rose-300',
                   status.tone === 'warning' && 'font-medium text-amber-300/80',
