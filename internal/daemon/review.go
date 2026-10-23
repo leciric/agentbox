@@ -170,7 +170,7 @@ func (s *Server) reviewItems(ctx context.Context, p state.Project, agents []stat
 func branchOf(heads []agentHead, a state.Agent, pr *api.PullRequest) string {
 	if pr != nil {
 		for _, h := range heads {
-			if h.agent == a.Name && h.accepts(*pr, pr.HeadSHA) {
+			if h.agent == a.Name && h.claims(*pr) {
 				return h.branch
 			}
 		}

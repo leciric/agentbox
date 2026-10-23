@@ -114,11 +114,11 @@ func agentChanges(agents []state.Agent, measure func(state.Agent) api.AgentChang
 	return out
 }
 
-// changesOf measures an agent's diff against the commit it started from. A
+// changesOf measures an agent's diff against where it left its base branch. A
 // worktree that has been removed, or an agent still being created, has none.
 func changesOf(a state.Agent) api.AgentChanges {
 	var out api.AgentChanges
-	stat, err := gitrepo.DiffWorktree(a.Worktree, a.BaseCommit, true)
+	stat, err := gitrepo.DiffWorktree(a.Worktree, gitrepo.DiffBase(a.Worktree, a.BaseRef, a.BaseCommit), true)
 	if err != nil {
 		return out
 	}

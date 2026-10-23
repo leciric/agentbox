@@ -116,7 +116,7 @@ func (s *Server) pullRequestDetail(w http.ResponseWriter, r *http.Request) error
 		out.CheckRuns = append(out.CheckRuns, api.PullCheck{Name: c.Name, Status: c.Status, Conclusion: c.Conclusion, URL: c.URL})
 	}
 	s.prWatch.overlay(p.Name, &out.PullRequest)
-	out.Agent = agentOfCommit(s.agentsOf(ctx, p), pr.HeadSHA)
+	out.Agent = agentOfPR(s.agentsOf(ctx, p), pr.HeadBranch, pr.HeadSHA)
 	return writeJSON(w, http.StatusOK, out)
 }
 

@@ -404,6 +404,22 @@ func Dirty(worktree string) (bool, error) {
 	return out != "", err
 }
 
+// DiffBase is the commit an agent's changes are measured from: where its
+// worktree's HEAD left baseRef, the project's base branch as it is now, so
+// that main's own changes, taken in by a merge or a rebase, are not the
+// agent's. It falls back to fallback (the commit the agent started from) when
+// baseRef is "HEAD" or empty, is gone, or shares no history with the worktree.
+func DiffBase(worktree, baseRef, fallback string) string {
+	if baseRef == "" || baseRef == "HEAD" {
+		return fallback
+	}
+	base, err := run(worktree, "merge-base", "HEAD", "refs/heads/"+baseRef)
+	if err != nil || base == "" {
+		return fallback
+	}
+	return base
+}
+
 // DiffWorktree diffs base against the worktree's current files, including
 // uncommitted and untracked ones, without touching the worktree's index.
 func DiffWorktree(worktree, base string, stat bool, paths ...string) (string, error) {

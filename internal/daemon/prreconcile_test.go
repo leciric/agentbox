@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -102,7 +103,8 @@ func TestMergedPullRequestIsNeverToReview(t *testing.T) {
 	head := commitOn(t, a, "merged.txt")
 	commitOn(t, a, "after.txt") // committed after the merge, never pushed
 	d.srv.record(ctx, finishedEvent(a, api.AgentChanges{}, nil, "Done.", time.Now()))
-	gh.setList("[" + endedPR(7, head, true) + "]")
+	// Pushed from the agent's own branch, which has moved on since.
+	gh.setList("[" + strings.Replace(endedPR(7, head, true), "feat/work-7", a.Branch, 1) + "]")
 
 	d.srv.reconcilePullRequests(ctx)
 	if !agentHasMachine(d, a) {
