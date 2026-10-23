@@ -65,7 +65,7 @@ export function useMediaPages(scope: MediaScope) {
       return api.mediaPage(q);
     },
     initialPageParam: '',
-    getNextPageParam: (last) => last.next || undefined,
+    getNextPageParam: (last) => last?.next || undefined,
     staleTime: Infinity,
     // A new filter or search keeps the last one's items until its own come.
     placeholderData: keepPreviousData,
@@ -107,8 +107,14 @@ function newer(a: T.MediaItem, b: T.MediaItem): boolean {
   return at > 0 || (at === 0 && a.id > b.id);
 }
 
+// pageItems is a page's items, [] when the page or its list didn't arrive
+// (the daemon sends a nil list as null), and without holes.
+export function pageItems(page: T.MediaPage | undefined): T.MediaItem[] {
+  return Array.isArray(page?.items) ? page.items.filter(Boolean) : [];
+}
+
 function mapItems(data: MediaPages, fn: (items: T.MediaItem[]) => T.MediaItem[]): MediaPages {
-  return { ...data, pages: data.pages.map((page) => ({ ...page, items: fn(page.items) })) };
+  return { ...data, pages: (data.pages ?? []).map((page) => ({ ...page, items: fn(pageItems(page)) })) };
 }
 
 // withMediaItem is a list's pages once an item from a media event is in
@@ -116,21 +122,21 @@ function mapItems(data: MediaPages, fn: (items: T.MediaItem[]) => T.MediaItem[])
 // where it sorts when it's new and the list keeps it, if the pages loaded
 // reach that far (an older item comes with its own page).
 export function withMediaItem(data: MediaPages, scope: MediaScope, item: T.MediaItem): MediaPages {
-  const has = data.pages.some((page) => page.items.some((i) => i.id === item.id));
+  const has = (data.pages ?? []).some((page) => pageItems(page).some((i) => i.id === item.id));
   if (item.removed) return has ? mapItems(data, (items) => items.filter((i) => i.id !== item.id)) : data;
   if (has) return mapItems(data, (items) => items.map((i) => (i.id === item.id ? { ...item, unseen: item.unseen || i.unseen } : i)));
   if (!inScope(scope, item)) return data;
-  const pages = data.pages;
+  const pages = data.pages ?? [];
   for (let p = 0; p < pages.length; p++) {
-    const at = pages[p].items.findIndex((i) => newer(item, i));
+    const at = pageItems(pages[p]).findIndex((i) => newer(item, i));
     if (at >= 0) {
-      const items = [...pages[p].items.slice(0, at), item, ...pages[p].items.slice(at)];
+      const items = [...pageItems(pages[p]).slice(0, at), item, ...pageItems(pages[p]).slice(at)];
       return { ...data, pages: pages.map((page, i) => (i === p ? { ...page, items } : page)) };
     }
   }
   const last = pages.at(-1);
   if (!last || last.next) return data; // older than what's loaded
-  return { ...data, pages: [...pages.slice(0, -1), { ...last, items: [...last.items, item] }] };
+  return { ...data, pages: [...pages.slice(0, -1), { ...last, items: [...pageItems(last), item] }] };
 }
 
 // eachMediaList calls fn with every Media list in the cache, and stores what
@@ -155,7 +161,7 @@ export function applyMediaEvent(queryClient: QueryClient, item: T.MediaItem): vo
 export function setMediaUnseen(queryClient: QueryClient, unseen: boolean, ids: ReadonlySet<string>, all = false): void {
   eachMediaList(queryClient, (data) => {
     const hit = (m: T.MediaItem) => (all || ids.has(m.id)) && (m.unseen ?? false) !== unseen;
-    if (!data.pages.some((page) => page.items.some(hit))) return data;
+    if (!(data.pages ?? []).some((page) => pageItems(page).some(hit))) return data;
     return mapItems(data, (items) => items.map((m) => (hit(m) ? { ...m, unseen } : m)));
   });
   void queryClient.invalidateQueries({ queryKey: ['mediaCounts'] });
@@ -165,10 +171,10 @@ export function setMediaUnseen(queryClient: QueryClient, unseen: boolean, ids: R
 export function isMediaUnseen(queryClient: QueryClient, id: string): boolean {
   return queryClient
     .getQueriesData<MediaPages>({ queryKey: ['mediaPages'] })
-    .some(([, data]) => data?.pages.some((page) => page.items.some((m) => m.id === id && m.unseen)));
+    .some(([, data]) => data?.pages?.some((page) => pageItems(page).some((m) => m.id === id && m.unseen)));
 }
 
 // loadedItems is a list's pages as one list.
 export function loadedItems(data: InfiniteData<T.MediaPage, unknown> | undefined): T.MediaItem[] {
-  return data?.pages.flatMap((page) => page.items) ?? [];
+  return data?.pages?.flatMap((page) => pageItems(page)) ?? [];
 }

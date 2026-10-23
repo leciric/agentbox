@@ -1,24 +1,23 @@
 // Run with `npm test` (node's own test runner, which strips the types).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ErrorReporter, errorReport, fromEvent, maxPerSession, type UncaughtError } from './errorReports.ts';
+import { ErrorReporter, errorReport, fromEvent, type UncaughtError } from './errorReports.ts';
 
 const err = (message: string, where: UncaughtError['where'] = 'window'): UncaughtError => ({ where, name: 'TypeError', message, stack: 'at f (file:///app/index.js:1:2)' });
 const on = { errorReports: true };
 const off = { errorReports: false };
 
-test('nothing is sent while the user has them off, or with no daemon', () => {
+test('nothing is sent while the user has them off; with no daemon to ask, it is, to wait for one', () => {
   assert.equal(new ErrorReporter().decide(err('a'), off), 'ignore');
-  assert.equal(new ErrorReporter().decide(err('a'), undefined), 'ignore', 'no daemon, nothing to do');
+  assert.equal(new ErrorReporter().decide(err('a'), undefined), 'send', 'the main process keeps it until the daemon is back');
 });
 
-test('while on, each new error is sent, up to a cap a run', () => {
+test('while on, each new error is sent once (the main process caps them a run)', () => {
   const r = new ErrorReporter();
   assert.equal(r.decide(err('a'), on), 'send');
   assert.equal(r.decide(err('a'), on), 'ignore', 'the same error again');
   assert.equal(r.decide(err('a', 'main'), on), 'send', 'the same message from the main process is another error');
-  for (let i = 0; i < maxPerSession - 2; i++) assert.equal(r.decide(err(`n${i}`), on), 'send');
-  assert.equal(r.decide(err('one too many'), on), 'ignore');
+  for (let i = 0; i < 10; i++) assert.equal(r.decide(err(`n${i}`), on), 'send');
 });
 
 test("ResizeObserver's warnings aren't errors", () => {

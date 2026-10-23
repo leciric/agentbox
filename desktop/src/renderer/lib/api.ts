@@ -239,6 +239,11 @@ export const api = {
   destroyAgent: (ref: string, force: boolean, deleteBranch: boolean, deleteMedia: boolean) =>
     call<void>('DELETE', `${agent(ref)}?force=${force}&deleteBranch=${deleteBranch}&deleteMedia=${deleteMedia}`),
   agentDisk: (ref: string) => call<T.AgentDisk>('GET', `${agent(ref)}/disk`),
+  // The agents holding a stopped machine, in project or every project; check
+  // adds what "remove stopped agents' machines" would do with each.
+  stoppedMachines: (project: string, check: boolean) =>
+    call<T.StoppedMachines>('GET', `/v1/stopped-machines?${new URLSearchParams({ ...(project && { project }), ...(check && { check: '1' }) })}`),
+  removeStopped: (agents: string[]) => call<T.RemoveStoppedResult>('POST', '/v1/stopped-machines/remove', { agents } satisfies T.RemoveStoppedRequest),
   agentCredential: (ref: string) => call<T.ToolCredential>('GET', `${agent(ref)}/credential`),
   agentAction: async (ref: string, action: AgentAction) => {
     if (action === 'start' || action === 'resume') await ensureVMRunning();
@@ -567,7 +572,9 @@ export const api = {
   // ("30m"), resource samples over a window ("1h"), and the app's own spans.
   diagnosticSpans: (since: string) => call<T.DiagnosticsSpans>('GET', `/v1/diagnostics/spans?since=${encodeURIComponent(since)}`),
   diagnosticStalls: (since: string) => call<T.DiagnosticsStalls>('GET', `/v1/diagnostics/stalls?since=${encodeURIComponent(since)}`),
+  diagnosticFiles: () => call<T.DiagnosticsFiles>('GET', '/v1/diagnostics/files'),
   diagnosticResources: (span: D.ResourceWindow) => call<T.DiagnosticsResources>('GET', `/v1/diagnostics/resources?window=${span}`),
+  diagnosticPackageCache: () => call<T.DiagnosticsPackageCache>('GET', '/v1/diagnostics/package-cache'),
   sendClientSpans: (spans: T.TraceSpan[]) => call<void>('POST', clientSpansPath, { spans } satisfies T.ClientSpansRequest),
   diskUsage: () => call<T.DiskUsage>('GET', '/v1/usage/disk'),
   diskGuard: () => call<T.DiskGuard>('GET', '/v1/disk'),
