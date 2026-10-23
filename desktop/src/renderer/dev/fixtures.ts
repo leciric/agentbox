@@ -1561,8 +1561,9 @@ let defaultsSettings = {
 } as T.Settings;
 
 // fixtureStoppedMachines is every stopped agent, each holding a machine of a
-// few GB, stopped some days apart; with ?check=1, the older two of them can go
-// and the rest are kept, as "remove stopped agents' machines" would judge.
+// few GB, stopped some days apart (stoppedDaysAgo); with ?check=1, those
+// stopped longer than the setting's days can go and the rest are kept, as
+// "remove stopped agents' machines" would judge.
 function fixtureStoppedMachines(path: string): T.StoppedMachines {
   const query = new URLSearchParams(path.split('?')[1] ?? '');
   const project = query.get('project');
@@ -1570,12 +1571,14 @@ function fixtureStoppedMachines(path: string): T.StoppedMachines {
   const days = defaultsSettings.removeStoppedDays;
   const stopped = (devState.agents ?? []).filter((a) => a.state === 'stopped' && (!project || a.project === project));
   const machines = stopped.map((a, i): T.StoppedMachine => {
-    const ago = [25, 12, 3, 1][i % 4];
-    const verdict = !check ? {} : ago >= days && i % 2 === 0 ? { remove: 'it changed nothing' } : ago >= days ? { remove: 'its pull request #31 was merged' } : { keep: `stopped for less than ${days} days` };
+    const ago = stoppedDaysAgo[a.name] ?? 1;
+    const verdict = !check ? {} : ago >= days ? { remove: 'it changed nothing' } : { keep: `stopped for less than ${days} days` };
     return { ref: a.ref, project: a.project, name: a.name, title: a.title, branch: a.branch, stoppedSince: new Date(Date.now() - ago * 86_400_000).toISOString(), machine: (5.2 + i * 2.3) * 1024 ** 3, ...verdict };
   });
   return { days, machines };
 }
+
+const stoppedDaysAgo: Record<string, number> = { 'agent-34': 25, 'agent-36': 12, 'agent-93': 3, 'agent-91': 1 };
 
 function removeFixtureStopped(refs: string[]): T.RemoveStoppedResult {
   const gone = new Set(refs);

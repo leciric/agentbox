@@ -256,6 +256,10 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 		// leaving it stuck until the next sweep.
 		go s.stopIdleAgents(s.background(), time.Now())
 	}
+	if req.RemoveStopped != nil || req.RemoveStoppedDays != nil {
+		// As above: what the setting now allows needn't wait for the hour.
+		go s.removeStoppedMachines(s.background(), time.Now())
+	}
 	if req.UpdateCheck != nil {
 		if err := s.setUpdateCheck(r.Context(), *req.UpdateCheck); err != nil {
 			return err
