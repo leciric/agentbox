@@ -112,7 +112,7 @@ func TestStartRecordsTheRuntimesTraceback(t *testing.T) {
 		go func() {
 			defer close(done)
 			var m map[string]int
-			m["x"] = 1 // panics: assignment to entry in nil map
+			m["x"] = 1 //nolint:staticcheck // the crash this test is about
 		}()
 		<-done
 		return
