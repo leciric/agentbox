@@ -896,25 +896,37 @@ func (s *Server) mergePullRequest(w http.ResponseWriter, r *http.Request) error 
 	pr.State = "merged"
 	out := toAPIPullRequests([]github.PullRequest{*pr})[0]
 	s.pulls.merged(repo.String(), number)
+	s.pullDetails.drop(pullFilesKey(repo, number))
+	s.countFeature(api.FeaturePullMerge)
+	// The merge is GitHub's and done: the user is told at once. What follows
+	// — the event, and freeing the agent behind it, which reads git, stops
+	// its chat and deletes its machine and worktree, seconds on a shared home
+	// with a big node_modules — runs after the answer, under the daemon's
+	// context rather than the request's, which ends with it.
+	s.mergeFrees.Go(func() { s.afterMerge(s.background(), p, repo, *pr, string(method), out) })
+	return writeJSON(w, http.StatusOK, out)
+}
+
+// afterMerge records a merge made through the app and frees the agent whose
+// pull request it was.
+func (s *Server) afterMerge(ctx context.Context, p state.Project, repo github.Repo, pr github.PullRequest, method string, out api.PullRequest) {
 	heads := s.agentsOf(ctx, p)
 	by := agentOfCommit(heads, pr.HeadSHA)
-	s.captureEvent(ctx, project, by, "pr_merged", map[string]any{
-		"number": pr.Number, "url": pr.URL, "branch": pr.HeadBranch, "method": string(method),
+	s.captureEvent(ctx, p.Name, by, "pr_merged", map[string]any{
+		"number": pr.Number, "url": pr.URL, "branch": pr.HeadBranch, "method": method,
 	}, "")
-	s.closeAnchoredSoon(project)
-	if by != "" {
-		// Not while another of its pull requests is open, as far as the cache
-		// knows: the watch frees it when that one ends.
-		entry, _ := s.pulls.state(repo.String())
-		if other := entry.byAgent(heads)[by]; other != nil && other.State == "open" && other.Number != number {
-			s.logf("%s/%s: its pull request #%d was merged; kept, with #%d still open", project, by, number, other.Number)
-		} else if a, err := s.store.Agent(ctx, project, by); err == nil {
-			s.freeReviewed(ctx, a, fmt.Sprintf("its pull request #%d was merged", number), &out)
-		}
+	s.closeAnchoredSoon(p.Name)
+	if by == "" {
+		return
 	}
-
-	s.countFeature(api.FeaturePullMerge)
-	return writeJSON(w, http.StatusOK, out)
+	// Not while another of its pull requests is open, as far as the cache
+	// knows: the watch frees it when that one ends.
+	entry, _ := s.pulls.state(repo.String())
+	if other := entry.byAgent(heads)[by]; other != nil && other.State == "open" && other.Number != pr.Number {
+		s.logf("%s/%s: its pull request #%d was merged; kept, with #%d still open", p.Name, by, pr.Number, other.Number)
+	} else if a, err := s.store.Agent(ctx, p.Name, by); err == nil {
+		s.freeReviewed(ctx, a, fmt.Sprintf("its pull request #%d was merged", pr.Number), &out)
+	}
 }
 
 // projectLabels lists the labels of a project's repository, read with the
@@ -995,6 +1007,7 @@ func (s *Server) editPullRequestLabels(w http.ResponseWriter, r *http.Request) e
 	}
 	out := toAPILabels(labels)
 	s.pulls.labelled(key, number, out)
+	s.pullDetails.drop(pullFilesKey(repo, number))
 	s.events.publish(api.EventPulls, api.PullsChange{Project: project, GitHub: key})
 	s.countFeature(api.FeaturePullLabels)
 	if out == nil {

@@ -1837,6 +1837,22 @@ export function installDevBridge(): void {
         const got = { old: decodeURIComponent(rename[1]), name, projects: [PROJECT], agents: [`${PROJECT}/agent-01`, `${PROJECT}/lead`] };
         return { status: 200, body: JSON.stringify(got), contentType: 'application/json' };
       }
+      // A merge (?app=pulls) is answered after as long as GitHub's merge
+      // takes, so what the app shows while it waits can be seen.
+      // Opened from the list, a pull request is its row with a short
+      // description and no files.
+      const opened = method === 'GET' ? /^\/v1\/projects\/[^/]+\/pulls\/(\d+)(\/files)?$/.exec(path) : null;
+      const row = opened && pullRequests().pullRequests.find((p) => p.number === Number(opened[1]));
+      if (row) {
+        const body: T.PullRequestDetail | T.PullRequestFiles = opened[2] ? { files: [], truncated: false } : { ...row, body: 'What it changes, and how it was checked.', changedFiles: 0, checkRuns: [] };
+        return { status: 200, body: JSON.stringify(body), contentType: 'application/json' };
+      }
+      const merge = method === 'POST' ? /^\/v1\/projects\/[^/]+\/pulls\/(\d+)\/merge$/.exec(path) : null;
+      if (merge) {
+        await new Promise((done) => setTimeout(done, 1500));
+        const pr = pullRequests().pullRequests.find((p) => p.number === Number(merge[1]));
+        return { status: 200, body: JSON.stringify({ ...pr, state: 'merged' }), contentType: 'application/json' };
+      }
       if (method === 'GET' && devState.update && path === '/v1/update') return { status: 200, body: JSON.stringify(devState.update), contentType: 'application/json' };
       if (method === 'GET' && devState.setup && path === '/v1/setup') return { status: 200, body: JSON.stringify(devState.setup), contentType: 'application/json' };
       if (method === 'GET' && devState.memoryUsage && path === '/v1/usage/memory') return { status: 200, body: JSON.stringify(devState.memoryUsage), contentType: 'application/json' };

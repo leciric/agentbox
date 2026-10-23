@@ -13,6 +13,8 @@ import (
 	"agentbox/internal/api"
 	"agentbox/internal/github"
 	"agentbox/internal/state"
+
+	"golang.org/x/sync/singleflight"
 )
 
 // The app's pull request view: one pull request read fresh, its files, each
@@ -71,6 +73,82 @@ func (c *pullFiles) put(key string, e pullFilesEntry) {
 	c.byPR[key] = e
 }
 
+// pullDetailTTL is how long a pull request read for the view is served again
+// without asking GitHub: long enough that the read the app starts when the
+// pointer reaches a row is the one the click then shows, short enough that
+// checks finishing behind it are seen on the next open. A list read since that
+// shows the pull request moved — a new head, a later update — overrides it,
+// and so does a merge or a label edit made through the app.
+const pullDetailTTL = 30 * time.Second
+
+// pullDetails keeps the pull requests the view read recently, and shares a
+// read in flight: the hover's read and the click's are one GitHub call.
+type pullDetails struct {
+	mu   sync.Mutex
+	byPR map[string]pullDetailEntry
+	// gen counts drops, so a read that started before one neither stores
+	// what it found nor is joined by a read after it.
+	gen     int
+	flights singleflight.Group
+}
+
+type pullDetailEntry struct {
+	pr github.PullRequestDetail
+	at time.Time
+}
+
+// get is the pull request kept for key while it's fresh and the list hasn't
+// seen it move since; listed is the list's row for it, nil when it has none.
+func (c *pullDetails) get(key string, now time.Time, listed *api.PullRequest) (github.PullRequestDetail, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.byPR[key]
+	if !ok || now.Sub(e.at) >= pullDetailTTL {
+		return github.PullRequestDetail{}, false
+	}
+	if listed != nil && (listed.HeadSHA != e.pr.HeadSHA || listed.State != e.pr.State ||
+		listed.UpdatedAt != nil && e.pr.UpdatedAt != nil && listed.UpdatedAt.After(*e.pr.UpdatedAt)) {
+		return github.PullRequestDetail{}, false
+	}
+	return e.pr, true
+}
+
+func (c *pullDetails) generation() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.gen
+}
+
+// put keeps pr for key unless a drop came after gen.
+func (c *pullDetails) put(key string, gen int, e pullDetailEntry) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if gen != c.gen {
+		return
+	}
+	if c.byPR == nil {
+		c.byPR = map[string]pullDetailEntry{}
+	}
+	if _, ok := c.byPR[key]; !ok && len(c.byPR) >= pullFilesKept {
+		oldest := ""
+		for k, v := range c.byPR {
+			if oldest == "" || v.at.Before(c.byPR[oldest].at) {
+				oldest = k
+			}
+		}
+		delete(c.byPR, oldest)
+	}
+	c.byPR[key] = e
+}
+
+// drop forgets key, after the app changed it on GitHub.
+func (c *pullDetails) drop(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.byPR, key)
+	c.gen++
+}
+
 // pullRequestOf resolves the project, its GitHub client and repository, and
 // the pull request number from a request's path.
 func (s *Server) pullRequestOf(r *http.Request) (state.Project, github.Client, github.Repo, int, error) {
@@ -94,15 +172,16 @@ func (s *Server) pullRequestOf(r *http.Request) (state.Project, github.Client, g
 	return p, client, repo, number, nil
 }
 
-// pullRequestDetail reads one pull request fresh, with its description,
-// labels and check runs, marked with the agent behind it like the list's.
+// pullRequestDetail reads one pull request, with its description, labels and
+// check runs, marked with the agent behind it like the list's. It is read
+// fresh unless the view read it moments ago (pullDetailTTL).
 func (s *Server) pullRequestDetail(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 	p, client, repo, number, err := s.pullRequestOf(r)
 	if err != nil {
 		return err
 	}
-	pr, err := client.PullRequestDetail(ctx, repo, number)
+	pr, err := s.readPullDetail(ctx, client, repo, number)
 	if err != nil {
 		return err
 	}
@@ -120,16 +199,67 @@ func (s *Server) pullRequestDetail(w http.ResponseWriter, r *http.Request) error
 	return writeJSON(w, http.StatusOK, out)
 }
 
+// readPullDetail is the pull request the view shows, from pullDetails or from
+// GitHub. The list's row for it, when the list cache has one, says where its
+// head was, so its check runs are read alongside it.
+func (s *Server) readPullDetail(ctx context.Context, client github.Client, repo github.Repo, number int) (github.PullRequestDetail, error) {
+	key := pullFilesKey(repo, number)
+	listed := s.listedPull(repo, number)
+	if pr, ok := s.pullDetails.get(key, time.Now(), listed); ok {
+		return pr, nil
+	}
+	head := ""
+	if listed != nil {
+		head = listed.HeadSHA
+	}
+	gen := s.pullDetails.generation()
+	// Shared, so not cut short when the request that started it goes.
+	shared := context.WithoutCancel(ctx)
+	v, err, _ := s.pullDetails.flights.Do(key+"@"+strconv.Itoa(gen), func() (any, error) {
+		pr, err := client.PullRequestDetailAt(shared, repo, number, head)
+		if err == nil {
+			s.pullDetails.put(key, gen, pullDetailEntry{pr: pr, at: time.Now()})
+		}
+		return pr, err
+	})
+	if err != nil {
+		return github.PullRequestDetail{}, err
+	}
+	return v.(github.PullRequestDetail), nil
+}
+
+// listedPull is the list cache's row for a pull request, nil when it has none.
+func (s *Server) listedPull(repo github.Repo, number int) *api.PullRequest {
+	entry, _ := s.pulls.state(repo.String())
+	for i := range entry.prs {
+		if entry.prs[i].Number == number {
+			pr := entry.prs[i]
+			return &pr
+		}
+	}
+	return nil
+}
+
 // pullRequestFiles lists the files a pull request changes, without their
-// diffs, and keeps the diffs for pullFileDiff.
+// diffs, and keeps the diffs for pullFileDiff. A listing younger than
+// pullDetailTTL is served again.
 func (s *Server) pullRequestFiles(w http.ResponseWriter, r *http.Request) error {
 	_, client, repo, number, err := s.pullRequestOf(r)
 	if err != nil {
 		return err
 	}
-	e, err := s.readPullFiles(r.Context(), client, repo, number)
-	if err != nil {
-		return err
+	// The files read moments ago, by the read the app starts when the
+	// pointer reaches a row, are the ones to show; older ones are read again.
+	key := pullFilesKey(repo, number)
+	e, ok := s.pullFiles.get(key, time.Now())
+	if !ok || time.Since(e.at) >= pullDetailTTL {
+		v, err, _ := s.pullDetails.flights.Do("files:"+key, func() (any, error) {
+			return s.readPullFiles(context.WithoutCancel(r.Context()), client, repo, number)
+		})
+		if err != nil {
+			return err
+		}
+		e = v.(pullFilesEntry)
 	}
 	out := api.PullRequestFiles{Files: make([]api.PullFile, len(e.files)), Truncated: e.truncated}
 	for i, f := range e.files {

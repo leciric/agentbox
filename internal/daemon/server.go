@@ -104,6 +104,7 @@ type Server struct {
 	chat         *chat.Manager // the agents' conversations in the app's Chat tab
 	pulls        *pullsCache   // what GitHub said about each repository, served stale
 	pullFiles    pullFiles     // the files of the pull requests the app opened, for their diffs
+	pullDetails  pullDetails   // the pull requests the app opened, for a moment (pulldetail.go)
 	prWatch      *prWatcher    // the agents' pull requests being watched (prwatch.go)
 	// prTell sends an agent a message from the pull request watch, waking it
 	// first, and says what that took: tellAgent, or a test's recorder.
@@ -175,6 +176,10 @@ type Server struct {
 	// connectors starts in the background (connectors.go), for the same
 	// reason, and so a test can wait for one to have marked the chats.
 	connectorSyncs sync.WaitGroup
+	// mergeFrees tracks the agents a merge through the app frees after it
+	// has answered (mergePullRequest), for the same reason: one may still be
+	// deleting a machine and a worktree.
+	mergeFrees sync.WaitGroup
 	// vgpu is the readying of a Mac's VM's GPU (vgpu.go), which Run waits
 	// for too.
 	vgpu vgpuSetup
@@ -465,6 +470,7 @@ func (s *Server) Run(ctx context.Context) error {
 		s.bgChecks.Wait()
 		s.skillSyncs.Wait()
 		s.connectorSyncs.Wait()
+		s.mergeFrees.Wait()
 		s.vgpu.wg.Wait()
 	}()
 	s.firstSweeps.Add(4)

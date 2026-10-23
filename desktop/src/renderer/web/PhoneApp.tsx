@@ -441,6 +441,24 @@ function PullsScreen({ project, onBack }: { project: string; onBack: () => void 
   const [merging, setMerging] = useState<T.PullRequest | null>(null);
   const open = (pulls.data?.pullRequests ?? []).filter((pr) => pr.state === 'open');
   const method = pulls.data?.mergeMethods?.[0] ?? 'merge';
+  // The dialog closes and the row leaves the moment the merge is confirmed;
+  // if GitHub refuses, the row comes back and a toast says why.
+  const key = ['projectPullRequests', project];
+  const withState = (number: number, state: string) =>
+    queryClient.setQueryData<T.ProjectPullRequests>(key, (d) => d && { ...d, pullRequests: d.pullRequests.map((p) => (p.number === number ? { ...p, state } : p)) });
+  const merge = useMutation({
+    mutationFn: (number: number) => api.mergePullRequest(project, number, method, true),
+    onMutate: async (number) => {
+      await queryClient.cancelQueries({ queryKey: key });
+      withState(number, 'merged');
+    },
+    onSuccess: (_pr, number) => toast.success(t('web.phone.merged', { number })),
+    onError: (err, number) => {
+      withState(number, 'open');
+      toast.error(t('memory.pulls.mergeFailed', { error: errorMessage(err) }));
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: key }),
+  });
   return (
     <>
       <ScreenHeader title={t('web.phone.pulls')} subtitle={projectLabel(project, projects.data)} onBack={onBack} />
@@ -480,10 +498,7 @@ function PullsScreen({ project, onBack }: { project: string; onBack: () => void 
         confirmLabel={t('web.phone.merge')}
         destructive
         onConfirm={async () => {
-          if (!merging) return;
-          await api.mergePullRequest(project, merging.number, method, true);
-          toast.success(t('web.phone.merged', { number: merging.number }));
-          void queryClient.invalidateQueries({ queryKey: ['projectPullRequests', project] });
+          if (merging) merge.mutate(merging.number);
         }}
       />
     </>
