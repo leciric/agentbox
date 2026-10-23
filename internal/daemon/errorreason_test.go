@@ -72,6 +72,10 @@ func TestScrubReasonLeavesNothingPersonal(t *testing.T) {
 			t.Fatalf("reason has %q: %s", r, got)
 		}
 	}
+	// Another user's home, as the Redactor leaves it, goes whole.
+	if got := scrubReason("open /home/[user]/src/p/.git: no such file"); got != "open [path]: no such file" {
+		t.Errorf("a redacted home: %q", got)
+	}
 	if got := scrubReason("Claude Code exited (exit status 137): Killed"); got != "Claude Code exited (exit status 137): Killed" {
 		t.Errorf("plain wording changed: %q", got)
 	}

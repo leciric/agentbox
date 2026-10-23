@@ -136,7 +136,8 @@ var (
 	reasonQuoted  = regexp.MustCompile("\"[^\"]*\"|'[^']*'|`[^`]*`|“[^”]*”|‘[^’]*’|«[^»]*»")
 	reasonWinPath = regexp.MustCompile(`(?i)\b[a-z]:\\[^\s"'<>|]*`)
 	// Anything with a slash in it: a path, a branch, a project/agent ref.
-	reasonPath = regexp.MustCompile(`[^\s"'()\[\]{}<>,;=]*[/\\][^\s"'()\[\]{}<>,;]*`)
+	// Brackets may be inside, as in the Redactor's /home/[user]/src.
+	reasonPath = regexp.MustCompile(`[^\s"'(){}<>,;=]*[/\\][^\s"'(){}<>,;]*`)
 	reasonUUID = regexp.MustCompile(`(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b`)
 	reasonHex  = regexp.MustCompile(`(?i)\b[0-9a-f]{16,}\b`)
 	reasonIPv4 = regexp.MustCompile(`\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b`)
