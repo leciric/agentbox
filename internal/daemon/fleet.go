@@ -122,7 +122,17 @@ func changesOf(a state.Agent) api.AgentChanges {
 	if err != nil {
 		return out
 	}
-	// The last line of --stat is " N files changed, N insertions(+), N deletions(-)".
+	out = statOf(stat)
+	if dirty, err := gitrepo.Dirty(a.Worktree); err == nil {
+		out.Dirty = dirty
+	}
+	return out
+}
+
+// statOf reads git's diff --stat or --shortstat, whose last line is
+// " N files changed, N insertions(+), N deletions(-)".
+func statOf(stat string) api.AgentChanges {
+	var out api.AgentChanges
 	lines := strings.Split(strings.TrimSpace(stat), "\n")
 	if len(lines) == 0 || lines[0] == "" {
 		return out
@@ -144,9 +154,6 @@ func changesOf(a state.Agent) api.AgentChanges {
 		case strings.HasPrefix(fields[1], "deletion"):
 			out.Deletions = n
 		}
-	}
-	if dirty, err := gitrepo.Dirty(a.Worktree); err == nil {
-		out.Dirty = dirty
 	}
 	return out
 }

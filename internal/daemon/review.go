@@ -102,25 +102,57 @@ func (then reviewMark) movedTo(now reviewMark) bool {
 // Reviewed, the rest ready to review. Pull requests come from the project's
 // cache, as the fleet's do, so this never waits on GitHub.
 func (s *Server) reviewItems(ctx context.Context, p state.Project, agents []state.Agent) []api.ReviewItem {
-	var finished []state.Agent
-	var finishes []api.AgentEvent
+	var out []api.ReviewItem
+	for _, e := range s.liveWork(ctx, p, agents, false) {
+		if e.item.Verdict == "" && e.ended {
+			// Merged or closed is done with, whoever did it and whenever:
+			// never work to review. The PR watch and the startup reconcile
+			// free its machine (freeReviewed); one kept for work that is only
+			// there stays in the sidebar, not here.
+			continue
+		}
+		out = append(out, e.item)
+	}
+	return out
+}
+
+// liveEntry is one live agent's work, as the review lists and the Work page
+// (work.go) read it: its review item, whether it has finished (the item has
+// no finish or fingerprint until it has), and whether its pull request was
+// merged or closed.
+type liveEntry struct {
+	agent    state.Agent
+	item     api.ReviewItem
+	finished bool
+	ended    bool
+}
+
+// liveWork is the work of agents, all of project p: the finished ones only,
+// or with unfinished every worker, at work or not.
+func (s *Server) liveWork(ctx context.Context, p state.Project, agents []state.Agent, unfinished bool) []liveEntry {
+	var kept []state.Agent
+	finishes := map[string]api.AgentEvent{}
 	for _, a := range agents {
-		if a.Status == state.AgentDestroying {
+		if a.Status == state.AgentDestroying || a.IsLead() {
 			continue // a past agent in a moment
 		}
-		if ev, ok := s.finishOf(ctx, a); ok {
-			finished, finishes = append(finished, a), append(finishes, ev)
+		ev, ok := s.finishOf(ctx, a)
+		if ok {
+			finishes[a.Name] = ev
+		}
+		if ok || unfinished {
+			kept = append(kept, a)
 		}
 	}
-	if len(finished) == 0 {
+	if len(kept) == 0 {
 		return nil
 	}
-	_, entry, heads, _, err := s.projectPulls(p, finished)
+	_, entry, heads, _, err := s.projectPulls(p, kept)
 	var prs map[string]*api.PullRequest
 	if err == nil {
 		prs = entry.byAgent(heads)
 	} else {
-		heads = agentHeads(p.Root, finished)
+		heads = agentHeads(p.Root, kept)
 	}
 	// An agent with several branches has moved when any of them has: its
 	// tips, first branch first, which for one branch is that branch's tip.
@@ -131,36 +163,31 @@ func (s *Server) reviewItems(ctx context.Context, p state.Project, agents []stat
 		}
 		tips[h.agent] += h.tip
 	}
-	var out []api.ReviewItem
-	for i, a := range finished {
-		ev := finishes[i]
+	out := make([]liveEntry, 0, len(kept))
+	for _, a := range kept {
+		ev, finished := finishes[a.Name]
 		pr := prs[a.Name]
 		s.prWatch.overlay(p.Name, pr)
+		e := liveEntry{agent: a, finished: finished, ended: prEnded(pr, a)}
+		e.item = api.ReviewItem{Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title, Branch: branchOf(heads, a, pr), AI: a.AI, PR: pr}
+		if !finished {
+			out = append(out, e)
+			continue
+		}
 		mark := markOf(ev, tips[a.Name], pr)
-		branch := branchOf(heads, a, pr)
 		if pr == nil {
-			pr = ev.PR
+			e.item.PR = ev.PR
 		}
-		item := api.ReviewItem{
-			Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title, Branch: branch, AI: a.AI,
-			Summary: ev.Summary, Changes: ev.Changes, PR: pr, FinishedAt: ev.At, Fingerprint: mark.String(),
-		}
+		e.item.Summary, e.item.Changes, e.item.FinishedAt, e.item.Fingerprint = ev.Summary, ev.Changes, ev.At, mark.String()
 		if r, ok, err := s.store.AgentReviewOf(ctx, a.Project, a.Name); err == nil && ok {
 			var then reviewMark
 			if json.Unmarshal([]byte(r.Fingerprint), &then) == nil && !then.movedTo(mark) {
 				at := r.At
-				item.Verdict, item.ReviewedAt = r.Verdict, &at
-				item.MachineKept = r.Verdict == api.ReviewReviewed && s.isMachineKept(a.Ref())
+				e.item.Verdict, e.item.ReviewedAt = r.Verdict, &at
+				e.item.MachineKept = r.Verdict == api.ReviewReviewed && s.isMachineKept(a.Ref())
 			}
 		}
-		if item.Verdict == "" && prEnded(prs[a.Name], a) {
-			// Merged or closed is done with, whoever did it and whenever:
-			// never work to review. The PR watch and the startup reconcile
-			// free its machine (freeReviewed); one kept for work that is only
-			// there stays in the sidebar, not here.
-			continue
-		}
-		out = append(out, item)
+		out = append(out, e)
 	}
 	return out
 }

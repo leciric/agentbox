@@ -422,6 +422,16 @@ func DiffWorktree(worktree, base string, stat bool, paths ...string) (string, er
 	return output(worktree, nil, args...)
 }
 
+// DiffCommits diffs base against commit in the repository at dir, as a
+// patch or with stat as git's --shortstat line.
+func DiffCommits(dir, base, commit string, stat bool) (string, error) {
+	args := []string{"diff"}
+	if stat {
+		args = append(args, "--shortstat")
+	}
+	return output(dir, nil, append(args, base, commit)...)
+}
+
 func run(dir string, args ...string) (string, error) {
 	out, err := output(dir, nil, args...)
 	return strings.TrimSpace(out), err
