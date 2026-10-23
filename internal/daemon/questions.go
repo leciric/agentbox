@@ -621,14 +621,15 @@ func (s *Server) prFor(ctx context.Context, a state.Agent) *api.PullRequest {
 	// found by the agent's commits, whatever branch they were pushed to.
 	// Each of its branches, should it have opened a follow-up from another.
 	var best *api.PullRequest
-	for _, branch := range agentBranches(a, nil) {
+	branches, _ := agentBranches(a, nil) // what it could read; nil stays the safe answer
+	for _, branch := range branches {
 		h := agentHeadOf(p.Root, a, branch)
 		if h.tip == "" {
 			continue
 		}
 		l := lookUp(ctx, s.gitHub(token), repo, h)
 		for i := range l.prs {
-			if h.accepts(l.prs[i], l.via) {
+			if h.claims(l.prs[i]) {
 				if laterPR(&l.prs[i], best) {
 					best = &l.prs[i]
 				}

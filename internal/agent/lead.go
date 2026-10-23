@@ -514,14 +514,7 @@ func (m *Manager) writeLeadHome(home, worktree, text, socket string, mcpEnv map[
 // GitHub is optional, so an account that no longer resolves leaves the lead
 // without one rather than without a chat.
 func (m *Manager) leadGitHubToken(p state.Project) string {
-	account, err := m.GitHubAccountFor(p, "")
-	if err == nil && account == "" {
-		return ""
-	}
-	var token string
-	if err == nil {
-		token, err = m.Creds.GitHubToken(account)
-	}
+	token, err := m.GitHubToken(p)
 	if err != nil {
 		m.logf("The %s chat has no GitHub account: %v", p.Name, err)
 		return ""
@@ -529,10 +522,20 @@ func (m *Manager) leadGitHubToken(p state.Project) string {
 	return token
 }
 
+// GitHubToken is the token of the GitHub account the project's agents get
+// (GitHubAccountFor), or "" when there is none.
+func (m *Manager) GitHubToken(p state.Project) (string, error) {
+	account, err := m.GitHubAccountFor(p, "")
+	if err != nil || account == "" {
+		return "", err
+	}
+	return m.Creds.GitHubToken(account)
+}
+
 // leadCredentialHelper answers git's credential requests for github.com with
-// GH_TOKEN, as `gh auth git-credential` would, without needing gh: the lead
-// runs on the host (or AgentBox's VM), which need not have it.
-const leadCredentialHelper = `!f() { test "$1" = get && test -n "$GH_TOKEN" || return 0; echo username=x-access-token; echo "password=$GH_TOKEN"; }; f`
+// GH_TOKEN, without needing gh: the lead runs on the host (or AgentBox's
+// VM), which need not have it.
+const leadCredentialHelper = gitrepo.GitHubCredentialHelper
 
 // leadGitConfig is the lead's ~/.gitconfig: an agent's (gitConfig), with a
 // credential helper of its own. The lead's git would otherwise reach

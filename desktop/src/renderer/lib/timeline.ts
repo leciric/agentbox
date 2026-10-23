@@ -118,41 +118,6 @@ export function marks(track: Track): Mark[] {
 // fileName is a path's last part, for a step's title ("Edited App.tsx").
 export const fileName = (path: string) => path.slice(path.lastIndexOf('/') + 1);
 
-// Today's reel (components/timeline/TodayView): the agents of a project that
-// worked since the day began, oldest first, each a title card and then the
-// things it kept that are worth looking at, a recording, a screenshot or a
-// page, in the order it made them.
-export type Chapter = { ref: string; timeline: T.Timeline };
-export type Slide = { ref: string; kind: 'intro' } | { ref: string; kind: 'media'; media: T.MediaItem; step: T.TimelineStep } | { ref: string; kind: 'page'; page: T.TimelinePage; step: T.TimelineStep };
-
-export function slidesOf(chapters: Chapter[]): Slide[] {
-  return chapters.flatMap(({ ref, timeline }) => {
-    const kept: Slide[] = timeline.steps.flatMap((step) => [
-      ...(step.media ?? []).filter((m) => m.kind === 'recording' || m.kind === 'screenshot').map((media) => ({ ref, kind: 'media' as const, media, step })),
-      ...(step.pages ?? []).map((page) => ({ ref, kind: 'page' as const, page, step })),
-    ]);
-    return [{ ref, kind: 'intro' as const }, ...kept];
-  });
-}
-
-// worked says whether a timeline has a step that ran since since (ms).
-export const workedSince = (tl: T.Timeline, since: number) => tl.steps.some((s) => ms(s.end) >= since);
-
-// dayStart is the start of the local day that now falls in.
-export function dayStart(now = Date.now()): number {
-  const d = new Date(now);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-}
-
-// holdFor is how long the reel shows a slide, in seconds: a recording for
-// its length up to a minute, played through, the rest for a few seconds.
-export function holdFor(slide: Slide): number {
-  if (slide.kind === 'intro') return 3;
-  if (slide.kind === 'media' && slide.media.kind === 'recording') return Math.min(60, Math.max(4, slide.media.meta?.duration ?? 4));
-  return 5;
-}
-
 // mmss is a span of seconds as m:ss, or h:mm:ss from an hour.
 export function mmss(s: number): string {
   s = Math.max(0, Math.floor(s));

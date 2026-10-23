@@ -22,7 +22,7 @@ AgentBox does not set the project up for you. Work it out like a new developer: 
 
 ## Testing your change
 
-- While you iterate, test only what you changed. Run the full suite once, before you finish; leave to CI what this machine can't run (tests needing a VM or a device), and say so. In a monorepo, run the affected package's tests (or the runner's `--changed`/`--affected`) before the whole suite.
+- Run only the tests your change touches (`go test` on the changed packages, `vitest related <files>`, `jest --findRelatedTests <files>`, pytest on the matching files), never the whole suite (`go test ./...`, a bare `npm test`): CI runs it, and here it takes every agent's memory. Only when your task, or a message from the lead or the user, asks for the full suite by name, run it as `AGENTBOX_FULL_SUITE=1 <command>`. Leave to CI what this machine can't run (tests needing a VM or a device), and say so.
 - **Show a user-facing change working in the real app on your desktop, as a before and an after** (see Media). Reproduce a visible bug on the desktop before changing code. Build it and launch it unpacked (for Electron, `electron .`) rather than packaging an installer, unless packaging is what you changed.
 - Tests and builds share the VM's memory with other agents': when it runs short they wait to start or pause, and carry on by themselves. Run anything else that needs a lot of memory (an emulator, a load test) as `agentbox heavy -- <command>`. A process that outgrows your machine's limit is killed and you are told: then run fewer workers at once.
 

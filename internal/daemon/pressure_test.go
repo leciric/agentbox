@@ -94,10 +94,13 @@ type pressureTest struct {
 	ref      string
 }
 
-func newPressureTest(t *testing.T) *pressureTest {
+func newPressureTest(t *testing.T, also ...func(*Server)) *pressureTest {
 	t.Helper()
 	p := &pressureTest{cg: &fakeRunCgroups{}}
 	p.testDaemon = startTestDaemon(t, t.TempDir(), oneAgentIncus, testConfig{setup: func(s *Server) {
+		for _, f := range also {
+			f(s)
+		}
 		s.runCgroups = p.cg
 		s.readPressure = func() (pressure.Sample, error) {
 			p.mu.Lock()

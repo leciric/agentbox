@@ -24,6 +24,9 @@ function fixtureVMGPU(gpu: string | null): T.VMGPU {
     case 'vm':
       // What a Linux (Cloud Hypervisor) VM said before it could have the GPU.
       return { kind: '', node: '', setup: '', reason: "AgentBox's VM has no GPU to give agents" };
+    case 'vz':
+      // A Mac's VM made without krunkit (hostvm's gpuReason).
+      return { kind: '', node: '', setup: '', reason: "AgentBox's VM runs on Apple's Virtualization framework (vz), which gives it no 3D. A VM made with krunkit has a GPU: install krunkit (brew tap slp/krun && brew trust slp/krun && brew install krunkit), then agentbox vm delete --yes (it removes the agents' machines) and agentbox vm init" };
     case 'host':
       return { kind: 'host', node: '/dev/dri/renderD129', setup: '', reason: '' };
     case 'old':
@@ -40,6 +43,12 @@ function fixtureVMGPU(gpu: string | null): T.VMGPU {
       return { kind: '', node: '', setup: gpu, reason: krunkit };
     case 'failed':
       return { kind: '', node: '', setup: 'failed', reason: "GPU: Debian's generic kernel (6.12.48+deb13-arm64) didn't boot, so the VM went back to its cloud kernel" };
+    case 'updating':
+      // A krunkit VM with a driver, building a newer one.
+      return { kind: 'render', node: '/dev/dri/renderD128', setup: 'running', reason: '' };
+    case 'updatefailed':
+      // A krunkit VM with a driver whose newer build failed.
+      return { kind: 'render', node: '/dev/dri/renderD128', setup: 'failed', reason: '2. curl:arm64=8.21.0-2~bpo13+1 Depends libcurl4t64 (= 8.21.0-2~bpo13+1)' };
   }
   return { kind: 'dxg', node: '/dev/dxg', setup: '', reason: '' };
 }
@@ -196,6 +205,35 @@ export function richChat(): T.ChatThread {
   };
 }
 
+// thinkingThread is a project chat on Claude Code whose last turn thinks
+// (summarized thinking, as claude-agent-acp streams it): phase "live" is the
+// thought still arriving, "answer" the reply arriving after it, "done" the
+// turn settled, its work folded behind "Worked for …". An earlier turn
+// thought and settled, for the row it leaves.
+export function thinkingThread(phase: string): T.ChatThread {
+  const at = (secondsAgo: number) => new Date(Date.now() - secondsAgo * 1000).toISOString();
+  const thought = [
+    "I'm working with the Pell equation x² − 13y² = 1, so the fundamental solution comes from the continued fraction of √13, whose period is 5: that gives (649, 180), and 649² − 13·180² = 421201 − 421200 = 1 checks out.",
+    '',
+    'Each next solution is (x₁ + y₁√13)ⁿ, so (842401, 233640) follows from squaring, and the third, x ≈ 1.09·10⁹, is already past a million: the list stops there.',
+  ].join('\n');
+  const live = phase === 'live';
+  const settled = phase === 'done';
+  return {
+    agent: `${PROJECT}/lead`,
+    seq: 1,
+    session: { state: settled ? 'ready' : 'running', tool: 'claude', options: [], commands: [], ...(settled ? {} : { turnStartedAt: at(12) }) },
+    items: [
+      { id: 't1', turn: 't1', kind: 'user', text: 'Is 2^61 − 1 prime?', result: { state: 'completed', endedAt: at(110) }, createdAt: at(120), updatedAt: at(110) },
+      { id: 't2', turn: 't1', kind: 'thought', text: 'Recalling that 2^61 − 1 is M61, the Mersenne prime Pervushin proved in 1883.', createdAt: at(118), updatedAt: at(116) },
+      { id: 't3', turn: 't1', kind: 'assistant', text: 'Yes: 2^61 − 1 = 2305843009213693951 is the Mersenne prime M61.', createdAt: at(115), updatedAt: at(110) },
+      { id: 't4', turn: 't4', kind: 'user', text: 'Without tools: find all integer solutions of x^2 − 13y^2 = 1 with 0 < x < 1000000.', ...(settled ? { result: { state: 'completed', endedAt: at(1) } } : {}), createdAt: at(12), updatedAt: at(12) },
+      { id: 't5', turn: 't4', kind: 'thought', text: live ? thought.slice(0, 330) : thought, streaming: live, createdAt: at(11), updatedAt: at(live ? 0 : 6) },
+      ...(live ? [] : [{ id: 't6', turn: 't4', kind: 'assistant', text: 'The fundamental solution is (649, 180); the next is (842401, 233640).\n\n(x, y) = (1, 0), (649, ±180), (842401, ±233640)', streaming: !settled, createdAt: at(5), updatedAt: at(settled ? 1 : 0) }]),
+    ],
+  };
+}
+
 // compactionThread is a project chat that has compacted three times (D73):
 // once cleanly, once without managing to save the conversation, and once
 // still running, with a message the user sent meanwhile held under the card.
@@ -264,6 +302,10 @@ export function buildFixtures(): FixtureData {
     agent({ ref: `${PROJECT}/agent-37`, title: 'Landing page', ai: 'codex', chat: 'ready', outcome: 'asking', outcomeNote: 'What do you want me to do next: launch, change, or stop?' }),
     agent({ ref: `${PROJECT}/agent-38`, title: 'Migrate the reminders table', chat: 'ready', outcome: 'failed', outcomeNote: 'API Error: WebSocket closed with code 1006 (abnormal closure)' }),
     agent({ ref: `${PROJECT}/agent-39`, title: 'Paginate the reminders page', chat: 'ready', outcome: 'done' }),
+    // Idle reclaim holds their memory (T.Agent.reclaimed): one's dev server
+    // and browser frozen in swap, one's machine stopped after it finished.
+    agent({ ref: `${PROJECT}/agent-35`, title: 'Dark mode for settings', chat: 'ready', outcome: 'idle', reclaimed: 'frozen' }),
+    agent({ ref: `${PROJECT}/agent-34`, title: 'Fix the CSV export', state: 'stopped', outcome: 'done', reclaimed: 'stopped' }),
     agent({ ref: `${PROJECT}/agent-36`, title: 'Search the docs', ai: 'opencode', state: 'stopped', outcome: 'resuming' }),
     agent({ ref: `${PROJECT}/agent-92`, title: 'Lost its machine', ai: 'claude', state: 'incomplete' }),
     agent({ ref: `${PROJECT}/agent-89`, title: 'Still being created', ai: 'claude', state: 'initializing' }),
@@ -279,6 +321,22 @@ export function buildFixtures(): FixtureData {
       title: 'Run the full test suite',
       chat: 'running',
       memory: { paused: 1, since: new Date(Date.now() - 3 * 60_000).toISOString(), why: 'falling', rate: 190 * 1024 ** 2, available: 5.9 * 1024 ** 3, total: 17.8 * 1024 ** 3 },
+    }),
+    // Settings → Experimental's "Pause whole agents for memory": one frozen
+    // mid-turn, two machines thawing before it, and one waiting for the
+    // memory to boot its machine.
+    agent({
+      ref: `${PROJECT}/agent-85`,
+      title: 'Profile the search endpoint',
+      state: 'paused',
+      chat: 'running',
+      memory: { machine: 'paused', ahead: 2, since: new Date(Date.now() - 60_000).toISOString(), why: 'low', available: 1.1 * 1024 ** 3, total: 17.8 * 1024 ** 3 },
+    }),
+    agent({
+      ref: `${PROJECT}/agent-84`,
+      title: 'Add the export button',
+      state: 'initializing',
+      memory: { machine: 'waiting', ahead: 3, since: new Date(Date.now() - 30_000).toISOString(), why: 'easing', available: 2.4 * 1024 ** 3, total: 17.8 * 1024 ** 3 },
     }),
     // A name given to create by hand, as long as the title beside it: the
     // row's name must give way before it pushes the title out.
@@ -492,6 +550,7 @@ export function buildFixtures(): FixtureData {
       nesting: false,
       agentPRs: false,
       syncBase: true,
+      fullTestSuite: false,
       prWatch: '',
       prWatching: true,
       createdAt: new Date().toISOString(),
@@ -523,6 +582,7 @@ export function buildFixtures(): FixtureData {
       nesting: false,
       agentPRs: false,
       syncBase: true,
+      fullTestSuite: false,
       prWatch: '',
       prWatching: true,
       createdAt: new Date().toISOString(),
@@ -722,6 +782,21 @@ export function pullRequests(): T.ProjectPullRequests {
     canMergeKnown: true,
     mergeMethods: ['merge', 'squash', 'rebase'],
     pullRequests: [
+      // One ready to merge: checks passing, nothing in the way.
+      {
+        number: 81,
+        title: 'fix: reminders keep their time zone',
+        state: 'open',
+        checks: 'passing',
+        watched: true,
+        url: 'https://github.com/leciric/agentbox/pull/81',
+        additions: 18,
+        deletions: 4,
+        updatedAt: new Date().toISOString(),
+        baseBranch: 'main',
+        headBranch: 'agentbox/reminder-time-zone',
+        author: 'someone',
+      },
       {
         number: 78,
         title: 'A pull request whose title is genuinely long enough to be a problem for a narrow column',
@@ -878,7 +953,9 @@ export function leadOptions(): T.ChatOption[] {
     { id: 'model', name: 'Model', category: 'model', type: 'select', value: 'opus', choices: [{ value: 'opus', name: 'Opus' }, { value: 'sonnet', name: 'Sonnet' }, { value: 'haiku', name: 'Haiku' }] },
     { id: 'context_window', name: 'Context window', category: 'context_window', type: 'select', value: '200k', choices: [{ value: '200k', name: '200k' }, { value: '1m', name: '1M' }] },
     { id: 'effort', name: 'Effort', category: 'thought_level', type: 'select', value: 'high', choices: [{ value: 'medium', name: 'Medium' }, { value: 'high', name: 'High' }] },
-    { id: 'mode', name: 'Mode', category: 'mode', type: 'select', value: 'default', choices: [{ value: 'default', name: 'Ask before edits' }, { value: 'acceptEdits', name: 'Accept edits' }, { value: 'plan', name: 'Plan' }] },
+    { id: 'mode', name: 'Mode', category: 'mode', type: 'select', value: 'bypassPermissions', choices: [{ value: 'default', name: 'Ask before edits', kind: 'standard' }, { value: 'acceptEdits', name: 'Accept edits' }, { value: 'bypassPermissions', name: 'Bypass Permissions', kind: 'full_access' }] },
+    // AgentBox's own toggle beside the mode (internal/chat/plan.go).
+    { id: 'plan', name: 'Plan', category: 'plan', type: 'boolean', value: 'true', choices: [] },
   ];
 }
 
@@ -1217,6 +1294,8 @@ export function seedPower(queryClient: QueryClient, power: string, { tight = fal
         state,
         memoryUsed: up ? (tight ? 21.9 : 11.3) * GiB : 0,
         memoryGranted: up ? (tight ? 23 : 16) * GiB : 0,
+        memoryResident: up ? (tight ? 22.8 : 15.3) * GiB : 0,
+        memoryHostCache: up ? 1.4 * GiB : 0,
         memoryCap: 24 * GiB,
         cpus: 12,
         ...(up ? { disk, hostFree: disk.hostFree } : {}),
@@ -1299,6 +1378,7 @@ export function freeRun(queryClient: QueryClient, phase: string): FreeRun {
 function fakeVM() {
   const listeners = new Set<(text: string) => void>();
   const swapListeners = new Set<(text: string) => void>();
+  const krunkitListeners = new Set<(text: string) => void>();
   return {
     onSwapOutput: (fn: (text: string) => void) => {
       swapListeners.add(fn);
@@ -1307,6 +1387,31 @@ function fakeVM() {
     onOutput: (fn: (text: string) => void) => {
       listeners.add(fn);
       return () => listeners.delete(fn);
+    },
+    // `agentbox vm krunkit --remake --yes` against ?mac='s VM: Homebrew, the
+    // delete and the new VM, a line at a time, ending with a krunkit VM.
+    onKrunkitOutput: (fn: (text: string) => void) => {
+      krunkitListeners.add(fn);
+      return () => krunkitListeners.delete(fn);
+    },
+    remakeWithKrunkit: async () => {
+      const vm = devState.hostSetup?.vm;
+      if (!vm) throw new Error('krunkit runs only on a Mac');
+      const brew = vm.krunkit?.brew ? (vm.krunkit.missing === 'driver' ? ['$ brew upgrade lima\n', '==> Upgrading lima 1.2.0 -> 2.2.1\n'] : ['$ brew tap slp/krun\n', '$ brew trust slp/krun\n', '$ brew install krunkit\n', '==> Pouring krunkit--1.3.2.arm64_tahoe.bottle.tar.gz\n']) : [];
+      const lines = [
+        '$ agentbox vm krunkit --remake --yes\n',
+        ...brew,
+        '==> krunkit is installed: a VM made now is made with it\n',
+        "==> Deleting the VM (Apple's Virtualization framework), and every agent's machine in it\n",
+        '==> Making the VM with krunkit, so it gives the memory it stops using back to your Mac, and has a GPU for agents\n',
+        '==> Setting AgentBox up in the VM\n',
+      ];
+      for (const line of lines) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        for (const fn of krunkitListeners) fn(line);
+      }
+      devState.hostSetup = { ...devState.hostSetup!, vm: { ...vm, vmType: 'krunkit', krunkit: undefined } };
+      defaultsSettings = { ...defaultsSettings, vmGPU: { kind: '', node: '', setup: 'available', reason: "the VM's kernel has no GPU driver yet: turning GPU for agents on installs one" } };
     },
     resize: async (cpus: number, memory: string, restart?: boolean, disk?: string) => {
       // On Linux (?chv=), the Cloud Hypervisor VM changes while it runs.
@@ -1460,21 +1565,31 @@ let defaultsSettings = {
   updateCheck: true,
   usageStats: true,
   agentGPU: false,
+  blockFullSuite: false,
   // WSL's GPU, or ?gpu=none for a VM with none, or ?gpu=krunkit|running|restart|failed
   // for a Mac's krunkit VM whose GPU isn't ready; ?gpu=host for a Linux host's GPU the VM
   // gets at its next start, ?gpu=hostrestart for one turned on, waiting, ?gpu=nvidia for
-  // one it can't have, ?gpu=vm for a Linux VM with none.
+  // one it can't have, ?gpu=vm for a Linux VM with none, ?gpu=vz for a Mac's VM made
+  // without krunkit.
   vmGPU: fixtureVMGPU(typeof location !== 'undefined' ? new URLSearchParams(location.search).get('gpu') : null),
   errorReports: true,
+  agentFreeze: false,
   prWatch: true,
   defaultClaudeCompactWindow: 500_000,
   diskFloorMin: 10 * 1024 ** 3,
   diskFloorPercent: 5,
   autoStopIdle: false,
+  removeStopped: false,
+  removeStoppedDays: 7,
   dockerPruneOnStop: true,
   idleTimeSeconds: 2 * 60 * 60,
+  idleReclaim: false,
+  idleFreezeSeconds: 5 * 60,
+  idleStopSeconds: 10 * 60,
   leadRecheck: false,
   leadRecheckMinutes: 20,
+  leadSleep: true,
+  leadSleepMinutes: 15,
   imageCache: true,
   imageCacheMaxBytes: 20 * 1024 ** 3,
   defaultImageCacheMaxBytes: 20 * 1024 ** 3,
@@ -1483,8 +1598,35 @@ let defaultsSettings = {
   packageCacheMaxBytes: 20 * 1024 ** 3,
   defaultPackageCacheMaxBytes: 20 * 1024 ** 3,
   packageCacheBytes: 3.1 * 1024 ** 3,
+  localNodeModules: true,
   claudeCodeUpdate: { on: false, installed: '2.1.280', pinned: '2.1.280', latest: '', checking: false },
 } as T.Settings;
+
+// fixtureStoppedMachines is every stopped agent, each holding a machine of a
+// few GB, stopped some days apart (stoppedDaysAgo); with ?check=1, those
+// stopped longer than the setting's days can go and the rest are kept, as
+// "remove stopped agents' machines" would judge.
+function fixtureStoppedMachines(path: string): T.StoppedMachines {
+  const query = new URLSearchParams(path.split('?')[1] ?? '');
+  const project = query.get('project');
+  const check = query.get('check') === '1';
+  const days = defaultsSettings.removeStoppedDays;
+  const stopped = (devState.agents ?? []).filter((a) => a.state === 'stopped' && (!project || a.project === project));
+  const machines = stopped.map((a, i): T.StoppedMachine => {
+    const ago = stoppedDaysAgo[a.name] ?? 1;
+    const verdict = !check ? {} : ago >= days ? { remove: 'it changed nothing' } : { keep: `stopped for less than ${days} days` };
+    return { ref: a.ref, project: a.project, name: a.name, title: a.title, branch: a.branch, stoppedSince: new Date(Date.now() - ago * 86_400_000).toISOString(), machine: (5.2 + i * 2.3) * 1024 ** 3, ...verdict };
+  });
+  return { days, machines };
+}
+
+const stoppedDaysAgo: Record<string, number> = { 'agent-34': 25, 'agent-36': 12, 'agent-93': 3, 'agent-91': 1 };
+
+function removeFixtureStopped(refs: string[]): T.RemoveStoppedResult {
+  const gone = new Set(refs);
+  devState.agents = (devState.agents ?? []).filter((a) => !gone.has(a.ref));
+  return { removed: refs, kept: [] };
+}
 
 function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: string; contentType: string } {
   const next = { ...defaultsSettings };
@@ -1498,13 +1640,19 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   if (req.diskFloorMin !== undefined) next.diskFloorMin = req.diskFloorMin || 10 * 1024 ** 3;
   if (req.diskFloorPercent !== undefined) next.diskFloorPercent = req.diskFloorPercent < 0 ? 5 : req.diskFloorPercent;
   if (req.autoStopIdle !== undefined) next.autoStopIdle = req.autoStopIdle;
+  if (req.removeStopped !== undefined) next.removeStopped = req.removeStopped;
+  if (req.removeStoppedDays !== undefined) next.removeStoppedDays = req.removeStoppedDays;
   if (req.idleTimeSeconds !== undefined) next.idleTimeSeconds = req.idleTimeSeconds;
+  if (req.idleReclaim !== undefined) next.idleReclaim = req.idleReclaim;
+  if (req.idleFreezeSeconds !== undefined) next.idleFreezeSeconds = req.idleFreezeSeconds;
+  if (req.idleStopSeconds !== undefined) next.idleStopSeconds = req.idleStopSeconds;
   if (req.imageCache !== undefined) next.imageCache = req.imageCache;
   if (req.imageCacheMaxBytes !== undefined) next.imageCacheMaxBytes = req.imageCacheMaxBytes || next.defaultImageCacheMaxBytes;
   if (req.clearImageCache) next.imageCacheBytes = 0;
   if (req.packageCache !== undefined) next.packageCache = req.packageCache;
   if (req.packageCacheMaxBytes !== undefined) next.packageCacheMaxBytes = req.packageCacheMaxBytes || next.defaultPackageCacheMaxBytes;
   if (req.clearPackageCache) next.packageCacheBytes = 0;
+  if (req.localNodeModules !== undefined) next.localNodeModules = req.localNodeModules;
   if (req.claudeCodeAutoUpdate !== undefined || req.checkClaudeCode) {
     const on = req.claudeCodeAutoUpdate ?? next.claudeCodeUpdate.on;
     next.claudeCodeUpdate = on
@@ -1529,6 +1677,8 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
     'mediaRetention',
     'leadRecheck',
     'leadRecheckMinutes',
+    'leadSleep',
+    'leadSleepMinutes',
   ] as const) {
     if (req[key] !== undefined) (next as Record<string, unknown>)[key] = req[key];
   }
@@ -1643,16 +1793,19 @@ export function seedSettings(queryClient: QueryClient): void {
   queryClient.setQueryData(['auth'], devState.auth);
   queryClient.setQueryData(['settings'], defaultsSettings);
   queryClient.setQueryData(['update'], devState.update ?? ({ current: '0.7.0', enabled: true, channel: 'stable' } satisfies T.UpdateStatus));
+  // Tokyo Night in the mode the page asks for: a light page given the dark
+  // palette's background would paint the window's ink mid-grey.
+  const light = new URLSearchParams(location.search).get('theme') === 'light';
   queryClient.setQueryData(['theme'], {
     appearance: 'follow',
     available: true,
-    name: 'Tokyo Night',
-    mode: new URLSearchParams(location.search).get('theme') === 'light' ? 'light' : 'dark',
-    background: '#1a1b26',
-    surface: '#24283b',
-    foreground: '#c0caf5',
-    muted: '#565f89',
-    accent: '#7aa2f7',
+    name: light ? 'Tokyo Night Day' : 'Tokyo Night',
+    mode: light ? 'light' : 'dark',
+    background: light ? '#e1e2e7' : '#1a1b26',
+    surface: light ? '#d5d6db' : '#24283b',
+    foreground: light ? '#3760bf' : '#c0caf5',
+    muted: light ? '#848cb5' : '#565f89',
+    accent: light ? '#2e7de9' : '#7aa2f7',
   } satisfies T.Theme);
   queryClient.setQueryData(['host-setup'], {});
 }
@@ -1667,6 +1820,36 @@ export function seedLinuxHost(queryClient: QueryClient, kvm: boolean): void {
   queryClient.setQueryData(['host-setup'], devState.hostSetup);
   devState.migration = { state: 'available', projects: [PROJECT, 'organic'], agents: [`${PROJECT}/agent-01`, `${PROJECT}/agent-12`, `${PROJECT}/agent-99`, 'organic/agent-3'] };
   queryClient.setQueryData(['vm-migration'], devState.migration);
+}
+
+// seedMacVZ is Settings on a Mac whose VM was made with Apple's
+// Virtualization framework (?gpu=vz&mac=…), at its Agents section, where GPU
+// for agents offers to make it again with krunkit: Homebrew installs krunkit
+// (brew) or a Lima with its driver (driver), there's no Homebrew (manual) or a
+// Lima Homebrew can't upgrade (nodriver), or krunkit is installed already
+// (ready). Its remake streams made-up output and ends with a krunkit VM.
+export function seedMacVZ(queryClient: QueryClient, kind: string): void {
+  seedSettings(queryClient);
+  const GiB = 1024 ** 3;
+  const krunkit =
+    kind === 'ready'
+      ? { available: true }
+      : kind === 'driver'
+        ? { available: false, missing: 'driver' as const, brew: true }
+        : kind === 'nodriver'
+          ? { available: false, missing: 'driver' as const }
+          : { available: false, missing: 'krunkit' as const, brew: kind !== 'manual' };
+  devState.hostSetup = {
+    pkexec: null,
+    user: 'leandro',
+    running: false,
+    resizing: false,
+    vm: { lima: '/opt/homebrew/bin/limactl', name: 'agentbox', exists: true, status: 'Running', cpus: 6, memory: 12 * GiB, disk: 200 * GiB, vmType: 'vz', krunkit },
+    wsl: null,
+    linux: null,
+    chv: null,
+  };
+  queryClient.setQueryData(['host-setup'], devState.hostSetup);
 }
 
 // seedLinuxVM is Settings on a Linux machine in VM mode (?chv=…), at its
@@ -1684,7 +1867,7 @@ export function seedLinuxVM(queryClient: QueryClient, kind: string): void {
     state: kind === 'off' ? 'off' : 'running',
     since: new Date(Date.now() - 3_600_000).toISOString(),
     cpus: 8,
-    memory: { min: 4 * GiB, cap: 24 * GiB, granted: kind === 'off' ? 0 : 9 * GiB, used: 6.2 * GiB, resident: 0 },
+    memory: { min: 4 * GiB, cap: 24 * GiB, granted: kind === 'off' ? 0 : 9 * GiB, used: 6.2 * GiB, resident: 0, hostCache: 0 },
     disk: { size: 120 * GiB, allocated: 14 * GiB, pool: { size: 100 * GiB, allocated: 10 * GiB }, root: { size: 20 * GiB, allocated: 4 * GiB } },
     limits: room,
     live: kind === 'live' ? room : undefined,
@@ -1710,15 +1893,21 @@ export function seedLinuxVM(queryClient: QueryClient, kind: string): void {
 export function seedMeterUsage(queryClient: QueryClient): void {
   const GiB = 1024 ** 3;
   const memoryUsage: T.MemoryUsage = {
-    hostTotal: 32 * GiB,
-    agentsUsed: 12 * GiB,
-    otherUsed: 3 * GiB,
+    // The user's VM, measured on 2026-10-23: 16.8 of 17.8 GiB used.
+    hostTotal: 17.8 * GiB,
+    agentsUsed: 11.4 * GiB,
+    otherUsed: 5.4 * GiB,
+    used: 16.8 * GiB,
+    fileCache: 2.6 * GiB,
+    leads: 1.5 * GiB,
+    agentbox: 2 * GiB,
+    kernel: 0.8 * GiB,
     swapTotal: 20 * GiB,
     swapUsed: 17.5 * GiB,
     agentsSwap: 17.5 * GiB,
-    zram: { swapBytes: 17.5 * GiB, realBytes: 3.6 * GiB },
+    zram: { swapBytes: 17.5 * GiB, realBytes: 1.1 * GiB },
     agents: [
-      { ref: `${PROJECT}/agent-90`, title: 'Bump Electron to the next major, and every native module that breaks with it', state: 'paused', memory: 4 * GiB, swap: 17.5 * GiB },
+      { ref: `${PROJECT}/agent-90`, title: 'Bump Electron to the next major, and every native module that breaks with it', state: 'paused', memory: 3.4 * GiB, swap: 17.5 * GiB },
       { ref: `${PROJECT}/agent-99`, title: 'PR agent', state: 'running', memory: 6 * GiB, swap: 0 },
       { ref: `${PROJECT}/agent-12`, title: 'Add a "New project" button to the Sidebar', state: 'running', memory: 2 * GiB, swap: 0 },
     ],
@@ -1805,6 +1994,120 @@ function filesRequest(method: string, path: string) {
   return json({ files: ['AGENTS.md', 'README.md', 'go.mod', 'desktop/package.json'], truncated: false } satisfies T.WorktreeFiles);
 }
 
+// pullsRequest answers the ?pulls=1 and ?app=pulls list's pull requests:
+// each opens as its row with a short description and no files, and a merge is
+// answered after a few seconds, longer than GitHub's own, so what the app
+// shows while it waits can be seen. The list read after it has it merged.
+const devMerged = new Set<number>();
+async function pullsRequest(method: string, path: string) {
+  const query = new URLSearchParams(location.search);
+  if (query.get('pulls') !== '1' && query.get('app') !== 'pulls') return undefined;
+  const json = (body: unknown) => ({ status: 200, body: JSON.stringify(body), contentType: 'application/json' });
+  const list = pullRequests();
+  list.pullRequests = list.pullRequests.map((p) => (devMerged.has(p.number) ? { ...p, state: 'merged' } : p));
+  if (method === 'GET' && path === `/v1/projects/${PROJECT}/pulls`) return json(list);
+  const at = /^\/v1\/projects\/[^/]+\/pulls\/(\d+)(\/files|\/merge)?$/.exec(path);
+  const row = at && list.pullRequests.find((p) => p.number === Number(at[1]));
+  if (!at || !row) return undefined;
+  if (method === 'POST' && at[2] === '/merge') {
+    await new Promise((done) => setTimeout(done, 5000));
+    devMerged.add(row.number);
+    return json({ ...row, state: 'merged' });
+  }
+  if (method !== 'GET') return undefined;
+  if (at[2] === '/files') return json({ files: [], truncated: false } satisfies T.PullRequestFiles);
+  return json({ ...row, body: 'What it changes, and how it was checked.', changedFiles: 0, checkRuns: [] } satisfies T.PullRequestDetail);
+}
+
+// usageStatsPending is Settings' "See what's sent": an error event, and the
+// VM's health apart (a real one, from an agent's machine), as the daemon
+// would post them.
+const usageEventsBody = {
+  "install": "2b5c0b0e-1111-4c3b-9f1e-0123456789ab",
+  "version": "0.16.0",
+  "os": "linux",
+  "arch": "amd64",
+  "events": [
+    {
+      "id": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "day": "2026-10-23",
+      "name": "error",
+      "props": {
+        "code": "create_failed",
+        "tool": "claude",
+        "class": "network",
+        "reason": "dial tcp: connection refused",
+        "utc_offset": "-3"
+      }
+    }
+  ]
+};
+const usageHealthBody = {
+  "install": "2b5c0b0e-1111-4c3b-9f1e-0123456789ab",
+  "version": "0.16.0",
+  "os": "linux",
+  "arch": "amd64",
+  "events": [
+    {
+      "id": "6f1d2c9a-3b4e-4f5a-8b6c-7d8e9f0a1b2c",
+      "day": "2026-10-23",
+      "name": "health",
+      "props": {
+        "agents_busy": 0,
+        "agents_idle": 0,
+        "daemon_peak_mib": 42,
+        "daemon_rss_mib": 42,
+        "episode_max_s": 0,
+        "episode_s": 0,
+        "episodes": 0,
+        "err_acp_closed": 0,
+        "err_auth": 0,
+        "err_database_locked": 0,
+        "err_git_credential": 1,
+        "err_git_lock": 0,
+        "err_incus_down": 0,
+        "err_killed": 0,
+        "err_network": 0,
+        "err_no_space": 0,
+        "err_not_found": 0,
+        "err_other": 0,
+        "err_out_of_memory": 0,
+        "err_permission": 0,
+        "err_timeout": 0,
+        "err_too_many_files": 1,
+        "front_end": "host",
+        "idle_freezes": 0,
+        "idle_stops": 0,
+        "machine_freezes": 0,
+        "mem_anon_pct": 3,
+        "mem_available_pct": 97,
+        "mem_file_pct": 9,
+        "mem_kernel_pct": 0,
+        "oom_kills": 0,
+        "period": "lt_1m",
+        "run_pauses": 2,
+        "swap_size_pct": 108,
+        "swap_used_pct": 1,
+        "trigger": "daily",
+        "vm_memory": "8_16g",
+        "vm_uptime": "5m_30m",
+        "zram_ratio_pct": 428,
+        "zram_size_pct": 57,
+        "utc_offset": "-3"
+      }
+    }
+  ]
+};
+const usageStatsPending: T.UsageStatsPending = {
+  on: true,
+  usageUrl: 'https://agentbox.linting.dev/api/v1/usage',
+  usage: '',
+  eventsUrl: 'https://agentbox.linting.dev/api/v1/events',
+  events: JSON.stringify(usageEventsBody, null, 2),
+  eventsWaiting: 2,
+  health: JSON.stringify(usageHealthBody, null, 2),
+};
+
 // installDevBridge stubs window.agentbox: every query above is pre-seeded
 // and staleTime: Infinity keeps them from refetching, so nothing here needs
 // to do real work — it only has to exist so components that call it don't
@@ -1813,6 +2116,9 @@ export function installDevBridge(): void {
   (window as unknown as { agentbox: unknown }).agentbox = {
     request: async (method: string, path: string, body?: unknown) => {
       if (method === 'PATCH' && path === '/v1/settings') return patchDefaults(body as T.UpdateSettingsRequest);
+      if (method === 'GET' && path === '/v1/usage-stats/pending') return { status: 200, body: JSON.stringify(usageStatsPending), contentType: 'application/json' };
+      if (method === 'GET' && path.startsWith('/v1/stopped-machines')) return { status: 200, body: JSON.stringify(fixtureStoppedMachines(path)), contentType: 'application/json' };
+      if (method === 'POST' && path === '/v1/stopped-machines/remove') return { status: 200, body: JSON.stringify(removeFixtureStopped((body as T.RemoveStoppedRequest).agents)), contentType: 'application/json' };
       if (method === 'GET' && path === '/v1/settings' && defaultsSettings.claudeCodeUpdate) return { status: 200, body: JSON.stringify(defaultsSettings), contentType: 'application/json' };
       const page = pageRequest(method, path);
       if (page) return page;
@@ -1823,6 +2129,8 @@ export function installDevBridge(): void {
       if (files) return files;
       const past = pastRequest(method, path, body);
       if (past) return past;
+      const answer = await pullsRequest(method, path);
+      if (answer) return answer;
       for (const answer of devRequests) {
         const res = answer(method, path, body);
         if (res) return res;
@@ -1837,6 +2145,8 @@ export function installDevBridge(): void {
         const got = { old: decodeURIComponent(rename[1]), name, projects: [PROJECT], agents: [`${PROJECT}/agent-01`, `${PROJECT}/lead`] };
         return { status: 200, body: JSON.stringify(got), contentType: 'application/json' };
       }
+      // A merge (?app=pulls) is answered after a few seconds, longer than
+      // GitHub's own, so what the app shows while it waits can be seen.
       if (method === 'GET' && devState.update && path === '/v1/update') return { status: 200, body: JSON.stringify(devState.update), contentType: 'application/json' };
       if (method === 'GET' && devState.setup && path === '/v1/setup') return { status: 200, body: JSON.stringify(devState.setup), contentType: 'application/json' };
       if (method === 'GET' && devState.memoryUsage && path === '/v1/usage/memory') return { status: 200, body: JSON.stringify(devState.memoryUsage), contentType: 'application/json' };
@@ -1931,7 +2241,7 @@ export function installDevBridge(): void {
     pageThumb: (path: string) => pageThumbUrl(path),
     // No render host here: a chat's page is its frame's srcdoc (RichBlock).
     renderUrl: async () => null,
-    report: { sections: async () => [], windowError: () => {}, onAppError: () => () => {}, openLogs: async () => '' },
+    report: { sections: async () => [], windowError: () => {}, onAppError: () => () => {}, openLogs: async () => '', send: async () => 'sent' as const },
     pickDirectory: async () => null,
     setLanguage: () => {},
     openPath: async () => '',
@@ -1939,6 +2249,7 @@ export function installDevBridge(): void {
     showItem: async () => {},
     openExternal: async () => {},
     notify: async () => false,
+    keepAwake: async () => {},
     onNotificationClick: () => () => {},
     copyText: () => {},
     readText: async () => '',

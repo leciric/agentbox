@@ -49,9 +49,74 @@ export function seedPastAgents(queryClient: QueryClient): T.ArchivedAgent[] {
 
 const json = (status: number, body: unknown) => ({ status, body: body === undefined ? '' : JSON.stringify(body), contentType: 'application/json' });
 
-// pastRequest answers the dev bridge for /v1/archived-agents, or undefined
-// for anything else.
+// liveWork is the Work page's live agents: one waiting for review, with a
+// report and media, one whose report says it stopped short, and one at work.
+function liveWork(): T.WorkItem[] {
+  const live = (name: string, title: string, status: string, finished: number, more: Partial<T.WorkItem> = {}, item: Partial<T.ReviewItem> = {}): T.WorkItem => ({
+    item: { project: PROJECT, agent: name, ref: `${PROJECT}/${name}`, title, branch: `agentbox/${title.toLowerCase().replace(/[^a-z]+/g, '-').replace(/-$/, '')}`, ai: 'claude', finishedAt: ago(finished), fingerprint: status === 'working' ? '' : `{"f":"${name}"}`, ...item },
+    status,
+    at: ago(finished),
+    ...more,
+  });
+  const report = (agent: string, status: string, summary: string, remainingIssues?: string[]): T.AgentReport => ({ id: `rep-${agent}`, project: PROJECT, agent, createdAt: ago(hour / 2), status, summary, remainingIssues });
+  return [
+    live('agent-40', 'Work page: everything agents did, in place of Today', 'working', 10 * 60_000),
+    live(
+      'agent-38',
+      'Show the VM memory breakdown in a popover from the memory bubble',
+      'review',
+      hour / 2,
+      { report: report('agent-38', 'done', 'Added the popover with the breakdown by agent, the page cache and swap. Tests pass; screenshots attached.'), screenshots: 2, recordings: 1 },
+      { changes: { files: 6, insertions: 214, deletions: 18, dirty: false }, pr: { ...pr(371, 'open', 'feat: the VM memory breakdown in a popover'), checks: 'passing' }, summary: 'Added the popover.' },
+    ),
+    live(
+      'agent-36',
+      'Pause only the heavy command when swap is full',
+      'reviewed',
+      5 * hour,
+      { report: report('agent-36', 'partial', 'Pausing the heavy command works; `go test -race` still stalls under full swap.', ['go test -race stalls with swap full', 'No test for an idle machine']), screenshots: 1 },
+      { changes: { files: 3, insertions: 88, deletions: 40, dirty: false }, pr: pr(318, 'open', 'fix: pause only the heavy command'), verdict: 'reviewed', reviewedAt: ago(4 * hour) },
+    ),
+  ];
+}
+
+// workRequest answers the dev bridge for /v1/work and a project's, the live
+// agents above and the past ones, filtered and searched as the daemon does.
+function workRequest(path: string): { status: number; body: string; contentType: string } | undefined {
+  const url = new URL(path, 'http://dev');
+  const m = url.pathname.match(/^\/v1\/(?:projects\/([^/]+)\/)?work$/);
+  if (!m) return undefined;
+  const project = m[1] ? decodeURIComponent(m[1]) : (url.searchParams.get('project') ?? '');
+  const q = (url.searchParams.get('q') ?? '').toLowerCase();
+  const filter = url.searchParams.get('filter') ?? '';
+  const pastItems = past.map(
+    (a): T.WorkItem => ({
+      item: { project: a.project, agent: a.name, ref: a.ref, title: a.title, branch: a.branch, ai: a.ai, pr: a.pr, finishedAt: a.archivedAt, fingerprint: '', changes: { files: 4, insertions: 120, deletions: 9, dirty: false } },
+      task: a.task,
+      past: true,
+      status: 'done',
+      at: a.archivedAt,
+      screenshots: a.pr ? 3 : 0,
+    }),
+  );
+  const all = [...liveWork(), ...pastItems]
+    .filter((w) => !project || w.item.project === project)
+    .filter((w) => !q || [w.item.title ?? '', w.item.agent, w.item.branch ?? '', w.task ?? '', w.item.pr?.title ?? '', w.item.pr ? `#${w.item.pr.number}` : ''].some((s) => s.toLowerCase().includes(q)))
+    .sort((a, b) => b.at.localeCompare(a.at));
+  const inFilter = (w: T.WorkItem, f: string) => (f === 'review' ? w.status === 'review' : f === 'none' ? !w.item.pr : w.item.pr?.state === f);
+  const counts: Record<string, number> = { '': all.length };
+  for (const f of ['review', 'open', 'merged', 'closed', 'none']) counts[f] = all.filter((w) => inFilter(w, f)).length;
+  const items = filter ? all.filter((w) => inFilter(w, filter)) : all;
+  return json(200, { items, total: items.length, counts } satisfies T.WorkPage);
+}
+
+// pastRequest answers the dev bridge for /v1/archived-agents and the Work
+// page, or undefined for anything else.
 export function pastRequest(method: string, path: string, body?: unknown): { status: number; body: string; contentType: string } | undefined {
+  if (method === 'GET') {
+    const work = workRequest(path);
+    if (work) return work;
+  }
   if (!path.startsWith('/v1/archived-agents')) return undefined;
   const url = new URL(path, 'http://dev');
   const parts = url.pathname.split('/').slice(3).map(decodeURIComponent);
@@ -78,6 +143,9 @@ export function pastRequest(method: string, path: string, body?: unknown): { sta
   const ref = parts.slice(0, 2).join('/');
   const a = past.find((x) => x.ref === ref);
   if (!a) return json(404, { error: `no past agent ${ref}` });
+  if (method === 'GET' && parts[2] === 'diff') {
+    return { status: 200, body: 'diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1,2 +1,3 @@\n # Project\n+A line the past agent added.\n Text\n', contentType: 'text/plain' };
+  }
   if (method === 'GET') return json(200, a);
   if (method === 'DELETE') {
     past = past.filter((x) => x.ref !== ref);

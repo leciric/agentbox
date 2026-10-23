@@ -26,14 +26,15 @@ import { useT } from '../../lib/i18n';
 import { agentSt, type AgentSt } from '../../lib/leadFirst';
 import { pastAgentsKey } from '../../lib/pastAgents';
 import { projectLabel } from '../../lib/projectName';
-import { cn, timeAgo } from '../../lib/utils';
+import { cn, humanBytes, timeAgo } from '../../lib/utils';
 import { AgentContextMenu } from '../AgentContextMenu';
-import { FinishedSection, RailEmpty, RailSkeleton, useRailAgents } from '../AgentRail';
+import { FinishedSection, RailEmpty, RailSkeleton, StoppedSection, useRailAgents } from '../AgentRail';
 import { PrChip } from '../PrChip';
 import { LiveDesktop } from '../pip/LiveDesktop';
 import { useInUse } from '../pip/inUse';
 import { AgentAvatar } from '../state';
 import { Tip } from '../ui/tooltip';
+import { FrozenBadge } from '../FrozenBadge';
 import { useOpenReview, useProjectReview } from './ReviewV2';
 import { StMark } from './SidebarV2';
 
@@ -131,6 +132,7 @@ export function AgentList({ project, chat, onSelect, onNewAgent }: { project: st
       question={rail.question(agent.ref)}
       usage={agent.state === 'running' ? usage.get(agent.ref) : undefined}
       hostMemory={hostMemory}
+      disk={rail.disk.get(agent.ref)}
       tail={tails.get(agent.ref)}
       watch={watch}
       onOpen={onSelect}
@@ -141,9 +143,14 @@ export function AgentList({ project, chat, onSelect, onNewAgent }: { project: st
     <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-1.5 pb-3 pt-1.5" data-panel-list={project}>
       {!rail.loaded && <RailSkeleton />}
       <div className="flex flex-col gap-px">{rail.moving.map(row)}</div>
-      {rail.finished.length > 0 && (
-        <FinishedSection count={rail.finished.length} open={rail.showFinished || rail.finished.some((a) => a.ref === chat)} onToggle={rail.setShowFinished}>
-          <div className="flex flex-col gap-px">{rail.finished.map(row)}</div>
+      {rail.stopped.length > 0 && (
+        <StoppedSection agents={rail.stopped} disk={rail.disk}>
+          <div className="flex flex-col gap-px">{rail.stopped.map(row)}</div>
+        </StoppedSection>
+      )}
+      {rail.done.length > 0 && (
+        <FinishedSection count={rail.done.length} open={rail.showFinished || rail.done.some((a) => a.ref === chat)} onToggle={rail.setShowFinished}>
+          <div className="flex flex-col gap-px">{rail.done.map(row)}</div>
         </FinishedSection>
       )}
       {rail.loaded && rail.mine.length === 0 && <RailEmpty project={name} onNewAgent={() => onNewAgent(project)} />}
@@ -151,7 +158,7 @@ export function AgentList({ project, chat, onSelect, onNewAgent }: { project: st
       {(past.data?.length ?? 0) > 0 && (
         <button
           type="button"
-          onClick={() => onSelect({ kind: 'pastAgents', project })}
+          onClick={() => onSelect({ kind: 'work', project })}
           className="mt-1.5 flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[11.5px] text-subtle transition hover:bg-surface hover:text-primary"
           data-list-past
         >
@@ -194,12 +201,12 @@ function doingNow(t: ReturnType<typeof useT>, agent: T.Agent, st: AgentSt, last:
 // line at the bottom, with a cursor that blinks while the agent works: tiny
 // in the row's slot, legible in its hover preview (big).
 function Terminal({ lines, working, big }: { lines: string[]; working: boolean; big?: boolean }) {
-  const cursor = <span className={cn('term-cursor inline-block translate-y-px bg-slate-300', big ? 'ml-0.5 h-[11px] w-[6px]' : 'ml-px h-[7px] w-[3.5px]')} />;
+  const cursor = <span className={cn('term-cursor inline-block shrink-0 translate-y-px bg-slate-300', big ? 'ml-0.5 h-[11px] w-[6px]' : 'ml-px h-[7px] w-[3.5px]')} />;
   return (
     <span aria-hidden className={cn('flex size-full flex-col justify-end overflow-hidden bg-[#0b0d12] font-mono text-slate-300', big ? 'px-2.5 py-2 text-[11px] leading-[14px]' : 'row-swap-in px-1 py-1 text-[7px] leading-[8px]')} data-list-terminal={big ? 'preview' : 'thumb'}>
       {lines.map((line, i) => (
-        <span key={i} className={cn('block overflow-hidden whitespace-pre', line.startsWith('$ ') && 'text-emerald-300/90')}>
-          {line}
+        <span key={i} className={cn('flex', line.startsWith('$ ') && 'text-emerald-300/90')}>
+          <span className="min-w-0 overflow-hidden whitespace-pre">{line}</span>
           {i === lines.length - 1 && working && cursor}
         </span>
       ))}
@@ -261,12 +268,13 @@ function SlotPreview({ children, preview }: { children: ReactNode; preview: Reac
 // right-click, its menu (AgentContextMenu). Its chat's latest items and
 // session are read as the phone's list reads them (peekThread), kept current
 // by the chat's events.
-function AgentLine({ agent, st, mood, active, live, ready, pr, fleet, at, report, question, usage, hostMemory, tail, watch, onOpen }: { agent: T.Agent; st: AgentSt; mood: Mood; active: boolean; live: boolean; ready: boolean; pr?: T.PullRequest; fleet?: T.FleetAgent; at?: string; report?: string; question?: string; usage?: { cpu?: number; memory?: number }; hostMemory?: number; tail?: T.TerminalTail; watch: (el: HTMLElement | null) => void; onOpen: (view: View) => void }) {
+function AgentLine({ agent, st, mood, active, live, ready, pr, fleet, at, report, question, usage, hostMemory, disk, tail, watch, onOpen }: { agent: T.Agent; st: AgentSt; mood: Mood; active: boolean; live: boolean; ready: boolean; pr?: T.PullRequest; fleet?: T.FleetAgent; at?: string; report?: string; question?: string; usage?: { cpu?: number; memory?: number }; hostMemory?: number; disk?: number; tail?: T.TerminalTail; watch: (el: HTMLElement | null) => void; onOpen: (view: View) => void }) {
   const t = useT();
   const queryClient = useQueryClient();
   const thread = useQuery({ queryKey: chatKey(agent.ref), queryFn: () => peekThread(queryClient, agent.ref), staleTime: 30_000 });
   const session = thread.data?.session;
   const title = agent.title || agent.name;
+  const number = /^agent-(\d+)$/.exec(agent.name)?.[1];
   const now = doingNow(t, agent, st, thread.data?.items.at(-1), question, report);
   const load = usage && (usage.cpu !== undefined || usage.memory !== undefined) ? usage : undefined;
   const loadTip = load && t('panel.list.usage', { cpu: (load.cpu ?? 0).toFixed(1), memory: load.memory ? `${(load.memory / 1024 ** 2).toFixed(0)} MiB` : '–' });
@@ -314,6 +322,11 @@ function AgentLine({ agent, st, mood, active, live, ready, pr, fleet, at, report
         <span className="flex min-w-0 flex-1 flex-col self-stretch" title={[statusTip(agent), loadTip, context].filter(Boolean).join('\n')}>
           <span className="flex min-w-0 items-center gap-1.5">
             <span title={title} className={cn('min-w-0 flex-1 truncate text-[12.5px] font-medium leading-[18px]', active ? 'text-title' : st === 'done' ? 'text-subtle' : 'text-primary', !agent.title && 'font-mono text-[11.5px]')}>{title}</span>
+            {number && (
+              <span className="shrink-0 text-[10.5px] tabular-nums leading-4 text-faint/70" data-list-number>
+                #{number}
+              </span>
+            )}
             {when && (
               <span className="shrink-0 text-[10.5px] tabular-nums leading-4 text-faint" title={timeAgo(when)}>
                 {shortAgo(t, when)}
@@ -326,6 +339,7 @@ function AgentLine({ agent, st, mood, active, live, ready, pr, fleet, at, report
             </span>
           )}
           <span className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-x-clip whitespace-nowrap text-[10.5px] leading-4 text-faint empty:hidden" data-list-meta>
+            <FrozenBadge agent={agent} />
             {pr && <PrChip pr={pr} dataAttr="data-list-pr" />}
             {ready && (
               <span className="shrink-0 rounded bg-surface-strong px-1 font-medium text-secondary" data-list-ready>
@@ -335,6 +349,11 @@ function AgentLine({ agent, st, mood, active, live, ready, pr, fleet, at, report
             {load && (
               <span className={cn('shrink-0 rounded font-mono text-[10px] tabular-nums', heavy(load, hostMemory) ? 'bg-amber-400/15 px-1 font-medium text-amber-300' : 'text-secondary')} data-list-usage data-list-heavy={heavy(load, hostMemory) || undefined}>
                 {[load.cpu !== undefined && `${Math.round(load.cpu)}%`, load.memory && memShort(load.memory)].filter(Boolean).join(' · ')}
+              </span>
+            )}
+            {disk !== undefined && (
+              <span className="shrink-0 font-mono text-[10px] tabular-nums text-secondary" title={t('agent.rail.machineDisk')} data-list-disk>
+                {humanBytes(disk)}
               </span>
             )}
             {changes && (

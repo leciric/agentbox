@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -190,11 +191,14 @@ exit 99`))
 	}
 }
 
-// TestDestroyHandsBackFilesWhenTheMachineIsRunning is the one destroy_test.go
-// case where the instance is up, so Destroy chowns the worktree back to the
-// host user before deleting it.
-func TestDestroyHandsBackFilesWhenTheMachineIsRunning(t *testing.T) {
-	marker := filepath.Join(t.TempDir(), "handback")
+// TestDestroyClearsTheWorktreeInsideARunningMachine is the one destroy_test.go
+// case where the instance is up: Destroy stops what the agent runs and
+// empties its worktree from inside the machine, as root, in one pass, before
+// it deletes the machine. Handing every file back (chown -R) and deleting it
+// again from outside walked the whole tree twice through the Mac's share,
+// node_modules and all, while a browser kept rendering.
+func TestDestroyClearsTheWorktreeInsideARunningMachine(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "exec")
 	f := setup(t, fakeIncus(t, `case "$1" in
   list) echo '[{"name":"ab-hello-stack-agent-01","status":"Running"}]' ;;
   exec) echo "$@" >>`+marker+` ;;
@@ -208,8 +212,18 @@ esac`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(got), "chown") || !strings.Contains(string(got), a.Worktree) {
-		t.Errorf("Destroy() on a running agent didn't hand its files back: %q", got)
+	execs := strings.Split(strings.TrimSpace(string(got)), "\n")
+	if len(execs) != 1 || !strings.Contains(execs[0], "pkill") || !strings.Contains(execs[0], "-delete") || !strings.Contains(execs[0], a.Worktree) {
+		t.Errorf("Destroy() on a running agent ran %q, want one exec that stops its processes and empties %s", execs, a.Worktree)
+	}
+	if strings.Contains(string(got), "chown") {
+		t.Errorf("Destroy() still hands files back: %q", got)
+	}
+	if _, err := os.Stat(a.Worktree); !os.IsNotExist(err) {
+		t.Errorf("worktree still exists: %v", err)
+	}
+	if out, _ := exec.Command("git", "-C", f.repo.Root, "worktree", "list", "--porcelain").Output(); strings.Contains(string(out), a.Worktree) {
+		t.Errorf("git still lists the worktree:\n%s", out)
 	}
 }
 

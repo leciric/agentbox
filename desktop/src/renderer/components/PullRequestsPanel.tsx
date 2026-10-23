@@ -15,7 +15,7 @@ import { Badge, type BadgeVariant } from './ui/badge';
 import { Button } from './ui/button';
 import { Code, EmptyState, Notice } from './ui/card';
 import { LabelRemoveButton } from './LabelRemoveButton';
-import { PullRequestModal } from './PullRequestModal';
+import { PullRequestModal, usePrefetchPull } from './PullRequestModal';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Select, SelectOption } from './ui/select';
 import { Tip } from './ui/tooltip';
@@ -83,6 +83,7 @@ export function PullRequestsPanel({
   const [viewing, setViewing] = useState<number | null>(null);
   const { edits, toggleLabel } = usePullLabels(project);
   const merge = usePullMerge(project);
+  const prefetch = usePrefetchPull(project);
 
   const data = pulls.data;
   if (!data) {
@@ -240,6 +241,7 @@ export function PullRequestsPanel({
                     onOpenAgent={pr.agent ? () => onSelect({ kind: 'agent', ref: `${project}/${pr.agent}` }) : undefined}
                     onMerge={() => merge.request(pr)}
                     onOpen={() => setViewing(pr.number)}
+                    prefetch={prefetch(pr.number)}
                   />
                 );
               })}
@@ -309,24 +311,35 @@ export function usePullMerge(project: string, onMerged?: (pr: T.PullRequest) => 
 
   const merge = useMutation({
     mutationFn: ({ number, method }: { number: number; method: string }) => api.mergePullRequest(project, number, method),
-    onMutate: ({ number }) => {
+    // Shown merged the moment it's confirmed, wherever the project's list is
+    // read (the row, the modal, the review), and put back as it was if
+    // GitHub refuses, with why beside it.
+    onMutate: async ({ number }) => {
       setRunning((r) => new Set(r).add(number));
       setFailed((f) => without(f, number));
+      await queryClient.cancelQueries({ queryKey: ['pulls', project] });
+      const listed = queryClient.getQueryData<T.ProjectPullRequests>(['pulls', project])?.pullRequests.find((p) => p.number === number);
+      const detail = queryClient.getQueryData<T.PullRequestDetail>(['pull', project, number]);
+      queryClient.setQueryData<T.ProjectPullRequests>(['pulls', project], (d) => d && withState(d, number, 'merged'));
+      queryClient.setQueryData<T.PullRequestDetail>(['pull', project, number], (d) => d && { ...d, state: 'merged' });
+      return { listed, detail };
     },
     onSuccess: async (pr) => {
       if (!quiet) toast(t('memory.pulls.merged', { number: pr.number }), { description: pr.title });
       onMergedRef.current?.(pr);
-      // The daemon answers with the list it had, this pull request marked
-      // merged, and re-reads GitHub behind it; the list on screen stays
-      // until that answer replaces it. The spinner lasts until then too, so
-      // the row never flicks back to an open one with a Merge button.
+      // The daemon marks it merged in the list it has and re-reads GitHub
+      // behind it; the row shown merged stays until that answer replaces it.
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['pulls', project] }),
         queryClient.invalidateQueries({ queryKey: ['fleet', project] }),
         queryClient.invalidateQueries({ queryKey: ['pull', project, pr.number] }),
       ]);
     },
-    onError: (err, { number }) => setFailed((f) => ({ ...f, [number]: errorMessage(err) })),
+    onError: (err, { number }, before) => {
+      setFailed((f) => ({ ...f, [number]: errorMessage(err) }));
+      if (before?.listed) queryClient.setQueryData<T.ProjectPullRequests>(['pulls', project], (d) => d && withState(d, number, before.listed!.state));
+      if (before?.detail) queryClient.setQueryData<T.PullRequestDetail>(['pull', project, number], (d) => d && { ...d, state: before.detail!.state });
+    },
     onSettled: (_pr, _err, { number }) =>
       setRunning((r) => {
         const next = new Set(r);
@@ -380,6 +393,11 @@ export function usePullMerge(project: string, onMerged?: (pr: T.PullRequest) => 
       </ConfirmDialog>
   );
   return { request, mergeWith, methods: offered, running, failed, dialog };
+}
+
+// withState is a project's list with one pull request's state changed.
+function withState(d: T.ProjectPullRequests, number: number, state: string): T.ProjectPullRequests {
+  return { ...d, pullRequests: d.pullRequests.map((p) => (p.number === number ? { ...p, state } : p)) };
 }
 
 // usePullLabels adds and removes a project's pull requests' labels.
@@ -439,6 +457,7 @@ function PullRequestRow({
   onOpenAgent,
   onMerge,
   onOpen,
+  prefetch,
 }: {
   pr: T.PullRequest;
   project: string;
@@ -450,6 +469,7 @@ function PullRequestRow({
   onOpenAgent?: () => void;
   onMerge: () => void;
   onOpen: () => void;
+  prefetch?: { onFocus: () => void; onMouseEnter: () => void; onMouseLeave: () => void };
 }) {
   const t = useT();
   return (
@@ -458,6 +478,7 @@ function PullRequestRow({
     <div
       className="panel cursor-pointer rounded-2xl px-4 py-3.5 transition-colors hover:border-line-strong"
       data-pull-request={pr.number}
+      {...prefetch}
       onClick={(event) => {
         // The label picker's popover is portalled out of the row, but its clicks still bubble here.
         const target = event.target as Element;

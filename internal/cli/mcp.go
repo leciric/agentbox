@@ -308,6 +308,22 @@ func describeAccountMap(m map[string]string) string {
 	return strings.Join(parts, ", ")
 }
 
+// describeAccountSwitch says what switch_agent_account did, in the chat's
+// own words when its chat restarted.
+func describeAccountSwitch(res api.AgentAccountSwitch) string {
+	out := fmt.Sprintf("%s's %s now runs on the account %s.", res.Agent, res.Tool, res.Account)
+	switch {
+	case res.Note != "":
+		out += " Its chat says: " + res.Note
+	default:
+		out += " Its chat wasn't running: the next one starts on it."
+	}
+	if !res.Resumes && res.Note == "" {
+		out += " " + res.Tool + " can't resume a session, so it keeps the old account until its chat starts again, and then starts a new session."
+	}
+	return out
+}
+
 func describeChoices(ai string, model, effort *string, autonomous bool, notify, account string) string {
 	var chosen []string
 	if ai != "" && ai != "claude" {
@@ -873,6 +889,34 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					return fmt.Sprintf("%s is retired (%s). Its work stays on %s.", who.Name, result.How, who.Branch), nil
 				}
 				return "Nothing happened: " + in.Agent + " may not exist.", nil
+			},
+		},
+		{
+			Name: "switch_agent_account",
+			Description: "Move a running agent to another account of its AI tool, keeping its conversation: typically when the " +
+				"account it was on hit its 5-hour or weekly limit and another has room (list_accounts shows their usage). " +
+				"Its machine gets the new login and its chat restarts on it, resuming the same session; one paused on " +
+				"the old account's limit carries on at once. The tool stays the same. Refused while it is mid-turn. " +
+				"Claude Code, Codex and Cursor take account; OpenCode takes opencode_accounts.",
+			Schema: object([]string{"agent"}, map[string]any{
+				"agent":   str("its name, like agent-03"),
+				"account": str("which of its tool's accounts (list_accounts) to move it to; left out, the project's own"),
+				"opencode_accounts": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"},
+					"description": "for an OpenCode agent, provider → account, like {\"anthropic\": \"work\"}; providers left out keep theirs"},
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct {
+					Agent, Account   string
+					OpenCodeAccounts map[string]string `json:"opencode_accounts"`
+				}
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				res, err := c.SwitchAgentAccount(ctx, in.Agent, api.AgentAccountRequest{Account: in.Account, OpenCodeAccounts: in.OpenCodeAccounts})
+				if err != nil {
+					return "", err
+				}
+				return describeAccountSwitch(res), nil
 			},
 		},
 		{
