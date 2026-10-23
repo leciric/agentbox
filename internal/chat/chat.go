@@ -1463,6 +1463,7 @@ type conversation struct {
 	// idleTimer is the wait before that, idleGen names it, and activeAt is
 	// when the session last changed, which the wait is counted from.
 	asleep    bool
+	sleptOn   string // the account the adapter that slept ran on (runsOn)
 	idleTimer Timer
 	idleGen   int64
 	activeAt  time.Time

@@ -62,7 +62,8 @@ func (m *Manager) AccountChanged(a state.Agent) string {
 	c.agent.ClaudeAccount = a.ClaudeAccount
 	c.agent.CodexAccount, c.agent.OpenCodeAccounts, c.agent.CursorAccount = a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount
 	ad := c.adapter
-	if ad == nil || ad.login == runsOn(a) {
+	asleepElsewhere := ad == nil && c.asleep && c.sleptOn != runsOn(a)
+	if (ad == nil && !asleepElsewhere) || (ad != nil && ad.login == runsOn(a)) {
 		c.accountRestart = false
 		return ""
 	}
@@ -73,6 +74,18 @@ func (m *Manager) AccountChanged(a state.Agent) string {
 	what := fmt.Sprintf("the %s account %q", ToolNames[a.AI], account)
 	if a.AI == "opencode" {
 		what = fmt.Sprintf("the OpenCode accounts %s", strings.ReplaceAll(account, ",", ", "))
+	}
+	if asleepElsewhere {
+		// Its tool sleeps (idle.go): the turn that wakes it starts on the
+		// new account, so it says what an idle chat that restarted would.
+		c.sleptOn = runsOn(a)
+		c.accountRestart = false
+		it := c.add("notice", c.lastTurn())
+		it.Text = fmt.Sprintf(
+			"This chat moved to %s: %s restarts on it and resumes this conversation.",
+			what, ToolNames[c.agent.AI])
+		c.flush(true)
+		return it.Text
 	}
 	if !ad.resumable && ad.ready {
 		// Restarting would lose the session: the next one starts on it.

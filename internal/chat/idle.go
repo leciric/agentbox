@@ -84,7 +84,7 @@ func (c *conversation) idleDue(ad *adapter, gen int64) {
 	c.idleTimer = nil
 	c.m.logf("chat %s: idle for %s; stopping %s until the next turn, which resumes this session", a.Ref(), after, ToolNames[a.AI])
 	c.stopAdapter()
-	c.asleep = true
+	c.asleep, c.sleptOn = true, ad.login
 	c.session.State = c.stateNow()
 	c.markSession()
 	c.flush(false)

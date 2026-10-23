@@ -220,3 +220,41 @@ func TestStopAfterSleepingIsOff(t *testing.T) {
 		t.Errorf("a stopped chat is %q, asleep %v", m.State(testLead.Ref()), m.Asleep(testLead.Ref()))
 	}
 }
+
+// TestAnAsleepLeadMovedToAnotherAccountSaysSo: the account switch tells an
+// asleep chat what it tells an idle one, and the turn that wakes it starts
+// on the new account, resuming the session.
+func TestAnAsleepLeadMovedToAnotherAccountSaysSo(t *testing.T) {
+	t.Parallel()
+	f := newFakeTool(answerHello)
+	f.resume = true
+	m, clock := idleManager(t, f)
+	lead := testLead
+	lead.ClaudeAccount = "old"
+	idleTurn(t, m, clock, lead, "hi", 1)
+	clock.advance(time.Second)
+	clock.advance(15 * time.Minute)
+	if !m.Asleep(lead.Ref()) {
+		t.Fatal("the chat didn't sleep")
+	}
+	if note := m.AccountChanged(lead); note != "" {
+		t.Errorf("the same account said %q", note)
+	}
+	lead.ClaudeAccount = "new"
+	if note := m.AccountChanged(lead); !strings.Contains(note, "restarts on it and resumes this conversation") {
+		t.Errorf("AccountChanged said %q", note)
+	}
+	if note := m.AccountChanged(lead); note != "" {
+		t.Errorf("telling it again said %q", note)
+	}
+	if _, err := m.Send(lead, "still there?"); err != nil {
+		t.Fatal(err)
+	}
+	waitThread(t, m, lead, "the second turn", turnsEnded(2))
+	if got := f.launchedOn(); len(got) != 2 || got[1] != "new" {
+		t.Errorf("launched on %q, want the second on new", got)
+	}
+	if n := len(f.called(acp.MethodSessionResume)); n != 1 {
+		t.Errorf("resumed %d times, want 1", n)
+	}
+}
