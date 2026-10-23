@@ -427,10 +427,18 @@ func (s *Server) lanWebVersion() string {
 		return ""
 	}
 	v := strings.TrimSpace(string(b))
-	if !lanWebVersionRe.MatchString(v) {
+	if !lanWebVersionRe.MatchString(v) || !hasLANWebPage(filepath.Join(s.lanWebDir(), v)) {
 		return ""
 	}
 	return v
+}
+
+// hasLANWebPage says dir has a web.html with something in it. An empty one
+// came of an install cut short by the daemon restarting, and is installed
+// again by the app, which installs whatever version the daemon hasn't.
+func hasLANWebPage(dir string) bool {
+	st, err := os.Stat(filepath.Join(dir, "web.html"))
+	return err == nil && st.Size() > 0
 }
 
 // maxLANWebFile bounds one file of the web app: the largest, the app's main
@@ -475,7 +483,7 @@ func (s *Server) installLANWeb(w http.ResponseWriter, r *http.Request) error {
 	}
 	dir := s.lanWebDir()
 	staging := filepath.Join(dir, ".staging-"+version)
-	if _, err := os.Stat(filepath.Join(staging, "web.html")); err != nil {
+	if !hasLANWebPage(staging) {
 		return fmt.Errorf("version %s has no web.html: put its files first", version)
 	}
 	final := filepath.Join(dir, version)

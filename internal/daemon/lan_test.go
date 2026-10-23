@@ -9,6 +9,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/cookiejar"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -292,6 +294,36 @@ func TestPhoneOnTheLocalNetwork(t *testing.T) {
 
 // In the Linux host's VM the supervisor opens the port on the host, and
 // passes requests on over the daemon's socket, saying who they came from.
+// A web app whose page came out empty, as when the daemon restarted while
+// the app was installing it, isn't taken, and one already installed so
+// doesn't count: the app installs it again the next time it connects.
+func TestPhoneWebAppWithAnEmptyPage(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	app := newPhone(t, "http://agentbox", d.client.HTTPClient().Transport)
+	if code, _ := app.do(http.MethodPut, "/v1/lan/web/1.0.0/files/web.html", ""); code != http.StatusNoContent {
+		t.Fatal(code)
+	}
+	if code, body := app.do(http.MethodPost, "/v1/lan/web/1.0.0", ""); code < 400 {
+		t.Errorf("installing an empty web.html = %d %q", code, body)
+	}
+
+	dir := filepath.Join(d.srv.lanWebDir(), "1.0.0")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "web.html"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(d.srv.lanWebDir(), "current"), []byte("1.0.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := d.client.LAN(ctx); err != nil || st.WebVersion != "" {
+		t.Errorf("WebVersion with an empty web.html installed = %q, %v", st.WebVersion, err)
+	}
+}
+
 func TestPhoneThroughTheVMsHost(t *testing.T) {
 	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
