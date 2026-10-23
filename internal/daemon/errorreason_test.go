@@ -46,7 +46,7 @@ func TestErrorClass(t *testing.T) {
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	err := &agent.CreateError{Ref: "shop/agent-3", Step: "starting the machine", Err: errors.New(`incus start shop-agent-3: Failed to start "shop-agent-3": exit status 1`)}
 	class, reason := d.srv.createReason(err, "shop", "agent-3")
-	if class != classExitCode || reason != `starting the machine: incus start <name>-<name>: Failed to start "<text>": exit status 1` {
+	if class != classExitCode || reason != `starting the machine: incus start [name]-[name]: Failed to start "[text]": exit status 1` {
 		t.Errorf("createReason = %s, %q", class, reason)
 	}
 }
@@ -64,7 +64,7 @@ func TestScrubReasonLeavesNothingPersonal(t *testing.T) {
 	if len(got) > maxReason || !strings.HasSuffix(got, "...") {
 		t.Errorf("reason = %q (%d bytes)", got, len(got))
 	}
-	if got := scrubReason("npm ci: notes.md and package.json, ação ✓"); got != "npm ci: <name> and package.json, ? ?" {
+	if got := scrubReason("npm ci: notes.md and package.json, ação ✓"); got != "npm ci: [name] and package.json, ? ?" {
 		t.Errorf("reason = %q", got)
 	}
 	for _, r := range got {

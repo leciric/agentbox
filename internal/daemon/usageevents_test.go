@@ -174,7 +174,7 @@ func TestUsageEventsAreRecordedShownAndSent(t *testing.T) {
 	}
 	// An error says why, in its own words with the path and names gone.
 	if e := sent[eventError][0]; e["code"] != errCreateFailed || e["class"] != classNotFound ||
-		e["reason"] != "creating <path>: worktree: open <path>: no such file or directory" || len(e) != 5 {
+		e["reason"] != "creating [path]: worktree: open [path]: no such file or directory" || len(e) != 5 {
 		t.Errorf("error = %v", e)
 	}
 	if left := pendingUsage(t, d); left.EventsWaiting != 0 || left.Events != "" {

@@ -271,7 +271,7 @@ app last ran in, or `unknown`, so the stats can be read in local time:
   short reason: the error's own wording, at most 120 characters, with every path, URL, host and
   file name, email address, IP address, id, quoted text, token or key, and the names of your
   projects, agents, branches, user and machine replaced by placeholders, such as
-  `starting the machine: incus start <name>: exit status 1`. It never holds a prompt, a file's
+  `starting the machine: incus start [name]: exit status 1`. It never holds a prompt, a file's
   contents or anything you typed.
 - `setup`, the first time a new installation reaches each step (`setup_started`, `image_built`,
   `first_project`, `first_agent`, `first_pr`), with how long after the setup began, in a range.
@@ -281,7 +281,7 @@ POST https://agentbox.linting.dev/api/v1/events
 {"install":"<uuid>","version":"0.1.0","os":"linux","arch":"amd64",
  "events":[{"id":"<random uuid>","day":"2026-09-24","name":"error",
             "props":{"code":"create_failed","tool":"claude","class":"no_space",
-                     "reason":"copying the base: incus copy <path>: no space left on device",
+                     "reason":"copying the base: incus copy [path]: no space left on device",
                      "utc_offset":"-3"}}]}
 ```
 

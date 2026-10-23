@@ -165,33 +165,33 @@ func (s *Server) errorReason(text string, names ...string) string {
 }
 
 func scrubReason(text string, names ...string) string {
-	text = reasonURL.ReplaceAllString(text, "<url>")
-	text = reasonEmail.ReplaceAllString(text, "<email>")
-	text = reasonQuoted.ReplaceAllString(text, `"<text>"`)
-	text = reasonWinPath.ReplaceAllString(text, "<path>")
+	text = reasonURL.ReplaceAllString(text, "[url]")
+	text = reasonEmail.ReplaceAllString(text, "[email]")
+	text = reasonQuoted.ReplaceAllString(text, `"[text]"`)
+	text = reasonWinPath.ReplaceAllString(text, "[path]")
 	text = reasonPath.ReplaceAllStringFunc(text, func(m string) string {
-		// Keep the colon an error puts after a path: "<path>: no such file".
+		// Keep the colon an error puts after a path: "[path]: no such file".
 		if strings.HasSuffix(m, ":") {
-			return "<path>:"
+			return "[path]:"
 		}
-		return "<path>"
+		return "[path]"
 	})
-	text = reasonUUID.ReplaceAllString(text, "<id>")
-	text = reasonHex.ReplaceAllString(text, "<id>")
-	text = reasonIPv4.ReplaceAllString(text, "<ip>")
-	text = reasonIPv6.ReplaceAllString(text, "<ip>")
+	text = reasonUUID.ReplaceAllString(text, "[id]")
+	text = reasonHex.ReplaceAllString(text, "[id]")
+	text = reasonIPv4.ReplaceAllString(text, "[ip]")
+	text = reasonIPv6.ReplaceAllString(text, "[ip]")
 	text = reasonDotted.ReplaceAllStringFunc(text, func(m string) string {
 		if slices.Contains(keptDotted, strings.ToLower(m)) {
 			return m
 		}
-		return "<name>"
+		return "[name]"
 	})
 	// The names last, so a path that holds one goes whole. Longest first,
 	// so a name inside another goes with it.
 	names = slices.DeleteFunc(slices.Clone(names), func(n string) bool { return len(strings.TrimSpace(n)) < 3 })
 	slices.SortFunc(names, func(a, b string) int { return len(b) - len(a) })
 	for _, n := range names {
-		text = replaceFold(text, strings.TrimSpace(n), "<name>")
+		text = replaceFold(text, strings.TrimSpace(n), "[name]")
 	}
 	text = reasonNonASCII.ReplaceAllString(strings.ReplaceAll(text, "…", "..."), "?")
 	var b strings.Builder
