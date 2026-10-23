@@ -267,6 +267,7 @@ function AgentLine({ agent, st, mood, active, live, ready, pr, fleet, at, report
   const thread = useQuery({ queryKey: chatKey(agent.ref), queryFn: () => peekThread(queryClient, agent.ref), staleTime: 30_000 });
   const session = thread.data?.session;
   const title = agent.title || agent.name;
+  const number = /^agent-(\d+)$/.exec(agent.name)?.[1];
   const now = doingNow(t, agent, st, thread.data?.items.at(-1), question, report);
   const load = usage && (usage.cpu !== undefined || usage.memory !== undefined) ? usage : undefined;
   const loadTip = load && t('panel.list.usage', { cpu: (load.cpu ?? 0).toFixed(1), memory: load.memory ? `${(load.memory / 1024 ** 2).toFixed(0)} MiB` : '–' });
@@ -314,6 +315,11 @@ function AgentLine({ agent, st, mood, active, live, ready, pr, fleet, at, report
         <span className="flex min-w-0 flex-1 flex-col self-stretch" title={[statusTip(agent), loadTip, context].filter(Boolean).join('\n')}>
           <span className="flex min-w-0 items-center gap-1.5">
             <span title={title} className={cn('min-w-0 flex-1 truncate text-[12.5px] font-medium leading-[18px]', active ? 'text-title' : st === 'done' ? 'text-subtle' : 'text-primary', !agent.title && 'font-mono text-[11.5px]')}>{title}</span>
+            {number && (
+              <span className="shrink-0 text-[10.5px] tabular-nums leading-4 text-faint/70" data-list-number>
+                #{number}
+              </span>
+            )}
             {when && (
               <span className="shrink-0 text-[10.5px] tabular-nums leading-4 text-faint" title={timeAgo(when)}>
                 {shortAgo(t, when)}
