@@ -31,7 +31,7 @@ var tsTypes = []any{
 	AddMediaRequest{}, NoteRequest{}, LogsRequest{}, ExportRequest{}, ExportResult{}, DeleteMediaRequest{}, DeleteMediaResult{}, UpdateMediaRequest{}, MediaPage{}, NotificationPage{}, ReviewPage{}, MediaCounts{}, MediaAgentCount{}, MediaProjectCount{},
 	SetupCheck{}, SetupStatus{}, ImageComponents{}, ImageBuild{}, ImageDownload{}, BuildImageRequest{}, ImageStatus{},
 	ClaudeTokenRequest{}, ClaudeLoginRequest{}, ClaudeLogin{}, ClaudeLoginCodeRequest{}, RenameClaudeAccountRequest{}, RenamedClaudeAccount{}, GitHubTokenRequest{}, CursorKeyRequest{}, CursorKeyResponse{}, CursorLogin{}, CursorLoginRequest{}, ToolAccount{}, ToolAccountRequest{}, RenameToolAccountRequest{}, RenamedToolAccount{}, RenameGitHubAccountRequest{}, RenamedGitHubAccount{},
-	Secret{}, SetSecretRequest{},
+	Secret{}, SetSecretRequest{}, SecretSettingsRequest{},
 	Skill{}, SkillFile{}, SkillDetail{}, SaveSkillRequest{}, UpdateSkillRequest{}, SkillOverrideRequest{}, ScanSkillsRequest{}, SkillCandidate{}, ImportSkillsRequest{},
 	BrowserCookies{}, BrowserCookiesPreviewRequest{}, BrowserCookiesPreview{}, CookieDomain{}, ImportBrowserCookiesRequest{},
 	BrowserProfile{}, BrowserProfiles{}, ImportFromBrowserRequest{},

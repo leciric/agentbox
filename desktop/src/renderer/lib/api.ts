@@ -342,6 +342,8 @@ export const api = {
   secrets: (target: string) => call<T.Secret[]>('GET', secretsBase(target)),
   setSecret: (target: string, name: string, value: string) =>
     call<T.Secret>('PUT', `${secretsBase(target)}/${encodeURIComponent(name)}`, { value } satisfies T.SetSecretRequest),
+  setSecretLeadManaged: (project: string, name: string, leadManaged: boolean) =>
+    call<T.Secret>('PATCH', `${secretsBase(project)}/${encodeURIComponent(name)}`, { leadManaged } satisfies T.SecretSettingsRequest),
   removeSecret: (target: string, name: string) => call<void>('DELETE', `${secretsBase(target)}/${encodeURIComponent(name)}`),
 
   // A project's browser cookies, imported from an export the user made: the

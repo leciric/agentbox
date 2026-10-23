@@ -128,6 +128,14 @@ func (c *Client) LeadAnswerQuestion(ctx context.Context, id, answer string) (Que
 	return out, c.do(ctx, http.MethodPost, path, AnswerQuestionRequest{Answer: answer}, &out)
 }
 
+// LeadFulfilCredential answers an agent's request for a lead-managed secret
+// with the value stored now, by name: the value is never sent or returned.
+func (c *Client) LeadFulfilCredential(ctx context.Context, id string) (FulfilCredentialResponse, error) {
+	var out FulfilCredentialResponse
+	path := c.leadPath("/questions/" + url.PathEscape(id) + "/fulfil")
+	return out, c.do(ctx, http.MethodPost, path, nil, &out)
+}
+
 func (c *Client) LeadEscalateQuestion(ctx context.Context, id, why string) (Question, error) {
 	var out Question
 	path := c.leadPath("/questions/" + url.PathEscape(id) + "/escalate")

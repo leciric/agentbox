@@ -297,6 +297,9 @@ type Server struct {
 	stalls    map[string]*stallTrack
 	cpuTime   func(instance string) (time.Duration, bool)
 	stallTell func(ctx context.Context, project, note string)
+	// credentialTell tells a lead of an agent's credential request, waking
+	// it for a lead-managed secret: tellLead, or a test's recorder.
+	credentialTell func(ctx context.Context, project, notice string, act bool)
 }
 
 func New(cfg Config) (*Server, error) {
@@ -361,6 +364,7 @@ func New(cfg Config) (*Server, error) {
 	s.loginCallbackUnreachable = hostos.OS() == hostos.Linux
 	s.recheckTell = func(ctx context.Context, project, note string) { s.tellLead(ctx, project, note, true) }
 	s.stallTell = s.recheckTell
+	s.credentialTell = s.tellLead
 	s.connectors = s.newConnectors()
 	s.disks = newAgentDiskCache(func(ctx context.Context, a state.Agent) agent.AgentDisk { return s.manager(nil).AgentDisk(ctx, a) })
 	s.prTell, s.prLead = s.prTellAgent, s.tellLead
@@ -804,6 +808,7 @@ func (s *Server) routes() http.Handler {
 	h("PUT /v1/projects/{project}/skills/{name}", s.setProjectSkill)
 	h("GET /v1/projects/{project}/secrets", s.listProjectSecrets)
 	h("PUT /v1/projects/{project}/secrets/{name}", s.setProjectSecret)
+	h("PATCH /v1/projects/{project}/secrets/{name}", s.patchProjectSecret)
 	h("DELETE /v1/projects/{project}/secrets/{name}", s.removeProjectSecret)
 	h("GET /v1/projects/{project}/browser-cookies", s.getBrowserCookies)
 	h("GET /v1/projects/{project}/browser-cookies/profiles", s.browserCookieProfiles)

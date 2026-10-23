@@ -1249,10 +1249,16 @@ export interface Secret {
   updatedAt: string;
   agents: string[];
   warning?: string;
+  leadManaged: boolean;
 }
 
 export interface SetSecretRequest {
   value: string;
+  leadManaged?: boolean;
+}
+
+export interface SecretSettingsRequest {
+  leadManaged: boolean;
 }
 
 export interface Skill {

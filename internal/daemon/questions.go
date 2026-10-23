@@ -203,6 +203,10 @@ func (s *Server) leadAnswerQuestion(w http.ResponseWriter, r *http.Request) erro
 		return fmt.Errorf("question %s: %w", q.ID, state.ErrNotFound)
 	}
 	if q.Credential() {
+		if s.leadManaged(r.Context(), q) {
+			return fmt.Errorf("$%s is managed by you, but never answered with text: refresh it if needed, then call fulfil_credential (id %s), "+
+				"which gives %s the stored value by name", q.SecretName, q.ID, q.Agent)
+		}
 		return errOnlyTheUser(q)
 	}
 	answered, err := s.answerQuestion(r.Context(), q.ID, req.Answer, "lead")
