@@ -3,6 +3,46 @@
 All notable, user-facing changes to AgentBox are documented here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Nothing older than 0.3.0 is listed.
 
+## [0.16.0](https://github.com/leciric/agentbox/compare/v0.15.0...v0.16.0) (2026-10-23)
+
+
+### Added
+
+* an agent's browser on a Mac renders WebGL on the Mac's GPU ([#464](https://github.com/leciric/agentbox/issues/464)) ([c3d8b55](https://github.com/leciric/agentbox/commit/c3d8b55326f7b29dbb359b61547a9803a515f744))
+* anonymous error events say why they failed, and usage events carry the UTC offset ([#486](https://github.com/leciric/agentbox/issues/486)) ([ee37f2e](https://github.com/leciric/agentbox/commit/ee37f2ec9d19b8d2568e49bf23492b7569d192f9))
+* Claude Code chats show Claude's thinking, live while it thinks and folded after ([#467](https://github.com/leciric/agentbox/issues/467)) ([066cc7c](https://github.com/leciric/agentbox/commit/066cc7c772bf2c1826e767bc240f564f4eb287d2))
+* idle agents can give their memory back: frozen and swapped out while idle, stopped once finished (experimental, off by default) ([#481](https://github.com/leciric/agentbox/issues/481)) ([d4ce7ce](https://github.com/leciric/agentbox/commit/d4ce7ceebf8d80d1997875984b9eb92a20b7e8aa))
+* on a Mac, Setup installs krunkit with Homebrew for a VM with a GPU, and Settings can remake a vz VM with it ([#457](https://github.com/leciric/agentbox/issues/457)) ([b487da4](https://github.com/leciric/agentbox/commit/b487da423884bd78fb05f34e5ffa3fcbeaa62cef))
+* optionally stop agents from running the whole test suite, and tell them which tests to run instead ([#479](https://github.com/leciric/agentbox/issues/479)) ([06e4ffa](https://github.com/leciric/agentbox/commit/06e4ffa5439f33af7b44e82a94ddb77b35c2806e))
+* pause whole agents when memory runs short, and start new ones on real free memory (experimental) ([#482](https://github.com/leciric/agentbox/issues/482)) ([a03f493](https://github.com/leciric/agentbox/commit/a03f49322c4407ae764bb897a015046387d09632))
+* Plan is a toggle beside the permission mode, so you can plan on bypass permissions and the approved plan runs on it ([#478](https://github.com/leciric/agentbox/issues/478)) ([34e4a21](https://github.com/leciric/agentbox/commit/34e4a217d5edd1fdaddaffde918ea90b6f84073f))
+* stopped agents' machines can be removed after N days when nothing would be lost, and stopped agents show with their disk size ([#484](https://github.com/leciric/agentbox/issues/484)) ([1e94e06](https://github.com/leciric/agentbox/commit/1e94e068546816c6ffe026da6fd54c6ecb6446be))
+* switch chats from any screen on the phone, with taps and layout that fit a phone ([#469](https://github.com/leciric/agentbox/issues/469)) ([2ece0b4](https://github.com/leciric/agentbox/commit/2ece0b400eb39afeecaefea2986c99704442b18c))
+* the lead's panel has Agents, Files, Evidence and Schedules, with Today and Settings in its header ([#487](https://github.com/leciric/agentbox/issues/487)) ([52e0c10](https://github.com/leciric/agentbox/commit/52e0c1015396bf7e7a0b475b81de2e5bdb85169b))
+* the Mac stays awake while agents are working ([#468](https://github.com/leciric/agentbox/issues/468)) ([f78a10e](https://github.com/leciric/agentbox/commit/f78a10ea0af3ccc42eb20d3be43d22fa4ac00067))
+* the shared package caches default to 10 GiB, wait while agents build, drop replaced browsers, and show their size in Diagnostics ([#483](https://github.com/leciric/agentbox/issues/483)) ([3292b2a](https://github.com/leciric/agentbox/commit/3292b2a7a6da30dfa0ae228fde68d8a6b60fc996))
+
+
+### Fixed
+
+* a machine out of file descriptors no longer brings back reviewed agents or gets agents with work auto-removed ([#463](https://github.com/leciric/agentbox/issues/463)) ([72349d1](https://github.com/leciric/agentbox/commit/72349d15aca6aa389355ae9a1d60cebf81b7bc58))
+* agents no longer hit "Too many open files in system" in the Linux VM's shared home ([#462](https://github.com/leciric/agentbox/issues/462)) ([2965cf4](https://github.com/leciric/agentbox/commit/2965cf484b5791363f85158e984b65d68c78af51))
+* agents no longer wait on AgentBox re-reading their whole worktree, and the app stops redrawing out of focus ([#480](https://github.com/leciric/agentbox/issues/480)) ([29bde9e](https://github.com/leciric/agentbox/commit/29bde9ebfc4a67ea1567c7fc45b2facd6b7f4284))
+* build with Go 1.27.3, fixing a crypto/x509 vulnerability ([#465](https://github.com/leciric/agentbox/issues/465)) ([16aa1e2](https://github.com/leciric/agentbox/commit/16aa1e29c7c168eecb118279ac2855622549ba42))
+* destroying an agent stops what it runs at once and deletes its worktree in one pass ([#466](https://github.com/leciric/agentbox/issues/466)) ([bad85b7](https://github.com/leciric/agentbox/commit/bad85b7be6bb2340d2dc185b5a2fbec777624cc0))
+* new agents install npm and pnpm packages several times faster, and start already installed when the lockfile is unchanged ([#470](https://github.com/leciric/agentbox/issues/470)) ([26bb4d4](https://github.com/leciric/agentbox/commit/26bb4d48db16456dc1a927d934f64fd131997a8c))
+* older Claude models no longer fail with adaptive thinking, and node_modules snapshots keep only untouched installs ([#472](https://github.com/leciric/agentbox/issues/472)) ([1269bd3](https://github.com/leciric/agentbox/commit/1269bd3e19caf3d44e3b2adaf4f3f9a1b7f71eec))
+* on a Mac without krunkit, Settings and VM setup say agents get no GPU and how to get one ([#455](https://github.com/leciric/agentbox/issues/455)) ([0d54d83](https://github.com/leciric/agentbox/commit/0d54d83877e1d56ddbe8e7fb7a82f4664ca35ccc))
+* on a Mac, any Chromium an agent starts renders WebGL on the GPU, and WebGL timer queries no longer crash it ([#477](https://github.com/leciric/agentbox/issues/477)) ([4b0b9e0](https://github.com/leciric/agentbox/commit/4b0b9e0d255b0956637484cf5adda5214b1c1b76))
+* on Windows, agents' desktops and browsers no longer reset the GPU driver ([#456](https://github.com/leciric/agentbox/issues/456)) ([09c0a69](https://github.com/leciric/agentbox/commit/09c0a695e345c0509cf03237d2613fc20d5bf83d))
+* the agents panel stays beside the chat in windows down to 900px wide ([#459](https://github.com/leciric/agentbox/issues/459)) ([75f4083](https://github.com/leciric/agentbox/commit/75f4083a0ba0168c2969fd97fdf3de760f675dda))
+* the chat fills its column, with the scrollbar at its edge ([#460](https://github.com/leciric/agentbox/issues/460)) ([e2263f3](https://github.com/leciric/agentbox/commit/e2263f34d9f28d82e10131cab375f17d6f400f8f))
+* the Media tab no longer crashes on partial data, and mailto: links open ([#485](https://github.com/leciric/agentbox/issues/485)) ([ad41d52](https://github.com/leciric/agentbox/commit/ad41d52df9be34d57a0198e4c24bb105cae804ae))
+* the right panel's tabs name only the open one ([#474](https://github.com/leciric/agentbox/issues/474)) ([84c5e13](https://github.com/leciric/agentbox/commit/84c5e1347a1789e123a8dc9723522ab9836d4437))
+* turning on GPU for agents on a Mac no longer leaves AgentBox's VM broken ([#476](https://github.com/leciric/agentbox/issues/476)) ([d1cfd80](https://github.com/leciric/agentbox/commit/d1cfd80e02028e4d981b6cf18f7d8e5abd261fce))
+* vite and node build scripts run without npm now wait or pause when the VM's memory is short ([#471](https://github.com/leciric/agentbox/issues/471)) ([c248f9b](https://github.com/leciric/agentbox/commit/c248f9bb289c4e4dea4e8ec036efb496770a0e47))
+* WebGL and other GPU programs on an agent's desktop draw at 60 fps with nobody watching, not 1 ([#475](https://github.com/leciric/agentbox/issues/475)) ([811ec8d](https://github.com/leciric/agentbox/commit/811ec8dc29eef51116576f26485dad8726630aa0))
+
 ## [0.15.0](https://github.com/leciric/agentbox/compare/v0.14.0...v0.15.0) (2026-10-21)
 
 
