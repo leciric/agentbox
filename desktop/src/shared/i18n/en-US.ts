@@ -263,6 +263,7 @@ export const enUS = {
   'shell.machine.agentbox': 'AgentBox',
   'shell.machine.vmMemory': 'VM memory',
   'shell.machine.wslMemory': 'WSL memory',
+  'shell.machine.hostFootprint': 'Holds {resident} of your computer\'s memory: what\'s in use plus the files it caches.{cache, select, yes { Your computer also caches {cacheSize} of its disks.} other {}}',
   'shell.machine.memoryGranted': 'Granted {granted} of a {cap} cap. The VM grows toward the cap as agents start.',
   'shell.machine.measuringMemory': 'Measuring memory…',
   'shell.machine.memoryGoes': 'Where it goes',

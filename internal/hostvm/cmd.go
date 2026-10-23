@@ -802,8 +802,13 @@ type Power struct {
 	MemoryUsed    int64  `json:"memoryUsed"`
 	MemoryGranted int64  `json:"memoryGranted"`
 	MemoryCap     int64  `json:"memoryCap"`
-	CPUs          int    `json:"cpus"`
-	Error         string `json:"error,omitempty"` // why it can't be used, and what to run
+	// MemoryResident is what the VM holds of the host's memory
+	// (api.VMMemory.Resident), and MemoryHostCache what the host caches of
+	// its disks besides; 0 when unknown.
+	MemoryResident  int64  `json:"memoryResident,omitempty"`
+	MemoryHostCache int64  `json:"memoryHostCache,omitempty"`
+	CPUs            int    `json:"cpus"`
+	Error           string `json:"error,omitempty"` // why it can't be used, and what to run
 	// PausedForDisk says the supervisor paused it because the host's disk
 	// that holds its disk images is nearly full (api.VMStatus.PausedForDisk),
 	// and HostFree is what that disk has free.
@@ -818,7 +823,8 @@ type Power struct {
 // powerFrom is a Cloud Hypervisor VM's Power. A VM vm init hasn't finished
 // making is off, with why.
 func powerFrom(st api.VMStatus) Power {
-	p := Power{State: st.State, MemoryUsed: st.Memory.Used, MemoryGranted: st.Memory.Granted, MemoryCap: st.Memory.Cap, CPUs: st.CPUs, Error: st.Problem,
+	p := Power{State: st.State, MemoryUsed: st.Memory.Used, MemoryGranted: st.Memory.Granted, MemoryCap: st.Memory.Cap, CPUs: st.CPUs,
+		MemoryResident: st.Memory.Resident, MemoryHostCache: st.Memory.HostCache, Error: st.Problem,
 		PausedForDisk: st.PausedForDisk, HostFree: st.Disk.HostFree}
 	if st.Disk.Size > 0 {
 		p.Disk = &st.Disk

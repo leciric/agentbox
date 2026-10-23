@@ -2848,6 +2848,7 @@ export interface VMMemory {
   granted: number;
   used: number;
   resident: number;
+  hostCache: number;
 }
 
 export interface VMDisk {

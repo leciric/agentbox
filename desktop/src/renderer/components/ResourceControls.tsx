@@ -640,6 +640,24 @@ export function VMMemory({ vm }: { vm: VMPower }) {
   );
 }
 
+// HostFootprint is what the VM really holds of the host's memory, which is
+// more than what's in use inside it: the guest's page cache is resident on
+// the host too. Then what the host caches of its disks, when there's any.
+export function HostFootprint({ vm, className }: { vm: VMPower; className?: string }) {
+  const t = useT();
+  if (!vm.memoryResident) return null;
+  const cache = vm.memoryHostCache ?? 0;
+  return (
+    <span className={cn('text-[11.5px] leading-relaxed text-muted', className)} data-host-footprint>
+      {t('shell.machine.hostFootprint', {
+        resident: humanBytes(vm.memoryResident),
+        cache: cache >= 64 * 1024 ** 2 ? 'yes' : 'no',
+        cacheSize: humanBytes(cache),
+      })}
+    </span>
+  );
+}
+
 // WSLMemory is the WSL distro's memory: what's in use of all WSL lets it have,
 // which it isn't given up front, so there's no granted share to show.
 function WSLMemory({ vm }: { vm: VMPower }) {

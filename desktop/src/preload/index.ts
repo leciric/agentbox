@@ -96,6 +96,10 @@ export interface VMPower {
   memoryUsed: number; // bytes in use inside the VM
   memoryGranted: number; // bytes the VM holds of the host's memory right now
   memoryCap: number; // bytes the VM may grow to at most
+  // memoryResident is what the VM holds of the host's memory, its page cache
+  // included, and memoryHostCache what the host caches of its disks besides.
+  memoryResident?: number;
+  memoryHostCache?: number;
   cpus: number;
   error?: string; // why the VM can't be reached or controlled, if it can't
   // pausedForDisk: the supervisor paused it because the host's disk that holds

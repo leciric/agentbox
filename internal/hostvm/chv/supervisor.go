@@ -47,6 +47,11 @@ type supervisor struct {
 	since       time.Time
 	daemonReady bool
 	sample      *memSample
+	// hostCache is what the host caches of the VM's disk images, measured at
+	// hostCacheAt: measuring walks their page cache, so not on every status.
+	cacheMu     sync.Mutex
+	hostCache   int64
+	hostCacheAt time.Time
 	mem         memState
 	// pausedForDisk says the supervisor paused the VM because the host's
 	// disk was nearly full (diskbackstop.go).
@@ -418,6 +423,7 @@ func (s *supervisor) memoryLoop(ctx context.Context) {
 			movable = s.ensureMovable(ctx, sample)
 		}
 		sample.Resident, _ = s.m.resident()
+		sample.HostTotal, sample.HostAvailable, sample.HostPressure = hostMemSample()
 		s.mu.Lock()
 		s.sample = &sample
 		d := s.policy.decide(&s.mem, &sample, time.Now())
@@ -433,6 +439,9 @@ func (s *supervisor) memoryLoop(ctx context.Context) {
 				s.logf("memory: dropped the VM's caches (%s), in %s", d.Reason, time.Since(started).Round(time.Millisecond))
 			}
 		}
+		if d.Trim > 0 && s.m.balloon() == 0 {
+			s.trim(ctx, d)
+		}
 		if d.Target == 0 {
 			continue
 		}
@@ -443,6 +452,31 @@ func (s *supervisor) memoryLoop(ctx context.Context) {
 		}
 		s.logf("memory: %s → %s (%s), asked in %s", gib(sample.Total), gib(d.Target), d.Reason, time.Since(started).Round(time.Millisecond))
 	}
+}
+
+// trim has the guest reclaim d.Trim of its coldest file pages and compact
+// what's free, which free page reporting then returns to the host; with the
+// host short, the host drops what it caches of the VM's disks too, which a
+// disk without direct=on keeps a second copy of.
+func (s *supervisor) trim(ctx context.Context, d memDecision) {
+	started := time.Now()
+	if d.HostShort {
+		dropImageCache(s.l.RootDisk())
+		dropImageCache(s.l.PoolDisk())
+	}
+	if _, err := runSSHFor(ctx, s.c, s.l, s.self, trimScript(d.Trim), 30*time.Second); err != nil {
+		s.logf("trimming the VM's file cache: %v", err)
+		return
+	}
+	s.logf("memory: trimmed up to %s of the VM's file cache (%s), in %s", gib(d.Trim), d.Reason, time.Since(started).Round(time.Millisecond))
+}
+
+// trimScript reclaims up to n bytes from the guest's root cgroup, which
+// takes inactive pages first, with swappiness=0 so it takes them from the
+// page cache rather than swapping, then compacts its free memory. Reclaiming
+// less than asked fails the write, which isn't an error here.
+func trimScript(n int64) string {
+	return fmt.Sprintf("echo '%d swappiness=0' | sudo -n tee /sys/fs/cgroup/memory.reclaim >/dev/null 2>&1; echo 1 | sudo -n tee /proc/sys/vm/compact_memory >/dev/null", n)
 }
 
 // reclaimScript drops the guest's page cache and the kernel's reclaimable

@@ -11,7 +11,7 @@ import { formatNumber, useT } from '../lib/i18n';
 import { machineStatus, memoryFull, type MachineStatus as Status } from '../lib/machineStatus';
 import { setTopBarDetailed, useTopBarDetailed } from '../lib/topBarLayout';
 import { cn, humanBytes } from '../lib/utils';
-import { FreeButton, useFreeResources, VMActions, VMMemory, VMPanel, vmStateText, type FreeResources } from './ResourceControls';
+import { FreeButton, useFreeResources, VMActions, HostFootprint, VMMemory, VMPanel, vmStateText, type FreeResources } from './ResourceControls';
 import { Notice } from './ui/card';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Tip } from './ui/tooltip';
@@ -406,6 +406,7 @@ function MemoryPanel({ vm, status, onSelect }: { vm: VMPower | null; status: Sta
         </span>
       </div>
       {vm && <VMMemory vm={vm} />}
+      {vm && <HostFootprint vm={vm} />}
       {vm && memory.cap > memory.total && (
         <span className="text-[11.5px] leading-relaxed text-muted">{t('shell.machine.memoryGranted', { granted: humanBytes(memory.total), cap: humanBytes(memory.cap) })}</span>
       )}

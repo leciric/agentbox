@@ -214,6 +214,13 @@ func TestCHArgs(t *testing.T) {
 			t.Errorf("no %q in\n%s", want, args)
 		}
 	}
+	// Direct I/O where the disk's file allows it, the pool's here.
+	diskDirectIO = func(path string) bool { return path == l.PoolDisk() }
+	t.Cleanup(func() { diskDirectIO = directIO })
+	args = strings.Join(chArgs(c, l, room, false), " ")
+	if !strings.Contains(args, "serial=agentbox-pool,direct=on,rate_limit_group=disks") || strings.Contains(args, "image_type=raw,direct=on,rate_limit") {
+		t.Errorf("direct=on not on the pool disk alone:\n%s", args)
+	}
 	if mac := macAddress("agentbox"); mac != macAddress("agent"+"box") || mac == macAddress("other") {
 		t.Error("the MAC address isn't one per VM name")
 	}
