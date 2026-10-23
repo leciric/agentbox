@@ -722,6 +722,21 @@ export function pullRequests(): T.ProjectPullRequests {
     canMergeKnown: true,
     mergeMethods: ['merge', 'squash', 'rebase'],
     pullRequests: [
+      // One ready to merge: checks passing, nothing in the way.
+      {
+        number: 81,
+        title: 'fix: reminders keep their time zone',
+        state: 'open',
+        checks: 'passing',
+        watched: true,
+        url: 'https://github.com/leciric/agentbox/pull/81',
+        additions: 18,
+        deletions: 4,
+        updatedAt: new Date().toISOString(),
+        baseBranch: 'main',
+        headBranch: 'agentbox/reminder-time-zone',
+        author: 'someone',
+      },
       {
         number: 78,
         title: 'A pull request whose title is genuinely long enough to be a problem for a narrow column',
@@ -1805,6 +1820,31 @@ function filesRequest(method: string, path: string) {
   return json({ files: ['AGENTS.md', 'README.md', 'go.mod', 'desktop/package.json'], truncated: false } satisfies T.WorktreeFiles);
 }
 
+// pullsRequest answers the ?pulls=1 and ?app=pulls list's pull requests:
+// each opens as its row with a short description and no files, and a merge is
+// answered after a few seconds, longer than GitHub's own, so what the app
+// shows while it waits can be seen. The list read after it has it merged.
+const devMerged = new Set<number>();
+async function pullsRequest(method: string, path: string) {
+  const query = new URLSearchParams(location.search);
+  if (query.get('pulls') !== '1' && query.get('app') !== 'pulls') return undefined;
+  const json = (body: unknown) => ({ status: 200, body: JSON.stringify(body), contentType: 'application/json' });
+  const list = pullRequests();
+  list.pullRequests = list.pullRequests.map((p) => (devMerged.has(p.number) ? { ...p, state: 'merged' } : p));
+  if (method === 'GET' && path === `/v1/projects/${PROJECT}/pulls`) return json(list);
+  const at = /^\/v1\/projects\/[^/]+\/pulls\/(\d+)(\/files|\/merge)?$/.exec(path);
+  const row = at && list.pullRequests.find((p) => p.number === Number(at[1]));
+  if (!at || !row) return undefined;
+  if (method === 'POST' && at[2] === '/merge') {
+    await new Promise((done) => setTimeout(done, 5000));
+    devMerged.add(row.number);
+    return json({ ...row, state: 'merged' });
+  }
+  if (method !== 'GET') return undefined;
+  if (at[2] === '/files') return json({ files: [], truncated: false } satisfies T.PullRequestFiles);
+  return json({ ...row, body: 'What it changes, and how it was checked.', changedFiles: 0, checkRuns: [] } satisfies T.PullRequestDetail);
+}
+
 // installDevBridge stubs window.agentbox: every query above is pre-seeded
 // and staleTime: Infinity keeps them from refetching, so nothing here needs
 // to do real work — it only has to exist so components that call it don't
@@ -1823,6 +1863,8 @@ export function installDevBridge(): void {
       if (files) return files;
       const past = pastRequest(method, path, body);
       if (past) return past;
+      const answer = await pullsRequest(method, path);
+      if (answer) return answer;
       for (const answer of devRequests) {
         const res = answer(method, path, body);
         if (res) return res;
@@ -1837,22 +1879,8 @@ export function installDevBridge(): void {
         const got = { old: decodeURIComponent(rename[1]), name, projects: [PROJECT], agents: [`${PROJECT}/agent-01`, `${PROJECT}/lead`] };
         return { status: 200, body: JSON.stringify(got), contentType: 'application/json' };
       }
-      // A merge (?app=pulls) is answered after as long as GitHub's merge
-      // takes, so what the app shows while it waits can be seen.
-      // Opened from the list, a pull request is its row with a short
-      // description and no files.
-      const opened = method === 'GET' ? /^\/v1\/projects\/[^/]+\/pulls\/(\d+)(\/files)?$/.exec(path) : null;
-      const row = opened && pullRequests().pullRequests.find((p) => p.number === Number(opened[1]));
-      if (row) {
-        const body: T.PullRequestDetail | T.PullRequestFiles = opened[2] ? { files: [], truncated: false } : { ...row, body: 'What it changes, and how it was checked.', changedFiles: 0, checkRuns: [] };
-        return { status: 200, body: JSON.stringify(body), contentType: 'application/json' };
-      }
-      const merge = method === 'POST' ? /^\/v1\/projects\/[^/]+\/pulls\/(\d+)\/merge$/.exec(path) : null;
-      if (merge) {
-        await new Promise((done) => setTimeout(done, 1500));
-        const pr = pullRequests().pullRequests.find((p) => p.number === Number(merge[1]));
-        return { status: 200, body: JSON.stringify({ ...pr, state: 'merged' }), contentType: 'application/json' };
-      }
+      // A merge (?app=pulls) is answered after a few seconds, longer than
+      // GitHub's own, so what the app shows while it waits can be seen.
       if (method === 'GET' && devState.update && path === '/v1/update') return { status: 200, body: JSON.stringify(devState.update), contentType: 'application/json' };
       if (method === 'GET' && devState.setup && path === '/v1/setup') return { status: 200, body: JSON.stringify(devState.setup), contentType: 'application/json' };
       if (method === 'GET' && devState.memoryUsage && path === '/v1/usage/memory') return { status: 200, body: JSON.stringify(devState.memoryUsage), contentType: 'application/json' };
