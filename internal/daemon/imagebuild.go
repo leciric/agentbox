@@ -105,7 +105,10 @@ func (s *Server) startImageBuild(ctx context.Context, req api.BuildImageRequest)
 	j, err := s.launchJob("image-build", image.SnapshotRef(), func(ctx context.Context, log io.Writer) (any, error) {
 		defer s.releaseImage()
 		if err := image.Build(ctx, s.cfg.Incus, s.cfg.User, opts, log); err != nil {
-			s.recordError(errImageBuildFailed, "")
+			// One the job's cancel stopped didn't fail.
+			if ctx.Err() == nil {
+				s.recordErr(errImageBuildFailed, "", err)
+			}
 			return nil, err
 		}
 		s.countFeature(api.FeatureImageBuild)

@@ -222,7 +222,25 @@ func (s *supervisor) status(ctx context.Context) api.VMStatus {
 		}
 	}
 	_, st.Memory.Resident = s.m.resident()
+	if running {
+		st.Memory.HostCache = s.imagesCached()
+	}
 	return st
+}
+
+// hostCacheEvery is how long a measure of the host's cache of the VM's disk
+// images is kept.
+const hostCacheEvery = 30 * time.Second
+
+// imagesCached is what the host caches of the VM's disk images, measured at
+// most every hostCacheEvery.
+func (s *supervisor) imagesCached() int64 {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	if time.Since(s.hostCacheAt) >= hostCacheEvery {
+		s.hostCache, s.hostCacheAt = imageCached(s.l.RootDisk())+imageCached(s.l.PoolDisk()), time.Now()
+	}
+	return s.hostCache
 }
 
 // offStatus is what there is to say about the VM without it running: its

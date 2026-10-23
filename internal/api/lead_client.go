@@ -205,6 +205,13 @@ func (c *Client) RollbackAgent(ctx context.Context, agent, checkpoint string) (R
 	return out, c.do(ctx, http.MethodPost, c.leadPath("/agents/"+url.PathEscape(agent)+"/rollback"), RollbackRequest{Checkpoint: checkpoint}, &out)
 }
 
+// SwitchAgentAccount moves one of the project's running agents to another
+// account of its AI tool, resuming its chat on it.
+func (c *Client) SwitchAgentAccount(ctx context.Context, agent string, req AgentAccountRequest) (AgentAccountSwitch, error) {
+	var out AgentAccountSwitch
+	return out, c.do(ctx, http.MethodPost, c.leadPath("/agents/"+url.PathEscape(agent)+"/account"), req, &out)
+}
+
 // ForkAgent starts a job making a new agent from one of the project's.
 func (c *Client) ForkAgent(ctx context.Context, agent string, req ForkRequest) (Job, error) {
 	var out Job

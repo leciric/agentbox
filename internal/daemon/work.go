@@ -179,7 +179,7 @@ func (s *Server) projectWorkEntries(ctx context.Context, p state.Project) ([]wor
 		if err != nil {
 			return nil, err
 		}
-		for _, e := range s.liveWork(ctx, p, agents, true) {
+		for _, e := range s.liveWork(ctx, p, agents, true, false) {
 			item := api.WorkItem{Item: e.item, Status: api.WorkWorking, At: e.agent.CreatedAt}
 			switch {
 			case !e.finished:

@@ -137,6 +137,8 @@ MemAvailable:    7000000 kB
 Buffers:           10000 kB
 SwapTotal:       8388604 kB
 SwapFree:        8000000 kB
+Active(file):    1000000 kB
+Inactive(file):   500000 kB
 some avg10=12.50 avg60=3.00 avg300=1.00 total=123
 full avg10=1.00 avg60=0.00 avg300=0.00 total=12
 auto_online online_movable
@@ -146,7 +148,8 @@ agents 3
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := memSample{Total: 8024064 << 10, Available: 7000000 << 10, SwapTotal: 8388604 << 10, SwapFree: 8000000 << 10, Pressure: 12.5, Agents: 3, AutoOnline: "online_movable"}
+	want := memSample{Total: 8024064 << 10, Available: 7000000 << 10, SwapTotal: 8388604 << 10, SwapFree: 8000000 << 10, Pressure: 12.5, Agents: 3, AutoOnline: "online_movable",
+		FileCache: 1500000 << 10, InactiveFile: 500000 << 10}
 	if s != want {
 		t.Errorf("parseMemSample = %+v, want %+v", s, want)
 	}
@@ -239,5 +242,80 @@ func TestMemPolicyReclaimsWhenQuiet(t *testing.T) {
 				break
 			}
 		}
+	}
+}
+
+// A busy VM's file cache is trimmed, a bounded amount of its inactive part at
+// a time, when the host is short of memory or the cache holds more than
+// memCacheShare of the VM; never while neither is so.
+func TestMemPolicyTrimsWhileBusy(t *testing.T) {
+	p := memPolicy{Min: 4 * GiB, Cap: 24 * GiB}
+	start := time.Now()
+	busy := func(cache, inactive int64, hostAvail int64, hostPSI float64) *memSample {
+		x := sample(8*GiB, 16*GiB, 3, 0)
+		x.Available = 16*GiB - 8*GiB
+		x.FileCache, x.InactiveFile = cache, inactive
+		x.Resident = 15 * GiB
+		x.HostTotal, x.HostAvailable, x.HostPressure = 32*GiB, hostAvail, hostPSI
+		return x
+	}
+	run := func(s *memSample, ticks int) (trims []memDecision) {
+		st := memState{Requested: 11 * GiB} // what it uses, plus headroom for 3 agents
+		for i := range ticks {
+			x := *s
+			x.CPUTotal, x.CPUBusy = uint64(i)*100, uint64(i)*90
+			if d := p.decide(&st, &x, start.Add(time.Duration(i)*memTick)); d.Trim > 0 {
+				if d.Reclaim || d.Shrink {
+					t.Errorf("a trim with a reclaim or a shrink: %+v", d)
+				}
+				trims = append(trims, d)
+			}
+		}
+		return trims
+	}
+
+	// The host is stalling: up to memTrimMax every memTrimEvery.
+	trims := run(busy(7*GiB, 5*GiB, 8*GiB, 25), 240) // 120 s
+	if len(trims) != 4 || trims[0].Trim != memTrimMax || !trims[0].HostShort || !strings.Contains(trims[0].Reason, "stalled") {
+		t.Errorf("host stalling: %+v", trims)
+	}
+	// The host has little available: the inactive part, when it's less.
+	trims = run(busy(3*GiB, GiB, 2*GiB, 0), 2)
+	if len(trims) != 1 || trims[0].Trim != GiB || !trims[0].HostShort {
+		t.Errorf("host short: %+v", trims)
+	}
+	// The host is fine but the cache holds 7 of 16 GiB: down to a third,
+	// every memTrimIdleEvery, without dropping the host's cache.
+	trims = run(busy(7*GiB, 5*GiB, 20*GiB, 0), 480) // 240 s
+	if want := 7*GiB - 16*GiB/3; len(trims) != 2 || trims[0].Trim != want || trims[0].HostShort {
+		t.Errorf("big cache: %+v, want 2 of %d", trims, want)
+	}
+	// Neither: never. Nor with too little inactive cache to bother.
+	for name, s := range map[string]*memSample{
+		"fine":         busy(4*GiB, 3*GiB, 20*GiB, 0),
+		"all active":   busy(7*GiB, 100<<20, 2*GiB, 30),
+		"host unknown": busy(4*GiB, 3*GiB, 0, 0),
+	} {
+		if s.HostAvailable == 0 {
+			s.HostTotal = 0
+		}
+		if trims := run(s, 240); len(trims) > 0 {
+			t.Errorf("%s: trimmed %+v", name, trims)
+		}
+	}
+}
+
+func TestPSISome(t *testing.T) {
+	if got := psiSome("some avg10=3.25 avg60=1.00 avg300=0.00 total=1\nfull avg10=1.00 avg60=0 avg300=0 total=0\n"); got != 3.25 {
+		t.Errorf("psiSome = %v", got)
+	}
+	if got := psiSome(""); got != 0 {
+		t.Errorf("psiSome of nothing = %v", got)
+	}
+}
+
+func TestTrimScript(t *testing.T) {
+	if got := trimScript(2 * GiB); !strings.Contains(got, "echo '2147483648 swappiness=0' | sudo -n tee /sys/fs/cgroup/memory.reclaim") || !strings.Contains(got, "compact_memory") {
+		t.Errorf("trimScript = %q", got)
 	}
 }
