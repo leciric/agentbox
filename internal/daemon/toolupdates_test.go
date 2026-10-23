@@ -165,18 +165,18 @@ func TestClaudeCodeCheckOffline(t *testing.T) {
 	}
 }
 
-// A user who turned it off keeps it off across a restart: no check runs as
-// the daemon starts.
-func TestClaudeCodeAutoUpdateOffSurvivesRestart(t *testing.T) {
+// A user who turned it off keeps it off when the daemon starts: no check runs.
+func TestClaudeCodeAutoUpdateOffSurvivesStart(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	root := t.TempDir()
 	pinned := image.ToolsFor(image.Components{})
 	d := startTestDaemon(t, root, toolsIncus(image.Version, image.Components{}, image.ToolsVersion(pinned), toolSpecs(pinned), withNext, ""),
-		testConfig{npmRegistry: fakeNPM(t, newerClaude).URL})
-	if err := d.srv.store.SetFlag(ctx, state.SettingClaudeCodeAutoUpdate, false); err != nil {
-		t.Fatal(err)
-	}
+		testConfig{npmRegistry: fakeNPM(t, newerClaude).URL, setup: func(srv *Server) {
+			if err := srv.store.SetFlag(ctx, state.SettingClaudeCodeAutoUpdate, false); err != nil {
+				t.Error(err)
+			}
+		}})
 	s, err := d.client.Settings(ctx)
 	if err != nil {
 		t.Fatal(err)
