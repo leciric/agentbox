@@ -1,8 +1,15 @@
 package redact
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestSecrets(t *testing.T) {
+	privateKeyBlock := os.Getenv("PRIVATE_KEY_BLOCK")
+	if privateKeyBlock == "" {
+		privateKeyBlock = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXk\n-----END OPENSSH PRIVATE KEY-----"
+	}
 	for _, tc := range []struct{ name, in, want string }{
 		{"github token", "push failed with ghp_0123456789abcdefABCDEF0123456789abcd", "push failed with [redacted]"},
 		{"fine-grained github token", "GH github_pat_11ABCDEFG0123456789_abcdefghijklmnop", "GH [redacted]"},
@@ -11,7 +18,7 @@ func TestSecrets(t *testing.T) {
 		{"slack token", "posted with xoxb-1234567890-abcdefghij", "posted with [redacted]"},
 		{"aws key", "AKIAABCDEFGHIJKLMNOP in env", "[redacted] in env"},
 		{"jwt", "id eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.c2lnbmF0dXJlX2hlcmU done", "id [redacted] done"},
-		{"private key", "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXk\n-----END OPENSSH PRIVATE KEY-----\nthen", "[private key]\nthen"},
+		{"private key", privateKeyBlock + "\nthen", "[private key]\nthen"},
 		{"bearer header", "curl -H 'Authorization: Bearer abc.def-ghi_jkl' x", "curl -H 'Authorization: [redacted]' x"},
 		{"basic header", "authorization=Basic dXNlcjpwYXNz", "authorization=[redacted]"},
 		{"bearer alone", "sent bearer 0123456789abcdef", "sent bearer [redacted]"},

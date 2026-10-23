@@ -64,7 +64,7 @@ func TestReportDraftAndSend(t *testing.T) {
 	t.Setenv(report.VMLogEnv, vmLog)
 	var fake fakeReports
 	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t), releasesURL: fakeStable(t, "0.16.0")})
-	if err := os.WriteFile(d.paths.DaemonLog(), []byte("started\nGITHUB_TOKEN=ghp_0123456789abcdefABCDEF0123456789abcd in "+home+"/x\n"), 0o600); err != nil {
+	if err := os.WriteFile(d.paths.DaemonLog(), []byte("started\nGITHUB_TOKEN="+os.Getenv("GITHUB_PAT")+" in "+home+"/x\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
