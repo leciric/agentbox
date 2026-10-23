@@ -23,6 +23,15 @@ func TestRender(t *testing.T) {
 			IP:       "10.239.149.23",
 			EnvFiles: []string{".env", "apps/api/.env.local"},
 		},
+		"node-modules": {
+			Project:     "pawly",
+			Agent:       "agent-04",
+			Worktree:    "/home/dev/.local/share/agentbox/worktrees/pawly/agent-04",
+			Branch:      "agentbox/agent-04",
+			BaseRef:     "main",
+			IP:          "10.239.149.25",
+			NodeModules: []string{".", "apps/web"},
+		},
 		"android": {
 			Project:  "pawly",
 			Agent:    "agent-03",
@@ -289,6 +298,29 @@ func TestRenderAgentPRs(t *testing.T) {
 	}
 	if strings.Contains(off, "open a pull request") {
 		t.Errorf("off: the brief tells the agent to open a pull request")
+	}
+}
+
+// TestRenderFullSuite checks the testing rule: the tests the change touches
+// and the full suite only when asked by name, unless the project lets its
+// agents run it while the installation blocks it.
+func TestRenderFullSuite(t *testing.T) {
+	render := func(on bool) string {
+		t.Helper()
+		got, err := brief.Render(brief.Data{Project: "pawly", Agent: "agent-02", Branch: "agentbox/x", BaseRef: "main", Worktree: "/w", FullSuite: on})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	allowed, blocked := render(true), render(false)
+	for _, want := range []string{"never the whole suite", "AGENTBOX_FULL_SUITE=1 <command>", "vitest related <files>", "## Testing your change\n\n- Run only"} {
+		if !strings.Contains(blocked, want) {
+			t.Errorf("the brief doesn't say %q", want)
+		}
+	}
+	if !strings.Contains(allowed, "## Testing your change\n\n- While you iterate") || !strings.Contains(allowed, "run the full suite once") || strings.Contains(allowed, "AGENTBOX_FULL_SUITE") {
+		t.Errorf("allowed: the brief doesn't let the agent run the full suite once")
 	}
 }
 

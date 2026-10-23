@@ -152,7 +152,7 @@ func (s *Server) countChatOption(session api.ChatSession, id string) {
 		s.countFeature(api.FeatureChatEffort)
 	case "context_window":
 		s.countFeature(api.FeatureChatWindow)
-	case "mode":
+	case "mode", api.ChatOptionPlan:
 		s.countFeature(api.FeatureChatMode)
 	}
 }

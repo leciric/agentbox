@@ -66,13 +66,17 @@ AgentBox runs in a VM, and the `agentbox` on the user's machine is that VM's fro
 ## Build and test
 
 ```bash
-go test ./...
+go test ./internal/cli ./internal/brief   # the packages you changed
 go build -o bin/agentbox ./cmd/agentbox   # "agentbox version dev"; bin/ is gitignored
 npm --prefix desktop start                # build and launch the app unpacked, in seconds
 npm --prefix desktop run dist             # installers in desktop/dist/: minutes, only when packaging changed
 ```
 
-Test the packages you changed while you work, and `go test ./...` once before you finish. The slow
+Run only the tests your change touches: `go test` on the packages you changed (and on those that use
+an exported API you changed), and for the app the test files of what you changed (`cd desktop && node
+--test src/…/x.test.ts`), plus `typecheck` and `lint`. Don't run `go test ./...` or a bare
+`npm --prefix desktop test`: CI runs the whole suite, and on an agent's VM it takes every other agent's
+memory. Run it only when your task, or a message from the lead or the user, asks for it by name. The slow
 packages (`internal/daemon`, `internal/chat`, `internal/agent`) run tests in parallel, and
 `internal/state`/`internal/memory` migrate a template database once per binary.
 

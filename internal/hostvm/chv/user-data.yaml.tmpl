@@ -66,34 +66,52 @@ write_files:
   # open files in system") once it has used all it may have: its RLIMIT_NOFILE,
   # usually 524288. Nothing makes this kernel forget them short of memory
   # pressure, and git, npm and go walking agents' worktrees on the share cache
-  # hundreds of thousands. So once there are more than {{.FuseInodeLimit}}, it
-  # drops its dentry and inode caches, which gives virtiofsd its descriptors
-  # back (FUSE's forget).
+  # hundreds of thousands, at tens of thousands a second. So, checking every
+  # second, once there are more than {{.FuseInodeLimit}}, or the count jumps by
+  # more than {{.FuseInodeStep}} in a second, it drops its dentry and inode
+  # caches, which gives virtiofsd its descriptors back (FUSE's forget). What
+  # stays after a drop is pinned (open files, working directories, inotify
+  # watches): it drops again only once the count is well past that. On a Linux
+  # host the VM's supervisor also watches virtiofsd's own count (chv/share.go).
   - path: /usr/local/lib/agentbox/trim-share-inodes
     permissions: "0755"
     content: |
       #!/bin/sh
-      n=$(awk '$1 == "fuse_inode" { print $2 }' /proc/slabinfo)
-      [ "${n:-0}" -gt {{.FuseInodeLimit}} ] || exit 0
-      echo "$n inodes of the shared home cached: dropping the dentry and inode caches"
-      echo 2 >/proc/sys/vm/drop_caches
+      count() { awk '$1 == "fuse_inode" { print $2 }' /proc/slabinfo; }
+      prev=0 floor=0 last=-10
+      while sleep 1; do
+        n=$(count)
+        n=${n:-0}
+        t=$(cut -d. -f1 /proc/uptime)
+        [ "$n" -lt "$floor" ] && floor=$n
+        why=
+        if [ $((t - last)) -lt 4 ] || [ "$n" -lt $((floor + {{.FuseInodeStep}})) ]; then
+          :
+        elif [ "$n" -gt {{.FuseInodeLimit}} ]; then
+          why="more than {{.FuseInodeLimit}}"
+        elif [ $((n - prev)) -gt {{.FuseInodeStep}} ]; then
+          why="up $((n - prev)) in a second"
+        fi
+        if [ -n "$why" ]; then
+          echo 2 >/proc/sys/vm/drop_caches
+          last=$t
+          floor=$(count)
+          floor=${floor:-0}
+          echo "$n inodes of the shared home cached ($why): dropped the dentry and inode caches, $floor stay"
+          n=$floor
+        fi
+        prev=$n
+      done
   - path: /etc/systemd/system/agentbox-trim-share-inodes.service
     content: |
       [Unit]
       Description=AgentBox: keep virtiofsd's file descriptors for the shared home in bounds
       [Service]
-      Type=oneshot
       ExecStart=/usr/local/lib/agentbox/trim-share-inodes
-  - path: /etc/systemd/system/agentbox-trim-share-inodes.timer
-    content: |
-      [Unit]
-      Description=AgentBox: keep virtiofsd's file descriptors for the shared home in bounds
-      [Timer]
-      OnBootSec=1min
-      OnUnitActiveSec=30s
-      AccuracySec=5s
+      Restart=always
+      RestartSec=1
       [Install]
-      WantedBy=timers.target
+      WantedBy=multi-user.target
   # ssh in the VM, git's to fetch and push over ssh included, is the host
   # user's: their keys, known hosts and config, from the shared home. ssh
   # reads the home it finds in passwd, the VM's own, whose .ssh holds the
@@ -324,7 +342,15 @@ write_files:
         apt-get update -q --error-on=any
         apt-get install -y -q --no-install-recommends socat
       fi
-      systemctl enable --now agentbox-trim-share-inodes.timer
+      # It was a timer every 30 seconds, which a walk of a few node_modules
+      # outran.
+      if [ -e /etc/systemd/system/agentbox-trim-share-inodes.timer ]; then
+        systemctl disable --now agentbox-trim-share-inodes.timer || true
+        rm -f /etc/systemd/system/agentbox-trim-share-inodes.timer
+        systemctl daemon-reload
+      fi
+      systemctl enable agentbox-trim-share-inodes.service
+      systemctl restart agentbox-trim-share-inodes.service
       systemctl enable --now{{range .Forwards}} agentbox-vsock-{{.Port}}.service{{end}}
 
       apt-get update -q --error-on=any

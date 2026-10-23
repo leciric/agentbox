@@ -242,8 +242,10 @@ export function FreeButton({ free, style }: { free: FreeResources; style: 'shutD
   }
   const count = free.targets;
   const label = freeLabel(t, free, style);
+  const explained = t('vm.free.tip', { what: count ? (vm ? 'both' : 'agents') : 'vm', count });
+  // The shut-down bar button is only its icon, so the tip names the action first.
   return (
-    <Tip label={t('vm.free.tip', { what: count ? (vm ? 'both' : 'agents') : 'vm', count })}>
+    <Tip label={style === 'shutDown' ? <><span className="block font-medium">{label}</span>{explained}</> : explained}>
       <button
         type="button"
         className={cn(
@@ -257,7 +259,7 @@ export function FreeButton({ free, style }: { free: FreeResources; style: 'shutD
         data-free-mode="free"
       >
         <Power className="size-3.5" />
-        <span className="hidden whitespace-nowrap sm:inline">{style === 'freeMemory' ? `${label}…` : label}</span>
+        {style === 'freeMemory' && <span className="hidden whitespace-nowrap sm:inline">{`${label}…`}</span>}
       </button>
     </Tip>
   );
