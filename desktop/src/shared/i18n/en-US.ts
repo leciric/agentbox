@@ -736,6 +736,7 @@ export const enUS = {
   'settings.usageStats.sentNothing': 'Nothing is waiting to be sent.',
   'settings.usageStats.sentCounts': 'Feature counts, to {url}',
   'settings.usageStats.sentEvents': 'Events, to {url}',
+  'settings.usageStats.sentHealth': 'Health of the VM, sent on its own to {url}',
   'settings.usageStats.sentMore': '{count} events are waiting in all: these go first, and the rest follow in the same check.',
   'settings.topbarDetailed.description': 'Show the VM\'s memory, CPU and disk in the top bar, each opening its breakdown, instead of one status bubble.',
   'settings.group.notifications.title': 'Alerts and sounds',

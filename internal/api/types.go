@@ -3267,6 +3267,9 @@ type UsageStatsPending struct {
 	// EventsWaiting is every event not sent yet, of which Events holds the
 	// first report's worth.
 	EventsWaiting int `json:"eventsWaiting"`
+	// Health is the health events waiting, posted to EventsURL in a body
+	// of their own; "" when none waits.
+	Health string `json:"health"`
 }
 
 // AppFeatures are the keys the app may count through the API.

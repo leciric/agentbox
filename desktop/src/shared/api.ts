@@ -1993,6 +1993,7 @@ export interface UsageStatsPending {
   eventsUrl: string;
   events: string;
   eventsWaiting: number;
+  health: string;
 }
 
 export interface LANStatus {

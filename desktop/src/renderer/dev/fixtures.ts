@@ -1975,6 +1975,95 @@ function filesRequest(method: string, path: string) {
   return json({ files: ['AGENTS.md', 'README.md', 'go.mod', 'desktop/package.json'], truncated: false } satisfies T.WorktreeFiles);
 }
 
+// usageStatsPending is Settings' "See what's sent": an error event, and the
+// VM's health apart (a real one, from an agent's machine), as the daemon
+// would post them.
+const usageEventsBody = {
+  "install": "2b5c0b0e-1111-4c3b-9f1e-0123456789ab",
+  "version": "0.16.0",
+  "os": "linux",
+  "arch": "amd64",
+  "events": [
+    {
+      "id": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "day": "2026-10-23",
+      "name": "error",
+      "props": {
+        "code": "create_failed",
+        "tool": "claude",
+        "class": "network",
+        "reason": "dial tcp: connection refused",
+        "utc_offset": "-3"
+      }
+    }
+  ]
+};
+const usageHealthBody = {
+  "install": "2b5c0b0e-1111-4c3b-9f1e-0123456789ab",
+  "version": "0.16.0",
+  "os": "linux",
+  "arch": "amd64",
+  "events": [
+    {
+      "id": "6f1d2c9a-3b4e-4f5a-8b6c-7d8e9f0a1b2c",
+      "day": "2026-10-23",
+      "name": "health",
+      "props": {
+        "agents_busy": 0,
+        "agents_idle": 0,
+        "daemon_peak_mib": 42,
+        "daemon_rss_mib": 42,
+        "episode_max_s": 0,
+        "episode_s": 0,
+        "episodes": 0,
+        "err_acp_closed": 0,
+        "err_auth": 0,
+        "err_database_locked": 0,
+        "err_git_credential": 1,
+        "err_git_lock": 0,
+        "err_incus_down": 0,
+        "err_killed": 0,
+        "err_network": 0,
+        "err_no_space": 0,
+        "err_not_found": 0,
+        "err_other": 0,
+        "err_out_of_memory": 0,
+        "err_permission": 0,
+        "err_timeout": 0,
+        "err_too_many_files": 1,
+        "front_end": "host",
+        "idle_freezes": 0,
+        "idle_stops": 0,
+        "machine_freezes": 0,
+        "mem_anon_pct": 3,
+        "mem_available_pct": 97,
+        "mem_file_pct": 9,
+        "mem_kernel_pct": 0,
+        "oom_kills": 0,
+        "period": "lt_1m",
+        "run_pauses": 2,
+        "swap_size_pct": 108,
+        "swap_used_pct": 1,
+        "trigger": "daily",
+        "vm_memory": "8_16g",
+        "vm_uptime": "5m_30m",
+        "zram_ratio_pct": 428,
+        "zram_size_pct": 57,
+        "utc_offset": "-3"
+      }
+    }
+  ]
+};
+const usageStatsPending: T.UsageStatsPending = {
+  on: true,
+  usageUrl: 'https://agentbox.linting.dev/api/v1/usage',
+  usage: '',
+  eventsUrl: 'https://agentbox.linting.dev/api/v1/events',
+  events: JSON.stringify(usageEventsBody, null, 2),
+  eventsWaiting: 2,
+  health: JSON.stringify(usageHealthBody, null, 2),
+};
+
 // installDevBridge stubs window.agentbox: every query above is pre-seeded
 // and staleTime: Infinity keeps them from refetching, so nothing here needs
 // to do real work — it only has to exist so components that call it don't
@@ -1983,6 +2072,7 @@ export function installDevBridge(): void {
   (window as unknown as { agentbox: unknown }).agentbox = {
     request: async (method: string, path: string, body?: unknown) => {
       if (method === 'PATCH' && path === '/v1/settings') return patchDefaults(body as T.UpdateSettingsRequest);
+      if (method === 'GET' && path === '/v1/usage-stats/pending') return { status: 200, body: JSON.stringify(usageStatsPending), contentType: 'application/json' };
       if (method === 'GET' && path.startsWith('/v1/stopped-machines')) return { status: 200, body: JSON.stringify(fixtureStoppedMachines(path)), contentType: 'application/json' };
       if (method === 'POST' && path === '/v1/stopped-machines/remove') return { status: 200, body: JSON.stringify(removeFixtureStopped((body as T.RemoveStoppedRequest).agents)), contentType: 'application/json' };
       if (method === 'GET' && path === '/v1/settings' && defaultsSettings.claudeCodeUpdate) return { status: 200, body: JSON.stringify(defaultsSettings), contentType: 'application/json' };

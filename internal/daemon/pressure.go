@@ -258,7 +258,7 @@ func (s *Server) stepPressure(ctx context.Context) {
 	} else {
 		acts = h.g.Step(now, sample)
 	}
-	trend := h.g.Trend()
+	trend, why := h.g.Trend(), h.g.Why()
 	type change struct {
 		run      pressure.Run
 		instance string
@@ -304,6 +304,7 @@ func (s *Server) stepPressure(ctx context.Context) {
 			s.logf("memory pressure: pausing %s: %v", c.run.ID(), err)
 			continue
 		}
+		s.countRunPause()
 		// Out to swap, so the paused run doesn't hold the VM's memory. It
 		// takes a while for gigabytes; nothing waits for it.
 		go func(c change) {
@@ -319,7 +320,9 @@ func (s *Server) stepPressure(ctx context.Context) {
 	}
 	if fleetOn {
 		s.stepFleet(ctx, now, sample)
+		why = s.fleetWhyNow()
 	}
+	s.notePressure(now, sample, err == nil, why)
 }
 
 // forget drops what the daemon kept beside a run that went. Under mu.
@@ -696,6 +699,7 @@ func (s *Server) watchMemory(ctx context.Context) {
 		if known && now.Kills > seen.Kills {
 			// Its own limit, when it reached it since; else the VM ran out.
 			own := now.OwnLimit > seen.OwnLimit
+			s.countOOMKills(now.Kills - seen.Kills)
 			go s.tellKilled(context.WithoutCancel(ctx), a, now.Kills-seen.Kills, now.Limit, own)
 		}
 	}

@@ -737,6 +737,7 @@ export const ptBR: Messages = {
   'settings.usageStats.sentNothing': 'Nada espera envio.',
   'settings.usageStats.sentCounts': 'Contagens de recursos, para {url}',
   'settings.usageStats.sentEvents': 'Eventos, para {url}',
+  'settings.usageStats.sentHealth': 'Saúde da VM, enviada à parte para {url}',
   'settings.usageStats.sentMore': '{count} eventos esperam no total: estes vão primeiro, e o resto segue na mesma verificação.',
   'settings.topbarDetailed.description': 'Mostra a memória, a CPU e o disco da VM na barra superior, cada um abrindo seu detalhamento, em vez de um só balão de status.',
   'settings.group.notifications.title': 'Alertas e sons',

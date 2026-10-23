@@ -55,7 +55,12 @@ type MemoryUsage struct {
 type ZramUsage struct {
 	SwapBytes int64
 	RealBytes int64
+	// DiskSize is the devices' size: the most swap they take.
+	DiskSize int64
 }
+
+// Zram is what this machine's zram devices report; false when none is sized.
+func Zram() (ZramUsage, bool) { return zramTotal(zramRoot) }
 
 // MemoryUsage measures the host's memory and every agent's share of it. It
 // is meant to be called when asked, not kept warm on a poll, the same as
@@ -211,6 +216,7 @@ func zramTotal(root string) (ZramUsage, bool) {
 		found = true
 		out.SwapBytes += orig
 		out.RealBytes += memUsed
+		out.DiskSize += disksize
 	}
 	return out, found
 }

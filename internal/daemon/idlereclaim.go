@@ -230,6 +230,7 @@ func (s *Server) freezeIdle(ctx context.Context, a state.Agent, idleFor time.Dur
 	s.idle.mu.Lock()
 	s.idle.frozen[a.Ref()] = &idleFrozen{instance: a.Instance, f: f, at: time.Now()}
 	s.idle.mu.Unlock()
+	s.countIdleFreeze()
 	go func() {
 		before, after, err := s.idleCgroups.Reclaim(a.Instance)
 		if err != nil {
@@ -273,6 +274,7 @@ func (s *Server) stopFinishedIdle(ctx context.Context, m *agent.Manager, a state
 	s.idle.mu.Lock()
 	s.idle.stopped[a.Ref()] = time.Now()
 	s.idle.mu.Unlock()
+	s.countIdleStop()
 	s.logf("idle reclaim: stopped %s's machine, %s after it finished", a.Ref(), idleFor.Round(time.Minute))
 	s.captureEvent(ctx, a.Project, a.Name, "agent_retired", map[string]any{"how": "idle_reclaim", "branch": a.Branch}, "")
 	s.record(ctx, api.AgentEvent{

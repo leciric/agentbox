@@ -350,6 +350,7 @@ func (s *Server) stepFleet(ctx context.Context, now time.Time, sample pressure.S
 			s.logf("memory: freezing %s: %v", c.ref, err)
 			continue
 		}
+		s.countMachineFreeze()
 		if swapFull {
 			continue // nowhere to push it out to
 		}
@@ -399,6 +400,7 @@ func (s *Server) pauseRuns(ctx context.Context, ref string, now time.Time, why p
 			s.logf("memory: pausing %s: %v", p.run.ID(), err)
 			continue
 		}
+		s.countRunPause()
 		go s.tellPaused(context.WithoutCancel(ctx), p.run)
 	}
 }

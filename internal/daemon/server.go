@@ -239,6 +239,7 @@ type Server struct {
 	remote          *remote.Connector // the connection to a hub, when this machine is an environment
 	lan             *lanState         // phones chatting from the local network or a tunnel (lan.go)
 	share           shareState        // virtiofsd's open files, from the VM's supervisor (share.go)
+	health          healthStats       // what the next health event counts (healthevent.go)
 	// connectorsGiven is whether each connector was last given to agents,
 	// by scope and name, so only a change to that rewrites their MCP
 	// servers (connectors.go).
@@ -711,7 +712,9 @@ func (s *Server) secrets() secrets.Store {
 }
 
 func (s *Server) logf(format string, args ...any) {
-	_, _ = fmt.Fprintf(s.cfg.Log, time.Now().Format(time.DateTime)+" "+format+"\n", args...)
+	line := fmt.Sprintf(format, args...)
+	_, _ = fmt.Fprintf(s.cfg.Log, "%s %s\n", time.Now().Format(time.DateTime), line)
+	s.noteLog(line)
 }
 
 // projectBySlug lets every request name a project by what it is called as
