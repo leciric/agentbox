@@ -15,8 +15,10 @@ import (
 // Every few seconds the supervisor reads the guest's memory (memSample) and
 // memPolicy.decide says what the VM should have: what its programs use,
 // without the page cache, plus headroom for what starts next — at least
-// memHeadroomMin, and memHeadroomPerAgent for each running agent, since an
-// agent's machine can grow by that much in the time it takes to notice, and
+// memHeadroomMin, and memHeadroomPerAgent for each busy agent (a turn of its
+// chat running, or a heavy command), since a busy agent's machine can grow by
+// that much in the time it takes to notice, memHeadroomIdleAgent for each
+// idle one, which grows little until its next turn starts, and
 // what use would reach in memLookahead at the rate it has lately been rising,
 // so a burst (a build's linker, a test suite's browsers) finds its memory
 // already there rather than stalling a few hundred MiB at a time.
@@ -49,17 +51,26 @@ import (
 // the host can't reclaim it, only the guest can. So when the host is short —
 // stalling on memory (its own PSI above memHostPressure) or with less than
 // memHostAvailableShare of its memory available — or the guest's file cache
-// holds more than memCacheShare of the VM, the policy asks for a trim: the
-// guest reclaims up to memTrimMax of its inactive file pages (memory.reclaim
+// holds more than the allowance a build needs (cacheAllowance) and the host
+// holds that too, the policy asks for a trim: the guest reclaims up to memTrimMax of its inactive file pages (memory.reclaim
 // on its root cgroup, which takes the coldest first and, with swappiness=0,
 // never swaps), then compacts, and free page reporting returns it. A build
 // keeps the files it keeps reading, which are on the active list. At most
 // every memTrimEvery under pressure and memTrimIdleEvery otherwise.
+//
+// Headroom isn't kept resident on the host: it's there for growth, which is
+// instant, and cache filling it would otherwise stay on the host for as long
+// as the agents keep working, since free page reporting only returns free
+// memory.
 
 const (
 	memHeadroomMin      = 2 * GiB
 	memHeadroomPerAgent = 1 * GiB
-	memPressureStep     = 2 * GiB
+	// memHeadroomIdleAgent is the headroom for an agent whose machine runs
+	// with nothing to do: its next turn starting is seen within
+	// memBusyEvery and grows the VM then.
+	memHeadroomIdleAgent = 256 << 20
+	memPressureStep      = 2 * GiB
 	// memPressureSome is the PSI "some avg10" percentage above which the
 	// guest is taken to be short of memory.
 	memPressureSome = 10.0
@@ -92,13 +103,15 @@ const (
 	// host is short.
 	memHostPressure       = 10.0
 	memHostAvailableShare = 0.10
-	// memCacheShare is the share of the VM its file cache may hold before it's
-	// trimmed with the host not short.
-	memCacheShare    = 1.0 / 3
-	memTrimMin       = 256 << 20
-	memTrimMax       = 2 * GiB
-	memTrimEvery     = 30 * time.Second
-	memTrimIdleEvery = 2 * time.Minute
+	// memCacheAllowanceMin and memCacheAllowanceShare (of use) are the file
+	// cache the VM keeps with the host not short: more than that, which sits
+	// in the headroom, is trimmed.
+	memCacheAllowanceMin   = 1 * GiB
+	memCacheAllowanceShare = 0.25
+	memTrimMin             = 256 << 20
+	memTrimMax             = 2 * GiB
+	memTrimEvery           = 30 * time.Second
+	memTrimIdleEvery       = 2 * time.Minute
 )
 
 // memSample is the guest's memory, as read from inside it.
@@ -112,6 +125,10 @@ type memSample struct {
 	// (PSI "some avg10"), in percent.
 	Pressure float64
 	Agents   int // agents' machines running
+	// Idle is how many of them are known to be idle: no turn of their chat
+	// running and no heavy command (filled in by the supervisor, from the
+	// daemon); 0 when unknown, which counts every agent as busy.
+	Idle int
 	// AutoOnline is how the guest onlines memory it's given
 	// (/sys/devices/system/memory/auto_online_blocks).
 	AutoOnline string
@@ -185,8 +202,20 @@ type memDecision struct {
 // target is what the VM should have for s: what it uses plus headroom,
 // rounded up to memGranule, within Min and Cap.
 func (p memPolicy) target(s memSample, rate float64) int64 {
-	headroom := max(int64(memHeadroomMin), int64(s.Agents)*memHeadroomPerAgent, int64(rate*memLookahead.Seconds()))
-	return p.clamp(s.Used() + headroom)
+	return p.clamp(s.Used() + max(s.headroom(), int64(rate*memLookahead.Seconds())))
+}
+
+// busy is how many agents' machines are running with work under way.
+func (s memSample) busy() int { return s.Agents - min(max(s.Idle, 0), s.Agents) }
+
+// headroom is what the VM keeps beyond use for its agents to grow into.
+func (s memSample) headroom() int64 {
+	return max(memHeadroomMin, int64(s.busy())*memHeadroomPerAgent+int64(s.Agents-s.busy())*memHeadroomIdleAgent)
+}
+
+// cacheAllowance is the file cache the VM keeps while the host isn't short.
+func (s memSample) cacheAllowance() int64 {
+	return max(memCacheAllowanceMin, int64(float64(s.Used())*memCacheAllowanceShare))
 }
 
 // observe keeps what decide needs from one sample to the next: how fast use
@@ -246,8 +275,8 @@ func (p memPolicy) decide(st *memState, s *memSample, now time.Time) memDecision
 	}
 	st.observe(*s, now)
 	want := p.target(*s, st.rate)
-	reason := fmt.Sprintf("uses %s with %d agents running", gib(s.Used()), s.Agents)
-	if st.rate*memLookahead.Seconds() > float64(max(int64(memHeadroomMin), int64(s.Agents)*memHeadroomPerAgent)) {
+	reason := fmt.Sprintf("uses %s with %d agents running, %d busy", gib(s.Used()), s.Agents, s.busy())
+	if st.rate*memLookahead.Seconds() > float64(s.headroom()) {
 		reason = fmt.Sprintf("uses %s, rising %s a second", gib(s.Used()), gib(int64(st.rate)))
 	}
 	if s.Pressure > memPressureSome && s.Available < memHeadroomMin && now.Sub(st.lastGrow) >= memGrowCooldown {
@@ -290,8 +319,8 @@ func (p memPolicy) decide(st *memState, s *memSample, now time.Time) memDecision
 }
 
 // trim is how much of the guest's inactive file cache to reclaim while it's
-// busy, and why: 0 unless the host is short of memory or the cache holds
-// more than memCacheShare of the VM, and never more than memTrimMax at once.
+// busy, and why: 0 unless the host is short of memory or holds cache beyond
+// use and cacheAllowance, and never more than memTrimMax at once.
 func (st *memState) trim(s memSample, now time.Time) (int64, bool, string) {
 	var n int64
 	var every time.Duration
@@ -304,9 +333,13 @@ func (st *memState) trim(s memSample, now time.Time) (int64, bool, string) {
 		if s.HostPressure > memHostPressure {
 			reason = fmt.Sprintf("this machine stalled on memory %.0f%% of the last 10s, and the VM caches %s of files", s.HostPressure, gib(s.FileCache))
 		}
-	case float64(s.FileCache) > float64(s.Total)*memCacheShare:
-		n, every = min(s.InactiveFile, s.FileCache-int64(float64(s.Total)*memCacheShare)), memTrimIdleEvery
-		reason = fmt.Sprintf("the VM caches %s of files in %s", gib(s.FileCache), gib(s.Total))
+	case s.FileCache > s.cacheAllowance() && s.Resident-s.Used() > s.cacheAllowance():
+		// What this machine holds beyond use and the allowance is cache in
+		// the headroom (or free pages not yet returned, which the compaction
+		// after the trim hands back too).
+		allow := s.cacheAllowance()
+		n, every = min(s.InactiveFile, s.FileCache-allow, s.Resident-s.Used()-allow), memTrimIdleEvery
+		reason = fmt.Sprintf("the VM caches %s of files, more than the %s kept beside %s in use", gib(s.FileCache), gib(allow), gib(s.Used()))
 	}
 	n = min(n, memTrimMax)
 	if n < memTrimMin || now.Sub(st.lastTrim) < every || now.Sub(st.lastReclaim) < every {

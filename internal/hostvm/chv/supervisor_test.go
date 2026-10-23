@@ -1,6 +1,7 @@
 package chv
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net"
@@ -418,4 +419,46 @@ func shortPaths(t *testing.T) paths.Paths {
 		t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	}
 	return paths.Paths{Config: filepath.Join(dir, "config"), Data: filepath.Join(dir, "data")}
+}
+
+// An agent is idle with its chat ready, waiting, off or failed, or its
+// machine paused, unless it has a heavy command; a turn running or starting,
+// or no chat to say (a CLI agent), is busy. A daemon that can't say makes none idle.
+func TestIdleAgents(t *testing.T) {
+	agents := []api.Agent{
+		{Ref: "p/turn", State: "running", Chat: api.ChatRunning},
+		{Ref: "p/starting", State: "running", Chat: api.ChatStarting},
+		{Ref: "p/cli", State: "running"},
+		{Ref: "p/ready", State: "running", Chat: api.ChatReady},
+		{Ref: "p/asking", State: "running", Chat: api.ChatWaiting},
+		{Ref: "p/heavy", State: "running", Chat: api.ChatReady},
+		{Ref: "p/frozen", State: "paused", Chat: api.ChatReady},
+		{Ref: "p/stopped", State: "stopped", Chat: api.ChatOff},
+	}
+	failPressure := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/agents":
+			_ = json.NewEncoder(w).Encode(agents)
+		case "/v1/pressure":
+			if failPressure {
+				http.Error(w, `{"error":"no"}`, http.StatusInternalServerError)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(api.PressureStatus{Runs: []api.HeavyRun{{Agent: "p/heavy", State: "running"}}})
+		}
+	}))
+	defer srv.Close()
+	client := &http.Client{Transport: &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "tcp", srv.Listener.Addr().String())
+		},
+	}}
+	if got := idleAgents(t.Context(), client); got != 3 {
+		t.Errorf("idleAgents = %d, want 3 (ready, asking, frozen)", got)
+	}
+	failPressure = true
+	if got := idleAgents(t.Context(), client); got != 0 {
+		t.Errorf("idleAgents with the daemon failing = %d, want 0", got)
+	}
 }

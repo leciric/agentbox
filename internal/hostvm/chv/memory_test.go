@@ -1,6 +1,7 @@
 package chv
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -13,19 +14,24 @@ func sample(used, total int64, agents int, pressure float64) *memSample {
 func TestMemPolicyTarget(t *testing.T) {
 	p := memPolicy{Min: 4 * GiB, Cap: 16 * GiB}
 	for _, tc := range []struct {
-		name   string
-		used   int64
-		agents int
-		want   int64
+		name         string
+		used         int64
+		agents, idle int
+		want         int64
 	}{
-		{"idle stays at the minimum", GiB / 2, 0, 4 * GiB},
-		{"two GiB of headroom at least", 3 * GiB, 1, 5 * GiB},
-		{"a GiB of headroom an agent", 3 * GiB, 4, 7 * GiB},
-		{"rounded up to 512 MiB", 3*GiB + 1, 0, 5*GiB + 512<<20},
-		{"never above the cap", 20 * GiB, 10, 16 * GiB},
+		{"idle stays at the minimum", GiB / 2, 0, 0, 4 * GiB},
+		{"two GiB of headroom at least", 3 * GiB, 1, 0, 5 * GiB},
+		{"a GiB of headroom a busy agent", 3 * GiB, 4, 0, 7 * GiB},
+		{"a quarter of one an idle agent", 3 * GiB, 8, 4, 8 * GiB},
+		{"idle agents within the minimum", 3 * GiB, 6, 6, 5 * GiB},
+		{"more idle than running counts none busy", 3 * GiB, 2, 5, 5 * GiB},
+		{"rounded up to 512 MiB", 3*GiB + 1, 0, 0, 5*GiB + 512<<20},
+		{"never above the cap", 20 * GiB, 10, 0, 16 * GiB},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := p.target(*sample(tc.used, 16*GiB, tc.agents, 0), 0); got != tc.want {
+			x := sample(tc.used, 16*GiB, tc.agents, 0)
+			x.Idle = tc.idle
+			if got := p.target(*x, 0); got != tc.want {
 				t.Errorf("target = %s, want %s", gib(got), gib(tc.want))
 			}
 		})
@@ -246,8 +252,8 @@ func TestMemPolicyReclaimsWhenQuiet(t *testing.T) {
 }
 
 // A busy VM's file cache is trimmed, a bounded amount of its inactive part at
-// a time, when the host is short of memory or the cache holds more than
-// memCacheShare of the VM; never while neither is so.
+// a time, when the host is short of memory or holds cache beyond use and the
+// allowance; never while neither is so.
 func TestMemPolicyTrimsWhileBusy(t *testing.T) {
 	p := memPolicy{Min: 4 * GiB, Cap: 24 * GiB}
 	start := time.Now()
@@ -284,17 +290,22 @@ func TestMemPolicyTrimsWhileBusy(t *testing.T) {
 	if len(trims) != 1 || trims[0].Trim != GiB || !trims[0].HostShort {
 		t.Errorf("host short: %+v", trims)
 	}
-	// The host is fine but the cache holds 7 of 16 GiB: down to a third,
-	// every memTrimIdleEvery, without dropping the host's cache.
+	// The host is fine but the cache holds 7 GiB beside 8 in use, where 2
+	// are kept: up to memTrimMax every memTrimIdleEvery, without dropping
+	// the host's cache.
 	trims = run(busy(7*GiB, 5*GiB, 20*GiB, 0), 480) // 240 s
-	if want := 7*GiB - 16*GiB/3; len(trims) != 2 || trims[0].Trim != want || trims[0].HostShort {
-		t.Errorf("big cache: %+v, want 2 of %d", trims, want)
+	if len(trims) != 2 || trims[0].Trim != memTrimMax || trims[0].HostShort || !strings.Contains(trims[0].Reason, "kept beside") {
+		t.Errorf("big cache: %+v, want 2 of %s", trims, gib(memTrimMax))
 	}
-	// Neither: never. Nor with too little inactive cache to bother.
+	// Neither: never. Nor with too little inactive cache to bother, nor
+	// cache this machine doesn't hold.
+	notHeld := busy(7*GiB, 5*GiB, 20*GiB, 0)
+	notHeld.Resident = 9 * GiB
 	for name, s := range map[string]*memSample{
-		"fine":         busy(4*GiB, 3*GiB, 20*GiB, 0),
+		"fine":         busy(2*GiB, GiB, 20*GiB, 0),
 		"all active":   busy(7*GiB, 100<<20, 2*GiB, 30),
-		"host unknown": busy(4*GiB, 3*GiB, 0, 0),
+		"host unknown": busy(2*GiB, GiB, 0, 0),
+		"not held":     notHeld,
 	} {
 		if s.HostAvailable == 0 {
 			s.HostTotal = 0
@@ -317,5 +328,77 @@ func TestPSISome(t *testing.T) {
 func TestTrimScript(t *testing.T) {
 	if got := trimScript(2 * GiB); !strings.Contains(got, "echo '2147483648 swappiness=0' | sudo -n tee /sys/fs/cgroup/memory.reclaim") || !strings.Contains(got, "compact_memory") {
 		t.Errorf("trimScript = %q", got)
+	}
+}
+
+// The numbers from a real host (Linux, nightly .134): the VM plugged to
+// 13.5 GiB while its programs use 7 (anon 6.3, kernel 0.5), six agents
+// running, 4.5 GiB of page cache filling the headroom, and the host at 73%
+// used, so not short. Before, the headroom was a GiB for each of the six, and
+// a cache under a third of the VM was never trimmed: the host held 13 GiB.
+// Now the cache beyond use and its allowance is trimmed, and idle agents keep
+// little headroom; growth stays instant once they're busy again.
+func TestMemPolicyRealHostHeadroom(t *testing.T) {
+	p := memPolicy{Min: 4 * GiB, Cap: 24 * GiB}
+	start := time.Now()
+	host := func(idle int) *memSample {
+		x := sample(7*GiB, 13*GiB+GiB/2, 6, 0)
+		x.Idle = idle
+		x.FileCache, x.InactiveFile = 4*GiB+GiB/2, 3*GiB
+		x.Resident = 13 * GiB
+		x.HostTotal, x.HostAvailable = 32*GiB, 32*GiB*27/100
+		return x
+	}
+	// replay runs the policy for ticks samples, with the guest doing what it's
+	// told: a trim drops that much inactive cache and the compaction after it
+	// hands every free page back, so the host holds use and cache; a shrink
+	// unplugs, and its reclaim drops the cache.
+	replay := func(x *memSample, st *memState, ticks int) (trims []int64, shrinks []int64) {
+		for i := range ticks {
+			x.CPUTotal, x.CPUBusy = uint64(i)*100, uint64(i)*60
+			d := p.decide(st, x, start.Add(time.Duration(i)*memTick))
+			if d.Trim > 0 {
+				trims = append(trims, d.Trim)
+				x.FileCache -= d.Trim
+				x.InactiveFile -= d.Trim
+				x.Resident = x.Used() + x.FileCache
+			}
+			if d.Shrink {
+				shrinks = append(shrinks, d.Target)
+				x.Available -= x.Total - d.Target
+				x.Total = d.Target
+				x.FileCache, x.InactiveFile = 0, 0
+				x.Resident = x.Used()
+			} else if d.Target > 0 {
+				x.Available += d.Target - x.Total
+				x.Total = d.Target
+			}
+		}
+		return trims, shrinks
+	}
+
+	// All six busy: the headroom stays (13 GiB), but the cache in it goes,
+	// down to the 1.75 GiB kept beside 7 in use, in two trims.
+	x, st := host(0), memState{Requested: 13*GiB + GiB/2}
+	trims, shrinks := replay(x, &st, 600) // 5 min
+	if want := []int64{2 * GiB, 3 * GiB / 4}; !slices.Equal(trims, want) || len(shrinks) > 0 {
+		t.Errorf("all busy: trims %v, shrinks %v; want trims %v and no shrink", trims, shrinks, want)
+	}
+	if want := 8*GiB + 3*GiB/4; x.Resident != want {
+		t.Errorf("all busy: the host holds %s, want %s", gib(x.Resident), gib(want))
+	}
+
+	// Two busy and four idle: 3 GiB of headroom, so the VM shrinks to 10 GiB
+	// once that's lasted memShrinkAfter, and the host holds only use.
+	x, st = host(4), memState{Requested: 13*GiB + GiB/2}
+	_, shrinks = replay(x, &st, 600)
+	if !slices.Equal(shrinks, []int64{10 * GiB}) || x.Resident != 7*GiB {
+		t.Errorf("four idle: shrinks %v, the host holds %s; want one to 10 GiB and 7 GiB held", shrinks, gib(x.Resident))
+	}
+
+	// The idle four start a turn: the VM grows on the next sample.
+	x.Idle = 0
+	if d := p.decide(&st, x, start.Add(601*memTick)); d.Target != 13*GiB || d.Shrink {
+		t.Errorf("all busy again: %+v, want a grow to 13 GiB at once", d)
 	}
 }

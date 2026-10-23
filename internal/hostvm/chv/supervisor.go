@@ -47,6 +47,9 @@ type supervisor struct {
 	since       time.Time
 	daemonReady bool
 	sample      *memSample
+	// idle is how many running agents the daemon last said were idle
+	// (busyLoop); 0 when it couldn't say.
+	idle int
 	// hostCache is what the host caches of the VM's disk images, measured at
 	// hostCacheAt: measuring walks their page cache, so not on every status.
 	cacheMu     sync.Mutex
@@ -192,6 +195,7 @@ func (s *supervisor) run(ctx context.Context) error {
 	// Phones' port closes with the other forwards, before the VM stops.
 	defer func() { stopLoops(); <-lanDone }()
 	go s.memoryLoop(loops)
+	go s.busyLoop(loops)
 	go s.diskLoop(loops)
 	if m, ok := s.m.(*chMachine); ok {
 		go s.gpuLoop(loops, m)
@@ -425,6 +429,7 @@ func (s *supervisor) memoryLoop(ctx context.Context) {
 		sample.Resident, _ = s.m.resident()
 		sample.HostTotal, sample.HostAvailable, sample.HostPressure = hostMemSample()
 		s.mu.Lock()
+		sample.Idle = s.idle
 		s.sample = &sample
 		d := s.policy.decide(&s.mem, &sample, time.Now())
 		s.mu.Unlock()
@@ -452,6 +457,65 @@ func (s *supervisor) memoryLoop(ctx context.Context) {
 		}
 		s.logf("memory: %s → %s (%s), asked in %s", gib(sample.Total), gib(d.Target), d.Reason, time.Since(started).Round(time.Millisecond))
 	}
+}
+
+// busyLoop asks the daemon every memBusyEvery how many running agents are
+// idle, for the headroom memory.go keeps: an agent is busy while a turn of its
+// chat runs (or starts) or it has a heavy command, and one without a chat
+// (a CLI agent) counts as busy, as nothing says what it's doing. Asked apart
+// from memoryLoop, so a slow daemon never holds back a grow; when it can't
+// be asked, every agent counts as busy.
+func (s *supervisor) busyLoop(ctx context.Context) {
+	tick := time.NewTicker(memBusyEvery)
+	defer tick.Stop()
+	client := s.daemonClient(memBusyEvery)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+		s.mu.Lock()
+		ready := s.daemonReady && s.state != api.VMPaused
+		s.mu.Unlock()
+		idle := 0
+		if ready {
+			idle = idleAgents(ctx, client)
+		}
+		s.mu.Lock()
+		s.idle = idle
+		s.mu.Unlock()
+	}
+}
+
+// memBusyEvery is how often busyLoop asks.
+const memBusyEvery = 2 * time.Second
+
+// idleAgents is how many running agents have neither a turn running nor a
+// heavy command, 0 when the daemon can't say.
+func idleAgents(ctx context.Context, client *http.Client) int {
+	var agents []api.Agent
+	var pressure api.PressureStatus
+	if daemonJSON(ctx, client, http.MethodGet, "/v1/agents", &agents) != nil ||
+		daemonJSON(ctx, client, http.MethodGet, "/v1/pressure", &pressure) != nil {
+		return 0
+	}
+	heavy := map[string]bool{}
+	for _, r := range pressure.Runs {
+		heavy[r.Agent] = true
+	}
+	n := 0
+	for _, a := range agents {
+		switch {
+		case heavy[a.Ref]:
+		case a.State == "paused": // frozen: it grows once thawed and running again
+			n++
+		case a.State != "running":
+		case a.Chat == api.ChatReady, a.Chat == api.ChatWaiting, a.Chat == api.ChatError, a.Chat == api.ChatOff:
+			n++
+		}
+	}
+	return n
 }
 
 // trim has the guest reclaim d.Trim of its coldest file pages and compact
