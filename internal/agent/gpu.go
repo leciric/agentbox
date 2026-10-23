@@ -75,10 +75,12 @@ var vgpuDevices = []string{vgpuDevice, vgpuLibDevice, vgpuDriversDevice, vgpuPro
 // libdxcore.so; wslDrivers the GPU vendor's user-mode driver, which
 // libdxcore loads from there.
 var (
-	dxgPath        = "/dev/dxg"
-	wslLib         = "/usr/lib/wsl/lib"
-	wslDrivers     = "/usr/lib/wsl/drivers"
-	renderNodeGlob = "/dev/dri/renderD*"
+	dxgPath    = "/dev/dxg"
+	wslLib     = "/usr/lib/wsl/lib"
+	wslDrivers = "/usr/lib/wsl/drivers"
+	// RenderNodeGlob finds the VM's render nodes; daemon tests point it at
+	// /dev/null.
+	RenderNodeGlob = "/dev/dri/renderD*"
 	// vmGPUStatusFile is where the Linux VM's supervisor says what GPU the
 	// host has for it, and why the VM has none (chv.GPUStatus, written to
 	// chv's guestGPUFile).
@@ -136,7 +138,7 @@ func FindVMGPU() VMGPU {
 		}
 		return VMGPU{Kind: GPUDXG, Node: dxgPath}
 	}
-	nodes, _ := filepath.Glob(renderNodeGlob)
+	nodes, _ := filepath.Glob(RenderNodeGlob)
 	sort.Strings(nodes)
 	venus := VenusVM()
 	for _, node := range nodes {

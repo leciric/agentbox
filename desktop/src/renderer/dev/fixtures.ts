@@ -43,6 +43,12 @@ function fixtureVMGPU(gpu: string | null): T.VMGPU {
       return { kind: '', node: '', setup: gpu, reason: krunkit };
     case 'failed':
       return { kind: '', node: '', setup: 'failed', reason: "GPU: Debian's generic kernel (6.12.48+deb13-arm64) didn't boot, so the VM went back to its cloud kernel" };
+    case 'updating':
+      // A krunkit VM with a driver, building a newer one.
+      return { kind: 'render', node: '/dev/dri/renderD128', setup: 'running', reason: '' };
+    case 'updatefailed':
+      // A krunkit VM with a driver whose newer build failed.
+      return { kind: 'render', node: '/dev/dri/renderD128', setup: 'failed', reason: '2. curl:arm64=8.21.0-2~bpo13+1 Depends libcurl4t64 (= 8.21.0-2~bpo13+1)' };
   }
   return { kind: 'dxg', node: '/dev/dxg', setup: '', reason: '' };
 }

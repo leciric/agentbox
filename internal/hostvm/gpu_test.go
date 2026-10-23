@@ -99,8 +99,9 @@ func TestInstallBringsVenus(t *testing.T) {
 	}
 }
 
-// venus.sh parses, leaves the kernel to kernel.sh, and checks the Mesa it
-// downloads.
+// venus.sh parses, leaves the kernel to kernel.sh, checks the Mesa it
+// downloads, and installs its build packages without upgrading those the VM
+// has.
 func TestVenusScript(t *testing.T) {
 	script, err := venusFiles.ReadFile("venus/venus.sh")
 	if err != nil {
@@ -109,7 +110,7 @@ func TestVenusScript(t *testing.T) {
 	if out, err := exec.Command("bash", "-n", "-c", string(script)).CombinedOutput(); err != nil {
 		t.Fatalf("venus.sh doesn't parse: %v\n%s", err, out)
 	}
-	for _, want := range []string{"kernel.sh\" try", "sha256sum -c", "-Dvulkan-drivers=virtio"} {
+	for _, want := range []string{"kernel.sh\" try", "sha256sum -c", "-Dvulkan-drivers=virtio", "--no-upgrade"} {
 		if !bytes.Contains(script, []byte(want)) {
 			t.Errorf("venus.sh has no %q", want)
 		}

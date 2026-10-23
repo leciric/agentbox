@@ -2048,6 +2048,13 @@ const gpuSetupNotes: Record<string, MessageKey> = {
 
 // vmGPUNote says which GPU agents get, or how far readying it has got.
 function vmGPUNote(t: ReturnType<typeof useT>, gpu: T.VMGPU): string {
+  // With a GPU there, it's a newer driver being built: agents keep theirs.
+  if (gpu.kind && gpu.setup === "running") {
+    return t("settings.agentGPU.setup.updating");
+  }
+  if (gpu.kind && gpu.setup === "failed") {
+    return t("settings.agentGPU.setup.updateFailed", { reason: gpu.reason });
+  }
   const setup = gpuSetupNotes[gpu.setup];
   if (setup) {
     return t(setup, { reason: gpu.reason });

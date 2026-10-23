@@ -18,16 +18,16 @@ func fakeGPU(t *testing.T, dxg, render string, lib bool) {
 	t.Helper()
 	dir := t.TempDir()
 	missing := filepath.Join(dir, "missing")
-	old := []string{dxgPath, wslLib, wslDrivers, renderNodeGlob, VenusScript, vmGPUStatusFile, VMGPUReasonFile}
+	old := []string{dxgPath, wslLib, wslDrivers, RenderNodeGlob, VenusScript, vmGPUStatusFile, VMGPUReasonFile}
 	t.Cleanup(func() {
-		dxgPath, wslLib, wslDrivers, renderNodeGlob, VenusScript, vmGPUStatusFile, VMGPUReasonFile = old[0], old[1], old[2], old[3], old[4], old[5], old[6]
+		dxgPath, wslLib, wslDrivers, RenderNodeGlob, VenusScript, vmGPUStatusFile, VMGPUReasonFile = old[0], old[1], old[2], old[3], old[4], old[5], old[6]
 	})
-	dxgPath, renderNodeGlob, VenusScript, vmGPUStatusFile, VMGPUReasonFile = missing, missing, missing, missing, missing
+	dxgPath, RenderNodeGlob, VenusScript, vmGPUStatusFile, VMGPUReasonFile = missing, missing, missing, missing, missing
 	if dxg != "" {
 		dxgPath = dxg
 	}
 	if render != "" {
-		renderNodeGlob = render
+		RenderNodeGlob = render
 	}
 	wslLib, wslDrivers = missing, missing
 	if lib {

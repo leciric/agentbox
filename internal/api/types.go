@@ -3344,7 +3344,9 @@ type VMGPU struct {
 	// Setup is how far readying the GPU has got when the VM's can be readied
 	// but isn't ready, as on a Mac's krunkit VM: one of the VMGPUSetup values.
 	// "" when there's nothing to ready, Kind's GPU being there or there being
-	// none to have.
+	// none to have. With Kind's GPU there and "GPU for agents" on, a krunkit
+	// VM building a newer driver says VMGPUSetupRunning, then
+	// VMGPUSetupFailed if it failed, agents keeping the one they have.
 	Setup string `json:"setup"`
 }
 

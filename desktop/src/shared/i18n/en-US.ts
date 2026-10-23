@@ -639,6 +639,8 @@ export const enUS = {
   'settings.agentGPU.setup.running': 'Readying the VM\'s GPU: a few minutes. Agents get it when it\'s done.',
   'settings.agentGPU.setup.restart': 'The VM\'s GPU is ready once the VM restarts on its new kernel: run agentbox vm stop, then agentbox vm start, when it suits you (its agents stop with it).',
   'settings.agentGPU.setup.failed': 'Readying the VM\'s GPU failed: {reason}. Agents run without one; turn it off and on to try again.',
+  'settings.agentGPU.setup.updating': 'Updating the VM\'s GPU driver: a few minutes. Agents keep the one they have until then.',
+  'settings.agentGPU.setup.updateFailed': 'Updating the VM\'s GPU driver failed: {reason}. Agents keep the one they have, without the new one\'s fixes; turn it off and on to try again.',
   'settings.agentGPU.krunkit.intro': 'This VM was made with Apple\'s Virtualization framework, which gives agents no GPU. Made again with krunkit, it has one, and gives the memory its agents stop using back to your Mac.',
   'settings.agentGPU.krunkit.install': 'Install krunkit and remake the VM',
   'settings.agentGPU.krunkit.upgrade': 'Update Lima and remake the VM',

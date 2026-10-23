@@ -77,6 +77,13 @@
     "height": 1700
   },
   {
+    "id": "mac-gpu-update-failed-light",
+    "description": "Settings' GPU for agents on a Mac whose Venus driver failed to update: agents keep the old one — light, sm width",
+    "query": "app=settings&settings=agents&gpu=updatefailed&theme=light",
+    "width": 480,
+    "height": 1700
+  },
+  {
     "id": "mac-gpu-vz-manual-light",
     "description": "Settings' GPU for agents on a Mac with a vz VM and no Homebrew: the commands to run — light, lg width",
     "query": "app=settings&gpu=vz&mac=manual&theme=light",

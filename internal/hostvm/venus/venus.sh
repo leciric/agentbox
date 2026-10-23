@@ -61,7 +61,13 @@ if [[ $(cat "$dest/stamp" 2>/dev/null) != "$stamp" ]]; then
   # What's here already stays: only what this installs comes off again.
   mapfile -t added < <(for p in "${build[@]}"; do dpkg-query -W -f '${db:Status-Status}\n' "$p" 2>/dev/null | grep -qx installed || echo "$p"; done)
   apt-get update -q >>"$log"
-  apt-get install -y -q --no-install-recommends "${build[@]}" libvulkan1 vulkan-tools mesa-utils >>"$log"
+  # --no-upgrade: a package already here stays at its version. Upgrading
+  # curl pulled trixie-backports' (newer than trixie's, so the candidate)
+  # against the libcurl the VM has, and every build failed.
+  if ! apt-get install -y -q --no-install-recommends --no-upgrade "${build[@]}" libvulkan1 vulkan-tools mesa-utils >>"$log"; then
+    echo "GPU: installing the packages to build the Venus driver failed: all of it is in $log" >&2
+    exit 1
+  fi
   # Mesa links xcb-keysyms when it finds it, and agents don't have it, so
   # their Vulkan loader would drop the driver: a failed build of a version
   # that installed it left it behind.

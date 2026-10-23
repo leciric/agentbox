@@ -640,6 +640,8 @@ export const ptBR: Messages = {
   'settings.agentGPU.setup.running': 'Preparando a GPU da VM: alguns minutos. Os agentes a recebem quando terminar.',
   'settings.agentGPU.setup.restart': 'A GPU da VM fica pronta quando a VM reiniciar no novo kernel: rode agentbox vm stop e depois agentbox vm start, quando for conveniente (os agentes param junto).',
   'settings.agentGPU.setup.failed': 'A preparação da GPU da VM falhou: {reason}. Os agentes rodam sem ela; desligue e ligue de novo para tentar outra vez.',
+  'settings.agentGPU.setup.updating': 'Atualizando o driver da GPU da VM: alguns minutos. Os agentes seguem com o que têm até lá.',
+  'settings.agentGPU.setup.updateFailed': 'A atualização do driver da GPU da VM falhou: {reason}. Os agentes seguem com o driver que têm, sem as correções do novo; desligue e ligue de novo para tentar outra vez.',
   'settings.agentGPU.krunkit.intro': 'Esta VM foi criada com o framework Virtualization da Apple, que não dá GPU aos agentes. Criada de novo com o krunkit, ela tem uma, e devolve ao seu Mac a memória que os agentes deixam de usar.',
   'settings.agentGPU.krunkit.install': 'Instalar o krunkit e recriar a VM',
   'settings.agentGPU.krunkit.upgrade': 'Atualizar o Lima e recriar a VM',

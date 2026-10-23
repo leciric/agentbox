@@ -48,9 +48,10 @@
 //                           =hostrestart turned on and waiting, =nvidia one it
 //                           can't have, =vm the no-GPU VM of before, =vz a
 //                           Mac's VM made without krunkit
-//   ?gpu=krunkit|running|restart|failed
+//   ?gpu=krunkit|running|restart|failed|updating|updatefailed
 //                           a Mac's krunkit VM whose GPU turning it on readies,
-//                           being readied, waiting for a restart, or failed
+//                           being readied, waiting for a restart, failed, or
+//                           whose driver is updating or failed to update
 //   ?vm=resize              Settings' panel for the VM's CPUs and memory, whose
 //                           resize streams made-up output
 //   ?chat=awaiting          agent-41's chat: its turn ended on a CI watch still
