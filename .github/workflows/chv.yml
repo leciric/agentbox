@@ -101,7 +101,7 @@ jobs:
 
       # The cache backend's token and URL, for buildx's type=gha.
       - if: steps.published.outputs.published != 'true'
-        uses: crazy-max/ghaction-github-runtime@v3
+        uses: crazy-max/ghaction-github-runtime@v4
 
       - name: Build (Docker, layers cached in GitHub's cache)
         if: steps.published.outputs.published != 'true'
