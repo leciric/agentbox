@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"sync"
 	"time"
 
@@ -81,6 +82,12 @@ type fleetState struct {
 	started map[string]chan struct{}
 	// frozen is what was last saved of the agents the fleet froze.
 	saved []string
+	// ours are the machines the fleet asked to freeze and hasn't thawed,
+	// by ref: kept apart from what the fleet makes of their cgroups, so one
+	// that once read as not frozen (and was forgotten as resumed) is never
+	// then taken for somebody else's pause and left frozen. On 2026-10-23
+	// agents 540–542 stayed frozen ~10 h, memory long recovered, that way.
+	ours map[string]bool
 	// spared is whether the log says machines are left running as freezing
 	// them would free nothing (pressure.Fleet.Spared).
 	spared bool
@@ -91,6 +98,7 @@ func newFleetState() *fleetState {
 		f:        pressure.NewFleet(pressure.DefaultPolicy),
 		instance: map[string]string{},
 		started:  map[string]chan struct{}{},
+		ours:     map[string]bool{},
 	}
 }
 
@@ -159,6 +167,12 @@ func (s *Server) setFleet(ctx context.Context, on bool) error {
 			fl.f.Cancel(ref)
 		}
 		fl.f.Sync(time.Now(), nil)
+		for ref := range fl.ours {
+			if !slices.Contains(thaw, ref) {
+				thaw = append(thaw, ref)
+			}
+			delete(fl.ours, ref)
+		}
 	}
 	instances := map[string]string{}
 	for _, ref := range thaw {
@@ -244,11 +258,13 @@ func (s *Server) syncFleet(ctx context.Context, agents []state.Agent) {
 	fl.mu.Lock()
 	defer fl.mu.Unlock()
 	var ms []pressure.Machine
+	running := map[string]bool{}
 	for _, x := range all {
 		ref := x.a.Ref()
+		running[ref] = true
 		// Frozen by somebody else (paused by hand, or by the disk guard):
 		// not the fleet's to thaw, and holding nothing it can free.
-		if x.froze && !fl.f.Frozen(ref) {
+		if x.froze && !fl.f.Frozen(ref) && !fl.ours[ref] {
 			continue
 		}
 		fl.instance[ref] = x.a.Instance
@@ -261,6 +277,11 @@ func (s *Server) syncFleet(ctx context.Context, agents []state.Agent) {
 			Frozen:     x.froze,
 			RunsPaused: held[ref],
 		})
+	}
+	for ref := range fl.ours {
+		if !running[ref] {
+			delete(fl.ours, ref)
+		}
 	}
 	fl.f.Sync(time.Now(), ms)
 }
@@ -286,9 +307,11 @@ func (s *Server) stepFleet(ctx context.Context, now time.Time, sample pressure.S
 	var freeze, thaw []change
 	for _, ref := range acts.Freeze {
 		freeze = append(freeze, change{ref, instance(ref)})
+		fl.ours[ref] = true
 	}
 	for _, ref := range acts.Thaw {
 		thaw = append(thaw, change{ref, instance(ref)})
+		delete(fl.ours, ref)
 	}
 	for _, ref := range acts.Start {
 		if ch := fl.started[ref]; ch != nil {

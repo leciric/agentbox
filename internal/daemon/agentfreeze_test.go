@@ -328,3 +328,45 @@ func TestFleetFreezesAMachineOnceWhileItReadsAsNotFrozenYet(t *testing.T) {
 		t.Fatalf("logged its freezing %d times:\n%s", got, f.log.String())
 	}
 }
+
+func TestFleetThawsOneItForgot(t *testing.T) {
+	// 2026-10-23: agents 540–542 stayed frozen ~10 h after memory recovered.
+	// Their cgroup.events read "frozen 0" while a task was stuck in reclaim;
+	// the fleet took them as resumed and forgot them, then, once they read
+	// frozen, took them for somebody else's pause and never thawed them.
+	t.Parallel()
+	f := newFleetTest(t, true)
+	ctx := context.Background()
+	if !f.start(t, "build", time.Second) {
+		t.Fatal("the build didn't start")
+	}
+	f.setAvailable(0.5, 2.5)
+	f.step(t)
+	if !f.mc.isFrozen(f.newer.Instance) {
+		t.Fatal("not frozen")
+	}
+	agents, err := f.srv.store.Agents(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Past FreezeSettle, its cgroup still reads as not frozen.
+	f.srv.frozen.mu.Lock()
+	f.srv.frozen.f.Settle = 0
+	f.srv.frozen.mu.Unlock()
+	f.mc.mu.Lock()
+	f.mc.lags = true
+	f.mc.mu.Unlock()
+	f.srv.syncFleet(ctx, agents)
+	// Then it does, and memory recovers.
+	f.mc.mu.Lock()
+	f.mc.lags = false
+	f.mc.mu.Unlock()
+	f.setAvailable(12, 1)
+	f.set(0, 0)
+	for range 3 {
+		f.step(t)
+	}
+	if f.mc.isFrozen(f.newer.Instance) {
+		t.Fatal("the machine the fleet froze was never thawed once calm")
+	}
+}

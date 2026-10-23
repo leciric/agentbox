@@ -120,6 +120,8 @@ type Fleet struct {
 	// BootCost is what a machine's boot takes, measured; DefaultBootCost
 	// until it is.
 	BootCost int64
+	// Settle is FreezeSettle, or a test's.
+	Settle time.Duration
 
 	machines  []*Machine // oldest first
 	waiting   []*Waiter  // in the order they asked
@@ -151,14 +153,16 @@ type booting struct {
 
 // NewFleet is a fleet with policy.
 func NewFleet(policy Policy) *Fleet {
-	return &Fleet{Policy: policy, BootCost: DefaultBootCost, used: map[string][]used{}}
+	return &Fleet{Policy: policy, BootCost: DefaultBootCost, Settle: FreezeSettle, used: map[string][]used{}}
 }
 
 // Sync is the machines running now at now, frozen or with runs paused by the
 // fleet or not, and whether each works, what it uses. A machine the fleet
 // froze that runs again (somebody resumed it) is frozen no longer, unless it
 // was frozen within FreezeSettle: what Sync is told may have been read
-// before the freeze. One gone is forgotten.
+// before the freeze. One told of as frozen is the fleet's, whatever it
+// remembers: the daemon leaves out machines paused by anybody else. One gone
+// is forgotten.
 func (f *Fleet) Sync(now time.Time, running []Machine) {
 	known := map[string]*Machine{}
 	for _, m := range f.machines {
@@ -169,11 +173,19 @@ func (f *Fleet) Sync(now time.Time, running []Machine) {
 	for _, r := range running {
 		m := &Machine{Agent: r.Agent, Since: r.Since, Working: r.Working, Heavy: r.Heavy, Memory: r.Memory}
 		if k := known[r.Agent]; k != nil && k.held() {
-			settling := now.Sub(k.acted) < FreezeSettle
+			settling := now.Sub(k.acted) < f.Settle
 			m.Frozen = k.Frozen && (r.Frozen || settling)
 			m.RunsPaused = k.RunsPaused && (r.RunsPaused || settling)
 			if m.held() {
 				m.FrozenAt, m.Why, m.acted = k.FrozenAt, k.Why, k.acted
+			}
+		}
+		// Frozen, and told of as the fleet's own though it had forgotten it
+		// (it once read as resumed): the fleet's to thaw again.
+		if r.Frozen && !m.Frozen {
+			m.Frozen = true
+			if m.FrozenAt.IsZero() {
+				m.FrozenAt, m.Why = now, Low
 			}
 		}
 		m.Growth = f.growth(now, r.Agent, r.Memory)
@@ -502,7 +514,7 @@ func (f *Fleet) Step(now time.Time, s Sample) FleetActions {
 	case room == Out || room == Short:
 		// One at a time, Out too: what the VM has available shows a freeze
 		// only at the next reading, and its trend later still.
-		if now.Sub(f.changed) >= FreezeSettle {
+		if now.Sub(f.changed) >= f.Settle {
 			hold(why)
 		}
 	case high && now.Sub(f.highSince) >= p.FreezeAfter && now.Sub(f.changed) >= p.Step:

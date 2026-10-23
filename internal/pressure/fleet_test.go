@@ -427,3 +427,32 @@ func TestWithSwapFullAMachineThatGrowsWithItsRunsPausedFreezesThenThawsWhole(t *
 		t.Fatalf("thawed %v, resumed the runs of %v once calm", thawed, resumed)
 	}
 }
+
+func TestAMachineTheFleetForgotButIsToldOfAsFrozenThawsOnceCalm(t *testing.T) {
+	f := NewFleet(DefaultPolicy)
+	ms := machines("p/a", "p/b", "p/c", "p/d")
+	f.Sync(t0, ms)
+	f.Step(t0, vmBusy(gb)) // freezes p/d
+	// Past FreezeSettle it reads as not frozen: taken as resumed, forgotten.
+	now := t0.Add(FreezeSettle)
+	f.Sync(now, machines("p/a", "p/b", "p/c", "p/d"))
+	if f.Frozen("p/d") {
+		t.Fatal("still frozen")
+	}
+	// Then it reads frozen, the daemon telling it as the fleet's own.
+	ms = machines("p/a", "p/b", "p/c", "p/d")
+	ms[3].Frozen = true
+	var thawed []string
+	for range 30 {
+		now = now.Add(2 * time.Second)
+		f.Sync(now, ms)
+		got := f.Step(now, vm(12*gb))
+		thawed = append(thawed, got.Thaw...)
+		for i := range ms {
+			ms[i].Frozen = f.Frozen(ms[i].Agent)
+		}
+	}
+	if !slices.Equal(thawed, []string{"p/d"}) {
+		t.Fatalf("thawed %v, want p/d once calm", thawed)
+	}
+}
