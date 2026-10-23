@@ -48,3 +48,8 @@ export function stripUrl(u: string): string {
     return u;
   }
 }
+
+// The most automatic error reports one run of the app sends, of every kind
+// together (main/reportqueue.ts; the web app's in web/bridge.ts): a broken
+// loop shouldn't send a report a second.
+export const maxErrorReportsPerRun = 5;

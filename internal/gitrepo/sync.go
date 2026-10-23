@@ -60,17 +60,38 @@ func (r Repo) BaseBranch() (branch string, up Upstream, ok bool) {
 	return "", Upstream{}, false
 }
 
+// GitHubCredentialHelper answers git's credential requests with GH_TOKEN, as
+// `gh auth git-credential` would, without needing gh: AgentBox runs where
+// the user's gh may not be, such as its VM, whose home is the host's and so
+// names the host's gh in its gitconfig.
+const GitHubCredentialHelper = `!f() { test "$1" = get && test -n "$GH_TOKEN" || return 0; echo username=x-access-token; echo "password=$GH_TOKEN"; }; f`
+
+// githubURL is where a GitHub token is offered; a test's server stands in.
+var githubURL = "https://github.com"
+
 // Fetch brings remote's branches up to date, as git fetch does, and gives up
 // after FetchTimeout. It never asks for a password or a passphrase, since
 // nobody is there to answer: a remote that needs one fails instead.
-func (r Repo) Fetch(ctx context.Context, remote string) (err error) {
+// githubToken, when set, is what github.com gets, in place of whatever
+// credential helpers the user's gitconfig names for it (their gitconfig
+// stays as it is); other hosts keep the user's.
+func (r Repo) Fetch(ctx context.Context, remote, githubToken string) (err error) {
 	ctx, cancel := context.WithTimeout(ctx, FetchTimeout)
 	defer cancel()
-	args := []string{"-C", r.Root, "fetch", "--quiet", "--no-write-fetch-head", remote}
+	var args []string
+	env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "SSH_ASKPASS_REQUIRE=never", "GCM_INTERACTIVE=never")
+	if githubToken != "" {
+		// An empty helper clears the ones configured before it, the
+		// user's for github.com included, since -c is read last.
+		key := "credential." + githubURL + ".helper="
+		args = append(args, "-c", key, "-c", key+GitHubCredentialHelper)
+		env = append(env, "GH_TOKEN="+githubToken)
+	}
+	args = append(args, "-C", r.Root, "fetch", "--quiet", "--no-write-fetch-head", remote)
 	_, span := trace.Start(ctx, "git fetch", "dir", r.Root)
 	defer func() { span.End(err) }()
 	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "SSH_ASKPASS_REQUIRE=never", "GCM_INTERACTIVE=never")
+	cmd.Env = env
 	// ssh, started by git, holds the output open after git is killed.
 	cmd.WaitDelay = 2 * time.Second
 	var stderr bytes.Buffer
@@ -151,7 +172,8 @@ var syncing sync.Map // Root → *sync.Mutex
 // SyncBase fetches the remote of the repository's base branch (BaseBranch)
 // and fast-forwards the branch to the remote's copy when it is strictly
 // behind it, with FastForward's care for a checkout and a diverged branch.
-func (r Repo) SyncBase(ctx context.Context) (Synced, error) {
+// githubToken is Fetch's.
+func (r Repo) SyncBase(ctx context.Context, githubToken string) (Synced, error) {
 	branch, up, ok := r.BaseBranch()
 	if !ok {
 		return Synced{}, nil
@@ -160,7 +182,7 @@ func (r Repo) SyncBase(ctx context.Context) (Synced, error) {
 	mu.(*sync.Mutex).Lock()
 	defer mu.(*sync.Mutex).Unlock()
 	synced := Synced{Branch: branch, Upstream: up}
-	if err := r.Fetch(ctx, up.Remote); err != nil {
+	if err := r.Fetch(ctx, up.Remote, githubToken); err != nil {
 		return synced, err
 	}
 	moved, err := r.FastForward(branch, up)

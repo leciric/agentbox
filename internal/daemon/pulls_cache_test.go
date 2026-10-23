@@ -32,6 +32,7 @@ type slowGitHub struct {
 	// byCommit is the body GitHub answers for the pull requests of a commit;
 	// a commit missing from it was never pushed.
 	byCommit map[string]string
+	down     bool // every request fails, as when the network is
 }
 
 func newSlowGitHub(t *testing.T, d testDaemon, list string, delay time.Duration) *slowGitHub {
@@ -53,9 +54,12 @@ func (g *slowGitHub) serve(w http.ResponseWriter, r *http.Request) {
 	commit, isCommit := strings.CutPrefix(r.URL.Path, "/repos/acme/hello-stack/commits/")
 	commit, _ = strings.CutSuffix(commit, "/pulls")
 	byCommit, known := g.byCommit[commit]
+	down := g.down
 	g.mu.Unlock()
 
 	switch {
+	case down:
+		w.WriteHeader(http.StatusBadGateway)
 	case isCommit && known:
 		_, _ = w.Write([]byte(byCommit))
 	case isCommit:
@@ -85,6 +89,12 @@ func (g *slowGitHub) setList(list string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.list = list
+}
+
+func (g *slowGitHub) setDown(down bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.down = down
 }
 
 func (g *slowGitHub) setCommit(commit, body string) {

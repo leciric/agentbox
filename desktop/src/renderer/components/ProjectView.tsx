@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Archive, Brain, Clapperboard, Wand2, Coins, Ellipsis, FileText, FolderGit2, FolderOpen, GitPullRequest, Image, KeyRound, MessagesSquare, Moon, NotebookPen, Plug, Plus, SlidersHorizontal, Smile, Trash } from 'lucide-react';
+import { Archive, Brain, Wand2, Coins, Ellipsis, FileText, FolderGit2, FolderOpen, GitPullRequest, Image, KeyRound, MessagesSquare, Moon, NotebookPen, Plug, Plus, SlidersHorizontal, Smile, Trash } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import * as T from '../../shared/api';
@@ -10,7 +10,7 @@ import { useProjectName } from '../lib/useProjectName';
 import { projectLabel } from '../lib/projectName';
 import { projectPlace, type ProjectPlaceName, type ProjectSection } from '../lib/tabs';
 import { countFeature, projectTabFeatures } from '../lib/usageStats';
-import { errorMessage, timeAgo } from '../lib/utils';
+import { cn, errorMessage, timeAgo } from '../lib/utils';
 import { ChatStatus, FilesOpen, useChatMenu } from './chat/ChatTab';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ConnectorsTab } from './ConnectorsTab';
@@ -27,13 +27,12 @@ import { SettingsSections, type SettingsSection } from './SettingsSections';
 import { SkillsPanel } from './SkillsPanel';
 import { TokensPanel } from './TokensPanel';
 import { Button } from './ui/button';
-import { Tip } from './ui/tooltip';
 import { Card, Row } from './ui/card';
 import { Textarea } from './ui/input';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from './ui/menu';
 import { useUiV2 } from '../lib/uiV2';
 import { ProjectIcon, ProjectIconDialog } from './ProjectIcon';
-import { InTopBar, ProjectMenu, ProjectPlaces } from './v2/ProjectHeader';
+import { InTopBar, ProjectMenu } from './v2/ProjectHeader';
 import { AgentMentionsProvider } from './pip/Mentions';
 import { PanelButton } from './v2/PanelButton';
 import { openPanelOn, setPanel } from '../lib/rightPanel';
@@ -189,12 +188,6 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
           {chatMenu?.dialogs}
           {chatMenu?.untracked}
           <InTopBar end>
-            <ProjectPlaces project={name} leadRef={`${name}/${T.LeadName}`} />
-            <Tip label={t('today.open')}>
-              <Button size="icon-sm" variant="ghost" aria-label={t('today.open')} onClick={() => onSelect({ kind: 'today', project: name })} data-open-today>
-                <Clapperboard />
-              </Button>
-            </Tip>
             {lead && <ProjectMenu project={project} leadRef={lead.ref} onNewAgent={onNewAgent} onChangeIcon={() => setIconOpen(true)} newChat={chatMenu?.newChat} more={chatMenu?.reload} />}
             <PanelButton project={name} chat={`${name}/${T.LeadName}`} />
           </InTopBar>
@@ -264,7 +257,7 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
       )}
 
       <TabsContent value="chat" className="flex flex-col">
-        <div className="relative mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line md:mx-6 md:mb-6">
+        <div className={cn('relative flex min-h-0 flex-1 flex-col overflow-hidden', !v2 && 'mx-2 mb-2 rounded-2xl border border-line md:mx-6 md:mb-6')}>
           {v2 ? (
             // UI v2's lead links its agents' names in the chat (components/pip);
             // the desktops they're using are in the right-hand panel's list.

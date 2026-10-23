@@ -1,8 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Archive, Box, ChevronRight, CircleArrowUp, FolderPlus, FolderTree, GripVertical, House, Images, ListChecks, MessagesSquare, MoonStar, MoreHorizontal, Pencil, Plus, Settings, Trash2 } from 'lucide-react';
 import type { ComponentType, DragEvent, KeyboardEvent, ReactNode } from 'react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { toast } from 'sonner';
+import { useRef, useState } from 'react';
 import type * as T from '../../shared/api';
 import * as A from '../../shared/api';
 import type { View } from '../App';
@@ -14,9 +13,10 @@ import { projectLabel } from '../lib/projectName';
 import { projectTone, type StatusTone } from '../lib/agentStatus';
 import { isNightly, isUpgrade } from '../lib/nightly';
 import { updateHint } from '../lib/appUpdate';
-import { arrange, drop, flatten, moveProject, moveSection, place, targetKey, toLayout, type Dragging, type DropTarget, type SidebarList } from '../lib/sidebar';
+import { listEnd, moveProject, type Dragging, type DropTarget, type SidebarList } from '../lib/sidebar';
+import { edge, useSectionDrag, useSections } from '../lib/useSections';
 import { useAppUpdate } from '../lib/useAppUpdate';
-import { cn, errorMessage } from '../lib/utils';
+import { cn } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
 import { EnvironmentSwitcher } from './EnvironmentSwitcher';
 import { Button } from './ui/button';
@@ -46,6 +46,22 @@ export function Logo({ className }: { className?: string }) {
   );
 }
 
+// Alt with an arrow moves the focused row, which is the keyboard's whole
+// vocabulary here: down past the end of a list is the top of the next one,
+// so the same two keys reorder a list and move a project between sections.
+export const moveKeys = (move: (delta: -1 | 1) => void) => (e: KeyboardEvent) => {
+  if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+  e.preventDefault();
+  move(e.key === 'ArrowUp' ? -1 : 1);
+};
+
+// Drawn over the rows rather than between them: a line that took room would
+// push the row under the pointer away, and the next dragover would aim
+// somewhere else.
+export const dropLine = (edge: 'before' | 'after', gap = false) => (
+  <div className={cn('pointer-events-none absolute inset-x-2 z-10 h-0.5 rounded-full bg-brand-400', edge === 'before' ? (gap ? '-top-[3px]' : '-top-px') : gap ? 'bottom-px' : '-bottom-px')} />
+);
+
 export function Sidebar({
   view,
   onSelect,
@@ -58,8 +74,6 @@ export function Sidebar({
   onNewAgent: (project: string) => void;
 }) {
   const t = useT();
-  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
-  const sections = useQuery({ queryKey: ['sections'], queryFn: api.sections });
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
   const jobs = useQuery({ queryKey: ['jobs'], queryFn: api.jobs });
   const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup, refetchInterval: 15_000 });
@@ -71,198 +85,11 @@ export function Sidebar({
   const info = useQuery({ queryKey: ['app-info'], queryFn: () => window.agentbox.info(), staleTime: Infinity });
   const nightly = isNightly(info.data?.version) || !!update.data?.nightly;
   const running = jobs.data?.filter((j) => j.status === 'running').length ?? 0;
-  const queryClient = useQueryClient();
-
-  // A move on its way to the daemon: the layout it sent, shown until the
-  // last move in flight has its answer. Until then a refetch (the daemon
-  // announces every reorder, and a move can be dropped before the one before
-  // it lands) would answer with an older order, and the rows would jump back.
-  const [pending, setPending] = useState<T.ProjectLayout | null>(null);
-  const inFlight = useRef(0);
-
-  // The sidebar's order, as the daemon last said it, or as the move on its
-  // way asked: the sections in theirs, then the projects in none. Every move
-  // below is a function of this. No sections before the projects are in
-  // either: each would show as empty.
-  const lists = useMemo(() => (projects.data ? arrange(projects.data, sections.data ?? [], pending) : []), [projects.data, sections.data, pending]);
-
-  // What is being dragged lives in a ref, which every drag event reads, and
-  // in state a moment later, for what it draws: changing the page inside
-  // dragstart puts the change in the drag image, and can cancel the drag.
-  const draggingRef = useRef<Dragging | null>(null);
-  const [dragging, setDragging] = useState<Dragging | null>(null);
-  const [target, setTarget] = useState<DropTarget | null>(null);
-  const aimed = useRef<DropTarget | null>(null); // the target, as of the last dragover
+  const sec = useSections();
+  const { projects, sections, lists, announced, apply, moveSectionBy, patchSection, addSection } = sec;
+  const { draggingRef, dragging, startDrag, aim, commitDrop, finishDrag, dropZone, isTarget } = useSectionDrag(lists, apply);
   const [naming, setNaming] = useState<string | null>(null); // a section being named: its id, or '' for a new one
   const [deleting, setDeleting] = useState<T.Section | null>(null);
-  // What a keyboard move did, for a screen reader: the sidebar rearranging
-  // itself is the whole of the feedback otherwise.
-  const [announced, setAnnounced] = useState('');
-
-  // A reorder sends the whole layout, and shows it before the daemon answers.
-  // Reorders go one at a time (the scope), so the daemon stores the last one
-  // last, and only the last answer is written: an earlier one is an order
-  // already moved on from.
-  const reorder = useMutation({
-    scope: { id: 'project-layout' },
-    mutationFn: (layout: T.ProjectLayout) => api.setProjectLayout(layout),
-    onError: (err) => toast.error(errorMessage(err)),
-    onSettled: (ordered, err, layout) => {
-      if (--inFlight.current > 0) return;
-      // A refetch started before the daemon stored this would answer with
-      // the order before it.
-      void queryClient.cancelQueries({ queryKey: ['projects'] });
-      void queryClient.cancelQueries({ queryKey: ['sections'] });
-      if (err || !ordered) {
-        void queryClient.invalidateQueries({ queryKey: ['projects'] });
-        void queryClient.invalidateQueries({ queryKey: ['sections'] });
-      } else {
-        queryClient.setQueryData<T.Project[]>(['projects'], ordered);
-        queryClient.setQueryData<T.Section[]>(['sections'], (current) => current && flatten(arrange([], current, layout)).sections);
-      }
-      setPending(null);
-    },
-  });
-
-  // save sends a move, and shows it at once: the cache is written with
-  // exactly what the daemon will write, for every other view that lists the
-  // projects, and the sidebar keeps it on screen until the answer.
-  const save = (next: SidebarList[], then?: () => void) => {
-    const layout = toLayout(next);
-    inFlight.current++;
-    setPending(layout);
-    void queryClient.cancelQueries({ queryKey: ['projects'] });
-    void queryClient.cancelQueries({ queryKey: ['sections'] });
-    const { projects: ordered, sections: order } = flatten(next);
-    queryClient.setQueryData<T.Project[]>(['projects'], ordered);
-    queryClient.setQueryData<T.Section[]>(['sections'], order);
-    reorder.mutate(layout, { onSuccess: then });
-  };
-
-  const patchSection = useMutation({
-    mutationFn: ({ id, req }: { id: string; req: T.UpdateSectionRequest }) => api.updateSection(id, req),
-    onMutate: ({ id, req }) =>
-      queryClient.setQueryData<T.Section[]>(['sections'], (current) => current?.map((s) => (s.id === id ? { ...s, ...req } : s))),
-    onError: async (err) => {
-      toast.error(errorMessage(err));
-      await queryClient.invalidateQueries({ queryKey: ['sections'] });
-    },
-  });
-
-  const addSection = useMutation({
-    mutationFn: (name: string) => api.addSection(name),
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey: ['sections'] }),
-    onError: (err) => toast.error(errorMessage(err)),
-  });
-
-  // Applying a move: say what happened, for anyone not watching, and unfold
-  // the section it landed in, so nothing a move does is invisible. The unfold
-  // waits for the reorder rather than going with it: they are two writes to
-  // the same database, and sending them together is asking one to lose.
-  const apply = (next: SidebarList[] | null, moved?: string) => {
-    if (!next) return;
-    const landed = moved ? next.find((l) => l.projects.some((p) => p.name === moved)) : undefined;
-    if (moved) setAnnounced(place(next, moved));
-    save(next, () => {
-      if (landed?.section?.collapsed) patchSection.mutate({ id: landed.section.id, req: { collapsed: false } });
-    });
-  };
-
-  // Moving a section among the sections, which is the other half of what a
-  // move can be and says where it landed the same way.
-  const moveSectionBy = (section: T.Section, delta: -1 | 1) => {
-    const next = moveSection(lists, section.id, delta);
-    if (!next) return;
-    const sections = next.filter((l) => l.section);
-    setAnnounced(tNow('shell.sidebar.sectionPlace', { name: section.name, n: sections.findIndex((l) => l.section!.id === section.id) + 1, total: sections.length }));
-    save(next);
-  };
-
-  const startDrag = (what: Dragging) => (e: DragEvent) => {
-    draggingRef.current = what;
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', what.kind === 'project' ? what.name : what.id);
-    setTimeout(() => draggingRef.current === what && setDragging(what));
-  };
-
-  const endDrag = useCallback(() => {
-    draggingRef.current = null;
-    aimed.current = null;
-    setDragging(null);
-    setTarget(null);
-  }, []);
-
-  // A drag whose row went away mid-drag (its section folded, the list
-  // refetched without it) never hears its dragend; the first mouse move with
-  // no button down says the drag is over all the same.
-  useEffect(() => {
-    if (!dragging) return;
-    const over = (e: MouseEvent) => e.buttons === 0 && endDrag();
-    window.addEventListener('mousemove', over);
-    return () => window.removeEventListener('mousemove', over);
-  }, [dragging, endDrag]);
-
-  // The indicator: where a drop would land, or nothing where it would change
-  // nothing (a project over itself), so what it shows is what a drop does.
-  const aim = (where: DropTarget | null) => {
-    const what = draggingRef.current;
-    const useful = what && where && drop(lists, what, where) ? where : null;
-    aimed.current = useful;
-    setTarget((current) => (current && useful && targetKey(current) === targetKey(useful) ? current : useful));
-  };
-
-  // A drop goes where the drop event says, not where the last dragover did:
-  // dragover comes at most every few dozen milliseconds, so a quick drag
-  // lets go somewhere it hasn't reported yet.
-  const commitDrop = (where: DropTarget | null) => {
-    const what = draggingRef.current;
-    endDrag();
-    if (what && where) apply(drop(lists, what, where), what.kind === 'project' ? what.name : undefined);
-  };
-
-  // A drag that ends saying it moved something, with no drop event, was
-  // dropped where the indicator last was: Chromium on X11 can let go of a
-  // quick drag before telling the page, which would otherwise see the row
-  // jump back. Dropped elsewhere (outside the window, or Escape), it says
-  // none; one that did drop has ended already, so there is nothing left.
-  const finishDrag = (e: DragEvent) => {
-    if (e.dataTransfer.dropEffect !== 'none' && draggingRef.current && aimed.current) commitDrop(aimed.current);
-    else endDrag();
-  };
-
-  // dropZone makes an element a drop target. where says what a drop at the
-  // pointer would be, or null for a drag this element isn't a target for,
-  // which then goes on to the element around it: a section dragged over a
-  // project is a drag over the section that project is in. The innermost
-  // target that answers decides.
-  const dropZone = (where: (e: DragEvent) => DropTarget | null) => ({
-    onDragOver: (e: DragEvent) => {
-      if (e.isDefaultPrevented()) return;
-      const at = where(e);
-      if (!at) return;
-      e.preventDefault();
-      aim(at);
-    },
-    onDrop: (e: DragEvent) => {
-      if (e.isDefaultPrevented()) return;
-      const at = where(e);
-      if (!at) return;
-      e.preventDefault();
-      commitDrop(at);
-    },
-  });
-  // A project over a list but not over any of its rows (the space between
-  // two sections) goes to that list's end, or onto the section's header when
-  // there are no rows to go after.
-  const listEnd = (list: SidebarList): DropTarget => {
-    const last = list.section?.collapsed ? undefined : list.projects.at(-1);
-    if (last) return { kind: 'project', name: last.name, edge: 'after' };
-    return list.section ? { kind: 'section', id: list.section.id } : { kind: 'list', section: null };
-  };
-  const edge = (e: DragEvent): 'before' | 'after' => {
-    const box = e.currentTarget.getBoundingClientRect();
-    return e.clientY < box.top + box.height / 2 ? 'before' : 'after';
-  };
 
   // Below every list, the space left in the sidebar is the end of it: a
   // project lands at the bottom of the projects in no section, a section
@@ -277,23 +104,6 @@ export function Sidebar({
     const last = lists.filter((l) => l.section).at(-1)?.section;
     return last ? { kind: 'sectionOrder', id: last.id, edge: 'after' } : null;
   };
-
-  // Alt with an arrow moves the focused row, which is the keyboard's whole
-  // vocabulary here: down past the end of a list is the top of the next one,
-  // so the same two keys reorder a list and move a project between sections.
-  const moveKeys = (move: (delta: -1 | 1) => void) => (e: KeyboardEvent) => {
-    if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
-    e.preventDefault();
-    move(e.key === 'ArrowUp' ? -1 : 1);
-  };
-
-  // Drawn over the rows rather than between them: a line that took room would
-  // push the row under the pointer away, and the next dragover would aim
-  // somewhere else.
-  const dropLine = (edge: 'before' | 'after', gap = false) => (
-    <div className={cn('pointer-events-none absolute inset-x-2 z-10 h-0.5 rounded-full bg-brand-400', edge === 'before' ? (gap ? '-top-[3px]' : '-top-px') : gap ? 'bottom-px' : '-bottom-px')} />
-  );
-  const isTarget = (where: DropTarget) => target !== null && targetKey(target) === targetKey(where);
 
   const projectRow = (project: T.Project) => {
     const mine = agents.data?.filter((agent) => agent.project === project.name) ?? [];
@@ -376,9 +186,8 @@ export function Sidebar({
         </button>
         {nightly && (
           <Tip label={t('shell.sidebar.nightlyTip', { version: info.data?.version ? `, ${info.data.version}` : '' })}>
-            <span className="nightly-badge ml-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-medium">
+            <span className="nightly-badge ml-2 inline-flex items-center rounded-full p-1" aria-label={t('shell.sidebar.nightlyTip', { version: info.data?.version ? `, ${info.data.version}` : '' })}>
               <MoonStar className="size-3" aria-hidden />
-              {t('shell.sidebar.nightly')}
             </span>
           </Tip>
         )}
@@ -574,11 +383,7 @@ export function Sidebar({
         description={describeDelete(lists, deleting?.id)}
         confirmLabel={t('shell.sidebar.deleteSection')}
         destructive
-        onConfirm={async () => {
-          await api.removeSection(deleting!.id);
-          await queryClient.invalidateQueries({ queryKey: ['sections'] });
-          await queryClient.invalidateQueries({ queryKey: ['projects'] });
-        }}
+        onConfirm={() => sec.removeSection(deleting!.id)}
       />
     </aside>
   );
@@ -586,12 +391,12 @@ export function Sidebar({
 
 // describeDelete says what deleting a section does, which is the one thing
 // worth being clear about: it takes the section and keeps every project.
-function describeDelete(lists: SidebarList[], id: string | undefined): string {
+export function describeDelete(lists: SidebarList[], id: string | undefined): string {
   const n = lists.find((l) => l.section?.id === id)?.projects.length ?? 0;
   return tNow('shell.sidebar.deleteBody', { count: n });
 }
 
-function SectionHeader({
+export function SectionHeader({
   section,
   count,
   dragging,
@@ -676,7 +481,7 @@ function SectionHeader({
 // NameSection is the row a new section is typed into, where it will appear:
 // the section is made when you press Enter, so nothing empty is left behind by
 // changing your mind.
-function NameSection({ onSave, onCancel }: { onSave: (name: string) => void; onCancel: () => void }) {
+export function NameSection({ onSave, onCancel }: { onSave: (name: string) => void; onCancel: () => void }) {
   const t = useT();
   return (
     <Input
@@ -699,7 +504,7 @@ function NameSection({ onSave, onCancel }: { onSave: (name: string) => void; onC
 
 // RenameSection is the section's name in a dialog, which is where the app puts
 // anything it asks for a word.
-function RenameSection({ section, onSave, onClose }: { section: T.Section | undefined; onSave: (name: string) => void; onClose: () => void }) {
+export function RenameSection({ section, onSave, onClose }: { section: T.Section | undefined; onSave: (name: string) => void; onClose: () => void }) {
   const t = useT();
   const [name, setName] = useState(section?.name ?? '');
   if (!section) return null;

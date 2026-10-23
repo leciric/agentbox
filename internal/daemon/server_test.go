@@ -590,7 +590,7 @@ func TestFailedCreateJobRollsBack(t *testing.T) {
 	if j.Status != api.JobFailed || !strings.Contains(j.Error, "simulated copy failure") {
 		t.Errorf("job after following it = %+v", j)
 	}
-	if !strings.Contains(log.String(), "instance failed; rolling back") {
+	if !strings.Contains(log.String(), "copying the base failed; rolling back") {
 		t.Errorf("job log:\n%s", log.String())
 	}
 	if agents, err := d.client.Agents(ctx, ""); err != nil || len(agents) != 0 {

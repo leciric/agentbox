@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"reflect"
 	"slices"
@@ -31,7 +32,9 @@ var errNoGitHubToken = errors.New("no GitHub token for this project")
 // account has something to read and no way to, which githubErrorFor tells
 // apart. github.ErrNoRepo itself comes in the two shapes remoteProblemOf
 // tells apart. The repository is returned alongside errNoGitHubToken, so the
-// error can name what wasn't read.
+// error can name what wasn't read. Any other error is a read that failed —
+// git, or the credentials' files — which says nothing either way
+// (pullsAbsent).
 func (s *Server) githubFor(p state.Project) (github.Client, github.Repo, error) {
 	repo, err := github.RepoOf(p.Root)
 	if err != nil {
@@ -40,13 +43,26 @@ func (s *Server) githubFor(p state.Project) (github.Client, github.Repo, error) 
 	m := s.manager(nil)
 	account, err := m.GitHubAccountFor(p, "")
 	if err != nil {
+		if errors.As(err, new(*fs.PathError)) {
+			return github.Client{}, repo, fmt.Errorf("reading the GitHub accounts: %w", err)
+		}
 		return github.Client{}, repo, errNoGitHubToken
 	}
 	token, err := m.Creds.GitHubToken(account)
+	if err != nil && errors.As(err, new(*fs.PathError)) {
+		return github.Client{}, repo, fmt.Errorf("reading the GitHub token: %w", err)
+	}
 	if err != nil || token == "" {
 		return github.Client{}, repo, errNoGitHubToken
 	}
 	return s.gitHub(token), repo, nil
+}
+
+// pullsAbsent reports whether err, from githubFor, says a project has no pull
+// requests to read — no GitHub remote, or no account to read it with — as
+// opposed to a read failing, after which they are unknown.
+func pullsAbsent(err error) bool {
+	return errors.Is(err, errNoGitHubToken) || errors.Is(err, github.ErrNoRepo)
 }
 
 // gitHub is a GitHub client with token, on the API root the daemon was given.
@@ -64,6 +80,10 @@ const (
 	// holds answers about agents whose pull request is older than the whole
 	// page. A new commit on the agent's branch is a new lookup.
 	pullsBranchTTL = 10 * time.Minute
+	// pullsLookupKeep is how long a lookup no refresh asked about again is
+	// kept: the agents that finished are asked about whenever the review list
+	// is read, so this only lets go of the tips of agents long gone.
+	pullsLookupKeep = 24 * time.Hour
 	// pullsFetchTimeout bounds one background refresh.
 	pullsFetchTimeout = 60 * time.Second
 	// pullsBranchLookups is how many per-agent lookups run at once.
@@ -96,6 +116,20 @@ type agentHead struct {
 	branch string
 	tip    string   // where the branch is; "" when it has none, or hasn't moved from where the agent started
 	own    []string // the agent's own commits, newest first: on the branch, not on where it started or its base branch
+	// failed is git failing to read the branch (ENFILE, say): tip and own
+	// are then unknown, not empty, and nothing is to be decided from them.
+	failed bool
+}
+
+// unreadHeads is the agents any of whose heads git couldn't read.
+func unreadHeads(heads []agentHead) map[string]bool {
+	out := map[string]bool{}
+	for _, h := range heads {
+		if h.failed {
+			out[h.agent] = true
+		}
+	}
+	return out
 }
 
 func (h agentHead) owns(sha string) bool {
@@ -119,14 +153,18 @@ func agentHeads(root string, agents []state.Agent) []agentHead {
 	type job struct {
 		a      state.Agent
 		branch string
+		failed bool
 	}
 	var jobs []job
 	for _, a := range agents {
 		if a.IsLead() || a.Branch == "" {
 			continue
 		}
-		for _, branch := range agentBranches(a, agents) {
-			jobs = append(jobs, job{a, branch})
+		// Its other branches unread, its first is all there is to go by,
+		// and that is known to be partial.
+		branches, err := agentBranches(a, agents)
+		for _, branch := range branches {
+			jobs = append(jobs, job{a, branch, err != nil})
 		}
 	}
 	out := make([]agentHead, len(jobs))
@@ -135,6 +173,7 @@ func agentHeads(root string, agents []state.Agent) []agentHead {
 	for i, j := range jobs {
 		g.Go(func() error {
 			out[i] = agentHeadOf(root, j.a, j.branch)
+			out[i].failed = out[i].failed || j.failed
 			return nil
 		})
 	}
@@ -144,19 +183,21 @@ func agentHeads(root string, agents []state.Agent) []agentHead {
 
 // agentBranches is every branch of a's: the one it was made with, then the
 // ones it made in its worktree since, newest first. A branch that is its base
-// or another of agents' own isn't one of its, whoever checked it out.
-func agentBranches(a state.Agent, agents []state.Agent) []string {
+// or another of agents' own isn't one of its, whoever checked it out. With
+// an error the others couldn't be read, and the first is still there.
+func agentBranches(a state.Agent, agents []state.Agent) ([]string, error) {
 	out := []string{a.Branch}
 	if a.Worktree == "" {
-		return out
+		return out, nil
 	}
-	for _, branch := range gitrepo.CheckedOutSince(a.Worktree, a.CreatedAt) {
+	others, err := gitrepo.CheckedOutSince(a.Worktree, a.CreatedAt)
+	for _, branch := range others {
 		if branch == a.Branch || branch == a.BaseRef || slices.ContainsFunc(agents, func(o state.Agent) bool { return o.Branch == branch }) {
 			continue
 		}
 		out = append(out, branch)
 	}
-	return out
+	return out, err
 }
 
 // agentHeadOf reads one of a's branches.
@@ -180,6 +221,7 @@ func agentHeadOf(root string, a state.Agent, branch string) agentHead {
 	}
 	tip, own, err := gitrepo.BranchCommits(root, branch, agentCommitsLimit, not...)
 	if err != nil {
+		h.failed = true
 		return h
 	}
 	h.tip, h.own = tip, own
@@ -437,6 +479,21 @@ func (e pullsEntry) knows(heads []agentHead, now time.Time, lookupTTL time.Durat
 	return true
 }
 
+// answered reports whether the entry can say if h has a pull request: GitHub
+// answered, and either h's work is on the list page or a lookup asked about
+// its tip. With the list refused, what is served is all there is to go by.
+// A head git couldn't read has no tip to ask about, and no answer.
+func (e pullsEntry) answered(h agentHead) bool {
+	if e.at.IsZero() || h.failed {
+		return false
+	}
+	if h.tip == "" || e.listErr.failed() || e.listed(h) != nil {
+		return true
+	}
+	_, ok := e.lookups[h.tip]
+	return ok
+}
+
 // listed is the agent's pull request from the list page, if it carries one.
 // The list is sorted by when each pull request last moved, so an agent with
 // several gets the open one that moved last, or the one that moved last when
@@ -664,7 +721,11 @@ func (s *Server) fetchPulls(ctx context.Context, client github.Client, repo gith
 	}
 
 	if entry.listErr.failed() {
-		// Don't ask GitHub agent by agent when it just refused the list.
+		// Don't ask GitHub agent by agent when it just refused the list. What
+		// it said last is still served, as a stale answer is: an empty list
+		// would have every agent whose pull request was merged look like one
+		// that never opened any, back on Ready to review until GitHub answers.
+		entry.prs = before.prs
 		entry.lookups = before.lookups
 		return entry
 	}
@@ -677,9 +738,21 @@ func (s *Server) fetchPulls(ctx context.Context, client github.Client, repo gith
 // either has none or has one nobody has touched in a while — either way the
 // answer keeps until the agent commits again, and one opened later arrives in
 // the list itself.
+//
+// What it isn't asked about is kept, for up to pullsLookupKeep: a refresh is
+// made for some of a project's agents (the cleanup pass reads only the
+// running ones, a group only its members), and forgetting the others' answers
+// would forget the pull requests, merged long ago, that only a lookup knows,
+// bringing every stopped agent behind one back to Ready to review. A lookup
+// that fails keeps the answer it had, and is asked again on the next refresh.
 func (s *Server) lookupPulls(ctx context.Context, client github.Client, repo github.Repo, heads []agentHead, entry pullsEntry, before map[string]lookedUp) map[string]lookedUp {
 	now := s.pulls.now()
 	out := map[string]lookedUp{}
+	for tip, l := range before {
+		if now.Sub(l.at) < pullsLookupKeep {
+			out[tip] = l
+		}
+	}
 	var ask []agentHead
 	for _, h := range heads {
 		if h.tip == "" || entry.listed(h) != nil {
@@ -700,6 +773,10 @@ func (s *Server) lookupPulls(ctx context.Context, client github.Client, repo git
 	for _, h := range ask {
 		g.Go(func() error {
 			l := lookUp(ctx, client, repo, h)
+			if had, ok := before[h.tip]; ok && l.failed {
+				l = had
+				l.failed = true
+			}
 			l.at = now
 			mu.Lock()
 			defer mu.Unlock()
@@ -893,7 +970,7 @@ func (s *Server) mergePullRequest(w http.ResponseWriter, r *http.Request) error 
 	}
 
 	if err := client.Merge(ctx, repo, number, method); err != nil {
-		s.recordError(errPRMergeFailed, "")
+		s.recordErr(errPRMergeFailed, "", err, repo.Owner, repo.Name)
 		return err
 	}
 	pr.State = "merged"
