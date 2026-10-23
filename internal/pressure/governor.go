@@ -239,6 +239,9 @@ type Run struct {
 	PausedAt time.Time
 	// Why is why it was last paused.
 	Why Reason
+	// ForFleet: the fleet paused it (PauseAgent), not the governor, and
+	// only the fleet resumes it.
+	ForFleet bool
 	// Placed says its processes are in a cgroup of its own, which is what
 	// pausing it freezes: a run that isn't is never paused.
 	Placed bool
@@ -565,12 +568,42 @@ func (g *Governor) newestPausable() *Run {
 func (g *Governor) StartAll(now time.Time) Actions {
 	var out Actions
 	for _, r := range g.running {
-		if r.Paused {
+		if r.Paused && !r.ForFleet {
 			out.Resume = append(out.Resume, g.resume(r, now))
 		}
 	}
 	for len(g.waiting) > 0 {
 		out.Start = append(out.Start, g.start(now))
+	}
+	return out
+}
+
+// PauseAgent pauses, for the fleet, an agent's runs that go and are placed,
+// rather than its whole machine (Fleet.toHold): it reports them, for the
+// daemon to apply.
+func (g *Governor) PauseAgent(agent string, now time.Time, why Reason) []*Run {
+	var out []*Run
+	for _, r := range g.running {
+		if r.Agent == agent && r.Placed && !r.Paused {
+			g.pause(r, now, why)
+			r.ForFleet = true
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// ResumeAgent resumes the runs the fleet paused of an agent, or of every
+// agent for "": it reports them, for the daemon to apply.
+func (g *Governor) ResumeAgent(agent string, now time.Time) []*Run {
+	var out []*Run
+	for _, r := range g.running {
+		if r.ForFleet && (agent == "" || r.Agent == agent) {
+			r.ForFleet = false
+			if r.Paused {
+				out = append(out, g.resume(r, now))
+			}
+		}
 	}
 	return out
 }

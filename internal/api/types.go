@@ -987,6 +987,10 @@ type MemoryHold struct {
 	// Available and Total are the VM's memory, MemAvailable and MemTotal.
 	Available int64 `json:"available,omitempty"`
 	Total     int64 `json:"total,omitempty"`
+	// SwapFull says the VM's swap is full, with pausing whole agents on:
+	// what a paused machine or command holds stays in memory, so pausing it
+	// stops it growing and frees nothing.
+	SwapFull bool `json:"swapFull,omitempty"`
 }
 
 // PressureStatus is the VM's memory pressure and the heavy commands the

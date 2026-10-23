@@ -505,6 +505,7 @@ export interface MemoryHold {
   rate?: number;
   available?: number;
   total?: number;
+  swapFull?: boolean;
 }
 
 export interface PressureStatus {

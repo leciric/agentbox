@@ -79,6 +79,16 @@ test('a whole machine paused or waiting for memory says how many are ahead, in i
   assert.match(statusTip(booting) ?? '', /memory to boot it/);
 });
 
+test('a machine or a command paused with swap full says pausing it frees nothing', () => {
+  const since = '2026-10-23T01:14:00Z';
+  const frozen = { ...agent('paused', 'running'), memory: { machine: 'paused', ahead: 1, since, why: 'low', swapFull: true } } as T.Agent;
+  assert.deepEqual(chatLabel(frozen), { text: 'Paused, swap full: waiting for memory, 1 ahead', tone: 'warning' });
+  assert.match(statusTip(frozen) ?? '', /swap is full.*frees nothing/);
+  const build = { ...agent('running', 'running'), memory: { paused: 1, since, why: 'low', swapFull: true } } as T.Agent;
+  assert.equal(memoryHold(build)?.text, 'Paused for memory, swap full');
+  assert.match(memoryHold(build)?.tip ?? '', /frees nothing/);
+});
+
 test('paused and stopped machines show their own state', () => {
   assert.deepEqual(chatLabel(agent('paused')), { text: 'Paused', tone: 'muted' });
   assert.deepEqual(chatLabel(agent('stopped')), { text: 'Stopped', tone: 'muted' });

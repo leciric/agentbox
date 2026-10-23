@@ -495,15 +495,24 @@ func OwnMachineFreezer(instance string) error {
 }
 
 // MachineRunning reports whether an agent's machine has a cgroup with
-// processes in it, and whether that is frozen.
+// processes in it, and whether it is frozen or being frozen: its
+// cgroup.freeze, what was asked, not cgroup.events' "frozen 1", what the
+// kernel has done. Under memory pressure a task stuck in reclaim takes
+// seconds to stop, and on 2026-10-23 the daemon, reading "frozen 0" for a
+// machine it had just frozen, froze it again every 2 seconds.
 func MachineRunning(instance string) (running, frozen bool) {
 	return machineRunning(cgroupRoot, instance)
 }
 
 func machineRunning(root, instance string) (running, frozen bool) {
-	b, err := os.ReadFile(filepath.Join(agentCgroup(root, instance), "cgroup.events"))
+	dir := agentCgroup(root, instance)
+	b, err := os.ReadFile(filepath.Join(dir, "cgroup.events"))
 	if err != nil {
 		return false, false
 	}
-	return strings.Contains(string(b), "populated 1"), strings.Contains(string(b), "frozen 1")
+	running = strings.Contains(string(b), "populated 1")
+	if f, err := os.ReadFile(filepath.Join(dir, "cgroup.freeze")); err == nil {
+		return running, strings.TrimSpace(string(f)) == "1"
+	}
+	return running, strings.Contains(string(b), "frozen 1")
 }

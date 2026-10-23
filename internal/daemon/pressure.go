@@ -624,6 +624,11 @@ func (s *Server) memoryHold(ref string) *api.MemoryHold {
 	if out.Paused+out.Waiting == 0 {
 		return nil
 	}
+	// Pausing whole agents on, the fleet paused them (the governor only
+	// starts runs): what holds them is what it saw.
+	if s.fleetWhy(&out) {
+		return &out
+	}
 	last, tr := h.g.Last(), h.g.Trend()
 	out.Why = string(h.g.Why())
 	out.Available, out.Total = last.Mem.Available, last.Mem.Total
