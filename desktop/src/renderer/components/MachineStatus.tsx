@@ -11,7 +11,7 @@ import { formatNumber, useT } from '../lib/i18n';
 import { machineStatus, memoryFull, type MachineStatus as Status } from '../lib/machineStatus';
 import { setTopBarDetailed, useTopBarDetailed } from '../lib/topBarLayout';
 import { cn, humanBytes } from '../lib/utils';
-import { FreeButton, useFreeResources, VMActions, HostFootprint, VMMemory, VMPanel, vmStateText, type FreeResources } from './ResourceControls';
+import { FreeButton, useFreeResources, HostFootprint, VMActions, VMMemory, VMPanel, vmStateText, type FreeResources } from './ResourceControls';
 import { Notice } from './ui/card';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Tip } from './ui/tooltip';
