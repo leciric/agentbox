@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -256,5 +257,27 @@ func TestAnAsleepLeadMovedToAnotherAccountSaysSo(t *testing.T) {
 	}
 	if n := len(f.called(acp.MethodSessionResume)); n != 1 {
 		t.Errorf("resumed %d times, want 1", n)
+	}
+}
+
+// TestAShorterWaitReachesARunningChat: the setting is read again every few
+// minutes, so shortening it doesn't wait out the longer wait already running.
+func TestAShorterWaitReachesARunningChat(t *testing.T) {
+	t.Parallel()
+	f := newFakeTool(answerHello)
+	f.resume = true
+	m, clock := idleManager(t, f)
+	var mu sync.Mutex
+	after := time.Hour
+	m.IdleStop = func(state.Agent) (time.Duration, bool) { mu.Lock(); defer mu.Unlock(); return after, true }
+	idleTurn(t, m, clock, testLead, "hi", 1)
+	clock.advance(time.Second)
+	mu.Lock()
+	after = 5 * time.Minute
+	mu.Unlock()
+	clock.advance(5 * time.Minute)
+	clock.advance(time.Second)
+	if !m.Asleep(testLead.Ref()) {
+		t.Fatal("the chat waited out the hour it started with")
 	}
 }

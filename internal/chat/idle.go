@@ -18,9 +18,10 @@ import "time"
 // that would wake it, no usage-limit wait, and an adapter that can resume.
 // A schedule about to fire keeps it up too (Manager.StayUp).
 
-// idleOffRecheck is how soon a chat whose sleeping is turned off looks again,
-// so turning it back on reaches chats that are already running.
-const idleOffRecheck = 15 * time.Minute
+// idleLook is the longest the idle wait goes without reading the setting
+// again, so a change to it, or turning it back on, reaches chats that are
+// already running within minutes rather than at the old wait's end.
+const idleLook = 5 * time.Minute
 
 // watchIdle starts the wait after which an adapter that has just become ready
 // may sleep. The conversation is locked.
@@ -68,17 +69,17 @@ func (c *conversation) idleDue(ad *adapter, gen int64) {
 		c.idleTimer = nil
 		return
 	case after <= 0:
-		c.armIdle(ad, idleOffRecheck)
+		c.armIdle(ad, idleLook)
 		return
 	}
 	if wait := c.activeAt.Add(after).Sub(c.m.now()); wait > 0 {
-		c.armIdle(ad, wait)
+		c.armIdle(ad, min(wait, idleLook))
 		return
 	}
 	if stay || !c.sleepable() {
 		// Busy, or about to be: what it is doing ends with more activity,
 		// from which the wait starts again.
-		c.armIdle(ad, after)
+		c.armIdle(ad, min(after, idleLook))
 		return
 	}
 	c.idleTimer = nil
