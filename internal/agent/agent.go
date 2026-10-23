@@ -456,7 +456,7 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 		from = repo.CurrentBranch()
 	}
 	if !p.BaseSyncOff {
-		m.syncBase(ctx, repo)
+		m.syncBase(ctx, p, repo)
 	}
 	commit, err := repo.ResolveCommit(from)
 	if err != nil {
