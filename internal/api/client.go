@@ -163,6 +163,13 @@ func (c *Client) StartHeavy(ctx context.Context, req HeavyRequest) (HeavyStart, 
 	return out, c.do(ctx, http.MethodPost, "/v1/self/heavy", req, &out)
 }
 
+// TestPolicy says, inside an agent, whether its whole test suites are
+// refused, and what its branch started from.
+func (c *Client) TestPolicy(ctx context.Context) (TestPolicy, error) {
+	var out TestPolicy
+	return out, c.do(ctx, http.MethodGet, "/v1/self/tests", nil, &out)
+}
+
 // JoinHeavy puts a process of the agent's in a started heavy command's
 // cgroup, so pausing the command pauses it and what it starts.
 func (c *Client) JoinHeavy(ctx context.Context, key string, pid int) error {
@@ -1159,6 +1166,28 @@ func (c *Client) DiskUsage(ctx context.Context) (DiskUsage, error) {
 func (c *Client) AgentDisk(ctx context.Context, project, name string) (AgentDisk, error) {
 	var out AgentDisk
 	return out, c.do(ctx, http.MethodGet, "/v1/agents/"+url.PathEscape(project)+"/"+url.PathEscape(name)+"/disk", nil, &out)
+}
+
+// StoppedMachines lists the agents holding a stopped machine, in project or
+// in every project when it is "". check adds what "remove stopped agents'
+// machines" would do with each, which reads git and GitHub.
+func (c *Client) StoppedMachines(ctx context.Context, project string, check bool) (StoppedMachines, error) {
+	q := url.Values{}
+	if project != "" {
+		q.Set("project", project)
+	}
+	if check {
+		q.Set("check", "1")
+	}
+	var out StoppedMachines
+	return out, c.do(ctx, http.MethodGet, "/v1/stopped-machines?"+q.Encode(), nil, &out)
+}
+
+// RemoveStopped removes the stopped machines of the agents in req that are
+// still safe to remove.
+func (c *Client) RemoveStopped(ctx context.Context, req RemoveStoppedRequest) (RemoveStoppedResult, error) {
+	var out RemoveStoppedResult
+	return out, c.do(ctx, http.MethodPost, "/v1/stopped-machines/remove", req, &out)
 }
 
 func (c *Client) MemoryUsage(ctx context.Context) (MemoryUsage, error) {

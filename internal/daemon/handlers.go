@@ -46,7 +46,7 @@ func (s *Server) projectInfo(ctx context.Context, p state.Project) api.Project {
 		AgentModel: p.AgentModel, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
 		RolloverThreshold: p.RolloverThreshold, ContextBudget: p.ContextBudget,
 		Consolidation: p.Consolidation, ConsolidationModel: p.ConsolidationModel,
-		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, CreatedAt: p.CreatedAt}
+		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, FullTestSuite: p.FullTestSuite, CreatedAt: p.CreatedAt}
 	// One primary-key lookup: listProjects runs this for every project.
 	if v, err := s.store.ProjectIconVersion(ctx, p.Name); err == nil {
 		info.IconVersion = v
@@ -469,6 +469,16 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 		s.prWatch.poke(p.Name)
 		rewriteBrief()
 	}
+	if req.FullTestSuite != nil {
+		if err := s.store.SetProjectFullTestSuite(r.Context(), p.Name, *req.FullTestSuite); err != nil {
+			return err
+		}
+		p.FullTestSuite = *req.FullTestSuite
+		// The agents' briefs say whether they may run one.
+		if err := s.manager(nil).RewriteBriefs(r.Context(), p.Name); err != nil {
+			s.logf("rewriting %s's briefs after a full test suite change: %v", p.Name, err)
+		}
+	}
 	if req.SyncBase != nil {
 		if err := s.store.SetProjectBaseSync(r.Context(), p.Name, *req.SyncBase); err != nil {
 			return err
@@ -606,6 +616,7 @@ func (s *Server) brief(w http.ResponseWriter, r *http.Request) error {
 		Notes:       projectNotes,
 		Nesting:     p.Nesting,
 		AgentPRs:    p.AgentPRs,
+		FullSuite:   p.FullTestSuite && s.blockFullSuite(r.Context()),
 
 		Knowledge:     knowledge,
 		CompactWindow: compactWindow,
@@ -1180,7 +1191,11 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 				// is still waiting on, the same as a finish it asked for.
 				s.tellLead(ctx, req.Project, fmt.Sprintf("create_agent failed: %v", err), true)
 			}
-			s.recordError(errCreateFailed, req.AI)
+			// One the job's cancel stopped didn't fail.
+			if ctx.Err() == nil {
+				class, reason := s.createReason(err, req.Project, req.Name, req.Title, req.Branch)
+				s.recordError(errCreateFailed, req.AI, class, reason)
+			}
 			return nil, err
 		}
 		s.countFeature(agentFeature(a.AI, api.FeatureAgentCreateClaude, api.FeatureAgentCreateCodex, api.FeatureAgentCreateOpenCode, api.FeatureAgentCreateCursor))
@@ -1264,7 +1279,7 @@ func (s *Server) agentAction(action string) func(http.ResponseWriter, *http.Requ
 		switch action {
 		case "start":
 			if err = s.startMachine(ctx, m, a, "a start request"); err != nil {
-				s.recordError(errStartFailed, a.AI)
+				s.recordErr(errStartFailed, a.AI, err, agentNames(a)...)
 			}
 		case "stop":
 			s.chat.Stop(a.Ref(), "the agent was stopped")
@@ -1797,7 +1812,7 @@ func (s *Server) refreshClaudeTokens(creds credentials.Store) {
 // there is nothing to check: the app and `agentbox auth status` say so at once
 // rather than at the next hourly check.
 func (s *Server) claudeAuthFailed(a state.Agent, detail string) {
-	s.recordError(errAuthFailed, a.AI)
+	s.recordError(errAuthFailed, a.AI, classAuth, s.errorReason(detail, agentNames(a)...))
 	if a.AI != "claude" {
 		return
 	}
@@ -1906,4 +1921,11 @@ func (s *Server) cancelJob(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	return writeJSON(w, http.StatusOK, info)
+}
+
+// blockFullSuite says whether the installation blocks agents' whole test
+// suites (state.SettingBlockFullSuite).
+func (s *Server) blockFullSuite(ctx context.Context) bool {
+	on, _ := s.store.Flag(ctx, state.SettingBlockFullSuite)
+	return on
 }

@@ -18,11 +18,11 @@ func fakeGPU(t *testing.T, dxg, render string, lib bool) {
 	t.Helper()
 	dir := t.TempDir()
 	missing := filepath.Join(dir, "missing")
-	old := []string{dxgPath, wslLib, wslDrivers, renderNodeGlob, VenusScript, vmGPUStatusFile}
+	old := []string{dxgPath, wslLib, wslDrivers, renderNodeGlob, VenusScript, vmGPUStatusFile, VMGPUReasonFile}
 	t.Cleanup(func() {
-		dxgPath, wslLib, wslDrivers, renderNodeGlob, VenusScript, vmGPUStatusFile = old[0], old[1], old[2], old[3], old[4], old[5]
+		dxgPath, wslLib, wslDrivers, renderNodeGlob, VenusScript, vmGPUStatusFile, VMGPUReasonFile = old[0], old[1], old[2], old[3], old[4], old[5], old[6]
 	})
-	dxgPath, renderNodeGlob, VenusScript, vmGPUStatusFile = missing, missing, missing, missing
+	dxgPath, renderNodeGlob, VenusScript, vmGPUStatusFile, VMGPUReasonFile = missing, missing, missing, missing, missing
 	if dxg != "" {
 		dxgPath = dxg
 	}
@@ -103,6 +103,35 @@ func TestFindVMGPUHost(t *testing.T) {
 	m := &Manager{Paths: paths.Paths{Data: t.TempDir()}}
 	if steps := m.gpuSteps("i", VMGPU{Kind: GPUHost, Node: "/dev/dri/renderD128"}, map[string]map[string]string{vgpuDevice: {"type": "gpu", "gputype": "physical", "mode": "0666"}}); len(stepArgs(t, steps)) != 1 {
 		t.Errorf("steps for the host's GPU: %v", stepArgs(t, steps))
+	}
+}
+
+// A Mac's VM made without krunkit has no GPU, and Settings says why and what
+// gives it one, as Setup wrote it; a render node wins over what it wrote.
+func TestFindVMGPUMacVM(t *testing.T) {
+	if hostos.WSL() || hostos.CloudHypervisorVM() {
+		t.Skip("this machine has its own reasons")
+	}
+	for _, tc := range []struct{ file, reason string }{
+		{`{"vmType":"vz","reason":"no 3D in vz. Install krunkit (brew install krunkit), then agentbox vm init."}`, "no 3D in vz. Install krunkit (brew install krunkit), then agentbox vm init"},
+		{`{"vmType":"vz"}`, "no GPU to give agents"},
+		{`not json`, "no GPU to give agents"},
+	} {
+		fakeGPU(t, "", "", false)
+		VMGPUReasonFile = filepath.Join(t.TempDir(), "vm-gpu.json")
+		if err := os.WriteFile(VMGPUReasonFile, []byte(tc.file), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := FindVMGPU(); got.Kind != GPUNone || got.Reason != tc.reason && !strings.Contains(got.Reason, tc.reason) {
+			t.Errorf("%s: %+v", tc.file, got)
+		}
+	}
+
+	fakeGPU(t, "", "/dev/nul*", false)
+	VMGPUReasonFile = filepath.Join(t.TempDir(), "vm-gpu.json")
+	_ = os.WriteFile(VMGPUReasonFile, []byte(`{"vmType":"vz","reason":"no 3D"}`), 0o644)
+	if got := FindVMGPU(); got.Kind != GPURender {
+		t.Errorf("a render node with a reason file: %+v", got)
 	}
 }
 
