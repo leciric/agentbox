@@ -2,6 +2,7 @@
 // the event stream, WebSocket streams and media files between the renderer and
 // the current environment (this machine's daemon, or one on a hub), signs in to
 // hubs, installs the command-line tool, and updates the app (updater.ts).
+import { isSafeExternalUrl } from './externalurl';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron';
 import { arch, hostname } from 'node:os';
 import { join } from 'node:path';
@@ -249,7 +250,7 @@ ipcMain.handle('shell:openPath', (_event, path: string) => shell.openPath(hostPa
 ipcMain.handle('chatFile:open', (_event, path: string, name: string) => openChatFile(path, name));
 ipcMain.handle('shell:showItem', (_event, path: string) => shell.showItemInFolder(hostPath(path)));
 ipcMain.handle('shell:openExternal', async (_event, url: string) => {
-  if (!/^https?:\/\//.test(url)) throw new Error(t('web.main.notAWebAddress', { url }));
+  if (!isSafeExternalUrl(url)) throw new Error(t('web.main.notAWebAddress', { url }));
   await shell.openExternal(url);
 });
 ipcMain.handle('pageThumb:get', (_event, path: string, key: string) => pageThumb(path, key));

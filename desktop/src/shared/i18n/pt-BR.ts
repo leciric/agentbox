@@ -3085,7 +3085,7 @@ export const ptBR: Messages = {
   'web.main.wslStatusFailed': 'agentbox wsl status falhou',
   'web.main.notSignedIn': 'sem login em {url}',
   'web.main.notAHub': '{url} não é um endereço de hub: use https://hub.example.com',
-  'web.main.notAWebAddress': 'não é um endereço web: {url}',
+  'web.main.notAWebAddress': 'não é um endereço web nem de e-mail: {url}',
   // skills
   'settings.section.skills.title': 'Skills',
   'settings.section.skills.description': 'Pastas com um SKILL.md que todo agente e chat podem usar, ligadas em tudo ou projeto a projeto.',

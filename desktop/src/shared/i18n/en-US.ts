@@ -3084,7 +3084,7 @@ export const enUS = {
   'web.main.wslStatusFailed': 'agentbox wsl status failed',
   'web.main.notSignedIn': 'not signed in to {url}',
   'web.main.notAHub': '{url} isn\'t a hub address: use https://hub.example.com',
-  'web.main.notAWebAddress': 'not a web address: {url}',
+  'web.main.notAWebAddress': 'not a web or mail address: {url}',
   // skills
   'settings.section.skills.title': 'Skills',
   'settings.section.skills.description': 'Folders with a SKILL.md that every agent and chat can use, on everywhere or project by project.',
