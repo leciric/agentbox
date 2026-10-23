@@ -305,3 +305,23 @@ test('the lead’s panel switches between Agents and Files, remembered per proje
   P.openPanelOn(lead, 'desktop', 'pawly/agent-3');
   assert.equal(P.leadTab(P.panelState(), 'pawly'), 'agents');
 });
+
+test('the lead’s panel also has Evidence and Schedules as tabs', () => {
+  P.setPanel({ chats: {}, views: {}, last: {} });
+  const lead = 'pawly/lead';
+  P.setLeadTab('pawly', 'evidence');
+  assert.equal(P.leadTab(P.panelState(), 'pawly'), 'evidence');
+  assert.equal(P.viewOf(P.panelState(), { kind: 'lead', ref: lead }), 'evidence');
+  P.setLeadTab('pawly', 'files');
+  assert.equal(P.leadTab(P.panelState(), 'pawly'), 'files');
+  // Schedules goes over the tab it was picked from, and Files brings it back.
+  P.setLeadTab('pawly', 'schedules');
+  assert.equal(P.leadTab(P.panelState(), 'pawly'), 'schedules');
+  P.setLeadTab('pawly', 'files');
+  assert.equal(P.leadTab(P.panelState(), 'pawly'), 'files');
+  // Agents, from Schedules, is the list.
+  P.setLeadTab('pawly', 'schedules');
+  P.setLeadTab('pawly', 'agents');
+  assert.equal(P.leadTab(P.panelState(), 'pawly'), 'agents');
+  assert.equal(P.onList(P.panelState(), lead), true);
+});

@@ -2096,5 +2096,28 @@
       "header [data-inbox]",
       "[data-review-row]"
     ]
+  },
+  {
+    "id": "lead-panel-v2-1280",
+    "description": "UI v2, the lead's right panel header: its four tabs, Today and Settings beside the ⋯, at 1280px wide — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1280,
+    "height": 800
+  },
+  {
+    "id": "lead-panel-v2-1080",
+    "description": "UI v2, the lead's right panel header: its four tabs, Today and Settings beside the ⋯, in the drawer opened from the strip, at 1080px wide — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1080,
+    "height": 800,
+    "click": "[data-right-panel=strip] button"
+  },
+  {
+    "id": "lead-panel-v2-900",
+    "description": "UI v2, the lead's right panel header: its four tabs, Today and Settings beside the ⋯, in the drawer opened from the strip, at 900px wide — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 900,
+    "height": 700,
+    "click": "[data-right-panel=strip] button"
   }
 ]

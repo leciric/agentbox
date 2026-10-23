@@ -3,10 +3,10 @@
 // avatars (») and back from the chat header's button (PanelButton) or ⌘D;
 // it never closes. Where the list doesn't fit beside the chat, the strip
 // stays there and the rest opens over the chat as a drawer.
-// Beside the lead's chat its top is a switch of two tabs, Agents (the list)
-// and Files (the repository's tree, the lead's checkout), the last one kept
+// Beside the lead's chat its top is a switch of four tabs, Agents (the list),
+// Files (the repository's tree, the lead's checkout), Evidence and Schedules, kept
 // per project (LeadSwitch). An agent, or the project's Pull requests and
-// Settings (opened from the project's header), show in it with ✕ back to
+// Settings (opened from its header), show in it with ✕ back to
 // where it was; for an agent, the header is, left to right: a
 // back arrow, whose it is (a click opens its chat), a fixed switch of four
 // views, Desktop, Terminal, Files and Evidence, then ⋯ for Browser,
@@ -16,7 +16,7 @@
 // was picked there. Dragged at its left edge, the list and an agent each
 // keep their own width. lib/rightPanel.ts has its rules and state.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlarmClock, ArrowLeft, ChevronsRight, Camera, Check, Crown, Ellipsis, Film, FileText, FolderTree, GanttChart, GitBranch, GitPullRequest, Globe, Image as ImageIcon, Images, LoaderCircle, Maximize, Minimize, Monitor, MousePointer2, Play, Plus, Power, SlidersHorizontal, SquareTerminal, Unplug, Users, X, type LucideIcon } from 'lucide-react';
+import { AlarmClock, ArrowLeft, ChevronsRight, Camera, Check, Clapperboard, Crown, Ellipsis, Film, FileText, FolderTree, GanttChart, GitBranch, GitPullRequest, Globe, Image as ImageIcon, Images, LoaderCircle, Maximize, Minimize, Monitor, MousePointer2, Play, Plus, Power, Settings, SlidersHorizontal, SquareTerminal, Unplug, Users, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
@@ -69,6 +69,7 @@ import {
   type PanelState,
   type LeadTab,
   type PanelView,
+  type WideView,
   type Whose,
 } from '../../lib/rightPanel';
 import { useFullscreen } from '../../lib/useFullscreen';
@@ -271,7 +272,7 @@ function RightPanel({ project, chat, width, drawer, onSelect, onNewAgent }: { pr
   const projectName = projectLabel(project, useQuery({ queryKey: ['projects'], queryFn: api.projects }).data);
   // Beside the lead's chat, the list and the repository are its two tabs:
   // no back arrow, title or ✕ for them, the switch instead.
-  const home = lead && !panel.wide && (!whose || whose.kind === 'lead');
+  const home = lead && (panel.wide === 'schedules' || !panel.wide) && (!whose || whose.kind === 'lead');
 
   if (!whose && !panel.wide && state.listFolded && !drawer) return <AgentStrip project={project} chat={chat} onSelect={onSelect} onUnfold={() => setPanel({ listFolded: false })} />;
   return (
@@ -299,7 +300,7 @@ function RightPanel({ project, chat, width, drawer, onSelect, onNewAgent }: { pr
           </Tip>
         )}
         {home ? (
-          <LeadSwitch project={project} tab={leadTab(state, project)} files={view === 'files'} count={agents.length} />
+          <LeadSwitch project={project} tab={leadTab(state, project)} count={agents.length} labels={labels} />
         ) : whose ? (
           <WhoseTitle project={project} chat={chat} whose={whose} onSelect={onSelect} />
         ) : (
@@ -319,6 +320,7 @@ function RightPanel({ project, chat, width, drawer, onSelect, onNewAgent }: { pr
             </Button>
           </Tip>
         )}
+        {lead && <ProjectButtons project={project} chat={chat} wide={panel.wide} onSelect={onSelect} />}
         <MoreMenu chat={chat} whose={whose ?? { kind: 'lead', ref: leadOf(project) }} view={view} />
         {!whose && !panel.wide && (
           <Tip label={t('panel.list.fold')}>
@@ -377,33 +379,81 @@ function WhoseTitle({ project, chat, whose, onSelect }: { project: string; chat:
   );
 }
 
-// LeadSwitch is the lead's panel's two tabs, Agents (with how many) and
-// Files, in ViewSwitch's look. Files is lit only while the repository shows
-// its files: its Evidence, from the ⋯, lights neither.
-function LeadSwitch({ project, tab, files, count }: { project: string; tab: LeadTab; files: boolean; count: number }) {
+// LeadSwitch is the lead's panel's four tabs, Agents (with how many), Files,
+// Evidence and Schedules, in ViewSwitch's look and with its labels: all of
+// them, the lit one's, none (named by a tooltip).
+function LeadSwitch({ project, tab, count, labels }: { project: string; tab: LeadTab; count: number; labels: 'all' | 'on' | 'none' }) {
   const t = useT();
-  const tabs: { tab: LeadTab; icon: LucideIcon; label: string; on: boolean }[] = [
-    { tab: 'agents', icon: Users, label: t('panel.lead.agents'), on: tab === 'agents' },
-    { tab: 'files', icon: FolderTree, label: t('panel.view.files'), on: tab === 'files' && files },
+  const tabs: { tab: LeadTab; icon: LucideIcon; label: string }[] = [
+    { tab: 'agents', icon: Users, label: t('panel.lead.agents') },
+    { tab: 'files', icon: FolderTree, label: t('panel.view.files') },
+    { tab: 'evidence', icon: Images, label: t('panel.view.evidence') },
+    { tab: 'schedules', icon: AlarmClock, label: t('panel.view.schedules') },
   ];
   return (
     <div role="radiogroup" aria-label={t('panel.lead.switch')} className="flex min-w-0 shrink items-center rounded-lg border border-line bg-surface-faint p-0.5" data-panel-lead-switch={tab}>
-      {tabs.map(({ tab: v, icon: Icon, label, on }) => (
-        <button
-          key={v}
-          type="button"
-          role="radio"
-          aria-checked={on}
-          onClick={() => setLeadTab(project, v)}
-          className={cn('flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2.5 text-[11.5px] font-medium transition-colors', on ? 'bg-surface-raised text-title shadow-sm' : 'text-subtle hover:text-title')}
-          data-panel-lead-tab={v}
-        >
-          <Icon className="size-3.5 shrink-0" />
-          <span className="truncate">{label}</span>
-          {v === 'agents' && count > 0 && <span className="rounded-full bg-surface-strong px-1.5 text-[10.5px] tabular-nums text-subtle">{count}</span>}
-        </button>
-      ))}
+      {tabs.map(({ tab: v, icon: Icon, label }) => {
+        const on = tab === v;
+        const named = labels === 'all' || (labels === 'on' && on);
+        const button = (
+          <button
+            key={v}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            aria-label={label}
+            onClick={() => setLeadTab(project, v)}
+            className={cn('flex h-7 min-w-0 items-center gap-1.5 rounded-md text-[11.5px] font-medium transition-colors', named ? 'px-2.5' : 'w-8 justify-center', on ? 'bg-surface-raised text-title shadow-sm' : 'text-subtle hover:text-title')}
+            data-panel-lead-tab={v}
+          >
+            <Icon className="size-3.5 shrink-0" />
+            {named && <span className="truncate">{label}</span>}
+            {v === 'agents' && count > 0 && named && <span className="rounded-full bg-surface-strong px-1.5 text-[10.5px] tabular-nums text-subtle">{count}</span>}
+          </button>
+        );
+        return named ? (
+          button
+        ) : (
+          <Tip key={v} label={v === 'agents' && count > 0 ? `${label} (${count})` : label}>
+            <span className="flex">{button}</span>
+          </Tip>
+        );
+      })}
     </div>
+  );
+}
+
+// ProjectButtons are the lead's panel's project-wide places, beside its ⋯:
+// Today (the day's story, which takes the main column) and Settings (over
+// whatever the panel shows; clicked again, back to it).
+function ProjectButtons({ project, chat, wide, onSelect }: { project: string; chat: string; wide: WideView | undefined; onSelect: (view: View) => void }) {
+  const t = useT();
+  const settings = wide === 'settings';
+  return (
+    <>
+      <Tip label={t('today.open')}>
+        <Button size="icon-sm" variant="ghost" aria-label={t('today.open')} onClick={() => onSelect({ kind: 'today', project })} data-open-today>
+          <Clapperboard />
+        </Button>
+      </Tip>
+      <Tip label={t('v2.sidebar.projectSettings')}>
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          aria-label={t('v2.sidebar.projectSettings')}
+          aria-pressed={settings}
+          className={cn(settings && 'bg-surface-raised text-primary')}
+          onClick={() => {
+            if (settings) return panelBack(chat);
+            setPanel({ section: 'general' });
+            openPanelOn(chat, 'settings');
+          }}
+          data-project-settings
+        >
+          <Settings />
+        </Button>
+      </Tip>
+    </>
   );
 }
 
@@ -452,11 +502,13 @@ function ViewSwitch({ chat, whose, view, labels }: { chat: string; whose: Whose;
   );
 }
 
-// MoreMenu is the panel's ⋯: the views off the switch. The lead's has the
-// repository's Evidence, off its switch, and none it can't show.
+// MoreMenu is the panel's ⋯: the views off the switch. The lead's own panel
+// has none (its switch has Evidence and Schedules), so no ⋯, until it shows
+// an agent.
 function MoreMenu({ chat, whose, view }: { chat: string; whose: Whose; view: PanelView | undefined }) {
   const t = useT();
-  const views: PanelView[] = whose.kind === 'lead' && isLeadRef(chat) ? ['evidence', ...moreViews.filter((v) => hasView(whose, v))] : moreViews;
+  if (whose.kind === 'lead' && isLeadRef(chat)) return null;
+  const views = moreViews;
   const pick = (v: PanelView) => (whose.kind === 'lead' && !projectWide(v) ? openPanelOn(chat, v, whose.ref) : setView(chat, whoseRef(whose), v));
   return (
     <Menu>

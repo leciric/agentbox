@@ -5,11 +5,11 @@
 // the project's agents (the list), which folds to a strip of their avatars
 // (one header button, or ⌘D) but never closes. Where it doesn't fit beside
 // the chat, the strip stays and the rest opens over the chat as a drawer.
-// The lead's panel switches between the list and the repository's Files
-// (setLeadTab); an agent shows in it in one of four views on a fixed switch: Desktop, Terminal, Files and Evidence (its
+// The lead's panel switches between the list, the repository's Files and
+// Evidence, and the Schedules (setLeadTab); an agent shows in it in one of four views on a fixed switch: Desktop, Terminal, Files and Evidence (its
 // media and Hatch pages, newest first), with ✕ back to the list. Browser and Timeline
-// open from its ⋯; the project's Pull requests and Settings, from the
-// project's header (ProjectView), go over it. It remembers the view each
+// open from its ⋯; the project's Pull requests (from the project's header),
+// Settings (from the panel's header) and Schedules go over it. It remembers the view each
 // agent was last shown in, and the agent each project's lead last looked at.
 import { useSyncExternalStore } from 'react';
 import type * as T from '../../shared/api.ts';
@@ -295,16 +295,24 @@ export function panelClose(chat: string): void {
   else update(chat, (p) => ({ ...bare(p), target: listTarget }));
 }
 
-// The lead's panel is two tabs on a switch at its top: Agents, the list, and
-// Files, the repository's tree. Files is the lead picked as whose, so which
-// tab is on is remembered per project in last, with whoever else it showed.
-export type LeadTab = 'agents' | 'files';
-export const leadTab = (state: PanelState, project: string): LeadTab => (state.last[project] === leadOf(project) ? 'files' : 'agents');
+// The lead's panel is four tabs on a switch at its top: Agents, the list;
+// Files, the repository's tree; Evidence, its media and pages; and Schedules,
+// the project's scheduled tasks (a project-wide view, over the rest). The
+// repository is the lead picked as whose, so which of the middle two is on
+// is remembered per project in last and views, with whoever else it showed.
+export type LeadTab = 'agents' | 'files' | 'evidence' | 'schedules';
+export function leadTab(state: PanelState, project: string): LeadTab {
+  const lead = leadOf(project);
+  if (chatPanel(state, lead).wide === 'schedules') return 'schedules';
+  if (state.last[project] !== lead) return 'agents';
+  return state.views[lead] === 'evidence' ? 'evidence' : 'files';
+}
 export function setLeadTab(project: string, tab: LeadTab): void {
   const lead = leadOf(project);
-  if (tab === 'agents') return panelBack(lead);
+  if (tab === 'agents') return panelClose(lead);
+  if (tab === 'schedules') return setView(lead, '', 'schedules');
   const state = panelState();
-  update(lead, (p) => ({ ...bare(p), open: true }), { last: { ...state.last, [project]: lead }, views: { ...state.views, [lead]: 'files' } });
+  update(lead, (p) => ({ ...bare(p), open: true }), { last: { ...state.last, [project]: lead }, views: { ...state.views, [lead]: tab } });
 }
 
 // onList is whether chat's panel shows its list.
