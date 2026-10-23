@@ -8,6 +8,7 @@ import { api } from './api.ts';
 import { questionsKey, withQuestion } from './inboxPages.ts';
 import { applyMediaEvent, setMediaUnseen } from './mediaPages.ts';
 import { pastAgentsKey } from './pastAgents.ts';
+import { workKey } from './work.ts';
 import { applySeen } from './notifications.ts';
 import { onChatItem as onPageCall } from './pages.ts';
 import { applyChatEvent, resetChatEvents } from './chat.ts';
@@ -120,6 +121,7 @@ export function connectEvents(queryClient: QueryClient): void {
         if (agentEvent.kind === T.AgentFinished) {
           void queryClient.invalidateQueries({ queryKey: ['review'] });
           void queryClient.invalidateQueries({ queryKey: ['agentReview'] });
+          void queryClient.invalidateQueries({ queryKey: workKey });
         }
         break;
       }
@@ -196,6 +198,8 @@ export function connectEvents(queryClient: QueryClient): void {
           // A pull request fixed brings its agent back to "Ready to review".
           void queryClient.invalidateQueries({ queryKey: ['review'] });
           void queryClient.invalidateQueries({ queryKey: ['agentReview'] });
+          void queryClient.invalidateQueries({ queryKey: workKey });
+          void queryClient.invalidateQueries({ queryKey: workKey });
         }
         break;
       }
@@ -211,6 +215,7 @@ export function connectEvents(queryClient: QueryClient): void {
         void queryClient.invalidateQueries({ queryKey: ['review'] });
         void queryClient.invalidateQueries({ queryKey: ['agentReview'] });
         void queryClient.invalidateQueries({ queryKey: ['reviewed'] });
+        void queryClient.invalidateQueries({ queryKey: workKey });
         break;
       case T.EventAgent: {
         const change = event.data as T.AgentChange;
@@ -224,7 +229,10 @@ export function connectEvents(queryClient: QueryClient): void {
           void queryClient.invalidateQueries({ queryKey: ['agents'] });
         }
         // An agent whose machine was removed is a past agent now.
-        if (change.removed) void queryClient.invalidateQueries({ queryKey: pastAgentsKey });
+        if (change.removed) {
+          void queryClient.invalidateQueries({ queryKey: pastAgentsKey });
+          void queryClient.invalidateQueries({ queryKey: workKey });
+        }
         if (change.state !== 'running') {
           void queryClient.invalidateQueries({ queryKey: ['browser', change.ref] });
           void queryClient.invalidateQueries({ queryKey: ['android', change.ref] });

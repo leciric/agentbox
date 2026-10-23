@@ -17,7 +17,7 @@
 // lib/leadFirst.ts's, lib/projectOrder.ts's and lib/sidebarHidden.ts's.
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Archive, Check, ChevronRight, CircleArrowUp, Eye, EyeOff, FolderPlus, House, Images, ListChecks, ListFilter, LoaderCircle, MoonStar, RefreshCw, Search, Settings, ShieldAlert, SquarePen, X } from 'lucide-react';
+import { Briefcase, Check, ChevronRight, CircleArrowUp, Eye, EyeOff, FolderPlus, House, Images, ListChecks, ListFilter, LoaderCircle, MoonStar, RefreshCw, Search, Settings, ShieldAlert, SquarePen, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import * as A from '../../../shared/api';
 import type * as T from '../../../shared/api';
@@ -44,7 +44,7 @@ import { openNewTask, requestComposerFocus } from '../../lib/newTask';
 import { openPanelOn, setPanel } from '../../lib/rightPanel';
 import { Logo } from '../Sidebar';
 import { ProjectIcon, ProjectIconDialog } from '../ProjectIcon';
-import { ReviewCount, useOpenReview } from './ReviewV2';
+import { ReviewCount, useOpenWork } from './ReviewV2';
 import { projectActions, type ProjectAction } from './ProjectHeader';
 import { TalkToProject } from './TalkToProject';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuMore, ContextMenuSeparator, ContextMenuTrigger } from '../ui/context-menu';
@@ -176,17 +176,17 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   const nothing = projects.data && projects.data.length > 0 && lists.pinned.length + lists.rest.length + lists.idle.length + lists.hidden.length === 0;
 
   // Review all goes after the first list's label, whichever list is first.
-  const openReview = useOpenReview();
+  const openWork = useOpenWork();
   const toReview = reviewing ? (head.data?.total ?? 0) : 0;
   let reviewPlaced = false;
   const reviewAll = () => {
-    if (reviewPlaced || !openReview || toReview === 0) return null;
+    if (reviewPlaced || !openWork || toReview === 0) return null;
     reviewPlaced = true;
     return (
       <Tip label={t('v2.review.allHint')}>
         <button
           type="button"
-          onClick={() => openReview()}
+          onClick={() => openWork({ filter: 'review' })}
           className="ml-1.5 shrink-0 rounded-full border border-line-strong bg-surface px-1.5 py-px text-[10.5px] font-medium normal-case tracking-normal tabular-nums text-secondary transition hover:border-line-heavy hover:bg-surface-strong hover:text-title"
           data-v2-review-all={toReview}
         >
@@ -352,7 +352,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
         {(
           [
             { kind: 'settings', icon: Settings, label: t('common.settings'), alert: setup.data && !setup.data.ready },
-            { kind: 'pastAgents', icon: Archive, label: t('pastAgents.title'), alert: false },
+            { kind: 'work', icon: Briefcase, label: t('work.title'), alert: false },
             { kind: 'media', icon: Images, label: t('shell.nav.media'), alert: false },
             { kind: 'jobs', icon: ListChecks, label: t('shell.nav.jobs'), alert: false },
           ] as const
@@ -671,7 +671,7 @@ function ProjectLead({
       talking.current = true;
       setTimeout(() => setTalk(true), 0);
     },
-    onToday: () => onSelect({ kind: 'today', project: project.name }),
+    onWork: () => onSelect({ kind: 'work', project: project.name }),
     onPin,
     onSettings: openSettings,
     onChangeIcon: () => setIconOpen(true),
