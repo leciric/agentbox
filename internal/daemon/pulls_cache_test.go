@@ -834,12 +834,16 @@ func TestChangesOfIgnoresMainsOwnChanges(t *testing.T) {
 	a := state.Agent{Worktree: worktree, Branch: "agentbox/w", BaseRef: "main", BaseCommit: base}
 	commitOn(t, a, "mine.txt")
 	for _, f := range []string{"m1.txt", "m2.txt", "m3.txt"} {
-		os.WriteFile(filepath.Join(repo, f), []byte("x\n"), 0o644)
+		if err := os.WriteFile(filepath.Join(repo, f), []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	testutil.Git(t, repo, "add", ".")
 	testutil.Git(t, repo, "commit", "--quiet", "-m", "main moves")
 	testutil.Git(t, worktree, "merge", "--quiet", "-m", "take in main", "main")
-	os.WriteFile(filepath.Join(worktree, "dirty.txt"), []byte("y\n"), 0o644)
+	if err := os.WriteFile(filepath.Join(worktree, "dirty.txt"), []byte("y\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	if got := changesOf(a); got.Files != 2 {
 		t.Errorf("changesOf = %+v, want 2 files (its commit and the uncommitted one)", got)
