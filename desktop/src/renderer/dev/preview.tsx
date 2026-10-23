@@ -222,6 +222,8 @@
 //                           open at a tab or a section of its Settings tab
 //                           (?page=tokens, ?page=general…); with ?open=agent-99,
 //                           that agent's page (?page=secrets, ?page=machine…)
+//   &secrets=1              with ?page=secrets, the project's Secrets with two
+//                           secrets in it, one managed by the lead
 //   ?phone=list|chat|lead|frame
 //                           the phone's web app against chats in every live
 //                           state, one running a turn over and over (dev/phone.tsx)
@@ -572,6 +574,14 @@ if (page) {
     queryClient.setQueryData(['secrets', target], []);
     queryClient.setQueryData(['connectors', target], []);
   }
+}
+if (page && params.get('secrets') === '1') {
+  const updatedAt = new Date(Date.now() - 40 * 60_000).toISOString();
+  const agents = [`${PROJECT}/agent-01`, `${PROJECT}/agent-02`];
+  queryClient.setQueryData<T.Secret[]>(['secrets', PROJECT], [
+    { name: 'AZURE_ACCESS_TOKEN', scope: 'project', project: PROJECT, updatedAt, agents, leadManaged: true },
+    { name: 'STRIPE_SECRET_KEY', scope: 'project', project: PROJECT, updatedAt, agents, leadManaged: false },
+  ]);
 }
 if (linuxHost === 'move') {
   seedLinuxHost(queryClient, true);
