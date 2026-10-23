@@ -8,6 +8,7 @@
 import { keepPreviousData, useInfiniteQuery, useQuery, type InfiniteData, type QueryClient } from '@tanstack/react-query';
 import type * as T from '../../shared/api';
 import { api } from './api.ts';
+import { workKey } from './work.ts';
 
 export const inboxPageSize = 20;
 // The newest finishes the alert for "newly ready" watches: the most a page holds.
@@ -116,4 +117,5 @@ export function refreshInbox(queryClient: QueryClient): void {
   void queryClient.invalidateQueries({ queryKey: ['review'] });
   void queryClient.invalidateQueries({ queryKey: ['reviewed'] });
   void queryClient.invalidateQueries({ queryKey: [agentReviewPrefix] });
+  void queryClient.invalidateQueries({ queryKey: workKey });
 }

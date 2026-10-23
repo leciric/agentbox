@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Archive, Brain, Wand2, Coins, Ellipsis, FileText, FolderGit2, FolderOpen, GitPullRequest, Image, KeyRound, MessagesSquare, Moon, NotebookPen, Plug, Plus, SlidersHorizontal, Smile, Trash } from 'lucide-react';
+import { Briefcase, Brain, Wand2, Coins, Ellipsis, FileText, FolderGit2, FolderOpen, GitPullRequest, Image, KeyRound, MessagesSquare, Moon, NotebookPen, Plug, Plus, SlidersHorizontal, Smile, Trash } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import * as T from '../../shared/api';
@@ -15,7 +15,7 @@ import { ChatStatus, FilesOpen, useChatMenu } from './chat/ChatTab';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ConnectorsTab } from './ConnectorsTab';
 import { leadAgentFrom, ProjectChatPanel } from './ProjectChatPanel';
-import { PastAgents } from './PastAgents';
+import { WorkList } from './WorkView';
 import { ProjectBasePanel } from './ProjectBasePanel';
 import { ProjectMediaPanel } from './ProjectMediaPanel';
 import { ScopedMediaPages } from './pages/MediaPages';
@@ -141,8 +141,6 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
   }, [v2, opensAt, name]);
   const [iconOpen, setIconOpen] = useState(false);
   const { tab, section } = projectPlace(where);
-  // The past agent read in the Past agents tab, if one is.
-  const [past, setPast] = useState<string | null>(null);
   useEffect(() => countFeature(projectTabFeatures[tab === 'settings' ? section : tab]), [tab, section, name]);
   const leadChat = useQuery({ queryKey: ['projectChat', name], queryFn: () => api.projectChat(name), enabled: tab === 'chat' });
   const project = projects.data?.find((p) => p.name === name);
@@ -237,8 +235,8 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
                 {t('project.view.tab.media')}
               </TabsTrigger>
               <TabsTrigger value="past" data-project-tab="past">
-                <Archive />
-                {t('project.view.tab.past')}
+                <Briefcase />
+                {t('work.title')}
               </TabsTrigger>
               <TabsTrigger value="settings">
                 <SlidersHorizontal />
@@ -284,9 +282,10 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
         </div>
       </TabsContent>
 
-      <TabsContent value="past" className="flex flex-col">
-        <div className="min-h-0 flex-1">
-          <PastAgents project={name} open={past ?? undefined} onOpen={setPast} onSelect={onSelect} />
+      {/* The project's Work (WorkView), what was its Past agents tab. */}
+      <TabsContent value="past" className="overflow-y-auto">
+        <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-7">
+          <WorkList project={name} onSelect={onSelect} />
         </div>
       </TabsContent>
 

@@ -2314,10 +2314,11 @@ func displayState(status string) string {
 	return strings.ToLower(status)
 }
 
-// Diff shows everything the agent changed since it was created: commits,
-// uncommitted edits and untracked files.
+// Diff shows everything the agent changed against its base branch: commits,
+// uncommitted edits and untracked files. Whatever main gained since the agent
+// took it in is not counted (gitrepo.DiffBase).
 func (m *Manager) Diff(a state.Agent, stat bool, paths ...string) (string, error) {
-	return gitrepo.DiffWorktree(a.Worktree, a.BaseCommit, stat, paths...)
+	return gitrepo.DiffWorktree(a.Worktree, gitrepo.DiffBase(a.Worktree, a.BaseRef, a.BaseCommit), stat, paths...)
 }
 
 func (m *Manager) logf(format string, args ...any) {

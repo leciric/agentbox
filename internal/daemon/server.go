@@ -847,6 +847,8 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/projects/{project}/agent-events", s.projectAgentEvents)
 	h("GET /v1/projects/{project}/review", s.projectReview)
 	h("GET /v1/review", s.allReview)
+	h("GET /v1/projects/{project}/work", s.projectWork)
+	h("GET /v1/work", s.allWork)
 	h("POST /v1/agents/{project}/{agent}/review", s.reviewAgent)
 	h("POST /v1/agents/{project}/{agent}/request-changes", s.requestChanges)
 	h("GET /v1/agents/{project}/{agent}/review-notes", s.listReviewNotes)
@@ -913,6 +915,7 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/archived-agents/{project}/{agent}/continue", s.continueArchived)
 	// Their files, read from their branch's commit (archivedfiles.go).
 	h("GET /v1/archived-agents/{project}/{agent}/files", s.archivedFiles)
+	h("GET /v1/archived-agents/{project}/{agent}/diff", s.archivedDiff)
 	h("GET /v1/archived-agents/{project}/{agent}/files/list", s.archivedFolder)
 	h("GET /v1/archived-agents/{project}/{agent}/files/read", s.archivedRead)
 	h("GET /v1/archived-agents/{project}/{agent}/files/status", s.archivedStatus)

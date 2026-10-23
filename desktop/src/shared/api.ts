@@ -1114,6 +1114,24 @@ export interface ReviewPage {
   total: number;
 }
 
+export interface WorkPage {
+  items: WorkItem[];
+  next?: string;
+  total: number;
+  counts: Record<string, number>;
+}
+
+export interface WorkItem {
+  item: ReviewItem;
+  task?: string;
+  past?: boolean;
+  status: string;
+  report?: AgentReport;
+  screenshots?: number;
+  recordings?: number;
+  at: string;
+}
+
 export interface MediaCounts {
   total: number;
   bytes: number;

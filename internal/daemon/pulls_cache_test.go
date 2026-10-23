@@ -342,9 +342,9 @@ func TestPullRequestRefreshIsSingleFlight(t *testing.T) {
 // The fleet used to ask GitHub once per agent branch. It now matches the
 // agents against the one list the cache already holds, and only looks up an
 // agent the list page has nothing for — once, not on every poll. The match is
-// by the agent's commits, never by the branch name: an agent's work is pushed
-// under whatever name suits it (feat/…, fix/…), and an old pull request from
-// a branch whose name is being reused isn't the agent's.
+// by the pull request's head branch being the agent's, or its head being the
+// agent's tip (pushed as feat/…, fix/…): a commit somewhere in the agent's
+// history, such as one taken in from main, doesn't make a pull request its.
 func TestFleetMatchesAgentsAgainstOneList(t *testing.T) {
 	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
@@ -353,15 +353,13 @@ func TestFleetMatchesAgentsAgainstOneList(t *testing.T) {
 
 	one := commitOn(t, agents["agent-01"], "one.txt")
 	pushed := commitOn(t, agents["agent-02"], "two.txt")
-	commitOn(t, agents["agent-02"], "two-again.txt") // committed again after its work was pushed
 	three := commitOn(t, agents["agent-03"], "three.txt")
 	// agent-04 hasn't committed anything.
 	gh.setList(pullsPage(
 		listedPR{12, "feat/one-account-per-project", one},
 		listedPR{13, "fix/windows-setup-flicker", pushed},
-		// A pull request from long ago, on a branch of the same name as
-		// agent-03's, and nothing to do with it.
-		listedPR{3, agents["agent-03"].Branch, "0123456789abcdef0123456789abcdef01234567"},
+		// agent-04's own branch, whatever its head is.
+		listedPR{3, agents["agent-04"].Branch, "0123456789abcdef0123456789abcdef01234567"},
 	))
 
 	pullsOf(t, d, "hello-stack") // wait out the first read
@@ -377,13 +375,13 @@ func TestFleetMatchesAgentsAgainstOneList(t *testing.T) {
 		t.Errorf("agent-01's pull request = %+v, want #12, pushed to feat/one-account-per-project", byName["agent-01"])
 	}
 	if byName["agent-02"] == nil || byName["agent-02"].Number != 13 {
-		t.Errorf("agent-02's pull request = %+v, want #13, which has all but its newest commit", byName["agent-02"])
+		t.Errorf("agent-02's pull request = %+v, want #13, whose head is its tip", byName["agent-02"])
 	}
 	if byName["agent-03"] != nil {
 		t.Errorf("agent-03 has no pull request, got %+v from a branch of the same name", byName["agent-03"])
 	}
-	if byName["agent-04"] != nil {
-		t.Errorf("agent-04 has no commits, so no pull request, got %+v", byName["agent-04"])
+	if byName["agent-04"] == nil || byName["agent-04"].Number != 3 {
+		t.Errorf("agent-04's pull request = %+v, want #3, from its own branch", byName["agent-04"])
 	}
 	if n := gh.count("/repos/acme/hello-stack/pulls"); n != 1 {
 		t.Errorf("the list was read %d times for four agents, want 1", n)
@@ -432,14 +430,15 @@ func TestFleetLooksUpAPullRequestByTheAgentsCommits(t *testing.T) {
 	old := commitOn(t, agents["agent-01"], "old.txt")
 	gh.setCommit(old, `[{"number":4,"title":"Old work","state":"closed","merged_at":"2026-09-02T10:00:00Z","html_url":"https://github.com/acme/hello-stack/pull/4","updated_at":"2026-09-02T10:00:00Z","head":{"ref":"feat/old","sha":"`+old+`"}}]`)
 	// agent-02's newest commit was never pushed, and the branch it went to
-	// has a commit on top that isn't the agent's at all.
+	// has a commit on top that isn't the agent's at all: neither its branch
+	// nor its tip, so the pull request is not attributed to it.
 	fixed := commitOn(t, agents["agent-02"], "fixed.txt")
 	commitOn(t, agents["agent-02"], "unpushed.txt")
 	gh.setCommit(fixed, `[{"number":8,"title":"Fixed","state":"open","html_url":"https://github.com/acme/hello-stack/pull/8","updated_at":"2026-09-20T10:00:00Z","head":{"ref":"fix/conflicts","sha":"fedcba9876543210fedcba9876543210fedcba98"}}]`)
 
 	pullsOf(t, d, "hello-stack")
 	var byName map[string]*api.PullRequest
-	waitFor(t, "both agents' pull requests", func() bool {
+	waitFor(t, "agent-01's pull request", func() bool {
 		fleet, err := d.client.Fleet(context.Background(), "hello-stack")
 		if err != nil {
 			t.Fatal(err)
@@ -448,13 +447,13 @@ func TestFleetLooksUpAPullRequestByTheAgentsCommits(t *testing.T) {
 		for _, a := range fleet.Agents {
 			byName[a.Name] = a.PR
 		}
-		return byName["agent-01"] != nil && byName["agent-02"] != nil
+		return byName["agent-01"] != nil
 	})
 	if pr := byName["agent-01"]; pr.Number != 4 || pr.State != "merged" {
 		t.Errorf("agent-01's pull request = %+v, want #4, merged", pr)
 	}
-	if pr := byName["agent-02"]; pr.Number != 8 {
-		t.Errorf("agent-02's pull request = %+v, want #8", pr)
+	if pr := byName["agent-02"]; pr != nil {
+		t.Errorf("agent-02 was given %+v, whose head is neither its branch nor its tip", pr)
 	}
 }
 
@@ -489,14 +488,14 @@ func TestAgentHeadsAfterAMerge(t *testing.T) {
 		t.Errorf("merged agent's head = %+v, want tip %s and nothing of its own", h, merged)
 	}
 	pr5 := api.PullRequest{Number: 5, HeadSHA: merged}
-	if !heads[0].accepts(pr5, merged) {
+	if !heads[0].claims(pr5) {
 		t.Error("the merged agent's own pull request wasn't accepted")
 	}
 	caughtUp := heads[1]
 	if caughtUp.tip == merged || caughtUp.owns(merged) {
 		t.Errorf("caught-up agent's head = %+v: it doesn't own what it caught up with", caughtUp)
 	}
-	if caughtUp.accepts(pr5, caughtUp.tip) {
+	if caughtUp.claims(pr5) {
 		t.Error("an agent that only caught up with main was given a pull request merged into it")
 	}
 }
@@ -532,7 +531,7 @@ func TestAgentHeadsFromAStaleMain(t *testing.T) {
 		}
 	}
 	pr86 := api.PullRequest{Number: 86, HeadSHA: "release-please-head"}
-	if h.accepts(pr86, merged[1]) {
+	if h.claims(pr86) {
 		t.Error("the agent was given #86, found by the squash commit it caught up with")
 	}
 
@@ -708,7 +707,7 @@ func TestPullsCacheRefreshesForAnAgentItDoesntKnow(t *testing.T) {
 	idle := agentHead{agent: "agent-03"} // no commits: nothing to find
 	gen, _ := c.claim("acme/x", []agentHead{one})
 	c.finish("acme/x", gen, pullsEntry{
-		prs:     []api.PullRequest{{Number: 1, HeadBranch: "feat/anything", HeadSHA: "a1"}},
+		prs:     []api.PullRequest{{Number: 1, HeadBranch: "feat/anything", HeadSHA: "b1"}},
 		lookups: map[string]lookedUp{},
 	})
 	if _, ok := c.claim("acme/x", []agentHead{one, idle}); ok {
@@ -792,4 +791,61 @@ func BenchmarkAgentChanges(b *testing.B) {
 			agentChanges(agents, measure)
 		}
 	})
+}
+
+// A pull request is an agent's by its head branch or a head at the agent's
+// tip, not because its head is somewhere in the agent's history: an agent that
+// merged a newer main carries the heads of the pull requests merged into it.
+func TestClaimsOnlyByBranchOrTip(t *testing.T) {
+	t.Parallel()
+	h := agentHead{agent: "a", branch: "agentbox/a", tip: "tip", own: []string{"tip", "taken-in"}}
+	for _, tc := range []struct {
+		name string
+		pr   api.PullRequest
+		want bool
+	}{
+		{"head branch", api.PullRequest{HeadBranch: "agentbox/a", HeadSHA: "other"}, true},
+		{"head at the tip", api.PullRequest{HeadBranch: "feat/x", HeadSHA: "tip"}, true},
+		{"head in its history", api.PullRequest{HeadBranch: "feat/y", HeadSHA: "taken-in"}, false},
+		{"nothing", api.PullRequest{}, false},
+	} {
+		if got := h.claims(tc.pr); got != tc.want {
+			t.Errorf("%s: claims = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+	if got := agentOfPR([]agentHead{h}, "feat/y", "taken-in"); got != "" {
+		t.Errorf("agentOfPR for a commit in its history = %q, want none", got)
+	}
+	if got := agentOfPR([]agentHead{h}, "agentbox/a", ""); got != "a" {
+		t.Errorf("agentOfPR by branch = %q, want a", got)
+	}
+}
+
+// After an agent takes in a newer main, its changes are what it did, not what
+// main gained.
+func TestChangesOfIgnoresMainsOwnChanges(t *testing.T) {
+	t.Parallel()
+	testutil.GitEnv(t)
+	repo := testutil.FixtureRepo(t, "hello-stack")
+	base := testutil.Git(t, repo, "rev-parse", "HEAD")
+	testutil.Git(t, repo, "branch", "agentbox/w", base)
+	worktree := filepath.Join(t.TempDir(), "w")
+	testutil.Git(t, repo, "worktree", "add", "--quiet", worktree, "agentbox/w")
+	a := state.Agent{Worktree: worktree, Branch: "agentbox/w", BaseRef: "main", BaseCommit: base}
+	commitOn(t, a, "mine.txt")
+	for _, f := range []string{"m1.txt", "m2.txt", "m3.txt"} {
+		if err := os.WriteFile(filepath.Join(repo, f), []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	testutil.Git(t, repo, "add", ".")
+	testutil.Git(t, repo, "commit", "--quiet", "-m", "main moves")
+	testutil.Git(t, worktree, "merge", "--quiet", "-m", "take in main", "main")
+	if err := os.WriteFile(filepath.Join(worktree, "dirty.txt"), []byte("y\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := changesOf(a); got.Files != 2 {
+		t.Errorf("changesOf = %+v, want 2 files (its commit and the uncommitted one)", got)
+	}
 }

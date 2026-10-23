@@ -1158,7 +1158,7 @@
   },
   {
     "id": "past-agents-dark",
-    "description": "Every project's past agents: PR badges, a long title and branch, tokens, the filters — dark",
+    "description": "The Work page of every project: live and past agents' work by day, outcomes, PR chips, changes, media, a long title and branch, the filters — dark",
     "query": "past=list&theme=dark",
     "width": 1100,
     "height": 800
@@ -2350,5 +2350,64 @@
     "width": 1280,
     "height": 900,
     "click": "[data-meter=memory]"
+  },
+  {
+    "id": "window-work-1920-dark",
+    "description": "1920×1080, the Work page of every project: live and past agents' work by day, an outcome, To review, PR chips, changes and media on each row, the filters with counts — dark",
+    "query": "app=work&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "window-work-portrait-v2-light",
+    "description": "1080×1920, UI v2's Work page: the project picker beside the title, rows by day — light",
+    "query": "app=work&v2=1&theme=light",
+    "width": 1080,
+    "height": 1920
+  },
+  {
+    "id": "window-work-800-v2-dark",
+    "description": "800×600, UI v2's Work page: the filters wrap, long titles and branches truncate inside their rows — dark",
+    "query": "app=work&v2=1&theme=dark",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "window-work-480-dark",
+    "description": "480 wide, the Work page: the filters and the search wrap, nothing runs past the window — dark",
+    "query": "app=work&theme=dark",
+    "width": 480,
+    "height": 800
+  },
+  {
+    "id": "window-work-1366-review-dark",
+    "description": "1366×768, the review opened from Work on agent-38, waiting for review: its report on top, Media | Diff | Details, the verdicts in the footer — dark",
+    "query": "app=work&theme=dark",
+    "width": 1366,
+    "height": 768,
+    "click": [
+      "[data-work-status=review] button"
+    ]
+  },
+  {
+    "id": "window-work-1366-past-dark",
+    "description": "1366×768, the review opened from Work on agent-31, a past agent: its media, a Chat link, and no verdicts, only why — dark",
+    "query": "app=work&theme=dark",
+    "width": 1366,
+    "height": 768,
+    "click": [
+      "[data-work-row$='agent-31'] button"
+    ]
+  },
+  {
+    "id": "window-work-800-details-dark",
+    "description": "800×600, the review from Work on agent-36 (reviewed, its report partial with what's left open), on Details: Media in the switch is the way back — dark",
+    "query": "app=work&theme=dark",
+    "width": 800,
+    "height": 600,
+    "click": [
+      "[data-work-row$='agent-36'] button",
+      "[data-review-toggle=details]"
+    ]
   }
 ]

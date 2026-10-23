@@ -26,7 +26,7 @@ import type * as T from "../shared/api";
 import { JobsView } from "./components/JobsView";
 import { NewAgentDialog } from "./components/NewAgentDialog";
 import { ProjectView } from "./components/ProjectView";
-import { PastAgents } from "./components/PastAgents";
+import { PastAgentView } from "./components/PastAgents";
 import { SettingsView } from "./components/SettingsView";
 import { Sidebar } from "./components/Sidebar";
 import { useKeepAwake } from "./lib/keepAwake";
@@ -38,7 +38,7 @@ import { onOpenCompare } from "./lib/groups";
 import { ShortcutSheet } from "./components/v2/ShortcutSheet";
 import { TourHost } from "./components/v2/Tour";
 import { isNewTaskShortcut, toggleNewTask } from "./lib/newTask";
-import { HomeStatusV2, PastAgentsV2 } from "./components/v2/PagesV2";
+import { HomeStatusV2 } from "./components/v2/PagesV2";
 import { cycleRegion, isBackToLeadShortcut, isSettingsShortcut, isSheetShortcut, toggleSheet } from "./lib/shortcuts";
 import { cn, onMac } from "./lib/utils";
 import { AgentReviewCard, ReviewV2 } from "./components/v2/ReviewV2";
@@ -71,7 +71,8 @@ import type { SearchTarget } from "./lib/search";
 import { setupCard } from "./lib/setup";
 import { useHostTheme } from "./lib/theme";
 import { markSeen, shouldShowAutomatically } from "./lib/whatsnew";
-import { TodayView } from "./components/timeline/TodayView";
+import { WorkPage } from "./components/WorkView";
+import type { WorkFilter } from "./lib/work";
 
 export type View =
   | { kind: "home" }
@@ -81,10 +82,11 @@ export type View =
   | { kind: "settings" }
   | { kind: "project"; project: string; tab?: ProjectPlaceName }
   | { kind: "agent"; ref: string; tab?: AgentPlaceName }
-  // A project's day: every agent's timeline as one story (components/timeline/TodayView).
-  | { kind: "today"; project: string }
-  // Every project's past agents, or one of them (ref) read in its chat.
-  | { kind: "pastAgents"; ref?: string; project?: string }
+  // Everything agents did, live and past, of every project or project's,
+  // opened on filter (components/WorkView).
+  | { kind: "work"; project?: string; filter?: WorkFilter }
+  // A past agent (ref), read in its chat.
+  | { kind: "pastAgents"; ref: string }
   // A group of agents given one task, side by side (components/groups).
   | { kind: "group"; id: string };
 
@@ -506,7 +508,9 @@ export function App({ initial }: { initial?: View } = {}) {
         : view.kind === "settings"
           ? `settings:${settingsVisit}`
           : view.kind === "pastAgents"
-            ? `pastAgents:${view.ref ?? ""}:${view.project ?? ""}`
+            ? `pastAgents:${view.ref}`
+            : view.kind === "work"
+              ? `work:${view.project ?? ""}:${view.filter ?? ""}`
             : view.kind === "group"
               ? `group:${view.id}`
             // v2's Home keeps its chat mounted as its tabs switch.
@@ -653,17 +657,8 @@ export function App({ initial }: { initial?: View } = {}) {
                 {view.kind === "jobs" && <JobsView />}
                 {view.kind === "group" && <CompareView id={view.id} onSelect={select} />}
                 {view.kind === "media" && <AllMediaView onSelect={select} />}
-                {view.kind === "today" && <TodayView project={view.project} onSelect={select} />}
-                {view.kind === "pastAgents" &&
-                  (v2 ? (
-                    <PastAgentsV2 open={view.ref} project={view.project} onSelect={select} />
-                  ) : (
-                    <PastAgents
-                      open={view.ref}
-                      onOpen={(ref) => select({ kind: "pastAgents", ref: ref ?? undefined })}
-                      onSelect={select}
-                    />
-                  ))}
+                {view.kind === "work" && <WorkPage project={view.project} filter={view.filter} onSelect={select} />}
+                {view.kind === "pastAgents" && <PastAgentView agentRef={view.ref} onBack={() => select({ kind: "work" })} onSelect={select} />}
                 {view.kind === "settings" && (
                   <SettingsView onHome={() => select({ kind: "home" })} linked={settingsLink} />
                 )}
@@ -811,5 +806,5 @@ export function App({ initial }: { initial?: View } = {}) {
         )}
     </div>
   );
-  return v2 ? <ReviewV2>{shell}</ReviewV2> : shell;
+  return v2 ? <ReviewV2 onSelect={select}>{shell}</ReviewV2> : shell;
 }

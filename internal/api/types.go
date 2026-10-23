@@ -2144,6 +2144,57 @@ type ReviewRequest struct {
 	Fingerprint string `json:"fingerprint"`
 }
 
+// WorkItem is one agent's work on the Work page, a live agent's or a past
+// one's (its machine removed, kept in archived_agents): its review item, as
+// "Ready to review" would show it, with what the page lists beside it.
+type WorkItem struct {
+	// Item is the agent as the review shows it. Its Fingerprint is set only
+	// on a live agent that finished, the only work a verdict is recorded on;
+	// a past agent's FinishedAt is when its machine was removed.
+	Item ReviewItem `json:"item"`
+	Task string     `json:"task,omitempty"`
+	Past bool       `json:"past,omitempty"`
+	// Status is WorkWorking, WorkReview, WorkReviewed or WorkDone.
+	Status string `json:"status"`
+	// Report is the newest report the agent filed when it finished.
+	Report      *AgentReport `json:"report,omitempty"`
+	Screenshots int          `json:"screenshots,omitempty"`
+	Recordings  int          `json:"recordings,omitempty"`
+	// At is what the list sorts by, newest first: when it finished, or for
+	// one still at work, when it was created.
+	At time.Time `json:"at"`
+}
+
+// What a WorkItem's Status can be: at work (or stopped short of finishing),
+// finished and waiting for review, reviewed, or finished with nothing to
+// review (its pull request merged or closed, or a past agent's).
+const (
+	WorkWorking  = "working"
+	WorkReview   = "review"
+	WorkReviewed = "reviewed"
+	WorkDone     = "done"
+)
+
+// The filters GET /v1/work takes (?filter=): waiting for review, or by its
+// pull request's state, or with none.
+const (
+	WorkFilterReview = "review"
+	WorkFilterOpen   = "open"
+	WorkFilterMerged = "merged"
+	WorkFilterClosed = "closed"
+	WorkFilterNone   = "none"
+)
+
+// WorkPage is a page of GET /v1/work, newest first, after ?cursor=. Total is
+// how many the filter and the search keep; Counts is how many each filter
+// keeps under the search, by filter, "" being all.
+type WorkPage struct {
+	Items  []WorkItem     `json:"items"`
+	Next   string         `json:"next,omitempty"`
+	Total  int            `json:"total"`
+	Counts map[string]int `json:"counts"`
+}
+
 // The verdicts of a ReviewRequest, and ReviewChanges, which only
 // RequestChanges records.
 const (

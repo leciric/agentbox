@@ -625,7 +625,7 @@ func (s *Server) prFor(ctx context.Context, a state.Agent) *api.PullRequest {
 		}
 		l := lookUp(ctx, s.gitHub(token), repo, h)
 		for i := range l.prs {
-			if h.accepts(l.prs[i], l.via) {
+			if h.claims(l.prs[i]) {
 				if laterPR(&l.prs[i], best) {
 					best = &l.prs[i]
 				}

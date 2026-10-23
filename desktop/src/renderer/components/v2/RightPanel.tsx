@@ -17,7 +17,7 @@
 // was picked there. Dragged at its left edge, the list and an agent each
 // keep their own width. lib/rightPanel.ts has its rules and state.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlarmClock, ArrowLeft, ChevronsRight, Camera, Check, Clapperboard, Crown, Ellipsis, Film, FileText, FolderTree, GanttChart, GitBranch, GitPullRequest, Globe, Image as ImageIcon, Images, LoaderCircle, Maximize, Minimize, Monitor, MousePointer2, Play, Plus, Power, Settings, SlidersHorizontal, SquareTerminal, Unplug, Users, X, type LucideIcon } from 'lucide-react';
+import { AlarmClock, ArrowLeft, ChevronsRight, Camera, Briefcase, Check, Crown, Ellipsis, Film, FileText, FolderTree, GanttChart, GitBranch, GitPullRequest, Globe, Image as ImageIcon, Images, LoaderCircle, Maximize, Minimize, Monitor, MousePointer2, Play, Plus, Power, Settings, SlidersHorizontal, SquareTerminal, Unplug, Users, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
@@ -448,16 +448,16 @@ function LeadSwitch({ project, tab, files, count }: { project: string; tab: Lead
 }
 
 // ProjectButtons are the lead's panel's project-wide places, beside its ⋯:
-// Today (the day's story, which takes the main column) and Settings (over
+// Work (every agent's work, which takes the main column) and Settings (over
 // whatever the panel shows; clicked again, back to it).
 function ProjectButtons({ project, chat, wide, onSelect }: { project: string; chat: string; wide: WideView | undefined; onSelect: (view: View) => void }) {
   const t = useT();
   const settings = wide === 'settings';
   return (
     <>
-      <Tip label={t('today.open')}>
-        <Button size="icon-sm" variant="ghost" aria-label={t('today.open')} onClick={() => onSelect({ kind: 'today', project })} data-open-today>
-          <Clapperboard />
+      <Tip label={t('work.open')}>
+        <Button size="icon-sm" variant="ghost" aria-label={t('work.open')} onClick={() => onSelect({ kind: 'work', project })} data-open-work>
+          <Briefcase />
         </Button>
       </Tip>
       <Tip label={t('v2.sidebar.projectSettings')}>

@@ -136,11 +136,14 @@ func (h agentHead) owns(sha string) bool {
 	return sha != "" && slices.Contains(h.own, sha)
 }
 
-// accepts reports whether a pull request a lookup found by commit is this
-// agent's: any that carries one of its own commits, or one whose head is
-// exactly where the agent's branch is (its work, merged since).
-func (h agentHead) accepts(pr api.PullRequest, via string) bool {
-	return h.owns(via) || (pr.HeadSHA != "" && pr.HeadSHA == h.tip)
+// claims reports whether a pull request is this agent's: its head is the
+// agent's branch, or exactly where the agent's branch is. A commit in the
+// agent's history says nothing: an agent that took in newer main carries the
+// heads of pull requests that were merged into it.
+func (h agentHead) claims(pr api.PullRequest) bool { return h.claimsHead(pr.HeadBranch, pr.HeadSHA) }
+
+func (h agentHead) claimsHead(branch, sha string) bool {
+	return (h.branch != "" && branch == h.branch) || (h.tip != "" && sha == h.tip)
 }
 
 // agentHeads reads each worker agent's commits from the project's repository,
@@ -498,7 +501,7 @@ func (e pullsEntry) answered(h agentHead) bool {
 func (e pullsEntry) listed(h agentHead) *api.PullRequest {
 	var out *api.PullRequest
 	for i := range e.prs {
-		if h.owns(e.prs[i].HeadSHA) {
+		if h.claims(e.prs[i]) {
 			if e.prs[i].State == "open" {
 				return &e.prs[i]
 			}
@@ -517,7 +520,7 @@ func (e pullsEntry) found(h agentHead) *api.PullRequest {
 		return nil
 	}
 	for i := range l.prs {
-		if h.accepts(l.prs[i], l.via) {
+		if h.claims(l.prs[i]) {
 			return &l.prs[i]
 		}
 	}
@@ -800,7 +803,7 @@ func lookUp(ctx context.Context, client github.Client, repo github.Repo, h agent
 			return lookedUp{failed: true}
 		}
 		l := lookedUp{prs: toAPIPullRequests(found), via: commit}
-		if slices.ContainsFunc(l.prs, func(pr api.PullRequest) bool { return h.accepts(pr, commit) }) {
+		if slices.ContainsFunc(l.prs, h.claims) {
 			return l
 		}
 	}
@@ -875,7 +878,7 @@ func (s *Server) projectPullRequests(w http.ResponseWriter, r *http.Request) err
 		s.prWatch.overlay(project, pr)
 		pr.Agent = byNumber[pr.Number]
 		for _, h := range heads {
-			if h.owns(pr.HeadSHA) {
+			if h.claims(*pr) {
 				pr.Agent = h.agent
 				break
 			}
@@ -988,7 +991,7 @@ func (s *Server) mergePullRequest(w http.ResponseWriter, r *http.Request) error 
 // pull request it was.
 func (s *Server) afterMerge(ctx context.Context, p state.Project, repo github.Repo, pr github.PullRequest, method string, out api.PullRequest) {
 	heads := s.agentsOf(ctx, p)
-	by := agentOfCommit(heads, pr.HeadSHA)
+	by := agentOfPR(heads, pr.HeadBranch, pr.HeadSHA)
 	s.captureEvent(ctx, p.Name, by, "pr_merged", map[string]any{
 		"number": pr.Number, "url": pr.URL, "branch": pr.HeadBranch, "method": method,
 	}, "")

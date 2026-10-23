@@ -11,8 +11,9 @@
 //   ?theme=light            the light appearance (default: dark)
 //   ?concept=timeline       a mock idea, on its own (dev/concepts): timeline is
 //                           agents' work as a timeline over their recording
-//   ?app=today&v2=1         the project's Today page (components/timeline), from
-//                           dev/timeline.ts; any ?app= has the fixture timelines
+//   ?app=work               the Work page (components/WorkView), of every
+//                           project, from dev/pastAgents.ts; any ?app= has the
+//                           fixture timelines
 //   ?lang=pt-BR             the app in another language (default: en-US), for
 //                           strings longer than English's
 //   ?folded=1               the rail folded to 56px (default: open)
@@ -124,10 +125,10 @@
 //                           memories (the filter box narrows them)
 //   ?pulls=1                a project's pull requests list, with a long
 //                           GitHub login on one row
-//   ?past=list              every project's past agents (dev/pastAgents.ts),
-//                           which the search box and filters narrow, and which
-//                           delete; a click opens one's read-only chat
-//   ?past=chat              the same, open on agent-31's read-only chat
+//   ?past=list              the Work page alone: live and past agents' work
+//                           (dev/pastAgents.ts), which the filters and the
+//                           search narrow; a click opens one's review
+//   ?past=chat              agent-31, a past agent, read in its chat
 //   ?tokens=1               a project's Settings → Tokens: headline (with average
 //                           TPS), by agent and by model, and spend over time
 //   ?tokens=1&account=work
@@ -301,7 +302,8 @@ import { seedPastAgents } from './pastAgents';
 import { openPanelOn, pickTarget, setPanel, setPanelOpen, setView, type PanelView } from '../lib/rightPanel';
 import type { ProjectSection } from '../lib/tabs';
 import { openFile } from '../lib/files';
-import { PastAgents } from '../components/PastAgents';
+import { PastAgentView } from '../components/PastAgents';
+import { WorkView } from '../components/WorkView';
 import { PageArrivals } from '../components/pages/PageArrivals';
 import { PagePreviewHost } from '../components/pages/PagePreview';
 import { ScopedMediaPages } from '../components/pages/MediaPages';
@@ -518,7 +520,7 @@ if (artifacts) {
   if (artifacts !== 'lead') queryClient.setQueryData(['chat', `${PROJECT}/${artifacts}`], { ...agent12Chat(), agent: `${PROJECT}/${artifacts}` });
 }
 if (pulls || appView === 'pulls') queryClient.setQueryData(['pulls', PROJECT], pullRequests());
-if (past) seedPastAgents(queryClient);
+if (past || appView === 'work') seedPastAgents(queryClient);
 if (home) {
   const at = new Date().toISOString();
   const memory = (id: string, title: string, content: string, origin: string): T.Memory => ({ id, project: '', global: true, origin, kind: 'preference', title, content, importance: 4, createdAt: at, updatedAt: at });
@@ -1463,7 +1465,7 @@ if (phoneMode === 'frame') {
   const { App } = await import('../App');
   const initial: View =
     appView === 'home' ? { kind: 'home' }
-    : appView === 'today' ? { kind: 'today', project: PROJECT }
+    : appView === 'work' ? { kind: 'work' }
     : appView === 'settings' ? { kind: 'settings' }
     : appView === 'homeChat' ? { kind: 'homeChat' }
     : appView === 'project' || appView === 'pulls' ? { kind: 'project', project: PROJECT, tab: appView === 'pulls' ? 'pulls' : 'chat' }
@@ -1500,13 +1502,12 @@ if (phoneMode === 'frame') {
   </QueryClientProvider>,
 );
 
-// PastAgentsPreview is the AgentBox-wide Past agents page, or one past agent
-// read in it (?past=chat), at the height the app gives it.
+// PastAgentsPreview is the Work page of every project, or one past agent
+// read in its chat (?past=chat), at the height the app gives it.
 function PastAgentsPreview() {
-  const [open, setOpen] = useState<string | null>(past === 'chat' ? `${PROJECT}/agent-31` : null);
   return (
     <div style={{ height: '100vh', font: '13px var(--font-sans)' }}>
-      <PastAgents open={open ?? undefined} onOpen={setOpen} onSelect={() => {}} />
+      {past === 'chat' ? <PastAgentView agentRef={`${PROJECT}/agent-31`} onBack={() => {}} onSelect={() => {}} /> : <WorkView onSelect={() => {}} />}
     </div>
   );
 }

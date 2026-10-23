@@ -158,7 +158,7 @@ export function AgentList({ project, chat, onSelect, onNewAgent }: { project: st
       {(past.data?.length ?? 0) > 0 && (
         <button
           type="button"
-          onClick={() => onSelect({ kind: 'pastAgents', project })}
+          onClick={() => onSelect({ kind: 'work', project })}
           className="mt-1.5 flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[11.5px] text-subtle transition hover:bg-surface hover:text-primary"
           data-list-past
         >
