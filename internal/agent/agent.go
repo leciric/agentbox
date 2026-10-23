@@ -1304,8 +1304,15 @@ func agentMCPServers(home string, connectors []string) []mcpServer {
 		// browser_take_screenshot's result from 193,976 bytes to 511 with no
 		// image, and left browser_snapshot's 49,893-byte accessibility tree
 		// — what an agent actually clicks by — untouched.
-		{"playwright", home + "/.local/share/mise/shims/playwright-mcp",
-			[]string{"--cdp-endpoint", BrowserDevTools, "--output-dir", home + "/.cache/playwright-mcp", "--image-responses", "omit"}, false},
+		//
+		// It runs behind `agentbox desktop guard` (mcp.Guard), which fails a
+		// call that takes longer than playwrightCallTimeout and restarts the
+		// server: browser_evaluate is page.evaluate, which no flag of the
+		// server's bounds, and one that never returned held an agent's turn
+		// until the agent was stopped.
+		{"playwright", AgentBinaryPath, append([]string{"desktop", "guard", "--name", "Playwright", "--timeout", playwrightCallTimeout.String(), "--",
+			home + "/.local/share/mise/shims/playwright-mcp"},
+			"--cdp-endpoint", BrowserDevTools, "--output-dir", home+"/.cache/playwright-mcp", "--image-responses", "omit"), false},
 		{"desktop", AgentBinaryPath, []string{"desktop", "mcp"}, false},
 		// What the project remembers, which is the same binary again: search
 		// it, report on the task, record what was produced
@@ -1336,6 +1343,11 @@ func claudeMCPServers(servers []mcpServer) map[string]any {
 // little longer than the daemon waits (askTimeout in package daemon), so the
 // daemon's own answer arrives first.
 const waitingToolTimeout = 2*time.Hour + 5*time.Minute
+
+// playwrightCallTimeout is how long one Playwright MCP call may take: well
+// past its own navigation timeout (a minute) and a long browser_wait_for, and
+// far short of the stall watch's fifteen minutes (package daemon).
+const playwrightCallTimeout = 3 * time.Minute
 
 // mcpServer is one MCP server every AI tool is given, written into Claude
 // Code's ~/.claude.json, Codex's ~/.codex/config.toml and OpenCode's
