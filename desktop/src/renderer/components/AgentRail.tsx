@@ -152,7 +152,7 @@ export function AgentRail({ view, onSelect, onNewAgent, onClose, folded: foldedH
     <aside className="flex w-[268px] shrink-0 flex-col border-l border-line bg-rail backdrop-blur-xl xl:w-[312px]" data-agent-rail="open" aria-label={t('agent.rail.agentsOf', { project })}>
       <div className="flex h-12 shrink-0 items-center gap-2 px-3">
         {pages.length > 0 ? (
-          <div className="flex items-center gap-0.5" role="tablist" aria-label={t('agent.rail.agentsOf', { project })}>
+          <div className="flex min-w-0 items-center gap-0.5" role="tablist" aria-label={t('agent.rail.agentsOf', { project })}>
             <RailTab active={tab === 'agents'} count={mine.length} onClick={() => setRailTab('agents')} data-rail-tab="agents">
               {t('agent.rail.agents')}
             </RailTab>
@@ -380,12 +380,12 @@ function RailTab({ active, count, onClick, children, ...rest }: { active: boolea
       aria-selected={active}
       onClick={onClick}
       className={cn(
-        'flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] transition-colors',
+        'flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] transition-colors',
         active ? 'bg-surface-strong text-secondary' : 'text-subtle hover:bg-surface hover:text-primary',
       )}
       {...rest}
     >
-      {children}
+      <span className="truncate">{children}</span>
       {count > 0 && <span className="rounded-full bg-surface-raised px-1.5 text-[10.5px] font-normal normal-case tracking-normal tabular-nums text-subtle">{count}</span>}
     </button>
   );

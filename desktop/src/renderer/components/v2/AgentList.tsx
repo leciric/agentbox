@@ -201,12 +201,12 @@ function doingNow(t: ReturnType<typeof useT>, agent: T.Agent, st: AgentSt, last:
 // line at the bottom, with a cursor that blinks while the agent works: tiny
 // in the row's slot, legible in its hover preview (big).
 function Terminal({ lines, working, big }: { lines: string[]; working: boolean; big?: boolean }) {
-  const cursor = <span className={cn('term-cursor inline-block translate-y-px bg-slate-300', big ? 'ml-0.5 h-[11px] w-[6px]' : 'ml-px h-[7px] w-[3.5px]')} />;
+  const cursor = <span className={cn('term-cursor inline-block shrink-0 translate-y-px bg-slate-300', big ? 'ml-0.5 h-[11px] w-[6px]' : 'ml-px h-[7px] w-[3.5px]')} />;
   return (
     <span aria-hidden className={cn('flex size-full flex-col justify-end overflow-hidden bg-[#0b0d12] font-mono text-slate-300', big ? 'px-2.5 py-2 text-[11px] leading-[14px]' : 'row-swap-in px-1 py-1 text-[7px] leading-[8px]')} data-list-terminal={big ? 'preview' : 'thumb'}>
       {lines.map((line, i) => (
-        <span key={i} className={cn('block overflow-hidden whitespace-pre', line.startsWith('$ ') && 'text-emerald-300/90')}>
-          {line}
+        <span key={i} className={cn('flex', line.startsWith('$ ') && 'text-emerald-300/90')}>
+          <span className="min-w-0 overflow-hidden whitespace-pre">{line}</span>
           {i === lines.length - 1 && working && cursor}
         </span>
       ))}
