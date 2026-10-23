@@ -34,13 +34,24 @@
 //                           driver's VM, made and not finished (no Lima needed)
 //   ?vm=krunkit|nokrunkit   the VM to set up on Apple Silicon, with krunkit
 //                           installed (it gives memory back), or without it
+//   ?vm=brew|brewdriver|nodriver
+//                           without krunkit, which Homebrew installs, or without
+//                           Lima's krunkit driver, which a newer Homebrew Lima
+//                           has, or a Lima Homebrew can't upgrade
+//   ?gpu=vz&mac=brew|driver|manual|nodriver|ready
+//                           Settings' GPU for agents on a Mac whose VM was made
+//                           with vz: remake it with krunkit, which Homebrew
+//                           installs first (or a Lima with its driver), or by
+//                           hand without Homebrew, or krunkit installed already
 //   ?gpu=none               Settings' GPU for agents with no GPU in the VM; =host
 //                           a Linux host's the VM gets at its next start,
 //                           =hostrestart turned on and waiting, =nvidia one it
-//                           can't have, =vm the no-GPU VM of before
-//   ?gpu=krunkit|running|restart|failed
+//                           can't have, =vm the no-GPU VM of before, =vz a
+//                           Mac's VM made without krunkit
+//   ?gpu=krunkit|running|restart|failed|updating|updatefailed
 //                           a Mac's krunkit VM whose GPU turning it on readies,
-//                           being readied, waiting for a restart, or failed
+//                           being readied, waiting for a restart, failed, or
+//                           whose driver is updating or failed to update
 //   ?vm=resize              Settings' panel for the VM's CPUs and memory, whose
 //                           resize streams made-up output
 //   ?chat=awaiting          agent-41's chat: its turn ended on a CI watch still
@@ -50,6 +61,13 @@
 //   ?chat=stopped|paused    a stopped (or paused) agent's stored conversation,
 //                           readable, with Start (Resume) on the composer.
 //                           Start, or sending a message, wakes it after 1.5s
+//   ?chat=limited           a running agent's chat stopped on its Claude Code
+//                           account's usage limit, with another account that
+//                           has room; "Continue on work" moves it there
+//   ?app=agent-15&v2=1&review=1&sleep=stopped  a finished agent awaiting review whose machine sleeps: one bar
+//   ?chat=thinking          a Claude Code turn thinking: &phase=live the thought
+//                           still arriving, =answer the reply after it, =done
+//                           the turn settled
 //   ?chat=richstream        a rich block still arriving (a card); &done=1 the stream ended
 //                           unclosed (its code); &tall=1 a closed page taller than the frame
 //   ?chat=rich              a project chat's answer with each kind of rich block
@@ -117,6 +135,7 @@
 //                           Claude account: its limits card shows only that one
 //   ?tokens=agent           agent-99's own "What it spent" card, on its
 //                           Settings → AI tool
+//   ?meters=memory          the top bar's memory popover (click [data-meter=memory] with ?topbar=detailed), where its used memory goes
 //   ?meters=cpu|disk|pool   the top bar's "Host CPU", or its disk meter in VM mode or host mode
 //                           popover, against a CPU-capped agent, a paused
 //                           one and a plain one —
@@ -174,6 +193,10 @@
 //   &pins=a,b               with &v2=1, those projects pinned, in that order
 //   &stale=1                with &v2=1 and &idle=1, idle-1 has unseen questions from destroyed agents
 //   &hidden=a,b             with &v2=1, those projects hidden from the sidebar
+//   &sections=1             with &v2=1, the user's sections (Classic's): Work, Side
+//                           projects and an empty Later, kept as the daemon would
+//   &groupidle=1            with &v2=1, "Group idle projects and sort by activity" on
+//                           (lib/groupIdle.ts; off otherwise)
 //   &idle=12                with &v2=1, that many more projects with nothing going on, for Idle
 //   &signedout=1            Claude Code with no login: the composer's banner, and Send's tooltip
 //   &v2=1                   with ?app=, UI v2, the lead-first layout (Settings → General
@@ -272,7 +295,7 @@ import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
 import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
 import { Markdown } from '../components/chat/Markdown';
-import { agent12Chat, asleepChat, buildFixtures, claudeLimits, dropDevAgent, compactionThread, richChat, richStreamText, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedSignedOut, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, setNotifications } from './fixtures';
+import { agent12Chat, asleepChat, buildFixtures, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedSignedOut, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
 import { seedPastAgents } from './pastAgents';
 import { openPanelOn, pickTarget, setPanel, setPanelOpen, setView, type PanelView } from '../lib/rightPanel';
@@ -289,6 +312,7 @@ import { PipFinish, seedPip } from './pip';
 import { seedPick } from './pick';
 import { seedTimelines } from './timeline';
 import { setUiV2 } from '../lib/uiV2';
+import { setGroupIdle } from '../lib/groupIdle';
 import { setTourState, tours, welcomeTour } from '../lib/tours';
 
 installDevBridge();
@@ -331,6 +355,7 @@ const linuxHost = params.get('linux'); // 'setup' | 'nokvm' | 'move' | null
 const chvSize = params.get('chv'); // 'live' | 'old' | 'off' | null
 if (chvSize) localStorage.setItem('agentbox.settings.section', 'resources');
 if (settingsPage) localStorage.setItem('agentbox.settings.section', settingsPage);
+if (params.get('mac')) localStorage.setItem('agentbox.settings.section', 'agents');
 
 const windowsBeforeSetup: HostSetupStatus = {
   pkexec: null,
@@ -425,9 +450,15 @@ if (params.get('gpu')) {
   // Restarting the VM invalidates every query; the bridge has no answer for
   // most of them, so only Settings (which it does answer) is refetched.
   const invalidate = queryClient.invalidateQueries.bind(queryClient);
-  queryClient.invalidateQueries = ((filters?: Parameters<typeof invalidate>[0]) => invalidate(filters ?? { queryKey: ['settings'] })) as typeof invalidate;
+  // A remade VM (?mac=) changes the VM's status too.
+  queryClient.invalidateQueries = ((filters?: Parameters<typeof invalidate>[0]) =>
+    invalidate(filters ?? { predicate: (q) => q.queryKey[0] === 'settings' || q.queryKey[0] === 'host-setup' })) as typeof invalidate;
 }
 seedQueryClient(queryClient, fixtures);
+// The project chat's runner answers with the account it spends, "work" here.
+if (usage) {
+  queryClient.setQueryData<T.LeadRunners>(['chatRunners', PROJECT], { tool: 'claude', account: 'work', runners: [{ tool: 'claude', name: 'Claude Code', ready: true, installed: true }] });
+}
 if (defaults) seedDefaults(queryClient);
 // The project's chat can switch tool and account from its composer: Claude Code
 // on two accounts with their quota, Codex, and Cursor signed out.
@@ -444,8 +475,43 @@ if (chat === 'lead') {
     ],
   });
 }
+// An agent stopped on its account's limit, with the composer's accounts.
+const limitedRef = `${PROJECT}/limited`;
+if (chat === 'limited') {
+  const [personal, work] = claudeLimits();
+  const spent = { ...personal, status: 'rejected', windows: personal.windows.map((w) => (w.name === 'five_hour' ? { ...w, utilization: 1 } : w)) };
+  queryClient.setQueryData<T.LeadRunners>(['agentRunners', limitedRef], {
+    tool: 'claude',
+    account: 'personal',
+    runners: [{ tool: 'claude', name: 'Claude Code', ready: true, installed: true, accounts: [{ name: 'personal', default: true, project: true, agents: 3, limit: spent }, { name: 'work', default: false, project: false, agents: 0, limit: work }] }],
+  });
+  // Signed in, on both accounts, so the composer isn't the signed-out one.
+  queryClient.setQueryData<T.AuthStatus>(['auth'], (auth) => ({
+    ...(auth ?? { claude: true, codex: false, opencode: false, cursor: false, codexAccounts: [], openCodeAccounts: [], cursorAccounts: [], github: false, githubAccounts: [] }),
+    claude: true,
+    claudeAccounts: [{ name: 'personal', default: true, savedAt: personal.at }, { name: 'work', default: false, savedAt: work.at }],
+  }));
+  // The bridge has no chat or accounts to refetch after the switch: the
+  // preview's own copies, which the switch updates, stay.
+  const invalidate = queryClient.invalidateQueries.bind(queryClient);
+  queryClient.invalidateQueries = ((filters?: Parameters<typeof invalidate>[0]) =>
+    ['chat', 'agentRunners'].includes(String(filters?.queryKey?.[0])) ? Promise.resolve() : invalidate(filters)) as typeof invalidate;
+  const resumeAt = new Date(Date.now() + 3 * 3600_000).toISOString();
+  const thread = asleepChat(limitedRef);
+  queryClient.setQueryData<T.ChatThread>(['chat', limitedRef], { ...thread, session: { ...thread.session, state: 'ready', limited: true, limitedUntil: resumeAt, resumeAt } });
+}
 // Before the first render, so the chat reads it rather than the dev bridge.
 if (chat === 'stopped' || chat === 'paused') queryClient.setQueryData(['chat', asleepRef], asleepChat(asleepRef));
+// &sleep=stopped|paused, with ?app=agent-15&v2=1&review=1: that agent has
+// finished awaiting review and its machine is asleep, so the review card and
+// the wake button share one bar.
+const sleep = params.get('sleep');
+if (sleep && appView?.startsWith('agent-')) {
+  const sleeper = fixtures.agents.find((a) => a.ref === `${PROJECT}/${appView}`);
+  if (sleeper) Object.assign(sleeper, { state: sleep === 'paused' ? 'paused' : 'stopped', interface: 'chat' });
+  queryClient.setQueryData(['agents'], fixtures.agents);
+  queryClient.setQueryData(['chat', `${PROJECT}/${appView}`], asleepChat(`${PROJECT}/${appView}`));
+}
 const artifacts = params.get('pages');
 if (artifacts) {
   seedPages(queryClient);
@@ -483,6 +549,7 @@ setUiV2(params.get('v2') === '1');
 if (appView && params.get('v2') === '1') {
   seedLeadLines(queryClient);
   seedV2(queryClient, params.get('pins'));
+  setGroupIdle(params.get('groupidle') === '1');
   seedEvidence(queryClient);
   // &stale=1: idle-1 has unseen questions from agents that no longer exist.
   if (params.get('stale') === '1') {
@@ -563,6 +630,8 @@ if (params.get('drag')) dragBridge(queryClient, params.get('drag') === 'slow' ? 
 if (params.get('enforce') === '1') { seedDefaults(queryClient); queryClient.setQueryData<T.Settings>(['settings'], (s) => s && { ...s, enforceAgentDefaults: true }); }
 if (params.get('nightly') === '1') seedNightly(queryClient);
 if (chvSize) seedLinuxVM(queryClient, chvSize);
+const macVZ = params.get('mac'); // 'brew' | 'driver' | 'manual' | 'nodriver' | 'ready' | null
+if (macVZ) seedMacVZ(queryClient, macVZ);
 // ?page= shows whole pages, and their sections ask for what no other
 // scenario seeds: no limits read yet, and no secrets or
 // connectors.
@@ -579,7 +648,7 @@ if (linuxHost === 'move') {
 }
 if (meters) {
   const GiB = 1024 ** 3;
-  queryClient.setQueryData(['usage'], { host: { cpu: 62, cores: 8, memUsed: 15 * GiB, memTotal: 32 * GiB, poolUsed: 15.5 * GiB, poolTotal: 100 * GiB, diskRead: 0, diskWrite: 0 }, agents: [] });
+  queryClient.setQueryData(['usage'], { host: { cpu: 62, cores: 8, memUsed: 16.8 * GiB, memTotal: 17.8 * GiB, poolUsed: 15.5 * GiB, poolTotal: 100 * GiB, diskRead: 0, diskWrite: 0 }, agents: [] });
   queryClient.setQueryData(['claudeLimits'], []);
   seedMeterUsage(queryClient);
   if (meters === 'disk' || meters === 'disk-unmeasured') seedVMDisk(queryClient, meters === 'disk-unmeasured');
@@ -678,7 +747,7 @@ if (usage || account) {
   const at = new Date(Date.now() - 12 * 60_000).toISOString();
   const resets = (hours: number) => new Date(Date.now() + hours * 3_600_000).toISOString();
   queryClient.setQueryData(['claudeLimits'], [
-    { account: 'personal', default: true, at, status: 'allowed', windows: [
+    { account: 'default', default: true, at, status: 'allowed', windows: [
       { name: 'five_hour', label: '5-hour', utilization: 0.23, resetsAt: resets(3) },
       { name: 'seven_day', label: 'Weekly', utilization: 0.41, resetsAt: resets(80) },
     ] },
@@ -687,6 +756,18 @@ if (usage || account) {
       { name: 'seven_day', label: 'Weekly', utilization: 0.52, resetsAt: resets(40) },
     ] },
   ] satisfies T.ClaudeLimit[]);
+  // Codex: the default account (the pill says "Codex") and "atlan" (it says "atlan").
+  queryClient.setQueryData(['codexLimits'], [
+    { tool: 'codex', account: 'default', default: true, at, status: 'allowed', windows: [
+      { name: 'five_hour', label: '5-hour', utilization: 0.31, resetsAt: resets(2) },
+      { name: 'seven_day', label: 'Weekly', utilization: 0.18, resetsAt: resets(90) },
+    ] },
+    { tool: 'codex', account: 'atlan', default: false, at, status: 'allowed', windows: [
+      { name: 'five_hour', label: '5-hour', utilization: 0.54, resetsAt: resets(1.5) },
+      { name: 'seven_day', label: 'Weekly', utilization: 0.27, resetsAt: resets(60) },
+    ] },
+  ] satisfies T.ClaudeLimit[]);
+  queryClient.setQueryData<T.Agent[]>(['agents'], (as) => as?.map((a) => (a.ref === `${PROJECT}/agent-98` ? { ...a, codexAccount: 'atlan' } : a)));
 }
 
 if (account) {
@@ -704,6 +785,8 @@ function UsagePreview() {
     [`Project ${PROJECT}, on "work"`, { kind: 'project', project: PROJECT }],
     ['Claude agent-99, on "work"', { kind: 'agent', ref: `${PROJECT}/agent-99` }],
     ['Codex agent-96: nothing known, no meter', { kind: 'agent', ref: `${PROJECT}/agent-96` }],
+    ['Codex agent-98, on "atlan"', { kind: 'agent', ref: `${PROJECT}/agent-98` }],
+    ['Codex agent-37, on the default account', { kind: 'agent', ref: `${PROJECT}/agent-37` }],
   ];
   return (
     <div style={{ minHeight: '100vh', background: 'var(--color-ink)', font: '13px var(--font-sans)' }}>
@@ -954,6 +1037,10 @@ function Preview() {
                 </section>
               ))}
           </div>
+        ) : chat === 'limited' ? (
+          <div style={{ height: '100%', margin: -24 }}>
+            <LimitedChatPreview agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-99`)!} />
+          </div>
         ) : chat === 'stopped' || chat === 'paused' ? (
           <div style={{ height: '100%', margin: -24 }}>
             <AsleepChatPreview state={chat} agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-99`)!} />
@@ -976,6 +1063,10 @@ function Preview() {
         ) : chat === 'richstream' ? (
           <div style={{ maxWidth: 720 }} data-rich-preview>
             <Markdown rich streaming={params.get('done') ? false : true} text={richStreamText(params.get('tall') ? 'tall' : 'open')} />
+          </div>
+        ) : chat === 'thinking' ? (
+          <div style={{ maxWidth: 720 }}>
+            <Timeline agent={{ ...fixtures.agents[0], ref: `${PROJECT}/lead`, name: 'lead' }} thread={thinkingThread(params.get('phase') ?? 'live')} />
           </div>
         ) : chat === 'compaction' ? (
           <div style={{ maxWidth: 720 }}>
@@ -1044,7 +1135,18 @@ function Preview() {
                       name: 'agentbox',
                       exists: false,
                       problem: "AgentBox's Linux VM isn't set up: run agentbox vm init",
-                      krunkit: vm === 'krunkit' ? { available: true } : vm === 'nokrunkit' ? { available: false, missing: 'krunkit' } : undefined,
+                      krunkit:
+                        vm === 'krunkit'
+                          ? { available: true }
+                          : vm === 'nokrunkit'
+                            ? { available: false, missing: 'krunkit' }
+                            : vm === 'brew'
+                              ? { available: false, missing: 'krunkit', brew: true }
+                              : vm === 'brewdriver'
+                                ? { available: false, missing: 'driver', brew: true }
+                                : vm === 'nodriver'
+                                  ? { available: false, missing: 'driver' }
+                                  : undefined,
                     }
             }
           />
@@ -1055,6 +1157,34 @@ function Preview() {
       <AgentRail view={view} onSelect={() => {}} onNewAgent={() => {}} />
     </div>
   );
+}
+
+// LimitedChatPreview moves its agent to another account the way the daemon
+// does: the limit clears and the turn carries on, saying so in a notice.
+function LimitedChatPreview({ agent }: { agent: T.Agent }) {
+  useEffect(() => {
+    api.setAgentRunner = async (_ref, req) => {
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      const now = new Date().toISOString();
+      const notice: T.ChatItem = {
+        id: `moved-${now}`,
+        turn: 's3',
+        kind: 'notice',
+        text: `This chat moved to the Claude Code account "${req.account}": Claude Code restarts on it, resumes this conversation and carries on without waiting for the old account's limit.`,
+        createdAt: now,
+        updatedAt: now,
+      };
+      let session: T.ChatSession = { state: 'ready', tool: 'claude', options: [], commands: [] };
+      queryClient.setQueryData<T.ChatThread>(['chat', limitedRef], (thread) => {
+        if (!thread) return thread;
+        session = { ...thread.session, limited: false, limitedUntil: undefined, resumeAt: undefined };
+        return { ...thread, session, items: [...thread.items, notice] };
+      });
+      queryClient.setQueryData<T.LeadRunners>(['agentRunners', limitedRef], (r) => r && { ...r, account: req.account });
+      return session;
+    };
+  }, []);
+  return <ChatTab agent={{ ...agent, ref: limitedRef, name: 'agent-97', title: 'Add a dark mode toggle', state: 'running', ai: 'claude', claudeAccount: 'personal' }} starting={false} onStart={() => {}} autoStart={false} />;
 }
 
 // AsleepChatPreview wakes its agent the way the daemon does: Start, or a

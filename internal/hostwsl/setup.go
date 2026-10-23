@@ -1,6 +1,7 @@
 package hostwsl
 
 import (
+	"archive/tar"
 	"bufio"
 	"context"
 	_ "embed"
@@ -348,9 +349,41 @@ func explainImport(err error) error {
 	return err
 }
 
-// checkVirtualization imports a tiny empty image as a throwaway WSL 2 distro,
-// which fails the way the real import would, so a machine that can't run WSL 2
-// is told before the 300 MB Ubuntu image is downloaded.
+// probeTar writes the smallest archive newer WSL accepts as a distro: the
+// top-level directories of a Linux root and an /etc/os-release. An empty one
+// (two zero blocks) is rejected as "not a valid Linux distribution".
+func probeTar(path string) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	tw := tar.NewWriter(f)
+	for _, dir := range []string{"bin/", "dev/", "etc/", "home/", "proc/", "root/", "run/", "sys/", "tmp/", "usr/", "usr/bin/", "var/"} {
+		if err := tw.WriteHeader(&tar.Header{Typeflag: tar.TypeDir, Name: dir, Mode: 0o755}); err != nil {
+			_ = f.Close()
+			return err
+		}
+	}
+	osRelease := []byte("NAME=\"AgentBox probe\"\nID=agentbox-probe\n")
+	if err := tw.WriteHeader(&tar.Header{Typeflag: tar.TypeReg, Name: "etc/os-release", Mode: 0o644, Size: int64(len(osRelease))}); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if _, err := tw.Write(osRelease); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := tw.Close(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+// checkVirtualization imports a tiny image as a throwaway WSL 2 distro, which
+// fails the way the real import would, so a machine that can't run WSL 2 is
+// told before the 300 MB Ubuntu image is downloaded. It returns an error only
+// for that; any other failure is the real import's to meet and say.
 func (d *Distro) checkVirtualization(ctx context.Context) error {
 	probe := d.Name + "-probe"
 	dir, err := os.MkdirTemp(d.Dir, "probe-")
@@ -358,9 +391,8 @@ func (d *Distro) checkVirtualization(ctx context.Context) error {
 		return nil
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
-	tarball := filepath.Join(dir, "empty.tar")
-	// A tar archive ends with two zero blocks: this is an empty one.
-	if err := os.WriteFile(tarball, make([]byte, 1024), 0o644); err != nil {
+	tarball := filepath.Join(dir, "probe.tar")
+	if err := probeTar(tarball); err != nil {
 		return nil
 	}
 	_, err = d.run(ctx, nil, "--import", probe, filepath.Join(dir, "disk"), tarball, "--version", "2")
@@ -368,7 +400,9 @@ func (d *Distro) checkVirtualization(ctx context.Context) error {
 		_, _ = d.run(ctx, nil, "--unregister", probe)
 		return nil
 	}
-	// Only this failure is the probe's to report: anything else, the real
-	// import will meet and say.
-	return explainImport(err)
+	var we *wslError
+	if errors.As(err, &we) && noVirtualization(we.said) {
+		return explainImport(err)
+	}
+	return nil
 }

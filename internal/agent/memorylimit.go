@@ -295,7 +295,11 @@ func ReclaimRun(instance, key string) error {
 }
 
 func reclaimRun(root, instance, key string, write func(path, value string) error) error {
-	dir := runCgroup(root, instance, key)
+	return reclaimDir(runCgroup(root, instance, key), write)
+}
+
+// reclaimDir asks the kernel to push out what the cgroup at dir holds.
+func reclaimDir(dir string, write func(path, value string) error) error {
 	b, err := os.ReadFile(filepath.Join(dir, "memory.current"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -309,6 +313,22 @@ func reclaimRun(root, instance, key string, write func(path, value string) error
 	}
 	if err := write(filepath.Join(dir, "memory.reclaim"), strconv.FormatInt(current, 10)); err != nil && !errors.Is(err, errReclaimShort) {
 		return err
+	}
+	return nil
+}
+
+// writeKernfs writes a cgroup file with plain blocking system calls. Not
+// os.WriteFile: cgroup files can be polled, so os makes them non-blocking,
+// and a memory.reclaim the kernel falls short on (EAGAIN) then waits for the
+// file to become writable, which it never does, rather than failing.
+func writeKernfs(path, value string) error {
+	fd, err := syscall.Open(path, syscall.O_WRONLY|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return &fs.PathError{Op: "open", Path: path, Err: err}
+	}
+	defer func() { _ = syscall.Close(fd) }()
+	if _, err := syscall.Write(fd, []byte(value)); err != nil {
+		return &fs.PathError{Op: "write", Path: path, Err: err}
 	}
 	return nil
 }
@@ -348,7 +368,7 @@ func RemoveRun(instance, key string) error {
 // writeCgroup writes a cgroup file, through sudo when it isn't the daemon's
 // and the daemon runs in AgentBox's VM.
 func writeCgroup(path, value string) error {
-	err := os.WriteFile(path, []byte(value), 0)
+	err := writeKernfs(path, value)
 	if errors.Is(err, syscall.EAGAIN) {
 		return errReclaimShort
 	}
@@ -407,4 +427,92 @@ func sudo(command, stdin string, args ...string) error {
 		return fmt.Errorf("sudo %s %s: %w: %s", command, strings.Join(args, " "), err, msg)
 	}
 	return nil
+}
+
+// Whole machines, frozen for memory (the daemon's agentfreeze.go, behind
+// Settings → Experimental): the machine's own cgroup frozen and its memory
+// pushed out to swap. Incus sees it as Frozen, the way `agentbox pause`
+// leaves it, and its processes keep every pipe and socket they had: the
+// chat's ACP connection and its tmux carry on where they were once it thaws.
+
+// FreezeMachine freezes (on) or thaws an agent's whole machine. One with no
+// cgroup (stopped) has nothing to freeze.
+func FreezeMachine(instance string, on bool) error {
+	return freezeMachine(cgroupRoot, instance, on, writeCgroup)
+}
+
+func freezeMachine(root, instance string, on bool, write func(path, value string) error) error {
+	path := filepath.Join(agentCgroup(root, instance), "cgroup.freeze")
+	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	value := "0"
+	if on {
+		value = "1"
+	}
+	return write(path, value)
+}
+
+// MachineFrozen reports whether an agent's machine is frozen, by whoever.
+func MachineFrozen(instance string) bool { return machineFrozen(cgroupRoot, instance) }
+
+func machineFrozen(root, instance string) bool {
+	b, err := os.ReadFile(filepath.Join(agentCgroup(root, instance), "cgroup.events"))
+	return err == nil && strings.Contains(string(b), "frozen 1")
+}
+
+// ReclaimMachine pushes a frozen machine's memory out to swap, as ReclaimRun
+// does a run's.
+func ReclaimMachine(instance string) error {
+	return reclaimDir(agentCgroup(cgroupRoot, instance), writeCgroup)
+}
+
+// MachineMemory is what an agent's machine uses, without its caches; 0 when
+// it can't be read.
+func MachineMemory(instance string) int64 { return agentMemory(cgroupRoot, instance, 0) }
+
+// OwnMachineFreezer hands an agent's machine's freezer and reclaim to the
+// daemon's user, so freezing it needs no sudo: starting sudo can take minutes
+// in a VM out of memory, which is when a machine is frozen. The cgroup is
+// made anew as the machine starts; this is cheap when it's done already.
+func OwnMachineFreezer(instance string) error {
+	dir := agentCgroup(cgroupRoot, instance)
+	freeze := filepath.Join(dir, "cgroup.freeze")
+	info, err := os.Stat(freeze)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if st, ok := info.Sys().(*syscall.Stat_t); ok && int(st.Uid) == os.Getuid() {
+		return nil
+	}
+	if !hostos.InVM() {
+		return nil
+	}
+	return sudo("chown", "", strconv.Itoa(os.Getuid()), freeze, filepath.Join(dir, "memory.reclaim"))
+}
+
+// MachineRunning reports whether an agent's machine has a cgroup with
+// processes in it, and whether it is frozen or being frozen: its
+// cgroup.freeze, what was asked, not cgroup.events' "frozen 1", what the
+// kernel has done. Under memory pressure a task stuck in reclaim takes
+// seconds to stop, and on 2026-10-23 the daemon, reading "frozen 0" for a
+// machine it had just frozen, froze it again every 2 seconds.
+func MachineRunning(instance string) (running, frozen bool) {
+	return machineRunning(cgroupRoot, instance)
+}
+
+func machineRunning(root, instance string) (running, frozen bool) {
+	dir := agentCgroup(root, instance)
+	b, err := os.ReadFile(filepath.Join(dir, "cgroup.events"))
+	if err != nil {
+		return false, false
+	}
+	running = strings.Contains(string(b), "populated 1")
+	if f, err := os.ReadFile(filepath.Join(dir, "cgroup.freeze")); err == nil {
+		return running, strings.TrimSpace(string(f)) == "1"
+	}
+	return running, strings.Contains(string(b), "frozen 1")
 }

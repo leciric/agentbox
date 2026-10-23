@@ -118,6 +118,7 @@ func (s *Server) leadRoutes(project string) http.Handler {
 	mux.HandleFunc("GET /v1/project/agents/{agent}/checkpoints", withProject(s.listCheckpoints))
 	mux.HandleFunc("POST /v1/project/agents/{agent}/rollback", withProject(s.rollback))
 	mux.HandleFunc("POST /v1/project/agents/{agent}/fork", withProject(s.fork))
+	mux.HandleFunc("POST /v1/project/agents/{agent}/account", withProject(s.leadSwitchAccount))
 	mux.HandleFunc("POST /v1/project/copy", withProject(s.leadCopy))
 	mux.HandleFunc("POST /v1/project/copy-from-host", withProject(s.leadCopyFromHost))
 	mux.HandleFunc("GET /v1/project/secrets", withProject(s.leadSecrets))

@@ -43,6 +43,18 @@ import (
 // balloon then hands back within seconds. At most every memReclaimEvery, so a
 // VM that's merely idle between builds isn't made to read everything again
 // from the host's disk each time.
+//
+// While agents are busy the guest's page cache grows into whatever the VM
+// has been given, and stays resident on the host however short the host gets:
+// the host can't reclaim it, only the guest can. So when the host is short —
+// stalling on memory (its own PSI above memHostPressure) or with less than
+// memHostAvailableShare of its memory available — or the guest's file cache
+// holds more than memCacheShare of the VM, the policy asks for a trim: the
+// guest reclaims up to memTrimMax of its inactive file pages (memory.reclaim
+// on its root cgroup, which takes the coldest first and, with swappiness=0,
+// never swaps), then compacts, and free page reporting returns it. A build
+// keeps the files it keeps reading, which are on the active list. At most
+// every memTrimEvery under pressure and memTrimIdleEvery otherwise.
 
 const (
 	memHeadroomMin      = 2 * GiB
@@ -74,6 +86,19 @@ const (
 	memIdleBusy     = 0.05
 	memReclaimMin   = 1 * GiB
 	memReclaimEvery = 10 * time.Minute
+
+	// memHostPressure is the host's PSI "some avg10" percentage, and
+	// memHostAvailableShare the share of its memory available, past which the
+	// host is short.
+	memHostPressure       = 10.0
+	memHostAvailableShare = 0.10
+	// memCacheShare is the share of the VM its file cache may hold before it's
+	// trimmed with the host not short.
+	memCacheShare    = 1.0 / 3
+	memTrimMin       = 256 << 20
+	memTrimMax       = 2 * GiB
+	memTrimEvery     = 30 * time.Second
+	memTrimIdleEvery = 2 * time.Minute
 )
 
 // memSample is the guest's memory, as read from inside it.
@@ -93,9 +118,22 @@ type memSample struct {
 	// CPUBusy and CPUTotal are the guest's CPU time since it booted, in
 	// clock ticks: all of it, and all but idle and iowait (/proc/stat).
 	CPUBusy, CPUTotal uint64
+	// FileCache is the guest's page cache of files (Active(file) and
+	// Inactive(file)), and InactiveFile the part of it not used lately.
+	FileCache, InactiveFile int64
 	// Resident is what the VM holds of the host's memory (filled in by the
 	// supervisor, from the host's side); 0 when unknown.
 	Resident int64
+	// HostTotal, HostAvailable and HostPressure are the host's MemTotal,
+	// MemAvailable and PSI "some avg10" (filled in by the supervisor); 0
+	// when unknown.
+	HostTotal, HostAvailable int64
+	HostPressure             float64
+}
+
+// hostShort reports whether the host is short of memory.
+func (s memSample) hostShort() bool {
+	return s.HostTotal > 0 && (s.HostPressure > memHostPressure || float64(s.HostAvailable) < float64(s.HostTotal)*memHostAvailableShare)
 }
 
 // Used is what the guest's programs use, without the page cache.
@@ -123,6 +161,7 @@ type memState struct {
 	idleSince           time.Time // since when busy has been under memIdleBusy
 	noAgentsSince       time.Time // since when no agent has run
 	lastReclaim         time.Time
+	lastTrim            time.Time
 }
 
 // memDecision is what to do about it: nothing when Target is 0.
@@ -135,7 +174,12 @@ type memDecision struct {
 	// compacted, so free page reporting can return it: with or without a
 	// Target.
 	Reclaim bool
-	Reason  string
+	// Trim, set without Reclaim, is how much of its inactive file cache the
+	// guest should reclaim before compacting; HostShort says the host was
+	// short of memory when it was asked.
+	Trim      int64
+	HostShort bool
+	Reason    string
 }
 
 // target is what the VM should have for s: what it uses plus headroom,
@@ -239,8 +283,37 @@ func (p memPolicy) decide(st *memState, s *memSample, now time.Time) memDecision
 		st.quiet(now) && now.Sub(st.lastReclaim) >= memReclaimEvery:
 		d.Reclaim, st.lastReclaim = true, now
 		d.Reason = fmt.Sprintf("quiet, and holding %s of this machine's memory for %s in use", gib(s.Resident), gib(s.Used()))
+	case d.Target == 0 && s.Resident > 0:
+		d.Trim, d.HostShort, d.Reason = st.trim(*s, now)
 	}
 	return d
+}
+
+// trim is how much of the guest's inactive file cache to reclaim while it's
+// busy, and why: 0 unless the host is short of memory or the cache holds
+// more than memCacheShare of the VM, and never more than memTrimMax at once.
+func (st *memState) trim(s memSample, now time.Time) (int64, bool, string) {
+	var n int64
+	var every time.Duration
+	var reason string
+	short := s.hostShort()
+	switch {
+	case short && s.FileCache > memReclaimMin:
+		n, every = s.InactiveFile, memTrimEvery
+		reason = fmt.Sprintf("this machine has %s available, and the VM caches %s of files", gib(s.HostAvailable), gib(s.FileCache))
+		if s.HostPressure > memHostPressure {
+			reason = fmt.Sprintf("this machine stalled on memory %.0f%% of the last 10s, and the VM caches %s of files", s.HostPressure, gib(s.FileCache))
+		}
+	case float64(s.FileCache) > float64(s.Total)*memCacheShare:
+		n, every = min(s.InactiveFile, s.FileCache-int64(float64(s.Total)*memCacheShare)), memTrimIdleEvery
+		reason = fmt.Sprintf("the VM caches %s of files in %s", gib(s.FileCache), gib(s.Total))
+	}
+	n = min(n, memTrimMax)
+	if n < memTrimMin || now.Sub(st.lastTrim) < every || now.Sub(st.lastReclaim) < every {
+		return 0, false, ""
+	}
+	st.lastTrim = now
+	return n, short, reason
 }
 
 func gib(n int64) string { return fmt.Sprintf("%.1f GiB", float64(n)/float64(GiB)) }
@@ -284,10 +357,12 @@ func parseMemSample(out string) (memSample, error) {
 				s.SwapFree = kb << 10
 			}
 		case "some":
-			for _, kv := range f[1:] {
-				if v, ok := strings.CutPrefix(kv, "avg10="); ok {
-					s.Pressure, _ = strconv.ParseFloat(v, 64)
-				}
+			s.Pressure = psiSome(sc.Text())
+		case "Active(file):", "Inactive(file):":
+			kb, _ := strconv.ParseInt(f[1], 10, 64)
+			s.FileCache += kb << 10
+			if f[0] == "Inactive(file):" {
+				s.InactiveFile = kb << 10
 			}
 		case "cpu":
 			// user nice system idle iowait irq softirq steal, then guest
@@ -309,6 +384,24 @@ func parseMemSample(out string) (memSample, error) {
 		return s, fmt.Errorf("couldn't read the VM's memory from %q", firstLine(out))
 	}
 	return s, nil
+}
+
+// psiSome is the "some avg10" percentage of a /proc/pressure file, 0 when
+// it hasn't one.
+func psiSome(psi string) float64 {
+	for line := range strings.Lines(psi) {
+		f := strings.Fields(line)
+		if len(f) == 0 || f[0] != "some" {
+			continue
+		}
+		for _, kv := range f[1:] {
+			if v, ok := strings.CutPrefix(kv, "avg10="); ok {
+				n, _ := strconv.ParseFloat(v, 64)
+				return n
+			}
+		}
+	}
+	return 0
 }
 
 func firstLine(s string) string {
