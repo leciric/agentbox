@@ -76,10 +76,18 @@ type Config struct {
 	// TraceDir is where the span and stall files go (diagnostics.go): next
 	// to state.db for the real daemon, empty for none (tests).
 	TraceDir string
+	// CrashOutput sends the Go runtime's fatal tracebacks to the crashes
+	// folder (crashes.go), for the next daemon to report: process-wide, so
+	// only for the real daemon.
+	CrashOutput bool
 }
 
 type Server struct {
 	cfg Config
+	// crashSend is held while crash records are sent, crashesSent how many
+	// this daemon sent (crashes.go).
+	crashSend   sync.Mutex
+	crashesSent int
 	// codexReads is when each Codex account's /status was last read, so a
 	// busy day of short turns asks it once a minute (limits.go).
 	codexReads struct {
@@ -422,6 +430,17 @@ func (s *Server) Run(ctx context.Context) error {
 		return err
 	}
 	defer unlock()
+	// A daemon that crashed left a record for this one to report; this one
+	// leaves its own, if it does (crashes.go). Not stopped when serve panics:
+	// the runtime writes its traceback after the deferred calls ran.
+	stopCrashes := s.startCrashes()
+	err = s.serve(ctx, socket)
+	stopCrashes()
+	return err
+}
+
+// serve is Run once it holds the daemon's lock.
+func (s *Server) serve(ctx context.Context, socket string) error {
 	moved := s.moveDataToPool(ctx)
 	defer s.startTracing()()
 
@@ -499,6 +518,7 @@ func (s *Server) Run(ctx context.Context) error {
 	loops.Go(func() { s.watchPackageCache(ctx) })
 	loops.Go(func() { s.refreshConnectors(ctx) })
 	loops.Go(func() { s.dropMovedData(ctx, moved) })
+	loops.Go(func() { s.sendCrashes(ctx) })
 	s.runCtx = ctx
 	// The turns the last daemon left running carry on (restart.go), once the
 	// API that their chats' tools call back is up.
@@ -688,6 +708,7 @@ func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	h := func(pattern string, fn func(http.ResponseWriter, *http.Request) error) {
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
+			defer s.recoverPanic(w, r)
 			s.projectBySlug(r)
 			if err := fn(w, r); err != nil {
 				writeError(w, err)

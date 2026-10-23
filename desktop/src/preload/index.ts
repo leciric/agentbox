@@ -278,6 +278,9 @@ const bridge = {
     windowError: (err: { name: string; message: string; stack?: string }) => ipcRenderer.send('report:windowError', err),
     onAppError: (fn: (err: { at: string; where: 'main' | 'window'; name: string; message: string; stack?: string }) => void) => listen('app:error', fn),
     openLogs: (): Promise<string> => ipcRenderer.invoke('report:openLogs'),
+    // send sends an automatic error report through the main process, which
+    // keeps it for later when the daemon can't be reached (main/reportqueue.ts).
+    send: (req: T.ReportRequest): Promise<'sent' | 'refused' | 'unreachable' | 'capped'> => ipcRenderer.invoke('report:send', req),
   },
   pickDirectory: (): Promise<string | null> => ipcRenderer.invoke('dialog:directory'),
   openPath: (path: string): Promise<string> => ipcRenderer.invoke('shell:openPath', path),

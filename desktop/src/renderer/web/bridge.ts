@@ -12,6 +12,7 @@
 // picker, opening local folders) isn't available either way.
 import type { ApiResponse, Bridge, CliStatus, ConnectionState, EnvironmentTarget, HostSetupStatus, HubAccount, HubEnvironment } from '../../preload';
 import * as T from '../../shared/api.ts';
+import { maxErrorReportsPerRun } from '../../shared/errors.ts';
 import { t, type MessageKey } from '../../shared/i18n/index.ts';
 import { reconnector } from './reconnect.ts';
 import { webStreams } from './streams.ts';
@@ -147,6 +148,8 @@ const { stream, closeAll: closeStreams } = webStreams(
   (path) => `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${apiBase()}${path}`,
 );
 
+let errorReportsSent = 0;
+
 const unavailable = (message: MessageKey) => () => Promise.reject(new Error(t(message)));
 
 export const webBridge: Bridge & { web: true; lan: boolean } = {
@@ -236,12 +239,20 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
   renderUrl: () => Promise.resolve(null),
   pageThumb: () => Promise.resolve(null),
   // The web app has no main process: a report carries only the daemon's
-  // sections and the page's own errors.
+  // sections and the page's own errors, and an error report the daemon can't
+  // be reached for is dropped, with no disk to keep it on.
   report: {
     sections: () => Promise.resolve([]),
     windowError: () => {},
     onAppError: () => () => {},
     openLogs: unavailable('web.bridge.openLogs'),
+    send: async (req) => {
+      if (errorReportsSent >= maxErrorReportsPerRun) return 'capped';
+      errorReportsSent++;
+      const res = await webBridge.request('POST', '/v1/reports', req).catch(() => undefined);
+      if (!res) return 'unreachable';
+      return res.status < 300 ? 'sent' : 'refused';
+    },
   },
   pickDirectory: () => Promise.resolve(null),
   setLanguage: () => {},

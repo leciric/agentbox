@@ -1931,7 +1931,7 @@ export function installDevBridge(): void {
     pageThumb: (path: string) => pageThumbUrl(path),
     // No render host here: a chat's page is its frame's srcdoc (RichBlock).
     renderUrl: async () => null,
-    report: { sections: async () => [], windowError: () => {}, onAppError: () => () => {}, openLogs: async () => '' },
+    report: { sections: async () => [], windowError: () => {}, onAppError: () => () => {}, openLogs: async () => '', send: async () => 'sent' as const },
     pickDirectory: async () => null,
     setLanguage: () => {},
     openPath: async () => '',
