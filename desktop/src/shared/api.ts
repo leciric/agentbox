@@ -175,6 +175,8 @@ export interface Settings {
   idleStopSeconds: number;
   leadRecheck: boolean;
   leadRecheckMinutes: number;
+  leadSleep: boolean;
+  leadSleepMinutes: number;
   imageCache: boolean;
   imageCacheMaxBytes: number;
   defaultImageCacheMaxBytes: number;
@@ -232,6 +234,8 @@ export interface UpdateSettingsRequest {
   idleStopSeconds?: number;
   leadRecheck?: boolean;
   leadRecheckMinutes?: number;
+  leadSleep?: boolean;
+  leadSleepMinutes?: number;
   diskFloorMin?: number;
   diskFloorPercent?: number;
   imageCache?: boolean;

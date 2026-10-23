@@ -80,6 +80,8 @@ import {
   OpenCodeInImage,
   ResumeAfterLimit,
   ContinueAfterRestart,
+  LeadSleep,
+  leadSleepFallback,
 } from "./NewAgentDefaults";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -1332,6 +1334,13 @@ function InstalledSettings({
               keywords: t("settings.entry.continueAfterRestart.keywords"),
               modified: changed((s) => !s.continueAfterRestart),
               render: () => <ContinueAfterRestart />,
+            },
+            {
+              id: "lead-sleep",
+              label: t("settings.entry.leadSleep.label"),
+              keywords: t("settings.entry.leadSleep.keywords"),
+              modified: changed((s) => !s.leadSleep || s.leadSleepMinutes !== leadSleepFallback),
+              render: () => <LeadSleep />,
             },
           ],
         },

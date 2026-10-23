@@ -514,6 +514,68 @@ export function ContinueAfterRestart() {
   );
 }
 
+// leadSleepFallback is the minutes an idle chat waits when nobody chose
+// (state.DefaultLeadSleep).
+export const leadSleepFallback = 15;
+
+// LeadSleep stops a project's chat's AI tool once the chat has sat idle a
+// while, to give the VM its memory back; the next message, notice or schedule
+// resumes the same session (internal/chat/idle.go). On by default: nothing
+// changes for you but a few seconds on the first message after the wait.
+export function LeadSleep() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (req: T.UpdateSettingsRequest) => api.updateSettings(req),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const on = settings.data?.leadSleep ?? true;
+  const minutes = settings.data?.leadSleepMinutes ?? leadSleepFallback;
+  const [draft, setDraft] = useState(String(minutes));
+
+  return (
+    <SettingRow
+      label={t('defaults.newAgent.sleepLabel')}
+      description={t('defaults.newAgent.sleepDescription')}
+      details={t('defaults.newAgent.sleepDetails')}
+      control={
+        <Switch
+          data-lead-sleep
+          aria-label={t('defaults.newAgent.sleepLabel')}
+          disabled={save.isPending || settings.data === undefined}
+          checked={on}
+          onCheckedChange={(leadSleep) => save.mutate({ leadSleep })}
+        />
+      }
+    >
+      {on && (
+        <div className="flex max-w-52 items-center gap-2">
+          <Input
+            type="number"
+            min={5}
+            max={1440}
+            aria-label={t('defaults.newAgent.sleepMinutes')}
+            data-lead-sleep-minutes
+            className="font-mono text-[13px]"
+            disabled={save.isPending || settings.data === undefined}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={() => {
+              const n = Math.min(1440, Math.max(5, Number(draft) || leadSleepFallback));
+              setDraft(String(n));
+              if (n !== minutes) save.mutate({ leadSleepMinutes: n });
+            }}
+          />
+          <span className="text-[12.5px] text-subtle">{minutes === leadSleepFallback ? t('defaults.newAgent.minutesDefault') : t('defaults.newAgent.minutes')}</span>
+        </div>
+      )}
+    </SettingRow>
+  );
+}
+
 // DiskFloor is the disk guard's floor: the free space AgentBox keeps on every
 // disk it writes to (internal/agent/diskguard.go), the larger of a size and a
 // share of the disk. At it, new agents are refused and the agents writing the

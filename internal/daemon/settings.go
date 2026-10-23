@@ -240,6 +240,21 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if req.LeadSleepMinutes != nil {
+		if n := *req.LeadSleepMinutes; n < 5 || n > 1440 {
+			return fmt.Errorf("an idle chat stops after 5 to 1440 minutes; %d isn't", n)
+		}
+		if err := s.store.SetSetting(r.Context(), state.SettingLeadSleepMinutes, strconv.Itoa(*req.LeadSleepMinutes)); err != nil {
+			return err
+		}
+	}
+	if req.LeadSleep != nil {
+		// Read by each chat as its idle wait ends, so it reaches running
+		// chats without anything restarting.
+		if err := s.store.SetFlag(r.Context(), state.SettingLeadSleep, *req.LeadSleep); err != nil {
+			return err
+		}
+	}
 	if req.LeadRecheck != nil {
 		// Every chat's brief says whether it has rechecks.
 		if projects, err := s.store.Projects(r.Context()); err == nil {
@@ -561,6 +576,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	leadSleep, sleepAfter, err := s.store.LeadSleep(r.Context())
+	if err != nil {
+		return api.Settings{}, err
+	}
 	imageCache, imageCacheChosen, err := s.store.ImageCache(r.Context())
 	if err != nil {
 		return api.Settings{}, err
@@ -633,6 +652,9 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 
 		LeadRecheck:        leadRecheck,
 		LeadRecheckMinutes: int(recheckEvery / time.Minute),
+
+		LeadSleep:        leadSleep,
+		LeadSleepMinutes: int(sleepAfter / time.Minute),
 
 		ImageCache:                imageCache,
 		ImageCacheMaxBytes:        imageCacheMax,

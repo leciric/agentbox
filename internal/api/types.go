@@ -571,6 +571,12 @@ type Settings struct {
 	// agents.
 	LeadRecheck        bool `json:"leadRecheck"`
 	LeadRecheckMinutes int  `json:"leadRecheckMinutes"`
+	// LeadSleep is "stop idle chats": while on, a project's chat that sat
+	// idle LeadSleepMinutes has its AI tool stopped to give its memory back,
+	// and its next message, notice or schedule resumes the same session.
+	// Claude Code only. On unless it was turned off.
+	LeadSleep        bool `json:"leadSleep"`
+	LeadSleepMinutes int  `json:"leadSleepMinutes"`
 	// ImageCache is "shared image cache": while on, every agent's Docker
 	// pulls Docker Hub's images through one cache in AgentBox's VM, so an
 	// image is downloaded and stored once. On unless it was turned off.
@@ -711,6 +717,10 @@ type UpdateSettingsRequest struct {
 	// LeadRecheckMinutes is how often, from 5 to 1440.
 	LeadRecheck        *bool `json:"leadRecheck,omitempty"`
 	LeadRecheckMinutes *int  `json:"leadRecheckMinutes,omitempty"`
+	// LeadSleep turns "stop idle chats" on or off, and LeadSleepMinutes is
+	// after how long, from 5 to 1440.
+	LeadSleep        *bool `json:"leadSleep,omitempty"`
+	LeadSleepMinutes *int  `json:"leadSleepMinutes,omitempty"`
 	// DiskFloorMin sets Settings.DiskFloorMin, in bytes, 0 going back to the
 	// default; DiskFloorPercent sets Settings.DiskFloorPercent, a negative
 	// one going back to the default.

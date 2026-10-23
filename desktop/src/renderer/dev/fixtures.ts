@@ -1573,6 +1573,8 @@ let defaultsSettings = {
   idleStopSeconds: 10 * 60,
   leadRecheck: false,
   leadRecheckMinutes: 20,
+  leadSleep: true,
+  leadSleepMinutes: 15,
   imageCache: true,
   imageCacheMaxBytes: 20 * 1024 ** 3,
   defaultImageCacheMaxBytes: 20 * 1024 ** 3,
@@ -1660,6 +1662,8 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
     'mediaRetention',
     'leadRecheck',
     'leadRecheckMinutes',
+    'leadSleep',
+    'leadSleepMinutes',
   ] as const) {
     if (req[key] !== undefined) (next as Record<string, unknown>)[key] = req[key];
   }

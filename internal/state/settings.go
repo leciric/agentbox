@@ -247,6 +247,12 @@ const (
 	// user turns it on.
 	SettingLeadRecheck        = "lead_recheck"
 	SettingLeadRecheckMinutes = "lead_recheck_minutes"
+	// SettingLeadSleep says whether a project's chat that sat idle
+	// SettingLeadSleepMinutes has its AI tool stopped, until its next turn
+	// resumes the session (internal/chat/idle.go). On until somebody turns
+	// it off (FlagOn); empty minutes is DefaultLeadSleep.
+	SettingLeadSleep        = "lead_sleep"
+	SettingLeadSleepMinutes = "lead_sleep_minutes"
 	// SettingImageCache says whether agents' Docker pulls Docker Hub's images
 	// through the daemon's shared cache. On until somebody turns it off
 	// (FlagOn).
@@ -370,6 +376,27 @@ func (s *Store) LeadRecheck(ctx context.Context) (on bool, every time.Duration, 
 		every = time.Duration(n) * time.Minute
 	}
 	return on, every, nil
+}
+
+// DefaultLeadSleep is how long a project's chat sits idle before its AI tool
+// is stopped, when nobody chose: past the five-minute prompt cache, short
+// enough that a day of leads nobody writes to doesn't hold the VM's memory.
+const DefaultLeadSleep = 15 * time.Minute
+
+// LeadSleep reads "stop idle chats": whether it's on, and after how long.
+func (s *Store) LeadSleep(ctx context.Context) (on bool, after time.Duration, err error) {
+	if on, err = s.FlagOn(ctx, SettingLeadSleep); err != nil {
+		return false, 0, err
+	}
+	after = DefaultLeadSleep
+	raw, err := s.Setting(ctx, SettingLeadSleepMinutes)
+	if err != nil {
+		return false, 0, err
+	}
+	if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+		after = time.Duration(n) * time.Minute
+	}
+	return on, after, nil
 }
 
 // DefaultIdleTime is how long an agent may go idle before "auto-stop idle
