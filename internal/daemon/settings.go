@@ -173,6 +173,11 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if req.LocalNodeModules != nil {
+		if err := s.store.SetFlag(r.Context(), state.SettingLocalNodeModules, *req.LocalNodeModules); err != nil {
+			return err
+		}
+	}
 	if req.IdleTimeSeconds != nil {
 		if *req.IdleTimeSeconds < 60 {
 			return fmt.Errorf("idle time is at least 60 seconds; %d isn't", *req.IdleTimeSeconds)
@@ -180,6 +185,24 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 		if err := s.store.SetSetting(r.Context(), state.SettingIdleTime, strconv.Itoa(*req.IdleTimeSeconds)); err != nil {
 			return err
 		}
+	}
+	for key, secs := range map[string]*int{state.SettingIdleFreezeAfter: req.IdleFreezeSeconds, state.SettingIdleStopAfter: req.IdleStopSeconds} {
+		if secs == nil {
+			continue
+		}
+		if *secs < 60 || *secs > 24*60*60 {
+			return fmt.Errorf("idle reclaim waits 60 seconds to a day; %d seconds isn't", *secs)
+		}
+		if err := s.store.SetSetting(r.Context(), key, strconv.Itoa(*secs)); err != nil {
+			return err
+		}
+	}
+	if req.IdleReclaim != nil {
+		if err := s.store.SetFlag(r.Context(), state.SettingIdleReclaim, *req.IdleReclaim); err != nil {
+			return err
+		}
+		// Turned off, what it froze wakes now rather than at the next step.
+		go s.stepIdleReclaim(s.background(), time.Now())
 	}
 	if req.AutoStopIdle != nil {
 		if err := s.store.SetFlag(r.Context(), state.SettingAutoStopIdle, *req.AutoStopIdle); err != nil {
@@ -246,6 +269,27 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 		}
 		if *req.AgentGPU {
 			s.readyVMGPU(s.runCtx, true)
+		}
+	}
+	if req.AgentFreeze != nil {
+		if err := s.setFleet(r.Context(), *req.AgentFreeze); err != nil {
+			return err
+		}
+	}
+	if req.BlockFullSuite != nil {
+		if err := s.store.SetFlag(r.Context(), state.SettingBlockFullSuite, *req.BlockFullSuite); err != nil {
+			return err
+		}
+		// A project that allows whole suites says so in its agents' briefs
+		// only while they are blocked.
+		if projects, err := s.store.Projects(r.Context()); err == nil {
+			for _, p := range projects {
+				if p.FullTestSuite {
+					if err := s.manager(nil).RewriteBriefs(r.Context(), p.Name); err != nil {
+						s.logf("rewriting %s's briefs after a full test suite change: %v", p.Name, err)
+					}
+				}
+			}
 		}
 	}
 	if req.ErrorReports != nil {
@@ -432,12 +476,20 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	blockFullSuite, err := s.store.Flag(r.Context(), state.SettingBlockFullSuite)
+	if err != nil {
+		return api.Settings{}, err
+	}
 	vmGPU := s.vmGPU()
 	errorReports, err := s.store.FlagOn(r.Context(), state.SettingErrorReports)
 	if err != nil {
 		return api.Settings{}, err
 	}
 	prWatch, err := s.store.FlagOn(r.Context(), state.SettingPRWatch)
+	if err != nil {
+		return api.Settings{}, err
+	}
+	agentFreeze, err := s.store.Flag(r.Context(), state.SettingAgentFreeze)
 	if err != nil {
 		return api.Settings{}, err
 	}
@@ -472,6 +524,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		return api.Settings{}, err
 	}
 	diskFloor := s.diskFloor(r.Context())
+	idleReclaim, idleFreeze, idleStop, err := s.store.IdleReclaim(r.Context())
+	if err != nil {
+		return api.Settings{}, err
+	}
 	autoStopIdle, idleTime, err := s.store.AutoStopIdle(r.Context())
 	if err != nil {
 		return api.Settings{}, err
@@ -494,6 +550,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		return api.Settings{}, err
 	}
 	packageCacheMax, packageCacheDefault := s.cacheMax(r.Context(), s.cfg.Paths.PackageCache(), packageCacheChosen, state.DefaultPackageCacheMax)
+	localNodeModules, err := s.store.FlagOn(r.Context(), state.SettingLocalNodeModules)
+	if err != nil {
+		return api.Settings{}, err
+	}
 	claudeUpdate, err := s.toolAutoUpdate(r.Context(), claudeAutoUpdate)
 	if err != nil {
 		return api.Settings{}, err
@@ -524,9 +584,11 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		UpdateCheck:          updateCheck,
 		UsageStats:           usageStats,
 		AgentGPU:             agentGPU,
+		BlockFullSuite:       blockFullSuite,
 		VMGPU:                vmGPU,
 		ErrorReports:         errorReports,
 		PRWatch:              prWatch,
+		AgentFreeze:          agentFreeze,
 		MediaRetention:       mediaRetention,
 		Language:             language,
 		Timezone:             timezone,
@@ -539,6 +601,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 
 		AutoStopIdle:    autoStopIdle,
 		IdleTimeSeconds: int(idleTime / time.Second),
+
+		IdleReclaim:       idleReclaim,
+		IdleFreezeSeconds: int(idleFreeze / time.Second),
+		IdleStopSeconds:   int(idleStop / time.Second),
 
 		DockerPruneOnStop: dockerPrune,
 
@@ -554,6 +620,7 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		PackageCacheMaxBytes:        packageCacheMax,
 		DefaultPackageCacheMaxBytes: packageCacheDefault,
 		PackageCacheBytes:           s.packageCache.Size(),
+		LocalNodeModules:            localNodeModules,
 
 		ClaudeCodeUpdate: claudeUpdate,
 	}, nil

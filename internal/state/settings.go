@@ -168,6 +168,24 @@ const (
 	// (agent.FindVMGPU), when it has one. Off until somebody turns it on
 	// (Flag). Not #66's gpu_for_agents, which a migration deletes.
 	SettingAgentGPU = "agent_gpu"
+	// SettingAgentFreeze says whether memory pressure freezes whole agents'
+	// machines, newest first, and new machines start on the VM's real free
+	// memory (pressure.Fleet), rather than only heavy commands being held
+	// (pressure.Governor). Experimental: off until somebody turns it on
+	// (Flag).
+	SettingAgentFreeze = "agent_freeze"
+	// SettingAgentFreezeFrozen is the agents the fleet froze, a JSON list of
+	// refs, so a daemon that restarts thaws them.
+	SettingAgentFreezeFrozen = "agent_freeze_frozen"
+	// SettingBootCosts is what the last machines' boots took, a JSON list of
+	// bytes, newest last: what the fleet holds a new machine's start to.
+	SettingBootCosts = "boot_costs"
+	// SettingBlockFullSuite says whether a Claude Code agent's whole test
+	// suite (`go test ./...`, a bare `npm test`) is refused before it runs,
+	// with what to run instead (internal/cli/fullsuite.go), unless its
+	// project allows them (Project.FullTestSuite). Experimental: off until
+	// somebody turns it on (Flag).
+	SettingBlockFullSuite = "block_full_suite"
 	// SettingMediaRetention is how long a removed agent's media is kept: one
 	// of the api.MediaRetention values, empty meaning
 	// DefaultMediaRetention. It belongs to the installation rather than to a
@@ -236,12 +254,58 @@ const (
 	// SettingPackageCacheMax is the most the shared package caches may hold,
 	// in bytes. Empty means DefaultPackageCacheMax.
 	SettingPackageCacheMax = "package_cache_max"
+	// SettingLocalNodeModules says whether new agents' node_modules are on
+	// the VM's disk rather than in their worktrees, where worktrees are in a
+	// shared folder. On until somebody turns it off (FlagOn).
+	SettingLocalNodeModules = "local_node_modules"
+	// SettingIdleReclaim says whether the daemon reclaims idle agents'
+	// memory (daemon/idlereclaim.go): an agent idle SettingIdleFreezeAfter has
+	// what it left running frozen and pushed out to swap, woken when touched,
+	// and one that finished and stayed idle SettingIdleStopAfter has its
+	// machine stopped, started again by the next message. Experimental, off
+	// until somebody turns it on.
+	SettingIdleReclaim = "idle_reclaim"
+	// SettingIdleFreezeAfter and SettingIdleStopAfter are SettingIdleReclaim's
+	// waits, as counts of seconds. Empty means DefaultIdleFreezeAfter and
+	// DefaultIdleStopAfter.
+	SettingIdleFreezeAfter = "idle_freeze_after"
+	SettingIdleStopAfter   = "idle_stop_after"
 )
+
+// DefaultIdleFreezeAfter is how long an agent's chat is idle before idle
+// reclaim freezes what it left running, when nobody chose: longer than the
+// pause between reading a reply and answering it, short enough that a dev
+// server nobody looks at gives its memory back within minutes.
+const DefaultIdleFreezeAfter = 5 * time.Minute
+
+// DefaultIdleStopAfter is how long a finished agent stays idle before idle
+// reclaim stops its machine, when nobody chose: time to read what it did and
+// ask for a change without waiting on its machine to start.
+const DefaultIdleStopAfter = 10 * time.Minute
+
+// IdleReclaim reads "reclaim idle agents' memory": off until somebody turns
+// it on, and its two waits, the defaults when nobody chose.
+func (s *Store) IdleReclaim(ctx context.Context) (on bool, freezeAfter, stopAfter time.Duration, err error) {
+	if on, err = s.Flag(ctx, SettingIdleReclaim); err != nil {
+		return false, 0, 0, err
+	}
+	freezeAfter, stopAfter = DefaultIdleFreezeAfter, DefaultIdleStopAfter
+	for key, d := range map[string]*time.Duration{SettingIdleFreezeAfter: &freezeAfter, SettingIdleStopAfter: &stopAfter} {
+		raw, err := s.Setting(ctx, key)
+		if err != nil {
+			return false, 0, 0, err
+		}
+		if secs, err := strconv.Atoi(raw); err == nil && secs > 0 {
+			*d = time.Duration(secs) * time.Second
+		}
+	}
+	return on, freezeAfter, stopAfter, nil
+}
 
 // DefaultPackageCacheMax is the shared package caches' cap when nobody chose,
 // on a disk big enough for it: a few projects' dependencies, Go modules and
 // Playwright browsers.
-const DefaultPackageCacheMax int64 = 20 << 30
+const DefaultPackageCacheMax int64 = 10 << 30
 
 // PackageCache reads the shared package caches' settings: whether they're
 // on, and the cap chosen for them in bytes, 0 when nobody chose. The daemon
