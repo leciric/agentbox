@@ -152,6 +152,7 @@ const unavailable = (message: MessageKey) => () => Promise.reject(new Error(t(me
 export const webBridge: Bridge & { web: true; lan: boolean } = {
   web: true,
   lan,
+  keepAwake: async () => {},
   request: async (method: string, path: string, body?: unknown): Promise<ApiResponse> => {
     const res = await fetch(apiBase() + path, {
       method,
@@ -196,6 +197,8 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
     power: () => Promise.resolve(null),
     act: unavailable('web.bridge.vmPower'),
     disk: () => Promise.resolve(null),
+    remakeWithKrunkit: unavailable('web.bridge.vmKrunkit'),
+    onKrunkitOutput: () => () => {},
   },
   hubs: {
     list: async () => {

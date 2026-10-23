@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,6 +29,7 @@ import (
 	"agentbox/internal/image"
 	"agentbox/internal/incus"
 	"agentbox/internal/naming"
+	"agentbox/internal/nodemods"
 	"agentbox/internal/notes"
 	"agentbox/internal/paths"
 	"agentbox/internal/secrets"
@@ -242,6 +244,11 @@ type Manager struct {
 	User    image.User
 	Log     io.Writer // progress messages; may be nil
 
+	// Admit, when set, is asked before an agent's machine boots, and returns
+	// once it may: the daemon's memory admission (agentfreeze.go), which
+	// waits while the VM hasn't the memory to boot it.
+	Admit func(ctx context.Context, a state.Agent) error
+
 	// AgentSocket, when set, returns the host path of an agent's in-agent API
 	// socket; the agent reaches it at api.InAgentSocket.
 	AgentSocket func(instance string) string
@@ -265,6 +272,19 @@ type Manager struct {
 	// PackageCacheDir, when set, returns the directory of the package caches
 	// agents share, or "" while they're off (pkgcache.go).
 	PackageCacheDir func(ctx context.Context) string
+	// NodeModules, when set, is the VM's store of agents' node_modules and of
+	// their snapshots (nodemodules.go), and NodeModulesOn says whether a new
+	// agent gets its node_modules there.
+	NodeModules   *nodemods.Store
+	NodeModulesOn func(ctx context.Context) bool
+	// ShareRoom, when set, waits for the shared home to have room for a
+	// worktree to be made or removed: on a Linux host, virtiofsd holds a file
+	// for every inode the VM has looked at, and walking a worktree's
+	// node_modules looks at a great many (internal/daemon/share.go).
+	ShareRoom func(ctx context.Context, what string)
+	// ShareBusy, when set, says whether the shared home is that short of
+	// files now: what only measures worktrees skips them then.
+	ShareBusy func() bool
 	// Cores is how many cores the agents share (cpushare.go); 0 for the
 	// machine the daemon runs on, which is the VM.
 	Cores int
@@ -674,6 +694,7 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		}
 	}
 
+	m.shareRoom(ctx, "creating "+a.Ref()+"'s worktree")
 	m.logf("Creating worktree %s on branch %s (from %s)", a.Worktree, a.Branch, a.BaseRef)
 	if err := pl.repo.AddWorktree(a.Worktree, a.Branch, a.BaseCommit, "agentbox: "+a.Ref()); err != nil {
 		return fail("worktree", err)
@@ -703,6 +724,9 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		}
 	}
 
+	if m.NodeModules != nil {
+		undo = append(undo, func() { m.NodeModules.Remove(a.Instance) })
+	}
 	if step, err := m.makeMachine(ctx, a, pl.repo, pl.source, envFiles, pl.task, "", &undo); err != nil {
 		return fail(step, err)
 	}
@@ -763,6 +787,12 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 			steps = append(steps, func(ctx context.Context, c incus.Client) error { return c.RemoveDevice(ctx, a.Instance, device) })
 		}
 	}
+	// And its node_modules, which ensureNodeModules mounts this agent's own of.
+	for device := range copied.Devices {
+		if strings.HasPrefix(device, nodeModulesDevice) {
+			steps = append(steps, func(ctx context.Context, c incus.Client) error { return c.RemoveDevice(ctx, a.Instance, device) })
+		}
+	}
 	steps = append(steps,
 		setConfig(a.Instance, "raw.idmap="+image.IDMap(m.User)),
 		// Same paths as on the host, so the worktree's .git pointer resolves inside the agent.
@@ -785,6 +815,7 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 	steps = append(steps, m.gpuSteps(a.Instance, gpu, copied.Devices)...)
 	steps = append(steps,
 		func(ctx context.Context, _ incus.Client) error { return m.setStartShare(ctx, a.Instance) },
+		func(ctx context.Context, _ incus.Client) error { return m.admit(ctx, a) },
 		func(ctx context.Context, c incus.Client) error { return c.Start(ctx, a.Instance) },
 	)
 	for _, step := range steps {
@@ -822,6 +853,9 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 			return "home", err
 		}
 	}
+	// Before the brief, which names them, and the session, so the AI tool
+	// finds node_modules already there when its lockfile was installed before.
+	m.ensureNodeModules(ctx, a)
 	m.logf("Configuring git, AI tool logins and the agent brief")
 	if err := m.configure(ctx, a, inst.IPv4(), envFiles, task); err != nil {
 		return "configure", err
@@ -1406,6 +1440,7 @@ func (m *Manager) brief(ctx context.Context, a state.Agent, ip string, envFiles 
 		BaseRef:      a.BaseRef,
 		IP:           ip,
 		EnvFiles:     envFiles,
+		NodeModules:  m.nodeModulesDirs(a),
 		Secrets:      secretNames,
 		Android:      android.IsProject(a.Worktree),
 		GitHub:       m.Creds.HasGitHubLogin(),
@@ -1415,10 +1450,22 @@ func (m *Manager) brief(ctx context.Context, a state.Agent, ip string, envFiles 
 		Nesting:      p.Nesting,
 		AgentPRs:     p.AgentPRs,
 		CreditAITool: m.creditAITool(ctx),
+		FullSuite:    p.FullTestSuite && m.blockFullSuite(ctx),
 
 		Knowledge:     knowledge,
 		CompactWindow: compactWindow,
 	})
+}
+
+// blockFullSuite says whether the installation blocks agents' whole test
+// suites (state.SettingBlockFullSuite).
+func (m *Manager) blockFullSuite(ctx context.Context) bool {
+	on, err := m.Store.Flag(ctx, state.SettingBlockFullSuite)
+	if err != nil {
+		m.logf("reading whether whole test suites are blocked: %v", err)
+		return false
+	}
+	return on
 }
 
 // briefPaths are the files the brief is written to inside an agent: one for any
@@ -1828,6 +1875,10 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 		if err := m.setStartShare(ctx, a.Instance); err != nil {
 			return inst, err
 		}
+		if err := m.admit(ctx, a); err != nil {
+			return inst, err
+		}
+		m.nodeModulesSources(ctx, a)
 		if err := m.Incus.Start(ctx, a.Instance); err != nil {
 			return inst, err
 		}
@@ -1893,10 +1944,24 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 	return inst, nil
 }
 
+// admit waits, when the daemon asks it to, until the VM has the memory to
+// boot a's machine.
+func (m *Manager) admit(ctx context.Context, a state.Agent) error {
+	if m.Admit == nil {
+		return nil
+	}
+	return m.Admit(ctx, a)
+}
+
 func (m *Manager) Stop(ctx context.Context, a state.Agent) error {
 	if err := m.Incus.StopWithin(ctx, a.Instance, 30*time.Second); err != nil {
-		err = m.Incus.ForceStop(ctx, a.Instance)
-		return err
+		if err := m.Incus.ForceStop(ctx, a.Instance); err != nil {
+			return err
+		}
+	}
+	// For "remove stopped agents' machines", which counts its days from here.
+	if err := m.Store.SetStoppedAt(ctx, a.Project, a.Name, time.Now()); err != nil {
+		m.logf("recording when %s was stopped: %v", a.Ref(), err)
 	}
 	return nil
 }
@@ -1946,6 +2011,16 @@ type DestroyOptions struct {
 	Archived func()
 }
 
+// worktreeExists reports whether path may still hold a worktree: anything but
+// a path that is certainly not there.
+func worktreeExists(path string) bool {
+	if path == "" {
+		return false
+	}
+	_, err := os.Stat(path)
+	return !errors.Is(err, fs.ErrNotExist)
+}
+
 // BranchDisposable reports whether an agent's local branch holds nothing
 // that isn't somewhere else: it is merged into the branch the agent was made
 // from or the project's current one, here or on a remote, or a remote has the
@@ -1972,7 +2047,13 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 		return err
 	}
 	if !opts.Force {
-		if dirty, err := gitrepo.Dirty(a.Worktree); err == nil && dirty {
+		// A status git couldn't read is no proof of a clean worktree: the
+		// machine out of files (ENFILE) once read that way about agents with
+		// thousands of lines of work. Only a worktree that isn't there is.
+		switch dirty, err := gitrepo.Dirty(a.Worktree); {
+		case err != nil && worktreeExists(a.Worktree):
+			return fmt.Errorf("%s: can't tell whether it has uncommitted changes (%v): try again, or use --force to discard any", a.Ref(), err)
+		case err == nil && dirty:
 			return fmt.Errorf("%s has uncommitted changes: commit them in the agent, or use --force to discard them", a.Ref())
 		}
 	}
@@ -1990,10 +2071,16 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 		return err
 	}
 	inst, err := m.Incus.Instance(ctx, a.Instance)
+	// Read before the worktree is emptied: which lockfiles its node_modules
+	// were installed from, kept once the machine is gone.
+	installs := m.nodeModulesInstalls(ctx, a, err == nil && inst.Status == "Running")
 	switch {
 	case err == nil:
-		if inst.Status == "Running" {
-			m.handBackFiles(ctx, a)
+		cleared := inst.Status == "Running"
+		if cleared {
+			m.clearWorktree(ctx, a)
+		} else {
+			m.handBackNodeModules(ctx, a)
 		}
 		m.logf("Deleting instance %s", a.Instance)
 		if delErr := m.Incus.Delete(ctx, a.Instance); delErr != nil {
@@ -2001,6 +2088,11 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 			// concurrently, between the check above and this call. Only a
 			// delete that still finds something there is a real failure.
 			if _, checkErr := m.Incus.Instance(ctx, a.Instance); !errors.Is(checkErr, incus.ErrNotFound) {
+				if cleared {
+					// Its commits are on its branch; what the worktree held
+					// besides is gone, and git can't read it any more.
+					delErr = fmt.Errorf("%s's worktree is already emptied, but deleting its machine failed (%w): destroy it again with --force", a.Ref(), delErr)
+				}
 				return restore(delErr)
 			}
 			m.logf("Instance %s was already gone: %v", a.Instance, delErr)
@@ -2008,6 +2100,9 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 	case !errors.Is(err, incus.ErrNotFound):
 		return restore(err)
 	}
+	// Now, with the machine gone and before the agent is archived: from
+	// then on its directories are a gone agent's, which a trim removes.
+	m.keepNodeModules(a, installs)
 
 	// The machine is gone, so the agent is a past agent now, before the
 	// worktree, which can take minutes to delete on a slow disk, or fail on
@@ -2025,9 +2120,20 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 	return nil
 }
 
+// shareRoom is ShareRoom, when set.
+func (m *Manager) shareRoom(ctx context.Context, what string) {
+	if m.ShareRoom != nil {
+		m.ShareRoom(ctx, what)
+	}
+}
+
+// shareBusy is ShareBusy, when set.
+func (m *Manager) shareBusy() bool { return m.ShareBusy != nil && m.ShareBusy() }
+
 // removeLeftovers is what Destroy clears once the agent is archived: its
 // worktree, its branch when nothing would be lost, and its media when asked.
 func (m *Manager) removeLeftovers(ctx context.Context, repo gitrepo.Repo, a state.Agent, opts DestroyOptions) {
+	m.shareRoom(ctx, "removing "+a.Ref()+"'s worktree")
 	m.logf("Removing worktree %s", a.Worktree)
 	if err := repo.RemoveWorktree(a.Worktree); err != nil {
 		m.logf("Removing worktree %s: %v", a.Worktree, err)
@@ -2075,6 +2181,30 @@ func (m *Manager) DeleteArchived(ctx context.Context, project, name string) erro
 	return nil
 }
 
+// clearWorktree stops everything the agent's user runs in its machine (a
+// browser, dev servers) and empties its worktree from inside, as root, which
+// can delete what container root left there too. That's one pass over the
+// worktree, which on a Mac is a walk through its share: handing every file
+// back first (handBackFiles) and deleting them all again from the VM was
+// two, node_modules and all, with the browser still rendering meanwhile.
+// It stays on the worktree's filesystem: a mount the agent made inside it
+// isn't its to empty. What it leaves is removed from the VM after
+// (removeLeftovers).
+func (m *Manager) clearWorktree(ctx context.Context, a state.Agent) {
+	m.logf("Stopping %s and emptying its worktree", a.Ref())
+	// Its node_modules on the VM's disk are kept or deleted from the VM
+	// after, by a daemon that may not be root: what container root made in
+	// them (sudo npm, Docker) is handed back to the user first. Only them:
+	// they're on the VM's disk, not a walk through the share.
+	script := `pkill -KILL -u "$1"; find "$2" -xdev -mindepth 1 -delete`
+	args := []string{strconv.Itoa(m.User.UID), a.Worktree}
+	if mounts := m.nodeModulesMounts(a); len(mounts) > 0 {
+		script += `; owner=$3; shift 3; for d; do chown -R "$owner" "$d"; done`
+		args = append(append(args, fmt.Sprintf("%d:%d", m.User.UID, m.User.GID)), mounts...)
+	}
+	_, _ = m.Incus.Exec(ctx, a.Instance, append([]string{"sh", "-c", script, "sh"}, args...)...)
+}
+
 // handBackFiles gives files that container root created in the worktree
 // (Docker bind mounts, sudo) back to the host user, so git and the host can
 // manage them. It only works while the agent is running.
@@ -2087,6 +2217,8 @@ type Status struct {
 	state.Agent
 	State string // running, stopped, paused, initializing (create job still running), incomplete (unfinished create, nothing running) or missing
 	IP    string
+	// StartedAt is when Incus last started its machine; zero when unknown.
+	StartedAt time.Time
 }
 
 func (m *Manager) List(ctx context.Context, project string) ([]Status, error) {
@@ -2120,7 +2252,7 @@ func (m *Manager) List(ctx context.Context, project string) ([]Status, error) {
 			}
 		default:
 			if inst, ok := byName[a.Instance]; ok {
-				s.State, s.IP = displayState(inst.Status), inst.IPv4()
+				s.State, s.IP, s.StartedAt = displayState(inst.Status), inst.IPv4(), inst.LastUsedAt
 			}
 		}
 		if a.Status == state.AgentQueued {

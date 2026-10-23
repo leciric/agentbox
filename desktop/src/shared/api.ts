@@ -27,6 +27,7 @@ export interface Project {
   agentPRs: boolean;
   prWatch: string;
   syncBase: boolean;
+  fullTestSuite: boolean;
   prWatching: boolean;
   createdAt: string;
   iconVersion: number;
@@ -86,6 +87,7 @@ export interface UpdateProjectRequest {
   agentPRs?: boolean;
   prWatch?: string;
   syncBase?: boolean;
+  fullTestSuite?: boolean;
 }
 
 export interface Section {
@@ -152,9 +154,11 @@ export interface Settings {
   updateCheck: boolean;
   usageStats: boolean;
   agentGPU: boolean;
+  blockFullSuite: boolean;
   vmGPU: VMGPU;
   errorReports: boolean;
   prWatch: boolean;
+  agentFreeze: boolean;
   mediaRetention: string;
   language: string;
   timezone: string;
@@ -162,8 +166,13 @@ export interface Settings {
   diskFloorMin: number;
   diskFloorPercent: number;
   autoStopIdle: boolean;
+  removeStopped: boolean;
+  removeStoppedDays: number;
   dockerPruneOnStop: boolean;
   idleTimeSeconds: number;
+  idleReclaim: boolean;
+  idleFreezeSeconds: number;
+  idleStopSeconds: number;
   leadRecheck: boolean;
   leadRecheckMinutes: number;
   imageCache: boolean;
@@ -174,6 +183,7 @@ export interface Settings {
   packageCacheMaxBytes: number;
   defaultPackageCacheMaxBytes: number;
   packageCacheBytes: number;
+  localNodeModules: boolean;
   claudeCodeUpdate: ToolAutoUpdate;
 }
 
@@ -205,14 +215,21 @@ export interface UpdateSettingsRequest {
   updateChannel?: string;
   usageStats?: boolean;
   agentGPU?: boolean;
+  blockFullSuite?: boolean;
   errorReports?: boolean;
   prWatch?: boolean;
+  agentFreeze?: boolean;
   mediaRetention?: string;
   language?: string;
   timezone?: string;
   autoStopIdle?: boolean;
+  removeStopped?: boolean;
+  removeStoppedDays?: number;
   dockerPruneOnStop?: boolean;
   idleTimeSeconds?: number;
+  idleReclaim?: boolean;
+  idleFreezeSeconds?: number;
+  idleStopSeconds?: number;
   leadRecheck?: boolean;
   leadRecheckMinutes?: number;
   diskFloorMin?: number;
@@ -223,6 +240,7 @@ export interface UpdateSettingsRequest {
   packageCache?: boolean;
   packageCacheMaxBytes?: number;
   clearPackageCache?: boolean;
+  localNodeModules?: boolean;
   claudeCodeAutoUpdate?: boolean;
   checkClaudeCode?: boolean;
 }
@@ -255,6 +273,7 @@ export interface Agent {
   changesRequested?: string;
   state: string;
   memory?: MemoryHold;
+  reclaimed?: string;
   ip: string;
   createdAt: string;
 }
@@ -478,6 +497,8 @@ export interface StopAgentFailure {
 export interface MemoryHold {
   paused?: number;
   waiting?: number;
+  machine?: string;
+  ahead?: number;
   since: string;
   why?: string;
   stalled?: number;
@@ -569,6 +590,32 @@ export interface AgentDisk {
   machine?: number;
   worktree?: number;
   measuredAt: string;
+}
+
+export interface StoppedMachine {
+  ref: string;
+  project: string;
+  name: string;
+  title?: string;
+  branch: string;
+  stoppedSince: string;
+  machine?: number;
+  remove?: string;
+  keep?: string;
+}
+
+export interface StoppedMachines {
+  days: number;
+  machines: StoppedMachine[];
+}
+
+export interface RemoveStoppedRequest {
+  agents: string[];
+}
+
+export interface RemoveStoppedResult {
+  removed: string[];
+  kept: StoppedMachine[];
 }
 
 export interface ToolCredential {
@@ -697,6 +744,7 @@ export interface AgentChange {
   ip?: string;
   removed?: boolean;
   memory?: MemoryHold;
+  reclaimed?: string;
 }
 
 export interface Theme {
@@ -1684,6 +1732,7 @@ export interface FleetAgent {
   changesRequested?: string;
   state: string;
   memory?: MemoryHold;
+  reclaimed?: string;
   ip: string;
   createdAt: string;
   changes: AgentChanges;
@@ -2172,12 +2221,14 @@ export interface ChatPermission {
   approval?: string;
   detail?: string;
   diffs?: ChatDiff[];
+  planApprove?: string;
 }
 
 export interface ChatPermissionOption {
   id: string;
   name: string;
   kind: string;
+  modeKind?: string;
 }
 
 export interface ChatSubagent {
@@ -3082,8 +3133,40 @@ export interface DiagnosticsResources {
   agents: AgentResources[];
 }
 
+export interface PackageCachePart {
+  name: string;
+  bytes: number;
+}
+
+export interface DiagnosticsPackageCache {
+  on: boolean;
+  bytes: number;
+  maxBytes: number;
+  parts: PackageCachePart[];
+}
+
 export interface ClientSpansRequest {
   spans: TraceSpan[];
+}
+
+export interface ShareReport {
+  open: number;
+  limit: number;
+  trims: number;
+  lastTrim?: string;
+  pinned: number;
+}
+
+export interface FileCount {
+  open: number;
+  limit: number;
+}
+
+export interface DiagnosticsFiles {
+  daemon: FileCount;
+  system: FileCount;
+  share?: ShareReport;
+  waiting: boolean;
 }
 
 export const JobRunning = "running";
@@ -3183,6 +3266,7 @@ export const ChatReady = "ready";
 export const ChatRunning = "running";
 export const ChatWaiting = "waiting";
 export const ChatError = "error";
+export const ChatOptionPlan = "plan";
 export const MemoryKindProject = "project";
 export const MemoryKindEpisodic = "episodic";
 export const MemoryKindDecision = "decision";

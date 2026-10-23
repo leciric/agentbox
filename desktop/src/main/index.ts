@@ -2,7 +2,8 @@
 // the event stream, WebSocket streams and media files between the renderer and
 // the current environment (this machine's daemon, or one on a hub), signs in to
 // hubs, installs the command-line tool, and updates the app (updater.ts).
-import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron';
+import { isSafeExternalUrl } from './externalurl';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, powerSaveBlocker, shell } from 'electron';
 import { arch, hostname } from 'node:os';
 import { join } from 'node:path';
 import { AppLog, captureConsole, reportSections, type AppError } from './applog';
@@ -29,6 +30,7 @@ import { keepWindowState, windowOptions } from './windowstate';
 import { distro, linuxPath, windowsPath } from './wslpaths';
 import { setLanguage, t } from '../shared/i18n/index.ts';
 import './vmpower';
+import { keepAwake } from './keepawake';
 
 guardStdio();
 // The app's log, for problem reports (applog.ts): console and every uncaught
@@ -81,6 +83,8 @@ ipcMain.handle('api:request', async (_event, method: string, path: string, body?
     return unreachable(err);
   }
 });
+const setKeepAwake = keepAwake(powerSaveBlocker);
+ipcMain.handle('keepawake:set', (event, on: boolean) => setKeepAwake(event.sender, on));
 ipcMain.handle('daemon:connection', () => events.state);
 ipcMain.handle('app:info', () => ({
   socket: onWindows ? localSocket() : socketPath,
@@ -200,10 +204,11 @@ ipcMain.handle('hostsetup:status', () => hostSetupStatus());
 // On Linux, { vm: true } runs AgentBox in a VM instead (vmmode.ts), after
 // stopping the daemon this machine ran itself. On a Mac, { driver: 'vz' }
 // makes the experimental vz driver's VM instead of Lima's.
-ipcMain.handle('hostsetup:run', async (_event, options?: Pick<HostSetupOptions, 'vm' | 'cpus' | 'memoryCap' | 'driver'>) => {
+ipcMain.handle('hostsetup:run', async (_event, options?: Pick<HostSetupOptions, 'vm' | 'cpus' | 'memoryCap' | 'driver' | 'krunkit'>) => {
   await runHostSetup((text) => send('hostsetup:output', text), {
     vm: options?.vm === true,
     driver: options?.driver === 'vz' ? 'vz' : undefined,
+    krunkit: options?.krunkit === true,
     cpus: typeof options?.cpus === 'number' ? options.cpus : undefined,
     memoryCap: typeof options?.memoryCap === 'string' ? options.memoryCap : undefined,
     before: stopHostDaemon,
@@ -249,7 +254,7 @@ ipcMain.handle('shell:openPath', (_event, path: string) => shell.openPath(hostPa
 ipcMain.handle('chatFile:open', (_event, path: string, name: string) => openChatFile(path, name));
 ipcMain.handle('shell:showItem', (_event, path: string) => shell.showItemInFolder(hostPath(path)));
 ipcMain.handle('shell:openExternal', async (_event, url: string) => {
-  if (!/^https?:\/\//.test(url)) throw new Error(t('web.main.notAWebAddress', { url }));
+  if (!isSafeExternalUrl(url)) throw new Error(t('web.main.notAWebAddress', { url }));
   await shell.openExternal(url);
 });
 ipcMain.handle('pageThumb:get', (_event, path: string, key: string) => pageThumb(path, key));

@@ -14,8 +14,11 @@ export type SetupCard = { kind: 'vm'; vm: VMStatus } | { kind: 'wsl'; wsl: WSLSt
 // made it. A machine that runs AgentBox itself, set up before AgentBox ran in
 // a VM on Linux, gets none: its daemon is its own, and the move into the VM
 // is offered once it answers (MovePrompt).
+//
+// A Mac's VM being made again with krunkit (Settings' GPU for agents) is gone
+// for a while too, but there's nothing to set up: the remake makes it.
 export function setupCard(connection: ConnectionState, status: HostSetupStatus | undefined): SetupCard {
-  if (connection.state === 'connected' || !status) return null;
+  if (connection.state === 'connected' || !status || status.remaking) return null;
   if (status.vm?.problem) return { kind: 'vm', vm: status.vm };
   if (status.wsl?.problem) return { kind: 'wsl', wsl: status.wsl };
   if (status.linux?.mode === 'vm' && status.chv?.state === 'missing') return { kind: 'linux', linux: status.linux };

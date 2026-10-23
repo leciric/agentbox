@@ -26,9 +26,9 @@ import { useT } from '../../lib/i18n';
 import { agentSt, type AgentSt } from '../../lib/leadFirst';
 import { pastAgentsKey } from '../../lib/pastAgents';
 import { projectLabel } from '../../lib/projectName';
-import { cn, timeAgo } from '../../lib/utils';
+import { cn, humanBytes, timeAgo } from '../../lib/utils';
 import { AgentContextMenu } from '../AgentContextMenu';
-import { FinishedSection, RailEmpty, RailSkeleton, useRailAgents } from '../AgentRail';
+import { FinishedSection, RailEmpty, RailSkeleton, StoppedSection, useRailAgents } from '../AgentRail';
 import { PrChip } from '../PrChip';
 import { LiveDesktop } from '../pip/LiveDesktop';
 import { useInUse } from '../pip/inUse';
@@ -131,6 +131,7 @@ export function AgentList({ project, chat, onSelect, onNewAgent }: { project: st
       question={rail.question(agent.ref)}
       usage={agent.state === 'running' ? usage.get(agent.ref) : undefined}
       hostMemory={hostMemory}
+      disk={rail.disk.get(agent.ref)}
       tail={tails.get(agent.ref)}
       watch={watch}
       onOpen={onSelect}
@@ -141,9 +142,14 @@ export function AgentList({ project, chat, onSelect, onNewAgent }: { project: st
     <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-1.5 pb-3 pt-1.5" data-panel-list={project}>
       {!rail.loaded && <RailSkeleton />}
       <div className="flex flex-col gap-px">{rail.moving.map(row)}</div>
-      {rail.finished.length > 0 && (
-        <FinishedSection count={rail.finished.length} open={rail.showFinished || rail.finished.some((a) => a.ref === chat)} onToggle={rail.setShowFinished}>
-          <div className="flex flex-col gap-px">{rail.finished.map(row)}</div>
+      {rail.stopped.length > 0 && (
+        <StoppedSection agents={rail.stopped} disk={rail.disk}>
+          <div className="flex flex-col gap-px">{rail.stopped.map(row)}</div>
+        </StoppedSection>
+      )}
+      {rail.done.length > 0 && (
+        <FinishedSection count={rail.done.length} open={rail.showFinished || rail.done.some((a) => a.ref === chat)} onToggle={rail.setShowFinished}>
+          <div className="flex flex-col gap-px">{rail.done.map(row)}</div>
         </FinishedSection>
       )}
       {rail.loaded && rail.mine.length === 0 && <RailEmpty project={name} onNewAgent={() => onNewAgent(project)} />}
@@ -261,7 +267,7 @@ function SlotPreview({ children, preview }: { children: ReactNode; preview: Reac
 // right-click, its menu (AgentContextMenu). Its chat's latest items and
 // session are read as the phone's list reads them (peekThread), kept current
 // by the chat's events.
-function AgentLine({ agent, st, mood, active, live, ready, pr, fleet, at, report, question, usage, hostMemory, tail, watch, onOpen }: { agent: T.Agent; st: AgentSt; mood: Mood; active: boolean; live: boolean; ready: boolean; pr?: T.PullRequest; fleet?: T.FleetAgent; at?: string; report?: string; question?: string; usage?: { cpu?: number; memory?: number }; hostMemory?: number; tail?: T.TerminalTail; watch: (el: HTMLElement | null) => void; onOpen: (view: View) => void }) {
+function AgentLine({ agent, st, mood, active, live, ready, pr, fleet, at, report, question, usage, hostMemory, disk, tail, watch, onOpen }: { agent: T.Agent; st: AgentSt; mood: Mood; active: boolean; live: boolean; ready: boolean; pr?: T.PullRequest; fleet?: T.FleetAgent; at?: string; report?: string; question?: string; usage?: { cpu?: number; memory?: number }; hostMemory?: number; disk?: number; tail?: T.TerminalTail; watch: (el: HTMLElement | null) => void; onOpen: (view: View) => void }) {
   const t = useT();
   const queryClient = useQueryClient();
   const thread = useQuery({ queryKey: chatKey(agent.ref), queryFn: () => peekThread(queryClient, agent.ref), staleTime: 30_000 });
@@ -335,6 +341,11 @@ function AgentLine({ agent, st, mood, active, live, ready, pr, fleet, at, report
             {load && (
               <span className={cn('shrink-0 rounded font-mono text-[10px] tabular-nums', heavy(load, hostMemory) ? 'bg-amber-400/15 px-1 font-medium text-amber-300' : 'text-secondary')} data-list-usage data-list-heavy={heavy(load, hostMemory) || undefined}>
                 {[load.cpu !== undefined && `${Math.round(load.cpu)}%`, load.memory && memShort(load.memory)].filter(Boolean).join(' · ')}
+              </span>
+            )}
+            {disk !== undefined && (
+              <span className="shrink-0 font-mono text-[10px] tabular-nums text-secondary" title={t('agent.rail.machineDisk')} data-list-disk>
+                {humanBytes(disk)}
               </span>
             )}
             {changes && (

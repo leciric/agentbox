@@ -5,11 +5,10 @@
 // the project's agents (the list), which folds to a strip of their avatars
 // (one header button, or ⌘D) but never closes. Where it doesn't fit beside
 // the chat, the strip stays and the rest opens over the chat as a drawer.
-// The lead's panel switches between the list, the repository's Files and
-// Evidence, and the Schedules (setLeadTab); an agent shows in it in one of four views on a fixed switch: Desktop, Terminal, Files and Evidence (its
+// The lead's panel switches between the list, the project's Pull requests,
+// the repository's Files and Evidence, and the Schedules (setLeadTab); an agent shows in it in one of four views on a fixed switch: Desktop, Terminal, Files and Evidence (its
 // media and Hatch pages, newest first), with ✕ back to the list. Browser and Timeline
-// open from its ⋯; the project's Pull requests (from the project's header),
-// Settings (from the panel's header) and Schedules go over it. It remembers the view each
+// open from its ⋯; the project's Settings (from the panel's header) go over it. It remembers the view each
 // agent was last shown in, and the agent each project's lead last looked at.
 import { useSyncExternalStore } from 'react';
 import type * as T from '../../shared/api.ts';
@@ -20,7 +19,7 @@ export type PanelView = 'desktop' | 'terminal' | 'files' | 'evidence' | 'browser
 export const panelViews: PanelView[] = ['desktop', 'terminal', 'files', 'evidence', 'browser', 'timeline', 'pulls', 'schedules', 'settings'];
 // The switch's four, always there, in this order; the rest are in the ⋯.
 export const switchViews: PanelView[] = ['desktop', 'terminal', 'files', 'evidence'];
-// The project's Pull requests and Settings are off it: they're on the project's header.
+// The project's Pull requests and Settings are off it: a tab of the lead's panel, and on the project's header.
 export const moreViews: PanelView[] = ['browser', 'timeline', 'schedules'];
 
 // The project's own views: its pull requests, its scheduled tasks and its
@@ -102,8 +101,10 @@ export function pickable(project: string, agents: T.Agent[]): T.Agent[] {
 // panelBox is how wide the panel is, and whether it sits beside the chat or
 // over it as a drawer: beside from besideMin of window up, while the chat
 // keeps chatMin; a drawer otherwise. At 1024px beside, the sidebar and the
-// panel left the chat about 280px (UX test, finding 8).
-export const besideMin = 1100;
+// panel left the chat about 280px (UX test, finding 8), so below xl the
+// sidebar gives way to the panel (App) and a portrait monitor (1080px) keeps
+// the chat and the panel side by side.
+export const besideMin = 900;
 export const chatMin = 440;
 export const panelMin = 340;
 export const panelDefault = 560;
@@ -295,23 +296,28 @@ export function panelClose(chat: string): void {
   else update(chat, (p) => ({ ...bare(p), target: listTarget }));
 }
 
-// The lead's panel is four tabs on a switch at its top: Agents, the list;
-// Files, the repository's tree; Evidence, its media and pages; and Schedules,
-// the project's scheduled tasks (a project-wide view, over the rest). The
-// repository is the lead picked as whose, so which of the middle two is on
-// is remembered per project in last and views, with whoever else it showed.
-export type LeadTab = 'agents' | 'files' | 'evidence' | 'schedules';
+// The lead's panel is five tabs on a switch at its top: Agents, the list;
+// Pull requests, the project's, over whoever it showed as the project's own
+// view; Files, the repository's tree; Evidence, its media and pages; and
+// Schedules, the project's scheduled tasks (also a project-wide view). The
+// repository is the lead picked as whose, so which of Agents, Files and
+// Evidence is on is remembered per project in last and views, with whoever
+// else it showed; Pull requests and Schedules, for this session only.
+export type LeadTab = 'agents' | 'pulls' | 'files' | 'evidence' | 'schedules';
+export const leadTabs: LeadTab[] = ['agents', 'pulls', 'files', 'evidence', 'schedules'];
 export function leadTab(state: PanelState, project: string): LeadTab {
   const lead = leadOf(project);
-  if (chatPanel(state, lead).wide === 'schedules') return 'schedules';
+  const wide = chatPanel(state, lead).wide;
+  if (wide === 'pulls' || wide === 'schedules') return wide;
   if (state.last[project] !== lead) return 'agents';
   return state.views[lead] === 'evidence' ? 'evidence' : 'files';
 }
 export function setLeadTab(project: string, tab: LeadTab): void {
   const lead = leadOf(project);
-  if (tab === 'agents') return panelClose(lead);
-  if (tab === 'schedules') return setView(lead, '', 'schedules');
   const state = panelState();
+  if (tab === 'pulls') return setView(lead, lead, 'pulls');
+  if (tab === 'schedules') return setView(lead, '', 'schedules');
+  if (tab === 'agents') return update(lead, (p) => ({ ...bare(p), open: true }), { last: { ...state.last, [project]: listTarget } });
   update(lead, (p) => ({ ...bare(p), open: true }), { last: { ...state.last, [project]: lead }, views: { ...state.views, [lead]: tab } });
 }
 
