@@ -1495,6 +1495,7 @@ func toAPIMemoryUsage(u agent.MemoryUsage) api.MemoryUsage {
 	out := api.MemoryUsage{
 		HostTotal: u.HostTotal, AgentsUsed: u.AgentsUsed, OtherUsed: u.OtherUsed,
 		SwapTotal: u.SwapTotal, SwapUsed: u.SwapUsed, AgentsSwap: u.AgentsSwap,
+		Used: u.Used, FileCache: u.FileCache, Leads: u.Leads, AgentBox: u.AgentBox, Kernel: u.Kernel,
 		Agents: make([]api.MemoryUsageAgent, 0, len(u.Agents)),
 	}
 	if u.Zram != nil {

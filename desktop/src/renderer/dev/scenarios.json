@@ -2313,5 +2313,35 @@
     "width": 1280,
     "height": 1000,
     "click": "[data-v2-idle-toggle]"
+  },
+  {
+    "id": "frozen-badge-v2-dark",
+    "description": "UI v2 at 1920×1080, the lead's panel: agent-85 (machine paused for memory, 2 ahead) and agent-35 (idle, processes frozen by idle reclaim) carry a Frozen badge whose tooltip says why — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "frozen-badge-classic-dark",
+    "description": "Classic at 1280×900, the agents' rail: the same two agents carry a Frozen badge beside their status — dark",
+    "query": "app=project&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "memory-breakdown-popover-dark",
+    "description": "The top bar's VM memory popover: used memory split into agents, project chats, AgentBox, compressed swap and kernel (adding up to the figure above), and the file cache beside it — dark",
+    "query": "meters=memory&topbar=detailed&theme=dark",
+    "width": 1280,
+    "height": 900,
+    "click": "[data-meter=memory]"
+  },
+  {
+    "id": "memory-breakdown-popover-pt-dark",
+    "description": "The same popover in pt-BR — dark",
+    "query": "meters=memory&topbar=detailed&theme=dark&lang=pt-BR",
+    "width": 1280,
+    "height": 900,
+    "click": "[data-meter=memory]"
   }
 ]

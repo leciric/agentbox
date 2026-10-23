@@ -416,6 +416,7 @@ function MemoryPanel({ vm, status, onSelect }: { vm: VMPower | null; status: Sta
         <span className="py-1 text-[12px] text-rose-300">{query.error instanceof Error ? query.error.message : String(query.error)}</span>
       ) : (
         <div className="grid min-w-0 max-h-72 gap-2 overflow-y-auto border-t border-line pt-2.5 pr-1">
+          <MemoryBreakdown usage={query.data} />
           {[...query.data.agents]
             .sort((a, b) => b.memory - a.memory)
             .map((a) => (
@@ -427,6 +428,47 @@ function MemoryPanel({ vm, status, onSelect }: { vm: VMPower | null; status: Sta
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// MemoryBreakdown is where the VM's used memory goes, in rows that add up to
+// it: the agents' machines (the sum their rows show), the project chats
+// outside any machine, AgentBox's own processes, the RAM the compressed swap
+// takes, and the rest (kernel and services). The agents' file cache comes
+// after, apart: it isn't counted as used, as the VM gives it back when it
+// must. Nothing from a daemon that doesn't measure it yet.
+function MemoryBreakdown({ usage }: { usage: T.MemoryUsage }) {
+  const t = useT();
+  if (!usage.used) return null;
+  const rows = [
+    { key: 'agents', label: t('shell.machine.memoryGoesAgents'), bytes: usage.agentsUsed, swatch: 'bg-brand-400' },
+    { key: 'leads', label: t('shell.machine.memoryGoesLeads'), tip: t('shell.machine.memoryGoesLeadsTip'), bytes: usage.leads, swatch: 'bg-sky-400' },
+    { key: 'agentbox', label: t('shell.machine.memoryGoesAgentbox'), tip: t('shell.machine.memoryGoesAgentboxTip'), bytes: usage.agentbox, swatch: 'bg-violet-400' },
+    ...(usage.zram
+      ? [{ key: 'zram', label: t('shell.machine.memoryGoesZram'), tip: t('shell.machine.memoryGoesZramTip', { swapped: humanBytes(usage.zram.swapBytes) }), bytes: usage.zram.realBytes, swatch: 'bg-amber-400' }]
+      : []),
+    { key: 'kernel', label: t('shell.machine.memoryGoesKernel'), tip: t('shell.machine.memoryGoesKernelTip'), bytes: usage.kernel, swatch: 'bg-slate-400' },
+  ];
+  return (
+    <div className="grid gap-1.5" data-memory-breakdown>
+      <span className="text-[11px] font-medium uppercase tracking-wide text-faint">{t('shell.machine.memoryGoes')}</span>
+      <div className="flex h-1.5 overflow-hidden rounded-full bg-surface-strong">
+        {rows.map((r) => (
+          <div key={r.key} className={r.swatch} style={{ width: `${(Math.max(r.bytes, 0) / usage.used) * 100}%` }} />
+        ))}
+      </div>
+      {rows.map((r) => (
+        <div key={r.key} className="flex items-center gap-2 text-[11.5px] text-muted" title={r.tip} data-breakdown={r.key}>
+          <span className={cn('size-1.5 shrink-0 rounded-full', r.swatch)} />
+          <span className="min-w-0 flex-1 truncate">{r.label}</span>
+          <span className="font-mono tabular-nums text-faint">{humanBytes(r.bytes)}</span>
+        </div>
+      ))}
+      <div className="flex items-center gap-2 border-t border-line pt-1.5 text-[11.5px] text-muted" title={t('shell.machine.memoryGoesCacheTip')} data-breakdown="cache">
+        <span className="min-w-0 flex-1 truncate">+ {t('shell.machine.memoryGoesCache')}</span>
+        <span className="font-mono tabular-nums text-faint">{humanBytes(usage.fileCache)}</span>
+      </div>
     </div>
   );
 }

@@ -19,6 +19,7 @@ import { AgentAvatar } from './state';
 import { Skeleton, skeletonWidths } from './ui/skeleton';
 import { PrChip } from './PrChip';
 import { Tip } from './ui/tooltip';
+import { FrozenBadge } from './FrozenBadge';
 
 // AgentRail is a project's agents, kept visible beside whatever you're looking
 // at: the lead's chat, an agent's own view, or the project's page behind it.
@@ -454,6 +455,7 @@ function AgentRow({
               >
                 {status.text}
               </span>
+              <FrozenBadge agent={agent} />
               {disk !== undefined && (
                 <span className="shrink-0 tabular-nums text-faint" title={t('agent.rail.machineDisk')} data-rail-disk>
                   · {humanBytes(disk)}

@@ -666,6 +666,11 @@ export interface MemoryUsage {
   swapTotal: number;
   swapUsed: number;
   agentsSwap: number;
+  used: number;
+  fileCache: number;
+  leads: number;
+  agentbox: number;
+  kernel: number;
   zram?: ZramUsage;
   agents: MemoryUsageAgent[];
 }

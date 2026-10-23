@@ -1866,15 +1866,21 @@ export function seedLinuxVM(queryClient: QueryClient, kind: string): void {
 export function seedMeterUsage(queryClient: QueryClient): void {
   const GiB = 1024 ** 3;
   const memoryUsage: T.MemoryUsage = {
-    hostTotal: 32 * GiB,
-    agentsUsed: 12 * GiB,
-    otherUsed: 3 * GiB,
+    // The user's VM, measured on 2026-10-23: 16.8 of 17.8 GiB used.
+    hostTotal: 17.8 * GiB,
+    agentsUsed: 11.4 * GiB,
+    otherUsed: 5.4 * GiB,
+    used: 16.8 * GiB,
+    fileCache: 2.6 * GiB,
+    leads: 1.5 * GiB,
+    agentbox: 2 * GiB,
+    kernel: 0.8 * GiB,
     swapTotal: 20 * GiB,
     swapUsed: 17.5 * GiB,
     agentsSwap: 17.5 * GiB,
-    zram: { swapBytes: 17.5 * GiB, realBytes: 3.6 * GiB },
+    zram: { swapBytes: 17.5 * GiB, realBytes: 1.1 * GiB },
     agents: [
-      { ref: `${PROJECT}/agent-90`, title: 'Bump Electron to the next major, and every native module that breaks with it', state: 'paused', memory: 4 * GiB, swap: 17.5 * GiB },
+      { ref: `${PROJECT}/agent-90`, title: 'Bump Electron to the next major, and every native module that breaks with it', state: 'paused', memory: 3.4 * GiB, swap: 17.5 * GiB },
       { ref: `${PROJECT}/agent-99`, title: 'PR agent', state: 'running', memory: 6 * GiB, swap: 0 },
       { ref: `${PROJECT}/agent-12`, title: 'Add a "New project" button to the Sidebar', state: 'running', memory: 2 * GiB, swap: 0 },
     ],

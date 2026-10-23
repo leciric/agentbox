@@ -115,6 +115,22 @@ export function machineHold(agent: Pick<T.Agent, 'memory'>): { text: string; tip
   return undefined;
 }
 
+// frozenTip is why an agent is frozen, for the "Frozen" badge on its row, or
+// undefined when it isn't: its whole machine paused for memory (T.MemoryHold
+// machine "paused", with its place in line to thaw) or, while its chat is
+// idle, its processes frozen by idle reclaim (T.Agent.reclaimed). Both
+// resume by themselves.
+export function frozenTip(agent: Pick<T.Agent, 'state' | 'chat' | 'memory' | 'reclaimed'>): string | undefined {
+  const held = agent.memory;
+  if (held?.machine === 'paused') {
+    const why = memoryWhy(held);
+    const tip = t('agent.frozen.memoryTip', { place: formatNumber((held.ahead ?? 0) + 1) });
+    return why ? `${tip} ${why}` : tip;
+  }
+  if (agent.state === 'running' && agent.chat !== 'running' && agent.reclaimed === 'frozen') return t('agent.frozen.idleTip');
+  return undefined;
+}
+
 const memoryWhys: Record<string, MessageKey> = {
   stalling: 'agent.status.memoryWhy.stalling',
   falling: 'agent.status.memoryWhy.falling',

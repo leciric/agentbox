@@ -1380,14 +1380,22 @@ type ZramUsage struct {
 // popover shows it: every agent, largest first, and what's left once they're
 // accounted for. Computed when the popover opens, not kept warm on a poll.
 type MemoryUsage struct {
-	HostTotal  int64              `json:"hostTotal"`
-	AgentsUsed int64              `json:"agentsUsed"`
-	OtherUsed  int64              `json:"otherUsed"`
-	SwapTotal  int64              `json:"swapTotal"`
-	SwapUsed   int64              `json:"swapUsed"`
-	AgentsSwap int64              `json:"agentsSwap"`
-	Zram       *ZramUsage         `json:"zram,omitempty"`
-	Agents     []MemoryUsageAgent `json:"agents"`
+	HostTotal  int64 `json:"hostTotal"`
+	AgentsUsed int64 `json:"agentsUsed"`
+	OtherUsed  int64 `json:"otherUsed"`
+	SwapTotal  int64 `json:"swapTotal"`
+	SwapUsed   int64 `json:"swapUsed"`
+	AgentsSwap int64 `json:"agentsSwap"`
+	// Used is the VM's used memory, which AgentsUsed, Leads, AgentBox,
+	// Zram.RealBytes and Kernel add up to. FileCache is on top of it: the
+	// agents' file cache, given back when memory runs short.
+	Used      int64              `json:"used"`
+	FileCache int64              `json:"fileCache"`
+	Leads     int64              `json:"leads"`
+	AgentBox  int64              `json:"agentbox"`
+	Kernel    int64              `json:"kernel"`
+	Zram      *ZramUsage         `json:"zram,omitempty"`
+	Agents    []MemoryUsageAgent `json:"agents"`
 }
 
 // CPUUsageAgent is one agent's share of the host's CPU: its current use.

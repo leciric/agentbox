@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { avatarMood, awaiting, chatLabel, isAsking, memoryHold, projectTone, rank, settled, statusTip, summarizeStatus } from './agentStatus.ts';
+import { avatarMood, awaiting, chatLabel, isAsking, frozenTip, memoryHold, projectTone, rank, settled, statusTip, summarizeStatus } from './agentStatus.ts';
 
 const agent = (state: string, chat?: string): T.Agent => ({ state, chat }) as T.Agent;
 
@@ -237,4 +237,15 @@ test('an agent being made is starting whatever its chat says, and never needs yo
       assert.equal(rank(a), 1, `${state}/${chat}`);
     }
   }
+});
+
+test('frozen: a machine paused for memory says its place in line, idle reclaim says it is idle', () => {
+  const paused = { ...agent('running', 'ready'), memory: { machine: 'paused', ahead: 2 } } as T.Agent;
+  assert.match(frozenTip(paused)!, /number 3 in line to resume/);
+  const idle = { ...agent('running', 'ready'), reclaimed: 'frozen' } as T.Agent;
+  assert.match(frozenTip(idle)!, /Frozen while idle/);
+  // Working again, waiting to boot, or untouched: not frozen.
+  assert.equal(frozenTip({ ...idle, chat: 'running' } as T.Agent), undefined);
+  assert.equal(frozenTip({ ...agent('running', 'ready'), memory: { machine: 'waiting', ahead: 1 } } as T.Agent), undefined);
+  assert.equal(frozenTip(agent('running', 'ready')), undefined);
 });

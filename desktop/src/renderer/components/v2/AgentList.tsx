@@ -34,6 +34,7 @@ import { LiveDesktop } from '../pip/LiveDesktop';
 import { useInUse } from '../pip/inUse';
 import { AgentAvatar } from '../state';
 import { Tip } from '../ui/tooltip';
+import { FrozenBadge } from '../FrozenBadge';
 import { useOpenReview, useProjectReview } from './ReviewV2';
 import { StMark } from './SidebarV2';
 
@@ -332,6 +333,7 @@ function AgentLine({ agent, st, mood, active, live, ready, pr, fleet, at, report
             </span>
           )}
           <span className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-x-clip whitespace-nowrap text-[10.5px] leading-4 text-faint empty:hidden" data-list-meta>
+            <FrozenBadge agent={agent} />
             {pr && <PrChip pr={pr} dataAttr="data-list-pr" />}
             {ready && (
               <span className="shrink-0 rounded bg-surface-strong px-1 font-medium text-secondary" data-list-ready>
