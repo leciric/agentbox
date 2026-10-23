@@ -279,6 +279,7 @@ type Server struct {
 	memoryEvents   func(instance string) (agent.MemoryCounts, bool)
 	oomVictim      func(instance string) (agent.OOMVictim, bool)
 	oomSeen        map[string]agent.MemoryCounts
+	oomAt          map[string]time.Time // when the watch last saw a machine's kills rise
 	loggedOnce     map[string]string
 	// wakeMu makes one start of a stopped machine for a message at a time
 	// (wake.go).
@@ -347,6 +348,7 @@ func New(cfg Config) (*Server, error) {
 		memoryEvents:     agent.MemoryEvents,
 		oomVictim:        agent.LastOOMVictim,
 		oomSeen:          map[string]agent.MemoryCounts{},
+		oomAt:            map[string]time.Time{},
 		loggedOnce:       map[string]string{},
 		cpuKick:          make(chan struct{}, 1),
 		cpuEvery:         cpuShareInterval,

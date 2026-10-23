@@ -890,7 +890,7 @@ func (s *Server) mergePullRequest(w http.ResponseWriter, r *http.Request) error 
 	}
 
 	if err := client.Merge(ctx, repo, number, method); err != nil {
-		s.recordError(errPRMergeFailed, "")
+		s.recordErr(errPRMergeFailed, "", err, repo.Owner, repo.Name)
 		return err
 	}
 	pr.State = "merged"

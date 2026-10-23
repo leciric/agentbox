@@ -1180,7 +1180,11 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 				// is still waiting on, the same as a finish it asked for.
 				s.tellLead(ctx, req.Project, fmt.Sprintf("create_agent failed: %v", err), true)
 			}
-			s.recordError(errCreateFailed, req.AI)
+			// One the job's cancel stopped didn't fail.
+			if ctx.Err() == nil {
+				class, reason := s.createReason(err, req.Project, req.Name, req.Title, req.Branch)
+				s.recordError(errCreateFailed, req.AI, class, reason)
+			}
 			return nil, err
 		}
 		s.countFeature(agentFeature(a.AI, api.FeatureAgentCreateClaude, api.FeatureAgentCreateCodex, api.FeatureAgentCreateOpenCode, api.FeatureAgentCreateCursor))
@@ -1264,7 +1268,7 @@ func (s *Server) agentAction(action string) func(http.ResponseWriter, *http.Requ
 		switch action {
 		case "start":
 			if err = s.startMachine(ctx, m, a, "a start request"); err != nil {
-				s.recordError(errStartFailed, a.AI)
+				s.recordErr(errStartFailed, a.AI, err, agentNames(a)...)
 			}
 		case "stop":
 			s.chat.Stop(a.Ref(), "the agent was stopped")
@@ -1797,7 +1801,7 @@ func (s *Server) refreshClaudeTokens(creds credentials.Store) {
 // there is nothing to check: the app and `agentbox auth status` say so at once
 // rather than at the next hourly check.
 func (s *Server) claudeAuthFailed(a state.Agent, detail string) {
-	s.recordError(errAuthFailed, a.AI)
+	s.recordError(errAuthFailed, a.AI, classAuth, s.errorReason(detail, agentNames(a)...))
 	if a.AI != "claude" {
 		return
 	}

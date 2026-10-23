@@ -625,7 +625,7 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		for i := len(undo) - 1; i >= 0; i-- {
 			undo[i]()
 		}
-		return state.Agent{}, fmt.Errorf("creating %s: %s: %w", a.Ref(), step, err)
+		return state.Agent{}, &CreateError{Ref: a.Ref(), Step: step, Err: err}
 	}
 
 	if pl.queued != nil {
@@ -748,13 +748,13 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 	err := run(func(ctx context.Context, c incus.Client) error { return c.Copy(ctx, source, a.Instance) })
 	release()
 	if err != nil {
-		return "instance", err
+		return "copying the base", err
 	}
 	*undo = append(*undo, func() { _ = m.Incus.Delete(cleanup, a.Instance) })
 
 	copied, err := m.Incus.Details(cleanup, a.Instance)
 	if err != nil {
-		return "instance", err
+		return "copying the base", err
 	}
 	var steps []incusStep
 	// A copy of another agent brings that agent's devices along: replace them.
@@ -780,27 +780,30 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 	// agent may carry it when it's off.
 	gpu, err := m.wantGPU(ctx)
 	if err != nil {
-		return "instance", err
+		return "devices", err
 	}
 	steps = append(steps, m.gpuSteps(a.Instance, gpu, copied.Devices)...)
 	steps = append(steps,
 		func(ctx context.Context, _ incus.Client) error { return m.setStartShare(ctx, a.Instance) },
 		func(ctx context.Context, c incus.Client) error { return c.Start(ctx, a.Instance) },
 	)
-	for _, step := range steps {
+	for i, step := range steps {
 		if err := run(step); err != nil {
-			return "instance", err
+			if i == len(steps)-1 {
+				return "starting the machine", err
+			}
+			return "devices", err
 		}
 	}
 	inst, err := m.Incus.WaitReady(ctx, a.Instance, readyTimeout)
 	if err != nil {
-		return "instance", err
+		return "waiting for the machine", err
 	}
 	// A mount can be hidden by one the agent's OS makes at boot, so check, as the
 	// agent's user, that git works in the worktree.
 	var gitOut bytes.Buffer
 	if err := m.Incus.UserExec(ctx, a.Instance, m.User.Name, "git -C "+shellQuote(a.Worktree)+" rev-parse --git-dir", nil, &gitOut, &gitOut); err != nil {
-		return "instance", fmt.Errorf("the worktree isn't usable inside the agent: %w: %s", err, strings.TrimSpace(gitOut.String()))
+		return "worktree mount", fmt.Errorf("the worktree isn't usable inside the agent: %w: %s", err, strings.TrimSpace(gitOut.String()))
 	}
 	// Tools that find a monorepo's root through git write next to the main
 	// checkout's .git: Turborepo keeps its cache there. Inside the agent that
@@ -808,7 +811,7 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 	// agent's user, so those writes land in the agent's own filesystem; the
 	// project's checkout on the host isn't mounted, and stays untouched.
 	if _, err := m.Incus.Exec(ctx, a.Instance, "chown", fmt.Sprintf("%d:%d", m.User.UID, m.User.GID), filepath.Dir(repo.GitDir)); err != nil {
-		return "instance", err
+		return "worktree mount", err
 	}
 	if err := m.EnsureAgentAPI(ctx, a); err != nil {
 		return "in-agent API", err
@@ -834,6 +837,20 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 	}
 	return "", nil
 }
+
+// CreateError is a create that failed at one of its steps: "worktree",
+// "copying the base", "starting the machine", "configure"... The step is
+// AgentBox's own words, so a usage event may name it (daemon/errorreason.go).
+type CreateError struct {
+	Ref, Step string
+	Err       error
+}
+
+func (e *CreateError) Error() string {
+	return fmt.Sprintf("creating %s: %s: %v", e.Ref, e.Step, e.Err)
+}
+
+func (e *CreateError) Unwrap() error { return e.Err }
 
 // checkImageTool reports that the base image has the agent's AI tool built
 // into it. Codex and OpenCode are optional in the image (image.Options), so an

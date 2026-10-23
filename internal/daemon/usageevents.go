@@ -26,7 +26,9 @@ import (
 // the update check (sendUsage) to agentbox.linting.dev's /api/v1/events. Each
 // is a name and fixed fields, every one a number, a yes or no, or a value from
 // a fixed list here: never a prompt, a path, a name, a branch, or anything
-// typed. The server refuses an event with any other name or field
+// typed. The one exception is an error's reason, the error's own wording
+// with all of those taken out (errorreason.go). Every event also carries the
+// installation's UTC offset in whole hours (usageUTCOffset). The server refuses an event with any other name or field
 // (agentbox-landing's functions/api/v1/events.ts), so the two lists change
 // together. The same rules as the counts decide whether one is kept at all
 // (usageStatsOn), and turning the stats off forgets those not sent.
@@ -81,10 +83,14 @@ type agentFinishedEvent struct {
 	PRMerged bool   `json:"pr_merged"`
 }
 
-// errorEvent is something that failed, by a fixed code.
+// errorEvent is something that failed, by a fixed code, with why: a class
+// from a fixed list (errorClasses) and the error's redacted wording
+// (errorReason), "" when there is none.
 type errorEvent struct {
-	Code string `json:"code"`
-	Tool string `json:"tool"`
+	Code   string `json:"code"`
+	Tool   string `json:"tool"`
+	Class  string `json:"class"`
+	Reason string `json:"reason"`
 }
 
 // setupEvent is a step of a new installation's setup, the first time it
@@ -132,9 +138,15 @@ func (s *Server) recordEvent(name string, props any) {
 		return
 	}
 	raw, err := json.Marshal(props)
-	if err != nil {
+	if err != nil || len(raw) < 2 || raw[len(raw)-1] != '}' {
 		return
 	}
+	offset, _ := json.Marshal(s.usageUTCOffset(ctx, time.Now()))
+	sep := ","
+	if len(raw) == 2 {
+		sep = ""
+	}
+	raw = append(append(raw[:len(raw)-1], sep+`"utc_offset":`...), append(offset, '}')...)
 	e := state.UsageEvent{ID: uuid.NewString(), Day: usageDay(time.Now()), Name: name, Props: raw}
 	if err := s.store.AddUsageEvent(ctx, e); err != nil {
 		s.logf("recording %s: %v", name, err)
@@ -211,13 +223,22 @@ func usageSpan(d time.Duration) string {
 	return "gt_1w"
 }
 
-// recordError keeps an error event, with the agent's tool when there is one.
-func (s *Server) recordError(code, ai string) {
+// recordError keeps an error event, with the agent's tool when there is one,
+// and why (errorClass, errorReason).
+func (s *Server) recordError(code, ai, class, reason string) {
 	tool := "none"
 	if ai == "claude" || ai == "codex" || ai == "opencode" || ai == "cursor" {
 		tool = ai
 	}
-	s.recordEvent(eventError, errorEvent{Code: code, Tool: tool})
+	if !slices.Contains(errorClasses, class) {
+		class = classOther
+	}
+	s.recordEvent(eventError, errorEvent{Code: code, Tool: tool, Class: class, Reason: reason})
+}
+
+// recordErr is recordError for err, whose text is redacted of names too.
+func (s *Server) recordErr(code, ai string, err error, names ...string) {
+	s.recordError(code, ai, errorClass(err, ""), s.errorReason(err.Error(), names...))
 }
 
 // recordAgentFinished keeps an agent.finished for a, which was just destroyed

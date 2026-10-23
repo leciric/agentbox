@@ -660,6 +660,9 @@ func (s *Server) watchMemory(ctx context.Context) {
 		s.mu.Lock()
 		seen, known := s.oomSeen[a.Instance]
 		s.oomSeen[a.Instance] = now
+		if known && now.Kills > seen.Kills {
+			s.oomAt[a.Instance] = time.Now()
+		}
 		s.mu.Unlock()
 		// The first look at a machine counts what was killed before this
 		// daemon was there to tell anyone.
