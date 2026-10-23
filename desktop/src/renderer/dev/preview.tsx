@@ -463,6 +463,11 @@ if (chat === 'limited') {
     claude: true,
     claudeAccounts: [{ name: 'personal', default: true, savedAt: personal.at }, { name: 'work', default: false, savedAt: work.at }],
   }));
+  // The bridge has no chat or accounts to refetch after the switch: the
+  // preview's own copies, which the switch updates, stay.
+  const invalidate = queryClient.invalidateQueries.bind(queryClient);
+  queryClient.invalidateQueries = ((filters?: Parameters<typeof invalidate>[0]) =>
+    ['chat', 'agentRunners'].includes(String(filters?.queryKey?.[0])) ? Promise.resolve() : invalidate(filters)) as typeof invalidate;
   const resumeAt = new Date(Date.now() + 3 * 3600_000).toISOString();
   const thread = asleepChat(limitedRef);
   queryClient.setQueryData<T.ChatThread>(['chat', limitedRef], { ...thread, session: { ...thread.session, state: 'ready', limited: true, limitedUntil: resumeAt, resumeAt } });

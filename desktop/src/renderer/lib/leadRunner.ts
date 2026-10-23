@@ -40,7 +40,7 @@ export interface RunnerChoice {
 export function runnerChoices(runners: T.LeadRunners): RunnerChoice[] {
   const target = runners.nextTool || runners.tool;
   const out: RunnerChoice[] = [];
-  for (const r of runners.runners) {
+  for (const r of runners.runners ?? []) {
     const opencode = r.tool === 'opencode' && r.ready ? runners.toolAccounts?.opencode : undefined;
     const note = !r.ready ? t('chat.runner.notSignedIn', { tool: r.name }) : !r.installed ? t('chat.runner.installs') : opencode || undefined;
     const accounts = r.accounts ?? [];
