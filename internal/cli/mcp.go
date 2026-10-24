@@ -467,10 +467,15 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 			Description: "Create an agent and give it a task. It gets its own machine and, unless " +
 				"research is true, its own branch. Prefer several small well-briefed agents over one " +
 				"that is asked to do everything. Write the task directly: what to do, what done looks like, " +
-				"what to leave alone, and nothing its brief or the project already says. " + startsOn,
-			Schema: object([]string{"title", "task"}, merge(map[string]any{
-				"title": str("a short name the user will recognise in the sidebar, like \"Reminders page\""),
-				"task":  str("what to do, directly: usually a few lines"),
+				"what to leave alone, and nothing its brief or the project already says. To hand it one of the project's GitHub " +
+				"issues (list_issues), pass issue: its task is then the issue itself (title, description and comments), its pull " +
+				"request says \"Closes #N\", the Issues view shows the agent on the issue, and title, task and branch are optional. " + startsOn,
+			Schema: object(nil, merge(map[string]any{
+				"title": str("a short name the user will recognise in the sidebar, like \"Reminders page\". Required unless issue is given"),
+				"task": str("what to do, directly: usually a few lines. Required unless issue is given; with an issue, it is added after " +
+					"the issue as your own instructions, like what to leave alone"),
+				"issue": map[string]any{"type": "integer", "description": "the number of one of the project's open GitHub issues " +
+					"(list_issues) to make this agent for. An issue that is already with an agent still there is refused."},
 				"branch": str("its branch, after the project's prefix: short lowercase kebab-case naming the work, like " +
 					"\"fix-login-redirect\" or \"feat-csv-export\", at most 48 characters. Pass one every time; left out, it is made " +
 					"from the title. A branch that is already taken gets -2, -3… appended."),
@@ -501,6 +506,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 			Run: func(args json.RawMessage) (string, error) {
 				var in struct {
 					Title, Task, From, AI, Branch string
+					Issue                         int
 					ClaudeAccount                 string            `json:"claude_account"`
 					CodexAccount                  string            `json:"codex_account"`
 					CursorAccount                 string            `json:"cursor_account"`
@@ -518,8 +524,8 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				if err := decode(args, &in); err != nil {
 					return "", err
 				}
-				if strings.TrimSpace(in.Title) == "" || strings.TrimSpace(in.Task) == "" {
-					return "", errors.New("an agent needs a title and a task")
+				if in.Issue == 0 && (strings.TrimSpace(in.Title) == "" || strings.TrimSpace(in.Task) == "") {
+					return "", errors.New("an agent needs a title and a task, or an issue")
 				}
 				ai, err := leadAI(in.AI, ready)
 				if err != nil {
@@ -547,7 +553,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					}
 				}
 				job, err := c.CreateProjectAgent(ctx, api.CreateAgentRequest{
-					Title: in.Title, Task: in.Task, From: in.From, AI: ai, Branch: in.Branch,
+					Title: in.Title, Task: in.Task, Issue: in.Issue, From: in.From, AI: ai, Branch: in.Branch,
 					Autonomous: &autonomous, Model: in.Model, Effort: in.Effort,
 					ContextWindow:    in.ContextWindow,
 					ClaudeAccount:    in.ClaudeAccount,
@@ -562,8 +568,26 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				if err != nil {
 					return "", err
 				}
-				return fmt.Sprintf("Creating %q%s; it starts on the task by itself. Job %s.",
-					in.Title, describeChoices(ai, in.Model, in.Effort, autonomous, notify, cmp.Or(in.ClaudeAccount, in.CodexAccount, in.CursorAccount, describeAccountMap(in.OpenCodeAccounts)))+windowChoice(in.ContextWindow)+connectorChoice(in.Connectors), job.ID), nil
+				what := fmt.Sprintf("%q", in.Title)
+				if in.Issue != 0 {
+					what = fmt.Sprintf("an agent for issue #%d", in.Issue)
+				}
+				return fmt.Sprintf("Creating %s%s; it starts on the task by itself. Job %s.",
+					what, describeChoices(ai, in.Model, in.Effort, autonomous, notify, cmp.Or(in.ClaudeAccount, in.CodexAccount, in.CursorAccount, describeAccountMap(in.OpenCodeAccounts)))+windowChoice(in.ContextWindow)+connectorChoice(in.Connectors), job.ID), nil
+			},
+		},
+		{
+			Name: "list_issues",
+			Description: "This project's open GitHub issues, read with its GitHub account: each one's number, title, labels and " +
+				"comment count, and, for those already handed to an agent, which agent, whether it is still there, and the pull " +
+				"request it opened. Hand one to a new agent with create_agent's issue. Issues labelled \"" + api.IssueLabel + "\" are " +
+				"picked up by themselves when the project's setting for it is on, which this says.",
+			Run: func(json.RawMessage) (string, error) {
+				issues, err := c.LeadIssues(ctx)
+				if err != nil {
+					return "", err
+				}
+				return describeIssues(issues), nil
 			},
 		},
 		{
@@ -1806,6 +1830,52 @@ func describeFulfilled(out api.FulfilCredentialResponse) string {
 }
 
 // describeConnectors is list_connectors' answer.
+// describeIssues is list_issues' answer: one line per open issue.
+func describeIssues(in api.ProjectIssues) string {
+	switch {
+	case in.NoOrigin:
+		return "This project's checkout has no origin remote, so it has no GitHub issues to read."
+	case in.NonGitHubRemote != "":
+		return fmt.Sprintf("This project's origin (%s) isn't a GitHub repository, so it has no GitHub issues to read.", in.NonGitHubRemote)
+	case in.GitHubError != nil:
+		return "Couldn't read this project's GitHub issues: " + in.GitHubError.Message
+	}
+	var b strings.Builder
+	pickup := "off: issues are only handed to agents when you or the user do"
+	if in.PickUpIssues {
+		pickup = "on: open issues labelled \"" + in.Label + "\" get an agent by themselves, a few every five minutes"
+	}
+	fmt.Fprintf(&b, "Open issues of %s (%d). Picking up labelled issues is %s.\n", in.GitHub, len(in.Issues), pickup)
+	for _, is := range in.Issues {
+		fmt.Fprintf(&b, "- #%d %s", is.Number, is.Title)
+		if len(is.Labels) > 0 {
+			names := make([]string, len(is.Labels))
+			for i, l := range is.Labels {
+				names[i] = l.Name
+			}
+			fmt.Fprintf(&b, " [%s]", strings.Join(names, ", "))
+		}
+		if is.Comments > 0 {
+			fmt.Fprintf(&b, ", %d comment(s)", is.Comments)
+		}
+		if h := is.Handed; h != nil {
+			switch {
+			case h.Agent == "":
+				fmt.Fprintf(&b, "; its agent is being made (job %s)", h.Job)
+			case h.Retired:
+				fmt.Fprintf(&b, "; was handed to %s, since retired", h.Agent)
+			default:
+				fmt.Fprintf(&b, "; with %s (%s)", h.Agent, h.Status)
+			}
+			if pr := h.PullRequest; pr != nil {
+				fmt.Fprintf(&b, ", pull request #%d %s", pr.Number, pr.State)
+			}
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
 func describeConnectors(found []api.Connector) string {
 	if len(found) == 0 {
 		return "This project has no connectors. If an agent needs a service like Notion or Linear as tools, ask the user " +
