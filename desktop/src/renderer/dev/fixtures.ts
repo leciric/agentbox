@@ -1117,6 +1117,12 @@ export function patchDevAgent(ref: string, over: Partial<T.Agent>): void {
   devState.agents = devState.agents?.map((a) => (a.ref === ref ? { ...a, ...over } : a));
 }
 
+// addDevAgent adds an agent to what the dev bridge answers, as a create does
+// (dev/issues.ts's hand-off).
+export function addDevAgent(agent: T.Agent): void {
+  devState.agents = [agent, ...(devState.agents ?? [])];
+}
+
 // dropDevAgent removes an agent from what the dev bridge answers, as a
 // destroy does (preview.tsx's &destroy=).
 export function dropDevAgent(ref: string): void {
