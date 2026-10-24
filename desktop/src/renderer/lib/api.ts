@@ -453,6 +453,10 @@ export const api = {
   // daemon's cache: the tab's refresh button.
   projectPullRequests: (project: string, refresh = false) =>
     call<T.ProjectPullRequests>('GET', `/v1/projects/${encodeURIComponent(project)}/pulls${refresh ? '?refresh=1' : ''}`),
+  // A project repository's open issues, each with the agent it was handed to;
+  // refresh reads GitHub now. Handing one over is createAgent with its issue.
+  projectIssues: (project: string, refresh = false) =>
+    call<T.ProjectIssues>('GET', `/v1/projects/${encodeURIComponent(project)}/issues${refresh ? '?refresh=1' : ''}`),
   projectLabels: (project: string) => call<T.ProjectLabels>('GET', `/v1/projects/${encodeURIComponent(project)}/labels`),
   editPullRequestLabels: (project: string, number: number, edit: T.EditLabelsRequest) =>
     call<T.Label[]>('POST', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}/labels`, edit satisfies T.EditLabelsRequest),

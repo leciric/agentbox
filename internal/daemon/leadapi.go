@@ -103,6 +103,7 @@ func (s *Server) leadRoutes(project string) http.Handler {
 	mux.HandleFunc("GET /v1/project/settings", withProject(s.leadSettings))
 	mux.HandleFunc("GET /v1/project/agents", withProject(s.fleet))
 	mux.HandleFunc("POST /v1/project/agents", withProject(s.leadCreateAgent))
+	mux.HandleFunc("GET /v1/project/issues", withProject(s.leadIssues))
 	mux.HandleFunc("POST /v1/project/groups", withProject(s.leadFanOut))
 	mux.HandleFunc("GET /v1/project/groups", withProject(s.leadListGroups))
 	mux.HandleFunc("GET /v1/project/groups/{id}", withProject(s.getGroup))

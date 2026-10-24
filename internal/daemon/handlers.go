@@ -46,7 +46,7 @@ func (s *Server) projectInfo(ctx context.Context, p state.Project) api.Project {
 		AgentModel: p.AgentModel, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
 		RolloverThreshold: p.RolloverThreshold, ContextBudget: p.ContextBudget,
 		Consolidation: p.Consolidation, ConsolidationModel: p.ConsolidationModel,
-		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, FullTestSuite: p.FullTestSuite, CreatedAt: p.CreatedAt}
+		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, FullTestSuite: p.FullTestSuite, PickUpIssues: p.PickUpIssues, CreatedAt: p.CreatedAt}
 	// One primary-key lookup: listProjects runs this for every project.
 	if v, err := s.store.ProjectIconVersion(ctx, p.Name); err == nil {
 		info.IconVersion = v
@@ -468,6 +468,17 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 		p.PRWatch = watch
 		s.prWatch.poke(p.Name)
 		rewriteBrief()
+	}
+	if req.PickUpIssues != nil {
+		if err := s.store.SetProjectPickUpIssues(r.Context(), p.Name, *req.PickUpIssues); err != nil {
+			return err
+		}
+		p.PickUpIssues = *req.PickUpIssues
+		// Turned on, the issues already waiting are picked up now rather than
+		// at the next pass.
+		if p.PickUpIssues {
+			s.issuePickup.poke()
+		}
 	}
 	if req.FullTestSuite != nil {
 		if err := s.store.SetProjectFullTestSuite(r.Context(), p.Name, *req.FullTestSuite); err != nil {
@@ -1057,6 +1068,9 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 // more than the job: the job that makes the agent, or the finished one that
 // queued it.
 func (s *Server) createAgentJob(ctx context.Context, req api.CreateAgentRequest, byLead bool) (api.Job, error) {
+	if req.Issue != 0 {
+		return s.issueAgentJob(ctx, req, byLead, false)
+	}
 	req, err := s.checkCreate(ctx, req, byLead)
 	if err != nil {
 		return api.Job{}, err

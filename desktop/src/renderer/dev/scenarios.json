@@ -1206,6 +1206,20 @@
     "height": 760
   },
   {
+    "id": "window-wide-issues-dark",
+    "description": "The whole app at 1920×1080, the project's Issues beside its chat: one picked up by its label with its PR, one with a retired agent, the rest waiting to be handed over — dark",
+    "query": "app=issues&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "issues-classic-dark",
+    "description": "The project's Issues tab in the classic layout, at 1440×900 — dark",
+    "query": "app=issues&v2=0&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
     "id": "window-wide-project-dark",
     "description": "The whole app at 1920×1080, on the project's chat — dark",
     "query": "app=project&theme=dark",
