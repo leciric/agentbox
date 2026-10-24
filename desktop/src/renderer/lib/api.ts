@@ -2,6 +2,7 @@
 import type { ApiResponse } from '../../preload';
 import * as T from '../../shared/api.ts';
 import { recordRequest, clientSpansPath } from './appTiming.ts';
+import { recapQuery } from './recap.ts';
 import type * as D from './diagnostics.ts';
 import { errorMessage } from './utils.ts';
 import { ensureVMRunning } from './vm.ts';
@@ -173,6 +174,8 @@ export const api = {
   reportDraft: (req: T.ReportDraftRequest) => call<T.ReportDraft>('POST', '/v1/reports/draft', req),
   sendReport: (req: T.ReportRequest) => call<T.ReportSent>('POST', '/v1/reports', req),
   tokens: (q: TokenQuery) => call<T.TokenReport>('GET', `/v1/tokens${tokenParams(q)}`),
+  // The user's week with AgentBox (components/RecapView): this one, or weeks before.
+  recap: (weeks: number) => call<T.Recap>('GET', recapQuery(weeks)),
   claudeLimits: () => call<T.ClaudeLimit[]>('GET', '/v1/limits'),
   codexLimits: () => call<T.ClaudeLimit[]>('GET', '/v1/limits?tool=codex'),
   tokenTurns: (q: TokenQuery, limit = 100) => call<T.TokenTurn[]>('GET', `/v1/tokens/turns${tokenParams(q, { limit: String(limit) })}`),

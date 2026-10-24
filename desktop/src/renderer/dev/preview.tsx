@@ -11,6 +11,8 @@
 //   ?theme=light            the light appearance (default: dark)
 //   ?concept=timeline       a mock idea, on its own (dev/concepts): timeline is
 //                           agents' work as a timeline over their recording
+//   ?app=recap              Your week with AgentBox (components/RecapView), from
+//                           dev/recap.ts; &recap=empty a week with nothing
 //   ?app=work               the Work page (components/WorkView), of every
 //                           project, from dev/pastAgents.ts; any ?app= has the
 //                           fixture timelines
@@ -1476,6 +1478,7 @@ if (phoneMode === 'frame') {
   const initial: View =
     appView === 'home' ? { kind: 'home' }
     : appView === 'work' ? { kind: 'work' }
+    : appView === 'recap' ? { kind: 'recap' }
     : appView === 'settings' ? { kind: 'settings' }
     : appView === 'homeChat' ? { kind: 'homeChat' }
     : appView === 'project' || appView === 'pulls' ? { kind: 'project', project: PROJECT, tab: appView === 'pulls' ? 'pulls' : 'chat' }

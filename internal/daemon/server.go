@@ -785,6 +785,8 @@ func (s *Server) routes() http.Handler {
 	// What every chat spent, kept after its agent is gone (D83).
 	h("GET /v1/tokens", s.tokenReport)
 	h("GET /v1/tokens/turns", s.tokenTurns)
+	// The user's week with AgentBox, for its page and share cards.
+	h("GET /v1/recap", s.recap)
 	// What Anthropic last said about each Claude account's usage limits (D85).
 	h("GET /v1/limits", s.claudeLimits)
 
