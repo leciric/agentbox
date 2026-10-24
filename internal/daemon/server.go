@@ -123,7 +123,11 @@ type Server struct {
 	prTell func(ctx context.Context, a state.Agent, text string) (told, error)
 	// prLead puts the watch's notice in front of a project's chat: tellLead,
 	// or a test's recorder.
-	prLead      func(ctx context.Context, project, notice string, act bool)
+	prLead func(ctx context.Context, project, notice string, act bool)
+	// restacked are the merged pull requests ("owner/repo#n") whose stack
+	// was moved onto where they merged, so the merge and the watch don't
+	// both move it (stack.go).
+	restacked   sync.Map
 	files       *filesCache      // each agent's worktree file listing, served briefly stale
 	fileWatches *fileWatches     // the folders the app's file trees have open, watched
 	disks       *agentDiskCache  // each agent's machine and worktree sizes, for its info card

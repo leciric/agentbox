@@ -2178,6 +2178,9 @@ type ReviewItem struct {
 	Ref     string `json:"ref"`
 	Title   string `json:"title,omitempty"`
 	Branch  string `json:"branch,omitempty"`
+	// BaseRef is the branch it stands on: another agent's, when it is
+	// stacked on that one's work.
+	BaseRef string `json:"baseRef,omitempty"`
 	AI      string `json:"ai,omitempty"`
 	// Summary is what the agent said when it finished, cut down the way its
 	// finish event cuts it.

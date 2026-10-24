@@ -1,0 +1,92 @@
+# Installing AgentBox
+
+The [README](../README.md#install) has the downloads. This page has the rest: AgentBox's VM on
+Linux, moving an installation from before the VM, and macOS and Windows.
+
+## AgentBox's VM, on Linux
+
+On Linux, AgentBox runs in a VM of its own: the daemon, Incus and every agent in one
+[Cloud Hypervisor](https://www.cloudhypervisor.org) VM, with the CPUs and memory cap you give it
+rather than all of your computer's, so heavy agent work can't freeze your desktop. Nothing is
+installed on your system and no password is asked. It needs `/dev/kvm` (your user in the `kvm`
+group) and an `ssh` client. Setup makes it, at the size you pick; from the command line it's
+`agentbox vm init` (`--cpus`, `--memory-cap`), which fetches Cloud Hypervisor, passt, virtiofsd and
+Debian's cloud image into `~/.local/share/agentbox/vm` and sets the VM up (about a minute). Every
+other `agentbox` command runs in the VM, and until it's made says to run `agentbox vm init`.
+
+The VM starts with 4 GiB and takes more memory as its agents need it, up to its cap (three quarters
+of your memory by default), and gives it back as they stop; the top bar's **Free resources** stops
+every agent and turns the VM off. Settings → Storage and machine changes its CPUs and cap, as does
+`agentbox vm resize`: a running VM changes at once, and its agents keep running. Your home folder is
+shared with the VM at the same path, so projects and agents' worktrees stay where they are.
+`agentbox vm delete --yes` removes it, and every agent's machine in it. Android emulators run in
+the VM's agents when your CPU's KVM module has nested virtualization on (`nested=1`), and boot in
+30–50 seconds rather than 20–25; GPUs aren't available in the VM.
+
+Agents share the VM's memory, and every agent starts at once. Each agent's machine may use all of
+the VM's memory cap but an eighth (at least 1 GiB): a process that outgrows that is stopped at
+once, and its agent is told what was stopped and to run fewer test workers at once. When memory
+runs short, it's the agents' tests and builds that give way: new ones wait to start (in the order
+they asked), and if pressure stays high the newest one already running is paused, its memory moved
+to swap, and resumed once it eases. For that the VM gets compressed swap in memory (zram, a quarter
+of its cap) as AgentBox starts, used before any swapfile from `agentbox vm swap on`. The oldest one
+always keeps running, so they all finish in turn. The agent shows **Paused for memory** or
+**Waiting for memory** meanwhile. Claude Code agents do this around their tests and builds by
+themselves; any other command can join in as `agentbox heavy -- <command>`.
+
+## Moving an installation from before the VM
+
+Earlier versions could also run agents directly on your computer's own Incus. An installation set
+up that way keeps working exactly as it was until you move it, and nothing of it is deleted. After
+updating, the app says once that AgentBox runs in a VM now and takes you to Settings → Setup →
+**Move to a VM**; `agentbox vm migrate` does the same from the command line. It moves all of it in
+one step: projects, settings, accounts, notes, memory, chats and media, and every agent with its
+branch, worktree (uncommitted changes included), title and model. Each agent gets a new
+machine in the VM, and its chat carries on; what was installed inside its old machine, and its home
+folder outside the worktree, don't come along. It backs `state.db` up first, checks that everything
+arrived, and can be run again if it stops half-way. Your system's Incus, and everything else in it,
+stays as it was: the agents' old machines stay there, stopped, until you remove them with
+`agentbox vm migrate --remove-old` (or the same place in Settings), which removes only AgentBox's
+own. Until you remove them, `agentbox vm delete --yes` goes back to running on your system as before.
+
+## macOS and Windows (alpha)
+
+AgentBox also runs on a **Mac**, in a Linux VM it makes for you with [Lima](https://lima-vm.io)
+(`brew install lima` first), and on **Windows**, in a WSL2 distro it sets up the same way: the
+daemon, Incus and every agent are the Linux ones, and the app and `agentbox` command on your machine
+just talk to them there. Both are newer than the Linux build and ship unsigned for now — on a Mac,
+right-click AgentBox in Applications and choose **Open** the first time; on Windows, the installer
+and antivirus may need an exception. Download `AgentBox-<version>-mac-arm64.dmg` or
+`-mac-x64.dmg`, or `AgentBox-<version>-x64-setup.exe` (installer) or `-x64-portable.exe`, from the
+same [downloads](https://downloads.agentbox.linting.dev/index.html) page.
+
+On a Mac with Apple Silicon, the VM is made with [krunkit](https://lima-vm.io/docs/config/vmtype/krunkit/)
+when it's installed: it has a GPU for agents, and gives the memory its agents stop using back to
+your Mac. The app's Setup installs it with Homebrew when it's missing (**Install krunkit and set up
+the VM**), as does `agentbox vm krunkit`; by hand, before setting AgentBox up:
+
+```bash
+brew tap slp/krun && brew trust slp/krun && brew install krunkit
+```
+
+Lima's krunkit driver comes with Homebrew's Lima from 2.0 (`brew upgrade lima`). Without krunkit,
+the VM is made with Apple's Virtualization framework: no GPU, and it keeps whatever memory it has
+used until it stops. A VM keeps the kind it was made with: to switch an existing one, Settings →
+**GPU for agents** offers to install krunkit and remake the VM, or `agentbox vm krunkit --remake
+--yes`. Either removes every agent's machine, the base image and AgentBox's projects and agents
+(your worktrees stay on your disk: push what you want to keep first).
+
+A krunkit VM also has a **GPU for agents**: Vulkan, run on your Mac's GPU through Metal, and
+OpenGL on top of it. Turning on "GPU for agents" in Settings readies it, building a Vulkan driver
+in the VM (a few minutes). A VM made before this needs Debian's generic kernel too, and one restart
+for it (`agentbox vm stop`, then `agentbox vm start`); its old kernel stays until the new one has
+started, and the VM goes back to it if the new one doesn't (restart the VM again if it hangs).
+`agentbox vm gpu` says what the VM has, and `agentbox vm gpu --agent project/agent` what an agent
+gets. Apple's Virtualization framework gives a Linux VM no 3D, so a
+VM made without krunkit has none.
+
+On a Mac there is also an **experimental** way without Lima: `agentbox vm init --driver vz` (or
+**Apple Virtualization, without Lima** in the app's Setup) has AgentBox run the VM itself with
+Apple's Virtualization framework, on macOS 13 or later. It hasn't been tried on a real Mac yet; its
+VM holds all of its memory while it runs, and `agentbox vm delete --yes` goes back to Lima's. A
+build of your own needs signing for it: `scripts/mac-sign.sh bin/agentbox`.
