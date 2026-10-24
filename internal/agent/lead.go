@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"agentbox/internal/brief"
@@ -53,7 +54,18 @@ func (m *Manager) Lead(ctx context.Context, project string) (state.Agent, error)
 // EnsureLead returns a project's lead, creating it the first time the project
 // is chatted with. Creating one makes no machine: a detached worktree on the
 // project's branch, a private HOME, and a row.
+//
+// One call at a time per lead (#454): opening a new project's chat and its
+// first message both reach here, and a create can take a minute, so without
+// the lock both would find no lead and the second insert would fail on the
+// UNIQUE name. The one that waits gets the lead the first one made.
 func (m *Manager) EnsureLead(ctx context.Context, project string) (state.Agent, error) {
+	unlock, err := lockLead(ctx, m.Paths.Worktree(project, state.LeadName))
+	if err != nil {
+		return state.Agent{}, err
+	}
+	defer unlock()
+
 	switch a, err := m.Lead(ctx, project); {
 	case err == nil:
 		return m.repairLead(ctx, a)
@@ -128,6 +140,32 @@ func (m *Manager) EnsureLead(ctx context.Context, project string) (state.Agent, 
 	}
 	a.Status = state.AgentReady
 	return a, nil
+}
+
+// leadLocks keeps one EnsureLead per lead in flight. The daemon makes a
+// Manager for every request, and schedules make their own, so the locks live
+// with the package, keyed by the lead's worktree, which is unique to the
+// installation and the project. Each is a channel so that a request that gives
+// up stops waiting.
+var (
+	leadLocksMu sync.Mutex
+	leadLocks   = map[string]chan struct{}{}
+)
+
+func lockLead(ctx context.Context, key string) (unlock func(), err error) {
+	leadLocksMu.Lock()
+	l := leadLocks[key]
+	if l == nil {
+		l = make(chan struct{}, 1)
+		leadLocks[key] = l
+	}
+	leadLocksMu.Unlock()
+	select {
+	case l <- struct{}{}:
+		return func() { <-l }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 // repairLead rebuilds what a lead needs but no longer has: its worktree, if the
