@@ -194,7 +194,8 @@ var PushKinds = []string{PushNeedsYou, PushPRReady, PushCIFailed, PushFinished}
 // network port, which only the phone itself reaches, DELETE to stop them.
 type PhonePush struct {
 	// Token is the phone's Expo push token (ExponentPushToken[…]), sent on
-	// PUT. It is never read back: Registered says whether there is one.
+	// PUT, or left as it was when empty: a phone may choose before it has
+	// one. It is never read back: Registered says whether there is one.
 	Token      string `json:"token,omitempty"`
 	Registered bool   `json:"registered"`
 	// Kinds are what it gets pushed, of PushKinds.

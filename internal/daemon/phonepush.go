@@ -122,7 +122,7 @@ func (s *Server) sendPushes(ctx context.Context, n pushNote) int {
 	}
 	var msgs []push.Message
 	for _, p := range phones {
-		if p.Phone.Can(state.PhoneScopeRead) && slices.Contains(p.Kinds, n.kind) && !quietAt(p, now) {
+		if p.Token != "" && p.Phone.Can(state.PhoneScopeRead) && slices.Contains(p.Kinds, n.kind) && !quietAt(p, now) {
 			msgs = append(msgs, n.message(p.Token))
 		}
 	}
@@ -257,12 +257,11 @@ func (s *Server) lanPush(w http.ResponseWriter, r *http.Request, addr string) {
 		}
 		row, err := phonePushRow(req)
 		if err == nil && row.Token == "" {
-			// Settings changed without the token: the one registered stays.
-			cur, cerr := s.store.PhonePushOf(ctx, p.ID)
-			if cerr != nil {
-				err = errors.New("register this phone's push token first")
+			// Settings changed without the token: the one registered, if
+			// any, stays.
+			if cur, cerr := s.store.PhonePushOf(ctx, p.ID); cerr == nil {
+				row.Token = cur.Token
 			}
-			row.Token = cur.Token
 		}
 		if err != nil {
 			writeLANError(w, http.StatusBadRequest, err.Error())
@@ -288,7 +287,7 @@ func (s *Server) lanPush(w http.ResponseWriter, r *http.Request, addr string) {
 	row, err := s.store.PhonePushOf(ctx, p.ID)
 	switch {
 	case err == nil:
-		out = api.PhonePush{Registered: true, Kinds: row.Kinds, QuietFrom: row.QuietFrom, QuietTo: row.QuietTo, TimeZone: row.TimeZone}
+		out = api.PhonePush{Registered: row.Token != "", Kinds: row.Kinds, QuietFrom: row.QuietFrom, QuietTo: row.QuietTo, TimeZone: row.TimeZone}
 	case !errors.Is(err, state.ErrNotFound):
 		writeLANError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -332,7 +331,7 @@ func (s *Server) lanPushTest(w http.ResponseWriter, r *http.Request, p state.Pho
 	out := api.PhonePushTest{Title: n.title, Body: n.body, Data: n.data()}
 	row, err := s.store.PhonePushOf(r.Context(), p.ID)
 	switch {
-	case errors.Is(err, state.ErrNotFound):
+	case errors.Is(err, state.ErrNotFound) || err == nil && row.Token == "":
 		out.Error = "this phone has no push token registered"
 	case err != nil:
 		writeLANError(w, http.StatusInternalServerError, err.Error())

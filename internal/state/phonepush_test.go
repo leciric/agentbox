@@ -47,8 +47,8 @@ func TestPhonePush(t *testing.T) {
 	if err := st.DropPushToken(ctx, want.Token); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.PhonePushOf(ctx, p.ID); !errors.Is(err, state.ErrNotFound) {
-		t.Fatalf("PhonePushOf after DropPushToken = %v", err)
+	if got, err := st.PhonePushOf(ctx, p.ID); err != nil || got.Token != "" || !slices.Equal(got.Kinds, want.Kinds) {
+		t.Fatalf("PhonePushOf after DropPushToken = %+v, %v; want its choices kept, no token", got, err)
 	}
 
 	// Unpairing the phone takes its pushes with it.

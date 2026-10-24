@@ -98,9 +98,16 @@ func TestPhonePush(t *testing.T) {
 	if code, _ := app.do("GET", "/lan/push", ""); code != http.StatusUnauthorized {
 		t.Errorf("GET /lan/push with no token = %d", code)
 	}
-	// Changing settings needs a token registered first.
-	if code, out := app.do("PUT", "/lan/push", `{"kinds":["ci_failed"]}`, auth...); code != http.StatusBadRequest {
+	// Choosing needs no token yet, and pushes nothing until there is one.
+	if code, out := app.do("PUT", "/lan/push", `{"kinds":["needs_you"]}`, auth...); code != http.StatusOK || !strings.Contains(out, `"registered":false`) {
 		t.Errorf("PUT with no token ever registered = %d %s", code, out)
+	}
+	if n := d.srv.sendPushes(ctx, pushNote{kind: api.PushNeedsYou, project: "web"}); n != 0 {
+		t.Errorf("sendPushes to a phone with no token = %d", n)
+	}
+	code, out = app.do("POST", "/lan/push/test", "", auth...)
+	if code != http.StatusOK || !strings.Contains(out, `"sent":false`) || !strings.Contains(out, "no push token") {
+		t.Errorf("POST /lan/push/test with no token = %d %s", code, out)
 	}
 	for _, bad := range []string{`{"token":"nope","kinds":[]}`, `{"token":"ExponentPushToken[a]","kinds":["spam"]}`,
 		`{"token":"ExponentPushToken[a]","kinds":[],"quietFrom":1440}`, `{"token":"ExponentPushToken[a]","kinds":[],"timeZone":"Mars/Base"}`} {

@@ -10,7 +10,9 @@ import (
 
 // A paired phone's push notifications (internal/daemon/phonepush.go): the
 // Expo push token the phone app registered, which kinds it wants and when it
-// wants none. One row per phone at most, deleted with the phone.
+// wants none. One row per phone at most, deleted with the phone. Token is
+// empty while the phone has chosen but has no token: a build of the app
+// with no EAS project, or one Expo gave up on.
 
 // PhonePush is what one phone gets pushed.
 type PhonePush struct {
@@ -86,9 +88,10 @@ func (s *Store) RemovePhonePush(ctx context.Context, phoneID string) error {
 }
 
 // DropPushToken forgets a push token the push service says no longer
-// reaches a phone: the app was uninstalled, or its token replaced.
+// reaches a phone: the app was uninstalled, or its token replaced. What the
+// phone chose stays for the token it registers next.
 func (s *Store) DropPushToken(ctx context.Context, token string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM phone_push WHERE token = ?`, token)
+	_, err := s.db.ExecContext(ctx, `UPDATE phone_push SET token = '' WHERE token = ?`, token)
 	return err
 }
 
