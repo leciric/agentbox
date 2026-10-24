@@ -1,7 +1,8 @@
 // The Electron main process. It holds no AgentBox logic: it proxies API calls,
 // the event stream, WebSocket streams and media files between the renderer and
 // the current environment (this machine's daemon, or one on a hub), signs in to
-// hubs, installs the command-line tool, and updates the app (updater.ts).
+// hubs, installs the command-line tool, updates the app (updater.ts), and
+// keeps the tray icon (tray.ts).
 import { isSafeExternalUrl } from './externalurl';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, powerSaveBlocker, shell } from 'electron';
 import { arch, hostname } from 'node:os';
@@ -21,6 +22,7 @@ import { showNotice, type OSNotice } from './notify';
 import { openChatFile } from './chatfiles';
 import { pageThumb } from './pagethumbs';
 import { registerRender } from './renders';
+import { saveShare, showShare } from './share';
 import { enableShortcutPortal, registerSnapShortcut, showForSnap } from './snap';
 import { Streams } from './streams';
 import { installAppUpdates, restartingForUpdate } from './updater';
@@ -34,6 +36,8 @@ import { distro, linuxPath, windowsPath } from './wslpaths';
 import { setLanguage, t } from '../shared/i18n/index.ts';
 import './vmpower';
 import { keepAwake } from './keepawake';
+import { AppTray } from './tray';
+import type { TrayTarget } from './traymodel';
 
 guardStdio();
 // The app's log, for problem reports (applog.ts): console and every uncaught
@@ -57,9 +61,11 @@ const events = new EventStream(
   (event) => {
     send('daemon:event', event);
     showForSnap(win, event);
+    tray.onEvent(event);
   },
   (state) => {
     send('daemon:connection', state);
+    tray.onConnection();
     // Each time the daemon is back, it may be one that hasn't the web
     // version phones are served (phoneweb.ts).
     // And error reports made while it was away go now (reportqueue.ts).
@@ -69,6 +75,35 @@ const events = new EventStream(
     }
   },
 );
+
+// The tray's place to open, kept until the window asks for it (tray:take)
+// when the window had to be made again for it.
+let trayTarget: TrayTarget | undefined;
+const tray = new AppTray({
+  call: (method, path, body) => callDaemon(method, path, body),
+  connected: () => events.state.state === 'connected',
+  showWindow,
+  open: (target) => {
+    if (win && !win.isDestroyed()) {
+      showWindow();
+      send('tray:open', target);
+      return;
+    }
+    trayTarget = target;
+    showWindow();
+  },
+});
+ipcMain.handle('tray:take', () => {
+  const target = trayTarget;
+  trayTarget = undefined;
+  return target ?? null;
+});
+// With the tray keeping AgentBox running, launching it again shows the one
+// already running instead of a second one with a second icon. The second
+// one quits before it makes a window, and leaves a Mac's VM to the first.
+const duplicate = tray.keepRunning && !app.requestSingleInstanceLock();
+if (duplicate) app.quit();
+app.on('second-instance', () => showWindow());
 
 // api:request answers a request the daemon never saw, because there was no
 // daemon to reach, as the daemon would refuse it: a 503 saying why. That's an
@@ -269,6 +304,8 @@ ipcMain.handle('dialog:directory', async () => {
 const hostPath = (path: string) => (onWindows ? windowsPath(path) : path);
 ipcMain.handle('shell:openPath', (_event, path: string) => shell.openPath(hostPath(path)));
 ipcMain.handle('chatFile:open', (_event, path: string, name: string) => openChatFile(path, name));
+ipcMain.handle('share:save', (_event, path: string, name: string) => saveShare(win, String(path), String(name)));
+ipcMain.handle('share:show', (_event, file: string) => showShare(String(file)));
 ipcMain.handle('shell:showItem', (_event, path: string) => shell.showItemInFolder(hostPath(path)));
 ipcMain.handle('shell:openExternal', async (_event, url: string) => {
   if (!isSafeExternalUrl(url)) throw new Error(t('web.main.notAWebAddress', { url }));
@@ -339,16 +376,40 @@ function createWindow(): void {
   const window = win;
   win.webContents.on('render-process-gone', (_event, details) => processGone({ process: 'window', reason: details.reason, exitCode: details.exitCode }, window));
   void win.loadFile(join(__dirname, '../renderer/index.html'));
+  // Kept running in the tray (tray.ts), closing the window hides it: it keeps
+  // its pages, toasts and OS notifications, and comes back as it was.
+  win.on('close', (event) => {
+    if (quitting || restartingForUpdate() || !tray.keepRunning) return;
+    event.preventDefault();
+    window.hide();
+  });
   win.on('closed', () => {
     streams.closeAll();
     win = undefined;
   });
 }
 
+// showWindow brings the window forward, making it again if it was closed.
+function showWindow(): void {
+  if (!app.isReady()) return;
+  if (!win || win.isDestroyed()) {
+    createWindow();
+    return;
+  }
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
+// A Mac's dock icon clicked while the window is hidden in the menu bar.
+app.on('activate', () => showWindow());
+
 void app.whenReady().then(async () => {
+  if (duplicate) return;
   handleMedia();
   denyMedia();
   createWindow();
+  tray.start();
   registerSnapShortcut();
   // The relay answers at once, whether or not WSL does: it only reaches into
   // the distro on the first request.
@@ -375,7 +436,7 @@ app.on('window-all-closed', () => {
 // way it starts a daemon that isn't running (ensureDaemon). An app that starts
 // no daemon (AGENTBOX_NO_AUTOSTART) never started the VM, and leaves it be.
 const vmStopTimeout = 60_000;
-let vmStop: 'pending' | 'stopping' | 'done' = onMac && !process.env.AGENTBOX_NO_AUTOSTART ? 'pending' : 'done';
+let vmStop: 'pending' | 'stopping' | 'done' = onMac && !process.env.AGENTBOX_NO_AUTOSTART && !duplicate ? 'pending' : 'done';
 
 app.on('before-quit', (event) => {
   // Restarting into a new version (updater.ts): the VM stays up for it.

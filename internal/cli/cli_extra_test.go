@@ -454,6 +454,7 @@ func TestAgentCmdsOnAnEmptyOrUnknownAgent(t *testing.T) {
 		{"resume", "hello-stack/agent-01"},
 		{"destroy", "hello-stack/agent-01"},
 		{"diff", "hello-stack/agent-01"},
+		{"share", "hello-stack/agent-01"},
 		{"path", "hello-stack/agent-01"},
 		{"shell", "hello-stack/agent-01"},
 		{"interface", "hello-stack/agent-01", "chat"},

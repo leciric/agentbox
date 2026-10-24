@@ -35,8 +35,11 @@ type Data struct {
 	Worktree    string
 	Branch      string
 	BaseRef     string
-	IP          string // empty in previews, before the agent has an address
-	EnvFiles    []string
+	// Parent is the agent whose branch BaseRef is, when this one was made
+	// from it: its work is stacked on that agent's.
+	Parent   string
+	IP       string // empty in previews, before the agent has an address
+	EnvFiles []string
 	// NodeModules are the directories of the worktree whose node_modules are
 	// on the machine's own disk (agent/nodemodules.go), "." for its top.
 	NodeModules []string

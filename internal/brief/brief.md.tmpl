@@ -99,6 +99,9 @@ Every tool call sends this whole conversation to the model again: at {{.CompactW
 {{- if .AgentPRs}}
 - **When you finish, push `{{.Branch}}` to `origin` and open a pull request** against `{{.BaseRef}}` (`git push -u origin {{.Branch}}`, then `gh pr create`), titled as a conventional commit (`feat: …`, `fix: …`) for someone reading the changelog. Say what changed and how you checked it, with the before and after screenshots. It must be in Media first (`agentbox media screenshot --name <media>`, or `agentbox media add <path> --name <media>` for a file taken another way); `media save` then copies it out for `--attach`: `agentbox media save <media> /tmp/<media>.png`, `![what it shows](/tmp/<media>.png)` in the description, and `--attach '/tmp/<media>.png#what it shows'` on `gh pr create` (or `gh pr edit` later). Recordings stay in Media; name them in your report.
 - Never push to `{{.BaseRef}}`, merge or close a pull request, or force-push a branch that isn't `{{.Branch}}`.
+{{- if .Parent}}
+- **You're stacked on {{.Parent}}'s branch, `{{.BaseRef}}`**, so your pull request shows only your commits. If `origin` doesn't have `{{.BaseRef}}` yet, wait for {{.Parent}} to push it; don't push it yourself. When its pull request merges, AgentBox retargets yours and tells you how to rebase.
+{{- end}}
 {{- else}}
 - Don't push. The user reviews your branch and pushes from the host.
 {{- end}}

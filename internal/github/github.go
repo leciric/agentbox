@@ -545,3 +545,29 @@ func (c Client) SetPullRequestLabels(ctx context.Context, repo Repo, number int,
 	path := fmt.Sprintf("/repos/%s/%s/issues/%d/labels", url.PathEscape(repo.Owner), url.PathEscape(repo.Name), number)
 	return out, c.do(ctx, http.MethodPut, path, body, &out)
 }
+
+// PullRequestsOnto lists the open pull requests whose base is branch: the
+// ones stacked on it, which merging the pull request from branch leaves
+// pointing at a branch that is done.
+func (c Client) PullRequestsOnto(ctx context.Context, repo Repo, branch string) ([]PullRequest, error) {
+	var list []rawPR
+	path := fmt.Sprintf("/repos/%s/%s/pulls?state=open&base=%s&per_page=%d",
+		url.PathEscape(repo.Owner), url.PathEscape(repo.Name), url.QueryEscape(branch), openPageSize)
+	if err := c.get(ctx, path, &list); err != nil {
+		return nil, err
+	}
+	out := make([]PullRequest, len(list))
+	for i, pr := range list {
+		out[i] = pr.pullRequest()
+	}
+	return out, nil
+}
+
+// Retarget points a pull request at another base branch.
+func (c Client) Retarget(ctx context.Context, repo Repo, number int, base string) error {
+	path := fmt.Sprintf("/repos/%s/%s/pulls/%d", url.PathEscape(repo.Owner), url.PathEscape(repo.Name), number)
+	body := struct {
+		Base string `json:"base"`
+	}{Base: base}
+	return c.do(ctx, http.MethodPatch, path, body, nil)
+}

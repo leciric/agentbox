@@ -551,6 +551,7 @@ export function buildFixtures(): FixtureData {
       agentPRs: false,
       syncBase: true,
       fullTestSuite: false,
+      pickUpIssues: false,
       prWatch: '',
       prWatching: true,
       createdAt: new Date().toISOString(),
@@ -583,6 +584,7 @@ export function buildFixtures(): FixtureData {
       agentPRs: false,
       syncBase: true,
       fullTestSuite: false,
+      pickUpIssues: false,
       prWatch: '',
       prWatching: true,
       createdAt: new Date().toISOString(),
@@ -769,6 +771,13 @@ function devMedia(path: string): unknown {
   return page;
 }
 
+function stacked(number: number, title: string, headBranch: string, baseBranch: string, agent: string, additions: number, deletions: number): T.PullRequest {
+  return {
+    number, title, state: 'open', checks: 'passing', watched: true, url: `https://github.com/leciric/agentbox/pull/${number}`,
+    additions, deletions, updatedAt: new Date().toISOString(), baseBranch, headBranch, author: 'someone', agent,
+  };
+}
+
 // pullRequests is a project's pull requests list, with a long GitHub login to
 // check the author column doesn't widen the row (#pull-request-author).
 export function pullRequests(): T.ProjectPullRequests {
@@ -782,6 +791,12 @@ export function pullRequests(): T.ProjectPullRequests {
     canMergeKnown: true,
     mergeMethods: ['merge', 'squash', 'rebase'],
     pullRequests: [
+      // A stack: agent-22 was made from agent-21's branch and agent-23 from
+      // agent-22's, each pull request onto the one below, listed out of
+      // order as GitHub's updated-first order may have them.
+      stacked(87, 'feat: preview a CSV file before importing it', 'agentbox/csv-import-preview', 'agentbox/csv-export-button', 'agent-23', 96, 12),
+      stacked(84, 'feat: an API that exports reminders as CSV', 'agentbox/csv-export', 'main', 'agent-21', 142, 8),
+      stacked(86, 'feat: an Export button on the reminders page', 'agentbox/csv-export-button', 'agentbox/csv-export', 'agent-22', 64, 3),
       // One ready to merge: checks passing, nothing in the way.
       {
         number: 81,
@@ -1113,6 +1128,12 @@ function agent99Turns(): T.TokenTurn[] {
 // preview that plays out what the daemon would do (dev/review.tsx).
 export function patchDevAgent(ref: string, over: Partial<T.Agent>): void {
   devState.agents = devState.agents?.map((a) => (a.ref === ref ? { ...a, ...over } : a));
+}
+
+// addDevAgent adds an agent to what the dev bridge answers, as a create does
+// (dev/issues.ts's hand-off).
+export function addDevAgent(agent: T.Agent): void {
+  devState.agents = [agent, ...(devState.agents ?? [])];
 }
 
 // dropDevAgent removes an agent from what the dev bridge answers, as a
@@ -2010,6 +2031,17 @@ async function pullsRequest(method: string, path: string) {
   const json = (body: unknown) => ({ status: 200, body: JSON.stringify(body), contentType: 'application/json' });
   const list = pullRequests();
   list.pullRequests = list.pullRequests.map((p) => (devMerged.has(p.number) ? { ...p, state: 'merged' } : p));
+  // What stood on a merged one is retargeted to where it merged, as the
+  // daemon's restack does (internal/daemon/stack.go).
+  for (let moved = true; moved; ) {
+    moved = false;
+    list.pullRequests = list.pullRequests.map((p) => {
+      const under = list.pullRequests.find((m) => m.state === 'merged' && m.headBranch === p.baseBranch);
+      if (!under || p.state !== 'open') return p;
+      moved = true;
+      return { ...p, baseBranch: under.baseBranch };
+    });
+  }
   if (method === 'GET' && path === `/v1/projects/${PROJECT}/pulls`) return json(list);
   const at = /^\/v1\/projects\/[^/]+\/pulls\/(\d+)(\/files|\/merge)?$/.exec(path);
   const row = at && list.pullRequests.find((p) => p.number === Number(at[1]));
@@ -2251,10 +2283,14 @@ export function installDevBridge(): void {
     setLanguage: () => {},
     openPath: async () => '',
     openChatFile: async () => '',
+    // As if saved where the dialog offers, for the toast Share shows.
+    saveShare: async (_path: string, name: string) => `/home/you/Downloads/${name}`,
+    showShare: async () => {},
     showItem: async () => {},
     openExternal: async () => {},
     notify: async () => false,
     keepAwake: async () => {},
+    tray: { settings: async () => ({ keepRunning: false }), set: async (next: { keepRunning?: boolean }) => ({ keepRunning: false, ...next }), reviewing: () => {}, onOpen: () => () => {} },
     onNotificationClick: () => () => {},
     copyText: () => {},
     readText: async () => '',

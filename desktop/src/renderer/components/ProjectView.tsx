@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Briefcase, Brain, Wand2, Coins, Ellipsis, FileText, FolderGit2, FolderOpen, GitPullRequest, Image, KeyRound, MessagesSquare, Moon, NotebookPen, Plug, Plus, SlidersHorizontal, Smile, Trash } from 'lucide-react';
+import { Briefcase, Brain, Wand2, CircleDot, Coins, Ellipsis, FileText, FolderGit2, FolderOpen, GitPullRequest, Image, KeyRound, MessagesSquare, Moon, NotebookPen, Plug, Plus, SlidersHorizontal, Smile, Trash } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import * as T from '../../shared/api';
@@ -22,6 +22,7 @@ import { ScopedMediaPages } from './pages/MediaPages';
 import { ProjectMemoryPanel } from './ProjectMemoryPanel';
 import { ProjectSettings } from './ProjectSettings';
 import { PullRequestsPanel } from './PullRequestsPanel';
+import { IssuesPanel } from './IssuesPanel';
 import { SecretsTab } from './SecretsTab';
 import { SettingsSections, type SettingsSection } from './SettingsSections';
 import { SkillsPanel } from './SkillsPanel';
@@ -133,7 +134,7 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
   useEffect(() => {
     if (!v2 || !opensAt) return;
     const place = projectPlace(opensAt);
-    if (place.tab === 'pulls') openPanelOn(`${name}/${T.LeadName}`, 'pulls');
+    if (place.tab === 'pulls' || place.tab === 'issues') openPanelOn(`${name}/${T.LeadName}`, place.tab);
     else if (place.tab === 'settings') {
       setPanel({ section: place.section });
       openPanelOn(`${name}/${T.LeadName}`, 'settings');
@@ -230,6 +231,10 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
                 <GitPullRequest />
                 {t('project.view.tab.pulls')}
               </TabsTrigger>
+              <TabsTrigger value="issues">
+                <CircleDot />
+                {t('project.view.tab.issues')}
+              </TabsTrigger>
               <TabsTrigger value="media">
                 <Image />
                 {t('project.view.tab.media')}
@@ -271,6 +276,12 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
       <TabsContent value="pulls" className="overflow-y-auto">
         <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-7">
           <PullRequestsPanel project={name} onSelect={onSelect} onOpenAccount={() => setWhere('general')} />
+        </div>
+      </TabsContent>
+
+      <TabsContent value="issues" className="overflow-y-auto">
+        <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-7">
+          <IssuesPanel project={name} onSelect={onSelect} onOpenAccount={() => setWhere('general')} />
         </div>
       </TabsContent>
 

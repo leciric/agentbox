@@ -546,6 +546,12 @@ func (c *Client) ProjectPullRequests(ctx context.Context, project string) (Proje
 	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/pulls", nil, &out)
 }
 
+// ProjectIssues lists a project repository's open issues.
+func (c *Client) ProjectIssues(ctx context.Context, project string) (ProjectIssues, error) {
+	var out ProjectIssues
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/issues", nil, &out)
+}
+
 // MergePullRequest merges one of a project repository's pull requests with
 // the given method: "merge", "squash" or "rebase".
 func (c *Client) MergePullRequest(ctx context.Context, project string, number int, method string) (PullRequest, error) {

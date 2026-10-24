@@ -453,6 +453,10 @@ export const api = {
   // daemon's cache: the tab's refresh button.
   projectPullRequests: (project: string, refresh = false) =>
     call<T.ProjectPullRequests>('GET', `/v1/projects/${encodeURIComponent(project)}/pulls${refresh ? '?refresh=1' : ''}`),
+  // A project repository's open issues, each with the agent it was handed to;
+  // refresh reads GitHub now. Handing one over is createAgent with its issue.
+  projectIssues: (project: string, refresh = false) =>
+    call<T.ProjectIssues>('GET', `/v1/projects/${encodeURIComponent(project)}/issues${refresh ? '?refresh=1' : ''}`),
   projectLabels: (project: string) => call<T.ProjectLabels>('GET', `/v1/projects/${encodeURIComponent(project)}/labels`),
   editPullRequestLabels: (project: string, number: number, edit: T.EditLabelsRequest) =>
     call<T.Label[]>('POST', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}/labels`, edit satisfies T.EditLabelsRequest),
@@ -538,6 +542,9 @@ export const api = {
   // What an agent did, as steps read out of its chat (internal/timeline); a
   // past agent's too.
   timeline: (ref: string) => call<T.Timeline>('GET', `${agent(ref)}/timeline`),
+  // saveShare saves what the agent did as one page to send anyone, where the
+  // user picks (a browser downloads it): where it went, or '' for nowhere.
+  saveShare: (ref: string) => window.agentbox.saveShare(`${agent(ref)}/share`, `${ref.replace(/[^A-Za-z0-9_-]/g, '-')}.html`),
   deleteMedia: (id: string) => call<void>('DELETE', `/v1/media/${encodeURIComponent(id)}`),
   setMediaFavorite: (id: string, favorite: boolean) =>
     call<T.MediaItem>('PATCH', `/v1/media/${encodeURIComponent(id)}`, { favorite } satisfies T.UpdateMediaRequest),

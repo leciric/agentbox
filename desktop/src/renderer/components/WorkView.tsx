@@ -5,7 +5,7 @@
 // report on top, its media, diff and details, and its verdicts only while it
 // waits for one; "N to review" opens it filtered to what waits.
 import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { ArrowRight, Briefcase, Film, GitBranch, Images, LoaderCircle, Search } from 'lucide-react';
+import { ArrowRight, Briefcase, CornerDownRight, Film, GitBranch, Images, Layers, LoaderCircle, Search } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
@@ -14,6 +14,7 @@ import { useLanguage, useT, type MessageKey } from '../lib/i18n';
 import { pageItems, useReviewPages } from '../lib/inboxPages';
 import { projectLabel } from '../lib/projectName';
 import { type Walk } from '../lib/review';
+import { stackOrder } from '../lib/stacks';
 import { useNow } from '../lib/useNow';
 import { byDay, dayLabel, outcomeOf, type WorkFilter, workFilters, workKey, workQuery } from '../lib/work';
 import { cn, errorMessage } from '../lib/utils';
@@ -106,6 +107,10 @@ export function WorkList({
   const counts = pages.data?.pages[0]?.counts ?? {};
   const groups = byDay(items);
   const byRef = useMemo(() => new Map(items.map((w) => [w.item.ref, w])), [items]);
+  // Work stacked on another agent's: its parent is whichever listed agent's
+  // branch it stands on, whatever day that one is under.
+  const byBranch = useMemo(() => new Map(items.filter((w) => w.item.branch).map((w) => [`${w.item.project}\n${w.item.branch}`, w])), [items]);
+  const parentOf = (w: T.WorkItem) => (w.item.baseRef ? byBranch.get(`${w.item.project}\n${w.item.baseRef}`) : undefined);
 
   // The review on a row: what waits walks on through the others waiting.
   const [session, setSession] = useState<Walk | null>(null);
@@ -172,8 +177,8 @@ export function WorkList({
                 {dayLabel(g.day, new Date(now), language, words)}
               </h2>
               <ul className="divide-y divide-line-faint">
-                {g.items.map((w) => (
-                  <WorkRow key={w.item.ref} work={w} projectName={project ? undefined : projectLabel(w.item.project, projects.data)} onOpen={() => open(w)} />
+                {stackOrder(g.items, (w) => `${w.item.project}\n${w.item.branch ?? ''}`, (w) => (w.item.baseRef ? `${w.item.project}\n${w.item.baseRef}` : undefined)).map(({ item: w, depth }) => (
+                  <WorkRow key={w.item.ref} work={w} depth={depth} stackedOn={parentOf(w)} projectName={project ? undefined : projectLabel(w.item.project, projects.data)} onOpen={() => open(w)} />
                 ))}
               </ul>
             </section>
@@ -194,13 +199,16 @@ export function WorkList({
 
 // WorkRow is one agent's work: what it was, what came of it, its pull
 // request, what it changed and kept, and when it finished.
-function WorkRow({ work: w, projectName, onOpen }: { work: T.WorkItem; projectName?: string; onOpen: () => void }) {
+// depth is how far down a stack of the day's work it sits, and stackedOn the
+// work whose branch it stands on, listed under any day.
+function WorkRow({ work: w, depth = 0, stackedOn, projectName, onOpen }: { work: T.WorkItem; depth?: number; stackedOn?: T.WorkItem; projectName?: string; onOpen: () => void }) {
   const t = useT();
   const i = w.item;
   const outcome = outcomeOf(w);
   return (
-    <li className="flex min-w-0 items-start gap-3 px-4 py-2.5 transition-colors hover:bg-surface-faint" data-work-row={i.ref} data-work-status={w.status}>
-      <button type="button" className="flex min-w-0 flex-1 items-start gap-3 text-left" onClick={onOpen}>
+    <li className="flex min-w-0 items-start gap-3 px-4 py-2.5 transition-colors hover:bg-surface-faint" data-work-row={i.ref} data-work-status={w.status} data-work-stacked-on={stackedOn?.item.agent}>
+      <button type="button" className="flex min-w-0 flex-1 items-start gap-3 text-left" onClick={onOpen} style={depth > 0 ? { paddingLeft: `${Math.min(depth, 3) * 1.5}rem` } : undefined}>
+        {depth > 0 && <CornerDownRight aria-hidden className="-ml-5 mt-0.5 size-4 shrink-0 text-faint" />}
         <AIIcon ai={i.ai || 'claude'} className={cn('mt-0.5 size-4 shrink-0', w.past && 'opacity-60')} />
         <span className="grid min-w-0 flex-1 gap-1">
           <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
@@ -218,6 +226,12 @@ function WorkRow({ work: w, projectName, onOpen }: { work: T.WorkItem; projectNa
           </span>
           <span className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-[11.5px] text-subtle">
             {projectName && <span className="max-w-[40%] shrink-0 truncate">{projectName}</span>}
+            {stackedOn && (
+              <span className="flex min-w-0 max-w-full items-center gap-1 text-sky-300" title={i.baseRef}>
+                <Layers className="size-3 shrink-0" />
+                <span className="truncate">{t('work.stackedOn', { name: stackedOn.item.title || stackedOn.item.agent })}</span>
+              </span>
+            )}
             {i.branch && (
               <span className="flex min-w-0 max-w-full items-center gap-1 font-mono">
                 <GitBranch className="size-3 shrink-0" />
