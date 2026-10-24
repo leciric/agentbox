@@ -21,6 +21,7 @@ import { DiffTable, useHighlighted } from './DiffTable';
 import { NotesList, ReviewNotesContext, reviewNotesKey, useReviewNotes } from './ReviewNotes';
 import { MoreMedia } from './MediaTab';
 import { ReviewProof, type ProofHandle } from './ReviewProof';
+import { ShareButton } from './ShareButton';
 import { useProjectPages } from './pages/usePages';
 import { checksVariants, PullRequestView, stateVariants } from './PullRequestModal';
 import { checksLabels, methodLabels, stateLabels, usePullLabels, usePullMerge } from './PullRequestsPanel';
@@ -603,6 +604,7 @@ function ReviewCarousel({
                   {t('review.details')}
                   <Hint k="I" />
                 </Button>
+                <ShareButton agentRef={item.ref} />
                 {pr && (
                   <Button size="sm" variant="ghost" className="h-7" onClick={() => void window.agentbox.openExternal(pr.url)} title={t('pulls.detail.openOnGitHub')} data-review-github>
                     <ExternalLink />

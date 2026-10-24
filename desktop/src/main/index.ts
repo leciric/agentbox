@@ -20,6 +20,7 @@ import { showNotice, type OSNotice } from './notify';
 import { openChatFile } from './chatfiles';
 import { pageThumb } from './pagethumbs';
 import { registerRender } from './renders';
+import { saveShare, showShare } from './share';
 import { enableShortcutPortal, registerSnapShortcut, showForSnap } from './snap';
 import { Streams } from './streams';
 import { installAppUpdates, restartingForUpdate } from './updater';
@@ -247,6 +248,8 @@ ipcMain.handle('dialog:directory', async () => {
 const hostPath = (path: string) => (onWindows ? windowsPath(path) : path);
 ipcMain.handle('shell:openPath', (_event, path: string) => shell.openPath(hostPath(path)));
 ipcMain.handle('chatFile:open', (_event, path: string, name: string) => openChatFile(path, name));
+ipcMain.handle('share:save', (_event, path: string, name: string) => saveShare(win, String(path), String(name)));
+ipcMain.handle('share:show', (_event, file: string) => showShare(String(file)));
 ipcMain.handle('shell:showItem', (_event, path: string) => shell.showItemInFolder(hostPath(path)));
 ipcMain.handle('shell:openExternal', async (_event, url: string) => {
   if (!/^https?:\/\//.test(url)) throw new Error(t('web.main.notAWebAddress', { url }));

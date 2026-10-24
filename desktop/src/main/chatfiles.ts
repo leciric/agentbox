@@ -41,7 +41,7 @@ export async function openChatFile(path: string, name: string): Promise<string> 
   return shell.openPath(file);
 }
 
-function download(path: string, to: string): Promise<void> {
+export function download(path: string, to: string): Promise<void> {
   const { module, options } = requestOptions(path);
   return new Promise((resolve, reject) => {
     const req = module.request({ ...options, method: 'GET' }, (res) => {

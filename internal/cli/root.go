@@ -327,6 +327,7 @@ func NewRootCmd() *cobra.Command {
 		newTokensCmd(a),
 		newDestroyCmd(a),
 		newDiffCmd(a),
+		newShareCmd(a),
 		newPathCmd(a),
 		newJobsCmd(a),
 		newEventsCmd(a),

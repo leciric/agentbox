@@ -285,6 +285,11 @@ const bridge = {
   // (.../chat/files/<id>), with the system's default app: main/chatfiles.ts
   // copies it out of the daemon first. It answers an error, or ''.
   openChatFile: (path: string, name: string): Promise<string> => ipcRenderer.invoke('chatFile:open', path, name),
+  // saveShare saves an agent's run as one page (.../share), where the user
+  // picks: main/share.ts. It answers where, or '' when they didn't pick.
+  // showShare shows a page saved there in the file manager.
+  saveShare: (path: string, name: string): Promise<string> => ipcRenderer.invoke('share:save', path, name),
+  showShare: (file: string): Promise<void> => ipcRenderer.invoke('share:show', file),
   showItem: (path: string): Promise<void> => ipcRenderer.invoke('shell:showItem', path),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url),
   // An OS notification, shown only while the window isn't in front (main/notify.ts);

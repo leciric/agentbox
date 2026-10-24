@@ -1936,6 +1936,9 @@ export function installDevBridge(): void {
     setLanguage: () => {},
     openPath: async () => '',
     openChatFile: async () => '',
+    // As if saved where the dialog offers, for the toast Share shows.
+    saveShare: async (_path: string, name: string) => `/home/you/Downloads/${name}`,
+    showShare: async () => {},
     showItem: async () => {},
     openExternal: async () => {},
     notify: async () => false,
