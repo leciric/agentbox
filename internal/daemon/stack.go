@@ -45,6 +45,7 @@ type stackBase struct {
 	Head    string // its branch: the children's base
 	HeadSHA string // where that branch was when it ended
 	Base    string // what it merged into
+	Fork    bool   // its branch is in another repository: nothing stood on it
 }
 
 // stackChild is an agent standing on a stack's base, with its open pull
@@ -59,7 +60,7 @@ type stackChild struct {
 // closed. Once per pull request, whichever of the merge and the watch gets
 // there first.
 func (s *Server) restack(ctx context.Context, p state.Project, client github.Client, repo github.Repo, parent stackBase) {
-	if parent.Head == "" || parent.Base == "" || parent.Head == parent.Base {
+	if parent.Fork || parent.Head == "" || parent.Base == "" || parent.Head == parent.Base {
 		return
 	}
 	if _, done := s.restacked.LoadOrStore(fmt.Sprintf("%s#%d", repo, parent.Number), true); done {

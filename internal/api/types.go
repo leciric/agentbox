@@ -1681,6 +1681,9 @@ type PullRequest struct {
 	// branch.
 	BaseBranch string `json:"baseBranch,omitempty"`
 	HeadBranch string `json:"headBranch,omitempty"`
+	// Fork is set when its head branch is in another repository, which no
+	// other pull request can be stacked on.
+	Fork bool `json:"fork,omitempty"`
 	// HeadSHA is the commit its branch is at. That, not HeadBranch, is what
 	// ties it to an agent: an agent's work is pushed under any branch name.
 	HeadSHA string `json:"headSha,omitempty"`

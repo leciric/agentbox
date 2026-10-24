@@ -1626,6 +1626,7 @@ export interface PullRequest {
   updatedAt?: string;
   baseBranch?: string;
   headBranch?: string;
+  fork?: boolean;
   headSha?: string;
   author?: string;
   authorAvatar?: string;
@@ -1736,6 +1737,7 @@ export interface PullRequestDetail {
   updatedAt?: string;
   baseBranch?: string;
   headBranch?: string;
+  fork?: boolean;
   headSha?: string;
   author?: string;
   authorAvatar?: string;

@@ -121,6 +121,30 @@ func TestRestackLeavesAClosedParentsChildrenToTheChat(t *testing.T) {
 	}
 }
 
+// A merged fork pull request whose head is called like a branch of the
+// project's own is nothing anyone stood on: it moves and says nothing.
+func TestRestackIgnoresAForkPullRequest(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	rec := recordPRWatch(d)
+	_, _ = pullsProject(t, d, "agent-01", "agent-02")
+	ctx := context.Background()
+	if err := d.srv.store.SetAgentBase(ctx, "hello-stack", "agent-02", "main", "abc"); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := d.srv.store.Project(ctx, "hello-stack")
+	// The client points nowhere: asking GitHub for the pull requests onto main would fail the test's log, and moving any would fail.
+	d.srv.restack(ctx, p, github.Client{BaseURL: "http://127.0.0.1:1"}, github.Repo{Owner: "acme", Name: "hello-stack"},
+		stackBase{Number: 526, State: "closed", Head: "main", Base: "develop", Fork: true})
+	said, leads := rec.take()
+	if len(said) != 0 || len(leads) != 0 {
+		t.Fatalf("told %q and the lead %+v, want nobody", said, leads)
+	}
+	if a, _ := d.srv.store.Agent(ctx, "hello-stack", "agent-02"); a.BaseRef != "main" {
+		t.Errorf("agent-02's base moved to %s", a.BaseRef)
+	}
+}
+
 // A parent merged outside the app is seen by the pull request watch, which
 // restacks its children the same way.
 func TestPRWatchRestacksWhenTheParentMerges(t *testing.T) {

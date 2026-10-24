@@ -907,7 +907,7 @@ func toAPIPullRequests(prs []github.PullRequest) []api.PullRequest {
 		out[i] = api.PullRequest{
 			Number: pr.Number, Title: pr.Title, State: pr.State, Checks: pr.Checks, URL: pr.URL,
 			Draft: pr.Draft, Additions: pr.Additions, Deletions: pr.Deletions, Comments: pr.Comments,
-			UpdatedAt: pr.UpdatedAt, BaseBranch: pr.BaseBranch, HeadBranch: pr.HeadBranch, HeadSHA: pr.HeadSHA,
+			UpdatedAt: pr.UpdatedAt, BaseBranch: pr.BaseBranch, HeadBranch: pr.HeadBranch, Fork: pr.Fork, HeadSHA: pr.HeadSHA,
 			Author: pr.Author, AuthorAvatar: pr.AuthorAvatar, Labels: toAPILabels(pr.Labels),
 		}
 	}
@@ -994,7 +994,7 @@ func (s *Server) afterMerge(ctx context.Context, p state.Project, repo github.Re
 	// branch, the one its children stand on, with it.
 	if client, _, err := s.githubFor(p); err == nil {
 		s.restack(ctx, p, client, repo, stackBase{
-			Number: pr.Number, URL: pr.URL, State: "merged", Head: pr.HeadBranch, HeadSHA: pr.HeadSHA, Base: pr.BaseBranch,
+			Number: pr.Number, URL: pr.URL, State: "merged", Head: pr.HeadBranch, HeadSHA: pr.HeadSHA, Base: pr.BaseBranch, Fork: pr.Fork,
 		})
 	}
 	heads := s.agentsOf(ctx, p)

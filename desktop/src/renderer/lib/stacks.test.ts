@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner, which strips the types).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { stackOrder } from './stacks.ts';
+import { stackHead, stackOrder } from './stacks.ts';
 
 interface PR {
   n: number;
@@ -43,4 +43,17 @@ test('children of one parent keep their order', () => {
     (p) => p.base,
   );
   assert.deepEqual(s[0].children.map((c) => c.n), [3, 2]);
+});
+
+test('a fork pull request whose head is main is not a parent', () => {
+  const prs = [
+    { n: 526, headBranch: 'main', baseBranch: 'main', fork: true },
+    { n: 458, headBranch: 'agentbox/a', baseBranch: 'main' },
+    { n: 489, headBranch: 'agentbox/b', baseBranch: 'main' },
+  ];
+  const out = stackOrder(prs, stackHead, (p) => p.baseBranch);
+  assert.deepEqual(out.map((s) => [s.item.n, s.depth, s.parent?.n]), [[526, 0, undefined], [458, 0, undefined], [489, 0, undefined]]);
+  // The same pull request from the repository itself would be one.
+  const own = stackOrder([{ ...prs[0], fork: false }, ...prs.slice(1)], stackHead, (p) => p.baseBranch);
+  assert.equal(own[1]?.parent?.n, 526);
 });

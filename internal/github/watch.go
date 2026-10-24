@@ -40,6 +40,7 @@ type WatchedPR struct {
 	HeadSHA    string
 	HeadBranch string
 	BaseBranch string
+	Fork       bool // its head branch is in another repository
 	UpdatedAt  time.Time
 	// Mergeable is GitHub's word on whether it merges into its base cleanly:
 	// mergeable, conflicting, or unknown while GitHub is still working it out,
@@ -146,7 +147,7 @@ var ErrRateLimited = errors.New("GitHub's rate limit")
 func (e *RateLimitError) Is(target error) bool { return target == ErrRateLimited }
 
 const watchFragment = `fragment pr on PullRequest {
-  number title url state isDraft createdAt updatedAt headRefName headRefOid baseRefName mergeable reviewDecision
+  number title url state isDraft createdAt updatedAt headRefName headRefOid baseRefName isCrossRepository mergeable reviewDecision
   author { login }
   reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } } } }
   commits(last: 1) { nodes { commit { ...commit } } }
@@ -199,6 +200,7 @@ type gqlPR struct {
 	HeadRefName    string    `json:"headRefName"`
 	HeadRefOid     string    `json:"headRefOid"`
 	BaseRefName    string    `json:"baseRefName"`
+	IsCrossRepo    bool      `json:"isCrossRepository"`
 	Mergeable      string    `json:"mergeable"`
 	ReviewDecision string    `json:"reviewDecision"`
 	Author         *gqlLogin `json:"author"`
@@ -248,7 +250,7 @@ func (a *gqlLogin) login() string {
 func (pr gqlPR) watched() WatchedPR {
 	out := WatchedPR{
 		Number: pr.Number, Title: pr.Title, URL: pr.URL, State: strings.ToLower(pr.State), Draft: pr.IsDraft,
-		HeadSHA: pr.HeadRefOid, HeadBranch: pr.HeadRefName, BaseBranch: pr.BaseRefName, UpdatedAt: pr.UpdatedAt,
+		HeadSHA: pr.HeadRefOid, HeadBranch: pr.HeadRefName, BaseBranch: pr.BaseRefName, Fork: pr.IsCrossRepo, UpdatedAt: pr.UpdatedAt,
 		Mergeable: strings.ToLower(pr.Mergeable), Review: strings.ToLower(pr.ReviewDecision),
 		Author: pr.Author.login(), CreatedAt: pr.CreatedAt,
 	}

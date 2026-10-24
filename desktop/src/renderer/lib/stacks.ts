@@ -45,3 +45,10 @@ export function stackOrder<T>(items: readonly T[], head: (item: T) => string | u
   for (const item of items) place(item, 0);
   return out;
 }
+
+// stackHead is the branch other pull requests can stand on: a pull request's
+// own, unless it comes from a fork, whose branch (often `main`) isn't one of
+// the repository's.
+export function stackHead(pr: { headBranch?: string; fork?: boolean }): string | undefined {
+  return pr.fork ? undefined : pr.headBranch;
+}

@@ -837,6 +837,11 @@ export function pullRequests(): T.ProjectPullRequests {
           { name: 'a-label-whose-name-is-long-enough-to-overflow-a-narrow-row-on-its-own', color: '5319e7' },
         ],
       },
+      // A fork's pull request whose head branch is called main, and two onto
+      // main that must not be shown standing on it.
+      { ...stacked(526, 'docs: fix a typo in the README', 'main', 'main', '', 2, 2), author: 'SDRCasagrande', fork: true },
+      stacked(489, 'feat: remind on a snooze', 'agentbox/snooze', 'main', 'agent-31', 40, 5),
+      stacked(458, 'fix: the time zone of a reminder', 'agentbox/reminder-tz', 'main', 'agent-32', 12, 3),
       {
         number: 65,
         title: 'Bump a dependency',

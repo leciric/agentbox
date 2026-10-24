@@ -8,7 +8,7 @@ import { api } from '../lib/api';
 import { useT, type MessageKey } from '../lib/i18n';
 import { useReveal } from '../lib/reveal';
 import { byAuthor, byState, labelHex, labelStyle, labelToggle, matchLabels, readMine, withEdits, withLabels, writeMine, type LabelEdit, type PullsState } from '../lib/pulls';
-import { stackOrder } from '../lib/stacks';
+import { stackHead, stackOrder } from '../lib/stacks';
 import { cn, errorMessage, githubAccountLabel, githubErrorSentence, timeAgo } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
 import { FilterChip } from './MediaTab';
@@ -229,7 +229,7 @@ export function PullRequestsPanel({
           ) : (
             <div className="flex flex-col gap-2">
               {/* A pull request stacked on another's branch comes right after it, indented: the chain reads top down, merging from the top. */}
-              {stackOrder(visible, (pr) => pr.headBranch, (pr) => pr.baseBranch).map(({ item: pr, depth, parent, children }) => {
+              {stackOrder(visible, stackHead, (pr) => pr.baseBranch).map(({ item: pr, depth, parent, children }) => {
                 return (
                   <PullRequestRow
                     key={pr.number}
