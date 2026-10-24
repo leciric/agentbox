@@ -34,6 +34,7 @@ work on its own desktop, and review what it built before merging.
 - [Update check](#update-check)
 - [Reporting a problem](#reporting-a-problem)
 - [The command line](#the-command-line)
+- [Built with AgentBox badge](#built-with-agentbox-badge)
 - [Contributing](#contributing)
 - [Contributors](#contributors)
 - [License](#license)
@@ -327,6 +328,20 @@ agentbox media list my-app/agent-01                     # what it kept to show i
 ```
 
 `agentbox --help` lists the rest; [`docs/`](docs/README.md) has the architecture behind both.
+
+## Built with AgentBox badge
+
+If AgentBox helped build your project, you can say so in its README:
+
+```markdown
+[![Built with AgentBox](https://img.shields.io/badge/built%20with-AgentBox-blue)](https://github.com/leciric/agentbox)
+```
+
+[![Built with AgentBox](https://img.shields.io/badge/built%20with-AgentBox-blue)](https://github.com/leciric/agentbox)
+
+AgentBox can also end its agents' pull request descriptions with this badge. It is off by default: the
+app offers it once, after the first agent pull request is merged, and **Settings → Commits** turns it
+on or off.
 
 ## Contributing
 

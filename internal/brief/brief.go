@@ -55,6 +55,9 @@ type Data struct {
 	// trailer out, but nothing else reaches the "Generated with …" line Codex
 	// and Cursor put in a pull request's body.
 	CreditAITool bool
+	// BuiltWithBadge is whether the user wants pull requests to end with a
+	// "Built with AgentBox" line (state.SettingBuiltWithBadge).
+	BuiltWithBadge bool
 	// VM is set when AgentBox runs in a Linux VM on another OS: WSL 2 on
 	// Windows (package hostwsl, D94), or the VM it makes on a Mac (package
 	// hostvm, D92). The agent's address is then inside that VM, which the

@@ -1031,6 +1031,13 @@ function InstalledSettings({
               modified: changed((s) => s.creditAITool),
               render: () => <CreditAIToolSetting />,
             },
+            {
+              id: "built-with-badge",
+              label: t("settings.entry.built-with-badge.label"),
+              keywords: t("settings.entry.built-with-badge.keywords"),
+              modified: changed((s) => s.builtWithBadge),
+              render: () => <BuiltWithBadgeSetting />,
+            },
           ],
         },
         {
@@ -2260,6 +2267,37 @@ function ErrorReportsSetting() {
           aria-label={t("settings.entry.error-reports.label")}
           disabled={save.isPending || settings.data === undefined}
           checked={settings.data?.errorReports ?? true}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      }
+    />
+  );
+}
+
+// BuiltWithBadgeSetting decides whether agents end their pull requests'
+// descriptions with a "Built with AgentBox" line and badge. Off until turned
+// on (the app offers it once, after the first merged agent pull request:
+// BuiltWithBadgeOffer); an agent follows it from its next start.
+function BuiltWithBadgeSetting() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (builtWithBadge: boolean) => api.updateSettings({ builtWithBadge }),
+    onSuccess: (next) => queryClient.setQueryData(["settings"], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  return (
+    <SettingRow
+      label={t("settings.entry.built-with-badge.label")}
+      description={t("settings.builtWithBadge.description")}
+      details={t("settings.builtWithBadge.details")}
+      control={
+        <Switch
+          data-built-with-badge
+          aria-label={t("settings.entry.built-with-badge.label")}
+          disabled={save.isPending || settings.data === undefined}
+          checked={settings.data?.builtWithBadge ?? false}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }

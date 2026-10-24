@@ -148,6 +148,8 @@ export interface Settings {
   resumeAfterLimit: boolean;
   continueAfterRestart: boolean;
   creditAITool: boolean;
+  builtWithBadge: boolean;
+  builtWithBadgeOffer: boolean;
   claudeCompactWindow: number;
   updateCheck: boolean;
   usageStats: boolean;
@@ -200,6 +202,8 @@ export interface UpdateSettingsRequest {
   resumeAfterLimit?: boolean;
   continueAfterRestart?: boolean;
   creditAITool?: boolean;
+  builtWithBadge?: boolean;
+  dismissBuiltWithBadgeOffer?: boolean;
   claudeCompactWindow?: number;
   updateCheck?: boolean;
   updateChannel?: string;
