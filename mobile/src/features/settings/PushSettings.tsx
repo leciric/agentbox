@@ -43,7 +43,7 @@ export function PushSettings() {
     <View style={styles.root}>
       <StatusNote status={status} error={error} />
       {push.error && <Note tone="error">{push.error.message}</Note>}
-      {p && status !== 'unavailable' && (
+      {p && (
         <>
           <Text style={styles.sub}>{t('mobile.push.kinds')}</Text>
           {kinds.map((kind) => {

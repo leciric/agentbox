@@ -91,8 +91,14 @@ export async function registerPush(ask: boolean): Promise<void> {
 }
 
 // showHere shows a notification from the phone itself: the test one, when
-// it couldn't be pushed.
+// it couldn't be pushed. Expo's web build has the browser's.
 export async function showHere(test: { title: string; body: string; data: Record<string, string> }): Promise<void> {
+  if (Platform.OS === 'web') {
+    if (typeof Notification === 'undefined') return;
+    if (Notification.permission !== 'granted' && (await Notification.requestPermission()) !== 'granted') return;
+    new Notification(test.title, { body: test.body });
+    return;
+  }
   await Notifications.scheduleNotificationAsync({ content: { title: test.title, body: test.body, data: test.data }, trigger: null });
 }
 
