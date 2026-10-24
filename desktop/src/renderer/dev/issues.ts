@@ -107,8 +107,8 @@ export function seedIssues(queryClient: QueryClient): void {
     if (method === 'GET' && path.startsWith(`/v1/agents/${PROJECT}/${handedName}/chat`)) return json(handedChat());
     if (method === 'POST' && path === '/v1/agents' && (body as T.CreateAgentRequest | undefined)?.issue) {
       handedAt = Date.now();
-      const template = buildFixtures().agents.find((a) => a.ref === `${PROJECT}/agent-99`)!;
-      addDevAgent({ ...template, name: handedName, ref: `${PROJECT}/${handedName}`, title: handedTitle, branch: 'agentbox/issue-454-the-first-message-to-a-projects-chat-can', state: 'running', chat: 'running' } as T.Agent);
+      const template = buildFixtures().agents.find((a) => a.ref === `${PROJECT}/agent-41`)!;
+      addDevAgent({ ...template, name: handedName, ref: `${PROJECT}/${handedName}`, title: handedTitle, branch: 'agentbox/issue-454-the-first-message-to-a-projects-chat-can', state: 'running', chat: 'running', interface: 'chat', background: [] } as T.Agent);
       return json({ id: 'job-issue-454', kind: 'create', target: PROJECT, status: 'running' });
     }
     return undefined;
