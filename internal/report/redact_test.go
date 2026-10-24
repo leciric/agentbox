@@ -1,6 +1,7 @@
 package report
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -55,13 +56,15 @@ func TestRedact(t *testing.T) {
 // TestRedactLeavesNoSecret runs a log full of secrets through and checks
 // none of them survive, whatever surrounds them.
 func TestRedactLeavesNoSecret(t *testing.T) {
-	secrets := []string{"ghp_0123456789abcdefABCDEF0123456789abcd", "sk-ant-oat01-ZYXWVUTSRQ_0123456789", "hunter2", "lint@example.org", "/home/lint"}
+	os.Setenv("PRIVATE_KEY_BLOCK", "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXk\n-----END OPENSSH PRIVATE KEY-----")
+	secrets := []string{"ghp_0123456789abcdefABCDEF0123456789abcd", "sk-ant-oat01-ZYXWVUTSRQ_0123456789", "hunter2", "lint@example.org", "/home/lint", os.Getenv("PRIVATE_KEY_BLOCK")}
 	log := strings.Join([]string{
 		"GITHUB_TOKEN=ghp_0123456789abcdefABCDEF0123456789abcd",
 		`{"claudeAiOauth":{"accessToken":"sk-ant-oat01-ZYXWVUTSRQ_0123456789"}}`,
 		"db password=hunter2",
 		"git config user.email lint@example.org",
 		"worktree /home/lint/www/app",
+		"private key block: " + os.Getenv("PRIVATE_KEY_BLOCK"),
 	}, "\n")
 	got := NewRedactor("/home/lint").Redact(log)
 	for _, s := range secrets {

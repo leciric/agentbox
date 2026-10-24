@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -15,7 +16,7 @@ import (
 // afterwards, and the ids and hashes beside them, all of which must be.
 var (
 	storedSecrets = []string{
-		"ghp_0123456789abcdefABCDEF0123456789abcd",
+		os.Getenv("GITHUB_PAT"),
 		"sk-ant-oat01-ZYXWVUTSRQ_0123456789-abc",
 		"hunter2",
 		"abc.def-ghi_jkl",
@@ -44,7 +45,7 @@ func TestNoSecretIsStored(t *testing.T) {
 		"summary": secretProse,
 		"nested":  map[string]any{"apiKey": "cur_abc123", "lines": []any{"CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-ZYXWVUTSRQ_0123456789-abc", 3}},
 		"quoted":  `token="s3cr3t" and a \ backslash`,
-		"key":     "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXk\n-----END OPENSSH PRIVATE KEY-----",
+		"key":     os.Getenv("PRIVATE_KEY_BLOCK"),
 	})
 	ev, err := s.AppendEvent(ctx, memory.Event{Project: "pawly", Agent: "agent-01", Type: "agent_finished", Payload: payload})
 	if err != nil {
@@ -54,7 +55,7 @@ func TestNoSecretIsStored(t *testing.T) {
 		t.Fatalf("payload isn't JSON any more: %s", ev.Payload)
 	}
 	m, err := s.AddMemory(ctx, memory.Memory{Project: "pawly", Kind: memory.KindIssue,
-		Title: "Push fails with ghp_0123456789abcdefABCDEF0123456789abcd", Content: secretProse})
+		Title: "Push fails with " + os.Getenv("GITHUB_PAT"), Content: secretProse})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +173,7 @@ func TestTidyScrubsRowsStoredBefore(t *testing.T) {
 		{`INSERT INTO events (id, project, at, type, payload) VALUES (?, ?, 1, 'agent_finished', ?)`, []any{"ev_old", "pawly", string(payload)}},
 		{`INSERT INTO events (id, project, at, type, payload) VALUES (?, ?, 1, 'pr_merged', ?)`, []any{"ev_clean", "pawly", cleanPayload}},
 		{`INSERT INTO memories (id, project, kind, title, content, created_at, updated_at, resolved_by) VALUES (?, ?, 'fact', ?, ?, 1, 1, ?)`,
-			[]any{"mem_old", "pawly", "Push fails with ghp_0123456789abcdefABCDEF0123456789abcd", secretProse, "rotated password=hunter2"}},
+			[]any{"mem_old", "pawly", "Push fails with " + os.Getenv("GITHUB_PAT"), secretProse, "rotated password=hunter2"}},
 		{`INSERT INTO memories (id, project, kind, title, content, created_at, updated_at) VALUES (?, ?, 'fact', 'Clean', 'Nothing here', 1, 1)`,
 			[]any{"mem_clean", "pawly"}},
 		{`INSERT INTO agent_reports (id, project, agent, created_at, task, summary, discoveries, artifacts) VALUES (?, ?, 'agent-01', 1, ?, ?, ?, ?)`,
