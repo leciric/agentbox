@@ -11,9 +11,13 @@
 //   ?theme=light            the light appearance (default: dark)
 //   ?concept=timeline       a mock idea, on its own (dev/concepts): timeline is
 //                           agents' work as a timeline over their recording
+//   ?app=recap              Your week with AgentBox (components/RecapView), from
+//                           dev/recap.ts; &recap=empty a week with nothing
 //   ?app=work               the Work page (components/WorkView), of every
 //                           project, from dev/pastAgents.ts; any ?app= has the
 //                           fixture timelines
+//   ?badge=offer            the one-time offer of "Built with AgentBox" on pull
+//                           requests, shown over the page (dismissed it stays off)
 //   ?lang=pt-BR             the app in another language (default: en-US), for
 //                           strings longer than English's
 //   ?folded=1               the rail folded to 56px (default: open)
@@ -1478,6 +1482,7 @@ if (phoneMode === 'frame') {
   const initial: View =
     appView === 'home' ? { kind: 'home' }
     : appView === 'work' ? { kind: 'work' }
+    : appView === 'recap' ? { kind: 'recap' }
     : appView === 'settings' ? { kind: 'settings' }
     : appView === 'homeChat' ? { kind: 'homeChat' }
     : appView === 'project' || appView === 'pulls' || appView === 'issues' ? { kind: 'project', project: PROJECT, tab: appView === 'pulls' || appView === 'issues' ? appView : 'chat' }

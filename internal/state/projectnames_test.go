@@ -172,10 +172,11 @@ func TestAvatarIconMigrationDropsCachedAvatars(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The migration under test isn't necessarily the last one.
+	// The migration under test is the one dropping the cached avatars; later
+	// ones run when the store opens.
 	before := -1
 	for i, m := range migrations {
-		if strings.Contains(m, "UPDATE project_icons SET detected = NULL") {
+		if strings.HasPrefix(m, "UPDATE project_icons SET detected = NULL") {
 			before = i
 		}
 	}

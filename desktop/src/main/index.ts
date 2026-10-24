@@ -4,7 +4,8 @@
 // hubs, installs the command-line tool, updates the app (updater.ts), and
 // keeps the tray icon (tray.ts).
 import { isSafeExternalUrl } from './externalurl';
-import { app, BrowserWindow, clipboard, dialog, ipcMain, powerSaveBlocker, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, ClipboardItem, powerSaveBlocker, shell } from 'electron';
+import { writeFile } from 'node:fs/promises';
 import { arch, hostname } from 'node:os';
 import { join } from 'node:path';
 import { AppLog, captureConsole, reportSections, type AppError } from './applog';
@@ -316,6 +317,16 @@ ipcMain.handle('render:register', (_event, html: string, network: boolean) => re
 ipcMain.handle('notify:show', (_event, notice: OSNotice) => showNotice(win, notice, (id) => send('notify:click', id)));
 ipcMain.on('clipboard:write', (_event, text: string) => clipboard.writeText(text));
 ipcMain.handle('clipboard:read', () => clipboard.readText());
+// A PNG the renderer drew (the weekly recap's share card): onto the clipboard,
+// or into a file the user picks. Saving answers whether it was saved.
+ipcMain.on('clipboard:writeImage', (_event, png: Uint8Array) => void clipboard.write([new ClipboardItem({ 'image/png': new Blob([Buffer.from(png)], { type: 'image/png' }) })]));
+ipcMain.handle('image:save', async (_event, name: string, png: Uint8Array) => {
+  const options = { title: t('main.saveImage'), defaultPath: join(app.getPath('downloads'), name), filters: [{ name: 'PNG', extensions: ['png'] }] };
+  const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
+  if (result.canceled || !result.filePath) return false;
+  await writeFile(result.filePath, png);
+  return true;
+});
 installAppUpdates(send);
 
 // Chromium's processes that die (processgone.ts): a window's renderer, the

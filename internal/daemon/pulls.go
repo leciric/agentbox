@@ -1006,6 +1006,11 @@ func (s *Server) afterMerge(ctx context.Context, p state.Project, repo github.Re
 	if by == "" {
 		return
 	}
+	// The first pull request of an agent's to land is when the app offers
+	// the "Built with AgentBox" footer, once.
+	if err := s.store.OfferBuiltWithBadge(ctx); err != nil {
+		s.logf("offering the Built with AgentBox badge: %v", err)
+	}
 	// Not while another of its pull requests is open, as far as the cache
 	// knows: the watch frees it when that one ends.
 	entry, _ := s.pulls.state(repo.String())

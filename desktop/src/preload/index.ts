@@ -348,6 +348,10 @@ const bridge = {
   // setLanguage tells the main process the app's language, for its dialogs.
   setLanguage: (tag: string) => ipcRenderer.send('app:language', tag),
   readText: (): Promise<string> => ipcRenderer.invoke('clipboard:read'),
+  // copyImage puts a PNG on the clipboard; saveImage asks where to save one,
+  // named name, and answers whether it was saved.
+  copyImage: (png: Uint8Array) => ipcRenderer.send('clipboard:writeImage', png),
+  saveImage: (name: string, png: Uint8Array): Promise<boolean> => ipcRenderer.invoke('image:save', name, png),
 };
 
 contextBridge.exposeInMainWorld('agentbox', bridge);

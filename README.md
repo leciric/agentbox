@@ -178,6 +178,21 @@ agentbox share my-app/agent-01 -o run.html              # what it did, as one pa
 
 `agentbox --help` lists the rest; [`docs/`](docs/README.md) has the architecture behind both.
 
+## Built with AgentBox badge
+
+If AgentBox helped build your project, you can say so in its README:
+
+```markdown
+[![Built with AgentBox](https://img.shields.io/badge/built%20with-AgentBox-blue)](https://github.com/leciric/agentbox)
+```
+
+[![Built with AgentBox](https://img.shields.io/badge/built%20with-AgentBox-blue)](https://github.com/leciric/agentbox)
+
+AgentBox can also end its agents' pull request descriptions with this badge. It is off by default: the
+app offers it once, after the first agent pull request is merged, and **Settings → Commits** turns it
+on or off.
+
+
 ## Contributing
 
 Bug fixes and small, focused improvements are welcome; for anything bigger, open an issue first.

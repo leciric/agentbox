@@ -152,6 +152,8 @@ export interface Settings {
   resumeAfterLimit: boolean;
   continueAfterRestart: boolean;
   creditAITool: boolean;
+  builtWithBadge: boolean;
+  builtWithBadgeOffer: boolean;
   claudeCompactWindow: number;
   updateCheck: boolean;
   usageStats: boolean;
@@ -214,6 +216,8 @@ export interface UpdateSettingsRequest {
   resumeAfterLimit?: boolean;
   continueAfterRestart?: boolean;
   creditAITool?: boolean;
+  builtWithBadge?: boolean;
+  dismissBuiltWithBadgeOffer?: boolean;
   claudeCompactWindow?: number;
   updateCheck?: boolean;
   updateChannel?: string;
@@ -2357,6 +2361,8 @@ export interface ChatScheduledRun {
   run: string;
   title: string;
   trigger: string;
+  event?: string;
+  eventUrl?: string;
   dueAt?: string;
   late?: boolean;
   missed?: number;
@@ -2370,6 +2376,8 @@ export interface Schedule {
   title: string;
   task: string;
   kind: string;
+  event?: string;
+  eventLabel?: string;
   at?: string;
   everyMinutes?: number;
   cron?: string;
@@ -2395,6 +2403,8 @@ export interface ScheduleRun {
   schedule: string;
   title?: string;
   trigger: string;
+  event?: string;
+  eventUrl?: string;
   dueAt?: string;
   ranAt: string;
   late?: boolean;
@@ -2413,6 +2423,8 @@ export interface ScheduleRequest {
   in?: string;
   every?: string;
   cron?: string;
+  on?: string;
+  label?: string;
   timezone?: string;
   target?: string;
   session?: string;
@@ -2918,6 +2930,56 @@ export interface ClaudeLimitWindow {
   label: string;
   utilization: number;
   resetsAt: string;
+}
+
+export interface Recap {
+  start: string;
+  end: string;
+  agents: number;
+  prsOpened: number;
+  prsMerged: number;
+  insertions: number;
+  deletions: number;
+  files: number;
+  workSeconds: number;
+  awaySeconds: number;
+  days: RecapDay[];
+  hours: number[];
+  projects: number;
+  busiest?: RecapProject;
+  longest?: RecapAgent;
+  models: RecapModel[];
+  tokens: number;
+  costUsd: number;
+  streak: number;
+  bestStreak: number;
+}
+
+export interface RecapDay {
+  date: string;
+  workSeconds: number;
+  awaySeconds: number;
+  agents: number;
+}
+
+export interface RecapProject {
+  project: string;
+  workSeconds: number;
+  agents: number;
+}
+
+export interface RecapAgent {
+  project: string;
+  agent: string;
+  title?: string;
+  ai?: string;
+  workSeconds: number;
+}
+
+export interface RecapModel {
+  model: string;
+  tokens: number;
+  output: number;
 }
 
 export interface VMStatus {

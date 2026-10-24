@@ -5,7 +5,7 @@
 // report on top, its media, diff and details, and its verdicts only while it
 // waits for one; "N to review" opens it filtered to what waits.
 import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { ArrowRight, Briefcase, CornerDownRight, Film, GitBranch, Images, Layers, LoaderCircle, Search } from 'lucide-react';
+import { ArrowRight, Briefcase, CornerDownRight, Film, GitBranch, Images, Layers, LoaderCircle, Search, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
@@ -61,7 +61,17 @@ export function WorkView({ project, filter: initial = '', projectFilter, onSelec
             <h1 className="text-2xl font-semibold tracking-tight text-title">{t('work.title')}</h1>
             <p className="mt-1 text-sm text-muted">{t('work.description')}</p>
           </div>
-          {projectFilter && <div className="ml-auto">{projectFilter}</div>}
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onSelect({ kind: 'recap' })}
+              className="group inline-flex h-9 items-center gap-1.5 rounded-xl border border-brand-500/30 bg-gradient-to-b from-brand-500/15 to-brand-600/10 px-3 text-[13px] font-medium text-primary hover:border-brand-400/50 hover:from-brand-500/25"
+            >
+              <Sparkles className="size-3.5 text-brand-400 transition-transform group-hover:rotate-12" />
+              {t('recap.open')}
+            </button>
+            {projectFilter}
+          </div>
         </div>
         <WorkList key={`${project ?? ''}:${initial}`} project={project} initial={initial} onSelect={onSelect} />
       </div>

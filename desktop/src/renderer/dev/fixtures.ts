@@ -12,6 +12,7 @@ import { freeTargets } from '../lib/freeResources';
 import { inScope, type MediaScope } from '../lib/mediaPages';
 import { pagePageUrl, pageRequest, pageThumbUrl } from './pages';
 import { pastRequest } from './pastAgents';
+import { recapRequest } from './recap';
 
 export const PROJECT = 'agentbox';
 
@@ -1582,6 +1583,8 @@ let defaultsSettings = {
   resumeAfterLimit: true,
   continueAfterRestart: true,
   creditAITool: false,
+  builtWithBadge: false,
+  builtWithBadgeOffer: typeof location !== 'undefined' && new URLSearchParams(location.search).get('badge') === 'offer',
   claudeCompactWindow: 200_000,
   updateCheck: true,
   usageStats: true,
@@ -1680,6 +1683,8 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
       ? { ...next.claudeCodeUpdate, on, installed: '2.1.302', latest: '2.1.302', checkedAt: new Date().toISOString() }
       : { ...next.claudeCodeUpdate, on, installed: next.claudeCodeUpdate.pinned, latest: '', checkedAt: undefined };
   }
+  // Either answer, or dismissing, closes the one-time offer of the badge.
+  if (req.builtWithBadge !== undefined || req.dismissBuiltWithBadgeOffer) next.builtWithBadgeOffer = false;
   // The channel changes what the update check offers (seedNightly).
   if (req.updateChannel !== undefined && devState.update) devState.update = nightlyStatus(devState.update.current, req.updateChannel);
   // The rest are stored as they are sent, the way the daemon stores them.
@@ -1688,6 +1693,7 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
     'resumeAfterLimit',
     'continueAfterRestart',
     'creditAITool',
+    'builtWithBadge',
     'claudeCompactWindow',
     'updateCheck',
     'usageStats',
@@ -2161,6 +2167,8 @@ export function installDevBridge(): void {
       if (files) return files;
       const past = pastRequest(method, path, body);
       if (past) return past;
+      const recap = recapRequest(method, path);
+      if (recap) return recap;
       const answer = await pullsRequest(method, path);
       if (answer) return answer;
       for (const answer of devRequests) {
@@ -2289,6 +2297,8 @@ export function installDevBridge(): void {
     onNotificationClick: () => () => {},
     copyText: () => {},
     readText: async () => '',
+    copyImage: () => {},
+    saveImage: async () => false,
   };
 }
 

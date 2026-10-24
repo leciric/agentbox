@@ -61,6 +61,9 @@ type Data struct {
 	// trailer out, but nothing else reaches the "Generated with …" line Codex
 	// and Cursor put in a pull request's body.
 	CreditAITool bool
+	// BuiltWithBadge is whether the user wants pull requests to end with a
+	// "Built with AgentBox" line (state.SettingBuiltWithBadge).
+	BuiltWithBadge bool
 	// FullSuite is whether the agent may run a whole test suite once before
 	// it finishes: its project allows them while the installation blocks
 	// them (state.SettingBlockFullSuite). Otherwise it runs the tests its

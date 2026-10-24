@@ -134,6 +134,17 @@ const (
 	// written into each agent's tool configuration and git hooks as it starts
 	// (internal/agent/attribution.go).
 	SettingCreditAITool = "credit_ai_tool"
+	// SettingBuiltWithBadge says whether agents end their pull requests'
+	// descriptions with a small "Built with AgentBox" line and badge. Off
+	// until somebody turns it on (Flag), and read as an agent's brief is
+	// rendered.
+	SettingBuiltWithBadge = "built_with_badge"
+	// SettingBuiltWithBadgeOffer is where the one-time offer of the setting
+	// above stands: BadgeOfferReady once an agent's pull request has been
+	// merged through AgentBox, BadgeOfferDone once the user has answered it
+	// (by turning the setting on or off, or by dismissing the card). Empty
+	// until the first merge, so the offer is made once and never again.
+	SettingBuiltWithBadgeOffer = "built_with_badge_offer"
 	// SettingClaudeCompactWindow is how full a chat's context may get before
 	// its AI tool compacts it (D83), as a count of tokens. Empty means
 	// DefaultClaudeCompactWindow and "0" means the model's whole window. Named
@@ -284,6 +295,22 @@ const (
 	SettingIdleFreezeAfter = "idle_freeze_after"
 	SettingIdleStopAfter   = "idle_stop_after"
 )
+
+// The stages of SettingBuiltWithBadgeOffer.
+const (
+	BadgeOfferReady = "ready"
+	BadgeOfferDone  = "done"
+)
+
+// OfferBuiltWithBadge makes the offer of the badge setting, once: it does
+// nothing when the offer has already been made or answered.
+func (s *Store) OfferBuiltWithBadge(ctx context.Context) error {
+	v, err := s.Setting(ctx, SettingBuiltWithBadgeOffer)
+	if err != nil || v != "" {
+		return err
+	}
+	return s.SetSetting(ctx, SettingBuiltWithBadgeOffer, BadgeOfferReady)
+}
 
 // DefaultIdleFreezeAfter is how long an agent's chat is idle before idle
 // reclaim freezes what it left running, when nobody chose: longer than the

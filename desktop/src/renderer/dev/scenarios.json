@@ -2366,6 +2366,27 @@
     "click": "[data-meter=memory]"
   },
   {
+    "id": "window-recap-1440-dark",
+    "description": "1440×1000, Your week with AgentBox: the hero with its six tiles, each day and by hour, tokens by model, and the share card as its PNG — dark",
+    "query": "app=recap&theme=dark",
+    "width": 1440,
+    "height": 1000
+  },
+  {
+    "id": "window-recap-800-light",
+    "description": "800×600, Your week with AgentBox: tiles in two columns, the charts stacked, the card shrunk to the page — light",
+    "query": "app=recap&theme=light",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "window-recap-empty-dark",
+    "description": "1440×900, Your week with AgentBox in a week no agent worked — dark",
+    "query": "app=recap&recap=empty&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
     "id": "window-work-1920-dark",
     "description": "1920×1080, the Work page of every project: live and past agents' work by day, an outcome, To review, PR chips, changes and media on each row, the filters with counts — dark",
     "query": "app=work&theme=dark",

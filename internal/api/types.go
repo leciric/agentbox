@@ -475,6 +475,14 @@ type Settings struct {
 	// with …" line. Off unless it was turned on; it reaches an agent as it
 	// starts, and a Claude Code agent's chat as it starts too.
 	CreditAITool bool `json:"creditAITool"`
+	// BuiltWithBadge says whether agents end their pull requests'
+	// descriptions with a "Built with AgentBox" line and badge. Off until
+	// turned on.
+	BuiltWithBadge bool `json:"builtWithBadge"`
+	// BuiltWithBadgeOffer is true while the app should offer BuiltWithBadge:
+	// an agent's pull request has been merged, and the user hasn't answered
+	// yet. It is made once.
+	BuiltWithBadgeOffer bool `json:"builtWithBadgeOffer"`
 	// ClaudeCompactWindow is how many tokens of context a Claude Code or Codex
 	// chat holds before its tool compacts it (D83); 0 is the model's whole
 	// window. OpenCode has no equivalent to set: its own compaction settings
@@ -672,6 +680,12 @@ type UpdateSettingsRequest struct {
 	// CreditAITool turns "Credit the AI tool in commits and pull requests"
 	// on or off.
 	CreditAITool *bool `json:"creditAITool,omitempty"`
+	// BuiltWithBadge turns the "Built with AgentBox" footer on agents' pull
+	// requests on or off. Either way it counts as answering the offer.
+	BuiltWithBadge *bool `json:"builtWithBadge,omitempty"`
+	// DismissBuiltWithBadgeOffer closes the offer without turning the
+	// footer on.
+	DismissBuiltWithBadgeOffer *bool `json:"dismissBuiltWithBadgeOffer,omitempty"`
 	// ClaudeCompactWindow is 0 for the model's whole window, or between
 	// 100000 and 1000000 tokens.
 	ClaudeCompactWindow *int64 `json:"claudeCompactWindow,omitempty"`

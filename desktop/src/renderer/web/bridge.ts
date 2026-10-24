@@ -301,6 +301,17 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
   onNotificationClick: (fn) => listen(noticeClickListeners, fn),
   copyText: (text) => void navigator.clipboard?.writeText(text),
   readText: () => navigator.clipboard?.readText() ?? Promise.resolve(''),
+  copyImage: (png) => void navigator.clipboard?.write([new ClipboardItem({ 'image/png': new Blob([png as BlobPart], { type: 'image/png' }) })]).catch(() => {}),
+  // A browser downloads it, with no say in where.
+  saveImage: (name, png) => {
+    const url = URL.createObjectURL(new Blob([png as BlobPart], { type: 'image/png' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return Promise.resolve(true);
+  },
   // The phone web app can't reach a host keyring, so browser-cookie import
   // from an installed browser isn't offered there; this is never called.
   browserKeyringSecret: () => Promise.resolve(''),
