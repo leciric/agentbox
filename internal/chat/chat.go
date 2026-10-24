@@ -95,6 +95,11 @@ type Manager struct {
 	// checkpoint the worktree. Off the lock, in a goroutine of its own: by
 	// then the turn may have been rolled back, which Turn tells.
 	TurnEnded func(a state.Agent, turn string)
+	// TurnStarted, when set, is called as one of an agent's turns starts
+	// (never a lead's), so the daemon can wake what idle reclaim froze in its
+	// machine before the turn's first command reaches it. Off the lock, in a
+	// goroutine of its own.
+	TurnStarted func(a state.Agent)
 	// TurnFinished, when set, is called after any turn ends, a lead's too,
 	// with what the anonymous usage stats count about it (TurnStats). Off the
 	// lock, in a goroutine of its own.
@@ -134,8 +139,17 @@ type Manager struct {
 	// conversation lock: it must hand the change on and return, never call
 	// back into the Manager.
 	PermissionChanged func(a state.Agent, p api.ChatAgentPermission)
-	Logf              func(format string, args ...any) // may be nil
-	Version           string                           // AgentBox's, told to adapters
+	// IdleStop, when set, is how long a's chat may sit idle before its AI
+	// tool is put to sleep, until its next turn resumes the session
+	// (idle.go). applies is false for a chat that never sleeps; after 0 is
+	// sleeping turned off for now. Off the conversation's lock.
+	IdleStop func(a state.Agent) (after time.Duration, applies bool)
+	// StayUp, when set, keeps an idle chat's AI tool running a while longer
+	// because something is about to wake it: a schedule due soon. Off the
+	// conversation's lock.
+	StayUp  func(a state.Agent) bool
+	Logf    func(format string, args ...any) // may be nil
+	Version string                           // AgentBox's, told to adapters
 	// Now and After are the clock a chat waits on: what time it is, and how
 	// work is scheduled for later. Both are nil outside tests, where the real
 	// clock is used; a test injects one so a wait of hours takes none.
@@ -230,6 +244,7 @@ func (m *Manager) conversation(a state.Agent) (*conversation, error) {
 	}
 	prev := c.agent
 	c.agent = a
+	c.usedAt = m.now()
 	if err := c.load(); err != nil {
 		c.mu.Unlock()
 		return nil, err
@@ -398,7 +413,7 @@ func (c *conversation) page(start, end int) api.ChatThread {
 	for _, it := range c.items[start:end] {
 		items = append(items, clone(*it))
 	}
-	return api.ChatThread{Agent: c.agent.Ref(), Seq: c.seq, Session: clone(c.session), Items: items, Older: start > 0, Newer: start < end && end < len(c.items)}
+	return api.ChatThread{Agent: c.agent.Ref(), Seq: c.seq, Session: c.view(), Items: items, Older: start > 0, Newer: start < end && end < len(c.items)}
 }
 
 // pageOf is where Page's page lies in items: items[start:end].
@@ -501,7 +516,7 @@ func (m *Manager) Start(a state.Agent) (api.ChatSession, error) {
 	c.clearLimit()
 	c.startAdapter()
 	c.flush(false)
-	return clone(c.session), nil
+	return c.view(), nil
 }
 
 // Send adds your message and starts a turn, starting the AI tool first if needed.
@@ -688,11 +703,21 @@ func (c *conversation) beginResumedTurn(it *api.ChatItem, text string, sent atta
 	c.tools, c.plan, c.open, c.openMessage = map[string]*api.ChatItem{}, nil, nil, ""
 	started := it.CreatedAt
 	c.session.TurnStartedAt = &started
+	if c.m.TurnStarted != nil && !c.agent.IsLead() {
+		agent := c.agent
+		c.m.background.Go(func() { c.m.TurnStarted(agent) })
+	}
 	if c.windowRestart && !c.rolling {
 		// The context window changed since the adapter started, and it reads
 		// that only at launch: a new adapter resumes the same session on it.
 		c.stopAdapter()
 		c.windowRestart = false
+	}
+	if c.thinkingRestart && !c.rolling {
+		// The model moved across adaptive thinking (restartIfThinkingMoved),
+		// which the adapter reads only when it starts the session.
+		c.stopAdapter()
+		c.thinkingRestart = false
 	}
 	if c.versionRestart && !c.rolling {
 		// Likewise a newer version of the tool: ChatCommand starts the one
@@ -936,7 +961,7 @@ func (m *Manager) Cancel(a state.Agent) (api.ChatSession, error) {
 	t := c.turn
 	if t == nil || t.cancelled {
 		c.flush(true)
-		return clone(c.session), nil
+		return c.view(), nil
 	}
 	t.cancelled = true
 	c.cancelPending()
@@ -969,7 +994,7 @@ func (m *Manager) Cancel(a state.Agent) (api.ChatSession, error) {
 	c.session.State = c.stateNow()
 	c.markSession()
 	c.flush(true)
-	return clone(c.session), nil
+	return c.view(), nil
 }
 
 // Answer answers a permission request with one of its options; an empty option
@@ -1025,6 +1050,16 @@ func (m *Manager) SetOption(ctx context.Context, a state.Agent, id, value string
 		value = w.NormalizeClaudeModel(value)
 	}
 	i := slices.IndexFunc(c.session.Options, func(o api.ChatOption) bool { return o.ID == id })
+	if id == api.ChatOptionPlan {
+		return m.setPlan(ctx, c, value == "true")
+	}
+	if i >= 0 && planChoice(c.session.Options[i]) != "" {
+		// Plan is a toggle beside the mode (plan.go).
+		if value == planChoice(c.session.Options[i]) {
+			return m.setPlan(ctx, c, true)
+		}
+		return m.setLevel(ctx, c, c.session.Options[i], value)
+	}
 	if i < 0 {
 		// No live session yet — a new agent whose chat hasn't started, or a
 		// project chat that first message creates. The model is still worth
@@ -1041,7 +1076,7 @@ func (m *Manager) SetOption(ctx context.Context, a state.Agent, id, value string
 			if err := m.Store.SaveChat(context.Background(), a.Project, a.Name, c.stored); err != nil {
 				return api.ChatSession{}, err
 			}
-			return clone(c.session), nil
+			return c.view(), nil
 		}
 		if !ok {
 			c.mu.Unlock()
@@ -1065,7 +1100,7 @@ func (m *Manager) SetOption(ctx context.Context, a state.Agent, id, value string
 		c.markSession()
 		c.flush(false)
 		defer c.mu.Unlock()
-		return clone(c.session), nil
+		return c.view(), nil
 	}
 	option := c.session.Options[i]
 	// A named model the live menu doesn't list can still be chosen: the tool
@@ -1096,7 +1131,7 @@ func (m *Manager) SetOption(ctx context.Context, a state.Agent, id, value string
 		c.markSession()
 		c.flush(false)
 		defer c.mu.Unlock()
-		return clone(c.session), nil
+		return c.view(), nil
 	}
 	if ad == nil || !ad.ready {
 		// Applied when the session starts.
@@ -1108,7 +1143,7 @@ func (m *Manager) SetOption(ctx context.Context, a state.Agent, id, value string
 		c.markSession()
 		c.flush(false)
 		defer c.mu.Unlock()
-		return clone(c.session), nil
+		return c.view(), nil
 	}
 	req := setRequest(ad.sessionID, option, value)
 	c.mu.Unlock()
@@ -1118,17 +1153,18 @@ func (m *Manager) SetOption(ctx context.Context, a state.Agent, id, value string
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err != nil {
-		return clone(c.session), err
+		return c.view(), err
 	}
 	if c.adapter == ad && out.ConfigOptions != nil {
 		c.setOptions(toOptions(out.ConfigOptions))
 		// Another model can have another window, and so another place to
 		// compact: that only reaches the tool on a restart (window.go).
 		c.restartIfWindowMoved()
+		c.restartIfThinkingMoved()
 		c.markSession()
 	}
 	c.flush(false)
-	return clone(c.session), nil
+	return c.view(), nil
 }
 
 // modelNamedOutsideMenu reports a model chosen by naming it rather than by
@@ -1358,6 +1394,7 @@ type conversation struct {
 
 	mu     sync.Mutex
 	loaded bool
+	usedAt time.Time // when it was last read or changed, for Unload
 	seq    int64
 	// finished closes once the last turn's Finished call has returned: the
 	// next one waits for it, so the daemon hears an agent's turns end in the
@@ -1389,6 +1426,10 @@ type conversation struct {
 	// windowRestart says the context window changed since the adapter
 	// started, so the next turn restarts it (window.go).
 	windowRestart bool
+	// thinkingRestart says the model moved to or from one that takes
+	// adaptive thinking since the adapter started, so the next turn
+	// restarts it (restartIfThinkingMoved).
+	thinkingRestart bool
 	// toolsRestart says the chat's MCP servers changed since the adapter
 	// started, so the next turn restarts it (tools.go).
 	toolsRestart bool
@@ -1419,6 +1460,15 @@ type conversation struct {
 	resumeTimer Timer
 	resumeGen   int64
 	resumeTry   int
+	// asleep says the adapter was stopped because the chat sat idle: the
+	// session reads as ready, and the next turn resumes it (idle.go).
+	// idleTimer is the wait before that, idleGen names it, and activeAt is
+	// when the session last changed, which the wait is counted from.
+	asleep    bool
+	sleptOn   string // the account the adapter that slept ran on (runsOn)
+	idleTimer Timer
+	idleGen   int64
+	activeAt  time.Time
 
 	// The running turn's open text item, tool calls, plan and unanswered permission requests.
 	open        *api.ChatItem
@@ -1510,6 +1560,7 @@ type adapter struct {
 	replaying bool   // a loaded session replays history that's already here
 	spend     spend  // what it has cost, for the token ledger (tokens.go)
 	window    int64  // the compact window it was started with, 0 for the whole (window.go)
+	thinking  bool   // it was started asking for adaptive thinking (acp.ClaudeThinkingMeta)
 	sizeOf    string // the model and window last remembered from its usage_update
 	lostTurn  bool   // a turn's prompt failed because its output closed: it exited mid-turn
 	// models is what the store knew of Claude model windows when it started,
@@ -1656,6 +1707,7 @@ func (c *conversation) startAdapter() *adapter {
 	}
 	ad := &adapter{started: make(chan struct{}), tried: map[string]string{}}
 	c.adapter = ad
+	c.asleep = false
 	c.session.Error = ""
 	c.session.Detail = "Starting " + ToolNames[c.agent.AI]
 	c.session.State = c.stateNow()
@@ -1669,9 +1721,16 @@ func (c *conversation) startAdapter() *adapter {
 func (c *conversation) stopAdapter() {
 	ad := c.adapter
 	if ad == nil {
+		if c.asleep {
+			// Stopped for good: off, not ready.
+			c.asleep = false
+			c.session.State = c.stateNow()
+			c.markSession()
+		}
 		return
 	}
 	c.adapter = nil
+	c.asleep = false
 	c.cancelPending()
 	c.stopSubagents(ad)
 	if ad.proc != nil {
@@ -1687,6 +1746,10 @@ func (c *conversation) stateNow() string {
 	switch {
 	case c.adapter == nil && c.session.Error != "":
 		return api.ChatError
+	case c.adapter == nil && c.asleep:
+		// Its tool sleeps until the next turn wakes it: ready, as far as
+		// anybody writing to it can tell (idle.go).
+		return api.ChatReady
 	case c.adapter == nil:
 		return api.ChatOff
 	case !c.adapter.ready:
@@ -1745,6 +1808,7 @@ func (c *conversation) run(ad *adapter) {
 	c.session.Detail = ""
 	c.session.State = c.stateNow()
 	c.markSession()
+	c.watchIdle(ad)
 	c.flush(true)
 	c.mu.Unlock()
 
@@ -1791,10 +1855,12 @@ func (c *conversation) connect(ad *adapter) error {
 	a := c.agent
 	model, window := c.launchSettings()
 	ad.window = window
+	ad.thinking = a.AI == "claude" && acp.ClaudeAdaptiveThinking(model)
 	ad.models, _ = c.windows()
 	ad.account = a.ClaudeAccount
 	ad.login = runsOn(a)
 	c.windowRestart = false
+	c.thinkingRestart = false
 	c.accountRestart = false
 	c.versionRestart = false
 	// It reads the MCP servers its configuration has now.
@@ -1869,10 +1935,16 @@ func (c *conversation) connect(ad *adapter) error {
 	}
 
 	mcp := []acp.McpServer{} // the agent's own configuration gives the tools their MCP servers
+	var meta map[string]any
+	if a.AI == "claude" {
+		// Claude's thinking, shown as thought items, for a model that takes
+		// adaptive thinking: an older one would refuse every turn with it.
+		meta = acp.ClaudeThinkingMeta(model)
+	}
 	var resp acp.SessionResponse
 	var resumeErr error
 	if previous != "" {
-		req := acp.ResumeSessionRequest{SessionID: previous, Cwd: a.Worktree, McpServers: mcp}
+		req := acp.ResumeSessionRequest{SessionID: previous, Cwd: a.Worktree, McpServers: mcp, Meta: meta}
 		switch caps := init.AgentCapabilities; {
 		case caps.SessionCapabilities.Resume != nil:
 			resumeErr = ad.conn.Call(ctx, acp.MethodSessionResume, req, &resp)
@@ -1887,7 +1959,7 @@ func (c *conversation) connect(ad *adapter) error {
 	}
 	if previous == "" || resumeErr != nil {
 		resp = acp.SessionResponse{}
-		if err := ad.conn.Call(ctx, acp.MethodSessionNew, acp.NewSessionRequest{Cwd: a.Worktree, McpServers: mcp}, &resp); err != nil {
+		if err := ad.conn.Call(ctx, acp.MethodSessionNew, acp.NewSessionRequest{Cwd: a.Worktree, McpServers: mcp, Meta: meta}, &resp); err != nil {
 			return explain(err)
 		}
 		if resp.SessionID == "" {
@@ -2014,13 +2086,8 @@ func (c *conversation) wanted(id string) (api.ChatOption, string, bool) {
 		return option, "", false // AgentBox's own, applied at launch (window.go)
 	}
 	value, ok := c.stored.Options[id]
-	if !ok && c.agent.Autonomous && option.Category == "mode" {
-		for _, choice := range option.Choices {
-			if choice.Kind == "full_access" {
-				value, ok = choice.Value, true
-				break
-			}
-		}
+	if option.Category == "mode" {
+		value, ok = c.wantedMode(option) // plan.go
 	}
 	if !ok || value == option.Value {
 		return option, value, false
@@ -2446,14 +2513,22 @@ func (h handler) Notify(method string, params json.RawMessage) {
 		c.markSession()
 		return
 	case "config_option_update":
+		from, _ := c.modeOption()
 		c.setOptions(toOptions(u.ConfigOptions))
+		if !h.ad.replaying {
+			c.modeMoved(from.Value)
+		}
 		c.markSession()
 		return
 	case "current_mode_update":
+		from, _ := c.modeOption()
 		for i, o := range c.session.Options {
 			if o.Category == "mode" {
 				c.session.Options[i].Value = u.CurrentModeID
 			}
+		}
+		if !h.ad.replaying {
+			c.modeMoved(from.Value)
 		}
 		c.markSession()
 		return
@@ -2560,11 +2635,19 @@ func (h handler) Request(method string, params json.RawMessage, reply func(any, 
 			}
 		}
 	}
+	if option, ok := c.autoAllow(req.Options); ok {
+		// Planning on bypass permissions (plan.go).
+		reply(acp.RequestPermissionResponse{Outcome: acp.PermissionOutcome{Outcome: "selected", OptionID: option}}, nil)
+		return
+	}
 	c.closeOpen()
 	it := c.add("permission", c.turn.id)
 	it.Permission = &api.ChatPermission{CallID: req.ToolCall.ToolCallID, Title: title, Options: []api.ChatPermissionOption{}}
 	for _, o := range req.Options {
 		it.Permission.Options = append(it.Permission.Options, api.ChatPermissionOption{ID: o.OptionID, Name: o.Name, Kind: o.Kind})
+	}
+	if isPlanApproval(req.Options) {
+		c.markPlanApproval(it.Permission)
 	}
 	c.pending[it.ID] = reply
 	c.session.State = c.stateNow()
@@ -2736,6 +2819,7 @@ func (c *conversation) touch(it *api.ChatItem) {
 
 func (c *conversation) markSession() {
 	c.sessionDirty = true
+	c.noteActive()
 	c.schedule(flushDelay)
 }
 
@@ -2769,6 +2853,7 @@ func (c *conversation) emit(ev api.ChatEvent) {
 // It stores changed items at most once a second, unless save is set, and a
 // finished Hatch page call before anything is published.
 func (c *conversation) flush(save bool) {
+	c.usedAt = c.m.now()
 	if c.timer != nil {
 		c.timer.Stop()
 		c.timer = nil
@@ -2805,7 +2890,7 @@ func (c *conversation) flush(save bool) {
 		c.dirty = map[string]bool{}
 	}
 	if c.sessionDirty {
-		session := clone(c.session)
+		session := c.view()
 		c.emit(api.ChatEvent{Session: &session})
 		c.sessionDirty = false
 	}

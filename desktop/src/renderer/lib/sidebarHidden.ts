@@ -33,13 +33,18 @@ export function arrange(order: Ordered, layout: T.SidebarLayout, active: Readonl
 
 export type Section = keyof Arranged;
 
-// sections is where the lists go, each only when it has a project: the pins
-// and the rest at the top, and Idle with Hidden under it docked at the
-// bottom, just above the foot, with the free space between. With nothing
-// above it, Idle is the list and heads it instead.
-export function sections(a: Record<Section, readonly unknown[]>): { top: Section[]; dock: Section[] } {
-  const has = (s: Section) => a[s].length > 0;
-  const top = (['pinned', 'rest'] as const).filter(has);
+// A slot is where a list goes: one of Section's, or the user's sections
+// (lib/sidebar.ts), which go between the pins and the rest.
+export type Slot = Section | 'sections';
+
+// sections is where the lists go, each only when it has a project (the
+// user's sections when any is shown): the pins, the user's sections and the
+// rest at the top, and Idle with Hidden under it docked at the bottom, just
+// above the foot, with the free space between. With nothing above it, Idle
+// is the list and heads it instead.
+export function sections(a: Record<Section, readonly unknown[]> & { sections?: readonly unknown[] }): { top: Slot[]; dock: Section[] } {
+  const has = (s: Slot) => (a[s] ?? []).length > 0;
+  const top = (['pinned', 'sections', 'rest'] as const).filter(has);
   if (top.length === 0) return { top: (['idle'] as const).filter(has), dock: (['hidden'] as const).filter(has) };
   return { top, dock: (['idle', 'hidden'] as const).filter(has) };
 }

@@ -316,7 +316,7 @@ func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo) {
 			continue
 		}
 		for _, h := range heads {
-			if h.owns(pr.HeadSHA) || (h.tip != "" && pr.HeadSHA == h.tip) {
+			if h.claimsHead(pr.HeadBranch, pr.HeadSHA) {
 				followed[pr.Number] = state.PRWatch{Project: p.Name, Number: pr.Number, Agent: h.agent, AgentID: ids[h.agent]}
 				break
 			}

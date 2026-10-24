@@ -483,9 +483,10 @@ func (v *VM) up(ctx context.Context) error {
 
 // lock takes the VM's lock, shared by everything that would start the VM and
 // held alone by a resize, which stops it and has to keep it stopped until Lima
-// has changed it: the app, finding no daemon mid-resize, runs agentbox daemon
-// start, and that waits here instead of starting the VM under the resize. A
-// command that has to wait says so. unlock lets it go.
+// has changed it, and by vm init (initLima), until the VM it makes is set up:
+// the app, finding no daemon mid-resize, runs agentbox daemon start, and that
+// waits here instead of starting the VM under the resize. A command that has
+// to wait says so. unlock lets it go.
 func (v *VM) lock(ctx context.Context, exclusive bool) (unlock func(), err error) {
 	file := filepath.Join(v.Paths.Config, "vm", v.Name+".lock")
 	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
@@ -550,7 +551,9 @@ func (v *VM) Current(ctx context.Context) (bool, error) {
 
 // Install puts the Linux binary in the VM, replacing the old one in one
 // rename: a daemon running from it keeps running the old file until it's
-// restarted (the app restarts a daemon of another version itself).
+// restarted (the app restarts a daemon of another version itself). venus/
+// goes with it (setupGPU), so the GPU driver the daemon builds is this
+// version's.
 func (v *VM) Install(ctx context.Context) error {
 	f, err := os.Open(v.Binary)
 	if err != nil {
@@ -559,8 +562,11 @@ func (v *VM) Install(ctx context.Context) error {
 	defer func() { _ = f.Close() }()
 	_, _ = fmt.Fprintf(v.Log, "==> Installing %s in the VM as %s\n", v.Binary, vmBinary)
 	script := fmt.Sprintf(`set -e; t=%[1]s.new.$$; cat >"$t"; chmod 0755 "$t"; mv -f "$t" %[1]s`, vmBinary)
-	_, err = v.exec(ctx, f, "sudo", "sh", "-c", script)
-	return err
+	if _, err := v.exec(ctx, f, "sudo", "sh", "-c", script); err != nil {
+		return err
+	}
+	v.setupGPU(ctx)
+	return nil
 }
 
 // Ready starts the VM if it's stopped, and brings its agentbox up to date:
@@ -583,7 +589,11 @@ func (v *VM) ready(ctx context.Context) error {
 		return err
 	}
 	if !current {
-		return v.Install(ctx)
+		if err := v.Install(ctx); err != nil {
+			return err
+		}
+		// A VM made before Setup wrote it learns why it has no GPU.
+		v.writeGPUReason(ctx)
 	}
 	return nil
 }
@@ -656,7 +666,7 @@ func (v *VM) setup(ctx context.Context, daemon bool) error {
 	if err := v.writeProfile(ctx); err != nil {
 		return err
 	}
-	v.setupGPU(ctx)
+	v.writeGPUReason(ctx)
 	if !daemon {
 		return nil
 	}

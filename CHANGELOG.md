@@ -3,6 +3,74 @@
 All notable, user-facing changes to AgentBox are documented here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Nothing older than 0.3.0 is listed.
 
+## [0.15.0](https://github.com/leciric/agentbox/compare/v0.14.0...v0.15.0) (2026-10-21)
+
+
+### Added
+
+* a krunkit VM on a Mac readies a GPU for agents (Vulkan on Metal, OpenGL through Zink), and agentbox vm gpu says which renderer they get ([#426](https://github.com/leciric/agentbox/issues/426)) ([872d273](https://github.com/leciric/agentbox/commit/872d27360f1b2212b7f0fb7b3dcccd6873def257))
+* a pull request chip in the agent lists, and search finds agents by PR number ([#406](https://github.com/leciric/agentbox/issues/406)) ([c80302e](https://github.com/leciric/agentbox/commit/c80302e3affcf42199e5ef76d25746578ca9f990))
+* a simpler review that leads with the proof and the verdicts, fully usable from the keyboard ([#408](https://github.com/leciric/agentbox/issues/408)) ([9914552](https://github.com/leciric/agentbox/commit/991455237d8bb6ca6f962a4d78d39f0714ce2573))
+* agent rows show a live terminal in a fixed-size thumbnail, previewed large on hover, with CPU/RAM beside it ([#420](https://github.com/leciric/agentbox/issues/420)) ([7dd833f](https://github.com/leciric/agentbox/commit/7dd833f92e3ae275482d59e71d6899ab1b0859bc))
+* agents clear their outdated screenshots and recordings after a rework ([#411](https://github.com/leciric/agentbox/issues/411)) ([b041f68](https://github.com/leciric/agentbox/commit/b041f6824f49c5011d530d27dafce7c6e84ed6f4))
+* agents record a before and an after for every visible change ([#390](https://github.com/leciric/agentbox/issues/390)) ([ef617b6](https://github.com/leciric/agentbox/commit/ef617b682ca6596852404365266156c3edb74447))
+* agents record a walkthrough by rehearsing it once, then replaying it with no model running ([#424](https://github.com/leciric/agentbox/issues/424)) ([4af9e33](https://github.com/leciric/agentbox/commit/4af9e33db17bfbd960e7f942300a624cdee5f377))
+* agents' commits and pull requests no longer credit the AI tool unless turned on in Settings ([#422](https://github.com/leciric/agentbox/issues/422)) ([3688713](https://github.com/leciric/agentbox/commit/36887133d5543c90afa72b51d5ebb3798c086f3c))
+* drag the live desktops lane wider to see bigger desktops ([#388](https://github.com/leciric/agentbox/issues/388)) ([a902399](https://github.com/leciric/agentbox/commit/a902399a65b513f49c0f5a7e6057a8f2a451a7c1))
+* each agent's own computer on its row, hover card and page, and a right panel that shows one agent in four views ([#384](https://github.com/leciric/agentbox/issues/384)) ([aa321fb](https://github.com/leciric/agentbox/commit/aa321fbd4c0aa0af28ee4a3dbc1dbeb0a48a22b3))
+* GPU for agents on Linux: AgentBox's VM gets your GPU (OpenGL and Vulkan), from one patched Cloud Hypervisor ([#429](https://github.com/leciric/agentbox/issues/429)) ([b765b02](https://github.com/leciric/agentbox/commit/b765b025928c7e731b06415e757e62994bfdd803))
+* GPU for agents on Windows: agents get WSL's GPU, and their desktop renders OpenGL on it ([#425](https://github.com/leciric/agentbox/issues/425)) ([796bbc5](https://github.com/leciric/agentbox/commit/796bbc5b5e654fdffb44b47a471f98b0f87af930))
+* keep Claude Code up to date without waiting for an AgentBox release ([#386](https://github.com/leciric/agentbox/issues/386)) ([9678048](https://github.com/leciric/agentbox/commit/96780484466e3678501f2724e70ee9b5bd445f9a))
+* leave notes on diff lines in the review and send them all with Request changes ([#393](https://github.com/leciric/agentbox/issues/393)) ([c834cb4](https://github.com/leciric/agentbox/commit/c834cb450c8219ada76a145f1e5c48a51fbca5a3))
+* list every project in a stable order; grouping idle projects and sorting by activity is now a setting ([#413](https://github.com/leciric/agentbox/issues/413)) ([e9edba5](https://github.com/leciric/agentbox/commit/e9edba5d446d8f8d6a2f63afe85a0167d5f87f8a))
+* pick an element on an agent's page and send it to the chat ([#394](https://github.com/leciric/agentbox/issues/394)) ([da56204](https://github.com/leciric/agentbox/commit/da56204ca3456ccb6b94b45a341e9ba956ec0779))
+* pull requests open as a tab of the right panel ([#453](https://github.com/leciric/agentbox/issues/453)) ([55f477c](https://github.com/leciric/agentbox/commit/55f477cb5bdd8af28ac28749e179ba22a88a7065))
+* recordings of the display show the browser's page, and media save takes an id or a name ([#436](https://github.com/leciric/agentbox/issues/436)) ([2c31514](https://github.com/leciric/agentbox/commit/2c3151408a55729114a553e50419c0d24e06bebd))
+* recordings skip the time the screen stands still, so they show only the action ([#423](https://github.com/leciric/agentbox/issues/423)) ([afdd191](https://github.com/leciric/agentbox/commit/afdd19114162855b3fd3fa0e3b1c20d932867a17))
+* run one task on several agents and keep the best (Compare view) ([#395](https://github.com/leciric/agentbox/issues/395)) ([277a22e](https://github.com/leciric/agentbox/commit/277a22e15edca32887b8e58129ae8b15617820be))
+* schedule tasks for a project's lead, once or on a cron, in your timezone ([#392](https://github.com/leciric/agentbox/issues/392)) ([f0de6f1](https://github.com/leciric/agentbox/commit/f0de6f1fd6fbcfa6ad8a9cea3c3de6fb6998ba98))
+* see the desktops your agents are using in a lane beside the lead chat ([#379](https://github.com/leciric/agentbox/issues/379)) ([836e0d4](https://github.com/leciric/agentbox/commit/836e0d40b73f46ca241f83102dd89d2eae11312e))
+* see what each agent did as a timeline over its recordings, and a project's day as a Today reel ([#380](https://github.com/leciric/agentbox/issues/380)) ([8ef058e](https://github.com/leciric/agentbox/commit/8ef058ec80c26645647cf316f6f421b288322d55))
+* Settings → Diagnostics and agentbox trace summary show slow operations, stalls and resource history, kept on your machine ([#397](https://github.com/leciric/agentbox/issues/397)) ([53bbd00](https://github.com/leciric/agentbox/commit/53bbd0000e6fe84bb18e9645af22ce351e758bf5))
+* the agent list is wider, its live desktops bigger, and rows animate between tool icon and desktop ([#407](https://github.com/leciric/agentbox/issues/407)) ([a3f4f80](https://github.com/leciric/agentbox/commit/a3f4f8064220094e406270fcce994de06ee8557e))
+* the lead's panel switches between Agents and Files, and an agent's chat has a way back to the lead ([#412](https://github.com/leciric/agentbox/issues/412)) ([eb20fd3](https://github.com/leciric/agentbox/commit/eb20fd37dc89f2abe15246f5ed7842551e7e6764))
+* the review opens on the agent's proof, and the lead chat shows what each agent finished with ([#377](https://github.com/leciric/agentbox/issues/377)) ([35f351c](https://github.com/leciric/agentbox/commit/35f351ca369383e087f2a3ab9e61afe293a9e372))
+* the usage pill shows the account's name when it isn't the default ([#452](https://github.com/leciric/agentbox/issues/452)) ([a72e993](https://github.com/leciric/agentbox/commit/a72e993fed14d2e51ad31e577deb673b6e3b402b))
+* turning on Codex or OpenCode no longer rebuilds the base image; Setup downloads it and adds them ([#439](https://github.com/leciric/agentbox/issues/439)) ([a8aa096](https://github.com/leciric/agentbox/commit/a8aa0963f89812d64353bf606ab73fdbeb9c46ef))
+* UI v2 shows a project's agents beside its lead chat, with Pull requests and Settings one click away ([#401](https://github.com/leciric/agentbox/issues/401)) ([ce39b05](https://github.com/leciric/agentbox/commit/ce39b0534b3fd065a6169bd17925e9369eaf866f))
+* UI v2's sidebar shows your project sections, to make, rename, fold and drag projects into ([#450](https://github.com/leciric/agentbox/issues/450)) ([6ed91d0](https://github.com/leciric/agentbox/commit/6ed91d0116b52da297a04242a248f5865af7612f))
+
+
+### Fixed
+
+* a finished, sleeping agent shows one bar over the chat composer instead of two stacked ([#441](https://github.com/leciric/agentbox/issues/441)) ([2d56454](https://github.com/leciric/agentbox/commit/2d564548f5f14bb084051381962b818c70e2436e))
+* a lead's chat shows an agent's evidence card once, however often it finishes ([#414](https://github.com/leciric/agentbox/issues/414)) ([2a4dfbd](https://github.com/leciric/agentbox/commit/2a4dfbd1791bedefe5575dc09da20514c0785d0e))
+* a Mac's VM changes its kernel and builds the GPU driver only when GPU for agents is turned on, and falls back to its old kernel if the new one doesn't boot ([#428](https://github.com/leciric/agentbox/issues/428)) ([2675285](https://github.com/leciric/agentbox/commit/26752850b8154e29f247f50c00bfceadb138caef))
+* agents can delete their own media again, and a recording that fails to finish keeps what was captured ([#438](https://github.com/leciric/agentbox/issues/438)) ([fb7231e](https://github.com/leciric/agentbox/commit/fb7231eee7f663415653695df0ec1f810d9e2275))
+* agents get DNS and full downloads on Windows with WSL's mirrored networking ([#417](https://github.com/leciric/agentbox/issues/417)) ([a644270](https://github.com/leciric/agentbox/commit/a644270b6d708dd6824d156c7540bf1f134c1576))
+* agents whose pull requests were merged long ago no longer reappear in Ready to review ([#447](https://github.com/leciric/agentbox/issues/447)) ([c82ccb4](https://github.com/leciric/agentbox/commit/c82ccb4ce01e2a6930a2fe32ac949861a017d4dd))
+* an agent row without a live desktop shows its tool's icon at full size ([#405](https://github.com/leciric/agentbox/issues/405)) ([0502513](https://github.com/leciric/agentbox/commit/0502513c2898da86a7c2e7c3736eb86b7a497cbc))
+* an agent with a follow-up pull request stays in review until its last pull request ends ([#409](https://github.com/leciric/agentbox/issues/409)) ([eaa3795](https://github.com/leciric/agentbox/commit/eaa3795d413f55e91c9bfa57346cd1136be0cc56))
+* chat previews and diagrams are as wide as the message text ([#440](https://github.com/leciric/agentbox/issues/440)) ([0574d4a](https://github.com/leciric/agentbox/commit/0574d4a845073a529dd522f6fa30e00e1497bec9))
+* GPU draws in agents' machines no longer hang, and Vulkan offers only the chosen GPU ([#443](https://github.com/leciric/agentbox/issues/443)) ([d7f850f](https://github.com/leciric/agentbox/commit/d7f850f52373324aa246ae73e804c166b3021c3e))
+* GPU for agents can be turned on in a VM an older AgentBox started, and Settings offers Restart now where the VM must restart ([#434](https://github.com/leciric/agentbox/issues/434)) ([6293764](https://github.com/leciric/agentbox/commit/6293764ff220adab7780c8106f50f8e511aed948))
+* idle projects no longer listed as active for questions nobody can answer ([#391](https://github.com/leciric/agentbox/issues/391)) ([a6495b0](https://github.com/leciric/agentbox/commit/a6495b007cf85568387b8533c12d038653d8f0bf))
+* new agents start again when the AI tool isn't credited in commits ([#433](https://github.com/leciric/agentbox/issues/433)) ([da76056](https://github.com/leciric/agentbox/commit/da7605665cf0006b2f9a4ed9f013b788d73e0518))
+* no more card under lead messages that mention a working agent ([#389](https://github.com/leciric/agentbox/issues/389)) ([8396589](https://github.com/leciric/agentbox/commit/8396589657d5ab74848ae847797213cadbd26dce))
+* on Windows, opening Settings no longer launches a second AgentBox over and over ([#410](https://github.com/leciric/agentbox/issues/410)) ([6bcff5a](https://github.com/leciric/agentbox/commit/6bcff5a350dde8835da83690ffe2d405a2663d56))
+* starting an agent no longer fails when another change to its machine's settings lands at the same moment ([#437](https://github.com/leciric/agentbox/issues/437)) ([27488fa](https://github.com/leciric/agentbox/commit/27488fa0e0b141d75226b3d3823883b6e1699631))
+* the app no longer crashes on start when its daemon is older than it ([#381](https://github.com/leciric/agentbox/issues/381)) ([752d95b](https://github.com/leciric/agentbox/commit/752d95bd2ca81a7bdca72244102ae04845bdd33e))
+* the image build stops with the failing network hop instead of hanging without a connection ([#416](https://github.com/leciric/agentbox/issues/416)) ([d8e8985](https://github.com/leciric/agentbox/commit/d8e89852b912487bf531a097c3979a241b20cc03))
+* the phone app no longer crashes on every start once a project has agents ([#442](https://github.com/leciric/agentbox/issues/442)) ([2a06098](https://github.com/leciric/agentbox/commit/2a0609827df046287e3824eb0585c5012a34a4be))
+* the PR number on the review card opens the pull request on GitHub ([#402](https://github.com/leciric/agentbox/issues/402)) ([c0c354f](https://github.com/leciric/agentbox/commit/c0c354f6dcf4e0ab13410ff73343a08fe7edddb3))
+* the review modal never scrolls sideways with many media ([#421](https://github.com/leciric/agentbox/issues/421)) ([259af71](https://github.com/leciric/agentbox/commit/259af71a2be3e285ae988a5e34b2677c69f2c4fc))
+* the review modal's media strip scrolls on its own and the checks column stays inside it ([#418](https://github.com/leciric/agentbox/issues/418)) ([501b1b8](https://github.com/leciric/agentbox/commit/501b1b86d81116cfc148d18d80f938e6aebef296))
+* the shut-down button in the top bar is just its icon ([#451](https://github.com/leciric/agentbox/issues/451)) ([0b5dec7](https://github.com/leciric/agentbox/commit/0b5dec7df083781b7e050695a4a5e374d41117f7))
+* the sidebar header shows icons instead of labels ([#449](https://github.com/leciric/agentbox/issues/449)) ([e426da2](https://github.com/leciric/agentbox/commit/e426da2f6dbe15aeb78805013201a3494483784f))
+* the sidebar no longer shows an "unread" count on project rows ([#419](https://github.com/leciric/agentbox/issues/419)) ([3a8db0f](https://github.com/leciric/agentbox/commit/3a8db0f983c4de14bad9bf5d4182133b8bfdb97f))
+* the Today page scrolls when its chapters are taller than the window ([#387](https://github.com/leciric/agentbox/issues/387)) ([6642b52](https://github.com/leciric/agentbox/commit/6642b52954eebb5188608805806b5267355a64f5))
+* Windows setup explains a missing Virtual Machine Platform before downloading Ubuntu ([#415](https://github.com/leciric/agentbox/issues/415)) ([1202ff5](https://github.com/leciric/agentbox/commit/1202ff57e03f57879c84ac5bcb38ad5b6febebce))
+
 ## [0.14.0](https://github.com/leciric/agentbox/compare/v0.13.0...v0.14.0) (2026-10-16)
 
 
