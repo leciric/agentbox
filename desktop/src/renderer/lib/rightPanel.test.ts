@@ -35,11 +35,11 @@ test('the lead and a past agent have files and evidence, but no machine views, a
     assert.equal(P.hasView(live, view), true, `agent ${view}`);
   }
   assert.deepEqual(P.panelViews.filter(P.needsMachine), ['desktop', 'terminal', 'browser']);
-  assert.deepEqual(P.panelViews.filter(P.projectWide), ['pulls', 'schedules', 'settings']);
+  assert.deepEqual(P.panelViews.filter(P.projectWide), ['pulls', 'issues', 'schedules', 'settings']);
   // The switch's four, and the ⋯'s the rest: every view is in one of them.
   assert.deepEqual(P.switchViews, ['desktop', 'terminal', 'files', 'evidence']);
-  // Pull requests and Settings open from the project's header, not the ⋯.
-  assert.deepEqual([...P.switchViews, ...P.moreViews, 'pulls', 'settings'].toSorted(), [...P.panelViews].toSorted());
+  // Pull requests, Issues and Settings open from the project's header, not the ⋯.
+  assert.deepEqual([...P.switchViews, ...P.moreViews, 'pulls', 'issues', 'settings'].toSorted(), [...P.panelViews].toSorted());
   // What each opens on before it was shown in any.
   assert.equal(P.defaultView(live), 'desktop');
   assert.equal(P.defaultView(lead), 'files');

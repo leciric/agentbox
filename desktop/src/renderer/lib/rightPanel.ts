@@ -15,17 +15,17 @@ import type * as T from '../../shared/api.ts';
 import { isLeadRef } from './pages.ts';
 import type { ProjectSection } from './tabs.ts';
 
-export type PanelView = 'desktop' | 'terminal' | 'files' | 'evidence' | 'browser' | 'timeline' | 'pulls' | 'schedules' | 'settings';
-export const panelViews: PanelView[] = ['desktop', 'terminal', 'files', 'evidence', 'browser', 'timeline', 'pulls', 'schedules', 'settings'];
+export type PanelView = 'desktop' | 'terminal' | 'files' | 'evidence' | 'browser' | 'timeline' | 'pulls' | 'issues' | 'schedules' | 'settings';
+export const panelViews: PanelView[] = ['desktop', 'terminal', 'files', 'evidence', 'browser', 'timeline', 'pulls', 'issues', 'schedules', 'settings'];
 // The switch's four, always there, in this order; the rest are in the ⋯.
 export const switchViews: PanelView[] = ['desktop', 'terminal', 'files', 'evidence'];
 // The project's Pull requests and Settings are off it: a tab of the lead's panel, and on the project's header.
 export const moreViews: PanelView[] = ['browser', 'timeline', 'schedules'];
 
-// The project's own views: its pull requests, its scheduled tasks and its
-// settings, the same whoever is picked.
-export type WideView = 'pulls' | 'schedules' | 'settings';
-export const projectWide = (view: PanelView): view is WideView => view === 'pulls' || view === 'schedules' || view === 'settings';
+// The project's own views: its pull requests, its GitHub issues, its
+// scheduled tasks and its settings, the same whoever is picked.
+export type WideView = 'pulls' | 'issues' | 'schedules' | 'settings';
+export const projectWide = (view: PanelView): view is WideView => view === 'pulls' || view === 'issues' || view === 'schedules' || view === 'settings';
 
 // The views that show a machine: an agent's display, its shell, its dev server.
 export const needsMachine = (view: PanelView) => view === 'desktop' || view === 'terminal' || view === 'browser';
@@ -303,12 +303,12 @@ export function panelClose(chat: string): void {
 // repository is the lead picked as whose, so which of Agents, Files and
 // Evidence is on is remembered per project in last and views, with whoever
 // else it showed; Pull requests and Schedules, for this session only.
-export type LeadTab = 'agents' | 'pulls' | 'files' | 'evidence' | 'schedules';
-export const leadTabs: LeadTab[] = ['agents', 'pulls', 'files', 'evidence', 'schedules'];
+export type LeadTab = 'agents' | 'pulls' | 'issues' | 'files' | 'evidence' | 'schedules';
+export const leadTabs: LeadTab[] = ['agents', 'pulls', 'issues', 'files', 'evidence', 'schedules'];
 export function leadTab(state: PanelState, project: string): LeadTab {
   const lead = leadOf(project);
   const wide = chatPanel(state, lead).wide;
-  if (wide === 'pulls' || wide === 'schedules') return wide;
+  if (wide === 'pulls' || wide === 'issues' || wide === 'schedules') return wide;
   if (state.last[project] !== lead) return 'agents';
   return state.views[lead] === 'evidence' ? 'evidence' : 'files';
 }
@@ -316,6 +316,7 @@ export function setLeadTab(project: string, tab: LeadTab): void {
   const lead = leadOf(project);
   const state = panelState();
   if (tab === 'pulls') return setView(lead, lead, 'pulls');
+  if (tab === 'issues') return setView(lead, '', 'issues');
   if (tab === 'schedules') return setView(lead, '', 'schedules');
   if (tab === 'agents') return update(lead, (p) => ({ ...bare(p), open: true }), { last: { ...state.last, [project]: listTarget } });
   update(lead, (p) => ({ ...bare(p), open: true }), { last: { ...state.last, [project]: lead }, views: { ...state.views, [lead]: tab } });

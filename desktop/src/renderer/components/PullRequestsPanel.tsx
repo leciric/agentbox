@@ -270,7 +270,7 @@ export function PullRequestsPanel({
 
 // GitHubErrorFix is what to do about it, in the same sentence: the two fixes
 // are somewhere in this app, so they are links rather than advice.
-function GitHubErrorFix({ err, onOpenAccount, onOpenSetup }: { err: T.GitHubError; onOpenAccount: () => void; onOpenSetup: () => void }) {
+export function GitHubErrorFix({ err, onOpenAccount, onOpenSetup }: { err: T.GitHubError; onOpenAccount: () => void; onOpenSetup: () => void }) {
   const t = useT();
   const link = (onClick: () => void) => (c: ReactNode) => (
     <button type="button" className="font-medium text-brand-300 hover:underline" onClick={onClick}>
@@ -430,7 +430,7 @@ function without(errors: Readonly<Record<number, string>>, number: number): Reco
   return rest;
 }
 
-const stateVariants: Record<string, BadgeVariant> = { open: 'info', merged: 'success', closed: 'default' };
+export const stateVariants: Record<string, BadgeVariant> = { open: 'info', merged: 'success', closed: 'default' };
 const checksVariants: Record<string, BadgeVariant> = { passing: 'success', failing: 'danger', pending: 'warning' };
 
 // useMine is the Mine filter, remembered per project.

@@ -17,7 +17,7 @@
 // was picked there. Dragged at its left edge, the list and an agent each
 // keep their own width. lib/rightPanel.ts has its rules and state.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlarmClock, ArrowLeft, ChevronsRight, Camera, Briefcase, Check, Crown, Ellipsis, Film, FileText, FolderTree, GanttChart, GitBranch, GitPullRequest, Globe, Image as ImageIcon, Images, LoaderCircle, Maximize, Minimize, Monitor, MousePointer2, Play, Plus, Power, Settings, SlidersHorizontal, SquareTerminal, Unplug, Users, X, type LucideIcon } from 'lucide-react';
+import { AlarmClock, ArrowLeft, ChevronsRight, Camera, Briefcase, Check, Crown, Ellipsis, Film, FileText, FolderTree, CircleDot, GanttChart, GitBranch, GitPullRequest, Globe, Image as ImageIcon, Images, LoaderCircle, Maximize, Minimize, Monitor, MousePointer2, Play, Plus, Power, Settings, SlidersHorizontal, SquareTerminal, Unplug, Users, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
@@ -98,6 +98,7 @@ import { AgentList, AgentStrip } from './AgentList';
 import { chatOf } from './PanelButton';
 import { useOpenReview, useProjectReview } from './ReviewV2';
 import { PickButton, usePicker } from '../PickElement';
+import { IssuesPanel } from '../IssuesPanel';
 
 const viewIcon: Record<PanelView, LucideIcon> = {
   desktop: Monitor,
@@ -107,6 +108,7 @@ const viewIcon: Record<PanelView, LucideIcon> = {
   browser: Globe,
   timeline: GanttChart,
   pulls: GitPullRequest,
+  issues: CircleDot,
   schedules: AlarmClock,
   settings: SlidersHorizontal,
 };
@@ -118,6 +120,7 @@ const viewLabel: Record<PanelView, MessageKey> = {
   browser: 'panel.view.browser',
   timeline: 'panel.view.timeline',
   pulls: 'panel.view.pulls',
+  issues: 'panel.view.issues',
   schedules: 'panel.view.schedules',
   settings: 'panel.view.settings',
 };
@@ -275,7 +278,8 @@ function RightPanel({ project, chat, width, drawer, onSelect, onNewAgent }: { pr
   const projectName = projectLabel(project, useQuery({ queryKey: ['projects'], queryFn: api.projects }).data);
   // Beside the lead's chat, the list, the pull requests, the repository and
   // the schedules are its tabs: no back arrow, title or ✕ for them, the switch instead.
-  const pulls = lead && panel.wide === 'pulls';
+  // Issues, beside it, is named by the switch the same way.
+  const pulls = lead && (panel.wide === 'pulls' || panel.wide === 'issues');
   const home = lead && (pulls || panel.wide === 'schedules' || (!panel.wide && (!whose || whose.kind === 'lead')));
 
   if (!whose && !panel.wide && state.listFolded && !drawer) return <AgentStrip project={project} chat={chat} onSelect={onSelect} onUnfold={() => setPanel({ listFolded: false })} />;
@@ -404,6 +408,7 @@ function LeadSwitch({ project, tab, files, count }: { project: string; tab: Lead
       on: tab === 'pulls',
       tip: [t('panel.view.pulls'), open > 0 && t('v2.header.openPulls', { count: open }), ready > 0 && t('v2.header.readyPulls', { count: ready })].filter(Boolean).join(' · '),
     },
+    issues: { icon: CircleDot, label: t('panel.view.issues'), on: tab === 'issues' },
     files: { icon: FolderTree, label: t('panel.view.files'), on: tab === 'files' && files },
     evidence: { icon: Images, label: t('panel.view.evidence'), on: tab === 'evidence' },
     schedules: { icon: AlarmClock, label: t('panel.view.schedules'), on: tab === 'schedules' },
@@ -1000,7 +1005,7 @@ function Files({ project, whose, width }: { project: string; whose: Whose; width
 // ProjectView is the project's pull requests or its settings, over whoever
 // the panel shows until a view of the switch is picked. The lead's Pull
 // requests tab is named by its switch: no title of its own then.
-function ProjectView({ project, chat, view, section, titled, onSelect }: { project: string; chat: string; view: 'pulls' | 'schedules' | 'settings'; section: PanelState['section']; titled: boolean; onSelect: (view: View) => void }) {
+function ProjectView({ project, chat, view, section, titled, onSelect }: { project: string; chat: string; view: WideView; section: PanelState['section']; titled: boolean; onSelect: (view: View) => void }) {
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const p = projects.data?.find((x) => x.name === project);
   const title = <span className="ml-1 min-w-0 truncate font-normal text-subtle">· {projectLabel(project, projects.data)}</span>;
@@ -1010,6 +1015,23 @@ function ProjectView({ project, chat, view, section, titled, onSelect }: { proje
         {titled && <ViewTitle view={view} after={title} />}
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3" data-panel-pulls>
           <PullRequestsPanel
+            project={project}
+            onSelect={onSelect}
+            onOpenAccount={() => {
+              setPanel({ section: 'general' });
+              openPanelOn(chat, 'settings');
+            }}
+          />
+        </div>
+      </>
+    );
+  }
+  if (view === 'issues') {
+    return (
+      <>
+        {titled && <ViewTitle view={view} after={title} />}
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3" data-panel-issues>
+          <IssuesPanel
             project={project}
             onSelect={onSelect}
             onOpenAccount={() => {
