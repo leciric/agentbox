@@ -38,7 +38,7 @@ var tsTypes = []any{
 	SnapRequest{}, Snap{}, SnapSendRequest{},
 	Connector{}, SetConnectorRequest{}, ConnectorOverrideRequest{}, ConnectResult{}, SelfConnector{}, ConnectorRequest{},
 	ScanConnectorsRequest{}, ConnectorScan{}, ConnectorUnreadable{}, ConnectorCandidate{}, ConnectorSource{}, ImportConnectorsRequest{}, ImportConnector{}, ImportConnectorsResult{}, ImportConnectorFailure{},
-	PullRequest{}, Label{}, ProjectLabels{}, EditLabelsRequest{}, GitHubError{}, ProjectPullRequests{}, MergePullRequestRequest{}, PullRequestDetail{}, PullCheck{}, PullRequestFiles{}, PullFile{}, PullFileDiff{}, AgentChanges{}, RetireAdvice{}, FleetAgent{}, Fleet{},
+	PullRequest{}, Label{}, ProjectLabels{}, EditLabelsRequest{}, GitHubError{}, ProjectPullRequests{}, Issue{}, IssueHandoff{}, IssuePullRequest{}, ProjectIssues{}, MergePullRequestRequest{}, PullRequestDetail{}, PullCheck{}, PullRequestFiles{}, PullFile{}, PullFileDiff{}, AgentChanges{}, RetireAdvice{}, FleetAgent{}, Fleet{},
 	RetireRequest{}, RetiredAgent{}, RetireResult{},
 	Question{}, AskRequest{}, AnswerQuestionRequest{}, EscalateQuestionRequest{}, CredentialRequest{}, AnswerCredentialRequest{}, AgentEvent{}, ReviewItem{}, ReviewRequest{}, RequestChangesRequest{}, ReviewNote{}, AddReviewNoteRequest{}, EditReviewNoteRequest{},
 	AndroidStatus{}, AndroidStartRequest{}, AndroidInstallRequest{}, AndroidInstallResult{},

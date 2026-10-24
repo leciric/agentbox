@@ -552,6 +552,7 @@ export function buildFixtures(): FixtureData {
       agentPRs: false,
       syncBase: true,
       fullTestSuite: false,
+      pickUpIssues: false,
       prWatch: '',
       prWatching: true,
       createdAt: new Date().toISOString(),
@@ -584,6 +585,7 @@ export function buildFixtures(): FixtureData {
       agentPRs: false,
       syncBase: true,
       fullTestSuite: false,
+      pickUpIssues: false,
       prWatch: '',
       prWatching: true,
       createdAt: new Date().toISOString(),
@@ -1114,6 +1116,12 @@ function agent99Turns(): T.TokenTurn[] {
 // preview that plays out what the daemon would do (dev/review.tsx).
 export function patchDevAgent(ref: string, over: Partial<T.Agent>): void {
   devState.agents = devState.agents?.map((a) => (a.ref === ref ? { ...a, ...over } : a));
+}
+
+// addDevAgent adds an agent to what the dev bridge answers, as a create does
+// (dev/issues.ts's hand-off).
+export function addDevAgent(agent: T.Agent): void {
+  devState.agents = [agent, ...(devState.agents ?? [])];
 }
 
 // dropDevAgent removes an agent from what the dev bridge answers, as a
@@ -2249,10 +2257,14 @@ export function installDevBridge(): void {
     setLanguage: () => {},
     openPath: async () => '',
     openChatFile: async () => '',
+    // As if saved where the dialog offers, for the toast Share shows.
+    saveShare: async (_path: string, name: string) => `/home/you/Downloads/${name}`,
+    showShare: async () => {},
     showItem: async () => {},
     openExternal: async () => {},
     notify: async () => false,
     keepAwake: async () => {},
+    tray: { settings: async () => ({ keepRunning: false }), set: async (next: { keepRunning?: boolean }) => ({ keepRunning: false, ...next }), reviewing: () => {}, onOpen: () => () => {} },
     onNotificationClick: () => () => {},
     copyText: () => {},
     readText: async () => '',

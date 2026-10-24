@@ -933,6 +933,7 @@ function InstalledSettings({
   ];
   const githubSteps = accountSteps.filter((step) => step.id === "github");
 
+  const traySettings = useTraySettings();
   const notifyPrefs = usePrefs();
   const dnd = useDnd();
   const notifyChanged =
@@ -990,6 +991,18 @@ function InstalledSettings({
                     label: t("settings.entry.environment.label"),
                     keywords: t("settings.entry.environment.keywords"),
                     render: () => <EnvironmentSetting />,
+                  },
+                ]
+              : []),
+            // The desktop app's only: a browser has no tray.
+            ...(traySettings.data
+              ? [
+                  {
+                    id: "tray",
+                    label: t("settings.entry.tray.label"),
+                    keywords: t("settings.entry.tray.keywords"),
+                    modified: traySettings.data.keepRunning,
+                    render: () => <TraySetting />,
                   },
                 ]
               : []),
@@ -2300,6 +2313,38 @@ function GroupIdleSetting() {
       label={t("settings.entry.group-idle.label")}
       description={t("settings.groupIdle.description")}
       control={<Switch data-group-idle-setting aria-label={t("settings.entry.group-idle.label")} checked={on} onCheckedChange={setGroupIdle} />}
+    />
+  );
+}
+
+// The tray's settings are the main process's (main/tray.ts), kept in its
+// tray.json: its menu can change them too.
+const traySettingsKey = ["traySettings"];
+const useTraySettings = () => useQuery({ queryKey: traySettingsKey, queryFn: () => window.agentbox.tray.settings(), refetchOnWindowFocus: "always" });
+
+// TraySetting is whether closing the window keeps AgentBox running in the
+// tray, or a Mac's menu bar, instead of quitting.
+function TraySetting() {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const settings = useTraySettings();
+  const set = useMutation({
+    mutationFn: (keepRunning: boolean) => window.agentbox.tray.set({ keepRunning }),
+    onSuccess: (next) => queryClient.setQueryData(traySettingsKey, next),
+  });
+  return (
+    <SettingRow
+      label={t("settings.entry.tray.label")}
+      description={t("settings.tray.description")}
+      control={
+        <Switch
+          data-tray-setting
+          aria-label={t("settings.entry.tray.label")}
+          checked={settings.data?.keepRunning ?? false}
+          disabled={set.isPending}
+          onCheckedChange={(on) => set.mutate(on)}
+        />
+      }
     />
   );
 }

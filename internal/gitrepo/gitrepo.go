@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -446,6 +447,42 @@ func DiffWorktree(worktree, base string, stat bool, paths ...string) (string, er
 		args = append(append(args, "--"), paths...)
 	}
 	return output(worktree, nil, args...)
+}
+
+// FileStat is one file's lines added and removed in a diff; Binary for a
+// file git can't count lines of.
+type FileStat struct {
+	Path           string
+	Added, Removed int
+	Binary         bool
+}
+
+// NumstatWorktree is DiffWorktree's files with their counts, in git's order.
+func NumstatWorktree(worktree, base string) ([]FileStat, error) {
+	tree, err := worktreeTree(worktree)
+	if err != nil {
+		return nil, err
+	}
+	out, err := output(worktree, nil, "diff", "--numstat", "-z", "--no-renames", base, tree)
+	if err != nil {
+		return nil, err
+	}
+	var files []FileStat
+	for _, rec := range strings.Split(out, "\x00") {
+		fields := strings.SplitN(rec, "\t", 3)
+		if len(fields) != 3 {
+			continue
+		}
+		f := FileStat{Path: fields[2]}
+		if fields[0] == "-" {
+			f.Binary = true
+		} else {
+			f.Added, _ = strconv.Atoi(fields[0])
+			f.Removed, _ = strconv.Atoi(fields[1])
+		}
+		files = append(files, f)
+	}
+	return files, nil
 }
 
 // DiffCommits diffs base against commit in the repository at dir, as a

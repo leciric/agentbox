@@ -64,7 +64,7 @@ import { onNotification, useConnection } from "./lib/events";
 import { chatLabel } from "./lib/agentStatus";
 import { reviewHeadKey, questionsKey } from "./lib/inboxPages";
 import { mayNotify, type Kind } from "./lib/notifyPrefs";
-import { playReadySound } from "./lib/reviewAlert";
+import { playReadySound, useReviewing } from "./lib/reviewAlert";
 import type { AgentPlaceName, ProjectPlaceName } from "./lib/tabs";
 import { requestReveal } from "./lib/reveal";
 import type { SearchTarget } from "./lib/search";
@@ -400,6 +400,20 @@ export function App({ initial }: { initial?: View } = {}) {
       }),
     [queryClient],
   );
+
+  // A tray menu entry clicked (main/tray.ts): the window is in front again, go there.
+  useEffect(
+    () =>
+      window.agentbox.tray.onOpen((target) => {
+        if (target.kind === "question") openNoticeRef.current(target.notice);
+        else if (target.kind === "agent") selectRef.current({ kind: "agent", ref: target.ref });
+        else selectRef.current({ kind: "project", project: target.project });
+      }),
+    [],
+  );
+  // The tray counts Ready to review only while this computer reviews.
+  const reviewing = useReviewing();
+  useEffect(() => window.agentbox.tray.reviewing(reviewing), [reviewing]);
 
   // Tell you when an agent's AI tool waits for your answer while you look elsewhere.
   const chatStates = useRef<Map<string, string | undefined> | null>(null);

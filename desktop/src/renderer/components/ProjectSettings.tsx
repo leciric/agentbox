@@ -158,6 +158,13 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
           render: () => <AgentPRsToggle project={project} />,
         },
         {
+          id: 'pick-up-issues',
+          label: t('defaults.project.pickUpLabel'),
+          keywords: t('defaults.project.pickUpKeywords'),
+          modified: project.pickUpIssues,
+          render: () => <PickUpIssuesToggle project={project} />,
+        },
+        {
           id: 'pr-watch',
           label: t('defaults.project.prWatchLabel'),
           keywords: t('defaults.project.prWatchKeywords'),
@@ -622,6 +629,33 @@ function AgentPRsToggle({ project }: { project: T.Project }) {
           disabled={save.isPending}
           onCheckedChange={(on) => save.mutate(on)}
         />
+      }
+    />
+  );
+}
+
+// PickUpIssuesToggle has the project hand its open GitHub issues labelled
+// agentbox to new agents by itself (daemon/issues.go); the Issues view has the
+// same switch.
+function PickUpIssuesToggle({ project }: { project: T.Project }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (pickUpIssues: boolean) => api.updateProject(project.name, { pickUpIssues }),
+    onSuccess: async (updated) => {
+      toast(updated.pickUpIssues ? t('defaults.project.pickUpOnToast', { name: updated.name }) : t('defaults.project.pickUpOffToast', { name: updated.name }));
+      await Promise.all([queryClient.invalidateQueries({ queryKey: ['projects'] }), queryClient.invalidateQueries({ queryKey: ['issues', project.name] })]);
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  return (
+    <SettingRow
+      label={t('defaults.project.pickUpLabel')}
+      htmlFor="project-pick-up-issues"
+      description={project.pickUpIssues ? t('defaults.project.pickUpOnDescription') : t('defaults.project.pickUpOffDescription')}
+      details={t('defaults.project.pickUpDetails')}
+      control={
+        <Switch id="project-pick-up-issues" data-project-pick-up-issues checked={project.pickUpIssues} disabled={save.isPending} onCheckedChange={(on) => save.mutate(on)} />
       }
     />
   );

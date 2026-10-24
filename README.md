@@ -339,6 +339,7 @@ agentbox add ~/src/my-app                               # a git repository becom
 agentbox chat my-app "Paginate the reminders list"      # ask its chat, which creates the agents it needs
 agentbox diff my-app/agent-01                           # what an agent changed
 agentbox media list my-app/agent-01                     # what it kept to show its work
+agentbox share my-app/agent-01 -o run.html              # what it did, as one page to send anyone
 ```
 
 `agentbox --help` lists the rest; [`docs/`](docs/README.md) has the architecture behind both.
