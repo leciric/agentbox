@@ -89,6 +89,7 @@ import { ProjectSettingsBody } from '../ProjectView';
 import { PullRequestsPanel } from '../PullRequestsPanel';
 import { TerminalTab } from '../TerminalTab';
 import { TimelinePanel, useTimeline } from '../timeline/Timeline';
+import { ShareButton } from '../ShareButton';
 import { Button } from '../ui/button';
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '../ui/menu';
 import { Switch } from '../ui/switch';
@@ -603,7 +604,13 @@ function Body({ project, chat, whose, view, width, focus }: { project: string; c
     case 'browser':
       return whose.kind === 'agent' ? titled(<PanelBrowser agent={whose.agent} />) : null;
     case 'timeline':
-      return whose.kind === 'lead' ? null : titled(<TimelinePanel project={project} agentRef={unPast(whoseRef(whose))} />);
+      if (whose.kind === 'lead') return null;
+      return (
+        <>
+          <ViewTitle view={view} after={<ShareButton compact agentRef={unPast(whoseRef(whose))} className="ml-auto" />} />
+          <TimelinePanel project={project} agentRef={unPast(whoseRef(whose))} />
+        </>
+      );
   }
 }
 

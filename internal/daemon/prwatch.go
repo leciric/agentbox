@@ -392,6 +392,9 @@ func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo) {
 		open[followed[n].Agent] = true
 	}
 	for _, g := range gone {
+		s.restack(ctx, p, client, repo, stackBase{
+			Number: g.pr.Number, URL: g.pr.URL, State: g.pr.State, Head: g.pr.HeadBranch, HeadSHA: g.pr.HeadSHA, Base: g.pr.BaseBranch,
+		})
 		if open[g.row.Agent] {
 			s.logf("%s/%s: its pull request #%d was %s; kept, with another still open", p.Name, g.row.Agent, g.pr.Number, g.pr.State)
 			continue

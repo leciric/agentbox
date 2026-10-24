@@ -82,3 +82,10 @@ func (c *Client) AgentTimeline(ctx context.Context, ref string) (Timeline, error
 	var out Timeline
 	return out, c.do(ctx, http.MethodGet, path+"/timeline", nil, &out)
 }
+
+// AgentShare is the agent ref's run as one self-contained HTML page, redacted,
+// to send anyone (internal/share).
+func (c *Client) AgentShare(ctx context.Context, ref string) (string, error) {
+	var out string
+	return out, c.agentDo(ctx, http.MethodGet, ref, "/share", nil, &out)
+}

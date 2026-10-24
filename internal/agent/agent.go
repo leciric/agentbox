@@ -1467,6 +1467,7 @@ func (m *Manager) brief(ctx context.Context, a state.Agent, ip string, envFiles 
 		Worktree:     a.Worktree,
 		Branch:       a.Branch,
 		BaseRef:      a.BaseRef,
+		Parent:       m.stackParent(ctx, a),
 		IP:           ip,
 		EnvFiles:     envFiles,
 		NodeModules:  m.nodeModulesDirs(a),
@@ -1484,6 +1485,24 @@ func (m *Manager) brief(ctx context.Context, a state.Agent, ip string, envFiles 
 		Knowledge:     knowledge,
 		CompactWindow: compactWindow,
 	})
+}
+
+// stackParent is the agent whose branch a stands on, "" when a stands on
+// none of its project's agents' branches.
+func (m *Manager) stackParent(ctx context.Context, a state.Agent) string {
+	if a.BaseRef == "" || a.BaseRef == "HEAD" {
+		return ""
+	}
+	agents, err := m.Store.Agents(ctx, a.Project)
+	if err != nil {
+		return ""
+	}
+	for _, o := range agents {
+		if o.Name != a.Name && !o.IsLead() && o.Branch == a.BaseRef {
+			return o.Name
+		}
+	}
+	return ""
 }
 
 // blockFullSuite says whether the installation blocks agents' whole test
@@ -1684,6 +1703,24 @@ func (m *Manager) writeBrief(ctx context.Context, a state.Agent, ip string, envF
 		}
 	}
 	return nil
+}
+
+// Restack moves an agent stacked on another's branch onto the branch that
+// one merged into: its base becomes ref, and commit — the merged branch's
+// last tip — is what its own commits are told from until it has rebased.
+// Its brief is written again when its machine is running, so the branch it
+// is told to open its pull request against is the new one; Start writes it
+// otherwise.
+func (m *Manager) Restack(ctx context.Context, a state.Agent, ref, commit string) (state.Agent, error) {
+	if err := m.Store.SetAgentBase(ctx, a.Project, a.Name, ref, commit); err != nil {
+		return a, err
+	}
+	a.BaseRef, a.BaseCommit = ref, commit
+	inst, err := m.Incus.Instance(ctx, a.Instance)
+	if err != nil || inst.Status != "Running" {
+		return a, nil
+	}
+	return a, m.writeBrief(ctx, a, inst.IPv4(), m.projectEnvFiles(ctx, a.Project))
 }
 
 // projectEnvFiles lists a project's gitignored env files for a brief written

@@ -542,6 +542,9 @@ export const api = {
   // What an agent did, as steps read out of its chat (internal/timeline); a
   // past agent's too.
   timeline: (ref: string) => call<T.Timeline>('GET', `${agent(ref)}/timeline`),
+  // saveShare saves what the agent did as one page to send anyone, where the
+  // user picks (a browser downloads it): where it went, or '' for nowhere.
+  saveShare: (ref: string) => window.agentbox.saveShare(`${agent(ref)}/share`, `${ref.replace(/[^A-Za-z0-9_-]/g, '-')}.html`),
   deleteMedia: (id: string) => call<void>('DELETE', `/v1/media/${encodeURIComponent(id)}`),
   setMediaFavorite: (id: string, favorite: boolean) =>
     call<T.MediaItem>('PATCH', `/v1/media/${encodeURIComponent(id)}`, { favorite } satisfies T.UpdateMediaRequest),

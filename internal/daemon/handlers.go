@@ -1090,6 +1090,13 @@ func (s *Server) checkCreate(ctx context.Context, req api.CreateAgentRequest, by
 		return fail(err)
 	}
 	req.Project = p.Name // it may have been named by what it is called
+	// An agent named as where to start is its branch: the new agent is
+	// stacked on it, and opens its pull request against it (stack.go).
+	if req.From != "" {
+		if a, err := s.store.Agent(ctx, p.Name, req.From); err == nil && !a.IsLead() && a.Branch != "" {
+			req.From = a.Branch
+		}
+	}
 	if req.AI == "" {
 		req.AI = "claude"
 	}

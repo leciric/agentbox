@@ -479,7 +479,8 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				"branch": str("its branch, after the project's prefix: short lowercase kebab-case naming the work, like " +
 					"\"fix-login-redirect\" or \"feat-csv-export\", at most 48 characters. Pass one every time; left out, it is made " +
 					"from the title. A branch that is already taken gets -2, -3… appended."),
-				"from":     str("the branch or agent branch to start from; the project's branch by default"),
+				"from": str("the branch to start from, or an agent (its name or branch) to stack this one on: it starts from " +
+					"that agent's branch and opens its pull request against it; the project's branch by default"),
 				"research": map[string]any{"type": "boolean", "description": "it only investigates, so it gets no branch of its own"},
 				"queue":    map[string]any{"type": "boolean", "description": "accepted and ignored: every agent starts at once"},
 				"size":     sizeParam,

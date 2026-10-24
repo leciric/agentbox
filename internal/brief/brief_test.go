@@ -64,6 +64,18 @@ func TestRender(t *testing.T) {
 			GitHub:   true,
 			AgentPRs: true,
 		},
+		// Made from another agent's branch: stacked on it.
+		"stacked": {
+			Project:  "pawly",
+			Agent:    "agent-08",
+			Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/agent-08",
+			Branch:   "agentbox/feat-csv-import",
+			BaseRef:  "agentbox/feat-csv-export",
+			Parent:   "agent-07",
+			IP:       "10.239.149.28",
+			GitHub:   true,
+			AgentPRs: true,
+		},
 		// The user lets commits credit the AI tool: no line asking not to.
 		"credit-ai-tool": {
 			Project:      "pawly",

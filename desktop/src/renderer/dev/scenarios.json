@@ -2423,5 +2423,23 @@
       "[data-work-row$='agent-36'] button",
       "[data-review-toggle=details]"
     ]
+  },
+  {
+    "id": "share-review-dark",
+    "description": "agent-12's review with Share beside Diff, Details and GitHub — dark",
+    "query": "review=1&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "click": [
+      "[data-inbox]",
+      "[data-review-all]"
+    ]
+  },
+  {
+    "id": "share-timeline-panel-dark",
+    "description": "UI v2, the right panel on agent-12's Timeline, Share in its title — dark",
+    "query": "app=project&v2=1&panel=timeline:agent-12&theme=dark",
+    "width": 1440,
+    "height": 900
   }
 ]

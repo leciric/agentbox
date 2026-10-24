@@ -990,6 +990,13 @@ func (s *Server) mergePullRequest(w http.ResponseWriter, r *http.Request) error 
 // afterMerge records a merge made through the app and frees the agent whose
 // pull request it was.
 func (s *Server) afterMerge(ctx context.Context, p state.Project, repo github.Repo, pr github.PullRequest, method string, out api.PullRequest) {
+	// What stood on it moves first: freeing the agent below may take its
+	// branch, the one its children stand on, with it.
+	if client, _, err := s.githubFor(p); err == nil {
+		s.restack(ctx, p, client, repo, stackBase{
+			Number: pr.Number, URL: pr.URL, State: "merged", Head: pr.HeadBranch, HeadSHA: pr.HeadSHA, Base: pr.BaseBranch,
+		})
+	}
 	heads := s.agentsOf(ctx, p)
 	by := agentOfPR(heads, pr.HeadBranch, pr.HeadSHA)
 	s.captureEvent(ctx, p.Name, by, "pr_merged", map[string]any{
