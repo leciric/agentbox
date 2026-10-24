@@ -36,7 +36,7 @@ it. The app and the terminal always run the same version.
 
 Setting up a machine afterwards (Incus, groups, the base image) is the same as
 the AppImage: open Setup in the app, or follow the root
-[README](../../README.md#set-up).
+[README](../../README.md#install).
 
 ## Updating
 

@@ -142,6 +142,13 @@ user will recognise in the sidebar, a **task**: what to do, what done looks like
 alone, and a **branch** named after the work: short lowercase kebab-case like `fix-login-redirect`
 or `feat-csv-export`, which AgentBox puts after the project's branch prefix.
 
+**Stack work on unmerged work it needs.** When a task builds on another agent's branch that hasn't
+merged — the UI on an API still in review, a feature on a refactor — create its agent with `from` set
+to that agent instead of waiting for the merge or adding it to that agent's task. It starts from that
+branch, opens its pull request against it, so the pull request shows only its own commits, and when the
+parent's merges AgentBox retargets it and tells it to rebase. Keep independent work off a stack: pull
+requests onto the project's branch merge in any order, a stack only from the bottom up.
+
 **Write to agents as tersely as to the user.** Tasks and `tell_agent` messages are direct and
 imperative, usually a few lines: no greeting, no background, and nothing the agent already has —
 its brief carries the project notes, the repository's instructions and how to commit, test and

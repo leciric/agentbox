@@ -160,8 +160,8 @@ type ProjectActivity struct {
 
 // ProjectIcon is what a project shows as its icon.
 type ProjectIcon struct {
-	// Source is "chosen" (the user's), "detected" (found in the repository
-	// or its GitHub owner's avatar) or "none".
+	// Source is "chosen" (the user's), "detected" (found in the repository)
+	// or "none".
 	Source string `json:"source"`
 	Emoji  string `json:"emoji,omitempty"`
 	// Image is a data: URL (data:image/png;base64,...).
@@ -2178,6 +2178,9 @@ type ReviewItem struct {
 	Ref     string `json:"ref"`
 	Title   string `json:"title,omitempty"`
 	Branch  string `json:"branch,omitempty"`
+	// BaseRef is the branch it stands on: another agent's, when it is
+	// stacked on that one's work.
+	BaseRef string `json:"baseRef,omitempty"`
 	AI      string `json:"ai,omitempty"`
 	// Summary is what the agent said when it finished, cut down the way its
 	// finish event cuts it.

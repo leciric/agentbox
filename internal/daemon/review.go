@@ -207,16 +207,17 @@ func (s *Server) liveWork(ctx context.Context, p state.Project, agents []state.A
 				}
 				// The Work page still lists it, as work whose finish isn't read.
 				e.finished = false
-				e.item = api.ReviewItem{Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title, Branch: a.Branch, AI: a.AI}
+				e.item = api.ReviewItem{Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title, Branch: a.Branch, BaseRef: a.BaseRef, AI: a.AI}
 				out = append(out, e)
 				continue
 			}
 			e.item, e.ended = known.item, known.ended
+			e.item.BaseRef = a.BaseRef
 		} else {
 			pr := prs[a.Name]
 			s.prWatch.overlay(p.Name, pr)
 			e.ended = prEnded(pr, a)
-			e.item = api.ReviewItem{Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title, Branch: branchOf(heads, a, pr), AI: a.AI, PR: pr}
+			e.item = api.ReviewItem{Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title, Branch: branchOf(heads, a, pr), BaseRef: a.BaseRef, AI: a.AI, PR: pr}
 			if !finished {
 				out = append(out, e)
 				continue

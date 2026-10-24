@@ -156,6 +156,8 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
   web: true,
   lan,
   keepAwake: async () => {},
+  // A browser has no tray.
+  tray: { settings: async () => null, set: unavailable('web.bridge.tray'), reviewing: () => {}, onOpen: () => () => {} },
   request: async (method: string, path: string, body?: unknown): Promise<ApiResponse> => {
     const res = await fetch(apiBase() + path, {
       method,
@@ -268,6 +270,15 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
     link.click();
     return Promise.resolve('');
   },
+  // A browser downloads the page, where it puts downloads.
+  saveShare: (path: string, name: string) => {
+    const link = document.createElement('a');
+    link.href = `${apiBase()}${path}`;
+    link.download = name;
+    link.click();
+    return Promise.resolve('');
+  },
+  showShare: () => Promise.resolve(),
   showItem: unavailable('web.bridge.showItem'),
   openExternal: (url) => {
     window.open(url, '_blank', 'noopener');
