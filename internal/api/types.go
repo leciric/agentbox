@@ -134,6 +134,9 @@ type Project struct {
 	// suite while Settings.BlockFullSuite refuses them; it means nothing
 	// while that is off. Off by default.
 	FullTestSuite bool `json:"fullTestSuite"`
+	// PickUpIssues is whether the project hands its open GitHub issues
+	// labelled IssueLabel to new agents by itself. Off by default.
+	PickUpIssues bool `json:"pickUpIssues"`
 	// PRWatching is what that comes to: whether they are watched now.
 	PRWatching bool      `json:"prWatching"`
 	CreatedAt  time.Time `json:"createdAt"`
@@ -341,6 +344,9 @@ type UpdateProjectRequest struct {
 	// FullTestSuite turns on or off whether this project's agents may run a
 	// whole test suite while Settings.BlockFullSuite refuses them.
 	FullTestSuite *bool `json:"fullTestSuite,omitempty"`
+	// PickUpIssues turns on or off handing the project's issues labelled
+	// IssueLabel to new agents by itself.
+	PickUpIssues *bool `json:"pickUpIssues,omitempty"`
 }
 
 type AddProjectRequest struct {
@@ -897,7 +903,13 @@ type WorktreeFiles struct {
 type CreateAgentRequest struct {
 	// Task, when set, is sent to the agent as its first message once it is
 	// ready. A project's chat uses it to hand work over in one step.
-	Task    string `json:"task,omitempty"`
+	Task string `json:"task,omitempty"`
+	// Issue, when set, is the number of one of the project's GitHub issues
+	// the agent is made for: its task is the issue (title, body and comments)
+	// followed by Task, when there is one, its pull request is to say
+	// "Closes #N", and the issue shows the agent in the Issues view. Title
+	// and Branch are made from the issue when left empty.
+	Issue   int    `json:"issue,omitempty"`
 	Project string `json:"project"`
 	Name    string `json:"name,omitempty"`
 	Title   string `json:"title,omitempty"`
@@ -1769,6 +1781,68 @@ type ProjectPullRequests struct {
 	// means the first read is still out: an empty list isn't an empty
 	// repository yet.
 	Refreshing bool `json:"refreshing,omitempty"`
+}
+
+// IssueLabel is the label that has a project picking an issue up by itself,
+// when the project's PickUpIssues is on.
+const IssueLabel = "agentbox"
+
+// Issue is one of a project repository's open GitHub issues, with the agent
+// it was handed to, if any.
+type Issue struct {
+	Number       int        `json:"number"`
+	Title        string     `json:"title"`
+	URL          string     `json:"url"`
+	Author       string     `json:"author,omitempty"`
+	AuthorAvatar string     `json:"authorAvatar,omitempty"`
+	Labels       []Label    `json:"labels,omitempty"`
+	Comments     int        `json:"comments,omitempty"`
+	CreatedAt    *time.Time `json:"createdAt,omitempty"`
+	UpdatedAt    *time.Time `json:"updatedAt,omitempty"`
+	// Handed is set once the issue was handed to an agent.
+	Handed *IssueHandoff `json:"handed,omitempty"`
+}
+
+// IssueHandoff is the agent an issue was handed to and what came of it.
+type IssueHandoff struct {
+	// Agent is the agent's name; empty while Job is still making it.
+	Agent string `json:"agent,omitempty"`
+	Job   string `json:"job,omitempty"`
+	// Title is the agent's title, and Status its status, while it is there;
+	// Retired says it has since been retired.
+	AgentTitle string `json:"agentTitle,omitempty"`
+	Status     string `json:"status,omitempty"`
+	Retired    bool   `json:"retired,omitempty"`
+	// Auto says the project picked the issue up by itself (PickUpIssues).
+	Auto bool      `json:"auto,omitempty"`
+	At   time.Time `json:"at"`
+	// PullRequest is the pull request the agent opened, once one is seen.
+	PullRequest *IssuePullRequest `json:"pullRequest,omitempty"`
+}
+
+// IssuePullRequest is the pull request an issue's agent opened.
+type IssuePullRequest struct {
+	Number int    `json:"number"`
+	URL    string `json:"url"`
+	State  string `json:"state"` // open, closed or merged
+}
+
+// ProjectIssues is a project repository's open issues, as the Issues view and
+// the lead's list_issues read them. The repository fields say the same as
+// ProjectPullRequests' do.
+type ProjectIssues struct {
+	Project         string       `json:"project"`
+	GitHub          string       `json:"github,omitempty"`
+	GitHubAccount   string       `json:"githubAccount,omitempty"`
+	GitHubError     *GitHubError `json:"githubError,omitempty"`
+	NoOrigin        bool         `json:"noOrigin,omitempty"`
+	NonGitHubRemote string       `json:"nonGitHubRemote,omitempty"`
+	Issues          []Issue      `json:"issues"`
+	// PickUpIssues is the project's setting, so the view can say whether
+	// issues labelled Label are picked up by themselves.
+	PickUpIssues bool       `json:"pickUpIssues"`
+	Label        string     `json:"label"`
+	FetchedAt    *time.Time `json:"fetchedAt,omitempty"`
 }
 
 // MergePullRequestRequest merges a pull request with the given method:

@@ -184,7 +184,7 @@
 //                           dev bridge (fixtures.ts)
 //   ?power=wsl-running|wsl-off
 //                           the same on Windows, for AgentBox's WSL distro
-//   ?app=home|project|pulls|agent-99|settings
+//   ?app=home|project|pulls|issues|agent-99|settings
 //                           the whole App, sidebar, top bar, page and rail, as
 //                           the window shows it, open on Home, the project's
 //                           chat, agent-99 or Settings: for narrow and portrait
@@ -315,6 +315,7 @@ import { ReviewPreview, seedEvidence, seedLeadLines, seedReview, seedV2 } from '
 import { PipFinish, seedPip } from './pip';
 import { seedPick } from './pick';
 import { seedTimelines } from './timeline';
+import { seedIssues } from './issues';
 import { setUiV2 } from '../lib/uiV2';
 import { setGroupIdle } from '../lib/groupIdle';
 import { setTourState, tours, welcomeTour } from '../lib/tours';
@@ -542,6 +543,7 @@ if (review || appView) seedReview(queryClient);
 // The fixture agents' timelines (dev/timeline.ts), for the right panel's
 // Timeline tab, the review's and Today.
 if (appView) seedTimelines();
+if (appView === 'issues') seedIssues(queryClient);
 // UI v2 only where asked for: the flag is the preview origin's, kept between pages.
 setUiV2(params.get('v2') === '1');
 // No tour plays over a scenario unless &tour= asks for one.
@@ -1478,7 +1480,7 @@ if (phoneMode === 'frame') {
     : appView === 'work' ? { kind: 'work' }
     : appView === 'settings' ? { kind: 'settings' }
     : appView === 'homeChat' ? { kind: 'homeChat' }
-    : appView === 'project' || appView === 'pulls' ? { kind: 'project', project: PROJECT, tab: appView === 'pulls' ? 'pulls' : 'chat' }
+    : appView === 'project' || appView === 'pulls' || appView === 'issues' ? { kind: 'project', project: PROJECT, tab: appView === 'pulls' || appView === 'issues' ? appView : 'chat' }
     : { kind: 'agent', ref: `${PROJECT}/${appView}` };
   createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={queryClient}>

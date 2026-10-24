@@ -80,7 +80,7 @@ type RepoEvents struct {
 	Head          Commit
 	// Issues are the open issues with one of WatchOptions.Labels, most
 	// recently updated first.
-	Issues []Issue
+	Issues []WatchedIssue
 }
 
 // Commit is a commit with its checks, folded as WatchedPR.Checks is.
@@ -92,8 +92,8 @@ type Commit struct {
 	Failing  []FailingCheck
 }
 
-// Issue is an open issue as a look sees it.
-type Issue struct {
+// WatchedIssue is an open issue as a look sees it.
+type WatchedIssue struct {
 	Number    int
 	Title     string
 	URL       string
@@ -420,7 +420,7 @@ func readEvents(viewer string, repo map[string]json.RawMessage) (RepoEvents, err
 			return out, err
 		}
 		for _, n := range page.Nodes {
-			is := Issue{Number: n.Number, Title: n.Title, URL: n.URL, Author: n.Author.login(), Body: n.Body, CreatedAt: n.CreatedAt}
+			is := WatchedIssue{Number: n.Number, Title: n.Title, URL: n.URL, Author: n.Author.login(), Body: n.Body, CreatedAt: n.CreatedAt}
 			for _, l := range n.Labels.Nodes {
 				is.Labels = append(is.Labels, l.Name)
 			}

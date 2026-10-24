@@ -58,6 +58,13 @@ func (c *Client) CreateProjectAgent(ctx context.Context, req CreateAgentRequest)
 	return out, c.do(ctx, http.MethodPost, c.leadPath("/agents"), req, &out)
 }
 
+// LeadIssues lists the open GitHub issues of the project behind the lead's
+// socket, with the agent each one was handed to.
+func (c *Client) LeadIssues(ctx context.Context) (ProjectIssues, error) {
+	var out ProjectIssues
+	return out, c.do(ctx, http.MethodGet, c.leadPath("/issues"), nil, &out)
+}
+
 func (c *Client) TellAgent(ctx context.Context, agent, message string) (TellResult, error) {
 	var out TellResult
 	path := c.leadPath("/agents/" + url.PathEscape(agent) + "/chat/messages")

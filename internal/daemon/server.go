@@ -116,6 +116,8 @@ type Server struct {
 	pullFiles    pullFiles     // the files of the pull requests the app opened, for their diffs
 	pullDetails  pullDetails   // the pull requests the app opened, for a moment (pulldetail.go)
 	prWatch      *prWatcher    // the agents' pull requests being watched (prwatch.go)
+	issues       issuesCache   // projects' open GitHub issues (issues.go)
+	issuePickup  *issuePicker  // wakes the loop that picks labelled issues up (issues.go)
 	// prTell sends an agent a message from the pull request watch, waking it
 	// first, and says what that took: tellAgent, or a test's recorder.
 	prTell func(ctx context.Context, a state.Agent, text string) (told, error)
@@ -372,6 +374,7 @@ func New(cfg Config) (*Server, error) {
 		baseSyncErrs:     map[string]string{},
 		pulls:            newPullsCache(),
 		prWatch:          newPRWatcher(),
+		issuePickup:      newIssuePicker(),
 		files:            newFilesCache(),
 		updates:          updates{now: make(chan struct{}, 1)},
 		toolUpdates:      newToolUpdates(),
@@ -554,6 +557,7 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 	// Scheduled tasks, starting with any that fell due while it was down.
 	loops.Go(func() { s.runSchedules(ctx) })
 	loops.Go(func() { s.reconcilePullRequests(ctx) })
+	loops.Go(func() { s.runIssuePickup(ctx) })
 	loops.Go(func() { s.syncBases(ctx) })
 	// Incus is asked only from here on: nothing before Serve may wait on it.
 	loops.Go(func() { s.watchIncus(ctx) })
@@ -870,6 +874,7 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/projects/{project}/pulls/{number}/merge", s.mergePullRequest)
 	h("POST /v1/projects/{project}/pulls/{number}/labels", s.editPullRequestLabels)
 	h("GET /v1/projects/{project}/labels", s.projectLabels)
+	h("GET /v1/projects/{project}/issues", s.projectIssues)
 	h("GET /v1/projects/{project}/pulls/{number}", s.pullRequestDetail)
 	h("GET /v1/projects/{project}/pulls/{number}/files", s.pullRequestFiles)
 	h("GET /v1/projects/{project}/pulls/{number}/diff", s.pullFileDiff)
