@@ -46,8 +46,8 @@ func scheduleTools(ctx context.Context, c *api.Client, decode func(json.RawMessa
 	}
 	type request struct {
 		Title, Task, At, In, Every, Cron, On, Label, Timezone, Target, Session, Model, Effort, Precheck *string
-		GraceMinutes                                                                         *int `json:"grace_minutes"`
-		ID                                                                                   string
+		GraceMinutes                                                                                    *int `json:"grace_minutes"`
+		ID                                                                                              string
 	}
 	toRequest := func(in request) api.ScheduleRequest {
 		return api.ScheduleRequest{
