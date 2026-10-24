@@ -160,8 +160,8 @@ type ProjectActivity struct {
 
 // ProjectIcon is what a project shows as its icon.
 type ProjectIcon struct {
-	// Source is "chosen" (the user's), "detected" (found in the repository
-	// or its GitHub owner's avatar) or "none".
+	// Source is "chosen" (the user's), "detected" (found in the repository)
+	// or "none".
 	Source string `json:"source"`
 	Emoji  string `json:"emoji,omitempty"`
 	// Image is a data: URL (data:image/png;base64,...).
