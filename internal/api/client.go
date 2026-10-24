@@ -546,6 +546,12 @@ func (c *Client) ProjectPullRequests(ctx context.Context, project string) (Proje
 	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/pulls", nil, &out)
 }
 
+// ProjectIssues lists a project repository's open issues.
+func (c *Client) ProjectIssues(ctx context.Context, project string) (ProjectIssues, error) {
+	var out ProjectIssues
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/issues", nil, &out)
+}
+
 // MergePullRequest merges one of a project repository's pull requests with
 // the given method: "merge", "squash" or "rebase".
 func (c *Client) MergePullRequest(ctx context.Context, project string, number int, method string) (PullRequest, error) {
@@ -1345,4 +1351,21 @@ func (c *Client) TerminalTails(ctx context.Context, project string, agents []str
 		path += "&lines=" + strconv.Itoa(lines)
 	}
 	return out, c.do(ctx, http.MethodGet, path, nil, &out)
+}
+
+// Profile copies one of the daemon's Go profiles (net/http/pprof, served on
+// its socket only) to w: "heap", "goroutine", "allocs"; query is pprof's own,
+// "gc=1" or "debug=1".
+func (c *Client) Profile(ctx context.Context, name, query string, w io.Writer) error {
+	path := "/debug/pprof/" + url.PathEscape(name)
+	if query != "" {
+		path += "?" + query
+	}
+	resp, err := c.request(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	_, err = io.Copy(w, resp.Body)
+	return err
 }

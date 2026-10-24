@@ -16,12 +16,14 @@ export class ApiError extends Error {
   }
 }
 
+// call reaches the API under /api; a path that starts with /lan/ is the
+// phone's own, beside it (its push notifications).
 async function call<R>(method: string, path: string, body?: unknown): Promise<R> {
   const s = session();
   if (!s) throw new ApiError('not paired', 401);
   let res: Response;
   try {
-    res = await fetch(`${s.origin}/api${path}`, {
+    res = await fetch(`${s.origin}${path.startsWith('/lan/') ? '' : '/api'}${path}`, {
       method,
       headers: { Authorization: `Bearer ${s.token}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -94,6 +96,10 @@ export const api = {
   // daemon asks of a phone's merge (lanAPI in internal/daemon/lan.go).
   merge: (name: string, number: number, method: string) =>
     call<T.PullRequest>('POST', `${project(name)}/pulls/${number}/merge`, { method, confirmed: true } satisfies T.MergePullRequestRequest),
+  // This phone's push notifications (internal/daemon/phonepush.go).
+  push: () => call<T.PhonePush>('GET', '/lan/push'),
+  setPush: (p: T.PhonePush) => call<T.PhonePush>('PUT', '/lan/push', p),
+  testPush: () => call<T.PhonePushTest>('POST', '/lan/push/test'),
 };
 
 // mediaSource is an image of the daemon's for <Image source>: its address

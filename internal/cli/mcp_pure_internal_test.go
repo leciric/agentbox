@@ -8,6 +8,7 @@ package cli
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"agentbox/internal/api"
 )
@@ -43,27 +44,43 @@ func TestDescribeSecrets(t *testing.T) {
 	got := describeSecrets([]api.Secret{
 		{Name: "STRIPE_KEY", Scope: "project"},
 		{Name: "AGENT_TOKEN", Scope: "agent", Agent: "agent-02"},
+		{Name: "AZURE_TOKEN", Scope: "project", LeadManaged: true},
 	})
-	if !strings.Contains(got, "$STRIPE_KEY — every agent of this project") || !strings.Contains(got, "$AGENT_TOKEN — agent-02 only") {
+	if !strings.Contains(got, "$STRIPE_KEY — every agent of this project\n") || !strings.Contains(got, "$AGENT_TOKEN — agent-02 only") ||
+		!strings.Contains(got, "$AZURE_TOKEN — every agent of this project; managed by you") {
 		t.Errorf("describeSecrets = %q", got)
 	}
 }
 
 func TestDescribeQuestions(t *testing.T) {
-	if got := describeQuestions(nil); got != "No agent is waiting on you." {
+	if got := describeQuestions(nil, nil); got != "No agent is waiting on you." {
 		t.Errorf("describeQuestions(none) = %q", got)
 	}
 	got := describeQuestions([]api.Question{
 		{ID: "q1", Agent: "agent-01", Status: "escalated", Question: "Paginate?", Context: "building the list page"},
 		{ID: "q2", Agent: "agent-02", Kind: api.CredentialSecret, SecretName: "API_KEY", Question: "needs a key"},
-	})
+		{ID: "q3", Agent: "agent-03", Kind: api.CredentialSecret, SecretName: "AZURE_TOKEN", Question: "token expired"},
+	}, leadManagedSecrets([]api.Secret{{Name: "AZURE_TOKEN", Scope: "project", LeadManaged: true}}))
 	for _, want := range []string{
 		"id q1, from agent-01 (escalated)", "Paginate?", "what it was doing: building the list page",
 		"id q2, from agent-02: asking the user for the secret $API_KEY",
+		"id q3, from agent-03: asking for the secret $AZURE_TOKEN, which is managed by you",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("describeQuestions missing %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestDescribeFulfilled(t *testing.T) {
+	asked := time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)
+	q := api.Question{Agent: "agent-03", SecretName: "AZURE_TOKEN", CreatedAt: asked}
+	fresh := describeFulfilled(api.FulfilCredentialResponse{Question: q, ValueSetAt: asked.Add(time.Minute)})
+	if !strings.Contains(fresh, "agent-03 has $AZURE_TOKEN now") || strings.Contains(fresh, "before the agent asked") {
+		t.Errorf("describeFulfilled(fresh) = %q", fresh)
+	}
+	if stale := describeFulfilled(api.FulfilCredentialResponse{Question: q, ValueSetAt: asked.Add(-time.Hour)}); !strings.Contains(stale, "before the agent asked") {
+		t.Errorf("describeFulfilled(stale) = %q, want it to say the value is older than the request", stale)
 	}
 }
 

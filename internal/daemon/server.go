@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"os"
@@ -113,13 +114,20 @@ type Server struct {
 	chat         *chat.Manager // the agents' conversations in the app's Chat tab
 	pulls        *pullsCache   // what GitHub said about each repository, served stale
 	pullFiles    pullFiles     // the files of the pull requests the app opened, for their diffs
+	pullDetails  pullDetails   // the pull requests the app opened, for a moment (pulldetail.go)
 	prWatch      *prWatcher    // the agents' pull requests being watched (prwatch.go)
+	issues       issuesCache   // projects' open GitHub issues (issues.go)
+	issuePickup  *issuePicker  // wakes the loop that picks labelled issues up (issues.go)
 	// prTell sends an agent a message from the pull request watch, waking it
 	// first, and says what that took: tellAgent, or a test's recorder.
 	prTell func(ctx context.Context, a state.Agent, text string) (told, error)
 	// prLead puts the watch's notice in front of a project's chat: tellLead,
 	// or a test's recorder.
-	prLead      func(ctx context.Context, project, notice string, act bool)
+	prLead func(ctx context.Context, project, notice string, act bool)
+	// restacked are the merged pull requests ("owner/repo#n") whose stack
+	// was moved onto where they merged, so the merge and the watch don't
+	// both move it (stack.go).
+	restacked   sync.Map
 	files       *filesCache      // each agent's worktree file listing, served briefly stale
 	fileWatches *fileWatches     // the folders the app's file trees have open, watched
 	disks       *agentDiskCache  // each agent's machine and worktree sizes, for its info card
@@ -189,6 +197,10 @@ type Server struct {
 	// connectors starts in the background (connectors.go), for the same
 	// reason, and so a test can wait for one to have marked the chats.
 	connectorSyncs sync.WaitGroup
+	// mergeFrees tracks the agents a merge through the app frees after it
+	// has answered (mergePullRequest), for the same reason: one may still be
+	// deleting a machine and a worktree.
+	mergeFrees sync.WaitGroup
 	// vgpu is the readying of a Mac's VM's GPU (vgpu.go), which Run waits
 	// for too.
 	vgpu vgpuSetup
@@ -239,6 +251,8 @@ type Server struct {
 	remote          *remote.Connector // the connection to a hub, when this machine is an environment
 	lan             *lanState         // phones chatting from the local network or a tunnel (lan.go)
 	share           shareState        // virtiofsd's open files, from the VM's supervisor (share.go)
+	health          healthStats       // what the next health event counts (healthevent.go)
+	phonePush       phonePushState    // push notifications to the phones' app (phonepush.go)
 	// connectorsGiven is whether each connector was last given to agents,
 	// by scope and name, so only a change to that rewrites their MCP
 	// servers (connectors.go).
@@ -328,6 +342,9 @@ type Server struct {
 	stalls    map[string]*stallTrack
 	cpuTime   func(instance string) (time.Duration, bool)
 	stallTell func(ctx context.Context, project, note string)
+	// credentialTell tells a lead of an agent's credential request, waking
+	// it for a lead-managed secret: tellLead, or a test's recorder.
+	credentialTell func(ctx context.Context, project, notice string, act bool)
 }
 
 func New(cfg Config) (*Server, error) {
@@ -362,6 +379,7 @@ func New(cfg Config) (*Server, error) {
 		baseSyncErrs:     map[string]string{},
 		pulls:            newPullsCache(),
 		prWatch:          newPRWatcher(),
+		issuePickup:      newIssuePicker(),
 		files:            newFilesCache(),
 		updates:          updates{now: make(chan struct{}, 1)},
 		toolUpdates:      newToolUpdates(),
@@ -397,6 +415,7 @@ func New(cfg Config) (*Server, error) {
 	s.loginCallbackUnreachable = hostos.OS() == hostos.Linux
 	s.recheckTell = func(ctx context.Context, project, note string) { s.tellLead(ctx, project, note, true) }
 	s.stallTell = s.recheckTell
+	s.credentialTell = s.tellLead
 	s.connectors = s.newConnectors()
 	s.disks = newAgentDiskCache(func(ctx context.Context, a state.Agent) agent.AgentDisk { return s.manager(nil).AgentDisk(ctx, a) })
 	s.prTell, s.prLead = s.prTellAgent, s.tellLead
@@ -423,6 +442,8 @@ func New(cfg Config) (*Server, error) {
 		LeadLogins:        s.leadToolLogins,
 		Logf:              s.logf,
 		PermissionChanged: s.agentPermission,
+		IdleStop:          s.leadSleepAfter,
+		StayUp:            s.leadDueSoon,
 		Version:           Version,
 		ImageDir:          cfg.Paths.ChatImages,
 	}
@@ -474,6 +495,9 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 	moved := s.moveDataToPool(ctx)
 	s.placeNodeModules()
 	defer s.startTracing()()
+	if limit := setMemoryLimit(); limit < math.MaxInt64 {
+		s.logf("soft memory limit %d MiB (GOMEMLIMIT sets another)", limit>>20)
+	}
 
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
@@ -515,6 +539,7 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 		s.bgChecks.Wait()
 		s.skillSyncs.Wait()
 		s.connectorSyncs.Wait()
+		s.mergeFrees.Wait()
 		s.vgpu.wg.Wait()
 	}()
 	s.firstSweeps.Add(4)
@@ -537,6 +562,7 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 	// Scheduled tasks, starting with any that fell due while it was down.
 	loops.Go(func() { s.runSchedules(ctx) })
 	loops.Go(func() { s.reconcilePullRequests(ctx) })
+	loops.Go(func() { s.runIssuePickup(ctx) })
 	loops.Go(func() { s.syncBases(ctx) })
 	// Incus is asked only from here on: nothing before Serve may wait on it.
 	loops.Go(func() { s.watchIncus(ctx) })
@@ -557,6 +583,7 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 	// API that their chats' tools call back is up.
 	loops.Go(func() { s.continueTurns(ctx) })
 	loops.Go(func() { s.rearmLimits(ctx) })
+	loops.Go(func() { s.unloadChats(ctx) })
 	// What an earlier release left queued starts now (leftoverqueue.go).
 	loops.Go(func() { s.startLeftoverQueue(ctx) })
 	s.startRemote(ctx)
@@ -575,7 +602,7 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 		}
 	})
 
-	srv := &http.Server{Handler: s.routes(), BaseContext: func(net.Listener) context.Context { return ctx }}
+	srv := &http.Server{Handler: s.socketHandler(), BaseContext: func(net.Listener) context.Context { return ctx }}
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -711,7 +738,9 @@ func (s *Server) secrets() secrets.Store {
 }
 
 func (s *Server) logf(format string, args ...any) {
-	_, _ = fmt.Fprintf(s.cfg.Log, time.Now().Format(time.DateTime)+" "+format+"\n", args...)
+	line := fmt.Sprintf(format, args...)
+	_, _ = fmt.Fprintf(s.cfg.Log, "%s %s\n", time.Now().Format(time.DateTime), line)
+	s.noteLog(line)
 }
 
 // projectBySlug lets every request name a project by what it is called as
@@ -765,6 +794,8 @@ func (s *Server) routes() http.Handler {
 	// What every chat spent, kept after its agent is gone (D83).
 	h("GET /v1/tokens", s.tokenReport)
 	h("GET /v1/tokens/turns", s.tokenTurns)
+	// The user's week with AgentBox, for its page and share cards.
+	h("GET /v1/recap", s.recap)
 	// What Anthropic last said about each Claude account's usage limits (D85).
 	h("GET /v1/limits", s.claudeLimits)
 
@@ -831,6 +862,8 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/projects/{project}/agent-events", s.projectAgentEvents)
 	h("GET /v1/projects/{project}/review", s.projectReview)
 	h("GET /v1/review", s.allReview)
+	h("GET /v1/projects/{project}/work", s.projectWork)
+	h("GET /v1/work", s.allWork)
 	h("POST /v1/agents/{project}/{agent}/review", s.reviewAgent)
 	h("POST /v1/agents/{project}/{agent}/request-changes", s.requestChanges)
 	h("GET /v1/agents/{project}/{agent}/review-notes", s.listReviewNotes)
@@ -848,6 +881,7 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/projects/{project}/pulls/{number}/merge", s.mergePullRequest)
 	h("POST /v1/projects/{project}/pulls/{number}/labels", s.editPullRequestLabels)
 	h("GET /v1/projects/{project}/labels", s.projectLabels)
+	h("GET /v1/projects/{project}/issues", s.projectIssues)
 	h("GET /v1/projects/{project}/pulls/{number}", s.pullRequestDetail)
 	h("GET /v1/projects/{project}/pulls/{number}/files", s.pullRequestFiles)
 	h("GET /v1/projects/{project}/pulls/{number}/diff", s.pullFileDiff)
@@ -863,6 +897,7 @@ func (s *Server) routes() http.Handler {
 	h("PUT /v1/projects/{project}/skills/{name}", s.setProjectSkill)
 	h("GET /v1/projects/{project}/secrets", s.listProjectSecrets)
 	h("PUT /v1/projects/{project}/secrets/{name}", s.setProjectSecret)
+	h("PATCH /v1/projects/{project}/secrets/{name}", s.patchProjectSecret)
 	h("DELETE /v1/projects/{project}/secrets/{name}", s.removeProjectSecret)
 	h("GET /v1/projects/{project}/browser-cookies", s.getBrowserCookies)
 	h("GET /v1/projects/{project}/browser-cookies/profiles", s.browserCookieProfiles)
@@ -897,6 +932,7 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/archived-agents/{project}/{agent}/continue", s.continueArchived)
 	// Their files, read from their branch's commit (archivedfiles.go).
 	h("GET /v1/archived-agents/{project}/{agent}/files", s.archivedFiles)
+	h("GET /v1/archived-agents/{project}/{agent}/diff", s.archivedDiff)
 	h("GET /v1/archived-agents/{project}/{agent}/files/list", s.archivedFolder)
 	h("GET /v1/archived-agents/{project}/{agent}/files/read", s.archivedRead)
 	h("GET /v1/archived-agents/{project}/{agent}/files/status", s.archivedStatus)
@@ -940,6 +976,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/agents/{project}/{agent}/chat", s.getChat(s.agentOrArchivedFromPath))
 	h("GET /v1/agents/{project}/{agent}/chat/search", s.searchChat(s.agentOrArchivedFromPath))
 	h("GET /v1/agents/{project}/{agent}/timeline", s.agentTimeline)
+	h("GET /v1/agents/{project}/{agent}/share", s.agentShare)
 	h("DELETE /v1/agents/{project}/{agent}/chat", s.clearChat(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/start", s.startChat(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/messages", s.sendChat(s.agentFromPath))
@@ -949,6 +986,8 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/agents/{project}/{agent}/chat/publish", s.publishRender(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/reload", s.reloadChatTools(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/resume", s.resumeChatLimit)
+	h("GET /v1/agents/{project}/{agent}/chat/runners", s.agentRunners)
+	h("PUT /v1/agents/{project}/{agent}/chat/runner", s.setAgentRunner)
 	h("POST /v1/agents/{project}/{agent}/chat/permissions/{item}", s.answerChat(s.agentFromPath))
 	h("PUT /v1/agents/{project}/{agent}/chat/options/{option}", s.setChatOption(s.agentFromPath))
 	h("GET /v1/agents/{project}/{agent}/browser", s.browser("status", s.agentFromPath))

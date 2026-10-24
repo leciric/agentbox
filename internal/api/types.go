@@ -134,6 +134,9 @@ type Project struct {
 	// suite while Settings.BlockFullSuite refuses them; it means nothing
 	// while that is off. Off by default.
 	FullTestSuite bool `json:"fullTestSuite"`
+	// PickUpIssues is whether the project hands its open GitHub issues
+	// labelled IssueLabel to new agents by itself. Off by default.
+	PickUpIssues bool `json:"pickUpIssues"`
 	// PRWatching is what that comes to: whether they are watched now.
 	PRWatching bool      `json:"prWatching"`
 	CreatedAt  time.Time `json:"createdAt"`
@@ -157,8 +160,8 @@ type ProjectActivity struct {
 
 // ProjectIcon is what a project shows as its icon.
 type ProjectIcon struct {
-	// Source is "chosen" (the user's), "detected" (found in the repository
-	// or its GitHub owner's avatar) or "none".
+	// Source is "chosen" (the user's), "detected" (found in the repository)
+	// or "none".
 	Source string `json:"source"`
 	Emoji  string `json:"emoji,omitempty"`
 	// Image is a data: URL (data:image/png;base64,...).
@@ -341,6 +344,9 @@ type UpdateProjectRequest struct {
 	// FullTestSuite turns on or off whether this project's agents may run a
 	// whole test suite while Settings.BlockFullSuite refuses them.
 	FullTestSuite *bool `json:"fullTestSuite,omitempty"`
+	// PickUpIssues turns on or off handing the project's issues labelled
+	// IssueLabel to new agents by itself.
+	PickUpIssues *bool `json:"pickUpIssues,omitempty"`
 }
 
 type AddProjectRequest struct {
@@ -469,6 +475,14 @@ type Settings struct {
 	// with …" line. Off unless it was turned on; it reaches an agent as it
 	// starts, and a Claude Code agent's chat as it starts too.
 	CreditAITool bool `json:"creditAITool"`
+	// BuiltWithBadge says whether agents end their pull requests'
+	// descriptions with a "Built with AgentBox" line and badge. Off until
+	// turned on.
+	BuiltWithBadge bool `json:"builtWithBadge"`
+	// BuiltWithBadgeOffer is true while the app should offer BuiltWithBadge:
+	// an agent's pull request has been merged, and the user hasn't answered
+	// yet. It is made once.
+	BuiltWithBadgeOffer bool `json:"builtWithBadgeOffer"`
 	// ClaudeCompactWindow is how many tokens of context a Claude Code or Codex
 	// chat holds before its tool compacts it (D83); 0 is the model's whole
 	// window. OpenCode has no equivalent to set: its own compaction settings
@@ -571,6 +585,12 @@ type Settings struct {
 	// agents.
 	LeadRecheck        bool `json:"leadRecheck"`
 	LeadRecheckMinutes int  `json:"leadRecheckMinutes"`
+	// LeadSleep is "stop idle chats": while on, a project's chat that sat
+	// idle LeadSleepMinutes has its AI tool stopped to give its memory back,
+	// and its next message, notice or schedule resumes the same session.
+	// Claude Code only. On unless it was turned off.
+	LeadSleep        bool `json:"leadSleep"`
+	LeadSleepMinutes int  `json:"leadSleepMinutes"`
 	// ImageCache is "shared image cache": while on, every agent's Docker
 	// pulls Docker Hub's images through one cache in AgentBox's VM, so an
 	// image is downloaded and stored once. On unless it was turned off.
@@ -660,6 +680,12 @@ type UpdateSettingsRequest struct {
 	// CreditAITool turns "Credit the AI tool in commits and pull requests"
 	// on or off.
 	CreditAITool *bool `json:"creditAITool,omitempty"`
+	// BuiltWithBadge turns the "Built with AgentBox" footer on agents' pull
+	// requests on or off. Either way it counts as answering the offer.
+	BuiltWithBadge *bool `json:"builtWithBadge,omitempty"`
+	// DismissBuiltWithBadgeOffer closes the offer without turning the
+	// footer on.
+	DismissBuiltWithBadgeOffer *bool `json:"dismissBuiltWithBadgeOffer,omitempty"`
 	// ClaudeCompactWindow is 0 for the model's whole window, or between
 	// 100000 and 1000000 tokens.
 	ClaudeCompactWindow *int64 `json:"claudeCompactWindow,omitempty"`
@@ -711,6 +737,10 @@ type UpdateSettingsRequest struct {
 	// LeadRecheckMinutes is how often, from 5 to 1440.
 	LeadRecheck        *bool `json:"leadRecheck,omitempty"`
 	LeadRecheckMinutes *int  `json:"leadRecheckMinutes,omitempty"`
+	// LeadSleep turns "stop idle chats" on or off, and LeadSleepMinutes is
+	// after how long, from 5 to 1440.
+	LeadSleep        *bool `json:"leadSleep,omitempty"`
+	LeadSleepMinutes *int  `json:"leadSleepMinutes,omitempty"`
 	// DiskFloorMin sets Settings.DiskFloorMin, in bytes, 0 going back to the
 	// default; DiskFloorPercent sets Settings.DiskFloorPercent, a negative
 	// one going back to the default.
@@ -887,7 +917,13 @@ type WorktreeFiles struct {
 type CreateAgentRequest struct {
 	// Task, when set, is sent to the agent as its first message once it is
 	// ready. A project's chat uses it to hand work over in one step.
-	Task    string `json:"task,omitempty"`
+	Task string `json:"task,omitempty"`
+	// Issue, when set, is the number of one of the project's GitHub issues
+	// the agent is made for: its task is the issue (title, body and comments)
+	// followed by Task, when there is one, its pull request is to say
+	// "Closes #N", and the issue shows the agent in the Issues view. Title
+	// and Branch are made from the issue when left empty.
+	Issue   int    `json:"issue,omitempty"`
 	Project string `json:"project"`
 	Name    string `json:"name,omitempty"`
 	Title   string `json:"title,omitempty"`
@@ -987,6 +1023,10 @@ type MemoryHold struct {
 	// Available and Total are the VM's memory, MemAvailable and MemTotal.
 	Available int64 `json:"available,omitempty"`
 	Total     int64 `json:"total,omitempty"`
+	// SwapFull says the VM's swap is full, with pausing whole agents on:
+	// what a paused machine or command holds stays in memory, so pausing it
+	// stops it growing and frees nothing.
+	SwapFull bool `json:"swapFull,omitempty"`
 }
 
 // PressureStatus is the VM's memory pressure and the heavy commands the
@@ -1065,6 +1105,29 @@ type UpdateAgentRequest struct {
 	GitHubAccount *string `json:"githubAccount,omitempty"`
 	// Interface switches between the chat and the AI tool's command line.
 	Interface *string `json:"interface,omitempty"`
+}
+
+// AgentAccountRequest moves a running agent to another account of its AI
+// tool (the lead's switch_agent_account): Account for Claude Code, Codex or
+// Cursor, "" for the project's; OpenCodeAccounts, provider → account, laid
+// over the ones an OpenCode agent has.
+type AgentAccountRequest struct {
+	Account          string            `json:"account,omitempty"`
+	OpenCodeAccounts map[string]string `json:"openCodeAccounts,omitempty"`
+}
+
+// AgentAccountSwitch is what moving an agent to another account did.
+type AgentAccountSwitch struct {
+	Agent string `json:"agent"`
+	Tool  string `json:"tool"` // how to say it: "Claude Code"
+	// Account is the one it runs on now, OpenCode's as "provider: account, …".
+	Account string `json:"account"`
+	// Note is what its chat said about the move, "" when no chat was running
+	// (the next one starts on the new account).
+	Note string `json:"note,omitempty"`
+	// Resumes says its chat's session carries on on the new account; false
+	// when the tool's adapter can't resume a session.
+	Resumes bool `json:"resumes"`
 }
 
 type Snapshot struct {
@@ -1380,14 +1443,22 @@ type ZramUsage struct {
 // popover shows it: every agent, largest first, and what's left once they're
 // accounted for. Computed when the popover opens, not kept warm on a poll.
 type MemoryUsage struct {
-	HostTotal  int64              `json:"hostTotal"`
-	AgentsUsed int64              `json:"agentsUsed"`
-	OtherUsed  int64              `json:"otherUsed"`
-	SwapTotal  int64              `json:"swapTotal"`
-	SwapUsed   int64              `json:"swapUsed"`
-	AgentsSwap int64              `json:"agentsSwap"`
-	Zram       *ZramUsage         `json:"zram,omitempty"`
-	Agents     []MemoryUsageAgent `json:"agents"`
+	HostTotal  int64 `json:"hostTotal"`
+	AgentsUsed int64 `json:"agentsUsed"`
+	OtherUsed  int64 `json:"otherUsed"`
+	SwapTotal  int64 `json:"swapTotal"`
+	SwapUsed   int64 `json:"swapUsed"`
+	AgentsSwap int64 `json:"agentsSwap"`
+	// Used is the VM's used memory, which AgentsUsed, Leads, AgentBox,
+	// Zram.RealBytes and Kernel add up to. FileCache is on top of it: the
+	// agents' file cache, given back when memory runs short.
+	Used      int64              `json:"used"`
+	FileCache int64              `json:"fileCache"`
+	Leads     int64              `json:"leads"`
+	AgentBox  int64              `json:"agentbox"`
+	Kernel    int64              `json:"kernel"`
+	Zram      *ZramUsage         `json:"zram,omitempty"`
+	Agents    []MemoryUsageAgent `json:"agents"`
 }
 
 // CPUUsageAgent is one agent's share of the host's CPU: its current use.
@@ -1726,6 +1797,68 @@ type ProjectPullRequests struct {
 	Refreshing bool `json:"refreshing,omitempty"`
 }
 
+// IssueLabel is the label that has a project picking an issue up by itself,
+// when the project's PickUpIssues is on.
+const IssueLabel = "agentbox"
+
+// Issue is one of a project repository's open GitHub issues, with the agent
+// it was handed to, if any.
+type Issue struct {
+	Number       int        `json:"number"`
+	Title        string     `json:"title"`
+	URL          string     `json:"url"`
+	Author       string     `json:"author,omitempty"`
+	AuthorAvatar string     `json:"authorAvatar,omitempty"`
+	Labels       []Label    `json:"labels,omitempty"`
+	Comments     int        `json:"comments,omitempty"`
+	CreatedAt    *time.Time `json:"createdAt,omitempty"`
+	UpdatedAt    *time.Time `json:"updatedAt,omitempty"`
+	// Handed is set once the issue was handed to an agent.
+	Handed *IssueHandoff `json:"handed,omitempty"`
+}
+
+// IssueHandoff is the agent an issue was handed to and what came of it.
+type IssueHandoff struct {
+	// Agent is the agent's name; empty while Job is still making it.
+	Agent string `json:"agent,omitempty"`
+	Job   string `json:"job,omitempty"`
+	// Title is the agent's title, and Status its status, while it is there;
+	// Retired says it has since been retired.
+	AgentTitle string `json:"agentTitle,omitempty"`
+	Status     string `json:"status,omitempty"`
+	Retired    bool   `json:"retired,omitempty"`
+	// Auto says the project picked the issue up by itself (PickUpIssues).
+	Auto bool      `json:"auto,omitempty"`
+	At   time.Time `json:"at"`
+	// PullRequest is the pull request the agent opened, once one is seen.
+	PullRequest *IssuePullRequest `json:"pullRequest,omitempty"`
+}
+
+// IssuePullRequest is the pull request an issue's agent opened.
+type IssuePullRequest struct {
+	Number int    `json:"number"`
+	URL    string `json:"url"`
+	State  string `json:"state"` // open, closed or merged
+}
+
+// ProjectIssues is a project repository's open issues, as the Issues view and
+// the lead's list_issues read them. The repository fields say the same as
+// ProjectPullRequests' do.
+type ProjectIssues struct {
+	Project         string       `json:"project"`
+	GitHub          string       `json:"github,omitempty"`
+	GitHubAccount   string       `json:"githubAccount,omitempty"`
+	GitHubError     *GitHubError `json:"githubError,omitempty"`
+	NoOrigin        bool         `json:"noOrigin,omitempty"`
+	NonGitHubRemote string       `json:"nonGitHubRemote,omitempty"`
+	Issues          []Issue      `json:"issues"`
+	// PickUpIssues is the project's setting, so the view can say whether
+	// issues labelled Label are picked up by themselves.
+	PickUpIssues bool       `json:"pickUpIssues"`
+	Label        string     `json:"label"`
+	FetchedAt    *time.Time `json:"fetchedAt,omitempty"`
+}
+
 // MergePullRequestRequest merges a pull request with the given method:
 // "merge", "squash" or "rebase".
 type MergePullRequestRequest struct {
@@ -2059,6 +2192,9 @@ type ReviewItem struct {
 	Ref     string `json:"ref"`
 	Title   string `json:"title,omitempty"`
 	Branch  string `json:"branch,omitempty"`
+	// BaseRef is the branch it stands on: another agent's, when it is
+	// stacked on that one's work.
+	BaseRef string `json:"baseRef,omitempty"`
 	AI      string `json:"ai,omitempty"`
 	// Summary is what the agent said when it finished, cut down the way its
 	// finish event cuts it.
@@ -2097,6 +2233,57 @@ type ReviewPage struct {
 type ReviewRequest struct {
 	Verdict     string `json:"verdict"`
 	Fingerprint string `json:"fingerprint"`
+}
+
+// WorkItem is one agent's work on the Work page, a live agent's or a past
+// one's (its machine removed, kept in archived_agents): its review item, as
+// "Ready to review" would show it, with what the page lists beside it.
+type WorkItem struct {
+	// Item is the agent as the review shows it. Its Fingerprint is set only
+	// on a live agent that finished, the only work a verdict is recorded on;
+	// a past agent's FinishedAt is when its machine was removed.
+	Item ReviewItem `json:"item"`
+	Task string     `json:"task,omitempty"`
+	Past bool       `json:"past,omitempty"`
+	// Status is WorkWorking, WorkReview, WorkReviewed or WorkDone.
+	Status string `json:"status"`
+	// Report is the newest report the agent filed when it finished.
+	Report      *AgentReport `json:"report,omitempty"`
+	Screenshots int          `json:"screenshots,omitempty"`
+	Recordings  int          `json:"recordings,omitempty"`
+	// At is what the list sorts by, newest first: when it finished, or for
+	// one still at work, when it was created.
+	At time.Time `json:"at"`
+}
+
+// What a WorkItem's Status can be: at work (or stopped short of finishing),
+// finished and waiting for review, reviewed, or finished with nothing to
+// review (its pull request merged or closed, or a past agent's).
+const (
+	WorkWorking  = "working"
+	WorkReview   = "review"
+	WorkReviewed = "reviewed"
+	WorkDone     = "done"
+)
+
+// The filters GET /v1/work takes (?filter=): waiting for review, or by its
+// pull request's state, or with none.
+const (
+	WorkFilterReview = "review"
+	WorkFilterOpen   = "open"
+	WorkFilterMerged = "merged"
+	WorkFilterClosed = "closed"
+	WorkFilterNone   = "none"
+)
+
+// WorkPage is a page of GET /v1/work, newest first, after ?cursor=. Total is
+// how many the filter and the search keep; Counts is how many each filter
+// keeps under the search, by filter, "" being all.
+type WorkPage struct {
+	Items  []WorkItem     `json:"items"`
+	Next   string         `json:"next,omitempty"`
+	Total  int            `json:"total"`
+	Counts map[string]int `json:"counts"`
 }
 
 // The verdicts of a ReviewRequest, and ReviewChanges, which only
@@ -3232,6 +3419,9 @@ type UsageStatsPending struct {
 	// EventsWaiting is every event not sent yet, of which Events holds the
 	// first report's worth.
 	EventsWaiting int `json:"eventsWaiting"`
+	// Health is the health events waiting, posted to EventsURL in a body
+	// of their own; "" when none waits.
+	Health string `json:"health"`
 }
 
 // AppFeatures are the keys the app may count through the API.

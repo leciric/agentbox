@@ -645,3 +645,42 @@ func TestPullRequestsPagesThroughEveryOpenOne(t *testing.T) {
 		t.Error("not most recently updated first")
 	}
 }
+
+func TestStackedPullRequests(t *testing.T) {
+	ctx := context.Background()
+	repo := github.Repo{Owner: "acme", Name: "pawly"}
+	var patched struct {
+		path, base string
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			if got := r.URL.Query().Get("base"); got != "agentbox/parent" || r.URL.Query().Get("state") != "open" {
+				t.Errorf("query = %s, want the open ones onto agentbox/parent", r.URL.RawQuery)
+			}
+			_, _ = w.Write([]byte(`[{"number":15,"state":"open","base":{"ref":"agentbox/parent"},"head":{"ref":"agentbox/child","sha":"c1"}}]`))
+		case http.MethodPatch:
+			var body struct {
+				Base string `json:"base"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			patched.path, patched.base = r.URL.Path, body.Base
+			_, _ = w.Write([]byte(`{}`))
+		}
+	}))
+	defer srv.Close()
+	c := github.Client{Token: "test-token", BaseURL: srv.URL}
+	prs, err := c.PullRequestsOnto(ctx, repo, "agentbox/parent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prs) != 1 || prs[0].Number != 15 || prs[0].HeadBranch != "agentbox/child" || prs[0].BaseBranch != "agentbox/parent" {
+		t.Fatalf("PullRequestsOnto = %+v", prs)
+	}
+	if err := c.Retarget(ctx, repo, 15, "main"); err != nil {
+		t.Fatal(err)
+	}
+	if patched.path != "/repos/acme/pawly/pulls/15" || patched.base != "main" {
+		t.Errorf("Retarget sent %+v", patched)
+	}
+}

@@ -12,6 +12,7 @@ import { freeTargets } from '../lib/freeResources';
 import { inScope, type MediaScope } from '../lib/mediaPages';
 import { pagePageUrl, pageRequest, pageThumbUrl } from './pages';
 import { pastRequest } from './pastAgents';
+import { recapRequest } from './recap';
 
 export const PROJECT = 'agentbox';
 
@@ -551,6 +552,7 @@ export function buildFixtures(): FixtureData {
       agentPRs: false,
       syncBase: true,
       fullTestSuite: false,
+      pickUpIssues: false,
       prWatch: '',
       prWatching: true,
       createdAt: new Date().toISOString(),
@@ -583,6 +585,7 @@ export function buildFixtures(): FixtureData {
       agentPRs: false,
       syncBase: true,
       fullTestSuite: false,
+      pickUpIssues: false,
       prWatch: '',
       prWatching: true,
       createdAt: new Date().toISOString(),
@@ -769,6 +772,13 @@ function devMedia(path: string): unknown {
   return page;
 }
 
+function stacked(number: number, title: string, headBranch: string, baseBranch: string, agent: string, additions: number, deletions: number): T.PullRequest {
+  return {
+    number, title, state: 'open', checks: 'passing', watched: true, url: `https://github.com/leciric/agentbox/pull/${number}`,
+    additions, deletions, updatedAt: new Date().toISOString(), baseBranch, headBranch, author: 'someone', agent,
+  };
+}
+
 // pullRequests is a project's pull requests list, with a long GitHub login to
 // check the author column doesn't widen the row (#pull-request-author).
 export function pullRequests(): T.ProjectPullRequests {
@@ -782,6 +792,27 @@ export function pullRequests(): T.ProjectPullRequests {
     canMergeKnown: true,
     mergeMethods: ['merge', 'squash', 'rebase'],
     pullRequests: [
+      // A stack: agent-22 was made from agent-21's branch and agent-23 from
+      // agent-22's, each pull request onto the one below, listed out of
+      // order as GitHub's updated-first order may have them.
+      stacked(87, 'feat: preview a CSV file before importing it', 'agentbox/csv-import-preview', 'agentbox/csv-export-button', 'agent-23', 96, 12),
+      stacked(84, 'feat: an API that exports reminders as CSV', 'agentbox/csv-export', 'main', 'agent-21', 142, 8),
+      stacked(86, 'feat: an Export button on the reminders page', 'agentbox/csv-export-button', 'agentbox/csv-export', 'agent-22', 64, 3),
+      // One ready to merge: checks passing, nothing in the way.
+      {
+        number: 81,
+        title: 'fix: reminders keep their time zone',
+        state: 'open',
+        checks: 'passing',
+        watched: true,
+        url: 'https://github.com/leciric/agentbox/pull/81',
+        additions: 18,
+        deletions: 4,
+        updatedAt: new Date().toISOString(),
+        baseBranch: 'main',
+        headBranch: 'agentbox/reminder-time-zone',
+        author: 'someone',
+      },
       {
         number: 78,
         title: 'A pull request whose title is genuinely long enough to be a problem for a narrow column',
@@ -1100,6 +1131,12 @@ export function patchDevAgent(ref: string, over: Partial<T.Agent>): void {
   devState.agents = devState.agents?.map((a) => (a.ref === ref ? { ...a, ...over } : a));
 }
 
+// addDevAgent adds an agent to what the dev bridge answers, as a create does
+// (dev/issues.ts's hand-off).
+export function addDevAgent(agent: T.Agent): void {
+  devState.agents = [agent, ...(devState.agents ?? [])];
+}
+
 // dropDevAgent removes an agent from what the dev bridge answers, as a
 // destroy does (preview.tsx's &destroy=).
 export function dropDevAgent(ref: string): void {
@@ -1279,6 +1316,8 @@ export function seedPower(queryClient: QueryClient, power: string, { tight = fal
         state,
         memoryUsed: up ? (tight ? 21.9 : 11.3) * GiB : 0,
         memoryGranted: up ? (tight ? 23 : 16) * GiB : 0,
+        memoryResident: up ? (tight ? 22.8 : 15.3) * GiB : 0,
+        memoryHostCache: up ? 1.4 * GiB : 0,
         memoryCap: 24 * GiB,
         cpus: 12,
         ...(up ? { disk, hostFree: disk.hostFree } : {}),
@@ -1544,6 +1583,8 @@ let defaultsSettings = {
   resumeAfterLimit: true,
   continueAfterRestart: true,
   creditAITool: false,
+  builtWithBadge: false,
+  builtWithBadgeOffer: typeof location !== 'undefined' && new URLSearchParams(location.search).get('badge') === 'offer',
   claudeCompactWindow: 200_000,
   updateCheck: true,
   usageStats: true,
@@ -1571,6 +1612,8 @@ let defaultsSettings = {
   idleStopSeconds: 10 * 60,
   leadRecheck: false,
   leadRecheckMinutes: 20,
+  leadSleep: true,
+  leadSleepMinutes: 15,
   imageCache: true,
   imageCacheMaxBytes: 20 * 1024 ** 3,
   defaultImageCacheMaxBytes: 20 * 1024 ** 3,
@@ -1640,6 +1683,8 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
       ? { ...next.claudeCodeUpdate, on, installed: '2.1.302', latest: '2.1.302', checkedAt: new Date().toISOString() }
       : { ...next.claudeCodeUpdate, on, installed: next.claudeCodeUpdate.pinned, latest: '', checkedAt: undefined };
   }
+  // Either answer, or dismissing, closes the one-time offer of the badge.
+  if (req.builtWithBadge !== undefined || req.dismissBuiltWithBadgeOffer) next.builtWithBadgeOffer = false;
   // The channel changes what the update check offers (seedNightly).
   if (req.updateChannel !== undefined && devState.update) devState.update = nightlyStatus(devState.update.current, req.updateChannel);
   // The rest are stored as they are sent, the way the daemon stores them.
@@ -1648,6 +1693,7 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
     'resumeAfterLimit',
     'continueAfterRestart',
     'creditAITool',
+    'builtWithBadge',
     'claudeCompactWindow',
     'updateCheck',
     'usageStats',
@@ -1658,6 +1704,8 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
     'mediaRetention',
     'leadRecheck',
     'leadRecheckMinutes',
+    'leadSleep',
+    'leadSleepMinutes',
   ] as const) {
     if (req[key] !== undefined) (next as Record<string, unknown>)[key] = req[key];
   }
@@ -1846,7 +1894,7 @@ export function seedLinuxVM(queryClient: QueryClient, kind: string): void {
     state: kind === 'off' ? 'off' : 'running',
     since: new Date(Date.now() - 3_600_000).toISOString(),
     cpus: 8,
-    memory: { min: 4 * GiB, cap: 24 * GiB, granted: kind === 'off' ? 0 : 9 * GiB, used: 6.2 * GiB, resident: 0 },
+    memory: { min: 4 * GiB, cap: 24 * GiB, granted: kind === 'off' ? 0 : 9 * GiB, used: 6.2 * GiB, resident: 0, hostCache: 0 },
     disk: { size: 120 * GiB, allocated: 14 * GiB, pool: { size: 100 * GiB, allocated: 10 * GiB }, root: { size: 20 * GiB, allocated: 4 * GiB } },
     limits: room,
     live: kind === 'live' ? room : undefined,
@@ -1872,15 +1920,21 @@ export function seedLinuxVM(queryClient: QueryClient, kind: string): void {
 export function seedMeterUsage(queryClient: QueryClient): void {
   const GiB = 1024 ** 3;
   const memoryUsage: T.MemoryUsage = {
-    hostTotal: 32 * GiB,
-    agentsUsed: 12 * GiB,
-    otherUsed: 3 * GiB,
+    // The user's VM, measured on 2026-10-23: 16.8 of 17.8 GiB used.
+    hostTotal: 17.8 * GiB,
+    agentsUsed: 11.4 * GiB,
+    otherUsed: 5.4 * GiB,
+    used: 16.8 * GiB,
+    fileCache: 2.6 * GiB,
+    leads: 1.5 * GiB,
+    agentbox: 2 * GiB,
+    kernel: 0.8 * GiB,
     swapTotal: 20 * GiB,
     swapUsed: 17.5 * GiB,
     agentsSwap: 17.5 * GiB,
-    zram: { swapBytes: 17.5 * GiB, realBytes: 3.6 * GiB },
+    zram: { swapBytes: 17.5 * GiB, realBytes: 1.1 * GiB },
     agents: [
-      { ref: `${PROJECT}/agent-90`, title: 'Bump Electron to the next major, and every native module that breaks with it', state: 'paused', memory: 4 * GiB, swap: 17.5 * GiB },
+      { ref: `${PROJECT}/agent-90`, title: 'Bump Electron to the next major, and every native module that breaks with it', state: 'paused', memory: 3.4 * GiB, swap: 17.5 * GiB },
       { ref: `${PROJECT}/agent-99`, title: 'PR agent', state: 'running', memory: 6 * GiB, swap: 0 },
       { ref: `${PROJECT}/agent-12`, title: 'Add a "New project" button to the Sidebar', state: 'running', memory: 2 * GiB, swap: 0 },
     ],
@@ -1967,6 +2021,131 @@ function filesRequest(method: string, path: string) {
   return json({ files: ['AGENTS.md', 'README.md', 'go.mod', 'desktop/package.json'], truncated: false } satisfies T.WorktreeFiles);
 }
 
+// pullsRequest answers the ?pulls=1 and ?app=pulls list's pull requests:
+// each opens as its row with a short description and no files, and a merge is
+// answered after a few seconds, longer than GitHub's own, so what the app
+// shows while it waits can be seen. The list read after it has it merged.
+const devMerged = new Set<number>();
+async function pullsRequest(method: string, path: string) {
+  const query = new URLSearchParams(location.search);
+  if (query.get('pulls') !== '1' && query.get('app') !== 'pulls') return undefined;
+  const json = (body: unknown) => ({ status: 200, body: JSON.stringify(body), contentType: 'application/json' });
+  const list = pullRequests();
+  list.pullRequests = list.pullRequests.map((p) => (devMerged.has(p.number) ? { ...p, state: 'merged' } : p));
+  // What stood on a merged one is retargeted to where it merged, as the
+  // daemon's restack does (internal/daemon/stack.go).
+  for (let moved = true; moved; ) {
+    moved = false;
+    list.pullRequests = list.pullRequests.map((p) => {
+      const under = list.pullRequests.find((m) => m.state === 'merged' && m.headBranch === p.baseBranch);
+      if (!under || p.state !== 'open') return p;
+      moved = true;
+      return { ...p, baseBranch: under.baseBranch };
+    });
+  }
+  if (method === 'GET' && path === `/v1/projects/${PROJECT}/pulls`) return json(list);
+  const at = /^\/v1\/projects\/[^/]+\/pulls\/(\d+)(\/files|\/merge)?$/.exec(path);
+  const row = at && list.pullRequests.find((p) => p.number === Number(at[1]));
+  if (!at || !row) return undefined;
+  if (method === 'POST' && at[2] === '/merge') {
+    await new Promise((done) => setTimeout(done, 5000));
+    devMerged.add(row.number);
+    return json({ ...row, state: 'merged' });
+  }
+  if (method !== 'GET') return undefined;
+  if (at[2] === '/files') return json({ files: [], truncated: false } satisfies T.PullRequestFiles);
+  return json({ ...row, body: 'What it changes, and how it was checked.', changedFiles: 0, checkRuns: [] } satisfies T.PullRequestDetail);
+}
+
+// usageStatsPending is Settings' "See what's sent": an error event, and the
+// VM's health apart (a real one, from an agent's machine), as the daemon
+// would post them.
+const usageEventsBody = {
+  "install": "2b5c0b0e-1111-4c3b-9f1e-0123456789ab",
+  "version": "0.16.0",
+  "os": "linux",
+  "arch": "amd64",
+  "events": [
+    {
+      "id": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "day": "2026-10-23",
+      "name": "error",
+      "props": {
+        "code": "create_failed",
+        "tool": "claude",
+        "class": "network",
+        "reason": "dial tcp: connection refused",
+        "utc_offset": "-3"
+      }
+    }
+  ]
+};
+const usageHealthBody = {
+  "install": "2b5c0b0e-1111-4c3b-9f1e-0123456789ab",
+  "version": "0.16.0",
+  "os": "linux",
+  "arch": "amd64",
+  "events": [
+    {
+      "id": "6f1d2c9a-3b4e-4f5a-8b6c-7d8e9f0a1b2c",
+      "day": "2026-10-23",
+      "name": "health",
+      "props": {
+        "agents_busy": 0,
+        "agents_idle": 0,
+        "daemon_peak_mib": 42,
+        "daemon_rss_mib": 42,
+        "episode_max_s": 0,
+        "episode_s": 0,
+        "episodes": 0,
+        "err_acp_closed": 0,
+        "err_auth": 0,
+        "err_database_locked": 0,
+        "err_git_credential": 1,
+        "err_git_lock": 0,
+        "err_incus_down": 0,
+        "err_killed": 0,
+        "err_network": 0,
+        "err_no_space": 0,
+        "err_not_found": 0,
+        "err_other": 0,
+        "err_out_of_memory": 0,
+        "err_permission": 0,
+        "err_timeout": 0,
+        "err_too_many_files": 1,
+        "front_end": "host",
+        "idle_freezes": 0,
+        "idle_stops": 0,
+        "machine_freezes": 0,
+        "mem_anon_pct": 3,
+        "mem_available_pct": 97,
+        "mem_file_pct": 9,
+        "mem_kernel_pct": 0,
+        "oom_kills": 0,
+        "period": "lt_1m",
+        "run_pauses": 2,
+        "swap_size_pct": 108,
+        "swap_used_pct": 1,
+        "trigger": "daily",
+        "vm_memory": "8_16g",
+        "vm_uptime": "5m_30m",
+        "zram_ratio_pct": 428,
+        "zram_size_pct": 57,
+        "utc_offset": "-3"
+      }
+    }
+  ]
+};
+const usageStatsPending: T.UsageStatsPending = {
+  on: true,
+  usageUrl: 'https://agentbox.linting.dev/api/v1/usage',
+  usage: '',
+  eventsUrl: 'https://agentbox.linting.dev/api/v1/events',
+  events: JSON.stringify(usageEventsBody, null, 2),
+  eventsWaiting: 2,
+  health: JSON.stringify(usageHealthBody, null, 2),
+};
+
 // installDevBridge stubs window.agentbox: every query above is pre-seeded
 // and staleTime: Infinity keeps them from refetching, so nothing here needs
 // to do real work — it only has to exist so components that call it don't
@@ -1975,6 +2154,7 @@ export function installDevBridge(): void {
   (window as unknown as { agentbox: unknown }).agentbox = {
     request: async (method: string, path: string, body?: unknown) => {
       if (method === 'PATCH' && path === '/v1/settings') return patchDefaults(body as T.UpdateSettingsRequest);
+      if (method === 'GET' && path === '/v1/usage-stats/pending') return { status: 200, body: JSON.stringify(usageStatsPending), contentType: 'application/json' };
       if (method === 'GET' && path.startsWith('/v1/stopped-machines')) return { status: 200, body: JSON.stringify(fixtureStoppedMachines(path)), contentType: 'application/json' };
       if (method === 'POST' && path === '/v1/stopped-machines/remove') return { status: 200, body: JSON.stringify(removeFixtureStopped((body as T.RemoveStoppedRequest).agents)), contentType: 'application/json' };
       if (method === 'GET' && path === '/v1/settings' && defaultsSettings.claudeCodeUpdate) return { status: 200, body: JSON.stringify(defaultsSettings), contentType: 'application/json' };
@@ -1987,6 +2167,10 @@ export function installDevBridge(): void {
       if (files) return files;
       const past = pastRequest(method, path, body);
       if (past) return past;
+      const recap = recapRequest(method, path);
+      if (recap) return recap;
+      const answer = await pullsRequest(method, path);
+      if (answer) return answer;
       for (const answer of devRequests) {
         const res = answer(method, path, body);
         if (res) return res;
@@ -2001,6 +2185,8 @@ export function installDevBridge(): void {
         const got = { old: decodeURIComponent(rename[1]), name, projects: [PROJECT], agents: [`${PROJECT}/agent-01`, `${PROJECT}/lead`] };
         return { status: 200, body: JSON.stringify(got), contentType: 'application/json' };
       }
+      // A merge (?app=pulls) is answered after a few seconds, longer than
+      // GitHub's own, so what the app shows while it waits can be seen.
       if (method === 'GET' && devState.update && path === '/v1/update') return { status: 200, body: JSON.stringify(devState.update), contentType: 'application/json' };
       if (method === 'GET' && devState.setup && path === '/v1/setup') return { status: 200, body: JSON.stringify(devState.setup), contentType: 'application/json' };
       if (method === 'GET' && devState.memoryUsage && path === '/v1/usage/memory') return { status: 200, body: JSON.stringify(devState.memoryUsage), contentType: 'application/json' };
@@ -2100,13 +2286,19 @@ export function installDevBridge(): void {
     setLanguage: () => {},
     openPath: async () => '',
     openChatFile: async () => '',
+    // As if saved where the dialog offers, for the toast Share shows.
+    saveShare: async (_path: string, name: string) => `/home/you/Downloads/${name}`,
+    showShare: async () => {},
     showItem: async () => {},
     openExternal: async () => {},
     notify: async () => false,
     keepAwake: async () => {},
+    tray: { settings: async () => ({ keepRunning: false }), set: async (next: { keepRunning?: boolean }) => ({ keepRunning: false, ...next }), reviewing: () => {}, onOpen: () => () => {} },
     onNotificationClick: () => () => {},
     copyText: () => {},
     readText: async () => '',
+    copyImage: () => {},
+    saveImage: async () => false,
   };
 }
 

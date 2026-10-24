@@ -44,6 +44,7 @@ import { mentionAt, matchAgents, matchFiles, matchProjects, mentionLimit, type M
 import { onComposerFocus, takeComposerFocus } from '../../lib/newTask';
 import { composeEvent, getDraft, setDraft } from '../../lib/drafts';
 import { formatTime, t as translate, useT } from '../../lib/i18n';
+import { accountTools, roomiest } from '../../lib/leadRunner';
 import { useNow } from '../../lib/useNow';
 import { useReviewCardShown } from '../v2/ReviewV2';
 import { previewUrl } from '../../lib/chatImages';
@@ -244,6 +245,10 @@ export function Composer({
   const stop = useMutation({ mutationFn: () => api.cancelChat(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
   const retry = useMutation({ mutationFn: () => api.startChat(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
   const resumeNow = useMutation({ mutationFn: () => api.resumeChat(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
+  // A chat stopped on its account's usage limit is offered another account
+  // of its tool with room, which carries the turn on there at once.
+  const limitRunner = useRunner(agent, session, !!session?.limited && accountTools.includes(session?.tool || agent.ai));
+  const spare = session?.limited ? roomiest(limitRunner.choices, limitRunner.tool) : undefined;
   const reloadTools = useMutation({ mutationFn: () => api.reloadChatTools(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
 
   useEffect(() => {
@@ -544,6 +549,17 @@ export function Composer({
           <div className="flex items-start gap-2 text-[12.5px]">
             <Hourglass className="mt-0.5 size-3.5 shrink-0 text-amber-300" />
             <p className="min-w-0 flex-1 break-words leading-relaxed text-amber-100/90">{limitMessage(session)}</p>
+            {spare && (
+              <button
+                className="h-6 shrink-0 rounded-md px-2 text-[12px] font-medium text-amber-100 transition hover:bg-amber-400/15"
+                disabled={limitRunner.choose.isPending}
+                onClick={() => limitRunner.choose.mutate(spare)}
+                title={t('chat.limit.switchTip', { tool: aiLabel(spare.tool), account: spare.account })}
+                data-limit-switch={spare.account}
+              >
+                {t('chat.limit.switch', { account: spare.account })}
+              </button>
+            )}
             <button
               className="h-6 shrink-0 rounded-md px-2 text-[12px] font-medium text-amber-100 transition hover:bg-amber-400/15"
               disabled={resumeNow.isPending}
@@ -1010,7 +1026,10 @@ function SessionOptions({ agent, session }: { agent: T.Agent; session?: T.ChatSe
   if (modelValue && session?.contextSize && !session.turnStartedAt) confirmed.current.set(modelValue, session.contextSize);
   const options = session?.options ?? [];
   const lead = isProjectChat(agent.ref);
-  const runner = useRunner(agent, session, lead);
+  // An agent's tool is fixed: its picker is the accounts of that tool, when
+  // it has more than one to choose from.
+  const runner = useRunner(agent, session, lead || accountTools.includes(agent.ai));
+  const picks = lead || runner.choices.length > 1;
   // While the tool starts, its menus haven't arrived: at most the model menu
   // remembered from an earlier chat is here. Say the rest is on its way,
   // rather than leaving a composer that looks like it has nothing to set.
@@ -1045,7 +1064,7 @@ function SessionOptions({ agent, session }: { agent: T.Agent; session?: T.ChatSe
     <div className="flex min-w-0 items-center gap-0.5">
       <SetupChip
         agent={agent}
-        runner={lead ? runner : undefined}
+        runner={picks ? runner : undefined}
         model={model}
         contextWindow={contextWindow}
         others={others}
@@ -1065,7 +1084,7 @@ function SessionOptions({ agent, session }: { agent: T.Agent; session?: T.ChatSe
 // sentence: "Claude Code · Opus · 200k", the tool, its model and its context
 // window (the v2 UX audit's finding 9: a bare tool icon, and a "200k" that
 // read like a model). Its menu has a submenu for each: the AI tool and
-// account (a lead's only: an agent's tool is fixed), the model, the context
+// account (an agent's only its account: its tool is fixed), the model, the context
 // window, and the tool's other settings, which had a ⋯ of their own.
 function SetupChip({
   agent,

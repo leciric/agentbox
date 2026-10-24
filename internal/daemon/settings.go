@@ -114,6 +114,19 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if req.BuiltWithBadge != nil {
+		if err := s.store.SetFlag(r.Context(), state.SettingBuiltWithBadge, *req.BuiltWithBadge); err != nil {
+			return err
+		}
+		if err := s.store.SetSetting(r.Context(), state.SettingBuiltWithBadgeOffer, state.BadgeOfferDone); err != nil {
+			return err
+		}
+	}
+	if req.DismissBuiltWithBadgeOffer != nil && *req.DismissBuiltWithBadgeOffer {
+		if err := s.store.SetSetting(r.Context(), state.SettingBuiltWithBadgeOffer, state.BadgeOfferDone); err != nil {
+			return err
+		}
+	}
 	if req.ClaudeCompactWindow != nil {
 		// Stored as a count, and checked against the bounds Claude Code holds
 		// its own variable to: past them, it would clamp or ignore the value
@@ -237,6 +250,21 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 	}
 	if req.LeadRecheck != nil {
 		if err := s.store.SetFlag(r.Context(), state.SettingLeadRecheck, *req.LeadRecheck); err != nil {
+			return err
+		}
+	}
+	if req.LeadSleepMinutes != nil {
+		if n := *req.LeadSleepMinutes; n < 5 || n > 1440 {
+			return fmt.Errorf("an idle chat stops after 5 to 1440 minutes; %d isn't", n)
+		}
+		if err := s.store.SetSetting(r.Context(), state.SettingLeadSleepMinutes, strconv.Itoa(*req.LeadSleepMinutes)); err != nil {
+			return err
+		}
+	}
+	if req.LeadSleep != nil {
+		// Read by each chat as its idle wait ends, so it reaches running
+		// chats without anything restarting.
+		if err := s.store.SetFlag(r.Context(), state.SettingLeadSleep, *req.LeadSleep); err != nil {
 			return err
 		}
 	}
@@ -481,6 +509,14 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	builtWithBadge, err := s.store.Flag(r.Context(), state.SettingBuiltWithBadge)
+	if err != nil {
+		return api.Settings{}, err
+	}
+	badgeOffer, err := s.store.Setting(r.Context(), state.SettingBuiltWithBadgeOffer)
+	if err != nil {
+		return api.Settings{}, err
+	}
 	updateCheck, err := s.store.FlagOn(r.Context(), state.SettingUpdateCheck)
 	if err != nil {
 		return api.Settings{}, err
@@ -561,6 +597,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	leadSleep, sleepAfter, err := s.store.LeadSleep(r.Context())
+	if err != nil {
+		return api.Settings{}, err
+	}
 	imageCache, imageCacheChosen, err := s.store.ImageCache(r.Context())
 	if err != nil {
 		return api.Settings{}, err
@@ -602,6 +642,8 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		ResumeAfterLimit:     resumeAfterLimit,
 		ContinueAfterRestart: continueAfterRestart,
 		CreditAITool:         creditAITool,
+		BuiltWithBadge:       builtWithBadge,
+		BuiltWithBadgeOffer:  badgeOffer == state.BadgeOfferReady,
 		UpdateCheck:          updateCheck,
 		UsageStats:           usageStats,
 		AgentGPU:             agentGPU,
@@ -633,6 +675,9 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 
 		LeadRecheck:        leadRecheck,
 		LeadRecheckMinutes: int(recheckEvery / time.Minute),
+
+		LeadSleep:        leadSleep,
+		LeadSleepMinutes: int(sleepAfter / time.Minute),
 
 		ImageCache:                imageCache,
 		ImageCacheMaxBytes:        imageCacheMax,

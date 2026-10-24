@@ -17,6 +17,8 @@ import {
 } from '../lib/diagnostics';
 import { formatNumber, useT } from '../lib/i18n';
 import { cn, errorMessage, humanBytes, timeAgo } from '../lib/utils';
+import { useVMPower } from '../lib/vm';
+import { HostFootprint } from './ResourceControls';
 import { Button } from './ui/button';
 import { Notice, Panel } from './ui/card';
 import { Tip } from './ui/tooltip';
@@ -445,6 +447,7 @@ function ResourceHistory() {
   const vm = resources.data?.vm ?? [];
   const agents = (resources.data?.agents ?? []).filter((a) => a.samples.length > 0);
   const lastVM = vm.at(-1);
+  const power = useVMPower().data;
   return (
     <Section
       title={t('diagnostics.resources.title')}
@@ -484,6 +487,7 @@ function ResourceHistory() {
               bucketMs={bucketMs}
             />
           )}
+          {vm.length > 0 && power && <HostFootprint vm={power} className="block px-4 py-2" />}
           {agents.map((a) => (
             <SeriesRow
               key={a.ref}

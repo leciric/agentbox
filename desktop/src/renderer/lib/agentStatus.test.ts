@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { avatarMood, awaiting, chatLabel, isAsking, memoryHold, projectTone, rank, settled, statusTip, summarizeStatus } from './agentStatus.ts';
+import { avatarMood, awaiting, chatLabel, isAsking, frozenTip, memoryHold, projectTone, rank, settled, statusTip, summarizeStatus } from './agentStatus.ts';
 
 const agent = (state: string, chat?: string): T.Agent => ({ state, chat }) as T.Agent;
 
@@ -77,6 +77,16 @@ test('a whole machine paused or waiting for memory says how many are ahead, in i
   const booting = { ...agent('initializing'), memory: { machine: 'waiting', since, why: 'low', available: gib, total: 16 * gib } } as T.Agent;
   assert.deepEqual(chatLabel(booting), { text: 'Waiting for memory, 0 ahead', tone: 'warning' });
   assert.match(statusTip(booting) ?? '', /memory to boot it/);
+});
+
+test('a machine or a command paused with swap full says pausing it frees nothing', () => {
+  const since = '2026-10-23T01:14:00Z';
+  const frozen = { ...agent('paused', 'running'), memory: { machine: 'paused', ahead: 1, since, why: 'low', swapFull: true } } as T.Agent;
+  assert.deepEqual(chatLabel(frozen), { text: 'Paused, swap full: waiting for memory, 1 ahead', tone: 'warning' });
+  assert.match(statusTip(frozen) ?? '', /swap is full.*frees nothing/);
+  const build = { ...agent('running', 'running'), memory: { paused: 1, since, why: 'low', swapFull: true } } as T.Agent;
+  assert.equal(memoryHold(build)?.text, 'Paused for memory, swap full');
+  assert.match(memoryHold(build)?.tip ?? '', /frees nothing/);
 });
 
 test('paused and stopped machines show their own state', () => {
@@ -237,4 +247,15 @@ test('an agent being made is starting whatever its chat says, and never needs yo
       assert.equal(rank(a), 1, `${state}/${chat}`);
     }
   }
+});
+
+test('frozen: a machine paused for memory says its place in line, idle reclaim says it is idle', () => {
+  const paused = { ...agent('running', 'ready'), memory: { machine: 'paused', ahead: 2 } } as T.Agent;
+  assert.match(frozenTip(paused)!, /number 3 in line to resume/);
+  const idle = { ...agent('running', 'ready'), reclaimed: 'frozen' } as T.Agent;
+  assert.match(frozenTip(idle)!, /Frozen while idle/);
+  // Working again, waiting to boot, or untouched: not frozen.
+  assert.equal(frozenTip({ ...idle, chat: 'running' } as T.Agent), undefined);
+  assert.equal(frozenTip({ ...agent('running', 'ready'), memory: { machine: 'waiting', ahead: 1 } } as T.Agent), undefined);
+  assert.equal(frozenTip(agent('running', 'ready')), undefined);
 });

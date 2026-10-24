@@ -69,6 +69,7 @@ func (s *Server) sendUsage(ctx context.Context, install string) {
 		return
 	}
 	s.recordHeartbeat(ctx)
+	s.recordHealth(ctx, healthDaily)
 	s.sendPendingUsage(ctx, install, time.Now())
 }
 
@@ -179,18 +180,27 @@ func (s *Server) usageStatsPending(w http.ResponseWriter, r *http.Request) error
 	if len(days) > 0 {
 		out.Usage = indentJSON(update.NewUsageBody(req, days))
 	}
-	events, _, err := s.pendingEvents(ctx)
-	if err != nil {
-		return err
-	}
-	if len(events) > 0 {
-		out.Events = indentJSON(update.NewEventsBody(req, events))
-	}
 	waiting, err := s.store.UsageEvents(ctx, state.MaxUsageEvents)
 	if err != nil {
 		return err
 	}
 	out.EventsWaiting = len(waiting)
+	// The health events go in batches of their own (eventBatch): each kind
+	// is shown as its first report.
+	var events, health []state.UsageEvent
+	for _, r := range waiting {
+		if !eventBatch(r.Name) && len(events) < update.MaxEventsPerReport {
+			events = append(events, r)
+		} else if eventBatch(r.Name) && len(health) < update.MaxEventsPerReport {
+			health = append(health, r)
+		}
+	}
+	if len(events) > 0 {
+		out.Events = indentJSON(update.NewEventsBody(req, usageEvents(events)))
+	}
+	if len(health) > 0 {
+		out.Health = indentJSON(update.NewEventsBody(req, usageEvents(health)))
+	}
 	return writeJSON(w, http.StatusOK, out)
 }
 

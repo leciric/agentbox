@@ -172,31 +172,11 @@ func measureChanges(a state.Agent) (api.AgentChanges, error) {
 	if _, err := os.Stat(a.Worktree); errors.Is(err, fs.ErrNotExist) {
 		return out, nil
 	}
-	stat, err := gitrepo.DiffWorktree(a.Worktree, a.BaseCommit, true)
+	stat, err := gitrepo.DiffWorktree(a.Worktree, gitrepo.DiffBase(a.Worktree, a.BaseRef, a.BaseCommit), true)
 	if err != nil {
 		return out, err
 	}
-	// The last line of --stat is " N files changed, N insertions(+), N deletions(-)".
-	if lines := strings.Split(strings.TrimSpace(stat), "\n"); len(lines) > 0 && lines[0] != "" {
-		for _, part := range strings.Split(lines[len(lines)-1], ",") {
-			fields := strings.Fields(strings.TrimSpace(part))
-			if len(fields) < 2 {
-				continue
-			}
-			n, err := strconv.Atoi(fields[0])
-			if err != nil {
-				continue
-			}
-			switch {
-			case strings.HasPrefix(fields[1], "file"):
-				out.Files = n
-			case strings.HasPrefix(fields[1], "insertion"):
-				out.Insertions = n
-			case strings.HasPrefix(fields[1], "deletion"):
-				out.Deletions = n
-			}
-		}
-	}
+	out = statOf(stat)
 	dirty, err := gitrepo.Dirty(a.Worktree)
 	if err != nil {
 		return api.AgentChanges{}, err
@@ -235,4 +215,33 @@ func (s *Server) agentTitles(ctx context.Context, project string) (map[string]st
 		titles[a.Name] = a.Title
 	}
 	return titles, nil
+}
+
+// statOf reads git's diff --stat or --shortstat, whose last line is
+// " N files changed, N insertions(+), N deletions(-)".
+func statOf(stat string) api.AgentChanges {
+	var out api.AgentChanges
+	lines := strings.Split(strings.TrimSpace(stat), "\n")
+	if len(lines) == 0 || lines[0] == "" {
+		return out
+	}
+	for _, part := range strings.Split(lines[len(lines)-1], ",") {
+		fields := strings.Fields(strings.TrimSpace(part))
+		if len(fields) < 2 {
+			continue
+		}
+		n, err := strconv.Atoi(fields[0])
+		if err != nil {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(fields[1], "file"):
+			out.Files = n
+		case strings.HasPrefix(fields[1], "insertion"):
+			out.Insertions = n
+		case strings.HasPrefix(fields[1], "deletion"):
+			out.Deletions = n
+		}
+	}
+	return out
 }

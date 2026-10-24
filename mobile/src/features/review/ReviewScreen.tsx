@@ -26,7 +26,8 @@ import { type Walk, advance, goBack, nextPending, position, startWalk } from './
 
 export function ReviewScreen() {
   const t = useT();
-  const { project } = useLocalSearchParams<{ project: string }>();
+  // agent is where the walk starts, from a notification's tap (push.ts).
+  const { project, agent } = useLocalSearchParams<{ project: string; agent?: string }>();
   const queryClient = useQueryClient();
   const session = useSession();
   const review = useQuery({ queryKey: ['review', project], queryFn: () => api.readyToReview(project) });
@@ -41,7 +42,7 @@ export function ReviewScreen() {
   // done until a refresh finds more.
   const [started, setWalk] = useState<Walk | null>(null);
   const [finished, setFinished] = useState(false);
-  const walk = finished ? null : (started ?? startWalk(items));
+  const walk = finished ? null : (started ?? startWalk(items, agent));
   const live = items;
   // The agent as the list has it now (its pull request merged, say), or as it
   // was when the walk left it there (reviewed, so gone from the list).

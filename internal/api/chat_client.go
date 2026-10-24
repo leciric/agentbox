@@ -181,6 +181,28 @@ func (c *Client) SetChatRunner(ctx context.Context, project string, req LeadRunn
 	return out, c.do(ctx, http.MethodPut, "/v1/projects/"+url.PathEscape(project)+"/chat/runner", req, &out)
 }
 
+// AgentRunners lists the accounts of its own AI tool an agent's chat can move
+// to, in ChatRunners' shape.
+func (c *Client) AgentRunners(ctx context.Context, ref string) (LeadRunners, error) {
+	var out LeadRunners
+	path, err := AgentPath(ref)
+	if err != nil {
+		return out, err
+	}
+	return out, c.do(ctx, http.MethodGet, path+"/chat/runners", nil, &out)
+}
+
+// SetAgentRunner moves an agent to another account of its AI tool at once,
+// resuming its chat on it. Its tool can't change.
+func (c *Client) SetAgentRunner(ctx context.Context, ref string, req LeadRunnerRequest) (ChatSession, error) {
+	var out ChatSession
+	path, err := AgentPath(ref)
+	if err != nil {
+		return out, err
+	}
+	return out, c.do(ctx, http.MethodPut, path+"/chat/runner", req, &out)
+}
+
 // ListFolder lists one folder of an agent's or a project lead's worktree, for
 // the file tree; withIgnored includes what .gitignore leaves out.
 func (c *Client) ListFolder(ctx context.Context, ref, dir string, withIgnored bool) (FileList, error) {

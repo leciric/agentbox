@@ -118,8 +118,13 @@ func TestUsageEventsAreRecordedShownAndSent(t *testing.T) {
 	// A new installation begins its setup, and says how it is, once a day.
 	waitFor(t, "the first events", func() bool {
 		sent := fake.sentEvents()
-		return len(sent[eventHeartbeat]) == 1 && len(sent[eventSetup]) == 1
+		return len(sent[eventHeartbeat]) == 1 && len(sent[eventSetup]) == 1 && len(sent[eventHealth]) == 1
 	})
+	// The day's health went too, in a batch of its own: a server that
+	// doesn't know it yet refuses the whole batch.
+	if n := fake.mixedBatches(); n != 0 {
+		t.Errorf("%d batches mix health with other events", n)
+	}
 	if step := fake.sentEvents()[eventSetup][0]["step"]; step != setupStarted {
 		t.Errorf("first setup step = %v", step)
 	}
@@ -142,6 +147,11 @@ func TestUsageEventsAreRecordedShownAndSent(t *testing.T) {
 	if strings.Contains(pending.Events, "secret") || !strings.Contains(pending.Events, `"turn.completed"`) {
 		t.Errorf("pending events = %s", pending.Events)
 	}
+	// Health is shown apart, as it is sent.
+	d.srv.recordEvent(eventHealth, d.srv.healthNow(ctx, healthEpisode, time.Now()))
+	if p := pendingUsage(t, d); strings.Contains(p.Events, `"health"`) || !strings.Contains(p.Health, `"trigger": "episode"`) || p.EventsWaiting != 3 {
+		t.Errorf("with a health event waiting, pending = %+v", p)
+	}
 	// The counts went in beside the event.
 	_, counts, _ := d.srv.store.FeatureUsage(ctx, "9999-12-31")
 	if counts[usageDay(time.Now())]["turn.model.claude.other"] != 1 || counts[usageDay(time.Now())]["turn.context.claude.1m"] != 1 {
@@ -151,7 +161,7 @@ func TestUsageEventsAreRecordedShownAndSent(t *testing.T) {
 	// The day's heartbeat was sent: the next check sends only what's new.
 	d.sendNow(t)
 	sent := fake.sentEvents()
-	if len(sent[eventHeartbeat]) != 1 || len(sent[eventTurn]) != 1 || len(sent[eventError]) != 1 {
+	if len(sent[eventHeartbeat]) != 1 || len(sent[eventTurn]) != 1 || len(sent[eventError]) != 1 || len(sent[eventHealth]) != 2 || fake.mixedBatches() != 0 {
 		t.Fatalf("sent = %v", sent)
 	}
 	turn := sent[eventTurn][0]

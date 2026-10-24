@@ -11,8 +11,13 @@
 //   ?theme=light            the light appearance (default: dark)
 //   ?concept=timeline       a mock idea, on its own (dev/concepts): timeline is
 //                           agents' work as a timeline over their recording
-//   ?app=today&v2=1         the project's Today page (components/timeline), from
-//                           dev/timeline.ts; any ?app= has the fixture timelines
+//   ?app=recap              Your week with AgentBox (components/RecapView), from
+//                           dev/recap.ts; &recap=empty a week with nothing
+//   ?app=work               the Work page (components/WorkView), of every
+//                           project, from dev/pastAgents.ts; any ?app= has the
+//                           fixture timelines
+//   ?badge=offer            the one-time offer of "Built with AgentBox" on pull
+//                           requests, shown over the page (dismissed it stays off)
 //   ?lang=pt-BR             the app in another language (default: en-US), for
 //                           strings longer than English's
 //   ?folded=1               the rail folded to 56px (default: open)
@@ -61,6 +66,9 @@
 //   ?chat=stopped|paused    a stopped (or paused) agent's stored conversation,
 //                           readable, with Start (Resume) on the composer.
 //                           Start, or sending a message, wakes it after 1.5s
+//   ?chat=limited           a running agent's chat stopped on its Claude Code
+//                           account's usage limit, with another account that
+//                           has room; "Continue on work" moves it there
 //   ?app=agent-15&v2=1&review=1&sleep=stopped  a finished agent awaiting review whose machine sleeps: one bar
 //   ?chat=thinking          a Claude Code turn thinking: &phase=live the thought
 //                           still arriving, =answer the reply after it, =done
@@ -121,10 +129,10 @@
 //                           memories (the filter box narrows them)
 //   ?pulls=1                a project's pull requests list, with a long
 //                           GitHub login on one row
-//   ?past=list              every project's past agents (dev/pastAgents.ts),
-//                           which the search box and filters narrow, and which
-//                           delete; a click opens one's read-only chat
-//   ?past=chat              the same, open on agent-31's read-only chat
+//   ?past=list              the Work page alone: live and past agents' work
+//                           (dev/pastAgents.ts), which the filters and the
+//                           search narrow; a click opens one's review
+//   ?past=chat              agent-31, a past agent, read in its chat
 //   ?tokens=1               a project's Settings → Tokens: headline (with average
 //                           TPS), by agent and by model, and spend over time
 //   ?tokens=1&account=work
@@ -132,6 +140,7 @@
 //                           Claude account: its limits card shows only that one
 //   ?tokens=agent           agent-99's own "What it spent" card, on its
 //                           Settings → AI tool
+//   ?meters=memory          the top bar's memory popover (click [data-meter=memory] with ?topbar=detailed), where its used memory goes
 //   ?meters=cpu|disk|pool   the top bar's "Host CPU", or its disk meter in VM mode or host mode
 //                           popover, against a CPU-capped agent, a paused
 //                           one and a plain one —
@@ -179,7 +188,7 @@
 //                           dev bridge (fixtures.ts)
 //   ?power=wsl-running|wsl-off
 //                           the same on Windows, for AgentBox's WSL distro
-//   ?app=home|project|pulls|agent-99|settings
+//   ?app=home|project|pulls|issues|agent-99|settings
 //                           the whole App, sidebar, top bar, page and rail, as
 //                           the window shows it, open on Home, the project's
 //                           chat, agent-99 or Settings: for narrow and portrait
@@ -241,6 +250,8 @@
 //                           open at a tab or a section of its Settings tab
 //                           (?page=tokens, ?page=general…); with ?open=agent-99,
 //                           that agent's page (?page=secrets, ?page=machine…)
+//   &secrets=1              with ?page=secrets, the project's Secrets with two
+//                           secrets in it, one managed by the lead
 //   ?phone=list|chat|lead|frame
 //                           the phone's web app against chats in every live
 //                           state, one running a turn over and over (dev/phone.tsx)
@@ -297,7 +308,8 @@ import { seedPastAgents } from './pastAgents';
 import { openPanelOn, pickTarget, setPanel, setPanelOpen, setView, type PanelView } from '../lib/rightPanel';
 import type { ProjectSection } from '../lib/tabs';
 import { openFile } from '../lib/files';
-import { PastAgents } from '../components/PastAgents';
+import { PastAgentView } from '../components/PastAgents';
+import { WorkView } from '../components/WorkView';
 import { PageArrivals } from '../components/pages/PageArrivals';
 import { PagePreviewHost } from '../components/pages/PagePreview';
 import { ScopedMediaPages } from '../components/pages/MediaPages';
@@ -307,6 +319,7 @@ import { ReviewPreview, seedEvidence, seedLeadLines, seedReview, seedV2 } from '
 import { PipFinish, seedPip } from './pip';
 import { seedPick } from './pick';
 import { seedTimelines } from './timeline';
+import { seedIssues } from './issues';
 import { setUiV2 } from '../lib/uiV2';
 import { setGroupIdle } from '../lib/groupIdle';
 import { setTourState, tours, welcomeTour } from '../lib/tours';
@@ -471,6 +484,31 @@ if (chat === 'lead') {
     ],
   });
 }
+// An agent stopped on its account's limit, with the composer's accounts.
+const limitedRef = `${PROJECT}/limited`;
+if (chat === 'limited') {
+  const [personal, work] = claudeLimits();
+  const spent = { ...personal, status: 'rejected', windows: personal.windows.map((w) => (w.name === 'five_hour' ? { ...w, utilization: 1 } : w)) };
+  queryClient.setQueryData<T.LeadRunners>(['agentRunners', limitedRef], {
+    tool: 'claude',
+    account: 'personal',
+    runners: [{ tool: 'claude', name: 'Claude Code', ready: true, installed: true, accounts: [{ name: 'personal', default: true, project: true, agents: 3, limit: spent }, { name: 'work', default: false, project: false, agents: 0, limit: work }] }],
+  });
+  // Signed in, on both accounts, so the composer isn't the signed-out one.
+  queryClient.setQueryData<T.AuthStatus>(['auth'], (auth) => ({
+    ...(auth ?? { claude: true, codex: false, opencode: false, cursor: false, codexAccounts: [], openCodeAccounts: [], cursorAccounts: [], github: false, githubAccounts: [] }),
+    claude: true,
+    claudeAccounts: [{ name: 'personal', default: true, savedAt: personal.at }, { name: 'work', default: false, savedAt: work.at }],
+  }));
+  // The bridge has no chat or accounts to refetch after the switch: the
+  // preview's own copies, which the switch updates, stay.
+  const invalidate = queryClient.invalidateQueries.bind(queryClient);
+  queryClient.invalidateQueries = ((filters?: Parameters<typeof invalidate>[0]) =>
+    ['chat', 'agentRunners'].includes(String(filters?.queryKey?.[0])) ? Promise.resolve() : invalidate(filters)) as typeof invalidate;
+  const resumeAt = new Date(Date.now() + 3 * 3600_000).toISOString();
+  const thread = asleepChat(limitedRef);
+  queryClient.setQueryData<T.ChatThread>(['chat', limitedRef], { ...thread, session: { ...thread.session, state: 'ready', limited: true, limitedUntil: resumeAt, resumeAt } });
+}
 // Before the first render, so the chat reads it rather than the dev bridge.
 if (chat === 'stopped' || chat === 'paused') queryClient.setQueryData(['chat', asleepRef], asleepChat(asleepRef));
 // &sleep=stopped|paused, with ?app=agent-15&v2=1&review=1: that agent has
@@ -489,7 +527,7 @@ if (artifacts) {
   if (artifacts !== 'lead') queryClient.setQueryData(['chat', `${PROJECT}/${artifacts}`], { ...agent12Chat(), agent: `${PROJECT}/${artifacts}` });
 }
 if (pulls || appView === 'pulls') queryClient.setQueryData(['pulls', PROJECT], pullRequests());
-if (past) seedPastAgents(queryClient);
+if (past || appView === 'work') seedPastAgents(queryClient);
 if (home) {
   const at = new Date().toISOString();
   const memory = (id: string, title: string, content: string, origin: string): T.Memory => ({ id, project: '', global: true, origin, kind: 'preference', title, content, importance: 4, createdAt: at, updatedAt: at });
@@ -509,6 +547,7 @@ if (review || appView) seedReview(queryClient);
 // The fixture agents' timelines (dev/timeline.ts), for the right panel's
 // Timeline tab, the review's and Today.
 if (appView) seedTimelines();
+if (appView === 'issues') seedIssues(queryClient);
 // UI v2 only where asked for: the flag is the preview origin's, kept between pages.
 setUiV2(params.get('v2') === '1');
 // No tour plays over a scenario unless &tour= asks for one.
@@ -613,13 +652,21 @@ if (page) {
     queryClient.setQueryData(['connectors', target], []);
   }
 }
+if (page && params.get('secrets') === '1') {
+  const updatedAt = new Date(Date.now() - 40 * 60_000).toISOString();
+  const agents = [`${PROJECT}/agent-01`, `${PROJECT}/agent-02`];
+  queryClient.setQueryData<T.Secret[]>(['secrets', PROJECT], [
+    { name: 'AZURE_ACCESS_TOKEN', scope: 'project', project: PROJECT, updatedAt, agents, leadManaged: true },
+    { name: 'STRIPE_SECRET_KEY', scope: 'project', project: PROJECT, updatedAt, agents, leadManaged: false },
+  ]);
+}
 if (linuxHost === 'move') {
   seedLinuxHost(queryClient, true);
   localStorage.removeItem(laterKey);
 }
 if (meters) {
   const GiB = 1024 ** 3;
-  queryClient.setQueryData(['usage'], { host: { cpu: 62, cores: 8, memUsed: 15 * GiB, memTotal: 32 * GiB, poolUsed: 15.5 * GiB, poolTotal: 100 * GiB, diskRead: 0, diskWrite: 0 }, agents: [] });
+  queryClient.setQueryData(['usage'], { host: { cpu: 62, cores: 8, memUsed: 16.8 * GiB, memTotal: 17.8 * GiB, poolUsed: 15.5 * GiB, poolTotal: 100 * GiB, diskRead: 0, diskWrite: 0 }, agents: [] });
   queryClient.setQueryData(['claudeLimits'], []);
   seedMeterUsage(queryClient);
   if (meters === 'disk' || meters === 'disk-unmeasured') seedVMDisk(queryClient, meters === 'disk-unmeasured');
@@ -1008,6 +1055,10 @@ function Preview() {
                 </section>
               ))}
           </div>
+        ) : chat === 'limited' ? (
+          <div style={{ height: '100%', margin: -24 }}>
+            <LimitedChatPreview agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-99`)!} />
+          </div>
         ) : chat === 'stopped' || chat === 'paused' ? (
           <div style={{ height: '100%', margin: -24 }}>
             <AsleepChatPreview state={chat} agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-99`)!} />
@@ -1124,6 +1175,34 @@ function Preview() {
       <AgentRail view={view} onSelect={() => {}} onNewAgent={() => {}} />
     </div>
   );
+}
+
+// LimitedChatPreview moves its agent to another account the way the daemon
+// does: the limit clears and the turn carries on, saying so in a notice.
+function LimitedChatPreview({ agent }: { agent: T.Agent }) {
+  useEffect(() => {
+    api.setAgentRunner = async (_ref, req) => {
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      const now = new Date().toISOString();
+      const notice: T.ChatItem = {
+        id: `moved-${now}`,
+        turn: 's3',
+        kind: 'notice',
+        text: `This chat moved to the Claude Code account "${req.account}": Claude Code restarts on it, resumes this conversation and carries on without waiting for the old account's limit.`,
+        createdAt: now,
+        updatedAt: now,
+      };
+      let session: T.ChatSession = { state: 'ready', tool: 'claude', options: [], commands: [] };
+      queryClient.setQueryData<T.ChatThread>(['chat', limitedRef], (thread) => {
+        if (!thread) return thread;
+        session = { ...thread.session, limited: false, limitedUntil: undefined, resumeAt: undefined };
+        return { ...thread, session, items: [...thread.items, notice] };
+      });
+      queryClient.setQueryData<T.LeadRunners>(['agentRunners', limitedRef], (r) => r && { ...r, account: req.account });
+      return session;
+    };
+  }, []);
+  return <ChatTab agent={{ ...agent, ref: limitedRef, name: 'agent-97', title: 'Add a dark mode toggle', state: 'running', ai: 'claude', claudeAccount: 'personal' }} starting={false} onStart={() => {}} autoStart={false} />;
 }
 
 // AsleepChatPreview wakes its agent the way the daemon does: Start, or a
@@ -1402,10 +1481,11 @@ if (phoneMode === 'frame') {
   const { App } = await import('../App');
   const initial: View =
     appView === 'home' ? { kind: 'home' }
-    : appView === 'today' ? { kind: 'today', project: PROJECT }
+    : appView === 'work' ? { kind: 'work' }
+    : appView === 'recap' ? { kind: 'recap' }
     : appView === 'settings' ? { kind: 'settings' }
     : appView === 'homeChat' ? { kind: 'homeChat' }
-    : appView === 'project' || appView === 'pulls' ? { kind: 'project', project: PROJECT, tab: appView === 'pulls' ? 'pulls' : 'chat' }
+    : appView === 'project' || appView === 'pulls' || appView === 'issues' ? { kind: 'project', project: PROJECT, tab: appView === 'pulls' || appView === 'issues' ? appView : 'chat' }
     : { kind: 'agent', ref: `${PROJECT}/${appView}` };
   createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={queryClient}>
@@ -1439,13 +1519,12 @@ if (phoneMode === 'frame') {
   </QueryClientProvider>,
 );
 
-// PastAgentsPreview is the AgentBox-wide Past agents page, or one past agent
-// read in it (?past=chat), at the height the app gives it.
+// PastAgentsPreview is the Work page of every project, or one past agent
+// read in its chat (?past=chat), at the height the app gives it.
 function PastAgentsPreview() {
-  const [open, setOpen] = useState<string | null>(past === 'chat' ? `${PROJECT}/agent-31` : null);
   return (
     <div style={{ height: '100vh', font: '13px var(--font-sans)' }}>
-      <PastAgents open={open ?? undefined} onOpen={setOpen} onSelect={() => {}} />
+      {past === 'chat' ? <PastAgentView agentRef={`${PROJECT}/agent-31`} onBack={() => {}} onSelect={() => {}} /> : <WorkView onSelect={() => {}} />}
     </div>
   );
 }

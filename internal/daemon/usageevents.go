@@ -1,11 +1,9 @@
 package daemon
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -32,6 +30,7 @@ import (
 // (agentbox-landing's functions/api/v1/events.ts), so the two lists change
 // together. The same rules as the counts decide whether one is kept at all
 // (usageStatsOn), and turning the stats off forgets those not sent.
+// The VM's health is one more (healthevent.go), sent in batches of its own.
 
 const (
 	eventTurn          = "turn.completed"
@@ -474,24 +473,7 @@ func usageMemory(bytes int64) string {
 
 // memTotal is the memory this machine has, in bytes, 0 when unknown: in
 // AgentBox's VM, the VM's.
-func memTotal() int64 {
-	f, err := os.Open("/proc/meminfo")
-	if err != nil {
-		return 0
-	}
-	defer func() { _ = f.Close() }()
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		if rest, ok := strings.CutPrefix(sc.Text(), "MemTotal:"); ok {
-			kb, err := strconv.ParseInt(strings.TrimSuffix(strings.TrimSpace(rest), " kB"), 10, 64)
-			if err != nil {
-				return 0
-			}
-			return kb << 10
-		}
-	}
-	return 0
-}
+func memTotal() int64 { return readMemInfo()["MemTotal"] }
 
 func usageLanguage(language string) string {
 	switch strings.ToLower(language) {
@@ -506,17 +488,32 @@ func usageLanguage(language string) string {
 }
 
 // pendingEvents is what the next report sends, oldest first, and the seq of
-// the last.
+// the last: the oldest events of one batch (eventBatch), all health events or
+// none.
 func (s *Server) pendingEvents(ctx context.Context) ([]update.UsageEvent, int64, error) {
 	rows, err := s.store.UsageEvents(ctx, update.MaxEventsPerReport)
 	if err != nil || len(rows) == 0 {
 		return nil, 0, err
 	}
+	n := 1
+	for n < len(rows) && eventBatch(rows[n].Name) == eventBatch(rows[0].Name) {
+		n++
+	}
+	return usageEvents(rows[:n]), rows[n-1].Seq, nil
+}
+
+// eventBatch is whether an event goes in a batch of health events: a server
+// that doesn't know the health event yet refuses a whole batch with one in
+// it, so none goes with the others.
+func eventBatch(name string) bool { return name == eventHealth }
+
+// usageEvents is rows as they are sent.
+func usageEvents(rows []state.UsageEvent) []update.UsageEvent {
 	out := make([]update.UsageEvent, len(rows))
 	for i, r := range rows {
 		out[i] = update.UsageEvent{ID: r.ID, Day: r.Day, Name: r.Name, Props: r.Props}
 	}
-	return out, rows[len(rows)-1].Seq, nil
+	return out
 }
 
 // sendEvents sends what events are waiting, a report at a time, and forgets

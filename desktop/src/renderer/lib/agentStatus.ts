@@ -86,7 +86,7 @@ export function statusTip(agent: Pick<T.Agent, 'state' | 'chat' | 'memory' | 'ou
 
 // memoryHold is what the VM's memory pressure is doing to a running agent's
 // heavy commands, in words, with the sentences that explain it for a tooltip:
-// what it does, then what holds them now, as the daemon's governor judged it
+// what it does, then what holds them now, and that swap is full when it is, as the daemon's governor judged it
 // (T.MemoryHold.why). undefined when nothing is held. Pausing wins over
 // waiting: a paused command has already started.
 export function memoryHold(agent: Pick<T.Agent, 'state' | 'memory'>): { text: string; tip: string } | undefined {
@@ -95,7 +95,10 @@ export function memoryHold(agent: Pick<T.Agent, 'state' | 'memory'>): { text: st
   if (agent.state !== 'running' || !held) return undefined;
   const why = memoryWhy(held);
   const tip = (key: MessageKey) => (why ? `${t(key)} ${why}` : t(key));
-  if ((held.paused ?? 0) > 0) return { text: t('agent.status.memoryPaused'), tip: tip('agent.status.memoryPausedTip') };
+  if ((held.paused ?? 0) > 0) {
+    if (held.swapFull) return { text: t('agent.status.memoryPausedSwapFull'), tip: `${tip('agent.status.memoryPausedTip')} ${t('agent.status.memorySwapFull')}` };
+    return { text: t('agent.status.memoryPaused'), tip: tip('agent.status.memoryPausedTip') };
+  }
   if ((held.waiting ?? 0) > 0) return { text: t('agent.status.memoryWaiting'), tip: tip('agent.status.memoryWaitingTip') };
   return undefined;
 }
@@ -110,8 +113,27 @@ export function machineHold(agent: Pick<T.Agent, 'memory'>): { text: string; tip
   const ahead = formatNumber(held.ahead ?? 0);
   const why = memoryWhy(held);
   const tip = (key: MessageKey) => (why ? `${t(key)} ${why}` : t(key));
+  if (held.machine === 'paused' && held.swapFull) {
+    return { text: t('agent.status.machinePausedSwapFull', { ahead }), tip: `${tip('agent.status.machinePausedTip')} ${t('agent.status.memorySwapFull')}` };
+  }
   if (held.machine === 'paused') return { text: t('agent.status.machinePaused', { ahead }), tip: tip('agent.status.machinePausedTip') };
   if (held.machine === 'waiting') return { text: t('agent.status.machineWaiting', { ahead }), tip: tip('agent.status.machineWaitingTip') };
+  return undefined;
+}
+
+// frozenTip is why an agent is frozen, for the "Frozen" badge on its row, or
+// undefined when it isn't: its whole machine paused for memory (T.MemoryHold
+// machine "paused", with its place in line to thaw) or, while its chat is
+// idle, its processes frozen by idle reclaim (T.Agent.reclaimed). Both
+// resume by themselves.
+export function frozenTip(agent: Pick<T.Agent, 'state' | 'chat' | 'memory' | 'reclaimed'>): string | undefined {
+  const held = agent.memory;
+  if (held?.machine === 'paused') {
+    const why = memoryWhy(held);
+    const tip = t('agent.frozen.memoryTip', { place: formatNumber((held.ahead ?? 0) + 1) });
+    return why ? `${tip} ${why}` : tip;
+  }
+  if (agent.state === 'running' && agent.chat !== 'running' && agent.reclaimed === 'frozen') return t('agent.frozen.idleTip');
   return undefined;
 }
 

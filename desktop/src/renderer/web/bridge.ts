@@ -156,6 +156,8 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
   web: true,
   lan,
   keepAwake: async () => {},
+  // A browser has no tray.
+  tray: { settings: async () => null, set: unavailable('web.bridge.tray'), reviewing: () => {}, onOpen: () => () => {} },
   request: async (method: string, path: string, body?: unknown): Promise<ApiResponse> => {
     const res = await fetch(apiBase() + path, {
       method,
@@ -268,6 +270,15 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
     link.click();
     return Promise.resolve('');
   },
+  // A browser downloads the page, where it puts downloads.
+  saveShare: (path: string, name: string) => {
+    const link = document.createElement('a');
+    link.href = `${apiBase()}${path}`;
+    link.download = name;
+    link.click();
+    return Promise.resolve('');
+  },
+  showShare: () => Promise.resolve(),
   showItem: unavailable('web.bridge.showItem'),
   openExternal: (url) => {
     window.open(url, '_blank', 'noopener');
@@ -290,6 +301,17 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
   onNotificationClick: (fn) => listen(noticeClickListeners, fn),
   copyText: (text) => void navigator.clipboard?.writeText(text),
   readText: () => navigator.clipboard?.readText() ?? Promise.resolve(''),
+  copyImage: (png) => void navigator.clipboard?.write([new ClipboardItem({ 'image/png': new Blob([png as BlobPart], { type: 'image/png' }) })]).catch(() => {}),
+  // A browser downloads it, with no say in where.
+  saveImage: (name, png) => {
+    const url = URL.createObjectURL(new Blob([png as BlobPart], { type: 'image/png' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return Promise.resolve(true);
+  },
   // The phone web app can't reach a host keyring, so browser-cookie import
   // from an installed browser isn't offered there; this is never called.
   browserKeyringSecret: () => Promise.resolve(''),

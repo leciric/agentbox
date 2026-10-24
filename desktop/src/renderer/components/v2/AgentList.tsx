@@ -34,6 +34,7 @@ import { LiveDesktop } from '../pip/LiveDesktop';
 import { useInUse } from '../pip/inUse';
 import { AgentAvatar } from '../state';
 import { Tip } from '../ui/tooltip';
+import { FrozenBadge } from '../FrozenBadge';
 import { useOpenReview, useProjectReview } from './ReviewV2';
 import { StMark } from './SidebarV2';
 
@@ -157,7 +158,7 @@ export function AgentList({ project, chat, onSelect, onNewAgent }: { project: st
       {(past.data?.length ?? 0) > 0 && (
         <button
           type="button"
-          onClick={() => onSelect({ kind: 'pastAgents', project })}
+          onClick={() => onSelect({ kind: 'work', project })}
           className="mt-1.5 flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[11.5px] text-subtle transition hover:bg-surface hover:text-primary"
           data-list-past
         >
@@ -200,12 +201,12 @@ function doingNow(t: ReturnType<typeof useT>, agent: T.Agent, st: AgentSt, last:
 // line at the bottom, with a cursor that blinks while the agent works: tiny
 // in the row's slot, legible in its hover preview (big).
 function Terminal({ lines, working, big }: { lines: string[]; working: boolean; big?: boolean }) {
-  const cursor = <span className={cn('term-cursor inline-block translate-y-px bg-slate-300', big ? 'ml-0.5 h-[11px] w-[6px]' : 'ml-px h-[7px] w-[3.5px]')} />;
+  const cursor = <span className={cn('term-cursor inline-block shrink-0 translate-y-px bg-slate-300', big ? 'ml-0.5 h-[11px] w-[6px]' : 'ml-px h-[7px] w-[3.5px]')} />;
   return (
     <span aria-hidden className={cn('flex size-full flex-col justify-end overflow-hidden bg-[#0b0d12] font-mono text-slate-300', big ? 'px-2.5 py-2 text-[11px] leading-[14px]' : 'row-swap-in px-1 py-1 text-[7px] leading-[8px]')} data-list-terminal={big ? 'preview' : 'thumb'}>
       {lines.map((line, i) => (
-        <span key={i} className={cn('block overflow-hidden whitespace-pre', line.startsWith('$ ') && 'text-emerald-300/90')}>
-          {line}
+        <span key={i} className={cn('flex', line.startsWith('$ ') && 'text-emerald-300/90')}>
+          <span className="min-w-0 overflow-hidden whitespace-pre">{line}</span>
           {i === lines.length - 1 && working && cursor}
         </span>
       ))}
@@ -273,6 +274,7 @@ function AgentLine({ agent, st, mood, active, live, ready, pr, fleet, at, report
   const thread = useQuery({ queryKey: chatKey(agent.ref), queryFn: () => peekThread(queryClient, agent.ref), staleTime: 30_000 });
   const session = thread.data?.session;
   const title = agent.title || agent.name;
+  const number = /^agent-(\d+)$/.exec(agent.name)?.[1];
   const now = doingNow(t, agent, st, thread.data?.items.at(-1), question, report);
   const load = usage && (usage.cpu !== undefined || usage.memory !== undefined) ? usage : undefined;
   const loadTip = load && t('panel.list.usage', { cpu: (load.cpu ?? 0).toFixed(1), memory: load.memory ? `${(load.memory / 1024 ** 2).toFixed(0)} MiB` : '–' });
@@ -320,6 +322,11 @@ function AgentLine({ agent, st, mood, active, live, ready, pr, fleet, at, report
         <span className="flex min-w-0 flex-1 flex-col self-stretch" title={[statusTip(agent), loadTip, context].filter(Boolean).join('\n')}>
           <span className="flex min-w-0 items-center gap-1.5">
             <span title={title} className={cn('min-w-0 flex-1 truncate text-[12.5px] font-medium leading-[18px]', active ? 'text-title' : st === 'done' ? 'text-subtle' : 'text-primary', !agent.title && 'font-mono text-[11.5px]')}>{title}</span>
+            {number && (
+              <span className="shrink-0 text-[10.5px] tabular-nums leading-4 text-faint/70" data-list-number>
+                #{number}
+              </span>
+            )}
             {when && (
               <span className="shrink-0 text-[10.5px] tabular-nums leading-4 text-faint" title={timeAgo(when)}>
                 {shortAgo(t, when)}
@@ -332,6 +339,7 @@ function AgentLine({ agent, st, mood, active, live, ready, pr, fleet, at, report
             </span>
           )}
           <span className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-x-clip whitespace-nowrap text-[10.5px] leading-4 text-faint empty:hidden" data-list-meta>
+            <FrozenBadge agent={agent} />
             {pr && <PrChip pr={pr} dataAttr="data-list-pr" />}
             {ready && (
               <span className="shrink-0 rounded bg-surface-strong px-1 font-medium text-secondary" data-list-ready>

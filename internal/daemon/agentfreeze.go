@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"sync"
 	"time"
 
@@ -81,6 +82,15 @@ type fleetState struct {
 	started map[string]chan struct{}
 	// frozen is what was last saved of the agents the fleet froze.
 	saved []string
+	// ours are the machines the fleet asked to freeze and hasn't thawed,
+	// by ref: kept apart from what the fleet makes of their cgroups, so one
+	// that once read as not frozen (and was forgotten as resumed) is never
+	// then taken for somebody else's pause and left frozen. On 2026-10-23
+	// agents 540–542 stayed frozen ~10 h, memory long recovered, that way.
+	ours map[string]bool
+	// spared is whether the log says machines are left running as freezing
+	// them would free nothing (pressure.Fleet.Spared).
+	spared bool
 }
 
 func newFleetState() *fleetState {
@@ -88,6 +98,7 @@ func newFleetState() *fleetState {
 		f:        pressure.NewFleet(pressure.DefaultPolicy),
 		instance: map[string]string{},
 		started:  map[string]chan struct{}{},
+		ours:     map[string]bool{},
 	}
 }
 
@@ -155,7 +166,13 @@ func (s *Server) setFleet(ctx context.Context, on bool) error {
 			delete(fl.started, ref)
 			fl.f.Cancel(ref)
 		}
-		fl.f.Sync(nil)
+		fl.f.Sync(time.Now(), nil)
+		for ref := range fl.ours {
+			if !slices.Contains(thaw, ref) {
+				thaw = append(thaw, ref)
+			}
+			delete(fl.ours, ref)
+		}
 	}
 	instances := map[string]string{}
 	for _, ref := range thaw {
@@ -166,6 +183,7 @@ func (s *Server) setFleet(ctx context.Context, on bool) error {
 		s.thawMachine(ctx, ref, instances[ref])
 	}
 	if was && !on {
+		s.resumeRuns("", time.Now())
 		s.saveFleetFrozen(ctx, nil)
 	}
 	if on && !was {
@@ -208,16 +226,19 @@ func (s *Server) syncFleet(ctx context.Context, agents []state.Agent) {
 	if !s.fleetOn() {
 		return
 	}
-	busy := map[string]bool{}
+	busy, heavy, held := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	h := s.heavy
 	h.mu.Lock()
 	for _, r := range h.g.Running() {
 		busy[r.Agent] = true
+		heavy[r.Agent] = heavy[r.Agent] || r.Placed && !r.Paused
+		held[r.Agent] = held[r.Agent] || r.ForFleet
 	}
 	h.mu.Unlock()
 	type seen struct {
 		a              state.Agent
 		running, froze bool
+		memory         int64
 	}
 	var all []seen
 	for _, a := range agents {
@@ -231,28 +252,38 @@ func (s *Server) syncFleet(ctx context.Context, agents []state.Agent) {
 		if err := s.machineCgroups.Own(a.Instance); err != nil {
 			s.logOnce("freezer "+a.Instance, "memory: "+a.Ref()+": taking its freezer: "+err.Error())
 		}
-		all = append(all, seen{a, running, frozen})
+		all = append(all, seen{a, running, frozen, s.machineCgroups.Memory(a.Instance)})
 	}
 	fl := s.frozen
 	fl.mu.Lock()
 	defer fl.mu.Unlock()
 	var ms []pressure.Machine
+	running := map[string]bool{}
 	for _, x := range all {
 		ref := x.a.Ref()
+		running[ref] = true
 		// Frozen by somebody else (paused by hand, or by the disk guard):
 		// not the fleet's to thaw, and holding nothing it can free.
-		if x.froze && !fl.f.Frozen(ref) {
+		if x.froze && !fl.f.Frozen(ref) && !fl.ours[ref] {
 			continue
 		}
 		fl.instance[ref] = x.a.Instance
 		ms = append(ms, pressure.Machine{
-			Agent:   ref,
-			Since:   x.a.CreatedAt,
-			Working: busy[ref] || s.chat.Busy(x.a),
-			Frozen:  x.froze,
+			Agent:      ref,
+			Since:      x.a.CreatedAt,
+			Working:    busy[ref] || s.chat.Busy(x.a),
+			Heavy:      heavy[ref],
+			Memory:     x.memory,
+			Frozen:     x.froze,
+			RunsPaused: held[ref],
 		})
 	}
-	fl.f.Sync(ms)
+	for ref := range fl.ours {
+		if !running[ref] {
+			delete(fl.ours, ref)
+		}
+	}
+	fl.f.Sync(time.Now(), ms)
 }
 
 // stepFleet applies what the fleet makes of sample: machines frozen, thawed,
@@ -268,14 +299,19 @@ func (s *Server) stepFleet(ctx context.Context, now time.Time, sample pressure.S
 	}
 	acts := fl.f.Step(now, sample)
 	why, trend := fl.f.Why(), fl.f.Trend()
+	swapFull := fl.f.SwapFull()
+	spared := fl.f.Spared() && !fl.spared
+	fl.spared = fl.f.Spared()
 	instance := func(ref string) string { return fl.instance[ref] }
 	type change struct{ ref, instance string }
 	var freeze, thaw []change
 	for _, ref := range acts.Freeze {
 		freeze = append(freeze, change{ref, instance(ref)})
+		fl.ours[ref] = true
 	}
 	for _, ref := range acts.Thaw {
 		thaw = append(thaw, change{ref, instance(ref)})
+		delete(fl.ours, ref)
 	}
 	for _, ref := range acts.Start {
 		if ch := fl.started[ref]; ch != nil {
@@ -296,17 +332,39 @@ func (s *Server) stepFleet(ctx context.Context, now time.Time, sample pressure.S
 	for _, c := range thaw {
 		s.thawMachine(ctx, c.ref, c.instance)
 	}
+	for _, ref := range acts.ResumeRuns {
+		s.resumeRuns(ref, now)
+	}
+	full := ""
+	if swapFull {
+		full = "; swap is full, so its memory stays where it is: this only stops it growing"
+	}
 	for _, c := range freeze {
-		s.logf("memory: freezing %s's machine: %s: %s", c.ref, reasonWords(why, sample, trend), sample)
+		// Asked to freeze already (by the fleet before a restart, or as a
+		// paused agent): nothing to do, nor to say again.
+		if _, frozen := s.machineCgroups.Running(c.instance); frozen {
+			continue
+		}
+		s.logf("memory: freezing %s's machine: %s: %s%s", c.ref, reasonWords(why, sample, trend), sample, full)
 		if err := s.machineCgroups.Freeze(c.instance, true); err != nil {
 			s.logf("memory: freezing %s: %v", c.ref, err)
 			continue
+		}
+		s.countMachineFreeze()
+		if swapFull {
+			continue // nowhere to push it out to
 		}
 		go func(c change) {
 			if err := s.machineCgroups.Reclaim(c.instance); err != nil {
 				s.logf("memory: pushing %s's memory out: %v", c.ref, err)
 			}
 		}(c)
+	}
+	for _, ref := range acts.PauseRuns {
+		s.pauseRuns(ctx, ref, now, why, sample, trend)
+	}
+	if spared {
+		s.logf("memory: swap is full: the machines left running are idle, and freezing them would free nothing: %s", sample)
 	}
 	for _, ref := range acts.Start {
 		s.logf("memory: %s's machine may boot: %s", ref, sample)
@@ -316,6 +374,53 @@ func (s *Server) stepFleet(ctx context.Context, now time.Time, sample pressure.S
 	}
 	if !acts.Empty() {
 		s.refreshSoon()
+	}
+}
+
+// pauseRuns pauses, for the fleet, an agent's heavy commands rather than its
+// whole machine: swap full, freezing it would free nothing either, and this
+// way its AI tool carries on. Each agent is told, as when the governor
+// pauses a run.
+func (s *Server) pauseRuns(ctx context.Context, ref string, now time.Time, why pressure.Reason, sample pressure.Sample, trend pressure.Trend) {
+	h := s.heavy
+	h.mu.Lock()
+	runs := h.g.PauseAgent(ref, now, why)
+	type paused struct {
+		run      pressure.Run
+		instance string
+	}
+	var out []paused
+	for _, r := range runs {
+		out = append(out, paused{*r, h.instance[r.ID()]})
+	}
+	h.mu.Unlock()
+	for _, p := range out {
+		s.logf("memory: pausing %s (%s) rather than %s's whole machine, as swap is full: %s: %s", p.run.ID(), p.run.Command, ref, reasonWords(why, sample, trend), sample)
+		if err := s.runCgroups.Freeze(p.instance, p.run.Key, true); err != nil {
+			s.logf("memory: pausing %s: %v", p.run.ID(), err)
+			continue
+		}
+		s.countRunPause()
+		go s.tellPaused(context.WithoutCancel(ctx), p.run)
+	}
+}
+
+// resumeRuns resumes the heavy commands the fleet paused of an agent, or of
+// every agent for "".
+func (s *Server) resumeRuns(ref string, now time.Time) {
+	h := s.heavy
+	h.mu.Lock()
+	type resumed struct{ id, instance, key string }
+	var out []resumed
+	for _, r := range h.g.ResumeAgent(ref, now) {
+		out = append(out, resumed{r.ID(), h.instance[r.ID()], r.Key})
+	}
+	h.mu.Unlock()
+	for _, r := range out {
+		s.logf("memory: resuming %s", r.id)
+		if err := s.runCgroups.Freeze(r.instance, r.key, false); err != nil {
+			s.logf("memory: resuming %s: %v", r.id, err)
+		}
 	}
 }
 
@@ -477,9 +582,31 @@ func (s *Server) machineHold(ref string) *api.MemoryHold {
 			}
 		}
 	}
+	fl.why(&out)
+	return &out
+}
+
+// fleetWhy fills in what holds an agent's machine or its heavy commands, as
+// the fleet saw it last, when pausing whole agents is on: it reports
+// whether it is.
+func (s *Server) fleetWhy(out *api.MemoryHold) bool {
+	fl := s.frozen
+	fl.mu.Lock()
+	defer fl.mu.Unlock()
+	if !fl.on {
+		return false
+	}
+	fl.why(out)
+	return true
+}
+
+// why fills in what holds machines, as the fleet saw it last. Under mu.
+func (fl *fleetState) why(out *api.MemoryHold) {
 	last, tr := fl.f.Last(), fl.f.Trend()
 	out.Why = string(fl.f.Why())
 	out.Available, out.Total = last.Mem.Available, last.Mem.Total
+	out.SwapFull = fl.f.SwapFull()
+	out.Stalled, out.Rate = 0, 0
 	switch fl.f.Why() {
 	case pressure.Stalling:
 		out.Stalled = last.Some.Avg10
@@ -488,5 +615,4 @@ func (s *Server) machineHold(ref string) *api.MemoryHold {
 	case pressure.Churning:
 		out.Rate = int64(tr.Churn)
 	}
-	return &out
 }

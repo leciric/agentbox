@@ -476,7 +476,7 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 		from = repo.CurrentBranch()
 	}
 	if !p.BaseSyncOff {
-		m.syncBase(ctx, repo)
+		m.syncBase(ctx, p, repo)
 	}
 	commit, err := repo.ResolveCommit(from)
 	if err != nil {
@@ -1355,8 +1355,15 @@ func agentMCPServers(home string, connectors []string) []mcpServer {
 		// browser_take_screenshot's result from 193,976 bytes to 511 with no
 		// image, and left browser_snapshot's 49,893-byte accessibility tree
 		// — what an agent actually clicks by — untouched.
-		{"playwright", home + "/.local/share/mise/shims/playwright-mcp",
-			[]string{"--cdp-endpoint", BrowserDevTools, "--output-dir", home + "/.cache/playwright-mcp", "--image-responses", "omit"}, false},
+		//
+		// It runs behind `agentbox desktop guard` (mcp.Guard), which fails a
+		// call that takes longer than playwrightCallTimeout and restarts the
+		// server: browser_evaluate is page.evaluate, which no flag of the
+		// server's bounds, and one that never returned held an agent's turn
+		// until the agent was stopped.
+		{"playwright", AgentBinaryPath, append([]string{"desktop", "guard", "--name", "Playwright", "--timeout", playwrightCallTimeout.String(), "--",
+			home + "/.local/share/mise/shims/playwright-mcp"},
+			"--cdp-endpoint", BrowserDevTools, "--output-dir", home+"/.cache/playwright-mcp", "--image-responses", "omit"), false},
 		{"desktop", AgentBinaryPath, []string{"desktop", "mcp"}, false},
 		// What the project remembers, which is the same binary again: search
 		// it, report on the task, record what was produced
@@ -1387,6 +1394,11 @@ func claudeMCPServers(servers []mcpServer) map[string]any {
 // little longer than the daemon waits (askTimeout in package daemon), so the
 // daemon's own answer arrives first.
 const waitingToolTimeout = 2*time.Hour + 5*time.Minute
+
+// playwrightCallTimeout is how long one Playwright MCP call may take: well
+// past its own navigation timeout (a minute) and a long browser_wait_for, and
+// far short of the stall watch's fifteen minutes (package daemon).
+const playwrightCallTimeout = 3 * time.Minute
 
 // mcpServer is one MCP server every AI tool is given, written into Claude
 // Code's ~/.claude.json, Codex's ~/.codex/config.toml and OpenCode's
@@ -1448,30 +1460,50 @@ func (m *Manager) brief(ctx context.Context, a state.Agent, ip string, envFiles 
 		return "", err
 	}
 	return brief.Render(brief.Data{
-		Project:      a.Project,
-		ProjectName:  p.DisplayName,
-		Agent:        a.Name,
-		Title:        a.Title,
-		Worktree:     a.Worktree,
-		Branch:       a.Branch,
-		BaseRef:      a.BaseRef,
-		IP:           ip,
-		EnvFiles:     envFiles,
-		NodeModules:  m.nodeModulesDirs(a),
-		Secrets:      secretNames,
-		Android:      android.IsProject(a.Worktree),
-		GitHub:       m.Creds.HasGitHubLogin(),
-		VM:           hostos.InVM(),
-		Host:         hostos.Name(),
-		Notes:        projectNotes,
-		Nesting:      p.Nesting,
-		AgentPRs:     p.AgentPRs,
-		CreditAITool: m.creditAITool(ctx),
-		FullSuite:    p.FullTestSuite && m.blockFullSuite(ctx),
+		Project:        a.Project,
+		ProjectName:    p.DisplayName,
+		Agent:          a.Name,
+		Title:          a.Title,
+		Worktree:       a.Worktree,
+		Branch:         a.Branch,
+		BaseRef:        a.BaseRef,
+		Parent:         m.stackParent(ctx, a),
+		IP:             ip,
+		EnvFiles:       envFiles,
+		NodeModules:    m.nodeModulesDirs(a),
+		Secrets:        secretNames,
+		Android:        android.IsProject(a.Worktree),
+		GitHub:         m.Creds.HasGitHubLogin(),
+		VM:             hostos.InVM(),
+		Host:           hostos.Name(),
+		Notes:          projectNotes,
+		Nesting:        p.Nesting,
+		AgentPRs:       p.AgentPRs,
+		CreditAITool:   m.creditAITool(ctx),
+		FullSuite:      p.FullTestSuite && m.blockFullSuite(ctx),
+		BuiltWithBadge: m.builtWithBadge(ctx),
 
 		Knowledge:     knowledge,
 		CompactWindow: compactWindow,
 	})
+}
+
+// stackParent is the agent whose branch a stands on, "" when a stands on
+// none of its project's agents' branches.
+func (m *Manager) stackParent(ctx context.Context, a state.Agent) string {
+	if a.BaseRef == "" || a.BaseRef == "HEAD" {
+		return ""
+	}
+	agents, err := m.Store.Agents(ctx, a.Project)
+	if err != nil {
+		return ""
+	}
+	for _, o := range agents {
+		if o.Name != a.Name && !o.IsLead() && o.Branch == a.BaseRef {
+			return o.Name
+		}
+	}
+	return ""
 }
 
 // blockFullSuite says whether the installation blocks agents' whole test
@@ -1672,6 +1704,24 @@ func (m *Manager) writeBrief(ctx context.Context, a state.Agent, ip string, envF
 		}
 	}
 	return nil
+}
+
+// Restack moves an agent stacked on another's branch onto the branch that
+// one merged into: its base becomes ref, and commit — the merged branch's
+// last tip — is what its own commits are told from until it has rebased.
+// Its brief is written again when its machine is running, so the branch it
+// is told to open its pull request against is the new one; Start writes it
+// otherwise.
+func (m *Manager) Restack(ctx context.Context, a state.Agent, ref, commit string) (state.Agent, error) {
+	if err := m.Store.SetAgentBase(ctx, a.Project, a.Name, ref, commit); err != nil {
+		return a, err
+	}
+	a.BaseRef, a.BaseCommit = ref, commit
+	inst, err := m.Incus.Instance(ctx, a.Instance)
+	if err != nil || inst.Status != "Running" {
+		return a, nil
+	}
+	return a, m.writeBrief(ctx, a, inst.IPv4(), m.projectEnvFiles(ctx, a.Project))
 }
 
 // projectEnvFiles lists a project's gitignored env files for a brief written
@@ -2314,10 +2364,11 @@ func displayState(status string) string {
 	return strings.ToLower(status)
 }
 
-// Diff shows everything the agent changed since it was created: commits,
-// uncommitted edits and untracked files.
+// Diff shows everything the agent changed against its base branch: commits,
+// uncommitted edits and untracked files. Whatever main gained since the agent
+// took it in is not counted (gitrepo.DiffBase).
 func (m *Manager) Diff(a state.Agent, stat bool, paths ...string) (string, error) {
-	return gitrepo.DiffWorktree(a.Worktree, a.BaseCommit, stat, paths...)
+	return gitrepo.DiffWorktree(a.Worktree, gitrepo.DiffBase(a.Worktree, a.BaseRef, a.BaseCommit), stat, paths...)
 }
 
 func (m *Manager) logf(format string, args ...any) {

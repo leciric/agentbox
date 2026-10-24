@@ -275,16 +275,20 @@ func (m *chMachine) granted(ctx context.Context) int64 {
 	return 0
 }
 
+// resident is what Cloud Hypervisor holds of the host's memory, cheaply
+// read, which is about the VM's memory the guest has touched; and what it and
+// the programs beside it hold together, each shared page once (footprint).
 func (m *chMachine) resident() (vm, all int64) {
 	if m.running() {
 		vm = resident(m.cloud.pid())
 	}
+	var pids []int
 	for _, c := range []*child{m.cloud, m.gpu, m.passt, m.fs} {
 		if c != nil && !c.exited() {
-			all += resident(c.pid())
+			pids = append(pids, c.pid())
 		}
 	}
-	return vm, all
+	return vm, footprint(pids)
 }
 
 // live is what the running VM can be resized to: every vCPU it booted with

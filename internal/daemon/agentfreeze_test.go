@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -17,12 +18,16 @@ type fakeMachineCgroups struct {
 	mu        sync.Mutex
 	frozen    map[string]bool
 	reclaimed []string
+	// freezes counts the freezes asked for; lags says a machine never reads
+	// as frozen, as cgroup.events didn't while a task was stuck in reclaim.
+	freezes int
+	lags    bool
 }
 
 func (f *fakeMachineCgroups) Running(instance string) (bool, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return true, f.frozen[instance]
+	return true, f.frozen[instance] && !f.lags
 }
 func (f *fakeMachineCgroups) Own(string) error { return nil }
 func (f *fakeMachineCgroups) Freeze(instance string, on bool) error {
@@ -32,6 +37,9 @@ func (f *fakeMachineCgroups) Freeze(instance string, on bool) error {
 		f.frozen = map[string]bool{}
 	}
 	f.frozen[instance] = on
+	if on {
+		f.freezes++
+	}
 	return nil
 }
 func (f *fakeMachineCgroups) Reclaim(instance string) error {
@@ -53,12 +61,14 @@ type fleetTest struct {
 	*pressureTest
 	mc    *fakeMachineCgroups
 	newer state.Agent
+	log   *syncBuffer
 }
 
 func newFleetTest(t *testing.T, on bool) *fleetTest {
 	t.Helper()
 	mc := &fakeMachineCgroups{}
-	p := newPressureTest(t)
+	log := &syncBuffer{}
+	p := newPressureTest(t, func(s *Server) { s.cfg.Log = log })
 	p.srv.machineCgroups = mc
 	pol := p.srv.heavy.g.Policy
 	p.srv.frozen.f.Policy = pol
@@ -75,7 +85,7 @@ func newFleetTest(t *testing.T, on bool) *fleetTest {
 			t.Fatal(err)
 		}
 	}
-	return &fleetTest{pressureTest: p, mc: mc, newer: newer}
+	return &fleetTest{pressureTest: p, mc: mc, newer: newer, log: log}
 }
 
 // step syncs the fleet with the agents, as the memory watch does, and takes
@@ -131,7 +141,7 @@ func TestFleetFreezesNewerThawsOnCalm(t *testing.T) {
 	if !f.start(t, "build", time.Second) {
 		t.Fatal("the build didn't start")
 	}
-	f.setAvailable(0.5, 4)
+	f.setAvailable(0.5, 2.5) // under the floor, swap with room to push it out to
 	f.step(t)
 	if !f.mc.isFrozen(f.newer.Instance) {
 		t.Fatal("the newer machine wasn't frozen with the VM out of memory")
@@ -218,7 +228,7 @@ func TestFleetOffThaws(t *testing.T) {
 	if !f.start(t, "build", time.Second) {
 		t.Fatal("the build didn't start")
 	}
-	f.setAvailable(0.5, 4)
+	f.setAvailable(0.5, 2.5)
 	f.step(t)
 	if !f.mc.isFrozen(f.newer.Instance) {
 		t.Fatal("not frozen")
@@ -228,5 +238,135 @@ func TestFleetOffThaws(t *testing.T) {
 	}
 	if f.mc.isFrozen(f.newer.Instance) {
 		t.Fatal("still frozen with the setting off")
+	}
+}
+
+// startNewer has a heavy command of the newer agent's start, placed.
+func (f *fleetTest) startNewer(t *testing.T, key string) {
+	t.Helper()
+	out, err := f.srv.askHeavy(context.Background(), f.newer.Ref(), f.newer.Instance, key, "vue-tsc --noEmit", time.Hour, time.Second)
+	if err != nil || !out.Started {
+		t.Fatalf("%s didn't start: %v", key, err)
+	}
+	if err := f.srv.runCgroups.Place(f.newer.Instance, key, 100); err != nil {
+		t.Fatal(err)
+	}
+	f.srv.heavy.mu.Lock()
+	f.srv.heavy.g.Place(f.newer.Ref(), key)
+	f.srv.heavy.mu.Unlock()
+}
+
+func TestFleetWithSwapFullPausesTheBuildRatherThanTheMachine(t *testing.T) {
+	t.Parallel()
+	f := newFleetTest(t, true)
+	if !f.start(t, "build", time.Second) { // the older agent works
+		t.Fatal("the build didn't start")
+	}
+	f.startNewer(t, "tsc")
+	f.setAvailable(0.5, 4) // under the floor, swap full
+	f.step(t)
+	if f.mc.isFrozen(f.newer.Instance) {
+		t.Fatal("the newer machine was frozen whole with swap full")
+	}
+	if !f.cg.isFrozen(f.newer.Instance, "tsc") {
+		t.Fatal("its type check wasn't paused")
+	}
+	held := f.srv.memoryHold(f.newer.Ref())
+	if held == nil || held.Paused != 1 || held.Machine != "" || !held.SwapFull || held.Why != string(pressure.Low) {
+		t.Fatalf("its hold = %+v, want its command paused, swap full", held)
+	}
+	if !strings.Contains(f.log.String(), "rather than hello-stack/agent-02's whole machine, as swap is full") {
+		t.Fatalf("the log doesn't say why:\n%s", f.log.String())
+	}
+
+	f.setAvailable(12, 1)
+	f.set(0, 0)
+	f.step(t)
+	if f.cg.isFrozen(f.newer.Instance, "tsc") {
+		t.Fatal("the type check didn't resume once calm")
+	}
+}
+
+func TestFleetWithSwapFullLeavesAnIdleMachineAndSaysSoOnce(t *testing.T) {
+	t.Parallel()
+	f := newFleetTest(t, true)
+	if !f.start(t, "build", time.Second) {
+		t.Fatal("the build didn't start")
+	}
+	f.setAvailable(0.5, 4)
+	for range 3 {
+		f.step(t)
+	}
+	if f.mc.isFrozen(f.newer.Instance) {
+		t.Fatal("an idle machine was frozen with swap full, which frees nothing")
+	}
+	if n := strings.Count(f.log.String(), "freezing them would free nothing"); n != 1 {
+		t.Fatalf("said so %d times:\n%s", n, f.log.String())
+	}
+}
+
+func TestFleetFreezesAMachineOnceWhileItReadsAsNotFrozenYet(t *testing.T) {
+	t.Parallel()
+	f := newFleetTest(t, true)
+	if !f.start(t, "build", time.Second) {
+		t.Fatal("the build didn't start")
+	}
+	f.mc.mu.Lock()
+	f.mc.lags = true
+	f.mc.mu.Unlock()
+	f.setAvailable(0.5, 2.5)
+	for range 4 {
+		f.step(t)
+	}
+	f.mc.mu.Lock()
+	n := f.mc.freezes
+	f.mc.mu.Unlock()
+	if n != 1 {
+		t.Fatalf("froze the machine %d times", n)
+	}
+	if got := strings.Count(f.log.String(), "freezing hello-stack/agent-02's machine"); got != 1 {
+		t.Fatalf("logged its freezing %d times:\n%s", got, f.log.String())
+	}
+}
+
+func TestFleetThawsOneItForgot(t *testing.T) {
+	// 2026-10-23: agents 540–542 stayed frozen ~10 h after memory recovered.
+	// Their cgroup.events read "frozen 0" while a task was stuck in reclaim;
+	// the fleet took them as resumed and forgot them, then, once they read
+	// frozen, took them for somebody else's pause and never thawed them.
+	t.Parallel()
+	f := newFleetTest(t, true)
+	ctx := context.Background()
+	if !f.start(t, "build", time.Second) {
+		t.Fatal("the build didn't start")
+	}
+	f.setAvailable(0.5, 2.5)
+	f.step(t)
+	if !f.mc.isFrozen(f.newer.Instance) {
+		t.Fatal("not frozen")
+	}
+	agents, err := f.srv.store.Agents(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Past FreezeSettle, its cgroup still reads as not frozen.
+	f.srv.frozen.mu.Lock()
+	f.srv.frozen.f.Settle = 0
+	f.srv.frozen.mu.Unlock()
+	f.mc.mu.Lock()
+	f.mc.lags = true
+	f.mc.mu.Unlock()
+	f.srv.syncFleet(ctx, agents)
+	// Then it does, and memory recovers.
+	f.mc.mu.Lock()
+	f.mc.lags = false
+	f.mc.mu.Unlock()
+	f.setAvailable(12, 1)
+	f.set(0, 0)
+	for range 3 {
+		f.step(t)
+	}
+	if f.mc.isFrozen(f.newer.Instance) {
+		t.Fatal("the machine the fleet froze was never thawed once calm")
 	}
 }

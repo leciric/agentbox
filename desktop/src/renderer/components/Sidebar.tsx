@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Archive, Box, ChevronRight, CircleArrowUp, FolderPlus, FolderTree, GripVertical, House, Images, ListChecks, MessagesSquare, MoonStar, MoreHorizontal, Pencil, Plus, Settings, Trash2 } from 'lucide-react';
+import { Briefcase, Box, ChevronRight, CircleArrowUp, FolderPlus, FolderTree, GripVertical, House, Images, ListChecks, MessagesSquare, MoonStar, MoreHorizontal, Pencil, Plus, Settings, Trash2 } from 'lucide-react';
 import type { ComponentType, DragEvent, KeyboardEvent, ReactNode } from 'react';
 import { useRef, useState } from 'react';
 import type * as T from '../../shared/api';
@@ -350,8 +350,8 @@ export function Sidebar({
             </span>
           </NavItem>
         )}
-        <NavItem icon={Archive} active={view.kind === 'pastAgents'} onClick={() => onSelect({ kind: 'pastAgents' })}>
-          {t('pastAgents.title')}
+        <NavItem icon={Briefcase} active={view.kind === 'work' || view.kind === 'pastAgents'} onClick={() => onSelect({ kind: 'work' })}>
+          {t('work.title')}
         </NavItem>
         <NavItem icon={ListChecks} active={view.kind === 'jobs'} onClick={() => onSelect({ kind: 'jobs' })}>
           {t('shell.nav.jobs')}

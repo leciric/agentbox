@@ -1316,6 +1316,69 @@ var migrations = []string{
 	// machine was last stopped through AgentBox; 0 when never, or not since
 	// this column exists.
 	`ALTER TABLE agents ADD COLUMN stopped_at INTEGER NOT NULL DEFAULT 0`,
+	// A project secret the lead keeps fresh (a token its own script refreshes):
+	// a credential request for it wakes the lead, which may fulfil it from the
+	// stored value by name (fulfil_credential). Agents' own secrets stay 0.
+	`ALTER TABLE secrets ADD COLUMN lead_managed INTEGER NOT NULL DEFAULT 0`,
+	// Whether this project hands its GitHub issues labelled agentbox to new
+	// agents by itself (Project.PickUpIssues, issues.go). Off by default.
+	`ALTER TABLE projects ADD COLUMN pick_up_issues INTEGER NOT NULL DEFAULT 0`,
+	// The agent each of a project's GitHub issues was handed to, and the pull
+	// request it opened once one is seen, which stays after the agent is
+	// retired. job is the create job until the agent is named; one row per
+	// issue, the latest hand-off winning.
+	`CREATE TABLE issue_agents (
+		project    TEXT NOT NULL,
+		repo       TEXT NOT NULL,
+		number     INTEGER NOT NULL,
+		title      TEXT NOT NULL DEFAULT '',
+		agent      TEXT NOT NULL DEFAULT '',
+		job        TEXT NOT NULL DEFAULT '',
+		auto       INTEGER NOT NULL DEFAULT 0,
+		created_at INTEGER NOT NULL,
+		pr_number  INTEGER NOT NULL DEFAULT 0,
+		pr_url     TEXT NOT NULL DEFAULT '',
+		pr_state   TEXT NOT NULL DEFAULT '',
+		PRIMARY KEY (project, repo, number)
+	)`,
+	// Detected icons no longer fall back to the GitHub owner's avatar
+	// (projecticon): drop the ones already kept, so those projects show their
+	// first letter instead. detected_at 0 makes the next read look again, which
+	// still finds an icon the repository has; updated_at moves so the app's
+	// cache doesn't keep the old image. A chosen icon is untouched.
+	`UPDATE project_icons SET detected = NULL, detected_mime = '', detected_from = '', detected_at = 0,
+		updated_at = max(updated_at + 1, CAST(strftime('%s','now') AS INTEGER) * 1000)
+		WHERE detected_from LIKE 'github.com/%'`,
+	// Event triggers (schedules.go, kind 'event'): the event a schedule runs
+	// on and, for issue_labeled, the label; on each run, the event it ran
+	// for, in a line (event) and where to see it (event_url). schedule_events
+	// is every event a trigger has seen, by a key naming it (ci:<sha>,
+	// review:<number>, issue:<number>, pr:<number>), so one event fires once:
+	// fired is 0 for what was already there when the trigger first looked.
+	`ALTER TABLE schedules ADD COLUMN event TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE schedules ADD COLUMN event_label TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE schedule_runs ADD COLUMN event TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE schedule_runs ADD COLUMN event_url TEXT NOT NULL DEFAULT ''`,
+	`CREATE TABLE schedule_events (
+		schedule TEXT NOT NULL,
+		key      TEXT NOT NULL,
+		project  TEXT NOT NULL,
+		fired    INTEGER NOT NULL DEFAULT 0,
+		seen_at  INTEGER NOT NULL,
+		PRIMARY KEY (schedule, key)
+	)`,
+	// A paired phone's push notifications (phonepush.go): its Expo push
+	// token, what it wants pushed, and its quiet hours, in minutes after
+	// midnight in its own time zone. Gone with the phone.
+	`CREATE TABLE phone_push (
+		phone_id   TEXT PRIMARY KEY REFERENCES phones(id) ON DELETE CASCADE,
+		token      TEXT NOT NULL,
+		kinds      TEXT NOT NULL,
+		quiet_from INTEGER NOT NULL DEFAULT 0,
+		quiet_to   INTEGER NOT NULL DEFAULT 0,
+		time_zone  TEXT NOT NULL DEFAULT '',
+		updated_at INTEGER NOT NULL
+	)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -1511,6 +1574,9 @@ type Project struct {
 	// suite (`go test ./...`, a bare `npm test`) while the installation
 	// blocks them (SettingBlockFullSuite); it means nothing otherwise.
 	FullTestSuite bool
+	// PickUpIssues is whether the project hands its open GitHub issues
+	// labelled agentbox to new agents by itself (daemon/issues.go).
+	PickUpIssues bool
 }
 
 // A project's PRWatch.
@@ -1668,7 +1734,7 @@ func (p Project) DirectAgentModel() string {
 // LeadPicksModel reports whether this project's chat chooses each agent's model.
 func (p Project) LeadPicksModel() bool { return p.AgentModel == AgentModelAuto }
 
-const projectColumns = `name, display_name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off, codex_account, opencode_accounts, cursor_account, full_test_suite`
+const projectColumns = `name, display_name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off, codex_account, opencode_accounts, cursor_account, full_test_suite, pick_up_issues`
 
 // projectPlacement is where the project sits in the sidebar (D79), read
 // beside the columns above rather than with them: it is written by the
@@ -1756,11 +1822,11 @@ func (s *Store) AddProject(ctx context.Context, p Project) error {
 		p.BranchPrefix = DefaultBranchPrefix
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.DisplayName, p.Root, p.CreatedAt.Unix(), p.ClaudeAccount, p.Autonomy, p.GitHubAccount, p.MediaRetentionDays,
 		p.FinishNotices, p.AgentModel, p.RolloverThreshold, p.ContextBudget, p.Consolidation, p.ConsolidationModel,
 		strings.Join(p.ClaudeAccounts, ","), p.BranchPrefix, p.Nesting, p.AgentPRs, p.PRWatch, p.BaseSyncOff,
-		p.CodexAccount, p.OpenCodeAccounts.String(), p.CursorAccount, p.FullTestSuite)
+		p.CodexAccount, p.OpenCodeAccounts.String(), p.CursorAccount, p.FullTestSuite, p.PickUpIssues)
 	return err
 }
 
@@ -1881,7 +1947,7 @@ func (s *Store) Projects(ctx context.Context) ([]Project, error) {
 		if err := rows.Scan(&p.Name, &p.DisplayName, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
 			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff,
-			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.Section, &p.Position); err != nil {
+			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.Section, &p.Position); err != nil {
 			return nil, err
 		}
 		p.CreatedAt = time.Unix(created, 0)
@@ -1952,6 +2018,7 @@ var projectOwned = []string{
 	"agent_events",
 	"agent_reviews",
 	"review_notes",
+	"issue_agents",
 	"checkpoints",
 	"questions",
 	"notifications",
@@ -1982,6 +2049,7 @@ var projectOwned = []string{
 	// Its scheduled tasks and what they did (schedules.go).
 	"schedules",
 	"schedule_runs",
+	"schedule_events",
 }
 
 // peerOwned is the tables that also name a project as peer: the other side
@@ -2422,7 +2490,7 @@ func (s *Store) projectWhere(ctx context.Context, where string, arg any) (Projec
 		Scan(&p.Name, &p.DisplayName, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
 			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff,
-			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.Section, &p.Position)
+			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.Section, &p.Position)
 	p.ClaudeAccounts = splitAccounts(allowed)
 	p.OpenCodeAccounts = ParseAccountMap(opencode)
 	if errors.Is(err, sql.ErrNoRows) {

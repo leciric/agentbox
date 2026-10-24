@@ -114,17 +114,51 @@ func (then reviewMark) movedTo(now reviewMark) bool {
 // answered, by which time clicking it opened nothing. The read this starts
 // announces itself (EventPulls), and the app reads the list again.
 func (s *Server) reviewItems(ctx context.Context, p state.Project, agents []state.Agent, listing bool) []api.ReviewItem {
-	var finished []state.Agent
-	var finishes []api.AgentEvent
+	var out []api.ReviewItem
+	for _, e := range s.liveWork(ctx, p, agents, false, listing) {
+		if e.item.Verdict == "" && e.ended {
+			// Merged or closed is done with, whoever did it and whenever:
+			// never work to review. The PR watch and the startup reconcile
+			// free its machine (freeReviewed); one kept for work that is only
+			// there stays in the sidebar, not here.
+			continue
+		}
+		out = append(out, e.item)
+	}
+	return out
+}
+
+// liveEntry is one live agent's work, as the review lists and the Work page
+// (work.go) read it: its review item, whether it has finished (the item has
+// no finish or fingerprint until it has), and whether its pull request was
+// merged or closed.
+type liveEntry struct {
+	agent    state.Agent
+	item     api.ReviewItem
+	finished bool
+	ended    bool
+}
+
+// liveWork is the work of agents, all of project p: the finished ones only,
+// or with unfinished every worker, at work or not. With listing, an agent
+// whose pull request the cache can't yet answer for is unknown (see
+// reviewItems).
+func (s *Server) liveWork(ctx context.Context, p state.Project, agents []state.Agent, unfinished, listing bool) []liveEntry {
+	var kept []state.Agent
+	finishes := map[string]api.AgentEvent{}
 	for _, a := range agents {
-		if a.Status == state.AgentDestroying {
+		if a.Status == state.AgentDestroying || a.IsLead() {
 			continue // a past agent in a moment
 		}
-		if ev, ok := s.finishOf(ctx, a); ok {
-			finished, finishes = append(finished, a), append(finishes, ev)
+		ev, ok := s.finishOf(ctx, a)
+		if ok {
+			finishes[a.Name] = ev
+		}
+		if ok || unfinished {
+			kept = append(kept, a)
 		}
 	}
-	if len(finished) == 0 {
+	if len(kept) == 0 {
 		return nil
 	}
 	// An agent is unknown when what its item is made of can't be read now:
@@ -132,7 +166,7 @@ func (s *Server) reviewItems(ctx context.Context, p state.Project, agents []stat
 	// pull request (#447). An unknown agent is shown as it was last read in
 	// full, for the same finish, or not at all: a read error never adds an
 	// item, nor brings one back that the user reviewed.
-	_, entry, heads, _, err := s.projectPulls(p, finished)
+	_, entry, heads, _, err := s.projectPulls(p, kept)
 	var prs map[string]*api.PullRequest
 	unknown := map[string]bool{}
 	switch {
@@ -145,10 +179,10 @@ func (s *Server) reviewItems(ctx context.Context, p state.Project, agents []stat
 		}
 	case pullsAbsent(err):
 		// No GitHub to ask: the branches alone.
-		heads = agentHeads(p.Root, finished)
+		heads = agentHeads(p.Root, kept)
 		unknown = unreadHeads(heads)
 	default:
-		for _, a := range finished {
+		for _, a := range kept {
 			unknown[a.Name] = true
 		}
 	}
@@ -161,35 +195,41 @@ func (s *Server) reviewItems(ctx context.Context, p state.Project, agents []stat
 		}
 		tips[h.agent] += h.tip
 	}
-	var out []api.ReviewItem
-	for i, a := range finished {
-		ev := finishes[i]
-		var item api.ReviewItem
-		var ended bool
-		if unknown[a.Name] {
+	out := make([]liveEntry, 0, len(kept))
+	for _, a := range kept {
+		ev, finished := finishes[a.Name]
+		e := liveEntry{agent: a, finished: finished}
+		if finished && unknown[a.Name] {
 			known, ok := s.knownReviewOf(a.Ref(), ev.ID)
 			if !ok {
+				if !unfinished {
+					continue
+				}
+				// The Work page still lists it, as work whose finish isn't read.
+				e.finished = false
+				e.item = api.ReviewItem{Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title, Branch: a.Branch, BaseRef: a.BaseRef, AI: a.AI}
+				out = append(out, e)
 				continue
 			}
-			item, ended = known.item, known.ended
+			e.item, e.ended = known.item, known.ended
+			e.item.BaseRef = a.BaseRef
 		} else {
 			pr := prs[a.Name]
 			s.prWatch.overlay(p.Name, pr)
+			e.ended = prEnded(pr, a)
+			e.item = api.ReviewItem{Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title, Branch: branchOf(heads, a, pr), BaseRef: a.BaseRef, AI: a.AI, PR: pr}
+			if !finished {
+				out = append(out, e)
+				continue
+			}
 			mark := markOf(ev, tips[a.Name], pr)
-			branch := branchOf(heads, a, pr)
-			// Merged or closed is done with, whoever did it and whenever:
-			// never work to review. The PR watch and the startup reconcile
-			// free its machine (freeReviewed); one kept for work that is
-			// only there stays in the sidebar, not here.
-			ended = prEnded(pr, a)
 			if pr == nil {
-				pr = ev.PR
+				e.item.PR = ev.PR
 			}
-			item = api.ReviewItem{
-				Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title, Branch: branch, AI: a.AI,
-				Summary: ev.Summary, Changes: ev.Changes, PR: pr, FinishedAt: ev.At, Fingerprint: mark.String(),
+			e.item.Summary, e.item.Changes, e.item.FinishedAt, e.item.Fingerprint = ev.Summary, ev.Changes, ev.At, mark.String()
+			if !unknown[a.Name] {
+				s.rememberReview(a.Ref(), ev.ID, e.item, e.ended)
 			}
-			s.rememberReview(a.Ref(), ev.ID, item, ended)
 		}
 		r, ok, err := s.store.AgentReviewOf(ctx, a.Project, a.Name)
 		if err != nil {
@@ -197,16 +237,13 @@ func (s *Server) reviewItems(ctx context.Context, p state.Project, agents []stat
 		}
 		if ok {
 			var then, mark reviewMark
-			if json.Unmarshal([]byte(r.Fingerprint), &then) == nil && json.Unmarshal([]byte(item.Fingerprint), &mark) == nil && !then.movedTo(mark) {
+			if json.Unmarshal([]byte(r.Fingerprint), &then) == nil && json.Unmarshal([]byte(e.item.Fingerprint), &mark) == nil && !then.movedTo(mark) {
 				at := r.At
-				item.Verdict, item.ReviewedAt = r.Verdict, &at
-				item.MachineKept = r.Verdict == api.ReviewReviewed && s.isMachineKept(a.Ref())
+				e.item.Verdict, e.item.ReviewedAt = r.Verdict, &at
+				e.item.MachineKept = r.Verdict == api.ReviewReviewed && s.isMachineKept(a.Ref())
 			}
 		}
-		if item.Verdict == "" && ended {
-			continue
-		}
-		out = append(out, item)
+		out = append(out, e)
 	}
 	return out
 }
@@ -243,7 +280,7 @@ func (s *Server) knownReviewOf(ref, finish string) (knownReview, bool) {
 func branchOf(heads []agentHead, a state.Agent, pr *api.PullRequest) string {
 	if pr != nil {
 		for _, h := range heads {
-			if h.agent == a.Name && h.accepts(*pr, pr.HeadSHA) {
+			if h.agent == a.Name && h.claims(*pr) {
 				return h.branch
 			}
 		}

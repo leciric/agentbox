@@ -45,13 +45,16 @@ func (s *Server) syncBases(ctx context.Context) {
 
 // syncBase does it for one project. A failure is logged when it first
 // happens and when it changes, not every few minutes while a remote stays
-// out of reach.
+// out of reach. It fetches from GitHub with the project's account, as its
+// agents do, not with the user's credential helper: in the VM, the home is
+// the host's, and its gitconfig names a gh that isn't there.
 func (s *Server) syncBase(ctx context.Context, p state.Project) {
 	repo, err := gitrepo.Open(p.Root)
 	if err != nil {
 		return
 	}
-	synced, err := repo.SyncBase(ctx)
+	token, _ := s.manager(nil).GitHubToken(p) // without one, the user's own credential helper
+	synced, err := repo.SyncBase(ctx, token)
 	if ctx.Err() != nil {
 		return
 	}

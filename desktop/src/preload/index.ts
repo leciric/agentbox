@@ -4,6 +4,8 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import type * as T from '../shared/api';
 import type { AppUpdateProgress, AppUpdateResult, AppUpdateSupport } from '../shared/appupdate';
+import type { TraySettings } from '../main/tray';
+import type { TrayTarget } from '../main/traymodel';
 
 export interface ApiResponse {
   status: number;
@@ -96,6 +98,10 @@ export interface VMPower {
   memoryUsed: number; // bytes in use inside the VM
   memoryGranted: number; // bytes the VM holds of the host's memory right now
   memoryCap: number; // bytes the VM may grow to at most
+  // memoryResident is what the VM holds of the host's memory, its page cache
+  // included, and memoryHostCache what the host caches of its disks besides.
+  memoryResident?: number;
+  memoryHostCache?: number;
   cpus: number;
   error?: string; // why the VM can't be reached or controlled, if it can't
   // pausedForDisk: the supervisor paused it because the host's disk that holds
@@ -110,6 +116,11 @@ export interface VMPower {
   // be paused.
   driver?: 'wsl';
 }
+
+// TrayOpenTarget is where a tray menu entry points (main/traymodel.ts),
+// a pull request aside, which the main process opens in the browser itself.
+export type TrayOpenTarget = Exclude<TrayTarget, { kind: 'url' }>;
+export type { TraySettings };
 
 export type VMPowerState = 'off' | 'starting' | 'running' | 'pausing' | 'paused' | 'resuming' | 'stopping';
 export type VMPowerAction = 'start' | 'pause' | 'resume' | 'stop';
@@ -175,6 +186,21 @@ function listen<A extends unknown[]>(channel: string, fn: (...args: A) => void):
 const bridge = {
   // Holds the system awake (not the display) while on: agents are at work.
   keepAwake: (on: boolean): Promise<void> => ipcRenderer.invoke('keepawake:set', on),
+  // The tray icon (main/tray.ts): whether closing the window keeps AgentBox
+  // running there (null where there's no tray, the web app), and whether
+  // this computer reviews finished agents, which its count leaves out when
+  // not. onOpen gets where a tray menu entry points, including one clicked
+  // before this window was made.
+  tray: {
+    settings: (): Promise<TraySettings | null> => ipcRenderer.invoke('tray:settings'),
+    set: (next: Partial<TraySettings>): Promise<TraySettings> => ipcRenderer.invoke('tray:set', next),
+    reviewing: (on: boolean) => ipcRenderer.send('tray:reviewing', on),
+    onOpen: (fn: (target: TrayOpenTarget) => void) => {
+      const off = listen('tray:open', fn);
+      void ipcRenderer.invoke('tray:take').then((target: TrayOpenTarget | null) => target && fn(target));
+      return off;
+    },
+  },
   request: (method: string, path: string, body?: unknown): Promise<ApiResponse> =>
     ipcRenderer.invoke('api:request', method, path, body),
   connection: (): Promise<ConnectionState> => ipcRenderer.invoke('daemon:connection'),
@@ -302,6 +328,11 @@ const bridge = {
   // (.../chat/files/<id>), with the system's default app: main/chatfiles.ts
   // copies it out of the daemon first. It answers an error, or ''.
   openChatFile: (path: string, name: string): Promise<string> => ipcRenderer.invoke('chatFile:open', path, name),
+  // saveShare saves an agent's run as one page (.../share), where the user
+  // picks: main/share.ts. It answers where, or '' when they didn't pick.
+  // showShare shows a page saved there in the file manager.
+  saveShare: (path: string, name: string): Promise<string> => ipcRenderer.invoke('share:save', path, name),
+  showShare: (file: string): Promise<void> => ipcRenderer.invoke('share:show', file),
   showItem: (path: string): Promise<void> => ipcRenderer.invoke('shell:showItem', path),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url),
   // An OS notification, shown only while the window isn't in front (main/notify.ts);
@@ -317,6 +348,10 @@ const bridge = {
   // setLanguage tells the main process the app's language, for its dialogs.
   setLanguage: (tag: string) => ipcRenderer.send('app:language', tag),
   readText: (): Promise<string> => ipcRenderer.invoke('clipboard:read'),
+  // copyImage puts a PNG on the clipboard; saveImage asks where to save one,
+  // named name, and answers whether it was saved.
+  copyImage: (png: Uint8Array) => ipcRenderer.send('clipboard:writeImage', png),
+  saveImage: (name: string, png: Uint8Array): Promise<boolean> => ipcRenderer.invoke('image:save', name, png),
 };
 
 contextBridge.exposeInMainWorld('agentbox', bridge);

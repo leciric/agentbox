@@ -136,11 +136,14 @@ func (h agentHead) owns(sha string) bool {
 	return sha != "" && slices.Contains(h.own, sha)
 }
 
-// accepts reports whether a pull request a lookup found by commit is this
-// agent's: any that carries one of its own commits, or one whose head is
-// exactly where the agent's branch is (its work, merged since).
-func (h agentHead) accepts(pr api.PullRequest, via string) bool {
-	return h.owns(via) || (pr.HeadSHA != "" && pr.HeadSHA == h.tip)
+// claims reports whether a pull request is this agent's: its head is the
+// agent's branch, or exactly where the agent's branch is. A commit in the
+// agent's history says nothing: an agent that took in newer main carries the
+// heads of pull requests that were merged into it.
+func (h agentHead) claims(pr api.PullRequest) bool { return h.claimsHead(pr.HeadBranch, pr.HeadSHA) }
+
+func (h agentHead) claimsHead(branch, sha string) bool {
+	return (h.branch != "" && branch == h.branch) || (h.tip != "" && sha == h.tip)
 }
 
 // agentHeads reads each worker agent's commits from the project's repository,
@@ -498,7 +501,7 @@ func (e pullsEntry) answered(h agentHead) bool {
 func (e pullsEntry) listed(h agentHead) *api.PullRequest {
 	var out *api.PullRequest
 	for i := range e.prs {
-		if h.owns(e.prs[i].HeadSHA) {
+		if h.claims(e.prs[i]) {
 			if e.prs[i].State == "open" {
 				return &e.prs[i]
 			}
@@ -517,7 +520,7 @@ func (e pullsEntry) found(h agentHead) *api.PullRequest {
 		return nil
 	}
 	for i := range l.prs {
-		if h.accepts(l.prs[i], l.via) {
+		if h.claims(l.prs[i]) {
 			return &l.prs[i]
 		}
 	}
@@ -800,7 +803,7 @@ func lookUp(ctx context.Context, client github.Client, repo github.Repo, h agent
 			return lookedUp{failed: true}
 		}
 		l := lookedUp{prs: toAPIPullRequests(found), via: commit}
-		if slices.ContainsFunc(l.prs, func(pr api.PullRequest) bool { return h.accepts(pr, commit) }) {
+		if slices.ContainsFunc(l.prs, h.claims) {
 			return l
 		}
 	}
@@ -875,7 +878,7 @@ func (s *Server) projectPullRequests(w http.ResponseWriter, r *http.Request) err
 		s.prWatch.overlay(project, pr)
 		pr.Agent = byNumber[pr.Number]
 		for _, h := range heads {
-			if h.owns(pr.HeadSHA) {
+			if h.claims(*pr) {
 				pr.Agent = h.agent
 				break
 			}
@@ -973,25 +976,49 @@ func (s *Server) mergePullRequest(w http.ResponseWriter, r *http.Request) error 
 	pr.State = "merged"
 	out := toAPIPullRequests([]github.PullRequest{*pr})[0]
 	s.pulls.merged(repo.String(), number)
-	heads := s.agentsOf(ctx, p)
-	by := agentOfCommit(heads, pr.HeadSHA)
-	s.captureEvent(ctx, project, by, "pr_merged", map[string]any{
-		"number": pr.Number, "url": pr.URL, "branch": pr.HeadBranch, "method": string(method),
-	}, "")
-	s.closeAnchoredSoon(project)
-	if by != "" {
-		// Not while another of its pull requests is open, as far as the cache
-		// knows: the watch frees it when that one ends.
-		entry, _ := s.pulls.state(repo.String())
-		if other := entry.byAgent(heads)[by]; other != nil && other.State == "open" && other.Number != number {
-			s.logf("%s/%s: its pull request #%d was merged; kept, with #%d still open", project, by, number, other.Number)
-		} else if a, err := s.store.Agent(ctx, project, by); err == nil {
-			s.freeReviewed(ctx, a, fmt.Sprintf("its pull request #%d was merged", number), &out)
-		}
-	}
-
+	s.pullDetails.drop(pullFilesKey(repo, number))
 	s.countFeature(api.FeaturePullMerge)
+	// The merge is GitHub's and done: the user is told at once. What follows
+	// — the event, and freeing the agent behind it, which reads git, stops
+	// its chat and deletes its machine and worktree, seconds on a shared home
+	// with a big node_modules — runs after the answer, under the daemon's
+	// context rather than the request's, which ends with it.
+	s.mergeFrees.Go(func() { s.afterMerge(s.background(), p, repo, *pr, string(method), out) })
 	return writeJSON(w, http.StatusOK, out)
+}
+
+// afterMerge records a merge made through the app and frees the agent whose
+// pull request it was.
+func (s *Server) afterMerge(ctx context.Context, p state.Project, repo github.Repo, pr github.PullRequest, method string, out api.PullRequest) {
+	// What stood on it moves first: freeing the agent below may take its
+	// branch, the one its children stand on, with it.
+	if client, _, err := s.githubFor(p); err == nil {
+		s.restack(ctx, p, client, repo, stackBase{
+			Number: pr.Number, URL: pr.URL, State: "merged", Head: pr.HeadBranch, HeadSHA: pr.HeadSHA, Base: pr.BaseBranch,
+		})
+	}
+	heads := s.agentsOf(ctx, p)
+	by := agentOfPR(heads, pr.HeadBranch, pr.HeadSHA)
+	s.captureEvent(ctx, p.Name, by, "pr_merged", map[string]any{
+		"number": pr.Number, "url": pr.URL, "branch": pr.HeadBranch, "method": method,
+	}, "")
+	s.closeAnchoredSoon(p.Name)
+	if by == "" {
+		return
+	}
+	// The first pull request of an agent's to land is when the app offers
+	// the "Built with AgentBox" footer, once.
+	if err := s.store.OfferBuiltWithBadge(ctx); err != nil {
+		s.logf("offering the Built with AgentBox badge: %v", err)
+	}
+	// Not while another of its pull requests is open, as far as the cache
+	// knows: the watch frees it when that one ends.
+	entry, _ := s.pulls.state(repo.String())
+	if other := entry.byAgent(heads)[by]; other != nil && other.State == "open" && other.Number != pr.Number {
+		s.logf("%s/%s: its pull request #%d was merged; kept, with #%d still open", p.Name, by, pr.Number, other.Number)
+	} else if a, err := s.store.Agent(ctx, p.Name, by); err == nil {
+		s.freeReviewed(ctx, a, fmt.Sprintf("its pull request #%d was merged", pr.Number), &out)
+	}
 }
 
 // projectLabels lists the labels of a project's repository, read with the
@@ -1072,6 +1099,7 @@ func (s *Server) editPullRequestLabels(w http.ResponseWriter, r *http.Request) e
 	}
 	out := toAPILabels(labels)
 	s.pulls.labelled(key, number, out)
+	s.pullDetails.drop(pullFilesKey(repo, number))
 	s.events.publish(api.EventPulls, api.PullsChange{Project: project, GitHub: key})
 	s.countFeature(api.FeaturePullLabels)
 	if out == nil {

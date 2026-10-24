@@ -115,7 +115,7 @@ func newSteeringTool(turn func(f *fakeTool, sessionID, text string) acp.PromptRe
 func (f *fakeTool) launch(_ context.Context, a state.Agent, status func(string)) (*Process, error) {
 	status("Warming up")
 	f.mu.Lock()
-	f.accounts = append(f.accounts, a.ClaudeAccount)
+	f.accounts = append(f.accounts, runsOn(a))
 	f.mu.Unlock()
 	toTool, fromChat := io.Pipe()
 	toChat, fromTool := io.Pipe()

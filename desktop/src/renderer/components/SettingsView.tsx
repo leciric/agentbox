@@ -80,6 +80,8 @@ import {
   OpenCodeInImage,
   ResumeAfterLimit,
   ContinueAfterRestart,
+  LeadSleep,
+  leadSleepFallback,
 } from "./NewAgentDefaults";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -931,6 +933,7 @@ function InstalledSettings({
   ];
   const githubSteps = accountSteps.filter((step) => step.id === "github");
 
+  const traySettings = useTraySettings();
   const notifyPrefs = usePrefs();
   const dnd = useDnd();
   const notifyChanged =
@@ -991,6 +994,18 @@ function InstalledSettings({
                   },
                 ]
               : []),
+            // The desktop app's only: a browser has no tray.
+            ...(traySettings.data
+              ? [
+                  {
+                    id: "tray",
+                    label: t("settings.entry.tray.label"),
+                    keywords: t("settings.entry.tray.keywords"),
+                    modified: traySettings.data.keepRunning,
+                    render: () => <TraySetting />,
+                  },
+                ]
+              : []),
           ],
         },
         {
@@ -1036,6 +1051,13 @@ function InstalledSettings({
               keywords: t("settings.entry.credit-ai-tool.keywords"),
               modified: changed((s) => s.creditAITool),
               render: () => <CreditAIToolSetting />,
+            },
+            {
+              id: "built-with-badge",
+              label: t("settings.entry.built-with-badge.label"),
+              keywords: t("settings.entry.built-with-badge.keywords"),
+              modified: changed((s) => s.builtWithBadge),
+              render: () => <BuiltWithBadgeSetting />,
             },
           ],
         },
@@ -1332,6 +1354,13 @@ function InstalledSettings({
               keywords: t("settings.entry.continueAfterRestart.keywords"),
               modified: changed((s) => !s.continueAfterRestart),
               render: () => <ContinueAfterRestart />,
+            },
+            {
+              id: "lead-sleep",
+              label: t("settings.entry.leadSleep.label"),
+              keywords: t("settings.entry.leadSleep.keywords"),
+              modified: changed((s) => !s.leadSleep || s.leadSleepMinutes !== leadSleepFallback),
+              render: () => <LeadSleep />,
             },
           ],
         },
@@ -2295,6 +2324,38 @@ function GroupIdleSetting() {
   );
 }
 
+// The tray's settings are the main process's (main/tray.ts), kept in its
+// tray.json: its menu can change them too.
+const traySettingsKey = ["traySettings"];
+const useTraySettings = () => useQuery({ queryKey: traySettingsKey, queryFn: () => window.agentbox.tray.settings(), refetchOnWindowFocus: "always" });
+
+// TraySetting is whether closing the window keeps AgentBox running in the
+// tray, or a Mac's menu bar, instead of quitting.
+function TraySetting() {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const settings = useTraySettings();
+  const set = useMutation({
+    mutationFn: (keepRunning: boolean) => window.agentbox.tray.set({ keepRunning }),
+    onSuccess: (next) => queryClient.setQueryData(traySettingsKey, next),
+  });
+  return (
+    <SettingRow
+      label={t("settings.entry.tray.label")}
+      description={t("settings.tray.description")}
+      control={
+        <Switch
+          data-tray-setting
+          aria-label={t("settings.entry.tray.label")}
+          checked={settings.data?.keepRunning ?? false}
+          disabled={set.isPending}
+          onCheckedChange={(on) => set.mutate(on)}
+        />
+      }
+    />
+  );
+}
+
 // ReviewingSetting is whether this computer reviews finished agents at all
 // (lib/reviewAlert.ts): off hides Ready to review, its count, the chime and
 // the "new" marks.
@@ -2402,6 +2463,37 @@ function ErrorReportsSetting() {
           aria-label={t("settings.entry.error-reports.label")}
           disabled={save.isPending || settings.data === undefined}
           checked={settings.data?.errorReports ?? true}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      }
+    />
+  );
+}
+
+// BuiltWithBadgeSetting decides whether agents end their pull requests'
+// descriptions with a "Built with AgentBox" line and badge. Off until turned
+// on (the app offers it once, after the first merged agent pull request:
+// BuiltWithBadgeOffer); an agent follows it from its next start.
+function BuiltWithBadgeSetting() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (builtWithBadge: boolean) => api.updateSettings({ builtWithBadge }),
+    onSuccess: (next) => queryClient.setQueryData(["settings"], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  return (
+    <SettingRow
+      label={t("settings.entry.built-with-badge.label")}
+      description={t("settings.builtWithBadge.description")}
+      details={t("settings.builtWithBadge.details")}
+      control={
+        <Switch
+          data-built-with-badge
+          aria-label={t("settings.entry.built-with-badge.label")}
+          disabled={save.isPending || settings.data === undefined}
+          checked={settings.data?.builtWithBadge ?? false}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }

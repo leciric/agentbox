@@ -49,6 +49,7 @@ func (s *Server) shareReport(w http.ResponseWriter, r *http.Request) error {
 	s.share.mu.Lock()
 	s.share.report, s.share.at = &req, time.Now()
 	s.share.mu.Unlock()
+	s.noteShare(req.Open, req.Limit)
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }

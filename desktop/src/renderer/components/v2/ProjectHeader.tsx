@@ -2,7 +2,7 @@
 // and name, then Lead or the agent), and the project's ⋯ menu beside the
 // chat's controls. The view puts those in the top bar through InTopBar.
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeftRight, Check, CheckCheck, ChevronRight, Clapperboard, Copy, Ellipsis, FolderOpen, Pin, PinOff, Plus, Settings, Smile, Split, SquarePen, type LucideIcon } from 'lucide-react';
+import { ArrowLeftRight, Check, CheckCheck, ChevronRight, Briefcase, Copy, Ellipsis, FolderOpen, Pin, PinOff, Plus, Settings, Smile, Split, SquarePen, type LucideIcon } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import * as T from '../../../shared/api';
@@ -15,7 +15,7 @@ import { ProjectIcon } from '../ProjectIcon';
 import { Button } from '../ui/button';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuMore, MenuSeparator, MenuTrigger } from '../ui/menu';
 import { Tip } from '../ui/tooltip';
-import { useOpenReview } from './ReviewV2';
+import { useOpenWork } from './ReviewV2';
 import { TalkToProject } from './TalkToProject';
 import { openFanOut } from '../../lib/groups';
 
@@ -79,14 +79,14 @@ export type ProjectAction = { key: string; icon: LucideIcon; label: string; onSe
 // task for giving a project work, wherever it's offered.
 export function projectActions(
   t: ReturnType<typeof useT>,
-  { project, others, pinned, onNewTask, onTalk, onToday, onPin, onSettings, onChangeIcon, onNewAgent }: { project: T.Project; others: boolean; pinned: boolean; onNewTask: () => void; onTalk: () => void; onToday?: () => void; onPin: () => void; onSettings?: () => void; onChangeIcon: () => void; onNewAgent: () => void },
+  { project, others, pinned, onNewTask, onTalk, onWork, onPin, onSettings, onChangeIcon, onNewAgent }: { project: T.Project; others: boolean; pinned: boolean; onNewTask: () => void; onTalk: () => void; onWork?: () => void; onPin: () => void; onSettings?: () => void; onChangeIcon: () => void; onNewAgent: () => void },
 ): { main: ProjectAction[]; more: ProjectAction[] } {
   return {
     main: [
       { key: 'new-task', icon: SquarePen, label: t('v2.sidebar.newTask'), onSelect: onNewTask },
       { key: 'fan-out', icon: Split, label: t('group.menu.fanOut'), onSelect: () => openFanOut({ project: project.name }) },
       ...(others ? [{ key: 'talk', icon: ArrowLeftRight, label: t('v2.talk.button'), onSelect: onTalk }] : []),
-      ...(onToday ? [{ key: 'today', icon: Clapperboard, label: t('today.title'), onSelect: onToday }] : []),
+      ...(onWork ? [{ key: 'work', icon: Briefcase, label: t('work.title'), onSelect: onWork }] : []),
       { key: 'pin', icon: pinned ? PinOff : Pin, label: pinned ? t('v2.sidebar.unpin') : t('v2.sidebar.pin'), onSelect: onPin, separatorBefore: true },
       ...(onSettings ? [{ key: 'settings', icon: Settings, label: t('v2.sidebar.projectSettings'), onSelect: onSettings }] : []),
     ],
@@ -110,7 +110,7 @@ export function ProjectMenu({ project, leadRef, onNewAgent, onChangeIcon, newCha
   // focus back to the ⋯, which would be outside the picker opening under it
   // and so close it again (from the keyboard, it did every time).
   const talking = useRef(false);
-  const openReview = useOpenReview();
+  const openWork = useOpenWork();
   const { pins } = useV2Projects();
   const others = (useQuery({ queryKey: ['projects'], queryFn: api.projects }).data?.length ?? 0) > 1;
   const pinned = pins.includes(project.name);
@@ -161,9 +161,9 @@ export function ProjectMenu({ project, leadRef, onNewAgent, onChangeIcon, newCha
               {main.filter((a) => a.key !== 'new-task').flatMap(item)}
               <MenuMore label={t('common.more')}>
                 {more.flatMap(item)}
-                {openReview && (
-                  <MenuItem icon={CheckCheck} onSelect={() => openReview({ project: project.name, reviewed: true })} data-project-action="reviewed">
-                    {t('v2.menu.reviewed')}
+                {openWork && (
+                  <MenuItem icon={CheckCheck} onSelect={() => openWork({ project: project.name })} data-project-action="work">
+                    {t('work.title')}
                   </MenuItem>
                 )}
                 {chatMore}

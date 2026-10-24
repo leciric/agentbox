@@ -28,6 +28,7 @@ export interface Project {
   prWatch: string;
   syncBase: boolean;
   fullTestSuite: boolean;
+  pickUpIssues: boolean;
   prWatching: boolean;
   createdAt: string;
   iconVersion: number;
@@ -88,6 +89,7 @@ export interface UpdateProjectRequest {
   prWatch?: string;
   syncBase?: boolean;
   fullTestSuite?: boolean;
+  pickUpIssues?: boolean;
 }
 
 export interface Section {
@@ -150,6 +152,8 @@ export interface Settings {
   resumeAfterLimit: boolean;
   continueAfterRestart: boolean;
   creditAITool: boolean;
+  builtWithBadge: boolean;
+  builtWithBadgeOffer: boolean;
   claudeCompactWindow: number;
   updateCheck: boolean;
   usageStats: boolean;
@@ -175,6 +179,8 @@ export interface Settings {
   idleStopSeconds: number;
   leadRecheck: boolean;
   leadRecheckMinutes: number;
+  leadSleep: boolean;
+  leadSleepMinutes: number;
   imageCache: boolean;
   imageCacheMaxBytes: number;
   defaultImageCacheMaxBytes: number;
@@ -210,6 +216,8 @@ export interface UpdateSettingsRequest {
   resumeAfterLimit?: boolean;
   continueAfterRestart?: boolean;
   creditAITool?: boolean;
+  builtWithBadge?: boolean;
+  dismissBuiltWithBadgeOffer?: boolean;
   claudeCompactWindow?: number;
   updateCheck?: boolean;
   updateChannel?: string;
@@ -232,6 +240,8 @@ export interface UpdateSettingsRequest {
   idleStopSeconds?: number;
   leadRecheck?: boolean;
   leadRecheckMinutes?: number;
+  leadSleep?: boolean;
+  leadSleepMinutes?: number;
   diskFloorMin?: number;
   diskFloorPercent?: number;
   imageCache?: boolean;
@@ -359,6 +369,7 @@ export interface ContinueArchivedRequest {
 
 export interface CreateAgentRequest {
   task?: string;
+  issue?: number;
   project: string;
   name?: string;
   title?: string;
@@ -505,6 +516,7 @@ export interface MemoryHold {
   rate?: number;
   available?: number;
   total?: number;
+  swapFull?: boolean;
 }
 
 export interface PressureStatus {
@@ -666,6 +678,11 @@ export interface MemoryUsage {
   swapTotal: number;
   swapUsed: number;
   agentsSwap: number;
+  used: number;
+  fileCache: number;
+  leads: number;
+  agentbox: number;
+  kernel: number;
   zram?: ZramUsage;
   agents: MemoryUsageAgent[];
 }
@@ -1104,6 +1121,24 @@ export interface ReviewPage {
   total: number;
 }
 
+export interface WorkPage {
+  items: WorkItem[];
+  next?: string;
+  total: number;
+  counts: Record<string, number>;
+}
+
+export interface WorkItem {
+  item: ReviewItem;
+  task?: string;
+  past?: boolean;
+  status: string;
+  report?: AgentReport;
+  screenshots?: number;
+  recordings?: number;
+  at: string;
+}
+
 export interface MediaCounts {
   total: number;
   bytes: number;
@@ -1297,10 +1332,16 @@ export interface Secret {
   updatedAt: string;
   agents: string[];
   warning?: string;
+  leadManaged: boolean;
 }
 
 export interface SetSecretRequest {
   value: string;
+  leadManaged?: boolean;
+}
+
+export interface SecretSettingsRequest {
+  leadManaged: boolean;
 }
 
 export interface Skill {
@@ -1634,6 +1675,49 @@ export interface ProjectPullRequests {
   refreshing?: boolean;
 }
 
+export interface Issue {
+  number: number;
+  title: string;
+  url: string;
+  author?: string;
+  authorAvatar?: string;
+  labels?: Label[];
+  comments?: number;
+  createdAt?: string;
+  updatedAt?: string;
+  handed?: IssueHandoff;
+}
+
+export interface IssueHandoff {
+  agent?: string;
+  job?: string;
+  agentTitle?: string;
+  status?: string;
+  retired?: boolean;
+  auto?: boolean;
+  at: string;
+  pullRequest?: IssuePullRequest;
+}
+
+export interface IssuePullRequest {
+  number: number;
+  url: string;
+  state: string;
+}
+
+export interface ProjectIssues {
+  project: string;
+  github?: string;
+  githubAccount?: string;
+  githubError?: GitHubError;
+  noOrigin?: boolean;
+  nonGitHubRemote?: string;
+  issues: Issue[];
+  pickUpIssues: boolean;
+  label: string;
+  fetchedAt?: string;
+}
+
 export interface MergePullRequestRequest {
   method: string;
   confirmed?: boolean;
@@ -1847,6 +1931,7 @@ export interface ReviewItem {
   ref: string;
   title?: string;
   branch?: string;
+  baseRef?: string;
   ai?: string;
   summary?: string;
   changes?: AgentChanges;
@@ -1987,6 +2072,7 @@ export interface UsageStatsPending {
   eventsUrl: string;
   events: string;
   eventsWaiting: number;
+  health: string;
 }
 
 export interface LANStatus {
@@ -2021,6 +2107,23 @@ export interface LANPhone {
   lastSeen?: string;
   lastAddr?: string;
   scopes: string[];
+}
+
+export interface PhonePush {
+  token?: string;
+  registered: boolean;
+  kinds: string[];
+  quietFrom: number;
+  quietTo: number;
+  timeZone?: string;
+}
+
+export interface PhonePushTest {
+  sent: boolean;
+  error?: string;
+  title: string;
+  body: string;
+  data: Record<string, string>;
 }
 
 export interface UpdateLANRequest {
@@ -2258,6 +2361,8 @@ export interface ChatScheduledRun {
   run: string;
   title: string;
   trigger: string;
+  event?: string;
+  eventUrl?: string;
   dueAt?: string;
   late?: boolean;
   missed?: number;
@@ -2271,6 +2376,8 @@ export interface Schedule {
   title: string;
   task: string;
   kind: string;
+  event?: string;
+  eventLabel?: string;
   at?: string;
   everyMinutes?: number;
   cron?: string;
@@ -2296,6 +2403,8 @@ export interface ScheduleRun {
   schedule: string;
   title?: string;
   trigger: string;
+  event?: string;
+  eventUrl?: string;
   dueAt?: string;
   ranAt: string;
   late?: boolean;
@@ -2314,6 +2423,8 @@ export interface ScheduleRequest {
   in?: string;
   every?: string;
   cron?: string;
+  on?: string;
+  label?: string;
   timezone?: string;
   target?: string;
   session?: string;
@@ -2821,6 +2932,56 @@ export interface ClaudeLimitWindow {
   resetsAt: string;
 }
 
+export interface Recap {
+  start: string;
+  end: string;
+  agents: number;
+  prsOpened: number;
+  prsMerged: number;
+  insertions: number;
+  deletions: number;
+  files: number;
+  workSeconds: number;
+  awaySeconds: number;
+  days: RecapDay[];
+  hours: number[];
+  projects: number;
+  busiest?: RecapProject;
+  longest?: RecapAgent;
+  models: RecapModel[];
+  tokens: number;
+  costUsd: number;
+  streak: number;
+  bestStreak: number;
+}
+
+export interface RecapDay {
+  date: string;
+  workSeconds: number;
+  awaySeconds: number;
+  agents: number;
+}
+
+export interface RecapProject {
+  project: string;
+  workSeconds: number;
+  agents: number;
+}
+
+export interface RecapAgent {
+  project: string;
+  agent: string;
+  title?: string;
+  ai?: string;
+  workSeconds: number;
+}
+
+export interface RecapModel {
+  model: string;
+  tokens: number;
+  output: number;
+}
+
 export interface VMStatus {
   mode: string;
   driver: string;
@@ -2843,6 +3004,7 @@ export interface VMMemory {
   granted: number;
   used: number;
   resident: number;
+  hostCache: number;
 }
 
 export interface VMDisk {
@@ -3193,6 +3355,10 @@ export const DiskFull = "full";
 export const EventLAN = "lan";
 export const EventSnap = "snap";
 export const EventFiles = "files";
+export const PushFinished = "finished";
+export const PushNeedsYou = "needs_you";
+export const PushPRReady = "pr_ready";
+export const PushCIFailed = "ci_failed";
 export const FileModified = "modified";
 export const FileAdded = "added";
 export const FileDeleted = "deleted";

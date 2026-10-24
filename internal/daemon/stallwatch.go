@@ -21,7 +21,9 @@ import (
 //
 //   - nothing from its adapter: every ACP message it sends while the turn
 //     runs, a subagent's included, restarts the turn's clock (chat.Progress);
-//   - and, while one of its tool calls runs, no work on its machine either:
+//   - and, while one of its tool calls runs (a subagent's counts, and is
+//     named in the notice: one hung in a background subagent showed as no
+//     call at all), no work on its machine either:
 //     a build or a test suite can rightly run for longer than stallAfter
 //     with nothing to say, and its CPU is what shows it working. That is read
 //     from the machine's cgroup, not from Incus, so it answers when incusd
@@ -170,10 +172,14 @@ func (s *Server) machineBusyAt(ref, instance, turn string, now time.Time) time.T
 // is woken to look at it.
 func (s *Server) agentStalled(ctx context.Context, a state.Agent, p chat.Progress, from, now time.Time) {
 	quiet := now.Sub(from)
-	s.logf("stall watch: %s has made no progress for %s, %s into its turn (a tool call running: %t)",
-		a.Ref(), shortDuration(quiet), shortDuration(now.Sub(p.StartedAt)), p.ToolRunning)
+	running := "no tool call running"
+	if p.ToolRunning {
+		running = "running " + p.RunningTool
+	}
+	s.logf("stall watch: %s has made no progress for %s, %s into its turn (%s)",
+		a.Ref(), shortDuration(quiet), shortDuration(now.Sub(p.StartedAt)), running)
 	s.captureEvent(ctx, a.Project, a.Name, "agent_stalled", map[string]any{
-		"quiet_minutes": int(quiet / time.Minute), "turn_minutes": int(now.Sub(p.StartedAt) / time.Minute), "tool_running": p.ToolRunning,
+		"quiet_minutes": int(quiet / time.Minute), "turn_minutes": int(now.Sub(p.StartedAt) / time.Minute), "tool_running": p.ToolRunning, "tool": p.RunningTool,
 	}, "")
 	s.record(ctx, api.AgentEvent{
 		Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title,
@@ -191,6 +197,9 @@ func stallNotice(a state.Agent, p chat.Progress, from, now time.Time) string {
 	silent := "its AI tool has sent nothing"
 	if p.ToolRunning {
 		silent = "a tool call is running, but its AI tool has sent nothing and its machine has done no work"
+		if p.RunningTool != "" {
+			silent = fmt.Sprintf("a tool call is running (%s), but its AI tool has sent nothing and its machine has done no work", p.RunningTool)
+		}
 	}
 	return fmt.Sprintf("[stall] %s looks stuck: its turn has run %s, and for the last %s %s. "+
 		"Its machine may be locked up or out of reach (Incus hung, the machine frozen), or its AI tool wedged. "+

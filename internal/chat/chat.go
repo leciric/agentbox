@@ -139,8 +139,17 @@ type Manager struct {
 	// conversation lock: it must hand the change on and return, never call
 	// back into the Manager.
 	PermissionChanged func(a state.Agent, p api.ChatAgentPermission)
-	Logf              func(format string, args ...any) // may be nil
-	Version           string                           // AgentBox's, told to adapters
+	// IdleStop, when set, is how long a's chat may sit idle before its AI
+	// tool is put to sleep, until its next turn resumes the session
+	// (idle.go). applies is false for a chat that never sleeps; after 0 is
+	// sleeping turned off for now. Off the conversation's lock.
+	IdleStop func(a state.Agent) (after time.Duration, applies bool)
+	// StayUp, when set, keeps an idle chat's AI tool running a while longer
+	// because something is about to wake it: a schedule due soon. Off the
+	// conversation's lock.
+	StayUp  func(a state.Agent) bool
+	Logf    func(format string, args ...any) // may be nil
+	Version string                           // AgentBox's, told to adapters
 	// Now and After are the clock a chat waits on: what time it is, and how
 	// work is scheduled for later. Both are nil outside tests, where the real
 	// clock is used; a test injects one so a wait of hours takes none.
@@ -235,6 +244,7 @@ func (m *Manager) conversation(a state.Agent) (*conversation, error) {
 	}
 	prev := c.agent
 	c.agent = a
+	c.usedAt = m.now()
 	if err := c.load(); err != nil {
 		c.mu.Unlock()
 		return nil, err
@@ -1384,6 +1394,7 @@ type conversation struct {
 
 	mu     sync.Mutex
 	loaded bool
+	usedAt time.Time // when it was last read or changed, for Unload
 	seq    int64
 	// finished closes once the last turn's Finished call has returned: the
 	// next one waits for it, so the daemon hears an agent's turns end in the
@@ -1449,6 +1460,15 @@ type conversation struct {
 	resumeTimer Timer
 	resumeGen   int64
 	resumeTry   int
+	// asleep says the adapter was stopped because the chat sat idle: the
+	// session reads as ready, and the next turn resumes it (idle.go).
+	// idleTimer is the wait before that, idleGen names it, and activeAt is
+	// when the session last changed, which the wait is counted from.
+	asleep    bool
+	sleptOn   string // the account the adapter that slept ran on (runsOn)
+	idleTimer Timer
+	idleGen   int64
+	activeAt  time.Time
 
 	// The running turn's open text item, tool calls, plan and unanswered permission requests.
 	open        *api.ChatItem
@@ -1687,6 +1707,7 @@ func (c *conversation) startAdapter() *adapter {
 	}
 	ad := &adapter{started: make(chan struct{}), tried: map[string]string{}}
 	c.adapter = ad
+	c.asleep = false
 	c.session.Error = ""
 	c.session.Detail = "Starting " + ToolNames[c.agent.AI]
 	c.session.State = c.stateNow()
@@ -1700,9 +1721,16 @@ func (c *conversation) startAdapter() *adapter {
 func (c *conversation) stopAdapter() {
 	ad := c.adapter
 	if ad == nil {
+		if c.asleep {
+			// Stopped for good: off, not ready.
+			c.asleep = false
+			c.session.State = c.stateNow()
+			c.markSession()
+		}
 		return
 	}
 	c.adapter = nil
+	c.asleep = false
 	c.cancelPending()
 	c.stopSubagents(ad)
 	if ad.proc != nil {
@@ -1718,6 +1746,10 @@ func (c *conversation) stateNow() string {
 	switch {
 	case c.adapter == nil && c.session.Error != "":
 		return api.ChatError
+	case c.adapter == nil && c.asleep:
+		// Its tool sleeps until the next turn wakes it: ready, as far as
+		// anybody writing to it can tell (idle.go).
+		return api.ChatReady
 	case c.adapter == nil:
 		return api.ChatOff
 	case !c.adapter.ready:
@@ -1776,6 +1808,7 @@ func (c *conversation) run(ad *adapter) {
 	c.session.Detail = ""
 	c.session.State = c.stateNow()
 	c.markSession()
+	c.watchIdle(ad)
 	c.flush(true)
 	c.mu.Unlock()
 
@@ -2786,6 +2819,7 @@ func (c *conversation) touch(it *api.ChatItem) {
 
 func (c *conversation) markSession() {
 	c.sessionDirty = true
+	c.noteActive()
 	c.schedule(flushDelay)
 }
 
@@ -2819,6 +2853,7 @@ func (c *conversation) emit(ev api.ChatEvent) {
 // It stores changed items at most once a second, unless save is set, and a
 // finished Hatch page call before anything is published.
 func (c *conversation) flush(save bool) {
+	c.usedAt = c.m.now()
 	if c.timer != nil {
 		c.timer.Stop()
 		c.timer = nil

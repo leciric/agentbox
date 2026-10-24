@@ -58,6 +58,13 @@ func (c *Client) CreateProjectAgent(ctx context.Context, req CreateAgentRequest)
 	return out, c.do(ctx, http.MethodPost, c.leadPath("/agents"), req, &out)
 }
 
+// LeadIssues lists the open GitHub issues of the project behind the lead's
+// socket, with the agent each one was handed to.
+func (c *Client) LeadIssues(ctx context.Context) (ProjectIssues, error) {
+	var out ProjectIssues
+	return out, c.do(ctx, http.MethodGet, c.leadPath("/issues"), nil, &out)
+}
+
 func (c *Client) TellAgent(ctx context.Context, agent, message string) (TellResult, error) {
 	var out TellResult
 	path := c.leadPath("/agents/" + url.PathEscape(agent) + "/chat/messages")
@@ -126,6 +133,14 @@ func (c *Client) LeadAnswerQuestion(ctx context.Context, id, answer string) (Que
 	var out Question
 	path := c.leadPath("/questions/" + url.PathEscape(id) + "/answer")
 	return out, c.do(ctx, http.MethodPost, path, AnswerQuestionRequest{Answer: answer}, &out)
+}
+
+// LeadFulfilCredential answers an agent's request for a lead-managed secret
+// with the value stored now, by name: the value is never sent or returned.
+func (c *Client) LeadFulfilCredential(ctx context.Context, id string) (FulfilCredentialResponse, error) {
+	var out FulfilCredentialResponse
+	path := c.leadPath("/questions/" + url.PathEscape(id) + "/fulfil")
+	return out, c.do(ctx, http.MethodPost, path, nil, &out)
 }
 
 func (c *Client) LeadEscalateQuestion(ctx context.Context, id, why string) (Question, error) {
@@ -203,6 +218,13 @@ func (c *Client) AgentCheckpoints(ctx context.Context, agent string) ([]Checkpoi
 func (c *Client) RollbackAgent(ctx context.Context, agent, checkpoint string) (RollbackResult, error) {
 	var out RollbackResult
 	return out, c.do(ctx, http.MethodPost, c.leadPath("/agents/"+url.PathEscape(agent)+"/rollback"), RollbackRequest{Checkpoint: checkpoint}, &out)
+}
+
+// SwitchAgentAccount moves one of the project's running agents to another
+// account of its AI tool, resuming its chat on it.
+func (c *Client) SwitchAgentAccount(ctx context.Context, agent string, req AgentAccountRequest) (AgentAccountSwitch, error) {
+	var out AgentAccountSwitch
+	return out, c.do(ctx, http.MethodPost, c.leadPath("/agents/"+url.PathEscape(agent)+"/account"), req, &out)
 }
 
 // ForkAgent starts a job making a new agent from one of the project's.
