@@ -61,6 +61,17 @@ function liveWork(): T.WorkItem[] {
   const report = (agent: string, status: string, summary: string, remainingIssues?: string[]): T.AgentReport => ({ id: `rep-${agent}`, project: PROJECT, agent, createdAt: ago(hour / 2), status, summary, remainingIssues });
   return [
     live('agent-40', 'Work page: everything agents did, in place of Today', 'working', 10 * 60_000),
+    // A stack: agent-22 was made from agent-21's branch, and is listed first,
+    // having finished later.
+    live('agent-22', 'Export button on the reminders page', 'working', 20 * 60_000, {}, { branch: 'agentbox/csv-export-button', baseRef: 'agentbox/csv-export', pr: { ...pr(86, 'open', 'feat: an Export button on the reminders page'), baseBranch: 'agentbox/csv-export', checks: 'passing' } }),
+    live(
+      'agent-21',
+      'Reminders CSV export API',
+      'review',
+      hour / 3,
+      { report: report('agent-21', 'done', 'Added GET /reminders.csv with a test per column.'), screenshots: 1 },
+      { branch: 'agentbox/csv-export', baseRef: 'main', changes: { files: 4, insertions: 142, deletions: 8, dirty: false }, pr: { ...pr(84, 'open', 'feat: an API that exports reminders as CSV'), checks: 'passing' } },
+    ),
     live(
       'agent-38',
       'Show the VM memory breakdown in a popover from the memory bubble',

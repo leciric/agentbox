@@ -1551,6 +1551,9 @@ export const enUS = {
   'memory.pulls.checks.failing': 'failing',
   'memory.pulls.checks.pending': 'pending',
   'memory.pulls.draft': 'draft',
+  'memory.pulls.stackedOn': 'Stacked on #{number}',
+  'memory.pulls.stackedOnTip': 'Its base is #{number}’s branch, so it shows only its own commits. When #{number} merges, AgentBox moves it to where #{number} went and tells its agent to rebase.',
+  'memory.pulls.stackedBy': '{count, plural, one {{numbers} builds on this} other {{numbers} build on this}}',
   'memory.pulls.conflicts': 'conflicts',
   'memory.pulls.changesRequested': 'changes requested',
   'memory.pulls.comments': '{count, plural, one {# comment} other {# comments}}',
@@ -3915,6 +3918,7 @@ export const enUS = {
   'work.outcome.failed': 'Failed',
   'work.outcome.working': 'In progress',
   'work.files': '{count, plural, one {# file} other {# files}}',
+  'work.stackedOn': 'Stacked on {name}',
   'work.noPr': 'No PR',
   'work.showAll': 'See all work',
   // groups: one task on several agents, compared (components/groups)

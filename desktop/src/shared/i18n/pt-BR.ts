@@ -1552,6 +1552,9 @@ export const ptBR: Messages = {
   'memory.pulls.checks.failing': 'falhando',
   'memory.pulls.checks.pending': 'pendentes',
   'memory.pulls.draft': 'rascunho',
+  'memory.pulls.stackedOn': 'Empilhado sobre #{number}',
+  'memory.pulls.stackedOnTip': 'A base é o branch do #{number}, então mostra só os próprios commits. Quando o #{number} for mesclado, o AgentBox o move para onde o #{number} foi e pede ao agente que faça rebase.',
+  'memory.pulls.stackedBy': '{count, plural, one {{numbers} se baseia neste} other {{numbers} se baseiam neste}}',
   'memory.pulls.conflicts': 'conflitos',
   'memory.pulls.changesRequested': 'mudanças solicitadas',
   'memory.pulls.comments': '{count, plural, one {# comentário} other {# comentários}}',
@@ -3916,6 +3919,7 @@ export const ptBR: Messages = {
   'work.outcome.failed': 'Falhou',
   'work.outcome.working': 'Em andamento',
   'work.files': '{count, plural, one {# arquivo} other {# arquivos}}',
+  'work.stackedOn': 'Empilhado sobre {name}',
   'work.noPr': 'Sem PR',
   'work.showAll': 'Ver todo o trabalho',
   // groups: one task on several agents, compared (components/groups)

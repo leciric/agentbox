@@ -207,7 +207,7 @@ func (s *Server) projectWorkEntries(ctx context.Context, p state.Project) ([]wor
 	for i := range past {
 		a := &past[i]
 		item := api.WorkItem{
-			Item: api.ReviewItem{Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title, Branch: a.Branch, AI: a.AI, FinishedAt: a.ArchivedAt},
+			Item: api.ReviewItem{Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title, Branch: a.Branch, BaseRef: a.BaseRef, AI: a.AI, FinishedAt: a.ArchivedAt},
 			Task: a.Task, Past: true, Status: api.WorkDone, At: a.ArchivedAt,
 		}
 		if a.PR.Number > 0 {
