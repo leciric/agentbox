@@ -28,7 +28,10 @@ func (s *Server) syncBases(ctx context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
-			if !p.BaseSyncOff {
+			// A fetch writes into the repository on the shared home, and may
+			// move a checked-out base: not while the share is short of files
+			// (share.go). The next round does it.
+			if !p.BaseSyncOff && !s.shareBusy() {
 				s.syncBase(ctx, p)
 			}
 		}
@@ -42,13 +45,16 @@ func (s *Server) syncBases(ctx context.Context) {
 
 // syncBase does it for one project. A failure is logged when it first
 // happens and when it changes, not every few minutes while a remote stays
-// out of reach.
+// out of reach. It fetches from GitHub with the project's account, as its
+// agents do, not with the user's credential helper: in the VM, the home is
+// the host's, and its gitconfig names a gh that isn't there.
 func (s *Server) syncBase(ctx context.Context, p state.Project) {
 	repo, err := gitrepo.Open(p.Root)
 	if err != nil {
 		return
 	}
-	synced, err := repo.SyncBase(ctx)
+	token, _ := s.manager(nil).GitHubToken(p) // without one, the user's own credential helper
+	synced, err := repo.SyncBase(ctx, token)
 	if ctx.Err() != nil {
 		return
 	}

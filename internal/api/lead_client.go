@@ -128,6 +128,14 @@ func (c *Client) LeadAnswerQuestion(ctx context.Context, id, answer string) (Que
 	return out, c.do(ctx, http.MethodPost, path, AnswerQuestionRequest{Answer: answer}, &out)
 }
 
+// LeadFulfilCredential answers an agent's request for a lead-managed secret
+// with the value stored now, by name: the value is never sent or returned.
+func (c *Client) LeadFulfilCredential(ctx context.Context, id string) (FulfilCredentialResponse, error) {
+	var out FulfilCredentialResponse
+	path := c.leadPath("/questions/" + url.PathEscape(id) + "/fulfil")
+	return out, c.do(ctx, http.MethodPost, path, nil, &out)
+}
+
 func (c *Client) LeadEscalateQuestion(ctx context.Context, id, why string) (Question, error) {
 	var out Question
 	path := c.leadPath("/questions/" + url.PathEscape(id) + "/escalate")
@@ -203,6 +211,13 @@ func (c *Client) AgentCheckpoints(ctx context.Context, agent string) ([]Checkpoi
 func (c *Client) RollbackAgent(ctx context.Context, agent, checkpoint string) (RollbackResult, error) {
 	var out RollbackResult
 	return out, c.do(ctx, http.MethodPost, c.leadPath("/agents/"+url.PathEscape(agent)+"/rollback"), RollbackRequest{Checkpoint: checkpoint}, &out)
+}
+
+// SwitchAgentAccount moves one of the project's running agents to another
+// account of its AI tool, resuming its chat on it.
+func (c *Client) SwitchAgentAccount(ctx context.Context, agent string, req AgentAccountRequest) (AgentAccountSwitch, error) {
+	var out AgentAccountSwitch
+	return out, c.do(ctx, http.MethodPost, c.leadPath("/agents/"+url.PathEscape(agent)+"/account"), req, &out)
 }
 
 // ForkAgent starts a job making a new agent from one of the project's.

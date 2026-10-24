@@ -37,6 +37,9 @@ type Data struct {
 	BaseRef     string
 	IP          string // empty in previews, before the agent has an address
 	EnvFiles    []string
+	// NodeModules are the directories of the worktree whose node_modules are
+	// on the machine's own disk (agent/nodemodules.go), "." for its top.
+	NodeModules []string
 	// Secrets are the names of the secrets this agent has as environment
 	// variables (agentbox secrets). Values never come near the brief.
 	Secrets []string
@@ -58,6 +61,11 @@ type Data struct {
 	// BuiltWithBadge is whether the user wants pull requests to end with a
 	// "Built with AgentBox" line (state.SettingBuiltWithBadge).
 	BuiltWithBadge bool
+	// FullSuite is whether the agent may run a whole test suite once before
+	// it finishes: its project allows them while the installation blocks
+	// them (state.SettingBlockFullSuite). Otherwise it runs the tests its
+	// change touches, and the whole suite only when asked by name.
+	FullSuite bool
 	// VM is set when AgentBox runs in a Linux VM on another OS: WSL 2 on
 	// Windows (package hostwsl, D94), or the VM it makes on a Mac (package
 	// hostvm, D92). The agent's address is then inside that VM, which the

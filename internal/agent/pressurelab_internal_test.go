@@ -132,7 +132,7 @@ func TestPressureLab(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		acts := g.Step(now, psi)
+		acts := g.Step(now, pressure.Sample{PSI: psi})
 		for _, r := range acts.Start {
 			a := byInstance[r.Agent]
 			if err := placeRun(root, "/proc", a.instance, a.key, a.cmd.Process.Pid, writeCgroup); err != nil {

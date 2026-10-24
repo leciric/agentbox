@@ -239,6 +239,9 @@ type Run struct {
 	PausedAt time.Time
 	// Why is why it was last paused.
 	Why Reason
+	// ForFleet: the fleet paused it (PauseAgent), not the governor, and
+	// only the fleet resumes it.
+	ForFleet bool
 	// Placed says its processes are in a cgroup of its own, which is what
 	// pausing it freezes: a run that isn't is never paused.
 	Placed bool
@@ -272,8 +275,12 @@ type Governor struct {
 	last             Sample
 	trend            Trend
 	why              Reason
-	// seen are the readings of the last Window, at least a second apart,
-	// oldest first, for the Trend.
+	trends           trends
+}
+
+// trends keeps the readings of the last Policy.Window, at least a second
+// apart, oldest first, that a Trend is worked out from.
+type trends struct {
 	seen []reading
 }
 
@@ -404,11 +411,10 @@ func (g *Governor) Trend() Trend { return g.trend }
 func (g *Governor) Why() Reason { return g.why }
 
 // observe keeps s's reading, and works out the Trend from those before it.
-func (g *Governor) observe(now time.Time, s Sample) Trend {
+func (g *trends) observe(p Policy, now time.Time, s Sample) Trend {
 	if !s.Mem.Known() {
 		return Trend{}
 	}
-	p := g.Policy
 	drop := 0
 	for drop < len(g.seen) && now.Sub(g.seen[drop].at) > p.Window {
 		drop++
@@ -444,7 +450,7 @@ func (g *Governor) Step(now time.Time, s Sample) Actions {
 	g.last = s
 	p := g.Policy
 	psi := s.PSI
-	tr := g.observe(now, s)
+	tr := g.trends.observe(p, now, s)
 	g.trend = tr
 	room, why := p.Judge(s.Mem, tr)
 	high := psi.Full.Avg10 >= p.Freeze
@@ -554,4 +560,50 @@ func (g *Governor) newestPausable() *Run {
 		}
 	}
 	return nil
+}
+
+// StartAll starts every waiting run and resumes every paused one, as
+// pausing whole machines (Fleet) takes over from the governor: it reports
+// them, for the daemon to apply.
+func (g *Governor) StartAll(now time.Time) Actions {
+	var out Actions
+	for _, r := range g.running {
+		if r.Paused && !r.ForFleet {
+			out.Resume = append(out.Resume, g.resume(r, now))
+		}
+	}
+	for len(g.waiting) > 0 {
+		out.Start = append(out.Start, g.start(now))
+	}
+	return out
+}
+
+// PauseAgent pauses, for the fleet, an agent's runs that go and are placed,
+// rather than its whole machine (Fleet.toHold): it reports them, for the
+// daemon to apply.
+func (g *Governor) PauseAgent(agent string, now time.Time, why Reason) []*Run {
+	var out []*Run
+	for _, r := range g.running {
+		if r.Agent == agent && r.Placed && !r.Paused {
+			g.pause(r, now, why)
+			r.ForFleet = true
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// ResumeAgent resumes the runs the fleet paused of an agent, or of every
+// agent for "": it reports them, for the daemon to apply.
+func (g *Governor) ResumeAgent(agent string, now time.Time) []*Run {
+	var out []*Run
+	for _, r := range g.running {
+		if r.ForFleet && (agent == "" || r.Agent == agent) {
+			r.ForFleet = false
+			if r.Paused {
+				out = append(out, g.resume(r, now))
+			}
+		}
+	}
+	return out
 }

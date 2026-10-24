@@ -118,6 +118,7 @@ func (s *Server) leadRoutes(project string) http.Handler {
 	mux.HandleFunc("GET /v1/project/agents/{agent}/checkpoints", withProject(s.listCheckpoints))
 	mux.HandleFunc("POST /v1/project/agents/{agent}/rollback", withProject(s.rollback))
 	mux.HandleFunc("POST /v1/project/agents/{agent}/fork", withProject(s.fork))
+	mux.HandleFunc("POST /v1/project/agents/{agent}/account", withProject(s.leadSwitchAccount))
 	mux.HandleFunc("POST /v1/project/copy", withProject(s.leadCopy))
 	mux.HandleFunc("POST /v1/project/copy-from-host", withProject(s.leadCopyFromHost))
 	mux.HandleFunc("GET /v1/project/secrets", withProject(s.leadSecrets))
@@ -164,6 +165,7 @@ func (s *Server) leadRoutes(project string) http.Handler {
 	mux.HandleFunc("GET /v1/project/questions", withProject(s.leadQuestions))
 	mux.HandleFunc("POST /v1/project/questions/{id}/answer", withProject(s.leadAnswerQuestion))
 	mux.HandleFunc("POST /v1/project/questions/{id}/escalate", withProject(s.leadEscalateQuestion))
+	mux.HandleFunc("POST /v1/project/questions/{id}/fulfil", withProject(s.leadFulfilCredential))
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		_ = writeJSON(w, http.StatusForbidden, api.Error{Error: "a project's chat can only reach its own project"})
 	})

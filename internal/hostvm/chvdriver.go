@@ -655,6 +655,12 @@ func describe(st api.VMStatus) string {
 			fmt.Fprintf(&b, ", memory from %s to %s", sizeWords(m.Min), sizeWords(m.Cap))
 		}
 	}
+	if m.Resident > 0 {
+		fmt.Fprintf(&b, ", holding %s of this machine's memory", sizeWords(m.Resident))
+		if m.HostCache > 0 {
+			fmt.Fprintf(&b, " (and %s of its cache for the VM's disks)", sizeWords(m.HostCache))
+		}
+	}
 	if st.Disk.Size > 0 {
 		fmt.Fprintf(&b, ", a %s disk (%s on this machine's)", sizeWords(st.Disk.Size), sizeWords(st.Disk.Allocated))
 	}

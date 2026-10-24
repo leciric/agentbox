@@ -142,17 +142,21 @@ and antivirus may need an exception. Download `AgentBox-<version>-mac-arm64.dmg`
 `-mac-x64.dmg`, or `AgentBox-<version>-x64-setup.exe` (installer) or `-x64-portable.exe`, from the
 same [downloads](https://downloads.agentbox.linting.dev/index.html) page.
 
-On a Mac with Apple Silicon, install [krunkit](https://lima-vm.io/docs/config/vmtype/krunkit/)
-before setting AgentBox up, and the VM gives the memory its agents stop using back to your Mac:
+On a Mac with Apple Silicon, the VM is made with [krunkit](https://lima-vm.io/docs/config/vmtype/krunkit/)
+when it's installed: it has a GPU for agents, and gives the memory its agents stop using back to
+your Mac. The app's Setup installs it with Homebrew when it's missing (**Install krunkit and set up
+the VM**), as does `agentbox vm krunkit`; by hand, before setting AgentBox up:
 
 ```bash
 brew tap slp/krun && brew trust slp/krun && brew install krunkit
 ```
 
-Without it, the VM is made with Apple's Virtualization framework and keeps whatever memory it has
-used until it stops. A VM keeps the kind it was made with: to switch an existing one,
-`agentbox vm delete --yes` then `agentbox vm init`, which removes every agent's machine (your
-projects and worktrees stay).
+Lima's krunkit driver comes with Homebrew's Lima from 2.0 (`brew upgrade lima`). Without krunkit,
+the VM is made with Apple's Virtualization framework: no GPU, and it keeps whatever memory it has
+used until it stops. A VM keeps the kind it was made with: to switch an existing one, Settings →
+**GPU for agents** offers to install krunkit and remake the VM, or `agentbox vm krunkit --remake
+--yes`. Either removes every agent's machine, the base image and AgentBox's projects and agents
+(your worktrees stay on your disk: push what you want to keep first).
 
 A krunkit VM also has a **GPU for agents**: Vulkan, run on your Mac's GPU through Metal, and
 OpenGL on top of it. Turning on "GPU for agents" in Settings readies it, building a Vulkan driver
@@ -250,8 +254,10 @@ typed-in model among them, is sent as `other`.
 
 The same request's day also sends **anonymous events**, each a name and fixed fields, every one a
 number, a yes or no, or a value from a fixed list
-([`internal/daemon/usageevents.go`](internal/daemon/usageevents.go)), with a random id so a retry
-isn't counted twice:
+([`internal/daemon/usageevents.go`](internal/daemon/usageevents.go)), save an error's reason
+below, with a random id so a retry isn't counted twice. Every event also carries the
+installation's offset from UTC in whole hours (`utc_offset`, such as `-3`), from the time zone the
+app last ran in, or `unknown`, so the stats can be read in local time:
 
 - `turn.completed`, for each turn of an agent or a project's chat: the AI tool, model, effort,
   context window and permission mode as above, whether it was the chat or an agent, whether it was
@@ -264,7 +270,14 @@ isn't counted twice:
 - `agent.finished`, as an agent is destroyed or retired: its AI tool, how long it lived in a range
   such as `30m_2h`, and whether it opened a pull request and had one merged.
 - `error`, by a fixed code such as `create_failed`, `image_build_failed`, `adapter_crashed` or
-  `auth_failed`, with the AI tool involved, never the error's text.
+  `auth_failed`, with the AI tool involved, a class from a fixed list (`oom_killed`, `killed`,
+  `acp_closed`, `incus_down`, `no_space`, `network`, `timeout`, `auth`, `exit_code` and others,
+  `errorClasses` in [`internal/daemon/errorreason.go`](internal/daemon/errorreason.go)), and a
+  short reason: the error's own wording, at most 120 characters, with every path, URL, host and
+  file name, email address, IP address, id, quoted text, token or key, and the names of your
+  projects, agents, branches, user and machine replaced by placeholders, such as
+  `starting the machine: incus start [name]: exit status 1`. It never holds a prompt, a file's
+  contents or anything you typed.
 - `setup`, the first time a new installation reaches each step (`setup_started`, `image_built`,
   `first_project`, `first_agent`, `first_pr`), with how long after the setup began, in a range.
 
@@ -272,7 +285,9 @@ isn't counted twice:
 POST https://agentbox.linting.dev/api/v1/events
 {"install":"<uuid>","version":"0.1.0","os":"linux","arch":"amd64",
  "events":[{"id":"<random uuid>","day":"2026-09-24","name":"error",
-            "props":{"code":"create_failed","tool":"claude"}}]}
+            "props":{"code":"create_failed","tool":"claude","class":"no_space",
+                     "reason":"copying the base: incus copy [path]: no space left on device",
+                     "utc_offset":"-3"}}]}
 ```
 
 **See what's sent** under **Settings → General** shows both requests exactly as the next check

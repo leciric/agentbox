@@ -110,6 +110,7 @@ func (s *Server) inAgentRoutes(instance string) http.Handler {
 	// Asking its project's chat: the one thing an agent may do that reaches
 	// beyond itself, and it only ever reaches its own project's chat.
 	handle("POST /v1/self/ask", s.ask(instance))
+	handle("GET /v1/self/tests", s.testPolicy(instance))
 	handle("POST /v1/self/heavy", s.startHeavy(instance))
 	handle("POST /v1/self/heavy/{key}/join", s.joinHeavy(instance))
 	handle("DELETE /v1/self/heavy/{key}", s.endHeavy(instance))
@@ -154,4 +155,29 @@ func (s *Server) inAgentRoutes(instance string) http.Handler {
 		_ = writeJSON(w, http.StatusForbidden, api.Error{Error: "not available inside an agent"})
 	})
 	return traceAPI("agent", mux, false)
+}
+
+// testPolicy tells the agent's heavy-hook whether a whole test suite is
+// refused: while the installation blocks them (SettingBlockFullSuite) and the
+// agent's project doesn't allow them (internal/cli/fullsuite.go). It asks
+// only when a command is one.
+func (s *Server) testPolicy(instance string) func(http.ResponseWriter, *http.Request) error {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		a, err := s.store.AgentByInstance(r.Context(), instance)
+		if err != nil {
+			return err
+		}
+		block, err := s.store.Flag(r.Context(), state.SettingBlockFullSuite)
+		if err != nil {
+			return err
+		}
+		if block {
+			p, err := s.store.Project(r.Context(), a.Project)
+			if err != nil {
+				return err
+			}
+			block = !p.FullTestSuite
+		}
+		return writeJSON(w, http.StatusOK, api.TestPolicy{BlockFullSuite: block, Base: a.BaseCommit})
+	}
 }
