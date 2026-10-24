@@ -6,8 +6,8 @@ import { Button } from './ui/button';
 import { Notice } from './ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 
-// UsageSentDialog is "See what's sent": the anonymous usage stats' two
-// requests exactly as the next update check would post them
+// UsageSentDialog is "See what's sent": the anonymous usage stats' requests,
+// the health events' apart, exactly as the next update check would post them
 // (GET /v1/usage-stats/pending), read afresh each time it opens.
 export function UsageSentDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const t = useT();
@@ -29,7 +29,7 @@ export function UsageSentDialog({ open, onOpenChange }: { open: boolean; onOpenC
         {pending.isPending && <p className="text-sm text-secondary">{t('common.loading')}</p>}
         {pending.error && <Notice>{errorMessage(pending.error)}</Notice>}
         {p && !p.on && <Notice>{t('settings.usageStats.sentOff')}</Notice>}
-        {p?.on && !p.usage && !p.events && <p className="text-sm text-secondary">{t('settings.usageStats.sentNothing')}</p>}
+        {p?.on && !p.usage && !p.events && !p.health && <p className="text-sm text-secondary">{t('settings.usageStats.sentNothing')}</p>}
         {p?.on && p.usage && <Payload title={t('settings.usageStats.sentCounts', { url: p.usageUrl })} body={p.usage} />}
         {p?.on && p.events && (
           <Payload
@@ -38,6 +38,7 @@ export function UsageSentDialog({ open, onOpenChange }: { open: boolean; onOpenC
             note={p.eventsWaiting > 500 ? t('settings.usageStats.sentMore', { count: p.eventsWaiting }) : undefined}
           />
         )}
+        {p?.on && p.health && <Payload title={t('settings.usageStats.sentHealth', { url: p.eventsUrl })} body={p.health} />}
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             {t('common.close')}

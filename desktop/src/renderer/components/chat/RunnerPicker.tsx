@@ -3,7 +3,7 @@ import { ArrowRight, Check } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
-import { api } from '../../lib/api';
+import { api, isProjectChat } from '../../lib/api';
 import { chatKey } from '../../lib/chat';
 import { useT } from '../../lib/i18n';
 import { runnerChoices, runnerLabel, runnerReason, type RunnerChoice } from '../../lib/leadRunner';
@@ -22,14 +22,28 @@ import { MenuItem, MenuLabel, MenuSeparator } from '../ui/menu';
 // Composer.tsx), beside the model, which is the adapter's own option, with
 // no new session.
 
-// useRunner reads what a lead runs and can run, and switches it.
+// An agent's composer has the same picker with its own tool only: its
+// accounts, a choice applying at once (the daemon's agentaccount.go), which
+// resumes the session where the tool's adapter can.
+
+// useRunner reads what a lead runs and can run, and switches it; for an
+// agent, the accounts of its tool.
 export function useRunner(agent: T.Agent, session?: T.ChatSession, enabled = true) {
   const queryClient = useQueryClient();
-  const runners = useQuery({ queryKey: ['chatRunners', agent.project], queryFn: () => api.chatRunners(agent.project), refetchInterval: 30_000, enabled });
+  const lead = isProjectChat(agent.ref);
+  const key = lead ? ['chatRunners', agent.project] : ['agentRunners', agent.ref];
+  const runners = useQuery({
+    queryKey: key,
+    queryFn: () => (lead ? api.chatRunners(agent.project) : api.agentRunners(agent.ref)),
+    refetchInterval: 30_000,
+    enabled,
+  });
   const choose = useMutation({
-    mutationFn: (c: RunnerChoice) => api.setChatRunner(agent.project, { tool: c.tool, account: c.account }),
+    mutationFn: (c: RunnerChoice) =>
+      lead ? api.setChatRunner(agent.project, { tool: c.tool, account: c.account }) : api.setAgentRunner(agent.ref, { tool: c.tool, account: c.account }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['chatRunners', agent.project] });
+      void queryClient.invalidateQueries({ queryKey: key });
+      void queryClient.invalidateQueries({ queryKey: ['agents'] });
       void queryClient.invalidateQueries({ queryKey: chatKey(agent.ref) });
       void queryClient.invalidateQueries({ queryKey: ['claudeLimits'] });
       void queryClient.invalidateQueries({ queryKey: ['codexLimits'] });
@@ -40,7 +54,7 @@ export function useRunner(agent: T.Agent, session?: T.ChatSession, enabled = tru
   const next = session?.nextTool;
   const account = !next ? session?.account || (tool === 'claude' ? runners.data?.account : runners.data?.toolAccounts?.[tool]) : undefined;
   const choices = runners.data ? runnerChoices(runners.data) : [];
-  return { runners, choose, tool, next, account, choices, label: runnerLabel(tool, account) };
+  return { lead, runners, choose, tool, next, account, choices, label: runnerLabel(tool, account) };
 }
 
 export type Runner = ReturnType<typeof useRunner>;
@@ -56,7 +70,7 @@ export function RunnerItems({ runner }: { runner: Runner }) {
   const several = (of: string) => choices.filter((c) => c.tool === of).length > 1;
   return (
     <>
-      <MenuLabel>{t('chat.runner.title')}</MenuLabel>
+      <MenuLabel>{t(runner.lead ? 'chat.runner.title' : 'chat.runner.titleAgent')}</MenuLabel>
       {runners.isPending && <p className="px-2.5 py-2 text-[12px] text-subtle">{t('common.loading')}</p>}
       {runners.isError && <p className="px-2.5 py-2 text-[12px] text-rose-300">{errorMessage(runners.error)}</p>}
       {choices.map((c) => (
@@ -81,7 +95,7 @@ export function RunnerItems({ runner }: { runner: Runner }) {
         </MenuItem>
       ))}
       <MenuSeparator />
-      <p className="px-2.5 pb-1.5 pt-1 text-[11px] leading-snug text-subtle">{t('chat.runner.applies')}</p>
+      <p className="px-2.5 pb-1.5 pt-1 text-[11px] leading-snug text-subtle">{t(runner.lead ? 'chat.runner.applies' : 'chat.runner.appliesAgent')}</p>
     </>
   );
 }

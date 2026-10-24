@@ -1309,6 +1309,17 @@ var migrations = []string{
 		resolved_at INTEGER NOT NULL DEFAULT 0
 	)`,
 	`CREATE INDEX review_notes_agent ON review_notes (project, agent)`,
+	// Whether this project's agents may run a whole test suite while the
+	// installation blocks them (SettingBlockFullSuite, Project.FullTestSuite).
+	`ALTER TABLE projects ADD COLUMN full_test_suite INTEGER NOT NULL DEFAULT 0`,
+	// StoppedAt, for "remove stopped agents' machines": when the agent's
+	// machine was last stopped through AgentBox; 0 when never, or not since
+	// this column exists.
+	`ALTER TABLE agents ADD COLUMN stopped_at INTEGER NOT NULL DEFAULT 0`,
+	// A project secret the lead keeps fresh (a token its own script refreshes):
+	// a credential request for it wakes the lead, which may fulfil it from the
+	// stored value by name (fulfil_credential). Agents' own secrets stay 0.
+	`ALTER TABLE secrets ADD COLUMN lead_managed INTEGER NOT NULL DEFAULT 0`,
 	// Event triggers (schedules.go, kind 'event'): the event a schedule runs
 	// on and, for issue_labeled, the label; on each run, the event it ran
 	// for, in a line (event) and where to see it (event_url). schedule_events
@@ -1518,6 +1529,10 @@ type Project struct {
 	// never a branch with commits of its own, and a checked-out one only when
 	// nothing in its checkout is changed.
 	BaseSyncOff bool
+	// FullTestSuite is whether this project's agents may run a whole test
+	// suite (`go test ./...`, a bare `npm test`) while the installation
+	// blocks them (SettingBlockFullSuite); it means nothing otherwise.
+	FullTestSuite bool
 }
 
 // A project's PRWatch.
@@ -1675,7 +1690,7 @@ func (p Project) DirectAgentModel() string {
 // LeadPicksModel reports whether this project's chat chooses each agent's model.
 func (p Project) LeadPicksModel() bool { return p.AgentModel == AgentModelAuto }
 
-const projectColumns = `name, display_name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off, codex_account, opencode_accounts, cursor_account`
+const projectColumns = `name, display_name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off, codex_account, opencode_accounts, cursor_account, full_test_suite`
 
 // projectPlacement is where the project sits in the sidebar (D79), read
 // beside the columns above rather than with them: it is written by the
@@ -1763,11 +1778,11 @@ func (s *Store) AddProject(ctx context.Context, p Project) error {
 		p.BranchPrefix = DefaultBranchPrefix
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.DisplayName, p.Root, p.CreatedAt.Unix(), p.ClaudeAccount, p.Autonomy, p.GitHubAccount, p.MediaRetentionDays,
 		p.FinishNotices, p.AgentModel, p.RolloverThreshold, p.ContextBudget, p.Consolidation, p.ConsolidationModel,
 		strings.Join(p.ClaudeAccounts, ","), p.BranchPrefix, p.Nesting, p.AgentPRs, p.PRWatch, p.BaseSyncOff,
-		p.CodexAccount, p.OpenCodeAccounts.String(), p.CursorAccount)
+		p.CodexAccount, p.OpenCodeAccounts.String(), p.CursorAccount, p.FullTestSuite)
 	return err
 }
 
@@ -1888,7 +1903,7 @@ func (s *Store) Projects(ctx context.Context) ([]Project, error) {
 		if err := rows.Scan(&p.Name, &p.DisplayName, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
 			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff,
-			&p.CodexAccount, &opencode, &p.CursorAccount, &p.Section, &p.Position); err != nil {
+			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.Section, &p.Position); err != nil {
 			return nil, err
 		}
 		p.CreatedAt = time.Unix(created, 0)
@@ -2255,6 +2270,19 @@ func (s *Store) SetProjectNesting(ctx context.Context, name string, on bool) err
 	return nil
 }
 
+// SetProjectFullTestSuite sets whether this project's agents may run a whole
+// test suite while the installation blocks them.
+func (s *Store) SetProjectFullTestSuite(ctx context.Context, name string, on bool) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE projects SET full_test_suite = ? WHERE name = ?`, on, name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("project %q: %w", name, ErrNotFound)
+	}
+	return nil
+}
+
 // SetProjectAgentPRs sets whether this project's agents push their own branch
 // and open their own pull request.
 func (s *Store) SetProjectAgentPRs(ctx context.Context, name string, on bool) error {
@@ -2417,7 +2445,7 @@ func (s *Store) projectWhere(ctx context.Context, where string, arg any) (Projec
 		Scan(&p.Name, &p.DisplayName, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
 			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff,
-			&p.CodexAccount, &opencode, &p.CursorAccount, &p.Section, &p.Position)
+			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.Section, &p.Position)
 	p.ClaudeAccounts = splitAccounts(allowed)
 	p.OpenCodeAccounts = ParseAccountMap(opencode)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -2491,6 +2519,11 @@ type Agent struct {
 	// whatever it was last doing before it was paused. Zero when it has never
 	// been paused, or was resumed or started since.
 	PausedAt time.Time
+	// StoppedAt is when this agent's machine was last stopped through
+	// AgentBox (agent.Manager.Stop), for "remove stopped agents' machines".
+	// It isn't cleared on start: a start after it (the machine's last use)
+	// makes it stale, which the reader checks. Zero when never recorded.
+	StoppedAt time.Time
 	// ID is an identity distinct from Name, set once at AddAgent and never
 	// reused: what tells this agent apart from a different one that later
 	// gets its name, for a row that outlives it on purpose (token_usage).
@@ -2805,7 +2838,7 @@ func (s *Store) RemoveAgent(ctx context.Context, project, name string) error {
 }
 
 func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]Agent, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+agentColumns+`, paused_at FROM agents `+clause, args...)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+agentColumns+`, paused_at, stopped_at FROM agents `+clause, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -2813,12 +2846,12 @@ func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]
 	var agents []Agent
 	for rows.Next() {
 		var a Agent
-		var created, pausedAt int64
+		var created, pausedAt, stoppedAt int64
 		var connectors sql.NullString
 		var opencode string
 		if err := rows.Scan(&a.Project, &a.Name, &a.Instance, &a.AI, &a.Autonomous, &a.Branch,
 			&a.BaseRef, &a.BaseCommit, &a.Worktree, &a.Status, &created, &a.Source, &a.Title, &a.ClaudeAccount, &a.Interface, &a.Role, &a.GitHubAccount, &a.FinishNotice, &a.ID, &connectors,
-			&a.CodexAccount, &opencode, &a.CursorAccount, &pausedAt); err != nil {
+			&a.CodexAccount, &opencode, &a.CursorAccount, &pausedAt, &stoppedAt); err != nil {
 			return nil, err
 		}
 		a.OpenCodeAccounts = ParseAccountMap(opencode)
@@ -2832,9 +2865,18 @@ func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]
 		if pausedAt != 0 {
 			a.PausedAt = time.Unix(pausedAt, 0)
 		}
+		if stoppedAt != 0 {
+			a.StoppedAt = time.Unix(stoppedAt, 0)
+		}
 		agents = append(agents, a)
 	}
 	return agents, rows.Err()
+}
+
+// SetStoppedAt records when an agent's machine was stopped.
+func (s *Store) SetStoppedAt(ctx context.Context, project, name string, at time.Time) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE agents SET stopped_at = ? WHERE project = ? AND name = ?`, at.Unix(), project, name)
+	return err
 }
 
 // SetPausedAt records when an agent was paused, or clears it (a zero at) when

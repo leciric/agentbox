@@ -2,7 +2,8 @@
 // the event stream, WebSocket streams and media files between the renderer and
 // the current environment (this machine's daemon, or one on a hub), signs in to
 // hubs, installs the command-line tool, and updates the app (updater.ts).
-import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron';
+import { isSafeExternalUrl } from './externalurl';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, powerSaveBlocker, shell } from 'electron';
 import { arch, hostname } from 'node:os';
 import { join } from 'node:path';
 import { AppLog, captureConsole, reportSections, type AppError } from './applog';
@@ -24,11 +25,15 @@ import { enableShortcutPortal, registerSnapShortcut, showForSnap } from './snap'
 import { Streams } from './streams';
 import { installAppUpdates, restartingForUpdate } from './updater';
 import { learnMode, linuxVM } from './vmmode';
+import { describeGone, goneReport, goneSignature, offersReload, worthReporting, type GoneProcess } from './processgone';
+import { ErrorReportSender, outcome, ReportQueue } from './reportqueue';
+import type * as T from '../shared/api';
 import { denyMedia } from './permissions';
 import { keepWindowState, windowOptions } from './windowstate';
 import { distro, linuxPath, windowsPath } from './wslpaths';
 import { setLanguage, t } from '../shared/i18n/index.ts';
 import './vmpower';
+import { keepAwake } from './keepawake';
 
 guardStdio();
 // The app's log, for problem reports (applog.ts): console and every uncaught
@@ -57,8 +62,11 @@ const events = new EventStream(
     send('daemon:connection', state);
     // Each time the daemon is back, it may be one that hasn't the web
     // version phones are served (phoneweb.ts).
-    if (state.state === 'connected')
+    // And error reports made while it was away go now (reportqueue.ts).
+    if (state.state === 'connected') {
       void installPhoneWeb(app.getVersion()).catch((err: unknown) => console.error('phones:', err));
+      void errorReports.flush();
+    }
   },
 );
 
@@ -68,7 +76,9 @@ const events = new EventStream(
 // forward to its daemon closes each connection then): the renderer shows it
 // from the event stream's connection state, and a rejection here would be
 // logged by Electron for every call.
-ipcMain.handle('api:request', async (_event, method: string, path: string, body?: unknown): Promise<ApiResponse> => {
+ipcMain.handle('api:request', (_event, method: string, path: string, body?: unknown) => callDaemon(method, path, body));
+
+async function callDaemon(method: string, path: string, body?: unknown): Promise<ApiResponse> {
   try {
     return await request(method, path, body);
   } catch (err) {
@@ -80,7 +90,9 @@ ipcMain.handle('api:request', async (_event, method: string, path: string, body?
   } catch (err) {
     return unreachable(err);
   }
-});
+}
+const setKeepAwake = keepAwake(powerSaveBlocker);
+ipcMain.handle('keepawake:set', (event, on: boolean) => setKeepAwake(event.sender, on));
 ipcMain.handle('daemon:connection', () => events.state);
 ipcMain.handle('app:info', () => ({
   socket: onWindows ? localSocket() : socketPath,
@@ -93,7 +105,7 @@ ipcMain.handle('app:info', () => ({
 // Problem reports: the app's own sections, which the daemon redacts and
 // sends with its own (internal/daemon/report.go), and the window's uncaught
 // errors, kept with the main process's.
-ipcMain.handle('report:sections', () =>
+const appReportSections = () =>
   reportSections(appLog, {
     version: app.getVersion(),
     electron: process.versions.electron,
@@ -102,8 +114,17 @@ ipcMain.handle('report:sections', () =>
     arch: arch(),
     target: currentTarget().kind === 'local' ? 'this machine' : 'an environment on a hub',
     vmMode: linuxVM(),
-  }),
+  });
+ipcMain.handle('report:sections', appReportSections);
+// Automatic error reports, the window's and this process's own, go through
+// here, to wait for a daemon that can't be reached (reportqueue.ts).
+const errorReports = new ErrorReportSender(new ReportQueue(join(app.getPath('userData'), 'error-reports.json')), async (req) =>
+  outcome(await callDaemon('POST', '/v1/reports', req)),
 );
+ipcMain.handle('report:send', (_event, req: T.ReportRequest) => {
+  if (req?.kind !== 'error') throw new Error('only error reports are sent this way');
+  return errorReports.send(req);
+});
 ipcMain.on('report:windowError', (_event, err: Pick<AppError, 'name' | 'message' | 'stack'>) => appLog.windowError(err));
 ipcMain.handle('report:openLogs', () => shell.openPath(app.getPath('logs')));
 
@@ -200,10 +221,11 @@ ipcMain.handle('hostsetup:status', () => hostSetupStatus());
 // On Linux, { vm: true } runs AgentBox in a VM instead (vmmode.ts), after
 // stopping the daemon this machine ran itself. On a Mac, { driver: 'vz' }
 // makes the experimental vz driver's VM instead of Lima's.
-ipcMain.handle('hostsetup:run', async (_event, options?: Pick<HostSetupOptions, 'vm' | 'cpus' | 'memoryCap' | 'driver'>) => {
+ipcMain.handle('hostsetup:run', async (_event, options?: Pick<HostSetupOptions, 'vm' | 'cpus' | 'memoryCap' | 'driver' | 'krunkit'>) => {
   await runHostSetup((text) => send('hostsetup:output', text), {
     vm: options?.vm === true,
     driver: options?.driver === 'vz' ? 'vz' : undefined,
+    krunkit: options?.krunkit === true,
     cpus: typeof options?.cpus === 'number' ? options.cpus : undefined,
     memoryCap: typeof options?.memoryCap === 'string' ? options.memoryCap : undefined,
     before: stopHostDaemon,
@@ -249,7 +271,7 @@ ipcMain.handle('shell:openPath', (_event, path: string) => shell.openPath(hostPa
 ipcMain.handle('chatFile:open', (_event, path: string, name: string) => openChatFile(path, name));
 ipcMain.handle('shell:showItem', (_event, path: string) => shell.showItemInFolder(hostPath(path)));
 ipcMain.handle('shell:openExternal', async (_event, url: string) => {
-  if (!/^https?:\/\//.test(url)) throw new Error(t('web.main.notAWebAddress', { url }));
+  if (!isSafeExternalUrl(url)) throw new Error(t('web.main.notAWebAddress', { url }));
   await shell.openExternal(url);
 });
 ipcMain.handle('pageThumb:get', (_event, path: string, key: string) => pageThumb(path, key));
@@ -258,6 +280,48 @@ ipcMain.handle('notify:show', (_event, notice: OSNotice) => showNotice(win, noti
 ipcMain.on('clipboard:write', (_event, text: string) => clipboard.writeText(text));
 ipcMain.handle('clipboard:read', () => clipboard.readText());
 installAppUpdates(send);
+
+// Chromium's processes that die (processgone.ts): a window's renderer, the
+// GPU process, the rest. Each is logged and reported once a run; a window
+// whose page went, or that nothing may draw any more, is offered a reload.
+let quitting = false;
+app.on('before-quit', () => (quitting = true));
+const goneSeen = new Set<string>();
+let reloadAsked = false;
+
+function processGone(gone: GoneProcess, window?: BrowserWindow): void {
+  if (!worthReporting(gone, quitting)) return;
+  appLog.processGone(describeGone(gone));
+  if (!goneSeen.has(goneSignature(gone))) {
+    goneSeen.add(goneSignature(gone));
+    void errorReports.send(goneReport(gone, appReportSections().find((s) => s.id === 'app'))).catch(() => {});
+  }
+  if (window && offersReload(gone)) void offerReload(window, gone);
+}
+
+// offerReload asks whether to reload the window, one question at a time.
+async function offerReload(window: BrowserWindow, gone: GoneProcess): Promise<void> {
+  if (reloadAsked || window.isDestroyed()) return;
+  reloadAsked = true;
+  try {
+    const { response } = await dialog.showMessageBox(window, {
+      type: 'warning',
+      title: 'AgentBox',
+      message: gone.process === 'window' ? t('main.windowGone') : t('main.gpuGone'),
+      detail: t('main.goneDetail', { reason: gone.reason, code: String(gone.exitCode) }),
+      buttons: [t('main.reloadWindow'), t('main.notNow')],
+      defaultId: 0,
+      cancelId: 1,
+    });
+    if (response === 0 && !window.isDestroyed()) window.webContents.reload();
+  } finally {
+    reloadAsked = false;
+  }
+}
+
+app.on('child-process-gone', (_event, details) =>
+  processGone({ process: details.type, reason: details.reason, exitCode: details.exitCode, name: details.name ?? details.serviceName }, win),
+);
 
 function createWindow(): void {
   win = new BrowserWindow({
@@ -272,6 +336,8 @@ function createWindow(): void {
     },
   });
   keepWindowState(win);
+  const window = win;
+  win.webContents.on('render-process-gone', (_event, details) => processGone({ process: 'window', reason: details.reason, exitCode: details.exitCode }, window));
   void win.loadFile(join(__dirname, '../renderer/index.html'));
   win.on('closed', () => {
     streams.closeAll();

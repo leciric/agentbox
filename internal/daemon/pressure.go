@@ -151,6 +151,7 @@ func (s *Server) giveZram() {
 // SQLite, Incus or sudo: refreshing the agents as runs change, and watching
 // their memory limits and kills.
 func (s *Server) runPressure(ctx context.Context) {
+	s.loadFleet(ctx)
 	go func() {
 		for {
 			select {
@@ -248,8 +249,16 @@ func (s *Server) stepPressure(ctx context.Context) {
 		}
 		return now.Before(r.Until)
 	})
-	acts := h.g.Step(now, sample)
-	trend := h.g.Trend()
+	// Pausing whole agents (agentfreeze.go) holds their machines instead:
+	// every run starts at once, and none is paused on its own.
+	fleetOn := s.fleetOn()
+	var acts pressure.Actions
+	if fleetOn {
+		acts = h.g.StartAll(now)
+	} else {
+		acts = h.g.Step(now, sample)
+	}
+	trend, why := h.g.Trend(), h.g.Why()
 	type change struct {
 		run      pressure.Run
 		instance string
@@ -295,6 +304,7 @@ func (s *Server) stepPressure(ctx context.Context) {
 			s.logf("memory pressure: pausing %s: %v", c.run.ID(), err)
 			continue
 		}
+		s.countRunPause()
 		// Out to swap, so the paused run doesn't hold the VM's memory. It
 		// takes a while for gigabytes; nothing waits for it.
 		go func(c change) {
@@ -308,6 +318,11 @@ func (s *Server) stepPressure(ctx context.Context) {
 	if len(ended)+len(paused)+len(resumed)+len(acts.Start) > 0 {
 		s.refreshSoon()
 	}
+	if fleetOn {
+		s.stepFleet(ctx, now, sample)
+		why = s.fleetWhyNow()
+	}
+	s.notePressure(now, sample, err == nil, why)
 }
 
 // forget drops what the daemon kept beside a run that went. Under mu.
@@ -382,6 +397,7 @@ func (s *Server) startHeavy(instance string) func(http.ResponseWriter, *http.Req
 		if err != nil {
 			return err
 		}
+		s.wakeIdle(a.Ref())
 		out, err := s.askHeavy(ctx, a.Ref(), instance, key, req.Command, ttl, wait)
 		if err != nil {
 			return err
@@ -396,6 +412,11 @@ func (s *Server) askHeavy(ctx context.Context, ref, instance, key, command strin
 	run, started := h.g.Ask(ref, key, command, ttl, time.Now())
 	id := run.ID()
 	h.instance[id] = instance
+	if !started && s.fleetOn() {
+		// Its machine is what pauses, not the run: it starts now.
+		h.g.StartAll(time.Now())
+		started = true
+	}
 	if started {
 		h.mu.Unlock()
 		return api.HeavyStart{Started: true}, nil
@@ -579,6 +600,9 @@ func (s *Server) endRuns(ctx context.Context, end func(*pressure.Governor) []*pr
 // memoryHold is what the daemon holds of an agent's heavy commands, nil for
 // nothing.
 func (s *Server) memoryHold(ref string) *api.MemoryHold {
+	if held := s.machineHold(ref); held != nil {
+		return held
+	}
 	h := s.heavy
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -602,6 +626,11 @@ func (s *Server) memoryHold(ref string) *api.MemoryHold {
 	}
 	if out.Paused+out.Waiting == 0 {
 		return nil
+	}
+	// Pausing whole agents on, the fleet paused them (the governor only
+	// starts runs): what holds them is what it saw.
+	if s.fleetWhy(&out) {
+		return &out
 	}
 	last, tr := h.g.Last(), h.g.Trend()
 	out.Why = string(h.g.Why())
@@ -645,6 +674,7 @@ func (s *Server) watchMemory(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	s.syncFleet(ctx, agents)
 	limit := agent.MemoryLimit(s.vmMemory())
 	for _, a := range agents {
 		if a.IsLead() || a.Status != state.AgentReady || a.Instance == "" {
@@ -660,12 +690,16 @@ func (s *Server) watchMemory(ctx context.Context) {
 		s.mu.Lock()
 		seen, known := s.oomSeen[a.Instance]
 		s.oomSeen[a.Instance] = now
+		if known && now.Kills > seen.Kills {
+			s.oomAt[a.Instance] = time.Now()
+		}
 		s.mu.Unlock()
 		// The first look at a machine counts what was killed before this
 		// daemon was there to tell anyone.
 		if known && now.Kills > seen.Kills {
 			// Its own limit, when it reached it since; else the VM ran out.
 			own := now.OwnLimit > seen.OwnLimit
+			s.countOOMKills(now.Kills - seen.Kills)
 			go s.tellKilled(context.WithoutCancel(ctx), a, now.Kills-seen.Kills, now.Limit, own)
 		}
 	}

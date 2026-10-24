@@ -308,6 +308,22 @@ func describeAccountMap(m map[string]string) string {
 	return strings.Join(parts, ", ")
 }
 
+// describeAccountSwitch says what switch_agent_account did, in the chat's
+// own words when its chat restarted.
+func describeAccountSwitch(res api.AgentAccountSwitch) string {
+	out := fmt.Sprintf("%s's %s now runs on the account %s.", res.Agent, res.Tool, res.Account)
+	switch {
+	case res.Note != "":
+		out += " Its chat says: " + res.Note
+	default:
+		out += " Its chat wasn't running: the next one starts on it."
+	}
+	if !res.Resumes && res.Note == "" {
+		out += " " + res.Tool + " can't resume a session, so it keeps the old account until its chat starts again, and then starts a new session."
+	}
+	return out
+}
+
 func describeChoices(ai string, model, effort *string, autonomous bool, notify, account string) string {
 	var chosen []string
 	if ai != "" && ai != "claude" {
@@ -873,6 +889,34 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					return fmt.Sprintf("%s is retired (%s). Its work stays on %s.", who.Name, result.How, who.Branch), nil
 				}
 				return "Nothing happened: " + in.Agent + " may not exist.", nil
+			},
+		},
+		{
+			Name: "switch_agent_account",
+			Description: "Move a running agent to another account of its AI tool, keeping its conversation: typically when the " +
+				"account it was on hit its 5-hour or weekly limit and another has room (list_accounts shows their usage). " +
+				"Its machine gets the new login and its chat restarts on it, resuming the same session; one paused on " +
+				"the old account's limit carries on at once. The tool stays the same. Refused while it is mid-turn. " +
+				"Claude Code, Codex and Cursor take account; OpenCode takes opencode_accounts.",
+			Schema: object([]string{"agent"}, map[string]any{
+				"agent":   str("its name, like agent-03"),
+				"account": str("which of its tool's accounts (list_accounts) to move it to; left out, the project's own"),
+				"opencode_accounts": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"},
+					"description": "for an OpenCode agent, provider → account, like {\"anthropic\": \"work\"}; providers left out keep theirs"},
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct {
+					Agent, Account   string
+					OpenCodeAccounts map[string]string `json:"opencode_accounts"`
+				}
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				res, err := c.SwitchAgentAccount(ctx, in.Agent, api.AgentAccountRequest{Account: in.Account, OpenCodeAccounts: in.OpenCodeAccounts})
+				if err != nil {
+					return "", err
+				}
+				return describeAccountSwitch(res), nil
 			},
 		},
 		{
@@ -1498,7 +1542,11 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				if err != nil {
 					return "", err
 				}
-				return describeQuestions(questions), nil
+				secrets, err := c.ProjectSecretNames(ctx)
+				if err != nil {
+					return "", err
+				}
+				return describeQuestions(questions, leadManagedSecrets(secrets)), nil
 			},
 		},
 		{
@@ -1518,6 +1566,28 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					return "", err
 				}
 				return "Answered; the agent is carrying on.", nil
+			},
+		},
+		{
+			Name: "fulfil_credential",
+			Description: "Answer an agent's request for a secret the user marked as managed by you (list_secrets says which), " +
+				"with the value AgentBox has stored for it: the agent gets it in its environment by name, and you never see " +
+				"or send the value. Refresh the value first if it may be stale, the way you keep it fresh, piping it into " +
+				"`agentbox secrets set <project> NAME --value-stdin` (never as an argument, never printed). Refused for any " +
+				"other credential request: those are the user's alone.",
+			Schema: object([]string{"id"}, map[string]any{
+				"id": str("the credential request's id"),
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct{ ID string }
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				out, err := c.LeadFulfilCredential(ctx, in.ID)
+				if err != nil {
+					return "", err
+				}
+				return describeFulfilled(out), nil
 			},
 		},
 		{
@@ -1703,9 +1773,36 @@ func describeSecrets(secrets []api.Secret) string {
 		if s.Scope == "agent" {
 			where = s.Agent + " only"
 		}
+		if s.LeadManaged {
+			where += "; managed by you: you keep it fresh, and may fulfil agents' requests for it (fulfil_credential)"
+		}
 		fmt.Fprintf(&b, "- $%s — %s\n", s.Name, where)
 	}
 	return b.String()
+}
+
+// leadManagedSecrets are the names of the project's secrets its lead keeps
+// fresh.
+func leadManagedSecrets(secrets []api.Secret) map[string]bool {
+	managed := map[string]bool{}
+	for _, s := range secrets {
+		if s.LeadManaged && s.Scope == "project" {
+			managed[s.Name] = true
+		}
+	}
+	return managed
+}
+
+// describeFulfilled is fulfil_credential's answer: who has the secret now,
+// and how old the value they got is. Never the value.
+func describeFulfilled(out api.FulfilCredentialResponse) string {
+	q := out.Question
+	text := fmt.Sprintf("Fulfilled: %s has $%s now, the value stored %s.", q.Agent, q.SecretName, out.ValueSetAt.Format(time.RFC3339))
+	if out.ValueSetAt.Before(q.CreatedAt) {
+		text += " That value was stored before the agent asked: if it asked because the value had expired, refresh it " +
+			"(agentbox secrets set … --value-stdin) and tell the agent to run `. ~/.config/agentbox/env` again."
+	}
+	return text
 }
 
 // describeConnectors is list_connectors' answer.
@@ -1850,12 +1947,17 @@ func describeThread(name string, thread api.ChatThread, last int) string {
 	return b.String()
 }
 
-func describeQuestions(questions []api.Question) string {
+func describeQuestions(questions []api.Question, leadManaged map[string]bool) string {
 	if len(questions) == 0 {
 		return "No agent is waiting on you."
 	}
 	var b strings.Builder
 	for _, q := range questions {
+		if q.Kind == api.CredentialSecret && leadManaged[q.SecretName] {
+			fmt.Fprintf(&b, "- id %s, from %s: asking for %s, which is managed by you: refresh it if needed, then fulfil_credential\n  %s\n",
+				q.ID, q.Agent, credentialWanted(q), q.Question)
+			continue
+		}
 		if q.Kind != "" {
 			// Not the lead's to answer: the user does, in the app, and the value
 			// never passes through a chat (D95).
