@@ -74,9 +74,8 @@ func TestProjectPullRequestsListsAndLinksTheAgentBehindOne(t *testing.T) {
 	}
 	githubRepoStub(t, d, repo)
 	a := addAgent(t, d, repo, "hello-stack", "agent-01", "Reminders page")
-	// The link comes from the agent's commits, never from a branch name: its
-	// work went up as feat/reminders, and an old pull request from a branch
-	// named like the agent's is somebody else's.
+	// The link is the pull request's head branch, or its head at the agent's
+	// tip: its work went up as feat/reminders, at the commit it is on.
 	head := commitOn(t, a, "reminders.txt")
 
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -114,8 +113,8 @@ func TestProjectPullRequestsListsAndLinksTheAgentBehindOne(t *testing.T) {
 		t.Errorf("open pull request = %+v", open)
 	}
 	old := out.PullRequests[1]
-	if old.Agent != "" {
-		t.Errorf("an old pull request from a branch of the same name got linked to the agent: %+v", old)
+	if old.Agent != a.Name {
+		t.Errorf("a pull request from the agent's own branch wasn't linked to it: %+v", old)
 	}
 }
 

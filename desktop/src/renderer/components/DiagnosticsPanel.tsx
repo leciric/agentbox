@@ -17,6 +17,8 @@ import {
 } from '../lib/diagnostics';
 import { formatNumber, useT } from '../lib/i18n';
 import { cn, errorMessage, humanBytes, timeAgo } from '../lib/utils';
+import { useVMPower } from '../lib/vm';
+import { HostFootprint } from './ResourceControls';
 import { Button } from './ui/button';
 import { Notice, Panel } from './ui/card';
 import { Tip } from './ui/tooltip';
@@ -155,8 +157,48 @@ export function DiagnosticsPanel({ version }: { version?: string }) {
         )}
       </Section>
 
+      <PackageCacheSize />
+
+      <OpenFiles />
       <ResourceHistory />
     </div>
+  );
+}
+
+// OpenFiles is virtiofsd's open files against its limit (the shared home on a
+// Linux host, internal/hostvm/chv/share.go), and the daemon's and the VM's.
+function OpenFiles() {
+  const t = useT();
+  const files = useQuery({ queryKey: ['diagnostics', 'files'], queryFn: () => api.diagnosticFiles(), refetchInterval: 5_000 });
+  const d = files.data;
+  const of = (c?: T.FileCount) => (!c ? '…' : c.limit > 0 ? t('diagnostics.files.of', { open: formatNumber(c.open), limit: formatNumber(c.limit) }) : formatNumber(c.open));
+  const share = d?.share;
+  const used = share && share.limit > 0 ? share.open / share.limit : 0;
+  return (
+    <section className="grid min-w-0 gap-2" data-diagnostics-files>
+      <header className="min-w-0">
+        <h3 className="text-[13px] font-semibold text-title">{t('diagnostics.files.title')}</h3>
+        <p className="text-[12px] text-muted">{t('diagnostics.files.description')}</p>
+      </header>
+      {files.error && <Notice>{errorMessage(files.error)}</Notice>}
+      {d?.waiting && <Notice tone="warning">{t('diagnostics.files.waiting')}</Notice>}
+      <Panel className="grid grid-cols-1 divide-y divide-line-faint overflow-hidden sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+        <Stat
+          label={t('diagnostics.files.share')}
+          value={!d ? '…' : share ? of(share) : t('diagnostics.files.none')}
+          tone={used >= 0.7 ? 'danger' : used >= 0.4 ? 'warning' : undefined}
+        />
+        <Stat label={t('diagnostics.files.daemon')} value={of(d?.daemon)} />
+        <Stat label={t('diagnostics.files.system')} value={of(d?.system)} />
+      </Panel>
+      {share && (
+        <p className="text-[12px] text-muted" data-diagnostics-trims>
+          {share.trims > 0 && share.lastTrim
+            ? t('diagnostics.files.trims', { count: formatNumber(share.trims), when: timeAgo(share.lastTrim), pinned: formatNumber(share.pinned) })
+            : t('diagnostics.files.noTrims')}
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -230,6 +272,35 @@ function Section({ title, description, action, children }: { title: string; desc
       </header>
       <Panel className="min-w-0 overflow-hidden">{children}</Panel>
     </section>
+  );
+}
+
+// PackageCacheSize is what the shared package caches (pnpm, npm, Go, Playwright…)
+// hold on the VM's disk, by tool, against the cap set under Settings → Agents.
+function PackageCacheSize() {
+  const t = useT();
+  const cache = useQuery({ queryKey: ['diagnostics', 'package-cache'], queryFn: api.diagnosticPackageCache, refetchInterval: 60_000 });
+  const data = cache.data;
+  return (
+    <Section
+      title={t('diagnostics.pkgcache.title')}
+      description={data?.on === false ? t('diagnostics.pkgcache.off') : t('diagnostics.pkgcache.description', { used: humanBytes(data?.bytes ?? 0), max: humanBytes(data?.maxBytes ?? 0) })}
+    >
+      {cache.error ? (
+        <Empty>{errorMessage(cache.error)}</Empty>
+      ) : data && data.parts.length > 0 ? (
+        <Table headers={[t('diagnostics.pkgcache.tool'), t('diagnostics.pkgcache.size')]} numeric={[1]}>
+          {data.parts.map((p) => (
+            <tr key={p.name}>
+              <Cell name>{p.name}</Cell>
+              <Cell num>{humanBytes(p.bytes)}</Cell>
+            </tr>
+          ))}
+        </Table>
+      ) : (
+        <Empty>{cache.isPending ? t('common.loading') : t('diagnostics.pkgcache.empty')}</Empty>
+      )}
+    </Section>
   );
 }
 
@@ -376,6 +447,7 @@ function ResourceHistory() {
   const vm = resources.data?.vm ?? [];
   const agents = (resources.data?.agents ?? []).filter((a) => a.samples.length > 0);
   const lastVM = vm.at(-1);
+  const power = useVMPower().data;
   return (
     <Section
       title={t('diagnostics.resources.title')}
@@ -415,6 +487,7 @@ function ResourceHistory() {
               bucketMs={bucketMs}
             />
           )}
+          {vm.length > 0 && power && <HostFootprint vm={power} className="block px-4 py-2" />}
           {agents.map((a) => (
             <SeriesRow
               key={a.ref}

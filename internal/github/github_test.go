@@ -13,9 +13,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 
 	"agentbox/internal/github"
+	"agentbox/internal/gitrepo"
 	"agentbox/internal/testutil"
 )
 
@@ -171,6 +173,19 @@ func TestRepoOf(t *testing.T) {
 	repo, err := github.RepoOf(root)
 	if err != nil || repo.String() != "acme/pawly" {
 		t.Errorf("RepoOf() = %q, %v; want acme/pawly", repo, err)
+	}
+	if _, err := github.RepoOf(filepath.Join(root, "gone")); !errors.Is(err, github.ErrNoRepo) {
+		t.Errorf("RepoOf() of a missing directory = %v, want ErrNoRepo", err)
+	}
+	// Git failing to read the remote (ENFILE, EMFILE, anything) says nothing
+	// about whether there is one.
+	for _, fault := range []error{syscall.ENFILE, syscall.EMFILE, errors.New("fatal: bad config line 1")} {
+		undo := gitrepo.FailUnder(root, fault)
+		_, err := github.RepoOf(root)
+		undo()
+		if err == nil || errors.Is(err, github.ErrNoRepo) {
+			t.Errorf("RepoOf() with %v = %v, want an error that isn't ErrNoRepo", fault, err)
+		}
 	}
 }
 
