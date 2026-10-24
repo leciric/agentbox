@@ -156,6 +156,8 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
   web: true,
   lan,
   keepAwake: async () => {},
+  // A browser has no tray.
+  tray: { settings: async () => null, set: unavailable('web.bridge.tray'), reviewing: () => {}, onOpen: () => () => {} },
   request: async (method: string, path: string, body?: unknown): Promise<ApiResponse> => {
     const res = await fetch(apiBase() + path, {
       method,

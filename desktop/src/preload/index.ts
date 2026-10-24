@@ -4,6 +4,8 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import type * as T from '../shared/api';
 import type { AppUpdateProgress, AppUpdateResult, AppUpdateSupport } from '../shared/appupdate';
+import type { TraySettings } from '../main/tray';
+import type { TrayTarget } from '../main/traymodel';
 
 export interface ApiResponse {
   status: number;
@@ -115,6 +117,11 @@ export interface VMPower {
   driver?: 'wsl';
 }
 
+// TrayOpenTarget is where a tray menu entry points (main/traymodel.ts),
+// a pull request aside, which the main process opens in the browser itself.
+export type TrayOpenTarget = Exclude<TrayTarget, { kind: 'url' }>;
+export type { TraySettings };
+
 export type VMPowerState = 'off' | 'starting' | 'running' | 'pausing' | 'paused' | 'resuming' | 'stopping';
 export type VMPowerAction = 'start' | 'pause' | 'resume' | 'stop';
 
@@ -179,6 +186,21 @@ function listen<A extends unknown[]>(channel: string, fn: (...args: A) => void):
 const bridge = {
   // Holds the system awake (not the display) while on: agents are at work.
   keepAwake: (on: boolean): Promise<void> => ipcRenderer.invoke('keepawake:set', on),
+  // The tray icon (main/tray.ts): whether closing the window keeps AgentBox
+  // running there (null where there's no tray, the web app), and whether
+  // this computer reviews finished agents, which its count leaves out when
+  // not. onOpen gets where a tray menu entry points, including one clicked
+  // before this window was made.
+  tray: {
+    settings: (): Promise<TraySettings | null> => ipcRenderer.invoke('tray:settings'),
+    set: (next: Partial<TraySettings>): Promise<TraySettings> => ipcRenderer.invoke('tray:set', next),
+    reviewing: (on: boolean) => ipcRenderer.send('tray:reviewing', on),
+    onOpen: (fn: (target: TrayOpenTarget) => void) => {
+      const off = listen('tray:open', fn);
+      void ipcRenderer.invoke('tray:take').then((target: TrayOpenTarget | null) => target && fn(target));
+      return off;
+    },
+  },
   request: (method: string, path: string, body?: unknown): Promise<ApiResponse> =>
     ipcRenderer.invoke('api:request', method, path, body),
   connection: (): Promise<ConnectionState> => ipcRenderer.invoke('daemon:connection'),
