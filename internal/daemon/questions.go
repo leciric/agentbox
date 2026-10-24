@@ -437,6 +437,7 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, end cha
 	case verdictFailed:
 		s.markToldWaiting(a, false)
 		s.setOutcome(a, api.AgentOutcomeFailed, note)
+		s.pushFailed(a, note)
 		if end.Lost {
 			return // agentLost says so, with the exit status
 		}
@@ -522,6 +523,7 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, end cha
 	s.setOutcome(a, ev.Outcome, "")
 	ev = s.record(ctx, ev)
 	s.captureAgentFinished(ctx, a, changes, pr, ev.Summary)
+	s.pushFinished(a, ev)
 	if pr != nil {
 		s.setupStep(ctx, setupFirstPR)
 	}

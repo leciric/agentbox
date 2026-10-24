@@ -44,7 +44,7 @@ var tsTypes = []any{
 	AndroidStatus{}, AndroidStartRequest{}, AndroidInstallRequest{}, AndroidInstallResult{},
 	HubUser{}, HubSignupRequest{}, HubLoginRequest{}, HubSession{}, HubEnvironment{}, HubCreateEnvironmentRequest{}, HubEnvironmentToken{},
 	RemoteStatus{}, RemoteConnectRequest{}, UsageStatsPending{},
-	LANStatus{}, LANTunnel{}, LANPhone{}, UpdateLANRequest{}, LANPairing{}, LANHostReport{}, LANPairRequest{}, LANSession{}, UpdateLANPhoneRequest{}, LANAuditEntry{}, LANAudit{},
+	LANStatus{}, LANTunnel{}, LANPhone{}, PhonePush{}, PhonePushTest{}, UpdateLANRequest{}, LANPairing{}, LANHostReport{}, LANPairRequest{}, LANSession{}, UpdateLANPhoneRequest{}, LANAuditEntry{}, LANAudit{},
 	ChatThread{}, ChatSearch{}, ChatSearchHit{}, ChatSnippetPart{}, ChatSession{}, ChatOption{}, ChatOptionChoice{}, ChatCommand{}, ChatItem{}, ChatTool{}, ChatPage{}, ChatDiff{}, ChatPlanEntry{},
 	ChatPermission{}, ChatPermissionOption{}, ChatSubagent{}, ChatCompaction{}, ChatProjectMessage{}, ChatScheduledRun{}, Schedule{}, ScheduleRun{}, ScheduleRequest{}, ScheduleChange{}, ChatAgentPermission{}, ChatTurnResult{}, ChatMessageRequest{}, ChatImage{}, ChatImageUpload{}, ChatFile{}, ChatFileUpload{}, ChatAnswerRequest{}, ChatOptionRequest{}, ChatEvent{}, ChatAppend{}, ProjectChat{}, ChatLine{}, ChatCache{}, ChatCacheChoice{}, LeadRunners{}, LeadRunner{}, LeadRunnerRequest{}, LeadAccount{},
 	MemoryEvent{}, AddMemoryEventRequest{}, Memory{}, AddMemoryRequest{}, MemorySearchRequest{}, MemorySearchResults{},
@@ -63,6 +63,7 @@ var tsTypes = []any{
 var tsConstants = [][2]string{
 	{"JobRunning", JobRunning}, {"JobSucceeded", JobSucceeded}, {"JobFailed", JobFailed}, {"JobCancelled", JobCancelled},
 	{"EventJob", EventJob}, {"EventJobLog", EventJobLog}, {"EventAgent", EventAgent}, {"EventUsage", EventUsage}, {"EventProject", EventProject}, {"EventMedia", EventMedia}, {"EventNotification", EventNotification}, {"EventNotificationsSeen", EventNotificationsSeen}, {"NotifyQuestion", NotifyQuestion}, {"NotifyMedia", NotifyMedia}, {"EventPulls", EventPulls}, {"EventTheme", EventTheme}, {"EventUpdate", EventUpdate}, {"EventDisk", EventDisk}, {"DiskOK", DiskOK}, {"DiskLow", DiskLow}, {"DiskFull", DiskFull}, {"EventLAN", EventLAN}, {"EventSnap", EventSnap}, {"EventFiles", EventFiles},
+	{"PushFinished", PushFinished}, {"PushNeedsYou", PushNeedsYou}, {"PushPRReady", PushPRReady}, {"PushCIFailed", PushCIFailed},
 	{"FileModified", FileModified}, {"FileAdded", FileAdded}, {"FileDeleted", FileDeleted}, {"FileUntracked", FileUntracked},
 	{"SetupOK", SetupOK}, {"SetupMissing", SetupMissing}, {"SetupOutdated", SetupOutdated}, {"SetupOptional", SetupOptional}, {"SetupUpdating", SetupUpdating}, {"SetupBuilding", SetupBuilding},
 	{"ImageBuildIdle", ImageBuildIdle}, {"ImageBuilding", ImageBuilding}, {"ImageBuildFailed", ImageBuildFailed},

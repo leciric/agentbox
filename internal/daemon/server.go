@@ -219,6 +219,7 @@ type Server struct {
 	imageWaiters    int               // jobs waiting for the base image to be built (imagebuild.go)
 	remote          *remote.Connector // the connection to a hub, when this machine is an environment
 	lan             *lanState         // phones chatting from the local network or a tunnel (lan.go)
+	phonePush       phonePushState    // push notifications to the phones' app (phonepush.go)
 	// connectorsGiven is whether each connector was last given to agents,
 	// by scope and name, so only a change to that rewrites their MCP
 	// servers (connectors.go).

@@ -475,7 +475,11 @@ func (s *Server) prBroken(ctx context.Context, p state.Project, repo github.Repo
 		"number": pr.Number, "url": pr.URL, "problems": problems, "head": pr.HeadSHA,
 	}, "")
 	a, err := s.store.Agent(ctx, p.Name, row.Agent)
-	if err != nil || (row.AgentID != "" && a.ID != "" && a.ID != row.AgentID) {
+	gone := err != nil || (row.AgentID != "" && a.ID != "" && a.ID != row.AgentID)
+	if slices.Contains(problems, prChecks) {
+		s.pushChecksFailed(p.Name, row.Agent, a.Title, !gone, pr.Number, failingNames(pr))
+	}
+	if gone {
 		s.prLead(ctx, p.Name, fmt.Sprintf(
 			"AgentBox's pull request watch: PR #%d (%s) %s. The agent that opened it, %s, is gone: decide who fixes it — an agent of its own, or the user — and say so in a line.",
 			pr.Number, pr.URL, what, row.Agent), true)

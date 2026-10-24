@@ -568,6 +568,8 @@ func (s *Server) lanHandler(via lanVia) http.Handler {
 			http.SetCookie(w, &http.Cookie{Name: lanCookie, Path: "/", MaxAge: -1, HttpOnly: true, Secure: via == lanViaTunnel, SameSite: http.SameSiteStrictMode})
 			s.publishLAN(r.Context())
 			w.WriteHeader(http.StatusNoContent)
+		case r.URL.Path == "/lan/push" || r.URL.Path == "/lan/push/test":
+			s.lanPush(w, r, addr)
 		case strings.HasPrefix(r.URL.Path, "/api/"):
 			s.lanAPI(w, r, addr)
 		default:

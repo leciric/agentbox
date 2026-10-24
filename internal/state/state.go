@@ -1309,6 +1309,18 @@ var migrations = []string{
 		resolved_at INTEGER NOT NULL DEFAULT 0
 	)`,
 	`CREATE INDEX review_notes_agent ON review_notes (project, agent)`,
+	// A paired phone's push notifications (phonepush.go): its Expo push
+	// token, what it wants pushed, and its quiet hours, in minutes after
+	// midnight in its own time zone. Gone with the phone.
+	`CREATE TABLE phone_push (
+		phone_id   TEXT PRIMARY KEY REFERENCES phones(id) ON DELETE CASCADE,
+		token      TEXT NOT NULL,
+		kinds      TEXT NOT NULL,
+		quiet_from INTEGER NOT NULL DEFAULT 0,
+		quiet_to   INTEGER NOT NULL DEFAULT 0,
+		time_zone  TEXT NOT NULL DEFAULT '',
+		updated_at INTEGER NOT NULL
+	)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
