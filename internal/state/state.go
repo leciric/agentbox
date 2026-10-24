@@ -1309,6 +1309,24 @@ var migrations = []string{
 		resolved_at INTEGER NOT NULL DEFAULT 0
 	)`,
 	`CREATE INDEX review_notes_agent ON review_notes (project, agent)`,
+	// Event triggers (schedules.go, kind 'event'): the event a schedule runs
+	// on and, for issue_labeled, the label; on each run, the event it ran
+	// for, in a line (event) and where to see it (event_url). schedule_events
+	// is every event a trigger has seen, by a key naming it (ci:<sha>,
+	// review:<number>, issue:<number>, pr:<number>), so one event fires once:
+	// fired is 0 for what was already there when the trigger first looked.
+	`ALTER TABLE schedules ADD COLUMN event TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE schedules ADD COLUMN event_label TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE schedule_runs ADD COLUMN event TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE schedule_runs ADD COLUMN event_url TEXT NOT NULL DEFAULT ''`,
+	`CREATE TABLE schedule_events (
+		schedule TEXT NOT NULL,
+		key      TEXT NOT NULL,
+		project  TEXT NOT NULL,
+		fired    INTEGER NOT NULL DEFAULT 0,
+		seen_at  INTEGER NOT NULL,
+		PRIMARY KEY (schedule, key)
+	)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -1971,6 +1989,7 @@ var projectOwned = []string{
 	// Its scheduled tasks and what they did (schedules.go).
 	"schedules",
 	"schedule_runs",
+	"schedule_events",
 }
 
 // peerOwned is the tables that also name a project as peer: the other side

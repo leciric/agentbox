@@ -39,6 +39,9 @@ import (
 // It speaks only on a transition, never twice for the same state, and what it
 // last saw is kept in the database (state.PRWatch) so a restart doesn't
 // announce every broken pull request again.
+//
+// The same look serves the project's event triggers (eventtriggers.go), which
+// run whether or not the watch itself is on.
 
 const (
 	// prWatchTick is how often the loop looks for a repository that is due.
@@ -207,28 +210,33 @@ func (s *Server) pollPRWatch(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		if !s.prWatchOn(ctx, p) {
+		on := s.prWatchOn(ctx, p)
+		triggers, opts := s.eventTriggers(ctx, p.Name)
+		if !on {
 			// Turned off: what it saw is forgotten with it, so turning it on
 			// again starts from what is true then.
-			s.prWatch.forget(p.Name)
 			if err := s.store.ForgetPRWatches(ctx, p.Name); err != nil {
 				s.logf("pull request watch in %s: %v", p.Name, err)
 			}
-			continue
+			if len(triggers) == 0 {
+				s.prWatch.forget(p.Name)
+				continue
+			}
 		}
 		r := s.prWatch.repo(p.Name)
 		s.prWatch.mu.Lock()
 		due := !s.prWatch.now().Before(r.next)
 		s.prWatch.mu.Unlock()
 		if due {
-			s.watchProject(ctx, p, r)
+			s.watchProject(ctx, p, r, on, triggers, opts)
 		}
 	}
 }
 
 // watchProject is one look at a project's repository, and what follows from
-// it.
-func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo) {
+// it: for its agents' pull requests when watchPRs, and for its event
+// triggers.
+func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo, watchPRs bool, triggers []state.Schedule, opts github.WatchOptions) {
 	now := s.prWatch.now()
 	schedule := func(next time.Time, interval time.Duration, live map[int]github.WatchedPR) {
 		s.prWatch.mu.Lock()
@@ -243,11 +251,13 @@ func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo) {
 		schedule(now.Add(prWatchIdle), 0, map[int]github.WatchedPR{})
 		return
 	}
-	rows, err := s.store.PRWatches(ctx, p.Name)
-	if err != nil {
-		s.logf("pull request watch in %s: %v", p.Name, err)
-		schedule(now.Add(prWatchIdle), 0, nil)
-		return
+	var rows []state.PRWatch
+	if watchPRs {
+		if rows, err = s.store.PRWatches(ctx, p.Name); err != nil {
+			s.logf("pull request watch in %s: %v", p.Name, err)
+			schedule(now.Add(prWatchIdle), 0, nil)
+			return
+		}
 	}
 	agents, err := s.store.Agents(ctx, p.Name)
 	if err != nil {
@@ -256,9 +266,9 @@ func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo) {
 		return
 	}
 	heads := agentHeads(p.Root, agents)
-	if len(rows) == 0 && !slices.ContainsFunc(heads, func(h agentHead) bool { return h.tip != "" }) {
-		// No agent has anything of its own that could be in a pull request:
-		// nothing to ask GitHub.
+	if len(triggers) == 0 && len(rows) == 0 && !slices.ContainsFunc(heads, func(h agentHead) bool { return h.tip != "" }) {
+		// No agent has anything of its own that could be in a pull request,
+		// and no trigger waits for anything: nothing to ask GitHub.
 		schedule(now.Add(prWatchIdle), 0, map[int]github.WatchedPR{})
 		return
 	}
@@ -267,7 +277,7 @@ func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo) {
 	for i, row := range rows {
 		numbers[i] = row.Number
 	}
-	watch, err := client.WatchPullRequests(ctx, repo, numbers)
+	watch, err := client.WatchRepository(ctx, repo, numbers, opts)
 	if err != nil {
 		var limited *github.RateLimitError
 		if errors.As(err, &limited) {
@@ -312,7 +322,7 @@ func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo) {
 		ids[a.Name] = a.ID
 	}
 	for _, pr := range watch.Open {
-		if _, ok := followed[pr.Number]; ok {
+		if _, ok := followed[pr.Number]; ok || !watchPRs {
 			continue
 		}
 		for _, h := range heads {
@@ -374,6 +384,9 @@ func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo) {
 	default:
 		interval = min(prWatchIdle, interval*2)
 	}
+	if len(triggers) > 0 {
+		interval = min(interval, eventTriggerEvery)
+	}
 	next := now.Add(interval)
 	if watch.Remaining >= 0 && watch.Remaining < prWatchLowBudget && watch.Reset.After(next) {
 		// Little left of the account's budget: leave it to the user and their
@@ -381,6 +394,7 @@ func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo) {
 		next = watch.Reset
 	}
 	schedule(next, interval, live)
+	s.fireEventTriggers(ctx, p, repo, triggers, watch, heads)
 	if ended {
 		// What the project remembers as waiting on it may be over too.
 		s.closeAnchoredSoon(p.Name)
