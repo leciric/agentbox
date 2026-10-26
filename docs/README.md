@@ -50,6 +50,10 @@ flowchart LR
 
 ## Pages
 
+- [Installing AgentBox](install.md) — AgentBox's VM on Linux and how its agents share memory,
+  moving an installation from before the VM, and macOS and Windows.
+- [What AgentBox sends](privacy.md) — the update check, anonymous usage stats and events, and
+  problem reports: every field, and how to turn each off.
 - [Architecture](architecture.md) — the daemon, the API over a unix socket, the CLI, the desktop
   thin client, and the `state.db` schema.
 - [An agent's lifecycle](agent-lifecycle.md) — `agentbox create` end to end: the Incus container,

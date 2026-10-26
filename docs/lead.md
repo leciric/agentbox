@@ -73,7 +73,11 @@ flowchart TB
 **Accounts and secrets**
 - `list_accounts` — Claude/GitHub accounts available to the project, and their current usage
   limits (see [The token ledger](tokens.md)).
-- `list_secrets` — which secrets exist for the project or an agent (not their values).
+- `list_secrets` — which secrets exist for the project or an agent (not their values), and which
+  of them the lead manages.
+- `fulfil_credential` — answer an agent's request for a secret marked "managed by the lead", with the
+  value AgentBox has stored for it. The lead names the request and never sees or sends the value;
+  any other credential request stays the user's.
 
 Two further MCP servers exist for an agent's own AI tool, not the lead's:
 

@@ -214,7 +214,7 @@ func tailOf(out string) string {
 func chatRun(sc state.Schedule, run state.ScheduleRun) api.ChatScheduledRun {
 	out := api.ChatScheduledRun{
 		Schedule: sc.ID, Run: run.ID, Title: sc.Title, Trigger: run.Trigger,
-		Late: run.Late, Missed: run.Missed, Target: sc.Target, Agent: run.Agent,
+		Late: run.Late, Missed: run.Missed, Target: sc.Target, Agent: run.Agent, Event: run.Event, EventURL: run.EventURL,
 	}
 	if !run.DueAt.IsZero() {
 		due := run.DueAt
@@ -331,6 +331,8 @@ func scheduleNotice(sc state.Schedule, run state.ScheduleRun, when string) strin
 	switch {
 	case run.Trigger == state.ScheduleTriggerManual:
 		b.WriteString("was run by hand just now.")
+	case run.Trigger == state.ScheduleTriggerEvent:
+		fmt.Fprintf(&b, "fired: %s.", run.Event)
 	case run.Late:
 		fmt.Fprintf(&b, "runs now, late: it was due at %s, while AgentBox wasn't running.", run.DueAt.Format(time.RFC3339))
 		if run.Missed > 0 {
@@ -346,6 +348,12 @@ func scheduleNotice(sc state.Schedule, run state.ScheduleRun, when string) strin
 			fmt.Fprintf(&b, " An agent is being created for it (job %s), with the task below as its first message; you hear when it finishes. Nothing to do now.", run.Job)
 		}
 		b.WriteString("\n\nThe task:\n\n" + sc.Task)
+		return b.String()
+	}
+	if run.Trigger == state.ScheduleTriggerEvent {
+		b.WriteString(" The user set it up for you to do when this happens, as if they were asking you now:\n\n" + sc.Task +
+			"\n\nDo it now. If it no longer makes sense (dealt with already), say so briefly instead. " +
+			"edit_schedule, pause_schedule and delete_schedule change it when the user asks.")
 		return b.String()
 	}
 	b.WriteString(" The user set it up for you to do at this time, as if they were asking you now:\n\n" + sc.Task +
@@ -370,7 +378,7 @@ func (s *Server) scheduleSpec(ctx context.Context, sc state.Schedule) (schedule.
 	if err != nil {
 		return schedule.Spec{}, err
 	}
-	return schedule.Spec{Kind: sc.Kind, At: sc.At, Every: sc.Every, Cron: sc.Cron, Location: loc}, nil
+	return schedule.Spec{Kind: sc.Kind, At: sc.At, Every: sc.Every, Cron: sc.Cron, Location: loc, Event: sc.Event, Label: sc.EventLabel}, nil
 }
 
 func (s *Server) describeSchedule(ctx context.Context, sc state.Schedule) string {
@@ -458,7 +466,20 @@ func (s *Server) applyScheduleRequest(ctx context.Context, sc *state.Schedule, r
 		return err
 	}
 	set := func(p *string) bool { return p != nil && text(p) != "" }
-	if set(req.At) || set(req.In) || set(req.Every) || set(req.Cron) {
+	if set(req.On) {
+		if set(req.At) || set(req.In) || set(req.Every) || set(req.Cron) {
+			return errors.New("an event trigger runs when its event happens: leave at, in, every and cron out")
+		}
+		timing = true
+		sc.Kind, sc.Event, sc.At, sc.Every, sc.Cron = schedule.OnEvent, strings.ReplaceAll(text(req.On), "-", "_"), time.Time{}, 0, ""
+		if sc.Event != schedule.EventIssueLabeled {
+			sc.EventLabel = ""
+		}
+	}
+	if req.Label != nil && sc.Kind == schedule.OnEvent && sc.Event == schedule.EventIssueLabeled {
+		sc.EventLabel, timing = text(req.Label), true
+	}
+	if !set(req.On) && (set(req.At) || set(req.In) || set(req.Every) || set(req.Cron)) {
 		timing = true
 		var at time.Time
 		if set(req.At) && set(req.In) {
@@ -490,19 +511,19 @@ func (s *Server) applyScheduleRequest(ctx context.Context, sc *state.Schedule, r
 			if at.IsZero() {
 				at = now.Add(d)
 			}
-			sc.Kind, sc.Every, sc.At, sc.Cron = schedule.Every, d, at, ""
+			sc.Kind, sc.Every, sc.At, sc.Cron, sc.Event, sc.EventLabel = schedule.Every, d, at, "", "", ""
 		default:
-			sc.Kind, sc.At, sc.Every, sc.Cron = schedule.Once, at, 0, ""
+			sc.Kind, sc.At, sc.Every, sc.Cron, sc.Event, sc.EventLabel = schedule.Once, at, 0, "", "", ""
 		}
-	} else if creating {
-		return errors.New("say when it runs: at a time, in a while, every so often, or on a cron expression")
+	} else if creating && !set(req.On) {
+		return errors.New("say when it runs: at a time, in a while, every so often, on a cron expression, or on an event")
 	}
 	unpaused := req.Paused != nil && !*req.Paused && sc.Paused
 	if req.Paused != nil {
 		sc.Paused = *req.Paused
 	}
 	if timing || unpaused || creating {
-		spec := schedule.Spec{Kind: sc.Kind, At: sc.At, Every: sc.Every, Cron: sc.Cron, Location: loc}
+		spec := schedule.Spec{Kind: sc.Kind, At: sc.At, Every: sc.Every, Cron: sc.Cron, Location: loc, Event: sc.Event, Label: sc.EventLabel}
 		if err := spec.Check(); err != nil {
 			return err
 		}
@@ -539,7 +560,7 @@ func titleFrom(task string) string {
 func toAPIScheduleRun(r state.ScheduleRun, title string) api.ScheduleRun {
 	out := api.ScheduleRun{
 		ID: r.ID, Schedule: r.Schedule, Title: title, Trigger: r.Trigger, RanAt: r.RanAt, Late: r.Late, Missed: r.Missed,
-		Outcome: r.Outcome, Agent: r.Agent, Job: r.Job, ChatItem: r.ChatItem, Error: r.Error,
+		Outcome: r.Outcome, Agent: r.Agent, Job: r.Job, ChatItem: r.ChatItem, Error: r.Error, Event: r.Event, EventURL: r.EventURL,
 	}
 	if !r.DueAt.IsZero() {
 		due := r.DueAt
@@ -550,7 +571,7 @@ func toAPIScheduleRun(r state.ScheduleRun, title string) api.ScheduleRun {
 
 func (s *Server) toAPISchedule(ctx context.Context, sc state.Schedule, runs []state.ScheduleRun) api.Schedule {
 	out := api.Schedule{
-		ID: sc.ID, Project: sc.Project, Title: sc.Title, Task: sc.Task, Kind: sc.Kind, EveryMinutes: int(sc.Every / time.Minute),
+		ID: sc.ID, Project: sc.Project, Title: sc.Title, Task: sc.Task, Kind: sc.Kind, Event: sc.Event, EventLabel: sc.EventLabel, EveryMinutes: int(sc.Every / time.Minute),
 		Cron: sc.Cron, Timezone: sc.Timezone, Describe: s.describeSchedule(ctx, sc), Target: sc.Target,
 		Session: sc.Session, Model: sc.Model, Effort: sc.Effort, Precheck: sc.Precheck, GraceMinutes: int(sc.Grace / time.Minute),
 		Paused: sc.Paused, CreatedBy: sc.CreatedBy, CreatedAt: sc.CreatedAt, UpdatedAt: sc.UpdatedAt,
@@ -634,11 +655,20 @@ func (s *Server) updateSchedule(w http.ResponseWriter, r *http.Request) error {
 	if err := readJSON(r, &req); err != nil {
 		return err
 	}
+	was := sc
 	if err := s.applyScheduleRequest(r.Context(), &sc, req, nowMilli(), false); err != nil {
 		return err
 	}
 	if err := s.store.UpdateSchedule(r.Context(), sc); err != nil {
 		return err
+	}
+	if was.Kind != sc.Kind || was.Event != sc.Event || was.EventLabel != sc.EventLabel || (was.Paused && !sc.Paused) {
+		// Waiting for something else now, or back from a pause: it starts
+		// again from what is true now, rather than firing for all that
+		// happened meanwhile.
+		if err := s.store.ForgetScheduleEvents(r.Context(), sc.ID, nil); err != nil {
+			return err
+		}
 	}
 	s.scheduleChanged(r.Context(), sc, "schedule_changed")
 	runs, _ := s.store.ScheduleRuns(r.Context(), sc.Project, sc.ID, maxScheduleRuns)
@@ -695,6 +725,10 @@ func (s *Server) listScheduleRuns(w http.ResponseWriter, r *http.Request) error 
 func (s *Server) scheduleChanged(ctx context.Context, sc state.Schedule, event string) {
 	s.events.publish(api.EventSchedule, api.ScheduleChange{Project: sc.Project})
 	s.kickSchedules()
+	if sc.Kind == schedule.OnEvent {
+		// Its first look, which takes what is there already as seen, soon.
+		s.prWatch.poke(sc.Project)
+	}
 	s.captureEvent(ctx, sc.Project, "", event, map[string]any{
 		"schedule": sc.ID, "title": sc.Title, "when": s.describeSchedule(ctx, sc), "target": sc.Target, "paused": sc.Paused,
 	}, "")

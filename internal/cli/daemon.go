@@ -44,6 +44,7 @@ func newDaemonCmd(a *app) *cobra.Command {
 				PreviewAddr: os.Getenv("AGENTBOX_PREVIEW_ADDR"),
 				TraceDir:    filepath.Dir(a.paths.StateDB()),
 				FetchImage:  hostos.InVM(),
+				CrashOutput: true,
 			})
 			if err != nil {
 				return err

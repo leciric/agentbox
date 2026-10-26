@@ -2,6 +2,7 @@
 import type { ApiResponse } from '../../preload';
 import * as T from '../../shared/api.ts';
 import { recordRequest, clientSpansPath } from './appTiming.ts';
+import { recapQuery } from './recap.ts';
 import type * as D from './diagnostics.ts';
 import { errorMessage } from './utils.ts';
 import { ensureVMRunning } from './vm.ts';
@@ -173,6 +174,8 @@ export const api = {
   reportDraft: (req: T.ReportDraftRequest) => call<T.ReportDraft>('POST', '/v1/reports/draft', req),
   sendReport: (req: T.ReportRequest) => call<T.ReportSent>('POST', '/v1/reports', req),
   tokens: (q: TokenQuery) => call<T.TokenReport>('GET', `/v1/tokens${tokenParams(q)}`),
+  // The user's week with AgentBox (components/RecapView): this one, or weeks before.
+  recap: (weeks: number) => call<T.Recap>('GET', recapQuery(weeks)),
   claudeLimits: () => call<T.ClaudeLimit[]>('GET', '/v1/limits'),
   codexLimits: () => call<T.ClaudeLimit[]>('GET', '/v1/limits?tool=codex'),
   tokenTurns: (q: TokenQuery, limit = 100) => call<T.TokenTurn[]>('GET', `/v1/tokens/turns${tokenParams(q, { limit: String(limit) })}`),
@@ -239,6 +242,11 @@ export const api = {
   destroyAgent: (ref: string, force: boolean, deleteBranch: boolean, deleteMedia: boolean) =>
     call<void>('DELETE', `${agent(ref)}?force=${force}&deleteBranch=${deleteBranch}&deleteMedia=${deleteMedia}`),
   agentDisk: (ref: string) => call<T.AgentDisk>('GET', `${agent(ref)}/disk`),
+  // The agents holding a stopped machine, in project or every project; check
+  // adds what "remove stopped agents' machines" would do with each.
+  stoppedMachines: (project: string, check: boolean) =>
+    call<T.StoppedMachines>('GET', `/v1/stopped-machines?${new URLSearchParams({ ...(project && { project }), ...(check && { check: '1' }) })}`),
+  removeStopped: (agents: string[]) => call<T.RemoveStoppedResult>('POST', '/v1/stopped-machines/remove', { agents } satisfies T.RemoveStoppedRequest),
   agentCredential: (ref: string) => call<T.ToolCredential>('GET', `${agent(ref)}/credential`),
   agentAction: async (ref: string, action: AgentAction) => {
     if (action === 'start' || action === 'resume') await ensureVMRunning();
@@ -262,6 +270,8 @@ export const api = {
     return call<T.ArchivedAgent[]>('GET', `/v1/archived-agents${query ? `?${query}` : ''}`);
   },
   archivedAgent: (ref: string) => call<T.ArchivedAgent>('GET', archived(ref)),
+  // archivedDiff is a past agent's whole diff, its kept branch against where it started.
+  archivedDiff: (ref: string) => text('GET', `${archived(ref)}/diff`),
   deleteArchived: (ref: string) => call<void>('DELETE', archived(ref)),
   deleteArchivedMany: (refs: string[]) => call<T.DeleteArchivedResult>('POST', '/v1/archived-agents/delete', { refs } satisfies T.DeleteArchivedRequest),
   continueArchived: async (ref: string, req: T.ContinueArchivedRequest) => {
@@ -302,6 +312,10 @@ export const api = {
   // project's name, or T.HomeProject for the Home chat.
   chatRunners: (name: string) => call<T.LeadRunners>('GET', `${project(name)}/chat/runners`),
   setChatRunner: (name: string, req: T.LeadRunnerRequest) => call<T.ChatSession>('PUT', `${project(name)}/chat/runner`, req),
+  // An agent's composer moves it to another account of its own tool, at
+  // once, in the lead's shapes (an agent's tool can't change).
+  agentRunners: (ref: string) => call<T.LeadRunners>('GET', `${chatBase(ref)}/runners`),
+  setAgentRunner: (ref: string, req: T.LeadRunnerRequest) => call<T.ChatSession>('PUT', `${chatBase(ref)}/runner`, req),
   // A project chat's prompt cache, and the card that asks before a message
   // re-sends a context whose cache is about to expire (or has).
   chatCache: (name: string) => call<T.ChatCache>('GET', `${project(name)}/chat/cache`),
@@ -342,6 +356,8 @@ export const api = {
   secrets: (target: string) => call<T.Secret[]>('GET', secretsBase(target)),
   setSecret: (target: string, name: string, value: string) =>
     call<T.Secret>('PUT', `${secretsBase(target)}/${encodeURIComponent(name)}`, { value } satisfies T.SetSecretRequest),
+  setSecretLeadManaged: (project: string, name: string, leadManaged: boolean) =>
+    call<T.Secret>('PATCH', `${secretsBase(project)}/${encodeURIComponent(name)}`, { leadManaged } satisfies T.SecretSettingsRequest),
   removeSecret: (target: string, name: string) => call<void>('DELETE', `${secretsBase(target)}/${encodeURIComponent(name)}`),
 
   // A project's browser cookies, imported from an export the user made: the
@@ -413,6 +429,9 @@ export const api = {
   readyToReviewPage: (query: URLSearchParams, name?: string) => page<T.ReviewPage>(`${name ? `${project(name)}/review` : '/v1/review'}?${query}`),
   // Reviewed: the agents already looked at or dismissed, the latest first.
   reviewedPage: (query: URLSearchParams, name?: string) => page<T.ReviewPage>(`${name ? `${project(name)}/review` : '/v1/review'}?reviewed=1&${query}`),
+  // Work: every agent's work, live and past, of a project or every one,
+  // newest first, a page at a time (query: filter, q, limit, cursor).
+  workPage: (query: URLSearchParams, name?: string) => page<T.WorkPage>(`${name ? `${project(name)}/work` : '/v1/work'}?${query}`),
   review: (ref: string, req: T.ReviewRequest) => call<void>('POST', `${agent(ref)}/review`, req),
   requestChanges: (ref: string, req: T.RequestChangesRequest) => call<T.ChatItem>('POST', `${agent(ref)}/request-changes`, req),
   // Notes on lines of an agent's diff, drafts until Request changes sends them.
@@ -437,6 +456,10 @@ export const api = {
   // daemon's cache: the tab's refresh button.
   projectPullRequests: (project: string, refresh = false) =>
     call<T.ProjectPullRequests>('GET', `/v1/projects/${encodeURIComponent(project)}/pulls${refresh ? '?refresh=1' : ''}`),
+  // A project repository's open issues, each with the agent it was handed to;
+  // refresh reads GitHub now. Handing one over is createAgent with its issue.
+  projectIssues: (project: string, refresh = false) =>
+    call<T.ProjectIssues>('GET', `/v1/projects/${encodeURIComponent(project)}/issues${refresh ? '?refresh=1' : ''}`),
   projectLabels: (project: string) => call<T.ProjectLabels>('GET', `/v1/projects/${encodeURIComponent(project)}/labels`),
   editPullRequestLabels: (project: string, number: number, edit: T.EditLabelsRequest) =>
     call<T.Label[]>('POST', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}/labels`, edit satisfies T.EditLabelsRequest),
@@ -522,6 +545,9 @@ export const api = {
   // What an agent did, as steps read out of its chat (internal/timeline); a
   // past agent's too.
   timeline: (ref: string) => call<T.Timeline>('GET', `${agent(ref)}/timeline`),
+  // saveShare saves what the agent did as one page to send anyone, where the
+  // user picks (a browser downloads it): where it went, or '' for nowhere.
+  saveShare: (ref: string) => window.agentbox.saveShare(`${agent(ref)}/share`, `${ref.replace(/[^A-Za-z0-9_-]/g, '-')}.html`),
   deleteMedia: (id: string) => call<void>('DELETE', `/v1/media/${encodeURIComponent(id)}`),
   setMediaFavorite: (id: string, favorite: boolean) =>
     call<T.MediaItem>('PATCH', `/v1/media/${encodeURIComponent(id)}`, { favorite } satisfies T.UpdateMediaRequest),
@@ -563,7 +589,9 @@ export const api = {
   // ("30m"), resource samples over a window ("1h"), and the app's own spans.
   diagnosticSpans: (since: string) => call<T.DiagnosticsSpans>('GET', `/v1/diagnostics/spans?since=${encodeURIComponent(since)}`),
   diagnosticStalls: (since: string) => call<T.DiagnosticsStalls>('GET', `/v1/diagnostics/stalls?since=${encodeURIComponent(since)}`),
+  diagnosticFiles: () => call<T.DiagnosticsFiles>('GET', '/v1/diagnostics/files'),
   diagnosticResources: (span: D.ResourceWindow) => call<T.DiagnosticsResources>('GET', `/v1/diagnostics/resources?window=${span}`),
+  diagnosticPackageCache: () => call<T.DiagnosticsPackageCache>('GET', '/v1/diagnostics/package-cache'),
   sendClientSpans: (spans: T.TraceSpan[]) => call<void>('POST', clientSpansPath, { spans } satisfies T.ClientSpansRequest),
   diskUsage: () => call<T.DiskUsage>('GET', '/v1/usage/disk'),
   diskGuard: () => call<T.DiskGuard>('GET', '/v1/disk'),

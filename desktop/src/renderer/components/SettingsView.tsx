@@ -16,6 +16,7 @@ import {
   Copy,
   Cpu,
   ExternalLink,
+  FlaskConical,
   KeyRound,
   Lightbulb,
   ListChecks,
@@ -51,6 +52,8 @@ import { updateHint } from "../lib/appUpdate";
 import { useAppUpdate } from "../lib/useAppUpdate";
 import { useConnection } from "../lib/events";
 import { RestartVM } from "./RestartVM";
+import { KrunkitRemake } from "./KrunkitRemake";
+import { offersRemake } from "../lib/krunkit";
 import type { SettingSection } from "../lib/settingsSearch";
 import { cn, errorMessage, timeAgo } from "../lib/utils";
 import { ImageDownloads } from "./ImageDownloads";
@@ -61,6 +64,7 @@ import { WhatsNewDialog } from "./WhatsNewDialog";
 import { ToolAccountList, ToolKeyForm } from "./ToolAccounts";
 import {
   AutoStopIdle,
+  RemoveStopped,
   DockerPruneOnStop,
   CompactWindow,
   DefaultContextWindow,
@@ -71,10 +75,13 @@ import {
   DiskFloor,
   DockerImageCache,
   SharedPackageCaches,
+  LocalNodeModules,
   NewAgentEffort,
   OpenCodeInImage,
   ResumeAfterLimit,
   ContinueAfterRestart,
+  LeadSleep,
+  leadSleepFallback,
 } from "./NewAgentDefaults";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -83,6 +90,7 @@ import { projectSection } from "./ProjectSettings";
 import { SkillsPanel } from "./SkillsPanel";
 import { ConnectorsTab } from "./ConnectorsTab";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
+import { IdleReclaim } from "./IdleReclaim";
 import { GlobalMemoryPanel } from "./GlobalMemoryPanel";
 import { phoneGroups } from "./PhoneSettings";
 import { SettingsPage, keepScroll, openSettingsSection, type SectionIcons } from "./SettingsPage";
@@ -925,6 +933,7 @@ function InstalledSettings({
   ];
   const githubSteps = accountSteps.filter((step) => step.id === "github");
 
+  const traySettings = useTraySettings();
   const notifyPrefs = usePrefs();
   const dnd = useDnd();
   const notifyChanged =
@@ -985,6 +994,18 @@ function InstalledSettings({
                   },
                 ]
               : []),
+            // The desktop app's only: a browser has no tray.
+            ...(traySettings.data
+              ? [
+                  {
+                    id: "tray",
+                    label: t("settings.entry.tray.label"),
+                    keywords: t("settings.entry.tray.keywords"),
+                    modified: traySettings.data.keepRunning,
+                    render: () => <TraySetting />,
+                  },
+                ]
+              : []),
           ],
         },
         {
@@ -1030,6 +1051,13 @@ function InstalledSettings({
               keywords: t("settings.entry.credit-ai-tool.keywords"),
               modified: changed((s) => s.creditAITool),
               render: () => <CreditAIToolSetting />,
+            },
+            {
+              id: "built-with-badge",
+              label: t("settings.entry.built-with-badge.label"),
+              keywords: t("settings.entry.built-with-badge.keywords"),
+              modified: changed((s) => s.builtWithBadge),
+              render: () => <BuiltWithBadgeSetting />,
             },
           ],
         },
@@ -1142,6 +1170,47 @@ function InstalledSettings({
           },
         ]
       : []),
+    {
+      id: "experimental",
+      title: t("settings.section.experimental.title"),
+      description: t("settings.section.experimental.description"),
+      scope: "installation",
+      groups: [
+        {
+          id: "experimental-tests",
+          title: t("settings.group.experimental-tests.title"),
+          entries: [
+            {
+              id: "block-full-suite",
+              label: t("settings.entry.block-full-suite.label"),
+              keywords: t("settings.entry.block-full-suite.keywords"),
+              modified: changed((s) => s.blockFullSuite),
+              render: () => <BlockFullSuite />,
+            },
+          ],
+        },
+        {
+          id: "experimental-memory",
+          title: t("settings.group.experimental-memory.title"),
+          entries: [
+            {
+              id: "idle-reclaim",
+              label: t("settings.idleReclaim.label"),
+              keywords: t("settings.entry.idle-reclaim.keywords"),
+              modified: changed((s) => s.idleReclaim),
+              render: () => <IdleReclaim />,
+            },
+            {
+              id: "agent-freeze",
+              label: t("settings.entry.agent-freeze.label"),
+              keywords: t("settings.entry.agent-freeze.keywords"),
+              modified: changed((s) => s.agentFreeze),
+              render: () => <AgentFreezeSetting />,
+            },
+          ],
+        },
+      ],
+    },
     {
       id: "accounts",
       title: t("settings.section.accounts.title"),
@@ -1286,6 +1355,13 @@ function InstalledSettings({
               modified: changed((s) => !s.continueAfterRestart),
               render: () => <ContinueAfterRestart />,
             },
+            {
+              id: "lead-sleep",
+              label: t("settings.entry.leadSleep.label"),
+              keywords: t("settings.entry.leadSleep.keywords"),
+              modified: changed((s) => !s.leadSleep || s.leadSleepMinutes !== leadSleepFallback),
+              render: () => <LeadSleep />,
+            },
           ],
         },
       ],
@@ -1349,6 +1425,13 @@ function InstalledSettings({
               keywords: t("settings.entry.auto-stop.keywords"),
               modified: changed((s) => s.autoStopIdle),
               render: () => <AutoStopIdle />,
+            },
+            {
+              id: "remove-stopped",
+              label: t("settings.entry.remove-stopped.label"),
+              keywords: t("settings.entry.remove-stopped.keywords"),
+              modified: changed((s) => s.removeStopped || s.removeStoppedDays !== 7),
+              render: () => <RemoveStopped />,
             },
           ],
         },
@@ -1482,6 +1565,14 @@ function InstalledSettings({
               keywords: t("settings.entry.package-caches.keywords"),
               modified: changed((s) => !s.packageCache || s.packageCacheMaxBytes !== s.defaultPackageCacheMaxBytes),
               render: () => <SharedPackageCaches />,
+            },
+            {
+              id: "local-node-modules",
+              advanced: true,
+              label: t("settings.entry.local-node-modules.label"),
+              keywords: t("settings.entry.local-node-modules.keywords"),
+              modified: changed((s) => !s.localNodeModules),
+              render: () => <LocalNodeModules />,
             },
           ],
         },
@@ -1652,6 +1743,7 @@ const sectionIcons: SectionIcons = {
   setup: Wrench,
   notifications: Bell,
   diagnostics: Activity,
+  experimental: FlaskConical,
 };
 
 // EnforceAgentDefaults decides what the model and window above mean to a
@@ -1915,7 +2007,9 @@ function UpdateChannel() {
 // to ready (vmGPU.setup), which turning it on starts: it says how far that
 // has got, asking again every few seconds while it runs. On Linux the VM gets
 // the host's GPU only as it starts ("host"): the switch works, and the note
-// says the VM gets it at its next start.
+// says the VM gets it at its next start. A Mac's VM made with Apple's
+// Virtualization framework has none, and is offered a remake with krunkit
+// (KrunkitRemake), installed by Homebrew first when it's missing.
 export function AgentGPU() {
   const t = useT();
   const settings = useQuery({
@@ -1932,6 +2026,11 @@ export function AgentGPU() {
     if (connected) void refetchSettings();
   }, [connected, refetchSettings]);
   const queryClient = useQueryClient();
+  const hostSetup = useQuery({
+    queryKey: ["host-setup"],
+    queryFn: () => window.agentbox.hostSetup.status(),
+  });
+  const vm = hostSetup.data?.vm;
   const save = useMutation({
     mutationFn: (agentGPU: boolean) => api.updateSettings({ agentGPU }),
     onSuccess: (next) => queryClient.setQueryData(["settings"], next),
@@ -1963,6 +2062,7 @@ export function AgentGPU() {
         </SettingNote>
       )}
       {needsRestart && <RestartVM />}
+      {vm && offersRemake(vm) && <KrunkitRemake vm={vm} />}
     </SettingRow>
   );
 }
@@ -1977,6 +2077,13 @@ const gpuSetupNotes: Record<string, MessageKey> = {
 
 // vmGPUNote says which GPU agents get, or how far readying it has got.
 function vmGPUNote(t: ReturnType<typeof useT>, gpu: T.VMGPU): string {
+  // With a GPU there, it's a newer driver being built: agents keep theirs.
+  if (gpu.kind && gpu.setup === "running") {
+    return t("settings.agentGPU.setup.updating");
+  }
+  if (gpu.kind && gpu.setup === "failed") {
+    return t("settings.agentGPU.setup.updateFailed", { reason: gpu.reason });
+  }
   const setup = gpuSetupNotes[gpu.setup];
   if (setup) {
     return t(setup, { reason: gpu.reason });
@@ -2017,6 +2124,40 @@ export function PRWatch() {
           aria-label={t("settings.entry.pr-watch.label")}
           disabled={save.isPending || settings.data === undefined}
           checked={settings.data?.prWatch ?? true}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      }
+    />
+  );
+}
+
+// BlockFullSuite refuses a Claude Code agent's whole test suite (`go test
+// ./...`, a bare `npm test`) before it runs, and says what to run instead,
+// from the files it changed (internal/cli/fullsuite.go). A project can let its
+// agents run them anyway (Project.fullTestSuite). Codex and OpenCode have no
+// hook to refuse with: only their brief tells them.
+export function BlockFullSuite() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (blockFullSuite: boolean) => api.updateSettings({ blockFullSuite }),
+    onSuccess: (next) => queryClient.setQueryData(["settings"], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  return (
+    <SettingRow
+      label={t("settings.entry.block-full-suite.label")}
+      htmlFor="block-full-suite"
+      description={t("settings.blockFullSuite.description")}
+      details={t("settings.blockFullSuite.details")}
+      control={
+        <Switch
+          id="block-full-suite"
+          data-block-full-suite
+          aria-label={t("settings.entry.block-full-suite.label")}
+          disabled={save.isPending || settings.data === undefined}
+          checked={settings.data?.blockFullSuite ?? false}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }
@@ -2183,6 +2324,38 @@ function GroupIdleSetting() {
   );
 }
 
+// The tray's settings are the main process's (main/tray.ts), kept in its
+// tray.json: its menu can change them too.
+const traySettingsKey = ["traySettings"];
+const useTraySettings = () => useQuery({ queryKey: traySettingsKey, queryFn: () => window.agentbox.tray.settings(), refetchOnWindowFocus: "always" });
+
+// TraySetting is whether closing the window keeps AgentBox running in the
+// tray, or a Mac's menu bar, instead of quitting.
+function TraySetting() {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const settings = useTraySettings();
+  const set = useMutation({
+    mutationFn: (keepRunning: boolean) => window.agentbox.tray.set({ keepRunning }),
+    onSuccess: (next) => queryClient.setQueryData(traySettingsKey, next),
+  });
+  return (
+    <SettingRow
+      label={t("settings.entry.tray.label")}
+      description={t("settings.tray.description")}
+      control={
+        <Switch
+          data-tray-setting
+          aria-label={t("settings.entry.tray.label")}
+          checked={settings.data?.keepRunning ?? false}
+          disabled={set.isPending}
+          onCheckedChange={(on) => set.mutate(on)}
+        />
+      }
+    />
+  );
+}
+
 // ReviewingSetting is whether this computer reviews finished agents at all
 // (lib/reviewAlert.ts): off hides Ready to review, its count, the chime and
 // the "new" marks.
@@ -2240,6 +2413,36 @@ function PagesStackSetting() {
   );
 }
 
+// AgentFreezeSetting is the experimental memory governor (internal/daemon/
+// agentfreeze.go): whole agents paused for memory, and new ones started on the
+// VM's real free memory. Off until turned on.
+function AgentFreezeSetting() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (agentFreeze: boolean) => api.updateSettings({ agentFreeze }),
+    onSuccess: (next) => queryClient.setQueryData(["settings"], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  return (
+    <SettingRow
+      label={t("settings.entry.agent-freeze.label")}
+      description={t("settings.agentFreeze.description")}
+      details={t("settings.agentFreeze.details")}
+      control={
+        <Switch
+          data-agent-freeze
+          aria-label={t("settings.entry.agent-freeze.label")}
+          disabled={save.isPending || settings.data === undefined}
+          checked={settings.data?.agentFreeze ?? false}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      }
+    />
+  );
+}
+
 function ErrorReportsSetting() {
   const t = useT();
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
@@ -2260,6 +2463,37 @@ function ErrorReportsSetting() {
           aria-label={t("settings.entry.error-reports.label")}
           disabled={save.isPending || settings.data === undefined}
           checked={settings.data?.errorReports ?? true}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      }
+    />
+  );
+}
+
+// BuiltWithBadgeSetting decides whether agents end their pull requests'
+// descriptions with a "Built with AgentBox" line and badge. Off until turned
+// on (the app offers it once, after the first merged agent pull request:
+// BuiltWithBadgeOffer); an agent follows it from its next start.
+function BuiltWithBadgeSetting() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (builtWithBadge: boolean) => api.updateSettings({ builtWithBadge }),
+    onSuccess: (next) => queryClient.setQueryData(["settings"], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  return (
+    <SettingRow
+      label={t("settings.entry.built-with-badge.label")}
+      description={t("settings.builtWithBadge.description")}
+      details={t("settings.builtWithBadge.details")}
+      control={
+        <Switch
+          data-built-with-badge
+          aria-label={t("settings.entry.built-with-badge.label")}
+          disabled={save.isPending || settings.data === undefined}
+          checked={settings.data?.builtWithBadge ?? false}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }

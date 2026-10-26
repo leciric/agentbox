@@ -30,6 +30,7 @@ type queuedPermission struct {
 // agentPermission is the chat's PermissionChanged: it queues the change and
 // returns.
 func (s *Server) agentPermission(a state.Agent, p api.ChatAgentPermission) {
+	s.pushPermission(a, p)
 	q := &s.leadPermissions
 	q.mu.Lock()
 	defer q.mu.Unlock()
