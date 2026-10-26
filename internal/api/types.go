@@ -2991,9 +2991,16 @@ const InAgentMarker = "/etc/agentbox-image"
 
 type (
 	HubUser                     = hubapi.HubUser
-	HubSignupRequest            = hubapi.HubSignupRequest
+	HubInfo                     = hubapi.HubInfo
 	HubLoginRequest             = hubapi.HubLoginRequest
+	HubSetupRequest             = hubapi.HubSetupRequest
 	HubSession                  = hubapi.HubSession
+	HubPairRequest              = hubapi.HubPairRequest
+	HubPairing                  = hubapi.HubPairing
+	HubPairTokenRequest         = hubapi.HubPairTokenRequest
+	HubPairResult               = hubapi.HubPairResult
+	HubPairingInfo              = hubapi.HubPairingInfo
+	HubDevice                   = hubapi.HubDevice
 	HubEnvironment              = hubapi.HubEnvironment
 	HubCreateEnvironmentRequest = hubapi.HubCreateEnvironmentRequest
 	HubEnvironmentToken         = hubapi.HubEnvironmentToken
@@ -3006,11 +3013,38 @@ type RemoteStatus struct {
 	Connected  bool      `json:"connected"`
 	Since      time.Time `json:"since,omitzero,omitempty"`
 	Error      string    `json:"error,omitempty"`
+	// Pairing is a connection waiting for approval on a hub (POST
+	// /v1/remote/pair), until it's approved and the machine connects, or it
+	// fails.
+	Pairing *RemotePairing `json:"pairing,omitempty"`
 }
 
+// RemoteConnectRequest connects to a hub with an environment's token.
 type RemoteConnectRequest struct {
 	Hub   string `json:"hub"`
 	Token string `json:"token"`
+}
+
+// RemotePairRequest connects this machine to a hub by asking it for approval,
+// with no token: the hub shows Code to whoever approves it.
+type RemotePairRequest struct {
+	Hub string `json:"hub"`
+	// Name is the environment's, by default this machine's hostname.
+	Name string `json:"name,omitempty"`
+}
+
+// RemotePairing is a request to connect to a hub that waits for a device
+// signed in to it to approve Code, at ApproveURL or by typing it.
+type RemotePairing struct {
+	Hub        string    `json:"hub"`
+	Code       string    `json:"code"`
+	ApproveURL string    `json:"approveURL"`
+	ExpiresAt  time.Time `json:"expiresAt"`
+	// QR is ApproveURL as a QR code, as in HubPairing.
+	QR []string `json:"qr,omitempty"`
+	// Error is why it stopped: denied, expired, or the hub failing. It
+	// stays until the next pairing or connection.
+	Error string `json:"error,omitempty"`
 }
 
 // The features anonymous usage stats count (Settings.UsageStats). A key names

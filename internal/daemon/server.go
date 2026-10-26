@@ -224,6 +224,10 @@ type Server struct {
 	// servers (connectors.go).
 	connectorsGiven map[string]bool
 	remoteStop      context.CancelFunc
+	// remotePairing is a connection to a hub waiting for approval, and
+	// remotePairStop stops waiting (remote.go).
+	remotePairing  *api.RemotePairing
+	remotePairStop context.CancelFunc
 	// openCodeModels is the state of the background ask that fills OpenCode's
 	// model menu: whether one is running, and when the last one started.
 	openCodeModels struct {
@@ -950,6 +954,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/remote", s.getRemote)
 	h("PUT /v1/remote", s.connectRemote)
 	h("DELETE /v1/remote", s.disconnectRemote)
+	h("POST /v1/remote/pair", s.pairRemote)
 	// Chatting from a phone on the local network (lan.go).
 	h("GET /v1/lan", s.getLAN)
 	h("PATCH /v1/lan", s.updateLAN)

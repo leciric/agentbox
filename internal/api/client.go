@@ -1263,6 +1263,14 @@ func (c *Client) ConnectRemote(ctx context.Context, req RemoteConnectRequest) (R
 	return out, c.do(ctx, http.MethodPut, "/v1/remote", req, &out)
 }
 
+// PairRemote asks a hub to approve this machine as an environment, and
+// answers at once: the pairing is in RemoteStatus.Pairing, and the machine
+// connects by itself when it's approved.
+func (c *Client) PairRemote(ctx context.Context, req RemotePairRequest) (RemoteStatus, error) {
+	var out RemoteStatus
+	return out, c.do(ctx, http.MethodPost, "/v1/remote/pair", req, &out)
+}
+
 func (c *Client) DisconnectRemote(ctx context.Context) error {
 	return c.do(ctx, http.MethodDelete, "/v1/remote", nil, nil)
 }

@@ -1879,11 +1879,10 @@ export interface HubUser {
   name: string;
 }
 
-export interface HubSignupRequest {
-  email: string;
-  name?: string;
-  password: string;
-  label?: string;
+export interface HubInfo {
+  version: string;
+  claimed: boolean;
+  passwords?: boolean;
 }
 
 export interface HubLoginRequest {
@@ -1892,10 +1891,62 @@ export interface HubLoginRequest {
   label?: string;
 }
 
+export interface HubSetupRequest {
+  secret: string;
+  label?: string;
+}
+
 export interface HubSession {
   token: string;
   user: HubUser;
   expiresAt: string;
+}
+
+export interface HubPairRequest {
+  kind: string;
+  label: string;
+  name?: string;
+  hostname?: string;
+  version?: string;
+}
+
+export interface HubPairing {
+  secret: string;
+  code: string;
+  approveURL: string;
+  expiresAt: string;
+  interval: number;
+  qr?: string[];
+}
+
+export interface HubPairTokenRequest {
+  secret: string;
+}
+
+export interface HubPairResult {
+  status: string;
+  session?: HubSession;
+  environment?: HubEnvironmentToken;
+}
+
+export interface HubPairingInfo {
+  code: string;
+  kind: string;
+  label: string;
+  name?: string;
+  hostname?: string;
+  version?: string;
+  address: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface HubDevice {
+  id: string;
+  label: string;
+  createdAt: string;
+  lastSeenAt?: string;
+  current?: boolean;
 }
 
 export interface HubEnvironment {
@@ -1924,11 +1975,26 @@ export interface RemoteStatus {
   connected: boolean;
   since?: string;
   error?: string;
+  pairing?: RemotePairing;
 }
 
 export interface RemoteConnectRequest {
   hub: string;
   token: string;
+}
+
+export interface RemotePairRequest {
+  hub: string;
+  name?: string;
+}
+
+export interface RemotePairing {
+  hub: string;
+  code: string;
+  approveURL: string;
+  expiresAt: string;
+  qr?: string[];
+  error?: string;
 }
 
 export interface UsageStatsPending {
