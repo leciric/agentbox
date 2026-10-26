@@ -1,6 +1,6 @@
 module agentbox
 
-go 1.27.2
+go 1.27.3
 
 require (
 	github.com/Code-Hex/vz/v3 v3.8.0

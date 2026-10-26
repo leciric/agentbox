@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -159,5 +160,63 @@ func TestSetProjectDisplayName(t *testing.T) {
 	}
 	if err := st.SetProjectDisplayName(ctx, "missing", "x"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("missing project: got %v, want ErrNotFound", err)
+	}
+}
+
+// Icons kept from the GitHub avatar fallback are dropped by the migration
+// that removed it; icons from the repository and chosen ones stay.
+func TestAvatarIconMigrationDropsCachedAvatars(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "state.db")
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The migration under test is the one dropping the cached avatars; later
+	// ones run when the store opens.
+	before := -1
+	for i, m := range migrations {
+		if strings.HasPrefix(m, "UPDATE project_icons SET detected = NULL") {
+			before = i
+		}
+	}
+	if before < 0 {
+		t.Fatal("avatar migration not found")
+	}
+	for i, m := range migrations[:before] {
+		if _, err := db.ExecContext(ctx, m); err != nil {
+			t.Fatalf("migration %d: %v", i+1, err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", before)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO project_icons (project, chosen, emoji, detected, detected_mime, detected_from, detected_at, updated_at) VALUES
+		('avatar', '', '', x'89', 'image/png', 'github.com/leciric', 5, 5),
+		('own', '', '', x'89', 'image/png', 'public/favicon.svg', 5, 5),
+		('picked', 'emoji', '🐶', x'89', 'image/png', 'github.com/leciric', 5, 5)`); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	st, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	for name, want := range map[string]struct {
+		detected bool
+		chosen   string
+	}{"avatar": {false, ""}, "own": {true, ""}, "picked": {false, "emoji"}} {
+		ic, ok, err := st.ProjectIcon(ctx, name)
+		if err != nil || !ok {
+			t.Fatalf("ProjectIcon(%s) = %v, %v", name, ok, err)
+		}
+		if (ic.Detected != nil) != want.detected || ic.Chosen != want.chosen {
+			t.Errorf("%s: %+v", name, ic)
+		}
+		if name != "own" && (ic.DetectedFrom != "" || !ic.DetectedAt.IsZero() || ic.UpdatedAt.UnixMilli() <= 5) {
+			t.Errorf("%s kept its avatar or its cache key: %+v", name, ic)
+		}
 	}
 }

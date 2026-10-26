@@ -163,7 +163,8 @@ func (s *Store) TokenTotals(ctx context.Context, f TokenFilter) ([]TokenTotal, e
 	return out, rows.Err()
 }
 
-// TokenRows lists the ledger itself, newest first, at most limit rows.
+// TokenRows lists the ledger itself, newest first, at most limit rows, or
+// every row for a negative limit.
 func (s *Store) TokenRows(ctx context.Context, f TokenFilter, limit int) ([]TokenRow, error) {
 	where, args := f.where()
 	rows, err := s.db.QueryContext(ctx, `SELECT project, agent, agent_id, ai, session_id, turn, kind, model, at,

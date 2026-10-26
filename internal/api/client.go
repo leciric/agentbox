@@ -163,6 +163,13 @@ func (c *Client) StartHeavy(ctx context.Context, req HeavyRequest) (HeavyStart, 
 	return out, c.do(ctx, http.MethodPost, "/v1/self/heavy", req, &out)
 }
 
+// TestPolicy says, inside an agent, whether its whole test suites are
+// refused, and what its branch started from.
+func (c *Client) TestPolicy(ctx context.Context) (TestPolicy, error) {
+	var out TestPolicy
+	return out, c.do(ctx, http.MethodGet, "/v1/self/tests", nil, &out)
+}
+
 // JoinHeavy puts a process of the agent's in a started heavy command's
 // cgroup, so pausing the command pauses it and what it starts.
 func (c *Client) JoinHeavy(ctx context.Context, key string, pid int) error {
@@ -537,6 +544,12 @@ func (c *Client) ProjectMedia(ctx context.Context, project, agent, kind string) 
 func (c *Client) ProjectPullRequests(ctx context.Context, project string) (ProjectPullRequests, error) {
 	var out ProjectPullRequests
 	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/pulls", nil, &out)
+}
+
+// ProjectIssues lists a project repository's open issues.
+func (c *Client) ProjectIssues(ctx context.Context, project string) (ProjectIssues, error) {
+	var out ProjectIssues
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/issues", nil, &out)
 }
 
 // MergePullRequest merges one of a project repository's pull requests with
@@ -940,6 +953,11 @@ func (c *Client) UsageStatsPending(ctx context.Context) (UsageStatsPending, erro
 	return out, c.do(ctx, http.MethodGet, "/v1/usage-stats/pending", nil, &out)
 }
 
+// ReportSetupFunnel hands the daemon the steps of Setup taken before it was up.
+func (c *Client) ReportSetupFunnel(ctx context.Context, r SetupFunnelReport) error {
+	return c.do(ctx, http.MethodPost, "/v1/usage-events/setup", r, nil)
+}
+
 // LatestRelease is the update channel's latest release, as the release list has it now.
 func (c *Client) LatestRelease(ctx context.Context) (UpdateRelease, error) {
 	var out UpdateRelease
@@ -1161,9 +1179,37 @@ func (c *Client) AgentDisk(ctx context.Context, project, name string) (AgentDisk
 	return out, c.do(ctx, http.MethodGet, "/v1/agents/"+url.PathEscape(project)+"/"+url.PathEscape(name)+"/disk", nil, &out)
 }
 
+// StoppedMachines lists the agents holding a stopped machine, in project or
+// in every project when it is "". check adds what "remove stopped agents'
+// machines" would do with each, which reads git and GitHub.
+func (c *Client) StoppedMachines(ctx context.Context, project string, check bool) (StoppedMachines, error) {
+	q := url.Values{}
+	if project != "" {
+		q.Set("project", project)
+	}
+	if check {
+		q.Set("check", "1")
+	}
+	var out StoppedMachines
+	return out, c.do(ctx, http.MethodGet, "/v1/stopped-machines?"+q.Encode(), nil, &out)
+}
+
+// RemoveStopped removes the stopped machines of the agents in req that are
+// still safe to remove.
+func (c *Client) RemoveStopped(ctx context.Context, req RemoveStoppedRequest) (RemoveStoppedResult, error) {
+	var out RemoveStoppedResult
+	return out, c.do(ctx, http.MethodPost, "/v1/stopped-machines/remove", req, &out)
+}
+
 func (c *Client) MemoryUsage(ctx context.Context) (MemoryUsage, error) {
 	var out MemoryUsage
 	return out, c.do(ctx, http.MethodGet, "/v1/usage/memory", nil, &out)
+}
+
+// HostMemory is the daemon's machine's memory and CPUs, from /proc/meminfo.
+func (c *Client) HostMemory(ctx context.Context) (HostMemory, error) {
+	var out HostMemory
+	return out, c.do(ctx, http.MethodGet, "/v1/usage/host", nil, &out)
 }
 
 func (c *Client) CPUUsage(ctx context.Context, interval time.Duration) (CPUUsage, error) {
@@ -1316,4 +1362,21 @@ func (c *Client) TerminalTails(ctx context.Context, project string, agents []str
 		path += "&lines=" + strconv.Itoa(lines)
 	}
 	return out, c.do(ctx, http.MethodGet, path, nil, &out)
+}
+
+// Profile copies one of the daemon's Go profiles (net/http/pprof, served on
+// its socket only) to w: "heap", "goroutine", "allocs"; query is pprof's own,
+// "gc=1" or "debug=1".
+func (c *Client) Profile(ctx context.Context, name, query string, w io.Writer) error {
+	path := "/debug/pprof/" + url.PathEscape(name)
+	if query != "" {
+		path += "?" + query
+	}
+	resp, err := c.request(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	_, err = io.Copy(w, resp.Body)
+	return err
 }

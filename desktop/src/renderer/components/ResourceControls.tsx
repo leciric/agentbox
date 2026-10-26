@@ -242,8 +242,10 @@ export function FreeButton({ free, style }: { free: FreeResources; style: 'shutD
   }
   const count = free.targets;
   const label = freeLabel(t, free, style);
+  const explained = t('vm.free.tip', { what: count ? (vm ? 'both' : 'agents') : 'vm', count });
+  // The shut-down bar button is only its icon, so the tip names the action first.
   return (
-    <Tip label={t('vm.free.tip', { what: count ? (vm ? 'both' : 'agents') : 'vm', count })}>
+    <Tip label={style === 'shutDown' ? <><span className="block font-medium">{label}</span>{explained}</> : explained}>
       <button
         type="button"
         className={cn(
@@ -257,7 +259,7 @@ export function FreeButton({ free, style }: { free: FreeResources; style: 'shutD
         data-free-mode="free"
       >
         <Power className="size-3.5" />
-        <span className="hidden whitespace-nowrap sm:inline">{style === 'freeMemory' ? `${label}…` : label}</span>
+        {style === 'freeMemory' && <span className="hidden whitespace-nowrap sm:inline">{`${label}…`}</span>}
       </button>
     </Tip>
   );
@@ -635,6 +637,24 @@ export function VMMemory({ vm }: { vm: VMPower }) {
         <Legend swatch="bg-surface-strong" label={t('vm.indicator.cap')} value={humanBytes(vm.memoryCap)} />
       </div>
     </div>
+  );
+}
+
+// HostFootprint is what the VM really holds of the host's memory, which is
+// more than what's in use inside it: the guest's page cache is resident on
+// the host too. Then what the host caches of its disks, when there's any.
+export function HostFootprint({ vm, className }: { vm: VMPower; className?: string }) {
+  const t = useT();
+  if (!vm.memoryResident) return null;
+  const cache = vm.memoryHostCache ?? 0;
+  return (
+    <span className={cn('text-[11.5px] leading-relaxed text-muted', className)} data-host-footprint>
+      {t('shell.machine.hostFootprint', {
+        resident: humanBytes(vm.memoryResident),
+        cache: cache >= 64 * 1024 ** 2 ? 'yes' : 'no',
+        cacheSize: humanBytes(cache),
+      })}
+    </span>
   );
 }
 

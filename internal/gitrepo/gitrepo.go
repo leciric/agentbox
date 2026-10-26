@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -85,6 +86,16 @@ func (r Repo) ResolveCommit(rev string) (string, error) {
 		return "", fmt.Errorf("%q is not a commit in %s", rev, r.Root)
 	}
 	return commit, nil
+}
+
+// BranchTip is the commit a local branch is at, "" when there is no such
+// branch. An error is git failing to say, never the branch missing.
+func (r Repo) BranchTip(branch string) (string, error) {
+	tip, err := run(r.Root, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch+"^{commit}")
+	if NotFound(err) {
+		return "", nil
+	}
+	return tip, err
 }
 
 func (r Repo) BranchExists(branch string) bool {
@@ -266,20 +277,20 @@ func MoveWorktree(worktree, commit string) error {
 
 // RemoveWorktree removes the worktree at path, discarding uncommitted changes.
 // A worktree git no longer knows, because its entry under .git/worktrees was
-// pruned, is only a directory now, and is removed as one.
+// pruned, is only a directory now, and is removed as one. So is one whose
+// files are already gone, whose entry prune then drops: unlocked first, since
+// prune keeps a locked one.
 func (r Repo) RemoveWorktree(path string) error {
 	unlock := r.lockWorktrees()
 	defer unlock()
+	_ = r.UnlockWorktree(path)
 	if _, err := os.Stat(path); err == nil {
 		if !r.HasWorktree(path) {
 			if err := os.RemoveAll(path); err != nil {
 				return err
 			}
-		} else {
-			_ = r.UnlockWorktree(path)
-			if _, err := run(r.Root, "worktree", "remove", "--force", path); err != nil {
-				return err
-			}
+		} else if _, err := run(r.Root, "worktree", "remove", "--force", path); err != nil {
+			return err
 		}
 	}
 	_, err := run(r.Root, "worktree", "prune")
@@ -404,6 +415,22 @@ func Dirty(worktree string) (bool, error) {
 	return out != "", err
 }
 
+// DiffBase is the commit an agent's changes are measured from: where its
+// worktree's HEAD left baseRef, the project's base branch as it is now, so
+// that main's own changes, taken in by a merge or a rebase, are not the
+// agent's. It falls back to fallback (the commit the agent started from) when
+// baseRef is "HEAD" or empty, is gone, or shares no history with the worktree.
+func DiffBase(worktree, baseRef, fallback string) string {
+	if baseRef == "" || baseRef == "HEAD" {
+		return fallback
+	}
+	base, err := run(worktree, "merge-base", "HEAD", "refs/heads/"+baseRef)
+	if err != nil || base == "" {
+		return fallback
+	}
+	return base
+}
+
 // DiffWorktree diffs base against the worktree's current files, including
 // uncommitted and untracked ones, without touching the worktree's index.
 func DiffWorktree(worktree, base string, stat bool, paths ...string) (string, error) {
@@ -422,6 +449,52 @@ func DiffWorktree(worktree, base string, stat bool, paths ...string) (string, er
 	return output(worktree, nil, args...)
 }
 
+// FileStat is one file's lines added and removed in a diff; Binary for a
+// file git can't count lines of.
+type FileStat struct {
+	Path           string
+	Added, Removed int
+	Binary         bool
+}
+
+// NumstatWorktree is DiffWorktree's files with their counts, in git's order.
+func NumstatWorktree(worktree, base string) ([]FileStat, error) {
+	tree, err := worktreeTree(worktree)
+	if err != nil {
+		return nil, err
+	}
+	out, err := output(worktree, nil, "diff", "--numstat", "-z", "--no-renames", base, tree)
+	if err != nil {
+		return nil, err
+	}
+	var files []FileStat
+	for _, rec := range strings.Split(out, "\x00") {
+		fields := strings.SplitN(rec, "\t", 3)
+		if len(fields) != 3 {
+			continue
+		}
+		f := FileStat{Path: fields[2]}
+		if fields[0] == "-" {
+			f.Binary = true
+		} else {
+			f.Added, _ = strconv.Atoi(fields[0])
+			f.Removed, _ = strconv.Atoi(fields[1])
+		}
+		files = append(files, f)
+	}
+	return files, nil
+}
+
+// DiffCommits diffs base against commit in the repository at dir, as a
+// patch or with stat as git's --shortstat line.
+func DiffCommits(dir, base, commit string, stat bool) (string, error) {
+	args := []string{"diff"}
+	if stat {
+		args = append(args, "--shortstat")
+	}
+	return output(dir, nil, append(args, base, commit)...)
+}
+
 func run(dir string, args ...string) (string, error) {
 	out, err := output(dir, nil, args...)
 	return strings.TrimSpace(out), err
@@ -430,6 +503,9 @@ func run(dir string, args ...string) (string, error) {
 func output(dir string, env []string, args ...string) (out string, err error) {
 	span := trace.Begin(gitSpan(args), "dir", dir)
 	defer func() { span.End(err) }()
+	if ferr := faultAt(dir); ferr != nil {
+		return "", &gitError{args: args, err: ferr}
+	}
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
 	if env != nil {
 		cmd.Env = append(os.Environ(), env...)
@@ -438,7 +514,7 @@ func output(dir string, env []string, args ...string) (out string, err error) {
 	cmd.Stderr = &stderr
 	b, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		return "", &gitError{args: args, err: err, stderr: strings.TrimSpace(stderr.String())}
 	}
 	return string(b), nil
 }
@@ -462,7 +538,8 @@ func gitSpan(args []string) string {
 // them. A name in not that doesn't resolve is left out rather than failing the
 // call, so a base branch that has since been deleted still works; not may also
 // hold rev-list's --glob=<pattern>, for every ref it matches. The tip is
-// returned even when none of the branch's commits are its own.
+// returned even when none of the branch's commits are its own. A branch that
+// doesn't exist has no tip and no commits; an error is git failing to say.
 func BranchCommits(root, branch string, limit int, not ...string) (tip string, own []string, err error) {
 	ref := "refs/heads/" + branch
 	args := append([]string{"rev-list", "--ignore-missing", fmt.Sprintf("--max-count=%d", limit), ref, "--not"}, not...)
@@ -474,5 +551,8 @@ func BranchCommits(root, branch string, limit int, not ...string) (tip string, o
 		return own[0], own, nil
 	}
 	tip, err = run(root, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+	if NotFound(err) {
+		return "", nil, nil
+	}
 	return tip, nil, err
 }

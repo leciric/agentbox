@@ -2,9 +2,7 @@ package projecticon
 
 import (
 	"bytes"
-	"context"
 	"encoding/base64"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -86,43 +84,6 @@ func TestFindInRepoStaysInside(t *testing.T) {
 	write(t, root, map[string][]byte{"package.json": []byte(`{"icon":"../` + filepath.Base(outside) + `/secret.png"}`)})
 	if icon, ok := FindInRepo(root); ok {
 		t.Errorf("FindInRepo() = %q, want nothing", icon.From)
-	}
-}
-
-func TestDetectFallsBackToTheAvatar(t *testing.T) {
-	t.Parallel()
-	var asked []string
-	fetch := func(_ context.Context, u string) ([]byte, string, error) {
-		asked = append(asked, u)
-		switch {
-		case strings.Contains(u, "/leciric.png"):
-			return png, "image/png", nil
-		case strings.Contains(u, "/html.png"):
-			return []byte("<html>"), "text/html", nil
-		case strings.Contains(u, "/liar.png"):
-			return []byte("<html>"), "image/png", nil
-		}
-		return nil, "", errors.New("404")
-	}
-	owner := func(o string) func() string { return func() string { return o } }
-	root := t.TempDir()
-	icon, ok := Detect(context.Background(), root, Options{Owner: owner("leciric"), Fetch: fetch})
-	if !ok || icon.From != "github.com/leciric" || icon.MIME != "image/png" {
-		t.Errorf("Detect() = %+v, %v", icon, ok)
-	}
-	if len(asked) != 1 || asked[0] != "https://github.com/leciric.png?size=128" {
-		t.Errorf("fetched %q", asked)
-	}
-	for _, o := range []string{"html", "liar", "missing", "", "a/b"} {
-		if icon, ok := Detect(context.Background(), root, Options{Owner: owner(o), Fetch: fetch}); ok {
-			t.Errorf("Detect() with owner %q = %+v", o, icon)
-		}
-	}
-	// The repository's own icon wins, without asking GitHub.
-	write(t, root, map[string][]byte{"logo.svg": svg})
-	asked = nil
-	if icon, _ := Detect(context.Background(), root, Options{Owner: owner("leciric"), Fetch: fetch}); icon.From != "logo.svg" || asked != nil {
-		t.Errorf("Detect() = %q, fetched %q", icon.From, asked)
 	}
 }
 

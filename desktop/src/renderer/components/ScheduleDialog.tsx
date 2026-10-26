@@ -4,7 +4,19 @@ import { useState, type FormEvent } from 'react';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { useT } from '../lib/i18n';
-import { dayName, fromLocalInput, localInput, parseWeekly, templates, userTimezone, weeklyCron, type Template } from '../lib/schedules';
+import {
+  dayName,
+  fromLocalInput,
+  isScheduleEvent,
+  localInput,
+  parseWeekly,
+  scheduleEvents,
+  templates,
+  userTimezone,
+  weeklyCron,
+  type ScheduleEvent,
+  type Template,
+} from '../lib/schedules';
 import { cn, errorMessage } from '../lib/utils';
 import { Button } from './ui/button';
 import { Notice } from './ui/card';
@@ -12,7 +24,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Field, Input, Textarea } from './ui/input';
 import { Select, SelectOption } from './ui/select';
 
-type Mode = 'once' | 'weekly' | 'every' | 'cron';
+type Mode = 'once' | 'weekly' | 'every' | 'cron' | 'event';
 type Unit = 'm' | 'h' | 'd';
 
 type Form = {
@@ -25,6 +37,8 @@ type Form = {
   everyN: string;
   everyUnit: Unit;
   cron: string;
+  event: ScheduleEvent;
+  label: string;
   timezone: string;
   target: 'lead' | 'agent';
   session: 'fresh' | 'reuse';
@@ -60,10 +74,14 @@ function cronTiming(cron: string): Pick<Form, 'mode' | 'days' | 'time' | 'cron'>
 function initial(schedule: T.Schedule | undefined, template: Template | undefined, t: ReturnType<typeof useT>): Form {
   const base: Form = {
     title: '', task: '', mode: 'once', at: inAnHour(), days: [1, 2, 3, 4, 5], time: '09:00', everyN: '1', everyUnit: 'h', cron: '0 9 * * 1-5',
-    timezone: userTimezone(), target: 'lead', session: 'fresh', model: '', effort: '', precheck: '', grace: '',
+    event: 'ci_failed', label: '', timezone: userTimezone(), target: 'lead', session: 'fresh', model: '', effort: '', precheck: '', grace: '',
   };
   if (template) {
-    const timing = template.cron ? cronTiming(template.cron) : { mode: 'every' as Mode, ...everyParts(template.every ?? 60) };
+    const timing = template.event
+      ? { mode: 'event' as Mode, event: template.event, label: template.label ?? '' }
+      : template.cron
+        ? cronTiming(template.cron)
+        : { mode: 'every' as Mode, ...everyParts(template.every ?? 60) };
     return { ...base, ...timing, title: t(template.title), task: t(template.task), target: template.target, precheck: template.precheck ?? '' };
   }
   if (!schedule) return base;
@@ -81,10 +99,12 @@ function initial(schedule: T.Schedule | undefined, template: Template | undefine
   };
   if (schedule.kind === 'once') return { ...form, mode: 'once', at: schedule.at ? localInput(new Date(schedule.at)) : base.at };
   if (schedule.kind === 'every') return { ...form, mode: 'every', ...everyParts(schedule.everyMinutes ?? 0) };
+  if (schedule.kind === 'event')
+    return { ...form, mode: 'event', event: isScheduleEvent(schedule.event) ? schedule.event : base.event, label: schedule.eventLabel ?? '' };
   return { ...form, ...cronTiming(schedule.cron ?? '') };
 }
 
-function timingOf(f: Form): Pick<T.ScheduleRequest, 'at' | 'every' | 'cron'> {
+function timingOf(f: Form): Pick<T.ScheduleRequest, 'at' | 'every' | 'cron' | 'on' | 'label'> {
   switch (f.mode) {
     case 'once':
       return { at: f.at ? fromLocalInput(f.at) : '' };
@@ -96,12 +116,15 @@ function timingOf(f: Form): Pick<T.ScheduleRequest, 'at' | 'every' | 'cron'> {
     }
     case 'cron':
       return { cron: f.cron.trim() };
+    case 'event':
+      return { on: f.event, ...(f.event === 'issue_labeled' ? { label: f.label.trim() } : {}) };
   }
 }
 
 // ScheduleDialog makes a scheduled task, or edits one: a name and the task,
 // when (once at a time, on days of the week at a time, every so often, or a
-// cron expression, in a timezone), what a run does (tell the chat, or create
+// cron expression, in a timezone; or on an event on the project's GitHub
+// repository, with a label for issue_labeled), what a run does (tell the chat, or create
 // an agent — a new one each time or the last run's — on a model of its own),
 // and the two guards, a precheck and how late a missed run may still run. A
 // new one can start from a template.
@@ -145,8 +168,14 @@ export function ScheduleDialog({
     e.preventDefault();
     save.mutate();
   };
-  const modes: Mode[] = ['once', 'weekly', 'every', 'cron'];
-  const modeLabel = { once: t('schedules.mode.once'), weekly: t('schedules.mode.weekly'), every: t('schedules.mode.every'), cron: t('schedules.mode.cron') };
+  const modes: Mode[] = ['once', 'weekly', 'every', 'cron', 'event'];
+  const modeLabel = {
+    once: t('schedules.mode.once'),
+    weekly: t('schedules.mode.weekly'),
+    every: t('schedules.mode.every'),
+    cron: t('schedules.mode.cron'),
+    event: t('schedules.mode.event'),
+  };
 
   return (
     <Dialog open onOpenChange={onOpenChange}>
@@ -246,7 +275,28 @@ export function ScheduleDialog({
                 <Input id="schedule-cron" className="font-mono" value={form.cron} onChange={(e) => set('cron', e.target.value)} required data-schedule-cron />
               </Field>
             )}
-            {form.mode !== 'once' && (
+            {form.mode === 'event' && (
+              <div className="grid gap-2">
+                <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                  <Field label={t('schedules.field.event')}>
+                    <Select value={form.event} onChange={(v) => set('event', v as ScheduleEvent)} aria-label={t('schedules.field.event')} data-schedule-event>
+                      {scheduleEvents.map((e) => (
+                        <SelectOption key={e} value={e}>
+                          {t(`schedules.event.${e}`)}
+                        </SelectOption>
+                      ))}
+                    </Select>
+                  </Field>
+                  {form.event === 'issue_labeled' && (
+                    <Field label={t('schedules.field.label')} htmlFor="schedule-label">
+                      <Input id="schedule-label" className="w-36" value={form.label} placeholder="bug" onChange={(e) => set('label', e.target.value)} required data-schedule-label />
+                    </Field>
+                  )}
+                </div>
+                <p className="text-[12px] text-subtle">{t('schedules.field.eventHint')}</p>
+              </div>
+            )}
+            {form.mode !== 'once' && form.mode !== 'event' && (
               <Field label={t('schedules.field.timezone')} htmlFor="schedule-tz">
                 <Input id="schedule-tz" value={form.timezone} onChange={(e) => set('timezone', e.target.value)} />
               </Field>
@@ -282,9 +332,11 @@ export function ScheduleDialog({
           <Field label={t('schedules.field.precheck')} htmlFor="schedule-precheck" hint={t('schedules.field.precheckHint')}>
             <Input id="schedule-precheck" className="font-mono" value={form.precheck} onChange={(e) => set('precheck', e.target.value)} />
           </Field>
-          <Field label={t('schedules.field.grace')} htmlFor="schedule-grace" hint={t('schedules.field.graceHint')}>
-            <Input id="schedule-grace" type="number" min={0} className="w-28" value={form.grace} onChange={(e) => set('grace', e.target.value)} />
-          </Field>
+          {form.mode !== 'event' && (
+            <Field label={t('schedules.field.grace')} htmlFor="schedule-grace" hint={t('schedules.field.graceHint')}>
+              <Input id="schedule-grace" type="number" min={0} className="w-28" value={form.grace} onChange={(e) => set('grace', e.target.value)} />
+            </Field>
+          )}
           {save.error && <Notice>{errorMessage(save.error)}</Notice>}
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>

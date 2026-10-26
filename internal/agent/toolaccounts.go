@@ -275,3 +275,60 @@ func writePrivate(dir, rel string, b []byte) error {
 	}
 	return os.Rename(tmp, path)
 }
+
+// SetAccount moves an agent to another stored account of its AI tool, keeping
+// the tool: Claude Code's goes through SetClaudeAccount; Codex's and Cursor's
+// one account, and OpenCode's per provider (laid over the ones it has), are
+// resolved as Create resolves them (CheckLogin: "" is the project's, else the
+// machine's default). Their login is a file in the machine's home, which the
+// tool rewrites as it refreshes its token, and which Start leaves alone for
+// that reason, so the machine must be up to be given the new one. The tool
+// reads it only as it starts, so the caller restarts the chat on it
+// (chat.Manager.AccountChanged).
+func (m *Manager) SetAccount(ctx context.Context, a state.Agent, want Logins) (state.Agent, error) {
+	if a.IsLead() {
+		return a, errors.New("a project's chat chooses its account in its composer")
+	}
+	if a.AI == "claude" {
+		if want.Codex != "" || want.Cursor != "" || len(want.OpenCode.Clean()) > 0 {
+			return a, fmt.Errorf("%s runs Claude Code: name a Claude Code account", a.Ref())
+		}
+		return m.SetClaudeAccount(ctx, a, want.Claude)
+	}
+	if !slices.Contains(credentials.AccountTools, a.AI) {
+		return a, fmt.Errorf("%s runs %s, which has no accounts to choose from", a.Ref(), cmpOr(ChatAdapters[a.AI].Tool, "no AI tool"))
+	}
+	p, err := m.Store.Project(ctx, a.Project)
+	if err != nil {
+		return a, err
+	}
+	if a.AI == "opencode" && len(want.OpenCode.Clean()) > 0 {
+		merged := a.OpenCodeAccounts.Clean()
+		maps.Copy(merged, want.OpenCode.Clean())
+		want.OpenCode = merged
+	}
+	logins, err := m.CheckLogin(a.AI, p, want)
+	if err != nil {
+		return a, err
+	}
+	a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount = logins.Codex, logins.OpenCode, logins.Cursor
+	inst, err := m.Incus.Instance(ctx, a.Instance)
+	if err != nil {
+		return a, err
+	}
+	if inst.Status != "Running" {
+		return a, fmt.Errorf("%s is %s: start it first, since %s's login is a file in its machine", a.Ref(), strings.ToLower(inst.Status), ChatAdapters[a.AI].Tool)
+	}
+	auth, err := m.toolLoginFile(p, a, a.AI)
+	if err != nil {
+		return a, err
+	}
+	home := "/home/" + m.User.Name
+	if err := m.Incus.WriteFile(ctx, a.Instance, home+"/"+toolAuthFile(a.AI), auth, m.User.UID, m.User.GID, 0o600); err != nil {
+		return a, err
+	}
+	if err := m.Store.SetAgentToolAccounts(ctx, a.Project, a.Name, a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount); err != nil {
+		return a, err
+	}
+	return a, nil
+}
