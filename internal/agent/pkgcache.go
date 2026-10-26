@@ -52,6 +52,7 @@ func (m *Manager) packageCacheEnv() string {
 		// project's mount: it would copy anyway, after a warning every time.
 		{"UV_LINK_MODE", "copy"},
 		{"PLAYWRIGHT_BROWSERS_PATH", dir(pkgcache.Playwright)},
+		{"electron_config_cache", dir(pkgcache.Electron)},
 		// From one agent, the projects of the others look deleted, and
 		// Playwright would delete the browsers they use: the daemon evicts
 		// browsers instead.

@@ -128,6 +128,40 @@ func TestCreditAIToolIsOffUntilItIsTurnedOn(t *testing.T) {
 	}
 }
 
+func TestBuiltWithBadgeIsOffAndOfferedOnce(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	get := func() api.Settings {
+		out, err := d.srv.currentSettings(httptest.NewRequest(http.MethodGet, "/v1/settings", nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	if out := get(); out.BuiltWithBadge || out.BuiltWithBadgeOffer {
+		t.Fatalf("a fresh installation has the badge or its offer: %+v", out)
+	}
+	ctx := context.Background()
+	if err := d.srv.store.OfferBuiltWithBadge(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if out := get(); out.BuiltWithBadge || !out.BuiltWithBadgeOffer {
+		t.Fatalf("after a merge: %+v", out)
+	}
+	if out, err := patchSettings(t, d, `{"dismissBuiltWithBadgeOffer":true}`); err != nil || out.BuiltWithBadgeOffer || out.BuiltWithBadge {
+		t.Fatalf("after dismissing: %+v, %v", out, err)
+	}
+	if err := d.srv.store.OfferBuiltWithBadge(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if get().BuiltWithBadgeOffer {
+		t.Error("a later merge offered it again")
+	}
+	if out, err := patchSettings(t, d, `{"builtWithBadge":true}`); err != nil || !out.BuiltWithBadge {
+		t.Errorf("after turning it on: %+v, %v", out, err)
+	}
+}
+
 // TestClaudeMenuIsKnownOnceAnAdapterSentOne: the pinned models are always on
 // the menu, so the app can't tell from the choices alone that Claude Code
 // hasn't sent the account's own yet, and says so from this.

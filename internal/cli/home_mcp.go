@@ -93,7 +93,8 @@ func homeTools(ctx context.Context, c *api.Client) []mcp.Tool {
 		{
 			Name: "create_agent",
 			Description: "Create an agent in a project and give it a task. It gets its own machine and its own " +
-				"branch, and starts on the model new agents start on there. Write the " +
+				"branch, and runs the AI tool that project's own chat runs (Claude Code when its agents can't), on the model new agents " +
+				"start on there. Write the " +
 				"task directly: what to do, what done looks like, what to leave alone. When the work needs the " +
 				"project's judgement — splitting it up, following it through — use tell_lead instead.",
 			Schema: object([]string{"project", "title", "task"}, map[string]any{
@@ -119,12 +120,13 @@ func homeTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				autonomous := true
 				job, err := c.CreateAgent(ctx, api.CreateAgentRequest{
 					Project: in.Project, Title: in.Title, Task: in.Task, Branch: in.Branch,
-					AI: "claude", Autonomous: &autonomous, Size: in.Size,
+					Autonomous: &autonomous, Size: in.Size,
 				})
 				if err != nil {
 					return "", err
 				}
-				return fmt.Sprintf("Creating %q in %s; it starts on the task by itself. Job %s.", in.Title, in.Project, job.ID), nil
+				return fmt.Sprintf("Creating %q in %s%s; it starts on the task by itself. Job %s.%s",
+					in.Title, in.Project, describeChoices(job.AI, nil, nil, true, "", ""), job.ID, toolNotice(job.Notice)), nil
 			},
 		},
 		{

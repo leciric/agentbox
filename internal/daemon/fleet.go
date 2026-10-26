@@ -2,10 +2,14 @@ package daemon
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"net/http"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"golang.org/x/sync/errgroup"
 
@@ -67,7 +71,7 @@ func (s *Server) fleet(w http.ResponseWriter, r *http.Request) error {
 		out.GitHubError = s.githubErrorFor(p, repo, err)
 	}
 
-	changes := agentChanges(agents, changesOf)
+	changes := agentChanges(agents, polledChanges)
 
 	for i, st := range statuses {
 		row := api.FleetAgent{Agent: s.agentInfo(st)}
@@ -114,41 +118,71 @@ func agentChanges(agents []state.Agent, measure func(state.Agent) api.AgentChang
 	return out
 }
 
-// changesOf measures an agent's diff against the commit it started from. A
-// worktree that has been removed, or an agent still being created, has none.
+// changesOf is an agent's diff against the commit it started from, for
+// showing: when git can't read it now, the last it could, so a fleet doesn't
+// flash every agent to "no changes" while the machine is out of files. What
+// decides anything from the changes uses measureChanges, and its error.
 func changesOf(a state.Agent) api.AgentChanges {
-	var out api.AgentChanges
-	stat, err := gitrepo.DiffWorktree(a.Worktree, a.BaseCommit, true)
+	out, err := measureChanges(a)
 	if err != nil {
+		if last, ok := knownChanges.Load(a.Worktree); ok {
+			return last.(api.AgentChanges)
+		}
 		return out
 	}
-	// The last line of --stat is " N files changed, N insertions(+), N deletions(-)".
-	lines := strings.Split(strings.TrimSpace(stat), "\n")
-	if len(lines) == 0 || lines[0] == "" {
-		return out
-	}
-	for _, part := range strings.Split(lines[len(lines)-1], ",") {
-		fields := strings.Fields(strings.TrimSpace(part))
-		if len(fields) < 2 {
-			continue
-		}
-		n, err := strconv.Atoi(fields[0])
-		if err != nil {
-			continue
-		}
-		switch {
-		case strings.HasPrefix(fields[1], "file"):
-			out.Files = n
-		case strings.HasPrefix(fields[1], "insertion"):
-			out.Insertions = n
-		case strings.HasPrefix(fields[1], "deletion"):
-			out.Deletions = n
-		}
-	}
-	if dirty, err := gitrepo.Dirty(a.Worktree); err == nil {
-		out.Dirty = dirty
+	if a.Worktree != "" {
+		knownChanges.Store(a.Worktree, out)
 	}
 	return out
+}
+
+// polledChanges is changesOf for a list a tab polls. A worktree already being
+// measured, by a poll whose git hasn't returned yet, isn't measured again
+// alongside it but shown as last read: polls stacking up on a slow disk kept
+// git running nonstop.
+func polledChanges(a state.Agent) api.AgentChanges {
+	if a.Worktree != "" {
+		if _, busy := measuring.LoadOrStore(a.Worktree, true); busy {
+			if last, ok := knownChanges.Load(a.Worktree); ok {
+				return last.(api.AgentChanges)
+			}
+		} else {
+			defer measuring.Delete(a.Worktree)
+		}
+	}
+	return changesOf(a)
+}
+
+// knownChanges is the last changes measureChanges read for each worktree.
+var knownChanges sync.Map // worktree -> api.AgentChanges
+
+// measuring is the worktrees polledChanges is measuring now.
+var measuring sync.Map // worktree -> true
+
+// measureChanges measures an agent's diff against the commit it started
+// from, and whether it has uncommitted work. A worktree that has been
+// removed, or an agent still being created, has none. An error is git
+// failing to read it (ENFILE, say), and the changes are then unknown: never
+// "none", and never "clean".
+func measureChanges(a state.Agent) (api.AgentChanges, error) {
+	var out api.AgentChanges
+	if a.Worktree == "" || a.BaseCommit == "" {
+		return out, nil
+	}
+	if _, err := os.Stat(a.Worktree); errors.Is(err, fs.ErrNotExist) {
+		return out, nil
+	}
+	stat, err := gitrepo.DiffWorktree(a.Worktree, gitrepo.DiffBase(a.Worktree, a.BaseRef, a.BaseCommit), true)
+	if err != nil {
+		return out, err
+	}
+	out = statOf(stat)
+	dirty, err := gitrepo.Dirty(a.Worktree)
+	if err != nil {
+		return api.AgentChanges{}, err
+	}
+	out.Dirty = dirty
+	return out, nil
 }
 
 // projectMedia is every agent's media for one project, newest first, each item
@@ -181,4 +215,33 @@ func (s *Server) agentTitles(ctx context.Context, project string) (map[string]st
 		titles[a.Name] = a.Title
 	}
 	return titles, nil
+}
+
+// statOf reads git's diff --stat or --shortstat, whose last line is
+// " N files changed, N insertions(+), N deletions(-)".
+func statOf(stat string) api.AgentChanges {
+	var out api.AgentChanges
+	lines := strings.Split(strings.TrimSpace(stat), "\n")
+	if len(lines) == 0 || lines[0] == "" {
+		return out
+	}
+	for _, part := range strings.Split(lines[len(lines)-1], ",") {
+		fields := strings.Fields(strings.TrimSpace(part))
+		if len(fields) < 2 {
+			continue
+		}
+		n, err := strconv.Atoi(fields[0])
+		if err != nil {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(fields[1], "file"):
+			out.Files = n
+		case strings.HasPrefix(fields[1], "insertion"):
+			out.Insertions = n
+		case strings.HasPrefix(fields[1], "deletion"):
+			out.Deletions = n
+		}
+	}
+	return out
 }

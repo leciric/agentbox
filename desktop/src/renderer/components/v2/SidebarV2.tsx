@@ -10,6 +10,11 @@
 // bottom, above the foot, the Idle list of the rest, folded unless nothing is
 // going on, and under it the projects the user hid, folded. The
 // project on screen never folds into Idle: the chat you're in stays in view.
+// The user's sections, Classic's (lib/sidebar.ts, the same data), go between
+// the pins and the rest, each with its projects in the order the user put
+// them: a section is a place the user chose, so neither activity nor Idle
+// moves a project out of one. A pin is still with the pins and a hidden
+// project with the hidden, and back in its section when unpinned or shown.
 // That grouping is a setting, off by default (lib/groupIdle.ts): off, every
 // project is listed in a stable order and activity never moves one.
 // A project's options are on a right-click of its row, its Settings on a
@@ -17,8 +22,8 @@
 // lib/leadFirst.ts's, lib/projectOrder.ts's and lib/sidebarHidden.ts's.
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Archive, Check, ChevronRight, CircleArrowUp, Eye, EyeOff, FolderPlus, House, Images, ListChecks, ListFilter, LoaderCircle, MoonStar, RefreshCw, Search, Settings, ShieldAlert, SquarePen, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
+import { Briefcase, Check, ChevronRight, CircleArrowUp, Eye, EyeOff, Folder, FolderInput, FolderMinus, FolderPlus, FolderTree, House, Images, ListChecks, ListFilter, LoaderCircle, MoonStar, RefreshCw, Search, Settings, ShieldAlert, SquarePen, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type ComponentProps, type DragEvent, type ReactNode } from 'react';
 import * as A from '../../../shared/api';
 import type * as T from '../../../shared/api';
 import type { View } from '../../App';
@@ -30,7 +35,9 @@ import { useGroupIdle } from '../../lib/groupIdle';
 import { movePin, orderProjects, togglePin } from '../../lib/projectOrder';
 import { HelpMenu } from './Tour';
 import { setFilterChoice, setHiddenOpen, setPins, useV2Projects } from '../../lib/v2Projects';
-import { arrange, hide, pinsAfterHide, sections, unhide, type Section } from '../../lib/sidebarHidden';
+import { arrange, hide, pinsAfterHide, sections, unhide, type Slot } from '../../lib/sidebarHidden';
+import { drop as dropOn, listEnd, sectionsAside, stepTarget, type DropTarget, type SidebarList } from '../../lib/sidebar';
+import { edge, useSectionDrag, useSections } from '../../lib/useSections';
 import { useSidebarLayout } from '../../lib/useSidebarLayout';
 import { useGrace } from '../../lib/grace';
 import { projectLabel } from '../../lib/projectName';
@@ -42,9 +49,10 @@ import { useAppUpdate } from '../../lib/useAppUpdate';
 import { cn, errorMessage, shortcut, timeAgo } from '../../lib/utils';
 import { openNewTask, requestComposerFocus } from '../../lib/newTask';
 import { openPanelOn, setPanel } from '../../lib/rightPanel';
-import { Logo } from '../Sidebar';
+import { describeDelete, dropLine, Logo, moveKeys, NameSection, RenameSection, SectionHeader } from '../Sidebar';
+import { ConfirmDialog } from '../ConfirmDialog';
 import { ProjectIcon, ProjectIconDialog } from '../ProjectIcon';
-import { ReviewCount, useOpenReview } from './ReviewV2';
+import { ReviewCount, useOpenWork } from './ReviewV2';
 import { projectActions, type ProjectAction } from './ProjectHeader';
 import { TalkToProject } from './TalkToProject';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuMore, ContextMenuSeparator, ContextMenuTrigger } from '../ui/context-menu';
@@ -150,17 +158,33 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   // A hidden project comes back while it has something going on, which the
   // project on screen alone doesn't count as: opened from Hidden, it stays there.
   const arranged = arrange(order, layout, activeGrace);
+  // The user's sections, each with the projects in it that aren't with the
+  // pins or the hidden; the rest of the lists are the projects in none.
+  const sec = useSections();
+  const dnd = useSectionDrag(sec.lists, sec.apply);
+  const { sections: userSections, shown: inSection } = sectionsAside(sec.lists, new Set([...arranged.pinned, ...arranged.hidden].map((p) => p.name)));
+  const loose = (ps: T.Project[]) => ps.filter((p) => !inSection.has(p.name));
   const lists = {
     pinned: projectRows(arranged.pinned, rows, filters, expanded, label, ctx),
-    rest: projectRows(arranged.rest, rows, filters, expanded, label, ctx),
-    idle: projectRows(arranged.idle, rows, filters, expanded, label, ctx),
+    rest: projectRows(loose(arranged.rest), rows, filters, expanded, label, ctx),
+    idle: projectRows(loose(arranged.idle), rows, filters, expanded, label, ctx),
     hidden: projectRows(arranged.hidden, rows, filters, expanded, label, ctx),
   };
   const searching = q.trim() !== '';
+  // Under a search or a filter, a section shows what matches in it, open,
+  // and one with nothing that matches doesn't show; otherwise every section
+  // does, an empty one too, to drop projects into.
+  const filtering = searching || filterCount(filters) > 0;
+  const sectionLists = userSections.flatMap((list) => {
+    const shown = projectRows(list.projects, rows, filters, expanded, label, ctx);
+    return filtering && shown.length === 0 ? [] : [{ section: list.section!, list, shown }];
+  });
+  const [naming, setNaming] = useState<{ id: string; move?: string } | null>(null); // a section being named: its id, or '' for a new one
+  const [deleting, setDeleting] = useState<T.Section | null>(null);
   // Until the agents are in, every project would read idle.
   const loaded = !!agents.data;
   // With nothing above it, the Idle list is the list: open, and not a fold.
-  const idleOnly = lists.pinned.length + lists.rest.length === 0;
+  const idleOnly = lists.pinned.length + lists.rest.length + sectionLists.length === 0;
   // Otherwise it is folded, and a click opens it only until something starts:
   // an agent starting never leaves it open under the project it started in.
   const [idleOpened, setIdleOpened] = useState(false);
@@ -173,20 +197,20 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   // A search looks in it too, and opens it on a match.
   const idleOpen = idleOnly || idleOpened || (searching && lists.idle.length > 0);
   const hiddenOpen = kept.hiddenOpen || (searching && lists.hidden.length > 0) || (!!onScreen && lists.hidden.some((p) => p.project.name === onScreen));
-  const nothing = projects.data && projects.data.length > 0 && lists.pinned.length + lists.rest.length + lists.idle.length + lists.hidden.length === 0;
+  const nothing = projects.data && projects.data.length > 0 && lists.pinned.length + lists.rest.length + lists.idle.length + lists.hidden.length + sectionLists.reduce((n, s) => n + s.shown.length, 0) === 0;
 
   // Review all goes after the first list's label, whichever list is first.
-  const openReview = useOpenReview();
+  const openWork = useOpenWork();
   const toReview = reviewing ? (head.data?.total ?? 0) : 0;
   let reviewPlaced = false;
   const reviewAll = () => {
-    if (reviewPlaced || !openReview || toReview === 0) return null;
+    if (reviewPlaced || !openWork || toReview === 0) return null;
     reviewPlaced = true;
     return (
       <Tip label={t('v2.review.allHint')}>
         <button
           type="button"
-          onClick={() => openReview()}
+          onClick={() => openWork({ filter: 'review' })}
           className="ml-1.5 shrink-0 rounded-full border border-line-strong bg-surface px-1.5 py-px text-[10.5px] font-medium normal-case tracking-normal tabular-nums text-secondary transition hover:border-line-heavy hover:bg-surface-strong hover:text-title"
           data-v2-review-all={toReview}
         >
@@ -196,7 +220,57 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
     );
   };
 
-  const lead = (p: ProjectRows, pin?: { draggable: true }) => (
+  // Moving a project with the keyboard (Alt+↑/↓): a pin among the pins, and
+  // any other among the sections, as Classic does (stepTarget). The row is
+  // drawn again where it lands, often in another list, so it takes the focus
+  // back.
+  const refocus = (name: string) => requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-v2-lead="${CSS.escape(name)}"]`)?.focus());
+  const stepPin = (name: string) => (delta: -1 | 1) => {
+    const i = kept.pins.indexOf(name);
+    const next = kept.pins[i + delta];
+    if (i < 0 || !next) return;
+    setPins(movePin(kept.pins, name, next, delta === -1 ? 'before' : 'after'));
+    refocus(name);
+  };
+  const shownLists: SidebarList[] = [...userSections, { section: null, projects: [...lists.rest, ...lists.idle].map((p) => p.project) }];
+  const moveTo = (name: string, at: DropTarget | null) => {
+    if (!at) return;
+    sec.apply(dropOn(sec.lists, { kind: 'project', name }, at), name);
+    refocus(name);
+  };
+  const stepProject = (name: string) => (delta: -1 | 1) => moveTo(name, stepTarget(shownLists, name, delta));
+
+  // Dragging a project into a section, out of one or within one. Dropped on
+  // a project in a section it goes beside it; on one in no section, out of
+  // its section (the projects in none have no order of their own here).
+  const rowTarget = (name: string, section: string | null, at: 'before' | 'after'): DropTarget | null => {
+    const what = dnd.draggingRef.current;
+    if (what?.kind !== 'project') return null;
+    if (section !== null) return { kind: 'project', name, edge: at };
+    return inSection.has(what.name) ? { kind: 'list', section: null } : null;
+  };
+  const anySection = userSections.length > 0;
+  const sectionDrag = (name: string, section: string | null): Drag | undefined =>
+    anySection
+      ? {
+          over: section === null ? undefined : (['before', 'after'] as const).find((at) => dnd.isTarget({ kind: 'project', name, edge: at })),
+          dragged: dnd.dragging?.kind === 'project' && dnd.dragging.name === name,
+          onStart: dnd.startDrag({ kind: 'project', name }),
+          onEnd: dnd.finishDrag,
+          onOver: (at) => {
+            const where = rowTarget(name, section, at);
+            if (where) dnd.aim(where);
+            return !!where;
+          },
+          onDrop: (at) => {
+            const where = rowTarget(name, section, at);
+            if (where) dnd.commitDrop(where);
+            return !!where;
+          },
+        }
+      : undefined;
+
+  const lead = (p: ProjectRows, drag?: Drag, onMove?: (delta: -1 | 1) => void) => (
     <ProjectLead
       key={p.project.name}
       project={p.project}
@@ -219,46 +293,173 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
       }}
       onSelect={onSelect}
       onNewAgent={() => onNewAgent(p.project.name)}
-      drag={
-        pin && {
-          over: drop?.name === p.project.name ? drop.edge : undefined,
-          onStart: () => setDragging(p.project.name),
-          onEnd: () => {
-            setDragging(null);
-            setDrop(null);
-          },
-          onOver: (edge) => dragging && dragging !== p.project.name && setDrop({ name: p.project.name, edge }),
-          onDrop: () => {
-            if (dragging && drop) setPins(movePin(kept.pins, dragging, drop.name, drop.edge));
-            setDragging(null);
-            setDrop(null);
-          },
-        }
+      drag={drag}
+      onMove={onMove}
+      // Where a pinned or hidden project shows is the pins' or Hidden's, so
+      // only the others move between sections from the menu.
+      sectionMenu={
+        pinned.has(p.project.name) || hiddenSet.has(p.project.name)
+          ? undefined
+          : {
+              sections: sec.lists.flatMap((l) => (l.section ? [l.section] : [])),
+              current: sec.lists.find((l) => l.projects.some((x) => x.name === p.project.name))?.section?.id ?? '',
+              onMove: (id) => moveTo(p.project.name, { kind: 'list', section: id }),
+              onNew: () => setNaming({ id: '', move: p.project.name }),
+            }
       }
     />
   );
+  const pinDrag = (name: string): Drag => ({
+    over: drop?.name === name ? drop.edge : undefined,
+    dragged: dragging === name,
+    onStart: () => setDragging(name),
+    onEnd: () => {
+      setDragging(null);
+      setDrop(null);
+    },
+    onOver: (at) => {
+      if (!dragging || dragging === name) return false;
+      setDrop({ name, edge: at });
+      return true;
+    },
+    onDrop: () => {
+      if (!dragging) return false;
+      if (drop) setPins(movePin(kept.pins, dragging, drop.name, drop.edge));
+      setDragging(null);
+      setDrop(null);
+      return true;
+    },
+  });
 
-  const { top, dock } = sections(lists);
-  const section = (s: Section) => {
+  const newSection = (
+    <Tip label={t('shell.sidebar.newSection')}>
+      <button
+        type="button"
+        aria-label={t('shell.sidebar.newSection')}
+        onClick={() => setNaming({ id: '' })}
+        className="ml-auto rounded-md p-1 text-subtle transition hover:bg-surface-strong hover:text-primary"
+        data-v2-new-section
+      >
+        <FolderTree className="size-3.5" />
+      </button>
+    </Tip>
+  );
+  // A new section's name is typed in where it will appear: under the
+  // sections, or where they will be.
+  const nameSection = naming?.id === '' && (
+    <div className="px-1 pt-1" data-v2-name-section>
+      <NameSection
+        onCancel={() => setNaming(null)}
+        onSave={(name) => {
+          const move = naming.move;
+          setNaming(null);
+          if (move) void sec.addSectionWith(name, move);
+          else sec.addSection.mutate(name);
+        }}
+      />
+    </div>
+  );
+
+  const { top, dock } = sections({ ...lists, sections: sectionLists });
+  const draggingOut = dnd.dragging?.kind === 'project' && inSection.has(dnd.dragging.name);
+  const dropBox = (targeted: boolean) =>
+    cn('mx-2 mb-1 rounded-lg border border-dashed border-line-strong px-2.5 py-1.5 text-[11.5px] text-faint transition-colors', targeted && 'border-brand-400/60 bg-brand-400/10 text-brand-300');
+  const section = (s: Slot) => {
     if (s === 'pinned')
       return (
         <div key={s} data-v2-pinned>
           <ListHead extra={reviewAll()}>{t('v2.sidebar.pinned')}</ListHead>
-          {lists.pinned.map((p) => lead(p, { draggable: true }))}
+          {lists.pinned.map((p) => lead(p, pinDrag(p.project.name), stepPin(p.project.name)))}
+        </div>
+      );
+    if (s === 'sections')
+      return (
+        <div key={s} className="pt-1.5" data-v2-sections>
+          {sectionLists.map(({ section: it, list, shown }) => {
+            // A search or a filter opens a folded section on what matches.
+            const open = !it.collapsed || filtering;
+            return (
+              // A section dragged over another, its projects included, goes
+              // before or after it by which half; a project over its padding
+              // goes to its end.
+              <div
+                key={it.id}
+                className="relative pb-1"
+                data-v2-section={it.id}
+                {...dnd.dropZone((e) => {
+                  const what = dnd.draggingRef.current;
+                  if (what?.kind === 'section') return { kind: 'sectionOrder', id: it.id, edge: edge(e) };
+                  return what ? listEnd(list) : null;
+                })}
+              >
+                {dnd.isTarget({ kind: 'sectionOrder', id: it.id, edge: 'before' }) && dropLine('before', true)}
+                <SectionHeader
+                  section={open === !it.collapsed ? it : { ...it, collapsed: false }}
+                  count={shown.length}
+                  dragging={dnd.dragging}
+                  targeted={dnd.isTarget({ kind: 'section', id: it.id })}
+                  onToggle={() => sec.patchSection.mutate({ id: it.id, req: { collapsed: !it.collapsed } })}
+                  onMove={(delta) => sec.moveSectionBy(it, delta)}
+                  onRename={() => setNaming({ id: it.id })}
+                  onDelete={() => setDeleting(it)}
+                  onDragStart={dnd.startDrag({ kind: 'section', id: it.id })}
+                  onDragEnd={dnd.finishDrag}
+                  dropZone={dnd.dropZone(() => (dnd.draggingRef.current?.kind === 'project' ? { kind: 'section', id: it.id } : null))}
+                  moveKeys={moveKeys}
+                />
+                {open && shown.map((p) => lead(p, sectionDrag(p.project.name, it.id), stepProject(p.project.name)))}
+                {open && shown.length === 0 && (
+                  <div className={dropBox(dnd.isTarget({ kind: 'list', section: it.id }))} {...dnd.dropZone(() => (dnd.draggingRef.current?.kind === 'project' ? { kind: 'list', section: it.id } : null))}>
+                    {t('shell.sidebar.dropHere')}
+                  </div>
+                )}
+                {dnd.isTarget({ kind: 'sectionOrder', id: it.id, edge: 'after' }) && dropLine('after', true)}
+              </div>
+            );
+          })}
+          {/* While a project in a section is dragged, somewhere to drop it
+              out of any, whether or not the list of those shows. */}
+          {draggingOut && (
+            <div
+              className={dropBox(dnd.isTarget({ kind: 'list', section: null }))}
+              {...dnd.dropZone(() => (dnd.draggingRef.current?.kind === 'project' ? { kind: 'list', section: null } : null))}
+              data-v2-drop-no-section
+            >
+              {t('v2.sidebar.dropNoSection')}
+            </div>
+          )}
+          {nameSection}
         </div>
       );
     if (s === 'rest')
       return (
         <div key={s} data-v2-rest>
-          <ListHead extra={reviewAll()}>{t('shell.sidebar.projects')}</ListHead>
-          {lists.rest.map((p) => lead(p))}
+          <ListHead
+            extra={
+              <>
+                {reviewAll()}
+                {newSection}
+              </>
+            }
+          >
+            {t('shell.sidebar.projects')}
+          </ListHead>
+          {!top.includes('sections') && nameSection}
+          {lists.rest.map((p) => lead(p, sectionDrag(p.project.name, null), stepProject(p.project.name)))}
         </div>
       );
     if (s === 'idle')
       return (
         <div key={s} ref={idleRef} data-v2-idle={idleOnly ? 'only' : idleOpen ? 'open' : 'closed'}>
           {idleOnly ? (
-            <ListHead extra={reviewAll()}>
+            <ListHead
+              extra={
+                <>
+                  {reviewAll()}
+                  {newSection}
+                </>
+              }
+            >
               {t('v2.sidebar.idle')}
               <span className="ml-1.5 font-normal tabular-nums normal-case tracking-normal text-subtle">{lists.idle.length}</span>
             </ListHead>
@@ -276,7 +477,8 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
               <span className="min-w-0 truncate text-subtle">· {t('v2.sidebar.idleHint')}</span>
             </button>
           )}
-          {idleOpen && <div className={cn(!idleOnly && 'opacity-80')}>{lists.idle.map((p) => lead(p))}</div>}
+          {idleOnly && nameSection}
+          {idleOpen && <div className={cn(!idleOnly && 'opacity-80')}>{lists.idle.map((p) => lead(p, sectionDrag(p.project.name, null), stepProject(p.project.name)))}</div>}
         </div>
       );
     return (
@@ -302,28 +504,31 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
     <aside className="flex w-[288px] shrink-0 flex-col border-r border-line bg-rail backdrop-blur-xl" data-sidebar-v2>
       <div className={cn('flex h-14 shrink-0 items-center gap-2 px-4', nightly && 'nightly-sky')} data-nightly={nightly || undefined}>
         <Logo className="size-7" />
-        {/* A nightly's badge goes under the name: beside it, the header's "Add project" overflows the 288px column. */}
-        <div className="flex min-w-0 flex-col items-start gap-0.5">
-          <span className="text-[14px] font-semibold tracking-tight text-title">AgentBox</span>
-          {nightly && (
-            <Tip label={t('shell.sidebar.nightlyTip', { version: info.data?.version ? `, ${info.data.version}` : '' })}>
-              <span className="nightly-badge inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-px text-[10.5px] font-medium">
-                <MoonStar className="size-3" aria-hidden />
-                {t('shell.sidebar.nightly')}
-              </span>
-            </Tip>
-          )}
-        </div>
+        <span className="text-[14px] font-semibold tracking-tight text-title">AgentBox</span>
+        {nightly && (
+          <Tip label={t('shell.sidebar.nightlyTip', { version: info.data?.version ? `, ${info.data.version}` : '' })}>
+            <span className="nightly-badge inline-flex shrink-0 items-center rounded-full p-1" aria-label={t('shell.sidebar.nightlyTip', { version: info.data?.version ? `, ${info.data.version}` : '' })}>
+              <MoonStar className="size-3" aria-hidden />
+            </span>
+          </Tip>
+        )}
         <span className="ml-auto" />
         <HelpMenu />
-        <button type="button" className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-1.5 py-1 text-[12px] text-subtle transition hover:bg-surface-strong hover:text-primary" onClick={onAddProject} data-v2-add-project>
-          <FolderPlus className="size-4" />
-          {t('shell.home.addProject')}
-        </button>
+        <Tip label={t('shell.home.addProject')}>
+          <button type="button" className="flex shrink-0 items-center rounded-md p-1.5 text-subtle transition hover:bg-surface-strong hover:text-primary" onClick={onAddProject} aria-label={t('shell.home.addProject')} data-v2-add-project>
+            <FolderPlus className="size-4" />
+          </button>
+        </Tip>
       </div>
 
       {/* Never sideways: what's too long in it truncates (each row's flex children are min-w-0). */}
-      <nav className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden px-2 pb-3 pt-1 [&>*]:shrink-0" aria-label={t('v2.sidebar.chats')}>
+      {/* Over no row or section that takes it, a drag lands nowhere, and the indicator says so. */}
+      <nav
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden px-2 pb-3 pt-1 [&>*]:shrink-0"
+        aria-label={t('v2.sidebar.chats')}
+        onDragOver={(e: DragEvent) => !e.isDefaultPrevented() && dnd.draggingRef.current && dnd.aim(null)}
+        onDragLeave={(e: DragEvent) => !e.currentTarget.contains(e.relatedTarget as Node | null) && dnd.aim(null)}
+      >
         <NewTaskRow />
         <HomeRow active={view.kind === 'homeChat' || view.kind === 'home'} onClick={() => onSelect({ kind: 'homeChat' })} />
         <FilterBar filters={filters} onFilters={onFilters} projects={projects.data ?? []} rows={rows} />
@@ -341,7 +546,29 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
             {dock.map(section)}
           </div>
         )}
+        <p className="sr-only" aria-live="polite">
+          {sec.announced}
+        </p>
       </nav>
+      {naming && naming.id !== '' && (
+        <RenameSection
+          section={sec.sections.data?.find((it) => it.id === naming.id)}
+          onClose={() => setNaming(null)}
+          onSave={(name) => {
+            setNaming(null);
+            sec.patchSection.mutate({ id: naming.id, req: { name } });
+          }}
+        />
+      )}
+      <ConfirmDialog
+        open={deleting !== null}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        title={deleting ? t('shell.sidebar.deleteTitle', { name: deleting.name }) : t('shell.sidebar.deleteTitleNone')}
+        description={describeDelete(sec.lists, deleting?.id)}
+        confirmLabel={t('shell.sidebar.deleteSection')}
+        destructive
+        onConfirm={() => sec.removeSection(deleting!.id)}
+      />
 
       {/* The foot is one row of icons, each named by its tooltip: Settings,
           which opens straight away, Past agents, Media and Jobs, the places
@@ -352,7 +579,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
         {(
           [
             { kind: 'settings', icon: Settings, label: t('common.settings'), alert: setup.data && !setup.data.ready },
-            { kind: 'pastAgents', icon: Archive, label: t('pastAgents.title'), alert: false },
+            { kind: 'work', icon: Briefcase, label: t('work.title'), alert: false },
             { kind: 'media', icon: Images, label: t('shell.nav.media'), alert: false },
             { kind: 'jobs', icon: ListChecks, label: t('shell.nav.jobs'), alert: false },
           ] as const
@@ -532,7 +759,8 @@ export function StMark({ st, className }: { st: AgentSt; className?: string }) {
 // Lead is a chat's row. A click opens it; a right-click (or Ctrl+click on a
 // Mac) is for the row's menu only, where it has one, and opens nothing. The
 // rest of props is ContextMenuTrigger's, as its asChild child.
-function Lead({ active, onClick, children, data, ...props }: { active: boolean; onClick: () => void; children: ReactNode; data?: Record<string, string> } & Omit<ComponentProps<'div'>, 'onClick'>) {
+// With onMove, Alt+↑/↓ moves it, Classic's keys (Sidebar.tsx).
+function Lead({ active, onClick, onMove, children, data, ...props }: { active: boolean; onClick: () => void; onMove?: (delta: -1 | 1) => void; children: ReactNode; data?: Record<string, string> } & Omit<ComponentProps<'div'>, 'onClick'>) {
   return (
     <div
       {...props}
@@ -543,7 +771,13 @@ function Lead({ active, onClick, children, data, ...props }: { active: boolean; 
         if (e.button !== 0 || e.ctrlKey) return;
         onClick();
       }}
-      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onClick())}
+      onKeyDown={(e) => {
+        if (onMove) moveKeys(onMove)(e);
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        onClick();
+      }}
+      aria-keyshortcuts={onMove ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
       className={cn('group relative flex min-w-0 cursor-pointer items-start gap-2 rounded-lg px-2 py-2 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400', active ? 'bg-surface-raised' : 'hover:bg-surface')}
       {...data}
     >
@@ -595,12 +829,16 @@ function HomeRow({ active, onClick }: { active: boolean; onClick: () => void }) 
   );
 }
 
+// A row that drags: among the pins, or among the sections. onOver and
+// onDrop say whether the row takes the drag at that edge; one it doesn't
+// goes on to what's around it (a section's, or nowhere).
 type Drag = {
   over?: 'before' | 'after';
-  onStart: () => void;
-  onEnd: () => void;
-  onOver: (edge: 'before' | 'after') => void;
-  onDrop: () => void;
+  dragged?: boolean;
+  onStart: (e: DragEvent) => void;
+  onEnd: (e: DragEvent) => void;
+  onOver: (edge: 'before' | 'after') => boolean;
+  onDrop: (edge: 'before' | 'after') => boolean;
 };
 
 // ProjectLead is a project's lead, the main chat, with its icon, its last
@@ -608,7 +846,7 @@ type Drag = {
 // gear, on hover and on the project open, opens its Settings; a right-click
 // opens its menu, the project header's ⋯ (projectActions). It is lit while
 // its chat or one of its agents' is on screen.
-// A pinned one drags among the pins.
+// A pinned one drags among the pins, any other among the sections.
 function ProjectLead({
   project,
   all,
@@ -621,6 +859,8 @@ function ProjectLead({
   onSelect,
   onNewAgent,
   drag,
+  onMove,
+  sectionMenu,
 }: {
   project: T.Project;
   all: Row[];
@@ -633,6 +873,10 @@ function ProjectLead({
   onSelect: (view: View) => void;
   onNewAgent: () => void;
   drag?: Drag;
+  onMove?: (delta: -1 | 1) => void;
+  // Move to section, in its menu: the sections, the one it's in ('' for
+  // none), and what picking one, or New section, does.
+  sectionMenu?: { sections: T.Section[]; current: string; onMove: (id: string | null) => void; onNew: () => void };
 }) {
   const t = useT();
   const chat = useQuery({ queryKey: ['projectChat', project.name], queryFn: () => api.projectChat(project.name), refetchInterval: 60_000 });
@@ -641,7 +885,8 @@ function ProjectLead({
   const [talk, setTalk] = useState(false);
   // Talk to another project, picked: the menu, closing, mustn't take the
   // focus back to the row, outside the picker opening under it, which closed
-  // the picker as it opened (ProjectMenu's guard, for its ⋯).
+  // the picker as it opened (ProjectMenu's guard, for its ⋯). New section's
+  // name box is the same: the focus going back would blur it closed.
   const talking = useRef(false);
   const leadRef = `${project.name}/${A.LeadName}`;
   // Talk to another project needs another project.
@@ -671,7 +916,7 @@ function ProjectLead({
       talking.current = true;
       setTimeout(() => setTalk(true), 0);
     },
-    onToday: () => onSelect({ kind: 'today', project: project.name }),
+    onWork: () => onSelect({ kind: 'work', project: project.name }),
     onPin,
     onSettings: openSettings,
     onChangeIcon: () => setIconOpen(true),
@@ -685,7 +930,7 @@ function ProjectLead({
   ];
   return (
     <div
-      className={cn('group/lead relative mb-0.5 rounded-xl transition-colors', drag?.over === 'before' && 'before:absolute before:inset-x-2 before:-top-px before:h-0.5 before:rounded-full before:bg-brand-400', drag?.over === 'after' && 'after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded-full after:bg-brand-400')}
+      className={cn('group/lead relative mb-0.5 rounded-xl transition-colors', drag?.dragged && 'opacity-40', drag?.over === 'before' && 'before:absolute before:inset-x-2 before:-top-px before:h-0.5 before:rounded-full before:bg-brand-400', drag?.over === 'after' && 'after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded-full after:bg-brand-400')}
       data-v2-project={project.name}
       draggable={!!drag}
       onDragStart={
@@ -693,30 +938,18 @@ function ProjectLead({
         ((e) => {
           e.dataTransfer.effectAllowed = 'move';
           e.dataTransfer.setData('text/plain', project.name);
-          drag.onStart();
+          drag.onStart(e);
         })
       }
       onDragEnd={drag?.onEnd}
-      onDragOver={
-        drag &&
-        ((e) => {
-          e.preventDefault();
-          const box = e.currentTarget.getBoundingClientRect();
-          drag.onOver(e.clientY < box.top + box.height / 2 ? 'before' : 'after');
-        })
-      }
-      onDrop={
-        drag &&
-        ((e) => {
-          e.preventDefault();
-          drag.onDrop();
-        })
-      }
+      onDragOver={drag && ((e) => !e.isDefaultPrevented() && drag.onOver(edge(e)) && e.preventDefault())}
+      onDrop={drag && ((e) => !e.isDefaultPrevented() && drag.onDrop(edge(e)) && e.preventDefault())}
     >
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <Lead
             active={active}
+            onMove={onMove}
             onClick={() => {
               onSelect({ kind: 'project', project: project.name });
               requestComposerFocus(leadRef);
@@ -787,6 +1020,33 @@ function ProjectLead({
             <ContextMenuItem key="hide" icon={hidden ? Eye : EyeOff} onSelect={onHide} data-v2-project-action={hidden ? 'unhide' : 'hide'}>
               {t(hidden ? 'v2.sidebar.unhide' : 'v2.sidebar.hide')}
             </ContextMenuItem>,
+            sectionMenu && (
+              <ContextMenuMore key="section" icon={FolderInput} label={t('v2.sidebar.moveToSection')}>
+                {sectionMenu.sections
+                  .filter((it) => it.id !== sectionMenu.current)
+                  .map((it) => (
+                    <ContextMenuItem key={it.id} icon={Folder} onSelect={() => sectionMenu.onMove(it.id)} data-v2-move-to={it.id}>
+                      <span className="min-w-0 truncate">{it.name}</span>
+                    </ContextMenuItem>
+                  ))}
+                {sectionMenu.current && (
+                  <ContextMenuItem icon={FolderMinus} onSelect={() => sectionMenu.onMove(null)} data-v2-move-to="">
+                    {t('v2.sidebar.noSection')}
+                  </ContextMenuItem>
+                )}
+                {(sectionMenu.sections.length > 1 || (sectionMenu.sections.length === 1 && !sectionMenu.current)) && <ContextMenuSeparator />}
+                <ContextMenuItem
+                  icon={FolderPlus}
+                  onSelect={() => {
+                    talking.current = true;
+                    setTimeout(sectionMenu.onNew, 0);
+                  }}
+                  data-v2-move-to-new
+                >
+                  {t('v2.sidebar.newSectionFor')}
+                </ContextMenuItem>
+              </ContextMenuMore>
+            ),
             <ContextMenuMore key="more" label={t('common.more')}>{more.flatMap(item)}</ContextMenuMore>,
           ]}
         </ContextMenuContent>

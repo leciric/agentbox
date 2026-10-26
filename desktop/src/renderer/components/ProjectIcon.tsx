@@ -1,6 +1,6 @@
 // A project's icon: the one the user chose (an image or an emoji), else the
 // one the daemon found in its repository (a favicon, a logo, a manifest's
-// icon, or its GitHub owner's avatar), else its first letter. The daemon
+// icon), else its first letter. The daemon
 // keeps both (GET /v1/projects/{project}/icon); Project.iconVersion changes
 // when either does, so the cache here is keyed by it and never refetched
 // otherwise. v2 draws it on the lead rows, the project's header and Overview,

@@ -35,11 +35,11 @@ test('the lead and a past agent have files and evidence, but no machine views, a
     assert.equal(P.hasView(live, view), true, `agent ${view}`);
   }
   assert.deepEqual(P.panelViews.filter(P.needsMachine), ['desktop', 'terminal', 'browser']);
-  assert.deepEqual(P.panelViews.filter(P.projectWide), ['pulls', 'schedules', 'settings']);
+  assert.deepEqual(P.panelViews.filter(P.projectWide), ['pulls', 'issues', 'schedules', 'settings']);
   // The switch's four, and the ⋯'s the rest: every view is in one of them.
   assert.deepEqual(P.switchViews, ['desktop', 'terminal', 'files', 'evidence']);
-  // Pull requests and Settings open from the project's header, not the ⋯.
-  assert.deepEqual([...P.switchViews, ...P.moreViews, 'pulls', 'settings'].toSorted(), [...P.panelViews].toSorted());
+  // Pull requests, Issues and Settings open from the project's header, not the ⋯.
+  assert.deepEqual([...P.switchViews, ...P.moreViews, 'pulls', 'issues', 'settings'].toSorted(), [...P.panelViews].toSorted());
   // What each opens on before it was shown in any.
   assert.equal(P.defaultView(live), 'desktop');
   assert.equal(P.defaultView(lead), 'files');
@@ -187,10 +187,11 @@ test('the panel sits beside the chat while the chat keeps 440px, and is a drawer
   assert.deepEqual(P.panelBox(200, 1632, 1920), { width: P.panelMin, drawer: false });
   // No room for both: over the chat.
   assert.equal(P.panelBox(540, 720, 1100).drawer, true);
-  // Below 1100px of window, always a drawer, however much room: at 1024 the
-  // chat beside it was left about 280px.
-  assert.equal(P.panelBox(540, 1000, 1024).drawer, true);
-  // Below 1024px of window, always a drawer, no wider than the window.
+  // Below 900px of window, always a drawer, however much room.
+  assert.equal(P.panelBox(540, 899, 899).drawer, true);
+  // A portrait monitor's 1080px, the sidebar a drawer (App): beside the chat.
+  assert.deepEqual(P.panelBox(540, 1080, 1080), { width: 540, drawer: false });
+  // A small window: a drawer, no wider than the window.
   const small = P.panelBox(540, 800, 800);
   assert.equal(small.drawer, true);
   assert.ok(small.width <= 800 * 0.92);
@@ -244,7 +245,9 @@ test('the list is narrow, as dragged while the chat keeps its least, and folds t
   assert.deepEqual(P.listBox({ listWidth: 100 }, 1600, 1900), { width: P.listMin, drawer: false });
   assert.deepEqual(P.listBox({ listFolded: true }, 1600, 1900), { width: P.listStrip, drawer: false });
   // Below besideMin, a drawer, as the panel is.
-  assert.equal(P.listBox({}, 900, 1000).drawer, true);
+  assert.equal(P.listBox({}, 899, 899).drawer, true);
+  // A portrait monitor's window, the sidebar a drawer: beside the chat.
+  assert.deepEqual(P.listBox({}, 1080, 1080), { width: P.listDefault, drawer: false });
 });
 
 test('✕ goes back to the list; the panel button folds the list and back, and never closes it', () => {
@@ -280,7 +283,7 @@ test('✕ goes back to the list; the panel button folds the list and back, and n
   P.setFitsBeside(true);
 });
 
-test('the lead’s panel switches between Agents and Files, remembered per project', async () => {
+test('the lead’s panel switches between Agents, Pull requests and Files, remembered per project', async () => {
   P.setPanel({ chats: {}, views: {}, last: {} });
   const lead = 'pawly/lead';
   assert.equal(P.leadTab(P.panelState(), 'pawly'), 'agents');
@@ -303,5 +306,51 @@ test('the lead’s panel switches between Agents and Files, remembered per proje
   assert.equal(fresh.leadTab(fresh.panelState(), 'other'), 'files');
   // An agent shown in the lead's panel is neither tab: back goes to Agents.
   P.openPanelOn(lead, 'desktop', 'pawly/agent-3');
+  assert.equal(P.leadTab(P.panelState(), 'pawly'), 'agents');
+});
+
+test('the lead’s panel also has Evidence and Schedules as tabs', () => {
+  P.setPanel({ chats: {}, views: {}, last: {} });
+  const lead = 'pawly/lead';
+  P.setLeadTab('pawly', 'evidence');
+  assert.equal(P.leadTab(P.panelState(), 'pawly'), 'evidence');
+  assert.equal(P.viewOf(P.panelState(), { kind: 'lead', ref: lead }), 'evidence');
+  P.setLeadTab('pawly', 'files');
+  assert.equal(P.leadTab(P.panelState(), 'pawly'), 'files');
+  // Schedules goes over the tab it was picked from, and Files brings it back.
+  P.setLeadTab('pawly', 'schedules');
+  assert.equal(P.leadTab(P.panelState(), 'pawly'), 'schedules');
+  P.setLeadTab('pawly', 'files');
+  assert.equal(P.leadTab(P.panelState(), 'pawly'), 'files');
+  // Agents, from Schedules, is the list.
+  P.setLeadTab('pawly', 'schedules');
+  P.setLeadTab('pawly', 'agents');
+  assert.equal(P.leadTab(P.panelState(), 'pawly'), 'agents');
+  assert.equal(P.onList(P.panelState(), lead), true);
+});
+
+test('Pull requests is a tab of the lead’s panel, over whoever it showed, and what opens them switches to it', () => {
+  P.setPanel({ chats: {}, views: {}, last: {} });
+  const lead = 'pawly/lead';
+  P.setLeadTab('pawly', 'files');
+  P.setLeadTab('pawly', 'pulls');
+  assert.equal(P.leadTab(P.panelState(), 'pawly'), 'pulls');
+  assert.equal(P.chatPanel(P.panelState(), lead).wide, 'pulls');
+  // Files again, as it was under them.
+  P.setLeadTab('pawly', 'files');
+  assert.equal(P.leadTab(P.panelState(), 'pawly'), 'files');
+  assert.equal(P.chatPanel(P.panelState(), lead).wide, undefined);
+  // From Pull requests, Agents is the list, not the Files they went over.
+  P.setLeadTab('pawly', 'pulls');
+  P.setLeadTab('pawly', 'agents');
+  assert.equal(P.leadTab(P.panelState(), 'pawly'), 'agents');
+  assert.equal(P.onList(P.panelState(), lead), true);
+  // A link or the search opens them as the panel's tab, over an agent too.
+  P.openPanelOn(lead, 'desktop', 'pawly/agent-3');
+  P.openPanelOn(lead, 'pulls');
+  assert.equal(P.leadTab(P.panelState(), 'pawly'), 'pulls');
+  assert.equal(P.chatPanel(P.panelState(), lead).open, true);
+  // ✕, the back arrow and ⌘D beside the chat leave them for the list.
+  P.panelClose(lead);
   assert.equal(P.leadTab(P.panelState(), 'pawly'), 'agents');
 });

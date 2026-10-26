@@ -14,8 +14,8 @@ import (
 	"agentbox/internal/mcp"
 )
 
-// create_agent's "ai" decides which AI tool an agent runs. Claude Code is the
-// default and what it has always made; OpenCode is offered only where an agent
+// create_agent's "ai" decides which AI tool an agent runs. Left out, it stays
+// empty for the daemon to give the agent the lead's own tool; OpenCode is offered only where an agent
 // could really run it, so asking for it otherwise is refused here, with the
 // two things that have to be set up rather than a login error from the daemon.
 func TestLeadAI(t *testing.T) {
@@ -25,7 +25,8 @@ func TestLeadAI(t *testing.T) {
 		want      string
 		wantErrIs string
 	}{
-		{ai: "", want: "claude"},
+		{ai: "", want: ""},
+		{ai: "  ", want: ""},
 		{ai: "claude", want: "claude"},
 		{ai: "Claude ", want: "claude"},
 		{ai: "opencode", ready: true, want: "opencode"},
@@ -501,5 +502,64 @@ func TestLeadConnectorTools(t *testing.T) {
 func TestDescribeConnectorsWithNone(t *testing.T) {
 	if out := describeConnectors(nil); !strings.Contains(out, "no connectors") || !strings.Contains(out, "request_connector") {
 		t.Errorf("describeConnectors(nil) = %q", out)
+	}
+}
+
+// create_agent with no ai leaves the tool to the daemon, which gives the
+// agent the lead's own; the reply names the tool it got, and says why when
+// that is Claude Code instead of the lead's. The description says so too.
+func TestCreateAgentFollowsTheLeadsTool(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "lead.sock")
+	ln, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sent := make(chan api.CreateAgentRequest, 4)
+	reply := make(chan api.Job, 4)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/agents") {
+			var req api.CreateAgentRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			sent <- req
+			_ = json.NewEncoder(w).Encode(<-reply)
+			return
+		}
+		_, _ = w.Write([]byte("{}"))
+	})
+	srv := &http.Server{Handler: mux}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+
+	var create mcp.Tool
+	for _, tool := range projectTools(context.Background(), api.NewClient(socket)) {
+		if tool.Name == "create_agent" {
+			create = tool
+		}
+	}
+	if !strings.Contains(create.Description, "it runs the AI tool you run on yourself") {
+		t.Errorf("create_agent doesn't say an agent runs the lead's tool:\n%s", create.Description)
+	}
+
+	reply <- api.Job{ID: "job_1", AI: "cursor"}
+	out, err := create.Run(json.RawMessage(`{"title":"Reminders page","task":"add it"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req := <-sent; req.AI != "" {
+		t.Errorf("create_agent sent ai %q, want it left to the daemon", req.AI)
+	}
+	if !strings.Contains(out, "on cursor") {
+		t.Errorf("reply = %q, want it to name Cursor", out)
+	}
+
+	reply <- api.Job{ID: "job_2", AI: "claude", Notice: "This agent runs Claude Code, not Cursor like you: agents aren't signed in to Cursor."}
+	if out, err = create.Run(json.RawMessage(`{"title":"Reminders page","task":"add it"}`)); err != nil {
+		t.Fatal(err)
+	}
+	<-sent
+	if !strings.Contains(out, "Job job_2.\nThis agent runs Claude Code, not Cursor like you") {
+		t.Errorf("reply = %q, want the fallback said", out)
 	}
 }
