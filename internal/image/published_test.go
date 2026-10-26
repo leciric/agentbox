@@ -2,6 +2,7 @@ package image_test
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,51 +11,107 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/klauspost/compress/zstd"
 
 	"agentbox/internal/image"
 )
 
-// imageName is the joined image's name as CI publishes it.
-var imageName = "agentbox-base-" + runtime.GOARCH + ".tar.gz"
+// gzName and zstdName are the joined image's names as CI publishes it.
+var (
+	gzName   = "agentbox-base-" + runtime.GOARCH + ".tar.gz"
+	zstdName = "agentbox-base-" + runtime.GOARCH + ".tar.zst"
+)
 
-// published serves image-<version>/ as CI publishes it, with the image's
-// content in two parts and the tools the manifest lists; edit changes what is
-// served after the sums are worked out, to break one.
+// tarball is what the published image unpacks into, and gzipped its gzipped
+// archive (only its name tells, for the fake Incus).
+var (
+	tarball = []byte(strings.Repeat("an incus image, as image export writes it. ", 50))
+	gzipped = []byte("an incus image, as image export writes it, gzipped")
+)
+
+func zstdOf(t *testing.T, b []byte) []byte {
+	t.Helper()
+	enc, err := zstd.NewWriter(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = enc.Close() }()
+	return enc.EncodeAll(b, nil)
+}
+
+// published serves image-<version>/ as CI publishes it; edit changes what is
+// served after the sums are worked out, to break one, and handle, when set,
+// may answer a request itself instead.
 type published struct {
 	*httptest.Server
 	files    map[string][]byte
 	requests atomic.Int32
+	mu       sync.Mutex
+	asked    []string
+	handle   func(w http.ResponseWriter, r *http.Request, name string) bool
 }
+
+// shape is what CI publishes: both archives, as during the move to zstd; the
+// gzipped one alone, as before; or the zstd one alone, as after.
+type shape int
+
+const (
+	both shape = iota
+	gzipOnly
+	zstdOnly
+)
 
 func sumLine(b []byte, name string) string {
 	s := sha256.Sum256(b)
 	return hex.EncodeToString(s[:]) + "  " + name + "\n"
 }
 
-func publish(t *testing.T, tools []string, edit func(files map[string][]byte)) *published {
-	t.Helper()
-	content := []byte("an incus image, as image export writes it")
+// archive splits content into parts named after name, adding them to files
+// and their sums to sums.
+func archive(name string, content []byte, parts int, files map[string][]byte, sums *strings.Builder) image.Archive {
 	whole := sha256.Sum256(content)
-	halves := [][]byte{content[:20], content[20:]}
-	var parts []image.Part
+	a := image.Archive{File: name, Size: int64(len(content)), SHA256: hex.EncodeToString(whole[:])}
+	size := (len(content) + parts - 1) / parts
+	for i := 0; i*size < len(content); i++ {
+		part := content[i*size : min((i+1)*size, len(content))]
+		file := fmt.Sprintf("%s.%03d", name, i)
+		s := sha256.Sum256(part)
+		a.Parts = append(a.Parts, image.Part{File: file, Size: int64(len(part)), SHA256: hex.EncodeToString(s[:])})
+		files[file] = part
+		sums.WriteString(sumLine(part, file))
+	}
+	return a
+}
+
+func publish(t *testing.T, tools []string, edit func(files map[string][]byte)) *published {
+	return publishAs(t, both, tools, edit)
+}
+
+func publishAs(t *testing.T, sh shape, tools []string, edit func(files map[string][]byte)) *published {
+	t.Helper()
 	files := map[string][]byte{}
 	var sums strings.Builder
-	for i, half := range halves {
-		name := fmt.Sprintf("%s.%03d", imageName, i)
-		s := sha256.Sum256(half)
-		parts = append(parts, image.Part{File: name, Size: int64(len(half)), SHA256: hex.EncodeToString(s[:])})
-		files[name] = half
-		sums.WriteString(sumLine(half, name))
+	m := image.Published{Version: image.Version, Arch: runtime.GOARCH, Tools: tools}
+	switch sh {
+	case both:
+		z := archive(zstdName, zstdOf(t, tarball), 3, files, &sums)
+		m.Archive, m.Zstd = archive(gzName, gzipped, 2, files, &sums), &z
+	case gzipOnly:
+		m.Archive = archive(gzName, gzipped, 2, files, &sums)
+	case zstdOnly:
+		m.Archive = archive(zstdName, zstdOf(t, tarball), 3, files, &sums)
 	}
-	manifest, err := json.Marshal(image.Published{
-		Version: image.Version, Arch: runtime.GOARCH, File: imageName,
-		Size: int64(len(content)), SHA256: hex.EncodeToString(whole[:]), Parts: parts, Tools: tools,
-	})
+	manifest, err := json.Marshal(m)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,15 +128,37 @@ func publish(t *testing.T, tools []string, edit func(files map[string][]byte)) *
 	prefix := "/image-" + image.Version + "/"
 	p.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p.requests.Add(1)
-		b, ok := files[strings.TrimPrefix(r.URL.Path, prefix)]
+		name := strings.TrimPrefix(r.URL.Path, prefix)
+		p.mu.Lock()
+		p.asked = append(p.asked, strings.TrimSpace(name+" "+r.Header.Get("Range")))
+		handle := p.handle
+		p.mu.Unlock()
+		if handle != nil && handle(w, r, name) {
+			return
+		}
+		b, ok := files[name]
 		if !ok || !strings.HasPrefix(r.URL.Path, prefix) {
 			http.NotFound(w, r)
 			return
 		}
-		_, _ = w.Write(b)
+		// Ranges, as GitHub and the CDN answer them.
+		http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(b))
 	}))
 	t.Cleanup(p.Close)
 	return p
+}
+
+// requested is every request so far, as "<file>" or "<file> <range>".
+func (p *published) requested() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return slices.Clone(p.asked)
+}
+
+func (p *published) setHandle(h func(w http.ResponseWriter, r *http.Request, name string) bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.handle = h
 }
 
 func specs(tools []image.Tool) []string {
@@ -91,7 +170,7 @@ func specs(tools []image.Tool) []string {
 }
 
 func publishedOptions(t *testing.T, p *published) image.Options {
-	return image.Options{ImagesURL: p.URL, DownloadDir: filepath.Join(t.TempDir(), "images"), HTTP: p.Client()}
+	return image.Options{ImagesURLs: []string{p.URL}, DownloadDir: filepath.Join(t.TempDir(), "images"), HTTP: p.Client()}
 }
 
 func TestBuildFromThePublishedImage(t *testing.T) {
@@ -103,7 +182,7 @@ func TestBuildFromThePublishedImage(t *testing.T) {
 		t.Fatalf("Build() = %v\n%s", err, log.String())
 	}
 
-	file := filepath.Join(opts.DownloadDir, imageName)
+	file := filepath.Join(opts.DownloadDir, zstdName)
 	imported := inc.ran(t, "image|import|"+file+"|--alias|agentbox-base-download|")
 	created := inc.ran(t, "init|agentbox-base-download|agentbox-base-next|--profile|default|--profile|agentbox|")
 	idmap := inc.ran(t, "raw.idmap=uid 1000 1000 gid 1000 1000")
@@ -186,7 +265,7 @@ func TestBuildFallsBackWhenNothingIsPublished(t *testing.T) {
 
 func TestBuildFallsBackWhenTheImageDoesntMatchItsSum(t *testing.T) {
 	p := publish(t, specs(image.PublishedTools()), func(files map[string][]byte) {
-		files[imageName+".001"] = []byte("mage export writes iT")
+		files[zstdName+".001"] = bytes.ToUpper(files[zstdName+".001"])
 	})
 	inc := fakeIncus(t, "")
 	opts := publishedOptions(t, p)
@@ -216,9 +295,9 @@ func TestBuildFallsBackWhenImageJSONDoesntMatchItsSum(t *testing.T) {
 
 func TestBuildFallsBackWhenAPartIsMissingOrTruncated(t *testing.T) {
 	for name, edit := range map[string]func(map[string][]byte){
-		"missing":   func(files map[string][]byte) { delete(files, imageName+".001") },
-		"truncated": func(files map[string][]byte) { files[imageName+".001"] = files[imageName+".001"][:5] },
-		"longer":    func(files map[string][]byte) { files[imageName+".001"] = append(files[imageName+".001"], '!') },
+		"missing":   func(files map[string][]byte) { delete(files, zstdName+".001") },
+		"truncated": func(files map[string][]byte) { files[zstdName+".001"] = files[zstdName+".001"][:5] },
+		"longer":    func(files map[string][]byte) { files[zstdName+".001"] = append(slices.Clone(files[zstdName+".001"]), '!') },
 	} {
 		t.Run(name, func(t *testing.T) {
 			p := publish(t, specs(image.PublishedTools()), edit)
@@ -245,7 +324,7 @@ func TestBuildFallsBackWhenThePartsJoinIntoTheWrongImage(t *testing.T) {
 		if err := json.Unmarshal(files["image-"+runtime.GOARCH+".json"], &m); err != nil {
 			t.Fatal(err)
 		}
-		m.SHA256 = strings.Repeat("0", 64)
+		m.Zstd.SHA256 = strings.Repeat("0", 64)
 		files["image-"+runtime.GOARCH+".json"], _ = json.Marshal(m)
 		files["SHA256SUMS"] = append(files["SHA256SUMS"], sumLine(files["image-"+runtime.GOARCH+".json"], "image-"+runtime.GOARCH+".json")...)
 	})
@@ -265,8 +344,8 @@ func TestBuildJoinsThePartsInOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(filepath.Join(os.Getenv("TMPDIR"), "imported"))
-	if err != nil || string(got) != "an incus image, as image export writes it" {
-		t.Errorf("the imported image = %q, %v", got, err)
+	if want := zstdOf(t, tarball); err != nil || !bytes.Equal(got, want) {
+		t.Errorf("the imported image = %q, %v; want the zstd archive", got, err)
 	}
 }
 
@@ -372,32 +451,46 @@ func TestBuildCancelledDuringTheDownloadDoesntBuildHere(t *testing.T) {
 	}))
 	defer srv.Close()
 	inc := fakeIncus(t, "")
-	err := image.Build(ctx, inc.Client, host, image.Options{ImagesURL: srv.URL, DownloadDir: t.TempDir(), HTTP: srv.Client()}, &bytes.Buffer{})
+	err := image.Build(ctx, inc.Client, host, image.Options{ImagesURLs: []string{srv.URL}, DownloadDir: t.TempDir(), HTTP: srv.Client()}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("a cancelled build should fail")
 	}
 	inc.neverRan(t, "/root/provision.sh")
 }
 
-func TestImagesURL(t *testing.T) {
-	for env, want := range map[string]string{
-		"":                           image.DefaultImagesURL,
-		"off":                        "",
-		"https://mirror.example/im/": "https://mirror.example/im",
+func TestImagesURLs(t *testing.T) {
+	for env, want := range map[string][]string{
+		"":                           image.DefaultImagesURLs,
+		"off":                        nil,
+		"https://mirror.example/im/": {"https://mirror.example/im"},
+		" https://a.example/  https://b.example/x ": {"https://a.example", "https://b.example/x"},
 	} {
 		t.Setenv("AGENTBOX_IMAGES_URL", env)
-		if got := image.ImagesURL(); got != want {
-			t.Errorf("ImagesURL() with AGENTBOX_IMAGES_URL=%q = %q, want %q", env, got, want)
+		if got := image.ImagesURLs(); !slices.Equal(got, want) {
+			t.Errorf("ImagesURLs() with AGENTBOX_IMAGES_URL=%q = %q, want %q", env, got, want)
 		}
+	}
+	// The CDN first, GitHub after.
+	if d := image.DefaultImagesURLs; len(d) != 2 || !strings.HasPrefix(d[0], "https://downloads.agentbox.linting.dev/") || !strings.HasPrefix(d[1], "https://github.com/") {
+		t.Errorf("DefaultImagesURLs = %q", d)
 	}
 }
 
 // BuildForPublishing builds with only the tools AgentBox may publish, and
-// writes the image with everything that goes next to it.
+// writes the image, gzipped and compressed with zstd, with everything that
+// goes next to it.
 func TestBuildForPublishing(t *testing.T) {
-	inc := fakeIncus(t, `  list) echo '[{"name":"agentbox-base-publish","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.5"}]}}}}]' ;;
+	var gz bytes.Buffer
+	w := gzip.NewWriter(&gz)
+	_, _ = w.Write([]byte("the image"))
+	_ = w.Close()
+	src := filepath.Join(t.TempDir(), "export.tar.gz")
+	if err := os.WriteFile(src, gz.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inc := fakeIncus(t, fmt.Sprintf(`  list) echo '[{"name":"agentbox-base-publish","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.5"}]}}}}]' ;;
   file) [ "$2" = pull ] && printf 'Package: bash\nStatus: install ok installed\nArchitecture: amd64\nVersion: 5.2.37-2\n\nPackage: libc6\nStatus: install ok installed\nSource: glibc\nVersion: 2.41-12\n' >"$4" ;;
-  image) [ "$2" = export ] && printf 'the image' >"$4/0123abcd.tar.gz" ;;`)
+  image) [ "$2" = export ] && cp %q "$4/0123abcd.tar.gz" ;;`, src))
 	defer image.SetPartSize(4)()
 	dir := filepath.Join(t.TempDir(), "out")
 	var log bytes.Buffer
@@ -427,8 +520,16 @@ func TestBuildForPublishing(t *testing.T) {
 	if err := json.Unmarshal([]byte(read(manifestName)), &p); err != nil {
 		t.Fatal(err)
 	}
-	if p.File != imageName || len(p.Parts) != 3 || p.Version != image.Version || p.Commit != "abc123" || p.Size != int64(len("the image")) {
-		t.Errorf("image.json = %+v", p)
+	if p.Version != image.Version || p.Commit != "abc123" || p.Zstd == nil {
+		t.Fatalf("image.json = %+v", p)
+	}
+	// The gzipped archive where AgentBox releases before zstd read it, and
+	// the zstd one beside it.
+	if p.File != gzName || p.Size != int64(gz.Len()) || len(p.Parts) != (gz.Len()+3)/4 {
+		t.Errorf("image.json's gzipped archive = %+v", p.Archive)
+	}
+	if p.Zstd.File != zstdName {
+		t.Errorf("image.json's zstd archive = %+v", p.Zstd)
 	}
 	for _, spec := range p.Tools {
 		for _, name := range []string{"claude@", "npm:@agentclientprotocol/claude-agent-acp@", "npm:@cursor/sdk@"} {
@@ -443,22 +544,37 @@ func TestBuildForPublishing(t *testing.T) {
 	if !strings.Contains(read("SOURCES-"+runtime.GOARCH+".md"), "https://snapshot.debian.org/package/glibc/2.41-12/") {
 		t.Errorf("SOURCES.md:\n%s", read("SOURCES-"+runtime.GOARCH+".md"))
 	}
-	// "the image" in parts of four bytes, which join into it.
-	var joined []byte
-	for i, part := range p.Parts {
-		if part.File != fmt.Sprintf("%s.%03d", imageName, i) {
-			t.Errorf("part %d is %s", i, part.File)
+	// Each archive in parts of four bytes, which join into it: the gzipped
+	// one as Incus exported it, the zstd one the same image.
+	joined := func(a image.Archive) []byte {
+		var out []byte
+		for i, part := range a.Parts {
+			if part.File != fmt.Sprintf("%s.%03d", a.File, i) || part.Size > 4 {
+				t.Errorf("part %d of %s is %+v", i, a.File, part)
+			}
+			out = append(out, read(part.File)...)
 		}
-		joined = append(joined, read(part.File)...)
+		whole := sha256.Sum256(out)
+		if a.SHA256 != hex.EncodeToString(whole[:]) || a.Size != int64(len(out)) {
+			t.Errorf("the parts of %s join into %d bytes with sum %x; image.json says %d and %s", a.File, len(out), whole, a.Size, a.SHA256)
+		}
+		return out
 	}
-	whole := sha256.Sum256(joined)
-	if string(joined) != "the image" || p.SHA256 != hex.EncodeToString(whole[:]) {
-		t.Errorf("the parts join into %q, with sum %s in image.json", joined, p.SHA256)
+	if got := joined(p.Archive); !bytes.Equal(got, gz.Bytes()) {
+		t.Errorf("the gzipped archive's parts join into %q", got)
+	}
+	dec, err := zstd.NewReader(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dec.Close()
+	if got, err := dec.DecodeAll(joined(*p.Zstd), nil); err != nil || string(got) != "the image" {
+		t.Errorf("the zstd archive unpacks into %q, %v", got, err)
 	}
 	// SHA256SUMS covers the parts and what goes with them, in sha256sum's format.
 	sums := read("SHA256SUMS")
 	names := []string{manifestName, "packages-" + runtime.GOARCH + ".txt", "SOURCES-" + runtime.GOARCH + ".md"}
-	for _, part := range p.Parts {
+	for _, part := range append(slices.Clone(p.Parts), p.Zstd.Parts...) {
 		names = append(names, part.File)
 	}
 	for _, name := range names {
@@ -469,5 +585,37 @@ func TestBuildForPublishing(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(dir); len(entries) != len(names)+1 {
 		t.Errorf("dir should hold %d files and nothing else, found %v", len(names)+1, entries)
+	}
+}
+
+// The zstd command CI recompresses with makes what Go's decoder, and so
+// unzstd, unpacks.
+func TestRecompress(t *testing.T) {
+	if _, err := exec.LookPath("zstd"); err != nil {
+		t.Skip("no zstd command here")
+	}
+	var gz bytes.Buffer
+	w := gzip.NewWriter(&gz)
+	_, _ = w.Write(tarball)
+	_ = w.Close()
+	dir := t.TempDir()
+	src, dst := filepath.Join(dir, "in.tar.gz"), filepath.Join(dir, "out.tar.zst")
+	if err := os.WriteFile(src, gz.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := image.Recompress(t.Context(), src, dst); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec, err := zstd.NewReader(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dec.Close()
+	if got, err := dec.DecodeAll(b, nil); err != nil || !bytes.Equal(got, tarball) {
+		t.Errorf("zstd made something that unpacks into %d bytes, %v", len(got), err)
 	}
 }

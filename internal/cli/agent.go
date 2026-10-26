@@ -78,7 +78,7 @@ turn one off again with --android=false, --codex=false, --opencode=false,
 				return err
 			}
 			req.Local = local
-			if !local && !components.NeedsLocalBuild() && image.ImagesURL() != "" {
+			if !local && !components.NeedsLocalBuild() && len(image.ImagesURLs()) > 0 {
 				also := ""
 				if components.Any() {
 					also = ", and " + components.Summary()

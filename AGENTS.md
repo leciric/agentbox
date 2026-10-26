@@ -139,9 +139,11 @@ screenshot` of the preview in the agent's display, made by the desktop subagent.
 
 Setup downloads it (`internal/image/published.go`), adding the Codex and OpenCode tools on top when they
 are on, unless Android, dev caches or Incus are (`Components.NeedsLocalBuild`), from the
-`image-<version>` prerelease on this repository's GitHub releases, split in parts under GitHub's 2 GiB
-asset cap and joined and checked by Setup (`scripts/github-images.sh` publishes it, and keeps only the
-newest image release; app releases, release-please and the update check never see it), and
+`image-<version>` prerelease on this repository's GitHub releases, or first from its copy on the CDN
+(`downloads.agentbox.linting.dev/images/`, `scripts/r2-images.sh`), compressed with zstd and split in
+256 MiB parts that Setup downloads at once, resumes, joins and checks (`internal/image/download.go`;
+`scripts/github-images.sh` publishes it, and keeps only the newest image release; app releases,
+release-please and the update check never see it), and
 `agentbox image build` makes it on the user's machine from Debian and
 [`internal/image/provision.sh`](internal/image/provision.sh) otherwise, or when the download fails.
 

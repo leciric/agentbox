@@ -320,11 +320,13 @@ func envFlag(on bool) string {
 type Options struct {
 	// Components are the optional parts to put in it.
 	Components Components
-	// ImagesURL is where published images are (ImagesURL()). Empty builds
-	// the image here, as does any component, which no published image has.
-	ImagesURL string
+	// ImagesURLs are where published images are (ImagesURLs()), the first
+	// preferred. None builds the image here, as does any component that
+	// needs a local build, which no published image has.
+	ImagesURLs []string
 	// DownloadDir is where the published image is downloaded to before Incus
-	// imports it: a few hundred megabytes, on a disk rather than a tmpfs.
+	// imports it: a gigabyte or two, on a disk rather than a tmpfs. A
+	// download that fails leaves its parts there, for the next to resume.
 	DownloadDir string
 	// HTTP downloads it; nil is http.DefaultClient.
 	HTTP *http.Client
@@ -344,6 +346,13 @@ var checkBridge = func(ctx context.Context, inc incus.Client) (bridgecheck.Resul
 const readyTimeout = 2 * time.Minute
 
 // Copies must boot with a new machine-id, or DHCP gives them all the same address.
+// dropCaches deletes what installing left behind that nothing uses again: the
+// .deb files apt downloaded, and mise's downloads and version lists, about
+// 800 MB, most of it already compressed, and so most of what the published
+// image weighed beyond its contents. apt's package lists stay, so
+// `apt-get install` works without an update first.
+var dropCaches = "apt-get clean && rm -rf /home/" + Placeholder.Name + "/.cache/mise"
+
 const scrubMachineID = "truncate -s0 /etc/machine-id && rm -f /var/lib/dbus/machine-id"
 
 // Build makes the base image and snapshots it. Existing agents are independent
@@ -465,7 +474,7 @@ func DebianMirror() string {
 func makeNext(ctx context.Context, inc incus.Client, next string, u User, opts Options, log io.Writer) error {
 	step := stepper(log)
 	switch {
-	case opts.ImagesURL == "":
+	case len(opts.ImagesURLs) == 0:
 	case opts.Components.NeedsLocalBuild():
 		step("Building the image here: the published one has none of the optional components, and this one has %s", opts.Components.provisioned().Summary())
 	default:
@@ -481,6 +490,13 @@ func makeNext(ctx context.Context, inc incus.Client, next string, u User, opts O
 		if err := remove(ctx, inc, next); err != nil {
 			return err
 		}
+		if err := buildLocally(ctx, inc, next, u, opts.Components, ToolsFor(opts.Components), log); err != nil {
+			return err
+		}
+		// What the download got is of no more use: the image it was for is
+		// made.
+		cleanDownloads(opts.DownloadDir, "")
+		return nil
 	}
 	return buildLocally(ctx, inc, next, u, opts.Components, ToolsFor(opts.Components), log)
 }
@@ -541,7 +557,7 @@ func buildLocally(ctx context.Context, inc incus.Client, next string, u User, co
 	}
 	return all(
 		func() error {
-			_, err := inc.Exec(ctx, next, "sh", "-c", "rm /root/provision.sh /root/system.sh /root/tools.sh /root/tools.list && "+scrubMachineID)
+			_, err := inc.Exec(ctx, next, "sh", "-c", "rm /root/provision.sh /root/system.sh /root/tools.sh /root/tools.list && "+dropCaches+" && "+scrubMachineID)
 			return err
 		},
 		func() error { return inc.Stop(ctx, next) },

@@ -92,7 +92,7 @@ func (s *Server) startImageBuild(ctx context.Context, req api.BuildImageRequest)
 	}
 	opts := image.Options{Components: components, DownloadDir: filepath.Join(s.cfg.Paths.Data, "images")}
 	if !req.Local {
-		opts.ImagesURL = image.ImagesURL()
+		opts.ImagesURLs = image.ImagesURLs()
 	}
 	// One job at a time makes the next image: the daemon may be updating the
 	// agent tools, or another build be under way.
