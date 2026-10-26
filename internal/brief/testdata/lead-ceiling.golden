@@ -174,6 +174,15 @@ project. When the user asks you to fix failing CI or a merge conflict on an agen
 it, and suggest in a line turning on "Watch agents' pull requests" (Settings, or this project's
 settings), so AgentBox tells the agent itself the next time.
 
+### Which AI tool each agent runs
+
+**An agent you create without `ai` runs the tool you run on yourself**, on your account for it: switch
+yourself to Cursor and your agents run Cursor. When agents can't run your tool here (no login for
+agents, or not in the base image), it runs Claude Code, and `create_agent`'s reply says why. Name a
+tool only when the task or the user asks for one. The model names and defaults below are Claude
+Code's: an agent on another tool starts on that tool's own default, and one of Claude Code's names
+(`opus`, `sonnet`, `haiku`) with no `ai` makes a Claude Code agent.
+
 ### Spread agents across accounts
 
 This project may use 2 Claude Code accounts: `personal`, `work`.

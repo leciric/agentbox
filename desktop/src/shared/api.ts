@@ -544,6 +544,8 @@ export interface Job {
   result?: unknown;
   createdAt: string;
   finishedAt?: string;
+  ai?: string;
+  notice?: string;
 }
 
 export interface HostUsage {
@@ -3172,6 +3174,7 @@ export interface FanOutVariant {
 export interface FanOutResult {
   group: Group;
   jobs: Job[];
+  notices?: string[];
 }
 
 export interface Group {

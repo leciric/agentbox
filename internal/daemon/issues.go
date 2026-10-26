@@ -283,6 +283,7 @@ func (s *Server) issueAgentJob(ctx context.Context, req api.CreateAgentRequest, 
 	if err != nil {
 		return api.Job{}, err
 	}
+	j = withTool(j, req)
 	if err := s.store.RecordIssueAgent(ctx, state.IssueAgent{
 		Project: p.Name, Repo: repo.String(), Number: issue.Number, Title: issue.Title, Job: j.ID, Auto: auto,
 	}); err != nil {

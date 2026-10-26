@@ -204,6 +204,13 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 		params["ai"] = choiceOf(aiDescription+" Choose another tool than Claude Code when the task asks for it, or when the user "+
 			"asked for it or for one of its models. Say which you chose and why, in the same line as the model.", tools...)
 	}
+	// The names above are Claude Code's, and an agent given no ai runs the
+	// lead's tool, which may be another: one of these names keeps it on
+	// Claude Code (agent.NamesClaudeModel), and leaving the model out gives
+	// it its own tool's default rather than Claude Code's.
+	model += " Those are Claude Code's models and defaults: an agent on another tool, including yours when you leave ai out " +
+		"and don't run Claude Code, starts on that tool's own default model, and one of Claude Code's names (opus, sonnet, haiku) " +
+		"with no ai makes a Claude Code agent."
 	params["model"] = str(model)
 	params["permissions"] = choiceOf("how the agent's AI tool asks permission. \"autonomous\" never asks: the agent's own machine "+
 		"is the sandbox, and it works unattended. \"ask\" makes it stop before it changes anything, which only makes sense "+
@@ -256,15 +263,18 @@ func cursorMenu(models []api.ChatOptionChoice) string {
 	return strings.Join(names, ", ")
 }
 
-// leadAI reads create_agent's "ai": the AI tool the agent runs. Empty is
-// Claude Code, which is what create_agent has always made. Anything else is
-// refused here rather than in the daemon, so the refusal can say why the tool
+// leadAI reads create_agent's "ai": the AI tool the agent runs. Empty stays
+// empty, for the daemon to give the agent the tool its lead runs, on the
+// lead's account (agent.LeadToolDefault), or Claude Code when agents can't run
+// that tool here. A named tool is checked here rather than in the daemon, so the refusal can say why the tool
 // isn't on offer — the lead is told about OpenCode only when an agent could
 // really run it, and a lead working from an older brief would otherwise get an
 // error about a missing login with nothing to do about it.
 func leadAI(ai string, ready readyTools) (string, error) {
 	switch strings.TrimSpace(strings.ToLower(ai)) {
-	case "", "claude":
+	case "":
+		return "", nil
+	case "claude":
 		return "claude", nil
 	case "opencode":
 		if !ready.openCode {
@@ -350,6 +360,15 @@ func describeChoices(ai string, model, effort *string, autonomous bool, notify, 
 	return ", " + strings.Join(chosen, ", ")
 }
 
+// toolNotice is the daemon's word on why an agent runs Claude Code rather than
+// the lead's own tool, after create_agent's reply.
+func toolNotice(notice string) string {
+	if notice == "" {
+		return ""
+	}
+	return "\n" + notice
+}
+
 // windowChoice names a context window a lead asked for, in describeChoices'
 // shape.
 func windowChoice(window *string) string {
@@ -369,6 +388,10 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 		return json.Unmarshal(args, into)
 	}
 	settings, leadPicksModel, ready := chatSettingParams(ctx, c)
+	// Said once here, where every lead reads it, and not only in ai's
+	// description, which a machine with Claude Code alone doesn't offer.
+	runsTool := " Unless you name another, it runs the AI tool you run on yourself, on your account for it — " +
+		"Claude Code when agents can't run your tool here, which the reply then says."
 	startsOn := "It starts on the model, effort " +
 		"and permissions new agents start on here; set those below only when this agent needs " +
 		"something different, such as a cheaper model for a small, mechanical job."
@@ -469,7 +492,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				"that is asked to do everything. Write the task directly: what to do, what done looks like, " +
 				"what to leave alone, and nothing its brief or the project already says. To hand it one of the project's GitHub " +
 				"issues (list_issues), pass issue: its task is then the issue itself (title, description and comments), its pull " +
-				"request says \"Closes #N\", the Issues view shows the agent on the issue, and title, task and branch are optional. " + startsOn,
+				"request says \"Closes #N\", the Issues view shows the agent on the issue, and title, task and branch are optional. " + startsOn + runsTool,
 			Schema: object(nil, merge(map[string]any{
 				"title": str("a short name the user will recognise in the sidebar, like \"Reminders page\". Required unless issue is given"),
 				"task": str("what to do, directly: usually a few lines. Required unless issue is given; with an issue, it is added after " +
@@ -495,11 +518,13 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				"claude_account": str("which of this project's Claude Code accounts (list_accounts) this agent logs in as. Only applies " +
 					"when it runs Claude Code; sending it for an agent with ai=\"opencode\" or \"cursor\" is an error. An unknown or disallowed name is " +
 					"refused, and the error names the ones it may use — use list_accounts to see them, along with how much " +
-					"of each is left. Leave this out to use the project's own account, and the machine's default account when " +
-					"the project has none set."),
+					"of each is left. Naming one with no ai makes a Claude Code agent. Leave this out to use the account you run on, " +
+					"when the agent runs Claude Code because you do; else the project's own account, and the machine's default account " +
+					"when the project has none set."),
 				"codex_account": str("claude_account's sibling for an agent with ai=\"codex\": which of the machine's Codex accounts " +
-					"(list_accounts) it logs in as. Leave it out for the project's own, else the machine's default."),
-				"cursor_account": str("the same for an agent with ai=\"cursor\": which Cursor account (list_accounts) it signs in with."),
+					"(list_accounts) it logs in as. Leave it out for yours, when you run Codex, else the project's own, else the machine's default."),
+				"cursor_account": str("the same for an agent with ai=\"cursor\": which Cursor account (list_accounts) it signs in with; " +
+					"left out, yours when you run Cursor, else the project's."),
 				"opencode_accounts": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"},
 					"description": "the same for an agent with ai=\"opencode\", whose accounts are per provider: provider → account, like " +
 						"{\"anthropic\": \"work\"} (list_accounts). A provider left out gets the project's account for it, else its default."},
@@ -573,8 +598,8 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				if in.Issue != 0 {
 					what = fmt.Sprintf("an agent for issue #%d", in.Issue)
 				}
-				return fmt.Sprintf("Creating %s%s; it starts on the task by itself. Job %s.",
-					what, describeChoices(ai, in.Model, in.Effort, autonomous, notify, cmp.Or(in.ClaudeAccount, in.CodexAccount, in.CursorAccount, describeAccountMap(in.OpenCodeAccounts)))+windowChoice(in.ContextWindow)+connectorChoice(in.Connectors), job.ID), nil
+				return fmt.Sprintf("Creating %s%s; it starts on the task by itself. Job %s.%s",
+					what, describeChoices(cmp.Or(job.AI, ai), in.Model, in.Effort, autonomous, notify, cmp.Or(in.ClaudeAccount, in.CodexAccount, in.CursorAccount, describeAccountMap(in.OpenCodeAccounts)))+windowChoice(in.ContextWindow)+connectorChoice(in.Connectors), job.ID, toolNotice(job.Notice)), nil
 			},
 		},
 		{
@@ -609,7 +634,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					"you'll be told to compare them and call recommend_agent. The user still decides."},
 				"variants": map[string]any{"type": "array", "minItems": 2, "maxItems": 6,
 					"description": "one entry per agent, in order (A, B, C…): what each runs. Two entries alike run the same task twice " +
-						"on the same model, which is also a fair comparison. Besides create_agent's tools, ai may be \"codex\" (OpenAI's " +
+						"on the same model, which is also a fair comparison. One that names no ai runs your own tool, as create_agent does. Besides create_agent's tools, ai may be \"codex\" (OpenAI's " +
 						"Codex, on the model its login has: give it no model or effort), when this machine is signed in to Codex.",
 					"items": object(nil, merge(map[string]any{
 						"claude_account": str("as create_agent's claude_account, for this agent"),
@@ -651,7 +676,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				if err != nil {
 					return "", err
 				}
-				return describeGroup(out.Group, "Started group "+out.Group.ID+": "), nil
+				return describeGroup(out.Group, "Started group "+out.Group.ID+": ") + toolNotice(strings.Join(out.Notices, " ")), nil
 			},
 		},
 		{

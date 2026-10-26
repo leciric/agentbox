@@ -1076,7 +1076,17 @@ func (s *Server) createAgentJob(ctx context.Context, req api.CreateAgentRequest,
 		return api.Job{}, err
 	}
 	create := s.createJob(req, byLead, "")
-	return s.launchJob("create", req.Project, create)
+	j, err := s.launchJob("create", req.Project, create)
+	return withTool(j, req), err
+}
+
+// withTool puts on the reply that started an agent's job the tool it runs and
+// why, when it isn't the lead's.
+func withTool(j api.Job, req api.CreateAgentRequest) api.Job {
+	if j.ID != "" {
+		j.AI, j.Notice = req.AI, req.ToolNotice
+	}
+	return j
 }
 
 // checkCreate refuses a request to make an agent that could never succeed,
@@ -1098,7 +1108,7 @@ func (s *Server) checkCreate(ctx context.Context, req api.CreateAgentRequest, by
 		}
 	}
 	if req.AI == "" {
-		req.AI = "claude"
+		req = s.defaultTool(ctx, p, req)
 	}
 	// A model or effort this agent could never run on is a mistake worth
 	// seeing now, in the reply to the request that made it, rather than in a
@@ -1142,6 +1152,36 @@ func (s *Server) checkCreate(ctx context.Context, req api.CreateAgentRequest, by
 		return fail(err)
 	}
 	return req, nil
+}
+
+// defaultTool fills in the AI tool of a request that names none: the one the
+// account it names belongs to, else Claude Code for a model only Claude Code
+// calls by that name, else the project's lead's tool on the lead's account for
+// it (agent.LeadToolDefault). The app's dialog and the command line always
+// name a tool; a request that doesn't comes from the lead, a schedule, an
+// issue or a group's variant, which follow the lead. Why the agent falls back
+// to Claude Code, when it does, is kept in ToolNotice for the reply.
+func (s *Server) defaultTool(ctx context.Context, p state.Project, req api.CreateAgentRequest) api.CreateAgentRequest {
+	switch {
+	case req.ClaudeAccount != "":
+		req.AI = "claude"
+	case req.CodexAccount != "":
+		req.AI = "codex"
+	case req.CursorAccount != "":
+		req.AI = "cursor"
+	case len(req.OpenCodeAccounts) > 0:
+		req.AI = "opencode"
+	case req.Model != nil && s.manager(nil).NamesClaudeModel(ctx, *req.Model):
+		req.AI = "claude"
+	default:
+		d := s.manager(nil).LeadToolDefault(ctx, p)
+		req.AI, req.ToolNotice = d.AI, d.Fallback
+		req.ClaudeAccount, req.CodexAccount, req.CursorAccount = d.Logins.Claude, d.Logins.Codex, d.Logins.Cursor
+		if d.Fallback != "" {
+			s.logf("A new agent of %s: %s", p.Name, d.Fallback)
+		}
+	}
+	return req
 }
 
 // createJob is the job that makes an agent from req: a new one, or, when

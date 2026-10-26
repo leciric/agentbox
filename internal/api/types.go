@@ -994,6 +994,9 @@ type CreateAgentRequest struct {
 	// given, by name; absent gives it every one, and an empty list none. An
 	// agent's own connectors, added to it later, aren't limited by it.
 	Connectors *[]string `json:"connectors,omitempty"`
+	// ToolNotice is the daemon's own, never sent: why an agent that named no
+	// AI tool runs Claude Code rather than its lead's (Job.Notice).
+	ToolNotice string `json:"-"`
 }
 
 // MemoryHold is what the daemon holds of an agent's heavy commands (test
@@ -1272,6 +1275,12 @@ type Job struct {
 	Result     json.RawMessage `json:"result,omitempty"`
 	CreatedAt  time.Time       `json:"createdAt"`
 	FinishedAt *time.Time      `json:"finishedAt,omitempty"`
+	// AI and Notice are on the reply that starts a create job only: the AI
+	// tool the agent runs, which a request naming none leaves to the
+	// project's lead, and why it runs Claude Code instead when the lead's
+	// tool can't run agents here.
+	AI     string `json:"ai,omitempty"`
+	Notice string `json:"notice,omitempty"`
 }
 
 const (

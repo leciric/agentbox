@@ -635,7 +635,7 @@ func TestRenderLeadOpenCode(t *testing.T) {
 		"### Agents can run OpenCode too",
 		"`create_agent`'s `ai`",
 		"`anthropic/claude-sonnet-5`, `openai/gpt-5.4`",
-		"Keep `claude` unless there is a reason",
+		"Name it only when there is a reason",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the lead's brief doesn't mention %q", want)
@@ -647,6 +647,31 @@ func TestRenderLeadOpenCode(t *testing.T) {
 	for _, text := range []string{lead(nil, true), lead([]string{"anthropic/claude-sonnet-5"}, false)} {
 		if strings.Contains(text, "OpenCode") {
 			t.Errorf("the lead's brief offers OpenCode where it can't be used:\n%s", text)
+		}
+	}
+}
+
+// A lead that can create agents is told that one it gives no tool runs its
+// own, and that Claude Code's model names and defaults aren't another tool's.
+func TestRenderLeadAgentsFollowItsTool(t *testing.T) {
+	for _, canSpawn := range []bool{true, false} {
+		got, err := brief.RenderLead(brief.LeadData{
+			Project: "pawly", Root: "/src/pawly",
+			Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/lead",
+			BaseRef:  "main", Autonomy: "ask", CanSpawn: canSpawn,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{
+			"### Which AI tool each agent runs",
+			"without `ai` runs the tool you run on yourself",
+			"it runs Claude Code, and `create_agent`'s reply says why",
+			"starts on that tool's own default",
+		} {
+			if strings.Contains(got, want) != canSpawn {
+				t.Errorf("CanSpawn %v: the lead's brief mentions %q: %v, want %v", canSpawn, want, !canSpawn, canSpawn)
+			}
 		}
 	}
 }
