@@ -1941,12 +1941,88 @@
     "height": 900
   },
   {
-    "id": "window-1440-v2-panel-more-dark",
-    "description": "UI v2 at 1440×900, the panel's ⋯ open: Browser, Timeline, Pull requests and Project settings — dark",
+    "id": "window-1440-v2-switch-lead-dark",
+    "description": "UI v2 at 1440×900, the lead’s panel on its Files tab: its switch of Agents, Pull requests, Issues, Files, Evidence and Schedules, at the default width — dark",
+    "query": "app=project&v2=1&panel=files:lead&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-switch-lead-light",
+    "description": "UI v2 at 1440×900, the lead’s panel on its Files tab: its switch of Agents, Pull requests, Issues, Files, Evidence and Schedules, at the default width — light",
+    "query": "app=project&v2=1&panel=files:lead&theme=light",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-switch-lead-narrow-dark",
+    "description": "UI v2 at 1440×900, the lead’s panel on its Files tab: its switch of Agents, Pull requests, Issues, Files, Evidence and Schedules, at its narrowest, 340px: the switch in icons only, nothing in a ⋯ — dark",
+    "query": "app=project&v2=1&panel=files:lead&theme=dark&panelwidth=340",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-switch-lead-narrow-light",
+    "description": "UI v2 at 1440×900, the lead’s panel on its Files tab: its switch of Agents, Pull requests, Issues, Files, Evidence and Schedules, at its narrowest, 340px: the switch in icons only, nothing in a ⋯ — light",
+    "query": "app=project&v2=1&panel=files:lead&theme=light&panelwidth=340",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-switch-agent-dark",
+    "description": "UI v2 at 1440×900, agent-41 in the panel: back arrow, its title, and one switch of Desktop, Terminal, Browser, Files, Evidence, Timeline and Schedules, Desktop named, at the default width — dark",
     "query": "app=project&v2=1&panel=desktop:agent-41&theme=dark",
     "width": 1440,
-    "height": 900,
-    "click": "[data-panel-more]"
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-switch-agent-light",
+    "description": "UI v2 at 1440×900, agent-41 in the panel: back arrow, its title, and one switch of Desktop, Terminal, Browser, Files, Evidence, Timeline and Schedules, Desktop named, at the default width — light",
+    "query": "app=project&v2=1&panel=desktop:agent-41&theme=light",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-switch-agent-narrow-dark",
+    "description": "UI v2 at 1440×900, agent-41 in the panel: back arrow, its title, and one switch of Desktop, Terminal, Browser, Files, Evidence, Timeline and Schedules, Desktop named, at its narrowest, 340px: the switch in icons only, nothing in a ⋯ — dark",
+    "query": "app=project&v2=1&panel=desktop:agent-41&theme=dark&panelwidth=340",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-switch-agent-narrow-light",
+    "description": "UI v2 at 1440×900, agent-41 in the panel: back arrow, its title, and one switch of Desktop, Terminal, Browser, Files, Evidence, Timeline and Schedules, Desktop named, at its narrowest, 340px: the switch in icons only, nothing in a ⋯ — light",
+    "query": "app=project&v2=1&panel=desktop:agent-41&theme=light&panelwidth=340",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-switch-android-dark",
+    "description": "UI v2 at 1440×900, agent-41 of an Android project on its Android view: Android on its switch with the booted dot, at the default width — dark",
+    "query": "app=project&v2=1&panel=android:agent-41&android=1&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-switch-android-light",
+    "description": "UI v2 at 1440×900, agent-41 of an Android project on its Android view: Android on its switch with the booted dot, at the default width — light",
+    "query": "app=project&v2=1&panel=android:agent-41&android=1&theme=light",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-switch-android-narrow-dark",
+    "description": "UI v2 at 1440×900, agent-41 of an Android project on its Android view: Android on its switch with the booted dot, at its narrowest, 340px: the switch in icons only, nothing in a ⋯ — dark",
+    "query": "app=project&v2=1&panel=android:agent-41&android=1&theme=dark&panelwidth=340",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-switch-android-narrow-light",
+    "description": "UI v2 at 1440×900, agent-41 of an Android project on its Android view: Android on its switch with the booted dot, at its narrowest, 340px: the switch in icons only, nothing in a ⋯ — light",
+    "query": "app=project&v2=1&panel=android:agent-41&android=1&theme=light&panelwidth=340",
+    "width": 1440,
+    "height": 900
   },
   {
     "id": "window-wide-v2-project-menu-dark",

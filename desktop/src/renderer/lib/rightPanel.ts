@@ -6,29 +6,36 @@
 // (one header button, or ⌘D) but never closes. Where it doesn't fit beside
 // the chat, the strip stays and the rest opens over the chat as a drawer.
 // The lead's panel switches between the list, the project's Pull requests,
-// the repository's Files and Evidence, and the Schedules (setLeadTab); an agent shows in it in one of four views on a fixed switch: Desktop, Terminal, Files and Evidence (its
-// media and Hatch pages, newest first), with ✕ back to the list. Browser and Timeline
-// open from its ⋯; the project's Settings (from the panel's header) go over it. It remembers the view each
+// the repository's Files and Evidence, and the Schedules (setLeadTab); an
+// agent's has a switch of the same look with every view it has (viewsOf):
+// Desktop, Terminal, Browser, Android (an Android project's), Files,
+// Evidence (its media and Hatch pages, newest first), Timeline and
+// Schedules, with ✕ back to the list. The project's Settings (from the
+// panel's header) go over it. It remembers the view each
 // agent was last shown in, and the agent each project's lead last looked at.
 import { useSyncExternalStore } from 'react';
 import type * as T from '../../shared/api.ts';
 import { isLeadRef } from './pages.ts';
 import type { ProjectSection } from './tabs.ts';
 
-export type PanelView = 'desktop' | 'terminal' | 'files' | 'evidence' | 'browser' | 'timeline' | 'pulls' | 'issues' | 'schedules' | 'settings';
-export const panelViews: PanelView[] = ['desktop', 'terminal', 'files', 'evidence', 'browser', 'timeline', 'pulls', 'issues', 'schedules', 'settings'];
-// The switch's four, always there, in this order; the rest are in the ⋯.
-export const switchViews: PanelView[] = ['desktop', 'terminal', 'files', 'evidence'];
-// The project's Pull requests and Settings are off it: a tab of the lead's panel, and on the project's header.
-export const moreViews: PanelView[] = ['browser', 'timeline', 'schedules'];
+export type PanelView = 'desktop' | 'terminal' | 'files' | 'evidence' | 'browser' | 'android' | 'timeline' | 'pulls' | 'issues' | 'schedules' | 'settings';
+export const panelViews: PanelView[] = ['desktop', 'terminal', 'files', 'evidence', 'browser', 'android', 'timeline', 'pulls', 'issues', 'schedules', 'settings'];
+// The switch's views, in this order: the machine's first, then what the
+// work left, ending as the lead's does, Files, Evidence, then Schedules. The
+// project's Pull requests, Issues and Settings are off it: tabs of the
+// lead's panel, and on its header.
+export const switchViews: PanelView[] = ['desktop', 'terminal', 'browser', 'android', 'files', 'evidence', 'timeline', 'schedules'];
+// The agent's machine bar under its chat's header (AgentMachineBar): four.
+export const machineBarViews: PanelView[] = ['desktop', 'terminal', 'files', 'evidence'];
 
 // The project's own views: its pull requests, its GitHub issues, its
 // scheduled tasks and its settings, the same whoever is picked.
 export type WideView = 'pulls' | 'issues' | 'schedules' | 'settings';
 export const projectWide = (view: PanelView): view is WideView => view === 'pulls' || view === 'issues' || view === 'schedules' || view === 'settings';
 
-// The views that show a machine: an agent's display, its shell, its dev server.
-export const needsMachine = (view: PanelView) => view === 'desktop' || view === 'terminal' || view === 'browser';
+// The views that show a machine: an agent's display, its shell, its dev
+// server, its Android emulator.
+export const needsMachine = (view: PanelView) => view === 'desktop' || view === 'terminal' || view === 'browser' || view === 'android';
 
 // The views only an agent has: the lead does no work of its own to show as a
 // timeline (its project's day is the Today page).
@@ -65,6 +72,15 @@ export function hasView(w: Whose, view: PanelView): boolean {
   if (w.kind === 'lead') return !needsMachine(view) && !agentsOnly(view);
   return w.kind === 'agent' || !needsMachine(view);
 }
+
+// hasAndroid is whether an agent of project gets the Android view, as v1's
+// tab (AgentView): only an Android project's, unless an emulator was started
+// anyway.
+export const hasAndroid = (project: Pick<T.Project, 'android'> | undefined, status: Pick<T.AndroidStatus, 'running'> | undefined) => project?.android === true || status?.running === true;
+
+// viewsOf is whose's switch: the views it has, in switchViews' order, with
+// Android only for a live agent that has it.
+export const viewsOf = (w: Whose, android: boolean): PanelView[] => switchViews.filter((v) => hasView(w, v) && (v !== 'android' || (w.kind === 'agent' && android)));
 
 // defaultView is what whose opens on before it was shown in any: an agent's
 // desktop, the repository's files, and what a past agent left.
@@ -267,7 +283,7 @@ export function pickTarget(chat: string, ref: string): void {
 }
 
 // setView shows ref in view, remembered for it, in chat's panel: the
-// switch, and the ⋯'s Browser and Timeline. A project's own view isn't
+// switch. A project's own view (Schedules, on the switch too) isn't
 // whose: it goes over whoever is shown until another view is picked.
 export function setView(chat: string, ref: string, view: PanelView, focus?: string): void {
   const state = panelState();

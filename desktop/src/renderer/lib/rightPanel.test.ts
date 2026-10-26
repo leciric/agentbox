@@ -34,16 +34,39 @@ test('the lead and a past agent have files and evidence, but no machine views, a
     assert.equal(P.hasView(gone, view), wide || !P.needsMachine(view), `past ${view}`);
     assert.equal(P.hasView(live, view), true, `agent ${view}`);
   }
-  assert.deepEqual(P.panelViews.filter(P.needsMachine), ['desktop', 'terminal', 'browser']);
+  assert.deepEqual(P.panelViews.filter(P.needsMachine), ['desktop', 'terminal', 'browser', 'android']);
   assert.deepEqual(P.panelViews.filter(P.projectWide), ['pulls', 'issues', 'schedules', 'settings']);
-  // The switch's four, and the ⋯'s the rest: every view is in one of them.
-  assert.deepEqual(P.switchViews, ['desktop', 'terminal', 'files', 'evidence']);
-  // Pull requests, Issues and Settings open from the project's header, not the ⋯.
-  assert.deepEqual([...P.switchViews, ...P.moreViews, 'pulls', 'issues', 'settings'].toSorted(), [...P.panelViews].toSorted());
+  // Every view is on the switch but Pull requests, Issues and Settings, the lead's tabs and header's.
+  assert.deepEqual([...P.switchViews, 'pulls', 'issues', 'settings'].toSorted(), [...P.panelViews].toSorted());
   // What each opens on before it was shown in any.
   assert.equal(P.defaultView(live), 'desktop');
   assert.equal(P.defaultView(lead), 'files');
   assert.equal(P.defaultView(gone), 'evidence');
+});
+
+test('an agent’s switch has every view it has, in one order, Android only when it applies', () => {
+  const live: Whose = { kind: 'agent', agent: agent('agent-2', 'running') };
+  const asleep: Whose = { kind: 'agent', agent: agent('agent-3', 'stopped') };
+  const gone: Whose = { kind: 'past', past: past('agent-1') };
+  const lead: Whose = { kind: 'lead', ref: 'pawly/lead' };
+  assert.deepEqual(P.viewsOf(live, false), ['desktop', 'terminal', 'browser', 'files', 'evidence', 'timeline', 'schedules']);
+  assert.deepEqual(P.viewsOf(live, true), ['desktop', 'terminal', 'browser', 'android', 'files', 'evidence', 'timeline', 'schedules']);
+  // Asleep, its machine's views stay, to wake it from.
+  assert.deepEqual(P.viewsOf(asleep, true), P.viewsOf(live, true));
+  // No machine, no machine views, Android included.
+  assert.deepEqual(P.viewsOf(gone, true), ['files', 'evidence', 'timeline', 'schedules']);
+  assert.deepEqual(P.viewsOf(lead, true), ['files', 'evidence', 'schedules']);
+  // It ends as the lead's switch does: Files, Evidence, then Schedules.
+  const ends = P.viewsOf(live, true).filter((v) => (P.leadTabs as string[]).includes(v));
+  assert.deepEqual(ends, P.leadTabs.filter((v) => (P.switchViews as string[]).includes(v)));
+});
+
+test('Android is an Android project’s, or an agent’s with an emulator running', () => {
+  assert.equal(P.hasAndroid({ android: true }, undefined), true);
+  assert.equal(P.hasAndroid({ android: true }, { running: false }), true);
+  assert.equal(P.hasAndroid({ android: false }, { running: true }), true);
+  assert.equal(P.hasAndroid({ android: false }, { running: false }), false);
+  assert.equal(P.hasAndroid(undefined, undefined), false);
 });
 
 test('the picker lists the project’s agents with a machine, newest first', () => {

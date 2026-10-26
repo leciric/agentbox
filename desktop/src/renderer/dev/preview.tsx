@@ -217,6 +217,9 @@
 //   &tour=welcome           with &v2=1, that tour playing (lib/tours.ts: welcome,
 //                           v2, review, panel, groups, cross-project, places; several
 //                           comma-separated), from &step=n (default 0)
+//   &panelwidth=340         with &v2=1, the right-hand panel that wide
+//   &android=1              the project is an Android one and its agents' emulators
+//                           have booted: the v2 panel's Android view, with its dot
 //   &pick=1                 with &pip=1&panel=desktop:agent-25, the element picker:
 //                           Pick element, a click on agent-25's page, and the
 //                           element in the lead's composer (dev/pick.tsx)
@@ -477,6 +480,9 @@ if (usage) {
   fixtures.projects.find((p) => p.name === PROJECT)!.claudeAccount = 'work';
   fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-99`)!.claudeAccount = 'work';
 }
+// &android=1: the project is an Android one, so its agents' panels have Android.
+const androidProject = params.get('android') === '1';
+if (androidProject) fixtures.projects.find((p) => p.name === PROJECT)!.android = true;
 const chatAgent = chat ? fixtures.agents.find((a) => a.ref === `${PROJECT}/${chat}`) : undefined;
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false, refetchOnWindowFocus: false } } });
@@ -625,6 +631,9 @@ if (appView && params.get('v2') === '1') {
   if (params.get('pick') === '1') seedPick(queryClient);
   // Each page starts with no panel open, whatever the last one left.
   setPanel({ chats: {}, views: {}, last: {}, listFolded: false, listWidth: undefined });
+  // &panelwidth=340: the panel that wide beside a lead's chat and an agent's.
+  const panelWidth = Number(params.get('panelwidth') ?? 0);
+  if (panelWidth > 0) setPanel({ width: panelWidth, agentWidth: panelWidth });
   // &panel=<view>[:<whose>]: the panel open on a view (desktop, terminal,
   // files, evidence, browser, timeline, pulls, settings) of whose (lead,
   // agent-41, past:agent-31; &whose= for all), or just open (&panel=open),
@@ -660,6 +669,11 @@ if (appView) {
     const lead = method === 'GET' && /^\/v1\/projects\/([^/]+)\/lead$/.exec(path);
     const seeded = lead && queryClient.getQueryData(['projectChat', decodeURIComponent(lead[1])]);
     if (seeded) return { status: 200, body: JSON.stringify(seeded), contentType: 'application/json' };
+    // With &android=1, every agent's emulator has booted: Android's green dot.
+    if (androidProject && method === 'GET' && /^\/v1\/agents\/[^/]+\/[^/]+\/android$/.test(path)) {
+      const booted: T.AndroidStatus = { available: true, images: ['android-35'], running: true, booted: true, image: 'android-35', device: 'emulator-5554' };
+      return { status: 200, body: JSON.stringify(booted), contentType: 'application/json' };
+    }
     const answer = (await inner(method, path, body)) as { status: number; body: string };
     // The skills, and the desktops in use (unless &pip=1 says who), are lists.
     if (method === 'GET' && /\/(skills|desktops|groups)(\?|$)/.test(path) && answer.body === '{}') return { ...answer, body: '[]' };

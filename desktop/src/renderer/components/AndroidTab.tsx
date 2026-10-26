@@ -17,7 +17,8 @@ import { Tip } from './ui/tooltip';
 
 // AndroidTab shows the agent's own Android emulator, shaped like the phone it
 // is. You can start it, capture it into Media, and tap and type on it.
-export function AndroidTab({ agent, onOpenMedia, onSetup }: { agent: T.Agent; onOpenMedia: () => void; onSetup: () => void }) {
+// compact (UI v2's narrow panel) names its toolbar's buttons in tooltips only.
+export function AndroidTab({ agent, onOpenMedia, onSetup, compact = false }: { agent: T.Agent; onOpenMedia: () => void; onSetup: () => void; compact?: boolean }) {
   const t = useT();
   const queryClient = useQueryClient();
   const running = agent.state === 'running';
@@ -92,22 +93,22 @@ export function AndroidTab({ agent, onOpenMedia, onSetup }: { agent: T.Agent; on
         </span>
         <div className="flex-1" />
         <Tip label={t('agent.android.screenshotTip')}>
-          <Button size="sm" disabled={!booted || shot.isPending} onClick={() => shot.mutate()}>
+          <Button size="sm" aria-label={compact ? t('agent.browser.screenshot') : undefined} disabled={!booted || shot.isPending} onClick={() => shot.mutate()}>
             {shot.isPending ? <LoaderCircle className="animate-spin" /> : <Camera />}
-            {t('agent.browser.screenshot')}
+            {!compact && t('agent.browser.screenshot')}
           </Button>
         </Tip>
         {recordingHere ? (
-          <Button size="sm" className="border-rose-400/30 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25" disabled={record.isPending} onClick={() => record.mutate()}>
+          <Button size="sm" className="border-rose-400/30 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25" aria-label={compact ? t('agent.browser.stopRecording') : undefined} disabled={record.isPending} onClick={() => record.mutate()}>
             {record.isPending ? <LoaderCircle className="animate-spin" /> : <span className="size-2 animate-pulse rounded-[3px] bg-rose-400" />}
             <span className="font-mono tabular-nums">{clock(elapsed)}</span>
-            {t('agent.browser.stopRecording')}
+            {!compact && t('agent.browser.stopRecording')}
           </Button>
         ) : (
           <Tip label={isRecording ? t('agent.android.browserRecording') : t('agent.android.recordTip')}>
-            <Button size="sm" disabled={!booted || isRecording || record.isPending} onClick={() => record.mutate()}>
+            <Button size="sm" aria-label={compact ? t('agent.browser.record') : undefined} disabled={!booted || isRecording || record.isPending} onClick={() => record.mutate()}>
               {record.isPending ? <LoaderCircle className="animate-spin" /> : <span className="size-2.5 rounded-full bg-rose-500 shadow-[0_0_8px_rgb(244_63_94/0.7)]" />}
-              {t('agent.browser.record')}
+              {!compact && t('agent.browser.record')}
             </Button>
           </Tip>
         )}
@@ -115,7 +116,7 @@ export function AndroidTab({ agent, onOpenMedia, onSetup }: { agent: T.Agent; on
         <label className={cn('flex items-center gap-2 rounded-lg px-1.5 py-1 text-[13px] text-tertiary', control && 'text-brand-200')}>
           <Switch id="android-control" checked={control} disabled={!connected} onCheckedChange={setControl} />
           <MousePointer2 className="size-3.5" />
-          {t('agent.browser.takeControl')}
+          {compact ? <span className="sr-only">{t('agent.browser.takeControl')}</span> : t('agent.browser.takeControl')}
         </label>
         <Menu>
           <MenuTrigger asChild>
