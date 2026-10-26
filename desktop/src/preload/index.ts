@@ -150,6 +150,27 @@ export interface HubAccount {
   email: string;
 }
 
+// HubAppPairing is this app waiting for a hub to approve it: the code to
+// show, and its ID for hubs.pairWait. The secret stays in the main process.
+export interface HubAppPairing {
+  id: string;
+  url: string;
+  code: string;
+  approveURL: string;
+  expiresAt: string;
+  qr: string[];
+  // passwords: the hub has accounts from before pairing, which can sign in
+  // with a password instead.
+  passwords: boolean;
+}
+
+// HubConnectResult: a setup link signed in at once (account); an address
+// asks for approval (pairing).
+export interface HubConnectResult {
+  account?: HubAccount;
+  pairing?: HubAppPairing;
+}
+
 export interface HubEnvironment {
   id: string;
   name: string;
@@ -235,14 +256,20 @@ const bridge = {
     // walks both, so it's asked for on demand rather than polled.
     disk: (): Promise<T.VMHomeDisk | null> => ipcRenderer.invoke('vm:disk'),
   },
-  // Hubs you signed in to, and their environments.
+  // Hubs this app is connected to, their environments and devices.
   hubs: {
     list: (): Promise<HubAccount[]> => ipcRenderer.invoke('hubs:list'),
     login: (url: string, email: string, password: string): Promise<HubAccount> => ipcRenderer.invoke('hubs:login', url, email, password),
     logout: (url: string): Promise<void> => ipcRenderer.invoke('hubs:logout', url),
     environments: (url: string): Promise<HubEnvironment[]> => ipcRenderer.invoke('hubs:environments', url),
-    addEnvironment: (url: string, name: string): Promise<{ environment: HubEnvironment; token: string }> =>
-      ipcRenderer.invoke('hubs:addEnvironment', url, name),
+    connect: (input: string): Promise<HubConnectResult> => ipcRenderer.invoke('hubs:connect', input),
+    pairWait: (id: string): Promise<HubAccount> => ipcRenderer.invoke('hubs:pairWait', id),
+    pairCancel: (id: string): Promise<void> => ipcRenderer.invoke('hubs:pairCancel', id),
+    // A pairing another device or an environment asked for, to approve it.
+    pairing: (url: string, code: string): Promise<T.HubPairingInfo> => ipcRenderer.invoke('hubs:pairing', url, code),
+    decide: (url: string, code: string, approve: boolean): Promise<T.HubPairingInfo> => ipcRenderer.invoke('hubs:decide', url, code, approve),
+    devices: (url: string): Promise<T.HubDevice[]> => ipcRenderer.invoke('hubs:devices', url),
+    revokeDevice: (url: string, id: string): Promise<void> => ipcRenderer.invoke('hubs:revokeDevice', url, id),
   },
   target: {
     get: (): Promise<EnvironmentTarget> => ipcRenderer.invoke('target:get'),

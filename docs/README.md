@@ -71,6 +71,8 @@ flowchart LR
   to with OAuth on the host and relayed so no token reaches an agent; the API routes.
 - [SnapShots](snapshots.md) — a shortcut, or `agentbox snap`, that sends the window you're in to a
   chat as a bug report, with its accessibility tree.
+- [A hub](hub.md) — `npx agentbox-hub`, its setup link, connecting the app and your environments
+  to it, and approving and revoking devices.
 - [Browser cookies](browser-cookies.md) — signing agents' browsers in with a cookie export you make.
 - [Machines for Claude Code and Codex on your computer](machines.md) — `agentbox machines`: a
   desktop machine per worktree, in Docker or Podman, for AI tools that run outside AgentBox.

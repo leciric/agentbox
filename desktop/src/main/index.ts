@@ -3,6 +3,7 @@
 // the current environment (this machine's daemon, or one on a hub), signs in to
 // hubs, installs the command-line tool, and updates the app (updater.ts).
 import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron';
+import { randomUUID } from 'node:crypto';
 import { arch, hostname } from 'node:os';
 import { join } from 'node:path';
 import { AppLog, captureConsole, reportSections, type AppError } from './applog';
@@ -28,6 +29,9 @@ import { denyMedia } from './permissions';
 import { keepWindowState, windowOptions } from './windowstate';
 import { distro, linuxPath, windowsPath } from './wslpaths';
 import { setLanguage, t } from '../shared/i18n/index.ts';
+import type { HubInfo, HubPairing, HubPairRequest, HubPairResult, HubSession } from '../shared/api';
+import { parseHubLink } from '../shared/hublink';
+import type { HubAccount, HubConnectResult } from '../preload';
 import './vmpower';
 
 guardStdio();
@@ -155,26 +159,70 @@ function savedHub(url: string): SavedHub {
 }
 
 ipcMain.handle('hubs:list', () => savedHubs().map(({ url, email }) => ({ url, email })));
+
+// What this app calls itself on a hub's list of devices.
+function deviceLabel(): string {
+  return `AgentBox app on ${hostname()}`;
+}
+
+function saveSession(url: string, session: HubSession): HubAccount {
+  saveHubs([{ url, email: session.user.email, token: session.token }, ...savedHubs().filter((h) => h.url !== url)]);
+  return { url, email: session.user.email };
+}
+
+// Accounts made on a hub before pairing still sign in with a password.
 ipcMain.handle('hubs:login', async (_event, url: string, email: string, password: string) => {
   url = url.trim().replace(/\/+$/, '');
   if (!/^https?:\/\/[^/]+$/.test(url)) throw new Error(t('web.main.notAHub', { url }));
-  const session = await hubCall<{ token: string; user: { email: string } }>(url, 'POST', '/v1/auth/login', undefined, {
-    email,
-    password,
-    label: `desktop app on ${hostname()}`,
-  });
-  saveHubs([{ url, email: session.user.email, token: session.token }, ...savedHubs().filter((h) => h.url !== url)]);
-  return { url, email: session.user.email };
+  return saveSession(url, await hubCall<HubSession>(url, 'POST', '/v1/auth/login', undefined, { email, password, label: deviceLabel() }));
 });
-ipcMain.handle('hubs:logout', async (_event, url: string) => {
-  const hub = savedHub(url);
-  await hubCall(url, 'POST', '/v1/auth/logout', hub.token).catch(() => {});
-  saveHubs(savedHubs().filter((h) => h.url !== url));
-  const t = currentTarget();
-  if (t.kind === 'hub' && t.hub.url === url) switchTo({ kind: 'local' });
+
+// Pairings this app waits on to be approved, by an ID of its own: their
+// secrets stay in the main process.
+const pairings = new Map<string, { url: string; secret: string; interval: number; cancelled: boolean }>();
+
+// hubs:connect connects to a hub from what was pasted: a setup link signs in
+// (or claims the hub) at once; an address asks the hub to approve this app,
+// and answers the code to show while hubs:pairWait waits for it.
+ipcMain.handle('hubs:connect', async (_event, input: string): Promise<HubConnectResult> => {
+  const link = parseHubLink(input);
+  if (!link) throw new Error(t('web.main.notAHub', { url: input.trim() }));
+  const { url, secret } = link;
+  if (secret) return { account: saveSession(url, await hubCall<HubSession>(url, 'POST', '/v1/setup', undefined, { secret, label: deviceLabel() })) };
+  const info = await hubCall<HubInfo>(url, 'GET', '/v1/hub');
+  if (!info.claimed) throw new Error(t('web.main.hubUnclaimed'));
+  const p = await hubCall<HubPairing>(url, 'POST', '/v1/pair', undefined, { kind: 'device', label: deviceLabel(), hostname: hostname() } satisfies HubPairRequest);
+  const id = randomUUID();
+  pairings.set(id, { url, secret: p.secret, interval: Math.max(p.interval, 1), cancelled: false });
+  return { pairing: { id, url, code: p.code, approveURL: p.approveURL, expiresAt: p.expiresAt, qr: p.qr ?? [], passwords: info.passwords ?? false } };
 });
+ipcMain.handle('hubs:pairWait', async (_event, id: string): Promise<HubAccount> => {
+  const p = pairings.get(id);
+  if (!p) throw new Error(t('web.main.pairingGone'));
+  try {
+    for (;;) {
+      await new Promise((resolve) => setTimeout(resolve, p.interval * 1000));
+      if (p.cancelled) throw new Error(t('web.main.pairingGone'));
+      const r = await hubCall<HubPairResult>(p.url, 'POST', '/v1/pair/token', undefined, { secret: p.secret });
+      if (r.status === 'pending') continue;
+      if (r.status === 'approved' && r.session) return saveSession(p.url, r.session);
+      throw new Error(r.status === 'denied' ? t('web.main.pairingDenied') : t('web.main.pairingExpired'));
+    }
+  } finally {
+    pairings.delete(id);
+  }
+});
+ipcMain.handle('hubs:pairCancel', (_event, id: string) => {
+  const p = pairings.get(id);
+  if (p) p.cancelled = true;
+});
+ipcMain.handle('hubs:pairing', (_event, url: string, code: string) => hubCall(url, 'GET', `/v1/pairings/${encodeURIComponent(code)}`, savedHub(url).token));
+ipcMain.handle('hubs:decide', (_event, url: string, code: string, approve: boolean) =>
+  hubCall(url, 'POST', `/v1/pairings/${encodeURIComponent(code)}/${approve ? 'approve' : 'deny'}`, savedHub(url).token),
+);
+ipcMain.handle('hubs:devices', (_event, url: string) => hubCall(url, 'GET', '/v1/devices', savedHub(url).token));
+ipcMain.handle('hubs:revokeDevice', (_event, url: string, id: string) => hubCall(url, 'DELETE', `/v1/devices/${encodeURIComponent(id)}`, savedHub(url).token));
 ipcMain.handle('hubs:environments', (_event, url: string) => hubCall(url, 'GET', '/v1/environments', savedHub(url).token));
-ipcMain.handle('hubs:addEnvironment', (_event, url: string, name: string) => hubCall(url, 'POST', '/v1/environments', savedHub(url).token, { name }));
 
 function switchTo(next: Target): void {
   streams.closeAll();

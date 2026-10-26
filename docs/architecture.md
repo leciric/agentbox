@@ -206,12 +206,15 @@ A hub is the optional server half of AgentBox; it's a separate, closed-source pr
 ([leciric/agentbox-hub](https://github.com/leciric/agentbox-hub)). This repository only carries
 its side of the protocol, in [`hubapi/`](../hubapi):
 
-- `hubapi.go` defines the token prefixes (`abx_s_` for a session, `abx_e_` for an environment),
-  the session cookie name, the hub's own endpoints (`/v1/auth/...`, `/v1/environments`,
-  `/v1/connect`, `/healthz`), and `EnvironmentAPI(id)` — the prefix under which a hub passes a
+- `hubapi.go` defines the token prefixes (`abx_s_` for a device, `abx_e_` for an environment,
+  `abx_p_` for a pairing's secret, `abx_l_` for a setup link's), the session cookie name, the hub's
+  own endpoints (`/v1/hub`, `/v1/setup`, `/v1/pair`, `/v1/pairings`, `/v1/devices`,
+  `/v1/environments`, `/v1/connect`, `/healthz`), its pages (`/hub/setup`, `/hub/approve`), and
+  `EnvironmentAPI(id)` — the prefix under which a hub passes a
   request through to that environment's daemon, exactly as it would arrive over the daemon's own
   socket.
 - `tunnel.go` frames the WebSocket tunnel an environment dials to a hub.
 - `types.go` is the shared request/response shapes.
 
-Nothing in `internal/` imports anything from the hub itself — only from `hubapi/`.
+Nothing in `internal/` imports anything from the hub itself — only from `hubapi/`. How to run one
+and connect to it: [A hub](hub.md).

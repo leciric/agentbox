@@ -157,6 +157,9 @@ function providerQuery(provider?: string): string {
 export const api = {
   settings: () => call<T.Settings>('GET', '/v1/settings'),
   // Chatting from a phone on the local network.
+  // This machine's connection to a hub, as an environment.
+  remote: () => call<T.RemoteStatus>('GET', '/v1/remote'),
+  pairRemote: (req: T.RemotePairRequest) => call<T.RemoteStatus>('POST', '/v1/remote/pair', req),
   lan: () => call<T.LANStatus>('GET', '/v1/lan'),
   updateLAN: (req: T.UpdateLANRequest) => call<T.LANStatus>('PATCH', '/v1/lan', req),
   pairLAN: () => call<T.LANPairing>('POST', '/v1/lan/pairings'),

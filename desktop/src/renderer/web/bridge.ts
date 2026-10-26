@@ -213,7 +213,16 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
       location.reload();
     },
     environments: () => hubCall<HubEnvironment[]>('GET', '/v1/environments'),
-    addEnvironment: (_url, name) => hubCall('POST', '/v1/environments', { name }),
+    // A browser connects itself on the hub's own page (/hub/connect).
+    connect: unavailable('web.bridge.hubConnect'),
+    pairWait: unavailable('web.bridge.hubConnect'),
+    pairCancel: () => Promise.resolve(),
+    pairing: (_url, code) => hubCall<T.HubPairingInfo>('GET', `/v1/pairings/${encodeURIComponent(code)}`),
+    decide: (_url, code, approve) => hubCall<T.HubPairingInfo>('POST', `/v1/pairings/${encodeURIComponent(code)}/${approve ? 'approve' : 'deny'}`),
+    devices: () => hubCall<T.HubDevice[]>('GET', '/v1/devices'),
+    revokeDevice: async (_url, id) => {
+      await hubCall('DELETE', `/v1/devices/${encodeURIComponent(id)}`);
+    },
   },
   target: {
     get: () => Promise.resolve(target),
