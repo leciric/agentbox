@@ -1025,6 +1025,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/disk", s.getDiskGuard)
 	h("GET /v1/usage/memory", s.memoryUsage)
 	h("GET /v1/usage/cpu", s.cpuUsage)
+	h("GET /v1/usage/host", s.hostMemory)
 	h("POST /v1/usage-stats/{feature}", s.countAppFeature)
 	h("GET /v1/usage-stats/pending", s.usageStatsPending)
 	h("POST /v1/reports/draft", s.reportDraft)

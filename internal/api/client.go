@@ -1201,6 +1201,12 @@ func (c *Client) MemoryUsage(ctx context.Context) (MemoryUsage, error) {
 	return out, c.do(ctx, http.MethodGet, "/v1/usage/memory", nil, &out)
 }
 
+// HostMemory is the daemon's machine's memory and CPUs, from /proc/meminfo.
+func (c *Client) HostMemory(ctx context.Context) (HostMemory, error) {
+	var out HostMemory
+	return out, c.do(ctx, http.MethodGet, "/v1/usage/host", nil, &out)
+}
+
 func (c *Client) CPUUsage(ctx context.Context, interval time.Duration) (CPUUsage, error) {
 	var out CPUUsage
 	return out, c.do(ctx, http.MethodGet, "/v1/usage/cpu?interval="+url.QueryEscape(interval.String()), nil, &out)

@@ -1300,6 +1300,17 @@ type HostUsage struct {
 	Pressure *HostPressure `json:"pressure,omitempty"`
 }
 
+// HostMemory is GET /v1/usage/host: the daemon's machine as its kernel sees
+// it, /proc/meminfo's MemTotal and MemAvailable in bytes and its CPUs. It asks
+// Incus nothing, so it answers at once however busy the machine is: the app's
+// top bar reads it on Windows rather than have wsl.exe run a command in the
+// distro, which can take WSL 30 seconds and fail under load.
+type HostMemory struct {
+	Total     int64 `json:"total"`
+	Available int64 `json:"available"`
+	CPUs      int   `json:"cpus"`
+}
+
 // HostPressure is the kernel's pressure stall information (PSI) for the
 // host, each the share of the last ten seconds in percent ("avg10"): "some"
 // while at least one task was stalled waiting on disk or memory, "full"

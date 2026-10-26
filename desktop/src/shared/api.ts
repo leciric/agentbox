@@ -687,6 +687,12 @@ export interface MemoryUsage {
   agents: MemoryUsageAgent[];
 }
 
+export interface HostMemory {
+  total: number;
+  available: number;
+  cpus: number;
+}
+
 export interface CPUUsageAgent {
   ref: string;
   title?: string;

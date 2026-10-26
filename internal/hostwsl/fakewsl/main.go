@@ -14,6 +14,8 @@
 //	FAKEWSL_STRICT_TAR an imported .tar without /etc/os-release is refused, as newer WSL does
 //	FAKEWSL_IMPORT_FAIL --import fails with an error that isn't about virtualization
 //	FAKEWSL_HANG     never answer a wsl.exe command line starting with this
+//	FAKEWSL_EXEC_TIMEOUT a command run in the distro fails as WSL's own
+//	                 timeout does under heavy CPU load (Wsl/Service/0x8007274c)
 //	                 argument, as a stuck WSL doesn't
 //
 // `agentbox wsl-bridge` and the daemon the front end starts run in-process, so
@@ -226,6 +228,9 @@ func execute(command []string) int {
 		}
 	}
 	switch {
+	case os.Getenv("FAKEWSL_EXEC_TIMEOUT") != "" && command[0] == "sh" && len(command) == 3 && command[2] == "cat /proc/meminfo; nproc":
+		say("A connection attempt failed because the connected party did not properly respond after a period of time.\r\nError code: Wsl/Service/0x8007274c\r\n")
+		return 1
 	case command[0] == "sh" && len(command) == 3 && command[2] == "cat /proc/meminfo; nproc":
 		// Distro.Power: 16 GiB, 9.5 of them available, and 8 CPUs.
 		fmt.Print("MemTotal:       16777216 kB\nMemFree:         8388608 kB\nMemAvailable:    9961472 kB\n8\n")

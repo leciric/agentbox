@@ -1530,6 +1530,12 @@ func toAPIMemoryUsage(u agent.MemoryUsage) api.MemoryUsage {
 	return out
 }
 
+// hostMemory is GET /v1/usage/host, from /proc/meminfo alone.
+func (s *Server) hostMemory(w http.ResponseWriter, _ *http.Request) error {
+	mem := readMemInfo()
+	return writeJSON(w, http.StatusOK, api.HostMemory{Total: mem["MemTotal"], Available: mem["MemAvailable"], CPUs: agent.HostCores()})
+}
+
 func (s *Server) memoryUsage(w http.ResponseWriter, r *http.Request) error {
 	usage, err := s.manager(nil).MemoryUsage(r.Context())
 	if err != nil {
