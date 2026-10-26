@@ -59,7 +59,7 @@ var DefaultImagesURLs = []string{
 // partSize is how big the image's parts are: small enough that several
 // download at once, each over a connection of its own, and well under
 // GitHub's cap of 2 GiB per asset. A variable for the tests.
-var partSize int64 = 256 << 20
+var partSize int64 = 128 << 20
 
 // gzipUntil is the last image version also published gzipped, as before zstd:
 // an AgentBox from before then reads only the gzipped image, and finds it on

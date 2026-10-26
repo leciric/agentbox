@@ -141,7 +141,7 @@ Setup downloads it (`internal/image/published.go`), adding the Codex and OpenCod
 are on, unless Android, dev caches or Incus are (`Components.NeedsLocalBuild`), from the
 `image-<version>` prerelease on this repository's GitHub releases, or first from its copy on the CDN
 (`downloads.agentbox.linting.dev/images/`, `scripts/r2-images.sh`), compressed with zstd and split in
-256 MiB parts that Setup downloads at once, resumes, joins and checks (`internal/image/download.go`;
+128 MiB parts that Setup downloads at once, resumes, joins and checks (`internal/image/download.go`;
 `scripts/github-images.sh` publishes it, and keeps only the newest image release; app releases,
 release-please and the update check never see it), and
 `agentbox image build` makes it on the user's machine from Debian and
