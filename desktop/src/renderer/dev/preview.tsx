@@ -315,7 +315,7 @@ import { Markdown } from '../components/chat/Markdown';
 import { agent12Chat, asleepChat, buildFixtures, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedSignedOut, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
 import { seedPastAgents } from './pastAgents';
-import { openPanelOn, pickTarget, setPanel, setPanelOpen, setView, type PanelView } from '../lib/rightPanel';
+import { openPanelOn, panelDefault, pickTarget, setPanel, setPanelOpen, setView, type PanelView } from '../lib/rightPanel';
 import type { ProjectSection } from '../lib/tabs';
 import { openFile } from '../lib/files';
 import { PastAgentView } from '../components/PastAgents';
@@ -631,9 +631,10 @@ if (appView && params.get('v2') === '1') {
   if (params.get('pick') === '1') seedPick(queryClient);
   // Each page starts with no panel open, whatever the last one left.
   setPanel({ chats: {}, views: {}, last: {}, listFolded: false, listWidth: undefined });
-  // &panelwidth=340: the panel that wide beside a lead's chat and an agent's.
+  // &panelwidth=340: the panel that wide beside a lead's chat and an agent's;
+  // its default widths otherwise, whatever an earlier page left.
   const panelWidth = Number(params.get('panelwidth') ?? 0);
-  if (panelWidth > 0) setPanel({ width: panelWidth, agentWidth: panelWidth });
+  setPanel(panelWidth > 0 ? { width: panelWidth, agentWidth: panelWidth } : { width: panelDefault, agentWidth: undefined });
   // &panel=<view>[:<whose>]: the panel open on a view (desktop, terminal,
   // files, evidence, browser, timeline, pulls, settings) of whose (lead,
   // agent-41, past:agent-31; &whose= for all), or just open (&panel=open),
