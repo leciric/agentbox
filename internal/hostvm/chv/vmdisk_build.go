@@ -353,6 +353,9 @@ func qemuArgs(arch string, kvm bool, work string, cpus int) ([]string, error) {
 	args = append(args, "-device", "virtio-blk-pci,drive=seed")
 	args = append(args, drive("out.raw", "")...)
 	args = append(args, "-device", "virtio-blk-pci,drive=out,serial="+diskOutSerial)
-	args = append(args, "-netdev", "user,id=net", "-device", "virtio-net-pci,netdev=net", "-device", "virtio-rng-pci")
+	// romfile= leaves out the NIC's boot ROM (iPXE's efi-virtio.rom), which
+	// nothing here boots from and which Ubuntu's qemu-system-arm only
+	// recommends: without it, QEMU won't start.
+	args = append(args, "-netdev", "user,id=net", "-device", "virtio-net-pci,netdev=net,romfile=", "-device", "virtio-rng-pci")
 	return args, nil
 }

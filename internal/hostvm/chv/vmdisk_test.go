@@ -357,7 +357,7 @@ func TestQemuArgs(t *testing.T) {
 		"-drive file=/w/disk.raw,format=raw,if=none,id=disk,discard=unmap,cache=unsafe -device virtio-blk-pci,drive=disk",
 		"-drive file=/w/seed.img,format=raw,if=none,id=seed,readonly=on",
 		"-device virtio-blk-pci,drive=out,serial=agentbox-out",
-		"-serial stdio", "-no-reboot", "-netdev user,id=net",
+		"-serial stdio", "-no-reboot", "-netdev user,id=net -device virtio-net-pci,netdev=net,romfile= ",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("%s\nhas no %q", s, want)
