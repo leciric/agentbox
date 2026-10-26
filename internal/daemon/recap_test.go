@@ -2,15 +2,84 @@ package daemon
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"agentbox/internal/api"
 	"agentbox/internal/state"
+	"agentbox/internal/testutil"
 )
 
 // TestRecap adds up a week the way its page reads it: work from the turns
 // workers generated, in the user's time zone, the part of it no verdict was
 // near, tokens by model (a lead's too), the busiest project, the agent that
+
+// TestRecapCountsTheWeeksAgents counts the pull requests and changed lines of
+// the week's agents, live and past, a past agent's from its kept branch, and
+// leaves out a past agent of another week.
+func TestRecapCountsTheWeeksAgents(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	repo := d.fixtureRepo(t, "hello-stack")
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	live := addAgent(t, d, repo, "hello-stack", "agent-01", "Reminders page")
+	d.srv.record(ctx, finishedEvent(live, api.AgentChanges{Files: 1, Insertions: 10, Deletions: 1}, &api.PullRequest{Number: 7, State: "open"}, "Done.", now.Add(-time.Minute)))
+
+	base := strings.TrimSpace(testutil.Git(t, repo, "rev-parse", "HEAD"))
+	head := strings.TrimSpace(testutil.Git(t, repo, "rev-parse", "--abbrev-ref", "HEAD"))
+	testutil.Git(t, repo, "checkout", "-q", "-b", "agentbox/dark-mode")
+	if err := os.WriteFile(filepath.Join(repo, "added.txt"), []byte("a\nb\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, repo, "add", "-A")
+	testutil.Git(t, repo, "commit", "-q", "-m", "past work")
+	testutil.Git(t, repo, "checkout", "-q", head)
+	archive := func(name string, at time.Time, pr state.ArchivedPR) {
+		t.Helper()
+		a := state.Agent{
+			Project: "hello-stack", Name: name, Instance: "ab-hello-stack-" + name, AI: "claude", Title: name,
+			Branch: "agentbox/dark-mode", BaseRef: head, BaseCommit: base, Worktree: "/gone/" + name,
+			Status: state.AgentReady, CreatedAt: at.Add(-time.Hour), Interface: state.InterfaceChat,
+		}
+		if err := d.srv.store.AddAgent(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+		if err := d.srv.store.ArchiveAgent(ctx, a, "", pr, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	archive("agent-02", now.Add(-time.Hour), state.ArchivedPR{Number: 5, State: state.PRMerged})
+	archive("agent-03", now.AddDate(0, 0, -21), state.ArchivedPR{Number: 3, State: state.PRMerged})
+
+	for range 2 { // the second time, the past agent's diff is the one kept
+		r, err := d.srv.buildRecap(ctx, now, 0, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Agents != 2 || r.PRsOpened != 2 || r.PRsMerged != 1 {
+			t.Fatalf("agents %d, pull requests %d (%d merged), want 2, 2 and 1", r.Agents, r.PRsOpened, r.PRsMerged)
+		}
+		if r.Insertions != 12 || r.Deletions != 1 || r.Files != 2 {
+			t.Fatalf("changes +%d -%d in %d files, want +12 -1 in 2", r.Insertions, r.Deletions, r.Files)
+		}
+	}
+	// Three weeks back, only the agent of that week.
+	r, err := d.srv.buildRecap(ctx, now, 0, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Agents != 1 || r.PRsMerged != 1 || r.Insertions != 2 {
+		t.Fatalf("three weeks back: agents %d, merged %d, +%d, want 1, 1 and +2", r.Agents, r.PRsMerged, r.Insertions)
+	}
+}
+
 // worked longest and the streak.
 func TestRecap(t *testing.T) {
 	t.Parallel()

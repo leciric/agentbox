@@ -1,6 +1,7 @@
 // The weekly recap's share cards: the week drawn on a canvas, 1200×630 for a
 // post's link-card shape or 1080×1080 square, saved or copied as a PNG. The
-// page shows the PNG itself, so what the user sees is what they post. Project
+// page shows the canvas that PNG is made from, so what the user sees is what
+// they post, and encodes it only when they do. Project
 // names, and the titles of agents' tasks, which can name a project, are left
 // off unless the user ticks them in.
 //

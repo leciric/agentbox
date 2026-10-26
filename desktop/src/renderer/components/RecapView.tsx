@@ -4,12 +4,12 @@
 // projects, being the user's own; the card leaves them off unless ticked in.
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Check, ChevronLeft, ChevronRight, Copy, Download, Flame, GitMerge, GitPullRequest, Moon, Sparkles, Timer, Bot, FileDiff } from 'lucide-react';
-import { useEffect, useState, type ComponentType, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
 import { useLanguage, useT } from '../lib/i18n';
-import { awayShare, cardFileName, cardSize, compact, dayName, duration, isEmpty, modelLabel, peakLabel, weekRange, type CardFormat } from '../lib/recap';
+import { awayShare, cardFileName, compact, dayName, duration, isEmpty, modelLabel, peakLabel, weekRange, type CardFormat } from '../lib/recap';
 import { cardPNG, drawCard } from '../lib/recapCard';
 import { usd } from '../lib/tokens';
 import { cn, errorMessage } from '../lib/utils';
@@ -248,38 +248,40 @@ function Models({ recap }: { recap: T.Recap }) {
   );
 }
 
-// Share is the card, as the PNG it saves, with its shape, whether it names
-// projects, and Save and Copy.
+// Share is the card, with its shape, whether it names projects, and Save and
+// Copy. The card is drawn once its panel comes near the screen, which below
+// the week's numbers may be never, and shown as the canvas it was drawn on:
+// the PNG is the same pixels, so it is only encoded when saved or copied.
 function Share({ recap }: { recap: T.Recap }) {
   const t = useT();
   const lang = useLanguage();
   const [format, setFormat] = useState<CardFormat>('landscape');
   const [names, setNames] = useState(false);
-  const [png, setPng] = useState<{ bytes: Uint8Array; url: string } | null>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const [near, setNear] = useState(false);
+  const [card, setCard] = useState<{ canvas: HTMLCanvasElement; format: CardFormat } | null>(null);
   const [done, setDone] = useState<'' | 'saved' | 'copied'>('');
   useEffect(() => {
+    if (near || !panel.current) return;
+    const io = new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && setNear(true), { rootMargin: '200px' });
+    io.observe(panel.current);
+    return () => io.disconnect();
+  }, [near]);
+  useEffect(() => {
+    if (!near) return;
     let live = true;
-    let url = '';
-    void drawCard(recap, { format, names })
-      .then(cardPNG)
-      .then((bytes) => {
-        if (!live) return;
-        url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'image/png' }));
-        setPng({ bytes, url });
-      });
+    void drawCard(recap, { format, names }).then((canvas) => live && setCard({ canvas, format }));
     return () => {
       live = false;
-      if (url) URL.revokeObjectURL(url);
     };
-  }, [recap, format, names, lang]);
+  }, [near, recap, format, names, lang]);
   useEffect(() => {
     if (!done) return;
     const id = setTimeout(() => setDone(''), 1800);
     return () => clearTimeout(id);
   }, [done]);
-  const size = cardSize[format];
   return (
-    <Panel className="p-5">
+    <Panel ref={panel} className="p-5">
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <div className="min-w-0">
           <h2 className="flex items-center gap-1.5 text-[15px] font-semibold text-title">
@@ -310,8 +312,8 @@ function Share({ recap }: { recap: T.Recap }) {
         </div>
       </div>
       <div className="grid place-items-center rounded-2xl border border-line bg-surface p-4 md:p-6">
-        {png ? (
-          <img src={png.url} alt={t('recap.share.alt')} width={size.width} height={size.height} className={cn('h-auto w-full rounded-xl shadow-[0_24px_60px_-28px_rgb(0_0_0/0.8)]', format === 'square' ? 'max-w-[34rem]' : 'max-w-[56rem]')} />
+        {card ? (
+          <CardCanvas canvas={card.canvas} label={t('recap.share.alt')} className={cn('h-auto w-full rounded-xl shadow-[0_24px_60px_-28px_rgb(0_0_0/0.8)]', card.format === 'square' ? 'max-w-[34rem]' : 'max-w-[56rem]')} />
         ) : (
           <Skeleton className={cn('w-full rounded-xl', format === 'square' ? 'aspect-square max-w-[34rem]' : 'aspect-[1200/630] max-w-[56rem]')} />
         )}
@@ -320,11 +322,13 @@ function Share({ recap }: { recap: T.Recap }) {
         <p className="mr-auto text-[12px] text-subtle">{names ? t('recap.share.namesOn') : t('recap.share.namesOff')}</p>
         <Button
           size="sm"
-          disabled={!png}
+          disabled={!card}
           onClick={() => {
-            if (!png) return;
-            window.agentbox.copyImage(png.bytes);
-            setDone('copied');
+            if (!card) return;
+            void cardPNG(card.canvas).then((bytes) => {
+              window.agentbox.copyImage(bytes);
+              setDone('copied');
+            });
           }}
         >
           {done === 'copied' ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
@@ -333,10 +337,12 @@ function Share({ recap }: { recap: T.Recap }) {
         <Button
           size="sm"
           variant="primary"
-          disabled={!png}
+          disabled={!card}
           onClick={() => {
-            if (!png) return;
-            void window.agentbox.saveImage(cardFileName(recap, format), png.bytes).then((saved) => saved && setDone('saved'));
+            if (!card) return;
+            void cardPNG(card.canvas)
+              .then((bytes) => window.agentbox.saveImage(cardFileName(recap, card.format), bytes))
+              .then((saved) => saved && setDone('saved'));
           }}
         >
           {done === 'saved' ? <Check className="size-3.5" /> : <Download className="size-3.5" />}
@@ -345,4 +351,13 @@ function Share({ recap }: { recap: T.Recap }) {
       </div>
     </Panel>
   );
+}
+
+// CardCanvas shows a drawn card, copied as it is onto a canvas of its own.
+function CardCanvas({ canvas, label, className }: { canvas: HTMLCanvasElement; label: string; className: string }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    ref.current?.getContext('2d')?.drawImage(canvas, 0, 0);
+  }, [canvas]);
+  return <canvas ref={ref} width={canvas.width} height={canvas.height} role="img" aria-label={label} className={className} />;
 }

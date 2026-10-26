@@ -5,21 +5,28 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"runtime"
 	"slices"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"agentbox/internal/api"
 	"agentbox/internal/gitrepo"
 	"agentbox/internal/state"
+	"agentbox/internal/worktreefs"
+
+	"golang.org/x/sync/errgroup"
 )
 
 // The weekly recap: the user's week with AgentBox, for its page and the cards
 // they share (desktop's RecapView). Everything comes from state.db: the token
 // ledger says when agents worked, chat items and verdicts when the user was
-// there, and the Work page's entries (work.go) which agents had pull requests
-// and what their branches changed. Nothing is kept: it is read again each
-// time the page opens.
+// there, and what the Work page reads of agents (liveWork, archived agents)
+// which agents had pull requests and what their branches changed. It is read
+// again each time the page opens, but for what past agents' branches changed,
+// which is kept by their commits (diffStats).
 
 // recapStreakDays is how far back a streak is looked for.
 const recapStreakDays = 366
@@ -55,8 +62,8 @@ type recapAgent struct {
 	project, name string
 	title, ai     string
 	work          time.Duration
-	created       time.Time
-	entry         *workEntry
+	pr            *api.PullRequest
+	changes       *api.AgentChanges
 }
 
 // buildRecap is the week ending today, weeks weeks ago, in the time zone
@@ -133,41 +140,8 @@ func (s *Server) buildRecap(ctx context.Context, now time.Time, offset time.Dura
 		out.Hours[i] = int64(hourWork[i].Seconds())
 	}
 
-	// Who those agents were, and every worker created in the week besides,
-	// from the Work page's entries: live agents and past ones.
-	projects, err := s.store.Projects(ctx)
-	if err != nil {
+	if err := s.recapAgents(ctx, start, end, agents, agentOf); err != nil {
 		return out, err
-	}
-	live, err := s.store.Agents(ctx, "")
-	if err != nil {
-		return out, err
-	}
-	created := map[string]time.Time{}
-	for _, a := range live {
-		created[a.Ref()] = a.CreatedAt
-	}
-	for _, p := range projects {
-		if p.Name == state.HomeProject {
-			continue
-		}
-		entries, err := s.projectWorkEntries(ctx, p)
-		if err != nil {
-			return out, err
-		}
-		for i := range entries {
-			e := &entries[i]
-			ref := e.item.Item.Ref
-			at := created[ref]
-			if e.past != nil {
-				at = e.past.CreatedAt
-			}
-			if _, worked := agents[ref]; !worked && (at.Before(start) || !at.Before(end)) {
-				continue
-			}
-			a := agentOf(e.item.Item.Project, e.item.Item.Agent)
-			a.title, a.ai, a.created, a.entry = e.item.Item.Title, e.item.Item.AI, at, e
-		}
 	}
 
 	byProject := map[string]*api.RecapProject{}
@@ -182,25 +156,13 @@ func (s *Server) buildRecap(ctx context.Context, now time.Time, offset time.Dura
 		if out.Longest == nil || int64(a.work.Seconds()) > out.Longest.WorkSeconds {
 			out.Longest = &api.RecapAgent{Project: a.project, Agent: a.name, Title: a.title, AI: a.ai, WorkSeconds: int64(a.work.Seconds())}
 		}
-		if a.entry == nil {
-			continue
-		}
-		item := a.entry.item.Item
-		if pr := item.PR; pr != nil && pr.Number > 0 {
+		if pr := a.pr; pr != nil && pr.Number > 0 {
 			out.PRsOpened++
 			if pr.State == "merged" {
 				out.PRsMerged++
 			}
 		}
-		changes := item.Changes
-		if changes == nil && a.entry.past != nil {
-			if commit, base, err := archivedRange(a.entry.root, *a.entry.past); err == nil && base != "" {
-				if stat, err := gitrepo.DiffCommits(a.entry.root, base, commit, true); err == nil {
-					c := statOf(stat)
-					changes = &c
-				}
-			}
-		}
+		changes := a.changes
 		if changes != nil {
 			out.Insertions += changes.Insertions
 			out.Deletions += changes.Deletions
@@ -249,6 +211,162 @@ func (s *Server) buildRecap(ctx context.Context, now time.Time, offset time.Dura
 	}
 	out.Streak, out.BestStreak = streaks(days, (now.UnixMilli()+offset.Milliseconds())/86400000)
 	return out, nil
+}
+
+// recapAgents fills in who the week's agents were, and adds every worker
+// created in it besides: live agents and past ones, as the Work page knows
+// them, but only those of the week. A past agent's branch is diffed for what
+// it changed, which is most of the cost, so only the week's are, several at
+// once, and each pair of commits once (diffStats).
+func (s *Server) recapAgents(ctx context.Context, start, end time.Time, agents map[string]*recapAgent, agentOf func(project, name string) *recapAgent) error {
+	ofWeek := func(ref string, created time.Time) bool {
+		_, worked := agents[ref]
+		return worked || !created.Before(start) && created.Before(end)
+	}
+	projects, err := s.store.Projects(ctx)
+	if err != nil {
+		return err
+	}
+	byName := map[string]state.Project{}
+	for _, p := range projects {
+		if p.Name != state.HomeProject {
+			byName[p.Name] = p
+		}
+	}
+
+	live, err := s.store.Agents(ctx, "")
+	if err != nil {
+		return err
+	}
+	of := map[string][]state.Agent{}
+	busy := map[string]bool{}
+	for _, a := range live {
+		of[a.Project] = append(of[a.Project], a)
+		if !a.IsLead() && ofWeek(a.Ref(), a.CreatedAt) {
+			busy[a.Project] = true
+		}
+	}
+	for name := range busy {
+		p, ok := byName[name]
+		if !ok || s.prReconciling(name) {
+			continue
+		}
+		for _, e := range s.liveWork(ctx, p, of[name], true, false) {
+			if !ofWeek(e.agent.Ref(), e.agent.CreatedAt) {
+				continue
+			}
+			a := agentOf(e.agent.Project, e.agent.Name)
+			a.title, a.ai, a.pr, a.changes = e.item.Title, e.item.AI, e.item.PR, e.item.Changes
+		}
+	}
+
+	// A past agent of the week was archived after it worked or was created.
+	found, err := s.store.ArchivedAgents(ctx, state.ArchivedQuery{Since: start})
+	if err != nil {
+		return err
+	}
+	var past []state.ArchivedAgent
+	for _, a := range found {
+		if _, ok := byName[a.Project]; ok && ofWeek(a.Ref(), a.CreatedAt) {
+			past = append(past, a)
+		}
+	}
+	past = s.refreshArchivedPRs(ctx, past)
+	byProject := map[string][]state.ArchivedAgent{}
+	for _, p := range past {
+		a := agentOf(p.Project, p.Name)
+		a.title, a.ai = p.Title, p.AI
+		if p.PR.Number > 0 {
+			a.pr = &api.PullRequest{Number: p.PR.Number, Title: p.PR.Title, URL: p.PR.URL, State: p.PR.State}
+		}
+		byProject[p.Project] = append(byProject[p.Project], p)
+	}
+	var g errgroup.Group
+	g.SetLimit(max(2, runtime.NumCPU()/2))
+	for name, past := range byProject {
+		root := byName[name].Root
+		for i, r := range archivedRanges(root, past) {
+			if r.base == "" {
+				continue
+			}
+			a := agents[past[i].Ref()]
+			g.Go(func() error {
+				a.changes = s.branchStats.of(root, r.base, r.commit)
+				return nil
+			})
+		}
+	}
+	return g.Wait()
+}
+
+// commitRange is a past agent's kept branch and what it is measured against.
+type commitRange struct{ commit, base string }
+
+// archivedRanges is archivedRange for each of past, all of project root: one
+// git process for all their branches and bases, and one more for each base
+// only a merge-base finds. A range is empty when it can't be read.
+func archivedRanges(root string, past []state.ArchivedAgent) []commitRange {
+	out := make([]commitRange, len(past))
+	revs := make([]string, 0, 3*len(past))
+	for _, a := range past {
+		heads, remotes := "", ""
+		if a.Branch != "" && !strings.HasPrefix(a.Branch, "-") {
+			heads, remotes = "refs/heads/"+a.Branch, "refs/remotes/origin/"+a.Branch
+		}
+		revs = append(revs, heads, remotes, a.BaseCommit)
+	}
+	commits, err := worktreefs.Commits(root, revs)
+	if err != nil {
+		return out
+	}
+	for i, a := range past {
+		commit := cmp.Or(commits[3*i], commits[3*i+1])
+		if commit == "" {
+			continue
+		}
+		base := commits[3*i+2]
+		if base == "" {
+			base = worktreefs.BaseAt(root, "", a.BaseRef, commit)
+		}
+		out[i] = commitRange{commit, base}
+	}
+	return out
+}
+
+// diffStats is what past agents' kept branches changed, by the commits
+// measured: a diff of two commits never changes, while a branch may move on,
+// so its commit is looked up again each time.
+type diffStats struct {
+	mu   sync.Mutex
+	byID map[string]api.AgentChanges
+}
+
+// maxDiffStats is how many diffStats keeps before it starts again: a few
+// hundred bytes each.
+const maxDiffStats = 4096
+
+// of is what commit changed since base in the repository at root, nil when
+// that can't be read.
+func (d *diffStats) of(root, base, commit string) *api.AgentChanges {
+	key := root + "\x00" + base + "\x00" + commit
+	d.mu.Lock()
+	c, ok := d.byID[key]
+	d.mu.Unlock()
+	if ok {
+		return &c
+	}
+	stat, err := gitrepo.DiffCommits(root, base, commit, true)
+	if err != nil {
+		return nil
+	}
+	c = statOf(stat)
+	d.mu.Lock()
+	if d.byID == nil || len(d.byID) >= maxDiffStats {
+		d.byID = map[string]api.AgentChanges{}
+	}
+	d.byID[key] = c
+	d.mu.Unlock()
+	return &c
 }
 
 // streaks is the run of days up to today (or yesterday, when today has

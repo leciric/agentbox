@@ -72,10 +72,18 @@ func (s *Store) TurnDays(ctx context.Context, since time.Time, offset time.Durat
 // isn't counted, since the lead's tell_agent writes the same item.
 func (s *Store) UserPresence(ctx context.Context, since, until time.Time) ([]time.Time, error) {
 	var out []time.Time
-	rows, err := s.db.QueryContext(ctx, `SELECT json_extract(data, '$.createdAt') FROM chat_items
-		WHERE agent = ? AND json_extract(data, '$.kind') = 'user'
-			AND json_extract(data, '$.woken') IS NOT 1 AND json_extract(data, '$.hidden') IS NOT 1
-			AND json_type(data, '$.projectMessage') IS NULL AND json_type(data, '$.scheduledRun') IS NULL`, LeadName)
+	// Each project's (and Home's) stretch of chat_items_user_created, whose
+	// WHERE is repeated verbatim so SQLite uses it: without it, this read
+	// every item of every chat ever kept. The days are a little wider than
+	// [since, until), julianday being a float; the times are checked below.
+	rows, err := s.db.QueryContext(ctx, `SELECT json_extract(data, '$.createdAt') FROM chat_items INDEXED BY chat_items_user_created
+		WHERE project IN (SELECT name FROM projects UNION SELECT ?)
+			AND json_valid(data) AND json_extract(data, '$.kind') = 'user'
+			AND NOT coalesce(json_extract(data, '$.woken'), 0) AND NOT coalesce(json_extract(data, '$.hidden'), 0)
+			AND julianday(CASE WHEN json_valid(data) THEN json_extract(data, '$.createdAt') END) >= ?
+			AND julianday(CASE WHEN json_valid(data) THEN json_extract(data, '$.createdAt') END) < ?
+			AND agent = ? AND json_type(data, '$.projectMessage') IS NULL AND json_type(data, '$.scheduledRun') IS NULL`,
+		HomeProject, julianDay(since)-1.0/24, julianDay(until)+1.0/24, LeadName)
 	if err != nil {
 		return nil, err
 	}
@@ -110,4 +118,9 @@ func (s *Store) UserPresence(ctx context.Context, since, until time.Time) ([]tim
 		out = append(out, time.UnixMilli(at))
 	}
 	return out, verdicts.Err()
+}
+
+// julianDay is t as SQLite's julianday() gives it.
+func julianDay(t time.Time) float64 {
+	return float64(t.UnixMilli())/86400000 + 2440587.5
 }

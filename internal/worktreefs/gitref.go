@@ -44,6 +44,39 @@ func commitOf(root, rev string) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
+// Commits is the commit each of revs names in the repository at root, ""
+// for one that names none, in one git process rather than one each.
+func Commits(root string, revs []string) ([]string, error) {
+	out := make([]string, len(revs))
+	var in strings.Builder
+	var asked []int
+	for i, rev := range revs {
+		if rev == "" || strings.ContainsAny(rev, "\n\r") { // one line per rev
+			continue
+		}
+		in.WriteString(rev + "^{commit}\n")
+		asked = append(asked, i)
+	}
+	if len(asked) == 0 {
+		return out, nil
+	}
+	text, err := git(root, strings.NewReader(in.String()), "cat-file", "--batch-check")
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
+	if len(lines) != len(asked) {
+		return nil, fmt.Errorf("git cat-file answered %d lines for %d revisions", len(lines), len(asked))
+	}
+	for k, i := range asked {
+		// "<oid> commit <size>", or "<rev> missing" (or ambiguous).
+		if f := strings.Fields(lines[k]); len(f) == 3 && f[1] == "commit" {
+			out[i] = f[0]
+		}
+	}
+	return out, nil
+}
+
 // BaseAt is what commit's changes are measured against: baseCommit when the
 // repository has it, else where commit forked from baseRef (or origin's).
 // "" when neither is known.

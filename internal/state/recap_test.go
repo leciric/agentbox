@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -19,6 +20,9 @@ func TestUserPresence(t *testing.T) {
 	item := func(id string, minutes int, extra string) state.ChatItem {
 		return state.ChatItem{ID: id, Data: fmt.Appendf(nil, `{"id":%q,"kind":"user","createdAt":%q%s}`, id, at.Add(time.Duration(minutes)*time.Minute).Format(time.RFC3339Nano), extra)}
 	}
+	if err := st.AddProject(ctx, state.Project{Name: "acme", Root: "/src/acme", CreatedAt: at}); err != nil {
+		t.Fatal(err)
+	}
 	if err := st.SaveChatItems(ctx, "acme", state.LeadName, []state.ChatItem{
 		item("typed", 0, ""),
 		item("woken", 1, `,"woken":true`),
@@ -26,6 +30,10 @@ func TestUserPresence(t *testing.T) {
 		item("other-lead", 3, `,"projectMessage":{"project":"zeta"}`),
 		item("old", -600, ""),
 	}); err != nil {
+		t.Fatal(err)
+	}
+	// Home's chat is a lead too, though no project.
+	if err := st.SaveChatItems(ctx, state.HomeProject, state.LeadName, []state.ChatItem{item("home", 30, "")}); err != nil {
 		t.Fatal(err)
 	}
 	// What a lead tells a worker looks the same as the user's message.
@@ -39,7 +47,8 @@ func TestUserPresence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 || !got[0].Equal(at) || !got[1].Equal(at.Add(time.Hour)) {
-		t.Fatalf("presence = %v, want the typed message and the verdict", got)
+	slices.SortFunc(got, time.Time.Compare)
+	if len(got) != 3 || !got[0].Equal(at) || !got[1].Equal(at.Add(30*time.Minute)) || !got[2].Equal(at.Add(time.Hour)) {
+		t.Fatalf("presence = %v, want the typed message, Home's and the verdict", got)
 	}
 }

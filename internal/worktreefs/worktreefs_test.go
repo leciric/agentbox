@@ -375,3 +375,19 @@ func TestReadingABranchesCommit(t *testing.T) {
 func slicesIndex(entries []api.FileEntry, name string) int {
 	return slices.IndexFunc(entries, func(e api.FileEntry) bool { return e.Name == name })
 }
+
+// Commits names each revision's commit in one go, and nothing for one that
+// isn't there or isn't a commit.
+func TestCommitsResolvesEachRevision(t *testing.T) {
+	root := repo(t)
+	main := strings.TrimSpace(testutil.Git(t, root, "rev-parse", "main"))
+	work := strings.TrimSpace(testutil.Git(t, root, "rev-parse", "work"))
+	tree := strings.TrimSpace(testutil.Git(t, root, "rev-parse", "main^{tree}"))
+	got, err := Commits(root, []string{"refs/heads/work", "", "refs/heads/gone", main, tree, "bad\nrev", "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{work, "", "", main, "", "", main}; !slices.Equal(got, want) {
+		t.Fatalf("Commits = %q, want %q", got, want)
+	}
+}
