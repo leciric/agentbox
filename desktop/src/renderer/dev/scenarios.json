@@ -57,7 +57,7 @@
   },
   {
     "id": "mac-vm-lima-light",
-    "description": "A Mac's first screen without Lima: brew install lima first — light, lg width",
+    "description": "A Mac's first screen without Lima: Setup downloads it, nothing to install by hand — light, lg width",
     "query": "vm=lima&theme=light",
     "width": 1024,
     "height": 800
@@ -723,8 +723,22 @@
   },
   {
     "id": "linux-setup-nokvm-light",
-    "description": "The same without /dev/kvm: what's missing, and the command for later — light",
+    "description": "The same on a CPU without virtualization: what to turn on in the firmware — light",
     "query": "linux=nokvm&theme=light",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "linux-setup-kvm-denied-dark",
+    "description": "The same where /dev/kvm is the kvm group's (Debian, Ubuntu): one button gives it, no new login — dark",
+    "query": "linux=kvm-denied&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "linux-setup-kvm-module-light",
+    "description": "The same where KVM's module isn't loaded: the button loads it and gives it — light",
+    "query": "linux=kvm-module&theme=light",
     "width": 1280,
     "height": 900
   },

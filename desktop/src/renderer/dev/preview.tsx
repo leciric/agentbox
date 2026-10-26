@@ -207,9 +207,13 @@
 //                           Free resources' dialog part-way through stopping
 //                           the agents, with what it freed, with one agent
 //                           that wouldn't stop, or failed
-//   ?linux=setup|nokvm      a Linux machine's first screen, before AgentBox's
+//   ?linux=setup|nokvm|kvm-denied|kvm-module
+//                           a Linux machine's first screen, before AgentBox's
 //                           VM is made: the VM to set up, at the size picked,
-//                           or what's missing without /dev/kvm
+//                           or what's missing without /dev/kvm: virtualization
+//                           off, or the button that gives this user /dev/kvm
+//                           (it works here: it prints what agentbox host kvm
+//                           would, then the VM's form shows)
 //   ?linux=move             a Linux machine set up to run agents itself before
 //                           AgentBox ran in a VM on Linux: the prompt to move
 //                           into the VM, whose button opens Settings' Setup at
@@ -327,7 +331,7 @@ const loading = params.get('loading'); // 'hold' | 'refetch' | milliseconds | nu
 const io = params.get('io'); // "1" | "stalling" | "agent" | null
 const imageUpdate = params.get('setup') === 'updating';
 const settingsPage = params.get('settings'); // a section of Settings, or a project's name
-const linuxHost = params.get('linux'); // 'setup' | 'nokvm' | 'move' | null
+const linuxHost = params.get('linux'); // 'setup' | 'nokvm' | 'kvm-denied' | 'kvm-module' | 'move' | null
 const chvSize = params.get('chv'); // 'live' | 'old' | 'off' | null
 if (chvSize) localStorage.setItem('agentbox.settings.section', 'resources');
 if (settingsPage) localStorage.setItem('agentbox.settings.section', settingsPage);
@@ -378,7 +382,7 @@ function windowsBeforeSetupBridge(): void {
 // linuxBeforeSetup makes the dev bridge a Linux machine on first launch, the
 // way windowsBeforeSetupBridge makes it Windows: AgentBox's VM not made yet,
 // so no daemon.
-function linuxBeforeSetupBridge(kvm: boolean): void {
+function linuxBeforeSetupBridge(kvmProblem: 'denied' | 'module' | 'novirt' | null): void {
   const bridge = (window as unknown as { agentbox: Record<string, unknown> }).agentbox;
   const error = "AgentBox's Linux VM isn't set up: run agentbox vm init";
   const status: HostSetupStatus = {
@@ -388,7 +392,7 @@ function linuxBeforeSetupBridge(kvm: boolean): void {
     resizing: false,
     vm: null,
     wsl: null,
-    linux: { mode: 'vm', kvm, cores: 16, memory: 32 * 1024 ** 3, defaultCpus: 8, defaultMemoryCap: 24 * 1024 ** 3 },
+    linux: { mode: 'vm', kvm: kvmProblem === null, ...(kvmProblem ? { kvmProblem } : {}), cores: 16, memory: 32 * 1024 ** 3, defaultCpus: 8, defaultMemoryCap: 24 * 1024 ** 3 },
     chv: { mode: 'vm', driver: 'cloud-hypervisor', name: 'agentbox', state: 'missing', since: '0001-01-01T00:00:00Z', problem: error } as T.VMStatus,
   };
   bridge.info = async () => ({ socket: '', version: 'preview', electron: '', packaged: false, platform: 'linux' });
@@ -400,7 +404,25 @@ function linuxBeforeSetupBridge(kvm: boolean): void {
     const timer = setInterval(() => fn({ state: 'disconnected', error }), 1_000);
     return () => clearInterval(timer);
   };
-  bridge.hostSetup = { status: async () => status, run: async () => ({ restarted: false }), onOutput: () => () => {} };
+  const listeners = new Set<(text: string) => void>();
+  bridge.hostSetup = {
+    status: async () => status,
+    run: async () => ({ restarted: false }),
+    // What `pkexec agentbox host kvm` prints on Debian, after the password.
+    grantKVM: async () => {
+      const say = (text: string) => listeners.forEach((fn) => fn(text));
+      say('$ pkexec /usr/bin/agentbox host kvm --user leandro\n');
+      await new Promise((r) => setTimeout(r, 1_500));
+      if (kvmProblem === 'module') say('==> Loading kvm_intel, now and at every boot (/etc/modules-load.d/agentbox-kvm.conf)\n');
+      say('==> Giving leandro /dev/kvm now, with no new login (an ACL)\n==> Adding leandro to the kvm group, for later logins\nleandro can use /dev/kvm.\n');
+      await new Promise((r) => setTimeout(r, 1_500));
+      status.linux = { ...status.linux!, kvm: true, kvmProblem: undefined };
+    },
+    onOutput: (fn: (text: string) => void) => {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+  };
 }
 
 const chat = params.get('chat');
@@ -1036,7 +1058,7 @@ function Preview() {
           <VMSetup
             vm={
               vm === 'lima'
-                ? { lima: '', name: 'agentbox', exists: false, problem: "AgentBox runs in a Linux VM made with Lima, which isn't installed: brew install lima" }
+                ? { lima: '', name: 'agentbox', exists: false, problem: "AgentBox runs in a Linux VM made with Lima, which isn't on this Mac yet: agentbox vm init downloads it (Lima 2.2.1)" }
                 : vm === 'vz'
                   ? { driver: 'vz', lima: '', name: 'agentbox', exists: true, status: 'Stopped', cpus: 4, memory: 8 * 1024 ** 3 }
                   : {
@@ -1315,9 +1337,9 @@ if (phoneMode === 'frame') {
       </TooltipProvider>
     </QueryClientProvider>,
   );
-} else if (wsl || linuxHost === 'setup' || linuxHost === 'nokvm') {
+} else if (wsl || linuxHost === 'setup' || linuxHost === 'nokvm' || linuxHost === 'kvm-denied' || linuxHost === 'kvm-module') {
   if (wsl) windowsBeforeSetupBridge();
-  else linuxBeforeSetupBridge(linuxHost === 'setup');
+  else linuxBeforeSetupBridge(({ setup: null, nokvm: 'novirt', 'kvm-denied': 'denied', 'kvm-module': 'module' } as const)[linuxHost as 'setup' | 'nokvm' | 'kvm-denied' | 'kvm-module']);
   // After the bridge: some of what App imports reaches for it as it loads.
   const { App } = await import('../App');
   const appClient = new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 5_000 } } });

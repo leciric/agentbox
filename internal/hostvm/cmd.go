@@ -467,6 +467,15 @@ func newInitCmd() *cobra.Command {
   agentbox auth claude          a Claude Code login for your agents`)
 				return nil
 			}
+			if runtime.GOOS == "darwin" {
+				p, err := paths.Default()
+				if err != nil {
+					return err
+				}
+				if _, err := EnsureLima(cmd.Context(), p, cmd.ErrOrStderr()); err != nil {
+					return err
+				}
+			}
 			vm, err := New()
 			if err != nil {
 				return err

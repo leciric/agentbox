@@ -17,6 +17,7 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/hostvm/chv"
+	"agentbox/internal/kvm"
 	"agentbox/internal/paths"
 	"agentbox/internal/state"
 )
@@ -261,13 +262,14 @@ func canMake(ctx context.Context, p paths.Paths, want chv.Config) error {
 	return nil
 }
 
-// checkKVM says why this user can't run a VM, or nil.
+// checkKVM says why this user can't run a VM, and what fixes it, or nil.
 func checkKVM() error {
-	f, err := os.OpenFile("/dev/kvm", os.O_RDWR, 0)
-	if err != nil {
-		return fmt.Errorf("the VM needs /dev/kvm, which this user can't open (%w): turn virtualization on in the firmware, and join the kvm group (sudo usermod -aG kvm $USER, then log in again)", err)
+	probe := kvm.System()
+	err := probe.Open()
+	if err == nil {
+		return nil
 	}
-	return f.Close()
+	return kvm.Error(kvm.Check(probe), err)
 }
 
 // initCHV is `agentbox vm init` on a Linux host: it makes the VM want asks

@@ -37,6 +37,7 @@ import { app, ipcMain } from "electron";
 import { agentboxBin } from "./cli";
 import { onWindows } from "./relay";
 import type * as T from "../shared/api";
+import { kvmProblem, systemKVM, type KVMProblem } from "./kvm";
 import { learnMode, linuxVM } from "./vmmode";
 import { t } from '../shared/i18n/index.ts';
 
@@ -60,6 +61,9 @@ export interface LinuxSetup {
   // installation from before AgentBox ran in a VM on Linux, until it moves.
   mode: "host" | "vm";
   kvm: boolean; // /dev/kvm is there for this user, which the VM needs
+  // Why it isn't, when it isn't (kvm.ts): "denied" and "module" are fixed
+  // by grantKVM, "novirt" only in the firmware's settings.
+  kvmProblem?: KVMProblem;
   cores: number; // the machine's, the most CPUs the VM can have
   memory: number; // bytes, the machine's, the highest memory cap the VM can have
   // The size `agentbox vm init` gives the VM unless it's told otherwise.
@@ -187,9 +191,11 @@ function linuxSetup(): LinuxSetup {
   const cores = hostCPUs().length;
   const memory = totalmem();
   const cap = Math.floor(Math.min(memory - 4 * GiB, (memory / 4) * 3) / GiB) * GiB;
+  const problem = kvmProblem(systemKVM);
   return {
     mode: linuxVM() ? "vm" : "host",
-    kvm: canUseKVM(),
+    kvm: problem === null,
+    ...(problem ? { kvmProblem: problem } : {}),
     cores,
     memory,
     defaultCpus: Math.min(Math.max(Math.floor(cores / 2), 2), 8),
@@ -216,15 +222,6 @@ function chvStatus(): Promise<T.VMStatus | null> {
       resolve(value);
     });
   });
-}
-
-function canUseKVM(): boolean {
-  try {
-    accessSync("/dev/kvm", constants.R_OK | constants.W_OK);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 let lastVM: { at: number; value: VMStatus } | undefined;
@@ -489,6 +486,20 @@ function runAsRoot(
       reject(new Error(failure(code, tail)));
     });
   });
+}
+
+// grantKVM gives this user /dev/kvm, which AgentBox's VM needs, through
+// pkexec: `agentbox host kvm` (internal/kvm) adds an ACL for the user, which
+// counts at once, so nobody logs in again, and the kvm group for later
+// logins, and loads KVM's module when it's missing. Setup offers it when
+// linuxSetup's kvmProblem is "denied" or "module".
+export function grantKVM(onOutput: (text: string) => void): Promise<void> {
+  if (running)
+    return Promise.reject(new Error(t('web.main.setupRunning')));
+  running = runAsRoot(["host", "kvm"], onOutput).finally(() => {
+    running = undefined;
+  });
+  return running;
 }
 
 // initWSL makes AgentBox's WSL distro and sets AgentBox up in it: `agentbox

@@ -292,8 +292,9 @@ func New() (*VM, error) {
 	return vm, err
 }
 
-// FindLimactl looks for Lima where Homebrew puts it, as well as on PATH: an
-// app opened from the Finder doesn't get the shell's PATH.
+// FindLimactl looks for Lima where Homebrew puts it, as well as on PATH (an
+// app opened from the Finder doesn't get the shell's PATH), and then for
+// AgentBox's own (EnsureLima).
 func FindLimactl() (string, error) {
 	if p := os.Getenv("AGENTBOX_LIMACTL"); p != "" {
 		return p, nil
@@ -306,7 +307,12 @@ func FindLimactl() (string, error) {
 			return p, nil
 		}
 	}
-	return "", errors.New("AgentBox runs in a Linux VM made with Lima, which isn't installed: brew install lima")
+	if p, err := paths.Default(); err == nil {
+		if _, err := os.Stat(ownLimactl(p)); err == nil {
+			return ownLimactl(p), nil
+		}
+	}
+	return "", errNoLima
 }
 
 // FindLinuxBinary finds the Linux agentbox to put in the VM: next to this

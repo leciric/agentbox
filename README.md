@@ -62,7 +62,16 @@ work on its own desktop, and review what it built before merging.
 
 ## Install
 
-AgentBox runs on **Linux, x86_64**. Download the latest release from
+AgentBox runs on **Linux, x86_64**. One command checks your computer (virtualization, 8 GB of
+memory, 30 GB of disk, FUSE for the AppImage), says plainly what's missing before it downloads
+anything, and installs the latest release, checked against its `SHA256SUMS`: the `.deb` on Debian
+and Ubuntu, the `.pacman` on Arch, and the AppImage anywhere else.
+
+```bash
+curl -fsSL https://downloads.agentbox.linting.dev/install.sh | sh
+```
+
+`sh -s -- --check` after the pipe only checks. To install by hand instead, download from
 [downloads.agentbox.linting.dev](https://downloads.agentbox.linting.dev/index.html):
 
 | File | What |
@@ -72,14 +81,10 @@ AgentBox runs on **Linux, x86_64**. Download the latest release from
 | `AgentBox-<version>-x64.pacman` | The desktop app, for Arch and its derivatives |
 | `SHA256SUMS` | Checksums: `sha256sum -c SHA256SUMS` |
 
-```bash
-chmod +x AgentBox-*-x86_64.AppImage
-./AgentBox-*-x86_64.AppImage
-```
-
-Or `sudo apt install ./AgentBox-<version>-amd64.deb` on Debian and Ubuntu, or
-`sudo pacman -U AgentBox-<version>-x64.pacman` on Arch. AppImages need FUSE: install `fuse2` (Arch),
-`libfuse2` (Debian 12, Ubuntu 22.04) or `libfuse2t64` (Ubuntu 24.04) if yours won't start.
+`chmod +x` the AppImage and run it, or `sudo apt install ./AgentBox-<version>-amd64.deb`, or
+`sudo pacman -U AgentBox-<version>-x64.pacman`. AppImages need FUSE: install `fuse2` (Arch),
+`fuse-libs` (Fedora), `libfuse2` (Debian 12, Ubuntu 22.04) or `libfuse2t64` (Ubuntu 24.04) if
+yours won't start. [docs/install.md](docs/install.md) has the details.
 
 The app's **Setup** walks you through the rest the first time it runs: making AgentBox's VM,
 building the agents' base image, and logging in to Claude Code, Codex or OpenCode.
@@ -89,8 +94,10 @@ building the agents' base image, and logging in to Claude Code, Codex or OpenCod
 On Linux, AgentBox runs in a VM of its own: the daemon, Incus and every agent in one
 [Cloud Hypervisor](https://www.cloudhypervisor.org) VM, with the CPUs and memory cap you give it
 rather than all of your computer's, so heavy agent work can't freeze your desktop. Nothing is
-installed on your system and no password is asked. It needs `/dev/kvm` (your user in the `kvm`
-group) and an `ssh` client. Setup makes it, at the size you pick; from the command line it's
+installed on your system and no password is asked. It needs `/dev/kvm` and an `ssh` client. Where
+your user can't open `/dev/kvm` yet (Debian and Ubuntu give it to the `kvm` group, from your next
+login), Setup offers **Give access to KVM**: one password prompt, and no need to log in again
+(`sudo agentbox host kvm` from a terminal; see [KVM](docs/install.md#kvm)). Setup makes it, at the size you pick; from the command line it's
 `agentbox vm init` (`--cpus`, `--memory-cap`), which fetches Cloud Hypervisor, passt, virtiofsd and
 Debian's cloud image into `~/.local/share/agentbox/vm` and sets the VM up (about a minute). Every
 other `agentbox` command runs in the VM, and until it's made says to run `agentbox vm init`.
@@ -133,7 +140,7 @@ own. Until you remove them, `agentbox vm delete --yes` goes back to running on y
 ### macOS and Windows (alpha)
 
 AgentBox also runs on a **Mac**, in a Linux VM it makes for you with [Lima](https://lima-vm.io)
-(`brew install lima` first), and on **Windows**, in a WSL2 distro it sets up the same way: the
+(Setup downloads Lima when your Mac doesn't have it; one you installed is used first), and on **Windows**, in a WSL2 distro it sets up the same way: the
 daemon, Incus and every agent are the Linux ones, and the app and `agentbox` command on your machine
 just talk to them there. Both are newer than the Linux build and ship unsigned for now — on a Mac,
 right-click AgentBox in Applications and choose **Open** the first time; on Windows, the installer

@@ -102,7 +102,7 @@ import { useHatchConnected } from "./pages/usePages";
 import { VMMigrate } from "./VMMigrate";
 import { CHVSize, VMSize } from "./VMSize";
 import { VMSwap } from "./VMSwap";
-import { MoveToVM, moveToVMKeywords } from "./RunInVM";
+import { kvmFixable, MoveToVM, moveToVMKeywords } from "./RunInVM";
 
 type Status =
   | "ok"
@@ -1528,9 +1528,10 @@ function InstalledSettings({
       nav: t("settings.nav.machine"),
       attention: needsLook(machineSteps),
       groups: [
-        // Moving to a VM is offered where it can happen: without /dev/kvm,
-        // the Incus step says why not instead.
-        ...((hostMode && linux?.kvm) || moving
+        // Moving to a VM is offered where it can happen, or can once this
+        // user is given /dev/kvm (MoveToVM offers that first): without
+        // virtualization, the Incus step says why not instead.
+        ...((hostMode && (linux?.kvm || kvmFixable(linux))) || moving
           ? [
               {
                 id: "where",
@@ -1549,6 +1550,7 @@ function InstalledSettings({
                       ) : (
                         <MoveToVM
                           kvm={linux?.kvm ?? false}
+                          linux={linux}
                           command={<CommandBox command={`${agentbox} vm migrate`} />}
                           action={moving ? <VMMigrate migration={moving} kvm={linux?.kvm ?? false} embedded /> : undefined}
                         />
@@ -3457,7 +3459,7 @@ function HostSetup({
   // which needs no password either (D94).
   const wsl = status.data?.wsl != null;
   // A machine that can't run a VM has no move to make: Incus here is the way.
-  if (linux?.mode === "host" && !linux.kvm) {
+  if (linux?.mode === "host" && !linux.kvm && !kvmFixable(linux)) {
     return (
       <div className="grid gap-2" data-host-setup="no-kvm">
         <p className="text-[13px] text-muted">{t("settings.hostSetup.noKVMHere")}</p>

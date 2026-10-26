@@ -45,6 +45,8 @@ export function VMSetup({ vm }: { vm: VMStatus }) {
     },
   });
 
+  // Without Lima, `agentbox vm init` downloads AgentBox's own first
+  // (internal/hostvm/lima.go): nothing to install by hand.
   const noLima = vm.lima === '' && !vz;
   // "Not set up" is what this whole card says; anything else (a broken VM, a
   // missing Linux binary) is worth showing on its own.
@@ -99,32 +101,22 @@ export function VMSetup({ vm }: { vm: VMStatus }) {
           {t('vm.setup.vzNotice')}
         </Notice>
       )}
-      {noLima ? (
-        <div className="grid gap-2">
-          <p className="text-[13px] text-muted">{t('vm.setup.noLima')}</p>
-          <CommandBox command="brew install lima" />
-        </div>
-      ) : (
-        <>
-          {!vm.exists && !vz && vm.krunkit && <KrunkitNote check={vm.krunkit} />}
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="primary" disabled={run.isPending} onClick={() => run.mutate()}>
-              {run.isPending ? <LoaderCircle className="animate-spin" /> : <MonitorCog />}
-              {vm.exists ? t('vm.setup.finish') : t('vm.setup.setUp')}
-            </Button>
-            <span className="text-xs text-subtle">{run.isPending ? t('vm.setup.takesAWhile') : t('vm.setup.noPassword')}</span>
-          </div>
-        </>
-      )}
+      {noLima && <p className="text-[13px] text-muted">{t('vm.setup.noLima')}</p>}
+      {!vm.exists && !vz && vm.krunkit && <KrunkitNote check={vm.krunkit} />}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="primary" disabled={run.isPending} onClick={() => run.mutate()}>
+          {run.isPending ? <LoaderCircle className="animate-spin" /> : <MonitorCog />}
+          {vm.exists ? t('vm.setup.finish') : t('vm.setup.setUp')}
+        </Button>
+        <span className="text-xs text-subtle">{run.isPending ? t('vm.setup.takesAWhile') : t('vm.setup.noPassword')}</span>
+      </div>
       {(lines.length > 0 || run.isPending) && <SetupLog lines={lines} label={t('vm.setup.log')} />}
       {run.error && <Notice>{errorMessage(run.error)}</Notice>}
       {!noLima && otherProblem && !run.isPending && !run.error && lines.length === 0 && <Notice tone="warning">{otherProblem}</Notice>}
-      {!noLima && (
-        <div className="grid gap-2">
-          <p className="text-[13px] text-muted">{t('vm.setup.orTerminal')}</p>
-          <CommandBox command={command} />
-        </div>
-      )}
+      <div className="grid gap-2">
+        <p className="text-[13px] text-muted">{t('vm.setup.orTerminal')}</p>
+        <CommandBox command={command} />
+      </div>
     </Panel>
   );
 }

@@ -56,6 +56,9 @@ export interface VMMigration {
 export interface LinuxSetup {
   mode: 'host' | 'vm';
   kvm: boolean; // /dev/kvm is there for this user, which the VM needs
+  // Why it isn't (main/kvm.ts): "denied" and "module" are what grantKVM
+  // fixes, "novirt" is the firmware's. Missing when kvm is true.
+  kvmProblem?: 'denied' | 'module' | 'novirt';
   cores: number; // the machine's, the most CPUs the VM can have
   memory: number; // bytes, the machine's
   // The size `agentbox vm init` gives the VM unless it's told otherwise.
@@ -198,6 +201,10 @@ const bridge = {
     // experimental vz driver's VM instead of Lima's.
     run: (options?: { vm?: boolean; cpus?: number; memoryCap?: string; driver?: 'vz' }): Promise<{ restarted: boolean }> =>
       ipcRenderer.invoke('hostsetup:run', options),
+    // On Linux, /dev/kvm for this user, which AgentBox's VM needs: `agentbox
+    // host kvm` through the password dialog, with no new login. Its output
+    // arrives on onOutput too.
+    grantKVM: (): Promise<void> => ipcRenderer.invoke('hostsetup:kvm'),
     onOutput: (fn: (text: string) => void) => listen('hostsetup:output', fn),
   },
   // On Linux, `agentbox vm migrate`: this machine's own AgentBox moved into

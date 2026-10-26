@@ -10,7 +10,7 @@ import { agentboxBin, cliStatus, installCli } from './cli';
 import { currentTarget, isLocal, localSocket, savedHubs, saveHubs, setTarget, type SavedHub, type Target } from './connection';
 import { type ApiResponse, ensureDaemon, notListening, request, restartDaemon, restartIfStale, socketPath, stopHostDaemon, stopStartingDaemon, unreachable } from './daemon';
 import { EventStream } from './events';
-import { hostSetupStatus, onMac, runHostSetup, runVMMigration, stopVM, vmMigration, type HostSetupOptions } from './hostsetup';
+import { grantKVM, hostSetupStatus, onMac, runHostSetup, runVMMigration, stopVM, vmMigration, type HostSetupOptions } from './hostsetup';
 import { handleMedia, registerMediaScheme } from './media';
 import { registerBrowserKeys } from './browserkeys';
 import { installPhoneWeb } from './phoneweb';
@@ -213,6 +213,10 @@ ipcMain.handle('hostsetup:run', async (_event, options?: Pick<HostSetupOptions, 
   const restarted = await restartDaemon().catch(() => false);
   return { restarted };
 });
+
+// On Linux, AgentBox's VM needs /dev/kvm: this gives it to the user, through
+// the desktop's password dialog, without a new login.
+ipcMain.handle('hostsetup:kvm', () => grantKVM((text) => send('hostsetup:output', text)));
 
 // Moving this Linux machine's own AgentBox into AgentBox's VM (`agentbox vm
 // migrate`), and removing its old machines afterwards: no password, like vm

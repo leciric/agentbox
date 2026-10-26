@@ -174,6 +174,7 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
   hostSetup: {
     status: () => Promise.resolve<HostSetupStatus>({ pkexec: null, user: '', running: false, resizing: false, vm: null, wsl: null }),
     run: unavailable('web.bridge.hostSetup'),
+    grantKVM: unavailable('web.bridge.hostSetup'),
     onOutput: () => () => {},
   },
   // A phone has no app to update.

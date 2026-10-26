@@ -50,6 +50,8 @@ flowchart LR
 
 ## Pages
 
+- [Installing AgentBox](install.md) — the install script and what it checks, KVM access, Lima on
+  a Mac.
 - [Architecture](architecture.md) — the daemon, the API over a unix socket, the CLI, the desktop
   thin client, and the `state.db` schema.
 - [An agent's lifecycle](agent-lifecycle.md) — `agentbox create` end to end: the Incus container,
