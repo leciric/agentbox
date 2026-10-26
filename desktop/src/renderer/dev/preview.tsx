@@ -118,7 +118,8 @@
 //                           project's model picker warns that Settings' model wins
 //   ?tunnel=hub             with ?settings=phone: chatting from a phone on, reached
 //                           from anywhere at the hub's stable address; the address
-//                           choice switches, as the daemon would (?tunnel=nohub: no hub)
+//                           choice switches, as the daemon would (?tunnel=nohub: no hub;
+//                           ?tunnel=tailscale: a hub on Tailscale, the address in its tailnet)
 //   ?topbar=detailed        the top bar's machine as the detailed strip
 //                           (Settings' "Detailed top bar") rather than the bubble
 //   ?conn=connecting|disconnected
@@ -1332,10 +1333,10 @@ function settingsBridge(): void {
   const answer = (value: unknown) => ({ status: 200, body: JSON.stringify(value), contentType: 'application/json' });
   let lan: T.LANStatus = { enabled: false, port: 7780, listening: false, urls: [], tunnel: { enabled: false, mode: 'quick', named: false, state: 'off', origin: 'http://localhost:7781' }, phones: [] };
   const phone = params.get('tunnel');
-  const hub = phone === 'hub' ? 'https://hub.agentbox.dev' : undefined;
+  const hub = phone === 'hub' || phone === 'tailscale' ? 'https://hub.agentbox.dev' : undefined;
   // What the tunnel runs on in each mode, once it's up.
   const tunnelURL: Record<string, string> = {
-    hub: 'https://3fa9c0e1d2b4a5968778695a.agentbox.dev/',
+    hub: phone === 'tailscale' ? 'https://agentbox-vps-3fa9c0.tail1234.ts.net/' : 'https://3fa9c0e1d2b4a5968778695a.agentbox.dev/',
     quick: 'https://quiet-river-1234.trycloudflare.com/',
     named: 'https://chat.example.com/',
   };
@@ -1346,8 +1347,9 @@ function settingsBridge(): void {
       ...lan.tunnel,
       mode,
       named: mode === 'named',
-      hostname: mode === 'quick' ? undefined : new URL(tunnelURL[mode]).hostname,
+      hostname: mode === 'quick' ? undefined : phone === 'tailscale' && mode === 'hub' ? 'agentbox-vps-3fa9c0' : new URL(tunnelURL[mode]).hostname,
       url: tunnelURL[mode],
+      ...(phone === 'tailscale' && mode === 'hub' ? { transport: 'tailscale', tailnet: 'example.com' } : { transport: undefined, tailnet: undefined }),
     },
   });
   if (phone) {

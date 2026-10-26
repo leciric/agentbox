@@ -117,6 +117,7 @@ func TestParseTailscaleStatus(t *testing.T) {
 func TestExplainTailscale(t *testing.T) {
 	for out, want := range map[string]string{
 		"Serve is not enabled on your tailnet.\nTo enable, visit:\n\n         https://login.tailscale.com/f/serve?node=nAbC\n": "turn on HTTPS certificates for the tailnet (MagicDNS too), then try again: https://login.tailscale.com/f/serve?node=nAbC",
+		"error enabling https feature: error 404 Not Found: 404 page not found:":                                               "turn on HTTPS certificates",
 		"backend error: invalid key: API key does not exist":                                                                   "refused the hub's auth key",
 		"backend error: requested tags [tag:agentbox] are invalid or not permitted":                                            "tagOwners",
 		"something\nwent wrong": "went wrong",

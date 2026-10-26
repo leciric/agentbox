@@ -50,6 +50,9 @@ type TailscaleConfig struct {
 	// another owner's is forgotten, so the node joins with AuthKey rather
 	// than staying in another tailnet. One tailscaled runs in it at a time.
 	StateDir, Owner string
+	// LoginServer is a control server other than Tailscale's, such as
+	// Headscale; "" is Tailscale's.
+	LoginServer string
 	// OnUp is called, from another goroutine, each time the node serves.
 	OnUp func(TailscaleNode)
 }
@@ -290,6 +293,9 @@ func tailscaledExit(err error, last string) error {
 // the same whatever an earlier one set.
 func (t *Tailscale) up(ctx context.Context, dir string) error {
 	args := []string{"up", "--reset", "--hostname=" + t.cfg.Hostname, "--accept-dns=false", "--timeout=" + tailscaleUp.String()}
+	if t.cfg.LoginServer != "" {
+		args = append(args, "--login-server="+t.cfg.LoginServer)
+	}
 	if t.cfg.AuthKey != "" {
 		keyFile := filepath.Join(t.cfg.StateDir, "authkey")
 		if err := os.WriteFile(keyFile, []byte(t.cfg.AuthKey), 0o600); err != nil {
@@ -399,6 +405,8 @@ func explainTailscale(out []byte, err error) string {
 	}
 	lower := strings.ToLower(text)
 	switch {
+	case strings.Contains(lower, "enabling https feature") || strings.Contains(lower, "https is not enabled") || strings.Contains(lower, "serve is not enabled"):
+		return "turn on HTTPS certificates for the tailnet (MagicDNS too), then try again (" + lastLine(text) + ")"
 	case strings.Contains(lower, "invalid key") || strings.Contains(lower, "key expired") || strings.Contains(lower, "not valid"):
 		return "the tailnet refused the hub's auth key (" + lastLine(text) + "): check the key or OAuth client the hub runs with"
 	case strings.Contains(lower, "requested tags") && strings.Contains(lower, "invalid or not permitted"):
