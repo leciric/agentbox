@@ -297,7 +297,9 @@ func TestBuildFallsBackWhenAPartIsMissingOrTruncated(t *testing.T) {
 	for name, edit := range map[string]func(map[string][]byte){
 		"missing":   func(files map[string][]byte) { delete(files, zstdName+".001") },
 		"truncated": func(files map[string][]byte) { files[zstdName+".001"] = files[zstdName+".001"][:5] },
-		"longer":    func(files map[string][]byte) { files[zstdName+".001"] = append(slices.Clone(files[zstdName+".001"]), '!') },
+		"longer": func(files map[string][]byte) {
+			files[zstdName+".001"] = append(slices.Clone(files[zstdName+".001"]), '!')
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			p := publish(t, specs(image.PublishedTools()), edit)
