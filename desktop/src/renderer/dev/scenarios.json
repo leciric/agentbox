@@ -1343,6 +1343,20 @@
     "height": 1500
   },
   {
+    "id": "chat-rich-app-dark",
+    "description": "The project's chat with every kind of rich block, beside its panel — dark",
+    "query": "app=project&v2=1&thread=rich&theme=dark",
+    "width": 1600,
+    "height": 1000
+  },
+  {
+    "id": "chat-rich-app-light",
+    "description": "The project's chat with every kind of rich block, beside its panel — light",
+    "query": "app=project&v2=1&thread=rich&theme=light",
+    "width": 1600,
+    "height": 1000
+  },
+  {
     "id": "chat-rich-wide-files-dark",
     "description": "The same with a 340px Files panel open — dark",
     "query": "chat=rich&wide=1&files=1&theme=dark",

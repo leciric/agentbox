@@ -176,6 +176,7 @@
 //   &hidden=a,b             with &v2=1, those projects hidden from the sidebar
 //   &idle=12                with &v2=1, that many more projects with nothing going on, for Idle
 //   &signedout=1            Claude Code with no login: the composer's banner, and Send's tooltip
+//   &thread=rich            with ?app=project, the project's chat is ?chat=rich's
 //   &v2=1                   with ?app=, UI v2, the lead-first layout (Settings → General
 //                           → Layout): leads with their last lines
 //                           and agents folded under them, filters, and the
@@ -274,6 +275,7 @@ import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
 import { Markdown } from '../components/chat/Markdown';
 import { agent12Chat, asleepChat, buildFixtures, claudeLimits, dropDevAgent, compactionThread, richChat, richStreamText, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedSignedOut, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
+import { restoreMode } from '../lib/theme';
 import { seedPastAgents } from './pastAgents';
 import { openPanelOn, pickTarget, setPanel, setPanelOpen, setView, type PanelView } from '../lib/rightPanel';
 import type { ProjectSection } from '../lib/tabs';
@@ -294,7 +296,10 @@ import { setTourState, tours, welcomeTour } from '../lib/tours';
 installDevBridge();
 
 const params = new URLSearchParams(location.search);
-document.documentElement.dataset.appearance = params.get('theme') === 'light' ? 'light' : '';
+// Through lib/theme, as the app turns over, so what draws in JavaScript (a
+// chat's diagrams and framed pages, the terminal) is light too, not only CSS.
+localStorage.setItem('agentbox.appearance', params.get('theme') === 'light' ? 'light' : 'dark');
+restoreMode();
 applyLanguage(params.get('lang'));
 localStorage.setItem('agentbox.rail.folded', params.get('folded') === '1' ? '1' : '0');
 localStorage.setItem('agentbox.rail.finished', params.get('finished') === '1' ? '1' : '0');
@@ -1331,6 +1336,8 @@ if (phoneMode === 'frame') {
   );
 } else if (appView) {
   const { App } = await import('../App');
+  // Last, over the chat any scenario above seeded.
+  if (params.get('thread') === 'rich') queryClient.setQueryData(['chat', `${PROJECT}/lead`], richChat());
   const initial: View =
     appView === 'home' ? { kind: 'home' }
     : appView === 'today' ? { kind: 'today', project: PROJECT }

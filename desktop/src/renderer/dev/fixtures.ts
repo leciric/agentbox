@@ -8,7 +8,9 @@ import type { QueryClient } from '@tanstack/react-query';
 import type { HostSetupStatus, VMMigration, VMPower, VMPowerAction, VMPowerState } from '../../preload';
 import type * as T from '../../shared/api';
 import type { FreeRun } from '../components/ResourceControls';
+import { renderPolicy } from '../../shared/renderPolicy.ts';
 import { freeTargets } from '../lib/freeResources';
+import { injectHead } from '../lib/rich';
 import { inScope, type MediaScope } from '../lib/mediaPages';
 import { pagePageUrl, pageRequest, pageThumbUrl } from './pages';
 import { pastRequest } from './pastAgents';
@@ -112,7 +114,9 @@ function agent(overrides: Partial<T.Agent> & { ref: string }): T.Agent {
 
 // richChat is a project chat whose answer draws each kind of rich block
 // (lib/rich.ts): a sequence diagram and a pie chart from mermaid, an SVG,
-// a page run in its frame, and a plain ```html block that stays code.
+// a page run in its frame, and a plain ```html block that stays code; then a
+// chart drawn in the theme's properties, and a page that reaches for the
+// network it doesn't have.
 export function richChat(): T.ChatThread {
   const at = (ago: number) => new Date(Date.now() - ago).toISOString();
   const fence = '```';
@@ -185,6 +189,35 @@ export function richChat(): T.ChatThread {
     '<a href="https://example.com/a/very/long/unbroken/path/that/should/scroll/inside/its/block/and/never/widen/the/column">link</a>',
     fence,
   ].join('\n');
+  const bars = [['Opus', 62], ['Sonnet', 27], ['Haiku', 11], ['Cursor', 19]] as const;
+  const themedText = [
+    'Tokens by model this week, in the app’s colours (they follow light and dark):',
+    '',
+    `${fence}html preview`,
+    '<!doctype html><html><head><title>Tokens by model</title><style>',
+    'h3{margin:0 0 4px;font-size:15px}p{margin:0 0 12px;color:var(--muted-foreground)}',
+    '.chart{display:flex;align-items:flex-end;gap:18px;height:140px;padding:8px 12px 0;border-bottom:1px solid var(--border)}',
+    '.col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:4px;height:100%;font-size:12px}',
+    '.bar{width:100%;max-width:56px;border-radius:var(--radius) var(--radius) 0 0}',
+    '.names{display:flex;gap:18px;padding:6px 12px 0}.names span{flex:1;text-align:center;color:var(--muted-foreground);font-size:12px}',
+    '</style></head><body>',
+    '<h3>Tokens by model</h3><p>Millions, Monday to Sunday · <a href="https://github.com/leciric/agentbox">source</a></p>',
+    '<div class="chart">',
+    ...bars.map(([, v], i) => `<div class="col"><span>${v}</span><div class="bar" style="height:${v * 1.6}px;background:var(--chart-${i + 1})"></div></div>`),
+    '</div><div class="names">',
+    ...bars.map(([name]) => `<span>${name}</span>`),
+    '</div></body></html>',
+    fence,
+    '',
+    'The same, drawn with Chart.js from a CDN:',
+    '',
+    `${fence}html preview`,
+    '<!doctype html><html><head><script src="https://cdn.jsdelivr.net/npm/chart.js"></script></head><body>',
+    '<canvas id="c" height="120"></canvas>',
+    `<script>new Chart(document.getElementById('c'), { type: 'bar', data: { labels: ${JSON.stringify(bars.map(([n]) => n))}, datasets: [{ data: ${JSON.stringify(bars.map(([, v]) => v))} }] } })</script>`,
+    '</body></html>',
+    fence,
+  ].join('\n');
   return {
     agent: `${PROJECT}/lead`,
     seq: 1,
@@ -192,6 +225,8 @@ export function richChat(): T.ChatThread {
     items: [
       { id: 'u1', turn: 'u1', kind: 'user', text: 'Show me how chat items reach the app, and how the agents are doing.', createdAt: at(60_000), updatedAt: at(60_000) },
       { id: 'a1', turn: 'u1', kind: 'assistant', text, createdAt: at(50_000), updatedAt: at(50_000) },
+      { id: 'u2', turn: 'u2', kind: 'user', text: 'Chart the week’s tokens in the app’s colours.', createdAt: at(40_000), updatedAt: at(40_000) },
+      { id: 'a2', turn: 'u2', kind: 'assistant', text: themedText, createdAt: at(30_000), updatedAt: at(30_000) },
     ],
   };
 }
@@ -1930,7 +1965,13 @@ export function installDevBridge(): void {
     chatImageUrl: (path: string) => pagePageUrl(path) ?? '',
     pageThumb: (path: string) => pageThumbUrl(path),
     // No render host here: a chat's page is its frame's srcdoc (RichBlock).
-    renderUrl: async () => null,
+    // A page as main/renders.ts serves it: its own opaque origin and policy,
+    // here a blob with the policy in a <meta> (where sandbox can't go; the
+    // frame's own attribute sandboxes it).
+    renderUrl: async (html: string, network: boolean) => {
+      const policy = renderPolicy(network).replace(/; sandbox [^;]*$/, '');
+      return URL.createObjectURL(new Blob([injectHead(html, `<meta http-equiv="Content-Security-Policy" content="${policy}">`)], { type: 'text/html' }));
+    },
     report: { sections: async () => [], windowError: () => {}, onAppError: () => () => {}, openLogs: async () => '' },
     pickDirectory: async () => null,
     setLanguage: () => {},
