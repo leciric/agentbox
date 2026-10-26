@@ -305,3 +305,35 @@ test('the lead’s panel switches between Agents and Files, remembered per proje
   P.openPanelOn(lead, 'desktop', 'pawly/agent-3');
   assert.equal(P.leadTab(P.panelState(), 'pawly'), 'agents');
 });
+
+test('a rich block opened beside the chat goes over what the panel showed until ✕ or back, and isn’t remembered', () => {
+  P.setPanel({ chats: {}, views: {}, last: {}, listFolded: true });
+  const lead = 'pawly/lead';
+  const chat = 'pawly/agent-2';
+  P.openPanelOn(lead, 'desktop', 'pawly/agent-3');
+  const preview = { kind: 'html' as const, code: '<p>hi</p>', network: false };
+  P.openPreview(lead, preview);
+  assert.deepEqual(P.chatPanel(P.panelState(), lead).preview, preview);
+  assert.equal(P.chatPanel(P.panelState(), lead).open, true);
+  assert.equal(P.onList(P.panelState(), lead), false);
+  assert.equal(JSON.parse(store.get('agentbox.ui.v2.panel') ?? '{}').chats[lead].preview, undefined);
+  P.panelClose(lead);
+  assert.equal(P.chatPanel(P.panelState(), lead).preview, undefined);
+  assert.equal(P.panelTarget(P.panelState(), lead), 'pawly/agent-3');
+  // Over a project's own view, back is to what was under both; picking a view leaves it too.
+  P.openPanelOn(lead, 'settings');
+  P.openPreview(lead, preview);
+  assert.equal(P.chatPanel(P.panelState(), lead).wide, undefined);
+  P.panelBack(lead);
+  assert.equal(P.chatPanel(P.panelState(), lead).preview, undefined);
+  assert.equal(P.panelTarget(P.panelState(), lead), 'pawly/agent-3');
+  P.openPreview(chat, preview);
+  P.setView(chat, chat, 'terminal');
+  assert.equal(P.chatPanel(P.panelState(), chat).preview, undefined);
+  // On a folded list, the panel button closes the block rather than unfolding.
+  P.setFitsBeside(true);
+  P.openPreview(chat, preview);
+  P.panelToggle(chat);
+  assert.equal(P.chatPanel(P.panelState(), chat).preview, undefined);
+  assert.equal(P.panelState().listFolded, true);
+});

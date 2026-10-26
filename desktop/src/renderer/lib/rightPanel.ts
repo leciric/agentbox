@@ -14,6 +14,7 @@
 import { useSyncExternalStore } from 'react';
 import type * as T from '../../shared/api.ts';
 import { isLeadRef } from './pages.ts';
+import type { RichKind } from './rich.ts';
 import type { ProjectSection } from './tabs.ts';
 
 export type PanelView = 'desktop' | 'terminal' | 'files' | 'evidence' | 'browser' | 'timeline' | 'pulls' | 'schedules' | 'settings';
@@ -141,6 +142,16 @@ export interface ChatPanel {
   target?: string;
   wide?: WideView;
   focus?: string;
+  preview?: RichPreview;
+}
+
+// RichPreview is a chat's rich block (lib/rich.ts) opened beside it, over
+// whatever the panel showed until its ✕ or back arrow: for this session
+// only, like wide and focus.
+export interface RichPreview {
+  kind: RichKind;
+  code: string;
+  network: boolean;
 }
 const closedPanel: ChatPanel = { open: false };
 
@@ -240,8 +251,8 @@ export const viewOf = (state: PanelState, w: Whose): PanelView => {
   return v && hasView(w, v) ? v : defaultView(w);
 };
 
-// bare is a chat's panel without the project's own view or the item Evidence
-// was opened on: what picking whose, or a view, leaves of it.
+// bare is a chat's panel without the project's own view, the item Evidence
+// was opened on, or a rich block: what picking whose, or a view, leaves of it.
 const bare = ({ open, target }: ChatPanel): ChatPanel => ({ open, ...(target ? { target } : {}) });
 
 function update(chat: string, change: (p: ChatPanel) => ChatPanel, more: Partial<PanelState> = {}): void {
@@ -281,16 +292,17 @@ export function setView(chat: string, ref: string, view: PanelView, focus?: stri
 // it went over, else to the list.
 export function panelBack(chat: string): void {
   const state = panelState();
-  if (chatPanel(state, chat).wide) return update(chat, bare);
+  if (chatPanel(state, chat).wide || chatPanel(state, chat).preview) return update(chat, bare);
   if (isLeadRef(chat)) update(chat, bare, { last: { ...state.last, [projectOf(chat)]: listTarget } });
   else update(chat, (p) => ({ ...bare(p), target: listTarget }));
 }
 
 // panelClose is the panel's ✕, there only while it shows something besides
 // its list (the repository, an agent, Pull requests or Settings): back to the
-// list, as it was before.
+// list, as it was before; from a rich block, back to what it went over.
 export function panelClose(chat: string): void {
   const state = panelState();
+  if (chatPanel(state, chat).preview) return update(chat, bare);
   if (isLeadRef(chat)) update(chat, bare, { last: { ...state.last, [projectOf(chat)]: listTarget } });
   else update(chat, (p) => ({ ...bare(p), target: listTarget }));
 }
@@ -308,7 +320,12 @@ export function setLeadTab(project: string, tab: LeadTab): void {
 }
 
 // onList is whether chat's panel shows its list.
-export const onList = (state: PanelState, chat: string) => !panelTarget(state, chat) && !chatPanel(state, chat).wide;
+export const onList = (state: PanelState, chat: string) => !panelTarget(state, chat) && !chatPanel(state, chat).wide && !chatPanel(state, chat).preview;
+
+// openPreview opens a chat's rich block beside it, in its panel.
+export function openPreview(chat: string, preview: RichPreview): void {
+  update(chat, (p) => ({ ...bare(p), open: true, preview }));
+}
 
 // panelToggle is the header's panel button and ⌘D. Beside the chat it folds
 // the list to its strip and back, from whatever the panel shows by way of the
