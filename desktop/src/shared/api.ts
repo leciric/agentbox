@@ -1466,6 +1466,12 @@ export interface BrowserProfile {
 
 export interface BrowserProfiles {
   profiles: BrowserProfile[];
+  unreadable?: UnreadableBrowser[];
+}
+
+export interface UnreadableBrowser {
+  browser: string;
+  browserName: string;
 }
 
 export interface ImportFromBrowserRequest {

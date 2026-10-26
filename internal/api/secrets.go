@@ -93,6 +93,15 @@ type BrowserProfile struct {
 // BrowserProfiles is the browsers found installed on the host.
 type BrowserProfiles struct {
 	Profiles []BrowserProfile `json:"profiles"`
+	// Unreadable are browsers installed on Windows whose cookies only the
+	// browser itself can open (Chrome, Edge, Brave): the user exports instead.
+	Unreadable []UnreadableBrowser `json:"unreadable,omitempty"`
+}
+
+// UnreadableBrowser is an installed browser AgentBox can't import from.
+type UnreadableBrowser struct {
+	Browser     string `json:"browser"`
+	BrowserName string `json:"browserName"`
 }
 
 // ImportFromBrowserRequest imports every cookie of one installed browser

@@ -34,7 +34,7 @@ var tsTypes = []any{
 	Secret{}, SetSecretRequest{}, SecretSettingsRequest{},
 	Skill{}, SkillFile{}, SkillDetail{}, SaveSkillRequest{}, UpdateSkillRequest{}, SkillOverrideRequest{}, ScanSkillsRequest{}, SkillCandidate{}, ImportSkillsRequest{},
 	BrowserCookies{}, BrowserCookiesPreviewRequest{}, BrowserCookiesPreview{}, CookieDomain{}, ImportBrowserCookiesRequest{},
-	BrowserProfile{}, BrowserProfiles{}, ImportFromBrowserRequest{},
+	BrowserProfile{}, BrowserProfiles{}, UnreadableBrowser{}, ImportFromBrowserRequest{},
 	SnapRequest{}, Snap{}, SnapSendRequest{},
 	Connector{}, SetConnectorRequest{}, ConnectorOverrideRequest{}, ConnectResult{}, SelfConnector{}, ConnectorRequest{},
 	ScanConnectorsRequest{}, ConnectorScan{}, ConnectorUnreadable{}, ConnectorCandidate{}, ConnectorSource{}, ImportConnectorsRequest{}, ImportConnector{}, ImportConnectorsResult{}, ImportConnectorFailure{},
