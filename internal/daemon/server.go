@@ -232,9 +232,12 @@ type Server struct {
 	// archivedPRChecked is when each past agent's open pull request was last
 	// read from GitHub, by ref (archive.go).
 	archivedPRChecked map[string]time.Time
-	nudged            map[string]bool         // agents told to wait on their work inside a turn, until a turn ends otherwise, by ref (outcome.go)
-	outcomes          map[string]agentOutcome // how each agent's last turn left it, by ref (outcome.go)
-	outcomesRead      map[string]bool         // projects whose outcomes have been read from their events since the daemon started
+	// pastChanges is what past agents' kept branches changed, by where they
+	// were measured (work.go).
+	pastChanges  map[pastChangesKey]*api.AgentChanges
+	nudged       map[string]bool         // agents told to wait on their work inside a turn, until a turn ends otherwise, by ref (outcome.go)
+	outcomes     map[string]agentOutcome // how each agent's last turn left it, by ref (outcome.go)
+	outcomesRead map[string]bool         // projects whose outcomes have been read from their events since the daemon started
 	// skillsMu runs one installation of skills at a time (skills.go).
 	skillsMu sync.Mutex
 	// skillsSynced, when set (tests), is told each time one has ended.

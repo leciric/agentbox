@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 
+	"golang.org/x/sync/errgroup"
+
 	"agentbox/internal/api"
 	"agentbox/internal/gitrepo"
 	"agentbox/internal/state"
@@ -120,10 +122,24 @@ func (s *Server) writeWork(w http.ResponseWriter, r *http.Request, projects []st
 		page.Next = fmt.Sprintf("%d:%s", key(last), last.item.Item.Ref)
 		kept = kept[:limit]
 	}
-	// What costs a query or a git process each is read for the page only.
+	// What costs a query or a git process each is read for the page only,
+	// a few at once, against each repository's branches read once.
+	tips := map[string]map[string]string{}
 	for _, e := range kept {
-		page.Items = append(page.Items, s.filledWork(ctx, e))
+		if _, ok := tips[e.root]; e.past != nil && !ok {
+			tips[e.root], _ = worktreefs.BranchTips(e.root)
+		}
 	}
+	page.Items = make([]api.WorkItem, len(kept))
+	var g errgroup.Group
+	g.SetLimit(changesConcurrency)
+	for i, e := range kept {
+		g.Go(func() error {
+			page.Items[i] = s.filledWork(ctx, e, tips[e.root])
+			return nil
+		})
+	}
+	_ = g.Wait()
 	return writeJSON(w, http.StatusOK, page)
 }
 
@@ -203,7 +219,7 @@ func (s *Server) projectWorkEntries(ctx context.Context, p state.Project) ([]wor
 	if err != nil {
 		return nil, err
 	}
-	past = s.refreshArchivedPRs(ctx, past)
+	go s.refreshPastPRs(p.Name, slices.Clone(past))
 	for i := range past {
 		a := &past[i]
 		item := api.WorkItem{
@@ -222,9 +238,27 @@ func (s *Server) projectWorkEntries(ctx context.Context, p state.Project) ([]wor
 	return out, nil
 }
 
+// refreshPastPRs re-reads from GitHub the pull requests of p's past agents
+// that were open, behind the page that listed them: waiting for it held the
+// page half a second for each project, every few minutes. When one moved, the
+// app is told as for any pull request's, and reads the page again.
+func (s *Server) refreshPastPRs(project string, past []state.ArchivedAgent) {
+	before := make([]state.ArchivedPR, len(past))
+	for i, a := range past {
+		before[i] = a.PR
+	}
+	for i, a := range s.refreshArchivedPRs(s.background(), past) {
+		if a.PR != before[i] {
+			s.events.publish(api.EventPulls, api.PullsChange{Project: project})
+			return
+		}
+	}
+}
+
 // filledWork is e with its report, its media and, for a past agent, what its
-// kept branch changed.
-func (s *Server) filledWork(ctx context.Context, e workEntry) api.WorkItem {
+// kept branch changed. tips is its repository's branches (BranchTips), nil
+// when they couldn't be read.
+func (s *Server) filledWork(ctx context.Context, e workEntry, tips map[string]string) api.WorkItem {
 	item := e.item
 	i := item.Item
 	if reports, err := s.memory().Reports(ctx, i.Project, i.Agent); err == nil && len(reports) > 0 {
@@ -245,14 +279,52 @@ func (s *Server) filledWork(ctx context.Context, e workEntry) api.WorkItem {
 		}
 	}
 	if e.past != nil && item.Item.Changes == nil {
-		if commit, base, err := archivedRange(e.root, *e.past); err == nil && base != "" {
-			if stat, err := gitrepo.DiffCommits(e.root, base, commit, true); err == nil {
-				c := statOf(stat)
-				item.Item.Changes = &c
-			}
-		}
+		item.Item.Changes = s.pastChangesOf(e.root, *e.past, tips)
 	}
 	return item
+}
+
+// pastChangesKey is what a past agent's changes are measured from: its kept
+// branch's commit and where it started. While the branch stays put, so does
+// what it changed.
+type pastChangesKey struct{ root, commit, baseCommit, baseRef string }
+
+// pastChangesOf is what a past agent's kept branch changed, nil when that
+// can't be told, from tips (or git, when tips is nil). It is measured once
+// per commit the branch is at: a git diff for every past agent on a page, on
+// every read of it, was most of what the Work page waited for, from 3 ms to
+// a second each.
+func (s *Server) pastChangesOf(root string, a state.ArchivedAgent, tips map[string]string) *api.AgentChanges {
+	commit := tips[a.Branch]
+	if tips == nil {
+		commit, _ = worktreefs.BranchCommit(root, a.Branch)
+	}
+	if commit == "" || a.Branch == "" || strings.HasPrefix(a.Branch, "-") {
+		return nil
+	}
+	key := pastChangesKey{root, commit, a.BaseCommit, a.BaseRef}
+	s.mu.Lock()
+	c, ok := s.pastChanges[key]
+	s.mu.Unlock()
+	if ok {
+		return c
+	}
+	base := worktreefs.BaseAt(root, a.BaseCommit, a.BaseRef, commit)
+	if base == "" {
+		return nil
+	}
+	stat, err := gitrepo.DiffCommits(root, base, commit, true)
+	if err != nil {
+		return nil // not kept: the next read tries again
+	}
+	measured := statOf(stat)
+	s.mu.Lock()
+	if s.pastChanges == nil {
+		s.pastChanges = map[pastChangesKey]*api.AgentChanges{}
+	}
+	s.pastChanges[key] = &measured
+	s.mu.Unlock()
+	return &measured
 }
 
 // archivedRange is where a past agent's kept branch is, and what it is
