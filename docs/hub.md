@@ -97,4 +97,74 @@ made with a password any more, and `--open-signup` does nothing.
 ## Phones
 
 An environment's phones pair with it directly, not through the hub: see [Chatting from your phone](phone.md). A
-hub with a Cloudflare zone gives each environment a stable address for them.
+hub with a Cloudflare zone gives each environment a stable address for them, on the internet. A hub
+on Tailscale puts each environment in your tailnet instead, where only your own devices reach it.
+
+## Tailscale instead of Cloudflare
+
+```bash
+AGENTBOX_HUB_TAILSCALE_AUTHKEY=tskey-auth-… npx agentbox-hub --transport tailscale --tailscale-tailnet example.com
+```
+
+With `--transport tailscale` (or `AGENTBOX_HUB_TRANSPORT=tailscale`), each environment that asks
+for its phones' address gets a key into your [tailnet](https://tailscale.com/kb/1136/tailnet)
+instead of a Cloudflare Tunnel. Its AgentBox joins the tailnet as a machine of its own, named
+`agentbox-<name>-<id>`, serves its phone page there with `tailscale serve`, and tells the hub its
+address, like `https://agentbox-vps-3fa9c0.tail1234.ts.net/`. Nothing is on the internet: only
+devices signed in to your tailnet reach it, and the hub sees none of that traffic. Pairing works
+exactly as with Cloudflare: a QR code from the environment, which the hub can't make.
+
+The environment runs Tailscale itself, downloaded the first time (checked against its published
+checksum), in userspace mode, next to AgentBox: it needs no root, adds no network interface, and
+leaves a Tailscale you run yourself on that machine alone. A device not on the tailnet can't open
+the address; the phone app says so and asks you to turn Tailscale on.
+
+### Set up the tailnet
+
+In Tailscale's admin console:
+
+1. **DNS**: turn on **MagicDNS** and **HTTPS Certificates**. The environment's address is its
+   MagicDNS name, with a certificate from Let's Encrypt; that name is published in public
+   certificate logs, like any certificate's.
+2. **Access controls**: add a tag for environments, and let your devices reach it on port 443:
+
+   ```json
+   {
+     "tagOwners": {
+       "tag:agentbox": ["autogroup:admin"]
+     },
+     "grants": [
+       { "src": ["autogroup:member"], "dst": ["tag:agentbox"], "ip": ["tcp:443"] }
+     ]
+   }
+   ```
+
+   Merge these into the policy you have. With only this grant, environments can't reach your
+   devices or each other. A tailnet still on the default allow-all policy lets everything through;
+   the tag is needed either way.
+
+3. Give the hub a way to add environments, one of:
+   - **An auth key** (Settings → Keys → Generate auth key): **Reusable**, **Pre-approved**, and
+     **Tags** `tag:agentbox`. Put it in `AGENTBOX_HUB_TAILSCALE_AUTHKEY`, or in a file named by
+     `AGENTBOX_HUB_TAILSCALE_AUTHKEY_FILE`. Every environment gets this key. Keys expire (90 days
+     at most): when it does, make another and restart the hub. Environments already in the tailnet
+     stay, since a tagged machine's own key doesn't expire.
+   - **An OAuth client** (Settings → OAuth clients): scopes **Auth Keys** (write) and **Devices →
+     Core** (write), with the tag `tag:agentbox`. Give the hub its ID, `--tailscale-oauth-client`
+     or `AGENTBOX_HUB_TAILSCALE_OAUTH_CLIENT`, and its secret in
+     `AGENTBOX_HUB_TAILSCALE_OAUTH_SECRET` (or `…_SECRET_FILE`). The hub makes each environment a
+     key of its own that works once, within an hour, and removes an environment's machine from the
+     tailnet when you delete the environment, or after 60 days unseen.
+
+Keys and secrets are read from the environment or a file, never from a flag, and never logged.
+`--tailscale-tailnet` (or `AGENTBOX_HUB_TAILSCALE_TAILNET`) is the tailnet's name from Settings →
+General, `-` (the key's own) by default. `--tailscale-tag` uses another tag than `tag:agentbox`.
+
+### On your devices
+
+Install Tailscale on the phone (or the other computer) and sign in to the same tailnet. Pair as
+usual: **Settings → Phone** on the environment shows the tailnet address in its QR code.
+
+A hub moved from Cloudflare to Tailscale replaces each environment's tunnel the next time it asks,
+and removes the old tunnel from Cloudflare if you leave it its zone and token. Moved back, it makes
+them tunnels again. Phones pair again after either move: the address changed.
