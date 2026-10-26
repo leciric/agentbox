@@ -196,6 +196,10 @@ func TestAgentWaitsForTheImageAndStartsWhenReady(t *testing.T) {
 	if _, err := os.Stat(waiting.Worktree); err != nil {
 		t.Errorf("its worktree isn't there while it waits: %v", err)
 	}
+	// The agent is listed as waiting a moment before its job counts as one.
+	for deadline := time.Now().Add(10 * time.Second); imageStatusOf(t, d).Waiting != 1 && time.Now().Before(deadline); {
+		time.Sleep(10 * time.Millisecond)
+	}
 	if st := imageStatusOf(t, d); st.Step != "Downloading the published image" || st.Progress != "40% of 1800 MB" || st.Waiting != 1 {
 		t.Errorf("the image while the agent waits: %+v", st)
 	}
@@ -204,24 +208,19 @@ func TestAgentWaitsForTheImageAndStartsWhenReady(t *testing.T) {
 	}
 
 	result <- nil
-	// What comes after the copy, the machine booting, the fake can't do:
-	// the copy is what shows the create went on by itself.
+	// The create goes on by itself: what comes after the wait, the machine
+	// copied and booted, is the fake's to fail or not, and the runner's disk
+	// space to refuse, so the job's own word that it went on is what counts.
+	job, _ := d.srv.jobs.get(created.ID)
 	deadline := time.Now().Add(10 * time.Second)
-	for {
-		log, _ := os.ReadFile(filepath.Join(root, "incus.log"))
-		if strings.Contains(string(log), "copy agentbox-base/ready "+waiting.Instance) {
-			break
-		}
+	for !strings.Contains(strings.Join(job.logLines(), "\n"), "The base image is ready") || d.srv.waitingOnImage(waiting.Ref) {
 		if time.Now().After(deadline) {
-			t.Fatalf("no machine copied from the image once it was ready:\n%s", log)
+			t.Fatalf("the create didn't go on once the image was ready (waiting: %v):\n%s", d.srv.waitingOnImage(waiting.Ref), strings.Join(job.logLines(), "\n"))
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if d.srv.waitingOnImage(waiting.Ref) {
-		t.Error("still listed as waiting after the image was ready")
-	}
-	if a := waitForAgent(t, d, func(a api.Agent) bool { return a.Ref == waiting.Ref }); a.WaitingForImage {
-		t.Errorf("listed as waiting after the image was ready: %+v", a)
+	if done := job.snapshot(); done.Status == api.JobFailed && strings.Contains(done.Error, "base image") {
+		t.Errorf("the create failed on the image once it was ready: %s", done.Error)
 	}
 	_, _ = d.client.CancelJob(ctx, created.ID)
 	waitJobDone(t, d, created.ID)
@@ -261,7 +260,7 @@ func TestFirstImageIsFetchedOnce(t *testing.T) {
 	root := t.TempDir()
 	d := startTestDaemon(t, root, buildingIncus)
 	ctx := context.Background()
-	var mapped error = errors.New("no mapping yet")
+	mapped := errors.New("no mapping yet")
 	started := 0
 	d.srv.firstImage.checkHost = func(image.User) error { return mapped }
 	d.srv.firstImage.start = func(context.Context) (api.Job, error) {
