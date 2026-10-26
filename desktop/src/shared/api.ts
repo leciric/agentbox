@@ -27,6 +27,8 @@ export interface Project {
   agentPRs: boolean;
   prWatch: string;
   syncBase: boolean;
+  fullTestSuite: boolean;
+  pickUpIssues: boolean;
   prWatching: boolean;
   createdAt: string;
   iconVersion: number;
@@ -86,6 +88,8 @@ export interface UpdateProjectRequest {
   agentPRs?: boolean;
   prWatch?: string;
   syncBase?: boolean;
+  fullTestSuite?: boolean;
+  pickUpIssues?: boolean;
 }
 
 export interface Section {
@@ -148,13 +152,17 @@ export interface Settings {
   resumeAfterLimit: boolean;
   continueAfterRestart: boolean;
   creditAITool: boolean;
+  builtWithBadge: boolean;
+  builtWithBadgeOffer: boolean;
   claudeCompactWindow: number;
   updateCheck: boolean;
   usageStats: boolean;
   agentGPU: boolean;
+  blockFullSuite: boolean;
   vmGPU: VMGPU;
   errorReports: boolean;
   prWatch: boolean;
+  agentFreeze: boolean;
   mediaRetention: string;
   language: string;
   timezone: string;
@@ -162,10 +170,17 @@ export interface Settings {
   diskFloorMin: number;
   diskFloorPercent: number;
   autoStopIdle: boolean;
+  removeStopped: boolean;
+  removeStoppedDays: number;
   dockerPruneOnStop: boolean;
   idleTimeSeconds: number;
+  idleReclaim: boolean;
+  idleFreezeSeconds: number;
+  idleStopSeconds: number;
   leadRecheck: boolean;
   leadRecheckMinutes: number;
+  leadSleep: boolean;
+  leadSleepMinutes: number;
   imageCache: boolean;
   imageCacheMaxBytes: number;
   defaultImageCacheMaxBytes: number;
@@ -174,6 +189,7 @@ export interface Settings {
   packageCacheMaxBytes: number;
   defaultPackageCacheMaxBytes: number;
   packageCacheBytes: number;
+  localNodeModules: boolean;
   claudeCodeUpdate: ToolAutoUpdate;
 }
 
@@ -200,21 +216,32 @@ export interface UpdateSettingsRequest {
   resumeAfterLimit?: boolean;
   continueAfterRestart?: boolean;
   creditAITool?: boolean;
+  builtWithBadge?: boolean;
+  dismissBuiltWithBadgeOffer?: boolean;
   claudeCompactWindow?: number;
   updateCheck?: boolean;
   updateChannel?: string;
   usageStats?: boolean;
   agentGPU?: boolean;
+  blockFullSuite?: boolean;
   errorReports?: boolean;
   prWatch?: boolean;
+  agentFreeze?: boolean;
   mediaRetention?: string;
   language?: string;
   timezone?: string;
   autoStopIdle?: boolean;
+  removeStopped?: boolean;
+  removeStoppedDays?: number;
   dockerPruneOnStop?: boolean;
   idleTimeSeconds?: number;
+  idleReclaim?: boolean;
+  idleFreezeSeconds?: number;
+  idleStopSeconds?: number;
   leadRecheck?: boolean;
   leadRecheckMinutes?: number;
+  leadSleep?: boolean;
+  leadSleepMinutes?: number;
   diskFloorMin?: number;
   diskFloorPercent?: number;
   imageCache?: boolean;
@@ -223,6 +250,7 @@ export interface UpdateSettingsRequest {
   packageCache?: boolean;
   packageCacheMaxBytes?: number;
   clearPackageCache?: boolean;
+  localNodeModules?: boolean;
   claudeCodeAutoUpdate?: boolean;
   checkClaudeCode?: boolean;
 }
@@ -255,6 +283,7 @@ export interface Agent {
   changesRequested?: string;
   state: string;
   memory?: MemoryHold;
+  reclaimed?: string;
   ip: string;
   createdAt: string;
 }
@@ -340,6 +369,7 @@ export interface ContinueArchivedRequest {
 
 export interface CreateAgentRequest {
   task?: string;
+  issue?: number;
   project: string;
   name?: string;
   title?: string;
@@ -478,12 +508,15 @@ export interface StopAgentFailure {
 export interface MemoryHold {
   paused?: number;
   waiting?: number;
+  machine?: string;
+  ahead?: number;
   since: string;
   why?: string;
   stalled?: number;
   rate?: number;
   available?: number;
   total?: number;
+  swapFull?: boolean;
 }
 
 export interface PressureStatus {
@@ -511,6 +544,8 @@ export interface Job {
   result?: unknown;
   createdAt: string;
   finishedAt?: string;
+  ai?: string;
+  notice?: string;
 }
 
 export interface HostUsage {
@@ -571,6 +606,32 @@ export interface AgentDisk {
   measuredAt: string;
 }
 
+export interface StoppedMachine {
+  ref: string;
+  project: string;
+  name: string;
+  title?: string;
+  branch: string;
+  stoppedSince: string;
+  machine?: number;
+  remove?: string;
+  keep?: string;
+}
+
+export interface StoppedMachines {
+  days: number;
+  machines: StoppedMachine[];
+}
+
+export interface RemoveStoppedRequest {
+  agents: string[];
+}
+
+export interface RemoveStoppedResult {
+  removed: string[];
+  kept: StoppedMachine[];
+}
+
 export interface ToolCredential {
   agent: string;
   tool: string;
@@ -619,8 +680,19 @@ export interface MemoryUsage {
   swapTotal: number;
   swapUsed: number;
   agentsSwap: number;
+  used: number;
+  fileCache: number;
+  leads: number;
+  agentbox: number;
+  kernel: number;
   zram?: ZramUsage;
   agents: MemoryUsageAgent[];
+}
+
+export interface HostMemory {
+  total: number;
+  available: number;
+  cpus: number;
 }
 
 export interface CPUUsageAgent {
@@ -697,6 +769,7 @@ export interface AgentChange {
   ip?: string;
   removed?: boolean;
   memory?: MemoryHold;
+  reclaimed?: string;
 }
 
 export interface Theme {
@@ -1056,6 +1129,24 @@ export interface ReviewPage {
   total: number;
 }
 
+export interface WorkPage {
+  items: WorkItem[];
+  next?: string;
+  total: number;
+  counts: Record<string, number>;
+}
+
+export interface WorkItem {
+  item: ReviewItem;
+  task?: string;
+  past?: boolean;
+  status: string;
+  report?: AgentReport;
+  screenshots?: number;
+  recordings?: number;
+  at: string;
+}
+
 export interface MediaCounts {
   total: number;
   bytes: number;
@@ -1249,10 +1340,16 @@ export interface Secret {
   updatedAt: string;
   agents: string[];
   warning?: string;
+  leadManaged: boolean;
 }
 
 export interface SetSecretRequest {
   value: string;
+  leadManaged?: boolean;
+}
+
+export interface SecretSettingsRequest {
+  leadManaged: boolean;
 }
 
 export interface Skill {
@@ -1537,6 +1634,7 @@ export interface PullRequest {
   updatedAt?: string;
   baseBranch?: string;
   headBranch?: string;
+  fork?: boolean;
   headSha?: string;
   author?: string;
   authorAvatar?: string;
@@ -1586,6 +1684,49 @@ export interface ProjectPullRequests {
   refreshing?: boolean;
 }
 
+export interface Issue {
+  number: number;
+  title: string;
+  url: string;
+  author?: string;
+  authorAvatar?: string;
+  labels?: Label[];
+  comments?: number;
+  createdAt?: string;
+  updatedAt?: string;
+  handed?: IssueHandoff;
+}
+
+export interface IssueHandoff {
+  agent?: string;
+  job?: string;
+  agentTitle?: string;
+  status?: string;
+  retired?: boolean;
+  auto?: boolean;
+  at: string;
+  pullRequest?: IssuePullRequest;
+}
+
+export interface IssuePullRequest {
+  number: number;
+  url: string;
+  state: string;
+}
+
+export interface ProjectIssues {
+  project: string;
+  github?: string;
+  githubAccount?: string;
+  githubError?: GitHubError;
+  noOrigin?: boolean;
+  nonGitHubRemote?: string;
+  issues: Issue[];
+  pickUpIssues: boolean;
+  label: string;
+  fetchedAt?: string;
+}
+
 export interface MergePullRequestRequest {
   method: string;
   confirmed?: boolean;
@@ -1604,6 +1745,7 @@ export interface PullRequestDetail {
   updatedAt?: string;
   baseBranch?: string;
   headBranch?: string;
+  fork?: boolean;
   headSha?: string;
   author?: string;
   authorAvatar?: string;
@@ -1684,6 +1826,7 @@ export interface FleetAgent {
   changesRequested?: string;
   state: string;
   memory?: MemoryHold;
+  reclaimed?: string;
   ip: string;
   createdAt: string;
   changes: AgentChanges;
@@ -1798,6 +1941,7 @@ export interface ReviewItem {
   ref: string;
   title?: string;
   branch?: string;
+  baseRef?: string;
   ai?: string;
   summary?: string;
   changes?: AgentChanges;
@@ -1938,6 +2082,8 @@ export interface UsageStatsPending {
   eventsUrl: string;
   events: string;
   eventsWaiting: number;
+  health: string;
+  setup: string;
 }
 
 export interface LANStatus {
@@ -1972,6 +2118,23 @@ export interface LANPhone {
   lastSeen?: string;
   lastAddr?: string;
   scopes: string[];
+}
+
+export interface PhonePush {
+  token?: string;
+  registered: boolean;
+  kinds: string[];
+  quietFrom: number;
+  quietTo: number;
+  timeZone?: string;
+}
+
+export interface PhonePushTest {
+  sent: boolean;
+  error?: string;
+  title: string;
+  body: string;
+  data: Record<string, string>;
 }
 
 export interface UpdateLANRequest {
@@ -2172,12 +2335,14 @@ export interface ChatPermission {
   approval?: string;
   detail?: string;
   diffs?: ChatDiff[];
+  planApprove?: string;
 }
 
 export interface ChatPermissionOption {
   id: string;
   name: string;
   kind: string;
+  modeKind?: string;
 }
 
 export interface ChatSubagent {
@@ -2207,6 +2372,8 @@ export interface ChatScheduledRun {
   run: string;
   title: string;
   trigger: string;
+  event?: string;
+  eventUrl?: string;
   dueAt?: string;
   late?: boolean;
   missed?: number;
@@ -2220,6 +2387,8 @@ export interface Schedule {
   title: string;
   task: string;
   kind: string;
+  event?: string;
+  eventLabel?: string;
   at?: string;
   everyMinutes?: number;
   cron?: string;
@@ -2245,6 +2414,8 @@ export interface ScheduleRun {
   schedule: string;
   title?: string;
   trigger: string;
+  event?: string;
+  eventUrl?: string;
   dueAt?: string;
   ranAt: string;
   late?: boolean;
@@ -2263,6 +2434,8 @@ export interface ScheduleRequest {
   in?: string;
   every?: string;
   cron?: string;
+  on?: string;
+  label?: string;
   timezone?: string;
   target?: string;
   session?: string;
@@ -2770,6 +2943,56 @@ export interface ClaudeLimitWindow {
   resetsAt: string;
 }
 
+export interface Recap {
+  start: string;
+  end: string;
+  agents: number;
+  prsOpened: number;
+  prsMerged: number;
+  insertions: number;
+  deletions: number;
+  files: number;
+  workSeconds: number;
+  awaySeconds: number;
+  days: RecapDay[];
+  hours: number[];
+  projects: number;
+  busiest?: RecapProject;
+  longest?: RecapAgent;
+  models: RecapModel[];
+  tokens: number;
+  costUsd: number;
+  streak: number;
+  bestStreak: number;
+}
+
+export interface RecapDay {
+  date: string;
+  workSeconds: number;
+  awaySeconds: number;
+  agents: number;
+}
+
+export interface RecapProject {
+  project: string;
+  workSeconds: number;
+  agents: number;
+}
+
+export interface RecapAgent {
+  project: string;
+  agent: string;
+  title?: string;
+  ai?: string;
+  workSeconds: number;
+}
+
+export interface RecapModel {
+  model: string;
+  tokens: number;
+  output: number;
+}
+
 export interface VMStatus {
   mode: string;
   driver: string;
@@ -2792,6 +3015,7 @@ export interface VMMemory {
   granted: number;
   used: number;
   resident: number;
+  hostCache: number;
 }
 
 export interface VMDisk {
@@ -2957,6 +3181,7 @@ export interface FanOutVariant {
 export interface FanOutResult {
   group: Group;
   jobs: Job[];
+  notices?: string[];
 }
 
 export interface Group {
@@ -3082,8 +3307,40 @@ export interface DiagnosticsResources {
   agents: AgentResources[];
 }
 
+export interface PackageCachePart {
+  name: string;
+  bytes: number;
+}
+
+export interface DiagnosticsPackageCache {
+  on: boolean;
+  bytes: number;
+  maxBytes: number;
+  parts: PackageCachePart[];
+}
+
 export interface ClientSpansRequest {
   spans: TraceSpan[];
+}
+
+export interface ShareReport {
+  open: number;
+  limit: number;
+  trims: number;
+  lastTrim?: string;
+  pinned: number;
+}
+
+export interface FileCount {
+  open: number;
+  limit: number;
+}
+
+export interface DiagnosticsFiles {
+  daemon: FileCount;
+  system: FileCount;
+  share?: ShareReport;
+  waiting: boolean;
 }
 
 export const JobRunning = "running";
@@ -3110,6 +3367,10 @@ export const DiskFull = "full";
 export const EventLAN = "lan";
 export const EventSnap = "snap";
 export const EventFiles = "files";
+export const PushFinished = "finished";
+export const PushNeedsYou = "needs_you";
+export const PushPRReady = "pr_ready";
+export const PushCIFailed = "ci_failed";
 export const FileModified = "modified";
 export const FileAdded = "added";
 export const FileDeleted = "deleted";
@@ -3183,6 +3444,7 @@ export const ChatReady = "ready";
 export const ChatRunning = "running";
 export const ChatWaiting = "waiting";
 export const ChatError = "error";
+export const ChatOptionPlan = "plan";
 export const MemoryKindProject = "project";
 export const MemoryKindEpisodic = "episodic";
 export const MemoryKindDecision = "decision";

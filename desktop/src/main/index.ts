@@ -1,8 +1,11 @@
 // The Electron main process. It holds no AgentBox logic: it proxies API calls,
 // the event stream, WebSocket streams and media files between the renderer and
 // the current environment (this machine's daemon, or one on a hub), signs in to
-// hubs, installs the command-line tool, and updates the app (updater.ts).
-import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron';
+// hubs, installs the command-line tool, updates the app (updater.ts), and
+// keeps the tray icon (tray.ts).
+import { isSafeExternalUrl } from './externalurl';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, ClipboardItem, powerSaveBlocker, shell } from 'electron';
+import { writeFile } from 'node:fs/promises';
 import { arch, hostname } from 'node:os';
 import { join } from 'node:path';
 import { AppLog, captureConsole, reportSections, type AppError } from './applog';
@@ -10,7 +13,7 @@ import { agentboxBin, cliStatus, installCli } from './cli';
 import { currentTarget, isLocal, localSocket, savedHubs, saveHubs, setTarget, type SavedHub, type Target } from './connection';
 import { type ApiResponse, ensureDaemon, notListening, request, restartDaemon, restartIfStale, socketPath, stopHostDaemon, stopStartingDaemon, unreachable } from './daemon';
 import { EventStream } from './events';
-import { hostSetupStatus, onMac, runHostSetup, runVMMigration, stopVM, vmMigration, type HostSetupOptions } from './hostsetup';
+import { grantKVM, hostSetupStatus, onMac, runHostSetup, runVMMigration, stopVM, vmMigration, type HostSetupOptions } from './hostsetup';
 import { handleMedia, registerMediaScheme } from './media';
 import { registerBrowserKeys } from './browserkeys';
 import { installPhoneWeb } from './phoneweb';
@@ -20,15 +23,22 @@ import { showNotice, type OSNotice } from './notify';
 import { openChatFile } from './chatfiles';
 import { pageThumb } from './pagethumbs';
 import { registerRender } from './renders';
+import { saveShare, showShare } from './share';
 import { enableShortcutPortal, registerSnapShortcut, showForSnap } from './snap';
 import { Streams } from './streams';
 import { installAppUpdates, restartingForUpdate } from './updater';
 import { learnMode, linuxVM } from './vmmode';
+import { describeGone, goneReport, goneSignature, offersReload, worthReporting, type GoneProcess } from './processgone';
+import { ErrorReportSender, outcome, ReportQueue } from './reportqueue';
+import type * as T from '../shared/api';
 import { denyMedia } from './permissions';
 import { keepWindowState, windowOptions } from './windowstate';
 import { distro, linuxPath, windowsPath } from './wslpaths';
 import { setLanguage, t } from '../shared/i18n/index.ts';
 import './vmpower';
+import { keepAwake } from './keepawake';
+import { AppTray } from './tray';
+import type { TrayTarget } from './traymodel';
 
 guardStdio();
 // The app's log, for problem reports (applog.ts): console and every uncaught
@@ -52,15 +62,49 @@ const events = new EventStream(
   (event) => {
     send('daemon:event', event);
     showForSnap(win, event);
+    tray.onEvent(event);
   },
   (state) => {
     send('daemon:connection', state);
+    tray.onConnection();
     // Each time the daemon is back, it may be one that hasn't the web
     // version phones are served (phoneweb.ts).
-    if (state.state === 'connected')
+    // And error reports made while it was away go now (reportqueue.ts).
+    if (state.state === 'connected') {
       void installPhoneWeb(app.getVersion()).catch((err: unknown) => console.error('phones:', err));
+      void errorReports.flush();
+    }
   },
 );
+
+// The tray's place to open, kept until the window asks for it (tray:take)
+// when the window had to be made again for it.
+let trayTarget: TrayTarget | undefined;
+const tray = new AppTray({
+  call: (method, path, body) => callDaemon(method, path, body),
+  connected: () => events.state.state === 'connected',
+  showWindow,
+  open: (target) => {
+    if (win && !win.isDestroyed()) {
+      showWindow();
+      send('tray:open', target);
+      return;
+    }
+    trayTarget = target;
+    showWindow();
+  },
+});
+ipcMain.handle('tray:take', () => {
+  const target = trayTarget;
+  trayTarget = undefined;
+  return target ?? null;
+});
+// With the tray keeping AgentBox running, launching it again shows the one
+// already running instead of a second one with a second icon. The second
+// one quits before it makes a window, and leaves a Mac's VM to the first.
+const duplicate = tray.keepRunning && !app.requestSingleInstanceLock();
+if (duplicate) app.quit();
+app.on('second-instance', () => showWindow());
 
 // api:request answers a request the daemon never saw, because there was no
 // daemon to reach, as the daemon would refuse it: a 503 saying why. That's an
@@ -68,7 +112,9 @@ const events = new EventStream(
 // forward to its daemon closes each connection then): the renderer shows it
 // from the event stream's connection state, and a rejection here would be
 // logged by Electron for every call.
-ipcMain.handle('api:request', async (_event, method: string, path: string, body?: unknown): Promise<ApiResponse> => {
+ipcMain.handle('api:request', (_event, method: string, path: string, body?: unknown) => callDaemon(method, path, body));
+
+async function callDaemon(method: string, path: string, body?: unknown): Promise<ApiResponse> {
   try {
     return await request(method, path, body);
   } catch (err) {
@@ -80,7 +126,9 @@ ipcMain.handle('api:request', async (_event, method: string, path: string, body?
   } catch (err) {
     return unreachable(err);
   }
-});
+}
+const setKeepAwake = keepAwake(powerSaveBlocker);
+ipcMain.handle('keepawake:set', (event, on: boolean) => setKeepAwake(event.sender, on));
 ipcMain.handle('daemon:connection', () => events.state);
 ipcMain.handle('app:info', () => ({
   socket: onWindows ? localSocket() : socketPath,
@@ -93,7 +141,7 @@ ipcMain.handle('app:info', () => ({
 // Problem reports: the app's own sections, which the daemon redacts and
 // sends with its own (internal/daemon/report.go), and the window's uncaught
 // errors, kept with the main process's.
-ipcMain.handle('report:sections', () =>
+const appReportSections = () =>
   reportSections(appLog, {
     version: app.getVersion(),
     electron: process.versions.electron,
@@ -102,8 +150,17 @@ ipcMain.handle('report:sections', () =>
     arch: arch(),
     target: currentTarget().kind === 'local' ? 'this machine' : 'an environment on a hub',
     vmMode: linuxVM(),
-  }),
+  });
+ipcMain.handle('report:sections', appReportSections);
+// Automatic error reports, the window's and this process's own, go through
+// here, to wait for a daemon that can't be reached (reportqueue.ts).
+const errorReports = new ErrorReportSender(new ReportQueue(join(app.getPath('userData'), 'error-reports.json')), async (req) =>
+  outcome(await callDaemon('POST', '/v1/reports', req)),
 );
+ipcMain.handle('report:send', (_event, req: T.ReportRequest) => {
+  if (req?.kind !== 'error') throw new Error('only error reports are sent this way');
+  return errorReports.send(req);
+});
 ipcMain.on('report:windowError', (_event, err: Pick<AppError, 'name' | 'message' | 'stack'>) => appLog.windowError(err));
 ipcMain.handle('report:openLogs', () => shell.openPath(app.getPath('logs')));
 
@@ -200,10 +257,11 @@ ipcMain.handle('hostsetup:status', () => hostSetupStatus());
 // On Linux, { vm: true } runs AgentBox in a VM instead (vmmode.ts), after
 // stopping the daemon this machine ran itself. On a Mac, { driver: 'vz' }
 // makes the experimental vz driver's VM instead of Lima's.
-ipcMain.handle('hostsetup:run', async (_event, options?: Pick<HostSetupOptions, 'vm' | 'cpus' | 'memoryCap' | 'driver'>) => {
+ipcMain.handle('hostsetup:run', async (_event, options?: Pick<HostSetupOptions, 'vm' | 'cpus' | 'memoryCap' | 'driver' | 'krunkit'>) => {
   await runHostSetup((text) => send('hostsetup:output', text), {
     vm: options?.vm === true,
     driver: options?.driver === 'vz' ? 'vz' : undefined,
+    krunkit: options?.krunkit === true,
     cpus: typeof options?.cpus === 'number' ? options.cpus : undefined,
     memoryCap: typeof options?.memoryCap === 'string' ? options.memoryCap : undefined,
     before: stopHostDaemon,
@@ -213,6 +271,10 @@ ipcMain.handle('hostsetup:run', async (_event, options?: Pick<HostSetupOptions, 
   const restarted = await restartDaemon().catch(() => false);
   return { restarted };
 });
+
+// On Linux, AgentBox's VM needs /dev/kvm: this gives it to the user, through
+// the desktop's password dialog, without a new login.
+ipcMain.handle('hostsetup:kvm', () => grantKVM((text) => send('hostsetup:output', text)));
 
 // Moving this Linux machine's own AgentBox into AgentBox's VM (`agentbox vm
 // migrate`), and removing its old machines afterwards: no password, like vm
@@ -247,9 +309,11 @@ ipcMain.handle('dialog:directory', async () => {
 const hostPath = (path: string) => (onWindows ? windowsPath(path) : path);
 ipcMain.handle('shell:openPath', (_event, path: string) => shell.openPath(hostPath(path)));
 ipcMain.handle('chatFile:open', (_event, path: string, name: string) => openChatFile(path, name));
+ipcMain.handle('share:save', (_event, path: string, name: string) => saveShare(win, String(path), String(name)));
+ipcMain.handle('share:show', (_event, file: string) => showShare(String(file)));
 ipcMain.handle('shell:showItem', (_event, path: string) => shell.showItemInFolder(hostPath(path)));
 ipcMain.handle('shell:openExternal', async (_event, url: string) => {
-  if (!/^https?:\/\//.test(url)) throw new Error(t('web.main.notAWebAddress', { url }));
+  if (!isSafeExternalUrl(url)) throw new Error(t('web.main.notAWebAddress', { url }));
   await shell.openExternal(url);
 });
 ipcMain.handle('pageThumb:get', (_event, path: string, key: string) => pageThumb(path, key));
@@ -257,7 +321,59 @@ ipcMain.handle('render:register', (_event, html: string, network: boolean) => re
 ipcMain.handle('notify:show', (_event, notice: OSNotice) => showNotice(win, notice, (id) => send('notify:click', id)));
 ipcMain.on('clipboard:write', (_event, text: string) => clipboard.writeText(text));
 ipcMain.handle('clipboard:read', () => clipboard.readText());
+// A PNG the renderer drew (the weekly recap's share card): onto the clipboard,
+// or into a file the user picks. Saving answers whether it was saved.
+ipcMain.on('clipboard:writeImage', (_event, png: Uint8Array) => void clipboard.write([new ClipboardItem({ 'image/png': new Blob([Buffer.from(png)], { type: 'image/png' }) })]));
+ipcMain.handle('image:save', async (_event, name: string, png: Uint8Array) => {
+  const options = { title: t('main.saveImage'), defaultPath: join(app.getPath('downloads'), name), filters: [{ name: 'PNG', extensions: ['png'] }] };
+  const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
+  if (result.canceled || !result.filePath) return false;
+  await writeFile(result.filePath, png);
+  return true;
+});
 installAppUpdates(send);
+
+// Chromium's processes that die (processgone.ts): a window's renderer, the
+// GPU process, the rest. Each is logged and reported once a run; a window
+// whose page went, or that nothing may draw any more, is offered a reload.
+let quitting = false;
+app.on('before-quit', () => (quitting = true));
+const goneSeen = new Set<string>();
+let reloadAsked = false;
+
+function processGone(gone: GoneProcess, window?: BrowserWindow): void {
+  if (!worthReporting(gone, quitting)) return;
+  appLog.processGone(describeGone(gone));
+  if (!goneSeen.has(goneSignature(gone))) {
+    goneSeen.add(goneSignature(gone));
+    void errorReports.send(goneReport(gone, appReportSections().find((s) => s.id === 'app'))).catch(() => {});
+  }
+  if (window && offersReload(gone)) void offerReload(window, gone);
+}
+
+// offerReload asks whether to reload the window, one question at a time.
+async function offerReload(window: BrowserWindow, gone: GoneProcess): Promise<void> {
+  if (reloadAsked || window.isDestroyed()) return;
+  reloadAsked = true;
+  try {
+    const { response } = await dialog.showMessageBox(window, {
+      type: 'warning',
+      title: 'AgentBox',
+      message: gone.process === 'window' ? t('main.windowGone') : t('main.gpuGone'),
+      detail: t('main.goneDetail', { reason: gone.reason, code: String(gone.exitCode) }),
+      buttons: [t('main.reloadWindow'), t('main.notNow')],
+      defaultId: 0,
+      cancelId: 1,
+    });
+    if (response === 0 && !window.isDestroyed()) window.webContents.reload();
+  } finally {
+    reloadAsked = false;
+  }
+}
+
+app.on('child-process-gone', (_event, details) =>
+  processGone({ process: details.type, reason: details.reason, exitCode: details.exitCode, name: details.name ?? details.serviceName }, win),
+);
 
 function createWindow(): void {
   win = new BrowserWindow({
@@ -272,17 +388,43 @@ function createWindow(): void {
     },
   });
   keepWindowState(win);
+  const window = win;
+  win.webContents.on('render-process-gone', (_event, details) => processGone({ process: 'window', reason: details.reason, exitCode: details.exitCode }, window));
   void win.loadFile(join(__dirname, '../renderer/index.html'));
+  // Kept running in the tray (tray.ts), closing the window hides it: it keeps
+  // its pages, toasts and OS notifications, and comes back as it was.
+  win.on('close', (event) => {
+    if (quitting || restartingForUpdate() || !tray.keepRunning) return;
+    event.preventDefault();
+    window.hide();
+  });
   win.on('closed', () => {
     streams.closeAll();
     win = undefined;
   });
 }
 
+// showWindow brings the window forward, making it again if it was closed.
+function showWindow(): void {
+  if (!app.isReady()) return;
+  if (!win || win.isDestroyed()) {
+    createWindow();
+    return;
+  }
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
+// A Mac's dock icon clicked while the window is hidden in the menu bar.
+app.on('activate', () => showWindow());
+
 void app.whenReady().then(async () => {
+  if (duplicate) return;
   handleMedia();
   denyMedia();
   createWindow();
+  tray.start();
   registerSnapShortcut();
   // The relay answers at once, whether or not WSL does: it only reaches into
   // the distro on the first request.
@@ -309,7 +451,7 @@ app.on('window-all-closed', () => {
 // way it starts a daemon that isn't running (ensureDaemon). An app that starts
 // no daemon (AGENTBOX_NO_AUTOSTART) never started the VM, and leaves it be.
 const vmStopTimeout = 60_000;
-let vmStop: 'pending' | 'stopping' | 'done' = onMac && !process.env.AGENTBOX_NO_AUTOSTART ? 'pending' : 'done';
+let vmStop: 'pending' | 'stopping' | 'done' = onMac && !process.env.AGENTBOX_NO_AUTOSTART && !duplicate ? 'pending' : 'done';
 
 app.on('before-quit', (event) => {
   // Restarting into a new version (updater.ts): the VM stays up for it.

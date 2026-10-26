@@ -7,8 +7,8 @@ import (
 
 // SettingClaudeCodeAutoUpdate says whether the daemon keeps Claude Code and
 // its ACP adapter at the newest release on npm rather than at tools.txt's
-// pins (internal/daemon/toolupdates.go). Off until somebody turns it on, so it
-// is read with Flag.
+// pins (internal/daemon/toolupdates.go). On until somebody turns it off, so it
+// is read with FlagOn.
 const SettingClaudeCodeAutoUpdate = "claude_code_auto_update"
 
 // ToolVersion is what the daemon knows of one agent tool it keeps up to date

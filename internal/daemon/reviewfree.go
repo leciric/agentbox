@@ -65,7 +65,11 @@ func (s *Server) freeReviewed(ctx context.Context, a state.Agent, why string, pr
 // is only there. "" means nothing does. When the state can't be read it is
 // unsafe, and the machine stays.
 func (s *Server) unsafeToFree(ctx context.Context, a state.Agent, pr *api.PullRequest) string {
-	if changesOf(a).Dirty {
+	changes, err := measureChanges(a)
+	if err != nil {
+		return "its worktree can't be read"
+	}
+	if changes.Dirty {
 		return "uncommitted changes"
 	}
 	p, err := s.store.Project(ctx, a.Project)
@@ -76,7 +80,10 @@ func (s *Server) unsafeToFree(ctx context.Context, a state.Agent, pr *api.PullRe
 	if err != nil {
 		return "its repository can't be read"
 	}
-	if unpushed(repo, a, pr) {
+	switch out, err := unpushed(repo, a, pr); {
+	case err != nil:
+		return "its branch can't be read"
+	case out:
 		return "commits that aren't pushed"
 	}
 	return ""

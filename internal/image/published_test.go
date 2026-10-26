@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -98,9 +99,14 @@ func TestBuildFromThePublishedImage(t *testing.T) {
 	p := publish(t, specs(image.PublishedTools()), nil)
 	inc := fakeIncus(t, "")
 	opts := publishedOptions(t, p)
+	var sources []string
+	opts.Source = func(s string) { sources = append(sources, s) }
 	var log bytes.Buffer
 	if err := image.Build(t.Context(), inc.Client, host, opts, &log); err != nil {
 		t.Fatalf("Build() = %v\n%s", err, log.String())
+	}
+	if !slices.Equal(sources, []string{image.SourcePublished}) {
+		t.Errorf("sources = %v", sources)
 	}
 
 	file := filepath.Join(opts.DownloadDir, imageName)
@@ -176,9 +182,15 @@ func fellBack(t *testing.T, inc *fake, log, why string) {
 func TestBuildFallsBackWhenNothingIsPublished(t *testing.T) {
 	p := publish(t, nil, func(files map[string][]byte) { clear(files) })
 	inc := fakeIncus(t, "")
+	opts := publishedOptions(t, p)
+	var sources []string
+	opts.Source = func(s string) { sources = append(sources, s) }
 	var log bytes.Buffer
-	if err := image.Build(t.Context(), inc.Client, host, publishedOptions(t, p), &log); err != nil {
+	if err := image.Build(t.Context(), inc.Client, host, opts, &log); err != nil {
 		t.Fatalf("Build() = %v\n%s", err, log.String())
+	}
+	if !slices.Equal(sources, []string{image.SourcePublished, image.SourceLocalAfterPublished}) {
+		t.Errorf("sources = %v", sources)
 	}
 	fellBack(t, inc, log.String(), "404")
 	inc.neverRan(t, "image|import")

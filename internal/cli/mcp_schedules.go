@@ -27,6 +27,12 @@ func scheduleTools(ctx context.Context, c *api.Client, decode func(json.RawMessa
 		"every":    str("to repeat on an interval, like \"6h\" or \"1d\" (5m at least), counted from at or in when given, else from now"),
 		"cron":     str("to repeat on a calendar: a five-field cron expression, like \"0 8 * * 1\" for Mondays at 08:00 or \"30 9 * * 1-5\" for weekdays at 09:30, read in timezone"),
 		"timezone": str("an IANA timezone such as Europe/Lisbon; leave it out for " + zone),
+		"on": choiceOf("instead of a time, run it each time this happens on the project's GitHub repository: "+
+			"ci_failed (checks fail on the newest commit of the default branch), review_requested (a review is asked of the user on a pull request), "+
+			"issue_labeled (an open issue gets label), pr_opened (a pull request is opened from a branch that isn't an agent's). "+
+			"Each event fires once, with its details (links, failing checks, the issue's text) added after the task; what is already there when it is made doesn't fire",
+			"ci_failed", "review_requested", "issue_labeled", "pr_opened"),
+		"label": str("for on issue_labeled: the label to wait for, like \"bug\""),
 	}
 	options := map[string]any{
 		"title":   str("a short name for the list, like \"Release checks\"; leave it out to use the task's first line"),
@@ -39,13 +45,13 @@ func scheduleTools(ctx context.Context, c *api.Client, decode func(json.RawMessa
 		"grace_minutes": map[string]any{"type": "integer", "description": "how late a run missed while AgentBox wasn't running may still run; later than that it is skipped. Leave it out to run it however late."},
 	}
 	type request struct {
-		Title, Task, At, In, Every, Cron, Timezone, Target, Session, Model, Effort, Precheck *string
-		GraceMinutes                                                                         *int `json:"grace_minutes"`
-		ID                                                                                   string
+		Title, Task, At, In, Every, Cron, On, Label, Timezone, Target, Session, Model, Effort, Precheck *string
+		GraceMinutes                                                                                    *int `json:"grace_minutes"`
+		ID                                                                                              string
 	}
 	toRequest := func(in request) api.ScheduleRequest {
 		return api.ScheduleRequest{
-			Title: in.Title, Task: in.Task, At: in.At, In: in.In, Every: in.Every, Cron: in.Cron, Timezone: in.Timezone,
+			Title: in.Title, Task: in.Task, At: in.At, In: in.In, Every: in.Every, Cron: in.Cron, On: in.On, Label: in.Label, Timezone: in.Timezone,
 			Target: in.Target, Session: in.Session, Model: in.Model, Effort: in.Effort, Precheck: in.Precheck, GraceMinutes: in.GraceMinutes,
 		}
 	}
@@ -53,10 +59,11 @@ func scheduleTools(ctx context.Context, c *api.Client, decode func(json.RawMessa
 		{
 			Name: "schedule_task",
 			Description: "Schedule something for later, when the user asks for it at a time: \"tomorrow at 9 run the " +
-				"release checks\", \"every Monday 8am triage new issues\", \"in 2 hours check CI on #384\". When it falls " +
-				"due, AgentBox wakes you in this chat with the task, as if the user had just asked (or, with target agent, " +
-				"creates an agent with it). Give the task in full, for a you who has forgotten this conversation; and one " +
-				"of at, in, every or cron. Times are in " + zone + ". A run missed while AgentBox wasn't running runs once " +
+				"release checks\", \"every Monday 8am triage new issues\", \"in 2 hours check CI on #384\"; or each time " +
+				"something happens on GitHub: \"when CI goes red on main, have an agent fix it\", \"when an issue is labelled bug, " +
+				"triage it\". When it falls due, AgentBox wakes you in this chat with the task, as if the user had just asked " +
+				"(or, with target agent, creates an agent with it). Give the task in full, for a you who has forgotten this " +
+				"conversation; and one of at, in, every, cron or on. Times are in " + zone + ". A run missed while AgentBox wasn't running runs once " +
 				"when it is back, marked late. The user sees and changes it in the project's Schedules. Tell them, in " +
 				"their words, when it will next run.",
 			Schema: object([]string{"task"}, merge(merge(map[string]any{
@@ -96,7 +103,7 @@ func scheduleTools(ctx context.Context, c *api.Client, decode func(json.RawMessa
 		{
 			Name: "edit_schedule",
 			Description: "Change one of this project's scheduled tasks, when the user asks: its task, its title, when it " +
-				"runs (one of at, in, every or cron replaces the old timing), or what a run does. Fields left out stay as they are.",
+				"runs (one of at, in, every, cron or on replaces the old timing), or what a run does. Fields left out stay as they are.",
 			Schema: object([]string{"id"}, merge(merge(map[string]any{
 				"id":   str("the schedule's id, from list_schedules"),
 				"task": str("what it should do instead"),
@@ -177,6 +184,8 @@ func describeSchedule(sc api.Schedule) string {
 	switch {
 	case sc.Paused:
 		b.WriteString("; paused")
+	case sc.Kind == api.ScheduleOnEvent:
+		// No next run: Describe said what it waits for.
 	case sc.NextRun != nil:
 		fmt.Fprintf(&b, "; next run %s", sc.NextRun.In(loc).Format("Mon 2 Jan 2006 15:04 MST"))
 	default:
@@ -189,6 +198,9 @@ func describeSchedule(sc api.Schedule) string {
 		fmt.Fprintf(&b, "; last ran %s (%s", r.RanAt.In(loc).Format("2 Jan 15:04"), r.Outcome)
 		if r.Late {
 			b.WriteString(", late")
+		}
+		if r.Event != "" {
+			b.WriteString(", for " + r.Event)
 		}
 		if r.Error != "" {
 			b.WriteString(": " + r.Error)

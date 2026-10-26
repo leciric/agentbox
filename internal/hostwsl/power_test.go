@@ -100,6 +100,14 @@ func TestPower(t *testing.T) {
 	if p.State != api.VMRunning || p.MemoryGranted != 16*GiB || p.MemoryCap != 16*GiB || p.MemoryUsed != 6.5*GiB || p.CPUs != 8 || p.Error != "" {
 		t.Fatalf("running: %+v", p)
 	}
+	// Under load wsl --exec times out inside WSL now and then: still running,
+	// with no numbers this time and no error for the top bar to show.
+	env := d.Env
+	d.Env = append(append([]string(nil), env...), "FAKEWSL_EXEC_TIMEOUT=1")
+	if p := d.Power(ctx); p.State != api.VMRunning || p.Error != "" || p.MemoryGranted != 0 || p.CPUs != 0 {
+		t.Fatalf("running, wsl --exec timing out: %+v", p)
+	}
+	d.Env = env
 	if code, body := get(); code != http.StatusOK {
 		t.Fatalf("relay to the daemon: %d %s", code, body)
 	}

@@ -65,7 +65,8 @@ func (m *Manager) Context(ref string) (used, size int64, ready bool) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.session.ContextUsed, c.session.ContextSize, c.adapter != nil && c.turn == nil
+	// An asleep chat is ready too: what asks wakes it (wakeForPrompt).
+	return c.session.ContextUsed, c.session.ContextSize, (c.adapter != nil || c.asleep) && c.turn == nil
 }
 
 // Compact consolidates a chat's session and rolls it over, and returns once
@@ -108,7 +109,7 @@ func (m *Manager) BeginCompact(ctx context.Context, a state.Agent, ask string, s
 	case c.turn != nil, c.rolling:
 		c.mu.Unlock()
 		return nil, ErrBusy
-	case c.adapter == nil:
+	case !c.wakeForPrompt():
 		c.mu.Unlock()
 		return nil, errNoSession
 	}
