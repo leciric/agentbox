@@ -120,10 +120,10 @@ func TestUsageEventsAreRecordedShownAndSent(t *testing.T) {
 		sent := fake.sentEvents()
 		return len(sent[eventHeartbeat]) == 1 && len(sent[eventSetup]) == 1 && len(sent[eventHealth]) == 1
 	})
-	// The day's health went too, in a batch of its own: a server that
-	// doesn't know it yet refuses the whole batch.
+	// The day's health went too, and the setup's first step, each in a batch
+	// of its own: a server that doesn't know them yet refuses the whole batch.
 	if n := fake.mixedBatches(); n != 0 {
-		t.Errorf("%d batches mix health with other events", n)
+		t.Errorf("%d batches mix health or setup with other events", n)
 	}
 	if step := fake.sentEvents()[eventSetup][0]["step"]; step != setupStarted {
 		t.Errorf("first setup step = %v", step)

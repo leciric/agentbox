@@ -185,22 +185,21 @@ func (s *Server) usageStatsPending(w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 	out.EventsWaiting = len(waiting)
-	// The health events go in batches of their own (eventBatch): each kind
-	// is shown as its first report.
-	var events, health []state.UsageEvent
+	// The health and setup events go in batches of their own (eventBatch):
+	// each kind is shown as its first report.
+	batches := map[string][]state.UsageEvent{}
 	for _, r := range waiting {
-		if !eventBatch(r.Name) && len(events) < update.MaxEventsPerReport {
-			events = append(events, r)
-		} else if eventBatch(r.Name) && len(health) < update.MaxEventsPerReport {
-			health = append(health, r)
+		if b := eventBatch(r.Name); len(batches[b]) < update.MaxEventsPerReport {
+			batches[b] = append(batches[b], r)
 		}
 	}
-	if len(events) > 0 {
-		out.Events = indentJSON(update.NewEventsBody(req, usageEvents(events)))
+	body := func(rows []state.UsageEvent) string {
+		if len(rows) == 0 {
+			return ""
+		}
+		return indentJSON(update.NewEventsBody(req, usageEvents(rows)))
 	}
-	if len(health) > 0 {
-		out.Health = indentJSON(update.NewEventsBody(req, usageEvents(health)))
-	}
+	out.Events, out.Health, out.Setup = body(batches[""]), body(batches[eventHealth]), body(batches[eventSetup])
 	return writeJSON(w, http.StatusOK, out)
 }
 

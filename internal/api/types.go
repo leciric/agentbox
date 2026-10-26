@@ -3434,6 +3434,32 @@ type UsageStatsPending struct {
 	// Health is the health events waiting, posted to EventsURL in a body
 	// of their own; "" when none waits.
 	Health string `json:"health"`
+	// Setup is the same for the setup funnel's events.
+	Setup string `json:"setup"`
+}
+
+// SetupFunnelReport is POST /v1/usage-events/setup: the steps of Setup the
+// front end took on the user's machine before the daemon was up to keep
+// them, the KVM check and the VM's making, handed over once it is. The
+// daemon keeps them as setup events like its own, when the usage stats are
+// on, and only their class of error leaves it.
+type SetupFunnelReport struct {
+	// Began is when the first of them began, in Unix seconds.
+	Began int64             `json:"began"`
+	Steps []SetupFunnelStep `json:"steps"`
+}
+
+// SetupFunnelStep is one of a SetupFunnelReport's steps.
+type SetupFunnelStep struct {
+	// Step is kvm_check or vm_ready.
+	Step string `json:"step"`
+	// Outcome is ok or failed, and for kvm_check missing or no_permission.
+	Outcome string `json:"outcome"`
+	// At is when it ended, in Unix seconds, and DurationS how long it took.
+	At        int64 `json:"at"`
+	DurationS int64 `json:"durationS"`
+	// Error is a failed step's error, which the daemon only classifies.
+	Error string `json:"error,omitempty"`
 }
 
 // AppFeatures are the keys the app may count through the API.

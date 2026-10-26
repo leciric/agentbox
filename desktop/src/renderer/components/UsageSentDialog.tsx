@@ -29,7 +29,7 @@ export function UsageSentDialog({ open, onOpenChange }: { open: boolean; onOpenC
         {pending.isPending && <p className="text-sm text-secondary">{t('common.loading')}</p>}
         {pending.error && <Notice>{errorMessage(pending.error)}</Notice>}
         {p && !p.on && <Notice>{t('settings.usageStats.sentOff')}</Notice>}
-        {p?.on && !p.usage && !p.events && !p.health && <p className="text-sm text-secondary">{t('settings.usageStats.sentNothing')}</p>}
+        {p?.on && !p.usage && !p.events && !p.health && !p.setup && <p className="text-sm text-secondary">{t('settings.usageStats.sentNothing')}</p>}
         {p?.on && p.usage && <Payload title={t('settings.usageStats.sentCounts', { url: p.usageUrl })} body={p.usage} />}
         {p?.on && p.events && (
           <Payload
@@ -39,6 +39,7 @@ export function UsageSentDialog({ open, onOpenChange }: { open: boolean; onOpenC
           />
         )}
         {p?.on && p.health && <Payload title={t('settings.usageStats.sentHealth', { url: p.eventsUrl })} body={p.health} />}
+        {p?.on && p.setup && <Payload title={t('settings.usageStats.sentSetup', { url: p.eventsUrl })} body={p.setup} />}
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             {t('common.close')}

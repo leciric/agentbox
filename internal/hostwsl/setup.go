@@ -14,6 +14,9 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"agentbox/internal/paths"
+	"agentbox/internal/setupfunnel"
 )
 
 //go:embed configure.sh
@@ -80,6 +83,29 @@ func (d *Distro) Init(ctx context.Context) error {
 	d.copyGitIdentity(ctx)
 	_, _ = fmt.Fprintln(d.Log, "==> Starting the daemon")
 	return d.StartDaemon(ctx)
+}
+
+// initNoting is Init, kept for the setup funnel as the VM's making, with what
+// was kept handed to the daemon once it is up (package setupfunnel).
+func (d *Distro) initNoting(ctx context.Context) error {
+	began := time.Now()
+	err := d.Init(ctx)
+	p, perr := paths.Default()
+	if perr != nil {
+		return err
+	}
+	outcome := setupfunnel.OK
+	if err != nil {
+		outcome = setupfunnel.Failed
+	}
+	setupfunnel.Note(p, setupfunnel.VMReady, outcome, began, err)
+	if err == nil {
+		setupfunnel.Hand(ctx, p, func(ctx context.Context, report io.Reader) error {
+			_, err := d.exec(ctx, false, report, "agentbox", "setup-funnel")
+			return err
+		})
+	}
+	return err
 }
 
 // waitSystemd waits for systemd to finish booting. "degraded" (a unit

@@ -249,7 +249,7 @@ func TestHealthEventsGoInBatchesOfTheirOwn(t *testing.T) {
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
 	_ = d.srv.store.ForgetUsageEvents(ctx, 0, "")
-	for _, name := range []string{eventError, eventTurn, eventHealth, eventHealth, eventError} {
+	for _, name := range []string{eventError, eventTurn, eventHealth, eventHealth, eventSetup, eventError} {
 		if err := d.srv.store.AddUsageEvent(ctx, state.UsageEvent{ID: name, Day: usageDay(time.Now()), Name: name, Props: json.RawMessage(`{}`)}); err != nil {
 			t.Fatal(err)
 		}
@@ -267,7 +267,7 @@ func TestHealthEventsGoInBatchesOfTheirOwn(t *testing.T) {
 		batches = append(batches, names)
 		_ = d.srv.store.ForgetUsageEvents(ctx, last, "")
 	}
-	want := [][]string{{eventError, eventTurn}, {eventHealth, eventHealth}, {eventError}}
+	want := [][]string{{eventError, eventTurn}, {eventHealth, eventHealth}, {eventSetup}, {eventError}}
 	if fmt.Sprint(batches) != fmt.Sprint(want) {
 		t.Errorf("batches = %v, want %v", batches, want)
 	}

@@ -66,6 +66,7 @@ import (
 	"agentbox/internal/hostvm/chv"
 	"agentbox/internal/paths"
 	"agentbox/internal/report"
+	"agentbox/internal/setupfunnel"
 )
 
 const (
@@ -922,4 +923,21 @@ func env(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// noteVMReady keeps the VM's making for the setup funnel, and once it is up
+// hands the daemon in it what was kept (package setupfunnel).
+func noteVMReady(ctx context.Context, p paths.Paths, v *VM, began time.Time, err error) {
+	outcome := setupfunnel.OK
+	if err != nil {
+		outcome = setupfunnel.Failed
+	}
+	setupfunnel.Note(p, setupfunnel.VMReady, outcome, began, err)
+	if err != nil || v == nil {
+		return
+	}
+	setupfunnel.Hand(ctx, p, func(ctx context.Context, report io.Reader) error {
+		_, err := v.exec(ctx, report, vmBinary, "setup-funnel")
+		return err
+	})
 }

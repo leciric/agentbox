@@ -92,13 +92,13 @@ func (f *fakeUsage) mixedBatches() int {
 	n := 0
 	for _, report := range f.events {
 		list, _ := report["events"].([]any)
-		health := 0
+		batches := map[string]bool{}
 		for _, e := range list {
-			if ev, _ := e.(map[string]any); ev["name"] == eventHealth {
-				health++
-			}
+			ev, _ := e.(map[string]any)
+			name, _ := ev["name"].(string)
+			batches[eventBatch(name)] = true
 		}
-		if health > 0 && health < len(list) {
+		if len(batches) > 1 {
 			n++
 		}
 	}

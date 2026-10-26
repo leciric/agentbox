@@ -1200,6 +1200,7 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 		req.Name = queued
 	}
 	return func(ctx context.Context, log io.Writer) (any, error) {
+		began := time.Now()
 		// What a catch-up ran is kept too, so a failed one can show the agent
 		// its last lines.
 		var ran *tailWriter
@@ -1257,12 +1258,13 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 				class, reason := s.createReason(err, req.Project, req.Name, req.Title, req.Branch)
 				s.recordError(errCreateFailed, req.AI, class, reason)
 			}
+			s.setupStepFailed(context.WithoutCancel(ctx), setupReport{step: setupFirstAgent, took: time.Since(began)}, err)
 			return nil, err
 		}
 		s.countFeature(agentFeature(a.AI, api.FeatureAgentCreateClaude, api.FeatureAgentCreateCodex, api.FeatureAgentCreateOpenCode, api.FeatureAgentCreateCursor))
 		s.countCreatedModel(ctx, a)
 		s.notePeakAgents(ctx)
-		s.setupStep(ctx, setupFirstAgent)
+		s.setupReached(ctx, setupReport{step: setupFirstAgent, took: time.Since(began)})
 		if byLead {
 			s.countFeature(api.FeatureAgentCreateByLead)
 		}

@@ -94,7 +94,7 @@ func newInitCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := d.Init(cmd.Context()); err != nil {
+			if err := d.initNoting(cmd.Context()); err != nil {
 				return err
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), `AgentBox's distro, %s, is ready. Next:

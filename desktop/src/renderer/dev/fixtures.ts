@@ -2141,6 +2141,31 @@ const usageHealthBody = {
     }
   ]
 };
+const usageSetupBody = {
+  "install": "2b5c0b0e-1111-4c3b-9f1e-0123456789ab",
+  "version": "0.16.0",
+  "os": "linux",
+  "arch": "amd64",
+  "events": [
+    {
+      "id": "0c7e1f4a-9d2b-4e6f-a1b3-5c7d9e1f3a5b",
+      "day": "2026-10-26",
+      "name": "setup",
+      "props": {
+        "duration_s": 312,
+        "error_class": "none",
+        "front_end": "chv",
+        "image_source": "downloaded",
+        "outcome": "ok",
+        "since": "5m_30m",
+        "since_s": 540,
+        "step": "image_ready",
+        "tool": "none",
+        "utc_offset": "-3"
+      }
+    }
+  ]
+};
 const usageStatsPending: T.UsageStatsPending = {
   on: true,
   usageUrl: 'https://agentbox.linting.dev/api/v1/usage',
@@ -2149,6 +2174,7 @@ const usageStatsPending: T.UsageStatsPending = {
   events: JSON.stringify(usageEventsBody, null, 2),
   eventsWaiting: 2,
   health: JSON.stringify(usageHealthBody, null, 2),
+  setup: JSON.stringify(usageSetupBody, null, 2),
 };
 
 // installDevBridge stubs window.agentbox: every query above is pre-seeded

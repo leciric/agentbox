@@ -2077,6 +2077,7 @@ export interface UsageStatsPending {
   events: string;
   eventsWaiting: number;
   health: string;
+  setup: string;
 }
 
 export interface LANStatus {

@@ -1027,6 +1027,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/usage/cpu", s.cpuUsage)
 	h("POST /v1/usage-stats/{feature}", s.countAppFeature)
 	h("GET /v1/usage-stats/pending", s.usageStatsPending)
+	h("POST /v1/usage-events/setup", s.reportSetupFunnel)
 	h("POST /v1/reports/draft", s.reportDraft)
 	h("POST /v1/reports", s.sendReport)
 	h("GET /v1/image", s.imageStatus)

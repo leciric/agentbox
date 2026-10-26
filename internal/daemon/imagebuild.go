@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"agentbox/internal/api"
 	"agentbox/internal/image"
@@ -104,15 +105,21 @@ func (s *Server) startImageBuild(ctx context.Context, req api.BuildImageRequest)
 	}
 	j, err := s.launchJob("image-build", image.SnapshotRef(), func(ctx context.Context, log io.Writer) (any, error) {
 		defer s.releaseImage()
-		if err := image.Build(ctx, s.cfg.Incus, s.cfg.User, opts, log); err != nil {
+		ready := setupReport{step: setupImageReady}
+		opts.Source = func(source string) { ready.imageSource = source }
+		began := time.Now()
+		err := image.Build(ctx, s.cfg.Incus, s.cfg.User, opts, log)
+		ready.took = time.Since(began)
+		if err != nil {
 			// One the job's cancel stopped didn't fail.
 			if ctx.Err() == nil {
 				s.recordErr(errImageBuildFailed, "", err)
 			}
+			s.setupStepFailed(context.WithoutCancel(ctx), ready, err)
 			return nil, err
 		}
 		s.countFeature(api.FeatureImageBuild)
-		s.setupStep(ctx, setupImageBuilt)
+		s.setupReached(ctx, ready)
 		// A build you made settles an update of the daemon's that failed or
 		// was cancelled.
 		s.setImagePhase(func(w *imageWork) { *w = imageWork{busy: w.busy, build: w.build} })

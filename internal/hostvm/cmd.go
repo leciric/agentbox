@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -496,7 +497,8 @@ func newInitCmd() *cobra.Command {
 // has no daemon) would run limactl start beside limactl create, and create
 // ends by killing the VM's driver process: krunkit's, which the VM's network
 // runs in.
-func (v *VM) initLima(ctx context.Context, size Size) error {
+func (v *VM) initLima(ctx context.Context, size Size) (err error) {
+	defer func(began time.Time) { noteVMReady(ctx, v.Paths, v, began, err) }(time.Now())
 	unlock, err := v.lock(ctx, true)
 	if err != nil {
 		return err

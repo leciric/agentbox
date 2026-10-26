@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -30,7 +29,8 @@ import (
 // (agentbox-landing's functions/api/v1/events.ts), so the two lists change
 // together. The same rules as the counts decide whether one is kept at all
 // (usageStatsOn), and turning the stats off forgets those not sent.
-// The VM's health is one more (healthevent.go), sent in batches of its own.
+// The VM's health (healthevent.go) and the setup funnel (setupevent.go) are
+// sent in batches of their own.
 
 const (
 	eventTurn          = "turn.completed"
@@ -92,13 +92,6 @@ type errorEvent struct {
 	Reason string `json:"reason"`
 }
 
-// setupEvent is a step of a new installation's setup, the first time it
-// happens, with how long after the setup began.
-type setupEvent struct {
-	Step  string `json:"step"`
-	Since string `json:"since"`
-}
-
 // The error codes. vm_start_failed is the front end's, which runs outside the
 // VM this daemon is in: the server takes it, and nothing here sends it yet.
 const (
@@ -108,15 +101,6 @@ const (
 	errAdapterCrashed   = "adapter_crashed"
 	errAuthFailed       = "auth_failed"
 	errPRMergeFailed    = "pr_merge_failed"
-)
-
-// The setup steps, in the order a new installation usually reaches them.
-const (
-	setupStarted      = "setup_started"
-	setupImageBuilt   = "image_built"
-	setupFirstProject = "first_project"
-	setupFirstAgent   = "first_agent"
-	setupFirstPR      = "first_pr"
 )
 
 // The settings the events keep between days: when the setup began, which of
@@ -273,53 +257,6 @@ func (s *Server) recordAgentFinished(ctx context.Context, a state.Agent, how str
 		}
 	}
 	s.recordEvent(eventAgentFinished, e)
-}
-
-// beginSetupFunnel decides, once, whether this installation's setup is still
-// ahead of it: one with no projects yet starts it now, and one already in use
-// never sends a step.
-func (s *Server) beginSetupFunnel(ctx context.Context) {
-	if at, err := s.store.Setting(ctx, settingUsageSetupAt); err != nil || at != "" {
-		return
-	}
-	projects, err := s.store.Projects(ctx)
-	if err != nil {
-		return
-	}
-	if len(projects) > 0 {
-		_ = s.store.SetSetting(ctx, settingUsageSetupAt, "existing")
-		return
-	}
-	_ = s.store.SetSetting(ctx, settingUsageSetupAt, strconv.FormatInt(time.Now().Unix(), 10))
-	s.setupStep(ctx, setupStarted)
-}
-
-// setupStep keeps a setup event the first time this installation reaches
-// step, with how long after its setup began.
-func (s *Server) setupStep(ctx context.Context, step string) {
-	if !s.usageStatsOn(ctx) {
-		return
-	}
-	at, err := s.store.Setting(ctx, settingUsageSetupAt)
-	if err != nil {
-		return
-	}
-	began, err := strconv.ParseInt(at, 10, 64)
-	if err != nil {
-		return // never begun here, or "existing"
-	}
-	steps, err := s.store.Setting(ctx, settingUsageSetupSteps)
-	if err != nil {
-		return
-	}
-	done := strings.Split(steps, ",")
-	if slices.Contains(done, step) {
-		return
-	}
-	if err := s.store.SetSetting(ctx, settingUsageSetupSteps, strings.Trim(steps+","+step, ",")); err != nil {
-		return
-	}
-	s.recordEvent(eventSetup, setupEvent{Step: step, Since: usageSpan(time.Since(time.Unix(began, 0)))})
 }
 
 // usagePeak is the most agents there were at once: the day it was for, and
@@ -502,10 +439,17 @@ func (s *Server) pendingEvents(ctx context.Context) ([]update.UsageEvent, int64,
 	return usageEvents(rows[:n]), rows[n-1].Seq, nil
 }
 
-// eventBatch is whether an event goes in a batch of health events: a server
-// that doesn't know the health event yet refuses a whole batch with one in
-// it, so none goes with the others.
-func eventBatch(name string) bool { return name == eventHealth }
+// eventBatch is the batch an event goes in: "" for the usual one, or the
+// health or setup event's own. A server that doesn't know an event's fields
+// yet refuses a whole batch with one in it, so those go apart from the
+// others until agentbox-landing takes them.
+func eventBatch(name string) string {
+	switch name {
+	case eventHealth, eventSetup:
+		return name
+	}
+	return ""
+}
 
 // usageEvents is rows as they are sent.
 func usageEvents(rows []state.UsageEvent) []update.UsageEvent {

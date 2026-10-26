@@ -18,6 +18,7 @@ import (
 	"agentbox/internal/api"
 	"agentbox/internal/hostvm/chv"
 	"agentbox/internal/paths"
+	"agentbox/internal/setupfunnel"
 	"agentbox/internal/state"
 )
 
@@ -238,7 +239,10 @@ func canMake(ctx context.Context, p paths.Paths, want chv.Config) error {
 		if err := hostModeInUse(ctx, p); err != nil {
 			return err
 		}
-		return checkKVM()
+		began := time.Now()
+		err := checkKVM()
+		setupfunnel.Note(p, setupfunnel.KVM, setupfunnel.KVMOutcome(err), began, err)
+		return err
 	}
 	exe, err := self()
 	if err != nil {
@@ -275,8 +279,10 @@ func checkKVM() error {
 // it, waits for its first boot to set it up, and sets AgentBox up in it. Like
 // Lima's, it is safe to run again: a step already done is quick. Every step
 // says how long it took.
-func initCHV(ctx context.Context, p paths.Paths, want chv.Config, sizesSet bool, log io.Writer) error {
+func initCHV(ctx context.Context, p paths.Paths, want chv.Config, sizesSet bool, log io.Writer) (err error) {
 	began := time.Now()
+	var vm *VM
+	defer func() { noteVMReady(ctx, p, vm, began, err) }()
 	c, err := chv.Load(p, want.Name)
 	made := false
 	switch {
@@ -306,7 +312,7 @@ func initCHV(ctx context.Context, p paths.Paths, want chv.Config, sizesSet bool,
 	case sizesSet:
 		_, _ = fmt.Fprintln(log, "note: AgentBox's VM exists already and keeps its size: change it with agentbox vm resize")
 	}
-	vm, err := NewCHV(p, c)
+	vm, err = NewCHV(p, c)
 	if err != nil {
 		return err
 	}

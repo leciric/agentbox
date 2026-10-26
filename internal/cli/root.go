@@ -347,6 +347,7 @@ func NewRootCmd() *cobra.Command {
 		newLogoutCmd(a),
 		newEnvCmd(a),
 		newWSLBridgeCmd(a),
+		newSetupFunnelCmd(a),
 	)
 	return root
 }

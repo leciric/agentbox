@@ -953,6 +953,11 @@ func (c *Client) UsageStatsPending(ctx context.Context) (UsageStatsPending, erro
 	return out, c.do(ctx, http.MethodGet, "/v1/usage-stats/pending", nil, &out)
 }
 
+// ReportSetupFunnel hands the daemon the steps of Setup taken before it was up.
+func (c *Client) ReportSetupFunnel(ctx context.Context, r SetupFunnelReport) error {
+	return c.do(ctx, http.MethodPost, "/v1/usage-events/setup", r, nil)
+}
+
 // LatestRelease is the update channel's latest release, as the release list has it now.
 func (c *Client) LatestRelease(ctx context.Context) (UpdateRelease, error) {
 	var out UpdateRelease

@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"agentbox/internal/agent"
 	"agentbox/internal/android"
@@ -162,6 +163,7 @@ func (s *Server) setupStatus(ctx context.Context) (api.SetupStatus, error) {
 	check(api.SetupCheck{ID: "preview", Title: "Preview URLs", Status: api.SetupOptional, Detail: "off: another program uses the port, or AGENTBOX_PREVIEW_ADDR turned it off"},
 		preview != "", "http://<port>.<agent>.<project>.localhost:"+preview[strings.LastIndex(preview, ":")+1:])
 
+	s.noteSetupChecks(ctx, checks)
 	ready := true
 	for _, c := range checks {
 		// An image whose tools are being updated, or failed to be, is still
@@ -347,7 +349,15 @@ func (s *Server) claimClaudeLogin(login *claudeLogin) (api.Job, error) {
 	registered := make(chan struct{})
 	j, err := s.jobs.start("claude-login", login.account, func(ctx context.Context, log io.Writer) (any, error) {
 		<-registered
-		return s.runClaudeLogin(ctx, log, login)
+		began := time.Now()
+		out, err := s.runClaudeLogin(ctx, log, login)
+		signedIn := setupReport{step: setupSignedIn, tool: "claude", took: time.Since(began)}
+		if err != nil {
+			s.setupStepFailed(context.WithoutCancel(ctx), signedIn, err)
+		} else {
+			s.setupReached(ctx, signedIn)
+		}
+		return out, err
 	})
 	if err != nil {
 		return api.Job{}, err
