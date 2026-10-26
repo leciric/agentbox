@@ -752,6 +752,11 @@ type Agent struct {
 	// until its chat's turn ends.
 	ChangesRequested string `json:"changesRequested,omitempty"`
 	State            string `json:"state"` // running, stopped, paused, initializing, incomplete or missing; queued only for one an earlier release left queued, as the daemon starts it
+	// WaitingForImage is set while an initializing agent waits for the base
+	// image, which is being downloaded or built (ImageStatus says how far):
+	// its worktree and branch are there, and its machine is made as soon as
+	// the image is ready.
+	WaitingForImage bool `json:"waitingForImage,omitempty"`
 	// Memory is what the daemon holds of the agent's heavy commands for
 	// memory: paused or waiting to start (package pressure). Absent when it
 	// holds nothing.
@@ -2283,6 +2288,8 @@ type AgentChange struct {
 	// Memory is what the daemon holds of the agent's heavy commands
 	// (Agent.Memory).
 	Memory *MemoryHold `json:"memory,omitempty"`
+	// WaitingForImage is Agent.WaitingForImage.
+	WaitingForImage bool `json:"waitingForImage,omitempty"`
 }
 
 // HeavyRequest asks, from inside an agent, to start a heavy command (a test
@@ -2883,6 +2890,9 @@ type ImageStatus struct {
 	Job string `json:"job,omitempty"`
 	// Step is the build's latest step, while it runs.
 	Step string `json:"step,omitempty"`
+	// Progress is how far that step has got, when it says ("40% of 1800 MB"
+	// while downloading).
+	Progress string `json:"progress,omitempty"`
 	// Error is why it failed.
 	Error string `json:"error,omitempty"`
 	// Waiting counts the jobs, agents being made among them, that start once

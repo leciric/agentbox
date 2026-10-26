@@ -13,6 +13,7 @@ export type StatusTone = 'urgent' | 'error' | 'warning' | 'live' | 'muted';
 
 export function chatLabel(agent: T.Agent): { text: string; tone: StatusTone } {
   // Being made comes before anything its chat says: nothing can need you yet.
+  if (agent.state === 'initializing' && agent.waitingForImage) return { text: t('agent.status.waitingForImage'), tone: 'live' };
   if (agent.state === 'initializing' || agent.state === 'queued') return { text: t('agent.status.initializing'), tone: 'live' };
   if (agent.chat === 'waiting') return { text: t('agent.status.needsYou'), tone: 'urgent' };
   if (agent.state === 'incomplete') return { text: t('agent.status.needsAttention'), tone: 'error' };

@@ -19,6 +19,12 @@ test('initializing shows as live, not as needing attention', () => {
   assert.deepEqual(chatLabel(agent('initializing')), { text: 'Initializing', tone: 'live' });
 });
 
+test('an agent waiting for the base image says so, and reads as on its way', () => {
+  const waiting = { ...agent('initializing'), waitingForImage: true } as T.Agent;
+  assert.deepEqual(chatLabel(waiting), { text: 'Waiting for the base image', tone: 'live' });
+  assert.equal(avatarMood(waiting), 'sleeping');
+});
+
 test('a running chat is Working, an idle one is Idle or Starting', () => {
   assert.deepEqual(chatLabel(agent('running', 'running')), { text: 'Working', tone: 'live' });
   assert.deepEqual(chatLabel(agent('running', 'starting')), { text: 'Starting', tone: 'muted' });

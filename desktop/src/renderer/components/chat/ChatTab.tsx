@@ -25,6 +25,7 @@ import { openPanelOn } from '../../lib/rightPanel';
 import { useUiV2 } from '../../lib/uiV2';
 import { useChatWindow, useRevealItem, type ChatOpenAt } from './reveal';
 import { Timeline } from './Timeline';
+import { ImageWait } from '../ImageWait';
 
 // requestChatFind opens the find bar on a chat, as Ctrl+F (⌘F) does, for its
 // ⋯ menu: after the menu has closed and handed focus back to its trigger, so
@@ -381,6 +382,7 @@ export function ChatTab({
             </div>
           ) : (
             <>
+              {agent.waitingForImage && <ImageWait agent={agent} />}
               {aboveComposer}
               <PageStack agent={agent} />
               <Composer

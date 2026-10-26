@@ -365,6 +365,12 @@ type CreateOptions struct {
 	// and branch it was queued with. The daemon starts every one of them as
 	// it starts (leftoverqueue.go).
 	Queued bool
+	// AwaitImage, when set, lets an agent made from the base image be
+	// created while the image isn't ready yet: the agent is added, with its
+	// branch and worktree, and AwaitImage is called with it before its
+	// machine is made, to return once the image is ready. Without it, a
+	// missing image fails the create at once.
+	AwaitImage func(ctx context.Context, a state.Agent) error
 }
 
 // Create builds an agent from the project's saved base, or from the base image.
@@ -436,6 +442,7 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 		return state.Agent{}, err
 	}
 	source := image.SnapshotRef()
+	var awaitImage func(context.Context, state.Agent) error
 	base, hasBase, err := m.ProjectBase(ctx, p.Name)
 	switch {
 	case err != nil:
@@ -448,7 +455,10 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 			return state.Agent{}, err
 		}
 		if !ready {
-			return state.Agent{}, errors.New("the base image isn't built: run agentbox image build")
+			if opts.AwaitImage == nil {
+				return state.Agent{}, errors.New("the base image isn't built: run agentbox image build")
+			}
+			awaitImage = opts.AwaitImage
 		}
 	}
 	from := opts.From
@@ -492,6 +502,7 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 		connectors:    opts.Connectors,
 		task:          opts.Task,
 		queued:        queued,
+		awaitImage:    awaitImage,
 	})
 }
 
@@ -565,10 +576,11 @@ type plan struct {
 	baseCommit    string // the new branch starts here
 	tree          string // optional snapshot commit whose files are applied on top
 	copyEnv       bool
-	finishNotice  string       // this agent's own choice; see CreateOptions.FinishNotice
-	connectors    []string     // see CreateOptions.Connectors
-	task          string       // what it is about to be asked to do; see CreateOptions.Task
-	queued        *state.Agent // the queued agent this makes, when it isn't a new one
+	finishNotice  string                                   // this agent's own choice; see CreateOptions.FinishNotice
+	connectors    []string                                 // see CreateOptions.Connectors
+	task          string                                   // what it is about to be asked to do; see CreateOptions.Task
+	queued        *state.Agent                             // the queued agent this makes, when it isn't a new one
+	awaitImage    func(context.Context, state.Agent) error // see CreateOptions.AwaitImage; nil when the image is ready
 }
 
 // build creates an agent step by step. If a step fails, or ctx is cancelled,
@@ -703,6 +715,13 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		}
 	}
 
+	// Everything but the machine is there: the agent is listed, its branch
+	// and worktree exist, while it waits for the base image to be ready.
+	if pl.awaitImage != nil {
+		if err := pl.awaitImage(ctx, a); err != nil {
+			return fail("base image", err)
+		}
+	}
 	if step, err := m.makeMachine(ctx, a, pl.repo, pl.source, envFiles, pl.task, "", &undo); err != nil {
 		return fail(step, err)
 	}

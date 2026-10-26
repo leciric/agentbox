@@ -47,6 +47,9 @@
 //                           running, so its header and its rail row say Awaiting
 //   ?chat=untracked         agent-97's (OpenCode) chat, whose header warns that
 //                           background work isn't tracked there
+//   ?chat=imagewait         agent-100 asked for while the first base image
+//                           downloads: its rail row and its chat say it waits
+//                           for the image, with the download's progress
 //   ?chat=stopped|paused    a stopped (or paused) agent's stored conversation,
 //                           readable, with Start (Resume) on the composer.
 //                           Start, or sending a message, wakes it after 1.5s
@@ -427,7 +430,32 @@ if (params.get('gpu')) {
   const invalidate = queryClient.invalidateQueries.bind(queryClient);
   queryClient.invalidateQueries = ((filters?: Parameters<typeof invalidate>[0]) => invalidate(filters ?? { queryKey: ['settings'] })) as typeof invalidate;
 }
+// An agent asked for while the first base image downloads (?chat=imagewait).
+const imageWaitRef = `${PROJECT}/agent-100`;
+const signedIn: T.ClaudeAccount = { name: 'default', default: true, savedAt: '2026-10-26T10:00:00Z', valid: 'valid' };
+const imageDownloading: T.ImageStatus = {
+  ready: false,
+  snapshot: 'agentbox-base/ready',
+  build: 'building',
+  job: 'job-image-build',
+  step: 'Downloading the published base image (2026.10.20.1, 3 parts)',
+  progress: '40% of 1843 MB',
+  waiting: 1,
+};
+if (chat === 'imagewait') {
+  const like = fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-99`)!;
+  fixtures.agents.unshift({ ...like, ref: imageWaitRef, name: 'agent-100', title: 'Add CSV export to the reports page', branch: 'agentbox/csv-export', state: 'initializing', waitingForImage: true, chat: undefined, outcome: undefined, ip: '', createdAt: new Date().toISOString() });
+  api.image = async () => imageDownloading;
+  // Signed in, as by the time Setup is behind you.
+  const auth = api.auth;
+  api.auth = async () => ({ ...(await auth()), claudeAccounts: [signedIn] });
+}
 seedQueryClient(queryClient, fixtures);
+if (chat === 'imagewait') {
+  queryClient.setQueryData(['image'], imageDownloading);
+  queryClient.setQueryData<T.AuthStatus>(['auth'], (a) => a && { ...a, claudeAccounts: [signedIn] });
+  queryClient.setQueryData<T.ChatThread>(['chat', imageWaitRef], { agent: imageWaitRef, seq: 1, session: { state: 'off', tool: 'claude', options: [], commands: [] }, items: [] });
+}
 if (defaults) seedDefaults(queryClient);
 // The project's chat can switch tool and account from its composer: Claude Code
 // on two accounts with their quota, Codex, and Cursor signed out.
@@ -953,6 +981,10 @@ function Preview() {
                   <AvatarRow mood={m} big={avatars !== 'all'} />
                 </section>
               ))}
+          </div>
+        ) : chat === 'imagewait' ? (
+          <div style={{ height: '100%', margin: -24 }} data-image-wait-preview>
+            <ChatTab agent={fixtures.agents.find((a) => a.ref === imageWaitRef)!} starting={false} autoStart={false} onStart={() => {}} />
           </div>
         ) : chat === 'stopped' || chat === 'paused' ? (
           <div style={{ height: '100%', margin: -24 }}>

@@ -50,6 +50,7 @@ func (s *Server) agentInfo(st agent.Status) api.Agent {
 		// Still being made: whatever its chat, outcome or memory says is
 		// noise from the machine coming up, not news. It reads as starting
 		// in every client until the create job is done.
+		info.WaitingForImage = s.waitingOnImage(info.Ref)
 		return info
 	}
 	info.Chat = s.chat.State(info.Ref)

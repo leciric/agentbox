@@ -1135,16 +1135,6 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 			ran = &tailWriter{max: catchUpTail}
 			log = io.MultiWriter(log, ran)
 		}
-		// A machine copied from the project's own base doesn't need the
-		// base image; any other waits for it, while it's being built.
-		if _, hasBase, _ := s.manager(nil).ProjectBase(ctx, req.Project); !hasBase || req.Clean {
-			if err := s.awaitImage(ctx, log); err != nil {
-				if byLead {
-					s.tellLead(ctx, req.Project, fmt.Sprintf("create_agent failed: %v", err), true)
-				}
-				return nil, err
-			}
-		}
 		a, err := s.manager(log).Create(ctx, req.Project, agent.CreateOptions{
 			Name:          req.Name,
 			Branch:        req.Branch,
@@ -1171,6 +1161,12 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 			Connectors:   connectors,
 			Task:         strings.TrimSpace(req.Task),
 			Queued:       queued != "",
+			// A machine copied from the project's own base doesn't need the
+			// base image; any other waits for it, listed as waiting, while
+			// it's being downloaded or built.
+			AwaitImage: func(ctx context.Context, a state.Agent) error {
+				return s.awaitImageFor(ctx, a, log)
+			},
 		})
 		if err != nil {
 			if byLead {

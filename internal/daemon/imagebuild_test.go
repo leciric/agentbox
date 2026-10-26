@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"agentbox/internal/api"
+	"agentbox/internal/image"
 )
 
 // buildingIncus has no base image until "$INCUS_LOG.built" exists, which the
@@ -155,4 +156,181 @@ func TestWaitingForAFailedImageBuild(t *testing.T) {
 	if check := setupCheck(t, d, "image"); check.Status != api.SetupMissing || !strings.Contains(check.Detail, "the last build failed (debootstrap: no network)") {
 		t.Errorf("Setup after it failed: %+v", check)
 	}
+}
+
+// An agent asked for while the first image downloads is listed at once as
+// waiting for it, with the download's progress, and is made by itself once
+// the image is ready.
+func TestAgentWaitsForTheImageAndStartsWhenReady(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	d := startTestDaemon(t, root, buildingIncus)
+	ctx := context.Background()
+	addProjects(t, d, "hello")
+
+	if !d.srv.claimImage() {
+		t.Fatal("the image was busy")
+	}
+	result := make(chan error, 1)
+	j, err := d.srv.launchJob("image-build", "agentbox-base/ready", func(ctx context.Context, log io.Writer) (any, error) {
+		defer d.srv.releaseImage()
+		_, _ = io.WriteString(log, "==> Downloading the published image\n40% of 1800 MB\n")
+		if err := <-result; err != nil {
+			return nil, err
+		}
+		return nil, os.WriteFile(filepath.Join(root, "incus.log.built"), nil, 0o644)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.srv.setImagePhase(func(w *imageWork) { w.build = j.ID })
+
+	created, err := d.client.CreateAgent(ctx, api.CreateAgentRequest{Project: "hello", AI: "none", Title: "Waits"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waiting := waitForAgent(t, d, func(a api.Agent) bool { return a.WaitingForImage })
+	if waiting.State != "initializing" || waiting.Title != "Waits" {
+		t.Errorf("the waiting agent: %+v", waiting)
+	}
+	if _, err := os.Stat(waiting.Worktree); err != nil {
+		t.Errorf("its worktree isn't there while it waits: %v", err)
+	}
+	if st := imageStatusOf(t, d); st.Step != "Downloading the published image" || st.Progress != "40% of 1800 MB" || st.Waiting != 1 {
+		t.Errorf("the image while the agent waits: %+v", st)
+	}
+	if log, _ := os.ReadFile(filepath.Join(root, "incus.log")); strings.Contains(string(log), "copy ") {
+		t.Errorf("a machine was copied before the image was ready:\n%s", log)
+	}
+
+	result <- nil
+	// What comes after the copy, the machine booting, the fake can't do:
+	// the copy is what shows the create went on by itself.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		log, _ := os.ReadFile(filepath.Join(root, "incus.log"))
+		if strings.Contains(string(log), "copy agentbox-base/ready "+waiting.Instance) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no machine copied from the image once it was ready:\n%s", log)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if d.srv.waitingOnImage(waiting.Ref) {
+		t.Error("still listed as waiting after the image was ready")
+	}
+	if a := waitForAgent(t, d, func(a api.Agent) bool { return a.Ref == waiting.Ref }); a.WaitingForImage {
+		t.Errorf("listed as waiting after the image was ready: %+v", a)
+	}
+	_, _ = d.client.CancelJob(ctx, created.ID)
+	waitJobDone(t, d, created.ID)
+}
+
+// A build that fails, the local one after the download included, fails the
+// agents waiting for it, which leave nothing behind.
+func TestAgentWaitingForAFailedImage(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	d := startTestDaemon(t, root, buildingIncus)
+	ctx := context.Background()
+	addProjects(t, d, "hello")
+	_, finish := startFakeBuild(t, d, root)
+
+	created, err := d.client.CreateAgent(ctx, api.CreateAgentRequest{Project: "hello", AI: "none"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waiting := waitForAgent(t, d, func(a api.Agent) bool { return a.WaitingForImage })
+	finish(errors.New("debootstrap: no network"))
+	if job := waitJobDone(t, d, created.ID); job.Status != api.JobFailed || !strings.Contains(job.Error, "debootstrap: no network") {
+		t.Errorf("the create job: %+v", job)
+	}
+	if agents, _ := d.client.Agents(ctx, "hello"); len(agents) != 0 {
+		t.Errorf("agents left after the image failed: %+v", agents)
+	}
+	if _, err := os.Stat(waiting.Worktree); !os.IsNotExist(err) {
+		t.Errorf("worktree left after the image failed (stat: %v)", err)
+	}
+}
+
+// A new installation's first image starts by itself once Incus and the user
+// mapping are ready, once only, and never over an image that's there.
+func TestFirstImageIsFetchedOnce(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	d := startTestDaemon(t, root, buildingIncus)
+	ctx := context.Background()
+	var mapped error = errors.New("no mapping yet")
+	started := 0
+	d.srv.firstImage.checkHost = func(image.User) error { return mapped }
+	d.srv.firstImage.start = func(context.Context) (api.Job, error) {
+		started++
+		id, finish := startFakeBuild(t, d, root)
+		t.Cleanup(func() { finish(nil) })
+		return api.Job{ID: id}, nil
+	}
+	if d.srv.tryFirstImage(ctx) || started != 0 {
+		t.Fatalf("started %d build(s) before the user mapping was there", started)
+	}
+	mapped = nil
+	if !d.srv.tryFirstImage(ctx) || started != 1 {
+		t.Fatalf("started %d build(s) once it could, want 1", started)
+	}
+	if !d.srv.tryFirstImage(ctx) || started != 1 {
+		t.Fatalf("started %d build(s) with one under way, want 1", started)
+	}
+	if check := setupCheck(t, d, "image"); check.Status != api.SetupBuilding {
+		t.Errorf("Setup while the first image is fetched: %+v", check)
+	}
+
+	built := t.TempDir()
+	if err := os.WriteFile(filepath.Join(built, "incus.log.built"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ready := startTestDaemon(t, built, buildingIncus)
+	ready.srv.firstImage.checkHost = func(image.User) error { return nil }
+	ready.srv.firstImage.start = func(context.Context) (api.Job, error) {
+		t.Error("started a build over an image that's there")
+		return api.Job{}, nil
+	}
+	if !ready.srv.tryFirstImage(ctx) {
+		t.Error("kept looking with an image there")
+	}
+}
+
+func waitForAgent(t *testing.T, d testDaemon, match func(api.Agent) bool) api.Agent {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		agents, err := d.client.Agents(context.Background(), "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, a := range agents {
+			if match(a) {
+				return a
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("no agent as wanted")
+	return api.Agent{}
+}
+
+func waitJobDone(t *testing.T, d testDaemon, id string) api.Job {
+	t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		j, err := d.client.Job(context.Background(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if j.Status != api.JobRunning {
+			return j
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("job %s never finished", id)
+	return api.Job{}
 }

@@ -2096,5 +2096,26 @@
       "header [data-inbox]",
       "[data-review-row]"
     ]
+  },
+  {
+    "id": "image-wait-dark",
+    "description": "An agent asked for while the first base image downloads: its rail row and chat say it waits for the image, with the download's progress — dark",
+    "query": "chat=imagewait&open=agent-100&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "image-wait-light",
+    "description": "Same as image-wait-dark, light appearance",
+    "query": "chat=imagewait&open=agent-100&theme=light",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "image-wait-pt-dark",
+    "description": "Same as image-wait-dark, in Brazilian Portuguese",
+    "query": "chat=imagewait&open=agent-100&theme=dark&lang=pt-BR",
+    "width": 1280,
+    "height": 900
   }
 ]
