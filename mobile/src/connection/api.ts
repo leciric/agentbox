@@ -6,7 +6,7 @@
 // screens read is made safe on the way in (parse.ts).
 import * as T from '../shared/api.ts';
 import * as P from './parse.ts';
-import { forget, session } from './session.ts';
+import { forget, session, unreachable } from './session.ts';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -29,7 +29,7 @@ async function call<R>(method: string, path: string, body?: unknown): Promise<R>
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch (err) {
-    throw new ApiError(err instanceof Error ? err.message : String(err), 0);
+    throw new ApiError(unreachable(s.origin, err).message, 0);
   }
   const text = await res.text();
   if (res.status === 401) void forget();

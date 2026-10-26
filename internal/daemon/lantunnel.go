@@ -52,6 +52,7 @@ type lanTunnel struct {
 	t       phoneTunnel // nil when it couldn't be started
 	err     string      // why it couldn't
 	pending string      // what it waits for before it can start
+	tailnet string      // the tailnet's name as its node says it, once up
 }
 
 // stop ends cloudflared, which can take a few seconds: not under lan.mu.
@@ -386,6 +387,12 @@ func (s *Server) startTunnel(ctx context.Context, c lanTunnelSettings, key strin
 			// a new Tailscale.
 			StateDir: s.tailnetState(), Owner: hubKey(hub),
 			OnUp: func(n tunnel.TailscaleNode) {
+				if n.Tailnet != "" {
+					l.mu.Lock()
+					lt.tailnet = n.Tailnet
+					l.mu.Unlock()
+					s.publishLAN(ctx)
+				}
 				s.logf("phones: devices on the tailnet %s reach this machine at %s", cmp.Or(n.Tailnet, c.tailnet), n.URL)
 				s.reportTailnetAddress(ctx, hub, n)
 			},
@@ -475,6 +482,9 @@ func (s *Server) lanTunnelStatus(ctx context.Context) (api.LANTunnel, error) {
 	case lt.pending != "":
 		out.State, out.Error = tunnel.StateStarting, lt.pending
 	default:
+		if lt.tailnet != "" && out.Transport != "" {
+			out.Tailnet = lt.tailnet
+		}
 		st := lt.t.Status()
 		out.State, out.URL, out.Error = st.State, st.URL, st.Error
 		if st.State != tunnel.StateRunning {
@@ -647,4 +657,3 @@ func (s *Server) tailnetJoined(key string) bool {
 	_, err = os.Stat(filepath.Join(s.tailnetState(), "tailscaled.state"))
 	return err == nil
 }
-
