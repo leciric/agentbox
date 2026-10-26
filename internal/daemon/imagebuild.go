@@ -182,6 +182,11 @@ func (s *Server) awaitImage(ctx context.Context, log io.Writer) error {
 	}
 	j := s.runningImageBuild()
 	if j == nil {
+		// A build may have finished since the image was looked at: with
+		// none running, look again rather than start a second one.
+		if ready, err := image.Ready(ctx, s.cfg.Incus); err != nil || ready {
+			return err
+		}
 		started, err := s.startImageBuild(ctx, api.BuildImageRequest{})
 		if err != nil {
 			return fmt.Errorf("the base image isn't built, and building it couldn't start: %w", err)

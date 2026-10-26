@@ -333,3 +333,39 @@ func waitJobDone(t *testing.T, d testDaemon, id string) api.Job {
 	t.Fatalf("job %s never finished", id)
 	return api.Job{}
 }
+
+// A build that finishes between awaitImage's look at the image and its look
+// for a build leaves an image, not a second build to start: here the image
+// is missing the first time it's looked at and there the next.
+func TestAwaitImageAfterABuildJustFinished(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	d := startTestDaemon(t, root, `echo "$*" >>"$INCUS_LOG"
+case "$1" in
+  query)
+    case "$2" in
+      */agentbox-base/snapshots)
+        if [ -f "$INCUS_LOG.missing" ]; then rm "$INCUS_LOG.missing"; echo 'Error: not found' >&2; exit 1; fi
+        echo '["/1.0/instances/agentbox-base/snapshots/ready"]' ;;
+      *) echo '{}' ;;
+    esac ;;
+  *) echo '[]' ;;
+esac
+`)
+	// The daemon looks at the image as it starts: the missing answer is
+	// armed once it has.
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if log, _ := os.ReadFile(filepath.Join(root, "incus.log")); strings.Contains(string(log), "agentbox-base/snapshots") {
+			break
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "incus.log.missing"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.srv.awaitImage(context.Background(), io.Discard); err != nil {
+		t.Fatalf("awaitImage = %v, want the image that's there now", err)
+	}
+	if j := d.srv.lastImageBuild(); j != nil {
+		t.Errorf("started build %s over an image that was there", j.snapshot().ID)
+	}
+}
