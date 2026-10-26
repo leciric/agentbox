@@ -108,8 +108,16 @@ func TestDiskVersion(t *testing.T) {
 	if !regexp.MustCompile(`^[0-9a-f]{12}$`).MatchString(DiskVersion()) {
 		t.Fatalf("DiskVersion() = %q", DiskVersion())
 	}
-	if DiskTag() != "vmdisk-"+DiskVersion() || DiskVersion() != DiskVersion() {
+	if DiskTag() != "vmdisk-"+DiskVersion() {
 		t.Fatalf("DiskTag() = %q", DiskTag())
+	}
+	// The build template is part of it: a changed build is a new disk.
+	old := diskBuildTemplate
+	t.Cleanup(func() { diskBuildTemplate = old })
+	v := DiskVersion()
+	diskBuildTemplate += "# changed\n"
+	if DiskVersion() == v {
+		t.Error("DiskVersion() doesn't change with the build's template")
 	}
 	// Not image-…, which scripts/github-images.sh deletes as an old base image.
 	if strings.HasPrefix(DiskTag(), "image-") {
