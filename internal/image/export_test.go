@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/klauspost/compress/zstd"
 
@@ -20,6 +21,14 @@ func SetPartSize(n int64) (restore func()) {
 	old := partSize
 	partSize = n
 	return func() { partSize = old }
+}
+
+// SetStallTimeout changes how long a part may get nothing, until the
+// returned function is called.
+func SetStallTimeout(d time.Duration) (restore func()) {
+	old := stallTimeout
+	stallTimeout = d
+	return func() { stallTimeout = old }
 }
 
 // SetHaveZstd says whether this machine has the zstd command, until the

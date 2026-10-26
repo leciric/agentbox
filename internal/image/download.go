@@ -40,6 +40,11 @@ const partAttempts = 3
 // attempt. A variable for the tests.
 var retryDelay = 2 * time.Second
 
+// stallTimeout is how long a part's download may get nothing before it is
+// given up and tried again, resuming: a connection can hang without failing.
+// A variable for the tests.
+var stallTimeout = time.Minute
+
 // haveZstd says whether this machine, where Incus unpacks the images it
 // imports, has the zstd command Incus runs for a .tar.zst. A variable for
 // the tests.
@@ -201,6 +206,11 @@ func fetchPart(ctx context.Context, client *http.Client, url, path string, pt Pa
 // sends the whole file, which is then written again from the start. It
 // returns how much of the file f holds.
 func fetchRange(ctx context.Context, client *http.Client, url string, f *os.File, h hash.Hash, have, size int64, prog *progress) (int64, error) {
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	stalled := fmt.Errorf("downloading %s: nothing came for %s", url, stallTimeout)
+	watchdog := time.AfterFunc(stallTimeout, func() { cancel(stalled) })
+	defer watchdog.Stop()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return have, err
@@ -210,6 +220,9 @@ func fetchRange(ctx context.Context, client *http.Client, url string, f *os.File
 	}
 	resp, err := client.Do(req)
 	if err != nil {
+		if context.Cause(ctx) == stalled {
+			return have, stalled
+		}
 		return have, fmt.Errorf("downloading %s: %w", url, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -233,9 +246,13 @@ func fetchRange(ctx context.Context, client *http.Client, url string, f *os.File
 		return have, fmt.Errorf("downloading %s: %s", url, resp.Status)
 	}
 	// One byte more than the part should have, to tell a longer one.
-	n, err := io.Copy(io.MultiWriter(f, h, prog), io.LimitReader(resp.Body, size-have+1))
+	body := &watched{r: io.LimitReader(resp.Body, size-have+1), watchdog: watchdog}
+	n, err := io.Copy(io.MultiWriter(f, h, prog), body)
 	have += n
 	if err != nil {
+		if context.Cause(ctx) == stalled {
+			return have, stalled
+		}
 		return have, fmt.Errorf("downloading %s: %w", url, err)
 	}
 	if have != size {
@@ -249,6 +266,20 @@ func fetchRange(ctx context.Context, client *http.Client, url string, f *os.File
 		return have, fmt.Errorf("downloading %s: got %d bytes, not the %d image-<arch>.json says", url, have, size)
 	}
 	return have, nil
+}
+
+// watched pushes its watchdog back whenever something is read.
+type watched struct {
+	r        io.Reader
+	watchdog *time.Timer
+}
+
+func (w *watched) Read(b []byte) (int, error) {
+	n, err := w.r.Read(b)
+	if n > 0 {
+		w.watchdog.Reset(stallTimeout)
+	}
+	return n, err
 }
 
 // join writes a's parts, from dir, into path through a .part file, deleting

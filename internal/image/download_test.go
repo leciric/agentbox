@@ -179,6 +179,35 @@ func TestDownloadResumesAPartThatWasCutOff(t *testing.T) {
 	}
 }
 
+// A part that stops coming without the connection failing is given up after
+// a while, and resumed.
+func TestDownloadResumesAPartThatStalls(t *testing.T) {
+	defer image.SetHaveZstd(true)()
+	defer image.SetStallTimeout(200 * time.Millisecond)()
+	p := publish(t, specs(image.PublishedTools()), nil)
+	part := zstdName + ".001"
+	var once atomic.Bool
+	p.setHandle(func(w http.ResponseWriter, r *http.Request, name string) bool {
+		if name != part || !once.CompareAndSwap(false, true) {
+			return false
+		}
+		b := p.files[part]
+		w.Header().Set("Content-Length", strconv.Itoa(len(b)))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(b[:len(b)/2])
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+		return true
+	})
+	if _, content := importedAs(t, publishedOptions(t, p)); !bytes.Equal(content, zstdOf(t, tarball)) {
+		t.Error("the resumed download should join into the zstd archive")
+	}
+	want := []string{part, part + " bytes=" + strconv.Itoa(len(p.files[part])/2) + "-"}
+	if got := asked(p, part); !slices.Equal(got, want) {
+		t.Errorf("requests for %s = %q, want %q", part, got, want)
+	}
+}
+
 // A download stopped halfway (the daemon restarted, the build cancelled)
 // keeps its parts, and the next build carries on from them.
 func TestDownloadResumesAfterARestart(t *testing.T) {
