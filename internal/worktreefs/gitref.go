@@ -36,45 +36,32 @@ func BranchCommit(root, branch string) (string, error) {
 	return "", fmt.Errorf("%w: %s", ErrNoBranch, branch)
 }
 
+// BranchTips is every branch's commit in the repository at root, read at
+// once, as BranchCommit reads one: the local branch's, or origin's when there
+// is no local one.
+func BranchTips(root string) (map[string]string, error) {
+	out, err := git(root, nil, "for-each-ref", "--format=%(objectname) %(refname)", "refs/heads/", "refs/remotes/origin/")
+	if err != nil {
+		return nil, err
+	}
+	tips := map[string]string{}
+	for line := range strings.Lines(out) {
+		commit, ref, _ := strings.Cut(strings.TrimSpace(line), " ")
+		if branch, ok := strings.CutPrefix(ref, "refs/heads/"); ok {
+			tips[branch] = commit
+		} else if branch, ok := strings.CutPrefix(ref, "refs/remotes/origin/"); ok && tips[branch] == "" {
+			tips[branch] = commit
+		}
+	}
+	return tips, nil
+}
+
 func commitOf(root, rev string) (string, error) {
 	out, err := git(root, nil, "rev-parse", "--verify", "--quiet", "--end-of-options", rev+"^{commit}")
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(out), nil
-}
-
-// Commits is the commit each of revs names in the repository at root, ""
-// for one that names none, in one git process rather than one each.
-func Commits(root string, revs []string) ([]string, error) {
-	out := make([]string, len(revs))
-	var in strings.Builder
-	var asked []int
-	for i, rev := range revs {
-		if rev == "" || strings.ContainsAny(rev, "\n\r") { // one line per rev
-			continue
-		}
-		in.WriteString(rev + "^{commit}\n")
-		asked = append(asked, i)
-	}
-	if len(asked) == 0 {
-		return out, nil
-	}
-	text, err := git(root, strings.NewReader(in.String()), "cat-file", "--batch-check")
-	if err != nil {
-		return nil, err
-	}
-	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
-	if len(lines) != len(asked) {
-		return nil, fmt.Errorf("git cat-file answered %d lines for %d revisions", len(lines), len(asked))
-	}
-	for k, i := range asked {
-		// "<oid> commit <size>", or "<rev> missing" (or ambiguous).
-		if f := strings.Fields(lines[k]); len(f) == 3 && f[1] == "commit" {
-			out[i] = f[0]
-		}
-	}
-	return out, nil
 }
 
 // BaseAt is what commit's changes are measured against: baseCommit when the

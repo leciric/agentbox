@@ -130,3 +130,60 @@ func work(t *testing.T, d testDaemon, path string) api.WorkPage {
 	}
 	return page
 }
+
+// A past agent's changes are measured once for where its kept branch is, not
+// on every read of the page, and again once the branch moves.
+func TestWorkMeasuresPastChangesOncePerCommit(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	repo := d.fixtureRepo(t, "hello-stack")
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
+		t.Fatal(err)
+	}
+	base := strings.TrimSpace(testutil.Git(t, repo, "rev-parse", "HEAD"))
+	head := strings.TrimSpace(testutil.Git(t, repo, "rev-parse", "--abbrev-ref", "HEAD"))
+	commit := func(file string) {
+		if err := os.WriteFile(filepath.Join(repo, file), []byte("a\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		testutil.Git(t, repo, "add", "-A")
+		testutil.Git(t, repo, "commit", "-q", "-m", file)
+	}
+	testutil.Git(t, repo, "checkout", "-q", "-b", "agentbox/agent-07")
+	commit("one.txt")
+	testutil.Git(t, repo, "checkout", "-q", head)
+	past := state.Agent{
+		Project: "hello-stack", Name: "agent-07", Instance: "ab-hello-stack-agent-07", AI: "claude", Title: "Dark mode",
+		Branch: "agentbox/agent-07", BaseRef: head, BaseCommit: base, Worktree: "/gone/agent-07",
+		Status: state.AgentReady, CreatedAt: time.Now().Add(-time.Hour), Interface: state.InterfaceChat,
+	}
+	if err := d.srv.store.AddAgent(ctx, past); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.srv.store.ArchiveAgent(ctx, past, "", state.ArchivedPR{}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	files := func() int {
+		page := work(t, d, "/v1/work")
+		if len(page.Items) != 1 || page.Items[0].Item.Changes == nil {
+			t.Fatalf("page = %+v", page.Items)
+		}
+		return page.Items[0].Item.Changes.Files
+	}
+	measured := func() int {
+		d.srv.mu.Lock()
+		defer d.srv.mu.Unlock()
+		return len(d.srv.pastChanges)
+	}
+	if got := files(); got != 1 || files() != 1 || measured() != 1 {
+		t.Fatalf("files = %d, measured %d times; want 1 file, measured once", got, measured())
+	}
+	// The branch pushed on after the agent was archived.
+	testutil.Git(t, repo, "checkout", "-q", "agentbox/agent-07")
+	commit("two.txt")
+	testutil.Git(t, repo, "checkout", "-q", head)
+	if got := files(); got != 2 || measured() != 2 {
+		t.Errorf("after the branch moved: files = %d, measured %d; want 2 and 2", got, measured())
+	}
+}

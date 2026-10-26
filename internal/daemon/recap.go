@@ -8,12 +8,9 @@ import (
 	"runtime"
 	"slices"
 	"strconv"
-	"strings"
-	"sync"
 	"time"
 
 	"agentbox/internal/api"
-	"agentbox/internal/gitrepo"
 	"agentbox/internal/state"
 	"agentbox/internal/worktreefs"
 
@@ -26,7 +23,7 @@ import (
 // there, and what the Work page reads of agents (liveWork, archived agents)
 // which agents had pull requests and what their branches changed. It is read
 // again each time the page opens, but for what past agents' branches changed,
-// which is kept by their commits (diffStats).
+// which is kept by their commits (pastChangesOf).
 
 // recapStreakDays is how far back a streak is looked for.
 const recapStreakDays = 366
@@ -217,7 +214,7 @@ func (s *Server) buildRecap(ctx context.Context, now time.Time, offset time.Dura
 // created in it besides: live agents and past ones, as the Work page knows
 // them, but only those of the week. A past agent's branch is diffed for what
 // it changed, which is most of the cost, so only the week's are, several at
-// once, and each pair of commits once (diffStats).
+// once, and each branch commit once (pastChangesOf).
 func (s *Server) recapAgents(ctx context.Context, start, end time.Time, agents map[string]*recapAgent, agentOf func(project, name string) *recapAgent) error {
 	ofWeek := func(ref string, created time.Time) bool {
 		_, worked := agents[ref]
@@ -285,88 +282,16 @@ func (s *Server) recapAgents(ctx context.Context, start, end time.Time, agents m
 	g.SetLimit(max(2, runtime.NumCPU()/2))
 	for name, past := range byProject {
 		root := byName[name].Root
-		for i, r := range archivedRanges(root, past) {
-			if r.base == "" {
-				continue
-			}
-			a := agents[past[i].Ref()]
+		tips, _ := worktreefs.BranchTips(root)
+		for _, p := range past {
+			a := agents[p.Ref()]
 			g.Go(func() error {
-				a.changes = s.branchStats.of(root, r.base, r.commit)
+				a.changes = s.pastChangesOf(root, p, tips)
 				return nil
 			})
 		}
 	}
 	return g.Wait()
-}
-
-// commitRange is a past agent's kept branch and what it is measured against.
-type commitRange struct{ commit, base string }
-
-// archivedRanges is archivedRange for each of past, all of project root: one
-// git process for all their branches and bases, and one more for each base
-// only a merge-base finds. A range is empty when it can't be read.
-func archivedRanges(root string, past []state.ArchivedAgent) []commitRange {
-	out := make([]commitRange, len(past))
-	revs := make([]string, 0, 3*len(past))
-	for _, a := range past {
-		heads, remotes := "", ""
-		if a.Branch != "" && !strings.HasPrefix(a.Branch, "-") {
-			heads, remotes = "refs/heads/"+a.Branch, "refs/remotes/origin/"+a.Branch
-		}
-		revs = append(revs, heads, remotes, a.BaseCommit)
-	}
-	commits, err := worktreefs.Commits(root, revs)
-	if err != nil {
-		return out
-	}
-	for i, a := range past {
-		commit := cmp.Or(commits[3*i], commits[3*i+1])
-		if commit == "" {
-			continue
-		}
-		base := commits[3*i+2]
-		if base == "" {
-			base = worktreefs.BaseAt(root, "", a.BaseRef, commit)
-		}
-		out[i] = commitRange{commit, base}
-	}
-	return out
-}
-
-// diffStats is what past agents' kept branches changed, by the commits
-// measured: a diff of two commits never changes, while a branch may move on,
-// so its commit is looked up again each time.
-type diffStats struct {
-	mu   sync.Mutex
-	byID map[string]api.AgentChanges
-}
-
-// maxDiffStats is how many diffStats keeps before it starts again: a few
-// hundred bytes each.
-const maxDiffStats = 4096
-
-// of is what commit changed since base in the repository at root, nil when
-// that can't be read.
-func (d *diffStats) of(root, base, commit string) *api.AgentChanges {
-	key := root + "\x00" + base + "\x00" + commit
-	d.mu.Lock()
-	c, ok := d.byID[key]
-	d.mu.Unlock()
-	if ok {
-		return &c
-	}
-	stat, err := gitrepo.DiffCommits(root, base, commit, true)
-	if err != nil {
-		return nil
-	}
-	c = statOf(stat)
-	d.mu.Lock()
-	if d.byID == nil || len(d.byID) >= maxDiffStats {
-		d.byID = map[string]api.AgentChanges{}
-	}
-	d.byID[key] = c
-	d.mu.Unlock()
-	return &c
 }
 
 // streaks is the run of days up to today (or yesterday, when today has

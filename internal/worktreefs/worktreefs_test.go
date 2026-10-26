@@ -280,6 +280,17 @@ func TestReadingABranchesCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Read at once, the branches are what BranchCommit reads one at a time:
+	// origin's when there is no local branch, and the local one when there is.
+	main := strings.TrimSpace(testutil.Git(t, root, "rev-parse", "main"))
+	if tips, err := BranchTips(root); err != nil || tips["agentbox/past"] != commit || tips["main"] != main || tips["agentbox/gone"] != "" {
+		t.Errorf("BranchTips = %v, %v; want agentbox/past at %s from origin, main at %s", tips, err, commit, main)
+	}
+	testutil.Git(t, root, "branch", "-q", "agentbox/past", "main")
+	if tips, _ := BranchTips(root); tips["agentbox/past"] != main {
+		t.Errorf("with a local branch, BranchTips[agentbox/past] = %s, want the local branch's %s", tips["agentbox/past"], main)
+	}
+	testutil.Git(t, root, "branch", "-q", "-D", "agentbox/past")
 
 	list, err := ListAt(root, commit, "")
 	if err != nil {
@@ -374,20 +385,4 @@ func TestReadingABranchesCommit(t *testing.T) {
 
 func slicesIndex(entries []api.FileEntry, name string) int {
 	return slices.IndexFunc(entries, func(e api.FileEntry) bool { return e.Name == name })
-}
-
-// Commits names each revision's commit in one go, and nothing for one that
-// isn't there or isn't a commit.
-func TestCommitsResolvesEachRevision(t *testing.T) {
-	root := repo(t)
-	main := strings.TrimSpace(testutil.Git(t, root, "rev-parse", "main"))
-	work := strings.TrimSpace(testutil.Git(t, root, "rev-parse", "work"))
-	tree := strings.TrimSpace(testutil.Git(t, root, "rev-parse", "main^{tree}"))
-	got, err := Commits(root, []string{"refs/heads/work", "", "refs/heads/gone", main, tree, "bad\nrev", "main"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := []string{work, "", "", main, "", "", main}; !slices.Equal(got, want) {
-		t.Fatalf("Commits = %q, want %q", got, want)
-	}
 }
