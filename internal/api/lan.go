@@ -60,6 +60,11 @@ type LANTunnel struct {
 	// NamedHostname is the user's own tunnel's, when they set one up, in any
 	// mode: "named" can be chosen again without its token.
 	NamedHostname string `json:"namedHostname,omitempty"`
+	// Transport is "tailscale" when the hub's address is in the hub's
+	// tailnet, Tailnet, rather than a Cloudflare Tunnel: only devices on
+	// that tailnet reach URL, and Hostname is the machine's node's name.
+	Transport string `json:"transport,omitempty"`
+	Tailnet   string `json:"tailnet,omitempty"`
 	// State is "off", "starting" (downloading cloudflared, or connecting),
 	// "running" or "failed" (it's tried again after a while).
 	State string `json:"state"`

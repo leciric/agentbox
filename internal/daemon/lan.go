@@ -83,7 +83,7 @@ type lanState struct {
 	seen      map[string]time.Time                        // when each phone's last visit was recorded
 	api       http.Handler                                // routes(), as phones reach it
 	limiter   *lan.Limiter                                // wrong pairing codes and tokens, by address
-	tunnel    *lanTunnel                                  // the Cloudflare Tunnel, when it runs (lantunnel.go)
+	tunnel    *lanTunnel                                  // the tunnel, when it runs (lantunnel.go)
 
 	// The tunnel the hub makes for this machine (lantunnel.go), by hubKey:
 	// which hub and environment it was last asked of this run, and the one
@@ -98,6 +98,9 @@ type lanState struct {
 	// port). Fields for tests: nil is tunnel.Installer's.
 	cloudflared func(ctx context.Context, status func(string)) (string, error)
 	tunnelPort  int
+	// tailscale finds the directory of tailscale and tailscaled, for a hub
+	// that gives out tailnet addresses; nil is tunnel.TailscaleInstaller's.
+	tailscale func(ctx context.Context, status func(string)) (string, error)
 
 	// own says the daemon opens the port itself: everywhere but in the
 	// Linux host's VM, whose supervisor opens it on the host. addresses are
@@ -547,6 +550,10 @@ func (s *Server) lanHandler(via lanVia) http.Handler {
 			}
 		case via == lanViaTunnel && r.Header.Get("Cf-Connecting-IP") != "":
 			addr = r.Header.Get("Cf-Connecting-IP")
+		case via == lanViaTunnel && r.Header.Get("X-Forwarded-For") != "":
+			// tailscale serve, from a device in the tailnet.
+			parts := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+			addr = strings.TrimSpace(parts[len(parts)-1])
 		default:
 			if host, _, err := net.SplitHostPort(addr); err == nil {
 				addr = host

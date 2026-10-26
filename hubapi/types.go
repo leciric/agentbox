@@ -133,6 +133,11 @@ type HubEnvironment struct {
 	Version     string    `json:"version,omitempty"`              // its AgentBox version
 	Hostname    string    `json:"hostname,omitempty"`
 	CreatedAt   time.Time `json:"createdAt"`
+	// Transport and Address are where its devices reach it directly, once
+	// the hub gave it an address: TransportCloudflare and its public https
+	// address, or TransportTailscale and its address in the tailnet.
+	Transport string `json:"transport,omitempty"`
+	Address   string `json:"address,omitempty"`
 }
 
 type HubCreateEnvironmentRequest struct {
@@ -145,14 +150,43 @@ type HubEnvironmentToken struct {
 	Token       string         `json:"token"`
 }
 
-// HubEnvironmentTunnel answers POST PathEnvironmentTunnel: a Cloudflare Tunnel
-// the hub made for the environment, on Hostname, which the environment runs
-// cloudflared with. Phones reach the environment through it at
-// https://<Hostname>/, never through the hub, and still pair with the
-// daemon's own one-time secret: the token runs the tunnel and nothing else.
+// HubEnvironmentTunnel answers POST PathEnvironmentTunnel: how the
+// environment's devices reach it directly, never through the hub. They still
+// pair with the daemon's own one-time secret, which the hub never sees: Token
+// puts the environment on the transport and does nothing else.
+//
+// On TransportCloudflare (Transport empty, as from hubs that predate
+// Tailscale) it's a Cloudflare Tunnel the hub made, on the public Hostname,
+// which the environment runs cloudflared with Token for; devices open
+// https://<Hostname>/.
+//
+// On TransportTailscale, Token is an auth key that joins the environment to
+// the hub's tailnet as a node named Hostname, tagged by the key. The
+// environment serves on its node with tailscale serve, and reports the
+// address that gives it (PathEnvironmentAddress); only the tailnet's devices
+// reach it.
 type HubEnvironmentTunnel struct {
-	Hostname string `json:"hostname"`
-	Token    string `json:"token"`
+	Transport string `json:"transport,omitempty"`
+	Hostname  string `json:"hostname"`
+	Token     string `json:"token"`
+	// Tailnet is the tailnet the environment joins, as the hub names it
+	// (like "example.com"; "-" is the auth key's own): what a device not on
+	// it is told to join.
+	Tailnet string `json:"tailnet,omitempty"`
+}
+
+// HubEnvironmentAddress is what an environment reports of its node in the
+// hub's tailnet once it serves there.
+type HubEnvironmentAddress struct {
+	Transport string `json:"transport"` // TransportTailscale
+	// URL is where devices on the tailnet open it, like
+	// https://agentbox-5f3a.tail1234.ts.net/.
+	URL string `json:"url"`
+	// NodeID is its node's stable ID, which the hub removes it from the
+	// tailnet by when the environment is deleted.
+	NodeID string `json:"nodeID,omitempty"`
+	// IPs are its addresses in the tailnet, 100.x.y.z and fd7a:….
+	IPs []string `json:"ips,omitempty"`
 }
 
 // Error is how a hub reports a failure, in any answer that isn't a success. It
