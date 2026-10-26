@@ -186,5 +186,5 @@ On a Mac there is also an **experimental** way without Lima: `agentbox vm init -
 Apple's Virtualization framework, on macOS 13 or later. It hasn't been tried on a real Mac yet; its
 VM holds all of its memory while it runs, and `agentbox vm delete --yes` goes back to Lima's. It
 boots the same ready-made disk as on Linux (Lima's VM doesn't: it starts from Lima's own Debian
-image, and its first boot installs Incus). A
-build of your own needs signing for it: `scripts/mac-sign.sh bin/agentbox`.
+image, and its first boot installs Incus). A build of your own needs signing for it:
+`scripts/mac-sign.sh bin/agentbox`.
