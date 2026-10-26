@@ -12,7 +12,8 @@
 //   ?concept=timeline       a mock idea, on its own (dev/concepts): timeline is
 //                           agents' work as a timeline over their recording
 //   ?app=recap              Your week with AgentBox (components/RecapView), from
-//                           dev/recap.ts; &recap=empty a week with nothing
+//                           dev/recap.ts; &recap=empty a week with nothing,
+//                           &recap=estimated one whose cost is estimated
 //   ?app=work               the Work page (components/WorkView), of every
 //                           project, from dev/pastAgents.ts; any ?app= has the
 //                           fixture timelines

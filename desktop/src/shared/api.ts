@@ -2966,6 +2966,8 @@ export interface Recap {
   models: RecapModel[];
   tokens: number;
   costUsd: number;
+  estimatedUsd: number;
+  unpricedTokens: number;
   streak: number;
   bestStreak: number;
 }
@@ -2995,6 +2997,9 @@ export interface RecapModel {
   model: string;
   tokens: number;
   output: number;
+  costUsd: number;
+  estimatedUsd: number;
+  unpricedTokens: number;
 }
 
 export interface VMStatus {

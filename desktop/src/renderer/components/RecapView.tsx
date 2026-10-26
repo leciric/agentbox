@@ -3,13 +3,13 @@
 // square, saved or copied as a PNG (lib/recapCard.ts). The page names the
 // projects, being the user's own; the card leaves them off unless ticked in.
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Check, ChevronLeft, ChevronRight, Copy, Download, Flame, GitMerge, GitPullRequest, Moon, Sparkles, Timer, Bot, FileDiff } from 'lucide-react';
+import { ArrowLeft, Check, ChevronLeft, ChevronRight, Copy, Download, Flame, GitMerge, GitPullRequest, Moon, Sparkles, Timer, Bot, FileDiff, Wallet } from 'lucide-react';
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
 import { useLanguage, useT } from '../lib/i18n';
-import { awayShare, cardFileName, compact, dayName, duration, isEmpty, modelLabel, peakLabel, weekRange, type CardFormat } from '../lib/recap';
+import { awayShare, cardFileName, compact, dayName, duration, isEmpty, modelLabel, peakLabel, spendOf, weekRange, type CardFormat } from '../lib/recap';
 import { cardPNG, drawCard } from '../lib/recapCard';
 import { usd } from '../lib/tokens';
 import { cn, errorMessage } from '../lib/utils';
@@ -86,7 +86,7 @@ function Week({ recap }: { recap: T.Recap }) {
 }
 
 // Hero is the week's headline: hours of agent work, how much of it the user
-// missed, and the counts.
+// missed, what it cost, and the counts. The cost stays off the share card.
 function Hero({ recap }: { recap: T.Recap }) {
   const t = useT();
   const longest = recap.longest;
@@ -106,6 +106,7 @@ function Hero({ recap }: { recap: T.Recap }) {
             <Moon className="size-4 fill-[#fde68a] text-[#fde68a]" />
             {t('recap.awayYou', { hours: duration(recap.awaySeconds), share: Math.round(awayShare(recap) * 100) })}
           </div>
+          <Spent recap={recap} />
         </div>
         <div className="grid min-w-0 grid-cols-2 gap-2.5 sm:grid-cols-3">
           <Stat icon={Bot} label={t('recap.agents')} value={compact(recap.agents)} sub={t('recap.projects', { count: recap.projects })} />
@@ -125,6 +126,31 @@ function Hero({ recap }: { recap: T.Recap }) {
           <Stat icon={GitMerge} label={t('recap.busiest')} value={busiest?.project ?? '—'} sub={busiest ? t('recap.busiestSub', { hours: duration(busiest.workSeconds), count: busiest.agents }) : ''} />
         </div>
       </div>
+    </div>
+  );
+}
+
+// Spent is what the week cost at API prices, marked when some of it was
+// estimated from the price table, and what had no price at all.
+function Spent({ recap }: { recap: T.Recap }) {
+  const t = useT();
+  const spend = spendOf(recap);
+  return (
+    <div className="mt-5 min-w-0" title={t('recap.spendHint')} data-recap-spend={spend}>
+      <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+        <Wallet className="size-5 shrink-0 self-center text-[#a78bfa]" />
+        <span className="text-4xl font-bold tracking-tight tabular-nums">
+          {spend === 'estimated' || spend === 'partly' ? '≈ ' : ''}
+          {usd(recap.costUsd)}
+        </span>
+        <span className="text-[15px] font-semibold">{t('recap.spent')}</span>
+        {(spend === 'estimated' || spend === 'partly') && (
+          <span className="rounded-full border border-[#fde68a]/30 bg-[#fde68a]/10 px-2 py-0.5 text-[11.5px] font-semibold text-[#fde68a]">
+            {t(spend === 'estimated' ? 'recap.spendEstimated' : 'recap.spendPartly')}
+          </span>
+        )}
+      </div>
+      {recap.unpricedTokens > 0 && <div className="mt-1 text-[12.5px] text-[#8f8ab0]">{t('recap.unpriced', { tokens: compact(recap.unpricedTokens) })}</div>}
     </div>
   );
 }
@@ -220,10 +246,7 @@ function Models({ recap }: { recap: T.Recap }) {
     <div>
       <div className="mb-3 flex items-baseline gap-3">
         <h2 className="text-[13px] font-semibold text-title">{t('recap.models')}</h2>
-        <span className="ml-auto text-[11.5px] tabular-nums text-muted">
-          {t('recap.tokens', { tokens: compact(recap.tokens) })}
-          {recap.costUsd > 0 && ` · ${t('recap.cost', { cost: usd(recap.costUsd) })}`}
-        </span>
+        <span className="ml-auto text-[11.5px] tabular-nums text-muted">{t('recap.tokens', { tokens: compact(recap.tokens) })}</span>
       </div>
       {recap.models.length === 0 ? (
         <p className="text-[13px] text-subtle">{t('recap.noTokens')}</p>
@@ -235,7 +258,9 @@ function Models({ recap }: { recap: T.Recap }) {
                 <span className="truncate font-medium text-primary" title={m.model}>
                   {m.model ? modelLabel(m.model) : t('vm.tokens.unnamedModel')}
                 </span>
-                <span className="shrink-0 tabular-nums text-muted">{compact(m.tokens)}</span>
+                <span className="shrink-0 tabular-nums text-muted">
+                  {compact(m.tokens)} · <ModelCost model={m} />
+                </span>
               </div>
               <div className="mt-1.5 h-1.5 rounded-full bg-surface-strong">
                 <div className="h-full rounded-full bg-gradient-to-r from-brand-600 to-brand-400" style={{ width: `${Math.max(2, (m.tokens / most) * 100)}%` }} />
@@ -245,6 +270,20 @@ function Models({ recap }: { recap: T.Recap }) {
         </ul>
       )}
     </div>
+  );
+}
+
+// ModelCost is a model's share of the week's cost, marked ≈ when estimated.
+function ModelCost({ model }: { model: T.RecapModel }) {
+  const t = useT();
+  const spend = spendOf(model);
+  if (spend === 'none') return <span title={model.unpricedTokens > 0 ? t('recap.noPrice') : undefined}>—</span>;
+  const estimated = spend === 'estimated' || spend === 'partly';
+  return (
+    <span className={estimated ? undefined : 'text-secondary'} title={estimated ? t(spend === 'estimated' ? 'recap.modelEstimated' : 'recap.modelPartly') : undefined}>
+      {estimated ? '≈ ' : ''}
+      {usd(model.costUsd)}
+    </span>
   );
 }
 

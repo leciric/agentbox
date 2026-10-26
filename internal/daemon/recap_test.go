@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"agentbox/internal/api"
+	"agentbox/internal/pricing"
 	"agentbox/internal/state"
 	"agentbox/internal/testutil"
 )
@@ -138,6 +140,12 @@ func TestRecap(t *testing.T) {
 	if len(r.Models) != 2 || r.Models[0].Model != "claude-opus-5" || r.Models[0].Output != 1000+500+50+70 {
 		t.Errorf("models = %+v, want opus first with the lead's tokens in it", r.Models)
 	}
+	// No turn reported a cost: Opus 5's are priced, and claude-haiku-5 has
+	// no price.
+	opus, _ := pricing.Lookup("claude-opus-5")
+	if want := opus.Cost(40, 1620, 0, 0); math.Abs(r.CostUSD-want) > 1e-12 || r.EstimatedUSD != r.CostUSD || r.UnpricedTokens != 210 {
+		t.Errorf("cost = $%v, $%v of it estimated, %d tokens unpriced; want $%v, all estimated, 210 unpriced", r.CostUSD, r.EstimatedUSD, r.UnpricedTokens, want)
+	}
 	if r.Streak != 3 || r.BestStreak != 3 {
 		t.Errorf("streak = %d, best %d, want 3 and 3", r.Streak, r.BestStreak)
 	}
@@ -165,5 +173,73 @@ func TestStreaks(t *testing.T) {
 		if cur, best := streaks(c.days, c.today); cur != c.current || best != c.best {
 			t.Errorf("streaks(%v, %d) = %d, %d, want %d, %d", c.days, c.today, cur, best, c.current, c.best)
 		}
+	}
+}
+
+func TestRecapSpend(t *testing.T) {
+	t.Parallel()
+	price := func(model string) pricing.Price {
+		p, ok := pricing.Lookup(model)
+		if !ok {
+			t.Fatalf("%s has no price", model)
+		}
+		return p
+	}
+	opus, haiku, codex := price("claude-opus-4-5"), price("claude-haiku-4-5"), price("gpt-5-codex")
+	rows := []state.TokenRow{
+		// A Claude Code turn with a subagent on Haiku: the turn's $3 is all on
+		// its busiest row, and is shared by what each model would cost.
+		{AI: "claude", Session: "s1", Turn: "t1", Model: "claude-opus-4-5", Input: 1000, Output: 4000, CacheRead: 100_000, CostUSD: 3},
+		{AI: "claude", Session: "s1", Turn: "t1", Model: "claude-haiku-4-5", Input: 500, Output: 2000},
+		// A result the session made by itself: a cost and no tokens.
+		{AI: "claude", Session: "s1", Turn: "t2", Model: "opus", CostUSD: 0.5},
+		// Codex reports no cost: priced from the table.
+		{AI: "codex", Session: "s2", Turn: "t1", Model: "gpt-5-codex", Input: 20_000, Output: 3000, CacheRead: 400_000},
+		// Same turn id in another session is another turn.
+		{AI: "codex", Session: "s3", Turn: "t1", Model: "gpt-5-codex/high", Input: 1000, Output: 100},
+		// Cursor on a model with no price: counted, not priced.
+		{AI: "cursor", Session: "s4", Turn: "t1", Model: "acme-preview", Input: 7000, Output: 700},
+		// A reported turn with a model that has no price keeps its cost where
+		// it was reported.
+		{AI: "opencode", Session: "s5", Turn: "t1", Model: "acme-preview", Input: 10, Output: 10, CostUSD: 0.25},
+		{AI: "opencode", Session: "s5", Turn: "t1", Model: "claude-haiku-4-5", Input: 10, Output: 10},
+	}
+	var r api.Recap
+	recapSpend(&r, rows)
+
+	near := func(a, b float64) bool { return math.Abs(a-b) < 1e-9 }
+	by := map[string]api.RecapModel{}
+	for _, m := range r.Models {
+		by[m.Model] = m
+	}
+	if len(r.Models) != 5 || r.Models[0].Model != "gpt-5-codex" {
+		t.Fatalf("models = %+v, want five, the most tokens first, and no row for the cost-only result", r.Models)
+	}
+	o, h := opus.Cost(1000, 4000, 100_000, 0), haiku.Cost(500, 2000, 0, 0)
+	if m := by["claude-opus-4-5"]; !near(m.CostUSD, 3*o/(o+h)) || m.EstimatedUSD != 0 || m.UnpricedTokens != 0 {
+		t.Errorf("opus = %+v, want $%v of the reported $3", m, 3*o/(o+h))
+	}
+	if m := by["claude-haiku-4-5"]; !near(m.CostUSD, 3*h/(o+h)) || m.EstimatedUSD != 0 || m.Tokens != 2520 {
+		t.Errorf("haiku = %+v, want $%v of the reported $3 and none of OpenCode's", m, 3*h/(o+h))
+	}
+	codexCost := codex.Cost(20_000, 3000, 400_000, 0) + codex.Cost(1000, 100, 0, 0)
+	if m := by["gpt-5-codex"]; !near(m.CostUSD, codex.Cost(20_000, 3000, 400_000, 0)) || m.CostUSD != m.EstimatedUSD {
+		t.Errorf("gpt-5-codex = %+v, want an estimate", m)
+	}
+	if m := by["gpt-5-codex/high"]; !near(m.EstimatedUSD, codex.Cost(1000, 100, 0, 0)) {
+		t.Errorf("gpt-5-codex/high = %+v, want an estimate", m)
+	}
+	if m := by["acme-preview"]; m.UnpricedTokens != 7700 || !near(m.CostUSD, 0.25) || m.EstimatedUSD != 0 {
+		t.Errorf("acme-preview = %+v, want Cursor's 7700 tokens unpriced and OpenCode's $0.25", m)
+	}
+	if want := 3 + 0.5 + 0.25 + codexCost; !near(r.CostUSD, want) || !near(r.EstimatedUSD, codexCost) || r.UnpricedTokens != 7700 {
+		t.Errorf("week = $%v, $%v estimated, %d unpriced; want $%v, $%v, 7700", r.CostUSD, r.EstimatedUSD, r.UnpricedTokens, want, codexCost)
+	}
+	var tokens int64
+	for _, m := range r.Models {
+		tokens += m.Tokens
+	}
+	if r.Tokens != tokens {
+		t.Errorf("tokens = %d, want the models' %d", r.Tokens, tokens)
 	}
 }

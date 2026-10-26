@@ -2470,6 +2470,27 @@
     "height": 600
   },
   {
+    "id": "window-recap-1440-light",
+    "description": "1440×1000, Your week with AgentBox with every cost reported by the AI tools: what it cost beside the hours, and each model's cost — light",
+    "query": "app=recap&theme=light",
+    "width": 1440,
+    "height": 1000
+  },
+  {
+    "id": "window-recap-estimated-dark",
+    "description": "1440×1000, Your week with AgentBox on Codex and Cursor, which report no cost: the cost marked as an estimate, ≈ on estimated models, and the tokens of a model with no price — dark",
+    "query": "app=recap&recap=estimated&theme=dark",
+    "width": 1440,
+    "height": 1000
+  },
+  {
+    "id": "window-recap-estimated-light",
+    "description": "1440×1000, Your week with AgentBox on Codex and Cursor, its cost estimated — light",
+    "query": "app=recap&recap=estimated&theme=light",
+    "width": 1440,
+    "height": 1000
+  },
+  {
     "id": "window-recap-empty-dark",
     "description": "1440×900, Your week with AgentBox in a week no agent worked — dark",
     "query": "app=recap&recap=empty&theme=dark",

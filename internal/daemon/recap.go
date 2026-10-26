@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"agentbox/internal/api"
+	"agentbox/internal/pricing"
 	"agentbox/internal/state"
 	"agentbox/internal/worktreefs"
 
@@ -176,31 +177,11 @@ func (s *Server) buildRecap(ctx context.Context, now time.Time, offset time.Dura
 		}
 	}
 
-	totals, err := s.store.TokenTotals(ctx, state.TokenFilter{Since: start, Until: end})
+	rows, err := s.store.TokenRows(ctx, state.TokenFilter{Since: start, Until: end}, -1)
 	if err != nil {
 		return out, err
 	}
-	models := map[string]*api.RecapModel{}
-	for _, t := range totals {
-		m := models[t.Model]
-		if m == nil {
-			m = &api.RecapModel{Model: t.Model}
-			models[t.Model] = m
-		}
-		m.Tokens += t.Input + t.Output + t.CacheRead + t.CacheWrite
-		m.Output += t.Output
-		out.CostUSD += t.CostUSD
-	}
-	for _, m := range models {
-		if m.Tokens == 0 {
-			continue
-		}
-		out.Models = append(out.Models, *m)
-		out.Tokens += m.Tokens
-	}
-	slices.SortFunc(out.Models, func(a, b api.RecapModel) int {
-		return cmp.Or(cmp.Compare(b.Tokens, a.Tokens), cmp.Compare(a.Model, b.Model))
-	})
+	recapSpend(&out, rows)
 
 	days, err := s.store.TurnDays(ctx, today.AddDate(0, 0, -recapStreakDays), offset)
 	if err != nil {
@@ -292,6 +273,71 @@ func (s *Server) recapAgents(ctx context.Context, start, end time.Time, agents m
 		}
 	}
 	return g.Wait()
+}
+
+// recapSpend fills in the week's models and what they cost from its ledger
+// rows. Cost is worked out a turn at a time, as a turn's whole reported cost
+// is on one of its rows (state.TokenRow.CostUSD): a turn that reported one
+// shares it among its models by what each would cost at list price (all of
+// it staying where it was when a model has no price), and a turn that
+// didn't, as Codex's and Cursor's never do, is priced from the table.
+func recapSpend(out *api.Recap, rows []state.TokenRow) {
+	turns := map[[2]string][]state.TokenRow{}
+	for _, r := range rows {
+		k := [2]string{r.Session, r.Turn}
+		turns[k] = append(turns[k], r)
+	}
+	models := map[string]*api.RecapModel{}
+	modelOf := func(name string) *api.RecapModel {
+		m := models[name]
+		if m == nil {
+			m = &api.RecapModel{Model: name}
+			models[name] = m
+		}
+		return m
+	}
+	for _, turn := range turns {
+		var reported, listed float64
+		priced := true
+		list := make([]float64, len(turn))
+		for i, r := range turn {
+			reported += r.CostUSD
+			p, ok := pricing.Lookup(r.Model)
+			priced = priced && ok
+			list[i] = p.Cost(r.Input, r.Output, r.CacheRead, r.CacheWrite)
+			listed += list[i]
+		}
+		for i, r := range turn {
+			m := modelOf(r.Model)
+			tokens := r.Input + r.Output + r.CacheRead + r.CacheWrite
+			m.Tokens += tokens
+			m.Output += r.Output
+			switch {
+			case reported > 0 && priced && listed > 0:
+				m.CostUSD += reported * list[i] / listed
+			case reported > 0:
+				m.CostUSD += r.CostUSD
+			case list[i] > 0:
+				m.CostUSD += list[i]
+				m.EstimatedUSD += list[i]
+			default:
+				m.UnpricedTokens += tokens
+			}
+		}
+	}
+	for _, m := range models {
+		out.CostUSD += m.CostUSD
+		out.EstimatedUSD += m.EstimatedUSD
+		out.UnpricedTokens += m.UnpricedTokens
+		if m.Tokens == 0 {
+			continue
+		}
+		out.Models = append(out.Models, *m)
+		out.Tokens += m.Tokens
+	}
+	slices.SortFunc(out.Models, func(a, b api.RecapModel) int {
+		return cmp.Or(cmp.Compare(b.Tokens, a.Tokens), cmp.Compare(a.Model, b.Model))
+	})
 }
 
 // streaks is the run of days up to today (or yesterday, when today has

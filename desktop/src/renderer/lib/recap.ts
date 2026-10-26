@@ -23,6 +23,18 @@ export function compact(n: number): string {
   return formatNumber(n, { notation: 'compact', maximumFractionDigits: n >= 1000 && n < 10_000 ? 1 : n < 1e6 ? 0 : 1 });
 }
 
+// Spend is how a cost was come by (api.Recap.CostUSD, or a model's): as the
+// AI tools reported it, partly or wholly estimated from list prices, or
+// nothing at all to show.
+export type Spend = 'reported' | 'partly' | 'estimated' | 'none';
+
+export function spendOf(c: { costUsd: number; estimatedUsd: number }): Spend {
+  if (!(c.costUsd > 0)) return 'none';
+  if (!(c.estimatedUsd > 0)) return 'reported';
+  // Summing in another order can leave the estimate a hair from the total.
+  return c.estimatedUsd >= c.costUsd * 0.9999 ? 'estimated' : 'partly';
+}
+
 // modelLabel is a model as people call it: claude-opus-4-5 is Opus 4.5, and
 // claude-sonnet-5-20261001 Sonnet 5. Other tools' names are kept as they are.
 export function modelLabel(model: string): string {

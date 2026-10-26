@@ -39,10 +39,17 @@ type Recap struct {
 	// Longest is the agent that worked longest in the week.
 	Longest *RecapAgent `json:"longest,omitempty"`
 	// Models is the week's tokens by model, most first, every chat's (leads'
-	// too); Tokens their sum, CostUSD the adapters' estimate at API prices.
-	Models  []RecapModel `json:"models"`
-	Tokens  int64        `json:"tokens"`
-	CostUSD float64      `json:"costUsd"`
+	// too), and Tokens their sum.
+	Models []RecapModel `json:"models"`
+	Tokens int64        `json:"tokens"`
+	// CostUSD is what the week cost at API prices: what the AI tools
+	// reported, and for turns whose tool reported none (Codex, Cursor), an
+	// estimate from internal/pricing, of which EstimatedUSD is the part.
+	// UnpricedTokens is the tokens of those turns spent on models with no
+	// price, which CostUSD leaves out.
+	CostUSD        float64 `json:"costUsd"`
+	EstimatedUSD   float64 `json:"estimatedUsd"`
+	UnpricedTokens int64   `json:"unpricedTokens"`
 	// Streak is how many days in a row, up to today (or yesterday, when
 	// today has no work yet), agents worked; BestStreak the longest run in
 	// the last year.
@@ -79,10 +86,14 @@ type RecapAgent struct {
 	WorkSeconds int64  `json:"workSeconds"`
 }
 
-// RecapModel is one model's tokens in a Recap; Model is "" when the AI tool
-// didn't name it.
+// RecapModel is one model's tokens in a Recap, and their cost as Recap's;
+// Model is "" when the AI tool didn't name it. A turn's reported cost is
+// shared among its models by what each would cost at list price.
 type RecapModel struct {
-	Model  string `json:"model"`
-	Tokens int64  `json:"tokens"`
-	Output int64  `json:"output"`
+	Model          string  `json:"model"`
+	Tokens         int64   `json:"tokens"`
+	Output         int64   `json:"output"`
+	CostUSD        float64 `json:"costUsd"`
+	EstimatedUSD   float64 `json:"estimatedUsd"`
+	UnpricedTokens int64   `json:"unpricedTokens"`
 }

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { cardFileName, compact, duration, isEmpty, modelLabel, peakHour, recapQuery } from './recap.ts';
+import { cardFileName, compact, duration, isEmpty, modelLabel, peakHour, recapQuery, spendOf } from './recap.ts';
 
 const week = (over: Partial<T.Recap> = {}): T.Recap => ({
   start: '2026-10-18T00:00:00+01:00',
@@ -21,6 +21,8 @@ const week = (over: Partial<T.Recap> = {}): T.Recap => ({
   models: [],
   tokens: 0,
   costUsd: 0,
+  estimatedUsd: 0,
+  unpricedTokens: 0,
   streak: 0,
   bestStreak: 0,
   ...over,
@@ -63,4 +65,12 @@ test('peakHour and isEmpty read an empty week as one', () => {
   hours[14] = 600;
   assert.equal(peakHour(week({ hours, workSeconds: 600 })), 14);
   assert.ok(!isEmpty(week({ hours, workSeconds: 600 })));
+});
+
+test('spendOf says whether a cost was reported, estimated, or both', () => {
+  assert.equal(spendOf({ costUsd: 0, estimatedUsd: 0 }), 'none');
+  assert.equal(spendOf({ costUsd: 12.5, estimatedUsd: 0 }), 'reported');
+  assert.equal(spendOf({ costUsd: 12.5, estimatedUsd: 2 }), 'partly');
+  assert.equal(spendOf({ costUsd: 12.5, estimatedUsd: 12.5 }), 'estimated');
+  assert.equal(spendOf({ costUsd: 0.1 + 0.2, estimatedUsd: 0.3 }), 'estimated');
 });
