@@ -318,6 +318,9 @@ write_files:
       # The ports the host reaches the VM on first, with the image's own socat.
       # (sshd is on vsock port {{.PortSSH}} already: systemd-ssh-generator puts
       # it there in a VM, from the first boot, before any of this.)
+      # A ready-made disk (vmdisk.go) has every package already, and none of
+      # this reaches the network; Debian's cloud image installs them here.
+      installed() { [ "$(dpkg-query -W -f='${db:Status-Abbrev}\n' "$@" 2>/dev/null | grep -c '^ii')" -eq $# ]; }
       echo 'man-db man-db/auto-update boolean false' | debconf-set-selections
       systemctl disable --now man-db.timer || true
       if ! command -v socat >/dev/null; then
@@ -327,8 +330,10 @@ write_files:
       systemctl enable --now agentbox-trim-share-inodes.timer
       systemctl enable --now{{range .Forwards}} agentbox-vsock-{{.Port}}.service{{end}}
 
-      apt-get update -q --error-on=any
-      apt-get install -y -q --no-install-recommends {{.Packages}}
+      if ! installed {{.Packages}}; then
+        apt-get update -q --error-on=any
+        apt-get install -y -q --no-install-recommends {{.Packages}}
+      fi
       # reenable: a VM set up before the unit moved to sysinit.target keeps
       # no stale multi-user.target link.
       systemctl reenable agentbox-host-guard.service

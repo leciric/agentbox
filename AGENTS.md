@@ -39,7 +39,10 @@ container of its own.
 AgentBox runs in a VM, and the `agentbox` on the user's machine is that VM's front end
 (`internal/hostvm`): `agentbox vm …` manages the VM, and every other command runs inside it.
 
-- **Linux**: Cloud Hypervisor (`agentbox vm init`, `internal/hostvm/chv`). Host mode (Incus on the
+- **Linux**: Cloud Hypervisor (`agentbox vm init`, `internal/hostvm/chv`), booting a ready-made
+  disk with its packages installed (`vmdisk.go`, the `vmdisk-<version>` release the
+  [Published VM disk](.github/workflows/published-vm-disk.yml) workflow makes), or Debian's cloud
+  image when there's none, whose first boot installs them. Host mode (Incus on the
   machine itself) is no longer offered, but still runs for installs from earlier releases until
   `agentbox vm migrate` moves them (`MovePrompt` in `desktop/src/renderer/components/RunInVM.tsx`),
   for root, inside agents, and with `AGENTBOX_FRONT_END=host` (CI); `hostvm.Front` decides.

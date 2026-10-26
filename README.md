@@ -92,8 +92,17 @@ rather than all of your computer's, so heavy agent work can't freeze your deskto
 installed on your system and no password is asked. It needs `/dev/kvm` (your user in the `kvm`
 group) and an `ssh` client. Setup makes it, at the size you pick; from the command line it's
 `agentbox vm init` (`--cpus`, `--memory-cap`), which fetches Cloud Hypervisor, passt, virtiofsd and
-Debian's cloud image into `~/.local/share/agentbox/vm` and sets the VM up (about a minute). Every
+the VM's disk into `~/.local/share/agentbox/vm` and sets the VM up (about a minute). Every
 other `agentbox` command runs in the VM, and until it's made says to run `agentbox vm init`.
+
+The VM's disk is a ready-made one AgentBox publishes on its GitHub releases (`vmdisk-<version>`,
+about 230 MB, as big as Debian's own): Debian 13's cloud image with Incus and the other packages
+the VM needs already installed, checked against the release's `SHA256SUMS`, so the VM's first boot
+only sets up your user, your home's share and its keys. When it can't be downloaded, or this
+version of AgentBox has none (only the newest is kept), `vm init` says so and uses Debian's own
+cloud image instead, whose first boot installs those packages from Debian: a few minutes more, as
+slow as your network. `AGENTBOX_VM_DISKS_URL=off` always does that. The release lists every
+package in the disk, with where its sources are.
 
 The VM starts with 4 GiB and takes more memory as its agents need it, up to its cap (three quarters
 of your memory by default), and gives it back as they stop; the top bar's **Free resources** stops
@@ -165,7 +174,9 @@ VM made without krunkit has none.
 On a Mac there is also an **experimental** way without Lima: `agentbox vm init --driver vz` (or
 **Apple Virtualization, without Lima** in the app's Setup) has AgentBox run the VM itself with
 Apple's Virtualization framework, on macOS 13 or later. It hasn't been tried on a real Mac yet; its
-VM holds all of its memory while it runs, and `agentbox vm delete --yes` goes back to Lima's. A
+VM holds all of its memory while it runs, and `agentbox vm delete --yes` goes back to Lima's. It
+boots the same ready-made disk as on Linux (Lima's VM doesn't: it starts from Lima's own Debian
+image, and its first boot installs Incus). A
 build of your own needs signing for it: `scripts/mac-sign.sh bin/agentbox`.
 
 ## Quick start

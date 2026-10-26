@@ -94,8 +94,43 @@ keeps working as it is until agentbox vm migrate moves it into the VM.`,
 		Version:       version,
 	}
 	root.AddCommand(newCHVInitCmd(), newMigrateCmd(), newStartCmd(), newStopCmd(), newPauseCmd(), newResumeCmd(), newStatusCmd(), newPowerCmd(), newDiskCmd(),
-		newShellCmd(), newCHVResizeCmd(), newSwapCmd(), newUpgradeCmd(), newDeleteCmd(), newRunCmd(), newProxyCmd(), newGPUCmd())
+		newShellCmd(), newCHVResizeCmd(), newSwapCmd(), newUpgradeCmd(), newDeleteCmd(), newRunCmd(), newProxyCmd(), newGPUCmd(),
+		newBuildDiskCmd())
 	return root
+}
+
+// newBuildDiskCmd makes the ready-made VM disk CI publishes
+// (.github/workflows/published-vm-disk.yml), with no VM of AgentBox's own:
+// QEMU boots Debian's cloud image once (chv.BuildDiskForPublishing).
+func newBuildDiskCmd() *cobra.Command {
+	var arch, cache, commit string
+	var tag bool
+	cmd := &cobra.Command{
+		Use:    "build-disk-for-publishing <dir>",
+		Short:  "Make the ready-made VM disk AgentBox publishes into dir, with its SHA256SUMS and the sources of its packages",
+		Hidden: true,
+		Args: func(cmd *cobra.Command, args []string) error {
+			if tag {
+				return cobra.NoArgs(cmd, args)
+			}
+			return cobra.ExactArgs(1)(cmd, args)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if tag {
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), chv.DiskTag())
+				return nil
+			}
+			if cache == "" {
+				cache = strings.TrimRight(args[0], "/") + ".cache"
+			}
+			return chv.BuildDiskForPublishing(cmd.Context(), arch, args[0], cache, commit, cmd.OutOrStdout())
+		},
+	}
+	cmd.Flags().StringVar(&arch, "arch", runtime.GOARCH, "the architecture to make it for (amd64 or arm64)")
+	cmd.Flags().StringVar(&cache, "cache", "", "where Debian's cloud image is kept, and the disk made (default <dir>.cache)")
+	cmd.Flags().StringVar(&commit, "commit", "", "the commit it is made from, for vm-disk-<arch>.json")
+	cmd.Flags().BoolVar(&tag, "tag", false, "only print the release tag this AgentBox's disk is published under")
+	return cmd
 }
 
 // newVZCmd is `agentbox vm` on a Mac whose VM is the vz driver's: Cloud
