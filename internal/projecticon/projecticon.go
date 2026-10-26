@@ -1,12 +1,11 @@
-// Package projecticon finds the icon a project already has — a favicon, a
-// logo, the icon its package or web manifest names, or its GitHub owner's
-// avatar — and checks the images and emoji a user picks instead. It reads
-// files and fetches URLs and nothing else: the daemon keeps what it finds.
+// Package projecticon finds the icon a project already has in its repository
+// — a favicon, a logo, or the icon its package or web manifest names — and
+// checks the images and emoji a user picks instead. It reads files and
+// nothing else: the daemon keeps what it finds.
 package projecticon
 
 import (
 	"bytes"
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -20,7 +19,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 	"unicode"
 	"unicode/utf8"
 )
@@ -37,59 +35,6 @@ type Icon struct {
 	From string
 }
 
-// Fetcher gets a URL, for the avatar: its body, at most MaxBytes+1 of it,
-// and its Content-Type. Tests pass a fake.
-type Fetcher func(ctx context.Context, url string) (body []byte, contentType string, err error)
-
-// HTTPFetcher fetches over the network, following redirects, giving up after
-// timeout.
-func HTTPFetcher(timeout time.Duration) Fetcher {
-	client := &http.Client{Timeout: timeout}
-	return func(ctx context.Context, u string) ([]byte, string, error) {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-		if err != nil {
-			return nil, "", err
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, "", err
-		}
-		defer func() { _ = resp.Body.Close() }()
-		if resp.StatusCode != http.StatusOK {
-			return nil, "", fmt.Errorf("%s: %s", u, resp.Status)
-		}
-		body, err := io.ReadAll(io.LimitReader(resp.Body, MaxBytes+1))
-		return body, resp.Header.Get("Content-Type"), err
-	}
-}
-
-// Options are what Detect needs beyond the repository.
-type Options struct {
-	// Owner is the GitHub owner of the repository's origin, called only when
-	// nothing in the repository is an icon; nil or "" skips the avatar.
-	Owner func() string
-	// Fetch gets the avatar; nil skips it.
-	Fetch Fetcher
-}
-
-// Detect looks for root's icon, first match wins: favicons, then logos and
-// icons by their usual names, then logo files in public/ or assets/, then
-// what package.json or a web manifest names, then the GitHub owner's
-// avatar. ok is false when there is none.
-func Detect(ctx context.Context, root string, opts Options) (Icon, bool) {
-	if icon, ok := FindInRepo(root); ok {
-		return icon, true
-	}
-	if opts.Owner == nil || opts.Fetch == nil {
-		return Icon{}, false
-	}
-	owner := opts.Owner()
-	if owner == "" {
-		return Icon{}, false
-	}
-	return Avatar(ctx, owner, opts.Fetch)
-}
-
 var (
 	faviconDirs = []string{"", "public", "static", "assets", "src", "app", "web", "src/app"}
 	logoDirs    = []string{"", "public", "assets", "static", "src/assets", ".github"}
@@ -97,7 +42,9 @@ var (
 	manifests   = []string{"public/manifest.json", "public/site.webmanifest", "manifest.webmanifest", "public/manifest.webmanifest", "site.webmanifest", "manifest.json"}
 )
 
-// FindInRepo is Detect without the avatar: only the repository's own files.
+// FindInRepo looks for root's icon, first match wins: favicons, then logos and
+// icons by their usual names, then logo files in public/ or assets/, then
+// what package.json or a web manifest names. ok is false when there is none.
 // Nothing outside root is read, symlinks included.
 func FindInRepo(root string) (Icon, bool) {
 	r, err := os.OpenRoot(root)
@@ -285,24 +232,6 @@ func largestSize(sizes string) int {
 		}
 	}
 	return largest
-}
-
-// Avatar is the GitHub owner's avatar, when GitHub answers with an image.
-func Avatar(ctx context.Context, owner string, fetch Fetcher) (Icon, bool) {
-	if owner == "" || strings.ContainsAny(owner, "/?#@:") {
-		return Icon{}, false
-	}
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	body, contentType, err := fetch(ctx, "https://github.com/"+url.PathEscape(owner)+".png?size=128")
-	if err != nil || len(body) > MaxBytes || !strings.HasPrefix(strings.ToLower(contentType), "image/") {
-		return Icon{}, false
-	}
-	mime := Sniff(body)
-	if mime == "" {
-		return Icon{}, false
-	}
-	return Icon{Data: body, MIME: mime, From: "github.com/" + owner}, true
 }
 
 // Sniff is the image type of data, from its content rather than any name:

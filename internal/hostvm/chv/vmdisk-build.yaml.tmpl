@@ -1,0 +1,66 @@
+#cloud-config
+# AgentBox's ready-made VM disk, being made (BuildDiskForPublishing, vmdisk.go):
+# Debian's cloud image booted once, in QEMU, with this seed. It does the part of
+# the VM's first boot that's the same on every machine (user-data.yaml.tmpl,
+# provision.sh), seals the disk and powers off. Nothing of a user's goes in:
+# no user (cloud-init makes Debian's default one unless told not to), no host
+# keys, no machine-id. The VM's own first boot is then a new instance to
+# cloud-init, which does the rest.
+users: []
+ssh_pwauth: false
+disable_root: true
+
+write_files:
+  # Packages don't start their services here: incusd started once would make
+  # a server certificate, the same in every VM made from this disk.
+  - path: /usr/sbin/policy-rc.d
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      exit 101
+  - path: /usr/local/lib/agentbox/build-disk
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+      set -x
+      export DEBIAN_FRONTEND=noninteractive
+      # Whatever happens, the VM stops: the host waits for that, and finds the
+      # result on the out disk only when every step below went through.
+      trap 'sync; systemctl poweroff' EXIT
+
+      echo 'man-db man-db/auto-update boolean false' | debconf-set-selections
+      systemctl disable --now man-db.timer || true
+      apt-get update -q --error-on=any
+      apt-get install -y -q --no-install-recommends socat {{.Packages}}
+      rm -f /usr/sbin/policy-rc.d
+      # Nothing of a host's: none of Incus's state, as no service ran.
+      [ ! -e /var/lib/incus/server.crt ] || { echo "incusd ran while the disk was made" >&2; exit 1; }
+
+      out=/run/agentbox-out
+      mkdir -p "$out"
+      dpkg-query -W -f='${db:Status-Abbrev}\t${Package}\t${Version}\t${Architecture}\t${source:Package}\t${source:Version}\n' |
+        awk -F'\t' '$1 ~ /^ii/' | cut -f2- | sort >"$out/packages.txt"
+      cp /etc/os-release "$out/os-release"
+
+      # Sealed: cloud-init done with this boot, and everything this boot made
+      # that's a machine's own taken away.
+      cloud-init status --wait >/dev/null || true
+      apt-get clean
+      rm -rf /var/lib/apt/lists/*
+      cloud-init clean --logs --machine-id --seed --configs all
+      rm -f /etc/ssh/ssh_host_*
+      rm -f /var/lib/systemd/random-seed /var/lib/dhcp/*.leases
+      journalctl --rotate >/dev/null 2>&1 || true
+      journalctl --vacuum-time=1s >/dev/null 2>&1 || true
+      rm -rf /var/log/journal/* /root/.bash_history
+      # Free blocks back to holes, which the tarball skips (QEMU's
+      # discard=unmap).
+      fstrim -v /
+
+      echo ok >"$out/result"
+      tar -C "$out" -cf /dev/disk/by-id/virtio-{{.OutSerial}} .
+
+runcmd:
+  # On its own, so that it can wait for cloud-init to finish before it seals.
+  - [systemd-run, --no-block, --unit=agentbox-build-disk, --property=StandardOutput=journal+console, /usr/local/lib/agentbox/build-disk]

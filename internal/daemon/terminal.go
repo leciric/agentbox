@@ -24,6 +24,7 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	defer s.viewIdle(a.Ref())()
 	m := s.manager(nil)
 	if err := m.PrepareShell(r.Context(), a); err != nil {
 		return err

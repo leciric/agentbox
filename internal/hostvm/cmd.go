@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -68,7 +69,7 @@ Your home directory is shared with the VM at the same path.`,
 		SilenceErrors: true,
 		Version:       version,
 	}
-	root.AddCommand(newInitCmd(), newStartCmd(), newStopCmd(), newStatusCmd(), newPowerCmd(), newDiskCmd(), newShellCmd(), newResizeCmd(), newSwapCmd(), newUpgradeCmd(), newDeleteCmd(), newGPUCmd())
+	root.AddCommand(newInitCmd(), newStartCmd(), newStopCmd(), newStatusCmd(), newPowerCmd(), newDiskCmd(), newShellCmd(), newResizeCmd(), newSwapCmd(), newUpgradeCmd(), newDeleteCmd(), newGPUCmd(), newKrunkitCmd())
 	return root
 }
 
@@ -94,8 +95,43 @@ keeps working as it is until agentbox vm migrate moves it into the VM.`,
 		Version:       version,
 	}
 	root.AddCommand(newCHVInitCmd(), newMigrateCmd(), newStartCmd(), newStopCmd(), newPauseCmd(), newResumeCmd(), newStatusCmd(), newPowerCmd(), newDiskCmd(),
-		newShellCmd(), newCHVResizeCmd(), newSwapCmd(), newUpgradeCmd(), newDeleteCmd(), newRunCmd(), newProxyCmd(), newGPUCmd())
+		newShellCmd(), newCHVResizeCmd(), newSwapCmd(), newUpgradeCmd(), newDeleteCmd(), newRunCmd(), newProxyCmd(), newGPUCmd(),
+		newBuildDiskCmd())
 	return root
+}
+
+// newBuildDiskCmd makes the ready-made VM disk CI publishes
+// (.github/workflows/published-vm-disk.yml), with no VM of AgentBox's own:
+// QEMU boots Debian's cloud image once (chv.BuildDiskForPublishing).
+func newBuildDiskCmd() *cobra.Command {
+	var arch, cache, commit string
+	var tag bool
+	cmd := &cobra.Command{
+		Use:    "build-disk-for-publishing <dir>",
+		Short:  "Make the ready-made VM disk AgentBox publishes into dir, with its SHA256SUMS and the sources of its packages",
+		Hidden: true,
+		Args: func(cmd *cobra.Command, args []string) error {
+			if tag {
+				return cobra.NoArgs(cmd, args)
+			}
+			return cobra.ExactArgs(1)(cmd, args)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if tag {
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), chv.DiskTag())
+				return nil
+			}
+			if cache == "" {
+				cache = strings.TrimRight(args[0], "/") + ".cache"
+			}
+			return chv.BuildDiskForPublishing(cmd.Context(), arch, args[0], cache, commit, cmd.OutOrStdout())
+		},
+	}
+	cmd.Flags().StringVar(&arch, "arch", runtime.GOARCH, "the architecture to make it for (amd64 or arm64)")
+	cmd.Flags().StringVar(&cache, "cache", "", "where Debian's cloud image is kept, and the disk made (default <dir>.cache)")
+	cmd.Flags().StringVar(&commit, "commit", "", "the commit it is made from, for vm-disk-<arch>.json")
+	cmd.Flags().BoolVar(&tag, "tag", false, "only print the release tag this AgentBox's disk is published under")
+	return cmd
 }
 
 // newVZCmd is `agentbox vm` on a Mac whose VM is the vz driver's: Cloud
@@ -115,7 +151,7 @@ agentbox vm init then makes Lima's VM, the default, again.`,
 		Version:       version,
 	}
 	root.AddCommand(newInitCmd(), newStartCmd(), newStopCmd(), newPauseCmd(), newResumeCmd(), newStatusCmd(), newPowerCmd(), newDiskCmd(),
-		newShellCmd(), newCHVResizeCmd(), newSwapCmd(), newUpgradeCmd(), newDeleteCmd(), newRunCmd(), newProxyCmd(), newGPUCmd())
+		newShellCmd(), newCHVResizeCmd(), newSwapCmd(), newUpgradeCmd(), newDeleteCmd(), newRunCmd(), newProxyCmd(), newGPUCmd(), newKrunkitCmd())
 	return root
 }
 
@@ -467,27 +503,21 @@ func newInitCmd() *cobra.Command {
   agentbox auth claude          a Claude Code login for your agents`)
 				return nil
 			}
+			if runtime.GOOS == "darwin" {
+				p, err := paths.Default()
+				if err != nil {
+					return err
+				}
+				if _, err := EnsureLima(cmd.Context(), p, cmd.ErrOrStderr()); err != nil {
+					return err
+				}
+			}
 			vm, err := New()
 			if err != nil {
 				return err
 			}
-			st, err := vm.State(cmd.Context())
-			if err != nil {
+			if err := vm.initLima(cmd.Context(), size); err != nil {
 				return err
-			}
-			if !st.Exists {
-				if err := vm.createVM(cmd.Context(), size); err != nil {
-					return err
-				}
-			}
-			if err := vm.Up(cmd.Context()); err != nil {
-				return err
-			}
-			if err := vm.Setup(cmd.Context()); err != nil {
-				return err
-			}
-			if st, err := vm.State(cmd.Context()); err == nil {
-				vm.checkReporting(cmd.Context(), st)
 			}
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), `AgentBox's VM is ready. Next:
   agentbox image build          the machine every agent is copied from (the app's Setup page does this too)
@@ -501,6 +531,85 @@ func newInitCmd() *cobra.Command {
 	if runtime.GOOS == "darwin" {
 		cmd.Flags().StringVar(&driver, "driver", driver, "what runs the VM: lima, or vz (experimental: Apple's Virtualization framework, run by AgentBox itself, without Lima)")
 	}
+	return cmd
+}
+
+// initLima is Lima's `vm init`: the VM made at size unless it exists,
+// started, and AgentBox set up in it. It holds the VM's lock alone throughout,
+// as a resize does. Lima lists a VM it's still making as stopped, so a
+// command that starts the VM then (the app's daemon start, run as soon as it
+// has no daemon) would run limactl start beside limactl create, and create
+// ends by killing the VM's driver process: krunkit's, which the VM's network
+// runs in.
+func (v *VM) initLima(ctx context.Context, size Size) (err error) {
+	defer func(began time.Time) { noteVMReady(ctx, v.Paths, v, began, err) }(time.Now())
+	unlock, err := v.lock(ctx, true)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	st, err := v.State(ctx)
+	if err != nil {
+		return err
+	}
+	if !st.Exists {
+		if err := v.createVM(ctx, size); err != nil {
+			return err
+		}
+	}
+	if err := v.up(ctx); err != nil {
+		return err
+	}
+	if err := v.Setup(ctx); err != nil {
+		return err
+	}
+	if st, err := v.State(ctx); err == nil {
+		v.checkReporting(ctx, st)
+	}
+	return nil
+}
+
+func newKrunkitCmd() *cobra.Command {
+	var remake, yes bool
+	cmd := &cobra.Command{
+		Use:   "krunkit [--remake --yes]",
+		Short: "Install krunkit with Homebrew, for a VM that has a GPU for agents and gives memory back",
+		Long: `Installs with Homebrew what this Mac lacks for a VM made with krunkit: krunkit itself
+(brew tap slp/krun, brew trust slp/krun, brew install krunkit), and Lima's krunkit driver,
+which Homebrew's Lima has from 2.0 (brew upgrade lima). A VM made with krunkit has a GPU
+for agents and gives the memory it stops using back to the Mac; one made with Apple's
+Virtualization framework (vz) has neither. agentbox vm init makes a new VM with krunkit
+once it's installed. An existing VM keeps the type it was made with: --remake --yes deletes
+it, with every agent's machine, the base image and AgentBox's state in it, and makes it
+again with krunkit at the same size. Your projects and the agents' worktrees are on your
+own disk and stay, but push what you want to keep first.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if remake {
+				if !yes {
+					return errors.New("--remake deletes the VM and every agent's machine in it: run it with --yes if you mean it")
+				}
+				return remakeWithKrunkit(cmd.Context(), New)
+			}
+			vm, err := New()
+			if vm == nil {
+				return err
+			}
+			if vm.CHV != nil || vm.Limactl == "" {
+				// Lima first, AgentBox's own when the Mac has none.
+				p, perr := paths.Default()
+				if perr != nil {
+					return perr
+				}
+				if vm.Limactl, err = EnsureLima(cmd.Context(), p, cmd.ErrOrStderr()); err != nil {
+					return err
+				}
+			}
+			return vm.InstallKrunkit(cmd.Context())
+		},
+	}
+	cmd.Flags().BoolVar(&remake, "remake", false, "then delete the VM and make it again with krunkit, unless it's krunkit's already")
+	cmd.Flags().BoolVar(&yes, "yes", false, "really delete it, for --remake")
 	return cmd
 }
 
@@ -591,8 +700,9 @@ type Status struct {
 	// Limits are the sizes `agentbox vm resize` takes on this machine.
 	Limits Limits `json:"limits"`
 	// Krunkit is whether `vm init` would make the VM with krunkit, which gives
-	// memory back to the Mac: set before there's a VM, on a Mac with Apple
-	// Silicon.
+	// memory back to the Mac and has a GPU for agents: set on a Mac with Apple
+	// Silicon before there's a VM, and for one made otherwise, which `vm
+	// krunkit --remake` makes again with it.
 	Krunkit *KrunkitCheck `json:"krunkit,omitempty"`
 	// Swap is what `agentbox vm swap` set (Size only).
 	Swap *api.VMSwap `json:"swap,omitempty"`
@@ -629,6 +739,10 @@ func newStatusCmd() *cobra.Command {
 				st.Problem = err.Error()
 			} else if !st.Exists {
 				st.Problem = ErrNotCreated.Error()
+			}
+			// Without Lima, the one init downloads has krunkit's driver:
+			// Setup can still offer krunkit first.
+			if (err == nil || errors.Is(err, errNoLima)) && st.VMType != krunkitVMType {
 				st.Krunkit = vm.krunkitCheck(cmd.Context())
 			}
 			if st.Exists {
@@ -684,6 +798,9 @@ func vzStatus(cmd *cobra.Command, asJSON bool) error {
 	}
 	withSwap(&st, vm.Paths)
 	out.Swap = st.Swap
+	if limactl, err := FindLimactl(); err == nil {
+		out.Krunkit = (&VM{Limactl: limactl}).krunkitCheck(cmd.Context())
+	}
 	out.State = State{Exists: st.State != api.VMMissing, Status: "Stopped", Dir: vm.CHV.Layout.Dir(), CPUs: st.CPUs, Memory: st.Memory.Cap, Disk: st.Disk.Size, Arch: runtime.GOARCH}
 	switch st.State {
 	case api.VMRunning, api.VMStarting, api.VMPaused, api.VMStopping:
@@ -736,8 +853,13 @@ type Power struct {
 	MemoryUsed    int64  `json:"memoryUsed"`
 	MemoryGranted int64  `json:"memoryGranted"`
 	MemoryCap     int64  `json:"memoryCap"`
-	CPUs          int    `json:"cpus"`
-	Error         string `json:"error,omitempty"` // why it can't be used, and what to run
+	// MemoryResident is what the VM holds of the host's memory
+	// (api.VMMemory.Resident), and MemoryHostCache what the host caches of
+	// its disks besides; 0 when unknown.
+	MemoryResident  int64  `json:"memoryResident,omitempty"`
+	MemoryHostCache int64  `json:"memoryHostCache,omitempty"`
+	CPUs            int    `json:"cpus"`
+	Error           string `json:"error,omitempty"` // why it can't be used, and what to run
 	// PausedForDisk says the supervisor paused it because the host's disk
 	// that holds its disk images is nearly full (api.VMStatus.PausedForDisk),
 	// and HostFree is what that disk has free.
@@ -752,7 +874,8 @@ type Power struct {
 // powerFrom is a Cloud Hypervisor VM's Power. A VM vm init hasn't finished
 // making is off, with why.
 func powerFrom(st api.VMStatus) Power {
-	p := Power{State: st.State, MemoryUsed: st.Memory.Used, MemoryGranted: st.Memory.Granted, MemoryCap: st.Memory.Cap, CPUs: st.CPUs, Error: st.Problem,
+	p := Power{State: st.State, MemoryUsed: st.Memory.Used, MemoryGranted: st.Memory.Granted, MemoryCap: st.Memory.Cap, CPUs: st.CPUs,
+		MemoryResident: st.Memory.Resident, MemoryHostCache: st.Memory.HostCache, Error: st.Problem,
 		PausedForDisk: st.PausedForDisk, HostFree: st.Disk.HostFree}
 	if st.Disk.Size > 0 {
 		p.Disk = &st.Disk

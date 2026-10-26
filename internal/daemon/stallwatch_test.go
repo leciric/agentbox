@@ -244,7 +244,7 @@ func TestCheckStalls(t *testing.T) {
 		t.Fatalf("stalled too soon: %t, told %q", stalled("testing"), tells())
 	}
 	d.srv.checkStalls(ctx, at(30*time.Minute))
-	if got := tells(); !stalled("testing") || len(got) != 2 || !strings.Contains(got[1], "a tool call is running, but its AI tool has sent nothing and its machine has done no work") {
+	if got := tells(); !stalled("testing") || len(got) != 2 || !strings.Contains(got[1], "a tool call is running (go test ./...), but its AI tool has sent nothing and its machine has done no work") {
 		t.Fatalf("stalled %t, told %q", stalled("testing"), got)
 	}
 	d.srv.checkStalls(ctx, at(45*time.Minute))
@@ -283,5 +283,18 @@ func TestAgentLostTellsTheLead(t *testing.T) {
 	if len(told) != 1 || !strings.HasPrefix(told[0], `p: [chat lost] agent-12 ("Import the catalogue") stopped in the middle of its turn: Claude Code exited (exit status 143)`) ||
 		!strings.Contains(told[0], "tell_agent") {
 		t.Errorf("told %q", told)
+	}
+}
+
+// A call hung in a subagent, which the agent's own calls don't show, is named
+// in the notice with the subagent it runs in.
+func TestStallNoticeNamesTheHungTool(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 10, 23, 17, 48, 0, 0, time.UTC)
+	p := chat.Progress{StartedAt: now.Add(-23 * time.Minute), ToolRunning: true,
+		RunningTool: `mcp__playwright__browser_evaluate, in its subagent "Check the page"`}
+	got := stallNotice(state.Agent{Name: "agent-134"}, p, now.Add(-15*time.Minute), now)
+	if !strings.Contains(got, `a tool call is running (mcp__playwright__browser_evaluate, in its subagent "Check the page")`) {
+		t.Errorf("notice = %q", got)
 	}
 }

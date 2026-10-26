@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlarmClock, Bot, CircleAlert, History, LoaderCircle, MessageSquare, Pencil, Play, Plus, RotateCw, ShieldCheck, Trash2 } from 'lucide-react';
+import { AlarmClock, Bot, CircleAlert, ExternalLink, History, LoaderCircle, MessageSquare, Pencil, Play, Plus, RotateCw, ShieldCheck, Trash2, Zap } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
@@ -118,6 +118,10 @@ export function SchedulesPanel({ project, onSelect }: { project: string; onSelec
                     <span>·</span>
                     {s.paused ? (
                       <span className="text-amber-200" data-schedule-paused>{t('schedules.paused')}</span>
+                    ) : s.kind === 'event' ? (
+                      <span className="inline-flex items-center gap-1" data-schedule-watching>
+                        <Zap className="size-3" /> {t('schedules.watching')}
+                      </span>
                     ) : s.nextRun ? (
                       <Tip label={formatDateTime(s.nextRun)}>
                         <span data-schedule-next>{t('schedules.next', { when: timeUntil(s.nextRun) })}</span>
@@ -234,6 +238,21 @@ function RunList({ runs, titled, onOpen, onRerun }: { runs: T.ScheduleRun[]; tit
           {titled && <span className="min-w-0 truncate font-medium text-secondary">{run.title}</span>}
           <RunOutcome run={run} />
           {run.trigger === 'manual' && <Badge>{t('schedules.run.manual')}</Badge>}
+          {run.event && (
+            <span className="flex min-w-0 basis-full items-center gap-1 text-subtle" data-run-event>
+              <Zap className="size-3 shrink-0" />
+              <span className="min-w-0 truncate">{run.event}</span>
+              {run.eventUrl && (
+                <button
+                  type="button"
+                  className="flex shrink-0 items-center gap-0.5 rounded px-1 text-[11.5px] hover:bg-surface-strong hover:text-primary"
+                  onClick={() => void window.agentbox.openExternal(run.eventUrl!)}
+                >
+                  {t('schedules.run.event')} <ExternalLink className="size-3" />
+                </button>
+              )}
+            </span>
+          )}
           {run.late && (
             <Tip label={run.dueAt ? t('schedules.run.lateTitle', { due: formatDateTime(run.dueAt) }) : ''}>
               <Badge variant="warning" data-run-late>

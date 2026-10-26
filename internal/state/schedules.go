@@ -31,6 +31,8 @@ const ScheduleSessionReuse = "reuse"
 const (
 	ScheduleTriggerTime   = "schedule"
 	ScheduleTriggerManual = "manual"
+	// ScheduleTriggerEvent is an event trigger's run: something happened.
+	ScheduleTriggerEvent = "event"
 )
 
 // How a run went.
@@ -56,7 +58,11 @@ type Schedule struct {
 	Every    time.Duration
 	Cron     string
 	Timezone string
-	Target   string
+	// Event and EventLabel are what a kind "event" schedule runs on
+	// (schedule.EventCIFailed…), and the label issue_labeled waits for.
+	Event      string
+	EventLabel string
+	Target     string
 	// Session is ScheduleSessionReuse for an agent's run that tells the agent
 	// the last run made, while it is still there, rather than making another.
 	Session string
@@ -103,9 +109,13 @@ type ScheduleRun struct {
 	Job      string
 	ChatItem string
 	Error    string
+	// Event is what an event trigger's run was for, in a line, and EventURL
+	// where to see it.
+	Event    string
+	EventURL string
 }
 
-const scheduleColumns = `id, project, title, task, kind, at, every_ms, cron, timezone, target, session, model, effort, precheck, grace_minutes, paused, next_run, created_by, created_at, updated_at`
+const scheduleColumns = `id, project, title, task, kind, at, every_ms, cron, timezone, event, event_label, target, session, model, effort, precheck, grace_minutes, paused, next_run, created_by, created_at, updated_at`
 
 func msOrZero(t time.Time) int64 {
 	if t.IsZero() {
@@ -123,8 +133,8 @@ func msTimeOrZero(ms int64) time.Time {
 
 // AddSchedule stores a new schedule.
 func (s *Store) AddSchedule(ctx context.Context, sc Schedule) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO schedules (`+scheduleColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		sc.ID, sc.Project, sc.Title, sc.Task, sc.Kind, msOrZero(sc.At), sc.Every.Milliseconds(), sc.Cron, sc.Timezone, sc.Target,
+	_, err := s.db.ExecContext(ctx, `INSERT INTO schedules (`+scheduleColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		sc.ID, sc.Project, sc.Title, sc.Task, sc.Kind, msOrZero(sc.At), sc.Every.Milliseconds(), sc.Cron, sc.Timezone, sc.Event, sc.EventLabel, sc.Target,
 		sc.Session, sc.Model, sc.Effort, sc.Precheck, int64(sc.Grace/time.Minute), sc.Paused, msOrZero(sc.NextRun), sc.CreatedBy, sc.CreatedAt.UnixMilli(), sc.UpdatedAt.UnixMilli())
 	return err
 }
@@ -133,9 +143,9 @@ func (s *Store) AddSchedule(ctx context.Context, sc Schedule) error {
 // when it was made.
 func (s *Store) UpdateSchedule(ctx context.Context, sc Schedule) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE schedules SET title = ?, task = ?, kind = ?, at = ?, every_ms = ?, cron = ?, timezone = ?,
-		target = ?, session = ?, model = ?, effort = ?, precheck = ?, grace_minutes = ?, paused = ?, next_run = ?, updated_at = ? WHERE id = ? AND project = ?`,
+		event = ?, event_label = ?, target = ?, session = ?, model = ?, effort = ?, precheck = ?, grace_minutes = ?, paused = ?, next_run = ?, updated_at = ? WHERE id = ? AND project = ?`,
 		sc.Title, sc.Task, sc.Kind, msOrZero(sc.At), sc.Every.Milliseconds(), sc.Cron, sc.Timezone,
-		sc.Target, sc.Session, sc.Model, sc.Effort, sc.Precheck, int64(sc.Grace/time.Minute), sc.Paused, msOrZero(sc.NextRun), sc.UpdatedAt.UnixMilli(), sc.ID, sc.Project)
+		sc.Event, sc.EventLabel, sc.Target, sc.Session, sc.Model, sc.Effort, sc.Precheck, int64(sc.Grace/time.Minute), sc.Paused, msOrZero(sc.NextRun), sc.UpdatedAt.UnixMilli(), sc.ID, sc.Project)
 	if err != nil {
 		return err
 	}
@@ -160,6 +170,9 @@ func (s *Store) DeleteSchedule(ctx context.Context, project, id string) error {
 		return fmt.Errorf("schedule %s: %w", id, ErrNotFound)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM schedule_runs WHERE schedule = ?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM schedule_events WHERE schedule = ?`, id); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -211,7 +224,7 @@ func (s *Store) querySchedules(ctx context.Context, where string, args ...any) (
 	for rows.Next() {
 		var sc Schedule
 		var at, every, grace, next, created, updated int64
-		if err := rows.Scan(&sc.ID, &sc.Project, &sc.Title, &sc.Task, &sc.Kind, &at, &every, &sc.Cron, &sc.Timezone, &sc.Target,
+		if err := rows.Scan(&sc.ID, &sc.Project, &sc.Title, &sc.Task, &sc.Kind, &at, &every, &sc.Cron, &sc.Timezone, &sc.Event, &sc.EventLabel, &sc.Target,
 			&sc.Session, &sc.Model, &sc.Effort, &sc.Precheck, &grace, &sc.Paused, &next, &sc.CreatedBy, &created, &updated); err != nil {
 			return nil, err
 		}
@@ -257,13 +270,123 @@ func (s *Store) ClaimScheduleRun(ctx context.Context, run ScheduleRun, wasDue, n
 			return fmt.Errorf("schedule %s: %w", run.Schedule, ErrNotFound)
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO schedule_runs (id, schedule, project, trigger, due_at, ran_at, late, missed, outcome, agent, job, chat_item, error)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		run.ID, run.Schedule, run.Project, run.Trigger, msOrZero(run.DueAt), run.RanAt.UnixMilli(), run.Late, run.Missed,
-		run.Outcome, run.Agent, run.Job, run.ChatItem, run.Error); err != nil {
+	if err := insertScheduleRun(ctx, tx, run); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+func insertScheduleRun(ctx context.Context, tx *trace.Tx, run ScheduleRun) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO schedule_runs (id, schedule, project, trigger, due_at, ran_at, late, missed, outcome, agent, job, chat_item, error, event, event_url)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		run.ID, run.Schedule, run.Project, run.Trigger, msOrZero(run.DueAt), run.RanAt.UnixMilli(), run.Late, run.Missed,
+		run.Outcome, run.Agent, run.Job, run.ChatItem, run.Error, run.Event, run.EventURL)
+	return err
+}
+
+// ErrEventSeen is ClaimScheduleEvent's answer for an event the trigger has
+// seen already: it fired for it, or it was there before the trigger looked.
+var ErrEventSeen = errors.New("the trigger has seen this event already")
+
+// ScheduleEventsSeen is whether an event trigger has looked at all yet: its
+// first look takes what is already there as seen (MarkScheduleEventsSeen),
+// so making one doesn't fire it for every open issue or failing commit.
+func (s *Store) ScheduleEventsSeen(ctx context.Context, schedule string) (bool, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM schedule_events WHERE schedule = ?`, schedule).Scan(&n)
+	return n > 0, err
+}
+
+// MarkScheduleEventsSeen records events as seen without firing for them, and
+// a marker for the look itself, so a trigger whose first look found nothing
+// still counts as having looked.
+func (s *Store) MarkScheduleEventsSeen(ctx context.Context, project, schedule string, keys []string, now time.Time) error {
+	tx, err := trace.BeginTx(ctx, s.db)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, key := range append([]string{ScheduleEventsLooked}, keys...) {
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO schedule_events (schedule, key, project, fired, seen_at) VALUES (?, ?, ?, 0, ?)`,
+			schedule, key, project, now.UnixMilli()); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// ScheduleEventsLooked is the key MarkScheduleEventsSeen records a trigger's
+// first look under.
+const ScheduleEventsLooked = "~looked"
+
+// ClaimScheduleEvent records that an event trigger fires for the event key,
+// and the run that does it, in one transaction: an event it has seen already
+// is ErrEventSeen, and nothing is recorded.
+func (s *Store) ClaimScheduleEvent(ctx context.Context, run ScheduleRun, key string) error {
+	tx, err := trace.BeginTx(ctx, s.db)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var n int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM schedules WHERE id = ? AND project = ? AND paused = 0`, run.Schedule, run.Project).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrScheduleMoved
+	}
+	res, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO schedule_events (schedule, key, project, fired, seen_at) VALUES (?, ?, ?, 1, ?)`,
+		run.Schedule, key, run.Project, run.RanAt.UnixMilli())
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrEventSeen
+	}
+	if err := insertScheduleRun(ctx, tx, run); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// ScheduleEventKeys is every event key a trigger has seen, fired or not.
+func (s *Store) ScheduleEventKeys(ctx context.Context, schedule string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT key FROM schedule_events WHERE schedule = ? AND key != ?`, schedule, ScheduleEventsLooked)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []string
+	for rows.Next() {
+		var k string
+		if err := rows.Scan(&k); err != nil {
+			return nil, err
+		}
+		out = append(out, k)
+	}
+	return out, rows.Err()
+}
+
+// ForgetScheduleEvents drops events a trigger has seen: those named, or all
+// of them, its first look included, when keys is nil (the trigger changed
+// what it waits for, and starts again from what is true then). A review
+// request that was answered is forgotten, so asking again is a new event.
+func (s *Store) ForgetScheduleEvents(ctx context.Context, schedule string, keys []string) error {
+	if keys == nil {
+		_, err := s.db.ExecContext(ctx, `DELETE FROM schedule_events WHERE schedule = ?`, schedule)
+		return err
+	}
+	for _, k := range keys {
+		if _, err := s.db.ExecContext(ctx, `DELETE FROM schedule_events WHERE schedule = ? AND key = ?`, schedule, k); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// EventSchedules are the event triggers of a project that aren't paused.
+func (s *Store) EventSchedules(ctx context.Context, project string) ([]Schedule, error) {
+	return s.querySchedules(ctx, `WHERE project = ? AND kind = 'event' AND paused = 0 ORDER BY created_at, rowid`, project)
 }
 
 // FinishScheduleRun records how a run went.
@@ -287,7 +410,7 @@ func (s *Store) ScheduleRuns(ctx context.Context, project, schedule string, limi
 		where += ` AND schedule = ?`
 		args = append(args, schedule)
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, schedule, project, trigger, due_at, ran_at, late, missed, outcome, agent, job, chat_item, error
+	rows, err := s.db.QueryContext(ctx, `SELECT id, schedule, project, trigger, due_at, ran_at, late, missed, outcome, agent, job, chat_item, error, event, event_url
 		FROM schedule_runs `+where+` ORDER BY ran_at DESC, rowid DESC LIMIT ?`, append(args, limit)...)
 	if err != nil {
 		return nil, err
@@ -297,7 +420,7 @@ func (s *Store) ScheduleRuns(ctx context.Context, project, schedule string, limi
 	for rows.Next() {
 		var r ScheduleRun
 		var due, ran int64
-		if err := rows.Scan(&r.ID, &r.Schedule, &r.Project, &r.Trigger, &due, &ran, &r.Late, &r.Missed, &r.Outcome, &r.Agent, &r.Job, &r.ChatItem, &r.Error); err != nil {
+		if err := rows.Scan(&r.ID, &r.Schedule, &r.Project, &r.Trigger, &due, &ran, &r.Late, &r.Missed, &r.Outcome, &r.Agent, &r.Job, &r.ChatItem, &r.Error, &r.Event, &r.EventURL); err != nil {
 			return nil, err
 		}
 		r.DueAt, r.RanAt = msTimeOrZero(due), time.UnixMilli(ran)

@@ -9,8 +9,10 @@ import (
 
 // Scheduled tasks: something a project's lead does at a time the user chose,
 // once ("tomorrow at 9 run the release checks") or again and again ("every
-// Monday at 8 triage new issues"). Each run wakes the lead with the task, or
-// creates an agent with it. The daemon owns them; the app, the command line
+// Monday at 8 triage new issues"), or each time something happens on the
+// project's GitHub repository (an event trigger: "when CI goes red on main,
+// have an agent fix it"). Each run wakes the lead with the task, or creates
+// an agent with it. The daemon owns them; the app, the command line
 // and the lead's schedule_task tool all go through these routes.
 
 // What a schedule's run does: Schedule.Target.
@@ -24,6 +26,23 @@ const (
 	ScheduleOnce  = "once"
 	ScheduleEvery = "every"
 	ScheduleCron  = "cron"
+	// ScheduleOnEvent runs each time Schedule.Event happens.
+	ScheduleOnEvent = "event"
+)
+
+// Events an event trigger runs on: Schedule.Event.
+const (
+	// ScheduleEventCIFailed is the checks failing on the newest commit of the
+	// repository's default branch, once per commit.
+	ScheduleEventCIFailed = "ci_failed"
+	// ScheduleEventReviewRequested is a review asked of the user on a pull
+	// request; asked again after they answered, it is another event.
+	ScheduleEventReviewRequested = "review_requested"
+	// ScheduleEventIssueLabeled is an open issue getting Schedule.EventLabel.
+	ScheduleEventIssueLabeled = "issue_labeled"
+	// ScheduleEventPROpened is a pull request opened from a branch that
+	// isn't an agent's.
+	ScheduleEventPROpened = "pr_opened"
 )
 
 // EventSchedule says a project's schedules, or their runs, changed. Its data
@@ -42,10 +61,14 @@ type Schedule struct {
 	Title   string `json:"title"`
 	// Task is what the lead, or the agent a run creates, is told to do.
 	Task string `json:"task"`
-	// Kind is ScheduleOnce, ScheduleEvery or ScheduleCron. At is when a
-	// one-off runs, and when a repeating one started counting from;
-	// EveryMinutes the interval; Cron the expression, read in Timezone.
+	// Kind is ScheduleOnce, ScheduleEvery, ScheduleCron or ScheduleOnEvent.
+	// At is when a one-off runs, and when a repeating one started counting
+	// from; EveryMinutes the interval; Cron the expression, read in
+	// Timezone; Event what an event trigger runs on, and EventLabel the
+	// label ScheduleEventIssueLabeled waits for.
 	Kind         string     `json:"kind"`
+	Event        string     `json:"event,omitempty"`
+	EventLabel   string     `json:"eventLabel,omitempty"`
 	At           *time.Time `json:"at,omitempty"`
 	EveryMinutes int        `json:"everyMinutes,omitempty"`
 	Cron         string     `json:"cron,omitempty"`
@@ -69,7 +92,7 @@ type Schedule struct {
 	GraceMinutes int  `json:"graceMinutes,omitempty"`
 	Paused       bool `json:"paused"`
 	// NextRun is when it runs next: absent when paused, or when it never
-	// runs again, a one-off that ran.
+	// runs again, a one-off that ran, and for an event trigger.
 	NextRun *time.Time `json:"nextRun,omitempty"`
 	// LastRun is its newest run, and Runs how many it has had.
 	LastRun   *ScheduleRun `json:"lastRun,omitempty"`
@@ -85,10 +108,14 @@ type ScheduleRun struct {
 	Schedule string `json:"schedule"`
 	// Title is the schedule's, as it is now.
 	Title string `json:"title,omitempty"`
-	// Trigger is "schedule", or "manual" for Run now.
-	Trigger string     `json:"trigger"`
-	DueAt   *time.Time `json:"dueAt,omitempty"`
-	RanAt   time.Time  `json:"ranAt"`
+	// Trigger is "schedule", "manual" for Run now, or "event" for an event
+	// trigger's run; Event then says what happened, in a line, and EventURL
+	// where to see it.
+	Trigger  string     `json:"trigger"`
+	Event    string     `json:"event,omitempty"`
+	EventURL string     `json:"eventUrl,omitempty"`
+	DueAt    *time.Time `json:"dueAt,omitempty"`
+	RanAt    time.Time  `json:"ranAt"`
 	// Late is set when it ran later than it was due, because AgentBox wasn't
 	// running then; Missed is how many more times it was due meanwhile, which
 	// this one run stands for.
@@ -113,8 +140,9 @@ type ScheduleRun struct {
 // When it runs is one of: At, a time (RFC 3339, or "2026-10-19 09:00" or
 // "09:00" in Timezone); In, a delay from now ("2h", "90m", "1d"); Every, an
 // interval ("1h", "1d") counted from At or from now; Cron, a five-field cron
-// expression in Timezone. Timezone is an IANA name, "" for the user's
-// (Settings.Timezone).
+// expression in Timezone; or On, an event (ScheduleEventCIFailed…), with
+// Label for ScheduleEventIssueLabeled. Timezone is an IANA name, "" for the
+// user's (Settings.Timezone).
 type ScheduleRequest struct {
 	Title    *string `json:"title,omitempty"`
 	Task     *string `json:"task,omitempty"`
@@ -122,6 +150,8 @@ type ScheduleRequest struct {
 	In       *string `json:"in,omitempty"`
 	Every    *string `json:"every,omitempty"`
 	Cron     *string `json:"cron,omitempty"`
+	On       *string `json:"on,omitempty"`
+	Label    *string `json:"label,omitempty"`
 	Timezone *string `json:"timezone,omitempty"`
 	Target   *string `json:"target,omitempty"`
 	Session  *string `json:"session,omitempty"`
@@ -136,10 +166,14 @@ type ScheduleRequest struct {
 // ChatScheduledRun, on a notice in a lead's chat, makes it a scheduled task
 // arriving: the notice's Text is the task.
 type ChatScheduledRun struct {
-	Schedule string     `json:"schedule"`
-	Run      string     `json:"run"`
-	Title    string     `json:"title"`
-	Trigger  string     `json:"trigger"`
+	Schedule string `json:"schedule"`
+	Run      string `json:"run"`
+	Title    string `json:"title"`
+	Trigger  string `json:"trigger"`
+	// Event is what an event trigger's run was for, and EventURL where to
+	// see it.
+	Event    string     `json:"event,omitempty"`
+	EventURL string     `json:"eventUrl,omitempty"`
 	DueAt    *time.Time `json:"dueAt,omitempty"`
 	Late     bool       `json:"late,omitempty"`
 	Missed   int        `json:"missed,omitempty"`

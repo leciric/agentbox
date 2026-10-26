@@ -12,9 +12,14 @@ Every agent's container starts life as a clone of a shared Incus snapshot, `agen
 (`image.go`). `agentbox image build`, or Setup's **Build base image**, makes it and snapshots it as
 `agentbox-base/ready`:
 
-- **With no optional component**, it downloads the image AgentBox publishes for that version from the
-  `image-<version>` release at `https://github.com/leciric/agentbox/releases`, joins its parts, checks
-  them against the release's `SHA256SUMS`, and imports it into Incus. That image is Debian 13 with
+- **With no optional component**, it downloads the image AgentBox publishes for that version from
+  `https://downloads.agentbox.linting.dev/images/`, or from the `image-<version>` release at
+  `https://github.com/leciric/agentbox/releases` when that fails, a few parts at a time, checks them
+  against the release's `SHA256SUMS`, joins them and imports the image into Incus. It is compressed
+  with zstd, which Incus unpacks several times faster than gzip. A download that is interrupted
+  (the connection drops, AgentBox restarts or the build is cancelled) carries on from where it got to
+  the next time. `AGENTBOX_IMAGES_URL` in the daemon's environment points it somewhere else (several
+  URLs, separated by spaces, are tried in order). That image is Debian 13 with
   [`provision.sh`](../internal/image/provision.sh) applied and every tool in `tools.txt` except
   Claude Code, its ACP adapter and Cursor's SDK, which AgentBox may not redistribute: the machine
   installs those itself, at their `tools.txt` versions, before making the image its own.

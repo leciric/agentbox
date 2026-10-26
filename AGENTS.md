@@ -39,7 +39,10 @@ container of its own.
 AgentBox runs in a VM, and the `agentbox` on the user's machine is that VM's front end
 (`internal/hostvm`): `agentbox vm …` manages the VM, and every other command runs inside it.
 
-- **Linux**: Cloud Hypervisor (`agentbox vm init`, `internal/hostvm/chv`). Host mode (Incus on the
+- **Linux**: Cloud Hypervisor (`agentbox vm init`, `internal/hostvm/chv`), booting a ready-made
+  disk with its packages installed (`vmdisk.go`, the `vmdisk-<version>` release the
+  [Published VM disk](.github/workflows/published-vm-disk.yml) workflow makes), or Debian's cloud
+  image when there's none, whose first boot installs them. Host mode (Incus on the
   machine itself) is no longer offered, but still runs for installs from earlier releases until
   `agentbox vm migrate` moves them (`MovePrompt` in `desktop/src/renderer/components/RunInVM.tsx`),
   for root, inside agents, and with `AGENTBOX_FRONT_END=host` (CI); `hostvm.Front` decides.
@@ -66,13 +69,17 @@ AgentBox runs in a VM, and the `agentbox` on the user's machine is that VM's fro
 ## Build and test
 
 ```bash
-go test ./...
+go test ./internal/cli ./internal/brief   # the packages you changed
 go build -o bin/agentbox ./cmd/agentbox   # "agentbox version dev"; bin/ is gitignored
 npm --prefix desktop start                # build and launch the app unpacked, in seconds
 npm --prefix desktop run dist             # installers in desktop/dist/: minutes, only when packaging changed
 ```
 
-Test the packages you changed while you work, and `go test ./...` once before you finish. The slow
+Run only the tests your change touches: `go test` on the packages you changed (and on those that use
+an exported API you changed), and for the app the test files of what you changed (`cd desktop && node
+--test src/…/x.test.ts`), plus `typecheck` and `lint`. Don't run `go test ./...` or a bare
+`npm --prefix desktop test`: CI runs the whole suite, and on an agent's VM it takes every other agent's
+memory. Run it only when your task, or a message from the lead or the user, asks for it by name. The slow
 packages (`internal/daemon`, `internal/chat`, `internal/agent`) run tests in parallel, and
 `internal/state`/`internal/memory` migrate a template database once per binary.
 
@@ -139,9 +146,11 @@ screenshot` of the preview in the agent's display, made by the desktop subagent.
 
 Setup downloads it (`internal/image/published.go`), adding the Codex and OpenCode tools on top when they
 are on, unless Android, dev caches or Incus are (`Components.NeedsLocalBuild`), from the
-`image-<version>` prerelease on this repository's GitHub releases, split in parts under GitHub's 2 GiB
-asset cap and joined and checked by Setup (`scripts/github-images.sh` publishes it, and keeps only the
-newest image release; app releases, release-please and the update check never see it), and
+`image-<version>` prerelease on this repository's GitHub releases, or first from its copy on the CDN
+(`downloads.agentbox.linting.dev/images/`, `scripts/r2-images.sh`), compressed with zstd and split in
+128 MiB parts that Setup downloads at once, resumes, joins and checks (`internal/image/download.go`;
+`scripts/github-images.sh` publishes it, and keeps only the newest image release; app releases,
+release-please and the update check never see it), and
 `agentbox image build` makes it on the user's machine from Debian and
 [`internal/image/provision.sh`](internal/image/provision.sh) otherwise, or when the download fails.
 

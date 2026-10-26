@@ -185,7 +185,7 @@ const S = {
     id: 'schedules',
     title: 'tour.schedules.title',
     body: 'tour.schedules.body',
-    anchor: ['[data-panel-more]', '[data-panel-toggle]'],
+    anchor: ['[data-panel-switch-view="schedules"]', '[data-panel-lead-tab="schedules"]', '[data-panel-toggle]'],
     go: 'panel',
   },
   help: {
