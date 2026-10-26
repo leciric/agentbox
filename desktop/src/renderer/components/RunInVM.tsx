@@ -85,10 +85,13 @@ export function LinuxVMSetup({ linux }: { linux: LinuxSetup }) {
       )}
       {(lines.length > 0 || run.isPending) && <SetupLog lines={lines} label={t('vm.run.log')} />}
       {run.error && <Notice>{errorMessage(run.error)}</Notice>}
-      <div className="grid gap-2">
-        <p className="text-[13px] text-muted">{t('vm.run.orTerminal')}</p>
-        <CommandBox command={sized ? `agentbox vm init --cpus ${sized.cpus} --memory-cap ${sized.memoryCap}` : 'agentbox vm init'} />
-      </div>
+      {/* KVMAccess has its own command first: vm init comes after it. */}
+      {!kvmFixable(linux) && (
+        <div className="grid gap-2">
+          <p className="text-[13px] text-muted">{t('vm.run.orTerminal')}</p>
+          <CommandBox command={sized ? `agentbox vm init --cpus ${sized.cpus} --memory-cap ${sized.memoryCap}` : 'agentbox vm init'} />
+        </div>
+      )}
     </Panel>
   );
 }
