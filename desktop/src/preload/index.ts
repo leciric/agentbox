@@ -165,10 +165,12 @@ export interface HubAppPairing {
 }
 
 // HubConnectResult: a setup link signed in at once (account); an address
-// asks for approval (pairing).
+// asks for approval (pairing); a hub from before pairing takes only a
+// password (passwordOnly, its address).
 export interface HubConnectResult {
   account?: HubAccount;
   pairing?: HubAppPairing;
+  passwordOnly?: string;
 }
 
 export interface HubEnvironment {

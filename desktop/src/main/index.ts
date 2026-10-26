@@ -189,6 +189,9 @@ ipcMain.handle('hubs:connect', async (_event, input: string): Promise<HubConnect
   if (!link) throw new Error(t('web.main.notAHub', { url: input.trim() }));
   const { url, secret } = link;
   if (secret) return { account: saveSession(url, await hubCall<HubSession>(url, 'POST', '/v1/setup', undefined, { secret, label: deviceLabel() })) };
+  // A hub from before pairing has no /v1/hub, and only passwords.
+  const res = await fetch(`${url}/v1/hub`);
+  if (res.status === 404) return { passwordOnly: url };
   const info = await hubCall<HubInfo>(url, 'GET', '/v1/hub');
   if (!info.claimed) throw new Error(t('web.main.hubUnclaimed'));
   const p = await hubCall<HubPairing>(url, 'POST', '/v1/pair', undefined, { kind: 'device', label: deviceLabel(), hostname: hostname() } satisfies HubPairRequest);

@@ -175,7 +175,9 @@ function ConnectHubDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
   const queryClient = useQueryClient();
   const [input, setInput] = useState('https://');
   const [pairing, setPairing] = useState<HubAppPairing | null>(null);
-  const [withPassword, setWithPassword] = useState(false);
+  // passwordHub is the hub a password signs in to: one from before pairing,
+  // or one with such accounts, when the user chose a password.
+  const [passwordHub, setPasswordHub] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string>();
@@ -190,6 +192,7 @@ function ConnectHubDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
     onMutate: () => setError(undefined),
     onSuccess: async (result) => {
       if (result.account) return connected(result.account);
+      if (result.passwordOnly) return setPasswordHub(result.passwordOnly);
       if (!result.pairing) return;
       const p = result.pairing;
       setPairing(p);
@@ -207,7 +210,7 @@ function ConnectHubDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
     onError: (err) => setError(errorMessage(err)),
   });
   const login = useMutation({
-    mutationFn: () => window.agentbox.hubs.login(pairing?.url ?? '', email.trim(), password),
+    mutationFn: () => window.agentbox.hubs.login(passwordHub ?? '', email.trim(), password),
     onSuccess: (account) => {
       if (pairing) void window.agentbox.hubs.pairCancel(pairing.id);
       setPassword('');
@@ -222,7 +225,7 @@ function ConnectHubDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
       if (p) void window.agentbox.hubs.pairCancel(p.id);
       return null;
     });
-    setWithPassword(false);
+    setPasswordHub(null);
     setPassword('');
     setError(undefined);
     connect.reset();
@@ -234,9 +237,9 @@ function ConnectHubDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t('shell.env.connectTitle')}</DialogTitle>
-          <DialogDescription>{pairing ? t('shell.env.pairBody', { host: hostOf(pairing.url) }) : t('shell.env.connectBody')}</DialogDescription>
+          <DialogDescription>{pairing && !passwordHub ? t('shell.env.pairBody', { host: hostOf(pairing.url) }) : t('shell.env.connectBody')}</DialogDescription>
         </DialogHeader>
-        {!pairing ? (
+        {!pairing && !passwordHub ? (
           <form
             className="grid gap-4"
             onSubmit={(event) => {
@@ -258,7 +261,7 @@ function ConnectHubDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
               </Button>
             </DialogFooter>
           </form>
-        ) : !withPassword ? (
+        ) : pairing && !passwordHub ? (
           <div className="grid gap-4" data-hub-pairing>
             <div className="flex flex-col items-center gap-4 rounded-2xl border border-line bg-surface-faint p-5 sm:flex-row sm:items-start">
               {pairing.qr.length > 0 && <QRCode rows={pairing.qr} size={148} />}
@@ -277,7 +280,7 @@ function ConnectHubDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
             {error && <Notice>{error}</Notice>}
             <DialogFooter>
               {pairing.passwords && (
-                <Button variant="ghost" className="mr-auto" onClick={() => setWithPassword(true)}>
+                <Button variant="ghost" className="mr-auto" onClick={() => setPasswordHub(pairing.url)}>
                   {t('shell.env.usePassword')}
                 </Button>
               )}
@@ -307,7 +310,7 @@ function ConnectHubDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
             </Field>
             {error && <Notice>{error}</Notice>}
             <DialogFooter>
-              <Button variant="ghost" onClick={() => setWithPassword(false)}>
+              <Button variant="ghost" onClick={() => setPasswordHub(null)}>
                 {t('common.back')}
               </Button>
               <Button type="submit" variant="primary" disabled={!email.trim() || !password || login.isPending}>

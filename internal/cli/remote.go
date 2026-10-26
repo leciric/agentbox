@@ -119,10 +119,10 @@ agentbox env add.`,
 			switch {
 			case !st.Configured:
 				if st.Pairing != nil && st.Pairing.Error == "" {
-				_, _ = fmt.Fprintf(out, "Waiting for %s to approve the code %s\n", st.Pairing.Hub, st.Pairing.Code)
-				return nil
-			}
-			_, _ = fmt.Fprintln(out, "Not connected to a hub. Connect with: agentbox remote connect <hub URL>")
+					_, _ = fmt.Fprintf(out, "Waiting for %s to approve the code %s\n", st.Pairing.Hub, st.Pairing.Code)
+					return nil
+				}
+				_, _ = fmt.Fprintln(out, "Not connected to a hub. Connect with: agentbox remote connect <hub URL>")
 			case st.Connected:
 				_, _ = fmt.Fprintf(out, "Connected to %s since %s\n", st.Hub, st.Since.Local().Format(time.DateTime))
 			default:
