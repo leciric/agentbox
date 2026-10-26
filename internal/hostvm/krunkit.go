@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -70,10 +71,14 @@ type krunkitHost struct {
 
 // krunkitHost asks Lima whether it has a krunkit driver, and looks for
 // krunkit and Homebrew. nil when this isn't a Mac with Apple Silicon, or Lima
-// won't say.
+// won't say. A Mac with no Lima has the driver as far as this goes: the Lima
+// EnsureLima downloads comes with it.
 func (v *VM) krunkitHost(ctx context.Context) *krunkitHost {
 	if v.Limactl == "" {
-		return nil
+		if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" {
+			return nil
+		}
+		return &krunkitHost{krunkit: findKrunkit() != "", driver: true, brew: findBrew()}
 	}
 	out, err := v.lima(ctx, nil, "info")
 	if err != nil {
