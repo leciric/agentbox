@@ -46,7 +46,7 @@ func (m *Manager) Ask(ctx context.Context, a state.Agent, ask string) (string, e
 	case c.turn != nil, c.rolling:
 		c.mu.Unlock()
 		return "", ErrBusy
-	case c.adapter == nil:
+	case !c.wakeForPrompt():
 		c.mu.Unlock()
 		return "", errNoSession
 	}

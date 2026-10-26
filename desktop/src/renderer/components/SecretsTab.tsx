@@ -13,6 +13,7 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Card, Code, Notice } from './ui/card';
 import { Field, Input } from './ui/input';
+import { Switch } from './ui/switch';
 import { Tip } from './ui/tooltip';
 import { AIToolSecretWarning } from './ToolCredential';
 
@@ -75,7 +76,7 @@ export function SecretsTab({ target }: { target: string }) {
           )}
           <ul className="grid gap-2" aria-label={t('agent.secrets.list')}>
             {mine.map((secret) => (
-              <SecretRow key={secret.name} secret={secret} onDelete={() => setDeleting(secret)} />
+              <SecretRow key={secret.name} secret={secret} onDelete={() => setDeleting(secret)} onChanged={refresh} />
             ))}
           </ul>
         </Card>
@@ -193,8 +194,21 @@ function SecretForm({ target, forAgent, onSaved }: { target: string; forAgent: b
 
 // SecretRow is one secret: its name, its scope, when it was last set and where
 // it is. No value, and no control that would ask for one.
-function SecretRow({ secret, onDelete }: { secret: T.Secret; onDelete?: () => void }) {
+//
+// A project secret's own row has the lead-managed switch: whether the project's
+// lead may fulfil agents' requests for it with the stored value. Elsewhere
+// (an agent's list of its project's secrets) it is only a badge.
+function SecretRow({ secret, onDelete, onChanged }: { secret: T.Secret; onDelete?: () => void; onChanged?: () => Promise<unknown> }) {
   const t = useT();
+  const leadManaged = useMutation({
+    mutationFn: (managed: boolean) => api.setSecretLeadManaged(secret.project, secret.name, managed),
+    onSuccess: async (changed) => {
+      toast(changed.leadManaged ? t('agent.secrets.leadManagedOn', { name: changed.name }) : t('agent.secrets.leadManagedOff', { name: changed.name }));
+      await onChanged?.();
+    },
+    onError: (error) => toast.error(errorMessage(error)),
+  });
+  const switchable = secret.scope === 'project' && onChanged !== undefined;
   return (
     <li
       data-secret={secret.name}
@@ -212,9 +226,24 @@ function SecretRow({ secret, onDelete }: { secret: T.Secret; onDelete?: () => vo
           <Badge variant="warning" data-secret-ai-tool-warning>{t('agent.secrets.forCodeOnly')}</Badge>
         </Tip>
       )}
+      {secret.leadManaged && !switchable && <Badge variant="info">{t('agent.secrets.leadManaged')}</Badge>}
+      {switchable && (
+        <Tip label={t('agent.secrets.leadManagedTip')}>
+          <label className="ml-auto flex items-center gap-2 text-[11.5px] text-subtle">
+            {t('agent.secrets.leadManaged')}
+            <Switch
+              aria-label={t('agent.secrets.leadManagedSwitch', { name: secret.name })}
+              data-secret-lead-managed
+              checked={secret.leadManaged}
+              disabled={leadManaged.isPending}
+              onCheckedChange={(managed) => leadManaged.mutate(managed)}
+            />
+          </label>
+        </Tip>
+      )}
       {onDelete && (
         <Tip label={t('common.remove')}>
-          <Button variant="ghost" size="icon-sm" className="ml-auto" aria-label={t('agent.secrets.removeLabel', { name: secret.name })} onClick={onDelete}>
+          <Button variant="ghost" size="icon-sm" className={switchable ? undefined : 'ml-auto'} aria-label={t('agent.secrets.removeLabel', { name: secret.name })} onClick={onDelete}>
             <X />
           </Button>
         </Tip>

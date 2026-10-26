@@ -8,9 +8,11 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"agentbox/internal/api"
 	"agentbox/internal/image"
+	"agentbox/internal/state"
 )
 
 // Building the base image never holds anything up. It runs as a job the
@@ -19,7 +21,10 @@ import (
 // needs the image — making an agent, or an agent's machine again — waits for
 // that job, or starts one, rather than failing (awaitImage). A rebuild makes
 // agentbox-base-next and swaps it in at the end (image.Build), so agents keep
-// being made from the old image until the new one is ready.
+// being made from the old image until the new one is ready. On a new
+// installation the daemon starts the first build itself (fetchFirstImage),
+// and an agent asked for meanwhile is listed at once, with its branch and
+// worktree, as waiting for the image (awaitImageFor).
 
 func (s *Server) imageStatus(w http.ResponseWriter, r *http.Request) error {
 	out, err := s.imageBuildStatus(r.Context())
@@ -45,7 +50,8 @@ func (s *Server) imageBuildStatus(ctx context.Context) (api.ImageStatus, error) 
 	out.Job = info.ID
 	switch info.Status {
 	case api.JobRunning:
-		out.Build, out.Step = api.ImageBuilding, lastStep(j.logLines())
+		lines := j.logLines()
+		out.Build, out.Step, out.Progress = api.ImageBuilding, lastStep(lines), lastProgress(lines)
 		out.Waiting = s.waitingForImage()
 	case api.JobFailed:
 		// Until a build succeeds: one that did leaves nothing to say.
@@ -59,6 +65,21 @@ func lastStep(lines []string) string {
 	for i := len(lines) - 1; i >= 0; i-- {
 		if step, ok := strings.CutPrefix(lines[i], "==> "); ok {
 			return step
+		}
+	}
+	return ""
+}
+
+// lastProgress is how far the newest step has got, when it says: the last
+// line after it that starts with a percentage, as the download writes them.
+func lastProgress(lines []string) string {
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(line, "==> ") {
+			return ""
+		}
+		if n, _, ok := strings.Cut(line, "%"); ok && n != "" && strings.Trim(n, "0123456789") == "" {
+			return line
 		}
 	}
 	return ""
@@ -104,12 +125,21 @@ func (s *Server) startImageBuild(ctx context.Context, req api.BuildImageRequest)
 	}
 	j, err := s.launchJob("image-build", image.SnapshotRef(), func(ctx context.Context, log io.Writer) (any, error) {
 		defer s.releaseImage()
-		if err := image.Build(ctx, s.cfg.Incus, s.cfg.User, opts, log); err != nil {
-			s.recordError(errImageBuildFailed, "")
+		ready := setupReport{step: setupImageReady}
+		opts.Source = func(source string) { ready.imageSource = source }
+		began := time.Now()
+		err := image.Build(ctx, s.cfg.Incus, s.cfg.User, opts, log)
+		ready.took = time.Since(began)
+		if err != nil {
+			// One the job's cancel stopped didn't fail.
+			if ctx.Err() == nil {
+				s.recordErr(errImageBuildFailed, "", err)
+			}
+			s.setupStepFailed(context.WithoutCancel(ctx), ready, err)
 			return nil, err
 		}
 		s.countFeature(api.FeatureImageBuild)
-		s.setupStep(ctx, setupImageBuilt)
+		s.setupReached(ctx, ready)
 		// A build you made settles an update of the daemon's that failed or
 		// was cancelled.
 		s.setImagePhase(func(w *imageWork) { *w = imageWork{busy: w.busy, build: w.build} })
@@ -158,6 +188,11 @@ func (s *Server) awaitImage(ctx context.Context, log io.Writer) error {
 	}
 	j := s.runningImageBuild()
 	if j == nil {
+		// A build may have finished since the image was looked at: with
+		// none running, look again rather than start a second one.
+		if ready, err := image.Ready(ctx, s.cfg.Incus); err != nil || ready {
+			return err
+		}
 		started, err := s.startImageBuild(ctx, api.BuildImageRequest{})
 		if err != nil {
 			return fmt.Errorf("the base image isn't built, and building it couldn't start: %w", err)
@@ -192,4 +227,92 @@ func (s *Server) awaitImage(ctx context.Context, log io.Writer) error {
 func buildError(info api.Job) string {
 	line, _, _ := strings.Cut(strings.TrimSpace(info.Error), "\n")
 	return cmpOr(line, "no reason given")
+}
+
+// awaitImageFor is awaitImage for an agent being made, which is listed as
+// waiting for the base image while it does (api.Agent.WaitingForImage).
+func (s *Server) awaitImageFor(ctx context.Context, a state.Agent, log io.Writer) error {
+	ref := a.Ref()
+	s.mu.Lock()
+	if s.agentsOnImage == nil {
+		s.agentsOnImage = map[string]bool{}
+	}
+	s.agentsOnImage[ref] = true
+	s.mu.Unlock()
+	s.refreshAgents(ctx)
+	defer func() {
+		s.mu.Lock()
+		delete(s.agentsOnImage, ref)
+		s.mu.Unlock()
+		s.refreshAgents(context.WithoutCancel(ctx))
+	}()
+	return s.awaitImage(ctx, log)
+}
+
+// waitingOnImage reports whether the agent ref is waiting for the base image.
+func (s *Server) waitingOnImage(ref string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.agentsOnImage[ref]
+}
+
+// firstImageEvery is how often fetchFirstImage looks again while Incus or the
+// user mapping aren't ready for a build; a var for tests.
+var firstImageEvery = 5 * time.Second
+
+// fetchFirstImage starts making the base image as soon as a new installation
+// can, so that it downloads while you sign in to your AI tool, add a project
+// and talk to its chat, rather than once Setup gets to it: agents created
+// meanwhile wait for it (awaitImageFor). It only ever starts one build, and
+// none when there is an image already, a build under way, or one that failed
+// (that one is yours to retry from Setup or the top bar, and creating an
+// agent tries again). Until Incus answers and the user mapping is set up it
+// keeps looking, for as long as the daemon runs.
+func (s *Server) fetchFirstImage(ctx context.Context) {
+	ticker := time.NewTicker(firstImageEvery)
+	defer ticker.Stop()
+	for {
+		if s.tryFirstImage(ctx) {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// tryFirstImage is one look of fetchFirstImage's: whether it is done, by
+// starting the build or by finding there is no need for one.
+func (s *Server) tryFirstImage(ctx context.Context) bool {
+	if s.lastImageBuild() != nil {
+		return true
+	}
+	checkHost, start := s.firstImage.checkHost, s.firstImage.start
+	if checkHost == nil {
+		checkHost = image.CheckHost
+	}
+	if start == nil {
+		start = func(ctx context.Context) (api.Job, error) { return s.startImageBuild(ctx, api.BuildImageRequest{}) }
+	}
+	if s.cfg.Incus.Ping(ctx) != nil || checkHost(s.cfg.User) != nil {
+		return false
+	}
+	ready, err := image.Ready(ctx, s.cfg.Incus)
+	if err != nil {
+		return false
+	}
+	if ready {
+		return true
+	}
+	j, err := start(ctx)
+	if err != nil {
+		// The disk is full, or the daemon is updating the image: whatever
+		// needs it starts a build of its own, as before.
+		s.logf("fetching the first base image: %v", err)
+		return true
+	}
+	s.logf("fetching the first base image (job %s)", j.ID)
+	return true
 }

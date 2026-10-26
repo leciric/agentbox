@@ -151,7 +151,7 @@ func (m *Manager) setContextWindow(c *conversation, value string) (api.ChatSessi
 	c.restartIfWindowMoved()
 	c.markSession()
 	c.flush(false)
-	return clone(c.session), nil
+	return c.view(), nil
 }
 
 // restartIfWindowMoved notes that the running adapter was started on another
@@ -212,4 +212,19 @@ func (c *conversation) contextSize(ad *adapter, u acp.SessionUpdate) int64 {
 		ad.models.Seen[model] = u.Size
 	}
 	return ad.models.Room(model, ad.window)
+}
+
+// restartIfThinkingMoved notes that the chat's model now differs from the
+// running adapter's in taking adaptive thinking, which claude-agent-acp reads
+// only when a session starts (acp.ClaudeThinkingMeta): moving from Opus to
+// Haiku 4.5 mid-session would otherwise send it adaptive on every turn, and a
+// 400 for each. The next turn restarts the adapter, which resumes the same
+// session asking for what the new model takes. Caller holds c.mu.
+func (c *conversation) restartIfThinkingMoved() {
+	ad := c.adapter
+	if c.agent.AI != "claude" || ad == nil || !ad.ready {
+		return // the adapter that starts next asks for the right thinking anyway
+	}
+	model, _ := c.launchSettings()
+	c.thinkingRestart = acp.ClaudeAdaptiveThinking(model) != ad.thinking
 }

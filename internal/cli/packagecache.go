@@ -14,7 +14,7 @@ func newPackageCacheCmd(a *app) *cobra.Command {
 	var maxSize string
 	var clear bool
 	cmd := &cobra.Command{
-		Use:   "package-cache [on|off] [--max 20GiB] [--clear]",
+		Use:   "package-cache [on|off] [--max 10GiB] [--clear]",
 		Short: "Show or change the package caches agents share",
 		Long: `Shows or changes the shared package caches: every agent's pnpm, npm, Yarn (2 and
 later), Go, pip, uv, Corepack and Playwright download into one directory in
@@ -24,7 +24,7 @@ than once per agent, and is still there for the next agent. Logins, tokens and
 
   agentbox package-cache                 say whether it's on, and how much it holds
   agentbox package-cache off             agents keep caches of their own again
-  agentbox package-cache --max 40GiB     the most it may hold; 20GiB by default, 0 for that
+  agentbox package-cache --max 40GiB     the most it may hold; 10GiB by default, 0 for that
   agentbox package-cache --clear         empty it
 
 Inside an agent the caches are at ` + agent.PackageCachePath + `, and
@@ -76,7 +76,7 @@ are running get it at once; a shell already open keeps what it had.`,
 			return err
 		},
 	}
-	cmd.Flags().StringVar(&maxSize, "max", "", "the most the caches may hold, like 20GiB; 0 for the default")
+	cmd.Flags().StringVar(&maxSize, "max", "", "the most the caches may hold, like 10GiB; 0 for the default")
 	cmd.Flags().BoolVar(&clear, "clear", false, "empty the caches")
 	return cmd
 }

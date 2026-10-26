@@ -293,6 +293,7 @@ func NewRootCmd() *cobra.Command {
 		newAskCmd(a),
 		newHeavyCmd(a),
 		newTraceCmd(a),
+		newDebugCmd(a),
 		newHeavyHookCmd(),
 		newHeavyJoinCmd(),
 		newQuestionsCmd(a),
@@ -327,6 +328,7 @@ func NewRootCmd() *cobra.Command {
 		newTokensCmd(a),
 		newDestroyCmd(a),
 		newDiffCmd(a),
+		newShareCmd(a),
 		newPathCmd(a),
 		newJobsCmd(a),
 		newEventsCmd(a),
@@ -345,6 +347,7 @@ func NewRootCmd() *cobra.Command {
 		newLogoutCmd(a),
 		newEnvCmd(a),
 		newWSLBridgeCmd(a),
+		newSetupFunnelCmd(a),
 	)
 	return root
 }

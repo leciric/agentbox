@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
 import { api, isHomeChat, isProjectChat } from '../../lib/api';
+import type { Wake } from '../v2/ReviewV2';
 import { asleep, chatKey, dropWindow, fetchThread, isSilent, loadOlder, loadWindowNewer, loadWindowOlder, sessionShown, toolsReload } from '../../lib/chat';
 import { useT, type MessageKey } from '../../lib/i18n';
 import { useProjectName } from '../../lib/useProjectName';
@@ -25,6 +26,7 @@ import { openPanelOn } from '../../lib/rightPanel';
 import { useUiV2 } from '../../lib/uiV2';
 import { useChatWindow, useRevealItem, type ChatOpenAt } from './reveal';
 import { Timeline } from './Timeline';
+import { ImageWait } from '../ImageWait';
 
 // requestChatFind opens the find bar on a chat, as Ctrl+F (⌘F) does, for its
 // ⋯ menu: after the menu has closed and handed focus back to its trigger, so
@@ -60,7 +62,9 @@ export function ChatTab({
   openAt?: ChatOpenAt;
   readOnly?: { onContinue: () => void; onDelete: () => void };
   // Something to show over the composer, such as UI v2's review card.
-  aboveComposer?: ReactNode;
+  // A function gets the wake button's state while the agent sleeps, to merge
+  // it into its own bar.
+  aboveComposer?: ReactNode | ((wake?: Wake) => ReactNode);
 }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -381,7 +385,8 @@ export function ChatTab({
             </div>
           ) : (
             <>
-              {aboveComposer}
+              {agent.waitingForImage && <ImageWait agent={agent} />}
+              {typeof aboveComposer === 'function' ? aboveComposer(sleeping ? { state: sleeping, starting, onStart } : undefined) : aboveComposer}
               <PageStack agent={agent} />
               <Composer
                 agent={agent}

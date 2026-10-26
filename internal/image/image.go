@@ -328,6 +328,23 @@ type Options struct {
 	DownloadDir string
 	// HTTP downloads it; nil is http.DefaultClient.
 	HTTP *http.Client
+	// Source, when set, is told where the image comes from each time the
+	// build decides it: SourcePublished, SourceLocal, or
+	// SourceLocalAfterPublished when the published one couldn't be used.
+	Source func(string)
+}
+
+// Where an image comes from, as Options.Source is told.
+const (
+	SourcePublished           = "downloaded"
+	SourceLocal               = "built"
+	SourceLocalAfterPublished = "built_after_download_failed"
+)
+
+func (o Options) source(s string) {
+	if o.Source != nil {
+		o.Source(s)
+	}
 }
 
 // firewall runs the commands that let Docker's firewall pass the Incus bridge;
@@ -466,9 +483,12 @@ func makeNext(ctx context.Context, inc incus.Client, next string, u User, opts O
 	step := stepper(log)
 	switch {
 	case opts.ImagesURL == "":
+		opts.source(SourceLocal)
 	case opts.Components.NeedsLocalBuild():
+		opts.source(SourceLocal)
 		step("Building the image here: the published one has none of the optional components, and this one has %s", opts.Components.provisioned().Summary())
 	default:
+		opts.source(SourcePublished)
 		err := fromPublished(ctx, inc, next, u, opts, log)
 		if err == nil {
 			return nil
@@ -478,6 +498,7 @@ func makeNext(ctx context.Context, inc incus.Client, next string, u User, opts O
 		}
 		step("The published image can't be used: %v", err)
 		step("Building it here instead")
+		opts.source(SourceLocalAfterPublished)
 		if err := remove(ctx, inc, next); err != nil {
 			return err
 		}

@@ -23,6 +23,15 @@ func TestRender(t *testing.T) {
 			IP:       "10.239.149.23",
 			EnvFiles: []string{".env", "apps/api/.env.local"},
 		},
+		"node-modules": {
+			Project:     "pawly",
+			Agent:       "agent-04",
+			Worktree:    "/home/dev/.local/share/agentbox/worktrees/pawly/agent-04",
+			Branch:      "agentbox/agent-04",
+			BaseRef:     "main",
+			IP:          "10.239.149.25",
+			NodeModules: []string{".", "apps/web"},
+		},
 		"android": {
 			Project:  "pawly",
 			Agent:    "agent-03",
@@ -55,16 +64,29 @@ func TestRender(t *testing.T) {
 			GitHub:   true,
 			AgentPRs: true,
 		},
+		// Made from another agent's branch: stacked on it.
+		"stacked": {
+			Project:  "pawly",
+			Agent:    "agent-08",
+			Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/agent-08",
+			Branch:   "agentbox/feat-csv-import",
+			BaseRef:  "agentbox/feat-csv-export",
+			Parent:   "agent-07",
+			IP:       "10.239.149.28",
+			GitHub:   true,
+			AgentPRs: true,
+		},
 		// The user lets commits credit the AI tool: no line asking not to.
 		"credit-ai-tool": {
-			Project:      "pawly",
-			Agent:        "agent-08",
-			Worktree:     "/home/dev/.local/share/agentbox/worktrees/pawly/agent-08",
-			Branch:       "agentbox/agent-08",
-			BaseRef:      "main",
-			IP:           "10.239.149.28",
-			AgentPRs:     true,
-			CreditAITool: true,
+			Project:        "pawly",
+			Agent:          "agent-08",
+			Worktree:       "/home/dev/.local/share/agentbox/worktrees/pawly/agent-08",
+			Branch:         "agentbox/agent-08",
+			BaseRef:        "main",
+			IP:             "10.239.149.28",
+			AgentPRs:       true,
+			CreditAITool:   true,
+			BuiltWithBadge: true,
 		},
 		"secrets": {
 			Project:  "pawly",
@@ -289,6 +311,29 @@ func TestRenderAgentPRs(t *testing.T) {
 	}
 	if strings.Contains(off, "open a pull request") {
 		t.Errorf("off: the brief tells the agent to open a pull request")
+	}
+}
+
+// TestRenderFullSuite checks the testing rule: the tests the change touches
+// and the full suite only when asked by name, unless the project lets its
+// agents run it while the installation blocks it.
+func TestRenderFullSuite(t *testing.T) {
+	render := func(on bool) string {
+		t.Helper()
+		got, err := brief.Render(brief.Data{Project: "pawly", Agent: "agent-02", Branch: "agentbox/x", BaseRef: "main", Worktree: "/w", FullSuite: on})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	allowed, blocked := render(true), render(false)
+	for _, want := range []string{"never the whole suite", "AGENTBOX_FULL_SUITE=1 <command>", "vitest related <files>", "## Testing your change\n\n- Run only"} {
+		if !strings.Contains(blocked, want) {
+			t.Errorf("the brief doesn't say %q", want)
+		}
+	}
+	if !strings.Contains(allowed, "## Testing your change\n\n- While you iterate") || !strings.Contains(allowed, "run the full suite once") || strings.Contains(allowed, "AGENTBOX_FULL_SUITE") {
+		t.Errorf("allowed: the brief doesn't let the agent run the full suite once")
 	}
 }
 
@@ -590,7 +635,7 @@ func TestRenderLeadOpenCode(t *testing.T) {
 		"### Agents can run OpenCode too",
 		"`create_agent`'s `ai`",
 		"`anthropic/claude-sonnet-5`, `openai/gpt-5.4`",
-		"Keep `claude` unless there is a reason",
+		"Name it only when there is a reason",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the lead's brief doesn't mention %q", want)
@@ -602,6 +647,31 @@ func TestRenderLeadOpenCode(t *testing.T) {
 	for _, text := range []string{lead(nil, true), lead([]string{"anthropic/claude-sonnet-5"}, false)} {
 		if strings.Contains(text, "OpenCode") {
 			t.Errorf("the lead's brief offers OpenCode where it can't be used:\n%s", text)
+		}
+	}
+}
+
+// A lead that can create agents is told that one it gives no tool runs its
+// own, and that Claude Code's model names and defaults aren't another tool's.
+func TestRenderLeadAgentsFollowItsTool(t *testing.T) {
+	for _, canSpawn := range []bool{true, false} {
+		got, err := brief.RenderLead(brief.LeadData{
+			Project: "pawly", Root: "/src/pawly",
+			Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/lead",
+			BaseRef:  "main", Autonomy: "ask", CanSpawn: canSpawn,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{
+			"### Which AI tool each agent runs",
+			"without `ai` runs the tool you run on yourself",
+			"it runs Claude Code, and `create_agent`'s reply says why",
+			"starts on that tool's own default",
+		} {
+			if strings.Contains(got, want) != canSpawn {
+				t.Errorf("CanSpawn %v: the lead's brief mentions %q: %v, want %v", canSpawn, want, !canSpawn, canSpawn)
+			}
 		}
 	}
 }

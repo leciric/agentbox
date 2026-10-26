@@ -2,8 +2,10 @@
 // the address it was paired at, with its token. The daemon passes on only
 // what the phone's scopes allow (lanRouteOf in internal/daemon/lan.go), and
 // a 401 means the pairing was revoked, which forgets it here.
-// The paths are the desktop app's (desktop/src/renderer/lib/api.ts).
+// The paths are the desktop app's (desktop/src/renderer/lib/api.ts). What the
+// screens read is made safe on the way in (parse.ts).
 import * as T from '../shared/api.ts';
+import * as P from './parse.ts';
 import { forget, session } from './session.ts';
 
 export class ApiError extends Error {
@@ -14,12 +16,14 @@ export class ApiError extends Error {
   }
 }
 
+// call reaches the API under /api; a path that starts with /lan/ is the
+// phone's own, beside it (its push notifications).
 async function call<R>(method: string, path: string, body?: unknown): Promise<R> {
   const s = session();
   if (!s) throw new ApiError('not paired', 401);
   let res: Response;
   try {
-    res = await fetch(`${s.origin}/api${path}`, {
+    res = await fetch(`${s.origin}${path.startsWith('/lan/') ? '' : '/api'}${path}`, {
       method,
       headers: { Authorization: `Bearer ${s.token}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -60,17 +64,17 @@ export interface ChatPage {
 }
 
 export const api = {
-  settings: () => call<T.Settings>('GET', '/v1/settings'),
-  projects: () => call<T.Project[]>('GET', '/v1/projects'),
-  agents: () => call<T.Agent[]>('GET', '/v1/agents'),
-  projectChat: (name: string) => call<T.ProjectChat>('GET', `${project(name)}/lead`),
+  settings: () => call<unknown>('GET', '/v1/settings').then(P.settings),
+  projects: () => call<unknown>('GET', '/v1/projects').then(P.projects),
+  agents: () => call<unknown>('GET', '/v1/agents').then(P.agents),
+  projectChat: (name: string) => call<unknown>('GET', `${project(name)}/lead`).then(P.projectChat),
   chat: (ref: string, page: ChatPage = {}) => {
     const q = new URLSearchParams();
     if (page.limit) q.set('limit', String(page.limit));
     if (page.before) q.set('before', page.before);
     if (page.from) q.set('from', page.from);
     const qs = q.toString();
-    return call<T.ChatThread>('GET', `${chatBase(ref)}${qs ? `?${qs}` : ''}`);
+    return call<unknown>('GET', `${chatBase(ref)}${qs ? `?${qs}` : ''}`).then(P.chatThread);
   },
   startChat: (ref: string) => call<T.ChatSession>('POST', `${chatBase(ref)}/start`),
   sendMessage: (ref: string, text: string) => call<T.ChatItem>('POST', `${chatBase(ref)}/messages`, { text } satisfies T.ChatMessageRequest),
@@ -78,20 +82,24 @@ export const api = {
   answerPermission: (ref: string, item: string, optionId: string) =>
     call<T.ChatItem>('POST', `${chatBase(ref)}/permissions/${encodeURIComponent(item)}`, { optionId } satisfies T.ChatAnswerRequest),
   startAgent: (ref: string, paused: boolean) => call<void>('POST', `${agent(ref)}/${paused ? 'resume' : 'start'}`),
-  questions: (name: string) => call<T.Question[]>('GET', `${project(name)}/questions?all=1`),
+  questions: (name: string) => call<unknown>('GET', `${project(name)}/questions?all=1`).then(P.questions),
   answerQuestion: (name: string, id: string, answer: string) =>
     call<T.Question>('POST', `${project(name)}/questions/${encodeURIComponent(id)}/answer`, { answer } satisfies T.AnswerQuestionRequest),
-  readyToReview: (name: string) => call<T.ReviewPage>('GET', `${project(name)}/review?limit=50`),
+  readyToReview: (name: string) => call<unknown>('GET', `${project(name)}/review?limit=50`).then(P.reviewPage),
   // Marking work reviewed, and asking for changes, are the "answer" scope's
   // (lanWrites in internal/daemon/lan.go).
   markReviewed: (ref: string, fingerprint: string) => call<void>('POST', `${agent(ref)}/review`, { verdict: 'reviewed', fingerprint } satisfies T.ReviewRequest),
   requestChanges: (ref: string, text: string, fingerprint: string) => call<unknown>('POST', `${agent(ref)}/request-changes`, { text, fingerprint } satisfies T.RequestChangesRequest),
-  agentMedia: (ref: string) => call<T.MediaItem[]>('GET', `${agent(ref)}/media`),
-  pulls: (name: string, refresh = false) => call<T.ProjectPullRequests>('GET', `${project(name)}/pulls${refresh ? '?refresh=1' : ''}`),
+  agentMedia: (ref: string) => call<unknown>('GET', `${agent(ref)}/media`).then(P.media),
+  pulls: (name: string, refresh = false) => call<unknown>('GET', `${project(name)}/pulls${refresh ? '?refresh=1' : ''}`).then(P.pulls),
   // confirmed says the user confirmed the merge on the phone, which the
   // daemon asks of a phone's merge (lanAPI in internal/daemon/lan.go).
   merge: (name: string, number: number, method: string) =>
     call<T.PullRequest>('POST', `${project(name)}/pulls/${number}/merge`, { method, confirmed: true } satisfies T.MergePullRequestRequest),
+  // This phone's push notifications (internal/daemon/phonepush.go).
+  push: () => call<T.PhonePush>('GET', '/lan/push'),
+  setPush: (p: T.PhonePush) => call<T.PhonePush>('PUT', '/lan/push', p),
+  testPush: () => call<T.PhonePushTest>('POST', '/lan/push/test'),
 };
 
 // mediaSource is an image of the daemon's for <Image source>: its address

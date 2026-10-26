@@ -12,6 +12,7 @@
 // picker, opening local folders) isn't available either way.
 import type { ApiResponse, Bridge, CliStatus, ConnectionState, EnvironmentTarget, HostSetupStatus, HubAccount, HubEnvironment } from '../../preload';
 import * as T from '../../shared/api.ts';
+import { maxErrorReportsPerRun } from '../../shared/errors.ts';
 import { t, type MessageKey } from '../../shared/i18n/index.ts';
 import { reconnector } from './reconnect.ts';
 import { webStreams } from './streams.ts';
@@ -147,11 +148,16 @@ const { stream, closeAll: closeStreams } = webStreams(
   (path) => `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${apiBase()}${path}`,
 );
 
+let errorReportsSent = 0;
+
 const unavailable = (message: MessageKey) => () => Promise.reject(new Error(t(message)));
 
 export const webBridge: Bridge & { web: true; lan: boolean } = {
   web: true,
   lan,
+  keepAwake: async () => {},
+  // A browser has no tray.
+  tray: { settings: async () => null, set: unavailable('web.bridge.tray'), reviewing: () => {}, onOpen: () => () => {} },
   request: async (method: string, path: string, body?: unknown): Promise<ApiResponse> => {
     const res = await fetch(apiBase() + path, {
       method,
@@ -174,6 +180,7 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
   hostSetup: {
     status: () => Promise.resolve<HostSetupStatus>({ pkexec: null, user: '', running: false, resizing: false, vm: null, wsl: null }),
     run: unavailable('web.bridge.hostSetup'),
+    grantKVM: unavailable('web.bridge.hostSetup'),
     onOutput: () => () => {},
   },
   // A phone has no app to update.
@@ -196,6 +203,8 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
     power: () => Promise.resolve(null),
     act: unavailable('web.bridge.vmPower'),
     disk: () => Promise.resolve(null),
+    remakeWithKrunkit: unavailable('web.bridge.vmKrunkit'),
+    onKrunkitOutput: () => () => {},
   },
   hubs: {
     list: async () => {
@@ -236,12 +245,20 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
   renderUrl: () => Promise.resolve(null),
   pageThumb: () => Promise.resolve(null),
   // The web app has no main process: a report carries only the daemon's
-  // sections and the page's own errors.
+  // sections and the page's own errors, and an error report the daemon can't
+  // be reached for is dropped, with no disk to keep it on.
   report: {
     sections: () => Promise.resolve([]),
     windowError: () => {},
     onAppError: () => () => {},
     openLogs: unavailable('web.bridge.openLogs'),
+    send: async (req) => {
+      if (errorReportsSent >= maxErrorReportsPerRun) return 'capped';
+      errorReportsSent++;
+      const res = await webBridge.request('POST', '/v1/reports', req).catch(() => undefined);
+      if (!res) return 'unreachable';
+      return res.status < 300 ? 'sent' : 'refused';
+    },
   },
   pickDirectory: () => Promise.resolve(null),
   setLanguage: () => {},
@@ -254,6 +271,15 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
     link.click();
     return Promise.resolve('');
   },
+  // A browser downloads the page, where it puts downloads.
+  saveShare: (path: string, name: string) => {
+    const link = document.createElement('a');
+    link.href = `${apiBase()}${path}`;
+    link.download = name;
+    link.click();
+    return Promise.resolve('');
+  },
+  showShare: () => Promise.resolve(),
   showItem: unavailable('web.bridge.showItem'),
   openExternal: (url) => {
     window.open(url, '_blank', 'noopener');
@@ -276,6 +302,17 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
   onNotificationClick: (fn) => listen(noticeClickListeners, fn),
   copyText: (text) => void navigator.clipboard?.writeText(text),
   readText: () => navigator.clipboard?.readText() ?? Promise.resolve(''),
+  copyImage: (png) => void navigator.clipboard?.write([new ClipboardItem({ 'image/png': new Blob([png as BlobPart], { type: 'image/png' }) })]).catch(() => {}),
+  // A browser downloads it, with no say in where.
+  saveImage: (name, png) => {
+    const url = URL.createObjectURL(new Blob([png as BlobPart], { type: 'image/png' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return Promise.resolve(true);
+  },
   // The phone web app can't reach a host keyring, so browser-cookie import
   // from an installed browser isn't offered there; this is never called.
   browserKeyringSecret: () => Promise.resolve(''),

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"os"
@@ -31,6 +32,7 @@ import (
 	"agentbox/internal/imagecache"
 	"agentbox/internal/incus"
 	"agentbox/internal/memory"
+	"agentbox/internal/nodemods"
 	"agentbox/internal/omarchy"
 	"agentbox/internal/paths"
 	"agentbox/internal/pkgcache"
@@ -76,10 +78,22 @@ type Config struct {
 	// TraceDir is where the span and stall files go (diagnostics.go): next
 	// to state.db for the real daemon, empty for none (tests).
 	TraceDir string
+	// FetchImage starts the first base image's download (or build) as the
+	// daemon starts, when there is none, instead of when Setup's button is
+	// pressed or an agent needs it: true in AgentBox's VM.
+	FetchImage bool
+	// CrashOutput sends the Go runtime's fatal tracebacks to the crashes
+	// folder (crashes.go), for the next daemon to report: process-wide, so
+	// only for the real daemon.
+	CrashOutput bool
 }
 
 type Server struct {
 	cfg Config
+	// crashSend is held while crash records are sent, crashesSent how many
+	// this daemon sent (crashes.go).
+	crashSend   sync.Mutex
+	crashesSent int
 	// codexReads is when each Codex account's /status was last read, so a
 	// busy day of short turns asks it once a minute (limits.go).
 	codexReads struct {
@@ -104,13 +118,20 @@ type Server struct {
 	chat         *chat.Manager // the agents' conversations in the app's Chat tab
 	pulls        *pullsCache   // what GitHub said about each repository, served stale
 	pullFiles    pullFiles     // the files of the pull requests the app opened, for their diffs
+	pullDetails  pullDetails   // the pull requests the app opened, for a moment (pulldetail.go)
 	prWatch      *prWatcher    // the agents' pull requests being watched (prwatch.go)
+	issues       issuesCache   // projects' open GitHub issues (issues.go)
+	issuePickup  *issuePicker  // wakes the loop that picks labelled issues up (issues.go)
 	// prTell sends an agent a message from the pull request watch, waking it
 	// first, and says what that took: tellAgent, or a test's recorder.
 	prTell func(ctx context.Context, a state.Agent, text string) (told, error)
 	// prLead puts the watch's notice in front of a project's chat: tellLead,
 	// or a test's recorder.
-	prLead      func(ctx context.Context, project, notice string, act bool)
+	prLead func(ctx context.Context, project, notice string, act bool)
+	// restacked are the merged pull requests ("owner/repo#n") whose stack
+	// was moved onto where they merged, so the merge and the watch don't
+	// both move it (stack.go).
+	restacked   sync.Map
 	files       *filesCache      // each agent's worktree file listing, served briefly stale
 	fileWatches *fileWatches     // the folders the app's file trees have open, watched
 	disks       *agentDiskCache  // each agent's machine and worktree sizes, for its info card
@@ -148,6 +169,11 @@ type Server struct {
 	// (pkgcache.go), and packageCacheKick asks for a trim now.
 	packageCache     *pkgcache.Cache
 	packageCacheKick chan struct{}
+	// nodeModules is agents' node_modules on the VM's disk (nodemodules.go),
+	// and sharedWorktrees whether worktrees are in a shared folder, found once.
+	nodeModules         *nodemods.Store
+	sharedWorktreesOnce sync.Once
+	sharedWorktrees     bool
 
 	// connectors are the remote MCP servers agents use, signed in to here
 	// (connectors.go, internal/connectors).
@@ -175,9 +201,17 @@ type Server struct {
 	// connectors starts in the background (connectors.go), for the same
 	// reason, and so a test can wait for one to have marked the chats.
 	connectorSyncs sync.WaitGroup
+	// mergeFrees tracks the agents a merge through the app frees after it
+	// has answered (mergePullRequest), for the same reason: one may still be
+	// deleting a machine and a worktree.
+	mergeFrees sync.WaitGroup
 	// vgpu is the readying of a Mac's VM's GPU (vgpu.go), which Run waits
 	// for too.
 	vgpu vgpuSetup
+
+	// removingStopped runs one removal of stopped machines at a time, the
+	// sweep's or the user's (removestopped.go).
+	removingStopped sync.Mutex
 
 	mu           sync.Mutex
 	agentAPIs    map[string]*http.Server // in-agent API servers, by instance
@@ -186,6 +220,7 @@ type Server struct {
 	freeWhenIdle map[string]bool         // reviewed agents still at work, whose machine goes when the turn ends (reviewfree.go)
 	machineKept  map[string]bool         // reviewed agents whose machine was kept for unpushed work (reviewfree.go)
 	reviewHeld   map[string]bool         // projects whose review list waits for the startup look at GitHub (prreconcile.go)
+	reviewKnown  map[string]knownReview  // each finished agent's review item as last read in full, by ref (review.go)
 	leadAPIs     map[string]*http.Server // per-project lead API servers
 	lastStates   map[string]api.AgentChange
 	previewAddr  string                   // where the preview proxy listens; empty when it's off
@@ -201,9 +236,12 @@ type Server struct {
 	// archivedPRChecked is when each past agent's open pull request was last
 	// read from GitHub, by ref (archive.go).
 	archivedPRChecked map[string]time.Time
-	nudged            map[string]bool         // agents told to wait on their work inside a turn, until a turn ends otherwise, by ref (outcome.go)
-	outcomes          map[string]agentOutcome // how each agent's last turn left it, by ref (outcome.go)
-	outcomesRead      map[string]bool         // projects whose outcomes have been read from their events since the daemon started
+	// pastChanges is what past agents' kept branches changed, by where they
+	// were measured (work.go).
+	pastChanges  map[pastChangesKey]*api.AgentChanges
+	nudged       map[string]bool         // agents told to wait on their work inside a turn, until a turn ends otherwise, by ref (outcome.go)
+	outcomes     map[string]agentOutcome // how each agent's last turn left it, by ref (outcome.go)
+	outcomesRead map[string]bool         // projects whose outcomes have been read from their events since the daemon started
 	// skillsMu runs one installation of skills at a time (skills.go).
 	skillsMu sync.Mutex
 	// skillsSynced, when set (tests), is told each time one has ended.
@@ -217,8 +255,18 @@ type Server struct {
 	baseSyncErrs    map[string]string // why each project's last base sync failed, by project, so a remote that stays down is logged once (basesync.go)
 	image           imageWork         // what the daemon is doing to the base image (imagetools.go)
 	imageWaiters    int               // jobs waiting for the base image to be built (imagebuild.go)
+	agentsOnImage   map[string]bool   // agents, by ref, being made once the base image is ready (imagebuild.go)
 	remote          *remote.Connector // the connection to a hub, when this machine is an environment
 	lan             *lanState         // phones chatting from the local network or a tunnel (lan.go)
+	// firstImage is how fetchFirstImage checks the user mapping and starts
+	// the build: image.CheckHost and startImageBuild, unless a test says.
+	firstImage struct {
+		checkHost func(image.User) error
+		start     func(context.Context) (api.Job, error)
+	}
+	share     shareState     // virtiofsd's open files, from the VM's supervisor (share.go)
+	health    healthStats    // what the next health event counts (healthevent.go)
+	phonePush phonePushState // push notifications to the phones' app (phonepush.go)
 	// connectorsGiven is whether each connector was last given to agents,
 	// by scope and name, so only a change to that rewrites their MCP
 	// servers (connectors.go).
@@ -270,19 +318,30 @@ type Server struct {
 	// functions or a test's. oomSeen, under mu, is each machine's count of
 	// processes killed for its memory.max when last looked at, and
 	// loggedOnce what logOnce last logged under each key.
-	heavy          *heavyRuns
+	heavy *heavyRuns
+	// frozen (agentfreeze.go) is whole agents' machines paused for memory,
+	// with Settings → Experimental's switch, and machineCgroups what
+	// freezes them.
+	frozen         *fleetState
+	machineCgroups machineCgroups
 	pressureEvery  time.Duration // pressureInterval; 0 runs no loop
 	readPressure   func() (pressure.Sample, error)
 	runCgroups     runCgroups
+	idle           *idleState
+	idleCgroups    idleCgroups
 	vmMemory       func() int64
 	setMemoryLimit func(instance string, limit int64) error
 	memoryEvents   func(instance string) (agent.MemoryCounts, bool)
 	oomVictim      func(instance string) (agent.OOMVictim, bool)
 	oomSeen        map[string]agent.MemoryCounts
+	oomAt          map[string]time.Time // when the watch last saw a machine's kills rise
 	loggedOnce     map[string]string
 	// wakeMu makes one start of a stopped machine for a message at a time
 	// (wake.go).
 	wakeMu sync.Mutex
+	// waking, under mu, are the agents whose machines start aside for a
+	// message, waiting for memory to boot (wakeAside).
+	waking map[string]bool
 	// The lead recheck (leadrecheck.go), under mu: when each project's lead
 	// was last rechecked, and what it was told then, so the same state isn't
 	// sent twice.
@@ -297,6 +356,9 @@ type Server struct {
 	stalls    map[string]*stallTrack
 	cpuTime   func(instance string) (time.Duration, bool)
 	stallTell func(ctx context.Context, project, note string)
+	// credentialTell tells a lead of an agent's credential request, waking
+	// it for a lead-managed secret: tellLead, or a test's recorder.
+	credentialTell func(ctx context.Context, project, notice string, act bool)
 }
 
 func New(cfg Config) (*Server, error) {
@@ -331,6 +393,7 @@ func New(cfg Config) (*Server, error) {
 		baseSyncErrs:     map[string]string{},
 		pulls:            newPullsCache(),
 		prWatch:          newPRWatcher(),
+		issuePickup:      newIssuePicker(),
 		files:            newFilesCache(),
 		updates:          updates{now: make(chan struct{}, 1)},
 		toolUpdates:      newToolUpdates(),
@@ -338,15 +401,20 @@ func New(cfg Config) (*Server, error) {
 		lan:              newLANState(),
 		usageEvery:       usageInterval,
 		heavy:            newHeavyRuns(),
+		frozen:           newFleetState(),
+		machineCgroups:   agentMachineCgroups{},
 		pressureEvery:    pressureInterval,
 		readPressure:     readSample(),
 		readCPUPressure:  func() (pressure.PSI, error) { return pressure.Read(cpuPressureFile) },
 		runCgroups:       agentRunCgroups{},
+		idle:             newIdleState(),
+		idleCgroups:      agentIdleCgroups{},
 		vmMemory:         agent.HostMemory,
 		setMemoryLimit:   agent.SetMemoryLimit,
 		memoryEvents:     agent.MemoryEvents,
 		oomVictim:        agent.LastOOMVictim,
 		oomSeen:          map[string]agent.MemoryCounts{},
+		oomAt:            map[string]time.Time{},
 		loggedOnce:       map[string]string{},
 		cpuKick:          make(chan struct{}, 1),
 		cpuEvery:         cpuShareInterval,
@@ -361,6 +429,7 @@ func New(cfg Config) (*Server, error) {
 	s.loginCallbackUnreachable = hostos.OS() == hostos.Linux
 	s.recheckTell = func(ctx context.Context, project, note string) { s.tellLead(ctx, project, note, true) }
 	s.stallTell = s.recheckTell
+	s.credentialTell = s.tellLead
 	s.connectors = s.newConnectors()
 	s.disks = newAgentDiskCache(func(ctx context.Context, a state.Agent) agent.AgentDisk { return s.manager(nil).AgentDisk(ctx, a) })
 	s.prTell, s.prLead = s.prTellAgent, s.tellLead
@@ -377,6 +446,7 @@ func New(cfg Config) (*Server, error) {
 		LeadIdle:          s.leadCacheIdle,
 		Idle:              s.leadIdle,
 		TurnEnded:         s.checkpointTurn,
+		TurnStarted:       func(a state.Agent) { s.wakeIdle(a.Ref()) },
 		TurnFinished:      s.recordTurn,
 		AuthFailed:        s.claudeAuthFailed,
 		Lost:              s.agentLost,
@@ -386,6 +456,8 @@ func New(cfg Config) (*Server, error) {
 		LeadLogins:        s.leadToolLogins,
 		Logf:              s.logf,
 		PermissionChanged: s.agentPermission,
+		IdleStop:          s.leadSleepAfter,
+		StayUp:            s.leadDueSoon,
 		Version:           Version,
 		ImageDir:          cfg.Paths.ChatImages,
 	}
@@ -394,6 +466,7 @@ func New(cfg Config) (*Server, error) {
 	s.disk = s.newDiskWatch()
 	s.imageCache = s.newImageCache()
 	s.packageCache = s.newPackageCache()
+	s.nodeModules = s.newNodeModules()
 	s.packageCacheKick = make(chan struct{}, 1)
 	s.dockerPruneTimeout = agent.DockerPruneTimeout
 	return s, nil
@@ -422,8 +495,23 @@ func (s *Server) Run(ctx context.Context) error {
 		return err
 	}
 	defer unlock()
+	// A daemon that crashed left a record for this one to report; this one
+	// leaves its own, if it does (crashes.go). Not stopped when serve panics:
+	// the runtime writes its traceback after the deferred calls ran.
+	stopCrashes := s.startCrashes()
+	err = s.serve(ctx, socket)
+	stopCrashes()
+	return err
+}
+
+// serve is Run once it holds the daemon's lock.
+func (s *Server) serve(ctx context.Context, socket string) error {
 	moved := s.moveDataToPool(ctx)
+	s.placeNodeModules()
 	defer s.startTracing()()
+	if limit := setMemoryLimit(); limit < math.MaxInt64 {
+		s.logf("soft memory limit %d MiB (GOMEMLIMIT sets another)", limit>>20)
+	}
 
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
@@ -465,14 +553,17 @@ func (s *Server) Run(ctx context.Context) error {
 		s.bgChecks.Wait()
 		s.skillSyncs.Wait()
 		s.connectorSyncs.Wait()
+		s.mergeFrees.Wait()
 		s.vgpu.wg.Wait()
 	}()
 	s.firstSweeps.Add(4)
 	loops.Go(func() { s.watch(ctx) })
 	loops.Go(func() { s.sweepMedia(ctx) })
 	loops.Go(func() { s.sweepFinishedAgents(ctx) })
+	loops.Go(func() { s.sweepStoppedMachines(ctx) })
 	loops.Go(func() { s.sweepMemories(ctx) })
 	loops.Go(func() { s.sweepIdleAgents(ctx) })
+	loops.Go(func() { s.runIdleReclaim(ctx) })
 	loops.Go(func() { s.runUsage(ctx) })
 	loops.Go(func() {
 		s.giveZram()
@@ -485,6 +576,7 @@ func (s *Server) Run(ctx context.Context) error {
 	// Scheduled tasks, starting with any that fell due while it was down.
 	loops.Go(func() { s.runSchedules(ctx) })
 	loops.Go(func() { s.reconcilePullRequests(ctx) })
+	loops.Go(func() { s.runIssuePickup(ctx) })
 	loops.Go(func() { s.syncBases(ctx) })
 	// Incus is asked only from here on: nothing before Serve may wait on it.
 	loops.Go(func() { s.watchIncus(ctx) })
@@ -499,11 +591,13 @@ func (s *Server) Run(ctx context.Context) error {
 	loops.Go(func() { s.watchPackageCache(ctx) })
 	loops.Go(func() { s.refreshConnectors(ctx) })
 	loops.Go(func() { s.dropMovedData(ctx, moved) })
+	loops.Go(func() { s.sendCrashes(ctx) })
 	s.runCtx = ctx
 	// The turns the last daemon left running carry on (restart.go), once the
 	// API that their chats' tools call back is up.
 	loops.Go(func() { s.continueTurns(ctx) })
 	loops.Go(func() { s.rearmLimits(ctx) })
+	loops.Go(func() { s.unloadChats(ctx) })
 	// What an earlier release left queued starts now (leftoverqueue.go).
 	loops.Go(func() { s.startLeftoverQueue(ctx) })
 	s.startRemote(ctx)
@@ -512,6 +606,11 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.updateBaseTools(ctx)
 	// And past them, to the newest Claude Code, when you asked for that.
 	loops.Go(func() { s.watchToolUpdates(ctx) })
+	// A new installation's first base image is fetched at once, while you
+	// finish Setup and talk to your projects' chats (imagebuild.go).
+	if s.cfg.FetchImage {
+		loops.Go(func() { s.fetchFirstImage(ctx) })
+	}
 	// Media made on the VM's own disk goes to the host's share, where the app
 	// can open it; it is served from where it was until it has moved.
 	loops.Go(func() {
@@ -522,7 +621,7 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 	})
 
-	srv := &http.Server{Handler: s.routes(), BaseContext: func(net.Listener) context.Context { return ctx }}
+	srv := &http.Server{Handler: s.socketHandler(), BaseContext: func(net.Listener) context.Context { return ctx }}
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -643,6 +742,11 @@ func (s *Server) manager(log io.Writer) *agent.Manager {
 		DesktopTheme:     s.desktopTheme,
 		ImageCacheSocket: s.imageCacheSocket,
 		PackageCacheDir:  s.packageCacheDir,
+		Admit:            s.admitMachine,
+		NodeModules:      s.nodeModules,
+		NodeModulesOn:    s.nodeModulesOn,
+		ShareRoom:        s.shareRoom,
+		ShareBusy:        s.shareBusy,
 	}
 }
 
@@ -653,7 +757,9 @@ func (s *Server) secrets() secrets.Store {
 }
 
 func (s *Server) logf(format string, args ...any) {
-	_, _ = fmt.Fprintf(s.cfg.Log, time.Now().Format(time.DateTime)+" "+format+"\n", args...)
+	line := fmt.Sprintf(format, args...)
+	_, _ = fmt.Fprintf(s.cfg.Log, "%s %s\n", time.Now().Format(time.DateTime), line)
+	s.noteLog(line)
 }
 
 // projectBySlug lets every request name a project by what it is called as
@@ -688,6 +794,7 @@ func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	h := func(pattern string, fn func(http.ResponseWriter, *http.Request) error) {
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
+			defer s.recoverPanic(w, r)
 			s.projectBySlug(r)
 			if err := fn(w, r); err != nil {
 				writeError(w, err)
@@ -706,6 +813,8 @@ func (s *Server) routes() http.Handler {
 	// What every chat spent, kept after its agent is gone (D83).
 	h("GET /v1/tokens", s.tokenReport)
 	h("GET /v1/tokens/turns", s.tokenTurns)
+	// The user's week with AgentBox, for its page and share cards.
+	h("GET /v1/recap", s.recap)
 	// What Anthropic last said about each Claude account's usage limits (D85).
 	h("GET /v1/limits", s.claudeLimits)
 
@@ -772,6 +881,8 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/projects/{project}/agent-events", s.projectAgentEvents)
 	h("GET /v1/projects/{project}/review", s.projectReview)
 	h("GET /v1/review", s.allReview)
+	h("GET /v1/projects/{project}/work", s.projectWork)
+	h("GET /v1/work", s.allWork)
 	h("POST /v1/agents/{project}/{agent}/review", s.reviewAgent)
 	h("POST /v1/agents/{project}/{agent}/request-changes", s.requestChanges)
 	h("GET /v1/agents/{project}/{agent}/review-notes", s.listReviewNotes)
@@ -789,6 +900,7 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/projects/{project}/pulls/{number}/merge", s.mergePullRequest)
 	h("POST /v1/projects/{project}/pulls/{number}/labels", s.editPullRequestLabels)
 	h("GET /v1/projects/{project}/labels", s.projectLabels)
+	h("GET /v1/projects/{project}/issues", s.projectIssues)
 	h("GET /v1/projects/{project}/pulls/{number}", s.pullRequestDetail)
 	h("GET /v1/projects/{project}/pulls/{number}/files", s.pullRequestFiles)
 	h("GET /v1/projects/{project}/pulls/{number}/diff", s.pullFileDiff)
@@ -804,6 +916,7 @@ func (s *Server) routes() http.Handler {
 	h("PUT /v1/projects/{project}/skills/{name}", s.setProjectSkill)
 	h("GET /v1/projects/{project}/secrets", s.listProjectSecrets)
 	h("PUT /v1/projects/{project}/secrets/{name}", s.setProjectSecret)
+	h("PATCH /v1/projects/{project}/secrets/{name}", s.patchProjectSecret)
 	h("DELETE /v1/projects/{project}/secrets/{name}", s.removeProjectSecret)
 	h("GET /v1/projects/{project}/browser-cookies", s.getBrowserCookies)
 	h("GET /v1/projects/{project}/browser-cookies/profiles", s.browserCookieProfiles)
@@ -826,6 +939,8 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/diagnostics/spans", s.diagnosticsSpans)
 	h("GET /v1/diagnostics/stalls", s.diagnosticsStalls)
 	h("GET /v1/diagnostics/resources", s.diagnosticsResources)
+	h("GET /v1/diagnostics/package-cache", s.diagnosticsPackageCache)
+	h("GET /v1/diagnostics/files", s.diagnosticsFiles)
 	h("POST /v1/diagnostics/client-spans", s.clientSpans)
 	h("GET /v1/agents", s.listAgents)
 	// Past agents (archive.go): their chats read through the routes above.
@@ -836,6 +951,7 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/archived-agents/{project}/{agent}/continue", s.continueArchived)
 	// Their files, read from their branch's commit (archivedfiles.go).
 	h("GET /v1/archived-agents/{project}/{agent}/files", s.archivedFiles)
+	h("GET /v1/archived-agents/{project}/{agent}/diff", s.archivedDiff)
 	h("GET /v1/archived-agents/{project}/{agent}/files/list", s.archivedFolder)
 	h("GET /v1/archived-agents/{project}/{agent}/files/read", s.archivedRead)
 	h("GET /v1/archived-agents/{project}/{agent}/files/status", s.archivedStatus)
@@ -855,6 +971,8 @@ func (s *Server) routes() http.Handler {
 	}
 	h("GET /v1/agents/{project}/{agent}/diff", s.diff)
 	h("GET /v1/agents/{project}/{agent}/disk", s.agentDisk)
+	h("GET /v1/stopped-machines", s.getStoppedMachines)
+	h("POST /v1/stopped-machines/remove", s.postRemoveStopped)
 	h("GET /v1/agents/{project}/{agent}/credential", s.agentCredential)
 	h("GET /v1/agents/{project}/{agent}/files", s.listFiles(s.agentFromPath))
 	h("GET /v1/agents/{project}/{agent}/files/list", s.listFolder(s.agentFromPath))
@@ -877,6 +995,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/agents/{project}/{agent}/chat", s.getChat(s.agentOrArchivedFromPath))
 	h("GET /v1/agents/{project}/{agent}/chat/search", s.searchChat(s.agentOrArchivedFromPath))
 	h("GET /v1/agents/{project}/{agent}/timeline", s.agentTimeline)
+	h("GET /v1/agents/{project}/{agent}/share", s.agentShare)
 	h("DELETE /v1/agents/{project}/{agent}/chat", s.clearChat(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/start", s.startChat(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/messages", s.sendChat(s.agentFromPath))
@@ -886,6 +1005,8 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/agents/{project}/{agent}/chat/publish", s.publishRender(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/reload", s.reloadChatTools(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/resume", s.resumeChatLimit)
+	h("GET /v1/agents/{project}/{agent}/chat/runners", s.agentRunners)
+	h("PUT /v1/agents/{project}/{agent}/chat/runner", s.setAgentRunner)
 	h("POST /v1/agents/{project}/{agent}/chat/permissions/{item}", s.answerChat(s.agentFromPath))
 	h("PUT /v1/agents/{project}/{agent}/chat/options/{option}", s.setChatOption(s.agentFromPath))
 	h("GET /v1/agents/{project}/{agent}/browser", s.browser("status", s.agentFromPath))
@@ -920,8 +1041,10 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/disk", s.getDiskGuard)
 	h("GET /v1/usage/memory", s.memoryUsage)
 	h("GET /v1/usage/cpu", s.cpuUsage)
+	h("GET /v1/usage/host", s.hostMemory)
 	h("POST /v1/usage-stats/{feature}", s.countAppFeature)
 	h("GET /v1/usage-stats/pending", s.usageStatsPending)
+	h("POST /v1/usage-events/setup", s.reportSetupFunnel)
 	h("POST /v1/reports/draft", s.reportDraft)
 	h("POST /v1/reports", s.sendReport)
 	h("GET /v1/image", s.imageStatus)
@@ -958,6 +1081,7 @@ func (s *Server) routes() http.Handler {
 	h("PATCH /v1/lan/phones/{id}", s.updateLANPhone)
 	h("GET /v1/lan/phones/{id}/audit", s.lanPhoneAudit)
 	h("PUT /v1/lan/host", s.lanHostReport)
+	h("PUT /v1/vm/share", s.shareReport)
 	h("PUT /v1/lan/web/{version}/files/{path...}", s.putLANWebFile)
 	h("POST /v1/lan/web/{version}", s.installLANWeb)
 	mux.Handle(lanNetPrefix+"/", http.StripPrefix(lanNetPrefix, s.lanHandler(lanViaSocket)))

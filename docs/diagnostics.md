@@ -39,6 +39,22 @@ stalls in the window are listed below the table.
 Long-lived requests, like the app's event stream or a terminal, count for as long as they stay
 open, so they can top the table without being slow.
 
+## The daemon's memory
+
+```bash
+agentbox debug heap                            # saves agentbox-heap-<time>.pb.gz here
+go tool pprof -top -sample_index=inuse_space agentbox-heap-*.pb.gz
+```
+
+`agentbox debug heap` saves what the daemon's heap holds, by where it was allocated, after a garbage
+collection, and prints how much is live and how much the daemon has from the system. Go's other
+profiles (goroutines, CPU, allocations) are at `/debug/pprof/` on the daemon's socket, and only
+there: not to phones or the hub.
+
+The daemon keeps its heap under a soft limit of 256 MiB: near it, Go collects garbage more often
+rather than asking for more memory. Set `GOMEMLIMIT` in the daemon's environment to choose another
+(`GOMEMLIMIT=512MiB`), or `GOMEMLIMIT=off` for none.
+
 ## The API
 
 The app's Diagnostics page reads the same data over the daemon's socket:

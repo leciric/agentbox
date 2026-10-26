@@ -6,7 +6,7 @@
 import { FolderTree, Images, Monitor, SquareTerminal, type LucideIcon } from 'lucide-react';
 import type * as T from '../../../shared/api';
 import { useT, type MessageKey } from '../../lib/i18n';
-import { chatPanel, fitsBeside, hasView, openPanelOn, panelTarget, switchViews, usePanel, viewOf, type PanelView } from '../../lib/rightPanel';
+import { chatPanel, fitsBeside, hasView, openPanelOn, panelTarget, machineBarViews, usePanel, viewOf, type PanelView } from '../../lib/rightPanel';
 import { cn } from '../../lib/utils';
 import { deskLine, DesktopPeek, DeskGlyph, useDesk, useDeskUp } from './DesktopPeek';
 
@@ -36,7 +36,7 @@ export function AgentMachineBar({ agent }: { agent: T.Agent }) {
         <span className="truncate pl-5 text-[11.5px] text-subtle">{t(deskLine(desk, up))}</span>
       </span>
       <span className="flex shrink-0 items-center gap-1">
-        {switchViews.map((v) => {
+        {machineBarViews.map((v) => {
           const Icon = icon[v]!;
           return (
             <button

@@ -17,7 +17,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { memo, use, useState, type ReactNode } from 'react';
+import { memo, use, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ChatRefContext } from './chatRef';
 import type * as T from '../../../shared/api';
 import { isHomeChat } from '../../lib/api';
@@ -73,7 +73,7 @@ export const WorkGroup = memo(
             {items.length > 1 && <span className="shrink-0 text-xs tabular-nums text-faint">+{items.length - 1}</span>}
             <ChevronRight className={cn('size-3 shrink-0 text-faint transition-transform', open && 'rotate-90')} />
           </button>
-          {open && <EntryList items={items} root={root} />}
+          {open ? <EntryList items={items} root={root} /> : last.kind === 'thought' && last.text && <ThoughtPreview text={last.text} />}
         </div>
       );
     }
@@ -104,6 +104,37 @@ export const WorkGroup = memo(
   },
   (a, b) => a.live === b.live && a.root === b.root && a.items.length === b.items.length && a.items.every((it, i) => it === b.items[i]),
 );
+
+// ThoughtPreview is a thought while it streams: its last lines, under the row
+// that says the agent is thinking, fading out at the top once there are more.
+// When the thought ends, it folds into its row like the rest of the work.
+function ThoughtPreview({ text }: { text: string }) {
+  const box = useRef<HTMLDivElement>(null);
+  const body = useRef<HTMLDivElement>(null);
+  const [clipped, setClipped] = useState(false);
+  useLayoutEffect(() => {
+    if (box.current && body.current) setClipped(body.current.offsetHeight > box.current.clientHeight);
+  }, [text]);
+  return (
+    <div
+      ref={box}
+      className={cn('ml-8 flex max-h-[5.25rem] flex-col justify-end overflow-hidden', clipped && '[mask-image:linear-gradient(to_bottom,transparent,black_1.75rem)]')}
+      data-chat-thought="live"
+    >
+      {/* Paragraphs a little apart, not a blank line each: more of the thought fits. */}
+      <div ref={body} className="space-y-1 text-[12.5px] leading-relaxed text-muted">
+        {text
+          .split(/\n\s*\n/)
+          .filter((para) => para.trim())
+          .map((para, i) => (
+            <p key={i} className="whitespace-pre-wrap break-words">
+              {para.trim()}
+            </p>
+          ))}
+      </div>
+    </div>
+  );
+}
 
 function EntryList({ items, root }: { items: T.ChatItem[]; root: string }) {
   return (

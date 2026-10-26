@@ -528,7 +528,7 @@ export function seedV2(queryClient: QueryClient, pins: string | null): void {
   const idleCount = Number(new URLSearchParams(location.search).get('idle') ?? 0);
   const idleLines = ['**Merged** #214: the `retry` loop backs off now.', 'Done. | file | change |\n|---|---|\n| a.ts | b |', 'You: can you look at the flaky e2e test on CI?', '- Bumped the SDK\n- Fixed the lint', 'Opened https://github.com/example/a-very-long-repository-name/pull/1234 for review.'];
   for (let i = 1; i <= idleCount; i++) extra.push([`idle-${i}`, `Idle project ${i}`, (i + 2) * day]);
-  const projects: T.Project[] = [...base, ...extra.map(([name, displayName], i) => ({ ...base[0], name, displayName, root: `/home/me/src/${name}`, iconVersion: 1, position: base.length + i + 1, createdAt: ago(60 * day) }))];
+  let projects: T.Project[] = [...base, ...extra.map(([name, displayName], i) => ({ ...base[0], name, displayName, root: `/home/me/src/${name}`, iconVersion: 1, position: base.length + i + 1, createdAt: ago(60 * day) }))];
   const lastSaid: Record<string, number> = { [PROJECT]: 3 * min, 'a-project-with-a-name-so-long-it-should-never-be-allowed-to-widen-the-sidebar': 3 * 60 * min, ...Object.fromEntries(extra.map(([n, , ms]) => [n, ms])) };
   const logo = `data:image/svg+xml;base64,${btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#6d5dfc"/><path d="M9 22 16 8l7 14z" fill="#fff"/></svg>')}`;
   const icons: Record<string, T.ProjectIcon> = {
@@ -538,7 +538,27 @@ export function seedV2(queryClient: QueryClient, pins: string | null): void {
     courier: { source: 'chosen', emoji: '📦', hasDetected: false },
     'old-blog': { source: 'chosen', emoji: '📝', hasDetected: false },
   };
+  // &sections=1: the user's sections (lib/sidebar.ts, Classic's), Work, Side
+  // projects and an empty Later, kept as the daemon keeps them until the page
+  // reloads: moves, renames, folds, new ones and deletes. Without it, none.
+  const createdAt = ago(30 * day);
+  let sections: T.Section[] =
+    new URLSearchParams(location.search).get('sections') === '1'
+      ? [
+          { id: 'work', name: 'Work', position: 1, collapsed: false, createdAt },
+          { id: 'side', name: 'Side projects', position: 2, collapsed: false, createdAt },
+          { id: 'later', name: 'Later', position: 3, collapsed: false, createdAt },
+        ]
+      : [];
+  const placed: Record<string, [string, number]> = sections.length ? { [PROJECT]: ['work', 1], quill: ['work', 2], courier: ['work', 3], 'old-blog': ['side', 1], dotfiles: ['side', 2] } : {};
+  projects = projects.map((p, i) => ({ ...p, section: placed[p.name]?.[0] ?? '', position: placed[p.name]?.[1] ?? i + 1 }));
+  const daemonOrder = () => {
+    const rank = (p: T.Project) => (p.section ? sections.findIndex((x) => x.id === p.section) : sections.length);
+    projects = [...projects].sort((a, b) => rank(a) - rank(b) || a.position - b.position);
+  };
+  daemonOrder();
   queryClient.setQueryData(['projects'], projects);
+  queryClient.setQueryData(['sections'], sections);
   if (pins) localStorage.setItem('agentbox.v2.projects', JSON.stringify({ pins: pins.split(',') }));
   const json = (v: unknown) => ({ status: 200, body: JSON.stringify(v), contentType: 'application/json' });
   // The sidebar's hidden projects (&hidden=a,b), kept as the daemon would
@@ -552,6 +572,31 @@ export function seedV2(queryClient: QueryClient, pins: string | null): void {
       return json(sidebar);
     }
     if (method === 'GET' && path === '/v1/projects') return json(projects);
+    if (method === 'GET' && path === '/v1/sections') return json(sections);
+    if (method === 'POST' && path === '/v1/sections') {
+      const made: T.Section = { id: `s${Date.now()}`, name: (body as T.AddSectionRequest).name, position: sections.length + 1, collapsed: false, createdAt: new Date().toISOString() };
+      sections = [...sections, made];
+      return json(made);
+    }
+    const sectionId = /^\/v1\/sections\/([^/]+)$/.exec(path)?.[1];
+    if (sectionId && method === 'PATCH') {
+      sections = sections.map((x) => (x.id === decodeURIComponent(sectionId) ? { ...x, ...(body as T.UpdateSectionRequest) } : x));
+      return json(sections.find((x) => x.id === decodeURIComponent(sectionId)));
+    }
+    if (sectionId && method === 'DELETE') {
+      sections = sections.filter((x) => x.id !== decodeURIComponent(sectionId)).map((x, i) => ({ ...x, position: i + 1 }));
+      projects = projects.map((p) => (p.section === decodeURIComponent(sectionId) ? { ...p, section: '' } : p));
+      daemonOrder();
+      return json(null);
+    }
+    if (method === 'PUT' && path === '/v1/projects/layout') {
+      const order = body as T.ProjectLayout;
+      const named = new Map(projects.map((p) => [p.name, p]));
+      const lists: [string, string[]][] = [...order.sections.map((x): [string, string[]] => [x.id, x.projects]), ['', order.loose]];
+      projects = lists.flatMap(([section, names]) => names.flatMap((name, i) => (named.has(name) ? [{ ...named.get(name)!, section, position: i + 1 }] : [])));
+      sections = order.sections.flatMap((x, i) => sections.filter((y) => y.id === x.id).map((y) => ({ ...y, position: i + 1 })));
+      return json(projects);
+    }
     // Only agentbox has agents waiting; the other projects' lists are empty pages.
     if (method === 'GET' && /^\/v1\/projects\/[^/]+\/review/.test(path) && !path.startsWith(`/v1/projects/${PROJECT}/`)) return json(pageOf([]));
     // The extra projects' leads and lists, which no other fixture answers.
