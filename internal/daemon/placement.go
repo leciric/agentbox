@@ -193,11 +193,10 @@ func (s *Server) admit(ctx context.Context, p state.Project, cluster state.Clust
 		return api.ClusterCapacity{}, false, nil
 	}
 	if room.Agents == 0 {
-		running := plural(room.Running, "agent", "agents")
-		if cluster.MaxAgents > 0 {
-			return room, true, &NoRoomError{Reason: fmt.Sprintf("all %d of its %s are running", cluster.MaxAgents, running)}
+		if cluster.MaxAgents > 0 && room.Running >= cluster.MaxAgents {
+			return room, true, &NoRoomError{Reason: fmt.Sprintf("it is at its ceiling of %d %s", cluster.MaxAgents, plural(cluster.MaxAgents, "agent", "agents"))}
 		}
-		return room, true, &NoRoomError{Reason: fmt.Sprintf("its nodes have no room for one more agent, with %s running", running)}
+		return room, true, &NoRoomError{Reason: fmt.Sprintf("its nodes have no room for one more agent, with %d %s running", room.Running, plural(room.Running, "agent", "agents"))}
 	}
 	return room, true, nil
 }
