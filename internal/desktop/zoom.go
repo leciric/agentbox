@@ -436,16 +436,16 @@ func (e Edit) Render(ctx context.Context, in, out string, log io.Writer) error {
 	if err != nil {
 		return err
 	}
-	script := filepath.Join(dir, "filter")
-	if err := os.WriteFile(script, []byte(filterGraph(shots, e.Size, cards)), 0o644); err != nil {
-		return err
-	}
 	args := []string{"-hide_banner", "-loglevel", "error", "-nostdin", "-i", in}
 	for _, c := range cards {
 		// Each card is one picture, shown for as long as it is on.
 		args = append(args, "-loop", "1", "-framerate", strconv.Itoa(FrameRate), "-t", fmt.Sprintf("%.3f", c.to-c.from), "-i", c.file)
 	}
-	args = append(args, "-/filter_complex", script, "-map", fmt.Sprintf("[v%d]", len(cards)), "-map", "0:a?")
+	// The graph goes on the command line rather than in a script file:
+	// -/filter_complex, which reads one from a file, only arrived in ffmpeg
+	// 7.1, and CI's runner has 6.1. -filter_complex takes the graph itself
+	// on every version, 5 through 7.
+	args = append(args, "-filter_complex", filterGraph(shots, e.Size, cards), "-map", fmt.Sprintf("[v%d]", len(cards)), "-map", "0:a?")
 	args = append(args, EncodeArgs...)
 	cmd := exec.CommandContext(ctx, "ffmpeg", append(args, "-y", out)...)
 	cmd.Stderr = log
