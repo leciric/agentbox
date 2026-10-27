@@ -112,6 +112,12 @@ const (
 	ChatError    = "error"
 )
 
+// ChatOptionPlan is AgentBox's own boolean setting beside the permission
+// mode, for a tool whose modes include plan: the chat plans, and runs on the
+// mode chosen beside it once the plan is approved or Plan is turned off. The
+// mode setting doesn't offer plan as a choice then.
+const ChatOptionPlan = "plan"
+
 // ChatOption is a setting of the session, like the model or the permission mode.
 type ChatOption struct {
 	ID          string             `json:"id"`
@@ -335,6 +341,10 @@ type ChatPermission struct {
 	Approval string     `json:"approval,omitempty"`
 	Detail   string     `json:"detail,omitempty"`
 	Diffs    []ChatDiff `json:"diffs,omitempty"`
+	// PlanApprove is set on a plan's approval (Claude Code's ExitPlanMode):
+	// the option that approves it and runs on the permission mode chosen
+	// beside Plan, bypass included.
+	PlanApprove string `json:"planApprove,omitempty"`
 }
 
 // ChatAgentPermission is an agent's permission request as its lead's chat
@@ -365,6 +375,9 @@ type ChatPermissionOption struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Kind string `json:"kind"` // allow_once, allow_always, reject_once or reject_always
+	// ModeKind is, for a plan's approval, the kind of permission mode the
+	// option runs the plan on, like full_access (ChatOptionChoice.Kind).
+	ModeKind string `json:"modeKind,omitempty"`
 }
 
 // ChatTurnResult is how a turn ended.

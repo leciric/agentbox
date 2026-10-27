@@ -37,6 +37,7 @@ type updates struct {
 // Every failure is dropped without a word: a machine offline, or a server that
 // is down, is no reason to tell anyone anything.
 func (s *Server) watchUpdates(ctx context.Context) {
+	s.pinNightlyChannel(ctx)
 	if delay := cmp.Or(s.cfg.UpdateStartDelay, update.StartDelay); delay > 0 {
 		select {
 		case <-ctx.Done():
@@ -54,6 +55,22 @@ func (s *Server) watchUpdates(ctx context.Context) {
 		case <-tick.C:
 		case <-s.updates.now:
 		}
+	}
+}
+
+// pinNightlyChannel stores the nightly channel for a nightly build whose
+// install never chose one. Without it the channel follows the running version,
+// so installing the stable release the nightly channel offers would drop the
+// install to stable. A stored channel, whichever it is, is left alone.
+func (s *Server) pinNightlyChannel(ctx context.Context) {
+	if !update.IsNightly(Version) {
+		return
+	}
+	if c, err := s.store.Setting(ctx, state.SettingUpdateChannel); err != nil || update.ValidChannel(c) {
+		return
+	}
+	if err := s.store.SetSetting(ctx, state.SettingUpdateChannel, update.ChannelNightly); err != nil {
+		s.logf("keeping the nightly update channel: %v", err)
 	}
 }
 

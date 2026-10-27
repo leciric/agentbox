@@ -1,75 +1,137 @@
 <h1 align="center">AgentBox</h1>
 
 <p align="center">
-  <strong>Run a team of AI coding agents on one project, each in a Linux machine of its own, and direct them from a chat.</strong>
+  <strong>A team of AI coding agents on your own computer, each with a Linux machine of its own, directed by a lead you chat with.</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/leciric/agentbox/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/leciric/agentbox/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="https://downloads.agentbox.linting.dev/index.html"><img alt="Download" src="https://img.shields.io/badge/download-latest-blue"></a>
+  <a href="https://github.com/leciric/agentbox/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/leciric/agentbox/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
-  <img alt="Platform: Linux x86_64" src="https://img.shields.io/badge/platform-Linux%20x86__64-informational">
+  <img alt="Platform: Linux; macOS and Windows in alpha" src="https://img.shields.io/badge/platform-Linux%20%C2%B7%20macOS%20%26%20Windows%20alpha-informational">
 </p>
 
 <p align="center">
-  <img src=".github/assets/lead-chat.png" alt="A project's chat directing four agents, with the agents' threads in the rail on the right" width="900">
+  <a href="https://downloads.agentbox.linting.dev/index.html"><strong>Download</strong></a> ·
+  <a href="#quick-start"><strong>Quick start</strong></a> ·
+  <a href="#how-it-compares"><strong>How it compares</strong></a> ·
+  <a href="docs/README.md"><strong>Docs</strong></a>
 </p>
 
-AgentBox gives each AI coding agent — Claude Code, Codex or OpenCode — **a Linux machine of its
-own**: a git worktree on its own branch, Docker, a browser and desktop you can watch and take over,
-and a place for the screenshots, recordings and test reports that prove its work. Several agents
-work on the same project at once without stepping on each other's ports, databases or files. A
-**lead**, the project's own chat, creates them, briefs them, answers their questions or passes them
-to you, and tells you when they're done.
+<p align="center">
+  <img src="docs/images/hero.png" alt="A project's lead chat reporting on its agents, with one agent's live desktop beside it: a browser on the app it's building" width="900">
+</p>
 
-Everything here is driven from the desktop app: add a project, talk to its lead, watch an agent
-work on its own desktop, and review what it built before merging.
+Tell a project's **lead** what you want. It starts the agents the work needs, each one Claude
+Code, Codex, OpenCode or Cursor on **a Linux machine of its own**: its own branch and worktree,
+Docker, ports and databases, and a desktop with a browser that you can watch live and take over.
+Agents test their work in the real app and keep screenshots and recordings as proof, so you
+review what they built, not their word for it, and merge from the same window. The lead answers
+their questions, passes on the ones only you can answer, and remembers what the project has
+learned for the next agent. It all runs on your computer, and it's MIT-licensed.
 
-## Contents
+## Why AgentBox
 
-- [What it does](#what-it-does)
-- [Install](#install)
-- [Quick start](#quick-start)
-- [Requirements and limitations](#requirements-and-limitations)
-- [Update check](#update-check)
-- [Reporting a problem](#reporting-a-problem)
-- [The command line](#the-command-line)
-- [Contributing](#contributing)
-- [Contributors](#contributors)
-- [License](#license)
+- **A real machine per agent, not just a worktree.** Each agent gets a Linux container with its own
+  network, Docker and every port free, so ten agents can run the same dev server and database at
+  once without colliding. Snapshot one, fork a new agent from it, or pause it with its memory
+  intact.
+- **A desktop and browser for every agent.** Agents click through the app they're changing with a
+  real mouse and keyboard. Open an agent's **Desktop** to watch it, and click **Take control** to
+  drive it yourself.
+- **A lead that directs the agents.** The project's chat creates agents, briefs them, answers
+  their questions, sends you the ones that need you, and tells you when the work is ready. You
+  talk to one chat, not ten terminals.
+- **Proof you can review.** Every agent's work comes with its recording, chapter by chapter, its
+  screenshots and test reports, the diff, its pull request and CI, and a timeline of what it did.
+  Merge or request changes from the review.
+- **Project memory.** What one agent learns (a flaky test, a decision, a setup gotcha) is kept for
+  the project, and every new agent starts briefed on it.
+- **On your phone.** Pair a phone with a QR code to follow the lead and the agents live, answer
+  their questions and merge ([docs/phone.md](docs/phone.md)).
+- **Four AI tools, your own accounts.** Claude Code, Codex, OpenCode and Cursor in the same chat,
+  with tool calls, diffs, plans and subagents in one timeline. Use several Claude and GitHub
+  accounts, and see what each agent spent in tokens.
+- **Local and open.** Agents run in a VM on your own computer, with the CPUs and memory you give it,
+  so your code stays with you. No account with us, and MIT-licensed.
 
-## What it does
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/review.png" alt="Reviewing an agent's work: its screenshots and recording, the pull request with checks passing, and Merge"></td>
+    <td width="50%"><img src="docs/images/timeline.png" alt="An agent's timeline beside the lead chat: reading, planning, edits, failing and passing tests, and its recording"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Review</b>: an agent's proof, diff and pull request, then Merge</td>
+    <td align="center"><b>Timeline</b>: what an agent did, step by step</td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/images/work.png" alt="The Work page: every agent's work across projects, with its branch, changes and pull request"></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><b>Work</b>: everything your agents did, live and past, across projects</td>
+  </tr>
+</table>
 
-- **A machine per agent:** an [Incus](https://linuxcontainers.org/incus/) container with its own
-  worktree, branch, network and desktop, so agents never collide on ports, files or databases.
-  Snapshot one, restore it, fork a new agent from it, or pause it with its memory intact.
-- **Claude Code, Codex and OpenCode, in one chat**, through [ACP](https://agentclientprotocol.com/)
-  adapters: tool calls, diffs, plans and subagents all show in one timeline.
-- **A lead that directs the agents** over MCP, on your machine rather than in a container of its
-  own, so a project you've never chatted with costs nothing.
-- **Project memory** that outlives the agents that made it, so every new agent starts briefed on
-  what the project already knows rather than from scratch.
-- **A browser and a desktop per agent**, driven by Playwright and a real mouse and keyboard, that
-  you watch live and can take over.
-- **Proof, not promises:** screenshots, recordings, test reports and logs in the **Media** tab.
-- **A token ledger and account limits** in each project's **Settings → Tokens**.
-- Preview URLs for any port an agent listens on, several Claude and GitHub accounts, project bases
-  new agents start from, an Android emulator per agent, and remote environments through a hub (a
-  separate, closed-source program — this repository only carries its side of the protocol, in
-  [`hubapi/`](hubapi/)).
+## How it compares
 
-[`docs/`](docs/README.md) has the longer tour of how it's built, page by page.
+Each of these runs coding agents in parallel; they differ in what an agent gets, and in who
+directs it. Checked against each product's own site and README in October 2026. ✅ yes,
+🟡 partly, — not that we could find. If something here is wrong or out of date,
+[open an issue](https://github.com/leciric/agentbox/issues) and we'll fix it.
+
+| | AgentBox | [T3 Code](https://github.com/pingdotgg/t3code) | [Conductor](https://www.conductor.build) | [Claude Squad](https://github.com/smtg-ai/claude-squad) | [Vibe Kanban](https://github.com/BloopAI/vibe-kanban) | [Codex cloud](https://chatgpt.com/codex) |
+|---|---|---|---|---|---|---|
+| An agent's isolation | Linux container: own network, Docker, ports | Git worktree | Git worktree (cloud sandboxes on Pro) | Git worktree + tmux | Git worktree | Cloud container |
+| A desktop and browser per agent you can watch and take over | ✅ | — | — | — | 🟡 browser preview of the dev server | — |
+| A lead agent that starts and directs agents | ✅ | — | — | — | — | — |
+| Project memory shared by agents | ✅ | — | 🟡 per-workspace notes | — | — | — |
+| Recordings and screenshots as proof of work | ✅ | — | — | — | — | — |
+| Diff and pull request review | ✅ | ✅ | ✅ | 🟡 diff view | ✅ | ✅ |
+| Phone | ✅ | ✅ iOS, Android | 🟡 Pro plan | — | — | ✅ ChatGPT app |
+| AI tools | Claude Code, Codex, OpenCode, Cursor | Claude, Codex, Cursor, OpenCode, Grok, Antigravity | Claude Code, Codex, Cursor, OpenCode | Claude Code, Codex, Gemini, Aider, OpenCode, Amp | 10+, Claude Code to Qwen Code | Codex |
+| Runs | On your computer, in a VM | On your computer | On your Mac | In your terminal | On your computer | OpenAI's cloud |
+| Platforms | Linux; macOS, Windows in alpha | macOS, Windows, Linux, web | macOS | Wherever tmux runs | macOS, Linux, Windows | Web, apps, CLI |
+| License and price | MIT, free | MIT, free | Proprietary; free, Pro $50/mo | AGPL-3.0, free | Apache-2.0, free; [sunsetting](https://github.com/BloopAI/vibe-kanban) | Proprietary, with ChatGPT plans |
+
+**Where the others fit better:** a worktree is far lighter than a machine, so T3 Code, Conductor
+and Claude Squad need no VM, where AgentBox wants 8 GB of memory and `/dev/kvm`. Claude Squad and
+Vibe Kanban drive more AI tools, T3 Code ships for macOS and Windows where AgentBox's builds are
+still alpha, and Codex cloud needs no computer of yours at all.
+
+## Quick start
+
+1. [Download AgentBox](#install) and open it. **Setup** makes its VM, gets the agents' base image
+   and signs you in to your AI tool.
+2. **Add project**, and pick a git repository.
+3. **Talk to its lead**: tell it what you want, and it creates the agents it needs, on their own
+   branches.
+4. Open an agent's **Desktop** tab to watch it work (its browser, its terminal, its file
+   manager) and click **Take control** any time.
+5. When an agent is done, **Review** opens its recording, screenshots, diff and pull request:
+   merge it, or request changes and it carries on.
 
 ## Install
 
-AgentBox runs on **Linux, x86_64**. Download the latest release from
-[downloads.agentbox.linting.dev](https://downloads.agentbox.linting.dev/index.html):
+AgentBox runs on **Linux, x86_64**, with **macOS and Windows in alpha**. On Linux, one command
+checks your computer (virtualization, 8 GB of memory, 30 GB of disk, FUSE for the AppImage), says
+plainly what's missing before it downloads anything, and installs the latest release, checked
+against its `SHA256SUMS`: the `.deb` on Debian and Ubuntu, the `.pacman` on Arch, and the AppImage
+anywhere else.
+
+```bash
+curl -fsSL https://downloads.agentbox.linting.dev/install.sh | sh
+```
+
+`sh -s -- --check` after the pipe only checks. To install by hand instead (or on a Mac or Windows),
+download from [downloads.agentbox.linting.dev](https://downloads.agentbox.linting.dev/index.html):
 
 | File | What |
 |---|---|
-| `AgentBox-<version>-x86_64.AppImage` | The desktop app, with the `agentbox` command-line tool inside — runs on any distribution |
+| `AgentBox-<version>-x86_64.AppImage` | The desktop app, with the `agentbox` command-line tool inside: runs on any distribution |
 | `AgentBox-<version>-amd64.deb` | The desktop app, for Debian and Ubuntu |
 | `AgentBox-<version>-x64.pacman` | The desktop app, for Arch and its derivatives |
+| `AgentBox-<version>-mac-arm64.dmg`, `-mac-x64.dmg` | macOS (alpha), in a Linux VM made with [Lima](https://lima-vm.io), which Setup downloads if you have none |
+| `AgentBox-<version>-x64-setup.exe`, `-x64-portable.exe` | Windows (alpha), in a WSL2 distro |
 | `SHA256SUMS` | Checksums: `sha256sum -c SHA256SUMS` |
 
 ```bash
@@ -79,241 +141,39 @@ chmod +x AgentBox-*-x86_64.AppImage
 
 Or `sudo apt install ./AgentBox-<version>-amd64.deb` on Debian and Ubuntu, or
 `sudo pacman -U AgentBox-<version>-x64.pacman` on Arch. AppImages need FUSE: install `fuse2` (Arch),
-`libfuse2` (Debian 12, Ubuntu 22.04) or `libfuse2t64` (Ubuntu 24.04) if yours won't start.
+`libfuse2` (Debian 12, Ubuntu 22.04) or `libfuse2t64` (Ubuntu 24.04) if yours won't start. The Mac
+and Windows builds are unsigned for now: on a Mac, right-click AgentBox in Applications and choose
+**Open** the first time; on Windows, the installer and antivirus may need an exception.
 
-The app's **Setup** walks you through the rest the first time it runs: making AgentBox's VM,
-building the agents' base image, and logging in to Claude Code, Codex or OpenCode.
-
-### AgentBox's VM, on Linux
-
-On Linux, AgentBox runs in a VM of its own: the daemon, Incus and every agent in one
-[Cloud Hypervisor](https://www.cloudhypervisor.org) VM, with the CPUs and memory cap you give it
-rather than all of your computer's, so heavy agent work can't freeze your desktop. Nothing is
-installed on your system and no password is asked. It needs `/dev/kvm` (your user in the `kvm`
-group) and an `ssh` client. Setup makes it, at the size you pick; from the command line it's
-`agentbox vm init` (`--cpus`, `--memory-cap`), which fetches Cloud Hypervisor, passt, virtiofsd and
-Debian's cloud image into `~/.local/share/agentbox/vm` and sets the VM up (about a minute). Every
-other `agentbox` command runs in the VM, and until it's made says to run `agentbox vm init`.
-
-The VM starts with 4 GiB and takes more memory as its agents need it, up to its cap (three quarters
-of your memory by default), and gives it back as they stop; the top bar's **Free resources** stops
-every agent and turns the VM off. Settings → Storage and machine changes its CPUs and cap, as does
-`agentbox vm resize`: a running VM changes at once, and its agents keep running. Your home folder is
-shared with the VM at the same path, so projects and agents' worktrees stay where they are.
-`agentbox vm delete --yes` removes it, and every agent's machine in it. Android emulators run in
-the VM's agents when your CPU's KVM module has nested virtualization on (`nested=1`), and boot in
-30–50 seconds rather than 20–25; GPUs aren't available in the VM.
-
-Agents share the VM's memory, and every agent starts at once. Each agent's machine may use all of
-the VM's memory cap but an eighth (at least 1 GiB): a process that outgrows that is stopped at
-once, and its agent is told what was stopped and to run fewer test workers at once. When memory
-runs short, it's the agents' tests and builds that give way: new ones wait to start (in the order
-they asked), and if pressure stays high the newest one already running is paused, its memory moved
-to swap, and resumed once it eases. For that the VM gets compressed swap in memory (zram, a quarter
-of its cap) as AgentBox starts, used before any swapfile from `agentbox vm swap on`. The oldest one
-always keeps running, so they all finish in turn. The agent shows **Paused for memory** or
-**Waiting for memory** meanwhile. Claude Code agents do this around their tests and builds by
-themselves; any other command can join in as `agentbox heavy -- <command>`.
-
-### Moving an installation from before the VM
-
-Earlier versions could also run agents directly on your computer's own Incus. An installation set
-up that way keeps working exactly as it was until you move it, and nothing of it is deleted. After
-updating, the app says once that AgentBox runs in a VM now and takes you to Settings → Setup →
-**Move to a VM**; `agentbox vm migrate` does the same from the command line. It moves all of it in
-one step: projects, settings, accounts, notes, memory, chats and media, and every agent with its
-branch, worktree (uncommitted changes included), title and model. Each agent gets a new
-machine in the VM, and its chat carries on; what was installed inside its old machine, and its home
-folder outside the worktree, don't come along. It backs `state.db` up first, checks that everything
-arrived, and can be run again if it stops half-way. Your system's Incus, and everything else in it,
-stays as it was: the agents' old machines stay there, stopped, until you remove them with
-`agentbox vm migrate --remove-old` (or the same place in Settings), which removes only AgentBox's
-own. Until you remove them, `agentbox vm delete --yes` goes back to running on your system as before.
-
-### macOS and Windows (alpha)
-
-AgentBox also runs on a **Mac**, in a Linux VM it makes for you with [Lima](https://lima-vm.io)
-(`brew install lima` first), and on **Windows**, in a WSL2 distro it sets up the same way: the
-daemon, Incus and every agent are the Linux ones, and the app and `agentbox` command on your machine
-just talk to them there. Both are newer than the Linux build and ship unsigned for now — on a Mac,
-right-click AgentBox in Applications and choose **Open** the first time; on Windows, the installer
-and antivirus may need an exception. Download `AgentBox-<version>-mac-arm64.dmg` or
-`-mac-x64.dmg`, or `AgentBox-<version>-x64-setup.exe` (installer) or `-x64-portable.exe`, from the
-same [downloads](https://downloads.agentbox.linting.dev/index.html) page.
-
-On a Mac with Apple Silicon, install [krunkit](https://lima-vm.io/docs/config/vmtype/krunkit/)
-before setting AgentBox up, and the VM gives the memory its agents stop using back to your Mac:
-
-```bash
-brew tap slp/krun && brew trust slp/krun && brew install krunkit
-```
-
-Without it, the VM is made with Apple's Virtualization framework and keeps whatever memory it has
-used until it stops. A VM keeps the kind it was made with: to switch an existing one,
-`agentbox vm delete --yes` then `agentbox vm init`, which removes every agent's machine (your
-projects and worktrees stay).
-
-A krunkit VM also has a **GPU for agents**: Vulkan, run on your Mac's GPU through Metal, and
-OpenGL on top of it. Turning on "GPU for agents" in Settings readies it, building a Vulkan driver
-in the VM (a few minutes). A VM made before this needs Debian's generic kernel too, and one restart
-for it (`agentbox vm stop`, then `agentbox vm start`); its old kernel stays until the new one has
-started, and the VM goes back to it if the new one doesn't (restart the VM again if it hangs).
-`agentbox vm gpu` says what the VM has, and `agentbox vm gpu --agent project/agent` what an agent
-gets. Apple's Virtualization framework gives a Linux VM no 3D, so a
-VM made without krunkit has none.
-
-On a Mac there is also an **experimental** way without Lima: `agentbox vm init --driver vz` (or
-**Apple Virtualization, without Lima** in the app's Setup) has AgentBox run the VM itself with
-Apple's Virtualization framework, on macOS 13 or later. It hasn't been tried on a real Mac yet; its
-VM holds all of its memory while it runs, and `agentbox vm delete --yes` goes back to Lima's. A
-build of your own needs signing for it: `scripts/mac-sign.sh bin/agentbox`.
-
-## Quick start
-
-1. **Add project** in the app, and pick a git repository.
-2. **Talk to its lead**, the project's chat: tell it what you want, and it creates the agents it
-   needs, on their own branches.
-3. Open an agent's **Desktop** tab to watch it work — its browser, its terminal, its file
-   manager — and click **Take control** any time.
-4. Check the **Media** tab for the screenshots, recordings and test reports it kept to show its
-   work, and the **Pull requests** tab to read and merge what it built.
+The app's **Setup** walks you through the rest the first time it runs. On Linux, AgentBox runs in a
+[Cloud Hypervisor](https://www.cloudhypervisor.org) VM of its own, with the CPUs and memory cap you
+give it, so heavy agent work can't freeze your desktop; nothing is installed on your system and no
+password is asked. If your user can't open `/dev/kvm` yet, Setup offers **Give access to KVM**, with one
+password prompt and no new login. [docs/install.md](docs/install.md) has the details: the install script, how the VM shares memory
+between agents, moving an installation from before the VM, and the Mac's krunkit VM with a GPU
+for agents.
 
 ## Requirements and limitations
 
-- **Linux on x86_64**, a Mac, or Windows with WSL2 — macOS and Windows are newer and less complete
-  than Linux ([macOS and Windows (alpha)](#macos-and-windows-alpha)).
+- **Linux on x86_64**, a Mac, or Windows with WSL2. macOS and Windows are newer and less complete
+  than Linux ([docs/install.md](docs/install.md#macos-and-windows-alpha)).
 - On Linux: Arch, Debian 12 or 13, Ubuntu 22.04 or newer, or Fedora; 8 GB of memory at least (each
   running agent uses 1–2 GB), 4 cores and 30 GB of free disk; `/dev/kvm`, for AgentBox's VM.
-- An account for the AI tool you use: Claude Code, Codex or OpenCode.
-- The hub, for remote environments, lives in a separate repository that isn't public.
+- An account for the AI tool you use: Claude Code, Codex, OpenCode or Cursor.
+- Remote environments go through a hub, a separate program that isn't open source; this
+  repository carries only its side of the protocol, in [`hubapi/`](hubapi/).
 - Each [release](https://downloads.agentbox.linting.dev/index.html)'s notes list what it can't do yet
   under **Known limitations**.
 
-## Update check
+## Privacy
 
-Once a day, and as it starts, the AgentBox daemon asks `agentbox.linting.dev` whether a newer
-release is out. When one is, the app shows **Update available** in its sidebar and
-`agentbox version` prints a link to the release. Clicking it opens your channel's latest release
-as the list of releases has it at that moment (the daemon reads it,
-`GET https://downloads.agentbox.linting.dev/releases.json`, with nothing added to it), so a
-release made since the last check isn't missed. Nothing is downloaded or installed until you
-click it. Clicking it downloads that release's build for your machine from `downloads.agentbox.linting.dev`, checks it,
-puts it in place of the one you're running and restarts into it; the command-line tool and the
-daemon move to the new version too, the VM's included. The Mac's `.app`, the Windows installer's
-install and the portable `.exe` are checked against the release's `SHA256SUMS` (and a Mac app's
-code signature), the AppImage against its `latest-linux.yml`. An update waits while jobs are
-running. A `.deb` or `.pacman` (only root can replace them), a Mac app still on its disk image or
-in a folder you can't write to, and an update that fails open the release page instead.
-The same request is how we count active installations.
-
-**What is sent** is one HTTPS request with four query parameters, and nothing else:
-
-```
-GET https://agentbox.linting.dev/api/v1/latest?install=<uuid>&version=0.1.0&os=linux&arch=amd64
-```
-
-- `install`: a random UUID, made the first time the check runs and kept in AgentBox's own database
-  (`state.db`). It is derived from nothing, so it can't be traced back to you or the machine. It
-  only lets repeated checks from one installation be counted once. When AgentBox runs in a VM or a
-  WSL2 distro, a copy is kept on your computer too (`~/.config/agentbox/install-id`, or
-  `%LOCALAPPDATA%\AgentBox\install-id` on Windows), so a VM made again is still the same install.
-- `version`: the version of AgentBox.
-- `os` and `arch`: the operating system and processor architecture, such as `linux` and `amd64`.
-  On a Mac or on Windows, where the daemon runs in a Linux VM or WSL2 distro, `os` is `darwin` or
-  `windows`: the machine's, not the VM's.
-
-**What isn't sent:** your name, username or hostname, anything about your projects, agents,
-repositories or accounts, and any other ID or hardware detail. Like any web request, it comes from
-your IP address. If the request fails or takes longer than 5 seconds, AgentBox ignores it and
-tells nobody.
-
-**Anonymous usage stats** go with the check, so we can see which features are used and which
-aren't. AgentBox counts uses of a fixed list of features (the `Feature…` keys in
-[`internal/api/types.go`](internal/api/types.go), such as `agent.create.claude`, `lead.turn.codex`,
-`pr.list` or `menu.agent.destroy`) in `state.db`, per UTC day, and once a day is over it sends the
-counts in one more request, with the same four fields as the check:
-
-```
-POST https://agentbox.linting.dev/api/v1/usage
-{"install":"<uuid>","version":"0.1.0","os":"linux","arch":"amd64",
- "days":[{"day":"2026-09-24","features":{"agent.create.claude":3,"pr.list":1}}]}
-```
-
-A key names a feature and nothing about what it was used on: no names, paths, repositories,
-prompts or anything you typed. The model, effort and context window an agent is created with and
-each completed turn ran with are counted per AI tool too (`agent.create.model.claude.opus_5_5`,
-`agent.create.effort.claude.high`, `turn.context.codex.200k`): a model is matched against a fixed
-list of known ones (`usageModels` in
-[`internal/daemon/usagemodels.go`](internal/daemon/usagemodels.go)) and anything else, a custom or
-typed-in model among them, is sent as `other`.
-
-The same request's day also sends **anonymous events**, each a name and fixed fields, every one a
-number, a yes or no, or a value from a fixed list
-([`internal/daemon/usageevents.go`](internal/daemon/usageevents.go)), with a random id so a retry
-isn't counted twice:
-
-- `turn.completed`, for each turn of an agent or a project's chat: the AI tool, model, effort,
-  context window and permission mode as above, whether it was the chat or an agent, whether it was
-  done, cancelled or failed, how long it took, its input, cached, cache-creation, output and
-  reasoning tokens, and whether it used subagents.
-- `heartbeat`, once a day: how many projects and agents there are and the most agents at once,
-  how AgentBox runs (`chv`, `lima`, `wsl` or `host`), the VM's memory in a range such as `16_32g`,
-  the app's language, the update channel, whether nesting is on, and how many connectors, Claude
-  accounts and GitHub accounts there are.
-- `agent.finished`, as an agent is destroyed or retired: its AI tool, how long it lived in a range
-  such as `30m_2h`, and whether it opened a pull request and had one merged.
-- `error`, by a fixed code such as `create_failed`, `image_build_failed`, `adapter_crashed` or
-  `auth_failed`, with the AI tool involved, never the error's text.
-- `setup`, the first time a new installation reaches each step (`setup_started`, `image_built`,
-  `first_project`, `first_agent`, `first_pr`), with how long after the setup began, in a range.
-
-```
-POST https://agentbox.linting.dev/api/v1/events
-{"install":"<uuid>","version":"0.1.0","os":"linux","arch":"amd64",
- "events":[{"id":"<random uuid>","day":"2026-09-24","name":"error",
-            "props":{"code":"create_failed","tool":"claude"}}]}
-```
-
-**See what's sent** under **Settings → General** shows both requests exactly as the next check
-would send them. Counts and events the server has are deleted from `state.db`, and those it never
-got are dropped after 31 days. Switch off **Share anonymous usage stats** under
-**Settings → General** to stop them and delete what wasn't sent yet; they are also off whenever
-the update check is.
-
-The server that receives the usage stats and events also records the country and state or region
-each batch came from, taken from Cloudflare's request data. It never stores the IP address or the
-city, and its admin shows only places with at least 5 installs.
-
-**Nightly builds** are built from the next release as it stands, and published as
-prereleases named `<next version>-nightly.<date>.<run>`, such as `0.11.0-nightly.20260929.12`.
-They are for trying what's coming, and are never marked as the latest release. To be offered them,
-pick **Nightly** under **Update channel** in **Settings → General**, or run
-`agentbox version --channel nightly`; a nightly build starts out on that channel, and shows
-**Nightly** in the app's sidebar. On the nightly channel the check also asks for the list of
-releases (`GET https://downloads.agentbox.linting.dev/releases.json`, a public file, with nothing
-added to it), since `agentbox.linting.dev` only answers with stable releases. Going back to
-**Stable** offers the latest stable release, even though its version is lower than the nightly's.
-
-**To turn the check off**, and the usage stats with it, switch off **Check for updates** in the app under **Settings → General**,
-or set `AGENTBOX_NO_UPDATE_CHECK=1` or `DO_NOT_TRACK=1` in the daemon's environment (restart it with
-`agentbox daemon stop` afterwards). Builds from source, which report version `dev`, never check.
-
-## Reporting a problem
-
-**Report a problem**, under **Settings → General**, or `agentbox report` sends us what went wrong in
-your words, with what helps us find out why: AgentBox's version, your OS and how AgentBox runs on it
-(on the machine itself, or in its VM), how its setup stands, the end of the daemon's log and, in VM
-mode, of the VM supervisor's, and from the app its own log and recent errors. Tokens, keys, email
-addresses and home folders are taken out of all of it, your message included, and you see every part
-in full before anything is sent, and can leave any of them out (`agentbox report --show` prints it,
-and sends nothing). It goes to `https://agentbox.linting.dev/api/v1/reports` with the same four fields
-as the update check, and is kept for 90 days.
-
-**Error reports** are the same, sent by the app itself when it hits an error it didn't expect: the
-error, where in the app it happened, and the app's version and OS, with no logs and nothing you
-typed. They are off until you turn them on: the first time an error happens, the app asks. Switch
-**Send error reports automatically** under **Settings → General** to change your answer. They are
-never sent while `DO_NOT_TRACK=1` is set.
+AgentBox checks once a day for a newer release, and with it sends anonymous usage stats: a random
+install ID, the version, OS and architecture, counts of which features were used, and anonymous
+events such as a turn's length and tokens or an error's code and its redacted wording; never your
+names, paths, code or prompts. **Settings → General** shows exactly what the next check would send,
+and turns the stats or the whole check off, as do `DO_NOT_TRACK=1` and `AGENTBOX_NO_UPDATE_CHECK=1`.
+Problem reports and error reports are sent only when you say so. [docs/privacy.md](docs/privacy.md)
+lists every field.
 
 ## The command line
 
@@ -324,9 +184,25 @@ agentbox add ~/src/my-app                               # a git repository becom
 agentbox chat my-app "Paginate the reminders list"      # ask its chat, which creates the agents it needs
 agentbox diff my-app/agent-01                           # what an agent changed
 agentbox media list my-app/agent-01                     # what it kept to show its work
+agentbox share my-app/agent-01 -o run.html              # what it did, as one page to send anyone
 ```
 
 `agentbox --help` lists the rest; [`docs/`](docs/README.md) has the architecture behind both.
+
+## Built with AgentBox badge
+
+If AgentBox helped build your project, you can say so in its README:
+
+```markdown
+[![Built with AgentBox](https://img.shields.io/badge/built%20with-AgentBox-blue)](https://github.com/leciric/agentbox)
+```
+
+[![Built with AgentBox](https://img.shields.io/badge/built%20with-AgentBox-blue)](https://github.com/leciric/agentbox)
+
+AgentBox can also end its agents' pull request descriptions with this badge. It is off by default: the
+app offers it once, after the first agent pull request is merged, and **Settings → Commits** turns it
+on or off.
+
 
 ## Contributing
 

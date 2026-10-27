@@ -111,7 +111,8 @@ func gib(b int64) string { return fmt.Sprintf("%.1f GiB", float64(b)/(1<<30)) }
 // kernel sees them: MemTotal is all WSL lets it have (.wslconfig's memory, half
 // of Windows' by default), so it's both what's granted and the cap, and what's
 // used is MemTotal less MemAvailable, without the page cache. A stopped distro
-// is only asked about through wsl --list, which doesn't start it.
+// is only asked about through wsl --list, which doesn't start it. A running
+// one whose numbers can't be read is running with none.
 func (d *Distro) Power(ctx context.Context) Power {
 	p := Power{State: api.VMOff, Driver: api.VMDriverWSL}
 	st, err := d.State(ctx)
@@ -129,9 +130,13 @@ func (d *Distro) Power(ctx context.Context) Power {
 		return p
 	}
 	p.State = api.VMRunning
+	// Under heavy CPU load wsl --exec fails now and then, after WSL's own 30
+	// seconds (Wsl/Service/0x8007274c, a timeout) or at once, and the next
+	// call works. The distro still runs, so a failed reading is no error:
+	// it has no numbers this time, and the app keeps the last ones it had
+	// (desktop/src/main/vmpower.ts, which asks the daemon first).
 	out, err := d.exec(ctx, false, nil, "sh", "-c", "cat /proc/meminfo; nproc")
 	if err != nil {
-		p.Error = err.Error()
 		return p
 	}
 	total, available, cpus := parseMeminfo(out)

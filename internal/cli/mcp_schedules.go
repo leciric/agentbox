@@ -21,13 +21,13 @@ func scheduleTool(ctx context.Context, c *api.Client) mcp.Tool {
 		zone = "the user's timezone, " + settings.Timezone
 	}
 	type request struct {
-		Title, Task, At, In, Every, Cron, Timezone, Target, Session, Model, Effort, Precheck *string
-		GraceMinutes                                                                         *int `json:"grace_minutes"`
-		ID                                                                                   string
+		Title, Task, At, In, Every, Cron, On, Label, Timezone, Target, Session, Model, Effort, Precheck *string
+		GraceMinutes                                                                                    *int `json:"grace_minutes"`
+		ID                                                                                              string
 	}
 	toRequest := func(in request) api.ScheduleRequest {
 		return api.ScheduleRequest{
-			Title: in.Title, Task: in.Task, At: in.At, In: in.In, Every: in.Every, Cron: in.Cron, Timezone: in.Timezone,
+			Title: in.Title, Task: in.Task, At: in.At, In: in.In, Every: in.Every, Cron: in.Cron, On: in.On, Label: in.Label, Timezone: in.Timezone,
 			Target: in.Target, Session: in.Session, Model: in.Model, Effort: in.Effort, Precheck: in.Precheck, GraceMinutes: in.GraceMinutes,
 		}
 	}
@@ -55,26 +55,30 @@ func scheduleTool(ctx context.Context, c *api.Client) mcp.Tool {
 		}
 	}
 	return actionTool("schedules",
-		"Tasks for later, when the user asks for one at a time: \"tomorrow at 9 run the release checks\", \"every Monday 8am "+
-			"triage new issues\". When one falls due AgentBox wakes you in this chat with its task, as if the user had just asked "+
+		"Tasks for later, when the user asks for one at a time (\"tomorrow at 9 run the release checks\", \"every Monday 8am "+
+			"triage new issues\") or on a GitHub event (\"when CI goes red on main, have an agent fix it\"). When one falls due AgentBox wakes you in this chat with its task, as if the user had just asked "+
 			"(or, with target agent, creates an agent with it); a run missed while AgentBox was off runs once when it is back, marked "+
-			"late. The user sees them in the project's Schedules. Tell them, in their words, when it will next run.",
-		"create: task, with one of at, in, every or cron. list: each one, its next run, last run and id. edit: id's fields that "+
-			"are given (one of at, in, every or cron replaces its timing). pause, resume: id; resumed, it carries on from its next "+
+			"late. Tell the user, in their words, when it will next run.",
+		"create: task, with one of at, in, every, cron or on. list: each one, its next run, last run and id. edit: id's fields that "+
+			"are given (one of at, in, every, cron or on replaces its timing). pause, resume: id; resumed, it carries on from its next "+
 			"time, and what it missed doesn't run. delete: id and its runs' history, when the user asks",
 		map[string]any{
 			"id":       str("edit, pause, resume, delete: the schedule's id"),
 			"task":     str("what to do when it runs, self-contained for a you who has forgotten this conversation: what to check or do, and what to report"),
 			"at":       str("once at a time like \"2026-10-19 09:00\" (in " + zone + " unless timezone), RFC 3339, or \"09:00\" for the next time the clock shows it"),
-			"in":       str("once after a while, like \"2h\" or \"1d\""),
+			"in":       str("once after a while, like \"2h\""),
 			"every":    str("repeat on an interval, like \"6h\" (5m at least), from at or in when given, else from now"),
 			"cron":     str("repeat on a calendar: five-field cron, like \"0 8 * * 1\" for Mondays at 08:00, read in timezone"),
 			"timezone": str("an IANA timezone like Europe/Lisbon; " + zone + " by default"),
-			"title":    str("a short name for the list; the task's first line by default"),
-			"target":   choiceOf("lead (the default) wakes you with the task; agent creates an agent with it as its first message", "lead", "agent"),
-			"session":  choiceOf("target agent: fresh (the default) makes a new agent each run; reuse tells the last run's agent, while it is there", "fresh", "reuse"),
-			"model":    str("target agent: its model; the project's default when left out"),
-			"effort":   str("target agent: its effort; the project's default when left out"),
+			"on": choiceOf("instead of a time, each time this happens on GitHub: CI fails on the default branch, a review is asked "+
+				"of the user, an open issue gets label, a pull request opens from a branch that isn't an agent's. Its details follow "+
+				"the task", "ci_failed", "review_requested", "issue_labeled", "pr_opened"),
+			"label":   str("for on issue_labeled: the label, like \"bug\""),
+			"title":   str("a short name; the task's first line by default"),
+			"target":  choiceOf("lead (the default) wakes you with the task; agent creates an agent with it as its first message", "lead", "agent"),
+			"session": choiceOf("target agent: fresh (the default) makes a new agent each run; reuse tells the last run's agent, while it is there", "fresh", "reuse"),
+			"model":   str("target agent: its model; the project's default when left out"),
+			"effort":  str("target agent: its effort; the project's default when left out"),
 			"precheck": str("a shell command run in the project's checkout before each run, which skips the run when it exits non-zero " +
 				"(e.g. `gh pr list --search 'is:open' | grep -q .`)"),
 			"grace_minutes": map[string]any{"type": "integer", "description": "how late a missed run may still run; however late when left out"},
@@ -149,6 +153,8 @@ func describeSchedule(sc api.Schedule) string {
 	switch {
 	case sc.Paused:
 		b.WriteString("; paused")
+	case sc.Kind == api.ScheduleOnEvent:
+		// No next run: Describe said what it waits for.
 	case sc.NextRun != nil:
 		fmt.Fprintf(&b, "; next run %s", sc.NextRun.In(loc).Format("Mon 2 Jan 2006 15:04 MST"))
 	default:
@@ -161,6 +167,9 @@ func describeSchedule(sc api.Schedule) string {
 		fmt.Fprintf(&b, "; last ran %s (%s", r.RanAt.In(loc).Format("2 Jan 15:04"), r.Outcome)
 		if r.Late {
 			b.WriteString(", late")
+		}
+		if r.Event != "" {
+			b.WriteString(", for " + r.Event)
 		}
 		if r.Error != "" {
 			b.WriteString(": " + r.Error)

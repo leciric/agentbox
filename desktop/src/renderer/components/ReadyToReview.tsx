@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
 import { PrNumberLink } from './PrNumberLink';
-import { Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, FileDiff, GitBranch, GitMerge, GitPullRequest, Info, Keyboard, LoaderCircle, MessageSquareText, Play, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, FileDiff, GitBranch, GitMerge, GitPullRequest, Images, Info, Keyboard, LoaderCircle, MessageSquare, MessageSquareText, Play, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
@@ -16,11 +16,13 @@ import { useNow } from '../lib/useNow';
 import { cn, errorMessage, timeAgo } from '../lib/utils';
 import { languageOfPath, parsePatch } from '../lib/pulls';
 import { drafts, splitGitDiff } from '../lib/reviewNotes';
+import { awaitingReview } from '../lib/work';
 import { Markdown } from './chat/Markdown';
 import { DiffTable, useHighlighted } from './DiffTable';
 import { NotesList, ReviewNotesContext, reviewNotesKey, useReviewNotes } from './ReviewNotes';
 import { MoreMedia } from './MediaTab';
 import { ReviewProof, type ProofHandle } from './ReviewProof';
+import { ShareButton } from './ShareButton';
 import { useProjectPages } from './pages/usePages';
 import { checksVariants, PullRequestView, stateVariants } from './PullRequestModal';
 import { checksLabels, methodLabels, stateLabels, usePullLabels, usePullMerge } from './PullRequestsPanel';
@@ -113,28 +115,29 @@ export function ReviewSection({ pages, shown, open, onBegin }: { pages: ReviewPa
 }
 
 // ReviewDialog is the carousel on the session's agent, as the list has it now
-// (its pull request merged, say), with the one after it in the walk.
-// UI v2's has a Reviewed tab (ReviewV2): tabs sit in the carousel's header,
-// and list, while there is one, is shown in the dialog in its place.
+// (its pull request merged, say), with the one after it in the walk. The
+// Work page (WorkView) opens it on any agent's work, live or past: work is
+// what it lists of the agent, and onOpenChat opens its whole chat.
 export function ReviewDialog({
   session,
   pages,
   onSession,
-  tabs,
-  list,
-  onCloseList,
+  work,
+  onOpenChat,
 }: {
   session: ReviewSession | null;
   pages: ReviewPages;
   onSession: (session: ReviewSession | null) => void;
-  tabs?: ReactNode;
-  list?: ReactNode;
-  onCloseList?: () => void;
+  work?: (ref: string) => T.WorkItem | undefined;
+  onOpenChat?: (item: T.ReviewItem, past: boolean) => void;
 }) {
   const t = useT();
   const items = walkItems(pageItems(pages.data), session?.project);
   const current = session && (items.find((i) => i.ref === session.item.ref) ?? session.item);
-  const order = session && walkOrder(session);
+  // Work that waits for no verdict (Work's past, reviewed or running agents)
+  // is looked at on its own: there's nothing to walk on to.
+  const alone = !!session && !!work && work(session.item.ref)?.status !== 'review';
+  const order = session && !alone ? walkOrder(session) : null;
   const next = session && order ? nextPending(order, session.item.ref, items) : undefined;
   const queue = order ? queueOf(order, items) : null;
   const position = queue && session ? { n: queue.indexOf(session.item.ref) + 1, count: queue.length } : undefined;
@@ -158,15 +161,24 @@ export function ReviewDialog({
   };
   return (
     <Dialog
-      open={current !== null || !!list}
+      open={current !== null}
       onOpenChange={(open) => {
-        if (open) return;
-        onSession(null);
-        onCloseList?.();
+        if (!open) onSession(null);
       }}
     >
-      {list}
-      {!list && current && <ReviewCarousel key={current.ref} item={current} position={position} next={next} canBack={!!session?.trail?.length} onNext={advance} onBack={() => session && onSession(goBack(session))} tabs={tabs} />}
+      {current && (
+        <ReviewCarousel
+          key={current.ref}
+          item={current}
+          work={work?.(current.ref)}
+          position={position}
+          next={next}
+          canBack={!!session?.trail?.length}
+          onNext={advance}
+          onBack={() => session && onSession(goBack(session))}
+          onOpenChat={onOpenChat}
+        />
+      )}
     </Dialog>
   );
 }
@@ -296,28 +308,45 @@ type Pane = 'proof' | 'diff' | 'details';
 // record a verdict and go on to the next agent.
 function ReviewCarousel({
   item,
+  work,
   position,
   next,
   canBack,
   onNext,
   onBack,
-  tabs,
+  onOpenChat,
 }: {
   item: T.ReviewItem;
+  // work is the agent as the Work page lists it: whether it's a past agent,
+  // and its report.
+  work?: T.WorkItem;
   position?: { n: number; count: number };
   next?: T.ReviewItem;
   // canBack is whether an agent was shown before this one in the walk.
   canBack: boolean;
   onNext: () => void;
   onBack: () => void;
-  tabs?: ReactNode;
+  onOpenChat?: (item: T.ReviewItem, past: boolean) => void;
 }) {
   const t = useT();
   const queryClient = useQueryClient();
+  const past = !!work?.past;
+  // A past agent's media is the project's under its name: its own routes
+  // went with its machine.
   const media = useQuery({
-    queryKey: ['media', item.ref],
-    queryFn: () => api.media(item.ref),
+    queryKey: past ? ['media', item.ref, 'past'] : ['media', item.ref],
+    queryFn: () => (past ? api.projectMedia(item.project, item.agent) : api.media(item.ref)),
   });
+  // Its final report, on top: the Work page has it; opened elsewhere it's read.
+  const reports = useQuery({
+    queryKey: ['memory', item.project, 'reports', item.agent],
+    queryFn: () => api.memoryReports(item.project, item.agent),
+    enabled: !work,
+  });
+  const report = work ? work.report : reports.data?.[0];
+  // Merge, Mark reviewed and Request changes are verdicts on work that
+  // waits for one; anything else is only looked at.
+  const awaiting = work ? work.status === 'review' : awaitingReview(item);
   const pages = useProjectPages(item.project);
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   // The pull request as the project's list has it now, merged under us say,
@@ -328,7 +357,8 @@ function ReviewCarousel({
     enabled: !!item.pr,
   });
   const pr = (item.pr && pulls.data?.pullRequests.find((p) => p.number === item.pr?.number)) || item.pr;
-  const proof = proofOf(media.data ?? [], pagesFor(pages.data, item.ref));
+  const proof = proofOf(Array.isArray(media.data) ? media.data : [], pagesFor(pages.data, item.ref));
+  const proofCount = proof.recordings.length + proof.screenshots.length + proof.pages.length;
   const [pane, setPane] = useState<Pane>('proof');
   const toggle = (p: Pane) => setPane((now) => (now === p ? 'proof' : p));
   const [help, setHelp] = useState(false);
@@ -459,11 +489,11 @@ function ReviewCarousel({
   const act = (action: ReviewAction) => {
     switch (action) {
       case 'merge':
-        return mergeKey();
+        return awaiting && mergeKey();
       case 'requestChanges':
-        return requestChanges();
+        return awaiting && requestChanges();
       case 'reviewed':
-        return reviewAndGo();
+        return awaiting && reviewAndGo();
       case 'nextItem':
         if (next) onNext();
         return;
@@ -539,6 +569,11 @@ function ReviewCarousel({
             content.current?.focus();
             return;
           }
+          if (!changing && pane !== 'proof' && !notes.composing && notes.editing === null) {
+            event.preventDefault();
+            setPane('proof');
+            return;
+          }
           if (notes.composing || notes.editing !== null) {
             event.preventDefault();
             notes.compose(null);
@@ -578,7 +613,12 @@ function ReviewCarousel({
                     </Button>
                   </>
                 )}
-                {tabs}
+                {onOpenChat && (
+                  <Button size="sm" variant="ghost" className="h-7" onClick={() => onOpenChat(item, past)} data-review-chat>
+                    <MessageSquare />
+                    {t('review.chat')}
+                  </Button>
+                )}
               </div>
             </div>
             <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 pl-8 text-[12.5px]">
@@ -587,22 +627,33 @@ function ReviewCarousel({
               </p>
               {pr && <PrStatus pr={pr} />}
               <div className="ml-auto flex shrink-0 items-center gap-1">
-                <Button size="sm" variant={pane === 'diff' ? 'secondary' : 'ghost'} className="h-7" aria-pressed={pane === 'diff'} onClick={() => toggle('diff')} data-review-toggle="diff">
-                  <FileDiff />
-                  {t('review.diff')}
-                  {item.changes && item.changes.files > 0 && (
-                    <span className="font-mono text-[11.5px]">
-                      <span className="text-emerald-400">+{item.changes.insertions}</span> <span className="text-rose-400">−{item.changes.deletions}</span>
-                    </span>
-                  )}
-                  {pendingNotes.length > 0 && <NotesCount n={pendingNotes.length} />}
-                  <Hint k="D" />
-                </Button>
-                <Button size="sm" variant={pane === 'details' ? 'secondary' : 'ghost'} className="h-7" aria-pressed={pane === 'details'} onClick={() => toggle('details')} data-review-toggle="details">
-                  <Info />
-                  {t('review.details')}
-                  <Hint k="I" />
-                </Button>
+                {/* Media, the diff or the details: one at a time, the one on
+                    screen marked, so the way back to the media is always in
+                    sight (D and I go to theirs and back, as does Esc). */}
+                <div role="tablist" aria-label={t('review.panes')} className="flex items-center gap-0.5 rounded-lg border border-line bg-surface-faint p-0.5" data-review-panes>
+                  <PaneTab on={pane === 'proof'} onClick={() => setPane('proof')} pane="proof">
+                    <Images />
+                    {t('review.media')}
+                    {proofCount > 0 && <span className="tabular-nums text-subtle">{proofCount}</span>}
+                  </PaneTab>
+                  <PaneTab on={pane === 'diff'} onClick={() => setPane('diff')} pane="diff">
+                    <FileDiff />
+                    {t('review.diff')}
+                    {item.changes && item.changes.files > 0 && (
+                      <span className="font-mono text-[11.5px]">
+                        <span className="text-emerald-400">+{item.changes.insertions}</span> <span className="text-rose-400">−{item.changes.deletions}</span>
+                      </span>
+                    )}
+                    {pendingNotes.length > 0 && <NotesCount n={pendingNotes.length} />}
+                    <Hint k="D" />
+                  </PaneTab>
+                  <PaneTab on={pane === 'details'} onClick={() => setPane('details')} pane="details">
+                    <Info />
+                    {t('review.details')}
+                    <Hint k="I" />
+                  </PaneTab>
+                </div>
+                <ShareButton agentRef={item.ref} />
                 {pr && (
                   <Button size="sm" variant="ghost" className="h-7" onClick={() => void window.agentbox.openExternal(pr.url)} title={t('pulls.detail.openOnGitHub')} data-review-github>
                     <ExternalLink />
@@ -613,6 +664,7 @@ function ReviewCarousel({
               </div>
             </div>
           </header>
+          {report && <ReportStrip report={report} inert={help} />}
           <section ref={body} className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden" inert={help} data-review-body>
             {pane === 'proof' &&
               (media.isPending ? <div className="p-6 text-[13px] text-subtle">{t('common.loading')}</div> : <ReviewProof ref={proofView} key={item.ref} project={item.project} proof={proof} />)}
@@ -634,7 +686,7 @@ function ReviewCarousel({
                   />
                 </div>
               ) : (
-                <AgentDiff agent={item.ref} />
+                <AgentDiff agent={item.ref} past={past} />
               ))}
             {pane === 'details' && (
               <div className="mx-auto grid w-full max-w-4xl content-start gap-6 p-5" data-review-details>
@@ -731,42 +783,50 @@ function ReviewCarousel({
               <Keyboard />
               <Hint k="?" />
             </Button>
-            <Button size="sm" variant="secondary" aria-expanded={changing} onClick={requestChanges} data-review-changes>
-              <MessageSquareText />
-              <span>{t('review.requestChanges')}</span>
-              {pendingNotes.length > 0 && <NotesCount n={pendingNotes.length} />}
-              <Hint k="C" />
-            </Button>
-            <Button size="sm" variant="secondary" disabled={marking} onClick={reviewAndGo} data-review-done title={next ? t('review.nextIs', { agent: next.title || next.agent }) : undefined}>
-              <Check />
-              <span>{t('review.markReviewed')}</span>
-              <Hint k="R" />
-            </Button>
-            {/* Why Merge can't, beside it; narrow, on a line of its own under the actions. */}
-            <span className={cn('ml-auto min-w-0 flex-1 truncate text-right text-[12px] text-amber-200 [:root[data-appearance=light]_&]:text-amber-700', footerNote && 'max-sm:order-last max-sm:basis-full max-sm:text-left')} data-merge-blocked title={footerReason}>
-              {armed && pr && !mergeDisabled ? <span className="text-primary" data-review-merge-armed>{t('review.mergeArmed', { number: pr.number })}</span> : footerNote}
-            </span>
-            <div className="flex shrink-0 items-stretch" data-review-merge-split>
-              <Button size="sm" variant="primary" className="rounded-r-none" disabled={mergeDisabled} title={footerReason ?? t(methodLabels[method] ?? 'memory.pulls.merge')} onClick={mergeAndGo} data-review-merge data-merge-method={method}>
-                {pr && merge.running.has(pr.number) ? <LoaderCircle className="animate-spin" /> : <GitMerge />}
-                <span>{pr ? t('review.mergeNumber', { number: pr.number }) : t('review.noPullRequest')}</span>
-                {!mergeDisabled && <Hint k="M" onPrimary />}
-              </Button>
-              <Menu open={methodOpen} onOpenChange={setMethodOpen}>
-                <MenuTrigger asChild>
-                  <Button size="sm" variant="primary" className="rounded-l-none border-l border-white/25 px-1.5" disabled={mergeDisabled} aria-label={t('memory.pulls.method')} data-review-merge-method>
-                    <ChevronDown />
+            {awaiting ? (
+              <>
+                <Button size="sm" variant="secondary" aria-expanded={changing} onClick={requestChanges} data-review-changes>
+                  <MessageSquareText />
+                  <span>{t('review.requestChanges')}</span>
+                  {pendingNotes.length > 0 && <NotesCount n={pendingNotes.length} />}
+                  <Hint k="C" />
+                </Button>
+                <Button size="sm" variant="secondary" disabled={marking} onClick={reviewAndGo} data-review-done title={next ? t('review.nextIs', { agent: next.title || next.agent }) : undefined}>
+                  <Check />
+                  <span>{t('review.markReviewed')}</span>
+                  <Hint k="R" />
+                </Button>
+                {/* Why Merge can't, beside it; narrow, on a line of its own under the actions. */}
+                <span className={cn('ml-auto min-w-0 flex-1 truncate text-right text-[12px] text-amber-200 [:root[data-appearance=light]_&]:text-amber-700', footerNote && 'max-sm:order-last max-sm:basis-full max-sm:text-left')} data-merge-blocked title={footerReason}>
+                  {armed && pr && !mergeDisabled ? <span className="text-primary" data-review-merge-armed>{t('review.mergeArmed', { number: pr.number })}</span> : footerNote}
+                </span>
+                <div className="flex shrink-0 items-stretch" data-review-merge-split>
+                  <Button size="sm" variant="primary" className="rounded-r-none" disabled={mergeDisabled} title={footerReason ?? t(methodLabels[method] ?? 'memory.pulls.merge')} onClick={mergeAndGo} data-review-merge data-merge-method={method}>
+                    {pr && merge.running.has(pr.number) ? <LoaderCircle className="animate-spin" /> : <GitMerge />}
+                    <span>{pr ? t('review.mergeNumber', { number: pr.number }) : t('review.noPullRequest')}</span>
+                    {!mergeDisabled && <Hint k="M" onPrimary />}
                   </Button>
-                </MenuTrigger>
-                <MenuContent className="min-w-40">
-                  {merge.methods.map((m) => (
-                    <MenuItem key={m} icon={m === method ? Check : undefined} onSelect={() => pickMethod(m)} data-merge-option={m}>
-                      {methodLabels[m] ? t(methodLabels[m]) : m}
-                    </MenuItem>
-                  ))}
-                </MenuContent>
-              </Menu>
-            </div>
+                  <Menu open={methodOpen} onOpenChange={setMethodOpen}>
+                    <MenuTrigger asChild>
+                      <Button size="sm" variant="primary" className="rounded-l-none border-l border-white/25 px-1.5" disabled={mergeDisabled} aria-label={t('memory.pulls.method')} data-review-merge-method>
+                        <ChevronDown />
+                      </Button>
+                    </MenuTrigger>
+                    <MenuContent className="min-w-40">
+                      {merge.methods.map((m) => (
+                        <MenuItem key={m} icon={m === method ? Check : undefined} onSelect={() => pickMethod(m)} data-merge-option={m}>
+                          {methodLabels[m] ? t(methodLabels[m]) : m}
+                        </MenuItem>
+                      ))}
+                    </MenuContent>
+                  </Menu>
+                </div>
+              </>
+            ) : (
+              <span className="ml-auto min-w-0 truncate text-[12px] text-subtle" data-review-looked>
+                {t(past ? 'review.lookOnly.past' : item.verdict ? 'review.lookOnly.reviewed' : item.fingerprint ? 'review.lookOnly.done' : 'review.lookOnly.working')}
+              </span>
+            )}
           </div>
           {help && (
             <KeysHelp
@@ -800,11 +860,86 @@ function NotesCount({ n }: { n: number }) {
     </span>
   );
 }
-// AgentDiff is the agent's whole diff, for an agent that opened no pull
-// request: file by file, as the pull request's are, notes and all.
-function AgentDiff({ agent }: { agent: string }) {
+// PaneTab is one of the review's panes in the header's switch.
+function PaneTab({ on, onClick, pane, children }: { on: boolean; onClick: () => void; pane: Pane; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={on}
+      onClick={onClick}
+      className={cn(
+        'inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-[12px] font-medium transition [&_svg]:size-3.5',
+        on ? 'bg-surface-strong text-title' : 'text-subtle hover:text-primary',
+      )}
+      data-review-toggle={pane}
+    >
+      {children}
+    </button>
+  );
+}
+
+const outcomeVariants: Record<string, 'success' | 'warning' | 'danger' | 'default'> = { done: 'success', partial: 'warning', blocked: 'warning', failed: 'danger' };
+
+// outcomeLabels names a report's status.
+export const outcomeLabels: Record<string, MessageKey> = {
+  done: 'work.outcome.done',
+  partial: 'work.outcome.partial',
+  blocked: 'work.outcome.blocked',
+  failed: 'work.outcome.failed',
+  working: 'work.outcome.working',
+};
+
+// OutcomeBadge is what came of an agent's work, as its report says.
+export function OutcomeBadge({ outcome }: { outcome: string }) {
   const t = useT();
-  const diff = useQuery({ queryKey: ['diff', agent], queryFn: () => api.diff(agent) });
+  if (!outcome) return null;
+  return (
+    <Badge variant={outcomeVariants[outcome] ?? 'default'} className="shrink-0" data-work-outcome={outcome}>
+      {outcomeLabels[outcome] ? t(outcomeLabels[outcome]) : outcome}
+    </Badge>
+  );
+}
+
+// ReportStrip is the agent's final report, above whatever pane is open: its
+// outcome and the start of its summary, the whole of it and what it left
+// open a click away.
+function ReportStrip({ report, inert }: { report: T.AgentReport; inert: boolean }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const remaining = report.remainingIssues ?? [];
+  return (
+    <section className="grid min-w-0 gap-1.5 border-b border-line bg-surface-faint px-5 py-2.5" inert={inert} data-review-report={report.status}>
+      <div className="flex min-w-0 items-start gap-2.5">
+        <span className="mt-0.5 shrink-0 text-[11px] font-semibold uppercase tracking-wide text-subtle">{t('review.report')}</span>
+        <OutcomeBadge outcome={report.status} />
+        <div className={cn('min-w-0 flex-1 text-[12.5px] text-secondary [overflow-wrap:anywhere]', !open && 'line-clamp-2')}>
+          <Markdown text={report.summary} className="text-[12.5px]" />
+        </div>
+        <button type="button" className="shrink-0 rounded-md px-1.5 py-0.5 text-[12px] font-medium text-subtle hover:bg-surface-strong hover:text-primary" aria-expanded={open} onClick={() => setOpen((o) => !o)} data-review-report-toggle>
+          {open ? t('review.reportLess') : remaining.length ? t('review.reportMoreOpen', { count: remaining.length }) : t('review.reportMore')}
+        </button>
+      </div>
+      {open && remaining.length > 0 && (
+        <div className="grid min-w-0 gap-1 pl-[4.5rem] text-[12px]">
+          <span className="font-medium text-amber-200 [:root[data-appearance=light]_&]:text-amber-700">{t('review.remaining')}</span>
+          <ul className="grid list-disc gap-0.5 pl-4 text-secondary [overflow-wrap:anywhere]">
+            {remaining.map((r) => (
+              <li key={r}>{r}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// AgentDiff is the agent's whole diff, for an agent that opened no pull
+// request: file by file, as the pull request's are, notes and all. A past
+// agent's is its kept branch's.
+function AgentDiff({ agent, past }: { agent: string; past?: boolean }) {
+  const t = useT();
+  const diff = useQuery({ queryKey: ['diff', agent, !!past], queryFn: () => (past ? api.archivedDiff(agent) : api.diff(agent)) });
   if (diff.error) return <Notice className="m-5">{t('review.diffUnavailable', { error: errorMessage(diff.error) })}</Notice>;
   if (!diff.data) return <div className="p-6 text-[13px] text-subtle">{t('common.loading')}</div>;
   return (

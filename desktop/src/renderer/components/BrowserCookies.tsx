@@ -122,6 +122,7 @@ function ImportCookiesDialog({
   }, [open]);
 
   const list = profiles.data?.profiles ?? [];
+  const unreadable = profiles.data?.unreadable ?? [];
   const chosen = list.find((p) => p.id === picked);
   const importBrowser = useMutation({
     mutationFn: () => {
@@ -150,10 +151,11 @@ function ImportCookiesDialog({
                 <LoaderCircle className="size-4 animate-spin" />
                 {t('agent.cookies.findingBrowsers')}
               </div>
-            ) : list.length === 0 ? (
+            ) : list.length === 0 && unreadable.length === 0 ? (
               <p className="text-[12.5px] leading-relaxed text-subtle">{t('agent.cookies.noBrowsers')}</p>
             ) : (
-              <div className="flex items-center gap-2">
+              list.length > 0 && (
+                <div className="flex items-center gap-2">
                 <Select
                   id="cookie-browser"
                   value={picked}
@@ -178,12 +180,15 @@ function ImportCookiesDialog({
                   {t('agent.cookies.import')}
                 </Button>
               </div>
+              )
             )}
             {profiles.error && <Notice>{errorMessage(profiles.error)}</Notice>}
             {importBrowser.error && <Notice>{errorMessage(importBrowser.error)}</Notice>}
           </Field>
 
-          <FileImport project={project} onImported={onImported} onClose={() => onOpenChange(false)} />
+          {unreadable.length > 0 && <UnreadableBrowsers names={unreadable.map((b) => b.browserName)} />}
+
+          <FileImport project={project} onImported={onImported} onClose={() => onOpenChange(false)} startOpen={unreadable.length > 0} />
         </div>
 
         <DialogFooter>
@@ -196,19 +201,52 @@ function ImportCookiesDialog({
   );
 }
 
+// UnreadableBrowsers explains why Chrome, Edge and Brave on Windows can't be
+// imported from (they seal cookies so only the browser opens them) and how to
+// get the cookies in through an export file instead.
+function UnreadableBrowsers({ names }: { names: string[] }) {
+  const t = useT();
+  return (
+    <div className="grid gap-2 rounded-xl border border-line-faint bg-surface-faint p-3 text-[12.5px] leading-relaxed" data-unreadable-browsers>
+      <p className="font-medium text-primary">{t('agent.cookies.unreadableTitle', { browsers: names.join(', ') })}</p>
+      <p className="text-subtle">{t('agent.cookies.unreadableBody')}</p>
+      <ol className="grid list-decimal gap-1 pl-5 text-subtle">
+        <li>{t('agent.cookies.unreadableStep1')}</li>
+        <li>{t('agent.cookies.unreadableStep2')}</li>
+        <li>{t('agent.cookies.unreadableStep3')}</li>
+      </ol>
+    </div>
+  );
+}
+
 // FileImport is the fallback: an export the user made, pasted or picked as a
 // file, with the sites it holds ticked (or typed) before importing. It stays
 // for browsers AgentBox can't read (Chrome on Windows), and for exports of a
 // browser not installed here.
-function FileImport({ project, onImported, onClose }: { project: string; onImported: () => Promise<unknown>; onClose: () => void }) {
+function FileImport({
+  project,
+  onImported,
+  onClose,
+  startOpen = false,
+}: {
+  project: string;
+  onImported: () => Promise<unknown>;
+  onClose: () => void;
+  startOpen?: boolean;
+}) {
   const t = useT();
   const [exported, setExported] = useState('');
   const [fileName, setFileName] = useState('');
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(startOpen);
   const [preview, setPreview] = useState<T.BrowserCookiesPreview | null>(null);
   const [pickedSites, setPickedSites] = useState<Set<string>>(new Set());
   const [typed, setTyped] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
+
+  // The browsers are found after the dialog opens, so this can turn true late.
+  useEffect(() => {
+    if (startOpen) setOpen(true);
+  }, [startOpen]);
 
   const read = useMutation({
     mutationFn: (text: string) => api.previewBrowserCookies(project, text),

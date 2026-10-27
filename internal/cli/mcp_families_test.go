@@ -55,7 +55,7 @@ func leadToolsAgainst(t *testing.T, settings api.Settings) (map[string]mcp.Tool,
 	}
 }
 
-// TestLeadToolsDoWhatTheOldOnesDid: the lead's 49 tools became 20 (one tool
+// TestLeadToolsDoWhatTheOldOnesDid: the lead's 52 tools became 21 (one tool
 // a family, with an action), and each old tool's call has a new one that
 // reaches the same route of the lead socket. This table is the mapping.
 func TestLeadToolsDoWhatTheOldOnesDid(t *testing.T) {
@@ -107,6 +107,9 @@ func TestLeadToolsDoWhatTheOldOnesDid(t *testing.T) {
 		{"list_accounts", "list_resources", `{"kind":"accounts"}`, "GET /v1/project/accounts"},
 		{"list_secrets", "list_resources", `{"kind":"secrets"}`, "GET /v1/project/secrets"},
 		{"list_connectors", "list_resources", `{"kind":"connectors"}`, "GET /v1/project/connectors"},
+		{"list_issues", "list_resources", `{"kind":"issues"}`, "GET /v1/project/issues"},
+		{"switch_agent_account", "switch_agent_account", `{"agent":"agent-01","account":"work"}`, "POST /v1/project/agents/agent-01/account"},
+		{"fulfil_credential", "questions", `{"action":"fulfil","id":"x"}`, "POST /v1/project/questions/x/fulfil"},
 		{"schedule_task", "schedules", `{"action":"create","task":"t","in":"2h"}`, "POST /v1/project/schedules"},
 		{"list_schedules", "schedules", `{"action":"list"}`, "GET /v1/project/schedules"},
 		{"edit_schedule", "schedules", `{"action":"edit","id":"x","task":"t"}`, "PATCH /v1/project/schedules/x"},
@@ -124,8 +127,8 @@ func TestLeadToolsDoWhatTheOldOnesDid(t *testing.T) {
 			t.Errorf("%s, now %s(%s), called %v, want %s", tc.old, tc.tool, tc.args, got, tc.route)
 		}
 	}
-	if len(tools) != 20 {
-		t.Errorf("the lead has %d tools, want 20", len(tools))
+	if len(tools) != 21 {
+		t.Errorf("the lead has %d tools, want 21", len(tools))
 	}
 }
 

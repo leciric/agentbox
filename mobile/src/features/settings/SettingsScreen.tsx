@@ -1,5 +1,5 @@
 // This phone: the AgentBox it's paired with, what its scopes let it do (set
-// on the computer, under Settings, Phone), notifications to come, and
+// on the computer, under Settings, Phone), its notifications, and
 // unpairing, which revokes it in AgentBox too.
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { isPlainHTTP } from '../../connection/pairing.ts';
@@ -7,6 +7,7 @@ import { unpair, useSession } from '../../connection/session.ts';
 import { useT } from '../../lib/i18n.tsx';
 import { Button, Note, ScreenHeader } from '../../ui/parts.tsx';
 import { colors, mono } from '../../ui/theme.ts';
+import { PushSettings } from './PushSettings.tsx';
 
 const scopes = ['read', 'chat', 'answer', 'merge'] as const;
 
@@ -33,7 +34,7 @@ export function SettingsScreen() {
         })}
         <Text style={styles.small}>{t('mobile.settings.scopesHint')}</Text>
         <Text style={styles.label}>{t('mobile.settings.notifications')}</Text>
-        <Text style={styles.small}>{t('mobile.settings.notificationsLater')}</Text>
+        <PushSettings />
         <Button
           kind="danger"
           label={t('web.phone.unpair')}

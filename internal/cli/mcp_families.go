@@ -564,9 +564,11 @@ func questionsTool(ctx context.Context, c *api.Client) mcp.Tool {
 		"The questions this project's agents asked. An agent asking is blocked until it is answered, so deal with these first, "+
 			"and answer yourself whenever you can: you have read the project and the user hasn't.",
 		"list: the questions waiting. answer: answer question id with text, what the agent should do and why. escalate: pass "+
-			"id to the user, only when it is their call (what to build, or something only they know), with text saying what you would suggest",
+			"id to the user, only when it is their call (what to build, or something only they know), with text saying what you would suggest. "+
+			"fulfil: give request id a secret managed by you its stored value, which you never see (your brief says how to refresh it); "+
+			"every other credential request is the user's",
 		map[string]any{
-			"id":   str("answer, escalate: the question's id"),
+			"id":   str("answer, escalate, fulfil: the question's id"),
 			"text": str("answer: what to do and why. escalate: why it is the user's call, and your suggestion"),
 		},
 		action{"list", func(json.RawMessage) (string, error) {
@@ -574,7 +576,11 @@ func questionsTool(ctx context.Context, c *api.Client) mcp.Tool {
 			if err != nil {
 				return "", err
 			}
-			return describeQuestions(questions), nil
+			secrets, err := c.ProjectSecretNames(ctx)
+			if err != nil {
+				return "", err
+			}
+			return describeQuestions(questions, leadManagedSecrets(secrets)), nil
 		}},
 		action{"answer", func(raw json.RawMessage) (string, error) {
 			in, err := read(raw)
@@ -596,22 +602,34 @@ func questionsTool(ctx context.Context, c *api.Client) mcp.Tool {
 			}
 			return "Passed to the user; say in your reply what you need from them. The agent waits.", nil
 		}},
+		action{"fulfil", func(raw json.RawMessage) (string, error) {
+			in, err := read(raw)
+			if err != nil {
+				return "", err
+			}
+			out, err := c.LeadFulfilCredential(ctx, in.ID)
+			if err != nil {
+				return "", err
+			}
+			return describeFulfilled(out), nil
+		}},
 	)
 }
 
 // resourcesTool names what the project's agents may use besides their
-// machine: accounts, secrets and connectors. Never a token or a value.
+// machine (accounts, secrets and connectors; never a token or a value), and
+// the GitHub issues it may hand them.
 func resourcesTool(ctx context.Context, c *api.Client) mcp.Tool {
 	return mcp.Tool{
 		Name: "list_resources",
 		Description: "What this project's agents may use, never a value or token. accounts: the Claude Code accounts it may use, " +
 			"how many agents hold each and its latest 5-hour and weekly usage, then the Codex, OpenCode and Cursor ones; spread agents " +
 			"across them with create_agent's accounts. secrets: the names of the keys agents have as environment variables, to brief " +
-			"one precisely (\"the Stripe key is in $STRIPE_SECRET_KEY\"). connectors: remote MCP servers like Notion, each one's " +
+			"one precisely (\"the Stripe key is in $STRIPE_SECRET_KEY\"), and which you manage. connectors: remote MCP servers like Notion, each one's " +
 			"status and agents; the connected ones are your tools too (mcp__<name>__*). A missing secret or connector is the user's " +
-			"to add, in the project's Settings: never ask for a value in this chat.",
+			"to add, in the project's Settings: never ask for a value in this chat. issues: open GitHub issues and which agent has each.",
 		Schema: object([]string{"kind"}, map[string]any{
-			"kind": choiceOf("what to list", "accounts", "secrets", "connectors"),
+			"kind": choiceOf("what to list", "accounts", "secrets", "connectors", "issues"),
 		}),
 		Run: func(args json.RawMessage) (string, error) {
 			var in struct{ Kind string }
@@ -646,8 +664,14 @@ func resourcesTool(ctx context.Context, c *api.Client) mcp.Tool {
 					return "", err
 				}
 				return describeConnectors(found), nil
+			case "issues":
+				issues, err := c.LeadIssues(ctx)
+				if err != nil {
+					return "", err
+				}
+				return describeIssues(issues), nil
 			}
-			return "", fmt.Errorf("kind is %q: it is accounts, secrets or connectors", in.Kind)
+			return "", fmt.Errorf("kind is %q: it is accounts, secrets, connectors or issues", in.Kind)
 		},
 	}
 }

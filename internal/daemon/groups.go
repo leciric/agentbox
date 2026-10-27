@@ -140,6 +140,11 @@ func (s *Server) fanOut(ctx context.Context, req api.FanOutRequest, byLead bool)
 	}
 	out := api.FanOutResult{Jobs: []api.Job{}}
 	for i, one := range reqs {
+		if one.ToolNotice != "" {
+			out.Notices = append(out.Notices, "Agent "+groupLabel(i+1)+": "+one.ToolNotice)
+		}
+	}
+	for i, one := range reqs {
 		position := i + 1
 		j, err := s.launchJob("create", one.Project, s.groupCreateJob(g.ID, position, one, byLead))
 		if err != nil {
@@ -390,7 +395,7 @@ func (s *Server) compareGroup(ctx context.Context, g state.Group) (api.Group, er
 			prs = entry.byAgent(heads)
 		}
 	}
-	changes := agentChanges(agents, changesOf)
+	changes := agentChanges(agents, polledChanges)
 	changed := map[string]api.AgentChanges{}
 	for i, a := range agents {
 		changed[a.Name] = changes[i]

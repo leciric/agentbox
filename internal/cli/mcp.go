@@ -195,6 +195,11 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 	if len(tools) > 1 {
 		params["ai"] = choiceOf(aiDescription+". Another than claude only when the task or the user asks for it; say which and why.", tools...)
 	}
+	// The names above are Claude Code's, and an agent given no ai runs the
+	// lead's tool, which may be another: one of these names keeps it on
+	// Claude Code (agent.NamesClaudeModel), and leaving the model out gives
+	// it its own tool's default rather than Claude Code's.
+	model += " These are Claude Code's: on another tool an agent starts on that tool's default, and one of these with no ai makes a Claude Code agent."
 	params["model"] = str(model)
 	params["permissions"] = choiceOf("autonomous (the default) never asks: its machine is the sandbox. ask stops before every change, "+
 		"only for an agent someone is watching", "autonomous", "ask")
@@ -237,15 +242,18 @@ func cursorMenu(models []api.ChatOptionChoice) string {
 	return strings.Join(names, ", ")
 }
 
-// leadAI reads create_agent's "ai": the AI tool the agent runs. Empty is
-// Claude Code, which is what create_agent has always made. Anything else is
-// refused here rather than in the daemon, so the refusal can say why the tool
+// leadAI reads create_agent's "ai": the AI tool the agent runs. Empty stays
+// empty, for the daemon to give the agent the tool its lead runs, on the
+// lead's account (agent.LeadToolDefault), or Claude Code when agents can't run
+// that tool here. A named tool is checked here rather than in the daemon, so the refusal can say why the tool
 // isn't on offer — the lead is told about OpenCode only when an agent could
 // really run it, and a lead working from an older brief would otherwise get an
 // error about a missing login with nothing to do about it.
 func leadAI(ai string, ready readyTools) (string, error) {
 	switch strings.TrimSpace(strings.ToLower(ai)) {
-	case "", "claude":
+	case "":
+		return "", nil
+	case "claude":
 		return "claude", nil
 	case "opencode":
 		if !ready.openCode {
@@ -289,6 +297,22 @@ func describeAccountMap(m map[string]string) string {
 	return strings.Join(parts, ", ")
 }
 
+// describeAccountSwitch says what switch_agent_account did, in the chat's
+// own words when its chat restarted.
+func describeAccountSwitch(res api.AgentAccountSwitch) string {
+	out := fmt.Sprintf("%s's %s now runs on the account %s.", res.Agent, res.Tool, res.Account)
+	switch {
+	case res.Note != "":
+		out += " Its chat says: " + res.Note
+	default:
+		out += " Its chat wasn't running: the next one starts on it."
+	}
+	if !res.Resumes && res.Note == "" {
+		out += " " + res.Tool + " can't resume a session, so it keeps the old account until its chat starts again, and then starts a new session."
+	}
+	return out
+}
+
 func describeChoices(ai string, model, effort *string, autonomous bool, notify, account string) string {
 	var chosen []string
 	if ai != "" && ai != "claude" {
@@ -315,6 +339,15 @@ func describeChoices(ai string, model, effort *string, autonomous bool, notify, 
 	return ", " + strings.Join(chosen, ", ")
 }
 
+// toolNotice is the daemon's word on why an agent runs Claude Code rather than
+// the lead's own tool, after create_agent's reply.
+func toolNotice(notice string) string {
+	if notice == "" {
+		return ""
+	}
+	return "\n" + notice
+}
+
 // windowChoice names a context window a lead asked for, in describeChoices'
 // shape.
 func windowChoice(window *string) string {
@@ -335,16 +368,24 @@ func windowChoice(window *string) string {
 // TestLeadToolsBudget holds the list to its size.
 func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 	settings, leadPicksModel, ready := chatSettingParams(ctx, c)
+	// Said once here, where every lead reads it, and not only in ai's
+	// description, which a machine with Claude Code alone doesn't offer.
+	runsTool := " Without ai it runs the tool you run, on your account for it, or Claude Code when agents can't run " +
+		"yours here, which the reply says."
 	startsOn := "It starts on the model, effort and permissions new agents start on here unless you set them."
 	if leadPicksModel {
 		startsOn = "Choose its model (see model); effort and permissions default to what new agents start on here."
 	}
 	agent := str("its name, like agent-03")
+	// Each account left out is yours when the agent runs the tool you run,
+	// else the project's.
 	accounts := map[string]any{
-		"claude_account": str("which Claude Code account it logs in as (list_resources accounts); the project's when left out"),
+		"claude_account": str("which Claude Code account it logs in as (list_resources accounts), making it a Claude Code agent; " +
+			"left out, yours when it runs your tool, else the project's"),
+		"codex_account": str("the same for a Codex agent"),
 	}
 	if ready.cursor {
-		accounts["cursor_account"] = str("for ai=\"cursor\": which Cursor account it signs in with")
+		accounts["cursor_account"] = str("the same for a Cursor agent")
 	}
 	if ready.openCode {
 		accounts["opencode_accounts"] = map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"},
@@ -378,13 +419,17 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 		{
 			Name: "create_agent",
 			Description: "Create an agent with a task: its own machine and, unless research, its own branch. Write the task " +
-				"directly: what to do, what done looks like, what to leave alone. " + startsOn,
-			Schema: object([]string{"title", "task"}, merge(merge(map[string]any{
-				"title": str("a short name for the sidebar, like \"Reminders page\""),
-				"task":  str("what to do, directly: usually a few lines"),
+				"directly: what to do, what done looks like, what to leave alone. With issue, the task is that GitHub issue and its " +
+				"pull request closes it. " +
+				startsOn + runsTool,
+			Schema: object(nil, merge(merge(map[string]any{
+				"title": str("a short name for the sidebar, like \"Reminders page\"; required without issue"),
+				"task":  str("what to do, directly: usually a few lines; required without issue, added after it with one"),
+				"issue": map[string]any{"type": "integer", "description": "an open issue's number (list_resources issues)"},
 				"branch": str("after the project's prefix: short kebab-case naming the work, like \"fix-login-redirect\", at most 48 " +
 					"characters. Pass one every time; a taken one gets -2 appended"),
-				"from":     str("the branch or agent branch to start from; the project's branch by default"),
+				"from": str("the branch to start from, or an agent to stack this one on (its pull request then targets that " +
+					"agent's branch); the project's branch by default"),
 				"research": map[string]any{"type": "boolean", "description": "it only investigates, so it gets no branch"},
 				"notify": choiceOf("\"off\" only records its finish instead of waking you (\"chat\", the default), for a job you needn't "+
 					"react to; it matters only when the project's finish notices go to the lead", "chat", "off"),
@@ -394,7 +439,9 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 			Run: func(args json.RawMessage) (string, error) {
 				var in struct {
 					Title, Task, From, AI, Branch string
+					Issue                         int
 					ClaudeAccount                 string            `json:"claude_account"`
+					CodexAccount                  string            `json:"codex_account"`
 					CursorAccount                 string            `json:"cursor_account"`
 					OpenCodeAccounts              map[string]string `json:"opencode_accounts"`
 					Research                      bool
@@ -408,8 +455,8 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				if err := decodeArgs(args, &in); err != nil {
 					return "", err
 				}
-				if strings.TrimSpace(in.Title) == "" || strings.TrimSpace(in.Task) == "" {
-					return "", errors.New("an agent needs a title and a task")
+				if in.Issue == 0 && (strings.TrimSpace(in.Title) == "" || strings.TrimSpace(in.Task) == "") {
+					return "", errors.New("an agent needs a title and a task, or an issue")
 				}
 				ai, err := leadAI(in.AI, ready)
 				if err != nil {
@@ -437,10 +484,11 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					}
 				}
 				job, err := c.CreateProjectAgent(ctx, api.CreateAgentRequest{
-					Title: in.Title, Task: in.Task, From: in.From, AI: ai, Branch: in.Branch,
+					Title: in.Title, Task: in.Task, Issue: in.Issue, From: in.From, AI: ai, Branch: in.Branch,
 					Autonomous: &autonomous, Model: in.Model, Effort: in.Effort,
 					ContextWindow:    in.ContextWindow,
 					ClaudeAccount:    in.ClaudeAccount,
+					CodexAccount:     in.CodexAccount,
 					CursorAccount:    in.CursorAccount,
 					OpenCodeAccounts: in.OpenCodeAccounts,
 					FinishNotice:     notify,
@@ -449,8 +497,12 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				if err != nil {
 					return "", err
 				}
-				return fmt.Sprintf("Creating %q%s; it starts on the task by itself. Job %s.",
-					in.Title, describeChoices(ai, in.Model, in.Effort, autonomous, notify, cmp.Or(in.ClaudeAccount, in.CursorAccount, describeAccountMap(in.OpenCodeAccounts)))+windowChoice(in.ContextWindow)+connectorChoice(in.Connectors), job.ID), nil
+				what := fmt.Sprintf("%q", in.Title)
+				if in.Issue != 0 {
+					what = fmt.Sprintf("an agent for issue #%d", in.Issue)
+				}
+				return fmt.Sprintf("Creating %s%s; it starts on the task by itself. Job %s.%s",
+					what, describeChoices(cmp.Or(job.AI, ai), in.Model, in.Effort, autonomous, notify, cmp.Or(in.ClaudeAccount, in.CodexAccount, in.CursorAccount, describeAccountMap(in.OpenCodeAccounts)))+windowChoice(in.ContextWindow)+connectorChoice(in.Connectors), job.ID, toolNotice(job.Notice)), nil
 			},
 		},
 		{
@@ -500,7 +552,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				if err != nil {
 					return "", err
 				}
-				return describeGroup(out.Group, "Started group "+out.Group.ID+": "), nil
+				return describeGroup(out.Group, "Started group "+out.Group.ID+": ") + toolNotice(strings.Join(out.Notices, " ")), nil
 			},
 		},
 		{
@@ -692,6 +744,31 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					return fmt.Sprintf("%s is retired (%s). Its work stays on %s.", who.Name, result.How, who.Branch), nil
 				}
 				return "Nothing happened: " + in.Agent + " may not exist.", nil
+			},
+		},
+		{
+			Name: "switch_agent_account",
+			Description: "Move an agent to another account of its AI tool, keeping its conversation, when its account hit its usage " +
+				"limit and another has room (list_resources accounts). One paused on the limit carries on at once. Refused mid-turn.",
+			Schema: object([]string{"agent"}, map[string]any{
+				"agent":   agent,
+				"account": str("which of its tool's accounts; the project's own when left out"),
+				"opencode_accounts": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"},
+					"description": "for an OpenCode agent instead: provider → account; providers left out keep theirs"},
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct {
+					Agent, Account   string
+					OpenCodeAccounts map[string]string `json:"opencode_accounts"`
+				}
+				if err := decodeArgs(args, &in); err != nil {
+					return "", err
+				}
+				res, err := c.SwitchAgentAccount(ctx, in.Agent, api.AgentAccountRequest{Account: in.Account, OpenCodeAccounts: in.OpenCodeAccounts})
+				if err != nil {
+					return "", err
+				}
+				return describeAccountSwitch(res), nil
 			},
 		},
 		checkpointsTool(ctx, c, agent),
@@ -888,7 +965,80 @@ func describeSecrets(secrets []api.Secret) string {
 		if s.Scope == "agent" {
 			where = s.Agent + " only"
 		}
+		if s.LeadManaged {
+			where += "; managed by you: you keep it fresh, and may fulfil agents' requests for it (questions fulfil)"
+		}
 		fmt.Fprintf(&b, "- $%s — %s\n", s.Name, where)
+	}
+	return b.String()
+}
+
+// leadManagedSecrets are the names of the project's secrets its lead keeps
+// fresh.
+func leadManagedSecrets(secrets []api.Secret) map[string]bool {
+	managed := map[string]bool{}
+	for _, s := range secrets {
+		if s.LeadManaged && s.Scope == "project" {
+			managed[s.Name] = true
+		}
+	}
+	return managed
+}
+
+// describeFulfilled is questions fulfil's answer: who has the secret now,
+// and how old the value they got is. Never the value.
+func describeFulfilled(out api.FulfilCredentialResponse) string {
+	q := out.Question
+	text := fmt.Sprintf("Fulfilled: %s has $%s now, the value stored %s.", q.Agent, q.SecretName, out.ValueSetAt.Format(time.RFC3339))
+	if out.ValueSetAt.Before(q.CreatedAt) {
+		text += " That value was stored before the agent asked: if it asked because the value had expired, refresh it " +
+			"(agentbox secrets set … --value-stdin) and tell the agent to run `. ~/.config/agentbox/env` again."
+	}
+	return text
+}
+
+// describeIssues is list_resources' issues: one line per open issue.
+func describeIssues(in api.ProjectIssues) string {
+	switch {
+	case in.NoOrigin:
+		return "This project's checkout has no origin remote, so it has no GitHub issues to read."
+	case in.NonGitHubRemote != "":
+		return fmt.Sprintf("This project's origin (%s) isn't a GitHub repository, so it has no GitHub issues to read.", in.NonGitHubRemote)
+	case in.GitHubError != nil:
+		return "Couldn't read this project's GitHub issues: " + in.GitHubError.Message
+	}
+	var b strings.Builder
+	pickup := "off: issues are only handed to agents when you or the user do"
+	if in.PickUpIssues {
+		pickup = "on: open issues labelled \"" + in.Label + "\" get an agent by themselves, a few every five minutes"
+	}
+	fmt.Fprintf(&b, "Open issues of %s (%d). Picking up labelled issues is %s.\n", in.GitHub, len(in.Issues), pickup)
+	for _, is := range in.Issues {
+		fmt.Fprintf(&b, "- #%d %s", is.Number, is.Title)
+		if len(is.Labels) > 0 {
+			names := make([]string, len(is.Labels))
+			for i, l := range is.Labels {
+				names[i] = l.Name
+			}
+			fmt.Fprintf(&b, " [%s]", strings.Join(names, ", "))
+		}
+		if is.Comments > 0 {
+			fmt.Fprintf(&b, ", %d comment(s)", is.Comments)
+		}
+		if h := is.Handed; h != nil {
+			switch {
+			case h.Agent == "":
+				fmt.Fprintf(&b, "; its agent is being made (job %s)", h.Job)
+			case h.Retired:
+				fmt.Fprintf(&b, "; was handed to %s, since retired", h.Agent)
+			default:
+				fmt.Fprintf(&b, "; with %s (%s)", h.Agent, h.Status)
+			}
+			if pr := h.PullRequest; pr != nil {
+				fmt.Fprintf(&b, ", pull request #%d %s", pr.Number, pr.State)
+			}
+		}
+		b.WriteString("\n")
 	}
 	return b.String()
 }
@@ -1035,12 +1185,17 @@ func describeThread(name string, thread api.ChatThread, last int) string {
 	return b.String()
 }
 
-func describeQuestions(questions []api.Question) string {
+func describeQuestions(questions []api.Question, leadManaged map[string]bool) string {
 	if len(questions) == 0 {
 		return "No agent is waiting on you."
 	}
 	var b strings.Builder
 	for _, q := range questions {
+		if q.Kind == api.CredentialSecret && leadManaged[q.SecretName] {
+			fmt.Fprintf(&b, "- id %s, from %s: asking for %s, which is managed by you: refresh it if needed, then questions fulfil\n  %s\n",
+				q.ID, q.Agent, credentialWanted(q), q.Question)
+			continue
+		}
 		if q.Kind != "" {
 			// Not the lead's to answer: the user does, in the app, and the value
 			// never passes through a chat (D95).

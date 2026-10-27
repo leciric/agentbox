@@ -25,7 +25,7 @@ func newDesktopCmd(a *app) *cobra.Command {
 		Use:   "desktop",
 		Short: "The agent's virtual desktop: mouse, keyboard and screenshots of the whole display",
 	}
-	cmd.AddCommand(newDesktopMCPCmd(a), newDesktopRecordCmd())
+	cmd.AddCommand(newDesktopMCPCmd(a), newDesktopGuardCmd(), newDesktopRecordCmd())
 	return cmd
 }
 
@@ -51,6 +51,27 @@ func newDesktopMCPCmd(_ *app) *cobra.Command {
 			return srv.Serve(cmd.InOrStdin(), cmd.OutOrStdout())
 		},
 	}
+}
+
+// newDesktopGuardCmd runs another MCP server, the Playwright one, with a
+// deadline on each of its tool calls (mcp.Guard): the AI tool starts it from
+// the configuration AgentBox writes into the agent.
+func newDesktopGuardCmd() *cobra.Command {
+	var timeout time.Duration
+	var name string
+	cmd := &cobra.Command{
+		Use:    "guard -- <command> [args...]",
+		Short:  "Run an MCP server with a deadline on each tool call, restarting it when one is missed",
+		Hidden: true, // started by the agent's AI tool, not by people
+		Args:   cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			g := &mcp.Guard{Command: args, Timeout: timeout, Name: name, Stderr: cmd.ErrOrStderr()}
+			return g.Serve(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout())
+		},
+	}
+	cmd.Flags().DurationVar(&timeout, "timeout", 3*time.Minute, "how long one tool call may take")
+	cmd.Flags().StringVar(&name, "name", "MCP", "the server's name, for the message a missed deadline gets")
+	return cmd
 }
 
 // newDesktopRecordCmd is the recorder a recording runs in the agent: one

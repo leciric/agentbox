@@ -14,8 +14,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"agentbox/internal/api"
+	"agentbox/internal/hubtest"
 	"agentbox/internal/testutil"
 )
 
@@ -376,11 +378,51 @@ func TestWSLBridgeWaitTimesOut(t *testing.T) {
 	}
 }
 
-func TestRemoteConnectNeedsAToken(t *testing.T) {
+// approveWhenAsked approves the first pairing hub is asked for, as a device
+// signed in to it would.
+func approveWhenAsked(t *testing.T, h *hubtest.Hub) {
+	go func() {
+		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+			if codes := h.Pairings(); len(codes) > 0 {
+				h.Approve(codes[0])
+				return
+			}
+		}
+	}()
+}
+
+func TestRemoteConnectAsksForApproval(t *testing.T) {
 	isolate(t)
 	startDaemon(t)
-	if _, err := run(t, "", "remote", "connect", "https://hub.example"); err == nil || !strings.Contains(err.Error(), "pass the environment's token") {
-		t.Errorf("remote connect with no token: got %v", err)
+	h := hubtest.New(t)
+	approveWhenAsked(t, h)
+	out, err := run(t, "", "remote", "connect", h.URL, "--name", "vps")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "Approve the code BCDF-", h.URL+"/hub/approve?code=BCDF-", "Approved: connected to "+h.URL)
+	if out, _ := run(t, "", "remote", "status"); !strings.Contains(out, "Connected to "+h.URL) {
+		t.Errorf("remote status: %s", out)
+	}
+}
+
+func TestLoginAsksForApproval(t *testing.T) {
+	isolate(t)
+	h := hubtest.New(t)
+	approveWhenAsked(t, h)
+	out, err := run(t, "", "login", h.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "Approve the code BCDF-", "Connected to "+h.URL+" as Owner")
+	// A setup link connects with no approval.
+	out, err = run(t, "", "login", h.URL+"/hub/setup#abx_l_secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "Connected to "+h.URL)
+	if strings.Contains(out, "Approve the code") {
+		t.Errorf("a setup link asked for approval: %s", out)
 	}
 }
 
@@ -454,6 +496,7 @@ func TestAgentCmdsOnAnEmptyOrUnknownAgent(t *testing.T) {
 		{"resume", "hello-stack/agent-01"},
 		{"destroy", "hello-stack/agent-01"},
 		{"diff", "hello-stack/agent-01"},
+		{"share", "hello-stack/agent-01"},
 		{"path", "hello-stack/agent-01"},
 		{"shell", "hello-stack/agent-01"},
 		{"interface", "hello-stack/agent-01", "chat"},
@@ -528,7 +571,7 @@ func TestLoginEnvAndLogoutAgainstAFakeHub(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mustContain(t, out, "Signed in to "+hubURL+" as dev@example.com")
+	mustContain(t, out, "Connected to "+hubURL+" as dev@example.com")
 
 	out, err = run(t, "", "env", "list")
 	if err != nil {

@@ -101,3 +101,31 @@ func writeFirefoxFixture(t *testing.T, home string) {
 		}
 	}
 }
+
+// On Windows, Chrome and Edge are reported as installed but not importable,
+// wherever the VM finds the Windows home.
+func TestBrowserCookieProfilesOnWindows(t *testing.T) {
+	win := t.TempDir()
+	t.Setenv(hostos.Env, "windows")
+	t.Setenv(hostos.HomeEnv, win)
+	for _, rel := range []string{"AppData/Local/Google/Chrome/User Data", "AppData/Local/Microsoft/Edge/User Data"} {
+		if err := os.MkdirAll(filepath.Join(win, filepath.FromSlash(rel)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
+		t.Fatal(err)
+	}
+	list, err := d.client.BrowserProfiles(ctx, "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Profiles) != 0 {
+		t.Errorf("profiles = %+v", list.Profiles)
+	}
+	if len(list.Unreadable) != 2 || list.Unreadable[0].Browser != "chrome" || list.Unreadable[1].Browser != "edge" {
+		t.Errorf("unreadable = %+v", list.Unreadable)
+	}
+}

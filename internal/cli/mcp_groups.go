@@ -25,7 +25,7 @@ func variantSettings(settings map[string]any, ready readyTools) map[string]any {
 		effort["enum"] = e["enum"]
 	}
 	out := map[string]any{
-		"ai": choiceOf("claude by default; codex runs on the model its login has, so give it no model or effort, when this "+
+		"ai": choiceOf("your own tool by default, as create_agent; codex runs on the model its login has, so give it no model or effort, when this "+
 			"machine is signed in to Codex", tools...),
 		"model":          str("as create_agent's model, for this agent's tool"),
 		"effort":         effort,
