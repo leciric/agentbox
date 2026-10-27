@@ -380,6 +380,12 @@ func (s *Store) RemoveCluster(ctx context.Context, name string) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return fmt.Errorf("cluster %s: %w", name, ErrNotFound)
 	}
+	// A project that named it as its default goes back to this host rather
+	// than keeping a name nothing answers to, which would fail every create
+	// it made afterwards.
+	if _, err := s.db.ExecContext(ctx, `UPDATE projects SET cluster = '' WHERE cluster = ?`, name); err != nil {
+		return err
+	}
 	return nil
 }
 

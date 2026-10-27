@@ -42,8 +42,8 @@ test('a stalled turn is Stalled, not Working, and a stopped chat is not Idle', (
   assert.deepEqual(chatLabel(agent('stopped', 'error')), { text: 'Stopped', tone: 'muted' });
 });
 
-test('a queued agent, left by an earlier release, reads like one starting', () => {
-  assert.deepEqual(chatLabel(agent('queued')), { text: 'Initializing', tone: 'live' });
+test('a queued agent says it is waiting for room', () => {
+  assert.deepEqual(chatLabel(agent('queued')), { text: 'In the queue', tone: 'live' });
 });
 
 test('memory pressure holding back a running agent’s commands shows as a warning', () => {
@@ -246,11 +246,13 @@ test('paused on a usage limit: neither finished nor failed, with the time it res
 
 test('an agent being made is starting whatever its chat says, and never needs you', () => {
   for (const chat of ['waiting', 'error', 'running', undefined]) {
-    for (const state of ['initializing', 'queued']) {
-      const a = agent(state, chat);
-      assert.deepEqual(chatLabel(a), { text: 'Initializing', tone: 'live' }, `${state}/${chat}`);
-      assert.equal(avatarMood(a), 'sleeping', `${state}/${chat}`);
-      assert.equal(rank(a), 1, `${state}/${chat}`);
+    const making = agent('initializing', chat);
+    assert.deepEqual(chatLabel(making), { text: 'Initializing', tone: 'live' }, `initializing/${chat}`);
+    const queued = agent('queued', chat);
+    assert.deepEqual(chatLabel(queued), { text: 'In the queue', tone: 'live' }, `queued/${chat}`);
+    for (const a of [making, queued]) {
+      assert.equal(avatarMood(a), 'sleeping', `${a.state}/${chat}`);
+      assert.equal(rank(a), 1, `${a.state}/${chat}`);
     }
   }
 });

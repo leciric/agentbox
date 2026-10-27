@@ -488,6 +488,14 @@ func (c *Client) SetAgentModel(ctx context.Context, project, model string) (Proj
 	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project), UpdateProjectRequest{AgentModel: &model}, &out)
 }
 
+// SetProjectCluster sets where a project's new agents run when the request
+// names no cluster: "" for this machine, a cluster's name, or "auto" to let the
+// daemon place each one where there is room.
+func (c *Client) SetProjectCluster(ctx context.Context, project, cluster string) (Project, error) {
+	var out Project
+	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project), UpdateProjectRequest{Cluster: &cluster}, &out)
+}
+
 // SetBranchPrefix sets what a project's new agents' branches are named with,
 // before the agent's name: "" for none.
 func (c *Client) SetBranchPrefix(ctx context.Context, project, prefix string) (Project, error) {

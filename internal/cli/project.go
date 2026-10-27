@@ -152,8 +152,72 @@ func newProjectCmd(a *app) *cobra.Command {
 		Short: "Settings of one project",
 		Long:  `Settings that belong to one project, rather than to this installation.`,
 	}
-	cmd.AddCommand(newAddCmd(a), newProjectModelCmd(a), newProjectBranchPrefixCmd(a), newProjectRenameCmd(a), newProjectGitCmd(a))
+	cmd.AddCommand(newAddCmd(a), newProjectModelCmd(a), newProjectBranchPrefixCmd(a), newProjectRenameCmd(a), newProjectGitCmd(a), newProjectClusterCmd(a))
 	return cmd
+}
+
+// newProjectClusterCmd shows or sets where a project's agents run when a
+// request names no cluster.
+func newProjectClusterCmd(a *app) *cobra.Command {
+	return &cobra.Command{
+		Use:   "cluster <project> [<cluster>|auto|local]",
+		Short: "Where this project's new agents run: a cluster, auto, or this machine",
+		Long: `Shows or sets where this project's new agents run when an agent doesn't name
+a cluster of its own.
+
+  local       this machine, an Incus instance for each agent (this is how a
+              project starts)
+  <cluster>   that Kubernetes cluster, by name
+  auto        the daemon picks the cluster with the most room for each agent,
+              which is this project's own default cluster when that is one of
+              them
+
+Agents that already exist stay where they are: this is where the next one
+runs.`,
+		Args: cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			if len(args) == 1 {
+				projects, err := c.Projects(cmd.Context())
+				if err != nil {
+					return err
+				}
+				for _, p := range projects {
+					if p.Is(args[0]) {
+						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), projectClusterWords(p.Cluster))
+						return nil
+					}
+				}
+				return fmt.Errorf("no project named %q", args[0])
+			}
+			// "local" is how you ask for this machine on a command line, where
+			// an empty argument can't be typed.
+			cluster := strings.TrimSpace(args[1])
+			if cluster == "local" {
+				cluster = ""
+			}
+			p, err := c.SetProjectCluster(cmd.Context(), args[0], cluster)
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), projectClusterWords(p.Cluster))
+			return nil
+		},
+	}
+}
+
+func projectClusterWords(cluster string) string {
+	switch cluster {
+	case "":
+		return "local — an Incus instance on this machine for each new agent"
+	case "auto":
+		return "auto — whichever cluster has the most room for each new agent"
+	default:
+		return cluster + " — every new agent of this project runs there"
+	}
 }
 
 // newProjectRenameCmd changes what a project is called. Its id, the slug in

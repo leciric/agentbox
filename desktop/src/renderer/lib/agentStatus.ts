@@ -18,13 +18,13 @@ export function chatLabel(agent: T.Agent): { text: string; tone: StatusTone } {
   // (Settings → Experimental): before anything its chat says, which waits too.
   const machine = machineHold(agent);
   if (machine) return { text: machine.text, tone: 'warning' };
-  if (agent.state === 'initializing' || agent.state === 'queued') return { text: t('agent.status.initializing'), tone: 'live' };
+  // Waiting for room in a cluster: accepted, with no machine yet, so nothing
+  // can need you.
+  if (agent.state === 'queued') return { text: t('agent.status.queued'), tone: 'live' };
+  if (agent.state === 'initializing') return { text: t('agent.status.initializing'), tone: 'live' };
   if (agent.chat === 'waiting') return { text: t('agent.status.needsYou'), tone: 'urgent' };
   if (agent.state === 'incomplete') return { text: t('agent.status.needsAttention'), tone: 'error' };
   if (agent.state === 'missing') return { text: t('agent.status.missing'), tone: 'error' };
-  // 'queued' is only ever a leftover from an earlier release, started as the
-  // daemon starts: it reads like an agent that is on its way up.
-  if (agent.state === 'initializing' || agent.state === 'queued') return { text: t('agent.status.initializing'), tone: 'live' };
   // A stalled turn still says running: the daemon's stall watch found no
   // progress on it for long enough that it is stuck, not working.
   if (agent.chat === 'running' && agent.stalledSince) return { text: t('agent.status.stalled'), tone: 'error' };

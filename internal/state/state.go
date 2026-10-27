@@ -1623,6 +1623,15 @@ var migrations = []string{
 	`ALTER TABLE clusters ADD COLUMN agent_memory TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE clusters ADD COLUMN workspace_size TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE clusters ADD COLUMN ephemeral_storage TEXT NOT NULL DEFAULT ''`,
+	// Where a project's new agents run when the request doesn't name a
+	// cluster: '' is this host (an Incus instance), a cluster's name is that
+	// cluster, and 'auto' lets the daemon place each agent where there is
+	// room (state.ClusterAuto).
+	`ALTER TABLE projects ADD COLUMN cluster TEXT NOT NULL DEFAULT ''`,
+	// Why a queued agent is waiting, in the words of the clusters that were
+	// full when it was asked for: it is what the app and `agentbox list` show
+	// beside the agent until it starts.
+	`ALTER TABLE agent_queue ADD COLUMN reason TEXT NOT NULL DEFAULT ''`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -1848,7 +1857,24 @@ type Project struct {
 	// so on by default: a project that doesn't use pull requests, or whose
 	// remote isn't GitHub, turns it off so as not to pay for them.
 	PullsOff bool
+	// Cluster is where this project's new agents run when the request doesn't
+	// name a cluster: "" is this host (an Incus instance), a cluster's name is
+	// that cluster, and ClusterAuto lets the daemon place each agent where
+	// there is room. It is what a create that names no cluster follows, so it
+	// is also what the app preselects in its picker.
+	Cluster string
 }
+
+// ClusterAuto is the Project.Cluster that asks the daemon to place each new
+// agent where it fits, rather than on a cluster the user names: the cluster
+// with the most room that can run it, which is the project's own default when
+// that is one of them.
+const ClusterAuto = "auto"
+
+// ClusterLocal is how a create asks for this host when leaving the field out
+// would follow a project that runs its agents on a cluster: "" is the project's
+// choice, and "local" overrides it.
+const ClusterLocal = "local"
 
 // A project's PRWatch.
 const (
@@ -2090,7 +2116,7 @@ func (s *Store) SetProjectAgentDefaults(ctx context.Context, name string, d Proj
 	return err
 }
 
-const projectColumns = `name, display_name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off, codex_account, opencode_accounts, cursor_account, full_test_suite, pick_up_issues, pulls_off, agent_tool, agent_effort, agent_context_window, agent_mode`
+const projectColumns = `name, display_name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off, codex_account, opencode_accounts, cursor_account, full_test_suite, pick_up_issues, pulls_off, agent_tool, agent_effort, agent_context_window, agent_mode, cluster`
 
 // projectPlacement is where the project sits in the sidebar (D79), read
 // beside the columns above rather than with them: it is written by the
@@ -2183,11 +2209,11 @@ func (s *Store) AddProject(ctx context.Context, p Project) error {
 		p.BranchPrefix = DefaultBranchPrefix
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.DisplayName, p.Root, p.CreatedAt.Unix(), p.ClaudeAccount, p.Autonomy, p.GitHubAccount, p.MediaRetentionDays,
 		p.FinishNotices, p.AgentModel, p.RolloverThreshold, p.ContextBudget, p.Consolidation, p.ConsolidationModel,
 		strings.Join(p.ClaudeAccounts, ","), p.BranchPrefix, p.Nesting, p.AgentPRs, p.PRWatch, p.BaseSyncOff,
-		p.CodexAccount, p.OpenCodeAccounts.String(), p.CursorAccount, p.FullTestSuite, p.PickUpIssues, p.PullsOff, p.AgentTool, p.AgentEffort, p.AgentContextWindow, p.AgentMode)
+		p.CodexAccount, p.OpenCodeAccounts.String(), p.CursorAccount, p.FullTestSuite, p.PickUpIssues, p.PullsOff, p.AgentTool, p.AgentEffort, p.AgentContextWindow, p.AgentMode, p.Cluster)
 	return err
 }
 
@@ -2308,7 +2334,7 @@ func (s *Store) Projects(ctx context.Context) ([]Project, error) {
 		if err := rows.Scan(&p.Name, &p.DisplayName, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
 			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff,
-			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.Section, &p.Position,
+			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.Cluster, &p.Section, &p.Position,
 			&p.AgentRemote); err != nil {
 			return nil, err
 		}
@@ -2612,6 +2638,34 @@ func (s *Store) SetProjectGitHubAccount(ctx context.Context, name, account strin
 	return nil
 }
 
+// SetProjectCluster sets where this project's new agents run when the request
+// names no cluster: "" for this host, a cluster's name, or ClusterAuto. A
+// cluster it names must exist: a default nothing can reach would turn every
+// create into a failure the user didn't ask for, and the error names the way to
+// list the ones there are.
+func (s *Store) SetProjectCluster(ctx context.Context, name, cluster string) error {
+	cluster = strings.TrimSpace(cluster)
+	if cluster == ClusterLocal {
+		cluster = ""
+	}
+	if cluster != "" && cluster != ClusterAuto {
+		if _, err := s.Cluster(ctx, cluster); err != nil {
+			if errors.Is(err, ErrNotFound) {
+				return fmt.Errorf("no cluster named %q: add it with agentbox cluster add %s, or list the ones there are with agentbox cluster list", cluster, cluster)
+			}
+			return err
+		}
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE projects SET cluster = ? WHERE name = ?`, cluster, name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("project %q: %w", name, ErrNotFound)
+	}
+	return nil
+}
+
 // SetProjectAutonomy sets how much a project's chat does on its own.
 func (s *Store) SetProjectAutonomy(ctx context.Context, name, autonomy string) error {
 	if autonomy != AutonomyAsk && autonomy != AutonomyOn {
@@ -2877,7 +2931,7 @@ func (s *Store) projectWhere(ctx context.Context, where string, arg any) (Projec
 		Scan(&p.Name, &p.DisplayName, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
 			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff,
-			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.Section, &p.Position, &p.AgentRemote)
+			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.Cluster, &p.Section, &p.Position, &p.AgentRemote)
 	p.ClaudeAccounts = splitAccounts(allowed)
 	p.OpenCodeAccounts = ParseAccountMap(opencode)
 	p.AgentRemote = agentRemoteOrPrivate(p.AgentRemote)

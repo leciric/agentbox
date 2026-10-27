@@ -1459,6 +1459,17 @@ func (m *Manager) nextName(ctx context.Context, p state.Project, repo gitrepo.Re
 	return m.Store.NextAgentName(ctx, p.Name, floor)
 }
 
+// NextName reserves this project's next agent-NN, for a caller that needs the
+// name before the agent can be made: the queue shows it, and its row exists,
+// while the agent waits for room.
+func (m *Manager) NextName(ctx context.Context, p state.Project) (string, error) {
+	repo, err := gitrepo.Open(p.Root)
+	if err != nil {
+		return "", err
+	}
+	return m.nextName(ctx, p, repo)
+}
+
 // agentNumber parses the NN in agent-NN.
 func agentNumber(name string) (int, bool) {
 	n, ok := strings.CutPrefix(name, "agent-")
@@ -2871,9 +2882,10 @@ func (m *Manager) List(ctx context.Context, project string) ([]Status, error) {
 	}
 	// Incus is asked only for the agents that are its: a daemon whose agents
 	// all run in clusters must still list them when this host has no Incus.
+	// A queued agent has no machine yet either, here or in a cluster.
 	needsIncus := false
 	for _, a := range agents {
-		if !a.IsLead() && !a.OnCluster() {
+		if !a.IsLead() && !a.OnCluster() && a.Status != state.AgentQueued {
 			needsIncus = true
 			break
 		}

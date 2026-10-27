@@ -111,6 +111,13 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
             ]
           : []),
         {
+          id: 'cluster',
+          label: t('defaults.project.clusterLabel'),
+          keywords: t('defaults.project.clusterKeywords'),
+          modified: project.cluster !== '',
+          render: () => <ProjectClusterPicker project={project} />,
+        },
+        {
           id: 'branch-prefix',
           label: t('defaults.project.prefixLabel'),
           keywords: t('defaults.project.prefixKeywords'),
@@ -490,6 +497,49 @@ const autoModelOf = () => ({ value: AgentModelAuto, name: t('defaults.project.au
 // AgentBox's own small pinned list (Fable, chief among them — D69 in
 // decisions.md), so there's something worth offering even before any chat has
 // run.
+// ProjectClusterPicker is where this project's new agents run: this machine,
+// one cluster, or wherever there is room. It is what a create that names no
+// cluster follows, which is why the app's new-agent dialog starts on it.
+function ProjectClusterPicker({ project }: { project: T.Project }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const clusters = useQuery({ queryKey: ['clusters'], queryFn: api.clusters });
+  const save = useMutation({
+    mutationFn: (cluster: string) => api.updateProject(project.name, { cluster }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const list = clusters.data ?? [];
+  // A cluster the project still names and that is gone from the list (removed
+  // elsewhere) is shown as it is rather than silently reading as this machine.
+  const missing = project.cluster !== '' && project.cluster !== 'auto' && !list.some((c) => c.name === project.cluster);
+  return (
+    <SettingRow
+      label={t('defaults.project.clusterLabel')}
+      description={t('defaults.project.clusterDescription')}
+      control={
+        <Select
+          value={project.cluster}
+          onChange={(value) => save.mutate(value)}
+          disabled={save.isPending}
+          aria-label={t('defaults.project.clusterLabel')}
+        >
+          <SelectOption value="">{t('defaults.project.clusterLocal')}</SelectOption>
+          <SelectOption value="auto">{t('defaults.project.clusterAuto')}</SelectOption>
+          {missing && <SelectOption value={project.cluster}>{project.cluster}</SelectOption>}
+          {list.map((cluster) => (
+            <SelectOption key={cluster.name} value={cluster.name}>
+              {cluster.name}
+            </SelectOption>
+          ))}
+        </Select>
+      }
+    />
+  );
+}
+
 function AgentModelPicker({ project }: { project: T.Project }) {
   const t = useT();
   const homeDefault = homeDefaultOf();

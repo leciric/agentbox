@@ -162,6 +162,10 @@ type Project struct {
 	// tab, and reads the project's pull requests to keep its counts. On by
 	// default; off, the tab and its polling are gone.
 	PullRequests bool `json:"pullRequests"`
+	// Cluster is where this project's new agents run when the request names
+	// none: "" for this host, a cluster's name, or "auto" to let the daemon
+	// place each agent where it has room.
+	Cluster string `json:"cluster"`
 	// PRWatching is what that comes to: whether they are watched now.
 	PRWatching bool      `json:"prWatching"`
 	CreatedAt  time.Time `json:"createdAt"`
@@ -387,6 +391,10 @@ type UpdateProjectRequest struct {
 	// SyncBase turns on or off keeping this project's base branch up to date
 	// with its remote.
 	SyncBase *bool `json:"syncBase,omitempty"`
+	// Cluster is where the project's new agents run when the request names no
+	// cluster: "" for this host, a cluster's name, or "auto" to let the daemon
+	// place each agent where it has room.
+	Cluster *string `json:"cluster,omitempty"`
 	// FullTestSuite turns on or off whether this project's agents may run a
 	// whole test suite while Settings.BlockFullSuite refuses them.
 	FullTestSuite *bool `json:"fullTestSuite,omitempty"`
@@ -938,7 +946,12 @@ type Agent struct {
 	// (RequestChangesRequest), while it works on that: set from the request
 	// until its chat's turn ends.
 	ChangesRequested string `json:"changesRequested,omitempty"`
-	State            string `json:"state"` // running, stopped, paused, initializing, incomplete or missing; queued only for one an earlier release left queued, as the daemon starts it
+	State            string `json:"state"` // running, stopped, paused, initializing or missing; queued for one waiting for room in its project's queue
+	// QueuePosition and QueueReason are the queue's own: the agent's place in
+	// its project's line, from 1, and why the clusters refused it when it was
+	// queued. They are set only while its state is queued.
+	QueuePosition int    `json:"queuePosition,omitempty"`
+	QueueReason   string `json:"queueReason,omitempty"`
 	// WaitingForImage is set while an initializing agent waits for the base
 	// image, which is being downloaded or built (ImageStatus says how far):
 	// its worktree and branch are there, and its machine is made as soon as
@@ -1077,9 +1090,10 @@ type CreateAgentRequest struct {
 	NoEnv         bool   `json:"noEnv,omitempty"`
 	Clean         bool   `json:"clean,omitempty"`
 	// Cluster is the Kubernetes cluster this agent's machine is a pod in, by
-	// name. Omitted makes it an Incus instance on this machine, which is what
-	// every caller did before clusters existed; a project's default cluster is
-	// chosen by the app in a later stage.
+	// name, "auto" to let the daemon place it where there is room, or "local"
+	// for this machine. Omitted follows the project's own choice
+	// (Project.Cluster), which is an Incus instance on this machine for a
+	// project that never set one.
 	Cluster string `json:"cluster,omitempty"`
 	// CatchUp brings the new agent's machine up to the base image AgentBox
 	// makes now, before it is given its task: the system packages and the
@@ -1094,11 +1108,15 @@ type CreateAgentRequest struct {
 	// agent and this is ignored. Empty defers to the project, which for
 	// "lead" means the same as "chat".
 	FinishNotice string `json:"finishNotice,omitempty"`
-	// Queue and Size are accepted for the callers that still send them,
-	// and do nothing: every agent starts at once, and the VM's memory
-	// pressure, not a size, decides when its heavy commands run.
-	Queue *bool  `json:"queue,omitempty"`
-	Size  string `json:"size,omitempty"`
+	// Queue makes a create that has no room wait in its project's queue
+	// instead of failing: the agent is accepted, listed as queued with the
+	// reason, and started when a cluster has room. Without it, a full cluster
+	// is an error that says what is full and how to wait.
+	Queue *bool `json:"queue,omitempty"`
+	// Size is accepted for the callers that still send it, and does nothing:
+	// the VM's memory pressure, not a size, decides when an agent's heavy
+	// commands run.
+	Size string `json:"size,omitempty"`
 	// Connectors limits which of the project's connectors the agent is
 	// given, by name; absent gives it every one, and an empty list none. An
 	// agent's own connectors, added to it later, aren't limited by it.

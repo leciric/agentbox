@@ -44,9 +44,13 @@ interface Form {
   clean: boolean;
   claudeAccount: string; // "" is the project's account
   githubAccount: string; // "" is the project's account
-  // The Kubernetes cluster its pod runs in, by name; "" is an Incus machine on
-  // this computer, which is what every installation did before clusters.
+  // The Kubernetes cluster its pod runs in, by name, or "auto" to let the
+  // daemon place it where there is room; "" is an Incus machine on this
+  // computer, which is what every installation did before clusters.
   cluster: string;
+  // Queue it when the cluster it would run in is full, rather than failing
+  // the create: it is accepted now and started when there is room.
+  queue: boolean;
   // What this agent does to the project's chat when it finishes: "" follows
   // the project's own setting, "chat" wakes it and "off" only records the
   // finish. Only matters when the project's setting is "lead".
@@ -70,6 +74,7 @@ const emptyForm: Form = {
   claudeAccount: '',
   githubAccount: '',
   cluster: '',
+  queue: false,
   notify: '',
 };
 
@@ -181,7 +186,11 @@ export function NewAgentDialog({
         clean: form.clean || undefined,
         claudeAccount: form.ai === 'claude' ? form.claudeAccount || undefined : undefined,
         githubAccount: form.githubAccount || undefined,
-        cluster: form.cluster || undefined,
+        // "local" and not an absent field: a project that runs its agents on a
+        // cluster would otherwise take an explicit "this machine" as its own
+        // choice.
+        cluster: form.cluster || 'local',
+        queue: form.queue || undefined,
         finishNotice: form.notify || undefined,
       }),
     onSuccess: (started) => {
@@ -223,6 +232,14 @@ export function NewAgentDialog({
   useEffect(() => {
     if (open && form.project === '' && firstProject) setForm((f) => ({ ...f, project: firstProject }));
   }, [open, form.project, firstProject]);
+
+  // Where this project's agents run unless one is given a cluster of its own:
+  // the picker starts on that, and moving to another project moves it too.
+  const projectCluster = projects.data?.find((p) => p.name === form.project)?.cluster ?? '';
+  useEffect(() => {
+    if (!open) return;
+    setForm((f) => ({ ...f, cluster: projectCluster }));
+  }, [open, form.project, projectCluster]);
 
   const onDone = useCallback(
     async (done: T.Job) => {
@@ -359,12 +376,22 @@ export function NewAgentDialog({
               <Field label={t('project.newAgent.clusterLabel')} htmlFor="agent-cluster" hint={t('project.newAgent.clusterHint')}>
                 <Select id="agent-cluster" data-new-agent-cluster value={form.cluster} onChange={(value) => set('cluster', value)}>
                   <SelectOption value="">{t('project.newAgent.clusterLocal')}</SelectOption>
+                  <SelectOption value="auto">{t('project.newAgent.clusterAuto')}</SelectOption>
                   {clusters.data.map((cluster) => (
                     <SelectOption key={cluster.name} value={cluster.name}>
                       {cluster.capacity ? t('project.newAgent.clusterOption', { name: cluster.name, agents: cluster.capacity.agents }) : cluster.name}
                     </SelectOption>
                   ))}
                 </Select>
+                {form.cluster !== '' && (
+                  <SwitchRow
+                    id="agent-queue"
+                    label={t('project.newAgent.queueIfFull')}
+                    hint={t('project.newAgent.queueIfFullHint')}
+                    checked={form.queue}
+                    onChange={(value) => set('queue', value)}
+                  />
+                )}
               </Field>
             )}
 
