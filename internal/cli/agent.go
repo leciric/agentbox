@@ -425,6 +425,11 @@ func newShellCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// A cluster agent's machine is a pod on another machine, reached
+			// over the daemon; there is no Incus here to open its terminal.
+			if ag.Cluster != "" {
+				return clusterTerminal(cmd.Context(), cmd, c, ag)
+			}
 			u, err := hostUser()
 			if err != nil {
 				return err
@@ -459,6 +464,11 @@ func newExecCmd(a *app) *cobra.Command {
 			}
 			if ag.State != "running" {
 				return notRunning(ag)
+			}
+			// The daemon runs it on the pod over its own machine, and answers
+			// with the status the command exited with.
+			if ag.Cluster != "" {
+				return clusterExec(cmd.Context(), cmd, c, ag, command)
 			}
 			u, err := hostUser()
 			if err != nil {
