@@ -931,6 +931,24 @@ var lanWebTypes = map[string]string{
 	"svg":         "image/svg+xml",
 }
 
+// lanWorkerVersion stands for the web app's version in its service worker
+// (desktop/src/renderer/web/sw.ts), which names its cache after it.
+const lanWorkerVersion = "__AGENTBOX_LAN_WEB_VERSION__"
+
+// serveLANWorker serves the web app's service worker with the version it
+// belongs to written in: a phone that has another version's worker finds this
+// one different, installs it, and drops what the other one kept.
+func serveLANWorker(w http.ResponseWriter, root, version string) {
+	b, err := os.ReadFile(filepath.Join(root, "sw.js"))
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	_, _ = w.Write(bytes.ReplaceAll(b, []byte(lanWorkerVersion), []byte(version)))
+}
+
 func (s *Server) serveLANWeb(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		http.Error(w, "not found", http.StatusNotFound)
@@ -947,6 +965,10 @@ func (s *Server) serveLANWeb(w http.ResponseWriter, r *http.Request) {
 	if lanWebAsset.MatchString(r.URL.Path) {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 		http.ServeFile(w, r, filepath.Join(root, filepath.FromSlash(r.URL.Path)))
+		return
+	}
+	if r.URL.Path == "/sw.js" {
+		serveLANWorker(w, root, version)
 		return
 	}
 	if m := lanWebFile.FindStringSubmatch(r.URL.Path); m != nil {

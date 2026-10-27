@@ -46,6 +46,7 @@
     "electron-builder": "^26.15.3",
     "electron-updater": "^6.8.9",
     "esbuild": "^0.28.2",
+    "jsqr": "^1.4.0",
     "lucide-react": "^1.60.0",
     "mermaid": "^12.2.0",
     "oxlint": "^1.89.0",

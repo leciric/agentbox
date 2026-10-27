@@ -83,6 +83,30 @@ unknown phones are counted by address, and an address that keeps getting them wr
 for a few minutes. Over the tunnel the connection is https all the way to the phone, and the phone's
 pairing cookie is only ever sent over https. A paired phone still reaches only the chats.
 
+## Keeping it on the home screen
+
+Over the https address of **Reach from anywhere**, the phone page installs as an app of its own, with
+AgentBox's icon, opening full screen without the browser's bars:
+
+- **Android** (Chrome): the page offers **Install AgentBox**, at the bottom of the pairing page and of
+  the chat list; or use Chrome's menu → **Add to Home screen**.
+- **iPhone and iPad** (Safari): **Share → Add to Home Screen**.
+
+An app installed on an iPhone doesn't share Safari's cookies, so it isn't paired even when Safari
+was: open it, make a new QR code on the computer (**Pair a phone** in Settings → Phone, or
+`agentbox phone pair`), and either tap **Scan the QR code**, which uses the phone's camera from inside
+the app, or paste the pairing link (the computer shows it under the QR code, with a button that copies
+it) into **Or paste the pairing link**. Android's installed app shares Chrome's pairing.
+
+The app keeps its own copy of the page, its scripts, styles, fonts and icons (a service worker), so
+it opens without a network and says when it can't reach AgentBox. Chats, pairing and everything else
+the daemon answers always come from the daemon, never from that copy. When the app on the computer
+updates, the daemon's page changes version and phones drop the old copy the next time they open it.
+
+On the local network's plain HTTP, browsers don't install pages as apps (a service worker needs
+https), and the phone's camera can't be used from the page either: the page says so, and pairing
+works as before, by opening the QR code's link with the phone's own camera app.
+
 ## Plain HTTP
 
 On the local network, the connection is plain HTTP, not encrypted: someone else on the same network could read the chats

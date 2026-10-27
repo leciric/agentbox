@@ -586,7 +586,7 @@ func TestPhoneAppWithABearerToken(t *testing.T) {
 }
 
 // The files that install the web app on a phone's home screen are served as
-// what they are, not as the page.
+// what they are, and its service worker with the version it belongs to.
 func TestServeLANWebInstallFiles(t *testing.T) {
 	dir := t.TempDir()
 	s := &Server{cfg: Config{Paths: paths.Paths{Data: dir}}}
@@ -614,6 +614,7 @@ func TestServeLANWebInstallFiles(t *testing.T) {
 		"manifest.webmanifest":  `{"name":"AgentBox"}`,
 		"icon-192.png":          "\x89PNG",
 		"icon.svg":              "<svg/>",
+		"sw.js":                 `const v="__AGENTBOX_LAN_WEB_VERSION__";caches.open("agentbox-shell-"+"__AGENTBOX_LAN_WEB_VERSION__")`,
 		"assets/web-abc.js":     "console.log(1)",
 		"assets/web-abc.js.map": "{}",
 	})
@@ -621,6 +622,7 @@ func TestServeLANWebInstallFiles(t *testing.T) {
 		{"/manifest.webmanifest", "application/manifest+json", `{"name":"AgentBox"}`},
 		{"/icon-192.png", "image/png", "\x89PNG"},
 		{"/icon.svg", "image/svg+xml", "<svg/>"},
+		{"/sw.js", "text/javascript; charset=utf-8", `const v="1.0.0-abc";caches.open("agentbox-shell-"+"1.0.0-abc")`},
 	} {
 		w := get(c.path)
 		if w.Code != http.StatusOK || w.Header().Get("Content-Type") != c.typ || w.Body.String() != c.body {
@@ -639,8 +641,11 @@ func TestServeLANWebInstallFiles(t *testing.T) {
 		t.Errorf("GET a page = %d %q", w.Code, w.Body.String())
 	}
 
-	// Another version has only its own.
-	install("1.1.0-def", map[string]string{"web.html": "<html></html>"})
+	// A new version is a new worker.
+	install("1.1.0-def", map[string]string{"web.html": "<html></html>", "sw.js": `"__AGENTBOX_LAN_WEB_VERSION__"`})
+	if w := get("/sw.js"); w.Body.String() != `"1.1.0-def"` {
+		t.Errorf("GET /sw.js after an update = %q", w.Body.String())
+	}
 	if w := get("/manifest.webmanifest"); w.Code != http.StatusNotFound {
 		t.Errorf("GET another version's manifest = %d", w.Code)
 	}

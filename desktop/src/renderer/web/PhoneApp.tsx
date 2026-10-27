@@ -42,6 +42,7 @@ import { useConnection } from '../lib/events';
 import { cn, errorMessage } from '../lib/utils';
 import { reconnectNow } from './bridge';
 import { parseRoute, routeHash, type Route } from './route';
+import { InstallNote } from './Install';
 import { PlainHTTPNote } from './PhonePair';
 import { seen } from './seen';
 
@@ -429,6 +430,7 @@ function ChatList({ phone, chats, onOpen }: { phone: T.LANPhone; chats: Chats; o
           <p className="text-[12px] text-subtle">
             {t.rich('web.phone.pairedAs', { name: <span className="text-secondary">{phone.name}</span> })}
           </p>
+          <InstallNote />
           <PlainHTTPNote />
           <div>
             <button type="button" className="-mx-2 min-h-11 rounded-full px-2 text-[13px] text-rose-300 active:bg-rose-500/10" disabled={unpair.isPending} onClick={() => unpair.mutate()}>
