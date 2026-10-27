@@ -65,6 +65,7 @@ var tsTypes = []any{
 	ShareReport{}, FileCount{}, DiagnosticsFiles{},
 	DoctorCheck{}, DoctorReport{}, DoctorFixRequest{}, DoctorFix{}, DoctorFixResult{}, DoctorHomeRequest{}, DoctorHomeResult{},
 	Cluster{}, ClusterConfig{}, ClusterCapacity{}, AddClusterRequest{}, RotateClusterRequest{}, ClusterReport{}, ClusterCheck{},
+	ClusterDetail{}, ClusterPod{}, ClusterClaim{}, ClusterEvent{}, ClusterQueue{}, DrainClusterRequest{}, UpgradeClusterRequest{},
 	Registry{}, AddRegistryRequest{}, RotateRegistryRequest{}, RegistryTest{},
 	ProjectGit{}, ProjectGitProfile{}, SetProjectGitProfileRequest{}, UseProjectGitRequest{}, TestProjectGitRequest{}, ProjectGitTest{},
 }

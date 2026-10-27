@@ -42,3 +42,25 @@ func TestRBACReaderRoleCanReadTheSplitDNS(t *testing.T) {
 		}
 	}
 }
+
+// TestRoleCanReadTheNamespacesEvents is the cluster page's half: it lists the
+// events that explain a pod that didn't start, so the Role has to allow reading
+// them as well as writing them.
+func TestRoleCanReadTheNamespacesEvents(t *testing.T) {
+	access := k8s.NewAccess("agentbox")
+	var found *rbacv1.PolicyRule
+	for i, rule := range access.Role.Rules {
+		if slices.Contains(rule.APIGroups, "") && slices.Contains(rule.Resources, "events") {
+			found = &access.Role.Rules[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("the namespace Role doesn't name events: %+v", access.Role.Rules)
+	}
+	for _, verb := range []string{"get", "list", "create", "patch"} {
+		if !slices.Contains(found.Verbs, verb) {
+			t.Errorf("the events rule = %+v, want it to allow %s", found, verb)
+		}
+	}
+}

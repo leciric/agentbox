@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -36,7 +38,8 @@ It is never stored, on either machine. The daemon is the one that talks to the
 cluster, so the server address in it must be one the daemon can reach.`,
 	}
 	cmd.AddCommand(newClusterAddCmd(a), newClusterSetCmd(a), newClusterListCmd(a), newClusterDoctorCmd(a),
-		newClusterRotateCmd(a), newClusterRemoveCmd(a))
+		newClusterRotateCmd(a), newClusterRemoveCmd(a), newClusterDrainCmd(a), newClusterUndrainCmd(a),
+		newClusterUpgradeCmd(a))
 	return cmd
 }
 
@@ -322,18 +325,173 @@ func newClusterListCmd(a *app) *cobra.Command {
 				return nil
 			}
 			w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-			_, _ = fmt.Fprintln(w, "NAME\tNAMESPACE\tREGISTRY\tIMAGE\tMASTER URL\tAGENTS\tFREE\tLAST SEEN\tERROR")
+			_, _ = fmt.Fprintln(w, "NAME\tSTATE\tNAMESPACE\tREGISTRY\tIMAGE\tMASTER URL\tAGENTS\tFREE\tLAST SEEN\tERROR")
 			for _, cluster := range clusters {
 				lastSeen := "never"
 				if cluster.LastSeen != nil {
 					lastSeen = ago(*cluster.LastSeen)
 				}
-				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", cluster.Name, cluster.Namespace,
-					orDash(cluster.Registry), orDash(cluster.Image), orDash(cluster.MasterURL),
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", cluster.Name, clusterStateWord(cluster), cluster.Namespace,
+					orDash(cluster.Registry), orDash(shortImage(cluster.Image)), orDash(cluster.MasterURL),
 					clusterAgentsWord(cluster), freeWord(cluster), lastSeen, orDash(cluster.LastError))
 			}
 			return w.Flush()
 		},
+	}
+}
+
+func newClusterUndrainCmd(a *app) *cobra.Command {
+	return &cobra.Command{
+		Use:   "undrain NAME",
+		Short: "Let a draining cluster take new agents again",
+		Long: `Clears a cluster's drain: admission takes it into account again, and the next
+create that names it, or the queue's next pass, may place an agent there.
+
+The agents the drain stopped stay stopped until they are started, and the ones it
+kept running are untouched.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			cluster, err := c.UndrainCluster(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			_, _ = fmt.Fprintf(out, "%s takes new agents again.\n", cluster.Name)
+			printClusterState(out, cluster)
+			return nil
+		},
+	}
+}
+
+func newClusterDrainCmd(a *app) *cobra.Command {
+	var (
+		moveTo      string
+		keepRunning bool
+	)
+	cmd := &cobra.Command{
+		Use:   "drain NAME",
+		Short: "Stop a cluster taking new agents, and move or stop the ones it has",
+		Long: `Drains a cluster: admission refuses it from then on, and no new agent starts
+there.
+
+By default every running agent on it is stopped, keeping its claim, so starting it
+again brings it back. --move-to moves each one to another cluster instead, one at
+a time. --keep-running only marks the cluster: its agents keep running until they
+are stopped or moved by hand.
+
+Draining stops new agents, not the ones the cluster has. A drain that fails
+partway leaves the cluster draining and the agents it had not reached as they
+were; run it again, or "agentbox cluster undrain" to let it take agents again.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if moveTo != "" && keepRunning {
+				return errors.New("--move-to and --keep-running can't be used together: pass one of them, or neither to stop every agent on the cluster")
+			}
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			name := args[0]
+			j, err := c.DrainCluster(cmd.Context(), name, api.DrainClusterRequest{MoveTo: moveTo, KeepRunning: keepRunning})
+			if err != nil {
+				return err
+			}
+			if _, err := waitJob(cmd, c, j); err != nil {
+				return fmt.Errorf("%w; %s is still draining, so fix what the job says and run agentbox cluster undrain %s to let it take agents again", err, name, name)
+			}
+			cluster, err := c.Cluster(cmd.Context(), name)
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			_, _ = fmt.Fprintf(out, "%s is draining: it takes no new agents.\n", cluster.Name)
+			printClusterState(out, cluster)
+			_, _ = fmt.Fprintf(out, "Let it take agents again with: agentbox cluster undrain %s\n", cluster.Name)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&moveTo, "move-to", "", "move every running agent here to that cluster")
+	cmd.Flags().BoolVar(&keepRunning, "keep-running", false, "only mark the cluster: leave its agents running")
+	return cmd
+}
+
+func newClusterUpgradeCmd(a *app) *cobra.Command {
+	var (
+		digest   string
+		rollback bool
+	)
+	cmd := &cobra.Command{
+		Use:   "upgrade NAME",
+		Short: "Run a cluster's image at a new digest, recreating its pods one at a time",
+		Long: `Changes the image a cluster's pods run and recreates them one at a time, keeping
+the image each one had until it is replaced.
+
+The digest is a full sha256:... a registry reported. The image name keeps the tag
+the cluster was added with, so "agentbox-agent:dev" becomes
+"agentbox-agent:dev@sha256:...", and only the digest changes from then on.
+
+The image the cluster ran before is kept for --rollback, which swaps the two: a
+second --rollback goes forward to the image it just left. An agent that is stopped
+has no pod to replace and runs the new image when it starts. A failure stops the
+rollout at the agent it names and says how to roll back; the pods already
+recreated keep the new image either way.
+
+A pod restored from a snapshot keeps the image the snapshot was taken with until
+it is recreated or upgraded.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			switch {
+			case digest != "" && rollback:
+				return errors.New("--digest and --rollback can't be used together: pass one of them")
+			case digest == "" && !rollback:
+				return errors.New("pass --digest sha256:... to upgrade the cluster, or --rollback to go back to the image it ran before")
+			}
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			name := args[0]
+			j, err := c.UpgradeCluster(cmd.Context(), name, api.UpgradeClusterRequest{Digest: digest, Rollback: rollback})
+			if err != nil {
+				return err
+			}
+			if _, err := waitJob(cmd, c, j); err != nil {
+				return err
+			}
+			cluster, err := c.Cluster(cmd.Context(), name)
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			if rollback {
+				_, _ = fmt.Fprintf(out, "Rolled %s back to %s.\n", cluster.Name, cluster.Image)
+			} else {
+				_, _ = fmt.Fprintf(out, "Upgraded %s to %s.\n", cluster.Name, cluster.Image)
+			}
+			if cluster.PreviousImage == "" {
+				return nil
+			}
+			_, _ = fmt.Fprintf(out, "Previous image: %s\n", cluster.PreviousImage)
+			_, _ = fmt.Fprintf(out, "\nRoll back with: agentbox cluster upgrade %s --rollback\n", cluster.Name)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&digest, "digest", "", "the full sha256:... digest to run")
+	cmd.Flags().BoolVar(&rollback, "rollback", false, "go back to the image before the last upgrade")
+	return cmd
+}
+
+// printClusterState is the little a drain, an undrain or an upgrade says about
+// the cluster it changed: the image it runs, and the one it ran before when
+// there is one.
+func printClusterState(out io.Writer, cluster api.Cluster) {
+	_, _ = fmt.Fprintf(out, "  Image: %s\n", orDash(cluster.Image))
+	if cluster.PreviousImage != "" {
+		_, _ = fmt.Fprintf(out, "  Previous image: %s\n", cluster.PreviousImage)
 	}
 }
 
@@ -406,12 +564,18 @@ func newClusterRotateCmd(a *app) *cobra.Command {
 	var kubeconfigPath string
 	cmd := &cobra.Command{
 		Use:   "rotate NAME",
-		Short: "Give a cluster a new token, and forget the old one",
-		Long: `Deletes the cluster's token Secret, makes a new one, and keeps the kubeconfig for
+		Short: "Apply AgentBox's access again and give a cluster a new token",
+		Long: `Applies AgentBox's namespace, ServiceAccount, Role and binding again, then
+deletes the cluster's token Secret, makes a new one, and keeps the kubeconfig for
 it, sealed. Anything holding the old token stops reaching the cluster.
 
-Rotating needs an admin kubeconfig: deleting the token Secret is not something
-the token itself is for, and the old token may be the thing that stopped working.`,
+The access is applied again because a release that adds a permission reaches an
+existing cluster this way: "cluster add" refuses a name that already exists, and
+a cluster with agents on it cannot be removed and added back.
+
+Rotating needs an admin kubeconfig: applying the Role and deleting the token
+Secret are not things the token itself is for, and the old token may be the thing
+that stopped working. Agents running there keep running.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			kubeconfig, err := readKubeconfig(kubeconfigPath)
@@ -784,9 +948,37 @@ func clusterAgentsWord(c api.Cluster) string {
 	return strconv.Itoa(c.Capacity.Running)
 }
 
+// clusterStateWord is a cluster's state in the list: DRAINING while it takes no
+// new agents, and nothing in particular otherwise.
+func clusterStateWord(c api.Cluster) string {
+	if c.Draining {
+		return "DRAINING"
+	}
+	return "-"
+}
+
+// shortImage is an image with its digest cut to what a table can show: the name
+// and tag stay, and "sha256:" keeps eight characters of the digest, which is
+// enough to tell one upgrade from another. The whole image is what an upgrade
+// prints, because that is the one to keep for a rollback.
+func shortImage(image string) string {
+	name, digest, ok := strings.Cut(image, "@")
+	if !ok {
+		return image
+	}
+	if hex, ok := strings.CutPrefix(digest, "sha256:"); ok && len(hex) > 8 {
+		digest = "sha256:" + hex[:8]
+	}
+	return name + "@" + digest
+}
+
 // freeWord is how many more agents fit now, "no limit" when there is no ceiling
-// to count, and "-" until the daemon has looked and been able to answer.
+// to count, and "-" until the daemon has looked and been able to answer. A
+// draining cluster takes none, whatever room it still has.
 func freeWord(c api.Cluster) string {
+	if c.Draining {
+		return "0"
+	}
 	if c.Capacity == nil || c.Capacity.Error != "" {
 		return "-"
 	}

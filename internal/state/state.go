@@ -1632,6 +1632,13 @@ var migrations = []string{
 	// full when it was asked for: it is what the app and `agentbox list` show
 	// beside the agent until it starts.
 	`ALTER TABLE agent_queue ADD COLUMN reason TEXT NOT NULL DEFAULT ''`,
+	// Whether a cluster takes new agents. 1 is a cluster on its way out: it
+	// keeps the agents it has, and admission refuses new ones with that
+	// reason until its user drains it back in.
+	`ALTER TABLE clusters ADD COLUMN draining INTEGER NOT NULL DEFAULT 0`,
+	// The image a cluster ran before its last upgrade, so `cluster upgrade
+	// --rollback` has one to go back to. Empty until an upgrade happens.
+	`ALTER TABLE clusters ADD COLUMN previous_image TEXT NOT NULL DEFAULT ''`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

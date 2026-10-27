@@ -167,3 +167,27 @@ func TestClusterAddUnreachable(t *testing.T) {
 	}
 	mustContain(t, err.Error(), "cluster k3d", "connect: connection refused")
 }
+
+// TestClusterDrainRefusesBothFlags: moving the agents and keeping them running
+// are two different drains, and the command says so before it reaches a daemon.
+func TestClusterDrainRefusesBothFlags(t *testing.T) {
+	isolate(t)
+	_, err := run(t, "", "cluster", "drain", "k3d", "--move-to", "e2e", "--keep-running")
+	if err == nil || !strings.Contains(err.Error(), "--move-to and --keep-running can't be used together") {
+		t.Errorf("cluster drain with both flags = %v, want it to refuse them", err)
+	}
+}
+
+// TestClusterUpgradeRefusesNoChoice: an upgrade is a digest or a rollback, and
+// neither is a sentence rather than a job.
+func TestClusterUpgradeRefusesNoChoice(t *testing.T) {
+	isolate(t)
+	if _, err := run(t, "", "cluster", "upgrade", "k3d"); err == nil ||
+		!strings.Contains(err.Error(), "pass --digest sha256:...") {
+		t.Errorf("cluster upgrade with no flags = %v, want it to ask for one", err)
+	}
+	if _, err := run(t, "", "cluster", "upgrade", "k3d", "--digest", "sha256:abc", "--rollback"); err == nil ||
+		!strings.Contains(err.Error(), "--digest and --rollback can't be used together") {
+		t.Errorf("cluster upgrade with both flags = %v, want it to refuse them", err)
+	}
+}

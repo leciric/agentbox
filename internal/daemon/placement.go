@@ -170,12 +170,18 @@ func quantity(s string) resource.Quantity {
 	return q
 }
 
-// admit refuses a cluster that can't take an agent of p now: one that is full,
-// one whose registry can't serve the image the project's agents run. known says
-// whether the daemon could read its room at all; when it couldn't, a cluster
-// named outright may still take the pod and the pod is what says why it didn't,
-// while auto placement has no number to choose on.
+// admit refuses a cluster that can't take an agent of p now: one that is
+// draining, one that is full, one whose registry can't serve the image the
+// project's agents run. known says whether the daemon could read its room at
+// all; when it couldn't, a cluster named outright may still take the pod and the
+// pod is what says why it didn't, while auto placement has no number to choose
+// on.
 func (s *Server) admit(ctx context.Context, p state.Project, cluster state.Cluster) (api.ClusterCapacity, bool, error) {
+	// A draining cluster is on its way out: whatever room it has is for the
+	// agents already there, not for another one.
+	if cluster.Draining {
+		return api.ClusterCapacity{}, false, &NoRoomError{Reason: fmt.Sprintf("cluster %s is draining: it takes no new agents", cluster.Name)}
+	}
 	// What the reconciler would refuse the pod for, refused here instead: a
 	// create that fails with the command that fixes the cluster beats an
 	// agent that waits for a pod nothing can start.

@@ -50,6 +50,33 @@ func (c *Client) RotateCluster(ctx context.Context, name string, req RotateClust
 	return out, c.do(ctx, http.MethodPost, "/v1/clusters/"+url.PathEscape(name)+"/rotate", req, &out)
 }
 
+// ClusterDetail reads what a cluster holds now: its pods, claims, recent events
+// and the agents waiting for room.
+func (c *Client) ClusterDetail(ctx context.Context, name string) (ClusterDetail, error) {
+	var out ClusterDetail
+	return out, c.do(ctx, http.MethodGet, "/v1/clusters/"+url.PathEscape(name)+"/detail", nil, &out)
+}
+
+// DrainCluster starts a job that stops a cluster taking new agents, and either
+// moves the agents running there or stops them.
+func (c *Client) DrainCluster(ctx context.Context, name string, req DrainClusterRequest) (Job, error) {
+	var out Job
+	return out, c.do(ctx, http.MethodPost, "/v1/clusters/"+url.PathEscape(name)+"/drain", req, &out)
+}
+
+// UndrainCluster lets a draining cluster take new agents again.
+func (c *Client) UndrainCluster(ctx context.Context, name string) (Cluster, error) {
+	var out Cluster
+	return out, c.do(ctx, http.MethodPost, "/v1/clusters/"+url.PathEscape(name)+"/undrain", nil, &out)
+}
+
+// UpgradeCluster starts a job that runs a cluster's image at a new digest and
+// recreates its pods one at a time.
+func (c *Client) UpgradeCluster(ctx context.Context, name string, req UpgradeClusterRequest) (Job, error) {
+	var out Job
+	return out, c.do(ctx, http.MethodPost, "/v1/clusters/"+url.PathEscape(name)+"/upgrade", req, &out)
+}
+
 // Registries is every registry, by name.
 func (c *Client) Registries(ctx context.Context) ([]Registry, error) {
 	var out []Registry

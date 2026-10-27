@@ -10,10 +10,11 @@ so no Service, Ingress or inbound rule is needed.
 
 | Works | Not yet |
 | --- | --- |
-| `cluster add`, `list`, `set`, `remove`, `rotate`, `doctor` | a chat with a real login, which no pod has run yet |
-| `registry add`, `list`, `test`, `rotate`, `remove` | the desktop tab in the app, not tried against a pod |
+| `cluster add`, `list`, `set`, `remove`, `rotate`, `doctor`, `drain`, `undrain`, `upgrade` | a chat with a real login, which no pod has run yet |
+| `registry add`, `list`, `test`, `rotate`, `remove` | the desktop tab, not tried against a pod |
 | `image agent build`, `--push` | Cursor, whose adapter needs the Cursor SDK |
-| the pod lifecycle: create, adopt, stop, pause, resume, destroy | an agent's cluster or pod in the app |
+| the pod lifecycle: create, adopt, stop, pause, resume, destroy | file browsing through the app (it refuses a pod) |
+| `move` between clusters, `cluster drain --move-to` | drain and upgrade clicked through the app |
 | the gateway: commands, files, a terminal, ports, dial | file browsing through the app (it refuses a pod) |
 | `create --cluster <name>`, and the clone on its claim | diff and files while the pod is stopped (no mirror) |
 | the two git profiles: URL, login, clone and push | CSI volume snapshots, as a fast path |
@@ -228,6 +229,16 @@ Doctor button, and Registries lists each one with or without a login, and a Test
 pulls, `kubectl` is what shows it: `kubectl -n agentbox get pods`, and `kubectl -n agentbox describe
 pod ab-demo-agent-01`.
 
+A cluster's Details opens what it holds right now: its pods with their phase, readiness, node, image,
+restarts and the cluster's own reason (`FailedScheduling` on a node with no room, `ImagePullBackOff`
+on a bad reference), the claims the agents' work lives on, the agents of the queue waiting for room
+there with their place in line, and the namespace's last fifty events, newest first. A node's event is
+in that list even though AgentBox did not make it: it is what explains a pod that stays `Pending`. A
+cluster the daemon cannot reach still shows its card and its queue; the dialog says why its lists are
+empty, and that reason is kept as the cluster's health. Reading events needs `list` on them: a cluster
+added by an earlier release does not have it, and `agentbox cluster rotate <name> --kubeconfig
+<admin>` applies AgentBox's access again so the events appear.
+
 ## Sizes, disk and capacity
 
 One agent's pod is sized by its cluster, so every agent of a cluster asks for the same thing and the
@@ -347,6 +358,94 @@ container filesystem do not, and the new pod runs the image the cluster points a
 agent picks up a new image without losing its work, while a restore pins the image its snapshot was
 taken with. An agent on this host is a different case: its machine is the instance, so `recreate` is
 only for one whose machine is gone, and it starts from the base image.
+
+## Moving an agent to another cluster
+
+```bash
+agentbox move demo/agent-01 --cluster e2e
+agentbox move demo/agent-01 --cluster auto     # the one with the most room
+```
+
+A move is a pod for a pod: an agent that runs on this host has an Incus instance, and one that is still
+queued has no machine yet, so both are refused with the reason.
+
+The move checkpoints the agent's worktree first and publishes it. If the rest fails, the branch still
+carries the work, which is the one part that has to survive a machine that doesn't. Then it stops the
+source pod, streams its claim out of the source cluster and into a new claim on the target, so nothing
+of the workspace lands on this host, and writes the row onto that claim. The reconciler makes the
+target's pod from the row, and the move is done when that pod answers the gateway and the agent's env,
+git config, brief and tmux session are written into it, which is the same proof `create` and `recreate`
+use.
+
+Only then is the source pod, its token and its claim removed. A failure before the row moves leaves the
+source as it was and deletes the claim the target made; a failure after it puts the row back on the
+source, removes the target's pod and claim, and restarts the source pod. A leftover that can't be
+removed is logged with its claim name and the agent is left stopped rather than on two machines at
+once. The source is not kept until a first chat: two live pods on one branch, with one row to name
+them, is worse than the guarantee that would buy.
+
+The target runs its own image, not one a snapshot pinned on the source, because a pin names an image the
+target may not be able to pull. A stopped agent moves too and starts on the target. `--cluster auto`
+uses the same placement a create does, so a full or draining cluster is refused, and the target's room
+is reserved before the source is touched.
+
+## Draining a cluster
+
+```bash
+agentbox cluster drain k3d                    # stop every running agent there
+agentbox cluster drain k3d --move-to e2e      # move each one instead, one at a time
+agentbox cluster drain k3d --keep-running     # only refuse new agents
+agentbox cluster undrain k3d
+```
+
+A drain marks the cluster first, so admission refuses it from that moment: a create that names it fails
+with `cluster k3d is draining: it takes no new agents`, and `auto` skips it, naming it among the
+clusters that have no room. The agents it already has are not refused: a drain stops new agents, not
+the ones there.
+
+With no flag, every running agent is stopped, one at a time, and keeps its claim and its branch, so
+starting it again brings it back. `--move-to` moves each running agent to another cluster instead, with
+the same work as `agentbox move`, and refuses a target that is itself draining. `--keep-running`
+only marks the cluster and leaves its agents alone. Each one is logged as it is stopped, moved or
+skipped, and the command ends with the cluster's state.
+
+A drain that fails partway leaves the cluster draining and the agents it had not reached as they were.
+Running it again continues, and `agentbox cluster undrain` lets the cluster take agents again without
+touching the ones it has. `agentbox cluster list` marks the cluster `DRAINING` and shows its `FREE` as
+`0`, whatever room the nodes still have.
+
+## Upgrading a cluster
+
+```bash
+agentbox cluster upgrade k3d --digest sha256:4f4fb70000000000000000000000000000000000000000000000000000000000
+agentbox cluster upgrade k3d --rollback
+```
+
+An upgrade runs the same image at a new digest. The digest is a full `sha256:` one that a registry
+reported, and the image keeps the tag the cluster was added with, so `agentbox-agent:dev` becomes
+`agentbox-agent:dev@sha256:4f4fb700...`, and only the digest changes from one upgrade to the next. The
+cluster's image, not an agent's, is what its pods run, which is why this is one change rather than one
+per agent.
+
+The new image is recorded first, so a pod that starts while the rollout is running is at the new image
+rather than the old one. Then every running agent's pod is recreated at it, one at a time, each keeping
+its claim: the worktree and the home come back, and only the container filesystem is replaced. The
+other agents keep running while one changes over. A stopped agent has no pod to replace and runs the
+new image the next time it starts.
+
+A failure stops at the agent it names and leaves the cluster at the new image, with the pods already
+recreated on it. Fix what it says and run `agentbox cluster upgrade k3d --rollback`: that puts the
+image the cluster ran before the upgrade back, and records the one it is leaving as the new previous
+image, so a second `--rollback` goes forward again. `agentbox cluster list` shows the image name and the
+first eight characters of its digest.
+
+A pod restored from a snapshot keeps the image the snapshot was taken with, which its row pins, until
+it is recreated or upgraded. `agentbox recreate` drops that pin and starts the pod at the cluster's
+current image.
+
+The cluster detail page reads the cluster's events, which a cluster added before this release does not
+have permission for yet. `agentbox cluster rotate <name> --kubeconfig <admin>` applies AgentBox's access
+again, and the events appear after it.
 
 ## Troubleshooting
 

@@ -335,6 +335,7 @@ func NewRootCmd() *cobra.Command {
 		newActionCmd(a, "pause", "Freeze an agent: its processes keep their memory but use no CPU", "Paused"),
 		newActionCmd(a, "resume", "Unfreeze a paused agent", "Resumed"),
 		newRecreateCmd(a),
+		newMoveCmd(a),
 		newSnapshotCmd(a),
 		newSnapshotsCmd(a),
 		newRestoreCmd(a),

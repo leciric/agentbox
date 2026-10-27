@@ -201,11 +201,16 @@ func Add(ctx context.Context, opts AddOptions) (AddResult, error) {
 	})
 }
 
-// Rotate replaces the token of a cluster AgentBox already drives. The Role and
-// the namespace's objects are untouched: agents running there keep running, and
-// only the credential the daemon holds changes.
+// Rotate replaces the token of a cluster AgentBox already drives. It applies
+// AgentBox's access again first, because a release that adds a permission gets
+// it to a cluster with agents already running on it this way: `cluster add`
+// refuses a name that exists. Agents running there keep running; only the
+// credential the daemon holds changes.
 func Rotate(ctx context.Context, opts AddOptions) (AddResult, error) {
 	return withAdmin(ctx, opts, func(admin *Admin) ([]byte, error) {
+		if err := admin.AddAccess(ctx, opts.Namespace); err != nil {
+			return nil, err
+		}
 		return admin.RotateToken(ctx, opts.Namespace)
 	})
 }
