@@ -108,6 +108,12 @@ agent in an Incus machine does and nothing else of the daemon. On the tailnet li
 gated by the token rather than by the Tailscale allowlist, because a pod has no login header to
 offer; `agentbox cluster doctor` reports a master URL the pod cannot reach.
 
+`agentbox shell` and `agentbox exec` reach a pod the same way. The shell attaches to the terminal
+route the app's terminal pane uses, and the exec runs its command through the daemon on a WebSocket
+of its own, which carries the command's two streams and the status it exited with. An agent in an
+Incus container here is untouched: both still run the `incus` command directly, with no daemon in
+between.
+
 A pod does not wait for this machine's memory pressure: `heavy` starts at once there, since the
 pod's memory is its own cgroup's and the cluster's, and there is no cgroup on this host to hold it.
 

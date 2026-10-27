@@ -2363,6 +2363,13 @@ func (m *Manager) PrepareShell(ctx context.Context, a state.Agent) error {
 	return m.ensureSession(ctx, a)
 }
 
+// RequireRunning returns an actionable error unless the agent's machine is
+// running, in the words its own runtime uses: it is what a route that must not
+// start a machine checks before it does anything else.
+func (m *Manager) RequireRunning(ctx context.Context, a state.Agent) error {
+	return m.requireRunning(ctx, a)
+}
+
 // requireRunning returns an actionable error unless the agent is running.
 func (m *Manager) requireRunning(ctx context.Context, a state.Agent) error {
 	inst, err := m.machine(a).Info(ctx)

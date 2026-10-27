@@ -1157,6 +1157,9 @@ func (s *Server) routes() http.Handler {
 	h("PUT /v1/agents/{project}/{agent}/secrets/{name}", s.setAgentSecret)
 	h("DELETE /v1/agents/{project}/{agent}/secrets/{name}", s.removeAgentSecret)
 	h("GET /v1/agents/{project}/{agent}/terminal", s.terminal)
+	// One command on the agent's machine, streamed (exec.go): what `agentbox
+	// exec` uses on a cluster agent, where the CLI has no Incus of its own.
+	h("GET /v1/agents/{project}/{agent}/exec", s.execStream)
 	h("GET /v1/agents/{project}/{agent}/chat", s.getChat(s.agentOrArchivedFromPath))
 	h("GET /v1/agents/{project}/{agent}/chat/search", s.searchChat(s.agentOrArchivedFromPath))
 	h("GET /v1/agents/{project}/{agent}/timeline", s.agentTimeline)
