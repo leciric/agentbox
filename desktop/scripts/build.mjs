@@ -33,13 +33,11 @@ const node = { bundle: true, platform: 'node', format: 'cjs', target: 'node22', 
 await esbuild({ ...node, entryPoints: [join(root, 'src/main/index.ts')], outfile: join(root, 'out/main/index.cjs') });
 await esbuild({ ...node, entryPoints: [join(root, 'src/preload/index.ts')], outfile: join(root, 'out/preload/index.cjs') });
 await vite({ configFile: join(root, 'vite.config.mts'), logLevel: 'warn' });
-copyRecursive(join(root, 'out/renderer'), join(root, 'out/web'));
-rmSync(join(root, 'out/web/index.html'));
-renameSync(join(root, 'out/web/web.html'), join(root, 'out/web/index.html'));
-// The web app's icon, and a manifest, so a phone can keep it on its home screen.
-for (const icon of ['icon.svg', 'icon.png']) copyFileSync(join(root, 'build', icon), join(root, 'out/web', icon));
+// The web app's icon, and a manifest, so a phone can keep it on its home screen:
+// in out/renderer, which phones get (src/main/phoneweb.ts), and so in out/web.
+for (const icon of ['icon.svg', 'icon.png']) copyFileSync(join(root, 'build', icon), join(root, 'out/renderer', icon));
 writeFileSync(
-  join(root, 'out/web/manifest.webmanifest'),
+  join(root, 'out/renderer/manifest.webmanifest'),
   JSON.stringify(
     {
       name: 'AgentBox',
@@ -57,4 +55,7 @@ writeFileSync(
     2,
   ),
 );
+copyRecursive(join(root, 'out/renderer'), join(root, 'out/web'));
+rmSync(join(root, 'out/web/index.html'));
+renameSync(join(root, 'out/web/web.html'), join(root, 'out/web/index.html'));
 console.log('built', join(root, 'out'));
