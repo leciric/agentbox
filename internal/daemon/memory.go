@@ -12,6 +12,7 @@ import (
 	"agentbox/internal/api"
 	"agentbox/internal/memory"
 	"agentbox/internal/notes"
+	"agentbox/internal/state"
 )
 
 // The project memory API (D72).
@@ -77,10 +78,11 @@ func (s *Server) leadMemoryScope(r *http.Request) (memoryScope, error) {
 	return who, err
 }
 
-// agentMemoryScope is the agent behind a socket, and its project.
-func (s *Server) agentMemoryScope(instance string) func(*http.Request) (memoryScope, error) {
+// agentMemoryScope is the agent behind a socket, or the pod's token, and its
+// project.
+func (s *Server) agentMemoryScope(agentOf func(*http.Request) (state.Agent, error)) func(*http.Request) (memoryScope, error) {
 	return func(r *http.Request) (memoryScope, error) {
-		a, err := s.store.AgentByInstance(r.Context(), instance)
+		a, err := agentOf(r)
 		if err != nil {
 			return memoryScope{}, err
 		}

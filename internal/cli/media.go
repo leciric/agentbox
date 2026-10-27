@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -589,17 +588,18 @@ func newMediaRmCmd(a *app) *cobra.Command {
 	}
 }
 
-// selfClient is the in-agent API, when rm runs inside an agent and names that
-// agent (project/agent, or just its name) before the id.
+// selfClient is the agent's own API, when rm runs inside an agent and names
+// that agent (project/agent, or just its name) before the id. No agent to ask
+// is not an error here: the caller falls back to the host's daemon, which is
+// the answer when this isn't an agent at all.
 func selfClient(cmd *cobra.Command, args []string) (*api.Client, bool) {
 	if len(args) != 2 {
 		return nil, false
 	}
-	socket := inAgentSocket()
-	if _, err := os.Stat(socket); err != nil {
+	c, err := inAgentClient()
+	if err != nil {
 		return nil, false
 	}
-	c := api.NewClient(socket)
 	self, err := c.Self(cmd.Context())
 	if err != nil || (args[0] != self.Ref && args[0] != self.Agent) {
 		return nil, false

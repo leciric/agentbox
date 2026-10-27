@@ -19,6 +19,7 @@ so no Service, Ingress or inbound rule is needed.
 | the two git profiles: URL, login, clone and push | snapshots, restore and fork (Stage 5) |
 | diff, file list and file read through the gateway | placement, capacity and a queue |
 | the desktop and its browser over the gateway, recordings included | the tailnet egress check, which needs an operator client |
+| the in-agent API over the master: `whoami`, connectors, memory, heavy | a connector that signs in, not yet called from a pod |
 | Claude Code, Codex, OpenCode and their adapters in the image | `control`, which agentd answers with exit 2 |
 
 `cluster add` (`internal/cli/cluster.go`, `internal/k8s`) keeps a namespace-scoped ServiceAccount
@@ -92,6 +93,18 @@ and no route from the cluster, and why the same code works on any cluster.
 The pod authenticates with a 32-byte bearer token minted for it. The token is a Secret mounted at
 `/run/agentbox-secrets/token`; `state.db` holds only its SHA-256, so a token the daemon never issued
 is refused without a plaintext ever being read back. A new pod gets a new token.
+
+The same token is how a pod reaches the in-agent API, which an Incus agent reaches over its socket.
+`agentbox whoami`, `connector list|tools|call`, `connector mcp` for every connector its AI tool
+starts, `memory mcp` and `heavy` run inside the pod read `AGENTBOX_MASTER_URL` and
+`AGENTBOX_TOKEN_FILE` and talk to `<master>/v1/self` with the token; there is no socket in a pod. The
+route set is the socket's own, keyed to the agent the token names, so a pod reaches exactly what an
+agent in an Incus machine does and nothing else of the daemon. On the tailnet listener that path is
+gated by the token rather than by the Tailscale allowlist, because a pod has no login header to
+offer; `agentbox cluster doctor` reports a master URL the pod cannot reach.
+
+A pod does not wait for this machine's memory pressure: `heavy` starts at once there, since the
+pod's memory is its own cgroup's and the cluster's, and there is no cgroup on this host to hold it.
 
 ## The registry
 

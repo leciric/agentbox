@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -176,11 +175,14 @@ agent, with no argument, it lists that agent's.`,
 				args = []string{""}
 			}
 			if len(args) == 0 {
-				socket := inAgentSocket()
-				if _, err := os.Stat(socket); err != nil {
-					return errors.New("which project? agentbox connector list <project | project/agent>")
+				c, err := inAgentClient()
+				if err != nil {
+					if errors.Is(err, errNotInAgent) {
+						return errors.New("which project? agentbox connector list <project | project/agent>")
+					}
+					return err
 				}
-				mine, err := api.NewClient(socket).SelfConnectors(cmd.Context())
+				mine, err := c.SelfConnectors(cmd.Context())
 				if err != nil {
 					return err
 				}
@@ -414,14 +416,16 @@ same name replaces the AgentBox-wide one whatever this says.`,
 	}
 }
 
-// selfRelay is a connector's relay on the in-agent socket, for a command run
-// inside an agent.
+// selfRelay is a connector's relay as the agent running the command reaches
+// it: on the in-agent socket, or on the master from a Kubernetes pod.
 func selfRelay(cmd *cobra.Command, name, what string) (*connectors.Relay, error) {
-	socket := inAgentSocket()
-	if _, err := os.Stat(socket); err != nil {
-		return nil, fmt.Errorf("agentbox connector %s runs inside an agent, for the connectors it is given", what)
+	c, err := inAgentClient()
+	if err != nil {
+		if errors.Is(err, errNotInAgent) {
+			return nil, fmt.Errorf("agentbox connector %s runs inside an agent, for the connectors it is given", what)
+		}
+		return nil, err
 	}
-	c := api.NewClient(socket)
 	return &connectors.Relay{HTTP: c.HTTPClient(), URL: c.SelfConnectorURL(name), Log: cmd.ErrOrStderr()}, nil
 }
 
@@ -540,11 +544,13 @@ func newConnectorMCPCmd(_ *app) *cobra.Command {
 		Hidden: true, // started by the agent's AI tool, not by people
 		Args:   cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			socket := inAgentSocket()
-			if _, err := os.Stat(socket); err != nil {
-				return errors.New("agentbox connector mcp runs inside an agent, for the connectors it is given")
+			c, err := inAgentClient()
+			if err != nil {
+				if errors.Is(err, errNotInAgent) {
+					return errors.New("agentbox connector mcp runs inside an agent, for the connectors it is given")
+				}
+				return err
 			}
-			c := api.NewClient(socket)
 			relay := &connectors.Relay{HTTP: c.HTTPClient(), URL: c.SelfConnectorURL(args[0]), Log: cmd.ErrOrStderr()}
 			return relay.Serve(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout())
 		},

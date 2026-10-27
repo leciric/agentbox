@@ -8,13 +8,14 @@ import (
 
 	"agentbox/internal/connectors"
 	"agentbox/internal/opencode"
+	"agentbox/internal/state"
 )
 
 // A connector named like one of the servers AgentBox gives every agent would
 // replace it: every one of them is reserved.
 func TestConnectorsCantTakeABuiltInServersName(t *testing.T) {
 	t.Parallel()
-	for _, s := range agentMCPServers("/home/dev", nil) {
+	for _, s := range agentMCPServers(state.Agent{}, "/home/dev", nil) {
 		if !slices.Contains(connectors.Reserved, s.name) {
 			t.Errorf("the MCP server %q isn't in connectors.Reserved", s.name)
 		}
@@ -23,7 +24,7 @@ func TestConnectorsCantTakeABuiltInServersName(t *testing.T) {
 
 func TestAgentMCPServersIncludeConnectors(t *testing.T) {
 	t.Parallel()
-	servers := agentMCPServers("/home/dev", []string{"notion", "linear"})
+	servers := agentMCPServers(state.Agent{}, "/home/dev", []string{"notion", "linear"})
 	claude := claudeMCPServers(servers)
 	for _, name := range []string{"desktop", "playwright"} {
 		if _, ok := claude[name]; ok {
@@ -66,8 +67,8 @@ func TestWithMCPServers(t *testing.T) {
 // the tool keeps there may change without its chat needing a restart.
 func TestSameMCPServers(t *testing.T) {
 	t.Parallel()
-	servers := agentMCPServers("/home/dev", []string{"notion"})
-	more := agentMCPServers("/home/dev", []string{"notion", "linear"})
+	servers := agentMCPServers(state.Agent{}, "/home/dev", []string{"notion"})
+	more := agentMCPServers(state.Agent{}, "/home/dev", []string{"notion", "linear"})
 	claude := func(state string, s []mcpServer) []byte {
 		b, err := withMCPServers([]byte(state), claudeMCPServers(s))
 		if err != nil {
@@ -116,7 +117,7 @@ func TestSameMCPServers(t *testing.T) {
 // never returns (browser_evaluate on a stuck page) fails back to the agent.
 func TestPlaywrightRunsBehindTheGuard(t *testing.T) {
 	t.Parallel()
-	for _, s := range agentMCPServers("/home/dev", nil) {
+	for _, s := range agentMCPServers(state.Agent{}, "/home/dev", nil) {
 		if s.name != "playwright" {
 			continue
 		}
@@ -124,6 +125,25 @@ func TestPlaywrightRunsBehindTheGuard(t *testing.T) {
 		want := "/usr/local/bin/agentbox desktop guard --name Playwright --timeout 3m0s -- /home/dev/.local/share/mise/shims/playwright-mcp --cdp-endpoint"
 		if !strings.HasPrefix(got, want) {
 			t.Errorf("the Playwright server is started as %q, want it to start with %q", got, want)
+		}
+		return
+	}
+	t.Fatal("no Playwright server")
+}
+
+// A pod's image has no mise and no shims: the Playwright server is an npm
+// package on PATH there, and a path under a home that does not hold it is a
+// server that never starts.
+func TestPlaywrightComesFromPathInAPod(t *testing.T) {
+	t.Parallel()
+	for _, s := range agentMCPServers(state.Agent{Cluster: "e2e"}, "/home/dev", nil) {
+		if s.name != "playwright" {
+			continue
+		}
+		got := s.command + " " + strings.Join(s.args, " ")
+		want := "/usr/local/bin/agentbox desktop guard --name Playwright --timeout 3m0s -- playwright-mcp --cdp-endpoint"
+		if !strings.HasPrefix(got, want) {
+			t.Errorf("the Playwright server in a pod is started as %q, want it to start with %q", got, want)
 		}
 		return
 	}

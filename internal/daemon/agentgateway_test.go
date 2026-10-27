@@ -150,16 +150,17 @@ func TestTheLocalGatewayListenerServesPods(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Nothing else of the API is on this port: a request without a token is
-	// answered by the gateway, not by a route.
+	// Nothing else of the API is on this port: a pod's way in is the gateway's
+	// own route and the in-agent API, and a route of the rest of the daemon is
+	// not served here at all.
 	resp, err := http.Get("http://" + addr + "/v1/version")
 	if err != nil {
 		t.Fatal(err)
 	}
 	body, _ := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusUnauthorized || !strings.Contains(string(body), "the gateway needs the agent's token") {
-		t.Errorf("the listener answered /v1/version with %d %q, want the gateway's answer", resp.StatusCode, body)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("the listener answered /v1/version with %d %q, want 404", resp.StatusCode, body)
 	}
 
 	pod := &gateway.Client{URL: "http://" + addr, Token: testGatewayToken, Handle: echoExec}

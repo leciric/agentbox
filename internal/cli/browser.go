@@ -3,7 +3,6 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"text/tabwriter"
 
@@ -35,14 +34,19 @@ func (a *app) scopedClient(cmd *cobra.Command, ref string) (*api.Client, error) 
 	if ref != "" {
 		return a.client(cmd)
 	}
-	socket := inAgentSocket()
-	if _, err := os.Stat(socket); err != nil {
-		if insideAgent() {
-			return nil, fmt.Errorf("the in-agent API socket %s is missing", socket)
-		}
-		return nil, errors.New("name an agent, like pawly/agent-01 (inside an agent, the agent is the one running the command)")
+	c, err := inAgentClient()
+	if err == nil {
+		return c, nil
 	}
-	return api.NewClient(socket), nil
+	if !errors.Is(err, errNotInAgent) {
+		// The agent's environment said how to reach it and that failed: say
+		// what, rather than hiding it behind a request to name an agent.
+		return nil, err
+	}
+	if insideAgent() {
+		return nil, fmt.Errorf("the in-agent API socket %s is missing", inAgentSocket())
+	}
+	return nil, errors.New("name an agent, like pawly/agent-01 (inside an agent, the agent is the one running the command)")
 }
 
 func printBrowser(cmd *cobra.Command, status api.BrowserStatus) error {

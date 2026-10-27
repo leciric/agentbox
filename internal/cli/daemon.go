@@ -15,6 +15,7 @@ import (
 	"agentbox/internal/daemon"
 	"agentbox/internal/hostos"
 	"agentbox/internal/incus"
+	"agentbox/internal/k8s"
 )
 
 func newDaemonCmd(a *app) *cobra.Command {
@@ -207,8 +208,12 @@ func insideAgentHostname() (string, error) {
 // for a while right after boot (internal/agent/agentapi.go's
 // replugHiddenSocket): fall back to the socket, then to the container's own
 // hostname, so an older or just-booted agent is never mistaken for a
-// non-agent machine.
+// non-agent machine. A Kubernetes pod has none of those, but its own
+// environment says what it is: k8s.EnvMasterURL.
 func insideAgent() bool {
+	if os.Getenv(k8s.EnvMasterURL) != "" {
+		return true
+	}
 	if _, err := os.Stat(inAgentMarker()); err == nil {
 		return true
 	}
@@ -230,17 +235,65 @@ func inAgentSocket() string {
 	return api.InAgentSocket
 }
 
+// errNotInAgent says the command runs somewhere with no agent behind it, so
+// there is nothing to ask: not on an agent's own machine, and not in a pod.
+var errNotInAgent = errors.New("not inside an AgentBox agent")
+
+// inAgentClient is the daemon as the agent running this command reaches it.
+//
+// On an agent's own machine that is the in-agent unix socket. In a Kubernetes
+// pod there is no socket: the pod's environment says where the master is
+// (k8s.EnvMasterURL) and where the bearer token it accepts is
+// (k8s.EnvTokenFile), and api.NewRemoteClient talks to it with that token.
+//
+// AGENTBOX_IN_AGENT_SOCKET wins over both when it is set, even to a path that
+// doesn't exist: it is the seam tests use to say "not an agent" on a machine
+// that may itself run inside one.
+func inAgentClient() (*api.Client, error) {
+	if socket := os.Getenv("AGENTBOX_IN_AGENT_SOCKET"); socket != "" {
+		if fileExists(socket) {
+			return api.NewClient(socket), nil
+		}
+		return nil, errNotInAgent
+	}
+	if fileExists(api.InAgentSocket) {
+		return api.NewClient(api.InAgentSocket), nil
+	}
+	base := strings.TrimSpace(os.Getenv(k8s.EnvMasterURL))
+	if base == "" {
+		return nil, errNotInAgent
+	}
+	path := strings.TrimSpace(os.Getenv(k8s.EnvTokenFile))
+	if path == "" {
+		path = k8s.TokenFile
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		// The token agentd opened the pod's session with, and nobody else's
+		// business: the error names the file, never what was in it.
+		return nil, fmt.Errorf("reading the pod's token from %s: %w (agentd keeps the token it opened its session with there)", path, err)
+	}
+	token := strings.TrimSpace(string(b))
+	if token == "" {
+		return nil, fmt.Errorf("%s is empty: it holds the token agentd opened the pod's session with", path)
+	}
+	return api.NewRemoteClient(strings.TrimRight(base, "/"), token), nil
+}
+
 func newWhoamiCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "whoami",
 		Short: "Inside an agent: show which agent this is",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			socket := inAgentSocket()
-			if _, err := os.Stat(socket); err != nil {
-				return fmt.Errorf("not inside an AgentBox agent (%s doesn't exist)", socket)
+			c, err := inAgentClient()
+			if err != nil {
+				if errors.Is(err, errNotInAgent) {
+					return fmt.Errorf("%w (%s doesn't exist)", err, inAgentSocket())
+				}
+				return err
 			}
-			self, err := api.NewClient(socket).Self(cmd.Context())
+			self, err := c.Self(cmd.Context())
 			if err != nil {
 				return err
 			}

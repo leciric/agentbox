@@ -23,10 +23,12 @@ import (
 // on the credential route. Nothing secret passes through it either way: the
 // user signs in on the server's own page, and the tokens stay with the daemon.
 
-// requestConnector is the in-agent route: the agent asks, and waits.
-func (s *Server) requestConnector(instance string) func(http.ResponseWriter, *http.Request) error {
+// requestConnector is the in-agent route: the agent asks, and waits. agentOf
+// names the agent asking: the one behind the socket the call arrived on, or the
+// one a pod's token names.
+func (s *Server) requestConnector(agentOf func(*http.Request) (state.Agent, error)) func(http.ResponseWriter, *http.Request) error {
 	return func(w http.ResponseWriter, r *http.Request) error {
-		a, err := s.store.AgentByInstance(r.Context(), instance)
+		a, err := agentOf(r)
 		if err != nil {
 			return err
 		}

@@ -73,9 +73,10 @@ func (s *Server) serveAgentGateway(ctx context.Context) {
 		return
 	}
 	srv := &http.Server{
-		// The gateway alone, not routes(): a pod's token names one agent, and
-		// nothing else this daemon serves is a pod's to reach.
-		Handler:           s.gateway,
+		// The gateway and the in-agent API a pod reaches with its token, not
+		// routes(): a pod's token names one agent, and nothing else this
+		// daemon serves is a pod's to reach.
+		Handler:           s.gatewayListenerHandler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		BaseContext:       func(net.Listener) context.Context { return ctx },
 		// No write timeout: the connection is a WebSocket that lives as long
@@ -88,6 +89,24 @@ func (s *Server) serveAgentGateway(ctx context.Context) {
 	g.mu.Unlock()
 	go func() { _ = srv.Serve(ln) }()
 	s.logf("serving the agent gateway on %s", listening)
+}
+
+// gatewayListenerHandler is what the local listener serves: the gateway's
+// WebSocket at agentGatewayPath, and the in-agent API at /v1/self, which a pod
+// reaches with its bearer token, having no socket to arrive on. Nothing else,
+// because a pod's token names one agent and this port exists for pods.
+func (s *Server) gatewayListenerHandler() http.Handler {
+	self := s.podInAgentRoutes()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == agentGatewayPath:
+			s.gateway.ServeHTTP(w, r)
+		case selfPath(r.URL.Path):
+			self.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
 }
 
 // closeAgentGateway ends the listener as the daemon stops, and with it the

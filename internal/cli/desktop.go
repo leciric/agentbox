@@ -39,10 +39,12 @@ func newDesktopMCPCmd(_ *app) *cobra.Command {
 			// The display is the agent's own, on this machine. On the host
 			// there is no :99 to drive and no agent this would mean, so it
 			// says so here rather than failing tool by tool.
-			socket := inAgentSocket()
-			if _, err := os.Stat(socket); err != nil {
+			if _, err := inAgentClient(); err != nil {
+				if !errors.Is(err, errNotInAgent) {
+					return err
+				}
 				if insideAgent() {
-					return fmt.Errorf("the in-agent API socket %s is missing", socket)
+					return fmt.Errorf("the in-agent API socket %s is missing", inAgentSocket())
 				}
 				return errors.New("agentbox desktop mcp runs inside an agent, on that agent's own display; " +
 					"from here, watch an agent's display in AgentBox's Desktop tab")

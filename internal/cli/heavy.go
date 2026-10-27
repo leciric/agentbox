@@ -65,8 +65,12 @@ and builds; use it for anything else.`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var c heavyClient
-			if socket := inAgentSocket(); fileExists(socket) {
-				c = api.NewClient(socket)
+			if ac, err := inAgentClient(); err == nil {
+				c = ac
+			} else if !errors.Is(err, errNotInAgent) {
+				// The agent's environment says where its daemon is and that
+				// couldn't be used: the command still runs, out of the queue.
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "agentbox heavy: couldn't ask the daemon (%v); running anyway\n", err)
 			}
 			code, err := runHeavy(cmd.Context(), c, args, cmd.ErrOrStderr())
 			if err != nil {
@@ -272,12 +276,18 @@ func newHeavyHookCmd() *cobra.Command {
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			socket := inAgentSocket()
-			if !fileExists(socket) {
+			// A hook never fails an agent's turn: outside an agent it says
+			// nothing, and when the agent's own environment is what failed,
+			// one line on stderr is all the turn sees.
+			c, err := inAgentClient()
+			if err != nil {
+				if !errors.Is(err, errNotInAgent) {
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "agentbox heavy-hook: %v\n", err)
+				}
 				return nil
 			}
 			home, _ := os.UserHomeDir()
-			code := heavyHook(cmd.Context(), cmd.InOrStdin(), cmd.ErrOrStderr(), api.NewClient(socket), filepath.Join(home, agent.HeavyEnvFile))
+			code := heavyHook(cmd.Context(), cmd.InOrStdin(), cmd.ErrOrStderr(), c, filepath.Join(home, agent.HeavyEnvFile))
 			if code != 0 {
 				return exitCodeError(code)
 			}
@@ -368,13 +378,19 @@ func newHeavyJoinCmd() *cobra.Command {
 		Hidden: true,
 		Args:   cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			socket := inAgentSocket()
 			pid, err := strconv.Atoi(args[1])
-			if !fileExists(socket) || err != nil {
+			if err != nil {
+				return nil
+			}
+			c, err := inAgentClient()
+			if err != nil {
+				if !errors.Is(err, errNotInAgent) {
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "agentbox heavy-join: %v\n", err)
+				}
 				return nil
 			}
 			home, _ := os.UserHomeDir()
-			heavyJoin(cmd.Context(), api.NewClient(socket), filepath.Join(home, agent.HeavyEnvFile), args[0], pid)
+			heavyJoin(cmd.Context(), c, filepath.Join(home, agent.HeavyEnvFile), args[0], pid)
 			return nil
 		},
 		SilenceErrors: true,

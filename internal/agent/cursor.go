@@ -42,7 +42,7 @@ func (m *Manager) prepareAgentCursorSettings(ctx context.Context, a state.Agent)
 	if err != nil {
 		return err
 	}
-	if err := m.machine(a).WriteFile(ctx, home+"/"+cursorMCPFile, cursorMCPConfig(agentMCPServers(home, connectors)), user.UID, user.GID, 0o600); err != nil {
+	if err := m.machine(a).WriteFile(ctx, home+"/"+cursorMCPFile, cursorMCPConfig(agentMCPServers(a, home, connectors)), user.UID, user.GID, 0o600); err != nil {
 		return err
 	}
 	if a.AI != "cursor" {

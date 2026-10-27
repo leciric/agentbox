@@ -40,7 +40,37 @@ func NewClient(socket string) *Client {
 // over the daemon's own https address on the tailnet, where token is empty and
 // Tailscale Serve says who is asking.
 func NewRemoteClient(base, token string) *Client {
-	return &Client{base: strings.TrimRight(base, "/"), token: token, http: &http.Client{}}
+	base = strings.TrimRight(base, "/")
+	c := &Client{base: base, token: token, http: &http.Client{}}
+	if token != "" {
+		// HTTPClient's callers build their own requests (a connector's MCP
+		// relay, a terminal's WebSocket), so the session goes on the
+		// transport: everything through this client carries it, not only what
+		// this client builds itself.
+		host := ""
+		if u, err := url.Parse(base); err == nil {
+			host = u.Host
+		}
+		c.http.Transport = bearerTransport{token: token, host: host, base: http.DefaultTransport}
+	}
+	return c
+}
+
+// bearerTransport sends token as the Authorization header of every request
+// through it, and only to the host the client was made for: a redirect
+// somewhere else must not carry it.
+type bearerTransport struct {
+	token string
+	host  string
+	base  http.RoundTripper
+}
+
+func (t bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.host == "" || strings.EqualFold(req.URL.Host, t.host) {
+		req = req.Clone(req.Context())
+		req.Header.Set("Authorization", "Bearer "+t.token)
+	}
+	return t.base.RoundTrip(req)
 }
 
 // Socket is the daemon's socket, or its URL through a hub.

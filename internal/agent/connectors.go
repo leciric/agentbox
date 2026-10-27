@@ -189,7 +189,7 @@ func (m *Manager) syncConnectors(ctx context.Context, a state.Agent) (bool, erro
 	if a.AI != "claude" {
 		existing = m.readAgentFile(ctx, a, path)
 	}
-	merged, err := withMCPServers(existing, claudeMCPServers(agentMCPServers(home, names)))
+	merged, err := withMCPServers(existing, claudeMCPServers(agentMCPServers(a, home, names)))
 	if err != nil {
 		return true, err
 	}
