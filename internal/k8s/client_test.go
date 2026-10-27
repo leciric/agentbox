@@ -123,7 +123,7 @@ func TestNewRefusesAKubeconfigItCannotUse(t *testing.T) {
 		{
 			name:    "no kubeconfig",
 			config:  k8s.Config{Name: "k3d"},
-			wantErr: "has no kubeconfig",
+			wantErr: "no kubeconfig",
 		},
 		{
 			name:    "not a kubeconfig",
@@ -277,7 +277,7 @@ func TestAccessYAMLIsWhatAKubectlUserApplies(t *testing.T) {
 			t.Errorf("the Role document's rules = %+v, want %+v", role.Rules, access.Role.Rules)
 		}
 	}
-	want := []string{"Namespace", "ServiceAccount", "Role", "RoleBinding"}
+	want := []string{"Namespace", "ServiceAccount", "Role", "RoleBinding", "ClusterRole", "ClusterRoleBinding"}
 	if !reflect.DeepEqual(kinds, want) {
 		t.Errorf("documents = %v, want %v", kinds, want)
 	}

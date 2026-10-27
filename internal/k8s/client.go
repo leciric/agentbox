@@ -67,30 +67,41 @@ func New(cfg Config) (*Cluster, error) {
 	if problems := validation.IsDNS1123Label(namespace); len(problems) > 0 {
 		return nil, fmt.Errorf("the namespace %q of cluster %s can't be used: %s", namespace, cfg.Name, strings.Join(problems, "; "))
 	}
-	if len(cfg.Kubeconfig) == 0 {
-		return nil, fmt.Errorf("cluster %s has no kubeconfig: run agentbox cluster add again", cfg.Name)
-	}
-	restConfig, err := clientcmd.RESTConfigFromKubeConfig(cfg.Kubeconfig)
+	restConfig, err := configFrom(cfg.Kubeconfig)
 	if err != nil {
-		return nil, fmt.Errorf("the kubeconfig of cluster %s can't be read: %w", cfg.Name, err)
+		return nil, fmt.Errorf("cluster %s: %w", cfg.Name, err)
 	}
-	if err := normalize(cfg.Name, restConfig); err != nil {
-		return nil, err
+	if cfg.QPS != 0 {
+		restConfig.QPS = cfg.QPS
 	}
-	restConfig.QPS = cfg.QPS
-	if restConfig.QPS == 0 {
-		restConfig.QPS = defaultQPS
+	if cfg.Burst != 0 {
+		restConfig.Burst = cfg.Burst
 	}
-	restConfig.Burst = cfg.Burst
-	if restConfig.Burst == 0 {
-		restConfig.Burst = defaultBurst
-	}
-	restConfig.UserAgent = "agentbox"
 	client, err := k8sclient.NewForConfig(restConfig)
 	if err != nil {
 		return nil, fmt.Errorf("cluster %s: %w", cfg.Name, err)
 	}
 	return &Cluster{name: cfg.Name, namespace: namespace, rest: restConfig, client: client}, nil
+}
+
+// configFrom is a kubeconfig parsed into a client configuration, with the rewrite
+// a k3d address needs and the refusal of a plain http API server both New and
+// NewAdmin go through.
+func configFrom(kubeconfig []byte) (*rest.Config, error) {
+	if len(kubeconfig) == 0 {
+		return nil, errors.New("there is no kubeconfig")
+	}
+	restConfig, err := clientcmd.RESTConfigFromKubeConfig(kubeconfig)
+	if err != nil {
+		return nil, fmt.Errorf("the kubeconfig can't be read: %w", err)
+	}
+	if err := normalize(restConfig); err != nil {
+		return nil, err
+	}
+	restConfig.QPS = defaultQPS
+	restConfig.Burst = defaultBurst
+	restConfig.UserAgent = "agentbox"
+	return restConfig, nil
 }
 
 // FromClient is a Cluster over a clientset that already exists, which is how a
@@ -142,13 +153,13 @@ func checkName(name string) error {
 // carries it over http. client-go is worse than that: it drops a token mailed to
 // a plain http server without saying so, and the 401 that follows has no reason
 // in it.
-func normalize(name string, restConfig *rest.Config) error {
+func normalize(restConfig *rest.Config) error {
 	server, err := url.Parse(restConfig.Host)
 	if err != nil {
-		return fmt.Errorf("the server address %q of cluster %s isn't a URL: %w", restConfig.Host, name, err)
+		return fmt.Errorf("the server address %q isn't a URL: %w", restConfig.Host, err)
 	}
 	if server.Scheme != "https" || server.Host == "" {
-		return fmt.Errorf("the API server of cluster %s is %q: AgentBox needs its https address, because the token it seals would travel in the clear", name, restConfig.Host)
+		return fmt.Errorf("the API server is %q: AgentBox needs its https address, because the token it seals would travel in the clear", restConfig.Host)
 	}
 	// k3d publishes the API server on a wildcard and writes that address into
 	// its kubeconfig, which kubectl accepts and a client can't dial.

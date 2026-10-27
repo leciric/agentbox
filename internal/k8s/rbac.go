@@ -24,19 +24,28 @@ const (
 	LabelManaged = "agentbox/managed"
 )
 
-// Access is what AgentBox needs in a cluster's namespace: the namespace itself,
-// the ServiceAccount the master acts as, and a Role and RoleBinding that let it
-// run agents as pods and nothing else.
+// Access is what AgentBox needs in a cluster: the namespace its agents run in,
+// the ServiceAccount the master acts as, a Role and RoleBinding that let it run
+// agents as pods and nothing else, and one read-only ClusterRole for the two
+// cluster-scoped things placement cannot do without.
 //
-// There is no ClusterRole and no cluster-scoped anything. A pod, a claim and its
-// secret carry the namespace's label, and the Role reaches exactly those
-// resource types in exactly this namespace.
+// There is no cluster-admin and no write outside the namespace. Node and storage
+// class reads are the exception a namespaced Role cannot grant: how much room a
+// cluster has, and whether the storage class agents ask for exists, are
+// properties of the cluster itself.
 type Access struct {
 	Namespace      *corev1.Namespace
 	ServiceAccount *corev1.ServiceAccount
 	Role           *rbacv1.Role
 	RoleBinding    *rbacv1.RoleBinding
+	Reader         *rbacv1.ClusterRole
+	ReaderBinding  *rbacv1.ClusterRoleBinding
 }
+
+// ReaderName is the read-only ClusterRole's name. It carries the namespace
+// because it is cluster-scoped: two AgentBox installs, or two clusters in one
+// Kubernetes cluster, must not overwrite each other's.
+func ReaderName(namespace string) string { return "agentbox-" + namespace + "-reader" }
 
 // NewAccess is the objects `cluster add` applies, for the namespace the
 // cluster's agents run in.
@@ -63,6 +72,25 @@ func NewAccess(namespace string) Access {
 				APIGroup: rbacv1.GroupName,
 				Kind:     "Role",
 				Name:     RoleName,
+			},
+			Subjects: []rbacv1.Subject{{
+				Kind:      rbacv1.ServiceAccountKind,
+				Name:      ServiceAccountName,
+				Namespace: namespace,
+			}},
+		},
+		Reader: &rbacv1.ClusterRole{
+			TypeMeta:   metav1.TypeMeta{APIVersion: "rbac.authorization.k8s.io/v1", Kind: "ClusterRole"},
+			ObjectMeta: metav1.ObjectMeta{Name: ReaderName(namespace), Labels: labels},
+			Rules:      readerRules(),
+		},
+		ReaderBinding: &rbacv1.ClusterRoleBinding{
+			TypeMeta:   metav1.TypeMeta{APIVersion: "rbac.authorization.k8s.io/v1", Kind: "ClusterRoleBinding"},
+			ObjectMeta: metav1.ObjectMeta{Name: ReaderName(namespace), Labels: labels},
+			RoleRef: rbacv1.RoleRef{
+				APIGroup: rbacv1.GroupName,
+				Kind:     "ClusterRole",
+				Name:     ReaderName(namespace),
 			},
 			Subjects: []rbacv1.Subject{{
 				Kind:      rbacv1.ServiceAccountKind,
@@ -118,8 +146,26 @@ func agentRules() []rbacv1.PolicyRule {
 	}
 }
 
+// readerRules is what placement needs that a Role cannot give: how much room
+// the nodes have, what they are labelled, and whether the storage class an
+// agent asks for exists. Read only, and only those two kinds.
+func readerRules() []rbacv1.PolicyRule {
+	return []rbacv1.PolicyRule{
+		{
+			APIGroups: []string{""},
+			Resources: []string{"nodes"},
+			Verbs:     []string{"get", "list", "watch"},
+		},
+		{
+			APIGroups: []string{"storage.k8s.io"},
+			Resources: []string{"storageclasses"},
+			Verbs:     []string{"get", "list", "watch"},
+		},
+	}
+}
+
 // Apply creates the namespace, ServiceAccount, Role and RoleBinding, and
-// replaces the last three when they already exist, so that running it again
+// replaces what it finds when it already exists, so that running it again
 // corrects a Role an older AgentBox wrote. The namespace is only created: its
 // finalizers belong to whatever else runs in it.
 func (a Access) Apply(ctx context.Context, client k8sclient.Interface) error {
@@ -132,14 +178,20 @@ func (a Access) Apply(ctx context.Context, client k8sclient.Interface) error {
 	if err := applyRole(ctx, client, a.Role); err != nil {
 		return err
 	}
-	return applyRoleBinding(ctx, client, a.RoleBinding)
+	if err := applyRoleBinding(ctx, client, a.RoleBinding); err != nil {
+		return err
+	}
+	if err := applyClusterRole(ctx, client, a.Reader); err != nil {
+		return err
+	}
+	return applyClusterRoleBinding(ctx, client, a.ReaderBinding)
 }
 
-// YAML renders the four objects as the documents a user applies by hand, for
+// YAML renders the objects as the documents a user applies by hand, for
 // clusters where they would rather not hand AgentBox an admin kubeconfig.
 func (a Access) YAML() (string, error) {
 	var out strings.Builder
-	for _, object := range []any{a.Namespace, a.ServiceAccount, a.Role, a.RoleBinding} {
+	for _, object := range []any{a.Namespace, a.ServiceAccount, a.Role, a.RoleBinding, a.Reader, a.ReaderBinding} {
 		body, err := yaml.Marshal(object)
 		if err != nil {
 			return "", err
@@ -149,6 +201,9 @@ func (a Access) YAML() (string, error) {
 	}
 	return out.String(), nil
 }
+
+// The five apply functions below are the same create-or-replace spelled out once
+// per kind: client-go's typed clients share no interface to write it once.
 
 func applyServiceAccount(ctx context.Context, client k8sclient.Interface, want *corev1.ServiceAccount) error {
 	accounts := client.CoreV1().ServiceAccounts(want.Namespace)
@@ -214,6 +269,53 @@ func applyRoleBinding(ctx context.Context, client k8sclient.Interface, want *rba
 	want.ResourceVersion = live.ResourceVersion
 	if _, err := bindings.Update(ctx, want, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("updating the RoleBinding %s: %w", want.Name, err)
+	}
+	return nil
+}
+
+func applyClusterRole(ctx context.Context, client k8sclient.Interface, want *rbacv1.ClusterRole) error {
+	roles := client.RbacV1().ClusterRoles()
+	live, err := roles.Get(ctx, want.Name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		if _, err := roles.Create(ctx, want, metav1.CreateOptions{}); err != nil {
+			return fmt.Errorf("creating the ClusterRole %s: %w", want.Name, err)
+		}
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("reading the ClusterRole %s: %w", want.Name, err)
+	}
+	want.ResourceVersion = live.ResourceVersion
+	if _, err := roles.Update(ctx, want, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("updating the ClusterRole %s: %w", want.Name, err)
+	}
+	return nil
+}
+
+func applyClusterRoleBinding(ctx context.Context, client k8sclient.Interface, want *rbacv1.ClusterRoleBinding) error {
+	bindings := client.RbacV1().ClusterRoleBindings()
+	live, err := bindings.Get(ctx, want.Name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		if _, err := bindings.Create(ctx, want, metav1.CreateOptions{}); err != nil {
+			return fmt.Errorf("creating the ClusterRoleBinding %s: %w", want.Name, err)
+		}
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("reading the ClusterRoleBinding %s: %w", want.Name, err)
+	}
+	if live.RoleRef != want.RoleRef {
+		if err := bindings.Delete(ctx, want.Name, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("deleting the ClusterRoleBinding %s that points at another ClusterRole: %w", want.Name, err)
+		}
+		if _, err := bindings.Create(ctx, want, metav1.CreateOptions{}); err != nil {
+			return fmt.Errorf("creating the ClusterRoleBinding %s: %w", want.Name, err)
+		}
+		return nil
+	}
+	want.ResourceVersion = live.ResourceVersion
+	if _, err := bindings.Update(ctx, want, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("updating the ClusterRoleBinding %s: %w", want.Name, err)
 	}
 	return nil
 }
