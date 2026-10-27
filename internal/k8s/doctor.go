@@ -7,6 +7,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -143,17 +144,51 @@ func (d Doctor) nodes(ctx context.Context) Check {
 	return Check{Name: "nodes", OK: ready == int64(len(nodes.Items)), Detail: detail}
 }
 
-// storageClass is whether the class an agent's workspace asks for exists.
+// storageClass is whether the class an agent's workspace asks for exists, and
+// which class that is when the config names none.
 func (d Doctor) storageClass(ctx context.Context) Check {
-	if d.StorageClass == "" {
-		return Check{Name: "storage class", Skipped: true, Detail: "the cluster's default class"}
-	}
 	ctx, cancel := context.WithTimeout(ctx, d.timeout())
 	defer cancel()
+	if d.StorageClass == "" {
+		name := d.defaultStorageClass(ctx)
+		if name == "" {
+			return Check{Name: "storage class", Skipped: true, Detail: "the cluster has no default class, and the config names none"}
+		}
+		return Check{Name: "storage class", OK: true, Detail: name + " (the cluster's default)"}
+	}
 	if _, err := d.Cluster.Client().StorageV1().StorageClasses().Get(ctx, d.StorageClass, metav1.GetOptions{}); err != nil {
 		return Check{Name: "storage class", Detail: fmt.Sprintf("%s: %v", d.StorageClass, err)}
 	}
 	return Check{Name: "storage class", OK: true, Detail: d.StorageClass}
+}
+
+// defaultStorageClass is the class the cluster marks as its default, "" when it
+// marks none. It is what a claim which names no class is made from.
+func (d Doctor) defaultStorageClass(ctx context.Context) string {
+	classes, err := d.Cluster.Client().StorageV1().StorageClasses().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return ""
+	}
+	for _, class := range classes.Items {
+		if class.Annotations["storageclass.kubernetes.io/is-default-class"] == "true" ||
+			class.Annotations["storageclass.beta.kubernetes.io/is-default-class"] == "true" {
+			return class.Name
+		}
+	}
+	return ""
+}
+
+// bindingMode is when a class binds a claim: at once, or when a pod first uses
+// it, which is what k3s's local-path and every local volume do.
+func (d Doctor) bindingMode(ctx context.Context, name string) storagev1.VolumeBindingMode {
+	if name == "" {
+		return storagev1.VolumeBindingImmediate
+	}
+	class, err := d.Cluster.Client().StorageV1().StorageClasses().Get(ctx, name, metav1.GetOptions{})
+	if err != nil || class.VolumeBindingMode == nil {
+		return storagev1.VolumeBindingImmediate
+	}
+	return *class.VolumeBindingMode
 }
 
 // workspaceClaim creates the claim an agent's workspace would, waits for it to
@@ -181,6 +216,14 @@ func (d Doctor) workspaceClaim(ctx context.Context) Check {
 		// The canary leaves nothing behind, even when it failed.
 		_ = claims.Delete(context.WithoutCancel(ctx), created.Name, metav1.DeleteOptions{})
 	}()
+	// A class that binds on first use keeps a claim Pending for as long as no
+	// pod mounts it, which is k3s's local-path and every local volume: waiting
+	// for it to bind on its own would fail a cluster that is fine.
+	class := d.StorageClass
+	if class == "" {
+		class = d.defaultStorageClass(ctx)
+	}
+	bindsOnUse := d.bindingMode(ctx, class) == storagev1.VolumeBindingWaitForFirstConsumer
 	for {
 		live, err := claims.Get(ctx, created.Name, metav1.GetOptions{})
 		if err != nil {
@@ -191,6 +234,9 @@ func (d Doctor) workspaceClaim(ctx context.Context) Check {
 			return Check{Name: "workspace claim", OK: true, Detail: "1Gi bound"}
 		case corev1.ClaimLost:
 			return Check{Name: "workspace claim", Detail: "the claim was lost: its class provisioned a volume and then lost it"}
+		}
+		if bindsOnUse {
+			return Check{Name: "workspace claim", OK: true, Detail: "1Gi accepted; " + class + " binds it when a pod mounts it"}
 		}
 		select {
 		case <-ctx.Done():
