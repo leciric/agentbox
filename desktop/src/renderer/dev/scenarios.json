@@ -2039,6 +2039,34 @@
     "height": 900
   },
   {
+    "id": "window-1440-v2-switch-ios-dark",
+    "description": "UI v2 at 1440×900 on a Mac, agent-41 of an iOS project on its iOS view: the Mac's simulators shut down, iPhone 17 Pro picked, Boot simulator — dark",
+    "query": "app=project&v2=1&panel=ios:agent-41&ios=shutdown&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-switch-ios-booted-light",
+    "description": "UI v2 at 1440×900 on a Mac, agent-41 on its iOS view with its simulator booted: Home, Lock, screenshot and shut down in the toolbar — light",
+    "query": "app=project&v2=1&panel=ios:agent-41&ios=booted&theme=light",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-switch-ios-noxcode-dark",
+    "description": "UI v2 at 1440×900 on a Mac without Xcode, agent-41 of an iOS project on its iOS view: what's missing and how to install it — dark",
+    "query": "app=project&v2=1&panel=ios:agent-41&ios=noxcode&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-switch-ios-narrow-pt-dark",
+    "description": "UI v2 at 1440×900 on a Mac, agent-41 on its iOS view at its narrowest, 340px, in Portuguese: the switch in icons, the toolbar in tooltips — dark",
+    "query": "app=project&v2=1&panel=ios:agent-41&ios=shutdown&theme=dark&panelwidth=340&lang=pt-BR",
+    "width": 1440,
+    "height": 900
+  },
+  {
     "id": "window-wide-v2-project-menu-dark",
     "description": "UI v2 at 1920×1080, the project's ⋯: New task, Talk to another project, Pin, Project settings, and More — dark",
     "query": "app=project&v2=1&theme=dark",

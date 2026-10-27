@@ -51,7 +51,7 @@ export function IOSTab({ agent, onOpenMedia, compact = false }: { agent: T.Agent
         <Select
           data-ios-device
           aria-label={t('agent.ios.device')}
-          className="h-8 min-w-0 max-w-64 flex-1 text-[12.5px]"
+          className="h-8 w-60 min-w-0 shrink text-[12.5px]"
           disabled={!status.data?.available || devices.length === 0}
           placeholder={status.isPending ? t('common.loading') : t('agent.ios.noDevices')}
           value={udid}
