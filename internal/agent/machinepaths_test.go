@@ -178,13 +178,40 @@ func TestChatProcessForAPodStreamsTheAdapterOverUserExec(t *testing.T) {
 	if pm.user != "agent" {
 		t.Errorf("the adapter ran as %q, want the pod's agent user", pm.user)
 	}
-	for _, want := range []string{"cd '/workspace' &&", "mise exec 'npm:@agentclientprotocol/claude-agent-acp@", "-- 'claude-agent-acp'"} {
+	for _, want := range []string{"cd '/workspace' &&", "exec 'claude-agent-acp'"} {
 		if !strings.Contains(pm.command, want) {
 			t.Errorf("the adapter's command doesn't have %q:\n%s", want, pm.command)
 		}
 	}
+	if strings.Contains(pm.command, "mise") {
+		t.Errorf("a pod's adapter still goes through mise, which its image does not have:\n%s", pm.command)
+	}
 	if strings.Contains(pm.command, "/host/agent-01") {
 		t.Errorf("the adapter was pointed at the host's path:\n%s", pm.command)
+	}
+}
+
+// TestChatProcessRefusesCursorInAPod checks the one tool the image cannot run
+// yet: Cursor's adapter is AgentBox's own script over the Cursor SDK, which the
+// image does not carry, so the chat says that instead of failing inside node.
+func TestChatProcessRefusesCursorInAPod(t *testing.T) {
+	pm := &podMachine{ref: "ab-p-agent-01"}
+	m := &agent.Manager{
+		User:       image.User{Name: "dev", UID: 1000, GID: 1000},
+		Kubernetes: podRuntime{m: pm},
+		Creds:      credentials.Store{Dir: t.TempDir()},
+		Store:      openStore(t),
+	}
+	pod := state.Agent{
+		Project: "p", Name: "agent-01", Instance: "ab-p-agent-01", AI: "cursor",
+		Cluster: "prod", Workspace: "/workspace",
+	}
+	_, err := m.ChatProcess(context.Background(), pod, func(string) {})
+	if err == nil || !strings.Contains(err.Error(), "Cursor") {
+		t.Fatalf("ChatProcess(cursor pod) = %v, want a refusal naming Cursor", err)
+	}
+	if pm.command != "" {
+		t.Errorf("the refusal still ran a command in the pod: %q", pm.command)
 	}
 }
 

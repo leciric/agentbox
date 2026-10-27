@@ -179,6 +179,31 @@ func (m *Manager) chatScript(ctx context.Context, a state.Agent, status func(det
 			}
 		}
 	}
+	// A pod's image carries the adapters at the pins (internal/image/tools.txt)
+	// and has no mise, so the adapter runs by name. Cursor's adapter is
+	// AgentBox's own script and needs the Cursor SDK, which the image does not
+	// carry yet: it says so rather than failing inside node.
+	if a.OnCluster() {
+		if adapter.Script != nil {
+			return "", fmt.Errorf("%s runs %s, whose adapter needs a package the agent image does not carry yet: use Claude Code, Codex or OpenCode for an agent in a cluster", a.Ref(), adapter.Tool)
+		}
+		status("Starting " + adapter.Tool)
+		command := shellQuote(adapter.Command)
+		for _, arg := range adapter.Args {
+			command += " " + shellQuote(arg)
+		}
+		hide, err := m.toolHides(a)
+		if err != nil {
+			return "", err
+		}
+		if len(hide) > 0 {
+			if err := m.writeBashEnv(ctx, a); err != nil {
+				return "", err
+			}
+		}
+		return fmt.Sprintf("cd %s && %sexec %s", shellQuote(m.worktree(a)), m.withoutCredentials(a, hide), command), nil
+
+	}
 	overrides, err := m.Store.ToolOverrides(ctx)
 	if err != nil {
 		return "", err

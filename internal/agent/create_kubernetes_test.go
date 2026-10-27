@@ -420,6 +420,33 @@ func TestCreateMakesAPodWithoutAnIncusBaseImage(t *testing.T) {
 	}
 }
 
+// TestCreateRefusesCursorInACluster checks the one tool the image cannot run
+// yet is refused where the user picks a tool, before a row or a pod exists.
+func TestCreateRefusesCursorInACluster(t *testing.T) {
+	f := newClusterFixture(t, nil)
+	ctx := context.Background()
+
+	pl := f.plan(t)
+	pl.ai = "cursor"
+	_, err := f.m.build(ctx, pl)
+	if err == nil {
+		t.Fatal("build() = nil, want Cursor refused for a cluster agent")
+	}
+	if !strings.Contains(err.Error(), "Cursor") || !strings.Contains(err.Error(), "Claude Code") {
+		t.Errorf("build() = %v, want a refusal naming Cursor and the tools that work", err)
+	}
+	agents, err := f.st.Agents(ctx, "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 0 {
+		t.Errorf("the refusal stored %d agent(s)", len(agents))
+	}
+	if len(f.pod.userExecs) != 0 || len(f.pod.writes) != 0 {
+		t.Errorf("the refusal touched the pod: execs %q, writes %q", f.pod.userExecs, f.pod.writes)
+	}
+}
+
 // TestCreateRefusesAClusterItDoesNotHave checks the refusal happens before
 // anything is stored, and says how to add the cluster.
 func TestCreateRefusesAClusterItDoesNotHave(t *testing.T) {
