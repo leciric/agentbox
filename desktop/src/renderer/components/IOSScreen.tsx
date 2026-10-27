@@ -1,14 +1,16 @@
-import { LoaderCircle } from 'lucide-react';
 import type * as T from '../../shared/api';
-import { useT } from '../lib/i18n';
+import { iosViewPath } from '../lib/api';
+import { DeviceStreamView } from './device/DeviceStreamView';
+import type { StreamState } from './device/session';
 
-// IOSScreen is a booted simulator's screen, in the iOS tab.
-export function IOSScreen({ agent, device }: { agent: T.Agent; device: T.IOSDevice }) {
-  const t = useT();
+// IOSScreen is a booted simulator's screen, in the iOS tab: the Mac's helper
+// encodes it as H.264 on the Mac's hardware encoder, and DeviceStreamView
+// plays it, as it does an Android emulator's, sending your taps, scrolling
+// and typing back with control on.
+export function IOSScreen({ agent, device, control, onState }: { agent: T.Agent; device: T.IOSDevice; control: boolean; onState: (state: StreamState) => void }) {
   return (
-    <div className="absolute inset-0 flex items-center justify-center text-sm text-subtle" data-ios-screen={`${agent.ref}:${device.udid}`}>
-      <LoaderCircle className="mr-2 size-4 animate-spin" />
-      {t('agent.ios.connecting')}
+    <div className="absolute inset-5" data-ios-screen={`${agent.ref}:${device.udid}`}>
+      <DeviceStreamView path={iosViewPath(agent.ref, device.udid)} enabled control={control} aspect={1206 / 2622} onState={onState} />
     </div>
   );
 }

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"github.com/coder/websocket"
 
 	"agentbox/internal/api"
+	"agentbox/internal/devicestream"
 )
 
 // Health is the helper's GET /v1/health.
@@ -292,10 +294,10 @@ func (s *Server) screenshot(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// view is a simulator's screen as a WebSocket: text messages of JSON
-// ("config", "error") and binary messages of frames (kindFrame's payload)
-// from the helper, and text messages of api.IOSInput (touches, keys,
-// buttons) or {"type":"keyframe"} to it.
+// view is a simulator's screen as a WebSocket in internal/devicestream's wire
+// format, the app's DeviceStreamView's: config and frame messages from the
+// helper, a status message before it closes on a simhost that stopped, and
+// the viewer's touches, keys, text, wheel and buttons to it (fromViewer).
 func (s *Server) view(w http.ResponseWriter, r *http.Request) error {
 	udid, err := udidOf(r)
 	if err != nil {
@@ -312,46 +314,59 @@ func (s *Server) view(w http.ResponseWriter, r *http.Request) error {
 		return nil
 	}
 	defer func() { _ = conn.CloseNow() }()
+	conn.SetReadLimit(1 << 20)
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	stopped := func(err error) {
+		write, done := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+		defer done()
+		_ = conn.Write(write, websocket.MessageBinary, devicestream.EncodeStatus(err))
+		_ = conn.Close(websocket.StatusInternalError, "")
+	}
 	v, leave, err := h.watch()
 	defer leave()
 	if err != nil {
-		_ = conn.Write(r.Context(), websocket.MessageText, errorMessage(err.Error()))
+		stopped(err)
 		return nil
 	}
-	ctx, cancel := context.WithCancel(r.Context())
-	defer cancel()
 	go func() {
 		defer cancel()
 		for {
-			_, data, err := conn.Read(ctx)
+			typ, data, err := conn.Read(ctx)
 			if err != nil {
 				return
 			}
-			var in api.IOSInput
-			if json.Unmarshal(data, &in) != nil {
+			if typ != websocket.MessageText {
 				continue
 			}
-			if in.Type == "keyframe" {
+			in, err := devicestream.DecodeInput(data)
+			if err != nil {
+				continue
+			}
+			if in.Type == devicestream.InputKeyframe {
 				_ = h.send(op{Op: "keyframe"})
 				continue
 			}
-			if err := s.apply(ctx, h, in); err != nil {
-				_ = conn.Write(ctx, websocket.MessageText, errorMessage(err.Error()))
+			planned, steps, err := fromViewer(in)
+			if err == nil && planned != nil {
+				err = s.apply(ctx, h, *planned)
+			} else if err == nil {
+				err = h.run(ctx, steps)
+			}
+			// A key the simulator doesn't know is no reason to stop watching.
+			if err != nil && ctx.Err() == nil {
+				log.Printf("ios-helper: %s: %s: %v", udid, in.Type, err)
 			}
 		}
 	}()
 	for {
 		select {
 		case m := <-v.out:
-			typ := websocket.MessageBinary
-			if m.text {
-				typ = websocket.MessageText
-			}
-			if err := conn.Write(ctx, typ, m.data); err != nil {
+			if err := conn.Write(ctx, websocket.MessageBinary, m); err != nil {
 				return nil
 			}
 		case <-h.proc.Done:
-			_ = conn.Write(ctx, websocket.MessageText, errorMessage("the simulator's helper stopped: "+h.why()))
+			stopped(fmt.Errorf("the simulator's helper stopped: %s", h.why()))
 			return nil
 		case <-ctx.Done():
 			return nil

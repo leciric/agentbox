@@ -2,10 +2,12 @@ package iossim
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	"agentbox/internal/api"
+	"agentbox/internal/devicestream"
 )
 
 func noSize() (int, int, error) { return 0, 0, errors.New("no size") }
@@ -122,6 +124,51 @@ func TestButtons(t *testing.T) {
 	for _, bad := range []api.IOSInput{{Type: "button", Button: "action"}, {Type: "button", Button: "home", Phase: "sideways"}, {Type: "wiggle"}, {Type: "touch", Phase: "hover"}} {
 		if _, _, err := plan(bad, noSize); err == nil {
 			t.Errorf("%+v was planned", bad)
+		}
+	}
+}
+
+func TestFromViewer(t *testing.T) {
+	reach := wheelReach // as fromViewer works it out, in float64
+	for in, want := range map[string]struct {
+		planned *api.IOSInput
+		steps   []op
+	}{
+		`{"type":"touch","action":"move","x":0.5,"y":0.5,"id":1}`: {planned: &api.IOSInput{Type: "touch", Phase: "move", X: 0.5, Y: 0.5}},
+		`{"type":"touch","action":"cancel","x":0.5,"y":0.5}`:      {planned: &api.IOSInput{Type: "touch", Phase: "up", X: 0.5, Y: 0.5}},
+		`{"type":"key","action":"up","key":"ArrowLeft"}`:          {steps: []op{{Op: "key", Usage: 0x50}}},
+		`{"type":"key","action":"down","key":"Meta"}`:             {steps: []op{{Op: "key", Usage: 0xe3, Down: true}}},
+		`{"type":"key","action":"down","key":"a"}`:                {steps: []op{{Op: "key", Usage: 0x04, Down: true}}},
+		`{"type":"text","text":"héllo"}`:                          {planned: &api.IOSInput{Type: "text", Text: "héllo"}},
+		`{"type":"wheel","x":0.5,"y":0.5,"dx":0,"dy":2}`:          {planned: &api.IOSInput{Type: "swipe", X: 0.5, Y: 0.5, X2: 0.5, Y2: 0.5 - 2*reach, DurationMS: 100}},
+		`{"type":"wheel","x":0.5,"y":0.05,"dx":0,"dy":-3}`:        {planned: &api.IOSInput{Type: "swipe", X: 0.5, Y: 0.05, X2: 0.5, Y2: 0.05 + 3*reach, DurationMS: 100}},
+		`{"type":"button","button":"home"}`:                       {planned: &api.IOSInput{Type: "button", Button: "home"}},
+		`{"type":"button","button":"recents"}`:                    {},
+	} {
+		d, err := devicestream.DecodeInput([]byte(in))
+		if err != nil {
+			t.Fatal(err)
+		}
+		planned, steps, err := fromViewer(d)
+		if err != nil {
+			t.Errorf("%s: %v", in, err)
+			continue
+		}
+		if (planned == nil) != (want.planned == nil) || (planned != nil && fmt.Sprint(*planned) != fmt.Sprint(*want.planned)) {
+			t.Errorf("%s: planned %+v, want %+v", in, planned, want.planned)
+		}
+		var got []op
+		for _, s := range steps {
+			got = append(got, s.op)
+		}
+		if fmt.Sprint(got) != fmt.Sprint(want.steps) {
+			t.Errorf("%s: steps %+v, want %+v", in, got, want.steps)
+		}
+	}
+	for _, bad := range []string{`{"type":"key","action":"down","key":"F13"}`, `{"type":"key","action":"press","key":"Enter"}`, `{"type":"pinch"}`} {
+		d, _ := devicestream.DecodeInput([]byte(bad))
+		if _, _, err := fromViewer(d); err == nil {
+			t.Errorf("%s was taken", bad)
 		}
 	}
 }

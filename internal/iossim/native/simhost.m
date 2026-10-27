@@ -13,10 +13,13 @@
 //   {"op":"button","button":"home","down":true}     home, lock, siri, volumeUp, volumeDown
 //
 // and writes frames on stdout: a big-endian uint32 length (of what follows),
-// a kind byte, and a payload. 1: the stream's config, JSON. 2: an H.264
-// access unit, as a flags byte (1: keyframe), a big-endian uint64 timestamp
-// in µs, and the NAL units in Annex B, keyframes led by their SPS and PPS.
-// 3: an event, JSON: {"screen":{…}}, {"input":…} or {"error":…}.
+// a kind byte, and a payload. 1: the stream's config, JSON, with its codec
+// string and its AVCDecoderConfigurationRecord (description, base64), before
+// the first keyframe and whenever they change. 2: an H.264 access unit, as a
+// flags byte (1: keyframe), a big-endian uint64 timestamp (µs since 1970),
+// and its NAL units each after a 4-byte length (AVCC), as VideoToolbox makes
+// them: the shapes of internal/devicestream's wire format, which the helper
+// passes on. 3: an event, JSON: {"screen":{…}}, {"input":…} or {"error":…}.
 //
 // The screen is CoreSimulator's framebuffer, an IOSurface, encoded on the
 // Mac's hardware H.264 encoder (software only when it has none) with no
@@ -365,6 +368,7 @@ static BOOL hardware;
 static NSString *codec;
 static BOOL forceKey;
 static uint64_t started;            // mach time the stream started
+static double startedWall;          // and the time of day then, in seconds
 static uint64_t lastEncoded;
 static mach_timebase_info_data_t timebase;
 static dispatch_source_t timer;
@@ -373,15 +377,33 @@ static uint64_t micros(uint64_t machTime) {
     return machTime * timebase.numer / timebase.denom / 1000;
 }
 
-static void appendBE64(NSMutableData *d, uint64_t v) {
-    uint8_t b[8];
-    for (int i = 0; i < 8; i++) {
-        b[i] = (uint8_t)(v >> (56 - 8 * i));
+// avcCOf is a format's AVCDecoderConfigurationRecord: VideoToolbox's own
+// avcC atom, or one made from its parameter sets.
+static NSData *avcCOf(CMFormatDescriptionRef format) {
+    CFDictionaryRef atoms = (CFDictionaryRef)CMFormatDescriptionGetExtension(format, kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms);
+    if (atoms && CFGetTypeID(atoms) == CFDictionaryGetTypeID()) {
+        CFDataRef avcC = (CFDataRef)CFDictionaryGetValue(atoms, CFSTR("avcC"));
+        if (avcC && CFGetTypeID(avcC) == CFDataGetTypeID()) {
+            return (__bridge NSData *)avcC;
+        }
     }
-    [d appendBytes:b length:8];
+    const uint8_t *sps = NULL, *pps = NULL;
+    size_t spsLength = 0, ppsLength = 0;
+    if (CMVideoFormatDescriptionGetH264ParameterSetAtIndex(format, 0, &sps, &spsLength, NULL, NULL) != noErr ||
+        CMVideoFormatDescriptionGetH264ParameterSetAtIndex(format, 1, &pps, &ppsLength, NULL, NULL) != noErr || spsLength < 4) {
+        return nil;
+    }
+    NSMutableData *d = [NSMutableData data];
+    uint8_t head[] = {1, sps[1], sps[2], sps[3], 0xFF, 0xE1, (uint8_t)(spsLength >> 8), (uint8_t)spsLength};
+    [d appendBytes:head length:sizeof head];
+    [d appendBytes:sps length:spsLength];
+    uint8_t mid[] = {1, (uint8_t)(ppsLength >> 8), (uint8_t)ppsLength};
+    [d appendBytes:mid length:sizeof mid];
+    [d appendBytes:pps length:ppsLength];
+    return d;
 }
 
-static const uint8_t startCode[4] = {0, 0, 0, 1};
+static NSData *avcCSent; // the description last in a config
 
 static void encoded(void *ref, void *frameRef, OSStatus status, VTEncodeInfoFlags flags, CMSampleBufferRef sample) {
     if (status != noErr || !sample || !CMSampleBufferDataIsReady(sample)) {
@@ -393,55 +415,33 @@ static void encoded(void *ref, void *frameRef, OSStatus status, VTEncodeInfoFlag
         CFDictionaryRef a = CFArrayGetValueAtIndex(attachments, 0);
         key = CFDictionaryGetValue(a, kCMSampleAttachmentKey_NotSync) != kCFBooleanTrue;
     }
-    NSMutableData *out = [NSMutableData dataWithCapacity:64 * 1024];
-    uint8_t flagByte = key ? 1 : 0;
-    [out appendBytes:&flagByte length:1];
-    appendBE64(out, (uint64_t)(CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample)) * 1e6));
     if (key) {
-        CMFormatDescriptionRef format = CMSampleBufferGetFormatDescription(sample);
-        size_t count = 0;
-        CMVideoFormatDescriptionGetH264ParameterSetAtIndex(format, 0, NULL, NULL, &count, NULL);
-        NSString *profile = nil;
-        for (size_t i = 0; i < count; i++) {
-            const uint8_t *set = NULL;
-            size_t length = 0;
-            if (CMVideoFormatDescriptionGetH264ParameterSetAtIndex(format, i, &set, &length, NULL, NULL) != noErr) {
-                continue;
-            }
-            if (i == 0 && length >= 4) {
-                profile = [NSString stringWithFormat:@"avc1.%02x%02x%02x", set[1], set[2], set[3]];
-            }
-            [out appendBytes:startCode length:4];
-            [out appendBytes:set length:length];
-        }
-        if (profile && ![profile isEqualToString:codec]) {
-            codec = profile;
+        NSData *avcC = avcCOf(CMSampleBufferGetFormatDescription(sample));
+        if (avcC.length >= 4 && ![avcC isEqualToData:avcCSent]) {
+            const uint8_t *c = avcC.bytes;
+            avcCSent = [avcC copy];
+            codec = [NSString stringWithFormat:@"avc1.%02x%02x%02x", c[1], c[2], c[3]];
             emitJSON(KindConfig, @{
                 @"codec" : codec,
                 @"width" : @(encodeWidth),
                 @"height" : @(encodeHeight),
+                @"description" : [avcCSent base64EncodedStringWithOptions:0],
                 @"hardware" : @(hardware),
             });
         }
     }
     CMBlockBufferRef block = CMSampleBufferGetDataBuffer(sample);
     size_t total = CMBlockBufferGetDataLength(block);
-    NSMutableData *avcc = [NSMutableData dataWithLength:total];
-    if (CMBlockBufferCopyDataBytes(block, 0, total, avcc.mutableBytes) != kCMBlockBufferNoErr) {
-        return;
+    NSMutableData *out = [NSMutableData dataWithLength:9 + total];
+    uint8_t *p = out.mutableBytes;
+    p[0] = key ? 1 : 0;
+    uint64_t at = (uint64_t)((startedWall + CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample))) * 1e6);
+    for (int i = 0; i < 8; i++) {
+        p[1 + i] = (uint8_t)(at >> (56 - 8 * i));
     }
-    // AVCC's 4-byte lengths become Annex B's start codes.
-    const uint8_t *p = avcc.bytes;
-    size_t off = 0;
-    while (off + 4 <= total) {
-        uint32_t n = ((uint32_t)p[off] << 24) | ((uint32_t)p[off + 1] << 16) | ((uint32_t)p[off + 2] << 8) | p[off + 3];
-        off += 4;
-        if (n > total - off) {
-            break;
-        }
-        [out appendBytes:startCode length:4];
-        [out appendBytes:p + off length:n];
-        off += n;
+    // VideoToolbox's H.264 is AVCC already, with 4-byte lengths.
+    if (CMBlockBufferCopyDataBytes(block, 0, total, p + 9) != kCMBlockBufferNoErr) {
+        return;
     }
     emit(KindFrame, out);
 }
@@ -464,6 +464,7 @@ static void stopEncoder(void) {
     }
     sourceWidth = sourceHeight = 0;
     codec = nil;
+    avcCSent = nil;
 }
 
 static void setProperty(CFStringRef key, CFTypeRef value) {
@@ -578,6 +579,7 @@ static void startStream(void) {
         return;
     }
     started = mach_absolute_time();
+    startedWall = [[NSDate date] timeIntervalSince1970];
     lastEncoded = 0;
     forceKey = YES;
     timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, captureQueue);

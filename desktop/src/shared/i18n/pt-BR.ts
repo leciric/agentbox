@@ -2434,7 +2434,6 @@ export const ptBR: Messages = {
   'agent.ios.shutDown': 'Desligar',
   'agent.ios.shutDownTip': 'Desliga o simulador, para todos os agentes que o usam',
   'agent.ios.onTheMac': '{xcode} neste Mac',
-  'agent.ios.connecting': 'Conectando ao simulador…',
   'agent.android.screenshotTip': 'Captura o dispositivo e guarda em Mídia',
   'agent.android.browserRecording': 'A tela do navegador está sendo gravada',
   'agent.android.recordTip': 'Grava a tela do dispositivo e guarda em Mídia',

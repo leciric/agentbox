@@ -516,6 +516,8 @@ const iosStatus = (): T.IOSStatus => {
   return { available: true, xcode: 'Xcode 26.1', devices, device: iosScenario === 'booted' ? devices[0].udid : undefined };
 };
 if (iosScenario) {
+  // An iOS project, so its agents have iOS without Xcode too; before
+  // seedQueryClient, which the bridge answers /v1/projects from.
   fixtures.projects.find((p) => p.name === PROJECT)!.ios = true;
   const bridge = (window as unknown as { agentbox: { info: () => Promise<Record<string, unknown>> } }).agentbox;
   const info = bridge.info;
@@ -669,6 +671,8 @@ setUiV2(params.get('v2') === '1');
 if (appView && params.get('v2') === '1') {
   seedLeadLines(queryClient);
   seedV2(queryClient, params.get('pins'));
+  // &ios=…, after seedV2's projects: the project is an iOS one.
+  if (iosScenario) queryClient.setQueryData<T.Project[]>(['projects'], (ps) => ps?.map((p) => (p.name === PROJECT ? { ...p, ios: true } : p)));
   setGroupIdle(params.get('groupidle') === '1');
   seedEvidence(queryClient);
   // &stale=1: idle-1 has unseen questions from agents that no longer exist.

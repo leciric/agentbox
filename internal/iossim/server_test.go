@@ -1,7 +1,6 @@
 package iossim
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +14,7 @@ import (
 	"github.com/coder/websocket"
 
 	"agentbox/internal/api"
+	"agentbox/internal/devicestream"
 )
 
 // testHelper is the helper's API on an httptest server, with a client that
@@ -222,7 +222,22 @@ func readMessage(t *testing.T, conn *websocket.Conn) (websocket.MessageType, []b
 	return typ, data
 }
 
-func TestViewStreamsFromAKeyframeAndTakesInput(t *testing.T) {
+func decode(t *testing.T, conn *websocket.Conn) devicestream.Message {
+	t.Helper()
+	typ, data := readMessage(t, conn)
+	if typ != websocket.MessageBinary {
+		t.Fatalf("a %s message: %s", typ, data)
+	}
+	m, err := devicestream.DecodeMessage(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+const testConfig = `{"codec":"avc1.4d0028","width":884,"height":1920,"description":"AU0AKP/hAAA=","hardware":true}`
+
+func TestViewStreamsDeviceStreamsWireFormatFromAKeyframe(t *testing.T) {
 	h := newTestHelper(t)
 	ctx := testContext(t)
 	conn, err := h.client.View(ctx, testUDID)
@@ -233,22 +248,21 @@ func TestViewStreamsFromAKeyframeAndTakesInput(t *testing.T) {
 	if o := h.simhost.next(t); o != (op{Op: "stream", On: true}) {
 		t.Fatalf("the first viewer sent %+v, want the stream on", o)
 	}
-	h.simhost.write(t, kindConfig, []byte(`{"codec":"avc1.4d0028","width":884,"height":1920,"hardware":true}`))
+	h.simhost.write(t, kindConfig, []byte(testConfig))
 	h.simhost.write(t, kindFrame, frame(false, 1, "late"))
-	h.simhost.write(t, kindFrame, frame(true, 2, "key"))
-	h.simhost.write(t, kindFrame, frame(false, 3, "delta"))
+	h.simhost.write(t, kindFrame, frame(true, 1_761_000_000_000_000, "key"))
+	h.simhost.write(t, kindFrame, frame(false, 1_761_000_000_016_000, "delta"))
 
-	typ, data := readMessage(t, conn)
-	var config map[string]any
-	if typ != websocket.MessageText || json.Unmarshal(data, &config) != nil || config["type"] != "config" || config["codec"] != "avc1.4d0028" {
-		t.Fatalf("first message %s %s, want the config", typ, data)
+	m := decode(t, conn)
+	if c := m.Config; c == nil || c.V != devicestream.Version || c.Platform != "ios" || c.Codec != "avc1.4d0028" || c.Width != 884 || c.Height != 1920 || len(c.Description) != 8 {
+		t.Fatalf("first message %+v, want the config", m)
 	}
 	// The frame before the keyframe is no use to it, so it doesn't get it.
-	for _, want := range []string{"key", "delta"} {
-		typ, data = readMessage(t, conn)
-		if typ != websocket.MessageBinary || string(data[9:]) != want {
-			t.Fatalf("got %s %q, want frame %q", typ, data, want)
-		}
+	if p := decode(t, conn).Packet; p == nil || !p.Key || string(p.Data) != "key" || p.At.UnixMicro() != 1_761_000_000_000_000 {
+		t.Fatalf("got %+v, want the keyframe", p)
+	}
+	if p := decode(t, conn).Packet; p == nil || p.Key || string(p.Data) != "delta" {
+		t.Fatalf("got %+v, want the next frame", p)
 	}
 
 	// A second viewer gets the config it missed, and asks for a keyframe.
@@ -256,39 +270,71 @@ func TestViewStreamsFromAKeyframeAndTakesInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, data := readMessage(t, second); !strings.Contains(string(data), `"config"`) {
-		t.Errorf("the second viewer's first message is %s", data)
+	if m := decode(t, second); m.Config == nil {
+		t.Errorf("the second viewer's first message is %+v", m)
 	}
 	if o := h.simhost.next(t); o.Op != "keyframe" {
 		t.Errorf("a second viewer sent %+v, want a keyframe", o)
 	}
 	_ = second.CloseNow()
 
-	if err := conn.Write(ctx, websocket.MessageText, []byte(`{"type":"touch","phase":"down","x":0.25,"y":0.75}`)); err != nil {
-		t.Fatal(err)
+	// The viewer's input, as DeviceStreamView sends it.
+	for _, in := range []string{
+		`{"type":"touch","action":"down","x":0.25,"y":0.75,"id":0}`,
+		`{"type":"key","action":"down","key":"Enter"}`,
+		`{"type":"button","button":"back"}`,
+		`{"type":"keyframe"}`,
+	} {
+		if err := conn.Write(ctx, websocket.MessageText, []byte(in)); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if o := h.simhost.next(t); o != (op{Op: "touch", Phase: "down", X: 0.25, Y: 0.75}) {
-		t.Errorf("simhost got %+v", o)
-	}
-	if err := conn.Write(ctx, websocket.MessageText, []byte(`{"type":"tap","x":3}`)); err != nil {
-		t.Fatal(err)
-	}
-	if typ, data := readMessage(t, conn); typ != websocket.MessageText || !strings.Contains(string(data), "off the screen") {
-		t.Errorf("a bad input answered %s %s", typ, data)
+	for _, want := range []op{{Op: "touch", Phase: "down", X: 0.25, Y: 0.75}, {Op: "key", Usage: 0x28, Down: true}, {Op: "keyframe"}} {
+		if o := h.simhost.next(t); o != want {
+			t.Errorf("simhost got %+v, want %+v", o, want)
+		}
 	}
 
+	// An input that failed doesn't end the stream; simhost stopping does, saying why.
 	h.simhost.write(t, kindEvent, []byte(`{"error":"dtuhidd didn't answer"}`))
-	if _, data := readMessage(t, conn); !strings.Contains(string(data), "dtuhidd didn't answer") {
-		t.Errorf("an error from simhost came as %s", data)
+	h.simhost.write(t, kindFrame, frame(false, 3, "still"))
+	if p := decode(t, conn).Packet; p == nil || string(p.Data) != "still" {
+		t.Fatalf("after an input error, got %+v", p)
+	}
+	h.server.hosts.stop(testUDID)
+	if m := decode(t, conn); !strings.Contains(m.Err, "dtuhidd didn't answer") {
+		t.Errorf("simhost stopping said %+v", m)
+	}
+}
+
+func TestTheLastViewerLeavingStopsTheStream(t *testing.T) {
+	h := newTestHelper(t)
+	ctx := testContext(t)
+	conn, err := h.client.View(ctx, testUDID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o := h.simhost.next(t); !o.On {
+		t.Fatalf("got %+v", o)
 	}
 	_ = conn.CloseNow()
-	for o := h.simhost.next(t); o.Op != "stream"; o = h.simhost.next(t) {
+	if o := h.simhost.next(t); o != (op{Op: "stream"}) {
+		t.Errorf("the last viewer leaving sent %+v, want the stream off", o)
 	}
-	h.simhost.mu.Lock()
-	last := h.simhost.ops[len(h.simhost.ops)-1]
-	h.simhost.mu.Unlock()
-	if last.On {
-		t.Error("the last viewer leaving left the stream on")
+}
+
+func TestABadConfigFromSimhostStopsIt(t *testing.T) {
+	h := newTestHelper(t)
+	ctx := testContext(t)
+	conn, err := h.client.View(ctx, testUDID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.CloseNow() }()
+	h.simhost.next(t)
+	h.simhost.write(t, kindConfig, []byte(`{"codec":""}`))
+	if m := decode(t, conn); !strings.Contains(m.Err, "config") {
+		t.Errorf("got %+v, want why it stopped", m)
 	}
 }
 

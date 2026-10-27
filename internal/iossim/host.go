@@ -10,13 +10,17 @@ import (
 	"io"
 	"sync"
 	"time"
+
+	"agentbox/internal/devicestream"
 )
 
 // What simhost writes on its stdout: frames of a big-endian uint32 length
-// (of the kind and the payload), a kind byte, and the payload.
+// (of the kind and the payload), a kind byte, and the payload. The config and
+// the frames are internal/devicestream's, which the helper sends on as they
+// are, in that package's wire format, to the app's DeviceStreamView.
 const (
-	kindConfig = 1 // JSON: the stream's codec and size, before its first frame and when either changes
-	kindFrame  = 2 // a flags byte (1: a keyframe), a big-endian uint64 timestamp in µs, an H.264 access unit (Annex B)
+	kindConfig = 1 // JSON: codec, width, height and description (an avcC, base64), before a keyframe when they change
+	kindFrame  = 2 // a flags byte (1: a keyframe), a big-endian uint64 timestamp (µs since 1970), an access unit in AVCC
 	kindEvent  = 3 // JSON: {"screen":{"width","height"}} once it found the screen, {"input":"dtuhid"} once input is ready, {"error":"…"}
 )
 
@@ -35,15 +39,9 @@ type Proc struct {
 // Launcher starts simhost for a simulator. Tests give it a fake.
 type Launcher func(ctx context.Context, udid string) (*Proc, error)
 
-// message is one WebSocket message to a viewer: a JSON text message, or a
-// frame as kindFrame's payload.
-type message struct {
-	text bool
-	data []byte
-}
-
 type viewer struct {
-	out chan message
+	// out are devicestream messages, each a binary WebSocket message.
+	out chan []byte
 	// keyed is false until the viewer has had a keyframe: until then, frames
 	// that depend on earlier ones are no use to it.
 	keyed bool
@@ -57,7 +55,7 @@ type host struct {
 	writeMu sync.Mutex
 
 	mu      sync.Mutex
-	config  []byte // the last kindConfig, for viewers that join later
+	config  []byte // the last config message, for viewers that join later
 	width   int    // the screen, in pixels, once simhost has said
 	height  int
 	screen  chan struct{} // closed once the size is known
@@ -148,7 +146,6 @@ func (h *host) read() {
 	var head [5]byte
 	for {
 		if _, err := io.ReadFull(r, head[:]); err != nil {
-			h.broadcast(message{text: true, data: errorMessage("the simulator's helper stopped: " + h.why())})
 			return
 		}
 		n := binary.BigEndian.Uint32(head[:4])
@@ -162,11 +159,15 @@ func (h *host) read() {
 		}
 		switch head[4] {
 		case kindConfig:
-			text := configMessage(payload)
+			msg, err := configMessage(payload)
+			if err != nil {
+				h.fail(err.Error())
+				return
+			}
 			h.mu.Lock()
-			h.config = text
+			h.config = msg
 			h.mu.Unlock()
-			h.broadcast(message{text: true, data: text})
+			h.broadcast(msg)
 		case kindFrame:
 			h.frame(payload)
 		case kindEvent:
@@ -182,21 +183,15 @@ func (h *host) fail(msg string) {
 	_ = h.proc.Stop()
 }
 
-// configMessage is simhost's config as the viewer gets it, a "config"
-// message.
-func configMessage(payload []byte) []byte {
-	var c map[string]any
-	if json.Unmarshal(payload, &c) != nil {
-		c = map[string]any{}
+// configMessage is simhost's config as the viewer gets it: devicestream's
+// config message.
+func configMessage(payload []byte) ([]byte, error) {
+	var c devicestream.Config
+	if err := json.Unmarshal(payload, &c); err != nil || c.Codec == "" || len(c.Description) == 0 {
+		return nil, fmt.Errorf("simhost wrote a config that isn't one: %s", payload)
 	}
-	c["type"] = "config"
-	data, _ := json.Marshal(c)
-	return data
-}
-
-func errorMessage(msg string) []byte {
-	data, _ := json.Marshal(map[string]string{"type": "error", "message": msg})
-	return data
+	c.Platform = "ios"
+	return devicestream.EncodeConfig(c), nil
 }
 
 func (h *host) event(payload []byte) {
@@ -220,11 +215,12 @@ func (h *host) event(payload []byte) {
 		}
 		h.mu.Unlock()
 	}
+	// Not the viewers': an input that didn't go through is no reason to stop
+	// watching. Its error stays, for when simhost stops.
 	if e.Error != "" {
 		h.mu.Lock()
 		h.lastErr = e.Error
 		h.mu.Unlock()
-		h.broadcast(message{text: true, data: errorMessage(e.Error)})
 	}
 }
 
@@ -236,6 +232,7 @@ func (h *host) frame(payload []byte) {
 		return
 	}
 	key := payload[0]&1 != 0
+	msg := devicestream.EncodeFrame(devicestream.Packet{Key: key, At: time.UnixMicro(int64(binary.BigEndian.Uint64(payload[1:9]))), Data: payload[9:]})
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	behind := false
@@ -244,7 +241,7 @@ func (h *host) frame(payload []byte) {
 			continue
 		}
 		select {
-		case v.out <- message{data: payload}:
+		case v.out <- msg:
 			v.keyed = true
 		default:
 			v.keyed = false
@@ -256,7 +253,7 @@ func (h *host) frame(payload []byte) {
 	}
 }
 
-func (h *host) broadcast(m message) {
+func (h *host) broadcast(m []byte) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for v := range h.viewers {
@@ -271,12 +268,12 @@ func (h *host) broadcast(m message) {
 // then frames from the next keyframe on. The first viewer starts the
 // capture, and leave stops it after the last.
 func (h *host) watch() (v *viewer, leave func(), err error) {
-	v = &viewer{out: make(chan message, 64)}
+	v = &viewer{out: make(chan []byte, 64)}
 	h.mu.Lock()
 	first := len(h.viewers) == 0
 	h.viewers[v] = true
 	if h.config != nil {
-		v.out <- message{text: true, data: h.config}
+		v.out <- h.config
 	}
 	h.mu.Unlock()
 	if first {

@@ -13,6 +13,7 @@ import (
 	"github.com/coder/websocket"
 
 	"agentbox/internal/api"
+	"agentbox/internal/devicestream"
 	"agentbox/internal/hostos"
 	"agentbox/internal/iossim"
 	"agentbox/internal/state"
@@ -249,7 +250,8 @@ func (s *Server) iosScreenshot(ctx context.Context, a state.Agent) ([]byte, erro
 }
 
 // iosView relays a simulator's screen between the app and the helper,
-// message for message (iossim's Server.view): ?device= names it, or else
+// message for message, as androidStream does an emulator's: the helper
+// speaks internal/devicestream's wire format. ?device= names it, or else
 // it's the agent's.
 func (s *Server) iosView(w http.ResponseWriter, r *http.Request) error {
 	a, err := s.agentFromPath(r)
@@ -260,38 +262,22 @@ func (s *Server) iosView(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithCancel(r.Context())
-	defer cancel()
-	helper, err := s.iosClient().View(ctx, udid)
+	device, err := s.iosClient().View(r.Context(), udid)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = helper.CloseNow() }()
+	defer func() { _ = device.CloseNow() }()
 	s.setIOSCurrent(a.Ref(), udid)
 	// The socket is only reachable by this user, so any origin (the desktop app's) is fine.
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+	viewer, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
 	if err != nil {
 		return nil // Accept has already written the response
 	}
-	defer func() { _ = conn.CloseNow() }()
-	go func() {
-		relayMessages(ctx, conn, helper)
-		cancel()
-	}()
-	relayMessages(ctx, helper, conn)
-	return nil
-}
-
-// relayMessages copies WebSocket messages from one side to the other until
-// either ends.
-func relayMessages(ctx context.Context, from, to *websocket.Conn) {
-	for {
-		typ, data, err := from.Read(ctx)
-		if err != nil {
-			return
-		}
-		if err := to.Write(ctx, typ, data); err != nil {
-			return
-		}
+	defer func() { _ = viewer.CloseNow() }()
+	viewer.SetReadLimit(1 << 20)
+	if err := devicestream.Relay(r.Context(), viewer, device); err != nil {
+		s.logf("%s's iOS stream: %v", a.Ref(), err)
 	}
+	_ = viewer.Close(websocket.StatusNormalClosure, "")
+	return nil
 }

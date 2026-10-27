@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Camera, Circle, Lock, LoaderCircle, Play, Power, TabletSmartphone, TriangleAlert } from 'lucide-react';
+import { Camera, Circle, Lock, LoaderCircle, MousePointer2, Play, Power, TabletSmartphone, TriangleAlert } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
@@ -10,6 +10,7 @@ import { IOSScreen } from './IOSScreen';
 import { Button } from './ui/button';
 import { Code, Notice } from './ui/card';
 import { Select, SelectOption } from './ui/select';
+import { Switch } from './ui/switch';
 import { Tip } from './ui/tooltip';
 
 // IOSTab is the Mac's iOS Simulator, for an agent: pick a simulator, boot it,
@@ -32,6 +33,9 @@ export function IOSTab({ agent, onOpenMedia, compact = false }: { agent: T.Agent
   const udid = picked || status.data?.device || devices.find((d) => d.state === 'Booted')?.udid || devices[0]?.udid || '';
   const device = devices.find((d) => d.udid === udid);
   const booted = device?.state === 'Booted';
+  // Your mouse and keyboard go to the simulator only once you take control.
+  const [control, setControl] = useState(false);
+  const [connected, setConnected] = useState(false);
 
   const setStatus = (next: T.IOSStatus) => queryClient.setQueryData(['ios', agent.ref], next);
   const open = useMutation({ mutationFn: () => api.openIOS(agent.ref, udid), onSuccess: setStatus });
@@ -59,7 +63,7 @@ export function IOSTab({ agent, onOpenMedia, compact = false }: { agent: T.Agent
         >
           {devices.map((d) => (
             <SelectOption key={d.udid} value={d.udid}>
-              {t('agent.ios.deviceName', { name: d.name, runtime: d.runtime })}
+              {compact ? d.name : t('agent.ios.deviceName', { name: d.name, runtime: d.runtime })}
             </SelectOption>
           ))}
         </Select>
@@ -75,11 +79,16 @@ export function IOSTab({ agent, onOpenMedia, compact = false }: { agent: T.Agent
           </Button>
         </Tip>
         <Tip label={t('agent.ios.screenshotTip')}>
-          <Button size="sm" aria-label={compact ? t('agent.browser.screenshot') : undefined} disabled={!booted || shot.isPending || agent.state !== 'running'} onClick={() => shot.mutate()}>
+          <Button size="icon-sm" variant="ghost" aria-label={t('agent.browser.screenshot')} disabled={!booted || shot.isPending || agent.state !== 'running'} onClick={() => shot.mutate()}>
             {shot.isPending ? <LoaderCircle className="animate-spin" /> : <Camera />}
-            {!compact && t('agent.browser.screenshot')}
           </Button>
         </Tip>
+        <div className="mx-1 h-5 w-px shrink-0 bg-line-strong" />
+        <label className={cn('flex shrink-0 items-center gap-2 rounded-lg px-1.5 py-1 text-[13px] text-tertiary', control && 'text-brand-200')}>
+          <Switch id="ios-control" checked={control} disabled={!booted || !connected} onCheckedChange={setControl} />
+          <MousePointer2 className="size-3.5" />
+          {compact ? <span className="sr-only">{t('agent.browser.takeControl')}</span> : t('agent.browser.takeControl')}
+        </label>
         {booted && (
           <Tip label={t('agent.ios.shutDownTip')}>
             <Button size="icon-sm" variant="ghost" aria-label={t('agent.ios.shutDown')} disabled={close.isPending} onClick={() => close.mutate()}>
@@ -96,7 +105,7 @@ export function IOSTab({ agent, onOpenMedia, compact = false }: { agent: T.Agent
 
       <div className="relative min-h-0 flex-1 overflow-hidden bg-[radial-gradient(ellipse_at_center,rgb(124_58_237/0.10),transparent_60%)]">
         {booted && device ? (
-          <IOSScreen agent={agent} device={device} />
+          <IOSScreen agent={agent} device={device} control={control} onState={(state) => setConnected(state.phase === 'playing')} />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center p-6">
             <div className="grid max-w-md animate-slide-up justify-items-center gap-3 text-center">
@@ -138,7 +147,7 @@ export function IOSTab({ agent, onOpenMedia, compact = false }: { agent: T.Agent
 
       <div className="flex h-8 shrink-0 items-center gap-3 border-t border-line px-4 text-xs text-subtle">
         <span className="truncate">{status.data?.xcode ? t('agent.ios.onTheMac', { xcode: status.data.xcode }) : ''}</span>
-        <span className="ml-auto shrink-0 truncate font-mono text-[11px]">{booted ? device?.runtime : ''}</span>
+        <span className="ml-auto shrink-0 truncate">{!booted ? '' : control ? t('agent.android.controlOn') : t('agent.android.viewOnly')}</span>
       </div>
     </div>
   );

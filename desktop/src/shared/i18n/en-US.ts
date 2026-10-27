@@ -2433,7 +2433,6 @@ export const enUS = {
   'agent.ios.shutDown': 'Shut down',
   'agent.ios.shutDownTip': 'Shut the simulator down, for every agent using it',
   'agent.ios.onTheMac': '{xcode} on this Mac',
-  'agent.ios.connecting': 'Connecting to the simulator…',
   'agent.android.screenshotTip': 'Take a screenshot of the device, kept in Media',
   'agent.android.browserRecording': 'The browser screen is being recorded',
   'agent.android.recordTip': 'Record the device’s screen, kept in Media',

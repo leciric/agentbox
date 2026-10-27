@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"agentbox/internal/api"
+	"agentbox/internal/devicestream"
 )
 
 // op is one message to simhost, a line of JSON on its stdin.
@@ -208,6 +209,62 @@ func press(usage int, modifiers ...int) []step {
 		steps = append(steps, step{op: op{Op: "key", Usage: modifiers[i]}})
 	}
 	return steps
+}
+
+// browserKeys are the keys a viewer names as KeyboardEvent.key does
+// (devicestream's key input), by their HID usage.
+var browserKeys = map[string]int{
+	"Enter": 0x28, "Escape": 0x29, "Backspace": 0x2a, "Tab": 0x2b, "Delete": 0x4c,
+	"ArrowRight": 0x4f, "ArrowLeft": 0x50, "ArrowDown": 0x51, "ArrowUp": 0x52,
+	"Home": 0x4a, "End": 0x4d, "PageUp": 0x4b, "PageDown": 0x4e,
+	"Control": 0xe0, "Shift": 0xe1, "Alt": 0xe2, "Meta": 0xe3,
+}
+
+// wheelReach is how far a finger drags, as a fraction of the screen, for
+// each wheel click: an iPhone has no wheel, so a viewer's scrolling is a
+// short swipe the other way.
+const wheelReach = 0.08
+
+// fromViewer is what a viewer's input (internal/devicestream's) is on a
+// simulator: an api.IOSInput for plan, or simhost's steps for a key held
+// and let go as the viewer's are. Neither, for a button an iPhone hasn't
+// got (back, recents, rotate).
+func fromViewer(in devicestream.Input) (*api.IOSInput, []step, error) {
+	switch in.Type {
+	case devicestream.InputTouch:
+		phase := in.Action
+		if phase == "cancel" {
+			phase = "up"
+		}
+		return &api.IOSInput{Type: "touch", Phase: phase, X: in.X, Y: in.Y}, nil, nil
+	case devicestream.InputKey:
+		if in.Action != "down" && in.Action != "up" {
+			return nil, nil, fmt.Errorf("unknown key action %q", in.Action)
+		}
+		usage, ok := browserKeys[in.Key]
+		// Else a character, with Control or Meta held: its key.
+		if r := []rune(in.Key); !ok && len(r) == 1 {
+			usage, _, ok = usageOf(r[0])
+		}
+		if !ok {
+			return nil, nil, fmt.Errorf("unknown key %q", in.Key)
+		}
+		return nil, []step{{op: op{Op: "key", Usage: usage, Down: in.Action == "down"}}}, nil
+	case devicestream.InputText:
+		return &api.IOSInput{Type: "text", Text: in.Text}, nil, nil
+	case devicestream.InputWheel:
+		clamp := func(v float64) float64 { return min(max(v, 0), 1) }
+		return &api.IOSInput{
+			Type: "swipe", X: in.X, Y: in.Y, DurationMS: 100,
+			X2: clamp(in.X - in.DX*wheelReach), Y2: clamp(in.Y - in.DY*wheelReach),
+		}, nil, nil
+	case devicestream.InputButton:
+		if in.Button == "home" {
+			return &api.IOSInput{Type: "button", Button: "home"}, nil, nil
+		}
+		return nil, nil, nil
+	}
+	return nil, nil, fmt.Errorf("unknown input %q", in.Type)
 }
 
 // pasteSteps is ⌘V, after text was put on the simulator's pasteboard.
