@@ -1517,6 +1517,45 @@ var migrations = []string{
 	`ALTER TABLE agents ADD COLUMN desired_state TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE agents ADD COLUMN status_detail TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE agents ADD COLUMN destroyed_at INTEGER NOT NULL DEFAULT 0`,
+	// The bearer token a pod authenticates to the Kubernetes gateway with,
+	// one per agent. The token itself is never stored: hash is its SHA-256
+	// hex, so a copy of state.db hands nobody a working token, and the
+	// plaintext exists only in the pod's Secret. expires_at is unix seconds,
+	// 0 for "as long as the pod"; the reconciler deletes the row with the pod,
+	// and PruneAgentTokens sweeps the ones that carried a deadline. The unique
+	// index is what SetAgentToken replaces on, so an agent never holds two.
+	`CREATE TABLE agent_tokens (
+		hash       TEXT PRIMARY KEY,
+		project    TEXT NOT NULL,
+		agent      TEXT NOT NULL,
+		expires_at INTEGER NOT NULL DEFAULT 0,
+		created_at INTEGER NOT NULL
+	)`,
+	`CREATE UNIQUE INDEX agent_tokens_agent ON agent_tokens (project, agent)`,
+	// Where this daemon's gateway is reachable from a cluster's pods, as the
+	// user set it: the MagicDNS name through the tailnet, or
+	// http://host.k3d.internal:7782 for a local k3d cluster on this machine.
+	// Empty until the user sets it, and an agent can't start in that cluster
+	// until they do.
+	`ALTER TABLE clusters ADD COLUMN master_url TEXT NOT NULL DEFAULT ''`,
+	// The remotes a project's agents clone and push with, one row per profile:
+	// private is the server their work-in-progress branches stay on, public the
+	// one a finished change is published to. url may be an alias (forge:) that
+	// the master resolves before a pod sees it; auth is how the profile signs
+	// in (token, ssh-key or a stored GitHub account), and credential names that
+	// login without holding it, so a copy of state.db is no way to push.
+	`CREATE TABLE project_git_remotes (
+		project    TEXT NOT NULL,
+		profile    TEXT NOT NULL,
+		url        TEXT NOT NULL,
+		auth       TEXT NOT NULL,
+		credential TEXT NOT NULL DEFAULT '',
+		PRIMARY KEY (project, profile)
+	)`,
+	// Which of those profiles a project's agents use. Private by default,
+	// because an agent branch is unfinished work and must not reach the public
+	// remote unasked.
+	`ALTER TABLE projects ADD COLUMN agent_remote TEXT NOT NULL DEFAULT 'private'`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -1626,6 +1665,12 @@ type Project struct {
 	// GitHubAccount is the GitHub account this project's new agents use;
 	// empty means the machine's default account.
 	GitHubAccount string
+	// AgentRemote is which of the project's two git profiles its agents clone
+	// and push with: GitProfilePrivate or GitProfilePublic (gitremotes.go). A
+	// project reads GitProfilePrivate until SetProjectAgentRemote picks the
+	// other one, whether or not it has either profile yet, so what a pod
+	// clones from is ProjectGitRemotes' answer rather than this alone.
+	AgentRemote string
 	// CodexAccount and CursorAccount are the Codex and Cursor accounts this
 	// project's new agents and its lead use; empty means the machine's
 	// default. OpenCodeAccounts is OpenCode's, one per provider (provider →
@@ -1986,6 +2031,11 @@ const projectColumns = `name, display_name, root, created_at, claude_account, au
 // argument list of.
 const projectPlacement = `section, position`
 
+// projectAgentRemote is which git profile a project's agents use, read beside
+// the columns above for the same reason: a profile is something the project is
+// given after it exists (SetProjectAgentRemote), so AddProject has no opinion.
+const projectAgentRemote = `agent_remote`
+
 // projectSelect is projectColumns qualified, for the one query that joins the
 // sections in to order by them. One source of truth for the column list, so
 // adding a column to a project can't leave this behind.
@@ -2177,7 +2227,7 @@ func (s *Store) SetProjectDisplayName(ctx context.Context, name, display string)
 
 // Projects lists every project in the order the sidebar shows them (D79).
 func (s *Store) Projects(ctx context.Context) ([]Project, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+projectSelect+`, p.section, p.position
+	rows, err := s.db.QueryContext(ctx, `SELECT `+projectSelect+`, p.section, p.position, p.`+projectAgentRemote+`
 		FROM projects p LEFT JOIN project_sections s ON s.id = p.section `+projectOrder)
 	if err != nil {
 		return nil, err
@@ -2191,12 +2241,14 @@ func (s *Store) Projects(ctx context.Context) ([]Project, error) {
 		if err := rows.Scan(&p.Name, &p.DisplayName, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
 			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff,
-			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.Section, &p.Position); err != nil {
+			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.Section, &p.Position,
+			&p.AgentRemote); err != nil {
 			return nil, err
 		}
 		p.CreatedAt = time.Unix(created, 0)
 		p.ClaudeAccounts = splitAccounts(allowed)
 		p.OpenCodeAccounts = ParseAccountMap(opencode)
+		p.AgentRemote = agentRemoteOrPrivate(p.AgentRemote)
 		projects = append(projects, p)
 	}
 	return projects, rows.Err()
@@ -2273,11 +2325,17 @@ var projectOwned = []string{
 	"chat_items",
 	"chats",
 	"archived_agents",
+	// A pod's token is worthless once its project is gone, and the pod it
+	// authenticated is deleted with the agents above.
+	"agent_tokens",
 	// Its secrets and connectors can't be read by anything once it's gone.
 	"secrets",
 	"connectors",
 	"connector_projects",
 	"skill_projects",
+	// And the remotes its agents cloned from: a project added again under the
+	// same name must not start out pointing at somebody else's server.
+	"project_git_remotes",
 	// Project memory (D72).
 	"memory_serves",
 	"memory_anchors",
@@ -2745,13 +2803,14 @@ func (s *Store) projectWhere(ctx context.Context, where string, arg any) (Projec
 	var p Project
 	var created int64
 	var allowed, opencode string
-	err := s.db.QueryRowContext(ctx, `SELECT `+projectColumns+`, `+projectPlacement+` FROM projects WHERE `+where, arg).
+	err := s.db.QueryRowContext(ctx, `SELECT `+projectColumns+`, `+projectPlacement+`, `+projectAgentRemote+` FROM projects WHERE `+where, arg).
 		Scan(&p.Name, &p.DisplayName, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
 			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff,
-			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.Section, &p.Position)
+			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.Section, &p.Position, &p.AgentRemote)
 	p.ClaudeAccounts = splitAccounts(allowed)
 	p.OpenCodeAccounts = ParseAccountMap(opencode)
+	p.AgentRemote = agentRemoteOrPrivate(p.AgentRemote)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Project{}, ErrNotFound
 	}
