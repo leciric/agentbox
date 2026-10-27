@@ -95,7 +95,7 @@ func (p podLifecycle) Snapshot(ctx context.Context, ref gateway.Ref, name string
 		if err := p.s.store.SetAgentDesiredState(ctx, a.Project, a.Name, state.DesiredStopped); err != nil {
 			return err
 		}
-		if err := waitPodGone(ctx, client, a); err != nil {
+		if err := waitPodGone(ctx, client, a, "the claim cannot be archived while it is mounted"); err != nil {
 			return err
 		}
 	}
@@ -239,7 +239,7 @@ func (p podLifecycle) RestoreSnapshot(ctx context.Context, ref gateway.Ref, name
 		if err := p.s.store.SetAgentDesiredState(ctx, a.Project, a.Name, state.DesiredStopped); err != nil {
 			return err
 		}
-		if err := waitPodGone(ctx, client, a); err != nil {
+		if err := waitPodGone(ctx, client, a, "the claim cannot be archived while it is mounted"); err != nil {
 			return err
 		}
 	}
@@ -483,8 +483,9 @@ func (m snapshotMeta) archive() string {
 }
 
 // waitPodGone waits until the cluster no longer has the agent's pod, which is
-// what has to be true before a helper can mount its ReadWriteOnce claim.
-func waitPodGone(ctx context.Context, client *k8s.Cluster, a state.Agent) error {
+// what has to be true before a helper can mount its ReadWriteOnce claim, and
+// before a new pod can take its place. why says what is waiting on it.
+func waitPodGone(ctx context.Context, client *k8s.Cluster, a state.Agent, why string) error {
 	deadline := time.Now().Add(podStopTimeout)
 	for {
 		_, err := client.Get(ctx, a.Project, a.Name)
@@ -495,7 +496,7 @@ func waitPodGone(ctx context.Context, client *k8s.Cluster, a state.Agent) error 
 			return err
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("%s's pod is still there after %s: the claim cannot be archived while it is mounted", a.Ref(), podStopTimeout)
+			return fmt.Errorf("%s's pod is still there after %s: %s", a.Ref(), podStopTimeout, why)
 		}
 		select {
 		case <-ctx.Done():

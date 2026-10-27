@@ -40,6 +40,58 @@ func (p podLifecycle) Info(ctx context.Context, ref gateway.Ref) (machine.Info, 
 	return podInfo(a), nil
 }
 
+// Recreate deletes the agent's pod and asks for a new one on the same claim. The
+// claim is the machine, so its files stay; the pod is a use of it, and the new
+// one runs the image the cluster points at now. The row's pinned image goes with
+// the pod, which is what makes this a recreate and not a restart: a restore pins
+// the image its snapshot was taken with, and recreating is how an agent picks up
+// the cluster's current one.
+//
+// The old pod is waited for before the new one is asked for, so a reconciler
+// round that lands between the two can never adopt the pod this is replacing.
+func (p podLifecycle) Recreate(ctx context.Context, ref gateway.Ref) error {
+	a, err := p.s.store.Agent(ctx, ref.Project, ref.Agent)
+	if err != nil {
+		return err
+	}
+	if !a.OnCluster() {
+		return fmt.Errorf("%s runs on this host, where recreating a machine is the manager's job, not its pod's", a.Ref())
+	}
+	cluster, err := p.s.store.Cluster(ctx, a.Cluster)
+	if err != nil {
+		return err
+	}
+	client, err := p.s.clusterClient(cluster)
+	if err != nil {
+		return err
+	}
+	// Stopped first, so a reconciler round that lands between the delete and the
+	// image change cannot make a pod at the image this is replacing.
+	if err := p.s.store.SetAgentDesiredState(ctx, a.Project, a.Name, state.DesiredStopped); err != nil {
+		return err
+	}
+	if err := client.Delete(ctx, a.Project, a.Name); err != nil {
+		return err
+	}
+	if err := waitPodGone(ctx, client, a, "the pod has to go before a new one can be made"); err != nil {
+		return err
+	}
+	// The row names the pod that just went, and a token is good for exactly the
+	// pod it was minted for: the reconciler mints a new one with the new pod.
+	_ = p.s.store.RemoveAgentToken(ctx, a.Project, a.Name)
+	if a.Pod != "" || a.PodUID != "" || a.StatusDetail != "" {
+		if err := p.s.store.SetAgentPod(ctx, a.Project, a.Name, "", "", ""); err != nil {
+			return err
+		}
+	}
+	// The claim's name is the one the row already names, which is "" for an
+	// agent that never moved: Start's spec derives the same name again.
+	if err := p.s.store.SetAgentClaim(ctx, a.Project, a.Name, a.Claim, ""); err != nil {
+		return err
+	}
+	return p.s.store.SetAgentDesiredState(ctx, a.Project, a.Name, state.DesiredRunning)
+}
+
 // podInfo is what the agent's row says about its machine. It is running when
 // the user asked for that and the reconciler has adopted a pod with nothing
 // wrong with it; a pod still being made counts as stopped, so the manager's

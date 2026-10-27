@@ -212,6 +212,7 @@ type fakePods struct {
 	started   int
 	stopped   int
 	destroyed int
+	recreated int
 	snapshots []machine.Snapshot
 	snapped   string
 	restored  string
@@ -244,6 +245,14 @@ func (p *fakePods) Destroy(ctx context.Context, ref gateway.Ref) error {
 	defer p.mu.Unlock()
 	p.destroyed++
 	p.state = "Stopped"
+	return nil
+}
+
+func (p *fakePods) Recreate(ctx context.Context, ref gateway.Ref) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.recreated++
+	p.state = "Running"
 	return nil
 }
 
@@ -610,6 +619,22 @@ func TestKubernetesInfoReadsThePodState(t *testing.T) {
 	}
 }
 
+func TestKubernetesRecreateReplacesThePod(t *testing.T) {
+	pods := &fakePods{state: "Running"}
+	rt := machine.NewKubernetes(nil, pods)
+	m := rt.Machine(podRef.String())
+	rec, ok := m.(machine.Recreator)
+	if !ok {
+		t.Fatal("a pod's machine is not a Recreator")
+	}
+	if err := rec.Recreate(podContext(t)); err != nil {
+		t.Fatalf("Recreate = %v", err)
+	}
+	if pods.recreated != 1 {
+		t.Errorf("the pods were asked to recreate %d time(s), want 1", pods.recreated)
+	}
+}
+
 func TestKubernetesOperationsAPodHasNoNotionOf(t *testing.T) {
 	rt, _ := newKubernetes(t, &fakePods{})
 	m := rt.Machine(podRef.String())
@@ -659,6 +684,7 @@ func TestKubernetesABadRefFailsEveryMethod(t *testing.T) {
 		{"Pause", func() error { return m.Pause(ctx) }},
 		{"Resume", func() error { return m.Resume(ctx) }},
 		{"Destroy", func() error { return m.Destroy(ctx) }},
+		{"Recreate", func() error { return m.(machine.Recreator).Recreate(ctx) }},
 		{"Exec", func() error { _, err := m.Exec(ctx, "true"); return err }},
 		{"ExecInput", func() error { _, err := m.ExecInput(ctx, strings.NewReader("x"), "cat"); return err }},
 		{"UserExec", func() error { return m.UserExec(ctx, "agent", "true", nil, nil, nil) }},
