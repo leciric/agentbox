@@ -1229,6 +1229,8 @@ const devState: {
   update?: T.UpdateStatus;
   appVersion?: string;
   staleDaemon?: { daemon: string; app: string; jobs: number };
+  // A project's git profiles, once a scenario changes the fixture (?git=).
+  projectGit?: T.ProjectGit;
 } = { projects: [] };
 
 // seedQueryClient primes every query AgentRail and Sidebar read, at
@@ -2107,6 +2109,115 @@ export function seedVMDisk(queryClient: QueryClient, unmeasured = false): void {
 // own file (dev/review.tsx), which can't be imported here without a cycle.
 export const devRequests: ((method: string, path: string, body?: unknown) => { status: number; body: string; contentType: string } | undefined)[] = [];
 
+// fixtureClusters and fixtureRegistries are what GET /v1/clusters and
+// /v1/registries answer: one k3d cluster whose image is in a Forgejo registry.
+// Settings draws them, and the create dialog's picker reads the cluster.
+export const fixtureClusters: T.Cluster[] = [
+  {
+    name: 'k3d',
+    namespace: 'agentbox',
+    storageClass: 'local-path',
+    image: 'agentbox-agent:dev',
+    registry: 'forgejo',
+    maxAgents: 4,
+    tailnet: 'operator',
+    createdAt: '2026-10-20T10:00:00Z',
+    lastSeen: '2026-10-27T09:12:00Z',
+  },
+];
+export const fixtureRegistries: T.Registry[] = [
+  {
+    name: 'forgejo',
+    url: 'hub.example.com/h4ad',
+    public: false,
+    hasCa: false,
+    hasCredential: true,
+    insecure: false,
+    createdAt: '2026-10-19T18:00:00Z',
+  },
+];
+
+// projectGitFixture is what GET /v1/projects/{project}/git answers: a private
+// profile whose token is stored, and a public one signing in as a GitHub
+// account with no token stored. The public profile's URL is a forge: alias
+// nothing here resolves, which is the state the card's inline error shows.
+export const projectGitFixture: T.ProjectGit = {
+  agentRemote: 'private',
+  profiles: [
+    {
+      profile: 'private',
+      url: 'forge:h4ad/agentbox.git',
+      auth: 'token',
+      credential: 'hub-forgejo',
+      hasCredential: true,
+      resolvedURL: 'https://hub.example.ts.net/h4ad/agentbox.git',
+    },
+    {
+      profile: 'public',
+      url: 'forge:leciric/agentbox.git',
+      auth: 'github-account',
+      credential: 'personal-account-with-a-long-name',
+      hasCredential: false,
+      resolveError:
+        'project "agentbox"\'s public git profile: nothing on this machine turns forge:leciric/agentbox.git into a real URL: set the rule once, then it works for every project, with\ngit config --global url.<https base>.insteadof forge:',
+    },
+  ],
+};
+
+// seedProjectGit is ?git=missing: the project's agents use a profile it no
+// longer has, which is what the create dialog refuses before a pod is made.
+export function seedProjectGit(queryClient: QueryClient, state: string): void {
+  const git: T.ProjectGit =
+    state === 'missing' ? { agentRemote: 'private', profiles: projectGitFixture.profiles.filter((p) => p.profile !== 'private') } : structuredClone(projectGitFixture);
+  devState.projectGit = git;
+  queryClient.setQueryData(['projectGit', PROJECT], git);
+}
+
+// projectGitRequest answers a project's git profiles, their test and their
+// use, changing what later reads answer the way the daemon's own routes do.
+function projectGitRequest(method: string, path: string, body?: unknown) {
+  const at = /^\/v1\/projects\/([^/]+)\/git(?:\/(private|public|use|test))?$/.exec(path);
+  if (!at) return undefined;
+  const json = (value: unknown) => ({ status: 200, body: JSON.stringify(value), contentType: 'application/json' });
+  const current: T.ProjectGit = devState.projectGit ?? structuredClone(projectGitFixture);
+  const save = (next: T.ProjectGit) => {
+    devState.projectGit = next;
+    return next;
+  };
+  if (method === 'GET') return json(current);
+  if (method === 'POST' && at[2] === 'test') {
+    const profile = (body as T.TestProjectGitRequest | undefined)?.profile || current.agentRemote;
+    const found = current.profiles.find((p) => p.profile === profile);
+    if (!found) return json({ profile, url: '', ok: false, refs: 0, detail: `project "${PROJECT}" has no ${profile} git profile` } satisfies T.ProjectGitTest);
+    if (found.resolveError) return json({ profile, url: found.url, ok: false, refs: 0, detail: found.resolveError } satisfies T.ProjectGitTest);
+    if (!found.hasCredential)
+      return json({ profile, url: found.resolvedURL ?? found.url, ok: false, refs: 0, detail: `credential "${found.credential || found.profile}" is not stored` } satisfies T.ProjectGitTest);
+    return json({ profile, url: found.resolvedURL ?? found.url, ok: true, refs: 42 } satisfies T.ProjectGitTest);
+  }
+  if (method === 'PUT' && (at[2] === 'private' || at[2] === 'public')) {
+    const req = body as T.SetProjectGitProfileRequest;
+    const profile = at[2];
+    const found = current.profiles.find((p) => p.profile === profile);
+    const updated: T.ProjectGitProfile = {
+      profile,
+      url: req.url,
+      auth: req.auth || 'token',
+      credential: req.credential || (req.auth === 'github-account' ? '' : profile),
+      hasCredential: req.secret ? true : !!found?.hasCredential,
+      resolvedURL: req.url,
+    };
+    const profiles = [...current.profiles.filter((p) => p.profile !== profile), updated].sort((a, b) =>
+      a.profile === b.profile ? 0 : a.profile === 'private' ? -1 : b.profile === 'private' ? 1 : 0,
+    );
+    return json(save({ ...current, profiles }));
+  }
+  if (method === 'DELETE' && (at[2] === 'private' || at[2] === 'public')) {
+    return json(save({ ...current, profiles: current.profiles.filter((p) => p.profile !== at[2]) }));
+  }
+  if (method === 'POST' && at[2] === 'use') return json(save({ ...current, agentRemote: (body as T.UseProjectGitRequest).profile }));
+  return undefined;
+}
+
 // filesRequest answers the file panel beside a chat (components/files) with a
 // small worktree, the same for every chat, so Files opens in the preview.
 const devTree: Record<string, [string, boolean][]> = {
@@ -2290,6 +2401,10 @@ export function installDevBridge(): void {
   (window as unknown as { agentbox: unknown }).agentbox = {
     request: async (method: string, path: string, body?: unknown) => {
       if (method === 'PATCH' && path === '/v1/settings') return patchDefaults(body as T.UpdateSettingsRequest);
+      if (method === 'GET' && path === '/v1/clusters') return { status: 200, body: JSON.stringify(fixtureClusters), contentType: 'application/json' };
+      if (method === 'GET' && path === '/v1/registries') return { status: 200, body: JSON.stringify(fixtureRegistries), contentType: 'application/json' };
+      const git = projectGitRequest(method, path, body);
+      if (git) return git;
       if (method === 'GET' && path === '/v1/usage-stats/pending') return { status: 200, body: JSON.stringify(usageStatsPending), contentType: 'application/json' };
       if (method === 'GET' && path.startsWith('/v1/stopped-machines')) return { status: 200, body: JSON.stringify(fixtureStoppedMachines(path)), contentType: 'application/json' };
       if (method === 'POST' && path === '/v1/stopped-machines/remove') return { status: 200, body: JSON.stringify(removeFixtureStopped((body as T.RemoveStoppedRequest).agents)), contentType: 'application/json' };
