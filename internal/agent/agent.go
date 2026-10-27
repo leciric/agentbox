@@ -875,7 +875,7 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		// Refused where the user can pick another tool, not at the first
 		// message.
 		if pl.ai == "cursor" {
-			return state.Agent{}, fmt.Errorf("Cursor is not in the agent image yet, so an agent on a cluster cannot chat: choose Claude Code, Codex or OpenCode, or --ai none")
+			return state.Agent{}, fmt.Errorf("a cluster agent cannot chat with Cursor: it isn't in the agent image yet, so choose Claude Code, Codex or OpenCode, or --ai none")
 		}
 		// A pod clones its project's git profile, so a project with no usable
 		// one is refused here: before a row or a pod exists to clean up, and
