@@ -296,6 +296,20 @@ export const api = {
   removeBase: (name: string) => call<void>('DELETE', `${project(name)}/base`),
   removePreviousBase: (name: string) => call<void>('DELETE', `${project(name)}/base?previous=1`),
 
+  // A project's git profiles: where its cluster agents clone and push, and how
+  // each one signs in. No answer carries a credential, only its name and
+  // whether it is stored; a value only ever goes in (internal/daemon/gitprofiles.go).
+  projectGit: (name: string) => call<T.ProjectGit>('GET', `${project(name)}/git`),
+  setProjectGitProfile: (name: string, profile: string, req: T.SetProjectGitProfileRequest) =>
+    call<T.ProjectGit>('PUT', `${project(name)}/git/${encodeURIComponent(profile)}`, req),
+  removeProjectGitProfile: (name: string, profile: string) => call<T.ProjectGit>('DELETE', `${project(name)}/git/${encodeURIComponent(profile)}`),
+  // Which profile its agents clone with from now on.
+  selectProjectGitProfile: (name: string, profile: string) =>
+    call<T.ProjectGit>('POST', `${project(name)}/git/use`, { profile } satisfies T.UseProjectGitRequest),
+  // An empty profile tests the one the project's agents use.
+  testProjectGitProfile: (name: string, profile = '') =>
+    call<T.ProjectGitTest>('POST', `${project(name)}/git/test`, { profile } satisfies T.TestProjectGitRequest),
+
   agents: () => call<T.Agent[]>('GET', '/v1/agents'),
   // Making or starting an agent in VM mode brings the VM up first, so the
   // one click is all it takes after Free resources turned everything off.

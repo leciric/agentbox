@@ -18,6 +18,7 @@ import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } fr
 import { Select, SelectOption, selectTrigger } from './ui/select';
 import type { SettingGroup, SettingSection } from '../lib/settingsSearch';
 import { ClaudeAccountPicker, ClaudeAccountsPicker, GitHubAccountPicker, OpenCodeAccountsPicker, ToolAccountPicker } from './ProjectAccounts';
+import { gitProfileGroups } from './GitProfiles';
 import { openSettingsSection, SettingGroups } from './SettingsPage';
 import { SettingNote, SettingRow } from './ui/settings';
 import { Switch } from './ui/switch';
@@ -194,6 +195,7 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
         },
       ],
     },
+    ...gitProfileGroups(project),
     {
       id: 'pulls',
       title: t('defaults.project.groupPulls'),

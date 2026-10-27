@@ -11,7 +11,9 @@ import { projectAgentDefaults, startingPick } from '../lib/agentPick';
 import { choiceName } from '../lib/modelChoices';
 import { useT, type MessageKey } from '../lib/i18n';
 import { cn, errorMessage } from '../lib/utils';
+import { gitProfileWord, projectGitKey } from './GitProfiles';
 import { JobProgress } from './JobProgress';
+import { openSettingsSection } from './SettingsPage';
 import { AIIcon, aiLabel } from './state';
 import { Button } from './ui/button';
 import { Code, Notice } from './ui/card';
@@ -42,6 +44,9 @@ interface Form {
   clean: boolean;
   claudeAccount: string; // "" is the project's account
   githubAccount: string; // "" is the project's account
+  // The Kubernetes cluster its pod runs in, by name; "" is an Incus machine on
+  // this computer, which is what every installation did before clusters.
+  cluster: string;
   // What this agent does to the project's chat when it finishes: "" follows
   // the project's own setting, "chat" wakes it and "off" only records the
   // finish. Only matters when the project's setting is "lead".
@@ -64,6 +69,7 @@ const emptyForm: Form = {
   clean: false,
   claudeAccount: '',
   githubAccount: '',
+  cluster: '',
   notify: '',
 };
 
@@ -107,6 +113,14 @@ export function NewAgentDialog({
   // without OpenCode can't run an OpenCode agent, whatever logins there are.
   const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup, enabled: open && form.ai === 'opencode' });
   const base = useQuery({ queryKey: ['base', form.project], queryFn: () => api.base(form.project), enabled: open && form.project !== '' });
+  // Where a project's cluster agents clone from. Read only once a cluster is
+  // chosen, so the Incus path asks for nothing new.
+  const clusters = useQuery({ queryKey: ['clusters'], queryFn: api.clusters, enabled: open });
+  const git = useQuery({
+    queryKey: projectGitKey(form.project),
+    queryFn: () => api.projectGit(form.project),
+    enabled: open && form.project !== '' && form.cluster !== '',
+  });
   const selected = projects.data?.find((p) => p.name === form.project);
   const allowedAccounts = selected?.claudeAccounts ?? [];
   const accounts = (auth.data?.claudeAccounts ?? []).filter((a) => allowedAccounts.length === 0 || allowedAccounts.includes(a.name));
@@ -167,6 +181,7 @@ export function NewAgentDialog({
         clean: form.clean || undefined,
         claudeAccount: form.ai === 'claude' ? form.claudeAccount || undefined : undefined,
         githubAccount: form.githubAccount || undefined,
+        cluster: form.cluster || undefined,
         finishNotice: form.notify || undefined,
       }),
     onSuccess: (started) => {
@@ -232,6 +247,33 @@ export function NewAgentDialog({
   // the form is filled in rather than after it is sent.
   const missingFromImage = form.ai === 'opencode' && setup.data?.image.installed.opencode === false;
 
+  // A pod clones its project's git profile, so a profile that can't clone or
+  // push is refused here, before the request: the daemon refuses it too, with
+  // the command that fixes it (agent.Create, gitprofile.go). The profile the
+  // project names is the one a pod gets. The daemon falls back to the other
+  // when the named one was removed, and this does not: an agent quietly
+  // cloning from the public remote where the project asked for the private one
+  // is worse than refusing the create.
+  const wanted = git.data?.agentRemote || 'private';
+  const agentProfile = (git.data?.profiles ?? []).find((p) => p.profile === wanted);
+  const agentProfileName = gitProfileWord(wanted);
+  const gitProblem =
+    form.cluster === '' || !git.data
+      ? ''
+      : !agentProfile
+        ? t('project.newAgent.gitNoProfile', { profile: agentProfileName })
+        : agentProfile.resolveError
+          ? t('project.newAgent.gitNoResolve', { profile: agentProfileName, error: agentProfile.resolveError })
+          : agentProfile.url.trim() === ''
+            ? t('project.newAgent.gitNoURL', { profile: agentProfileName })
+            : !agentProfile.hasCredential
+              ? t('project.newAgent.gitNoLogin', { profile: agentProfileName, credential: agentProfile.credential || agentProfile.profile })
+              : '';
+  // The answer is on its way: a submit now would be the request the daemon
+  // refuses, so the button waits rather than flashing an error.
+  const gitChecking = form.cluster !== '' && git.isPending;
+  const gitBlocked = gitProblem !== '' || gitChecking;
+
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="max-w-xl">
@@ -265,6 +307,7 @@ export function NewAgentDialog({
             className="grid gap-5"
             onSubmit={(event) => {
               event.preventDefault();
+              if (!form.project || gitBlocked) return;
               create.mutate();
             }}
           >
@@ -311,6 +354,19 @@ export function NewAgentDialog({
                 ))}
               </Select>
             </Field>
+
+            {clusters.data && clusters.data.length > 0 && (
+              <Field label={t('project.newAgent.clusterLabel')} htmlFor="agent-cluster" hint={t('project.newAgent.clusterHint')}>
+                <Select id="agent-cluster" data-new-agent-cluster value={form.cluster} onChange={(value) => set('cluster', value)}>
+                  <SelectOption value="">{t('project.newAgent.clusterLocal')}</SelectOption>
+                  {clusters.data.map((cluster) => (
+                    <SelectOption key={cluster.name} value={cluster.name}>
+                      {cluster.capacity ? t('project.newAgent.clusterOption', { name: cluster.name, agents: cluster.capacity.agents }) : cluster.name}
+                    </SelectOption>
+                  ))}
+                </Select>
+              </Field>
+            )}
 
             <div className="grid gap-1.5">
               <Label>{t('project.newAgent.aiTool')}</Label>
@@ -564,6 +620,24 @@ export function NewAgentDialog({
                 {t.rich('project.newAgent.noOpenCode', { code: (c) => <Code>{c}</Code> })}
               </Notice>
             )}
+            {gitProblem !== '' && (
+              <Notice tone="warning">
+                <div className="grid justify-items-start gap-2">
+                  <p>{gitProblem}</p>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    data-new-agent-open-git
+                    onClick={() => {
+                      onClose();
+                      openSettingsSection(`project:${form.project}`);
+                    }}
+                  >
+                    {t('project.newAgent.openGitSettings')}
+                  </Button>
+                </div>
+              </Notice>
+            )}
             {image.data?.ready === false && (
               <Notice tone="info">
                 {image.data.build === 'building' ? t('project.newAgent.imageBuilding') : t('project.newAgent.noImage')}
@@ -590,7 +664,7 @@ export function NewAgentDialog({
               <Button variant="ghost" onClick={onClose}>
                 {t('common.cancel')}
               </Button>
-              <Button type="submit" variant="primary" disabled={!form.project || create.isPending}>
+              <Button type="submit" variant="primary" disabled={!form.project || create.isPending || gitBlocked}>
                 {create.isPending && <LoaderCircle className="animate-spin" />}
                 {t('project.newAgent.create')}
               </Button>

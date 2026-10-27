@@ -522,6 +522,37 @@
     "height": 900
   },
   {
+    "id": "git-project-dark",
+    "description": "A project's Settings → Git: the private profile with its login stored and its resolved URL, and the public one with no login and an alias that does not resolve, in the dark theme",
+    "query": "settings=project:agentbox&theme=dark",
+    "width": 1280,
+    "height": 2400
+  },
+  {
+    "id": "git-project-edit-light",
+    "description": "The same Git section with the private profile's edit form open: URL, auth, credential name and the write-only login, in the light theme",
+    "query": "settings=project:agentbox&theme=light",
+    "width": 1280,
+    "height": 2400,
+    "click": "[data-git-edit=private]"
+  },
+  {
+    "id": "git-create-missing-dark",
+    "description": "The create-agent dialog on k3d for a project whose private git profile is gone: the refusal, a disabled Create and the way to its Git settings, in the dark theme",
+    "query": "newagent=1&git=missing&theme=dark",
+    "width": 900,
+    "height": 1400,
+    "click": ["[data-new-agent-cluster]", "[role=menuitem]:has-text('k3d')"]
+  },
+  {
+    "id": "git-search-narrow-dark",
+    "description": "Settings searched for \"credential\" in a narrow window: the project's Git section found by the word, its cards wrapped, not overflowing, in the dark theme",
+    "query": "settings=project:agentbox&theme=dark",
+    "width": 560,
+    "height": 1200,
+    "fill": ["[data-settings-search]", "credential"]
+  },
+  {
     "id": "settings-search-narrow-dark",
     "description": "Settings searched for \"memory\" in a narrow window, where the sections are a row of chips — dark",
     "query": "settings=models&theme=dark",
@@ -996,7 +1027,7 @@
     "description": "The New agent dialog, with its Size picker under the Queue switch — dark",
     "query": "newagent=1&theme=dark",
     "width": 1100,
-    "height": 900
+    "height": 1200
   },
   {
     "id": "notify-bell-dark",
