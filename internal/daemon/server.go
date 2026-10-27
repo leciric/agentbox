@@ -678,8 +678,9 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 	loops.Go(func() { s.continueTurns(ctx) })
 	loops.Go(func() { s.rearmLimits(ctx) })
 	loops.Go(func() { s.unloadChats(ctx) })
-	// What an earlier release left queued starts now (leftoverqueue.go).
-	loops.Go(func() { s.startLeftoverQueue(ctx) })
+	// What an earlier release left queued, and what this one queued for a
+	// cluster with no room, starts as a cluster has room (queue.go).
+	loops.Go(func() { s.runQueue(ctx) })
 	s.startRemote(ctx)
 	// A new AgentBox may pin newer agent tools than the base image has: they
 	// are moved on in the background, while agents go on being made from it.

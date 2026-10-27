@@ -29,7 +29,7 @@ const stateLabels: Record<string, MessageKey> = {
   running: 'agent.state.running',
   paused: 'agent.state.paused',
   stopped: 'agent.state.stopped',
-  queued: 'agent.state.initializing',
+  queued: 'agent.state.queued',
   initializing: 'agent.state.initializing',
   incomplete: 'agent.state.incomplete',
   missing: 'agent.state.missing',

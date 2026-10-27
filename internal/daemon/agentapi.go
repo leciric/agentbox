@@ -145,6 +145,7 @@ func (s *Server) inAgentRoutesFor(agentOf func(*http.Request) (state.Agent, erro
 		handle("POST /v1/self/android/"+action, s.android(action, agentOf, "agent"))
 	}
 	// The Mac's iOS Simulator, which it drives as the app's view does.
+	self := agentOf
 	handle("GET /v1/self/ios", s.ios("status", self))
 	for _, action := range iosActions {
 		handle("POST /v1/self/ios/"+action, s.ios(action, self))

@@ -49,7 +49,7 @@ func (s *Server) projectInfo(ctx context.Context, p state.Project) api.Project {
 		AgentModel: p.AgentModel, AgentTool: p.AgentTool, AgentEffort: p.AgentEffort, AgentContextWindow: p.AgentContextWindow, AgentMode: p.AgentMode, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
 		RolloverThreshold: p.RolloverThreshold, ContextBudget: p.ContextBudget,
 		Consolidation: p.Consolidation, ConsolidationModel: p.ConsolidationModel,
-		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, FullTestSuite: p.FullTestSuite, PickUpIssues: p.PickUpIssues, PullRequests: !p.PullsOff, CreatedAt: p.CreatedAt}
+		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, FullTestSuite: p.FullTestSuite, PickUpIssues: p.PickUpIssues, PullRequests: !p.PullsOff, Cluster: p.Cluster, CreatedAt: p.CreatedAt}
 	// One primary-key lookup: listProjects runs this for every project.
 	if v, err := s.store.ProjectIconVersion(ctx, p.Name); err == nil {
 		info.IconVersion = v
@@ -362,6 +362,20 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		p.BranchPrefix = prefix
+		s.events.publish(api.EventProject, api.ProjectChange{Name: p.Name})
+	}
+	if req.Cluster != nil {
+		// The store checks a named cluster exists, and leaves "auto" and the
+		// empty string alone: one asks the daemon to place each agent, the
+		// other is this host. "local" is how a request says this host when
+		// saying nothing would follow the project.
+		if err := s.store.SetProjectCluster(r.Context(), p.Name, strings.TrimSpace(*req.Cluster)); err != nil {
+			return err
+		}
+		if stored, err := s.store.Project(r.Context(), p.Name); err == nil {
+			p = stored
+		}
+		rewriteBrief()
 		s.events.publish(api.EventProject, api.ProjectChange{Name: p.Name})
 	}
 	if req.ClaudeAccount != nil || req.ClaudeAccounts != nil {
@@ -1256,6 +1270,20 @@ func (s *Server) createAgentJob(ctx context.Context, req api.CreateAgentRequest,
 	if err != nil {
 		return api.Job{}, err
 	}
+	// Where it would run, and whether there is room for it now. A caller that
+	// asked to wait gets a queued agent instead of an error; one that didn't
+	// gets the reason, before a job that would only fail in the background.
+	p, err := s.store.Project(ctx, req.Project)
+	if err != nil {
+		return api.Job{}, err
+	}
+	if _, err := s.placeAgent(ctx, p, req.Cluster); err != nil {
+		var noRoom *NoRoomError
+		if errors.As(err, &noRoom) && req.Queue != nil && *req.Queue {
+			return s.queueCreate(ctx, req, byLead, noRoom.Reason)
+		}
+		return api.Job{}, err
+	}
 	create := s.createJob(req, byLead, "")
 	j, err := s.launchJob("create", req.Project, create)
 	return withTool(j, req), err
@@ -1387,6 +1415,22 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 	}
 	return func(ctx context.Context, log io.Writer) (any, error) {
 		began := time.Now()
+		// Where it runs. A name the caller gave is used as it is: admission
+		// happened before the job started (and the queue reserved the slot),
+		// so asking again here would refuse an agent that was just accepted.
+		// Anything else — "auto", or nothing at all, which follows the
+		// project — is resolved and admitted now, which is the path a group,
+		// an issue or an earlier release's queue comes through.
+		p, err := s.store.Project(ctx, req.Project)
+		if err != nil {
+			return nil, err
+		}
+		cluster := strings.TrimSpace(req.Cluster)
+		if cluster == "" || cluster == state.ClusterAuto {
+			if cluster, err = s.placeAgent(ctx, p, cluster); err != nil {
+				return nil, err
+			}
+		}
 		// What a catch-up ran is kept too, so a failed one can show the agent
 		// its last lines.
 		var ran *tailWriter
@@ -1415,10 +1459,8 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 
 			CopyEnv: !req.NoEnv,
 			Clean:   req.Clean,
-			// Empty keeps the agent on this host, which is what every caller
-			// did before a cluster could be chosen (Stage 6's project default
-			// comes later).
-			Cluster: req.Cluster,
+			// The concrete cluster placeAgent chose, "" for this host.
+			Cluster: cluster,
 
 			FinishNotice: req.FinishNotice,
 			LeadSession:  req.LeadSession,

@@ -35,6 +35,7 @@ export interface Project {
   fullTestSuite: boolean;
   pickUpIssues: boolean;
   pullRequests: boolean;
+  cluster: string;
   prWatching: boolean;
   createdAt: string;
   iconVersion: number;
@@ -119,6 +120,7 @@ export interface UpdateProjectRequest {
   agentPRs?: boolean;
   prWatch?: string;
   syncBase?: boolean;
+  cluster?: string;
   fullTestSuite?: boolean;
   pickUpIssues?: boolean;
   pullRequests?: boolean;
@@ -328,6 +330,8 @@ export interface Agent {
   outcomeUntil?: string;
   changesRequested?: string;
   state: string;
+  queuePosition?: number;
+  queueReason?: string;
   waitingForImage?: boolean;
   memory?: MemoryHold;
   reclaimed?: string;
@@ -2045,6 +2049,8 @@ export interface FleetAgent {
   outcomeUntil?: string;
   changesRequested?: string;
   state: string;
+  queuePosition?: number;
+  queueReason?: string;
   waitingForImage?: boolean;
   memory?: MemoryHold;
   reclaimed?: string;

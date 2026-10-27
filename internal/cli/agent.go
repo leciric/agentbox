@@ -197,6 +197,7 @@ func newCreateCmd(a *app) *cobra.Command {
 			req.Project = args[0]
 			f := cmd.Flags()
 			req.Autonomous = &autonomous
+			req.Queue = &queue
 			if f.Changed("model") {
 				req.Model = &model
 			}
@@ -244,16 +245,28 @@ func newCreateCmd(a *app) *cobra.Command {
 	f.StringVar(&req.CursorAccount, "cursor-account", "", "with --ai cursor, a stored Cursor account for this agent (default: the project's, then this machine's default)")
 	f.StringToStringVar(&req.OpenCodeAccounts, "opencode-account", nil, "with --ai opencode, a stored OpenCode account for a provider, as provider=account; repeat it for several (default: the project's, then each provider's default)")
 	f.StringVar(&req.GitHubAccount, "github-account", "", "a stored GitHub account for this agent (default: the project's, then this machine's default, then none)")
-	f.BoolVar(&queue, "queue", false, "accepted and ignored: every agent starts at once")
+	f.BoolVar(&queue, "queue", false, "wait in the project's queue when no cluster has room, instead of failing")
 	f.StringVar(&req.Size, "size", "", "accepted and ignored: the VM's memory pressure, not a size, decides when an agent's tests and builds run")
-	f.StringVar(&req.Cluster, "cluster", "", "run its machine as a pod in this Kubernetes cluster (default: an Incus instance on this machine)")
-	_ = f.MarkHidden("queue")
+	f.StringVar(&req.Cluster, "cluster", "", "run its machine as a pod in this Kubernetes cluster, auto to place it where there is room, or local for this machine (default: the project's choice)")
 	_ = f.MarkHidden("size")
 	f.StringVar(&req.Task, "task", "", "its first message, sent once it's ready: what to do")
 	f.BoolVar(&req.NoEnv, "no-env", false, "don't copy gitignored env files from the project")
 	f.BoolVar(&req.Clean, "clean", false, "start from the base image even if the project has a saved base")
 	f.BoolVar(&req.CatchUp, "catch-up", false, "bring the machine up to the current base image's packages and agent tools before its task: how a project base is refreshed")
 	return cmd
+}
+
+// queuePlace is where a queued agent stands in its project's line, as a
+// parenthetical, or "" when the queue didn't say.
+func queuePlace(position int) string {
+	switch {
+	case position <= 0:
+		return ""
+	case position == 1:
+		return " (next in line)"
+	default:
+		return fmt.Sprintf(" (%d in line)", position)
+	}
 }
 
 // finishAgentJob waits for a job that makes an agent, then describes the agent.
@@ -272,6 +285,13 @@ func finishAgentJob(cmd *cobra.Command, c *api.Client, j api.Job, start time.Tim
 
 func printAgent(cmd *cobra.Command, ag api.Agent, took time.Duration) {
 	out := cmd.OutOrStdout()
+	if ag.State == "queued" {
+		// Accepted, not made: the queue starts it when a cluster has room,
+		// and the reason says what is full.
+		_, _ = fmt.Fprintf(out, "\nAgent %s is queued%s: %s\n", ag.Ref, queuePlace(ag.QueuePosition), ag.QueueReason)
+		_, _ = fmt.Fprintf(out, "\nIt starts by itself when a cluster has room. Agentbox list shows the queue.\n")
+		return
+	}
 	_, _ = fmt.Fprintf(out, "\nAgent %s ready in %s\n\n", ag.Ref, took.Round(100*time.Millisecond))
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	if ag.Title != "" {
@@ -347,7 +367,19 @@ func newListCmd(a *app) *cobra.Command {
 				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 					ag.Ref, describeAI(ag.AI, ag.Autonomous), ag.State, ag.Branch, orDash(ag.IP), ago(ag.CreatedAt), orDash(ag.Title))
 			}
-			return w.Flush()
+			if err := w.Flush(); err != nil {
+				return err
+			}
+			// A queued agent's row says it is queued; the line under the table
+			// says where it stands and what was full, which doesn't fit a
+			// column everything else would leave empty.
+			for _, ag := range agents {
+				if ag.State != "queued" {
+					continue
+				}
+				_, _ = fmt.Fprintf(out, "\nQueued %s%s: %s", ag.Ref, queuePlace(ag.QueuePosition), ag.QueueReason)
+			}
+			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&archived, "archived", false, "list past agents instead, as agentbox past list does")

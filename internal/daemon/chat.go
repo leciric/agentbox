@@ -66,6 +66,7 @@ func (s *Server) agentInfo(st agent.Status) api.Agent {
 		// the memory to boot its machine.
 		info.Memory = s.machineHold(info.Ref)
 		info.WaitingForImage = s.waitingOnImage(info.Ref)
+		s.queuedInfo(context.Background(), &info)
 		return info
 	}
 	info.Chat = s.chat.State(info.Ref)

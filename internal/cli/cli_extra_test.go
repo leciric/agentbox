@@ -773,6 +773,17 @@ func TestProjectSettingsShowAndValidate(t *testing.T) {
 	if _, err := run(t, "", "project", "model", "no-such-project"); err == nil {
 		t.Error("project model of an unknown project succeeded")
 	}
+
+	// Where its agents run: this machine until it says otherwise, and a
+	// cluster that isn't there is refused with how to see the ones there are.
+	out, err = run(t, "", "project", "cluster", "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "local — an Incus instance on this machine for each new agent")
+	if _, err := run(t, "", "project", "cluster", "hello-stack", "no-such-cluster"); err == nil || !strings.Contains(err.Error(), "no cluster named") {
+		t.Errorf("project cluster with an unknown cluster: got %v", err)
+	}
 }
 
 func TestAutoStop(t *testing.T) {
