@@ -20,6 +20,7 @@ so no Service, Ingress or inbound rule is needed.
 | diff, file list and file read through the gateway | a fork from a checkpoint of a cluster agent |
 | the desktop and its browser over the gateway, recordings included | placement, capacity and a queue |
 | snapshots, restore and fork, from an archive of the claim | zstd, because the image has no zstd yet |
+| `base save` as a project image, and `recreate` | a project image built by the app, which builds in the CLI only |
 | the in-agent API over the master: `whoami`, connectors, memory, heavy | the tailnet egress check, which needs an operator client |
 | Claude Code, Codex, OpenCode and their adapters in the image | a connector that signs in, not yet called from a pod |
 | | `control`, which agentd answers with exit 2 |
@@ -260,10 +261,42 @@ work the source had. A fork of a cluster agent stays on its cluster, and starts 
 rather than a checkpoint: a checkpoint has only the worktree's half.
 
 What the archive does not carry is the system packages in the image. A package installed into the
-pod's root filesystem with `apt` is gone after a restore or a fork, and belongs in a project image.
-CSI volume snapshots would make the archive unnecessary where the storage class supports them; they
-are not used yet, so every snapshot works on `local-path`, and the archive is gzipped because the
+pod's root filesystem with `apt` is gone after a restore or a fork, and belongs in the project image
+below. CSI volume snapshots would make the archive unnecessary where the storage class supports them;
+they are not used yet, so every snapshot works on `local-path`, and the archive is gzipped because the
 image does not carry `zstd`.
+
+## Base images
+
+On this host a project's base is one agent's machine, saved with `agentbox base save`. A cluster
+agent has no machine on this host to photograph: a project's base is its own image. Write
+`.agentbox/agent.Dockerfile` in the project, starting with a `FROM` line, and run:
+
+```bash
+agentbox base save demo/agent-01
+```
+
+The CLI builds it from the project's checkout, on top of the agent image the cluster runs: the first
+`FROM` is replaced with that image, so the Dockerfile does not name a registry. It pushes the result
+as `<registry>/<project>-agent:<time>` and records the digest the registry reported. The cluster needs
+a registry for this (`agentbox registry add`, then `agentbox cluster set <name> --registry <name>`),
+because a pod pulls its image from somewhere. The push signs in with the login Docker already has, so
+`docker login <registry>` once; the command never takes a credential.
+
+The image runs as the `agent` user, as the base does: a `RUN` that installs system packages starts
+with `USER root` and gives the user back afterwards.
+
+```dockerfile
+FROM agentbox-agent
+USER root
+RUN apt-get update && apt-get install -y ripgrep
+USER agent
+```
+
+`agentbox base show` prints the image and the digest, `agentbox base revert` goes back one save, and
+`agentbox base rm` drops it. Every pod the project starts after a save runs that image by digest, so a
+tag that moved cannot change what an agent runs. A pod that is already running keeps the image it was
+made with; `agentbox recreate` replaces it, as below.
 
 ## Recreating a pod
 

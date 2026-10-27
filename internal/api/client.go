@@ -1194,6 +1194,29 @@ func (c *Client) RemovePreviousBase(ctx context.Context, project string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/projects/"+url.PathEscape(project)+"/base?previous=1", nil, nil)
 }
 
+// SetProjectImage records an image the caller has built and pushed as the
+// project's own: what its cluster agents start from.
+func (c *Client) SetProjectImage(ctx context.Context, project string, req ProjectImageRequest) (BaseProjectImage, error) {
+	var out BaseProjectImage
+	return out, c.do(ctx, http.MethodPut, "/v1/projects/"+url.PathEscape(project)+"/base/image", req, &out)
+}
+
+// RevertProjectImage puts back the image the last save replaced.
+func (c *Client) RevertProjectImage(ctx context.Context, project string) (BaseProjectImage, error) {
+	var out BaseProjectImage
+	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(project)+"/base/image/revert", nil, &out)
+}
+
+// RemoveProjectImage deletes the project's image, or with previous, only what
+// the last save kept.
+func (c *Client) RemoveProjectImage(ctx context.Context, project string, previous bool) error {
+	path := "/v1/projects/" + url.PathEscape(project) + "/base/image"
+	if previous {
+		path += "?previous=1"
+	}
+	return c.do(ctx, http.MethodDelete, path, nil, nil)
+}
+
 func (c *Client) Agents(ctx context.Context, project string) ([]Agent, error) {
 	var out []Agent
 	return out, c.do(ctx, http.MethodGet, "/v1/agents?project="+url.QueryEscape(project), nil, &out)

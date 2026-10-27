@@ -1598,6 +1598,21 @@ var migrations = []string{
 	// starts there too.
 	`ALTER TABLE agents ADD COLUMN claim TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE agents ADD COLUMN image TEXT NOT NULL DEFAULT ''`,
+	// A project's own container image: the base its cluster agents start
+	// from, where an agent on this host is copied from an Incus base. The
+	// previous columns are the image the last save replaced, kept for one
+	// revert, like the Incus base's base-previous instance.
+	`CREATE TABLE project_images (
+		project             TEXT PRIMARY KEY,
+		image               TEXT NOT NULL,
+		digest              TEXT NOT NULL DEFAULT '',
+		saved_from          TEXT NOT NULL DEFAULT '',
+		saved_at            INTEGER NOT NULL DEFAULT 0,
+		previous_image      TEXT NOT NULL DEFAULT '',
+		previous_digest     TEXT NOT NULL DEFAULT '',
+		previous_saved_from TEXT NOT NULL DEFAULT '',
+		previous_saved_at   INTEGER NOT NULL DEFAULT 0
+	)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -2394,6 +2409,8 @@ var projectOwned = []string{
 	"project_messages",
 	"project_links",
 	"project_icons",
+	// Its own container image, which no project but it may run.
+	"project_images",
 	// Its scheduled tasks and what they did (schedules.go).
 	"schedules",
 	"schedule_runs",

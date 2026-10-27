@@ -1082,6 +1082,9 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/projects/{project}/base", s.saveBase)
 	h("DELETE /v1/projects/{project}/base", s.removeBase)
 	h("POST /v1/projects/{project}/base/revert", s.revertBase)
+	h("PUT /v1/projects/{project}/base/image", s.putProjectImage)
+	h("DELETE /v1/projects/{project}/base/image", s.removeProjectImage)
+	h("POST /v1/projects/{project}/base/image/revert", s.revertProjectImage)
 
 	h("GET /v1/pressure", s.getPressure)
 	h("GET /v1/diagnostics/spans", s.diagnosticsSpans)
