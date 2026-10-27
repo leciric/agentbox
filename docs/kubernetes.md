@@ -10,18 +10,27 @@ so no Service, Ingress or inbound rule is needed.
 
 | Works | Not yet |
 | --- | --- |
-| `cluster add`, `list`, `set`, `remove`, `rotate`, `doctor` | the clone onto the claim, the project git profiles |
-| `registry add`, `list`, `test`, `rotate`, `remove` | Claude Code, Codex, OpenCode, their adapters, a desktop |
-| `image agent build`, `--push` | a browser, screenshots, snapshots, restore, fork |
-| the pod lifecycle: create, adopt, stop, destroy | disk usage, placement, capacity, a queue |
-| the gateway: commands, files, a terminal, ports, control | an agent's cluster or pod in the app |
-| `create --cluster <name>` | reading a pod's files, its diff, its editor |
+| `cluster add`, `list`, `set`, `remove`, `rotate`, `doctor` | a desktop (Chromium, Xvnc, openbox, ffmpeg) |
+| `registry add`, `list`, `test`, `rotate`, `remove` | a chat with a real login, which no pod has run yet |
+| `image agent build`, `--push` | Cursor, whose adapter needs the Cursor SDK |
+| the pod lifecycle: create, adopt, stop, destroy | an agent's cluster or pod in the app |
+| the gateway: commands, files, a terminal, ports, dial | file browsing through the app (it refuses a pod) |
+| `create --cluster <name>`, and the clone on its claim | diff and files while the pod is stopped (no mirror) |
+| the two git profiles: URL, login, clone and push | snapshots, restore and fork (Stage 5) |
+| diff, file list and file read through the gateway | placement, capacity and a queue |
+| Claude Code, Codex, OpenCode and their adapters in the image | the tailnet egress check, which needs an operator client |
+| | `control`, which agentd answers with exit 2 |
 
 `cluster add` (`internal/cli/cluster.go`, `internal/k8s`) keeps a namespace-scoped ServiceAccount
 token sealed and never keeps the admin kubeconfig. `cluster doctor` makes a 1Gi canary claim and,
 when an image is configured, a pod of it, and deletes both. Destroy deletes the pod, its token Secret
-and its claim at once, with no retention window. An agent created against a cluster today stops at
-"the workspace has no git repository", and `--ai none` is the tool the image can start.
+and its claim at once, with no retention window. An agent created against a cluster clones its
+project's git profile on its claim, on its branch, from the base commit the master resolved; a claim
+whose workspace another user owns is handed to the agent by an init container first, because git
+refuses a repository its directory's owner doesn't match. The image carries Claude Code, Codex,
+OpenCode and their adapters at the versions `internal/image/tools.txt` pins, and a chat runs its
+adapter by name, since the image has no mise. Cursor is the one tool it cannot run yet: its adapter
+needs the Cursor SDK, which the image does not carry.
 
 ## Prerequisites
 
@@ -131,13 +140,21 @@ With no registry, the image name is the imported one and a pod uses `imagePullPo
 ## The image
 
 `internal/agentimage/Dockerfile` builds on `debian:trixie-slim` for linux/amd64, with
-ca-certificates, git, tmux, curl, jq, less, openssh-client, procps, python3, unzip, xz-utils, Go, Node
-and the `agentbox` binary. It runs as `agent`, UID and GID 1000, with `/workspace` and `/home/agent`
-on the claim, and its entrypoint is `agentbox agentd`; there is no systemd.
+ca-certificates, git, tmux, curl, jq, less, openssh-client, procps, python3, unzip, xz-utils, Go,
+Node, pnpm, Claude Code, Codex and OpenCode, their ACP adapters (`claude-agent-acp` and `codex-acp`;
+OpenCode speaks ACP itself), the GitHub CLI, the Playwright MCP server and the `agentbox` binary. It
+runs as `agent`, UID and GID 1000, with `/workspace` and `/home/agent` on the claim, and its
+entrypoint is `agentbox agentd`; there is no systemd.
 
-It does not have Claude Code, Codex, OpenCode, their ACP adapters, pnpm, the GitHub CLI, the
-Playwright MCP server or a desktop (Chromium, Xvnc, openbox, ffmpeg). An agent whose AI tool is one
-of those has nothing to start in this image yet.
+Every tool is at the version `internal/image/tools.txt` pins, and the Dockerfile reads that file
+during the build: moving one on is its line there and nothing else. The tools go outside
+`/home/agent`, because a pod mounts its claim there over whatever the image has. What an agent
+installs itself lands in its own home, and `/home/agent/.local/bin` is on its `PATH`.
+
+It does not have a desktop (Chromium, Xvnc, openbox, ffmpeg), which is Stage 4, so an agent has no
+browser for the Playwright MCP server to drive and no screen to look at. A chat runs its adapter by
+name, since the image has no mise; Cursor's adapter is the exception, because it needs the Cursor
+SDK, which is not in the image yet.
 
 ```bash
 scripts/build-agent-image.sh --tag dev                            # this repository's binary, linux/amd64
@@ -145,8 +162,9 @@ agentbox image agent build --tag dev                              # the binary y
 agentbox image agent build --tag dev --registry forgejo --push   # tag and push it
 ```
 
-The private image must never go to a public registry. A variant for a public registry, without
-Claude Code and the adapters, is not made yet.
+The private image must never go to a public registry. Claude Code and its adapter may not be
+redistributed, no release workflow builds or publishes this image, and a variant for a public
+registry, without Claude Code and the adapters, is not made yet.
 
 ## A first agent
 
@@ -161,13 +179,17 @@ agentbox cluster doctor agentbox
 agentbox daemon stop
 AGENTBOX_GATEWAY_ADDR=0.0.0.0:7782 agentbox daemon start
 agentbox add ~/Projects/demo
+agentbox project git set demo private https://hub.example/o/demo.git --auth token --from-file "$HOME/.config/forgejo/token"
 agentbox create demo --cluster agentbox --ai none
 ```
 
 The doctor says whether the API, the master URL, the namespace, the nodes, the storage class, the
-claim, the registry and the image are all right. `agentbox create` then waits up to five minutes for
-the pod's `agentd` to open its session; with no repository on the claim it stops first, which is the
-missing clone above.
+claim, the registry and the image are all right. A project added from a checkout prefills its private
+profile from `hub` and its public one from `origin`, without a login, so set the private one as above
+before the first cluster agent; the create refuses a project whose profile cannot clone. `agentbox
+create` then waits up to five minutes for the pod's `agentd` to open its session, and the pod clones
+the profile onto its claim. `--ai none` is what has been run on a pod so far; a tool is in the image,
+but no chat has run on a pod yet.
 
 In the app, Settings, Clusters lists each cluster with its image, storage class, last error and a
 Doctor button, and Registries lists each one with or without a login, and a Test button. While a pod
