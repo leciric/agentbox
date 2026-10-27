@@ -50,6 +50,7 @@ type Project struct {
 	Branch      string   `json:"branch"` // checked out in the main checkout; new agents start here
 	EnvFiles    []string `json:"envFiles"`
 	Android     bool     `json:"android"` // it builds an Android app, so its agents can use emulators
+	IOS         bool     `json:"ios"`     // it builds an iOS app (on a Mac, its agents use the iOS Simulator)
 	// ClaudeAccount is the Claude Code account this project's new agents use;
 	// empty means the machine's default account.
 	ClaudeAccount string `json:"claudeAccount"`

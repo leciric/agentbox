@@ -228,6 +228,11 @@
 //                           server, by path, and agents' desktops are up: with
 //                           &android=1, the Android view plays a real emulator,
 //                           from `agentbox android serve`
+//   &ios=shutdown|booted|noxcode|nohelper
+//                           the app on a Mac, and the project an iOS one, so its
+//                           agents' v2 panels have iOS: the Mac's simulators shut
+//                           down, one booted, Xcode not installed, or the
+//                           simulator helper not running
 //   &pick=1                 with &pip=1&panel=desktop:agent-25, the element picker:
 //                           Pick element, a click on agent-25's page, and the
 //                           element in the lead's composer (dev/pick.tsx)
@@ -493,6 +498,30 @@ if (usage) {
   fixtures.projects.find((p) => p.name === PROJECT)!.claudeAccount = 'work';
   fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-99`)!.claudeAccount = 'work';
 }
+// &ios=…: the app runs on a Mac, whose iOS Simulator its agents drive.
+const iosScenario = params.get('ios');
+const iosStatus = (): T.IOSStatus => {
+  const devices: T.IOSDevice[] = [
+    { udid: '6F3A2C1E-8B4D-4E2A-9C7F-1D2E3F4A5B6C', name: 'iPhone 17 Pro', runtime: 'iOS 26.0', state: iosScenario === 'booted' ? 'Booted' : 'Shutdown' },
+    { udid: '0B9C8D7E-6F5A-4B3C-2D1E-0F9A8B7C6D5E', name: 'iPhone 17', runtime: 'iOS 26.0', state: 'Shutdown' },
+    { udid: '1C2D3E4F-5A6B-4C7D-8E9F-0A1B2C3D4E5F', name: 'iPad Air 11-inch (M3)', runtime: 'iOS 26.0', state: 'Shutdown' },
+    { udid: '2D3E4F5A-6B7C-4D8E-9F0A-1B2C3D4E5F6A', name: 'iPhone 16', runtime: 'iOS 18.6', state: 'Shutdown' },
+  ];
+  switch (iosScenario) {
+    case 'noxcode':
+      return { available: false, devices: [], problem: 'Xcode isn’t installed, or the Command Line Tools are selected instead: install Xcode from the App Store, open it once, then run sudo xcode-select -s /Applications/Xcode.app' };
+    case 'nohelper':
+      return { available: false, devices: [], problem: "AgentBox's simulator helper isn't running on your Mac. Run any agentbox command on the Mac (agentbox vm start) to start it." };
+  }
+  return { available: true, xcode: 'Xcode 26.1', devices, device: iosScenario === 'booted' ? devices[0].udid : undefined };
+};
+if (iosScenario) {
+  fixtures.projects.find((p) => p.name === PROJECT)!.ios = true;
+  const bridge = (window as unknown as { agentbox: { info: () => Promise<Record<string, unknown>> } }).agentbox;
+  const info = bridge.info;
+  bridge.info = async () => ({ ...(await info()), platform: 'darwin' });
+}
+
 // &android=1: the project is an Android one, so its agents' panels have Android.
 const androidProject = params.get('android') === '1';
 if (androidProject) fixtures.projects.find((p) => p.name === PROJECT)!.android = true;
@@ -699,6 +728,9 @@ if (appView) {
     if (androidProject && method === 'GET' && /^\/v1\/agents\/[^/]+\/[^/]+\/android$/.test(path)) {
       const booted: T.AndroidStatus = { available: true, images: ['android-35'], running: true, booted: true, image: 'android-35', device: 'emulator-5554', gpu: true };
       return { status: 200, body: JSON.stringify(booted), contentType: 'application/json' };
+    }
+    if (iosScenario && method === 'GET' && /^\/v1\/agents\/[^/]+\/[^/]+\/ios$/.test(path)) {
+      return { status: 200, body: JSON.stringify(iosStatus()), contentType: 'application/json' };
     }
     const answer = (await inner(method, path, body)) as { status: number; body: string };
     // The skills, and the desktops in use (unless &pip=1 says who), are lists.

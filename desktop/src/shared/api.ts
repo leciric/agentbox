@@ -7,6 +7,7 @@ export interface Project {
   branch: string;
   envFiles: string[];
   android: boolean;
+  ios: boolean;
   claudeAccount: string;
   claudeAccounts: string[];
   githubAccount: string;

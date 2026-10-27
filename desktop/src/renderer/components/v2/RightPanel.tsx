@@ -293,13 +293,16 @@ function RightPanel({ project, chat, width, drawer, onSelect, onNewAgent }: { pr
   const live = whose?.kind === 'agent' ? whose.agent : undefined;
   const androidStatus = useQuery({ queryKey: ['android', live?.ref], queryFn: () => api.android(live!.ref), enabled: live?.state === 'running', refetchInterval: 15_000 });
   const android = hasAndroid(projects.data?.find((p) => p.name === project), androidStatus.data);
-  // An agent on a Mac has iOS too: the Mac's simulators, which it shares.
+  // On a Mac, an agent has iOS too, the Mac's simulators, which it shares,
+  // when there's Xcode or it's an iOS project (hasIOS).
   const info = useQuery({ queryKey: ['app-info'], queryFn: () => window.agentbox.info(), staleTime: Infinity });
-  const ios = hasIOS(info.data?.platform);
+  const mac = info.data?.platform === 'darwin';
+  const iosStatus = useQuery({ queryKey: ['ios', live?.ref], queryFn: () => api.ios(live!.ref), enabled: mac && !!live, refetchInterval: 30_000 });
+  const ios = hasIOS(info.data?.platform, projects.data?.find((p) => p.name === project), iosStatus.data);
   let view: PanelView | undefined = panel.wide ?? (whose && viewOf(state, whose));
   // Android, last shown for an agent of a project no longer one: its default.
   if (view === 'android' && whose && projects.isSuccess && !android) view = defaultView(whose);
-  if (view === 'ios' && whose && info.isSuccess && !ios) view = defaultView(whose);
+  if (view === 'ios' && whose && info.isSuccess && projects.isSuccess && (!mac || iosStatus.isFetched) && !ios) view = defaultView(whose);
   // Beside the lead's chat, the list, the pull requests, the repository and
   // the schedules are its tabs: no back arrow, title or ✕ for them, the switch instead.
   // Issues, beside it, is named by the switch the same way.

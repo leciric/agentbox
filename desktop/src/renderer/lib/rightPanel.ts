@@ -80,10 +80,12 @@ export function hasView(w: Whose, view: PanelView): boolean {
 // anyway.
 export const hasAndroid = (project: Pick<T.Project, 'android'> | undefined, status: Pick<T.AndroidStatus, 'running'> | undefined) => project?.android === true || status?.running === true;
 
-// hasIOS is whether agents get the iOS view: when the app runs on a Mac,
-// whose iOS Simulator they drive (internal/iossim). Without Xcode the view
-// says so, rather than hide where it would be.
-export const hasIOS = (platform: string | undefined) => platform === 'darwin';
+// hasIOS is whether an agent of project gets the iOS view: only where the
+// app runs on a Mac, whose iOS Simulator it drives (internal/iossim), and
+// there when the Mac has Xcode, or for an iOS project, whose view then says
+// what's missing.
+export const hasIOS = (platform: string | undefined, project: Pick<T.Project, 'ios'> | undefined, status: Pick<T.IOSStatus, 'available'> | undefined) =>
+  platform === 'darwin' && (status?.available === true || project?.ios === true);
 
 // viewsOf is whose's switch: the views it has, in switchViews' order, with
 // Android and iOS only for a live agent that has them.

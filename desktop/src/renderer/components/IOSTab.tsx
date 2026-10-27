@@ -24,7 +24,7 @@ export function IOSTab({ agent, onOpenMedia, compact = false }: { agent: T.Agent
   const status = useQuery({
     queryKey: ['ios', agent.ref],
     queryFn: () => api.ios(agent.ref),
-    refetchInterval: (query) => (query.state.data?.devices.some((d) => d.state === 'Booting') ? 1_500 : 5_000),
+    refetchInterval: (query) => (query.state.data?.devices?.some((d) => d.state === 'Booting') ? 1_500 : 5_000),
   });
   const devices = status.data?.devices ?? [];
   // The agent's own simulator, else the one booted, else the first.
