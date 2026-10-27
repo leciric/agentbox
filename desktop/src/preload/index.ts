@@ -159,13 +159,15 @@ export interface CliStatus {
   binary: string | null;
 }
 
-// The environment the app talks to: this machine, or one on a hub.
+// The environment the app talks to: this machine, one on a hub, or a daemon
+// on another machine's own address on the tailnet.
 export interface EnvironmentTarget {
-  kind: 'local' | 'hub';
+  kind: 'local' | 'hub' | 'url';
   hub?: string;
   email?: string;
   environmentId?: string;
   environmentName?: string;
+  url?: string;
 }
 
 export interface HubAccount {
@@ -333,6 +335,13 @@ const bridge = {
     get: (): Promise<EnvironmentTarget> => ipcRenderer.invoke('target:get'),
     set: (target: EnvironmentTarget): Promise<EnvironmentTarget> => ipcRenderer.invoke('target:set', target),
     onChange: (fn: (target: EnvironmentTarget) => void) => listen('target:changed', fn),
+  },
+  // A daemon on another machine's own address (agentbox tailnet): test it
+  // before switching, and what the app remembers of it.
+  server: {
+    test: (address: string): Promise<{ url: string; version: string }> => ipcRenderer.invoke('server:test', address),
+    saved: (): Promise<string> => ipcRenderer.invoke('server:saved'),
+    forget: (): Promise<void> => ipcRenderer.invoke('server:forget'),
   },
   // mediaUrl is where the renderer loads a media item's file from; main/media.ts serves it.
   mediaUrl: (id: string, path?: string): string =>

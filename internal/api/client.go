@@ -34,9 +34,11 @@ func NewClient(socket string) *Client {
 	return &Client{socket: socket, base: "http://agentbox", http: &http.Client{Transport: transport}}
 }
 
-// NewRemoteClient talks to a daemon through a hub. base is the environment's
-// API on the hub, https://<hub>/v1/environments/<id>/api, and token a session
-// on that hub.
+// NewRemoteClient talks to a daemon that isn't on this machine: through a hub,
+// where base is the environment's API on the hub
+// (https://<hub>/v1/environments/<id>/api) and token a session on that hub, or
+// over the daemon's own https address on the tailnet, where token is empty and
+// Tailscale Serve says who is asking.
 func NewRemoteClient(base, token string) *Client {
 	return &Client{base: strings.TrimRight(base, "/"), token: token, http: &http.Client{}}
 }

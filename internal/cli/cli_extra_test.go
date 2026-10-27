@@ -452,6 +452,21 @@ func TestEnvFlagRefusesLocalOnlyCommands(t *testing.T) {
 	}
 }
 
+func TestServerFlagRefusesLocalOnlyCommands(t *testing.T) {
+	isolate(t)
+	for _, args := range [][]string{
+		{"--server", "https://machine.example.ts.net/agentbox", "shell", "pawly/agent-01"},
+		{"--server", "https://machine.example.ts.net/agentbox", "host", "check"},
+	} {
+		if _, err := run(t, "", args...); err == nil || !strings.Contains(err.Error(), "works on this machine only, not with --server") {
+			t.Errorf("agentbox %s: got %v, want a local-only error", strings.Join(args, " "), err)
+		}
+	}
+	if _, err := run(t, "", "--server", "https://machine.example.ts.net/agentbox", "--env", "prod", "projects"); err == nil || !strings.Contains(err.Error(), "alternatives") {
+		t.Errorf("--server with --env: got %v, want it refused", err)
+	}
+}
+
 func TestChatAndInterfaceCmds(t *testing.T) {
 	isolate(t)
 	startDaemon(t)

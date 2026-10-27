@@ -240,6 +240,7 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
   target: {
     get: () => Promise.resolve(target),
     set: (next) => {
+      if (next.kind !== 'hub') return Promise.reject(new Error(t('shell.env.serverDesktopOnly')));
       target = { kind: 'hub', hub: location.origin, environmentId: next.environmentId, environmentName: next.environmentName };
       localStorage.setItem(storageKey, JSON.stringify(target));
       closeStreams();
@@ -248,6 +249,13 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
       return Promise.resolve(target);
     },
     onChange: (fn) => listen(targetListeners, fn),
+  },
+  // A hub page can't reach a daemon's own address: that is the desktop app's
+  // business, and the switcher doesn't offer it here.
+  server: {
+    test: () => Promise.reject(new Error(t('shell.env.serverDesktopOnly'))),
+    saved: () => Promise.resolve(''),
+    forget: () => Promise.resolve(),
   },
   mediaUrl: (id: string, path?: string) =>
     `${apiBase()}/v1/media/${encodeURIComponent(id)}/file${path ? `?path=${encodeURIComponent(path)}` : ''}`,

@@ -2536,6 +2536,7 @@ export function installDevBridge(): void {
       revokeDevice: async () => {},
     },
     target: { get: async () => ({ kind: 'local' }), set: async (t: unknown) => t, onChange: () => () => {} },
+    server: { test: async (address: string) => ({ url: address, version: 'dev' }), saved: async () => '', forget: async () => {} },
     mediaUrl: (id: string) => mediaFiles.get(id) ?? '',
     chatImageUrl: (path: string) => pagePageUrl(path) ?? '',
     pageThumb: (path: string) => pageThumbUrl(path),
