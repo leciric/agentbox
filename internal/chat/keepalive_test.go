@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -143,5 +144,60 @@ func TestATimedOutKeepaliveIsCancelled(t *testing.T) {
 	case <-cancelled:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the timed-out keepalive was never cancelled on the session")
+	}
+}
+
+// A keepalive that wakes an asleep lead only reads the cache back if the woken
+// tool sends the prefix the session had. AgentBox's half of that: the wake
+// resumes the same session with what the session was started with — the same
+// directory, no MCP servers or system prompt of its own (the tool's
+// configuration, which nothing on the wake writes, gives those), the same
+// options — and it runs no turn, so nothing before it re-renders the brief or
+// moves the worktree (EnsureLead and SyncLead run on a message, not here).
+// Claude Code's half is that a resumed session keeps the context it announced
+// in its transcript and appends what changed, rather than re-rendering it.
+func TestAKeepaliveWakesAnAsleepLeadOnTheSameSession(t *testing.T) {
+	t.Parallel()
+	f := newFakeTool(answerHello)
+	f.resume = true
+	m, clock := idleManager(t, f)
+	idleTurn(t, m, clock, testLead, "hi", 1)
+	clock.advance(time.Second)
+	clock.advance(15 * time.Minute)
+	if !m.Asleep(testLead.Ref()) {
+		t.Fatal("the chat didn't sleep")
+	}
+	if err := m.Keepalive(context.Background(), testLead); err != nil {
+		t.Fatalf("a keepalive on an asleep lead: %v", err)
+	}
+
+	news, resumes := f.called(acp.MethodSessionNew), f.called(acp.MethodSessionResume)
+	if len(news) != 1 || len(resumes) != 1 {
+		t.Fatalf("%d session/new and %d session/resume, want one of each", len(news), len(resumes))
+	}
+	var started, woke map[string]json.RawMessage
+	if err := json.Unmarshal(news[0], &started); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(resumes[0], &woke); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"cwd", "mcpServers", "_meta", "systemPrompt"} {
+		if string(started[field]) != string(woke[field]) {
+			t.Errorf("the wake resumed with %s %s, the session started with %s", field, woke[field], started[field])
+		}
+	}
+	if string(woke["mcpServers"]) != "[]" {
+		t.Errorf("the wake passed MCP servers of its own: %s", woke["mcpServers"])
+	}
+	th, err := m.Thread(testLead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := kinds(th); !slices.Equal(got, []string{"user", "assistant"}) {
+		t.Errorf("waking for a keepalive left %v in the conversation", got)
+	}
+	if got := len(f.called(acp.MethodSessionPrompt)); got != 2 {
+		t.Errorf("%d prompts, want the turn and the keepalive", got)
 	}
 }

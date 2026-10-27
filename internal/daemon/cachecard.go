@@ -49,6 +49,18 @@ import (
 // agent stuck working all night isn't paid for by the hour; any turn that
 // really runs — the user's message, an agent's notice — starts the count again.
 //
+// By then the lead has usually slept (DefaultLeadSleep is 15 minutes), and the
+// keepalive wakes it: a fresh Claude Code resuming the same session. That reads
+// the cache back rather than writing it, because nothing in the prefix moves
+// on a wake. The resume asks for nothing of its own (no MCP servers or system
+// prompt: the lead's HOME gives those, and the wake doesn't write it), no turn
+// runs, so nothing re-renders the brief or moves the worktree, and Claude Code
+// keeps the context it announced in the transcript (CLAUDE.md, git status,
+// the date) and appends what changed since rather than re-rendering it. A
+// brief rewritten by a message the lead read while awake lands as such a
+// delta, at the end. What does move the prefix — a newer Claude Code, a
+// connector added — moves it for the notice's turn that wakes it too.
+//
 // Claude Code only. Codex and OpenCode don't expose a cache TTL to plan
 // around, so their leads are left to rolloverIfNeeded.
 
