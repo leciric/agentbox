@@ -360,6 +360,8 @@ func NewRootCmd() *cobra.Command {
 		newReportCmd(a),
 		newRemoteCmd(a),
 		newTailnetCmd(a),
+		newClusterCmd(a),
+		newRegistryCmd(a),
 		newPhoneCmd(a),
 		newLoginCmd(a),
 		newLogoutCmd(a),

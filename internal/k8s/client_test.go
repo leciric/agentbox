@@ -296,3 +296,5 @@ func TestFromClientHasNoKubeconfigToRead(t *testing.T) {
 func getOptions() metav1.GetOptions { return metav1.GetOptions{} }
 
 func updateOptions() metav1.UpdateOptions { return metav1.UpdateOptions{} }
+
+func listOptions() metav1.ListOptions { return metav1.ListOptions{} }

@@ -64,6 +64,8 @@ var tsTypes = []any{
 	TraceSpan{}, SpanStats{}, DiagnosticsSpans{}, DiagnosticsStalls{}, VMResourceSample{}, AgentResourceSample{}, AgentResources{}, DiagnosticsResources{}, PackageCachePart{}, DiagnosticsPackageCache{}, ClientSpansRequest{},
 	ShareReport{}, FileCount{}, DiagnosticsFiles{},
 	DoctorCheck{}, DoctorReport{}, DoctorFixRequest{}, DoctorFix{}, DoctorFixResult{}, DoctorHomeRequest{}, DoctorHomeResult{},
+	Cluster{}, ClusterConfig{}, ClusterCapacity{}, AddClusterRequest{}, RotateClusterRequest{}, ClusterReport{}, ClusterCheck{},
+	Registry{}, AddRegistryRequest{}, RotateRegistryRequest{}, RegistryTest{},
 }
 
 var tsConstants = [][2]string{

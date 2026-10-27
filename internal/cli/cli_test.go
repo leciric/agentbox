@@ -62,7 +62,9 @@ func startDaemon(t *testing.T) {
 	go func() { done <- srv.Run(ctx) }()
 	t.Cleanup(func() {
 		cancel()
-		<-done
+		if err := <-done; err != nil {
+			t.Logf("the daemon ended with %v", err)
+		}
 	})
 	c := api.NewClient(p.Socket())
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
@@ -70,7 +72,14 @@ func startDaemon(t *testing.T) {
 			return
 		}
 	}
-	t.Fatal("the daemon didn't start")
+	select {
+	case err := <-done:
+		// Put it back: the cleanup waits for Run to have returned.
+		done <- err
+		t.Fatalf("the daemon didn't start: %v", err)
+	default:
+		t.Fatal("the daemon didn't start")
+	}
 }
 
 func run(t *testing.T, stdin string, args ...string) (string, error) {
