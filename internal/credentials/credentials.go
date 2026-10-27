@@ -8,9 +8,16 @@
 // Anthropic accounts: a project picks which one its agents use, and an agent
 // can be moved to another one. Codex, OpenCode and Cursor logins are named
 // accounts as well (toolaccounts.go).
+//
+// A project's git profiles sign in with a credential kept here too: an HTTPS
+// token or an SSH key, per project, named by the profile that uses it
+// (internal/state: GitRemote). Like a GitHub account's token it is a file only
+// this user can read, and never a row in state.db.
 package credentials
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -689,4 +696,161 @@ func (s Store) RenameGitHubAccount(old, name string) error {
 		return writeDefaultMarker(s.githubDefaultPath(), name)
 	}
 	return nil
+}
+
+// A project's git profiles (internal/state: GitRemote) sign in with a
+// credential of their own: an HTTPS token, or an SSH key for a pod that
+// clones over ssh. They live beside the tool logins, one directory per project
+// under git/, one <name>.json per credential, and the file is mode 0600, which
+// is what a GitHub account's token already is (D52). state.db holds the
+// credential's name and never its value, so a copy of the database is no way
+// to push.
+//
+// The three methods that change one take a context because the row naming the
+// credential is written by the caller in the same request; they give up with
+// it before touching the disk.
+const (
+	// GitCredentialToken is an HTTPS token: what git asks for as a password,
+	// answered for the pod by the helper internal/gitcred builds.
+	GitCredentialToken = "token"
+	// GitCredentialSSHKey is an SSH private key: written into the pod's
+	// tmpfs, and named by GIT_SSH_COMMAND.
+	GitCredentialSSHKey = "ssh-key"
+)
+
+// maxGitCredentialLen bounds what a credential may be: a few kilobytes of key
+// at most, so a misdirected file fails here rather than in every pod.
+const maxGitCredentialLen = 64 << 10
+
+// gitCredential is what a credential's file holds. Kind and secret are one
+// file rather than two so they can't disagree about what was stored.
+type gitCredential struct {
+	Kind   string `json:"kind"`
+	Secret string `json:"secret"`
+}
+
+// GitCredentialDir is the directory one project's git credentials are in.
+func (s Store) GitCredentialDir(project string) string {
+	return filepath.Join(s.Dir, "git", project)
+}
+
+// GitCredentialPath is where one of them is stored.
+func (s Store) GitCredentialPath(project, name string) string {
+	return filepath.Join(s.GitCredentialDir(project), name+".json")
+}
+
+// SetProjectGitCredential stores the login a project's git profile signs in
+// with, replacing a credential of the same name. An SSH key may be several
+// lines; a token must be one.
+func (s Store) SetProjectGitCredential(ctx context.Context, project, name, kind, secret string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	secret = strings.TrimSpace(secret)
+	if err := checkGitCredential(project, name, kind, secret); err != nil {
+		return err
+	}
+	dir := s.GitCredentialDir(project)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	body, err := json.Marshal(gitCredential{Kind: kind, Secret: secret})
+	if err != nil {
+		return err
+	}
+	return writeCredentialFile(s.GitCredentialPath(project, name), body)
+}
+
+// ProjectGitCredential returns the kind and the secret of a credential, both
+// empty when the project has none by that name. That is not an error: a
+// profile naming a credential nobody stored is refused by the create path,
+// which is where a user can be told what to run.
+func (s Store) ProjectGitCredential(ctx context.Context, project, name string) (kind, secret string, err error) {
+	if err := ctx.Err(); err != nil {
+		return "", "", err
+	}
+	if err := checkGitCredentialName(project, name); err != nil {
+		return "", "", err
+	}
+	path := s.GitCredentialPath(project, name)
+	body, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", err
+	}
+	var stored gitCredential
+	if err := json.Unmarshal(body, &stored); err != nil {
+		return "", "", fmt.Errorf("%s: %w", path, err)
+	}
+	return stored.Kind, stored.Secret, nil
+}
+
+// RemoveProjectGitCredential forgets one, and is happy when it is already
+// gone: a project's cleanup asks for every profile it may have had.
+func (s Store) RemoveProjectGitCredential(ctx context.Context, project, name string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := checkGitCredentialName(project, name); err != nil {
+		return err
+	}
+	if err := os.Remove(s.GitCredentialPath(project, name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+// checkGitCredentialName checks the two names that become a path: the project
+// directory and the credential's file.
+func checkGitCredentialName(project, name string) error {
+	if err := naming.Validate("project", project, naming.MaxProjectSlug); err != nil {
+		return err
+	}
+	return ValidateAccount(name)
+}
+
+// checkGitCredential refuses a credential that couldn't be used: a kind this
+// store doesn't hold, an empty secret, or one that isn't what it claims to be,
+// which would only fail later inside a pod.
+func checkGitCredential(project, name, kind, secret string) error {
+	if err := checkGitCredentialName(project, name); err != nil {
+		return err
+	}
+	if len(secret) > maxGitCredentialLen {
+		return fmt.Errorf("git credential %q is %d bytes: a token or a key fits in %d", name, len(secret), maxGitCredentialLen)
+	}
+	switch kind {
+	case GitCredentialToken:
+		if secret == "" || strings.ContainsAny(secret, " \t\r\n") {
+			return fmt.Errorf("git credential %q: a token is a single non-empty line", name)
+		}
+	case GitCredentialSSHKey:
+		// A key is a PEM or OpenSSH block, and its header is the cheapest
+		// proof that a key is what was pasted rather than a token.
+		if !strings.Contains(secret, "PRIVATE KEY") {
+			return fmt.Errorf("git credential %q: an ssh-key needs the private key itself, which starts with -----BEGIN ... PRIVATE KEY-----", name)
+		}
+	case "github-account":
+		return fmt.Errorf("git credential %q: a GitHub account is a login of its own, stored with `agentbox auth github`, not a git credential", name)
+	default:
+		return fmt.Errorf("git credential %q: kind %q: use %s or %s", name, kind, GitCredentialToken, GitCredentialSSHKey)
+	}
+	return nil
+}
+
+// writeCredentialFile writes a credential where only this user can read it.
+// The rename is what makes that true for a file that already exists, and what
+// keeps a half-written key from being read as one.
+func writeCredentialFile(path string, body []byte) error {
+	tmp := path + ".tmp"
+	_ = os.Remove(tmp)
+	if err := os.WriteFile(tmp, append(body, '\n'), 0o600); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
