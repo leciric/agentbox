@@ -244,6 +244,11 @@ func (f *fileWatches) status(ref, root string, compute func() (api.FileStatus, e
 // the project's lead's, or before the lead has one, the main checkout its
 // first message will stand on. branch is what its changes are measured
 // against: the branch the agent was made from; the lead's are its own HEAD.
+//
+// A cluster agent's tree is a clone inside its pod, which this host cannot
+// open: its Worktree is "", and falling through to the project's checkout
+// would show the wrong tree. Until the browser reads a pod over the gateway,
+// it says so instead.
 func (s *Server) fileRoot(r *http.Request, from agentFrom) (a state.Agent, root, branch string, err error) {
 	a, err = from(r)
 	if err != nil {
@@ -251,6 +256,10 @@ func (s *Server) fileRoot(r *http.Request, from agentFrom) (a state.Agent, root,
 	}
 	if a.IsHome() {
 		return a, "", "", errors.New("the Home chat has no repository")
+	}
+	if a.OnCluster() {
+		return a, "", "", fmt.Errorf("%s's files are in the pod on cluster %s, and the file browser cannot read a pod yet: agentbox shell %s shows them",
+			a.Ref(), a.Cluster, a.Ref())
 	}
 	if a.Worktree != "" {
 		if !a.IsLead() {

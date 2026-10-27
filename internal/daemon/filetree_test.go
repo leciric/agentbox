@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,7 +14,26 @@ import (
 	"time"
 
 	"agentbox/internal/api"
+	"agentbox/internal/state"
 )
+
+// TestFileTreeRefusesAClusterAgentsPod checks the one thing a cluster agent's
+// file tree must not do: fall through to the project's checkout, which is a
+// different tree on a different machine. Until the browser reads a pod over the
+// gateway, it says where the files are.
+func TestFileTreeRefusesAClusterAgentsPod(t *testing.T) {
+	t.Parallel()
+	s := &Server{}
+	a := state.Agent{Project: "pawly", Name: "agent-01", Cluster: "k3d"}
+	from := func(*http.Request) (state.Agent, error) { return a, nil }
+	_, root, _, err := s.fileRoot(httptest.NewRequest(http.MethodGet, "/", nil), from)
+	if err == nil {
+		t.Fatalf("fileRoot(cluster agent) = %q, want a refusal", root)
+	}
+	if !strings.Contains(err.Error(), "pod") || !strings.Contains(err.Error(), "k3d") {
+		t.Errorf("the refusal = %q, want it to say the files are in the pod on k3d", err)
+	}
+}
 
 // The file tree's routes read the project's checkout for its lead, one folder
 // at a time, refuse paths that leave it, and say what changed against HEAD.
