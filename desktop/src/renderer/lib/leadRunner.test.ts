@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { fiveHour, leadOn, runnerChoices, runnerLabel, runnerReason } from './leadRunner.ts';
+import { fiveHour, hasRoom, leadOn, roomiest, runnerChoices, runnerLabel, runnerReason } from './leadRunner.ts';
 
 const reading = (account: string, utilization: number, resetsAt = '2099-01-01T00:00:00Z'): T.ClaudeLimit => ({
   account,
@@ -104,4 +104,31 @@ test("a lead's session puts the account of the tool it runs on the lead", () => 
 test("the picker's icon-only trigger names the tool, and the account when there is one", () => {
   assert.equal(runnerLabel('codex'), 'Codex: change the AI tool or account');
   assert.equal(runnerLabel('claude', 'work'), 'Claude Code · work: change the AI tool or account');
+});
+
+test('a chat stopped on its limit is offered the least used other account with room', () => {
+  const now = Date.parse('2026-10-14T12:00:00Z');
+  const accounts = [account('personal', reading('personal', 1)), account('work', reading('work', 0.6)), account('spare', reading('spare', 0.2)), account('new')];
+  const rows = runnerChoices(runners({}, accounts));
+  assert.equal(roomiest(rows, 'claude', now)?.account, 'spare');
+  // An unread account may have room, after the read ones with less used.
+  assert.equal(roomiest(runnerChoices(runners({}, [account('personal', reading('personal', 1)), account('work', reading('work', 0.7)), account('new')])), 'claude', now)?.account, 'new');
+  // None with room, none offered; and never the one it is on.
+  assert.equal(roomiest(runnerChoices(runners({}, [account('personal', reading('personal', 1)), account('work', reading('work', 1))])), 'claude', now), undefined);
+  // Another tool's accounts are never offered: an agent keeps its tool.
+  assert.equal(roomiest(rows, 'codex', now), undefined);
+});
+
+test('an account spent in its weekly window has no room, one whose window reset has', () => {
+  const now = Date.parse('2026-10-14T12:00:00Z');
+  const weekly = (utilization: number, resetsAt: string): T.ClaudeLimit => ({
+    ...reading('work', 0.1),
+    windows: [
+      { name: 'five_hour', label: '5-hour', utilization: 0.1, resetsAt: '2099-01-01T00:00:00Z' },
+      { name: 'seven_day', label: 'Weekly', utilization, resetsAt },
+    ],
+  });
+  assert.equal(hasRoom(weekly(1, '2099-01-01T00:00:00Z'), now), false);
+  assert.equal(hasRoom(weekly(1, '2026-10-14T11:00:00Z'), now), true);
+  assert.equal(hasRoom(undefined, now), true);
 });

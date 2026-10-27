@@ -1,12 +1,9 @@
 package daemon
 
 import (
-	"errors"
-	"fmt"
 	"net/http"
 
 	"agentbox/internal/api"
-	"agentbox/internal/state"
 	"agentbox/internal/worktreefs"
 )
 
@@ -29,17 +26,9 @@ func (s *Server) archivedCommit(r *http.Request) (root, commit, base, baseName s
 	if err != nil {
 		return "", "", "", "", err
 	}
-	if a.Branch == "" {
-		return "", "", "", "", fmt.Errorf("%w: %s had no branch", state.ErrNotFound, a.Name)
-	}
-	commit, err = worktreefs.BranchCommit(p.Root, a.Branch)
-	if errors.Is(err, worktreefs.ErrNoBranch) {
-		return "", "", "", "", fmt.Errorf("%w: branch %s is gone, from the project's repository and from origin", state.ErrNotFound, a.Branch)
-	}
-	if err != nil {
+	if commit, base, err = archivedRange(p.Root, a); err != nil {
 		return "", "", "", "", err
 	}
-	base = worktreefs.BaseAt(p.Root, a.BaseCommit, a.BaseRef, commit)
 	baseName = a.BaseRef
 	if baseName == "" && base != "" {
 		baseName = base[:min(len(base), 12)]

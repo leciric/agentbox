@@ -16,6 +16,7 @@ import type * as T from '../../shared/api.ts';
 import { api, mediaFilePath, mediaSource } from '../../connection/api.ts';
 import { can, useSession } from '../../connection/session.ts';
 import { useT } from '../../lib/i18n.tsx';
+import { ErrorBoundary } from '../../ui/ErrorBoundary.tsx';
 import { Button, Note, ScreenHeader } from '../../ui/parts.tsx';
 import { colors, mono } from '../../ui/theme.ts';
 import { chatPath } from '../home/HomeScreen.tsx';
@@ -25,7 +26,8 @@ import { type Walk, advance, goBack, nextPending, position, startWalk } from './
 
 export function ReviewScreen() {
   const t = useT();
-  const { project } = useLocalSearchParams<{ project: string }>();
+  // agent is where the walk starts, from a notification's tap (push.ts).
+  const { project, agent } = useLocalSearchParams<{ project: string; agent?: string }>();
   const queryClient = useQueryClient();
   const session = useSession();
   const review = useQuery({ queryKey: ['review', project], queryFn: () => api.readyToReview(project) });
@@ -40,7 +42,7 @@ export function ReviewScreen() {
   // done until a refresh finds more.
   const [started, setWalk] = useState<Walk | null>(null);
   const [finished, setFinished] = useState(false);
-  const walk = finished ? null : (started ?? startWalk(items));
+  const walk = finished ? null : (started ?? startWalk(items, agent));
   const live = items;
   // The agent as the list has it now (its pull request merged, say), or as it
   // was when the walk left it there (reviewed, so gone from the list).
@@ -73,7 +75,9 @@ export function ReviewScreen() {
         {walk && current && (
           <>
             <Text style={styles.cardSub}>{t('review.agentPosition', position(walk, live))}</Text>
-            <ReviewCard key={current.ref} item={current} pulls={pulls.data} mayMerge={mayMerge} />
+            <ErrorBoundary key={current.ref} label={t('mobile.error.row')} resetKey={current}>
+              <ReviewCard item={current} pulls={pulls.data} mayMerge={mayMerge} />
+            </ErrorBoundary>
             <ReviewActions
               key={`${current.ref}:actions`}
               item={current}
@@ -91,7 +95,9 @@ export function ReviewScreen() {
         {others.length > 0 && <Text style={styles.section}>{t('mobile.review.openPulls')}</Text>}
         {others.map((pr) => (
           <View key={pr.number} style={styles.card}>
-            <PullRow project={project} pr={pr} pulls={pulls.data} mayMerge={mayMerge} />
+            <ErrorBoundary label={t('mobile.error.row')} resetKey={pr}>
+              <PullRow project={project} pr={pr} pulls={pulls.data} mayMerge={mayMerge} />
+            </ErrorBoundary>
           </View>
         ))}
       </ScrollView>

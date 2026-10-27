@@ -12,6 +12,7 @@ import * as T from '../../shared/api.ts';
 import { api, chatImagePath, isLead, mediaSource } from '../../connection/api.ts';
 import { can, useSession } from '../../connection/session.ts';
 import { useT } from '../../lib/i18n.tsx';
+import { ErrorBoundary } from '../../ui/ErrorBoundary.tsx';
 import { Button, Dot, ScreenHeader } from '../../ui/parts.tsx';
 import { colors, mono } from '../../ui/theme.ts';
 import { agentStatus, isWaiting, leadStatus, liveStatus, workLabel } from './activity.ts';
@@ -69,7 +70,11 @@ export function ChatScreen() {
           inverted
           data={rows}
           keyExtractor={(row) => row.id}
-          renderItem={({ item: row }) => <TimelineRow row={row} chatRef={chatRef} tools={tools} />}
+          renderItem={({ item: row }) => (
+            <ErrorBoundary label={t('mobile.error.row')} resetKey={row}>
+              <TimelineRow row={row} chatRef={chatRef} tools={tools} />
+            </ErrorBoundary>
+          )}
           contentContainerStyle={styles.list}
           onEndReached={() => void older()}
           onEndReachedThreshold={0.3}
@@ -87,7 +92,9 @@ export function ChatScreen() {
                 </View>
               )}
               {waiting.map((q) => (
-                <QuestionCard key={q.id} question={q} />
+                <ErrorBoundary key={q.id} label={t('mobile.error.row')} resetKey={q}>
+                  <QuestionCard question={q} />
+                </ErrorBoundary>
               ))}
             </View>
           }

@@ -13,6 +13,9 @@ import { Tip } from '../ui/tooltip';
 // Approve with a tooltip saying what it covers, so it isn't a click away
 // from the usual answer. With keys on, Y approves and N denies (not in a
 // text field), and only the last one on the page answers, so a card above the composer's banner doesn't answer with it; once an answer is on its way the buttons say so.
+// A plan's approval (planApprove) approves on the permission mode chosen beside
+// Plan, "Approve and run with bypass permissions" on bypass, with the tool's
+// other ways to approve in the menu.
 export function PermissionActions({
   options,
   agent,
@@ -22,6 +25,7 @@ export function PermissionActions({
   onAnswer,
   approveLabel,
   denyLabel,
+  planApprove,
   keys = false,
 }: {
   options: readonly T.ChatPermissionOption[];
@@ -34,11 +38,16 @@ export function PermissionActions({
   onAnswer: (option: string) => void;
   approveLabel: string;
   denyLabel: string;
+  planApprove?: string;
   keys?: boolean;
 }) {
   const t = useT();
-  const approve = options.find((o) => o.kind === 'allow_once');
-  const always = options.find((o) => o.kind === 'allow_always');
+  const planned = planApprove ? options.find((o) => o.id === planApprove) : undefined;
+  const approve = planned ?? options.find((o) => o.kind === 'allow_once');
+  const always = planned ? undefined : options.find((o) => o.kind === 'allow_always');
+  const others = planned ? options.filter((o) => o.kind.startsWith('allow') && o !== planned) : [];
+  const approveText = !planned ? approveLabel : planned.modeKind === 'full_access' ? t('chat.plan.approveBypass') : t('chat.plan.approve');
+  const denyText = planned ? t('chat.plan.keepPlanning') : denyLabel;
   const root = useRef<HTMLDivElement>(null);
   const deny = options.find((o) => o.kind === 'reject_once') ?? options.find((o) => o.kind.startsWith('reject'));
   useEffect(() => {
@@ -72,7 +81,7 @@ export function PermissionActions({
           className="flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] text-rose-200/90 transition hover:bg-rose-500/10 disabled:opacity-50"
         >
           {spin(deny.id)}
-          {denyLabel}
+          {denyText}
           {keys && <Kbd>N</Kbd>}
         </button>
       )}
@@ -84,15 +93,15 @@ export function PermissionActions({
             onClick={() => onAnswer(approve.id)}
             title={approve.name}
             data-agent-permission-option={approve.kind}
-            className={cn('flex h-7 items-center gap-1.5 bg-amber-300 px-3 text-[12.5px] font-medium text-on-bright transition hover:bg-amber-200 disabled:opacity-60', always ? 'rounded-l-lg' : 'rounded-lg')}
+            className={cn('flex h-7 items-center gap-1.5 bg-amber-300 px-3 text-[12.5px] font-medium text-on-bright transition hover:bg-amber-200 disabled:opacity-60', always || others.length > 0 ? 'rounded-l-lg' : 'rounded-lg')}
           >
             {pending && sending === approve.id ? <LoaderCircle className="size-3.5 animate-spin" /> : null}
-            {pending && sending === approve.id ? t('chat.permission.sending') : approveLabel}
+            {pending && sending === approve.id ? t('chat.permission.sending') : approveText}
             {keys && !pending && <Kbd>Y</Kbd>}
           </button>
-          {always && (
+          {(always || others.length > 0) && (
             <Menu>
-              <Tip label={scope} side="top">
+              <Tip label={always ? scope : t('chat.plan.otherWays')} side="top">
                 <MenuTrigger asChild>
                   <button
                     type="button"
@@ -106,9 +115,16 @@ export function PermissionActions({
                 </MenuTrigger>
               </Tip>
               <MenuContent align="end" className="min-w-56">
-                <MenuItem icon={Check} onSelect={() => onAnswer(always.id)} title={scope} data-agent-permission-option={always.kind}>
-                  {t('chat.permission.alwaysFor', { action: action ?? '', agent })}
-                </MenuItem>
+                {always && (
+                  <MenuItem icon={Check} onSelect={() => onAnswer(always.id)} title={scope} data-agent-permission-option={always.kind}>
+                    {t('chat.permission.alwaysFor', { action: action ?? '', agent })}
+                  </MenuItem>
+                )}
+                {others.map((o) => (
+                  <MenuItem key={o.id} icon={Check} onSelect={() => onAnswer(o.id)} data-agent-permission-option={o.kind}>
+                    {o.name}
+                  </MenuItem>
+                ))}
               </MenuContent>
             </Menu>
           )}

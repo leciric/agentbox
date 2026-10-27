@@ -118,13 +118,13 @@ func (s *Server) captureAgentFinished(ctx context.Context, a state.Agent, change
 // ptr is a pointer to a value, for the merge patches this package fills in.
 func ptr[T any](v T) *T { return &v }
 
-// agentOfCommit is the name of the project's agent whose own commit this is,
-// or "" when none made it — a pull request merged from outside AgentBox is
-// still worth an event, just not one attributed to an agent. A pull request's
-// branch name says nothing: an agent's work is pushed under any name.
-func agentOfCommit(heads []agentHead, sha string) string {
+// agentOfPR is the name of the project's agent a pull request is from, by its
+// head branch or a head exactly at the agent's tip, or "" when none — a pull
+// request merged from outside AgentBox is still worth an event, just not one
+// attributed to an agent.
+func agentOfPR(heads []agentHead, branch, sha string) string {
 	for _, h := range heads {
-		if h.owns(sha) {
+		if h.claimsHead(branch, sha) {
 			return h.agent
 		}
 	}

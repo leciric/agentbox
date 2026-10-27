@@ -1,7 +1,10 @@
-// Signing in to the hub in a browser, and picking the environment to open.
-import { ArrowRight, LoaderCircle, Server } from 'lucide-react';
+// Connecting a browser to the hub, and picking the environment to open. The
+// browser connects on the hub's own page, /hub/connect, which a device already
+// connected approves; accounts made before pairing can still use a password.
+import { ArrowRight, LoaderCircle, LogIn, Server } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { HubEnvironment } from '../../preload';
+import type { HubInfo } from '../../shared/api';
 import { Logo } from '../components/Sidebar';
 import { Button } from '../components/ui/button';
 import { Notice } from '../components/ui/card';
@@ -17,6 +20,15 @@ export function SignIn({ signedIn: initiallySignedIn, onReady }: { signedIn: boo
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [environments, setEnvironments] = useState<HubEnvironment[]>();
+  const [passwords, setPasswords] = useState(false);
+
+  useEffect(() => {
+    if (signedIn) return;
+    fetch('/v1/hub')
+      .then((res) => (res.ok ? (res.json() as Promise<HubInfo>) : null))
+      .then((info) => setPasswords(info?.passwords ?? false))
+      .catch(() => {});
+  }, [signedIn]);
 
   useEffect(() => {
     if (!signedIn) return;
@@ -61,29 +73,38 @@ export function SignIn({ signedIn: initiallySignedIn, onReady }: { signedIn: boo
         </div>
 
         {!signedIn ? (
-          <form
-            className="panel grid gap-4 rounded-2xl p-5"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void signIn();
-            }}
-          >
+          <div className="panel grid gap-4 rounded-2xl p-5">
             <div>
               <h1 className="text-xl font-semibold tracking-tight text-title">{t('web.signIn.title')}</h1>
               <p className="mt-1 text-[13px] text-muted">{t('web.signIn.subtitle')}</p>
             </div>
-            <Field label={t('web.signIn.email')} htmlFor="web-email">
-              <Input id="web-email" type="email" autoComplete="username" autoFocus value={email} onChange={(event) => setEmail(event.target.value)} />
-            </Field>
-            <Field label={t('web.signIn.password')} htmlFor="web-password">
-              <Input id="web-password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
-            </Field>
-            {error && <Notice>{error}</Notice>}
-            <Button type="submit" variant="primary" disabled={!email.trim() || !password || busy}>
-              {busy && <LoaderCircle className="animate-spin" />}
-              {t('web.signIn.title')}
+            <Button variant="primary" onClick={() => location.assign(`/hub/connect?next=${encodeURIComponent(location.pathname + location.search)}`)}>
+              <LogIn />
+              {t('web.signIn.connect')}
             </Button>
-          </form>
+            {passwords && (
+              <form
+                className="grid gap-4 border-t border-line pt-4"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void signIn();
+                }}
+              >
+                <p className="text-[13px] text-muted">{t('web.signIn.passwordAccounts')}</p>
+                <Field label={t('web.signIn.email')} htmlFor="web-email">
+                  <Input id="web-email" type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} />
+                </Field>
+                <Field label={t('web.signIn.password')} htmlFor="web-password">
+                  <Input id="web-password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
+                </Field>
+                {error && <Notice>{error}</Notice>}
+                <Button type="submit" disabled={!email.trim() || !password || busy}>
+                  {busy && <LoaderCircle className="animate-spin" />}
+                  {t('web.signIn.withPassword')}
+                </Button>
+              </form>
+            )}
+          </div>
         ) : (
           <div className="grid gap-3">
             <h1 className="text-xl font-semibold tracking-tight text-title">{t('web.signIn.environments')}</h1>

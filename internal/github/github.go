@@ -64,6 +64,10 @@ type PullRequest struct {
 	// branch.
 	BaseBranch string `json:"baseBranch,omitempty"`
 	HeadBranch string `json:"headBranch,omitempty"`
+	// Fork is set when its head branch lives in another repository (a fork,
+	// or one since deleted): that branch is not one of this repository's, so
+	// nothing can stand on it.
+	Fork bool `json:"fork,omitempty"`
 	// HeadSHA is the commit its branch is at, which is what ties it to an
 	// agent: the branch it was pushed to can be called anything.
 	HeadSHA string `json:"headSha,omitempty"`
@@ -104,19 +108,30 @@ type rawPR struct {
 		AvatarURL string `json:"avatar_url"`
 	} `json:"user"`
 	Base struct {
-		Ref string `json:"ref"`
+		Ref  string   `json:"ref"`
+		Repo *rawRepo `json:"repo"`
 	} `json:"base"`
 	Head struct {
-		Ref string `json:"ref"`
-		SHA string `json:"sha"`
+		Ref  string   `json:"ref"`
+		SHA  string   `json:"sha"`
+		Repo *rawRepo `json:"repo"` // null once its fork is deleted
 	} `json:"head"`
+}
+
+type rawRepo struct {
+	FullName string `json:"full_name"`
+}
+
+// fork reports whether the head branch is in another repository than the base.
+func (pr rawPR) fork() bool {
+	return pr.Head.Repo == nil || (pr.Base.Repo != nil && !strings.EqualFold(pr.Head.Repo.FullName, pr.Base.Repo.FullName))
 }
 
 func (pr rawPR) pullRequest() PullRequest {
 	out := PullRequest{
 		Number: pr.Number, Title: pr.Title, State: pr.State, URL: pr.HTMLURL,
 		Draft: pr.Draft, Comments: pr.Comments, Additions: pr.Additions, Deletions: pr.Deletions,
-		UpdatedAt: &pr.UpdatedAt, BaseBranch: pr.Base.Ref, HeadBranch: pr.Head.Ref, HeadSHA: pr.Head.SHA,
+		UpdatedAt: &pr.UpdatedAt, BaseBranch: pr.Base.Ref, HeadBranch: pr.Head.Ref, Fork: pr.fork(), HeadSHA: pr.Head.SHA,
 		Labels: pr.Labels,
 	}
 	if pr.User != nil {
@@ -544,4 +559,30 @@ func (c Client) SetPullRequestLabels(ctx context.Context, repo Repo, number int,
 	out := []Label{}
 	path := fmt.Sprintf("/repos/%s/%s/issues/%d/labels", url.PathEscape(repo.Owner), url.PathEscape(repo.Name), number)
 	return out, c.do(ctx, http.MethodPut, path, body, &out)
+}
+
+// PullRequestsOnto lists the open pull requests whose base is branch: the
+// ones stacked on it, which merging the pull request from branch leaves
+// pointing at a branch that is done.
+func (c Client) PullRequestsOnto(ctx context.Context, repo Repo, branch string) ([]PullRequest, error) {
+	var list []rawPR
+	path := fmt.Sprintf("/repos/%s/%s/pulls?state=open&base=%s&per_page=%d",
+		url.PathEscape(repo.Owner), url.PathEscape(repo.Name), url.QueryEscape(branch), openPageSize)
+	if err := c.get(ctx, path, &list); err != nil {
+		return nil, err
+	}
+	out := make([]PullRequest, len(list))
+	for i, pr := range list {
+		out[i] = pr.pullRequest()
+	}
+	return out, nil
+}
+
+// Retarget points a pull request at another base branch.
+func (c Client) Retarget(ctx context.Context, repo Repo, number int, base string) error {
+	path := fmt.Sprintf("/repos/%s/%s/pulls/%d", url.PathEscape(repo.Owner), url.PathEscape(repo.Name), number)
+	body := struct {
+		Base string `json:"base"`
+	}{Base: base}
+	return c.do(ctx, http.MethodPatch, path, body, nil)
 }
