@@ -114,6 +114,9 @@ func (s *Server) runDrain(ctx context.Context, log io.Writer, name string, req a
 			}
 			_, _ = fmt.Fprintf(log, "moved %s to %s\n", a.Ref(), req.MoveTo)
 		}
+		// The rows on this cluster changed under the daemon's view: a moved
+		// agent's next start is in another cluster.
+		s.refreshAgents(ctx)
 	default:
 		m := s.manager(log)
 		for _, a := range agents {

@@ -18,10 +18,11 @@ import (
 // events and queued agents of one cluster, for its page.
 //
 // It is a snapshot, not a watch: the page asks again. A cluster the daemon
-// can't reach does not fail the request: the page still shows the cluster, its
-// health (LastError) and the queue, which is this daemon's own, and the lists
-// that come from the cluster are empty. Recording the failure as the cluster's
-// health is what makes the list say why too.
+// can't reach does not fail the request: the page still shows the cluster and
+// its queue, which is this daemon's own, and says in Error why the lists that
+// come from the cluster are empty. The reason is not written to the cluster's
+// LastError: that is what the doctor found, and this read doesn't check the
+// image or the registry.
 func (s *Server) clusterDetail(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 	name := r.PathValue("name")
@@ -36,20 +37,16 @@ func (s *Server) clusterDetail(w http.ResponseWriter, r *http.Request) error {
 	if err := s.clusterQueue(ctx, name, &detail); err != nil {
 		return err
 	}
-	now := time.Now()
-	// A look that read everything says so with the health it found; one that
-	// failed says why. An error the doctor recorded survives a read that
-	// doesn't check what it checked: the image, the registry, the storage
-	// class. The Doctor button is what clears it.
-	health := cluster.LastError
 	if readErr != nil {
-		health = readErr.Error()
+		detail.Error = readErr.Error()
+		return writeJSON(w, http.StatusOK, detail)
 	}
-	if err := s.store.SetClusterHealth(ctx, cluster.Name, now, health); err != nil {
+	now := time.Now()
+	if err := s.store.SetClusterHealth(ctx, cluster.Name, now, cluster.LastError); err != nil {
 		return err
 	}
 	detail.Cluster.LastSeen = &now
-	detail.Cluster.LastError = health
+	detail.Cluster.LastError = cluster.LastError
 	return writeJSON(w, http.StatusOK, detail)
 }
 
