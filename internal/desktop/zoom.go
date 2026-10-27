@@ -4,8 +4,12 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
+	"image/png"
+	"io"
+	"io/fs"
 	"math"
 	"os"
 	"os/exec"
@@ -21,6 +25,8 @@ import (
 // out from what the recording already knows, with no model looking at frames:
 // the clicks and keys the recorder drew on (RecordOptions.Events), the
 // stretches its trimming cut (Cuts), and the notes made while it recorded.
+// It keeps the video's timeline, frame for frame, so a chapter is at the same
+// second in the edit as in the original.
 //
 // The zoom follows the input. Clicks close together in time and place are one
 // shot: the camera eases in on them a moment before the first, holds while
@@ -33,35 +39,52 @@ const (
 	zoomMax  = 2.0  // the closest the camera goes in
 	zoomMin  = 1.35 // closer than the whole screen by less than this isn't worth moving for
 	zoomPad  = 260  // pixels of the screen kept around a shot's clicks, at zoom 1
-	zoomLead = 0.6  // seconds the camera arrives before a shot's first click
-	zoomEase = 0.55 // seconds a move takes
+	zoomLead = 0.5  // seconds the camera arrives before a shot's first click
+	zoomEase = 0.7  // seconds a move takes
 	zoomHold = 1.4  // seconds the camera stays after a shot's last click
+	// zoomHoldMin is the least it stays, when a new chapter calls it back.
+	zoomHoldMin = 0.5
 	// zoomGap is how long the input may stop for and still be one shot.
 	zoomGap = 2.2
 
-	noteShow = 3.2 // seconds a chapter's caption is on screen
+	// A caption is on screen for long enough to read it: noteShow, and
+	// noteShowWord more for each word, up to noteShowMax, unless the next
+	// chapter starts first.
+	noteShow     = 2.4
+	noteShowWord = 0.25
+	noteShowMax  = 7.0
+	fadeIn       = 0.3
+	fadeOut      = 0.45
+	// titleShow is how long the title card stays over the opening, its fade
+	// out included.
+	titleShow = 2.2
 )
 
-// eventLog keeps the input it passes on, for writing to opts.Events once the
-// recording ends.
+// eventLog keeps the input it passes on to the overlay, for writing to
+// opts.Events once the recording ends, with the clicks where they are in the
+// frame rather than on the display.
 type eventLog struct {
 	path string
-	next func(InputEvent)
+	ov   *overlay
 	mu   sync.Mutex
 	evs  []InputEvent
 }
 
-func logEvents(path string, next func(InputEvent)) *eventLog {
-	return &eventLog{path: path, next: next}
+func logEvents(path string, ov *overlay) *eventLog {
+	return &eventLog{path: path, ov: ov}
 }
 
 func (l *eventLog) on(e InputEvent) {
-	if l.path != "" {
-		l.mu.Lock()
-		l.evs = append(l.evs, e)
-		l.mu.Unlock()
+	l.ov.add(e)
+	if l.path == "" {
+		return
 	}
-	l.next(e)
+	if e.Button != 0 {
+		e.X, e.Y = l.ov.inFrame(e.X, e.Y)
+	}
+	l.mu.Lock()
+	l.evs = append(l.evs, e)
+	l.mu.Unlock()
 }
 
 func (l *eventLog) write() {
@@ -87,10 +110,13 @@ type Note struct {
 
 // Edit is what an edit is worked out from.
 type Edit struct {
-	Size   image.Point // the video's
+	Size   image.Point // the video's; Render asks ffprobe when it is zero
 	Cuts   Cuts
 	Events []InputEvent
 	Notes  []Note
+	// Title, when set, is a card over the opening moments, with Subtitle
+	// under it.
+	Title, Subtitle string
 }
 
 // videoTime is where wall-clock time t falls in the trimmed video, and false
@@ -186,12 +212,19 @@ func (e Edit) Plan() []Shot {
 		at(target, arrive)
 		cur = target
 		leave := g.to + zoomHold
-		next := math.Inf(1)
+		next, chapter := math.Inf(1), false
 		if i+1 < len(groups) {
 			next = groups[i+1].from - zoomLead - zoomEase
+			if c := slices.IndexFunc(chapters, func(c float64) bool { return c > g.to && c <= groups[i+1].from }); c >= 0 {
+				// A new chapter: the camera backs out as its caption comes
+				// on, sooner than it would otherwise, to set the scene.
+				chapter = true
+				leave = math.Max(g.to+zoomHoldMin, math.Min(leave, chapters[c]-zoomEase/2))
+			}
 		}
-		if next-leave > zoomGap {
-			// A pause before the next shot: back out to the whole screen.
+		if next-leave > zoomGap || chapter && next-leave >= zoomEase {
+			// A pause or a new chapter before the next shot: back out to the
+			// whole screen.
 			at(cur, leave)
 			at(whole, leave+zoomEase)
 			cur = whole
@@ -213,6 +246,33 @@ func (e Edit) frame(box image.Rectangle) Shot {
 	cx := clamp(float64(box.Min.X+box.Max.X)/2, w/2, float64(e.Size.X)-w/2)
 	cy := clamp(float64(box.Min.Y+box.Max.Y)/2, h/2, float64(e.Size.Y)-h/2)
 	return Shot{Zoom: z, X: cx, Y: cy}
+}
+
+// cameraAt is where the camera is at video time t, as zoomFilter moves it.
+func cameraAt(shots []Shot, t float64) Shot {
+	for i := 0; i+1 < len(shots); i++ {
+		a, b := shots[i], shots[i+1]
+		if t >= b.At {
+			continue
+		}
+		if b.At-a.At < 1e-3 {
+			return a
+		}
+		p := clamp((t-a.At)/(b.At-a.At), 0, 1)
+		p = p * p * (3 - 2*p)
+		return Shot{At: t, Zoom: a.Zoom + (b.Zoom-a.Zoom)*p, X: a.X + (b.X-a.X)*p, Y: a.Y + (b.Y-a.Y)*p}
+	}
+	last := shots[len(shots)-1]
+	last.At = t
+	return last
+}
+
+// onScreen is where point x,y of the screen is in the video, with the camera
+// at s.
+func (s Shot) onScreen(size image.Point, x, y int) image.Point {
+	left := clamp(s.X-float64(size.X)/s.Zoom/2, 0, float64(size.X)-float64(size.X)/s.Zoom)
+	top := clamp(s.Y-float64(size.Y)/s.Zoom/2, 0, float64(size.Y)-float64(size.Y)/s.Zoom)
+	return image.Pt(int((float64(x)-left)*s.Zoom), int((float64(y)-top)*s.Zoom))
 }
 
 func clamp(v, lo, hi float64) float64 { return math.Max(lo, math.Min(hi, v)) }
@@ -243,76 +303,190 @@ func zoomFilter(shots []Shot, size image.Point) string {
 		z, x, y, FrameRate, size.X, size.Y)
 }
 
-// captionFilters draw each chapter's text at the top of the video, fading in
-// and out, with its text in a file of its own beside script so nothing in it
-// needs escaping.
-func captionFilters(e Edit, dir string) ([]string, error) {
-	var out []string
-	for i, n := range e.Notes {
-		v, ok := e.videoTime(n.T)
-		if !ok || strings.TrimSpace(n.Text) == "" {
-			continue
+// overlayCard is a card laid over the video from video time from to to,
+// fading in and out, at At.
+type overlayCard struct {
+	file     string
+	at       image.Point
+	from, to float64
+}
+
+// cards draws the title and the chapters' captions into dir. A caption goes
+// to the top of the video rather than the bottom when it would cover a click
+// made while it is on, with the camera along shots.
+func (e Edit) cards(dir string, shots []Shot) ([]overlayCard, error) {
+	var out []overlayCard
+	save := func(img *image.NRGBA, at image.Point, from, to float64) error {
+		file := filepath.Join(dir, fmt.Sprintf("card%d.png", len(out)))
+		f, err := os.Create(file)
+		if err != nil {
+			return err
 		}
-		file := filepath.Join(dir, fmt.Sprintf("note%d.txt", i))
-		if err := os.WriteFile(file, []byte(n.Text), 0o644); err != nil {
+		err = png.Encode(f, img)
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+		out = append(out, overlayCard{file: file, at: at, from: from, to: to})
+		return err
+	}
+	opening := 0.0
+	if strings.TrimSpace(e.Title) != "" {
+		img, err := titleCard(e.Size, e.Title, e.Subtitle)
+		if err != nil {
 			return nil, err
 		}
-		a, b := v, v+noteShow
-		// The next chapter's caption takes the place of this one.
-		if i+1 < len(e.Notes) {
-			if next, ok := e.videoTime(e.Notes[i+1].T); ok {
-				b = math.Min(b, next)
-			}
+		if err := save(img, image.Point{}, 0, titleShow); err != nil {
+			return nil, err
 		}
-		alpha := fmt.Sprintf("clip(min((t-%.3f)/0.25,(%.3f-t)/0.4),0,1)", a, b)
-		out = append(out, fmt.Sprintf("drawtext=textfile='%s':fontfile='%s':fontsize=34:fontcolor=white:alpha='%s':box=1:boxcolor=0x14141a@0.82:boxborderw=22:x=(w-text_w)/2:y=48:enable='between(t,%.3f,%.3f)'",
-			file, captionFont(), alpha, a, b))
+		opening = titleShow - fadeOut
+	}
+	type chapter struct {
+		at   float64
+		text string
+	}
+	var chapters []chapter
+	for _, n := range e.Notes {
+		if v, ok := e.videoTime(n.T); ok && strings.TrimSpace(n.Text) != "" {
+			chapters = append(chapters, chapter{v, strings.TrimSpace(n.Text)})
+		}
+	}
+	end := math.Inf(1)
+	if e.Cuts.Recorded > 0 {
+		end = e.Cuts.Recorded - e.Cuts.removed()
+	}
+	for i, c := range chapters {
+		// A caption waits for the title card to go, and gives way to the
+		// next chapter's.
+		from := math.Max(c.at, opening)
+		to := from + math.Min(noteShowMax, noteShow+noteShowWord*float64(len(strings.Fields(c.text))))
+		if i+1 < len(chapters) {
+			to = math.Min(to, math.Max(chapters[i+1].at, opening))
+		}
+		to = math.Min(to, end)
+		if to-from < fadeIn+fadeOut {
+			continue
+		}
+		step := ""
+		if len(chapters) > 1 {
+			step = fmt.Sprintf("%d/%d", i+1, len(chapters))
+		}
+		img, err := captionCard(e.Size, step, c.text)
+		if err != nil {
+			return nil, err
+		}
+		if err := save(img, e.placeCaption(img.Rect, shots, from, to), from, to); err != nil {
+			return nil, err
+		}
 	}
 	return out, nil
 }
 
-func captionFont() string {
-	for _, f := range []string{"/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf"} {
-		if _, err := os.Stat(f); err == nil {
-			return f
+// placeCaption is where a caption card on from to to goes: the bottom of the
+// video, unless a click made then would be under it.
+func (e Edit) placeCaption(card image.Rectangle, shots []Shot, from, to float64) image.Point {
+	at := cardAt(e.Size, card)
+	margin := int(captionSize(e.Size.Y))
+	under := image.Rectangle{Min: at, Max: at.Add(card.Size())}.Inset(-margin)
+	for _, ev := range e.Events {
+		v, ok := e.videoTime(ev.T)
+		if !ok || ev.Button == 0 || v < from-0.2 || v > to {
+			continue
+		}
+		if cameraAt(shots, v).onScreen(e.Size, ev.X, ev.Y).In(under) {
+			return image.Pt(at.X, int(float64(e.Size.Y)*0.06))
 		}
 	}
-	return captionFonts[0]
+	return at
+}
+
+// filterGraph is the ffmpeg filter graph of the edit: the camera moving over
+// input 0, then each card, input 1 on, laid over it.
+func filterGraph(shots []Shot, size image.Point, cards []overlayCard) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "[0:v]%s,setsar=1[v0]", zoomFilter(shots, size))
+	for i, c := range cards {
+		d := c.to - c.from
+		// The card's own clock starts at 0: it fades on that, then is moved
+		// to where it goes on the video's.
+		fmt.Fprintf(&b, ";\n[%d:v]format=rgba,fade=t=in:st=0:d=%.3f:alpha=1,fade=t=out:st=%.3f:d=%.3f:alpha=1,setpts=PTS+%.3f/TB[c%d]",
+			i+1, fadeIn, d-fadeOut, fadeOut, c.from, i)
+		fmt.Fprintf(&b, ";\n[v%d][c%d]overlay=x=%d:y=%d:eof_action=pass:enable='between(t,%.3f,%.3f)'[v%d]",
+			i, i, c.at.X, c.at.Y, c.from, c.to, i+1)
+	}
+	return b.String()
 }
 
 // Render writes the edit of the recording in to out.
-func (e Edit) Render(ctx context.Context, in, out string, log *os.File) error {
-	dir, err := os.MkdirTemp("", "zoom")
+func (e Edit) Render(ctx context.Context, in, out string, log io.Writer) error {
+	if e.Size.X == 0 || e.Size.Y == 0 {
+		size, err := videoSize(ctx, in)
+		if err != nil {
+			return err
+		}
+		e.Size = size
+	}
+	dir, err := os.MkdirTemp("", "edit")
 	if err != nil {
 		return err
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
-	filters := []string{zoomFilter(e.Plan(), e.Size)}
-	captions, err := captionFilters(e, dir)
+	shots := e.Plan()
+	cards, err := e.cards(dir, shots)
 	if err != nil {
 		return err
 	}
-	filters = append(filters, captions...)
 	script := filepath.Join(dir, "filter")
-	if err := os.WriteFile(script, []byte(strings.Join(filters, ",\n")), 0o644); err != nil {
+	if err := os.WriteFile(script, []byte(filterGraph(shots, e.Size, cards)), 0o644); err != nil {
 		return err
 	}
-	args := append([]string{"-hide_banner", "-loglevel", "error", "-nostdin", "-i", in, "-/vf", script}, EncodeArgs...)
+	args := []string{"-hide_banner", "-loglevel", "error", "-nostdin", "-i", in}
+	for _, c := range cards {
+		// Each card is one picture, shown for as long as it is on.
+		args = append(args, "-loop", "1", "-framerate", strconv.Itoa(FrameRate), "-t", fmt.Sprintf("%.3f", c.to-c.from), "-i", c.file)
+	}
+	args = append(args, "-/filter_complex", script, "-map", fmt.Sprintf("[v%d]", len(cards)), "-map", "0:a?")
+	args = append(args, EncodeArgs...)
 	cmd := exec.CommandContext(ctx, "ffmpeg", append(args, "-y", out)...)
 	cmd.Stderr = log
 	return cmd.Run()
 }
 
-// ReadEdit reads what an edit is worked out from: the recorder's events and
-// cuts files, and notes, one Note a line.
-func ReadEdit(size image.Point, events, cuts, notes string) (Edit, error) {
-	e := Edit{Size: size}
-	data, err := os.ReadFile(cuts)
+// videoSize is the size of the video in file, as ffprobe reads it.
+func videoSize(ctx context.Context, file string) (image.Point, error) {
+	out, err := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-select_streams", "v:0",
+		"-show_entries", "stream=width,height", "-of", "csv=p=0", file).Output()
 	if err != nil {
-		return e, err
+		return image.Point{}, fmt.Errorf("reading the size of %s: %w", file, err)
 	}
-	if err := json.Unmarshal(data, &e.Cuts); err != nil {
-		return e, fmt.Errorf("reading %s: %w", cuts, err)
+	w, h, _ := strings.Cut(strings.TrimSpace(string(out)), ",")
+	x, _ := strconv.Atoi(w)
+	y, _ := strconv.Atoi(strings.Trim(h, ","))
+	if x == 0 || y == 0 {
+		return image.Point{}, fmt.Errorf("ffprobe found no video in %s", file)
+	}
+	return image.Pt(x, y), nil
+}
+
+// ReadEdit reads what an edit is worked out from: the recorder's events and
+// cuts files, and notes, one Note a line. Any of them may be "", or missing:
+// a recording that wasn't trimmed or had no input drawn on has neither of
+// the first two, and start is then when its first frame was taken.
+func ReadEdit(events, cuts, notes string, start float64) (Edit, error) {
+	e := Edit{Cuts: Cuts{Start: start}}
+	if cuts != "" {
+		data, err := os.ReadFile(cuts)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+		case err != nil:
+			return e, err
+		default:
+			if err := json.Unmarshal(data, &e.Cuts); err != nil {
+				return e, fmt.Errorf("reading %s: %w", cuts, err)
+			}
+			if e.Cuts.Start == 0 {
+				e.Cuts.Start = start
+			}
+		}
 	}
 	if err := readLines(events, func(b []byte) error {
 		var ev InputEvent
@@ -322,21 +496,25 @@ func ReadEdit(size image.Point, events, cuts, notes string) (Edit, error) {
 	}); err != nil {
 		return e, err
 	}
-	if notes != "" {
-		if err := readLines(notes, func(b []byte) error {
-			var n Note
-			err := json.Unmarshal(b, &n)
-			e.Notes = append(e.Notes, n)
-			return err
-		}); err != nil {
-			return e, err
-		}
-	}
-	return e, nil
+	err := readLines(notes, func(b []byte) error {
+		var n Note
+		err := json.Unmarshal(b, &n)
+		e.Notes = append(e.Notes, n)
+		return err
+	})
+	return e, err
 }
 
+// readLines calls each with every line of path that isn't blank; a path
+// that is "" or doesn't exist has none.
 func readLines(path string, each func([]byte) error) error {
+	if path == "" {
+		return nil
+	}
 	f, err := os.Open(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}

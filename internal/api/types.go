@@ -2898,6 +2898,9 @@ type MediaMeta struct {
 	// placed in the video by taking out what was cut before it.
 	Recorded float64    `json:"recorded,omitempty"`
 	Cuts     []MediaCut `json:"cuts,omitempty"`
+	// Raw is an edited recording's original, unedited: the name of its file,
+	// served with ?raw=1. Both have the same timeline.
+	Raw string `json:"raw,omitempty"`
 }
 
 type MediaCut struct {
@@ -2928,6 +2931,10 @@ type RecordRequest struct {
 	// WholeDisplay films the desktop as it is, where a display recording
 	// otherwise makes the browser in front fullscreen first.
 	WholeDisplay bool `json:"wholeDisplay,omitempty"`
+	// NoEdit keeps the recording as it was recorded, where it is otherwise
+	// edited as it stops: zoomed in on the clicks, with its notes as
+	// captions. An edited recording keeps its original beside it (MediaMeta.Raw).
+	NoEdit bool `json:"noEdit,omitempty"`
 }
 
 type RecordingStatus struct {

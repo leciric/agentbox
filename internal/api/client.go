@@ -753,11 +753,21 @@ func (c *Client) MediaItem(ctx context.Context, id string) (MediaItem, error) {
 // checked there by the caller), and only the caller's own on the in-agent API
 // (ref ""). The caller closes it.
 func (c *Client) MediaFile(ctx context.Context, ref, id string) (io.ReadCloser, error) {
+	return c.mediaFile(ctx, ref, id, "")
+}
+
+// RawMediaFile opens an edited recording's original, unedited, as
+// MediaFile opens its file.
+func (c *Client) RawMediaFile(ctx context.Context, ref, id string) (io.ReadCloser, error) {
+	return c.mediaFile(ctx, ref, id, "?raw=1")
+}
+
+func (c *Client) mediaFile(ctx context.Context, ref, id, query string) (io.ReadCloser, error) {
 	path := "/v1/media/" + url.PathEscape(id) + "/file"
 	if ref == "" {
 		path = "/v1/self/media/" + url.PathEscape(id) + "/file"
 	}
-	resp, err := c.request(ctx, http.MethodGet, path, nil)
+	resp, err := c.request(ctx, http.MethodGet, path+query, nil)
 	if err != nil {
 		return nil, err
 	}

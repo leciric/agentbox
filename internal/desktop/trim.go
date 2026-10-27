@@ -65,7 +65,6 @@ type trimmer struct {
 	dropping bool // past StillFor: frames are being cut
 	cutFrom  int
 	cuts     []Cut
-	start    float64 // when the first frame was taken: Cuts.Start
 }
 
 func newTrimmer(width, height int) *trimmer {
@@ -123,7 +122,7 @@ func (t *trimmer) finish(emit func([]byte) error) error {
 }
 
 func (t *trimmer) result() Cuts {
-	return Cuts{Recorded: seconds(t.seen), Start: t.start, Cuts: append([]Cut{}, t.cuts...)}
+	return Cuts{Recorded: seconds(t.seen), Cuts: append([]Cut{}, t.cuts...)}
 }
 
 // repeat emits the last frame kept n times: the frames held back were all
@@ -188,4 +187,13 @@ func writeCuts(path string, c Cuts) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0o644)
+}
+
+// removed is how many seconds of the recording the cuts took out.
+func (c Cuts) removed() float64 {
+	var s float64
+	for _, cut := range c.Cuts {
+		s += cut.To - cut.From
+	}
+	return s
 }
