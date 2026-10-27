@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"agentbox/internal/acp"
 	"agentbox/internal/api"
@@ -112,5 +113,35 @@ func TestAMessageSentDuringAKeepaliveWaitsForIt(t *testing.T) {
 	}
 	if got := <-prompts; !strings.Contains(got, "are they done?") {
 		t.Errorf("the second prompt was %q, want the message", got)
+	}
+}
+
+// A keepalive the caller stops waiting for is cancelled on the session too,
+// so its late answer can't land in the next turn or wake the chat by itself.
+func TestATimedOutKeepaliveIsCancelled(t *testing.T) {
+	t.Parallel()
+	store := openStore(t)
+	f := newFakeTool(answerHello)
+	m, _ := newManager(t, store, f)
+	if _, err := m.Send(testLead, "hi"); err != nil {
+		t.Fatal(err)
+	}
+	waitThread(t, m, testLead, "the turn", turnsEnded(1))
+
+	cancelled := make(chan struct{})
+	f.setTurn(func(f *fakeTool, _, _ string) acp.PromptResponse {
+		<-f.cancels
+		close(cancelled)
+		return acp.PromptResponse{StopReason: "cancelled"}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if err := m.Keepalive(ctx, testLead); err == nil {
+		t.Fatal("a keepalive that timed out reported no error")
+	}
+	select {
+	case <-cancelled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the timed-out keepalive was never cancelled on the session")
 	}
 }

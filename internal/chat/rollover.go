@@ -174,6 +174,11 @@ func (c *conversation) consolidate(ctx context.Context, ad *adapter, ask, kind s
 		SessionID: sessionID,
 		Prompt:    []acp.ContentBlock{{Type: "text", Text: ask}},
 	}, &res)
+	if err != nil && ctx.Err() != nil {
+		// The caller gave up, but the tool hasn't: stop the prompt, so what it
+		// would still say doesn't land in whatever runs on the session next.
+		_ = ad.conn.Notify(acp.MethodSessionCancel, acp.CancelNotification{SessionID: sessionID})
+	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
