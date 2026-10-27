@@ -262,17 +262,19 @@ Run it once per account, with --account, to keep several.`,
 
 // newAuthOpenCodeCmd logs agents in to OpenCode. OpenCode's logins are
 // provider keys, all of them in one auth.json it reads from
-// $XDG_DATA_HOME/opencode: the login runs with that variable pointing at a
-// directory of AgentBox's own (D6), and each provider it wrote is kept as an
-// account of that provider.
+// $XDG_DATA_HOME/opencode: the login runs with that variable, and the config
+// one, pointing at directories of AgentBox's own (D6), so the host's own
+// opencode.json — which may be written for the other release — is neither read
+// nor rewritten. Each provider it wrote is kept as an account of that provider.
 func newAuthOpenCodeCmd(a *app) *cobra.Command {
 	var provider, method, account string
 	cmd := &cobra.Command{
 		Use:   "opencode",
 		Short: "Log agents in to OpenCode",
-		Long: `Runs 'opencode auth login' against a data directory of AgentBox's own, so the
-login is separate from your host's ~/.local/share/opencode, and keeps what it
-stores as a named account of that provider. The OpenCode it runs is AgentBox's
+		Long: `Runs 'opencode auth login' against a data and config directory of AgentBox's
+own, so the login is separate from your host's ~/.local/share/opencode and
+~/.config/opencode (whose opencode.json may belong to the other OpenCode
+release), and keeps what it stores as a named account of that provider. The OpenCode it runs is AgentBox's
 own, the version agents run, downloaded the first time: OpenCode 2 (when the
 installation chose it) keeps credentials in its database, so they are read back
 with its own 'auth export'.
@@ -326,7 +328,7 @@ per account, with --account, to keep several for a provider.`,
 				return fmt.Errorf("logging agents in to OpenCode needs the OpenCode CLI: %w", err)
 			}
 			login := exec.CommandContext(cmd.Context(), command, args...)
-			login.Env = append(os.Environ(), "XDG_DATA_HOME="+dataHome)
+			login.Env = opencode.HostEnv(dataHome, os.Environ())
 			login.Stdin, login.Stdout, login.Stderr = cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()
 			if err := login.Run(); err != nil {
 				return fmt.Errorf("opencode %s: %w", strings.Join(args, " "), err)
@@ -388,7 +390,7 @@ func openCode2Login(cmd *cobra.Command, a *app, creds credentials.Store, provide
 		args = append(args, provider)
 	}
 	login := exec.CommandContext(cmd.Context(), command, args...)
-	login.Env = append(os.Environ(), "XDG_DATA_HOME="+dataHome)
+	login.Env = opencode.HostEnv(dataHome, os.Environ())
 	login.Stdin, login.Stdout, login.Stderr = cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()
 	if err := login.Run(); err != nil {
 		return fmt.Errorf("opencode %s: %w", strings.Join(args, " "), err)

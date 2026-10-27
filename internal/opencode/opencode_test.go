@@ -50,7 +50,7 @@ func TestModelsUsesAgentBoxsOwnDataHome(t *testing.T) {
 		t.Skip("the fake command line is a shell script")
 	}
 	bin := t.TempDir()
-	script := "#!/bin/sh\nprintf '%s/from-%s\\n' opencode \"$XDG_DATA_HOME\"\n"
+	script := "#!/bin/sh\nprintf '%s' \"$XDG_CONFIG_HOME\" >\"${0%/*}/confighome\"\nprintf '%s/from-%s\\n' opencode \"$XDG_DATA_HOME\"\n"
 	if err := os.WriteFile(filepath.Join(bin, "opencode"), []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -63,6 +63,15 @@ func TestModelsUsesAgentBoxsOwnDataHome(t *testing.T) {
 	}
 	if len(got) != 1 || !strings.HasSuffix(got[0], dataHome) {
 		t.Errorf("Models() = %v, want one id naming %s", got, dataHome)
+	}
+	// And it reads AgentBox's config, not the host's, which may be written for
+	// the other release and which this one refuses.
+	config, err := os.ReadFile(filepath.Join(bin, "confighome"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(config) != filepath.Join(dataHome, "config") {
+		t.Errorf("XDG_CONFIG_HOME = %q, want %q", config, filepath.Join(dataHome, "config"))
 	}
 
 	// A command line that fails says so, and names what it printed.
@@ -98,5 +107,45 @@ func TestVersionTwoTalksToAStandaloneServer(t *testing.T) {
 	}
 	if string(got) != `[{"id":"cred_1"}]` {
 		t.Errorf("auth import read %q", got)
+	}
+}
+
+// HostEnv leaves OpenCode no way back to the host's own configuration,
+// database or credentials, and points it at AgentBox's instead.
+func TestHostEnvIsolatesTheHostsOpenCode(t *testing.T) {
+	env := opencode.HostEnv("/agentbox/opencode", []string{
+		"HOME=/home/ana",
+		"PATH=/usr/bin",
+		"XDG_DATA_HOME=/home/ana/.local/share",
+		"XDG_CONFIG_HOME=/home/ana/.config",
+		"OPENCODE_CONFIG=/home/ana/.config/opencode/opencode.json",
+		"OPENCODE_CONFIG_CONTENT={}",
+		"OPENCODE_CONFIG_DIR=/home/ana/.config/opencode",
+		"OPENCODE_AUTH_CONTENT={}",
+		"OPENCODE_DB=/home/ana/.local/share/opencode/opencode.db",
+	})
+	got := map[string]string{}
+	for _, kv := range env {
+		name, value, _ := strings.Cut(kv, "=")
+		if _, dup := got[name]; dup {
+			t.Errorf("%s appears twice", name)
+		}
+		got[name] = value
+	}
+	want := map[string]string{
+		"HOME":            "/home/ana",
+		"PATH":            "/usr/bin",
+		"XDG_DATA_HOME":   "/agentbox/opencode",
+		"XDG_CONFIG_HOME": filepath.Join("/agentbox/opencode", "config"),
+	}
+	for name, value := range want {
+		if got[name] != value {
+			t.Errorf("%s = %q, want %q", name, got[name], value)
+		}
+	}
+	for _, name := range []string{"OPENCODE_CONFIG", "OPENCODE_CONFIG_CONTENT", "OPENCODE_CONFIG_DIR", "OPENCODE_AUTH_CONTENT", "OPENCODE_DB"} {
+		if _, ok := got[name]; ok {
+			t.Errorf("%s survived HostEnv", name)
+		}
 	}
 }
