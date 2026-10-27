@@ -78,6 +78,8 @@ func (s *Server) clusterInfo(c state.Cluster) api.Cluster {
 		Namespace:        c.Namespace,
 		StorageClass:     c.StorageClass,
 		Image:            c.Image,
+		PreviousImage:    c.PreviousImage,
+		Draining:         c.Draining,
 		MasterURL:        c.MasterURL,
 		Registry:         c.Registry,
 		MaxAgents:        c.MaxAgents,
@@ -98,6 +100,12 @@ func (s *Server) clusterInfo(c state.Cluster) api.Cluster {
 		out.LastSeen = &seen
 	}
 	if capacity, ok := s.clusterCapacity(c.Name); ok {
+		// A draining cluster has room for the agents it already has and for
+		// no others, whatever its nodes still have: the number is "how many
+		// more fit", and none do.
+		if c.Draining && capacity.Agents > 0 {
+			capacity.Agents = 0
+		}
 		out.Capacity = &capacity
 	}
 	return out

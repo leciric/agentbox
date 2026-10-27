@@ -139,10 +139,12 @@ func agentRules() []rbacv1.PolicyRule {
 			Verbs:     []string{"get", "list", "create", "update", "delete"},
 		},
 		{
-			// What the cluster and the app say happened to a pod.
+			// What the cluster and the app say happened to a pod. The page's
+			// detail reads them too, which is why a cluster added before this
+			// rule needs `cluster add` run again.
 			APIGroups: []string{""},
 			Resources: []string{"events"},
-			Verbs:     []string{"create", "patch"},
+			Verbs:     []string{"get", "list", "create", "patch"},
 		},
 	}
 }

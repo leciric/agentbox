@@ -40,6 +40,14 @@ type Cluster struct {
 	// Image is the agent image's name under the registry, like
 	// agentbox-agent:0.3.0.
 	Image string
+	// PreviousImage is the image this cluster ran before its last upgrade, so
+	// `cluster upgrade --rollback` has one to go back to. Empty until one
+	// happens.
+	PreviousImage string
+	// Draining is a cluster on its way out: it takes no new agents while the
+	// ones it has keep running, stop or move. Admission refuses it, and the
+	// queue leaves its agents queued rather than placing them here.
+	Draining bool
 	// MasterURL is where this daemon's gateway is reached from the cluster's
 	// pods: the MagicDNS name through the tailnet, or
 	// http://host.k3d.internal:7782 for a local k3d cluster. Empty until the
@@ -98,7 +106,7 @@ func (c Cluster) HasCapability(name string) bool {
 
 const clusterColumns = `name, namespace, storage_class, image, master_url, registry, max_agents, cpu, memory,
 	agent_cpu, agent_memory, workspace_size, ephemeral_storage, labels, tailnet, capabilities, kubeconfig,
-	created_at, last_seen, last_error`
+	created_at, last_seen, last_error, draining, previous_image`
 
 // AddCluster records a cluster whose access `cluster add` has already applied
 // and sealed. It never overwrites: a second add under the same name is an error,
@@ -116,10 +124,11 @@ func (s *Store) AddCluster(ctx context.Context, c Cluster) error {
 		return err
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO clusters (`+clusterColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO clusters (`+clusterColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		c.Name, c.Namespace, c.StorageClass, c.Image, masterURL, c.Registry, c.MaxAgents, c.CPU, c.Memory,
 		c.AgentCPU, c.AgentMemory, c.WorkspaceSize, c.EphemeralStorage,
-		labels, c.Tailnet, capabilities, c.Kubeconfig, c.CreatedAt.Unix(), unixOrZero(c.LastSeen), c.LastError)
+		labels, c.Tailnet, capabilities, c.Kubeconfig, c.CreatedAt.Unix(), unixOrZero(c.LastSeen), c.LastError,
+		c.Draining, c.PreviousImage)
 	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
 		return fmt.Errorf("cluster %s: %w", c.Name, ErrExists)
 	}
@@ -272,7 +281,7 @@ func (s *Store) queryClusters(ctx context.Context, clause string, args ...any) (
 		if err := rows.Scan(&c.Name, &c.Namespace, &c.StorageClass, &c.Image, &c.MasterURL, &c.Registry, &c.MaxAgents,
 			&c.CPU, &c.Memory, &c.AgentCPU, &c.AgentMemory, &c.WorkspaceSize, &c.EphemeralStorage,
 			&labels, &c.Tailnet, &capabilities, &c.Kubeconfig,
-			&created, &lastSeen, &c.LastError); err != nil {
+			&created, &lastSeen, &c.LastError, &c.Draining, &c.PreviousImage); err != nil {
 			return nil, err
 		}
 		if labels != "" {
@@ -353,6 +362,35 @@ func (s *Store) SetClusterKubeconfig(ctx context.Context, name string, kubeconfi
 func (s *Store) SetClusterHealth(ctx context.Context, name string, at time.Time, errText string) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE clusters SET last_seen = ?, last_error = ? WHERE name = ?`,
 		unixOrZero(at), errText, name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("cluster %s: %w", name, ErrNotFound)
+	}
+	return nil
+}
+
+// SetClusterDraining marks a cluster as taking no new agents, or lets it take
+// them again. The agents it already has are left to the caller: stopping or
+// moving them is a daemon's job, not a state write.
+func (s *Store) SetClusterDraining(ctx context.Context, name string, draining bool) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE clusters SET draining = ? WHERE name = ?`, draining, name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("cluster %s: %w", name, ErrNotFound)
+	}
+	return nil
+}
+
+// SetClusterImage records the image a cluster runs now and the one it ran
+// before, which is what an upgrade and its rollback are: two strings, and the
+// pods the daemon recreates afterwards.
+func (s *Store) SetClusterImage(ctx context.Context, name, image, previous string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE clusters SET image = ?, previous_image = ? WHERE name = ?`,
+		image, previous, name)
 	if err != nil {
 		return err
 	}

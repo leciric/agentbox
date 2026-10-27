@@ -17,7 +17,16 @@ type Cluster struct {
 	// cluster's default.
 	StorageClass string `json:"storageClass,omitempty"`
 	// Image is the agent image under the registry, like agentbox-agent:0.3.0.
+	// An upgrade replaces it with the same name at a digest, and keeps the
+	// one it replaced in PreviousImage.
 	Image string `json:"image,omitempty"`
+	// PreviousImage is the image this cluster ran before its last upgrade, for
+	// a rollback. Empty until one happens.
+	PreviousImage string `json:"previousImage,omitempty"`
+	// Draining says this cluster takes no new agents: it keeps the ones it
+	// has until they are stopped, moved or destroyed. Admission refuses it,
+	// with itself as the reason.
+	Draining bool `json:"draining,omitempty"`
 	// MasterURL is where this daemon is reached from the cluster's pods: the
 	// MagicDNS name through the tailnet, or http://host.k3d.internal:7782 for
 	// a local k3d cluster. Absent means the user hasn't set it, and no agent
@@ -155,6 +164,85 @@ type ClusterCheck struct {
 	OK      bool   `json:"ok"`
 	Skipped bool   `json:"skipped,omitempty"`
 	Detail  string `json:"detail,omitempty"`
+}
+
+// ClusterDetail is GET /v1/clusters/{name}/detail: what the cluster holds right
+// now, for its page. It is a snapshot rather than a watch: the page asks again.
+type ClusterDetail struct {
+	Cluster Cluster        `json:"cluster"`
+	Pods    []ClusterPod   `json:"pods,omitempty"`
+	Claims  []ClusterClaim `json:"claims,omitempty"`
+	Events  []ClusterEvent `json:"events,omitempty"`
+	Queue   []ClusterQueue `json:"queue,omitempty"`
+}
+
+// ClusterPod is one pod in the cluster's namespace, which is one agent's
+// machine. Project and Agent are empty for a pod that isn't AgentBox's.
+type ClusterPod struct {
+	Name      string    `json:"name"`
+	Project   string    `json:"project,omitempty"`
+	Agent     string    `json:"agent,omitempty"`
+	Phase     string    `json:"phase"`
+	Ready     bool      `json:"ready"`
+	Node      string    `json:"node,omitempty"`
+	Image     string    `json:"image,omitempty"`
+	Restarts  int       `json:"restarts,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+	// Reason and Message are the cluster's own words for what is wrong, when
+	// something is: ImagePullBackOff, CrashLoopBackOff, a node with no room.
+	Reason  string `json:"reason,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+// ClusterClaim is one workspace claim, which keeps an agent's clone and home.
+// Storage is what it asks for, as the cluster reports it.
+type ClusterClaim struct {
+	Name      string    `json:"name"`
+	Project   string    `json:"project,omitempty"`
+	Agent     string    `json:"agent,omitempty"`
+	Storage   string    `json:"storage,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// ClusterEvent is one of the cluster's own events about an object in its
+// namespace: why a pod didn't start, what a node ran out of.
+type ClusterEvent struct {
+	Type    string    `json:"type"`
+	Reason  string    `json:"reason"`
+	Object  string    `json:"object"`
+	Message string    `json:"message"`
+	Count   int       `json:"count,omitempty"`
+	At      time.Time `json:"at"`
+}
+
+// ClusterQueue is one agent waiting for room in this cluster. Position is its
+// place in the whole queue of its project, which is the order it will start in.
+type ClusterQueue struct {
+	Project  string `json:"project"`
+	Agent    string `json:"agent"`
+	Position int    `json:"position"`
+	Reason   string `json:"reason,omitempty"`
+}
+
+// DrainClusterRequest is POST /v1/clusters/{name}/drain: stop taking new agents
+// here, and either move what runs here or stop it. With neither, the cluster is
+// only marked.
+type DrainClusterRequest struct {
+	// MoveTo moves every running agent here to that cluster, one at a time.
+	MoveTo string `json:"moveTo,omitempty"`
+	// KeepRunning drains the cluster without touching the agents on it: they
+	// keep running until they are stopped or moved by hand.
+	KeepRunning bool `json:"keepRunning,omitempty"`
+}
+
+// UpgradeClusterRequest is POST /v1/clusters/{name}/upgrade: run the cluster's
+// image at a new digest, and recreate its pods one at a time. Rollback puts the
+// image the cluster ran before the last upgrade back instead.
+type UpgradeClusterRequest struct {
+	// Digest is the sha256:... an upgrade moves to. Not used by a rollback.
+	Digest string `json:"digest,omitempty"`
+	// Rollback goes back to PreviousImage, which is what that field is for.
+	Rollback bool `json:"rollback,omitempty"`
 }
 
 // Registry is one OCI registry. It never carries the login: HasCredential says

@@ -912,6 +912,11 @@ func (s *Server) routes() http.Handler {
 	h("DELETE /v1/clusters/{name}", s.removeCluster)
 	h("POST /v1/clusters/{name}/doctor", s.doctorCluster)
 	h("POST /v1/clusters/{name}/rotate", s.rotateCluster)
+	// What a cluster holds now, and what is being done to it (6.3).
+	h("GET /v1/clusters/{name}/detail", s.clusterDetail)
+	h("POST /v1/clusters/{name}/drain", s.drainCluster)
+	h("POST /v1/clusters/{name}/undrain", s.undrainCluster)
+	h("POST /v1/clusters/{name}/upgrade", s.upgradeCluster)
 	h("GET /v1/registries", s.listRegistries)
 	h("POST /v1/registries", s.addRegistry)
 	h("GET /v1/registries/{name}", s.getRegistry)
@@ -1131,6 +1136,8 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/agents/{project}/{agent}/checkpoints", s.listCheckpoints)
 	h("POST /v1/agents/{project}/{agent}/rollback", s.rollback)
 	h("POST /v1/agents/{project}/{agent}/recreate", s.recreate)
+	// Moving an agent's machine to another cluster (move.go).
+	h("POST /v1/agents/{project}/{agent}/move", s.moveAgent)
 	h("POST /v1/migration/check", s.checkMigration)
 	s.connectorRoutes(h)
 	h("GET /v1/agents/{project}/{agent}/secrets", s.listAgentSecrets)

@@ -3772,6 +3772,8 @@ export interface Cluster {
   namespace: string;
   storageClass?: string;
   image?: string;
+  previousImage?: string;
+  draining?: boolean;
   masterURL?: string;
   registry?: string;
   maxAgents: number;
@@ -3851,6 +3853,62 @@ export interface ClusterCheck {
   ok: boolean;
   skipped?: boolean;
   detail?: string;
+}
+
+export interface ClusterDetail {
+  cluster: Cluster;
+  pods?: ClusterPod[];
+  claims?: ClusterClaim[];
+  events?: ClusterEvent[];
+  queue?: ClusterQueue[];
+}
+
+export interface ClusterPod {
+  name: string;
+  project?: string;
+  agent?: string;
+  phase: string;
+  ready: boolean;
+  node?: string;
+  image?: string;
+  restarts?: number;
+  createdAt: string;
+  reason?: string;
+  message?: string;
+}
+
+export interface ClusterClaim {
+  name: string;
+  project?: string;
+  agent?: string;
+  storage?: string;
+  createdAt: string;
+}
+
+export interface ClusterEvent {
+  type: string;
+  reason: string;
+  object: string;
+  message: string;
+  count?: number;
+  at: string;
+}
+
+export interface ClusterQueue {
+  project: string;
+  agent: string;
+  position: number;
+  reason?: string;
+}
+
+export interface DrainClusterRequest {
+  moveTo?: string;
+  keepRunning?: boolean;
+}
+
+export interface UpgradeClusterRequest {
+  digest?: string;
+  rollback?: boolean;
 }
 
 export interface Registry {

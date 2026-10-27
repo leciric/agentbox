@@ -124,6 +124,42 @@ func TestPlacementRefusesAFullCluster(t *testing.T) {
 	}
 }
 
+// TestPlacementRefusesADrainingCluster: a cluster on its way out takes no new
+// agents, even one with room, and auto placement leaves it out of the choice
+// rather than choosing the emptiest cluster nobody can use.
+func TestPlacementRefusesADrainingCluster(t *testing.T) {
+	srv, p := placementSetup(t, "", map[string]api.ClusterCapacity{
+		"k3d": {Agents: 9, Running: 0, CPU: "64"},
+		"e2e": {Agents: 1, Running: 3, CPU: "1"},
+	})
+	ctx := context.Background()
+	if err := srv.store.SetClusterDraining(ctx, "k3d", true); err != nil {
+		t.Fatal(err)
+	}
+	_, err := srv.placeAgent(ctx, p, "k3d")
+	var noRoom *NoRoomError
+	if !errors.As(err, &noRoom) {
+		t.Fatalf("placeAgent(k3d) = %v, want a NoRoomError", err)
+	}
+	if !strings.Contains(err.Error(), "cluster k3d is draining: it takes no new agents") {
+		t.Errorf("the reason is %q, want it to say k3d is draining", err)
+	}
+	// The draining cluster has far more room, and is still not the answer.
+	if got, err := srv.placeAgent(ctx, p, state.ClusterAuto); err != nil || got != "e2e" {
+		t.Errorf("placeAgent(auto) = %q, %v, want e2e, the only cluster taking agents", got, err)
+	}
+	// With nothing else, the reason names the drain rather than silently
+	// refusing.
+	srv, p = placementSetup(t, "", map[string]api.ClusterCapacity{"k3d": {Agents: 9}})
+	if err := srv.store.SetClusterDraining(ctx, "k3d", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := srv.placeAgent(ctx, p, state.ClusterAuto); !errors.As(err, &noRoom) ||
+		!strings.Contains(err.Error(), "k3d (cluster k3d is draining: it takes no new agents)") {
+		t.Errorf("placeAgent(auto) = %v, want the drain among the refusal reasons", err)
+	}
+}
+
 // TestPlacementSkipsAClusterThatCantPullTheProjectsImage: a project whose base
 // save made an image runs it from the registry of the cluster that built it, so
 // the other cluster is not a candidate.

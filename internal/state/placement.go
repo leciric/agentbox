@@ -25,6 +25,43 @@ func (s *Store) PlaceAgent(ctx context.Context, project, name, cluster, workspac
 		WHERE project = ? AND name = ?`, cluster, runtime, workspace, desired, project, name)
 }
 
+// MovePlacement is where an agent's machine is after a move, or where a move
+// that failed put it back: the cluster, the workspace inside its pod, the claim
+// its worktree lives on there, the image it runs ("" for the cluster's own), and
+// what the user asks it to do ("" for running).
+type MovePlacement struct {
+	Cluster   string
+	Workspace string
+	Claim     string
+	Image     string
+	Desired   string
+}
+
+// MoveAgent records that an agent's machine is now a pod in another cluster, on
+// the claim its workspace was restored into. It is one statement because the
+// parts are one fact: a row that named the target cluster and the source claim,
+// or the target claim and the source cluster, is a machine that doesn't exist.
+// It is also what puts the row back when a move fails after this write, so the
+// caller passes the source's own image and cluster for that.
+//
+// It forgets the pod the row named before, because that pod is on the cluster
+// the agent has left. An empty Cluster puts it back on this host, which a move
+// never asks for but which keeps this the inverse of PlaceAgent.
+func (s *Store) MoveAgent(ctx context.Context, project, name string, to MovePlacement) error {
+	runtime := ""
+	if to.Cluster != "" {
+		runtime = RuntimeKubernetes
+	}
+	desired := to.Desired
+	if desired == "" {
+		desired = DesiredRunning
+	}
+	return s.execAgent(ctx, `UPDATE agents SET cluster = ?, runtime = ?, workspace = ?, claim = ?, image = ?,
+		desired_state = ?, pod = '', pod_uid = '', status_detail = '', destroyed_at = 0
+		WHERE project = ? AND name = ?`,
+		to.Cluster, runtime, to.Workspace, to.Claim, to.Image, desired, project, name)
+}
+
 // SetAgentPod records the pod an agent's machine is, as the cluster has it, and
 // the cluster's own reason it isn't doing what was asked. It is the reconciler's
 // write: the pod the agent had before may be a different one.

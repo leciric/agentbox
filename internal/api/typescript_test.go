@@ -64,6 +64,7 @@ var tsTypes = []any{
 	TraceSpan{}, SpanStats{}, DiagnosticsSpans{}, DiagnosticsStalls{}, VMResourceSample{}, AgentResourceSample{}, AgentResources{}, DiagnosticsResources{}, PackageCachePart{}, DiagnosticsPackageCache{}, ClientSpansRequest{},
 	ShareReport{}, FileCount{}, DiagnosticsFiles{},
 	Cluster{}, ClusterConfig{}, ClusterCapacity{}, AddClusterRequest{}, RotateClusterRequest{}, ClusterReport{}, ClusterCheck{},
+	ClusterDetail{}, ClusterPod{}, ClusterClaim{}, ClusterEvent{}, ClusterQueue{}, DrainClusterRequest{}, UpgradeClusterRequest{},
 	Registry{}, AddRegistryRequest{}, RotateRegistryRequest{}, RegistryTest{},
 	ProjectGit{}, ProjectGitProfile{}, SetProjectGitProfileRequest{}, UseProjectGitRequest{}, TestProjectGitRequest{}, ProjectGitTest{},
 }
