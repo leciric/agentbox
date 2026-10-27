@@ -148,7 +148,7 @@ func TestDeleteKeepsTheWorkAndForgetsEverything(t *testing.T) {
 		t.Errorf("Delete() of a pod that is gone = %v", err)
 	}
 
-	if err := cluster.DeleteAll(ctx, "pawly", "agent-01"); err != nil {
+	if err := cluster.DeleteAll(ctx, "pawly", "agent-01", ""); err != nil {
 		t.Fatalf("DeleteAll() = %v", err)
 	}
 	if _, err := client.CoreV1().PersistentVolumeClaims("agentbox").Get(ctx, "ab-pawly-agent-01-workspace", metav1.GetOptions{}); !apierrors.IsNotFound(err) {

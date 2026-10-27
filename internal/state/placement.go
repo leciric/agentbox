@@ -21,7 +21,7 @@ func (s *Store) PlaceAgent(ctx context.Context, project, name, cluster, workspac
 		desired = DesiredRunning
 	}
 	return s.execAgent(ctx, `UPDATE agents SET cluster = ?, runtime = ?, workspace = ?, desired_state = ?,
-		pod = '', pod_uid = '', status_detail = '', destroyed_at = 0
+		pod = '', pod_uid = '', status_detail = '', destroyed_at = 0, claim = '', image = ''
 		WHERE project = ? AND name = ?`, cluster, runtime, workspace, desired, project, name)
 }
 
@@ -36,6 +36,18 @@ func (s *Store) SetAgentPod(ctx context.Context, project, name, pod, uid, detail
 // SetAgentDesiredState records what the user asked the agent's machine to do.
 func (s *Store) SetAgentDesiredState(ctx context.Context, project, name, desired string) error {
 	return s.execAgent(ctx, `UPDATE agents SET desired_state = ? WHERE project = ? AND name = ?`, desired, project, name)
+}
+
+// SetAgentClaim moves an agent onto the claim a restore prepared from a
+// snapshot, and pins the image that snapshot was taken with. Both are written
+// in one statement: a row that named the new claim but still ran the cluster's
+// current image would come back as half the machine the snapshot saved.
+//
+// The names are the new ones, not a diff: a caller that only means to pin the
+// image passes the claim the row already names.
+func (s *Store) SetAgentClaim(ctx context.Context, project, name, claim, image string) error {
+	return s.execAgent(ctx, `UPDATE agents SET claim = ?, image = ? WHERE project = ? AND name = ?`,
+		claim, image, project, name)
 }
 
 // SetAgentStatusDetail records the cluster's own reason an agent isn't doing what

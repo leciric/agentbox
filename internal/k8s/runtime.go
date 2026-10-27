@@ -30,6 +30,9 @@ type Pod struct {
 	Ready bool
 	Node  string
 	Image string
+	// ImageID is the image the node actually ran, a name and a digest, which
+	// is what pins a snapshot to the machine that was saved.
+	ImageID string
 	// Restarts is how many times its container has been restarted: a pod that
 	// keeps restarting is a pod that keeps crashing.
 	Restarts int32
@@ -221,8 +224,13 @@ func (c *Cluster) Delete(ctx context.Context, project, agent string) error {
 
 // DeleteAll forgets an agent entirely: its pod, its token and the claim its work
 // was on. The claim is last, so a failure before it leaves a stopped agent with
-// its work rather than a claim nobody can name.
-func (c *Cluster) DeleteAll(ctx context.Context, project, agent string) error {
+// its work rather than a claim nobody can name. claim is the one the agent's row
+// names, "" for the name its identity derives: a restore moves an agent onto a
+// new claim, and the old one is only safe to delete once the row names the new.
+func (c *Cluster) DeleteAll(ctx context.Context, project, agent, claim string) error {
+	if claim == "" {
+		claim = ClaimName(project, agent)
+	}
 	if err := c.Delete(ctx, project, agent); err != nil {
 		return err
 	}
@@ -230,9 +238,20 @@ func (c *Cluster) DeleteAll(ctx context.Context, project, agent string) error {
 	if err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("deleting the token of %s/%s: %w", project, agent, err)
 	}
-	err = c.client.CoreV1().PersistentVolumeClaims(c.namespace).Delete(ctx, ClaimName(project, agent), metav1.DeleteOptions{})
+	err = c.client.CoreV1().PersistentVolumeClaims(c.namespace).Delete(ctx, claim, metav1.DeleteOptions{})
 	if err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("deleting the claim of %s/%s: %w", project, agent, err)
+	}
+	return nil
+}
+
+// DeleteClaim deletes one claim by name, which is how a restore lets go of the
+// volume an agent lived on before it moved to a new one. A claim that is already
+// gone is not an error.
+func (c *Cluster) DeleteClaim(ctx context.Context, name string) error {
+	err := c.client.CoreV1().PersistentVolumeClaims(c.namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	if err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("deleting the claim %s: %w", name, err)
 	}
 	return nil
 }
@@ -354,6 +373,9 @@ func podFrom(pod *corev1.Pod) Pod {
 	// doesn't: an image that can't be pulled, a crash loop.
 	for _, status := range pod.Status.ContainerStatuses {
 		out.Restarts += status.RestartCount
+		if out.ImageID == "" {
+			out.ImageID = status.ImageID
+		}
 		if status.State.Waiting != nil {
 			if out.Reason == "" {
 				out.Reason, out.Message = status.State.Waiting.Reason, status.State.Waiting.Message

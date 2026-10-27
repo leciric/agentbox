@@ -370,6 +370,23 @@ func (m *Manager) clonePodGitSteps(ctx context.Context, a state.Agent, p *gitPro
 	return nil
 }
 
+// checkoutPodFork moves a fork's worktree onto its own branch, at the commit
+// its snapshot was taken on. The claim was unpacked from the source's archive,
+// so the tree already holds the snapshot's files, uncommitted and untracked ones
+// included; moving the branch pointer keeps them, which is what makes the copy a
+// working tree rather than a fresh clone.
+func (m *Manager) checkoutPodFork(ctx context.Context, a state.Agent) error {
+	base := a.BaseCommit
+	if base == "" {
+		base = "HEAD"
+	}
+	command := "git -C " + shellQuote(m.worktree(a)) + " checkout -B " + shellQuote(a.Branch) + " " + shellQuote(base)
+	if err := m.runPodGit(ctx, a, m.machineUser(a).Name, command); err != nil {
+		return fmt.Errorf("%s's pod could not start %s at %s: %w", a.Ref(), a.Branch, base, err)
+	}
+	return nil
+}
+
 // runPodGit runs one git command as the pod's agent and keeps what it said on
 // stderr, which is where git explains a clone that didn't work. The caller
 // redacts before the error leaves this file.

@@ -795,6 +795,7 @@ type plan struct {
 	queued        *state.Agent                             // the queued agent this makes, when it isn't a new one
 	awaitImage    func(context.Context, state.Agent) error // see CreateOptions.AwaitImage; nil when the image is ready
 	cluster       string                                   // the cluster its machine is a pod in; "" for Incus here
+	claimFrom     string                                   // project/agent@snapshot a fork's claim is primed from
 }
 
 // checkCluster refuses a cluster a caller named that this daemon doesn't have,
@@ -864,6 +865,12 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		a.Cluster, a.Runtime, a.Workspace = pl.cluster, state.RuntimeKubernetes, k8s.WorkspaceDir
 		a.Worktree = ""
 		a.DesiredState = state.DesiredRunning
+		if pl.claimFrom != "" {
+			// A fork's claim is written before its pod may exist, so the row
+			// asks for nothing until the archive is unpacked.
+			a.Source = pl.claimFrom
+			a.DesiredState = state.DesiredStopped
+		}
 	} else if _, err := os.Stat(a.Worktree); err == nil {
 		// This host's path is taken by something else. A pod has no path here,
 		// so there is nothing to collide with.
@@ -906,7 +913,34 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 	} else if err := m.Store.AddAgent(ctx, a); err != nil {
 		return state.Agent{}, err
 	}
-	undo = append(undo, func() { _ = m.Store.RemoveAgent(cleanup, a.Project, a.Name) })
+	if pl.claimFrom != "" {
+		// A failed fork keeps its row asking for deletion rather than removing
+		// it: the reconciler takes the claim the archive was unpacked into, and
+		// a removed row would leave that claim with nothing naming it.
+		undo = append(undo, func() {
+			_ = m.Store.MarkAgentDestroyed(cleanup, a.Project, a.Name, time.Now())
+		})
+	} else {
+		undo = append(undo, func() { _ = m.Store.RemoveAgent(cleanup, a.Project, a.Name) })
+	}
+
+	if pl.claimFrom != "" {
+		// The archive is the machine a fork starts with, and the pod must not
+		// exist before it is unpacked: the reconciler makes one as soon as the
+		// row asks for it.
+		preparer, ok := m.machine(a).(machine.ClaimPreparer)
+		if !ok {
+			return fail("claim", fmt.Errorf("%s is a fork of %s, whose claim this runtime cannot prepare", a.Ref(), pl.claimFrom))
+		}
+		m.logf("Preparing %s's claim from %s", a.Ref(), pl.claimFrom)
+		if err := preparer.PrepareClaim(ctx, a.Claim, pl.claimFrom); err != nil {
+			return fail("claim", err)
+		}
+		if err := m.Store.SetAgentDesiredState(ctx, a.Project, a.Name, state.DesiredRunning); err != nil {
+			return fail("claim", err)
+		}
+		a.DesiredState = state.DesiredRunning
+	}
 
 	if a.AI == "claude" {
 		options, err := m.claudeChatDefaults(ctx, pl.project, pl.model, pl.effort, pl.contextWindow)
@@ -1030,6 +1064,14 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		// A pod has no address this host reaches, which is what "" says here.
 		if err := m.configure(ctx, a, "", envFiles, pl.task); err != nil {
 			return destroy("configure", err)
+		}
+		if pl.claimFrom != "" {
+			// The claim carries the source's branch and its uncommitted files;
+			// moving the branch pointer keeps the files and is what makes the
+			// fork its own agent.
+			if err := m.checkoutPodFork(ctx, a); err != nil {
+				return destroy("branch", err)
+			}
 		}
 		if err := m.ensureSession(ctx, a); err != nil {
 			return destroy("session", err)
@@ -2518,13 +2560,17 @@ func (m *Manager) Stop(ctx context.Context, a state.Agent) error {
 //
 // A pod can't be frozen, and the machine says so (machine.ErrNotSupported):
 // stopping it is what frees the memory a pause exists to free, so that is what
-// the caller is told to do instead.
+// happens instead. The row still says it was paused, and starting it again is
+// what brings it back.
 func (m *Manager) Pause(ctx context.Context, a state.Agent) error {
-	if err := m.machine(a).Pause(ctx); err != nil {
-		if errors.Is(err, machine.ErrNotSupported) {
-			return fmt.Errorf("pausing %s: a pod is stopped and started rather than frozen, so stop it with agentbox stop %s, and start it again when you need it: %w", a.Ref(), a.Ref(), err)
+	mach := m.machine(a)
+	if err := mach.Pause(ctx); err != nil {
+		if !errors.Is(err, machine.ErrNotSupported) {
+			return err
 		}
-		return err
+		if err := mach.Stop(ctx); err != nil {
+			return err
+		}
 	}
 	if err := m.Store.SetPausedAt(ctx, a.Project, a.Name, time.Now()); err != nil {
 		m.logf("recording when %s was paused: %v", a.Ref(), err)
@@ -2533,11 +2579,14 @@ func (m *Manager) Pause(ctx context.Context, a state.Agent) error {
 }
 
 func (m *Manager) Resume(ctx context.Context, a state.Agent) error {
-	if err := m.machine(a).Resume(ctx); err != nil {
-		if errors.Is(err, machine.ErrNotSupported) {
-			return fmt.Errorf("resuming %s: a pod is started rather than resumed, so start it with agentbox start %s: %w", a.Ref(), a.Ref(), err)
+	mach := m.machine(a)
+	if err := mach.Resume(ctx); err != nil {
+		if !errors.Is(err, machine.ErrNotSupported) {
+			return err
 		}
-		return err
+		if err := mach.Start(ctx); err != nil {
+			return err
+		}
 	}
 	if err := m.Store.SetPausedAt(ctx, a.Project, a.Name, time.Time{}); err != nil {
 		m.logf("clearing when %s was paused: %v", a.Ref(), err)
@@ -2866,6 +2915,12 @@ func (m *Manager) List(ctx context.Context, project string) ([]Status, error) {
 			if inst, ok := byName[a.Instance]; ok {
 				s.State, s.IP, s.StartedAt = displayState(inst.Status), inst.IPv4(), inst.LastUsedAt
 			}
+		}
+		if !a.PausedAt.IsZero() && s.State == "stopped" {
+			// A pod is paused by being stopped, and the row remembers that was
+			// a pause; the app then offers Resume, which starts it, rather
+			// than Start, which is the same thing with a plainer word.
+			s.State = "paused"
 		}
 		if a.Status == state.AgentQueued {
 			s.State = state.AgentQueued // no machine yet, and none looked for

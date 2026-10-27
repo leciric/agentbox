@@ -269,27 +269,45 @@ func TestListReadsAClusterAgentsStateFromItsRow(t *testing.T) {
 	}
 }
 
-// TestPausingAClusterAgentSaysToStopIt checks the substitute pause: a pod is
-// stopped and started, and the error says so rather than leaving the caller to
-// guess why freezing failed.
-func TestPausingAClusterAgentSaysToStopIt(t *testing.T) {
+// TestPausingAClusterAgentStopsIt checks the substitute pause: a pod is stopped
+// and started, which is what frees the memory a pause exists to free, and the
+// row records that it was paused so "auto-stop idle agents" counts it as idle.
+func TestPausingAClusterAgentStopsIt(t *testing.T) {
 	f := newClusterFixture(t, nil)
-	a := state.Agent{Project: "hello-stack", Name: "agent-01", Cluster: "k3d", Workspace: "/workspace"}
 	ctx := context.Background()
+	if _, err := f.m.build(ctx, f.plan(t)); err != nil {
+		t.Fatalf("build() = %v", err)
+	}
+	a, err := f.st.Agent(ctx, "hello-stack", "agent-01")
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	err := f.m.Pause(ctx, a)
-	if !errors.Is(err, mach.ErrNotSupported) {
-		t.Fatalf("Pause() = %v, want the machine's not-supported error under it", err)
+	if err := f.m.Pause(ctx, a); err != nil {
+		t.Fatalf("Pause() = %v, want the pod stopped instead", err)
 	}
-	if !strings.Contains(err.Error(), "agentbox stop hello-stack/agent-01") {
-		t.Errorf("Pause() = %v, want it to say how to stop the agent instead", err)
+	if f.pod.stopped != 1 {
+		t.Errorf("Pause() stopped the pod %d times, want once", f.pod.stopped)
 	}
-	err = f.m.Resume(ctx, a)
-	if !errors.Is(err, mach.ErrNotSupported) {
-		t.Fatalf("Resume() = %v, want the machine's not-supported error under it", err)
+	paused, err := f.st.Agent(ctx, a.Project, a.Name)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "agentbox start hello-stack/agent-01") {
-		t.Errorf("Resume() = %v, want it to say how to start the agent instead", err)
+	if paused.PausedAt.IsZero() {
+		t.Error("Pause() left PausedAt zero, so the idle watch would not count it")
+	}
+	if err := f.m.Resume(ctx, a); err != nil {
+		t.Fatalf("Resume() = %v, want the pod started instead", err)
+	}
+	if f.pod.started != 1 {
+		t.Errorf("Resume() started the pod %d times, want once", f.pod.started)
+	}
+	resumed, err := f.st.Agent(ctx, a.Project, a.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resumed.PausedAt.IsZero() {
+		t.Errorf("Resume() left PausedAt at %v, want it cleared", resumed.PausedAt)
 	}
 }
 
@@ -540,6 +558,8 @@ type podMachineStub struct {
 	// state is what Info reports; "Running" unless a test says otherwise.
 	state     string
 	destroyed bool
+	started   int
+	stopped   int
 
 	waits     int
 	writes    []string
@@ -572,6 +592,18 @@ func (m *podMachineStub) Pause(context.Context) error {
 
 func (m *podMachineStub) Resume(context.Context) error {
 	return fmt.Errorf("a pod is started, not resumed: %w", mach.ErrNotSupported)
+}
+
+func (m *podMachineStub) Start(context.Context) error {
+	m.started++
+	m.state = "Running"
+	return nil
+}
+
+func (m *podMachineStub) Stop(context.Context) error {
+	m.stopped++
+	m.state = "Stopped"
+	return nil
 }
 
 func (m *podMachineStub) WaitReady(context.Context, time.Duration) (mach.Info, error) {

@@ -94,6 +94,11 @@ type Spec struct {
 	WorkspaceSize string
 	// StorageClass is the claim's class, "" for the cluster's default.
 	StorageClass string
+	// Claim is the name of the persistent volume the pod's workspace and home
+	// live on, "" for ClaimName(Project, Agent). A restore makes a new claim
+	// rather than writing over the one an agent had, so the name is part of
+	// the agent's row and not always the one its name derives.
+	Claim string
 	// CPU and Memory are what the pod asks for, as Kubernetes quantities. Empty
 	// asks for nothing in particular, which is only right in a namespace whose
 	// limits say otherwise.
@@ -125,6 +130,15 @@ func (s Spec) Labels() map[string]string {
 // Annotations name the agent the way the user does.
 func (s Spec) Annotations() map[string]string {
 	return map[string]string{AnnotationRef: s.Project + "/" + s.Agent}
+}
+
+// WorkspaceClaim is the claim the pod mounts: the one the row names, or the
+// name the agent's identity derives when it names none.
+func (s Spec) WorkspaceClaim() string {
+	if s.Claim != "" {
+		return s.Claim
+	}
+	return ClaimName(s.Project, s.Agent)
 }
 
 // Object labels and annotations the reconciler and the app read.
@@ -212,7 +226,7 @@ func BuildPod(spec Spec) (*corev1.Pod, error) {
 				{
 					Name: "home",
 					VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-						ClaimName: ClaimName(spec.Project, spec.Agent),
+						ClaimName: spec.WorkspaceClaim(),
 					}},
 				},
 				{Name: "tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
@@ -335,7 +349,7 @@ func BuildPVC(spec Spec) (*corev1.PersistentVolumeClaim, error) {
 	claim := &corev1.PersistentVolumeClaim{
 		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "PersistentVolumeClaim"},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        ClaimName(spec.Project, spec.Agent),
+			Name:        spec.WorkspaceClaim(),
 			Labels:      spec.Labels(),
 			Annotations: spec.Annotations(),
 		},

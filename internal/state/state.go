@@ -1556,6 +1556,13 @@ var migrations = []string{
 	// because an agent branch is unfinished work and must not reach the public
 	// remote unasked.
 	`ALTER TABLE projects ADD COLUMN agent_remote TEXT NOT NULL DEFAULT 'private'`,
+	// The claim an agent's pod lives on and the image it runs. Both are empty
+	// for a fresh agent, which reads as the names the cluster and the agent's
+	// identity derive. A restore moves the row onto a claim prepared from a
+	// snapshot and pins the image that snapshot was taken with, and a fork
+	// starts there too.
+	`ALTER TABLE agents ADD COLUMN claim TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE agents ADD COLUMN image TEXT NOT NULL DEFAULT ''`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -2916,6 +2923,16 @@ type Agent struct {
 	// Workspace is the directory its worktree is in inside that machine,
 	// which on a cluster is not this host's path for it.
 	Workspace string
+	// Claim is the persistent volume the pod's workspace and home live on, ""
+	// for the name the agent's identity derives (k8s.ClaimName). A restore
+	// prepares a new claim and moves the agent onto it, so a row that has been
+	// restored names the claim it lives on now.
+	Claim string
+	// Image is the image the pod runs, "" for the cluster's current one. A
+	// restore and a fork pin the image the snapshot was taken with, so the
+	// machine that comes back is the one that was saved rather than whatever
+	// the cluster's tag points at today.
+	Image string
 	// DesiredState is what the user asked the machine to do: DesiredRunning,
 	// DesiredStopped or DesiredDestroyed. Empty means running, which is what
 	// creating an agent asks for.
@@ -2982,7 +2999,7 @@ func (a Agent) IsHome() bool { return a.Project == HomeProject && a.Role == Role
 
 func (a Agent) Ref() string { return a.Project + "/" + a.Name }
 
-const agentColumns = `project, name, instance, ai, autonomous, branch, base_ref, base_commit, worktree, status, created_at, source, title, claude_account, interface, role, github_account, finish_notice, id, connectors, codex_account, opencode_accounts, cursor_account, created_by_session, cluster, runtime, pod, pod_uid, workspace, desired_state, status_detail, destroyed_at`
+const agentColumns = `project, name, instance, ai, autonomous, branch, base_ref, base_commit, worktree, status, created_at, source, title, claude_account, interface, role, github_account, finish_notice, id, connectors, codex_account, opencode_accounts, cursor_account, created_by_session, cluster, runtime, pod, pod_uid, workspace, desired_state, status_detail, destroyed_at, claim, image`
 
 func (s *Store) AddAgent(ctx context.Context, a Agent) error {
 	if a.Interface == "" {
@@ -3014,9 +3031,9 @@ func (s *Store) AddAgent(ctx context.Context, a Agent) error {
 		destroyedAt = a.DestroyedAt.Unix()
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.Project, a.Name, a.Instance, a.AI, a.Autonomous, a.Branch, a.BaseRef, a.BaseCommit, a.Worktree, a.Status, a.CreatedAt.Unix(), a.Source, a.Title, a.ClaudeAccount, a.Interface, a.Role, a.GitHubAccount, a.FinishNotice, a.ID, connectors,
-		a.CodexAccount, a.OpenCodeAccounts.String(), a.CursorAccount, a.CreatedBySession, a.Cluster, a.Runtime, a.Pod, a.PodUID, a.Workspace, a.DesiredState, a.StatusDetail, destroyedAt)
+		a.CodexAccount, a.OpenCodeAccounts.String(), a.CursorAccount, a.CreatedBySession, a.Cluster, a.Runtime, a.Pod, a.PodUID, a.Workspace, a.DesiredState, a.StatusDetail, destroyedAt, a.Claim, a.Image)
 	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
 		return fmt.Errorf("agent %s: %w", a.Ref(), ErrExists)
 	}
@@ -3269,6 +3286,7 @@ func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]
 			&a.BaseRef, &a.BaseCommit, &a.Worktree, &a.Status, &created, &a.Source, &a.Title, &a.ClaudeAccount, &a.Interface, &a.Role, &a.GitHubAccount, &a.FinishNotice, &a.ID, &connectors,
 			&a.CodexAccount, &opencode, &a.CursorAccount, &a.CreatedBySession,
 			&a.Cluster, &a.Runtime, &a.Pod, &a.PodUID, &a.Workspace, &a.DesiredState, &a.StatusDetail, &destroyedAt,
+			&a.Claim, &a.Image,
 			&pausedAt, &stoppedAt); err != nil {
 			return nil, err
 		}

@@ -13,14 +13,16 @@ so no Service, Ingress or inbound rule is needed.
 | `cluster add`, `list`, `set`, `remove`, `rotate`, `doctor` | a chat with a real login, which no pod has run yet |
 | `registry add`, `list`, `test`, `rotate`, `remove` | the desktop tab in the app, not tried against a pod |
 | `image agent build`, `--push` | Cursor, whose adapter needs the Cursor SDK |
-| the pod lifecycle: create, adopt, stop, destroy | an agent's cluster or pod in the app |
+| the pod lifecycle: create, adopt, stop, pause, resume, destroy | an agent's cluster or pod in the app |
 | the gateway: commands, files, a terminal, ports, dial | file browsing through the app (it refuses a pod) |
 | `create --cluster <name>`, and the clone on its claim | diff and files while the pod is stopped (no mirror) |
-| the two git profiles: URL, login, clone and push | snapshots, restore and fork (Stage 5) |
-| diff, file list and file read through the gateway | placement, capacity and a queue |
-| the desktop and its browser over the gateway, recordings included | the tailnet egress check, which needs an operator client |
-| the in-agent API over the master: `whoami`, connectors, memory, heavy | a connector that signs in, not yet called from a pod |
-| Claude Code, Codex, OpenCode and their adapters in the image | `control`, which agentd answers with exit 2 |
+| the two git profiles: URL, login, clone and push | CSI volume snapshots, as a fast path |
+| diff, file list and file read through the gateway | a fork from a checkpoint of a cluster agent |
+| the desktop and its browser over the gateway, recordings included | placement, capacity and a queue |
+| snapshots, restore and fork, from an archive of the claim | zstd, because the image has no zstd yet |
+| the in-agent API over the master: `whoami`, connectors, memory, heavy | the tailnet egress check, which needs an operator client |
+| Claude Code, Codex, OpenCode and their adapters in the image | a connector that signs in, not yet called from a pod |
+| | `control`, which agentd answers with exit 2 |
 
 `cluster add` (`internal/cli/cluster.go`, `internal/k8s`) keeps a namespace-scoped ServiceAccount
 token sealed and never keeps the admin kubeconfig. `cluster doctor` makes a 1Gi canary claim and,
@@ -223,6 +225,45 @@ In the app, Settings, Clusters lists each cluster with its image, storage class,
 Doctor button, and Registries lists each one with or without a login, and a Test button. While a pod
 pulls, `kubectl` is what shows it: `kubectl -n agentbox get pods`, and `kubectl -n agentbox describe
 pod ab-demo-agent-01`.
+
+## Snapshots, restore and fork
+
+A cluster agent's machine is its claim, and the cluster keeps no copy of it: a snapshot is an archive
+of the whole claim streamed to this machine, plus a git ref of the worktree
+(`internal/agent/snapshot.go`). The claim holds the `workspace` and `home` subdirectories, so one
+archive is the whole machine.
+
+```bash
+agentbox snapshot demo/agent-01 before-work     # stops the pod, archives its claim, starts it again
+agentbox snapshots demo/agent-01                # the name, when, and the branch it was taken at
+agentbox restore demo/agent-01 before-work
+agentbox fork demo/agent-01@before-work --name agent-02
+```
+
+A snapshot stops the pod, runs a short-lived helper pod that mounts the claim, streams `tar -czf -`
+out of it over the API server's exec, and starts the agent again when it was running. The pair lands
+in `~/.local/share/agentbox/snapshots/<project>/<agent>/`: a `<name>.tar.gz` and a `<name>.json` with
+the snapshot's commit, the branch head, the image and the digest the node reported. `--consistent`
+asks for nothing more on a pod, because the archive is only ever taken with the pod stopped, and that
+is what makes it consistent. Snapshotting a stopped agent starts it for the worktree's git half and
+stops it again.
+
+A restore does not write over the claim the agent has. It creates a new claim, unpacks the archive
+into it with a helper pod, moves the agent's row onto it, and starts the pod on the image the snapshot
+recorded; only after the new machine is up is the old claim deleted. A failure leaves the agent on
+the work it had. The worktree is then reset to the snapshot's ref, and the state it had is kept on
+`refs/agentbox/pre-restore/<agent>/<time>`.
+
+A fork creates a new claim from the same archive and moves the new branch to the snapshot's commit,
+so the copy starts with the home, the ignored files (`node_modules` included) and the uncommitted
+work the source had. A fork of a cluster agent stays on its cluster, and starts from a snapshot
+rather than a checkpoint: a checkpoint has only the worktree's half.
+
+What the archive does not carry is the system packages in the image. A package installed into the
+pod's root filesystem with `apt` is gone after a restore or a fork, and belongs in a project image.
+CSI volume snapshots would make the archive unnecessary where the storage class supports them; they
+are not used yet, so every snapshot works on `local-path`, and the archive is gzipped because the
+image does not carry `zstd`.
 
 ## Troubleshooting
 

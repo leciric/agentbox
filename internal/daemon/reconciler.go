@@ -133,7 +133,7 @@ func (s *Server) reconcileAgent(ctx context.Context, cluster state.Cluster, clie
 		if !found {
 			return nil
 		}
-		if err := client.DeleteAll(ctx, a.Project, a.Name); err != nil {
+		if err := client.DeleteAll(ctx, a.Project, a.Name, a.Claim); err != nil {
 			return err
 		}
 		return s.clearPod(ctx, a)
@@ -248,14 +248,21 @@ func (s *Server) podSpec(ctx context.Context, cluster state.Cluster, reg *state.
 	if workspace == "" {
 		workspace = k8s.WorkspaceDir
 	}
+	// A restored agent runs the image its snapshot was taken with: the claim
+	// holds the tools' state, not the tools, so half the machine would be new.
+	image := a.Image
+	if image == "" {
+		image = imageRef(cluster, reg)
+	}
 	return k8s.Spec{
 		Cluster:      cluster.Name,
 		Project:      a.Project,
 		Agent:        a.Name,
-		Image:        imageRef(cluster, reg),
+		Image:        image,
 		FromRegistry: reg != nil,
 		PullSecret:   s.pullSecretName(ctx, cluster),
 		StorageClass: cluster.StorageClass,
+		Claim:        a.Claim,
 		// MasterURL is both the spec's own field, which the doctor and the
 		// pod's probes read, and an environment variable, because Env is the
 		// only thing BuildPod puts in the container.

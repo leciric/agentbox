@@ -163,3 +163,20 @@ func (p Paths) WorktreeTrash() string {
 func (p Paths) Worktree(project, agent string) string {
 	return filepath.Join(p.Worktrees(), project, agent)
 }
+
+// Snapshots is where a cluster agent's machine snapshots are streamed to: an
+// archive per snapshot, with a small JSON file of what it was taken from beside
+// it. They are on this host because a pod's claim is read through the cluster
+// and the archive is what makes a snapshot outlive the claim.
+func (p Paths) Snapshots() string {
+	if d := os.Getenv("AGENTBOX_SNAPSHOTS"); filepath.IsAbs(d) {
+		return d
+	}
+	return filepath.Join(p.Data, "snapshots")
+}
+
+// SnapshotsOf is one agent's snapshot directory, which is made when a snapshot
+// is taken rather than when an agent is created.
+func (p Paths) SnapshotsOf(project, agent string) string {
+	return filepath.Join(p.Snapshots(), project, agent)
+}
