@@ -3,6 +3,8 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -150,7 +152,7 @@ func newProjectCmd(a *app) *cobra.Command {
 		Short: "Settings of one project",
 		Long:  `Settings that belong to one project, rather than to this installation.`,
 	}
-	cmd.AddCommand(newAddCmd(a), newProjectModelCmd(a), newProjectBranchPrefixCmd(a), newProjectRenameCmd(a))
+	cmd.AddCommand(newAddCmd(a), newProjectModelCmd(a), newProjectBranchPrefixCmd(a), newProjectRenameCmd(a), newProjectGitCmd(a))
 	return cmd
 }
 
@@ -858,4 +860,234 @@ func newBriefCmd(a *app) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&agentName, "agent", "agent-01", "agent name to preview")
 	return cmd
+}
+
+// newProjectGitCmd is "agentbox project git": the two remotes a project's
+// cluster agents clone and push with, and the login each signs in with. A
+// credential's value goes in once, with --from-file, and is never printed.
+func newProjectGitCmd(a *app) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "git",
+		Short: "The git profiles a project's cluster agents clone and push with",
+		Long: `Where a project's agents clone from, and how they sign in there.
+
+An agent in a cluster has no host checkout and no host identity: its pod clones
+one of its project's two git profiles. Private is where work in progress goes,
+and is what agents use unless the project says otherwise; public is where a
+finished change is published. A project added from a repository gets private
+from its hub remote and public from its origin, without a login: set one before
+its first cluster agent.
+
+  agentbox project git set myapp private https://hub.example/o/myapp.git --from-file ~/.config/token
+  agentbox project git use myapp public
+  agentbox project git test myapp
+
+A URL may be the alias this machine already uses (forge:h4ad/myapp.git): it is
+resolved here, and the pod is given a real URL. A token profile clones over
+https, which is what a token answers; --auth ssh-key keeps ssh and needs the
+private key itself, also read with --from-file.`,
+	}
+	cmd.AddCommand(newProjectGitShowCmd(a), newProjectGitSetCmd(a), newProjectGitUseCmd(a),
+		newProjectGitTestCmd(a), newProjectGitRemoveCmd(a))
+	return cmd
+}
+
+func newProjectGitShowCmd(a *app) *cobra.Command {
+	return &cobra.Command{
+		Use:   "show <project>",
+		Short: "Show a project's git profiles",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			pg, err := c.ProjectGit(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s uses its %s profile for cluster agents.\n\n", args[0], pg.AgentRemote)
+			return writeProjectGit(cmd.OutOrStdout(), pg)
+		},
+	}
+}
+
+func newProjectGitSetCmd(a *app) *cobra.Command {
+	var auth, credential, fromFile string
+	cmd := &cobra.Command{
+		Use:   "set <project> <private|public> <url>",
+		Short: "Set one of a project's git profiles, and its login",
+		Long: `Set one of a project's two git profiles.
+
+--auth says how the URL signs in: token (the default), ssh-key, or
+github-account, which uses a login already stored with "agentbox auth github".
+--credential names the stored login, and defaults to the profile's own name.
+
+--from-file stores the secret too: a token, or the private key itself for
+--auth ssh-key. For a token profile, a token is one line and answers over https,
+which is what a token can answer, so an ssh URL becomes https on the same host.
+The secret is read here, sent once, and never printed.
+
+  op read op://work/forgejo/token | agentbox project git set myapp private https://hub.example/o/myapp.git --from-file -
+  agentbox project git set myapp private git@github.com:o/myapp.git --auth ssh-key --from-file ~/.ssh/id_ed25519`,
+		Args: cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			project, profile, url := args[0], args[1], args[2]
+			req := api.SetProjectGitProfileRequest{URL: url, Auth: auth, Credential: credential}
+			if fromFile != "" {
+				secret, err := readGitCredential(cmd, fromFile)
+				if err != nil {
+					return err
+				}
+				req.Secret = secret
+			}
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			pg, err := c.SetProjectGitProfile(cmd.Context(), project, profile, req)
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Set %s's %s git profile.\n\n", project, profile)
+			return writeProjectGit(cmd.OutOrStdout(), pg)
+		},
+	}
+	cmd.Flags().StringVar(&auth, "auth", "token", "how the URL signs in: token, ssh-key or github-account")
+	cmd.Flags().StringVar(&credential, "credential", "", "the stored login's name (default: the profile's name, for token and ssh-key)")
+	cmd.Flags().StringVar(&fromFile, "from-file", "", "read the token or private key from this file, or from stdin with -")
+	return cmd
+}
+
+func newProjectGitUseCmd(a *app) *cobra.Command {
+	return &cobra.Command{
+		Use:   "use <project> <private|public>",
+		Short: "Choose the profile a project's cluster agents clone with",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			pg, err := c.UseProjectGitProfile(cmd.Context(), args[0], args[1])
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s now uses its %s profile for cluster agents.\n", args[0], pg.AgentRemote)
+			return nil
+		},
+	}
+}
+
+func newProjectGitTestCmd(a *app) *cobra.Command {
+	return &cobra.Command{
+		Use:   "test <project> [private|public]",
+		Short: "Ask a profile's remote for its refs with the stored login",
+		Long: `Ask a profile's remote for its refs, with the login the profile stores.
+
+The check runs where the login is kept, in a temporary directory only that
+account can read, so the login is never an argument to a command. Without a
+profile it tests the one the project's agents use. It says how many refs
+answered, or a reason with the login taken out of it.`,
+		Args: cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			profile := ""
+			if len(args) > 1 {
+				profile = args[1]
+			}
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			out, err := c.TestProjectGitProfile(cmd.Context(), args[0], profile)
+			if err != nil {
+				return err
+			}
+			if !out.OK {
+				return fmt.Errorf("%s's %s git profile (%s) didn't answer: %s", args[0], out.Profile, out.URL, out.Detail)
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s's %s git profile accepted the login: %d refs from %s\n", args[0], out.Profile, out.Refs, out.URL)
+			return nil
+		},
+	}
+}
+
+func newProjectGitRemoveCmd(a *app) *cobra.Command {
+	return &cobra.Command{
+		Use:   "remove <project> <private|public>",
+		Short: "Forget one of a project's git profiles",
+		Long: `Forget one of a project's two git profiles.
+
+Its login goes with it, unless the other profile names the same one. A project
+whose agents were using it moves to the profile that is left.`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			pg, err := c.RemoveProjectGitProfile(cmd.Context(), args[0], args[1])
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Removed %s's %s git profile.\n\n", args[0], args[1])
+			return writeProjectGit(cmd.OutOrStdout(), pg)
+		},
+	}
+}
+
+// writeProjectGit is a project's profiles as a table: which is in use, where it
+// points, and which login it means. A credential's value is not in the API's
+// answer, so there is nothing here to leave out.
+func writeProjectGit(out io.Writer, pg api.ProjectGit) error {
+	if len(pg.Profiles) == 0 {
+		_, _ = fmt.Fprintln(out, "No git profiles yet. Set one with:")
+		_, _ = fmt.Fprintln(out, "  agentbox project git set <project> private <url> --from-file <file>")
+		return nil
+	}
+	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(w, "PROFILE\tUSE\tURL\tAUTH\tLOGIN\tRESOLVED")
+	for _, p := range pg.Profiles {
+		use := ""
+		if p.Profile == pg.AgentRemote {
+			use = "yes"
+		}
+		login := p.Credential + " (not stored)"
+		if p.HasCredential {
+			login = p.Credential + " (stored)"
+		}
+		if p.Credential == "" {
+			login = "none yet"
+		}
+		resolved := p.ResolvedURL
+		if p.ResolveError != "" {
+			resolved = "not resolvable: " + p.ResolveError
+		}
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", p.Profile, use, p.URL, p.Auth, login, resolved)
+	}
+	return w.Flush()
+}
+
+// readGitCredential reads a token or a private key the user points at. "-" is
+// stdin, which is how a password manager's output is piped in; the value is
+// never echoed, printed or put on a command line.
+func readGitCredential(cmd *cobra.Command, path string) (string, error) {
+	var data []byte
+	var err error
+	if path == "-" {
+		data, err = io.ReadAll(cmd.InOrStdin())
+		if err != nil {
+			return "", err
+		}
+	} else {
+		data, err = os.ReadFile(path)
+		if err != nil {
+			return "", err
+		}
+	}
+	secret := strings.TrimSpace(string(data))
+	if secret == "" {
+		return "", fmt.Errorf("no credential in %s: it is empty", path)
+	}
+	return secret, nil
 }

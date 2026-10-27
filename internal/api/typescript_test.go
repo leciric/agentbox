@@ -66,6 +66,7 @@ var tsTypes = []any{
 	DoctorCheck{}, DoctorReport{}, DoctorFixRequest{}, DoctorFix{}, DoctorFixResult{}, DoctorHomeRequest{}, DoctorHomeResult{},
 	Cluster{}, ClusterConfig{}, ClusterCapacity{}, AddClusterRequest{}, RotateClusterRequest{}, ClusterReport{}, ClusterCheck{},
 	Registry{}, AddRegistryRequest{}, RotateRegistryRequest{}, RegistryTest{},
+	ProjectGit{}, ProjectGitProfile{}, SetProjectGitProfileRequest{}, UseProjectGitRequest{}, TestProjectGitRequest{}, ProjectGitTest{},
 }
 
 var tsConstants = [][2]string{

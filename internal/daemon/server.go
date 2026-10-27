@@ -962,6 +962,13 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/projects/{project}", s.getProject)
 	h("PATCH /v1/projects/{project}", s.updateProject)
 	h("DELETE /v1/projects/{project}", s.removeProject)
+	// Where a project's cluster agents clone and push, and with which login
+	// (gitprofiles.go). A response names a credential and never carries it.
+	h("GET /v1/projects/{project}/git", s.projectGit)
+	h("PUT /v1/projects/{project}/git/{profile}", s.setProjectGit)
+	h("DELETE /v1/projects/{project}/git/{profile}", s.removeProjectGit)
+	h("POST /v1/projects/{project}/git/use", s.useProjectGit)
+	h("POST /v1/projects/{project}/git/test", s.testProjectGit)
 	// Each project's icon: the one chosen, or the one its repository has.
 	h("GET /v1/projects/{project}/icon", s.getProjectIcon)
 	h("GET /v1/projects/{project}/icon/candidates", s.projectIconCandidates)

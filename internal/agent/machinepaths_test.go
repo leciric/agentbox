@@ -139,10 +139,10 @@ func TestAttachArgvHasNoRunuserInAPod(t *testing.T) {
 func TestChatProcessForAPodStreamsTheAdapterOverUserExec(t *testing.T) {
 	pm := &podMachine{ref: "ab-p-agent-01"}
 	m := &agent.Manager{
-		User:    image.User{Name: "dev", UID: 1000, GID: 1000},
+		User:       image.User{Name: "dev", UID: 1000, GID: 1000},
 		Kubernetes: podRuntime{m: pm},
-		Creds:   credentials.Store{Dir: t.TempDir()},
-		Store:   openStore(t),
+		Creds:      credentials.Store{Dir: t.TempDir()},
+		Store:      openStore(t),
 	}
 	pod := state.Agent{
 		Project: "p", Name: "agent-01", Instance: "ab-p-agent-01", AI: "claude",
@@ -193,10 +193,10 @@ func TestChatProcessForAPodStreamsTheAdapterOverUserExec(t *testing.T) {
 func TestChatProcessStopCancelsTheExec(t *testing.T) {
 	pm := &podMachine{ref: "ab-p-agent-01", block: true}
 	m := &agent.Manager{
-		User:    image.User{Name: "dev", UID: 1000, GID: 1000},
+		User:       image.User{Name: "dev", UID: 1000, GID: 1000},
 		Kubernetes: podRuntime{m: pm},
-		Creds:   credentials.Store{Dir: t.TempDir()},
-		Store:   openStore(t),
+		Creds:      credentials.Store{Dir: t.TempDir()},
+		Store:      openStore(t),
 	}
 	pod := state.Agent{
 		Project: "p", Name: "agent-01", Instance: "ab-p-agent-01", AI: "claude",
