@@ -30,6 +30,19 @@ type Pods interface {
 	Destroy(ctx context.Context, ref gateway.Ref) error
 	// Info reads what the daemon last saw; State is "Running" or "Stopped".
 	Info(ctx context.Context, ref gateway.Ref) (Info, error)
+
+	// Snapshot archives the agent's claim to the master and Snapshots lists the
+	// archives it holds. RestoreSnapshot prepares a new claim from one and
+	// moves the agent onto it, and PrepareClaim primes an empty agent's claim
+	// from another agent's snapshot, which is how a fork starts on a cluster.
+	Snapshot(ctx context.Context, ref gateway.Ref, name string) error
+	Snapshots(ctx context.Context, ref gateway.Ref) ([]Snapshot, error)
+	RestoreSnapshot(ctx context.Context, ref gateway.Ref, name string) error
+	DeleteSnapshot(ctx context.Context, ref gateway.Ref, name string) error
+	HasSnapshot(ctx context.Context, ref gateway.Ref, name string) (bool, error)
+	PrepareClaim(ctx context.Context, ref gateway.Ref, claim, from string) error
+	SnapshotGit(ctx context.Context, ref gateway.Ref, name, refName, commit, head string) error
+	SnapshotGitInfo(ctx context.Context, ref gateway.Ref, name string) (commit, head string, err error)
 }
 
 // Kubernetes is the runtime of one cluster: every agent there is a pod, and
@@ -531,7 +544,7 @@ func extractTar(r io.Reader, dir string) error {
 			if err := os.MkdirAll(target, modeOr(hdr.FileInfo().Mode().Perm(), 0o755)); err != nil {
 				return err
 			}
-		case tar.TypeReg, tar.TypeRegA:
+		case tar.TypeReg:
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return err
 			}
@@ -577,42 +590,72 @@ func (m podMachine) PushFile(ctx context.Context, local, file string, mode os.Fi
 	return m.WriteFile(ctx, file, content, 0, 0, mode)
 }
 
-// Snapshot, SnapshotList, RestoreSnapshot, DeleteSnapshot, HasSnapshot and
-// Usage are the operations a pod's disk has no notion of: the machine is its
-// persistent volume claim, and the cluster keeps the claim, not this daemon.
+// Snapshot archives the pod's claim to the master: the claim is ReadWriteOnce,
+// so the daemon stops the pod, runs a helper that mounts the claim, streams a
+// tar of it over the API server's exec, and starts the pod again. The whole
+// machine is in the archive, so this is the machine half of a snapshot; the
+// worktree's half is the git ref internal/agent keeps.
 func (m podMachine) Snapshot(ctx context.Context, name string) error {
 	if err := m.bad; err != nil {
 		return err
 	}
-	return fmt.Errorf("a pod's disk is a persistent volume claim; snapshots of the claim come with Stage 5: %w", ErrNotSupported)
+	return m.pods.Snapshot(ctx, m.target, name)
 }
 
 func (m podMachine) SnapshotList(ctx context.Context) ([]Snapshot, error) {
 	if err := m.bad; err != nil {
 		return nil, err
 	}
-	return nil, fmt.Errorf("a pod's disk is a persistent volume claim; snapshot listing comes with Stage 5: %w", ErrNotSupported)
+	return m.pods.Snapshots(ctx, m.target)
 }
 
 func (m podMachine) RestoreSnapshot(ctx context.Context, name string) error {
 	if err := m.bad; err != nil {
 		return err
 	}
-	return fmt.Errorf("a pod's disk is a persistent volume claim; restoring one comes with Stage 5: %w", ErrNotSupported)
+	return m.pods.RestoreSnapshot(ctx, m.target, name)
 }
 
 func (m podMachine) DeleteSnapshot(ctx context.Context, name string) error {
 	if err := m.bad; err != nil {
 		return err
 	}
-	return fmt.Errorf("a pod's disk is a persistent volume claim; deleting its snapshots comes with Stage 5: %w", ErrNotSupported)
+	return m.pods.DeleteSnapshot(ctx, m.target, name)
 }
 
 func (m podMachine) HasSnapshot(ctx context.Context, name string) (bool, error) {
 	if err := m.bad; err != nil {
 		return false, err
 	}
-	return false, fmt.Errorf("a pod's disk is a persistent volume claim; snapshot checks come with Stage 5: %w", ErrNotSupported)
+	return m.pods.HasSnapshot(ctx, m.target, name)
+}
+
+// PrepareClaim primes the claim of an agent that has no pod yet from a snapshot
+// another agent took. It is what a fork on a cluster starts with: the archive
+// carries the home and the tree, so the new pod begins as the source's machine.
+func (m podMachine) PrepareClaim(ctx context.Context, claim, from string) error {
+	if err := m.bad; err != nil {
+		return err
+	}
+	return m.pods.PrepareClaim(ctx, m.target, claim, from)
+}
+
+// SnapshotGit records the worktree half of a snapshot in the snapshot itself,
+// which is the only place it can live for a pod: the host has no ref for a
+// worktree that is on a claim.
+func (m podMachine) SnapshotGit(ctx context.Context, name, ref, commit, head string) error {
+	if err := m.bad; err != nil {
+		return err
+	}
+	return m.pods.SnapshotGit(ctx, m.target, name, ref, commit, head)
+}
+
+// SnapshotGitInfo reads that record back, without needing the pod to be up.
+func (m podMachine) SnapshotGitInfo(ctx context.Context, name string) (string, string, error) {
+	if err := m.bad; err != nil {
+		return "", "", err
+	}
+	return m.pods.SnapshotGitInfo(ctx, m.target, name)
 }
 
 func (m podMachine) Usage(ctx context.Context) (int64, error) {

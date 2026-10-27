@@ -30,6 +30,12 @@ type ExecOptions struct {
 // find out why agentd didn't. Everything after that goes through the gateway, one
 // connection out of the pod, rather than through the API server.
 func (c *Cluster) Exec(ctx context.Context, project, agent string, opts ExecOptions) error {
+	return c.ExecPod(ctx, PodName(project, agent), opts)
+}
+
+// ExecPod is Exec on a pod named directly, which is what the archive helper pod
+// is: it belongs to no agent, and it does not run agentd.
+func (c *Cluster) ExecPod(ctx context.Context, pod string, opts ExecOptions) error {
 	if len(opts.Command) == 0 {
 		return errors.New("no command to run")
 	}
@@ -43,7 +49,7 @@ func (c *Cluster) Exec(ctx context.Context, project, agent string, opts ExecOpti
 	request := c.client.CoreV1().RESTClient().Post().
 		Resource("pods").
 		Namespace(c.namespace).
-		Name(PodName(project, agent)).
+		Name(pod).
 		SubResource("exec").
 		VersionedParams(&corev1.PodExecOptions{
 			Container: "agent",
@@ -55,7 +61,7 @@ func (c *Cluster) Exec(ctx context.Context, project, agent string, opts ExecOpti
 		}, scheme.ParameterCodec)
 	exec, err := remotecommand.NewSPDYExecutor(restConfig, "POST", request.URL())
 	if err != nil {
-		return fmt.Errorf("opening a session to %s/%s: %w", project, agent, err)
+		return fmt.Errorf("opening a session to %s: %w", pod, err)
 	}
 	stream := remotecommand.StreamOptions{
 		Stdin:  opts.Stdin,
@@ -67,7 +73,7 @@ func (c *Cluster) Exec(ctx context.Context, project, agent string, opts ExecOpti
 		stream.TerminalSizeQueue = &fixedSize{cols: opts.Cols, rows: opts.Rows}
 	}
 	if err := exec.StreamWithContext(ctx, stream); err != nil {
-		return fmt.Errorf("running %v in %s/%s: %w", opts.Command, project, agent, err)
+		return fmt.Errorf("running %v in %s: %w", opts.Command, pod, err)
 	}
 	return nil
 }

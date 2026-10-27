@@ -12,27 +12,28 @@ import (
 )
 
 // podLifecycle is what a pod's machine asks of the daemon: start, stop and
-// destroy change what the reconciler works towards, and Info reads back what it
-// last saw. Nothing here talks to a cluster, because the pod itself is only
-// reachable through the gateway and the cluster is the reconciler's.
-type podLifecycle struct{ store *state.Store }
+// destroy change what the reconciler works towards, Info reads back what it last
+// saw, and the snapshot operations archive and prepare the claim through the
+// cluster. None of it goes through the pod: the pod itself is only reachable
+// through the gateway, and the cluster is the reconciler's.
+type podLifecycle struct{ s *Server }
 
 func (p podLifecycle) Start(ctx context.Context, ref gateway.Ref) error {
-	return p.store.SetAgentDesiredState(ctx, ref.Project, ref.Agent, state.DesiredRunning)
+	return p.s.store.SetAgentDesiredState(ctx, ref.Project, ref.Agent, state.DesiredRunning)
 }
 
 func (p podLifecycle) Stop(ctx context.Context, ref gateway.Ref) error {
-	return p.store.SetAgentDesiredState(ctx, ref.Project, ref.Agent, state.DesiredStopped)
+	return p.s.store.SetAgentDesiredState(ctx, ref.Project, ref.Agent, state.DesiredStopped)
 }
 
 // Destroy starts the retention clock, which is what stops and then deletes the
 // pod: the claim outlives it for the window the user configured.
 func (p podLifecycle) Destroy(ctx context.Context, ref gateway.Ref) error {
-	return p.store.MarkAgentDestroyed(ctx, ref.Project, ref.Agent, time.Now())
+	return p.s.store.MarkAgentDestroyed(ctx, ref.Project, ref.Agent, time.Now())
 }
 
 func (p podLifecycle) Info(ctx context.Context, ref gateway.Ref) (machine.Info, error) {
-	a, err := p.store.Agent(ctx, ref.Project, ref.Agent)
+	a, err := p.s.store.Agent(ctx, ref.Project, ref.Agent)
 	if err != nil {
 		return machine.Info{}, err
 	}
@@ -79,7 +80,7 @@ func (s *Server) destroyMachine(ctx context.Context, a state.Agent) error {
 	if err != nil {
 		return err
 	}
-	if err := client.DeleteAll(ctx, a.Project, a.Name); err != nil && !errors.Is(err, machine.ErrNotFound) {
+	if err := client.DeleteAll(ctx, a.Project, a.Name, a.Claim); err != nil && !errors.Is(err, machine.ErrNotFound) {
 		return fmt.Errorf("deleting %s's machine in cluster %s: %w", a.Ref(), a.Cluster, err)
 	}
 	err = s.store.RemoveAgentToken(ctx, a.Project, a.Name)

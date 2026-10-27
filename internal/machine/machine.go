@@ -61,6 +61,11 @@ func (i Info) Paused() bool { return i.State == "Frozen" }
 type Snapshot struct {
 	Name      string
 	CreatedAt time.Time
+	// Head is the commit the agent's branch was on when the snapshot was
+	// taken, when the runtime records the git half itself. A pod does, because
+	// its worktree is on the claim rather than in a host repository; an Incus
+	// machine leaves it empty and the manager resolves its ref in the project.
+	Head string
 }
 
 // AttachOptions is Attach's.
@@ -145,4 +150,27 @@ type Runtime interface {
 	// Machine is the machine a runtime names, valid to use from the moment it
 	// is called: no runtime lookup happens until a method is.
 	Machine(ref string) Machine
+}
+
+// ClaimPreparer is a Machine whose disk can be primed from a snapshot another
+// machine took: a pod, whose disk is a volume. An Incus machine has no need of
+// it, because its snapshots are copies of a whole instance already.
+type ClaimPreparer interface {
+	// PrepareClaim unpacks the snapshot from, project/agent@name, into claim,
+	// and writes what the agent's row needs to start on it.
+	PrepareClaim(ctx context.Context, claim, from string) error
+}
+
+// GitSnapshotter is a Machine that keeps the git half of a snapshot beside the
+// snapshot itself: a pod has to, because its worktree lives on the claim and
+// this host has no ref for it, and that is also what lets a stopped pod's
+// snapshots be listed and restored. An Incus machine leaves the git half in the
+// project's own repository, so it does not implement this.
+type GitSnapshotter interface {
+	// SnapshotGit records the ref, the commit whose tree is the snapshot and
+	// the commit it was taken on, in the snapshot named name.
+	SnapshotGit(ctx context.Context, name, ref, commit, head string) error
+	// SnapshotGitInfo is what that snapshot recorded. Both are "" when the
+	// snapshot has no record, which is a snapshot that failed partway.
+	SnapshotGitInfo(ctx context.Context, name string) (commit, head string, err error)
 }

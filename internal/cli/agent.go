@@ -290,9 +290,11 @@ func printAgent(cmd *cobra.Command, ag api.Agent, took time.Duration) {
 	if ag.GitHubAccount != "" {
 		_, _ = fmt.Fprintf(w, "  account\t%s (GitHub)\n", ag.GitHubAccount)
 	}
-	// A cluster agent has no snapshot to name and no worktree or address on this
-	// host: its machine is a pod, and the app shows which cluster in a later
-	// stage (api.Agent has no cluster field yet).
+	// A cluster agent has no worktree or address on this host: its machine is a
+	// pod, and the row says which cluster it is in.
+	if ag.Cluster != "" {
+		_, _ = fmt.Fprintf(w, "  cluster\t%s\n", ag.Cluster)
+	}
 	if ag.Source != "" {
 		_, _ = fmt.Fprintf(w, "  machine\tcopy of %s\n", ag.Source)
 	}

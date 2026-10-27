@@ -817,7 +817,7 @@ func (s *Server) manager(log io.Writer) *agent.Manager {
 		Store:            s.store,
 		Incus:            s.cfg.Incus,
 		Runtime:          machine.NewIncus(s.cfg.Incus),
-		Kubernetes:       machine.NewKubernetes(s.gateway, podLifecycle{store: s.store}),
+		Kubernetes:       machine.NewKubernetes(s.gateway, podLifecycle{s: s}),
 		Paths:            s.cfg.Paths,
 		Creds:            credentials.Store{Dir: s.cfg.Paths.Credentials()},
 		Secrets:          s.secrets(),

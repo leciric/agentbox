@@ -59,9 +59,10 @@ func clusterWithFakeClient(t *testing.T, srv *Server, cluster state.Cluster, cli
 	}
 	kc := k8s.FromClient(cluster.Name, cluster.Namespace, client)
 	srv.clusters.Lock()
-	srv.clusters.byKey = map[string]*k8s.Cluster{
-		cluster.Name + "\x00" + cluster.Namespace + "\x00" + string(cluster.Kubeconfig): kc,
+	if srv.clusters.byKey == nil {
+		srv.clusters.byKey = map[string]*k8s.Cluster{}
 	}
+	srv.clusters.byKey[cluster.Name+"\x00"+cluster.Namespace+"\x00"+string(cluster.Kubeconfig)] = kc
 	srv.clusters.Unlock()
 	return kc
 }

@@ -212,6 +212,15 @@ type fakePods struct {
 	started   int
 	stopped   int
 	destroyed int
+	snapshots []machine.Snapshot
+	snapped   string
+	restored  string
+	deleted   string
+	prepared  string
+	from      string
+	gitRef    string
+	gitCommit string
+	gitHead   string
 }
 
 func (p *fakePods) Start(ctx context.Context, ref gateway.Ref) error {
@@ -246,6 +255,59 @@ func (p *fakePods) Info(ctx context.Context, ref gateway.Ref) (machine.Info, err
 		state = "Running"
 	}
 	return machine.Info{Ref: ref.String(), State: state}, nil
+}
+
+func (p *fakePods) Snapshot(ctx context.Context, ref gateway.Ref, name string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.snapped = name
+	return nil
+}
+
+func (p *fakePods) Snapshots(ctx context.Context, ref gateway.Ref) ([]machine.Snapshot, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.snapshots, nil
+}
+
+func (p *fakePods) RestoreSnapshot(ctx context.Context, ref gateway.Ref, name string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.restored = name
+	return nil
+}
+
+func (p *fakePods) DeleteSnapshot(ctx context.Context, ref gateway.Ref, name string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.deleted = name
+	return nil
+}
+
+func (p *fakePods) HasSnapshot(ctx context.Context, ref gateway.Ref, name string) (bool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return name == p.snapped, nil
+}
+
+func (p *fakePods) PrepareClaim(ctx context.Context, ref gateway.Ref, claim, from string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.prepared, p.from = claim, from
+	return nil
+}
+
+func (p *fakePods) SnapshotGit(ctx context.Context, ref gateway.Ref, name, refName, commit, head string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.gitRef, p.gitCommit, p.gitHead = refName, commit, head
+	return nil
+}
+
+func (p *fakePods) SnapshotGitInfo(ctx context.Context, ref gateway.Ref, name string) (string, string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.gitCommit, p.gitHead, nil
 }
 
 func (p *fakePods) setState(state string) {
@@ -548,7 +610,7 @@ func TestKubernetesInfoReadsThePodState(t *testing.T) {
 	}
 }
 
-func TestKubernetesPauseIsNotSupported(t *testing.T) {
+func TestKubernetesOperationsAPodHasNoNotionOf(t *testing.T) {
 	rt, _ := newKubernetes(t, &fakePods{})
 	m := rt.Machine(podRef.String())
 	ctx := podContext(t)
@@ -559,11 +621,6 @@ func TestKubernetesPauseIsNotSupported(t *testing.T) {
 	}{
 		{"Pause", func() error { return m.Pause(ctx) }},
 		{"Resume", func() error { return m.Resume(ctx) }},
-		{"Snapshot", func() error { return m.Snapshot(ctx, "s") }},
-		{"SnapshotList", func() error { _, err := m.SnapshotList(ctx); return err }},
-		{"RestoreSnapshot", func() error { return m.RestoreSnapshot(ctx, "s") }},
-		{"DeleteSnapshot", func() error { return m.DeleteSnapshot(ctx, "s") }},
-		{"HasSnapshot", func() error { _, err := m.HasSnapshot(ctx, "s"); return err }},
 		{"Usage", func() error { _, err := m.Usage(ctx); return err }},
 	}
 	for _, c := range calls {
@@ -716,4 +773,42 @@ func symlinkArchive(t *testing.T, name, target string) []byte {
 		t.Fatal(err)
 	}
 	return buf.Bytes()
+}
+
+func TestPodMachineDelegatesItsSnapshots(t *testing.T) {
+	pods := &fakePods{snapshots: []machine.Snapshot{{Name: "before"}}}
+	rt, _ := newKubernetes(t, pods)
+	m := rt.Machine(podRef.String())
+	ctx := podContext(t)
+
+	if err := m.Snapshot(ctx, "before"); err != nil {
+		t.Fatalf("Snapshot() = %v", err)
+	}
+	listed, err := m.SnapshotList(ctx)
+	if err != nil || len(listed) != 1 || listed[0].Name != "before" {
+		t.Fatalf("SnapshotList() = %v, %v", listed, err)
+	}
+	has, err := m.HasSnapshot(ctx, "before")
+	if err != nil || !has {
+		t.Fatalf("HasSnapshot(before) = %v, %v", has, err)
+	}
+	if err := m.RestoreSnapshot(ctx, "before"); err != nil {
+		t.Fatalf("RestoreSnapshot() = %v", err)
+	}
+	if err := m.DeleteSnapshot(ctx, "before"); err != nil {
+		t.Fatalf("DeleteSnapshot() = %v", err)
+	}
+	preparer, ok := m.(machine.ClaimPreparer)
+	if !ok {
+		t.Fatal("a pod's machine is not a ClaimPreparer")
+	}
+	if err := preparer.PrepareClaim(ctx, "ab-pawly-agent-01-workspace-r1", "pawly/agent-02@before"); err != nil {
+		t.Fatalf("PrepareClaim() = %v", err)
+	}
+	if pods.snapped != "before" || pods.restored != "before" || pods.deleted != "before" {
+		t.Errorf("calls = snap %q, restore %q, delete %q", pods.snapped, pods.restored, pods.deleted)
+	}
+	if pods.prepared != "ab-pawly-agent-01-workspace-r1" || pods.from != "pawly/agent-02@before" {
+		t.Errorf("PrepareClaim = %q from %q", pods.prepared, pods.from)
+	}
 }
