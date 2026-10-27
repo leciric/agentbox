@@ -2879,6 +2879,30 @@ type Agent struct {
 	// (leadsessions.go). A session's own lead row has none: its session is in
 	// its name.
 	CreatedBySession string
+	// Cluster is the cluster its machine runs in, "" for one on this host.
+	// Runtime says which kind of machine that is; both are empty for an Incus
+	// instance here, which is what every row written before clusters existed
+	// is, and that reading must not change.
+	Cluster string
+	Runtime string
+	// Pod and PodUID are the pod it runs in as the cluster last had it. The
+	// UID is what tells a pod the cluster recreated apart from the one the
+	// agent's session was opened in.
+	Pod    string
+	PodUID string
+	// Workspace is the directory its worktree is in inside that machine,
+	// which on a cluster is not this host's path for it.
+	Workspace string
+	// DesiredState is what the user asked the machine to do: DesiredRunning,
+	// DesiredStopped or DesiredDestroyed. Empty means running, which is what
+	// creating an agent asks for.
+	DesiredState string
+	// StatusDetail is the cluster's own reason the machine isn't doing what
+	// was asked: an image it can't pull, a pod it can't schedule.
+	StatusDetail string
+	// DestroyedAt starts the retention clock on deleting a destroyed agent's
+	// pod, and is zero for an agent that has never been destroyed.
+	DestroyedAt time.Time
 }
 
 // GetsConnector reports whether a project connector of that name reaches the
@@ -2890,6 +2914,22 @@ func (a Agent) GetsConnector(name string) bool {
 // IsLead reports whether the agent is a project's lead, which runs on the host
 // rather than in a machine of its own.
 func (a Agent) IsLead() bool { return a.Role == RoleLead }
+
+// OnCluster reports whether the agent's machine is a pod rather than an Incus
+// instance on this host.
+func (a Agent) OnCluster() bool { return a.Cluster != "" }
+
+// RuntimeKubernetes is agents.runtime for an agent whose machine is a pod. Empty
+// is an Incus instance on this host, the only runtime before clusters existed.
+const RuntimeKubernetes = "kubernetes"
+
+// What the user asked an agent's machine to do. Empty asks for running, which is
+// what creating an agent means; the reconciler works towards these.
+const (
+	DesiredRunning   = "running"
+	DesiredStopped   = "stopped"
+	DesiredDestroyed = "destroyed"
+)
 
 // Agent interfaces.
 const (
@@ -2919,7 +2959,7 @@ func (a Agent) IsHome() bool { return a.Project == HomeProject && a.Role == Role
 
 func (a Agent) Ref() string { return a.Project + "/" + a.Name }
 
-const agentColumns = `project, name, instance, ai, autonomous, branch, base_ref, base_commit, worktree, status, created_at, source, title, claude_account, interface, role, github_account, finish_notice, id, connectors, codex_account, opencode_accounts, cursor_account, created_by_session`
+const agentColumns = `project, name, instance, ai, autonomous, branch, base_ref, base_commit, worktree, status, created_at, source, title, claude_account, interface, role, github_account, finish_notice, id, connectors, codex_account, opencode_accounts, cursor_account, created_by_session, cluster, runtime, pod, pod_uid, workspace, desired_state, status_detail, destroyed_at`
 
 func (s *Store) AddAgent(ctx context.Context, a Agent) error {
 	if a.Interface == "" {
@@ -2944,10 +2984,16 @@ func (s *Store) AddAgent(ctx context.Context, a Agent) error {
 	if archived > 0 {
 		return fmt.Errorf("agent %s: a past agent has that name: %w", a.Ref(), ErrExists)
 	}
+	// A server that has never destroyed an agent has a zero time here, and a
+	// zero time's Unix() is a number in the year 1, not 0.
+	destroyedAt := int64(0)
+	if !a.DestroyedAt.IsZero() {
+		destroyedAt = a.DestroyedAt.Unix()
+	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.Project, a.Name, a.Instance, a.AI, a.Autonomous, a.Branch, a.BaseRef, a.BaseCommit, a.Worktree, a.Status, a.CreatedAt.Unix(), a.Source, a.Title, a.ClaudeAccount, a.Interface, a.Role, a.GitHubAccount, a.FinishNotice, a.ID, connectors,
-		a.CodexAccount, a.OpenCodeAccounts.String(), a.CursorAccount, a.CreatedBySession)
+		a.CodexAccount, a.OpenCodeAccounts.String(), a.CursorAccount, a.CreatedBySession, a.Cluster, a.Runtime, a.Pod, a.PodUID, a.Workspace, a.DesiredState, a.StatusDetail, destroyedAt)
 	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
 		return fmt.Errorf("agent %s: %w", a.Ref(), ErrExists)
 	}
@@ -3193,13 +3239,18 @@ func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]
 	var agents []Agent
 	for rows.Next() {
 		var a Agent
-		var created, pausedAt, stoppedAt int64
+		var created, pausedAt, stoppedAt, destroyedAt int64
 		var connectors sql.NullString
 		var opencode string
 		if err := rows.Scan(&a.Project, &a.Name, &a.Instance, &a.AI, &a.Autonomous, &a.Branch,
 			&a.BaseRef, &a.BaseCommit, &a.Worktree, &a.Status, &created, &a.Source, &a.Title, &a.ClaudeAccount, &a.Interface, &a.Role, &a.GitHubAccount, &a.FinishNotice, &a.ID, &connectors,
-			&a.CodexAccount, &opencode, &a.CursorAccount, &a.CreatedBySession, &pausedAt, &stoppedAt); err != nil {
+			&a.CodexAccount, &opencode, &a.CursorAccount, &a.CreatedBySession,
+			&a.Cluster, &a.Runtime, &a.Pod, &a.PodUID, &a.Workspace, &a.DesiredState, &a.StatusDetail, &destroyedAt,
+			&pausedAt, &stoppedAt); err != nil {
 			return nil, err
+		}
+		if destroyedAt != 0 {
+			a.DestroyedAt = time.Unix(destroyedAt, 0)
 		}
 		a.OpenCodeAccounts = ParseAccountMap(opencode)
 		if connectors.Valid {
