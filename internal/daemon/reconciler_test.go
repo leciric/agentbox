@@ -10,12 +10,14 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 
+	"agentbox/internal/api"
 	"agentbox/internal/incus"
 	"agentbox/internal/k8s"
 	"agentbox/internal/paths"
@@ -102,6 +104,131 @@ func reconcileRound(t *testing.T, srv *Server, cluster state.Cluster, kc *k8s.Cl
 		t.Fatal(err)
 	}
 	return srv.reconcileAgents(ctx, cluster, kc, pods, agents)
+}
+
+func TestCapacityCountsWhatFits(t *testing.T) {
+	now := time.Now()
+	room := k8s.Capacity{
+		AllocatableCPU:    resource.MustParse("8"),
+		AllocatableMemory: resource.MustParse("32Gi"),
+		RequestedCPU:      resource.MustParse("4"),
+		RequestedMemory:   resource.MustParse("8Gi"),
+	}
+	// Three agent slots under the ceiling, two by CPU (4 free / 2 each), three
+	// by memory (24Gi / 8Gi each): the smallest of them is what fits.
+	cluster := state.Cluster{Name: "k3d", MaxAgents: 4, AgentCPU: "2", AgentMemory: "8Gi"}
+	got := capacityOf(cluster, room, 1, now)
+	if got.Agents != 2 || got.Running != 1 {
+		t.Errorf("capacity = %+v, want 2 more of 4, 1 running", got)
+	}
+	if got.CPU != "4" || got.Memory != "24Gi" {
+		t.Errorf("room = %s CPU, %s memory, want 4 and 24Gi", got.CPU, got.Memory)
+	}
+
+	// The cluster's own budget is a ceiling under the nodes'.
+	budgeted := state.Cluster{Name: "k3d", MaxAgents: 10, CPU: "6", Memory: "32Gi", AgentCPU: "2", AgentMemory: "8Gi"}
+	if got := capacityOf(budgeted, room, 0, now); got.Agents != 1 || got.CPU != "2" || got.Memory != "24Gi" {
+		t.Errorf("budgeted capacity = %+v, want 1 more and 2 CPU left", got)
+	}
+
+	// With no ceiling and no size, nothing says how many fit.
+	if got := capacityOf(state.Cluster{Name: "k3d"}, room, 2, now); got.Agents != -1 {
+		t.Errorf("unbounded capacity = %+v, want -1 for no ceiling", got)
+	}
+
+	// A cluster whose free CPU cannot hold one agent is full, not negative.
+	full := state.Cluster{Name: "k3d", MaxAgents: 4, AgentCPU: "8"}
+	if got := capacityOf(full, room, 2, now); got.Agents != 0 {
+		t.Errorf("full capacity = %+v, want 0", got)
+	}
+}
+
+func TestCapacityIsShownBesideTheCluster(t *testing.T) {
+	srv := reconcilerServer(t)
+	ctx := context.Background()
+	cluster := reconcilerCluster()
+	cluster.MaxAgents = 4
+	cluster.AgentCPU = "1"
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "node-01"},
+		Status: corev1.NodeStatus{
+			Conditions:  []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}},
+			Allocatable: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4"), corev1.ResourceMemory: resource.MustParse("8Gi")},
+		},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "ab-pawly-agent-01", Namespace: "agentbox"},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{
+			Name: "agent", Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}},
+		}}},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+	kc := k8s.FromClient("k3d", "agentbox", fake.NewClientset(node, pod))
+	srv.measureCapacity(ctx, cluster, kc, []k8s.Pod{{Name: pod.Name, Phase: corev1.PodRunning}})
+
+	info := srv.clusterInfo(cluster)
+	if info.Capacity == nil {
+		t.Fatal("the cluster has no capacity after a look")
+	}
+	// 4 allocatable less the pod's 1 is 3; the ceiling leaves 3.
+	if info.Capacity.Agents != 3 || info.Capacity.Running != 1 || info.Capacity.CPU != "3" {
+		t.Errorf("capacity = %+v, want 3 more, 1 running and 3 CPU left", info.Capacity)
+	}
+	if info.Capacity.At.IsZero() {
+		t.Error("the capacity has no time it was taken")
+	}
+}
+
+func TestCapacityLoopLooksAtClustersWithNoAgents(t *testing.T) {
+	srv := reconcilerServer(t)
+	ctx := context.Background()
+	sealed, err := srv.sealValue(`apiVersion: v1
+kind: Config
+clusters:
+- name: dead
+  cluster:
+    server: https://127.0.0.1:1
+    insecure-skip-tls-verify: true
+users:
+- name: agentbox
+  user:
+    token: a-token
+contexts:
+- name: dead
+  context:
+    cluster: dead
+    user: agentbox
+current-context: dead
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.store.AddCluster(ctx, state.Cluster{
+		Name: "k3d", Namespace: "agentbox", Tailnet: state.TailnetNone,
+		Kubeconfig: sealed, CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	srv.measureClusterCapacities(ctx)
+	capacity, ok := srv.clusterCapacity("k3d")
+	if !ok {
+		t.Fatal("a cluster with no agents was never measured")
+	}
+	if capacity.Agents != -1 || capacity.Error == "" {
+		t.Errorf("capacity = %+v, want it to say the cluster couldn't be reached", capacity)
+	}
+}
+
+func TestCapacityKeepsTheLastGoodLook(t *testing.T) {
+	srv := reconcilerServer(t)
+	cluster := reconcilerCluster()
+	srv.setClusterCapacity(cluster.Name, api.ClusterCapacity{Agents: 2, Running: 1, CPU: "2", At: time.Now()})
+	srv.recordClusterCapacity(cluster, k8s.Capacity{}, 0, errors.New("no route to the API server"))
+
+	info := srv.clusterInfo(cluster)
+	if info.Capacity == nil || info.Capacity.Agents != 2 || info.Capacity.Error == "" {
+		t.Errorf("capacity after a failed look = %+v, want the last numbers and the error", info.Capacity)
+	}
 }
 
 func TestReconcilerStartsThePodARunningAgentAsksFor(t *testing.T) {

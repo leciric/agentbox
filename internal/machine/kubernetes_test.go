@@ -62,6 +62,11 @@ func (p *testPod) handle(ctx context.Context, h gateway.Header, s *gateway.Strea
 				return err
 			}
 			return s.Exit(3)
+		case strings.Contains(command, "du -s -B1 /workspace /home/agent"):
+			if err := s.Write(gateway.FrameStdout, []byte("12345\n")); err != nil {
+				return err
+			}
+			return s.Exit(0)
 		case len(h.Argv) > 0 && strings.HasPrefix(h.Argv[len(h.Argv)-1], "tar -C "):
 			p.mu.Lock()
 			archive := p.archive
@@ -646,7 +651,6 @@ func TestKubernetesOperationsAPodHasNoNotionOf(t *testing.T) {
 	}{
 		{"Pause", func() error { return m.Pause(ctx) }},
 		{"Resume", func() error { return m.Resume(ctx) }},
-		{"Usage", func() error { _, err := m.Usage(ctx); return err }},
 	}
 	for _, c := range calls {
 		err := c.call()
@@ -656,6 +660,32 @@ func TestKubernetesOperationsAPodHasNoNotionOf(t *testing.T) {
 	}
 	if err := m.Pause(ctx); !strings.Contains(err.Error(), "stopped, not frozen") {
 		t.Errorf("Pause = %v, want it to say a pod is stopped, not frozen", err)
+	}
+}
+
+func TestKubernetesUsageMeasuresTheClaimFromInside(t *testing.T) {
+	pods := &fakePods{}
+	rt, pod := newKubernetes(t, pods)
+	m := rt.Machine(podRef.String())
+	ctx := podContext(t)
+
+	used, err := m.Usage(ctx)
+	if err != nil {
+		t.Fatalf("Usage = %v", err)
+	}
+	if used != 12345 {
+		t.Errorf("Usage = %d, want the 12345 bytes du reported", used)
+	}
+	exec := pod.last(gateway.OpExec)
+	if !strings.Contains(strings.Join(exec.Argv, " "), "du -s -B1 /workspace /home/agent") {
+		t.Errorf("exec = %v, want it to measure both directories of the claim", exec.Argv)
+	}
+
+	// A stopped pod has no filesystem to walk, and its claim's size is not its
+	// use.
+	pods.setState("Stopped")
+	if _, err := m.Usage(ctx); err == nil || !strings.Contains(err.Error(), "stopped") {
+		t.Errorf("Usage on a stopped pod = %v, want it to say the pod is stopped", err)
 	}
 }
 

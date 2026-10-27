@@ -2902,7 +2902,7 @@ export const ptBR: Messages = {
   'project.newAgent.clusterLabel': 'Onde ele roda',
   'project.newAgent.clusterLocal': 'Nesta máquina (Incus)',
   'project.newAgent.clusterHint': 'Um pod clona dos perfis de git do projeto; agentes nesta máquina usam os remotes do checkout.',
-  'project.newAgent.clusterOption': '{name} · {agents, plural, =0 {cheio} one {# agente livre} other {# agentes livres}}',
+  'project.newAgent.clusterOption': '{name} · {agents, plural, =-1 {sem limite} =0 {cheio} one {# agente livre} other {# agentes livres}}',
   'project.newAgent.aiTool': 'Ferramenta de IA',
   'project.newAgent.tool.openSource': 'Código aberto',
   'project.newAgent.tool.shellOnly': 'Só shell',

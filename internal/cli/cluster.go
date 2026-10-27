@@ -42,18 +42,22 @@ cluster, so the server address in it must be one the daemon can reach.`,
 
 func newClusterAddCmd(a *app) *cobra.Command {
 	var (
-		kubeconfigPath string
-		namespace      string
-		storageClass   string
-		image          string
-		masterURL      string
-		registryName   string
-		maxAgents      int
-		cpu            string
-		memory         string
-		labels         []string
-		tailnet        string
-		capabilities   []string
+		kubeconfigPath   string
+		namespace        string
+		storageClass     string
+		image            string
+		masterURL        string
+		registryName     string
+		maxAgents        int
+		cpu              string
+		memory           string
+		agentCPU         string
+		agentMemory      string
+		workspaceSize    string
+		ephemeralStorage string
+		labels           []string
+		tailnet          string
+		capabilities     []string
 	)
 	cmd := &cobra.Command{
 		Use:   "add NAME",
@@ -97,19 +101,23 @@ for a k3d cluster on this machine. Nothing starts here without one, and
 				return err
 			}
 			cluster, err := c.AddCluster(cmd.Context(), api.AddClusterRequest{
-				Name:         name,
-				Namespace:    namespace,
-				StorageClass: storageClass,
-				Image:        image,
-				MasterURL:    masterURL,
-				Registry:     registryName,
-				MaxAgents:    maxAgents,
-				CPU:          cpu,
-				Memory:       memory,
-				Labels:       named,
-				Tailnet:      tailnet,
-				Capabilities: capabilities,
-				Kubeconfig:   string(kubeconfig),
+				Name:             name,
+				Namespace:        namespace,
+				StorageClass:     storageClass,
+				Image:            image,
+				MasterURL:        masterURL,
+				Registry:         registryName,
+				MaxAgents:        maxAgents,
+				CPU:              cpu,
+				Memory:           memory,
+				AgentCPU:         agentCPU,
+				AgentMemory:      agentMemory,
+				WorkspaceSize:    workspaceSize,
+				EphemeralStorage: ephemeralStorage,
+				Labels:           named,
+				Tailnet:          tailnet,
+				Capabilities:     capabilities,
+				Kubeconfig:       string(kubeconfig),
 			})
 			if err != nil {
 				return err
@@ -122,6 +130,9 @@ for a k3d cluster on this machine. Nothing starts here without one, and
 			}
 			if cluster.Image != "" {
 				_, _ = fmt.Fprintf(out, "  Image:      %s\n", cluster.Image)
+			}
+			if size := podSizeWords(cluster); size != "" {
+				_, _ = fmt.Fprintf(out, "  Agent size: %s\n", size)
 			}
 			if cluster.MasterURL != "" {
 				_, _ = fmt.Fprintf(out, "  Master URL: %s\n", cluster.MasterURL)
@@ -143,6 +154,10 @@ for a k3d cluster on this machine. Nothing starts here without one, and
 	cmd.Flags().IntVar(&maxAgents, "max-agents", 0, "the most agents to run here at once (0 is as many as the nodes allow)")
 	cmd.Flags().StringVar(&cpu, "cpu", "", "the CPU budget for agents, as a Kubernetes quantity (2, 500m)")
 	cmd.Flags().StringVar(&memory, "memory", "", "the memory budget for agents, as a Kubernetes quantity (8Gi)")
+	cmd.Flags().StringVar(&agentCPU, "agent-cpu", "", "what one agent's pod asks for, as a Kubernetes quantity (2, 500m)")
+	cmd.Flags().StringVar(&agentMemory, "agent-memory", "", "what one agent's pod asks for, as a Kubernetes quantity (8Gi)")
+	cmd.Flags().StringVar(&workspaceSize, "workspace-size", "", "an agent's workspace claim, as a Kubernetes quantity (20Gi)")
+	cmd.Flags().StringVar(&ephemeralStorage, "ephemeral-storage", "", "the local disk one pod may fill outside its claim (10Gi)")
 	cmd.Flags().StringArrayVar(&labels, "label", nil, "a node label agents are placed on, as name=value (repeatable)")
 	cmd.Flags().StringVar(&tailnet, "tailnet", "none", "how pods reach this machine: operator, sidecar or none")
 	cmd.Flags().StringArrayVar(&capabilities, "capability", nil, "what agents here may ask for: kvm, gpu, privileged, csi-snapshots (repeatable)")
@@ -151,20 +166,24 @@ for a k3d cluster on this machine. Nothing starts here without one, and
 
 func newClusterSetCmd(a *app) *cobra.Command {
 	var (
-		masterURL    string
-		image        string
-		storageClass string
-		registryName string
-		maxAgents    int
-		cpu          string
-		memory       string
-		labels       []string
-		tailnet      string
-		capabilities []string
+		masterURL        string
+		image            string
+		storageClass     string
+		registryName     string
+		maxAgents        int
+		cpu              string
+		memory           string
+		agentCPU         string
+		agentMemory      string
+		workspaceSize    string
+		ephemeralStorage string
+		labels           []string
+		tailnet          string
+		capabilities     []string
 	)
 	cmd := &cobra.Command{
 		Use:   "set NAME",
-		Short: "Change a cluster's master address, image, registry and budget",
+		Short: "Change a cluster's master address, image, registry, sizes and budget",
 		Long: `Changes a cluster that is already added. Only the flags you pass are written: the
 rest stays as the cluster has it.
 
@@ -190,16 +209,20 @@ reach this machine can't be driven.
 				return err
 			}
 			cfg := api.ClusterConfig{
-				StorageClass: cluster.StorageClass,
-				Image:        cluster.Image,
-				MasterURL:    cluster.MasterURL,
-				Registry:     cluster.Registry,
-				MaxAgents:    cluster.MaxAgents,
-				CPU:          cluster.CPU,
-				Memory:       cluster.Memory,
-				Labels:       cluster.Labels,
-				Tailnet:      cluster.Tailnet,
-				Capabilities: cluster.Capabilities,
+				StorageClass:     cluster.StorageClass,
+				Image:            cluster.Image,
+				MasterURL:        cluster.MasterURL,
+				Registry:         cluster.Registry,
+				MaxAgents:        cluster.MaxAgents,
+				CPU:              cluster.CPU,
+				Memory:           cluster.Memory,
+				AgentCPU:         cluster.AgentCPU,
+				AgentMemory:      cluster.AgentMemory,
+				WorkspaceSize:    cluster.WorkspaceSize,
+				EphemeralStorage: cluster.EphemeralStorage,
+				Labels:           cluster.Labels,
+				Tailnet:          cluster.Tailnet,
+				Capabilities:     cluster.Capabilities,
 			}
 			changed := cmd.Flags().Changed
 			if changed("master-url") {
@@ -222,6 +245,18 @@ reach this machine can't be driven.
 			}
 			if changed("memory") {
 				cfg.Memory = memory
+			}
+			if changed("agent-cpu") {
+				cfg.AgentCPU = agentCPU
+			}
+			if changed("agent-memory") {
+				cfg.AgentMemory = agentMemory
+			}
+			if changed("workspace-size") {
+				cfg.WorkspaceSize = workspaceSize
+			}
+			if changed("ephemeral-storage") {
+				cfg.EphemeralStorage = ephemeralStorage
 			}
 			if changed("label") {
 				named, err := parseKV(labels, "--label")
@@ -257,6 +292,10 @@ reach this machine can't be driven.
 	cmd.Flags().IntVar(&maxAgents, "max-agents", 0, "the most agents to run here at once (0 is as many as the nodes allow)")
 	cmd.Flags().StringVar(&cpu, "cpu", "", "the CPU budget for agents, as a Kubernetes quantity (2, 500m)")
 	cmd.Flags().StringVar(&memory, "memory", "", "the memory budget for agents, as a Kubernetes quantity (8Gi)")
+	cmd.Flags().StringVar(&agentCPU, "agent-cpu", "", "what one agent's pod asks for, as a Kubernetes quantity (2, 500m)")
+	cmd.Flags().StringVar(&agentMemory, "agent-memory", "", "what one agent's pod asks for, as a Kubernetes quantity (8Gi)")
+	cmd.Flags().StringVar(&workspaceSize, "workspace-size", "", "an agent's workspace claim, as a Kubernetes quantity (20Gi)")
+	cmd.Flags().StringVar(&ephemeralStorage, "ephemeral-storage", "", "the local disk one pod may fill outside its claim (10Gi)")
 	cmd.Flags().StringArrayVar(&labels, "label", nil, "a node label agents are placed on, as name=value (repeatable)")
 	cmd.Flags().StringVar(&tailnet, "tailnet", "", "how pods reach this machine: operator, sidecar or none")
 	cmd.Flags().StringArrayVar(&capabilities, "capability", nil, "what agents here may ask for: kvm, gpu, privileged, csi-snapshots (repeatable)")
@@ -283,15 +322,15 @@ func newClusterListCmd(a *app) *cobra.Command {
 				return nil
 			}
 			w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-			_, _ = fmt.Fprintln(w, "NAME\tNAMESPACE\tREGISTRY\tIMAGE\tMASTER URL\tAGENTS\tLAST SEEN\tERROR")
+			_, _ = fmt.Fprintln(w, "NAME\tNAMESPACE\tREGISTRY\tIMAGE\tMASTER URL\tAGENTS\tFREE\tLAST SEEN\tERROR")
 			for _, cluster := range clusters {
 				lastSeen := "never"
 				if cluster.LastSeen != nil {
 					lastSeen = ago(*cluster.LastSeen)
 				}
-				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", cluster.Name, cluster.Namespace,
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", cluster.Name, cluster.Namespace,
 					orDash(cluster.Registry), orDash(cluster.Image), orDash(cluster.MasterURL),
-					ceilingWord(cluster.MaxAgents), lastSeen, orDash(cluster.LastError))
+					clusterAgentsWord(cluster), freeWord(cluster), lastSeen, orDash(cluster.LastError))
 			}
 			return w.Flush()
 		},
@@ -713,10 +752,46 @@ func parseKV(pairs []string, flag string) (map[string]string, error) {
 	return out, nil
 }
 
-// ceilingWord is a cluster's ceiling on agents: a number, or none.
-func ceilingWord(n int) string {
-	if n == 0 {
+// podSizeWords is what one agent's pod asks for, and the claim it gets, in the
+// order a person reads them: "2 CPU, 8Gi memory, 20Gi workspace".
+func podSizeWords(c api.Cluster) string {
+	var parts []string
+	if c.AgentCPU != "" {
+		parts = append(parts, c.AgentCPU+" CPU")
+	}
+	if c.AgentMemory != "" {
+		parts = append(parts, c.AgentMemory+" memory")
+	}
+	if c.WorkspaceSize != "" {
+		parts = append(parts, c.WorkspaceSize+" workspace")
+	}
+	return strings.Join(parts, ", ")
+}
+
+// clusterAgentsWord is how many agents a cluster has against its ceiling, as "2 of 4"
+// or "2" when there is none.
+func clusterAgentsWord(c api.Cluster) string {
+	if c.Capacity == nil {
+		// The daemon hasn't looked yet, or this cluster was just added.
+		if c.MaxAgents > 0 {
+			return fmt.Sprintf("? of %d", c.MaxAgents)
+		}
+		return "-"
+	}
+	if c.MaxAgents > 0 {
+		return fmt.Sprintf("%d of %d", c.Capacity.Running, c.MaxAgents)
+	}
+	return strconv.Itoa(c.Capacity.Running)
+}
+
+// freeWord is how many more agents fit now, "no limit" when there is no ceiling
+// to count, and "-" until the daemon has looked and been able to answer.
+func freeWord(c api.Cluster) string {
+	if c.Capacity == nil || c.Capacity.Error != "" {
+		return "-"
+	}
+	if c.Capacity.Agents < 0 {
 		return "no limit"
 	}
-	return strconv.Itoa(n)
+	return strconv.Itoa(c.Capacity.Agents)
 }

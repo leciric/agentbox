@@ -2901,7 +2901,7 @@ export const enUS = {
   'project.newAgent.clusterLabel': 'Where it runs',
   'project.newAgent.clusterLocal': 'This machine (Incus)',
   'project.newAgent.clusterHint': 'A pod clones from the project’s git profiles; agents on this machine keep the checkout’s remotes.',
-  'project.newAgent.clusterOption': '{name} · {agents, plural, =0 {full} one {# agent free} other {# agents free}}',
+  'project.newAgent.clusterOption': '{name} · {agents, plural, =-1 {no limit} =0 {full} one {# agent free} other {# agents free}}',
   'project.newAgent.aiTool': 'AI tool',
   'project.newAgent.tool.openSource': 'Open source',
   'project.newAgent.tool.shellOnly': 'Shell only',

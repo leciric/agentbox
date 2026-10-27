@@ -9,6 +9,10 @@ import (
 	"strings"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+
+	"agentbox/internal/api"
 	"agentbox/internal/k8s"
 	"agentbox/internal/state"
 )
@@ -21,6 +25,16 @@ import (
 // reconcileEvery is how often the pods of a cluster are compared with the rows
 // that ask for them. A pod the cluster lost is made again within it.
 const reconcileEvery = 5 * time.Second
+
+// capacityEvery is how often every cluster's room is read, including one no
+// agent runs in yet: the app shows that number beside the cluster when it offers
+// to create an agent there, which is before any reconciler round would have
+// looked.
+const capacityEvery = 30 * time.Second
+
+// capacityTimeout bounds one cluster's capacity read, so a cluster that stopped
+// answering doesn't hold the others.
+const capacityTimeout = 15 * time.Second
 
 // reconcileTimeout bounds one cluster's round, so a cluster whose API server
 // stopped answering doesn't hold every other cluster's round behind it.
@@ -38,6 +52,60 @@ func (s *Server) reconcileClusters(ctx context.Context) {
 			return
 		case <-ticker.C:
 		}
+	}
+}
+
+// watchCapacities reads every cluster's room now and then, so a cluster no agent
+// runs in yet still says what it has. In-use clusters are measured every
+// reconciler round as well, which is fresher than this.
+func (s *Server) watchCapacities(ctx context.Context) {
+	s.measureClusterCapacities(ctx)
+	ticker := time.NewTicker(capacityEvery)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.measureClusterCapacities(ctx)
+		}
+	}
+}
+
+// measureClusterCapacities is one pass over every configured cluster. A cluster
+// that can't be reached is recorded with its error and keeps its last numbers,
+// so the list says it is stale rather than empty.
+func (s *Server) measureClusterCapacities(ctx context.Context) {
+	clusters, err := s.store.Clusters(ctx)
+	if err != nil {
+		if ctx.Err() == nil {
+			s.logf("measuring clusters' capacity: %v", err)
+		}
+		return
+	}
+	for _, cluster := range clusters {
+		if ctx.Err() != nil {
+			return
+		}
+		client, err := s.clusterClient(cluster)
+		if err != nil {
+			s.recordClusterCapacity(cluster, k8s.Capacity{}, 0, err)
+			continue
+		}
+		round, cancel := context.WithTimeout(ctx, capacityTimeout)
+		room, err := client.Capacity(round)
+		cancel()
+		agents, agentsErr := s.store.AgentsOnCluster(ctx, cluster.Name)
+		if agentsErr != nil {
+			err = errors.Join(err, agentsErr)
+		}
+		running := 0
+		for _, a := range agents {
+			if podInfo(a).Running() {
+				running++
+			}
+		}
+		s.recordClusterCapacity(cluster, room, running, err)
 	}
 }
 
@@ -80,13 +148,108 @@ func (s *Server) reconcileCluster(ctx context.Context, name string) error {
 	defer cancel()
 	pods, err := client.List(round)
 	if err != nil {
+		s.recordClusterCapacity(cluster, k8s.Capacity{}, 0, err)
 		return err
 	}
 	agents, err := s.store.AgentsOnCluster(round, name)
 	if err != nil {
 		return err
 	}
+	s.measureCapacity(round, cluster, client, pods)
 	return s.reconcileAgents(round, cluster, client, pods, agents)
+}
+
+// measureCapacity takes the cluster's room for the app and `agentbox cluster
+// list`, and never fails the round: an agent that can't be placed is a problem
+// the pod's own status says, and a capacity read is for showing, not deciding.
+func (s *Server) measureCapacity(ctx context.Context, cluster state.Cluster, client *k8s.Cluster, pods []k8s.Pod) {
+	running := 0
+	for _, pod := range pods {
+		if pod.Phase == corev1.PodRunning && !pod.Deleting {
+			running++
+		}
+	}
+	room, err := client.Capacity(ctx)
+	s.recordClusterCapacity(cluster, room, running, err)
+}
+
+// recordClusterCapacity keeps what a look at a cluster found. A cluster that
+// couldn't be measured keeps its last numbers, with the error and the time of the
+// failed look, rather than reading as full.
+func (s *Server) recordClusterCapacity(cluster state.Cluster, room k8s.Capacity, running int, err error) {
+	now := time.Now().UTC()
+	if err != nil {
+		capacity, ok := s.clusterCapacity(cluster.Name)
+		if !ok {
+			capacity = api.ClusterCapacity{Agents: -1}
+		}
+		capacity.Error = err.Error()
+		capacity.At = now
+		s.setClusterCapacity(cluster.Name, capacity)
+		return
+	}
+	s.setClusterCapacity(cluster.Name, capacityOf(cluster, room, running, now))
+}
+
+// clusterCapacity is how much room one cluster has, as its nodes and its own
+// ceiling leave it. Agents is -1 when there is no ceiling to count: no MaxAgents,
+// and no per-agent size to divide the room by.
+func capacityOf(cluster state.Cluster, room k8s.Capacity, running int, now time.Time) api.ClusterCapacity {
+	cpu, memory := room.CPU(), room.Memory()
+	if budget, err := resource.ParseQuantity(cluster.CPU); cluster.CPU != "" && err == nil {
+		cpu = smallest(cpu, budgetMinus(budget, room.RequestedCPU))
+	}
+	if budget, err := resource.ParseQuantity(cluster.Memory); cluster.Memory != "" && err == nil {
+		memory = smallest(memory, budgetMinus(budget, room.RequestedMemory))
+	}
+	out := api.ClusterCapacity{
+		Agents:  -1,
+		Running: running,
+		CPU:     cpu.String(),
+		Memory:  memory.String(),
+		At:      now,
+	}
+	if cluster.MaxAgents > 0 {
+		out.Agents = max(0, cluster.MaxAgents-running)
+	}
+	if size, err := resource.ParseQuantity(cluster.AgentCPU); cluster.AgentCPU != "" && err == nil && size.MilliValue() > 0 {
+		out.Agents = fewest(out.Agents, int(cpu.MilliValue()/size.MilliValue()))
+	}
+	if size, err := resource.ParseQuantity(cluster.AgentMemory); cluster.AgentMemory != "" && err == nil && size.Value() > 0 {
+		out.Agents = fewest(out.Agents, int(memory.Value()/size.Value()))
+	}
+	return out
+}
+
+// budgetMinus is what a budget has left after the pods already ask for it,
+// floored at zero.
+func budgetMinus(budget, requested resource.Quantity) resource.Quantity {
+	if budget.Cmp(requested) <= 0 {
+		return resource.Quantity{}
+	}
+	left := budget.DeepCopy()
+	left.Sub(requested)
+	return left
+}
+
+// smallest is the smaller of two quantities, as a copy.
+func smallest(a, b resource.Quantity) resource.Quantity {
+	if a.Cmp(b) <= 0 {
+		return a
+	}
+	return b
+}
+
+// fewest narrows a count of agents to another, where -1 is no ceiling at all.
+func fewest(a, b int) int {
+	switch {
+	case a < 0:
+		return b
+	case b < 0:
+		return a
+	default:
+		return min(a, b)
+	}
 }
 
 // reconcileAgents is the round's work, one agent at a time. The pods are the ones
@@ -280,6 +443,12 @@ func (s *Server) podSpec(ctx context.Context, cluster state.Cluster, reg *state.
 		PullSecret:   s.pullSecretName(ctx, cluster),
 		StorageClass: cluster.StorageClass,
 		Claim:        a.Claim,
+		// The sizes are the cluster's, not the pod's: every agent of a
+		// cluster is the same size, which is what makes its capacity a count.
+		CPU:              cluster.AgentCPU,
+		Memory:           cluster.AgentMemory,
+		WorkspaceSize:    cluster.WorkspaceSize,
+		EphemeralStorage: cluster.EphemeralStorage,
 		// MasterURL is both the spec's own field, which the doctor and the
 		// pod's probes read, and an environment variable, because Env is the
 		// only thing BuildPod puts in the container.

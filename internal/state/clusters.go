@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/resource"
+
 	"agentbox/internal/naming"
 )
 
@@ -49,10 +51,25 @@ type Cluster struct {
 	// MaxAgents is the ceiling on how many agents this cluster runs at once.
 	// Zero is no ceiling of its own: the nodes' capacity is the limit.
 	MaxAgents int
-	// CPU and Memory are an optional budget, as Kubernetes quantities (2,
-	// 500m; 8Gi). Empty is what the nodes have, less a reserve.
+	// CPU and Memory are an optional budget for the cluster's agents, as
+	// Kubernetes quantities (2, 500m; 8Gi). Empty is what the nodes have, less
+	// a reserve. They are not one pod's size: AgentCPU and AgentMemory are.
 	CPU    string
 	Memory string
+	// AgentCPU and AgentMemory are what one agent's pod asks for, as
+	// Kubernetes quantities, and so what the scheduler places and the pod is
+	// capped at. Empty asks for nothing in particular, which is only right in
+	// a namespace whose limits say otherwise.
+	AgentCPU    string
+	AgentMemory string
+	// WorkspaceSize is an agent's claim, as a Kubernetes quantity like 20Gi.
+	// Empty is k8s.DefaultWorkspaceSize. A claim is made once and kept, so a
+	// change here reaches the next agent, not an existing one.
+	WorkspaceSize string
+	// EphemeralStorage is how much local disk one pod may fill with what its
+	// claim doesn't hold: its /tmp, /run and writable layer, as a Kubernetes
+	// quantity. Empty is k8s.DefaultEphemeralStorage.
+	EphemeralStorage string
 	// Labels are placement constraints on nodes, like arch=amd64 or gpu=true.
 	Labels map[string]string
 	// Tailnet is TailnetOperator, TailnetSidecar or TailnetNone.
@@ -79,7 +96,9 @@ func (c Cluster) HasCapability(name string) bool {
 	return false
 }
 
-const clusterColumns = `name, namespace, storage_class, image, master_url, registry, max_agents, cpu, memory, labels, tailnet, capabilities, kubeconfig, created_at, last_seen, last_error`
+const clusterColumns = `name, namespace, storage_class, image, master_url, registry, max_agents, cpu, memory,
+	agent_cpu, agent_memory, workspace_size, ephemeral_storage, labels, tailnet, capabilities, kubeconfig,
+	created_at, last_seen, last_error`
 
 // AddCluster records a cluster whose access `cluster add` has already applied
 // and sealed. It never overwrites: a second add under the same name is an error,
@@ -97,8 +116,9 @@ func (s *Store) AddCluster(ctx context.Context, c Cluster) error {
 		return err
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO clusters (`+clusterColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO clusters (`+clusterColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		c.Name, c.Namespace, c.StorageClass, c.Image, masterURL, c.Registry, c.MaxAgents, c.CPU, c.Memory,
+		c.AgentCPU, c.AgentMemory, c.WorkspaceSize, c.EphemeralStorage,
 		labels, c.Tailnet, capabilities, c.Kubeconfig, c.CreatedAt.Unix(), unixOrZero(c.LastSeen), c.LastError)
 	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
 		return fmt.Errorf("cluster %s: %w", c.Name, ErrExists)
@@ -130,6 +150,31 @@ func checkCluster(c Cluster) error {
 	}
 	if c.MaxAgents < 0 {
 		return fmt.Errorf("cluster %s's max agents is %d: use 0 for as many as the nodes allow", c.Name, c.MaxAgents)
+	}
+	return checkClusterSizes(c)
+}
+
+// checkClusterSizes refuses a quantity a pod couldn't be given: a misspelled
+// one, or nothing at all, which would make a claim or a pod with no room.
+func checkClusterSizes(c Cluster) error {
+	for _, q := range []struct{ flag, value string }{
+		{"--cpu", c.CPU},
+		{"--memory", c.Memory},
+		{"--agent-cpu", c.AgentCPU},
+		{"--agent-memory", c.AgentMemory},
+		{"--workspace-size", c.WorkspaceSize},
+		{"--ephemeral-storage", c.EphemeralStorage},
+	} {
+		if q.value == "" {
+			continue
+		}
+		parsed, err := resource.ParseQuantity(q.value)
+		if err != nil {
+			return fmt.Errorf("cluster %s's %s %q: %w", c.Name, q.flag, q.value, err)
+		}
+		if parsed.Sign() <= 0 {
+			return fmt.Errorf("cluster %s's %s is %q: use a size greater than zero", c.Name, q.flag, q.value)
+		}
 	}
 	return nil
 }
@@ -225,7 +270,8 @@ func (s *Store) queryClusters(ctx context.Context, clause string, args ...any) (
 		var labels, capabilities string
 		var created, lastSeen int64
 		if err := rows.Scan(&c.Name, &c.Namespace, &c.StorageClass, &c.Image, &c.MasterURL, &c.Registry, &c.MaxAgents,
-			&c.CPU, &c.Memory, &labels, &c.Tailnet, &capabilities, &c.Kubeconfig,
+			&c.CPU, &c.Memory, &c.AgentCPU, &c.AgentMemory, &c.WorkspaceSize, &c.EphemeralStorage,
+			&labels, &c.Tailnet, &capabilities, &c.Kubeconfig,
 			&created, &lastSeen, &c.LastError); err != nil {
 			return nil, err
 		}
@@ -262,6 +308,9 @@ func (s *Store) SetClusterConfig(ctx context.Context, c Cluster) error {
 	if c.MaxAgents < 0 {
 		return fmt.Errorf("cluster %s's max agents is %d: use 0 for as many as the nodes allow", c.Name, c.MaxAgents)
 	}
+	if err := checkClusterSizes(c); err != nil {
+		return err
+	}
 	masterURL, err := clusterMasterURL(c.Name, c.MasterURL)
 	if err != nil {
 		return err
@@ -272,8 +321,10 @@ func (s *Store) SetClusterConfig(ctx context.Context, c Cluster) error {
 	}
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE clusters SET storage_class = ?, image = ?, master_url = ?, registry = ?, max_agents = ?, cpu = ?, memory = ?,
+			agent_cpu = ?, agent_memory = ?, workspace_size = ?, ephemeral_storage = ?,
 			labels = ?, tailnet = ?, capabilities = ? WHERE name = ?`,
 		c.StorageClass, c.Image, masterURL, c.Registry, c.MaxAgents, c.CPU, c.Memory,
+		c.AgentCPU, c.AgentMemory, c.WorkspaceSize, c.EphemeralStorage,
 		labels, c.Tailnet, capabilities, c.Name)
 	if err != nil {
 		return err

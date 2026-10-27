@@ -18,7 +18,8 @@ so no Service, Ingress or inbound rule is needed.
 | `create --cluster <name>`, and the clone on its claim | diff and files while the pod is stopped (no mirror) |
 | the two git profiles: URL, login, clone and push | CSI volume snapshots, as a fast path |
 | diff, file list and file read through the gateway | a fork from a checkpoint of a cluster agent |
-| the desktop and its browser over the gateway, recordings included | placement, capacity and a queue |
+| the desktop and its browser over the gateway, recordings included | placement and a queue, which is Stage 6 |
+| the pod's size and claim, and a cluster's free capacity | a pod's disk use while it is stopped |
 | snapshots, restore and fork, from an archive of the claim | zstd, because the image has no zstd yet |
 | `base save` as a project image, and `recreate` | a project image built by the app, which builds in the CLI only |
 | the in-agent API over the master: `whoami`, connectors, memory, heavy | the tailnet egress check, which needs an operator client |
@@ -226,6 +227,46 @@ In the app, Settings, Clusters lists each cluster with its image, storage class,
 Doctor button, and Registries lists each one with or without a login, and a Test button. While a pod
 pulls, `kubectl` is what shows it: `kubectl -n agentbox get pods`, and `kubectl -n agentbox describe
 pod ab-demo-agent-01`.
+
+## Sizes, disk and capacity
+
+One agent's pod is sized by its cluster, so every agent of a cluster asks for the same thing and the
+cluster's free capacity is a count of them:
+
+```bash
+agentbox cluster add k3d --kubeconfig /tmp/agentbox.yaml --image agentbox-agent:dev \
+  --max-agents 4 --agent-cpu 2 --agent-memory 8Gi --workspace-size 40Gi --ephemeral-storage 10Gi
+agentbox cluster set k3d --agent-memory 12Gi     # the next agent starts with more
+```
+
+| Flag | What it is | Default |
+| --- | --- | --- |
+| `--agent-cpu` | the CPU the pod asks for, and is capped at | none asked for |
+| `--agent-memory` | the memory the pod asks for; its limit is a quarter more | none asked for |
+| `--workspace-size` | the claim its worktree and home live on | 20Gi |
+| `--ephemeral-storage` | the local disk it may fill outside the claim, `/tmp` included | 10Gi |
+| `--max-agents` | the ceiling on how many run at once | the nodes' room |
+| `--cpu`, `--memory` | the whole cluster's budget, which capacity also respects | the nodes' room |
+
+The CPU and memory requests are what the scheduler places the pod by, so a cluster whose nodes have
+4 CPU and 16Gi and whose agents ask for 2 CPU and 8Gi holds two agents. A pod's ephemeral storage is a
+limit, not a request of the same size: Kubernetes counts its writable layer, `/tmp` and `/run`, and a
+pod that crosses it is evicted instead of filling the node every other agent shares. That is what the
+disk guard is on a host with Incus machines, where there is one disk to watch.
+
+`agentbox cluster list` shows the agents each cluster has and how many more fit, from the daemon's
+last look at it, and the app's new-agent dialog shows the same count beside each cluster. The
+capacity is the smallest of the ceiling, the free CPU divided by `--agent-cpu` and the free memory
+divided by `--agent-memory`, after the cluster's own budget. A cluster with no ceiling and no
+per-agent size says `no limit`, because nothing there counts agents.
+
+A claim is made once and kept, so `--workspace-size` reaches the next agent, not an existing one:
+growing the claim of one that already runs is its storage class's job, and shrinking it means starting
+the agent on a new claim from a snapshot. The ephemeral storage applies to the next pod start.
+
+An agent's disk use is measured from inside its running pod, over the gateway, because Kubernetes says
+how big a claim is rather than how full. A stopped pod's claim is not measured, and
+`agentbox disk` leaves that agent out until it runs again.
 
 ## Snapshots, restore and fork
 

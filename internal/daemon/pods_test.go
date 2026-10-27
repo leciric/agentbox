@@ -215,6 +215,38 @@ func TestPodSpecRunsTheProjectsImage(t *testing.T) {
 	}
 }
 
+// TestPodSpecSizesThePodFromTheCluster: one agent's requests, its claim and its
+// own disk come from the cluster, so every agent of a cluster is the same size
+// and its capacity is a count of them.
+func TestPodSpecSizesThePodFromTheCluster(t *testing.T) {
+	srv := reconcilerServer(t)
+	ctx := context.Background()
+	reconcilerProject(t, srv.store)
+	reconcilerAgent(t, srv.store, "agent-01")
+	a, err := srv.store.Agent(ctx, "pawly", "agent-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cluster := reconcilerCluster()
+	cluster.AgentCPU = "2"
+	cluster.AgentMemory = "8Gi"
+	cluster.WorkspaceSize = "40Gi"
+	cluster.EphemeralStorage = "20Gi"
+
+	spec := srv.podSpec(ctx, cluster, nil, a)
+	if spec.CPU != "2" || spec.Memory != "8Gi" || spec.WorkspaceSize != "40Gi" || spec.EphemeralStorage != "20Gi" {
+		t.Errorf("spec sizes = %q, %q, %q, %q, want the cluster's 2, 8Gi, 40Gi, 20Gi",
+			spec.CPU, spec.Memory, spec.WorkspaceSize, spec.EphemeralStorage)
+	}
+	// A cluster that says nothing asks for nothing, except the disk guard the
+	// pod always has.
+	cluster.AgentCPU, cluster.AgentMemory, cluster.WorkspaceSize, cluster.EphemeralStorage = "", "", "", ""
+	spec = srv.podSpec(ctx, cluster, nil, a)
+	if spec.CPU != "" || spec.Memory != "" || spec.WorkspaceSize != "" || spec.EphemeralStorage != "" {
+		t.Errorf("an unsized cluster gave %q, %q, %q, %q, want its defaults", spec.CPU, spec.Memory, spec.WorkspaceSize, spec.EphemeralStorage)
+	}
+}
+
 // TestRemoveProjectRefusesBeforeItDeletesAnyMachine checks the order the handler
 // keeps: the store's refusal comes first, so a project that still has agents
 // keeps their pods, tokens and claims. Deleting the machines and refusing after
