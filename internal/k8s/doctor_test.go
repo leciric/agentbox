@@ -7,6 +7,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -38,6 +39,10 @@ func healthyCluster(t *testing.T) *fake.Clientset {
 			Type:       corev1.SecretTypeDockerConfigJson,
 			Data:       map[string][]byte{corev1.DockerConfigJsonKey: []byte(`{"auths":{}}`)},
 		},
+		// The policy `cluster add` applies. An address instead of a name keeps
+		// the build from asking a resolver, and the doctor doesn't compare the
+		// policy against the master URL anyway.
+		k8s.NetPol("agentbox", "https://10.8.8.1:443"),
 	)
 	client.PrependReactor("get", "persistentvolumeclaims", func(action k8stesting.Action) (bool, runtime.Object, error) {
 		get := action.(k8stesting.GetAction)
@@ -93,7 +98,7 @@ func TestDoctorPassesAClusterThatCanRunAgents(t *testing.T) {
 	if report.Failed() {
 		t.Errorf("a healthy cluster failed: %+v", report.Checks)
 	}
-	for _, name := range []string{"api", "master url", "namespace", "nodes", "storage class", "workspace claim", "registry", "image"} {
+	for _, name := range []string{"api", "master url", "namespace", "network policy", "nodes", "storage class", "workspace claim", "registry", "image"} {
 		found := check(t, report, name)
 		if !found.OK || found.Skipped {
 			t.Errorf("%s = %+v, want a pass", name, found)
@@ -276,6 +281,45 @@ func TestDoctorChecksTheTailscaleEgress(t *testing.T) {
 	got := check(t, report, "tailnet "+host.Host)
 	if !got.OK || !strings.Contains(got.Detail, host.Name) {
 		t.Errorf("the egress check = %+v, want it passing and naming the Service", got)
+	}
+}
+
+func TestDoctorSaysWhenTheNetworkPolicyIsMissing(t *testing.T) {
+	// A cluster whose policy never got applied, which is every cluster added
+	// before the policy existed until it is rotated.
+	client := healthyCluster(t)
+	ctx := context.Background()
+	if err := client.NetworkingV1().NetworkPolicies("agentbox").Delete(ctx, k8s.NetPolName, metav1.DeleteOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	report := healthyDoctor(t, client).Run(ctx)
+	got := check(t, report, "network policy")
+	if got.OK || got.Skipped {
+		t.Errorf("network policy = %+v, want a failure", got)
+	}
+	if !strings.Contains(got.Detail, "agentbox cluster rotate k3d") {
+		t.Errorf("network policy detail = %q, want the command that applies it", got.Detail)
+	}
+}
+
+func TestDoctorSaysWhenTheNetworkPolicyLetsTrafficIn(t *testing.T) {
+	client := healthyCluster(t)
+	ctx := context.Background()
+	policy, err := client.NetworkingV1().NetworkPolicies("agentbox").Get(ctx, k8s.NetPolName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy.Spec.Ingress = append(policy.Spec.Ingress, networkingv1.NetworkPolicyIngressRule{})
+	if _, err := client.NetworkingV1().NetworkPolicies("agentbox").Update(ctx, policy, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	report := healthyDoctor(t, client).Run(ctx)
+	got := check(t, report, "network policy")
+	if got.OK || got.Skipped {
+		t.Errorf("network policy = %+v, want a failure", got)
+	}
+	if !strings.Contains(got.Detail, "agentbox cluster rotate k3d") {
+		t.Errorf("network policy detail = %q, want the command that applies it", got.Detail)
 	}
 }
 

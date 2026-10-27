@@ -146,6 +146,15 @@ func agentRules() []rbacv1.PolicyRule {
 			Resources: []string{"events"},
 			Verbs:     []string{"get", "list", "create", "patch"},
 		},
+		{
+			// The policy that keeps anything in the namespace from reaching
+			// an agent's pod. Nothing removes it, so no delete: a cluster
+			// that is removed leaves one policy behind in a namespace the
+			// user can delete.
+			APIGroups: []string{"networking.k8s.io"},
+			Resources: []string{"networkpolicies"},
+			Verbs:     []string{"get", "create", "update"},
+		},
 	}
 }
 

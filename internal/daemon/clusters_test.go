@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -35,11 +36,20 @@ import (
 type egressAPI struct {
 	mu       sync.Mutex
 	services map[string]*corev1.Service
+	policies map[string]*networkingv1.NetworkPolicy
 }
 
 func (a *egressAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		a.serveGet(w, r)
+		return
+	}
+	if r.Method == http.MethodDelete {
+		// `cluster rotate` deletes the token Secret before making a new one.
+		writeStubJSON(w, http.StatusOK, metav1.Status{
+			TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Status"},
+			Status:   metav1.StatusSuccess,
+		})
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -66,6 +76,14 @@ func (a *egressAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			a.services = map[string]*corev1.Service{}
 		}
 		a.services[service.Name] = service
+		a.mu.Unlock()
+	}
+	if policy, ok := object.(*networkingv1.NetworkPolicy); ok {
+		a.mu.Lock()
+		if a.policies == nil {
+			a.policies = map[string]*networkingv1.NetworkPolicy{}
+		}
+		a.policies[policy.Name] = policy
 		a.mu.Unlock()
 	}
 	writeStubJSON(w, http.StatusCreated, object)
@@ -98,6 +116,17 @@ func (a *egressAPI) service(t *testing.T, name string) *corev1.Service {
 		t.Fatalf("the egress Service %s was never created: %v", name, a.services)
 	}
 	return service
+}
+
+func (a *egressAPI) policy(t *testing.T, name string) *networkingv1.NetworkPolicy {
+	t.Helper()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	policy, ok := a.policies[name]
+	if !ok {
+		t.Fatalf("the NetworkPolicy %s was never created: %v", name, a.policies)
+	}
+	return policy
 }
 
 func writeStubJSON(w http.ResponseWriter, code int, object any) {
@@ -164,6 +193,15 @@ func TestClusterAddDeclaresTheEgressService(t *testing.T) {
 	}
 	if cluster.Tailnet != state.TailnetOperator {
 		t.Errorf("the row's tailnet = %q, want operator", cluster.Tailnet)
+	}
+	// A cluster added without the policy would run its first agent reachable
+	// from the rest of the namespace.
+	policy := stub.policy(t, k8s.NetPolName)
+	if len(policy.Spec.Ingress) != 0 {
+		t.Errorf("the NetworkPolicy's ingress = %+v, want none", policy.Spec.Ingress)
+	}
+	if got := policy.Spec.PodSelector.MatchLabels[k8s.LabelApp]; got != k8s.AppAgent {
+		t.Errorf("the NetworkPolicy selects %s=%q, want %s", k8s.LabelApp, got, k8s.AppAgent)
 	}
 }
 
@@ -247,6 +285,37 @@ func TestClusterSetDeclaresTheEgressService(t *testing.T) {
 	}
 	if got := service.Annotations[k8s.AnnotationProxyGroup]; got != k8s.EgressProxyGroup {
 		t.Errorf("%s = %q, want %s", k8s.AnnotationProxyGroup, got, k8s.EgressProxyGroup)
+	}
+	policy, err := client.NetworkingV1().NetworkPolicies("agentbox").Get(ctx, k8s.NetPolName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("the network policy wasn't applied: %v", err)
+	}
+	if len(policy.Spec.Ingress) != 0 {
+		t.Errorf("the NetworkPolicy's ingress = %+v, want none", policy.Spec.Ingress)
+	}
+}
+
+// TestClusterRotateAppliesTheNetworkPolicy is the path a cluster added before
+// the policy existed takes: rotate applies the access again, and the policy
+// with it.
+func TestClusterRotateAppliesTheNetworkPolicy(t *testing.T) {
+	srv := reconcilerServer(t)
+	clusterWithFakeClient(t, srv, reconcilerCluster(), fake.NewClientset())
+	stub := &egressAPI{}
+	server := httptest.NewTLSServer(stub)
+	t.Cleanup(server.Close)
+	body, err := json.Marshal(api.RotateClusterRequest{Kubeconfig: adminKubeconfig(server.URL)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/v1/clusters/k3d/rotate", strings.NewReader(string(body)))
+	req.SetPathValue("name", "k3d")
+	if err := srv.rotateCluster(httptest.NewRecorder(), req); err != nil {
+		t.Fatalf("rotateCluster() = %v", err)
+	}
+	policy := stub.policy(t, k8s.NetPolName)
+	if len(policy.Spec.Ingress) != 0 {
+		t.Errorf("the NetworkPolicy's ingress = %+v, want none", policy.Spec.Ingress)
 	}
 }
 

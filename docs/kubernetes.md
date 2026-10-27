@@ -456,6 +456,7 @@ again, and the events appear after it.
 | `api` | The daemon's ServiceAccount cannot reach the API server. Its kubeconfig must point at an address the daemon reaches. |
 | `master url` | Not set, or plain `http`. Set it with `agentbox cluster set <name> --master-url <url>`. The `http` note is right for a local cluster only. |
 | `namespace` | The token is refused, or the Role cannot read pods there. `cluster rotate <name>` makes a new token; `cluster remove` and `add` again reapplies the Role and binding. |
+| `network policy` | The namespace has no `agentbox-agents` NetworkPolicy, or has one that no longer selects agent pods or that lets traffic in. `cluster rotate <name>` applies it, and the Role rule it needs. |
 | `nodes` | No node is ready, or the cluster has none. |
 | `storage class` | The named class does not exist. Empty asks for the cluster's default; k3d and k3s have `local-path`. |
 | `workspace claim` | A 1Gi claim could not be made, or a class that binds at once never bound, which usually means no provisioner. A class that binds on first use passes. |
@@ -485,3 +486,20 @@ svc,proxygroup`, `kubectl get dnsconfig`, and the operator's pods in `tailscale`
   not be exposed beyond a local test. A remote cluster reaches the daemon through the tailnet
   listener, which `tailscale serve` publishes and which checks who asks, except on
   `/v1/agent-gateway`, where the pod's own bearer token is the check.
+- One NetworkPolicy, `agentbox-agents`, selects the namespace's agent pods and denies every
+  connection in. Nothing in the cluster has a reason to reach a pod, so nothing loses a path it had,
+  and a workload in another namespace or a compromised pod in this one cannot open a connection
+  either. `cluster add`, `cluster set` and `cluster rotate` apply it; a cluster added before the
+  policy existed gets it from `cluster rotate <name>`, which also applies the Role rule the policy
+  needs.
+- The policy does not restrict egress, and that is deliberate. A pod dials the public AI APIs, this
+  machine and a git host, and none of those addresses is fixed enough to write into a policy that
+  would still work tomorrow. The policy names the cluster's resolver and this machine, which is the
+  shape a narrow list would have, and then allows every other address. What makes a narrow list
+  possible is a proxy the pod dials instead of the internet, and that is a change to the pod, not to
+  the policy. Until then a list of exceptions would break a chat the day an API moved, without
+  closing the hole it was meant to close.
+- A NetworkPolicy is only as good as the plugin behind it. Calico, Cilium, Antrea and k3s's own
+  kube-router enforce one; a CNI without a policy controller accepts the object and silently ignores
+  it, and `kubectl get networkpolicy` shows the object either way. `cluster doctor` checks that the
+  policy exists and denies ingress, not whether the cluster acts on it.

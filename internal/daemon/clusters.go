@@ -265,6 +265,24 @@ func (s *Server) ensureEgress(ctx context.Context, c state.Cluster) error {
 	return nil
 }
 
+// ensureNetPol applies the namespace's NetworkPolicy for agent pods, which is
+// what keeps anything else in the cluster from reaching one. It is applied on
+// add, on set and on rotate, never on an agent's create: a cluster added before
+// the policy existed has no Role permission for it, and failing an agent start
+// over a missing policy would be worse than the missing policy. `cluster
+// rotate` is what applies the policy and that Role rule to such a cluster.
+func (s *Server) ensureNetPol(ctx context.Context, c state.Cluster) error {
+	cluster, err := s.clusterClient(c)
+	if err != nil {
+		return err
+	}
+	if err := cluster.EnsureNetPol(ctx, c.MasterURL); err != nil {
+		return fmt.Errorf("the NetworkPolicy that blocks connections to an agent's pod wasn't applied: %w; agentbox cluster rotate %s applies the Role rule it needs",
+			err, c.Name)
+	}
+	return nil
+}
+
 func (s *Server) listClusters(w http.ResponseWriter, r *http.Request) error {
 	clusters, err := s.store.Clusters(r.Context())
 	if err != nil {
@@ -351,6 +369,12 @@ func (s *Server) addCluster(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	// Before the row too, and whatever the tailnet is: the policy needs no
+	// operator, and a cluster recorded without one would have its agents
+	// reachable from the rest of the namespace.
+	if err := s.ensureNetPol(ctx, cluster); err != nil {
+		return err
+	}
 	if err := s.store.AddCluster(ctx, cluster); err != nil {
 		return err
 	}
@@ -401,6 +425,9 @@ func (s *Server) setClusterConfig(w http.ResponseWriter, r *http.Request) error 
 		if err := s.ensureEgress(ctx, cluster); err != nil {
 			return fmt.Errorf("the cluster's config is saved, but %w", err)
 		}
+	}
+	if err := s.ensureNetPol(ctx, cluster); err != nil {
+		return fmt.Errorf("the cluster's config is saved, but %w", err)
 	}
 	return writeJSON(w, http.StatusOK, s.clusterInfo(cluster))
 }
@@ -497,6 +524,12 @@ func (s *Server) rotateCluster(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	cluster.Kubeconfig = sealed
+	// The new token is the one the policy is applied with, and rotate is where
+	// a cluster added before the policy existed gets it, along with the Role
+	// rule it needs.
+	if err := s.ensureNetPol(ctx, cluster); err != nil {
+		return fmt.Errorf("the cluster is rotated, but %w", err)
+	}
 	return writeJSON(w, http.StatusOK, s.clusterInfo(cluster))
 }
 

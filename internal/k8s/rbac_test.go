@@ -43,6 +43,32 @@ func TestRBACReaderRoleCanReadTheSplitDNS(t *testing.T) {
 	}
 }
 
+// TestRoleCanApplyTheAgentsNetworkPolicy is the policy that keeps anything in
+// the namespace from reaching an agent's pod: the runtime applies it, so the
+// namespace's Role has to allow it, and only what applying it needs.
+func TestRoleCanApplyTheAgentsNetworkPolicy(t *testing.T) {
+	access := k8s.NewAccess("agentbox")
+	var found *rbacv1.PolicyRule
+	for i, rule := range access.Role.Rules {
+		if slices.Contains(rule.APIGroups, "networking.k8s.io") && slices.Contains(rule.Resources, "networkpolicies") {
+			found = &access.Role.Rules[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("the namespace Role can't apply network policies: %+v", access.Role.Rules)
+	}
+	if !slices.Equal(found.Resources, []string{"networkpolicies"}) {
+		t.Errorf("the rule = %+v, want networkpolicies and nothing else", found)
+	}
+	want := []string{"create", "get", "update"}
+	got := slices.Clone(found.Verbs)
+	slices.Sort(got)
+	if !slices.Equal(got, want) {
+		t.Errorf("the rule = %+v, want exactly %v: nothing removes a policy, and nothing lists one", found, want)
+	}
+}
+
 // TestRoleCanReadTheNamespacesEvents is the cluster page's half: it lists the
 // events that explain a pod that didn't start, so the Role has to allow reading
 // them as well as writing them.
