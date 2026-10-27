@@ -679,7 +679,7 @@ if (appView) {
     if (seeded) return { status: 200, body: JSON.stringify(seeded), contentType: 'application/json' };
     // With &android=1, every agent's emulator has booted: Android's green dot.
     if (androidProject && method === 'GET' && /^\/v1\/agents\/[^/]+\/[^/]+\/android$/.test(path)) {
-      const booted: T.AndroidStatus = { available: true, images: ['android-35'], running: true, booted: true, image: 'android-35', device: 'emulator-5554' };
+      const booted: T.AndroidStatus = { available: true, images: ['android-35'], running: true, booted: true, image: 'android-35', device: 'emulator-5554', gpu: true };
       return { status: 200, body: JSON.stringify(booted), contentType: 'application/json' };
     }
     const answer = (await inner(method, path, body)) as { status: number; body: string };
