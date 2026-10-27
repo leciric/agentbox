@@ -31,11 +31,13 @@
 // crash or a build failure.
 
 #import <Foundation/Foundation.h>
+#import <CoreGraphics/CoreGraphics.h>
 #import <CoreMedia/CoreMedia.h>
 #import <CoreVideo/CoreVideo.h>
 #import <IOSurface/IOSurfaceRef.h>
 #import <VideoToolbox/VideoToolbox.h>
 #import <dlfcn.h>
+#import <errno.h>
 #import <mach/mach.h>
 #import <mach/mach_time.h>
 #import <objc/message.h>
@@ -765,7 +767,7 @@ static IndigoMessage *legacyTouch(double x, double y, BOOL down) {
     return m;
 }
 
-static void touch(NSString *phase, double x, double y) {
+static void sendTouch(NSString *phase, double x, double y) {
     BOOL down = ![phase isEqualToString:@"up"];
     if (useDTUHID) {
         uint64_t type = 1; // position
@@ -790,7 +792,7 @@ static void touch(NSString *phase, double x, double y) {
     touching = down;
 }
 
-static void key(uint64_t usage, BOOL down) {
+static void sendKey(uint64_t usage, BOOL down) {
     if (useDTUHID) {
         xpc_connection_send_message(hid, dtuhidMessage("IndigoKeyboardButtonEvent", keyPayload(usage, down), false));
     } else {
@@ -800,7 +802,7 @@ static void key(uint64_t usage, BOOL down) {
 
 // Buttons, by the HID consumer usage dtuhidd takes, and the Indigo button
 // source before it (-1: none, so its consumer usage goes as HID arbitrary).
-static void button(NSString *name, BOOL down) {
+static void sendButton(NSString *name, BOOL down) {
     NSDictionary *usages = @{@"home" : @0x40, @"lock" : @0x30, @"siri" : @0xCF, @"volumeUp" : @0xE9, @"volumeDown" : @0xEA};
     NSDictionary *sources = @{@"home" : @0x0, @"lock" : @0x1, @"siri" : @0x400002};
     NSNumber *usage = usages[name];
@@ -850,11 +852,11 @@ static void handle(NSDictionary *o) {
           return;
       }
       if ([name isEqualToString:@"touch"]) {
-          touch(o[@"phase"], [o[@"x"] doubleValue], [o[@"y"] doubleValue]);
+          sendTouch(o[@"phase"], [o[@"x"] doubleValue], [o[@"y"] doubleValue]);
       } else if ([name isEqualToString:@"key"]) {
-          key([o[@"usage"] unsignedLongLongValue], [o[@"down"] boolValue]);
+          sendKey([o[@"usage"] unsignedLongLongValue], [o[@"down"] boolValue]);
       } else if ([name isEqualToString:@"button"]) {
-          button(o[@"button"], [o[@"down"] boolValue]);
+          sendButton(o[@"button"], [o[@"down"] boolValue]);
       }
     });
 }

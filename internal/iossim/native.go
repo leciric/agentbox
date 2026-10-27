@@ -20,7 +20,7 @@ var simhostSource []byte
 
 // simhostFrameworks are what simhost links: the private ones (CoreSimulator,
 // SimulatorKit) it opens itself, from wherever this Mac's Xcode has them.
-var simhostFrameworks = []string{"Foundation", "CoreMedia", "CoreVideo", "IOSurface", "VideoToolbox"}
+var simhostFrameworks = []string{"Foundation", "CoreGraphics", "CoreMedia", "CoreVideo", "IOSurface", "VideoToolbox"}
 
 // SimhostArgs is how xcrun clang compiles simhost.m into out. Warnings don't
 // stop it on a user's Mac, whose Xcode may be newer than any it was tried
