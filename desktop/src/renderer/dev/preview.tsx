@@ -225,8 +225,9 @@
 //                           have booted: the v2 panel's Android view, with its dot
 //   &stream=ws://localhost:5902
 //                           streams (terminals, views) are WebSockets to that
-//                           server, by path: with &android=1, the Android view
-//                           plays a real emulator, from `agentbox android serve`
+//                           server, by path, and agents' desktops are up: with
+//                           &android=1, the Android view plays a real emulator,
+//                           from `agentbox android serve`
 //   &pick=1                 with &pip=1&panel=desktop:agent-25, the element picker:
 //                           Pick element, a click on agent-25's page, and the
 //                           element in the lead's composer (dev/pick.tsx)
@@ -495,9 +496,18 @@ if (usage) {
 // &android=1: the project is an Android one, so its agents' panels have Android.
 const androidProject = params.get('android') === '1';
 if (androidProject) fixtures.projects.find((p) => p.name === PROJECT)!.android = true;
-// &stream=ws://…: the bridge's streams are the browser's own WebSockets there.
+// &stream=ws://…: the bridge's streams are the browser's own WebSockets
+// there, and agents' desktops are up, so their views connect to it too.
 const streamServer = params.get('stream');
-if (streamServer) (window as unknown as { agentbox: { stream: unknown } }).agentbox.stream = webStreams((path) => streamServer + path).stream;
+if (streamServer) {
+  type Bridge = { stream: unknown; request: (method: string, path: string, body?: unknown) => Promise<unknown> };
+  const bridge = (window as unknown as { agentbox: Bridge }).agentbox;
+  bridge.stream = webStreams((path) => streamServer + path).stream;
+  const inner = bridge.request;
+  const up: T.BrowserStatus = { display: true, running: false, pages: [] };
+  bridge.request = async (method, path, body) =>
+    method === 'GET' && /^\/v1\/agents\/[^/]+\/[^/]+\/browser$/.test(path) ? { status: 200, body: JSON.stringify(up), contentType: 'application/json' } : inner(method, path, body);
+}
 const chatAgent = chat ? fixtures.agents.find((a) => a.ref === `${PROJECT}/${chat}`) : undefined;
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false, refetchOnWindowFocus: false } } });
