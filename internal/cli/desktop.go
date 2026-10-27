@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
 	"os"
 	"os/signal"
 	"syscall"
@@ -25,7 +26,7 @@ func newDesktopCmd(a *app) *cobra.Command {
 		Use:   "desktop",
 		Short: "The agent's virtual desktop: mouse, keyboard and screenshots of the whole display",
 	}
-	cmd.AddCommand(newDesktopMCPCmd(a), newDesktopGuardCmd(), newDesktopRecordCmd())
+	cmd.AddCommand(newDesktopMCPCmd(a), newDesktopGuardCmd(), newDesktopRecordCmd(), newDesktopZoomCmd())
 	return cmd
 }
 
@@ -109,5 +110,32 @@ func newDesktopRecordCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.NoTrim, "no-trim", false, "keep every frame, the screen standing still included")
 	cmd.Flags().BoolVar(&opts.WholeDisplay, "whole-display", false, "film the display as it is, without making the browser fullscreen first")
 	cmd.Flags().StringVar(&opts.Cuts, "cuts", "", "a file to write the stretches cut out to, as JSON, once the recording is finished")
+	cmd.Flags().StringVar(&opts.Events, "events", "", "with --input desktop, a file to write the clicks and keys to, one JSON object a line")
+	return cmd
+}
+
+// newDesktopZoomCmd edits a recording made with --events and --cuts: the
+// camera zooms in on where the input is, and the notes are captions on it.
+func newDesktopZoomCmd() *cobra.Command {
+	var events, cuts, notes string
+	var width, height int
+	cmd := &cobra.Command{
+		Use:    "zoom <in> <out>",
+		Short:  "Edit a recording: zoom in on the clicks and caption the chapters",
+		Hidden: true,
+		Args:   cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			e, err := desktop.ReadEdit(image.Pt(width, height), events, cuts, notes)
+			if err != nil {
+				return err
+			}
+			return e.Render(cmd.Context(), args[0], args[1], os.Stderr)
+		},
+	}
+	cmd.Flags().StringVar(&events, "events", "", "the recorder's --events file")
+	cmd.Flags().StringVar(&cuts, "cuts", "", "the recorder's --cuts file")
+	cmd.Flags().StringVar(&notes, "notes", "", "the chapters, one {\"t\", \"text\"} a line")
+	cmd.Flags().IntVar(&width, "width", 1280, "the video's width")
+	cmd.Flags().IntVar(&height, "height", 720, "the video's height")
 	return cmd
 }

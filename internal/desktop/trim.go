@@ -44,7 +44,9 @@ type Cut struct {
 // review to place its chapters on the shorter timeline.
 type Cuts struct {
 	Recorded float64 `json:"recorded"` // seconds of wall clock the video covers
-	Cuts     []Cut   `json:"cuts"`
+	// Start is when the first frame was taken, in InputEvent.T's clock.
+	Start float64 `json:"start,omitempty"`
+	Cuts  []Cut   `json:"cuts"`
 }
 
 // trimmer decides, frame by frame, which frames of a recording go to the
@@ -63,6 +65,7 @@ type trimmer struct {
 	dropping bool // past StillFor: frames are being cut
 	cutFrom  int
 	cuts     []Cut
+	start    float64 // when the first frame was taken: Cuts.Start
 }
 
 func newTrimmer(width, height int) *trimmer {
@@ -120,7 +123,7 @@ func (t *trimmer) finish(emit func([]byte) error) error {
 }
 
 func (t *trimmer) result() Cuts {
-	return Cuts{Recorded: seconds(t.seen), Cuts: append([]Cut{}, t.cuts...)}
+	return Cuts{Recorded: seconds(t.seen), Start: t.start, Cuts: append([]Cut{}, t.cuts...)}
 }
 
 // repeat emits the last frame kept n times: the frames held back were all

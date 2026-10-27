@@ -101,6 +101,10 @@ type RecordOptions struct {
 	// Cuts, when set, is a file to write what the trimming cut to (Cuts), once
 	// the recording is finished.
 	Cuts string
+	// Events, when set, is a file to write the clicks and keys drawn on to,
+	// one InputEvent a line, once the recording is finished: what an edit of
+	// it zooms to (zoom.go).
+	Events string
 }
 
 // Record records until ctx ends or opts.Limit passes, and leaves the file
@@ -310,7 +314,9 @@ func recordDisplay(ctx context.Context, opts RecordOptions) error {
 	}
 	inputCtx, stopInput := context.WithCancel(ctx)
 	defer stopInput()
-	go func() { _ = watchInput(inputCtx, x, ov.add, nil) }()
+	add := logEvents(opts.Events, ov.add)
+	defer add.write()
+	go func() { _ = watchInput(inputCtx, x, add.on, nil) }()
 	return runFFmpeg(ctx, opts, RecordDisplay, captureArgs(grab, size, opts), nil, composite(ov, size, opts))
 }
 
@@ -370,7 +376,9 @@ func recordBrowser(ctx context.Context, opts RecordOptions) error {
 	defer func() { _ = x.Close() }()
 	inputCtx, stopInput := context.WithCancel(ctx)
 	defer stopInput()
-	go func() { _ = watchInput(inputCtx, x, ov.add, ov.move) }()
+	add := logEvents(opts.Events, ov.add)
+	defer add.write()
+	go func() { _ = watchInput(inputCtx, x, add.on, ov.move) }()
 	return runFFmpeg(ctx, opts, RecordBrowser, captureArgs(pageInput, size, opts), pageFrames, composite(ov, size, opts))
 }
 
@@ -422,6 +430,7 @@ func composite(ov *overlay, size image.Point, opts RecordOptions) *compositor {
 		if !opts.NoTrim {
 			trim = newTrimmer(size.X, size.Y)
 		}
+		first := true
 		for {
 			if _, err := io.ReadFull(r, frame); err != nil {
 				if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
@@ -435,6 +444,9 @@ func composite(ov *overlay, size image.Point, opts RecordOptions) *compositor {
 					return err
 				}
 				return err
+			}
+			if first && trim != nil {
+				trim.start, first = float64(time.Now().UnixMicro())/1e6, false
 			}
 			if ov != nil {
 				for _, rect := range drawn {
