@@ -23,20 +23,46 @@ import (
 // Each agent can run a browser: Chromium on a small virtual desktop (openbox,
 // tint2, a file manager and a terminal), with a VNC server on that display
 // (browser.sh). The agent drives Chromium through the DevTools protocol on
-// 127.0.0.1:9222. AgentBox reaches the DevTools endpoint and the VNC server
-// through Incus proxy devices that listen on host unix sockets, so neither
-// port is open on the agent's network.
+// 127.0.0.1:9222. On Incus, AgentBox reaches the DevTools endpoint and the VNC
+// server through proxy devices that listen on host unix sockets, so neither
+// port is open on the agent's network. A pod has no devices: its two ports are
+// reached from inside it, through the machine's Dial.
 
 //go:embed browser.sh
 var browserScript []byte
 
 const (
+	// browserScriptPath and desktopShare are where an Incus agent keeps the
+	// script, the wallpaper and the palette, and the defaults the helpers
+	// below answer with.
 	browserScriptPath = "/usr/local/bin/agentbox-browser"
+	desktopShare      = "/usr/local/share/agentbox"
 	vncDevice         = "agentbox-vnc"
 	devtoolsDevice    = "agentbox-cdp"
 	// BrowserDevTools is the DevTools endpoint inside the agent, for its AI tools.
 	BrowserDevTools = "http://127.0.0.1:9222"
 )
+
+// browserScriptPath is where browser.sh lives in a. Incus has a /usr/local the
+// daemon may write into; a pod's agentd refuses a write outside the agent's
+// workspace, its home and its run directory, so the pod's copy goes under its
+// home.
+func (m *Manager) browserScriptPath(a state.Agent) string {
+	if a.OnCluster() {
+		return m.home(a) + "/.local/bin/agentbox-browser"
+	}
+	return browserScriptPath
+}
+
+// desktopShare is the directory browser.sh reads the wallpaper and the palette
+// from: beside the script on Incus, and in the agent's home in a pod, where
+// runBrowserScript names it to the script as AGENTBOX_SHARE.
+func (m *Manager) desktopShare(a state.Agent) string {
+	if a.OnCluster() {
+		return m.home(a) + "/.local/share/agentbox"
+	}
+	return desktopShare
+}
 
 // BrowserServices are the browser services AgentBox reaches from the host: the
 // VNC server and the Chrome DevTools Protocol endpoint.
@@ -114,6 +140,14 @@ func (m *Manager) prepareBrowser(ctx context.Context, a state.Agent) error {
 	if err := m.requireRunning(ctx, a); err != nil {
 		return err
 	}
+	if a.OnCluster() {
+		// A pod has no Incus devices to expose the desktop through: its VNC
+		// server and DevTools port are dialled from inside it (dialVNC,
+		// devtools).
+		m.installWallpaper(ctx, a)
+		m.installTheme(ctx, a)
+		return m.machine(a).WriteFile(ctx, m.browserScriptPath(a), browserScript, 0, 0, 0o755)
+	}
 	devices, err := m.Incus.Devices(ctx, a.Instance)
 	if err != nil {
 		return err
@@ -129,7 +163,7 @@ func (m *Manager) prepareBrowser(ctx context.Context, a state.Agent) error {
 	}
 	m.installWallpaper(ctx, a)
 	m.installTheme(ctx, a)
-	return m.Incus.WriteFile(ctx, a.Instance, browserScriptPath, browserScript, 0, 0, 0o755)
+	return m.Incus.WriteFile(ctx, a.Instance, m.browserScriptPath(a), browserScript, 0, 0, 0o755)
 }
 
 // addSocketProxy makes a port that listens on the agent's 127.0.0.1 reachable
@@ -152,8 +186,14 @@ func (m *Manager) addSocketProxy(ctx context.Context, a state.Agent, device, ser
 }
 
 func (m *Manager) runBrowserScript(ctx context.Context, a state.Agent, action string) error {
+	command := m.browserScriptPath(a) + " " + action
+	if a.OnCluster() {
+		// The script reads the wallpaper and the palette beside /usr/local/share
+		// by default, which a pod has no copy in: it is told where they are.
+		command = "AGENTBOX_SHARE=" + m.desktopShare(a) + " " + command
+	}
 	var out bytes.Buffer
-	if err := m.Incus.UserExec(ctx, a.Instance, m.User.Name, browserScriptPath+" "+action, nil, &out, &out); err != nil {
+	if err := m.machine(a).UserExec(ctx, m.machineUser(a).Name, command, nil, &out, &out); err != nil {
 		if msg := strings.TrimSpace(out.String()); msg != "" {
 			return fmt.Errorf("browser %s: %s", action, msg)
 		}
@@ -170,15 +210,22 @@ func (m *Manager) BrowserStatus(ctx context.Context, a state.Agent) (BrowserStat
 	if m.BrowserSocket == nil {
 		return status, nil
 	}
-	inst, err := m.Incus.Instance(ctx, a.Instance)
-	if err != nil || inst.Status != "Running" {
+	inst, err := m.machine(a).Info(ctx)
+	if err != nil || !inst.Running() {
 		return status, err
 	}
-	devices, err := m.Incus.Devices(ctx, a.Instance)
-	if err != nil {
-		return status, err
+	// A pod has no Incus devices to check: both of its ports are dialled from
+	// inside the pod.
+	devtools, vnc := true, true
+	if !a.OnCluster() {
+		devices, err := m.Incus.Devices(ctx, a.Instance)
+		if err != nil {
+			return status, err
+		}
+		_, devtools = devices[devtoolsDevice]
+		_, vnc = devices[vncDevice]
 	}
-	if _, ok := devices[devtoolsDevice]; ok {
+	if devtools {
 		if pages, version, ok := m.devtoolsPages(ctx, a); ok {
 			// It answered from the display, so the display is up: no need to
 			// ask the VNC server as well.
@@ -189,7 +236,7 @@ func (m *Manager) BrowserStatus(ctx context.Context, a state.Agent) (BrowserStat
 	// Chromium isn't answering. The desktop it was a window on usually still
 	// is — an agent that closed the browser's window, or a browser that
 	// crashed, leaves the display, the dock and everything else running.
-	if _, ok := devices[vncDevice]; ok {
+	if vnc {
 		status.Display = m.displayUp(ctx, a)
 	}
 	return status, nil
@@ -281,13 +328,25 @@ func (m *Manager) DialVNC(ctx context.Context, a state.Agent) (net.Conn, error) 
 }
 
 func (m *Manager) dialVNC(ctx context.Context, a state.Agent) (net.Conn, error) {
+	if a.OnCluster() {
+		return m.machine(a).Dial(ctx, "tcp", "127.0.0.1:5900")
+	}
 	return (&net.Dialer{}).DialContext(ctx, "unix", m.BrowserSocket(a.Instance, "vnc"))
 }
 
 // devtools is an HTTP client for the agent's DevTools endpoint, through its
-// proxy device. Chromium only answers requests addressed to 127.0.0.1 or
-// localhost, so URLs keep that host.
+// proxy device, or, in a pod, through a connection opened from inside it.
+// Chromium only answers requests addressed to 127.0.0.1 or localhost, so URLs
+// keep that host.
 func (m *Manager) devtools(a state.Agent) *http.Client {
+	if a.OnCluster() {
+		return &http.Client{Transport: &http.Transport{
+			DisableKeepAlives: true,
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return m.machine(a).Dial(ctx, "tcp", "127.0.0.1:9222")
+			},
+		}}
+	}
 	socket := m.BrowserSocket(a.Instance, "cdp")
 	return &http.Client{Transport: &http.Transport{
 		DisableKeepAlives: true,

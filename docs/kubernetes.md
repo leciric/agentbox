@@ -10,16 +10,16 @@ so no Service, Ingress or inbound rule is needed.
 
 | Works | Not yet |
 | --- | --- |
-| `cluster add`, `list`, `set`, `remove`, `rotate`, `doctor` | a desktop (Chromium, Xvnc, openbox, ffmpeg) |
-| `registry add`, `list`, `test`, `rotate`, `remove` | a chat with a real login, which no pod has run yet |
+| `cluster add`, `list`, `set`, `remove`, `rotate`, `doctor` | a chat with a real login, which no pod has run yet |
+| `registry add`, `list`, `test`, `rotate`, `remove` | the desktop tab in the app, not tried against a pod |
 | `image agent build`, `--push` | Cursor, whose adapter needs the Cursor SDK |
 | the pod lifecycle: create, adopt, stop, destroy | an agent's cluster or pod in the app |
 | the gateway: commands, files, a terminal, ports, dial | file browsing through the app (it refuses a pod) |
 | `create --cluster <name>`, and the clone on its claim | diff and files while the pod is stopped (no mirror) |
 | the two git profiles: URL, login, clone and push | snapshots, restore and fork (Stage 5) |
 | diff, file list and file read through the gateway | placement, capacity and a queue |
-| Claude Code, Codex, OpenCode and their adapters in the image | the tailnet egress check, which needs an operator client |
-| | `control`, which agentd answers with exit 2 |
+| the desktop and its browser over the gateway, recordings included | the tailnet egress check, which needs an operator client |
+| Claude Code, Codex, OpenCode and their adapters in the image | `control`, which agentd answers with exit 2 |
 
 `cluster add` (`internal/cli/cluster.go`, `internal/k8s`) keeps a namespace-scoped ServiceAccount
 token sealed and never keeps the admin kubeconfig. `cluster doctor` makes a 1Gi canary claim and,
@@ -31,6 +31,15 @@ refuses a repository its directory's owner doesn't match. The image carries Clau
 OpenCode and their adapters at the versions `internal/image/tools.txt` pins, and a chat runs its
 adapter by name, since the image has no mise. Cursor is the one tool it cannot run yet: its adapter
 needs the Cursor SDK, which the image does not carry.
+
+The image also carries the desktop an Incus agent has: Xvnc, Chromium, openbox, the dock, a file
+manager, a terminal and ffmpeg, with Chromium's flags in `/etc/chromium.d/agentbox-agent`, since the
+pod, not Chromium's own sandbox, is what isolates it. A pod has no Incus proxy devices either, so the daemon
+reaches the VNC server and Chromium's DevTools port from inside the pod, through the machine's
+gateway connection. `browser.sh`, the wallpaper and the palette live under the agent's home there,
+because that is the only place agentd lets the master write; a recording is made inside the pod and
+copied out when it stops. `agentbox browser start demo/agent-01`, `browser open` and `media
+screenshot --display` are what prove it on a pod.
 
 ## Prerequisites
 
@@ -142,19 +151,25 @@ With no registry, the image name is the imported one and a pod uses `imagePullPo
 `internal/agentimage/Dockerfile` builds on `debian:trixie-slim` for linux/amd64, with
 ca-certificates, git, tmux, curl, jq, less, openssh-client, procps, python3, unzip, xz-utils, Go,
 Node, pnpm, Claude Code, Codex and OpenCode, their ACP adapters (`claude-agent-acp` and `codex-acp`;
-OpenCode speaks ACP itself), the GitHub CLI, the Playwright MCP server and the `agentbox` binary. It
-runs as `agent`, UID and GID 1000, with `/workspace` and `/home/agent` on the claim, and its
-entrypoint is `agentbox agentd`; there is no systemd.
+OpenCode speaks ACP itself), the GitHub CLI, the Playwright MCP server, the desktop (Xvnc, Chromium,
+openbox, tint2, pcmanfm, xfce4-terminal, xdotool, xwallpaper, ffmpeg and the fonts `browser.sh`
+expects) and the `agentbox` binary. It runs as `agent`, UID and GID 1000, with `/workspace` and
+`/home/agent` on the claim, and its entrypoint is `agentbox agentd`; there is no systemd. The desktop
+package list is the one `internal/image/system.sh` installs on an Incus base image, because
+`browser.sh` is the same script in both runtimes; the two lists move together.
 
 Every tool is at the version `internal/image/tools.txt` pins, and the Dockerfile reads that file
 during the build: moving one on is its line there and nothing else. The tools go outside
 `/home/agent`, because a pod mounts its claim there over whatever the image has. What an agent
 installs itself lands in its own home, and `/home/agent/.local/bin` is on its `PATH`.
 
-It does not have a desktop (Chromium, Xvnc, openbox, ffmpeg), which is Stage 4, so an agent has no
-browser for the Playwright MCP server to drive and no screen to look at. A chat runs its adapter by
-name, since the image has no mise; Cursor's adapter is the exception, because it needs the Cursor
-SDK, which is not in the image yet.
+It has the desktop, so an agent has a browser for the Playwright MCP server to drive and a screen to
+look at, and its recordings have ffmpeg. Chromium's flags are in `/etc/chromium.d/agentbox-agent`:
+a pod has no setuid sandbox and its seccomp profile refuses the user namespace the sandbox would
+use, so the container is the sandbox, the same decision `internal/machines/image/chromium.conf`
+records for `agentbox machines`. A chat runs its adapter by name, since the image has no mise;
+Cursor's adapter is the exception, because it needs the Cursor SDK, which is not in the image yet.
+The image is about 5.2 GB: the AI tools take 3.65 GB of that, and the desktop layer about 1.5 GB.
 
 ```bash
 scripts/build-agent-image.sh --tag dev                            # this repository's binary, linux/amd64

@@ -38,6 +38,12 @@ mark_clean_exit() {
 # palette through; in an agent it is never set.
 share=${AGENTBOX_SHARE:-/usr/local/share/agentbox}
 
+# The path this script was started as, for the dock's launcher: it is
+# /usr/local/bin/agentbox-browser in an Incus agent and under the agent's home
+# in a pod (browser.go), so the launcher has to name the copy that is there.
+self=$(readlink -f "$0" 2>/dev/null) || self=$0
+[ -n "$self" ] || self=$0
+
 # The wallpaper travels with the binary; a missing one just leaves the solid
 # colour.
 wallpaper="$share/wallpaper.png"
@@ -369,7 +375,7 @@ EOF
   dock_icon browser '<circle cx="32" cy="32" r="16"/><ellipse cx="32" cy="32" rx="7" ry="16"/><path d="M16 32h32"/>'
   dock_icon files '<path d="M15 22.5a3.5 3.5 0 0 1 3.5-3.5h8.5l4.5 4.5h14a3.5 3.5 0 0 1 3.5 3.5v14.5a3.5 3.5 0 0 1-3.5 3.5h-27a3.5 3.5 0 0 1-3.5-3.5z"/><path d="M15 29h34"/>'
   dock_icon terminal '<path d="M18 23l9 9-9 9"/><path d="M31 42h15"/>'
-  dock_entry browser Browser /usr/local/bin/agentbox-browser\ start chromium
+  dock_entry browser Browser "$self start" chromium
   dock_entry files Files pcmanfm pcmanfm
   dock_entry terminal Terminal xfce4-terminal xfce4-terminal
   wrote_config=$dock_changed
