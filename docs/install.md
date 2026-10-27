@@ -181,6 +181,15 @@ started, and the VM goes back to it if the new one doesn't (restart the VM again
 gets. Apple's Virtualization framework gives a Linux VM no 3D, so a
 VM made without krunkit has none.
 
+With Xcode installed, agents on a Mac can use the **iOS Simulator**, which runs on the Mac itself,
+beside the VM: an agent's panel has an iOS view to pick a simulator, boot it, and watch and use its
+screen, and agents drive it with `agentbox ios` (open, tap, swipe, type, screenshot, install a `.app`
+built for the simulator, launch). The simulators are the Mac's, shared by every agent. A small helper,
+`agentbox ios-helper`, runs on the Mac for it, started by any `agentbox` command there (the app runs
+them); it listens on the Mac's `127.0.0.1` only, with a token in AgentBox's config, and the VM's
+daemon reaches it there. It doesn't run with the experimental vz driver below, and hasn't been tried
+on a real Mac yet.
+
 On a Mac there is also an **experimental** way without Lima: `agentbox vm init --driver vz` (or
 **Apple Virtualization, without Lima** in the app's Setup) has AgentBox run the VM itself with
 Apple's Virtualization framework, on macOS 13 or later. It hasn't been tried on a real Mac yet; its

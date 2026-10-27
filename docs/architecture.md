@@ -72,7 +72,7 @@ Command groups include: project management (`add`, `projects`, `project`, `remov
 `brief`), agents (`create`, `list`, `retire`, `destroy`, `start`, `stop`, `pause`, `resume`),
 communication (`shell`, `exec`, `chat`, `ask`, `questions`), auth (`auth`, `claude`, `github`),
 utilities (`daemon`, `jobs`, `events`, `media`, `tokens`, `limits`), desktop-related
-(`desktop`, `browser`, `android`), the base image (`image`), and hub/remote (`env`, `login`,
+(`desktop`, `browser`, `android`, `ios`), the base image (`image`), and hub/remote (`env`, `login`,
 `logout`).
 
 ## The desktop app is a thin client

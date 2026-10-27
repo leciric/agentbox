@@ -7,9 +7,11 @@
 //     on the Mac's 127.0.0.1, every request with the bearer token it writes,
 //     with its port, to a state file in the Mac's AgentBox config (StateFile).
 //     Its routes are simctl's list, boot, shutdown, install, launch,
-//     terminate, openurl and screenshot, input, and a WebSocket of the screen;
-//     none runs anything it is handed, only xcrun simctl with checked
-//     arguments, and simhost.
+//     terminate, openurl and screenshot, input, and the screen as a WebSocket
+//     in internal/devicestream's wire format, which the daemon relays to the
+//     app's DeviceStreamView as it does an Android emulator's. None runs
+//     anything it is handed: only xcrun simctl with checked arguments, and
+//     simhost.
 //   - The daemon (Client) reads that state file, which the VM sees at the same
 //     path in the shared home (the front end says where, in StateFileEnv), and
 //     dials host.lima.internal, where Lima puts the Mac's 127.0.0.1. Agents
