@@ -49,6 +49,7 @@
     "lucide-react": "^1.57.0",
     "mermaid": "^12.2.0",
     "oxlint": "^1.88.0",
+    "pdfjs-dist": "^6.4.299",
     "playwright": "^1.64.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

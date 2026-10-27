@@ -207,6 +207,17 @@ func (c *Client) ReadFile(ctx context.Context, ref, file string, full, base bool
 	return out, c.filesDo(ctx, ref, "/read?"+q.Encode(), &out)
 }
 
+// SQLite reads a database in a chat's worktree, read-only: its tables, and
+// with table, up to limit of its rows from offset.
+func (c *Client) SQLite(ctx context.Context, ref, file, table string, offset, limit int) (SQLiteQuery, error) {
+	var out SQLiteQuery
+	q := url.Values{"path": {file}, "offset": {strconv.Itoa(offset)}, "limit": {strconv.Itoa(limit)}}
+	if table != "" {
+		q.Set("table", table)
+	}
+	return out, c.filesDo(ctx, ref, "/sqlite?"+q.Encode(), &out)
+}
+
 // FileStatus is what changed in a worktree since its base; fresh reads it
 // again rather than from the daemon's cache.
 func (c *Client) FileStatus(ctx context.Context, ref string, fresh bool) (FileStatus, error) {

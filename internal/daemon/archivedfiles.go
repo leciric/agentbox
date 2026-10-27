@@ -98,7 +98,7 @@ func (s *Server) archivedRead(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return fileErr(err)
 	}
-	if q.Get("base") == "1" && base != "" && !content.Binary && !content.TooLarge && (content.Image == "" || content.Text != "") {
+	if q.Get("base") == "1" && base != "" && !content.Binary && !content.PDF && !content.TooLarge && (content.Image == "" || content.Text != "") {
 		if changes, _, err := worktreefs.StatusAt(root, base, commit); err == nil {
 			content.Base = baseName
 			content.Status = changes[content.Path]
@@ -108,4 +108,18 @@ func (s *Server) archivedRead(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 	return writeJSON(w, http.StatusOK, content)
+}
+
+func (s *Server) archivedSQLite(w http.ResponseWriter, r *http.Request) error {
+	root, commit, _, _, err := s.archivedCommit(r)
+	if err != nil {
+		return err
+	}
+	q := r.URL.Query()
+	offset, limit := sqlitePage(q)
+	out, err := worktreefs.SQLiteAt(r.Context(), root, commit, q.Get("path"), q.Get("table"), offset, limit)
+	if err != nil {
+		return sqliteErr(err)
+	}
+	return writeJSON(w, http.StatusOK, out)
 }

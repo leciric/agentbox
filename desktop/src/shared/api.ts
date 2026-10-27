@@ -293,11 +293,28 @@ export interface FileContent {
   data?: string;
   text?: string;
   truncated?: boolean;
+  pdf?: boolean;
+  sqlite?: boolean;
   tooLarge?: boolean;
   status?: string;
   base?: string;
   baseText?: string;
   baseMissing?: boolean;
+}
+
+export interface SQLiteTable {
+  name: string;
+  view?: boolean;
+}
+
+export interface SQLiteQuery {
+  path: string;
+  tables: SQLiteTable[];
+  table?: string;
+  columns: string[];
+  rows: unknown[][];
+  offset: number;
+  total: number;
 }
 
 export interface FilesChange {

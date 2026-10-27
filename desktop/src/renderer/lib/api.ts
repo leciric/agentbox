@@ -312,6 +312,9 @@ export const api = {
     call<T.FileList>('GET', `${filesBase(ref)}/list?${new URLSearchParams({ path, ...(ignored ? { ignored: '1' } : {}) })}`),
   readFile: (ref: string, path: string, full = false) =>
     call<T.FileContent>('GET', `${filesBase(ref)}/read?${new URLSearchParams({ path, base: '1', ...(full ? { full: '1' } : {}) })}`),
+  // A database in the worktree, read-only: its tables, and with table a page of its rows.
+  sqlite: (ref: string, path: string, table = '', offset = 0, limit = 0) =>
+    call<T.SQLiteQuery>('GET', `${filesBase(ref)}/sqlite?${new URLSearchParams({ path, ...(table ? { table, offset: String(offset), limit: String(limit) } : {}) })}`),
   fileStatus: (ref: string, fresh = false) => call<T.FileStatus>('GET', `${filesBase(ref)}/status${fresh ? '?fresh=1' : ''}`),
 
   // Scheduled tasks (internal/daemon/schedules.go): a project's, and their runs.
