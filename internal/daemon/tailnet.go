@@ -100,11 +100,21 @@ func (s *Server) closeTailnet() {
 // its socket.
 func (s *Server) tailnetHandler() http.Handler {
 	routes := s.remoteHandler()
+	self := s.podInAgentRoutes()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// A pod reaching the gateway through the egress proxy has no login
-		// header: `tailscale serve` sets it on human requests, and removes any
-		// copy a client sent, so there is nothing here to check. The gateway
-		// authenticates the pod's own token instead.
+		// A pod reaches the in-agent API here too, through the egress proxy,
+		// and has no login header: `tailscale serve` sets it on human
+		// requests, so there is nothing of the sort to check for a pod. Its
+		// bearer token is what says which agent it is, and only the self API
+		// is reachable this way.
+		if selfPath(r.URL.Path) {
+			self.ServeHTTP(w, r)
+			return
+		}
+		// A pod reaching the gateway has no login header either: `tailscale
+		// serve` sets it on human requests, and removes any copy a client
+		// sent, so there is nothing here to check. The gateway authenticates
+		// the pod's own token instead.
 		if r.URL.Path != agentGatewayPath {
 			login := strings.TrimSpace(r.Header.Get(tailnetLoginHeader))
 			if login == "" {

@@ -62,10 +62,11 @@ func (w *waiters) resolve(q state.Question) bool {
 }
 
 // ask is the in-agent route: an agent asks its project's chat something and
-// waits for the answer.
-func (s *Server) ask(instance string) func(http.ResponseWriter, *http.Request) error {
+// waits for the answer. agentOf names the agent asking: the one behind the
+// socket the call arrived on, or the one a pod's token names.
+func (s *Server) ask(agentOf func(*http.Request) (state.Agent, error)) func(http.ResponseWriter, *http.Request) error {
 	return func(w http.ResponseWriter, r *http.Request) error {
-		a, err := s.store.AgentByInstance(r.Context(), instance)
+		a, err := agentOf(r)
 		if err != nil {
 			return err
 		}

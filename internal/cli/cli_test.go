@@ -34,6 +34,11 @@ func isolate(t *testing.T) string {
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
 	t.Setenv("AGENTBOX_SOCKET", "")
 	t.Setenv("AGENTBOX_NO_AUTOSTART", "1")
+	// A test process that is itself a Kubernetes pod carries the master's
+	// address and its token. Clear them, or every test that checks "not
+	// inside an agent" would find one.
+	t.Setenv("AGENTBOX_MASTER_URL", "")
+	t.Setenv("AGENTBOX_TOKEN_FILE", "")
 	// Nothing here asks Anthropic whether a made-up token is real. A test that
 	// wants an answer points this at a server of its own.
 	t.Setenv("ANTHROPIC_BASE_URL", unreachableAPI)

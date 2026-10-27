@@ -491,11 +491,11 @@ func (s *Server) refreshConnectors(ctx context.Context) {
 	}
 }
 
-// selfConnectors is what an agent is given, on its own socket: names and
-// status, for `agentbox connector list` inside it.
-func (s *Server) selfConnectors(instance string) func(http.ResponseWriter, *http.Request) error {
+// selfConnectors is what an agent is given, on its own socket or with its pod's
+// token: names and status, for `agentbox connector list` inside it.
+func (s *Server) selfConnectors(agentOf func(*http.Request) (state.Agent, error)) func(http.ResponseWriter, *http.Request) error {
 	return func(w http.ResponseWriter, r *http.Request) error {
-		a, err := s.store.AgentByInstance(r.Context(), instance)
+		a, err := agentOf(r)
 		if err != nil {
 			return err
 		}
@@ -516,11 +516,11 @@ func (s *Server) selfConnectors(instance string) func(http.ResponseWriter, *http
 }
 
 // selfConnectorMCP relays an agent's MCP traffic to one of its connectors.
-// The agent is known from the socket, and only its own connectors — its
-// project's and its own — are reachable.
-func (s *Server) selfConnectorMCP(instance string) http.HandlerFunc {
+// agentOf says which agent it is — the socket it arrived on, or the pod's token
+// — and only its own connectors, its project's and its own, are reachable.
+func (s *Server) selfConnectorMCP(agentOf func(*http.Request) (state.Agent, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		a, err := s.store.AgentByInstance(r.Context(), instance)
+		a, err := agentOf(r)
 		if err != nil {
 			connectors.RelayError(w, http.StatusNotFound, err.Error())
 			return

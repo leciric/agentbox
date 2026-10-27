@@ -374,7 +374,8 @@ func (s *Server) agentByRef(ctx context.Context, ref string) (state.Agent, error
 
 // startHeavy is POST /v1/self/heavy: a heavy command of the calling agent's
 // asking to start, answered once it may, or when the request's wait runs out.
-func (s *Server) startHeavy(instance string) func(http.ResponseWriter, *http.Request) error {
+// agentOf names the agent asking: the socket it arrived on, or its pod's token.
+func (s *Server) startHeavy(agentOf func(*http.Request) (state.Agent, error)) func(http.ResponseWriter, *http.Request) error {
 	return func(w http.ResponseWriter, r *http.Request) error {
 		var req api.HeavyRequest
 		if err := readJSON(r, &req); err != nil {
@@ -393,12 +394,18 @@ func (s *Server) startHeavy(instance string) func(http.ResponseWriter, *http.Req
 			wait = min(time.Duration(req.WaitSeconds)*time.Second, heavyMaxWait)
 		}
 		ctx := r.Context()
-		a, err := s.store.AgentByInstance(ctx, instance)
+		a, err := agentOf(r)
 		if err != nil {
 			return err
 		}
 		s.wakeIdle(a.Ref())
-		out, err := s.askHeavy(ctx, a.Ref(), instance, key, req.Command, ttl, wait)
+		// A pod's memory is its own cgroup's and the cluster's, not this
+		// machine's: there is no pressure here to wait for, and no cgroup on
+		// this host to hold it in. It runs now.
+		if a.OnCluster() {
+			return writeJSON(w, http.StatusOK, api.HeavyStart{Started: true})
+		}
+		out, err := s.askHeavy(ctx, a.Ref(), a.Instance, key, req.Command, ttl, wait)
 		if err != nil {
 			return err
 		}
@@ -514,8 +521,9 @@ func reasonWords(why pressure.Reason, s pressure.Sample, tr pressure.Trend) stri
 }
 
 // joinHeavy is POST /v1/self/heavy/{key}/join: a process of the agent's, and
-// what it starts after, into a started run's cgroup.
-func (s *Server) joinHeavy(instance string) func(http.ResponseWriter, *http.Request) error {
+// what it starts after, into a started run's cgroup. agentOf names the agent:
+// the socket it arrived on, or its pod's token.
+func (s *Server) joinHeavy(agentOf func(*http.Request) (state.Agent, error)) func(http.ResponseWriter, *http.Request) error {
 	return func(w http.ResponseWriter, r *http.Request) error {
 		var req api.HeavyJoin
 		if err := readJSON(r, &req); err != nil {
@@ -524,9 +532,16 @@ func (s *Server) joinHeavy(instance string) func(http.ResponseWriter, *http.Requ
 		if req.PID <= 0 {
 			return fmt.Errorf("say which process joins it")
 		}
-		a, err := s.store.AgentByInstance(r.Context(), instance)
+		a, err := agentOf(r)
 		if err != nil {
 			return err
+		}
+		// A pod's heavy command was never queued and has no cgroup on this
+		// host: there is nothing to join, and its processes are already in the
+		// pod's own cgroup.
+		if a.OnCluster() {
+			w.WriteHeader(http.StatusNoContent)
+			return nil
 		}
 		key := r.PathValue("key")
 		h := s.heavy
@@ -537,7 +552,7 @@ func (s *Server) joinHeavy(instance string) func(http.ResponseWriter, *http.Requ
 		if !started {
 			return fmt.Errorf("%s hasn't started", key)
 		}
-		if err := s.runCgroups.Place(instance, key, req.PID); err != nil {
+		if err := s.runCgroups.Place(a.Instance, key, req.PID); err != nil {
 			s.logf("memory pressure: %s/%s: joining its cgroup: %v", a.Ref(), key, err)
 			return err
 		}
@@ -550,9 +565,9 @@ func (s *Server) joinHeavy(instance string) func(http.ResponseWriter, *http.Requ
 }
 
 // endHeavy is DELETE /v1/self/heavy/{key}.
-func (s *Server) endHeavy(instance string) func(http.ResponseWriter, *http.Request) error {
+func (s *Server) endHeavy(agentOf func(*http.Request) (state.Agent, error)) func(http.ResponseWriter, *http.Request) error {
 	return func(w http.ResponseWriter, r *http.Request) error {
-		a, err := s.store.AgentByInstance(r.Context(), instance)
+		a, err := agentOf(r)
 		if err != nil {
 			return err
 		}

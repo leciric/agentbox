@@ -1520,7 +1520,7 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 	if err != nil {
 		return err
 	}
-	servers := agentMCPServers(home, connectorNames)
+	servers := agentMCPServers(a, home, connectorNames)
 	// Claude Code gets every server but the two that drive the display, which
 	// are declared in the desktop subagent's definition instead, so that
 	// screenshots and page snapshots land in the subagent's context rather
@@ -1751,7 +1751,14 @@ func codexConfigFor(worktree string, servers []mcpServer, compactWindow int64) s
 // the agent's connectors change (SyncConnectors). connectors are the names of
 // the enabled connectors it is given, each a relay to the daemon, which holds
 // its sign-in: `agentbox connector mcp <name>` (internal/connectors).
-func agentMCPServers(home string, connectors []string) []mcpServer {
+func agentMCPServers(a state.Agent, home string, connectors []string) []mcpServer {
+	// Playwright's MCP server comes from mise on an Incus machine and from npm
+	// in the pod's image, which has neither mise nor shims: on every process's
+	// PATH there, so the bare name is what starts it.
+	playwright := home + "/.local/share/mise/shims/playwright-mcp"
+	if a.OnCluster() {
+		playwright = "playwright-mcp"
+	}
 	servers := []mcpServer{
 		// Playwright's page snapshots go outside the worktree, so they don't
 		// end up on the agent's branch. --image-responses omit keeps a
@@ -1767,7 +1774,7 @@ func agentMCPServers(home string, connectors []string) []mcpServer {
 		// server's bounds, and one that never returned held an agent's turn
 		// until the agent was stopped.
 		{"playwright", AgentBinaryPath, append([]string{"desktop", "guard", "--name", "Playwright", "--timeout", playwrightCallTimeout.String(), "--",
-			home + "/.local/share/mise/shims/playwright-mcp"},
+			playwright},
 			"--cdp-endpoint", BrowserDevTools, "--output-dir", home+"/.cache/playwright-mcp", "--image-responses", "omit"), false},
 		{"desktop", AgentBinaryPath, []string{"desktop", "mcp"}, false},
 		// What the project remembers, which is the same binary again: search
