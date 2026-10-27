@@ -241,6 +241,9 @@ func TestAgentWaitingForAFailedImage(t *testing.T) {
 		t.Fatal(err)
 	}
 	waiting := waitForAgent(t, d, func(a api.Agent) bool { return a.WaitingForImage })
+	// The agent is listed as waiting a moment before it looks at the build:
+	// failing it first would send the agent to start a build of its own.
+	waitFor(t, "the agent following the build", func() bool { return d.srv.waitingForImage() == 1 })
 	finish(errors.New("debootstrap: no network"))
 	if job := waitJobDone(t, d, created.ID); job.Status != api.JobFailed || !strings.Contains(job.Error, "debootstrap: no network") {
 		t.Errorf("the create job: %+v", job)
