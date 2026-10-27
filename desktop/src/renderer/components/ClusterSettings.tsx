@@ -1,16 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { LoaderCircle, Plus, Stethoscope, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { ArrowUpCircle, Ban, Info, LoaderCircle, Play, Plus, Stethoscope, Trash2 } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { formatDateTime, t, useT } from '../lib/i18n';
 import type { SettingGroup } from '../lib/settingsSearch';
-import { errorMessage } from '../lib/utils';
+import { errorMessage, timeAgo } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Notice } from './ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { Field, Input, Label, Textarea } from './ui/input';
 import { SettingNote } from './ui/settings';
 import { Switch } from './ui/switch';
@@ -106,30 +107,14 @@ function ClusterList() {
       ) : (
         <ul className="grid gap-3">
           {list.map((cluster) => (
-            <li key={cluster.name} className="grid gap-1.5 rounded-md border border-line-faint p-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-mono text-[13px] text-primary">{cluster.name}</span>
-                <Badge>{cluster.namespace}</Badge>
-                {cluster.registry && <Badge>{cluster.registry}</Badge>}
-                {cluster.tailnet !== 'none' && <Badge>{t('settings.clusters.tailnetBadge', { mode: cluster.tailnet })}</Badge>}
-                <span className="ml-auto flex items-center gap-1">
-                  <Button variant="ghost" size="sm" disabled={doctor.isPending && checking === cluster.name} onClick={() => doctor.mutate(cluster.name)}>
-                    {doctor.isPending && checking === cluster.name ? <LoaderCircle className="animate-spin" /> : <Stethoscope />}
-                    {t('settings.clusters.doctor')}
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => setRemove(cluster)}>
-                    <Trash2 />
-                    {t('common.remove')}
-                  </Button>
-                </span>
-              </div>
-              <p className="text-[12px] leading-relaxed text-subtle">
-                {cluster.image ? t('settings.clusters.imageLine', { image: cluster.image }) : t('settings.clusters.noImage')}
-                {cluster.storageClass ? ` · ${t('settings.clusters.storageClassLine', { class: cluster.storageClass })}` : ''}
-                {cluster.lastSeen ? ` · ${t('settings.clusters.lastSeen', { when: formatDateTime(new Date(cluster.lastSeen)) })}` : ''}
-              </p>
-              {cluster.lastError && <Notice>{cluster.lastError}</Notice>}
-            </li>
+            <ClusterCard
+              key={cluster.name}
+              cluster={cluster}
+              others={list.filter((other) => other.name !== cluster.name && !other.draining)}
+              checking={doctor.isPending && checking === cluster.name}
+              onDoctor={() => doctor.mutate(cluster.name)}
+              onRemove={() => setRemove(cluster)}
+            />
           ))}
         </ul>
       )}
@@ -149,6 +134,336 @@ function ClusterList() {
       />
     </>
   );
+}
+
+// ClusterCard is one cluster: what it runs, how much room it has, and the four
+// things that change it: draining it, upgrading its image, reading what it
+// holds now, and forgetting it.
+function ClusterCard({
+  cluster,
+  others,
+  checking,
+  onDoctor,
+  onRemove,
+}: {
+  cluster: T.Cluster;
+  // others are the clusters a drain could move the agents to: the ones that are
+  // not this one and are not draining themselves.
+  others: T.Cluster[];
+  checking: boolean;
+  onDoctor: () => void;
+  onRemove: () => void;
+}) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [details, setDetails] = useState(false);
+  const [draining, setDraining] = useState(false);
+  const [upgrading, setUpgrading] = useState(false);
+  // What a drain does with the agents it has. Neither field is the daemon's
+  // stop, keepRunning leaves them, and moveTo sends them to another cluster.
+  const [drainChoice, setDrainChoice] = useState<'stop' | 'keep' | 'move'>('stop');
+  const [moveTo, setMoveTo] = useState('');
+  const [digest, setDigest] = useState('');
+  const refresh = () =>
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['clusters'] }),
+      // A drain and an upgrade are jobs: the sidebar and Jobs read them.
+      queryClient.invalidateQueries({ queryKey: ['jobs'] }),
+    ]);
+  const drain = useMutation({
+    mutationFn: (req: T.DrainClusterRequest) => api.drainCluster(cluster.name, req),
+    onSuccess: () => {
+      toast(t('settings.clusters.drainStarted', { name: cluster.name }));
+      refresh();
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const undrain = useMutation({
+    mutationFn: () => api.undrainCluster(cluster.name),
+    onSuccess: () => {
+      toast(t('settings.clusters.undrained', { name: cluster.name }));
+      refresh();
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const upgrade = useMutation({
+    mutationFn: (req: T.UpgradeClusterRequest) => api.upgradeCluster(cluster.name, req),
+    onSuccess: () => {
+      toast(t('settings.clusters.upgradeStarted', { name: cluster.name }));
+      setUpgrading(false);
+      setDigest('');
+      refresh();
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  return (
+    <li className="grid gap-1.5 rounded-md border border-line-faint p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-mono text-[13px] text-primary">{cluster.name}</span>
+        <Badge>{cluster.namespace}</Badge>
+        {cluster.registry && <Badge>{cluster.registry}</Badge>}
+        {cluster.tailnet !== 'none' && <Badge>{t('settings.clusters.tailnetBadge', { mode: cluster.tailnet })}</Badge>}
+        {cluster.draining && <Badge variant="warning">{t('settings.clusters.drainingBadge')}</Badge>}
+        <span className="ml-auto flex flex-wrap items-center justify-end gap-1">
+          <Button variant="ghost" size="sm" data-cluster-details={cluster.name} onClick={() => setDetails(true)}>
+            <Info />
+            {t('settings.clusters.details')}
+          </Button>
+          <Button variant="ghost" size="sm" disabled={checking} onClick={onDoctor}>
+            {checking ? <LoaderCircle className="animate-spin" /> : <Stethoscope />}
+            {t('settings.clusters.doctor')}
+          </Button>
+          {cluster.draining ? (
+            <Button variant="ghost" size="sm" disabled={undrain.isPending} onClick={() => undrain.mutate()}>
+              {undrain.isPending ? <LoaderCircle className="animate-spin" /> : <Play />}
+              {t('settings.clusters.undrain')}
+            </Button>
+          ) : (
+            <Button variant="ghost" size="sm" onClick={() => setDraining(true)}>
+              <Ban />
+              {t('settings.clusters.drain')}
+            </Button>
+          )}
+          {cluster.image && (
+            <Button variant="ghost" size="sm" onClick={() => setUpgrading(true)}>
+              <ArrowUpCircle />
+              {t('settings.clusters.upgrade')}
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" onClick={onRemove}>
+            <Trash2 />
+            {t('common.remove')}
+          </Button>
+        </span>
+      </div>
+      <p className="break-words text-[12px] leading-relaxed text-subtle">
+        {cluster.image ? t('settings.clusters.imageLine', { image: cluster.image }) : t('settings.clusters.noImage')}
+        {cluster.storageClass ? ` · ${t('settings.clusters.storageClassLine', { class: cluster.storageClass })}` : ''}
+        {cluster.previousImage ? ` · ${t('settings.clusters.previousImage', { image: cluster.previousImage })}` : ''}
+        {cluster.lastSeen ? ` · ${t('settings.clusters.lastSeen', { when: formatDateTime(new Date(cluster.lastSeen)) })}` : ''}
+      </p>
+      <p className="break-words text-[12px] leading-relaxed text-secondary">{capacityLine(cluster)}</p>
+      {cluster.capacity?.error && <Notice>{cluster.capacity.error}</Notice>}
+      {cluster.lastError && <Notice>{cluster.lastError}</Notice>}
+
+      <ConfirmDialog
+        open={draining}
+        onOpenChange={setDraining}
+        title={t('settings.clusters.drainTitle', { name: cluster.name })}
+        description={t('settings.clusters.drainDescription')}
+        confirmLabel={t('settings.clusters.drainConfirm')}
+        destructive
+        onConfirm={async () => {
+          if (drainChoice === 'move' && !moveTo) throw new Error(t('settings.clusters.drainPickTarget'));
+          await drain.mutateAsync(drainChoice === 'keep' ? { keepRunning: true } : drainChoice === 'move' ? { moveTo } : {});
+        }}
+      >
+        <div className="grid gap-2 text-[13px] text-secondary">
+          {(
+            [
+              ['stop', t('settings.clusters.drainStop')],
+              ['keep', t('settings.clusters.drainKeep')],
+            ] as const
+          ).map(([choice, label]) => (
+            <label key={choice} className="flex items-center gap-2">
+              <input
+                type="radio"
+                name={`drain-${cluster.name}`}
+                checked={drainChoice === choice}
+                onChange={() => setDrainChoice(choice)}
+                className="accent-brand-400"
+              />
+              {label}
+            </label>
+          ))}
+          <label className="flex flex-wrap items-center gap-2">
+            <input
+              type="radio"
+              name={`drain-${cluster.name}`}
+              checked={drainChoice === 'move'}
+              onChange={() => setDrainChoice('move')}
+              className="accent-brand-400"
+            />
+            {t('settings.clusters.drainMove')}
+            <select
+              className="h-8 min-w-0 rounded-md border border-line-vivid bg-transparent px-2 text-[13px] text-primary"
+              value={moveTo}
+              disabled={drainChoice !== 'move' || others.length === 0}
+              onChange={(event) => setMoveTo(event.target.value)}
+            >
+              <option value="">{t('settings.clusters.drainPickTarget')}</option>
+              {others.map((other) => (
+                <option key={other.name} value={other.name}>
+                  {other.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </ConfirmDialog>
+
+      <Dialog open={upgrading} onOpenChange={setUpgrading}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('settings.clusters.upgradeTitle', { name: cluster.name })}</DialogTitle>
+            <DialogDescription>{t('settings.clusters.upgradeDescription')}</DialogDescription>
+          </DialogHeader>
+          <Field label={t('settings.clusters.digest')} htmlFor={`cluster-digest-${cluster.name}`} hint={t('settings.clusters.digestHint')}>
+            <Input
+              id={`cluster-digest-${cluster.name}`}
+              value={digest}
+              onChange={(event) => setDigest(event.target.value)}
+              placeholder="sha256:…"
+              spellCheck={false}
+              className="font-mono text-[12px]"
+            />
+          </Field>
+          {cluster.previousImage && <p className="break-words text-[12px] leading-relaxed text-subtle">{t('settings.clusters.previousImage', { image: cluster.previousImage })}</p>}
+          {upgrade.error && <Notice>{errorMessage(upgrade.error)}</Notice>}
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setUpgrading(false)}>
+              {t('common.cancel')}
+            </Button>
+            {cluster.previousImage && (
+              <Button variant="secondary" disabled={upgrade.isPending} onClick={() => upgrade.mutate({ rollback: true })}>
+                {upgrade.isPending && <LoaderCircle className="animate-spin" />}
+                {t('settings.clusters.rollback')}
+              </Button>
+            )}
+            <Button disabled={digest.trim() === '' || upgrade.isPending} onClick={() => upgrade.mutate({ digest: digest.trim() })}>
+              {upgrade.isPending && <LoaderCircle className="animate-spin" />}
+              {t('settings.clusters.upgrade')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <ClusterDetailDialog cluster={cluster} open={details} onOpenChange={setDetails} />
+    </li>
+  );
+}
+
+// capacityLine is how full a cluster is, in one line: what runs on it, what is
+// free, and what is left to place agents with.
+function capacityLine(cluster: T.Cluster): string {
+  const capacity = cluster.capacity;
+  if (!capacity) return t('settings.clusters.capacityUnknown');
+  return [
+    cluster.maxAgents > 0
+      ? t('settings.clusters.capacityOf', { running: capacity.running, max: cluster.maxAgents })
+      : t('settings.clusters.capacityRunning', { running: capacity.running }),
+    capacity.agents < 0 ? t('settings.clusters.capacityUnlimited') : t('settings.clusters.capacityFree', { agents: capacity.agents }),
+    capacity.cpu ? t('settings.clusters.capacityCPU', { cpu: capacity.cpu }) : '',
+    capacity.memory ? t('settings.clusters.capacityMemory', { memory: capacity.memory }) : '',
+    t('settings.clusters.capacityAt', { when: timeAgo(capacity.at) }),
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+// ClusterDetailDialog is what a cluster holds right now: its pods, the claims
+// their work lives on, the agents waiting for room, and the cluster's own
+// recent events.
+function ClusterDetailDialog({ cluster, open, onOpenChange }: { cluster: T.Cluster; open: boolean; onOpenChange: (open: boolean) => void }) {
+  const t = useT();
+  const detail = useQuery({
+    queryKey: ['clusterDetail', cluster.name],
+    queryFn: () => api.clusterDetail(cluster.name),
+    enabled: open,
+  });
+  const data = detail.data;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{t('settings.clusters.detailTitle', { name: cluster.name })}</DialogTitle>
+          <DialogDescription>{capacityLine(data?.cluster ?? cluster)}</DialogDescription>
+        </DialogHeader>
+        {detail.isPending && <SettingNote>{t('common.loading')}</SettingNote>}
+        {detail.error && <Notice>{errorMessage(detail.error)}</Notice>}
+        {data && (
+          <div className="grid max-h-[60vh] min-w-0 gap-5 overflow-y-auto pr-1">
+            <DetailSection title={t('settings.clusters.pods')} empty={t('settings.clusters.noPods')} count={data.pods?.length ?? 0}>
+              {(data.pods ?? []).map((pod) => (
+                <li key={pod.name} className="grid min-w-0 gap-1 rounded-md border border-line-faint p-2">
+                  <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                    <span className="min-w-0 break-all font-mono text-[11.5px] text-primary">{pod.name}</span>
+                    {pod.project && pod.agent && <Badge>{`${pod.project}/${pod.agent}`}</Badge>}
+                    <Badge variant={pod.phase === 'Running' && pod.ready ? 'success' : pod.phase === 'Failed' ? 'danger' : 'default'}>{pod.phase}</Badge>
+                    <Badge>{pod.ready ? t('settings.clusters.ready') : t('settings.clusters.notReady')}</Badge>
+                    {pod.restarts ? <Badge variant="warning">{t('settings.clusters.restarts', { count: pod.restarts })}</Badge> : null}
+                  </div>
+                  <p className="break-words text-[11.5px] leading-relaxed text-subtle">
+                    {pod.node ? `${pod.node} · ` : ''}
+                    {pod.image ? shortImage(pod.image) : '—'}
+                    {pod.createdAt ? ` · ${timeAgo(pod.createdAt)}` : ''}
+                  </p>
+                  {(pod.reason || pod.message) && (
+                    <p className="break-words text-[11.5px] leading-relaxed text-amber-300/90">{[pod.reason, pod.message].filter(Boolean).join(': ')}</p>
+                  )}
+                </li>
+              ))}
+            </DetailSection>
+
+            <DetailSection title={t('settings.clusters.claims')} empty={t('settings.clusters.noClaims')} count={data.claims?.length ?? 0}>
+              {(data.claims ?? []).map((claim) => (
+                <li key={claim.name} className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 rounded-md border border-line-faint p-2 text-[11.5px]">
+                  <span className="min-w-0 break-all font-mono text-primary">{claim.name}</span>
+                  {claim.project && claim.agent && <span className="text-subtle">{`${claim.project}/${claim.agent}`}</span>}
+                  <span className="ml-auto font-mono text-secondary">{claim.storage || '—'}</span>
+                </li>
+              ))}
+            </DetailSection>
+
+            <DetailSection title={t('settings.clusters.queue')} empty={t('settings.clusters.noQueue')} count={data.queue?.length ?? 0}>
+              {(data.queue ?? []).map((queued) => (
+                <li key={`${queued.project}/${queued.agent}`} className="grid min-w-0 gap-0.5 rounded-md border border-line-faint p-2 text-[11.5px]">
+                  <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+                    <span className="text-primary">{`${queued.project}/${queued.agent}`}</span>
+                    <Badge>{t('settings.clusters.queuePlace', { position: queued.position })}</Badge>
+                  </span>
+                  {queued.reason && <span className="break-words leading-relaxed text-subtle">{queued.reason}</span>}
+                </li>
+              ))}
+            </DetailSection>
+
+            <DetailSection title={t('settings.clusters.events')} empty={t('settings.clusters.noEvents')} count={data.events?.length ?? 0}>
+              {(data.events ?? []).map((event, index) => (
+                <li key={`${event.object}-${event.reason}-${index}`} className="grid min-w-0 gap-0.5 rounded-md border border-line-faint p-2 text-[11.5px]">
+                  <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+                    <Badge variant={event.type === 'Warning' ? 'warning' : 'default'}>{event.type}</Badge>
+                    <span className="text-primary">{event.reason}</span>
+                    <span className="min-w-0 break-all font-mono text-[10.5px] text-subtle">{event.object}</span>
+                    {(event.count ?? 0) > 1 && <span className="text-faint">×{event.count}</span>}
+                    <span className="ml-auto text-faint">{timeAgo(event.at)}</span>
+                  </span>
+                  {event.message && <span className="break-words leading-relaxed text-subtle">{event.message}</span>}
+                </li>
+              ))}
+            </DetailSection>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// DetailSection is one titled list of the detail dialog, with its own empty
+// state: a list the cluster has nothing for says so rather than vanishing.
+function DetailSection({ title, empty, count, children }: { title: string; empty: string; count: number; children: ReactNode }) {
+  return (
+    <section className="grid min-w-0 gap-1.5">
+      <h3 className="text-[12px] font-medium uppercase tracking-[0.06em] text-faint">{title}</h3>
+      {count === 0 ? <p className="text-[12px] leading-relaxed text-subtle">{empty}</p> : <ul className="grid min-w-0 gap-1.5">{children}</ul>}
+    </section>
+  );
+}
+
+// shortImage is the image without its registry prefix: the page has the full
+// reference in its title, and the tag or digest is what changes.
+function shortImage(image: string): string {
+  return image.split('/').pop() ?? image;
 }
 
 function ClusterForm() {

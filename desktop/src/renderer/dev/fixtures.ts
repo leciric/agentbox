@@ -345,6 +345,16 @@ export function buildFixtures(): FixtureData {
     agent({ ref: `${PROJECT}/agent-36`, title: 'Search the docs', ai: 'opencode', state: 'stopped', outcome: 'resuming' }),
     agent({ ref: `${PROJECT}/agent-92`, title: 'Lost its machine', ai: 'claude', state: 'incomplete' }),
     agent({ ref: `${PROJECT}/agent-89`, title: 'Still being created', ai: 'claude', state: 'initializing' }),
+    // Accepted with no machine yet: k3d is full, so the list says where it is
+    // in the queue and why (Stage 6).
+    agent({
+      ref: `${PROJECT}/agent-101`,
+      title: 'Add the billing screens',
+      state: 'queued',
+      cluster: 'k3d',
+      queuePosition: 1,
+      queueReason: 'it is at its ceiling of 4 agents',
+    }),
     // Its turn still running, but the stall watch found no progress on it for
     // 22 minutes; and one whose AI tool exited mid-turn (exit status 143).
     agent({ ref: `${PROJECT}/agent-88`, title: 'Import the product catalogue', chat: 'running', stalledSince: new Date(Date.now() - 22 * 60_000).toISOString() }),
@@ -2112,7 +2122,9 @@ export function seedVMDisk(queryClient: QueryClient, unmeasured = false): void {
 export const devRequests: ((method: string, path: string, body?: unknown) => { status: number; body: string; contentType: string } | undefined)[] = [];
 
 // fixtureClusters and fixtureRegistries are what GET /v1/clusters and
-// /v1/registries answer: one k3d cluster whose image is in a Forgejo registry.
+// /v1/registries answer: a k3d cluster whose image is in a Forgejo registry,
+// with room for two more; a full nas, which the create dialog queues on; and a
+// draining hetzner, which ran an upgrade and has the image before it.
 // Settings draws them, and the create dialog's picker reads the cluster.
 export const fixtureClusters: T.Cluster[] = [
   {
@@ -2125,6 +2137,33 @@ export const fixtureClusters: T.Cluster[] = [
     tailnet: 'operator',
     createdAt: '2026-10-20T10:00:00Z',
     lastSeen: '2026-10-27T09:12:00Z',
+    capacity: { agents: 2, running: 1, cpu: '6', memory: '18Gi', at: '2026-10-27T09:12:00Z' },
+  },
+  {
+    name: 'nas',
+    namespace: 'agentbox',
+    storageClass: 'longhorn',
+    image: 'agentbox-agent:dev',
+    registry: 'forgejo',
+    maxAgents: 4,
+    tailnet: 'operator',
+    createdAt: '2026-10-18T08:00:00Z',
+    lastSeen: '2026-10-27T09:11:00Z',
+    capacity: { agents: 0, running: 4, cpu: '0', memory: '512Mi', at: '2026-10-27T09:11:00Z' },
+  },
+  {
+    name: 'hetzner',
+    namespace: 'agentbox',
+    storageClass: 'longhorn',
+    image: 'agentbox-agent:0.6.0@sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1',
+    previousImage: 'agentbox-agent:0.5.0',
+    registry: 'forgejo',
+    maxAgents: 3,
+    draining: true,
+    tailnet: 'operator',
+    createdAt: '2026-10-12T14:00:00Z',
+    lastSeen: '2026-10-27T09:10:00Z',
+    capacity: { agents: 0, running: 2, cpu: '2', memory: '6Gi', at: '2026-10-27T09:10:00Z' },
   },
 ];
 export const fixtureRegistries: T.Registry[] = [
@@ -2138,6 +2177,84 @@ export const fixtureRegistries: T.Registry[] = [
     createdAt: '2026-10-19T18:00:00Z',
   },
 ];
+
+// fixtureClusterDetail is what GET /v1/clusters/{name}/detail answers. k3d has
+// a pod of each mood, the claims their work lives on, an agent waiting for
+// room, and the events that explain the one that didn't schedule; the other
+// clusters hold nothing, so their page shows every empty state.
+export function fixtureClusterDetail(cluster: T.Cluster): T.ClusterDetail {
+  if (cluster.name !== 'k3d') return { cluster, pods: [], claims: [], events: [], queue: [] };
+  const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
+  return {
+    cluster,
+    pods: [
+      {
+        name: 'ab-agentbox-agent-12',
+        project: PROJECT,
+        agent: 'agent-12',
+        phase: 'Running',
+        ready: true,
+        node: 'k3d-agentbox-server-0',
+        image: 'hub.example.com/h4ad/agentbox-agent:dev',
+        createdAt: ago(190),
+      },
+      {
+        name: 'ab-agentbox-agent-88',
+        project: PROJECT,
+        agent: 'agent-88',
+        phase: 'Pending',
+        ready: false,
+        image: 'hub.example.com/h4ad/agentbox-agent:dev',
+        createdAt: ago(6),
+        reason: 'FailedScheduling',
+        message:
+          '0/1 nodes are available: 1 Insufficient memory. preemption: 0/1 nodes are available: 1 No preemption victims found for incoming pod.',
+      },
+    ],
+    claims: [
+      { name: 'ab-agentbox-agent-12-workspace', project: PROJECT, agent: 'agent-12', storage: '40Gi', createdAt: ago(190) },
+      { name: 'ab-agentbox-agent-88-workspace', project: PROJECT, agent: 'agent-88', storage: '40Gi', createdAt: ago(6) },
+    ],
+    queue: [{ project: PROJECT, agent: 'agent-101', position: 1, reason: 'it is at its ceiling of 4 agents' }],
+    events: [
+      {
+        type: 'Warning',
+        reason: 'FailedScheduling',
+        object: 'Pod/ab-agentbox-agent-88',
+        message:
+          '0/1 nodes are available: 1 Insufficient memory. preemption: 0/1 nodes are available: 1 No preemption victims found for incoming pod.',
+        count: 7,
+        at: ago(2),
+      },
+      {
+        type: 'Normal',
+        reason: 'Pulled',
+        object: 'Pod/ab-agentbox-agent-12',
+        message: 'Container image "hub.example.com/h4ad/agentbox-agent:dev" already present on machine',
+        at: ago(188),
+      },
+      {
+        type: 'Normal',
+        reason: 'SuccessfulCreate',
+        object: 'Pod/ab-agentbox-agent-12',
+        message: 'Created pod: ab-agentbox-agent-12',
+        at: ago(190),
+      },
+    ],
+  };
+}
+
+// clusterDetailRequest answers GET /v1/clusters/{name}/detail, which the
+// cluster's Details dialog reads when it opens.
+function clusterDetailRequest(method: string, path: string) {
+  if (method !== 'GET') return undefined;
+  const at = /^\/v1\/clusters\/([^/]+)\/detail$/.exec(path);
+  if (!at) return undefined;
+  const name = decodeURIComponent(at[1]);
+  const cluster = fixtureClusters.find((c) => c.name === name);
+  if (!cluster) return { status: 404, body: JSON.stringify({ error: `no cluster named ${name}` }), contentType: 'application/json' };
+  return { status: 200, body: JSON.stringify(fixtureClusterDetail(cluster)), contentType: 'application/json' };
+}
 
 // projectGitFixture is what GET /v1/projects/{project}/git answers: a private
 // profile whose token is stored, and a public one signing in as a GitHub
@@ -2404,6 +2521,8 @@ export function installDevBridge(): void {
     request: async (method: string, path: string, body?: unknown) => {
       if (method === 'PATCH' && path === '/v1/settings') return patchDefaults(body as T.UpdateSettingsRequest);
       if (method === 'GET' && path === '/v1/clusters') return { status: 200, body: JSON.stringify(fixtureClusters), contentType: 'application/json' };
+      const clusterDetail = clusterDetailRequest(method, path);
+      if (clusterDetail) return clusterDetail;
       if (method === 'GET' && path === '/v1/registries') return { status: 200, body: JSON.stringify(fixtureRegistries), contentType: 'application/json' };
       const git = projectGitRequest(method, path, body);
       if (git) return git;

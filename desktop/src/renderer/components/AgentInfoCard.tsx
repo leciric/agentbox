@@ -83,6 +83,7 @@ export function AgentInfoCard({ agent, pr }: { agent: T.Agent; pr?: T.PullReques
         {reads && <Row label={t('agent.credential.label')} value={<ToolCredentialText cred={credential.data} />} />}
         <Row label={t('agent.info.githubAccount')} value={agent.githubAccount || '—'} />
         <Row label={t('agent.info.branch')} value={agent.branch} mono />
+        <Row label={t('agent.info.cluster')} value={clusterLine(agent)} mono />
         <Row label={t('agent.info.uptime')} value={timeAgo(agent.createdAt)} />
         {agent.ip && <Row label={t('agent.info.ip')} value={agent.ip} mono />}
         {sample && <Row label={t('agent.info.resources')} value={<span title={usageTip(sample, humanBytes, humanRate)}>{`${sample.cpu.toFixed(0)}% · ${humanBytes(sample.memory)} · ${shortRate(sample.diskRead + sample.diskWrite)}`}</span>} mono />}
@@ -100,6 +101,16 @@ export function AgentInfoCard({ agent, pr }: { agent: T.Agent; pr?: T.PullReques
 function diskSize(bytes: number | undefined, pending: boolean): string {
   if (bytes !== undefined) return humanBytes(bytes);
   return pending ? '…' : '—';
+}
+
+// clusterLine is where an agent's machine runs, and while it waits for room,
+// its place in line and why: the cluster has no pod of it yet.
+function clusterLine(agent: T.Agent): string {
+  const queue =
+    agent.state === 'queued' && agent.queuePosition !== undefined
+      ? tt('agent.queue.position', { position: agent.queuePosition }) + (agent.queueReason ? `: ${agent.queueReason}` : '')
+      : '';
+  return [agent.cluster, queue].filter(Boolean).join(' · ') || '—';
 }
 
 function Row({ label, value, mono }: { label: string; value: ReactNode; mono?: boolean }) {
