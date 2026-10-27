@@ -194,12 +194,24 @@ there, against fakes. **Nesting** gives an agent a real Incus of its own:
 - Inside, `go test -tags integration ./internal/incus/...`, `sudo agentbox host setup` (idempotent),
   and `agentbox image build` then `agentbox create` work as on a real host.
 
-## The hub is in another repository
+## The hub
 
-The hub, the server half, is the private [leciric/agentbox-hub](https://github.com/leciric/agentbox-hub)
-(D44). The two share [`hubapi/`](hubapi/), the protocol, of which the hub keeps a byte-identical
-copy: when you change `hubapi/`, copy it to the hub (its README says how). `hubapi/` must never
-import `internal/` or the rest of this module, and `internal/` must never import the hub.
+The hub, the server half (D44), is its own program in [`hub/`](hub/), in this module:
+`hub/cmd/agentbox-hub` and `hub/internal/hub`, with the npm launcher `npx agentbox-hub` in
+`hub/npm/` (`hub/scripts/npm-build.sh` builds it, `hub/npm/PUBLISHING.md` publishes it). It was
+lintingdotdev/agentbox-hub until #547 brought it back. The two halves share only
+[`hubapi/`](hubapi/), the protocol: the hub imports it, and nothing else of AgentBox
+(`TestHubImportsOnlyHubapi`). `internal/` can't import the hub, which Go's `internal/` rule
+enforces, and `hubapi/` must never import `internal/` or the rest of this module.
+
+```bash
+go test ./hub/... ./hubapi/...
+go build -o bin/agentbox-hub ./hub/cmd/agentbox-hub
+hub/scripts/npm-build.sh 0.0.0-dev     # the npm packages, in hub/npm/dist/
+```
+
+CI runs the hub's Go tests with everyone else's; a change to `hub/`, `hubapi/` or `go.mod` also
+builds its npm packages and runs `npx agentbox-hub --version` from them (the Hub job).
 
 ## Commits
 

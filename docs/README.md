@@ -45,8 +45,8 @@ flowchart LR
   Protocol) adapters.
 - **Project memory is what the project knows, kept across agents:** events, memories, tasks,
   artifacts and reports, searched with SQLite FTS5.
-- **A hub is optional.** It's a separate, closed-source server; this repository only carries its
-  side of the protocol, in [`hubapi/`](../hubapi).
+- **A hub is optional.** It's a separate server program, `npx agentbox-hub`, in [`hub/`](../hub),
+  which shares only the protocol, [`hubapi/`](../hubapi), with the rest.
 
 ## Pages
 

@@ -3,13 +3,13 @@
 // how the tunnel between them is framed.
 //
 // It is the seam between the two halves of AgentBox. Everything here is
-// implemented on both sides — by the client in this repository, and by the hub,
-// which is a separate program. It carries no server: nothing here reads a
+// implemented on both sides — by the client (internal/remote, the daemon) and
+// by the hub (hub/), which is a separate program. It carries no server: nothing here reads a
 // database, checks a password or decides who may see what. A hub does all of
 // that, and this package says nothing about how.
 //
-// Unlike the rest of AgentBox's packages this one is not internal, because a
-// hub has to be able to import it.
+// Unlike the rest of AgentBox's packages this one is not internal: it is the
+// one thing the hub imports from the rest of AgentBox.
 package hubapi
 
 // Tokens a hub issues carry a prefix saying what they are, so a client can tell

@@ -202,9 +202,8 @@ erDiagram
 
 ## The hub, from this side
 
-A hub is the optional server half of AgentBox; it's a separate, closed-source program
-([leciric/agentbox-hub](https://github.com/leciric/agentbox-hub)). This repository only carries
-its side of the protocol, in [`hubapi/`](../hubapi):
+A hub is the optional server half of AgentBox, a separate program in [`hub/`](../hub)
+(`npx agentbox-hub`). The two halves share only the protocol, in [`hubapi/`](../hubapi):
 
 - `hubapi.go` defines the token prefixes (`abx_s_` for a device, `abx_e_` for an environment,
   `abx_p_` for a pairing's secret, `abx_l_` for a setup link's), the session cookie name, the hub's
