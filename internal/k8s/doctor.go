@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	neturl "net/url"
+	"slices"
 	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -16,8 +19,8 @@ import (
 // Check is one thing `agentbox cluster doctor` looked at.
 type Check struct {
 	// Name is what it looked at, short enough for a table: api, master url,
-	// namespace, nodes, storage class, workspace claim, registry, image,
-	// tailnet.
+	// namespace, network policy, nodes, storage class, workspace claim,
+	// registry, image, tailnet.
 	Name string
 	OK   bool
 	// Skipped is a check this cluster's own configuration makes impossible to
@@ -106,7 +109,7 @@ func (d Doctor) Run(ctx context.Context) Report {
 		return report
 	}
 	report.Checks = append(report.Checks, Check{Name: "api", OK: true, Detail: version.GitVersion})
-	report.Checks = append(report.Checks, d.masterURL(), d.namespace(ctx), d.nodes(ctx), d.storageClass(ctx),
+	report.Checks = append(report.Checks, d.masterURL(), d.namespace(ctx), d.netPol(ctx), d.nodes(ctx), d.storageClass(ctx),
 		d.workspaceClaim(ctx), d.pullSecret(ctx), d.image(ctx))
 	if len(d.Egress) > 0 {
 		report.Checks = append(report.Checks, d.Cluster.EgressCheck(ctx, d.Egress, true)...)
@@ -140,6 +143,40 @@ func (d Doctor) namespace(ctx context.Context) Check {
 		return Check{Name: "namespace", Detail: fmt.Sprintf("reading pods in %s: %v", d.Cluster.Namespace(), err)}
 	}
 	return Check{Name: "namespace", OK: true, Detail: d.Cluster.Namespace()}
+}
+
+// netPol is whether the namespace's NetworkPolicy is there and does its job:
+// it selects agent pods, and it denies every connection in. A cluster whose
+// policy is missing lets anything that reaches the namespace reach a pod that
+// carries a token and a checkout of the project.
+func (d Doctor) netPol(ctx context.Context) Check {
+	const name = "network policy"
+	ctx, cancel := context.WithTimeout(ctx, d.timeout())
+	defer cancel()
+	policies := d.Cluster.Client().NetworkingV1().NetworkPolicies(d.Cluster.Namespace())
+	policy, err := policies.Get(ctx, NetPolName, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return Check{Name: name, Detail: fmt.Sprintf(
+			"%s has no %s NetworkPolicy, so anything that reaches the namespace reaches an agent's pod: apply it with agentbox cluster rotate %s",
+			d.Cluster.Namespace(), NetPolName, d.Cluster.Name())}
+	}
+	if err != nil {
+		return Check{Name: name, Detail: fmt.Sprintf("reading the %s NetworkPolicy in %s: %v",
+			NetPolName, d.Cluster.Namespace(), err)}
+	}
+	if got := policy.Spec.PodSelector.MatchLabels[LabelApp]; got != AppAgent {
+		return Check{Name: name, Detail: fmt.Sprintf(
+			"the %s NetworkPolicy selects %s=%q, so it doesn't apply to agent pods: apply it again with agentbox cluster rotate %s",
+			NetPolName, LabelApp, got, d.Cluster.Name())}
+	}
+	// A policy that lists no ingress rule denies ingress only when it also
+	// says so in its types: an empty list alone would allow everything.
+	if len(policy.Spec.Ingress) > 0 || !slices.Contains(policy.Spec.PolicyTypes, networkingv1.PolicyTypeIngress) {
+		return Check{Name: name, Detail: fmt.Sprintf(
+			"the %s NetworkPolicy doesn't deny connections to agent pods: apply it again with agentbox cluster rotate %s",
+			NetPolName, d.Cluster.Name())}
+	}
+	return Check{Name: name, OK: true, Detail: NetPolName + ": nothing reaches an agent's pod"}
 }
 
 // nodes is how much room there is, and whether anything can be placed at all.

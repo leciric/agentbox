@@ -133,11 +133,11 @@ type Spec struct {
 // are the agent's.
 func (s Spec) Labels() map[string]string {
 	return map[string]string{
-		LabelManaged:             "true",
-		LabelCluster:             s.Cluster,
-		LabelProject:             s.Project,
-		LabelAgent:               s.Agent,
-		"app.kubernetes.io/name": "agentbox-agent",
+		LabelManaged: "true",
+		LabelCluster: s.Cluster,
+		LabelProject: s.Project,
+		LabelAgent:   s.Agent,
+		LabelApp:     AppAgent,
 	}
 }
 
@@ -160,6 +160,12 @@ const (
 	LabelCluster = "agentbox/cluster"
 	LabelProject = "agentbox/project"
 	LabelAgent   = "agentbox/agent"
+	// LabelApp and AppAgent are what every agent's pod is called by: the
+	// standard application label, which is what the namespace's NetworkPolicy
+	// selects. It says an agent runs here, where the labels above say which
+	// one.
+	LabelApp = "app.kubernetes.io/name"
+	AppAgent = "agentbox-agent"
 	// AnnotationRef is <project>/<agent>, the ref every command uses.
 	AnnotationRef = "agentbox/ref"
 	// AnnotationPodUID is the UID of the pod an agent's row was adopted from:
