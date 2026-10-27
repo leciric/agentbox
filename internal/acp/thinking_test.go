@@ -32,8 +32,12 @@ func TestClaudeAdaptiveThinking(t *testing.T) {
 		if got := ClaudeAdaptiveThinking(model); got != want {
 			t.Errorf("ClaudeAdaptiveThinking(%q) = %v, want %v", model, got, want)
 		}
-		if got := ClaudeThinkingMeta(model) != nil; got != want {
-			t.Errorf("ClaudeThinkingMeta(%q) sent: %v, want %v", model, got, want)
+		options := ClaudeSessionMeta(model)["claudeCode"].(map[string]any)["options"].(map[string]any)
+		if _, got := options["thinking"]; got != want {
+			t.Errorf("ClaudeSessionMeta(%q) asks for thinking: %v, want %v", model, got, want)
+		}
+		if options["promptSuggestions"] != false {
+			t.Errorf("ClaudeSessionMeta(%q) leaves prompt suggestions on: %v", model, options)
 		}
 	}
 }

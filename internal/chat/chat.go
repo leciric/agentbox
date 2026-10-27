@@ -1560,7 +1560,7 @@ type adapter struct {
 	replaying bool   // a loaded session replays history that's already here
 	spend     spend  // what it has cost, for the token ledger (tokens.go)
 	window    int64  // the compact window it was started with, 0 for the whole (window.go)
-	thinking  bool   // it was started asking for adaptive thinking (acp.ClaudeThinkingMeta)
+	thinking  bool   // it was started asking for adaptive thinking (acp.ClaudeSessionMeta)
 	sizeOf    string // the model and window last remembered from its usage_update
 	lostTurn  bool   // a turn's prompt failed because its output closed: it exited mid-turn
 	// models is what the store knew of Claude model windows when it started,
@@ -1937,9 +1937,10 @@ func (c *conversation) connect(ad *adapter) error {
 	mcp := []acp.McpServer{} // the agent's own configuration gives the tools their MCP servers
 	var meta map[string]any
 	if a.AI == "claude" {
-		// Claude's thinking, shown as thought items, for a model that takes
-		// adaptive thinking: an older one would refuse every turn with it.
-		meta = acp.ClaudeThinkingMeta(model)
+		// Prompt suggestions off (nothing shows them), and Claude's thinking,
+		// shown as thought items, for a model that takes adaptive thinking:
+		// an older one would refuse every turn with it.
+		meta = acp.ClaudeSessionMeta(model)
 	}
 	var resp acp.SessionResponse
 	var resumeErr error

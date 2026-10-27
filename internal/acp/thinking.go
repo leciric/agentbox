@@ -6,22 +6,26 @@ import (
 	"strings"
 )
 
-// ClaudeThinkingMeta is session/new's, session/resume's and session/load's
-// _meta asking claude-agent-acp for Claude's thinking as summarized text, or
-// nil for a model that can't take it (ClaudeAdaptiveThinking). The adapter
-// spreads _meta.claudeCode.options into the Agent SDK's options; left to
-// itself, the SDK asks current models for display "omitted", whose thinking
-// blocks stream with no text, which the adapter drops, so the client sees no
-// agent_thought_chunk at all. Adaptive is current models' default anyway, and
-// the only thinking type they take: "enabled" with a budget, and "disabled",
-// are refused.
-func ClaudeThinkingMeta(model string) map[string]any {
-	if !ClaudeAdaptiveThinking(model) {
-		return nil
+// ClaudeSessionMeta is session/new's, session/resume's and session/load's
+// _meta for Claude Code. The adapter spreads _meta.claudeCode.options into the
+// Agent SDK's options, over its own defaults.
+//
+// It turns prompt suggestions off: the adapter defaults promptSuggestions to
+// true, which costs one extra request every turn for a suggestion nothing in
+// AgentBox shows.
+//
+// And it asks for Claude's thinking as summarized text, for a model that takes
+// it (ClaudeAdaptiveThinking). Left to itself, the SDK asks current models for
+// display "omitted", whose thinking blocks stream with no text, which the
+// adapter drops, so the client sees no agent_thought_chunk at all. Adaptive is
+// current models' default anyway, and the only thinking type they take:
+// "enabled" with a budget, and "disabled", are refused.
+func ClaudeSessionMeta(model string) map[string]any {
+	options := map[string]any{"promptSuggestions": false}
+	if ClaudeAdaptiveThinking(model) {
+		options["thinking"] = map[string]any{"type": "adaptive", "display": "summarized"}
 	}
-	return map[string]any{"claudeCode": map[string]any{"options": map[string]any{
-		"thinking": map[string]any{"type": "adaptive", "display": "summarized"},
-	}}}
+	return map[string]any{"claudeCode": map[string]any{"options": options}}
 }
 
 // claudeVersioned finds a model id's family and version: "claude-haiku-4-5-20251001",

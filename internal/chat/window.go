@@ -216,7 +216,7 @@ func (c *conversation) contextSize(ad *adapter, u acp.SessionUpdate) int64 {
 
 // restartIfThinkingMoved notes that the chat's model now differs from the
 // running adapter's in taking adaptive thinking, which claude-agent-acp reads
-// only when a session starts (acp.ClaudeThinkingMeta): moving from Opus to
+// only when a session starts (acp.ClaudeSessionMeta): moving from Opus to
 // Haiku 4.5 mid-session would otherwise send it adaptive on every turn, and a
 // 400 for each. The next turn restarts the adapter, which resumes the same
 // session asking for what the new model takes. Caller holds c.mu.

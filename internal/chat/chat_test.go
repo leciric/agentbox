@@ -685,11 +685,11 @@ func TestATurnWithToolCallsAndAPermissionRequest(t *testing.T) {
 }
 
 // Claude Code's sessions ask for its thinking as summarized text, whether new,
-// resumed or loaded: without it current models stream none. The other tools
-// get no _meta.
+// resumed or loaded: without it current models stream none. They also turn
+// prompt suggestions off, which nothing shows. The other tools get no _meta.
 func TestClaudeSessionsAskForSummarizedThinking(t *testing.T) {
 	t.Parallel()
-	want := `"_meta":{"claudeCode":{"options":{"thinking":{"display":"summarized","type":"adaptive"}}}}`
+	want := `"_meta":{"claudeCode":{"options":{"promptSuggestions":false,"thinking":{"display":"summarized","type":"adaptive"}}}}`
 	for _, tc := range []struct {
 		name, ai, method string
 		resume, load     bool
@@ -742,6 +742,7 @@ func TestOlderClaudeModelsAreNotAskedForAdaptiveThinking(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	adaptive := `"thinking":{"display":"summarized","type":"adaptive"}`
+	noSuggestions := `"_meta":{"claudeCode":{"options":{"promptSuggestions":false}}}`
 	asks := func(params json.RawMessage) bool { return strings.Contains(string(params), adaptive) }
 
 	t.Run("started on it", func(t *testing.T) {
@@ -757,7 +758,7 @@ func TestOlderClaudeModelsAreNotAskedForAdaptiveThinking(t *testing.T) {
 			t.Fatal(err)
 		}
 		waitThread(t, m, testAgent, "the turn", turnsEnded(1))
-		if created := f.called(acp.MethodSessionNew); len(created) != 1 || strings.Contains(string(created[0]), "_meta") {
+		if created := f.called(acp.MethodSessionNew); len(created) != 1 || asks(created[0]) || !strings.Contains(string(created[0]), noSuggestions) {
 			t.Errorf("Sonnet 4.5's session/new: %s", created)
 		}
 	})
