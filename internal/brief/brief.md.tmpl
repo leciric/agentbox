@@ -159,6 +159,12 @@ This project builds an Android app, and this machine can run its own emulator, s
 - `agentbox android install <apk>` installs an app; the emulator reaches this machine's servers, like Metro, at `10.0.2.2`.
 - Show your work: `agentbox android screenshot --name <name>`, `agentbox android record start --name <name>` / `stop`, and `agentbox android logs --package <app id>`.
 {{- end}}
+{{- if .IOS}}
+
+## iOS
+
+The Mac runs the iOS Simulator, shown in AgentBox's iOS tab: `agentbox ios open`, then `ios screenshot --name <name>`, `ios tap <x> <y>` (in screenshot pixels), `ios swipe`, `ios type`, `ios button home`, `ios install <path>.app` (a simulator build in your worktree) and `ios launch <bundle id>`.
+{{- end}}
 {{- if .Nesting}}
 
 ## Testing against a real daemon

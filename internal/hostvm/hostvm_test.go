@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"agentbox/internal/hostos"
+	"agentbox/internal/iossim"
 	"agentbox/internal/paths"
 )
 
@@ -198,6 +199,7 @@ func TestReady(t *testing.T) {
 
 func TestForwardArgs(t *testing.T) {
 	vm, _ := newFake(t)
+	noIOSHost(t)
 	// Host-side settings stay behind; the rest go to the VM.
 	t.Setenv("AGENTBOX_SOCKET", "/Users/alice/sock")
 	t.Setenv("AGENTBOX_PREVIEW_ADDR", "127.0.0.1:17777")
@@ -210,6 +212,50 @@ func TestForwardArgs(t *testing.T) {
 		"/usr/local/bin/agentbox", "create", "app", "--name", "it's mine"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("got  %q\nwant %q", got, want)
+	}
+}
+
+// noIOSHost makes the test's VM one with no iOS Simulator beside it, which
+// a Mac running the tests would otherwise have.
+func noIOSHost(t *testing.T) {
+	old := iosHost
+	iosHost = func(*VM) bool { return false }
+	t.Cleanup(func() { iosHost = old })
+}
+
+// On a Mac, the VM's agentbox is told where the simulator helper's state file
+// is, which it sees at the same path; where the VM can't see it, or with no
+// simulator, it isn't.
+func TestForwardTellsTheVMWhereTheSimulatorHelperIs(t *testing.T) {
+	vm, _ := newFake(t)
+	old := iosHost
+	t.Cleanup(func() { iosHost = old })
+	iosHost = func(*VM) bool { return true }
+	want := iossim.StateFileEnv + "=" + filepath.Join(vm.Paths.Config, "ios-helper.json")
+	if got := vm.ForwardArgs(vm.Home, []string{"version"}); !slices.Contains(got, want) {
+		t.Errorf("%s isn't forwarded: %q", want, got)
+	}
+	vm.Paths.Config = "/etc/agentbox"
+	if got := vm.iosStateFile(); got != "" {
+		t.Errorf("a state file outside the shared home: %q", got)
+	}
+	iosHost = func(*VM) bool { return false }
+	vm, _ = newFake(t)
+	for _, kv := range vm.ForwardArgs(vm.Home, []string{"version"}) {
+		if strings.HasPrefix(kv, iossim.StateFileEnv+"=") {
+			t.Errorf("forwarded %s with no simulator", kv)
+		}
+	}
+}
+
+func TestWhichCommandsStartTheSimulatorHelper(t *testing.T) {
+	for args, want := range map[string]bool{
+		"": false, "list": true, "daemon start": true, "ios tap 1 2": true,
+		"vm start": true, "vm power --json": true, "vm stop": false, "vm delete": false, "vm status --json": false,
+	} {
+		if got := ensuresIOS(strings.Fields(args)); got != want {
+			t.Errorf("%q: %v, want %v", args, got, want)
+		}
 	}
 }
 

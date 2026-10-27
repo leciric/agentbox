@@ -3326,6 +3326,80 @@ type AndroidInstallResult struct {
 	Output string `json:"output"`
 }
 
+// IOSStatus describes the iOS Simulator, which runs on the Mac that
+// AgentBox's VM runs on (internal/iossim): every agent shares the Mac's
+// simulators, and each has the one it opened last.
+type IOSStatus struct {
+	Available bool        `json:"available"`         // a Mac with Xcode, whose simulator helper the daemon reaches
+	Problem   string      `json:"problem,omitempty"` // why not
+	Xcode     string      `json:"xcode,omitempty"`   // like "Xcode 26.1"
+	Devices   []IOSDevice `json:"devices"`
+	Device    string      `json:"device,omitempty"` // the agent's simulator, by UDID
+}
+
+// IOSDevice is one simulator, as xcrun simctl lists it.
+type IOSDevice struct {
+	UDID    string `json:"udid"`
+	Name    string `json:"name"`    // like "iPhone 17 Pro"
+	Runtime string `json:"runtime"` // like "iOS 26.0"
+	State   string `json:"state"`   // "Booted", "Shutdown", "Booting" or "Shutting Down"
+}
+
+// IOSDeviceRequest names a simulator; empty is the agent's own, or else the
+// only one booted.
+type IOSDeviceRequest struct {
+	Device string `json:"device,omitempty"`
+}
+
+// IOSInput is a touch, a key or a button on a simulator. X and Y are a
+// fraction of the screen's width and height from its top left, unless Pixels
+// says they are pixels of its screenshots.
+type IOSInput struct {
+	Device string `json:"device,omitempty"`
+	// "touch" (Phase "down", "move" or "up": the app's viewer), "tap",
+	// "swipe" (from X,Y to X2,Y2), "key" (Key, held with Modifiers), "text"
+	// or "button" (Button, pressed and let go unless Phase says which).
+	Type       string   `json:"type"`
+	Phase      string   `json:"phase,omitempty"`
+	X          float64  `json:"x,omitempty"`
+	Y          float64  `json:"y,omitempty"`
+	X2         float64  `json:"x2,omitempty"`
+	Y2         float64  `json:"y2,omitempty"`
+	Pixels     bool     `json:"pixels,omitempty"`
+	DurationMS int      `json:"durationMs,omitempty"` // a swipe's or a long press's; default 300 and 80
+	Key        string   `json:"key,omitempty"`        // "return", "escape", "backspace", "tab", "space", "up", "a", "1"…
+	Modifiers  []string `json:"modifiers,omitempty"`  // "shift", "command", "option", "control"
+	Text       string   `json:"text,omitempty"`
+	Button     string   `json:"button,omitempty"` // "home", "lock", "siri", "volumeUp" or "volumeDown"
+}
+
+// IOSInstallRequest installs an app built for the simulator: a .app
+// directory in the agent's worktree, which the Mac sees at the same path.
+type IOSInstallRequest struct {
+	Device string `json:"device,omitempty"`
+	Path   string `json:"path"`
+}
+
+// IOSLaunchRequest starts (or, with Terminate, stops) an installed app.
+type IOSLaunchRequest struct {
+	Device    string   `json:"device,omitempty"`
+	BundleID  string   `json:"bundleId"`
+	Args      []string `json:"args,omitempty"`
+	Terminate bool     `json:"terminate,omitempty"`
+}
+
+// IOSOpenURLRequest opens a URL on a simulator: a web page in Safari, or a
+// link into an app.
+type IOSOpenURLRequest struct {
+	Device string `json:"device,omitempty"`
+	URL    string `json:"url"`
+}
+
+// IOSResult is what a simulator command printed, when it printed anything.
+type IOSResult struct {
+	Output string `json:"output,omitempty"`
+}
+
 // InAgentSocket is where the in-agent API socket appears inside every agent.
 const InAgentSocket = "/run/agentbox.sock"
 

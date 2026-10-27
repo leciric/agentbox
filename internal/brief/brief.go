@@ -47,6 +47,9 @@ type Data struct {
 	// variables (agentbox secrets). Values never come near the brief.
 	Secrets []string
 	Android bool // the project builds an Android app
+	// IOS is whether the project builds an iOS app and the user's computer
+	// is a Mac, whose iOS Simulator agents drive with agentbox ios.
+	IOS bool
 	GitHub  bool // AgentBox shares a GitHub token with agents
 	// Nesting is whether the project turned nesting on: the agent runs a real
 	// Incus daemon of its own, inside its own container.

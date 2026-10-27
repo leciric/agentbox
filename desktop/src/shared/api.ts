@@ -2046,6 +2046,62 @@ export interface AndroidInstallResult {
   output: string;
 }
 
+export interface IOSStatus {
+  available: boolean;
+  problem?: string;
+  xcode?: string;
+  devices: IOSDevice[];
+  device?: string;
+}
+
+export interface IOSDevice {
+  udid: string;
+  name: string;
+  runtime: string;
+  state: string;
+}
+
+export interface IOSDeviceRequest {
+  device?: string;
+}
+
+export interface IOSInput {
+  device?: string;
+  type: string;
+  phase?: string;
+  x?: number;
+  y?: number;
+  x2?: number;
+  y2?: number;
+  pixels?: boolean;
+  durationMs?: number;
+  key?: string;
+  modifiers?: string[];
+  text?: string;
+  button?: string;
+}
+
+export interface IOSInstallRequest {
+  device?: string;
+  path: string;
+}
+
+export interface IOSLaunchRequest {
+  device?: string;
+  bundleId: string;
+  args?: string[];
+  terminate?: boolean;
+}
+
+export interface IOSOpenURLRequest {
+  device?: string;
+  url: string;
+}
+
+export interface IOSResult {
+  output?: string;
+}
+
 export interface HubUser {
   id: string;
   email: string;

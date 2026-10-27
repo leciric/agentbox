@@ -66,7 +66,7 @@ if [ "${PLATFORMS:-false}" = true ] && $go; then
     # the package it belongs to (its embedded files, its testdata/).
     pkgdirs=$(git ls-files '*.go' | sed -E 's#/[^/]+$##; /\.go$/s#.*#.#' | sort -u)
     deps() { go list -deps -test -f '{{if not .Standard}}{{.Dir}}{{end}}' "$@" | sed "s#^$root/##; s#^$root\$#.#" | sort -u; }
-    if ! mac_deps=$(GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 deps ./internal/hostvm/... ./internal/paths ./internal/api) \
+    if ! mac_deps=$(GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 deps ./internal/hostvm/... ./internal/paths ./internal/api ./internal/iossim) \
       || ! win_deps=$(GOOS=windows GOARCH=amd64 deps ./internal/hostos ./internal/hostwsl/...); then
       echo "go list failed: running macOS and Windows" >&2
       macos=true windows=true

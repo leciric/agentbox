@@ -926,6 +926,59 @@ func (c *Client) InstallAPK(ctx context.Context, ref string, req AndroidInstallR
 	return result, c.androidDo(ctx, http.MethodPost, ref, "/install", req, &result)
 }
 
+// IOSPath is where an agent's iOS Simulator endpoints are: /v1/self/ios for
+// an agent's own (ref ""), and under the agent otherwise.
+func IOSPath(ref string) (string, error) {
+	if ref == "" {
+		return "/v1/self/ios", nil
+	}
+	path, err := AgentPath(ref)
+	return path + "/ios", err
+}
+
+func (c *Client) iosDo(ctx context.Context, method, ref, suffix string, body, out any) error {
+	path, err := IOSPath(ref)
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, method, path+suffix, body, out)
+}
+
+func (c *Client) IOS(ctx context.Context, ref string) (IOSStatus, error) {
+	var status IOSStatus
+	return status, c.iosDo(ctx, http.MethodGet, ref, "", nil, &status)
+}
+
+// OpenIOS boots a simulator, waits until it has, and makes it the agent's.
+func (c *Client) OpenIOS(ctx context.Context, ref string, req IOSDeviceRequest) (IOSStatus, error) {
+	var status IOSStatus
+	return status, c.iosDo(ctx, http.MethodPost, ref, "/open", req, &status)
+}
+
+// CloseIOS shuts a simulator down.
+func (c *Client) CloseIOS(ctx context.Context, ref string, req IOSDeviceRequest) (IOSStatus, error) {
+	var status IOSStatus
+	return status, c.iosDo(ctx, http.MethodPost, ref, "/close", req, &status)
+}
+
+func (c *Client) IOSInput(ctx context.Context, ref string, in IOSInput) error {
+	return c.iosDo(ctx, http.MethodPost, ref, "/input", in, nil)
+}
+
+func (c *Client) InstallIOSApp(ctx context.Context, ref string, req IOSInstallRequest) (IOSResult, error) {
+	var result IOSResult
+	return result, c.iosDo(ctx, http.MethodPost, ref, "/install", req, &result)
+}
+
+func (c *Client) LaunchIOSApp(ctx context.Context, ref string, req IOSLaunchRequest) (IOSResult, error) {
+	var result IOSResult
+	return result, c.iosDo(ctx, http.MethodPost, ref, "/launch", req, &result)
+}
+
+func (c *Client) OpenIOSURL(ctx context.Context, ref string, req IOSOpenURLRequest) error {
+	return c.iosDo(ctx, http.MethodPost, ref, "/openurl", req, nil)
+}
+
 func (c *Client) Preview(ctx context.Context) (PreviewInfo, error) {
 	var info PreviewInfo
 	return info, c.do(ctx, http.MethodGet, "/v1/preview", nil, &info)

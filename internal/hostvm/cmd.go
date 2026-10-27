@@ -33,6 +33,12 @@ func Main(args []string, version string) int {
 		fmt.Fprintln(os.Stderr, "error:", errInVM)
 		return 1
 	}
+	frontVersion = version
+	if ensuresIOS(args) {
+		if vm, err := New(); err == nil {
+			vm.ensureIOS(context.Background())
+		}
+	}
 	if len(args) == 0 || args[0] != "vm" {
 		vm, err := New()
 		if err == nil {

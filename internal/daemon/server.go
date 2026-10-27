@@ -107,6 +107,8 @@ type Server struct {
 	tails tailCache
 	// picks are the element pickers showing, one per agent (browser.go).
 	picks elementPicks
+	// iosSim is the Mac's iOS Simulator helper, and each agent's simulator (ios.go).
+	iosSim iosState
 	// imageCache is the image cache agents' Docker shares (imagecache.go),
 	// and imageCacheUp whether its socket is being served.
 	imageCache   *imagecache.Cache
@@ -749,6 +751,7 @@ func (s *Server) manager(log io.Writer) *agent.Manager {
 		Binary:           s.cfg.Binary,
 		BrowserSocket:    s.browserSocketPath,
 		AndroidSDK:       findAndroidSDK,
+		IOSScreenshot:    s.iosScreenshot,
 		LeadSocketPath:   s.leadSocketPath,
 		DesktopTheme:     s.desktopTheme,
 		ImageCacheSocket: s.imageCacheSocket,
@@ -1035,6 +1038,11 @@ func (s *Server) routes() http.Handler {
 	for _, action := range []string{"start", "stop", "install"} {
 		h("POST /v1/agents/{project}/{agent}/android/"+action, s.android(action, s.agentFromPath, "user"))
 	}
+	h("GET /v1/agents/{project}/{agent}/ios", s.ios("status", s.agentFromPath))
+	for _, action := range iosActions {
+		h("POST /v1/agents/{project}/{agent}/ios/"+action, s.ios(action, s.agentFromPath))
+	}
+	h("GET /v1/agents/{project}/{agent}/ios/view", s.iosView)
 	h("GET /v1/agents/{project}/{agent}/android/stream", s.androidStream)
 	h("GET /v1/preview", s.previewInfo)
 	for _, route := range mediaRoutes {

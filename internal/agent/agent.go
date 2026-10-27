@@ -28,6 +28,7 @@ import (
 	"agentbox/internal/hostos"
 	"agentbox/internal/image"
 	"agentbox/internal/incus"
+	"agentbox/internal/iossim"
 	"agentbox/internal/naming"
 	"agentbox/internal/nodemods"
 	"agentbox/internal/notes"
@@ -259,6 +260,9 @@ type Manager struct {
 	BrowserSocket func(instance, service string) string
 	// AndroidSDK, when set, finds the host's Android SDK, for agents' emulators.
 	AndroidSDK func() (android.SDK, error)
+	// IOSScreenshot, when set, takes a PNG of the agent's iOS Simulator, on
+	// the Mac (the daemon's, internal/iossim).
+	IOSScreenshot func(ctx context.Context, a state.Agent) ([]byte, error)
 	// LeadSocketPath, when set, returns the socket a project's chat reaches
 	// AgentBox through. Its tools are registered against it.
 	LeadSocketPath func(project string) string
@@ -1492,6 +1496,7 @@ func (m *Manager) brief(ctx context.Context, a state.Agent, ip string, envFiles 
 		NodeModules:    m.nodeModulesDirs(a),
 		Secrets:        secretNames,
 		Android:        android.IsProject(a.Worktree),
+		IOS:            hostos.OS() == "darwin" && iossim.IsProject(a.Worktree),
 		GitHub:         m.Creds.HasGitHubLogin(),
 		VM:             hostos.InVM(),
 		Host:           hostos.Name(),

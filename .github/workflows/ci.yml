@@ -470,11 +470,12 @@ jobs:
           bin/agentbox-arm64 vm init --help | grep -q -- '--driver'
 
       # The front end's own tests, on the OS they're for: they drive a fake
-      # limactl and fake VMs, so no VM is made.
+      # limactl and fake VMs, so no VM is made. The iOS Simulator's helper
+      # compiles its native part with the runner's Xcode (TestSimhostCompiles).
       - name: Unit tests
         env:
           CGO_ENABLED: "1"
-        run: go test ./internal/hostvm/... ./internal/paths ./internal/api
+        run: go test ./internal/hostvm/... ./internal/paths ./internal/api ./internal/iossim
 
       # The vz driver's configuration, validated by the framework, and its
       # checks, from a test binary signed with the entitlement as agentbox is.

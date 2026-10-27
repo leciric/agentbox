@@ -338,6 +338,7 @@ func NewRootCmd() *cobra.Command {
 		newMediaCmd(a),
 		newMachinesCmd(a),
 		newAndroidCmd(a),
+		newIOSCmd(a),
 		newWhoamiCmd(),
 		newVersionCmd(a),
 		newReportCmd(a),

@@ -109,7 +109,7 @@ and Windows included. A new push cancels the run it supersedes.
 - **macOS** (cgo, signed, the vz driver) and **Windows** (the WSL front end): on pushes to `main`,
   and on a PR labelled `ci:full` (adding the label runs just these two, whatever changed), when the
   change reaches what they test: `go.mod`/`go.sum`, `mise.toml`, `cmd/`, a package their tests
-  import (`go list -deps -test` of `internal/hostvm/...`, `internal/paths` and `internal/api` for
+  import (`go list -deps -test` of `internal/hostvm/...`, `internal/paths`, `internal/api` and `internal/iossim` for
   darwin; `internal/hostos` and `internal/hostwsl/...` for Windows), a file only that OS builds,
   and for macOS `scripts/mac-sign.sh` and the entitlements.
 - **govulncheck**: weekly, on `main`, and on PRs that change `go.mod`/`go.sum`.

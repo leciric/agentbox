@@ -182,7 +182,7 @@ func (m *Manager) saveMedia(ctx context.Context, p *pendingMedia, file string, m
 }
 
 type ScreenshotOptions struct {
-	Target   string // "browser" (the current page; the default), "display" (the whole screen) or "android" (the emulator)
+	Target   string // "browser" (the current page; the default), "display" (the whole screen), "android" (the emulator) or "ios" (the simulator)
 	FullPage bool   // the whole page, not just what's visible (browser only)
 	Name     string
 	Source   string
@@ -202,8 +202,8 @@ func (m *Manager) Screenshot(ctx context.Context, a state.Agent, opts Screenshot
 			target = "display"
 		}
 	}
-	if target != "browser" && target != "display" && target != "android" {
-		return state.Media{}, fmt.Errorf("unknown screenshot target %q: use browser, display or android", target)
+	if target != "browser" && target != "display" && target != "android" && target != "ios" {
+		return state.Media{}, fmt.Errorf("unknown screenshot target %q: use browser, display, android or ios", target)
 	}
 	p, err := m.startMedia(a, MediaScreenshot, cmpOr(strings.TrimSpace(opts.Name), target+" screenshot"), opts.Source)
 	if err != nil {
@@ -218,6 +218,8 @@ func (m *Manager) Screenshot(ctx context.Context, a state.Agent, opts Screenshot
 		err = m.displayScreenshot(ctx, a, file, p.item.ID)
 	case "android":
 		err = m.androidScreenshot(ctx, a, file, p.item.ID)
+	case "ios":
+		err = m.iosScreenshot(ctx, a, file)
 	}
 	if err != nil {
 		p.discard()
@@ -225,6 +227,19 @@ func (m *Manager) Screenshot(ctx context.Context, a state.Agent, opts Screenshot
 	}
 	meta.Width, meta.Height = pngSize(file)
 	return m.saveMedia(ctx, p, file, meta)
+}
+
+// iosScreenshot saves a PNG of the agent's iOS Simulator, which runs on the
+// Mac, not in the agent.
+func (m *Manager) iosScreenshot(ctx context.Context, a state.Agent, file string) error {
+	if m.IOSScreenshot == nil {
+		return errors.New("the iOS Simulator is only on a Mac")
+	}
+	png, err := m.IOSScreenshot(ctx, a)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(file, png, 0o644)
 }
 
 func (m *Manager) browserScreenshot(ctx context.Context, a state.Agent, file string, fullPage bool) (string, error) {

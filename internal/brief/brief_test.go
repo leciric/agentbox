@@ -42,6 +42,18 @@ func TestRender(t *testing.T) {
 			IP:       "10.239.149.24",
 			Android:  true,
 		},
+		// A Mac, and a project with an iOS app: the simulator's commands.
+		"ios": {
+			Project:  "pawly",
+			Agent:    "agent-08",
+			Worktree: "/Users/dev/.local/share/agentbox/worktrees/pawly/agent-08",
+			Branch:   "agentbox/agent-08",
+			BaseRef:  "main",
+			IP:       "10.239.149.28",
+			VM:       true,
+			Host:     "a Mac",
+			IOS:      true,
+		},
 		"nesting": {
 			Project:  "agentbox",
 			Agent:    "agent-05",

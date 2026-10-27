@@ -42,6 +42,7 @@ var tsTypes = []any{
 	RetireRequest{}, RetiredAgent{}, RetireResult{},
 	Question{}, AskRequest{}, AnswerQuestionRequest{}, EscalateQuestionRequest{}, CredentialRequest{}, AnswerCredentialRequest{}, AgentEvent{}, ReviewItem{}, ReviewRequest{}, RequestChangesRequest{}, ReviewNote{}, AddReviewNoteRequest{}, EditReviewNoteRequest{},
 	AndroidStatus{}, AndroidStartRequest{}, AndroidInstallRequest{}, AndroidInstallResult{},
+	IOSStatus{}, IOSDevice{}, IOSDeviceRequest{}, IOSInput{}, IOSInstallRequest{}, IOSLaunchRequest{}, IOSOpenURLRequest{}, IOSResult{},
 	HubUser{}, HubInfo{}, HubLoginRequest{}, HubSetupRequest{}, HubSession{}, HubPairRequest{}, HubPairing{}, HubPairTokenRequest{}, HubPairResult{}, HubPairingInfo{}, HubDevice{}, HubEnvironment{}, HubCreateEnvironmentRequest{}, HubEnvironmentToken{},
 	RemoteStatus{}, RemoteConnectRequest{}, RemotePairRequest{}, RemotePairing{}, UsageStatsPending{},
 	LANStatus{}, LANTunnel{}, LANPhone{}, PhonePush{}, PhonePushTest{}, UpdateLANRequest{}, LANPairing{}, LANHostReport{}, LANPairRequest{}, LANSession{}, UpdateLANPhoneRequest{}, LANAuditEntry{}, LANAudit{},

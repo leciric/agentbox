@@ -64,6 +64,7 @@ import (
 	"agentbox/internal/api"
 	"agentbox/internal/hostos"
 	"agentbox/internal/hostvm/chv"
+	"agentbox/internal/iossim"
 	"agentbox/internal/paths"
 	"agentbox/internal/report"
 	"agentbox/internal/setupfunnel"
@@ -691,7 +692,7 @@ func (v *VM) setup(ctx context.Context, daemon bool) error {
 var hostOnly = map[string]bool{
 	"AGENTBOX_FRONT_END": true, "AGENTBOX_VM": true, "AGENTBOX_VM_TYPE": true,
 	"AGENTBOX_LIMACTL": true, "AGENTBOX_LINUX_BINARY": true, "AGENTBOX_BIN": true,
-	"AGENTBOX_SOCKET": true, "AGENTBOX_WORKTREES": true, "AGENTBOX_MEDIA": true, hostos.Env: true, hostos.HomeEnv: true, hostos.VMDisksEnv: true,
+	"AGENTBOX_SOCKET": true, iossim.StateFileEnv: true, "AGENTBOX_WORKTREES": true, "AGENTBOX_MEDIA": true, hostos.Env: true, hostos.HomeEnv: true, hostos.VMDisksEnv: true,
 	vmMemoryCapEnv: true,
 }
 
@@ -717,6 +718,10 @@ func (v *VM) vmEnv() []string {
 	// The install ID is kept on the host, so a VM made again is the same install.
 	if file := v.installIDFile(); file != "" {
 		env = append(env, hostos.InstallIDFileEnv+"="+file)
+	}
+	// Where the Mac's simulator helper says how to reach it (iossim).
+	if file := v.iosStateFile(); file != "" {
+		env = append(env, iossim.StateFileEnv+"="+file)
 	}
 	if v.CHV != nil {
 		env = append(env, fmt.Sprintf("%s=%d", vmMemoryCapEnv, v.CHV.Config.MemoryCap))
