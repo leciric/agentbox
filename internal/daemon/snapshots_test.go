@@ -204,7 +204,7 @@ func TestWaitPodGoneReturnsWhenTheClusterHasNoPod(t *testing.T) {
 	ctx := context.Background()
 	client := podClient()
 	clusterWithFakeClient(t, srv, reconcilerCluster(), client)
-	if err := waitPodGone(ctx, k8s.FromClient("k3d", "agentbox", client), a); err != nil {
+	if err := waitPodGone(ctx, k8s.FromClient("k3d", "agentbox", client), a, "a helper has to mount its claim"); err != nil {
 		t.Errorf("waitPodGone() with no pod = %v, want nil", err)
 	}
 }

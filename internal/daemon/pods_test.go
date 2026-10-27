@@ -12,6 +12,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
+	"agentbox/internal/gateway"
 	"agentbox/internal/k8s"
 	"agentbox/internal/state"
 )
@@ -110,6 +111,75 @@ func TestDestroyMachineDeletesThePodItsTokenAndItsClaim(t *testing.T) {
 
 	if err := srv.destroyMachine(ctx, a); err != nil {
 		t.Errorf("a second destroyMachine() = %v, want the work already done", err)
+	}
+}
+
+// TestRecreateOfAPodKeepsItsClaimAndDropsItsPin is the cluster half of
+// `agentbox recreate`: the pod goes, the claim the row names stays, the image a
+// restore pinned is dropped, and the next round makes a new pod at the
+// cluster's current image with a token of its own.
+func TestRecreateOfAPodKeepsItsClaimAndDropsItsPin(t *testing.T) {
+	srv := reconcilerServer(t)
+	ctx := context.Background()
+	reconcilerProject(t, srv.store)
+	reconcilerAgent(t, srv.store, "agent-01")
+	cluster := reconcilerCluster()
+	client := podClient()
+	kc := clusterWithFakeClient(t, srv, cluster, client)
+	if err := reconcileRound(t, srv, cluster, kc); err != nil {
+		t.Fatalf("the round = %v", err)
+	}
+	// What a restore leaves: a claim of its own and the image its snapshot was
+	// taken with.
+	const claim = "ab-pawly-agent-01-workspace-r1793128698"
+	if err := srv.store.SetAgentClaim(ctx, "pawly", "agent-01", claim, "agentbox-agent:snapshot"); err != nil {
+		t.Fatal(err)
+	}
+	oldToken := podSecretToken(t, client, "pawly", "agent-01")
+
+	p := podLifecycle{s: srv}
+	if err := p.Recreate(ctx, gateway.Ref{Project: "pawly", Agent: "agent-01"}); err != nil {
+		t.Fatalf("Recreate() = %v", err)
+	}
+	if _, err := kc.Get(ctx, "pawly", "agent-01"); !errors.Is(err, k8s.ErrNotFound) {
+		t.Errorf("the pod is still there after Recreate: %v", err)
+	}
+	got, err := srv.store.Agent(ctx, "pawly", "agent-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DesiredState != state.DesiredRunning || got.Pod != "" || got.Image != "" || got.Claim != claim {
+		t.Errorf("the row after Recreate = %+v, want running, no pod, no pinned image, claim %s", got, claim)
+	}
+	if _, _, err := srv.store.AgentForToken(ctx, oldToken); !errors.Is(err, state.ErrNotFound) {
+		t.Errorf("the old pod's token still authenticates: %v", err)
+	}
+
+	if err := reconcileRound(t, srv, cluster, kc); err != nil {
+		t.Fatalf("the round after Recreate = %v", err)
+	}
+	pod, err := kc.Get(ctx, "pawly", "agent-01")
+	if err != nil {
+		t.Fatalf("no pod was made again: %v", err)
+	}
+	if pod.Image != cluster.Image {
+		t.Errorf("the new pod runs %q, want the cluster's %q", pod.Image, cluster.Image)
+	}
+	raw, err := client.CoreV1().Pods("agentbox").Get(ctx, k8s.PodName("pawly", "agent-01"), metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	onClaim := false
+	for _, volume := range raw.Spec.Volumes {
+		if volume.PersistentVolumeClaim != nil && volume.PersistentVolumeClaim.ClaimName == claim {
+			onClaim = true
+		}
+	}
+	if !onClaim {
+		t.Errorf("the new pod is not on %s: %+v", claim, raw.Spec.Volumes)
+	}
+	if newToken := podSecretToken(t, client, "pawly", "agent-01"); newToken == oldToken {
+		t.Error("the new pod kept the old pod's token")
 	}
 }
 

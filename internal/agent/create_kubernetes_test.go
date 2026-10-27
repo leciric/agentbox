@@ -311,6 +311,64 @@ func TestPausingAClusterAgentStopsIt(t *testing.T) {
 	}
 }
 
+// TestRecreateOfAClusterAgentReplacesItsPod: a pod's machine is its claim, so
+// recreating it replaces the pod and keeps the claim. The new pod is configured
+// again, because its env, its brief and its tmux session were files and
+// processes in the pod that went.
+func TestRecreateOfAClusterAgentReplacesItsPod(t *testing.T) {
+	f := newClusterFixture(t, nil)
+	ctx := context.Background()
+	a, err := f.m.build(ctx, f.plan(t))
+	if err != nil {
+		t.Fatalf("build() = %v", err)
+	}
+	f.pod.writes, f.pod.userExecs = nil, nil
+
+	if err := f.m.Recreate(ctx, a, RecreateOptions{}); err != nil {
+		t.Fatalf("Recreate() = %v", err)
+	}
+	if f.pod.recreated != 1 {
+		t.Errorf("the pod was recreated %d time(s), want 1", f.pod.recreated)
+	}
+	configured := false
+	for _, path := range f.pod.writes {
+		if strings.HasSuffix(path, "/.config/agentbox/env") {
+			configured = true
+		}
+	}
+	if !configured || !ranCommand(f.pod.userExecs, "tmux new-session") {
+		t.Errorf("the new pod wasn't configured again: writes %v, commands %v", f.pod.writes, f.pod.userExecs)
+	}
+	row, err := f.st.Agent(ctx, "hello-stack", "agent-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.Status != state.AgentReady || row.Cluster != "k3d" {
+		t.Errorf("row = status %q on cluster %q, want %q on k3d", row.Status, row.Cluster, state.AgentReady)
+	}
+
+	// A new pod that never answers leaves the agent as it was, to try again.
+	f.pod.readyErr = errors.New("the gateway never saw its agentd")
+	if err := f.m.Recreate(ctx, a, RecreateOptions{}); err == nil {
+		t.Fatal("Recreate() = nil, want the pod's failure")
+	}
+	if row, err = f.st.Agent(ctx, "hello-stack", "agent-01"); err != nil {
+		t.Fatal(err)
+	}
+	if row.Status != state.AgentReady {
+		t.Errorf("status after a failed recreate = %q, want it back to ready", row.Status)
+	}
+
+	// --stopped leaves the new pod stopped once it is up.
+	f.pod.readyErr = nil
+	if err := f.m.Recreate(ctx, a, RecreateOptions{Stopped: true}); err != nil {
+		t.Fatalf("Recreate(Stopped) = %v", err)
+	}
+	if f.pod.stopped != 1 {
+		t.Errorf("the pod was stopped %d time(s), want 1", f.pod.stopped)
+	}
+}
+
 // TestDestroyOfAClusterAgentAsksTheClusterAndArchivesIt checks the pod's
 // destroy: the machine is asked to go (which is what the reconciler reads), no
 // host worktree is touched, and the agent is kept as a past agent.
@@ -560,6 +618,7 @@ type podMachineStub struct {
 	destroyed bool
 	started   int
 	stopped   int
+	recreated int
 
 	waits     int
 	writes    []string
@@ -603,6 +662,24 @@ func (m *podMachineStub) Start(context.Context) error {
 func (m *podMachineStub) Stop(context.Context) error {
 	m.stopped++
 	m.state = "Stopped"
+	return nil
+}
+
+// StopWithin and ForceStop are a pod's stop: the cluster deletes the pod, which
+// has no graceful shutdown of its own to wait for.
+func (m *podMachineStub) StopWithin(ctx context.Context, _ time.Duration) error {
+	return m.Stop(ctx)
+}
+
+func (m *podMachineStub) ForceStop(ctx context.Context) error {
+	return m.Stop(ctx)
+}
+
+// Recreate is the pod being replaced on its claim, with nothing of the old one
+// but the claim.
+func (m *podMachineStub) Recreate(context.Context) error {
+	m.recreated++
+	m.state = "Running"
 	return nil
 }
 

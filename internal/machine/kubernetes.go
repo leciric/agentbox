@@ -21,13 +21,16 @@ import (
 	"agentbox/internal/incus"
 )
 
-// Pods is what a pod's machine can't do by itself: start, stop and destroy
-// change rows and the cluster, which the daemon owns; Info reads what it last
-// saw. The gateway carries only bytes.
+// Pods is what a pod's machine can't do by itself: start, stop, destroy and
+// recreate change rows and the cluster, which the daemon owns; Info reads what it
+// last saw. The gateway carries only bytes.
 type Pods interface {
 	Start(ctx context.Context, ref gateway.Ref) error
 	Stop(ctx context.Context, ref gateway.Ref) error
 	Destroy(ctx context.Context, ref gateway.Ref) error
+	// Recreate deletes the pod and asks for a new one on the same claim, at the
+	// image the cluster runs now: the row's pinned image is dropped with it.
+	Recreate(ctx context.Context, ref gateway.Ref) error
 	// Info reads what the daemon last saw; State is "Running" or "Stopped".
 	Info(ctx context.Context, ref gateway.Ref) (Info, error)
 
@@ -71,6 +74,7 @@ func (r *Kubernetes) Machine(ref string) Machine {
 }
 
 var _ Machine = podMachine{}
+var _ Recreator = podMachine{}
 
 // podMachine is one agent's pod, reached through its gateway session.
 type podMachine struct {
@@ -168,6 +172,16 @@ func (m podMachine) Destroy(ctx context.Context) error {
 		return err
 	}
 	return m.pods.Destroy(ctx, m.target)
+}
+
+// Recreate replaces the pod, keeping its claim: the machine's files survive, the
+// pod's processes and its container filesystem do not, and the new pod runs the
+// image the cluster points at now.
+func (m podMachine) Recreate(ctx context.Context) error {
+	if err := m.bad; err != nil {
+		return err
+	}
+	return m.pods.Recreate(ctx, m.target)
 }
 
 // Exec runs a command as root and returns what it printed on both streams,

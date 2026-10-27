@@ -178,17 +178,3 @@ func TestClusterAgentWorkspaceRunsInItsPod(t *testing.T) {
 		t.Errorf("DropCheckpoint didn't run in the pod: %v", f.pod.userExecs[before:])
 	}
 }
-
-// TestRecreateRefusesAClusterAgent: a pod's machine is the cluster's to make
-// again from its claim, so the Incus-shaped recreate refuses instead of failing
-// on a worktree this host doesn't have.
-func TestRecreateRefusesAClusterAgent(t *testing.T) {
-	f, a, _ := clusterTree(t)
-	err := f.m.Recreate(context.Background(), a, RecreateOptions{})
-	if err == nil {
-		t.Fatal("Recreate() = nil, want a cluster agent refused")
-	}
-	if !strings.Contains(err.Error(), "cluster") || strings.Contains(err.Error(), "worktree") {
-		t.Errorf("Recreate() = %v, want it to refuse the pod's claim, not a missing host worktree", err)
-	}
-}

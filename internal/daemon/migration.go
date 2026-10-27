@@ -33,14 +33,21 @@ func (s *Server) recreate(w http.ResponseWriter, r *http.Request) error {
 	if req.Home != "" && !filepath.IsAbs(req.Home) {
 		return fmt.Errorf("home must be an absolute path, not %q", req.Home)
 	}
-	if err := s.diskRefusal("making " + a.Ref() + " a new machine"); err != nil {
-		return err
+	// A pod's machine is a claim on the cluster, not a disk on this host: the
+	// base image it would be refused for is the Incus one, and a rebuild of it
+	// has nothing to do with a pod that runs a container image.
+	if !a.OnCluster() {
+		if err := s.diskRefusal("making " + a.Ref() + " a new machine"); err != nil {
+			return err
+		}
 	}
 	return s.startJob(w, "recreate", a.Ref(), func(ctx context.Context, log io.Writer) (any, error) {
 		// A chat started before the machine was there has nothing to talk to.
 		s.chat.Stop(a.Ref(), "the agent's machine is being made")
-		if err := s.awaitImage(ctx, log); err != nil {
-			return nil, err
+		if !a.OnCluster() {
+			if err := s.awaitImage(ctx, log); err != nil {
+				return nil, err
+			}
 		}
 		err := s.manager(log).Recreate(ctx, a, agent.RecreateOptions{
 			Home:    req.Home,

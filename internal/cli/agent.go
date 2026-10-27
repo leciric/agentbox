@@ -510,6 +510,52 @@ func newActionCmd(a *app, action, short, done string) *cobra.Command {
 	return cmd
 }
 
+// newRecreateCmd replaces an agent's machine and keeps its work. On this host
+// that is only for a machine that is gone: an agent that has one is refused,
+// because recreating it would throw away what was installed in it. A cluster
+// agent has a claim for its machine rather than an instance, so its pod is
+// replaced and its files stay.
+func newRecreateCmd(a *app) *cobra.Command {
+	var stopped bool
+	cmd := &cobra.Command{
+		Use:   "recreate <project/agent>",
+		Short: "Replace an agent's machine, keeping its worktree and branch",
+		Long: `Gives an agent a new machine where its old one is gone, from the base image: the
+agent keeps its record (title, model, accounts, chat), its worktree with whatever
+is uncommitted in it, and its branch. What was only inside the old machine, such
+as packages installed in it and its home directory outside the worktree, does not
+come back. An agent whose machine is still there is refused; this is not a
+restart.
+
+In a Kubernetes cluster the machine is the claim rather than the pod, so its pod
+is replaced and everything in its home and worktree stays. The new pod runs the
+image the cluster points at now, which is how an agent picks up a new image.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			j, err := c.Recreate(cmd.Context(), args[0], api.RecreateRequest{Stopped: stopped})
+			if err != nil {
+				return err
+			}
+			final, err := waitJob(cmd, c, j)
+			if err != nil {
+				return err
+			}
+			var ag api.Agent
+			if err := json.Unmarshal(final.Result, &ag); err != nil {
+				return fmt.Errorf("reading the job result: %w", err)
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Recreated %s.\n", ag.Ref)
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&stopped, "stopped", false, "leave the new machine stopped")
+	return cmd
+}
+
 // stopAll is `agentbox stop --all`: the app's "Free resources", followed as
 // a job, then what it freed.
 func stopAll(cmd *cobra.Command, c *api.Client) error {

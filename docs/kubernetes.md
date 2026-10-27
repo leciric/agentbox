@@ -265,6 +265,15 @@ CSI volume snapshots would make the archive unnecessary where the storage class 
 are not used yet, so every snapshot works on `local-path`, and the archive is gzipped because the
 image does not carry `zstd`.
 
+## Recreating a pod
+
+`agentbox recreate demo/agent-01` replaces a cluster agent's pod and keeps its claim. The home and
+the worktree are on the claim, so the chat sessions and the files stay; the pod's processes and its
+container filesystem do not, and the new pod runs the image the cluster points at now. That is how an
+agent picks up a new image without losing its work, while a restore pins the image its snapshot was
+taken with. An agent on this host is a different case: its machine is the instance, so `recreate` is
+only for one whose machine is gone, and it starts from the base image.
+
 ## Troubleshooting
 
 `agentbox cluster doctor <name>` runs every check, not just the first failure:

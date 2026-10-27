@@ -161,6 +161,16 @@ type ClaimPreparer interface {
 	PrepareClaim(ctx context.Context, claim, from string) error
 }
 
+// Recreator is a Machine the runtime can replace on its own disk: a pod, whose
+// machine is its claim and whose pod is a use of it. Recreating deletes the pod,
+// keeps the claim, and starts a new pod at the image the cluster runs now, with
+// nothing of the old pod's processes or container filesystem. An Incus machine
+// does not implement this: its machine is the instance, and a machine that is
+// gone is what Manager.Recreate makes from the base image.
+type Recreator interface {
+	Recreate(ctx context.Context) error
+}
+
 // GitSnapshotter is a Machine that keeps the git half of a snapshot beside the
 // snapshot itself: a pod has to, because its worktree lives on the claim and
 // this host has no ref for it, and that is also what lets a stopped pod's
