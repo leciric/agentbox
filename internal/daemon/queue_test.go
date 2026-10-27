@@ -66,7 +66,7 @@ func queueTestAgent(t *testing.T, srv *Server, name, reason string) state.Queued
 func TestCreateQueuesWhenNoClusterHasRoom(t *testing.T) {
 	srv, _ := queueTestServer(t, "k3d", map[string]api.ClusterCapacity{"k3d": {Agents: 0, Running: 2}})
 	ctx := context.Background()
-	q := queueTestAgent(t, srv, "agent-09", "all 2 of its agents are running")
+	q := queueTestAgent(t, srv, "agent-09", "it is at its ceiling of 2 agents")
 
 	// The queue is what the app and the CLI read: the agent's state, its
 	// place and the reason are on the agent itself.
@@ -78,7 +78,7 @@ func TestCreateQueuesWhenNoClusterHasRoom(t *testing.T) {
 		t.Fatalf("List() = %+v, want the queued agent", agents)
 	}
 	info := srv.agentInfo(agents[0])
-	if info.QueuePosition != 1 || info.QueueReason != "all 2 of its agents are running" {
+	if info.QueuePosition != 1 || info.QueueReason != "it is at its ceiling of 2 agents" {
 		t.Errorf("listed agent = %+v, want its place and the reason", info)
 	}
 
@@ -135,7 +135,7 @@ func TestCreateWithoutQueueSaysWhatIsFull(t *testing.T) {
 	ctx := context.Background()
 	_, err := srv.createAgentJob(ctx, api.CreateAgentRequest{Project: "pawly", Name: "agent-09", AI: "none"}, false)
 	var noRoom *NoRoomError
-	if !errors.As(err, &noRoom) || err.Error() != "all 4 of its agents are running" {
+	if !errors.As(err, &noRoom) || err.Error() != "its nodes have no room for one more agent, with 2 agents running" {
 		t.Fatalf("createAgentJob() = %v, want the cluster's reason", err)
 	}
 	if q, _ := srv.store.LeftoverQueue(ctx, "pawly"); len(q) != 0 {
@@ -151,7 +151,7 @@ func TestCreateWithoutQueueSaysWhatIsFull(t *testing.T) {
 func TestQueueStartsInLine(t *testing.T) {
 	srv, _ := queueTestServer(t, "k3d", map[string]api.ClusterCapacity{"k3d": {Agents: 0, Running: 4}})
 	ctx := context.Background()
-	first := queueTestAgent(t, srv, "agent-09", "all 4 of its agents are running")
+	first := queueTestAgent(t, srv, "agent-09", "it is at its ceiling of 4 agents")
 	// A second agent, second in line.
 	queue := true
 	req, err := srv.checkCreate(ctx, api.CreateAgentRequest{
@@ -160,7 +160,7 @@ func TestQueueStartsInLine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := srv.queueCreate(ctx, req, false, "all 4 of its agents are running"); err != nil {
+	if _, err := srv.queueCreate(ctx, req, false, "it is at its ceiling of 4 agents"); err != nil {
 		t.Fatal(err)
 	}
 	srv.jobs.wait()

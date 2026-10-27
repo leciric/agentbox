@@ -114,7 +114,7 @@ func TestPlacementRefusesAFullCluster(t *testing.T) {
 	if !errors.As(err, &noRoom) {
 		t.Fatalf("placeAgent(k3d) = %v, want a NoRoomError", err)
 	}
-	if !strings.Contains(err.Error(), "all 4 of its agents are running") {
+	if !strings.Contains(err.Error(), "it is at its ceiling of 4 agents") {
 		t.Errorf("the reason is %q, want it to say the cluster is at its ceiling", err)
 	}
 
