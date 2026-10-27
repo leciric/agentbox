@@ -66,7 +66,7 @@ func TestBaseShowWithNoSavedBase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mustContain(t, out, "hello-stack has no saved base: new agents start from")
+	mustContain(t, out, "hello-stack has no saved base: agents on this host start from")
 
 	if _, err := run(t, "", "base", "show", "no-such-project"); err == nil {
 		t.Error("base show of an unknown project succeeded")

@@ -183,6 +183,38 @@ func TestRecreateOfAPodKeepsItsClaimAndDropsItsPin(t *testing.T) {
 	}
 }
 
+// TestPodSpecRunsTheProjectsImage: a saved project image is what its agents run,
+// by digest when the save recorded one, and a restored agent's pinned image
+// still wins over it.
+func TestPodSpecRunsTheProjectsImage(t *testing.T) {
+	srv := reconcilerServer(t)
+	ctx := context.Background()
+	reconcilerProject(t, srv.store)
+	reconcilerAgent(t, srv.store, "agent-01")
+	a, err := srv.store.Agent(ctx, "pawly", "agent-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cluster := reconcilerCluster()
+
+	if got := srv.podSpec(ctx, cluster, nil, a).Image; got != cluster.Image {
+		t.Errorf("a project with no image runs %q, want the cluster's %q", got, cluster.Image)
+	}
+	if err := srv.store.SetProjectImage(ctx, state.ProjectImage{
+		Project: "pawly", Image: "hub.example/pawly-agent:1", Digest: "sha256:abc",
+		SavedFrom: a.Ref(), SavedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := srv.podSpec(ctx, cluster, nil, a).Image, "hub.example/pawly-agent:1@sha256:abc"; got != want {
+		t.Errorf("the project image = %q, want %q", got, want)
+	}
+	a.Image = "agentbox-agent:snapshot"
+	if got, want := srv.podSpec(ctx, cluster, nil, a).Image, "agentbox-agent:snapshot"; got != want {
+		t.Errorf("a restored agent's pin = %q, want %q", got, want)
+	}
+}
+
 // TestRemoveProjectRefusesBeforeItDeletesAnyMachine checks the order the handler
 // keeps: the store's refusal comes first, so a project that still has agents
 // keeps their pods, tokens and claims. Deleting the machines and refusing after

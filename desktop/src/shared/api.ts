@@ -517,6 +517,7 @@ export interface Base {
   tools?: string;
   behind?: BaseBehind;
   previous?: Base;
+  project?: BaseProjectImage;
 }
 
 export interface BaseBehind {
@@ -540,6 +541,20 @@ export interface BaseToolChange {
 }
 
 export interface SaveBaseRequest {
+  agent: string;
+}
+
+export interface BaseProjectImage {
+  image: string;
+  digest?: string;
+  savedFrom: string;
+  savedAt: string;
+  previous?: BaseProjectImage;
+}
+
+export interface ProjectImageRequest {
+  image: string;
+  digest?: string;
   agent: string;
 }
 

@@ -20,7 +20,7 @@ const tsFile = "../../desktop/src/shared/api.ts"
 var tsTypes = []any{
 	Project{}, ProjectActivity{}, ProjectIcon{}, ProjectIconCandidate{}, SetProjectIconRequest{}, AddProjectRequest{}, CloneProjectRequest{}, UpdateProjectRequest{}, Section{}, AddSectionRequest{}, UpdateSectionRequest{},
 	ProjectLayout{}, SectionProjects{}, SidebarLayout{}, Notes{}, NotesRequest{}, Settings{}, AgentPick{}, ToolAutoUpdate{}, UpdateSettingsRequest{}, Agent{}, WorktreeFiles{}, FileEntry{}, FileList{}, FileStatus{}, FileContent{}, SQLiteTable{}, SQLiteQuery{}, FilesChange{}, ArchivedAgent{}, DeleteArchivedRequest{}, DeleteArchivedResult{}, ContinueArchivedRequest{}, CreateAgentRequest{}, ForkRequest{}, UpdateAgentRequest{},
-	Snapshot{}, SnapshotRequest{}, RestoreRequest{}, Checkpoint{}, RollbackRequest{}, RollbackResult{}, Base{}, BaseBehind{}, BaseImageChange{}, BaseToolChange{}, SaveBaseRequest{},
+	Snapshot{}, SnapshotRequest{}, RestoreRequest{}, Checkpoint{}, RollbackRequest{}, RollbackResult{}, Base{}, BaseBehind{}, BaseImageChange{}, BaseToolChange{}, SaveBaseRequest{}, BaseProjectImage{}, ProjectImageRequest{},
 	StopAgentsRequest{}, StopAgentsResult{}, StoppedAgent{}, StopAgentFailure{},
 	MemoryHold{}, PressureStatus{}, HeavyRun{},
 	Job{}, HostUsage{}, HostPressure{}, AgentUsage{}, Usage{}, DiskUsageItem{}, DiskUsageCategory{}, DiskUsage{}, AgentDisk{}, StoppedMachine{}, StoppedMachines{}, RemoveStoppedRequest{}, RemoveStoppedResult{}, ToolCredential{}, DiskGuard{}, DiskGuardDisk{},

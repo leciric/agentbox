@@ -886,29 +886,56 @@ func (s *Server) getBase(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	m := s.manager(nil)
+	out := api.Base{}
+	found := false
 	base, ok, err := m.ProjectBase(r.Context(), project)
 	if err != nil {
 		return err
 	}
-	if !ok {
-		return fmt.Errorf("project %s has no saved base: %w", project, state.ErrNotFound)
+	if ok {
+		out = apiBase(base)
+		// How far it is behind the image is worth showing but not worth failing
+		// over: a machine whose base image is being rebuilt has none to compare
+		// with for a while.
+		if behind, err := m.BaseBehind(r.Context(), base); err == nil && behind.Any() {
+			out.Behind = apiBaseBehind(behind)
+		}
+		// What the last save replaced, when it kept one: the app offers going back
+		// to it, and says so beside the base that replaced it.
+		if previous, ok, err := m.PreviousBase(r.Context(), project); err != nil {
+			return err
+		} else if ok {
+			was := apiBase(previous)
+			out.Previous = &was
+		}
+		found = true
 	}
-	out := apiBase(base)
-	// How far it is behind the image is worth showing but not worth failing
-	// over: a machine whose base image is being rebuilt has none to compare
-	// with for a while.
-	if behind, err := m.BaseBehind(r.Context(), base); err == nil && behind.Any() {
-		out.Behind = apiBaseBehind(behind)
-	}
-	// What the last save replaced, when it kept one: the app offers going back
-	// to it, and says so beside the base that replaced it.
-	if previous, ok, err := m.PreviousBase(r.Context(), project); err != nil {
+	// The project's own container image is a second base, for its cluster
+	// agents: a project that has agents of both kinds has both.
+	if image, ok, err := s.store.ProjectImage(r.Context(), project); err != nil {
 		return err
 	} else if ok {
-		was := apiBase(previous)
-		out.Previous = &was
+		current := apiProjectImage(image)
+		if previous, ok, err := s.store.PreviousProjectImage(r.Context(), project); err != nil {
+			return err
+		} else if ok {
+			was := apiProjectImage(previous)
+			current.Previous = &was
+		}
+		out.Project = &current
+		found = true
+	}
+	if !found {
+		return fmt.Errorf("project %s has no saved base: %w", project, state.ErrNotFound)
 	}
 	return writeJSON(w, http.StatusOK, out)
+}
+
+// apiProjectImage is a saved project image as the API shows it.
+func apiProjectImage(image state.ProjectImage) api.BaseProjectImage {
+	return api.BaseProjectImage{
+		Image: image.Image, Digest: image.Digest, SavedFrom: image.SavedFrom, SavedAt: image.SavedAt,
+	}
 }
 
 func apiBase(base agent.Base) api.Base {
@@ -990,6 +1017,68 @@ func (s *Server) revertBase(w http.ResponseWriter, r *http.Request) error {
 	}
 	s.events.publish(api.EventProject, api.ProjectChange{Name: project})
 	return writeJSON(w, http.StatusOK, apiBase(base))
+}
+
+// putProjectImage records a project image the CLI has built and pushed. The
+// build happens where Docker and the project's checkout are, which is the CLI's
+// machine; the daemon only records what the registry stored, so every pod the
+// project starts can run it.
+func (s *Server) putProjectImage(w http.ResponseWriter, r *http.Request) error {
+	var req api.ProjectImageRequest
+	if err := readJSON(r, &req); err != nil {
+		return err
+	}
+	project := r.PathValue("project")
+	if _, err := s.store.Project(r.Context(), project); err != nil {
+		return err
+	}
+	image := strings.TrimSpace(req.Image)
+	if image == "" {
+		return errors.New("an image is needed: the reference the registry holds, tag or digest and all")
+	}
+	a, err := s.store.Agent(r.Context(), project, req.Agent)
+	if err != nil {
+		return err
+	}
+	if !a.OnCluster() {
+		return fmt.Errorf("%s runs on this host, where a project base is its machine saved with agentbox base save: a project image is what a cluster agent starts from", a.Ref())
+	}
+	err = s.store.SetProjectImage(r.Context(), state.ProjectImage{
+		Project: project, Image: image, Digest: strings.TrimPrefix(strings.TrimSpace(req.Digest), "@"),
+		SavedFrom: a.Ref(), SavedAt: time.Now().UTC().Truncate(time.Second),
+	})
+	if err != nil {
+		return err
+	}
+	s.events.publish(api.EventProject, api.ProjectChange{Name: project})
+	saved, _, err := s.store.ProjectImage(r.Context(), project)
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, http.StatusOK, apiProjectImage(saved))
+}
+
+// removeProjectImage drops the project's image, so new agents run the cluster's
+// image again. ?previous=1 drops only what the last save kept.
+func (s *Server) removeProjectImage(w http.ResponseWriter, r *http.Request) error {
+	project := r.PathValue("project")
+	if err := s.store.RemoveProjectImage(r.Context(), project, r.URL.Query().Get("previous") != ""); err != nil {
+		return err
+	}
+	s.events.publish(api.EventProject, api.ProjectChange{Name: project})
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+// revertProjectImage puts back the image the last save replaced.
+func (s *Server) revertProjectImage(w http.ResponseWriter, r *http.Request) error {
+	project := r.PathValue("project")
+	image, err := s.store.RevertProjectImage(r.Context(), project)
+	if err != nil {
+		return err
+	}
+	s.events.publish(api.EventProject, api.ProjectChange{Name: project})
+	return writeJSON(w, http.StatusOK, apiProjectImage(image))
 }
 
 // Agents

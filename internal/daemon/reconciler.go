@@ -242,6 +242,18 @@ func (s *Server) notePodFailure(ctx context.Context, a state.Agent, detail strin
 	return s.store.SetAgentStatusDetail(ctx, a.Project, a.Name, detail)
 }
 
+// projectImageRef is the image a project's agents run when the project saved
+// its own, and "" when it has none. It is read on every pod the reconciler
+// makes, so a save reaches an agent the next time it starts; a running pod keeps
+// the image it was made with until it is recreated.
+func (s *Server) projectImageRef(ctx context.Context, project string) string {
+	image, ok, err := s.store.ProjectImage(ctx, project)
+	if err != nil || !ok {
+		return ""
+	}
+	return image.Ref()
+}
+
 // podSpec is the pod one agent of one cluster runs in.
 func (s *Server) podSpec(ctx context.Context, cluster state.Cluster, reg *state.Registry, a state.Agent) k8s.Spec {
 	workspace := a.Workspace
@@ -250,7 +262,12 @@ func (s *Server) podSpec(ctx context.Context, cluster state.Cluster, reg *state.
 	}
 	// A restored agent runs the image its snapshot was taken with: the claim
 	// holds the tools' state, not the tools, so half the machine would be new.
+	// A project that saved its own image runs that, by digest when the save
+	// recorded one; otherwise it runs the cluster's image.
 	image := a.Image
+	if image == "" {
+		image = s.projectImageRef(ctx, a.Project)
+	}
 	if image == "" {
 		image = imageRef(cluster, reg)
 	}

@@ -1309,6 +1309,35 @@ type Base struct {
 	// undone; nil when there is nothing to go back to. It is one step only:
 	// the next save keeps this base and drops that one.
 	Previous *Base `json:"previous,omitempty"`
+	// Project is the project's own container image, which is what a cluster
+	// agent's base is: an image built from .agentbox/agent.Dockerfile rather
+	// than a machine copied from a snapshot. A project can have both, for
+	// agents on this host and agents in a cluster. Snapshot is empty when it
+	// has only this.
+	Project *BaseProjectImage `json:"project,omitempty"`
+}
+
+// BaseProjectImage is a project's own container image, built from its
+// .agentbox/agent.Dockerfile on top of the agent image its cluster runs.
+type BaseProjectImage struct {
+	Image  string `json:"image"`
+	Digest string `json:"digest,omitempty"`
+	// SavedFrom is the agent whose project it was built for, and SavedAt when.
+	SavedFrom string    `json:"savedFrom"`
+	SavedAt   time.Time `json:"savedAt"`
+	// Previous is the image this one replaced, kept by the save for one
+	// revert; nil when there is nothing to go back to.
+	Previous *BaseProjectImage `json:"previous,omitempty"`
+}
+
+// ProjectImageRequest is PUT /v1/projects/{project}/base/image: an image the
+// CLI has already built and pushed, recorded so the project's agents run it.
+type ProjectImageRequest struct {
+	Image string `json:"image"`
+	// Digest is what the registry reported, "sha256:..." or "@sha256:...";
+	// empty for an image a local runtime imported and never pushed.
+	Digest string `json:"digest,omitempty"`
+	Agent  string `json:"agent"`
 }
 
 // BaseBehind is how far a project base is behind the base image.
