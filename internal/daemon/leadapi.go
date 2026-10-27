@@ -127,7 +127,7 @@ func (s *Server) leadRoutes(project string) http.Handler {
 	mux.HandleFunc("POST /v1/project/threads", withProject(s.leadSendToProject))
 	mux.HandleFunc("POST /v1/project/threads/{thread}/replies", withProject(s.leadReplyToProject))
 	mux.HandleFunc("POST /v1/project/threads/{thread}/settle", withProject(s.leadSettleAlignment))
-	// The project's connectors: listed for list_connectors, and relayed to
+	// The project's connectors: listed for list_resources, and relayed to
 	// for the chat's own Claude Code, which is given them as MCP servers.
 	mux.HandleFunc("GET /v1/project/connectors", withProject(func(w http.ResponseWriter, r *http.Request) error {
 		return s.listConnectors(w, r, s.projectConnectorScope)
@@ -157,7 +157,7 @@ func (s *Server) leadRoutes(project string) http.Handler {
 	mux.HandleFunc("PUT /v1/project/skills/{name}", withProject(s.leadEditSkill))
 	mux.HandleFunc("DELETE /v1/project/skills/{name}", withProject(s.leadRemoveSkill))
 	mux.HandleFunc("PUT /v1/project/skills/{name}/switch", withProject(s.leadSwitchSkill))
-	// Scheduled tasks (schedules.go): the lead's schedule_task and the rest.
+	// Scheduled tasks (schedules.go): the lead's schedules tool.
 	s.scheduleRoutes("/v1/project", "lead", func(pattern string, fn func(http.ResponseWriter, *http.Request) error) {
 		mux.HandleFunc(pattern, withProject(fn))
 	})

@@ -18,7 +18,7 @@ import (
 // Scheduled tasks: something a project's lead is to do at a time the user
 // chose — "tomorrow at 9 run the release checks", "every Monday at 8 triage
 // new issues", "in 2 hours check CI on #384". The lead makes them with
-// schedule_task (or the user does, in the app's Schedules or with `agentbox
+// schedules (or the user does, in the app's Schedules or with `agentbox
 // schedule add`), the daemon keeps them in state.db and runs them: a run
 // wakes the lead with the task, the way an agent's finish does (tellLead),
 // shown in its chat as a chip (chat.ShowScheduledRun); or, when the
@@ -350,7 +350,7 @@ func scheduleNotice(sc state.Schedule, run state.ScheduleRun, when string) strin
 	}
 	b.WriteString(" The user set it up for you to do at this time, as if they were asking you now:\n\n" + sc.Task +
 		"\n\nDo it now. If it no longer makes sense (done already, or overtaken), say so briefly instead. " +
-		"edit_schedule, pause_schedule and delete_schedule change it when the user asks.")
+		"schedules (edit, pause or delete) changes it when the user asks.")
 	return b.String()
 }
 

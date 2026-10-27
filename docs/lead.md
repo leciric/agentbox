@@ -36,44 +36,50 @@ flowchart TB
     MCP <--> Daemon
 ```
 
+The model is sent every tool's name, description and schema with each call it makes, so the list
+is kept short: a family of operations on one thing is one tool, with an `action` argument.
+
 **Agents**
-- `create_agent` — create a new agent (name, AI tool, autonomy, Claude/GitHub account, base
-  ref/snapshot). See [An agent's lifecycle](agent-lifecycle.md).
-- `list_agents` — list the project's agents and their status.
+- `create_agent` — create a new agent (title, task, branch, AI tool, model, effort, account,
+  connectors). See [An agent's lifecycle](agent-lifecycle.md).
+- `list_agents` — list the project's agents and their status, or its past (archived) ones.
 - `tell_agent` — send a message into a running agent's chat.
-- `read_agent` — read an agent's chat transcript.
-- `agent_diff` — see an agent's uncommitted/branch diff.
-- `run_in_agent` — run a shell command inside an agent's container.
-- `copy_between_agents` — copy files between two agents' worktrees.
-- `retire_agent` — stop an agent and mark it done without destroying it.
+- `read_agent` — read an agent's chat transcript, or (`show`) its diff or the diff's summary.
+- `run_in_agent` — run a shell command inside an agent's machine.
+- `copy_to_agent` — copy a file or directory into an agent's machine, from another agent's
+  machine (`from`) or from one of the user's projects on the host.
+- `retire_agent` — stop, pause or destroy an agent once it has finished; its work stays on its branch.
+- `checkpoints` — list an agent's checkpoints, roll it back to one, or fork a new agent from one.
+- `fan_out`, `compare_group` — run one task on several agents as a group the user compares, and
+  compare them (with `recommend`, record which one the lead would keep).
 
 **Project memory**
 - `search_memory` — full-text search over memories, events and reports (see
   [Project memory](memory.md)).
 - `remember` — write a memory (kind, title, content, importance), optionally superseding an
   older one.
-- `resolve_memory` — close a memory without replacing it (a bug got fixed, something stopped
-  mattering).
-- `promote_memory` / `dismiss_promotion` — answer an offer in the lead's brief to make a memory
-  many agents were handed into a project note, or to keep it a memory for good (see
-  [Memories that could be notes](memory.md#memories-that-could-be-notes)).
-- `update_working_memory` — merge a patch into the project's single working-memory row (goal,
-  current task, active agents, blockers, notes).
-- `project_state` — a read-only snapshot: working memory, open issues, recent reports.
+- `memory_feedback` — mark a memory wrong, stale or helpful, or `resolved`: closed without
+  replacing it (a bug got fixed, something stopped mattering).
+- `project_state` — where the project stands: working memory, open issues, recent reports. Given
+  fields (goal, current task, active agents, blockers, notes), it updates the working memory.
 
 **Project notes**
-- `read_notes`, `append_note`, `edit_note`, `remove_note` — read and add to the project's notes
-  file, under the lead's own `## From the lead` section (see
-  [Project notes and the brief](notes-and-brief.md)).
+- `notes` — read the project's notes, and add, edit or remove an entry under the lead's own
+  `## From the lead` section (see [Project notes and the brief](notes-and-brief.md)); `promote`
+  and `dismiss` answer an offer in the lead's brief to make a memory many agents were handed into
+  a note (see [Memories that could be notes](memory.md#memories-that-could-be-notes)).
 
-**Questions and decisions**
-- `list_questions`, `answer_question`, `escalate_question` — the other side of `agentbox ask`:
-  see what agents have asked, answer them, or pass one to the user.
+**Questions, skills, schedules and other projects**
+- `questions` — the other side of `agentbox ask`: list what agents have asked, answer one, or
+  escalate one to the user.
+- `skills` — list, read, create, edit, switch on or off, and delete skills.
+- `schedules` — create, list, edit, pause, resume and delete scheduled tasks.
+- `message_project` — message another project's lead, align with it on a topic, reply in a
+  thread, settle an alignment, and list the threads.
 
-**Accounts and secrets**
-- `list_accounts` — Claude/GitHub accounts available to the project, and their current usage
-  limits (see [The token ledger](tokens.md)).
-- `list_secrets` — which secrets exist for the project or an agent (not their values).
+**Accounts, secrets and connectors**
+- `list_resources` — the accounts available to the project and their current usage limits (see
+  [The token ledger](tokens.md)), the names of its secrets (never their values), or its connectors.
 
 Two further MCP servers exist for an agent's own AI tool, not the lead's:
 

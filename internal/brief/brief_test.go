@@ -525,9 +525,9 @@ func TestRenderLeadNotes(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"## Project notes", "- 2026-09-18: the e2e tests need a Postgres on 5432.", "append_note", "read_notes",
+		"## Project notes", "- 2026-09-18: the e2e tests need a Postgres on 5432.", "`notes` appends", "reads them as they are now",
 		// It can change one entry, and only because it was asked to (D82).
-		"`edit_note` and `remove_note`", "**when the user asks you to**",
+		"`edit` and `remove` change one entry", "**when the user asks you to**",
 		"matches nothing, or more than one, changes nothing",
 		// Which store a fact belongs in, and that the user is told which.
 		"### Notes or memory", "pasted into **every** agent's brief", "When in doubt, `remember`",
@@ -547,7 +547,7 @@ func TestRenderLeadNotes(t *testing.T) {
 		t.Errorf("RenderLead() kept notes that are gone:\n%s", text)
 	}
 	// It is still told the notes exist and are its to add to.
-	for _, want := range []string{"## Project notes", "Nothing is written down yet.", "append_note"} {
+	for _, want := range []string{"## Project notes", "Nothing is written down yet.", "`notes` appends"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("RenderLead() without notes is missing %q:\n%s", want, text)
 		}
@@ -560,7 +560,7 @@ func TestRenderLeadNotes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, unwanted := range []string{"append_note", "edit_note", "remove_note", "### Notes or memory"} {
+	for _, unwanted := range []string{"`notes`", "`edit` and `remove`", "### Notes or memory"} {
 		if strings.Contains(text, unwanted) {
 			t.Errorf("RenderLead() offers %s to a lead with no tools:\n%s", unwanted, text)
 		}
@@ -636,7 +636,7 @@ func TestRenderLeadClaudeAccounts(t *testing.T) {
 	for _, want := range []string{
 		"### Spread agents across accounts",
 		"This project may use 2 Claude Code accounts: `personal`, `work`",
-		"`list_accounts`",
+		"`list_resources` (accounts)",
 		"`claude_account` to `create_agent`",
 		"most headroom",
 		"5-hour limit",
@@ -666,7 +666,7 @@ func TestRenderLeadShell(t *testing.T) {
 	for _, want := range []string{
 		"**a shell on the user's machine**", "**It asks first.**",
 		"Ask before anything you can't take back",
-		"isn't somewhere to keep work.", "`run_in_agent`", "`copy_between_agents`", "`copy_to_agent`",
+		"isn't somewhere to keep work.", "`run_in_agent`", "`copy_to_agent` with `from`", "`copy_to_agent`",
 		// Output costs tokens, and real work is still an agent's.
 		"stays in this conversation", "`| tail -n 20`", "when a job turns into a session, it is an agent's",
 	} {

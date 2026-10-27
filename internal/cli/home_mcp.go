@@ -101,11 +101,10 @@ func homeTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				"title":   str("a short name the user will recognise in the sidebar, like \"Reminders page\""),
 				"task":    str("what to do, directly: usually a few lines"),
 				"branch":  str("its branch, after the project's prefix: short lowercase kebab-case naming the work, like \"fix-login-redirect\""),
-				"size":    sizeParam,
 			}),
 			Run: func(args json.RawMessage) (string, error) {
 				var in struct {
-					Project, Title, Task, Branch, Size string
+					Project, Title, Task, Branch string
 				}
 				if err := decode(args, &in); err != nil {
 					return "", err
@@ -119,7 +118,7 @@ func homeTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				autonomous := true
 				job, err := c.CreateAgent(ctx, api.CreateAgentRequest{
 					Project: in.Project, Title: in.Title, Task: in.Task, Branch: in.Branch,
-					AI: "claude", Autonomous: &autonomous, Size: in.Size,
+					AI: "claude", Autonomous: &autonomous,
 				})
 				if err != nil {
 					return "", err

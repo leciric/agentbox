@@ -210,7 +210,7 @@ type ChatItem struct {
 }
 
 // ChatProjectMessage is a message one project's lead sent another's
-// (message_project, reply_project), or an alignment between them settled:
+// (message_project), or an alignment between them settled:
 // shown in both projects' chats, from each one's side.
 type ChatProjectMessage struct {
 	// Project is the other project: who sent it, or who it went to.

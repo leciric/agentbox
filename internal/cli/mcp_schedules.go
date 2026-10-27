@@ -12,31 +12,13 @@ import (
 	"agentbox/internal/mcp"
 )
 
-// scheduleTools are the lead's scheduled tasks (internal/daemon/schedules.go):
+// scheduleTool is the lead's scheduled tasks (internal/daemon/schedules.go):
 // something to do at a time the user chose, which wakes this same chat with
 // the task when it falls due, or creates an agent with it.
-func scheduleTools(ctx context.Context, c *api.Client, decode func(json.RawMessage, any) error) []mcp.Tool {
+func scheduleTool(ctx context.Context, c *api.Client) mcp.Tool {
 	zone := "the user's timezone"
 	if settings, err := c.ProjectSettings(ctx); err == nil && settings.Timezone != "" {
 		zone = "the user's timezone, " + settings.Timezone
-	}
-	when := map[string]any{
-		"at": str("when to run it once: a date and time like \"2026-10-19 09:00\" (in " + zone +
-			" unless timezone says otherwise), RFC 3339 with an offset, or just \"09:00\" for the next time the clock shows it"),
-		"in":       str("instead of at: how long from now, like \"2h\", \"90m\" or \"1d\""),
-		"every":    str("to repeat on an interval, like \"6h\" or \"1d\" (5m at least), counted from at or in when given, else from now"),
-		"cron":     str("to repeat on a calendar: a five-field cron expression, like \"0 8 * * 1\" for Mondays at 08:00 or \"30 9 * * 1-5\" for weekdays at 09:30, read in timezone"),
-		"timezone": str("an IANA timezone such as Europe/Lisbon; leave it out for " + zone),
-	}
-	options := map[string]any{
-		"title":   str("a short name for the list, like \"Release checks\"; leave it out to use the task's first line"),
-		"target":  choiceOf("lead (the default) wakes you with the task in this chat; agent creates an agent with the task as its first message", "lead", "agent"),
-		"session": choiceOf("for target agent: fresh (the default) makes a new agent each run; reuse tells the agent the last run made, while it is still there", "fresh", "reuse"),
-		"model":   str("for target agent: the model a new agent starts on; leave it out for the project's default"),
-		"effort":  str("for target agent: its effort; leave it out for the project's default"),
-		"precheck": str("a shell command run in the project's checkout before each run; when it exits non-zero the run is skipped " +
-			"(e.g. `gh pr list --search 'is:open' | grep -q .`)"),
-		"grace_minutes": map[string]any{"type": "integer", "description": "how late a run missed while AgentBox wasn't running may still run; later than that it is skipped. Leave it out to run it however late."},
 	}
 	type request struct {
 		Title, Task, At, In, Every, Cron, Timezone, Target, Session, Model, Effort, Precheck *string
@@ -49,114 +31,104 @@ func scheduleTools(ctx context.Context, c *api.Client, decode func(json.RawMessa
 			Target: in.Target, Session: in.Session, Model: in.Model, Effort: in.Effort, Precheck: in.Precheck, GraceMinutes: in.GraceMinutes,
 		}
 	}
-	return []mcp.Tool{
-		{
-			Name: "schedule_task",
-			Description: "Schedule something for later, when the user asks for it at a time: \"tomorrow at 9 run the " +
-				"release checks\", \"every Monday 8am triage new issues\", \"in 2 hours check CI on #384\". When it falls " +
-				"due, AgentBox wakes you in this chat with the task, as if the user had just asked (or, with target agent, " +
-				"creates an agent with it). Give the task in full, for a you who has forgotten this conversation; and one " +
-				"of at, in, every or cron. Times are in " + zone + ". A run missed while AgentBox wasn't running runs once " +
-				"when it is back, marked late. The user sees and changes it in the project's Schedules. Tell them, in " +
-				"their words, when it will next run.",
-			Schema: object([]string{"task"}, merge(merge(map[string]any{
-				"task": str("what to do when it runs, self-contained: what to check or do, and what to report"),
-			}, when), options)),
-			Run: func(args json.RawMessage) (string, error) {
-				var in request
-				if err := decode(args, &in); err != nil {
-					return "", err
-				}
-				sc, err := c.LeadAddSchedule(ctx, toRequest(in))
-				if err != nil {
-					return "", err
-				}
-				return "Scheduled. " + describeSchedule(sc), nil
-			},
-		},
-		{
-			Name:        "list_schedules",
-			Description: "This project's scheduled tasks: when each runs next, how its last run went, and its id for edit_schedule, pause_schedule and delete_schedule.",
-			Run: func(json.RawMessage) (string, error) {
-				list, err := c.LeadSchedules(ctx)
-				if err != nil {
-					return "", err
-				}
-				if len(list) == 0 {
-					return "This project has no scheduled tasks. schedule_task makes one.", nil
-				}
-				var b strings.Builder
-				for _, sc := range list {
-					b.WriteString("- " + describeSchedule(sc) + "\n")
-				}
-				fmt.Fprintf(&b, "\nNow: %s.", time.Now().Format("Mon 2 Jan 2006 15:04 MST"))
-				return b.String(), nil
-			},
-		},
-		{
-			Name: "edit_schedule",
-			Description: "Change one of this project's scheduled tasks, when the user asks: its task, its title, when it " +
-				"runs (one of at, in, every or cron replaces the old timing), or what a run does. Fields left out stay as they are.",
-			Schema: object([]string{"id"}, merge(merge(map[string]any{
-				"id":   str("the schedule's id, from list_schedules"),
-				"task": str("what it should do instead"),
-			}, when), options)),
-			Run: func(args json.RawMessage) (string, error) {
-				var in request
-				if err := decode(args, &in); err != nil {
-					return "", err
-				}
-				if in.ID == "" {
-					return "", errors.New("name the schedule by its id, from list_schedules")
-				}
-				sc, err := c.LeadUpdateSchedule(ctx, in.ID, toRequest(in))
-				if err != nil {
-					return "", err
-				}
-				return "Changed. " + describeSchedule(sc), nil
-			},
-		},
-		{
-			Name:        "pause_schedule",
-			Description: "Pause one of this project's scheduled tasks, or resume it (paused false). Resumed, it carries on from its next time after now; what it missed while paused doesn't run.",
-			Schema: object([]string{"id"}, map[string]any{
-				"id":     str("the schedule's id, from list_schedules"),
-				"paused": map[string]any{"type": "boolean", "description": "false resumes it; leave it out to pause"},
-			}),
-			Run: func(args json.RawMessage) (string, error) {
-				in := struct {
-					ID     string
-					Paused *bool
-				}{}
-				if err := decode(args, &in); err != nil {
-					return "", err
-				}
-				paused := in.Paused == nil || *in.Paused
-				sc, err := c.LeadUpdateSchedule(ctx, in.ID, api.ScheduleRequest{Paused: &paused})
-				if err != nil {
-					return "", err
-				}
-				return describeSchedule(sc), nil
-			},
-		},
-		{
-			Name:        "delete_schedule",
-			Description: "Delete one of this project's scheduled tasks, and the history of its runs, when the user asks. Say which it was, by its title.",
-			Schema: object([]string{"id"}, map[string]any{
-				"id": str("the schedule's id, from list_schedules"),
-			}),
-			Run: func(args json.RawMessage) (string, error) {
-				var in struct{ ID string }
-				if err := decode(args, &in); err != nil {
-					return "", err
-				}
-				if err := c.LeadRemoveSchedule(ctx, in.ID); err != nil {
-					return "", err
-				}
-				return "Deleted.", nil
-			},
-		},
+	read := func(raw json.RawMessage) (request, error) {
+		var in request
+		if err := decodeArgs(raw, &in); err != nil {
+			return in, err
+		}
+		if in.ID == "" {
+			return in, errors.New("name the schedule by its id, from list")
+		}
+		return in, nil
 	}
+	pause := func(paused bool) func(json.RawMessage) (string, error) {
+		return func(raw json.RawMessage) (string, error) {
+			in, err := read(raw)
+			if err != nil {
+				return "", err
+			}
+			sc, err := c.LeadUpdateSchedule(ctx, in.ID, api.ScheduleRequest{Paused: &paused})
+			if err != nil {
+				return "", err
+			}
+			return describeSchedule(sc), nil
+		}
+	}
+	return actionTool("schedules",
+		"Tasks for later, when the user asks for one at a time: \"tomorrow at 9 run the release checks\", \"every Monday 8am "+
+			"triage new issues\". When one falls due AgentBox wakes you in this chat with its task, as if the user had just asked "+
+			"(or, with target agent, creates an agent with it); a run missed while AgentBox was off runs once when it is back, marked "+
+			"late. The user sees them in the project's Schedules. Tell them, in their words, when it will next run.",
+		"create: task, with one of at, in, every or cron. list: each one, its next run, last run and id. edit: id's fields that "+
+			"are given (one of at, in, every or cron replaces its timing). pause, resume: id; resumed, it carries on from its next "+
+			"time, and what it missed doesn't run. delete: id and its runs' history, when the user asks",
+		map[string]any{
+			"id":       str("edit, pause, resume, delete: the schedule's id"),
+			"task":     str("what to do when it runs, self-contained for a you who has forgotten this conversation: what to check or do, and what to report"),
+			"at":       str("once at a time like \"2026-10-19 09:00\" (in " + zone + " unless timezone), RFC 3339, or \"09:00\" for the next time the clock shows it"),
+			"in":       str("once after a while, like \"2h\" or \"1d\""),
+			"every":    str("repeat on an interval, like \"6h\" (5m at least), from at or in when given, else from now"),
+			"cron":     str("repeat on a calendar: five-field cron, like \"0 8 * * 1\" for Mondays at 08:00, read in timezone"),
+			"timezone": str("an IANA timezone like Europe/Lisbon; " + zone + " by default"),
+			"title":    str("a short name for the list; the task's first line by default"),
+			"target":   choiceOf("lead (the default) wakes you with the task; agent creates an agent with it as its first message", "lead", "agent"),
+			"session":  choiceOf("target agent: fresh (the default) makes a new agent each run; reuse tells the last run's agent, while it is there", "fresh", "reuse"),
+			"model":    str("target agent: its model; the project's default when left out"),
+			"effort":   str("target agent: its effort; the project's default when left out"),
+			"precheck": str("a shell command run in the project's checkout before each run, which skips the run when it exits non-zero " +
+				"(e.g. `gh pr list --search 'is:open' | grep -q .`)"),
+			"grace_minutes": map[string]any{"type": "integer", "description": "how late a missed run may still run; however late when left out"},
+		},
+		action{"create", func(raw json.RawMessage) (string, error) {
+			var in request
+			if err := decodeArgs(raw, &in); err != nil {
+				return "", err
+			}
+			sc, err := c.LeadAddSchedule(ctx, toRequest(in))
+			if err != nil {
+				return "", err
+			}
+			return "Scheduled. " + describeSchedule(sc), nil
+		}},
+		action{"list", func(json.RawMessage) (string, error) {
+			list, err := c.LeadSchedules(ctx)
+			if err != nil {
+				return "", err
+			}
+			if len(list) == 0 {
+				return "This project has no scheduled tasks. create makes one.", nil
+			}
+			var b strings.Builder
+			for _, sc := range list {
+				b.WriteString("- " + describeSchedule(sc) + "\n")
+			}
+			fmt.Fprintf(&b, "\nNow: %s.", time.Now().Format("Mon 2 Jan 2006 15:04 MST"))
+			return b.String(), nil
+		}},
+		action{"edit", func(raw json.RawMessage) (string, error) {
+			in, err := read(raw)
+			if err != nil {
+				return "", err
+			}
+			sc, err := c.LeadUpdateSchedule(ctx, in.ID, toRequest(in))
+			if err != nil {
+				return "", err
+			}
+			return "Changed. " + describeSchedule(sc), nil
+		}},
+		action{"pause", pause(true)},
+		action{"resume", pause(false)},
+		action{"delete", func(raw json.RawMessage) (string, error) {
+			in, err := read(raw)
+			if err != nil {
+				return "", err
+			}
+			if err := c.LeadRemoveSchedule(ctx, in.ID); err != nil {
+				return "", err
+			}
+			return "Deleted.", nil
+		}},
+	)
 }
 
 // describeSchedule is one schedule in a line, for the lead and the command

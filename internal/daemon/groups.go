@@ -34,8 +34,8 @@ import (
 //   - keepGroup settles it on one: the others are retired (stopped, their
 //     branches and worktrees kept) and the kept one is told to open its pull
 //     request, after which it goes to review like any agent.
-//   - judgeGroup asks the lead to compare them and recommend one with
-//     recommend_agent; the user still decides.
+//   - judgeGroup asks the lead to compare them and recommend one
+//     (compare_group's recommend); the user still decides.
 
 // groupLetters label a group's agents in the order it asked for them.
 const groupLetters = "ABCDEF"
@@ -314,8 +314,8 @@ func memberList(g state.Group) string {
 // judgeAsk is what asks the lead to judge a group. Where the agents agree is
 // worth saying: the same change made independently is likely right.
 func judgeAsk(g state.Group) string {
-	return fmt.Sprintf("You were asked to judge them: read compare_group %s, look at their diffs (agent_diff) and what they showed, "+
-		"and call recommend_agent with the one you would keep and why, in two or three sentences: what it got right that the others "+
+	return fmt.Sprintf("You were asked to judge them: read compare_group(group %s), look at their diffs (read_agent, show diff) and what they showed, "+
+		"and call compare_group with recommend, the one you would keep, and why, in two or three sentences: what it got right that the others "+
 		"didn't, what they all agree on, and anything the pick still lacks. Then say the same to the user in a line. Don't keep or retire "+
 		"any of them: the user decides.", g.ID)
 }

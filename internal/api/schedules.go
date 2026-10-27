@@ -11,7 +11,7 @@ import (
 // once ("tomorrow at 9 run the release checks") or again and again ("every
 // Monday at 8 triage new issues"). Each run wakes the lead with the task, or
 // creates an agent with it. The daemon owns them; the app, the command line
-// and the lead's schedule_task tool all go through these routes.
+// and the lead's schedules tool all go through these routes.
 
 // What a schedule's run does: Schedule.Target.
 const (
