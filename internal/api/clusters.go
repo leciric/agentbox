@@ -169,11 +169,15 @@ type ClusterCheck struct {
 // ClusterDetail is GET /v1/clusters/{name}/detail: what the cluster holds right
 // now, for its page. It is a snapshot rather than a watch: the page asks again.
 type ClusterDetail struct {
-	Cluster Cluster        `json:"cluster"`
-	Pods    []ClusterPod   `json:"pods,omitempty"`
-	Claims  []ClusterClaim `json:"claims,omitempty"`
-	Events  []ClusterEvent `json:"events,omitempty"`
-	Queue   []ClusterQueue `json:"queue,omitempty"`
+	Cluster Cluster `json:"cluster"`
+	// Error is why the lists from the cluster are empty, when it couldn't be
+	// read. The cluster's own LastError is the doctor's, and is left alone: a
+	// detail read is not a check of the image or the registry.
+	Error  string         `json:"error,omitempty"`
+	Pods   []ClusterPod   `json:"pods,omitempty"`
+	Claims []ClusterClaim `json:"claims,omitempty"`
+	Events []ClusterEvent `json:"events,omitempty"`
+	Queue  []ClusterQueue `json:"queue,omitempty"`
 }
 
 // ClusterPod is one pod in the cluster's namespace, which is one agent's

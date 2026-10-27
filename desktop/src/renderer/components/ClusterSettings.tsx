@@ -382,6 +382,7 @@ function ClusterDetailDialog({ cluster, open, onOpenChange }: { cluster: T.Clust
         </DialogHeader>
         {detail.isPending && <SettingNote>{t('common.loading')}</SettingNote>}
         {detail.error && <Notice>{errorMessage(detail.error)}</Notice>}
+        {data?.error && <Notice>{data.error}</Notice>}
         {data && (
           <div className="grid max-h-[60vh] min-w-0 gap-5 overflow-y-auto pr-1">
             <DetailSection title={t('settings.clusters.pods')} empty={t('settings.clusters.noPods')} count={data.pods?.length ?? 0}>

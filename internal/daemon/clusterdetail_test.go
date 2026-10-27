@@ -151,9 +151,9 @@ func TestClusterDetailListsPodsClaimsEventsAndTheQueue(t *testing.T) {
 }
 
 // TestClusterDetailShowsTheClusterWhenItCannotBeReached: an unreachable cluster
-// is a page with the cluster, its health and its queue, not an error. The lists
-// from the cluster are empty, and the reason is where the list and the doctor
-// read it.
+// is a page with the cluster, why it could not be read and its queue, not an
+// error. The lists from the cluster are empty and Error says why; the cluster's
+// health is what the doctor found and is left alone.
 func TestClusterDetailShowsTheClusterWhenItCannotBeReached(t *testing.T) {
 	srv := reconcilerServer(t)
 	ctx := context.Background()
@@ -175,7 +175,7 @@ func TestClusterDetailShowsTheClusterWhenItCannotBeReached(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
 		t.Fatalf("the detail isn't JSON: %v\n%s", err, rec.Body.String())
 	}
-	if detail.Cluster.Name != "k3d" || detail.Cluster.LastError == "" {
+	if detail.Cluster.Name != "k3d" || detail.Error == "" {
 		t.Errorf("the cluster = %+v, want it named with why it couldn't be read", detail.Cluster)
 	}
 	if len(detail.Pods) != 0 || len(detail.Claims) != 0 || len(detail.Events) != 0 {
@@ -188,8 +188,8 @@ func TestClusterDetailShowsTheClusterWhenItCannotBeReached(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored.LastError == "" {
-		t.Error("the failure wasn't kept as the cluster's health")
+	if stored.LastError != "" {
+		t.Errorf("the cluster's health = %q after a failed detail read, want the doctor's word kept", stored.LastError)
 	}
 }
 

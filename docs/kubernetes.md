@@ -235,9 +235,9 @@ on a bad reference), the claims the agents' work lives on, the agents of the que
 there with their place in line, and the namespace's last fifty events, newest first. A node's event is
 in that list even though AgentBox did not make it: it is what explains a pod that stays `Pending`. A
 cluster the daemon cannot reach still shows its card and its queue; the dialog says why its lists are
-empty, and that reason is kept as the cluster's health. Reading events needs `list` on them: a cluster
-added by an earlier release does not have it, and `agentbox cluster rotate <name> --kubeconfig
-<admin>` applies AgentBox's access again so the events appear.
+empty, and the cluster's own health stays what the last Doctor run found. Reading events needs `list`
+on them: a cluster added by an earlier release does not have it, and `agentbox cluster rotate <name>
+--kubeconfig <admin>` applies AgentBox's access again so the events appear.
 
 ## Sizes, disk and capacity
 

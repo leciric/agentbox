@@ -3857,6 +3857,7 @@ export interface ClusterCheck {
 
 export interface ClusterDetail {
   cluster: Cluster;
+  error?: string;
   pods?: ClusterPod[];
   claims?: ClusterClaim[];
   events?: ClusterEvent[];
