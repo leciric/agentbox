@@ -235,6 +235,10 @@ type Server struct {
 	// sweep's or the user's (removestopped.go).
 	removingStopped sync.Mutex
 
+	// clusters are the Kubernetes clients the daemon holds, by cluster and by
+	// the sealed kubeconfig they were built from (clusters.go).
+	clusters clusterClients
+
 	mu           sync.Mutex
 	agentAPIs    map[string]*http.Server // in-agent API servers, by instance
 	retired      map[string]bool         // agents a stop-retire stopped, by ref (markRetired)
@@ -635,6 +639,9 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 	loops.Go(func() { s.syncBases(ctx) })
 	// Incus is asked only from here on: nothing before Serve may wait on it.
 	loops.Go(func() { s.watchIncus(ctx) })
+	// And every cluster an agent runs in, which is where those agents' machines
+	// are (reconciler.go).
+	loops.Go(func() { s.reconcileClusters(ctx) })
 	loops.Go(func() { s.dropOldLimits(ctx) })
 	// Docker's firewall drops what the Incus bridge forwards, and a Docker
 	// Desktop that starts after this daemon rebuilds the chain without our rules.

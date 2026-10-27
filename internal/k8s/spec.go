@@ -54,6 +54,26 @@ func PodTokenSecretName(project, agent string) string { return PodName(project, 
 // two.
 const DefaultWorkspaceSize = "20Gi"
 
+// What agentd reads on start, as the container's environment. They are here, with
+// the pod that carries them, so the master and the agent can't disagree about a
+// name.
+const (
+	// EnvRef is <project>/<agent>.
+	EnvRef = "AGENTBOX_REF"
+	// EnvBranch is the branch it works on.
+	EnvBranch = "AGENTBOX_BRANCH"
+	// EnvBaseCommit is the commit that branch starts from.
+	EnvBaseCommit = "AGENTBOX_BASE_COMMIT"
+	// EnvMasterURL is where it opens its session, as this machine is reached
+	// from the cluster.
+	EnvMasterURL = "AGENTBOX_MASTER_URL"
+	// EnvTokenFile is TokenFile: where its session token is.
+	EnvTokenFile = "AGENTBOX_TOKEN_FILE"
+	// EnvWorkspace is where its worktree goes, WorkspaceDir unless the cluster
+	// says otherwise.
+	EnvWorkspace = "AGENTBOX_WORKSPACE"
+)
+
 // Spec is one agent's pod, as the daemon builds it.
 type Spec struct {
 	// Cluster, Project and Agent name it. Its labels carry all three, which is
