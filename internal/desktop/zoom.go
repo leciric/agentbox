@@ -36,12 +36,14 @@ import (
 // zoom in on usefully is the whole screen.
 
 const (
-	zoomMax  = 2.0  // the closest the camera goes in
-	zoomMin  = 1.35 // closer than the whole screen by less than this isn't worth moving for
-	zoomPad  = 260  // pixels of the screen kept around a shot's clicks, at zoom 1
-	zoomLead = 0.5  // seconds the camera arrives before a shot's first click
-	zoomEase = 0.7  // seconds a move takes
-	zoomHold = 1.4  // seconds the camera stays after a shot's last click
+	zoomMax = 2.0  // the closest the camera goes in
+	zoomMin = 1.35 // closer than the whole screen by less than this isn't worth moving for
+	// zoomPad is how much of the screen is kept around a shot's clicks: this
+	// share of its width.
+	zoomPad  = 0.18
+	zoomLead = 0.5 // seconds the camera arrives before a shot's first click
+	zoomEase = 0.7 // seconds a move takes
+	zoomHold = 1.4 // seconds the camera stays after a shot's last click
 	// zoomHoldMin is the least it stays, when a new chapter calls it back.
 	zoomHoldMin = 0.5
 	// zoomGap is how long the input may stop for and still be one shot.
@@ -235,7 +237,8 @@ func (e Edit) Plan() []Shot {
 
 // fit is how far the camera can zoom in and still show box with its padding.
 func (e Edit) fit(box image.Rectangle) float64 {
-	w, h := float64(box.Dx()+2*zoomPad), float64(box.Dy()+2*zoomPad)
+	pad := zoomPad * float64(e.Size.X)
+	w, h := float64(box.Dx())+2*pad, float64(box.Dy())+2*pad
 	return math.Min(zoomMax, math.Min(float64(e.Size.X)/w, float64(e.Size.Y)/h))
 }
 
@@ -329,7 +332,6 @@ func (e Edit) cards(dir string, shots []Shot) ([]overlayCard, error) {
 		out = append(out, overlayCard{file: file, at: at, from: from, to: to})
 		return err
 	}
-	opening := 0.0
 	if strings.TrimSpace(e.Title) != "" {
 		img, err := titleCard(e.Size, e.Title, e.Subtitle)
 		if err != nil {
@@ -338,7 +340,6 @@ func (e Edit) cards(dir string, shots []Shot) ([]overlayCard, error) {
 		if err := save(img, image.Point{}, 0, titleShow); err != nil {
 			return nil, err
 		}
-		opening = titleShow - fadeOut
 	}
 	type chapter struct {
 		at   float64
@@ -355,12 +356,12 @@ func (e Edit) cards(dir string, shots []Shot) ([]overlayCard, error) {
 		end = e.Cuts.Recorded - e.Cuts.removed()
 	}
 	for i, c := range chapters {
-		// A caption waits for the title card to go, and gives way to the
-		// next chapter's.
-		from := math.Max(c.at, opening)
+		// A caption gives way to the next chapter's. One over the title
+		// card is clear of its title, in the middle.
+		from := c.at
 		to := from + math.Min(noteShowMax, noteShow+noteShowWord*float64(len(strings.Fields(c.text))))
 		if i+1 < len(chapters) {
-			to = math.Min(to, math.Max(chapters[i+1].at, opening))
+			to = math.Min(to, chapters[i+1].at)
 		}
 		to = math.Min(to, end)
 		if to-from < fadeIn+fadeOut {
