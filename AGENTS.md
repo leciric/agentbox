@@ -66,6 +66,26 @@ AgentBox runs in a VM, and the `agentbox` on the user's machine is that VM's fro
   titles, so a PR's title is its changelog line: write it for a user. `feat:` is Added, `fix:`/`perf:`
   Fixed, `refactor:` Changed; `test:`, `ci:`, `docs:` and `chore:` don't appear.
 
+## Delegation
+
+The main session keeps the plan, the decisions and the final check, and a long
+session depends on it staying small. Work that can be stated as a goal goes to a
+subagent.
+
+- Split before the first edit. Three or more independent areas, or ten or more
+  files, means subagents first, each with a disjoint file list.
+- A file over about 800 lines is read by an `explore` subagent, never inline. Ask
+  for the map of the sections, the call sites and the tests, not the text.
+- Write each brief as a self-contained goal: the repo, the files it owns, what
+  done means, and the command that proves it. A child session starts with none of
+  this session's context.
+- Verify the report and the diff in the main session before committing. The main
+  session owns the tree and the claim that it works.
+- When the user says to use agents or to keep the context low, spawn them now.
+  The 2026-10-27 build session made more than 900 tool calls and spawned its first
+  subagent at call 790, only because a 4,048-line file forced it. After the user
+  named the missing behaviour, the same model spawned eleven in nine minutes.
+
 ## Build and test
 
 ```bash
@@ -108,9 +128,6 @@ rerunning a failure that had already answered.
   `TMPDIR=/t` when `/t` exists, or keep test and subtest names short, as
   `internal/cli/cluster_test.go` and `internal/daemon/pulls_test.go` do.
 - Start a 150-second test in the background and keep editing. Read its result before the commit.
-- Use an Explore subagent for breadth, such as every call site of a symbol or a separate desktop
-  workstream. It keeps file reads out of the main conversation and does not make a package test
-  faster, so do not use it for that. The build session made 671 tool calls without one.
 
 [CI](.github/workflows/ci.yml) is billed by the minute (the repository is private; macOS 10x,
 Windows 2x), so a run runs only what its files can break. A first job checks the PR title as a
