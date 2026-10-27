@@ -326,6 +326,7 @@ func NewRootCmd() *cobra.Command {
 		newDockerCacheCmd(a),
 		newPackageCacheCmd(a),
 		newDiskCmd(a),
+		newBackupCmd(a),
 		newInterfaceCmd(a),
 		newShellCmd(a),
 		newExecCmd(a),

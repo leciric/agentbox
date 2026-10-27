@@ -53,6 +53,8 @@ flowchart LR
 - [Installing AgentBox](install.md) — the install script and what it checks, KVM access, AgentBox's
   VM on Linux and how its agents share memory, moving an installation from before the VM, and macOS
   and Windows.
+- [Backups and restoring](backup.md): what a backup of AgentBox's own state holds, how to take one,
+  the restore script for a fresh machine, and what stays out of it.
 - [What AgentBox sends](privacy.md) — the update check, anonymous usage stats and events, and
   problem reports: every field, and how to turn each off.
 - [Architecture](architecture.md) — the daemon, the API over a unix socket, the CLI, the desktop
