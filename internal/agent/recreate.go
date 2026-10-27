@@ -49,6 +49,12 @@ func (m *Manager) Recreate(ctx context.Context, a state.Agent, opts RecreateOpti
 	if a.IsLead() {
 		return fmt.Errorf("%s is its project's chat, which has no machine", a.Ref())
 	}
+	if a.OnCluster() {
+		// A pod's tree is on the claim, not on a worktree of this host: the pod
+		// is the cluster's to recreate from that claim, which is the Kubernetes
+		// lifecycle's job, not this Incus-shaped one's.
+		return fmt.Errorf("%s runs on cluster %s, where the cluster recreates its pod from its claim: this recreates the machine of an agent on this host", a.Ref(), a.Cluster)
+	}
 	p, repo, err := m.project(ctx, a.Project)
 	if err != nil {
 		return err

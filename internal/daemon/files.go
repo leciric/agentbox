@@ -38,7 +38,9 @@ func newFilesCache() *filesCache {
 	return &filesCache{entries: map[string]filesEntry{}, now: time.Now}
 }
 
-func (c *filesCache) list(ref, worktree string) ([]string, bool, error) {
+// list is one agent's file listing, from the cache when it is fresh and from
+// load otherwise.
+func (c *filesCache) list(ref string, load func() ([]string, bool, error)) ([]string, bool, error) {
 	c.mu.Lock()
 	if e, ok := c.entries[ref]; ok && c.now().Sub(e.at) < filesTTL {
 		c.mu.Unlock()
@@ -46,7 +48,7 @@ func (c *filesCache) list(ref, worktree string) ([]string, bool, error) {
 	}
 	c.mu.Unlock()
 
-	files, truncated, err := gitrepo.ListFiles(worktree, filesLimit)
+	files, truncated, err := load()
 
 	c.mu.Lock()
 	c.entries[ref] = filesEntry{files: files, truncated: truncated, err: err, at: c.now()}
@@ -69,8 +71,18 @@ func (s *Server) listFiles(from agentFrom) func(http.ResponseWriter, *http.Reque
 			// AgentBox's own folder, not a repository: nothing to mention.
 			return writeJSON(w, http.StatusOK, api.WorktreeFiles{Files: []string{}})
 		}
-		root := a.Worktree
-		if root == "" {
+		var load func() ([]string, bool, error)
+		switch {
+		case a.OnCluster():
+			// A cluster agent's tree is inside its pod, on the cluster's claim,
+			// where this host has no path: the workspace asks the pod over the
+			// agent gateway. A stopped pod fails, and says to start it.
+			m := s.manager(nil)
+			load = func() ([]string, bool, error) { return m.Files(r.Context(), a, filesLimit) }
+		case a.Worktree != "":
+			root := a.Worktree
+			load = func() ([]string, bool, error) { return gitrepo.ListFiles(root, filesLimit) }
+		default:
 			// The project's chat hasn't started yet, so it has no worktree of its
 			// own: its files are the main checkout's, same as what its first
 			// message will stand on.
@@ -78,9 +90,9 @@ func (s *Server) listFiles(from agentFrom) func(http.ResponseWriter, *http.Reque
 			if err != nil {
 				return err
 			}
-			root = p.Root
+			load = func() ([]string, bool, error) { return gitrepo.ListFiles(p.Root, filesLimit) }
 		}
-		files, truncated, err := s.files.list(a.Ref(), root)
+		files, truncated, err := s.files.list(a.Ref(), load)
 		if err != nil {
 			return err
 		}

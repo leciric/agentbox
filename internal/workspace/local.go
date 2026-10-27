@@ -86,6 +86,16 @@ func (w Local) Restore(ctx context.Context, commit string) error {
 	return gitrepo.RestoreWorktree(w.Dir, commit)
 }
 
+// ResolveCommit returns the commit a revision names in the worktree.
+func (w Local) ResolveCommit(ctx context.Context, rev string) (string, error) {
+	return gitrepo.Repo{Root: w.Dir}.ResolveCommit(rev)
+}
+
+// DeleteRef removes a ref from the worktree's repository.
+func (w Local) DeleteRef(ctx context.Context, ref string) error {
+	return gitrepo.Repo{Root: w.Dir}.DeleteRef(ref)
+}
+
 // Status reads whether the worktree is on disk and whether git sees changes in
 // it. A worktree that isn't there is not an error: there is nothing dirty in
 // one that doesn't exist.
