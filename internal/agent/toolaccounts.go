@@ -1,16 +1,19 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"agentbox/internal/credentials"
+	"agentbox/internal/opencode"
 	"agentbox/internal/state"
 )
 
@@ -164,16 +167,62 @@ func toolAuthFile(tool string) string {
 	return cursorAuthFile
 }
 
+// openCodeChosen is the account each OpenCode provider's login comes from:
+// the agent's own accounts when it has any, else its project's.
+func openCodeChosen(p state.Project, a state.Agent) state.AccountMap {
+	chosen := p.OpenCodeAccounts.Clean()
+	if len(a.OpenCodeAccounts) > 0 {
+		chosen = a.OpenCodeAccounts.Clean()
+	}
+	return chosen
+}
+
+// openCodeImportMarker is where an OpenCode 2 agent keeps the credentials last
+// imported into it, so a chat that starts with the same accounts doesn't pay
+// for an import that would change nothing.
+const openCodeImportMarker = ".config/opencode/.agentbox-accounts.json"
+
+// importOpenCodeAccounts gives an OpenCode 2 agent its logins. OpenCode 2
+// keeps credentials in a database of its own, not in the auth.json OpenCode 1
+// read, so the accounts go in through its own `auth import` rather than as a
+// file. An OpenCode 1 agent, or one with no login, has nothing to do here.
+func (m *Manager) importOpenCodeAccounts(ctx context.Context, a state.Agent, version opencode.Release) error {
+	if a.AI != "opencode" || version != opencode.V2 {
+		return nil
+	}
+	var p state.Project
+	if !a.IsHome() {
+		var err error
+		if p, err = m.Store.Project(ctx, a.Project); err != nil && !errors.Is(err, state.ErrNotFound) {
+			return err
+		}
+	}
+	export, _, err := m.Creds.OpenCodeImport(openCodeChosen(p, a))
+	if err != nil {
+		return err
+	}
+	if export == nil {
+		return nil
+	}
+	home := "/home/" + m.User.Name
+	marker := home + "/" + openCodeImportMarker
+	if bytes.Equal(m.readAgentFile(ctx, a, marker), export) {
+		return nil
+	}
+	var out bytes.Buffer
+	if err := m.Incus.UserExec(ctx, a.Instance, m.User.Name, opencode.Command2+" auth import --standalone", bytes.NewReader(export), &out, &out); err != nil {
+		return fmt.Errorf("giving %s its OpenCode login: %w: %s", a.Ref(), err, strings.TrimSpace(out.String()))
+	}
+	return m.Incus.WriteFile(ctx, a.Instance, marker, export, m.User.UID, m.User.GID, 0o600)
+}
+
 // toolLoginFile is one tool's login file for an agent, nil when there is
 // none: the agent's own account for its tool, else the project's.
 func (m *Manager) toolLoginFile(p state.Project, a state.Agent, tool string) ([]byte, error) {
 	own := tool == a.AI
 	switch tool {
 	case "opencode":
-		chosen := p.OpenCodeAccounts.Clean()
-		if own && len(a.OpenCodeAccounts) > 0 {
-			chosen = a.OpenCodeAccounts.Clean()
-		}
+		chosen := openCodeChosen(p, a)
 		auth, _, err := m.Creds.OpenCodeAuth(chosen)
 		return auth, err
 	default:
@@ -237,7 +286,7 @@ func (m *Manager) leadLogins(p state.Project, tool string, choice LeadChoice) (L
 
 // writeLeadLogin puts the login a lead's tool reads into its HOME, for the
 // accounts it runs on, and records them on its row so the app can say which.
-func (m *Manager) writeLeadLogin(ctx context.Context, a state.Agent, home string) error {
+func (m *Manager) writeLeadLogin(ctx context.Context, a state.Agent, home string, version opencode.Release, command, nodeBin string) error {
 	if !slices.Contains(credentials.AccountTools, a.AI) {
 		return nil
 	}
@@ -246,6 +295,24 @@ func (m *Manager) writeLeadLogin(ctx context.Context, a state.Agent, home string
 		return err
 	}
 	a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount = logins.Codex, logins.OpenCode, logins.Cursor
+	if a.AI == "opencode" && version == opencode.V2 {
+		// OpenCode 2 keeps credentials in a database of its own, not in the
+		// auth.json OpenCode 1 read: its own import is how the lead gets them.
+		export, _, err := m.Creds.OpenCodeImport(a.OpenCodeAccounts.Clean())
+		if err != nil || export == nil {
+			return err
+		}
+		cmd := exec.CommandContext(ctx, command, "auth", "import", "--standalone")
+		cmd.Dir = home
+		cmd.Env = []string{"HOME=" + home, "PATH=" + nodeBin + string(os.PathListSeparator) + os.Getenv("PATH"), "LANG=C.UTF-8"}
+		cmd.Stdin = bytes.NewReader(export)
+		var out bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &out, &out
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("giving the project's OpenCode chat its login: %w: %s", err, tail(out.String()))
+		}
+		return nil
+	}
 	auth, err := m.toolLoginFile(state.Project{}, a, a.AI)
 	if err != nil {
 		return err

@@ -516,7 +516,7 @@ func (s Store) OpenCodeAuth(chosen map[string]string) (auth []byte, used map[str
 		if b == nil {
 			return nil, nil, s.noAccount(ToolOpenCode, provider, chosen[provider])
 		}
-		merged[provider], used[provider] = json.RawMessage(b), name
+		merged[provider], used[provider] = openCodeV1Entry(b), name
 	}
 	if len(merged) == 0 {
 		return nil, used, nil

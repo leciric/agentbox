@@ -32,6 +32,7 @@ import (
 	"agentbox/internal/naming"
 	"agentbox/internal/nodemods"
 	"agentbox/internal/notes"
+	"agentbox/internal/opencode"
 	"agentbox/internal/paths"
 	"agentbox/internal/secrets"
 	"agentbox/internal/state"
@@ -923,6 +924,16 @@ func (m *Manager) checkImageTool(ctx context.Context, ai string) error {
 		return nil
 	}
 	if ai == "opencode" {
+		version, err := m.openCodeVersion(ctx)
+		if err != nil {
+			return err
+		}
+		if version == opencode.V2 {
+			if installed.Components.OpenCodeV2 {
+				return nil
+			}
+			return fmt.Errorf("OpenCode 2 is %s: run agentbox image build --opencode2, or switch back to OpenCode 1", image.OpenCodeMissing)
+		}
 		if installed.Components.OpenCode {
 			return nil
 		}
@@ -944,6 +955,13 @@ func (m *Manager) OpenCodeReady(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	return m.Creds.HasOpenCodeLogin(nil), nil
+}
+
+// OpenCodeV2Ready reports whether the base image carries OpenCode 2, which is
+// what lets an installation choose it. The binary on the host is a separate
+// matter, installed the first time it is needed.
+func (m *Manager) OpenCodeV2Ready(ctx context.Context) (bool, error) {
+	return m.Store.Flag(ctx, state.SettingImageOpenCodeV2)
 }
 
 // CursorReady reports whether an agent could run Cursor right now. Every base
@@ -1217,7 +1235,11 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 		return err
 	}
 	codexConfig := codexConfigFor(a.Worktree, servers, window)
-	opencodeConfig, err := openCodeConfig(servers, a.Autonomous)
+	ocVersion, err := m.openCodeVersion(ctx)
+	if err != nil {
+		return err
+	}
+	opencodeConfig, err := openCodeConfig(ocVersion, servers, a.Autonomous)
 	if err != nil {
 		return err
 	}
@@ -1242,6 +1264,9 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 		if err := m.Incus.WriteFile(ctx, a.Instance, f.path, []byte(f.content), m.User.UID, m.User.GID, f.mode); err != nil {
 			return err
 		}
+	}
+	if err := m.importOpenCodeAccounts(ctx, a, ocVersion); err != nil {
+		return err
 	}
 	// The compact window, the subagent limits and the output caps go in now
 	// rather than waiting for the first chat, because the agent's terminal
@@ -1292,24 +1317,42 @@ func (m *Manager) agentCompactWindow(ctx context.Context, a state.Agent) (int64,
 }
 
 // openCodeConfig is OpenCode's ~/.config/opencode/opencode.json: the MCP
-// servers every AI tool gets, and — for an autonomous agent — the permissions
-// it runs with.
+// servers every AI tool gets, and, for an autonomous agent, the permissions it
+// runs with.
 //
-// An MCP server is a "local" one there: the command and its arguments as a
-// single argv array, rather than Claude Code's command-and-args pair or
-// Codex's TOML table. "permission": "allow" at the top level is OpenCode's
-// shorthand for every permission, and is what --dangerously-skip-permissions
-// is for Claude Code: the agent's machine is the sandbox and there is nobody
-// at its chat to answer. An agent that stops to ask gets no permission key at
-// all, so OpenCode asks and the chat shows the request.
-func openCodeConfig(servers []mcpServer, autonomous bool) ([]byte, error) {
+// An MCP server is a "local" one in both versions: the command and its
+// arguments as a single argv array, rather than Claude Code's command-and-args
+// pair or Codex's TOML table. The two versions read different shapes around
+// them. OpenCode 1 takes its servers as a map under "mcp" and
+// "permission": "allow" as shorthand for every permission, which is what
+// --dangerously-skip-permissions is for Claude Code: the agent's machine is
+// the sandbox and there is nobody at its chat to answer. OpenCode 2 nests the
+// servers under "mcp.servers" and takes an ordered "permissions" ruleset. It
+// still parses OpenCode 1's shape, but that compatibility layer drops a local
+// server's "environment", which is where the lead's AGENTBOX_SOCKET lives, so
+// each version's own shape is written rather than leaning on it.
+//
+// An agent that stops to ask gets no permission key at all, so the tool asks
+// and the chat shows the request.
+func openCodeConfig(version opencode.Release, servers []mcpServer, autonomous bool) ([]byte, error) {
+	config := map[string]any{"$schema": "https://opencode.ai/config.json"}
+	if version == opencode.V2 {
+		// D84's depth ceiling has no OpenCode 2 equivalent: the key is still in
+		// its schema, marked deprecated, and its config drops it without a
+		// word. Nothing here can hold a subagent to it.
+		byName := map[string]any{}
+		for _, s := range servers {
+			byName[s.name] = openCodeServer(s.command, s.args, nil)
+		}
+		config["mcp"] = map[string]any{"servers": byName}
+		if autonomous {
+			config["permissions"] = []map[string]string{{"action": "*", "resource": "*", "effect": "allow"}}
+		}
+		return json.Marshal(config)
+	}
 	mcp := map[string]any{}
 	for _, s := range servers {
-		mcp[s.name] = map[string]any{
-			"type":    "local",
-			"command": append([]string{s.command}, s.args...),
-			"enabled": true,
-		}
+		mcp[s.name] = openCodeServer(s.command, s.args, nil)
 	}
 	// subagent_depth prevents a subagent from launching one of its own, the
 	// same ceiling Claude Code's CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH holds it
@@ -1321,15 +1364,38 @@ func openCodeConfig(servers []mcpServer, autonomous bool) ([]byte, error) {
 	// like Claude Code's autoCompactWindow or Codex's
 	// model_auto_compact_token_limit, so there is nothing here for
 	// state.ClaudeCompactWindow to drive (D83).
-	config := map[string]any{
-		"$schema":        "https://opencode.ai/config.json",
-		"mcp":            mcp,
-		"subagent_depth": opencodeSubagentDepth,
-	}
+	config["mcp"] = mcp
+	config["subagent_depth"] = opencodeSubagentDepth
 	if autonomous {
 		config["permission"] = "allow"
 	}
 	return json.Marshal(config)
+}
+
+// openCodeServer is one local MCP server as both OpenCode versions read it.
+// environment is only ever set for the lead, whose AgentBox MCP server needs
+// the daemon's socket.
+func openCodeServer(command string, args []string, environment map[string]string) map[string]any {
+	server := map[string]any{
+		"type":    "local",
+		"command": append([]string{command}, args...),
+		"enabled": true,
+	}
+	if len(environment) > 0 {
+		server["environment"] = environment
+	}
+	return server
+}
+
+// openCodeVersion is which OpenCode this installation runs. Every agent and
+// chat reads it from the installation's setting, so a change reaches them the
+// next time their tool starts.
+func (m *Manager) openCodeVersion(ctx context.Context) (opencode.Release, error) {
+	raw, err := m.Store.Setting(ctx, state.SettingOpenCodeVersion)
+	if err != nil {
+		return opencode.V1, err
+	}
+	return opencode.ReleaseOf(raw), nil
 }
 
 // codexSubagentLimit and opencodeSubagentDepth are Codex's and OpenCode's own
@@ -1876,7 +1942,7 @@ func (m *Manager) MoveAgentsGitHubAccount(ctx context.Context, project, from, to
 // tool through the chat.
 func (m *Manager) ensureSession(ctx context.Context, a state.Agent) error {
 	script := fmt.Sprintf("tmux has-session -t %[1]s 2>/dev/null && exit 0\ntmux new-session -d -s %[1]s -n shell -c %[2]s\n", session, shellQuote(a.Worktree))
-	window, err := m.toolWindowScript(a)
+	window, err := m.toolWindowScript(ctx, a)
 	if err != nil {
 		return err
 	}

@@ -196,6 +196,7 @@ func (b Behind) record() []string {
 		androidKey + "=" + envFlag(b.components.Android),
 		codexKey + "=" + envFlag(b.components.Codex),
 		opencodeKey + "=" + envFlag(b.components.OpenCode),
+		opencode2Key + "=" + envFlag(b.components.OpenCodeV2),
 		devCachesKey + "=" + envFlag(b.components.DevCaches),
 		incusKey + "=" + envFlag(b.components.Incus)},
 		recordTools(b.tools)...)

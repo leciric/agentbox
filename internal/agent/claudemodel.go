@@ -288,11 +288,18 @@ func (m *Manager) prepareAgentOpenCodeSettings(ctx context.Context, a state.Agen
 	if err != nil {
 		return err
 	}
-	config, err := openCodeConfig(agentMCPServers(home, connectors), a.Autonomous)
+	version, err := m.openCodeVersion(ctx)
 	if err != nil {
 		return err
 	}
-	return m.Incus.WriteFile(ctx, a.Instance, home+"/.config/opencode/opencode.json", config, m.User.UID, m.User.GID, 0o600)
+	config, err := openCodeConfig(version, agentMCPServers(home, connectors), a.Autonomous)
+	if err != nil {
+		return err
+	}
+	if err := m.Incus.WriteFile(ctx, a.Instance, home+"/.config/opencode/opencode.json", config, m.User.UID, m.User.GID, 0o600); err != nil {
+		return err
+	}
+	return m.importOpenCodeAccounts(ctx, a, version)
 }
 
 // prepareAgentClaudeSettings merges into the settings of the agent's own user,

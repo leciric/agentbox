@@ -1628,6 +1628,7 @@ func (s *Server) chooseImageComponents(ctx context.Context, req api.BuildImageRe
 		{req.Android, &components.Android, state.SettingImageAndroid},
 		{req.Codex, &components.Codex, state.SettingImageCodex},
 		{req.OpenCode, &components.OpenCode, state.SettingImageOpenCode},
+		{req.OpenCodeV2, &components.OpenCodeV2, state.SettingImageOpenCodeV2},
 		{req.DevCaches, &components.DevCaches, state.SettingImageDevCaches},
 		{req.Incus, &components.Incus, state.SettingImageIncus},
 	} {

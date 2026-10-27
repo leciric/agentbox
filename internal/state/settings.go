@@ -73,6 +73,13 @@ const (
 	// either from an OpenCode chat's ACP session or from `opencode models`
 	// (internal/opencode), and its values are OpenCode's "provider/model" ids.
 	SettingOpenCodeModelChoices = "opencode_model_choices"
+	// SettingOpenCodeVersion is which OpenCode an installation runs: "1" for
+	// the one the base image pins, "2" for OpenCode 2, installed beside it as
+	// `opencode2`. Empty is "1", which is what every installation ran before
+	// the setting existed, so an installation that does not choose stays
+	// exactly where it was. Only an image built with image.Components.OpenCodeV2
+	// can choose "2"; the daemon refuses it otherwise.
+	SettingOpenCodeVersion = "opencode_version"
 	// SettingCursorModelChoices is Cursor's model menu, as JSON, remembered
 	// for the same reason: which models a Cursor account can run is Cursor's
 	// answer. It arrives from a Cursor chat's ACP session or from the
@@ -91,10 +98,14 @@ const (
 	// belong to the installation for the same reason the model does: there is
 	// one base image, and every project's agents are copied from it. All are
 	// off until someone turns them on, so a first build is the small one.
-	SettingImageAndroid   = "image_android"
-	SettingImageCodex     = "image_codex"
-	SettingImageOpenCode  = "image_opencode"
-	SettingImageDevCaches = "image_dev_caches"
+	SettingImageAndroid  = "image_android"
+	SettingImageCodex    = "image_codex"
+	SettingImageOpenCode = "image_opencode"
+	// SettingImageOpenCodeV2 is whether the base image carries OpenCode 2
+	// beside OpenCode 1, which is what lets an installation choose between
+	// them at all.
+	SettingImageOpenCodeV2 = "image_opencode2"
+	SettingImageDevCaches  = "image_dev_caches"
 	// SettingImageIncus is whether the base image is built with Incus itself,
 	// so a project that turns on nesting (Project.Nesting) has something to
 	// nest: an agent can then run a real Incus daemon of its own inside its

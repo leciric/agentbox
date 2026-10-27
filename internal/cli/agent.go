@@ -27,7 +27,7 @@ func newImageCmd(a *app) *cobra.Command {
 		Short: "Manage the base image agents are created from",
 	}
 
-	var local, android, codex, withOpenCode, devCaches, withIncus bool
+	var local, android, codex, withOpenCode, withOpenCode2, devCaches, withIncus bool
 	build := &cobra.Command{
 		Use:   "build",
 		Short: "Build the base image (replaces an existing one; existing agents are unaffected)",
@@ -65,6 +65,7 @@ turn one off again with --android=false, --codex=false, --opencode=false,
 			}
 			if f.Changed("opencode") {
 				req.OpenCode = &withOpenCode
+				req.OpenCodeV2 = &withOpenCode2
 			}
 			if f.Changed("dev-caches") {
 				req.DevCaches = &devCaches
@@ -105,6 +106,7 @@ turn one off again with --android=false, --codex=false, --opencode=false,
 	build.Flags().BoolVar(&android, "android", false, "build in scrcpy, for watching an agent's Android emulator")
 	build.Flags().BoolVar(&codex, "codex", false, "build in the Codex CLI and its chat adapter")
 	build.Flags().BoolVar(&withOpenCode, "opencode", false, "build in the OpenCode CLI, which is its own chat adapter")
+	build.Flags().BoolVar(&withOpenCode2, "opencode2", false, "build in OpenCode 2 beside OpenCode 1, as opencode2, so an installation can switch")
 	build.Flags().BoolVar(&devCaches, "dev-caches", false, "fill the Go, npm and Electron caches from AgentBox's own repository, for agents that work on AgentBox")
 	build.Flags().BoolVar(&withIncus, "incus", false, "build in Incus, for a project whose agents run a real Incus daemon of their own")
 	cmd.AddCommand(build)
@@ -154,11 +156,12 @@ func buildComponents(ctx context.Context, c *api.Client, req api.BuildImageReque
 		return image.Components{}, err
 	}
 	components := image.Components{
-		Android:   status.Image.Components.Android,
-		Codex:     status.Image.Components.Codex,
-		OpenCode:  status.Image.Components.OpenCode,
-		DevCaches: status.Image.Components.DevCaches,
-		Incus:     status.Image.Components.Incus,
+		Android:    status.Image.Components.Android,
+		Codex:      status.Image.Components.Codex,
+		OpenCode:   status.Image.Components.OpenCode,
+		OpenCodeV2: status.Image.Components.OpenCodeV2,
+		DevCaches:  status.Image.Components.DevCaches,
+		Incus:      status.Image.Components.Incus,
 	}
 	if req.Android != nil {
 		components.Android = *req.Android

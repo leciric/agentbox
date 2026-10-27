@@ -1190,6 +1190,46 @@ export function MediaRetention() {
   );
 }
 
+// OpenCode2InImage turns OpenCode 2 on or off in the base image. It is what
+// lets an installation switch versions at all (Settings → Run OpenCode 2), and
+// it is a local build: the published image carries OpenCode 1 only.
+export function OpenCode2InImage() {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup });
+  const [job, setJob] = useState<string | null>(null);
+  const build = useMutation({
+    mutationFn: (opencodeV2: boolean) => api.buildImage({ opencodeV2 }),
+    onSuccess: (started) => setJob(started.id),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const wanted = setup.data?.image.components.opencodeV2 === true;
+  const installed = setup.data?.image.installed.opencodeV2 === true;
+
+  return (
+    <SettingRow
+      label={t('defaults.newAgent.openCode2Label')}
+      description={t('defaults.newAgent.openCode2Description')}
+      details={t('defaults.newAgent.openCode2Details')}
+      control={
+        <Switch
+          data-image-opencode2
+          aria-label={t('defaults.newAgent.openCode2Label')}
+          disabled={build.isPending || job !== null || setup.data === undefined}
+          checked={wanted}
+          onCheckedChange={(next) => build.mutate(next)}
+        />
+      }
+    >
+      {wanted && !installed && job === null && (
+        <SettingNote tone="warning">{t('defaults.newAgent.openCode2Missing')}</SettingNote>
+      )}
+      {job && <JobProgress jobId={job} onDone={() => void queryClient.invalidateQueries({ queryKey: ['setup'] })} />}
+    </SettingRow>
+  );
+}
+
 // OpenCodeInImage turns OpenCode on or off in the base image, which is what
 // decides whether an agent can be created on it at all. It belongs here rather
 // than with the Environment checks for the same reason the model does: it is a

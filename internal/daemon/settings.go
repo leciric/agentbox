@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"agentbox/internal/api"
+	"agentbox/internal/opencode"
 	"agentbox/internal/schedule"
 	"agentbox/internal/state"
 )
@@ -90,6 +92,39 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 	if req.DefaultCursorEffort != nil {
 		if err := s.store.SetSetting(r.Context(), state.SettingDefaultCursorEffort, strings.TrimSpace(*req.DefaultCursorEffort)); err != nil {
 			return err
+		}
+	}
+	// OpenCode's version is one choice for the installation: the agents and
+	// their chat all read it, so a change reaches them the next time their
+	// tool starts. A menu belongs to a version's providers, so a switch
+	// forgets it and the next read asks the version now in effect.
+	if req.OpenCodeVersion != nil {
+		want := strings.TrimSpace(*req.OpenCodeVersion)
+		switch want {
+		case opencode.V1.String(), opencode.V2.String():
+		default:
+			return fmt.Errorf("unknown OpenCode version %q: use 1 or 2", want)
+		}
+		if want == opencode.V2.String() {
+			ready, err := s.manager(nil).OpenCodeV2Ready(r.Context())
+			if err != nil {
+				return err
+			}
+			if !ready {
+				return errors.New("this base image has no OpenCode 2: rebuild it with the OpenCode 2 component first")
+			}
+		}
+		was, err := s.store.Setting(r.Context(), state.SettingOpenCodeVersion)
+		if err != nil {
+			return err
+		}
+		if err := s.store.SetSetting(r.Context(), state.SettingOpenCodeVersion, want); err != nil {
+			return err
+		}
+		if opencode.ReleaseOf(was) != opencode.ReleaseOf(want) {
+			if err := s.store.DeleteSetting(r.Context(), state.SettingOpenCodeModelChoices); err != nil {
+				return err
+			}
 		}
 	}
 	if req.ResumeAfterLimit != nil {
@@ -472,6 +507,14 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	openCodeVersion, err := s.store.Setting(r.Context(), state.SettingOpenCodeVersion)
+	if err != nil {
+		return api.Settings{}, err
+	}
+	openCodeV2Ready, err := s.manager(nil).OpenCodeV2Ready(r.Context())
+	if err != nil {
+		return api.Settings{}, err
+	}
 	// Asked for in the background, and only when there is nothing true to show
 	// yet: the answer lands in the setting for the next read rather than
 	// holding this one up behind another process.
@@ -633,6 +676,8 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 
 		OpenCodeModelChoices: openCodeModels,
 		OpenCodeReady:        openCodeReady,
+		OpenCodeVersion:      opencode.ReleaseOf(openCodeVersion).String(),
+		OpenCodeV2Ready:      openCodeV2Ready,
 
 		CursorModelChoices:  cursorModels,
 		CursorReady:         cursorReady,

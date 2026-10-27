@@ -29,7 +29,7 @@ func TestAToolOnAnAccountStartsWithoutItsCredentialVariables(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	window, err := m.toolWindowScript(claudeAgent("work"))
+	window, err := m.toolWindowScript(context.Background(), claudeAgent("work"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestAToolOnAnAccountStartsWithoutItsCredentialVariables(t *testing.T) {
 	}
 
 	// No account stored for it: an API key secret is how it signs in.
-	window, err = m.toolWindowScript(claudeAgent("personal"))
+	window, err = m.toolWindowScript(context.Background(), claudeAgent("personal"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,7 +311,7 @@ esac`), Store: openInternalStore(t)}
 			t.Errorf("the %s chat sets the entrypoint:\n%s", ai, s)
 		}
 	}
-	window, err := m.toolWindowScript(claudeAgent(""))
+	window, err := m.toolWindowScript(context.Background(), claudeAgent(""))
 	if err != nil {
 		t.Fatal(err)
 	}

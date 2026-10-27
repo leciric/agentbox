@@ -14,6 +14,7 @@ import (
 	"agentbox/internal/cursor"
 	"agentbox/internal/hostos"
 	"agentbox/internal/image"
+	"agentbox/internal/opencode"
 	"agentbox/internal/state"
 )
 
@@ -44,6 +45,17 @@ var ChatAdapters = map[string]ChatAdapter{
 	// Cursor's adapter is AgentBox's own, over Cursor's TypeScript SDK
 	// (internal/cursor): Package is the SDK.
 	"cursor": {Tool: "Cursor", Command: "node", Package: cursor.SDKPackage, Script: cursor.Script, ScriptPath: cursorScriptFile, SDKEnv: cursor.SDKEnv},
+}
+
+// openCodeAdapter is the chat adapter for the OpenCode this installation runs.
+// OpenCode 2 is not the mise tool the base image installs as `opencode`: it is
+// linked beside it as `opencode2`, so it runs by name rather than through mise.
+func openCodeAdapter(adapter ChatAdapter, version opencode.Release) ChatAdapter {
+	adapter.Command = version.Command()
+	if version == opencode.V2 {
+		adapter.Package = ""
+	}
+	return adapter
 }
 
 // claudeEntrypoint is the client label Claude Code reports, which decides how
@@ -133,6 +145,13 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 	if !ok {
 		return nil, fmt.Errorf("%s runs no AI tool to chat with", a.Ref())
 	}
+	if a.AI == "opencode" {
+		version, err := m.openCodeVersion(ctx)
+		if err != nil {
+			return nil, err
+		}
+		adapter = openCodeAdapter(adapter, version)
+	}
 	if err := m.requireRunning(ctx, a); err != nil {
 		return nil, err
 	}
@@ -143,17 +162,21 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 	// The adapter at the version agents run now: the pin, or the newer one
 	// "Keep Claude Code up to date" moved the base image to, which an agent
 	// made before that gets here, before its next turn (chat.ToolUpdated).
-	spec := image.Overrides(overrides).Apply([]image.Tool{{Spec: adapter.Package}})[0].Spec
-	if err := m.ensureMise(ctx, a, spec, "mise install", "the "+adapter.Tool+" adapter", status); err != nil {
-		return nil, err
-	}
-	if _, moved := overrides[a.AI]; moved {
-		// And the tool's own command line, which the base image has globally.
-		if err := m.ensureMise(ctx, a, image.Overrides(overrides).Spec(a.AI), "mise use -g", adapter.Tool, status); err != nil {
+	// OpenCode 2 is not a mise tool: the image links it by name.
+	var spec, pkg string
+	if adapter.Package != "" {
+		spec = image.Overrides(overrides).Apply([]image.Tool{{Spec: adapter.Package}})[0].Spec
+		if err := m.ensureMise(ctx, a, spec, "mise install", "the "+adapter.Tool+" adapter", status); err != nil {
 			return nil, err
 		}
+		if _, moved := overrides[a.AI]; moved {
+			// And the tool's own command line, which the base image has globally.
+			if err := m.ensureMise(ctx, a, image.Overrides(overrides).Spec(a.AI), "mise use -g", adapter.Tool, status); err != nil {
+				return nil, err
+			}
+		}
+		pkg = shellQuote(spec)
 	}
-	pkg := shellQuote(spec)
 	status("Starting " + adapter.Tool)
 	// mise exec runs the version AgentBox pins, whatever the agent's own mise configuration says.
 	command := shellQuote(adapter.Command)
@@ -174,6 +197,10 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 	for _, arg := range args {
 		command += " " + shellQuote(arg)
 	}
+	cmdline := command
+	if adapter.Package != "" {
+		cmdline = "mise exec " + pkg + " -- " + command
+	}
 	hide, err := m.toolHides(a)
 	if err != nil {
 		return nil, err
@@ -185,7 +212,7 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 			return nil, err
 		}
 	}
-	script := fmt.Sprintf("cd %s && %sexec %smise exec %s -- %s", shellQuote(a.Worktree), env, m.withoutCredentials(hide), pkg, command)
+	script := fmt.Sprintf("cd %s && %sexec %s%s", shellQuote(a.Worktree), env, m.withoutCredentials(hide), cmdline)
 	return m.Incus.Command(ctx, "exec", a.Instance, "-T", "--", "runuser", "-l", m.User.Name, "-c", script), nil
 }
 
@@ -247,7 +274,7 @@ func (m *Manager) SetInterface(ctx context.Context, a state.Agent, iface string)
 	if inst, err := m.Incus.Instance(ctx, a.Instance); err != nil || inst.Status != "Running" {
 		return a, nil // the session starts with the agent
 	}
-	window, err := m.toolWindowScript(a)
+	window, err := m.toolWindowScript(ctx, a)
 	if err != nil {
 		return a, err
 	}
@@ -263,8 +290,15 @@ func (m *Manager) SetInterface(ctx context.Context, a state.Agent, iface string)
 // toolWindowScript opens tmux window 1 with the AI tool's command line, for an
 // agent you use from the terminal rather than the chat, started without the
 // credential variables in hide (toolHides).
-func (m *Manager) toolWindowScript(a state.Agent) (string, error) {
+func (m *Manager) toolWindowScript(ctx context.Context, a state.Agent) (string, error) {
 	tool := Tools[a.AI]
+	if a.AI == "opencode" {
+		version, err := m.openCodeVersion(ctx)
+		if err != nil {
+			return "", err
+		}
+		tool = Tool{Command: version.Command(), Autonomous: version.Autonomous()}
+	}
 	command := tool.Command
 	if a.Autonomous {
 		command = tool.Autonomous

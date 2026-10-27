@@ -146,6 +146,8 @@ export interface Settings {
   claudeEffortChoices: ChatOptionChoice[];
   openCodeModelChoices: ChatOptionChoice[];
   openCodeReady: boolean;
+  openCodeVersion: string;
+  openCodeV2Ready: boolean;
   cursorModelChoices: ChatOptionChoice[];
   cursorReady: boolean;
   defaultCursorModel: string;
@@ -214,6 +216,7 @@ export interface UpdateSettingsRequest {
   defaultClaudeEffort?: string;
   defaultCursorModel?: string;
   defaultCursorEffort?: string;
+  openCodeVersion?: string;
   resumeAfterLimit?: boolean;
   continueAfterRestart?: boolean;
   creditAITool?: boolean;
@@ -1215,6 +1218,7 @@ export interface ImageComponents {
   android: boolean;
   codex: boolean;
   opencode: boolean;
+  opencodeV2: boolean;
   devCaches: boolean;
   incus: boolean;
 }
@@ -1238,6 +1242,7 @@ export interface BuildImageRequest {
   android?: boolean;
   codex?: boolean;
   opencode?: boolean;
+  opencodeV2?: boolean;
   devCaches?: boolean;
   incus?: boolean;
   local?: boolean;

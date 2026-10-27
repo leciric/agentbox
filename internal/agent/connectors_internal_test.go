@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"agentbox/internal/connectors"
+	"agentbox/internal/opencode"
 )
 
 // A connector named like one of the servers AgentBox gives every agent would
@@ -36,7 +37,7 @@ func TestAgentMCPServersIncludeConnectors(t *testing.T) {
 	if codex := codexConfigFor("/w", servers, 0); !strings.Contains(codex, "[mcp_servers.linear]\ncommand = \"/usr/local/bin/agentbox\"\nargs = [\"connector\", \"mcp\", \"linear\"]\n") {
 		t.Errorf("Codex's config:\n%s", codex)
 	}
-	opencode, err := openCodeConfig(servers, false)
+	opencode, err := openCodeConfig(opencode.V1, servers, false)
 	if err != nil || !strings.Contains(string(opencode), `"notion"`) {
 		t.Errorf("OpenCode's config = %s, %v", opencode, err)
 	}
@@ -75,7 +76,7 @@ func TestSameMCPServers(t *testing.T) {
 		return b
 	}
 	opencode := func(s []mcpServer, autonomous bool) []byte {
-		b, err := openCodeConfig(s, autonomous)
+		b, err := openCodeConfig(opencode.V1, s, autonomous)
 		if err != nil {
 			t.Fatal(err)
 		}

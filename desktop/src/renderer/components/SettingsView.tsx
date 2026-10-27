@@ -77,6 +77,7 @@ import {
   SharedPackageCaches,
   LocalNodeModules,
   NewAgentEffort,
+  OpenCode2InImage,
   OpenCodeInImage,
   ResumeAfterLimit,
   ContinueAfterRestart,
@@ -1691,6 +1692,22 @@ function InstalledSettings({
               modified: setup.data ? setup.data.image.components.opencode : undefined,
               render: () => <OpenCodeInImage />,
             },
+            {
+              id: "opencode-v2-image",
+              advanced: true,
+              label: t("defaults.newAgent.openCode2Label"),
+              keywords: t("settings.entry.opencode-v2.keywords"),
+              modified: setup.data ? setup.data.image.components.opencodeV2 : undefined,
+              render: () => <OpenCode2InImage />,
+            },
+            {
+              id: "opencode-v2",
+              advanced: true,
+              label: t("settings.entry.opencode-v2.label"),
+              keywords: t("settings.entry.opencode-v2.keywords"),
+              modified: changed((s) => s.openCodeVersion === "2"),
+              render: () => <OpenCodeV2Setting />,
+            },
           ],
         },
       ],
@@ -2496,6 +2513,38 @@ function BuiltWithBadgeSetting() {
           aria-label={t("settings.entry.built-with-badge.label")}
           disabled={save.isPending || settings.data === undefined}
           checked={settings.data?.builtWithBadge ?? false}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      }
+    />
+  );
+}
+
+// OpenCodeV2Setting decides which OpenCode agents and the project chat run:
+// OpenCode 1, what every installation ran before, or OpenCode 2, which the base
+// image has to carry (Settings.openCodeV2Ready). The two versions don't read
+// each other's sessions, so a chat switched between them starts a new one.
+function OpenCodeV2Setting() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (openCodeV2: boolean) => api.updateSettings({ openCodeVersion: openCodeV2 ? "2" : "1" }),
+    onSuccess: (next) => queryClient.setQueryData(["settings"], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const ready = settings.data?.openCodeV2Ready ?? false;
+  return (
+    <SettingRow
+      label={t("settings.entry.opencode-v2.label")}
+      description={t("settings.openCodeV2.description")}
+      details={t("settings.openCodeV2.details")}
+      control={
+        <Switch
+          data-opencode-v2
+          aria-label={t("settings.entry.opencode-v2.label")}
+          disabled={save.isPending || settings.data === undefined || !ready}
+          checked={(settings.data?.openCodeVersion ?? "1") === "2"}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }

@@ -302,3 +302,57 @@ func TestLanguageIsStoredAndChecked(t *testing.T) {
 		t.Errorf("clearing it: %q, %v; want the default", out.Language, err)
 	}
 }
+
+// Which OpenCode an installation runs is one choice, "1" until it chooses, and
+// "2" only when the base image carries it. A switch forgets the model menu,
+// which belongs to the version that named it.
+func TestOpenCodeVersionDefaultsToOneAndNeedsTheImage(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+
+	r := httptest.NewRequest(http.MethodGet, "/v1/settings", nil)
+	out, err := d.srv.currentSettings(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.OpenCodeVersion != "1" {
+		t.Fatalf("an installation that has never chosen runs OpenCode %q", out.OpenCodeVersion)
+	}
+	if out.OpenCodeV2Ready {
+		t.Fatal("an image without OpenCode 2 says it has it")
+	}
+	if _, err := patchSettings(t, d, `{"openCodeVersion":"2"}`); err == nil {
+		t.Fatal("OpenCode 2 was accepted on an image that doesn't carry it")
+	}
+	if _, err := patchSettings(t, d, `{"openCodeVersion":"3"}`); err == nil {
+		t.Fatal("an OpenCode version that doesn't exist was accepted")
+	}
+
+	if err := d.srv.store.SetFlag(ctx, state.SettingImageOpenCodeV2, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.srv.store.SetSetting(ctx, state.SettingOpenCodeModelChoices, `[{"value":"opencode/x","name":"opencode / x"}]`); err != nil {
+		t.Fatal(err)
+	}
+	out, err = patchSettings(t, d, `{"openCodeVersion":"2"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.OpenCodeVersion != "2" || !out.OpenCodeV2Ready {
+		t.Fatalf("after switching: %+v", out)
+	}
+	if menu, err := d.srv.store.Setting(ctx, state.SettingOpenCodeModelChoices); err != nil || menu != "" {
+		t.Fatalf("the model menu of the old version survived the switch: %q, %v", menu, err)
+	}
+	// Choosing the version already in effect keeps its menu.
+	if err := d.srv.store.SetSetting(ctx, state.SettingOpenCodeModelChoices, `[{"value":"opencode/x","name":"opencode / x"}]`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := patchSettings(t, d, `{"openCodeVersion":"2"}`); err != nil {
+		t.Fatal(err)
+	}
+	if menu, err := d.srv.store.Setting(ctx, state.SettingOpenCodeModelChoices); err != nil || menu == "" {
+		t.Fatalf("choosing the same version dropped its menu: %q, %v", menu, err)
+	}
+}

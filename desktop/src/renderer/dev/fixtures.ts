@@ -1618,6 +1618,8 @@ let defaultsSettings = {
   claudeEffortChoices: [],
   openCodeModelChoices: [],
   openCodeReady: false,
+  openCodeVersion: "1",
+  openCodeV2Ready: false,
   cursorModelChoices: [],
   cursorReady: false,
   defaultCursorModel: '',
@@ -1780,7 +1782,7 @@ mise claude@2.1.280 ✓ installed
 `;
 export function seedImageUpdate(queryClient: QueryClient): void {
   const ok = (id: string, title: string, detail: string, required = true): T.SetupCheck => ({ id, title, detail, required, status: 'ok' });
-  const none: T.ImageComponents = { android: false, codex: false, opencode: false, devCaches: false, incus: false };
+  const none: T.ImageComponents = { android: false, codex: false, opencode: false, opencodeV2: false, devCaches: false, incus: false };
   const setup = {
     ready: true,
     checks: [
@@ -1830,7 +1832,7 @@ export function seedSignedOut(queryClient: QueryClient): void {
 // saves.
 export function seedSettings(queryClient: QueryClient): void {
   const check = (id: string, title: string, status: string, detail: string, required = true, fix?: string): T.SetupCheck => ({ id, title, status, detail, required, fix });
-  const none: T.ImageComponents = { android: false, codex: false, opencode: false, devCaches: false, incus: false };
+  const none: T.ImageComponents = { android: false, codex: false, opencode: false, opencodeV2: false, devCaches: false, incus: false };
   const setup = {
     ready: true,
     checks: [

@@ -97,6 +97,12 @@ func CheckHost(u User) error {
 // is shown.
 const Version = "2026.10.20.1"
 
+// OpenCode2Version is the OpenCode 2 the base image installs beside OpenCode 1
+// as `opencode2` when its OpenCode 2 component is on. It is not in tools.txt:
+// OpenCode 2 is not a mise tool here, it is the npm platform binary
+// provision.sh links into place, so moving it on means rebuilding the base.
+const OpenCode2Version = "2.1.4"
+
 // CodexMissing is what Setup and agent creation say about an image built
 // without Codex. Both use the same words, because the fix is the same one.
 // OpenCodeMissing says it for OpenCode, which is optional the same way.
@@ -110,6 +116,7 @@ const (
 	androidKey   = "user.agentbox.with-android"
 	codexKey     = "user.agentbox.with-codex"
 	opencodeKey  = "user.agentbox.with-opencode"
+	opencode2Key = "user.agentbox.with-opencode2"
 	devCachesKey = "user.agentbox.with-dev-caches"
 	incusKey     = "user.agentbox.with-incus"
 	// The tools version and the tools themselves, as specs separated by
@@ -152,11 +159,12 @@ func InstalledFrom(config map[string]string) Installed {
 	return Installed{
 		Version: config[versionKey],
 		Components: Components{
-			Android:   config[androidKey] == "1",
-			Codex:     config[codexKey] == "1",
-			OpenCode:  config[opencodeKey] == "1",
-			DevCaches: config[devCachesKey] == "1",
-			Incus:     config[incusKey] == "1",
+			Android:    config[androidKey] == "1",
+			Codex:      config[codexKey] == "1",
+			OpenCode:   config[opencodeKey] == "1",
+			OpenCodeV2: config[opencode2Key] == "1",
+			DevCaches:  config[devCachesKey] == "1",
+			Incus:      config[incusKey] == "1",
 		},
 		ToolsVersion: config[toolsVersionKey],
 		Tools:        strings.Fields(config[toolsKey]),
@@ -228,6 +236,10 @@ type Components struct {
 	// OpenCode adds the OpenCode CLI, which is its own ACP adapter
 	// (`opencode acp`). An agent created with --ai opencode needs it.
 	OpenCode bool
+	// OpenCodeV2 adds OpenCode 2 beside it, as `opencode2`, so an
+	// installation can choose between the two (state.SettingOpenCodeVersion)
+	// while OpenCode 1 is what it keeps running until it does.
+	OpenCodeV2 bool
 	// DevCaches fills the Go module and build caches, npm's cache and
 	// Electron's download from AgentBox's own repository, so an agent working
 	// on AgentBox itself starts testing without downloading or compiling its
@@ -242,7 +254,7 @@ type Components struct {
 
 // Any reports whether any component is asked for.
 func (c Components) Any() bool {
-	return c.Android || c.Codex || c.OpenCode || c.DevCaches || c.Incus
+	return c.Android || c.Codex || c.OpenCode || c.OpenCodeV2 || c.DevCaches || c.Incus
 }
 
 // NeedsLocalBuild reports whether a component asked for is one only a local
@@ -251,7 +263,7 @@ func (c Components) Any() bool {
 // than tools.txt pins, which a machine installs on top of the published image
 // as it does the tools that image leaves out (fromPublished).
 func (c Components) NeedsLocalBuild() bool {
-	return c.Android || c.DevCaches || c.Incus
+	return c.Android || c.OpenCodeV2 || c.DevCaches || c.Incus
 }
 
 // provisioned is the components without the ones that are only tools.
@@ -280,6 +292,8 @@ func (c Components) Env() []string {
 		"AGENTBOX_WITH_ANDROID=" + envFlag(c.Android),
 		"AGENTBOX_WITH_CODEX=" + envFlag(c.Codex),
 		"AGENTBOX_WITH_OPENCODE=" + envFlag(c.OpenCode),
+		"AGENTBOX_WITH_OPENCODE2=" + envFlag(c.OpenCodeV2),
+		"OPENCODE2_VERSION=" + OpenCode2Version,
 		"AGENTBOX_WITH_DEV_CACHES=" + envFlag(c.DevCaches),
 		"AGENTBOX_WITH_INCUS=" + envFlag(c.Incus),
 	}
@@ -296,6 +310,9 @@ func (c Components) Summary() string {
 	}
 	if c.OpenCode {
 		on = append(on, "OpenCode")
+	}
+	if c.OpenCodeV2 {
+		on = append(on, "OpenCode 2")
 	}
 	if c.DevCaches {
 		on = append(on, "AgentBox's development caches")
@@ -423,6 +440,7 @@ func Build(ctx context.Context, inc incus.Client, u User, opts Options, log io.W
 				androidKey + "=" + envFlag(opts.Components.Android),
 				codexKey + "=" + envFlag(opts.Components.Codex),
 				opencodeKey + "=" + envFlag(opts.Components.OpenCode),
+				opencode2Key + "=" + envFlag(opts.Components.OpenCodeV2),
 				devCachesKey + "=" + envFlag(opts.Components.DevCaches),
 				incusKey + "=" + envFlag(opts.Components.Incus)},
 				recordTools(ToolsFor(opts.Components))...)...)
