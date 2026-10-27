@@ -455,13 +455,18 @@ func (m *Manager) worktree(a state.Agent) string {
 	return "/workspace"
 }
 
-// workspace is a's tree: on this host the git worktree of the project's
-// repository. A cluster agent's tree is inside its pod, which this host cannot
-// read, so its workspace fails every operation instead of reading a path that
-// isn't here (workspace.Absent).
+// workspace is a's tree. On this host it is the git worktree of the project's
+// repository (Local). A cluster agent's tree is a clone inside its pod, on the
+// cluster's claim, which this host has no path to: every operation runs in the
+// pod, as its user, over the agent gateway (Pod).
 func (m *Manager) workspace(a state.Agent) workspace.Workspace {
 	if a.OnCluster() {
-		return workspace.Absent{}
+		return workspace.Pod{
+			Machine: m.machine(a),
+			Dir:     m.worktree(a),
+			User:    m.machineUser(a).Name,
+			Log:     m.Log,
+		}
 	}
 	return workspace.Local{Dir: a.Worktree}
 }
@@ -2693,8 +2698,9 @@ func (m *Manager) shareBusy() bool { return m.ShareBusy != nil && m.ShareBusy() 
 // worktree, its branch when nothing would be lost, and its media when asked.
 func (m *Manager) removeLeftovers(ctx context.Context, repo gitrepo.Repo, a state.Agent, opts DestroyOptions) {
 	// A cluster agent's branch is on the git remote the pod cloned from, and
-	// its tree is on the claim the cluster owns: neither is on this host, and
-	// workspace.Absent is not something Destroy can use to remove either.
+	// its tree is on the claim the cluster owns: neither is on this host, and a
+	// pod workspace's Destroy is a no-op because the claim is the cluster's to
+	// delete.
 	if !a.OnCluster() {
 		m.logf("Removing worktree %s", a.Worktree)
 		if m.WorktreeTrashed != nil && m.trashWorktree(repo, a) {
@@ -2775,8 +2781,13 @@ func (m *Manager) clearWorktree(ctx context.Context, a state.Agent) {
 
 // handBackFiles gives files that container root created in the worktree
 // (Docker bind mounts, sudo) back to the host user, so git and the host can
-// manage them. It only works while the agent is running.
+// manage them. It only works while the agent is running. A pod's tree is
+// already its agent user's, on its own claim: there is no host user to hand it
+// back to, and no path of this host to chown.
 func (m *Manager) handBackFiles(ctx context.Context, a state.Agent) {
+	if a.OnCluster() {
+		return
+	}
 	_, _ = m.machine(a).Exec(ctx, "chown", "-R", fmt.Sprintf("%d:%d", m.User.UID, m.User.GID), a.Worktree)
 }
 
@@ -2886,7 +2897,9 @@ func displayState(status string) string {
 
 // Diff shows everything the agent changed from its base, onto the branches
 // in onto when given, its pull request's base (gitrepo.DiffBase): commits,
-// uncommitted edits and untracked files.
+// uncommitted edits and untracked files. A cluster agent's tree is inside its
+// pod, where this runs over the agent gateway; a pod that is stopped has no
+// session to answer, so the diff fails until the agent is started.
 func (m *Manager) Diff(a state.Agent, onto []string, stat bool, paths ...string) (string, error) {
 	return m.workspace(a).Diff(context.Background(), workspace.DiffOptions{
 		BaseRef:    a.BaseRef,
@@ -2895,6 +2908,13 @@ func (m *Manager) Diff(a state.Agent, onto []string, stat bool, paths ...string)
 		Stat:       stat,
 		Paths:      paths,
 	})
+}
+
+// Files lists the agent's tree: its tracked and untracked files, at most limit
+// of them, and whether there are more. It is the workspace's list, so a cluster
+// agent's comes from inside its pod, over the agent gateway.
+func (m *Manager) Files(ctx context.Context, a state.Agent, limit int) ([]string, bool, error) {
+	return m.workspace(a).Files(ctx, limit)
 }
 
 func (m *Manager) logf(format string, args ...any) {

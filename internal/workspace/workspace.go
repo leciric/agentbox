@@ -55,6 +55,15 @@ type Workspace interface {
 	// leaving ignored files alone.
 	Restore(ctx context.Context, commit string) error
 
+	// ResolveCommit returns the commit a branch, tag or revision names, and
+	// fails when it names none. It is how a caller reads the tree's objects,
+	// such as a checkpoint's parent, without a repository on this host.
+	ResolveCommit(ctx context.Context, rev string) (string, error)
+
+	// DeleteRef deletes one of the tree's refs, like a checkpoint past the
+	// number kept. Deleting a ref that isn't there is not an error.
+	DeleteRef(ctx context.Context, ref string) error
+
 	// Status reads whether the tree is there, and whether it has changes.
 	Status(ctx context.Context) (Status, error)
 

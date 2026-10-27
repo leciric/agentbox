@@ -10,6 +10,7 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/credentials"
+	"agentbox/internal/gitrepo"
 	"agentbox/internal/testutil"
 )
 
@@ -27,7 +28,8 @@ func TestFilesCacheRefreshesAfterTTL(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "a.txt"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, _, err := c.list("proj/agent", root)
+	load := func() ([]string, bool, error) { return gitrepo.ListFiles(root, filesLimit) }
+	got, _, err := c.list("proj/agent", load)
 	if err != nil || !slices.Contains(got, "a.txt") {
 		t.Fatalf("list() = %q, %v", got, err)
 	}
@@ -36,14 +38,14 @@ func TestFilesCacheRefreshesAfterTTL(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "b.txt"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, _, _ = c.list("proj/agent", root)
+	got, _, _ = c.list("proj/agent", load)
 	if slices.Contains(got, "b.txt") {
 		t.Errorf("list() saw b.txt before the cache entry expired")
 	}
 
 	// ...and appears once the TTL has passed.
 	now = now.Add(filesTTL)
-	got, _, _ = c.list("proj/agent", root)
+	got, _, _ = c.list("proj/agent", load)
 	if !slices.Contains(got, "b.txt") {
 		t.Errorf("list() = %q after the TTL, want it to include b.txt", got)
 	}

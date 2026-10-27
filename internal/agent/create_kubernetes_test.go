@@ -211,24 +211,24 @@ func TestBuildKeepsTheRowWhenThePodNeverAnswers(t *testing.T) {
 	}
 }
 
-// TestWorkspaceOfAClusterAgentIsAbsent checks that no host operation can run on
-// a pod agent's tree, and that the error says where the tree is.
-func TestWorkspaceOfAClusterAgentIsAbsent(t *testing.T) {
+// TestWorkspaceOfAClusterAgentIsItsPod checks that a cluster agent's tree is
+// read in the pod and never from a path on this host, and that an Incus agent
+// keeps its worktree.
+func TestWorkspaceOfAClusterAgentIsItsPod(t *testing.T) {
 	m := &Manager{}
 	pod := state.Agent{Project: "hello-stack", Name: "agent-01", Cluster: "k3d", Workspace: "/workspace"}
-	ws := m.workspace(pod)
-	if _, ok := ws.(workspace.Absent); !ok {
-		t.Fatalf("workspace(cluster agent) = %T, want workspace.Absent", ws)
+	ws, ok := m.workspace(pod).(workspace.Pod)
+	if !ok {
+		t.Fatalf("workspace(cluster agent) = %T, want workspace.Pod", m.workspace(pod))
 	}
 	if got := ws.Path(); got != "" {
 		t.Errorf("Path() = %q, want an empty path for a tree that isn't here", got)
 	}
-	_, err := ws.Status(context.Background())
-	if err == nil {
-		t.Fatal("Status() = nil, want the pod workspace's error")
+	if ws.Dir != "/workspace" || ws.User != image.Placeholder.Name {
+		t.Errorf("workspace(cluster agent) = %#v, want the pod's /workspace as its user %q", ws, image.Placeholder.Name)
 	}
-	if !strings.Contains(err.Error(), "pod") {
-		t.Errorf("Status() = %v, want it to name the pod the tree is in", err)
+	if ws.Machine.Ref() != pod.Ref() {
+		t.Errorf("the workspace's machine is %q, want the agent's own %q", ws.Machine.Ref(), pod.Ref())
 	}
 
 	// An Incus agent keeps its worktree, as it always has.
