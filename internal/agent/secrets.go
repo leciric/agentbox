@@ -44,7 +44,7 @@ func (m *Manager) WriteSecrets(ctx context.Context, a state.Agent) error {
 	if err != nil {
 		return err
 	}
-	return m.Incus.WriteFile(ctx, a.Instance, m.SecretsPath(), []byte(content), m.User.UID, m.User.GID, 0o600)
+	return m.machine(a).WriteFile(ctx, m.SecretsPath(), []byte(content), m.User.UID, m.User.GID, 0o600)
 }
 
 // RewriteSecrets writes the secrets file again for every running agent of a
@@ -64,7 +64,7 @@ func (m *Manager) RewriteSecrets(ctx context.Context, project string) error {
 		if a.IsLead() || a.Status != state.AgentReady {
 			continue
 		}
-		if inst, err := m.Incus.Instance(ctx, a.Instance); err != nil || inst.Status != "Running" {
+		if inst, err := m.machine(a).Info(ctx); err != nil || inst.State != "Running" {
 			continue
 		}
 		if err := m.WriteSecrets(ctx, a); err != nil {

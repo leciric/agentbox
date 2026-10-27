@@ -35,6 +35,7 @@ import (
 	"agentbox/internal/image"
 	"agentbox/internal/imagecache"
 	"agentbox/internal/incus"
+	"agentbox/internal/machine"
 	"agentbox/internal/memory"
 	"agentbox/internal/nodemods"
 	"agentbox/internal/omarchy"
@@ -790,6 +791,7 @@ func (s *Server) manager(log io.Writer) *agent.Manager {
 	return &agent.Manager{
 		Store:            s.store,
 		Incus:            s.cfg.Incus,
+		Runtime:          machine.NewIncus(s.cfg.Incus),
 		Paths:            s.cfg.Paths,
 		Creds:            credentials.Store{Dir: s.cfg.Paths.Credentials()},
 		Secrets:          s.secrets(),

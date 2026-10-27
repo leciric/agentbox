@@ -115,13 +115,13 @@ func (m *Manager) installTheme(ctx context.Context, a state.Agent) {
 	file := m.desktopTheme().File()
 	sum := sha256.Sum256(file)
 	want := hex.EncodeToString(sum[:])
-	out, err := m.Incus.Exec(ctx, a.Instance, "sh",
+	out, err := m.machine(a).Exec(ctx, "sh",
 		"-c",
 		"sha256sum "+themePath+" 2>/dev/null | cut -d' ' -f1")
 	if err == nil && strings.TrimSpace(out) == want {
 		return
 	}
-	if err := m.Incus.WriteFile(ctx, a.Instance, themePath, file, 0, 0, 0o644); err != nil {
+	if err := m.machine(a).WriteFile(ctx, themePath, file, 0, 0, 0o644); err != nil {
 		m.logf("The desktop's colours weren't installed: %v", err)
 	}
 }
@@ -136,7 +136,7 @@ func (m *Manager) ApplyTheme(ctx context.Context, a state.Agent) error {
 		return err
 	}
 	m.installTheme(ctx, a)
-	if err := m.Incus.WriteFile(ctx, a.Instance, browserScriptPath, browserScript, 0, 0, 0o755); err != nil {
+	if err := m.machine(a).WriteFile(ctx, browserScriptPath, browserScript, 0, 0, 0o755); err != nil {
 		return err
 	}
 	return m.runBrowserScript(ctx, a, "theme")

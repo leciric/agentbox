@@ -55,7 +55,7 @@ func (m *Manager) DiskUsage(ctx context.Context) (DiskUsage, error) {
 
 	machines := DiskUsageCategory{Kind: api.DiskMachines, Label: "Agent machines"}
 	for _, a := range agents {
-		if used, err := m.Incus.VolumeUsage(ctx, pool, a.Instance); err == nil {
+		if used, err := m.machine(a).Usage(ctx); err == nil {
 			machines.Items = append(machines.Items, DiskUsageItem{Label: a.Ref(), Bytes: used})
 		}
 	}
@@ -132,7 +132,7 @@ type AgentDisk struct {
 // MachineDisk is the bytes an agent's machine holds on the pool, without the
 // walk of its worktree AgentDisk adds.
 func (m *Manager) MachineDisk(ctx context.Context, a state.Agent) (int64, error) {
-	return m.Incus.VolumeUsage(ctx, pool, a.Instance)
+	return m.machine(a).Usage(ctx)
 }
 
 // AgentDisk measures one agent: its machine's root disk, the bytes its
@@ -142,7 +142,7 @@ func (m *Manager) MachineDisk(ctx context.Context, a state.Agent) (int64, error)
 // than repeating on every hover.
 func (m *Manager) AgentDisk(ctx context.Context, a state.Agent) AgentDisk {
 	var d AgentDisk
-	d.Machine, d.MachineErr = m.Incus.VolumeUsage(ctx, pool, a.Instance)
+	d.Machine, d.MachineErr = m.machine(a).Usage(ctx)
 	if a.Worktree == "" {
 		d.WorktreeErr = errors.New(a.Ref() + " has no worktree")
 	} else if m.shareBusy() {

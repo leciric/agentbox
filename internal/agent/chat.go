@@ -196,7 +196,7 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 	if adapter.Script != nil {
 		// Written every time, so the adapter is always this daemon's own.
 		path := "/home/" + m.User.Name + "/" + adapter.ScriptPath
-		if err := m.Incus.WriteFile(ctx, a.Instance, path, adapter.Script, m.User.UID, m.User.GID, 0o644); err != nil {
+		if err := m.machine(a).WriteFile(ctx, path, adapter.Script, m.User.UID, m.User.GID, 0o644); err != nil {
 			return nil, fmt.Errorf("writing the %s adapter into %s: %w", adapter.Tool, a.Ref(), err)
 		}
 		args = append([]string{path}, args...)
@@ -228,14 +228,14 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 // "mise use -g" for a command it runs by name) when its machine lacks it,
 // saying so with what.
 func (m *Manager) ensureMise(ctx context.Context, a state.Agent, spec, install, what string, status func(detail string)) error {
-	if m.Incus.UserExec(ctx, a.Instance, m.User.Name, "mise where "+shellQuote(spec), nil, io.Discard, io.Discard) == nil {
+	if m.machine(a).UserExec(ctx, m.User.Name, "mise where "+shellQuote(spec), nil, io.Discard, io.Discard) == nil {
 		return nil
 	}
 	status("Installing " + what + " in this agent")
 	ctx, cancel := context.WithTimeout(ctx, installTimeout)
 	defer cancel()
 	var out bytes.Buffer
-	if err := m.Incus.UserExec(ctx, a.Instance, m.User.Name, "MISE_YES=1 "+install+" "+shellQuote(spec), nil, &out, &out); err != nil {
+	if err := m.machine(a).UserExec(ctx, m.User.Name, "MISE_YES=1 "+install+" "+shellQuote(spec), nil, &out, &out); err != nil {
 		lines := strings.Split(strings.TrimSpace(out.String()), "\n")
 		return fmt.Errorf("installing %s in %s: %w: %s", spec, a.Ref(), err, strings.Join(lines[max(len(lines)-3, 0):], " "))
 	}
@@ -279,7 +279,7 @@ func (m *Manager) SetInterface(ctx context.Context, a state.Agent, iface string)
 	if iface != state.InterfaceCLI {
 		return a, nil
 	}
-	if inst, err := m.Incus.Instance(ctx, a.Instance); err != nil || inst.Status != "Running" {
+	if inst, err := m.machine(a).Info(ctx); err != nil || inst.State != "Running" {
 		return a, nil // the session starts with the agent
 	}
 	m.prepareToolWindow(ctx, a)
@@ -290,7 +290,7 @@ func (m *Manager) SetInterface(ctx context.Context, a state.Agent, iface string)
 	script := fmt.Sprintf("tmux has-session -t %[1]s 2>/dev/null || exit 0\ntmux list-windows -t %[1]s -F '#W' | grep -qx %[2]s && exit 0\n",
 		session, shellQuote(a.AI)) + window
 	var out bytes.Buffer
-	if err := m.Incus.UserExec(ctx, a.Instance, m.User.Name, script, nil, &out, &out); err != nil {
+	if err := m.machine(a).UserExec(ctx, m.User.Name, script, nil, &out, &out); err != nil {
 		return a, fmt.Errorf("starting %s in the terminal: %w: %s", adapter.Tool, err, strings.TrimSpace(out.String()))
 	}
 	return a, nil

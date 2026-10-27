@@ -279,7 +279,7 @@ func (m *Manager) prepareAgentCodexSettings(ctx context.Context, a state.Agent, 
 		return err
 	}
 	config := codexConfigFor(a.Worktree, agentMCPServers(home, connectors), compactWindow)
-	return m.Incus.WriteFile(ctx, a.Instance, home+"/.codex/config.toml", []byte(config), m.User.UID, m.User.GID, 0o600)
+	return m.machine(a).WriteFile(ctx, home+"/.codex/config.toml", []byte(config), m.User.UID, m.User.GID, 0o600)
 }
 
 // prepareAgentOpenCodeSettings does the same for OpenCode's opencode.json.
@@ -297,7 +297,7 @@ func (m *Manager) prepareAgentOpenCodeSettings(ctx context.Context, a state.Agen
 	if err != nil {
 		return err
 	}
-	if err := m.Incus.WriteFile(ctx, a.Instance, home+"/.config/opencode/opencode.json", config, m.User.UID, m.User.GID, 0o600); err != nil {
+	if err := m.machine(a).WriteFile(ctx, home+"/.config/opencode/opencode.json", config, m.User.UID, m.User.GID, 0o600); err != nil {
 		return err
 	}
 	return m.importOpenCodeAccounts(ctx, a, version)
@@ -311,12 +311,12 @@ func (m *Manager) prepareAgentClaudeSettings(ctx context.Context, a state.Agent,
 	// A machine with no settings file yet is not an error: the merge starts
 	// from nothing. Anything else that went wrong shows up as unparseable
 	// content, which the merge refuses rather than overwrites.
-	_ = m.Incus.UserExec(ctx, a.Instance, m.User.Name, "cat "+shellQuote(path)+" 2>/dev/null", nil, &existing, io.Discard)
+	_ = m.machine(a).UserExec(ctx, m.User.Name, "cat "+shellQuote(path)+" 2>/dev/null", nil, &existing, io.Discard)
 	merged, err := merge(existing.Bytes())
 	if err != nil || merged == nil {
 		return err
 	}
-	return m.Incus.WriteFile(ctx, a.Instance, path, merged, m.User.UID, m.User.GID, 0o600)
+	return m.machine(a).WriteFile(ctx, path, merged, m.User.UID, m.User.GID, 0o600)
 }
 
 // prepareLeadClaudeSettings does the same for a project's lead, whose Claude

@@ -126,6 +126,6 @@ func (m *Manager) applyPackageCache(ctx context.Context, a state.Agent) error {
 			return err
 		}
 	}
-	_, err = m.Incus.Exec(ctx, a.Instance, "sh", "-c", m.packageCacheSetup())
+	_, err = m.machine(a).Exec(ctx, "sh", "-c", m.packageCacheSetup())
 	return err
 }

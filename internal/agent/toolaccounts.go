@@ -543,19 +543,19 @@ func (m *Manager) SetAccount(ctx context.Context, a state.Agent, want Logins) (s
 		return a, err
 	}
 	a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount = logins.Codex, logins.OpenCode, logins.Cursor
-	inst, err := m.Incus.Instance(ctx, a.Instance)
+	inst, err := m.machine(a).Info(ctx)
 	if err != nil {
 		return a, err
 	}
-	if inst.Status != "Running" {
-		return a, fmt.Errorf("%s is %s: start it first, since %s's login is a file in its machine", a.Ref(), strings.ToLower(inst.Status), ChatAdapters[a.AI].Tool)
+	if inst.State != "Running" {
+		return a, fmt.Errorf("%s is %s: start it first, since %s's login is a file in its machine", a.Ref(), strings.ToLower(inst.State), ChatAdapters[a.AI].Tool)
 	}
 	auth, err := m.toolLoginFile(p, a, a.AI)
 	if err != nil {
 		return a, err
 	}
 	home := "/home/" + m.User.Name
-	if err := m.Incus.WriteFile(ctx, a.Instance, home+"/"+toolAuthFile(a.AI), auth, m.User.UID, m.User.GID, 0o600); err != nil {
+	if err := m.machine(a).WriteFile(ctx, home+"/"+toolAuthFile(a.AI), auth, m.User.UID, m.User.GID, 0o600); err != nil {
 		return a, err
 	}
 	if a.AI == "opencode" {

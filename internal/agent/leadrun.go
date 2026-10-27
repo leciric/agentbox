@@ -51,11 +51,11 @@ func (m *Manager) ReachableForLead(ctx context.Context, a state.Agent) error {
 	if a.Status != state.AgentReady {
 		return fmt.Errorf("%s is %s: its machine isn't ready yet", a.Name, a.Status)
 	}
-	inst, err := m.Incus.Instance(ctx, a.Instance)
+	inst, err := m.machine(a).Info(ctx)
 	if err != nil {
 		return fmt.Errorf("%s has no machine to run in: %w", a.Name, err)
 	}
-	switch inst.Status {
+	switch inst.State {
 	case "Running":
 		return nil
 	case "Frozen":
@@ -63,7 +63,7 @@ func (m *Manager) ReachableForLead(ctx context.Context, a state.Agent) error {
 			"Create an agent for this instead, or ask the user to resume it", a.Name)
 	default:
 		return fmt.Errorf("%s's machine is %s (retired, or stopped by the user): it can't run anything until it is started. "+
-			"Create an agent for this instead, or ask the user to start it", a.Name, strings.ToLower(inst.Status))
+			"Create an agent for this instead, or ask the user to start it", a.Name, strings.ToLower(inst.State))
 	}
 }
 
@@ -90,7 +90,7 @@ func (m *Manager) RunForLead(ctx context.Context, a state.Agent, command string,
 	run, cancel := context.WithTimeout(ctx, timeout+30*time.Second)
 	defer cancel()
 	out := &tailBuffer{max: LeadRunTail}
-	err := m.Incus.UserExec(run, a.Instance, m.User.Name, script, nil, out, out)
+	err := m.machine(a).UserExec(run, m.User.Name, script, nil, out, out)
 	result := RunResult{Output: out.String(), Bytes: out.total}
 	code, exited := incus.ExitCode(err)
 	switch {
@@ -148,11 +148,11 @@ func (m *Manager) CopyForLead(ctx context.Context, src state.Agent, from string,
 	unpack := ExecCommand(dst.Worktree, "mkdir -p -- "+shellQuote(into)+" && tar -C "+shellQuote(into)+" -xf -")
 	packed := make(chan error, 1)
 	go func() {
-		err := m.Incus.UserExec(copyCtx, src.Instance, m.User.Name, pack, nil, sent, srcErr)
+		err := m.machine(src).UserExec(copyCtx, m.User.Name, pack, nil, sent, srcErr)
 		pw.CloseWithError(err)
 		packed <- err
 	}()
-	unpackErr := m.Incus.UserExec(copyCtx, dst.Instance, m.User.Name, unpack, pr, io.Discard, dstErr)
+	unpackErr := m.machine(dst).UserExec(copyCtx, m.User.Name, unpack, pr, io.Discard, dstErr)
 	pr.CloseWithError(errors.New("the destination stopped reading"))
 	packErr := <-packed
 	switch {

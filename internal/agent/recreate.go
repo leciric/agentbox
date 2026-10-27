@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"agentbox/internal/image"
-	"agentbox/internal/incus"
+	"agentbox/internal/machine"
 	"agentbox/internal/state"
 )
 
@@ -56,15 +56,15 @@ func (m *Manager) Recreate(ctx context.Context, a state.Agent, opts RecreateOpti
 	if !repo.HasWorktree(a.Worktree) {
 		return fmt.Errorf("%s's worktree %s isn't there, so there's nothing to make its machine for", a.Ref(), a.Worktree)
 	}
-	switch _, err := m.Incus.Instance(ctx, a.Instance); {
+	switch _, err := m.machine(a).Info(ctx); {
 	case err == nil && a.Status == state.AgentReady:
 		return fmt.Errorf("%s: %w (%s)", a.Ref(), ErrHasMachine, a.Instance)
 	case err == nil:
 		m.logf("Removing %s, which an interrupted run left half-made", a.Instance)
-		if err := m.Incus.Delete(ctx, a.Instance); err != nil {
+		if err := m.machine(a).Destroy(ctx); err != nil {
 			return err
 		}
-	case !errors.Is(err, incus.ErrNotFound):
+	case !errors.Is(err, machine.ErrNotFound):
 		return err
 	}
 	ready, err := image.Ready(ctx, m.Incus)
@@ -95,7 +95,7 @@ func (m *Manager) Recreate(ctx context.Context, a state.Agent, opts RecreateOpti
 	// the old machine, and went with it; their worktree halves stay on their
 	// refs.
 	if _, err := repo.ResolveRef(snapshotRef(a.Name, initialSnapshot)); err == nil {
-		if err := m.Incus.CreateSnapshot(ctx, a.Instance, initialSnapshot); err != nil {
+		if err := m.machine(a).Snapshot(ctx, initialSnapshot); err != nil {
 			return fail("snapshot", err)
 		}
 	}
@@ -124,7 +124,7 @@ func (m *Manager) pushHome(ctx context.Context, a state.Agent, dir string) error
 		return err
 	}
 	var out bytes.Buffer
-	if err := m.Incus.UserExec(ctx, a.Instance, m.User.Name, "tar -x -C \"$HOME\" -f -", &archive, &out, &out); err != nil {
+	if err := m.machine(a).UserExec(ctx, m.User.Name, "tar -x -C \"$HOME\" -f -", &archive, &out, &out); err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(out.String()))
 	}
 	return nil
