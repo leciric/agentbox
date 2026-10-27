@@ -32,7 +32,8 @@ long-lived token, writes the kubeconfig for it, seals it, and drops the admin
 one. From then on this machine holds only the ServiceAccount's token.
 
 The admin kubeconfig is read here and sent to the daemon for that one request.
-It is never stored, on either machine.`,
+It is never stored, on either machine. The daemon is the one that talks to the
+cluster, so the server address in it must be one the daemon can reach.`,
 	}
 	cmd.AddCommand(newClusterAddCmd(a), newClusterListCmd(a), newClusterDoctorCmd(a),
 		newClusterRotateCmd(a), newClusterRemoveCmd(a))

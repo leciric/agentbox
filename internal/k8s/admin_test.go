@@ -66,7 +66,7 @@ func TestTokenMakesASecretOfItsOwn(t *testing.T) {
 	if got, want := string(token), "token-1"; got != want {
 		t.Errorf("token = %q, want %q", got, want)
 	}
-	secret, err := client.CoreV1().Secrets("agentbox").Get(ctx, k8s.TokenSecretName, getOptions())
+	secret, err := client.CoreV1().Secrets("agentbox").Get(ctx, k8s.ServiceAccountTokenSecret, getOptions())
 	if err != nil {
 		t.Fatal(err)
 	}
