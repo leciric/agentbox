@@ -254,9 +254,11 @@ func fromViewer(in devicestream.Input) (*api.IOSInput, []step, error) {
 		return &api.IOSInput{Type: "text", Text: in.Text}, nil, nil
 	case devicestream.InputWheel:
 		clamp := func(v float64) float64 { return min(max(v, 0), 1) }
+		// float64() rounds each product on its own, which arm64 would
+		// otherwise fuse into the subtraction: the same swipe everywhere.
 		return &api.IOSInput{
 			Type: "swipe", X: in.X, Y: in.Y, DurationMS: 100,
-			X2: clamp(in.X - in.DX*wheelReach), Y2: clamp(in.Y - in.DY*wheelReach),
+			X2: clamp(in.X - float64(in.DX*wheelReach)), Y2: clamp(in.Y - float64(in.DY*wheelReach)),
 		}, nil, nil
 	case devicestream.InputButton:
 		if in.Button == "home" {

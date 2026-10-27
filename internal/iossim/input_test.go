@@ -140,8 +140,8 @@ func TestFromViewer(t *testing.T) {
 		`{"type":"key","action":"down","key":"Meta"}`:             {steps: []op{{Op: "key", Usage: 0xe3, Down: true}}},
 		`{"type":"key","action":"down","key":"a"}`:                {steps: []op{{Op: "key", Usage: 0x04, Down: true}}},
 		`{"type":"text","text":"héllo"}`:                          {planned: &api.IOSInput{Type: "text", Text: "héllo"}},
-		`{"type":"wheel","x":0.5,"y":0.5,"dx":0,"dy":2}`:          {planned: &api.IOSInput{Type: "swipe", X: 0.5, Y: 0.5, X2: 0.5, Y2: 0.5 - 2*reach, DurationMS: 100}},
-		`{"type":"wheel","x":0.5,"y":0.05,"dx":0,"dy":-3}`:        {planned: &api.IOSInput{Type: "swipe", X: 0.5, Y: 0.05, X2: 0.5, Y2: 0.05 + 3*reach, DurationMS: 100}},
+		`{"type":"wheel","x":0.5,"y":0.5,"dx":0,"dy":2}`:          {planned: &api.IOSInput{Type: "swipe", X: 0.5, Y: 0.5, X2: 0.5, Y2: 0.5 - float64(2*reach), DurationMS: 100}},
+		`{"type":"wheel","x":0.5,"y":0.05,"dx":0,"dy":-3}`:        {planned: &api.IOSInput{Type: "swipe", X: 0.5, Y: 0.05, X2: 0.5, Y2: 0.05 + float64(3*reach), DurationMS: 100}},
 		`{"type":"button","button":"home"}`:                       {planned: &api.IOSInput{Type: "button", Button: "home"}},
 		`{"type":"button","button":"recents"}`:                    {},
 	} {
