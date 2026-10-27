@@ -159,6 +159,13 @@ type Server struct {
 	// idleAfter schedules a lead's cache card: time.AfterFunc when nil, a test's
 	// clock otherwise.
 	idleAfter func(d time.Duration, f func()) interface{ Stop() bool }
+	// cacheGate, leadKeepalive and projectWorking are the rest of the cache
+	// card's world (cachecard.go): whether the lead has a cache worth saving,
+	// sending it a keepalive, and whether the project's agents are working.
+	// Nil is the real thing; a test puts its own in.
+	cacheGate      func(project string) (lead state.Agent, used int64, ok bool)
+	leadKeepalive  func(ctx context.Context, a state.Agent) error
+	projectWorking func(project string) bool
 	// dockerPruneTimeout bounds freeing an agent's Docker space as it stops
 	// (dockerprune.go): agent.DockerPruneTimeout, or a test's shorter one.
 	dockerPruneTimeout time.Duration

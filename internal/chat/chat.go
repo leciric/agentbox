@@ -550,6 +550,9 @@ func (m *Manager) SendMessage(a state.Agent, msg api.ChatMessageRequest) (api.Ch
 	if c.compaction != nil {
 		return clone(*c.hold(text, sent)), nil
 	}
+	if c.holding && c.turn == nil {
+		return clone(*c.waitHidden(text, sent)), nil
+	}
 	if c.turn != nil {
 		return clone(*c.aside(text, sent)), nil
 	}
@@ -1420,6 +1423,10 @@ type conversation struct {
 	// asked to distil the project's events into memories and kept
 	// (hidden.go). Notices wait for it, as they wait for a running turn.
 	rolling bool
+	// holding says the hidden prompt running is a keepalive (hidden.go):
+	// messages the user sends wait in the outbox for it to answer, and
+	// settleRolling starts their turn.
+	holding bool
 	// compaction is the running compaction's card (rollover.go). While it is
 	// set, messages the user sends are held for the fresh session.
 	compaction *api.ChatItem

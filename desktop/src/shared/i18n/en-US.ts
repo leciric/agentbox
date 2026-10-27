@@ -3221,6 +3221,7 @@ export const enUS = {
   'vm.tokens.kind.background': 'background',
   'vm.tokens.kind.compaction': 'compaction',
   'vm.tokens.kind.consolidation': 'consolidation',
+  'vm.tokens.kind.keepalive': 'keepalive',
   'vm.tokens.howFarBack': 'How far back',
   'vm.tokens.intro': 'What each agent\'s chat spent, kept after the agent is retired. A Claude Code you start by hand in an agent\'s terminal isn\'t counted.',
   'vm.tokens.nothingSpent': 'Nothing spent {period, select, 5h {in the last 5 hours} 24h {in the last 24 hours} 7d {in the last 7 days} 30d {in the last 30 days} other {since the ledger began}}.',

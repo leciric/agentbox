@@ -3586,6 +3586,7 @@ export const TokensTurn = "turn";
 export const TokensBackground = "background";
 export const TokensCompaction = "compaction";
 export const TokensConsolidation = "consolidation";
+export const TokensKeepalive = "keepalive";
 export const FeatureDesktopOpen = "desktop.open";
 export const FeatureTerminalOpen = "terminal.open";
 export const FeatureAndroidOpen = "android.open";

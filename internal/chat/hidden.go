@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"agentbox/internal/state"
@@ -38,6 +39,32 @@ import (
 // consolidation means the watermark doesn't move and the window is read again
 // next time.
 func (m *Manager) Ask(ctx context.Context, a state.Agent, ask string) (string, error) {
+	return m.hidden(ctx, a, ask, state.TokensConsolidation, false)
+}
+
+// KeepalivePrompt is what a keepalive asks: as little as a prompt can be, so
+// what it costs is reading the cache back.
+const KeepalivePrompt = "[AgentBox] Keepalive: reply only 'ok'."
+
+// Keepalive sends a lead's session a prompt whose only point is to read its
+// prompt cache, so the cache's TTL starts again while the lead waits on its
+// agents (the daemon's cachecard.go decides when). Like Ask it leaves nothing
+// in the conversation, publishes nothing and doesn't read as busy; its tokens
+// are booked as TokensKeepalive. Unlike Ask, a message the user sends while it
+// is in flight waits for it to answer and then starts its turn, as one sent
+// during a turn waits for that: a keepalive has no answer worth sharing the
+// session with, and the user's turn shouldn't race it.
+func (m *Manager) Keepalive(ctx context.Context, a state.Agent) error {
+	// Saying nothing still read the cache.
+	if _, err := m.hidden(ctx, a, KeepalivePrompt, state.TokensKeepalive, true); err != nil && !errors.Is(err, errSaidNothing) {
+		return err
+	}
+	return nil
+}
+
+// hidden is Ask and Keepalive: ask on a's session, booked as kind, with the
+// user's messages held until it answers when hold is set.
+func (m *Manager) hidden(ctx context.Context, a state.Agent, ask, kind string, hold bool) (string, error) {
 	c, err := m.conversation(a)
 	if err != nil {
 		return "", err
@@ -51,14 +78,14 @@ func (m *Manager) Ask(ctx context.Context, a state.Agent, ask string) (string, e
 		return "", errNoSession
 	}
 	ad := c.adapter
-	c.rolling, c.capture = true, &strings.Builder{}
+	c.rolling, c.holding, c.capture = true, hold, &strings.Builder{}
 	c.mu.Unlock()
 
-	answer, askErr := c.consolidate(ctx, ad, ask, state.TokensConsolidation)
+	answer, askErr := c.consolidate(ctx, ad, ask, kind)
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.capture = nil
+	c.capture, c.holding = nil, false
 	// Whatever happened, the chat stops holding things back, and what waited
 	// is delivered into the session it was always going to land in.
 	c.settleRolling()

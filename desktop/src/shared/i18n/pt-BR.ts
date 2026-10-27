@@ -3222,6 +3222,7 @@ export const ptBR: Messages = {
   'vm.tokens.kind.background': 'segundo plano',
   'vm.tokens.kind.compaction': 'compactação',
   'vm.tokens.kind.consolidation': 'consolidação',
+  'vm.tokens.kind.keepalive': 'keepalive',
   'vm.tokens.howFarBack': 'Até quando voltar',
   'vm.tokens.intro': 'O que o chat de cada agente gastou, mantido depois que o agente é aposentado. Um Claude Code que você inicia à mão no terminal de um agente não é contado.',
   'vm.tokens.nothingSpent': 'Nada gasto {period, select, 5h {nas últimas 5 horas} 24h {nas últimas 24 horas} 7d {nos últimos 7 dias} 30d {nos últimos 30 dias} other {desde o início do registro}}.',

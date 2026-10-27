@@ -98,7 +98,7 @@ var tsConstants = [][2]string{
 	{"SearchProjects", SearchProjects}, {"SearchAgents", SearchAgents}, {"SearchChats", SearchChats}, {"SearchMemories", SearchMemories},
 	{"SearchEvents", SearchEvents}, {"SearchReports", SearchReports}, {"SearchMedia", SearchMedia}, {"SearchSkills", SearchSkills},
 	{"SearchConnectors", SearchConnectors}, {"SearchNotes", SearchNotes}, {"SearchPulls", SearchPulls},
-	{"TokensTurn", TokensTurn}, {"TokensBackground", TokensBackground}, {"TokensCompaction", TokensCompaction}, {"TokensConsolidation", TokensConsolidation},
+	{"TokensTurn", TokensTurn}, {"TokensBackground", TokensBackground}, {"TokensCompaction", TokensCompaction}, {"TokensConsolidation", TokensConsolidation}, {"TokensKeepalive", TokensKeepalive},
 	{"FeatureDesktopOpen", FeatureDesktopOpen}, {"FeatureTerminalOpen", FeatureTerminalOpen}, {"FeatureAndroidOpen", FeatureAndroidOpen}, {"FeatureAgentMediaView", FeatureAgentMediaView},
 	{"FeatureProjectMediaView", FeatureProjectMediaView}, {"FeaturePullList", FeaturePullList}, {"FeatureMemoryView", FeatureMemoryView}, {"FeatureTokensView", FeatureTokensView},
 	{"FeatureSettingsEnvironment", FeatureSettingsEnvironment}, {"FeatureSettingsAccounts", FeatureSettingsAccounts}, {"FeatureSettingsLead", FeatureSettingsLead}, {"FeatureSettingsAgents", FeatureSettingsAgents},

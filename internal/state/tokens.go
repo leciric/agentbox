@@ -28,6 +28,9 @@ const (
 	// TokensConsolidation is distilling a project's events into memories
 	// (D76, D78).
 	TokensConsolidation = api.TokensConsolidation
+	// TokensKeepalive is a hidden prompt that only reads a lead's prompt
+	// cache back, so it doesn't expire while the lead waits on its agents.
+	TokensKeepalive = api.TokensKeepalive
 )
 
 // TokenRow is one line of the ledger: what one model spent in one turn.
