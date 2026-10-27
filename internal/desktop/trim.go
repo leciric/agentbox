@@ -29,8 +29,8 @@ const (
 	BlockTolerance = 20 // of 255
 	ChangedBlocks  = 3
 
-	stillFrames = FrameRate         // StillFor, 1s
-	keepFrames  = FrameRate * 2 / 5 // KeepStill, 0.4s
+	stillFrames = FrameRate * 2     // StillFor, 2s
+	keepFrames  = FrameRate * 6 / 5 // KeepStill, 1.2s
 )
 
 // A Cut is a stretch of the recording, in seconds of the wall clock since it

@@ -273,9 +273,9 @@ A recording of the display with the browser in front makes the browser fullscree
 first, so it shows the page as a screenshot does, and puts the window back after.
 --whole-display films the desktop as it is: tab strip, taskbar and all.
 
-A stretch where the screen stands still for more than a second plays as 0.4s
-of it, so the video shows the action and not the waiting between steps; the
-notes made meanwhile still mark the moments they were made at. --no-trim
+A stretch where the screen stands still for more than two seconds plays as
+1.2s of it, so the video shows the action and not the waiting between steps;
+the notes made meanwhile still mark the moments they were made at. --no-trim
 keeps every frame. Android recordings are always kept whole.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
