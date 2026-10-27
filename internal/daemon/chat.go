@@ -30,15 +30,14 @@ func (s *Server) launchChat(ctx context.Context, a state.Agent, status func(stri
 			return proc, nil
 		}
 	}
-	launch := m.ChatCommand
 	if a.IsLead() {
-		launch = m.LeadChatCommand
+		cmd, err := m.LeadChatCommand(ctx, a, status)
+		if err != nil {
+			return nil, err
+		}
+		return chat.StartCommand(cmd)
 	}
-	cmd, err := launch(ctx, a, status)
-	if err != nil {
-		return nil, err
-	}
-	proc, err := chat.StartCommand(cmd)
+	proc, err := m.ChatProcess(ctx, a, status)
 	if err != nil {
 		return nil, err
 	}

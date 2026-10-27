@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,6 +36,7 @@ import (
 	"agentbox/internal/paths"
 	"agentbox/internal/secrets"
 	"agentbox/internal/state"
+	"agentbox/internal/workspace"
 )
 
 const (
@@ -330,6 +330,13 @@ func (m *Manager) machine(a state.Agent) machine.Machine {
 		return m.Runtime.Machine(a.Instance)
 	}
 	return machine.NewIncus(m.Incus).Machine(a.Instance)
+}
+
+// workspace is a's tree: on this host the git worktree of the project's
+// repository. A runtime that keeps the tree elsewhere, like a Kubernetes pod's
+// volume, answers with its own Workspace here.
+func (m *Manager) workspace(a state.Agent) workspace.Workspace {
+	return workspace.Local{Dir: a.Worktree}
 }
 
 // ParseRef splits "<project>/<agent>".
@@ -753,34 +760,40 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		}
 	}
 
-	m.shareRoom(ctx, "creating "+a.Ref()+"'s worktree")
-	m.logf("Creating worktree %s on branch %s (from %s)", a.Worktree, a.Branch, a.BaseRef)
-	if err := pl.repo.AddWorktree(a.Worktree, a.Branch, a.BaseCommit, "agentbox: "+a.Ref()); err != nil {
-		return fail("worktree", err)
-	}
-	undo = append(undo, func() {
-		_ = pl.repo.RemoveWorktree(a.Worktree)
-		_ = pl.repo.DeleteBranch(a.Branch)
-		deleteAgentRefs(pl.repo, a.Name)
-	})
-	if pl.tree != "" {
-		if err := gitrepo.ApplyTree(a.Worktree, pl.tree); err != nil {
-			return fail("worktree", err)
-		}
-	}
-
+	// The project's env files are what an agent is expected to find, and are
+	// copied into its new tree.
 	var envFiles []string
 	if pl.copyEnv {
 		var err error
 		if envFiles, err = pl.repo.EnvFiles(); err != nil {
 			return fail("env files", err)
 		}
-		if err := copyFiles(pl.repo.Root, a.Worktree, envFiles); err != nil {
-			return fail("env files", err)
+	}
+
+	ws := m.workspace(a)
+	m.shareRoom(ctx, "creating "+a.Ref()+"'s worktree")
+	m.logf("Creating worktree %s on branch %s (from %s)", a.Worktree, a.Branch, a.BaseRef)
+	if err := ws.Prepare(ctx, pl.repo, workspace.PrepareOptions{
+		Branch:  a.Branch,
+		Base:    a.BaseCommit,
+		Tree:    pl.tree,
+		EnvFrom: pl.repo.Root,
+		Env:     envFiles,
+		Reason:  "agentbox: " + a.Ref(),
+	}); err != nil {
+		var step *workspace.StepError
+		if errors.As(err, &step) {
+			return fail(step.Step, step.Err)
 		}
-		if len(envFiles) > 0 {
-			m.logf("Copied %s from the project", strings.Join(envFiles, ", "))
-		}
+		return fail("worktree", err)
+	}
+	undo = append(undo, func() {
+		_ = ws.Destroy(cleanup, pl.repo)
+		_ = pl.repo.DeleteBranch(a.Branch)
+		deleteAgentRefs(pl.repo, a.Name)
+	})
+	if len(envFiles) > 0 {
+		m.logf("Copied %s from the project", strings.Join(envFiles, ", "))
 	}
 
 	if m.NodeModules != nil {
@@ -2049,15 +2062,23 @@ func (m *Manager) requireRunning(ctx context.Context, a state.Agent) error {
 	}
 }
 
-// ShellArgs is the command that attaches the terminal to the agent's tmux session.
-func (m *Manager) ShellArgs(a state.Agent) []string {
-	return ShellCommand(m.Incus.Path(), a.Instance, m.User.Name, a.Worktree)
+// ShellArgv is what runs in an agent's terminal: a login shell as user, in a
+// tmux session in worktree.
+func ShellArgv(user, worktree string) []string {
+	return []string{"runuser", "-l", user, "-c",
+		fmt.Sprintf("tmux new-session -A -s %s -c %s", session, shellQuote(worktree))}
 }
 
 // ShellCommand is the incus command that attaches a terminal to an agent's tmux session.
 func ShellCommand(incusPath, instance, user, worktree string) []string {
-	return []string{incusPath, "exec", instance, "-t", "--", "runuser", "-l", user, "-c",
-		fmt.Sprintf("tmux new-session -A -s %s -c %s", session, shellQuote(worktree))}
+	return append([]string{incusPath, "exec", instance, "-t", "--"}, ShellArgv(user, worktree)...)
+}
+
+// Attach opens a terminal on the agent's tmux session, for the app's terminal
+// pane. The machine decides what a terminal is on its runtime: a local PTY
+// over `incus exec -t` here, a stream over the agent gateway on Kubernetes.
+func (m *Manager) Attach(ctx context.Context, a state.Agent, cols, rows uint16) (machine.Terminal, error) {
+	return m.machine(a).Attach(ctx, machine.AttachOptions{Argv: ShellArgv(m.User.Name, a.Worktree), Cols: cols, Rows: rows})
 }
 
 // ExecCommand is the shell command Exec runs inside the agent.
@@ -2236,16 +2257,6 @@ type DestroyOptions struct {
 	Archived func()
 }
 
-// worktreeExists reports whether path may still hold a worktree: anything but
-// a path that is certainly not there.
-func worktreeExists(path string) bool {
-	if path == "" {
-		return false
-	}
-	_, err := os.Stat(path)
-	return !errors.Is(err, fs.ErrNotExist)
-}
-
 // BranchDisposable reports whether an agent's local branch holds nothing
 // that isn't somewhere else: it is merged into the branch the agent was made
 // from or the project's current one, here or on a remote, or a remote has the
@@ -2275,10 +2286,10 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 		// A status git couldn't read is no proof of a clean worktree: the
 		// machine out of files (ENFILE) once read that way about agents with
 		// thousands of lines of work. Only a worktree that isn't there is.
-		switch dirty, err := gitrepo.Dirty(a.Worktree); {
-		case err != nil && worktreeExists(a.Worktree):
+		switch st, err := m.workspace(a).Status(ctx); {
+		case err != nil && st.Exists:
 			return fmt.Errorf("%s: can't tell whether it has uncommitted changes (%v): try again, or use --force to discard any", a.Ref(), err)
-		case err == nil && dirty:
+		case err == nil && st.Dirty:
 			return fmt.Errorf("%s has uncommitted changes: commit them in the agent, or use --force to discard them", a.Ref())
 		}
 	}
@@ -2364,9 +2375,9 @@ func (m *Manager) removeLeftovers(ctx context.Context, repo gitrepo.Repo, a stat
 		m.WorktreeTrashed()
 	} else {
 		m.shareRoom(ctx, "removing "+a.Ref()+"'s worktree")
-	}
-	if err := repo.RemoveWorktree(a.Worktree); err != nil {
-		m.logf("Removing worktree %s: %v", a.Worktree, err)
+		if err := m.workspace(a).Destroy(ctx, repo); err != nil {
+			m.logf("Removing worktree %s: %v", a.Worktree, err)
+		}
 	}
 	deleteAgentRefs(repo, a.Name)
 	if a.Branch != "" && repo.BranchExists(a.Branch) {
@@ -2531,34 +2542,19 @@ func displayState(status string) string {
 // in onto when given, its pull request's base (gitrepo.DiffBase): commits,
 // uncommitted edits and untracked files.
 func (m *Manager) Diff(a state.Agent, onto []string, stat bool, paths ...string) (string, error) {
-	return gitrepo.DiffWorktree(a.Worktree, gitrepo.DiffBase(a.Worktree, a.BaseRef, a.BaseCommit, onto...), stat, paths...)
+	return m.workspace(a).Diff(context.Background(), workspace.DiffOptions{
+		BaseRef:    a.BaseRef,
+		BaseCommit: a.BaseCommit,
+		Onto:       onto,
+		Stat:       stat,
+		Paths:      paths,
+	})
 }
 
 func (m *Manager) logf(format string, args ...any) {
 	if m.Log != nil {
 		_, _ = fmt.Fprintf(m.Log, "==> "+format+"\n", args...)
 	}
-}
-
-func copyFiles(srcRoot, dstRoot string, rel []string) error {
-	for _, r := range rel {
-		src, dst := filepath.Join(srcRoot, r), filepath.Join(dstRoot, r)
-		info, err := os.Stat(src)
-		if err != nil {
-			return err
-		}
-		content, err := os.ReadFile(src)
-		if err != nil {
-			return err
-		}
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return err
-		}
-		if err := os.WriteFile(dst, content, info.Mode().Perm()); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func gitIdentity() (name, email string) {

@@ -75,15 +75,49 @@ func TestShellCommandQuotesTheWorktree(t *testing.T) {
 	}
 }
 
-func TestShellArgsUsesTheManagersIncusAndUser(t *testing.T) {
-	f := setup(t, fakeIncus(t, "exit 0"))
-	a := state.Agent{Instance: "ab-hello-stack-agent-01", Worktree: "/work/agent-01"}
-	got := f.m.ShellArgs(a)
-	if got[0] != f.m.Incus.Path() || got[2] != "ab-hello-stack-agent-01" {
-		t.Errorf("ShellArgs() = %v, want it to use the manager's incus and the agent's instance", got)
+func TestShellArgvRunsTheAgentsTmuxSession(t *testing.T) {
+	got := agent.ShellArgv("dev", "/work/agent-01")
+	want := []string{"runuser", "-l", "dev", "-c", "tmux new-session -A -s main -c '/work/agent-01'"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ShellArgv() = %#v, want %#v", got, want)
 	}
-	if !strings.Contains(strings.Join(got, " "), "runuser -l dev -c") {
-		t.Errorf("ShellArgs() = %v, want it to run as the agent's user dev", got)
+}
+
+// TestAttachUsesTheManagersIncusAndUser checks that the manager asks the
+// agent's machine for the terminal, as the agent's user and in its worktree,
+// and hands back a stream to read and resize.
+func TestAttachUsesTheManagersIncusAndUser(t *testing.T) {
+	args := filepath.Join(t.TempDir(), "args")
+	t.Setenv("ARGS", args)
+	f := setup(t, fakeIncus(t, `case "$1" in
+  exec) printf '%s\n' "$@" > "$ARGS"; printf 'hello from the agent\n' ;;
+esac`))
+	a := state.Agent{Instance: "ab-hello-stack-agent-01", Worktree: "/work/agent-01"}
+	term, err := f.m.Attach(context.Background(), a, 100, 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = term.Close() }()
+	if err := term.Resize(120, 40); err != nil {
+		t.Errorf("Resize() = %v", err)
+	}
+	buf := make([]byte, 64)
+	n, err := term.Read(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(buf[:n]), "hello from the agent") {
+		t.Errorf("the terminal printed %q, want what the agent's command wrote", buf[:n])
+	}
+	got, err := os.ReadFile(args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ran := strings.Join(strings.Fields(string(got)), " ")
+	for _, want := range []string{"exec ab-hello-stack-agent-01 -t --", "runuser -l dev -c", "tmux new-session -A -s main -c '/work/agent-01'"} {
+		if !strings.Contains(ran, want) {
+			t.Errorf("the terminal ran incus %q, want it to hold %q", ran, want)
+		}
 	}
 }
 

@@ -57,6 +57,22 @@ type Snapshot struct {
 	CreatedAt time.Time
 }
 
+// AttachOptions is Attach's.
+type AttachOptions struct {
+	// Argv is what runs in the terminal, in the machine's own environment:
+	// the agent's shell and the tmux session its tools live in.
+	Argv []string
+	// Cols and Rows are the terminal's size as it opens.
+	Cols, Rows uint16
+}
+
+// Terminal is a machine's terminal: what it prints, and what is typed into it.
+type Terminal interface {
+	io.ReadWriteCloser
+	// Resize changes the terminal's size.
+	Resize(cols, rows uint16) error
+}
+
 // Machine is one agent's machine in a runtime. Every method names the machine
 // the value was made for, so the manager never passes a name around.
 type Machine interface {
@@ -85,6 +101,11 @@ type Machine interface {
 	// UserExec runs command, a shell command line, as user, with the given
 	// streams. A nil stream is discarded.
 	UserExec(ctx context.Context, user, command string, stdin io.Reader, stdout, stderr io.Writer) error
+
+	// Attach runs opts.Argv in a terminal on the machine, for what an
+	// interactive session needs. The terminal ends when the command does or
+	// when it is closed.
+	Attach(ctx context.Context, opts AttachOptions) (Terminal, error)
 
 	// WriteFile writes content to path, owned by uid and gid, with mode.
 	WriteFile(ctx context.Context, path string, content []byte, uid, gid int, mode os.FileMode) error

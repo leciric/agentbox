@@ -71,10 +71,13 @@ func (m *Manager) Checkpoint(ctx context.Context, a state.Agent, turn string, nu
 // machine wrote can be its user's alone, so a refusal is retried once they
 // are handed back, as Snapshot does.
 func (m *Manager) snapshotWorktree(ctx context.Context, a state.Agent, ref, message string) (string, error) {
-	commit, err := gitrepo.SnapshotWorktree(a.Worktree, ref, message)
+	save := func() (string, error) {
+		return m.workspace(a).Checkpoint(ctx, ref, message)
+	}
+	commit, err := save()
 	if err != nil && strings.Contains(err.Error(), "ermission denied") {
 		m.handBackFiles(ctx, a)
-		commit, err = gitrepo.SnapshotWorktree(a.Worktree, ref, message)
+		commit, err = save()
 	}
 	if err != nil {
 		return "", fmt.Errorf("checkpointing the worktree: %w", err)
@@ -184,7 +187,7 @@ func (m *Manager) RollBack(ctx context.Context, a state.Agent, cp state.Checkpoi
 		return state.Checkpoint{}, err
 	}
 	m.logf("Rolling %s back to %s (what it had is saved as %s)", a.Ref(), cp.ID, id)
-	if err := gitrepo.RestoreWorktree(a.Worktree, cp.Commit); err != nil {
+	if err := m.workspace(a).Restore(ctx, cp.Commit); err != nil {
 		return state.Checkpoint{}, fmt.Errorf("restoring the worktree: %w", err)
 	}
 	for _, other := range all {

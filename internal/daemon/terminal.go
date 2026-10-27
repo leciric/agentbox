@@ -4,13 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"os"
-	"os/exec"
 	"strconv"
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/creack/pty"
 
 	"agentbox/internal/api"
 )
@@ -29,7 +26,7 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) error {
 	if err := m.PrepareShell(r.Context(), a); err != nil {
 		return err
 	}
-	size := &pty.Winsize{Cols: queryUint16(r, "cols", 120), Rows: queryUint16(r, "rows", 32)}
+	sizeCols, sizeRows := queryUint16(r, "cols", 120), queryUint16(r, "rows", 32)
 
 	// The socket is only reachable by this user, so any origin (the desktop app's) is fine.
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
@@ -41,25 +38,21 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) error {
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	argv := m.ShellArgs(a)
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
-	ptmx, err := pty.StartWithSize(cmd, size)
+	term, err := m.Attach(ctx, a, sizeCols, sizeRows)
 	if err != nil {
 		_ = conn.Close(websocket.StatusInternalError, err.Error())
 		return nil
 	}
 	defer func() {
 		cancel()
-		_ = ptmx.Close()
-		_ = cmd.Wait()
+		_ = term.Close()
 	}()
 
 	go func() {
 		defer cancel()
 		buf := make([]byte, 32*1024)
 		for {
-			n, err := ptmx.Read(buf)
+			n, err := term.Read(buf)
 			if n > 0 {
 				if werr := conn.Write(ctx, websocket.MessageBinary, buf[:n]); werr != nil {
 					return
@@ -79,11 +72,11 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) error {
 		if typ == websocket.MessageText {
 			var resize api.TerminalResize
 			if json.Unmarshal(data, &resize) == nil && resize.Cols > 0 && resize.Rows > 0 {
-				_ = pty.Setsize(ptmx, &pty.Winsize{Cols: resize.Cols, Rows: resize.Rows})
+				_ = term.Resize(resize.Cols, resize.Rows)
 			}
 			continue
 		}
-		if _, err := ptmx.Write(data); err != nil {
+		if _, err := term.Write(data); err != nil {
 			break
 		}
 		// A keystroke, for "auto-stop idle agents": a viewer with nothing
