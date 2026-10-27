@@ -7,7 +7,7 @@ import (
 )
 
 func TestIsProject(t *testing.T) {
-	make := func(files map[string]string) string {
+	repo := func(files map[string]string) string {
 		root := t.TempDir()
 		for name, data := range files {
 			path := filepath.Join(root, name)
@@ -31,7 +31,7 @@ func TestIsProject(t *testing.T) {
 		"a web app":               {map[string]string{"package.json": `{"dependencies":{"react":"19"}}`, "src/main.tsx": ""}, false},
 		"pods aren't the app":     {map[string]string{"node_modules/x/X.xcodeproj/p": "x"}, false},
 	} {
-		if got := IsProject(make(c.files)); got != c.want {
+		if got := IsProject(repo(c.files)); got != c.want {
 			t.Errorf("%s: %v, want %v", name, got, c.want)
 		}
 	}
