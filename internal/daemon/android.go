@@ -4,9 +4,12 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/coder/websocket"
+
 	"agentbox/internal/agent"
 	"agentbox/internal/android"
 	"agentbox/internal/api"
+	"agentbox/internal/devicestream"
 	"agentbox/internal/hostos"
 	"agentbox/internal/state"
 )
@@ -77,6 +80,36 @@ func (s *Server) android(action string, agentOf func(*http.Request) (state.Agent
 	}
 }
 
-func (s *Server) androidView(w http.ResponseWriter, r *http.Request) error {
-	return s.vncView(w, r, s.manager(nil).DialAndroidView)
+// androidStream relays an agent's emulator's stream (devicestream: H.264
+// video out, input in) between the app and the stream server in the agent,
+// message for message. Like the VNC views, it is reached only through the
+// daemon's socket, and the agent's server only through its proxy device.
+func (s *Server) androidStream(w http.ResponseWriter, r *http.Request) error {
+	a, err := s.agentFromPath(r)
+	if err != nil {
+		return err
+	}
+	defer s.viewIdle(a.Ref())()
+	conn, err := s.manager(nil).DialAndroidStream(r.Context(), a)
+	if err != nil {
+		return err
+	}
+	device, err := devicestream.Dial(r.Context(), conn)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = device.CloseNow() }()
+
+	// The socket is only reachable by this user, so any origin (the desktop app's) is fine.
+	viewer, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+	if err != nil {
+		return nil // Accept has already written the response
+	}
+	defer func() { _ = viewer.CloseNow() }()
+	viewer.SetReadLimit(1 << 20)
+	if err := devicestream.Relay(r.Context(), viewer, device); err != nil {
+		s.logf("%s's Android stream: %v", a.Ref(), err)
+	}
+	_ = viewer.Close(websocket.StatusNormalClosure, "")
+	return nil
 }

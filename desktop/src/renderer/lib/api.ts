@@ -85,7 +85,7 @@ export const isProjectChat = (ref: string) => {
 export const agentPath = agent;
 // The WebSocket paths of an agent's VNC displays, for lib/vnc.
 export const browserViewPath = (ref: string) => `${agent(ref)}/browser/view`;
-export const androidViewPath = (ref: string) => `${agent(ref)}/android/view`;
+export const androidStreamPath = (ref: string) => `${agent(ref)}/android/stream`;
 
 // The Home chat is a lead kept under T.HomeProject rather than a project.
 export const isHomeChat = (ref: string) => ref.split('/')[0] === T.HomeProject;

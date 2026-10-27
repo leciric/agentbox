@@ -223,6 +223,10 @@
 //   &panelwidth=340         with &v2=1, the right-hand panel that wide
 //   &android=1              the project is an Android one and its agents' emulators
 //                           have booted: the v2 panel's Android view, with its dot
+//   &stream=ws://localhost:5902
+//                           streams (terminals, views) are WebSockets to that
+//                           server, by path: with &android=1, the Android view
+//                           plays a real emulator, from `agentbox android serve`
 //   &pick=1                 with &pip=1&panel=desktop:agent-25, the element picker:
 //                           Pick element, a click on agent-25's page, and the
 //                           element in the lead's composer (dev/pick.tsx)
@@ -315,6 +319,7 @@ import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
 import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
 import { Markdown } from '../components/chat/Markdown';
+import { webStreams } from '../web/streams';
 import { agent12Chat, asleepChat, buildFixtures, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedSignedOut, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
 import { restoreMode } from '../lib/theme';
@@ -490,6 +495,9 @@ if (usage) {
 // &android=1: the project is an Android one, so its agents' panels have Android.
 const androidProject = params.get('android') === '1';
 if (androidProject) fixtures.projects.find((p) => p.name === PROJECT)!.android = true;
+// &stream=ws://…: the bridge's streams are the browser's own WebSockets there.
+const streamServer = params.get('stream');
+if (streamServer) (window as unknown as { agentbox: { stream: unknown } }).agentbox.stream = webStreams((path) => streamServer + path).stream;
 const chatAgent = chat ? fixtures.agents.find((a) => a.ref === `${PROJECT}/${chat}`) : undefined;
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false, refetchOnWindowFocus: false } } });

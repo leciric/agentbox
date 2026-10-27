@@ -28,6 +28,8 @@ func newAndroidCmd(a *app) *cobra.Command {
 		newAndroidScreenshotCmd(a),
 		record,
 		newAndroidLogsCmd(a),
+		newAndroidServeCmd(),
+		newAndroidCaptureCmd(),
 	)
 	return cmd
 }

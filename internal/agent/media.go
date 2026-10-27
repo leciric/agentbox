@@ -331,7 +331,8 @@ type recordingState struct {
 
 // StartRecording records until StopRecording, or until limit: the agent's
 // display or its browser's page, with the recorder in the agentbox binary
-// (desktop.Record), or its Android emulator's screen with scrcpy. The target
+// (desktop.Record), or its Android emulator's screen, with the same binary's
+// devicestream.Record (android.sh record). The target
 // "auto", the default, takes the page when the browser is all there is to see.
 func (m *Manager) StartRecording(ctx context.Context, a state.Agent, target, input, name string, limit time.Duration, noTrim, wholeDisplay bool, source string) (RecordingStatus, error) {
 	if err := m.requireRunning(ctx, a); err != nil {
@@ -421,8 +422,8 @@ func startRecordingScript(st recordingState) (string, error) {
 	// started waits until the recorder is running, so a recorder that can't
 	// start is caught here rather than at stop. The desktop recorder says so
 	// once ffmpeg has written its first frames, about 150 ms in (more for the
-	// browser, which waits for the page's first frame); scrcpy may take
-	// longer to connect to the device before it writes anything, so it keeps
+	// browser, which waits for the page's first frame); the emulator's recorder
+	// waits for the device's first frame before it starts ffmpeg, so it keeps
 	// a second.
 	var recorder, started string
 	switch st.Target {
@@ -527,8 +528,8 @@ pid=$(cat "$dir/recording.pid" 2>/dev/null || true)
 running=no
 if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
   running=yes
-  # Both finish the file when told to stop. scrcpy ignores INT, which a
-  # background process starts out ignoring, so it gets TERM.
+  # Both finish the file when told to stop. The emulator's recorder gets
+  # TERM: INT is what a background process starts out ignoring.
   if grep -q '"target":"android"' "$dir/recording.json"; then kill -TERM "$pid"; else kill -INT "$pid"; fi
   i=0
   while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 500 ]; do sleep 0.05; i=$((i + 1)); done

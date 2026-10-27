@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -121,6 +122,23 @@ func TestAndroidTellsAGPUFailure(t *testing.T) {
 		}
 		if got := strings.TrimSpace(string(out)); got != c.want {
 			t.Errorf("%s: gpu_failure = %q, want %q", name, got, c.want)
+		}
+	}
+}
+
+// TestAndroidStreamsWhereItsProxyDeviceConnects keeps android.sh's stream
+// server on the port the stream's proxy device reaches, and the view free of
+// scrcpy and its display, which only an earlier AgentBox's emulator may still
+// have running for stop to end.
+func TestAndroidStreamsWhereItsProxyDeviceConnects(t *testing.T) {
+	t.Parallel()
+	port := regexp.MustCompile(`\nstream_port=(\d+)\n`).FindStringSubmatch(string(androidScript))
+	if port == nil || port[1] != strconv.Itoa(androidStreamPort) {
+		t.Errorf("android.sh streams on %v, its proxy device connects to %d", port, androidStreamPort)
+	}
+	for _, line := range strings.Split(string(androidScript), "\n") {
+		if strings.Contains(line, "scrcpy") && !strings.Contains(line, "pkill") && !strings.HasPrefix(strings.TrimSpace(line), "#") {
+			t.Errorf("android.sh still runs scrcpy: %s", line)
 		}
 	}
 }

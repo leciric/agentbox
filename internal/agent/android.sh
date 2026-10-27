@@ -5,11 +5,13 @@
 # - a Pixel 7 AVD on the chosen system image, in ~/.android;
 # - the emulator, without a window, on KVM, rendering on the agent's GPU when
 #   it has one and in software (SwiftShader) otherwise;
-# - a display with a VNC server (TigerVNC's Xvnc, on 127.0.0.1:5901) showing
-#   the device full-screen through scrcpy, which also passes input to it.
-# Runs as the agent's user. AgentBox reaches the VNC port through an Incus
-# proxy device, so nothing listens on the agent's network.
-# Usage: android.sh link | start <image> <memory MB> <cores> [auto|host|swiftshader_indirect] | wait | view | status | stop
+# - the device's screen as H.264 video, and input into it, served on
+#   127.0.0.1:5902 by `agentbox android serve` (internal/devicestream), which
+#   reads the screen from the emulator's gRPC endpoint and encodes it with
+#   ffmpeg.
+# Runs as the agent's user. AgentBox reaches the stream's port through an
+# Incus proxy device, so nothing listens on the agent's network.
+# Usage: android.sh link | start <image> <memory MB> <cores> [auto|host|swiftshader_indirect] | wait | stream | status | stop
 #        android.sh screenshot <file> | logcat <since seconds> [package] | install <apk> | record <file> <seconds>
 set -eu
 
@@ -19,7 +21,8 @@ export ANDROID_SDK_ROOT="$ANDROID_HOME"
 export ANDROID_AVD_HOME="$HOME/.android/avd"
 export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
 export ADB="$ANDROID_HOME/platform-tools/adb"
-scrcpy=/opt/scrcpy/scrcpy
+agentbox=/usr/local/bin/agentbox
+stream_port=5902
 display=98
 avd=agentbox
 state="$HOME/.local/state/agentbox"
@@ -28,18 +31,7 @@ mkdir -p "$state" "$ANDROID_AVD_HOME"
 
 emulator_running() { pgrep -u "$uid" -f qemu-system-x86_64 >/dev/null; }
 booted() { [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = 1 ]; }
-viewing() { pgrep -u "$uid" -f "scrcpy .*--window-title=agentbox-android" >/dev/null; }
-# scrcpy's server runs on the device once a client has connected. Two clients
-# starting at once push the same server and break each other, so each waits.
-device_server() { adb shell pgrep -f com.genymobile.scrcpy >/dev/null 2>&1; }
-wait_for_device_server() {
-  i=0
-  until device_server; do
-    i=$((i + 1))
-    [ "$i" -lt 100 ] || return 0
-    sleep 0.1
-  done
-}
+streaming() { pgrep -u "$uid" -f "$agentbox android serve" >/dev/null; }
 listening() { ss -ltn "sport = :$1" | grep -q LISTEN; }
 wait_for() {
   i=0
@@ -164,22 +156,23 @@ EOF
   printf '%s\n' "$image" >"$state/android-image"
 }
 
-# start_display starts the display scrcpy shows the device on. On the GPU's
-# render node, Xvnc gives its clients GLX on the GPU, which the emulator's
-# renderer draws through with -gpu host.
+# start_display starts an X display for the emulator to render through on
+# the GPU (-gpu host), which nobody looks at: on the GPU's render node, Xvnc
+# gives its clients GLX on the GPU. Its VNC server only listens on a socket of
+# the agent's user, as it can't listen on nothing. On SwiftShader the emulator
+# needs no display.
 start_display() {
-  if ! pgrep -u "$uid" -f "Xvnc :$display " >/dev/null; then
-    # A snapshot taken while the display ran keeps its lock files.
-    rm -f "/tmp/.X$display-lock" "/tmp/.X11-unix/X$display"
-    node=$(render_node)
-    setsid Xvnc ":$display" -geometry 540x1200 -depth 24 -desktop android \
-      -rfbport 5901 -localhost -SecurityTypes None -AlwaysShared ${node:+-rendernode $node} >"$state/android-display.log" 2>&1 </dev/null &
-    wait_for test -e "/tmp/.X11-unix/X$display" || { echo "the Android display didn't start: see $state/android-display.log" >&2; exit 1; }
-    wait_for listening 5901 || { echo "the Android display's VNC server didn't start: see $state/android-display.log" >&2; exit 1; }
-  fi
-  if ! pgrep -u "$uid" -f "matchbox-window-manager -display :$display" >/dev/null; then
-    setsid matchbox-window-manager -display ":$display" -use_titlebar no >"$state/android-wm.log" 2>&1 </dev/null &
-  fi
+  pgrep -u "$uid" -f "Xvnc :$display " >/dev/null && return
+  # A snapshot taken while the display ran keeps its lock files.
+  rm -f "/tmp/.X$display-lock" "/tmp/.X11-unix/X$display" "$state/android-display.rfb"
+  node=$(render_node)
+  setsid Xvnc ":$display" -geometry 64x64 -depth 24 -desktop android -rfbport -1 \
+    -rfbunixpath "$state/android-display.rfb" -SecurityTypes None ${node:+-rendernode $node} >"$state/android-display.log" 2>&1 </dev/null &
+  wait_for test -e "/tmp/.X11-unix/X$display" || { echo "the Android display didn't start: see $state/android-display.log" >&2; exit 1; }
+}
+
+stop_display() {
+  pkill -u "$uid" -f "Xvnc :$display " || true
 }
 
 # launch starts the emulator, with the AVD's config.ini written, on gpu mode
@@ -203,8 +196,8 @@ launch() {
   wait_for emulator_running || true
 }
 
-# fall_back restarts on SwiftShader an emulator that couldn't render on the
-# GPU, keeping why for status.
+# fall_back restarts on SwiftShader, which needs no display, an emulator that
+# couldn't render on the GPU, keeping why for status.
 fall_back() {
   printf '%s\n' "$1" >"$state/android-gpu-problem"
   cp "$state/emulator.log" "$state/emulator-gpu.log"
@@ -215,24 +208,16 @@ fall_back() {
     i=$((i + 1))
   done
   pkill -9 -u "$uid" -f qemu-system-x86_64 || true
+  stop_display
   launch swiftshader_indirect
 }
 
-# view shows the device on the display, full-screen, with input.
-view() {
-  # scrcpy is optional in the base image (image.Options), so an agent on an
-  # image built without it says so rather than failing as a missing command.
-  [ -x "$scrcpy" ] || {
-    echo "this agent's machine has no scrcpy, so its emulator can't be shown: rebuild the base image with it (agentbox image build --android), then create the agent again" >&2
-    exit 1
-  }
+# stream serves the device's screen and input (agentbox android serve).
+stream() {
   require_booted
-  start_display
-  viewing && return
-  DISPLAY=":$display" setsid "$scrcpy" --no-audio --max-fps=30 --stay-awake --window-borderless \
-    --window-title=agentbox-android >"$state/scrcpy.log" 2>&1 </dev/null &
-  wait_for viewing || { echo "scrcpy didn't start: see $state/scrcpy.log" >&2; exit 1; }
-  wait_for_device_server
+  streaming && return
+  setsid "$agentbox" android serve --listen "127.0.0.1:$stream_port" >"$state/android-stream.log" 2>&1 </dev/null &
+  wait_for listening "$stream_port" || { echo "the emulator's video stream didn't start: see $state/android-stream.log" >&2; exit 1; }
 }
 
 case "${1:-}" in
@@ -247,9 +232,9 @@ start)
     [ -z "$(render_node)" ] || gpu_mode=host
   fi
   link
-  # The emulator draws through the display on the GPU, so it starts first.
-  start_display
   if ! emulator_running; then
+    # The emulator draws through the display on the GPU, so it starts first.
+    [ "$gpu_mode" != host ] || start_display
     write_avd "$2" "$3" "$4" "$gpu_mode"
     rm -f "$state/android-gpu-problem"
     launch "$gpu_mode"
@@ -269,10 +254,10 @@ wait)
     [ "$i" -lt 300 ] || { echo "Android didn't finish starting within 5 minutes: see $state/emulator.log" >&2; exit 1; }
     sleep 1
   done
-  view
+  stream
   ;;
-view)
-  view
+stream)
+  stream
   ;;
 status)
   running=0 up=0 shown=0 release=
@@ -283,17 +268,20 @@ status)
       release=$(adb shell getprop ro.build.version.release 2>/dev/null | tr -d '\r')
     fi
   fi
-  viewing && shown=1
+  streaming && shown=1
   echo "running=$running"
   echo "booted=$up"
-  echo "view=$shown"
+  echo "stream=$shown"
   echo "image=$(cat "$state/android-image" 2>/dev/null || true)"
   echo "release=$release"
   echo "gpu=$(cat "$state/android-gpu" 2>/dev/null || true)"
   echo "gpu_problem=$(cat "$state/android-gpu-problem" 2>/dev/null || true)"
   ;;
 stop)
+  pkill -u "$uid" -f "$agentbox android serve" || true
+  # Earlier AgentBoxes showed the device with scrcpy on a window manager.
   pkill -u "$uid" -f "scrcpy .*--window-title=agentbox-android" || true
+  pkill -u "$uid" -f "matchbox-window-manager -display :$display" || true
   if emulator_running; then
     adb emu kill >/dev/null 2>&1 || true
     i=0
@@ -303,8 +291,7 @@ stop)
     done
     pkill -u "$uid" -f qemu-system-x86_64 || true
   fi
-  pkill -u "$uid" -f "matchbox-window-manager -display :$display" || true
-  pkill -u "$uid" -f "Xvnc :$display " || true
+  stop_display
   ;;
 screenshot)
   require_booted
@@ -327,12 +314,11 @@ install)
   ;;
 record)
   require_booted
-  if viewing; then wait_for_device_server; fi
-  [ -x "$scrcpy" ] || { echo "this agent's machine has no scrcpy to record with: rebuild the base image with agentbox image build --android" >&2; exit 1; }
-  exec "$scrcpy" --no-window --no-audio --no-control --max-fps=30 --record="$2" --record-format=mp4 --time-limit="$3"
+  # Stopped with SIGTERM, it finishes the file.
+  exec "$agentbox" android capture "$2" "$3"
   ;;
 *)
-  echo "usage: android.sh link|start|wait|view|status|stop|screenshot|logcat|install|record" >&2
+  echo "usage: android.sh link|start|wait|stream|status|stop|screenshot|logcat|install|record" >&2
   exit 2
   ;;
 esac

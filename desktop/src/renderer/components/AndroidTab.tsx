@@ -1,13 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Camera, ClipboardPaste, Ellipsis, FileText, LoaderCircle, MousePointer2, Play, Smartphone, Square, TriangleAlert, Wrench } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
-import { androidViewPath, api } from '../lib/api';
+import { androidStreamPath, api } from '../lib/api';
 import { useT } from '../lib/i18n';
 import { clock } from '../lib/media';
-import { useVncView } from '../lib/useVncView';
 import { cn, errorMessage } from '../lib/utils';
+import { DeviceStreamView, type DeviceStreamHandle } from './device/DeviceStreamView';
 import { Button } from './ui/button';
 import { Code, Notice } from './ui/card';
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from './ui/menu';
@@ -38,7 +38,12 @@ export function AndroidTab({ agent, onOpenMedia, onSetup, compact = false }: { a
   const [now, setNow] = useState(Date.now());
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const booted = running && status.data?.booted === true;
-  const { view, connected, paste } = useVncView(androidViewPath(agent.ref), booted, control);
+  const device = useRef<DeviceStreamHandle>(null);
+  const [connected, setConnected] = useState(false);
+  const paste = async () => {
+    const text = await window.agentbox.readText();
+    if (text) device.current?.send({ type: 'text', text });
+  };
 
   const setStatus = (next: T.AndroidStatus) => queryClient.setQueryData(['android', agent.ref], next);
   const saved = (item: T.MediaItem) => toast(t('agent.media.saved', { name: item.name }), { action: { label: t('agent.media.view'), onClick: onOpenMedia } });
@@ -152,23 +157,15 @@ export function AndroidTab({ agent, onOpenMedia, onSetup, compact = false }: { a
 
       <div className="relative min-h-0 flex-1 overflow-hidden bg-[radial-gradient(ellipse_at_center,rgb(124_58_237/0.10),transparent_60%)]">
         {booted && (
-          <div className="absolute inset-0 flex items-center justify-center p-5">
-            <div
-              className={cn(
-                'relative aspect-[1080/2400] h-full max-w-full overflow-hidden rounded-[26px] bg-black shadow-[0_40px_120px_-30px_var(--ab-shadow-deep)] ring-1 ring-line-strong transition',
-                control && connected && 'ring-2 ring-brand-400/60',
-              )}
-            >
-              <div ref={view} className="absolute inset-0" data-android-view={agent.ref} data-connected={connected} />
-              {/* Keeps your mouse and keyboard away from the device until you take control. */}
-              {connected && !control && <div className="absolute inset-0" data-view-guard />}
-              {!connected && (
-                <div className="absolute inset-0 flex items-center justify-center text-sm text-subtle">
-                  <LoaderCircle className="mr-2 size-4 animate-spin" />
-                  {t('agent.android.connecting')}
-                </div>
-              )}
-            </div>
+          <div className="absolute inset-5" data-android-view={agent.ref} data-connected={connected}>
+            <DeviceStreamView
+              ref={device}
+              path={androidStreamPath(agent.ref)}
+              enabled={booted}
+              control={control}
+              buttons={['back', 'home', 'recents', 'rotate']}
+              onState={(state) => setConnected(state.phase === 'playing')}
+            />
           </div>
         )}
 

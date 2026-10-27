@@ -1028,7 +1028,7 @@ func (s *Server) routes() http.Handler {
 	for _, action := range []string{"start", "stop", "install"} {
 		h("POST /v1/agents/{project}/{agent}/android/"+action, s.android(action, s.agentFromPath, "user"))
 	}
-	h("GET /v1/agents/{project}/{agent}/android/view", s.androidView)
+	h("GET /v1/agents/{project}/{agent}/android/stream", s.androidStream)
 	h("GET /v1/preview", s.previewInfo)
 	for _, route := range mediaRoutes {
 		h(route.method+" /v1/agents/{project}/{agent}/media"+route.path, s.media(route.action, s.agentFromPath, "user"))
