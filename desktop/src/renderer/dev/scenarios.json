@@ -586,6 +586,28 @@
     "click": "text=Advanced"
   },
   {
+    "id": "settings-clusters-full-dark",
+    "description": "Settings open at Clusters: k3d's capacity line over its room, and the full nas at 0 free, dark theme",
+    "query": "settings=clusters&theme=dark",
+    "width": 1100,
+    "height": 1200
+  },
+  {
+    "id": "settings-clusters-draining-dark",
+    "description": "Settings open at Clusters: the draining hetzner with its previous image, Undrain in place of Drain, and its Details and Upgrade buttons, dark theme",
+    "query": "settings=clusters&theme=dark",
+    "width": 1100,
+    "height": 1200
+  },
+  {
+    "id": "settings-clusters-detail-dark",
+    "description": "k3d's Details dialog: capacity, two pods (one Pending with the scheduler's reason), claims, the agent waiting for room, and the cluster's recent events, dark theme",
+    "query": "settings=clusters&theme=dark",
+    "width": 1280,
+    "height": 1000,
+    "click": "[data-cluster-details=k3d]"
+  },
+  {
     "id": "settings-phone-whole-dark",
     "description": "Settings open at Phone, tall enough to show every row of the section, to read its labels and descriptions — dark",
     "query": "settings=phone&theme=dark",
@@ -1028,6 +1050,21 @@
     "query": "newagent=1&theme=dark",
     "width": 1100,
     "height": 1200
+  },
+  {
+    "id": "newagent-full-dark",
+    "description": "The New agent dialog with the full nas cluster picked: the picker says full, 0 free, and Queue if full is there to wait for room, dark theme",
+    "query": "newagent=1&theme=dark",
+    "width": 1100,
+    "height": 1300,
+    "click": ["[data-new-agent-cluster]", "[role=menuitem]:has-text('nas')", "#agent-queue"]
+  },
+  {
+    "id": "agents-queued-dark",
+    "description": "Home's all-agents list with an agent queued for the full k3d: its cluster badge, its place in line and the reason, in the dark theme",
+    "query": "app=home&theme=dark",
+    "width": 1280,
+    "height": 1800
   },
   {
     "id": "notify-bell-dark",

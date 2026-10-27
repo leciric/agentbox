@@ -379,7 +379,11 @@ export function NewAgentDialog({
                   <SelectOption value="auto">{t('project.newAgent.clusterAuto')}</SelectOption>
                   {clusters.data.map((cluster) => (
                     <SelectOption key={cluster.name} value={cluster.name}>
-                      {cluster.capacity ? t('project.newAgent.clusterOption', { name: cluster.name, agents: cluster.capacity.agents }) : cluster.name}
+                      {cluster.draining
+                        ? t('project.newAgent.clusterDraining', { name: cluster.name })
+                        : cluster.capacity
+                          ? t('project.newAgent.clusterOption', { name: cluster.name, agents: cluster.capacity.agents })
+                          : cluster.name}
                     </SelectOption>
                   ))}
                 </Select>

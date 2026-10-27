@@ -220,6 +220,15 @@ export const api = {
   removeCluster: (name: string) => call<void>('DELETE', `/v1/clusters/${encodeURIComponent(name)}`),
   doctorCluster: (name: string) => call<T.ClusterReport>('POST', `/v1/clusters/${encodeURIComponent(name)}/doctor`),
   rotateCluster: (name: string, req: T.RotateClusterRequest) => call<T.Cluster>('POST', `/v1/clusters/${encodeURIComponent(name)}/rotate`, req),
+  // What a cluster holds right now, for its page: its pods, claims, recent
+  // events and the agents waiting for room there.
+  clusterDetail: (name: string) => call<T.ClusterDetail>('GET', `/v1/clusters/${encodeURIComponent(name)}/detail`),
+  // Draining stops a cluster taking new agents; neither field stops the ones
+  // it has, keepRunning leaves them, and moveTo sends them elsewhere. Both
+  // draining and upgrading are jobs, so the answer says they started.
+  drainCluster: (name: string, req: T.DrainClusterRequest) => call<T.Job>('POST', `/v1/clusters/${encodeURIComponent(name)}/drain`, req),
+  undrainCluster: (name: string) => call<T.Cluster>('POST', `/v1/clusters/${encodeURIComponent(name)}/undrain`),
+  upgradeCluster: (name: string, req: T.UpgradeClusterRequest) => call<T.Job>('POST', `/v1/clusters/${encodeURIComponent(name)}/upgrade`, req),
   registries: () => call<T.Registry[]>('GET', '/v1/registries'),
   addRegistry: (req: T.AddRegistryRequest) => call<T.Registry>('POST', '/v1/registries', req),
   removeRegistry: (name: string) => call<void>('DELETE', `/v1/registries/${encodeURIComponent(name)}`),

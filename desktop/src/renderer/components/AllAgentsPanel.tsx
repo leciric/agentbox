@@ -15,6 +15,7 @@ import { AgentContextMenu } from './AgentContextMenu';
 import { ProjectIcon } from './ProjectIcon';
 import { Sparkline } from './Sparkline';
 import { LiveAgentAvatar } from './state';
+import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Panel } from './ui/card';
 import { Skeleton, skeletonWidths } from './ui/skeleton';
@@ -168,6 +169,7 @@ function AgentFleetRow({
 }) {
   const t = useT();
   const status = chatLabel(agent);
+  const queued = agent.state === 'queued';
   const projectName = useProjectName(agent.project);
   // v2 draws the project's icon where v1 draws a folder.
   const v2 = useUiV2();
@@ -202,6 +204,17 @@ function AgentFleetRow({
           <span className="truncate text-ui font-medium text-primary">{agent.title || agent.name}</span>
           {agent.title && <span className="hidden shrink-0 font-mono text-xs text-faint lg:inline">{agent.name}</span>}
         </span>
+        {(agent.cluster || queued) && (
+          <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-caption text-faint">
+            {agent.cluster && <Badge className="shrink-0 font-mono text-caption">{agent.cluster}</Badge>}
+            {queued && agent.queuePosition !== undefined && (
+              <span className="min-w-0 truncate" title={agent.queueReason}>
+                {t('agent.queue.position', { position: agent.queuePosition })}
+                {agent.queueReason ? ` · ${agent.queueReason}` : ''}
+              </span>
+            )}
+          </span>
+        )}
         {columns.project && (
           <span className="flex items-center gap-1.5 truncate text-xs text-faint sm:hidden">
             <FolderGit2 className="size-3 shrink-0" />
