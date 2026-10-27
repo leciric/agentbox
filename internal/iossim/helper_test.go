@@ -124,10 +124,23 @@ func TestEnsureStartsOneAndReplacesAnOlderOne(t *testing.T) {
 	}
 }
 
-func TestEnsureSaysWhenTheHelperDoesntStart(t *testing.T) {
-	err := Ensure(testContext(t), EnsureOptions{ConfigDir: t.TempDir(), Version: "1", Exe: "agentbox", Wait: 50 * time.Millisecond, Start: func(*exec.Cmd) error { return nil }})
+func TestEnsureSaysWhenTheHelperDoesntStartAndWaitsBeforeTryingAgain(t *testing.T) {
+	dir := t.TempDir()
+	starts := 0
+	o := EnsureOptions{ConfigDir: dir, Version: "1", Exe: "agentbox", Wait: 50 * time.Millisecond, Start: func(*exec.Cmd) error { starts++; return nil }}
+	err := Ensure(testContext(t), o)
 	if err == nil || !strings.Contains(err.Error(), "ios-helper.log") {
 		t.Errorf("Ensure = %v", err)
+	}
+	// The next command doesn't wait for it again.
+	if err := Ensure(testContext(t), o); err == nil || starts != 1 {
+		t.Errorf("Ensure again = %v, after %d starts", err, starts)
+	}
+	// Once it runs, it's found, and the failure forgotten.
+	serve(t, dir, "1")
+	waitForHelper(t, dir, "1")
+	if err := Ensure(testContext(t), o); err != nil {
+		t.Errorf("Ensure with the helper up = %v", err)
 	}
 }
 

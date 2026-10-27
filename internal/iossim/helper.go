@@ -92,6 +92,10 @@ func Serve(ctx context.Context, o ServeOptions) error {
 	return nil
 }
 
+// retryAfter is how long Ensure leaves a helper that didn't start before it
+// tries again.
+const retryAfter = 10 * time.Minute
+
 // EnsureOptions say how the front end starts the helper.
 type EnsureOptions struct {
 	ConfigDir string
@@ -118,6 +122,12 @@ func Ensure(ctx context.Context, o EnsureOptions) error {
 			stopHelper(st.PID)
 			waitGone(ctx, file, st.PID)
 		}
+	}
+	// One that didn't start lately isn't tried again on every command, each
+	// of which would wait for it.
+	failed := filepath.Join(o.ConfigDir, "ios-helper.failed")
+	if fi, err := os.Stat(failed); err == nil && time.Since(fi.ModTime()) < retryAfter {
+		return fmt.Errorf("the iOS Simulator helper didn't start at %s: see ios-helper.log in AgentBox's config", fi.ModTime().Format(time.Kitchen))
 	}
 	args := []string{HelperCommand, "--config", o.ConfigDir}
 	for _, r := range o.Roots {
@@ -151,9 +161,11 @@ func Ensure(ctx context.Context, o EnsureOptions) error {
 	deadline := time.Now().Add(wait)
 	for {
 		if v, err := local(file).Version(ctx); err == nil && v == o.Version {
+			_ = os.Remove(failed)
 			return nil
 		}
 		if time.Now().After(deadline) {
+			_ = os.WriteFile(failed, nil, 0o600)
 			return errors.New("the iOS Simulator helper didn't start: see ios-helper.log in AgentBox's config")
 		}
 		select {

@@ -61,14 +61,9 @@ func (v *VM) ensureIOS(ctx context.Context) {
 	}
 }
 
-// ensuresIOS reports whether a command line is one that starts the helper:
-// any the front end forwards, and vm start and vm power.
+// ensuresIOS reports whether a vm command starts the helper: vm start, and
+// vm power, which the app asks every few seconds. (Every command the front
+// end forwards starts it too.)
 func ensuresIOS(args []string) bool {
-	if len(args) == 0 {
-		return false
-	}
-	if args[0] != "vm" {
-		return true
-	}
-	return len(args) > 1 && (args[1] == "start" || args[1] == "power")
+	return len(args) > 1 && args[0] == "vm" && (args[1] == "start" || args[1] == "power")
 }

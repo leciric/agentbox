@@ -34,14 +34,10 @@ func Main(args []string, version string) int {
 		return 1
 	}
 	frontVersion = version
-	if ensuresIOS(args) {
-		if vm, err := New(); err == nil {
-			vm.ensureIOS(context.Background())
-		}
-	}
 	if len(args) == 0 || args[0] != "vm" {
 		vm, err := New()
 		if err == nil {
+			vm.ensureIOS(context.Background())
 			err = vm.Forward(context.Background(), args) // only returns on failure
 		}
 		fmt.Fprintln(os.Stderr, "error:", err)
@@ -49,6 +45,11 @@ func Main(args []string, version string) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if ensuresIOS(args) {
+		if vm, err := New(); err == nil {
+			vm.ensureIOS(ctx)
+		}
+	}
 	root := newVMCmd(version)
 	root.SetArgs(args[1:])
 	if err := root.ExecuteContext(ctx); err != nil {

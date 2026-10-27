@@ -250,7 +250,7 @@ func TestForwardTellsTheVMWhereTheSimulatorHelperIs(t *testing.T) {
 
 func TestWhichCommandsStartTheSimulatorHelper(t *testing.T) {
 	for args, want := range map[string]bool{
-		"": false, "list": true, "daemon start": true, "ios tap 1 2": true,
+		"": false, "vm": false,
 		"vm start": true, "vm power --json": true, "vm stop": false, "vm delete": false, "vm status --json": false,
 	} {
 		if got := ensuresIOS(strings.Fields(args)); got != want {
