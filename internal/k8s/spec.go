@@ -3,6 +3,7 @@ package k8s
 import (
 	"fmt"
 	"slices"
+	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -139,6 +140,12 @@ const (
 	AnnotationPodUID = "agentbox/pod-uid"
 )
 
+// agentOwnership is the owner the pod's init container gives the agent's
+// directories: the image's own user, as uid:gid.
+func agentOwnership() string {
+	return strconv.Itoa(AgentUser) + ":" + strconv.Itoa(AgentUser)
+}
+
 // BuildPod is the pod one agent runs in: its machine.
 //
 // It runs agentd as PID 1, which is also its SIGTERM handler: Kubernetes asks it
@@ -175,6 +182,32 @@ func BuildPod(spec Spec) (*corev1.Pod, error) {
 				SeccompProfile:      &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 			},
 			ImagePullSecrets: pullSecrets(spec.PullSecret),
+			// The claim's root belongs to root, and git refuses a repository
+			// whose directory another user owns ("dubious ownership"), so the
+			// two directories the agent lives in are handed to it before
+			// agentd starts. Only the directories: everything below them is
+			// written by the agent, as the agent, from then on.
+			InitContainers: []corev1.Container{{
+				Name:            "ownership",
+				Image:           spec.Image,
+				ImagePullPolicy: pullPolicy(spec.FromRegistry),
+				Command:         []string{"chown", agentOwnership(), WorkspaceDir, HomeDir},
+				SecurityContext: &corev1.SecurityContext{
+					// The one container that is root, and only for chown.
+					RunAsUser:                ptr(int64(0)),
+					RunAsGroup:               ptr(int64(0)),
+					RunAsNonRoot:             ptr(false),
+					AllowPrivilegeEscalation: ptr(false),
+					Capabilities: &corev1.Capabilities{
+						Add:  []corev1.Capability{"CHOWN"},
+						Drop: []corev1.Capability{"ALL"},
+					},
+				},
+				VolumeMounts: []corev1.VolumeMount{
+					{Name: "home", MountPath: WorkspaceDir, SubPath: "workspace"},
+					{Name: "home", MountPath: HomeDir, SubPath: "home"},
+				},
+			}},
 			Volumes: []corev1.Volume{
 				{
 					Name: "home",

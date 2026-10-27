@@ -160,6 +160,31 @@ func TestPodIsOneAgentsMachine(t *testing.T) {
 		t.Errorf("the token is under agentd's writable directory: %s", k8s.TokenDir)
 	}
 
+	// The claim mounts as root, and git refuses a repository whose directory a
+	// different user owns, so one root init container hands the agent its two
+	// directories before agentd starts.
+	if len(pod.Spec.InitContainers) != 1 {
+		t.Fatalf("the pod has %d init containers, want one that owns the claim", len(pod.Spec.InitContainers))
+	}
+	init := pod.Spec.InitContainers[0]
+	if got, want := strings.Join(init.Command, " "), "chown 1000:1000 /workspace /home/agent"; got != want {
+		t.Errorf("the init command = %q, want %q", got, want)
+	}
+	isc := init.SecurityContext
+	if isc == nil || isc.RunAsUser == nil || *isc.RunAsUser != 0 || isc.RunAsNonRoot == nil || *isc.RunAsNonRoot {
+		t.Errorf("the init container's user = %+v, want root and only for the chown", isc)
+	}
+	if isc.Capabilities == nil || len(isc.Capabilities.Add) != 1 || isc.Capabilities.Add[0] != "CHOWN" ||
+		len(isc.Capabilities.Drop) != 1 || isc.Capabilities.Drop[0] != "ALL" {
+		t.Errorf("the init container's capabilities = %+v, want CHOWN alone", isc.Capabilities)
+	}
+	if got := mountAt(t, init, k8s.WorkspaceDir); got.Name != "home" || got.SubPath != "workspace" {
+		t.Errorf("the init container's workspace mount = %+v, want the claim's workspace", got)
+	}
+	if got := mountAt(t, init, k8s.HomeDir); got.Name != "home" || got.SubPath != "home" {
+		t.Errorf("the init container's home mount = %+v, want the claim's home", got)
+	}
+
 	// What it asks for, and what it may use: CPU capped at the request, memory a
 	// little above it.
 	requests, limits := c.Resources.Requests, c.Resources.Limits
