@@ -12,6 +12,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useSyncExternalStore } from 'react';
 import type * as T from '../../shared/api';
 import { api } from './api.ts';
+import { pageTheme, type PageTheme } from './rich.ts';
 
 // The properties styles.css declares defaults for. Setting one here overrides
 // that default for the whole window; clearing it puts AgentBox's own back.
@@ -160,6 +161,8 @@ export function applyTheme(theme: T.Theme | undefined): void {
 
   const next = modeOf(theme);
   setMode(next);
+  painted++;
+  for (const listener of paintListeners) listener();
   if (theme) {
     try {
       localStorage.setItem(remembered, next);
@@ -173,6 +176,37 @@ export function applyTheme(theme: T.Theme | undefined): void {
 // rather than let CSS do the work.
 export function useMode(): Mode {
   return useSyncExternalStore(onMode, currentMode);
+}
+
+// The window's look changes with its mode and with the accent a theme brings,
+// which only the code that copies the look elsewhere (a chat's framed pages,
+// lib/rich.ts PageTheme) needs to hear of.
+const paintListeners = new Set<() => void>();
+let painted = 0;
+let pageThemeCache: { key: string; theme: PageTheme } | undefined;
+
+function onPaint(fn: () => void): () => void {
+  const off = onMode(fn);
+  paintListeners.add(fn);
+  return () => {
+    off();
+    paintListeners.delete(fn);
+  };
+}
+
+function currentPageTheme(): PageTheme {
+  const key = `${mode}\0${painted}`;
+  if (pageThemeCache?.key !== key) {
+    const style = getComputedStyle(document.documentElement);
+    pageThemeCache = { key, theme: pageTheme(mode, (p) => style.getPropertyValue(p)) };
+  }
+  return pageThemeCache.theme;
+}
+
+// usePageTheme is the theme a chat's framed page is told of: the window's
+// mode and colours, as they change.
+export function usePageTheme(): PageTheme {
+  return useSyncExternalStore(onPaint, currentPageTheme);
 }
 
 // useHostTheme keeps the window in step with the desktop around it. The query

@@ -2,10 +2,12 @@ package gitrepo_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"agentbox/internal/gitrepo"
 	"agentbox/internal/testutil"
@@ -130,5 +132,78 @@ func TestRefs(t *testing.T) {
 	}
 	if refs, _ := repo.Refs("refs/agentbox/"); len(refs) != 1 || !strings.HasSuffix(refs[0], "/before") {
 		t.Errorf("Refs() after delete = %q", refs)
+	}
+}
+
+// The snapshot starts from the worktree's own index, which in the middle of a
+// merge holds conflicted entries: those must not fail it, and the snapshot
+// still holds the files as they are on disk.
+func TestSnapshotWorktreeMidMerge(t *testing.T) {
+	_, wt, _, _ := snapshotFixture(t)
+	testutil.Git(t, wt, "checkout", "-q", "--", "message.txt")
+	testutil.Git(t, wt, "switch", "-qc", "other", "HEAD~1")
+	write(t, wt, "message.txt", "theirs\n")
+	testutil.Git(t, wt, "commit", "-qam", "theirs")
+	testutil.Git(t, wt, "switch", "-q", "agentbox/agent-01")
+	if err := exec.Command("git", "-C", wt, "merge", "-q", "other").Run(); err == nil {
+		t.Fatal("merge didn't conflict")
+	}
+
+	snapshot, err := gitrepo.SnapshotWorktree(wt, "refs/agentbox/snapshots/agent-01/merge", "merge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := testutil.Git(t, wt, "show", snapshot+":message.txt"), read(t, wt, "message.txt"); got+"\n" != want {
+		t.Errorf("snapshot's message.txt = %q, want the file on disk %q", got, want)
+	}
+	if conflicted := testutil.Git(t, wt, "diff", "--name-only", "--diff-filter=U"); conflicted != "message.txt" {
+		t.Errorf("worktree's own index lost the conflict: %q", conflicted)
+	}
+}
+
+// A file rewritten in the same second the worktree's index was written, at the
+// same size, has the stat the index recorded: only the index's own mtime tells
+// git to look again, so the snapshot's copy of the index has to keep it.
+func TestSnapshotWorktreeSeesARacyEdit(t *testing.T) {
+	_, wt, _, _ := snapshotFixture(t)
+	testutil.Git(t, wt, "config", "core.trustctime", "false")
+	then := time.Now().Add(-time.Hour).Truncate(time.Second)
+	file := filepath.Join(wt, "racy.txt")
+	write(t, wt, "racy.txt", "aaa\n")
+	if err := os.Chtimes(file, then, then); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, wt, "add", "racy.txt")
+	write(t, wt, "racy.txt", "bbb\n")
+	index := testutil.Git(t, wt, "rev-parse", "--path-format=absolute", "--git-path", "index")
+	for _, path := range []string{file, index} {
+		if err := os.Chtimes(path, then, then); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	snapshot, err := gitrepo.SnapshotWorktree(wt, "refs/agentbox/snapshots/agent-01/racy", "racy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := testutil.Git(t, wt, "show", snapshot+":racy.txt"); got != "bbb" {
+		t.Errorf("snapshot's racy.txt = %q, want the file on disk, bbb", got)
+	}
+}
+
+// An index git can't read, as when it's copied mid-write, doesn't fail the
+// snapshot: it's made from HEAD instead.
+func TestSnapshotWorktreeWithAnUnreadableIndex(t *testing.T) {
+	_, wt, _, _ := snapshotFixture(t)
+	index := testutil.Git(t, wt, "rev-parse", "--path-format=absolute", "--git-path", "index")
+	if err := os.WriteFile(index, []byte("DIRC torn"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := gitrepo.SnapshotWorktree(wt, "refs/agentbox/snapshots/agent-01/torn", "torn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := testutil.Git(t, wt, "show", snapshot+":notes/todo.txt"); got != "untracked" {
+		t.Errorf("snapshot's notes/todo.txt = %q, want untracked", got)
 	}
 }

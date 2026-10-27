@@ -70,7 +70,7 @@ var browsers = []browser{
 	chromium("chrome", "Google Chrome", "chrome",
 		[]string{"Library/Application Support/Google/Chrome"},
 		[]string{".config/google-chrome"},
-		[]string{"AppData/Local/Google/Chrome/User Data"}),
+		nil),
 	chromium("chromium", "Chromium", "chromium",
 		[]string{"Library/Application Support/Chromium"},
 		[]string{".config/chromium", "snap/chromium/common/chromium"},
@@ -92,6 +92,36 @@ var browsers = []browser{
 		"linux":   {".mozilla/firefox", "snap/firefox/common/.mozilla/firefox"},
 		"windows": {"AppData/Roaming/Mozilla/Firefox"},
 	}},
+}
+
+// Unreadable is a Chromium browser installed on Windows whose cookies
+// AgentBox can't read: it seals them with app-bound encryption (v20), which
+// only the browser itself opens. The user is told to export them instead.
+type Unreadable struct {
+	Browser     string `json:"browser"`
+	BrowserName string `json:"browserName"`
+}
+
+// windowsAppBound is where Chrome, Edge and Brave keep their user data on
+// Windows, relative to the home directory.
+var windowsAppBound = []struct {
+	id, name, root string
+}{
+	{"chrome", "Google Chrome", "AppData/Local/Google/Chrome/User Data"},
+	{"edge", "Microsoft Edge", "AppData/Local/Microsoft/Edge/User Data"},
+	{"brave", "Brave", "AppData/Local/BraveSoftware/Brave-Browser/User Data"},
+}
+
+// FindUnreadable lists the Chrome, Edge and Brave installed under a Windows
+// home, found by their user-data directory alone: nothing in it is opened.
+func FindUnreadable(home string) []Unreadable {
+	var out []Unreadable
+	for _, b := range windowsAppBound {
+		if fi, err := os.Stat(filepath.Join(home, filepath.FromSlash(b.root))); err == nil && fi.IsDir() {
+			out = append(out, Unreadable{Browser: b.id, BrowserName: b.name})
+		}
+	}
+	return out
 }
 
 // FindProfiles lists the profiles of every browser installed under home. The

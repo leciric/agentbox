@@ -61,7 +61,7 @@ func (s *Server) leadCreateSkill(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	if _, err := s.store.Skill(r.Context(), req.Name); err == nil {
-		return fmt.Errorf("skill %s: %w: edit_skill changes it, with the user's approval", req.Name, state.ErrExists)
+		return fmt.Errorf("skill %s: %w: skills edit changes it, with the user's approval", req.Name, state.ErrExists)
 	}
 	save := api.SaveSkillRequest{Content: req.Content, Project: project}
 	if req.Everywhere {

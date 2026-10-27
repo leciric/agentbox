@@ -57,6 +57,7 @@ jobs:
       go: ${{ steps.paths.outputs.go }}
       desktop: ${{ steps.paths.outputs.desktop }}
       mobile: ${{ steps.paths.outputs.mobile }}
+      hub: ${{ steps.paths.outputs.hub }}
       vuln: ${{ steps.paths.outputs.vuln }}
       macos: ${{ steps.paths.outputs.macos }}
       windows: ${{ steps.paths.outputs.windows }}
@@ -131,7 +132,7 @@ jobs:
           esac
           if ! $ok || [ ! -s "$files" ]; then
             echo "Can't tell what changed: running everything"
-            go=true desktop=true mobile=true vuln=true macos=true windows=true
+            go=true desktop=true mobile=true hub=true vuln=true macos=true windows=true
           else
             sed 's/^/  /' "$files"
             # Lines of key=true|false.
@@ -143,7 +144,7 @@ jobs:
           if [ "$EVENT/$ACTION" = pull_request/labeled ] || { [ "$EVENT" = workflow_dispatch ] && [ -z "$PR" ]; }; then
             macos=true windows=true
           fi
-          printf '%s\n' "go=$go" "desktop=$desktop" "mobile=$mobile" "vuln=$vuln" "macos=$macos" "windows=$windows" | tee -a "$GITHUB_OUTPUT"
+          printf '%s\n' "go=$go" "desktop=$desktop" "mobile=$mobile" "hub=$hub" "vuln=$vuln" "macos=$macos" "windows=$windows" | tee -a "$GITHUB_OUTPUT"
 
   # The Go test suite, once, with coverage: scripts/check-coverage.sh fails
   # below the floor in .github/coverage-floor.txt. This includes
@@ -398,6 +399,33 @@ jobs:
       - run: npm --prefix mobile run typecheck
 
       - run: npm --prefix mobile test
+
+  # The hub's npm packages, npx agentbox-hub: built for every platform it
+  # ships to, and this one's installed from its tarballs and run. Its Go tests
+  # are in go-test with everyone's.
+  hub:
+    name: Hub npm package
+    needs: changes
+    if: needs.changes.outputs.hub == 'true' && github.event.action != 'labeled'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: go node
+
+      # main's module cache, which go-test saves; nothing is saved here.
+      - uses: actions/cache/restore@v6
+        with:
+          path: ~/go/pkg/mod
+          key: go-test-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-test-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-test-${{ runner.os }}-
+
+      - run: hub/scripts/npm-check.sh "$RUNNER_TEMP/hub-npm"
 
   # The macOS agentbox, as a release builds it: with cgo, which the
   # experimental vz driver's bindings to Apple's Virtualization framework need

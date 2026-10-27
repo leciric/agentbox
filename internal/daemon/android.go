@@ -28,6 +28,7 @@ func toAPIAndroid(st agent.AndroidStatus) api.AndroidStatus {
 	return api.AndroidStatus{
 		Available: st.Available, Problem: st.Problem, SDK: st.SDK, Images: st.Images,
 		Running: st.Running, Booted: st.Booted, Image: st.Image, Device: st.Device,
+		GPU: st.GPU, GPUProblem: st.GPUProblem,
 	}
 }
 

@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
-import { Copy, Ellipsis, Eye, FileCode2, FileDiff, FolderSearch, LocateFixed, X } from 'lucide-react';
+import { Copy, Ellipsis, Eye, FileCode2, FileDiff, FolderSearch, LocateFixed, Sheet, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type { ThemedToken } from 'shiki/core';
 import { api } from '../../lib/api';
+import { columnWidths, delimiterOf, parseDelimited } from '../../lib/delimited';
 import { diffRows, formatSize, highlightLimit, isMarkdown, languageOfPath, type Status } from '../../lib/files';
 import { highlight } from '../../lib/highlight';
 import { useT } from '../../lib/i18n';
@@ -12,7 +13,10 @@ import { cn, errorMessage } from '../../lib/utils';
 import { Markdown } from '../chat/Markdown';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '../ui/menu';
 import { Tip } from '../ui/tooltip';
+import { DataGrid, type GridCell } from './DataGrid';
 import { statusLetter, statusText } from './FileTree';
+import { PdfView } from './PdfView';
+import { SqliteView } from './SqliteView';
 import { useWindow } from './useWindow';
 
 const lineHeight = 20;
@@ -20,9 +24,11 @@ const lineHeight = 20;
 type Mode = 'code' | 'preview' | 'diff';
 
 // FileViewer shows one file of a worktree: highlighted with the chat's own
-// highlighter (lib/highlight), with line numbers, a markdown or image preview,
-// guards for large and binary files, and a diff against the worktree's base
-// for a file that changed. T3Code's FilePreviewPanel.tsx is the model: its
+// highlighter (lib/highlight), with line numbers; a preview of markdown, an
+// image, a PDF (PdfView), a CSV or TSV file as a table (DataGrid) and an SQLite
+// database (SqliteView); guards for large and binary files, which a preview
+// that can't read its file falls back to; and a diff against the worktree's
+// base for a file that changed. T3Code's FilePreviewPanel.tsx is the model: its
 // truncation notice, its markdown preview (filePreviewMode.ts) and its limit
 // on how much it tokenizes.
 export function FileViewer({
@@ -54,10 +60,12 @@ export function FileViewer({
   });
   const data = file.data;
   const changed = data?.status === 'modified' && data.baseText !== undefined;
-  const [mode, setMode] = useState<Mode>(isMarkdown(path) ? 'preview' : 'code');
+  const sep = delimiterOf(path);
+  const previewable = isMarkdown(path) || !!sep;
+  const [mode, setMode] = useState<Mode>(previewable ? 'preview' : 'code');
   // A link to a line wants the code, not the preview.
-  useEffect(() => setMode(line ? 'code' : isMarkdown(path) ? 'preview' : 'code'), [path, line, nonce]);
-  const shown: Mode = mode === 'diff' && !changed ? 'code' : mode === 'preview' && !isMarkdown(path) ? 'code' : mode;
+  useEffect(() => setMode(line ? 'code' : previewable ? 'preview' : 'code'), [path, line, nonce, previewable]);
+  const shown: Mode = mode === 'diff' && !changed ? 'code' : mode === 'preview' && !previewable ? 'code' : mode;
 
   const name = path.slice(path.lastIndexOf('/') + 1);
   const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : '';
@@ -85,6 +93,11 @@ export function FileViewer({
         {isMarkdown(path) && (
           <ModeButton active={shown === 'preview'} label={t(shown === 'preview' ? 'files.viewer.source' : 'files.viewer.preview')} onClick={() => setMode(shown === 'preview' ? 'code' : 'preview')}>
             <Eye />
+          </ModeButton>
+        )}
+        {sep && (
+          <ModeButton active={shown === 'preview'} label={t(shown === 'preview' ? 'files.viewer.rawText' : 'files.viewer.table')} onClick={() => setMode(shown === 'preview' ? 'code' : 'preview')}>
+            <Sheet />
           </ModeButton>
         )}
         {changed && (
@@ -133,7 +146,11 @@ export function FileViewer({
         ) : file.error || !data ? (
           <Note>{(file.error as { status?: number } | null)?.status === 404 ? t('files.viewer.gone') : errorMessage(file.error)}</Note>
         ) : data.tooLarge ? (
-          <Note>{t('files.viewer.tooLarge', { size: formatSize(data.size) })}</Note>
+          <Note>{t(data.pdf ? 'files.viewer.pdfTooLarge' : 'files.viewer.tooLarge', { size: formatSize(data.size) })}</Note>
+        ) : data.pdf && data.data ? (
+          <PdfView data={data.data} name={name} fallback={(error) => <Note>{t('files.pdf.failed', { error, size: formatSize(data.size) })}</Note>} />
+        ) : data.binary && data.sqlite ? (
+          <SqliteView chatRef={chatRef} path={path} fallback={(error) => <Note>{t('files.sqlite.unreadable', { error, size: formatSize(data.size) })}</Note>} />
         ) : data.image && data.data ? (
           <div className="flex h-full items-center justify-center overflow-auto bg-[repeating-conic-gradient(var(--ab-line-faint)_0_25%,transparent_0_50%)] bg-[length:16px_16px] p-4">
             <img src={`data:${data.image};base64,${data.data}`} alt={name} className="max-h-full max-w-full object-contain" data-file-image />
@@ -153,7 +170,9 @@ export function FileViewer({
               </div>
             )}
             <div className="min-h-0 flex-1">
-              {shown === 'preview' ? (
+              {shown === 'preview' && sep ? (
+                <DelimitedTable text={data.text ?? ''} sep={sep} path={path} nonce={nonce} cut={!!data.truncated} />
+              ) : shown === 'preview' ? (
                 <div className="h-full overflow-auto px-5 py-4">
                   <Markdown text={data.text ?? ''} className="text-sm leading-relaxed text-tertiary" />
                 </div>
@@ -186,6 +205,36 @@ function ModeButton({ active, label, onClick, children }: { active?: boolean; la
       </button>
     </Tip>
   );
+}
+
+// DelimitedTable is a CSV or TSV file as a table, its first row the header;
+// a file that doesn't read as one, a quote left open, shows as text instead.
+// cut is a file only partly loaded, whose last row may be cut short.
+function DelimitedTable({ text, sep, path, nonce, cut }: { text: string; sep: string; path: string; nonce: number; cut: boolean }) {
+  const t = useT();
+  const parsed = useMemo(() => parseDelimited(text, sep), [text, sep]);
+  const header = parsed.rows[0];
+  const columns = useMemo(() => Array.from({ length: parsed.columns }, (_, c) => header?.[c] || String(c + 1)), [parsed, header]);
+  const widths = useMemo(() => columnWidths(columns, parsed.rows.slice(1, 201), parsed.columns), [parsed, columns]);
+  if (parsed.rows.length === 0 || (parsed.unclosed && !cut)) {
+    return (
+      <div className="flex h-full flex-col">
+        <div className="shrink-0 border-b border-line-faint bg-amber-400/[0.06] px-3 py-1.5 text-[12px] text-amber-200/90" data-file-not-table>
+          {t(parsed.rows.length === 0 ? 'files.csv.empty' : 'files.csv.notTable')}
+        </div>
+        <div className="min-h-0 flex-1">
+          <CodeLines text={text} path={path} nonce={nonce} />
+        </div>
+      </div>
+    );
+  }
+  return <DataGrid columns={columns} widths={widths} rowCount={parsed.rows.length - 1} cell={(r, c) => textCell(parsed.rows[r + 1][c] ?? '')} label={path} />;
+}
+
+// textCell is a CSV field for the grid: a number, a percentage or an amount
+// is aligned as one.
+function textCell(text: string): GridCell {
+  return /^[-+]?[$€£]?\d[\d,]*(\.\d+)?%?$/.test(text) ? { text, kind: 'number' } : { text };
 }
 
 function Note({ children }: { children: ReactNode }) {

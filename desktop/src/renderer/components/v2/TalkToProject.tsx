@@ -3,7 +3,7 @@
 // the other projects, each with its icon. Picking one puts a message to this
 // lead in the composer, mentioning the other project, to ask its lead
 // something or to align with it on a topic; the user finishes the sentence
-// and sends it, and the lead uses message_project or align_with_project.
+// and sends it, and the lead uses message_project (send or align).
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeftRight, Handshake, MessageCircleQuestion } from 'lucide-react';
 import { useRef, useState } from 'react';

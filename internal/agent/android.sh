@@ -3,12 +3,13 @@
 # - an SDK home the agent can write to, linking to the SDK that AgentBox shares
 #   read-only at /opt/android-sdk, so builds can add what they need;
 # - a Pixel 7 AVD on the chosen system image, in ~/.android;
-# - the emulator, without a window, on KVM;
+# - the emulator, without a window, on KVM, rendering on the agent's GPU when
+#   it has one and in software (SwiftShader) otherwise;
 # - a display with a VNC server (TigerVNC's Xvnc, on 127.0.0.1:5901) showing
 #   the device full-screen through scrcpy, which also passes input to it.
 # Runs as the agent's user. AgentBox reaches the VNC port through an Incus
 # proxy device, so nothing listens on the agent's network.
-# Usage: android.sh link | start <image> <memory MB> <cores> [gpu mode] | wait | view | status | stop
+# Usage: android.sh link | start <image> <memory MB> <cores> [auto|host|swiftshader_indirect] | wait | view | status | stop
 #        android.sh screenshot <file> | logcat <since seconds> [package] | install <apk> | record <file> <seconds>
 set -eu
 
@@ -47,6 +48,25 @@ wait_for() {
     [ "$i" -lt 150 ] || return 1
     sleep 0.1
   done
+}
+# render_node is the GPU's DRM render node, when "GPU for agents" gave the
+# agent one (gpu.go), found as browser.sh finds it. WSL's GPU (/dev/dxg) has
+# none, and the emulator can't use it: it stays on SwiftShader there.
+render_node() {
+  for node in /dev/dri/renderD*; do
+    if [ -c "$node" ] && [ -r "$node" ] && [ -w "$node" ]; then
+      echo "$node"
+      return
+    fi
+  done
+}
+# gpu_failure is the emulator log's line saying it can't render on the GPU,
+# if there is one. The emulator either exits ("Failed to find memory type for
+# ColorBuffers", FATAL) or, with no renderer, keeps running and never boots
+# ("Could not start renderer").
+gpu_failure() {
+  grep -E '^(ERROR|FATAL) *\| *(Could not start renderer|Failed to initialize GL emulation)|^FATAL' "$state/emulator.log" 2>/dev/null |
+    head -n 1 | sed 's/^[A-Z]* *| *//'
 }
 require_booted() {
   emulator_running && booted || { echo "the emulator isn't running: start it with agentbox android start" >&2; exit 1; }
@@ -89,7 +109,7 @@ link() {
 }
 
 write_avd() {
-  image=$1 memory=$2 cores=$3 gpu_mode=${4:-swiftshader_indirect}
+  image=$1 memory=$2 cores=$3 gpu_mode=$4
   sysdir=$(printf '%s' "$image" | tr ';' '/')
   [ -f "$ANDROID_HOME/$sysdir/system.img" ] || { echo "$image isn't installed in the shared Android SDK" >&2; exit 1; }
   platform=$(printf '%s' "$image" | cut -d';' -f2)
@@ -144,18 +164,58 @@ EOF
   printf '%s\n' "$image" >"$state/android-image"
 }
 
+# start_display starts the display scrcpy shows the device on. On the GPU's
+# render node, Xvnc gives its clients GLX on the GPU, which the emulator's
+# renderer draws through with -gpu host.
 start_display() {
   if ! pgrep -u "$uid" -f "Xvnc :$display " >/dev/null; then
     # A snapshot taken while the display ran keeps its lock files.
     rm -f "/tmp/.X$display-lock" "/tmp/.X11-unix/X$display"
+    node=$(render_node)
     setsid Xvnc ":$display" -geometry 540x1200 -depth 24 -desktop android \
-      -rfbport 5901 -localhost -SecurityTypes None -AlwaysShared >"$state/android-display.log" 2>&1 </dev/null &
+      -rfbport 5901 -localhost -SecurityTypes None -AlwaysShared ${node:+-rendernode $node} >"$state/android-display.log" 2>&1 </dev/null &
     wait_for test -e "/tmp/.X11-unix/X$display" || { echo "the Android display didn't start: see $state/android-display.log" >&2; exit 1; }
     wait_for listening 5901 || { echo "the Android display's VNC server didn't start: see $state/android-display.log" >&2; exit 1; }
   fi
   if ! pgrep -u "$uid" -f "matchbox-window-manager -display :$display" >/dev/null; then
     setsid matchbox-window-manager -display ":$display" -use_titlebar no >"$state/android-wm.log" 2>&1 </dev/null &
   fi
+}
+
+# launch starts the emulator, with the AVD's config.ini written, on gpu mode
+# host or swiftshader_indirect. On host its renderer draws through the
+# display's GLX; gfxstream's Vulkan fails on Venus, the GPU of AgentBox's VM
+# ("Failed to find memory type for ColorBuffers"), so the device gets OpenGL
+# ES on the GPU and no Vulkan.
+launch() {
+  sed -i "s/^hw.gpu.mode=.*/hw.gpu.mode=$1/" "$ANDROID_AVD_HOME/$avd.avd/config.ini"
+  # A snapshot taken while the emulator ran keeps its locks.
+  rm -f "$ANDROID_AVD_HOME/$avd.avd"/*.lock
+  printf '%s\n' "$1" >"$state/android-gpu"
+  if [ "$1" = host ]; then
+    DISPLAY=":$display" setsid "$ANDROID_HOME/emulator/emulator" -avd "$avd" -no-window -gpu host -feature -Vulkan \
+      -no-audio -no-snapshot -no-boot-anim -no-metrics >"$state/emulator.log" 2>&1 </dev/null &
+  else
+    setsid "$ANDROID_HOME/emulator/emulator" -avd "$avd" -no-window -gpu "$1" -no-audio -no-snapshot \
+      -no-boot-anim -no-metrics >"$state/emulator.log" 2>&1 </dev/null &
+  fi
+  # wait takes an emulator that isn't running as one that stopped.
+  wait_for emulator_running || true
+}
+
+# fall_back restarts on SwiftShader an emulator that couldn't render on the
+# GPU, keeping why for status.
+fall_back() {
+  printf '%s\n' "$1" >"$state/android-gpu-problem"
+  cp "$state/emulator.log" "$state/emulator-gpu.log"
+  pkill -u "$uid" -f qemu-system-x86_64 || true
+  i=0
+  while emulator_running && [ "$i" -lt 50 ]; do
+    sleep 0.2
+    i=$((i + 1))
+  done
+  pkill -9 -u "$uid" -f qemu-system-x86_64 || true
+  launch swiftshader_indirect
 }
 
 # view shows the device on the display, full-screen, with input.
@@ -180,22 +240,30 @@ link)
   link
   ;;
 start)
-  [ $# -ge 4 ] && [ $# -le 5 ] || { echo "usage: android.sh start <image> <memory MB> <cores> [gpu mode]" >&2; exit 2; }
-  gpu_mode=${5:-swiftshader_indirect}
+  [ $# -ge 4 ] && [ $# -le 5 ] || { echo "usage: android.sh start <image> <memory MB> <cores> [auto|host|swiftshader_indirect]" >&2; exit 2; }
+  gpu_mode=${5:-auto}
+  if [ "$gpu_mode" = auto ]; then
+    gpu_mode=swiftshader_indirect
+    [ -z "$(render_node)" ] || gpu_mode=host
+  fi
   link
+  # The emulator draws through the display on the GPU, so it starts first.
+  start_display
   if ! emulator_running; then
     write_avd "$2" "$3" "$4" "$gpu_mode"
-    # A snapshot taken while the emulator ran keeps its locks.
-    rm -f "$ANDROID_AVD_HOME/$avd.avd"/*.lock
-    setsid "$ANDROID_HOME/emulator/emulator" -avd "$avd" -no-window -gpu "$gpu_mode" -no-audio -no-snapshot \
-      -no-boot-anim -no-metrics >"$state/emulator.log" 2>&1 </dev/null &
+    rm -f "$state/android-gpu-problem"
+    launch "$gpu_mode"
   fi
-  start_display
   adb start-server >/dev/null 2>&1 || true
   ;;
 wait)
   i=0
   until emulator_running && booted; do
+    if [ "$(cat "$state/android-gpu" 2>/dev/null)" = host ] && failure=$(gpu_failure) && [ -n "$failure" ]; then
+      fall_back "$failure"
+      i=0
+      continue
+    fi
     emulator_running || { echo "the emulator stopped while starting:" >&2; tail -n 15 "$state/emulator.log" >&2; exit 1; }
     i=$((i + 1))
     [ "$i" -lt 300 ] || { echo "Android didn't finish starting within 5 minutes: see $state/emulator.log" >&2; exit 1; }
@@ -221,6 +289,8 @@ status)
   echo "view=$shown"
   echo "image=$(cat "$state/android-image" 2>/dev/null || true)"
   echo "release=$release"
+  echo "gpu=$(cat "$state/android-gpu" 2>/dev/null || true)"
+  echo "gpu_problem=$(cat "$state/android-gpu-problem" 2>/dev/null || true)"
   ;;
 stop)
   pkill -u "$uid" -f "scrcpy .*--window-title=agentbox-android" || true

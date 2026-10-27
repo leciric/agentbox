@@ -46,7 +46,7 @@ func (s *Server) projectInfo(ctx context.Context, p state.Project) api.Project {
 		AgentModel: p.AgentModel, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
 		RolloverThreshold: p.RolloverThreshold, ContextBudget: p.ContextBudget,
 		Consolidation: p.Consolidation, ConsolidationModel: p.ConsolidationModel,
-		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, CreatedAt: p.CreatedAt}
+		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, FullTestSuite: p.FullTestSuite, PickUpIssues: p.PickUpIssues, CreatedAt: p.CreatedAt}
 	// One primary-key lookup: listProjects runs this for every project.
 	if v, err := s.store.ProjectIconVersion(ctx, p.Name); err == nil {
 		info.IconVersion = v
@@ -469,6 +469,27 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 		s.prWatch.poke(p.Name)
 		rewriteBrief()
 	}
+	if req.PickUpIssues != nil {
+		if err := s.store.SetProjectPickUpIssues(r.Context(), p.Name, *req.PickUpIssues); err != nil {
+			return err
+		}
+		p.PickUpIssues = *req.PickUpIssues
+		// Turned on, the issues already waiting are picked up now rather than
+		// at the next pass.
+		if p.PickUpIssues {
+			s.issuePickup.poke()
+		}
+	}
+	if req.FullTestSuite != nil {
+		if err := s.store.SetProjectFullTestSuite(r.Context(), p.Name, *req.FullTestSuite); err != nil {
+			return err
+		}
+		p.FullTestSuite = *req.FullTestSuite
+		// The agents' briefs say whether they may run one.
+		if err := s.manager(nil).RewriteBriefs(r.Context(), p.Name); err != nil {
+			s.logf("rewriting %s's briefs after a full test suite change: %v", p.Name, err)
+		}
+	}
 	if req.SyncBase != nil {
 		if err := s.store.SetProjectBaseSync(r.Context(), p.Name, *req.SyncBase); err != nil {
 			return err
@@ -606,6 +627,7 @@ func (s *Server) brief(w http.ResponseWriter, r *http.Request) error {
 		Notes:       projectNotes,
 		Nesting:     p.Nesting,
 		AgentPRs:    p.AgentPRs,
+		FullSuite:   p.FullTestSuite && s.blockFullSuite(r.Context()),
 
 		Knowledge:     knowledge,
 		CompactWindow: compactWindow,
@@ -1046,12 +1068,25 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 // more than the job: the job that makes the agent, or the finished one that
 // queued it.
 func (s *Server) createAgentJob(ctx context.Context, req api.CreateAgentRequest, byLead bool) (api.Job, error) {
+	if req.Issue != 0 {
+		return s.issueAgentJob(ctx, req, byLead, false)
+	}
 	req, err := s.checkCreate(ctx, req, byLead)
 	if err != nil {
 		return api.Job{}, err
 	}
 	create := s.createJob(req, byLead, "")
-	return s.launchJob("create", req.Project, create)
+	j, err := s.launchJob("create", req.Project, create)
+	return withTool(j, req), err
+}
+
+// withTool puts on the reply that started an agent's job the tool it runs and
+// why, when it isn't the lead's.
+func withTool(j api.Job, req api.CreateAgentRequest) api.Job {
+	if j.ID != "" {
+		j.AI, j.Notice = req.AI, req.ToolNotice
+	}
+	return j
 }
 
 // checkCreate refuses a request to make an agent that could never succeed,
@@ -1065,8 +1100,15 @@ func (s *Server) checkCreate(ctx context.Context, req api.CreateAgentRequest, by
 		return fail(err)
 	}
 	req.Project = p.Name // it may have been named by what it is called
+	// An agent named as where to start is its branch: the new agent is
+	// stacked on it, and opens its pull request against it (stack.go).
+	if req.From != "" {
+		if a, err := s.store.Agent(ctx, p.Name, req.From); err == nil && !a.IsLead() && a.Branch != "" {
+			req.From = a.Branch
+		}
+	}
 	if req.AI == "" {
-		req.AI = "claude"
+		req = s.defaultTool(ctx, p, req)
 	}
 	// A model or effort this agent could never run on is a mistake worth
 	// seeing now, in the reply to the request that made it, rather than in a
@@ -1112,6 +1154,36 @@ func (s *Server) checkCreate(ctx context.Context, req api.CreateAgentRequest, by
 	return req, nil
 }
 
+// defaultTool fills in the AI tool of a request that names none: the one the
+// account it names belongs to, else Claude Code for a model only Claude Code
+// calls by that name, else the project's lead's tool on the lead's account for
+// it (agent.LeadToolDefault). The app's dialog and the command line always
+// name a tool; a request that doesn't comes from the lead, a schedule, an
+// issue or a group's variant, which follow the lead. Why the agent falls back
+// to Claude Code, when it does, is kept in ToolNotice for the reply.
+func (s *Server) defaultTool(ctx context.Context, p state.Project, req api.CreateAgentRequest) api.CreateAgentRequest {
+	switch {
+	case req.ClaudeAccount != "":
+		req.AI = "claude"
+	case req.CodexAccount != "":
+		req.AI = "codex"
+	case req.CursorAccount != "":
+		req.AI = "cursor"
+	case len(req.OpenCodeAccounts) > 0:
+		req.AI = "opencode"
+	case req.Model != nil && s.manager(nil).NamesClaudeModel(ctx, *req.Model):
+		req.AI = "claude"
+	default:
+		d := s.manager(nil).LeadToolDefault(ctx, p)
+		req.AI, req.ToolNotice = d.AI, d.Fallback
+		req.ClaudeAccount, req.CodexAccount, req.CursorAccount = d.Logins.Claude, d.Logins.Codex, d.Logins.Cursor
+		if d.Fallback != "" {
+			s.logf("A new agent of %s: %s", p.Name, d.Fallback)
+		}
+	}
+	return req
+}
+
 // createJob is the job that makes an agent from req: a new one, or, when
 // queued names one, the queued agent of that name, which the queue is
 // starting (queue.go).
@@ -1128,22 +1200,13 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 		req.Name = queued
 	}
 	return func(ctx context.Context, log io.Writer) (any, error) {
+		began := time.Now()
 		// What a catch-up ran is kept too, so a failed one can show the agent
 		// its last lines.
 		var ran *tailWriter
 		if req.CatchUp {
 			ran = &tailWriter{max: catchUpTail}
 			log = io.MultiWriter(log, ran)
-		}
-		// A machine copied from the project's own base doesn't need the
-		// base image; any other waits for it, while it's being built.
-		if _, hasBase, _ := s.manager(nil).ProjectBase(ctx, req.Project); !hasBase || req.Clean {
-			if err := s.awaitImage(ctx, log); err != nil {
-				if byLead {
-					s.tellLead(ctx, req.Project, fmt.Sprintf("create_agent failed: %v", err), true)
-				}
-				return nil, err
-			}
 		}
 		a, err := s.manager(log).Create(ctx, req.Project, agent.CreateOptions{
 			Name:          req.Name,
@@ -1171,6 +1234,12 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 			Connectors:   connectors,
 			Task:         strings.TrimSpace(req.Task),
 			Queued:       queued != "",
+			// A machine copied from the project's own base doesn't need the
+			// base image; any other waits for it, listed as waiting, while
+			// it's being downloaded or built.
+			AwaitImage: func(ctx context.Context, a state.Agent) error {
+				return s.awaitImageFor(ctx, a, log)
+			},
 		})
 		if err != nil {
 			if byLead {
@@ -1180,13 +1249,18 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 				// is still waiting on, the same as a finish it asked for.
 				s.tellLead(ctx, req.Project, fmt.Sprintf("create_agent failed: %v", err), true)
 			}
-			s.recordError(errCreateFailed, req.AI)
+			// One the job's cancel stopped didn't fail.
+			if ctx.Err() == nil {
+				class, reason := s.createReason(err, req.Project, req.Name, req.Title, req.Branch)
+				s.recordError(errCreateFailed, req.AI, class, reason)
+			}
+			s.setupStepFailed(context.WithoutCancel(ctx), setupReport{step: setupFirstAgent, took: time.Since(began)}, err)
 			return nil, err
 		}
 		s.countFeature(agentFeature(a.AI, api.FeatureAgentCreateClaude, api.FeatureAgentCreateCodex, api.FeatureAgentCreateOpenCode, api.FeatureAgentCreateCursor))
 		s.countCreatedModel(ctx, a)
 		s.notePeakAgents(ctx)
-		s.setupStep(ctx, setupFirstAgent)
+		s.setupReached(ctx, setupReport{step: setupFirstAgent, took: time.Since(began)})
 		if byLead {
 			s.countFeature(api.FeatureAgentCreateByLead)
 		}
@@ -1264,7 +1338,7 @@ func (s *Server) agentAction(action string) func(http.ResponseWriter, *http.Requ
 		switch action {
 		case "start":
 			if err = s.startMachine(ctx, m, a, "a start request"); err != nil {
-				s.recordError(errStartFailed, a.AI)
+				s.recordErr(errStartFailed, a.AI, err, agentNames(a)...)
 			}
 		case "stop":
 			s.chat.Stop(a.Ref(), "the agent was stopped")
@@ -1480,6 +1554,7 @@ func toAPIMemoryUsage(u agent.MemoryUsage) api.MemoryUsage {
 	out := api.MemoryUsage{
 		HostTotal: u.HostTotal, AgentsUsed: u.AgentsUsed, OtherUsed: u.OtherUsed,
 		SwapTotal: u.SwapTotal, SwapUsed: u.SwapUsed, AgentsSwap: u.AgentsSwap,
+		Used: u.Used, FileCache: u.FileCache, Leads: u.Leads, AgentBox: u.AgentBox, Kernel: u.Kernel,
 		Agents: make([]api.MemoryUsageAgent, 0, len(u.Agents)),
 	}
 	if u.Zram != nil {
@@ -1491,6 +1566,12 @@ func toAPIMemoryUsage(u agent.MemoryUsage) api.MemoryUsage {
 		})
 	}
 	return out
+}
+
+// hostMemory is GET /v1/usage/host, from /proc/meminfo alone.
+func (s *Server) hostMemory(w http.ResponseWriter, _ *http.Request) error {
+	mem := readMemInfo()
+	return writeJSON(w, http.StatusOK, api.HostMemory{Total: mem["MemTotal"], Available: mem["MemAvailable"], CPUs: agent.HostCores()})
 }
 
 func (s *Server) memoryUsage(w http.ResponseWriter, r *http.Request) error {
@@ -1797,7 +1878,7 @@ func (s *Server) refreshClaudeTokens(creds credentials.Store) {
 // there is nothing to check: the app and `agentbox auth status` say so at once
 // rather than at the next hourly check.
 func (s *Server) claudeAuthFailed(a state.Agent, detail string) {
-	s.recordError(errAuthFailed, a.AI)
+	s.recordError(errAuthFailed, a.AI, classAuth, s.errorReason(detail, agentNames(a)...))
 	if a.AI != "claude" {
 		return
 	}
@@ -1867,7 +1948,9 @@ func (s *Server) getJob(w http.ResponseWriter, r *http.Request) error {
 func (s *Server) jobLog(w http.ResponseWriter, r *http.Request) error {
 	id := r.PathValue("id")
 	follow, _ := strconv.ParseBool(r.URL.Query().Get("follow"))
-	if j, ok := s.jobs.get(id); ok && follow {
+	// A finished job's log is all there is: read whole below, from the store
+	// once the job has let it go (jobKept).
+	if j, ok := s.jobs.get(id); ok && follow && !j.snapshot().Done() {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		flusher, _ := w.(http.Flusher)
@@ -1906,4 +1989,11 @@ func (s *Server) cancelJob(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	return writeJSON(w, http.StatusOK, info)
+}
+
+// blockFullSuite says whether the installation blocks agents' whole test
+// suites (state.SettingBlockFullSuite).
+func (s *Server) blockFullSuite(ctx context.Context) bool {
+	on, _ := s.store.Flag(ctx, state.SettingBlockFullSuite)
+	return on
 }

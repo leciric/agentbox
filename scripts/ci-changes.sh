@@ -19,7 +19,7 @@ out() { echo "$1=$2"; }
 
 # A change to how CI decides, or to the tools' versions, runs everything.
 if has '^(\.github/workflows/ci\.yml|scripts/ci-changes\.sh)$'; then
-  for k in go desktop mobile vuln macos windows; do out "$k" true; done
+  for k in go desktop mobile hub vuln macos windows; do out "$k" true; done
   exit 0
 fi
 
@@ -28,7 +28,7 @@ fi
 # package's own directory is Go whatever it holds (go:embed takes .md, .sh,
 # .tmpl and .txt files, and tests read testdata/). desktop/src/shared/api.ts
 # is Go's too: TestTypeScriptTypesAreUpToDate reads it.
-not_go='^(desktop/|mobile/|docs/|promo/|packaging/|scripts/|\.github/|[^/]+\.md$|LICENSE$|\.gitignore$|\.release-please-manifest\.json$)'
+not_go='^(desktop/|mobile/|docs/|promo/|packaging/|scripts/|\.github/|[^/]+\.md$|LICENSE$|\.gitignore$|\.release-please-manifest\.json$|hub/(npm/|scripts/|[^/]+\.md$))'
 go_too='^(desktop/src/shared/api\.ts|scripts/check-coverage\.sh|\.github/coverage-floor\.txt)$'
 go=false
 if grep -qvE "$not_go" "$files" || has "$go_too"; then go=true; fi
@@ -41,6 +41,12 @@ if has '^(desktop/|internal/machinesweb/static/vnc\.js$|mise\.toml$)'; then desk
 # the text's catalogs.
 mobile=false
 if has '^(mobile/|desktop/src/shared/(api\.ts|i18n/)|mise\.toml$)'; then mobile=true; fi
+
+# The hub's npm packages (npx agentbox-hub): its Go, the protocol it imports,
+# its launcher and build script, and the toolchain that builds them. Its Go
+# tests run with everyone's, in the Go jobs.
+hub=false
+if has '^(hub/(cmd|internal|npm|scripts)/|hubapi/|go\.(mod|sum)$|mise\.toml$)'; then hub=true; fi
 
 vuln=false
 if has '^go\.(mod|sum)$'; then vuln=true; fi
@@ -100,6 +106,7 @@ fi
 out go "$go"
 out desktop "$desktop"
 out mobile "$mobile"
+out hub "$hub"
 out vuln "$vuln"
 out macos "$macos"
 out windows "$windows"

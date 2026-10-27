@@ -8,15 +8,37 @@ import (
 	"agentbox/internal/api"
 )
 
-// variantSettings are create_agent's settings that one agent of a group can
-// choose for itself: its tool, model, effort and window. Permissions aren't
-// among them: a group's agents work unattended, as create_agent's default.
-func variantSettings(settings map[string]any) map[string]any {
-	out := map[string]any{}
-	for _, name := range []string{"ai", "model", "effort", "context_window"} {
-		if schema, ok := settings[name]; ok {
-			out[name] = schema
-		}
+// variantSettings are what one agent of a group chooses for itself: its tool,
+// model, effort, window and account. Permissions aren't among them: a group's
+// agents work unattended, as create_agent's default. The descriptions point
+// at create_agent's rather than repeat them, and the effort keeps its menu.
+func variantSettings(settings map[string]any, ready readyTools) map[string]any {
+	tools := []string{"claude", "codex"}
+	if ready.openCode {
+		tools = append(tools, "opencode")
+	}
+	if ready.cursor {
+		tools = append(tools, "cursor")
+	}
+	effort := str("as create_agent's effort")
+	if e, ok := settings["effort"].(map[string]any); ok && e["enum"] != nil {
+		effort["enum"] = e["enum"]
+	}
+	out := map[string]any{
+		"ai": choiceOf("your own tool by default, as create_agent; codex runs on the model its login has, so give it no model or effort, when this "+
+			"machine is signed in to Codex", tools...),
+		"model":          str("as create_agent's model, for this agent's tool"),
+		"effort":         effort,
+		"context_window": str("as create_agent's context_window"),
+		"claude_account": str("as create_agent's claude_account"),
+		"codex_account":  str("for codex: which Codex account (list_resources accounts)"),
+	}
+	if ready.cursor {
+		out["cursor_account"] = str("as create_agent's cursor_account")
+	}
+	if ready.openCode {
+		out["opencode_accounts"] = map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"},
+			"description": "as create_agent's opencode_accounts"}
 	}
 	return out
 }

@@ -18,9 +18,12 @@ import (
 )
 
 // An agent can run an Android emulator (android.sh). It gets /dev/kvm and the
-// host's Android SDK, read-only. The emulator has no window of its own: scrcpy
-// shows it on a separate display, whose VNC server AgentBox reaches through an
-// Incus proxy device, like the browser's.
+// host's Android SDK, read-only. It renders on the agent's GPU when "GPU for
+// agents" gave it a render node (-gpu host), and on SwiftShader, its software
+// renderer, with none (no GPU, or WSL's /dev/dxg) or when it doesn't start on
+// the GPU. The emulator has no window of its own: scrcpy shows it on a
+// separate display, whose VNC server AgentBox reaches through an Incus proxy
+// device, like the browser's.
 
 //go:embed android.sh
 var androidScript []byte
@@ -50,15 +53,17 @@ export PATH="$PATH:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$ANDROID_
 `
 
 type AndroidStatus struct {
-	Available bool   // this machine can run emulators
-	Problem   string // why it can't
-	SDK       string
-	Images    []string
-	Running   bool // the emulator runs
-	Booted    bool // and Android has finished starting
-	View      bool // scrcpy shows it on its display
-	Image     string
-	Device    string
+	Available  bool   // this machine can run emulators
+	Problem    string // why it can't
+	SDK        string
+	Images     []string
+	Running    bool // the emulator runs
+	Booted     bool // and Android has finished starting
+	View       bool // scrcpy shows it on its display
+	Image      string
+	Device     string
+	GPU        bool   // renders on the agent's GPU, not SwiftShader
+	GPUProblem string // why it fell back to SwiftShader from the GPU
 }
 
 type AndroidOptions struct {
@@ -129,10 +134,6 @@ func CheckKVM() error {
 	return f.Close()
 }
 
-// androidGPUMode is the emulator's -gpu mode: SwiftShader, its software
-// renderer, since an agent's machine has no GPU.
-const androidGPUMode = "swiftshader_indirect"
-
 // StartAndroid starts the agent's emulator, unless it runs, and waits until
 // Android has booted.
 func (m *Manager) StartAndroid(ctx context.Context, a state.Agent, opts AndroidOptions) (AndroidStatus, error) {
@@ -155,7 +156,7 @@ func (m *Manager) StartAndroid(ctx context.Context, a state.Agent, opts AndroidO
 		return AndroidStatus{}, err
 	}
 	m.logf("Starting the Android emulator (%s)", image.ID)
-	if _, err := m.androidRun(ctx, a, fmt.Sprintf("start %s %d %d %s", shellQuote(image.ID), memory, cores, androidGPUMode)); err != nil {
+	if _, err := m.androidRun(ctx, a, fmt.Sprintf("start %s %d %d", shellQuote(image.ID), memory, cores)); err != nil {
 		return AndroidStatus{}, err
 	}
 	wait, cancel := context.WithTimeout(ctx, 6*time.Minute)
@@ -282,6 +283,7 @@ func (m *Manager) AndroidStatus(ctx context.Context, a state.Agent) (AndroidStat
 	if status.Running {
 		status.Image = values["image"]
 		status.Device = describeDevice(values["image"], values["release"])
+		status.GPU, status.GPUProblem = values["gpu"] == "host", values["gpu_problem"]
 	}
 	return status, nil
 }
