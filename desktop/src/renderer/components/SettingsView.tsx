@@ -9,6 +9,7 @@ import {
   Languages,
   ArrowRight,
   Bot,
+  Boxes,
   Brain,
   Check,
   ChevronDown,
@@ -91,6 +92,7 @@ import { Code, Notice, Panel } from "./ui/card";
 import { projectSection } from "./ProjectSettings";
 import { SkillsPanel } from "./SkillsPanel";
 import { ConnectorsTab } from "./ConnectorsTab";
+import { clusterGroups } from "./ClusterSettings";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { IdleReclaim } from "./IdleReclaim";
 import { GlobalMemoryPanel } from "./GlobalMemoryPanel";
@@ -1756,6 +1758,14 @@ function InstalledSettings({
         },
       ],
     },
+    {
+      id: "clusters",
+      title: t("settings.section.clusters.title"),
+      description: t("settings.section.clusters.description"),
+      scope: "installation",
+      nav: t("settings.nav.machine"),
+      groups: clusterGroups(),
+    },
     ...(projects.data ?? []).map(projectSection),
   ];
 
@@ -1785,6 +1795,7 @@ const sectionIcons: SectionIcons = {
   notifications: Bell,
   transfer: ArrowLeftRight,
   diagnostics: Activity,
+  clusters: Boxes,
   experimental: FlaskConical,
 };
 

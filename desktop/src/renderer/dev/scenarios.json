@@ -540,6 +540,21 @@
     "height": 1500
   },
   {
+    "id": "settings-clusters-whole-dark",
+    "description": "Settings open at Clusters, tall enough to show every row of the section, to read its labels and descriptions, dark theme",
+    "query": "settings=clusters&theme=dark",
+    "width": 1280,
+    "height": 1200
+  },
+  {
+    "id": "settings-clusters-add-whole-dark",
+    "description": "Settings open at Clusters with the advanced settings open, to read the two forms that add a cluster and a registry, dark theme",
+    "query": "settings=clusters&theme=dark",
+    "width": 1280,
+    "height": 1700,
+    "click": "text=Advanced"
+  },
+  {
     "id": "settings-phone-whole-dark",
     "description": "Settings open at Phone, tall enough to show every row of the section, to read its labels and descriptions — dark",
     "query": "settings=phone&theme=dark",

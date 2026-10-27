@@ -1429,9 +1429,40 @@ function settingsBridge(): void {
   // The lists Skills, Connectors, Memory and a project's accounts and
   // credentials read, empty.
   const lists = /^\/v1\/(skills|connectors|global\/memory\/memories|limits)(\?|$)|^\/v1\/projects\/[^/]+\/(skills|connectors|credentials)(\?|$)/;
+
+  // What GET /v1/clusters and /v1/registries answer here: a cluster on k3d whose
+  // image is in a Forgejo registry.
+  const clusters: T.Cluster[] = [
+    {
+      name: 'k3d',
+      namespace: 'agentbox',
+      storageClass: 'local-path',
+      image: 'agentbox-agent:dev',
+      registry: 'forgejo',
+      maxAgents: 4,
+      tailnet: 'operator',
+      createdAt: '2026-10-20T10:00:00Z',
+      lastSeen: '2026-10-27T09:12:00Z',
+    },
+  ];
+  const registries: T.Registry[] = [
+    {
+      name: 'forgejo',
+      url: 'hub.example.com/h4ad',
+      public: false,
+      hasCa: false,
+      hasCredential: true,
+      insecure: false,
+      createdAt: '2026-10-19T18:00:00Z',
+    },
+  ];
   bridge.request = async (method, path, body) => {
     if (method === 'GET' && /^\/v1\/usage(\?|$)/.test(path) && queryClient.getQueryData(['usage'])) return answer(queryClient.getQueryData(['usage']));
     if (method === 'GET' && path === '/v1/lan') return answer(lan);
+    // A cluster and a registry, so the section shows what it looks like with
+    // something in it rather than only its empty state.
+    if (method === 'GET' && path === '/v1/clusters') return answer(clusters);
+    if (method === 'GET' && path === '/v1/registries') return answer(registries);
     if (method === 'GET' && lists.test(path)) return answer([]);
     if (phone && method === 'PATCH' && path === '/v1/lan') {
       const req = (typeof body === 'string' ? JSON.parse(body) : body) as T.UpdateLANRequest;
