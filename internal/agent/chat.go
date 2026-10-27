@@ -47,12 +47,13 @@ var ChatAdapters = map[string]ChatAdapter{
 }
 
 // claudeEntrypoint is the client label Claude Code reports, which decides how
-// much of the 5-hour window a turn costs. The Agent SDK defaults to "sdk-ts";
-// for the same tokens that took 1.9x the terminal interface ("cli") and 2.5x
-// the VS Code extension, which drives the same transport. Our chat is that
-// transport, so it says so. Inferred from a small sample (one account, three
-// sessions per client). The terminal interface really is "cli" and sets nothing.
-const claudeEntrypoint = "CLAUDE_CODE_ENTRYPOINT=claude-vscode"
+// much of the 5-hour window a turn costs. The Agent SDK defaults to "sdk-ts",
+// which for the same work used 8 points of the account's 1% meter per session,
+// against 3 for the VS Code extension's label. Our chat drives the same
+// transport and uses our own label: measured at 2-3 points, the same as the
+// extension. Inferred from a small sample (one account, two sessions per
+// label). The terminal interface really is "cli" and sets nothing.
+const claudeEntrypoint = "CLAUDE_CODE_ENTRYPOINT=agentbox"
 
 // installTimeout bounds installing an adapter in an agent whose machine doesn't have it.
 const installTimeout = 5 * time.Minute

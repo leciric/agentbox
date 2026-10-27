@@ -285,10 +285,10 @@ func TestIsTool(t *testing.T) {
 	}
 }
 
-// The chat says it is the VS Code extension, which bills the 5-hour window at
-// well under the Agent SDK's default; the terminal interface and other tools
-// say nothing.
-func TestClaudeChatsReportTheVSCodeEntrypoint(t *testing.T) {
+// The chat says its own name, which bills the 5-hour window like the VS Code
+// extension and well under the Agent SDK's default; the terminal interface and
+// other tools say nothing.
+func TestClaudeChatsReportTheAgentboxEntrypoint(t *testing.T) {
 	t.Parallel()
 	m := &Manager{Creds: credentials.Store{Dir: t.TempDir()}, Incus: fakeIncus(t, `case "$1" in
   list) echo '[{"name":"ab-sai-agent-01","status":"Running"}]' ;;
@@ -303,7 +303,7 @@ esac`), Store: openInternalStore(t)}
 		}
 		return cmd.Args[len(cmd.Args)-1]
 	}
-	if s := script("claude"); !strings.Contains(s, "&& CLAUDE_CODE_ENTRYPOINT=claude-vscode exec ") {
+	if s := script("claude"); !strings.Contains(s, "&& CLAUDE_CODE_ENTRYPOINT=agentbox exec ") {
 		t.Errorf("the Claude chat doesn't set the entrypoint:\n%s", s)
 	}
 	for _, ai := range []string{"codex", "opencode"} {

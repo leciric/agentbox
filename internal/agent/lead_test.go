@@ -614,14 +614,14 @@ func leadEnv(t *testing.T, f fixture, a state.Agent) map[string]string {
 	return env
 }
 
-// The lead's chat reports the VS Code extension's entrypoint, as agents' do.
-func TestLeadChatReportsTheVSCodeEntrypoint(t *testing.T) {
+// The lead's chat reports our own entrypoint, as agents' do.
+func TestLeadChatReportsTheAgentboxEntrypoint(t *testing.T) {
 	f := leadFixture(t)
 	a, err := f.m.EnsureLead(context.Background(), "hello-stack")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := leadEnv(t, f, a)["CLAUDE_CODE_ENTRYPOINT"]; got != "claude-vscode" {
+	if got := leadEnv(t, f, a)["CLAUDE_CODE_ENTRYPOINT"]; got != "agentbox" {
 		t.Errorf("the lead's CLAUDE_CODE_ENTRYPOINT is %q", got)
 	}
 }
