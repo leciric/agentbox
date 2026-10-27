@@ -1453,6 +1453,70 @@ var migrations = []string{
 	`INSERT INTO lead_sessions (project, id, topic, created_at, untitled)
 		SELECT '_home', 'main', CASE WHEN used THEN 'Chat' ELSE 'New session' END, CAST(strftime('%s', 'now') AS INTEGER) * 1000, NOT used
 		FROM (SELECT EXISTS (SELECT 1 FROM chat_items WHERE project = '_home' AND agent = 'lead') AS used)`,
+
+	// The clusters agents can run in, and the OCI registries their images come
+	// from (internal/k8s, internal/agentimage). Which registry is used is
+	// configuration, not a product choice: a Forgejo, a Docker Hub account, a
+	// GHCR namespace and a local registry:2 are all a url and a credential.
+	//
+	// A cluster's kubeconfig is sealed by package secrets and is a
+	// namespace-scoped ServiceAccount's, never the admin's: `cluster add` takes
+	// the admin kubeconfig for one request and keeps none of it. labels and
+	// capabilities are JSON, empty when unset; max_agents, cpu and memory are
+	// the budget the admission check reads, zero or empty for "what the nodes
+	// have, less a reserve".
+	`CREATE TABLE clusters (
+		name          TEXT PRIMARY KEY,
+		namespace     TEXT NOT NULL,
+		storage_class TEXT NOT NULL DEFAULT '',
+		image         TEXT NOT NULL DEFAULT '',
+		registry      TEXT NOT NULL DEFAULT '',
+		max_agents    INTEGER NOT NULL DEFAULT 0,
+		cpu           TEXT NOT NULL DEFAULT '',
+		memory        TEXT NOT NULL DEFAULT '',
+		labels        TEXT NOT NULL DEFAULT '',
+		tailnet       TEXT NOT NULL DEFAULT '',
+		capabilities  TEXT NOT NULL DEFAULT '',
+		kubeconfig    BLOB NOT NULL,
+		created_at    INTEGER NOT NULL,
+		last_seen     INTEGER NOT NULL DEFAULT 0,
+		last_error    TEXT NOT NULL DEFAULT ''
+	)`,
+	// A registry's login is sealed like an agent secret's, and empty for a
+	// public one: public is 1 only when the user said so, because the private
+	// agent image must never be pushed where anyone can pull it. ca is the
+	// registry's PEM when a private CA signed it; insecure allows http or an
+	// unverifiable certificate, for a local cluster only.
+	`CREATE TABLE registries (
+		name            TEXT PRIMARY KEY,
+		url             TEXT NOT NULL,
+		sealed_username BLOB NOT NULL DEFAULT X'',
+		sealed_secret   BLOB NOT NULL DEFAULT X'',
+		public          INTEGER NOT NULL,
+		ca              BLOB NOT NULL DEFAULT X'',
+		insecure        INTEGER NOT NULL,
+		created_at      INTEGER NOT NULL,
+		last_seen       INTEGER NOT NULL DEFAULT 0,
+		last_error      TEXT NOT NULL DEFAULT ''
+	)`,
+	// Where an agent's machine runs, for the agents that don't run on this
+	// host. runtime '' and cluster '' are an Incus instance here, which is
+	// every row written before this. pod and pod_uid are the pod the agent was
+	// last adopted from, so a pod the cluster recreated isn't mistaken for the
+	// one an agent's session lives in; desired_state is what the user asked
+	// for (running, stopped, destroyed) and what the reconciler works towards;
+	// status_detail is the cluster's own reason the pod isn't doing it;
+	// destroyed_at starts the retention clock on deleting a destroyed agent's
+	// pod; workspace is the directory its worktree is in, which inside a pod is
+	// not this host's path for it.
+	`ALTER TABLE agents ADD COLUMN cluster TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE agents ADD COLUMN runtime TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE agents ADD COLUMN pod TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE agents ADD COLUMN pod_uid TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE agents ADD COLUMN workspace TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE agents ADD COLUMN desired_state TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE agents ADD COLUMN status_detail TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE agents ADD COLUMN destroyed_at INTEGER NOT NULL DEFAULT 0`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
