@@ -69,6 +69,19 @@ test('Android is an Android project’s, or an agent’s with an emulator runnin
   assert.equal(P.hasAndroid(undefined, undefined), false);
 });
 
+test('iOS is on an agent’s switch when the app runs on a Mac, after Android', () => {
+  const live: Whose = { kind: 'agent', agent: agent('agent-2', 'running') };
+  const gone: Whose = { kind: 'past', past: past('agent-1') };
+  const lead: Whose = { kind: 'lead', ref: 'pawly/lead' };
+  assert.equal(P.hasIOS('darwin'), true);
+  assert.equal(P.hasIOS('linux'), false);
+  assert.equal(P.hasIOS(undefined), false);
+  assert.deepEqual(P.viewsOf(live, true, true), ['desktop', 'terminal', 'browser', 'android', 'ios', 'files', 'evidence', 'timeline', 'schedules']);
+  assert.deepEqual(P.viewsOf(live, false, true), ['desktop', 'terminal', 'browser', 'ios', 'files', 'evidence', 'timeline', 'schedules']);
+  assert.deepEqual(P.viewsOf(gone, true, true), ['files', 'evidence', 'timeline', 'schedules']);
+  assert.deepEqual(P.viewsOf(lead, true, true), ['files', 'evidence', 'schedules']);
+});
+
 test('the picker lists the project’s agents with a machine, newest first', () => {
   const agents = [agent('old', 'stopped', '2026-09-01T00:00:00Z'), agent('new', 'running', '2026-10-05T00:00:00Z'), agent('else', 'running', '2026-10-06T00:00:00Z', 'other')];
   assert.deepEqual(

@@ -8,7 +8,8 @@
 // The lead's panel switches between the list, the project's Pull requests,
 // the repository's Files and Evidence, and the Schedules (setLeadTab); an
 // agent's has a switch of the same look with every view it has (viewsOf):
-// Desktop, Terminal, Browser, Android (an Android project's), Files,
+// Desktop, Terminal, Browser, Android (an Android project's), iOS (on a
+// Mac), Files,
 // Evidence (its media and Hatch pages, newest first), Timeline and
 // Schedules, with ✕ back to the list. The project's Settings (from the
 // panel's header) go over it. It remembers the view each
@@ -19,13 +20,13 @@ import { isLeadRef } from './pages.ts';
 import type { RichKind } from './rich.ts';
 import type { ProjectSection } from './tabs.ts';
 
-export type PanelView = 'desktop' | 'terminal' | 'files' | 'evidence' | 'browser' | 'android' | 'timeline' | 'pulls' | 'issues' | 'schedules' | 'settings';
-export const panelViews: PanelView[] = ['desktop', 'terminal', 'files', 'evidence', 'browser', 'android', 'timeline', 'pulls', 'issues', 'schedules', 'settings'];
+export type PanelView = 'desktop' | 'terminal' | 'files' | 'evidence' | 'browser' | 'android' | 'ios' | 'timeline' | 'pulls' | 'issues' | 'schedules' | 'settings';
+export const panelViews: PanelView[] = ['desktop', 'terminal', 'files', 'evidence', 'browser', 'android', 'ios', 'timeline', 'pulls', 'issues', 'schedules', 'settings'];
 // The switch's views, in this order: the machine's first, then what the
 // work left, ending as the lead's does, Files, Evidence, then Schedules. The
 // project's Pull requests, Issues and Settings are off it: tabs of the
 // lead's panel, and on its header.
-export const switchViews: PanelView[] = ['desktop', 'terminal', 'browser', 'android', 'files', 'evidence', 'timeline', 'schedules'];
+export const switchViews: PanelView[] = ['desktop', 'terminal', 'browser', 'android', 'ios', 'files', 'evidence', 'timeline', 'schedules'];
 // The agent's machine bar under its chat's header (AgentMachineBar): four.
 export const machineBarViews: PanelView[] = ['desktop', 'terminal', 'files', 'evidence'];
 
@@ -79,9 +80,15 @@ export function hasView(w: Whose, view: PanelView): boolean {
 // anyway.
 export const hasAndroid = (project: Pick<T.Project, 'android'> | undefined, status: Pick<T.AndroidStatus, 'running'> | undefined) => project?.android === true || status?.running === true;
 
+// hasIOS is whether agents get the iOS view: when the app runs on a Mac,
+// whose iOS Simulator they drive (internal/iossim). Without Xcode the view
+// says so, rather than hide where it would be.
+export const hasIOS = (platform: string | undefined) => platform === 'darwin';
+
 // viewsOf is whose's switch: the views it has, in switchViews' order, with
-// Android only for a live agent that has it.
-export const viewsOf = (w: Whose, android: boolean): PanelView[] => switchViews.filter((v) => hasView(w, v) && (v !== 'android' || (w.kind === 'agent' && android)));
+// Android and iOS only for a live agent that has them.
+export const viewsOf = (w: Whose, android: boolean, ios = false): PanelView[] =>
+  switchViews.filter((v) => hasView(w, v) && (v !== 'android' || (w.kind === 'agent' && android)) && (v !== 'ios' || (w.kind === 'agent' && ios)));
 
 // defaultView is what whose opens on before it was shown in any: an agent's
 // desktop, the repository's files, and what a past agent left.

@@ -85,6 +85,9 @@ export const isProjectChat = (ref: string) => {
 export const agentPath = agent;
 // The WebSocket paths of an agent's VNC displays, for lib/vnc.
 export const browserViewPath = (ref: string) => `${agent(ref)}/browser/view`;
+// The WebSocket of an iOS simulator's screen, which the agent drives from
+// its panel (internal/iossim): H.264 frames and input, not VNC.
+export const iosViewPath = (ref: string, device: string) => `${agent(ref)}/ios/view?device=${encodeURIComponent(device)}`;
 export const androidStreamPath = (ref: string) => `${agent(ref)}/android/stream`;
 
 // The Home chat is a lead kept under T.HomeProject rather than a project.
@@ -546,6 +549,12 @@ export const api = {
   android: (ref: string) => call<T.AndroidStatus>('GET', `${agent(ref)}/android`),
   startAndroid: (ref: string, req: T.AndroidStartRequest = {}) => call<T.AndroidStatus>('POST', `${agent(ref)}/android/start`, req),
   stopAndroid: (ref: string) => call<T.AndroidStatus>('POST', `${agent(ref)}/android/stop`),
+
+  // The Mac's iOS Simulator, as an agent sees it (internal/iossim).
+  ios: (ref: string) => call<T.IOSStatus>('GET', `${agent(ref)}/ios`),
+  openIOS: (ref: string, device: string) => call<T.IOSStatus>('POST', `${agent(ref)}/ios/open`, { device } satisfies T.IOSDeviceRequest),
+  closeIOS: (ref: string, device: string) => call<T.IOSStatus>('POST', `${agent(ref)}/ios/close`, { device } satisfies T.IOSDeviceRequest),
+  iosInput: (ref: string, input: T.IOSInput) => call<void>('POST', `${agent(ref)}/ios/input`, input),
 
   media: (ref: string) => call<T.MediaItem[]>('GET', `${agent(ref)}/media`),
   // What an agent did, as steps read out of its chat (internal/timeline); a

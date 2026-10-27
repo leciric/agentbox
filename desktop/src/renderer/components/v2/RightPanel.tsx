@@ -10,7 +10,7 @@
 // header), show in it with ✕ back to where it was; for an agent, the header
 // is, left to right: a back arrow, whose it is (a click opens its chat), and
 // a switch in LeadSwitch's look of every view it has (ViewSwitch: Desktop,
-// Terminal, Browser, Android for an Android project, Files, Evidence,
+// Terminal, Browser, Android for an Android project, iOS on a Mac, Files, Evidence,
 // Timeline, Schedules), icons only where the lit one's name doesn't fit.
 // Opening an agent's chat (a row of the list does)
 // shows that agent's Desktop, and its back arrow goes back to the lead's
@@ -18,7 +18,7 @@
 // was picked there. Dragged at its left edge, the list and an agent each
 // keep their own width. lib/rightPanel.ts has its rules and state.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlarmClock, ArrowLeft, ChevronsRight, Camera, Briefcase, Crown, Film, FileText, FolderTree, CircleDot, GanttChart, GitBranch, GitPullRequest, Globe, Image as ImageIcon, Images, LoaderCircle, Maximize, Minimize, Monitor, MousePointer2, Play, Plus, Power, Settings, SlidersHorizontal, Smartphone, SquareTerminal, Unplug, Users, X, type LucideIcon } from 'lucide-react';
+import { AlarmClock, ArrowLeft, ChevronsRight, Camera, Briefcase, Crown, Film, FileText, FolderTree, CircleDot, GanttChart, GitBranch, GitPullRequest, Globe, Image as ImageIcon, Images, LoaderCircle, Maximize, Minimize, Monitor, MousePointer2, Play, Plus, Power, Settings, SlidersHorizontal, Smartphone, SquareTerminal, TabletSmartphone, Unplug, Users, X, type LucideIcon } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
@@ -37,6 +37,7 @@ import {
   chatPanel,
   defaultView,
   hasAndroid,
+  hasIOS,
   isPastRef,
   leadOf,
   leadTab,
@@ -79,6 +80,7 @@ import { useFullscreen } from '../../lib/useFullscreen';
 import { useVncView } from '../../lib/useVncView';
 import { cn, errorMessage, timeAgo } from '../../lib/utils';
 import { AndroidTab } from '../AndroidTab';
+import { IOSTab } from '../IOSTab';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { ErrorBoundary } from '../ErrorBoundary';
 import { FileBrowser } from '../files/FilePanel';
@@ -111,6 +113,7 @@ const viewIcon: Record<PanelView, LucideIcon> = {
   evidence: Images,
   browser: Globe,
   android: Smartphone,
+  ios: TabletSmartphone,
   timeline: GanttChart,
   pulls: GitPullRequest,
   issues: CircleDot,
@@ -124,6 +127,7 @@ const viewLabel: Record<PanelView, MessageKey> = {
   evidence: 'panel.view.evidence',
   browser: 'panel.view.browser',
   android: 'panel.view.android',
+  ios: 'panel.view.ios',
   timeline: 'panel.view.timeline',
   pulls: 'panel.view.pulls',
   issues: 'panel.view.issues',
@@ -289,9 +293,13 @@ function RightPanel({ project, chat, width, drawer, onSelect, onNewAgent }: { pr
   const live = whose?.kind === 'agent' ? whose.agent : undefined;
   const androidStatus = useQuery({ queryKey: ['android', live?.ref], queryFn: () => api.android(live!.ref), enabled: live?.state === 'running', refetchInterval: 15_000 });
   const android = hasAndroid(projects.data?.find((p) => p.name === project), androidStatus.data);
+  // An agent on a Mac has iOS too: the Mac's simulators, which it shares.
+  const info = useQuery({ queryKey: ['app-info'], queryFn: () => window.agentbox.info(), staleTime: Infinity });
+  const ios = hasIOS(info.data?.platform);
   let view: PanelView | undefined = panel.wide ?? (whose && viewOf(state, whose));
   // Android, last shown for an agent of a project no longer one: its default.
   if (view === 'android' && whose && projects.isSuccess && !android) view = defaultView(whose);
+  if (view === 'ios' && whose && info.isSuccess && !ios) view = defaultView(whose);
   // Beside the lead's chat, the list, the pull requests, the repository and
   // the schedules are its tabs: no back arrow, title or ✕ for them, the switch instead.
   // Issues, beside it, is named by the switch the same way.
@@ -300,7 +308,7 @@ function RightPanel({ project, chat, width, drawer, onSelect, onNewAgent }: { pr
   const home = lead && !preview && (pulls || (panel.wide === 'schedules' && (!whose || whose.kind === 'lead')) || (!over && (!whose || whose.kind === 'lead')));
   // An agent's header, or whoever else's the panel shows but the lead's home.
   const switcher = !!whose && !home && !preview;
-  const fit = useNamedFit(`${ref}:${view}:${android}`);
+  const fit = useNamedFit(`${ref}:${view}:${android}:${ios}`);
 
   if (!whose && !over && state.listFolded && !drawer) return <AgentStrip project={project} chat={chat} onSelect={onSelect} onUnfold={() => setPanel({ listFolded: false })} />;
   return (
@@ -343,7 +351,7 @@ function RightPanel({ project, chat, width, drawer, onSelect, onNewAgent }: { pr
             </span>
           )
         )}
-        {whose && switcher && <ViewSwitch chat={chat} whose={whose} views={viewsOf(whose, android)} view={view} named={fit.named} booted={androidStatus.data?.booted === true} />}
+        {whose && switcher && <ViewSwitch chat={chat} whose={whose} views={viewsOf(whose, android, ios)} view={view} named={fit.named} booted={androidStatus.data?.booted === true} />}
         <span className="min-w-0 flex-1" />
         {!whose && !over && (
           <Tip label={t('agent.rail.newAgentIn', { project: projectName })}>
@@ -623,6 +631,12 @@ function Body({ project, chat, whose, view, width, focus, onSelect }: { project:
       return whose.kind === 'agent' ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto" data-panel-android={whose.agent.ref}>
           <AndroidTab agent={whose.agent} compact={width < 520} onOpenMedia={() => setView(chat, whose.agent.ref, 'evidence')} onSetup={() => onSelect({ kind: 'settings' })} />
+        </div>
+      ) : null;
+    case 'ios':
+      return whose.kind === 'agent' ? (
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto" data-panel-ios={whose.agent.ref}>
+          <IOSTab agent={whose.agent} compact={width < 520} onOpenMedia={() => setView(chat, whose.agent.ref, 'evidence')} />
         </div>
       ) : null;
     case 'timeline':
