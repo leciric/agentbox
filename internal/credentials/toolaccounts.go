@@ -433,12 +433,19 @@ func describe(a *ToolAccount, b []byte) {
 		}
 	case ToolOpenCode:
 		var f struct {
-			Type string `json:"type"`
+			Type     string `json:"type"`
+			Metadata *struct {
+				Email string `json:"email"`
+			} `json:"metadata"`
 		}
 		if json.Unmarshal(b, &f) == nil {
-			a.Kind = map[string]string{"api": "apikey"}[f.Type]
+			// OpenCode 1 calls an API key "api"; OpenCode 2 calls it "key".
+			a.Kind = map[string]string{"api": "apikey", "key": "apikey"}[f.Type]
 			if a.Kind == "" {
 				a.Kind = f.Type
+			}
+			if f.Metadata != nil {
+				a.Email = f.Metadata.Email
 			}
 		}
 	case ToolCursor:

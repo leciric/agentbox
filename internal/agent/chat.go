@@ -145,15 +145,22 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 	if !ok {
 		return nil, fmt.Errorf("%s runs no AI tool to chat with", a.Ref())
 	}
+	if err := m.requireRunning(ctx, a); err != nil {
+		return nil, err
+	}
 	if a.AI == "opencode" {
 		version, err := m.openCodeVersion(ctx)
 		if err != nil {
 			return nil, err
 		}
 		adapter = openCodeAdapter(adapter, version)
-	}
-	if err := m.requireRunning(ctx, a); err != nil {
-		return nil, err
+		if version == opencode.V2 {
+			// A machine made before its image carried OpenCode 2 gets it
+			// here, so the switch doesn't break the agents already running.
+			if err := m.ensureOpenCode2InAgent(ctx, a); err != nil {
+				return nil, err
+			}
+		}
 	}
 	overrides, err := m.Store.ToolOverrides(ctx)
 	if err != nil {
@@ -296,6 +303,11 @@ func (m *Manager) toolWindowScript(ctx context.Context, a state.Agent) (string, 
 		version, err := m.openCodeVersion(ctx)
 		if err != nil {
 			return "", err
+		}
+		if version == opencode.V2 {
+			if err := m.ensureOpenCode2InAgent(ctx, a); err != nil {
+				return "", err
+			}
 		}
 		tool = Tool{Command: version.Command(), Autonomous: version.Autonomous()}
 	}

@@ -108,9 +108,19 @@ if [[ $WITH_OPENCODE2 == 1 ]]; then
     echo "OpenCode 2 was asked for without a version to install" >&2
     exit 1
   fi
+  # The version goes into a shell command below, so it is checked here rather
+  # than trusted.
+  if [[ ! $OPENCODE2_VERSION =~ ^[0-9A-Za-z.+-]+$ ]]; then
+    echo "OpenCode 2's version $OPENCODE2_VERSION is not a version" >&2
+    exit 1
+  fi
   as_user "npm install --silent --no-fund --no-audit --prefix ~/.local/share/opencode2 @opencode/$OPENCODE2_PKG@$OPENCODE2_VERSION"
-  OPENCODE2_BIN=$(as_user "readlink -f ~/.local/share/opencode2/node_modules/@opencode/$OPENCODE2_PKG/bin/opencode")
-  ln -sf "$OPENCODE2_BIN" /usr/local/bin/opencode2
+  # The link lives inside the user's home, relative to it, because
+  # personalise.sh renames the placeholder user and moves that home: an
+  # absolute link to /home/agent would dangle in every real installation. The
+  # profile puts ~/.local/bin on PATH (system.sh).
+  as_user 'mkdir -p ~/.local/bin'
+  as_user "ln -sfn ../share/opencode2/node_modules/@opencode/$OPENCODE2_PKG/bin/opencode ~/.local/bin/opencode2"
   as_user 'opencode2 --version'
 fi
 

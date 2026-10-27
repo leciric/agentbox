@@ -103,9 +103,11 @@ func (m *Manager) LeadToolInstalled(ctx context.Context, tool string) bool {
 	}
 	version := opencode.V1
 	if tool == "opencode" {
-		if v, err := m.openCodeVersion(ctx); err == nil {
-			version = v
+		v, err := m.openCodeVersion(ctx)
+		if err != nil {
+			return false
 		}
+		version = v
 	}
 	pkg, bin, ok := leadNPMTool(tool, version)
 	return ok && usable(m.npmBin(bin)) && m.npmVersion(pkg) == pinnedVersion(pkg)

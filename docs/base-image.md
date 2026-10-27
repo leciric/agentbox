@@ -67,7 +67,8 @@ Run inside the container before it's snapshotted:
 - [mise](https://mise.jdx.dev), and through it the tools pinned in `tools.txt` that every agent
   gets: Go, Node, Claude Code, the GitHub CLI, the Playwright MCP server, and Codex/OpenCode where
   requested. OpenCode 2 is not in `tools.txt`: when its component is on, `provision.sh` installs its
-  npm platform package beside OpenCode 1 and links it as `/usr/local/bin/opencode2`, and the
+  npm platform package beside OpenCode 1 and links it as `opencode2` in the user's `~/.local/bin`,
+  inside the home so the link survives `personalise.sh` renaming the user, and the
   installation setting `opencode_version` chooses which one agents and the project chat run. It is
   always a local build, so a switch to OpenCode 2 also means building the image on your machine,
   with `agentbox image build --opencode2` or Settings → Setup;

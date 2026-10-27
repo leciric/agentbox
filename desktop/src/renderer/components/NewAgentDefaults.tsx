@@ -1225,7 +1225,17 @@ export function OpenCode2InImage() {
       {wanted && !installed && job === null && (
         <SettingNote tone="warning">{t('defaults.newAgent.openCode2Missing')}</SettingNote>
       )}
-      {job && <JobProgress jobId={job} onDone={() => void queryClient.invalidateQueries({ queryKey: ['setup'] })} />}
+      {job && (
+        <JobProgress
+          jobId={job}
+          onDone={() => {
+            void queryClient.invalidateQueries({ queryKey: ['setup'] });
+            // The version switch reads what the installed image carries, so
+            // it only lights up once the build is in.
+            void queryClient.invalidateQueries({ queryKey: ['settings'] });
+          }}
+        />
+      )}
     </SettingRow>
   );
 }

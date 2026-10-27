@@ -68,6 +68,8 @@ turn one off again with --android=false, --codex=false, --opencode=false,
 			}
 			if f.Changed("opencode") {
 				req.OpenCode = &withOpenCode
+			}
+			if f.Changed("opencode2") {
 				req.OpenCodeV2 = &withOpenCode2
 			}
 			if f.Changed("dev-caches") {

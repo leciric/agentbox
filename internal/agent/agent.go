@@ -966,10 +966,19 @@ func (m *Manager) OpenCodeReady(ctx context.Context) (bool, error) {
 }
 
 // OpenCodeV2Ready reports whether the base image carries OpenCode 2, which is
-// what lets an installation choose it. The binary on the host is a separate
-// matter, installed the first time it is needed.
+// what lets an installation choose it. What counts is the image that is
+// installed, not the component a build was asked for: turning the switch on
+// before that build finishes would point every agent at a binary their
+// machines don't have. The binary on the host is a separate matter, installed
+// the first time it is needed.
 func (m *Manager) OpenCodeV2Ready(ctx context.Context) (bool, error) {
-	return m.Store.Flag(ctx, state.SettingImageOpenCodeV2)
+	installed, err := image.InstalledBuild(ctx, m.Incus)
+	if err != nil {
+		// No image to read: nothing to switch to, and the setup check says
+		// why. Not an error here, or a settings read would fail with it.
+		return false, nil
+	}
+	return installed.Components.OpenCodeV2, nil
 }
 
 // CursorReady reports whether an agent could run Cursor right now. Every base

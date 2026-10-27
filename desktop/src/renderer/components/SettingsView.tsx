@@ -265,6 +265,7 @@ export function SettingsView({
       setImageJob(job.id);
       void queryClient.invalidateQueries({ queryKey: ["setup"] });
       void queryClient.invalidateQueries({ queryKey: ["image"] });
+      void queryClient.invalidateQueries({ queryKey: ["settings"] });
     },
   });
 
@@ -1695,8 +1696,8 @@ function InstalledSettings({
             {
               id: "opencode-v2-image",
               advanced: true,
-              label: t("defaults.newAgent.openCode2Label"),
-              keywords: t("settings.entry.opencode-v2.keywords"),
+              label: t("settings.entry.opencode-v2-image.label"),
+              keywords: t("settings.entry.opencode-v2-image.keywords"),
               modified: setup.data ? setup.data.image.components.opencodeV2 : undefined,
               render: () => <OpenCode2InImage />,
             },

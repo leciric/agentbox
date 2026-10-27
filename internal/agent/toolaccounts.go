@@ -3,8 +3,11 @@ package agent
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"os/exec"
@@ -13,6 +16,7 @@ import (
 	"strings"
 
 	"agentbox/internal/credentials"
+	"agentbox/internal/image"
 	"agentbox/internal/opencode"
 	"agentbox/internal/state"
 )
@@ -177,10 +181,53 @@ func openCodeChosen(p state.Project, a state.Agent) state.AccountMap {
 	return chosen
 }
 
-// openCodeImportMarker is where an OpenCode 2 agent keeps the credentials last
-// imported into it, so a chat that starts with the same accounts doesn't pay
-// for an import that would change nothing.
+// openCodeImportMarker is where a machine keeps the accounts last imported
+// into it: a hash of the export and the label each provider was imported
+// under. It holds no credential, only what the next sync needs to take the
+// accounts this one no longer wants back out.
 const openCodeImportMarker = ".config/opencode/.agentbox-accounts.json"
+
+// openCodeImported is the marker's content.
+type openCodeImported struct {
+	Hash     string            `json:"hash"`
+	Accounts map[string]string `json:"accounts"`
+}
+
+// syncOpenCodeImport gives OpenCode 2 in one machine exactly the accounts in
+// export, keeping them out of the way while it changes. `auth import` only
+// adds credentials: it skips an id it already holds and never deactivates one
+// it no longer has, so a renamed or removed account would stay behind and keep
+// answering. The labels this same file imported last time are logged out after
+// the import (which leaves the new ones active), and the marker is rewritten.
+func syncOpenCodeImport(ctx context.Context, read func() ([]byte, error), write func([]byte) error, run func(context.Context, []string, io.Reader) error, export []byte, used map[string]string) error {
+	sum := fmt.Sprintf("%x", sha256.Sum256(export))
+	var was openCodeImported
+	if b, err := read(); err == nil && len(b) > 0 {
+		_ = json.Unmarshal(b, &was)
+	}
+	if was.Hash == sum {
+		return nil
+	}
+	if len(export) > 0 {
+		if err := run(ctx, []string{"auth", "import", "--standalone"}, bytes.NewReader(export)); err != nil {
+			return err
+		}
+	}
+	for provider, label := range was.Accounts {
+		if used[provider] == label {
+			continue
+		}
+		// Best effort: an account the user already logged out of the machine,
+		// or one whose provider is gone, makes this fail, and that is not a
+		// reason to fail the whole sync.
+		_ = run(ctx, []string{"auth", "logout", "--standalone", provider, label}, nil)
+	}
+	now, err := json.Marshal(openCodeImported{Hash: sum, Accounts: used})
+	if err != nil {
+		return err
+	}
+	return write(now)
+}
 
 // importOpenCodeAccounts gives an OpenCode 2 agent its logins. OpenCode 2
 // keeps credentials in a database of its own, not in the auth.json OpenCode 1
@@ -197,23 +244,64 @@ func (m *Manager) importOpenCodeAccounts(ctx context.Context, a state.Agent, ver
 			return err
 		}
 	}
-	export, _, err := m.Creds.OpenCodeImport(openCodeChosen(p, a))
+	export, used, err := m.Creds.OpenCodeImport(openCodeChosen(p, a))
 	if err != nil {
 		return err
 	}
 	if export == nil {
-		return nil
+		// No accounts at all: an empty import adds nothing, and the logouts
+		// below are what take the old ones out.
+		export = []byte("[]")
+		used = map[string]string{}
+	}
+	if err := m.ensureOpenCode2InAgent(ctx, a); err != nil {
+		return err
 	}
 	home := "/home/" + m.User.Name
 	marker := home + "/" + openCodeImportMarker
-	if bytes.Equal(m.readAgentFile(ctx, a, marker), export) {
+	run := func(ctx context.Context, args []string, stdin io.Reader) error {
+		quoted := make([]string, 0, len(args))
+		for _, arg := range args {
+			quoted = append(quoted, shellQuote(arg))
+		}
+		command := strings.Join(append([]string{opencode.Command2}, quoted...), " ")
+		var out bytes.Buffer
+		if err := m.Incus.UserExec(ctx, a.Instance, m.User.Name, command, stdin, &out, &out); err != nil {
+			return fmt.Errorf("%s: %w: %s", command, err, tail(out.String()))
+		}
 		return nil
 	}
-	var out bytes.Buffer
-	if err := m.Incus.UserExec(ctx, a.Instance, m.User.Name, opencode.Command2+" auth import --standalone", bytes.NewReader(export), &out, &out); err != nil {
-		return fmt.Errorf("giving %s its OpenCode login: %w: %s", a.Ref(), err, strings.TrimSpace(out.String()))
+	read := func() ([]byte, error) { return m.readAgentFile(ctx, a, marker), nil }
+	write := func(b []byte) error {
+		return m.Incus.WriteFile(ctx, a.Instance, marker, b, m.User.UID, m.User.GID, 0o600)
 	}
-	return m.Incus.WriteFile(ctx, a.Instance, marker, export, m.User.UID, m.User.GID, 0o600)
+	if err := syncOpenCodeImport(ctx, read, write, run, export, used); err != nil {
+		return fmt.Errorf("giving %s its OpenCode login: %w", a.Ref(), err)
+	}
+	return nil
+}
+
+// ensureOpenCode2InAgent installs OpenCode 2's platform package in an agent
+// whose machine was made before its image carried it, linking it as opencode2
+// where the login shell finds it. An agent from an image with the component
+// already has it, and this does nothing.
+func (m *Manager) ensureOpenCode2InAgent(ctx context.Context, a state.Agent) error {
+	if m.Incus.UserExec(ctx, a.Instance, m.User.Name, "command -v "+opencode.Command2, nil, io.Discard, io.Discard) == nil {
+		return nil
+	}
+	pkg, err := opencode.Package2()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, installTimeout)
+	defer cancel()
+	spec := shellQuote(pkg + "@" + image.OpenCode2Version)
+	script := fmt.Sprintf("mkdir -p ~/.local/bin ~/.local/share/opencode2 && npm install --silent --no-fund --no-audit --prefix ~/.local/share/opencode2 %[1]s && ln -sfn ../share/opencode2/node_modules/%[2]s/bin/opencode ~/.local/bin/opencode2", spec, shellQuote(pkg))
+	var out bytes.Buffer
+	if err := m.Incus.UserExec(ctx, a.Instance, m.User.Name, script, nil, &out, &out); err != nil {
+		return fmt.Errorf("installing OpenCode 2 in %s: %w: %s", a.Ref(), err, tail(out.String()))
+	}
+	return nil
 }
 
 // toolLoginFile is one tool's login file for an agent, nil when there is
@@ -222,7 +310,10 @@ func (m *Manager) toolLoginFile(p state.Project, a state.Agent, tool string) ([]
 	own := tool == a.AI
 	switch tool {
 	case "opencode":
-		chosen := openCodeChosen(p, a)
+		chosen := p.OpenCodeAccounts.Clean()
+		if own {
+			chosen = openCodeChosen(p, a)
+		}
 		auth, _, err := m.Creds.OpenCodeAuth(chosen)
 		return auth, err
 	default:
@@ -298,27 +389,41 @@ func (m *Manager) writeLeadLogin(ctx context.Context, a state.Agent, home string
 	if a.AI == "opencode" && version == opencode.V2 {
 		// OpenCode 2 keeps credentials in a database of its own, not in the
 		// auth.json OpenCode 1 read: its own import is how the lead gets them.
-		export, _, err := m.Creds.OpenCodeImport(a.OpenCodeAccounts.Clean())
-		if err != nil || export == nil {
+		export, used, err := m.Creds.OpenCodeImport(a.OpenCodeAccounts.Clean())
+		if err != nil {
 			return err
 		}
-		cmd := exec.CommandContext(ctx, command, "auth", "import", "--standalone")
-		cmd.Dir = home
-		cmd.Env = []string{"HOME=" + home, "PATH=" + nodeBin + string(os.PathListSeparator) + os.Getenv("PATH"), "LANG=C.UTF-8"}
-		cmd.Stdin = bytes.NewReader(export)
-		var out bytes.Buffer
-		cmd.Stdout, cmd.Stderr = &out, &out
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("giving the project's OpenCode chat its login: %w: %s", err, tail(out.String()))
+		if export == nil {
+			export, used = []byte("[]"), map[string]string{}
 		}
-		return nil
-	}
-	auth, err := m.toolLoginFile(state.Project{}, a, a.AI)
-	if err != nil {
-		return err
-	}
-	if err := writePrivate(home, toolAuthFile(a.AI), auth); err != nil {
-		return err
+		ctx, cancel := context.WithTimeout(ctx, installTimeout)
+		defer cancel()
+		marker := filepath.Join(home, openCodeImportMarker)
+		run := func(ctx context.Context, args []string, stdin io.Reader) error {
+			cmd := exec.CommandContext(ctx, command, args...)
+			cmd.Dir = home
+			cmd.Env = []string{"HOME=" + home, "PATH=" + nodeBin + string(os.PathListSeparator) + os.Getenv("PATH"), "LANG=C.UTF-8"}
+			cmd.Stdin = stdin
+			var out bytes.Buffer
+			cmd.Stdout, cmd.Stderr = &out, &out
+			if err := cmd.Run(); err != nil {
+				return fmt.Errorf("opencode %s: %w: %s", strings.Join(args, " "), err, tail(out.String()))
+			}
+			return nil
+		}
+		read := func() ([]byte, error) { return os.ReadFile(marker) }
+		write := func(b []byte) error { return writePrivate(home, openCodeImportMarker, b) }
+		if err := syncOpenCodeImport(ctx, read, write, run, export, used); err != nil {
+			return fmt.Errorf("giving the project's OpenCode chat its login: %w", err)
+		}
+	} else {
+		auth, err := m.toolLoginFile(state.Project{}, a, a.AI)
+		if err != nil {
+			return err
+		}
+		if err := writePrivate(home, toolAuthFile(a.AI), auth); err != nil {
+			return err
+		}
 	}
 	if a.IsHome() || a.Status == "" {
 		return nil
@@ -393,6 +498,15 @@ func (m *Manager) SetAccount(ctx context.Context, a state.Agent, want Logins) (s
 	home := "/home/" + m.User.Name
 	if err := m.Incus.WriteFile(ctx, a.Instance, home+"/"+toolAuthFile(a.AI), auth, m.User.UID, m.User.GID, 0o600); err != nil {
 		return a, err
+	}
+	if a.AI == "opencode" {
+		version, err := m.openCodeVersion(ctx)
+		if err != nil {
+			return a, err
+		}
+		if err := m.importOpenCodeAccounts(ctx, a, version); err != nil {
+			return a, err
+		}
 	}
 	if err := m.Store.SetAgentToolAccounts(ctx, a.Project, a.Name, a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount); err != nil {
 		return a, err

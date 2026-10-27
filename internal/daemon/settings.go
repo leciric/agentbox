@@ -118,13 +118,18 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
+		if opencode.ReleaseOf(was) != opencode.ReleaseOf(want) {
+			// The menu belongs to the version that named it. Dropped first,
+			// so a failed write below can't leave the version moved with the
+			// old menu still answering for it.
+			if err := s.store.DeleteSetting(r.Context(), state.SettingOpenCodeModelChoices); err != nil {
+				return err
+			}
+		}
 		if err := s.store.SetSetting(r.Context(), state.SettingOpenCodeVersion, want); err != nil {
 			return err
 		}
 		if opencode.ReleaseOf(was) != opencode.ReleaseOf(want) {
-			if err := s.store.DeleteSetting(r.Context(), state.SettingOpenCodeModelChoices); err != nil {
-				return err
-			}
 			// The hourly limit was for one version's answers; the other one's
 			// menu has never been asked for.
 			s.mu.Lock()
@@ -134,6 +139,14 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			// versions read different shapes: rewrite it now rather than at
 			// some later change to the project.
 			s.reconfigureLeads(r.Context())
+			// A chat already running is on the old release: it starts its
+			// adapter again before its next message, on the one in effect now.
+			s.chat.ToolsChanged("", "")
+			if projects, err := s.store.Projects(r.Context()); err == nil {
+				for _, p := range projects {
+					s.chat.ToolsChanged(p.Name, "")
+				}
+			}
 		}
 	}
 	if req.ResumeAfterLimit != nil {

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -317,5 +318,59 @@ esac`), Store: openInternalStore(t)}
 	}
 	if strings.Contains(window, "CLAUDE_CODE_ENTRYPOINT") {
 		t.Errorf("the terminal interface sets the entrypoint:\n%s", window)
+	}
+}
+
+// OpenCode 2 keeps every credential it is given, and `auth import` skips one
+// it already has: a sync gives it exactly the accounts asked for, logging out
+// the ones it replaced so a removed or renamed account can't keep answering.
+// An export that didn't change touches nothing.
+func TestSyncOpenCodeImportLogsOutWhatItReplaced(t *testing.T) {
+	t.Parallel()
+	var marker []byte
+	var ran []string
+	run := func(_ context.Context, args []string, stdin io.Reader) error {
+		ran = append(ran, strings.Join(args, " "))
+		return nil
+	}
+	read := func() ([]byte, error) { return marker, nil }
+	write := func(b []byte) error { marker = b; return nil }
+	ctx := context.Background()
+	export := []byte(`[{"id":"a"}]`)
+
+	if err := syncOpenCodeImport(ctx, read, write, run, export, map[string]string{"openai": "work"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(ran) != 1 || !strings.HasPrefix(ran[0], "auth import") {
+		t.Fatalf("the first sync ran %q, want only an import", ran)
+	}
+	ran = nil
+	if err := syncOpenCodeImport(ctx, read, write, run, export, map[string]string{"openai": "work"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(ran) != 0 {
+		t.Fatalf("an unchanged export ran %q", ran)
+	}
+
+	// The same provider under another label: the new one is imported, then
+	// the old label taken out.
+	ran = nil
+	if err := syncOpenCodeImport(ctx, read, write, run, []byte(`[{"id":"b"}]`), map[string]string{"openai": "personal"}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"auth import --standalone", "auth logout --standalone openai work"}
+	if strings.Join(ran, "|") != strings.Join(want, "|") {
+		t.Fatalf("a renamed account ran %q, want %q", ran, want)
+	}
+
+	// Every account removed: an empty export imports nothing and out goes the
+	// label that was there.
+	ran = nil
+	if err := syncOpenCodeImport(ctx, read, write, run, []byte("[]"), map[string]string{}); err != nil {
+		t.Fatal(err)
+	}
+	want = []string{"auth import --standalone", "auth logout --standalone openai personal"}
+	if strings.Join(ran, "|") != strings.Join(want, "|") {
+		t.Fatalf("removing every account ran %q, want %q", ran, want)
 	}
 }

@@ -12,6 +12,20 @@ import (
 	"agentbox/internal/state"
 )
 
+// fakeIncusWithOpenCode2 is the fake incus of an installation whose base image
+// was built with OpenCode 2, which is what Settings.openCodeV2Ready reads.
+const fakeIncusWithOpenCode2 = `case "$1" in
+  list) echo '[]' ;;
+  query)
+    case "$2" in
+      */agentbox-base/snapshots) echo '["/1.0/instances/agentbox-base/snapshots/ready"]' ;;
+      */snapshots) echo '[]' ;;
+      *) echo '{"config": {"user.agentbox.with-opencode": "1", "user.agentbox.with-opencode2": "1"}, "devices": {}}' ;;
+    esac ;;
+esac
+exit 0
+`
+
 // patchSettings sends a PATCH /v1/settings body the way the app does.
 func patchSettings(t *testing.T, d testDaemon, body string) (api.Settings, error) {
 	t.Helper()
@@ -304,8 +318,10 @@ func TestLanguageIsStoredAndChecked(t *testing.T) {
 }
 
 // Which OpenCode an installation runs is one choice, "1" until it chooses, and
-// "2" only when the base image carries it. A switch forgets the model menu,
-// which belongs to the version that named it.
+// "2" only when the base image it has carries it: the component a build was
+// asked for is not enough, since the switch would point every agent at a
+// binary the machines don't have yet. A switch forgets the model menu, which
+// belongs to the version that named it.
 func TestOpenCodeVersionDefaultsToOneAndNeedsTheImage(t *testing.T) {
 	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
@@ -328,31 +344,47 @@ func TestOpenCodeVersionDefaultsToOneAndNeedsTheImage(t *testing.T) {
 	if _, err := patchSettings(t, d, `{"openCodeVersion":"3"}`); err == nil {
 		t.Fatal("an OpenCode version that doesn't exist was accepted")
 	}
-
 	if err := d.srv.store.SetFlag(ctx, state.SettingImageOpenCodeV2, true); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.srv.store.SetSetting(ctx, state.SettingOpenCodeModelChoices, `[{"value":"opencode/x","name":"opencode / x"}]`); err != nil {
+	if out, err := patchSettings(t, d, `{"openCodeVersion":"1"}`); err != nil || out.OpenCodeV2Ready {
+		t.Fatalf("the component asked for counted as an image that carries it: %+v, %v", out, err)
+	}
+
+	built := startTestDaemon(t, t.TempDir(), fakeIncusWithOpenCode2)
+	if err := built.srv.store.SetSetting(ctx, state.SettingOpenCodeModelChoices, `[{"value":"opencode/x","name":"opencode / x"}]`); err != nil {
 		t.Fatal(err)
 	}
-	out, err = patchSettings(t, d, `{"openCodeVersion":"2"}`)
+	out, err = patchSettings(t, built, `{"openCodeVersion":"2"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if out.OpenCodeVersion != "2" || !out.OpenCodeV2Ready {
 		t.Fatalf("after switching: %+v", out)
 	}
-	if menu, err := d.srv.store.Setting(ctx, state.SettingOpenCodeModelChoices); err != nil || menu != "" {
+	if menu, err := built.srv.store.Setting(ctx, state.SettingOpenCodeModelChoices); err != nil || menu != "" {
 		t.Fatalf("the model menu of the old version survived the switch: %q, %v", menu, err)
 	}
 	// Choosing the version already in effect keeps its menu.
-	if err := d.srv.store.SetSetting(ctx, state.SettingOpenCodeModelChoices, `[{"value":"opencode/x","name":"opencode / x"}]`); err != nil {
+	if err := built.srv.store.SetSetting(ctx, state.SettingOpenCodeModelChoices, `[{"value":"opencode/x","name":"opencode / x"}]`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := patchSettings(t, d, `{"openCodeVersion":"2"}`); err != nil {
+	if _, err := patchSettings(t, built, `{"openCodeVersion":"2"}`); err != nil {
 		t.Fatal(err)
 	}
-	if menu, err := d.srv.store.Setting(ctx, state.SettingOpenCodeModelChoices); err != nil || menu == "" {
+	if menu, err := built.srv.store.Setting(ctx, state.SettingOpenCodeModelChoices); err != nil || menu == "" {
 		t.Fatalf("choosing the same version dropped its menu: %q, %v", menu, err)
+	}
+	// The component can't be turned off under it, and a refused build leaves
+	// the choice as it was.
+	if err := built.srv.store.SetFlag(ctx, state.SettingImageOpenCodeV2, true); err != nil {
+		t.Fatal(err)
+	}
+	off := false
+	if _, err := built.srv.chooseImageComponents(ctx, api.BuildImageRequest{OpenCodeV2: &off}); err == nil {
+		t.Fatal("the component was turned off while the installation runs OpenCode 2")
+	}
+	if on, err := built.srv.store.Flag(ctx, state.SettingImageOpenCodeV2); err != nil || !on {
+		t.Fatalf("the refused build cleared the component: %v, %v", on, err)
 	}
 }

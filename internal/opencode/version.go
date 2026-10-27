@@ -24,8 +24,9 @@ const (
 )
 
 // Command2 is the name OpenCode 2 runs as beside OpenCode 1. OpenCode 2's npm
-// package already carries an `opencode2` bin for exactly this reason, so the
-// image links its platform binary under the same name.
+// platform package declares no `bin` entry, so the base image links its binary
+// under this name itself (provision.sh); the lead's copy is linked the same way
+// from AgentBox's tools directory.
 const Command2 = "opencode2"
 
 // Command is the command line this release runs as.

@@ -268,6 +268,7 @@ Run it once per account, with --account, to keep several.`,
 // nor rewritten. Each provider it wrote is kept as an account of that provider.
 func newAuthOpenCodeCmd(a *app) *cobra.Command {
 	var provider, method, account string
+	var openCodeV2 bool
 	cmd := &cobra.Command{
 		Use:   "opencode",
 		Short: "Log agents in to OpenCode",
@@ -278,6 +279,10 @@ release), and keeps what it stores as a named account of that provider. The Open
 own, the version agents run, downloaded the first time: OpenCode 2 (when the
 installation chose it) keeps credentials in its database, so they are read back
 with its own 'auth export'.
+
+The version is the installation's setting (Settings → Run OpenCode 2). Pass
+--opencode2 to sign in to OpenCode 2 anyway, without moving the agents to it:
+the account is stored the same way, and both versions can use it.
 
 OpenCode's accounts are per provider: a project picks one for each provider
 (the default otherwise), and an OpenCode agent gets all of them. Run this once
@@ -299,14 +304,6 @@ per account, with --account, to keep several for a provider.`,
 			if err := os.MkdirAll(creds.Dir, 0o700); err != nil {
 				return err
 			}
-			dataHome, err := os.MkdirTemp(creds.Dir, ".opencode-login-")
-			if err != nil {
-				return err
-			}
-			defer func() { _ = os.RemoveAll(dataHome) }()
-			if err := os.MkdirAll(filepath.Join(dataHome, "opencode"), 0o700); err != nil {
-				return err
-			}
 			// Which OpenCode this installation runs is the daemon's setting. It
 			// is asked rather than guessed: the two write credentials in
 			// different places, and a login captured in the wrong one is no use
@@ -316,8 +313,20 @@ per account, with --account, to keep several for a provider.`,
 			if settings, err := api.NewClient(a.paths.Socket()).Settings(cmd.Context()); err == nil {
 				version = opencode.ReleaseOf(settings.OpenCodeVersion)
 			}
+			if openCodeV2 {
+				version = opencode.V2
+			}
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Signing in to OpenCode %s\n", version)
 			if version == opencode.V2 {
 				return openCode2Login(cmd, a, creds, provider, method, account)
+			}
+			dataHome, err := os.MkdirTemp(creds.Dir, ".opencode-login-")
+			if err != nil {
+				return err
+			}
+			defer func() { _ = os.RemoveAll(dataHome) }()
+			if err := os.MkdirAll(filepath.Join(dataHome, "opencode"), 0o700); err != nil {
+				return err
 			}
 			// The machine this runs on is the VM, which has no OpenCode of
 			// its own: AgentBox fetches the version agents run, once.
@@ -357,6 +366,7 @@ per account, with --account, to keep several for a provider.`,
 	}
 	cmd.Flags().StringVar(&provider, "provider", "", "provider id to log in to, skipping OpenCode's own list")
 	cmd.Flags().StringVar(&method, "method", "", "login method, skipping OpenCode's own list")
+	cmd.Flags().BoolVar(&openCodeV2, "opencode2", false, "sign in to OpenCode 2 even when the installation runs OpenCode 1")
 	cmd.Flags().StringVar(&account, "account", "", `store it under this name (default "`+credentials.DefaultAccount+`")`)
 	addToolAccountCmds(cmd, a, credentials.ToolOpenCode)
 	return cmd

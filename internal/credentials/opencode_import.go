@@ -75,10 +75,9 @@ func SplitOpenCodeExport(b []byte) (map[string][]byte, error) {
 	}
 	out := map[string][]byte{}
 	for _, c := range creds {
-		if ValidateProvider(c.IntegrationID) != nil || len(c.Value) == 0 {
-			continue
-		}
-		if _, seen := out[c.IntegrationID]; seen && !c.Active {
+		if ValidateProvider(c.IntegrationID) != nil || len(c.Value) == 0 || !c.Active {
+			// An account OpenCode 2 has switched away from is not one to sign
+			// an agent in with.
 			continue
 		}
 		out[c.IntegrationID] = c.Value

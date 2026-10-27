@@ -17,6 +17,11 @@ import (
 // menu its ACP session advertises (rememberChoices in internal/chat).
 const openCodeModelsEvery = time.Hour
 
+// openCodeModelsTimeout bounds one refresh: installing OpenCode 2 with npm can
+// hang, and without a deadline it would hold openCodeModels.running for the
+// daemon's lifetime, so the menu would never be asked for again.
+const openCodeModelsTimeout = 5 * time.Minute
+
 // refreshOpenCodeModels asks OpenCode what the stored login can run and
 // remembers the answer, in the background and at most once an hour. It is how
 // the menu exists at all before any OpenCode chat has started — which is when
@@ -45,14 +50,16 @@ func (s *Server) refreshOpenCodeModels() {
 			s.openCodeModels.running = false
 			s.mu.Unlock()
 		}()
-		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(context.Background(), openCodeModelsTimeout)
+		defer cancel()
 		raw, err := s.store.Setting(ctx, state.SettingOpenCodeVersion)
 		if err != nil {
 			s.logf("asking OpenCode which models it can run: %v", err)
 			return
 		}
+		version := opencode.ReleaseOf(raw)
 		var command, dataHome string
-		standalone := opencode.ReleaseOf(raw) == opencode.V2
+		standalone := version == opencode.V2
 		if standalone {
 			// OpenCode 2 is not the mise tool the base image pins: it is the
 			// npm platform package, installed on the host the first time it is
@@ -92,6 +99,11 @@ func (s *Server) refreshOpenCodeModels() {
 			return
 		}
 		if len(ids) == 0 {
+			return
+		}
+		// The version may have moved while this was asking: the menu would
+		// then name the release the installation no longer runs.
+		if now, err := s.store.Setting(ctx, state.SettingOpenCodeVersion); err != nil || opencode.ReleaseOf(now) != version {
 			return
 		}
 		menu, err := json.Marshal(openCodeChoices(ids))

@@ -223,7 +223,15 @@ func parseOpenCode(data []byte) ([]Found, error) {
 		// "type", while OpenCode 2's map is a name-to-server object.
 		if json.Unmarshal(raw, &nested) == nil && len(nested) > 0 {
 			if _, isServer := nested["type"]; !isServer {
-				return jsonServers(nested, ToolOpenCode), nil
+				direct := make(map[string]json.RawMessage, len(cfg.MCP))
+				for name, server := range cfg.MCP {
+					if name != "servers" {
+						direct[name] = server
+					}
+				}
+				// Both shapes in one file is legal, so the direct servers are
+				// not dropped for the nested ones.
+				return append(jsonServers(nested, ToolOpenCode), jsonServers(direct, ToolOpenCode)...), nil
 			}
 		}
 	}

@@ -61,7 +61,9 @@ Claude Code and Codex don't speak ACP themselves, so AgentBox runs a separate ad
 front of each (`claude-agent-acp`, `codex-acp`) that wraps the tool's own protocol in ACP. OpenCode
 speaks ACP natively through its own `acp` subcommand, so there's no wrapper — the adapter is just
 `opencode acp`. All three are installed with `mise install` and launched with `mise exec` inside
-the agent's container, except OpenCode 2, which the image links into `/usr/local/bin`.
+the agent's container, except OpenCode 2, which the image links into the agent's `~/.local/bin`.
+An agent whose machine was made before its image carried OpenCode 2 gets the same npm package
+installed in it when its chat or terminal starts (`ensureOpenCode2InAgent`).
 
 ## The chat manager
 
