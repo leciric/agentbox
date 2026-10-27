@@ -93,9 +93,9 @@ func (s *Store) SetAgentStatusDetail(ctx context.Context, project, name, detail 
 	return s.execAgent(ctx, `UPDATE agents SET status_detail = ? WHERE project = ? AND name = ?`, detail, project, name)
 }
 
-// MarkAgentDestroyed starts the retention clock on a destroyed agent's pod: the
-// reconciler deletes it, and the row remembers when, so the claim is kept for the
-// window the user configured and not forever.
+// MarkAgentDestroyed marks a destroyed agent's pod: the reconciler deletes the
+// pod, its token Secret and its claim. The timestamp records when, and no
+// retention window reads it yet.
 func (s *Store) MarkAgentDestroyed(ctx context.Context, project, name string, at time.Time) error {
 	return s.execAgent(ctx, `UPDATE agents SET desired_state = ?, destroyed_at = ? WHERE project = ? AND name = ?`,
 		DesiredDestroyed, at.Unix(), project, name)

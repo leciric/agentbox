@@ -1541,8 +1541,9 @@ var migrations = []string{
 	// one an agent's session lives in; desired_state is what the user asked
 	// for (running, stopped, destroyed) and what the reconciler works towards;
 	// status_detail is the cluster's own reason the pod isn't doing it;
-	// destroyed_at starts the retention clock on deleting a destroyed agent's
-	// pod; workspace is the directory its worktree is in, which inside a pod is
+	// destroyed_at is when the row was marked destroyed, which nothing reads
+	// yet (there is no retention window); workspace is the directory its
+	// worktree is in, which inside a pod is
 	// not this host's path for it.
 	`ALTER TABLE agents ADD COLUMN cluster TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE agents ADD COLUMN runtime TEXT NOT NULL DEFAULT ''`,
@@ -3064,8 +3065,8 @@ type Agent struct {
 	// StatusDetail is the cluster's own reason the machine isn't doing what
 	// was asked: an image it can't pull, a pod it can't schedule.
 	StatusDetail string
-	// DestroyedAt starts the retention clock on deleting a destroyed agent's
-	// pod, and is zero for an agent that has never been destroyed.
+	// DestroyedAt is when the row was marked destroyed, and is zero for an
+	// agent that has never been destroyed. Nothing reads it yet.
 	DestroyedAt time.Time
 }
 
