@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"agentbox/internal/api"
@@ -91,8 +92,19 @@ func (s *Server) credential(reg state.Registry) (username, token string, err err
 	return username, token, nil
 }
 
-// clusterClient is the client for one cluster's own access.
+// clusterClient is the client for one cluster's own access, kept between calls:
+// the reconciler asks every few seconds, and a clientset built each time makes a
+// new HTTP transport each time. The key is the sealed kubeconfig, so a rotation
+// is a different client rather than a stale one, and the old one is left to the
+// garbage collector along with its idle connections.
 func (s *Server) clusterClient(c state.Cluster) (*k8s.Cluster, error) {
+	key := c.Name + "\x00" + c.Namespace + "\x00" + string(c.Kubeconfig)
+	s.clusters.Lock()
+	if client, ok := s.clusters.byKey[key]; ok {
+		s.clusters.Unlock()
+		return client, nil
+	}
+	s.clusters.Unlock()
 	kubeconfig, err := s.openValue(c.Kubeconfig)
 	if err != nil {
 		return nil, fmt.Errorf("cluster %s's kubeconfig: %w", c.Name, err)
@@ -104,7 +116,28 @@ func (s *Server) clusterClient(c state.Cluster) (*k8s.Cluster, error) {
 	if err != nil {
 		return nil, err
 	}
+	s.clusters.Lock()
+	defer s.clusters.Unlock()
+	if s.clusters.byKey == nil {
+		s.clusters.byKey = map[string]*k8s.Cluster{}
+	}
+	// One client per cluster, whatever it has been rotated to: the entries of
+	// an older kubeconfig are dropped rather than kept for a rotation that
+	// won't come back.
+	for old := range s.clusters.byKey {
+		if strings.HasPrefix(old, c.Name+"\x00") {
+			delete(s.clusters.byKey, old)
+		}
+	}
+	s.clusters.byKey[key] = cluster
 	return cluster, nil
+}
+
+// clusterClients is the clients the daemon holds, by cluster and by the sealed
+// kubeconfig they were built from.
+type clusterClients struct {
+	sync.Mutex
+	byKey map[string]*k8s.Cluster
 }
 
 // writePullSecret writes a registry's login into a cluster's namespace, where a

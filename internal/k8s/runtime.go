@@ -60,6 +60,11 @@ func (p Pod) State() string {
 	}
 }
 
+// Failed reports whether the pod is one the cluster has given up on: a node that
+// evicted it, or a container that can't be started at all. Such a pod is deleted
+// and made again, which is what a new machine means.
+func (p Pod) Failed() bool { return p.Phase == corev1.PodFailed }
+
 // Detail is why the pod isn't running, in the cluster's words, or "" when
 // nothing is wrong.
 func (p Pod) Detail() string {
