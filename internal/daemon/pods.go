@@ -26,8 +26,9 @@ func (p podLifecycle) Stop(ctx context.Context, ref gateway.Ref) error {
 	return p.s.store.SetAgentDesiredState(ctx, ref.Project, ref.Agent, state.DesiredStopped)
 }
 
-// Destroy starts the retention clock, which is what stops and then deletes the
-// pod: the claim outlives it for the window the user configured.
+// Destroy marks the row destroyed, which is what stops and then deletes the
+// pod: the reconciler removes the pod, its token Secret and its claim, with no
+// retention window.
 func (p podLifecycle) Destroy(ctx context.Context, ref gateway.Ref) error {
 	return p.s.store.MarkAgentDestroyed(ctx, ref.Project, ref.Agent, time.Now())
 }
