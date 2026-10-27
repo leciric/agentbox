@@ -1,9 +1,10 @@
 # The container image an agent runs as when its machine is a pod in a
 # Kubernetes cluster, instead of an Incus instance.
 #
-# Three stages: base is the system, dev adds the agentbox binary, and agent
-# adds the user a pod runs as. Build it from the repository root, because the
-# Dockerfile copies bin/agentbox out of the build context:
+# Three stages: base is the system and the agent tools, dev adds the agentbox
+# binary, and agent adds the user a pod runs as. Build it from the repository
+# root, because the Dockerfile copies bin/agentbox and internal/image/tools.txt
+# out of the build context:
 #
 #   scripts/build-agent-image.sh --tag dev
 #
@@ -15,11 +16,19 @@
 # The image is linux/amd64, which is what the script builds the binary for. An
 # arm64 image needs a binary and pins of its own.
 #
-# This is the base system and the binary only, for now. The desktop layers
-# (Chromium, Xvnc, openbox, ffmpeg and the rest of the display an agent's
-# browser and media use) come with the media work, and the AI tools with
-# 2.1b: the TODO in the agent stage says what they are and why
-# internal/image/provision.sh is not reused as it stands.
+# The base system, the binary and the AI tools. The desktop layers (Chromium,
+# Xvnc, openbox, ffmpeg and the rest of the display an agent's browser and
+# media use) come with the media work, Stage 4 of the plan, and are not here.
+# The Playwright MCP server is, and it drives a browser at a CDP endpoint,
+# which is what the agent has once that desktop exists: it needs no browser of
+# its own and downloads none at build time.
+#
+# This image is for the user's own cluster and registry, and must never be
+# pushed to a public registry: Claude Code and its ACP adapter (which bundles
+# Anthropic's Agent SDK) may not be redistributed. No release workflow builds,
+# tags or publishes this image; internal/image/published.go's `unpublished`
+# list is that same rule for the Incus base image, which Setup downloads. A
+# publishable variant, without Claude Code and the adapters, is not made yet.
 #
 # There is no init and no systemd. agentd is PID 1, so it is also the pod's
 # SIGTERM handler, and nothing else here has to be running for a pod to stay
@@ -79,6 +88,73 @@ RUN set -eux; \
     rm /tmp/node.tar.xz; \
     go version; node --version; npm --version
 
+# The agent tools, at the pins in internal/image/tools.txt: pnpm, the three AI
+# tools, their ACP adapters, the GitHub CLI and the Playwright MCP server. The
+# versions are read from that file, not repeated here, so moving a tool on is
+# its line there and nothing else: spec() prints mise's spec for a tool and
+# version() its version, and either fails the build rather than installing
+# whatever npm calls latest when the line it wants is missing. Go and Node are
+# above (the file pins them for mise), and cloudflared is the daemon's rather
+# than an agent's, so neither is installed from the file.
+#
+# npm installs every npm package, into the Node directory the PATH above
+# already has. Three of them have npm names that differ from mise's:
+# @anthropic-ai/claude-code, @openai/codex and opencode-ai. npm 11 skips
+# install scripts for a global install unless they are named, and those three
+# need theirs: OpenCode's fetches its binary (the reason tools.txt pins its mise
+# tool as the native backend), Claude Code's its own, and pnpm's handles its
+# environment.
+#
+# gh is GitHub's own release tarball, as the Incus base image gets it. Its
+# checksum is the release's gh_<version>_checksums.txt line: it moves with the
+# gh line in internal/image/tools.txt, and a version whose sum is not here
+# fails the build rather than installing something unverified.
+#
+# @playwright/mcp is an MCP server that drives a browser over CDP, so no
+# browser is installed: the desktop layers, Chromium included, are Stage 4.
+# PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD says so to any dependency whose install
+# script would fetch one anyway.
+COPY internal/image/tools.txt /tmp/tools.txt
+
+ARG GH_SHA256=9bca2d1c16825f109907a23307628a2f0698fbf99662b73a5cf0b020293072b8
+
+RUN set -eux; \
+    spec() { \
+      s=$(awk -v name="$1" '!/^#/ && NF >= 3 && $2 ~ ("(^|[/:@])" name "@[0-9]") { print $2; exit }' /tmp/tools.txt); \
+      [ -n "$s" ] || { echo "internal/image/tools.txt pins no $1" >&2; exit 1; }; \
+      printf '%s' "$s"; \
+    }; \
+    version() { s=$(spec "$1"); printf '%s' "${s##*@}"; }; \
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install -g --no-fund --no-audit --cache /tmp/npm-cache \
+      --allow-scripts=@anthropic-ai/claude-code,opencode-ai,pnpm \
+      "pnpm@$(version pnpm)" \
+      "@anthropic-ai/claude-code@$(version claude)" \
+      "@openai/codex@$(version codex)" \
+      "opencode-ai@$(version opencode)" \
+      "@agentclientprotocol/claude-agent-acp@$(version claude-agent-acp)" \
+      "@agentclientprotocol/codex-acp@$(version codex-acp)" \
+      "@playwright/mcp@$(version playwright/mcp)"; \
+    rm -rf /tmp/npm-cache; \
+    gh=$(version gh); \
+    curl -fsSL -o /tmp/gh.tar.gz "https://github.com/cli/cli/releases/download/v${gh}/gh_${gh}_linux_amd64.tar.gz"; \
+    echo "${GH_SHA256}  /tmp/gh.tar.gz" | sha256sum -c -; \
+    tar -xzf /tmp/gh.tar.gz -C /tmp; \
+    install -m 0755 "/tmp/gh_${gh}_linux_amd64/bin/gh" /usr/local/bin/gh; \
+    rm -rf "/tmp/gh_${gh}_linux_amd64" /tmp/gh.tar.gz
+
+# Every tool, checked the way its own line in internal/image/tools.txt says:
+# that line's check command, run while the image builds, so a broken install
+# fails here rather than in an agent's first turn. scripts/build-agent-image.sh
+# and a run of the image prove the same commands as the agent user.
+RUN set -eux; \
+    check() { awk -v name="$1" '!/^#/ && NF >= 3 && $2 ~ ("(^|[/:@])" name "@[0-9]") { for (i = 3; i <= NF; i++) printf "%s%s", (i > 3 ? " " : ""), $i; exit }' /tmp/tools.txt; }; \
+    for tool in pnpm claude codex opencode gh claude-agent-acp codex-acp playwright/mcp; do \
+      printf '%s: ' "$tool"; \
+      sh -c "$(check "$tool")"; \
+      echo; \
+    done; \
+    rm /tmp/tools.txt
+
 # dev is the system plus the binary, without a user: what a quick check runs
 # ("docker run --rm <image> agentbox version"), and the stage a test of the
 # binary alone can build.
@@ -94,35 +170,24 @@ FROM dev AS agent
 
 RUN groupadd --gid 1000 agent \
  && useradd --uid 1000 --gid 1000 --create-home --home-dir /home/agent --shell /bin/bash agent \
- && install -d -o agent -g agent /workspace /home/agent/.cache /run/agentbox
+ && install -d -o agent -g agent /workspace /home/agent/.cache /home/agent/.local /run/agentbox
 
 ENV HOME=/home/agent
+# The tools are installed as root, outside the home, because a pod mounts its
+# claim at /home/agent: whatever a build puts there, the volume hides. What an
+# agent installs itself goes into its home instead, which is also how the Incus
+# image gives its user ~/.local/bin (provision.sh's /etc/profile.d/agentbox.sh),
+# so npm's global prefix and the PATH entry have to agree.
+ENV PATH=/home/agent/.local/bin:$PATH
+ENV NPM_CONFIG_PREFIX=/home/agent/.local
 WORKDIR /workspace
 USER agent
 
-# TODO(2.1b): the AI tools are not in this image yet, and this image is meant to
-# run without them until they are: agentd starts, and an agent whose AI tool is
-# "none" is a state the daemon already has. internal/image/provision.sh
-# installs, with mise and the pins in internal/image/tools.txt:
-#
-#   - pnpm, and Go and Node (Go and Node are here already, from the same pins);
-#   - Claude Code and its ACP adapter, which the app's chat drives;
-#   - the GitHub CLI, for a project that pushes to GitHub with it;
-#   - the Playwright MCP server, for the browser tools;
-#   - the Codex CLI and its adapter, and the OpenCode CLI, for the optional
-#     components of an image;
-#   - and the Android, dev-cache and Incus components, which a pod does not
-#     have and which stay with the Incus image.
-#
-# None of them is installed here. The publishable split is not made here
-# either: Claude Code and its adapter may not be redistributed, so an image
-# with them must never go to a public registry, and internal/image/published.go
-# is where that list lives. Both arrive with the tools themselves.
-#
-# provision.sh itself is not copied: it is written for an Incus instance. It
-# runs as root, installs Docker, Chromium, Xvnc and the desktop, makes a
-# placeholder user that personalise.sh renames to the host's, and reads helper
-# scripts that internal/image puts in that instance's /root. This image has no
-# root login to set up and its user is already the pod's.
+# The AI tools, their adapters and the rest are in the base stage, at the pins
+# internal/image/tools.txt holds, with no mise: the Incus base image installs
+# these same pins through it, as its user, and this image has them already, for
+# every user. The one thing a pod's chat needs beyond this image is in
+# internal/agent/chat.go, whose chat helper runs an adapter through `mise exec`,
+# a command this image does not have.
 
 ENTRYPOINT ["/usr/local/bin/agentbox", "agentd"]
