@@ -101,19 +101,25 @@ func (s *Server) closeTailnet() {
 func (s *Server) tailnetHandler() http.Handler {
 	routes := s.remoteHandler()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		login := strings.TrimSpace(r.Header.Get(tailnetLoginHeader))
-		if login == "" {
-			_ = writeJSON(w, http.StatusUnauthorized, api.Error{Error: "this request didn't come through Tailscale, which is what says who is asking"})
-			return
-		}
-		allowed, err := s.tailnetAllows(r.Context(), login)
-		if err != nil {
-			_ = writeJSON(w, http.StatusInternalServerError, api.Error{Error: err.Error()})
-			return
-		}
-		if !allowed {
-			_ = writeJSON(w, http.StatusForbidden, api.Error{Error: fmt.Sprintf("%s isn't allowed into this daemon: allow it with agentbox tailnet on --allow %s", login, login)})
-			return
+		// A pod reaching the gateway through the egress proxy has no login
+		// header: `tailscale serve` sets it on human requests, and removes any
+		// copy a client sent, so there is nothing here to check. The gateway
+		// authenticates the pod's own token instead.
+		if r.URL.Path != agentGatewayPath {
+			login := strings.TrimSpace(r.Header.Get(tailnetLoginHeader))
+			if login == "" {
+				_ = writeJSON(w, http.StatusUnauthorized, api.Error{Error: "this request didn't come through Tailscale, which is what says who is asking"})
+				return
+			}
+			allowed, err := s.tailnetAllows(r.Context(), login)
+			if err != nil {
+				_ = writeJSON(w, http.StatusInternalServerError, api.Error{Error: err.Error()})
+				return
+			}
+			if !allowed {
+				_ = writeJSON(w, http.StatusForbidden, api.Error{Error: fmt.Sprintf("%s isn't allowed into this daemon: allow it with agentbox tailnet on --allow %s", login, login)})
+				return
+			}
 		}
 		routes.ServeHTTP(w, r)
 	})

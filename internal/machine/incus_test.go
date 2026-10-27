@@ -1,8 +1,12 @@
 package machine
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -42,5 +46,39 @@ func TestNotFoundKeepsItsCause(t *testing.T) {
 	}
 	if other.Error() != "incus isn't answering" {
 		t.Errorf("notFound(other) = %q, want the error unchanged", other)
+	}
+}
+
+// TestIncusDialUsesTheHostSocket checks the proxy case: Dial reaches a socket
+// on this host, and a socket that isn't there reads as ErrNotFound.
+func TestIncusDialUsesTheHostSocket(t *testing.T) {
+	dir := t.TempDir()
+	socket := filepath.Join(dir, "s")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = listener.Close() }()
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		_, _ = conn.Write([]byte("hi"))
+		_ = conn.Close()
+	}()
+	m := IncusMachine{ref: "ab-demo-agent-01"}
+	conn, err := m.Dial(context.Background(), "unix", socket)
+	if err != nil {
+		t.Fatalf("Dial = %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+	buf := make([]byte, 2)
+	if _, err := io.ReadFull(conn, buf); err != nil || string(buf) != "hi" {
+		t.Errorf("Dial read %q, %v, want hi", buf, err)
+	}
+
+	if _, err := m.Dial(context.Background(), "unix", filepath.Join(dir, "missing")); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Dial of a missing socket = %v, want ErrNotFound", err)
 	}
 }

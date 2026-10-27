@@ -62,9 +62,11 @@ func (m *Manager) WriteSkills(ctx context.Context, a state.Agent) error {
 	if err != nil {
 		return err
 	}
-	home := "/home/" + m.User.Name
-	owner := strconv.Itoa(m.User.UID) + ":" + strconv.Itoa(m.User.GID)
-	_, err = m.machine(a).ExecInput(ctx, bytes.NewReader(archive), "sh", "-c", skills.InstallScript, "sh", home, owner)
+	// The home and the owner are the machine's, not this host's: a pod runs as
+	// the image's agent user, whatever account the daemon has here.
+	user := m.machineUser(a)
+	owner := strconv.Itoa(user.UID) + ":" + strconv.Itoa(user.GID)
+	_, err = m.machine(a).ExecInput(ctx, bytes.NewReader(archive), "sh", "-c", skills.InstallScript, "sh", m.home(a), owner)
 	return err
 }
 

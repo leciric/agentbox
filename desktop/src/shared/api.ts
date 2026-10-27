@@ -304,6 +304,7 @@ export interface Agent {
   project: string;
   name: string;
   title: string;
+  cluster?: string;
   instance: string;
   ai: string;
   autonomous: boolean;
@@ -452,6 +453,7 @@ export interface CreateAgentRequest {
   githubAccount?: string;
   noEnv?: boolean;
   clean?: boolean;
+  cluster?: string;
   catchUp?: boolean;
   finishNotice?: string;
   queue?: boolean;
@@ -2004,6 +2006,7 @@ export interface FleetAgent {
   project: string;
   name: string;
   title: string;
+  cluster?: string;
   instance: string;
   ai: string;
   autonomous: boolean;
@@ -3748,6 +3751,7 @@ export interface Cluster {
   namespace: string;
   storageClass?: string;
   image?: string;
+  masterURL?: string;
   registry?: string;
   maxAgents: number;
   cpu?: string;
@@ -3764,6 +3768,7 @@ export interface Cluster {
 export interface ClusterConfig {
   storageClass?: string;
   image?: string;
+  masterURL?: string;
   registry?: string;
   maxAgents: number;
   cpu?: string;
@@ -3787,6 +3792,7 @@ export interface AddClusterRequest {
   namespace?: string;
   storageClass?: string;
   image?: string;
+  masterURL?: string;
   registry?: string;
   maxAgents?: number;
   cpu?: string;

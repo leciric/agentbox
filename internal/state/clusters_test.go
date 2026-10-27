@@ -17,6 +17,7 @@ func clusterFixture() state.Cluster {
 		Namespace:    "agentbox",
 		StorageClass: "local-path",
 		Image:        "agentbox-agent:dev",
+		MasterURL:    "https://monster.example.ts.net",
 		MaxAgents:    4,
 		CPU:          "2",
 		Memory:       "8Gi",
@@ -52,6 +53,7 @@ func TestClusterRoundTrips(t *testing.T) {
 		{"namespace", got.Namespace, want.Namespace},
 		{"storage class", got.StorageClass, want.StorageClass},
 		{"image", got.Image, want.Image},
+		{"master url", got.MasterURL, want.MasterURL},
 		{"max agents", got.MaxAgents, want.MaxAgents},
 		{"cpu", got.CPU, want.CPU},
 		{"memory", got.Memory, want.Memory},
@@ -94,6 +96,12 @@ func TestClusterRefusesWhatCannotWork(t *testing.T) {
 		{name: "no kubeconfig", change: func(c *state.Cluster) { c.Kubeconfig = nil }, wantErr: "no sealed kubeconfig"},
 		{name: "an invented tailnet", change: func(c *state.Cluster) { c.Tailnet = "vpn" }, wantErr: "tailnet is \"vpn\""},
 		{name: "negative agents", change: func(c *state.Cluster) { c.MaxAgents = -1 }, wantErr: "max agents is -1"},
+		{name: "a master url with no scheme", change: func(c *state.Cluster) { c.MasterURL = "master.example.com" }, wantErr: "--master-url"},
+		{name: "a master url that isn't http", change: func(c *state.Cluster) { c.MasterURL = "ftp://master.example.com" }, wantErr: "--master-url"},
+		{name: "a master url with no host", change: func(c *state.Cluster) { c.MasterURL = "https://" }, wantErr: "--master-url"},
+		{name: "a master url with a query", change: func(c *state.Cluster) { c.MasterURL = "https://master.example.test?x=1" }, wantErr: `--master-url "https://master.example.test?x=1": it has a query`},
+		{name: "a master url with a fragment", change: func(c *state.Cluster) { c.MasterURL = "https://master.example.test#x" }, wantErr: `--master-url "https://master.example.test#x": it has a #fragment`},
+		{name: "a master url with a login", change: func(c *state.Cluster) { c.MasterURL = "https://user:pass@master.example.test" }, wantErr: `--master-url "https://user:pass@master.example.test": it has a user:password`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cluster := clusterFixture()
@@ -119,6 +127,37 @@ func TestClusterRefusesWhatCannotWork(t *testing.T) {
 	}
 }
 
+func TestClusterMasterURLTrimsATrailingSlash(t *testing.T) {
+	st := openStore(t)
+	ctx := context.Background()
+	// A trailing slash is how people copy an address, and pods append their own
+	// path to it, which starts with one.
+	added := clusterFixture()
+	added.MasterURL = "https://master.example.test/"
+	if err := st.AddCluster(ctx, added); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Cluster(ctx, "k3d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MasterURL != "https://master.example.test" {
+		t.Errorf("master url = %q, want the trailing slash gone", got.MasterURL)
+	}
+	// A change goes through the same check.
+	got.MasterURL = "http://host.k3d.internal:7782/"
+	if err := st.SetClusterConfig(ctx, got); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := st.Cluster(ctx, "k3d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed.MasterURL != "http://host.k3d.internal:7782" {
+		t.Errorf("master url = %q, want the trailing slash gone", changed.MasterURL)
+	}
+}
+
 func TestClusterConfigIsWhatAChangeCanTouch(t *testing.T) {
 	st := openStore(t)
 	ctx := context.Background()
@@ -132,6 +171,9 @@ func TestClusterConfigIsWhatAChangeCanTouch(t *testing.T) {
 	changed.Image = "agentbox-agent:1.2.3"
 	changed.MaxAgents = 9
 	changed.StorageClass = "longhorn"
+	// Spaces around an address someone pasted are not part of it, and plain
+	// http is what a local test cluster uses.
+	changed.MasterURL = "  http://host.k3d.internal:7782  "
 	changed.Labels = map[string]string{"arch": "arm64"}
 	changed.Capabilities = nil
 	if err := st.SetClusterConfig(ctx, changed); err != nil {
@@ -147,6 +189,9 @@ func TestClusterConfigIsWhatAChangeCanTouch(t *testing.T) {
 	if got.Image != changed.Image || got.MaxAgents != changed.MaxAgents || got.StorageClass != changed.StorageClass {
 		t.Errorf("config = %q, %d, %q, want %q, %d, %q",
 			got.Image, got.MaxAgents, got.StorageClass, changed.Image, changed.MaxAgents, changed.StorageClass)
+	}
+	if got.MasterURL != "http://host.k3d.internal:7782" {
+		t.Errorf("master url = %q, want the pasted address trimmed", got.MasterURL)
 	}
 	if !reflect.DeepEqual(got.Labels, changed.Labels) || got.Capabilities != nil {
 		t.Errorf("labels, capabilities = %v, %v, want %v, none", got.Labels, got.Capabilities, changed.Labels)

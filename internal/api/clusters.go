@@ -18,6 +18,11 @@ type Cluster struct {
 	StorageClass string `json:"storageClass,omitempty"`
 	// Image is the agent image under the registry, like agentbox-agent:0.3.0.
 	Image string `json:"image,omitempty"`
+	// MasterURL is where this daemon is reached from the cluster's pods: the
+	// MagicDNS name through the tailnet, or http://host.k3d.internal:7782 for
+	// a local k3d cluster. Absent means the user hasn't set it, and no agent
+	// starts there until they do.
+	MasterURL string `json:"masterURL,omitempty"`
 	// Registry is the name in /v1/registries its images come from; empty for a
 	// cluster whose image is imported into it.
 	Registry string `json:"registry,omitempty"`
@@ -48,6 +53,7 @@ type Cluster struct {
 type ClusterConfig struct {
 	StorageClass string            `json:"storageClass,omitempty"`
 	Image        string            `json:"image,omitempty"`
+	MasterURL    string            `json:"masterURL,omitempty"`
 	Registry     string            `json:"registry,omitempty"`
 	MaxAgents    int               `json:"maxAgents"`
 	CPU          string            `json:"cpu,omitempty"`
@@ -76,11 +82,16 @@ type ClusterCapacity struct {
 
 // AddClusterRequest is POST /v1/clusters: everything the daemon needs to apply
 // AgentBox's access to a cluster and keep its own token.
+//
+// MasterURL is where the cluster's pods reach this daemon: an absolute http or
+// https URL, trimmed. Empty leaves it unset, which is a cluster the doctor fails
+// until the user sets one with `cluster set --master-url`.
 type AddClusterRequest struct {
 	Name         string            `json:"name"`
 	Namespace    string            `json:"namespace,omitempty"`
 	StorageClass string            `json:"storageClass,omitempty"`
 	Image        string            `json:"image,omitempty"`
+	MasterURL    string            `json:"masterURL,omitempty"`
 	Registry     string            `json:"registry,omitempty"`
 	MaxAgents    int               `json:"maxAgents,omitempty"`
 	CPU          string            `json:"cpu,omitempty"`

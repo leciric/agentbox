@@ -608,6 +608,22 @@ func (s *Server) removeProject(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	defer s.stopLeadAPI(project)
+	// The pods of the project's cluster agents are not the store's to delete:
+	// archiving and removing only drop rows, and the reconciler finds a pod by
+	// its row. Delete them here, while the rows still name them; a failure
+	// stops the removal with the rows in place, so it can be tried again.
+	//
+	// The store's own refusal comes first, because it is the one that keeps a
+	// project with live agents: deleting their pods and claims and then
+	// refusing would throw away work for a removal that did not happen.
+	if agents, err := s.store.Agents(r.Context(), project); err != nil {
+		return err
+	} else if len(agents) > 0 {
+		return fmt.Errorf("project %q still has %d agent(s): destroy them first", project, len(agents))
+	}
+	if err := s.destroyProjectMachines(r.Context(), project); err != nil {
+		return err
+	}
 	name := r.PathValue("project")
 	if err := s.store.RemoveProject(r.Context(), name); err != nil {
 		return err
@@ -962,6 +978,7 @@ func toAPIAgent(st agent.Status) api.Agent {
 		Project:    a.Project,
 		Name:       a.Name,
 		Title:      a.Title,
+		Cluster:    a.Cluster,
 		Instance:   a.Instance,
 		AI:         a.AI,
 		Autonomous: a.Autonomous,
@@ -1286,6 +1303,10 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 
 			CopyEnv: !req.NoEnv,
 			Clean:   req.Clean,
+			// Empty keeps the agent on this host, which is what every caller
+			// did before a cluster could be chosen (Stage 6's project default
+			// comes later).
+			Cluster: req.Cluster,
 
 			FinishNotice: req.FinishNotice,
 			LeadSession:  req.LeadSession,

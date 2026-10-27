@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"agentbox/internal/chat"
@@ -142,17 +143,31 @@ func (m *Manager) LeadChatCommand(ctx context.Context, a state.Agent, status fun
 // An agent whose machine lacks the adapter's version gets it installed first,
 // which status reports.
 func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(detail string)) (*exec.Cmd, error) {
+	script, err := m.chatScript(ctx, a, status)
+	if err != nil {
+		return nil, err
+	}
+	return m.Incus.Command(ctx, "exec", a.Instance, "-T", "--", "runuser", "-l", m.User.Name, "-c", script), nil
+}
+
+// chatScript is the shell command line that runs an agent's ACP adapter inside
+// its machine. ChatCommand hands it to `incus exec`, and ChatProcess hands it
+// to a pod's UserExec, so both runtimes get the same adapter at the same
+// version. Everything that has to happen before the adapter starts happens
+// here: the machine has to be running, the adapter's version installed, and
+// bash_env written when the tool is started without some of its credentials.
+func (m *Manager) chatScript(ctx context.Context, a state.Agent, status func(detail string)) (string, error) {
 	adapter, ok := ChatAdapters[a.AI]
 	if !ok {
-		return nil, fmt.Errorf("%s runs no AI tool to chat with", a.Ref())
+		return "", fmt.Errorf("%s runs no AI tool to chat with", a.Ref())
 	}
 	if err := m.requireRunning(ctx, a); err != nil {
-		return nil, err
+		return "", err
 	}
 	if a.AI == "opencode" {
 		version, err := m.openCodeVersion(ctx)
 		if err != nil {
-			return nil, err
+			return "", err
 		}
 		adapter = openCodeAdapter(adapter, version)
 		if version == opencode.V2 {
@@ -160,13 +175,13 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 			// its first start on it (pinned by image.OpenCode2Version), so a
 			// switch doesn't break the agents already running.
 			if err := m.ensureOpenCode2InAgent(ctx, a); err != nil {
-				return nil, err
+				return "", err
 			}
 		}
 	}
 	overrides, err := m.Store.ToolOverrides(ctx)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	// The adapter at the version agents run now: the pin, or the newer one
 	// "Keep Claude Code up to date" moved the base image to, which an agent
@@ -176,16 +191,17 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 	if adapter.Package != "" {
 		spec = image.Overrides(overrides).Apply([]image.Tool{{Spec: adapter.Package}})[0].Spec
 		if err := m.ensureMise(ctx, a, spec, "mise install", "the "+adapter.Tool+" adapter", status); err != nil {
-			return nil, err
+			return "", err
 		}
 		if _, moved := overrides[a.AI]; moved {
 			// And the tool's own command line, which the base image has globally.
 			if err := m.ensureMise(ctx, a, image.Overrides(overrides).Spec(a.AI), "mise use -g", adapter.Tool, status); err != nil {
-				return nil, err
+				return "", err
 			}
 		}
 		pkg = shellQuote(spec)
 	}
+	user := m.machineUser(a)
 	status("Starting " + adapter.Tool)
 	// mise exec runs the version AgentBox pins, whatever the agent's own mise configuration says.
 	command := shellQuote(adapter.Command)
@@ -196,9 +212,9 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 	}
 	if adapter.Script != nil {
 		// Written every time, so the adapter is always this daemon's own.
-		path := "/home/" + m.User.Name + "/" + adapter.ScriptPath
-		if err := m.machine(a).WriteFile(ctx, path, adapter.Script, m.User.UID, m.User.GID, 0o644); err != nil {
-			return nil, fmt.Errorf("writing the %s adapter into %s: %w", adapter.Tool, a.Ref(), err)
+		path := m.home(a) + "/" + adapter.ScriptPath
+		if err := m.machine(a).WriteFile(ctx, path, adapter.Script, user.UID, user.GID, 0o644); err != nil {
+			return "", fmt.Errorf("writing the %s adapter into %s: %w", adapter.Tool, a.Ref(), err)
 		}
 		args = append([]string{path}, args...)
 		env = fmt.Sprintf("%s=\"$(mise where %s)\" ", adapter.SDKEnv, pkg)
@@ -212,23 +228,30 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 	}
 	hide, err := m.toolHides(a)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	// bash_env as this daemon writes it, giving the tool's shells the
 	// secrets back: an agent started by an older one has a copy without.
 	if len(hide) > 0 {
 		if err := m.writeBashEnv(ctx, a); err != nil {
-			return nil, err
+			return "", err
 		}
 	}
-	script := fmt.Sprintf("cd %s && %sexec %s%s", shellQuote(a.Worktree), env, m.withoutCredentials(hide), cmdline)
-	return m.Incus.Command(ctx, "exec", a.Instance, "-T", "--", "runuser", "-l", m.User.Name, "-c", script), nil
+	script := fmt.Sprintf("cd %s && %sexec %s%s", shellQuote(m.worktree(a)), env, m.withoutCredentials(a, hide), cmdline)
+	return script, nil
 }
 
 // ChatProcess starts an agent's ACP adapter as the chat's process. On this
 // host its stdio is an `incus exec`; a runtime whose machine is elsewhere
 // answers with a stream over its own connection, in the same shape.
 func (m *Manager) ChatProcess(ctx context.Context, a state.Agent, status func(detail string)) (*chat.Process, error) {
+	if a.OnCluster() {
+		script, err := m.chatScript(ctx, a, status)
+		if err != nil {
+			return nil, err
+		}
+		return m.streamChatProcess(ctx, a, script), nil
+	}
 	cmd, err := m.ChatCommand(ctx, a, status)
 	if err != nil {
 		return nil, err
@@ -236,18 +259,75 @@ func (m *Manager) ChatProcess(ctx context.Context, a state.Agent, status func(de
 	return chat.StartCommand(cmd)
 }
 
+// streamChatProcess runs script as the machine's user over UserExec and gives
+// the chat a process of the shape an exec produces. Two pipes are enough: ACP
+// speaks JSON lines over stdin and stdout, so nothing here wants a terminal,
+// and a terminal's echo and line discipline would corrupt the stream.
+func (m *Manager) streamChatProcess(ctx context.Context, a state.Agent, script string) *chat.Process {
+	stdin, stdinW := io.Pipe()
+	stdout, stdoutW := io.Pipe()
+	stderr := &syncBuffer{}
+	execCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	var waitErr error
+	go func() {
+		defer close(done)
+		waitErr = m.machine(a).UserExec(execCtx, m.machineUser(a).Name, script, stdin, stdoutW, stderr)
+		// End both ends with the exec: the chat's stdout reader gets EOF (or
+		// the exec's error) and its stdin writer a closed pipe, rather than
+		// waiting forever on a process that is gone.
+		_ = stdoutW.CloseWithError(waitErr)
+		_ = stdin.Close()
+	}()
+	var once sync.Once
+	return &chat.Process{
+		Stdin:  stdinW,
+		Stdout: stdout,
+		Stop: func() {
+			once.Do(func() {
+				cancel()
+				_ = stdinW.Close()
+			})
+		},
+		Wait: func() error {
+			<-done
+			return waitErr
+		},
+		Stderr: stderr.String,
+	}
+}
+
+// syncBuffer holds a process's stderr for a reader that may ask while the
+// command is still writing it, which bytes.Buffer alone does not allow.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.String()
+}
+
 // ensureMise installs spec in the agent with install ("mise install", or
 // "mise use -g" for a command it runs by name) when its machine lacks it,
 // saying so with what.
 func (m *Manager) ensureMise(ctx context.Context, a state.Agent, spec, install, what string, status func(detail string)) error {
-	if m.machine(a).UserExec(ctx, m.User.Name, "mise where "+shellQuote(spec), nil, io.Discard, io.Discard) == nil {
+	if m.machine(a).UserExec(ctx, m.machineUser(a).Name, "mise where "+shellQuote(spec), nil, io.Discard, io.Discard) == nil {
 		return nil
 	}
 	status("Installing " + what + " in this agent")
 	ctx, cancel := context.WithTimeout(ctx, installTimeout)
 	defer cancel()
 	var out bytes.Buffer
-	if err := m.machine(a).UserExec(ctx, m.User.Name, "MISE_YES=1 "+install+" "+shellQuote(spec), nil, &out, &out); err != nil {
+	if err := m.machine(a).UserExec(ctx, m.machineUser(a).Name, "MISE_YES=1 "+install+" "+shellQuote(spec), nil, &out, &out); err != nil {
 		lines := strings.Split(strings.TrimSpace(out.String()), "\n")
 		return fmt.Errorf("installing %s in %s: %w: %s", spec, a.Ref(), err, strings.Join(lines[max(len(lines)-3, 0):], " "))
 	}
@@ -302,7 +382,7 @@ func (m *Manager) SetInterface(ctx context.Context, a state.Agent, iface string)
 	script := fmt.Sprintf("tmux has-session -t %[1]s 2>/dev/null || exit 0\ntmux list-windows -t %[1]s -F '#W' | grep -qx %[2]s && exit 0\n",
 		session, shellQuote(a.AI)) + window
 	var out bytes.Buffer
-	if err := m.machine(a).UserExec(ctx, m.User.Name, script, nil, &out, &out); err != nil {
+	if err := m.machine(a).UserExec(ctx, m.machineUser(a).Name, script, nil, &out, &out); err != nil {
 		return a, fmt.Errorf("starting %s in the terminal: %w: %s", adapter.Tool, err, strings.TrimSpace(out.String()))
 	}
 	return a, nil
@@ -350,5 +430,5 @@ func (m *Manager) toolWindowScript(ctx context.Context, a state.Agent) (string, 
 	// Typed into a shell, so the window stays open when the tool exits. The
 	// shell keeps the secrets; env execs the tool without them.
 	return fmt.Sprintf("tmux new-window -t %[1]s -n %[2]s -c %[3]s\ntmux send-keys -t %[1]s:%[2]s %[4]s Enter\n",
-		session, a.AI, shellQuote(a.Worktree), shellQuote(m.withoutCredentials(hide)+command)), nil
+		session, a.AI, shellQuote(m.worktree(a)), shellQuote(m.withoutCredentials(a, hide)+command)), nil
 }

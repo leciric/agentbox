@@ -554,8 +554,9 @@ func (m *Manager) SetAccount(ctx context.Context, a state.Agent, want Logins) (s
 	if err != nil {
 		return a, err
 	}
-	home := "/home/" + m.User.Name
-	if err := m.machine(a).WriteFile(ctx, home+"/"+toolAuthFile(a.AI), auth, m.User.UID, m.User.GID, 0o600); err != nil {
+	home := m.home(a)
+	user := m.machineUser(a)
+	if err := m.machine(a).WriteFile(ctx, home+"/"+toolAuthFile(a.AI), auth, user.UID, user.GID, 0o600); err != nil {
 		return a, err
 	}
 	if a.AI == "opencode" {

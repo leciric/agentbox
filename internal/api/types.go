@@ -871,10 +871,13 @@ const (
 )
 
 type Agent struct {
-	Ref        string `json:"ref"`
-	Project    string `json:"project"`
-	Name       string `json:"name"`
-	Title      string `json:"title"` // what the user calls the agent; may be empty
+	Ref     string `json:"ref"`
+	Project string `json:"project"`
+	Name    string `json:"name"`
+	Title   string `json:"title"` // what the user calls the agent; may be empty
+	// Cluster is the Kubernetes cluster its machine is a pod in; empty for an
+	// agent on this host.
+	Cluster    string `json:"cluster,omitempty"`
 	Instance   string `json:"instance"`
 	AI         string `json:"ai"`
 	Autonomous bool   `json:"autonomous"`
@@ -1067,6 +1070,11 @@ type CreateAgentRequest struct {
 	GitHubAccount string `json:"githubAccount,omitempty"`
 	NoEnv         bool   `json:"noEnv,omitempty"`
 	Clean         bool   `json:"clean,omitempty"`
+	// Cluster is the Kubernetes cluster this agent's machine is a pod in, by
+	// name. Omitted makes it an Incus instance on this machine, which is what
+	// every caller did before clusters existed; a project's default cluster is
+	// chosen by the app in a later stage.
+	Cluster string `json:"cluster,omitempty"`
 	// CatchUp brings the new agent's machine up to the base image AgentBox
 	// makes now, before it is given its task: the system packages and the
 	// agent tools its project's base is behind on. It is how refreshing a

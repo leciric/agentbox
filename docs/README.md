@@ -60,6 +60,9 @@ flowchart LR
 - [An agent's lifecycle](agent-lifecycle.md) — `agentbox create` end to end: the Incus container,
   the worktree, the branch, the network, the tmux session, and the states an agent and a job pass
   through.
+- [Agents in a Kubernetes cluster](kubernetes.md), an agent's machine as a pod: the cluster commands
+  and their doctor, the gateway a pod dials, the registry its image comes from, and a local k3d
+  cluster.
 - [The lead and its MCP tools](lead.md) — what the lead is, how it's chatted with, and every MCP
   tool it can call.
 - [Chat over ACP](chat.md) — how AgentBox drives Claude Code, Codex and OpenCode through the

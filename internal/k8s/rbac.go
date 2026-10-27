@@ -26,13 +26,14 @@ const (
 
 // Access is what AgentBox needs in a cluster: the namespace its agents run in,
 // the ServiceAccount the master acts as, a Role and RoleBinding that let it run
-// agents as pods and nothing else, and one read-only ClusterRole for the two
-// cluster-scoped things placement cannot do without.
+// agents as pods and nothing else, and one read-only ClusterRole for the
+// cluster-scoped things placement and the split-DNS check cannot do without.
 //
-// There is no cluster-admin and no write outside the namespace. Node and storage
-// class reads are the exception a namespaced Role cannot grant: how much room a
-// cluster has, and whether the storage class agents ask for exists, are
-// properties of the cluster itself.
+// There is no cluster-admin and no write outside the namespace. Node, storage
+// class and DNSConfig reads are the exception a namespaced Role cannot grant:
+// how much room a cluster has, whether the storage class agents ask for exists,
+// and where the operator sends a tailnet name are properties of the cluster
+// itself.
 type Access struct {
 	Namespace      *corev1.Namespace
 	ServiceAccount *corev1.ServiceAccount
@@ -147,8 +148,9 @@ func agentRules() []rbacv1.PolicyRule {
 }
 
 // readerRules is what placement needs that a Role cannot give: how much room
-// the nodes have, what they are labelled, and whether the storage class an
-// agent asks for exists. Read only, and only those two kinds.
+// the nodes have, what they are labelled, whether the storage class an agent
+// asks for exists, and the operator's split DNS, which is cluster-scoped and
+// which `cluster doctor` reads to say a tailnet name resolves. Read only.
 func readerRules() []rbacv1.PolicyRule {
 	return []rbacv1.PolicyRule{
 		{
@@ -159,6 +161,13 @@ func readerRules() []rbacv1.PolicyRule {
 		{
 			APIGroups: []string{"storage.k8s.io"},
 			Resources: []string{"storageclasses"},
+			Verbs:     []string{"get", "list", "watch"},
+		},
+		{
+			// The split-DNS check: a DNSConfig is cluster-scoped, so the
+			// namespace's Role can't grant it.
+			APIGroups: []string{"tailscale.com"},
+			Resources: []string{"dnsconfigs"},
 			Verbs:     []string{"get", "list", "watch"},
 		},
 	}

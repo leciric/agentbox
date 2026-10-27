@@ -210,19 +210,26 @@ unset _ab_n _ab_h _ab_o _ab_v _ab_c _ab_f _ab_w
 // every Bash tool call's shell reads: the worker counts, the heavy command's
 // join into its run's cgroup when one just started (heavyhooks.go), and the
 // secrets the AI tool itself was started without (toolcreds.go). Codex and
-// OpenCode are given it too when they start without some.
-func (m *Manager) BashEnvPath() string { return "/home/" + m.User.Name + "/.config/agentbox/bash_env" }
+// OpenCode are given it too when they start without some. It is the host
+// user's; an agent's own is bashEnvPath.
+func (m *Manager) BashEnvPath() string { return m.bashEnvPath(state.Agent{}) }
 
-func (m *Manager) bashEnv() string {
-	heavy := shellQuote("/home/" + m.User.Name + "/" + HeavyEnvFile)
-	return "# Written by AgentBox.\n" + workersScript + m.bashEnvSecrets() + "if [ -r " + heavy + " ]; then . " + heavy + "; fi\n"
+// bashEnvPath is where bash_env is inside a's machine.
+func (m *Manager) bashEnvPath(a state.Agent) string {
+	return m.home(a) + "/.config/agentbox/bash_env"
+}
+
+func (m *Manager) bashEnv(a state.Agent) string {
+	heavy := shellQuote(m.home(a) + "/" + HeavyEnvFile)
+	return "# Written by AgentBox.\n" + workersScript + m.bashEnvSecrets(a) + "if [ -r " + heavy + " ]; then . " + heavy + "; fi\n"
 }
 
 func (m *Manager) writeBashEnv(ctx context.Context, a state.Agent) error {
-	return m.Incus.WriteFile(ctx, a.Instance, m.BashEnvPath(), []byte(m.bashEnv()), m.User.UID, m.User.GID, 0o644)
+	user := m.machineUser(a)
+	return m.machine(a).WriteFile(ctx, m.bashEnvPath(a), []byte(m.bashEnv(a)), user.UID, user.GID, 0o644)
 }
 
 // withBashEnv points BASH_ENV in Claude Code's settings.json at bash_env.
-func (m *Manager) withBashEnv(b []byte) ([]byte, error) {
-	return withClaudeEnv(b, map[string]string{"BASH_ENV": m.BashEnvPath()})
+func (m *Manager) withBashEnv(a state.Agent, b []byte) ([]byte, error) {
+	return withClaudeEnv(b, map[string]string{"BASH_ENV": m.bashEnvPath(a)})
 }
