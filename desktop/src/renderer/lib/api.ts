@@ -212,6 +212,19 @@ function providerQuery(provider?: string): string {
 
 export const api = {
   settings: () => call<T.Settings>('GET', '/v1/settings'),
+  // Where agents run when they don't run on this machine: Kubernetes clusters,
+  // and the registries their images come from.
+  clusters: () => call<T.Cluster[]>('GET', '/v1/clusters'),
+  addCluster: (req: T.AddClusterRequest) => call<T.Cluster>('POST', '/v1/clusters', req),
+  updateCluster: (name: string, req: T.ClusterConfig) => call<T.Cluster>('PUT', `/v1/clusters/${encodeURIComponent(name)}`, req),
+  removeCluster: (name: string) => call<void>('DELETE', `/v1/clusters/${encodeURIComponent(name)}`),
+  doctorCluster: (name: string) => call<T.ClusterReport>('POST', `/v1/clusters/${encodeURIComponent(name)}/doctor`),
+  rotateCluster: (name: string, req: T.RotateClusterRequest) => call<T.Cluster>('POST', `/v1/clusters/${encodeURIComponent(name)}/rotate`, req),
+  registries: () => call<T.Registry[]>('GET', '/v1/registries'),
+  addRegistry: (req: T.AddRegistryRequest) => call<T.Registry>('POST', '/v1/registries', req),
+  removeRegistry: (name: string) => call<void>('DELETE', `/v1/registries/${encodeURIComponent(name)}`),
+  testRegistry: (name: string) => call<T.RegistryTest>('POST', `/v1/registries/${encodeURIComponent(name)}/test`),
+  rotateRegistry: (name: string, req: T.RotateRegistryRequest) => call<T.Registry>('POST', `/v1/registries/${encodeURIComponent(name)}/rotate`, req),
   // Chatting from a phone on the local network.
   // This machine's connection to a hub, as an environment.
   remote: () => call<T.RemoteStatus>('GET', '/v1/remote'),
