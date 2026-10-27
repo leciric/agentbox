@@ -16,12 +16,12 @@
 # The image is linux/amd64, which is what the script builds the binary for. An
 # arm64 image needs a binary and pins of its own.
 #
-# The base system, the binary and the AI tools. The desktop layers (Chromium,
-# Xvnc, openbox, ffmpeg and the rest of the display an agent's browser and
-# media use) come with the media work, Stage 4 of the plan, and are not here.
-# The Playwright MCP server is, and it drives a browser at a CDP endpoint,
-# which is what the agent has once that desktop exists: it needs no browser of
-# its own and downloads none at build time.
+# The base system, the desktop, the binary and the AI tools. The desktop is the
+# same one an Incus machine has (Xvnc, Chromium, openbox, the dock, the file
+# manager, a terminal and ffmpeg), because internal/agent/browser.sh is the same
+# script in both runtimes. The Playwright MCP server is here too, and it drives
+# that Chromium at its DevTools endpoint: it needs no browser of its own and
+# downloads none at build time.
 #
 # This image is for the user's own cluster and registry, and must never be
 # pushed to a public registry: Claude Code and its ACP adapter (which bundles
@@ -41,12 +41,15 @@ ARG DEBIAN_FRONTEND
 
 # What an agent's work needs before any AI tool is installed. python3 is here
 # because Debian's own tooling and many projects expect it; git, tmux, ssh and
-# the rest are what the task and the chat use, as on an Incus machine.
+# the rest are what the task and the chat use, as on an Incus machine. iproute2
+# is for `ss`, which internal/agent/browser.sh uses to see that Xvnc is
+# listening on 5900 before it goes on; system.sh's own base list has it too.
 RUN apt-get update \
  && DEBIAN_FRONTEND=$DEBIAN_FRONTEND apt-get install -y --no-install-recommends \
       ca-certificates \
       curl \
       git \
+      iproute2 \
       jq \
       less \
       openssh-client \
@@ -110,10 +113,10 @@ RUN set -eux; \
 # gh line in internal/image/tools.txt, and a version whose sum is not here
 # fails the build rather than installing something unverified.
 #
-# @playwright/mcp is an MCP server that drives a browser over CDP, so no
-# browser is installed: the desktop layers, Chromium included, are Stage 4.
-# PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD says so to any dependency whose install
-# script would fetch one anyway.
+# @playwright/mcp is an MCP server that drives a browser over CDP, so nothing
+# installs a browser of its own: the Chromium the desktop below puts in the
+# image is what it drives. PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD says so to any
+# dependency whose install script would fetch one anyway.
 COPY internal/image/tools.txt /tmp/tools.txt
 
 ARG GH_SHA256=9bca2d1c16825f109907a23307628a2f0698fbf99662b73a5cf0b020293072b8
@@ -154,6 +157,40 @@ RUN set -eux; \
       echo; \
     done; \
     rm /tmp/tools.txt
+
+# The desktop an agent's browser and media work runs on: Xvnc, Chromium,
+# openbox, the dock, the file manager, a terminal, the fonts and ffmpeg. The
+# list mirrors the one internal/image/system.sh installs on an Incus base image,
+# because internal/agent/browser.sh is the same script in both runtimes: it
+# starts Xvnc on :99, openbox, tint2, Chromium with the DevTools protocol on
+# 127.0.0.1:9222, and grabs frames with ffmpeg. The two lists must move
+# together.
+RUN apt-get update \
+ && DEBIAN_FRONTEND=$DEBIAN_FRONTEND apt-get install -y --no-install-recommends \
+      tigervnc-standalone-server \
+      chromium \
+      openbox \
+      tint2 \
+      pcmanfm \
+      xfce4-terminal \
+      xdotool \
+      x11-utils \
+      x11-xserver-utils \
+      xwallpaper \
+      adwaita-icon-theme \
+      librsvg2-common \
+      fonts-liberation \
+      fonts-dejavu-core \
+      fonts-noto-color-emoji \
+      ffmpeg \
+ && rm -rf /var/lib/apt/lists/*
+
+# Chromium's own flags, sourced by Debian's wrapper. A pod has no setuid
+# sandbox, and its seccomp profile (RuntimeDefault) refuses the user namespace
+# Chromium's sandbox needs, so the container is the sandbox.
+# internal/machines/image/chromium.conf is the same decision for
+# `agentbox machines`.
+COPY internal/agentimage/chromium.conf /etc/chromium.d/agentbox-agent
 
 # dev is the system plus the binary, without a user: what a quick check runs
 # ("docker run --rm <image> agentbox version"), and the stage a test of the

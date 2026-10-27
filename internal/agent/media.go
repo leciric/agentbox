@@ -469,6 +469,11 @@ func (m *Manager) recordingStage(a state.Agent) string {
 // ensureRecordingStage mounts the recording stage into the agent, unless it
 // is already, and says whether a recording can be written to it.
 func (m *Manager) ensureRecordingStage(ctx context.Context, a state.Agent) (bool, error) {
+	if a.OnCluster() {
+		// A pod has no Incus device to mount the stage with, so its recording
+		// is written inside it and copied out by StopRecording.
+		return false, nil
+	}
 	stage := m.recordingStage(a)
 	if err := os.MkdirAll(stage, 0o700); err != nil {
 		return false, err
@@ -487,7 +492,7 @@ func (m *Manager) ensureRecordingStage(ctx context.Context, a state.Agent) (bool
 		}
 	}
 	err = m.Incus.AddDevice(ctx, a.Instance, recordingDevice, "disk",
-		"source="+stage, "path=/home/"+m.User.Name+"/"+recordingOut, "required=false")
+		"source="+stage, "path=/home/"+m.machineUser(a).Name+"/"+recordingOut, "required=false")
 	return err == nil, err
 }
 
@@ -634,7 +639,7 @@ func (m *Manager) StopRecording(ctx context.Context, a state.Agent) (state.Media
 	if err := m.requireRunning(ctx, a); err != nil {
 		return state.Media{}, err
 	}
-	home := "/home/" + m.User.Name
+	home := m.home(a)
 	out, err := m.agentShell(ctx, a, stopRecordingScript())
 	if err != nil {
 		return state.Media{}, fmt.Errorf("stopping the recording: %w", err)
@@ -1024,7 +1029,7 @@ func (m *Manager) ExportMedia(ctx context.Context, a state.Agent, dir string) (s
 // failure's error holds what the script printed to stderr.
 func (m *Manager) agentShell(ctx context.Context, a state.Agent, script string) (string, error) {
 	var stdout, stderr bytes.Buffer
-	if err := m.machine(a).UserExec(ctx, m.User.Name, script, nil, &stdout, &stderr); err != nil {
+	if err := m.machine(a).UserExec(ctx, m.machineUser(a).Name, script, nil, &stdout, &stderr); err != nil {
 		if msg := strings.TrimSpace(stderr.String()); msg != "" {
 			return stdout.String(), errors.New(msg)
 		}

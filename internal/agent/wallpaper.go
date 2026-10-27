@@ -24,27 +24,25 @@ import (
 //go:embed wallpaper.png
 var wallpaper []byte
 
-// wallpaperPath is where browser.sh looks for it. It is the same path an image
-// could have baked it into, so nothing has to change if that ever happens.
-const wallpaperPath = "/usr/local/share/agentbox/wallpaper.png"
-
 // installWallpaper writes the wallpaper into the agent, unless the one there is
 // already this one: it is half a megabyte, and `browser start` runs often.
 // A failure isn't fatal — browser.sh falls back to a solid colour.
 func (m *Manager) installWallpaper(ctx context.Context, a state.Agent) {
 	sum := sha256.Sum256(wallpaper)
 	want := hex.EncodeToString(sum[:])
+	path := m.desktopShare(a) + "/wallpaper.png"
 	out, err := m.machine(a).Exec(ctx, "sh",
 		"-c",
-		"sha256sum "+wallpaperPath+" 2>/dev/null | cut -d' ' -f1")
+		"sha256sum "+path+" 2>/dev/null | cut -d' ' -f1")
 	if err == nil && strings.TrimSpace(out) == want {
 		return
 	}
-	if err := m.machine(a).WriteFile(ctx, wallpaperPath, wallpaper, 0, 0, 0o644); err != nil {
+	if err := m.machine(a).WriteFile(ctx, path, wallpaper, 0, 0, 0o644); err != nil {
 		m.logf("The desktop wallpaper wasn't installed: %v", err)
 	}
 }
 
 // Wallpaper is the desktop's wallpaper, for a machine outside Incus that runs
-// the same desktop (`agentbox machines`), at the path browser.sh looks in.
-func Wallpaper() (png []byte, path string) { return wallpaper, wallpaperPath }
+// the same desktop (`agentbox machines`), at the path browser.sh looks in
+// there: the Incus desktop share, beside the script.
+func Wallpaper() (png []byte, path string) { return wallpaper, desktopShare + "/wallpaper.png" }

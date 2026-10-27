@@ -255,7 +255,7 @@ type podRuntime struct{ m *podMachine }
 func (r podRuntime) Kind() mach.Kind             { return mach.KindKubernetes }
 func (r podRuntime) Machine(string) mach.Machine { return r.m }
 
-// podMachine answers the calls this test makes as a running pod's agentd
+// podMachine answers the calls these tests make as a running pod's agentd
 // does: it reports itself running, records the terminal it was asked for, and
 // speaks one JSON line back over UserExec's streams.
 type podMachine struct {
@@ -263,10 +263,19 @@ type podMachine struct {
 	// block makes the adapter's own command wait for its context, as a real
 	// adapter does until the chat stops it.
 	block bool
+	// output is what UserExec writes to stdout instead of echoing stdin, for
+	// the recordings its scripts leave behind.
+	output string
+	// pull is what PullFile writes to its target.
+	pull string
 
 	user    string
 	command string
 	attach  mach.AttachOptions
+	// execs are the commands Exec ran; pulled, the files PullFile copied out
+	// of the pod.
+	execs  []string
+	pulled []string
 }
 
 func (m *podMachine) Ref() string     { return m.ref }
@@ -288,7 +297,10 @@ func (m *podMachine) Pause(context.Context) error                     { return n
 func (m *podMachine) Resume(context.Context) error                    { return nil }
 func (m *podMachine) Destroy(context.Context) error                   { return nil }
 
-func (m *podMachine) Exec(context.Context, ...string) (string, error) { return "", nil }
+func (m *podMachine) Exec(_ context.Context, command ...string) (string, error) {
+	m.execs = append(m.execs, strings.Join(command, " "))
+	return "", nil
+}
 
 func (m *podMachine) ExecInput(context.Context, io.Reader, ...string) (string, error) {
 	return "", nil
@@ -296,12 +308,19 @@ func (m *podMachine) ExecInput(context.Context, io.Reader, ...string) (string, e
 
 func (m *podMachine) UserExec(ctx context.Context, user, command string, stdin io.Reader, stdout, stderr io.Writer) error {
 	m.user, m.command = user, command
+	if m.output != "" {
+		_, err := io.WriteString(stdout, m.output)
+		return err
+	}
 	if strings.Contains(command, "mise where") {
 		return nil // the adapter is already installed
 	}
 	if m.block {
 		<-ctx.Done()
 		return ctx.Err()
+	}
+	if stdin == nil {
+		return nil
 	}
 	// Speak as an adapter would: one JSON line in, the same one out, and
 	// something on stderr, so the test sees all three streams cross.
@@ -327,7 +346,14 @@ func (m *podMachine) WriteFile(context.Context, string, []byte, int, int, os.Fil
 	return nil
 }
 
-func (m *podMachine) PullFile(context.Context, string, string) error              { return nil }
+func (m *podMachine) PullFile(_ context.Context, file, target string) error {
+	m.pulled = append(m.pulled, file)
+	if m.pull == "" {
+		return nil
+	}
+	return os.WriteFile(target, []byte(m.pull), 0o600)
+}
+
 func (m *podMachine) PullDir(context.Context, string, string) error               { return nil }
 func (m *podMachine) PushFile(context.Context, string, string, os.FileMode) error { return nil }
 func (m *podMachine) Snapshot(context.Context, string) error                      { return nil }
