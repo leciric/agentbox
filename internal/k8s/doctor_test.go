@@ -182,4 +182,41 @@ func TestDoctorGivesUpOnAClaimThatNeverBinds(t *testing.T) {
 	}
 }
 
+func TestDoctorTakesAClaimItsClassBindsOnUse(t *testing.T) {
+	// k3s's local-path, and every local volume, keeps a claim Pending until a
+	// pod mounts it: waiting for it to bind on its own would fail a cluster
+	// that is fine.
+	wait := storagev1.VolumeBindingWaitForFirstConsumer
+	client := fake.NewClientset(&storagev1.StorageClass{
+		ObjectMeta:        metav1.ObjectMeta{Name: "local-path"},
+		VolumeBindingMode: &wait,
+	})
+	doctor := healthyDoctor(t, client)
+	doctor.StorageClass = "local-path"
+	doctor.Timeout = 50 * time.Millisecond
+	report := doctor.Run(context.Background())
+	if got := check(t, report, "storage class"); !got.OK || got.Detail != "local-path" {
+		t.Errorf("storage class = %+v, want the class the config names", got)
+	}
+	if got := check(t, report, "workspace claim"); !got.OK || !strings.Contains(got.Detail, "binds it when a pod mounts it") {
+		t.Errorf("workspace claim = %+v, want it to say the class binds on first use", got)
+	}
+}
+
+func TestDoctorNamesTheClustersDefaultClass(t *testing.T) {
+	client := fake.NewClientset(&storagev1.StorageClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "local-path",
+			Annotations: map[string]string{"storageclass.kubernetes.io/is-default-class": "true"},
+		},
+	})
+	doctor := healthyDoctor(t, client)
+	doctor.StorageClass = ""
+	doctor.Timeout = 50 * time.Millisecond
+	report := doctor.Run(context.Background())
+	if got := check(t, report, "storage class"); !got.OK || !strings.Contains(got.Detail, "local-path (the cluster's default)") {
+		t.Errorf("storage class = %+v, want the cluster's default named", got)
+	}
+}
+
 func mustQuantity(s string) resource.Quantity { return resource.MustParse(s) }
