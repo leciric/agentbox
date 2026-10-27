@@ -65,6 +65,7 @@ var tsTypes = []any{
 	ShareReport{}, FileCount{}, DiagnosticsFiles{},
 	Cluster{}, ClusterConfig{}, ClusterCapacity{}, AddClusterRequest{}, RotateClusterRequest{}, ClusterReport{}, ClusterCheck{},
 	Registry{}, AddRegistryRequest{}, RotateRegistryRequest{}, RegistryTest{},
+	ProjectGit{}, ProjectGitProfile{}, SetProjectGitProfileRequest{}, UseProjectGitRequest{}, TestProjectGitRequest{}, ProjectGitTest{},
 }
 
 var tsConstants = [][2]string{

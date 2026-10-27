@@ -864,6 +864,14 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		// so there is nothing to collide with.
 		return state.Agent{}, fmt.Errorf("%s already exists: remove it or choose another --name", a.Worktree)
 	}
+	if pl.cluster != "" {
+		// A pod clones its project's git profile, so a project with no usable
+		// one is refused here: before a row or a pod exists to clean up, and
+		// with the command that gives it one (gitprofile.go).
+		if _, err := m.resolveGitProfile(ctx, pl.project); err != nil {
+			return state.Agent{}, err
+		}
+	}
 
 	// Undo steps run even when ctx was cancelled (Ctrl-C).
 	cleanup := context.WithoutCancel(ctx)
@@ -1433,6 +1441,13 @@ set -g mode-style "bg=#7c3aed,fg=#ffffff"
 func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFiles []string, task string) error {
 	home := m.home(a)
 	user := m.machineUser(a)
+	// A pod's tree is a clone of its project's git profile, and its login is
+	// delivered into the pod's tmpfs before anything reads the tree. An Incus
+	// agent's tree is this host's worktree and needs none of it.
+	podGit, err := m.preparePodGit(ctx, a)
+	if err != nil {
+		return err
+	}
 	type file struct {
 		path    string
 		content string
@@ -1448,7 +1463,7 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 	if err != nil {
 		return err
 	}
-	files = append(files, file{home + "/.gitconfig", gitConfig(gh != "", hooks), 0o644})
+	files = append(files, file{home + "/.gitconfig", gitConfig(gh != "", hooks, podGit), 0o644})
 
 	env, err := m.agentEnv(a)
 	if err != nil {
@@ -1973,7 +1988,9 @@ func (m *Manager) writeAgentEnvIfRunning(ctx context.Context, a state.Agent) err
 }
 
 // writeGitConfig writes an agent's ~/.gitconfig fresh, from its current
-// GitHub account and whether to credit the AI tool: see gitConfig.
+// GitHub account, whether to credit the AI tool, and, for a pod, its
+// project's git profile, whose login is delivered again with it: a pod that
+// started again has an empty tmpfs and needs both. See gitConfig.
 func (m *Manager) writeGitConfig(ctx context.Context, a state.Agent) error {
 	gh, err := m.Creds.GitHubToken(a.GitHubAccount)
 	if err != nil {
@@ -1983,9 +2000,13 @@ func (m *Manager) writeGitConfig(ctx context.Context, a state.Agent) error {
 	if err != nil {
 		return err
 	}
+	podGit, err := m.ensurePodGit(ctx, a)
+	if err != nil {
+		return err
+	}
 	home := m.home(a)
 	user := m.machineUser(a)
-	return m.machine(a).WriteFile(ctx, home+"/.gitconfig", []byte(gitConfig(gh != "", hooks)), user.UID, user.GID, 0o644)
+	return m.machine(a).WriteFile(ctx, home+"/.gitconfig", []byte(gitConfig(gh != "", hooks, podGit)), user.UID, user.GID, 0o644)
 }
 
 // writeGitConfigIfRunning writes an agent's .gitconfig when its machine is
@@ -2898,34 +2919,20 @@ func gitIdentity() (name, email string) {
 // (configure, Start, SetGitHubAccount) so losing the account removes this
 // config again rather than leaving it stale. hooksPath is where the hooks
 // that take the AI tools' credit out of commits are (writeGitHooks), or "" to
-// leave git's hooks where they are.
-func gitConfig(hasGitHub bool, hooksPath string) string {
+// leave git's hooks where they are. pod is a cluster agent's project profile:
+// the login its remote answers with, or nil for an agent whose tree is this
+// host's checkout (gitprofile.go).
+func gitConfig(hasGitHub bool, hooksPath string, pod *gitConfigSection) string {
 	if !hasGitHub {
-		return gitConfigWith("", hooksPath)
+		return gitConfigFor("", hooksPath, pod)
 	}
-	return gitConfigWith("!gh auth git-credential", hooksPath)
+	return gitConfigFor("!gh auth git-credential", hooksPath, pod)
 }
 
-// gitConfigWith is gitConfig with the github.com credential helper spelled out,
-// already encoded as a git config value; "" leaves GitHub out altogether.
+// gitConfigWith is gitConfig without a project profile: the lead's own config,
+// with the github.com helper it is given.
 func gitConfigWith(helper, hooksPath string) string {
-	var b strings.Builder
-	if name, email := gitIdentity(); name != "" && email != "" {
-		fmt.Fprintf(&b, "[user]\n\tname = %s\n\temail = %s\n", gitQuote(name), gitQuote(email))
-	}
-	if hooksPath != "" {
-		fmt.Fprintf(&b, "[core]\n\thooksPath = %s\n", gitQuote(hooksPath))
-	}
-	if helper != "" {
-		fmt.Fprintf(&b, `[credential "https://github.com"]
-	helper =
-	helper = %s
-[url "https://github.com/"]
-	insteadOf = git@github.com:
-	insteadOf = ssh://git@github.com/
-`, helper)
-	}
-	return b.String()
+	return gitConfigFor(helper, hooksPath, nil)
 }
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }

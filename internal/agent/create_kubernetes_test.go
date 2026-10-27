@@ -56,6 +56,20 @@ func newClusterFixture(t *testing.T, readyErr error) clusterFixture {
 	}
 	incusLog := filepath.Join(t.TempDir(), "incus-calls")
 	pod := &podMachineStub{ref: "hello-stack/agent-01", readyErr: readyErr}
+	// The project has a private profile its agents clone with, and the token
+	// that profile signs in with: a pod can't exist without either
+	// (gitprofile.go).
+	credsDir := t.TempDir()
+	creds := credentials.Store{Dir: credsDir}
+	if err := st.SetProjectGitRemote(context.Background(), state.GitRemote{
+		Project: "hello-stack", Profile: state.GitProfilePrivate,
+		URL: "https://hub.example/hello-stack.git", Auth: state.GitAuthToken, Credential: "private",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := creds.SetProjectGitCredential(context.Background(), "hello-stack", "private", credentials.GitCredentialToken, "pod-token"); err != nil {
+		t.Fatal(err)
+	}
 	return clusterFixture{
 		project:  project,
 		st:       st,
@@ -69,7 +83,7 @@ func newClusterFixture(t *testing.T, readyErr error) clusterFixture {
 				m: pod,
 			},
 			Paths:   paths.Paths{Config: t.TempDir(), Data: t.TempDir()},
-			Creds:   credentials.Store{Dir: t.TempDir()},
+			Creds:   creds,
 			Secrets: secrets.Store{State: st, KeyPath: filepath.Join(t.TempDir(), "secrets.key")},
 			User:    image.User{Name: "dev", UID: 1000, GID: 1000},
 			Log:     io.Discard,

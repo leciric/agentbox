@@ -3852,6 +3852,44 @@ export interface RegistryTest {
   detail: string;
 }
 
+export interface ProjectGit {
+  profiles: ProjectGitProfile[];
+  agentRemote: string;
+}
+
+export interface ProjectGitProfile {
+  profile: string;
+  url: string;
+  auth: string;
+  credential: string;
+  hasCredential: boolean;
+  resolvedURL?: string;
+  resolveError?: string;
+}
+
+export interface SetProjectGitProfileRequest {
+  url: string;
+  auth?: string;
+  credential?: string;
+  secret?: string;
+}
+
+export interface UseProjectGitRequest {
+  profile: string;
+}
+
+export interface TestProjectGitRequest {
+  profile?: string;
+}
+
+export interface ProjectGitTest {
+  profile: string;
+  url: string;
+  ok: boolean;
+  refs: number;
+  detail?: string;
+}
+
 export const JobRunning = "running";
 export const JobSucceeded = "succeeded";
 export const JobFailed = "failed";

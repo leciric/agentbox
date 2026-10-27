@@ -154,8 +154,16 @@ func (s *Server) addProjectRepo(ctx context.Context, req api.AddProjectRequest) 
 	if err != nil {
 		return fail(err)
 	}
-	return s.registerProject(ctx, state.Project{DisplayName: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now(),
+	p, err := s.registerProject(ctx, state.Project{DisplayName: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now(),
 		CodexAccount: tools.CodexAccount, OpenCodeAccounts: tools.OpenCodeAccounts, CursorAccount: tools.CursorAccount})
+	if err != nil {
+		return state.Project{}, err
+	}
+	// What the repository says its remotes are becomes the project's two git
+	// profiles, unless the user has since set them: hub is where work in
+	// progress goes (gitprofiles.go).
+	s.prefillGitProfiles(ctx, p)
+	return p, nil
 }
 
 // createProject is addProject for AddProjectRequest.Create: everything that
@@ -625,8 +633,23 @@ func (s *Server) removeProject(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	name := r.PathValue("project")
+	// A profile's login is a file beside the database, and the rows naming it
+	// go with the project: read them before the removal, and delete the files
+	// it would otherwise leave behind.
+	remotes, err := s.store.ProjectGitRemotes(r.Context(), name)
+	if err != nil {
+		return err
+	}
 	if err := s.store.RemoveProject(r.Context(), name); err != nil {
 		return err
+	}
+	for _, remote := range remotes {
+		if remote.Auth == state.GitAuthGitHubAccount || remote.Credential == "" {
+			continue
+		}
+		if err := s.gitCreds().RemoveProjectGitCredential(r.Context(), name, remote.Credential); err != nil {
+			s.logf("%s: removing git credential %s: %v", name, remote.Credential, err)
+		}
 	}
 	s.events.publish(api.EventProject, api.ProjectChange{Name: name, Removed: true})
 	w.WriteHeader(http.StatusNoContent)
