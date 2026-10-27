@@ -83,6 +83,35 @@ memory. Run it only when your task, or a message from the lead or the user, asks
 packages (`internal/daemon`, `internal/chat`, `internal/agent`) run tests in parallel, and
 `internal/state`/`internal/memory` migrate a template database once per binary.
 
+### What has cost time here
+
+The two Kubernetes sessions on 2026-10-26/27 ran 129 minutes of wall clock, 63 of them waiting on
+a tool, and 40 of those in `go test`. The expensive parts were whole packages, a hung test, and
+rerunning a failure that had already answered.
+
+- Time-box a test that starts a daemon. `go test ./internal/cli -run TestX` can hang past the
+  harness's 600s cap, which is ten minutes for no answer. Run it as `timeout 120s go test ...
+  -timeout 90s`, so Go dumps the goroutines before the shell kills it.
+- A failure is not a reason to run the same command again. `TestRegistryTestSaysWhenTheLoginIsWrong`
+  failed in 11s with "the daemon didn't start"; the next run repeated it unchanged and the harness
+  killed it at 600s.
+- On the VM (`monsterdev`), `go test ./internal/daemon` cannot pass: `/t` is missing, so the
+  test directories push the daemon's unix socket past 107 bytes, `/etc/subuid` has no
+  `root:1000:1`, and some tests wait on timings. It takes about six minutes to fail. Run the
+  focused `-run` cases and leave the package to CI.
+- `./internal/agent` takes about 150 seconds. Run it once before the commit, not after every
+  edit. `./internal/cli` starts a daemon per test and was still running when one session ended.
+  Start with `-run` on the cases you touched.
+- `go build ./internal/agent` while iterating, and the whole tree plus the darwin/Windows builds
+  once before the push. One combined call of those took 103 seconds.
+- `/dev/shm` is longer than `/tmp`, not shorter, so it makes the socket problem worse. Use
+  `TMPDIR=/t` when `/t` exists, or keep test and subtest names short, as
+  `internal/cli/cluster_test.go` and `internal/daemon/pulls_test.go` do.
+- Start a 150-second test in the background and keep editing. Read its result before the commit.
+- Use an Explore subagent for breadth, such as every call site of a symbol or a separate desktop
+  workstream. It keeps file reads out of the main conversation and does not make a package test
+  faster, so do not use it for that. The build session made 671 tool calls without one.
+
 [CI](.github/workflows/ci.yml) is billed by the minute (the repository is private; macOS 10x,
 Windows 2x), so a run runs only what its files can break. A first job checks the PR title as a
 conventional commit (`feat|fix|refactor|docs|chore|test|perf|ci`) and works out, with
