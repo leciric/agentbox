@@ -74,12 +74,21 @@ func (s *Server) readRemoteConfig() *remoteConfig {
 func (s *Server) remoteHandler() http.Handler {
 	routes := s.routes()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v1/shutdown" || r.URL.Path == "/v1/remote" || strings.HasPrefix(r.URL.Path, "/v1/remote/") || r.URL.Path == "/v1/lan" || strings.HasPrefix(r.URL.Path, "/v1/lan/") {
+		if localOnlyPath(r.URL.Path) {
 			_ = writeJSON(w, http.StatusForbidden, api.Error{Error: fmt.Sprintf("%s %s works only on the machine itself", r.Method, r.URL.Path)})
 			return
 		}
 		routes.ServeHTTP(w, r)
 	})
+}
+
+// localOnlyPath is what an API client on another machine may not do: end this
+// daemon, change which hub it belongs to, or open and close the listeners that
+// are this machine's to choose. The tailnet listener has its own exclusions
+// again, through remoteHandler.
+func localOnlyPath(path string) bool {
+	return path == "/v1/shutdown" || path == "/v1/remote" || strings.HasPrefix(path, "/v1/remote/") ||
+		path == "/v1/tailnet" || path == "/v1/lan" || strings.HasPrefix(path, "/v1/lan/")
 }
 
 func (s *Server) remoteStatus() api.RemoteStatus {

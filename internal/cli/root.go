@@ -34,8 +34,9 @@ var version = "dev"
 func Version() string { return version }
 
 type app struct {
-	paths paths.Paths
-	env   string // an environment on a hub (--env or AGENTBOX_ENV); empty for this machine
+	paths  paths.Paths
+	env    string // an environment on a hub (--env or AGENTBOX_ENV); empty for this machine
+	server string // a daemon on another machine's https address (--server); empty for this one
 }
 
 func (a *app) credentials() credentials.Store {
@@ -46,6 +47,12 @@ func (a *app) credentials() credentials.Store {
 // running, and restarting it if it started without a group this command has.
 // AGENTBOX_NO_AUTOSTART=1 turns both off.
 func (a *app) client(cmd *cobra.Command) (*api.Client, error) {
+	if a.server != "" {
+		if a.env != "" {
+			return nil, errors.New("--server and --env are alternatives: one talks to a daemon by its address, the other through a hub")
+		}
+		return api.NewRemoteClient(a.server, ""), nil
+	}
 	if a.env != "" {
 		h, e, err := a.findEnvironment(cmd.Context(), a.env)
 		if err != nil {
@@ -255,13 +262,18 @@ func NewRootCmd() *cobra.Command {
 			if a.env == "" {
 				a.env = os.Getenv("AGENTBOX_ENV")
 			}
-			if a.env != "" && localOnly[topCommand(cmd)] {
-				return fmt.Errorf("agentbox %s works on this machine only, not with --env", topCommand(cmd))
+			if (a.env != "" || a.server != "") && localOnly[topCommand(cmd)] {
+				how := "--env"
+				if a.server != "" {
+					how = "--server"
+				}
+				return fmt.Errorf("agentbox %s works on this machine only, not with %s", topCommand(cmd), how)
 			}
 			return err
 		},
 	}
 	root.PersistentFlags().StringVar(&a.env, "env", "", "use an environment on a hub you signed in to (agentbox env list), instead of this machine")
+	root.PersistentFlags().StringVar(&a.server, "server", "", "talk to the daemon at this https address on the tailnet (agentbox tailnet), instead of this machine's")
 	root.AddCommand(
 		newAddCmd(a),
 		newProjectsCmd(a),
@@ -346,6 +358,7 @@ func NewRootCmd() *cobra.Command {
 		newVersionCmd(a),
 		newReportCmd(a),
 		newRemoteCmd(a),
+		newTailnetCmd(a),
 		newPhoneCmd(a),
 		newLoginCmd(a),
 		newLogoutCmd(a),

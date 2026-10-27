@@ -39,6 +39,7 @@ export function EnvironmentSwitcher() {
   const queryClient = useQueryClient();
   const target = useQuery({ queryKey: ['target'], queryFn: () => window.agentbox.target.get(), staleTime: Infinity });
   const hubs = useQuery({ queryKey: ['hubs'], queryFn: () => window.agentbox.hubs.list(), staleTime: Infinity });
+  const server = useQuery({ queryKey: ['server'], queryFn: () => window.agentbox.server.saved(), staleTime: Infinity });
   const environments = useQueries({
     queries: (hubs.data ?? []).map((hub) => ({
       queryKey: ['hub-environments', hub.url],
@@ -47,6 +48,7 @@ export function EnvironmentSwitcher() {
     })),
   });
   const [connecting, setConnecting] = useState(false);
+  const [connectingServer, setConnectingServer] = useState(false);
   const [approving, setApproving] = useState<string | null>(null);
   const [listing, setListing] = useState<string | null>(null);
   const [connectingThis, setConnectingThis] = useState<string | null>(null);
@@ -61,9 +63,14 @@ export function EnvironmentSwitcher() {
     mutationFn: (url: string) => window.agentbox.hubs.logout(url),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['hubs'] }),
   });
+  const forgetServer = useMutation({
+    mutationFn: () => window.agentbox.server.forget(),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['server'] }),
+  });
 
   const current = target.data;
   const remote = current?.kind === 'hub';
+  const onServer = current?.kind === 'url';
   const hubIndex = remote ? (hubs.data ?? []).findIndex((h) => h.url === current.hub) : -1;
   const currentEnvironment = hubIndex >= 0 ? environments[hubIndex]?.data?.find((e) => e.id === current?.environmentId) : undefined;
   // This machine's own connection to a hub, which only the app managing it
@@ -76,15 +83,17 @@ export function EnvironmentSwitcher() {
       <Menu>
         <MenuTrigger asChild>
           <button
-            data-environment-switcher={remote ? current.environmentName : 'local'}
+            data-environment-switcher={remote ? current.environmentName : onServer ? 'server' : 'local'}
             className="flex w-full items-center gap-2.5 rounded-xl border border-line bg-surface-faint px-2.5 py-2 text-left transition hover:border-line-vivid hover:bg-surface"
           >
             <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-surface text-tertiary ring-1 ring-inset ring-line">
-              {remote ? <Server className="size-3.5" /> : <Laptop className="size-3.5" />}
+              {remote || onServer ? <Server className="size-3.5" /> : <Laptop className="size-3.5" />}
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-ui font-medium text-primary">{remote ? current.environmentName : t('shell.env.thisMachine')}</span>
-              <span className="block truncate text-caption text-subtle">{remote ? hostOf(current.hub ?? '') : t('shell.env.local')}</span>
+              <span className="block truncate text-ui font-medium text-primary">
+                {onServer ? hostOf(current.url ?? '') : remote ? current.environmentName : t('shell.env.thisMachine')}
+              </span>
+              <span className="block truncate text-caption text-subtle">{onServer ? t('shell.env.server') : remote ? hostOf(current.hub ?? '') : t('shell.env.local')}</span>
             </span>
             {remote && <OnlineDot online={currentEnvironment?.online} />}
             <ChevronsUpDown className="size-3.5 shrink-0 text-subtle" />
@@ -93,7 +102,7 @@ export function EnvironmentSwitcher() {
         <MenuContent align="start" className="w-[256px]">
           <MenuLabel>{t('shell.env.environments')}</MenuLabel>
           {!web && (
-            <MenuItem icon={Laptop} data-environment-option="local" onSelect={() => select.mutate({ kind: 'local' })} hint={!remote ? <Check className="size-3.5 text-brand-300" /> : t('shell.env.local')}>
+            <MenuItem icon={Laptop} data-environment-option="local" onSelect={() => select.mutate({ kind: 'local' })} hint={!remote && !onServer ? <Check className="size-3.5 text-brand-300" /> : t('shell.env.local')}>
               {t('shell.env.thisMachine')}
             </MenuItem>
           )}
@@ -137,6 +146,26 @@ export function EnvironmentSwitcher() {
           {!web && (
             <>
               <MenuSeparator />
+              <MenuLabel>{t('shell.env.server')}</MenuLabel>
+              {server.data ? (
+                <>
+                  <MenuItem
+                    icon={Server}
+                    data-environment-option="server"
+                    onSelect={() => select.mutate({ kind: 'url', url: server.data })}
+                    hint={onServer ? <Check className="size-3.5 text-brand-300" /> : undefined}
+                  >
+                    {hostOf(server.data)}
+                  </MenuItem>
+                  <MenuItem icon={LogOut} onSelect={() => forgetServer.mutate()}>
+                    {t('shell.env.forgetServer')}
+                  </MenuItem>
+                </>
+              ) : null}
+              <MenuItem icon={Link2} onSelect={() => setConnectingServer(true)}>
+                {t('shell.env.connectServer')}
+              </MenuItem>
+              <MenuSeparator />
               <MenuItem icon={LogIn} onSelect={() => setConnecting(true)}>
                 {t('shell.env.connect')}
               </MenuItem>
@@ -145,6 +174,7 @@ export function EnvironmentSwitcher() {
         </MenuContent>
       </Menu>
       <ConnectHubDialog open={connecting} onOpenChange={setConnecting} />
+      <ConnectServerDialog open={connectingServer} onOpenChange={setConnectingServer} saved={server.data ?? ''} onConnected={() => void queryClient.invalidateQueries({ queryKey: ['server'] })} />
       <ApproveDeviceDialog hub={approving} onClose={() => setApproving(null)} />
       <DevicesDialog hub={listing} onClose={() => setListing(null)} />
       <ConnectThisDialog hub={connectingThis} onClose={() => setConnectingThis(null)} />
@@ -167,6 +197,80 @@ function ConnectThisItem({ hub, status, onSelect }: { hub: string; status?: Remo
     <MenuItem icon={Link2} data-hub-connect-this onSelect={onSelect}>
       {t('shell.env.connectThis')}
     </MenuItem>
+  );
+}
+
+// ConnectServerDialog connects the app to a daemon on another machine's own
+// address, published to your tailnet by `agentbox tailnet on`. It tests the
+// address first, so a typo is told apart from a daemon that says no.
+function ConnectServerDialog({ open, onOpenChange, saved, onConnected }: { open: boolean; onOpenChange: (open: boolean) => void; saved: string; onConnected: () => void }) {
+  const t = useT();
+  const [url, setUrl] = useState('');
+  const test = useMutation({ mutationFn: () => window.agentbox.server.test(url.trim()) });
+  const connect = useMutation({
+    mutationFn: (address: string) => window.agentbox.target.set({ kind: 'url', url: address }),
+    onSuccess: () => {
+      onConnected();
+      onOpenChange(false);
+    },
+  });
+
+  useEffect(() => {
+    if (!open) return;
+    setUrl(saved || 'https://');
+    test.reset();
+    connect.reset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, saved]);
+
+  const reachable = test.data;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t('shell.env.connectServerTitle')}</DialogTitle>
+          <DialogDescription>{t('shell.env.connectServerBody')}</DialogDescription>
+        </DialogHeader>
+        <form
+          className="grid gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (reachable) connect.mutate(reachable.url);
+            else test.mutate();
+          }}
+        >
+          <Field label={t('shell.env.serverAddress')} htmlFor="server-url" hint={t('shell.env.serverAddressHint')}>
+            <Input
+              id="server-url"
+              autoFocus
+              className="font-mono text-[13px]"
+              placeholder="https://machine.example.ts.net/agentbox"
+              value={url}
+              onChange={(event) => {
+                setUrl(event.target.value);
+                test.reset();
+              }}
+            />
+          </Field>
+          {reachable && <Notice tone="info">{t('shell.env.serverReachable', { version: reachable.version || t('common.unknown') })}</Notice>}
+          {test.error && <Notice>{errorMessage(test.error)}</Notice>}
+          {connect.error && <Notice>{errorMessage(connect.error)}</Notice>}
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => onOpenChange(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button type="button" variant="ghost" disabled={!url.trim() || test.isPending} onClick={() => test.mutate()}>
+              {test.isPending && <LoaderCircle className="animate-spin" />}
+              {t('shell.env.testServer')}
+            </Button>
+            <Button type="submit" variant="primary" disabled={!reachable || connect.isPending}>
+              {connect.isPending && <LoaderCircle className="animate-spin" />}
+              {t('shell.env.connectServerButton')}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -289,6 +289,7 @@ type Server struct {
 	agentsOnImage   map[string]bool   // agents, by ref, being made once the base image is ready (imagebuild.go)
 	remote          *remote.Connector // the connection to a hub, when this machine is an environment
 	lan             *lanState         // phones chatting from the local network or a tunnel (lan.go)
+	tailnet         tailnetState      // the desktop app on another machine, through `tailscale serve` (tailnet.go)
 	// firstImage is how fetchFirstImage checks the user mapping and starts
 	// the build: image.CheckHost and startImageBuild, unless a test says.
 	firstImage struct {
@@ -585,6 +586,8 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 	s.serveImageCache(ctx)
 	s.applyLAN(ctx)
 	defer s.closeLAN()
+	s.applyTailnet(ctx)
+	defer s.closeTailnet()
 	s.watchTheme(ctx)
 	defer s.fileWatches.closeAll()
 	// Run's own loops end with it, and it waits for them: deferred after the
@@ -862,6 +865,8 @@ func (s *Server) routes() http.Handler {
 	h("GET "+homehost.Path, s.attachHomeHost)
 	h("GET "+homehost.MCPPath, s.homeHostMCP)
 	h("POST /v1/shutdown", s.shutdown)
+	h("GET /v1/tailnet", s.getTailnet)
+	h("PATCH /v1/tailnet", s.updateTailnet)
 
 	h("GET /v1/theme", s.themeStatus)
 	h("PATCH /v1/theme", s.updateTheme)

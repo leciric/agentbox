@@ -231,6 +231,34 @@ func TestNewRemoteClientSendsABearerToken(t *testing.T) {
 	}
 }
 
+// TestNewRemoteClientWithoutATokenSendsNone checks the other way a remote
+// client is used: a daemon reached over its own https address, where
+// Tailscale Serve says who is asking and there is no token to send. A base
+// with a path, like https://machine.example.ts.net/agentbox, is where the
+// proxy's set-path puts it, and the API path is still added after it.
+func TestNewRemoteClientWithoutATokenSendsNone(t *testing.T) {
+	var gotAuth, gotPath string
+	seen := make(chan struct{}, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth, gotPath = r.Header.Get("Authorization"), r.URL.Path
+		seen <- struct{}{}
+		_, _ = w.Write([]byte("{}"))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := NewRemoteClient(srv.URL+"/agentbox/", "")
+	if err := c.do(context.Background(), http.MethodGet, "/v1/version", nil, nil); err != nil {
+		t.Fatalf("do() = %v", err)
+	}
+	<-seen
+	if gotAuth != "" {
+		t.Errorf("Authorization = %q, want none without a token", gotAuth)
+	}
+	if gotPath != "/agentbox/v1/version" {
+		t.Errorf("path = %q, want the proxy's path before the API's", gotPath)
+	}
+}
+
 // TestNewClientDialsTheGivenSocket checks a Client made with NewClient talks
 // unix, not TCP: it can reach a daemon listening on the socket path it names,
 // and nothing else answers on http://agentbox otherwise.

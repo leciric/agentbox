@@ -11,7 +11,7 @@ import { arch, hostname } from 'node:os';
 import { join } from 'node:path';
 import { AppLog, captureConsole, reportSections, type AppError } from './applog';
 import { agentboxBin, cliStatus, installCli } from './cli';
-import { currentTarget, isLocal, localSocket, savedHubs, saveHubs, setTarget, type SavedHub, type Target } from './connection';
+import { currentTarget, isLocal, localSocket, normalizeServerURL, savedHubs, savedServer, saveHubs, saveServer, setTarget, type SavedHub, type Target } from './connection';
 import {
   type ApiResponse,
   ensureDaemon,
@@ -201,15 +201,21 @@ ipcMain.on('stream:close', (_event, id: number) => streams.close(id));
 // Hubs and environments.
 
 export interface EnvironmentTarget {
-  kind: 'local' | 'hub';
+  kind: 'local' | 'hub' | 'url';
   hub?: string;
   email?: string;
   environmentId?: string;
   environmentName?: string;
+  // url is a daemon's own address on the tailnet, like
+  // https://machine.example.ts.net/agentbox, where tailscale serve says who is
+  // asking.
+  url?: string;
 }
 
 function describe(t: Target): EnvironmentTarget {
-  return t.kind === 'local' ? { kind: 'local' } : { kind: 'hub', hub: t.hub.url, email: t.hub.email, environmentId: t.environmentId, environmentName: t.environmentName };
+  if (t.kind === 'local') return { kind: 'local' };
+  if (t.kind === 'url') return { kind: 'url', url: t.url };
+  return { kind: 'hub', hub: t.hub.url, email: t.hub.email, environmentId: t.environmentId, environmentName: t.environmentName };
 }
 
 // hubCall calls a hub's own API, and throws its error message.
@@ -317,8 +323,29 @@ function switchTo(next: Target): void {
 ipcMain.handle('target:get', () => describe(currentTarget()));
 ipcMain.handle('target:set', (_event, next: EnvironmentTarget) => {
   if (next.kind === 'local') switchTo({ kind: 'local' });
-  else switchTo({ kind: 'hub', hub: savedHub(next.hub ?? ''), environmentId: next.environmentId ?? '', environmentName: next.environmentName ?? '' });
+  else if (next.kind === 'url') {
+    const url = normalizeServerURL(next.url ?? '');
+    saveServer(url);
+    switchTo({ kind: 'url', url });
+  } else switchTo({ kind: 'hub', hub: savedHub(next.hub ?? ''), environmentId: next.environmentId ?? '', environmentName: next.environmentName ?? '' });
   return describe(currentTarget());
+});
+
+// server:test asks a daemon on another machine whether it is there and what
+// it is, before the app switches to it: GET /v1/version, which needs no
+// identity, is the cheapest thing it answers. The saved server is offered by
+// the switcher, so a saved one is cleared here too.
+ipcMain.handle('server:test', async (_event, address: string) => {
+  const url = normalizeServerURL(address);
+  const res = await fetch(`${url}/v1/version`, { signal: AbortSignal.timeout(10_000) });
+  if (!res.ok) throw new Error((await res.text()).trim() || `HTTP ${res.status}`);
+  const info = (await res.json()) as { version?: string; daemon?: boolean };
+  return { url, version: info.version ?? '' };
+});
+ipcMain.handle('server:saved', () => savedServer());
+ipcMain.handle('server:forget', () => {
+  saveServer('');
+  if (currentTarget().kind === 'url') switchTo({ kind: 'local' });
 });
 
 ipcMain.handle('cli:status', () => cliStatus());

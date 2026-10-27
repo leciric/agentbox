@@ -3,7 +3,7 @@
 // that talks to a daemon (API calls, the event stream, WebSocket streams, media)
 // asks this module for the way there, so switching environments is one place.
 import { app, safeStorage } from 'electron';
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import { dirname, join } from 'node:path';
@@ -16,9 +16,46 @@ export interface SavedHub {
   token: string;
 }
 
-export type Target = { kind: 'local' } | { kind: 'hub'; hub: SavedHub; environmentId: string; environmentName: string };
+export type Target = { kind: 'local' } | { kind: 'hub'; hub: SavedHub; environmentId: string; environmentName: string } | { kind: 'url'; url: string };
 
-let target: Target = { kind: 'local' };
+// normalizeServerURL is a daemon's own address as this app should keep it: a
+// scheme (https when none is given), no trailing slash, and a path when
+// tailscale serve publishes it under one.
+export function normalizeServerURL(input: string): string {
+  let text = input.trim();
+  if (!/^https?:\/\//i.test(text)) text = `https://${text}`;
+  const url = new URL(text);
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error(`not an http or https address: ${input.trim()}`);
+  if (url.username || url.password) throw new Error('the address should carry no user or password: tailscale says who is asking');
+  return url.toString().replace(/\/+$/, '');
+}
+
+// savedServer is the daemon this app last connected over its own address, or
+// '' when it never has. It is kept beside the hubs, so the switcher can offer
+// it again after a restart.
+const serversFile = () => join(app.getPath('userData'), 'servers.json');
+
+export function savedServer(): string {
+  try {
+    const saved = JSON.parse(readFileSync(serversFile(), 'utf8')) as { url?: string };
+    return saved.url ? normalizeServerURL(saved.url) : '';
+  } catch {
+    return '';
+  }
+}
+
+export function saveServer(url: string): void {
+  if (!url) {
+    rmSync(serversFile(), { force: true });
+    return;
+  }
+  mkdirSync(dirname(serversFile()), { recursive: true });
+  writeFileSync(`${serversFile()}.tmp`, JSON.stringify({ url }, null, 2), { mode: 0o600 });
+  renameSync(`${serversFile()}.tmp`, serversFile());
+}
+
+const firstServer = savedServer();
+let target: Target = firstServer ? { kind: 'url', url: firstServer } : { kind: 'local' };
 const listeners = new Set<(target: Target) => void>();
 
 export function currentTarget(): Target {
@@ -52,6 +89,13 @@ export function localSocket(): string {
 // requestOptions are node:http(s) options for an API path on the current target.
 export function requestOptions(path: string, t: Target = target): { module: typeof http | typeof https; options: http.RequestOptions } {
   if (t.kind === 'local') return { module: http, options: { socketPath: localSocket(), path } };
+  if (t.kind === 'url') {
+    const url = new URL(t.url + path);
+    return {
+      module: url.protocol === 'https:' ? https : http,
+      options: { protocol: url.protocol, hostname: url.hostname, port: url.port, path: url.pathname + url.search },
+    };
+  }
   const url = new URL(`${t.hub.url}/v1/environments/${encodeURIComponent(t.environmentId)}/api${path}`);
   return {
     module: url.protocol === 'https:' ? https : http,
@@ -71,6 +115,11 @@ export function requestOptions(path: string, t: Target = target): { module: type
 export function webSocketAddress(path: string, t: Target = target): { url: string; headers: Record<string, string>; socketPath?: string } {
   if (t.kind === 'local' && onWindows) return { url: `ws://agentbox${path}`, headers: {}, socketPath: relaySocket() };
   if (t.kind === 'local') return { url: `ws+unix://${socketPath}:${path}`, headers: {} };
+  if (t.kind === 'url') {
+    const url = new URL(t.url + path);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    return { url: url.toString(), headers: {} };
+  }
   const base = t.hub.url.replace(/^http/, 'ws');
   return { url: `${base}/v1/environments/${encodeURIComponent(t.environmentId)}/api${path}`, headers: { Authorization: `Bearer ${t.hub.token}` } };
 }
