@@ -6,7 +6,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"sync"
 	"time"
+
+	"github.com/creack/pty"
 
 	"agentbox/internal/incus"
 )
@@ -27,13 +31,6 @@ func (r *Incus) Kind() Kind { return KindIncus }
 
 func (r *Incus) Machine(ref string) Machine {
 	return IncusMachine{client: r.Client, pool: r.Pool, ref: ref}
-}
-
-func (r *Incus) pool() string {
-	if r.Pool == "" {
-		return "default"
-	}
-	return r.Pool
 }
 
 // IncusMachine is one agent's Incus instance. Every method forwards to
@@ -92,6 +89,38 @@ func (m IncusMachine) ExecInput(ctx context.Context, stdin io.Reader, command ..
 
 func (m IncusMachine) UserExec(ctx context.Context, user, command string, stdin io.Reader, stdout, stderr io.Writer) error {
 	return m.client.UserExec(ctx, m.ref, user, command, stdin, stdout, stderr)
+}
+
+// Attach runs opts.Argv under `incus exec -t`, which gives it a terminal
+// inside the instance, and gives this side one for the WebSocket to pass
+// through.
+func (m IncusMachine) Attach(ctx context.Context, opts AttachOptions) (Terminal, error) {
+	argv := append([]string{"exec", m.ref, "-t", "--"}, opts.Argv...)
+	cmd := exec.CommandContext(ctx, m.client.Path(), argv...)
+	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: opts.Cols, Rows: opts.Rows})
+	if err != nil {
+		return nil, err
+	}
+	return &incusTerminal{File: ptmx, cmd: cmd}, nil
+}
+
+// incusTerminal is a local pseudo-terminal driving `incus exec -t`: closing it
+// ends the command, and waits for it, so nothing is left behind.
+type incusTerminal struct {
+	*os.File
+	cmd  *exec.Cmd
+	once sync.Once
+}
+
+func (t *incusTerminal) Resize(cols, rows uint16) error {
+	return pty.Setsize(t.File, &pty.Winsize{Cols: cols, Rows: rows})
+}
+
+func (t *incusTerminal) Close() error {
+	err := t.File.Close()
+	t.once.Do(func() { _ = t.cmd.Wait() })
+	return err
 }
 
 func (m IncusMachine) WriteFile(ctx context.Context, path string, content []byte, uid, gid int, mode os.FileMode) error {

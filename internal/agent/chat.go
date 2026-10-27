@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"agentbox/internal/chat"
 	"agentbox/internal/cursor"
 	"agentbox/internal/hostos"
 	"agentbox/internal/image"
@@ -222,6 +223,17 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 	}
 	script := fmt.Sprintf("cd %s && %sexec %s%s", shellQuote(a.Worktree), env, m.withoutCredentials(hide), cmdline)
 	return m.Incus.Command(ctx, "exec", a.Instance, "-T", "--", "runuser", "-l", m.User.Name, "-c", script), nil
+}
+
+// ChatProcess starts an agent's ACP adapter as the chat's process. On this
+// host its stdio is an `incus exec`; a runtime whose machine is elsewhere
+// answers with a stream over its own connection, in the same shape.
+func (m *Manager) ChatProcess(ctx context.Context, a state.Agent, status func(detail string)) (*chat.Process, error) {
+	cmd, err := m.ChatCommand(ctx, a, status)
+	if err != nil {
+		return nil, err
+	}
+	return chat.StartCommand(cmd)
 }
 
 // ensureMise installs spec in the agent with install ("mise install", or

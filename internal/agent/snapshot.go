@@ -59,10 +59,11 @@ func (m *Manager) takeSnapshot(ctx context.Context, a state.Agent, name string, 
 	running := inst.State == "Running"
 
 	message := "agentbox snapshot " + a.Ref() + "@" + name
-	commit, err := gitrepo.SnapshotWorktree(a.Worktree, ref, message)
+	ws := m.workspace(a)
+	commit, err := ws.Snapshot(ctx, ref, message)
 	if err != nil && running && strings.Contains(err.Error(), "ermission denied") {
 		m.handBackFiles(ctx, a)
-		commit, err = gitrepo.SnapshotWorktree(a.Worktree, ref, message)
+		commit, err = ws.Snapshot(ctx, ref, message)
 	}
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("snapshotting the worktree: %w", err)
@@ -74,7 +75,7 @@ func (m *Manager) takeSnapshot(ctx context.Context, a state.Agent, name string, 
 			return Snapshot{}, err
 		}
 		defer func() { _ = mach.Resume(context.WithoutCancel(ctx)) }()
-		if commit, err = gitrepo.SnapshotWorktree(a.Worktree, ref, message); err != nil {
+		if commit, err = ws.Snapshot(ctx, ref, message); err != nil {
 			_ = repo.DeleteRef(ref)
 			return Snapshot{}, fmt.Errorf("snapshotting the worktree: %w", err)
 		}
@@ -137,7 +138,7 @@ func (m *Manager) Restore(ctx context.Context, a state.Agent, name string) error
 	}
 
 	backup := "refs/agentbox/pre-restore/" + a.Name + "/" + time.Now().UTC().Format("20060102-150405")
-	if _, err := gitrepo.SnapshotWorktree(a.Worktree, backup, "before restoring "+name); err != nil {
+	if _, err := m.workspace(a).Snapshot(ctx, backup, "before restoring "+name); err != nil {
 		return fmt.Errorf("saving the current worktree: %w", err)
 	}
 	m.logf("Restoring the machine to %s (the current worktree is saved on %s)", name, backup)
@@ -145,7 +146,7 @@ func (m *Manager) Restore(ctx context.Context, a state.Agent, name string) error
 		return err
 	}
 	m.logf("Restoring the worktree and branch")
-	if err := gitrepo.RestoreWorktree(a.Worktree, commit); err != nil {
+	if err := m.workspace(a).Restore(ctx, commit); err != nil {
 		return err
 	}
 	if inst, err = mach.Info(ctx); err != nil {
