@@ -160,7 +160,8 @@ func (m *Manager) SyncConnectors(ctx context.Context, project, agent string) (ch
 // one its chat runs, are other than they were, comparing that tool's file
 // before and after (sameMCPServers). A failure partway counts as a change.
 func (m *Manager) syncConnectors(ctx context.Context, a state.Agent) (bool, error) {
-	home := "/home/" + m.User.Name
+	home := m.home(a)
+	user := m.machineUser(a)
 	file, known := toolMCPFiles[a.AI]
 	var was []byte
 	if known {
@@ -192,7 +193,7 @@ func (m *Manager) syncConnectors(ctx context.Context, a state.Agent) (bool, erro
 	if err != nil {
 		return true, err
 	}
-	if err := m.machine(a).WriteFile(ctx, path, merged, m.User.UID, m.User.GID, 0o600); err != nil {
+	if err := m.machine(a).WriteFile(ctx, path, merged, user.UID, user.GID, 0o600); err != nil {
 		return true, err
 	}
 	if !known {
@@ -209,7 +210,7 @@ func (m *Manager) syncConnectors(ctx context.Context, a state.Agent) (bool, erro
 // when it can't be read (a machine with no such file yet among them).
 func (m *Manager) readAgentFile(ctx context.Context, a state.Agent, path string) []byte {
 	var out bytes.Buffer
-	_ = m.machine(a).UserExec(ctx, m.User.Name, "cat "+shellQuote(path)+" 2>/dev/null", nil, &out, io.Discard)
+	_ = m.machine(a).UserExec(ctx, m.machineUser(a).Name, "cat "+shellQuote(path)+" 2>/dev/null", nil, &out, io.Discard)
 	return out.Bytes()
 }
 

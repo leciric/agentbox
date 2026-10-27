@@ -16,9 +16,13 @@ import (
 // variables; the AI tool picks up a change the next time it starts.
 
 // SecretsPath is the file inside an agent holding the secrets it was given, as
-// `export NAME='value'` lines. EnvPath sources it.
-func (m *Manager) SecretsPath() string {
-	return "/home/" + m.User.Name + "/.config/agentbox/secrets.env"
+// `export NAME='value'` lines. EnvPath sources it. It is the host user's;
+// an agent's own is secretsPath.
+func (m *Manager) SecretsPath() string { return m.secretsPath(state.Agent{}) }
+
+// secretsPath is where the secrets file is inside a's machine.
+func (m *Manager) secretsPath(a state.Agent) string {
+	return m.home(a) + "/.config/agentbox/secrets.env"
 }
 
 // secretsFile renders what goes into one agent: its project's secrets and its
@@ -44,7 +48,8 @@ func (m *Manager) WriteSecrets(ctx context.Context, a state.Agent) error {
 	if err != nil {
 		return err
 	}
-	return m.machine(a).WriteFile(ctx, m.SecretsPath(), []byte(content), m.User.UID, m.User.GID, 0o600)
+	user := m.machineUser(a)
+	return m.machine(a).WriteFile(ctx, m.secretsPath(a), []byte(content), user.UID, user.GID, 0o600)
 }
 
 // RewriteSecrets writes the secrets file again for every running agent of a

@@ -164,7 +164,15 @@ func (s *Server) reconcileAgent(ctx context.Context, cluster state.Cluster, clie
 
 // clearPod forgets the pod a row named, once it is gone: a row that names a pod
 // the cluster doesn't have is a row the app shows the wrong thing for.
+//
+// The agent's token goes with the pod it authenticated. Every path here has just
+// deleted that pod, or found it gone, and a token is good for exactly the pod it
+// was minted for: nothing brings it back, a start writes a new one, and a stopped
+// agent's token is no more useful than a destroyed one's, because its pod is gone
+// either way. An agent that had no token is the usual case for a row an earlier
+// daemon made, so the error is not one to report.
 func (s *Server) clearPod(ctx context.Context, a state.Agent) error {
+	_ = s.store.RemoveAgentToken(ctx, a.Project, a.Name)
 	if a.Pod == "" && a.PodUID == "" && a.StatusDetail == "" {
 		return nil
 	}
@@ -188,13 +196,39 @@ func (s *Server) startPod(ctx context.Context, cluster state.Cluster, client *k8
 	if cluster.Image == "" {
 		return s.notePodFailure(ctx, a, fmt.Sprintf("cluster %s has no image: set one with agentbox cluster set %s --image <name>:<tag>", cluster.Name, cluster.Name))
 	}
+	if cluster.MasterURL == "" {
+		// A pod whose agentd has nowhere to dial is a pod that starts, never
+		// connects, and is replaced for the same reason next round.
+		return s.notePodFailure(ctx, a, fmt.Sprintf("cluster %s has no master URL: set it with agentbox cluster set %s --master-url <url>", cluster.Name, cluster.Name))
+	}
 	token, err := newPodToken()
 	if err != nil {
 		return err
 	}
+	// The row is written before the pod, so the token it carries is one this
+	// daemon knows from the moment the pod could first use it. A pod that isn't
+	// made leaves no row behind: nothing would ever use it.
+	if err := s.store.SetAgentToken(ctx, a.Project, a.Name, token, time.Time{}); err != nil {
+		return err
+	}
 	pod, err := client.Create(ctx, s.podSpec(ctx, cluster, reg, a), token)
 	if err != nil {
+		// A create the API server completed can still come back as an error: a
+		// timeout on the way out, a proxy that dropped the answer. The pod is
+		// there and dials with the token this row just wrote, so it is adopted
+		// rather than removed and made again: removing the token would leave
+		// that pod asking with a token nothing knows, for as long as it runs.
+		if made, readErr := client.Get(ctx, a.Project, a.Name); readErr == nil {
+			return s.adoptPod(ctx, a, *made)
+		} else if !errors.Is(readErr, k8s.ErrNotFound) {
+			// The cluster can't say whether the pod exists. Its token stays:
+			// a pod that does exist needs it, and a start next round writes a
+			// new one over it either way.
+			_ = s.notePodFailure(ctx, a, "the pod couldn't be created: "+err.Error())
+			return err
+		}
 		// The row keeps the reason; the round goes on with its other agents.
+		_ = s.store.RemoveAgentToken(ctx, a.Project, a.Name)
 		_ = s.notePodFailure(ctx, a, "the pod couldn't be created: "+err.Error())
 		return err
 	}
@@ -222,19 +256,24 @@ func (s *Server) podSpec(ctx context.Context, cluster state.Cluster, reg *state.
 		FromRegistry: reg != nil,
 		PullSecret:   s.pullSecretName(ctx, cluster),
 		StorageClass: cluster.StorageClass,
+		// MasterURL is both the spec's own field, which the doctor and the
+		// pod's probes read, and an environment variable, because Env is the
+		// only thing BuildPod puts in the container.
+		MasterURL: cluster.MasterURL,
 		Env: map[string]string{
 			k8s.EnvRef:        a.Ref(),
 			k8s.EnvBranch:     a.Branch,
 			k8s.EnvBaseCommit: a.BaseCommit,
+			k8s.EnvMasterURL:  cluster.MasterURL,
 			k8s.EnvTokenFile:  k8s.TokenFile,
 			k8s.EnvWorkspace:  workspace,
 		},
 	}
 }
 
-// newPodToken is what agentd opens its session with. The gateway that checks it,
-// and the hash of it this machine keeps, arrive with Stage 2; until then it is a
-// value nothing can use.
+// newPodToken is what agentd opens its session with: 32 random bytes, base64url
+// so it is a plain header value and a plain file. This machine keeps only its
+// hash, in agent_tokens.
 func newPodToken() (string, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {

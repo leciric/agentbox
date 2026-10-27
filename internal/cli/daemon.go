@@ -42,6 +42,9 @@ func newDaemonCmd(a *app) *cobra.Command {
 				UpdateURL:   os.Getenv("AGENTBOX_UPDATE_URL"),
 				ReleasesURL: os.Getenv("AGENTBOX_RELEASES_URL"),
 				PreviewAddr: os.Getenv("AGENTBOX_PREVIEW_ADDR"),
+				// Where the pods of a cluster on this machine dial the
+				// daemon; empty turns the listener off, as it is by default.
+				GatewayAddr: os.Getenv("AGENTBOX_GATEWAY_ADDR"),
 				TraceDir:    filepath.Dir(a.paths.StateDB()),
 				FetchImage:  hostos.InVM(),
 				CrashOutput: true,

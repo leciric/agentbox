@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"agentbox/internal/state"
 )
 
 var workerVars = []string{"GOMAXPROCS", "CARGO_BUILD_JOBS", "VITEST_MAX_WORKERS", "TURBO_CONCURRENCY", "NX_PARALLEL", "npm_config_workspace_concurrency", "MAKEFLAGS", "GOFLAGS", "AGENTBOX_CPUS"}
@@ -87,7 +89,7 @@ func TestBashEnvSourcesTheLease(t *testing.T) {
 	t.Parallel()
 	m := &Manager{}
 	m.User.Name = "dev"
-	got := m.bashEnv()
+	got := m.bashEnv(state.Agent{})
 	if !strings.HasPrefix(got, "# Written by AgentBox.\n"+workersScript) {
 		t.Errorf("bash_env doesn't start with the worker counts:\n%s", got)
 	}

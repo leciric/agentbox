@@ -28,6 +28,7 @@ import (
 	"agentbox/internal/credentials"
 	"agentbox/internal/cursor"
 	"agentbox/internal/dockerfw"
+	"agentbox/internal/gateway"
 	"agentbox/internal/github"
 	"agentbox/internal/gitrepo"
 	"agentbox/internal/homehost"
@@ -73,6 +74,10 @@ type Config struct {
 	// PreviewAddr is where the preview proxy listens: empty is
 	// defaultPreviewAddr, and "off" turns the proxy off.
 	PreviewAddr string
+	// GatewayAddr is where the pods of a cluster on this machine dial the
+	// daemon: empty or "off" serves no local listener, which is right when
+	// every cluster reaches this machine through the tailnet instead.
+	GatewayAddr string
 	// ConnectorsLoopback lets connectors reach servers on this machine's
 	// loopback, where only tests' fake MCP servers listen
 	// (connectors.OAuth.Loopback).
@@ -244,6 +249,11 @@ type Server struct {
 	// clusters are the Kubernetes clients the daemon holds, by cluster and by
 	// the sealed kubeconfig they were built from (clusters.go).
 	clusters clusterClients
+	// gateway is where every pod dials in, and the sessions they hold once
+	// they have (agentgateway.go); gatewayListener is the local listener a
+	// cluster on this machine dials.
+	gateway         *gateway.Server
+	gatewayListener gatewayState
 
 	mu           sync.Mutex
 	agentAPIs    map[string]*http.Server // in-agent API servers, by instance
@@ -483,6 +493,9 @@ func New(cfg Config) (*Server, error) {
 		connectorsGiven:  map[string]bool{},
 	}
 	s.fileWatches = newFileWatches(func(c api.FilesChange) { s.events.publish(api.EventFiles, c) })
+	// A pod authenticates with the token it was made with, which is the one
+	// thing it can carry to this machine (agentgateway.go).
+	s.gateway = s.newAgentGateway()
 	// Lima on a Mac and WSL2 forward the VM's localhost ports on their own.
 	s.loginCallbackUnreachable = hostos.OS() == hostos.Linux
 	s.recheckTell = func(ctx context.Context, project, note string) { s.tellLead(ctx, project, note, true) }
@@ -602,6 +615,8 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 	defer s.closeLAN()
 	s.applyTailnet(ctx)
 	defer s.closeTailnet()
+	s.serveAgentGateway(ctx)
+	defer s.closeAgentGateway()
 	s.watchTheme(ctx)
 	defer s.fileWatches.closeAll()
 	// Run's own loops end with it, and it waits for them: deferred after the
@@ -802,6 +817,7 @@ func (s *Server) manager(log io.Writer) *agent.Manager {
 		Store:            s.store,
 		Incus:            s.cfg.Incus,
 		Runtime:          machine.NewIncus(s.cfg.Incus),
+		Kubernetes:       machine.NewKubernetes(s.gateway, podLifecycle{store: s.store}),
 		Paths:            s.cfg.Paths,
 		Creds:            credentials.Store{Dir: s.cfg.Paths.Credentials()},
 		Secrets:          s.secrets(),
@@ -809,6 +825,7 @@ func (s *Server) manager(log io.Writer) *agent.Manager {
 		Log:              log,
 		AgentSocket:      s.agentSocketPath,
 		Binary:           s.cfg.Binary,
+		DestroyMachine:   s.destroyMachine,
 		BrowserSocket:    s.browserSocketPath,
 		AndroidSDK:       findAndroidSDK,
 		IOSScreenshot:    s.iosScreenshot,
@@ -884,6 +901,13 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/shutdown", s.shutdown)
 	h("GET /v1/tailnet", s.getTailnet)
 	h("PATCH /v1/tailnet", s.updateTailnet)
+	// Where an agent's pod keeps its one connection to this daemon. It is not
+	// wrapped in h: there is no project in the path to slug, and a failed
+	// handshake is answered as the gateway answers it rather than as this
+	// API's JSON. The gateway authenticates the pod's bearer token itself,
+	// because a pod has neither of the other listeners' credentials: no
+	// socket on this machine, and no Tailscale login, which is a person's.
+	mux.Handle(agentGatewayPath, s.gateway)
 
 	// Where agents run when they don't run here, and where their images come
 	// from (clusters.go).

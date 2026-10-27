@@ -246,6 +246,7 @@ func newCreateCmd(a *app) *cobra.Command {
 	f.StringVar(&req.GitHubAccount, "github-account", "", "a stored GitHub account for this agent (default: the project's, then this machine's default, then none)")
 	f.BoolVar(&queue, "queue", false, "accepted and ignored: every agent starts at once")
 	f.StringVar(&req.Size, "size", "", "accepted and ignored: the VM's memory pressure, not a size, decides when an agent's tests and builds run")
+	f.StringVar(&req.Cluster, "cluster", "", "run its machine as a pod in this Kubernetes cluster (default: an Incus instance on this machine)")
 	_ = f.MarkHidden("queue")
 	_ = f.MarkHidden("size")
 	f.StringVar(&req.Task, "task", "", "its first message, sent once it's ready: what to do")
@@ -289,10 +290,19 @@ func printAgent(cmd *cobra.Command, ag api.Agent, took time.Duration) {
 	if ag.GitHubAccount != "" {
 		_, _ = fmt.Fprintf(w, "  account\t%s (GitHub)\n", ag.GitHubAccount)
 	}
-	_, _ = fmt.Fprintf(w, "  machine\tcopy of %s\n", ag.Source)
+	// A cluster agent has no snapshot to name and no worktree or address on this
+	// host: its machine is a pod, and the app shows which cluster in a later
+	// stage (api.Agent has no cluster field yet).
+	if ag.Source != "" {
+		_, _ = fmt.Fprintf(w, "  machine\tcopy of %s\n", ag.Source)
+	}
 	_, _ = fmt.Fprintf(w, "  branch\t%s (from %s)\n", ag.Branch, ag.BaseRef)
-	_, _ = fmt.Fprintf(w, "  worktree\t%s\n", ag.Worktree)
-	_, _ = fmt.Fprintf(w, "  ip\t%s\n", ag.IP)
+	if ag.Worktree != "" {
+		_, _ = fmt.Fprintf(w, "  worktree\t%s\n", ag.Worktree)
+	}
+	if ag.IP != "" {
+		_, _ = fmt.Fprintf(w, "  ip\t%s\n", ag.IP)
+	}
 	_ = w.Flush()
 	if ag.Interface == "chat" {
 		_, _ = fmt.Fprintf(out, "\nChat with it in the app, or: agentbox chat %s \"<message>\"", ag.Ref)

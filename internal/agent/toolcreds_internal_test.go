@@ -118,7 +118,7 @@ func TestTheSecretIsInTheToolsShellsButNotInTheTool(t *testing.T) {
 		}
 	}
 	write("secrets.env", "export ANTHROPIC_API_KEY='sk-ant-api03-the-secret'\n", 0o600)
-	write("bash_env", local(m.bashEnv()), 0o644)
+	write("bash_env", local(m.bashEnv(claudeAgent(""))), 0o644)
 	// The tool: what it has itself, and what its Bash tool's shell has.
 	write("tool", "#!/bin/sh\necho \"tool=${ANTHROPIC_API_KEY-none} token=${CLAUDE_CODE_OAUTH_TOKEN-none}\"\nbash -c 'echo \"bash=${ANTHROPIC_API_KEY-none}\"'\n", 0o755)
 	write("launcher", "#!/usr/bin/env bash\nexec \"$(dirname \"$0\")/tool\"\n", 0o755)
@@ -128,7 +128,7 @@ func TestTheSecretIsInTheToolsShellsButNotInTheTool(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tool := range []string{"tool", "launcher"} {
-		script := ". ./secrets.env; export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-work; exec " + local(m.withoutCredentials(hide)) + "./" + tool
+		script := ". ./secrets.env; export CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-work; exec " + local(m.withoutCredentials(claudeAgent(""), hide)) + "./" + tool
 		cmd := exec.Command("bash", "-c", script)
 		cmd.Dir = dir
 		cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir}

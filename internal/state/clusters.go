@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	neturl "net/url"
 	"strings"
 	"time"
 
@@ -37,6 +38,11 @@ type Cluster struct {
 	// Image is the agent image's name under the registry, like
 	// agentbox-agent:0.3.0.
 	Image string
+	// MasterURL is where this daemon's gateway is reached from the cluster's
+	// pods: the MagicDNS name through the tailnet, or
+	// http://host.k3d.internal:7782 for a local k3d cluster. Empty until the
+	// user sets it, and no pod of this cluster starts until they do.
+	MasterURL string
 	// Registry is the name of the registry its images come from, empty for a
 	// cluster that pulls an image imported into it instead (k3d image import).
 	Registry string
@@ -73,7 +79,7 @@ func (c Cluster) HasCapability(name string) bool {
 	return false
 }
 
-const clusterColumns = `name, namespace, storage_class, image, registry, max_agents, cpu, memory, labels, tailnet, capabilities, kubeconfig, created_at, last_seen, last_error`
+const clusterColumns = `name, namespace, storage_class, image, master_url, registry, max_agents, cpu, memory, labels, tailnet, capabilities, kubeconfig, created_at, last_seen, last_error`
 
 // AddCluster records a cluster whose access `cluster add` has already applied
 // and sealed. It never overwrites: a second add under the same name is an error,
@@ -82,13 +88,17 @@ func (s *Store) AddCluster(ctx context.Context, c Cluster) error {
 	if err := checkCluster(c); err != nil {
 		return err
 	}
+	masterURL, err := clusterMasterURL(c.Name, c.MasterURL)
+	if err != nil {
+		return err
+	}
 	labels, capabilities, err := encodeClusterLists(c)
 	if err != nil {
 		return err
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO clusters (`+clusterColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		c.Name, c.Namespace, c.StorageClass, c.Image, c.Registry, c.MaxAgents, c.CPU, c.Memory,
+		`INSERT INTO clusters (`+clusterColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.Name, c.Namespace, c.StorageClass, c.Image, masterURL, c.Registry, c.MaxAgents, c.CPU, c.Memory,
 		labels, c.Tailnet, capabilities, c.Kubeconfig, c.CreatedAt.Unix(), unixOrZero(c.LastSeen), c.LastError)
 	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
 		return fmt.Errorf("cluster %s: %w", c.Name, ErrExists)
@@ -115,10 +125,52 @@ func checkCluster(c Cluster) error {
 		return fmt.Errorf("cluster %s's tailnet is %q: use %s, %s or %s", c.Name, c.Tailnet,
 			TailnetOperator, TailnetSidecar, TailnetNone)
 	}
+	if _, err := clusterMasterURL(c.Name, c.MasterURL); err != nil {
+		return err
+	}
 	if c.MaxAgents < 0 {
 		return fmt.Errorf("cluster %s's max agents is %d: use 0 for as many as the nodes allow", c.Name, c.MaxAgents)
 	}
 	return nil
+}
+
+// clusterMasterURL checks where a cluster's pods reach this daemon, and returns
+// it trimmed. Empty is a cluster whose user hasn't said yet: `cluster add` can
+// record one before the address is known, and `cluster doctor` is what says it
+// has to be set before an agent starts. It is an absolute address, because the
+// daemon's own host name is only meaningful with a scheme and a port of its own;
+// https is what the tailnet certificate is for, and http is a local test cluster.
+//
+// Pods append /v1/agent-gateway to whatever is stored, so the stored value is a
+// base address and nothing else: a query, a fragment or a login would put their
+// dial at the wrong path, and a login would be kept and printed as well.
+func clusterMasterURL(name, raw string) (string, error) {
+	url := strings.TrimSpace(raw)
+	if url == "" {
+		return "", nil
+	}
+	parsed, err := neturl.Parse(url)
+	if err != nil {
+		return "", fmt.Errorf("cluster %s's --master-url %q: %w", name, url, err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", fmt.Errorf("cluster %s's --master-url %q: use an absolute http or https URL, like https://monster.example.ts.net", name, url)
+	}
+	if parsed.Host == "" {
+		return "", fmt.Errorf("cluster %s's --master-url %q: it has no host", name, url)
+	}
+	if parsed.User != nil {
+		return "", fmt.Errorf("cluster %s's --master-url %q: it has a user:password in it, which would be stored and printed", name, url)
+	}
+	if parsed.RawQuery != "" || parsed.ForceQuery {
+		return "", fmt.Errorf("cluster %s's --master-url %q: it has a query, and pods append /v1/agent-gateway to the whole address, so they would dial the wrong path", name, url)
+	}
+	if parsed.Fragment != "" {
+		return "", fmt.Errorf("cluster %s's --master-url %q: it has a #fragment, and pods append /v1/agent-gateway to the whole address, so they would dial the wrong path", name, url)
+	}
+	// A trailing slash is how people copy an address, and the path pods append
+	// already starts with one.
+	return strings.TrimRight(url, "/"), nil
 }
 
 func encodeClusterLists(c Cluster) (labels, capabilities string, err error) {
@@ -172,7 +224,7 @@ func (s *Store) queryClusters(ctx context.Context, clause string, args ...any) (
 		var c Cluster
 		var labels, capabilities string
 		var created, lastSeen int64
-		if err := rows.Scan(&c.Name, &c.Namespace, &c.StorageClass, &c.Image, &c.Registry, &c.MaxAgents,
+		if err := rows.Scan(&c.Name, &c.Namespace, &c.StorageClass, &c.Image, &c.MasterURL, &c.Registry, &c.MaxAgents,
 			&c.CPU, &c.Memory, &labels, &c.Tailnet, &capabilities, &c.Kubeconfig,
 			&created, &lastSeen, &c.LastError); err != nil {
 			return nil, err
@@ -210,14 +262,18 @@ func (s *Store) SetClusterConfig(ctx context.Context, c Cluster) error {
 	if c.MaxAgents < 0 {
 		return fmt.Errorf("cluster %s's max agents is %d: use 0 for as many as the nodes allow", c.Name, c.MaxAgents)
 	}
+	masterURL, err := clusterMasterURL(c.Name, c.MasterURL)
+	if err != nil {
+		return err
+	}
 	labels, capabilities, err := encodeClusterLists(c)
 	if err != nil {
 		return err
 	}
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE clusters SET storage_class = ?, image = ?, registry = ?, max_agents = ?, cpu = ?, memory = ?,
+		`UPDATE clusters SET storage_class = ?, image = ?, master_url = ?, registry = ?, max_agents = ?, cpu = ?, memory = ?,
 			labels = ?, tailnet = ?, capabilities = ? WHERE name = ?`,
-		c.StorageClass, c.Image, c.Registry, c.MaxAgents, c.CPU, c.Memory,
+		c.StorageClass, c.Image, masterURL, c.Registry, c.MaxAgents, c.CPU, c.Memory,
 		labels, c.Tailnet, capabilities, c.Name)
 	if err != nil {
 		return err

@@ -35,7 +35,7 @@ The admin kubeconfig is read here and sent to the daemon for that one request.
 It is never stored, on either machine. The daemon is the one that talks to the
 cluster, so the server address in it must be one the daemon can reach.`,
 	}
-	cmd.AddCommand(newClusterAddCmd(a), newClusterListCmd(a), newClusterDoctorCmd(a),
+	cmd.AddCommand(newClusterAddCmd(a), newClusterSetCmd(a), newClusterListCmd(a), newClusterDoctorCmd(a),
 		newClusterRotateCmd(a), newClusterRemoveCmd(a))
 	return cmd
 }
@@ -46,6 +46,7 @@ func newClusterAddCmd(a *app) *cobra.Command {
 		namespace      string
 		storageClass   string
 		image          string
+		masterURL      string
 		registryName   string
 		maxAgents      int
 		cpu            string
@@ -72,8 +73,14 @@ already imported into it: on k3d, "k3d image import".
 remote: operator (the Tailscale operator's egress proxy), sidecar (a sidecar of
 their own), or none, when both are addresses the cluster already reaches.
 
+--master-url is where those pods dial this daemon: its MagicDNS name through the
+tailnet, like https://monster.example.ts.net, or http://host.k3d.internal:7782
+for a k3d cluster on this machine. Nothing starts here without one, and
+"cluster set --master-url" adds it later.
+
   agentbox cluster add k3d --kubeconfig ~/.kube/config --storage-class local-path \
-      --image agentbox-agent:dev --registry forgejo --max-agents 4 --tailnet none`,
+      --image agentbox-agent:dev --registry forgejo --max-agents 4 --tailnet none \
+      --master-url http://host.k3d.internal:7782`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
@@ -94,6 +101,7 @@ their own), or none, when both are addresses the cluster already reaches.
 				Namespace:    namespace,
 				StorageClass: storageClass,
 				Image:        image,
+				MasterURL:    masterURL,
 				Registry:     registryName,
 				MaxAgents:    maxAgents,
 				CPU:          cpu,
@@ -108,14 +116,20 @@ their own), or none, when both are addresses the cluster already reaches.
 			}
 			out := cmd.OutOrStdout()
 			_, _ = fmt.Fprintf(out, "Added cluster %s.\n", cluster.Name)
-			_, _ = fmt.Fprintf(out, "  Namespace: %s\n", cluster.Namespace)
+			_, _ = fmt.Fprintf(out, "  Namespace:  %s\n", cluster.Namespace)
 			if cluster.Registry != "" {
-				_, _ = fmt.Fprintf(out, "  Registry:  %s\n", cluster.Registry)
+				_, _ = fmt.Fprintf(out, "  Registry:   %s\n", cluster.Registry)
 			}
 			if cluster.Image != "" {
-				_, _ = fmt.Fprintf(out, "  Image:     %s\n", cluster.Image)
+				_, _ = fmt.Fprintf(out, "  Image:      %s\n", cluster.Image)
 			}
-			_, _ = fmt.Fprintf(out, "  Tailnet:   %s\n", cluster.Tailnet)
+			if cluster.MasterURL != "" {
+				_, _ = fmt.Fprintf(out, "  Master URL: %s\n", cluster.MasterURL)
+			}
+			_, _ = fmt.Fprintf(out, "  Tailnet:    %s\n", cluster.Tailnet)
+			if cluster.MasterURL == "" {
+				_, _ = fmt.Fprintf(out, "\nNo master URL yet: no agent can start here until you set one with:\n  agentbox cluster set %s --master-url <url>\n", cluster.Name)
+			}
 			_, _ = fmt.Fprintf(out, "\nCheck it can run agents: agentbox cluster doctor %s\n", cluster.Name)
 			return nil
 		},
@@ -124,12 +138,127 @@ their own), or none, when both are addresses the cluster already reaches.
 	cmd.Flags().StringVar(&namespace, "namespace", "agentbox", "the namespace agents run in")
 	cmd.Flags().StringVar(&storageClass, "storage-class", "", "the storage class an agent's workspace asks for (the cluster's default)")
 	cmd.Flags().StringVar(&image, "image", "", "the agent image under the registry, like agentbox-agent:dev")
+	cmd.Flags().StringVar(&masterURL, "master-url", "", "where the cluster's pods reach this daemon (https://<machine>.<tailnet>.ts.net, or http://host.k3d.internal:7782 for k3d)")
 	cmd.Flags().StringVar(&registryName, "registry", "", "the registry its images come from (agentbox registry add)")
 	cmd.Flags().IntVar(&maxAgents, "max-agents", 0, "the most agents to run here at once (0 is as many as the nodes allow)")
 	cmd.Flags().StringVar(&cpu, "cpu", "", "the CPU budget for agents, as a Kubernetes quantity (2, 500m)")
 	cmd.Flags().StringVar(&memory, "memory", "", "the memory budget for agents, as a Kubernetes quantity (8Gi)")
 	cmd.Flags().StringArrayVar(&labels, "label", nil, "a node label agents are placed on, as name=value (repeatable)")
 	cmd.Flags().StringVar(&tailnet, "tailnet", "none", "how pods reach this machine: operator, sidecar or none")
+	cmd.Flags().StringArrayVar(&capabilities, "capability", nil, "what agents here may ask for: kvm, gpu, privileged, csi-snapshots (repeatable)")
+	return cmd
+}
+
+func newClusterSetCmd(a *app) *cobra.Command {
+	var (
+		masterURL    string
+		image        string
+		storageClass string
+		registryName string
+		maxAgents    int
+		cpu          string
+		memory       string
+		labels       []string
+		tailnet      string
+		capabilities []string
+	)
+	cmd := &cobra.Command{
+		Use:   "set NAME",
+		Short: "Change a cluster's master address, image, registry and budget",
+		Long: `Changes a cluster that is already added. Only the flags you pass are written: the
+rest stays as the cluster has it.
+
+--master-url is where this cluster's pods dial this daemon: its MagicDNS name
+through the tailnet, like https://monster.example.ts.net, or
+http://host.k3d.internal:7782 for a k3d cluster on this machine. A cluster with
+none is one the doctor fails and no agent starts in, because a pod that can't
+reach this machine can't be driven.
+
+  agentbox cluster set k3d --master-url http://host.k3d.internal:7782`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			ctx := cmd.Context()
+			name := args[0]
+			// The request replaces the whole config, so it starts as the
+			// cluster is and only what was asked for moves.
+			cluster, err := c.Cluster(ctx, name)
+			if err != nil {
+				return err
+			}
+			cfg := api.ClusterConfig{
+				StorageClass: cluster.StorageClass,
+				Image:        cluster.Image,
+				MasterURL:    cluster.MasterURL,
+				Registry:     cluster.Registry,
+				MaxAgents:    cluster.MaxAgents,
+				CPU:          cluster.CPU,
+				Memory:       cluster.Memory,
+				Labels:       cluster.Labels,
+				Tailnet:      cluster.Tailnet,
+				Capabilities: cluster.Capabilities,
+			}
+			changed := cmd.Flags().Changed
+			if changed("master-url") {
+				cfg.MasterURL = masterURL
+			}
+			if changed("image") {
+				cfg.Image = image
+			}
+			if changed("storage-class") {
+				cfg.StorageClass = storageClass
+			}
+			if changed("registry") {
+				cfg.Registry = registryName
+			}
+			if changed("max-agents") {
+				cfg.MaxAgents = maxAgents
+			}
+			if changed("cpu") {
+				cfg.CPU = cpu
+			}
+			if changed("memory") {
+				cfg.Memory = memory
+			}
+			if changed("label") {
+				named, err := parseKV(labels, "--label")
+				if err != nil {
+					return err
+				}
+				cfg.Labels = named
+			}
+			if changed("tailnet") {
+				cfg.Tailnet = tailnet
+			}
+			if changed("capability") {
+				cfg.Capabilities = capabilities
+			}
+			updated, err := c.SetClusterConfig(ctx, name, cfg)
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			_, _ = fmt.Fprintf(out, "Updated cluster %s.\n", updated.Name)
+			if updated.MasterURL == "" {
+				_, _ = fmt.Fprintf(out, "\nNo master URL: no agent can start here until you set one with:\n  agentbox cluster set %s --master-url <url>\n", updated.Name)
+				return nil
+			}
+			_, _ = fmt.Fprintf(out, "  Master URL: %s\n", updated.MasterURL)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&masterURL, "master-url", "", "where the cluster's pods reach this daemon")
+	cmd.Flags().StringVar(&image, "image", "", "the agent image under the registry, like agentbox-agent:dev")
+	cmd.Flags().StringVar(&storageClass, "storage-class", "", "the storage class an agent's workspace asks for (the cluster's default)")
+	cmd.Flags().StringVar(&registryName, "registry", "", "the registry its images come from (agentbox registry add)")
+	cmd.Flags().IntVar(&maxAgents, "max-agents", 0, "the most agents to run here at once (0 is as many as the nodes allow)")
+	cmd.Flags().StringVar(&cpu, "cpu", "", "the CPU budget for agents, as a Kubernetes quantity (2, 500m)")
+	cmd.Flags().StringVar(&memory, "memory", "", "the memory budget for agents, as a Kubernetes quantity (8Gi)")
+	cmd.Flags().StringArrayVar(&labels, "label", nil, "a node label agents are placed on, as name=value (repeatable)")
+	cmd.Flags().StringVar(&tailnet, "tailnet", "", "how pods reach this machine: operator, sidecar or none")
 	cmd.Flags().StringArrayVar(&capabilities, "capability", nil, "what agents here may ask for: kvm, gpu, privileged, csi-snapshots (repeatable)")
 	return cmd
 }
@@ -154,15 +283,15 @@ func newClusterListCmd(a *app) *cobra.Command {
 				return nil
 			}
 			w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-			_, _ = fmt.Fprintln(w, "NAME\tNAMESPACE\tREGISTRY\tIMAGE\tAGENTS\tLAST SEEN\tERROR")
+			_, _ = fmt.Fprintln(w, "NAME\tNAMESPACE\tREGISTRY\tIMAGE\tMASTER URL\tAGENTS\tLAST SEEN\tERROR")
 			for _, cluster := range clusters {
 				lastSeen := "never"
 				if cluster.LastSeen != nil {
 					lastSeen = ago(*cluster.LastSeen)
 				}
-				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", cluster.Name, cluster.Namespace,
-					orDash(cluster.Registry), orDash(cluster.Image), ceilingWord(cluster.MaxAgents),
-					lastSeen, orDash(cluster.LastError))
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", cluster.Name, cluster.Namespace,
+					orDash(cluster.Registry), orDash(cluster.Image), orDash(cluster.MasterURL),
+					ceilingWord(cluster.MaxAgents), lastSeen, orDash(cluster.LastError))
 			}
 			return w.Flush()
 		},
@@ -174,10 +303,14 @@ func newClusterDoctorCmd(a *app) *cobra.Command {
 		Use:   "doctor NAME",
 		Short: "Check that a cluster can run agents, with the access the daemon has",
 		Long: `Checks a cluster with the ServiceAccount's own token, which is what the daemon
-really has: whether the API answers, whether its access works, whether its nodes
-are ready and how much room they have, whether the storage class exists and
-provisions, whether the registry's login reached the namespace, and whether the
-image pulls.
+really has: whether it knows where this machine is from the cluster, whether the
+API answers, whether its access works, whether its nodes are ready and how much
+room they have, whether the storage class exists and provisions, whether the
+registry's login reached the namespace, and whether the image pulls.
+
+A master address that is plain http is reported as unencrypted, which is only
+right for a local test cluster: any other cluster reaches this machine through the
+tailnet's certificate.
 
 It makes and deletes two canaries in the namespace: a 1Gi claim, and a pod of the
 configured image. Nothing else is touched.`,

@@ -69,6 +69,7 @@ func healthyDoctor(t *testing.T, client *fake.Clientset) k8s.Doctor {
 		StorageClass: "local-path",
 		Image:        "hub.example.com/h4ad/agentbox-agent:dev",
 		PullSecret:   "forgejo-pull",
+		MasterURL:    "https://master.example.test",
 		Timeout:      2 * time.Second,
 		Suffix:       "test",
 	}
@@ -92,7 +93,7 @@ func TestDoctorPassesAClusterThatCanRunAgents(t *testing.T) {
 	if report.Failed() {
 		t.Errorf("a healthy cluster failed: %+v", report.Checks)
 	}
-	for _, name := range []string{"api", "namespace", "nodes", "storage class", "workspace claim", "registry", "image"} {
+	for _, name := range []string{"api", "master url", "namespace", "nodes", "storage class", "workspace claim", "registry", "image"} {
 		found := check(t, report, name)
 		if !found.OK || found.Skipped {
 			t.Errorf("%s = %+v, want a pass", name, found)
@@ -150,10 +151,14 @@ func TestDoctorSaysWhatIsMissing(t *testing.T) {
 	doctor := healthyDoctor(t, client)
 	doctor.StorageClass = ""
 	doctor.PullSecret = ""
+	doctor.MasterURL = ""
 	doctor.Timeout = 100 * time.Millisecond
 	report := doctor.Run(context.Background())
 	if !report.Failed() {
 		t.Fatal("a cluster that can't run agents passed")
+	}
+	if got := check(t, report, "master url"); got.OK || !strings.Contains(got.Detail, "--master-url") {
+		t.Errorf("master url = %+v, want it to name the command that sets it", got)
 	}
 	if got := check(t, report, "nodes"); got.OK || !strings.Contains(got.Detail, "worker-1") {
 		t.Errorf("nodes = %+v, want it to name the node that isn't ready", got)
@@ -166,6 +171,25 @@ func TestDoctorSaysWhatIsMissing(t *testing.T) {
 	}
 	if got := check(t, report, "image"); got.OK || !strings.Contains(got.Detail, "ImagePullBackOff") {
 		t.Errorf("image = %+v, want the pull failure", got)
+	}
+}
+
+func TestDoctorFailsAClusterWithNoImage(t *testing.T) {
+	// The reconciler refuses every pod without an image, so a doctor that
+	// skipped the check would pass a cluster that can start nothing.
+	client := healthyCluster(t)
+	doctor := healthyDoctor(t, client)
+	doctor.Image = ""
+	report := doctor.Run(context.Background())
+	if !report.Failed() {
+		t.Fatal("a cluster with no image passed")
+	}
+	got := check(t, report, "image")
+	if got.OK || got.Skipped {
+		t.Errorf("image = %+v, want a failure", got)
+	}
+	if !strings.Contains(got.Detail, "agentbox cluster set k3d --image") {
+		t.Errorf("image detail = %q, want the command that sets one", got.Detail)
 	}
 }
 
@@ -216,6 +240,42 @@ func TestDoctorNamesTheClustersDefaultClass(t *testing.T) {
 	report := doctor.Run(context.Background())
 	if got := check(t, report, "storage class"); !got.OK || !strings.Contains(got.Detail, "local-path (the cluster's default)") {
 		t.Errorf("storage class = %+v, want the cluster's default named", got)
+	}
+}
+
+func TestDoctorSaysAnHTTPMasterIsUnencrypted(t *testing.T) {
+	client := healthyCluster(t)
+	doctor := healthyDoctor(t, client)
+	doctor.MasterURL = "http://host.k3d.internal:7782"
+	report := doctor.Run(context.Background())
+	got := check(t, report, "master url")
+	if !got.OK {
+		t.Errorf("master url = %+v, want http accepted for a local test cluster", got)
+	}
+	if !strings.Contains(got.Detail, "unencrypted") {
+		t.Errorf("master url detail = %q, want it to say the address is unencrypted", got.Detail)
+	}
+}
+
+func TestDoctorChecksTheTailscaleEgress(t *testing.T) {
+	client := healthyCluster(t)
+	ctx := context.Background()
+	host, ok := k8s.MasterEgressHost("https://master.example.test")
+	if !ok {
+		t.Fatal("the master URL gave no egress host")
+	}
+	if err := k8s.FromClient("k3d", "agentbox", client).EnsureEgress(ctx, []k8s.EgressHost{host}); err != nil {
+		t.Fatal(err)
+	}
+	doctor := healthyDoctor(t, client)
+	doctor.Egress = []k8s.EgressHost{host}
+	report := doctor.Run(ctx)
+	if report.Failed() {
+		t.Errorf("a cluster with a right egress Service failed: %+v", report.Checks)
+	}
+	got := check(t, report, "tailnet "+host.Host)
+	if !got.OK || !strings.Contains(got.Detail, host.Name) {
+		t.Errorf("the egress check = %+v, want it passing and naming the Service", got)
 	}
 }
 

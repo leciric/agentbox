@@ -3,6 +3,7 @@ package k8s
 import (
 	"context"
 	"fmt"
+	neturl "net/url"
 	"strings"
 	"time"
 
@@ -14,12 +15,13 @@ import (
 
 // Check is one thing `agentbox cluster doctor` looked at.
 type Check struct {
-	// Name is what it looked at, short enough for a table: api, namespace,
-	// nodes, storage class, workspace claim, registry, image.
+	// Name is what it looked at, short enough for a table: api, master url,
+	// namespace, nodes, storage class, workspace claim, registry, image,
+	// tailnet.
 	Name string
 	OK   bool
 	// Skipped is a check this cluster's own configuration makes impossible to
-	// run: no image to pull, no registry to pull from. It is not a failure.
+	// run: no registry to pull from. It is not a failure.
 	Skipped bool
 	// Detail says what it found: a count, the error the API server gave, or why
 	// the canary never started.
@@ -58,6 +60,14 @@ type Doctor struct {
 	StorageClass string
 	Image        string
 	PullSecret   string
+	// MasterURL is where the cluster's pods reach this daemon, as the user set
+	// it. Empty means no pod can open a session, which is a failure: nothing in
+	// the cluster can guess the address.
+	MasterURL string
+	// Egress is what the Tailscale operator's egress proxy should declare, from
+	// the cluster's master URL. Empty means the cluster doesn't use the operator,
+	// so there is nothing to check.
+	Egress []EgressHost
 	// Timeout bounds each check that waits for the cluster. 30 seconds when it
 	// is zero.
 	Timeout time.Duration
@@ -96,9 +106,28 @@ func (d Doctor) Run(ctx context.Context) Report {
 		return report
 	}
 	report.Checks = append(report.Checks, Check{Name: "api", OK: true, Detail: version.GitVersion})
-	report.Checks = append(report.Checks, d.namespace(ctx), d.nodes(ctx), d.storageClass(ctx),
+	report.Checks = append(report.Checks, d.masterURL(), d.namespace(ctx), d.nodes(ctx), d.storageClass(ctx),
 		d.workspaceClaim(ctx), d.pullSecret(ctx), d.image(ctx))
+	if len(d.Egress) > 0 {
+		report.Checks = append(report.Checks, d.Cluster.EgressCheck(ctx, d.Egress, true)...)
+	}
 	return report
+}
+
+// masterURL is whether this cluster's pods know where to open their session, and
+// how they would get there. It needs no cluster call: the address is this
+// daemon's own, as the cluster reaches it.
+func (d Doctor) masterURL() Check {
+	if d.MasterURL == "" {
+		return Check{Name: "master url", Detail: fmt.Sprintf(
+			"not set: pods can't reach this machine without it, so set it with agentbox cluster set %s --master-url <url>",
+			d.Cluster.Name())}
+	}
+	parsed, err := neturl.Parse(d.MasterURL)
+	if err == nil && parsed.Scheme == "http" {
+		return Check{Name: "master url", OK: true, Detail: d.MasterURL + " (unencrypted: only for a local test cluster)"}
+	}
+	return Check{Name: "master url", OK: true, Detail: d.MasterURL}
 }
 
 // namespace proves the access works at all: the token is accepted and the Role
@@ -269,7 +298,11 @@ func (d Doctor) pullSecret(ctx context.Context) Check {
 // registry the nodes can't reach.
 func (d Doctor) image(ctx context.Context) Check {
 	if d.Image == "" {
-		return Check{Name: "image", Skipped: true, Detail: "no image is configured: set one with agentbox cluster add"}
+		// A skipped check would pass a cluster that starts nothing: the
+		// reconciler refuses every pod until an image is set.
+		return Check{Name: "image", Detail: fmt.Sprintf(
+			"not set: no pod starts without one, so set it with agentbox cluster set %s --image <ref>",
+			d.Cluster.Name())}
 	}
 	ctx, cancel := context.WithTimeout(ctx, d.timeout())
 	defer cancel()

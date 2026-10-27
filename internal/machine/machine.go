@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"os"
 	"time"
 )
@@ -20,6 +21,11 @@ import (
 // ErrNotFound is the error a Runtime returns for a machine, or a snapshot,
 // that isn't there.
 var ErrNotFound = errors.New("machine not found")
+
+// ErrNotSupported is the error for a machine operation its runtime has no
+// meaning for: a pod has no freeze, and its disk is a volume, not a snapshot
+// the runtime takes.
+var ErrNotSupported = errors.New("not supported by this machine's runtime")
 
 // Kind is the runtime an agent's machine runs on.
 type Kind string
@@ -125,6 +131,11 @@ type Machine interface {
 
 	// Usage is the bytes the machine's disk holds.
 	Usage(ctx context.Context) (int64, error)
+
+	// Dial opens a connection from inside the machine, for the unix socket
+	// an Incus proxy device exposes on this host or a port only the pod can
+	// reach.
+	Dial(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
 // Runtime is a place machines run: Incus on this host, or one Kubernetes

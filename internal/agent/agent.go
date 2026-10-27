@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,6 +29,7 @@ import (
 	"agentbox/internal/image"
 	"agentbox/internal/incus"
 	"agentbox/internal/iossim"
+	"agentbox/internal/k8s"
 	"agentbox/internal/machine"
 	"agentbox/internal/naming"
 	"agentbox/internal/nodemods"
@@ -44,6 +46,11 @@ const (
 	MaxNameLen   = 24
 	session      = "main"
 	readyTimeout = 2 * time.Minute
+	// podReadyTimeout is how long a new agent's pod may take to become usable:
+	// its agentd must dial the gateway, which waits on the node pulling the
+	// agent image. That first pull is the slow part, and on a node that has
+	// never run an agent it can take minutes.
+	podReadyTimeout = 5 * time.Minute
 )
 
 // Tool is an AI command line an agent starts in tmux window 1.
@@ -248,8 +255,15 @@ type Manager struct {
 	// Kubernetes cluster. Unset is Incus, which is what every installation
 	// ran before the runtime seam existed.
 	Runtime machine.Runtime
-	Paths   paths.Paths
-	Creds   credentials.Store
+	// Kubernetes is the runtime of the cluster a cluster agent's pod runs in.
+	// Its machine is named project/agent rather than by an instance name,
+	// because the pod is the cluster's and reaches this daemon through its
+	// gateway (machine.NewKubernetes). The daemon sets it; nil means a cluster
+	// agent has no way to reach its machine, which every operation says rather
+	// than dereferencing.
+	Kubernetes machine.Runtime
+	Paths      paths.Paths
+	Creds      credentials.Store
 	// Secrets are the keys and tokens the user hands to agents, delivered as a
 	// file inside each one (secrets.go).
 	Secrets secrets.Store
@@ -260,6 +274,13 @@ type Manager struct {
 	// once it may: the daemon's memory admission (agentfreeze.go), which
 	// waits while the VM hasn't the memory to boot it.
 	Admit func(ctx context.Context, a state.Agent) error
+
+	// DestroyMachine, when set, deletes a cluster agent's machine for good:
+	// its pod, the token its agentd authenticated with, and the claim its
+	// worktree was on. Destroy calls it before archiving the row, because the
+	// row is what names the pod. Nil does nothing, which is what an Incus
+	// agent needs: its instance is already deleted by then.
+	DestroyMachine func(ctx context.Context, a state.Agent) error
 
 	// AgentSocket, when set, returns the host path of an agent's in-agent API
 	// socket; the agent reaches it at api.InAgentSocket.
@@ -324,18 +345,124 @@ func InstanceName(project, agent string) string { return "ab-" + project + "-" +
 // machine is the runtime's machine for a: the seam every operation that means
 // the same thing on Incus and on Kubernetes goes through. A Manager with no
 // Runtime drives Incus, which is what every installation ran before the seam
-// existed.
+// existed. A cluster agent's machine belongs to its cluster, and is named
+// project/agent there, because the pod is not this host's to name.
 func (m *Manager) machine(a state.Agent) machine.Machine {
+	if a.OnCluster() {
+		if m.Kubernetes == nil {
+			return noMachine{ref: a.Ref()}
+		}
+		return m.Kubernetes.Machine(a.Ref())
+	}
 	if m.Runtime != nil {
 		return m.Runtime.Machine(a.Instance)
 	}
 	return machine.NewIncus(m.Incus).Machine(a.Instance)
 }
 
+// noMachine is the machine of a cluster agent whose daemon never wired the
+// Kubernetes runtime. Every operation returns noMachine's error instead of
+// panicking on the nil runtime, or quietly reaching for an Incus instance of
+// the same name that was never made here. It is a wiring mistake in the daemon,
+// so the error says what to do about it rather than inviting a retry.
+type noMachine struct{ ref string }
+
+func (m noMachine) Ref() string        { return m.ref }
+func (m noMachine) Kind() machine.Kind { return machine.KindKubernetes }
+
+func (m noMachine) err() error {
+	return fmt.Errorf("%s's machine is a pod, and this daemon has no Kubernetes runtime wired: restart AgentBox, and report it if it comes back", m.ref)
+}
+
+func (m noMachine) Info(context.Context) (machine.Info, error) { return machine.Info{}, m.err() }
+
+func (m noMachine) WaitReady(context.Context, time.Duration) (machine.Info, error) {
+	return machine.Info{}, m.err()
+}
+
+func (m noMachine) Start(context.Context) error                     { return m.err() }
+func (m noMachine) Stop(context.Context) error                      { return m.err() }
+func (m noMachine) StopWithin(context.Context, time.Duration) error { return m.err() }
+func (m noMachine) ForceStop(context.Context) error                 { return m.err() }
+func (m noMachine) Pause(context.Context) error                     { return m.err() }
+func (m noMachine) Resume(context.Context) error                    { return m.err() }
+func (m noMachine) Destroy(context.Context) error                   { return m.err() }
+
+func (m noMachine) Exec(context.Context, ...string) (string, error) { return "", m.err() }
+
+func (m noMachine) ExecInput(context.Context, io.Reader, ...string) (string, error) {
+	return "", m.err()
+}
+
+func (m noMachine) UserExec(context.Context, string, string, io.Reader, io.Writer, io.Writer) error {
+	return m.err()
+}
+
+func (m noMachine) Attach(context.Context, machine.AttachOptions) (machine.Terminal, error) {
+	return nil, m.err()
+}
+
+func (m noMachine) WriteFile(context.Context, string, []byte, int, int, os.FileMode) error {
+	return m.err()
+}
+
+func (m noMachine) PullFile(context.Context, string, string) error { return m.err() }
+func (m noMachine) PullDir(context.Context, string, string) error  { return m.err() }
+
+func (m noMachine) PushFile(context.Context, string, string, os.FileMode) error { return m.err() }
+
+func (m noMachine) Snapshot(context.Context, string) error { return m.err() }
+
+func (m noMachine) SnapshotList(context.Context) ([]machine.Snapshot, error) {
+	return nil, m.err()
+}
+
+func (m noMachine) RestoreSnapshot(context.Context, string) error { return m.err() }
+func (m noMachine) DeleteSnapshot(context.Context, string) error  { return m.err() }
+
+func (m noMachine) HasSnapshot(context.Context, string) (bool, error) { return false, m.err() }
+
+func (m noMachine) Usage(context.Context) (int64, error) { return 0, m.err() }
+
+func (m noMachine) Dial(context.Context, string, string) (net.Conn, error) { return nil, m.err() }
+
+// machineUser is the user a's files and commands belong to: the daemon's own
+// user on this host, and the image's agent user in a pod. The pod image is
+// built with UID and GID 1000 and the name agent, so nothing in it has to know
+// the host's account, and image.Placeholder is exactly that user.
+func (m *Manager) machineUser(a state.Agent) image.User {
+	if a.OnCluster() {
+		return image.Placeholder
+	}
+	return m.User
+}
+
+// home is where machineUser's home is.
+func (m *Manager) home(a state.Agent) string {
+	return "/home/" + m.machineUser(a).Name
+}
+
+// worktree is where a's tree is inside its machine: the host worktree for an
+// Incus agent, and the pod's volume mount for a Kubernetes one, where the host
+// has no path at all. a.Workspace is that mount.
+func (m *Manager) worktree(a state.Agent) string {
+	if !a.OnCluster() {
+		return a.Worktree
+	}
+	if a.Workspace != "" {
+		return a.Workspace
+	}
+	return "/workspace"
+}
+
 // workspace is a's tree: on this host the git worktree of the project's
-// repository. A runtime that keeps the tree elsewhere, like a Kubernetes pod's
-// volume, answers with its own Workspace here.
+// repository. A cluster agent's tree is inside its pod, which this host cannot
+// read, so its workspace fails every operation instead of reading a path that
+// isn't here (workspace.Absent).
 func (m *Manager) workspace(a state.Agent) workspace.Workspace {
+	if a.OnCluster() {
+		return workspace.Absent{}
+	}
 	return workspace.Local{Dir: a.Worktree}
 }
 
@@ -401,6 +528,11 @@ type CreateOptions struct {
 	GitHubAccount string
 	CopyEnv       bool // copy gitignored env files from the project
 	Clean         bool // start from the base image even if the project has a saved base
+	// Cluster is the Kubernetes cluster the agent's machine is a pod in, by
+	// name. Empty makes it an Incus instance on this host, which is what every
+	// installation did before clusters existed. The project's default cluster is
+	// a later stage: nothing here invents one.
+	Cluster string
 	// FinishNotice is this agent's own choice of what it does to its
 	// project's chat when it genuinely finishes: state.FinishNoticesChat,
 	// state.FinishNoticesOff, or "" to leave it unsaid. It only matters when
@@ -437,6 +569,11 @@ type CreateOptions struct {
 func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions) (state.Agent, error) {
 	if _, ok := Tools[opts.AI]; !ok {
 		return state.Agent{}, fmt.Errorf("unknown AI tool %q: use claude, codex, opencode, cursor or none", opts.AI)
+	}
+	// Before anything is made: a cluster nothing can reach would leave a row
+	// asking the reconciler for a pod in it forever.
+	if err := m.checkCluster(ctx, opts.Cluster); err != nil {
+		return state.Agent{}, err
 	}
 	if opts.FinishNotice != "" && opts.FinishNotice != state.FinishNoticesChat && opts.FinishNotice != state.FinishNoticesOff {
 		return state.Agent{}, fmt.Errorf("unknown finish notice %q: use chat or off, or leave it out to follow the project", opts.FinishNotice)
@@ -491,34 +628,42 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 			return state.Agent{}, err
 		}
 	}
-	if err := m.checkImageTool(ctx, opts.AI); err != nil {
-		return state.Agent{}, err
-	}
-	if err := m.checkNesting(ctx, p); err != nil {
-		return state.Agent{}, err
-	}
 	ghAccount, err := m.GitHubAccountFor(p, opts.GitHubAccount)
 	if err != nil {
 		return state.Agent{}, err
 	}
-	source := image.SnapshotRef()
+	// Everything here that reads the base image is Incus' own: which snapshot a
+	// machine is copied from, whether that image has the tool it runs, and the
+	// project's saved base. A cluster agent's machine is a pod made from the
+	// cluster's image, so none of it applies, and a host that has never built
+	// an image can still make one.
+	source := ""
 	var awaitImage func(context.Context, state.Agent) error
-	base, hasBase, err := m.ProjectBase(ctx, p.Name)
-	switch {
-	case err != nil:
-		return state.Agent{}, err
-	case hasBase && !opts.Clean:
-		source = base.SnapshotRef()
-	default:
-		ready, err := image.Ready(ctx, m.Incus)
-		if err != nil {
+	if opts.Cluster == "" {
+		if err := m.checkImageTool(ctx, opts.AI); err != nil {
 			return state.Agent{}, err
 		}
-		if !ready {
-			if opts.AwaitImage == nil {
-				return state.Agent{}, errors.New("the base image isn't built: run agentbox image build")
+		if err := m.checkNesting(ctx, p); err != nil {
+			return state.Agent{}, err
+		}
+		source = image.SnapshotRef()
+		base, hasBase, err := m.ProjectBase(ctx, p.Name)
+		switch {
+		case err != nil:
+			return state.Agent{}, err
+		case hasBase && !opts.Clean:
+			source = base.SnapshotRef()
+		default:
+			ready, err := image.Ready(ctx, m.Incus)
+			if err != nil {
+				return state.Agent{}, err
 			}
-			awaitImage = opts.AwaitImage
+			if !ready {
+				if opts.AwaitImage == nil {
+					return state.Agent{}, errors.New("the base image isn't built: run agentbox image build")
+				}
+				awaitImage = opts.AwaitImage
+			}
 		}
 	}
 	from := opts.From
@@ -564,6 +709,7 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 		task:          opts.Task,
 		queued:        queued,
 		awaitImage:    awaitImage,
+		cluster:       opts.Cluster,
 	})
 }
 
@@ -643,6 +789,23 @@ type plan struct {
 	task          string                                   // what it is about to be asked to do; see CreateOptions.Task
 	queued        *state.Agent                             // the queued agent this makes, when it isn't a new one
 	awaitImage    func(context.Context, state.Agent) error // see CreateOptions.AwaitImage; nil when the image is ready
+	cluster       string                                   // the cluster its machine is a pod in; "" for Incus here
+}
+
+// checkCluster refuses a cluster a caller named that this daemon doesn't have,
+// before anything is made: an agent whose row names a cluster nothing can reach
+// would ask the reconciler for a pod forever.
+func (m *Manager) checkCluster(ctx context.Context, name string) error {
+	if name == "" {
+		return nil
+	}
+	if _, err := m.Store.Cluster(ctx, name); err != nil {
+		if errors.Is(err, state.ErrNotFound) {
+			return fmt.Errorf("no cluster named %q: add it with agentbox cluster add %s, or list the ones there are with agentbox cluster list", name, name)
+		}
+		return err
+	}
+	return nil
 }
 
 // build creates an agent step by step. If a step fails, or ctx is cancelled,
@@ -688,7 +851,17 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		Connectors:       pl.connectors,
 		CreatedBySession: pl.leadSession,
 	}
-	if _, err := os.Stat(a.Worktree); err == nil {
+	if pl.cluster != "" {
+		// A pod's machine belongs to its cluster, its tree lives on the
+		// cluster's volume rather than on a worktree of this host, and it is
+		// asked for as soon as the row exists: AddAgent writes all of it, and
+		// the reconciler makes the pod from what it reads there.
+		a.Cluster, a.Runtime, a.Workspace = pl.cluster, state.RuntimeKubernetes, k8s.WorkspaceDir
+		a.Worktree = ""
+		a.DesiredState = state.DesiredRunning
+	} else if _, err := os.Stat(a.Worktree); err == nil {
+		// This host's path is taken by something else. A pod has no path here,
+		// so there is nothing to collide with.
 		return state.Agent{}, fmt.Errorf("%s already exists: remove it or choose another --name", a.Worktree)
 	}
 
@@ -770,34 +943,39 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		}
 	}
 
-	ws := m.workspace(a)
-	m.shareRoom(ctx, "creating "+a.Ref()+"'s worktree")
-	m.logf("Creating worktree %s on branch %s (from %s)", a.Worktree, a.Branch, a.BaseRef)
-	if err := ws.Prepare(ctx, pl.repo, workspace.PrepareOptions{
-		Branch:  a.Branch,
-		Base:    a.BaseCommit,
-		Tree:    pl.tree,
-		EnvFrom: pl.repo.Root,
-		Env:     envFiles,
-		Reason:  "agentbox: " + a.Ref(),
-	}); err != nil {
-		var step *workspace.StepError
-		if errors.As(err, &step) {
-			return fail(step.Step, step.Err)
+	// A cluster agent's tree is made inside its pod, by agentd cloning the
+	// project's git remote onto the claim: this host has no worktree to create,
+	// and nothing of the project's checkout to copy into one.
+	if pl.cluster == "" {
+		ws := m.workspace(a)
+		m.shareRoom(ctx, "creating "+a.Ref()+"'s worktree")
+		m.logf("Creating worktree %s on branch %s (from %s)", a.Worktree, a.Branch, a.BaseRef)
+		if err := ws.Prepare(ctx, pl.repo, workspace.PrepareOptions{
+			Branch:  a.Branch,
+			Base:    a.BaseCommit,
+			Tree:    pl.tree,
+			EnvFrom: pl.repo.Root,
+			Env:     envFiles,
+			Reason:  "agentbox: " + a.Ref(),
+		}); err != nil {
+			var step *workspace.StepError
+			if errors.As(err, &step) {
+				return fail(step.Step, step.Err)
+			}
+			return fail("worktree", err)
 		}
-		return fail("worktree", err)
-	}
-	undo = append(undo, func() {
-		_ = ws.Destroy(cleanup, pl.repo)
-		_ = pl.repo.DeleteBranch(a.Branch)
-		deleteAgentRefs(pl.repo, a.Name)
-	})
-	if len(envFiles) > 0 {
-		m.logf("Copied %s from the project", strings.Join(envFiles, ", "))
-	}
+		undo = append(undo, func() {
+			_ = ws.Destroy(cleanup, pl.repo)
+			_ = pl.repo.DeleteBranch(a.Branch)
+			deleteAgentRefs(pl.repo, a.Name)
+		})
+		if len(envFiles) > 0 {
+			m.logf("Copied %s from the project", strings.Join(envFiles, ", "))
+		}
 
-	if m.NodeModules != nil {
-		undo = append(undo, func() { m.NodeModules.Remove(a.Instance) })
+		if m.NodeModules != nil {
+			undo = append(undo, func() { m.NodeModules.Remove(a.Instance) })
+		}
 	}
 	// Everything but the machine is there: the agent is listed, its branch
 	// and worktree exist, while it waits for the base image to be ready.
@@ -805,6 +983,42 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		if err := pl.awaitImage(ctx, a); err != nil {
 			return fail("base image", err)
 		}
+	}
+	if pl.cluster != "" {
+		// Nothing below is this host's: the pod is the cluster's to make, and
+		// the tree, the snapshot and the caches are all things an Incus machine
+		// has and a claim does not.
+		m.logf("Asking cluster %s for a pod for %s", a.Cluster, a.Ref())
+		// The reconciler starts a pod as soon as the row asks for one, which it
+		// has since AddAgent, so the pod may already exist. A failure therefore
+		// keeps the row and marks the agent destroyed instead of removing it:
+		// the row is what tells the reconciler which pod to delete, and a
+		// removed one would leave a pod and a claim nothing would ever delete.
+		destroy := func(step string, err error) (state.Agent, error) {
+			m.logf("%s failed; keeping %s's row as destroyed, so the cluster deletes its pod", step, a.Ref())
+			if derr := m.Store.MarkAgentDestroyed(cleanup, a.Project, a.Name, time.Now()); derr != nil {
+				m.logf("marking %s destroyed: %v", a.Ref(), derr)
+			}
+			return state.Agent{}, &CreateError{Ref: a.Ref(), Step: step, Err: err}
+		}
+		// The reconciler makes the pod within its next round of the row being
+		// added; there is nothing to create here. What is waited on is the pod's
+		// agentd dialing this daemon, which is when anything can be configured.
+		if _, err := m.machine(a).WaitReady(ctx, podReadyTimeout); err != nil {
+			return destroy("pod", fmt.Errorf("%s's pod in cluster %s didn't become ready: %w; agentbox cluster doctor %s says whether the cluster is well", a.Ref(), a.Cluster, err, a.Cluster))
+		}
+		// A pod has no address this host reaches, which is what "" says here.
+		if err := m.configure(ctx, a, "", envFiles, pl.task); err != nil {
+			return destroy("configure", err)
+		}
+		if err := m.ensureSession(ctx, a); err != nil {
+			return destroy("session", err)
+		}
+		if err := m.Store.SetAgentStatus(ctx, a.Project, a.Name, state.AgentReady); err != nil {
+			return destroy("state", err)
+		}
+		a.Status = state.AgentReady
+		return a, nil
 	}
 	if step, err := m.makeMachine(ctx, a, pl.repo, pl.source, envFiles, pl.task, "", &undo); err != nil {
 		return fail(step, err)
@@ -912,7 +1126,7 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 	// A mount can be hidden by one the agent's OS makes at boot, so check, as the
 	// agent's user, that git works in the worktree.
 	var gitOut bytes.Buffer
-	if err := m.machine(a).UserExec(ctx, m.User.Name, "git -C "+shellQuote(a.Worktree)+" rev-parse --git-dir", nil, &gitOut, &gitOut); err != nil {
+	if err := m.machine(a).UserExec(ctx, m.machineUser(a).Name, "git -C "+shellQuote(m.worktree(a))+" rev-parse --git-dir", nil, &gitOut, &gitOut); err != nil {
 		return "worktree mount", fmt.Errorf("the worktree isn't usable inside the agent: %w: %s", err, strings.TrimSpace(gitOut.String()))
 	}
 	// Tools that find a monorepo's root through git write next to the main
@@ -1217,7 +1431,8 @@ set -g mode-style "bg=#7c3aed,fg=#ffffff"
 // Logins are AgentBox's own (see package credentials), and every file is
 // written inside the agent; nothing from the host's home is mounted.
 func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFiles []string, task string) error {
-	home := "/home/" + m.User.Name
+	home := m.home(a)
+	user := m.machineUser(a)
 	type file struct {
 		path    string
 		content string
@@ -1245,8 +1460,8 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 	}
 	files = append(files,
 		file{home + "/.config/agentbox/env", env, 0o600},
-		file{m.BashEnvPath(), m.bashEnv(), 0o644},
-		file{m.SecretsPath(), secretsEnv, 0o600},
+		file{m.bashEnvPath(a), m.bashEnv(a), 0o644},
+		file{m.secretsPath(a), secretsEnv, 0o600},
 		file{home + "/.tmux.conf", tmuxConfig, 0o644},
 	)
 
@@ -1295,7 +1510,7 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 	}
 	claudeState, err := json.Marshal(map[string]any{
 		"hasCompletedOnboarding": true,
-		"projects":               map[string]any{a.Worktree: map[string]any{"hasTrustDialogAccepted": true}},
+		"projects":               map[string]any{m.worktree(a): map[string]any{"hasTrustDialogAccepted": true}},
 		"mcpServers":             claudeServers,
 	})
 	if err != nil {
@@ -1308,7 +1523,7 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 	if err != nil {
 		return err
 	}
-	codexConfig := codexConfigFor(a.Worktree, servers, window)
+	codexConfig := codexConfigFor(m.worktree(a), servers, window)
 	ocVersion, err := m.openCodeVersion(ctx)
 	if err != nil {
 		return err
@@ -1330,12 +1545,12 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 	if err != nil {
 		return err
 	}
-	for _, path := range m.briefPaths() {
+	for _, path := range m.briefPaths(a) {
 		files = append(files, file{path, text, 0o644})
 	}
 
 	for _, f := range files {
-		if err := m.machine(a).WriteFile(ctx, f.path, []byte(f.content), m.User.UID, m.User.GID, f.mode); err != nil {
+		if err := m.machine(a).WriteFile(ctx, f.path, []byte(f.content), user.UID, user.GID, f.mode); err != nil {
 			return err
 		}
 	}
@@ -1361,7 +1576,7 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 				// Heavy commands wait while the VM's memory is under
 				// pressure, by themselves (heavyhooks.go).
 				withHeavyHooks,
-				m.withBashEnv,
+				func(b []byte) ([]byte, error) { return m.withBashEnv(a, b) },
 				withClaudeAttribution(m.creditAITool(ctx)),
 			)
 		}); err != nil {
@@ -1627,7 +1842,7 @@ func (m *Manager) brief(ctx context.Context, a state.Agent, ip string, envFiles 
 		ProjectName:    p.DisplayName,
 		Agent:          a.Name,
 		Title:          a.Title,
-		Worktree:       a.Worktree,
+		Worktree:       m.worktree(a),
 		Branch:         a.Branch,
 		BaseRef:        a.BaseRef,
 		Parent:         m.stackParent(ctx, a),
@@ -1683,14 +1898,20 @@ func (m *Manager) blockFullSuite(ctx context.Context) bool {
 
 // briefPaths are the files the brief is written to inside an agent: one for any
 // tool, and the one Claude Code and Codex each read before their first token.
-func (m *Manager) briefPaths() []string {
-	home := "/home/" + m.User.Name
+func (m *Manager) briefPaths(a state.Agent) []string {
+	home := m.home(a)
 	return []string{home + "/AGENTBOX.md", home + "/.claude/CLAUDE.md", home + "/.codex/AGENTS.md"}
 }
 
 // EnvPath is the shell file every agent sources, with its Compose project name
-// and, for Claude Code agents, the token of the account they were given.
-func (m *Manager) EnvPath() string { return "/home/" + m.User.Name + "/.config/agentbox/env" }
+// and, for Claude Code agents, the token of the account they were given. It is
+// the host user's; an agent's own is envPath.
+func (m *Manager) EnvPath() string { return m.envPath(state.Agent{}) }
+
+// envPath is where the env file is inside a's machine.
+func (m *Manager) envPath(a state.Agent) string {
+	return m.home(a) + "/.config/agentbox/env"
+}
 
 func (m *Manager) agentEnv(a state.Agent) (string, error) {
 	// Every agent of a project uses the same Compose project name, so a fork or
@@ -1720,7 +1941,7 @@ func (m *Manager) agentEnv(a state.Agent) (string, error) {
 	// secret can't be named after anything above (secrets.ValidateName), so
 	// nothing here is silently replaced. The test matters when the agent's
 	// machine was copied from a base that had the file scrubbed away.
-	env += "if [ -r " + shellQuote(m.SecretsPath()) + " ]; then . " + shellQuote(m.SecretsPath()) + "; fi\n"
+	env += "if [ -r " + shellQuote(m.secretsPath(a)) + " ]; then . " + shellQuote(m.secretsPath(a)) + "; fi\n"
 	return env, nil
 }
 
@@ -1730,7 +1951,8 @@ func (m *Manager) writeAgentEnv(ctx context.Context, a state.Agent) error {
 	if err != nil {
 		return err
 	}
-	if err := m.machine(a).WriteFile(ctx, m.EnvPath(), []byte(env), m.User.UID, m.User.GID, 0o600); err != nil {
+	user := m.machineUser(a)
+	if err := m.machine(a).WriteFile(ctx, m.envPath(a), []byte(env), user.UID, user.GID, 0o600); err != nil {
 		return err
 	}
 	return m.writeBashEnv(ctx, a)
@@ -1761,8 +1983,9 @@ func (m *Manager) writeGitConfig(ctx context.Context, a state.Agent) error {
 	if err != nil {
 		return err
 	}
-	home := "/home/" + m.User.Name
-	return m.machine(a).WriteFile(ctx, home+"/.gitconfig", []byte(gitConfig(gh != "", hooks)), m.User.UID, m.User.GID, 0o644)
+	home := m.home(a)
+	user := m.machineUser(a)
+	return m.machine(a).WriteFile(ctx, home+"/.gitconfig", []byte(gitConfig(gh != "", hooks)), user.UID, user.GID, 0o644)
 }
 
 // writeGitConfigIfRunning writes an agent's .gitconfig when its machine is
@@ -1862,8 +2085,9 @@ func (m *Manager) writeBrief(ctx context.Context, a state.Agent, ip string, envF
 	if err != nil {
 		return err
 	}
-	for _, path := range m.briefPaths() {
-		if err := m.machine(a).WriteFile(ctx, path, []byte(text), m.User.UID, m.User.GID, 0o644); err != nil {
+	user := m.machineUser(a)
+	for _, path := range m.briefPaths(a) {
+		if err := m.machine(a).WriteFile(ctx, path, []byte(text), user.UID, user.GID, 0o644); err != nil {
 			return err
 		}
 	}
@@ -2015,7 +2239,7 @@ func (m *Manager) MoveAgentsGitHubAccount(ctx context.Context, project, from, to
 // is a shell, and window 1 runs the AI tool's command line, unless you use the
 // tool through the chat.
 func (m *Manager) ensureSession(ctx context.Context, a state.Agent) error {
-	script := fmt.Sprintf("tmux has-session -t %[1]s 2>/dev/null && exit 0\ntmux new-session -d -s %[1]s -n shell -c %[2]s\n", session, shellQuote(a.Worktree))
+	script := fmt.Sprintf("tmux has-session -t %[1]s 2>/dev/null && exit 0\ntmux new-session -d -s %[1]s -n shell -c %[2]s\n", session, shellQuote(m.worktree(a)))
 	// Only a session about to be made opens the tool's window.
 	hasSession := fmt.Sprintf("tmux has-session -t %s 2>/dev/null", session)
 	if m.Incus.UserExec(ctx, a.Instance, m.User.Name, hasSession, nil, io.Discard, io.Discard) != nil {
@@ -2032,7 +2256,7 @@ func (m *Manager) ensureSession(ctx context.Context, a state.Agent) error {
 	}
 	script += window
 	var out bytes.Buffer
-	if err := m.machine(a).UserExec(ctx, m.User.Name, script, nil, &out, &out); err != nil {
+	if err := m.machine(a).UserExec(ctx, m.machineUser(a).Name, script, nil, &out, &out); err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(out.String()))
 	}
 	return nil
@@ -2074,11 +2298,22 @@ func ShellCommand(incusPath, instance, user, worktree string) []string {
 	return append([]string{incusPath, "exec", instance, "-t", "--"}, ShellArgv(user, worktree)...)
 }
 
+// attachArgv is what m.Attach runs: the Incus terminal goes through runuser to
+// the machine's user, and a pod's does not, because agentd there already runs
+// as that user. Both open the same tmux session ensureSession starts, in the
+// tree's path inside the machine.
+func (m *Manager) attachArgv(a state.Agent) []string {
+	if a.OnCluster() {
+		return []string{"tmux", "new-session", "-A", "-s", session, "-c", m.worktree(a)}
+	}
+	return ShellArgv(m.machineUser(a).Name, m.worktree(a))
+}
+
 // Attach opens a terminal on the agent's tmux session, for the app's terminal
 // pane. The machine decides what a terminal is on its runtime: a local PTY
 // over `incus exec -t` here, a stream over the agent gateway on Kubernetes.
 func (m *Manager) Attach(ctx context.Context, a state.Agent, cols, rows uint16) (machine.Terminal, error) {
-	return m.machine(a).Attach(ctx, machine.AttachOptions{Argv: ShellArgv(m.User.Name, a.Worktree), Cols: cols, Rows: rows})
+	return m.machine(a).Attach(ctx, machine.AttachOptions{Argv: m.attachArgv(a), Cols: cols, Rows: rows})
 }
 
 // ExecCommand is the shell command Exec runs inside the agent.
@@ -2091,7 +2326,7 @@ func (m *Manager) Exec(ctx context.Context, a state.Agent, command string, stdin
 	if err := m.requireRunning(ctx, a); err != nil {
 		return err
 	}
-	return m.machine(a).UserExec(ctx, m.User.Name, "cd "+shellQuote(a.Worktree)+" && "+command, stdin, stdout, stderr)
+	return m.machine(a).UserExec(ctx, m.machineUser(a).Name, "cd "+shellQuote(m.worktree(a))+" && "+command, stdin, stdout, stderr)
 }
 
 // Start boots a stopped agent (or resumes a paused one) and restores its tmux session.
@@ -2109,21 +2344,27 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (machine.Info, error
 			return inst, err
 		}
 	default:
-		// A machine only changes cgroup when it starts: this is when one an
-		// earlier release put in its shared budget moves out of it.
-		if err := m.dropOldLimits(ctx, a.Instance); err != nil {
-			return inst, err
+		// Everything the host does to a machine before it starts is Incus'
+		// own: its cgroup budget, the GPU device, the shared home, the VM's
+		// memory. A pod asks its cluster for those instead, and starting it is
+		// only the row the reconciler reads.
+		if !a.OnCluster() {
+			// A machine only changes cgroup when it starts: this is when one an
+			// earlier release put in its shared budget moves out of it.
+			if err := m.dropOldLimits(ctx, a.Instance); err != nil {
+				return inst, err
+			}
+			if err := m.settleGPU(ctx, a.Instance); err != nil {
+				return inst, err
+			}
+			if err := m.setStartShare(ctx, a.Instance); err != nil {
+				return inst, err
+			}
+			if err := m.admit(ctx, a); err != nil {
+				return inst, err
+			}
+			m.nodeModulesSources(ctx, a)
 		}
-		if err := m.settleGPU(ctx, a.Instance); err != nil {
-			return inst, err
-		}
-		if err := m.setStartShare(ctx, a.Instance); err != nil {
-			return inst, err
-		}
-		if err := m.admit(ctx, a); err != nil {
-			return inst, err
-		}
-		m.nodeModulesSources(ctx, a)
 		if err := mach.Start(ctx); err != nil {
 			return inst, err
 		}
@@ -2134,20 +2375,30 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (machine.Info, error
 			m.logf("clearing when %s was paused: %v", a.Ref(), err)
 		}
 	}
-	if inst, err = mach.WaitReady(ctx, readyTimeout); err != nil {
+	// A pod may be starting from an image its node is pulling for the first
+	// time, which is the same wait a create has, so it gets the same timeout.
+	timeout := readyTimeout
+	if a.OnCluster() {
+		timeout = podReadyTimeout
+	}
+	if inst, err = mach.WaitReady(ctx, timeout); err != nil {
 		return inst, err
 	}
-	if err := m.EnsureAgentAPI(ctx, a); err != nil {
-		return inst, err
-	}
-	if booted {
-		// EnsureAgentAPI just checked the socket without waiting for the
-		// boot (replugHiddenSocket's boot=false): right after Incus.Start,
-		// systemd's /run tmpfs may not have mounted yet, so the check can
-		// find the socket there and miss the tmpfs that hides it moments
-		// later. Catch that once booted, without making the caller wait for
-		// a boot that can take a while.
-		m.goRecheckAgentAPI(ctx, a)
+	// The in-agent API is a device and a socket on this host; a pod's CLI
+	// reaches the daemon through the gateway, which needs nothing plugged in.
+	if !a.OnCluster() {
+		if err := m.EnsureAgentAPI(ctx, a); err != nil {
+			return inst, err
+		}
+		if booted {
+			// EnsureAgentAPI just checked the socket without waiting for the
+			// boot (replugHiddenSocket's boot=false): right after Incus.Start,
+			// systemd's /run tmpfs may not have mounted yet, so the check can
+			// find the socket there and miss the tmpfs that hides it moments
+			// later. Catch that once booted, without making the caller wait for
+			// a boot that can take a while.
+			m.goRecheckAgentAPI(ctx, a)
+		}
 	}
 	// Before the tmux session, so its shells and the AI tool start with
 	// whatever the agent's secrets are now, not what they were when it stopped.
@@ -2165,11 +2416,15 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (machine.Info, error
 	if err := m.writeAgentEnv(ctx, a); err != nil {
 		return inst, err
 	}
-	// The shared package caches, mounted before anything inside installs: an
-	// agent made before they existed gets them here.
-	m.EnsurePackageCache(ctx, a)
-	// And /t's cap, which an agent made before it doesn't have in its fstab.
-	m.CapTmp(ctx, a)
+	// The shared package caches and /t's cap are mounts on this host's
+	// machine: a pod's image carries its own.
+	if !a.OnCluster() {
+		// The shared package caches, mounted before anything inside installs: an
+		// agent made before they existed gets them here.
+		m.EnsurePackageCache(ctx, a)
+		// And /t's cap, which an agent made before it doesn't have in its fstab.
+		m.CapTmp(ctx, a)
+	}
 	// Same for .gitconfig: an account change while it was down couldn't write
 	// the credential helper in either.
 	if err := m.writeGitConfig(ctx, a); err != nil {
@@ -2184,8 +2439,13 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (machine.Info, error
 	if err := m.ensureSession(ctx, a); err != nil {
 		return inst, err
 	}
-	m.EnsureImageCache(ctx, a)
-	m.EnsureBrowser(ctx, a)
+	if !a.OnCluster() {
+		// Both are this host's: a shared image cache on the VM's disk, and a
+		// Chromium whose socket is proxied to it. A pod's image carries its
+		// own browser and has no host to share a cache with (Stage 4).
+		m.EnsureImageCache(ctx, a)
+		m.EnsureBrowser(ctx, a)
+	}
 	return inst, nil
 }
 
@@ -2215,8 +2475,15 @@ func (m *Manager) Stop(ctx context.Context, a state.Agent) error {
 // Pause freezes every process in the agent. It keeps its memory but uses no
 // CPU. PausedAt is set to now, so "auto-stop idle agents" counts it as idle
 // from this moment rather than from whatever it was last doing before.
+//
+// A pod can't be frozen, and the machine says so (machine.ErrNotSupported):
+// stopping it is what frees the memory a pause exists to free, so that is what
+// the caller is told to do instead.
 func (m *Manager) Pause(ctx context.Context, a state.Agent) error {
 	if err := m.machine(a).Pause(ctx); err != nil {
+		if errors.Is(err, machine.ErrNotSupported) {
+			return fmt.Errorf("pausing %s: a pod is stopped and started rather than frozen, so stop it with agentbox stop %s, and start it again when you need it: %w", a.Ref(), a.Ref(), err)
+		}
 		return err
 	}
 	if err := m.Store.SetPausedAt(ctx, a.Project, a.Name, time.Now()); err != nil {
@@ -2227,6 +2494,9 @@ func (m *Manager) Pause(ctx context.Context, a state.Agent) error {
 
 func (m *Manager) Resume(ctx context.Context, a state.Agent) error {
 	if err := m.machine(a).Resume(ctx); err != nil {
+		if errors.Is(err, machine.ErrNotSupported) {
+			return fmt.Errorf("resuming %s: a pod is started rather than resumed, so start it with agentbox start %s: %w", a.Ref(), a.Ref(), err)
+		}
 		return err
 	}
 	if err := m.Store.SetPausedAt(ctx, a.Project, a.Name, time.Time{}); err != nil {
@@ -2273,6 +2543,10 @@ func BranchDisposable(repo gitrepo.Repo, a state.Agent) bool {
 // BranchDisposable says nothing would be lost. Its media stays too, findable
 // in the project's media view, unless DeleteMedia is set or the media
 // retention is immediately; its favorites stay whatever happens.
+//
+// A cluster agent's machine is its pod: Destroy asks the daemon's hook to
+// delete it, along with its token and claim, before the row that names it is
+// archived. Its tree is on the claim the cluster keeps, not on this host.
 func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOptions) error {
 	if a.Status == state.AgentQueued {
 		// Nothing was made for it yet: no machine, worktree or branch.
@@ -2282,10 +2556,14 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 	if err != nil {
 		return err
 	}
-	if !opts.Force {
+	if !opts.Force && !a.OnCluster() {
 		// A status git couldn't read is no proof of a clean worktree: the
 		// machine out of files (ENFILE) once read that way about agents with
 		// thousands of lines of work. Only a worktree that isn't there is.
+		//
+		// A cluster agent's tree is inside its pod, which this host can't read,
+		// so there is no clean-worktree check to make: its claim is what holds
+		// the work, and the cluster keeps it for the retention window.
 		switch st, err := m.workspace(a).Status(ctx); {
 		case err != nil && st.Exists:
 			return fmt.Errorf("%s: can't tell whether it has uncommitted changes (%v): try again, or use --force to discard any", a.Ref(), err)
@@ -2308,16 +2586,25 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 	}
 	mach := m.machine(a)
 	inst, err := mach.Info(ctx)
-	// Read before the worktree is emptied: which lockfiles its node_modules
-	// were installed from, kept once the machine is gone.
-	installs := m.nodeModulesInstalls(ctx, a, err == nil && inst.State == "Running")
+	// A pod's tree is inside it, on the claim the cluster deletes with the pod:
+	// there is no worktree here to empty, no node_modules on the VM's disk to
+	// keep, and nothing container root could have left behind.
+	var installs []nodemods.Install
+	if !a.OnCluster() {
+		// Read before the worktree is emptied: which lockfiles its node_modules
+		// were installed from, kept once the machine is gone.
+		installs = m.nodeModulesInstalls(ctx, a, err == nil && inst.State == "Running")
+	}
 	switch {
 	case err == nil:
-		cleared := inst.State == "Running"
-		if cleared {
-			m.clearWorktree(ctx, a)
-		} else {
-			m.handBackNodeModules(ctx, a)
+		cleared := false
+		if !a.OnCluster() {
+			cleared = inst.State == "Running"
+			if cleared {
+				m.clearWorktree(ctx, a)
+			} else {
+				m.handBackNodeModules(ctx, a)
+			}
 		}
 		m.logf("Deleting instance %s", a.Instance)
 		if delErr := mach.Destroy(ctx); delErr != nil {
@@ -2339,7 +2626,21 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 	}
 	// Now, with the machine gone and before the agent is archived: from
 	// then on its directories are a gone agent's, which a trim removes.
-	m.keepNodeModules(a, installs)
+	if !a.OnCluster() {
+		m.keepNodeModules(a, installs)
+	}
+
+	// A pod is only the reconciler's to delete while the row that names it is
+	// there. The daemon's hook deletes the pod, its token and its claim now,
+	// before the row is archived, so nothing depends on a later round reading
+	// a row this call is about to remove. A failure keeps the row and its
+	// status, so the user can try again; archiving first would leave a pod
+	// that nothing names.
+	if a.OnCluster() && m.DestroyMachine != nil {
+		if err := m.DestroyMachine(ctx, a); err != nil {
+			return restore(err)
+		}
+	}
 
 	// The machine is gone, so the agent is a past agent now, before the
 	// worktree, which can take minutes to delete on a slow disk, or fail on
@@ -2370,33 +2671,38 @@ func (m *Manager) shareBusy() bool { return m.ShareBusy != nil && m.ShareBusy() 
 // removeLeftovers is what Destroy clears once the agent is archived: its
 // worktree, its branch when nothing would be lost, and its media when asked.
 func (m *Manager) removeLeftovers(ctx context.Context, repo gitrepo.Repo, a state.Agent, opts DestroyOptions) {
-	m.logf("Removing worktree %s", a.Worktree)
-	if m.WorktreeTrashed != nil && m.trashWorktree(repo, a) {
-		m.WorktreeTrashed()
-	} else {
-		m.shareRoom(ctx, "removing "+a.Ref()+"'s worktree")
-		if err := m.workspace(a).Destroy(ctx, repo); err != nil {
-			m.logf("Removing worktree %s: %v", a.Worktree, err)
+	// A cluster agent's branch is on the git remote the pod cloned from, and
+	// its tree is on the claim the cluster owns: neither is on this host, and
+	// workspace.Absent is not something Destroy can use to remove either.
+	if !a.OnCluster() {
+		m.logf("Removing worktree %s", a.Worktree)
+		if m.WorktreeTrashed != nil && m.trashWorktree(repo, a) {
+			m.WorktreeTrashed()
+		} else {
+			m.shareRoom(ctx, "removing "+a.Ref()+"'s worktree")
+			if err := m.workspace(a).Destroy(ctx, repo); err != nil {
+				m.logf("Removing worktree %s: %v", a.Worktree, err)
+			}
 		}
-	}
-	deleteAgentRefs(repo, a.Name)
-	if a.Branch != "" && repo.BranchExists(a.Branch) {
-		switch {
-		case opts.DeleteBranch:
-			if err := repo.DeleteBranch(a.Branch); err != nil {
-				m.logf("Deleting branch %s: %v", a.Branch, err)
+		deleteAgentRefs(repo, a.Name)
+		if a.Branch != "" && repo.BranchExists(a.Branch) {
+			switch {
+			case opts.DeleteBranch:
+				if err := repo.DeleteBranch(a.Branch); err != nil {
+					m.logf("Deleting branch %s: %v", a.Branch, err)
+				}
+			case BranchDisposable(repo, a):
+				// Nobody asked for this, so a branch git won't delete — checked
+				// out in the project's own checkout, say — is no reason to fail
+				// a destroy that has already taken the machine.
+				if err := repo.DeleteBranch(a.Branch); err != nil {
+					m.logf("Keeping branch %s: %v", a.Branch, err)
+				} else {
+					m.logf("Deleted branch %s: nothing on it is only here", a.Branch)
+				}
+			default:
+				m.logf("Keeping branch %s: it has commits that aren't merged or pushed", a.Branch)
 			}
-		case BranchDisposable(repo, a):
-			// Nobody asked for this, so a branch git won't delete — checked
-			// out in the project's own checkout, say — is no reason to fail
-			// a destroy that has already taken the machine.
-			if err := repo.DeleteBranch(a.Branch); err != nil {
-				m.logf("Keeping branch %s: %v", a.Branch, err)
-			} else {
-				m.logf("Deleted branch %s: nothing on it is only here", a.Branch)
-			}
-		default:
-			m.logf("Keeping branch %s: it has commits that aren't merged or pushed", a.Branch)
 		}
 	}
 	if retention, err := m.Store.MediaRetention(ctx); err == nil && retention == api.MediaRetentionImmediately {
@@ -2458,7 +2764,8 @@ type Status struct {
 	state.Agent
 	State string // running, stopped, paused, initializing (create job still running), incomplete (unfinished create, nothing running) or missing
 	IP    string
-	// StartedAt is when Incus last started its machine; zero when unknown.
+	// StartedAt is when its machine last started, as the runtime recorded it;
+	// zero when unknown.
 	StartedAt time.Time
 }
 
@@ -2467,13 +2774,24 @@ func (m *Manager) List(ctx context.Context, project string) ([]Status, error) {
 	if err != nil || len(agents) == 0 {
 		return nil, err
 	}
-	instances, err := m.Incus.Instances(ctx)
-	if err != nil {
-		return nil, err
+	// Incus is asked only for the agents that are its: a daemon whose agents
+	// all run in clusters must still list them when this host has no Incus.
+	needsIncus := false
+	for _, a := range agents {
+		if !a.IsLead() && !a.OnCluster() {
+			needsIncus = true
+			break
+		}
 	}
-	byName := make(map[string]incus.Instance, len(instances))
-	for _, inst := range instances {
-		byName[inst.Name] = inst
+	byName := map[string]incus.Instance{}
+	if needsIncus {
+		instances, err := m.Incus.Instances(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, inst := range instances {
+			byName[inst.Name] = inst
+		}
 	}
 	// creating is looked up once per project, lazily: most projects have
 	// nothing mid-create, and one query tells every agent of a project apart
@@ -2490,6 +2808,13 @@ func (m *Manager) List(ctx context.Context, project string) ([]Status, error) {
 			s.State = "host"
 			if _, err := os.Stat(a.Worktree); err != nil {
 				s.State = "missing"
+			}
+		case a.OnCluster():
+			// A pod's state is its row's, as the reconciler last wrote it: the
+			// machine reads it, so the two runtimes are told apart here rather
+			// than by an instance name Incus never had.
+			if inst, err := m.machine(a).Info(ctx); err == nil {
+				s.State, s.IP, s.StartedAt = displayState(inst.State), inst.IPv4, inst.LastUsedAt
 			}
 		default:
 			if inst, ok := byName[a.Instance]; ok {

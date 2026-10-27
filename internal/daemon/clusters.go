@@ -46,6 +46,7 @@ func clusterInfo(c state.Cluster) api.Cluster {
 		Namespace:    c.Namespace,
 		StorageClass: c.StorageClass,
 		Image:        c.Image,
+		MasterURL:    c.MasterURL,
 		Registry:     c.Registry,
 		MaxAgents:    c.MaxAgents,
 		CPU:          c.CPU,
@@ -196,6 +197,27 @@ func (s *Server) pullSecretName(ctx context.Context, c state.Cluster) string {
 	return k8s.PullSecretName(reg.Name)
 }
 
+// ensureEgress declares the master's egress Service to the Tailscale operator,
+// which is what lets this cluster's pods dial this machine. A cluster that
+// scripts/k3d-up.sh --operator didn't prepare has no operator to answer, and
+// without the Service no pod can reach the daemon.
+func (s *Server) ensureEgress(ctx context.Context, c state.Cluster) error {
+	host, ok := k8s.MasterEgressHost(c.MasterURL)
+	if !ok {
+		return fmt.Errorf("cluster %s has no master URL to declare to the Tailscale operator: set one with agentbox cluster set %s --master-url <url>",
+			c.Name, c.Name)
+	}
+	cluster, err := s.clusterClient(c)
+	if err != nil {
+		return err
+	}
+	if err := cluster.EnsureEgress(ctx, []k8s.EgressHost{host}); err != nil {
+		return fmt.Errorf("the egress Service for %s wasn't declared: %w; --tailnet operator needs the Tailscale operator installed, which scripts/k3d-up.sh --operator does",
+			host.Host, err)
+	}
+	return nil
+}
+
 func (s *Server) listClusters(w http.ResponseWriter, r *http.Request) error {
 	clusters, err := s.store.Clusters(r.Context())
 	if err != nil {
@@ -252,6 +274,7 @@ func (s *Server) addCluster(w http.ResponseWriter, r *http.Request) error {
 		Namespace:    namespace,
 		StorageClass: req.StorageClass,
 		Image:        req.Image,
+		MasterURL:    strings.TrimSpace(req.MasterURL),
 		Registry:     req.Registry,
 		MaxAgents:    req.MaxAgents,
 		CPU:          req.CPU,
@@ -268,6 +291,13 @@ func (s *Server) addCluster(w http.ResponseWriter, r *http.Request) error {
 		// should be able to add again, and a row they have to remove first.
 		if err := s.writePullSecret(ctx, cluster, *reg); err != nil {
 			return fmt.Errorf("applying the pull secret: %w", err)
+		}
+	}
+	if cluster.Tailnet == state.TailnetOperator {
+		// Also before the row, for the same reason: a cluster whose egress
+		// Services can't be declared is one to fix and add again.
+		if err := s.ensureEgress(ctx, cluster); err != nil {
+			return err
 		}
 	}
 	if err := s.store.AddCluster(ctx, cluster); err != nil {
@@ -295,6 +325,7 @@ func (s *Server) setClusterConfig(w http.ResponseWriter, r *http.Request) error 
 	changedRegistry := cfg.Registry != cluster.Registry
 	cluster.StorageClass = cfg.StorageClass
 	cluster.Image = cfg.Image
+	cluster.MasterURL = strings.TrimSpace(cfg.MasterURL)
 	cluster.Registry = cfg.Registry
 	cluster.MaxAgents = cfg.MaxAgents
 	cluster.CPU = cfg.CPU
@@ -308,6 +339,11 @@ func (s *Server) setClusterConfig(w http.ResponseWriter, r *http.Request) error 
 	if changedRegistry && reg != nil {
 		if err := s.writePullSecret(ctx, cluster, *reg); err != nil {
 			return fmt.Errorf("the cluster's config is saved, but its pull secret isn't: %w", err)
+		}
+	}
+	if cluster.Tailnet == state.TailnetOperator {
+		if err := s.ensureEgress(ctx, cluster); err != nil {
+			return fmt.Errorf("the cluster's config is saved, but %w", err)
 		}
 	}
 	return writeJSON(w, http.StatusOK, clusterInfo(cluster))
@@ -337,12 +373,19 @@ func (s *Server) doctorCluster(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	report := k8s.Doctor{
+	doctor := k8s.Doctor{
 		Cluster:      client,
 		StorageClass: cluster.StorageClass,
 		Image:        imageRef(cluster, reg),
 		PullSecret:   s.pullSecretName(ctx, cluster),
-	}.Run(ctx)
+		MasterURL:    cluster.MasterURL,
+	}
+	if cluster.Tailnet == state.TailnetOperator {
+		if host, ok := k8s.MasterEgressHost(cluster.MasterURL); ok {
+			doctor.Egress = []k8s.EgressHost{host}
+		}
+	}
+	report := doctor.Run(ctx)
 	health := ""
 	if report.Failed() {
 		health = firstFailure(report)

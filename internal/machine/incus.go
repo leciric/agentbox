@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"sync"
@@ -169,6 +170,23 @@ func (m IncusMachine) HasSnapshot(ctx context.Context, name string) (bool, error
 
 func (m IncusMachine) Usage(ctx context.Context) (int64, error) {
 	return m.client.VolumeUsage(ctx, m.poolName(), m.ref)
+}
+
+// Dial connects to network/addr on this host, where an Incus proxy device
+// exposes a port inside the instance: a desktop's VNC, a browser's debugging
+// port, or the agent's own API socket.
+func (m IncusMachine) Dial(ctx context.Context, network, addr string) (net.Conn, error) {
+	conn, err := (&net.Dialer{}).DialContext(ctx, network, addr)
+	if err != nil {
+		// A socket that isn't there is the machine not being there, in the
+		// terms this package uses; a refused port is a different failure and
+		// keeps its own words.
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("%w: %s: %v", ErrNotFound, addr, err)
+		}
+		return nil, err
+	}
+	return conn, nil
 }
 
 func info(inst incus.Instance) Info {

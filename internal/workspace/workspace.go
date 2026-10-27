@@ -90,8 +90,8 @@ type DiffOptions struct {
 	BaseCommit string
 	// Onto, when given, is the branches the diff is measured from instead:
 	// the base branch of the agent's pull request.
-	Onto  []string
-	Stat  bool
+	Onto []string
+	Stat bool
 	// Paths limits the diff to those paths, relative to the tree's root.
 	Paths []string
 }

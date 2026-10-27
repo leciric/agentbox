@@ -349,6 +349,7 @@ func NewRootCmd() *cobra.Command {
 		newJobsCmd(a),
 		newEventsCmd(a),
 		newDaemonCmd(a),
+		newAgentdCmd(a),
 		newHostCmd(a),
 		newBrowserCmd(a),
 		newMediaCmd(a),
@@ -369,6 +370,7 @@ func NewRootCmd() *cobra.Command {
 		newWSLBridgeCmd(a),
 		newSetupFunnelCmd(a),
 	)
+	addAgentImageCmd(root, a)
 	return root
 }
 
