@@ -3743,6 +3743,109 @@ export interface DiagnosticsFiles {
   waiting: boolean;
 }
 
+export interface Cluster {
+  name: string;
+  namespace: string;
+  storageClass?: string;
+  image?: string;
+  registry?: string;
+  maxAgents: number;
+  cpu?: string;
+  memory?: string;
+  labels?: Record<string, string>;
+  tailnet: string;
+  capabilities?: string[];
+  createdAt: string;
+  lastSeen?: string;
+  lastError?: string;
+  capacity?: ClusterCapacity;
+}
+
+export interface ClusterConfig {
+  storageClass?: string;
+  image?: string;
+  registry?: string;
+  maxAgents: number;
+  cpu?: string;
+  memory?: string;
+  labels?: Record<string, string>;
+  tailnet: string;
+  capabilities?: string[];
+}
+
+export interface ClusterCapacity {
+  agents: number;
+  running: number;
+  cpu?: string;
+  memory?: string;
+  at: string;
+  error?: string;
+}
+
+export interface AddClusterRequest {
+  name: string;
+  namespace?: string;
+  storageClass?: string;
+  image?: string;
+  registry?: string;
+  maxAgents?: number;
+  cpu?: string;
+  memory?: string;
+  labels?: Record<string, string>;
+  tailnet?: string;
+  capabilities?: string[];
+  kubeconfig: string;
+}
+
+export interface RotateClusterRequest {
+  kubeconfig: string;
+}
+
+export interface ClusterReport {
+  server?: string;
+  ok: boolean;
+  checks: ClusterCheck[];
+}
+
+export interface ClusterCheck {
+  name: string;
+  ok: boolean;
+  skipped?: boolean;
+  detail?: string;
+}
+
+export interface Registry {
+  name: string;
+  url: string;
+  public: boolean;
+  hasCa: boolean;
+  hasCredential: boolean;
+  insecure: boolean;
+  createdAt: string;
+  lastSeen?: string;
+  lastError?: string;
+}
+
+export interface AddRegistryRequest {
+  name: string;
+  url: string;
+  username?: string;
+  token?: string;
+  public?: boolean;
+  ca?: string;
+  insecure?: boolean;
+}
+
+export interface RotateRegistryRequest {
+  username?: string;
+  token?: string;
+}
+
+export interface RegistryTest {
+  ok: boolean;
+  detail: string;
+}
+
 export const JobRunning = "running";
 export const JobSucceeded = "succeeded";
 export const JobFailed = "failed";

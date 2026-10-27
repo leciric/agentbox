@@ -63,6 +63,8 @@ var tsTypes = []any{
 	FanOutRequest{}, FanOutVariant{}, FanOutResult{}, Group{}, GroupMember{}, KeepRequest{}, RecommendRequest{}, GroupChange{},
 	TraceSpan{}, SpanStats{}, DiagnosticsSpans{}, DiagnosticsStalls{}, VMResourceSample{}, AgentResourceSample{}, AgentResources{}, DiagnosticsResources{}, PackageCachePart{}, DiagnosticsPackageCache{}, ClientSpansRequest{},
 	ShareReport{}, FileCount{}, DiagnosticsFiles{},
+	Cluster{}, ClusterConfig{}, ClusterCapacity{}, AddClusterRequest{}, RotateClusterRequest{}, ClusterReport{}, ClusterCheck{},
+	Registry{}, AddRegistryRequest{}, RotateRegistryRequest{}, RegistryTest{},
 }
 
 var tsConstants = [][2]string{

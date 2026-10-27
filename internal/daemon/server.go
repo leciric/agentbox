@@ -868,6 +868,22 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/tailnet", s.getTailnet)
 	h("PATCH /v1/tailnet", s.updateTailnet)
 
+	// Where agents run when they don't run here, and where their images come
+	// from (clusters.go).
+	h("GET /v1/clusters", s.listClusters)
+	h("POST /v1/clusters", s.addCluster)
+	h("GET /v1/clusters/{name}", s.getCluster)
+	h("PUT /v1/clusters/{name}", s.setClusterConfig)
+	h("DELETE /v1/clusters/{name}", s.removeCluster)
+	h("POST /v1/clusters/{name}/doctor", s.doctorCluster)
+	h("POST /v1/clusters/{name}/rotate", s.rotateCluster)
+	h("GET /v1/registries", s.listRegistries)
+	h("POST /v1/registries", s.addRegistry)
+	h("GET /v1/registries/{name}", s.getRegistry)
+	h("DELETE /v1/registries/{name}", s.removeRegistry)
+	h("POST /v1/registries/{name}/test", s.testRegistry)
+	h("POST /v1/registries/{name}/rotate", s.rotateRegistry)
+
 	h("GET /v1/theme", s.themeStatus)
 	h("PATCH /v1/theme", s.updateTheme)
 	h("GET /v1/update", s.getUpdate)
