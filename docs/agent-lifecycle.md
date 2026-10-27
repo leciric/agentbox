@@ -4,7 +4,9 @@
 
 An agent is a git worktree, a branch, an Incus container and a tmux session with an AI tool
 running in it, all created together by `agentbox create` and torn down together by
-`agentbox destroy`.
+`agentbox destroy`. On a Kubernetes cluster the worktree and its home live on a claim instead, and
+the machine is a pod: [Agents in a Kubernetes cluster](kubernetes.md) is the user-facing side, and
+[the Kubernetes path](#the-kubernetes-path) below is what differs here.
 
 ## What an agent is
 
@@ -12,13 +14,15 @@ The `Agent` row (`internal/state/state.go`) has, among others:
 
 - `Project`, `Name` — identity.
 - `Instance` — the Incus container name, `"ab-<project>-<agent>"` (`internal/agent/agent.go`).
+  Empty for a cluster agent, whose machine is a pod.
 - `Branch` — the git branch: the project's branch prefix (`agentbox/` unless it was changed) and the agent's name.
 - `Worktree` — the host path, `~/.local/share/agentbox/worktrees/<project>/<agent>`
-  (`internal/paths`).
+  (`internal/paths`). Empty for a cluster agent, whose tree is on its claim, in `Workspace`.
 - `Status` — `AgentCreating` or `AgentReady` (`state.go`). This is not the container's power
   state: `agentbox stop`/`pause`/`resume` (`internal/agent/agent.go`, `Manager.Stop`/`Pause`/
   `Resume`) act on the Incus instance directly (`incus stop`/`pause`/`resume`) and don't change
-  this column.
+  this column. For a cluster agent they write `DesiredState` instead, and the reconciler makes or
+  deletes the pod.
 - `AI` — which tool it runs: `"claude"`, `"codex"`, `"opencode"`, or `"none"`.
 - `Autonomous` — whether its AI tool starts unattended.
 - `Role` — `RoleWorker` for a normal agent, or `RoleLead` for the project's chat, which has no
@@ -129,3 +133,51 @@ stateDiagram-v2
 `create_agent`, `agentbox image build`, and taking or restoring a snapshot are all jobs; their
 result is persisted to the `jobs` table (`internal/state`) once they finish, and the job status
 matches `internal/api/types.go`'s `JobRunning`/`JobSucceeded`/`JobFailed`/`JobCancelled`.
+
+## The Kubernetes path
+
+An agent created with `--cluster <name>` runs on a cluster instead of this host, and `build()`
+(`internal/agent/agent.go`) skips the steps above that make a machine here. The row is written with
+`Cluster`, `Runtime = "kubernetes"`, `Workspace = "/workspace"`, `DesiredState = "running"` and an
+empty `Worktree`, and no worktree is created on this host. The daemon's reconciler
+(`internal/daemon/reconciler.go`) makes the pod from that row within its next five-second round;
+`build()` then waits up to five minutes for the pod's `agentd` to open its gateway session
+(`podReadyTimeout`), and configures the agent as it does on a host: the git profile is cloned into
+the pod (`clonePodGit`, `internal/agent/gitprofile.go`), the brief is written, and the tmux session
+starts. Everything after that reaches the machine over the gateway, since this host has no path to
+it.
+
+The claim is the machine, and the pod is a use of it. One claim holds `/workspace` and
+`/home/agent`, so the worktree, the home, the tools' state and the uncommitted work stay when the
+pod goes (`internal/k8s/spec.go`; the workspace is `internal/workspace/pod.go`). That is why the
+operations below keep the agent's work:
+
+- `stop` sets `DesiredState = "stopped"`, which the reconciler reads as "delete the pod"; the claim
+  stays (`podLifecycle.Stop`, `internal/daemon/pods.go`).
+- `start` sets it back to `"running"`, and the next round makes a new pod on the same claim.
+  `Manager.Start` waits for its session and writes the secrets, the git config, the brief and the
+  tmux session into it again.
+- `pause` has no pod equivalent: `podMachine.Pause` answers `machine.ErrNotSupported` and
+  `Manager.Pause` stops the pod instead, which is what frees the memory a pause is for. The row
+  still records the pause, and `resume` starts it (`internal/machine/kubernetes.go`,
+  `internal/agent/agent.go`).
+- `destroy` deletes the pod, its token Secret and its claim, in that order, and then archives the
+  row (`destroyMachine`, `internal/daemon/pods.go`). Nothing of the claim is kept.
+- `recreate` replaces the pod and keeps the claim (`podLifecycle.Recreate`,
+  `internal/daemon/pods.go`): the row is stopped, the pod is deleted and waited for, and the row's
+  pod and pinned image are cleared so the new pod runs the cluster's current image.
+  `Manager.recreatePod` (`internal/agent/recreate.go`) waits for the session and writes the env,
+  the git config, the brief and the tmux session again, because none of those were on the claim.
+- `move` is a claim archive and restore across clusters (`internal/daemon/move.go`,
+  `moveAgentRun`). It checkpoints the worktree and publishes the branch first when the pod is running
+  (a stopped agent's worktree is only in the claim), stops the source pod so the claim can be read,
+  streams it through `ArchiveClaim` into `RestoreClaim` on the target with a helper pod in each
+  cluster, and writes the row onto the new claim with `store.MoveAgent`. The reconciler makes the
+  target pod, and the move is done when that pod answers the gateway and `Start` has configured it.
+  Only then are the source pod, its token and its claim removed.
+
+The token is minted per pod and dies with it. `startPod` (`internal/daemon/reconciler.go`) makes 32
+random bytes, writes them to `agent_tokens` as a SHA-256 and puts the plaintext in the pod's Secret
+before the pod is made, so a token the daemon never issued is refused. A stop deletes the pod and
+its token (`clearPod`), and a recreate removes the old token before the new pod is asked for
+(`podLifecycle.Recreate`), so every start has a new one.

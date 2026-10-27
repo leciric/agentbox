@@ -47,6 +47,62 @@ publishes events as it progresses, and persists the result to the `jobs` table. 
 `GET /v1/jobs` or follows the event stream. See [An agent's lifecycle](agent-lifecycle.md) for the
 job state diagram.
 
+## Machines
+
+An agent's machine is an Incus instance on this host, or a pod in a Kubernetes cluster (see
+[Agents in a Kubernetes cluster](kubernetes.md)). [`internal/machine`](../internal/machine) is the
+seam between the two: `Machine` ([`machine.go`](../internal/machine/machine.go)) is the set of
+operations that mean the same thing in both (start, stop, exec, a terminal, files in and out,
+snapshots, disk use, and `Dial` for a port inside), and `Runtime` is a place machines run, asked
+for one machine by name. `Manager.machine()` in [`internal/agent/agent.go`](../internal/agent/agent.go)
+picks per agent: one with a `Cluster` gets `Kubernetes.Machine("<project>/<agent>")`, and every
+other one gets the host's `Incus` runtime and its instance name. The Incus implementation
+([`internal/machine/incus.go`](../internal/machine/incus.go)) forwards to
+[`internal/incus`](../internal/incus) and changes nothing about the host path.
+
+The pod implementation ([`internal/machine/kubernetes.go`](../internal/machine/kubernetes.go)) has
+two halves. Everything inside the pod (a command, a file, a terminal, a port) is a stream on the
+agent's gateway session. Start, stop, destroy and recreate are not: a pod does not make or delete
+itself, so `podMachine` hands those to `Pods` ([`internal/daemon/pods.go`](../internal/daemon/pods.go)),
+and the daemon writes the row the reconciler acts on. `Pause` answers `machine.ErrNotSupported`, and
+the manager stops the pod instead. `kubernetes.go` also declares the optional interfaces a runtime
+may implement, `Recreator`, `ClaimPreparer` and `GitSnapshotter`, which the pod does and an Incus
+machine does not.
+
+The daemon owns the rows and the pods. `reconcileClusters` (`internal/daemon/reconciler.go`) runs a
+round every five seconds for each cluster an agent runs in: it lists the namespace's pods by their
+`agentbox/managed` label and makes them agree with the rows. An agent whose row asks for running
+has a pod, a stopped one has none, a destroyed one leaves no pod, token or claim, and a pod the
+cluster reports `Failed` is deleted so the next round makes a new one. Starting a pod mints its
+session token on the way (32 random bytes, of which only the SHA-256 is kept, in `agent_tokens`).
+The same round measures the cluster's room (`measureCapacity`), and `watchCapacities` does it every
+30 seconds as well, so a cluster no agent runs in yet still reports what it has.
+
+The gateway ([`internal/gateway`](../internal/gateway)) is the one way the daemon reaches anything
+inside a pod. A pod has no Incus proxy devices, so nothing outside it reaches a port inside: `agentd`
+([`internal/agentd`](../internal/agentd)), its only process, opens a WebSocket out to the daemon and
+keeps it, and `gateway.Server` opens a multiplexed stream per operation over that connection (a
+JSON header naming `exec`, `read`, `write`, `list`, `dial`, `attach` or `control`, then frames). The
+daemon serves it at `/v1/agent-gateway` on its own API and, when `AGENTBOX_GATEWAY_ADDR` names one,
+on a listener of its own for a cluster on this machine (`internal/daemon/agentgateway.go`). So a
+pod needs no Service, no Ingress and no route from the cluster, and the desktop's VNC server and
+Chromium's DevTools port are reached the same way a command is.
+
+What an agent's pod needs is made in `Cluster.Create` (`internal/k8s/runtime.go`), one object at a
+time: the claim its worktree and home live on (`BuildPVC`), the Secret its token is in
+(`BuildTokenSecret`), then the pod (`BuildPod`). A claim or pod that already exists is kept.
+[`internal/k8s/spec.go`](../internal/k8s/spec.go) names them
+(`ab-<project>-<agent>`, `-workspace` and `-token`) and builds the pod: `agentd` as its only
+container, an init container that gives `/workspace` and `/home/agent` to uid 1000, emptyDir for
+`/tmp`, `/dev/shm` and `/run/agentbox`, and the token Secret mounted read-only at
+`/run/agentbox-secrets/token`. A cluster whose pods reach the tailnet also gets one ExternalName
+Service per host, declared to the Tailscale operator by `EnsureEgress`
+([`internal/k8s/tailnet.go`](../internal/k8s/tailnet.go)), and `scripts/k3d-up.sh --operator`
+installs the operator, its ProxyGroup and the DNSConfig. The namespace carries one NetworkPolicy
+for agent pods (`NetPol`, [`internal/k8s/netpol.go`](../internal/k8s/netpol.go)): it refuses every
+connection into an agent's pod and lets the pod dial out, and `cluster add`, `set` and `rotate`
+apply it (`ensureNetPol`, `internal/daemon/clusters.go`).
+
 ## The API
 
 [`internal/api`](../internal/api) defines the wire types (`types.go`: `Project`, `Agent`, `Job`,
@@ -190,7 +246,10 @@ erDiagram
 - **agents** — one row per agent (and one per project for its lead, with `role = "lead"` and no
   Incus instance). `status` is only `"creating"` or `"ready"` (`state.go`, `AgentCreating`/
   `AgentReady`); stopped/paused/running is Incus container state, not a column here — see
-  [An agent's lifecycle](agent-lifecycle.md).
+  [An agent's lifecycle](agent-lifecycle.md). A cluster agent's row also says which cluster and
+  claim its machine is on (`cluster`, `runtime`, `claim`), which pod was adopted for it (`pod`,
+  `pod_uid`) and what its machine was asked to do (`desired_state`: `running`, `stopped` or
+  `destroyed`), which is what the cluster's reconciler reads.
 - **jobs** — a slow daemon operation; `status` is `"running"`, `"succeeded"`, `"failed"` or
   `"cancelled"` (`internal/api/types.go`: `JobRunning`, `JobSucceeded`, `JobFailed`,
   `JobCancelled`).
