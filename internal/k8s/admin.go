@@ -17,12 +17,12 @@ import (
 )
 
 const (
-	// TokenSecretName is the long-lived token Secret `cluster add` makes for the
-	// ServiceAccount. A TokenRequest token would expire within the hour, and
-	// refreshing it would mean keeping an admin kubeconfig or running a
+	// ServiceAccountTokenSecret is the long-lived token Secret `cluster add`
+	// makes for the ServiceAccount. A TokenRequest token would expire within the
+	// hour, and refreshing it would mean keeping an admin kubeconfig or running a
 	// token-minter in the cluster; this one is static, and `cluster rotate`
 	// replaces it.
-	TokenSecretName = "agentbox-token"
+	ServiceAccountTokenSecret = "agentbox-token"
 	// tokenWait is how long a token Secret has for the cluster's controller to
 	// fill it in.
 	tokenWait = 60 * time.Second
@@ -83,7 +83,7 @@ func (a *Admin) Token(ctx context.Context, namespace string) ([]byte, error) {
 	secret := &corev1.Secret{
 		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      TokenSecretName,
+			Name:      ServiceAccountTokenSecret,
 			Namespace: namespace,
 			Annotations: map[string]string{
 				corev1.ServiceAccountNameKey: ServiceAccountName,
@@ -93,10 +93,10 @@ func (a *Admin) Token(ctx context.Context, namespace string) ([]byte, error) {
 	}
 	created, err := secrets.Create(ctx, secret, metav1.CreateOptions{})
 	if apierrors.IsAlreadyExists(err) {
-		created, err = secrets.Get(ctx, TokenSecretName, metav1.GetOptions{})
+		created, err = secrets.Get(ctx, ServiceAccountTokenSecret, metav1.GetOptions{})
 	}
 	if err != nil {
-		return nil, fmt.Errorf("the token Secret %s/%s: %w", namespace, TokenSecretName, err)
+		return nil, fmt.Errorf("the token Secret %s/%s: %w", namespace, ServiceAccountTokenSecret, err)
 	}
 	deadline := time.Now().Add(tokenWait)
 	for {
@@ -105,15 +105,15 @@ func (a *Admin) Token(ctx context.Context, namespace string) ([]byte, error) {
 		}
 		if time.Now().After(deadline) {
 			return nil, fmt.Errorf("the token Secret %s/%s is still empty after %s: this cluster doesn't fill token Secrets in, so make one by hand with kubectl create token",
-				namespace, TokenSecretName, tokenWait)
+				namespace, ServiceAccountTokenSecret, tokenWait)
 		}
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-time.After(tokenPoll):
 		}
-		if created, err = secrets.Get(ctx, TokenSecretName, metav1.GetOptions{}); err != nil {
-			return nil, fmt.Errorf("reading the token Secret %s/%s: %w", namespace, TokenSecretName, err)
+		if created, err = secrets.Get(ctx, ServiceAccountTokenSecret, metav1.GetOptions{}); err != nil {
+			return nil, fmt.Errorf("reading the token Secret %s/%s: %w", namespace, ServiceAccountTokenSecret, err)
 		}
 	}
 }
@@ -122,9 +122,9 @@ func (a *Admin) Token(ctx context.Context, namespace string) ([]byte, error) {
 // a new one made. Anything holding the old token stops being able to reach the
 // cluster, which is the point.
 func (a *Admin) RotateToken(ctx context.Context, namespace string) ([]byte, error) {
-	err := a.client.CoreV1().Secrets(namespace).Delete(ctx, TokenSecretName, metav1.DeleteOptions{})
+	err := a.client.CoreV1().Secrets(namespace).Delete(ctx, ServiceAccountTokenSecret, metav1.DeleteOptions{})
 	if err != nil && !apierrors.IsNotFound(err) {
-		return nil, fmt.Errorf("deleting the old token Secret %s/%s: %w", namespace, TokenSecretName, err)
+		return nil, fmt.Errorf("deleting the old token Secret %s/%s: %w", namespace, ServiceAccountTokenSecret, err)
 	}
 	return a.Token(ctx, namespace)
 }
