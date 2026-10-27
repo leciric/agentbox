@@ -3305,6 +3305,11 @@ type AndroidStatus struct {
 	Booted    bool     `json:"booted"`            // and Android has finished starting
 	Image     string   `json:"image,omitempty"`   // the running device's system image
 	Device    string   `json:"device,omitempty"`  // like "Pixel 7, Android 15 (API 35)"
+	// GPU: the emulator renders on the agent's GPU, and on SwiftShader, its
+	// software renderer, otherwise: with no GPU, or when it didn't start on
+	// the GPU, which GPUProblem then says.
+	GPU        bool   `json:"gpu"`
+	GPUProblem string `json:"gpuProblem,omitempty"`
 }
 
 type AndroidStartRequest struct {

@@ -37,6 +37,14 @@ func printAndroid(cmd *cobra.Command, st api.AndroidStatus) {
 	switch {
 	case st.Booted:
 		_, _ = fmt.Fprintf(out, "The emulator is running: %s\n", st.Device)
+		switch {
+		case st.GPU:
+			_, _ = fmt.Fprintln(out, "It renders on the GPU")
+		case st.GPUProblem != "":
+			_, _ = fmt.Fprintf(out, "It renders in software (SwiftShader): it didn't start on the GPU (%s)\n", st.GPUProblem)
+		default:
+			_, _ = fmt.Fprintln(out, "It renders in software (SwiftShader): this agent has no GPU it can use")
+		}
 	case st.Running:
 		_, _ = fmt.Fprintln(out, "The emulator is starting")
 	default:

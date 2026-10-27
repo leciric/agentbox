@@ -2028,6 +2028,8 @@ export interface AndroidStatus {
   booted: boolean;
   image?: string;
   device?: string;
+  gpu: boolean;
+  gpuProblem?: string;
 }
 
 export interface AndroidStartRequest {

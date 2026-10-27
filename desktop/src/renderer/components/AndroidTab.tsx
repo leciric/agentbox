@@ -226,6 +226,22 @@ export function AndroidTab({ agent, onOpenMedia, onSetup, compact = false }: { a
 
       <div className="flex h-8 shrink-0 items-center gap-3 border-t border-line px-4 text-xs text-subtle">
         <span className="truncate font-mono text-[11px]">{booted ? status.data?.image : ''}</span>
+        {booted && (
+          <Tip
+            side="top"
+            label={
+              status.data?.gpu
+                ? t('agent.android.gpuTip')
+                : status.data?.gpuProblem
+                  ? t('agent.android.gpuFailedTip', { problem: status.data.gpuProblem })
+                  : t('agent.android.softwareTip')
+            }
+          >
+            <span className={cn('shrink-0', !status.data?.gpu && status.data?.gpuProblem && 'text-amber-400')}>
+              {status.data?.gpu ? t('agent.android.gpu') : t('agent.android.software')}
+            </span>
+          </Tip>
+        )}
         <span className="ml-auto shrink-0">
           {!booted ? '' : control ? t('agent.android.controlOn') : t('agent.android.viewOnly')}
         </span>
