@@ -29,6 +29,7 @@ import (
 	"agentbox/internal/image"
 	"agentbox/internal/incus"
 	"agentbox/internal/iossim"
+	"agentbox/internal/machine"
 	"agentbox/internal/naming"
 	"agentbox/internal/nodemods"
 	"agentbox/internal/notes"
@@ -243,8 +244,12 @@ func (m *Manager) ChatChoices(ctx context.Context, ai string, model, effort *str
 type Manager struct {
 	Store *state.Store
 	Incus incus.Client
-	Paths paths.Paths
-	Creds credentials.Store
+	// Runtime is where agents' machines run: Incus on this host, or a
+	// Kubernetes cluster. Unset is Incus, which is what every installation
+	// ran before the runtime seam existed.
+	Runtime machine.Runtime
+	Paths   paths.Paths
+	Creds   credentials.Store
 	// Secrets are the keys and tokens the user hands to agents, delivered as a
 	// file inside each one (secrets.go).
 	Secrets secrets.Store
@@ -315,6 +320,17 @@ type Manager struct {
 }
 
 func InstanceName(project, agent string) string { return "ab-" + project + "-" + agent }
+
+// machine is the runtime's machine for a: the seam every operation that means
+// the same thing on Incus and on Kubernetes goes through. A Manager with no
+// Runtime drives Incus, which is what every installation ran before the seam
+// existed.
+func (m *Manager) machine(a state.Agent) machine.Machine {
+	if m.Runtime != nil {
+		return m.Runtime.Machine(a.Instance)
+	}
+	return machine.NewIncus(m.Incus).Machine(a.Instance)
+}
 
 // ParseRef splits "<project>/<agent>".
 func ParseRef(ref string) (project, agent string, err error) {
@@ -876,14 +892,14 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 			return "devices", err
 		}
 	}
-	inst, err := m.Incus.WaitReady(ctx, a.Instance, readyTimeout)
+	inst, err := m.machine(a).WaitReady(ctx, readyTimeout)
 	if err != nil {
 		return "waiting for the machine", err
 	}
 	// A mount can be hidden by one the agent's OS makes at boot, so check, as the
 	// agent's user, that git works in the worktree.
 	var gitOut bytes.Buffer
-	if err := m.Incus.UserExec(ctx, a.Instance, m.User.Name, "git -C "+shellQuote(a.Worktree)+" rev-parse --git-dir", nil, &gitOut, &gitOut); err != nil {
+	if err := m.machine(a).UserExec(ctx, m.User.Name, "git -C "+shellQuote(a.Worktree)+" rev-parse --git-dir", nil, &gitOut, &gitOut); err != nil {
 		return "worktree mount", fmt.Errorf("the worktree isn't usable inside the agent: %w: %s", err, strings.TrimSpace(gitOut.String()))
 	}
 	// Tools that find a monorepo's root through git write next to the main
@@ -891,7 +907,7 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 	// directory only holds the .git mount, and root made it. Give it to the
 	// agent's user, so those writes land in the agent's own filesystem; the
 	// project's checkout on the host isn't mounted, and stays untouched.
-	if _, err := m.Incus.Exec(ctx, a.Instance, "chown", fmt.Sprintf("%d:%d", m.User.UID, m.User.GID), filepath.Dir(repo.GitDir)); err != nil {
+	if _, err := m.machine(a).Exec(ctx, "chown", fmt.Sprintf("%d:%d", m.User.UID, m.User.GID), filepath.Dir(repo.GitDir)); err != nil {
 		return "worktree mount", err
 	}
 	if err := m.EnsureAgentAPI(ctx, a); err != nil {
@@ -910,7 +926,7 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 	// finds node_modules already there when its lockfile was installed before.
 	m.ensureNodeModules(ctx, a)
 	m.logf("Configuring git, AI tool logins and the agent brief")
-	if err := m.configure(ctx, a, inst.IPv4(), envFiles, task); err != nil {
+	if err := m.configure(ctx, a, inst.IPv4, envFiles, task); err != nil {
 		return "configure", err
 	}
 	// Before the session, so the AI tool's first install finds the caches.
@@ -1306,7 +1322,7 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 	}
 
 	for _, f := range files {
-		if err := m.Incus.WriteFile(ctx, a.Instance, f.path, []byte(f.content), m.User.UID, m.User.GID, f.mode); err != nil {
+		if err := m.machine(a).WriteFile(ctx, f.path, []byte(f.content), m.User.UID, m.User.GID, f.mode); err != nil {
 			return err
 		}
 	}
@@ -1701,7 +1717,7 @@ func (m *Manager) writeAgentEnv(ctx context.Context, a state.Agent) error {
 	if err != nil {
 		return err
 	}
-	if err := m.Incus.WriteFile(ctx, a.Instance, m.EnvPath(), []byte(env), m.User.UID, m.User.GID, 0o600); err != nil {
+	if err := m.machine(a).WriteFile(ctx, m.EnvPath(), []byte(env), m.User.UID, m.User.GID, 0o600); err != nil {
 		return err
 	}
 	return m.writeBashEnv(ctx, a)
@@ -1711,11 +1727,11 @@ func (m *Manager) writeAgentEnv(ctx context.Context, a state.Agent) error {
 // The token is a file inside it, so a stopped or paused agent can't be given
 // it now — it gets the current one when Start next writes its env file fresh.
 func (m *Manager) writeAgentEnvIfRunning(ctx context.Context, a state.Agent) error {
-	inst, err := m.Incus.Instance(ctx, a.Instance)
+	inst, err := m.machine(a).Info(ctx)
 	if err != nil {
 		return err
 	}
-	if inst.Status != "Running" {
+	if inst.State != "Running" {
 		return nil
 	}
 	return m.writeAgentEnv(ctx, a)
@@ -1733,18 +1749,18 @@ func (m *Manager) writeGitConfig(ctx context.Context, a state.Agent) error {
 		return err
 	}
 	home := "/home/" + m.User.Name
-	return m.Incus.WriteFile(ctx, a.Instance, home+"/.gitconfig", []byte(gitConfig(gh != "", hooks)), m.User.UID, m.User.GID, 0o644)
+	return m.machine(a).WriteFile(ctx, home+"/.gitconfig", []byte(gitConfig(gh != "", hooks)), m.User.UID, m.User.GID, 0o644)
 }
 
 // writeGitConfigIfRunning writes an agent's .gitconfig when its machine is
 // up, the same way writeAgentEnvIfRunning does for its env file: a stopped or
 // paused agent gets it fresh when Start next configures it.
 func (m *Manager) writeGitConfigIfRunning(ctx context.Context, a state.Agent) error {
-	inst, err := m.Incus.Instance(ctx, a.Instance)
+	inst, err := m.machine(a).Info(ctx)
 	if err != nil {
 		return err
 	}
-	if inst.Status != "Running" {
+	if inst.State != "Running" {
 		return nil
 	}
 	return m.writeGitConfig(ctx, a)
@@ -1764,7 +1780,7 @@ func (m *Manager) RewriteAgentEnv(ctx context.Context) error {
 		if a.IsLead() || a.Status != state.AgentReady {
 			continue
 		}
-		if inst, err := m.Incus.Instance(ctx, a.Instance); err != nil || inst.Status != "Running" {
+		if inst, err := m.machine(a).Info(ctx); err != nil || inst.State != "Running" {
 			continue
 		}
 		if err := m.writeAgentEnv(ctx, a); err != nil {
@@ -1810,11 +1826,11 @@ func (m *Manager) RewriteBriefs(ctx context.Context, project string) error {
 			}
 			continue
 		}
-		inst, err := m.Incus.Instance(ctx, a.Instance)
-		if err != nil || inst.Status != "Running" {
+		inst, err := m.machine(a).Info(ctx)
+		if err != nil || inst.State != "Running" {
 			continue
 		}
-		if err := m.writeBrief(ctx, a, inst.IPv4(), envFiles); err != nil {
+		if err := m.writeBrief(ctx, a, inst.IPv4, envFiles); err != nil {
 			failed = append(failed, a.Ref())
 		}
 	}
@@ -1834,7 +1850,7 @@ func (m *Manager) writeBrief(ctx context.Context, a state.Agent, ip string, envF
 		return err
 	}
 	for _, path := range m.briefPaths() {
-		if err := m.Incus.WriteFile(ctx, a.Instance, path, []byte(text), m.User.UID, m.User.GID, 0o644); err != nil {
+		if err := m.machine(a).WriteFile(ctx, path, []byte(text), m.User.UID, m.User.GID, 0o644); err != nil {
 			return err
 		}
 	}
@@ -1852,11 +1868,11 @@ func (m *Manager) Restack(ctx context.Context, a state.Agent, ref, commit string
 		return a, err
 	}
 	a.BaseRef, a.BaseCommit = ref, commit
-	inst, err := m.Incus.Instance(ctx, a.Instance)
-	if err != nil || inst.Status != "Running" {
+	inst, err := m.machine(a).Info(ctx)
+	if err != nil || inst.State != "Running" {
 		return a, nil
 	}
-	return a, m.writeBrief(ctx, a, inst.IPv4(), m.projectEnvFiles(ctx, a.Project))
+	return a, m.writeBrief(ctx, a, inst.IPv4, m.projectEnvFiles(ctx, a.Project))
 }
 
 // projectEnvFiles lists a project's gitignored env files for a brief written
@@ -2003,7 +2019,7 @@ func (m *Manager) ensureSession(ctx context.Context, a state.Agent) error {
 	}
 	script += window
 	var out bytes.Buffer
-	if err := m.Incus.UserExec(ctx, a.Instance, m.User.Name, script, nil, &out, &out); err != nil {
+	if err := m.machine(a).UserExec(ctx, m.User.Name, script, nil, &out, &out); err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(out.String()))
 	}
 	return nil
@@ -2019,17 +2035,17 @@ func (m *Manager) PrepareShell(ctx context.Context, a state.Agent) error {
 
 // requireRunning returns an actionable error unless the agent is running.
 func (m *Manager) requireRunning(ctx context.Context, a state.Agent) error {
-	inst, err := m.Incus.Instance(ctx, a.Instance)
+	inst, err := m.machine(a).Info(ctx)
 	if err != nil {
 		return err
 	}
-	switch inst.Status {
+	switch inst.State {
 	case "Running":
 		return nil
 	case "Frozen":
 		return fmt.Errorf("%s is paused: run agentbox resume %s", a.Ref(), a.Ref())
 	default:
-		return fmt.Errorf("%s is %s: run agentbox start %s", a.Ref(), strings.ToLower(inst.Status), a.Ref())
+		return fmt.Errorf("%s is %s: run agentbox start %s", a.Ref(), strings.ToLower(inst.State), a.Ref())
 	}
 }
 
@@ -2054,20 +2070,21 @@ func (m *Manager) Exec(ctx context.Context, a state.Agent, command string, stdin
 	if err := m.requireRunning(ctx, a); err != nil {
 		return err
 	}
-	return m.Incus.UserExec(ctx, a.Instance, m.User.Name, "cd "+shellQuote(a.Worktree)+" && "+command, stdin, stdout, stderr)
+	return m.machine(a).UserExec(ctx, m.User.Name, "cd "+shellQuote(a.Worktree)+" && "+command, stdin, stdout, stderr)
 }
 
 // Start boots a stopped agent (or resumes a paused one) and restores its tmux session.
-func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, error) {
-	inst, err := m.Incus.Instance(ctx, a.Instance)
+func (m *Manager) Start(ctx context.Context, a state.Agent) (machine.Info, error) {
+	mach := m.machine(a)
+	inst, err := mach.Info(ctx)
 	if err != nil {
 		return inst, err
 	}
 	var booted bool
-	switch inst.Status {
+	switch inst.State {
 	case "Running":
 	case "Frozen":
-		if err := m.Incus.Resume(ctx, a.Instance); err != nil {
+		if err := mach.Resume(ctx); err != nil {
 			return inst, err
 		}
 	default:
@@ -2086,17 +2103,17 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 			return inst, err
 		}
 		m.nodeModulesSources(ctx, a)
-		if err := m.Incus.Start(ctx, a.Instance); err != nil {
+		if err := mach.Start(ctx); err != nil {
 			return inst, err
 		}
 		booted = true
 	}
-	if inst.Status != "Running" {
+	if inst.State != "Running" {
 		if err := m.Store.SetPausedAt(ctx, a.Project, a.Name, time.Time{}); err != nil {
 			m.logf("clearing when %s was paused: %v", a.Ref(), err)
 		}
 	}
-	if inst, err = m.Incus.WaitReady(ctx, a.Instance, readyTimeout); err != nil {
+	if inst, err = mach.WaitReady(ctx, readyTimeout); err != nil {
 		return inst, err
 	}
 	if err := m.EnsureAgentAPI(ctx, a); err != nil {
@@ -2140,7 +2157,7 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 	// The same for the project's notes, which may have changed while the
 	// machine was down: nothing else rewrites the brief of an agent that
 	// already exists. Never let it keep an agent from starting.
-	if err := m.writeBrief(ctx, a, inst.IPv4(), m.projectEnvFiles(ctx, a.Project)); err != nil {
+	if err := m.writeBrief(ctx, a, inst.IPv4, m.projectEnvFiles(ctx, a.Project)); err != nil {
 		m.logf("couldn't write %s's brief: %v", a.Ref(), err)
 	}
 	if err := m.ensureSession(ctx, a); err != nil {
@@ -2161,8 +2178,9 @@ func (m *Manager) admit(ctx context.Context, a state.Agent) error {
 }
 
 func (m *Manager) Stop(ctx context.Context, a state.Agent) error {
-	if err := m.Incus.StopWithin(ctx, a.Instance, 30*time.Second); err != nil {
-		if err := m.Incus.ForceStop(ctx, a.Instance); err != nil {
+	mach := m.machine(a)
+	if err := mach.StopWithin(ctx, 30*time.Second); err != nil {
+		if err := mach.ForceStop(ctx); err != nil {
 			return err
 		}
 	}
@@ -2177,7 +2195,7 @@ func (m *Manager) Stop(ctx context.Context, a state.Agent) error {
 // CPU. PausedAt is set to now, so "auto-stop idle agents" counts it as idle
 // from this moment rather than from whatever it was last doing before.
 func (m *Manager) Pause(ctx context.Context, a state.Agent) error {
-	if err := m.Incus.Pause(ctx, a.Instance); err != nil {
+	if err := m.machine(a).Pause(ctx); err != nil {
 		return err
 	}
 	if err := m.Store.SetPausedAt(ctx, a.Project, a.Name, time.Now()); err != nil {
@@ -2187,7 +2205,7 @@ func (m *Manager) Pause(ctx context.Context, a state.Agent) error {
 }
 
 func (m *Manager) Resume(ctx context.Context, a state.Agent) error {
-	if err := m.Incus.Resume(ctx, a.Instance); err != nil {
+	if err := m.machine(a).Resume(ctx); err != nil {
 		return err
 	}
 	if err := m.Store.SetPausedAt(ctx, a.Project, a.Name, time.Time{}); err != nil {
@@ -2277,24 +2295,25 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 		}
 		return err
 	}
-	inst, err := m.Incus.Instance(ctx, a.Instance)
+	mach := m.machine(a)
+	inst, err := mach.Info(ctx)
 	// Read before the worktree is emptied: which lockfiles its node_modules
 	// were installed from, kept once the machine is gone.
-	installs := m.nodeModulesInstalls(ctx, a, err == nil && inst.Status == "Running")
+	installs := m.nodeModulesInstalls(ctx, a, err == nil && inst.State == "Running")
 	switch {
 	case err == nil:
-		cleared := inst.Status == "Running"
+		cleared := inst.State == "Running"
 		if cleared {
 			m.clearWorktree(ctx, a)
 		} else {
 			m.handBackNodeModules(ctx, a)
 		}
 		m.logf("Deleting instance %s", a.Instance)
-		if delErr := m.Incus.Delete(ctx, a.Instance); delErr != nil {
+		if delErr := mach.Destroy(ctx); delErr != nil {
 			// The instance may have been destroyed by an earlier attempt, or
 			// concurrently, between the check above and this call. Only a
 			// delete that still finds something there is a real failure.
-			if _, checkErr := m.Incus.Instance(ctx, a.Instance); !errors.Is(checkErr, incus.ErrNotFound) {
+			if _, checkErr := mach.Info(ctx); !errors.Is(checkErr, machine.ErrNotFound) {
 				if cleared {
 					// Its commits are on its branch; what the worktree held
 					// besides is gone, and git can't read it any more.
@@ -2304,7 +2323,7 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 			}
 			m.logf("Instance %s was already gone: %v", a.Instance, delErr)
 		}
-	case !errors.Is(err, incus.ErrNotFound):
+	case !errors.Is(err, machine.ErrNotFound):
 		return restore(err)
 	}
 	// Now, with the machine gone and before the agent is archived: from
@@ -2413,14 +2432,14 @@ func (m *Manager) clearWorktree(ctx context.Context, a state.Agent) {
 		script += `; owner=$3; shift 3; for d; do chown -R "$owner" "$d"; done`
 		args = append(append(args, fmt.Sprintf("%d:%d", m.User.UID, m.User.GID)), mounts...)
 	}
-	_, _ = m.Incus.Exec(ctx, a.Instance, append([]string{"sh", "-c", script, "sh"}, args...)...)
+	_, _ = m.machine(a).Exec(ctx, append([]string{"sh", "-c", script, "sh"}, args...)...)
 }
 
 // handBackFiles gives files that container root created in the worktree
 // (Docker bind mounts, sudo) back to the host user, so git and the host can
 // manage them. It only works while the agent is running.
 func (m *Manager) handBackFiles(ctx context.Context, a state.Agent) {
-	_, _ = m.Incus.Exec(ctx, a.Instance, "chown", "-R", fmt.Sprintf("%d:%d", m.User.UID, m.User.GID), a.Worktree)
+	_, _ = m.machine(a).Exec(ctx, "chown", "-R", fmt.Sprintf("%d:%d", m.User.UID, m.User.GID), a.Worktree)
 }
 
 // Status is an agent plus its live instance state.

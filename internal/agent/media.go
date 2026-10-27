@@ -353,8 +353,8 @@ ffmpeg -loglevel error -f x11grab -i :99 -frames:v 1 -y ` + tmp
 	if _, err := m.agentShell(ctx, a, script); err != nil {
 		return fmt.Errorf("taking the screenshot: %w", err)
 	}
-	defer func() { _, _ = m.Incus.Exec(context.WithoutCancel(ctx), a.Instance, "rm", "-f", tmp) }()
-	err := m.Incus.PullFile(ctx, a.Instance, tmp, file)
+	defer func() { _, _ = m.machine(a).Exec(context.WithoutCancel(ctx), "rm", "-f", tmp) }()
+	err := m.machine(a).PullFile(ctx, tmp, file)
 	return err
 }
 
@@ -691,13 +691,13 @@ func (m *Manager) StopRecording(ctx context.Context, a state.Agent) (state.Media
 	file := filepath.Join(p.dir, fileName(st.Name, "recording", ".mp4"))
 	take := func(inAgent, file string) error {
 		if !st.Staged {
-			return m.Incus.PullFile(ctx, a.Instance, inAgent, file)
+			return m.machine(a).PullFile(ctx, inAgent, file)
 		}
 		err := takeStaged(filepath.Join(m.recordingStage(a), filepath.Base(inAgent)), file)
 		if err != nil && !errors.Is(err, errStagedNotFile) {
 			// The stage wasn't mounted when it started (it isn't required),
 			// so the agent wrote to its own disk instead.
-			if pullErr := m.Incus.PullFile(ctx, a.Instance, inAgent, file); pullErr == nil {
+			if pullErr := m.machine(a).PullFile(ctx, inAgent, file); pullErr == nil {
 				err = nil
 			} else {
 				err = fmt.Errorf("%w, nor could it be copied out of the agent: %w", err, pullErr)
@@ -723,7 +723,7 @@ func (m *Manager) StopRecording(ctx context.Context, a state.Agent) (state.Media
 	if err != nil {
 		return state.Media{}, err
 	}
-	_, _ = m.Incus.Exec(context.WithoutCancel(ctx), a.Instance, "sh", "-c", "rm -f "+remote+"/recording.* "+remote+"/input.*")
+	_, _ = m.machine(a).Exec(context.WithoutCancel(ctx), "sh", "-c", "rm -f "+remote+"/recording.* "+remote+"/input.*")
 	return item, nil
 }
 
@@ -796,9 +796,9 @@ else echo file; stat -c %%s "$p"; fi`, shellQuote(path)))
 	}
 	target := filepath.Join(p.dir, base)
 	if isDir {
-		err = m.Incus.PullDir(ctx, a.Instance, path, p.dir)
+		err = m.machine(a).PullDir(ctx, path, p.dir)
 	} else {
-		err = m.Incus.PullFile(ctx, a.Instance, path, target)
+		err = m.machine(a).PullFile(ctx, path, target)
 	}
 	if err != nil {
 		p.discard()
@@ -1024,7 +1024,7 @@ func (m *Manager) ExportMedia(ctx context.Context, a state.Agent, dir string) (s
 // failure's error holds what the script printed to stderr.
 func (m *Manager) agentShell(ctx context.Context, a state.Agent, script string) (string, error) {
 	var stdout, stderr bytes.Buffer
-	if err := m.Incus.UserExec(ctx, a.Instance, m.User.Name, script, nil, &stdout, &stderr); err != nil {
+	if err := m.machine(a).UserExec(ctx, m.User.Name, script, nil, &stdout, &stderr); err != nil {
 		if msg := strings.TrimSpace(stderr.String()); msg != "" {
 			return stdout.String(), errors.New(msg)
 		}

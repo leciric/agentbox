@@ -51,11 +51,12 @@ func (m *Manager) takeSnapshot(ctx context.Context, a state.Agent, name string, 
 	if _, err := repo.ResolveRef(ref); err == nil {
 		return Snapshot{}, fmt.Errorf("%s already has a snapshot named %q", a.Ref(), name)
 	}
-	inst, err := m.Incus.Instance(ctx, a.Instance)
+	mach := m.machine(a)
+	inst, err := mach.Info(ctx)
 	if err != nil {
 		return Snapshot{}, err
 	}
-	running := inst.Status == "Running"
+	running := inst.State == "Running"
 
 	message := "agentbox snapshot " + a.Ref() + "@" + name
 	commit, err := gitrepo.SnapshotWorktree(a.Worktree, ref, message)
@@ -68,17 +69,17 @@ func (m *Manager) takeSnapshot(ctx context.Context, a state.Agent, name string, 
 	}
 	if consistent && running {
 		// Freeze the machine, then record the worktree again, so both halves match exactly.
-		if err := m.Incus.Pause(ctx, a.Instance); err != nil {
+		if err := mach.Pause(ctx); err != nil {
 			_ = repo.DeleteRef(ref)
 			return Snapshot{}, err
 		}
-		defer func() { _ = m.Incus.Resume(context.WithoutCancel(ctx), a.Instance) }()
+		defer func() { _ = mach.Resume(context.WithoutCancel(ctx)) }()
 		if commit, err = gitrepo.SnapshotWorktree(a.Worktree, ref, message); err != nil {
 			_ = repo.DeleteRef(ref)
 			return Snapshot{}, fmt.Errorf("snapshotting the worktree: %w", err)
 		}
 	}
-	if err := m.Incus.CreateSnapshot(ctx, a.Instance, name); err != nil {
+	if err := mach.Snapshot(ctx, name); err != nil {
 		_ = repo.DeleteRef(ref)
 		return Snapshot{}, err
 	}
@@ -92,12 +93,12 @@ func (m *Manager) Snapshots(ctx context.Context, a state.Agent) ([]Snapshot, err
 	if err != nil {
 		return nil, err
 	}
-	machine, err := m.Incus.Snapshots(ctx, a.Instance)
+	listed, err := m.machine(a).SnapshotList(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var snapshots []Snapshot
-	for _, s := range machine {
+	for _, s := range listed {
 		commit, err := repo.ResolveRef(snapshotRef(a.Name, s.Name))
 		if err != nil {
 			continue // not a complete AgentBox snapshot, like a temporary one from base save
@@ -120,17 +121,18 @@ func (m *Manager) Restore(ctx context.Context, a state.Agent, name string) error
 	if err != nil {
 		return fmt.Errorf("%s has no snapshot %q", a.Ref(), name)
 	}
-	inst, err := m.Incus.Instance(ctx, a.Instance)
+	mach := m.machine(a)
+	inst, err := mach.Info(ctx)
 	if err != nil {
 		return err
 	}
-	if inst.Status == "Frozen" {
-		if err := m.Incus.Resume(ctx, a.Instance); err != nil {
+	if inst.State == "Frozen" {
+		if err := mach.Resume(ctx); err != nil {
 			return err
 		}
-		inst.Status = "Running"
+		inst.State = "Running"
 	}
-	if inst.Status == "Running" {
+	if inst.State == "Running" {
 		m.handBackFiles(ctx, a)
 	}
 
@@ -139,17 +141,17 @@ func (m *Manager) Restore(ctx context.Context, a state.Agent, name string) error
 		return fmt.Errorf("saving the current worktree: %w", err)
 	}
 	m.logf("Restoring the machine to %s (the current worktree is saved on %s)", name, backup)
-	if err := m.Incus.RestoreSnapshot(ctx, a.Instance, name); err != nil {
+	if err := mach.RestoreSnapshot(ctx, name); err != nil {
 		return err
 	}
 	m.logf("Restoring the worktree and branch")
 	if err := gitrepo.RestoreWorktree(a.Worktree, commit); err != nil {
 		return err
 	}
-	if inst, err = m.Incus.Instance(ctx, a.Instance); err != nil {
+	if inst, err = mach.Info(ctx); err != nil {
 		return err
 	}
-	if inst.Status != "Running" {
+	if inst.State != "Running" {
 		// A snapshot taken by an earlier release brings back the limits it
 		// set on the machine.
 		if err := m.dropOldLimits(ctx, a.Instance); err != nil {
@@ -163,11 +165,11 @@ func (m *Manager) Restore(ctx context.Context, a state.Agent, name string) error
 			return err
 		}
 		m.nodeModulesSources(ctx, a)
-		if err := m.Incus.Start(ctx, a.Instance); err != nil {
+		if err := mach.Start(ctx); err != nil {
 			return err
 		}
 	}
-	if _, err := m.Incus.WaitReady(ctx, a.Instance, readyTimeout); err != nil {
+	if _, err := mach.WaitReady(ctx, readyTimeout); err != nil {
 		return err
 	}
 	// A snapshot taken before /t was capped brings back its uncapped fstab.
@@ -193,7 +195,7 @@ func (m *Manager) DeleteSnapshot(ctx context.Context, a state.Agent, name string
 	if _, err := repo.ResolveRef(ref); err != nil {
 		return fmt.Errorf("%s has no snapshot %q", a.Ref(), name)
 	}
-	if err := m.Incus.DeleteSnapshot(ctx, a.Instance, name); err != nil && !strings.Contains(err.Error(), "not found") {
+	if err := m.machine(a).DeleteSnapshot(ctx, name); err != nil && !strings.Contains(err.Error(), "not found") {
 		return err
 	}
 	return repo.DeleteRef(ref)

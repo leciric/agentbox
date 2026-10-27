@@ -64,7 +64,7 @@ func (m *Manager) WriteSkills(ctx context.Context, a state.Agent) error {
 	}
 	home := "/home/" + m.User.Name
 	owner := strconv.Itoa(m.User.UID) + ":" + strconv.Itoa(m.User.GID)
-	_, err = m.Incus.ExecInput(ctx, bytes.NewReader(archive), a.Instance, "sh", "-c", skills.InstallScript, "sh", home, owner)
+	_, err = m.machine(a).ExecInput(ctx, bytes.NewReader(archive), "sh", "-c", skills.InstallScript, "sh", home, owner)
 	return err
 }
 
@@ -90,7 +90,7 @@ func (m *Manager) RewriteSkills(ctx context.Context, project string) error {
 			if a.Status != state.AgentReady {
 				continue
 			}
-			if inst, err := m.Incus.Instance(ctx, a.Instance); err != nil || inst.Status != "Running" {
+			if inst, err := m.machine(a).Info(ctx); err != nil || inst.State != "Running" {
 				continue
 			}
 		}

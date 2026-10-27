@@ -197,7 +197,7 @@ func (m *Manager) ToolCredential(ctx context.Context, a state.Agent) (ToolCreden
 	if len(watched) == 0 {
 		return cred, nil
 	}
-	if inst, err := m.Incus.Instance(ctx, a.Instance); err != nil || inst.Status != "Running" {
+	if inst, err := m.machine(a).Info(ctx); err != nil || inst.State != "Running" {
 		return cred, err
 	}
 	if a.AI == "claude" {
@@ -207,7 +207,7 @@ func (m *Manager) ToolCredential(ctx context.Context, a state.Agent) (ToolCreden
 	if a.AI == "codex" || a.AI == "opencode" {
 		authFile = "/home/" + m.User.Name + "/" + toolAuthFile(a.AI)
 	}
-	out, err := m.Incus.Exec(ctx, a.Instance, "bash", "-c", credentialScript(m.User.UID, watched, authFile))
+	out, err := m.machine(a).Exec(ctx, "bash", "-c", credentialScript(m.User.UID, watched, authFile))
 	if err != nil {
 		return cred, fmt.Errorf("reading %s's processes: %w", a.Ref(), err)
 	}

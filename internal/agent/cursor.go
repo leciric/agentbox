@@ -41,7 +41,7 @@ func (m *Manager) prepareAgentCursorSettings(ctx context.Context, a state.Agent)
 	if err != nil {
 		return err
 	}
-	if err := m.Incus.WriteFile(ctx, a.Instance, home+"/"+cursorMCPFile, cursorMCPConfig(agentMCPServers(home, connectors)), m.User.UID, m.User.GID, 0o600); err != nil {
+	if err := m.machine(a).WriteFile(ctx, home+"/"+cursorMCPFile, cursorMCPConfig(agentMCPServers(home, connectors)), m.User.UID, m.User.GID, 0o600); err != nil {
 		return err
 	}
 	if a.AI != "cursor" {
@@ -51,5 +51,5 @@ func (m *Manager) prepareAgentCursorSettings(ctx context.Context, a state.Agent)
 	if err != nil || auth == nil {
 		return err
 	}
-	return m.Incus.WriteFile(ctx, a.Instance, home+"/"+cursorAuthFile, auth, m.User.UID, m.User.GID, 0o600)
+	return m.machine(a).WriteFile(ctx, home+"/"+cursorAuthFile, auth, m.User.UID, m.User.GID, 0o600)
 }

@@ -136,7 +136,7 @@ func (m *Manager) SyncConnectors(ctx context.Context, project, agent string) (ch
 		if a.IsLead() || a.Status != state.AgentReady {
 			continue // one being made gets them from configure
 		}
-		if inst, err := m.Incus.Instance(ctx, a.Instance); err != nil || inst.Status != "Running" {
+		if inst, err := m.machine(a).Info(ctx); err != nil || inst.State != "Running" {
 			continue
 		}
 		rewrote, err := m.syncConnectors(ctx, a)
@@ -192,7 +192,7 @@ func (m *Manager) syncConnectors(ctx context.Context, a state.Agent) (bool, erro
 	if err != nil {
 		return true, err
 	}
-	if err := m.Incus.WriteFile(ctx, a.Instance, path, merged, m.User.UID, m.User.GID, 0o600); err != nil {
+	if err := m.machine(a).WriteFile(ctx, path, merged, m.User.UID, m.User.GID, 0o600); err != nil {
 		return true, err
 	}
 	if !known {
@@ -209,7 +209,7 @@ func (m *Manager) syncConnectors(ctx context.Context, a state.Agent) (bool, erro
 // when it can't be read (a machine with no such file yet among them).
 func (m *Manager) readAgentFile(ctx context.Context, a state.Agent, path string) []byte {
 	var out bytes.Buffer
-	_ = m.Incus.UserExec(ctx, a.Instance, m.User.Name, "cat "+shellQuote(path)+" 2>/dev/null", nil, &out, io.Discard)
+	_ = m.machine(a).UserExec(ctx, m.User.Name, "cat "+shellQuote(path)+" 2>/dev/null", nil, &out, io.Discard)
 	return out.Bytes()
 }
 

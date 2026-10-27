@@ -44,7 +44,7 @@ func (m *Manager) applyBrowserCookies(ctx context.Context, a state.Agent) error 
 	}
 	stamp := strconv.FormatInt(bc.ImportedAt.Unix(), 10)
 	var got bytes.Buffer
-	_ = m.Incus.UserExec(ctx, a.Instance, m.User.Name, "cat "+shellQuote(m.browserCookiesMarker())+" 2>/dev/null || true", nil, &got, nil)
+	_ = m.machine(a).UserExec(ctx, m.User.Name, "cat "+shellQuote(m.browserCookiesMarker())+" 2>/dev/null || true", nil, &got, nil)
 	if strings.TrimSpace(got.String()) == stamp {
 		return nil
 	}
@@ -52,7 +52,7 @@ func (m *Manager) applyBrowserCookies(ctx context.Context, a state.Agent) error 
 		return err
 	}
 	m.logf("Signed the browser in to %s with the project's imported cookies", strings.Join(bc.Domains, ", "))
-	return m.Incus.WriteFile(ctx, a.Instance, m.browserCookiesMarker(), []byte(stamp+"\n"), m.User.UID, m.User.GID, 0o600)
+	return m.machine(a).WriteFile(ctx, m.browserCookiesMarker(), []byte(stamp+"\n"), m.User.UID, m.User.GID, 0o600)
 }
 
 // setBrowserCookies sets cookies in the agent's running Chromium, through its
