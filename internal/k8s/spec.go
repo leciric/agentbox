@@ -50,10 +50,21 @@ func ClaimName(project, agent string) string { return PodName(project, agent) + 
 // replaces the value when it hands out a new token.
 func PodTokenSecretName(project, agent string) string { return PodName(project, agent) + "-token" }
 
-// DefaultWorkspaceSize is an agent's claim when its project doesn't say: enough
+// DefaultWorkspaceSize is an agent's claim when its cluster doesn't say: enough
 // for a repository, its node_modules, its build artefacts and a Docker image or
 // two.
 const DefaultWorkspaceSize = "20Gi"
+
+// DefaultEphemeralStorage is the local disk an agent's pod may fill when its
+// cluster doesn't say: /tmp, /run and its container's writable layer. A pod
+// that crosses it is evicted rather than filling its node, which is the guard
+// this machine's disk floor is on a host with an Incus machine.
+const DefaultEphemeralStorage = "10Gi"
+
+// ephemeralRequest is what a pod asks for of the ephemeral-storage the scheduler
+// counts. The limit is the size that matters, and asking for all of it would
+// keep a node from packing agents by the room they actually use.
+const ephemeralRequest = "1Gi"
 
 // What agentd reads on start, as the container's environment. They are here, with
 // the pod that carries them, so the master and the agent can't disagree about a
@@ -92,6 +103,9 @@ type Spec struct {
 	FromRegistry bool
 	// WorkspaceSize is the claim's size, DefaultWorkspaceSize when empty.
 	WorkspaceSize string
+	// EphemeralStorage is the local disk the pod may fill outside its claim,
+	// its /tmp included, DefaultEphemeralStorage when empty.
+	EphemeralStorage string
 	// StorageClass is the claim's class, "" for the cluster's default.
 	StorageClass string
 	// Claim is the name of the persistent volume the pod's workspace and home
@@ -170,7 +184,7 @@ func BuildPod(spec Spec) (*corev1.Pod, error) {
 		return nil, err
 	}
 	name := PodName(spec.Project, spec.Agent)
-	requests, limits, err := resourceLimits(spec)
+	requests, limits, ephemeral, err := resourceLimits(spec)
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +243,15 @@ func BuildPod(spec Spec) (*corev1.Pod, error) {
 						ClaimName: spec.WorkspaceClaim(),
 					}},
 				},
-				{Name: "tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+				{
+					// The pod's ephemeral limit is the guard; this is the one
+					// directory that grows without asking, so it gets the limit
+					// too rather than filling the node before the kubelet acts.
+					Name: "tmp",
+					VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{
+						SizeLimit: &ephemeral,
+					}},
+				},
 				{
 					// Tools that use shared memory, which /dev/shm's 64Mi
 					// default is too small for.
@@ -303,17 +325,15 @@ func (s Spec) check() error {
 // what it asks for, because a runaway build competing with another agent's chat
 // is the thing the budget is for, and memory is capped a little above it, because
 // a process that crosses a memory limit is killed and a small overshoot is
-// normal.
-func resourceLimits(spec Spec) (requests, limits corev1.ResourceList, err error) {
-	if spec.CPU == "" && spec.Memory == "" {
-		return nil, nil, nil
-	}
+// normal. Ephemeral storage is always set: it is the pod's own disk guard, and an
+// agent that fills its node takes every other agent on it with it.
+func resourceLimits(spec Spec) (requests, limits corev1.ResourceList, ephemeral resource.Quantity, err error) {
 	requests = corev1.ResourceList{}
 	limits = corev1.ResourceList{}
 	if spec.CPU != "" {
 		cpu, err := resource.ParseQuantity(spec.CPU)
 		if err != nil {
-			return nil, nil, fmt.Errorf("%s/%s's CPU %q: %w", spec.Project, spec.Agent, spec.CPU, err)
+			return nil, nil, ephemeral, fmt.Errorf("%s/%s's CPU %q: %w", spec.Project, spec.Agent, spec.CPU, err)
 		}
 		requests[corev1.ResourceCPU] = cpu
 		limits[corev1.ResourceCPU] = cpu
@@ -321,7 +341,7 @@ func resourceLimits(spec Spec) (requests, limits corev1.ResourceList, err error)
 	if spec.Memory != "" {
 		memory, err := resource.ParseQuantity(spec.Memory)
 		if err != nil {
-			return nil, nil, fmt.Errorf("%s/%s's memory %q: %w", spec.Project, spec.Agent, spec.Memory, err)
+			return nil, nil, ephemeral, fmt.Errorf("%s/%s's memory %q: %w", spec.Project, spec.Agent, spec.Memory, err)
 		}
 		requests[corev1.ResourceMemory] = memory
 		headroom := *resource.NewQuantity(memory.Value()/4, resource.BinarySI)
@@ -329,7 +349,21 @@ func resourceLimits(spec Spec) (requests, limits corev1.ResourceList, err error)
 		limit.Add(headroom)
 		limits[corev1.ResourceMemory] = limit
 	}
-	return requests, limits, nil
+	size := spec.EphemeralStorage
+	if size == "" {
+		size = DefaultEphemeralStorage
+	}
+	ephemeral, err = resource.ParseQuantity(size)
+	if err != nil {
+		return nil, nil, ephemeral, fmt.Errorf("%s/%s's ephemeral storage %q: %w", spec.Project, spec.Agent, size, err)
+	}
+	ask := resource.MustParse(ephemeralRequest)
+	if ephemeral.Cmp(ask) < 0 {
+		ask = ephemeral.DeepCopy()
+	}
+	requests[corev1.ResourceEphemeralStorage] = ask
+	limits[corev1.ResourceEphemeralStorage] = ephemeral
+	return requests, limits, ephemeral, nil
 }
 
 // BuildPVC is the claim an agent's workspace and home live on: one claim, two

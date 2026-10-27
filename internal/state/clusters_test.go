@@ -13,19 +13,23 @@ import (
 
 func clusterFixture() state.Cluster {
 	return state.Cluster{
-		Name:         "k3d",
-		Namespace:    "agentbox",
-		StorageClass: "local-path",
-		Image:        "agentbox-agent:dev",
-		MasterURL:    "https://monster.example.ts.net",
-		MaxAgents:    4,
-		CPU:          "2",
-		Memory:       "8Gi",
-		Labels:       map[string]string{"arch": "amd64", "gpu": "true"},
-		Tailnet:      state.TailnetNone,
-		Capabilities: []string{"kvm", "gpu"},
-		Kubeconfig:   []byte("sealed kubeconfig"),
-		CreatedAt:    time.Now().Truncate(time.Second),
+		Name:             "k3d",
+		Namespace:        "agentbox",
+		StorageClass:     "local-path",
+		Image:            "agentbox-agent:dev",
+		MasterURL:        "https://monster.example.ts.net",
+		MaxAgents:        4,
+		CPU:              "2",
+		Memory:           "8Gi",
+		AgentCPU:         "2",
+		AgentMemory:      "8Gi",
+		WorkspaceSize:    "40Gi",
+		EphemeralStorage: "10Gi",
+		Labels:           map[string]string{"arch": "amd64", "gpu": "true"},
+		Tailnet:          state.TailnetNone,
+		Capabilities:     []string{"kvm", "gpu"},
+		Kubeconfig:       []byte("sealed kubeconfig"),
+		CreatedAt:        time.Now().Truncate(time.Second),
 	}
 }
 
@@ -57,6 +61,10 @@ func TestClusterRoundTrips(t *testing.T) {
 		{"max agents", got.MaxAgents, want.MaxAgents},
 		{"cpu", got.CPU, want.CPU},
 		{"memory", got.Memory, want.Memory},
+		{"agent cpu", got.AgentCPU, want.AgentCPU},
+		{"agent memory", got.AgentMemory, want.AgentMemory},
+		{"workspace size", got.WorkspaceSize, want.WorkspaceSize},
+		{"ephemeral storage", got.EphemeralStorage, want.EphemeralStorage},
 		{"tailnet", got.Tailnet, want.Tailnet},
 		{"kubeconfig", string(got.Kubeconfig), string(want.Kubeconfig)},
 	} {
@@ -96,6 +104,10 @@ func TestClusterRefusesWhatCannotWork(t *testing.T) {
 		{name: "no kubeconfig", change: func(c *state.Cluster) { c.Kubeconfig = nil }, wantErr: "no sealed kubeconfig"},
 		{name: "an invented tailnet", change: func(c *state.Cluster) { c.Tailnet = "vpn" }, wantErr: "tailnet is \"vpn\""},
 		{name: "negative agents", change: func(c *state.Cluster) { c.MaxAgents = -1 }, wantErr: "max agents is -1"},
+		{name: "an agent cpu that isn't a quantity", change: func(c *state.Cluster) { c.AgentCPU = "two" }, wantErr: "--agent-cpu"},
+		{name: "an agent memory that isn't a quantity", change: func(c *state.Cluster) { c.AgentMemory = "lots" }, wantErr: "--agent-memory"},
+		{name: "a workspace of nothing", change: func(c *state.Cluster) { c.WorkspaceSize = "0" }, wantErr: "greater than zero"},
+		{name: "an ephemeral storage that isn't a quantity", change: func(c *state.Cluster) { c.EphemeralStorage = "plenty" }, wantErr: "--ephemeral-storage"},
 		{name: "a master url with no scheme", change: func(c *state.Cluster) { c.MasterURL = "master.example.com" }, wantErr: "--master-url"},
 		{name: "a master url that isn't http", change: func(c *state.Cluster) { c.MasterURL = "ftp://master.example.com" }, wantErr: "--master-url"},
 		{name: "a master url with no host", change: func(c *state.Cluster) { c.MasterURL = "https://" }, wantErr: "--master-url"},
@@ -171,6 +183,10 @@ func TestClusterConfigIsWhatAChangeCanTouch(t *testing.T) {
 	changed.Image = "agentbox-agent:1.2.3"
 	changed.MaxAgents = 9
 	changed.StorageClass = "longhorn"
+	changed.AgentCPU = "4"
+	changed.AgentMemory = "16Gi"
+	changed.WorkspaceSize = "80Gi"
+	changed.EphemeralStorage = "20Gi"
 	// Spaces around an address someone pasted are not part of it, and plain
 	// http is what a local test cluster uses.
 	changed.MasterURL = "  http://host.k3d.internal:7782  "
@@ -192,6 +208,10 @@ func TestClusterConfigIsWhatAChangeCanTouch(t *testing.T) {
 	}
 	if got.MasterURL != "http://host.k3d.internal:7782" {
 		t.Errorf("master url = %q, want the pasted address trimmed", got.MasterURL)
+	}
+	if got.AgentCPU != "4" || got.AgentMemory != "16Gi" || got.WorkspaceSize != "80Gi" || got.EphemeralStorage != "20Gi" {
+		t.Errorf("sizes = %q, %q, %q, %q, want 4, 16Gi, 80Gi, 20Gi",
+			got.AgentCPU, got.AgentMemory, got.WorkspaceSize, got.EphemeralStorage)
 	}
 	if !reflect.DeepEqual(got.Labels, changed.Labels) || got.Capabilities != nil {
 		t.Errorf("labels, capabilities = %v, %v, want %v, none", got.Labels, got.Capabilities, changed.Labels)

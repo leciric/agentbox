@@ -40,26 +40,65 @@ func registryInfo(reg state.Registry) api.Registry {
 	return out
 }
 
-func clusterInfo(c state.Cluster) api.Cluster {
+// clusterCapacities is what the daemon last saw of each cluster's room, kept
+// between reconciles so a list of clusters answers without asking every cluster
+// every time the app polls (reconciler.go).
+type clusterCapacities struct {
+	sync.Mutex
+	byName map[string]api.ClusterCapacity
+}
+
+func (s *Server) setClusterCapacity(name string, capacity api.ClusterCapacity) {
+	s.capacities.Lock()
+	if s.capacities.byName == nil {
+		s.capacities.byName = map[string]api.ClusterCapacity{}
+	}
+	s.capacities.byName[name] = capacity
+	s.capacities.Unlock()
+}
+
+func (s *Server) clusterCapacity(name string) (api.ClusterCapacity, bool) {
+	s.capacities.Lock()
+	defer s.capacities.Unlock()
+	capacity, ok := s.capacities.byName[name]
+	return capacity, ok
+}
+
+// forgetClusterCapacity drops what a removed cluster left, so one added again
+// under the same name doesn't show the old one's room until it has been looked at.
+func (s *Server) forgetClusterCapacity(name string) {
+	s.capacities.Lock()
+	delete(s.capacities.byName, name)
+	s.capacities.Unlock()
+}
+
+func (s *Server) clusterInfo(c state.Cluster) api.Cluster {
 	out := api.Cluster{
-		Name:         c.Name,
-		Namespace:    c.Namespace,
-		StorageClass: c.StorageClass,
-		Image:        c.Image,
-		MasterURL:    c.MasterURL,
-		Registry:     c.Registry,
-		MaxAgents:    c.MaxAgents,
-		CPU:          c.CPU,
-		Memory:       c.Memory,
-		Labels:       c.Labels,
-		Tailnet:      c.Tailnet,
-		Capabilities: c.Capabilities,
-		CreatedAt:    c.CreatedAt,
-		LastError:    c.LastError,
+		Name:             c.Name,
+		Namespace:        c.Namespace,
+		StorageClass:     c.StorageClass,
+		Image:            c.Image,
+		MasterURL:        c.MasterURL,
+		Registry:         c.Registry,
+		MaxAgents:        c.MaxAgents,
+		CPU:              c.CPU,
+		Memory:           c.Memory,
+		AgentCPU:         c.AgentCPU,
+		AgentMemory:      c.AgentMemory,
+		WorkspaceSize:    c.WorkspaceSize,
+		EphemeralStorage: c.EphemeralStorage,
+		Labels:           c.Labels,
+		Tailnet:          c.Tailnet,
+		Capabilities:     c.Capabilities,
+		CreatedAt:        c.CreatedAt,
+		LastError:        c.LastError,
 	}
 	if !c.LastSeen.IsZero() {
 		seen := c.LastSeen
 		out.LastSeen = &seen
+	}
+	if capacity, ok := s.clusterCapacity(c.Name); ok {
+		out.Capacity = &capacity
 	}
 	return out
 }
@@ -225,7 +264,7 @@ func (s *Server) listClusters(w http.ResponseWriter, r *http.Request) error {
 	}
 	out := make([]api.Cluster, 0, len(clusters))
 	for _, c := range clusters {
-		out = append(out, clusterInfo(c))
+		out = append(out, s.clusterInfo(c))
 	}
 	return writeJSON(w, http.StatusOK, out)
 }
@@ -235,7 +274,7 @@ func (s *Server) getCluster(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return writeJSON(w, http.StatusOK, clusterInfo(c))
+	return writeJSON(w, http.StatusOK, s.clusterInfo(c))
 }
 
 // addCluster applies AgentBox's access to a cluster with the admin kubeconfig the
@@ -270,21 +309,25 @@ func (s *Server) addCluster(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	cluster := state.Cluster{
-		Name:         req.Name,
-		Namespace:    namespace,
-		StorageClass: req.StorageClass,
-		Image:        req.Image,
-		MasterURL:    strings.TrimSpace(req.MasterURL),
-		Registry:     req.Registry,
-		MaxAgents:    req.MaxAgents,
-		CPU:          req.CPU,
-		Memory:       req.Memory,
-		Labels:       req.Labels,
-		Tailnet:      req.Tailnet,
-		Capabilities: req.Capabilities,
-		Kubeconfig:   sealed,
-		CreatedAt:    time.Now(),
-		LastSeen:     time.Now(),
+		Name:             req.Name,
+		Namespace:        namespace,
+		StorageClass:     req.StorageClass,
+		Image:            req.Image,
+		MasterURL:        strings.TrimSpace(req.MasterURL),
+		Registry:         req.Registry,
+		MaxAgents:        req.MaxAgents,
+		CPU:              req.CPU,
+		Memory:           req.Memory,
+		AgentCPU:         req.AgentCPU,
+		AgentMemory:      req.AgentMemory,
+		WorkspaceSize:    req.WorkspaceSize,
+		EphemeralStorage: req.EphemeralStorage,
+		Labels:           req.Labels,
+		Tailnet:          req.Tailnet,
+		Capabilities:     req.Capabilities,
+		Kubeconfig:       sealed,
+		CreatedAt:        time.Now(),
+		LastSeen:         time.Now(),
 	}
 	if reg != nil {
 		// Before the row: a cluster that can't pull its image is one the user
@@ -303,7 +346,8 @@ func (s *Server) addCluster(w http.ResponseWriter, r *http.Request) error {
 	if err := s.store.AddCluster(ctx, cluster); err != nil {
 		return err
 	}
-	return writeJSON(w, http.StatusCreated, clusterInfo(cluster))
+	s.forgetClusterCapacity(cluster.Name)
+	return writeJSON(w, http.StatusCreated, s.clusterInfo(cluster))
 }
 
 // setClusterConfig replaces what a change to a cluster may touch, and makes sure
@@ -330,6 +374,10 @@ func (s *Server) setClusterConfig(w http.ResponseWriter, r *http.Request) error 
 	cluster.MaxAgents = cfg.MaxAgents
 	cluster.CPU = cfg.CPU
 	cluster.Memory = cfg.Memory
+	cluster.AgentCPU = cfg.AgentCPU
+	cluster.AgentMemory = cfg.AgentMemory
+	cluster.WorkspaceSize = cfg.WorkspaceSize
+	cluster.EphemeralStorage = cfg.EphemeralStorage
 	cluster.Labels = cfg.Labels
 	cluster.Tailnet = cfg.Tailnet
 	cluster.Capabilities = cfg.Capabilities
@@ -346,13 +394,15 @@ func (s *Server) setClusterConfig(w http.ResponseWriter, r *http.Request) error 
 			return fmt.Errorf("the cluster's config is saved, but %w", err)
 		}
 	}
-	return writeJSON(w, http.StatusOK, clusterInfo(cluster))
+	return writeJSON(w, http.StatusOK, s.clusterInfo(cluster))
 }
 
 func (s *Server) removeCluster(w http.ResponseWriter, r *http.Request) error {
-	if err := s.store.RemoveCluster(r.Context(), r.PathValue("name")); err != nil {
+	name := r.PathValue("name")
+	if err := s.store.RemoveCluster(r.Context(), name); err != nil {
 		return err
 	}
+	s.forgetClusterCapacity(name)
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
@@ -439,7 +489,7 @@ func (s *Server) rotateCluster(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	cluster.Kubeconfig = sealed
-	return writeJSON(w, http.StatusOK, clusterInfo(cluster))
+	return writeJSON(w, http.StatusOK, s.clusterInfo(cluster))
 }
 
 func (s *Server) listRegistries(w http.ResponseWriter, r *http.Request) error {

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -672,11 +673,31 @@ func (m podMachine) SnapshotGitInfo(ctx context.Context, name string) (string, s
 	return m.pods.SnapshotGitInfo(ctx, m.target, name)
 }
 
+// Usage is the bytes an agent's claim holds, measured from inside its pod:
+// Kubernetes says how big a claim is, not how full, and the claim is where both
+// the worktree and the home live. A stopped pod has no way to be measured
+// without starting one, so it says so rather than reporting its claim's size as
+// if it were its use.
 func (m podMachine) Usage(ctx context.Context) (int64, error) {
 	if err := m.bad; err != nil {
 		return 0, err
 	}
-	return 0, fmt.Errorf("a pod's disk is a persistent volume claim, whose usage the cluster reports: %w", ErrNotSupported)
+	info, err := m.pods.Info(ctx, m.target)
+	if err != nil {
+		return 0, err
+	}
+	if !info.Running() {
+		return 0, fmt.Errorf("%s's pod is stopped, and its claim can only be measured from inside it", m.ref)
+	}
+	out, err := m.Exec(ctx, "sh", "-c", `du -s -B1 /workspace /home/agent 2>/dev/null | awk '{s+=$1} END {print s+0}'`)
+	if err != nil {
+		return 0, fmt.Errorf("measuring %s's claim: %w", m.ref, err)
+	}
+	size, err := strconv.ParseInt(strings.TrimSpace(out), 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("measuring %s's claim: %q is not a size", m.ref, strings.TrimSpace(out))
+	}
+	return size, nil
 }
 
 // Dial opens a port from inside the pod, for a desktop's VNC or a browser's

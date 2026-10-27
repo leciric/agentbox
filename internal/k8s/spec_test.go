@@ -200,6 +200,17 @@ func TestPodIsOneAgentsMachine(t *testing.T) {
 	if got := limits[corev1.ResourceMemory]; got.String() != "10Gi" {
 		t.Errorf("memory limit = %s, want a quarter more than the request, 10Gi", got.String())
 	}
+	// The pod's own disk is always bounded, even when the cluster says nothing:
+	// one agent filling its node is every agent's problem.
+	if got := limits[corev1.ResourceEphemeralStorage]; got.String() != k8s.DefaultEphemeralStorage {
+		t.Errorf("ephemeral limit = %s, want the default %s", got.String(), k8s.DefaultEphemeralStorage)
+	}
+	if got := requests[corev1.ResourceEphemeralStorage]; got.String() != "1Gi" {
+		t.Errorf("ephemeral request = %s, want 1Gi", got.String())
+	}
+	if tmp := volume(t, pod, "tmp").EmptyDir; tmp == nil || tmp.SizeLimit == nil || tmp.SizeLimit.String() != k8s.DefaultEphemeralStorage {
+		t.Errorf("the /tmp limit = %+v, want the pod's ephemeral storage", tmp)
+	}
 
 	// Environment is sorted, so the same spec always makes the same pod.
 	if len(c.Env) != 2 || c.Env[0].Name != "AGENTBOX_BRANCH" || c.Env[1].Name != "AGENTBOX_REF" {
@@ -223,8 +234,37 @@ func TestPodUsesAnImportedImageAsItIs(t *testing.T) {
 	if len(pod.Spec.ImagePullSecrets) != 0 {
 		t.Errorf("pull secrets = %+v, want none", pod.Spec.ImagePullSecrets)
 	}
-	if c.Resources.Requests != nil || c.Resources.Limits != nil {
-		t.Errorf("resources = %+v, want none asked for", c.Resources)
+	if _, ok := c.Resources.Requests[corev1.ResourceCPU]; ok {
+		t.Errorf("cpu = %+v, want none asked for", c.Resources.Requests)
+	}
+	if _, ok := c.Resources.Requests[corev1.ResourceMemory]; ok {
+		t.Errorf("memory = %+v, want none asked for", c.Resources.Requests)
+	}
+}
+
+func TestPodTakesTheClustersEphemeralStorage(t *testing.T) {
+	spec := agentSpec()
+	spec.EphemeralStorage = "3Gi"
+	pod, err := k8s.BuildPod(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := container(t, pod)
+	if got := c.Resources.Limits[corev1.ResourceEphemeralStorage]; got.String() != "3Gi" {
+		t.Errorf("ephemeral limit = %s, want 3Gi", got.String())
+	}
+	if tmp := volume(t, pod, "tmp").EmptyDir; tmp == nil || tmp.SizeLimit == nil || tmp.SizeLimit.String() != "3Gi" {
+		t.Errorf("the /tmp limit = %+v, want 3Gi", tmp)
+	}
+	// A pod smaller than the request every other pod asks for can't ask for
+	// more than it may use.
+	spec.EphemeralStorage = "512Mi"
+	pod, err = k8s.BuildPod(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := container(t, pod).Resources.Requests[corev1.ResourceEphemeralStorage]; got.String() != "512Mi" {
+		t.Errorf("ephemeral request = %s, want 512Mi, no more than the limit", got.String())
 	}
 }
 
@@ -240,6 +280,7 @@ func TestPodRefusesWhatItCannotRun(t *testing.T) {
 		{name: "a name too long", change: func(s *k8s.Spec) { s.Agent = strings.Repeat("a", 60) }, wantErr: "at most 63"},
 		{name: "cpu that isn't a quantity", change: func(s *k8s.Spec) { s.CPU = "two" }, wantErr: "cpu"},
 		{name: "memory that isn't a quantity", change: func(s *k8s.Spec) { s.Memory = "lots" }, wantErr: "memory"},
+		{name: "ephemeral storage that isn't a quantity", change: func(s *k8s.Spec) { s.EphemeralStorage = "plenty" }, wantErr: "ephemeral storage"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			spec := agentSpec()

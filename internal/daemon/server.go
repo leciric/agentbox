@@ -241,8 +241,10 @@ type Server struct {
 	removingStopped sync.Mutex
 
 	// clusters are the Kubernetes clients the daemon holds, by cluster and by
-	// the sealed kubeconfig they were built from (clusters.go).
-	clusters clusterClients
+	// the sealed kubeconfig they were built from (clusters.go), and capacities
+	// is what its last look at each found.
+	clusters   clusterClients
+	capacities clusterCapacities
 	// gateway is where every pod dials in, and the sessions they hold once
 	// they have (agentgateway.go); gatewayListener is the local listener a
 	// cluster on this machine dials.
@@ -655,8 +657,9 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 	// Incus is asked only from here on: nothing before Serve may wait on it.
 	loops.Go(func() { s.watchIncus(ctx) })
 	// And every cluster an agent runs in, which is where those agents' machines
-	// are (reconciler.go).
+	// are, plus what room each configured cluster has (reconciler.go).
 	loops.Go(func() { s.reconcileClusters(ctx) })
+	loops.Go(func() { s.watchCapacities(ctx) })
 	loops.Go(func() { s.dropOldLimits(ctx) })
 	// Docker's firewall drops what the Incus bridge forwards, and a Docker
 	// Desktop that starts after this daemon rebuilds the chain without our rules.

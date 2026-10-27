@@ -3772,6 +3772,10 @@ export interface Cluster {
   cpu?: string;
   memory?: string;
   labels?: Record<string, string>;
+  agentCPU?: string;
+  agentMemory?: string;
+  workspaceSize?: string;
+  ephemeralStorage?: string;
   tailnet: string;
   capabilities?: string[];
   createdAt: string;
@@ -3789,6 +3793,10 @@ export interface ClusterConfig {
   cpu?: string;
   memory?: string;
   labels?: Record<string, string>;
+  agentCPU?: string;
+  agentMemory?: string;
+  workspaceSize?: string;
+  ephemeralStorage?: string;
   tailnet: string;
   capabilities?: string[];
 }
@@ -3813,6 +3821,10 @@ export interface AddClusterRequest {
   cpu?: string;
   memory?: string;
   labels?: Record<string, string>;
+  agentCPU?: string;
+  agentMemory?: string;
+  workspaceSize?: string;
+  ephemeralStorage?: string;
   tailnet?: string;
   capabilities?: string[];
   kubeconfig: string;

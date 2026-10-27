@@ -1578,6 +1578,16 @@ var migrations = []string{
 		previous_saved_from TEXT NOT NULL DEFAULT '',
 		previous_saved_at   INTEGER NOT NULL DEFAULT 0
 	)`,
+	// What one agent's pod asks of a cluster, so a pod is a size the user
+	// chose rather than whatever the node had left. agent_cpu and agent_memory
+	// are one pod's requests (empty asks for nothing in particular);
+	// workspace_size is its claim (empty is k8s.DefaultWorkspaceSize); and
+	// ephemeral_storage is the local disk it may fill, its /tmp included
+	// (empty is k8s.DefaultEphemeralStorage).
+	`ALTER TABLE clusters ADD COLUMN agent_cpu TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE clusters ADD COLUMN agent_memory TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE clusters ADD COLUMN workspace_size TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE clusters ADD COLUMN ephemeral_storage TEXT NOT NULL DEFAULT ''`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

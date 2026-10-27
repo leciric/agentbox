@@ -29,10 +29,23 @@ type Cluster struct {
 	// MaxAgents is the ceiling on agents here, zero for as many as the nodes
 	// allow.
 	MaxAgents int `json:"maxAgents"`
-	// CPU and Memory are an optional budget, as Kubernetes quantities.
+	// CPU and Memory are an optional budget for the cluster's agents, as
+	// Kubernetes quantities.
 	CPU    string            `json:"cpu,omitempty"`
 	Memory string            `json:"memory,omitempty"`
 	Labels map[string]string `json:"labels,omitempty"`
+	// AgentCPU and AgentMemory are what one agent's pod asks for, as
+	// Kubernetes quantities. Absent asks for nothing in particular.
+	AgentCPU    string `json:"agentCPU,omitempty"`
+	AgentMemory string `json:"agentMemory,omitempty"`
+	// WorkspaceSize is an agent's claim, as a Kubernetes quantity. Absent is
+	// the daemon's own default (20Gi). A claim is made once, so a change here
+	// reaches the next agent, not an existing one.
+	WorkspaceSize string `json:"workspaceSize,omitempty"`
+	// EphemeralStorage is how much local disk one pod may fill outside its
+	// claim, as a Kubernetes quantity. Absent is the daemon's own default
+	// (10Gi).
+	EphemeralStorage string `json:"ephemeralStorage,omitempty"`
 	// Tailnet is how its pods reach this machine and the private git remote:
 	// operator, sidecar or none.
 	Tailnet      string    `json:"tailnet"`
@@ -51,27 +64,33 @@ type Cluster struct {
 // replaces all of it. How the cluster is reached, its name and its namespace are
 // not here, because they are not settings.
 type ClusterConfig struct {
-	StorageClass string            `json:"storageClass,omitempty"`
-	Image        string            `json:"image,omitempty"`
-	MasterURL    string            `json:"masterURL,omitempty"`
-	Registry     string            `json:"registry,omitempty"`
-	MaxAgents    int               `json:"maxAgents"`
-	CPU          string            `json:"cpu,omitempty"`
-	Memory       string            `json:"memory,omitempty"`
-	Labels       map[string]string `json:"labels,omitempty"`
-	Tailnet      string            `json:"tailnet"`
-	Capabilities []string          `json:"capabilities,omitempty"`
+	StorageClass     string            `json:"storageClass,omitempty"`
+	Image            string            `json:"image,omitempty"`
+	MasterURL        string            `json:"masterURL,omitempty"`
+	Registry         string            `json:"registry,omitempty"`
+	MaxAgents        int               `json:"maxAgents"`
+	CPU              string            `json:"cpu,omitempty"`
+	Memory           string            `json:"memory,omitempty"`
+	Labels           map[string]string `json:"labels,omitempty"`
+	AgentCPU         string            `json:"agentCPU,omitempty"`
+	AgentMemory      string            `json:"agentMemory,omitempty"`
+	WorkspaceSize    string            `json:"workspaceSize,omitempty"`
+	EphemeralStorage string            `json:"ephemeralStorage,omitempty"`
+	Tailnet          string            `json:"tailnet"`
+	Capabilities     []string          `json:"capabilities,omitempty"`
 }
 
 // ClusterCapacity is how much room a cluster has, as its nodes say: what
 // admission can place, not a guess from the rack's name.
 type ClusterCapacity struct {
-	// Agents is how many more agents fit now, after MaxAgents and the nodes'
-	// free CPU and memory.
+	// Agents is how many more agents fit now, after MaxAgents and the free
+	// CPU and memory. -1 is a cluster with no ceiling it can count: no
+	// MaxAgents, and no AgentCPU or AgentMemory to divide the room by.
 	Agents int `json:"agents"`
-	// Running is how many agents it has now.
+	// Running is how many agents have a pod running now.
 	Running int `json:"running"`
-	// CPU and Memory are what its ready nodes can allocate, as Kubernetes
+	// CPU and Memory are what is left to place agents with, after the pods
+	// already in the namespace and the cluster's own budget, as Kubernetes
 	// quantities.
 	CPU    string    `json:"cpu,omitempty"`
 	Memory string    `json:"memory,omitempty"`
@@ -87,18 +106,22 @@ type ClusterCapacity struct {
 // https URL, trimmed. Empty leaves it unset, which is a cluster the doctor fails
 // until the user sets one with `cluster set --master-url`.
 type AddClusterRequest struct {
-	Name         string            `json:"name"`
-	Namespace    string            `json:"namespace,omitempty"`
-	StorageClass string            `json:"storageClass,omitempty"`
-	Image        string            `json:"image,omitempty"`
-	MasterURL    string            `json:"masterURL,omitempty"`
-	Registry     string            `json:"registry,omitempty"`
-	MaxAgents    int               `json:"maxAgents,omitempty"`
-	CPU          string            `json:"cpu,omitempty"`
-	Memory       string            `json:"memory,omitempty"`
-	Labels       map[string]string `json:"labels,omitempty"`
-	Tailnet      string            `json:"tailnet,omitempty"`
-	Capabilities []string          `json:"capabilities,omitempty"`
+	Name             string            `json:"name"`
+	Namespace        string            `json:"namespace,omitempty"`
+	StorageClass     string            `json:"storageClass,omitempty"`
+	Image            string            `json:"image,omitempty"`
+	MasterURL        string            `json:"masterURL,omitempty"`
+	Registry         string            `json:"registry,omitempty"`
+	MaxAgents        int               `json:"maxAgents,omitempty"`
+	CPU              string            `json:"cpu,omitempty"`
+	Memory           string            `json:"memory,omitempty"`
+	Labels           map[string]string `json:"labels,omitempty"`
+	AgentCPU         string            `json:"agentCPU,omitempty"`
+	AgentMemory      string            `json:"agentMemory,omitempty"`
+	WorkspaceSize    string            `json:"workspaceSize,omitempty"`
+	EphemeralStorage string            `json:"ephemeralStorage,omitempty"`
+	Tailnet          string            `json:"tailnet,omitempty"`
+	Capabilities     []string          `json:"capabilities,omitempty"`
 	// Kubeconfig is the admin kubeconfig the user's kubectl uses, as its YAML.
 	// The daemon applies the namespace, the ServiceAccount, the Role and its
 	// binding with it, makes a token Secret, and keeps only the
