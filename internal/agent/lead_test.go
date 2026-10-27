@@ -614,6 +614,18 @@ func leadEnv(t *testing.T, f fixture, a state.Agent) map[string]string {
 	return env
 }
 
+// The lead's chat reports the VS Code extension's entrypoint, as agents' do.
+func TestLeadChatReportsTheVSCodeEntrypoint(t *testing.T) {
+	f := leadFixture(t)
+	a, err := f.m.EnsureLead(context.Background(), "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := leadEnv(t, f, a)["CLAUDE_CODE_ENTRYPOINT"]; got != "claude-vscode" {
+		t.Errorf("the lead's CLAUDE_CODE_ENTRYPOINT is %q", got)
+	}
+}
+
 // In a VM made before /etc/agentbox/vm was, the front end's environment is
 // the only thing that tells agentbox it runs in the VM. The lead's is a fresh
 // one, with a HOME that holds no state.db, so its `agentbox mcp` took itself

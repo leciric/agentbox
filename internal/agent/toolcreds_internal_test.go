@@ -83,7 +83,7 @@ esac`), Store: openInternalStore(t)}
 		t.Fatal(err)
 	}
 	script := cmd.Args[len(cmd.Args)-1]
-	if !strings.Contains(script, "&& exec env -u ANTHROPIC_API_KEY -u ") || !strings.Contains(script, " BASH_ENV='/home/dev/.config/agentbox/bash_env' mise exec 'npm:@agentclientprotocol/claude-agent-acp@") {
+	if !strings.Contains(script, "exec env -u ANTHROPIC_API_KEY -u ") || !strings.Contains(script, " BASH_ENV='/home/dev/.config/agentbox/bash_env' mise exec 'npm:@agentclientprotocol/claude-agent-acp@") {
 		t.Errorf("the chat's command doesn't drop the credential variables just before mise:\n%s", script)
 	}
 }
@@ -282,5 +282,40 @@ func TestIsTool(t *testing.T) {
 		if got := isTool(tc.tool, tc.argv); got != tc.want {
 			t.Errorf("isTool(%s, %q) = %v", tc.tool, tc.argv, got)
 		}
+	}
+}
+
+// The chat says it is the VS Code extension, which bills the 5-hour window at
+// well under the Agent SDK's default; the terminal interface and other tools
+// say nothing.
+func TestClaudeChatsReportTheVSCodeEntrypoint(t *testing.T) {
+	t.Parallel()
+	m := &Manager{Creds: credentials.Store{Dir: t.TempDir()}, Incus: fakeIncus(t, `case "$1" in
+  list) echo '[{"name":"ab-sai-agent-01","status":"Running"}]' ;;
+esac`), Store: openInternalStore(t)}
+	m.User.Name = "dev"
+	script := func(ai string) string {
+		a := claudeAgent("")
+		a.AI, a.Interface = ai, state.InterfaceChat
+		cmd, err := m.ChatCommand(context.Background(), a, func(string) {})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cmd.Args[len(cmd.Args)-1]
+	}
+	if s := script("claude"); !strings.Contains(s, "&& CLAUDE_CODE_ENTRYPOINT=claude-vscode exec ") {
+		t.Errorf("the Claude chat doesn't set the entrypoint:\n%s", s)
+	}
+	for _, ai := range []string{"codex", "opencode"} {
+		if s := script(ai); strings.Contains(s, "CLAUDE_CODE_ENTRYPOINT") {
+			t.Errorf("the %s chat sets the entrypoint:\n%s", ai, s)
+		}
+	}
+	window, err := m.toolWindowScript(claudeAgent(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(window, "CLAUDE_CODE_ENTRYPOINT") {
+		t.Errorf("the terminal interface sets the entrypoint:\n%s", window)
 	}
 }

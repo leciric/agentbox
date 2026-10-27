@@ -46,6 +46,14 @@ var ChatAdapters = map[string]ChatAdapter{
 	"cursor": {Tool: "Cursor", Command: "node", Package: cursor.SDKPackage, Script: cursor.Script, ScriptPath: cursorScriptFile, SDKEnv: cursor.SDKEnv},
 }
 
+// claudeEntrypoint is the client label Claude Code reports, which decides how
+// much of the 5-hour window a turn costs. The Agent SDK defaults to "sdk-ts";
+// for the same tokens that took 1.9x the terminal interface ("cli") and 2.5x
+// the VS Code extension, which drives the same transport. Our chat is that
+// transport, so it says so. Inferred from a small sample (one account, three
+// sessions per client). The terminal interface really is "cli" and sets nothing.
+const claudeEntrypoint = "CLAUDE_CODE_ENTRYPOINT=claude-vscode"
+
 // installTimeout bounds installing an adapter in an agent whose machine doesn't have it.
 const installTimeout = 5 * time.Minute
 
@@ -84,6 +92,9 @@ func (m *Manager) LeadChatCommand(ctx context.Context, a state.Agent, status fun
 		"LANG=C.UTF-8",
 	}
 	env = append(env, toolEnv()...)
+	if a.AI == "claude" {
+		env = append(env, claudeEntrypoint)
+	}
 	if term := os.Getenv("TERM"); term != "" {
 		env = append(env, "TERM="+term)
 	}
@@ -147,6 +158,9 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 	command := shellQuote(adapter.Command)
 	args := adapter.Args
 	var env string
+	if a.AI == "claude" {
+		env = claudeEntrypoint + " "
+	}
 	if adapter.Script != nil {
 		// Written every time, so the adapter is always this daemon's own.
 		path := "/home/" + m.User.Name + "/" + adapter.ScriptPath
