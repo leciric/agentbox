@@ -34,21 +34,24 @@ func newImageCmd(a *app) *cobra.Command {
 		Long: `Makes the base image agents are copied from. With no optional component, it
 downloads the image AgentBox publishes for this version (Debian and the agent tools
 it may redistribute), then installs the rest, Claude Code first of all, here, and
-so does it with --codex or --opencode, whose tools it installs the same way. With
+so does it with --codex or --opencode, whose tools it installs the same way. OpenCode 2
+(--opencode2) is the exception: it is installed beside OpenCode 1 by the build itself,
+so it needs one of the local builds below. With
 --android, --dev-caches or --incus, with --local, or when there is no published
 image to download, it builds the image here from Debian instead, which takes a few
 minutes longer.
 
-Five components are optional and off until you ask, because most agents use
+Six components are optional and off until you ask, because most agents use
 none of them: --android adds scrcpy, which mirrors an Android emulator's screen,
 --codex adds the Codex CLI and the adapter the app's chat drives it with,
---opencode adds the OpenCode CLI, which is its own adapter, --dev-caches
+--opencode adds the OpenCode CLI, which is its own adapter, --opencode2 adds
+OpenCode 2 beside it (as opencode2, so an installation can choose), --dev-caches
 fills the Go, npm and Electron caches from AgentBox's own repository, for a
 machine whose agents work on AgentBox itself, and --incus adds Incus itself, for
 a project whose agents need to run a real Incus daemon of their own (its
 "nesting" setting). What you choose is remembered, so a later rebuild keeps it;
 turn one off again with --android=false, --codex=false, --opencode=false,
---dev-caches=false or --incus=false.`,
+--opencode2=false, --dev-caches=false or --incus=false.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			c, err := a.client(cmd)
@@ -171,6 +174,9 @@ func buildComponents(ctx context.Context, c *api.Client, req api.BuildImageReque
 	}
 	if req.OpenCode != nil {
 		components.OpenCode = *req.OpenCode
+	}
+	if req.OpenCodeV2 != nil {
+		components.OpenCodeV2 = *req.OpenCodeV2
 	}
 	if req.DevCaches != nil {
 		components.DevCaches = *req.DevCaches

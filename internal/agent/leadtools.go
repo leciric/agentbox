@@ -194,7 +194,7 @@ func (m *Manager) ensureNPMTool(ctx context.Context, tool string, version openco
 	}
 	name := ChatAdapters[tool].Tool
 	if installed == "" {
-		status("Installing " + name + " for the project chat, once for this machine")
+		status("Installing " + name + ", once for this machine")
 	} else {
 		status(fmt.Sprintf("Updating %s from %s to %s", name, installed, pinnedVersion(pkg)))
 	}
@@ -212,6 +212,15 @@ func (m *Manager) ensureNPMTool(ctx context.Context, tool string, version openco
 		return "", "", fmt.Errorf("installing %s: it reported success but %s isn't there: %s", pkg, own, tail(out.String()))
 	}
 	return own, nodeBin, nil
+}
+
+// EnsureOpenCode2 installs OpenCode 2 in AgentBox's tools directory and returns
+// its command. Its binary is the npm platform package, which declares no bin
+// entry, so it sits beside OpenCode 1 rather than replacing it; the daemon asks
+// it for the model menu and the CLI signs in with it.
+func (m *Manager) EnsureOpenCode2(ctx context.Context, status func(string)) (string, error) {
+	path, _, err := m.ensureNPMTool(ctx, "opencode", opencode.V2, status)
+	return path, err
 }
 
 // leadAdapter is the command, arguments and environment that start a lead's

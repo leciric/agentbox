@@ -92,8 +92,8 @@ const (
 	// Cursor's "Auto" and the model's own default level.
 	SettingDefaultCursorModel  = "default_cursor_model"
 	SettingDefaultCursorEffort = "default_cursor_effort"
-	// SettingImageAndroid, SettingImageCodex, SettingImageOpenCode and
-	// SettingImageDevCaches are the
+	// SettingImageAndroid, SettingImageCodex, SettingImageOpenCode,
+	// SettingImageOpenCodeV2 and SettingImageDevCaches are the
 	// optional components the base image is built with, stored as flags. They
 	// belong to the installation for the same reason the model does: there is
 	// one base image, and every project's agents are copied from it. All are

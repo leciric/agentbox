@@ -23,7 +23,8 @@ Every agent's container starts life as a clone of a shared Incus snapshot, `agen
   [`provision.sh`](../internal/image/provision.sh) applied and every tool in `tools.txt` except
   Claude Code, its ACP adapter and Cursor's SDK, which AgentBox may not redistribute: the machine
   installs those itself, at their `tools.txt` versions, before making the image its own.
-- **With a component** (Codex, OpenCode, the Android tools, the development caches, Incus), with
+- **With a component** (Codex, OpenCode, OpenCode 2, the Android tools, the development caches,
+  Incus), with
   `agentbox image build --local`, with `AGENTBOX_IMAGES_URL=off` in the daemon's environment, or
   when the download or its checksum fails, it builds the image here instead, from
   `images:debian/13`, by running `provision.sh` against a fresh container, which takes a few
@@ -65,7 +66,11 @@ Run inside the container before it's snapshotted:
   screen;
 - [mise](https://mise.jdx.dev), and through it the tools pinned in `tools.txt` that every agent
   gets: Go, Node, Claude Code, the GitHub CLI, the Playwright MCP server, and Codex/OpenCode where
-  requested;
+  requested. OpenCode 2 is not in `tools.txt`: when its component is on, `provision.sh` installs its
+  npm platform package beside OpenCode 1 and links it as `/usr/local/bin/opencode2`, and the
+  installation setting `opencode_version` chooses which one agents and the project chat run. It is
+  always a local build, so a switch to OpenCode 2 also means building the image on your machine,
+  with `agentbox image build --opencode2` or Settings → Setup;
 - a placeholder user, `agent` (UID/GID 1000), in the `sudo` and `docker` groups;
 - a check at the end that every pinned tool actually reports the version it was asked to install.
 

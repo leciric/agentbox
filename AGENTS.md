@@ -145,7 +145,7 @@ screenshot` of the preview in the agent's display, made by the desktop subagent.
 ## The agents' base image
 
 Setup downloads it (`internal/image/published.go`), adding the Codex and OpenCode tools on top when they
-are on, unless Android, dev caches or Incus are (`Components.NeedsLocalBuild`), from the
+are on, unless Android, OpenCode 2, dev caches or Incus are (`Components.NeedsLocalBuild`), from the
 `image-<version>` prerelease on this repository's GitHub releases, or first from its copy on the CDN
 (`downloads.agentbox.linting.dev/images/`, `scripts/r2-images.sh`), compressed with zstd and split in
 128 MiB parts that Setup downloads at once, resumes, joins and checks (`internal/image/download.go`;
@@ -169,6 +169,11 @@ release-please and the update check never see it), and
   (`image.UpdateTools`, `internal/daemon/imagetools.go`), swapping the copy in only when every tool
   checks out (`image.UseBase`); on failure the base stays and Setup offers a rebuild.
   `internal/agent/chat.go` takes the ACP adapters' versions from the same file.
+- **OpenCode 2 is the exception**: it is a second OpenCode beside the pinned one, installed by
+  `provision.sh` from its npm platform package and linked as `opencode2`
+  (`image.OpenCode2Version`, not `tools.txt`), so its component forces a local build. An
+  installation chooses between the two with `state.SettingOpenCodeVersion`; OpenCode 1 is the
+  default and the only one the published image carries.
 - **Anything in `provision.sh`** means bumping `image.Version` in
   [`image.go`](internal/image/image.go), which makes Setup ask for a rebuild, as does turning an
   optional component on or off. The [Base image](.github/workflows/base-image.yml) workflow builds it

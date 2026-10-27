@@ -232,7 +232,8 @@ func withClaudeKey(existing []byte, key string, value any, want bool) ([]byte, e
 // shape: Claude Code's settings.json, Codex's config.toml
 // (model_auto_compact_token_limit and [agents].max_concurrent_threads_per_session)
 // and OpenCode's opencode.json (subagent_depth — it has no absolute compact
-// window to set at all).
+// window to set at all, and OpenCode 2 has no equivalent of the depth cap:
+// the key is deprecated there and dropped without a word).
 func (m *Manager) PrepareChatModel(ctx context.Context, a state.Agent, model string, compactWindow int64) error {
 	if a.IsLead() && a.AI != "claude" {
 		// Its configuration is in the lead's HOME, written with its brief

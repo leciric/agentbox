@@ -923,26 +923,26 @@ func (m *Manager) checkImageTool(ctx context.Context, ai string) error {
 	if err != nil {
 		return nil
 	}
-	if ai == "opencode" {
-		version, err := m.openCodeVersion(ctx)
-		if err != nil {
-			return err
-		}
-		if version == opencode.V2 {
-			if installed.Components.OpenCodeV2 {
-				return nil
-			}
-			return fmt.Errorf("OpenCode 2 is %s: run agentbox image build --opencode2, or switch back to OpenCode 1", image.OpenCodeMissing)
-		}
-		if installed.Components.OpenCode {
+	if ai == "codex" {
+		if installed.Components.Codex {
 			return nil
 		}
-		return fmt.Errorf("OpenCode is %s: run agentbox image build --opencode (or use --ai claude)", image.OpenCodeMissing)
+		return fmt.Errorf("this agent's Codex is %s: run agentbox image build --codex (or use --ai claude)", image.CodexMissing)
 	}
-	if installed.Components.Codex {
+	version, err := m.openCodeVersion(ctx)
+	if err != nil {
+		return err
+	}
+	if version == opencode.V2 {
+		if installed.Components.OpenCodeV2 {
+			return nil
+		}
+		return fmt.Errorf("OpenCode 2 is %s: run agentbox image build --opencode2, or switch back to OpenCode 1", image.OpenCodeMissing)
+	}
+	if installed.Components.OpenCode {
 		return nil
 	}
-	return fmt.Errorf("this agent's Codex is %s: run agentbox image build --codex (or use --ai claude)", image.CodexMissing)
+	return fmt.Errorf("OpenCode is %s: run agentbox image build --opencode (or use --ai claude)", image.OpenCodeMissing)
 }
 
 // OpenCodeReady reports whether an agent could run OpenCode right now: the
@@ -950,7 +950,15 @@ func (m *Manager) checkImageTool(ctx context.Context, ai string) error {
 // halves matter and the image comes first, exactly as they do for Codex — a
 // login is no use to an agent whose machine has no OpenCode to run.
 func (m *Manager) OpenCodeReady(ctx context.Context) (bool, error) {
-	on, err := m.Store.Flag(ctx, state.SettingImageOpenCode)
+	version, err := m.openCodeVersion(ctx)
+	if err != nil {
+		return false, err
+	}
+	flag := state.SettingImageOpenCode
+	if version == opencode.V2 {
+		flag = state.SettingImageOpenCodeV2
+	}
+	on, err := m.Store.Flag(ctx, flag)
 	if err != nil || !on {
 		return false, err
 	}
@@ -1182,7 +1190,9 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 	// ~/.codex/auth.json, Cursor's SDK's ~/.cursor/sdk/auth.json (an API key
 	// or a browser sign-in alike, credentials.CursorLogin), and OpenCode's
 	// every provider in $XDG_DATA_HOME/opencode — the agent's own home, never
-	// the host's (D6).
+	// the host's (D6). OpenCode 2 keeps its credentials in a database there
+	// instead of an auth.json, so they are imported after these files are
+	// written (importOpenCodeAccounts).
 	logins, err := m.toolLoginFiles(ctx, a)
 	if err != nil {
 		return err

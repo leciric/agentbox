@@ -57,7 +57,7 @@ func TestModelsUsesAgentBoxsOwnDataHome(t *testing.T) {
 	command := filepath.Join(bin, "opencode")
 
 	dataHome := t.TempDir()
-	got, err := opencode.Models(context.Background(), command, dataHome)
+	got, err := opencode.Models(context.Background(), command, dataHome, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,33 @@ func TestModelsUsesAgentBoxsOwnDataHome(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bin, "opencode"), []byte(failing), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := opencode.Models(context.Background(), command, dataHome); err == nil || !strings.Contains(err.Error(), "no providers are configured") {
+	if _, err := opencode.Models(context.Background(), command, dataHome, false); err == nil || !strings.Contains(err.Error(), "no providers are configured") {
 		t.Errorf("a failing opencode models: %v", err)
+	}
+}
+
+// OpenCode 2 is asked in standalone mode, and its credentials go in and out
+// through its own commands rather than an auth.json.
+func TestVersionTwoTalksToAStandaloneServer(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the fake command line is a shell script")
+	}
+	bin := t.TempDir()
+	script := "#!/bin/sh\ncase \"$1\" in\n  models) printf '%s\\n' \"$@\" ;;\n  auth) cat >\"$XDG_DATA_HOME/stdin\"; printf '%s\\n' \"$@\" ;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(bin, "opencode2"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	command := filepath.Join(bin, "opencode2")
+	dataHome := t.TempDir()
+
+	if err := opencode.Import(context.Background(), command, dataHome, []byte(`[{"id":"cred_1"}]`)); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(dataHome, "stdin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != `[{"id":"cred_1"}]` {
+		t.Errorf("auth import read %q", got)
 	}
 }

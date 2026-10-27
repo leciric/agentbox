@@ -11,11 +11,12 @@ const flags: Record<string, string> = {
   android: '--android',
   codex: '--codex',
   opencode: '--opencode',
+  opencode2: '--opencode2',
   'dev-caches': '--dev-caches',
   incus: '--incus',
 };
 // keys maps an option to its field in ImageComponents, where the names differ.
-const keys: Record<string, keyof T.ImageComponents> = { 'dev-caches': 'devCaches' };
+const keys: Record<string, keyof T.ImageComponents> = { 'dev-caches': 'devCaches', opencode2: 'opencodeV2' };
 
 function size(mb: number): string {
   return mb < 1000 ? `${mb} MB` : `${formatNumber(mb / 1000, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} GB`;

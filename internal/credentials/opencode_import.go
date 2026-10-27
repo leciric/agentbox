@@ -2,8 +2,9 @@ package credentials
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -52,7 +53,7 @@ func (s Store) OpenCodeImport(chosen map[string]string) (auth []byte, used map[s
 			IntegrationID: provider,
 			Label:         name,
 			Active:        true,
-			Value:         json.RawMessage(b),
+			Value:         openCodeV2Entry(provider, b),
 		})
 	}
 	if len(creds) == 0 {
@@ -103,6 +104,55 @@ func openCodeIDPart(s string) string {
 	return s
 }
 
+// openCodeV2Entry is an account's stored entry as OpenCode 2's database takes
+// it. OpenCode 2 requires the method a credential was created with
+// ("device", "chatgpt-browser", …), which OpenCode 1 never stored; an account
+// captured by OpenCode 1 gets the method its provider signs in with, and the
+// account id OpenCode 1 kept at the top level goes where OpenCode 2 reads it.
+// An entry captured by OpenCode 2 already has both and is left alone.
+func openCodeV2Entry(provider string, b []byte) json.RawMessage {
+	var entry map[string]json.RawMessage
+	if err := json.Unmarshal(b, &entry); err != nil {
+		return json.RawMessage(b)
+	}
+	var kind struct {
+		Type string `json:"type"`
+	}
+	_ = json.Unmarshal(b, &kind)
+	if kind.Type == "api" {
+		// OpenCode 1 calls an API key's type "api"; OpenCode 2 calls it "key".
+		entry["type"] = json.RawMessage(`"key"`)
+	}
+	if kind.Type == "oauth" {
+		if _, ok := entry["methodID"]; !ok {
+			method, _ := json.Marshal(openCodeMethod(provider))
+			entry["methodID"] = method
+		}
+	}
+	if id, ok := entry["accountId"]; ok {
+		if _, has := entry["metadata"]; !has {
+			metadata, _ := json.Marshal(map[string]json.RawMessage{"accountID": id})
+			entry["metadata"] = metadata
+		}
+	}
+	out, err := json.Marshal(entry)
+	if err != nil {
+		return json.RawMessage(b)
+	}
+	return out
+}
+
+// openCodeMethod is the login method OpenCode 2 records for a provider that
+// OpenCode 1 signed in to. The two versions only ever signed in to these with
+// OAuth; an unknown provider gets the device flow, which is what an OAuth
+// credential without a method is most likely to have come from.
+func openCodeMethod(provider string) string {
+	if provider == "openai" {
+		return "chatgpt-browser"
+	}
+	return "device"
+}
+
 // openCodeV1Entry is an account's stored entry as OpenCode 1's auth.json takes
 // it. OpenCode 2 keeps the same fields and adds "methodID" and "metadata";
 // OpenCode 1 knows neither. The account id OpenCode 2 carries in metadata
@@ -112,12 +162,20 @@ func openCodeV1Entry(b []byte) json.RawMessage {
 	if err := json.Unmarshal(b, &entry); err != nil {
 		return json.RawMessage(b)
 	}
+	var kind struct {
+		Type string `json:"type"`
+	}
+	_ = json.Unmarshal(b, &kind)
 	var metadata map[string]json.RawMessage
 	if raw, ok := entry["metadata"]; ok {
 		_ = json.Unmarshal(raw, &metadata)
 	}
 	delete(entry, "methodID")
 	delete(entry, "metadata")
+	if kind.Type == "key" {
+		// OpenCode 2 calls an API key's type "key"; OpenCode 1 calls it "api".
+		entry["type"] = json.RawMessage(`"api"`)
+	}
 	if _, ok := entry["accountId"]; !ok {
 		if id, ok := metadata["accountID"]; ok {
 			entry["accountId"] = id
@@ -130,5 +188,24 @@ func openCodeV1Entry(b []byte) json.RawMessage {
 	return out
 }
 
-// errNoOpenCodeExport is what a v2 login that produced nothing to import says.
-var errNoOpenCodeExport = errors.New("opencode stored no credential: run agentbox auth opencode again and finish the login")
+// OpenCodeImportHome is an XDG data home for asking OpenCode 2 which models
+// the stored login can run, and the export to import into it first. It is
+// written afresh on every call: importing into a home that already holds a
+// provider's credential leaves the old one in place.
+func (s Store) OpenCodeImportHome() (dir string, export []byte, err error) {
+	export, _, err = s.OpenCodeImport(nil)
+	if err != nil {
+		return "", nil, err
+	}
+	if export == nil {
+		export = []byte("[]")
+	}
+	dir = filepath.Join(s.Dir, "opencode2-models")
+	if err := os.RemoveAll(dir); err != nil {
+		return "", nil, err
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "opencode"), 0o700); err != nil {
+		return "", nil, err
+	}
+	return dir, export, nil
+}

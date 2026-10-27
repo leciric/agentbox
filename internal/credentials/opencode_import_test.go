@@ -2,6 +2,10 @@ package credentials_test
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"agentbox/internal/credentials"
@@ -108,5 +112,97 @@ func TestSplitOpenCodeExport(t *testing.T) {
 	}
 	if _, ok := got["not/a/provider"]; ok {
 		t.Fatal("an invalid provider was stored")
+	}
+}
+
+// The model menu is asked with a data home of AgentBox's own, imported into
+// fresh every time: a home that already held a provider's credential would
+// keep the old one.
+func TestOpenCodeImportHome(t *testing.T) {
+	s := store(t)
+	save(t, s, credentials.ToolOpenCode, "anthropic", "work", `{"type":"key","key":"a-work"}`)
+	dir, export, err := s.OpenCodeImportHome()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(export) == 0 {
+		t.Fatal("OpenCodeImportHome returned no credentials to import")
+	}
+	var creds []struct {
+		IntegrationID string `json:"integrationID"`
+	}
+	if err := json.Unmarshal(export, &creds); err != nil || len(creds) != 1 || creds[0].IntegrationID != "anthropic" {
+		t.Fatalf("export = %s, %v", export, err)
+	}
+	stale := filepath.Join(dir, "opencode", "stale")
+	if err := os.WriteFile(stale, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	again, _, err := s.OpenCodeImportHome()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again != dir {
+		t.Fatalf("the data home moved: %s then %s", dir, again)
+	}
+	if _, err := os.Stat(stale); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the data home kept a file from the last ask: %v", err)
+	}
+}
+
+// OpenCode 2 calls an API key's type "key" and requires the method an OAuth
+// credential was created with, neither of which OpenCode 1 stored under those
+// names. Both are filled in on the way in, and the account id moves into the
+// metadata OpenCode 2 reads it from.
+func TestOpenCodeImportSpeaksVersionTwo(t *testing.T) {
+	s := store(t)
+	save(t, s, credentials.ToolOpenCode, "anthropic", "default", `{"type":"api","key":"a-key"}`)
+	save(t, s, credentials.ToolOpenCode, "openai", "default",
+		`{"type":"oauth","access":"a","refresh":"r","expires":1,"accountId":"acc_1"}`)
+
+	out, _, err := s.OpenCodeImport(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var creds []struct {
+		IntegrationID string `json:"integrationID"`
+		Value         struct {
+			Type     string            `json:"type"`
+			MethodID string            `json:"methodID"`
+			Metadata map[string]string `json:"metadata"`
+		} `json:"value"`
+	}
+	if err := json.Unmarshal(out, &creds); err != nil {
+		t.Fatal(err)
+	}
+	byProvider := map[string]int{}
+	for i, c := range creds {
+		byProvider[c.IntegrationID] = i
+	}
+	key := creds[byProvider["anthropic"]].Value
+	if key.Type != "key" || key.MethodID != "" {
+		t.Fatalf("an API key became %+v", key)
+	}
+	oauth := creds[byProvider["openai"]].Value
+	if oauth.Type != "oauth" || oauth.MethodID != "chatgpt-browser" || oauth.Metadata["accountID"] != "acc_1" {
+		t.Fatalf("an OpenAI sign-in became %+v", oauth)
+	}
+}
+
+// And an account OpenCode 2 captured reads back in the shape OpenCode 1 takes:
+// "key" is what OpenCode 1 calls "api".
+func TestOpenCodeAuthProjectsVersionTwoKeys(t *testing.T) {
+	s := store(t)
+	save(t, s, credentials.ToolOpenCode, "anthropic", "default", `{"type":"key","key":"a-key"}`)
+	auth, _, err := s.OpenCodeAuth(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]map[string]any
+	if err := json.Unmarshal(auth, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["anthropic"]["type"] != "api" || got["anthropic"]["key"] != "a-key" {
+		t.Fatalf("auth.json = %s", auth)
 	}
 }

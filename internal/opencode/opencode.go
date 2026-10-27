@@ -30,12 +30,17 @@ const Command = "opencode"
 const modelsTimeout = 45 * time.Second
 
 // Models lists the "provider/model" ids OpenCode says the stored login can
-// run, running command (Installer.Ensure's) with dataHome as its XDG data
-// directory.
-func Models(ctx context.Context, command, dataHome string) ([]string, error) {
+// run, running command (Installer.Ensure's, or EnsureOpenCode2's) with dataHome
+// as its XDG data directory. OpenCode 2 is asked in standalone mode: its other
+// commands talk to a background service, which AgentBox runs for no chat.
+func Models(ctx context.Context, command, dataHome string, standalone bool) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, modelsTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, command, "models")
+	args := []string{"models"}
+	if standalone {
+		args = append(args, "--standalone")
+	}
+	cmd := exec.CommandContext(ctx, command, args...)
 	// A fresh environment but for what a command needs to run at all: HOME
 	// stays the user's (OpenCode writes caches there), while XDG_DATA_HOME is
 	// AgentBox's, which is where its auth.json is.
@@ -83,6 +88,44 @@ func Name(id string) string {
 		return id
 	}
 	return provider + " / " + model
+}
+
+// Import gives OpenCode 2 the credentials AgentBox holds for it, in the form
+// `opencode auth export` prints. It is OpenCode 2's replacement for writing an
+// auth.json: its credentials live in its own database.
+func Import(ctx context.Context, command, dataHome string, export []byte) error {
+	ctx, cancel := context.WithTimeout(ctx, modelsTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, command, "auth", "import", "--standalone")
+	cmd.Env = append(cmd.Environ(), "XDG_DATA_HOME="+dataHome)
+	cmd.Stdin = bytes.NewReader(export)
+	var errs bytes.Buffer
+	cmd.Stderr = &errs
+	if err := cmd.Run(); err != nil {
+		if line := lastLine(errs.String()); line != "" {
+			return fmt.Errorf("opencode auth import: %w: %s", err, line)
+		}
+		return fmt.Errorf("opencode auth import: %w", err)
+	}
+	return nil
+}
+
+// Export reads what OpenCode 2 stored in dataHome, in the form `auth import`
+// takes. It is how a login made with OpenCode 2 comes back to AgentBox.
+func Export(ctx context.Context, command, dataHome string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, modelsTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, command, "auth", "export", "--standalone")
+	cmd.Env = append(cmd.Environ(), "XDG_DATA_HOME="+dataHome)
+	var out, errs bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errs
+	if err := cmd.Run(); err != nil {
+		if line := lastLine(errs.String()); line != "" {
+			return nil, fmt.Errorf("opencode auth export: %w: %s", err, line)
+		}
+		return nil, fmt.Errorf("opencode auth export: %w", err)
+	}
+	return out.Bytes(), nil
 }
 
 func lastLine(s string) string {

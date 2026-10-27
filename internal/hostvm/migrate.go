@@ -630,7 +630,7 @@ func ensureImage(ctx context.Context, c *api.Client, log io.Writer) error {
 	req := api.BuildImageRequest{}
 	if installed, err := image.InstalledBuild(ctx, hostIncus); err == nil {
 		comp := installed.Components
-		req = api.BuildImageRequest{Android: &comp.Android, Codex: &comp.Codex, OpenCode: &comp.OpenCode, DevCaches: &comp.DevCaches, Incus: &comp.Incus}
+		req = api.BuildImageRequest{Android: &comp.Android, Codex: &comp.Codex, OpenCode: &comp.OpenCode, OpenCodeV2: &comp.OpenCodeV2, DevCaches: &comp.DevCaches, Incus: &comp.Incus}
 	}
 	step(log, "Building the VM's base image, which every agent's new machine is made from (a few minutes)")
 	start := time.Now()

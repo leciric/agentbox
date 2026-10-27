@@ -75,8 +75,15 @@ func TestSameMCPServers(t *testing.T) {
 		}
 		return b
 	}
-	opencode := func(s []mcpServer, autonomous bool) []byte {
+	opencode1 := func(s []mcpServer, autonomous bool) []byte {
 		b, err := openCodeConfig(opencode.V1, s, autonomous)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	opencode2 := func(s []mcpServer) []byte {
+		b, err := openCodeConfig(opencode.V2, s, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -92,8 +99,10 @@ func TestSameMCPServers(t *testing.T) {
 		{"claude, no file before", "claude", nil, claude(`{}`, servers), false},
 		{"codex, the compact window changed", "codex", []byte(codexConfigFor("/w", servers, 100)), []byte(codexConfigFor("/w", servers, 200) + "\n[notice]\nhide = true\n"), true},
 		{"codex, a connector added", "codex", []byte(codexConfigFor("/w", servers, 100)), []byte(codexConfigFor("/w", more, 100)), false},
-		{"opencode, permissions changed", "opencode", opencode(servers, false), opencode(servers, true), true},
-		{"opencode, a connector added", "opencode", opencode(servers, false), opencode(more, false), false},
+		{"opencode, permissions changed", "opencode", opencode1(servers, false), opencode1(servers, true), true},
+		{"opencode, a connector added", "opencode", opencode1(servers, false), opencode1(more, false), false},
+		{"opencode, the version changed shape", "opencode", opencode1(servers, false), opencode2(servers), true},
+		{"opencode 2, a connector added", "opencode", opencode2(servers), opencode2(more), false},
 		{"cursor, unchanged", "cursor", cursorMCPConfig(servers), cursorMCPConfig(servers), true},
 		{"cursor, a connector added", "cursor", cursorMCPConfig(servers), cursorMCPConfig(more), false},
 	} {

@@ -3152,7 +3152,7 @@ type SetupStatus struct {
 	Image ImageBuild `json:"image"`
 }
 
-// ImageComponents are the optional parts of the base image. Both are off by
+// ImageComponents are the optional parts of the base image. Each is off by
 // default: each is a download most agents never need.
 type ImageComponents struct {
 	// Android adds scrcpy, which mirrors an agent's Android emulator.

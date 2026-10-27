@@ -207,13 +207,25 @@ func parseGemini(data []byte) ([]Found, error) {
 	return jsonServers(cfg.MCPServers, ToolGemini), nil
 }
 
-// parseOpenCode reads opencode.json(c)'s "mcp".
+// parseOpenCode reads opencode.json(c)'s "mcp". OpenCode 2 nests its servers
+// under "mcp.servers"; OpenCode 1 keeps them directly under "mcp", and
+// OpenCode 2 still reads that shape too.
 func parseOpenCode(data []byte) ([]Found, error) {
 	var cfg struct {
 		MCP map[string]json.RawMessage `json:"mcp"`
 	}
 	if err := json.Unmarshal(stripJSONC(data), &cfg); err != nil {
 		return nil, err
+	}
+	if raw, ok := cfg.MCP["servers"]; ok {
+		var nested map[string]json.RawMessage
+		// A server itself may be called "servers"; one is an object with a
+		// "type", while OpenCode 2's map is a name-to-server object.
+		if json.Unmarshal(raw, &nested) == nil && len(nested) > 0 {
+			if _, isServer := nested["type"]; !isServer {
+				return jsonServers(nested, ToolOpenCode), nil
+			}
+		}
 	}
 	return jsonServers(cfg.MCP, ToolOpenCode), nil
 }

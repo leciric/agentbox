@@ -21,6 +21,7 @@ import (
 	"agentbox/internal/hostsetup"
 	"agentbox/internal/image"
 	"agentbox/internal/incus"
+	"agentbox/internal/opencode"
 	"agentbox/internal/state"
 )
 
@@ -124,10 +125,22 @@ func (s *Server) setupStatus(ctx context.Context) (api.SetupStatus, error) {
 
 	// OpenCode is optional in the image and in the credentials too, and reads
 	// the same way as Codex above: the image first, then the login.
+	// Which OpenCode build counts is the one the installation chose, so an
+	// image with only OpenCode 2 isn't told to build OpenCode 1 in.
+	opencodeVersion := opencode.V1
+	if raw, err := s.store.Setting(ctx, state.SettingOpenCodeVersion); err == nil {
+		opencodeVersion = opencode.ReleaseOf(raw)
+	}
+	openCodeComponent := installed.Components.OpenCode
+	openCodeFix := "agentbox image build --opencode"
+	if opencodeVersion == opencode.V2 {
+		openCodeComponent = installed.Components.OpenCodeV2
+		openCodeFix = "agentbox image build --opencode2"
+	}
 	opencodeCheck := api.SetupCheck{ID: "opencode", Title: "OpenCode login", Status: api.SetupOptional,
 		Detail: "optional: agents can't run OpenCode yet", Fix: "agentbox auth opencode"}
-	if built && !installed.Components.OpenCode {
-		opencodeCheck.Detail, opencodeCheck.Fix = "optional: "+image.OpenCodeMissing, "agentbox image build --opencode"
+	if built && !openCodeComponent {
+		opencodeCheck.Detail, opencodeCheck.Fix = "optional: "+image.OpenCodeMissing, openCodeFix
 		checks = append(checks, opencodeCheck)
 	} else {
 		check(opencodeCheck, creds.HasOpenCodeLogin(nil), "AgentBox has its own OpenCode login for agents")
@@ -219,6 +232,10 @@ func (s *Server) imageComponents(ctx context.Context) (image.Components, error) 
 	if err != nil {
 		return image.Components{}, err
 	}
+	opencodeV2, err := s.store.Flag(ctx, state.SettingImageOpenCodeV2)
+	if err != nil {
+		return image.Components{}, err
+	}
 	devCaches, err := s.store.Flag(ctx, state.SettingImageDevCaches)
 	if err != nil {
 		return image.Components{}, err
@@ -227,11 +244,11 @@ func (s *Server) imageComponents(ctx context.Context) (image.Components, error) 
 	if err != nil {
 		return image.Components{}, err
 	}
-	return image.Components{Android: android, Codex: codex, OpenCode: opencode, DevCaches: devCaches, Incus: incus}, nil
+	return image.Components{Android: android, Codex: codex, OpenCode: opencode, OpenCodeV2: opencodeV2, DevCaches: devCaches, Incus: incus}, nil
 }
 
 func toAPIImageComponents(c image.Components) api.ImageComponents {
-	return api.ImageComponents{Android: c.Android, Codex: c.Codex, OpenCode: c.OpenCode, DevCaches: c.DevCaches, Incus: c.Incus}
+	return api.ImageComponents{Android: c.Android, Codex: c.Codex, OpenCode: c.OpenCode, OpenCodeV2: c.OpenCodeV2, DevCaches: c.DevCaches, Incus: c.Incus}
 }
 
 func apiDownloads(downloads []image.Download) []api.ImageDownload {

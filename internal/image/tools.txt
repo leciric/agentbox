@@ -52,6 +52,8 @@ codex    npm:@agentclientprotocol/codex-acp@1.11.0         command -v codex-acp
 # backend skips by default, leaving a stub that only prints an error. The
 # native backend downloads the binary directly, so no lifecycle script runs.
 # Its `acp --help` writes to stderr, so the check merges it into grep's pipe.
+# OpenCode 2 is not here: provision.sh installs it beside this one as
+# `opencode2` when its component is on (image.OpenCode2Version).
 opencode opencode@1.18.31                                  opencode --version && opencode acp --help 2>&1 | grep -q ACP
 host     cloudflared@2026.9.3                              cloudflared --version
 host     tailscale@1.104.2                                 tailscale version

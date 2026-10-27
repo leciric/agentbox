@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"agentbox/internal/opencode"
 	"agentbox/internal/state"
 )
 
@@ -80,7 +81,21 @@ func (m *Manager) agentsCanRun(ctx context.Context, p state.Project, tool string
 		// failure it has always been, reported by Create as before.
 		return nil
 	}
-	if flag := map[string]string{"codex": state.SettingImageCodex, "opencode": state.SettingImageOpenCode}[tool]; flag != "" {
+	if tool == "codex" || tool == "opencode" {
+		// The component chosen for the base image, not the image itself: a
+		// rebuild is already asked for when a component is turned on, and
+		// Create's own check is what refuses an agent whose machine lacks the
+		// tool (checkImageTool).
+		flag := map[string]string{"codex": state.SettingImageCodex, "opencode": state.SettingImageOpenCode}[tool]
+		if tool == "opencode" {
+			version, err := m.openCodeVersion(ctx)
+			if err != nil {
+				return err
+			}
+			if version == opencode.V2 {
+				flag = state.SettingImageOpenCodeV2
+			}
+		}
 		on, err := m.Store.Flag(ctx, flag)
 		if err != nil {
 			return err

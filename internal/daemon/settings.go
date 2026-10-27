@@ -125,6 +125,15 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			if err := s.store.DeleteSetting(r.Context(), state.SettingOpenCodeModelChoices); err != nil {
 				return err
 			}
+			// The hourly limit was for one version's answers; the other one's
+			// menu has never been asked for.
+			s.mu.Lock()
+			s.openCodeModels.last = time.Time{}
+			s.mu.Unlock()
+			// A project's chat reads opencode.json from its HOME, and the two
+			// versions read different shapes: rewrite it now rather than at
+			// some later change to the project.
+			s.reconfigureLeads(r.Context())
 		}
 	}
 	if req.ResumeAfterLimit != nil {

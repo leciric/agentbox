@@ -104,6 +104,10 @@ if [[ $WITH_OPENCODE2 == 1 ]]; then
     arm64) OPENCODE2_PKG=cli-linux-arm64 ;;
     *) echo "OpenCode 2 has no build for $(dpkg --print-architecture)" >&2; exit 1 ;;
   esac
+  if [[ -z $OPENCODE2_VERSION ]]; then
+    echo "OpenCode 2 was asked for without a version to install" >&2
+    exit 1
+  fi
   as_user "npm install --silent --no-fund --no-audit --prefix ~/.local/share/opencode2 @opencode/$OPENCODE2_PKG@$OPENCODE2_VERSION"
   OPENCODE2_BIN=$(as_user "readlink -f ~/.local/share/opencode2/node_modules/@opencode/$OPENCODE2_PKG/bin/opencode")
   ln -sf "$OPENCODE2_BIN" /usr/local/bin/opencode2

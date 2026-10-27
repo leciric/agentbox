@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"agentbox/internal/agent"
 	"agentbox/internal/api"
 	"agentbox/internal/credentials"
 	"agentbox/internal/opencode"
@@ -272,7 +273,9 @@ func newAuthOpenCodeCmd(a *app) *cobra.Command {
 		Long: `Runs 'opencode auth login' against a data directory of AgentBox's own, so the
 login is separate from your host's ~/.local/share/opencode, and keeps what it
 stores as a named account of that provider. The OpenCode it runs is AgentBox's
-own, the version agents run, downloaded the first time.
+own, the version agents run, downloaded the first time: OpenCode 2 (when the
+installation chose it) keeps credentials in its database, so they are read back
+with its own 'auth export'.
 
 OpenCode's accounts are per provider: a project picks one for each provider
 (the default otherwise), and an OpenCode agent gets all of them. Run this once
@@ -301,6 +304,18 @@ per account, with --account, to keep several for a provider.`,
 			defer func() { _ = os.RemoveAll(dataHome) }()
 			if err := os.MkdirAll(filepath.Join(dataHome, "opencode"), 0o700); err != nil {
 				return err
+			}
+			// Which OpenCode this installation runs is the daemon's setting. It
+			// is asked rather than guessed: the two write credentials in
+			// different places, and a login captured in the wrong one is no use
+			// to the agents. A daemon that isn't reachable leaves OpenCode 1,
+			// which is what an installation that never chose runs.
+			version := opencode.V1
+			if settings, err := api.NewClient(a.paths.Socket()).Settings(cmd.Context()); err == nil {
+				version = opencode.ReleaseOf(settings.OpenCodeVersion)
+			}
+			if version == opencode.V2 {
+				return openCode2Login(cmd, a, creds, provider, method, account)
 			}
 			// The machine this runs on is the VM, which has no OpenCode of
 			// its own: AgentBox fetches the version agents run, once.
@@ -343,6 +358,61 @@ per account, with --account, to keep several for a provider.`,
 	cmd.Flags().StringVar(&account, "account", "", `store it under this name (default "`+credentials.DefaultAccount+`")`)
 	addToolAccountCmds(cmd, a, credentials.ToolOpenCode)
 	return cmd
+}
+
+// openCode2Login runs OpenCode 2's own login against a data home of AgentBox's
+// own, then asks it to export what it stored. OpenCode 2 keeps credentials in a
+// database rather than an auth.json, so this is the only way to read them back;
+// the entry it exports is the same shape AgentBox stores for OpenCode 1.
+func openCode2Login(cmd *cobra.Command, a *app, creds credentials.Store, provider, method, account string) error {
+	m := &agent.Manager{Paths: a.paths}
+	command, err := m.EnsureOpenCode2(cmd.Context(), func(s string) {
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), s)
+	})
+	if err != nil {
+		return fmt.Errorf("logging agents in to OpenCode 2 needs its CLI: %w", err)
+	}
+	dataHome, err := os.MkdirTemp(creds.Dir, ".opencode2-login-")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(dataHome) }()
+	if err := os.MkdirAll(filepath.Join(dataHome, "opencode"), 0o700); err != nil {
+		return err
+	}
+	args := []string{"auth", "login", "--standalone"}
+	if method != "" {
+		args = append(args, "--method", method)
+	}
+	if provider != "" {
+		args = append(args, provider)
+	}
+	login := exec.CommandContext(cmd.Context(), command, args...)
+	login.Env = append(os.Environ(), "XDG_DATA_HOME="+dataHome)
+	login.Stdin, login.Stdout, login.Stderr = cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()
+	if err := login.Run(); err != nil {
+		return fmt.Errorf("opencode %s: %w", strings.Join(args, " "), err)
+	}
+	export, err := opencode.Export(cmd.Context(), command, dataHome)
+	if err != nil {
+		return err
+	}
+	providers, err := credentials.SplitOpenCodeExport(export)
+	if err != nil {
+		return err
+	}
+	if len(providers) == 0 {
+		return errors.New("opencode stored no provider login: run agentbox auth opencode again and finish the login")
+	}
+	for _, p := range slices.Sorted(maps.Keys(providers)) {
+		if err := creds.SaveToolAccount(credentials.ToolOpenCode, p, account, providers[p]); err != nil {
+			return err
+		}
+		if err := savedToolAccount(cmd, a, credentials.ToolOpenCode, p, account); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func newAuthStatusCmd(a *app) *cobra.Command {
