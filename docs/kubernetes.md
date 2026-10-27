@@ -157,6 +157,10 @@ scripts/build-agent-image.sh --registry local --tag dev --push
 
 `--insecure` is for this registry only. It is published on a `127.0.0.1` port and needs no login.
 
+A registry whose certificate a private CA signed takes `--ca <pem>` with that certificate, and a
+self-signed one `--insecure`, which the test and the pull secret accept instead of a CA. Both are
+flags of `registry add`, and neither is ever a token.
+
 ### No registry at all
 
 A local test can skip the registry and import the image:
@@ -226,9 +230,9 @@ The doctor says whether the API, the master URL, the namespace, the nodes, the s
 claim, the registry and the image are all right. A project added from a checkout prefills its private
 profile from `hub` and its public one from `origin`, without a login, so set the private one as above
 before the first cluster agent; the create refuses a project whose profile cannot clone. `agentbox
-create` then waits up to five minutes for the pod's `agentd` to open its session, and the pod clones
-the profile onto its claim. `--ai none` is what has been run on a pod so far; a tool is in the image,
-but no chat has run on a pod yet.
+create` then waits up to five minutes for the pod's `agentd` to open its session, and the daemon
+clones the profile inside the pod, onto its claim. `--ai none` is what has been run on a pod so far;
+a tool is in the image, but no chat has run on a pod yet.
 
 In the app, Settings, Clusters lists each cluster with its image, storage class, last error and a
 Doctor button, and Registries lists each one with or without a login, and a Test button. While a pod
