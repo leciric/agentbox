@@ -65,17 +65,22 @@ func Resolve(ctx context.Context, raw string, cfg Config) (string, error) {
 		return "", err
 	}
 	resolved, matched := rewriteURL(raw, rewrites)
-	if !matched && strings.HasPrefix(raw, forgeAlias) {
-		return "", fmt.Errorf("nothing on this machine turns %s into a real URL: set the rule once, then it works for every project, with\n"+
-			"\tgit config --global url.<https base>.insteadof %s", raw, forgeAlias)
-	}
-	if strings.HasPrefix(resolved, forgeAlias) {
+	// A forge: alias with no url.<base>.insteadOf rule may still be git's own
+	// ssh shorthand, with the name in the ssh client config: "Host forge" is
+	// how this machine's own hub remote is written. resolveSSH tries that, and
+	// only a name it doesn't know is refused below.
+	aliasOnly := !matched && strings.HasPrefix(raw, forgeAlias)
+	if matched && strings.HasPrefix(resolved, forgeAlias) {
 		// A rule whose base is another alias leaves the pod a name only this
 		// machine's git understands, and git doesn't rewrite twice either.
 		return "", fmt.Errorf("%s resolves to %s, which is still a %s alias: point the rule at the real URL", raw, resolved, forgeAlias)
 	}
 	if resolved, err = resolveSSH(resolved, cfg.SSHConfig); err != nil {
 		return "", err
+	}
+	if aliasOnly && strings.HasPrefix(resolved, forgeAlias) {
+		return "", fmt.Errorf("nothing on this machine turns %s into a real URL: set the rule once, then it works for every project, with\n"+
+			"\tgit config --global url.<https base>.insteadof %s", raw, forgeAlias)
 	}
 	// A rewrite's base may carry a password of its own.
 	if err := refusePassword(resolved); err != nil {
@@ -321,9 +326,11 @@ func resolveSSH(raw, sshConfig string) (string, error) {
 	}
 
 	// git's shorthand is host:path, with the user before an @ and no slash in
-	// the host, which is what a Forgejo's clone button shows.
+	// the host, which is what a Forgejo's clone button shows. A forge: alias
+	// is one of these too: without an insteadOf rule it is the ssh client
+	// config's name for the host that resolves it.
 	host, repo, ok := strings.Cut(raw, ":")
-	if !ok || repo == "" || host == "" || strings.ContainsAny(host, "/ \\") || strings.HasPrefix(raw, forgeAlias) {
+	if !ok || repo == "" || host == "" || strings.ContainsAny(host, "/ \\") {
 		return raw, nil
 	}
 	user := ""

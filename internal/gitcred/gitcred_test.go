@@ -158,6 +158,24 @@ func TestUnknownShortNameIsLeftAlone(t *testing.T) {
 	}
 }
 
+// A forge: alias with no insteadOf rule is still git's own ssh shorthand: the
+// ssh client config is what names the host, which is how this machine's own
+// hub remote is written.
+func TestForgeAliasThroughSSHConfig(t *testing.T) {
+	sshconfig := file(t, "ssh-config", `Host forge
+	HostName hub.example.ts.net
+	Port 2222
+	User git
+`)
+	got, err := resolve(t, "forge:h4ad/agentbox.git", cfg(t, "", sshconfig))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "ssh://git@hub.example.ts.net:2222/h4ad/agentbox.git"; got != want {
+		t.Errorf("Resolve = %q, want %q", got, want)
+	}
+}
+
 func TestForgeAliasWithoutARule(t *testing.T) {
 	_, err := resolve(t, "forge:h4ad/agentbox.git", cfg(t, "", ""))
 	if err == nil {
