@@ -421,8 +421,9 @@ func (a *app) findEnvironment(ctx context.Context, name string) (savedHub, api.H
 	return savedHub{}, api.HubEnvironment{}, fmt.Errorf("several hubs have an environment named %s", name)
 }
 
-// localOnly are commands that work on this machine only, so --env can't apply.
-var localOnly = map[string]bool{"shell": true, "exec": true, "auth": true, "host": true, "daemon": true, "agentd": true, "server": true, "remote": true, "tailnet": true, "login": true, "logout": true, "env": true, "path": true, "machines": true, "debug": true, "backup": true}
+// localOnly are commands that work on this machine only, so --env and --server
+// can't apply, and the active profile doesn't either: they act here and say so.
+var localOnly = map[string]bool{"shell": true, "exec": true, "auth": true, "host": true, "daemon": true, "agentd": true, "server": true, "remote": true, "tailnet": true, "login": true, "logout": true, "env": true, "path": true, "machines": true, "debug": true, "backup": true, "profile": true, "use": true}
 
 func topCommand(cmd *cobra.Command) string {
 	for cmd.HasParent() && cmd.Parent().HasParent() {

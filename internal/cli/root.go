@@ -37,24 +37,109 @@ type app struct {
 	paths  paths.Paths
 	env    string // an environment on a hub (--env or AGENTBOX_ENV); empty for this machine
 	server string // a daemon on another machine's https address (--server); empty for this one
+	local  bool   // --local: this machine, whatever the active profile is
+	target target // where this command acts, resolved once in PersistentPreRunE
+}
+
+// target is where a command acts: this machine's daemon, one on another machine
+// by its address, or an environment on a hub.
+type target struct {
+	label  string // what the banner calls it: "profile nas", "server", "" for this machine
+	url    string // a daemon's address; empty for this machine and for a hub environment
+	env    string // a hub environment's name
+	active string // the profile the file has active, for a note when this command acts here instead
+}
+
+// describe is the target as `agentbox use` and the banner print it.
+func (t target) describe() string {
+	switch {
+	case t.url != "":
+		return t.label + "  " + t.url
+	case t.env != "":
+		return "environment " + t.env
+	default:
+		return "this machine"
+	}
+}
+
+// banner is the line a command prints on stderr before it runs, or "" when
+// there is nothing worth saying: an installation with this machine only.
+func (t target) banner() string {
+	if t.url == "" && t.env == "" {
+		if t.active != "" && t.active != localProfile {
+			return "this machine  (profile " + t.active + " is active; this command acts here)"
+		}
+		return ""
+	}
+	return t.describe()
+}
+
+// resolveTarget is where this command acts: an explicit flag first, then the
+// environment variable a shell pins, then the profile the file has active, and
+// this machine when there is none.
+func (a *app) resolveTarget(f profilesFile) (target, error) {
+	active := f.active()
+	if a.server != "" {
+		if a.env != "" {
+			return target{}, errors.New("--server and --env are alternatives: one talks to a daemon by its address, the other through a hub")
+		}
+		if a.local {
+			return target{}, errors.New("--server and --local are alternatives: one is another machine's daemon, the other is this one")
+		}
+		address, err := normalizeAddress(a.server)
+		if err != nil {
+			return target{}, fmt.Errorf("--server: %w", err)
+		}
+		return target{label: "server", url: address, active: active}, nil
+	}
+	if a.local {
+		if a.env != "" {
+			return target{}, errors.New("--local is an alternative to --env, not a companion to it")
+		}
+		return target{label: "this machine", active: active}, nil
+	}
+	if a.env != "" {
+		return target{env: a.env, active: active}, nil
+	}
+	name := strings.TrimSpace(os.Getenv("AGENTBOX_PROFILE"))
+	if name == "" {
+		name = active
+	}
+	if _, ok := f.Profiles[name]; !ok {
+		return target{}, fmt.Errorf("no profile named %q: agentbox profile lists the ones there are", name)
+	}
+	return targetFor(f, name), nil
+}
+
+// quietBanner are commands whose output is already about the profiles, or not
+// about a daemon at all.
+var quietBanner = map[string]bool{"help": true, "completion": true, "version": true, "use": true, "profile": true}
+
+// announceProfile says which daemon this command acts on, on stderr, so it never
+// mixes into what a pipe reads. An installation that never made a profile sees
+// nothing at all.
+func (a *app) announceProfile(cmd *cobra.Command) {
+	if os.Getenv("AGENTBOX_NO_PROFILE_BANNER") != "" || quietBanner[topCommand(cmd)] {
+		return
+	}
+	if line := a.target.banner(); line != "" {
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), line)
+	}
 }
 
 func (a *app) credentials() credentials.Store {
 	return credentials.Store{Dir: a.paths.Credentials()}
 }
 
-// client connects to the daemon, starting it in the background if it isn't
-// running, and restarting it if it started without a group this command has.
-// AGENTBOX_NO_AUTOSTART=1 turns both off.
+// client connects to the daemon this command acts on, starting it in the
+// background if it isn't running, and restarting it if it started without a
+// group this command has. AGENTBOX_NO_AUTOSTART=1 turns both off.
 func (a *app) client(cmd *cobra.Command) (*api.Client, error) {
-	if a.server != "" {
-		if a.env != "" {
-			return nil, errors.New("--server and --env are alternatives: one talks to a daemon by its address, the other through a hub")
-		}
-		return api.NewRemoteClient(a.server, ""), nil
+	if a.target.url != "" {
+		return api.NewRemoteClient(a.target.url, ""), nil
 	}
-	if a.env != "" {
-		h, e, err := a.findEnvironment(cmd.Context(), a.env)
+	if a.target.env != "" {
+		h, e, err := a.findEnvironment(cmd.Context(), a.target.env)
 		if err != nil {
 			return nil, err
 		}
@@ -259,22 +344,49 @@ func NewRootCmd() *cobra.Command {
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			p, err := paths.Default()
 			a.paths = p
+			if err != nil {
+				return err
+			}
 			if a.env == "" {
 				a.env = os.Getenv("AGENTBOX_ENV")
 			}
-			if (a.env != "" || a.server != "") && localOnly[topCommand(cmd)] {
-				how := "--env"
-				if a.server != "" {
-					how = "--server"
+			profiles, err := readProfiles(p.Profiles())
+			if err != nil {
+				// A file this command can't read breaks nothing here: a
+				// machine-only command acts on this machine whatever it says.
+				if !localOnly[topCommand(cmd)] {
+					return err
 				}
-				return fmt.Errorf("agentbox %s works on this machine only, not with %s", topCommand(cmd), how)
+				profiles = newProfiles()
 			}
-			return err
+			t, err := a.resolveTarget(profiles)
+			if err != nil {
+				return err
+			}
+			if localOnly[topCommand(cmd)] {
+				if a.server != "" || a.env != "" {
+					how := "--env"
+					if a.server != "" {
+						how = "--server"
+					}
+					return fmt.Errorf("agentbox %s works on this machine only, not with %s", topCommand(cmd), how)
+				}
+				// A profile is not the user asking this command to run
+				// elsewhere: this one acts here, and the banner says so when a
+				// profile for another daemon is active.
+				t = target{label: "this machine", active: profiles.active()}
+			}
+			a.target = t
+			a.announceProfile(cmd)
+			return nil
 		},
 	}
-	root.PersistentFlags().StringVar(&a.env, "env", "", "use an environment on a hub you signed in to (agentbox env list), instead of this machine")
-	root.PersistentFlags().StringVar(&a.server, "server", "", "talk to the daemon at this https address on the tailnet (agentbox tailnet), instead of this machine's")
+	root.PersistentFlags().StringVar(&a.env, "env", "", "use an environment on a hub you signed in to (agentbox env list), instead of the active profile")
+	root.PersistentFlags().StringVar(&a.server, "server", "", "talk to the daemon at this https address on the tailnet (agentbox tailnet) for this command, instead of the active profile")
+	root.PersistentFlags().BoolVar(&a.local, "local", false, "act on this machine's daemon for this command, whatever the active profile is")
 	root.AddCommand(
+		newProfileCmd(a),
+		newUseCmd(a),
 		newAddCmd(a),
 		newProjectsCmd(a),
 		newProjectCmd(a),
