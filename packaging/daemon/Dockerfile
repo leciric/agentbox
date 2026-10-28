@@ -29,7 +29,7 @@
 # images:debian/13, so this one is trixie too. It was the odd one out on
 # bookworm, where a Claude Code login died on "curl: command not found" and
 # Node's tarball had nothing to unpack it with, and one release of Debian across
-# the three images means one set of commands known to work in all of them.
+# every image means one set of commands known to work in all of them.
 FROM debian:trixie-slim
 
 # The same system packages the pod image and the Incus base image install, from
