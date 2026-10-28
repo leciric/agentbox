@@ -49,9 +49,10 @@ func TestExecRouteRunsACommand(t *testing.T) {
 	}
 
 	stdout, stderr, code := readExecStream(t, ctx, conn)
-	// The daemon runs the line the way the incus path does, in the agent's
-	// worktree, so the pod's own sh gets the cd before the command.
-	if want := "sh -lc cd '/workspace' && cat\n"; !strings.Contains(stdout, want) {
+	// The daemon runs the line in the agent's worktree, so the pod's own sh
+	// gets the cd before the command. Not a login shell: its profile would
+	// reset PATH and lose the image's node, go and the chat adapter.
+	if want := "sh -c cd '/workspace' && cat\n"; !strings.Contains(stdout, want) {
 		t.Errorf("stdout = %q, want the command the pod was given, %q", stdout, want)
 	}
 	if !strings.Contains(stdout, "hello\n") {

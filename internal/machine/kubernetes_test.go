@@ -394,7 +394,7 @@ func TestKubernetesUserExec(t *testing.T) {
 		t.Errorf("UserExec stdout = %q, want %q", stdout.String(), "hello\n")
 	}
 	h := pod.last(gateway.OpExec)
-	want := []string{"sh", "-lc", "echo hello"}
+	want := []string{"sh", "-c", "echo hello"}
 	if strings.Join(h.Argv, "\x00") != strings.Join(want, "\x00") {
 		t.Errorf("the pod ran %q, want %q", h.Argv, want)
 	}
