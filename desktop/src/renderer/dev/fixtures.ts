@@ -591,6 +591,7 @@ export function buildFixtures(): FixtureData {
       pickUpIssues: false,
       prWatch: '',
       prWatching: true,
+      pullRequests: true,
       createdAt: new Date().toISOString(),
     },
     {
@@ -625,6 +626,7 @@ export function buildFixtures(): FixtureData {
       pickUpIssues: false,
       prWatch: '',
       prWatching: true,
+      pullRequests: true,
       createdAt: new Date().toISOString(),
     },
   ];
@@ -2326,6 +2328,12 @@ export function installDevBridge(): void {
       if (patched && req?.githubAccount !== undefined) {
         const project = devState.projects.find((p) => p.name === decodeURIComponent(patched[1]))!;
         project.githubAccount = req.githubAccount;
+        return { status: 200, body: JSON.stringify(project), contentType: 'application/json' };
+      }
+      // And so does turning the project's Pull requests tab off or on.
+      if (patched && req?.pullRequests !== undefined) {
+        const project = devState.projects.find((p) => p.name === decodeURIComponent(patched[1]))!;
+        project.pullRequests = req.pullRequests;
         return { status: 200, body: JSON.stringify(project), contentType: 'application/json' };
       }
       const renameGitHub = method === 'POST' ? /^\/v1\/auth\/github\/([^/]+)\/rename$/.exec(path) : null;

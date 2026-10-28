@@ -48,7 +48,7 @@ func (s *Server) projectInfo(ctx context.Context, p state.Project) api.Project {
 		AgentModel: p.AgentModel, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
 		RolloverThreshold: p.RolloverThreshold, ContextBudget: p.ContextBudget,
 		Consolidation: p.Consolidation, ConsolidationModel: p.ConsolidationModel,
-		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, FullTestSuite: p.FullTestSuite, PickUpIssues: p.PickUpIssues, CreatedAt: p.CreatedAt}
+		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, FullTestSuite: p.FullTestSuite, PickUpIssues: p.PickUpIssues, PullRequests: !p.PullsOff, CreatedAt: p.CreatedAt}
 	// One primary-key lookup: listProjects runs this for every project.
 	if v, err := s.store.ProjectIconVersion(ctx, p.Name); err == nil {
 		info.IconVersion = v
@@ -508,6 +508,12 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 		if *req.SyncBase {
 			go s.syncBase(s.background(), p)
 		}
+	}
+	if req.PullRequests != nil {
+		if err := s.store.SetProjectPulls(r.Context(), p.Name, *req.PullRequests); err != nil {
+			return err
+		}
+		p.PullsOff = !*req.PullRequests
 	}
 	return writeJSON(w, http.StatusOK, s.projectInfo(r.Context(), p))
 }

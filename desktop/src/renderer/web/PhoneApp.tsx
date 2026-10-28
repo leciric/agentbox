@@ -328,7 +328,7 @@ function useChats(phone: T.LANPhone): Chats {
           };
         }),
     ];
-    if (merge) {
+    if (merge && p.pullRequests) {
       rows.push({
         route: { kind: 'pulls', project: p.name },
         project: p,

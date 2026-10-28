@@ -151,6 +151,13 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
       description: t('defaults.project.groupPullsDescription'),
       entries: [
         {
+          id: 'pulls-tab',
+          label: t('defaults.project.pullsTabLabel'),
+          keywords: t('defaults.project.pullsTabKeywords'),
+          modified: !project.pullRequests,
+          render: () => <PullsTabToggle project={project} />,
+        },
+        {
           id: 'agent-prs',
           label: t('defaults.project.agentPRsLabel'),
           keywords: t('defaults.project.agentPRsKeywords'),
@@ -702,6 +709,39 @@ function FullTestSuiteToggle({ project }: { project: T.Project }) {
         </SettingNote>
       )}
     </SettingRow>
+  );
+}
+
+// PullsTabToggle turns the lead's Pull requests tab on or off for this
+// project, and with it the minute's poll of GitHub that keeps its counts
+// (RightPanel's LeadSwitch). On by default.
+function PullsTabToggle({ project }: { project: T.Project }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (pullRequests: boolean) => api.updateProject(project.name, { pullRequests }),
+    onSuccess: async (updated) => {
+      toast(updated.pullRequests ? t('defaults.project.pullsTabOnToast', { name: updated.name }) : t('defaults.project.pullsTabOffToast', { name: updated.name }));
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  return (
+    <SettingRow
+      label={t('defaults.project.pullsTabLabel')}
+      htmlFor="project-pulls-tab"
+      description={project.pullRequests ? t('defaults.project.pullsTabOnDescription') : t('defaults.project.pullsTabOffDescription')}
+      details={t('defaults.project.pullsTabDetails')}
+      control={
+        <Switch
+          id="project-pulls-tab"
+          data-project-pulls-tab
+          checked={save.isPending ? save.variables : project.pullRequests}
+          onCheckedChange={(on) => save.mutate(on)}
+        />
+      }
+    />
   );
 }
 

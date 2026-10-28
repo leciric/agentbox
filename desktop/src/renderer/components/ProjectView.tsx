@@ -227,10 +227,12 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
                 <MessagesSquare />
                 {t('project.view.tab.chat')}
               </TabsTrigger>
-              <TabsTrigger value="pulls">
-                <GitPullRequest />
-                {t('project.view.tab.pulls')}
-              </TabsTrigger>
+              {project?.pullRequests && (
+                <TabsTrigger value="pulls">
+                  <GitPullRequest />
+                  {t('project.view.tab.pulls')}
+                </TabsTrigger>
+              )}
               <TabsTrigger value="issues">
                 <CircleDot />
                 {t('project.view.tab.issues')}
@@ -275,7 +277,7 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
 
       <TabsContent value="pulls" className="overflow-y-auto">
         <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-7">
-          <PullRequestsPanel project={name} onSelect={onSelect} onOpenAccount={() => setWhere('general')} />
+          {project?.pullRequests && <PullRequestsPanel project={name} onSelect={onSelect} onOpenAccount={() => setWhere('general')} />}
         </div>
       </TabsContent>
 

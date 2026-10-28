@@ -572,6 +572,13 @@ export function seedV2(queryClient: QueryClient, pins: string | null): void {
       return json(sidebar);
     }
     if (method === 'GET' && path === '/v1/projects') return json(projects);
+    // Turning a project's Pull requests tab off or on, kept the same way.
+    const patched = method === 'PATCH' && /^\/v1\/projects\/([^/]+)$/.exec(path)?.[1];
+    const pulls = (body as T.UpdateProjectRequest | undefined)?.pullRequests;
+    if (patched && pulls !== undefined) {
+      projects = projects.map((p) => (p.name === decodeURIComponent(patched) ? { ...p, pullRequests: pulls } : p));
+      return json(projects.find((p) => p.name === decodeURIComponent(patched)));
+    }
     if (method === 'GET' && path === '/v1/sections') return json(sections);
     if (method === 'POST' && path === '/v1/sections') {
       const made: T.Section = { id: `s${Date.now()}`, name: (body as T.AddSectionRequest).name, position: sections.length + 1, collapsed: false, createdAt: new Date().toISOString() };
