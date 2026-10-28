@@ -2458,11 +2458,11 @@ type Fleet struct {
 	// pull requests, and PullsRefreshing whether a re-read is running. The
 	// rest of the fleet is read fresh; only the pull requests are served
 	// from cache.
-	PullsFetchedAt  *time.Time `json:"pullsFetchedAt,omitempty"`
+	PullsFetchedAt *time.Time `json:"pullsFetchedAt,omitempty"`
 	// Remote are the agents this project's lead runs on other machines of
 	// its hub account, as their notices last described them.
-	Remote []RemoteAgent `json:"remote,omitempty"`
-	PullsRefreshing bool       `json:"pullsRefreshing,omitempty"`
+	Remote          []RemoteAgent `json:"remote,omitempty"`
+	PullsRefreshing bool          `json:"pullsRefreshing,omitempty"`
 }
 
 // RemoteAgentsChange is EventRemoteAgents' data.
@@ -2569,7 +2569,19 @@ const (
 	// way round or the other, whatever the desktop around it is doing.
 	AppearanceDark  = "dark"
 	AppearanceLight = "light"
+	// AppearanceDracula wears Dracula (VS Code's Dracula Official palette)
+	// whatever the desktop is running: a theme AgentBox carries itself, which
+	// the daemon reports in Theme as it would a followed one, so the app and
+	// the agents' desktops wear it the same way.
+	AppearanceDracula = "dracula"
 )
+
+// DraculaTheme is the palette reported when AppearanceDracula is chosen.
+var DraculaTheme = Theme{
+	Appearance: AppearanceDracula, Available: true, Name: "Dracula", Mode: "dark",
+	Background: "#282a36", Surface: "#44475a", Foreground: "#f8f8f2",
+	Muted: "#6272a4", Accent: "#bd93f9",
+}
 
 // Theme is the look AgentBox wears: the desktop theme this machine is running,
 // and the appearance setting, which says whether to follow it and — when it
@@ -2581,11 +2593,12 @@ const (
 // agent's tint2 dock and openbox window decorations. They are always plain
 // "#rrggbb", or all empty when there is no theme to report.
 type Theme struct {
-	// Appearance is the setting: AppearanceFollow, AppearanceLight or
-	// AppearanceDark.
+	// Appearance is the setting: AppearanceFollow, AppearanceLight,
+	// AppearanceDark or AppearanceDracula.
 	Appearance string `json:"appearance"`
 	// Available says a theme was found on this machine. False on every
-	// machine without Omarchy, which is most of them.
+	// machine without Omarchy, which is most of them. Under AppearanceDracula
+	// the palette below is Dracula's, not the machine's, and this is true.
 	Available bool `json:"available"`
 	// Name is the theme's, as Omarchy records it ("tokyo-night"), and "" when
 	// there is none.
@@ -2603,9 +2616,12 @@ type Theme struct {
 }
 
 // Applied says whether a client should actually wear this theme: there is one,
-// and the setting says to follow it. A pinned light or dark is AgentBox's own
-// colours, so it is not "applied" even though it changes how the app looks.
-func (t Theme) Applied() bool { return t.Appearance == AppearanceFollow && t.Available }
+// and the setting says to follow it, or the setting is Dracula. A pinned light
+// or dark is AgentBox's own colours, so it is not "applied" even though it
+// changes how the app looks.
+func (t Theme) Applied() bool {
+	return t.Appearance == AppearanceDracula || t.Appearance == AppearanceFollow && t.Available
+}
 
 // Describe names the theme for a log line.
 func (t Theme) Describe() string {
@@ -2618,8 +2634,8 @@ func (t Theme) Describe() string {
 	return t.Name
 }
 
-// UpdateThemeRequest sets the appearance: AppearanceFollow, AppearanceLight or
-// AppearanceDark.
+// UpdateThemeRequest sets the appearance: AppearanceFollow, AppearanceLight,
+// AppearanceDark or AppearanceDracula.
 type UpdateThemeRequest struct {
 	Appearance *string `json:"appearance"`
 }

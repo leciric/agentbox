@@ -8,7 +8,7 @@
 //
 // State comes from the URL, not clicks, so a scenario is a link both a
 // person and scripts/preview.mjs can go straight to:
-//   ?theme=light            the light appearance (default: dark)
+//   ?theme=light            the light appearance (default: dark); dracula, Dracula
 //   ?concept=timeline       a mock idea, on its own (dev/concepts): timeline is
 //                           agents' work as a timeline over their recording
 //   ?app=recap              Your week with AgentBox (components/RecapView), from
@@ -356,7 +356,7 @@ installDevBridge();
 const params = new URLSearchParams(location.search);
 // Through lib/theme, as the app turns over, so what draws in JavaScript (a
 // chat's diagrams and framed pages, the terminal) is light too, not only CSS.
-localStorage.setItem('agentbox.appearance', params.get('theme') === 'light' ? 'light' : 'dark');
+localStorage.setItem('agentbox.appearance', params.get('theme') === 'light' || params.get('theme') === 'dracula' ? params.get('theme')! : 'dark');
 restoreMode();
 applyLanguage(params.get('lang'));
 localStorage.setItem('agentbox.rail.folded', params.get('folded') === '1' ? '1' : '0');

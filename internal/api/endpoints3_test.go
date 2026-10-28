@@ -412,6 +412,7 @@ func TestThemeAppliedAndDescribe(t *testing.T) {
 		{"follow with nothing found", Theme{Appearance: AppearanceFollow, Available: false}, false, "AgentBox's own colours"},
 		{"follow with a theme but no name", Theme{Appearance: AppearanceFollow, Available: true}, true, "this machine's theme"},
 		{"follow with a named theme", Theme{Appearance: AppearanceFollow, Available: true, Name: "tokyo-night"}, true, "tokyo-night"},
+		{"dracula", DraculaTheme, true, "Dracula"},
 	}
 	for _, tt := range tests {
 		if got := tt.theme.Applied(); got != tt.wantApplied {

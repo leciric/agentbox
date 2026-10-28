@@ -256,6 +256,60 @@
   --ab-term-red: #be123c;
 }
 
+/* Dracula (VS Code's Dracula Official), which AgentBox carries itself. Its
+   accent, ink and washes come through lib/theme.ts like a followed theme's;
+   this block is the rest of what makes it Dracula rather than AgentBox's dark
+   with a purple accent: its backgrounds, its text, and its other hues standing
+   in for the status colours and the terminal's. */
+:root[data-appearance="dracula"] {
+  --ab-chat: #282a36;
+  --ab-composer: #343746;
+  --ab-stage: #21222c;
+  --ab-attached-neutral: #21222c;
+  --ab-overlay: rgb(33 34 44 / 0.97);
+  --ab-modal: rgb(33 34 44 / 0.97);
+
+  --ab-title: #ffffff;
+  --ab-primary: #f8f8f2;
+  --ab-secondary: #ecece6;
+  --ab-tertiary: #d8d8d2;
+  --ab-muted: #adb5cb;
+  --ab-subtle: #7f8ab5;
+  --ab-faint: #6272a4;
+  --ab-ghost: #44475a;
+
+  --ab-inverted: #f8f8f2;
+  --ab-on-inverted: #282a36;
+
+  --ab-emerald-200: #8afba5;
+  --ab-emerald-300: #50fa7b;
+  --ab-emerald-400: #50fa7b;
+  --ab-amber-200: #f1fa8c;
+  --ab-amber-300: #f1fa8c;
+  --ab-amber-400: #ffb86c;
+  --ab-rose-200: #ff9a9a;
+  --ab-rose-300: #ff6e6e;
+  --ab-rose-400: #ff5555;
+  --ab-sky-200: #a4ffff;
+  --ab-sky-300: #8be9fd;
+  --ab-sky-400: #8be9fd;
+  --ab-violet-300: #d6acff;
+  --ab-violet-400: #bd93f9;
+
+  --ab-term-background: #282a36;
+  --ab-term-foreground: #f8f8f2;
+  --ab-term-black: #21222c;
+  --ab-term-bright-black: #6272a4;
+  --ab-term-blue: #bd93f9;
+  --ab-term-bright-blue: #d6acff;
+  --ab-term-magenta: #ff79c6;
+  --ab-term-bright-magenta: #ff92df;
+  --ab-term-cyan: #8be9fd;
+  --ab-term-green: #50fa7b;
+  --ab-term-yellow: #f1fa8c;
+  --ab-term-red: #ff5555;
+}
+
 @theme {
   --font-sans: "Inter Variable", "Inter", "Noto Sans", system-ui, sans-serif;
   --font-mono: "JetBrains Mono Variable", "JetBrainsMono Nerd Font", "JetBrains Mono", ui-monospace, monospace;

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { modeOf, palette } from './theme.ts';
+import { lookOf, modeOf, palette } from './theme.ts';
 
 const theme = (over: Partial<T.Theme>): T.Theme => ({ available: true, appearance: 'follow', mode: 'dark', accent: '#336699', background: '#111111', ...over }) as T.Theme;
 
@@ -46,4 +46,12 @@ test('palette derives --ab-ink from the background when there is one', () => {
   assert.ok(p!['--ab-ink']);
   const noBg = palette(theme({ background: 'not-a-colour' }));
   assert.equal(noBg!['--ab-ink'], undefined);
+});
+
+test('Dracula is dark, its own look, and worn whatever the host has', () => {
+  const dracula = theme({ appearance: 'dracula', accent: '#bd93f9', background: '#282a36' });
+  assert.equal(modeOf(dracula), 'dark');
+  assert.equal(lookOf(dracula), 'dracula');
+  assert.equal(lookOf(theme({ appearance: 'follow', mode: 'light' })), 'light');
+  assert.equal(palette(dracula)!['--ab-brand-500'], '#bd93f9');
 });
