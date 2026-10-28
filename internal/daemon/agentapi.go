@@ -145,10 +145,9 @@ func (s *Server) inAgentRoutesFor(agentOf func(*http.Request) (state.Agent, erro
 		handle("POST /v1/self/android/"+action, s.android(action, agentOf, "agent"))
 	}
 	// The Mac's iOS Simulator, which it drives as the app's view does.
-	self := agentOf
-	handle("GET /v1/self/ios", s.ios("status", self))
+	handle("GET /v1/self/ios", s.ios("status", agentOf))
 	for _, action := range iosActions {
-		handle("POST /v1/self/ios/"+action, s.ios(action, self))
+		handle("POST /v1/self/ios/"+action, s.ios(action, agentOf))
 	}
 	// Its own media: it can add and delete items, but not export them.
 	for _, route := range mediaRoutes {
