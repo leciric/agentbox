@@ -39,13 +39,12 @@ ARG DEBIAN_FRONTEND=noninteractive
 FROM --platform=linux/amd64 debian:trixie-slim AS base
 ARG DEBIAN_FRONTEND
 
-# What an agent's work needs before any AI tool is installed: the one list the
-# Incus base image and the daemon container install too, in
-# internal/image/base-packages.txt. python3 is there because Debian's own
-# tooling and many projects expect it, and iproute2 for `ss`, which
-# internal/agent/browser.sh uses to see that Xvnc is listening on 5900 before it
-# goes on. sudo is not: a pod is one unprivileged user, and the Incus image
-# installs sudo itself for the user it makes.
+# What an agent's work needs before any AI tool is installed: the one list every
+# runtime installs, in internal/image/base-packages.txt. python3 is there
+# because Debian's own tooling and many projects expect it, and iproute2 for
+# `ss`, which internal/agent/browser.sh uses to see that Xvnc is listening on
+# 5900 before it goes on. sudo is not: a pod is one unprivileged user, and the
+# Incus image installs sudo itself for the user it makes.
 COPY internal/image/base-packages.txt /tmp/base-packages.txt
 
 RUN apt-get update \
