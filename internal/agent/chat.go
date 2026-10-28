@@ -201,7 +201,11 @@ func (m *Manager) chatScript(ctx context.Context, a state.Agent, status func(det
 				return "", err
 			}
 		}
-		return fmt.Sprintf("cd %s && %sexec %s", shellQuote(m.worktree(a)), m.withoutCredentials(a, hide), command), nil
+		// exec is the shell's, before the credential prefix: `env -u … exec
+		// claude-agent-acp` asks env for a program called exec, which is exit
+		// 127 before the adapter is ever reached. The Incus path above has the
+		// same order.
+		return fmt.Sprintf("cd %s && exec %s%s", shellQuote(m.worktree(a)), m.withoutCredentials(a, hide), command), nil
 
 	}
 	overrides, err := m.Store.ToolOverrides(ctx)
