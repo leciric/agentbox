@@ -513,3 +513,30 @@ svc,proxygroup`, `kubectl get dnsconfig`, and the operator's pods in `tailscale`
   kube-router enforce one; a CNI without a policy controller accepts the object and silently ignores
   it, and `kubectl get networkpolicy` shows the object either way. `cluster doctor` checks that the
   policy exists and denies ingress, not whether the cluster acts on it.
+
+## Testing
+
+`scripts/k8s-e2e.sh` proves the pod path against a real API server, with nothing left behind. It
+needs Docker, k3d, kubectl and Go on PATH and says how to install each when one is missing. It makes
+a throwaway k3d cluster (`scripts/k3d-up.sh --name k8s-e2e --agents 0`), builds `bin/agentbox` and
+the small test image in `scripts/k8s-e2e.Dockerfile`, and runs the daemon and a `git daemon` in
+containers on the cluster's network, with the kubeconfig pointed at the server node the daemon
+reaches. Then it adds the cluster, requires `cluster doctor` to pass every check, `network policy`
+included, adds a fixture project whose private profile is that git daemon, and creates
+`demo/agent-01` there. What it checks through the command line:
+
+- `agentbox exec` prints the pod's own hostname from inside the pod, and a command that exits 7 makes
+  `exec` exit 7.
+- `agentbox stop` makes `exec` refuse with the stopped sentence, `agentbox start` brings the pod back
+  on its claim, and `exec` works again.
+- `agentbox destroy` removes the agent, and `agentbox list` no longer has it.
+
+It does not prove the production image (`internal/agentimage/Dockerfile` takes more than ten minutes
+and several GiB), a chat with a real login, a pull from a registry, the tailnet, or the desktop in a
+pod. Those stay manual, on the image and cluster a real one runs.
+
+CI runs it in the `k8s-e2e` job when a PR touches a package the pod path is made of (`internal/k8s`,
+`internal/machine`, `internal/gateway`, `internal/agentd`, `internal/workspace`,
+`internal/agentimage` or `internal/gitcred`), `desktop/src/main/connection.ts` or the script itself,
+and weekly on schedule. The cluster and both containers are removed on success and on failure, so a
+rerun after a failure is clean.
