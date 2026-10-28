@@ -239,6 +239,40 @@ func TestChatProcessStopCancelsTheExec(t *testing.T) {
 	}
 }
 
+// A pod's chat execs the adapter the way an Incus chat does, with exec before
+// the credential prefix: `env -u … exec claude-agent-acp` asks env for a
+// program called exec, which is exit 127 and no adapter at all.
+func TestAPodsChatExecsTheAdapterThroughTheCredentialPrefix(t *testing.T) {
+	t.Parallel()
+	pm := &podMachine{ref: "ab-p-agent-01"}
+	m := &agent.Manager{
+		User:       image.User{Name: "agent", UID: 1000, GID: 1000},
+		Kubernetes: podRuntime{m: pm},
+		Creds:      credentials.Store{Dir: t.TempDir()},
+		Store:      openStore(t),
+	}
+	if err := m.Creds.SaveClaudeToken("work", "sk-ant-oat01-work"); err != nil {
+		t.Fatal(err)
+	}
+	pod := state.Agent{
+		Project: "p", Name: "agent-01", Instance: "ab-p-agent-01", AI: "claude",
+		ClaudeAccount: "work", Cluster: "prod", Workspace: "/workspace",
+	}
+	proc, err := m.ChatProcess(context.Background(), pod, func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	proc.Stop()
+	_ = proc.Wait()
+
+	if !strings.Contains(pm.command, "&& exec env -u ANTHROPIC_API_KEY") {
+		t.Errorf("the pod's chat command doesn't exec through the credential prefix:\n%s", pm.command)
+	}
+	if !strings.Contains(pm.command, "claude-agent-acp") {
+		t.Errorf("the pod's chat command doesn't run the adapter:\n%s", pm.command)
+	}
+}
+
 func openStore(t *testing.T) *state.Store {
 	t.Helper()
 	st, err := state.Open(filepath.Join(t.TempDir(), "state.db"))
