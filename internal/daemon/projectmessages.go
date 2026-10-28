@@ -36,22 +36,16 @@ import (
 //     message asked for a reply, or the thread is an alignment;
 //   - a thread has at most maxThreadHops messages (each one's Hop counts
 //     those before it);
-//   - at most threadRatePerHour messages in a thread an hour, pairRatePerHour
-//     between the same two projects, and pairThreadsPerHour new threads, so
-//     a chain can't restart itself as fresh threads;
 //   - a message is at most maxProjectMessage characters, scrubbed of secrets
 //     (#253) before it is stored, shown or sent;
 //   - the first message between two projects waits for the user's approval
 //     on a card in the sender's chat, and the pair is remembered.
 
 const (
-	maxProjectMessage  = 4000
-	maxSettleSummary   = 1500
-	maxThreadTopic     = 120
-	maxThreadHops      = 12
-	threadRatePerHour  = 10
-	pairRatePerHour    = 30
-	pairThreadsPerHour = 5
+	maxProjectMessage = 4000
+	maxSettleSummary  = 1500
+	maxThreadTopic    = 120
+	maxThreadHops     = 12
 )
 
 // threadMu holds the check that a reply may be sent together with storing it,
@@ -104,9 +98,6 @@ func (s *Server) sendToProject(ctx context.Context, from string, req api.Project
 		kind = state.ThreadAlign
 	}
 	now := time.Now()
-	if err := s.pairWithinRate(ctx, from, to, now, true); err != nil {
-		return state.ProjectThread{}, err
-	}
 	if err := s.firstContact(ctx, from, to, text); err != nil {
 		return state.ProjectThread{}, err
 	}
@@ -165,14 +156,6 @@ func (s *Server) replyToProject(ctx context.Context, from, id string, req api.Pr
 		return state.ProjectThread{}, err
 	}
 	to, now := t.Other(from), time.Now()
-	if n, err := s.store.ProjectMessagesSince(ctx, t.ID, now.Add(-time.Hour)); err != nil {
-		return state.ProjectThread{}, err
-	} else if n >= threadRatePerHour {
-		return state.ProjectThread{}, fmt.Errorf("this thread has had %d messages in the last hour, its limit: settle it, or take it to the user", n)
-	}
-	if err := s.pairWithinRate(ctx, from, to, now, false); err != nil {
-		return state.ProjectThread{}, err
-	}
 	m := state.ProjectMessage{
 		ID: newID(), Thread: t.ID, Project: from, Peer: to, Text: text, Hop: last.Hop + 1,
 		ExpectsReply: req.ExpectsReply || t.Kind == state.ThreadAlign, CreatedAt: now,
@@ -281,23 +264,6 @@ func (s *Server) threadOf(ctx context.Context, project, id string) (state.Projec
 		err = fmt.Errorf("thread %s: %w", id, state.ErrNotFound)
 	}
 	return t, err
-}
-
-// pairWithinRate refuses a message between two projects that have said too
-// much to each other in the last hour, either way round; a new thread also
-// counts against the threads they may start.
-func (s *Server) pairWithinRate(ctx context.Context, a, b string, now time.Time, newThread bool) error {
-	messages, threads, err := s.store.PairActivitySince(ctx, a, b, now.Add(-time.Hour))
-	if err != nil {
-		return err
-	}
-	if messages >= pairRatePerHour {
-		return fmt.Errorf("%s's and %s's leads have sent each other %d messages in the last hour, the limit: wait, or take it to the user", a, b, messages)
-	}
-	if newThread && threads >= pairThreadsPerHour {
-		return fmt.Errorf("%s's and %s's leads have started %d threads in the last hour, the limit: carry on in one of them (message_project threads), or take it to the user", a, b, threads)
-	}
-	return nil
 }
 
 // firstContact asks the user, on a card in the sender's chat, before two
