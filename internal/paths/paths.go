@@ -37,6 +37,11 @@ func (p Paths) StateDB() string     { return filepath.Join(p.Data, "state.db") }
 func (p Paths) Credentials() string { return filepath.Join(p.Config, "credentials") }
 func (p Paths) DaemonLog() string   { return filepath.Join(p.Data, "daemon.log") }
 
+// Profiles is the daemons the command line can act on, and which one it acts on
+// (cli/profiles.go). It holds addresses, never a credential, so it is mode 0644
+// like the rest of the machine's configuration rather than 0600.
+func (p Paths) Profiles() string { return filepath.Join(p.Config, "profiles.json") }
+
 // SecretsKey is the AES key the secrets you hand to agents are sealed under
 // (package secrets). It is created on first use, mode 0600, and lives beside
 // the logins rather than beside the state, so a copy of state.db is a copy of

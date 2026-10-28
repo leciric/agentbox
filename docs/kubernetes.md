@@ -94,6 +94,12 @@ and no route from the cluster, and why the same code works on any cluster.
   publishes it with `tailscale serve` at `https://<machine>.<tailnet>.ts.net/agentbox`. That address
   is the master URL, the pod appends `/v1/agent-gateway` to it, and the pods reach it through the
   egress proxy with a real certificate.
+- **Another machine:** that same address is what a command line elsewhere acts on. `agentbox profile
+  add nas https://<machine>.<tailnet>.ts.net/agentbox` saves it once it answers,
+  `agentbox use nas` makes every command act on it, and each command prints `profile nas <address>`
+  on stderr first. `agentbox profile` lists them and says which answer, `agentbox use local` and
+  `--local` go back to this machine's daemon, and `AGENTBOX_NO_PROFILE_BANNER=1` silences the line
+  for a script. An installation with no profiles reads exactly as it did before.
 
 The pod authenticates with a 32-byte bearer token minted for it. The token is a Secret mounted at
 `/run/agentbox-secrets/token`; `state.db` holds only its SHA-256, so a token the daemon never issued
