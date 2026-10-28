@@ -278,7 +278,7 @@ func (m *Manager) prepareAgentCodexSettings(ctx context.Context, a state.Agent, 
 	if err != nil {
 		return err
 	}
-	config := codexConfigFor(m.worktree(a), agentMCPServers(a, home, connectors), compactWindow)
+	config := codexConfigFor(m.Worktree(a), agentMCPServers(a, home, connectors), compactWindow)
 	user := m.machineUser(a)
 	return m.machine(a).WriteFile(ctx, home+"/.codex/config.toml", []byte(config), user.UID, user.GID, 0o600)
 }

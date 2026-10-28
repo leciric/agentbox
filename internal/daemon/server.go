@@ -524,6 +524,9 @@ func New(cfg Config) (*Server, error) {
 		StayUp:            s.leadDueSoon,
 		Version:           Version,
 		ImageDir:          cfg.Paths.ChatImages,
+		// A pod's tree is inside the pod, so its row has no path for the
+		// adapter's session to run in: the machine says where it is.
+		Worktree: func(a state.Agent) string { return s.manager(nil).Worktree(a) },
 	}
 	s.askLead, s.askAside = s.askLeadSession, s.askAsideSession
 	s.incus = s.newIncusWatch()
