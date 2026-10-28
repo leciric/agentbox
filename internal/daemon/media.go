@@ -98,7 +98,7 @@ func (s *Server) media(action string, agentOf func(*http.Request) (state.Agent, 
 			if err := readJSON(r, &req); err != nil {
 				return err
 			}
-			status, err := m.StartRecording(ctx, a, req.Target, req.Input, req.Name, time.Duration(req.LimitSeconds)*time.Second, req.NoTrim, req.WholeDisplay, source)
+			status, err := m.StartRecording(ctx, a, req.Target, req.Input, req.Name, time.Duration(req.LimitSeconds)*time.Second, req.NoTrim, req.WholeDisplay, req.NoEdit, source)
 			if err != nil {
 				return err
 			}
@@ -220,11 +220,18 @@ func (s *Server) serveMediaFile(w http.ResponseWriter, r *http.Request, item sta
 		return err
 	}
 	file := root
+	var meta api.MediaMeta
+	_ = json.Unmarshal([]byte(item.Meta), &meta)
+	if r.URL.Query().Get("raw") != "" {
+		if meta.Raw == "" || strings.ContainsAny(meta.Raw, `/\`) {
+			return fmt.Errorf("media %s has no unedited original: %w", item.ID, state.ErrNotFound)
+		}
+		root = filepath.Join(filepath.Dir(root), meta.Raw)
+		file = root
+	}
 	if info.IsDir() {
 		rel := r.URL.Query().Get("path")
 		if rel == "" {
-			var meta api.MediaMeta
-			_ = json.Unmarshal([]byte(item.Meta), &meta)
 			rel = meta.Entry
 		}
 		if rel == "" {

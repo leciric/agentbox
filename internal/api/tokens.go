@@ -22,6 +22,7 @@ const (
 	TokensBackground    = "background"
 	TokensCompaction    = "compaction"
 	TokensConsolidation = "consolidation"
+	TokensKeepalive     = "keepalive"
 )
 
 // TokenCounts is spend in four counters that don't overlap, and the AI tool's

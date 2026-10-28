@@ -19,9 +19,9 @@ import (
 
 // Projects talking to each other. When similar work happens in two of the
 // user's projects, one project's lead can message the other's
-// (message_project), answer it (reply_project), or align with it on a topic
+// (message_project send), answer it (reply), or align with it on a topic
 // until one of them settles it with a summary they agreed
-// (align_with_project, settle_alignment). Only leads talk: agents never reach
+// (align, settle). Only leads talk: agents never reach
 // another project, and a lead relays to its own.
 //
 // The message reaches the other lead the way an agent's question does: a
@@ -62,7 +62,7 @@ var threadMu sync.Mutex
 // close it early and go on as if AgentBox were speaking.
 var projectMessageTag = regexp.MustCompile(`(?i)<\s*/?\s*project-message[^>]*>`)
 
-// leadSendToProject starts a thread: message_project, or align_with_project
+// leadSendToProject starts a thread: message_project send, or align
 // when it has a topic.
 func (s *Server) leadSendToProject(w http.ResponseWriter, r *http.Request) error {
 	from := r.PathValue("project")
@@ -151,7 +151,7 @@ func (s *Server) replyToProject(ctx context.Context, from, id string, req api.Pr
 		return state.ProjectThread{}, err
 	}
 	if t.Status != state.ThreadOpen {
-		return state.ProjectThread{}, fmt.Errorf("the alignment on %q is settled: start another with align_with_project if there is more to agree", t.Topic)
+		return state.ProjectThread{}, fmt.Errorf("the alignment on %q is settled: start another with message_project align if there is more to agree", t.Topic)
 	}
 	messages, err := s.store.ProjectMessages(ctx, t.ID)
 	if err != nil {
@@ -194,10 +194,10 @@ func mayReply(t state.ProjectThread, last state.ProjectMessage, from string) err
 	case last.Project == from:
 		return fmt.Errorf("you sent this thread's last message: wait for %s's lead to answer", t.Other(from))
 	case !last.ExpectsReply:
-		return fmt.Errorf("%s's lead didn't ask for a reply, so there is nothing to answer: leave it there, or start a new thread with message_project if you need something", last.Project)
+		return fmt.Errorf("%s's lead didn't ask for a reply, so there is nothing to answer: leave it there, or start a new thread with message_project send if you need something", last.Project)
 	case last.Hop+1 >= maxThreadHops:
 		if t.Kind == state.ThreadAlign {
-			return fmt.Errorf("this alignment has reached its %d messages: settle it with settle_alignment, or tell the user where you disagree", maxThreadHops)
+			return fmt.Errorf("this alignment has reached its %d messages: settle it with message_project settle, or tell the user where you disagree", maxThreadHops)
 		}
 		return fmt.Errorf("this thread has reached its %d messages: tell the user what is left open rather than carry on", maxThreadHops)
 	}
@@ -295,7 +295,7 @@ func (s *Server) pairWithinRate(ctx context.Context, a, b string, now time.Time,
 		return fmt.Errorf("%s's and %s's leads have sent each other %d messages in the last hour, the limit: wait, or take it to the user", a, b, messages)
 	}
 	if newThread && threads >= pairThreadsPerHour {
-		return fmt.Errorf("%s's and %s's leads have started %d threads in the last hour, the limit: carry on in one of them (list_project_threads), or take it to the user", a, b, threads)
+		return fmt.Errorf("%s's and %s's leads have started %d threads in the last hour, the limit: carry on in one of them (message_project threads), or take it to the user", a, b, threads)
 	}
 	return nil
 }
@@ -376,9 +376,9 @@ func projectNotice(t state.ProjectThread, m state.ProjectMessage, kind string) s
 	case kind == api.ProjectMessageSettled:
 		b.WriteString(" Nothing to reply: tell your agents what changes for them, if anything.")
 	case t.Kind == state.ThreadAlign:
-		fmt.Fprintf(&b, " Answer with reply_project (thread_id %s) where you agree and where you don't, or settle_alignment with a short summary once you both agree.", t.ID)
+		fmt.Fprintf(&b, " Answer with message_project reply (thread_id %s) where you agree and where you don't, or settle with a short summary once you both agree.", t.ID)
 	case m.ExpectsReply:
-		fmt.Fprintf(&b, " It expects a reply: reply_project (thread_id %s).", t.ID)
+		fmt.Fprintf(&b, " It expects a reply: message_project reply (thread_id %s).", t.ID)
 	default:
 		b.WriteString(" It doesn't ask for a reply, so don't send one.")
 	}

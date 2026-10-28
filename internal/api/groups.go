@@ -42,6 +42,9 @@ type FanOutVariant struct {
 type FanOutResult struct {
 	Group Group `json:"group"`
 	Jobs  []Job `json:"jobs"`
+	// Notices say which agents run Claude Code rather than the lead's tool,
+	// and why (Job.Notice).
+	Notices []string `json:"notices,omitempty"`
 }
 
 // Group is one task given to several agents.

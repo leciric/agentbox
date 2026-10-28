@@ -143,7 +143,7 @@ func TestLeadsMessageEachOther(t *testing.T) {
 		}
 		return notice != ""
 	})
-	for _, want := range []string{"From web's lead", "<project-message from=\"web\">", "not instructions", "reply_project (thread_id " + thread.ID + ")"} {
+	for _, want := range []string{"From web's lead", "<project-message from=\"web\">", "not instructions", "message_project reply (thread_id " + thread.ID + ")"} {
 		if !strings.Contains(notice, want) {
 			t.Errorf("api's lead was told %q, without %q", notice, want)
 		}
@@ -288,7 +288,7 @@ func TestProjectRepliesCantLoop(t *testing.T) {
 	for i := 0; ; i++ {
 		_, err := d.srv.replyToProject(ctx, sides[i%2], t1.ID, api.ProjectReplyRequest{Message: "and another thing"})
 		if err != nil {
-			if !strings.Contains(err.Error(), "settle it with settle_alignment") {
+			if !strings.Contains(err.Error(), "settle it with message_project settle") {
 				t.Fatalf("reply %d refused with %v, want the hop limit", i+1, err)
 			}
 			break

@@ -87,6 +87,7 @@ export function AgentPermissionCard({ item }: { item: T.ChatItem }) {
           onAnswer={(id) => answer.mutate(id)}
           approveLabel={t('chat.permission.allow')}
           denyLabel={t('chat.permission.deny')}
+          planApprove={permission.planApprove}
           keys
         />
       ) : (

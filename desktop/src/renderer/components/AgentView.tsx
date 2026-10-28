@@ -253,23 +253,27 @@ export function AgentView({
   const pr = fleet.data?.agents?.find((a) => a.ref === agent.ref)?.pr;
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 md:px-6 2xl:flex-nowrap">
+    <div className={cn('flex h-full flex-col', v2 && 'bg-chat')}>
+      {/* The title and its chips wrap among themselves; the buttons stay on the
+          first row, at the right, however narrow the column gets. */}
+      <div className="flex shrink-0 items-start gap-x-3 px-4 py-2.5 md:px-6">
         <LiveAgentAvatar agent={agent} />
-        <AgentTitle agent={agent} editing={editingTitle} onEditing={setEditingTitle} onSave={(title) => rename.mutate(title)} />
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          <StatusDetails agent={agent} pr={pr} />
-          {pr ? (
-            <Chip icon={GitPullRequest} mono label={pr.title} onClick={() => void window.agentbox.openExternal(pr.url)}>
-              #{pr.number} {prState(pr)}
-            </Chip>
-          ) : (
-            <Chip icon={GitBranch} mono label={t('agent.view.branch')}>
-              {agent.branch}
-            </Chip>
-          )}
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-2 self-center">
+          <AgentTitle agent={agent} editing={editingTitle} onEditing={setEditingTitle} onSave={(title) => rename.mutate(title)} />
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <StatusDetails agent={agent} pr={pr} />
+            {pr ? (
+              <Chip icon={GitPullRequest} mono label={pr.title} onClick={() => void window.agentbox.openExternal(pr.url)}>
+                #{pr.number} {prState(pr)}
+              </Chip>
+            ) : (
+              <Chip icon={GitBranch} mono label={t('agent.view.branch')}>
+                {agent.branch}
+              </Chip>
+            )}
+          </div>
         </div>
-        <div className="ml-auto flex shrink-0 items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-1.5 self-center">
           {busy && <LoaderCircle className="size-4 animate-spin text-subtle" />}
           {primary && (
             <Button size="sm" variant="primary" disabled={busy} onClick={() => run(primary)}>
@@ -359,7 +363,7 @@ export function AgentView({
           )}
         </div>
         )}
-        <div className="mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line bg-sunken shadow-[0_30px_80px_-40px_var(--ab-shadow-deep)] md:mx-6 md:mb-6">
+        <div className={cn('flex min-h-0 flex-1 flex-col overflow-hidden', !(v2 && active === 'chat') && 'mx-2 mb-2 rounded-2xl border border-line bg-sunken shadow-[0_30px_80px_-40px_var(--ab-shadow-deep)] md:mx-6 md:mb-6')}>
           {chatty && (
             <TabsContent value="chat" className="flex flex-col">
               <ChatTab agent={agent} starting={busy} onStart={() => run(agent.state === 'paused' ? 'resume' : 'start')} onOpenAgent={(ref) => onSelect({ kind: 'agent', ref })} openAt={openAt} aboveComposer={chatCard && ((wake) => chatCard(agent, wake))} />

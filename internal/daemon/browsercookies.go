@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"slices"
 	"time"
 
 	"agentbox/internal/api"
@@ -45,6 +46,19 @@ func hostHome() (string, error) {
 	return os.UserHomeDir()
 }
 
+// browserHomes are the homes to look for browsers in: the host's, and in WSL
+// the Windows user's too, since the host home isn't shared there.
+func browserHomes() []string {
+	var homes []string
+	if h, err := hostHome(); err == nil {
+		homes = append(homes, h)
+	}
+	if w := hostos.WindowsHome(); w != "" && !slices.Contains(homes, w) {
+		homes = append(homes, w)
+	}
+	return homes
+}
+
 // browserCookieProfiles lists the browsers installed on the host, so the user
 // can pick one to import from. It reads only each browser's own files and
 // never a cookie value.
@@ -52,16 +66,17 @@ func (s *Server) browserCookieProfiles(w http.ResponseWriter, r *http.Request) e
 	if _, err := s.store.Project(r.Context(), r.PathValue("project")); err != nil {
 		return err
 	}
-	home, err := hostHome()
-	if err != nil {
-		return err
-	}
 	out := api.BrowserProfiles{Profiles: []api.BrowserProfile{}}
-	for _, p := range cookieimport.FindProfiles(home) {
-		out.Profiles = append(out.Profiles, api.BrowserProfile{
-			ID: p.ID, Browser: p.Browser, BrowserName: p.BrowserName,
-			Engine: p.Engine, Name: p.Name, Keyring: p.Keyring,
-		})
+	for _, home := range browserHomes() {
+		for _, p := range cookieimport.FindProfiles(home) {
+			out.Profiles = append(out.Profiles, api.BrowserProfile{
+				ID: p.ID, Browser: p.Browser, BrowserName: p.BrowserName,
+				Engine: p.Engine, Name: p.Name, Keyring: p.Keyring,
+			})
+		}
+		for _, u := range cookieimport.FindUnreadable(home) {
+			out.Unreadable = append(out.Unreadable, api.UnreadableBrowser{Browser: u.Browser, BrowserName: u.BrowserName})
+		}
 	}
 	return writeJSON(w, http.StatusOK, out)
 }
@@ -82,9 +97,9 @@ func (s *Server) importFromBrowser(w http.ResponseWriter, r *http.Request) error
 	if req.ProfileID == "" {
 		return errors.New("pick a browser profile to import from")
 	}
-	home, err := hostHome()
-	if err != nil {
-		return err
+	home := profileHome(req.ProfileID)
+	if home == "" {
+		return errors.New("can't find your home directory")
 	}
 	cookies, _, err := cookieimport.ReadProfile(home, req.ProfileID, req.KeyringSecret, time.Now())
 	if err != nil {
@@ -105,6 +120,22 @@ func (s *Server) importFromBrowser(w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 	return writeJSON(w, http.StatusOK, info)
+}
+
+// profileHome is the home a browser profile was found under, else the host's.
+func profileHome(profileID string) string {
+	homes := browserHomes()
+	for _, home := range homes {
+		for _, p := range cookieimport.FindProfiles(home) {
+			if p.ID == profileID {
+				return home
+			}
+		}
+	}
+	if len(homes) > 0 {
+		return homes[0]
+	}
+	return ""
 }
 
 // browserSource names the browser and profile an import came from, for the

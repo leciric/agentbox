@@ -13,6 +13,11 @@ export type StatusTone = 'urgent' | 'error' | 'warning' | 'live' | 'muted';
 
 export function chatLabel(agent: T.Agent): { text: string; tone: StatusTone } {
   // Being made comes before anything its chat says: nothing can need you yet.
+  if (agent.state === 'initializing' && agent.waitingForImage) return { text: t('agent.status.waitingForImage'), tone: 'live' };
+  // Its whole machine paused for memory, or waiting for the memory to boot
+  // (Settings → Experimental): before anything its chat says, which waits too.
+  const machine = machineHold(agent);
+  if (machine) return { text: machine.text, tone: 'warning' };
   if (agent.state === 'initializing' || agent.state === 'queued') return { text: t('agent.status.initializing'), tone: 'live' };
   if (agent.chat === 'waiting') return { text: t('agent.status.needsYou'), tone: 'urgent' };
   if (agent.state === 'incomplete') return { text: t('agent.status.needsAttention'), tone: 'error' };
@@ -47,10 +52,14 @@ export function chatLabel(agent: T.Agent): { text: string; tone: StatusTone } {
   if (agent.state === 'running' && agent.chat !== 'starting') {
     if (agent.outcome === 'asking') return { text: t('agent.status.asking'), tone: 'urgent' };
     if (agent.outcome === 'failed') return { text: t('agent.status.failed'), tone: 'error' };
+    // Idle reclaim froze what it left running (T.Agent.reclaimed).
+    if (agent.reclaimed === 'frozen') return { text: t('agent.status.reclaimed'), tone: 'muted' };
     if (agent.outcome === 'done') return { text: t('agent.status.done'), tone: 'muted' };
   }
   if (agent.state === 'running') return { text: agent.chat === 'starting' ? t('agent.status.starting') : t('agent.status.idle'), tone: 'muted' };
   if (agent.state === 'paused') return { text: t('agent.status.paused'), tone: 'muted' };
+  // Stopped by idle reclaim after it finished: a message starts it again.
+  if (agent.reclaimed === 'stopped') return { text: t('agent.status.reclaimed'), tone: 'muted' };
   return { text: t('agent.status.stopped'), tone: 'muted' };
 }
 
@@ -63,9 +72,13 @@ function limitedText(agent: Pick<T.Agent, 'outcomeUntil'>): string {
 
 // statusTip is what chatLabel's words leave out, for a tooltip: what holds
 // its commands for memory, the question it asked, the error it stopped on.
-export function statusTip(agent: Pick<T.Agent, 'state' | 'chat' | 'memory' | 'outcome' | 'outcomeNote'>): string | undefined {
+export function statusTip(agent: Pick<T.Agent, 'state' | 'chat' | 'memory' | 'outcome' | 'outcomeNote' | 'reclaimed'>): string | undefined {
+  const machine = machineHold(agent);
+  if (machine) return machine.tip;
   const held = memoryHold(agent);
   if (held) return held.tip;
+  if (agent.chat !== 'running' && agent.reclaimed === 'frozen') return t('agent.status.reclaimedFrozenTip');
+  if (agent.reclaimed === 'stopped') return t('agent.status.reclaimedStoppedTip');
   if (agent.chat === 'running' || !agent.outcomeNote) return undefined;
   if (agent.outcome === 'asking') return t('agent.status.askingTip', { question: agent.outcomeNote });
   if (agent.outcome === 'failed') return agent.outcomeNote;
@@ -74,16 +87,54 @@ export function statusTip(agent: Pick<T.Agent, 'state' | 'chat' | 'memory' | 'ou
 
 // memoryHold is what the VM's memory pressure is doing to a running agent's
 // heavy commands, in words, with the sentences that explain it for a tooltip:
-// what it does, then what holds them now, as the daemon's governor judged it
+// what it does, then what holds them now, and that swap is full when it is, as the daemon's governor judged it
 // (T.MemoryHold.why). undefined when nothing is held. Pausing wins over
 // waiting: a paused command has already started.
 export function memoryHold(agent: Pick<T.Agent, 'state' | 'memory'>): { text: string; tip: string } | undefined {
   const held = agent.memory;
+  if (held?.machine) return machineHold(agent);
   if (agent.state !== 'running' || !held) return undefined;
   const why = memoryWhy(held);
   const tip = (key: MessageKey) => (why ? `${t(key)} ${why}` : t(key));
-  if ((held.paused ?? 0) > 0) return { text: t('agent.status.memoryPaused'), tip: tip('agent.status.memoryPausedTip') };
+  if ((held.paused ?? 0) > 0) {
+    if (held.swapFull) return { text: t('agent.status.memoryPausedSwapFull'), tip: `${tip('agent.status.memoryPausedTip')} ${t('agent.status.memorySwapFull')}` };
+    return { text: t('agent.status.memoryPaused'), tip: tip('agent.status.memoryPausedTip') };
+  }
   if ((held.waiting ?? 0) > 0) return { text: t('agent.status.memoryWaiting'), tip: tip('agent.status.memoryWaitingTip') };
+  return undefined;
+}
+
+// machineHold is what pausing whole agents for memory (Settings →
+// Experimental) does to an agent's machine: "Paused: waiting for memory, 2
+// ahead" while it is frozen, "Waiting for memory, 1 ahead" while it waits to
+// boot, with what holds it for a tooltip. undefined when neither.
+export function machineHold(agent: Pick<T.Agent, 'memory'>): { text: string; tip: string } | undefined {
+  const held = agent.memory;
+  if (!held?.machine) return undefined;
+  const ahead = formatNumber(held.ahead ?? 0);
+  const why = memoryWhy(held);
+  const tip = (key: MessageKey) => (why ? `${t(key)} ${why}` : t(key));
+  if (held.machine === 'paused' && held.swapFull) {
+    return { text: t('agent.status.machinePausedSwapFull', { ahead }), tip: `${tip('agent.status.machinePausedTip')} ${t('agent.status.memorySwapFull')}` };
+  }
+  if (held.machine === 'paused') return { text: t('agent.status.machinePaused', { ahead }), tip: tip('agent.status.machinePausedTip') };
+  if (held.machine === 'waiting') return { text: t('agent.status.machineWaiting', { ahead }), tip: tip('agent.status.machineWaitingTip') };
+  return undefined;
+}
+
+// frozenTip is why an agent is frozen, for the "Frozen" badge on its row, or
+// undefined when it isn't: its whole machine paused for memory (T.MemoryHold
+// machine "paused", with its place in line to thaw) or, while its chat is
+// idle, its processes frozen by idle reclaim (T.Agent.reclaimed). Both
+// resume by themselves.
+export function frozenTip(agent: Pick<T.Agent, 'state' | 'chat' | 'memory' | 'reclaimed'>): string | undefined {
+  const held = agent.memory;
+  if (held?.machine === 'paused') {
+    const why = memoryWhy(held);
+    const tip = t('agent.frozen.memoryTip', { place: formatNumber((held.ahead ?? 0) + 1) });
+    return why ? `${tip} ${why}` : tip;
+  }
+  if (agent.state === 'running' && agent.chat !== 'running' && agent.reclaimed === 'frozen') return t('agent.frozen.idleTip');
   return undefined;
 }
 

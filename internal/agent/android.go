@@ -18,30 +18,39 @@ import (
 )
 
 // An agent can run an Android emulator (android.sh). It gets /dev/kvm and the
-// host's Android SDK, read-only. The emulator has no window of its own: scrcpy
-// shows it on a separate display, whose VNC server AgentBox reaches through an
-// Incus proxy device, like the browser's.
+// host's Android SDK, read-only. It renders on the agent's GPU when "GPU for
+// agents" gave it a render node (-gpu host), and on SwiftShader, its software
+// renderer, with none (no GPU, or WSL's /dev/dxg) or when it doesn't start on
+// the GPU. The emulator has no window of its own: `agentbox android serve`
+// reads its screen from its gRPC endpoint and serves it as H.264 video, with
+// input into it, on one WebSocket (internal/devicestream), which AgentBox
+// reaches through an Incus proxy device, like the browser's VNC.
 
 //go:embed android.sh
 var androidScript []byte
 
 const (
-	androidScriptPath  = "/usr/local/bin/agentbox-android"
-	androidProfilePath = "/etc/profile.d/agentbox-android.sh"
-	kvmDevice          = "agentbox-kvm"
-	androidSDKDevice   = "agentbox-android-sdk"
-	androidViewDevice  = "agentbox-android-vnc"
-	sharedSDKPath      = "/opt/android-sdk"
-	androidViewPort    = 5901
-	// AndroidService names the host socket of the emulator's display, next to the browser's.
-	AndroidService = "avnc"
+	androidScriptPath   = "/usr/local/bin/agentbox-android"
+	androidProfilePath  = "/etc/profile.d/agentbox-android.sh"
+	kvmDevice           = "agentbox-kvm"
+	androidSDKDevice    = "agentbox-android-sdk"
+	androidStreamDevice = "agentbox-android-stream"
+	// legacyAndroidViewDevice reached the VNC server scrcpy showed the
+	// emulator on, before the stream.
+	legacyAndroidViewDevice = "agentbox-android-vnc"
+	sharedSDKPath           = "/opt/android-sdk"
+	androidStreamPort       = 5902
+	// AndroidService names the host socket of the emulator's stream, next to the browser's.
+	AndroidService = "adev"
 
 	defaultAndroidMemory = 2048
 	defaultAndroidCores  = 4
 )
 
 // HostServices are the agent services AgentBox reaches through host sockets.
-var HostServices = []string{"vnc", "cdp", AndroidService}
+// "avnc" was the emulator's VNC view, before its stream: an agent made then
+// may still have its socket.
+var HostServices = []string{"vnc", "cdp", AndroidService, "avnc"}
 
 const androidProfile = `# Written by AgentBox: the Android SDK, shared read-only and linked into a home builds can add to.
 export ANDROID_HOME="$HOME/.local/share/android-sdk"
@@ -50,15 +59,17 @@ export PATH="$PATH:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$ANDROID_
 `
 
 type AndroidStatus struct {
-	Available bool   // this machine can run emulators
-	Problem   string // why it can't
-	SDK       string
-	Images    []string
-	Running   bool // the emulator runs
-	Booted    bool // and Android has finished starting
-	View      bool // scrcpy shows it on its display
-	Image     string
-	Device    string
+	Available  bool   // this machine can run emulators
+	Problem    string // why it can't
+	SDK        string
+	Images     []string
+	Running    bool // the emulator runs
+	Booted     bool // and Android has finished starting
+	Stream     bool // its video stream is served
+	Image      string
+	Device     string
+	GPU        bool   // renders on the agent's GPU, not SwiftShader
+	GPUProblem string // why it fell back to SwiftShader from the GPU
 }
 
 type AndroidOptions struct {
@@ -135,10 +146,6 @@ func CheckKVM() error {
 	return f.Close()
 }
 
-// androidGPUMode is the emulator's -gpu mode: SwiftShader, its software
-// renderer, since an agent's machine has no GPU.
-const androidGPUMode = "swiftshader_indirect"
-
 // StartAndroid starts the agent's emulator, unless it runs, and waits until
 // Android has booted.
 func (m *Manager) StartAndroid(ctx context.Context, a state.Agent, opts AndroidOptions) (AndroidStatus, error) {
@@ -161,7 +168,7 @@ func (m *Manager) StartAndroid(ctx context.Context, a state.Agent, opts AndroidO
 		return AndroidStatus{}, err
 	}
 	m.logf("Starting the Android emulator (%s)", image.ID)
-	if _, err := m.androidRun(ctx, a, fmt.Sprintf("start %s %d %d %s", shellQuote(image.ID), memory, cores, androidGPUMode)); err != nil {
+	if _, err := m.androidRun(ctx, a, fmt.Sprintf("start %s %d %d", shellQuote(image.ID), memory, cores)); err != nil {
 		return AndroidStatus{}, err
 	}
 	wait, cancel := context.WithTimeout(ctx, 6*time.Minute)
@@ -223,8 +230,13 @@ func (m *Manager) prepareAndroid(ctx context.Context, a state.Agent, sdk android
 			return err
 		}
 	}
-	if _, ok := devices[androidViewDevice]; !ok {
-		if err := m.addSocketProxy(ctx, a, androidViewDevice, AndroidService, androidViewPort); err != nil {
+	if _, ok := devices[legacyAndroidViewDevice]; ok {
+		if err := m.Incus.RemoveDevice(ctx, a.Instance, legacyAndroidViewDevice); err != nil {
+			return err
+		}
+	}
+	if _, ok := devices[androidStreamDevice]; !ok {
+		if err := m.addSocketProxy(ctx, a, androidStreamDevice, AndroidService, androidStreamPort); err != nil {
 			return err
 		}
 	}
@@ -235,14 +247,15 @@ func (m *Manager) prepareAndroid(ctx context.Context, a state.Agent, sdk android
 }
 
 // androidStarted reports whether the agent's emulator was ever started, which
-// gives it the view's proxy device.
+// gives it the stream's proxy device (or, before the stream, the view's).
 func (m *Manager) androidStarted(ctx context.Context, a state.Agent) (bool, error) {
 	devices, err := m.Incus.Devices(ctx, a.Instance)
 	if err != nil {
 		return false, err
 	}
-	_, ok := devices[androidViewDevice]
-	return ok, nil
+	_, ok := devices[androidStreamDevice]
+	_, legacy := devices[legacyAndroidViewDevice]
+	return ok || legacy, nil
 }
 
 // androidRun runs android.sh with args as the agent's user.
@@ -284,10 +297,11 @@ func (m *Manager) AndroidStatus(ctx context.Context, a state.Agent) (AndroidStat
 			values[key] = value
 		}
 	}
-	status.Running, status.Booted, status.View = values["running"] == "1", values["booted"] == "1", values["view"] == "1"
+	status.Running, status.Booted, status.Stream = values["running"] == "1", values["booted"] == "1", values["stream"] == "1"
 	if status.Running {
 		status.Image = values["image"]
 		status.Device = describeDevice(values["image"], values["release"])
+		status.GPU, status.GPUProblem = values["gpu"] == "host", values["gpu_problem"]
 	}
 	return status, nil
 }
@@ -305,9 +319,10 @@ func describeDevice(image, release string) string {
 	return fmt.Sprintf("Pixel 7, Android %s (API %s)", release, api)
 }
 
-// DialAndroidView connects to the VNC server on the emulator's display,
-// starting what shows the device there if it stopped.
-func (m *Manager) DialAndroidView(ctx context.Context, a state.Agent) (net.Conn, error) {
+// DialAndroidStream connects to the emulator's stream server (devicestream),
+// starting it if it stopped. An emulator started before the stream gets its
+// proxy device here, and the current android.sh.
+func (m *Manager) DialAndroidStream(ctx context.Context, a state.Agent) (net.Conn, error) {
 	status, err := m.AndroidStatus(ctx, a)
 	if err != nil {
 		return nil, err
@@ -315,8 +330,17 @@ func (m *Manager) DialAndroidView(ctx context.Context, a state.Agent) (net.Conn,
 	if !status.Booted {
 		return nil, fmt.Errorf("%s's emulator isn't running: start it first", a.Ref())
 	}
-	if _, err := m.androidRun(ctx, a, "view"); err != nil {
-		return nil, err
+	if !status.Stream {
+		sdk, err := m.AndroidHost()
+		if err != nil {
+			return nil, err
+		}
+		if err := m.prepareAndroid(ctx, a, sdk); err != nil {
+			return nil, err
+		}
+		if _, err := m.androidRun(ctx, a, "stream"); err != nil {
+			return nil, err
+		}
 	}
 	return (&net.Dialer{}).DialContext(ctx, "unix", m.BrowserSocket(a.Instance, AndroidService))
 }

@@ -6,7 +6,7 @@
 // screens read is made safe on the way in (parse.ts).
 import * as T from '../shared/api.ts';
 import * as P from './parse.ts';
-import { forget, session } from './session.ts';
+import { forget, session, unreachable } from './session.ts';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -16,18 +16,20 @@ export class ApiError extends Error {
   }
 }
 
+// call reaches the API under /api; a path that starts with /lan/ is the
+// phone's own, beside it (its push notifications).
 async function call<R>(method: string, path: string, body?: unknown): Promise<R> {
   const s = session();
   if (!s) throw new ApiError('not paired', 401);
   let res: Response;
   try {
-    res = await fetch(`${s.origin}/api${path}`, {
+    res = await fetch(`${s.origin}${path.startsWith('/lan/') ? '' : '/api'}${path}`, {
       method,
       headers: { Authorization: `Bearer ${s.token}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch (err) {
-    throw new ApiError(err instanceof Error ? err.message : String(err), 0);
+    throw new ApiError(unreachable(s.origin, err).message, 0);
   }
   const text = await res.text();
   if (res.status === 401) void forget();
@@ -94,6 +96,10 @@ export const api = {
   // daemon asks of a phone's merge (lanAPI in internal/daemon/lan.go).
   merge: (name: string, number: number, method: string) =>
     call<T.PullRequest>('POST', `${project(name)}/pulls/${number}/merge`, { method, confirmed: true } satisfies T.MergePullRequestRequest),
+  // This phone's push notifications (internal/daemon/phonepush.go).
+  push: () => call<T.PhonePush>('GET', '/lan/push'),
+  setPush: (p: T.PhonePush) => call<T.PhonePush>('PUT', '/lan/push', p),
+  testPush: () => call<T.PhonePushTest>('POST', '/lan/push/test'),
 };
 
 // mediaSource is an image of the daemon's for <Image source>: its address

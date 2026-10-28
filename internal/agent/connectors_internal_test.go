@@ -101,3 +101,21 @@ func TestSameMCPServers(t *testing.T) {
 		}
 	}
 }
+
+// The Playwright server runs behind `agentbox desktop guard`, so a call that
+// never returns (browser_evaluate on a stuck page) fails back to the agent.
+func TestPlaywrightRunsBehindTheGuard(t *testing.T) {
+	t.Parallel()
+	for _, s := range agentMCPServers("/home/dev", nil) {
+		if s.name != "playwright" {
+			continue
+		}
+		got := s.command + " " + strings.Join(s.args, " ")
+		want := "/usr/local/bin/agentbox desktop guard --name Playwright --timeout 3m0s -- /home/dev/.local/share/mise/shims/playwright-mcp --cdp-endpoint"
+		if !strings.HasPrefix(got, want) {
+			t.Errorf("the Playwright server is started as %q, want it to start with %q", got, want)
+		}
+		return
+	}
+	t.Fatal("no Playwright server")
+}
