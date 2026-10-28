@@ -1,9 +1,16 @@
 package cookieimport
 
 import (
+	"errors"
 	"fmt"
 	"time"
 )
+
+// ErrAppBound is returned when ReadProfile is asked for a Windows Chromium
+// profile: its cookies are sealed with app-bound encryption the daemon can't
+// open. The desktop app reads these on the host and seals them through the
+// decrypted-import endpoint instead (see Accept).
+var ErrAppBound = errors.New("Chrome, Edge and Brave on Windows seal their cookies so only the browser can open them: import them from the AgentBox desktop app, or export a cookies file")
 
 // ReadProfile reads every cookie of one profile, picked out of FindProfiles
 // by ID, dropping expired ones. keyringSecret is the Chromium browser's
@@ -22,6 +29,9 @@ func ReadProfile(home, profileID, keyringSecret string, now time.Time) (cookies 
 	}
 	if p == nil {
 		return nil, 0, fmt.Errorf("no such browser profile")
+	}
+	if p.AppBound() {
+		return nil, 0, ErrAppBound
 	}
 	switch p.Engine {
 	case EngineFirefox:

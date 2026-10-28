@@ -4,6 +4,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import type * as T from '../shared/api';
 import type { AppUpdateProgress, AppUpdateResult, AppUpdateSupport } from '../shared/appupdate';
+import type { ExtractResult } from '../main/browsercookies';
 import type { TraySettings } from '../main/tray';
 import type { TrayTarget } from '../main/traymodel';
 
@@ -380,6 +381,12 @@ const bridge = {
   // the daemon in the VM can't reach the keyring. '' when there's none to
   // fetch. The value is passed straight to the import and never kept.
   browserKeyringSecret: (keyring: string): Promise<string> => ipcRenderer.invoke('browserkeys:get', keyring),
+  // Reads a Windows browser's cookies on the host by launching the browser
+  // itself (main/browsercookies.ts), for a Chrome/Edge/Brave profile the
+  // daemon in the VM can't open (app-bound encryption). Returns the decrypted
+  // cookies, or an error code; the cookies go straight to the import.
+  extractBrowserCookies: (browser: string, profileDir: string): Promise<ExtractResult> =>
+    ipcRenderer.invoke('browsercookies:extract', browser, profileDir),
   copyText: (text: string) => ipcRenderer.send('clipboard:write', text),
   // setLanguage tells the main process the app's language, for its dialogs.
   setLanguage: (tag: string) => ipcRenderer.send('app:language', tag),

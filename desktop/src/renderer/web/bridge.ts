@@ -325,6 +325,8 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
   // The phone web app can't reach a host keyring, so browser-cookie import
   // from an installed browser isn't offered there; this is never called.
   browserKeyringSecret: () => Promise.resolve(''),
+  // Nor can it launch a browser on the host to read an app-bound profile.
+  extractBrowserCookies: () => Promise.resolve({ error: 'failed' as const }),
 };
 
 // installWebBridge makes the bridge the app uses, and follows the chosen

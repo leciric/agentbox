@@ -50,10 +50,25 @@ type Profile struct {
 	goos string
 }
 
+// AppBound reports whether this is a Chromium profile on Windows, whose
+// cookies are sealed with app-bound encryption (v20): readable only by the
+// browser itself, so the daemon in the VM can't open them and the desktop app
+// reads them on the host instead (desktop/src/main/browsercookies.ts).
+func (p Profile) AppBound() bool {
+	return p.goos == "windows" && p.Engine == EngineChromium
+}
+
+// Dir is the profile's sub-directory under the browser's user-data directory
+// (Default, Profile 1, …), which the host passes to the browser as
+// --profile-directory when it reads an app-bound profile's cookies.
+func (p Profile) Dir() string { return filepath.Base(p.dir) }
+
 // browser is a browser AgentBox can read, and where it keeps its profiles
-// relative to the home directory, per GOOS. A Chromium browser's roots are
-// left empty on windows: Chrome, Edge and Brave seal cookies there with
-// app-bound encryption (v20), which only the browser itself opens.
+// relative to the home directory, per GOOS. A Chromium browser on Windows
+// seals its cookies with app-bound encryption (v20), which only the browser
+// itself opens: its profiles are still listed (a Profile with AppBound set),
+// but the Go daemon in the VM can't decrypt them. The desktop app does it on
+// the host, by launching the browser itself (desktop/src/main/browsercookies.ts).
 type browser struct {
 	id, name, engine, keyring string
 	roots                     map[string][]string
@@ -70,7 +85,7 @@ var browsers = []browser{
 	chromium("chrome", "Google Chrome", "chrome",
 		[]string{"Library/Application Support/Google/Chrome"},
 		[]string{".config/google-chrome"},
-		nil),
+		[]string{"AppData/Local/Google/Chrome/User Data"}),
 	chromium("chromium", "Chromium", "chromium",
 		[]string{"Library/Application Support/Chromium"},
 		[]string{".config/chromium", "snap/chromium/common/chromium"},
@@ -78,11 +93,11 @@ var browsers = []browser{
 	chromium("brave", "Brave", "brave",
 		[]string{"Library/Application Support/BraveSoftware/Brave-Browser"},
 		[]string{".config/BraveSoftware/Brave-Browser"},
-		nil),
+		[]string{"AppData/Local/BraveSoftware/Brave-Browser/User Data"}),
 	chromium("edge", "Microsoft Edge", "msedge",
 		[]string{"Library/Application Support/Microsoft Edge"},
 		[]string{".config/microsoft-edge"},
-		nil),
+		[]string{"AppData/Local/Microsoft/Edge/User Data"}),
 	chromium("vivaldi", "Vivaldi", "vivaldi",
 		[]string{"Library/Application Support/Vivaldi"},
 		[]string{".config/vivaldi"},
@@ -92,36 +107,6 @@ var browsers = []browser{
 		"linux":   {".mozilla/firefox", "snap/firefox/common/.mozilla/firefox"},
 		"windows": {"AppData/Roaming/Mozilla/Firefox"},
 	}},
-}
-
-// Unreadable is a Chromium browser installed on Windows whose cookies
-// AgentBox can't read: it seals them with app-bound encryption (v20), which
-// only the browser itself opens. The user is told to export them instead.
-type Unreadable struct {
-	Browser     string `json:"browser"`
-	BrowserName string `json:"browserName"`
-}
-
-// windowsAppBound is where Chrome, Edge and Brave keep their user data on
-// Windows, relative to the home directory.
-var windowsAppBound = []struct {
-	id, name, root string
-}{
-	{"chrome", "Google Chrome", "AppData/Local/Google/Chrome/User Data"},
-	{"edge", "Microsoft Edge", "AppData/Local/Microsoft/Edge/User Data"},
-	{"brave", "Brave", "AppData/Local/BraveSoftware/Brave-Browser/User Data"},
-}
-
-// FindUnreadable lists the Chrome, Edge and Brave installed under a Windows
-// home, found by their user-data directory alone: nothing in it is opened.
-func FindUnreadable(home string) []Unreadable {
-	var out []Unreadable
-	for _, b := range windowsAppBound {
-		if fi, err := os.Stat(filepath.Join(home, filepath.FromSlash(b.root))); err == nil && fi.IsDir() {
-			out = append(out, Unreadable{Browser: b.id, BrowserName: b.name})
-		}
-	}
-	return out
 }
 
 // FindProfiles lists the profiles of every browser installed under home. The

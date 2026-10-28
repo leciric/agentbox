@@ -1485,21 +1485,33 @@ export interface BrowserProfile {
   engine: string;
   name: string;
   keyring?: string;
+  appBound?: boolean;
+  profileDir?: string;
 }
 
 export interface BrowserProfiles {
   profiles: BrowserProfile[];
-  unreadable?: UnreadableBrowser[];
-}
-
-export interface UnreadableBrowser {
-  browser: string;
-  browserName: string;
 }
 
 export interface ImportFromBrowserRequest {
   profileId: string;
   keyringSecret: string;
+}
+
+export interface ImportedCookie {
+  domain: string;
+  name: string;
+  value: string;
+  path: string;
+  expires?: number;
+  secure?: boolean;
+  httpOnly?: boolean;
+  sameSite?: string;
+}
+
+export interface ImportDecryptedCookiesRequest {
+  source: string;
+  cookies: ImportedCookie[];
 }
 
 export interface SnapRequest {
