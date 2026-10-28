@@ -556,6 +556,7 @@ func buildLocally(ctx context.Context, inc incus.Client, next string, u User, co
 	}{
 		{"/root/provision.sh", provision, 0o700},
 		{"/root/system.sh", systemScript, 0o700},
+		{"/root/base-packages.txt", basePackages, 0o600},
 		{"/root/tools.sh", toolsScript, 0o700},
 		{"/root/tools.list", toolsList(tools), 0o600},
 	} {
@@ -585,7 +586,7 @@ func buildLocally(ctx context.Context, inc incus.Client, next string, u User, co
 	}
 	return all(
 		func() error {
-			_, err := inc.Exec(ctx, next, "sh", "-c", "rm /root/provision.sh /root/system.sh /root/tools.sh /root/tools.list && "+dropCaches+" && "+scrubMachineID)
+			_, err := inc.Exec(ctx, next, "sh", "-c", "rm /root/provision.sh /root/system.sh /root/base-packages.txt /root/tools.sh /root/tools.list && "+dropCaches+" && "+scrubMachineID)
 			return err
 		},
 		func() error { return inc.Stop(ctx, next) },

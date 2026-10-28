@@ -182,15 +182,17 @@ With no registry, the image name is the imported one and a pod uses `imagePullPo
 
 ## The image
 
-`internal/agentimage/Dockerfile` builds on `debian:trixie-slim` for linux/amd64, with
-ca-certificates, git, tmux, curl, jq, less, openssh-client, procps, python3, unzip, xz-utils, Go,
-Node, pnpm, Claude Code, Codex and OpenCode, their ACP adapters (`claude-agent-acp` and `codex-acp`;
-OpenCode speaks ACP itself), the GitHub CLI, the Playwright MCP server, the desktop (Xvnc, Chromium,
-openbox, tint2, pcmanfm, xfce4-terminal, xdotool, xwallpaper, ffmpeg and the fonts `browser.sh`
-expects) and the `agentbox` binary. It runs as `agent`, UID and GID 1000, with `/workspace` and
-`/home/agent` on the claim, and its entrypoint is `agentbox agentd`; there is no systemd. The desktop
-package list is the one `internal/image/system.sh` installs on an Incus base image, because
-`browser.sh` is the same script in both runtimes; the two lists move together.
+`internal/agentimage/Dockerfile` builds on `debian:trixie-slim` for linux/amd64. Its system packages
+are the list in [`base-packages.txt`](../internal/image/base-packages.txt), which every AgentBox
+runtime installs (the Incus base image, this pod image, the `machines` desktop image and the daemon
+container), then Go, Node, pnpm, Claude Code, Codex and OpenCode, their ACP adapters
+(`claude-agent-acp` and `codex-acp`; OpenCode speaks ACP itself), the GitHub CLI, the Playwright MCP
+server, the desktop (Xvnc, Chromium, openbox, tint2, pcmanfm, xfce4-terminal, xdotool, xwallpaper,
+ffmpeg and the fonts `browser.sh` expects) and the `agentbox` binary. It runs as `agent`, UID and GID
+1000, with `/workspace` and `/home/agent` on the claim, and its entrypoint is `agentbox agentd`;
+there is no systemd. The desktop package list is the one `internal/image/system.sh` installs on an
+Incus base image, because `browser.sh` is the same script in both runtimes; the two lists move
+together.
 
 Every tool is at the version `internal/image/tools.txt` pins, and the Dockerfile reads that file
 during the build: moving one on is its line there and nothing else. The tools go outside

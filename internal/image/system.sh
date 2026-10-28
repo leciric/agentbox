@@ -58,10 +58,13 @@ check_network || exit 1
 
 step "Base packages"
 apt-get update -q
-apt-get install -y -q --no-install-recommends \
-  ca-certificates curl wget gnupg git tmux sudo build-essential jq ripgrep unzip xz-utils \
-  procps iproute2 iputils-ping less nano python3 python3-venv openssh-client \
-  libarchive-tools
+# The list is internal/image/base-packages.txt, which the pod and daemon images
+# install too: one file, so no runtime is missing a command the others have.
+mapfile -t BASE_PACKAGES < <(grep -v -e '^#' -e '^$' /root/base-packages.txt)
+apt-get install -y -q --no-install-recommends "${BASE_PACKAGES[@]}"
+# sudo is the machine's own: the user below gets it without a password, and a
+# pod runs as one unprivileged user with nothing to elevate to.
+apt-get install -y -q --no-install-recommends sudo
 
 step "Docker"
 install -m 0755 -d /etc/apt/keyrings
