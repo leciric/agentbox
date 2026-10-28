@@ -170,6 +170,10 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
   connection: () => Promise.resolve(connection),
   onConnection: (fn) => listen(connectionListeners, fn),
   onEvent: (fn) => listen(eventListeners, fn),
+  // The web app is served by the daemon itself, so they're the same version.
+  staleDaemon: () => Promise.resolve(null),
+  onStaleDaemon: () => () => {},
+  restartStaleDaemon: () => Promise.resolve(),
   info: () => Promise.resolve({ socket: location.origin, version: 'web', electron: '', packaged: false, platform: 'web' }),
   stream,
   cli: {

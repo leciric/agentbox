@@ -161,6 +161,8 @@
 //                           nightly out: the sidebar's starry header and badge,
 //                           and with ?settings=general the Update channel row
 //                           and the About line (fixtures.ts)
+//   ?olddaemon=1            the app updated while its daemon ran jobs: the
+//                           banner saying the daemon is still the old version
 //   ?loading=hold           the first launch before the daemon has answered:
 //                           the sidebar, Home and the rail with no lists yet.
 //                           ?loading=3000 answers them from the fixtures after
@@ -328,7 +330,7 @@ import { api } from '../lib/api';
 import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
 import { Markdown } from '../components/chat/Markdown';
 import { webStreams } from '../web/streams';
-import { agent12Chat, asleepChat, buildFixtures, remoteAgents, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedSignedOut, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
+import { agent12Chat, asleepChat, buildFixtures, remoteAgents, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedSignedOut, seedNightly, seedStaleDaemon, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
 import { restoreMode } from '../lib/theme';
 import { seedPastAgents } from './pastAgents';
@@ -768,6 +770,7 @@ if (params.get('signedout') === '1') seedSignedOut(queryClient);
 if (params.get('drag')) dragBridge(queryClient, params.get('drag') === 'slow' ? 1_500 : 300);
 if (params.get('enforce') === '1') { seedDefaults(queryClient); queryClient.setQueryData<T.Settings>(['settings'], (s) => s && { ...s, enforceAgentDefaults: true }); }
 if (params.get('nightly') === '1') seedNightly(queryClient);
+if (params.get('olddaemon') === '1') seedStaleDaemon();
 if (chvSize) seedLinuxVM(queryClient, chvSize);
 const macVZ = params.get('mac'); // 'brew' | 'driver' | 'manual' | 'nodriver' | 'ready' | null
 if (macVZ) seedMacVZ(queryClient, macVZ);

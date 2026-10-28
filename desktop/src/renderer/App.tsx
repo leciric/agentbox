@@ -52,6 +52,7 @@ import { WSLSetup } from "./components/WSLSetup";
 import { Notice } from "./components/ui/card";
 import { BuiltWithBadgeOffer } from "./components/BuiltWithBadgeOffer";
 import { StartingNotice } from "./components/StartingNotice";
+import { StaleDaemonNotice, useStaleDaemon } from "./components/StaleDaemonNotice";
 import { api, isProjectChat } from "./lib/api";
 import { t as tNow, useT } from "./lib/i18n";
 import { useReadyAlerts } from "./lib/useReadyAlerts";
@@ -131,6 +132,7 @@ export function App({ initial }: { initial?: View } = {}) {
   const agents = useQuery({ queryKey: ["agents"], queryFn: api.agents });
   useKeepAwake();
   const connection = useConnection();
+  const stale = useStaleDaemon();
   // On a Mac, the daemon lives in AgentBox's Linux VM, and on Windows in its
   // WSL distro: while it can't be reached, ask whether that's because the VM
   // or the distro isn't set up.
@@ -641,6 +643,11 @@ export function App({ initial }: { initial?: View } = {}) {
                   </Notice>
                 </div>
               )
+            )}
+            {!setup && connection.state === "connected" && stale && (
+              <div className="px-4 pt-4 md:px-6">
+                <StaleDaemonNotice stale={stale} />
+              </div>
             )}
             {!setup && connection.state !== "disconnected" && <BuiltWithBadgeOffer />}
             {!setup && (

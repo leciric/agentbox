@@ -45,6 +45,7 @@ import { useReviewing } from '../../lib/reviewAlert';
 import { useNow } from '../../lib/useNow';
 import { updateHint } from '../../lib/appUpdate';
 import { isNightly, isUpgrade } from '../../lib/nightly';
+import { useStaleDaemon } from '../StaleDaemonNotice';
 import { useAppUpdate } from '../../lib/useAppUpdate';
 import { cn, errorMessage, shortcut, timeAgo } from '../../lib/utils';
 import { openNewTask, requestComposerFocus } from '../../lib/newTask';
@@ -1078,7 +1079,9 @@ function UpdateCheck() {
   const app = useAppUpdate();
   const [checking, setChecking] = useState(false);
   const current = update.data?.current ?? '';
-  const offer = update.data?.available && isUpgrade(update.data.available.version, current) ? update.data.available : undefined;
+  // A stale daemon's offer is for its own version, not this app's.
+  const stale = useStaleDaemon();
+  const offer = !stale && update.data?.available && isUpgrade(update.data.available.version, current) ? update.data.available : undefined;
   const check = async () => {
     setChecking(true);
     try {

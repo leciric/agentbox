@@ -12,7 +12,21 @@ import { join } from 'node:path';
 import { AppLog, captureConsole, reportSections, type AppError } from './applog';
 import { agentboxBin, cliStatus, installCli } from './cli';
 import { currentTarget, isLocal, localSocket, savedHubs, saveHubs, setTarget, type SavedHub, type Target } from './connection';
-import { type ApiResponse, ensureDaemon, notListening, request, restartDaemon, restartIfStale, socketPath, stopHostDaemon, stopStartingDaemon, unreachable } from './daemon';
+import {
+  type ApiResponse,
+  ensureDaemon,
+  notListening,
+  onStaleDaemon,
+  request,
+  restartDaemon,
+  restartIfStale,
+  restartStaleDaemon,
+  socketPath,
+  staleDaemon,
+  stopHostDaemon,
+  stopStartingDaemon,
+  unreachable,
+} from './daemon';
 import { EventStream } from './events';
 import { grantKVM, hostSetupStatus, onMac, runHostSetup, runVMMigration, stopVM, vmMigration, type HostSetupOptions } from './hostsetup';
 import { handleMedia, registerMediaScheme } from './media';
@@ -77,6 +91,9 @@ const events = new EventStream(
     // version phones are served (phoneweb.ts).
     // And error reports made while it was away go now (reportqueue.ts).
     if (state.state === 'connected') {
+      // A daemon of another version (started by the command line, or one
+      // that outlived a restart) is restarted, or shown as stale.
+      void restartIfStale().catch(() => {});
       void installPhoneWeb(app.getVersion()).catch((err: unknown) => console.error('phones:', err));
       void errorReports.flush();
     }
@@ -136,6 +153,9 @@ async function callDaemon(method: string, path: string, body?: unknown): Promise
 const setKeepAwake = keepAwake(powerSaveBlocker);
 ipcMain.handle('keepawake:set', (event, on: boolean) => setKeepAwake(event.sender, on));
 ipcMain.handle('daemon:connection', () => events.state);
+ipcMain.handle('daemon:stale', () => staleDaemon());
+ipcMain.handle('daemon:restartStale', () => restartStaleDaemon());
+onStaleDaemon((stale) => send('daemon:stale', stale));
 ipcMain.handle('app:info', () => ({
   socket: onWindows ? localSocket() : socketPath,
   version: app.getVersion(),

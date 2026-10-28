@@ -1206,6 +1206,7 @@ const devState: {
   migration?: VMMigration;
   update?: T.UpdateStatus;
   appVersion?: string;
+  staleDaemon?: { daemon: string; app: string; jobs: number };
 } = { projects: [] };
 
 // seedQueryClient primes every query AgentRail and Sidebar read, at
@@ -2351,6 +2352,9 @@ export function installDevBridge(): void {
     connection: async () => ({ state: 'connected' }),
     onConnection: () => () => {},
     onEvent: () => () => {},
+    staleDaemon: async () => devState.staleDaemon ?? null,
+    onStaleDaemon: () => () => {},
+    restartStaleDaemon: async () => {},
     info: async () => ({ socket: '/run/user/1000/agentbox.sock', version: devState.appVersion ?? 'preview', electron: '38.1.0', packaged: false, platform: 'darwin' }),
     stream: { open: async () => 0, write: () => {}, close: () => {}, onOpened: () => () => {}, onData: () => () => {}, onExited: () => () => {} },
     cli: { status: async () => devState.cli ?? {}, install: async () => ({}) },
@@ -2422,6 +2426,12 @@ export function seedNightly(queryClient: QueryClient): void {
   devState.update = nightlyStatus(nightlyVersion, 'nightly');
   queryClient.setQueryData(['update'], devState.update);
   queryClient.setQueryData(['app-info'], { socket: '/run/user/1000/agentbox.sock', version: nightlyVersion, electron: '38.1.0', packaged: true, platform: 'linux' });
+}
+
+// seedStaleDaemon is the ?olddaemon=1 scenario: the app updated to a nightly while
+// a job ran, and the daemon still the release before it (main/daemon.ts).
+export function seedStaleDaemon(): void {
+  devState.staleDaemon = { daemon: '0.15.0', app: nightlyVersion, jobs: 2 };
 }
 
 // richStreamText is an answer caught mid-stream ('open': a page's fence not
