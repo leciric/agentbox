@@ -304,10 +304,13 @@ func (m *Manager) toolWindowScript(ctx context.Context, a state.Agent) (string, 
 		if err != nil {
 			return "", err
 		}
-		if version == opencode.V2 {
-			if err := m.ensureOpenCode2InAgent(ctx, a); err != nil {
-				return "", err
-			}
+		// The terminal's OpenCode reads the same files a chat's does, which
+		// PrepareChatModel rewrites before every chat: the config in the shape
+		// of the version running now, and OpenCode 2's logins (installing it
+		// first in a machine made before its image carried it). An agent
+		// switched in either direction starts on what its version reads.
+		if err := m.prepareAgentOpenCodeSettings(ctx, a); err != nil {
+			return "", err
 		}
 		tool = Tool{Command: version.Command(), Autonomous: version.Autonomous()}
 	}

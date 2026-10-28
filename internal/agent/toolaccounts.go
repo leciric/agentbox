@@ -182,15 +182,16 @@ func openCodeChosen(p state.Project, a state.Agent) state.AccountMap {
 }
 
 // openCodeImportMarker is where a machine keeps the accounts last imported
-// into it: a hash of the export and the label each provider was imported
-// under. It holds no credential, only what the next sync needs to take the
-// accounts this one no longer wants back out.
+// into it: a hash of the export, the label each provider was imported under,
+// and a hash of each provider's credential. It holds no credential, only what
+// the next sync needs to take the accounts this one no longer wants back out.
 const openCodeImportMarker = ".config/opencode/.agentbox-accounts.json"
 
 // openCodeImported is the marker's content.
 type openCodeImported struct {
 	Hash     string            `json:"hash"`
 	Accounts map[string]string `json:"accounts"`
+	Values   map[string]string `json:"values,omitempty"`
 }
 
 // syncOpenCodeImport gives OpenCode 2 in one machine exactly the accounts in
@@ -199,6 +200,11 @@ type openCodeImported struct {
 // it no longer has, so a renamed or removed account would stay behind and keep
 // answering. The labels this same file imported last time are logged out after
 // the import (which leaves the new ones active), and the marker is rewritten.
+// An account kept under the same label whose credential changed (a rotated
+// key, a new sign-in) has the same id, which the import would skip, so it is
+// logged out first and imported afresh. One that didn't change is left alone:
+// OpenCode refreshes an OAuth token in place, and the machine's copy may be
+// newer than the stored one.
 func syncOpenCodeImport(ctx context.Context, read func() ([]byte, error), write func([]byte) error, run func(context.Context, []string, io.Reader) error, export []byte, used map[string]string) error {
 	sum := fmt.Sprintf("%x", sha256.Sum256(export))
 	var was openCodeImported
@@ -207,6 +213,13 @@ func syncOpenCodeImport(ctx context.Context, read func() ([]byte, error), write 
 	}
 	if was.Hash == sum {
 		return nil
+	}
+	values := openCodeValueHashes(export)
+	for provider, label := range was.Accounts {
+		if used[provider] == label && was.Values[provider] != values[provider] {
+			// Best effort, as below: the import that follows is what matters.
+			_ = run(ctx, []string{"auth", "logout", "--standalone", provider, label}, nil)
+		}
 	}
 	if len(export) > 0 {
 		if err := run(ctx, []string{"auth", "import", "--standalone"}, bytes.NewReader(export)); err != nil {
@@ -222,11 +235,26 @@ func syncOpenCodeImport(ctx context.Context, read func() ([]byte, error), write 
 		// reason to fail the whole sync.
 		_ = run(ctx, []string{"auth", "logout", "--standalone", provider, label}, nil)
 	}
-	now, err := json.Marshal(openCodeImported{Hash: sum, Accounts: used})
+	now, err := json.Marshal(openCodeImported{Hash: sum, Accounts: used, Values: values})
 	if err != nil {
 		return err
 	}
 	return write(now)
+}
+
+// openCodeValueHashes is a hash of each provider's credential in an export, so
+// that the next sync can tell which ones changed.
+func openCodeValueHashes(export []byte) map[string]string {
+	var creds []struct {
+		IntegrationID string          `json:"integrationID"`
+		Value         json.RawMessage `json:"value"`
+	}
+	_ = json.Unmarshal(export, &creds)
+	out := map[string]string{}
+	for _, c := range creds {
+		out[c.IntegrationID] = fmt.Sprintf("%x", sha256.Sum256(c.Value))
+	}
+	return out
 }
 
 // importOpenCodeAccounts gives an OpenCode 2 agent its logins. OpenCode 2

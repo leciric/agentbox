@@ -374,3 +374,37 @@ func TestSyncOpenCodeImportLogsOutWhatItReplaced(t *testing.T) {
 		t.Fatalf("removing every account ran %q, want %q", ran, want)
 	}
 }
+
+// TestSyncOpenCodeImportReplacesARotatedKey: a new key under the same label has
+// the same credential id, which `auth import` skips, so the old one is logged
+// out first. A provider whose credential didn't change is left alone, since
+// the machine may hold a token OpenCode refreshed since.
+func TestSyncOpenCodeImportReplacesARotatedKey(t *testing.T) {
+	t.Parallel()
+	var marker []byte
+	var ran []string
+	run := func(_ context.Context, args []string, stdin io.Reader) error {
+		ran = append(ran, strings.Join(args, " "))
+		return nil
+	}
+	read := func() ([]byte, error) { return marker, nil }
+	write := func(b []byte) error { marker = b; return nil }
+	ctx := context.Background()
+	used := map[string]string{"anthropic": "work", "openai": "work"}
+	export := func(key string) []byte {
+		return []byte(`[{"id":"cred_agentbox_anthropic_work","integrationID":"anthropic","label":"work","active":true,"value":{"type":"key","key":"` + key + `"}},` +
+			`{"id":"cred_agentbox_openai_work","integrationID":"openai","label":"work","active":true,"value":{"type":"oauth","refresh":"r"}}]`)
+	}
+
+	if err := syncOpenCodeImport(ctx, read, write, run, export("one"), used); err != nil {
+		t.Fatal(err)
+	}
+	ran = nil
+	if err := syncOpenCodeImport(ctx, read, write, run, export("two"), used); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"auth logout --standalone anthropic work", "auth import --standalone"}
+	if strings.Join(ran, "|") != strings.Join(want, "|") {
+		t.Fatalf("a rotated key ran %q, want %q", ran, want)
+	}
+}
