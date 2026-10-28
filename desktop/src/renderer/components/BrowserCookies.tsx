@@ -122,11 +122,22 @@ function ImportCookiesDialog({
   }, [open]);
 
   const list = profiles.data?.profiles ?? [];
-  const unreadable = profiles.data?.unreadable ?? [];
   const chosen = list.find((p) => p.id === picked);
   const importBrowser = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       if (!chosen) throw new Error(t('agent.cookies.pickBrowser'));
+      // Chrome, Edge and Brave on Windows seal their cookies so only the
+      // browser can open them: the host reads them by launching the browser
+      // itself, then we seal the decrypted cookies here. Every other browser
+      // the daemon reads itself in the VM.
+      if (chosen.appBound) {
+        const result = await window.agentbox.extractBrowserCookies(chosen.browser, chosen.profileDir ?? '');
+        if ('error' in result) {
+          throw new Error(t(`agent.cookies.appBound.${result.error}` as Parameters<typeof t>[0]));
+        }
+        const source = chosen.name && chosen.name !== chosen.browserName ? `${chosen.browserName} — ${chosen.name}` : chosen.browserName;
+        return api.importDecryptedCookies(project, source, result.cookies);
+      }
       return api.importFromBrowser(project, chosen);
     },
     onSuccess: async (result) => {
@@ -151,11 +162,10 @@ function ImportCookiesDialog({
                 <LoaderCircle className="size-4 animate-spin" />
                 {t('agent.cookies.findingBrowsers')}
               </div>
-            ) : list.length === 0 && unreadable.length === 0 ? (
+            ) : list.length === 0 ? (
               <p className="text-[12.5px] leading-relaxed text-subtle">{t('agent.cookies.noBrowsers')}</p>
             ) : (
-              list.length > 0 && (
-                <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
                 <Select
                   id="cookie-browser"
                   value={picked}
@@ -180,15 +190,14 @@ function ImportCookiesDialog({
                   {t('agent.cookies.import')}
                 </Button>
               </div>
-              )
             )}
+            {/* Reading an app-bound browser launches it briefly, which needs it closed. */}
+            {chosen?.appBound && <p className="mt-2 text-[12px] leading-relaxed text-subtle" data-appbound-hint>{t('agent.cookies.appBound.hint')}</p>}
             {profiles.error && <Notice>{errorMessage(profiles.error)}</Notice>}
             {importBrowser.error && <Notice>{errorMessage(importBrowser.error)}</Notice>}
           </Field>
 
-          {unreadable.length > 0 && <UnreadableBrowsers names={unreadable.map((b) => b.browserName)} />}
-
-          <FileImport project={project} onImported={onImported} onClose={() => onOpenChange(false)} startOpen={unreadable.length > 0} />
+          <FileImport project={project} onImported={onImported} onClose={() => onOpenChange(false)} />
         </div>
 
         <DialogFooter>
@@ -201,28 +210,10 @@ function ImportCookiesDialog({
   );
 }
 
-// UnreadableBrowsers explains why Chrome, Edge and Brave on Windows can't be
-// imported from (they seal cookies so only the browser opens them) and how to
-// get the cookies in through an export file instead.
-function UnreadableBrowsers({ names }: { names: string[] }) {
-  const t = useT();
-  return (
-    <div className="grid gap-2 rounded-xl border border-line-faint bg-surface-faint p-3 text-[12.5px] leading-relaxed" data-unreadable-browsers>
-      <p className="font-medium text-primary">{t('agent.cookies.unreadableTitle', { browsers: names.join(', ') })}</p>
-      <p className="text-subtle">{t('agent.cookies.unreadableBody')}</p>
-      <ol className="grid list-decimal gap-1 pl-5 text-subtle">
-        <li>{t('agent.cookies.unreadableStep1')}</li>
-        <li>{t('agent.cookies.unreadableStep2')}</li>
-        <li>{t('agent.cookies.unreadableStep3')}</li>
-      </ol>
-    </div>
-  );
-}
-
 // FileImport is the fallback: an export the user made, pasted or picked as a
 // file, with the sites it holds ticked (or typed) before importing. It stays
-// for browsers AgentBox can't read (Chrome on Windows), and for exports of a
-// browser not installed here.
+// for a browser not installed here, and for when reading one directly doesn't
+// work out.
 function FileImport({
   project,
   onImported,

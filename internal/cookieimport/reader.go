@@ -6,6 +6,12 @@ import (
 	"time"
 )
 
+// ErrAppBound is returned when ReadProfile is asked for a Windows Chromium
+// profile: its cookies are sealed with app-bound encryption the daemon can't
+// open. The desktop app reads these on the host and seals them through the
+// decrypted-import endpoint instead (see Accept).
+var ErrAppBound = errors.New("on Windows, Chrome, Edge and Brave seal their cookies so only the browser can open them: import them from the AgentBox desktop app, or export a cookies file")
+
 // ErrKeychainDenied is a macOS Chromium profile read without the browser's
 // Keychain passphrase, which the user refused to share when macOS asked.
 var ErrKeychainDenied = errors.New("macOS didn't give AgentBox the browser's Keychain key, so its cookies can't be decrypted: import again and click Allow (or Always Allow) when macOS asks")
@@ -27,6 +33,9 @@ func ReadProfile(home, profileID, keyringSecret string, now time.Time) (cookies 
 	}
 	if p == nil {
 		return nil, 0, fmt.Errorf("no such browser profile")
+	}
+	if p.AppBound() {
+		return nil, 0, ErrAppBound
 	}
 	switch p.Engine {
 	case EngineFirefox:

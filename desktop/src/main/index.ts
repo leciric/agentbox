@@ -17,6 +17,7 @@ import { EventStream } from './events';
 import { grantKVM, hostSetupStatus, onMac, runHostSetup, runVMMigration, stopVM, vmMigration, type HostSetupOptions } from './hostsetup';
 import { handleMedia, registerMediaScheme } from './media';
 import { registerBrowserKeys } from './browserkeys';
+import { registerBrowserCookies } from './browsercookies';
 import { installPhoneWeb } from './phoneweb';
 import { onWindows, startRelay, stopRelay } from './relay';
 import { guardStdio } from './stdio';
@@ -54,6 +55,7 @@ captureConsole(appLog);
 process.on('uncaughtExceptionMonitor', (err) => send('app:error', appLog.error('main', err)));
 registerMediaScheme();
 registerBrowserKeys();
+registerBrowserCookies(ipcMain);
 enableShortcutPortal();
 
 let win: BrowserWindow | undefined;

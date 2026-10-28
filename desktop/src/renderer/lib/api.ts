@@ -390,6 +390,14 @@ export const api = {
       keyringSecret,
     } satisfies T.ImportFromBrowserRequest);
   },
+  // Seal cookies read and decrypted on the host (a Windows app-bound browser
+  // the daemon in the VM can't open; the host read them by launching the
+  // browser itself). source names the browser and profile for the card.
+  importDecryptedCookies: (name: string, source: string, cookies: T.ImportedCookie[]) =>
+    call<T.BrowserCookies>('POST', `${project(name)}/browser-cookies/from-browser-decrypted`, {
+      source,
+      cookies,
+    } satisfies T.ImportDecryptedCookiesRequest),
 
   // SnapShots waiting for the composer (agentbox snap), and sending one.
   snaps: () => call<T.Snap[]>('GET', '/v1/snaps'),

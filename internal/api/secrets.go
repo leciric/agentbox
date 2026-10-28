@@ -88,20 +88,43 @@ type BrowserProfile struct {
 	Engine      string `json:"engine"`
 	Name        string `json:"name"`
 	Keyring     string `json:"keyring,omitempty"`
+	// AppBound is set for a Chromium profile on Windows, whose cookies are
+	// sealed with app-bound encryption the daemon in the VM can't open: the
+	// desktop app reads them on the host (main/browsercookies.ts) and seals
+	// them through ImportDecryptedCookiesRequest, not ImportFromBrowserRequest.
+	AppBound bool `json:"appBound,omitempty"`
+	// ProfileDir is the profile's sub-directory (Default, Profile 1, …), which
+	// the host passes to the browser as --profile-directory when it reads an
+	// app-bound profile.
+	ProfileDir string `json:"profileDir,omitempty"`
 }
 
 // BrowserProfiles is the browsers found installed on the host.
 type BrowserProfiles struct {
 	Profiles []BrowserProfile `json:"profiles"`
-	// Unreadable are browsers installed on Windows whose cookies only the
-	// browser itself can open (Chrome, Edge, Brave): the user exports instead.
-	Unreadable []UnreadableBrowser `json:"unreadable,omitempty"`
 }
 
-// UnreadableBrowser is an installed browser AgentBox can't import from.
-type UnreadableBrowser struct {
-	Browser     string `json:"browser"`
-	BrowserName string `json:"browserName"`
+// ImportedCookie is one cookie the desktop app read and decrypted on the host
+// (a Windows app-bound browser, over CDP) for the daemon to seal. Its fields
+// are the DevTools Storage cookie shape, as cookieimport.Cookie. Value is a
+// secret: it is sealed like one and never shown again.
+type ImportedCookie struct {
+	Domain   string `json:"domain"`
+	Name     string `json:"name"`
+	Value    string `json:"value"`
+	Path     string `json:"path"`
+	Expires  int64  `json:"expires,omitempty"`
+	Secure   bool   `json:"secure,omitempty"`
+	HTTPOnly bool   `json:"httpOnly,omitempty"`
+	SameSite string `json:"sameSite,omitempty"`
+}
+
+// ImportDecryptedCookiesRequest seals cookies the desktop app already read and
+// decrypted on the host, for a Windows app-bound browser the daemon in the VM
+// can't open itself. Source names the browser and profile, for the card.
+type ImportDecryptedCookiesRequest struct {
+	Source  string           `json:"source"`
+	Cookies []ImportedCookie `json:"cookies"`
 }
 
 // ImportFromBrowserRequest imports every cookie of one installed browser

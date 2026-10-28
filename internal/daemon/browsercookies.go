@@ -72,10 +72,8 @@ func (s *Server) browserCookieProfiles(w http.ResponseWriter, r *http.Request) e
 			out.Profiles = append(out.Profiles, api.BrowserProfile{
 				ID: p.ID, Browser: p.Browser, BrowserName: p.BrowserName,
 				Engine: p.Engine, Name: p.Name, Keyring: p.Keyring,
+				AppBound: p.AppBound(), ProfileDir: p.Dir(),
 			})
-		}
-		for _, u := range cookieimport.FindUnreadable(home) {
-			out.Unreadable = append(out.Unreadable, api.UnreadableBrowser{Browser: u.Browser, BrowserName: u.BrowserName})
 		}
 	}
 	return writeJSON(w, http.StatusOK, out)
@@ -112,6 +110,48 @@ func (s *Server) importFromBrowser(w http.ResponseWriter, r *http.Request) error
 	source := browserSource(home, req.ProfileID)
 	if err := s.secrets().SetBrowserCookies(r.Context(), p.Name, secrets.BrowserCookies{
 		Domains: domains, Source: source, Cookies: cookies, ImportedAt: time.Now().Truncate(time.Second),
+	}); err != nil {
+		return err
+	}
+	info, err := s.browserCookiesInfo(r.Context(), p.Name)
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, http.StatusOK, info)
+}
+
+// importDecryptedFromBrowser seals cookies the desktop app read and decrypted
+// on the host: a Windows browser's cookies are sealed with app-bound
+// encryption the daemon in the VM can't open, so the app launches the browser
+// itself and reads them over CDP (desktop/src/main/browsercookies.ts), then
+// sends the plain cookies here. We validate and seal them like any other
+// import. The response carries the per-site counts, never a cookie value.
+func (s *Server) importDecryptedFromBrowser(w http.ResponseWriter, r *http.Request) error {
+	p, err := s.store.Project(r.Context(), r.PathValue("project"))
+	if err != nil {
+		return err
+	}
+	var req api.ImportDecryptedCookiesRequest
+	if err := readJSON(r, &req); err != nil {
+		return err
+	}
+	cookies := make([]cookieimport.Cookie, 0, len(req.Cookies))
+	for _, c := range req.Cookies {
+		cookies = append(cookies, cookieimport.Cookie{
+			Domain: c.Domain, Name: c.Name, Value: c.Value, Path: c.Path,
+			Expires: c.Expires, Secure: c.Secure, HTTPOnly: c.HTTPOnly, SameSite: c.SameSite,
+		})
+	}
+	kept, err := cookieimport.Accept(cookies, time.Now())
+	if err != nil {
+		return err
+	}
+	var domains []string
+	for _, d := range cookieimport.Domains(kept) {
+		domains = append(domains, d.Domain)
+	}
+	if err := s.secrets().SetBrowserCookies(r.Context(), p.Name, secrets.BrowserCookies{
+		Domains: domains, Source: req.Source, Cookies: kept, ImportedAt: time.Now().Truncate(time.Second),
 	}); err != nil {
 		return err
 	}

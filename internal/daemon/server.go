@@ -943,6 +943,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/projects/{project}/browser-cookies", s.getBrowserCookies)
 	h("GET /v1/projects/{project}/browser-cookies/profiles", s.browserCookieProfiles)
 	h("POST /v1/projects/{project}/browser-cookies/from-browser", s.importFromBrowser)
+	h("POST /v1/projects/{project}/browser-cookies/from-browser-decrypted", s.importDecryptedFromBrowser)
 	h("POST /v1/projects/{project}/browser-cookies/preview", s.previewBrowserCookies)
 	h("PUT /v1/projects/{project}/browser-cookies", s.importBrowserCookies)
 	h("DELETE /v1/projects/{project}/browser-cookies", s.removeBrowserCookies)
