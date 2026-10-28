@@ -11,7 +11,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import type * as T from '../../shared/api.ts';
 import { api, mediaFilePath, mediaSource } from '../../connection/api.ts';
 import { can, useSession } from '../../connection/session.ts';
@@ -198,7 +198,8 @@ function ReviewActions({
         </View>
       </Modal>
       <Modal visible={text !== null} transparent animationType="fade" onRequestClose={() => setText(null)}>
-        <View style={styles.backdrop}>
+        {/* The sheet rises above the keyboard, which would cover it (ChatScreen). */}
+        <KeyboardAvoidingView behavior="padding" style={styles.backdrop}>
           <View style={styles.sheet}>
             <Text style={styles.sheetTitle}>{t('mobile.review.changesTitle', { agent: name })}</Text>
             <TextInput
@@ -214,7 +215,7 @@ function ReviewActions({
             <Button label={t('mobile.review.send')} busy={changes.isPending} disabled={!(text ?? '').trim()} onPress={() => changes.mutate((text ?? '').trim())} />
             <Button kind="secondary" label={t('common.cancel')} disabled={changes.isPending} onPress={() => setText(null)} />
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
