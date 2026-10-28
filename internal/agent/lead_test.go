@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"agentbox/internal/agent"
@@ -43,6 +44,39 @@ func leadFixture(t *testing.T) fixture {
 		t.Fatal(err)
 	}
 	return f
+}
+
+// Opening a new project's chat and sending its first message both create the
+// lead (#454): every call must get it, none "already exists".
+func TestEnsureLeadAtOnceMakesOneLead(t *testing.T) {
+	ctx := context.Background()
+	f := leadFixture(t)
+
+	const calls = 8
+	leads := make([]state.Agent, calls)
+	errs := make([]error, calls)
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := range calls {
+		wg.Go(func() {
+			<-start
+			leads[i], errs[i] = f.m.EnsureLead(ctx, "hello-stack")
+		})
+	}
+	close(start)
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("EnsureLead() call %d: %v", i, err)
+		}
+		if a := leads[i]; a.Ref() != agent.LeadRef("hello-stack") || a.Status != state.AgentReady {
+			t.Errorf("call %d got %s, %s; want the ready lead", i, a.Ref(), a.Status)
+		}
+	}
+	if got, err := f.m.Lead(ctx, "hello-stack"); err != nil || got.Status != state.AgentReady {
+		t.Errorf("Lead() = %s, %v; want it ready", got.Status, err)
+	}
 }
 
 func TestEnsureLeadMakesNoMachineAndNoBranch(t *testing.T) {
@@ -578,6 +612,18 @@ func leadEnv(t *testing.T, f fixture, a state.Agent) map[string]string {
 		}
 	}
 	return env
+}
+
+// The lead's chat reports our own entrypoint, as agents' do.
+func TestLeadChatReportsTheAgentboxEntrypoint(t *testing.T) {
+	f := leadFixture(t)
+	a, err := f.m.EnsureLead(context.Background(), "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := leadEnv(t, f, a)["CLAUDE_CODE_ENTRYPOINT"]; got != "agentbox" {
+		t.Errorf("the lead's CLAUDE_CODE_ENTRYPOINT is %q", got)
+	}
 }
 
 // In a VM made before /etc/agentbox/vm was, the front end's environment is

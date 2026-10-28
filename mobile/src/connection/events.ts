@@ -17,6 +17,7 @@ import { AppState } from 'react-native';
 import EventSource from 'react-native-sse';
 import * as T from '../shared/api.ts';
 import { applyChatEvent } from '../features/threads/thread.ts';
+import * as P from './parse.ts';
 import { session } from './session.ts';
 
 export type Connection = 'connecting' | 'connected' | 'disconnected';
@@ -53,14 +54,25 @@ let failures = 0;
 let lastHeard = Date.now();
 let client: QueryClient | undefined;
 
-// apply is what an event does to the queries the screens read.
+// scoped is a query's key for the project an event is about, or for every
+// project when it doesn't say which.
+function scoped(query: string, data: unknown): string[] {
+  const project = (data as { project?: unknown } | null)?.project;
+  return typeof project === 'string' && project ? [query, project] : [query];
+}
+
+// apply is what an event does to the queries the screens read. What it puts
+// in them is made safe first (parse.ts), as the API's answers are.
 export function apply(queryClient: QueryClient, type: string, data: unknown): void {
   switch (type) {
-    case T.EventChat:
-      applyChatEvent(queryClient, data as T.ChatEvent);
+    case T.EventChat: {
+      const ev = P.chatEvent(data);
+      if (ev) applyChatEvent(queryClient, ev);
       break;
+    }
     case T.EventAgent: {
-      const change = data as T.AgentChange;
+      const change = P.agentChange(data);
+      if (!change) break;
       const agents = queryClient.getQueryData<T.Agent[]>(['agents']);
       if (!change.removed && agents?.some((a) => a.ref === change.ref)) {
         queryClient.setQueryData<T.Agent[]>(['agents'], agents.map((a) => (a.ref === change.ref ? { ...a, state: change.state } : a)));
@@ -71,10 +83,10 @@ export function apply(queryClient: QueryClient, type: string, data: unknown): vo
       void queryClient.invalidateQueries({ queryKey: ['projects'] });
       break;
     case T.EventQuestion:
-      void queryClient.invalidateQueries({ queryKey: ['questions', (data as T.Question).project] });
+      void queryClient.invalidateQueries({ queryKey: scoped('questions', data) });
       break;
     case T.EventPulls:
-      void queryClient.invalidateQueries({ queryKey: ['pulls', (data as T.PullsChange).project] });
+      void queryClient.invalidateQueries({ queryKey: scoped('pulls', data) });
       void queryClient.invalidateQueries({ queryKey: ['review'] });
       break;
     case T.EventReview:

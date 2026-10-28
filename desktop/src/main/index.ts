@@ -1,8 +1,12 @@
 // The Electron main process. It holds no AgentBox logic: it proxies API calls,
 // the event stream, WebSocket streams and media files between the renderer and
 // the current environment (this machine's daemon, or one on a hub), signs in to
-// hubs, installs the command-line tool, and updates the app (updater.ts).
-import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron';
+// hubs, installs the command-line tool, updates the app (updater.ts), and
+// keeps the tray icon (tray.ts).
+import { isSafeExternalUrl } from './externalurl';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, ClipboardItem, powerSaveBlocker, shell } from 'electron';
+import { randomUUID } from 'node:crypto';
+import { writeFile } from 'node:fs/promises';
 import { arch, hostname } from 'node:os';
 import { join } from 'node:path';
 import { AppLog, captureConsole, reportSections, type AppError } from './applog';
@@ -10,9 +14,10 @@ import { agentboxBin, cliStatus, installCli } from './cli';
 import { currentTarget, isLocal, localSocket, savedHubs, saveHubs, setTarget, type SavedHub, type Target } from './connection';
 import { type ApiResponse, ensureDaemon, notListening, request, restartDaemon, restartIfStale, socketPath, stopHostDaemon, stopStartingDaemon, unreachable } from './daemon';
 import { EventStream } from './events';
-import { hostSetupStatus, onMac, runHostSetup, runVMMigration, stopVM, vmMigration, type HostSetupOptions } from './hostsetup';
+import { grantKVM, hostSetupStatus, onMac, runHostSetup, runVMMigration, stopVM, vmMigration, type HostSetupOptions } from './hostsetup';
 import { handleMedia, registerMediaScheme } from './media';
 import { registerBrowserKeys } from './browserkeys';
+import { registerBrowserCookies } from './browsercookies';
 import { installPhoneWeb } from './phoneweb';
 import { onWindows, startRelay, stopRelay } from './relay';
 import { guardStdio } from './stdio';
@@ -20,15 +25,25 @@ import { showNotice, type OSNotice } from './notify';
 import { openChatFile } from './chatfiles';
 import { pageThumb } from './pagethumbs';
 import { registerRender } from './renders';
+import { saveShare, showShare } from './share';
 import { enableShortcutPortal, registerSnapShortcut, showForSnap } from './snap';
 import { Streams } from './streams';
 import { installAppUpdates, restartingForUpdate } from './updater';
 import { learnMode, linuxVM } from './vmmode';
+import { describeGone, goneReport, goneSignature, offersReload, worthReporting, type GoneProcess } from './processgone';
+import { ErrorReportSender, outcome, ReportQueue } from './reportqueue';
+import type * as T from '../shared/api';
 import { denyMedia } from './permissions';
 import { keepWindowState, windowOptions } from './windowstate';
 import { distro, linuxPath, windowsPath } from './wslpaths';
 import { setLanguage, t } from '../shared/i18n/index.ts';
+import type { HubInfo, HubPairing, HubPairRequest, HubPairResult, HubSession } from '../shared/api';
+import { parseHubLink } from '../shared/hublink';
+import type { HubAccount, HubConnectResult } from '../preload';
 import './vmpower';
+import { keepAwake } from './keepawake';
+import { AppTray } from './tray';
+import type { TrayTarget } from './traymodel';
 
 guardStdio();
 // The app's log, for problem reports (applog.ts): console and every uncaught
@@ -40,6 +55,7 @@ captureConsole(appLog);
 process.on('uncaughtExceptionMonitor', (err) => send('app:error', appLog.error('main', err)));
 registerMediaScheme();
 registerBrowserKeys();
+registerBrowserCookies(ipcMain);
 enableShortcutPortal();
 
 let win: BrowserWindow | undefined;
@@ -52,15 +68,49 @@ const events = new EventStream(
   (event) => {
     send('daemon:event', event);
     showForSnap(win, event);
+    tray.onEvent(event);
   },
   (state) => {
     send('daemon:connection', state);
+    tray.onConnection();
     // Each time the daemon is back, it may be one that hasn't the web
     // version phones are served (phoneweb.ts).
-    if (state.state === 'connected')
+    // And error reports made while it was away go now (reportqueue.ts).
+    if (state.state === 'connected') {
       void installPhoneWeb(app.getVersion()).catch((err: unknown) => console.error('phones:', err));
+      void errorReports.flush();
+    }
   },
 );
+
+// The tray's place to open, kept until the window asks for it (tray:take)
+// when the window had to be made again for it.
+let trayTarget: TrayTarget | undefined;
+const tray = new AppTray({
+  call: (method, path, body) => callDaemon(method, path, body),
+  connected: () => events.state.state === 'connected',
+  showWindow,
+  open: (target) => {
+    if (win && !win.isDestroyed()) {
+      showWindow();
+      send('tray:open', target);
+      return;
+    }
+    trayTarget = target;
+    showWindow();
+  },
+});
+ipcMain.handle('tray:take', () => {
+  const target = trayTarget;
+  trayTarget = undefined;
+  return target ?? null;
+});
+// With the tray keeping AgentBox running, launching it again shows the one
+// already running instead of a second one with a second icon. The second
+// one quits before it makes a window, and leaves a Mac's VM to the first.
+const duplicate = tray.keepRunning && !app.requestSingleInstanceLock();
+if (duplicate) app.quit();
+app.on('second-instance', () => showWindow());
 
 // api:request answers a request the daemon never saw, because there was no
 // daemon to reach, as the daemon would refuse it: a 503 saying why. That's an
@@ -68,7 +118,9 @@ const events = new EventStream(
 // forward to its daemon closes each connection then): the renderer shows it
 // from the event stream's connection state, and a rejection here would be
 // logged by Electron for every call.
-ipcMain.handle('api:request', async (_event, method: string, path: string, body?: unknown): Promise<ApiResponse> => {
+ipcMain.handle('api:request', (_event, method: string, path: string, body?: unknown) => callDaemon(method, path, body));
+
+async function callDaemon(method: string, path: string, body?: unknown): Promise<ApiResponse> {
   try {
     return await request(method, path, body);
   } catch (err) {
@@ -80,7 +132,9 @@ ipcMain.handle('api:request', async (_event, method: string, path: string, body?
   } catch (err) {
     return unreachable(err);
   }
-});
+}
+const setKeepAwake = keepAwake(powerSaveBlocker);
+ipcMain.handle('keepawake:set', (event, on: boolean) => setKeepAwake(event.sender, on));
 ipcMain.handle('daemon:connection', () => events.state);
 ipcMain.handle('app:info', () => ({
   socket: onWindows ? localSocket() : socketPath,
@@ -93,7 +147,7 @@ ipcMain.handle('app:info', () => ({
 // Problem reports: the app's own sections, which the daemon redacts and
 // sends with its own (internal/daemon/report.go), and the window's uncaught
 // errors, kept with the main process's.
-ipcMain.handle('report:sections', () =>
+const appReportSections = () =>
   reportSections(appLog, {
     version: app.getVersion(),
     electron: process.versions.electron,
@@ -102,8 +156,17 @@ ipcMain.handle('report:sections', () =>
     arch: arch(),
     target: currentTarget().kind === 'local' ? 'this machine' : 'an environment on a hub',
     vmMode: linuxVM(),
-  }),
+  });
+ipcMain.handle('report:sections', appReportSections);
+// Automatic error reports, the window's and this process's own, go through
+// here, to wait for a daemon that can't be reached (reportqueue.ts).
+const errorReports = new ErrorReportSender(new ReportQueue(join(app.getPath('userData'), 'error-reports.json')), async (req) =>
+  outcome(await callDaemon('POST', '/v1/reports', req)),
 );
+ipcMain.handle('report:send', (_event, req: T.ReportRequest) => {
+  if (req?.kind !== 'error') throw new Error('only error reports are sent this way');
+  return errorReports.send(req);
+});
 ipcMain.on('report:windowError', (_event, err: Pick<AppError, 'name' | 'message' | 'stack'>) => appLog.windowError(err));
 ipcMain.handle('report:openLogs', () => shell.openPath(app.getPath('logs')));
 
@@ -155,26 +218,73 @@ function savedHub(url: string): SavedHub {
 }
 
 ipcMain.handle('hubs:list', () => savedHubs().map(({ url, email }) => ({ url, email })));
+
+// What this app calls itself on a hub's list of devices.
+function deviceLabel(): string {
+  return `AgentBox app on ${hostname()}`;
+}
+
+function saveSession(url: string, session: HubSession): HubAccount {
+  saveHubs([{ url, email: session.user.email, token: session.token }, ...savedHubs().filter((h) => h.url !== url)]);
+  return { url, email: session.user.email };
+}
+
+// Accounts made on a hub before pairing still sign in with a password.
 ipcMain.handle('hubs:login', async (_event, url: string, email: string, password: string) => {
   url = url.trim().replace(/\/+$/, '');
   if (!/^https?:\/\/[^/]+$/.test(url)) throw new Error(t('web.main.notAHub', { url }));
-  const session = await hubCall<{ token: string; user: { email: string } }>(url, 'POST', '/v1/auth/login', undefined, {
-    email,
-    password,
-    label: `desktop app on ${hostname()}`,
-  });
-  saveHubs([{ url, email: session.user.email, token: session.token }, ...savedHubs().filter((h) => h.url !== url)]);
-  return { url, email: session.user.email };
+  return saveSession(url, await hubCall<HubSession>(url, 'POST', '/v1/auth/login', undefined, { email, password, label: deviceLabel() }));
 });
-ipcMain.handle('hubs:logout', async (_event, url: string) => {
-  const hub = savedHub(url);
-  await hubCall(url, 'POST', '/v1/auth/logout', hub.token).catch(() => {});
-  saveHubs(savedHubs().filter((h) => h.url !== url));
-  const t = currentTarget();
-  if (t.kind === 'hub' && t.hub.url === url) switchTo({ kind: 'local' });
+
+// Pairings this app waits on to be approved, by an ID of its own: their
+// secrets stay in the main process.
+const pairings = new Map<string, { url: string; secret: string; interval: number; cancelled: boolean }>();
+
+// hubs:connect connects to a hub from what was pasted: a setup link signs in
+// (or claims the hub) at once; an address asks the hub to approve this app,
+// and answers the code to show while hubs:pairWait waits for it.
+ipcMain.handle('hubs:connect', async (_event, input: string): Promise<HubConnectResult> => {
+  const link = parseHubLink(input);
+  if (!link) throw new Error(t('web.main.notAHub', { url: input.trim() }));
+  const { url, secret } = link;
+  if (secret) return { account: saveSession(url, await hubCall<HubSession>(url, 'POST', '/v1/setup', undefined, { secret, label: deviceLabel() })) };
+  // A hub from before pairing has no /v1/hub, and only passwords.
+  const res = await fetch(`${url}/v1/hub`);
+  if (res.status === 404) return { passwordOnly: url };
+  const info = await hubCall<HubInfo>(url, 'GET', '/v1/hub');
+  if (!info.claimed) throw new Error(t('web.main.hubUnclaimed'));
+  const p = await hubCall<HubPairing>(url, 'POST', '/v1/pair', undefined, { kind: 'device', label: deviceLabel(), hostname: hostname() } satisfies HubPairRequest);
+  const id = randomUUID();
+  pairings.set(id, { url, secret: p.secret, interval: Math.max(p.interval, 1), cancelled: false });
+  return { pairing: { id, url, code: p.code, approveURL: p.approveURL, expiresAt: p.expiresAt, qr: p.qr ?? [], passwords: info.passwords ?? false } };
 });
+ipcMain.handle('hubs:pairWait', async (_event, id: string): Promise<HubAccount> => {
+  const p = pairings.get(id);
+  if (!p) throw new Error(t('web.main.pairingGone'));
+  try {
+    for (;;) {
+      await new Promise((resolve) => setTimeout(resolve, p.interval * 1000));
+      if (p.cancelled) throw new Error(t('web.main.pairingGone'));
+      const r = await hubCall<HubPairResult>(p.url, 'POST', '/v1/pair/token', undefined, { secret: p.secret });
+      if (r.status === 'pending') continue;
+      if (r.status === 'approved' && r.session) return saveSession(p.url, r.session);
+      throw new Error(r.status === 'denied' ? t('web.main.pairingDenied') : t('web.main.pairingExpired'));
+    }
+  } finally {
+    pairings.delete(id);
+  }
+});
+ipcMain.handle('hubs:pairCancel', (_event, id: string) => {
+  const p = pairings.get(id);
+  if (p) p.cancelled = true;
+});
+ipcMain.handle('hubs:pairing', (_event, url: string, code: string) => hubCall(url, 'GET', `/v1/pairings/${encodeURIComponent(code)}`, savedHub(url).token));
+ipcMain.handle('hubs:decide', (_event, url: string, code: string, approve: boolean) =>
+  hubCall(url, 'POST', `/v1/pairings/${encodeURIComponent(code)}/${approve ? 'approve' : 'deny'}`, savedHub(url).token),
+);
+ipcMain.handle('hubs:devices', (_event, url: string) => hubCall(url, 'GET', '/v1/devices', savedHub(url).token));
+ipcMain.handle('hubs:revokeDevice', (_event, url: string, id: string) => hubCall(url, 'DELETE', `/v1/devices/${encodeURIComponent(id)}`, savedHub(url).token));
 ipcMain.handle('hubs:environments', (_event, url: string) => hubCall(url, 'GET', '/v1/environments', savedHub(url).token));
-ipcMain.handle('hubs:addEnvironment', (_event, url: string, name: string) => hubCall(url, 'POST', '/v1/environments', savedHub(url).token, { name }));
 
 function switchTo(next: Target): void {
   streams.closeAll();
@@ -200,10 +310,11 @@ ipcMain.handle('hostsetup:status', () => hostSetupStatus());
 // On Linux, { vm: true } runs AgentBox in a VM instead (vmmode.ts), after
 // stopping the daemon this machine ran itself. On a Mac, { driver: 'vz' }
 // makes the experimental vz driver's VM instead of Lima's.
-ipcMain.handle('hostsetup:run', async (_event, options?: Pick<HostSetupOptions, 'vm' | 'cpus' | 'memoryCap' | 'driver'>) => {
+ipcMain.handle('hostsetup:run', async (_event, options?: Pick<HostSetupOptions, 'vm' | 'cpus' | 'memoryCap' | 'driver' | 'krunkit'>) => {
   await runHostSetup((text) => send('hostsetup:output', text), {
     vm: options?.vm === true,
     driver: options?.driver === 'vz' ? 'vz' : undefined,
+    krunkit: options?.krunkit === true,
     cpus: typeof options?.cpus === 'number' ? options.cpus : undefined,
     memoryCap: typeof options?.memoryCap === 'string' ? options.memoryCap : undefined,
     before: stopHostDaemon,
@@ -213,6 +324,10 @@ ipcMain.handle('hostsetup:run', async (_event, options?: Pick<HostSetupOptions, 
   const restarted = await restartDaemon().catch(() => false);
   return { restarted };
 });
+
+// On Linux, AgentBox's VM needs /dev/kvm: this gives it to the user, through
+// the desktop's password dialog, without a new login.
+ipcMain.handle('hostsetup:kvm', () => grantKVM((text) => send('hostsetup:output', text)));
 
 // Moving this Linux machine's own AgentBox into AgentBox's VM (`agentbox vm
 // migrate`), and removing its old machines afterwards: no password, like vm
@@ -247,9 +362,11 @@ ipcMain.handle('dialog:directory', async () => {
 const hostPath = (path: string) => (onWindows ? windowsPath(path) : path);
 ipcMain.handle('shell:openPath', (_event, path: string) => shell.openPath(hostPath(path)));
 ipcMain.handle('chatFile:open', (_event, path: string, name: string) => openChatFile(path, name));
+ipcMain.handle('share:save', (_event, path: string, name: string) => saveShare(win, String(path), String(name)));
+ipcMain.handle('share:show', (_event, file: string) => showShare(String(file)));
 ipcMain.handle('shell:showItem', (_event, path: string) => shell.showItemInFolder(hostPath(path)));
 ipcMain.handle('shell:openExternal', async (_event, url: string) => {
-  if (!/^https?:\/\//.test(url)) throw new Error(t('web.main.notAWebAddress', { url }));
+  if (!isSafeExternalUrl(url)) throw new Error(t('web.main.notAWebAddress', { url }));
   await shell.openExternal(url);
 });
 ipcMain.handle('pageThumb:get', (_event, path: string, key: string) => pageThumb(path, key));
@@ -257,7 +374,59 @@ ipcMain.handle('render:register', (_event, html: string, network: boolean) => re
 ipcMain.handle('notify:show', (_event, notice: OSNotice) => showNotice(win, notice, (id) => send('notify:click', id)));
 ipcMain.on('clipboard:write', (_event, text: string) => clipboard.writeText(text));
 ipcMain.handle('clipboard:read', () => clipboard.readText());
+// A PNG the renderer drew (the weekly recap's share card): onto the clipboard,
+// or into a file the user picks. Saving answers whether it was saved.
+ipcMain.on('clipboard:writeImage', (_event, png: Uint8Array) => void clipboard.write([new ClipboardItem({ 'image/png': new Blob([Buffer.from(png)], { type: 'image/png' }) })]));
+ipcMain.handle('image:save', async (_event, name: string, png: Uint8Array) => {
+  const options = { title: t('main.saveImage'), defaultPath: join(app.getPath('downloads'), name), filters: [{ name: 'PNG', extensions: ['png'] }] };
+  const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
+  if (result.canceled || !result.filePath) return false;
+  await writeFile(result.filePath, png);
+  return true;
+});
 installAppUpdates(send);
+
+// Chromium's processes that die (processgone.ts): a window's renderer, the
+// GPU process, the rest. Each is logged and reported once a run; a window
+// whose page went, or that nothing may draw any more, is offered a reload.
+let quitting = false;
+app.on('before-quit', () => (quitting = true));
+const goneSeen = new Set<string>();
+let reloadAsked = false;
+
+function processGone(gone: GoneProcess, window?: BrowserWindow): void {
+  if (!worthReporting(gone, quitting)) return;
+  appLog.processGone(describeGone(gone));
+  if (!goneSeen.has(goneSignature(gone))) {
+    goneSeen.add(goneSignature(gone));
+    void errorReports.send(goneReport(gone, appReportSections().find((s) => s.id === 'app'))).catch(() => {});
+  }
+  if (window && offersReload(gone)) void offerReload(window, gone);
+}
+
+// offerReload asks whether to reload the window, one question at a time.
+async function offerReload(window: BrowserWindow, gone: GoneProcess): Promise<void> {
+  if (reloadAsked || window.isDestroyed()) return;
+  reloadAsked = true;
+  try {
+    const { response } = await dialog.showMessageBox(window, {
+      type: 'warning',
+      title: 'AgentBox',
+      message: gone.process === 'window' ? t('main.windowGone') : t('main.gpuGone'),
+      detail: t('main.goneDetail', { reason: gone.reason, code: String(gone.exitCode) }),
+      buttons: [t('main.reloadWindow'), t('main.notNow')],
+      defaultId: 0,
+      cancelId: 1,
+    });
+    if (response === 0 && !window.isDestroyed()) window.webContents.reload();
+  } finally {
+    reloadAsked = false;
+  }
+}
+
+app.on('child-process-gone', (_event, details) =>
+  processGone({ process: details.type, reason: details.reason, exitCode: details.exitCode, name: details.name ?? details.serviceName }, win),
+);
 
 function createWindow(): void {
   win = new BrowserWindow({
@@ -272,17 +441,43 @@ function createWindow(): void {
     },
   });
   keepWindowState(win);
+  const window = win;
+  win.webContents.on('render-process-gone', (_event, details) => processGone({ process: 'window', reason: details.reason, exitCode: details.exitCode }, window));
   void win.loadFile(join(__dirname, '../renderer/index.html'));
+  // Kept running in the tray (tray.ts), closing the window hides it: it keeps
+  // its pages, toasts and OS notifications, and comes back as it was.
+  win.on('close', (event) => {
+    if (quitting || restartingForUpdate() || !tray.keepRunning) return;
+    event.preventDefault();
+    window.hide();
+  });
   win.on('closed', () => {
     streams.closeAll();
     win = undefined;
   });
 }
 
+// showWindow brings the window forward, making it again if it was closed.
+function showWindow(): void {
+  if (!app.isReady()) return;
+  if (!win || win.isDestroyed()) {
+    createWindow();
+    return;
+  }
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
+// A Mac's dock icon clicked while the window is hidden in the menu bar.
+app.on('activate', () => showWindow());
+
 void app.whenReady().then(async () => {
+  if (duplicate) return;
   handleMedia();
   denyMedia();
   createWindow();
+  tray.start();
   registerSnapShortcut();
   // The relay answers at once, whether or not WSL does: it only reaches into
   // the distro on the first request.
@@ -309,7 +504,7 @@ app.on('window-all-closed', () => {
 // way it starts a daemon that isn't running (ensureDaemon). An app that starts
 // no daemon (AGENTBOX_NO_AUTOSTART) never started the VM, and leaves it be.
 const vmStopTimeout = 60_000;
-let vmStop: 'pending' | 'stopping' | 'done' = onMac && !process.env.AGENTBOX_NO_AUTOSTART ? 'pending' : 'done';
+let vmStop: 'pending' | 'stopping' | 'done' = onMac && !process.env.AGENTBOX_NO_AUTOSTART && !duplicate ? 'pending' : 'done';
 
 app.on('before-quit', (event) => {
   // Restarting into a new version (updater.ts): the VM stays up for it.

@@ -374,3 +374,35 @@ func TestUsageRetryBacksOff(t *testing.T) {
 		}
 	}
 }
+
+// TestNightlyKeepsItsChannelAfterAStableRelease: a nightly install that never
+// chose a channel has it stored as the daemon starts, so it stays on nightly
+// once it runs a stable release; a stored choice is never overwritten.
+func TestNightlyKeepsItsChannelAfterAStableRelease(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	asVersion(t, "0.18.0-nightly.20260929.3")
+	d := startTestDaemon(t, root, fakeIncus)
+	waitFor(t, "the nightly channel to be stored", func() bool {
+		v, _ := d.srv.store.Setting(ctx, state.SettingUpdateChannel)
+		return v == "nightly"
+	})
+	d.stop()
+
+	Version = "0.18.0"
+	d = startTestDaemon(t, root, fakeIncus)
+	if c, err := d.srv.updateChannel(ctx); err != nil || c != "nightly" {
+		t.Errorf("after installing a stable release, channel = %q, %v", c, err)
+	}
+
+	if err := d.srv.store.SetSetting(ctx, state.SettingUpdateChannel, "stable"); err != nil {
+		t.Fatal(err)
+	}
+	d.stop()
+	Version = "0.18.0-nightly.20260930.4"
+	d = startTestDaemon(t, root, fakeIncus)
+	time.Sleep(200 * time.Millisecond)
+	if v, _ := d.srv.store.Setting(ctx, state.SettingUpdateChannel); v != "stable" {
+		t.Errorf("an explicit stable choice became %q", v)
+	}
+}

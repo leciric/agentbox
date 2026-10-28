@@ -3,6 +3,7 @@ package image
 import (
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -12,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -28,29 +30,48 @@ import (
 // out at their tools.txt pins, and those of Codex and OpenCode when they're on, and makes it its own as it would a local build.
 // It lives on this repository's GitHub releases, one prerelease per image
 // version, tagged image-<version> and never marked latest, so app releases and
-// their update check don't see it. Assets are flat, so each carries its
-// architecture, and the image is split into parts under GitHub's 2 GiB cap per
-// asset, which Setup joins and checks:
+// their update check don't see it, and on the CDN the app's releases are
+// downloaded from, under images/image-<version>/, which is tried first.
+// Assets are flat, so each carries its architecture, and the image is split
+// into parts, which Setup downloads at once, joins and checks:
 //
-//	agentbox-base-<arch>.tar.gz.000, .001, …  the image, as `incus image export` writes it, in parts
-//	image-<arch>.json                         what it is (Published)
-//	packages-<arch>.txt                       its Debian packages, with their versions
-//	SOURCES-<arch>.md                         where their sources are, and the tools' licenses
-//	SHA256SUMS                                the sums of all of the above, for every architecture
+//	agentbox-base-<arch>.tar.zst.000, .001, …  the image, compressed with zstd, in parts
+//	agentbox-base-<arch>.tar.gz.000, .001, …   the same as `incus image export` writes it, gzipped (GitHub only, see gzipUntil)
+//	image-<arch>.json                          what it is (Published)
+//	packages-<arch>.txt                        its Debian packages, with their versions
+//	SOURCES-<arch>.md                          where their sources are, and the tools' licenses
+//	SHA256SUMS                                 the sums of all of the above, for every architecture
 //
 // Only the newest image release is kept (scripts/github-images.sh): an
 // AgentBox whose version is gone falls back to building its own, as one does
 // when the download fails or a component is on.
 
-// DefaultImagesURL is where published images are, unless the daemon's
-// AGENTBOX_IMAGES_URL says otherwise: GitHub's release downloads, which need
-// no authentication since the repository is public. Build adds
-// /image-<version>/<asset>.
-const DefaultImagesURL = "https://github.com/leciric/agentbox/releases/download"
+// DefaultImagesURLs are where published images are, the first preferred,
+// unless the daemon's AGENTBOX_IMAGES_URL says otherwise: the CDN in front of
+// the R2 bucket the app's releases are downloaded from, and GitHub's release
+// downloads, which need no authentication since the repository is public and
+// have every image the CDN has. Build adds /image-<version>/<asset>.
+var DefaultImagesURLs = []string{
+	"https://downloads.agentbox.linting.dev/images",
+	"https://github.com/leciric/agentbox/releases/download",
+}
 
-// partSize is how big the image's parts are, well under GitHub's cap of 2 GiB
-// per asset so the image can grow. A variable for the tests.
-var partSize int64 = 1 << 30
+// partSize is how big the image's parts are: small enough that several
+// download at once, each over a connection of its own, and well under
+// GitHub's cap of 2 GiB per asset. A variable for the tests.
+var partSize int64 = 128 << 20
+
+// gzipUntil is the last image version also published gzipped, as before zstd:
+// an AgentBox from before then reads only the gzipped image, and finds it on
+// GitHub under the same names. One of a later version can only be this
+// AgentBox or a newer one, which reads the zstd one, so the gzipped one stops
+// with the next image version, and nothing needs to remember to drop it.
+const gzipUntil = "2026.10.20.1"
+
+// zstdArgs say how hard BuildForPublishing compresses the image. Its window
+// stays at zstd's default limit of 128 MiB (--long=27), which every zstd
+// unpacks without being told to allow more.
+var zstdArgs = []string{"-19", "--long=27", "-T0", "-q", "-c"}
 
 // Asset names, per architecture.
 func imageFile(arch, ext string) string  { return "agentbox-base-" + arch + ext }
@@ -59,16 +80,21 @@ func packagesFile(arch string) string    { return "packages-" + arch + ".txt" }
 func sourcesFile(arch string) string     { return "SOURCES-" + arch + ".md" }
 func partFile(file string, i int) string { return fmt.Sprintf("%s.%03d", file, i) }
 
-// ImagesURL is where Build looks for a published image: AGENTBOX_IMAGES_URL,
-// or DefaultImagesURL. "off" turns downloading off, so every build is local.
-func ImagesURL() string {
-	switch v := strings.TrimRight(os.Getenv("AGENTBOX_IMAGES_URL"), "/"); v {
+// ImagesURLs are where Build looks for a published image, in order:
+// AGENTBOX_IMAGES_URL, one URL or several separated by spaces, or
+// DefaultImagesURLs. "off" turns downloading off, so every build is local.
+func ImagesURLs() []string {
+	switch v := os.Getenv("AGENTBOX_IMAGES_URL"); strings.TrimSpace(v) {
 	case "":
-		return DefaultImagesURL
+		return DefaultImagesURLs
 	case "off":
-		return ""
+		return nil
 	default:
-		return v
+		var out []string
+		for _, u := range strings.Fields(v) {
+			out = append(out, strings.TrimRight(u, "/"))
+		}
+		return out
 	}
 }
 
@@ -110,13 +136,12 @@ type Published struct {
 	// its architecture.
 	Version string `json:"version"`
 	Arch    string `json:"arch"`
-	// File is the image's name once joined, and Size and SHA256 its length
-	// and sum. Parts are the assets it is split into, in order, with theirs
-	// (SHA256SUMS has the sums too, and is what's checked).
-	File   string `json:"file"`
-	Size   int64  `json:"size"`
-	SHA256 string `json:"sha256"`
-	Parts  []Part `json:"parts"`
+	// Archive is the image as Incus imports it: gzipped while gzipUntil
+	// says, for the AgentBox releases that read only this, and compressed
+	// with zstd after. Zstd is the same image compressed with zstd, smaller
+	// and much quicker to unpack, next to a gzipped Archive.
+	Archive
+	Zstd *Archive `json:"zstd,omitempty"`
 	// Tools are the specs of the agent tools in it, like "go@1.27.2": tools.txt
 	// may have moved on since, and a machine that downloads it installs
 	// whatever differs.
@@ -125,6 +150,31 @@ type Published struct {
 	// Commit is the AgentBox commit that built it, and Built when.
 	Commit string    `json:"commit,omitempty"`
 	Built  time.Time `json:"built"`
+}
+
+// Archive is one file of the image, as Incus imports it. File is its name once
+// joined, and Size and SHA256 its length and sum. Parts are the assets it is
+// split into, in order, with theirs (SHA256SUMS has the sums too, and is
+// what's checked).
+type Archive struct {
+	File   string `json:"file"`
+	Size   int64  `json:"size"`
+	SHA256 string `json:"sha256"`
+	Parts  []Part `json:"parts"`
+}
+
+// zstd says whether a is compressed with zstd.
+func (a Archive) zstd() bool { return strings.HasSuffix(a.File, ".tar.zst") }
+
+// pick is the archive to download: the zstd one, smaller and quicker to
+// unpack, unless this machine has no zstd for Incus to unpack it with and a
+// gzipped one is there too. A zstd one picked without zstd is unpacked here
+// before Incus imports it (unzstd).
+func (p Published) pick(zstd bool) Archive {
+	if p.Zstd != nil && zstd {
+		return *p.Zstd
+	}
+	return p.Archive
 }
 
 // Part is one asset of a published image split in parts.
@@ -138,73 +188,140 @@ type Part struct {
 const progressEvery = 10
 
 // download fetches the published image for this image version and this
-// machine's architecture into dir, joins its parts and checks them against
-// SHA256SUMS: each part, the whole, and what image-<arch>.json says it is. A missing
-// image, a failed download or a sum that doesn't match is an error, and leaves
-// no file. It returns the joined image's path.
-func download(ctx context.Context, client *http.Client, base, dir string, log io.Writer) (string, Published, error) {
+// machine's architecture into dir from the first of bases that has it, joins
+// its parts and checks them against SHA256SUMS: each part, the whole, and what
+// image-<arch>.json says it is. A missing image, a failed download or a sum
+// that doesn't match is an error. A download that fails leaves what it got
+// in dir, and the next one carries on from there. It returns the image's
+// path, ready for Incus.
+func download(ctx context.Context, client *http.Client, bases []string, dir string, log io.Writer) (string, Published, error) {
 	if client == nil {
 		client = http.DefaultClient
 	}
-	url := strings.TrimRight(base, "/") + "/image-" + Version + "/"
-	sumsFile, err := fetchSmall(ctx, client, url+"SHA256SUMS")
+	m := newMirrors(bases)
+	var p Published
+	var sums map[string]string
+	var errs []error
+	for i, url := range m {
+		var err error
+		if p, sums, err = fetchManifest(ctx, client, url); err == nil {
+			// Parts from the mirror that answered first, then from the
+			// others: they are checked against the same sums.
+			m = append(mirrors{url}, append(m[:i:i], m[i+1:]...)...)
+			break
+		}
+		if ctx.Err() != nil {
+			return "", Published{}, ctx.Err()
+		}
+		errs = append(errs, err)
+	}
+	if len(errs) == len(m) {
+		return "", Published{}, errors.Join(errs...)
+	}
+	a := p.pick(haveZstd())
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", Published{}, err
+	}
+	if a.zstd() {
+		_, _ = fmt.Fprintf(log, "%s: %d MB, compressed with zstd\n", a.File, a.Size>>20)
+	}
+	path, err := fetchArchive(ctx, client, m, dir, a, sums, log)
 	if err != nil {
 		return "", Published{}, err
+	}
+	if a.zstd() && !haveZstd() {
+		_, _ = fmt.Fprintln(log, "Decompressing it, since this machine has no zstd for Incus to unpack it with")
+		tar, err := unzstd(path)
+		if err != nil {
+			_ = os.Remove(path)
+			return "", Published{}, err
+		}
+		path = tar
+	}
+	return path, p, nil
+}
+
+// fetchManifest gets SHA256SUMS and image-<arch>.json from url and checks
+// that they describe an image this machine can download.
+func fetchManifest(ctx context.Context, client *http.Client, url string) (Published, map[string]string, error) {
+	sumsFile, err := fetchSmall(ctx, client, url+"SHA256SUMS")
+	if err != nil {
+		return Published{}, nil, err
 	}
 	sums := parseSums(sumsFile)
 	name := manifestFile(runtime.GOARCH)
 	manifest, err := fetchSmall(ctx, client, url+name)
 	if err != nil {
-		return "", Published{}, err
+		return Published{}, nil, err
 	}
 	if sums[name] == "" || sha256Hex(manifest) != sums[name] {
-		return "", Published{}, fmt.Errorf("%s doesn't match its SHA256SUMS line", name)
+		return Published{}, nil, fmt.Errorf("%s doesn't match its SHA256SUMS line", name)
 	}
 	var p Published
 	if err := json.Unmarshal(manifest, &p); err != nil {
-		return "", Published{}, fmt.Errorf("reading %s: %w", name, err)
+		return Published{}, nil, fmt.Errorf("reading %s: %w", name, err)
 	}
+	if p.Version != Version || p.Arch != runtime.GOARCH {
+		return Published{}, nil, fmt.Errorf("%s is for version %s on %s, not %s on %s", name, p.Version, p.Arch, Version, runtime.GOARCH)
+	}
+	archives := []Archive{p.Archive}
+	if p.Zstd != nil {
+		archives = append(archives, *p.Zstd)
+	}
+	for _, a := range archives {
+		if err := checkArchive(name, a, sums); err != nil {
+			return Published{}, nil, err
+		}
+	}
+	return p, sums, nil
+}
+
+// checkArchive checks that a, from the manifest name, is an image's archive
+// the download can write and check.
+func checkArchive(name string, a Archive, sums map[string]string) error {
 	switch {
-	case p.Version != Version || p.Arch != runtime.GOARCH:
-		return "", Published{}, fmt.Errorf("%s is for version %s on %s, not %s on %s", name, p.Version, p.Arch, Version, runtime.GOARCH)
-	case p.File == "" || p.File != filepath.Base(p.File) || strings.HasPrefix(p.File, "."):
-		return "", Published{}, fmt.Errorf("%s names no image file it could have: %q", name, p.File)
-	case len(p.Parts) == 0:
-		return "", Published{}, fmt.Errorf("%s lists no parts of the image", name)
+	case a.File == "" || a.File != filepath.Base(a.File) || strings.HasPrefix(a.File, "."):
+		return fmt.Errorf("%s names no image file it could have: %q", name, a.File)
+	case len(a.SHA256) != 64:
+		return fmt.Errorf("%s gives %s no sum", name, a.File)
+	case len(a.Parts) == 0:
+		return fmt.Errorf("%s lists no parts of the image", name)
 	}
 	var total int64
-	for i, part := range p.Parts {
+	for i, part := range a.Parts {
 		switch {
-		case part.File != partFile(p.File, i):
-			return "", Published{}, fmt.Errorf("%s lists part %d as %q, not %q", name, i, part.File, partFile(p.File, i))
+		case part.File != partFile(a.File, i):
+			return fmt.Errorf("%s lists part %d as %q, not %q", name, i, part.File, partFile(a.File, i))
 		case sums[part.File] == "":
-			return "", Published{}, fmt.Errorf("SHA256SUMS has no line for %s", part.File)
+			return fmt.Errorf("SHA256SUMS has no line for %s", part.File)
 		case part.Size <= 0:
-			return "", Published{}, fmt.Errorf("%s gives %s no size", name, part.File)
+			return fmt.Errorf("%s gives %s no size", name, part.File)
 		}
 		total += part.Size
 	}
-	if total != p.Size {
-		return "", Published{}, fmt.Errorf("%s: the parts add up to %d bytes, not the image's %d", name, total, p.Size)
+	if total != a.Size {
+		return fmt.Errorf("%s: the parts add up to %d bytes, not the image's %d", name, total, a.Size)
 	}
-
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", Published{}, err
-	}
-	path := filepath.Join(dir, p.File)
-	if err := fetchImage(ctx, client, url, path, p, sums, log); err != nil {
-		return "", Published{}, err
-	}
-	return path, p, nil
+	return nil
 }
 
 // fetchSmall gets a small file whole, refusing one over a megabyte.
 func fetchSmall(ctx context.Context, client *http.Client, url string) ([]byte, error) {
-	resp, err := get(ctx, client, url)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("downloading %s: %w", url, err)
+	}
 	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusNotFound {
+			return nil, fmt.Errorf("none is published for image version %s on %s (%s answered 404)", Version, runtime.GOARCH, url)
+		}
+		return nil, fmt.Errorf("downloading %s: %s", url, resp.Status)
+	}
 	const limit = 1 << 20
 	b, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
@@ -214,95 +331,6 @@ func fetchSmall(ctx context.Context, client *http.Client, url string) ([]byte, e
 		return nil, fmt.Errorf("%s is bigger than it can be", url)
 	}
 	return b, nil
-}
-
-func get(ctx context.Context, client *http.Client, url string) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("downloading %s: %w", url, err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		_ = resp.Body.Close()
-		if resp.StatusCode == http.StatusNotFound {
-			return nil, fmt.Errorf("none is published for image version %s on %s (%s answered 404)", Version, runtime.GOARCH, url)
-		}
-		return nil, fmt.Errorf("downloading %s: %s", url, resp.Status)
-	}
-	return resp, nil
-}
-
-// fetchImage downloads the parts of p under url, appending each to path
-// through a .part file, which it renames only once every part and the whole
-// have the right sum. A part's size caps what it reads, so a wrong file can't
-// fill the disk.
-func fetchImage(ctx context.Context, client *http.Client, url, path string, p Published, sums map[string]string, log io.Writer) (err error) {
-	part := path + ".part"
-	f, err := os.Create(part)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = f.Close()
-		if err != nil {
-			_ = os.Remove(part)
-		}
-	}()
-	whole := sha256.New()
-	prog := &progress{log: log, total: p.Size}
-	for _, pt := range p.Parts {
-		if err := fetchPart(ctx, client, url+pt.File, f, whole, prog, pt, sums[pt.File]); err != nil {
-			return err
-		}
-	}
-	if got := hex.EncodeToString(whole.Sum(nil)); got != p.SHA256 {
-		return fmt.Errorf("%s doesn't match its SHA256SUMS line: its sum is %s, not %s", filepath.Base(path), got, p.SHA256)
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	return os.Rename(part, path)
-}
-
-func fetchPart(ctx context.Context, client *http.Client, url string, f io.Writer, whole io.Writer, prog *progress, pt Part, wantSum string) error {
-	resp, err := get(ctx, client, url)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	h := sha256.New()
-	n, err := io.Copy(io.MultiWriter(f, whole, h, prog), io.LimitReader(resp.Body, pt.Size+1))
-	if err != nil {
-		return fmt.Errorf("downloading %s: %w", url, err)
-	}
-	if n != pt.Size {
-		return fmt.Errorf("downloading %s: got %d bytes, not the %d image-<arch>.json says", url, n, pt.Size)
-	}
-	if got := hex.EncodeToString(h.Sum(nil)); got != wantSum || got != pt.SHA256 {
-		return fmt.Errorf("%s doesn't match its SHA256SUMS line: its sum is %s, not %s", pt.File, got, wantSum)
-	}
-	return nil
-}
-
-// progress writes a line to the build log at every tenth of the download.
-type progress struct {
-	log         io.Writer
-	total, done int64
-	shown       int
-}
-
-func (p *progress) Write(b []byte) (int, error) {
-	p.done += int64(len(b))
-	if p.total > 0 {
-		if pct := int(p.done * 100 / p.total); pct/progressEvery > p.shown/progressEvery && pct <= 100 {
-			p.shown = pct
-			_, _ = fmt.Fprintf(p.log, "%d%% of %d MB\n", pct/progressEvery*progressEvery, p.total>>20)
-		}
-	}
-	return len(b), nil
 }
 
 // parseSums reads a SHA256SUMS file as sha256sum writes it: a sum, two spaces
@@ -331,8 +359,8 @@ func sha256Hex(b []byte) string {
 // imported into Incus for as long as next is made from it, then deleted.
 func fromPublished(ctx context.Context, inc incus.Client, next string, u User, opts Options, log io.Writer) error {
 	step := stepper(log)
-	step("Downloading the published base image %s for %s from %s", Version, runtime.GOARCH, opts.ImagesURL)
-	file, p, err := download(ctx, opts.HTTP, opts.ImagesURL, opts.DownloadDir, log)
+	step("Downloading the published base image %s for %s from %s", Version, runtime.GOARCH, strings.Join(opts.ImagesURLs, " or "))
+	file, p, err := download(ctx, opts.HTTP, opts.ImagesURLs, opts.DownloadDir, log)
 	if err != nil {
 		return err
 	}
@@ -430,8 +458,8 @@ func BuildForPublishing(ctx context.Context, inc incus.Client, u User, dir, comm
 
 	step("Exporting it")
 	_ = inc.DeleteImage(ctx, name)
-	// gzip rather than zstd or xz, though it's a little bigger: Incus unpacks
-	// an image with its host's own tools, and only gzip is in every Debian.
+	// gzip, which every Incus unpacks, for the AgentBox releases that read
+	// only that; the zstd one is made from it.
 	if err := inc.Publish(ctx, name, name, "gzip"); err != nil {
 		return err
 	}
@@ -443,15 +471,54 @@ func BuildForPublishing(ctx context.Context, inc incus.Client, u User, dir, comm
 	if err != nil || len(exported) != 1 {
 		return fmt.Errorf("incus image export wrote %d image files, not one", len(exported))
 	}
-	// Incus names it <fingerprint>.tar.gz; it keeps the extension.
-	base := filepath.Base(exported[0])
-	file := imageFile(runtime.GOARCH, base[strings.Index(base, "."):])
+	step("Compressing it with zstd")
+	gz := exported[0]
+	zst := filepath.Join(tmp, "image.tar.zst")
+	if err := recompress(ctx, gz, zst); err != nil {
+		return err
+	}
 	step("Splitting it into parts of at most %d MiB", partSize>>20)
-	parts, err := splitFile(exported[0], filepath.Join(dir, file), partSize)
+	var archives []Archive
+	for _, f := range []struct{ src, ext string }{{zst, ".tar.zst"}, {gz, ".tar.gz"}} {
+		if f.ext == ".tar.gz" && Version != gzipUntil {
+			continue
+		}
+		file := imageFile(runtime.GOARCH, f.ext)
+		parts, err := splitFile(f.src, filepath.Join(dir, file), partSize)
+		if err != nil {
+			return err
+		}
+		archives = append(archives, Archive{File: file, Parts: parts})
+	}
+	return writePublished(dir, commit, tools, packages, archives, time.Now().UTC())
+}
+
+// recompress writes the gzipped image gz again, compressed with zstd, into
+// zst: with the zstd command, multithreaded and at a level the Go encoder
+// doesn't have. Only CI runs it.
+var recompress = func(ctx context.Context, gz, zst string) error {
+	in, err := os.Open(gz)
 	if err != nil {
 		return err
 	}
-	return writePublished(dir, file, commit, tools, packages, parts, time.Now().UTC())
+	defer func() { _ = in.Close() }()
+	r, err := gzip.NewReader(in)
+	if err != nil {
+		return err
+	}
+	out, err := os.Create(zst)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = out.Close() }()
+	cmd := exec.CommandContext(ctx, "zstd", zstdArgs...)
+	cmd.Stdin, cmd.Stdout = r, out
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("zstd: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return out.Close()
 }
 
 // splitFile writes src into parts of at most size bytes named after dest
@@ -491,27 +558,34 @@ func splitFile(src, dest string, size int64) ([]Part, error) {
 
 // writePublished writes the files that go next to the image's parts in dir:
 // image-<arch>.json, packages-<arch>.txt, SOURCES-<arch>.md and SHA256SUMS
-// over them and the parts. file is the image's name once joined, and parts
-// are what it was split into, already in dir.
-func writePublished(dir, file, commit string, tools []Tool, packages []debPackage, parts []Part, built time.Time) error {
-	whole := sha256.New()
-	var size int64
-	for _, pt := range parts {
-		f, err := os.Open(filepath.Join(dir, pt.File))
-		if err != nil {
-			return err
+// over them and the parts. archives are the image's, the first preferred,
+// with only their names and parts, already in dir.
+func writePublished(dir, commit string, tools []Tool, packages []debPackage, archives []Archive, built time.Time) error {
+	for i, a := range archives {
+		whole := sha256.New()
+		for _, pt := range a.Parts {
+			f, err := os.Open(filepath.Join(dir, pt.File))
+			if err != nil {
+				return err
+			}
+			n, err := io.Copy(whole, f)
+			_ = f.Close()
+			if err != nil {
+				return err
+			}
+			archives[i].Size += n
 		}
-		n, err := io.Copy(whole, f)
-		_ = f.Close()
-		if err != nil {
-			return err
-		}
-		size += n
+		archives[i].SHA256 = hex.EncodeToString(whole.Sum(nil))
 	}
 	arch := runtime.GOARCH
 	p := Published{
-		Version: Version, Arch: arch, File: file, Size: size, SHA256: hex.EncodeToString(whole.Sum(nil)), Parts: parts,
+		Version: Version, Arch: arch, Archive: archives[0],
 		Tools: specsOf(tools), ToolsVersion: ToolsVersion(tools), Commit: commit, Built: built,
+	}
+	// An AgentBox from before zstd reads only the top level, so a gzipped
+	// archive goes there and the zstd one beside it.
+	if len(archives) > 1 {
+		p.Archive, p.Zstd = archives[1], &archives[0]
 	}
 	manifest, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
@@ -526,8 +600,10 @@ func writePublished(dir, file, commit string, tools []Tool, packages []debPackag
 		{sourcesFile(arch), sourcesNotice(p, tools, packages)},
 	}
 	var sums string
-	for _, pt := range parts {
-		sums += pt.SHA256 + "  " + pt.File + "\n"
+	for _, a := range archives {
+		for _, pt := range a.Parts {
+			sums += pt.SHA256 + "  " + pt.File + "\n"
+		}
 	}
 	for _, f := range files {
 		if err := os.WriteFile(filepath.Join(dir, f.name), f.content, 0o644); err != nil {
@@ -606,7 +682,11 @@ var thirdPartySources = map[string]string{
 func sourcesNotice(p Published, tools []Tool, packages []debPackage) []byte {
 	var b bytes.Buffer
 	fmt.Fprintf(&b, "# AgentBox base image %s (%s): sources and licenses\n\n", p.Version, p.Arch)
-	fmt.Fprintf(&b, "%s is Debian 13 with AgentBox's provision.sh applied", p.File)
+	files := p.File
+	if p.Zstd != nil {
+		files = p.Zstd.File + " and " + p.File + ", the same image compressed two ways,"
+	}
+	fmt.Fprintf(&b, "%s is Debian 13 with AgentBox's provision.sh applied", files)
 	if p.Commit != "" {
 		fmt.Fprintf(&b, ", built from https://github.com/leciric/agentbox/tree/%s/internal/image", p.Commit)
 	}

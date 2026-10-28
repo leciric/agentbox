@@ -151,8 +151,15 @@ type VMMemory struct {
 	// would need if it gave back everything it could.
 	Used int64 `json:"used"`
 	// Resident is what the VM holds of the host's memory right now: what
-	// stopping it would give back. 0 when it's off or unknown.
+	// stopping it would give back, the guest's memory it has touched and
+	// what the programs that run it use, each shared page counted once. 0
+	// when it's off or unknown.
 	Resident int64 `json:"resident"`
+	// HostCache is what the host's page cache holds of the VM's disk images,
+	// on top of Resident: blocks the guest also caches, unless its disks are
+	// opened with direct I/O. The host gives it back as it needs to. 0 when
+	// it's off or unknown.
+	HostCache int64 `json:"hostCache"`
 }
 
 // VMDisk is the VM's disk images, in bytes, as the host sees them. Each has

@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -1096,5 +1097,76 @@ func TestListNeverCallsAFinishedCreateIncomplete(t *testing.T) {
 	}
 	if len(statuses) != 1 || statuses[0].State == "incomplete" {
 		t.Fatalf("List() = %+v, want a ready agent, not incomplete", statuses)
+	}
+}
+
+// An agent asked for while the base image isn't ready is listed at once,
+// with its worktree, and its machine is made once AwaitImage returns; a
+// failed wait rolls it back the way a failed copy does.
+func TestCreateWaitsForTheImage(t *testing.T) {
+	f := setup(t, fakeIncus(t, `case "$1" in
+  query) if [ -f "$ROOT.built" ]; then echo '["/1.0/instances/agentbox-base/snapshots/ready"]'; else echo '[]'; fi ;;
+  copy) echo copy >>"$ROOT.copied"; echo "Error: simulated copy failure" >&2; exit 1 ;;
+esac`))
+	root := f.repo.Root
+	t.Setenv("ROOT", root)
+	ctx := context.Background()
+
+	waiting := make(chan state.Agent, 1)
+	ready := make(chan error)
+	done := make(chan error, 1)
+	go func() {
+		_, err := f.m.Create(ctx, "hello-stack", agent.CreateOptions{AI: "none", AwaitImage: func(ctx context.Context, a state.Agent) error {
+			waiting <- a
+			err := <-ready
+			if err == nil {
+				err = os.WriteFile(root+".built", nil, 0o644)
+			}
+			return err
+		}})
+		done <- err
+	}()
+	a := <-waiting
+	got, err := f.st.Agent(ctx, "hello-stack", a.Name)
+	if err != nil || got.Status != state.AgentCreating {
+		t.Fatalf("while it waits: %+v, %v", got, err)
+	}
+	if _, err := os.Stat(a.Worktree); err != nil {
+		t.Errorf("its worktree isn't there while it waits: %v", err)
+	}
+	if _, err := os.Stat(root + ".copied"); !os.IsNotExist(err) {
+		t.Error("its machine was copied before the image was ready")
+	}
+	ready <- nil
+	if err := <-done; err == nil || !strings.Contains(err.Error(), "simulated copy failure") {
+		t.Fatalf("Create() = %v, want it to go on to the copy", err)
+	}
+	if _, err := os.Stat(root + ".copied"); err != nil {
+		t.Errorf("no copy once the image was ready: %v", err)
+	}
+
+	// Waiting fails: nothing is left of it.
+	_ = os.Remove(root + ".built")
+	_ = os.Remove(root + ".copied")
+	go func() {
+		_, err := f.m.Create(ctx, "hello-stack", agent.CreateOptions{AI: "none", AwaitImage: func(ctx context.Context, a state.Agent) error {
+			waiting <- a
+			return <-ready
+		}})
+		done <- err
+	}()
+	a = <-waiting
+	ready <- errors.New("the base image build failed")
+	if err := <-done; err == nil || !strings.Contains(err.Error(), "base image: the base image build failed") {
+		t.Fatalf("Create() = %v, want the wait's failure", err)
+	}
+	if agents, _ := f.st.Agents(ctx, ""); len(agents) != 0 {
+		t.Errorf("agents left after the wait failed: %+v", agents)
+	}
+	if _, err := os.Stat(a.Worktree); !os.IsNotExist(err) {
+		t.Errorf("worktree left after the wait failed (stat: %v)", err)
+	}
+	if _, err := os.Stat(root + ".copied"); !os.IsNotExist(err) {
+		t.Error("a machine was copied though the image never came")
 	}
 }

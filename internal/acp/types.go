@@ -132,15 +132,17 @@ type EnvVariable struct {
 }
 
 type NewSessionRequest struct {
-	Cwd        string      `json:"cwd"`
-	McpServers []McpServer `json:"mcpServers"`
+	Cwd        string         `json:"cwd"`
+	McpServers []McpServer    `json:"mcpServers"`
+	Meta       map[string]any `json:"_meta,omitempty"`
 }
 
 // ResumeSessionRequest is for session/resume and session/load, which take the same fields.
 type ResumeSessionRequest struct {
-	SessionID  string      `json:"sessionId"`
-	Cwd        string      `json:"cwd"`
-	McpServers []McpServer `json:"mcpServers"`
+	SessionID  string         `json:"sessionId"`
+	Cwd        string         `json:"cwd"`
+	McpServers []McpServer    `json:"mcpServers"`
+	Meta       map[string]any `json:"_meta,omitempty"`
 }
 
 // SessionResponse answers session/new (with a session ID), session/resume and session/load.
