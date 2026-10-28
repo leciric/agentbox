@@ -122,7 +122,9 @@ export async function unpair(): Promise<void> {
 export async function refreshPhone(): Promise<void> {
   const s = current;
   if (!s) return;
-  const res = await fetch(`${s.origin}/lan/session`, { headers: { Authorization: `Bearer ${s.token}` } });
+  // Unreachable (offline, the computer asleep): read again on the next start.
+  const res = await fetch(`${s.origin}/lan/session`, { headers: { Authorization: `Bearer ${s.token}` } }).catch(() => null);
+  if (!res) return;
   if (res.status === 401) return forget();
   if (!res.ok) return;
   const { phone } = (await res.json()) as T.LANSession;
