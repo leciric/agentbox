@@ -12,6 +12,7 @@ import { t as tNow, useT, type MessageKey } from '../lib/i18n';
 import { projectLabel } from '../lib/projectName';
 import { projectTone, type StatusTone } from '../lib/agentStatus';
 import { isNightly, isUpgrade } from '../lib/nightly';
+import { useStaleDaemon } from './StaleDaemonNotice';
 import { updateHint } from '../lib/appUpdate';
 import { listEnd, moveProject, type Dragging, type DropTarget, type SidebarList } from '../lib/sidebar';
 import { edge, useSectionDrag, useSections } from '../lib/useSections';
@@ -80,6 +81,8 @@ export function Sidebar({
   // Pushed by the daemon whenever it changes (EventUpdate); read once here.
   const update = useQuery({ queryKey: ['update'], queryFn: api.update, staleTime: Infinity });
   const appUpdate = useAppUpdate();
+  // A stale daemon's offer is for its own version, not this app's.
+  const stale = useStaleDaemon();
   // The app's own version says whether it is a nightly; the daemon's is the
   // fallback, for the web app, which has no build of its own to ask.
   const info = useQuery({ queryKey: ['app-info'], queryFn: () => window.agentbox.info(), staleTime: Infinity });
@@ -334,7 +337,7 @@ export function Sidebar({
       </nav>
 
       <div className="grid gap-0.5 border-t border-line p-2">
-        {update.data?.available && (
+        {update.data?.available && !stale && (
           // What the daemon's daily check found (see the README's "Update
           // check"). Clicking it updates the app in place, where this install
           // can (lib/appUpdate.ts), and opens the release page where it can't.

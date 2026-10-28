@@ -5,6 +5,7 @@ import { recordRequest, clientSpansPath } from './appTiming.ts';
 import { recapQuery } from './recap.ts';
 import type * as D from './diagnostics.ts';
 import { errorMessage } from './utils.ts';
+import { t } from '../../shared/i18n/index.ts';
 import { ensureVMRunning } from './vm.ts';
 
 export class ApiError extends Error {
@@ -32,15 +33,37 @@ async function call<R>(method: string, path: string, body?: unknown): Promise<R>
   if (res.status >= 400) {
     let message = res.body.trim();
     let code: string | undefined;
+    let json = false;
     try {
       ({ error: message, code } = JSON.parse(res.body) as T.Error);
+      json = true;
     } catch {
       // not JSON
+    }
+    if (!json && (res.status === 404 || res.status === 405)) {
+      const outdated = await outdatedDaemon();
+      if (outdated) throw new ApiError(t('shell.app.daemonOutdated', outdated), res.status, 'daemon_outdated');
     }
     throw new ApiError(message || `HTTP ${res.status}`, res.status, code);
   }
   if (res.status === 204 || res.body === '') return undefined as R;
   return (res.contentType.includes('application/json') ? JSON.parse(res.body) : res.body) as R;
+}
+
+// outdatedDaemon is the daemon's version and the app's when they differ. A
+// request the daemon has no route for is answered by Go's own plain-text
+// "404 page not found" (or 405), never the daemon's JSON errors: it's a
+// request newer than the daemon, which is still the version from before the
+// app updated (main/daemon.ts restarts it once its jobs are done).
+async function outdatedDaemon(): Promise<{ daemon: string; app: string } | undefined> {
+  try {
+    const [info, version] = await Promise.all([window.agentbox.info(), window.agentbox.request('GET', '/v1/version')]);
+    const daemon = (JSON.parse(version.body) as { version?: string }).version;
+    if (!info.packaged || !daemon || daemon === 'dev' || daemon === info.version) return undefined;
+    return { daemon, app: info.version };
+  } catch {
+    return undefined;
+  }
 }
 
 // page is call for a list read a page at a time (?limit=), whose answer is

@@ -20,6 +20,9 @@ export interface ConnectionState {
   starting?: { since: number; step: string }; // the daemon is being started (main/daemon.ts StartProgress)
 }
 
+export type { StaleDaemon } from '../main/staledaemon';
+import type { StaleDaemon } from '../main/staledaemon';
+
 export interface HostSetupStatus {
   pkexec: string | null;
   user: string;
@@ -233,6 +236,11 @@ const bridge = {
   connection: (): Promise<ConnectionState> => ipcRenderer.invoke('daemon:connection'),
   onConnection: (fn: (state: ConnectionState) => void) => listen('daemon:connection', fn),
   onEvent: (fn: (event: unknown) => void) => listen('daemon:event', fn),
+  // A daemon of another version than this app, still running after an update
+  // (main/daemon.ts StaleDaemon); null when it's the app's.
+  staleDaemon: (): Promise<StaleDaemon | null> => ipcRenderer.invoke('daemon:stale'),
+  onStaleDaemon: (fn: (stale: StaleDaemon | null) => void) => listen('daemon:stale', fn),
+  restartStaleDaemon: (): Promise<void> => ipcRenderer.invoke('daemon:restartStale'),
   info: (): Promise<{ socket: string; version: string; electron: string; packaged: boolean; platform: string }> => ipcRenderer.invoke('app:info'),
   // WebSocket endpoints of the API: bytes go as binary messages, strings as text messages.
   stream: {

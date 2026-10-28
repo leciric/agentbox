@@ -240,6 +240,44 @@ func TestUpdateChannel(t *testing.T) {
 	}
 }
 
+// TestNightlyIsNotOfferedAStableItDidNotAskFor: a nightly whose stored channel
+// is stable without its user switching it there (chosen on a stable build
+// before a nightly was installed over it) was offered the latest stable, a
+// lower version, as an update. It waits for the next stable instead; switching
+// to stable on the nightly itself still offers the way back.
+func TestNightlyIsNotOfferedAStableItDidNotAskFor(t *testing.T) {
+	t.Setenv("AGENTBOX_NO_UPDATE_CHECK", "")
+	t.Setenv("DO_NOT_TRACK", "")
+	ctx := context.Background()
+	root := t.TempDir()
+	asVersion(t, "0.17.0")
+	var fake fakeLatest
+	cfg := testConfig{updateURL: fake.start(t, "0.17.0"), releasesURL: fakeReleases(t, "0.18.0-nightly.20261028.152")}
+	d := startTestDaemon(t, root, fakeIncus, cfg)
+	if _, err := patchSettings(t, d, `{"updateChannel": "stable"}`); err != nil {
+		t.Fatal(err)
+	}
+	d.stop()
+
+	Version = "0.18.0-nightly.20261028.152"
+	d = startTestDaemon(t, root, fakeIncus, cfg)
+	waitFor(t, "the check as the daemon starts", func() bool {
+		status, err := d.client.Update(ctx)
+		return err == nil && status.CheckedAt != nil
+	})
+	if status, _ := d.client.Update(ctx); status.Channel != "stable" || status.Available != nil {
+		t.Errorf("a nightly nobody switched to stable: Update() = %+v, want no offer", status)
+	}
+
+	if _, err := patchSettings(t, d, `{"updateChannel": "stable"}`); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the way back after switching to stable", func() bool {
+		status, err := d.client.Update(ctx)
+		return err == nil && status.Available != nil && status.Available.Version == "0.17.0"
+	})
+}
+
 // TestUpdateLinkLeadsToTheLatestRelease reproduces the stale link: the daily
 // check found 0.9.0, then 0.9.1 and 0.10.0 came out the same day. The link
 // leads to 0.10.0, the newest release that isn't a prerelease, not to the
