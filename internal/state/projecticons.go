@@ -17,7 +17,7 @@ type ProjectIcon struct {
 	Emoji  string
 	Image  []byte
 	MIME   string
-	// Detected is the icon found in the repository or at its GitHub owner,
+	// Detected is the icon found in the repository,
 	// nil when the last look found nothing.
 	Detected     []byte
 	DetectedMIME string

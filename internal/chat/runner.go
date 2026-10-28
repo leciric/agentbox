@@ -74,7 +74,7 @@ func (m *Manager) SetRunner(a state.Agent, tool, account string) (api.ChatSessio
 	c.syncRunner()
 	c.markSession()
 	c.flush(true)
-	return clone(c.session), nil
+	return c.view(), nil
 }
 
 // Session is the state of a chat's session, as the conversation holds it.
@@ -84,7 +84,7 @@ func (m *Manager) Session(a state.Agent) (api.ChatSession, error) {
 		return api.ChatSession{}, err
 	}
 	defer c.mu.Unlock()
-	return clone(c.session), nil
+	return c.view(), nil
 }
 
 // PendingTool is the tool a lead's chat switches to at its next message, or

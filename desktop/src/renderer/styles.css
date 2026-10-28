@@ -256,6 +256,110 @@
   --ab-term-red: #be123c;
 }
 
+/* Dracula (VS Code's Dracula Official), which AgentBox carries itself. Its
+   accent, ink and washes come through lib/theme.ts like a followed theme's;
+   this block is the rest of what makes it Dracula rather than AgentBox's dark
+   with a purple accent: its backgrounds, its text, and its other hues standing
+   in for the status colours and the terminal's. */
+:root[data-appearance="dracula"] {
+  --ab-chat: #282a36;
+  --ab-composer: #343746;
+  --ab-stage: #21222c;
+  --ab-attached-neutral: #21222c;
+  --ab-overlay: rgb(33 34 44 / 0.97);
+  --ab-modal: rgb(33 34 44 / 0.97);
+
+  --ab-title: #ffffff;
+  --ab-primary: #f8f8f2;
+  --ab-secondary: #ecece6;
+  --ab-tertiary: #d8d8d2;
+  --ab-muted: #adb5cb;
+  --ab-subtle: #7f8ab5;
+  --ab-faint: #6272a4;
+  --ab-ghost: #44475a;
+
+  --ab-inverted: #f8f8f2;
+  --ab-on-inverted: #282a36;
+
+  --ab-emerald-200: #8afba5;
+  --ab-emerald-300: #50fa7b;
+  --ab-emerald-400: #50fa7b;
+  --ab-amber-200: #f1fa8c;
+  --ab-amber-300: #f1fa8c;
+  --ab-amber-400: #ffb86c;
+  --ab-rose-200: #ff9a9a;
+  --ab-rose-300: #ff6e6e;
+  --ab-rose-400: #ff5555;
+  --ab-sky-200: #a4ffff;
+  --ab-sky-300: #8be9fd;
+  --ab-sky-400: #8be9fd;
+  --ab-violet-300: #d6acff;
+  --ab-violet-400: #bd93f9;
+
+  --ab-term-background: #282a36;
+  --ab-term-foreground: #f8f8f2;
+  --ab-term-black: #21222c;
+  --ab-term-bright-black: #6272a4;
+  --ab-term-blue: #bd93f9;
+  --ab-term-bright-blue: #d6acff;
+  --ab-term-magenta: #ff79c6;
+  --ab-term-bright-magenta: #ff92df;
+  --ab-term-cyan: #8be9fd;
+  --ab-term-green: #50fa7b;
+  --ab-term-yellow: #f1fa8c;
+  --ab-term-red: #ff5555;
+}
+
+/* Dracula colours its menus too, a hue per place, so the sidebar, the tabs and
+   Settings' sections can be told apart at a glance — the way the palette
+   colours a keyword, a string and a function differently. Each item names
+   itself (data-nav, data-tab, data-settings-nav, data-v2-foot-item) and only
+   this look gives the names a colour: the icon wears it, and the open item a
+   wash of it. */
+:root[data-appearance="dracula"] {
+  --ab-d-purple: #bd93f9;
+  --ab-d-pink: #ff79c6;
+  --ab-d-green: #50fa7b;
+  --ab-d-cyan: #8be9fd;
+  --ab-d-orange: #ffb86c;
+  --ab-d-yellow: #f1fa8c;
+  --ab-d-red: #ff5555;
+}
+/* Purple first, as the fallback for anything named and not listed below (a
+   project's own Settings section). */
+:root[data-appearance="dracula"] :is([data-nav="settings"], [data-v2-foot-item="settings"], [data-tab="pulls"], [data-tab="settings"], [data-tab="context"], [data-settings-nav]) {
+  --ab-hue: var(--ab-d-purple);
+}
+:root[data-appearance="dracula"] :is([data-nav="home"], [data-v2-home], [data-tab="browser"], [data-tab="status"], [data-tab="memories"], [data-settings-nav="phone"], [data-settings-nav="agents"], [data-settings-nav="resources"]) {
+  --ab-hue: var(--ab-d-cyan);
+}
+:root[data-appearance="dracula"] :is([data-nav="chat"], [data-nav="add"], [data-tab="chat"], [data-tab="android"], [data-tab="search"], [data-settings-nav="connectors"], [data-settings-nav="experimental"]) {
+  --ab-hue: var(--ab-d-green);
+}
+:root[data-appearance="dracula"] :is([data-nav="media"], [data-v2-foot-item="media"], [data-tab="media"], [data-tab="memory"], [data-tab="events"], [data-settings-nav="models"], [data-settings-nav="memory"]) {
+  --ab-hue: var(--ab-d-pink);
+}
+:root[data-appearance="dracula"] :is([data-nav="work"], [data-v2-foot-item="work"], [data-tab="past"], [data-tab="snapshots"], [data-tab="files"], [data-settings-nav="accounts"], [data-settings-nav="setup"]) {
+  --ab-hue: var(--ab-d-orange);
+}
+:root[data-appearance="dracula"] :is([data-nav="jobs"], [data-v2-foot-item="jobs"], [data-tab="terminal"], [data-tab="reports"], [data-settings-nav="notifications"]) {
+  --ab-hue: var(--ab-d-yellow);
+}
+:root[data-appearance="dracula"] :is([data-tab="issues"], [data-settings-nav="diagnostics"]) {
+  --ab-hue: var(--ab-d-red);
+}
+:root[data-appearance="dracula"] :is([data-nav], [data-tab], [data-settings-nav], [data-v2-foot-item]) > svg,
+:root[data-appearance="dracula"] [data-v2-home] svg {
+  color: var(--ab-hue);
+}
+:root[data-appearance="dracula"] [data-heading] {
+  color: var(--ab-d-pink);
+}
+:root[data-appearance="dracula"] :is([data-nav][data-active], [data-tab][data-state="active"], [data-settings-nav][aria-current="page"], [data-v2-foot-item][aria-current="page"]) {
+  background-color: color-mix(in srgb, var(--ab-hue) 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ab-hue) 30%, transparent);
+}
+
 @theme {
   --font-sans: "Inter Variable", "Inter", "Noto Sans", system-ui, sans-serif;
   --font-mono: "JetBrains Mono Variable", "JetBrainsMono Nerd Font", "JetBrains Mono", ui-monospace, monospace;
@@ -337,7 +441,7 @@
   --animate-fade-in: fade-in 160ms ease-out;
   --animate-pop-in: pop-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
   --animate-slide-up: slide-up 220ms cubic-bezier(0.16, 1, 0.3, 1);
-  --animate-glow: glow 2.4s ease-in-out infinite;
+  --animate-sheet-up: sheet-up 260ms cubic-bezier(0.16, 1, 0.3, 1);
   --animate-shimmer: shimmer 1.6s linear infinite;
   --animate-page-drop: page-drop 620ms cubic-bezier(0.22, 1, 0.36, 1) both;
   --animate-page-glow: page-glow 1.6s ease-out 380ms backwards;
@@ -353,19 +457,15 @@
       transform: translate(-50%, -48%) scale(0.97);
     }
   }
+  @keyframes sheet-up {
+    from {
+      transform: translateY(100%);
+    }
+  }
   @keyframes slide-up {
     from {
       opacity: 0;
       transform: translateY(6px);
-    }
-  }
-  @keyframes glow {
-    0%,
-    100% {
-      box-shadow: 0 0 0 0 color-mix(in srgb, var(--ab-emerald-400) 45%, transparent);
-    }
-    50% {
-      box-shadow: 0 0 0 4px transparent;
     }
   }
   /* A Hatch page arriving on a chat's stack (pages/PageStack.tsx): it drops
@@ -736,6 +836,46 @@
   }
 }
 
+/* A running thing's dot: a ring swells out of it and fades. The ring is its own
+   box, moved by transform and opacity only: animating box-shadow repainted the
+   whole window at the display's refresh rate for as long as one dot showed. */
+.animate-glow:not(.absolute, .fixed, .sticky) {
+  position: relative;
+}
+.animate-glow::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--ab-emerald-400) 45%, transparent);
+  opacity: 0;
+  transform: scale(0.5);
+  animation: glow 2.4s ease-in-out infinite;
+}
+
+@keyframes glow {
+  0%,
+  100% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  25% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+
+/* While the window is out of focus (main.tsx), what animates forever holds
+   still: each one, however light, has the window drawn again at the display's
+   refresh rate. An endless animation added elsewhere belongs on this list. */
+html[data-blurred] :is(.animate-spin, .animate-pulse, .animate-ping, .skeleton, .chat-shine, .term-cursor, .ab-char, .ab-char *, .ab-zzz > span),
+html[data-blurred] :is(.animate-glow, .nightly-sky)::after {
+  animation-play-state: paused !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .chat-shine {
     animation: none;
@@ -1070,4 +1210,82 @@ body[data-touring] [data-sonner-toaster] {
       opacity: 0;
     }
   }
+}
+
+/* The phone's web app (web/PhoneApp.tsx) wraps the desktop's chat: what a
+   finger and a phone's browser need from it, and nothing the desktop sees.
+   Unlayered, so it wins over the utilities it adjusts; on the root, which
+   PhoneApp marks, so dialogs and menus portalled out of the app follow. */
+:root[data-phone] {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+:root[data-phone] .overflow-y-auto {
+  /* A pull at the top of a chat doesn't reload the page and lose a draft. */
+  overscroll-behavior-y: contain;
+}
+/* Under 16 px, Safari zooms the page in on focusing the composer. */
+:root[data-phone] [data-chat-composer] textarea {
+  font-size: 16px;
+}
+/* Attach, stop and send: a fingertip's 44 px, not a pointer's 32. */
+:root[data-phone] [data-chat-composer] button.size-8 {
+  width: 2.75rem;
+  height: 2.75rem;
+}
+/* A permission to give, in the chat or the composer: buttons a thumb can hit,
+   without the Y and N a phone has no keys for. */
+:root[data-phone] [data-permission-actions] button {
+  height: 2.75rem;
+  padding-inline: 1rem;
+  font-size: 14px;
+}
+:root[data-phone] kbd {
+  display: none;
+}
+/* The chat's icon buttons (copy, show the code, open large) stay their
+   size and take a fingertip's touch around them. */
+:root[data-phone] :is(button.size-6, button.size-7):not(.absolute, .fixed) {
+  position: relative;
+}
+:root[data-phone] :is(button.size-6, button.size-7)::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
+}
+/* What the desktop shows on hover a phone shows: there's no hovering, and a
+   tap on something unseen does something unseen. */
+:root[data-phone] .group-hover\:opacity-100 {
+  opacity: 1;
+}
+/* A dialog is a sheet from the bottom, under the thumb, with buttons across
+   it; the full-window ones (fullWhenNarrow) and the switcher are left be. */
+:root[data-phone] [role="dialog"]:not([data-phone-switcher], .max-lg\:h-full) {
+  top: auto;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  max-width: none;
+  translate: none;
+  transform: none;
+  border-radius: 1.5rem 1.5rem 0 0;
+  border-width: 1px 0 0;
+  max-height: 90dvh;
+  overflow-y: auto;
+  padding-bottom: calc(1.25rem + env(safe-area-inset-bottom));
+  animation: var(--animate-sheet-up);
+}
+:root[data-phone] [role="dialog"]:not([data-phone-switcher], .max-lg\:h-full) .justify-end > button {
+  flex: 1;
+  min-height: 3rem;
+  font-size: 15px;
+}
+:root[data-phone] [role="dialog"]:not([data-phone-switcher]) > button:last-child {
+  top: 0.5rem;
+  right: 0.5rem;
+  display: flex;
+  width: 2.75rem;
+  height: 2.75rem;
+  align-items: center;
+  justify-content: center;
 }

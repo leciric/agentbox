@@ -377,6 +377,11 @@ func TestBuildRunsTheSystemScript(t *testing.T) {
 	if pushed >= provisioned || provisioned >= removed {
 		t.Errorf("out of order:\n%s", strings.Join(inc.commands(t), "\n"))
 	}
+	// apt's and mise's downloads don't stay in the image, the published one
+	// included.
+	if cleaned := inc.ran(t, "apt-get clean && rm -rf /home/agent/.cache/mise &&"); cleaned != removed {
+		t.Errorf("the caches should go with the scripts:\n%s", strings.Join(inc.commands(t), "\n"))
+	}
 }
 
 const refreshAgent = "ab-organic-agent-07"

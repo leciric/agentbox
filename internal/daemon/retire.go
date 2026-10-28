@@ -142,7 +142,13 @@ func (s *Server) retire(w http.ResponseWriter, r *http.Request) error {
 			continue
 		}
 		who := api.RetiredAgent{Name: st.Name, Title: st.Title, Branch: st.Branch}
-		changes := changesOf(st.Agent)
+		changes, err := measureChanges(st.Agent)
+		if err != nil {
+			// Whether it has uncommitted work is what retiring could lose.
+			who.Reason = "its worktree can't be read right now: " + err.Error()
+			out.Skipped = append(out.Skipped, who)
+			continue
+		}
 		busy, _, last, advice := s.idleOf(ctx, st, changes)
 		if who.Reason = skipReason(req, st, busy, last, advice, idleFor); who.Reason == stillWorking {
 			who.Reason = s.busyReason(st.Ref())

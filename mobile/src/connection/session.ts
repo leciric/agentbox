@@ -10,7 +10,8 @@ import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
 import type * as T from '../shared/api.ts';
-import { parsePairingLink } from './pairing.ts';
+import { t } from '../shared/i18n.ts';
+import { isTailnet, parsePairingLink } from './pairing.ts';
 
 export interface Session {
   origin: string;
@@ -83,6 +84,8 @@ export async function pair(link: string): Promise<Session> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ secret: parsed.secret, name: phoneName(), bearer: true } satisfies T.LANPairRequest),
+  }).catch((err: unknown) => {
+    throw unreachable(parsed.origin, err);
   });
   if (!res.ok) throw new Error(await errorOf(res));
   const out = (await res.json()) as T.LANSession;
@@ -91,6 +94,13 @@ export async function pair(link: string): Promise<Session> {
   await storage.set(JSON.stringify(next));
   set(next);
   return next;
+}
+
+// unreachable is why fetching from origin failed: on an address in a tailnet,
+// that this phone isn't on it, which the network error doesn't say.
+export function unreachable(origin: string, err: unknown): Error {
+  if (isTailnet(origin)) return new Error(t('mobile.notOnTailnet', { host: new URL(origin).hostname }));
+  return err instanceof Error ? err : new Error(String(err));
 }
 
 // forget drops the pairing on this phone only: the daemon revoked it, or it

@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"testing"
 
 	"agentbox/internal/api"
@@ -22,13 +21,10 @@ func TestProjectIconRoutes(t *testing.T) {
 	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
-	var fetches atomic.Int32
-	d.srv.icons.owner = func(string) string { return "leciric" }
-	d.srv.icons.fetch = func(_ context.Context, u string) ([]byte, string, error) {
-		fetches.Add(1)
-		return testPNG, "image/png", nil
-	}
 	root := d.fixtureRepo(t, "hello-stack")
+	if err := os.WriteFile(filepath.Join(root, "logo.png"), testPNG, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: root}); err != nil {
 		t.Fatal(err)
 	}
@@ -44,14 +40,11 @@ func TestProjectIconRoutes(t *testing.T) {
 		t.Errorf("IconVersion before any look = %d, want 0", v)
 	}
 
-	// Nothing in the repository: the owner's avatar, fetched once.
+	// The repository's own logo, found once.
 	ic, err := d.client.ProjectIcon(ctx, "hello-stack")
-	if err != nil || ic.Source != "detected" || ic.DetectedFrom != "github.com/leciric" || !ic.HasDetected ||
+	if err != nil || ic.Source != "detected" || ic.DetectedFrom != "logo.png" || !ic.HasDetected ||
 		ic.Image != "data:image/png;base64,"+base64.StdEncoding.EncodeToString(testPNG) {
 		t.Fatalf("ProjectIcon() = %+v, %v", ic, err)
-	}
-	if _, err := d.client.ProjectIcon(ctx, "hello-stack"); err != nil || fetches.Load() != 1 {
-		t.Errorf("a second read fetched again: %d fetches, %v", fetches.Load(), err)
 	}
 	v1 := version()
 	if v1 == 0 {
@@ -104,14 +97,17 @@ func TestProjectIconRoutes(t *testing.T) {
 }
 
 // A look that found nothing is kept too, so reads don't walk the repository
-// and ask GitHub every time.
+// every time, and nothing stands in for the icon: not the GitHub owner's
+// avatar, even for a repository whose origin is on GitHub.
 func TestProjectIconRemembersFindingNothing(t *testing.T) {
 	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
-	var owners atomic.Int32
-	d.srv.icons.owner = func(string) string { owners.Add(1); return "" }
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
+	root := d.fixtureRepo(t, "hello-stack")
+	if out, err := exec.Command("git", "-C", root, "remote", "add", "origin", "https://github.com/leciric/hello-stack.git").CombinedOutput(); err != nil {
+		t.Fatalf("git remote add: %v %s", err, out)
+	}
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: root}); err != nil {
 		t.Fatal(err)
 	}
 	for range 3 {
@@ -119,8 +115,9 @@ func TestProjectIconRemembersFindingNothing(t *testing.T) {
 			t.Fatalf("ProjectIcon() = %+v, %v", ic, err)
 		}
 	}
-	if n := owners.Load(); n != 1 {
-		t.Errorf("looked %d times, want once", n)
+	stored, _, err := d.srv.store.ProjectIcon(ctx, "hello-stack")
+	if err != nil || stored.DetectedAt.IsZero() {
+		t.Errorf("the empty look wasn't kept: %+v, %v", stored, err)
 	}
 	// The project's removal takes its icon with it.
 	if err := d.client.RemoveProject(ctx, "hello-stack"); err != nil {
@@ -156,28 +153,3 @@ func TestProjectActivityRoute(t *testing.T) {
 	}
 }
 
-// The avatar's owner comes from origin, in either of the forms git writes.
-func TestGitHubOwner(t *testing.T) {
-	t.Parallel()
-	for remote, want := range map[string]string{
-		"https://github.com/leciric/agentbox.git":     "leciric",
-		"git@github.com:acme/pawly.git":               "acme",
-		"ssh://git@github.com/acme/pawly":             "acme",
-		"https://x-access-token:t@github.com/o/r.git": "o",
-		"https://gitlab.com/acme/pawly.git":           "",
-		"":                                            "",
-	} {
-		dir := t.TempDir()
-		if out, err := exec.Command("git", "init", "-q", dir).CombinedOutput(); err != nil {
-			t.Fatalf("git init: %v %s", err, out)
-		}
-		if remote != "" {
-			if out, err := exec.Command("git", "-C", dir, "remote", "add", "origin", remote).CombinedOutput(); err != nil {
-				t.Fatalf("git remote add: %v %s", err, out)
-			}
-		}
-		if got := githubOwner(dir); got != want {
-			t.Errorf("githubOwner(origin %q) = %q, want %q", remote, got, want)
-		}
-	}
-}

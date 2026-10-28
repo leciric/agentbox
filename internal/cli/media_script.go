@@ -29,7 +29,7 @@ const (
 func addRecordScript(a *app, record *cobra.Command) {
 	var script, name, target string
 	var limit time.Duration
-	var whole bool
+	var whole, noEdit bool
 	record.Use = "record --script <file> --name <name>"
 	record.Long = `Record the agent's display as a video.
 
@@ -65,19 +65,20 @@ Without --script, use start and stop around a walkthrough driven by hand.`
 		if err != nil {
 			return err
 		}
-		return replay(cmd, c, s, script, name, target, limit, whole)
+		return replay(cmd, c, s, script, name, target, limit, whole, noEdit)
 	}
 	record.Flags().StringVar(&script, "script", "", "a walkthrough to replay, as the steps tool takes it")
 	record.Flags().StringVar(&name, "name", "", `with --script: a name, like "settings-after"`)
 	record.Flags().StringVar(&target, "target", "auto", "with --script: auto, display or browser")
 	record.Flags().BoolVar(&whole, "whole-display", false, "film the desktop as it is, without making the browser fullscreen first")
 	record.Flags().DurationVar(&limit, "limit", 10*time.Minute, "with --script: stop after this long")
+	record.Flags().BoolVar(&noEdit, "no-edit", false, "with --script: keep it as recorded, without zooming in on the clicks or captioning the notes")
 }
 
-func replay(cmd *cobra.Command, c *api.Client, s desktop.Script, script, name, target string, limit time.Duration, whole bool) error {
+func replay(cmd *cobra.Command, c *api.Client, s desktop.Script, script, name, target string, limit time.Duration, whole, noEdit bool) error {
 	ctx := cmd.Context()
 	out := cmd.OutOrStdout()
-	status, err := c.StartRecording(ctx, "", api.RecordRequest{Target: target, Input: "desktop", Name: name, LimitSeconds: int(limit.Seconds()), WholeDisplay: whole})
+	status, err := c.StartRecording(ctx, "", api.RecordRequest{Target: target, Input: "desktop", Name: name, LimitSeconds: int(limit.Seconds()), WholeDisplay: whole, NoEdit: noEdit})
 	if err != nil {
 		return err
 	}
@@ -104,6 +105,7 @@ func replay(cmd *cobra.Command, c *api.Client, s desktop.Script, script, name, t
 		return fmt.Errorf("%w; the recording stopped there. Fix the script and replay it, or record the rest by hand with agentbox media record start", runErr)
 	}
 	_, _ = fmt.Fprintf(out, "Recorded %q%s: %d steps in %s, kept as %s\n", status.Name, recordTarget(status.Target), len(s.Steps), took.Round(100*time.Millisecond), item.ID)
+	printEdited(cmd, item)
 	if err := keepScript(ctx, c, script, name); err != nil {
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "The script wasn't kept beside it: %v\n", err)
 	}

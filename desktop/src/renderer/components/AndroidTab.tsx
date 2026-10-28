@@ -1,13 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Camera, ClipboardPaste, Ellipsis, FileText, LoaderCircle, MousePointer2, Play, Smartphone, Square, TriangleAlert, Wrench } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
-import { androidViewPath, api } from '../lib/api';
+import { androidStreamPath, api } from '../lib/api';
 import { useT } from '../lib/i18n';
 import { clock } from '../lib/media';
-import { useVncView } from '../lib/useVncView';
 import { cn, errorMessage } from '../lib/utils';
+import { DeviceStreamView, type DeviceStreamHandle } from './device/DeviceStreamView';
 import { Button } from './ui/button';
 import { Code, Notice } from './ui/card';
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from './ui/menu';
@@ -17,7 +17,8 @@ import { Tip } from './ui/tooltip';
 
 // AndroidTab shows the agent's own Android emulator, shaped like the phone it
 // is. You can start it, capture it into Media, and tap and type on it.
-export function AndroidTab({ agent, onOpenMedia, onSetup }: { agent: T.Agent; onOpenMedia: () => void; onSetup: () => void }) {
+// compact (UI v2's narrow panel) names its toolbar's buttons in tooltips only.
+export function AndroidTab({ agent, onOpenMedia, onSetup, compact = false }: { agent: T.Agent; onOpenMedia: () => void; onSetup: () => void; compact?: boolean }) {
   const t = useT();
   const queryClient = useQueryClient();
   const running = agent.state === 'running';
@@ -37,7 +38,12 @@ export function AndroidTab({ agent, onOpenMedia, onSetup }: { agent: T.Agent; on
   const [now, setNow] = useState(Date.now());
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const booted = running && status.data?.booted === true;
-  const { view, connected, paste } = useVncView(androidViewPath(agent.ref), booted, control);
+  const device = useRef<DeviceStreamHandle>(null);
+  const [connected, setConnected] = useState(false);
+  const paste = async () => {
+    const text = await window.agentbox.readText();
+    if (text) device.current?.send({ type: 'text', text });
+  };
 
   const setStatus = (next: T.AndroidStatus) => queryClient.setQueryData(['android', agent.ref], next);
   const saved = (item: T.MediaItem) => toast(t('agent.media.saved', { name: item.name }), { action: { label: t('agent.media.view'), onClick: onOpenMedia } });
@@ -92,22 +98,22 @@ export function AndroidTab({ agent, onOpenMedia, onSetup }: { agent: T.Agent; on
         </span>
         <div className="flex-1" />
         <Tip label={t('agent.android.screenshotTip')}>
-          <Button size="sm" disabled={!booted || shot.isPending} onClick={() => shot.mutate()}>
+          <Button size="sm" aria-label={compact ? t('agent.browser.screenshot') : undefined} disabled={!booted || shot.isPending} onClick={() => shot.mutate()}>
             {shot.isPending ? <LoaderCircle className="animate-spin" /> : <Camera />}
-            {t('agent.browser.screenshot')}
+            {!compact && t('agent.browser.screenshot')}
           </Button>
         </Tip>
         {recordingHere ? (
-          <Button size="sm" className="border-rose-400/30 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25" disabled={record.isPending} onClick={() => record.mutate()}>
+          <Button size="sm" className="border-rose-400/30 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25" aria-label={compact ? t('agent.browser.stopRecording') : undefined} disabled={record.isPending} onClick={() => record.mutate()}>
             {record.isPending ? <LoaderCircle className="animate-spin" /> : <span className="size-2 animate-pulse rounded-[3px] bg-rose-400" />}
             <span className="font-mono tabular-nums">{clock(elapsed)}</span>
-            {t('agent.browser.stopRecording')}
+            {!compact && t('agent.browser.stopRecording')}
           </Button>
         ) : (
           <Tip label={isRecording ? t('agent.android.browserRecording') : t('agent.android.recordTip')}>
-            <Button size="sm" disabled={!booted || isRecording || record.isPending} onClick={() => record.mutate()}>
+            <Button size="sm" aria-label={compact ? t('agent.browser.record') : undefined} disabled={!booted || isRecording || record.isPending} onClick={() => record.mutate()}>
               {record.isPending ? <LoaderCircle className="animate-spin" /> : <span className="size-2.5 rounded-full bg-rose-500 shadow-[0_0_8px_rgb(244_63_94/0.7)]" />}
-              {t('agent.browser.record')}
+              {!compact && t('agent.browser.record')}
             </Button>
           </Tip>
         )}
@@ -115,7 +121,7 @@ export function AndroidTab({ agent, onOpenMedia, onSetup }: { agent: T.Agent; on
         <label className={cn('flex items-center gap-2 rounded-lg px-1.5 py-1 text-[13px] text-tertiary', control && 'text-brand-200')}>
           <Switch id="android-control" checked={control} disabled={!connected} onCheckedChange={setControl} />
           <MousePointer2 className="size-3.5" />
-          {t('agent.browser.takeControl')}
+          {compact ? <span className="sr-only">{t('agent.browser.takeControl')}</span> : t('agent.browser.takeControl')}
         </label>
         <Menu>
           <MenuTrigger asChild>
@@ -151,23 +157,15 @@ export function AndroidTab({ agent, onOpenMedia, onSetup }: { agent: T.Agent; on
 
       <div className="relative min-h-0 flex-1 overflow-hidden bg-[radial-gradient(ellipse_at_center,rgb(124_58_237/0.10),transparent_60%)]">
         {booted && (
-          <div className="absolute inset-0 flex items-center justify-center p-5">
-            <div
-              className={cn(
-                'relative aspect-[1080/2400] h-full max-w-full overflow-hidden rounded-[26px] bg-black shadow-[0_40px_120px_-30px_var(--ab-shadow-deep)] ring-1 ring-line-strong transition',
-                control && connected && 'ring-2 ring-brand-400/60',
-              )}
-            >
-              <div ref={view} className="absolute inset-0" data-android-view={agent.ref} data-connected={connected} />
-              {/* Keeps your mouse and keyboard away from the device until you take control. */}
-              {connected && !control && <div className="absolute inset-0" data-view-guard />}
-              {!connected && (
-                <div className="absolute inset-0 flex items-center justify-center text-sm text-subtle">
-                  <LoaderCircle className="mr-2 size-4 animate-spin" />
-                  {t('agent.android.connecting')}
-                </div>
-              )}
-            </div>
+          <div className="absolute inset-5" data-android-view={agent.ref} data-connected={connected}>
+            <DeviceStreamView
+              ref={device}
+              path={androidStreamPath(agent.ref)}
+              enabled={booted}
+              control={control}
+              buttons={['back', 'home', 'recents', 'rotate']}
+              onState={(state) => setConnected(state.phase === 'playing')}
+            />
           </div>
         )}
 
@@ -225,6 +223,22 @@ export function AndroidTab({ agent, onOpenMedia, onSetup }: { agent: T.Agent; on
 
       <div className="flex h-8 shrink-0 items-center gap-3 border-t border-line px-4 text-xs text-subtle">
         <span className="truncate font-mono text-[11px]">{booted ? status.data?.image : ''}</span>
+        {booted && (
+          <Tip
+            side="top"
+            label={
+              status.data?.gpu
+                ? t('agent.android.gpuTip')
+                : status.data?.gpuProblem
+                  ? t('agent.android.gpuFailedTip', { problem: status.data.gpuProblem })
+                  : t('agent.android.softwareTip')
+            }
+          >
+            <span className={cn('shrink-0', !status.data?.gpu && status.data?.gpuProblem && 'text-amber-400')}>
+              {status.data?.gpu ? t('agent.android.gpu') : t('agent.android.software')}
+            </span>
+          </Tip>
+        )}
         <span className="ml-auto shrink-0">
           {!booted ? '' : control ? t('agent.android.controlOn') : t('agent.android.viewOnly')}
         </span>

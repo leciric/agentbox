@@ -280,6 +280,17 @@ func TestReadingABranchesCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Read at once, the branches are what BranchCommit reads one at a time:
+	// origin's when there is no local branch, and the local one when there is.
+	main := strings.TrimSpace(testutil.Git(t, root, "rev-parse", "main"))
+	if tips, err := BranchTips(root); err != nil || tips["agentbox/past"] != commit || tips["main"] != main || tips["agentbox/gone"] != "" {
+		t.Errorf("BranchTips = %v, %v; want agentbox/past at %s from origin, main at %s", tips, err, commit, main)
+	}
+	testutil.Git(t, root, "branch", "-q", "agentbox/past", "main")
+	if tips, _ := BranchTips(root); tips["agentbox/past"] != main {
+		t.Errorf("with a local branch, BranchTips[agentbox/past] = %s, want the local branch's %s", tips["agentbox/past"], main)
+	}
+	testutil.Git(t, root, "branch", "-q", "-D", "agentbox/past")
 
 	list, err := ListAt(root, commit, "")
 	if err != nil {

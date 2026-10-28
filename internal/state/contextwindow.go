@@ -32,6 +32,12 @@ const ClaudeFullWindow int64 = 1_000_000
 // ClaudeShortWindow is the window of a model with no long one, like Haiku.
 const ClaudeShortWindow int64 = 200_000
 
+// MinContextWindow is the shortest window a chat may be given explicitly. It
+// is a floor of its own, not a model's: below it a chat compacts so often that
+// its task costs more in resends than it is worth, and the installation's
+// compact window is the choice for anyone who wants less.
+const MinContextWindow int64 = 100_000
+
 // SettingClaudeModelWindows is the window each Claude model value was seen to
 // have, as a JSON object from the model's value to tokens: what usage_update
 // reported for a session running on it. It is the account's own answer, and it
@@ -212,20 +218,23 @@ func (w ClaudeWindows) ContextWindows(model string, installation int64) []int64 
 }
 
 // CompactWindow is what a chat's autoCompactWindow should be: the window
-// chosen for it, when that is still one of its model's, else the
-// installation's. 0 means leave the key out — the installation's own "the
-// model's whole window".
+// chosen for it, when it is between MinContextWindow and the model's whole
+// window, else the installation's. 0 means leave the key out — the
+// installation's own "the model's whole window".
 func (w ClaudeWindows) CompactWindow(model, chosen string, installation int64) int64 {
-	choices := w.ContextWindows(model, installation)
-	window := choices[0]
-	if n, err := ParseContextWindow(chosen); err == nil && n > 0 {
-		if n >= choices[len(choices)-1] {
-			window = choices[len(choices)-1]
-		} else if slices.Contains(choices, n) {
+	whole := w.Window(model)
+	window := installation
+	if window <= 0 || window > whole {
+		window = whole
+	}
+	if n, err := ParseContextWindow(chosen); err == nil && n >= MinContextWindow {
+		if n >= whole {
+			window = whole
+		} else {
 			window = n
 		}
 	}
-	if installation <= 0 && window == choices[len(choices)-1] {
+	if installation <= 0 && window == whole {
 		return 0
 	}
 	return window
@@ -332,7 +341,8 @@ func ContextWindowOption(windows []int64, value string) (api.ChatOption, bool) {
 }
 
 // ContextWindowChoice checks a window chosen for a model and gives the value
-// to store: the chosen window in tokens, which must be one the model has.
+// to store: the chosen window in tokens, which may be any window from
+// MinContextWindow up to the model's whole one.
 func (w ClaudeWindows) ContextWindowChoice(model, chosen string, installation int64) (string, error) {
 	n, err := ParseContextWindow(chosen)
 	if err != nil {
@@ -341,13 +351,12 @@ func (w ClaudeWindows) ContextWindowChoice(model, chosen string, installation in
 	if n == 0 {
 		return "", fmt.Errorf("an empty context window isn't a choice: leave it out for the installation's")
 	}
-	windows := w.ContextWindows(model, installation)
-	if !slices.Contains(windows, n) {
-		names := make([]string, len(windows))
-		for i, x := range windows {
-			names[i] = FormatContextWindow(x)
-		}
-		return "", fmt.Errorf("%s has no %s context window here: it has %s", modelName(model), FormatContextWindow(n), strings.Join(names, " or "))
+	whole := w.Window(model)
+	if n > whole {
+		return "", fmt.Errorf("%s has no %s context window here: its whole window is %s", modelName(model), FormatContextWindow(n), FormatContextWindow(whole))
+	}
+	if n < MinContextWindow {
+		return "", fmt.Errorf("%s is below the shortest context window here, %s", FormatContextWindow(n), FormatContextWindow(MinContextWindow))
 	}
 	return strconv.FormatInt(n, 10), nil
 }

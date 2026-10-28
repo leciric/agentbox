@@ -414,3 +414,42 @@ esac`))
 		t.Errorf("an item was saved: %+v", items)
 	}
 }
+
+// A stopped recording is edited in the agent and kept edited, its original
+// beside it; one recorded with --no-edit is kept as it was.
+func TestStopRecordingKeepsTheEditAndItsOriginal(t *testing.T) {
+	calls := filepath.Join(t.TempDir(), "calls")
+	t.Setenv("CALLS", calls)
+	for _, noEdit := range []bool{false, true} {
+		_ = os.Remove(calls)
+		t.Setenv("STATE", fmt.Sprintf(`{"name":"flow","target":"display","noEdit":%v}`, noEdit))
+		f := setup(t, fakeIncus(t, `echo "$*" >>"$CALLS"
+case "$1" in
+  list) echo '[{"name":"ab-hello-stack-agent-01","status":"Running"}]' ;;
+  exec) echo "$STATE" ;;
+  file) case "$3" in *.edited.mp4) echo edited >"$4" ;; *) echo frames >"$4" ;; esac ;;
+esac`))
+		a := logsFixture(t, f, "none")
+		item, err := f.m.StopRecording(context.Background(), a)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var meta agent.MediaMeta
+		_ = json.Unmarshal([]byte(item.Meta), &meta)
+		kept, _ := os.ReadFile(f.m.MediaPath(item))
+		log, _ := os.ReadFile(calls)
+		if noEdit {
+			if string(kept) != "frames\n" || meta.Raw != "" || strings.Contains(string(log), "desktop edit") {
+				t.Errorf("--no-edit kept %q, raw %q; calls:\n%s", kept, meta.Raw, log)
+			}
+			continue
+		}
+		raw, _ := os.ReadFile(filepath.Join(filepath.Dir(f.m.MediaPath(item)), meta.Raw))
+		if string(kept) != "edited\n" || meta.Raw != "flow.unedited.mp4" || string(raw) != "frames\n" {
+			t.Errorf("kept %q, its original %q in %q", kept, raw, meta.Raw)
+		}
+		if !strings.Contains(string(log), "desktop edit") {
+			t.Errorf("the recording wasn't edited in the agent; calls:\n%s", log)
+		}
+	}
+}

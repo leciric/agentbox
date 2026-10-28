@@ -17,7 +17,9 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/hostvm/chv"
+	"agentbox/internal/kvm"
 	"agentbox/internal/paths"
+	"agentbox/internal/setupfunnel"
 	"agentbox/internal/state"
 )
 
@@ -238,7 +240,10 @@ func canMake(ctx context.Context, p paths.Paths, want chv.Config) error {
 		if err := hostModeInUse(ctx, p); err != nil {
 			return err
 		}
-		return checkKVM()
+		began := time.Now()
+		err := checkKVM()
+		setupfunnel.Note(p, setupfunnel.KVM, setupfunnel.KVMOutcome(err), began, err)
+		return err
 	}
 	exe, err := self()
 	if err != nil {
@@ -261,13 +266,14 @@ func canMake(ctx context.Context, p paths.Paths, want chv.Config) error {
 	return nil
 }
 
-// checkKVM says why this user can't run a VM, or nil.
+// checkKVM says why this user can't run a VM, and what fixes it, or nil.
 func checkKVM() error {
-	f, err := os.OpenFile("/dev/kvm", os.O_RDWR, 0)
-	if err != nil {
-		return fmt.Errorf("the VM needs /dev/kvm, which this user can't open (%w): turn virtualization on in the firmware, and join the kvm group (sudo usermod -aG kvm $USER, then log in again)", err)
+	probe := kvm.System()
+	err := probe.Open()
+	if err == nil {
+		return nil
 	}
-	return f.Close()
+	return kvm.Error(kvm.Check(probe), err)
 }
 
 // initCHV is `agentbox vm init` on a Linux host: it makes the VM want asks
@@ -275,8 +281,10 @@ func checkKVM() error {
 // it, waits for its first boot to set it up, and sets AgentBox up in it. Like
 // Lima's, it is safe to run again: a step already done is quick. Every step
 // says how long it took.
-func initCHV(ctx context.Context, p paths.Paths, want chv.Config, sizesSet bool, log io.Writer) error {
+func initCHV(ctx context.Context, p paths.Paths, want chv.Config, sizesSet bool, log io.Writer) (err error) {
 	began := time.Now()
+	var vm *VM
+	defer func() { noteVMReady(ctx, p, vm, began, err) }()
 	c, err := chv.Load(p, want.Name)
 	made := false
 	switch {
@@ -306,7 +314,7 @@ func initCHV(ctx context.Context, p paths.Paths, want chv.Config, sizesSet bool,
 	case sizesSet:
 		_, _ = fmt.Fprintln(log, "note: AgentBox's VM exists already and keeps its size: change it with agentbox vm resize")
 	}
-	vm, err := NewCHV(p, c)
+	vm, err = NewCHV(p, c)
 	if err != nil {
 		return err
 	}
@@ -653,6 +661,12 @@ func describe(st api.VMStatus) string {
 			fmt.Fprintf(&b, ", %s of memory (%s in use), growing to at most %s", sizeWords(m.Granted), sizeWords(m.Used), sizeWords(m.Cap))
 		} else {
 			fmt.Fprintf(&b, ", memory from %s to %s", sizeWords(m.Min), sizeWords(m.Cap))
+		}
+	}
+	if m.Resident > 0 {
+		fmt.Fprintf(&b, ", holding %s of this machine's memory", sizeWords(m.Resident))
+		if m.HostCache > 0 {
+			fmt.Fprintf(&b, " (and %s of its cache for the VM's disks)", sizeWords(m.HostCache))
 		}
 	}
 	if st.Disk.Size > 0 {
