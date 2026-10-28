@@ -32,6 +32,9 @@ export function clusterGroups(): SettingGroup[] {
       id: 'clusters',
       title: t('settings.clusters.title'),
       description: t('settings.clusters.description'),
+      // One card per cluster and per registry: each row is a panel of its own,
+      // so the group draws no panel around them (SettingsPage's cards branch).
+      cards: true,
       entries: [
         {
           id: 'clusters-list',
@@ -52,6 +55,7 @@ export function clusterGroups(): SettingGroup[] {
       id: 'registries',
       title: t('settings.registries.title'),
       description: t('settings.registries.description'),
+      cards: true,
       entries: [
         {
           id: 'registries-list',
@@ -94,16 +98,18 @@ function ClusterList() {
     onSettled: () => setChecking(''),
   });
   if (clusters.isPending) {
-    return <SettingNote>{t('common.loading')}</SettingNote>;
+    return <SettingNote className="px-1">{t('common.loading')}</SettingNote>;
   }
   if (clusters.error) {
-    return <Notice>{errorMessage(clusters.error)}</Notice>;
+    return <Notice className="mx-1">{errorMessage(clusters.error)}</Notice>;
   }
   const list = clusters.data ?? [];
   return (
     <>
       {list.length === 0 ? (
-        <SettingNote>{t('settings.clusters.none')}</SettingNote>
+        // The group draws no panel (cards), so an empty list is the group's own
+        // sentence, aligned with its heading rather than boxed like a row.
+        <SettingNote className="px-1">{t('settings.clusters.none')}</SettingNote>
       ) : (
         <ul className="grid gap-3">
           {list.map((cluster) => (
@@ -205,37 +211,6 @@ function ClusterCard({
         {cluster.registry && <Badge>{cluster.registry}</Badge>}
         {cluster.tailnet !== 'none' && <Badge>{t('settings.clusters.tailnetBadge', { mode: cluster.tailnet })}</Badge>}
         {cluster.draining && <Badge variant="warning">{t('settings.clusters.drainingBadge')}</Badge>}
-        <span className="ml-auto flex flex-wrap items-center justify-end gap-1">
-          <Button variant="ghost" size="sm" data-cluster-details={cluster.name} onClick={() => setDetails(true)}>
-            <Info />
-            {t('settings.clusters.details')}
-          </Button>
-          <Button variant="ghost" size="sm" disabled={checking} onClick={onDoctor}>
-            {checking ? <LoaderCircle className="animate-spin" /> : <Stethoscope />}
-            {t('settings.clusters.doctor')}
-          </Button>
-          {cluster.draining ? (
-            <Button variant="ghost" size="sm" disabled={undrain.isPending} onClick={() => undrain.mutate()}>
-              {undrain.isPending ? <LoaderCircle className="animate-spin" /> : <Play />}
-              {t('settings.clusters.undrain')}
-            </Button>
-          ) : (
-            <Button variant="ghost" size="sm" onClick={() => setDraining(true)}>
-              <Ban />
-              {t('settings.clusters.drain')}
-            </Button>
-          )}
-          {cluster.image && (
-            <Button variant="ghost" size="sm" onClick={() => setUpgrading(true)}>
-              <ArrowUpCircle />
-              {t('settings.clusters.upgrade')}
-            </Button>
-          )}
-          <Button variant="ghost" size="sm" onClick={onRemove}>
-            <Trash2 />
-            {t('common.remove')}
-          </Button>
-        </span>
       </div>
       <p className="break-words text-[12px] leading-relaxed text-subtle">
         {cluster.image ? t('settings.clusters.imageLine', { image: cluster.image }) : t('settings.clusters.noImage')}
@@ -246,6 +221,40 @@ function ClusterCard({
       <p className="break-words text-[12px] leading-relaxed text-secondary">{capacityLine(cluster)}</p>
       {cluster.capacity?.error && <Notice>{cluster.capacity.error}</Notice>}
       {cluster.lastError && <Notice>{cluster.lastError}</Notice>}
+      {/* The five actions never fit beside the name in this column, so they are
+          the card's footer rather than a second header line with nothing under
+          it: read what the cluster is, then what to do with it. */}
+      <div className="mt-1 flex flex-wrap items-center justify-end gap-1 border-t border-line-faint pt-2">
+        <Button variant="ghost" size="sm" data-cluster-details={cluster.name} onClick={() => setDetails(true)}>
+          <Info />
+          {t('settings.clusters.details')}
+        </Button>
+        <Button variant="ghost" size="sm" disabled={checking} onClick={onDoctor}>
+          {checking ? <LoaderCircle className="animate-spin" /> : <Stethoscope />}
+          {t('settings.clusters.doctor')}
+        </Button>
+        {cluster.draining ? (
+          <Button variant="ghost" size="sm" disabled={undrain.isPending} onClick={() => undrain.mutate()}>
+            {undrain.isPending ? <LoaderCircle className="animate-spin" /> : <Play />}
+            {t('settings.clusters.undrain')}
+          </Button>
+        ) : (
+          <Button variant="ghost" size="sm" onClick={() => setDraining(true)}>
+            <Ban />
+            {t('settings.clusters.drain')}
+          </Button>
+        )}
+        {cluster.image && (
+          <Button variant="ghost" size="sm" onClick={() => setUpgrading(true)}>
+            <ArrowUpCircle />
+            {t('settings.clusters.upgrade')}
+          </Button>
+        )}
+        <Button variant="ghost" size="sm" onClick={onRemove}>
+          <Trash2 />
+          {t('common.remove')}
+        </Button>
+      </div>
 
       <ConfirmDialog
         open={draining}
@@ -500,7 +509,10 @@ function ClusterForm() {
   const ready = name.trim() !== '' && kubeconfig.trim() !== '';
   return (
     <form
-      className="grid gap-2.5"
+      // The same inset as a row of the panel around it (SettingRow's): these
+      // forms are entries too, and a form flush with the border reads as one
+      // long form with the one after it.
+      className="grid gap-2.5 px-5 py-4"
       onSubmit={(event) => {
         event.preventDefault();
         if (ready) add.mutate();
@@ -565,7 +577,7 @@ function ClusterForm() {
           className="font-mono text-[12px]"
         />
       </Field>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button type="submit" variant="secondary" disabled={!ready || add.isPending}>
           {add.isPending ? <LoaderCircle className="animate-spin" /> : <Plus />}
           {t('settings.clusters.add')}
@@ -595,16 +607,16 @@ function RegistryList() {
     onSettled: () => setChecking(''),
   });
   if (registries.isPending) {
-    return <SettingNote>{t('common.loading')}</SettingNote>;
+    return <SettingNote className="px-1">{t('common.loading')}</SettingNote>;
   }
   if (registries.error) {
-    return <Notice>{errorMessage(registries.error)}</Notice>;
+    return <Notice className="mx-1">{errorMessage(registries.error)}</Notice>;
   }
   const list = registries.data ?? [];
   return (
     <>
       {list.length === 0 ? (
-        <SettingNote>{t('settings.registries.none')}</SettingNote>
+        <SettingNote className="px-1">{t('settings.registries.none')}</SettingNote>
       ) : (
         <ul className="grid gap-3">
           {list.map((reg) => (
@@ -685,7 +697,7 @@ function RegistryForm() {
   const ready = name.trim() !== '' && url.trim() !== '';
   return (
     <form
-      className="grid gap-2.5"
+      className="grid gap-2.5 px-5 py-4"
       onSubmit={(event) => {
         event.preventDefault();
         if (ready) add.mutate();
@@ -737,12 +749,16 @@ function RegistryForm() {
           <Switch checked={insecure} onCheckedChange={setInsecure} />
           {t('settings.registries.insecureSwitch')}
         </label>
+      </div>
+      {/* The button and its note close the form, as they do on a cluster's, so
+          the two forms read the same way down the page. */}
+      <div className="flex flex-wrap items-center gap-2">
         <Button type="submit" variant="secondary" disabled={!ready || add.isPending}>
           {add.isPending ? <LoaderCircle className="animate-spin" /> : <Plus />}
           {t('settings.registries.add')}
         </Button>
+        <SettingNote>{t('settings.registries.tokenNote')}</SettingNote>
       </div>
-      <SettingNote>{t('settings.registries.tokenNote')}</SettingNote>
       {add.error && <Notice>{errorMessage(add.error)}</Notice>}
     </form>
   );
