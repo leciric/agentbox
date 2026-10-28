@@ -159,6 +159,10 @@ type Manager struct {
 	// ImageDir is the directory that keeps the pictures sent in an agent's
 	// chat (images.go). With none, a message can't carry any.
 	ImageDir func(project, agent string) string
+	// Worktree, when set, is where an agent's session runs, for a machine
+	// whose tree the row doesn't name: a pod's mount is inside the pod, and
+	// only the daemon knows it (agent.Manager.Worktree). Without it, a.Worktree.
+	Worktree func(a state.Agent) string
 
 	mu    sync.Mutex
 	convs map[string]*conversation
@@ -196,6 +200,15 @@ func (m *Manager) now() time.Time {
 		return m.Now()
 	}
 	return time.Now()
+}
+
+// dir is where a's session runs, which an adapter needs as an absolute path:
+// the machine's worktree when the daemon can say, else the agent's own column.
+func (m *Manager) dir(a state.Agent) string {
+	if m.Worktree != nil {
+		return m.Worktree(a)
+	}
+	return a.Worktree
 }
 
 func (m *Manager) after(d time.Duration, f func()) Timer {
@@ -2017,7 +2030,7 @@ func (c *conversation) connect(ad *adapter) error {
 
 	// The agent's own configuration gives the tools their MCP servers, unless
 	// the adapter runs where that configuration isn't (sessionMCP).
-	mcp, cwd := sessionMCP(proc), sessionCwd(proc, a)
+	mcp, cwd := sessionMCP(proc), sessionCwd(proc, c.m.dir(a))
 	var meta map[string]any
 	if a.AI == "claude" {
 		// Prompt suggestions off (nothing shows them), and Claude's thinking,

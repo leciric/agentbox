@@ -205,7 +205,7 @@ func (m *Manager) chatScript(ctx context.Context, a state.Agent, status func(det
 		// claude-agent-acp` asks env for a program called exec, which is exit
 		// 127 before the adapter is ever reached. The Incus path above has the
 		// same order.
-		return fmt.Sprintf("cd %s && exec %s%s", shellQuote(m.worktree(a)), m.withoutCredentials(a, hide), command), nil
+		return fmt.Sprintf("cd %s && exec %s%s", shellQuote(m.Worktree(a)), m.withoutCredentials(a, hide), command), nil
 
 	}
 	overrides, err := m.Store.ToolOverrides(ctx)
@@ -266,7 +266,7 @@ func (m *Manager) chatScript(ctx context.Context, a state.Agent, status func(det
 			return "", err
 		}
 	}
-	script := fmt.Sprintf("cd %s && %sexec %s%s", shellQuote(m.worktree(a)), env, m.withoutCredentials(a, hide), cmdline)
+	script := fmt.Sprintf("cd %s && %sexec %s%s", shellQuote(m.Worktree(a)), env, m.withoutCredentials(a, hide), cmdline)
 	return script, nil
 }
 
@@ -459,5 +459,5 @@ func (m *Manager) toolWindowScript(ctx context.Context, a state.Agent) (string, 
 	// Typed into a shell, so the window stays open when the tool exits. The
 	// shell keeps the secrets; env execs the tool without them.
 	return fmt.Sprintf("tmux new-window -t %[1]s -n %[2]s -c %[3]s\ntmux send-keys -t %[1]s:%[2]s %[4]s Enter\n",
-		session, a.AI, shellQuote(m.worktree(a)), shellQuote(m.withoutCredentials(a, hide)+command)), nil
+		session, a.AI, shellQuote(m.Worktree(a)), shellQuote(m.withoutCredentials(a, hide)+command)), nil
 }

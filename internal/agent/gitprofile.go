@@ -368,7 +368,7 @@ func (m *Manager) clonePodGit(ctx context.Context, a state.Agent, p *gitProfile,
 }
 
 func (m *Manager) clonePodGitSteps(ctx context.Context, a state.Agent, p *gitProfile, section *gitConfigSection) error {
-	dir := m.worktree(a)
+	dir := m.Worktree(a)
 	user := m.machineUser(a).Name
 	head := "git -C " + shellQuote(dir) + " rev-parse --verify HEAD"
 	if err := m.machine(a).UserExec(ctx, user, head, nil, nil, nil); err == nil {
@@ -416,7 +416,7 @@ func (m *Manager) checkoutPodFork(ctx context.Context, a state.Agent) error {
 	if base == "" {
 		base = "HEAD"
 	}
-	command := "git -C " + shellQuote(m.worktree(a)) + " checkout -B " + shellQuote(a.Branch) + " " + shellQuote(base)
+	command := "git -C " + shellQuote(m.Worktree(a)) + " checkout -B " + shellQuote(a.Branch) + " " + shellQuote(base)
 	if err := m.runPodGit(ctx, a, m.machineUser(a).Name, command); err != nil {
 		return fmt.Errorf("%s's pod could not start %s at %s: %w", a.Ref(), a.Branch, base, err)
 	}

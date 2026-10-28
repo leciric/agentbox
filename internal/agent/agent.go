@@ -442,10 +442,11 @@ func (m *Manager) home(a state.Agent) string {
 	return "/home/" + m.machineUser(a).Name
 }
 
-// worktree is where a's tree is inside its machine: the host worktree for an
+// Worktree is where a's tree is inside its machine: the host worktree for an
 // Incus agent, and the pod's volume mount for a Kubernetes one, where the host
-// has no path at all. a.Workspace is that mount.
-func (m *Manager) worktree(a state.Agent) string {
+// has no path at all. a.Workspace is that mount. The row itself holds only the
+// host worktree, so anyone else who needs the path asks here.
+func (m *Manager) Worktree(a state.Agent) string {
 	if !a.OnCluster() {
 		return a.Worktree
 	}
@@ -463,7 +464,7 @@ func (m *Manager) workspace(a state.Agent) workspace.Workspace {
 	if a.OnCluster() {
 		return workspace.Pod{
 			Machine: m.machine(a),
-			Dir:     m.worktree(a),
+			Dir:     m.Worktree(a),
 			User:    m.machineUser(a).Name,
 			Log:     m.Log,
 		}
@@ -1188,7 +1189,7 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 	// A mount can be hidden by one the agent's OS makes at boot, so check, as the
 	// agent's user, that git works in the worktree.
 	var gitOut bytes.Buffer
-	if err := m.machine(a).UserExec(ctx, m.machineUser(a).Name, "git -C "+shellQuote(m.worktree(a))+" rev-parse --git-dir", nil, &gitOut, &gitOut); err != nil {
+	if err := m.machine(a).UserExec(ctx, m.machineUser(a).Name, "git -C "+shellQuote(m.Worktree(a))+" rev-parse --git-dir", nil, &gitOut, &gitOut); err != nil {
 		return "worktree mount", fmt.Errorf("the worktree isn't usable inside the agent: %w: %s", err, strings.TrimSpace(gitOut.String()))
 	}
 	// Tools that find a monorepo's root through git write next to the main
@@ -1590,7 +1591,7 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 	}
 	claudeState, err := json.Marshal(map[string]any{
 		"hasCompletedOnboarding": true,
-		"projects":               map[string]any{m.worktree(a): map[string]any{"hasTrustDialogAccepted": true}},
+		"projects":               map[string]any{m.Worktree(a): map[string]any{"hasTrustDialogAccepted": true}},
 		"mcpServers":             claudeServers,
 	})
 	if err != nil {
@@ -1603,7 +1604,7 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 	if err != nil {
 		return err
 	}
-	codexConfig := codexConfigFor(m.worktree(a), servers, window)
+	codexConfig := codexConfigFor(m.Worktree(a), servers, window)
 	ocVersion, err := m.openCodeVersion(ctx)
 	if err != nil {
 		return err
@@ -1929,7 +1930,7 @@ func (m *Manager) brief(ctx context.Context, a state.Agent, ip string, envFiles 
 		ProjectName:    p.DisplayName,
 		Agent:          a.Name,
 		Title:          a.Title,
-		Worktree:       m.worktree(a),
+		Worktree:       m.Worktree(a),
 		Branch:         a.Branch,
 		BaseRef:        a.BaseRef,
 		Parent:         m.stackParent(ctx, a),
@@ -2332,7 +2333,7 @@ func (m *Manager) MoveAgentsGitHubAccount(ctx context.Context, project, from, to
 // is a shell, and window 1 runs the AI tool's command line, unless you use the
 // tool through the chat.
 func (m *Manager) ensureSession(ctx context.Context, a state.Agent) error {
-	script := fmt.Sprintf("tmux has-session -t %[1]s 2>/dev/null && exit 0\ntmux new-session -d -s %[1]s -n shell -c %[2]s\n", session, shellQuote(m.worktree(a)))
+	script := fmt.Sprintf("tmux has-session -t %[1]s 2>/dev/null && exit 0\ntmux new-session -d -s %[1]s -n shell -c %[2]s\n", session, shellQuote(m.Worktree(a)))
 	// Only a session about to be made opens the tool's window.
 	hasSession := fmt.Sprintf("tmux has-session -t %s 2>/dev/null", session)
 	if m.Incus.UserExec(ctx, a.Instance, m.User.Name, hasSession, nil, io.Discard, io.Discard) != nil {
@@ -2404,9 +2405,9 @@ func ShellCommand(incusPath, instance, user, worktree string) []string {
 // tree's path inside the machine.
 func (m *Manager) attachArgv(a state.Agent) []string {
 	if a.OnCluster() {
-		return []string{"tmux", "new-session", "-A", "-s", session, "-c", m.worktree(a)}
+		return []string{"tmux", "new-session", "-A", "-s", session, "-c", m.Worktree(a)}
 	}
-	return ShellArgv(m.machineUser(a).Name, m.worktree(a))
+	return ShellArgv(m.machineUser(a).Name, m.Worktree(a))
 }
 
 // Attach opens a terminal on the agent's tmux session, for the app's terminal
@@ -2426,7 +2427,7 @@ func (m *Manager) Exec(ctx context.Context, a state.Agent, command string, stdin
 	if err := m.requireRunning(ctx, a); err != nil {
 		return err
 	}
-	return m.machine(a).UserExec(ctx, m.machineUser(a).Name, "cd "+shellQuote(m.worktree(a))+" && "+command, stdin, stdout, stderr)
+	return m.machine(a).UserExec(ctx, m.machineUser(a).Name, "cd "+shellQuote(m.Worktree(a))+" && "+command, stdin, stdout, stderr)
 }
 
 // Start boots a stopped agent (or resumes a paused one) and restores its tmux session.

@@ -33,7 +33,6 @@ func (m *Manager) KeepNodeModules(a state.Agent) {
 // which checks the seam from outside the package as the daemon uses it.
 func (m *Manager) MachineUser(a state.Agent) image.User { return m.machineUser(a) }
 func (m *Manager) MachineHome(a state.Agent) string     { return m.home(a) }
-func (m *Manager) Worktree(a state.Agent) string        { return m.worktree(a) }
 func (m *Manager) EnvPathFor(a state.Agent) string      { return m.envPath(a) }
 func (m *Manager) BashEnvPathFor(a state.Agent) string  { return m.bashEnvPath(a) }
 func (m *Manager) SecretsPathFor(a state.Agent) string  { return m.secretsPath(a) }

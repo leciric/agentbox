@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"agentbox/internal/acp"
-	"agentbox/internal/state"
 )
 
 // Process is a running ACP adapter.
@@ -37,12 +36,14 @@ type Process struct {
 	Moved bool
 }
 
-// sessionCwd is where a session of a's on proc starts.
-func sessionCwd(proc *Process, a state.Agent) string {
+// sessionCwd is where a session on proc starts: the directory the process
+// itself names when it has one, as the Home chat on the user's computer does,
+// and dir otherwise, which is where the agent's tree is inside its machine.
+func sessionCwd(proc *Process, dir string) string {
 	if proc != nil && proc.Cwd != "" {
 		return proc.Cwd
 	}
-	return a.Worktree
+	return dir
 }
 
 // sessionMCP is the MCP servers a session on proc starts with.
