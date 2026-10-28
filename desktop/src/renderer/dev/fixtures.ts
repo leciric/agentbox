@@ -2330,6 +2330,12 @@ export function installDevBridge(): void {
         project.githubAccount = req.githubAccount;
         return { status: 200, body: JSON.stringify(project), contentType: 'application/json' };
       }
+      // And so does turning the project's Pull requests tab off or on.
+      if (patched && req?.pullRequests !== undefined) {
+        const project = devState.projects.find((p) => p.name === decodeURIComponent(patched[1]))!;
+        project.pullRequests = req.pullRequests;
+        return { status: 200, body: JSON.stringify(project), contentType: 'application/json' };
+      }
       const renameGitHub = method === 'POST' ? /^\/v1\/auth\/github\/([^/]+)\/rename$/.exec(path) : null;
       if (renameGitHub && devState.auth) {
         const old = decodeURIComponent(renameGitHub[1]);
