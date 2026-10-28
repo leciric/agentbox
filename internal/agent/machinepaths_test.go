@@ -271,6 +271,11 @@ func TestAPodsChatExecsTheAdapterThroughTheCredentialPrefix(t *testing.T) {
 	if !strings.Contains(pm.command, "claude-agent-acp") {
 		t.Errorf("the pod's chat command doesn't run the adapter:\n%s", pm.command)
 	}
+	// A pod's sh -c sources nothing, and the env file is where the tool's token
+	// is: an Incus chat gets it from its login shell.
+	if want := "if [ -r '/home/agent/.config/agentbox/env' ]; then . '/home/agent/.config/agentbox/env'; fi; "; !strings.HasPrefix(pm.command, want) {
+		t.Errorf("the pod's chat command doesn't start with %q:\n%s", want, pm.command)
+	}
 }
 
 func openStore(t *testing.T) *state.Store {
