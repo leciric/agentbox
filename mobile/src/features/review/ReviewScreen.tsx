@@ -322,7 +322,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: 10 },
   flex: { flex: 1 },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: colors.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 16, gap: 10, paddingBottom: 32 },
+  sheet: { backgroundColor: colors.overlay, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 16, gap: 10, paddingBottom: 32 },
   sheetTitle: { color: colors.title, fontSize: 16, fontWeight: '600' },
   input: { minHeight: 110, maxHeight: 220, borderRadius: 12, backgroundColor: colors.raised, color: colors.primary, padding: 12, fontSize: 15, textAlignVertical: 'top' },
   root: { flex: 1, backgroundColor: colors.bg },
