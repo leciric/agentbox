@@ -200,7 +200,7 @@ export function ToolKeyForm({ tool, accounts }: { tool: 'codex' | 'opencode'; ac
               className="w-32 font-mono"
             />
             <datalist id={`${id}-providers`}>
-              {[...new Set(['anthropic', 'openai', 'google', 'openrouter', ...accounts.map((a) => a.provider ?? '')])].filter(Boolean).map((p) => (
+              {[...new Set(['opencode', 'anthropic', 'openai', 'google', 'openrouter', ...accounts.map((a) => a.provider ?? '')])].filter(Boolean).map((p) => (
                 <option key={p} value={p} />
               ))}
             </datalist>

@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -108,5 +109,30 @@ func TestProjectToolAccounts(t *testing.T) {
 	}
 	if ok, _ := creds.HasToolAccount("opencode", "anthropic", "work"); ok {
 		t.Error("the removed account is still stored")
+	}
+}
+
+// A login the command line captured with the tool itself is stored exactly as
+// it is: a ChatGPT or OAuth sign-in has no API key to rebuild it from, and it
+// has to be usable by the agents of the daemon that keeps it.
+func TestCapturedToolLoginIsStoredAsItIs(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	captured := json.RawMessage(`{"type":"oauth","access":"a","refresh":"r","metadata":{"email":"who@example.test"}}`)
+	req := api.ToolAccountRequest{Provider: "opencode", Account: "zen", Auth: captured}
+	if err := d.client.SaveToolAccount(ctx, "opencode", req); err != nil {
+		t.Fatalf("SaveToolAccount(opencode, %+v): %v", req, err)
+	}
+	creds := credentials.Store{Dir: d.paths.Credentials()}
+	auth, name, err := creds.ToolAuth("opencode", "opencode", "zen")
+	if err != nil || name != "zen" || string(auth) != string(captured) {
+		t.Errorf("stored %s for %q: %v, want it unchanged", auth, name, err)
+	}
+	if err := d.client.SaveToolAccount(ctx, "codex", api.ToolAccountRequest{APIKey: "sk", Auth: captured}); err == nil {
+		t.Error("a request carrying both an API key and a captured login was stored")
+	}
+	if ok, _ := creds.HasToolAccount("codex", "", "default"); ok {
+		t.Error("the refused request stored a Codex account anyway")
 	}
 }

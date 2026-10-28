@@ -1761,14 +1761,20 @@ type ToolAccount struct {
 	Expiry  *time.Time `json:"expiry,omitempty"`
 }
 
-// ToolAccountRequest stores a Codex or OpenCode login under an account, from
-// an API key: Codex's from OpenAI, OpenCode's from Provider. A ChatGPT or
-// OAuth sign-in is `agentbox auth codex|opencode --account <name>`.
+// ToolAccountRequest stores a Codex or OpenCode login under an account: from
+// an API key (Codex's from OpenAI, OpenCode's from Provider), or from a login
+// the command line captured with the tool itself.
 type ToolAccountRequest struct {
 	// Account names the login; empty means the account called "default".
 	Account  string `json:"account,omitempty"`
 	Provider string `json:"provider,omitempty"` // OpenCode's only
-	APIKey   string `json:"apiKey"`
+	APIKey   string `json:"apiKey,omitempty"`
+	// Auth is a login `agentbox auth codex|opencode` captured on a machine
+	// with the tool installed: the tool's own auth.json, or OpenCode's entry
+	// for the provider. It is stored as it is, in place of APIKey, so a
+	// ChatGPT or OAuth sign-in reaches the daemon that holds the accounts
+	// without running its login there, where a browser could not finish it.
+	Auth json.RawMessage `json:"auth,omitempty"`
 }
 
 // RenameToolAccountRequest gives a stored Codex, OpenCode or Cursor account

@@ -47,7 +47,7 @@ with --account, to keep several.`,
 			case logout:
 				name := account
 				if name == "" {
-					if name, err = a.credentials().DefaultToolAccount(credentials.ToolCursor, ""); err != nil {
+					if name, err = defaultToolAccount(cmd, c, credentials.ToolCursor, ""); err != nil {
 						return err
 					}
 				}

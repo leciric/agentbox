@@ -217,6 +217,11 @@ func newAuthCodexCmd(a *app) *cobra.Command {
 separate from your host's ~/.codex, and keeps it as a named account. New agents
 get a copy of their project's account, or the default one.
 
+The sign-in runs here, where your browser can finish it, and is stored on the
+daemon the active profile names, which is the one holding the accounts and giving
+them to agents: this machine's, or another's on your tailnet. --local stores it on
+this machine instead.
+
 Run it once per account, with --account, to keep several.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -230,6 +235,13 @@ Run it once per account, with --account, to keep several.`,
 				return err
 			}
 			if err := os.MkdirAll(creds.Dir, 0o700); err != nil {
+				return err
+			}
+			// The sign-in runs here, where the browser can finish it, and is
+			// stored on the daemon that holds the accounts: the one the active
+			// profile names, whose agents get it.
+			c, err := a.client(cmd)
+			if err != nil {
 				return err
 			}
 			home, err := os.MkdirTemp(creds.Dir, ".codex-login-")
@@ -250,10 +262,10 @@ Run it once per account, with --account, to keep several.`,
 			if err != nil {
 				return fmt.Errorf("codex stored no login: run agentbox auth codex again and finish it (%w)", err)
 			}
-			if err := creds.SaveToolAccount(credentials.ToolCodex, "", account, auth); err != nil {
+			if err := c.SaveToolAccount(cmd.Context(), credentials.ToolCodex, api.ToolAccountRequest{Account: account, Auth: auth}); err != nil {
 				return err
 			}
-			return savedToolAccount(cmd, a, credentials.ToolCodex, "", account)
+			return savedToolAccount(cmd, a, c, credentials.ToolCodex, "", account)
 		},
 	}
 	cmd.Flags().BoolVar(&apiKey, "api-key-stdin", false, "read an OpenAI API key from stdin instead of logging in with ChatGPT")
@@ -282,6 +294,11 @@ own, the version agents run, downloaded the first time: OpenCode 2 (when the
 installation chose it) keeps credentials in its database, so they are read back
 with its own 'auth export'.
 
+The login runs here, where your terminal and browser are, and is stored on the
+daemon the active profile names, which is the one giving the accounts to agents:
+this machine's, or another's on your tailnet. --local stores it on this machine
+instead.
+
 The version is the installation's setting (Settings → Run OpenCode 2). Pass
 --opencode2 to sign in to OpenCode 2 anyway, without moving the agents to it:
 the account is stored the same way, and both versions can use it.
@@ -306,13 +323,18 @@ per account, with --account, to keep several for a provider.`,
 			if err := os.MkdirAll(creds.Dir, 0o700); err != nil {
 				return err
 			}
-			// Which OpenCode this installation runs is the daemon's setting. It
-			// is asked rather than guessed: the two write credentials in
-			// different places, and a login captured in the wrong one is no use
-			// to the agents. A daemon that isn't reachable leaves OpenCode 1,
-			// which is what an installation that never chose runs.
+			// Which OpenCode this installation runs is the daemon's setting, and
+			// the daemon is the one the profile names. It is asked rather than
+			// guessed: the two write credentials in different places, and a
+			// login captured in the wrong one is no use to the agents. A daemon
+			// that isn't reachable leaves OpenCode 1, which is what an
+			// installation that never chose runs.
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
 			version := opencode.V1
-			if settings, err := api.NewClient(a.paths.Socket()).Settings(cmd.Context()); err == nil {
+			if settings, err := c.Settings(cmd.Context()); err == nil {
 				version = opencode.ReleaseOf(settings.OpenCodeVersion)
 			}
 			if openCodeV2 {
@@ -320,7 +342,7 @@ per account, with --account, to keep several for a provider.`,
 			}
 			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Signing in to OpenCode %s\n", version)
 			if version == opencode.V2 {
-				return openCode2Login(cmd, a, creds, provider, method, account)
+				return openCode2Login(cmd, a, c, creds, provider, method, account)
 			}
 			dataHome, err := os.MkdirTemp(creds.Dir, ".opencode-login-")
 			if err != nil {
@@ -355,15 +377,7 @@ per account, with --account, to keep several for a provider.`,
 			if len(providers) == 0 {
 				return errors.New("opencode stored no provider login: run agentbox auth opencode again and finish the login")
 			}
-			for _, p := range slices.Sorted(maps.Keys(providers)) {
-				if err := creds.SaveToolAccount(credentials.ToolOpenCode, p, account, providers[p]); err != nil {
-					return err
-				}
-				if err := savedToolAccount(cmd, a, credentials.ToolOpenCode, p, account); err != nil {
-					return err
-				}
-			}
-			return nil
+			return saveOpenCodeLogins(cmd, a, c, providers, account)
 		},
 	}
 	cmd.Flags().StringVar(&provider, "provider", "", "provider id to log in to, skipping OpenCode's own list")
@@ -378,7 +392,7 @@ per account, with --account, to keep several for a provider.`,
 // own, then asks it to export what it stored. OpenCode 2 keeps credentials in a
 // database rather than an auth.json, so this is the only way to read them back;
 // the entry it exports is the same shape AgentBox stores for OpenCode 1.
-func openCode2Login(cmd *cobra.Command, a *app, creds credentials.Store, provider, method, account string) error {
+func openCode2Login(cmd *cobra.Command, a *app, c *api.Client, creds credentials.Store, provider, method, account string) error {
 	m := &agent.Manager{Paths: a.paths}
 	command, err := m.EnsureOpenCode2(cmd.Context(), func(s string) {
 		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), s)
@@ -418,11 +432,19 @@ func openCode2Login(cmd *cobra.Command, a *app, creds credentials.Store, provide
 	if len(providers) == 0 {
 		return errors.New("opencode stored no provider login: run agentbox auth opencode again and finish the login")
 	}
+	return saveOpenCodeLogins(cmd, a, c, providers, account)
+}
+
+// saveOpenCodeLogins stores each provider's captured login on the daemon this
+// command acts on, and says where it went. OpenCode's accounts are per provider,
+// so a sign-in that named several is several accounts.
+func saveOpenCodeLogins(cmd *cobra.Command, a *app, c *api.Client, providers map[string][]byte, account string) error {
 	for _, p := range slices.Sorted(maps.Keys(providers)) {
-		if err := creds.SaveToolAccount(credentials.ToolOpenCode, p, account, providers[p]); err != nil {
+		req := api.ToolAccountRequest{Provider: p, Account: account, Auth: providers[p]}
+		if err := c.SaveToolAccount(cmd.Context(), credentials.ToolOpenCode, req); err != nil {
 			return err
 		}
-		if err := savedToolAccount(cmd, a, credentials.ToolOpenCode, p, account); err != nil {
+		if err := savedToolAccount(cmd, a, c, credentials.ToolOpenCode, p, account); err != nil {
 			return err
 		}
 	}
