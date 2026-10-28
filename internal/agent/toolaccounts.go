@@ -310,9 +310,14 @@ func (m *Manager) importOpenCodeAccounts(ctx context.Context, a state.Agent, ver
 }
 
 // ensureOpenCode2InAgent installs OpenCode 2's platform package in an agent
-// whose machine was made before its image carried it, linking it as opencode2
-// where the login shell finds it. An agent from an image with the component
-// already has it, and this does nothing.
+// the first time it runs it, linking it as opencode2 where the login shell
+// finds it. The base image doesn't carry it, so that choosing OpenCode 2 never
+// costs an installation the published image: the price is that this first
+// start needs the network. npm retries a registry it can't reach for minutes
+// without a word, so it is held to one retry and its errors are kept, and a
+// machine that can't reach the registry is told so rather than given npm's
+// log. A machine that already has it (installed here before, or on an image
+// that does carry it) does nothing.
 func (m *Manager) ensureOpenCode2InAgent(ctx context.Context, a state.Agent) error {
 	if m.Incus.UserExec(ctx, a.Instance, m.User.Name, "command -v "+opencode.Command2, nil, io.Discard, io.Discard) == nil {
 		return nil
@@ -324,12 +329,31 @@ func (m *Manager) ensureOpenCode2InAgent(ctx context.Context, a state.Agent) err
 	ctx, cancel := context.WithTimeout(ctx, installTimeout)
 	defer cancel()
 	spec := shellQuote(pkg + "@" + image.OpenCode2Version)
-	script := fmt.Sprintf("mkdir -p ~/.local/bin ~/.local/share/opencode2 && npm install --silent --no-fund --no-audit --prefix ~/.local/share/opencode2 %[1]s && ln -sfn ../share/opencode2/node_modules/%[2]s/bin/opencode ~/.local/bin/opencode2", spec, shellQuote(pkg))
+	script := fmt.Sprintf("mkdir -p ~/.local/bin ~/.local/share/opencode2 && npm install --loglevel=error --fetch-retries=1 --no-fund --no-audit --prefix ~/.local/share/opencode2 %[1]s && ln -sfn ../share/opencode2/node_modules/%[2]s/bin/opencode ~/.local/bin/opencode2", spec, shellQuote(pkg))
 	var out bytes.Buffer
 	if err := m.Incus.UserExec(ctx, a.Instance, m.User.Name, script, nil, &out, &out); err != nil {
+		if reason := npmNetworkError(out.String()); reason != "" || ctx.Err() != nil {
+			return fmt.Errorf("%s has no OpenCode 2 yet, and installing it needs the network, which its machine can't reach (%s): connect it and start it again, or switch back to OpenCode 1", a.Ref(), cmpOr(reason, "timed out"))
+		}
 		return fmt.Errorf("installing OpenCode 2 in %s: %w: %s", a.Ref(), err, tail(out.String()))
 	}
 	return nil
+}
+
+// npmNetworkError is the error code npm gave up with when it couldn't reach
+// the registry at all, "" for any other failure.
+func npmNetworkError(out string) string {
+	for _, line := range strings.Split(out, "\n") {
+		code, ok := strings.CutPrefix(strings.TrimSpace(line), "npm error code ")
+		if !ok {
+			continue
+		}
+		switch code = strings.TrimSpace(code); code {
+		case "ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "ENETUNREACH", "EHOSTUNREACH", "ECONNABORTED":
+			return code
+		}
+	}
+	return ""
 }
 
 // toolLoginFile is one tool's login file for an agent, nil when there is

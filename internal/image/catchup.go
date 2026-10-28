@@ -158,12 +158,11 @@ func BehindImage(machine, image Installed) Behind {
 	// caches aren't caught up either: they are caches, and a project base has
 	// its own.
 	b.components = Components{
-		Android:    have.Android || want.Android,
-		Codex:      have.Codex || want.Codex,
-		OpenCode:   have.OpenCode || want.OpenCode,
-		OpenCodeV2: have.OpenCodeV2,
-		DevCaches:  have.DevCaches,
-		Incus:      have.Incus || want.Incus,
+		Android:   have.Android || want.Android,
+		Codex:     have.Codex || want.Codex,
+		OpenCode:  have.OpenCode || want.OpenCode,
+		DevCaches: have.DevCaches,
+		Incus:     have.Incus || want.Incus,
 	}
 
 	b.tools = ToolsFor(b.components)
@@ -197,7 +196,6 @@ func (b Behind) record() []string {
 		androidKey + "=" + envFlag(b.components.Android),
 		codexKey + "=" + envFlag(b.components.Codex),
 		opencodeKey + "=" + envFlag(b.components.OpenCode),
-		opencode2Key + "=" + envFlag(b.components.OpenCodeV2),
 		devCachesKey + "=" + envFlag(b.components.DevCaches),
 		incusKey + "=" + envFlag(b.components.Incus)},
 		recordTools(b.tools)...)

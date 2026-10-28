@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"agentbox/internal/credentials"
+	"agentbox/internal/image"
 	"agentbox/internal/state"
 )
 
@@ -406,5 +407,41 @@ func TestSyncOpenCodeImportReplacesARotatedKey(t *testing.T) {
 	want := []string{"auth logout --standalone anthropic work", "auth import --standalone"}
 	if strings.Join(ran, "|") != strings.Join(want, "|") {
 		t.Fatalf("a rotated key ran %q, want %q", ran, want)
+	}
+}
+
+// TestOpenCode2InstallSaysWhenThereIsNoNetwork: OpenCode 2 isn't in the image,
+// so an agent's first start under it installs it, and a machine that can't
+// reach npm's registry is told that, not handed npm's log.
+func TestOpenCode2InstallSaysWhenThereIsNoNetwork(t *testing.T) {
+	t.Parallel()
+	m := &Manager{Incus: fakeIncus(t, `
+case "$*" in
+  *"command -v"*) exit 1 ;;
+  *"npm install"*) printf 'npm error code ENOTFOUND\nnpm error network request failed\n'; exit 1 ;;
+esac
+exit 0
+`), User: image.User{Name: "dev", UID: 1000, GID: 1000}}
+	a := state.Agent{Project: "hello-stack", Name: "agent-01", AI: "opencode", Instance: "ab-hello-stack-agent-01"}
+	err := m.ensureOpenCode2InAgent(t.Context(), a)
+	if err == nil {
+		t.Fatal("an install with no network succeeded")
+	}
+	if !strings.Contains(err.Error(), "needs the network") || !strings.Contains(err.Error(), "ENOTFOUND") || !strings.Contains(err.Error(), "switch back to OpenCode 1") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestNpmNetworkError(t *testing.T) {
+	t.Parallel()
+	for out, want := range map[string]string{
+		"npm error code ECONNREFUSED\nnpm error errno ECONNREFUSED": "ECONNREFUSED",
+		"npm error code EAI_AGAIN":                                  "EAI_AGAIN",
+		"npm error code E404\nnpm error 404 Not Found":              "",
+		"": "",
+	} {
+		if got := npmNetworkError(out); got != want {
+			t.Errorf("npmNetworkError(%q) = %q, want %q", out, got, want)
+		}
 	}
 }

@@ -87,21 +87,23 @@ func (m *Manager) agentsCanRun(ctx context.Context, p state.Project, tool string
 		// Create's own check is what refuses an agent whose machine lacks the
 		// tool (checkImageTool).
 		flag := map[string]string{"codex": state.SettingImageCodex, "opencode": state.SettingImageOpenCode}[tool]
+		skip := false
 		if tool == "opencode" {
 			version, err := m.openCodeVersion(ctx)
 			if err != nil {
 				return err
 			}
-			if version == opencode.V2 {
-				flag = state.SettingImageOpenCodeV2
+			// OpenCode 2 is installed by each agent on demand, not by the image.
+			skip = version == opencode.V2
+		}
+		if !skip {
+			on, err := m.Store.Flag(ctx, flag)
+			if err != nil {
+				return err
 			}
-		}
-		on, err := m.Store.Flag(ctx, flag)
-		if err != nil {
-			return err
-		}
-		if !on {
-			return fmt.Errorf("the base image has no %s (agentbox image build --%s)", ChatAdapters[tool].Tool, tool)
+			if !on {
+				return fmt.Errorf("the base image has no %s (agentbox image build --%s)", ChatAdapters[tool].Tool, tool)
+			}
 		}
 	}
 	_, err := m.CheckLogin(tool, p, want)

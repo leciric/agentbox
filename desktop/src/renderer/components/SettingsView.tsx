@@ -77,7 +77,6 @@ import {
   SharedPackageCaches,
   LocalNodeModules,
   NewAgentEffort,
-  OpenCode2InImage,
   OpenCodeInImage,
   ResumeAfterLimit,
   ContinueAfterRestart,
@@ -1694,14 +1693,6 @@ function InstalledSettings({
               render: () => <OpenCodeInImage />,
             },
             {
-              id: "opencode-v2-image",
-              advanced: true,
-              label: t("settings.entry.opencode-v2-image.label"),
-              keywords: t("settings.entry.opencode-v2-image.keywords"),
-              modified: setup.data ? setup.data.image.components.opencodeV2 : undefined,
-              render: () => <OpenCode2InImage />,
-            },
-            {
               id: "opencode-v2",
               advanced: true,
               label: t("settings.entry.opencode-v2.label"),
@@ -2522,8 +2513,8 @@ function BuiltWithBadgeSetting() {
 }
 
 // OpenCodeV2Setting decides which OpenCode agents and the project chat run:
-// OpenCode 1, what every installation ran before, or OpenCode 2, which the base
-// image has to carry (Settings.openCodeV2Ready). The two versions don't read
+// OpenCode 1, what every installation ran before, or OpenCode 2, which each
+// agent installs at its first start under it. The two versions don't read
 // each other's sessions, so a chat switched between them starts a new one.
 function OpenCodeV2Setting() {
   const t = useT();
@@ -2534,7 +2525,6 @@ function OpenCodeV2Setting() {
     onSuccess: (next) => queryClient.setQueryData(["settings"], next),
     onError: (err) => toast.error(errorMessage(err)),
   });
-  const ready = settings.data?.openCodeV2Ready ?? false;
   return (
     <SettingRow
       label={t("settings.entry.opencode-v2.label")}
@@ -2544,7 +2534,7 @@ function OpenCodeV2Setting() {
         <Switch
           data-opencode-v2
           aria-label={t("settings.entry.opencode-v2.label")}
-          disabled={save.isPending || settings.data === undefined || !ready}
+          disabled={save.isPending || settings.data === undefined}
           checked={(settings.data?.openCodeVersion ?? "1") === "2"}
           onCheckedChange={(next) => save.mutate(next)}
         />

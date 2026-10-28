@@ -23,7 +23,6 @@ import (
 	"agentbox/internal/image"
 	"agentbox/internal/iossim"
 	"agentbox/internal/notes"
-	"agentbox/internal/opencode"
 	"agentbox/internal/state"
 )
 
@@ -1621,18 +1620,6 @@ func (s *Server) chooseImageComponents(ctx context.Context, req api.BuildImageRe
 	if err != nil {
 		return image.Components{}, err
 	}
-	// Turning the component off under an installation that runs OpenCode 2
-	// would leave every agent pointing at a binary its image no longer has.
-	// Checked before anything is stored, so a refused build changes nothing.
-	if req.OpenCodeV2 != nil && !*req.OpenCodeV2 {
-		version, err := s.store.Setting(ctx, state.SettingOpenCodeVersion)
-		if err != nil {
-			return image.Components{}, err
-		}
-		if opencode.ReleaseOf(version) == opencode.V2 {
-			return image.Components{}, errors.New("this installation runs OpenCode 2: switch it back to OpenCode 1 before turning the component off")
-		}
-	}
 	for _, c := range []struct {
 		want    *bool
 		on      *bool
@@ -1641,7 +1628,6 @@ func (s *Server) chooseImageComponents(ctx context.Context, req api.BuildImageRe
 		{req.Android, &components.Android, state.SettingImageAndroid},
 		{req.Codex, &components.Codex, state.SettingImageCodex},
 		{req.OpenCode, &components.OpenCode, state.SettingImageOpenCode},
-		{req.OpenCodeV2, &components.OpenCodeV2, state.SettingImageOpenCodeV2},
 		{req.DevCaches, &components.DevCaches, state.SettingImageDevCaches},
 		{req.Incus, &components.Incus, state.SettingImageIncus},
 	} {

@@ -11,7 +11,6 @@ const (
 	OptionAndroid   = "android"
 	OptionCodex     = "codex"
 	OptionOpenCode  = "opencode"
-	OptionOpenCode2 = "opencode2"
 	OptionDevCaches = "dev-caches"
 	OptionIncus     = "incus"
 )
@@ -31,8 +30,7 @@ type Download struct {
 	// you will get exactly.
 	MB int
 	// Option is the image option that fetches it: "" for always, otherwise
-	// OptionAndroid, OptionCodex, OptionOpenCode, OptionOpenCode2 or
-	// OptionDevCaches.
+	// OptionAndroid, OptionCodex, OptionOpenCode or OptionDevCaches.
 	Option string
 }
 
@@ -129,12 +127,6 @@ var Downloads = []Download{
 		Option:  OptionOpenCode,
 	},
 	{
-		Name:    "OpenCode 2",
-		Purpose: "OpenCode beside OpenCode 1, for installations that switch to it; it runs as opencode2.",
-		MB:      100,
-		Option:  OptionOpenCode2,
-	},
-	{
 		// Measured on 2026-09-25: the modules as Go downloads them (44 MB), npm's
 		// cache after npm ci (74 MB) and Electron's zip (118 MB).
 		Name:    "AgentBox's development caches",
@@ -161,8 +153,6 @@ func (c Components) on(option string) bool {
 		return c.Codex
 	case OptionOpenCode:
 		return c.OpenCode
-	case OptionOpenCode2:
-		return c.OpenCodeV2
 	case OptionDevCaches:
 		return c.DevCaches
 	case OptionIncus:

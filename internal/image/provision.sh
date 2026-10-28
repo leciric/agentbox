@@ -17,8 +17,6 @@
 #   AGENTBOX_WITH_ANDROID=1  scrcpy, which mirrors an Android emulator's screen
 #   AGENTBOX_WITH_CODEX=1    the Codex CLI and its ACP adapter
 #   AGENTBOX_WITH_OPENCODE=1 the OpenCode CLI, which is its own ACP adapter
-#   AGENTBOX_WITH_OPENCODE2=1 OpenCode 2 beside it, as `opencode2`, so an
-#                            installation can choose which one it runs
 #   AGENTBOX_WITH_DEV_CACHES=1 the Go, npm and Electron caches of AgentBox's own
 #                            repository, for agents that work on AgentBox itself
 #   AGENTBOX_WITH_INCUS=1    Incus itself, so an agent can run a real Incus
@@ -31,9 +29,7 @@ set -euo pipefail
 USER_NAME=$1 USER_UID=$2 USER_GID=$3
 WITH_ANDROID=${AGENTBOX_WITH_ANDROID:-0} WITH_CODEX=${AGENTBOX_WITH_CODEX:-0}
 WITH_OPENCODE=${AGENTBOX_WITH_OPENCODE:-0} WITH_DEV_CACHES=${AGENTBOX_WITH_DEV_CACHES:-0}
-WITH_OPENCODE2=${AGENTBOX_WITH_OPENCODE2:-0}
 WITH_INCUS=${AGENTBOX_WITH_INCUS:-0}
-OPENCODE2_VERSION=${OPENCODE2_VERSION:-}
 DEBIAN_MIRROR=${AGENTBOX_DEBIAN_MIRROR:-}
 export DEBIAN_FRONTEND=noninteractive
 
@@ -92,36 +88,6 @@ fi
 # internal/agent/agent.go), at the XDG paths OpenCode reads them from.
 if [[ $WITH_OPENCODE == 1 ]]; then
   as_user 'mkdir -p ~/.local/share/opencode ~/.config/opencode'
-fi
-# OpenCode 2, beside OpenCode 1: both carry a command called `opencode`, so
-# this is the npm platform package, which declares no bin entry and shadows
-# nothing, linked in as `opencode2`. An installation chooses between the two
-# (state.SettingOpenCodeVersion); without this component only OpenCode 1 exists.
-if [[ $WITH_OPENCODE2 == 1 ]]; then
-  step "OpenCode 2, beside OpenCode 1"
-  case $(dpkg --print-architecture) in
-    amd64) OPENCODE2_PKG=cli-linux-x64 ;;
-    arm64) OPENCODE2_PKG=cli-linux-arm64 ;;
-    *) echo "OpenCode 2 has no build for $(dpkg --print-architecture)" >&2; exit 1 ;;
-  esac
-  if [[ -z $OPENCODE2_VERSION ]]; then
-    echo "OpenCode 2 was asked for without a version to install" >&2
-    exit 1
-  fi
-  # The version goes into a shell command below, so it is checked here rather
-  # than trusted.
-  if [[ ! $OPENCODE2_VERSION =~ ^[0-9A-Za-z.+-]+$ ]]; then
-    echo "OpenCode 2's version $OPENCODE2_VERSION is not a version" >&2
-    exit 1
-  fi
-  as_user "npm install --silent --no-fund --no-audit --prefix ~/.local/share/opencode2 @opencode/$OPENCODE2_PKG@$OPENCODE2_VERSION"
-  # The link lives inside the user's home, relative to it, because
-  # personalise.sh renames the placeholder user and moves that home: an
-  # absolute link to /home/agent would dangle in every real installation. The
-  # profile puts ~/.local/bin on PATH (system.sh).
-  as_user 'mkdir -p ~/.local/bin'
-  as_user "ln -sfn ../share/opencode2/node_modules/@opencode/$OPENCODE2_PKG/bin/opencode ~/.local/bin/opencode2"
-  as_user 'opencode2 --version'
 fi
 
 DEV_CACHES_REPO=https://github.com/leciric/agentbox

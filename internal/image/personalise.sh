@@ -81,8 +81,5 @@ step "Checking the image still works as $USER_NAME"
 # only break inside an agent, hours later. Fail the build here instead.
 test "$(getent passwd "$USER_NAME" | cut -d: -f6)" = "/home/$USER_NAME"
 as_user 'git --version; go version; node --version; pnpm --version; claude --version; codex --version; gh --version; playwright-mcp --version'
-# The OpenCode 2 link is inside the home, so it has to survive the rename; a
-# dangling one here would only fail inside an agent, hours later.
-as_user 'if [ -L ~/.local/bin/opencode2 ]; then opencode2 --version; fi'
 as_user 'test -f ~/.claude/settings.json && test -d ~/.config/agentbox'
 as_user 'sudo -n true'

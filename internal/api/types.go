@@ -453,9 +453,6 @@ type Settings struct {
 	// "1" is the one the base image pins and what every installation ran
 	// before this setting existed.
 	OpenCodeVersion string `json:"openCodeVersion"`
-	// OpenCodeV2Ready is true when the base image carries OpenCode 2 beside
-	// OpenCode 1, which is the only way OpenCodeVersion can be "2".
-	OpenCodeV2Ready bool `json:"openCodeV2Ready"`
 	// CursorModelChoices is the model menu Cursor named for AgentBox's
 	// sign-in, each with the effort levels it takes: asked of Cursor on this
 	// machine (internal/cursor) in the background, and empty until that has
@@ -3161,9 +3158,6 @@ type ImageComponents struct {
 	Codex bool `json:"codex"`
 	// OpenCode adds the OpenCode CLI, which is its own ACP adapter.
 	OpenCode bool `json:"opencode"`
-	// OpenCodeV2 adds OpenCode 2 beside it, as `opencode2`, so an
-	// installation can choose which one it runs.
-	OpenCodeV2 bool `json:"opencodeV2"`
 	// DevCaches fills the Go, npm and Electron caches from AgentBox's own
 	// repository, for agents that work on AgentBox itself.
 	DevCaches bool `json:"devCaches"`
@@ -3205,12 +3199,11 @@ type ImageDownload struct {
 // component keeps what the installation already chose, so rebuilding never
 // silently drops one someone turned on.
 type BuildImageRequest struct {
-	Android    *bool `json:"android,omitempty"`
-	Codex      *bool `json:"codex,omitempty"`
-	OpenCode   *bool `json:"opencode,omitempty"`
-	OpenCodeV2 *bool `json:"opencodeV2,omitempty"`
-	DevCaches  *bool `json:"devCaches,omitempty"`
-	Incus      *bool `json:"incus,omitempty"`
+	Android   *bool `json:"android,omitempty"`
+	Codex     *bool `json:"codex,omitempty"`
+	OpenCode  *bool `json:"opencode,omitempty"`
+	DevCaches *bool `json:"devCaches,omitempty"`
+	Incus     *bool `json:"incus,omitempty"`
 	// Local builds the image here even when a published one could be
 	// downloaded instead.
 	Local bool `json:"local,omitempty"`

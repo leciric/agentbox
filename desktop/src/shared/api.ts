@@ -147,7 +147,6 @@ export interface Settings {
   openCodeModelChoices: ChatOptionChoice[];
   openCodeReady: boolean;
   openCodeVersion: string;
-  openCodeV2Ready: boolean;
   cursorModelChoices: ChatOptionChoice[];
   cursorReady: boolean;
   defaultCursorModel: string;
@@ -1218,7 +1217,6 @@ export interface ImageComponents {
   android: boolean;
   codex: boolean;
   opencode: boolean;
-  opencodeV2: boolean;
   devCaches: boolean;
   incus: boolean;
 }
@@ -1242,7 +1240,6 @@ export interface BuildImageRequest {
   android?: boolean;
   codex?: boolean;
   opencode?: boolean;
-  opencodeV2?: boolean;
   devCaches?: boolean;
   incus?: boolean;
   local?: boolean;

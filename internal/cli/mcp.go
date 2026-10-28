@@ -258,7 +258,7 @@ func leadAI(ai string, ready readyTools) (string, error) {
 	case "opencode":
 		if !ready.openCode {
 			return "", errors.New("this machine can't run OpenCode agents: OpenCode has to be built into the base image " +
-				"(agentbox image build --opencode, or --opencode2 for OpenCode 2) and logged in (agentbox auth opencode). " +
+				"(agentbox image build --opencode; OpenCode 2 needs no build) and logged in (agentbox auth opencode). " +
 				"Create the agent with ai=\"claude\", " +
 				"or ask the user to set OpenCode up first")
 		}

@@ -27,31 +27,28 @@ func newImageCmd(a *app) *cobra.Command {
 		Short: "Manage the base image agents are created from",
 	}
 
-	var local, android, codex, withOpenCode, withOpenCode2, devCaches, withIncus bool
+	var local, android, codex, withOpenCode, devCaches, withIncus bool
 	build := &cobra.Command{
 		Use:   "build",
 		Short: "Build the base image (replaces an existing one; existing agents are unaffected)",
 		Long: `Makes the base image agents are copied from. With no optional component, it
 downloads the image AgentBox publishes for this version (Debian and the agent tools
 it may redistribute), then installs the rest, Claude Code first of all, here, and
-so does it with --codex or --opencode, whose tools it installs the same way. OpenCode 2
-(--opencode2) is the exception: it is installed beside OpenCode 1 by the build itself,
-so it needs one of the local builds below. With
+so does it with --codex or --opencode, whose tools it installs the same way. With
 --android, --dev-caches or --incus, with --local, or when there is no published
 image to download, it builds the image here from Debian instead, which takes a few
 minutes longer.
 
-Six components are optional and off until you ask, because most agents use
+Five components are optional and off until you ask, because most agents use
 none of them: --android adds scrcpy, which mirrors an Android emulator's screen,
 --codex adds the Codex CLI and the adapter the app's chat drives it with,
---opencode adds the OpenCode CLI, which is its own adapter, --opencode2 adds
-OpenCode 2 beside it (as opencode2, so an installation can choose), --dev-caches
+--opencode adds the OpenCode CLI, which is its own adapter, --dev-caches
 fills the Go, npm and Electron caches from AgentBox's own repository, for a
 machine whose agents work on AgentBox itself, and --incus adds Incus itself, for
 a project whose agents need to run a real Incus daemon of their own (its
 "nesting" setting). What you choose is remembered, so a later rebuild keeps it;
 turn one off again with --android=false, --codex=false, --opencode=false,
---opencode2=false, --dev-caches=false or --incus=false.`,
+--dev-caches=false or --incus=false.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			c, err := a.client(cmd)
@@ -68,9 +65,6 @@ turn one off again with --android=false, --codex=false, --opencode=false,
 			}
 			if f.Changed("opencode") {
 				req.OpenCode = &withOpenCode
-			}
-			if f.Changed("opencode2") {
-				req.OpenCodeV2 = &withOpenCode2
 			}
 			if f.Changed("dev-caches") {
 				req.DevCaches = &devCaches
@@ -111,7 +105,6 @@ turn one off again with --android=false, --codex=false, --opencode=false,
 	build.Flags().BoolVar(&android, "android", false, "build in scrcpy, for watching an agent's Android emulator")
 	build.Flags().BoolVar(&codex, "codex", false, "build in the Codex CLI and its chat adapter")
 	build.Flags().BoolVar(&withOpenCode, "opencode", false, "build in the OpenCode CLI, which is its own chat adapter")
-	build.Flags().BoolVar(&withOpenCode2, "opencode2", false, "build in OpenCode 2 beside OpenCode 1, as opencode2, so an installation can switch")
 	build.Flags().BoolVar(&devCaches, "dev-caches", false, "fill the Go, npm and Electron caches from AgentBox's own repository, for agents that work on AgentBox")
 	build.Flags().BoolVar(&withIncus, "incus", false, "build in Incus, for a project whose agents run a real Incus daemon of their own")
 	cmd.AddCommand(build)
@@ -161,12 +154,11 @@ func buildComponents(ctx context.Context, c *api.Client, req api.BuildImageReque
 		return image.Components{}, err
 	}
 	components := image.Components{
-		Android:    status.Image.Components.Android,
-		Codex:      status.Image.Components.Codex,
-		OpenCode:   status.Image.Components.OpenCode,
-		OpenCodeV2: status.Image.Components.OpenCodeV2,
-		DevCaches:  status.Image.Components.DevCaches,
-		Incus:      status.Image.Components.Incus,
+		Android:   status.Image.Components.Android,
+		Codex:     status.Image.Components.Codex,
+		OpenCode:  status.Image.Components.OpenCode,
+		DevCaches: status.Image.Components.DevCaches,
+		Incus:     status.Image.Components.Incus,
 	}
 	if req.Android != nil {
 		components.Android = *req.Android
@@ -176,9 +168,6 @@ func buildComponents(ctx context.Context, c *api.Client, req api.BuildImageReque
 	}
 	if req.OpenCode != nil {
 		components.OpenCode = *req.OpenCode
-	}
-	if req.OpenCodeV2 != nil {
-		components.OpenCodeV2 = *req.OpenCodeV2
 	}
 	if req.DevCaches != nil {
 		components.DevCaches = *req.DevCaches
