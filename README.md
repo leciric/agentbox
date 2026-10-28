@@ -151,7 +151,9 @@ give it, so heavy agent work can't freeze your desktop; nothing is installed on 
 password is asked. If your user can't open `/dev/kvm` yet, Setup offers **Give access to KVM**, with one
 password prompt and no new login. [docs/install.md](docs/install.md) has the details: the install script, how the VM shares memory
 between agents, moving an installation from before the VM, and the Mac's krunkit VM with a GPU
-for agents.
+for agents. Agents can also be pods in a Kubernetes cluster, with the daemon a container and no Incus
+anywhere: [docs/install.md](docs/install.md#a-control-plane-in-a-cluster) and
+[docs/kubernetes.md](docs/kubernetes.md).
 
 ## Requirements and limitations
 

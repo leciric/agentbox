@@ -2981,5 +2981,26 @@
   {"id": "first-run-check-dark", "description": "The first run's last step, the doctor: a failure with no fix of its own offers Ask Home to fix it — dark", "query": "app=home&firstrun=check&theme=dark", "width": 1280, "height": 900},
   {"id": "first-run-tool-light", "description": "Same as first-run-tool-dark, light", "query": "app=home&firstrun=tool&theme=light", "width": 1280, "height": 900},
   {"id": "first-run-project-pt-BR-dark", "description": "Same as first-run-project-dark, in Brazilian Portuguese", "query": "app=home&firstrun=project&lang=pt-BR&theme=dark", "width": 1280, "height": 900},
-  {"id": "first-run-tool-narrow-dark", "description": "The first run's first step at a phone-narrow 480px window — dark", "query": "app=home&firstrun=tool&theme=dark", "width": 480, "height": 900}
+  {"id": "first-run-tool-narrow-dark", "description": "The first run's first step at a phone-narrow 480px window — dark", "query": "app=home&firstrun=tool&theme=dark", "width": 480, "height": 900},
+  {
+    "id": "setup-cluster-dark",
+    "description": "Setup of an installation whose agents run in Kubernetes clusters only, no Incus anywhere: the cluster steps, the where-agents-run card and the checklist - dark, xl width",
+    "query": "settings=setup&setup=cluster&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "setup-cluster-todo-dark",
+    "description": "The same installation in the wizard, stopped at a cluster with no agent image - dark",
+    "query": "settings=setup&setup=cluster-todo&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "setup-cluster-light-narrow",
+    "description": "The same Setup below the xl breakpoint, where the rail is a drawer - light",
+    "query": "settings=setup&setup=cluster&theme=light",
+    "width": 900,
+    "height": 800
+  }
 ]

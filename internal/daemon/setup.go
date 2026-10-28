@@ -46,15 +46,14 @@ func (s *Server) setupStatus(ctx context.Context) (api.SetupStatus, error) {
 	}
 
 	incusCheck, incusErr := s.incusSetupCheck(ctx)
-	checks = append(checks, incusCheck)
-
-	hostErr := image.CheckHost(s.cfg.User)
-	check(api.SetupCheck{ID: "host", Title: "User mapping", Required: true, Status: api.SetupMissing, Detail: firstLine(hostErr), Fix: hostsetup.Command},
-		hostErr == nil, "agents write files in their worktrees as you")
-
-	if incusErr == nil {
-		checks = append(checks, s.storagePoolCheck(ctx))
+	clusters, err := s.store.Clusters(ctx)
+	if err != nil {
+		return api.SetupStatus{}, err
 	}
+	// Where this installation runs its agents decides which checks exist at
+	// all: a control plane has no Incus to run them with, so its clusters are
+	// the only thing Setup can hold anything up over (setupbackends.go).
+	clusterOnly, backends := setupBackends(incusErr, clusters)
 
 	// What the next build would include, and what the image really has: they
 	// differ after someone turns a component on and hasn't rebuilt yet.
@@ -62,13 +61,51 @@ func (s *Server) setupStatus(ctx context.Context) (api.SetupStatus, error) {
 	if err != nil {
 		return api.SetupStatus{}, err
 	}
-	installed, _ := image.InstalledBuild(ctx, s.cfg.Incus)
-	built, _ := image.Ready(ctx, s.cfg.Incus)
-	base, err := s.imageSetupCheck(ctx, incusErr == nil, built, installed, wanted)
-	if err != nil {
-		return api.SetupStatus{}, err
+	// A control plane reports no image of its own: its agents run one it didn't
+	// build, and reading it here would shell out to the incus binary this
+	// machine has none of.
+	var installed image.Installed
+	built := false
+
+	// What is below is this machine's own way of running agents: a control
+	// plane has none of it, and can't set it up.
+	if !clusterOnly {
+		check(incusCheck, incusErr == nil, "installed, and your user can use it")
+
+		hostErr := image.CheckHost(s.cfg.User)
+		check(api.SetupCheck{ID: "host", Title: "User mapping", Required: true, Status: api.SetupMissing, Detail: firstLine(hostErr), Fix: hostsetup.Command},
+			hostErr == nil, "agents write files in their worktrees as you")
+
+		if incusErr == nil {
+			checks = append(checks, s.storagePoolCheck(ctx))
+		}
+
+		installed, _ = image.InstalledBuild(ctx, s.cfg.Incus)
+		overrides, err := s.store.ToolOverrides(ctx)
+		if err != nil {
+			return api.SetupStatus{}, err
+		}
+
+		built, _ = image.Ready(ctx, s.cfg.Incus)
+
+		base := api.SetupCheck{ID: "image", Title: "Base image", Required: true, Status: api.SetupMissing, Detail: "needs Incus first", Fix: "agentbox image build"}
+		if incusErr == nil {
+			base = s.baseImageCheck(image.PlanFor(built, installed, wanted, overrides), installed, wanted)
+		}
+		checks = append(checks, base)
 	}
-	checks = append(checks, base)
+
+	// A cluster is a backend whatever this machine is, so its checks come after
+	// the host's and before what every backend needs: a login is no use to an
+	// installation with nowhere to run an agent.
+	if len(clusters) > 0 {
+		clusterChecks, err := s.setupClusterChecks(ctx, clusters, clusterOnly)
+		if err != nil {
+			return api.SetupStatus{}, err
+		}
+		checks = append(checks, clusterChecks...)
+	}
+
 
 	creds := s.manager(nil).Creds
 	accounts, _ := creds.ClaudeAccounts()
@@ -164,8 +201,9 @@ func (s *Server) setupStatus(ctx context.Context) (api.SetupStatus, error) {
 		}
 	}
 	return api.SetupStatus{
-		Ready:  ready,
-		Checks: checks,
+		Ready:    ready,
+		Checks:   checks,
+		Backends: backends,
 		Image: api.ImageBuild{
 			Version:    image.Version,
 			Components: toAPIImageComponents(wanted),
@@ -181,7 +219,7 @@ func (s *Server) incusSetupCheck(ctx context.Context) (api.SetupCheck, error) {
 	incusErr := s.cfg.Incus.Ping(ctx)
 	incusCheck := api.SetupCheck{ID: "incus", Title: "Incus", Required: true, Status: api.SetupMissing, Detail: firstLine(incusErr), Fix: hostsetup.Command}
 	if errors.Is(incusErr, exec.ErrNotFound) {
-		incusCheck.Detail = "Incus isn't installed"
+		incusCheck.Detail = "Incus isn't installed. Agents can also be pods in a Kubernetes cluster: add one with agentbox cluster add."
 	}
 	// Host setup puts an ACL for this user on the Incus socket, which applies
 	// to processes already running, so joining incus-admin is the fallback

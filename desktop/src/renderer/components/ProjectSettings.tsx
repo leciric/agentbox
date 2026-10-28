@@ -504,6 +504,11 @@ function ProjectClusterPicker({ project }: { project: T.Project }) {
   const t = useT();
   const queryClient = useQueryClient();
   const clusters = useQuery({ queryKey: ['clusters'], queryFn: api.clusters });
+  // Where this installation runs its agents: a cluster-only daemon has no Incus,
+  // so "this machine" is not a place to offer.
+  const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup });
+  const backends = setup.data?.backends ?? [];
+  const clusterOnly = backends.length === 1 && backends[0] === 'cluster';
   const save = useMutation({
     mutationFn: (cluster: string) => api.updateProject(project.name, { cluster }),
     onSuccess: async () => {
@@ -514,7 +519,9 @@ function ProjectClusterPicker({ project }: { project: T.Project }) {
   const list = clusters.data ?? [];
   // A cluster the project still names and that is gone from the list (removed
   // elsewhere) is shown as it is rather than silently reading as this machine.
+  // This machine itself is the same case on an installation that has none.
   const missing = project.cluster !== '' && project.cluster !== 'auto' && !list.some((c) => c.name === project.cluster);
+  const local = project.cluster === '' && clusterOnly;
   return (
     <SettingRow
       label={t('defaults.project.clusterLabel')}
@@ -526,7 +533,8 @@ function ProjectClusterPicker({ project }: { project: T.Project }) {
           disabled={save.isPending}
           aria-label={t('defaults.project.clusterLabel')}
         >
-          <SelectOption value="">{t('defaults.project.clusterLocal')}</SelectOption>
+          {!clusterOnly && <SelectOption value="">{t('defaults.project.clusterLocal')}</SelectOption>}
+          {local && <SelectOption value="">{t('defaults.project.clusterLocalMissing')}</SelectOption>}
           <SelectOption value="auto">{t('defaults.project.clusterAuto')}</SelectOption>
           {missing && <SelectOption value={project.cluster}>{project.cluster}</SelectOption>}
           {list.map((cluster) => (

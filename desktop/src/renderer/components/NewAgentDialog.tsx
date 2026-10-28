@@ -114,9 +114,14 @@ export function NewAgentDialog({
   const auth = useQuery({ queryKey: ['auth'], queryFn: api.auth, enabled: open });
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings, enabled: open });
   const image = useQuery({ queryKey: ['image'], queryFn: api.image, enabled: open });
-  // Only for the tools that are optional in the base image: an image built
-  // without OpenCode can't run an OpenCode agent, whatever logins there are.
-  const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup, enabled: open && form.ai === 'opencode' });
+  // The base image's installed tools, for the one tool that is optional in it;
+  // and where this installation runs agents, which decides whether "this
+  // machine" is a place an agent can be created.
+  const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup, enabled: open });
+  // Exactly ["cluster"]: a daemon with no Incus, where nothing can run but a
+  // pod. Both backends keep the machine as an option.
+  const backends = setup.data?.backends ?? [];
+  const clusterOnly = backends.length === 1 && backends[0] === 'cluster';
   const base = useQuery({ queryKey: ['base', form.project], queryFn: () => api.base(form.project), enabled: open && form.project !== '' });
   // Where a project's cluster agents clone from. Read only once a cluster is
   // chosen, so the Incus path asks for nothing new.
@@ -188,8 +193,9 @@ export function NewAgentDialog({
         githubAccount: form.githubAccount || undefined,
         // "local" and not an absent field: a project that runs its agents on a
         // cluster would otherwise take an explicit "this machine" as its own
-        // choice.
-        cluster: form.cluster || 'local',
+        // choice. A cluster-only daemon has no machine to name, and it places
+        // by itself until the picker has filled in.
+        cluster: form.cluster || (clusterOnly ? 'auto' : 'local'),
         queue: form.queue || undefined,
         finishNotice: form.notify || undefined,
       }),
@@ -234,12 +240,24 @@ export function NewAgentDialog({
   }, [open, form.project, firstProject]);
 
   // Where this project's agents run unless one is given a cluster of its own:
-  // the picker starts on that, and moving to another project moves it too.
+  // the picker starts on that, and moving to another project moves it too. A
+  // cluster-only installation has no machine to start on, so a project that
+  // names none starts on the daemon's placement instead.
   const projectCluster = projects.data?.find((p) => p.name === form.project)?.cluster ?? '';
+  const clusterNames = (clusters.data ?? []).map((c) => c.name);
+  // Before the list arrives, the project's own choice stands: guessing "auto"
+  // and then changing it back would move the picker under the reader.
+  const startCluster =
+    clusterOnly &&
+    clusters.data !== undefined &&
+    projectCluster !== 'auto' &&
+    !clusterNames.includes(projectCluster)
+      ? 'auto'
+      : projectCluster;
   useEffect(() => {
     if (!open) return;
-    setForm((f) => ({ ...f, cluster: projectCluster }));
-  }, [open, form.project, projectCluster]);
+    setForm((f) => ({ ...f, cluster: startCluster }));
+  }, [open, form.project, startCluster]);
 
   const onDone = useCallback(
     async (done: T.Job) => {
@@ -372,12 +390,14 @@ export function NewAgentDialog({
               </Select>
             </Field>
 
-            {clusters.data && clusters.data.length > 0 && (
+            {(clusterOnly || (clusters.data?.length ?? 0) > 0) && (
               <Field label={t('project.newAgent.clusterLabel')} htmlFor="agent-cluster" hint={t('project.newAgent.clusterHint')}>
                 <Select id="agent-cluster" data-new-agent-cluster value={form.cluster} onChange={(value) => set('cluster', value)}>
-                  <SelectOption value="">{t('project.newAgent.clusterLocal')}</SelectOption>
+                  {/* A cluster-only daemon has no Incus, so "this machine" is
+                      not a place an agent can be created. */}
+                  {!clusterOnly && <SelectOption value="">{t('project.newAgent.clusterLocal')}</SelectOption>}
                   <SelectOption value="auto">{t('project.newAgent.clusterAuto')}</SelectOption>
-                  {clusters.data.map((cluster) => (
+                  {clusters.data?.map((cluster) => (
                     <SelectOption key={cluster.name} value={cluster.name}>
                       {cluster.draining
                         ? t('project.newAgent.clusterDraining', { name: cluster.name })

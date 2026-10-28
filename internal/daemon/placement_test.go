@@ -47,6 +47,31 @@ func placementSetup(t *testing.T, projectCluster string, clusters map[string]api
 	return srv, p
 }
 
+// TestPlacementOnAControlPlane: a daemon with no Incus on its machine has no
+// host to place on, so a create that names nothing is placed automatically
+// instead of landing on a machine that can't exist. "local" still means this
+// host, which is what a caller says when it means it.
+func TestPlacementOnAControlPlane(t *testing.T) {
+	ctx := context.Background()
+
+	// Nothing to choose between, and nothing cluster-only about it: the
+	// answer stays this host, as it does today.
+	srv, p := placementSetup(t, "", nil)
+	srv.cfg.Incus.Bin = noIncusBin
+	if got, err := srv.placeAgent(ctx, p, ""); err != nil || got != "" {
+		t.Errorf("placeAgent() = %q, %v, want this host: there is no cluster to place on", got, err)
+	}
+
+	srv, p = placementSetup(t, "", map[string]api.ClusterCapacity{"k3d": {Agents: 2}})
+	srv.cfg.Incus.Bin = noIncusBin
+	if got, err := srv.placeAgent(ctx, p, ""); err != nil || got != "k3d" {
+		t.Errorf("placeAgent() = %q, %v, want k3d, the only machine this daemon can make", got, err)
+	}
+	if got, err := srv.placeAgent(ctx, p, state.ClusterLocal); err != nil || got != "" {
+		t.Errorf("placeAgent(local) = %q, %v, want this host, which the request named", got, err)
+	}
+}
+
 // TestPlacementFollowsTheProject: a create that names no cluster runs where its
 // project said, and a project that said nothing keeps the agent on this host.
 func TestPlacementFollowsTheProject(t *testing.T) {

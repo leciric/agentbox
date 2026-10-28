@@ -1866,6 +1866,7 @@ export function seedImageUpdate(queryClient: QueryClient): void {
       ok('claude', 'Claude Code', 'signed in as default', false),
       ok('github', 'GitHub', 'signed in as leciric', false),
     ],
+    backends: ['host'],
     image: { version: '2026.09.25.1', components: none, installed: none, downloads: [], hint: '' },
   } as T.SetupStatus;
   // Setup and the command-line tool's status are polled, so the bridge answers
@@ -1997,6 +1998,7 @@ export function seedSettings(queryClient: QueryClient): void {
       check('android', 'Android', 'optional', 'no Android SDK found', false),
       check('preview', 'Preview proxy', 'ok', 'http://<port>.<agent>.agentbox.localhost:7777', false),
     ],
+    backends: ['host'],
     image: { version: '2026.09.25.1', components: { ...none, incus: true }, installed: { ...none, incus: true }, downloads: [], hint: '' },
   } as T.SetupStatus;
   devState.setup = setup;
@@ -2046,6 +2048,46 @@ export function seedSettings(queryClient: QueryClient): void {
     accent: light ? '#2e7de9' : '#7aa2f7',
   } satisfies T.Theme);
   queryClient.setQueryData(['host-setup'], {});
+}
+
+// seedClusterSetup is the Setup page of an installation that runs its agents in
+// Kubernetes clusters and nowhere else (?setup=cluster): the daemon in a
+// container in a cluster, with no Incus on the machine at all, so the page has
+// no Incus step, no user mapping, no storage pool and no base image to ask for,
+// and one step per cluster instead. ?setup=cluster-todo is the same page with a
+// cluster whose image is not set, which is what the wizard stops at.
+export function seedClusterSetup(queryClient: QueryClient, todo = false): void {
+  seedSettings(queryClient);
+  const check = (id: string, title: string, status: string, detail: string, required = true, fix?: string): T.SetupCheck => ({ id, title, status, detail, required, fix });
+  const cluster = (name: string, status: string, detail: string, fix?: string): T.SetupCheck => ({
+    ...check(`cluster/${name}`, `Cluster ${name}`, status, detail, true, fix),
+    backend: 'cluster',
+    cluster: name,
+  });
+  const today = new Date().toISOString();
+  const setup: T.SetupStatus = {
+    ready: !todo,
+    backends: ['cluster'],
+    checks: [
+      todo
+        ? cluster('k3d', 'missing', 'no agent image: build one with `agentbox image agent build --push`, then `agentbox cluster set k3d --image <name>:<tag>`', 'agentbox cluster set k3d --image <name>:<tag>')
+        : cluster('k3d', 'ok', 'agentbox, image agentbox-agent:dev, last seen 4m ago'),
+      cluster('nas', 'ok', 'agentbox, image agentbox-agent:dev, last seen 12m ago'),
+      cluster('hetzner', 'warn', 'the last check found "dial tcp: i/o timeout": the cluster may have recovered since, and the doctor looks again', 'agentbox cluster doctor hetzner'),
+      check('claude', 'Claude Code', 'ok', 'signed in as default', false),
+      check('codex', 'Codex', 'optional', 'not signed in', false, 'agentbox auth codex'),
+      check('cursor', 'Cursor sign-in', 'optional', 'not signed in', false, 'agentbox auth cursor'),
+      check('opencode', 'OpenCode', 'optional', 'not in the image', false, 'agentbox image build --opencode'),
+    ],
+    image: { version: '2026.09.25.1', components: { android: false, codex: false, opencode: false, opencodeV2: false, devCaches: false, incus: false }, installed: { android: false, codex: false, opencode: false, opencodeV2: false, devCaches: false, incus: false }, downloads: [], hint: '' },
+  };
+  devState.setup = setup;
+  queryClient.setQueryData(['setup'], setup);
+  // The clusters' own rows, so the page's cards and the where-agents-run group
+  // name the same three the checks do.
+  queryClient.setQueryData<T.Cluster[]>(['clusters'], (list) =>
+    (list ?? fixtureClusters).map((c) => ({ ...c, lastSeen: today, lastError: c.name === 'hetzner' ? 'dial tcp: i/o timeout' : undefined })),
+  );
 }
 
 // seedLinuxHost is a Linux machine that runs AgentBox itself (?linux=move),

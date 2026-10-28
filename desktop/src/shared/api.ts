@@ -1278,11 +1278,14 @@ export interface SetupCheck {
   detail?: string;
   fix?: string;
   job?: string;
+  backend?: string;
+  cluster?: string;
 }
 
 export interface SetupStatus {
   ready: boolean;
   checks: SetupCheck[];
+  backends: string[];
   image: ImageBuild;
 }
 

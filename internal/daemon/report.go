@@ -134,7 +134,8 @@ func (s *Server) systemReport(ctx context.Context) string {
 	var b strings.Builder
 	line := func(label, value string) { fmt.Fprintf(&b, "%-10s %s\n", label+":", value) }
 	line("AgentBox", Version)
-	line("Mode", reportMode())
+	clusterOnly, _ := s.runsOnlyInClusters(ctx)
+	line("Mode", reportMode(clusterOnly))
 	line("Daemon", fmt.Sprintf("%s/%s, %s", runtime.GOOS, runtime.GOARCH, runtime.Version()))
 	if k, err := os.ReadFile("/proc/sys/kernel/osrelease"); err == nil {
 		line("Kernel", strings.TrimSpace(string(k)))
@@ -177,8 +178,12 @@ func (s *Server) systemReport(ctx context.Context) string {
 }
 
 // reportMode says how this AgentBox runs: on the machine itself, or in which
-// VM of which computer.
-func reportMode() string {
+// VM of which computer. A control plane runs agents nowhere here: it drives
+// them as pods, which this machine's Incus has nothing to do with.
+func reportMode(clusterOnly bool) string {
+	if clusterOnly {
+		return "as a control plane: agents run as pods in its Kubernetes clusters"
+	}
 	switch hostos.OS() {
 	case "":
 		return "on this Linux machine itself (host mode, Incus on the host)"

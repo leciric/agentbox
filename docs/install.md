@@ -123,6 +123,55 @@ stays as it was: the agents' old machines stay there, stopped, until you remove 
 `agentbox vm migrate --remove-old` (or the same place in Settings), which removes only AgentBox's
 own. Until you remove them, `agentbox vm delete --yes` goes back to running on your system as before.
 
+## A control plane in a cluster
+
+The third shape runs no agents on this machine at all: the daemon is a container, every agent is a
+pod in a Kubernetes cluster it drives, and there is no Incus anywhere. [Agents in a Kubernetes
+cluster](kubernetes.md) has the cluster's side; this is the daemon's.
+
+```bash
+go build -o bin/agentbox ./cmd/agentbox
+docker build -f packaging/daemon/Dockerfile -t hub.example.com/you/agentbox-daemon:dev .
+docker run -d --name agentbox --network host -e AGENTBOX_FRONT_END=host \
+  -e AGENTBOX_GATEWAY_ADDR=0.0.0.0:7782 \
+  -e XDG_DATA_HOME=/state -v /srv/agentbox:/state hub.example.com/you/agentbox-daemon:dev
+```
+
+`AGENTBOX_FRONT_END=host` is what makes the container serve instead of asking for the VM a desktop
+install runs in, `AGENTBOX_GATEWAY_ADDR` is the listener a pod dials, and `XDG_DATA_HOME` on a volume
+keeps `state.db`, the sealed logins and the daemon's socket across restarts. `--network host` is what
+lets `tailscale serve` publish the daemon's tailnet listener, and what puts the gateway on the host's
+own port 7782.
+
+Commands reach that daemon with a profile, so the admin kubeconfig never has to leave the machine
+`kubectl` runs on. The address is the one `agentbox tailnet on` publishes: run it in the container,
+`docker exec agentbox agentbox tailnet on --allow you@example.com`, and run the `tailscale serve` line
+it prints on the host, since the container has no tailscale of its own.
+
+```bash
+agentbox profile add prod https://<machine>.<tailnet>.ts.net/agentbox
+agentbox use prod
+agentbox registry add forgejo --url hub.example.com/you --username you
+scripts/build-agent-image.sh --tag dev --registry forgejo --push
+agentbox cluster add prod --kubeconfig ~/.kube/config --registry forgejo \
+  --image agentbox-agent:dev --master-url https://<machine>.<tailnet>.ts.net/agentbox
+agentbox cluster doctor prod
+```
+
+`agentbox use local` goes back to this machine's own daemon. The registry and the image come before the
+cluster: a cluster whose image no registry has fails the doctor's image check, and the login
+`registry add` keeps is what the cluster pulls with. The master URL is what the cluster's pods dial,
+and for a cluster anywhere but this machine that is the address `tailscale serve` publishes, path
+included: a pod reaches it through the operator's egress proxy, never by its own. [The
+gateway](kubernetes.md#the-gateway) has the local test cluster's shape, which is the plain
+`http://host:7782` the port above is.
+
+The app reaches the same daemon with **Connect to a server…** and that address, instead of over this
+machine's socket. Its Setup then lists the clusters rather than Incus: no Incus check, no user
+mapping, no storage pool, no base image to build, and one check per cluster for its image, its master
+URL and the daemon's last attempt to reach it. `agentbox host check` prints those same checks, and
+`agentbox cluster doctor <name>` is the one that makes a claim and a pod.
+
 ## KVM
 
 AgentBox's VM needs `/dev/kvm`. Arch and Fedora give it to every user. Debian and Ubuntu give it

@@ -48,7 +48,9 @@ func (e *NoRoomError) Error() string { return e.Reason }
 // placeAgent decides which cluster an agent of p runs in, from what the request
 // named: "" follows the project's own choice, state.ClusterAuto asks for the
 // cluster with the most room, and any other value is that cluster, by name. ""
-// comes back for this host, which is an Incus instance.
+// comes back for this host, which is an Incus instance, and never for a control
+// plane, which has none: there a project or a request that names nothing is
+// placed automatically.
 //
 // A refused cluster is an error before anything is made. An Auto request that
 // nothing can take is a *NoRoomError, like a full cluster named outright, so a
@@ -62,7 +64,15 @@ func (s *Server) placeAgent(ctx context.Context, p state.Project, requested stri
 		requested = p.Cluster
 	}
 	if requested == "" {
-		return "", nil
+		// "This host" is the answer here, except for a control plane: it has no
+		// Incus, so a machine it made itself can't exist, and a create that
+		// names nothing has to land on a cluster (runsOnlyInClusters). A store
+		// that can't answer leaves the create on this host, which is what it
+		// asked for and what it did before any of this was asked.
+		if only, err := s.runsOnlyInClusters(ctx); err != nil || !only {
+			return "", nil
+		}
+		requested = state.ClusterAuto
 	}
 	if requested != state.ClusterAuto {
 		cluster, err := s.store.Cluster(ctx, requested)
