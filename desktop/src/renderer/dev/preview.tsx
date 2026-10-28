@@ -112,6 +112,12 @@
 //   ?setup=updating         Settings while the daemon updates the base image's
 //                           agent tools in place: the image check updating,
 //                           with its job's log (fixtures.ts)
+//   ?setup=cluster          Setup of an installation whose agents run in
+//                           Kubernetes clusters and nowhere else: no Incus step,
+//                           no user mapping, no storage pool, no base image, one
+//                           step per cluster (?setup=cluster-todo: the same with
+//                           a cluster whose image is not set, which the wizard
+//                           stops at)
 //   ?settings=models        the whole Settings page on a set-up machine, open
 //                           at a section (general, models, agents, resources,
 //                           accounts, machine) or at a project's settings
@@ -336,7 +342,7 @@ import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
 import { Markdown } from '../components/chat/Markdown';
 import { webStreams } from '../web/streams';
 import { chooseSession } from '../lib/sessions';
-import { agent12Chat, asleepChat, buildFixtures, remoteAgents, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedProjectGit, seedSettings, seedSignedOut, seedNightly, seedCacheCard, seedStaleDaemon, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
+import { agent12Chat, asleepChat, buildFixtures, remoteAgents, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedProjectGit, seedSettings, seedClusterSetup, seedSignedOut, seedNightly, seedCacheCard, seedStaleDaemon, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
 import { restoreMode } from '../lib/theme';
 import { seedPastAgents } from './pastAgents';
@@ -397,6 +403,10 @@ const appView = params.get('app'); // 'home' | 'homeChat' | 'project' | 'setting
 const loading = params.get('loading'); // 'hold' | 'refetch' | milliseconds | null
 const io = params.get('io'); // "1" | "stalling" | "agent" | null
 const imageUpdate = params.get('setup') === 'updating';
+// ?setup=cluster | cluster-todo: an installation whose agents run in Kubernetes
+// clusters only, with no Incus, on the tabbed page or stopped at a cluster's
+// missing image in the wizard (fixtures.ts).
+const clusterSetup = params.get('setup')?.startsWith('cluster') ? params.get('setup')! : null;
 const settingsPage = params.get('settings'); // a section of Settings, or a project's name
 const linuxHost = params.get('linux'); // 'setup' | 'nokvm' | 'kvm-denied' | 'kvm-module' | 'move' | null
 const chvSize = params.get('chv'); // 'live' | 'old' | 'off' | null
@@ -772,6 +782,9 @@ if (imageUpdate) seedImageUpdate(queryClient);
 // The whole app can open Settings from its sidebar, which needs Setup's
 // checks: the bare { ready: true } the lists answer with has none.
 if (settingsPage || appView) seedSettings(queryClient);
+// A control plane's Setup, after that: no Incus anywhere and one step per
+// cluster, which replaces what seedSettings wrote.
+if (clusterSetup) seedClusterSetup(queryClient, clusterSetup === 'cluster-todo');
 // A project's git profiles as a scenario needs them: ?git=missing removes the
 // one its agents use, so the create dialog's refusal is on screen.
 if (params.get('git')) seedProjectGit(queryClient, params.get('git')!);

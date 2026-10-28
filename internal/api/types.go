@@ -3374,7 +3374,19 @@ const (
 	EventNotificationsSeen = "notification.seen"
 )
 
-// SetupCheck is one thing AgentBox needs, or can use, on this machine.
+// Where a setup check's requirement lives, which is what decides whether it
+// blocks an installation that runs its agents elsewhere.
+const (
+	// SetupBackendHost is the machine this daemon runs on: Incus, its user
+	// mapping, its storage pool and its base image. It is a backend only while
+	// this machine runs agents itself (see SetupStatus.Backends).
+	SetupBackendHost = "host"
+	// SetupBackendCluster is one Kubernetes cluster the daemon drives, and its
+	// own way of being wrong: an image, a master URL, a namespace it can't reach.
+	SetupBackendCluster = "cluster"
+)
+
+// SetupCheck is one thing AgentBox needs, or can use, for one of its backends.
 type SetupCheck struct {
 	ID       string `json:"id"`
 	Title    string `json:"title"`
@@ -3385,11 +3397,26 @@ type SetupCheck struct {
 	// Job is the background job the daemon is fixing it with by itself, whose
 	// log the app can follow: only while one runs.
 	Job string `json:"job,omitempty"`
+	// Backend is where this check belongs: SetupBackendHost for this machine,
+	// SetupBackendCluster for a cluster, and empty for what every backend needs
+	// (a login, the preview listener).
+	Backend string `json:"backend,omitempty"`
+	// Cluster is the cluster a SetupBackendCluster check is about, so the app
+	// can name it and run its doctor.
+	Cluster string `json:"cluster,omitempty"`
 }
 
 type SetupStatus struct {
 	Ready  bool         `json:"ready"` // every required check is ok
 	Checks []SetupCheck `json:"checks"`
+	// Backends is where this installation runs its agents, as the ones Setup
+	// checks: SetupBackendHost when this machine runs them itself,
+	// SetupBackendCluster when it has clusters and no Incus to run them with.
+	// Both when it has the two. Empty backends mean no check could decide.
+	//
+	// It is what the app reads to know whether Incus is part of setting this
+	// installation up at all: a daemon in a container in a cluster has none.
+	Backends []string `json:"backends"`
 	// Image is what building the base image would fetch, so the app can show
 	// it before the build starts rather than only a spinner while it runs.
 	Image ImageBuild `json:"image"`

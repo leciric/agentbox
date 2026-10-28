@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -87,7 +88,12 @@ for a k3d cluster on this machine. Nothing starts here without one, and
 
   agentbox cluster add k3d --kubeconfig ~/.kube/config --storage-class local-path \
       --image agentbox-agent:dev --registry forgejo --max-agents 4 --tailnet none \
-      --master-url http://host.k3d.internal:7782`,
+      --master-url http://host.k3d.internal:7782
+
+A daemon with no Incus (packaging/daemon/Dockerfile) has nothing here to run an
+agent on, so a project that names no cluster places its new agents with auto,
+which is this cluster while it is the only one. "agentbox project cluster
+<project> local" still means this machine, which runs no agents.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
@@ -143,6 +149,15 @@ for a k3d cluster on this machine. Nothing starts here without one, and
 			_, _ = fmt.Fprintf(out, "  Tailnet:    %s\n", cluster.Tailnet)
 			if cluster.MasterURL == "" {
 				_, _ = fmt.Fprintf(out, "\nNo master URL yet: no agent can start here until you set one with:\n  agentbox cluster set %s --master-url <url>\n", cluster.Name)
+			}
+			// The first cluster of a control plane is where the projects that
+			// name none start placing their agents: a change worth saying once,
+			// at the add that makes it.
+			if !runsAgentsHere(cmd, c) {
+				if clusters, err := c.Clusters(cmd.Context()); err == nil && len(clusters) == 1 {
+					_, _ = fmt.Fprintf(out, "\nWith no Incus here, a project that names no cluster now starts its new agents in %s (auto).\n", cluster.Name)
+					_, _ = fmt.Fprintf(out, "agentbox project cluster <project> local still asks for this machine, which runs no agents.\n")
+				}
 			}
 			_, _ = fmt.Fprintf(out, "\nCheck it can run agents: agentbox cluster doctor %s\n", cluster.Name)
 			return nil
@@ -321,6 +336,10 @@ func newClusterListCmd(a *app) *cobra.Command {
 			}
 			out := cmd.OutOrStdout()
 			if len(clusters) == 0 {
+				// Reads correctly for a control plane too: the daemon reports
+				// this machine as its backend until a cluster exists
+				// (setupBackends in internal/daemon/setupbackends.go), so there
+				// is nothing here to tell a cluster-only installation by.
 				_, _ = fmt.Fprintf(out, "No clusters: agents run on this machine. Add one with: agentbox cluster add k3d\n")
 				return nil
 			}
@@ -338,6 +357,18 @@ func newClusterListCmd(a *app) *cobra.Command {
 			return w.Flush()
 		},
 	}
+}
+
+// runsAgentsHere says whether this installation runs agents on this machine. A
+// daemon with no Incus is a control plane: its agents are pods in its clusters,
+// so nothing runs here and no project can ask for it. A daemon that can't
+// answer counts as one that does, which is how it read before Backends.
+func runsAgentsHere(cmd *cobra.Command, c *api.Client) bool {
+	status, err := c.Setup(cmd.Context())
+	if err != nil || len(status.Backends) == 0 {
+		return true
+	}
+	return slices.Contains(status.Backends, api.SetupBackendHost)
 }
 
 func newClusterUndrainCmd(a *app) *cobra.Command {

@@ -2932,5 +2932,26 @@
     "query": "app=project&v2=1&theme=light&palette=tokyo",
     "width": 1440,
     "height": 900
+  },
+  {
+    "id": "setup-cluster-dark",
+    "description": "Setup of an installation whose agents run in Kubernetes clusters only, no Incus anywhere: the cluster steps, the where-agents-run card and the checklist - dark, xl width",
+    "query": "settings=setup&setup=cluster&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "setup-cluster-todo-dark",
+    "description": "The same installation in the wizard, stopped at a cluster with no agent image - dark",
+    "query": "settings=setup&setup=cluster-todo&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "setup-cluster-light-narrow",
+    "description": "The same Setup below the xl breakpoint, where the rail is a drawer - light",
+    "query": "settings=setup&setup=cluster&theme=light",
+    "width": 900,
+    "height": 800
   }
 ]

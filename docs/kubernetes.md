@@ -27,6 +27,12 @@ so no Service, Ingress or inbound rule is needed.
 | Claude Code, Codex, OpenCode and their adapters in the image | a connector that signs in, not yet called from a pod |
 | | `control`, which agentd answers with exit 2 |
 
+A daemon with no Incus runs its agents only in its clusters: that is the control plane
+[`packaging/daemon/Dockerfile`](../packaging/daemon/Dockerfile) builds, and [Installing
+AgentBox](install.md#a-control-plane-in-a-cluster) has the container and its commands. The app's
+Setup page then lists each cluster's own checks instead of Incus's, and a project with no cluster set
+places its new agents with `auto`, because there is no host to run them on.
+
 `cluster add` (`internal/cli/cluster.go`, `internal/k8s`) keeps a namespace-scoped ServiceAccount
 token sealed and never keeps the admin kubeconfig. `cluster doctor` makes a 1Gi canary claim and,
 when an image is configured, a pod of it, and deletes both. Destroy deletes the pod, its token Secret
@@ -57,6 +63,9 @@ screenshot --display` are what prove it on a pod.
   ways.
 - Tailscale, when the daemon or the private git host is tailnet-only and the pods run elsewhere. A
   pod is not a tailnet peer; it reaches the tailnet through the operator's egress proxy.
+- A daemon that may have no Incus at all: with none it is a control plane, every agent is a pod in
+  its clusters, and Setup lists the clusters' checks instead of Incus's ([Installing
+  AgentBox](install.md#a-control-plane-in-a-cluster)).
 
 ## A local cluster
 
@@ -241,6 +250,12 @@ before the first cluster agent; the create refuses a project whose profile canno
 create` then waits up to five minutes for the pod's `agentd` to open its session, and the daemon
 clones the profile inside the pod, onto its claim. `--ai none` is what has been run on a pod so far;
 a tool is in the image, but no chat has run on a pod yet.
+
+`--cluster` can be left out when the installation has no Incus: its projects place their new agents
+with `auto`, which with one cluster is that cluster. On an installation that also runs agents on this
+machine, a project with no cluster set starts them here, so name the cluster: `--cluster agentbox` for
+one agent, or `agentbox project cluster demo agentbox` for every agent the project creates from then
+on.
 
 In the app, Settings, Clusters lists each cluster with its image, storage class, last error and a
 Doctor button, and Registries lists each one with or without a login, and a Test button. While a pod
@@ -480,6 +495,11 @@ again, and the events appear after it.
 | `workspace claim` | A 1Gi claim could not be made, or a class that binds at once never bound, which usually means no provisioner. A class that binds on first use passes. |
 | `registry` | Skipped when there is no login to apply (no registry, or one that needs none); otherwise the pull secret is missing from the namespace or is not a docker config. Add the cluster again, or rotate the registry. |
 | `image` | Skipped when no image is configured; otherwise the canary pod could not run, and the reason is in the detail, such as `ImagePullBackOff` or a pod that exited at once. |
+
+The app's Setup page has a check per cluster too, and it reads configuration only: the image the
+cluster is set to, its master URL, and whether the daemon's last attempt to reach it failed. It makes
+nothing in the cluster. `cluster doctor` is the deep one, with a canary claim and a canary pod, so
+when Setup calls a cluster fine and an agent still does not start there, the doctor is what says why.
 
 `kubectl -n agentbox logs ab-<project>-<agent>` shows `agentd`'s log, and `describe` shows the pod's
 events. A pod that stays `Pending` has nowhere to run or a claim that never bound; a pod in
