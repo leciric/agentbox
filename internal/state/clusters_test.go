@@ -337,6 +337,22 @@ func TestRegistryRoundTrips(t *testing.T) {
 	}
 }
 
+func TestARegistryWithNoLoginIsStoredEmpty(t *testing.T) {
+	st := openStore(t)
+	ctx := context.Background()
+	want := state.Registry{Name: "local", URL: "agentbox-registry.localhost:5000", Insecure: true, CreatedAt: time.Now().Truncate(time.Second)}
+	if err := st.AddRegistry(ctx, want); err != nil {
+		t.Fatalf("a registry with no login: %v", err)
+	}
+	got, err := st.Registry(ctx, "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.HasCredential() || len(got.SealedUsername) != 0 || len(got.CA) != 0 || !got.Insecure {
+		t.Errorf("registry = %+v, want an insecure one with no login and no CA", got)
+	}
+}
+
 func TestRegistryURLCannotBeAnAddress(t *testing.T) {
 	st := openStore(t)
 	ctx := context.Background()

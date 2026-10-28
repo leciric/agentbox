@@ -45,6 +45,16 @@ func (r Registry) HasCredential() bool { return len(r.SealedSecret) > 0 }
 
 const registryColumns = `name, url, sealed_username, sealed_secret, public, ca, insecure, created_at, last_seen, last_error`
 
+// emptyBlob is how an absent credential or CA is stored: the column's empty
+// blob, not NULL. sql turns a nil []byte into NULL, and the schema refuses
+// that, so a registry with no login could not be added at all.
+func emptyBlob(b []byte) []byte {
+	if b == nil {
+		return []byte{}
+	}
+	return b
+}
+
 // AddRegistry records a registry. Running it twice is an error rather than a
 // silent overwrite: the credential of the one that is there may be the only copy
 // of a token somebody no longer has.
@@ -58,7 +68,7 @@ func (s *Store) AddRegistry(ctx context.Context, reg Registry) error {
 	}
 	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO registries (`+registryColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		reg.Name, url, reg.SealedUsername, reg.SealedSecret, reg.Public, reg.CA, reg.Insecure,
+		reg.Name, url, emptyBlob(reg.SealedUsername), emptyBlob(reg.SealedSecret), reg.Public, emptyBlob(reg.CA), reg.Insecure,
 		reg.CreatedAt.Unix(), unixOrZero(reg.LastSeen), reg.LastError)
 	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
 		return fmt.Errorf("registry %s: %w", reg.Name, ErrExists)
