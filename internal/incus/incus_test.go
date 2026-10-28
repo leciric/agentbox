@@ -595,3 +595,31 @@ func TestCommandBuildsAnUnstartedCommandWithTheGivenArgs(t *testing.T) {
 		t.Errorf("Command().Args = %q", got)
 	}
 }
+
+func TestRetryPIDFailure(t *testing.T) {
+	race := errors.New("Error: Failed to retrieve PID of executing child process")
+	tries := 0
+	err := RetryPIDFailure(context.Background(), func() error {
+		tries++
+		if tries < 2 {
+			return race
+		}
+		return nil
+	})
+	if err != nil || tries != 2 {
+		t.Errorf("RetryPIDFailure() = %v after %d tries, want nil after 2", err, tries)
+	}
+
+	tries = 0
+	other := errors.New("exit status 1")
+	if err := RetryPIDFailure(context.Background(), func() error { tries++; return other }); err != other || tries != 1 {
+		t.Errorf("RetryPIDFailure() = %v after %d tries, want %v after 1", err, tries, other)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	tries = 0
+	err = RetryPIDFailure(ctx, func() error { tries++; cancel(); return race })
+	if !errors.Is(err, context.Canceled) || tries != 1 {
+		t.Errorf("RetryPIDFailure() = %v after %d tries, want it to stop when ctx is done", err, tries)
+	}
+}
