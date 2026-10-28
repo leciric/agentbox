@@ -648,12 +648,12 @@ function ReviewCarousel({
                     screen marked, so the way back to the media is always in
                     sight (D and I go to theirs and back, as does Esc). */}
                 <div role="tablist" aria-label={t('review.panes')} className="flex items-center gap-0.5 rounded-lg border border-line bg-surface-faint p-0.5" data-review-panes>
-                  <PaneTab on={pane === 'proof'} onClick={() => toggle('proof')} pane="proof">
+                  <PaneTab on={pane === 'proof'} onClick={() => setChosenPane('proof')} pane="proof">
                     <Images />
                     {t('review.media')}
                     {proofCount > 0 && <span className="tabular-nums text-subtle">{proofCount}</span>}
                   </PaneTab>
-                  <PaneTab on={pane === 'diff'} onClick={() => toggle('diff')} pane="diff">
+                  <PaneTab on={pane === 'diff'} onClick={() => setChosenPane('diff')} pane="diff">
                     <FileDiff />
                     {t('review.diff')}
                     {item.changes && item.changes.files > 0 && (
@@ -664,7 +664,7 @@ function ReviewCarousel({
                     {pendingNotes.length > 0 && <NotesCount n={pendingNotes.length} />}
                     <Hint k="D" />
                   </PaneTab>
-                  <PaneTab on={pane === 'details'} onClick={() => toggle('details')} pane="details">
+                  <PaneTab on={pane === 'details'} onClick={() => setChosenPane('details')} pane="details">
                     <Info />
                     {t('review.details')}
                     <Hint k="I" />
