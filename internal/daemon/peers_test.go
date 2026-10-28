@@ -46,6 +46,11 @@ func startPeerMachines(t *testing.T) peerMachines {
 	laptopEnv, vpsEnv := h.AddEnvironment("laptop"), h.AddEnvironment("vps")
 	laptop := startTestDaemon(t, t.TempDir(), fakeIncus)
 	vps := startTestDaemon(t, t.TempDir(), readyOneAgentIncus)
+	// The fake Incus can't run an adapter, so one launched here exits at once
+	// and reports the agent failed, racing the "working" notice this test
+	// waits for. This test drives the agent's notices itself, so a tool whose
+	// sessions stay up keeps that noise out of it.
+	vps.srv.chat.Launch = (&hangTool{}).launch
 	if err := (credentials.Store{Dir: vps.paths.Credentials()}).SaveClaudeToken("default", "sk-ant-oat01-vps"); err != nil {
 		t.Fatal(err)
 	}
