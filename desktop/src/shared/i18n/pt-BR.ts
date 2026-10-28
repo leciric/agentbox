@@ -2199,8 +2199,6 @@ export const ptBR: Messages = {
   'agent.rail.newAgentIn': 'Novo agente em {project}',
   'agent.rail.empty': 'Nenhum agente em {project} ainda.',
   'agent.rail.newAgent': 'Novo agente',
-  'agent.rail.remote.title': 'Em outras máquinas',
-  'agent.rail.remote.on': 'em {machine}',
   'agent.rail.remote.tip': 'Roda em {machine}, pelo seu hub. O chat do projeto o dirige e fica sabendo quando ele termina ou pergunta algo.',
   'agent.rail.remote.creating': 'Iniciando',
   'agent.rail.remote.working': 'Trabalhando',

@@ -24,7 +24,7 @@
 //   ?folded=1               the rail folded to 56px (default: open)
 //   ?open=agent-99          the named agent open, its row active (ref suffix only)
 //   ?remote=1               agents the lead runs on other machines of the hub
-//                           account, under the rail's own (dev/fixtures.ts)
+//                           account, among the rail's own (dev/fixtures.ts)
 //   ?finished=1             the rail's Finished section open (default: closed,
 //                           unless ?open names an agent in it)
 //   ?chat=agent-12          agent-12's conversation in the middle, blocked on a

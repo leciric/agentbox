@@ -63,7 +63,7 @@ export function AgentRail({ view, onSelect, onNewAgent, onClose, folded: foldedH
     setPagesAgent(ref);
     setRailTab('pages');
   };
-  const { agents, mine, moving, finished, stopped, done, disk, prs, lastReport, asking, mood, lead, remote } = rail;
+  const { agents, mine, moving, finished, stopped, done, disk, prs, lastReport, asking, mood, lead, remote, remoteMoving, remoteDone } = rail;
   const finishedOpen = rail.showFinished || finished.some((a) => view.kind === 'agent' && view.ref === a.ref);
   const setShowFinished = rail.setShowFinished;
   const onLead = view.kind === 'project';
@@ -221,8 +221,7 @@ export function AgentRail({ view, onSelect, onNewAgent, onClose, folded: foldedH
           {!agents.data && <RailSkeleton />}
 
           {moving.map((a) => row(a))}
-
-          {remote.length > 0 && <RemoteSection agents={remote} />}
+          {remoteMoving.map((a) => <RemoteRow key={`${a.machineId}/${a.name}`} agent={a} />)}
 
           {stopped.length > 0 && (
             <StoppedSection agents={stopped} disk={disk}>
@@ -230,9 +229,10 @@ export function AgentRail({ view, onSelect, onNewAgent, onClose, folded: foldedH
             </StoppedSection>
           )}
 
-          {done.length > 0 && (
-            <FinishedSection count={done.length} open={finishedOpen} onToggle={setShowFinished}>
+          {done.length + remoteDone.length > 0 && (
+            <FinishedSection count={done.length + remoteDone.length} open={finishedOpen} onToggle={setShowFinished}>
               {done.map((a) => row(a))}
+              {remoteDone.map((a) => <RemoteRow key={`${a.machineId}/${a.name}`} agent={a} />)}
             </FinishedSection>
           )}
 
@@ -302,8 +302,12 @@ export function useRailAgents(project: string | null) {
   const question = (ref: string) => (questions.data ?? []).find((q) => q.ref === ref && isAsking([q], ref))?.question;
   // The agents the lead runs on other machines of the hub account, as their
   // notices last described them: the daemon keeps those, not the agents.
+  // They sit among the rest: still at something with the moving ones,
+  // finished, failed or retired with the finished.
   const remote = fleet.data?.remote ?? [];
-  return { agents, loaded: !!agents.data, lead, mine, moving, finished, stopped, done, disk, prs, fleetOf, lastReport, lastSummary, asking, question, mood, showFinished, setShowFinished, remote };
+  const remoteMoving = remote.filter((a) => ['creating', 'working', 'asking'].includes(a.status));
+  const remoteDone = remote.filter((a) => !remoteMoving.includes(a));
+  return { agents, loaded: !!agents.data, lead, mine, moving, finished, stopped, done, disk, prs, fleetOf, lastReport, lastSummary, asking, question, mood, showFinished, setShowFinished, remote, remoteMoving, remoteDone };
 }
 
 // remoteMood is a remote agent's avatar, from what its last notice said.
@@ -323,10 +327,11 @@ function remoteMood(status: string): Mood {
   }
 }
 
-// RemoteSection is the agents the lead made on the user's other machines,
-// each with its machine's name. They run there, so a row opens nothing here:
-// the project chat directs them, and its tip says what they last reported.
-export function RemoteSection({ agents }: { agents: T.RemoteAgent[] }) {
+// RemoteRow is an agent the lead made on another of the user's machines,
+// among this machine's agents with a label naming its machine. It runs there,
+// so the row opens nothing here: the project chat directs it, and its tip
+// says what it last reported.
+export function RemoteRow({ agent: a }: { agent: T.RemoteAgent }) {
   const t = useT();
   const statusText: Record<string, string> = {
     creating: t('agent.rail.remote.creating'),
@@ -337,29 +342,23 @@ export function RemoteSection({ agents }: { agents: T.RemoteAgent[] }) {
     retired: t('agent.rail.remote.retired'),
   };
   return (
-    <section className="mt-1.5 border-t border-line-faint pt-1.5" data-rail-remote>
-      <div className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-subtle">
-        <Server className="size-3.5 shrink-0" />
-        {t('agent.rail.remote.title')}
-        <span className="rounded-full bg-surface-raised px-1.5 text-[10.5px] font-normal normal-case tracking-normal tabular-nums">{agents.length}</span>
-      </div>
-      {agents.map((a) => (
-        <Tip key={`${a.machineId}/${a.name}`} side="left" className="max-w-72" label={a.summary || t('agent.rail.remote.tip', { machine: a.machine })}>
-          <div data-remote-agent={`${a.name}@${a.machine}`} className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 xl:py-2.5">
-            <AgentAvatar ai="claude" mood={remoteMood(a.status)} seed={`${a.machineId}/${a.name}`} />
-            <span className="min-w-0 flex-1">
-              <span className="flex min-w-0 items-center gap-1.5">
-                <span className="truncate text-[13px] font-medium text-secondary">{a.title || a.name}</span>
-                <span className="max-w-[45%] shrink-0 truncate rounded-md bg-surface-raised px-1.5 text-[10.5px] text-subtle">{t('agent.rail.remote.on', { machine: a.machine })}</span>
-              </span>
-              <span className="block truncate text-[11px] text-subtle">
-                {a.name} · {statusText[a.status] ?? a.status} · {timeAgo(a.updatedAt)}
-              </span>
+    <Tip side="left" className="max-w-72" label={a.summary || t('agent.rail.remote.tip', { machine: a.machine })}>
+      <div data-remote-agent={`${a.name}@${a.machine}`} className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 xl:py-2.5">
+        <AgentAvatar ai="claude" mood={remoteMood(a.status)} seed={`${a.machineId}/${a.name}`} />
+        <span className="min-w-0 flex-1">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-[13px] font-medium text-secondary">{a.title || a.name}</span>
+            <span className="flex max-w-[45%] shrink-0 items-center gap-1 rounded-md bg-surface-raised px-1.5 text-[10.5px] text-subtle">
+              <Server className="size-3 shrink-0" />
+              <span className="truncate">{a.machine}</span>
             </span>
-          </div>
-        </Tip>
-      ))}
-    </section>
+          </span>
+          <span className="block truncate text-[11px] text-subtle">
+            {statusText[a.status] ?? a.status} · {timeAgo(a.updatedAt)}
+          </span>
+        </span>
+      </div>
+    </Tip>
   );
 }
 

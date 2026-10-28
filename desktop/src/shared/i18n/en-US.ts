@@ -2198,8 +2198,6 @@ export const enUS = {
   'agent.rail.newAgentIn': 'New agent in {project}',
   'agent.rail.empty': 'No agents yet in {project}.',
   'agent.rail.newAgent': 'New agent',
-  'agent.rail.remote.title': 'On other machines',
-  'agent.rail.remote.on': 'on {machine}',
   'agent.rail.remote.tip': 'Runs on {machine}, through your hub. The project chat directs it, and hears when it finishes or asks.',
   'agent.rail.remote.creating': 'Starting',
   'agent.rail.remote.working': 'Working',
