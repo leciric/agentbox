@@ -50,6 +50,18 @@ type target struct {
 	active string // the profile the file has active, for a note when this command acts here instead
 }
 
+// where is the machine a sentence can name: its address, or this one.
+func (t target) where() string {
+	switch {
+	case t.url != "":
+		return t.url
+	case t.env != "":
+		return "the environment " + t.env
+	default:
+		return "this machine"
+	}
+}
+
 // describe is the target as `agentbox use` and the banner print it.
 func (t target) describe() string {
 	switch {
@@ -354,7 +366,7 @@ func NewRootCmd() *cobra.Command {
 			if err != nil {
 				// A file this command can't read breaks nothing here: a
 				// machine-only command acts on this machine whatever it says.
-				if !localOnly[topCommand(cmd)] {
+				if !localOnlyCommand(cmd) {
 					return err
 				}
 				profiles = newProfiles()
@@ -363,13 +375,13 @@ func NewRootCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if localOnly[topCommand(cmd)] {
+			if localOnlyCommand(cmd) {
 				if a.server != "" || a.env != "" {
 					how := "--env"
 					if a.server != "" {
 						how = "--server"
 					}
-					return fmt.Errorf("agentbox %s works on this machine only, not with %s", topCommand(cmd), how)
+					return fmt.Errorf("%s works on this machine only, not with %s", cmd.CommandPath(), how)
 				}
 				// A profile is not the user asking this command to run
 				// elsewhere: this one acts here, and the banner says so when a

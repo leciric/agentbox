@@ -443,7 +443,6 @@ func TestEnvFlagRefusesLocalOnlyCommands(t *testing.T) {
 	isolate(t)
 	for _, args := range [][]string{
 		{"--env", "prod", "shell", "pawly/agent-01"},
-		{"--env", "prod", "auth", "status"},
 		{"--env", "prod", "host", "check"},
 	} {
 		if _, err := run(t, "", args...); err == nil || !strings.Contains(err.Error(), "works on this machine only, not with --env") {
