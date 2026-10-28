@@ -199,10 +199,15 @@ func (m podMachine) ExecInput(ctx context.Context, stdin io.Reader, command ...s
 	return out.String(), err
 }
 
+// UserExec runs one command as user. Not a login shell: agentd already runs as
+// the agent, and Debian's /etc/profile resets PATH in one, which drops the
+// image's /usr/local/lib/nodejs/bin and with it node and every ACP adapter npm
+// installed there. sh -c keeps the PATH the image sets, which is the one the
+// terminal's tmux already gets.
 func (m podMachine) UserExec(ctx context.Context, user, command string, stdin io.Reader, stdout, stderr io.Writer) error {
 	return m.execStream(ctx, gateway.Header{
 		Op:   gateway.OpExec,
-		Argv: []string{"sh", "-lc", command},
+		Argv: []string{"sh", "-c", command},
 		User: user,
 	}, stdin, stdout, stderr)
 }
@@ -839,7 +844,7 @@ func exitStatus(code int) error {
 	return &incus.ExitError{Code: code}
 }
 
-// quoteForShell quotes s for the sh -lc command line UserExec runs, since a
+// quoteForShell quotes s for the sh -c command line UserExec runs, since a
 // path from outside the pod can hold a space or a quote.
 func quoteForShell(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
