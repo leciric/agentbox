@@ -8,7 +8,7 @@ import { columnWidths, delimiterOf, parseDelimited } from '../../lib/delimited';
 import { diffRows, formatSize, highlightLimit, isMarkdown, languageOfPath, type Status } from '../../lib/files';
 import { highlight } from '../../lib/highlight';
 import { useT } from '../../lib/i18n';
-import { useMode } from '../../lib/theme';
+import { useLook } from '../../lib/theme';
 import { cn, errorMessage } from '../../lib/utils';
 import { Markdown } from '../chat/Markdown';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '../ui/menu';
@@ -264,19 +264,19 @@ function CodeLines({ text, path, line, nonce }: { text: string; path: string; li
   }, [text]);
   const columns = useMemo(() => widthOf(lines), [lines]);
   const lang = text.length <= highlightLimit ? languageOfPath(path) : undefined;
-  const mode = useMode();
-  const [tokens, setTokens] = useState<{ text: string; mode: string; lines: ThemedToken[][] } | null>(null);
+  const look = useLook();
+  const [tokens, setTokens] = useState<{ text: string; look: string; lines: ThemedToken[][] } | null>(null);
   useEffect(() => {
     if (!lang) return;
     let current = true;
     highlight(text, lang)
-      .then((result) => current && setTokens({ text, mode, lines: result }))
+      .then((result) => current && setTokens({ text, look, lines: result }))
       .catch(() => {});
     return () => {
       current = false;
     };
-  }, [text, lang, mode]);
-  const highlighted = tokens?.text === text && tokens.mode === mode ? tokens.lines : null;
+  }, [text, lang, look]);
+  const highlighted = tokens?.text === text && tokens.look === look ? tokens.lines : null;
 
   const scroller = useRef<HTMLDivElement>(null);
   const { start, end } = useWindow(scroller, lines.length, lineHeight, 40);

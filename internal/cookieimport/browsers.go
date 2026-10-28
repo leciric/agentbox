@@ -39,7 +39,7 @@ type Profile struct {
 	Name        string `json:"name"`
 	// Keyring names the browser's entry in the host keyring (the
 	// `application` attribute of its Secret Service item: chrome, chromium,
-	// brave, msedge, vivaldi), empty for Firefox, whose store needs no key.
+	// brave, msedge, vivaldi, arc), empty for Firefox, whose store needs no key.
 	Keyring string `json:"keyring,omitempty"`
 	dir     string
 	db      string
@@ -102,6 +102,9 @@ var browsers = []browser{
 		[]string{"Library/Application Support/Vivaldi"},
 		[]string{".config/vivaldi"},
 		nil),
+	chromium("arc", "Arc", "arc",
+		[]string{"Library/Application Support/Arc/User Data"},
+		nil, nil),
 	{id: "firefox", name: "Firefox", engine: EngineFirefox, roots: map[string][]string{
 		"darwin":  {"Library/Application Support/Firefox"},
 		"linux":   {".mozilla/firefox", "snap/firefox/common/.mozilla/firefox"},

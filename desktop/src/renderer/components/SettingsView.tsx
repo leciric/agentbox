@@ -15,6 +15,7 @@ import {
   CircleDashed,
   Copy,
   Cpu,
+  Droplet,
   ExternalLink,
   FlaskConical,
   KeyRound,
@@ -2626,11 +2627,12 @@ function LanguageSetting() {
 // applies to the agents' desktops as well, which the copy says, since nothing
 // else on this page reaches into an agent's window.
 //
-// Three choices and no more. Wearing the desktop's theme means wearing its
-// mode too, so "follow" already covers a light desktop; what light and dark are
-// for is the person who wants AgentBox one way round whatever Omarchy is doing.
-// Pinning is AgentBox's own palette by definition, so it is also how you keep
-// its own colours on a machine that has a theme.
+// Wearing the desktop's theme means wearing its mode too, so "follow" already
+// covers a light desktop; what light and dark are for is the person who wants
+// AgentBox one way round whatever Omarchy is doing. Pinning is AgentBox's own
+// palette by definition, so it is also how you keep its own colours on a
+// machine that has a theme. Dracula is the one theme AgentBox carries itself,
+// worn like a followed one, on agents' desktops too.
 //
 // On a machine with no theme to follow, following is still offered and still
 // says what it would do — and says there is nothing to follow — rather than
@@ -2643,6 +2645,7 @@ const appearances: {
   { value: "follow", label: "settings.appearance.follow", icon: Monitor },
   { value: "light", label: "settings.appearance.light", icon: Sun },
   { value: "dark", label: "settings.appearance.dark", icon: Moon },
+  { value: "dracula", label: "settings.appearance.dracula", icon: Droplet },
 ];
 
 function Appearance() {
@@ -2700,9 +2703,11 @@ function Appearance() {
             />
             <span data-theme-name>
               {t.rich(
-                current === "follow"
-                  ? "settings.appearance.onThemeFollowing"
-                  : "settings.appearance.onThemeNot",
+                current === "dracula"
+                  ? "settings.appearance.onDracula"
+                  : current === "follow"
+                    ? "settings.appearance.onThemeFollowing"
+                    : "settings.appearance.onThemeNot",
                 {
                   name: (
                     <span className="text-tertiary">

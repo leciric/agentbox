@@ -1864,7 +1864,23 @@ export function seedSettings(queryClient: QueryClient): void {
   queryClient.setQueryData(['update'], devState.update ?? ({ current: '0.7.0', enabled: true, channel: 'stable' } satisfies T.UpdateStatus));
   // Tokyo Night in the mode the page asks for: a light page given the dark
   // palette's background would paint the window's ink mid-grey.
-  const light = new URLSearchParams(location.search).get('theme') === 'light';
+  const asked = new URLSearchParams(location.search).get('theme');
+  const light = asked === 'light';
+  if (asked === 'dracula') {
+    queryClient.setQueryData(['theme'], {
+      appearance: 'dracula',
+      available: true,
+      name: 'Dracula',
+      mode: 'dark',
+      background: '#282a36',
+      surface: '#44475a',
+      foreground: '#f8f8f2',
+      muted: '#6272a4',
+      accent: '#bd93f9',
+    } satisfies T.Theme);
+    queryClient.setQueryData(['host-setup'], {});
+    return;
+  }
   queryClient.setQueryData(['theme'], {
     appearance: 'follow',
     available: true,
