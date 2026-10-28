@@ -48,6 +48,40 @@ func TestPodInfoIsRunningOnlyForAnAdoptedPod(t *testing.T) {
 	}
 }
 
+// TestPodInfoFollowsAConnectedSession checks the state a create can leave for
+// a few seconds: the pod's agentd is connected before the reconciler's next
+// round writes the pod into the row, and an agent that answers is running.
+func TestPodInfoFollowsAConnectedSession(t *testing.T) {
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	addPodProject(t, d)
+	if err := d.srv.store.AddAgent(ctx, state.Agent{
+		Project: testPodRef.Project, Name: testPodRef.Agent, Cluster: "e2e", AI: "none",
+		Branch: "agentbox/agent-01", DesiredState: state.DesiredRunning, Status: state.AgentReady,
+		CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.srv.store.SetAgentToken(ctx, testPodRef.Project, testPodRef.Agent, testPodToken, time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	p := podLifecycle{s: d.srv}
+	if info, err := p.Info(ctx, testPodRef); err != nil || info.State != "Stopped" {
+		t.Fatalf("before a session, Info() = %+v, %v, want Stopped", info, err)
+	}
+	startPodHandle(t, d.srv.gateway, d.srv.routes(), testPodToken, podCommand(0))
+	if info, err := p.Info(ctx, testPodRef); err != nil || info.State != "Running" {
+		t.Fatalf("with its session, Info() = %+v, %v, want Running", info, err)
+	}
+	// A row the user stopped is stopped, whatever session is still going.
+	if err := d.srv.store.SetAgentDesiredState(ctx, testPodRef.Project, testPodRef.Agent, state.DesiredStopped); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := p.Info(ctx, testPodRef); err != nil || info.State != "Stopped" {
+		t.Fatalf("a stopped row with a session, Info() = %+v, %v, want Stopped", info, err)
+	}
+}
+
 // clusterWithFakeClient stores cluster and hands the daemon the fake client the
 // reconciler tests use, without opening its sealed kubeconfig: the client cache
 // is keyed by the cluster's name, namespace and sealed bytes, so this is the
