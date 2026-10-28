@@ -24,6 +24,7 @@ import (
 	"agentbox/internal/acp"
 	"agentbox/internal/api"
 	"agentbox/internal/hatch"
+	"agentbox/internal/incus"
 	"agentbox/internal/state"
 	"agentbox/internal/trace"
 )
@@ -1900,22 +1901,7 @@ func (c *conversation) connect(ad *adapter) error {
 			c.mu.Unlock()
 		}
 	}
-	proc, err := c.m.Launch(context.Background(), a, status)
-	if err != nil {
-		return err
-	}
-	c.mu.Lock()
-	ad.proc = proc
-	if c.adapter != ad {
-		c.mu.Unlock()
-		return errStopped
-	}
-	ad.conn = acp.NewConn(proc.Stdout, proc.Stdin, handler{c: c, ad: ad})
-	previous := c.stored.SessionID
-	c.mu.Unlock()
-
-	ctx, cancel := context.WithTimeout(context.Background(), startTimeout)
-	defer cancel()
+	var proc *Process
 	explain := func(err error) error {
 		var rpcErr *acp.Error
 		switch {
@@ -1929,17 +1915,50 @@ func (c *conversation) connect(ad *adapter) error {
 		return err
 	}
 
+	// Incus' exec race can end the adapter before it answers anything, with
+	// "Failed to retrieve PID of executing child process" on its stderr:
+	// nothing ran, so it is launched again, the way WriteFile retries it.
 	var init acp.InitializeResponse
-	err = ad.conn.Call(ctx, acp.MethodInitialize, acp.InitializeRequest{
-		ProtocolVersion: acp.ProtocolVersion,
-		// Subagents as sessions of their own, each shown as a card (D86).
-		// An adapter that doesn't know the capability ignores it.
-		ClientCapabilities: acp.ClientCapabilities{Subagents: &struct{}{}, Meta: acp.SubagentSessionsMeta()},
-		ClientInfo:         &acp.Implementation{Name: "agentbox", Title: "AgentBox", Version: c.m.Version},
-	}, &init)
+	err := incus.RetryPIDFailure(context.Background(), func() error {
+		if proc != nil {
+			c.m.logf("chat %s: %s exited as it started (%s), starting it again", a.Ref(), tool, lastLine(proc.Stderr()))
+			proc.Stop()
+			_ = proc.Stdout.Close()
+			proc = nil
+		}
+		launched, err := c.m.Launch(context.Background(), a, status)
+		if err != nil {
+			return err
+		}
+		proc = launched
+		c.mu.Lock()
+		ad.proc = proc
+		if c.adapter != ad {
+			c.mu.Unlock()
+			return errStopped
+		}
+		ad.conn = acp.NewConn(proc.Stdout, proc.Stdin, handler{c: c, ad: ad})
+		c.mu.Unlock()
+		ctx, cancel := context.WithTimeout(context.Background(), startTimeout)
+		defer cancel()
+		init = acp.InitializeResponse{}
+		return explain(ad.conn.Call(ctx, acp.MethodInitialize, acp.InitializeRequest{
+			ProtocolVersion: acp.ProtocolVersion,
+			// Subagents as sessions of their own, each shown as a card (D86).
+			// An adapter that doesn't know the capability ignores it.
+			ClientCapabilities: acp.ClientCapabilities{Subagents: &struct{}{}, Meta: acp.SubagentSessionsMeta()},
+			ClientInfo:         &acp.Implementation{Name: "agentbox", Title: "AgentBox", Version: c.m.Version},
+		}, &init))
+	})
 	if err != nil {
-		return explain(err)
+		return err
 	}
+	c.mu.Lock()
+	previous := c.stored.SessionID
+	c.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), startTimeout)
+	defer cancel()
 
 	mcp := []acp.McpServer{} // the agent's own configuration gives the tools their MCP servers
 	var meta map[string]any
@@ -2149,6 +2168,7 @@ func (c *conversation) prompt(ad *adapter, t *turn) {
 		err := ad.err
 		if !errors.Is(err, errStopped) {
 			err = fmt.Errorf("%s didn't start: %w", ToolNames[c.agent.AI], err)
+			c.carryUndelivered(t)
 		}
 		c.finishTurn(t, nil, err)
 		c.mu.Unlock()
@@ -2213,6 +2233,27 @@ func (c *conversation) prompt(ad *adapter, t *turn) {
 			}
 		}
 		c.finishTurn(t, &res, nil)
+	}
+}
+
+// carryUndelivered keeps the message of a turn whose tool never started for
+// the next turn to send ahead of its own: an agent's task, sent as its first
+// turn, would otherwise be lost to a failed start, and the next message
+// ("carry on") reach a session that was never told it. It goes into the
+// handoff, which is saved and cleared once a turn has carried it. Caller
+// holds c.mu.
+func (c *conversation) carryUndelivered(t *turn) {
+	if strings.TrimSpace(t.text) == "" {
+		return
+	}
+	note := "[AgentBox: this message was sent to you earlier, but " + ToolNames[c.agent.AI] +
+		" failed to start and it never reached you. Act on it as if it had just arrived.]\n\n" + t.text
+	if c.stored.Handoff != "" {
+		note = c.stored.Handoff + "\n\n---\n\n" + note
+	}
+	c.stored.Handoff = note
+	if err := c.m.Store.SaveChat(context.Background(), c.agent.Project, c.agent.Name, c.stored); err != nil {
+		c.m.logf("chat %s: %v", c.agent.Ref(), err)
 	}
 }
 
