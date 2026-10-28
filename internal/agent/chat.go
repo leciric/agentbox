@@ -205,7 +205,14 @@ func (m *Manager) chatScript(ctx context.Context, a state.Agent, status func(det
 		// claude-agent-acp` asks env for a program called exec, which is exit
 		// 127 before the adapter is ever reached. The Incus path above has the
 		// same order.
-		return fmt.Sprintf("cd %s && exec %s%s", shellQuote(m.Worktree(a)), m.withoutCredentials(a, hide), command), nil
+		//
+		// The env file goes first, because a pod's sh -c sources nothing: it is
+		// where this agent's tool token, its GitHub token and the worker counts
+		// come from, and an Incus chat gets it from the login shell it starts
+		// in. A machine without the file starts as it is.
+		env := shellQuote(m.envPath(a))
+		load := fmt.Sprintf("if [ -r %[1]s ]; then . %[1]s; fi; ", env)
+		return load + fmt.Sprintf("cd %s && exec %s%s", shellQuote(m.Worktree(a)), m.withoutCredentials(a, hide), command), nil
 
 	}
 	overrides, err := m.Store.ToolOverrides(ctx)
