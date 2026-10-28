@@ -288,6 +288,15 @@ function RightPanel({ project, chat, width, drawer, onSelect, onNewAgent }: { pr
   const over = !!(panel.wide || preview);
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const projectName = projectLabel(project, projects.data);
+  // A project can turn its Pull requests tab off (Project.pullRequests), and
+  // with it the polling for its counts; until the projects are read, it's off.
+  const pullsTab = !!projects.data?.find((p) => p.name === project)?.pullRequests;
+  // Turned off while the lead's panel showed them, or opened by a link since,
+  // the pull requests give way to the agents.
+  const pullsGone = lead && panel.wide === 'pulls' && projects.isSuccess && !pullsTab;
+  useEffect(() => {
+    if (pullsGone) setLeadTab(project, 'agents');
+  }, [pullsGone, project]);
   // An agent of an Android project, or with an emulator running, has Android
   // on its switch, as in v1's tabs (AgentView); booted, with a green dot.
   const live = whose?.kind === 'agent' ? whose.agent : undefined;
@@ -343,7 +352,7 @@ function RightPanel({ project, chat, width, drawer, onSelect, onNewAgent }: { pr
             {titleOf(preview.kind, preview.code, t(`chat.rich.${preview.kind}`))}
           </span>
         ) : home ? (
-          <LeadSwitch project={project} tab={leadTab(state, project)} files={view === 'files'} count={agents.length} />
+          <LeadSwitch project={project} tab={leadTab(state, project)} files={view === 'files'} count={agents.length} pullsTab={pullsTab} />
         ) : whose ? (
           <WhoseTitle project={project} chat={chat} whose={whose} roomy={fit.named} onSelect={onSelect} />
         ) : (
@@ -432,10 +441,11 @@ function WhoseTitle({ project, chat, whose, roomy, onSelect }: { project: string
 // Timeline, from the ⋯, lights none.
 // Only the lit one is named, at any width, the others by their icon and count
 // (Pull requests by those ready only, when some are: how many are open is
-// in its tooltip).
-function LeadSwitch({ project, tab, files, count }: { project: string; tab: LeadTab; files: boolean; count: number }) {
+// in its tooltip). A project that turned Pull requests off has no such tab,
+// and nothing asks for its counts.
+function LeadSwitch({ project, tab, files, count, pullsTab }: { project: string; tab: LeadTab; files: boolean; count: number; pullsTab: boolean }) {
   const t = useT();
-  const pulls = useQuery({ queryKey: ['pulls', project], queryFn: () => api.projectPullRequests(project), refetchInterval: 60_000 });
+  const pulls = useQuery({ queryKey: ['pulls', project], queryFn: () => api.projectPullRequests(project), refetchInterval: 60_000, enabled: pullsTab });
   const open = (pulls.data?.pullRequests ?? []).filter((pr) => pr.state === 'open').length;
   const ready = useProjectReview(project, !!useOpenReview()).data?.items?.length ?? 0;
   const tabs: Record<LeadTab, { icon: LucideIcon; label: string; on: boolean; tip?: string }> = {
@@ -453,7 +463,7 @@ function LeadSwitch({ project, tab, files, count }: { project: string; tab: Lead
   };
   return (
     <div role="radiogroup" aria-label={t('panel.lead.switch')} className="flex min-w-0 shrink items-center rounded-lg border border-line bg-surface-faint p-0.5" data-panel-lead-switch={tab}>
-      {leadTabs.map((v) => {
+      {leadTabs.filter((v) => v !== 'pulls' || pullsTab).map((v) => {
         const { icon: Icon, label, on, tip } = tabs[v];
         const named = on;
         const button = (

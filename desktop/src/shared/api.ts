@@ -30,6 +30,7 @@ export interface Project {
   syncBase: boolean;
   fullTestSuite: boolean;
   pickUpIssues: boolean;
+  pullRequests: boolean;
   prWatching: boolean;
   createdAt: string;
   iconVersion: number;
@@ -91,6 +92,7 @@ export interface UpdateProjectRequest {
   syncBase?: boolean;
   fullTestSuite?: boolean;
   pickUpIssues?: boolean;
+  pullRequests?: boolean;
 }
 
 export interface Section {

@@ -591,6 +591,7 @@ export function buildFixtures(): FixtureData {
       pickUpIssues: false,
       prWatch: '',
       prWatching: true,
+      pullRequests: true,
       createdAt: new Date().toISOString(),
     },
     {
@@ -625,6 +626,7 @@ export function buildFixtures(): FixtureData {
       pickUpIssues: false,
       prWatch: '',
       prWatching: true,
+      pullRequests: true,
       createdAt: new Date().toISOString(),
     },
   ];

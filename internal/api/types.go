@@ -138,6 +138,10 @@ type Project struct {
 	// PickUpIssues is whether the project hands its open GitHub issues
 	// labelled IssueLabel to new agents by itself. Off by default.
 	PickUpIssues bool `json:"pickUpIssues"`
+	// PullRequests is whether the app shows this project's Pull requests
+	// tab, and reads the project's pull requests to keep its counts. On by
+	// default; off, the tab and its polling are gone.
+	PullRequests bool `json:"pullRequests"`
 	// PRWatching is what that comes to: whether they are watched now.
 	PRWatching bool      `json:"prWatching"`
 	CreatedAt  time.Time `json:"createdAt"`
@@ -348,6 +352,8 @@ type UpdateProjectRequest struct {
 	// PickUpIssues turns on or off handing the project's issues labelled
 	// IssueLabel to new agents by itself.
 	PickUpIssues *bool `json:"pickUpIssues,omitempty"`
+	// PullRequests turns on or off the project's Pull requests tab in the app.
+	PullRequests *bool `json:"pullRequests,omitempty"`
 }
 
 type AddProjectRequest struct {
