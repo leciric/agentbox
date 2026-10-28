@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"agentbox/internal/image"
 )
 
 // The tests never run Docker: what Build would run is BuildArgs, and what Push
@@ -13,6 +15,16 @@ import (
 
 func TestBuildArgsNamesTheDockerfileTheTagAndTheContext(t *testing.T) {
 	root := filepath.Join("src", "agentbox")
+	// Every build is told the OpenCode 2 pin, so the Dockerfile installs the
+	// one version an Incus base image does instead of repeating it.
+	opencode2 := []string{"--build-arg", "OPENCODE2_VERSION=" + image.OpenCode2Version}
+	// The build context is the last argument, and the build args go before it.
+	with := func(args ...string) []string {
+		context := args[len(args)-1]
+		out := append([]string{}, args[:len(args)-1]...)
+		out = append(out, opencode2...)
+		return append(out, context)
+	}
 	cases := []struct {
 		name string
 		opts Options
@@ -21,27 +33,27 @@ func TestBuildArgsNamesTheDockerfileTheTagAndTheContext(t *testing.T) {
 		{
 			name: "the whole file it is asked for",
 			opts: Options{Context: root, Image: "agentbox-agent:dev"},
-			want: []string{"build", "--file", filepath.Join(root, Dockerfile), "--tag", "agentbox-agent:dev", root},
+			want: with("build", "--file", filepath.Join(root, Dockerfile), "--tag", "agentbox-agent:dev", root),
 		},
 		{
 			name: "the dev stage only",
 			opts: Options{Context: root, Image: "agentbox-agent:dev", Stage: "dev"},
-			want: []string{"build", "--file", filepath.Join(root, Dockerfile), "--tag", "agentbox-agent:dev", "--target", "dev", root},
+			want: with("build", "--file", filepath.Join(root, Dockerfile), "--tag", "agentbox-agent:dev", "--target", "dev", root),
 		},
 		{
 			name: "the agent stage by name",
 			opts: Options{Context: root, Image: "hub.example.com/you/agentbox-agent:0.3.0", Stage: "agent"},
-			want: []string{"build", "--file", filepath.Join(root, Dockerfile), "--tag", "hub.example.com/you/agentbox-agent:0.3.0", "--target", "agent", root},
+			want: with("build", "--file", filepath.Join(root, Dockerfile), "--tag", "hub.example.com/you/agentbox-agent:0.3.0", "--target", "agent", root),
 		},
 		{
 			name: "no tag is the default one",
 			opts: Options{Context: root},
-			want: []string{"build", "--file", filepath.Join(root, Dockerfile), "--tag", DefaultImage, root},
+			want: with("build", "--file", filepath.Join(root, Dockerfile), "--tag", DefaultImage, root),
 		},
 		{
 			name: "no context is this directory",
 			opts: Options{Image: "agentbox-agent:dev"},
-			want: []string{"build", "--file", Dockerfile, "--tag", "agentbox-agent:dev", "."},
+			want: with("build", "--file", Dockerfile, "--tag", "agentbox-agent:dev", "."),
 		},
 	}
 	for _, c := range cases {

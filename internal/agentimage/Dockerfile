@@ -158,6 +158,23 @@ RUN set -eux; \
     done; \
     rm /tmp/tools.txt
 
+# OpenCode 2, beside the OpenCode 1 above: the same npm platform package
+# internal/image/provision.sh installs on an Incus base image, linked as
+# `opencode2` because it declares no `bin` entry of its own and must not shadow
+# `opencode`. Its version is image.OpenCode2Version, which
+# `agentbox image agent build` passes in, so there is one pin for both runtimes.
+# An installation that switches to OpenCode 2 chats through `opencode2 acp`, so
+# a pod without this answers "command not found" on its first turn.
+ARG OPENCODE2_VERSION
+RUN set -eux; \
+    [ -n "$OPENCODE2_VERSION" ] || { echo "OPENCODE2_VERSION is not set: build with agentbox image agent build, which passes image.OpenCode2Version" >&2; exit 1; }; \
+    npm install -g --no-fund --no-audit --cache /tmp/npm-cache "@opencode/cli-linux-x64@${OPENCODE2_VERSION}"; \
+    bin="$(npm root -g)/@opencode/cli-linux-x64/bin/opencode"; \
+    test -x "$bin"; \
+    ln -sfn "$bin" /usr/local/bin/opencode2; \
+    rm -rf /tmp/npm-cache; \
+    printf 'opencode2: '; opencode2 --version
+
 # The desktop an agent's browser and media work runs on: Xvnc, Chromium,
 # openbox, the dock, the file manager, a terminal, the fonts and ffmpeg. The
 # list mirrors the one internal/image/system.sh installs on an Incus base image,
