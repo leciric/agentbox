@@ -214,12 +214,14 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 		params["context_window"] = str("where its chat compacts. Settings → Models enforces " + defaultWindow +
 			" for every agent you create, so leave this out: any other window is refused.")
 	case defaultWindow == "1m":
-		params["context_window"] = str("where its chat compacts, \"200k\" or \"1m\" (not for Haiku). Leave this out for 1m, " +
-			"Settings → Models' default and the most it allows. Late in a long task 1m costs up to twice as much a step: " +
-			"choose 200k unless the work needs a very large codebase or log in view at once.")
+		params["context_window"] = str("where its chat compacts, as \"200k\" or \"1m\". Any window from " +
+			state.FormatContextWindow(state.MinContextWindow) + " up to the model's whole window works, and a longer one is refused " +
+			"(Haiku's whole window is 200k). Leave this out for 1m, Settings → Models' default and the most it allows. " +
+			"Late in a long task 1m costs up to twice as much a step: choose 200k unless the work needs a very large codebase or log in view at once.")
 	default:
-		params["context_window"] = str("where its chat compacts. Leave this out for " + defaultWindow +
-			", Settings → Models' default, which is also the most it allows: a longer one is refused.")
+		params["context_window"] = str("where its chat compacts, as \"200k\" or \"1m\". Leave this out for " + defaultWindow +
+			", Settings → Models' default, which is also the most you may use: pass any window from " +
+			state.FormatContextWindow(state.MinContextWindow) + " up to " + defaultWindow + ", and a longer one is refused.")
 	}
 	return params, auto, readyTools{openCode: openCode, cursor: cursorReady}
 }
