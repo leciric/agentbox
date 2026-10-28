@@ -1430,7 +1430,8 @@ export interface ToolAccount {
 export interface ToolAccountRequest {
   account?: string;
   provider?: string;
-  apiKey: string;
+  apiKey?: string;
+  auth?: unknown;
 }
 
 export interface RenameToolAccountRequest {

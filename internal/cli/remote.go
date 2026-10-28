@@ -423,16 +423,16 @@ func (a *app) findEnvironment(ctx context.Context, name string) (savedHub, api.H
 
 // localOnly are commands that work on this machine only, so --env and --server
 // can't apply, and the active profile doesn't either: they act here and say so.
-// They are command paths, so a family can be here without its siblings:
-// `auth codex` runs the host's own `codex login`, while `auth claude` stores its
-// login on whichever daemon the profile names.
+// `auth` is not one of them: logging in to a tool runs here, where the terminal
+// and the browser are, but the login is stored on the daemon the profile names
+// (`agentbox auth codex|opencode`), or the daemon does the login itself
+// (`auth claude`, `auth cursor --login`).
 var localOnly = []string{
 	"agentbox shell", "agentbox exec",
 	"agentbox host", "agentbox daemon", "agentbox agentd", "agentbox server",
 	"agentbox remote", "agentbox tailnet", "agentbox login", "agentbox logout",
 	"agentbox env", "agentbox path", "agentbox machines", "agentbox debug",
 	"agentbox backup", "agentbox profile", "agentbox use", "agentbox doctor",
-	"agentbox auth codex", "agentbox auth opencode", "agentbox auth cursor",
 }
 
 // localOnlyCommand is whether cmd is one of them, by its whole path.
