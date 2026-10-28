@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -95,16 +96,28 @@ func (s *Server) addProjectFrom(w http.ResponseWriter, r *http.Request, req api.
 	if req.Create {
 		return s.createProject(w, r, req)
 	}
-	repo, err := gitrepo.Open(req.Path)
+	p, err := s.addProjectRepo(r.Context(), req)
 	if err != nil {
 		return err
 	}
+	return writeJSON(w, http.StatusCreated, s.projectInfo(r.Context(), p))
+}
+
+// addProjectRepo adds an existing repository as a project: addProjectFrom's
+// work, for a caller with no request to answer, such as another machine's
+// lead (peers.go).
+func (s *Server) addProjectRepo(ctx context.Context, req api.AddProjectRequest) (state.Project, error) {
+	fail := func(err error) (state.Project, error) { return state.Project{}, err }
+	repo, err := gitrepo.Open(req.Path)
+	if err != nil {
+		return fail(err)
+	}
 	diskErr := checkProjectDisk(repo.Root, hostos.WSL())
 	if diskErr != nil && !req.CopyToLinux {
-		return diskErr
+		return fail(diskErr)
 	}
 	if !repo.HasCommits() {
-		return fmt.Errorf("%s has no commits yet: agents branch from a commit", repo.Root)
+		return fail(fmt.Errorf("%s has no commits yet: agents branch from a commit", repo.Root))
 	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
@@ -112,40 +125,36 @@ func (s *Server) addProjectFrom(w http.ResponseWriter, r *http.Request, req api.
 	}
 	if diskErr != nil {
 		// Checked before copying, so a name that's taken doesn't leave a copy behind.
-		if err := s.projectNameFree(r.Context(), name); err != nil {
-			return err
+		if err := s.projectNameFree(ctx, name); err != nil {
+			return fail(err)
 		}
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return err
+			return fail(err)
 		}
-		slug, err := s.store.ProjectSlug(r.Context(), name)
+		slug, err := s.store.ProjectSlug(ctx, name)
 		if err != nil {
-			return err
+			return fail(err)
 		}
 		copied, err := gitrepo.Clone(repo, filepath.Join(home, "src", slug))
 		if err != nil {
-			return fmt.Errorf("copying %s into WSL: %w", repo.Root, err)
+			return fail(fmt.Errorf("copying %s into WSL: %w", repo.Root, err))
 		}
 		repo = copied
 	}
 	claudeAccount, githubAccount := strings.TrimSpace(req.ClaudeAccount), strings.TrimSpace(req.GitHubAccount)
 	if err := s.checkClaudeAccount(claudeAccount); err != nil {
-		return err
+		return fail(err)
 	}
 	if err := s.checkGitHubAccount(githubAccount); err != nil {
-		return err
+		return fail(err)
 	}
 	tools, err := s.newProjectToolAccounts(req)
 	if err != nil {
-		return err
+		return fail(err)
 	}
-	p, err := s.registerProject(r.Context(), state.Project{DisplayName: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now(),
+	return s.registerProject(ctx, state.Project{DisplayName: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now(),
 		CodexAccount: tools.CodexAccount, OpenCodeAccounts: tools.OpenCodeAccounts, CursorAccount: tools.CursorAccount})
-	if err != nil {
-		return err
-	}
-	return writeJSON(w, http.StatusCreated, s.projectInfo(r.Context(), p))
 }
 
 // createProject is addProject for AddProjectRequest.Create: everything that
@@ -1248,7 +1257,15 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 				// failure that only Create itself could find — the machine
 				// couldn't be copied, the name collided — is news the chat
 				// is still waiting on, the same as a finish it asked for.
-				s.tellLead(ctx, req.Project, fmt.Sprintf("create_agent failed: %v", err), true)
+				failed := fmt.Sprintf("create_agent failed: %v", err)
+				if req.OriginID != "" {
+					s.sendPeerEvent(req.OriginID, req.OriginName, peerEvent{
+						Project: req.OriginProject, Agent: cmp.Or(req.Name, req.Title, "(new agent)"), Title: req.Title,
+						Status: state.RemoteFailed, Summary: failed, Notice: failed, Act: true,
+					})
+				} else {
+					s.tellLead(ctx, req.Project, failed, true)
+				}
 			}
 			// One the job's cancel stopped didn't fail.
 			if ctx.Err() == nil {
@@ -1257,6 +1274,18 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 			}
 			s.setupStepFailed(context.WithoutCancel(ctx), setupReport{step: setupFirstAgent, took: time.Since(began)}, err)
 			return nil, err
+		}
+		if req.OriginID != "" {
+			// Before its task is sent, so that its first notice already
+			// goes back to the lead that asked for it.
+			if err := s.store.AddPeerAgent(ctx, state.PeerAgent{
+				Project: a.Project, Agent: a.Name, OriginID: req.OriginID, OriginName: req.OriginName, OriginProject: req.OriginProject, CreatedAt: time.Now(),
+			}); err != nil {
+				s.logf("peers: remembering that %s's lead made %s: %v", req.OriginName, a.Ref(), err)
+			}
+			s.sendPeerEvent(req.OriginID, req.OriginName, peerEvent{
+				Project: req.OriginProject, Agent: a.Name, Title: a.Title, Branch: a.Branch, Status: state.RemoteWorking,
+			})
 		}
 		s.countFeature(agentFeature(a.AI, api.FeatureAgentCreateClaude, api.FeatureAgentCreateCodex, api.FeatureAgentCreateOpenCode, api.FeatureAgentCreateCursor))
 		s.countCreatedModel(ctx, a)

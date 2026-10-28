@@ -87,6 +87,11 @@ const (
 	// the environment (HubEnvironment.Address); devices on the tailnet reach
 	// the environment there, never through the hub.
 	PathEnvironmentAddress = "/v1/environment/address"
+	// PathPeers is where an environment lists the other environments of its
+	// owner, with its environment token: GET, []HubEnvironment, itself left
+	// out. A lead on one machine directs agents on another through them
+	// (PeerAPI). A hub that predates peers answers 404.
+	PathPeers = "/v1/environment/peers"
 	// PathHealth answers without a session, for a load balancer.
 	PathHealth = "/healthz"
 )
@@ -109,6 +114,25 @@ const (
 func EnvironmentAPI(id string) string {
 	return PathEnvironments + "/" + id + "/api"
 }
+
+// PeerAPI is EnvironmentAPI for an environment reaching a peer: another
+// environment of the same owner, with its own environment token rather than a
+// device's session. The hub refuses a peer of another owner as if it didn't
+// exist, and tells the peer who is asking in HeaderPeer and HeaderPeerName,
+// which it strips from every other request it passes through, so an
+// environment trusts them only on a request from its hub.
+//
+// The id is the peer's, and must already be escaped for a path.
+func PeerAPI(id string) string {
+	return PathPeers + "/" + id + "/api"
+}
+
+// What a hub tells an environment about the peer whose request it passes
+// through (PeerAPI): the peer's environment ID and name.
+const (
+	HeaderPeer     = "X-AgentBox-Peer"
+	HeaderPeerName = "X-AgentBox-Peer-Name"
+)
 
 // The transports a hub gives environments' devices a direct address on, rather
 // than through its own proxy. TransportCloudflare is a Cloudflare Tunnel on a

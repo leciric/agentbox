@@ -153,7 +153,10 @@ func TestLeadToolsBudget(t *testing.T) {
 		list = append(list, map[string]any{"name": tool.Name, "description": tool.Description, "inputSchema": tool.Schema})
 	}
 	raw, _ := json.Marshal(list)
-	const budget = 26 << 10
+	// 1 KiB more since leads direct agents on other machines: a machine on
+	// create_agent, list_agents, questions and list_resources, and
+	// agent@machine in every agent's name.
+	const budget = 27 << 10
 	if len(raw) > budget {
 		t.Errorf("the lead's tools are %d bytes, over the %d budget", len(raw), budget)
 	}

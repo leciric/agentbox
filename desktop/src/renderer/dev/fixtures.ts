@@ -2415,3 +2415,16 @@ export function richStreamText(which: 'open' | 'tall'): string {
   const rows = Array.from({ length: which === 'tall' ? 40 : 6 }, (_, i) => `<div style="padding:6px 0;border-bottom:1px solid #8884">Row ${i + 1}</div>`);
   return ['Here is the page:', '', `${fence}html preview`, '<!doctype html><html><body><h3>Tall page</h3>', ...rows, ...(which === 'tall' ? ['</body></html>', fence, '', 'And that was all.'] : [])].join('\n');
 }
+
+// remoteAgents are agents the lead runs on the user's other machines, one of
+// each status the rail tells apart, and one with a long title on a machine
+// with a long name, for the rail's width.
+export function remoteAgents(): T.RemoteAgent[] {
+  const at = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
+  return [
+    { machine: 'vps', machineId: 'env_2', name: 'agent-03', title: 'Reminders page', branch: 'agentbox/reminders', status: 'working', updatedAt: at(2) },
+    { machine: 'vps', machineId: 'env_2', name: 'agent-04', title: 'Paginate the API', status: 'asking', summary: 'Should the reminders page paginate, or load them all?', updatedAt: at(5) },
+    { machine: 'home-workstation-with-gpu', machineId: 'env_3', name: 'agent-01', title: 'Move every scheduled reminder to the new background queue without losing the ones already due', status: 'done', summary: 'Opened #412', prUrl: 'https://github.com/acme/hello/pull/412', updatedAt: at(40) },
+    { machine: 'vps', machineId: 'env_2', name: 'agent-02', title: 'CSV export', status: 'failed', summary: 'create_agent failed: the disk is full', updatedAt: at(90) },
+  ];
+}

@@ -1003,6 +1003,13 @@ type CreateAgentRequest struct {
 	// ToolNotice is the daemon's own, never sent: why an agent that named no
 	// AI tool runs Claude Code rather than its lead's (Job.Notice).
 	ToolNotice string `json:"-"`
+	// OriginID, OriginName and OriginProject are, for an agent another
+	// machine's lead asked for through the hub, that machine's environment
+	// and the project there, whose lead its notices go to. Only the daemon
+	// sets them, from what the hub says (internal/daemon/peers.go).
+	OriginID      string `json:"-"`
+	OriginName    string `json:"-"`
+	OriginProject string `json:"-"`
 }
 
 // MemoryHold is what the daemon holds of an agent's heavy commands (test
@@ -1964,6 +1971,38 @@ type FleetAgent struct {
 	Retire RetireAdvice `json:"retire"`
 }
 
+// RemoteAgent is an agent a project's lead made on another machine of its hub
+// account: it runs there, and its notices come back here.
+type RemoteAgent struct {
+	Machine   string `json:"machine"`   // the machine's name on the hub
+	MachineID string `json:"machineId"` // its environment's ID
+	Name      string `json:"name"`      // the agent's name there, like agent-03
+	Title     string `json:"title,omitempty"`
+	Branch    string `json:"branch,omitempty"`
+	// Status is creating, working, asking, done, failed or retired, as its
+	// last notice said.
+	Status    string    `json:"status"`
+	Summary   string    `json:"summary,omitempty"`
+	PRURL     string    `json:"prUrl,omitempty"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// Machine is another machine connected to the same hub account, which a
+// project's lead can create and direct agents on (list_resources machines).
+type Machine struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Online   bool   `json:"online"`
+	Hostname string `json:"hostname,omitempty"`
+	// HasProject is whether it has this project, found by its repository's
+	// URL, and Project what the project is called there. A machine without
+	// it clones it when the lead first creates an agent on it.
+	HasProject bool   `json:"hasProject"`
+	Project    string `json:"project,omitempty"`
+	// Error is why the machine couldn't be asked, when it couldn't.
+	Error string `json:"error,omitempty"`
+}
+
 // RetireAdvice is whether an agent can be retired, and what would keep its
 // work. An agent's deliverable is its branch, which outlives the agent.
 type RetireAdvice struct {
@@ -2420,7 +2459,15 @@ type Fleet struct {
 	// rest of the fleet is read fresh; only the pull requests are served
 	// from cache.
 	PullsFetchedAt  *time.Time `json:"pullsFetchedAt,omitempty"`
+	// Remote are the agents this project's lead runs on other machines of
+	// its hub account, as their notices last described them.
+	Remote []RemoteAgent `json:"remote,omitempty"`
 	PullsRefreshing bool       `json:"pullsRefreshing,omitempty"`
+}
+
+// RemoteAgentsChange is EventRemoteAgents' data.
+type RemoteAgentsChange struct {
+	Project string `json:"project"`
 }
 
 // Event is one message on the /v1/events stream.
@@ -2440,6 +2487,9 @@ const (
 	// something moved, so a client can refresh instead of waiting for its
 	// next poll.
 	EventPulls = "pulls"
+	// EventRemoteAgents carries a RemoteAgentsChange: one of a project's
+	// agents on another machine moved (Fleet.Remote).
+	EventRemoteAgents = "remote-agents"
 	// EventTheme says the look AgentBox should wear has changed: the host's
 	// Omarchy theme, or the setting that decides whether to follow it.
 	EventTheme = "theme"

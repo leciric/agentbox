@@ -302,6 +302,20 @@
     "height": 900
   },
   {
+    "id": "rail-remote-dark",
+    "description": "Agents the lead runs on other machines of the hub account, under its own, one with a long title on a long machine name — dark, xl width",
+    "query": "remote=1&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "rail-remote-light-narrow",
+    "description": "The same below the xl breakpoint (268px rail) — light",
+    "query": "remote=1&theme=light",
+    "width": 1100,
+    "height": 900
+  },
+  {
     "id": "rail-finished-open-light",
     "description": "The Finished section opened, a long title in it, below the xl breakpoint (268px rail) — light",
     "query": "finished=1&theme=light",

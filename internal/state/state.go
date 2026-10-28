@@ -1379,6 +1379,33 @@ var migrations = []string{
 		time_zone  TEXT NOT NULL DEFAULT '',
 		updated_at INTEGER NOT NULL
 	)`,
+	// Leads directing agents on another machine through the hub (peers.go).
+	// peer_agents are this machine's agents a lead elsewhere made, and which
+	// machine and project its notices go back to; remote_agents are the
+	// agents this machine's leads made elsewhere, as their notices last
+	// described them, for the app and list_agents.
+	`CREATE TABLE peer_agents (
+		project        TEXT NOT NULL,
+		agent          TEXT NOT NULL,
+		origin_id      TEXT NOT NULL,
+		origin_name    TEXT NOT NULL,
+		origin_project TEXT NOT NULL,
+		created_at     INTEGER NOT NULL,
+		PRIMARY KEY (project, agent)
+	)`,
+	`CREATE TABLE remote_agents (
+		project      TEXT NOT NULL,
+		machine_id   TEXT NOT NULL,
+		machine_name TEXT NOT NULL,
+		agent        TEXT NOT NULL,
+		title        TEXT NOT NULL DEFAULT '',
+		branch       TEXT NOT NULL DEFAULT '',
+		status       TEXT NOT NULL DEFAULT '',
+		summary      TEXT NOT NULL DEFAULT '',
+		pr_url       TEXT NOT NULL DEFAULT '',
+		updated_at   INTEGER NOT NULL,
+		PRIMARY KEY (project, machine_id, agent)
+	)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -2014,6 +2041,8 @@ var projectOwned = []string{
 	"agent_group_members",
 	"agent_groups",
 	"pr_watches",
+	"peer_agents",
+	"remote_agents",
 	"agent_queue",
 	"agent_events",
 	"agent_reviews",

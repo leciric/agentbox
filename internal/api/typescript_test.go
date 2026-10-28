@@ -38,7 +38,7 @@ var tsTypes = []any{
 	SnapRequest{}, Snap{}, SnapSendRequest{},
 	Connector{}, SetConnectorRequest{}, ConnectorOverrideRequest{}, ConnectResult{}, SelfConnector{}, ConnectorRequest{},
 	ScanConnectorsRequest{}, ConnectorScan{}, ConnectorUnreadable{}, ConnectorCandidate{}, ConnectorSource{}, ImportConnectorsRequest{}, ImportConnector{}, ImportConnectorsResult{}, ImportConnectorFailure{},
-	PullRequest{}, Label{}, ProjectLabels{}, EditLabelsRequest{}, GitHubError{}, ProjectPullRequests{}, Issue{}, IssueHandoff{}, IssuePullRequest{}, ProjectIssues{}, MergePullRequestRequest{}, PullRequestDetail{}, PullCheck{}, PullRequestFiles{}, PullFile{}, PullFileDiff{}, AgentChanges{}, RetireAdvice{}, FleetAgent{}, Fleet{},
+	PullRequest{}, Label{}, ProjectLabels{}, EditLabelsRequest{}, GitHubError{}, ProjectPullRequests{}, Issue{}, IssueHandoff{}, IssuePullRequest{}, ProjectIssues{}, MergePullRequestRequest{}, PullRequestDetail{}, PullCheck{}, PullRequestFiles{}, PullFile{}, PullFileDiff{}, AgentChanges{}, RetireAdvice{}, FleetAgent{}, Fleet{}, RemoteAgent{}, Machine{}, RemoteAgentsChange{},
 	RetireRequest{}, RetiredAgent{}, RetireResult{},
 	Question{}, AskRequest{}, AnswerQuestionRequest{}, EscalateQuestionRequest{}, CredentialRequest{}, AnswerCredentialRequest{}, AgentEvent{}, ReviewItem{}, ReviewRequest{}, RequestChangesRequest{}, ReviewNote{}, AddReviewNoteRequest{}, EditReviewNoteRequest{},
 	AndroidStatus{}, AndroidStartRequest{}, AndroidInstallRequest{}, AndroidInstallResult{},
@@ -65,7 +65,7 @@ var tsTypes = []any{
 
 var tsConstants = [][2]string{
 	{"JobRunning", JobRunning}, {"JobSucceeded", JobSucceeded}, {"JobFailed", JobFailed}, {"JobCancelled", JobCancelled},
-	{"EventJob", EventJob}, {"EventJobLog", EventJobLog}, {"EventAgent", EventAgent}, {"EventUsage", EventUsage}, {"EventProject", EventProject}, {"EventMedia", EventMedia}, {"EventNotification", EventNotification}, {"EventNotificationsSeen", EventNotificationsSeen}, {"NotifyQuestion", NotifyQuestion}, {"NotifyMedia", NotifyMedia}, {"EventPulls", EventPulls}, {"EventTheme", EventTheme}, {"EventUpdate", EventUpdate}, {"EventDisk", EventDisk}, {"DiskOK", DiskOK}, {"DiskLow", DiskLow}, {"DiskFull", DiskFull}, {"EventLAN", EventLAN}, {"EventSnap", EventSnap}, {"EventFiles", EventFiles},
+	{"EventJob", EventJob}, {"EventJobLog", EventJobLog}, {"EventAgent", EventAgent}, {"EventUsage", EventUsage}, {"EventProject", EventProject}, {"EventMedia", EventMedia}, {"EventNotification", EventNotification}, {"EventNotificationsSeen", EventNotificationsSeen}, {"NotifyQuestion", NotifyQuestion}, {"NotifyMedia", NotifyMedia}, {"EventPulls", EventPulls}, {"EventRemoteAgents", EventRemoteAgents}, {"EventTheme", EventTheme}, {"EventUpdate", EventUpdate}, {"EventDisk", EventDisk}, {"DiskOK", DiskOK}, {"DiskLow", DiskLow}, {"DiskFull", DiskFull}, {"EventLAN", EventLAN}, {"EventSnap", EventSnap}, {"EventFiles", EventFiles},
 	{"PushFinished", PushFinished}, {"PushNeedsYou", PushNeedsYou}, {"PushPRReady", PushPRReady}, {"PushCIFailed", PushCIFailed},
 	{"FileModified", FileModified}, {"FileAdded", FileAdded}, {"FileDeleted", FileDeleted}, {"FileUntracked", FileUntracked},
 	{"SetupOK", SetupOK}, {"SetupMissing", SetupMissing}, {"SetupOutdated", SetupOutdated}, {"SetupOptional", SetupOptional}, {"SetupUpdating", SetupUpdating}, {"SetupBuilding", SetupBuilding},

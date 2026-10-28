@@ -129,6 +129,8 @@ func (s *Server) Handler() http.Handler {
 	h(http.MethodPost+" "+hubapi.PathEnvironmentTunnel, s.environmentTunnel)
 	h(http.MethodPost+" "+hubapi.PathEnvironmentAddress, s.environmentAddress)
 	h(hubapi.EnvironmentAPI("{id}")+"/{path...}", s.proxy)
+	h(http.MethodGet+" "+hubapi.PathPeers, s.listPeers)
+	h(hubapi.PeerAPI("{id}")+"/{path...}", s.peerProxy)
 	s.pages(mux)
 	if s.Web != nil {
 		mux.Handle("/", webApp(s.Web))
@@ -523,6 +525,13 @@ func (s *Server) connect(w http.ResponseWriter, r *http.Request) error {
 			pr.Out.Header.Del("Authorization")
 			pr.Out.Header.Del("Cookie")
 			pr.Out.Header.Del("Origin")
+			// Who a peer is, the hub says (peerProxy), and nobody else.
+			pr.Out.Header.Del(hubapi.HeaderPeer)
+			pr.Out.Header.Del(hubapi.HeaderPeerName)
+			if p, ok := pr.In.Context().Value(peerKey{}).(Environment); ok {
+				pr.Out.Header.Set(hubapi.HeaderPeer, p.ID)
+				pr.Out.Header.Set(hubapi.HeaderPeerName, p.Name)
+			}
 		},
 		Transport: &http.Transport{
 			DialContext:         func(context.Context, string, string) (net.Conn, error) { return session.Open() },
@@ -577,6 +586,64 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request) error {
 		return httpError{http.StatusServiceUnavailable, fmt.Sprintf("%s is offline (last connected: %s)", e.Name, last)}
 	}
 	t.proxy.ServeHTTP(w, r)
+	return nil
+}
+
+// peerKey carries, on a request peerProxy passes through, the environment
+// that asked.
+type peerKey struct{}
+
+// environmentByToken is the environment whose token the request carries.
+func (s *Server) environmentByToken(r *http.Request) (Environment, error) {
+	token := bearer(r)
+	if !strings.HasPrefix(token, environmentPrefix) {
+		return Environment{}, httpError{http.StatusUnauthorized, "send an environment token"}
+	}
+	e, err := s.Store.EnvironmentByToken(r.Context(), hashToken(token))
+	if errors.Is(err, ErrNotFound) {
+		return Environment{}, httpError{http.StatusUnauthorized, "unknown environment token"}
+	}
+	return e, err
+}
+
+// listPeers lists the other environments of the asking environment's owner.
+func (s *Server) listPeers(w http.ResponseWriter, r *http.Request) error {
+	self, err := s.environmentByToken(r)
+	if err != nil {
+		return err
+	}
+	envs, err := s.Store.Environments(r.Context(), self.OwnerID)
+	if err != nil {
+		return err
+	}
+	out := make([]hubapi.HubEnvironment, 0, len(envs))
+	for _, e := range envs {
+		if e.ID != self.ID {
+			out = append(out, s.toAPIEnvironment(e))
+		}
+	}
+	return writeJSON(w, http.StatusOK, out)
+}
+
+// peerProxy passes an environment's request to another of its owner's
+// environments, saying which one asked. A peer of another owner, or the
+// environment itself, is no such environment.
+func (s *Server) peerProxy(w http.ResponseWriter, r *http.Request) error {
+	self, err := s.environmentByToken(r)
+	if err != nil {
+		return err
+	}
+	e, err := s.Store.Environment(r.Context(), r.PathValue("id"))
+	if err != nil || e.OwnerID != self.OwnerID || e.ID == self.ID {
+		return httpError{http.StatusNotFound, "no such environment"}
+	}
+	s.mu.Lock()
+	t := s.tunnels[e.ID]
+	s.mu.Unlock()
+	if t == nil {
+		return httpError{http.StatusServiceUnavailable, fmt.Sprintf("%s is offline", e.Name)}
+	}
+	t.proxy.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), peerKey{}, self)))
 	return nil
 }
 

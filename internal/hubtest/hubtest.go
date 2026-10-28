@@ -11,7 +11,10 @@
 // persistence are the hub's business, and none of them are here: it takes any
 // password or setup link, approves a pairing when the test says so (Approve)
 // or any session does, keeps everything in memory, and lets any session see
-// any environment. Don't grow it into a hub — if a test needs a hub's judgement
+// any environment. Peers (hubapi.PathPeers) are listed by owner, the one
+// thing a test can't do without, but any environment reaches any other
+// through hubapi.PeerAPI, so a test can see an environment refuse a peer
+// that isn't its owner's. Don't grow it into a hub — if a test needs a hub's judgement
 // about who may see what, that test belongs with the hub.
 package hubtest
 
@@ -57,6 +60,7 @@ type pairing struct {
 
 type environment struct {
 	info    hubapi.HubEnvironment
+	owner   string
 	token   string
 	session *yamux.Session
 	proxy   *httputil.ReverseProxy
@@ -112,6 +116,8 @@ func (h *Hub) handler() http.Handler {
 	mux.HandleFunc(http.MethodDelete+" "+hubapi.PathEnvironments+"/{id}", h.deleteEnvironment)
 	mux.HandleFunc(http.MethodGet+" "+hubapi.PathConnect, h.connect)
 	mux.HandleFunc(hubapi.EnvironmentAPI("{id}")+"/{path...}", h.proxy)
+	mux.HandleFunc(http.MethodGet+" "+hubapi.PathPeers, h.listPeers)
+	mux.HandleFunc(hubapi.PeerAPI("{id}")+"/{path...}", h.peerProxy)
 	return mux
 }
 
@@ -299,11 +305,18 @@ func (h *Hub) createEnvironment(w http.ResponseWriter, r *http.Request) {
 // AddEnvironment adds an environment and returns it with its token, as the
 // hub's own answer would. Tests that don't need the HTTP call use this.
 func (h *Hub) AddEnvironment(name string) hubapi.HubEnvironmentToken {
+	return h.AddEnvironmentOf("usr_test", name)
+}
+
+// AddEnvironmentOf is AddEnvironment for another owner's environment, which
+// isn't among the others' peers.
+func (h *Hub) AddEnvironmentOf(owner, name string) hubapi.HubEnvironmentToken {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.nextID++
 	e := &environment{
 		info:  hubapi.HubEnvironment{ID: "env_" + strconv.Itoa(h.nextID), Name: name, CreatedAt: time.Now()},
+		owner: owner,
 		token: hubapi.EnvironmentTokenPrefix + "test" + strconv.Itoa(h.nextID),
 	}
 	h.envs[e.info.ID] = e
@@ -374,6 +387,12 @@ func (h *Hub) connect(w http.ResponseWriter, r *http.Request) {
 			pr.Out.Header.Del("Authorization")
 			pr.Out.Header.Del("Cookie")
 			pr.Out.Header.Del("Origin")
+			pr.Out.Header.Del(hubapi.HeaderPeer)
+			pr.Out.Header.Del(hubapi.HeaderPeerName)
+			if p, ok := pr.In.Context().Value(peerKey{}).(hubapi.HubEnvironment); ok {
+				pr.Out.Header.Set(hubapi.HeaderPeer, p.ID)
+				pr.Out.Header.Set(hubapi.HeaderPeerName, p.Name)
+			}
 		},
 		Transport: &http.Transport{
 			DialContext: func(context.Context, string, string) (net.Conn, error) { return session.Open() },
@@ -419,4 +438,50 @@ func (h *Hub) proxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	proxy.ServeHTTP(w, r)
+}
+
+type peerKey struct{}
+
+// listPeers lists the asking environment's owner's other environments.
+func (h *Hub) listPeers(w http.ResponseWriter, r *http.Request) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	self := h.byToken[bearer(r)]
+	if self == nil {
+		fail(w, http.StatusUnauthorized, "unknown environment token")
+		return
+	}
+	out := []hubapi.HubEnvironment{}
+	for _, e := range h.envs {
+		if e != self && e.owner == self.owner {
+			out = append(out, e.info)
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// peerProxy passes an environment's request to any other, whoever owns it,
+// saying which one asked.
+func (h *Hub) peerProxy(w http.ResponseWriter, r *http.Request) {
+	h.mu.Lock()
+	self, e := h.byToken[bearer(r)], h.envs[r.PathValue("id")]
+	var proxy *httputil.ReverseProxy
+	var info hubapi.HubEnvironment
+	if e != nil {
+		proxy = e.proxy
+	}
+	if self != nil {
+		info = self.info
+	}
+	h.mu.Unlock()
+	switch {
+	case self == nil:
+		fail(w, http.StatusUnauthorized, "unknown environment token")
+	case e == nil:
+		fail(w, http.StatusNotFound, "no such environment")
+	case proxy == nil:
+		fail(w, http.StatusServiceUnavailable, e.info.Name+" is offline")
+	default:
+		proxy.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), peerKey{}, info)))
+	}
 }

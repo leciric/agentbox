@@ -281,6 +281,13 @@ type Server struct {
 	// servers (connectors.go).
 	connectorsGiven map[string]bool
 	remoteStop      context.CancelFunc
+	// peerState is the account's other machines, for leads directing
+	// agents on them (peers.go). A test replaces CloneForHome with
+	// peerClone, and ~/src, where projects are cloned for them, with
+	// peerCloneRoot.
+	peerState     peerState
+	peerClone     func(ctx context.Context, repo, dest string) error
+	peerCloneRoot string
 	// remotePairing is a connection to a hub waiting for approval, and
 	// remotePairStop stops waiting (remote.go).
 	remotePairing  *api.RemotePairing

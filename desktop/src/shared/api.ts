@@ -1877,7 +1877,34 @@ export interface Fleet {
   githubAccount?: string;
   githubError?: GitHubError;
   pullsFetchedAt?: string;
+  remote?: RemoteAgent[];
   pullsRefreshing?: boolean;
+}
+
+export interface RemoteAgent {
+  machine: string;
+  machineId: string;
+  name: string;
+  title?: string;
+  branch?: string;
+  status: string;
+  summary?: string;
+  prUrl?: string;
+  updatedAt: string;
+}
+
+export interface Machine {
+  id: string;
+  name: string;
+  online: boolean;
+  hostname?: string;
+  hasProject: boolean;
+  project?: string;
+  error?: string;
+}
+
+export interface RemoteAgentsChange {
+  project: string;
 }
 
 export interface RetireRequest {
@@ -3521,6 +3548,7 @@ export const EventNotificationsSeen = "notification.seen";
 export const NotifyQuestion = "question";
 export const NotifyMedia = "media";
 export const EventPulls = "pulls";
+export const EventRemoteAgents = "remote-agents";
 export const EventTheme = "theme";
 export const EventUpdate = "update";
 export const EventDisk = "disk";
