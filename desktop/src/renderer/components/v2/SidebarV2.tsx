@@ -613,7 +613,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
 function ListHead({ children, extra }: { children: ReactNode; extra?: ReactNode }) {
   return (
     <div className="flex h-7 items-center px-2.5 pt-2">
-      <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-subtle">{children}</span>
+      <span data-heading className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-subtle">{children}</span>
       {extra}
     </div>
   );
