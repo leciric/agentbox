@@ -20,6 +20,8 @@ import (
 	goruntime "runtime"
 	"slices"
 	"strings"
+
+	"agentbox/internal/image"
 )
 
 // Dockerfile is where the Dockerfile is, from the repository root.
@@ -96,18 +98,22 @@ func checkPlatform(goos, goarch string) error {
 // BuildArgs is the command Build runs, the runtime's own name first. It reads
 // only opts, so a test can check it without Docker.
 func BuildArgs(opts Options) []string {
-	image := opts.Image
-	if image == "" {
-		image = DefaultImage
+	ref := opts.Image
+	if ref == "" {
+		ref = DefaultImage
 	}
 	context := opts.Context
 	if context == "" {
 		context = "."
 	}
-	args := []string{"build", "--file", filepath.Join(context, Dockerfile), "--tag", image}
+	args := []string{"build", "--file", filepath.Join(context, Dockerfile), "--tag", ref}
 	if opts.Stage != "" {
 		args = append(args, "--target", opts.Stage)
 	}
+	// OpenCode 2's version is image.OpenCode2Version, the same pin an Incus
+	// base image installs, so the Dockerfile is told which one to put beside
+	// OpenCode 1 rather than repeating it.
+	args = append(args, "--build-arg", "OPENCODE2_VERSION="+image.OpenCode2Version)
 	return append(args, context)
 }
 

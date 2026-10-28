@@ -40,11 +40,11 @@ registry's address. A push signs in with the login the runtime already has
 anywhere else.
 
 The image is linux/amd64, like the binary scripts/build-agent-image.sh builds.
-In this version it carries the agent binary and the base system only: Claude
-Code, Codex, OpenCode and their ACP adapters are not in it, so an agent whose
-AI tool is one of those has nothing to start. It is for your own cluster and
-your own registry, and the publishable variant, which could go to a public
-registry, is not made here yet.`,
+It carries the agent binary, the desktop an agent's browser and media work runs
+on, and the AI tools and ACP adapters at the pins internal/image/tools.txt
+holds, OpenCode 2 among them at image.OpenCode2Version. It is for your own
+cluster and your own registry, and the publishable variant, which could go to a
+public registry, is not made here yet.`,
 	}
 	cmd.AddCommand(newAgentImageBuildCmd(a))
 	return cmd
