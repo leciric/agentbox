@@ -7,7 +7,7 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
 import { useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { isPlainHTTP, parsePairingLink } from '../../connection/pairing.ts';
 import { pair } from '../../connection/session.ts';
@@ -47,10 +47,8 @@ export function PairScreen() {
 
   const plain = parsePairingLink(link);
   const hl = (c: React.ReactNode) => <Text style={{ color: colors.primary }}>{c}</Text>;
-  // Padding on Android too: edge to edge (Android 15 on), the window no
-  // longer shrinks for the keyboard (adjustResize), which then covers the input.
   return (
-    <KeyboardAvoidingView style={styles.root} behavior="padding">
+    <View style={styles.root}>
       <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 32, paddingBottom: insets.bottom + 24 }]} keyboardShouldPersistTaps="handled">
         <View style={styles.logo}>
           <Text style={styles.logoText}>A</Text>
@@ -103,7 +101,7 @@ export function PairScreen() {
         {error && <Note tone="error">{error}</Note>}
         {plain && isPlainHTTP(plain.origin) && <Text style={styles.small}>{t('web.pair.plainHTTP')}</Text>}
       </ScrollView>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 

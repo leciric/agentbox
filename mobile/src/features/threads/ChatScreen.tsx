@@ -7,7 +7,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams } from 'expo-router';
 import { Image } from 'expo-image';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as T from '../../shared/api.ts';
 import { api, chatImagePath, isLead, mediaSource } from '../../connection/api.ts';
 import { can, useSession } from '../../connection/session.ts';
@@ -60,10 +60,8 @@ export function ChatScreen() {
   const chatRef = lead ? `${project}/${T.LeadName}` : agentRef!;
 
   const missing = lead ? projects.data && !p : agents.data && !agent;
-  // Padding on Android too: edge to edge (Android 15 on), the window no
-  // longer shrinks for the keyboard (adjustResize), which then covers the input.
   return (
-    <KeyboardAvoidingView style={styles.root} behavior="padding">
+    <View style={styles.root}>
       <ScreenHeader title={title} subtitle={subtitle} status={status} />
       {missing ? (
         <Text style={styles.empty}>{lead ? t('web.phone.missingProject', { name: project }) : t('web.phone.missingAgent', { name: agentRef ?? '' })}</Text>
@@ -118,7 +116,7 @@ export function ChatScreen() {
           start={lead && info.data && !info.data.started ? () => api.startChat(chatRef).then(() => queryClient.invalidateQueries({ queryKey: ['projectChat', project] })) : undefined}
         />
       )}
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 

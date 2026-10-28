@@ -14,7 +14,7 @@ import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-quer
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useState } from 'react';
-import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { api } from '../connection/api.ts';
 import { bootState, recordCrash, startBoot } from '../connection/boot.ts';
@@ -75,7 +75,12 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <StatusBar style="light" />
         <ErrorBoundary label="app" resetKey={origin} onError={recordCrash} fallback={(error, retry) => <Crashed error={`${error.name}: ${error.message}`} onRetry={retry} />}>
-          <View style={[styles.root, Platform.OS === 'web' && styles.webColumn]}>
+          {/* Every screen gives way to the keyboard here, at the top of the
+              window: a screen's own would measure itself from below the
+              connection bar, and stop short of the keyboard by its height.
+              Padding on Android too: edge to edge (Android 15 on), the window
+              no longer shrinks for the keyboard (adjustResize). */}
+          <KeyboardAvoidingView behavior="padding" style={[styles.root, Platform.OS === 'web' && styles.webColumn]}>
             {session && <Paired key={session.origin} queryClient={queryClient} />}
             <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg }, animation: 'slide_from_right' }}>
               <Stack.Protected guard={!!session}>
@@ -88,7 +93,7 @@ export default function RootLayout() {
                 <Stack.Screen name="pair" />
               </Stack.Protected>
             </Stack>
-          </View>
+          </KeyboardAvoidingView>
         </ErrorBoundary>
       </QueryClientProvider>
     </SafeAreaProvider>
