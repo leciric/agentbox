@@ -469,6 +469,7 @@ func TestWhoamiOutsideAnAgent(t *testing.T) {
 
 func TestAuthClaudeTokenFromStdin(t *testing.T) {
 	home := isolate(t)
+	startDaemon(t)
 
 	out, err := run(t, "", "auth", "status")
 	if err != nil {
@@ -501,6 +502,7 @@ func TestAuthClaudeTokenFromStdin(t *testing.T) {
 
 func TestAuthClaudeAccounts(t *testing.T) {
 	home := isolate(t)
+	startDaemon(t)
 
 	out, err := run(t, "", "auth", "claude", "list")
 	if err != nil {
@@ -594,6 +596,7 @@ func TestAuthGitHubAccounts(t *testing.T) {
 // An AgentBox set up before named accounts keeps its token: it becomes "default".
 func TestAuthClaudeMigratesTheOldTokenFile(t *testing.T) {
 	home := isolate(t)
+	startDaemon(t)
 	dir := filepath.Join(home, ".config", "agentbox", "credentials")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
@@ -620,6 +623,7 @@ func TestAuthClaudeMigratesTheOldTokenFile(t *testing.T) {
 // The single shared token used before named accounts becomes "default".
 func TestAuthGitHubMigratesTheOldTokenFile(t *testing.T) {
 	home := isolate(t)
+	startDaemon(t)
 	dir := filepath.Join(home, ".config", "agentbox", "credentials")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
@@ -710,6 +714,7 @@ func fakeAnthropic(t *testing.T, accepts ...string) {
 // a 401 that explains nothing, hours later.
 func TestAuthStatusChecksTheStoredTokens(t *testing.T) {
 	isolate(t)
+	startDaemon(t)
 	fakeAnthropic(t, "sk-ant-oat01-good")
 	if _, err := run(t, "sk-ant-oat01-good\n", "auth", "claude", "--token-stdin"); err != nil {
 		t.Fatal(err)
@@ -731,8 +736,9 @@ func TestAuthStatusChecksTheStoredTokens(t *testing.T) {
 
 // A token stored before AgentBox recorded the date keeps working, and says
 // outright that it doesn't know how old it is.
-func TestAuthStatusOnATokenStoredBeforeTheDateWasKept(t *testing.T) {
+func TestAuthStatusOfAnUndatedToken(t *testing.T) {
 	home := isolate(t)
+	startDaemon(t)
 	fakeAnthropic(t, "sk-ant-oat01-old")
 	dir := filepath.Join(home, ".config", "agentbox", "credentials", "claude")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -756,6 +762,7 @@ func TestAuthStatusOnATokenStoredBeforeTheDateWasKept(t *testing.T) {
 // must not send anyone off to log in again.
 func TestAuthStatusSaysWhenItCouldNotCheck(t *testing.T) {
 	isolate(t) // points the check at a port nothing listens on
+	startDaemon(t)
 	if _, err := run(t, "sk-ant-oat01-fine\n", "auth", "claude", "--token-stdin"); err != nil {
 		t.Fatal(err)
 	}
@@ -763,7 +770,7 @@ func TestAuthStatusSaysWhenItCouldNotCheck(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mustContain(t, out, "couldn't be checked, saved "+time.Now().Format(time.DateOnly))
+	mustContain(t, out, "not checked, saved "+time.Now().Format(time.DateOnly))
 	if strings.Contains(out, "rejected") {
 		t.Errorf("a token nobody could check was called rejected:\n%s", out)
 	}
