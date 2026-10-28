@@ -203,6 +203,13 @@ export function connectEvents(queryClient: QueryClient): void {
         }
         break;
       }
+      case T.EventRemoteAgents: {
+        // One of the lead's agents on another machine moved: the fleet
+        // carries them (AgentRail's RemoteSection).
+        const { project } = event.data as T.RemoteAgentsChange;
+        void queryClient.invalidateQueries({ queryKey: ['fleet', project] });
+        break;
+      }
       case T.EventGroup: {
         // A group of agents moved: made, one finished, a pick, a decision.
         const { id } = event.data as T.GroupChange;

@@ -99,7 +99,8 @@ func (h *testHub) signIn(email string) string {
 func fakeEnvironment() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/version", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = fmt.Fprintf(w, `{"version":"fake","path":%q,"query":%q,"authorization":%q,"cookie":%q}`, r.URL.Path, r.URL.RawQuery, r.Header.Get("Authorization"), r.Header.Get("Cookie"))
+		_, _ = fmt.Fprintf(w, `{"version":"fake","path":%q,"query":%q,"authorization":%q,"cookie":%q,"peer":%q,"peerName":%q}`, r.URL.Path, r.URL.RawQuery,
+			r.Header.Get("Authorization"), r.Header.Get("Cookie"), r.Header.Get(hubapi.HeaderPeer), r.Header.Get(hubapi.HeaderPeerName))
 	})
 	mux.HandleFunc("GET /v1/events", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -245,6 +246,56 @@ func TestEnvironmentThroughTheHub(t *testing.T) {
 		}
 	}
 	t.Error("the environment still shows online after it disconnected")
+}
+
+func TestPeers(t *testing.T) {
+	h := newTestHub(t)
+	owner := h.signIn("owner@example.com")
+	laptop := decode[hubapi.HubEnvironmentToken](t, h.do("POST", "/v1/environments", owner, hubapi.HubCreateEnvironmentRequest{Name: "laptop"}), 201)
+	vps := decode[hubapi.HubEnvironmentToken](t, h.do("POST", "/v1/environments", owner, hubapi.HubCreateEnvironmentRequest{Name: "vps"}), 201)
+	other := h.signIn("other@example.com")
+	theirs := decode[hubapi.HubEnvironmentToken](t, h.do("POST", "/v1/environments", other, hubapi.HubCreateEnvironmentRequest{Name: "theirs"}), 201)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	h.connectEnvironment(ctx, vps.Token)
+	h.connectEnvironment(ctx, theirs.Token)
+
+	peers := decode[[]hubapi.HubEnvironment](t, h.do("GET", hubapi.PathPeers, laptop.Token, nil), 200)
+	if len(peers) != 1 || peers[0].Name != "vps" || !peers[0].Online {
+		t.Fatalf("laptop's peers = %+v, want vps alone, online", peers)
+	}
+	if resp := h.do("GET", hubapi.PathPeers, owner, nil); resp.StatusCode != 401 {
+		t.Errorf("a device's session lists peers: %d", resp.StatusCode)
+	}
+
+	t.Run("a peer's request says who asked, and nobody else can", func(t *testing.T) {
+		got := decode[map[string]string](t, h.do("GET", hubapi.PeerAPI(vps.Environment.ID)+"/v1/version", laptop.Token, nil, hubapi.HeaderPeer, "env_forged"), 200)
+		if got["peer"] != laptop.Environment.ID || got["peerName"] != "laptop" || got["authorization"] != "" {
+			t.Errorf("vps saw %+v", got)
+		}
+		got = decode[map[string]string](t, h.do("GET", hubapi.EnvironmentAPI(vps.Environment.ID)+"/v1/version", owner, nil, hubapi.HeaderPeer, "env_forged", hubapi.HeaderPeerName, "x"), 200)
+		if got["peer"] != "" || got["peerName"] != "" {
+			t.Errorf("a device forged a peer: %+v", got)
+		}
+	})
+
+	t.Run("another account's environment isn't a peer", func(t *testing.T) {
+		if resp := h.do("GET", hubapi.PeerAPI(theirs.Environment.ID)+"/v1/version", laptop.Token, nil); resp.StatusCode != 404 {
+			t.Errorf("reaching another account's environment: %d", resp.StatusCode)
+		}
+		if resp := h.do("GET", hubapi.PeerAPI(vps.Environment.ID)+"/v1/version", owner, nil); resp.StatusCode != 401 {
+			t.Errorf("a device's session through the peer API: %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("an offline peer says so", func(t *testing.T) {
+		resp := h.do("GET", hubapi.PeerAPI(laptop.Environment.ID)+"/v1/version", vps.Token, nil)
+		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != 503 || !strings.Contains(string(body), "laptop is offline") {
+			t.Errorf("%d %s", resp.StatusCode, body)
+		}
+	})
 }
 
 func TestSigningIn(t *testing.T) {

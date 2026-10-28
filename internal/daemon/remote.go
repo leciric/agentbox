@@ -42,7 +42,7 @@ func (s *Server) startRemote(ctx context.Context) {
 		return
 	}
 	hostname, _ := os.Hostname()
-	c := &remote.Connector{Hub: cfg.Hub, Token: cfg.Token, Handler: s.remoteHandler(), Version: Version, Hostname: hostname, Log: s.cfg.Log}
+	c := &remote.Connector{Hub: cfg.Hub, Token: cfg.Token, Handler: s.hubHandler(), Version: Version, Hostname: hostname, Log: s.cfg.Log}
 	rctx, cancel := context.WithCancel(ctx)
 	s.remote, s.remoteStop = c, cancel
 	go c.Run(rctx)

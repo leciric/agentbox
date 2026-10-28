@@ -140,6 +140,10 @@ usage limit to another account, keeping its conversation. When the user wants on
 ways (models, tools), `fan_out` runs it on several agents as a group they compare and keep one of;
 `compare_group` compares them and records your recommendation.
 
+**Other machines** on the user's hub account are in `list_resources` (machines). Run an agent there,
+with `create_agent`'s `machine`, only when the user asks or this one is short of room, and then name
+it as `agent-03@vps` in the other tools; its notices come back to you.
+
 Prefer several small, well-briefed agents to one asked to do everything. Give each a **title** the
 user will recognise in the sidebar, a **task**: what to do, what done looks like, what to leave
 alone, and a **branch** named after the work: short lowercase kebab-case like `fix-login-redirect`

@@ -23,6 +23,8 @@
 //                           strings longer than English's
 //   ?folded=1               the rail folded to 56px (default: open)
 //   ?open=agent-99          the named agent open, its row active (ref suffix only)
+//   ?remote=1               agents the lead runs on other machines of the hub
+//                           account, among the rail's own (dev/fixtures.ts)
 //   ?finished=1             the rail's Finished section open (default: closed,
 //                           unless ?open names an agent in it)
 //   ?chat=agent-12          agent-12's conversation in the middle, blocked on a
@@ -326,7 +328,7 @@ import { api } from '../lib/api';
 import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
 import { Markdown } from '../components/chat/Markdown';
 import { webStreams } from '../web/streams';
-import { agent12Chat, asleepChat, buildFixtures, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedSignedOut, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
+import { agent12Chat, asleepChat, buildFixtures, remoteAgents, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedSignedOut, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
 import { restoreMode } from '../lib/theme';
 import { seedPastAgents } from './pastAgents';
@@ -486,6 +488,7 @@ function linuxBeforeSetupBridge(kvmProblem: 'denied' | 'module' | 'novirt' | nul
 const chat = params.get('chat');
 const asleepRef = `${PROJECT}/asleep`;
 const fixtures = buildFixtures();
+if (params.get('remote') === '1') fixtures.fleet.remote = remoteAgents();
 if (github) {
   // Two GitHub accounts, and a project that picked the second one while it
   // limits its Claude Code accounts to one called "work".

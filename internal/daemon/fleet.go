@@ -97,6 +97,7 @@ func (s *Server) fleet(w http.ResponseWriter, r *http.Request) error {
 			}
 		}
 	}
+	out.Remote = s.remoteAgents(ctx, project)
 	return writeJSON(w, http.StatusOK, out)
 }
 

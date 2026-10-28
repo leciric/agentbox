@@ -122,6 +122,10 @@ func (s *Server) leadRoutes(project string) http.Handler {
 	mux.HandleFunc("POST /v1/project/agents/{agent}/account", withProject(s.leadSwitchAccount))
 	mux.HandleFunc("POST /v1/project/copy", withProject(s.leadCopy))
 	mux.HandleFunc("POST /v1/project/copy-from-host", withProject(s.leadCopyFromHost))
+	// The account's other machines (peers.go): the lead routes its tools
+	// send there, through this machine's hub.
+	mux.HandleFunc("GET /v1/project/machines", withProject(s.leadMachines))
+	mux.HandleFunc("/v1/project/machines/{machine}/api/{path...}", withProject(s.leadOnMachine))
 	mux.HandleFunc("GET /v1/project/secrets", withProject(s.leadSecrets))
 	// Other projects' leads (projectmessages.go): the one boundary a lead
 	// crosses, and only to talk, lead to lead.

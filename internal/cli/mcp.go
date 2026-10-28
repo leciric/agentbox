@@ -376,7 +376,8 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 	if leadPicksModel {
 		startsOn = "Choose its model (see model); effort and permissions default to what new agents start on here."
 	}
-	agent := str("its name, like agent-03")
+	agent := str("its name, like agent-03; agent-03@vps on the machine vps")
+	machine := str("another machine (list_resources machines)")
 	// Each account left out is yours when the agent runs the tool you run,
 	// else the project's.
 	accounts := map[string]any{
@@ -396,12 +397,13 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 			Name: "list_agents",
 			Description: "This project's agents: what each is for and doing, its changes, media and pull request, and whether it " +
 				"finished and still holds a machine. Queued ones show their place. With archived, past agents instead, which read_agent still reads.",
-			Schema: object(nil, archivedParams),
+			Schema: object(nil, merge(map[string]any{"machine": machine}, archivedParams)),
 			Run: func(args json.RawMessage) (string, error) {
 				var in archivedArgs
 				if err := decodeArgs(args, &in); err != nil {
 					return "", err
 				}
+				c := onMachine(c, args)
 				if in.Archived {
 					past, err := c.ProjectArchivedAgents(ctx, in.options(""))
 					if err != nil {
@@ -435,6 +437,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					"react to; it matters only when the project's finish notices go to the lead", "chat", "off"),
 				"connectors": map[string]any{"type": "array", "items": map[string]any{"type": "string"},
 					"description": "which connectors (list_resources connectors) it gets, like [\"notion\"]; [] for none, all when left out. Each costs it context every turn"},
+				"machine": machine,
 			}, accounts), settings)),
 			Run: func(args json.RawMessage) (string, error) {
 				var in struct {
@@ -483,7 +486,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 						return "", fmt.Errorf("notify is %q: it is \"chat\" (wakes you when this agent finishes) or \"off\" (only records it)", *in.Notify)
 					}
 				}
-				job, err := c.CreateProjectAgent(ctx, api.CreateAgentRequest{
+				job, err := onMachine(c, args).CreateProjectAgent(ctx, api.CreateAgentRequest{
 					Title: in.Title, Task: in.Task, Issue: in.Issue, From: in.From, AI: ai, Branch: in.Branch,
 					Autonomous: &autonomous, Model: in.Model, Effort: in.Effort,
 					ContextWindow:    in.ContextWindow,
@@ -501,8 +504,8 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				if in.Issue != 0 {
 					what = fmt.Sprintf("an agent for issue #%d", in.Issue)
 				}
-				return fmt.Sprintf("Creating %s%s; it starts on the task by itself. Job %s.%s",
-					what, describeChoices(cmp.Or(job.AI, ai), in.Model, in.Effort, autonomous, notify, cmp.Or(in.ClaudeAccount, in.CodexAccount, in.CursorAccount, describeAccountMap(in.OpenCodeAccounts)))+windowChoice(in.ContextWindow)+connectorChoice(in.Connectors), job.ID, toolNotice(job.Notice)), nil
+				return fmt.Sprintf("Creating %s%s%s; it starts on the task by itself. Job %s.%s",
+					what, onMachineText(args), describeChoices(cmp.Or(job.AI, ai), in.Model, in.Effort, autonomous, notify, cmp.Or(in.ClaudeAccount, in.CodexAccount, in.CursorAccount, describeAccountMap(in.OpenCodeAccounts)))+windowChoice(in.ContextWindow)+connectorChoice(in.Connectors), job.ID, toolNotice(job.Notice)), nil
 			},
 		},
 		{
@@ -611,7 +614,8 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				if err := decodeArgs(args, &in); err != nil {
 					return "", err
 				}
-				it, err := c.TellAgent(ctx, in.Agent, in.Message)
+				on, name := agentOn(c, args, in.Agent)
+				it, err := on.TellAgent(ctx, name, in.Message)
 				if err != nil {
 					return "", err
 				}
@@ -642,6 +646,8 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				if err := decodeArgs(args, &in); err != nil {
 					return "", err
 				}
+				c, name := agentOn(c, args, in.Agent)
+				in.Agent = name
 				switch in.Show {
 				case "", "chat":
 					if in.Last <= 0 {
@@ -677,7 +683,8 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				if err := decodeArgs(args, &in); err != nil {
 					return "", err
 				}
-				res, err := c.RunInAgent(ctx, in.Agent, api.LeadRunRequest{Command: in.Command, Timeout: in.TimeoutSeconds})
+				on, name := agentOn(c, args, in.Agent)
+				res, err := on.RunInAgent(ctx, name, api.LeadRunRequest{Command: in.Command, Timeout: in.TimeoutSeconds})
 				if err != nil {
 					return "", err
 				}
@@ -697,10 +704,19 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					"worktree's root without. A directory arrives under its own name"),
 			}),
 			Run: func(args json.RawMessage) (string, error) {
-				var in struct{ To, Path, From, Into string }
+				var in struct{ To, Path, From, Into, Machine string }
 				if err := decodeArgs(args, &in); err != nil {
 					return "", err
 				}
+				c, to := agentOn(c, args, in.To)
+				from, fromMachine := in.From, ""
+				if name, m, ok := strings.Cut(in.From, "@"); ok {
+					from, fromMachine = name, m
+				}
+				if _, toMachine, _ := strings.Cut(in.To, "@"); fromMachine != cmp.Or(in.Machine, toMachine) {
+					return "", errors.New("copy between two agents of one machine: this machine's files and agents can't be copied to another; commit and push instead")
+				}
+				in.To, in.From = to, from
 				if in.From == "" {
 					res, err := c.CopyToAgent(ctx, api.LeadHostCopyRequest{Path: in.Path, To: in.To, Into: in.Into})
 					if err != nil {
@@ -733,7 +749,8 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				if err := decodeArgs(args, &in); err != nil {
 					return "", err
 				}
-				result, err := c.RetireProject(ctx, api.RetireRequest{How: in.How, Agents: []string{in.Agent}, Force: in.Force})
+				on, name := agentOn(c, args, in.Agent)
+				result, err := on.RetireProject(ctx, api.RetireRequest{How: in.How, Agents: []string{name}, Force: in.Force})
 				if err != nil {
 					return "", err
 				}
@@ -783,6 +800,35 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 	)
 }
 
+// onMachine is c, or c reaching another machine of the hub account when a
+// tool call names one (machine).
+func onMachine(c *api.Client, args json.RawMessage) *api.Client {
+	var in struct{ Machine string }
+	if decodeArgs(args, &in) != nil || strings.TrimSpace(in.Machine) == "" {
+		return c
+	}
+	return c.OnMachine(strings.TrimSpace(in.Machine))
+}
+
+// agentOn is c and an agent's name, reaching another machine of the hub
+// account when the call names one, as machine or as the name's @machine
+// (agent-03@vps).
+func agentOn(c *api.Client, args json.RawMessage, agent string) (*api.Client, string) {
+	if name, machine, ok := strings.Cut(agent, "@"); ok && machine != "" {
+		return c.OnMachine(machine), name
+	}
+	return onMachine(c, args), agent
+}
+
+// onMachineText says, in a tool's reply, which machine a call acted on.
+func onMachineText(args json.RawMessage) string {
+	var in struct{ Machine string }
+	if decodeArgs(args, &in) != nil || strings.TrimSpace(in.Machine) == "" {
+		return ""
+	}
+	return " on " + strings.TrimSpace(in.Machine)
+}
+
 // agentDiff is read_agent's diff: whole when it is small, else clipped to
 // what it touches and how it starts (D87).
 func agentDiff(ctx context.Context, c *api.Client, agent string, stat bool, path string) (string, error) {
@@ -825,7 +871,7 @@ func memoryHeld(h *api.MemoryHold) string {
 }
 
 func describeFleet(fleet api.Fleet) string {
-	if len(fleet.Agents) == 0 && len(fleet.Creating) == 0 {
+	if len(fleet.Agents) == 0 && len(fleet.Creating) == 0 && len(fleet.Remote) == 0 {
 		return "This project has no agents yet. Create one with create_agent."
 	}
 	var b strings.Builder
@@ -861,6 +907,26 @@ func describeFleet(fleet api.Fleet) string {
 	}
 	if fleet.Idle > 0 {
 		fmt.Fprintf(&b, "\n%d agent(s) finished and are holding a machine. retire_agent frees one; its work stays on its branch.\n", fleet.Idle)
+	}
+	if len(fleet.Remote) > 0 {
+		b.WriteString("\nOn other machines, as their last notice said (list_agents with machine for the rest):\n")
+		for _, r := range fleet.Remote {
+			fmt.Fprintf(&b, "- %s on %s", r.Name, r.Machine)
+			if r.Title != "" {
+				fmt.Fprintf(&b, " — %s", r.Title)
+			}
+			fmt.Fprintf(&b, "\n  %s", dash(r.Status))
+			if r.Branch != "" {
+				fmt.Fprintf(&b, ", branch: %s", r.Branch)
+			}
+			if r.Summary != "" {
+				fmt.Fprintf(&b, ": %s", oneLine(clip(r.Summary, 160)))
+			}
+			if r.PRURL != "" {
+				fmt.Fprintf(&b, "\n  pull request: %s", r.PRURL)
+			}
+			b.WriteString("\n")
+		}
 	}
 	return b.String()
 }
