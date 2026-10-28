@@ -84,11 +84,12 @@ func (m *Manager) AndroidHost() (android.SDK, error) {
 // AndroidUnsupported says why this machine can't run emulators whatever is
 // installed on it, or nil. They are x86_64 throughout (android.sh runs
 // qemu-system-x86_64 on x86_64 system images). AgentBox's VM on a Mac has no
-// KVM to give its agents, and WSL is left off: Android is off there. The Cloud
-// Hypervisor VM on a Linux host has the host's KVM, nested, so emulators run
-// in its agents as they do in a host's (CheckKVM says when it doesn't).
+// KVM to give its agents: Android is off there. The Cloud Hypervisor VM on a
+// Linux host has the host's KVM, nested, and so does WSL when Windows passes
+// virtualization through, so emulators run in their agents as they do in a
+// host's (CheckKVM says when they don't).
 func AndroidUnsupported() error {
-	if hostos.InVM() && hostos.OS() != hostos.Linux {
+	if host := hostos.OS(); hostos.InVM() && host != hostos.Linux && host != hostos.Windows {
 		return errors.New("this AgentBox runs in a VM on " + hostos.Name() + ", which has no Android emulators")
 	}
 	if runtime.GOARCH != "amd64" {
@@ -103,11 +104,13 @@ var kvmPath = "/dev/kvm"
 // CheckKVM reports whether this user can use hardware virtualization, which emulators need.
 func CheckKVM() error {
 	f, err := os.OpenFile(kvmPath, os.O_RDWR, 0)
-	inCHV := hostos.OS() == hostos.Linux
-	if errors.Is(err, os.ErrNotExist) && hostos.WSL() {
+	// What hostos.OS says, rather than the kernel, so tests can say where this runs.
+	inWSL, inCHV := hostos.OS() == hostos.Windows, hostos.OS() == hostos.Linux
+	if errors.Is(err, os.ErrNotExist) && inWSL {
 		// WSL's kernel has KVM; what's missing is Windows passing
-		// virtualization through to WSL's VM (D94).
-		return errors.New("WSL has no /dev/kvm: Android emulators need nested virtualization, which WSL has on Windows 11 with virtualization on in the firmware. Set nestedVirtualization=true under [wsl2] in %UserProfile%\\.wslconfig, then run wsl --shutdown")
+		// virtualization through to WSL's VM (D94), which Windows update
+		// KB5127648 broke on AMD CPUs (microsoft/WSL#41917).
+		return errors.New("WSL has no /dev/kvm: Android emulators need nested virtualization, which WSL has on Windows 11 with virtualization on in the firmware. Set nestedVirtualization=true under [wsl2] in %UserProfile%\\.wslconfig, then run wsl --shutdown. If WSL then says \"Failed to detect nested virtualization support\" on an AMD CPU, Windows update KB5127648 broke it (github.com/microsoft/WSL/issues/41917)")
 	}
 	if errors.Is(err, os.ErrNotExist) && inCHV {
 		// The VM runs on the host's KVM, so what's missing is the host's KVM
@@ -122,6 +125,9 @@ func CheckKVM() error {
 		// (user-data's provision.sh, and host setup in the VM); a daemon
 		// started before that keeps the groups it had.
 		return fmt.Errorf("the VM's user can't use /dev/kvm (%v): restart the VM so its user joins the kvm group: agentbox vm stop, then agentbox vm start", err)
+	}
+	if err != nil && inWSL {
+		return fmt.Errorf("your user can't use WSL's /dev/kvm (%v): sudo agentbox host setup adds you to the kvm group, then run wsl --shutdown and open AgentBox again", err)
 	}
 	if err != nil {
 		return fmt.Errorf("your user can't use /dev/kvm: sudo agentbox host setup adds you to the kvm group, then log out and back in")

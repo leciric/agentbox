@@ -24,16 +24,43 @@ func TestAndroidUnsupportedInAMacsVM(t *testing.T) {
 	}
 }
 
-// The Cloud Hypervisor VM on a Linux host has the host's KVM, nested, so
-// emulators aren't refused there; WSL still is.
-func TestAndroidUnsupportedInTheLinuxHostsVM(t *testing.T) {
+// The Cloud Hypervisor VM on a Linux host has the host's KVM, nested, and so
+// can WSL, so emulators aren't refused in either: CheckKVM decides.
+func TestAndroidUnsupportedInTheLinuxHostsVMAndWSL(t *testing.T) {
 	t.Setenv(hostos.Env, hostos.Linux)
 	if err := AndroidUnsupported(); (err == nil) != (runtime.GOARCH == "amd64") {
 		t.Fatalf("on %s, in the Cloud Hypervisor VM: got %v", runtime.GOARCH, err)
 	}
 	t.Setenv(hostos.Env, hostos.Windows)
-	if err := AndroidUnsupported(); err == nil || !strings.Contains(err.Error(), "VM on Windows") {
-		t.Fatalf("in WSL: got %v", err)
+	if err := AndroidUnsupported(); (err == nil) != (runtime.GOARCH == "amd64") {
+		t.Fatalf("on %s, in WSL: got %v", runtime.GOARCH, err)
+	}
+}
+
+// In WSL, a missing /dev/kvm is Windows not passing virtualization through,
+// one the user can't open is the kvm group and a WSL restart, and one they
+// can open runs emulators.
+func TestCheckKVMInWSL(t *testing.T) {
+	dir := t.TempDir()
+	old := kvmPath
+	t.Cleanup(func() { kvmPath = old })
+	kvmPath = filepath.Join(dir, "kvm")
+	t.Setenv(hostos.Env, hostos.Windows)
+	if err := CheckKVM(); err == nil || !strings.Contains(err.Error(), "nestedVirtualization=true") || !strings.Contains(err.Error(), "KB5127648") {
+		t.Errorf("no /dev/kvm: got %v", err)
+	}
+	if err := os.WriteFile(kvmPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckKVM(); err != nil {
+		t.Errorf("a /dev/kvm this user can open: got %v", err)
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root opens anything")
+	}
+	_ = os.Chmod(kvmPath, 0)
+	if err := CheckKVM(); err == nil || !strings.Contains(err.Error(), "wsl --shutdown") {
+		t.Errorf("a /dev/kvm this user can't open: got %v", err)
 	}
 }
 

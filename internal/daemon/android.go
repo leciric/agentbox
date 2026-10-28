@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 
@@ -16,12 +17,18 @@ import (
 // front end finds it with the host's settings and says where in
 // AGENTBOX_ANDROID_SDK (hostvm's vmEnv), and the usual place is in the host's
 // home, which the VM shares at the same path, not in the VM user's own.
+// In WSL it is found as on a Linux host, in the distro: Android Studio's SDK
+// on Windows has Windows' emulator, which can't run there, so the error says so.
 func findAndroidSDK() (android.SDK, error) {
 	if share := hostos.Home(); hostos.OS() == hostos.Linux && share != "" {
 		return android.FindSharedSDK(android.Candidates(os.Getenv, share), share)
 	}
 	home, _ := os.UserHomeDir()
-	return android.FindSDK(android.Candidates(os.Getenv, home))
+	sdk, err := android.FindSDK(android.Candidates(os.Getenv, home))
+	if err != nil && hostos.OS() == hostos.Windows {
+		return sdk, fmt.Errorf("%w. In WSL that is the Linux SDK, installed in the distro (the command-line tools for Linux, in ~/Android/Sdk), not Android Studio's SDK on Windows", err)
+	}
+	return sdk, err
 }
 
 func toAPIAndroid(st agent.AndroidStatus) api.AndroidStatus {

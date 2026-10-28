@@ -34,3 +34,26 @@ func TestFindAndroidSDKInTheLinuxHostsVM(t *testing.T) {
 		t.Errorf("an SDK outside the share: %v", err)
 	}
 }
+
+// In WSL, the SDK is looked for as on a Linux host, in the distro's home, and
+// when there is none the error says it's the Linux one, not Windows'.
+func TestFindAndroidSDKInWSL(t *testing.T) {
+	home := t.TempDir()
+	for _, name := range []string{"AGENTBOX_ANDROID_SDK", "ANDROID_HOME", "ANDROID_SDK_ROOT"} {
+		t.Setenv(name, "")
+	}
+	t.Setenv("HOME", home)
+	t.Setenv(hostos.Env, hostos.Windows)
+	t.Setenv(hostos.HomeEnv, "")
+	if _, err := findAndroidSDK(); err == nil || !strings.Contains(err.Error(), "In WSL that is the Linux SDK") {
+		t.Errorf("no SDK: %v", err)
+	}
+	sdk := filepath.Join(home, "Android", "Sdk")
+	for _, f := range []string{"emulator/emulator", "platform-tools/adb", "system-images/android-34/google_apis/x86_64/system.img", "system-images/android-34/google_apis/x86_64/kernel-ranchu"} {
+		_ = os.MkdirAll(filepath.Dir(filepath.Join(sdk, f)), 0o755)
+		_ = os.WriteFile(filepath.Join(sdk, f), nil, 0o755)
+	}
+	if got, err := findAndroidSDK(); err != nil || got.Path != sdk {
+		t.Errorf("the SDK in the distro's home: %+v, %v", got, err)
+	}
+}
