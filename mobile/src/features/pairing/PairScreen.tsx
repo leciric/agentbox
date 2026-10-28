@@ -47,8 +47,10 @@ export function PairScreen() {
 
   const plain = parsePairingLink(link);
   const hl = (c: React.ReactNode) => <Text style={{ color: colors.primary }}>{c}</Text>;
+  // Padding on Android too: edge to edge (Android 15 on), the window no
+  // longer shrinks for the keyboard (adjustResize), which then covers the input.
   return (
-    <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView style={styles.root} behavior="padding">
       <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 32, paddingBottom: insets.bottom + 24 }]} keyboardShouldPersistTaps="handled">
         <View style={styles.logo}>
           <Text style={styles.logoText}>A</Text>
