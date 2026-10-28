@@ -10,7 +10,7 @@ import (
 // profile: its cookies are sealed with app-bound encryption the daemon can't
 // open. The desktop app reads these on the host and seals them through the
 // decrypted-import endpoint instead (see Accept).
-var ErrAppBound = errors.New("Chrome, Edge and Brave on Windows seal their cookies so only the browser can open them: import them from the AgentBox desktop app, or export a cookies file")
+var ErrAppBound = errors.New("on Windows, Chrome, Edge and Brave seal their cookies so only the browser can open them: import them from the AgentBox desktop app, or export a cookies file")
 
 // ErrKeychainDenied is a macOS Chromium profile read without the browser's
 // Keychain passphrase, which the user refused to share when macOS asked.
