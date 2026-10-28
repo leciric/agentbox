@@ -242,6 +242,43 @@ func TestPodUsesAnImportedImageAsItIs(t *testing.T) {
 	}
 }
 
+// TestPodIsHandedTheNamesItCannotResolve: a cluster's pods resolve what its
+// nodes resolve, so a git remote's name is resolved by the daemon and written
+// into the pod's /etc/hosts, sorted so a spec always builds the same pod.
+func TestPodIsHandedTheNamesItCannotResolve(t *testing.T) {
+	spec := agentSpec()
+	spec.HostAliases = map[string]string{
+		"hub.example.ts.net": "203.0.113.7",
+		"a.example":             "10.0.0.2",
+	}
+	pod, err := k8s.BuildPod(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []corev1.HostAlias{
+		{IP: "10.0.0.2", Hostnames: []string{"a.example"}},
+		{IP: "203.0.113.7", Hostnames: []string{"hub.example.ts.net"}},
+	}
+	if len(pod.Spec.HostAliases) != len(want) {
+		t.Fatalf("host aliases = %+v, want %+v", pod.Spec.HostAliases, want)
+	}
+	for i, entry := range pod.Spec.HostAliases {
+		if entry.IP != want[i].IP || strings.Join(entry.Hostnames, ",") != strings.Join(want[i].Hostnames, ",") {
+			t.Errorf("host alias %d = %+v, want %+v", i, entry, want[i])
+		}
+	}
+	// A pod whose remote is an address, or one that resolves nowhere, carries
+	// no entries at all rather than an empty list.
+	spec.HostAliases = nil
+	plain, err := k8s.BuildPod(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plain.Spec.HostAliases) != 0 {
+		t.Errorf("host aliases = %+v, want none", plain.Spec.HostAliases)
+	}
+}
+
 func TestPodTakesTheClustersEphemeralStorage(t *testing.T) {
 	spec := agentSpec()
 	spec.EphemeralStorage = "3Gi"

@@ -12,6 +12,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
+	"agentbox/internal/agent"
 	"agentbox/internal/api"
 	"agentbox/internal/k8s"
 	"agentbox/internal/state"
@@ -453,6 +454,10 @@ func (s *Server) podSpec(ctx context.Context, cluster state.Cluster, reg *state.
 		// pod's probes read, and an environment variable, because Env is the
 		// only thing BuildPod puts in the container.
 		MasterURL: cluster.MasterURL,
+		// A pod resolves what its node resolves, and this machine's private
+		// git remote may be a name only this machine knows. Resolving it here
+		// hands the pod an address instead.
+		HostAliases: s.podHostAliases(ctx, a.Project),
 		Env: map[string]string{
 			k8s.EnvRef:        a.Ref(),
 			k8s.EnvBranch:     a.Branch,
@@ -462,6 +467,31 @@ func (s *Server) podSpec(ctx context.Context, cluster state.Cluster, reg *state.
 			k8s.EnvWorkspace:  workspace,
 		},
 	}
+}
+
+// podHostAliases is where a pod finds its project's git remote: a cluster's
+// pods resolve what its nodes resolve, and the remote's host may be a name only
+// this machine knows, as a tailnet service name is. Empty when it needs nothing:
+// an address in the URL, a profile the daemon can't resolve either, or a
+// project with no remote at all.
+func (s *Server) podHostAliases(ctx context.Context, project string) map[string]string {
+	p, err := s.store.Project(ctx, project)
+	if err != nil {
+		return nil
+	}
+	remotes, err := s.store.ProjectGitRemotes(ctx, p.Name)
+	if err != nil {
+		return nil
+	}
+	r, ok := gitRemoteNamed(remotes, agentRemoteOrPrivate(p.AgentRemote))
+	if !ok {
+		return nil
+	}
+	resolved, err := agent.ResolveGitProfileURL(ctx, r)
+	if err != nil {
+		return nil
+	}
+	return agent.GitHostAlias(ctx, resolved)
 }
 
 // newPodToken is what agentd opens its session with: 32 random bytes, base64url
