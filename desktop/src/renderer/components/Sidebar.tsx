@@ -198,7 +198,7 @@ export function Sidebar({
       </div>
 
       <div className="grid gap-0.5 px-2 pb-1">
-        <NavItem icon={House} active={view.kind === 'home'} onClick={() => onSelect({ kind: 'home' })}>
+        <NavItem nav="home" icon={House} active={view.kind === 'home'} onClick={() => onSelect({ kind: 'home' })}>
           {t('shell.nav.home')}
         </NavItem>
         <HomeChatItem active={view.kind === 'homeChat'} onClick={() => onSelect({ kind: 'homeChat' })} />
@@ -224,7 +224,7 @@ export function Sidebar({
         }}
       >
         <div className="flex items-center gap-1 px-2.5 pb-1.5">
-          <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-subtle">{t('shell.sidebar.projects')}</span>
+          <span data-heading className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-subtle">{t('shell.sidebar.projects')}</span>
           <Tip label={t('shell.sidebar.newProject')}>
             <button
               aria-label={t('shell.sidebar.newProject')}
@@ -350,17 +350,17 @@ export function Sidebar({
             </span>
           </NavItem>
         )}
-        <NavItem icon={Briefcase} active={view.kind === 'work' || view.kind === 'pastAgents'} onClick={() => onSelect({ kind: 'work' })}>
+        <NavItem nav="work" icon={Briefcase} active={view.kind === 'work' || view.kind === 'pastAgents'} onClick={() => onSelect({ kind: 'work' })}>
           {t('work.title')}
         </NavItem>
-        <NavItem icon={ListChecks} active={view.kind === 'jobs'} onClick={() => onSelect({ kind: 'jobs' })}>
+        <NavItem nav="jobs" icon={ListChecks} active={view.kind === 'jobs'} onClick={() => onSelect({ kind: 'jobs' })}>
           {t('shell.nav.jobs')}
           {running > 0 && <span className="ml-auto rounded-full bg-sky-400/15 px-1.5 text-[10.5px] text-sky-300">{t('shell.sidebar.running', { count: running })}</span>}
         </NavItem>
-        <NavItem icon={FolderPlus} onClick={onAddProject}>
+        <NavItem nav="add" icon={FolderPlus} onClick={onAddProject}>
           {t('shell.home.addProject')}
         </NavItem>
-        <NavItem icon={Settings} active={view.kind === 'settings'} onClick={() => onSelect({ kind: 'settings' })}>
+        <NavItem nav="settings" icon={Settings} active={view.kind === 'settings'} onClick={() => onSelect({ kind: 'settings' })}>
           {t('common.settings')}
           {setup.data && !setup.data.ready && <span className="ml-auto size-2 rounded-full bg-amber-400" aria-label={t('shell.sidebar.needsAttention').toLowerCase()} />}
         </NavItem>
@@ -548,7 +548,7 @@ function HomeChatItem({ active, onClick }: { active: boolean; onClick: () => voi
   const state = chat.data?.chat;
   const tone: StatusTone = state === 'waiting' ? 'urgent' : state === 'running' ? 'live' : 'muted';
   return (
-    <NavItem icon={MessagesSquare} active={active} onClick={onClick}>
+    <NavItem nav="chat" icon={MessagesSquare} active={active} onClick={onClick}>
       {t('shell.nav.mainChat')}
       {tone !== 'muted' && (
         <Tip label={t(toneLabel[tone]!)}>
@@ -565,7 +565,7 @@ function MediaNavItem({ active, onClick }: { active: boolean; onClick: () => voi
   const t = useT();
   const unseen = useMediaCounts({ kinds: shownKinds }).data?.unseen ?? 0;
   return (
-    <NavItem icon={Images} active={active} onClick={onClick}>
+    <NavItem nav="media" icon={Images} active={active} onClick={onClick}>
       {t('shell.nav.media')}
       {unseen > 0 && (
         <span className="ml-auto rounded-full bg-brand-500/15 px-1.5 text-[11px] tabular-nums text-brand-300 [:root[data-appearance=light]_&]:text-brand-600" data-media-unseen={unseen}>
@@ -576,7 +576,10 @@ function MediaNavItem({ active, onClick }: { active: boolean; onClick: () => voi
   );
 }
 
+// nav names the item for styles.css, which gives each its own hue under
+// Dracula.
 function NavItem({
+  nav,
   icon: Icon,
   active,
   title,
@@ -584,6 +587,7 @@ function NavItem({
   onClick,
   children,
 }: {
+  nav?: string;
   icon: ComponentType<{ className?: string }>;
   active?: boolean;
   title?: string;
@@ -596,6 +600,8 @@ function NavItem({
       onClick={onClick}
       title={title}
       disabled={disabled}
+      data-nav={nav}
+      data-active={active || undefined}
       className={cn(
         'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-muted transition-colors hover:bg-surface hover:text-primary disabled:cursor-progress',
         active && 'bg-surface-raised text-title',

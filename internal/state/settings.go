@@ -102,8 +102,8 @@ const (
 	SettingImageIncus = "image_incus"
 	// SettingAppearance is what AgentBox wears: api.AppearanceFollow (the
 	// desktop theme this machine is running, in its own window and on every
-	// agent's desktop), or api.AppearanceLight or api.AppearanceDark for its
-	// own colours one way round or the other. Unlike the image flags above it
+	// agent's desktop), api.AppearanceLight or api.AppearanceDark for its
+	// own colours one way round or the other, or api.AppearanceDracula. Unlike the image flags above it
 	// has a default that isn't the zero value, which is why it is read with
 	// Appearance rather than Setting: a machine running Omarchy should match
 	// the desktop around it without anyone having found a switch, and a
@@ -793,14 +793,14 @@ func (s *Store) DeleteSetting(ctx context.Context, key string) error {
 	return err
 }
 
-// Appearance reads SettingAppearance: api.AppearanceFollow, AppearanceLight or
-// AppearanceDark. Anything else — never written, or the "1" this setting used
+// Appearance reads SettingAppearance: api.AppearanceFollow, AppearanceLight,
+// AppearanceDark or AppearanceDracula. Anything else — never written, or the "1" this setting used
 // to be stored as — is following, which is the default. See the constant for
 // why "0" reads as dark.
 func (s *Store) Appearance(ctx context.Context) (string, error) {
 	value, err := s.Setting(ctx, SettingAppearance)
 	switch value {
-	case api.AppearanceLight, api.AppearanceDark:
+	case api.AppearanceLight, api.AppearanceDark, api.AppearanceDracula:
 		return value, err
 	case "0":
 		return api.AppearanceDark, err
