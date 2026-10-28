@@ -625,8 +625,7 @@ function AgentPRsToggle({ project }: { project: T.Project }) {
         <Switch
           id="project-agent-prs"
           data-project-agent-prs
-          checked={project.agentPRs}
-          disabled={save.isPending}
+          checked={save.isPending ? save.variables : project.agentPRs}
           onCheckedChange={(on) => save.mutate(on)}
         />
       }
@@ -733,8 +732,7 @@ function SyncBaseToggle({ project }: { project: T.Project }) {
         <Switch
           id="project-sync-base"
           data-project-sync-base
-          checked={project.syncBase}
-          disabled={save.isPending}
+          checked={save.isPending ? save.variables : project.syncBase}
           onCheckedChange={(on) => save.mutate(on)}
         />
       }
@@ -771,8 +769,8 @@ function NestingToggle({ project }: { project: T.Project }) {
         <Switch
           id="project-nesting"
           data-project-nesting
-          checked={project.nesting}
-          disabled={save.isPending || (!hasIncus && !project.nesting)}
+          checked={save.isPending ? save.variables : project.nesting}
+          disabled={!hasIncus && !project.nesting}
           onCheckedChange={(on) => save.mutate(on)}
         />
       }

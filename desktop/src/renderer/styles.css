@@ -810,6 +810,19 @@
   animation: chat-shine 2.2s linear infinite;
 }
 
+/* appear-late shows something only once it has been there long enough to
+   matter, like a message still on its way after most have arrived. */
+.appear-late {
+  opacity: 0;
+  animation: appear-late 0.2s ease-out 0.8s forwards;
+}
+
+@keyframes appear-late {
+  to {
+    opacity: 1;
+  }
+}
+
 @keyframes chat-shine {
   from {
     background-position:

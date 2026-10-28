@@ -49,6 +49,29 @@ func (s *Server) refreshAgents(ctx context.Context) {
 	s.publishAgentChanges(statuses)
 }
 
+// refreshAgentsBehind is refreshAgents for a request the user is waiting
+// on: listing every machine again is Incus's slowest answer, and the reply
+// doesn't need it, as the app hears what changed as events. Several asked
+// for at once make one more listing, not one each.
+func (s *Server) refreshAgentsBehind() {
+	s.refreshAgain.Store(true)
+	if !s.refreshing.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		for {
+			for s.refreshAgain.Swap(false) {
+				s.refreshAgents(s.background())
+			}
+			s.refreshing.Store(false)
+			// One asked for as this one finished would be lost: it runs now.
+			if !s.refreshAgain.Load() || !s.refreshing.CompareAndSwap(false, true) {
+				return
+			}
+		}
+	}()
+}
+
 // agentRemoved tells the app an agent is gone from the live ones — it is a
 // past agent now — without waiting for the next look at every agent.
 func (s *Server) agentRemoved(ref string) {

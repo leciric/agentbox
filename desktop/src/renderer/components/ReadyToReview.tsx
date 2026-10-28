@@ -432,16 +432,27 @@ function ReviewCarousel({
   const changesBox = useRef<HTMLTextAreaElement>(null);
   const notes = useReviewNotes(item.ref);
   const pendingNotes = drafts(notes.notes);
+  // The review moves on as soon as they're sent: the daemon may have to start
+  // the agent's machine before it answers. If they don't go, the agent is
+  // back in the list, and what was written is in the toast, to copy.
   const send = useMutation({
     mutationFn: (text: string) => api.requestChanges(item.ref, { text, fingerprint: item.fingerprint, notes: pendingNotes.map((n) => n.id) }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: reviewNotesKey(item.ref) });
+    onMutate: () => {
       dropFromList(queryClient, item.ref);
       toast(t('review.changesSent', { agent: item.agent }));
-      refreshInbox(queryClient);
       onNext();
     },
-    onError: (err) => toast.error(t('review.changesFailed', { error: errorMessage(err) })),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: reviewNotesKey(item.ref) });
+      refreshInbox(queryClient);
+    },
+    onError: (err, text) => {
+      refreshInbox(queryClient);
+      toast.error(t('review.changesFailed', { error: errorMessage(err) }), {
+        description: text || undefined,
+        action: text ? { label: t('common.copy'), onClick: () => window.agentbox.copyText(text) } : undefined,
+      });
+    },
   });
   const sendChanges = () => {
     const text = note.trim();
