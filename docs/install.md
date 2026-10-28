@@ -155,6 +155,11 @@ and antivirus may need an exception. Download `AgentBox-<version>-mac-arm64.dmg`
 `-mac-x64.dmg`, or `AgentBox-<version>-x64-setup.exe` (installer) or `-x64-portable.exe`, from the
 same [downloads](https://downloads.agentbox.linting.dev/index.html) page.
 
+On Windows, Android emulators run in agents when WSL has `/dev/kvm`: set
+`nestedVirtualization=true` under `[wsl2]` in `%UserProfile%\.wslconfig`, then `wsl --shutdown`.
+The Android SDK they use is a Linux one, installed in the WSL distro (in `~/Android/Sdk`, or where
+`AGENTBOX_ANDROID_SDK` says), not Android Studio's on Windows. On a Mac, Android is off.
+
 On a Mac with Apple Silicon, the VM is made with [krunkit](https://lima-vm.io/docs/config/vmtype/krunkit/)
 when it's installed: it has a GPU for agents, and gives the memory its agents stop using back to
 your Mac. The app's Setup installs it with Homebrew when it's missing (**Install krunkit and set up
