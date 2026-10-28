@@ -9,7 +9,7 @@ import { useT, type MessageKey } from '../lib/i18n';
 import { pagesFor } from '../lib/pages';
 import { projectLabel } from '../lib/projectName';
 import { pageItems, pageTotal, refreshInbox, useReviewPages, withoutAgent } from '../lib/inboxPages';
-import { type Walk, firstLine, goBack, goForward, isTyping, mergeBlock, pressable, proofKey, nextPending, proofOf, remainingAfter, repeatable, wrapWalk, walkItems, walkOrder, queueOf, reviewKeys, reviewShortcut, step, type MergeBlock, type ReviewAction } from '../lib/review';
+import { type Walk, firstLine, goBack, goForward, isTyping, mergeBlock, pressable, proofKey, nextPending, proofOf, remainingAfter, repeatable, reviewPane, wrapWalk, walkItems, walkOrder, queueOf, reviewKeys, reviewShortcut, step, type MergeBlock, type Pane, type ReviewAction } from '../lib/review';
 import { defaultMethod, loadMethodPrefs, rememberMethod } from '../lib/mergeMethod';
 import { isUnseen, markReadySeen, useUnseen } from '../lib/reviewAlert';
 import { useNow } from '../lib/useNow';
@@ -292,9 +292,9 @@ const keyLabels: Record<ReviewAction, MessageKey> = {
 const isMac = typeof navigator !== 'undefined' && navigator.platform.startsWith('Mac');
 
 // A pane is what the body shows: the proof, which the review opens on, or
-// the diff or the details in its place. D and I (and their buttons in the
-// header) show one and, pressed again, go back to the proof.
-type Pane = 'proof' | 'diff' | 'details';
+// the diff or the details in its place (an agent with no media opens on the
+// details). D and I (and their buttons in the header) show one and, pressed
+// again, go back to the proof.
 
 // ReviewCarousel is one agent's review, built around the decision. The
 // header says what changed (the title and the first line of what the agent
@@ -359,8 +359,14 @@ function ReviewCarousel({
   const pr = (item.pr && pulls.data?.pullRequests.find((p) => p.number === item.pr?.number)) || item.pr;
   const proof = proofOf(Array.isArray(media.data) ? media.data : [], pagesFor(pages.data, item.ref));
   const proofCount = proof.recordings.length + proof.screenshots.length + proof.pages.length;
-  const [pane, setPane] = useState<Pane>('proof');
-  const toggle = (p: Pane) => setPane((now) => (now === p ? 'proof' : p));
+  // A pane picked by hand for this item stays; otherwise the review follows
+  // what's there: the proof, or the details when the agent showed no media.
+  const [chosenPane, setChosenPane] = useState<Pane>();
+  const pane = reviewPane(proof, chosenPane, !media.isPending && !pages.isPending);
+  const toggle = (p: Pane) => setChosenPane((now) => {
+    if ((now ?? pane) !== p) return p;
+    return reviewPane(proof, undefined, true);
+  });
   const [help, setHelp] = useState(false);
   const labels = usePullLabels(item.project);
   // The review's own "Merged" toast says whose it was and where it went.
@@ -474,7 +480,7 @@ function ReviewCarousel({
   const proofView = useRef<ProofHandle>(null);
   const fileAt = useRef(-1);
   const stepFile = (by: number) => {
-    if (pane !== 'diff') return setPane('diff');
+    if (pane !== 'diff') return setChosenPane('diff');
     const root = body.current;
     if (!root) return;
     const tree = [...root.querySelectorAll<HTMLElement>('[data-tree-file]')];
@@ -582,7 +588,7 @@ function ReviewCarousel({
           }
           if (!changing && pane !== 'proof' && !notes.composing && notes.editing === null) {
             event.preventDefault();
-            setPane('proof');
+            toggle('proof');
             return;
           }
           if (notes.composing || notes.editing !== null) {
@@ -642,12 +648,12 @@ function ReviewCarousel({
                     screen marked, so the way back to the media is always in
                     sight (D and I go to theirs and back, as does Esc). */}
                 <div role="tablist" aria-label={t('review.panes')} className="flex items-center gap-0.5 rounded-lg border border-line bg-surface-faint p-0.5" data-review-panes>
-                  <PaneTab on={pane === 'proof'} onClick={() => setPane('proof')} pane="proof">
+                  <PaneTab on={pane === 'proof'} onClick={() => setChosenPane('proof')} pane="proof">
                     <Images />
                     {t('review.media')}
                     {proofCount > 0 && <span className="tabular-nums text-subtle">{proofCount}</span>}
                   </PaneTab>
-                  <PaneTab on={pane === 'diff'} onClick={() => setPane('diff')} pane="diff">
+                  <PaneTab on={pane === 'diff'} onClick={() => setChosenPane('diff')} pane="diff">
                     <FileDiff />
                     {t('review.diff')}
                     {item.changes && item.changes.files > 0 && (
@@ -658,7 +664,7 @@ function ReviewCarousel({
                     {pendingNotes.length > 0 && <NotesCount n={pendingNotes.length} />}
                     <Hint k="D" />
                   </PaneTab>
-                  <PaneTab on={pane === 'details'} onClick={() => setPane('details')} pane="details">
+                  <PaneTab on={pane === 'details'} onClick={() => setChosenPane('details')} pane="details">
                     <Info />
                     {t('review.details')}
                     <Hint k="I" />

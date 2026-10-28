@@ -63,6 +63,19 @@ export function gallery(proof: Proof): Shown[] {
   ];
 }
 
+// A pane is what the review's body shows: the proof, the diff or the details.
+export type Pane = 'proof' | 'diff' | 'details';
+
+// reviewPane is the pane the review opens on: the proof when there is any to
+// show, else Details, since an agent with no media still has something to
+// read. Until the proof has loaded it opens on the proof; and a pane the user
+// picked by hand for this item always wins.
+export function reviewPane(proof: Proof, picked: Pane | undefined, loaded: boolean): Pane {
+  if (picked) return picked;
+  if (!loaded) return 'proof';
+  return gallery(proof).length === 0 ? 'details' : 'proof';
+}
+
 function chaptersOf(rec: T.MediaItem, notes: readonly T.MediaItem[], screenshots: readonly T.MediaItem[]): Chapter[] {
   const start = ms(rec.createdAt);
   const length = recordedFor(rec.meta) * 1000;
