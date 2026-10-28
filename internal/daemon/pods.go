@@ -38,7 +38,16 @@ func (p podLifecycle) Info(ctx context.Context, ref gateway.Ref) (machine.Info, 
 	if err != nil {
 		return machine.Info{}, err
 	}
-	return podInfo(a), nil
+	info := podInfo(a)
+	// A pod whose agentd is connected is running, whatever the row's last
+	// round says: the session is what every operation uses, and the cluster
+	// detail that clears it lags behind by up to a reconciler round. A create
+	// returns when its session is up, so without this a just-created agent
+	// reads as stopped for a few seconds and its first exec or shell refuses.
+	if info.State != "Running" && a.DesiredState == state.DesiredRunning && p.s.gateway != nil && p.s.gateway.Connected(ref) {
+		info.State = "Running"
+	}
+	return info, nil
 }
 
 // Recreate deletes the agent's pod and asks for a new one on the same claim. The
