@@ -230,7 +230,10 @@ func CatchUp(ctx context.Context, inc incus.Client, instance string, u User, b B
 		{"/root/tools.current", toolsList(b.tools), 0o600},
 	}
 	if system {
-		files = append([]file{{"/root/system.sh", systemScript, 0o700}}, files...)
+		files = append([]file{
+			{"/root/system.sh", systemScript, 0o700},
+			{"/root/base-packages.txt", basePackages, 0o600},
+		}, files...)
 	}
 	// The machine is saved as the project's base afterwards: nothing of this
 	// may be left in it, whatever happened.

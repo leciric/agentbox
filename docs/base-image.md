@@ -58,8 +58,9 @@ turning the setting off goes back to it. **Check now** checks at once.
 
 Run inside the container before it's snapshotted:
 
-- base packages — `curl`, `git`, `tmux`, `build-essential`, Docker, Python, and the rest an agent
-  needs to work;
+- base packages — the list in [`base-packages.txt`](../internal/image/base-packages.txt), installed
+  by every AgentBox runtime (this image, the pod image, the `machines` desktop image and the daemon
+  container), plus Docker and sudo, which only a machine has;
 - a display stack for the desktop tools: a VNC server, Chromium, an Openbox desktop, a terminal,
   `ffmpeg` for recordings, and (opt-in, `AGENTBOX_WITH_ANDROID`) `scrcpy` for the Android emulator
   screen;

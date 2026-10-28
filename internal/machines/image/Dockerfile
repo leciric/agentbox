@@ -8,17 +8,22 @@ FROM debian:trixie-slim
 
 ARG PLAYWRIGHT_MCP
 
-# The desktop is what system.sh installs for the agents' base image; then
-# what a machine adds: node for Playwright's MCP server, git, sudo, and Docker
-# for a project that runs one inside (docker_inside).
+# The desktop is what system.sh installs for the agents' base image; then what a
+# machine adds: node for Playwright's MCP server, sudo, and Docker for a project
+# that runs one inside (docker_inside). The rest is base-packages.txt, the one
+# list every AgentBox runtime installs, which WriteContext puts in this context:
+# the user's own AI tool runs the same commands an agent does.
+COPY base-packages.txt /tmp/base-packages.txt
+
 RUN apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
       tigervnc-standalone-server chromium openbox tint2 pcmanfm xfce4-terminal xdotool x11-utils \
       x11-xserver-utils xwallpaper adwaita-icon-theme librsvg2-common fonts-liberation \
       fonts-dejavu-core fonts-noto-color-emoji ffmpeg \
-      ca-certificates curl git procps iproute2 sudo nodejs npm \
+      $(grep -v -e '^#' -e '^$' /tmp/base-packages.txt | xargs) \
+      sudo nodejs npm \
       docker.io docker-cli iptables \
     && npm install -g --no-fund --no-audit "$PLAYWRIGHT_MCP" \
-    && rm -rf /var/lib/apt/lists/* /root/.npm
+    && rm -rf /var/lib/apt/lists/* /root/.npm /tmp/base-packages.txt
 
 COPY browser.sh /usr/local/bin/agentbox-browser
 COPY wallpaper.png /usr/local/share/agentbox/wallpaper.png

@@ -32,6 +32,10 @@ func buildContext() map[string][]byte {
 	}
 	files["browser.sh"] = agent.BrowserScript()
 	files["wallpaper.png"], _ = agent.Wallpaper()
+	// The packages an agent's runtime installs, the same file the pod and Incus
+	// images read: a machine the user's own tool works in needs the same
+	// commands, and a list of its own is one that drifts.
+	files["base-packages.txt"] = image.BasePackages()
 	return files
 }
 

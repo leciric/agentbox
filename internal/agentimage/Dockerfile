@@ -39,26 +39,19 @@ ARG DEBIAN_FRONTEND=noninteractive
 FROM --platform=linux/amd64 debian:trixie-slim AS base
 ARG DEBIAN_FRONTEND
 
-# What an agent's work needs before any AI tool is installed. python3 is here
-# because Debian's own tooling and many projects expect it; git, tmux, ssh and
-# the rest are what the task and the chat use, as on an Incus machine. iproute2
-# is for `ss`, which internal/agent/browser.sh uses to see that Xvnc is
-# listening on 5900 before it goes on; system.sh's own base list has it too.
+# What an agent's work needs before any AI tool is installed: the one list the
+# Incus base image and the daemon container install too, in
+# internal/image/base-packages.txt. python3 is there because Debian's own
+# tooling and many projects expect it, and iproute2 for `ss`, which
+# internal/agent/browser.sh uses to see that Xvnc is listening on 5900 before it
+# goes on. sudo is not: a pod is one unprivileged user, and the Incus image
+# installs sudo itself for the user it makes.
+COPY internal/image/base-packages.txt /tmp/base-packages.txt
+
 RUN apt-get update \
  && DEBIAN_FRONTEND=$DEBIAN_FRONTEND apt-get install -y --no-install-recommends \
-      ca-certificates \
-      curl \
-      git \
-      iproute2 \
-      jq \
-      less \
-      openssh-client \
-      procps \
-      python3 \
-      tmux \
-      unzip \
-      xz-utils \
- && rm -rf /var/lib/apt/lists/*
+      $(grep -v -e '^#' -e '^$' /tmp/base-packages.txt | xargs) \
+ && rm -rf /var/lib/apt/lists/* /tmp/base-packages.txt
 
 # Go and Node, from the pins in internal/image/tools.txt: go@1.27.3 and
 # node@24.21.0, the versions provision.sh installs with mise on an Incus
