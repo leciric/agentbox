@@ -68,6 +68,19 @@ func (s *Server) ensureLeadFromPath(r *http.Request) (state.Agent, error) {
 	return m.SyncLead(r.Context(), a)
 }
 
+// leadForMessage is ensureLeadFromPath for a message to the chat. One that
+// joins a running turn doesn't wait for the lead to be readied again: its
+// brief and tools are the running session's already, and its worktree stays
+// on the commit the turn is reading rather than moving under it.
+func (s *Server) leadForMessage(r *http.Request) (state.Agent, error) {
+	if project := r.PathValue("project"); project != state.HomeProject {
+		if a, err := s.manager(nil).Lead(r.Context(), project); err == nil && s.chat.Busy(a) {
+			return a, nil
+		}
+	}
+	return s.ensureLeadFromPath(r)
+}
+
 // projectChat describes a project's chat for the app: whether it has been used,
 // and what its session is doing.
 func (s *Server) projectChat(w http.ResponseWriter, r *http.Request) error {

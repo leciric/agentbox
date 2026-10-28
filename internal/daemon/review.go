@@ -428,7 +428,7 @@ func (s *Server) requestChanges(w http.ResponseWriter, r *http.Request) error {
 	if err := s.markNotesSent(ctx, a, notes); err != nil {
 		return err
 	}
-	s.refreshAgents(ctx)
+	s.refreshAgentsBehind()
 	return writeJSON(w, http.StatusAccepted, api.TellResult{ChatItem: t.item, Woke: t.woke})
 }
 

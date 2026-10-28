@@ -1688,8 +1688,8 @@ function EnforceAgentDefaults() {
         <Switch
           data-enforce-agent-defaults
           aria-label={t("settings.entry.enforce.label")}
-          disabled={save.isPending || settings.data === undefined}
-          checked={enforced}
+          disabled={settings.data === undefined}
+          checked={save.isPending ? save.variables : enforced}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }
@@ -1731,8 +1731,8 @@ function UpdateCheck() {
         <Switch
           data-update-check
           aria-label={t("settings.entry.update-check.label")}
-          disabled={save.isPending || settings.data === undefined || !!blocked}
-          checked={!blocked && (settings.data?.updateCheck ?? true)}
+          disabled={settings.data === undefined || !!blocked}
+          checked={save.isPending ? save.variables : (!blocked && (settings.data?.updateCheck ?? true))}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }
@@ -1951,8 +1951,8 @@ export function AgentGPU() {
         <Switch
           data-agent-gpu
           aria-label={t("settings.entry.agent-gpu.label")}
-          disabled={save.isPending || settings.data === undefined || unavailable}
-          checked={!unavailable && (settings.data?.agentGPU ?? false)}
+          disabled={settings.data === undefined || unavailable}
+          checked={save.isPending ? save.variables : (!unavailable && (settings.data?.agentGPU ?? false))}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }
@@ -2015,8 +2015,8 @@ export function PRWatch() {
           id="pr-watch"
           data-pr-watch
           aria-label={t("settings.entry.pr-watch.label")}
-          disabled={save.isPending || settings.data === undefined}
-          checked={settings.data?.prWatch ?? true}
+          disabled={settings.data === undefined}
+          checked={save.isPending ? save.variables : (settings.data?.prWatch ?? true)}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }
@@ -2058,9 +2058,9 @@ function UsageStats() {
           data-usage-stats
           aria-label={t("settings.entry.usage-stats.label")}
           disabled={
-            save.isPending || settings.data === undefined || !!blocked || checkOff
+            settings.data === undefined || !!blocked || checkOff
           }
-          checked={!blocked && !checkOff && (settings.data?.usageStats ?? true)}
+          checked={save.isPending ? save.variables : (!blocked && !checkOff && (settings.data?.usageStats ?? true))}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }
@@ -2258,8 +2258,8 @@ function ErrorReportsSetting() {
         <Switch
           data-error-reports
           aria-label={t("settings.entry.error-reports.label")}
-          disabled={save.isPending || settings.data === undefined}
-          checked={settings.data?.errorReports ?? true}
+          disabled={settings.data === undefined}
+          checked={save.isPending ? save.variables : (settings.data?.errorReports ?? true)}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }
@@ -2289,8 +2289,8 @@ function CreditAIToolSetting() {
         <Switch
           data-credit-ai-tool
           aria-label={t("settings.entry.credit-ai-tool.label")}
-          disabled={save.isPending || settings.data === undefined}
-          checked={settings.data?.creditAITool ?? false}
+          disabled={settings.data === undefined}
+          checked={save.isPending ? save.variables : (settings.data?.creditAITool ?? false)}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }

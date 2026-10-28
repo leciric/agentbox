@@ -684,7 +684,6 @@ func (c *conversation) beginResumedTurn(it *api.ChatItem, text string, sent atta
 	}
 	t := &turn{id: it.ID, text: text, sent: sent, startedAt: it.CreatedAt, progressAt: it.CreatedAt, resumes: resumes}
 	c.turn = t
-	c.recordTurn(t)
 	c.tools, c.plan, c.open, c.openMessage = map[string]*api.ChatItem{}, nil, nil, ""
 	started := it.CreatedAt
 	c.session.TurnStartedAt = &started
@@ -706,7 +705,12 @@ func (c *conversation) beginResumedTurn(it *api.ChatItem, text string, sent atta
 	ad := c.startAdapter()
 	c.session.State = c.stateNow()
 	c.markSession()
+	// The app hears of the message and the turn before anything is written
+	// (flush publishes, then stores): a write waits for whatever else holds
+	// the database, another chat saving or memory consolidating, and the
+	// message used to wait on screen with it.
 	c.flush(true)
+	c.recordTurn(t)
 	c.m.background.Go(func() { c.prompt(ad, t) })
 }
 
@@ -1220,6 +1224,7 @@ func (m *Manager) Clear(a state.Agent) error {
 	}
 	defer c.mu.Unlock()
 	c.stopAdapter()
+	c.dropBehind()
 	if err := m.Store.ClearChat(context.Background(), a.Project, a.Name); err != nil {
 		return err
 	}
@@ -1276,6 +1281,7 @@ func (m *Manager) Forget(ref string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.gone = true
+	c.dropBehind()
 	c.outbox = nil // the agent is going, and its conversation with it
 	c.cancelResume()
 	if t := c.turn; t != nil {
@@ -1434,6 +1440,13 @@ type conversation struct {
 	unsaved      map[string]bool
 	lastSave     time.Time
 	timer        *time.Timer
+
+	// behind is what saveBehind took to store, by item, waiting for writing,
+	// which one writer holds at a time: the store sees the snapshots in the
+	// order they were taken, the newest of an item last.
+	behindMu sync.Mutex
+	behind   map[string]state.ChatItem
+	writing  sync.Mutex
 }
 
 // queuedNotice is something that arrived while a turn was running.
@@ -2811,8 +2824,10 @@ func (c *conversation) flush(save bool) {
 	}
 	switch {
 	case len(c.unsaved) == 0:
-	case save || time.Since(c.lastSave) >= saveInterval:
+	case save:
 		c.save()
+	case time.Since(c.lastSave) >= saveInterval:
+		c.saveBehind()
 	default:
 		c.schedule(saveInterval)
 	}
@@ -2835,7 +2850,44 @@ func (c *conversation) save() {
 		c.unsaved = map[string]bool{}
 		return
 	}
-	rows := make([]state.ChatItem, 0, len(c.unsaved))
+	c.queueUnsaved()
+	if err := c.writeBehind(c.agent); err != nil {
+		c.m.logf("chat %s: storing the conversation: %v", c.agent.Ref(), err)
+		c.schedule(saveInterval)
+	}
+}
+
+// saveBehind is save for a flush that doesn't need the items stored before
+// it returns, as most don't: what changed is taken now, under the lock, and
+// written by a goroutine of its own. Written under the lock, a database busy
+// with another writer held the conversation too, and a message sent while
+// the chat streamed waited for it before it showed. The conversation is
+// locked.
+func (c *conversation) saveBehind() {
+	if c.gone {
+		c.unsaved = map[string]bool{}
+		return
+	}
+	c.queueUnsaved()
+	a := c.agent
+	c.m.background.Go(func() {
+		if err := c.writeBehind(a); err != nil {
+			c.m.logf("chat %s: storing the conversation: %v", a.Ref(), err)
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			c.schedule(saveInterval)
+		}
+	})
+}
+
+// queueUnsaved takes the items not stored yet for writeBehind. The
+// conversation is locked.
+func (c *conversation) queueUnsaved() {
+	c.behindMu.Lock()
+	defer c.behindMu.Unlock()
+	if c.behind == nil {
+		c.behind = map[string]state.ChatItem{}
+	}
 	for i, it := range c.items {
 		if !c.unsaved[it.ID] {
 			continue
@@ -2844,15 +2896,51 @@ func (c *conversation) save() {
 		if err != nil {
 			continue
 		}
-		rows = append(rows, state.ChatItem{ID: it.ID, Position: int64(i), Data: data})
-	}
-	c.lastSave = time.Now()
-	if err := c.m.Store.SaveChatItems(context.Background(), c.agent.Project, c.agent.Name, rows); err != nil {
-		c.m.logf("chat %s: storing the conversation: %v", c.agent.Ref(), err)
-		c.schedule(saveInterval)
-		return
+		c.behind[it.ID] = state.ChatItem{ID: it.ID, Position: int64(i), Data: data}
 	}
 	c.unsaved = map[string]bool{}
+	c.lastSave = time.Now()
+}
+
+// writeBehind stores what queueUnsaved took for a's conversation, after
+// whatever is being stored already. What fails to be stored goes back, unless
+// something newer of the same item has been taken since. It doesn't need the
+// conversation's lock.
+func (c *conversation) writeBehind(a state.Agent) error {
+	c.writing.Lock()
+	defer c.writing.Unlock()
+	c.behindMu.Lock()
+	queued := c.behind
+	c.behind = nil
+	c.behindMu.Unlock()
+	if len(queued) == 0 {
+		return nil
+	}
+	rows := slices.SortedFunc(maps.Values(queued), func(a, b state.ChatItem) int { return int(a.Position - b.Position) })
+	err := c.m.Store.SaveChatItems(context.Background(), a.Project, a.Name, rows)
+	if err != nil {
+		c.behindMu.Lock()
+		if c.behind == nil {
+			c.behind = map[string]state.ChatItem{}
+		}
+		for id, row := range queued {
+			if _, newer := c.behind[id]; !newer {
+				c.behind[id] = row
+			}
+		}
+		c.behindMu.Unlock()
+	}
+	return err
+}
+
+// dropBehind forgets what is waiting to be stored, once what is being
+// stored now has been, for a conversation whose items are going.
+func (c *conversation) dropBehind() {
+	c.behindMu.Lock()
+	c.behind = nil
+	c.behindMu.Unlock()
+	c.writing.Lock()
+	defer c.writing.Unlock()
 }
 
 func toOptions(options []acp.ConfigOption) []api.ChatOption {

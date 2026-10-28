@@ -1244,7 +1244,7 @@ func (s *Server) destroyAgent(w http.ResponseWriter, r *http.Request) error {
 	if a.Status != state.AgentQueued {
 		s.recordAgentFinished(r.Context(), a, "destroyed")
 	}
-	s.refreshAgents(r.Context())
+	s.refreshAgentsBehind()
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
@@ -1279,7 +1279,7 @@ func (s *Server) agentAction(action string) func(http.ResponseWriter, *http.Requ
 		if err != nil {
 			return err
 		}
-		s.refreshAgents(ctx)
+		s.refreshAgentsBehind()
 		info, err := s.describe(ctx, a)
 		if err != nil {
 			return err

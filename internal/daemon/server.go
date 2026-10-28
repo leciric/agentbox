@@ -196,6 +196,9 @@ type Server struct {
 	snaps        snapStore                // SnapShots waiting for the app's composer (snaps.go)
 	leadWaits    map[string]bool          // agents their project's chat asked for something and hasn't heard back from, by ref (D87)
 	toldWaiting  map[string]bool          // agents whose chat has been told they wait on background work, until they finish, by ref
+	// refreshing and refreshAgain are refreshAgentsBehind's: one listing
+	// runs at a time, and another follows when one was asked for meanwhile.
+	refreshing, refreshAgain atomic.Bool
 	// scheduleKick wakes the scheduled tasks' runner (schedules.go).
 	scheduleKick chan struct{}
 	// archivedPRChecked is when each past agent's open pull request was last
@@ -743,7 +746,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/projects/{project}/chat/search", s.searchChat(s.leadFromPath))
 	h("DELETE /v1/projects/{project}/chat", s.clearChat(s.leadFromPath))
 	h("POST /v1/projects/{project}/chat/start", s.startChat(s.ensureLeadFromPath))
-	h("POST /v1/projects/{project}/chat/messages", s.sendChat(s.ensureLeadFromPath))
+	h("POST /v1/projects/{project}/chat/messages", s.sendChat(s.leadForMessage))
 	h("GET /v1/projects/{project}/chat/images/{image}", s.chatImage(s.leadFromPath))
 	h("GET /v1/projects/{project}/chat/files/{file}", s.chatFile(s.leadFromPath))
 	h("POST /v1/projects/{project}/chat/cancel", s.cancelChat(s.leadFromPath))

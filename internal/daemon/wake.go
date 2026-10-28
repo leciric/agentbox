@@ -79,7 +79,7 @@ func (s *Server) tellAgentMessage(ctx context.Context, a state.Agent, msg api.Ch
 		woke = "started"
 	}
 	if woke != "" {
-		s.refreshAgents(ctx)
+		s.refreshAgentsBehind()
 	}
 	item, err := s.chat.SendMessage(a, msg)
 	return told{item: item, woke: woke}, err

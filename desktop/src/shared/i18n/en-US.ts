@@ -1549,6 +1549,8 @@ export const enUS = {
   'chat.delivery.lost': 'Never reached the tool',
   'chat.delivery.held': 'Waiting for the compaction to finish',
   'chat.delivery.waking': 'Waiting for memory to start its machine',
+  'chat.sending.retry': 'Send again',
+  'chat.sending.edit': 'Edit',
   'chat.compaction.running': 'Compacting context — saving to project memory…',
   'chat.compaction.waiting': '{count, plural, one {Your message waits for the fresh session, and goes in as soon as it starts.} other {Your # messages wait for the fresh session, and go in as soon as it starts.}}',
   'chat.tab.loading': 'Loading the conversation',

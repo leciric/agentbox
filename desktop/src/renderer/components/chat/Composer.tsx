@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowUp,
   Brain,
@@ -27,7 +27,6 @@ import {
   ShieldAlert,
   Sparkles,
   SquareArrowOutUpRight,
-  X,
   type LucideIcon,
 } from 'lucide-react';
 import { Fragment, use, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type ComponentType, type DragEvent, type KeyboardEvent, type ReactNode, type SyntheticEvent } from 'react';
@@ -47,6 +46,7 @@ import { useNow } from '../../lib/useNow';
 import { previewUrl } from '../../lib/chatImages';
 import { droppedFiles, isElement, isFile, prepareAttachment, room, uploads, type Pending } from '../../lib/chatFiles';
 import { splitPicked, takePicks, useWaitingPicks, withPicks } from '../../lib/picks';
+import { sendMessage, unsentEvent, useSending } from '../../lib/sending';
 import { ModelByName } from '../ModelByName';
 import { cn, errorMessage } from '../../lib/utils';
 import { aiLabel, ToolMark } from '../state';
@@ -112,27 +112,42 @@ export function Composer({
     setHeld(null);
   }, [held, cacheCard]);
 
-  const send = useMutation({
-    mutationFn: (message: { text: string; images: Pending[] }) => {
-      const { images, files } = uploads(message.images, !session?.noImages);
-      return api.sendChat(agent.ref, withPicks(message.text, message.images.filter(isElement)), images, files);
-    },
-    onMutate: () => {
-      setSendError(null);
-      setText('');
-      setImages([]);
-      onSent();
-    },
-    // A message that didn't go comes back to the composer, and why stays
-    // above it until the next one is sent or it's dismissed: a toast is gone
-    // before it's read.
-    onError: (err, message) => {
-      setText((current) => current || message.text);
-      setImages((current) => (current.length ? current : message.images));
-      setSendError(errorMessage(err));
-    },
-  });
-  const [sendError, setSendError] = useState<string | null>(null);
+  // A message shows in the chat the moment it's sent, the turn it starts
+  // already working (lib/sending.ts); one that doesn't go stays there, marked,
+  // to send again or take back into the composer.
+  const queryClient = useQueryClient();
+  const sending = useSending(agent.ref);
+  const inFlight = sending.some((s) => !s.error);
+  const send = (message: { text: string; images: Pending[] }) => {
+    const { images, files } = uploads(message.images, !session?.noImages);
+    const text = withPicks(message.text, message.images.filter(isElement));
+    setText('');
+    setImages([]);
+    onSent();
+    // The rail and the sidebar show it working now too; the session's own
+    // state replaces this as it arrives, or a send that failed reads it again.
+    const project = agent.ref.split('/')[0];
+    queryClient.setQueryData<T.Agent[]>(['agents'], (list) => list?.map((a) => (a.ref === agent.ref && a.chat !== 'running' ? { ...a, chat: 'running' } : a)));
+    queryClient.setQueryData<T.ProjectChat>(['projectChat', project], (info) => (info && info.ref === agent.ref ? { ...info, chat: 'running' } : info));
+    void sendMessage(agent.ref, { text: text.trim(), attachments: message.images, after: thread?.items.at(-1)?.id }, () => api.sendChat(agent.ref, text, images, files)).then((sent) => {
+      if (sent) return;
+      void queryClient.invalidateQueries({ queryKey: ['agents'] });
+      void queryClient.invalidateQueries({ queryKey: ['projectChat', project] });
+    });
+  };
+  // Send again's way back in: what didn't go, into the composer, unless
+  // something new was written there since.
+  useEffect(() => {
+    const back = (e: Event) => {
+      const { ref, text: was, attachments } = (e as CustomEvent<{ ref: string; text: string; attachments: Pending[] }>).detail;
+      if (ref !== agent.ref) return;
+      setText((current) => current || was);
+      setImages((current) => (current.length ? current : attachments));
+      area.current?.focus();
+    };
+    window.addEventListener(unsentEvent, back);
+    return () => window.removeEventListener(unsentEvent, back);
+  }, [agent.ref]);
 
   // Elements picked in a browser whose chat this is (picks.ts) join what
   // waits here, as they arrive or when the composer comes back into view.
@@ -329,7 +344,7 @@ export function Composer({
 
   // Sending while the tool works is the point of the placeholder below: the
   // message joins the running turn and the model decides what it's worth.
-  const canSend = !disabled && !signedOut && (text.trim() !== '' || images.length > 0) && !send.isPending && !held;
+  const canSend = !disabled && !signedOut && (text.trim() !== '' || images.length > 0) && !held;
   // Enter or Send while signed out can't send: the banner pulses instead, so
   // the click isn't silent. The draft stays.
   const [nudged, setNudged] = useState(false);
@@ -350,7 +365,7 @@ export function Composer({
       setImages([]);
       return;
     }
-    send.mutate({ text: text.trim(), images });
+    send({ text: text.trim(), images });
   };
   const pick = (item: SlashItem) => {
     setText(item.kind === 'skill' ? `$${item.skill.name} ` : `/${item.command.name} `);
@@ -477,30 +492,14 @@ export function Composer({
             </button>
           </div>
         </Attached>
-      ) : sendError ? (
-        <Attached tone="rose">
-          <div className="flex items-start gap-2 text-[12.5px]" data-chat-send-error>
-            <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-rose-300" />
-            <p className="min-w-0 flex-1 break-words leading-relaxed text-rose-100/90">
-              {t('chat.composer.notSent', { error: sendError })}
-            </p>
-            <button
-              className="flex size-6 shrink-0 items-center justify-center rounded-md text-rose-100 transition hover:bg-rose-400/15"
-              aria-label={t('common.close')}
-              onClick={() => setSendError(null)}
-            >
-              <X className="size-3.5" />
-            </button>
-          </div>
-        </Attached>
       ) : asleep ? (
         <Attached tone="neutral">
           <div className="flex items-center gap-2 text-[12.5px]" data-chat-asleep={asleep.state}>
-            {asleep.starting || send.isPending ? <LoaderCircle className="size-3.5 shrink-0 animate-spin text-muted" /> : <Moon className="size-3.5 shrink-0 text-muted" />}
+            {asleep.starting || inFlight ? <LoaderCircle className="size-3.5 shrink-0 animate-spin text-muted" /> : <Moon className="size-3.5 shrink-0 text-muted" />}
             <p className="min-w-0 flex-1 break-words leading-relaxed text-tertiary">{t('chat.composer.asleep', { state: asleep.state, name: agent.name })}</p>
             <button
               className="flex h-6 shrink-0 items-center gap-1 rounded-md bg-brand-500/90 px-2.5 text-[12px] font-medium text-white transition hover:bg-brand-500 disabled:opacity-60"
-              disabled={asleep.starting || send.isPending}
+              disabled={asleep.starting || inFlight}
               onClick={asleep.onStart}
             >
               <Play className="size-3" />
@@ -770,7 +769,7 @@ export function Composer({
                 onClick={submit}
                 className={cn('flex size-8 items-center justify-center rounded-full bg-gradient-to-b from-brand-500 to-indigo-600 text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.2),0_8px_20px_-8px_rgb(99_102_241/0.8)] transition hover:scale-105 hover:brightness-110 disabled:scale-100 disabled:opacity-30 disabled:shadow-none', signedOut && 'opacity-30 shadow-none hover:scale-100')}
               >
-                {send.isPending ? <LoaderCircle className="size-3.5 animate-spin" /> : <ArrowUp className="size-4" strokeWidth={2.2} />}
+                <ArrowUp className="size-4" strokeWidth={2.2} />
               </button>
             </Tip>
           </div>

@@ -1550,6 +1550,8 @@ export const ptBR: Messages = {
   'chat.delivery.lost': 'Nunca chegou à ferramenta',
   'chat.delivery.held': 'Aguardando o fim da compactação',
   'chat.delivery.waking': 'Aguardando a memória iniciar a máquina',
+  'chat.sending.retry': 'Enviar de novo',
+  'chat.sending.edit': 'Editar',
   'chat.compaction.running': 'Compactando o contexto — salvando na memória do projeto…',
   'chat.compaction.waiting': '{count, plural, one {Sua mensagem aguarda a nova sessão e entra assim que ela iniciar.} other {Suas # mensagens aguardam a nova sessão e entram assim que ela iniciar.}}',
   'chat.tab.loading': 'Carregando a conversa',

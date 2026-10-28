@@ -473,8 +473,8 @@ export function ResumeAfterLimit() {
         <Switch
           data-resume-after-limit
           aria-label={t('defaults.newAgent.resumeLabel')}
-          disabled={save.isPending || settings.data === undefined}
-          checked={settings.data?.resumeAfterLimit ?? true}
+          disabled={settings.data === undefined}
+          checked={save.isPending ? save.variables : (settings.data?.resumeAfterLimit ?? true)}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }
@@ -505,8 +505,8 @@ export function ContinueAfterRestart() {
         <Switch
           data-continue-after-restart
           aria-label={t('defaults.newAgent.continueLabel')}
-          disabled={save.isPending || settings.data === undefined}
-          checked={settings.data?.continueAfterRestart ?? true}
+          disabled={settings.data === undefined}
+          checked={save.isPending ? save.variables : (settings.data?.continueAfterRestart ?? true)}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }
@@ -810,8 +810,8 @@ export function DockerPruneOnStop() {
         <Switch
           data-docker-prune-on-stop
           aria-label={t('defaults.newAgent.pruneLabel')}
-          disabled={save.isPending || settings.data === undefined}
-          checked={settings.data?.dockerPruneOnStop ?? true}
+          disabled={settings.data === undefined}
+          checked={save.isPending ? save.variables : (settings.data?.dockerPruneOnStop ?? true)}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }
