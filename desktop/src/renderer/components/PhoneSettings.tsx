@@ -202,6 +202,9 @@ function PhoneTunnel() {
     onError: (err) => toast.error(errorMessage(err)),
   });
   const on = !!tunnel?.enabled && !!st?.enabled;
+  // The hub's address in its tailnet, rather than a Cloudflare Tunnel: named
+  // as Tailscale shows it once the node is up, "-" being the hub's key's own.
+  const tailnet = tunnel?.transport === 'tailscale' ? (tunnel.tailnet && tunnel.tailnet !== '-' ? tunnel.tailnet : 'Tailscale') : '';
   const [confirming, setConfirming] = useState(false);
   return (
     <SettingRow
@@ -230,19 +233,26 @@ function PhoneTunnel() {
       />
       {tunnel && (on || editing) && (
         <div className="grid gap-3">
-          {on && (
-            <SettingNote tone="warning">
-              {t('defaults.phone.tunnelWarning')}
-            </SettingNote>
-          )}
+          {on &&
+            (tailnet ? (
+              <SettingNote>{t('defaults.phone.tailnetNote')}</SettingNote>
+            ) : (
+              <SettingNote tone="warning">{t('defaults.phone.tunnelWarning')}</SettingNote>
+            ))}
           {on &&
             (tunnel.state === 'running' && tunnel.url ? (
               <SettingNote>
                 <Globe className="mr-1 inline size-3.5 align-[-2px]" />
-                {t.rich(tunnel.mode === 'quick' ? 'defaults.phone.tunnelOpenQuick' : 'defaults.phone.tunnelOpenNamed', {
-                  url: (c) => <span className="break-all font-mono text-primary">{c}</span>,
-                  address: tunnel.url,
-                })}
+                {tailnet
+                  ? t.rich('defaults.phone.tunnelOpenTailnet', {
+                      url: (c) => <span className="break-all font-mono text-primary">{c}</span>,
+                      address: tunnel.url,
+                      tailnet,
+                    })
+                  : t.rich(tunnel.mode === 'quick' ? 'defaults.phone.tunnelOpenQuick' : 'defaults.phone.tunnelOpenNamed', {
+                      url: (c) => <span className="break-all font-mono text-primary">{c}</span>,
+                      address: tunnel.url,
+                    })}
               </SettingNote>
             ) : (
               <SettingNote tone={tunnel.state === 'failed' ? 'error' : 'muted'}>{tunnel.error || t('defaults.phone.startingTunnel')}</SettingNote>
@@ -280,7 +290,9 @@ function PhoneTunnel() {
                           ? t('defaults.phone.mode.hub.noHub')
                           : tunnel.hubHasNoAddresses
                             ? t('defaults.phone.mode.hub.none', { hub: tunnel.hub })
-                            : t('defaults.phone.mode.hub.hint', { hub: tunnel.hub })
+                            : tailnet
+                              ? t('defaults.phone.mode.hub.tailscale', { hub: tunnel.hub, tailnet })
+                              : t('defaults.phone.mode.hub.hint', { hub: tunnel.hub })
                         : m === 'named' && tunnel.namedHostname
                           ? t('defaults.phone.mode.named.set', { hostname: tunnel.namedHostname })
                           : t(`defaults.phone.mode.${m}.hint`)}

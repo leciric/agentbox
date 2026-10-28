@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import {
   ChevronRight,
   CircleCheck,
@@ -70,11 +70,52 @@ const kindLabels: Record<Exclude<FileKind, 'code'>, MessageKey> = {
   renamed: 'pulls.detail.kind.renamed',
 };
 
+// The view's two reads, kept as long as the daemon keeps them
+// (pullDetailTTL): what was read when the pointer reached the row is what the
+// click shows, with nothing read again.
+const pullStale = 30_000;
+const pullDetailQuery = (project: string, number: number) => ({
+  queryKey: ['pull', project, number],
+  queryFn: () => api.pullRequestDetail(project, number),
+  staleTime: pullStale,
+});
+const pullFilesQuery = (project: string, number: number) => ({
+  queryKey: ['pullFiles', project, number],
+  queryFn: () => api.pullRequestFiles(project, number),
+  staleTime: pullStale,
+});
+
+// prefetchPull starts both reads of a pull request the user is about to open,
+// side by side.
+export function prefetchPull(queryClient: QueryClient, project: string, number: number) {
+  void queryClient.prefetchQuery(pullDetailQuery(project, number));
+  void queryClient.prefetchQuery(pullFilesQuery(project, number));
+}
+
+// usePrefetchPull is prefetchPull for a row: on focus at once, on hover once
+// the pointer has stayed a moment, so sweeping across the list reads nothing.
+export function usePrefetchPull(project: string) {
+  const queryClient = useQueryClient();
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  return useCallback(
+    (number: number) => ({
+      onFocus: () => prefetchPull(queryClient, project, number),
+      onMouseEnter: () => {
+        clearTimeout(timer.current);
+        timer.current = setTimeout(() => prefetchPull(queryClient, project, number), 120);
+      },
+      onMouseLeave: () => clearTimeout(timer.current),
+    }),
+    [queryClient, project],
+  );
+}
+
 // PullRequestModal is one pull request, read so the user never has to open
 // GitHub for it: what it is, who opened it and where it merges, its checks
 // and labels, its description as GitHub renders it — pictures included, read
 // through the daemon with the project's account — and, on a tab of their own,
-// its files. Those are only read once that tab is opened, and shown as a tree
+// its files. Those are read beside the description, and shown as a tree
 // to review one file at a time, or as one list of every diff, loaded one after
 // another. Its actions are the row's: merge, and GitHub itself for
 // anything else.
@@ -156,7 +197,11 @@ export function PullRequestView({
   onOpenAgent?: () => void;
 }) {
   const t = useT();
-  const detail = useQuery({ queryKey: ['pull', project, listed.number], queryFn: () => api.pullRequestDetail(project, listed.number) });
+  const queryClient = useQueryClient();
+  const detail = useQuery(pullDetailQuery(project, listed.number));
+  // The files are read beside the description rather than once their tab
+  // opens, so the tab has them when it does.
+  useEffect(() => prefetchPull(queryClient, project, listed.number), [queryClient, project, listed.number]);
   const [picked, setTab] = useState<'description' | 'files'>('description');
   const tab = view ?? picked;
   // Where the review is outlives the Files tab, which unmounts whenever the
@@ -382,7 +427,7 @@ const toggled = (set: ReadonlySet<string> | null, key: string) => {
 function Files({ project, pr, state, setState }: { project: string; pr: T.PullRequest; state: FilesState; setState: Dispatch<SetStateAction<FilesState>> }) {
   const t = useT();
   const [view, setView] = useFilesView();
-  const query = useQuery({ queryKey: ['pullFiles', project, pr.number], queryFn: () => api.pullRequestFiles(project, pr.number) });
+  const query = useQuery(pullFilesQuery(project, pr.number));
   const files = query.data;
   // The first few small files start open in the list, once they're known.
   useEffect(() => {

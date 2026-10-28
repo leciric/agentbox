@@ -12,7 +12,9 @@ import * as T from '../../shared/api.ts';
 import { api } from '../../connection/api.ts';
 import { useSession } from '../../connection/session.ts';
 import { useT } from '../../lib/i18n.tsx';
-import { StatusLine, useTopInset } from '../../ui/parts.tsx';
+import { bootState } from '../../connection/boot.ts';
+import { ErrorBoundary } from '../../ui/ErrorBoundary.tsx';
+import { Note, StatusLine, useTopInset } from '../../ui/parts.tsx';
 import { colors } from '../../ui/theme.ts';
 import { agentStatus, isWaiting, leadStatus, rank, type ChatStatus } from '../threads/activity.ts';
 import { chatKey } from '../threads/thread.ts';
@@ -41,6 +43,9 @@ export function HomeScreen() {
   const refs = [...leads.flatMap((c) => (c.data?.started ? [c.data.ref] : [])), ...(agents.data ?? []).filter(readable).map((a) => a.ref)];
   const threads = useQueries({ queries: refs.map((ref) => ({ queryKey: chatKey(ref), queryFn: () => peekThread(queryClient, ref), staleTime: Infinity })) });
   const threadOf = (ref: string | undefined) => (ref ? threads[refs.indexOf(ref)]?.data : undefined);
+  // A row that failed renders again when what it shows is read again.
+  const updatedAt = Math.max(projects.dataUpdatedAt, agents.dataUpdatedAt);
+  const recovered = bootState().mode === 'recovered';
   const [refreshing, setRefreshing] = useState(false);
   const refresh = async () => {
     setRefreshing(true);
@@ -64,56 +69,101 @@ export function HomeScreen() {
         {projects.isPending && <ActivityIndicator color={colors.muted} style={{ marginTop: 24 }} />}
         {projects.error && <Text style={styles.error}>{projects.error.message}</Text>}
         {projects.data && list.length === 0 && <Text style={styles.empty}>{t('web.phone.noProjects')}</Text>}
-        {list.map((p, i) => {
-          const lead = leads[i]?.data;
-          const leadRef = lead?.started ? lead.ref : undefined;
-          const own = (agents.data ?? [])
-            .filter((a) => a.project === p.name)
-            .map((a) => ({ a, status: agentStatus(a, threadOf(a.ref)) }))
-            .sort((x, y) => rank(x.a) - rank(y.a) || x.a.name.localeCompare(y.a.name));
-          const waiting = (questions[i]?.data ?? []).filter(isWaiting).length;
-          const working = own.filter((o) => o.status.tone === 'live').length;
-          const needYou = own.filter((o) => o.status.tone === 'urgent').length + waiting;
-          const toReview = reviews[i]?.data?.total ?? 0;
-          return (
-            <View key={p.name} style={styles.section}>
-              <View style={styles.sectionHead}>
-                <Text style={styles.sectionTitle} numberOfLines={1}>
-                  {projectLabel(p)}
-                </Text>
-                <Text style={styles.counts} numberOfLines={1}>
-                  {[
-                    t('mobile.home.agents', { count: own.length }),
-                    working > 0 ? t('mobile.home.working', { count: working }) : '',
-                    needYou > 0 ? t('mobile.home.needYou', { count: needYou }) : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')}
-                </Text>
-              </View>
-              <Row
-                icon={<Avatar letter="L" lead />}
-                title={t('web.phone.projectChat')}
-                status={leadStatus(lead?.chat, threadOf(leadRef))}
-                badge={waiting > 0 ? t('mobile.home.questions', { count: waiting }) : undefined}
-                onPress={() => router.push(chatPath(p.name))}
-              />
-              {own.map(({ a, status }) => (
-                <Row key={a.ref} icon={<Avatar letter={(a.title || a.name).slice(0, 1).toUpperCase()} />} title={a.title || a.name} subtitle={a.title ? a.name : undefined} status={status} onPress={() => router.push(chatPath(a.ref))} />
-              ))}
-              <Row
-                icon={<Avatar letter="✓" />}
-                title={t('mobile.review.title')}
-                status={{ text: toReview > 0 ? t('mobile.home.toReview', { count: toReview }) : t('mobile.review.nothing'), tone: toReview > 0 ? 'urgent' : 'muted', live: false }}
-                plain
-                onPress={() => router.push(`/review/${encodeURIComponent(p.name)}`)}
-              />
-            </View>
-          );
-        })}
+        {recovered && <Note tone="warning">{t('mobile.crash.recovered')}</Note>}
+        {list.map((p, i) => (
+          // A project that can't be shown is a line saying so; the rest show.
+          <ErrorBoundary key={p.name} label={`${t('mobile.error.row')} (${projectLabel(p)})`} resetKey={updatedAt}>
+            <ProjectSection project={p} lead={leads[i]?.data} agents={agents.data ?? []} questions={questions[i]?.data ?? []} toReview={reviews[i]?.data?.total ?? 0} threadOf={threadOf} />
+          </ErrorBoundary>
+        ))}
       </ScrollView>
     </View>
   );
+}
+
+function ProjectSection({
+  project: p,
+  lead,
+  agents,
+  questions,
+  toReview,
+  threadOf,
+}: {
+  project: T.Project;
+  lead?: T.ProjectChat;
+  agents: T.Agent[];
+  questions: T.Question[];
+  toReview: number;
+  threadOf: (ref: string | undefined) => T.ChatThread | undefined;
+}) {
+  const t = useT();
+  const router = useRouter();
+  const leadRef = lead?.started ? lead.ref : undefined;
+  const own = agents
+    .filter((a) => a.project === p.name)
+    .map((a) => ({ a, status: safeStatus(a, threadOf(a.ref)) }))
+    .sort((x, y) => safeRank(x.a) - safeRank(y.a) || x.a.name.localeCompare(y.a.name));
+  const waiting = questions.filter(isWaiting).length;
+  const working = own.filter((o) => o.status?.tone === 'live').length;
+  const needYou = own.filter((o) => o.status?.tone === 'urgent').length + waiting;
+  return (
+    <View style={styles.section}>
+      <View style={styles.sectionHead}>
+        <Text style={styles.sectionTitle} numberOfLines={1}>
+          {projectLabel(p)}
+        </Text>
+        <Text style={styles.counts} numberOfLines={1}>
+          {[t('mobile.home.agents', { count: own.length }), working > 0 ? t('mobile.home.working', { count: working }) : '', needYou > 0 ? t('mobile.home.needYou', { count: needYou }) : '']
+            .filter(Boolean)
+            .join(' · ')}
+        </Text>
+      </View>
+      <Row
+        icon={<Avatar letter="L" lead />}
+        title={t('web.phone.projectChat')}
+        status={leadStatus(lead?.chat, threadOf(leadRef))}
+        badge={waiting > 0 ? t('mobile.home.questions', { count: waiting }) : undefined}
+        onPress={() => router.push(chatPath(p.name))}
+      />
+      {own.map(({ a, status }) => (
+        <ErrorBoundary key={a.ref} label={`${t('mobile.error.row')} (${a.name})`} resetKey={status}>
+          <Row
+            icon={<Avatar letter={(a.title || a.name).slice(0, 1).toUpperCase()} />}
+            title={a.title || a.name}
+            subtitle={a.title ? a.name : undefined}
+            status={status ?? { text: t('mobile.error.row'), tone: 'error', live: false }}
+            onPress={() => router.push(chatPath(a.ref))}
+          />
+        </ErrorBoundary>
+      ))}
+      <Row
+        icon={<Avatar letter="✓" />}
+        title={t('mobile.review.title')}
+        status={{ text: toReview > 0 ? t('mobile.home.toReview', { count: toReview }) : t('mobile.review.nothing'), tone: toReview > 0 ? 'urgent' : 'muted', live: false }}
+        plain
+        onPress={() => router.push(`/review/${encodeURIComponent(p.name)}`)}
+      />
+    </View>
+  );
+}
+
+// An agent's status, or undefined when its data can't be summed up: its row
+// says so, and the list still sorts and counts the others.
+function safeStatus(a: T.Agent, thread: T.ChatThread | undefined): ChatStatus | undefined {
+  try {
+    return agentStatus(a, thread);
+  } catch (err) {
+    console.error('[home] status of', a.ref, err);
+    return undefined;
+  }
+}
+
+function safeRank(a: T.Agent): number {
+  try {
+    return rank(a);
+  } catch {
+    return 1;
+  }
 }
 
 function Avatar({ letter, lead }: { letter: string; lead?: boolean }) {
@@ -124,9 +174,29 @@ function Avatar({ letter, lead }: { letter: string; lead?: boolean }) {
   );
 }
 
-function Row({ icon, title, subtitle, status, badge, plain, onPress }: { icon: ReactNode; title: string; subtitle?: string; status: ChatStatus; badge?: string; plain?: boolean; onPress: () => void }) {
+function Row({
+  icon,
+  title,
+  subtitle,
+  status,
+  badge,
+  plain,
+  onPress,
+}: {
+  icon: ReactNode;
+  title: string;
+  subtitle?: string;
+  status: ChatStatus;
+  badge?: string;
+  plain?: boolean;
+  onPress: () => void;
+}) {
   return (
-    <Pressable onPress={onPress} accessibilityRole="button" style={({ pressed }) => [styles.row, status.tone === 'urgent' && !plain && { backgroundColor: colors.amberSoft }, pressed && { backgroundColor: colors.raised }]}>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      style={({ pressed }) => [styles.row, status.tone === 'urgent' && !plain && { backgroundColor: colors.amberSoft }, pressed && { backgroundColor: colors.raised }]}
+    >
       {icon}
       <View style={styles.rowText}>
         <Text style={styles.rowTitle} numberOfLines={1}>

@@ -11,7 +11,7 @@ import { highlight } from '../lib/highlight';
 import { useT } from '../lib/i18n';
 import { inNote, noteAt, noteRange, whereLabel } from '../lib/reviewNotes';
 import { type DiffLine } from '../lib/pulls';
-import { useMode } from '../lib/theme';
+import { useLook } from '../lib/theme';
 import { cn } from '../lib/utils';
 import { NoteBox, NoteCard, useReviewNotesContext } from './ReviewNotes';
 
@@ -157,21 +157,21 @@ export function DiffTable({ path, lines, tokens }: { path: string; lines: DiffLi
 // useHighlighted highlights a diff's code lines, all together so a line is
 // read in the context of the ones around it, again when the theme turns over.
 export function useHighlighted(lines: DiffLine[] | null, lang: string | undefined): ThemedToken[][] | null {
-  const mode = useMode();
+  const look = useLook();
   const code = lines
     ?.filter(isCode)
     .map((l) => l.text)
     .join('\n');
-  const [out, setOut] = useState<{ code: string; mode: string; tokens: ThemedToken[][] } | null>(null);
+  const [out, setOut] = useState<{ code: string; look: string; tokens: ThemedToken[][] } | null>(null);
   useEffect(() => {
     if (!lang || code === undefined) return;
     let current = true;
     highlight(code, lang)
-      .then((tokens) => current && setOut({ code, mode, tokens }))
+      .then((tokens) => current && setOut({ code, look, tokens }))
       .catch(() => {});
     return () => {
       current = false;
     };
-  }, [code, lang, mode]);
-  return out && out.code === code && out.mode === mode ? out.tokens : null;
+  }, [code, lang, look]);
+  return out && out.code === code && out.look === look ? out.tokens : null;
 }

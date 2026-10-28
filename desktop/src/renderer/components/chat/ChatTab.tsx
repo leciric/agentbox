@@ -1,11 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, Archive, Ellipsis, EyeOff, FolderTree, LoaderCircle, MessageSquarePlus, Play, RefreshCw, Search, Trash2 } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
 import { api, isHomeChat, isProjectChat } from '../../lib/api';
+import type { Wake } from '../v2/ReviewV2';
 import { asleep, chatKey, dropWindow, fetchThread, isSilent, loadOlder, loadWindowNewer, loadWindowOlder, sessionShown, toolsReload } from '../../lib/chat';
 import { useT, type MessageKey } from '../../lib/i18n';
+import { settleSending, useSending, withSending } from '../../lib/sending';
 import { useProjectName } from '../../lib/useProjectName';
 import { cn, errorMessage, shortcut } from '../../lib/utils';
 import { ConfirmDialog } from '../ConfirmDialog';
@@ -25,6 +27,7 @@ import { openPanelOn } from '../../lib/rightPanel';
 import { useUiV2 } from '../../lib/uiV2';
 import { useChatWindow, useRevealItem, type ChatOpenAt } from './reveal';
 import { Timeline } from './Timeline';
+import { ImageWait } from '../ImageWait';
 
 // requestChatFind opens the find bar on a chat, as Ctrl+F (⌘F) does, for its
 // ⋯ menu: after the menu has closed and handed focus back to its trigger, so
@@ -60,7 +63,9 @@ export function ChatTab({
   openAt?: ChatOpenAt;
   readOnly?: { onContinue: () => void; onDelete: () => void };
   // Something to show over the composer, such as UI v2's review card.
-  aboveComposer?: ReactNode;
+  // A function gets the wake button's state while the agent sleeps, to merge
+  // it into its own bar.
+  aboveComposer?: ReactNode | ((wake?: Wake) => ReactNode);
 }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -77,7 +82,14 @@ export function ChatTab({
   // which the timeline shows instead of the chat's end until you go back
   // there (lib/chat's openWindow). The session is the chat's own, as of now.
   const win = useChatWindow(agent.ref);
-  const view = win && thread.data ? { ...win, session: thread.data.session } : thread.data;
+  // What you sent shows at the chat's end before the daemon has it
+  // (lib/sending.ts), until the chat's own copy arrives.
+  const sending = useSending(agent.ref);
+  useEffect(() => {
+    if (thread.data) settleSending(agent.ref, thread.data);
+  }, [agent.ref, thread.data]);
+  const live = useMemo(() => thread.data && withSending(thread.data, sending), [thread.data, sending]);
+  const view = win && live ? { ...win, session: live.session } : live;
   useEffect(() => () => dropWindow(queryClient, agent.ref), [queryClient, agent.ref]);
   const start = useMutation({
     mutationFn: () => api.startChat(agent.ref),
@@ -381,7 +393,8 @@ export function ChatTab({
             </div>
           ) : (
             <>
-              {aboveComposer}
+              {agent.waitingForImage && <ImageWait agent={agent} />}
+              {typeof aboveComposer === 'function' ? aboveComposer(sleeping ? { state: sleeping, starting, onStart } : undefined) : aboveComposer}
               <PageStack agent={agent} />
               <Composer
                 agent={agent}

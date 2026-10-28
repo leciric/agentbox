@@ -1,10 +1,11 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
-	"encoding/hex"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"agentbox/hubapi"
 	"agentbox/internal/api"
 	"agentbox/internal/remote"
 	"agentbox/internal/state"
@@ -47,9 +49,10 @@ type lanTunnel struct {
 	key     string       // the mode, token and hostname it runs with
 	srv     *http.Server // the listener cloudflared reaches the daemon on
 	origin  string
-	t       *tunnel.Tunnel // nil when it couldn't be started
-	err     string         // why it couldn't
-	pending string         // what it waits for before it can start
+	t       phoneTunnel // nil when it couldn't be started
+	err     string      // why it couldn't
+	pending string      // what it waits for before it can start
+	tailnet string      // the tailnet's name as its node says it, once up
 }
 
 // stop ends cloudflared, which can take a few seconds: not under lan.mu.
@@ -62,12 +65,23 @@ func (lt *lanTunnel) stop() {
 	}
 }
 
+// phoneTunnel is cloudflared (tunnel.Tunnel) or, on a hub that gives out
+// tailnet addresses, tailscaled (tunnel.Tailscale).
+type phoneTunnel interface {
+	Status() tunnel.Status
+	Stop()
+}
+
 type lanTunnelSettings struct {
 	want            bool
 	mode            string // state.LANTunnelQuick, Named or Hub
 	token, hostname string
-	err             string // the settings can't be read: the token can't be opened, say
-	pending         string // what it waits for before it can start: the hub's answer
+	// transport is the hub's, in hub mode: hubapi.TransportTailscale makes
+	// token an auth key into tailnet, and hostname the node's name.
+	transport, tailnet string
+	hub                *remoteConfig // in hub mode, to report the node's address to
+	err                string        // the settings can't be read: the token can't be opened, say
+	pending            string        // what it waits for before it can start: the hub's answer
 }
 
 func (s *Server) lanTunnelConfig(ctx context.Context, lanOn bool) lanTunnelSettings {
@@ -177,6 +191,15 @@ func (s *Server) hubTunnelConfig(ctx context.Context, c lanTunnelSettings, hub *
 			c.err = err.Error()
 			return c
 		}
+		if c.transport, err = s.store.Setting(ctx, state.SettingLANTunnelHubTransport); err != nil {
+			c.err = err.Error()
+			return c
+		}
+		if c.tailnet, err = s.store.Setting(ctx, state.SettingLANTunnelHubTailnet); err != nil {
+			c.err = err.Error()
+			return c
+		}
+		c.hub = hub
 		if c.token != "" && c.hostname != "" {
 			return c
 		}
@@ -202,7 +225,7 @@ func (s *Server) askHubForTunnel(ctx context.Context, hub remoteConfig, key stri
 		t, err := remote.RequestTunnel(rctx, nil, hub.Hub, hub.Token)
 		cancel()
 		if err == nil {
-			err = s.saveHubTunnel(ctx, key, t.Hostname, t.Token)
+			err = s.saveHubTunnel(ctx, key, t)
 		}
 		l.mu.Lock()
 		current := l.hubAsked == key
@@ -220,7 +243,11 @@ func (s *Server) askHubForTunnel(ctx context.Context, hub remoteConfig, key stri
 			return
 		}
 		if err == nil {
-			s.logf("phones: %s gave this machine the address %s", hub.Hub, t.Hostname)
+			if t.Transport == hubapi.TransportTailscale {
+				s.logf("phones: %s puts this machine in its tailnet %s, as %s", hub.Hub, t.Tailnet, t.Hostname)
+			} else {
+				s.logf("phones: %s gave this machine the address %s", hub.Hub, t.Hostname)
+			}
 		} else {
 			s.logf("phones: %s: %v", hub.Hub, err)
 		}
@@ -238,18 +265,42 @@ func (s *Server) askHubForTunnel(ctx context.Context, hub remoteConfig, key stri
 	}
 }
 
-func (s *Server) saveHubTunnel(ctx context.Context, key, hostname, token string) error {
-	hostname, err := tunnelHostname(hostname)
+func (s *Server) saveHubTunnel(ctx context.Context, key string, t hubapi.HubEnvironmentTunnel) error {
+	var hostname string
+	var err error
+	if t.Transport == hubapi.TransportTailscale {
+		hostname, err = tailnetNodeName(t.Hostname)
+	} else {
+		hostname, err = tunnelHostname(t.Hostname)
+	}
 	if err != nil {
 		return fmt.Errorf("the hub's answer: %w", err)
 	}
-	if err := s.secrets().SetSetting(ctx, state.SettingLANTunnelHubToken, token); err != nil {
+	if err := s.secrets().SetSetting(ctx, state.SettingLANTunnelHubToken, t.Token); err != nil {
 		return err
 	}
-	if err := s.store.SetSetting(ctx, state.SettingLANTunnelHubHostname, hostname); err != nil {
-		return err
+	for k, v := range map[string]string{
+		state.SettingLANTunnelHubHostname:  hostname,
+		state.SettingLANTunnelHubTransport: t.Transport,
+		state.SettingLANTunnelHubTailnet:   t.Tailnet,
+	} {
+		if err := s.store.SetSetting(ctx, k, v); err != nil {
+			return err
+		}
 	}
 	return s.store.SetSetting(ctx, state.SettingLANTunnelHubFor, key)
+}
+
+var nodeNameRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
+// tailnetNodeName is the name a hub gives this machine's node in its tailnet:
+// one DNS label, which MagicDNS puts in front of the tailnet's domain.
+func tailnetNodeName(name string) (string, error) {
+	n := strings.ToLower(strings.TrimSpace(name))
+	if !nodeNameRe.MatchString(n) {
+		return "", fmt.Errorf("%q isn't a name for a node in a tailnet: one label of letters, digits and dashes", name)
+	}
+	return n, nil
 }
 
 // hubChanged is called when this machine connects to a hub, another one, or
@@ -267,7 +318,13 @@ func (s *Server) hubChanged(ctx context.Context) {
 // It returns what's left to stop once lan.mu is let go, or nil.
 func (s *Server) applyTunnelLocked(ctx context.Context, c lanTunnelSettings) func() {
 	l := s.lan
-	key := strings.Join([]string{c.mode, c.token, c.hostname, c.pending}, "\x00")
+	token := c.token
+	if c.transport == hubapi.TransportTailscale && c.hub != nil && s.tailnetJoined(hubKey(c.hub)) {
+		// The hub hands out a new auth key each time it's asked, which a node
+		// that has joined doesn't use: it's no reason to start it again.
+		token = ""
+	}
+	key := strings.Join([]string{c.mode, c.transport, token, c.hostname, c.pending}, "\x00")
 	if l.tunnel != nil && c.want && c.err == "" && l.tunnel.key == key && l.tunnel.err == "" {
 		return nil
 	}
@@ -318,6 +375,31 @@ func (s *Server) startTunnel(ctx context.Context, c lanTunnelSettings, key strin
 	go func() { _ = srv.Serve(ln) }()
 
 	tools := s.cfg.Paths.Tools()
+	if c.mode == state.LANTunnelHub && c.transport == hubapi.TransportTailscale {
+		binaries := l.tailscale
+		if binaries == nil {
+			binaries = tunnel.TailscaleInstaller{Dir: tools}.Ensure
+		}
+		hub := c.hub
+		lt.t = tunnel.StartTailscale(ctx, tunnel.TailscaleConfig{
+			Binaries: binaries, Origin: lt.origin, AuthKey: c.token, Hostname: c.hostname,
+			// The node's state is this machine's, not a tool's: it outlives
+			// a new Tailscale.
+			StateDir: s.tailnetState(), Owner: hubKey(hub),
+			OnUp: func(n tunnel.TailscaleNode) {
+				if n.Tailnet != "" {
+					l.mu.Lock()
+					lt.tailnet = n.Tailnet
+					l.mu.Unlock()
+					s.publishLAN(ctx)
+				}
+				s.logf("phones: devices on the tailnet %s reach this machine at %s", cmp.Or(n.Tailnet, c.tailnet), n.URL)
+				s.reportTailnetAddress(ctx, hub, n)
+			},
+		}, func(tunnel.Status) { s.publishLAN(ctx) }, s.logf)
+		s.logf("phones: joining the hub's tailnet as %s, serving %s", c.hostname, lt.origin)
+		return lt
+	}
 	binary := l.cloudflared
 	if binary == nil {
 		binary = tunnel.Installer{Dir: tools}.Ensure
@@ -358,6 +440,7 @@ func (s *Server) lanTunnelStatus(ctx context.Context) (api.LANTunnel, error) {
 		return api.LANTunnel{}, err
 	}
 	hostname := named
+	var transport, tailnet string
 	if mode == state.LANTunnelHub {
 		// The hub's, once it answered this hub and environment.
 		hostname = ""
@@ -367,6 +450,12 @@ func (s *Server) lanTunnelStatus(ctx context.Context) (api.LANTunnel, error) {
 		}
 		if hub != nil && hubFor == hubKey(hub) {
 			if hostname, err = s.store.Setting(ctx, state.SettingLANTunnelHubHostname); err != nil {
+				return api.LANTunnel{}, err
+			}
+			if transport, err = s.store.Setting(ctx, state.SettingLANTunnelHubTransport); err != nil {
+				return api.LANTunnel{}, err
+			}
+			if tailnet, err = s.store.Setting(ctx, state.SettingLANTunnelHubTailnet); err != nil {
 				return api.LANTunnel{}, err
 			}
 		}
@@ -379,6 +468,9 @@ func (s *Server) lanTunnelStatus(ctx context.Context) (api.LANTunnel, error) {
 	if mode != state.LANTunnelQuick {
 		out.Hostname = hostname
 	}
+	if transport == hubapi.TransportTailscale {
+		out.Transport, out.Tailnet = transport, tailnet
+	}
 	if hub != nil {
 		out.Hub = hub.Hub
 		out.HubHasNoAddresses = l.hubNoTunnels == hubKey(hub)
@@ -390,6 +482,9 @@ func (s *Server) lanTunnelStatus(ctx context.Context) (api.LANTunnel, error) {
 	case lt.pending != "":
 		out.State, out.Error = tunnel.StateStarting, lt.pending
 	default:
+		if lt.tailnet != "" && out.Transport != "" {
+			out.Tailnet = lt.tailnet
+		}
 		st := lt.t.Status()
 		out.State, out.URL, out.Error = st.State, st.URL, st.Error
 		if st.State != tunnel.StateRunning {
@@ -518,4 +613,47 @@ func tunnelHostname(typed string) (string, error) {
 		return "", fmt.Errorf("%q isn't a hostname, like chat.example.com", typed)
 	}
 	return h, nil
+}
+
+// reportTailnetAddress tells the hub where this machine serves in its
+// tailnet, so the hub lists it for the user's devices. It tries a few times;
+// the node coming up again reports it again anyway.
+func (s *Server) reportTailnetAddress(ctx context.Context, hub *remoteConfig, n tunnel.TailscaleNode) {
+	if hub == nil {
+		return
+	}
+	addr := hubapi.HubEnvironmentAddress{Transport: hubapi.TransportTailscale, URL: n.URL, NodeID: n.NodeID, IPs: n.IPs}
+	s.lan.mu.Lock()
+	wait := s.lan.hubRetry
+	s.lan.mu.Unlock()
+	for range 5 {
+		rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		err := remote.ReportAddress(rctx, nil, hub.Hub, hub.Token, addr)
+		cancel()
+		if err == nil {
+			return
+		}
+		s.logf("phones: telling %s this machine's tailnet address: %v", hub.Hub, err)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+		wait *= 2
+	}
+}
+
+// tailnetState is where this machine's node keeps its state.
+func (s *Server) tailnetState() string { return filepath.Join(s.cfg.Paths.Data, "tailscale") }
+
+// tailnetJoined says this machine's node has joined the tailnet of the hub
+// and environment key names before, so its state, not an auth key, brings it
+// back.
+func (s *Server) tailnetJoined(key string) bool {
+	owner, err := os.ReadFile(filepath.Join(s.tailnetState(), tunnel.TailscaleOwnerFile))
+	if err != nil || string(owner) != key {
+		return false
+	}
+	_, err = os.Stat(filepath.Join(s.tailnetState(), "tailscaled.state"))
+	return err == nil
 }

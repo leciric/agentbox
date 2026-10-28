@@ -64,6 +64,17 @@ func (m *Manager) creditAITool(ctx context.Context) bool {
 	return on
 }
 
+// builtWithBadge reads whether pull requests end with the "Built with
+// AgentBox" line. An error reads as off, the default.
+func (m *Manager) builtWithBadge(ctx context.Context) bool {
+	on, err := m.Store.Flag(ctx, state.SettingBuiltWithBadge)
+	if err != nil {
+		m.logf("reading whether to add the Built with AgentBox badge: %v", err)
+		return false
+	}
+	return on
+}
+
 // claudeAttributionOff is what settings.json's "attribution" says while the
 // setting is off: no commit trailer, no line in a pull request, and no link
 // to the session either.

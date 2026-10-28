@@ -15,6 +15,8 @@ import (
 // all. The disk guard pauses rather than stops, and a paused machine can't
 // run a prune.
 func (s *Server) stopAgent(ctx context.Context, m *agent.Manager, a state.Agent) error {
+	// A frozen process can't take the prune's docker nor the stop's signal.
+	s.wakeIdle(a.Ref())
 	s.pruneDocker(ctx, m, a)
 	err := m.Stop(ctx, a)
 	s.dropHeavy(ctx, a.Ref())

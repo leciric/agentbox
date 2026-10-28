@@ -15,7 +15,7 @@ export function openProject(project: string) {
 }
 
 // ProjectMessageCard is a message between this project's lead and another
-// project's (message_project, reply_project), or an alignment between them
+// project's (message_project), or an alignment between them
 // settled: the same message shows in both chats, each from its own side, with
 // the other project's name and a link there.
 export function ProjectMessageCard({ item }: { item: T.ChatItem }) {

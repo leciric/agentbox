@@ -77,6 +77,11 @@ func (p Paths) ImageCacheSocket() string { return filepath.Join(p.Data, "run", "
 // Go build cache.
 func (p Paths) PackageCache() string { return filepath.Join(p.Data, "package-cache") }
 
+// NodeModules is where agents' node_modules are, and the snapshots new
+// agents' are filled from (internal/nodemods): beside PackageCache, on a disk
+// of the VM's rather than in worktrees in a shared folder.
+func (p Paths) NodeModules() string { return filepath.Join(p.Data, "node-modules") }
+
 // AgentSockets is the directory of in-agent API sockets, one per agent.
 func (p Paths) AgentSockets() string { return filepath.Join(p.Data, "run", "agents") }
 
