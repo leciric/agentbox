@@ -281,6 +281,48 @@ func TestPodSpecSizesThePodFromTheCluster(t *testing.T) {
 	}
 }
 
+// TestPodSpecNamesTheGitsHost: a pod resolves what its node resolves, so the
+// daemon resolves the project's git remote and the pod is handed the address,
+// which is what makes a tailnet name work in a cluster that has no tailnet DNS.
+func TestPodSpecNamesTheGitsHost(t *testing.T) {
+	srv := reconcilerServer(t)
+	ctx := context.Background()
+	reconcilerProject(t, srv.store)
+	reconcilerAgent(t, srv.store, "agent-01")
+	a, err := srv.store.Agent(ctx, "pawly", "agent-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cluster := reconcilerCluster()
+	// A project with no git profile has nothing to name.
+	if spec := srv.podSpec(ctx, cluster, nil, a); len(spec.HostAliases) != 0 {
+		t.Errorf("host aliases = %v, want none for a project with no remote", spec.HostAliases)
+	}
+	// localhost stands in for a name only the daemon can resolve: it is in this
+	// machine's /etc/hosts, and a pod's DNS need not have it.
+	if err := srv.store.SetProjectGitRemote(ctx, state.GitRemote{
+		Project: "pawly", Profile: state.GitProfilePrivate,
+		URL: "https://localhost/h4ad/pawly.git", Auth: state.GitAuthToken, Credential: "private",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	spec := srv.podSpec(ctx, cluster, nil, a)
+	if got := spec.HostAliases["localhost"]; got != "127.0.0.1" {
+		t.Errorf("host aliases = %v, want localhost at 127.0.0.1", spec.HostAliases)
+	}
+	// An address in the URL is already an address, so there is nothing to hand
+	// the pod.
+	if err := srv.store.SetProjectGitRemote(ctx, state.GitRemote{
+		Project: "pawly", Profile: state.GitProfilePrivate,
+		URL: "https://192.0.2.10:30142/h4ad/pawly.git", Auth: state.GitAuthToken, Credential: "private",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if spec := srv.podSpec(ctx, cluster, nil, a); len(spec.HostAliases) != 0 {
+		t.Errorf("host aliases = %v, want none for a URL that is an address", spec.HostAliases)
+	}
+}
+
 // TestRemoveProjectRefusesBeforeItDeletesAnyMachine checks the order the handler
 // keeps: the store's refusal comes first, so a project that still has agents
 // keeps their pods, tokens and claims. Deleting the machines and refusing after

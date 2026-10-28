@@ -10,8 +10,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	neturl "net/url"
 	"strings"
+	"time"
 
 	"agentbox/internal/credentials"
 	"agentbox/internal/gitcred"
@@ -123,8 +125,42 @@ func ResolveGitProfileURL(ctx context.Context, r state.GitRemote) (string, error
 	return resolved, nil
 }
 
-// httpsURL turns an ssh URL, or git's ssh shorthand, into the https URL of the
-// same host. A token is what a profile signs in with, and a token is answered
+// GitHostAlias is where the host of a git URL answers, for a pod whose own DNS
+// has no answer for it: a cluster's pods resolve what its nodes resolve, and a
+// private remote is often a name only the daemon knows. Empty when the host is
+// already an address, when it doesn't resolve here either, or when it resolves
+// to no IPv4.
+func GitHostAlias(ctx context.Context, rawURL string) map[string]string {
+	u, err := neturl.Parse(rawURL)
+	if err != nil {
+		return nil
+	}
+	host := u.Hostname()
+	if host == "" || net.ParseIP(host) != nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	addrs, err := lookupHost(ctx, host)
+	if err != nil {
+		return nil
+	}
+	for _, addr := range addrs {
+		// The pod's /etc/hosts takes one address, and a host that answers with
+		// both families is reachable over IPv4 here: an entry for an IPv6
+		// address would only be used if the cluster is.
+		if ip := net.ParseIP(addr); ip != nil && ip.To4() != nil {
+			return map[string]string{host: ip.To4().String()}
+		}
+	}
+	return nil
+}
+
+// lookupHost is the resolver GitHostAlias uses, a variable so a test can answer
+// for a name that isn't in its DNS.
+var lookupHost = net.DefaultResolver.LookupHost
+
+// httpsURL turns an ssh URL, or git's ssh shorthand, into the https URL of the same host. A token is what a profile signs in with, and a token is answered
 // over https, not ssh: the host's ssh port and user are dropped, because the
 // https port is the host's own (443 unless the URL says otherwise, which an ssh
 // form can't).

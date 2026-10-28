@@ -186,6 +186,60 @@ func TestResolveGitProfileURLTurnsSSHIntoHTTPSForAToken(t *testing.T) {
 	}
 }
 
+// TestGitHostAliasIsWhereAPodsRemoteAnswers: a name is resolved here and handed
+// to the pod, an address needs nothing, and a name this machine can't resolve
+// either leaves the pod as it was.
+func TestGitHostAliasIsWhereAPodsRemoteAnswers(t *testing.T) {
+	ctx := context.Background()
+	defer func(previous func(context.Context, string) ([]string, error)) { lookupHost = previous }(lookupHost)
+	var asked string
+	lookupHost = func(_ context.Context, host string) ([]string, error) {
+		asked = host
+		switch host {
+		case "hub.example.ts.net":
+			return []string{"fd7a::1", "203.0.113.7"}, nil
+		}
+		return nil, errors.New("no such host")
+	}
+	for _, tc := range []struct {
+		name, url string
+		want      map[string]string
+		lookups   string
+	}{
+		{
+			name:    "a name becomes an address",
+			url:     "https://hub.example.ts.net/h4ad/agentbox.git",
+			want:    map[string]string{"hub.example.ts.net": "203.0.113.7"},
+			lookups: "hub.example.ts.net",
+		},
+		{
+			name: "an address needs nothing, and isn't looked up",
+			url:  "ssh://git@192.0.2.10:30143/h4ad/agentbox.git",
+		},
+		{
+			name:    "a name that doesn't resolve leaves the pod alone",
+			url:     "https://nowhere.example/o/p.git",
+			lookups: "nowhere.example",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			asked = ""
+			got := GitHostAlias(ctx, tc.url)
+			if tc.lookups != asked {
+				t.Errorf("looked up %q, want %q", asked, tc.lookups)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("GitHostAlias(%q) = %v, want %v", tc.url, got, tc.want)
+			}
+			for host, addr := range tc.want {
+				if got[host] != addr {
+					t.Errorf("GitHostAlias(%q)[%q] = %q, want %q", tc.url, host, got[host], addr)
+				}
+			}
+		})
+	}
+}
+
 // TestPodGitConfig is the exact ~/.gitconfig a pod gets: the project profile's
 // login for its host, and none of the ssh-to-https rewriting an ssh profile
 // must not have.

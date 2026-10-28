@@ -126,6 +126,11 @@ type Spec struct {
 	// from the cluster. It is also in Env; this is the field the pod's own
 	// probes and the doctor read.
 	MasterURL string
+	// HostAliases is where names the pod can't resolve answer, keyed by name.
+	// A cluster's pods resolve what its nodes do, and the project's git remote
+	// can be a name only the daemon knows, so the daemon resolves it and hands
+	// the pod the address.
+	HostAliases map[string]string
 }
 
 // Labels is what every object AgentBox makes for an agent carries, and what the
@@ -153,6 +158,24 @@ func (s Spec) WorkspaceClaim() string {
 		return s.Claim
 	}
 	return ClaimName(s.Project, s.Agent)
+}
+
+// hostAliases is the pod's /etc/hosts entries, sorted by name so that the same
+// spec always makes the same pod.
+func (s Spec) hostAliases() []corev1.HostAlias {
+	if len(s.HostAliases) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(s.HostAliases))
+	for name := range s.HostAliases {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	out := make([]corev1.HostAlias, 0, len(names))
+	for _, name := range names {
+		out = append(out, corev1.HostAlias{IP: s.HostAliases[name], Hostnames: []string{name}})
+	}
+	return out
 }
 
 // Object labels and annotations the reconciler and the app read.
@@ -216,6 +239,10 @@ func BuildPod(spec Spec) (*corev1.Pod, error) {
 				SeccompProfile:      &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 			},
 			ImagePullSecrets: pullSecrets(spec.PullSecret),
+			// Names the pod would otherwise have to resolve for itself: its
+			// git remote, on a cluster whose DNS is the node's and knows
+			// nothing of the daemon's private names.
+			HostAliases: spec.hostAliases(),
 			// The claim's root belongs to root, and git refuses a repository
 			// whose directory another user owns ("dubious ownership"), so the
 			// two directories the agent lives in are handed to it before
