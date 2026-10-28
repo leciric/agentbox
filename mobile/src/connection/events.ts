@@ -145,6 +145,11 @@ function follow() {
   }
 }
 
+// ended says the stream finished without an error, as when the daemon
+// restarts: react-native-sse then only stops (pollingInterval 0), with no
+// event, and the stream would look connected until it went silent.
+const ended = (es: EventSource<Type>) => (es as unknown as { _xhr?: XMLHttpRequest })._xhr?.readyState === XMLHttpRequest.DONE;
+
 let started = false;
 
 // connect follows the paired daemon's events into queryClient, from now on.
@@ -164,7 +169,7 @@ export function connect(queryClient: QueryClient): () => void {
     if (away || state !== 'connected' || Date.now() - lastHeard > silentAfter) reconnectNow();
   });
   setInterval(() => {
-    if (source && state === 'connected' && AppState.currentState === 'active' && Date.now() - lastHeard > silentAfter) follow();
+    if (source && state === 'connected' && AppState.currentState === 'active' && (Date.now() - lastHeard > silentAfter || ended(source))) follow();
   }, 5_000);
   return stop;
 }
