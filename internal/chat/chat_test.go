@@ -2165,8 +2165,8 @@ func TestTheContextWindowRestartsTheAdapterAndResumesTheSession(t *testing.T) {
 	if stored, _ := store.Chat(ctx, testAgent.Project, testAgent.Name); stored.Options[state.ChatOptionContextWindow] != "1000000" {
 		t.Errorf("stored %v", stored.Options)
 	}
-	if _, err := m.SetOption(ctx, testAgent, state.ChatOptionContextWindow, "300k"); err == nil {
-		t.Error("a window Sonnet doesn't offer here was accepted")
+	if _, err := m.SetOption(ctx, testAgent, state.ChatOptionContextWindow, "2m"); err == nil {
+		t.Error("a window above Sonnet's whole one was accepted")
 	}
 
 	if _, err := m.Send(testAgent, "and again"); err != nil {

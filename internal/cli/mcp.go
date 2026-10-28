@@ -218,22 +218,29 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 		effort["enum"] = efforts
 	}
 	params["effort"] = effort
-	params["context_window"] = str("where this agent's chat compacts, \"200k\" or \"1m\" — a Claude Code setting, checked " +
-		"against the model: Haiku has no 1M window, and asking for one is refused. Leave this out for " + defaultWindow +
-		", the window new agents start with in AgentBox's Settings → Models (an agent whose model has no 1M window gets the compact one). " +
+	params["context_window"] = str("where this agent's chat compacts, as \"200k\" or \"1m\" — a Claude Code setting. " +
+		"Any window from " + state.FormatContextWindow(state.MinContextWindow) + " up to the model's whole window works; a longer one is refused. " +
+		"Leave this out for " + defaultWindow + ", the window new agents start with in AgentBox's Settings → Models. " +
 		"The compact window is right for nearly every task: past it, every step of the agent resends the " +
-		"whole conversation, so 1M costs up to twice as much per step late in a long task. Choose 1m only for work that " +
+		"whole conversation, so a larger window costs up to twice as much per step late in a long task. Choose a large one only for work that " +
 		"really needs a very large codebase or log in view at once.")
 	switch {
 	case enforced:
 		params["context_window"] = str("where this agent's chat compacts. AgentBox's Settings → Models enforces " + defaultWindow +
 			" for every agent you create, so leave this out: any other window is refused.")
 	case defaultWindow == "1m":
-		params["context_window"] = str(params["context_window"].(map[string]any)["description"].(string) +
-			" 1m is the most Settings → Models allows.")
+		params["context_window"] = str("where this agent's chat compacts, as \"200k\" or \"1m\" — a Claude Code setting. " +
+			"Any window from " + state.FormatContextWindow(state.MinContextWindow) + " up to the model's whole window works; a longer one is refused, " +
+			"and Haiku's whole window is 200k, so it has no 1m. Leave this out for 1m, the window new agents start with in AgentBox's " +
+			"Settings → Models. 1m is also the most Settings → Models allows. The compact window is right for nearly every task: past it, " +
+			"every step of the agent resends the whole conversation, so 1m costs up to twice as much per step late in a long task. " +
+			"Choose 1m only for work that really needs a very large codebase or log in view at once.")
 	default:
-		params["context_window"] = str("where this agent's chat compacts, a Claude Code setting. Leave this out for " + defaultWindow +
-			", the window new agents start with in AgentBox's Settings → Models. It is also the most Settings allows: a longer one is refused.")
+		params["context_window"] = str("where this agent's chat compacts, a Claude Code setting, like \"200k\" or \"1m\". " +
+			"Leave this out for " + defaultWindow + ", the window new agents start with in AgentBox's Settings → Models, and pass any window from " +
+			state.FormatContextWindow(state.MinContextWindow) + " up to " + defaultWindow + ", which is also the most you may use: " +
+			"a longer one is refused. The compact window is right for nearly every task: past it, every step of the agent resends the " +
+			"whole conversation, so a larger window costs more per step late in a long task.")
 	}
 	return params, auto, readyTools{openCode: openCode, cursor: cursorReady}
 }
