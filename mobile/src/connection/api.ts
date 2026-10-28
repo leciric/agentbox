@@ -28,8 +28,8 @@ async function call<R>(method: string, path: string, body?: unknown): Promise<R>
       headers: { Authorization: `Bearer ${s.token}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-  } catch (err) {
-    throw new ApiError(unreachable(s.origin, err).message, 0);
+  } catch {
+    throw new ApiError(unreachable(s.origin).message, 0);
   }
   const text = await res.text();
   if (res.status === 401) void forget();

@@ -3330,6 +3330,7 @@ export const ptBR: Messages = {
   'web.phone.pairedAs': 'Este celular está pareado como {name}.',
   'web.phone.unpair': 'Desparear este celular',
   'web.phone.back': 'Voltar para os chats',
+  'mobile.unreachable': 'Não foi possível chegar ao AgentBox em {host}: confira se o computador está ligado, com o AgentBox aberto, e se este celular está conectado.',
   'mobile.notOnTailnet': '{host} só existe numa rede do Tailscale (uma tailnet), e este celular não chega até lá: ligue o Tailscale aqui, conectado a essa tailnet, e tente de novo.',
   'web.phone.unreachable': 'Não foi possível acessar o AgentBox no seu computador',
   'web.phone.couldntStart': 'Não foi possível iniciar {agent}',
