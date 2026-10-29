@@ -65,6 +65,20 @@ func (m *Manager) LeadChoice(ctx context.Context, project string) (LeadChoice, e
 	return LeadChoice{Tool: cmp.Or(c.Tool, "claude"), NextTool: c.NextTool, Account: c.Account, ToolAccounts: c.ToolAccounts}, nil
 }
 
+// LeadChoiceOf reads the choice of one chat session's composer. A session
+// whose composer never chose runs what the project's first session's chose,
+// so a new session starts on the tool and account the project's chat was on.
+func (m *Manager) LeadChoiceOf(ctx context.Context, a state.Agent) (LeadChoice, error) {
+	c, err := m.Store.Chat(ctx, a.Project, a.Name)
+	if err != nil {
+		return LeadChoice{Tool: "claude"}, err
+	}
+	if c.Tool == "" && a.Name != state.LeadName {
+		return m.LeadChoice(ctx, a.Project)
+	}
+	return LeadChoice{Tool: cmp.Or(c.Tool, "claude"), NextTool: c.NextTool, Account: c.Account, ToolAccounts: c.ToolAccounts}, nil
+}
+
 // LeadToolLogin says why a lead can't run tool: nil when AgentBox has a login
 // for it, and the same refusal an agent asking for it gets otherwise.
 func (m *Manager) LeadToolLogin(p state.Project, tool string) error {
@@ -118,7 +132,7 @@ func (m *Manager) LeadAccountFor(ctx context.Context, a state.Agent) (string, er
 			return "", err
 		}
 	}
-	choice, err := m.LeadChoice(ctx, a.Project)
+	choice, err := m.LeadChoiceOf(ctx, a)
 	if err != nil {
 		return "", err
 	}

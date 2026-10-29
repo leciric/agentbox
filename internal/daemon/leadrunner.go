@@ -45,7 +45,7 @@ func (s *Server) chatRunners(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	m := s.manager(nil)
-	choice, err := m.LeadChoice(ctx, a.Project)
+	choice, err := m.LeadChoiceOf(ctx, a)
 	if err != nil {
 		return err
 	}

@@ -209,7 +209,7 @@ func (m *Manager) LeadLogins(ctx context.Context, a state.Agent) (Logins, error)
 			return Logins{}, err
 		}
 	}
-	choice, err := m.LeadChoice(ctx, a.Project)
+	choice, err := m.LeadChoiceOf(ctx, a)
 	if err != nil {
 		return Logins{}, err
 	}

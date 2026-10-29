@@ -22,7 +22,7 @@ var homeSource string
 
 var (
 	tmpl     = template.Must(template.New("brief").Parse(source))
-	leadTmpl = template.Must(template.New("lead").Parse(leadSource))
+	leadTmpl = template.Must(template.New("lead").Funcs(template.FuncMap{"join": strings.Join}).Parse(leadSource))
 	homeTmpl = template.Must(template.New("home").Parse(homeSource))
 )
 
@@ -137,6 +137,11 @@ func fenced(s string) string {
 // agents from the host, without a machine or a shell of its own.
 type LeadData struct {
 	Project string // the project's slug, as refs and URLs write it
+	// Session is the topic of the chat session this lead runs, and
+	// OtherSessions the project's other sessions' topics; both empty when it
+	// is the only one.
+	Session       string
+	OtherSessions []string
 	// ProjectName is what the user calls the project; empty is Project.
 	ProjectName string
 	Root        string // the project's main checkout

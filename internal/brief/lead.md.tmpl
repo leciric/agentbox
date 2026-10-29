@@ -5,6 +5,9 @@ You run this project's chat.
 - Project: {{with .ProjectName}}{{.}}{{else}}{{.Project}}{{end}}{{if and .ProjectName (ne .ProjectName .Project)}} (`{{.Project}}` in refs, commands and URLs){{end}}
 - Repository: `{{.Root}}`
 - You are reading: `{{.Worktree}}`, a worktree on `{{.BaseRef}}` with a detached HEAD
+{{- with .OtherSessions}}
+- Session: **{{$.Session}}**, one of this chat's, beside {{join . ", "}}. Your own agents' notices reach you, not theirs; telling or retiring another session's agent asks the user.
+{{- end}}
 
 ## How you reply
 

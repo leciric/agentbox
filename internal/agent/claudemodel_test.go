@@ -121,7 +121,7 @@ func TestPrepareLeadChatModelMergesInPlace(t *testing.T) {
 	t.Parallel()
 	m := &Manager{Paths: paths.Paths{Data: t.TempDir()}}
 	a := state.Agent{Project: "hello-stack", Name: state.LeadName, Role: state.RoleLead, AI: "claude"}
-	path := filepath.Join(m.Paths.LeadHome(a.Project), claudeSettingsFile)
+	path := filepath.Join(m.leadHome(a), claudeSettingsFile)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func TestPrepareChatModelOnlyClaudeCodeHasAModel(t *testing.T) {
 		if err := m.PrepareChatModel(t.Context(), a, "claude-fable-5-1", 200_000); err != nil {
 			t.Errorf("PrepareChatModel(%s) = %v", ai, err)
 		}
-		if _, err := os.Stat(filepath.Join(m.Paths.LeadHome(a.Project), claudeSettingsFile)); !os.IsNotExist(err) {
+		if _, err := os.Stat(filepath.Join(m.leadHome(a), claudeSettingsFile)); !os.IsNotExist(err) {
 			t.Errorf("a %s agent got Claude Code settings: %v", ai, err)
 		}
 	}
@@ -275,7 +275,7 @@ func TestPrepareLeadChatModelReportsUnreadableSettings(t *testing.T) {
 	t.Parallel()
 	m := &Manager{Paths: paths.Paths{Data: t.TempDir()}}
 	a := state.Agent{Project: "hello-stack", Name: state.LeadName, Role: state.RoleLead, AI: "claude"}
-	path := filepath.Join(m.Paths.LeadHome(a.Project), claudeSettingsFile)
+	path := filepath.Join(m.leadHome(a), claudeSettingsFile)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}

@@ -763,7 +763,7 @@ func (s *Server) manager(log io.Writer) *agent.Manager {
 		BrowserSocket:    s.browserSocketPath,
 		AndroidSDK:       findAndroidSDK,
 		IOSScreenshot:    s.iosScreenshot,
-		LeadSocketPath:   s.leadSocketPath,
+		LeadSocketPath:   s.sessionSocketPath,
 		DesktopTheme:     s.desktopTheme,
 		ImageCacheSocket: s.imageCacheSocket,
 		PackageCacheDir:  s.packageCacheDir,

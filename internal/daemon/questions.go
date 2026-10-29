@@ -319,10 +319,20 @@ func (s *Server) tellLead(ctx context.Context, project, notice string, act bool)
 // tellLeadOf is tellLead with the notice's options: Finished, say, for the
 // app to show what the agents finished with. It is always hidden.
 func (s *Server) tellLeadOf(ctx context.Context, project, notice string, opts chat.NoticeOptions) {
+	s.tellSessionOf(ctx, project, state.MainSession, notice, opts)
+}
+
+// tellSessionOf is tellLeadOf for one session of the project's chat: the one
+// that made the agent a notice is about (tellOwnerOf). A session that is
+// closed, or has never been written to, hands it to Main.
+func (s *Server) tellSessionOf(ctx context.Context, project, session, notice string, opts chat.NoticeOptions) {
 	if _, err := s.store.Project(ctx, project); err != nil {
 		return
 	}
-	lead, err := s.manager(nil).Lead(ctx, project)
+	lead, err := s.manager(nil).LeadSession(ctx, project, session)
+	if err != nil && session != state.MainSession && session != "" {
+		lead, err = s.manager(nil).Lead(ctx, project)
+	}
 	if err != nil {
 		// No chat yet: the notice would have nowhere to go. The question still
 		// waits, and the user sees it in the project's Questions.

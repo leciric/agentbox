@@ -936,6 +936,7 @@ func toAPIAgent(st agent.Status) api.Agent {
 		Worktree:   a.Worktree,
 		Source:     a.Source,
 
+		LeadSession:      a.Session(),
 		ClaudeAccount:    a.ClaudeAccount,
 		CodexAccount:     a.CodexAccount,
 		OpenCodeAccounts: accountMap(a.OpenCodeAccounts),
@@ -1247,6 +1248,7 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 			Clean:   req.Clean,
 
 			FinishNotice: req.FinishNotice,
+			LeadSession:  req.LeadSession,
 			Connectors:   connectors,
 			Task:         strings.TrimSpace(req.Task),
 			Queued:       queued != "",
@@ -1270,7 +1272,7 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 						Status: state.RemoteFailed, Summary: failed, Notice: failed, Act: true,
 					})
 				} else {
-					s.tellLead(ctx, req.Project, failed, true)
+					s.tellSession(ctx, req.Project, req.LeadSession, failed, true)
 				}
 			}
 			// One the job's cancel stopped didn't fail.

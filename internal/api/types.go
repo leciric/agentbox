@@ -857,6 +857,10 @@ type Agent struct {
 	// or cli, its own command line in the terminal.
 	Interface string `json:"interface"`
 	Chat      string `json:"chat,omitempty"` // the chat session's state, while this daemon has one
+	// LeadSession is the session of its project's chat that made it, and
+	// that its notices go to: "main" for Main's, and for every agent the user
+	// made.
+	LeadSession string `json:"leadSession,omitempty"`
 	// StalledSince is set while its chat's running turn has stalled
 	// (ChatSession.StalledSince): its chat still says running, but nothing
 	// has come of it since then.
@@ -1053,6 +1057,10 @@ type CreateAgentRequest struct {
 	OriginID      string `json:"-"`
 	OriginName    string `json:"-"`
 	OriginProject string `json:"-"`
+	// LeadSession is the session of the project's chat that asked for it,
+	// whose notices it goes to: set by the daemon from the lead socket the
+	// request came in on, never sent. "" is Main.
+	LeadSession string `json:"-"`
 }
 
 // MemoryHold is what the daemon holds of an agent's heavy commands (test

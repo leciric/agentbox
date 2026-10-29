@@ -20,15 +20,30 @@ import (
 // agentFrom finds the agent a request is about.
 type agentFrom func(*http.Request) (state.Agent, error)
 
-// leadFromPath returns a project's lead without creating it. A project you have
+// sessionFrom is the chat session a request is about: the lead socket's own,
+// or ?session= on the app's routes. None is Main.
+func sessionFrom(r *http.Request) string {
+	if session := r.PathValue("session"); session != "" {
+		return session
+	}
+	if session := r.URL.Query().Get("session"); session != "" {
+		return session
+	}
+	return state.MainSession
+}
+
+// leadFromPath returns a project's lead without creating it: the lead of the
+// session the request names, Main's when it names none. A session you have
 // never written to has no lead yet, and gets one that exists only for this
-// request, so reading its empty conversation makes nothing on disk.
+// request, so reading its empty conversation makes nothing on disk. A closed
+// session's is the same, and its conversation is still there to read.
 func (s *Server) leadFromPath(r *http.Request) (state.Agent, error) {
 	project := r.PathValue("project")
 	if project == state.HomeProject {
 		return s.manager(nil).Home(), nil
 	}
-	a, err := s.manager(nil).Lead(r.Context(), project)
+	session := sessionFrom(r)
+	a, err := s.manager(nil).LeadSession(r.Context(), project, session)
 	if err == nil {
 		return a, nil
 	}
@@ -38,8 +53,16 @@ func (s *Server) leadFromPath(r *http.Request) (state.Agent, error) {
 	if _, err := s.store.Project(r.Context(), project); err != nil {
 		return state.Agent{}, err
 	}
+	title := ""
+	if session != state.MainSession {
+		ls, err := s.store.LeadSession(r.Context(), project, session)
+		if err != nil {
+			return state.Agent{}, err
+		}
+		title = ls.Topic
+	}
 	return state.Agent{
-		Project: project, Name: state.LeadName, AI: agent.ChatTool,
+		Project: project, Name: state.LeadSessionName(session), Title: title, AI: agent.ChatTool,
 		Interface: state.InterfaceChat, Role: state.RoleLead,
 	}, nil
 }
@@ -54,8 +77,12 @@ func (s *Server) ensureLeadFromPath(r *http.Request) (state.Agent, error) {
 		// worktree to move: it is readied, and nothing more.
 		return m.EnsureHome(r.Context())
 	}
-	a, err := m.EnsureLead(r.Context(), r.PathValue("project"))
+	a, err := m.EnsureLeadSession(r.Context(), r.PathValue("project"), sessionFrom(r))
 	if err != nil {
+		return state.Agent{}, err
+	}
+	// The session's socket, for one opened while the daemon was running.
+	if err := s.serveSessionAPI(a.Project, a.Session()); err != nil {
 		return state.Agent{}, err
 	}
 	// A turn is about to start, which is a moment the session may be replaced
@@ -74,7 +101,7 @@ func (s *Server) ensureLeadFromPath(r *http.Request) (state.Agent, error) {
 // on the commit the turn is reading rather than moving under it.
 func (s *Server) leadForMessage(r *http.Request) (state.Agent, error) {
 	if project := r.PathValue("project"); project != state.HomeProject {
-		if a, err := s.manager(nil).Lead(r.Context(), project); err == nil && s.chat.Busy(a) {
+		if a, err := s.manager(nil).LeadSession(r.Context(), project, sessionFrom(r)); err == nil && s.chat.Busy(a) {
 			return a, nil
 		}
 	}
@@ -96,7 +123,8 @@ func (s *Server) projectChat(w http.ResponseWriter, r *http.Request) error {
 	}
 	info := api.ProjectChat{
 		Project:  a.Project,
-		Ref:      agent.LeadRef(a.Project),
+		Session:  a.Session(),
+		Ref:      a.Ref(),
 		Started:  a.Status != "",
 		Worktree: a.Worktree,
 		BaseRef:  a.BaseRef,
@@ -138,9 +166,23 @@ func (s *Server) lastChatLine(ctx context.Context, a state.Agent) *api.ChatLine 
 // worktree and its private HOME. The project's agents are untouched.
 func (s *Server) resetProjectChat(w http.ResponseWriter, r *http.Request) error {
 	project := r.PathValue("project")
-	s.chat.Stop(agent.LeadRef(project), "the project chat was reset")
-	s.chat.Forget(agent.LeadRef(project))
-	s.settleLeadCache(project, true)
+	// The whole chat, every session of it.
+	refs := []string{agent.LeadRef(project)}
+	if project != state.HomeProject {
+		sessions, err := s.store.LeadSessions(r.Context(), project, true)
+		if err != nil {
+			return err
+		}
+		for _, ls := range sessions {
+			refs = append(refs, agent.SessionRef(project, ls.ID))
+			s.stopSessionAPI(project, ls.ID)
+		}
+	}
+	for _, ref := range refs {
+		s.chat.Stop(ref, "the project chat was reset")
+		s.chat.Forget(ref)
+		s.settleLeadCache(ref, true)
+	}
 	if project == state.HomeProject {
 		if err := s.manager(s.cfg.Log).DestroyHome(r.Context()); err != nil {
 			return err

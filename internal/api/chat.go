@@ -476,6 +476,9 @@ type ChatOptionRequest struct {
 // chatted with has nothing on disk, and Started is false.
 type ProjectChat struct {
 	Project string `json:"project"`
+	// Session is which of the chat's sessions this is (LeadSession): "main"
+	// for the one every project has.
+	Session string `json:"session"`
 	Ref     string `json:"ref"`     // the lead's agent ref, for the chat routes
 	Started bool   `json:"started"` // it has a worktree and a private HOME
 	// Worktree is where the lead reads the project, standing on BaseRef with a
@@ -486,6 +489,43 @@ type ProjectChat struct {
 	// Last is the chat's last message someone wrote, the user's or the
 	// lead's, for a list of the leads to show; absent before the first.
 	Last *ChatLine `json:"last,omitempty"`
+}
+
+// MainSession is the id of the session every project's chat has.
+const MainSession = "main"
+
+// LeadSession is one of the sessions of a project's chat: a lead conversation
+// of its own on one topic, with its own context and its own agents, beside
+// Main, which every project has. Notes, memory, skills, schedules and the
+// agent list are shared by all of them.
+type LeadSession struct {
+	Project string `json:"project"`
+	ID      string `json:"id"`  // "main" for Main
+	Ref     string `json:"ref"` // its lead's agent ref, for the chat's events
+	Topic   string `json:"topic"`
+	// Chat is its conversation's state, as in ProjectChat.Chat.
+	Chat string `json:"chat"`
+	// Agents is how many of the project's agents are this session's.
+	Agents    int        `json:"agents"`
+	Last      *ChatLine  `json:"last,omitempty"`
+	CreatedAt time.Time  `json:"createdAt"`
+	ClosedAt  *time.Time `json:"closedAt,omitempty"` // closed: read only
+}
+
+// NewLeadSessionRequest opens a session on a topic.
+type NewLeadSessionRequest struct {
+	Topic string `json:"topic"`
+}
+
+// LeadSessionPatch renames a session.
+type LeadSessionPatch struct {
+	Topic string `json:"topic"`
+}
+
+// AgentSessionRequest hands an agent to another session of its project's
+// chat, whose notices it then goes to.
+type AgentSessionRequest struct {
+	Session string `json:"session"`
 }
 
 // ChatLine is one message of a chat, cut to its first lines: who wrote it
@@ -503,6 +543,7 @@ type ChatLine struct {
 // to compact the conversation first. Only a Claude Code lead has one.
 type ChatCache struct {
 	Project string `json:"project"`
+	Session string `json:"session,omitempty"` // which session's; "" is Main's
 	// IdleSince is when the last turn ended, which is the last time the model
 	// was called; absent when no turn has ended since the daemon started, or
 	// while one runs.

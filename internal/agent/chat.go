@@ -76,7 +76,7 @@ func (m *Manager) LeadChatCommand(ctx context.Context, a state.Agent, status fun
 	if !a.IsLead() {
 		return nil, fmt.Errorf("%s isn't a project's chat", a.Ref())
 	}
-	home := m.Paths.LeadHome(a.Project)
+	home := m.leadHome(a)
 	command, args, toolEnvVars, bin, err := m.leadAdapter(ctx, a, home, status)
 	if err != nil {
 		return nil, err

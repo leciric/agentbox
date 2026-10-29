@@ -315,7 +315,7 @@ func (m *Manager) prepareAgentClaudeSettings(ctx context.Context, a state.Agent,
 // Code runs on the host rather than in a machine — but in the private HOME
 // configureLead wrote, not the user's own.
 func (m *Manager) prepareLeadClaudeSettings(a state.Agent, merge func([]byte) ([]byte, error)) error {
-	path := filepath.Join(m.Paths.LeadHome(a.Project), claudeSettingsFile)
+	path := filepath.Join(m.leadHome(a), claudeSettingsFile)
 	existing, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return err
@@ -387,7 +387,7 @@ const (
 // in its settings.json, or 0 when nothing there sets it and Claude Code picks
 // one itself. A value Claude Code wouldn't accept is read as unset too.
 func (m *Manager) LeadPromptCacheTTL(a state.Agent) time.Duration {
-	existing, err := os.ReadFile(filepath.Join(m.Paths.LeadHome(a.Project), claudeSettingsFile))
+	existing, err := os.ReadFile(filepath.Join(m.leadHome(a), claudeSettingsFile))
 	if err != nil {
 		return 0
 	}

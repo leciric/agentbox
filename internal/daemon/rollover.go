@@ -189,7 +189,7 @@ func (s *Server) storeConsolidation(ctx context.Context, a state.Agent, c consol
 	// it said is still there, by id and through this one, and the raw answer
 	// it came from is still its event.
 	previous := ""
-	if was, err := store.LatestFrom(ctx, a.Project, memory.KindEpisodic, memory.EventConversationCompacted); err == nil {
+	if was, err := store.LatestFrom(ctx, a.Project, a.Name, memory.KindEpisodic, memory.EventConversationCompacted); err == nil {
 		previous = was.ID
 	} else if !errors.Is(err, memory.ErrNotFound) {
 		return err

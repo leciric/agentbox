@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"agentbox/internal/api"
@@ -25,20 +26,62 @@ import (
 // configuration file the lead cannot write.
 
 // leadSocketPath is short (a hash of the project name) because unix socket
-// paths are limited to 108 bytes.
-func (s *Server) leadSocketPath(project string) string {
-	sum := sha256.Sum256([]byte("lead:" + project))
+// paths are limited to 108 bytes. Each of the chat's sessions has its own
+// socket, which is how the daemon knows which session asked: Main's is the one
+// every project's chat had before sessions.
+func (s *Server) sessionSocketPath(project, session string) string {
+	key := "lead:" + project
+	if session != "" && session != state.MainSession {
+		key += "/" + session
+	}
+	sum := sha256.Sum256([]byte(key))
 	return filepath.Join(s.cfg.Paths.Data, "run", "leads", hex.EncodeToString(sum[:6])+".sock")
 }
 
-// serveLeadAPI starts the socket a project's lead reaches AgentBox through.
+// leadSocketPath is Main's socket.
+func (s *Server) leadSocketPath(project string) string {
+	return s.sessionSocketPath(project, state.MainSession)
+}
+
+// leadAPIKey is how leadAPIs keeps a session's socket.
+func leadAPIKey(project, session string) string {
+	if session == "" {
+		session = state.MainSession
+	}
+	return project + "\x00" + session
+}
+
+// serveLeadAPI starts the socket a project's lead reaches AgentBox through:
+// Main's, and every open session's.
 func (s *Server) serveLeadAPI(project string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.leadAPIs[project]; ok {
+	if err := s.serveSessionAPI(project, state.MainSession); err != nil {
+		return err
+	}
+	if project == state.HomeProject {
 		return nil
 	}
-	path := s.leadSocketPath(project)
+	sessions, err := s.store.LeadSessions(context.Background(), project, false)
+	if err != nil {
+		return err
+	}
+	for _, ls := range sessions {
+		if err := s.serveSessionAPI(project, ls.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// serveSessionAPI starts the socket one of a project's chat sessions reaches
+// AgentBox through.
+func (s *Server) serveSessionAPI(project, session string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := leadAPIKey(project, session)
+	if _, ok := s.leadAPIs[key]; ok {
+		return nil
+	}
+	path := s.sessionSocketPath(project, session)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
@@ -51,36 +94,53 @@ func (s *Server) serveLeadAPI(project string) error {
 		_ = ln.Close()
 		return err
 	}
-	handler := s.leadRoutes(project)
+	handler := s.leadRoutes(project, session)
 	if project == state.HomeProject {
 		handler = s.homeRoutes()
 	}
 	srv := &http.Server{Handler: handler}
-	s.leadAPIs[project] = srv
+	s.leadAPIs[key] = srv
 	go func() { _ = srv.Serve(ln) }()
 	return nil
 }
 
+// stopLeadAPI closes every socket of a project's chat, each session's.
 func (s *Server) stopLeadAPI(project string) {
 	s.mu.Lock()
-	srv := s.leadAPIs[project]
-	delete(s.leadAPIs, project)
+	var sessions []string
+	for key := range s.leadAPIs {
+		if p, session, _ := strings.Cut(key, "\x00"); p == project {
+			sessions = append(sessions, session)
+		}
+	}
+	s.mu.Unlock()
+	for _, session := range sessions {
+		s.stopSessionAPI(project, session)
+	}
+}
+
+func (s *Server) stopSessionAPI(project, session string) {
+	s.mu.Lock()
+	key := leadAPIKey(project, session)
+	srv := s.leadAPIs[key]
+	delete(s.leadAPIs, key)
 	s.mu.Unlock()
 	if srv != nil {
 		_ = srv.Close()
 	}
-	_ = os.Remove(s.leadSocketPath(project))
+	_ = os.Remove(s.sessionSocketPath(project, session))
 }
 
 func (s *Server) closeLeadAPIs() {
 	s.mu.Lock()
-	projects := make([]string, 0, len(s.leadAPIs))
-	for project := range s.leadAPIs {
-		projects = append(projects, project)
+	keys := make([]string, 0, len(s.leadAPIs))
+	for key := range s.leadAPIs {
+		keys = append(keys, key)
 	}
 	s.mu.Unlock()
-	for _, project := range projects {
-		s.stopLeadAPI(project)
+	for _, key := range keys {
+		project, session, _ := strings.Cut(key, "\x00")
+		s.stopSessionAPI(project, session)
 	}
 }
 
@@ -88,12 +148,14 @@ func (s *Server) closeLeadAPIs() {
 // agents, its notes, and the questions they asked it. It cannot reach another
 // project, the daemon itself, or the host, except to message another
 // project's lead.
-func (s *Server) leadRoutes(project string) http.Handler {
+func (s *Server) leadRoutes(project, session string) http.Handler {
 	mux := http.NewServeMux()
-	// The lead's requests carry no project; the socket says which one it is.
+	// The lead's requests carry no project, nor session; the socket says which
+	// they are.
 	withProject := func(fn func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			r.SetPathValue("project", project)
+			r.SetPathValue("session", session)
 			if err := fn(w, r); err != nil {
 				writeError(w, err)
 			}
@@ -222,6 +284,7 @@ func (s *Server) leadCreateAgent(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	req.Project = r.PathValue("project")
+	req.LeadSession = leadSessionColumn(sessionFrom(r))
 	return s.createAgentFrom(w, r, req, true)
 }
 

@@ -102,6 +102,6 @@ func (m *Manager) configureHome(ctx context.Context, a state.Agent) error {
 	if err := m.WriteSkills(ctx, a); err != nil {
 		return err
 	}
-	return m.writeLeadHome(home, a.Worktree, text, m.LeadSocket(state.HomeProject),
+	return m.writeLeadHome(home, a.Worktree, text, m.LeadSocket(a),
 		map[string]string{"AGENTBOX_CHAT": "home"}, nil, m.leadGitHubToken(homeProject) != "")
 }

@@ -514,7 +514,7 @@ func (s *Server) servePeer(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	s.leadRoutes(p.Name).ServeHTTP(w, r)
+	s.leadRoutes(p.Name, state.MainSession).ServeHTTP(w, r)
 	return nil
 }
 
