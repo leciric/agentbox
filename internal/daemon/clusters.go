@@ -213,6 +213,20 @@ func (s *Server) writePullSecret(ctx context.Context, c state.Cluster, reg state
 	return nil
 }
 
+// deletePullSecret takes a registry's pull secret out of a cluster's namespace,
+// for a registry whose login was removed: a secret left behind would keep
+// pulling with the old login.
+func (s *Server) deletePullSecret(ctx context.Context, c state.Cluster, reg state.Registry) error {
+	cluster, err := s.clusterClient(c)
+	if err != nil {
+		return err
+	}
+	if err := cluster.DeletePullSecret(ctx, k8s.PullSecretName(reg.Name)); err != nil {
+		return fmt.Errorf("cluster %s: %w", c.Name, err)
+	}
+	return nil
+}
+
 // imageRef is the reference a pod pulls: the registry's prefix and the image's
 // name under it, or the image alone when it was imported into the cluster.
 func imageRef(c state.Cluster, reg *state.Registry) string {
@@ -572,7 +586,7 @@ func (s *Server) addRegistry(w http.ResponseWriter, r *http.Request) error {
 // write one.
 func (s *Server) registryFrom(name, url, username, token string, public bool, ca string, insecure bool) (state.Registry, error) {
 	if token == "" && username != "" {
-		return state.Registry{}, errors.New("a registry login needs a token: pipe one in with --token-file, or leave the username out for a registry that needs no login")
+		return state.Registry{}, errors.New("a registry login needs a token: pipe one in with --token-stdin, or leave the username out for a registry that needs no login")
 	}
 	sealedUsername, err := s.sealValue(username)
 	if err != nil {
@@ -663,8 +677,11 @@ func (s *Server) rotateRegistry(w http.ResponseWriter, r *http.Request) error {
 	}
 	if !req.KeepLogin {
 		username, token := req.Username, req.Token
-		if token == "" && username != "" {
-			return errors.New("a registry login needs a token: pipe one in with --token-stdin, or leave the username out for a registry that needs no login")
+		switch {
+		case req.NoLogin && (username != "" || token != ""):
+			return errors.New("--no-login removes the registry's login, so it takes no username or token")
+		case !req.NoLogin && token == "":
+			return fmt.Errorf("rotating %s's login needs the new token: pipe one in with --token-stdin or type it when asked, or pass --no-login to remove the login and every cluster's pull secret for it", reg.Name)
 		}
 		sealedUsername, err := s.sealValue(username)
 		if err != nil {
@@ -685,12 +702,19 @@ func (s *Server) rotateRegistry(w http.ResponseWriter, r *http.Request) error {
 	}
 	var failed []string
 	for _, cluster := range clusters {
-		if err := s.writePullSecret(ctx, cluster, reg); err != nil {
+		write := s.writePullSecret
+		if req.NoLogin {
+			write = s.deletePullSecret
+		}
+		if err := write(ctx, cluster, reg); err != nil {
 			failed = append(failed, cluster.Name+": "+err.Error())
 		}
 	}
 	if len(failed) > 0 {
-		return fmt.Errorf("the registry's login is updated, but the pull secret couldn't be written for %s", strings.Join(failed, "; "))
+		if req.NoLogin {
+			return fmt.Errorf("the registry's login is removed, but the pull secret couldn't be deleted for %s", strings.Join(failed, "; "))
+		}
+		return fmt.Errorf("the registry's login is rotated, but the pull secret couldn't be written for %s", strings.Join(failed, "; "))
 	}
 	return writeJSON(w, http.StatusOK, registryInfo(reg))
 }

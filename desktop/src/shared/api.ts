@@ -3942,6 +3942,7 @@ export interface RotateRegistryRequest {
   username?: string;
   token?: string;
   keepLogin?: boolean;
+  noLogin?: boolean;
   url?: string;
   ca?: string;
   insecure?: boolean;

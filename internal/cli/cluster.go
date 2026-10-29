@@ -856,7 +856,10 @@ image build spends minutes finding out.`,
 }
 
 func newRegistryRotateCmd(a *app) *cobra.Command {
-	var flags registryFlags
+	var (
+		flags   registryFlags
+		noLogin bool
+	)
 	cmd := &cobra.Command{
 		Use:   "rotate NAME",
 		Short: "Replace a registry's login or settings, and every pull secret that uses it",
@@ -866,18 +869,20 @@ without adding the registry again.
 
 --url, --ca, --insecure and --public change where the registry is and how it is
 reached; only the ones you pass move. When you pass any of them and neither
---username nor --token-stdin, the stored login is kept. Passing neither login
-flag nor a setting replaces the login with none, as for a registry that needs no
-login. --ca "" takes the registry's CA away. The token is read from stdin or
-asked for, never an argument.
+--username nor --token-stdin, the stored login is kept. --ca "" takes the
+registry's CA away. Otherwise the new token is asked for without echoing it, or
+read from stdin with --token-stdin; an empty one is refused, since a registry
+that needs no login is said so with --no-login, which removes the login and
+deletes every cluster's pull secret for the registry.
 
   agentbox registry rotate forgejo --url hub.example.com/other
   agentbox registry rotate forgejo --ca ./new-ca.pem
-  op read op://work/registry/token | agentbox registry rotate forgejo --username you --token-stdin`,
+  op read op://work/registry/token | agentbox registry rotate forgejo --username you --token-stdin
+  agentbox registry rotate forgejo --no-login`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
-			req, err := flags.rotateRequest(cmd, name)
+			req, err := flags.rotateRequest(cmd, name, noLogin)
 			if err != nil {
 				return err
 			}
@@ -888,9 +893,12 @@ asked for, never an argument.
 			if _, err := c.RotateRegistry(cmd.Context(), name, req); err != nil {
 				return err
 			}
-			if req.KeepLogin {
+			switch {
+			case req.NoLogin:
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Removed the login for %s, and the pull secret of every cluster that pulls from it.\n", name)
+			case req.KeepLogin:
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Updated %s, and every cluster that pulls from it.\n", name)
-			} else {
+			default:
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Rotated the login for %s, and every cluster that pulls from it.\n", name)
 			}
 			return nil
@@ -902,12 +910,13 @@ asked for, never an argument.
 	cmd.Flags().StringVar(&flags.caPath, "ca", "", "the registry's PEM certificate file; an empty value removes it")
 	cmd.Flags().BoolVar(&flags.insecure, "insecure", false, "accept http or a certificate no CA can verify (--insecure=false turns it off)")
 	flags.addPublic(cmd)
+	cmd.Flags().BoolVar(&noLogin, "no-login", false, "remove the login, for a registry that needs none, and delete the clusters' pull secrets")
 	return cmd
 }
 
-// rotateRequest is what rotate sends: the login the flags name, and only the
-// settings that were passed.
-func (f *registryFlags) rotateRequest(cmd *cobra.Command, name string) (api.RotateRegistryRequest, error) {
+// rotateRequest is what rotate sends: the login the flags name, only the
+// settings that were passed, and --no-login when the registry is to have none.
+func (f *registryFlags) rotateRequest(cmd *cobra.Command, name string, noLogin bool) (api.RotateRegistryRequest, error) {
 	changed := cmd.Flags().Changed
 	var req api.RotateRegistryRequest
 	settings := false
@@ -926,6 +935,13 @@ func (f *registryFlags) rotateRequest(cmd *cobra.Command, name string) (api.Rota
 	}
 	if changed("public") {
 		req.Public, settings = &f.public, true
+	}
+	if noLogin {
+		if f.username != "" || f.tokenStdin {
+			return api.RotateRegistryRequest{}, errors.New("--no-login removes the login: leave out --username and --token-stdin")
+		}
+		req.NoLogin = true
+		return req, nil
 	}
 	if settings && f.username == "" && !f.tokenStdin {
 		req.KeepLogin = true

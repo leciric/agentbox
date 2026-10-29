@@ -56,6 +56,16 @@ func pullKey(url string) (string, error) {
 	return host, nil
 }
 
+// DeletePullSecret removes the pull secret called name from the cluster's
+// namespace. One that is already gone is not an error.
+func (c *Cluster) DeletePullSecret(ctx context.Context, name string) error {
+	err := c.client.CoreV1().Secrets(c.namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	if err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("deleting the pull secret %s: %w", name, err)
+	}
+	return nil
+}
+
 // ApplyPullSecret creates or replaces the pull secret in the cluster's namespace.
 func (c *Cluster) ApplyPullSecret(ctx context.Context, secret *corev1.Secret) error {
 	secret.Namespace = c.namespace

@@ -145,7 +145,7 @@ func (s *Store) SetRegistryHealth(ctx context.Context, name string, at time.Time
 // `agentbox registry rotate` does. Both empty makes it one that needs no login.
 func (s *Store) SetRegistryCredential(ctx context.Context, name string, sealedUsername, sealedSecret []byte) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE registries SET sealed_username = ?, sealed_secret = ? WHERE name = ?`,
-		sealedUsername, sealedSecret, name)
+		emptyBlob(sealedUsername), emptyBlob(sealedSecret), name)
 	if err != nil {
 		return err
 	}
