@@ -5,6 +5,7 @@
 // features/home/HomeScreen.tsx, a list of threads under a header.
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
+import { ChevronRight, CircleCheck, MessageCircleQuestion, Smartphone } from 'lucide-react-native';
 import { useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,9 +15,10 @@ import { useSession } from '../../connection/session.ts';
 import { useT } from '../../lib/i18n.tsx';
 import { bootState } from '../../connection/boot.ts';
 import { ErrorBoundary } from '../../ui/ErrorBoundary.tsx';
+import { AgentAvatar, LeadAvatar, PrChip, ProjectIcon } from '../../ui/icons.tsx';
 import { Note, StatusLine, useTopInset } from '../../ui/parts.tsx';
 import { colors } from '../../ui/theme.ts';
-import { agentStatus, isWaiting, leadStatus, rank, type ChatStatus } from '../threads/activity.ts';
+import { agentStatus, avatarMood, isWaiting, leadMood, leadStatus, rank, type ChatStatus } from '../threads/activity.ts';
 import { chatKey } from '../threads/thread.ts';
 import { peekThread } from '../threads/useThread.ts';
 
@@ -40,6 +42,8 @@ export function HomeScreen() {
   const leads = useQueries({ queries: list.map((p) => ({ queryKey: ['projectChat', p.name], queryFn: () => api.projectChat(p.name) })) });
   const questions = useQueries({ queries: list.map((p) => ({ queryKey: ['questions', p.name], queryFn: () => api.questions(p.name) })) });
   const reviews = useQueries({ queries: list.map((p) => ({ queryKey: ['review', p.name], queryFn: () => api.readyToReview(p.name) })) });
+  // For the agents' pull request chips, as the desktop's rows have.
+  const pulls = useQueries({ queries: list.map((p) => ({ queryKey: ['pulls', p.name], queryFn: () => api.pulls(p.name) })) });
   const refs = [...leads.flatMap((c) => (c.data?.started ? [c.data.ref] : [])), ...(agents.data ?? []).filter(readable).map((a) => a.ref)];
   const threads = useQueries({ queries: refs.map((ref) => ({ queryKey: chatKey(ref), queryFn: () => peekThread(queryClient, ref), staleTime: Infinity })) });
   const threadOf = (ref: string | undefined) => (ref ? threads[refs.indexOf(ref)]?.data : undefined);
@@ -57,6 +61,7 @@ export function HomeScreen() {
       <View style={[styles.top, { paddingTop: top + 10 }]}>
         <Text style={styles.heading}>{t('mobile.home.title')}</Text>
         <Pressable onPress={() => router.push('/settings')} hitSlop={8} accessibilityRole="button" accessibilityLabel={t('mobile.settings.title')} style={styles.phoneChip}>
+          <Smartphone size={13} color={colors.muted} />
           <Text numberOfLines={1} style={styles.phoneChipText}>
             {session?.phone.name}
           </Text>
@@ -73,7 +78,7 @@ export function HomeScreen() {
         {list.map((p, i) => (
           // A project that can't be shown is a line saying so; the rest show.
           <ErrorBoundary key={p.name} label={`${t('mobile.error.row')} (${projectLabel(p)})`} resetKey={updatedAt}>
-            <ProjectSection project={p} lead={leads[i]?.data} agents={agents.data ?? []} questions={questions[i]?.data ?? []} toReview={reviews[i]?.data?.total ?? 0} threadOf={threadOf} />
+            <ProjectSection project={p} lead={leads[i]?.data} agents={agents.data ?? []} questions={questions[i]?.data ?? []} toReview={reviews[i]?.data?.total ?? 0} pulls={pulls[i]?.data?.pullRequests ?? []} threadOf={threadOf} />
           </ErrorBoundary>
         ))}
       </ScrollView>
@@ -87,6 +92,7 @@ function ProjectSection({
   agents,
   questions,
   toReview,
+  pulls,
   threadOf,
 }: {
   project: T.Project;
@@ -94,6 +100,7 @@ function ProjectSection({
   agents: T.Agent[];
   questions: T.Question[];
   toReview: number;
+  pulls: T.PullRequest[];
   threadOf: (ref: string | undefined) => T.ChatThread | undefined;
 }) {
   const t = useT();
@@ -109,6 +116,7 @@ function ProjectSection({
   return (
     <View style={styles.section}>
       <View style={styles.sectionHead}>
+        <ProjectIcon project={p} size={20} />
         <Text style={styles.sectionTitle} numberOfLines={1}>
           {projectLabel(p)}
         </Text>
@@ -119,7 +127,7 @@ function ProjectSection({
         </Text>
       </View>
       <Row
-        icon={<Avatar letter="L" lead />}
+        icon={<LeadAvatar mood={leadMood(lead?.chat, waiting > 0)} />}
         title={t('web.phone.projectChat')}
         status={leadStatus(lead?.chat, threadOf(leadRef))}
         badge={waiting > 0 ? t('mobile.home.questions', { count: waiting }) : undefined}
@@ -128,16 +136,21 @@ function ProjectSection({
       {own.map(({ a, status }) => (
         <ErrorBoundary key={a.ref} label={`${t('mobile.error.row')} (${a.name})`} resetKey={status}>
           <Row
-            icon={<Avatar letter={(a.title || a.name).slice(0, 1).toUpperCase()} />}
+            icon={<AgentAvatar ai={a.ai} mood={avatarMood(a, questions.some((q) => q.ref === a.ref && isWaiting(q)))} />}
             title={a.title || a.name}
             subtitle={a.title ? a.name : undefined}
             status={status ?? { text: t('mobile.error.row'), tone: 'error', live: false }}
+            extra={prOf(pulls, a.name) && <PrChip pr={prOf(pulls, a.name)!} />}
             onPress={() => router.push(chatPath(a.ref))}
           />
         </ErrorBoundary>
       ))}
       <Row
-        icon={<Avatar letter="✓" />}
+        icon={
+          <View style={[styles.reviewTile, toReview > 0 && { backgroundColor: colors.amberSoft }]}>
+            <CircleCheck size={20} color={toReview > 0 ? colors.amber : colors.subtle} />
+          </View>
+        }
         title={t('mobile.review.title')}
         status={{ text: toReview > 0 ? t('mobile.home.toReview', { count: toReview }) : t('mobile.review.nothing'), tone: toReview > 0 ? 'urgent' : 'muted', live: false }}
         plain
@@ -166,12 +179,10 @@ function safeRank(a: T.Agent): number {
   }
 }
 
-function Avatar({ letter, lead }: { letter: string; lead?: boolean }) {
-  return (
-    <View style={[styles.avatar, lead && { backgroundColor: colors.brandSoft }]}>
-      <Text style={[styles.avatarText, lead && { color: colors.brand300 }]}>{letter}</Text>
-    </View>
-  );
+// prOf is an agent's pull request, its open one before any it closed.
+function prOf(pulls: T.PullRequest[], agent: string): T.PullRequest | undefined {
+  const own = pulls.filter((pr) => pr.agent === agent);
+  return own.find((pr) => pr.state === 'open') ?? own[0];
 }
 
 function Row({
@@ -180,6 +191,7 @@ function Row({
   subtitle,
   status,
   badge,
+  extra,
   plain,
   onPress,
 }: {
@@ -188,6 +200,7 @@ function Row({
   subtitle?: string;
   status: ChatStatus;
   badge?: string;
+  extra?: ReactNode;
   plain?: boolean;
   onPress: () => void;
 }) {
@@ -210,12 +223,14 @@ function Row({
           <StatusLine status={status} after={subtitle} />
         )}
       </View>
+      {extra}
       {badge && (
         <View style={styles.badge}>
+          <MessageCircleQuestion size={12} color={colors.amber} strokeWidth={2.2} />
           <Text style={styles.badgeText}>{badge}</Text>
         </View>
       )}
-      <Text style={styles.chevron}>›</Text>
+      <ChevronRight size={18} color={colors.faint} />
     </Pressable>
   );
 }
@@ -224,22 +239,20 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   top: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 18, paddingBottom: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   heading: { flex: 1, color: colors.title, fontSize: 24, fontWeight: '700', letterSpacing: -0.3 },
-  phoneChip: { maxWidth: 160, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5, backgroundColor: colors.raised },
-  phoneChipText: { color: colors.muted, fontSize: 12 },
+  phoneChip: { flexDirection: 'row', alignItems: 'center', gap: 5, maxWidth: 170, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5, backgroundColor: colors.raised },
+  phoneChipText: { flexShrink: 1, color: colors.muted, fontSize: 12 },
   content: { paddingHorizontal: 10, paddingTop: 14, gap: 22 },
   section: { gap: 2 },
-  sectionHead: { flexDirection: 'row', alignItems: 'baseline', gap: 8, paddingHorizontal: 8, paddingBottom: 6 },
+  sectionHead: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 8, paddingBottom: 6 },
   sectionTitle: { color: colors.faint, fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1.3, flexShrink: 1 },
   counts: { color: colors.subtle, fontSize: 11, flexShrink: 1 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 58, borderRadius: 16, paddingHorizontal: 10, paddingVertical: 8 },
   rowText: { flex: 1, minWidth: 0, gap: 3 },
   rowTitle: { color: colors.primary, fontSize: 15, fontWeight: '500' },
   rowPlain: { color: colors.subtle, fontSize: 12 },
-  avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.raised, alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: colors.secondary, fontSize: 14, fontWeight: '600' },
-  badge: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2, backgroundColor: colors.amberSoft },
+  reviewTile: { width: 40, height: 40, borderRadius: 12, backgroundColor: colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.lineStrong, alignItems: 'center', justifyContent: 'center' },
+  badge: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2, backgroundColor: colors.amberSoft },
   badgeText: { color: colors.amber, fontSize: 11, fontWeight: '600' },
-  chevron: { color: colors.faint, fontSize: 22 },
   error: { color: colors.rose, paddingHorizontal: 8 },
   empty: { color: colors.subtle, paddingHorizontal: 8, fontSize: 14 },
 });

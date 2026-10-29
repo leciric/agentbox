@@ -3350,6 +3350,7 @@ export const enUS = {
   'web.phone.unpair': 'Unpair this phone',
   'web.phone.back': 'Back to the chats',
   'web.phone.unreachable': 'AgentBox on your computer isn\'t reachable',
+  'mobile.unreachable': 'Can\'t reach AgentBox at {host}: check that the computer is awake with AgentBox running, and that this phone is online.',
   'mobile.notOnTailnet': '{host} is only in a Tailscale network (a tailnet), and this phone can\'t reach it: turn Tailscale on here, signed in to that tailnet, and try again.',
   'web.phone.couldntStart': 'Couldn\'t start {agent}',
   'web.phone.missingProject': 'There is no project {name} any more.',

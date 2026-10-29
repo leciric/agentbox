@@ -28,8 +28,8 @@ async function call<R>(method: string, path: string, body?: unknown): Promise<R>
       headers: { Authorization: `Bearer ${s.token}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-  } catch (err) {
-    throw new ApiError(unreachable(s.origin, err).message, 0);
+  } catch {
+    throw new ApiError(unreachable(s.origin).message, 0);
   }
   const text = await res.text();
   if (res.status === 401) void forget();
@@ -91,6 +91,7 @@ export const api = {
   markReviewed: (ref: string, fingerprint: string) => call<void>('POST', `${agent(ref)}/review`, { verdict: 'reviewed', fingerprint } satisfies T.ReviewRequest),
   requestChanges: (ref: string, text: string, fingerprint: string) => call<unknown>('POST', `${agent(ref)}/request-changes`, { text, fingerprint } satisfies T.RequestChangesRequest),
   agentMedia: (ref: string) => call<unknown>('GET', `${agent(ref)}/media`).then(P.media),
+  projectIcon: (name: string) => call<T.ProjectIcon>('GET', `${project(name)}/icon`),
   pulls: (name: string, refresh = false) => call<unknown>('GET', `${project(name)}/pulls${refresh ? '?refresh=1' : ''}`).then(P.pulls),
   // confirmed says the user confirmed the merge on the phone, which the
   // daemon asks of a phone's merge (lanAPI in internal/daemon/lan.go).
