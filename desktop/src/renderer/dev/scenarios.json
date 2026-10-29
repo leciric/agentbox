@@ -2667,14 +2667,14 @@
   },
   {
     "id": "pulls-v2-800-dark",
-    "description": "UI v2 at 800×900, the Pull requests tab: long titles beside a long login and a row of state pills, and a Merge that can't — dark",
+    "description": "UI v2 at 800×1200, the Pull requests tab: long titles beside a long login and a row of state pills, and a Merge that can't — dark",
     "query": "app=pulls&v2=1&theme=dark",
     "width": 800,
     "height": 1200
   },
   {
     "id": "pulls-v2-800-light",
-    "description": "UI v2 at 800×900, the Pull requests tab: long titles beside a long login and a row of state pills, and a Merge that can't — light",
+    "description": "UI v2 at 800×1200, the Pull requests tab: long titles beside a long login and a row of state pills, and a Merge that can't — light",
     "query": "app=pulls&v2=1&theme=light",
     "width": 800,
     "height": 1200
