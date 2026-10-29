@@ -642,13 +642,15 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 	// machine is copied from, whether that image has the tool it runs, and the
 	// project's saved base. A cluster agent's machine is a pod made from the
 	// cluster's image, so none of it applies, and a host that has never built
-	// an image can still make one.
+	// an image can still make one. The cluster is already the one the job
+	// placed the agent in, so a cluster chosen inside the job is skipped here
+	// too.
+	if err := m.checkImageTool(ctx, opts.AI, opts.Cluster != ""); err != nil {
+		return state.Agent{}, err
+	}
 	source := ""
 	var awaitImage func(context.Context, state.Agent) error
 	if opts.Cluster == "" {
-		if err := m.checkImageTool(ctx, opts.AI); err != nil {
-			return state.Agent{}, err
-		}
 		if err := m.checkNesting(ctx, p); err != nil {
 			return state.Agent{}, err
 		}
@@ -1246,9 +1248,11 @@ func (e *CreateError) Unwrap() error { return e.Err }
 // into it. Codex and OpenCode are optional in the image (image.Options), so an
 // agent asking for one on an image built without it is refused here, rather
 // than starting and failing to find the command. An image that can't be read at all is left
-// to the checks that follow, which say that it isn't built.
-func (m *Manager) checkImageTool(ctx context.Context, ai string) error {
-	if ai != "codex" && ai != "opencode" {
+// to the checks that follow, which say that it isn't built. A cluster agent
+// (onCluster) runs the cluster's image in a pod, not this base image, so there
+// is nothing here to check.
+func (m *Manager) checkImageTool(ctx context.Context, ai string, onCluster bool) error {
+	if onCluster || (ai != "codex" && ai != "opencode") {
 		return nil
 	}
 	installed, err := image.InstalledBuild(ctx, m.Incus)

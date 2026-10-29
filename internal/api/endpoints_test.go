@@ -321,6 +321,17 @@ func TestClientMethodsEncodeRequestsAndDecodeResponses(t *testing.T) {
 			},
 		},
 		{
+			name: "SetAgentTool", method: http.MethodPatch, path: "/v1/projects/pawly",
+			body: `{"agentTool":"opencode"}`,
+			resp: `{"name":"pawly","agentTool":"opencode"}`,
+			run: func(t *testing.T, c *Client) {
+				p, err := c.SetAgentTool(context.Background(), "pawly", "opencode")
+				if err != nil || p.AgentTool != "opencode" {
+					t.Errorf("SetAgentTool() = %+v, %v; want opencode, nil", p, err)
+				}
+			},
+		},
+		{
 			name: "SetBranchPrefix", method: http.MethodPatch, path: "/v1/projects/pawly",
 			body: `{"branchPrefix":"thiago/"}`,
 			resp: `{"name":"pawly","branchPrefix":"thiago/"}`,

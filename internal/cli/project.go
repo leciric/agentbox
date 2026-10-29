@@ -152,7 +152,7 @@ func newProjectCmd(a *app) *cobra.Command {
 		Short: "Settings of one project",
 		Long:  `Settings that belong to one project, rather than to this installation.`,
 	}
-	cmd.AddCommand(newAddCmd(a), newProjectModelCmd(a), newProjectBranchPrefixCmd(a), newProjectRenameCmd(a), newProjectGitCmd(a), newProjectClusterCmd(a))
+	cmd.AddCommand(newAddCmd(a), newProjectModelCmd(a), newProjectToolCmd(a), newProjectBranchPrefixCmd(a), newProjectRenameCmd(a), newProjectGitCmd(a), newProjectClusterCmd(a))
 	return cmd
 }
 
@@ -299,6 +299,74 @@ for the next one.`,
 			return nil
 		},
 	}
+}
+
+// newProjectToolCmd shows or sets the AI tool this project's agents run,
+// in newProjectModelCmd's show-or-set shape.
+func newProjectToolCmd(a *app) *cobra.Command {
+	return &cobra.Command{
+		Use:   "tool <project> [inherit|claude|codex|opencode|cursor]",
+		Short: "The AI tool this project's agents run",
+		Long: `Shows or sets the AI tool this project's new agents run when the agent doesn't
+name one, or names no account of its own.
+
+  inherit   follow the tool this project's chat runs (this is how a
+            project starts)
+  claude    Claude Code, on the project's Claude Code account
+  codex     Codex, on the project's Codex account
+  opencode  OpenCode, on the project's OpenCode accounts
+  cursor    Cursor, on the project's Cursor account
+
+An account or a tool named for one agent still wins over this. Agents that
+already exist keep the tool they have: this is the starting point for the next
+one.`,
+		Args: cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			if len(args) == 1 {
+				projects, err := c.Projects(cmd.Context())
+				if err != nil {
+					return err
+				}
+				for _, p := range projects {
+					if p.Is(args[0]) {
+						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), agentToolWords(p.AgentTool))
+						return nil
+					}
+				}
+				return fmt.Errorf("no project named %q", args[0])
+			}
+			tool := strings.TrimSpace(args[1])
+			if tool == "inherit" {
+				tool = ""
+			}
+			p, err := c.SetAgentTool(cmd.Context(), args[0], tool)
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), agentToolWords(p.AgentTool))
+			return nil
+		},
+	}
+}
+
+func agentToolWords(tool string) string {
+	switch tool {
+	case "":
+		return "inherit — the tool this project's chat runs"
+	case "claude":
+		return "Claude Code, on this project's account"
+	case "codex":
+		return "Codex, on this project's account"
+	case "opencode":
+		return "OpenCode, on this project's accounts"
+	case "cursor":
+		return "Cursor, on this project's account"
+	}
+	return tool
 }
 
 func agentModelWords(model string) string {

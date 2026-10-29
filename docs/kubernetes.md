@@ -201,7 +201,9 @@ ffmpeg and the fonts `browser.sh` expects) and the `agentbox` binary. It runs as
 1000, with `/workspace` and `/home/agent` on the claim, and its entrypoint is `agentbox agentd`;
 there is no systemd. The desktop package list is the one `internal/image/system.sh` installs on an
 Incus base image, because `browser.sh` is the same script in both runtimes; the two lists move
-together.
+together. The pod image carries Codex and OpenCode itself, so a cluster agent isn't gated on the
+Incus base image's optional components: it runs whichever tool its project or request names, and
+the session says if the image can't.
 
 Every tool is at the version `internal/image/tools.txt` pins, and the Dockerfile reads that file
 during the build: moving one on is its line there and nothing else. The tools go outside

@@ -711,3 +711,25 @@ func (m *podMachineStub) ExecInput(_ context.Context, _ io.Reader, command ...st
 func (m *podMachineStub) Dial(context.Context, string, string) (net.Conn, error) {
 	return nil, errors.New("a fake pod has no network")
 }
+
+// TestCreateMakesAnOpenCodePodWithoutTheBaseImage: a cluster agent running
+// OpenCode isn't refused by this host's Incus base image, which isn't what a
+// pod runs: the cluster's image carries the tool. Create skips the image
+// check for it the same way it skips every Incus step.
+func TestCreateMakesAnOpenCodePodWithoutTheBaseImage(t *testing.T) {
+	f := newClusterFixture(t, nil)
+	ctx := context.Background()
+	if err := f.st.AddCluster(ctx, state.Cluster{Name: "k3d", Namespace: "agentbox", Kubeconfig: []byte("sealed"), CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.m.Creds.SaveToolAccount("opencode", "anthropic", "", []byte(`{"type": "api", "key": "sk-test"}`)); err != nil {
+		t.Fatal(err)
+	}
+	a, err := f.m.Create(ctx, "hello-stack", CreateOptions{AI: "opencode", Name: "agent-01", Cluster: "k3d"})
+	if err != nil {
+		t.Fatalf("Create() = %v, want an OpenCode pod without this host's base image", err)
+	}
+	if a.AI != "opencode" || a.Cluster != "k3d" {
+		t.Errorf("Create() = tool %q in cluster %q, want opencode in k3d", a.AI, a.Cluster)
+	}
+}

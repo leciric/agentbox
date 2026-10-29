@@ -34,7 +34,7 @@ type ToolDefault struct {
 // LeadToolDefault is the tool and accounts a new agent of p gets when it
 // names none: its lead's. A project whose chat never chose a tool, or has no
 // chat, gets Claude Code, as it always has.
-func (m *Manager) LeadToolDefault(ctx context.Context, p state.Project) ToolDefault {
+func (m *Manager) LeadToolDefault(ctx context.Context, p state.Project, onCluster bool) ToolDefault {
 	choice, err := m.LeadChoice(ctx, p.Name)
 	if err != nil {
 		if !errors.Is(err, state.ErrNotFound) {
@@ -44,12 +44,12 @@ func (m *Manager) LeadToolDefault(ctx context.Context, p state.Project) ToolDefa
 	}
 	tool := cmp.Or(choice.NextTool, choice.Tool)
 	want := leadAgentLogins(tool, choice)
-	err = m.agentsCanRun(ctx, p, tool, want)
+	err = m.agentsCanRun(ctx, p, tool, want, onCluster)
 	if err != nil && want.Claude+want.Codex+want.Cursor != "" {
 		// The lead's own account for it is gone, or no longer allowed: the
 		// project's, as for the lead itself (leadLogins).
 		want = Logins{}
-		err = m.agentsCanRun(ctx, p, tool, want)
+		err = m.agentsCanRun(ctx, p, tool, want, onCluster)
 	}
 	if err != nil {
 		return ToolDefault{AI: "claude", Fallback: fmt.Sprintf("This agent runs Claude Code, not %s like you: %v.", ChatAdapters[tool].Tool, err)}
@@ -73,19 +73,22 @@ func leadAgentLogins(tool string, choice LeadChoice) Logins {
 }
 
 // agentsCanRun says why an agent of p can't run tool on want's accounts: nil
-// when it can. Codex and OpenCode must be in the base image too; Cursor's SDK
-// is in every one (CursorReady).
-func (m *Manager) agentsCanRun(ctx context.Context, p state.Project, tool string, want Logins) error {
+// when it can. On this host Codex and OpenCode must be in the base image too;
+// a cluster agent's pod carries its own image, so the runtime check there is
+// Create's, not the base image's. Cursor's SDK is in every image (CursorReady).
+func (m *Manager) agentsCanRun(ctx context.Context, p state.Project, tool string, want Logins, onCluster bool) error {
 	if tool == "claude" && want.Claude == "" {
 		// Claude Code is every agent's tool: a missing login is the same
 		// failure it has always been, reported by Create as before.
 		return nil
 	}
-	if tool == "codex" || tool == "opencode" {
+	if (tool == "codex" || tool == "opencode") && !onCluster {
 		// The component chosen for the base image, not the image itself: a
 		// rebuild is already asked for when a component is turned on, and
 		// Create's own check is what refuses an agent whose machine lacks the
-		// tool (checkImageTool).
+		// tool (checkImageTool). A cluster agent's machine is a pod from the
+		// cluster's image, which already carries the tool or refuses it when
+		// the session starts.
 		flag := map[string]string{"codex": state.SettingImageCodex, "opencode": state.SettingImageOpenCode}[tool]
 		skip := false
 		if tool == "opencode" {

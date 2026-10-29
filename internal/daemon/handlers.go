@@ -1388,7 +1388,7 @@ func (s *Server) defaultTool(ctx context.Context, p state.Project, req api.Creat
 		// every agent of the project, the chat's tool only for the chat.
 		req.AI = p.AgentTool
 	default:
-		d := s.manager(nil).LeadToolDefault(ctx, p)
+		d := s.manager(nil).LeadToolDefault(ctx, p, s.agentOnCluster(ctx, p, req.Cluster))
 		req.AI, req.ToolNotice = d.AI, d.Fallback
 		req.ClaudeAccount, req.CodexAccount, req.CursorAccount = d.Logins.Claude, d.Logins.Codex, d.Logins.Cursor
 		if d.Fallback != "" {
@@ -1396,6 +1396,31 @@ func (s *Server) defaultTool(ctx context.Context, p state.Project, req api.Creat
 		}
 	}
 	return req
+}
+
+// agentOnCluster reports whether a create that named requested will make a
+// pod rather than an Incus instance, following the project when it names
+// nothing. "auto" counts as a cluster here: on a host install placement may
+// still choose this machine, and Create's own base-image check refuses a tool
+// it lacks then, while a control plane has nowhere else to put it.
+func (s *Server) agentOnCluster(ctx context.Context, p state.Project, requested string) bool {
+	switch strings.TrimSpace(requested) {
+	case state.ClusterLocal:
+		return false
+	case "":
+		// Follow the project's own choice below.
+	default:
+		return true
+	}
+	switch p.Cluster {
+	case state.ClusterLocal:
+		return false
+	case "":
+		only, err := s.runsOnlyInClusters(ctx)
+		return err == nil && only
+	default:
+		return true
+	}
 }
 
 // createJob is the job that makes an agent from req: a new one, or, when

@@ -773,6 +773,29 @@ func TestProjectSettingsShowAndValidate(t *testing.T) {
 		t.Error("project model of an unknown project succeeded")
 	}
 
+	// The tool its agents run: the chat's until it says otherwise.
+	out, err = run(t, "", "project", "tool", "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "inherit — the tool this project's chat runs")
+	out, err = run(t, "", "project", "tool", "hello-stack", "opencode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "OpenCode, on this project's accounts")
+	out, err = run(t, "", "project", "tool", "hello-stack", "inherit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "inherit — the tool this project's chat runs")
+	if _, err := run(t, "", "project", "tool", "hello-stack", "gemini"); err == nil || !strings.Contains(err.Error(), "unknown agent tool") {
+		t.Errorf("project tool with an unknown tool: got %v", err)
+	}
+	if _, err := run(t, "", "project", "tool", "no-such-project"); err == nil {
+		t.Error("project tool of an unknown project succeeded")
+	}
+
 	// Where its agents run: this machine until it says otherwise, and a
 	// cluster that isn't there is refused with how to see the ones there are.
 	out, err = run(t, "", "project", "cluster", "hello-stack")
