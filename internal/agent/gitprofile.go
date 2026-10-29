@@ -34,6 +34,9 @@ const (
 // gitConfigSection is the pod-only part of ~/.gitconfig: the login that answers
 // for the profile's host, either a credential helper or an ssh command.
 type gitConfigSection struct {
+	// Scheme is the URL's scheme the credential answers for, https for a
+	// token profile.
+	Scheme string
 	// Host is the host the credential answers for, as git matches it:
 	// hub.example.com, or host:8443 when the URL names a port.
 	Host string
@@ -51,8 +54,9 @@ type gitProfile struct {
 	// URL is the profile's remote after gitcred.Resolve, with the ssh form
 	// turned into https for a token login (see httpsURL).
 	URL string
-	// Host is the host the login answers for.
-	Host string
+	// Scheme and Host are the scheme and host the login answers for.
+	Scheme string
+	Host   string
 	// Token is the login for a token and a GitHub-account profile.
 	Token string
 	// Key is the private key for an ssh-key profile.
@@ -230,6 +234,17 @@ func gitHost(raw string) string {
 	return host
 }
 
+// gitScheme is the scheme of a git URL, ssh for git's shorthand.
+func gitScheme(raw string) string {
+	if strings.Contains(raw, "://") {
+		if u, err := neturl.Parse(raw); err == nil {
+			return strings.ToLower(u.Scheme)
+		}
+		return ""
+	}
+	return "ssh"
+}
+
 // resolveGitProfile is the profile a project's agents use, with its URL
 // resolved and its login read: everything a pod needs, and nothing a pod may
 // see of anyone else's.
@@ -250,7 +265,7 @@ func (m *Manager) resolveGitProfile(ctx context.Context, p state.Project) (*gitP
 	if host == "" {
 		return nil, fmt.Errorf("project %q's %s git profile: %s names no host to sign in to", p.Name, r.Profile, resolved)
 	}
-	profile := &gitProfile{GitRemote: r, URL: resolved, Host: host}
+	profile := &gitProfile{GitRemote: r, URL: resolved, Scheme: gitScheme(resolved), Host: host}
 	switch r.Auth {
 	case state.GitAuthToken, state.GitAuthSSHKey:
 		// An empty name is a profile that was never given a login: the create
@@ -342,11 +357,11 @@ func (m *Manager) deliverGitProfile(ctx context.Context, a state.Agent, p *gitPr
 		return &gitConfigSection{SSHCommand: gitcred.SSHCommand(podGitKey)}, nil
 	}
 	helper := "!sh " + podGitCredential
-	content := gitcred.CredentialHelper(p.Host, podGitTokenUser, p.Token)
+	content := gitcred.CredentialHelper(p.Scheme, p.Host, podGitTokenUser, p.Token)
 	if err := m.machine(a).WriteFile(ctx, podGitCredential, []byte(content), user.UID, user.GID, 0o600); err != nil {
 		return nil, podGitError(p, fmt.Errorf("%s's pod: writing the credential of its %s git profile: %w", a.Ref(), p.Profile, err))
 	}
-	return &gitConfigSection{Host: p.Host, Helper: helper}, nil
+	return &gitConfigSection{Scheme: p.Scheme, Host: p.Host, Helper: helper}, nil
 }
 
 // preparePodGit is ensurePodGit and the first start's clone: a pod whose volume
@@ -393,7 +408,9 @@ func (m *Manager) clonePodGitSteps(ctx context.Context, a state.Agent, p *gitPro
 	case section.SSHCommand != "":
 		config = []string{"-c", shellQuote("core.sshCommand=" + section.SSHCommand)}
 	case section.Helper != "":
-		config = []string{"-c", "credential.helper=" + shellQuote(section.Helper)}
+		// Scoped to the profile's scheme and host, after every other helper
+		// is reset: a redirect to another host gets no token.
+		config = []string{"-c", "credential.helper=", "-c", shellQuote(gitcred.HelperKey(section.Scheme, section.Host) + "=" + section.Helper)}
 	}
 	clone := "cd " + shellQuote(dir) + " && GIT_TERMINAL_PROMPT=0 git " + strings.Join(config, " ") + " clone --quiet -- " + shellQuote(p.URL) + " ."
 	if err := m.runPodGit(ctx, a, user, clone); err != nil {

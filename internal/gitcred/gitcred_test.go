@@ -245,7 +245,7 @@ func TestCredentialHelper(t *testing.T) {
 	)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "git-credential")
-	script := gitcred.CredentialHelper(host, user, token)
+	script := gitcred.CredentialHelper("https", host, user, token)
 	if err := os.WriteFile(path, []byte(script), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -260,28 +260,42 @@ func TestCredentialHelper(t *testing.T) {
 		}
 	}
 
-	// git runs the file through sh, by name: sh <path> get.
-	for _, tc := range []struct{ op, want string }{
-		{"get", wantGet},
-		{"store", ""},
-		{"erase", ""},
+	// git runs the file through sh, by name: sh <path> get, with what it asks
+	// about on stdin. Only this protocol and this host are answered: another
+	// host, the same host over http, or another port is a redirect or a
+	// helper configured too widely, and gets nothing.
+	const asked = "protocol=https\nhost=" + host + "\npath=o/r.git\n\n"
+	for _, tc := range []struct{ name, op, stdin, want string }{
+		{"get", "get", asked, wantGet},
+		{"get with no blank line", "get", "protocol=https\nhost=" + host + "\n", wantGet},
+		{"another host", "get", "protocol=https\nhost=evil.example\n\n", ""},
+		{"a host that ends like it", "get", "protocol=https\nhost=x" + host + "\n\n", ""},
+		{"another port", "get", "protocol=https\nhost=" + host + ":8443\n\n", ""},
+		{"plain http", "get", "protocol=http\nhost=" + host + "\n\n", ""},
+		{"no host", "get", "protocol=https\n\n", ""},
+		{"store", "store", asked, ""},
+		{"erase", "erase", asked, ""},
 	} {
-		out, err := exec.Command("sh", path, tc.op).Output()
+		cmd := exec.Command("sh", path, tc.op)
+		cmd.Stdin = strings.NewReader(tc.stdin)
+		out, err := cmd.Output()
 		if err != nil {
-			t.Fatalf("%s: %v", tc.op, err)
+			t.Fatalf("%s: %v", tc.name, err)
 		}
 		if string(out) != tc.want {
-			t.Errorf("%s printed %q, want %q", tc.op, out, tc.want)
+			t.Errorf("%s printed %q, want %q", tc.name, out, tc.want)
 		}
 	}
 
 	// A token with a quote in it is still one word, and still answered whole.
-	quoted := gitcred.CredentialHelper(host, user, "it's-a-token")
+	quoted := gitcred.CredentialHelper("https", host, user, "it's-a-token")
 	quotedPath := filepath.Join(dir, "quoted")
 	if err := os.WriteFile(quotedPath, []byte(quoted), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	out, err := exec.Command("sh", quotedPath, "get").Output()
+	get := exec.Command("sh", quotedPath, "get")
+	get.Stdin = strings.NewReader(asked)
+	out, err := get.Output()
 	if err != nil {
 		t.Fatal(err)
 	}

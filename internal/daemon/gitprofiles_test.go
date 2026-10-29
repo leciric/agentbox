@@ -392,3 +392,54 @@ func TestGitLsRemoteTakesTheURLAsAURL(t *testing.T) {
 		t.Error("ls-remote of the payload succeeded, want git's refusal")
 	}
 }
+
+// TestGitLsRemoteSendsTheTokenOnlyToItsHost is git test against a remote that
+// redirects to another host: the helper is scoped to the URL's host and checks
+// the host git asks about, so the other host never sees the token. The remote
+// that asks for a login on its own host gets it, which is what shows the
+// helper is there at all.
+func TestGitLsRemoteSendsTheTokenOnlyToItsHost(t *testing.T) {
+	testutil.GitEnv(t)
+	t.Setenv("GIT_SSL_NO_VERIFY", "true")
+	var mu sync.Mutex
+	var seen []string
+	asks := func(name string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if auth := r.Header.Get("Authorization"); auth != "" {
+				mu.Lock()
+				seen = append(seen, name+" "+auth)
+				mu.Unlock()
+			}
+			w.Header().Set("WWW-Authenticate", `Basic realm="git"`)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+		}
+	}
+	other := httptest.NewTLSServer(asks("other"))
+	t.Cleanup(other.Close)
+	// The same server under another name is another host to git.
+	otherURL := strings.Replace(other.URL, "127.0.0.1", "localhost", 1)
+	redirecting := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, otherURL+r.URL.RequestURI(), http.StatusFound)
+	}))
+	t.Cleanup(redirecting.Close)
+	own := httptest.NewTLSServer(asks("own"))
+	t.Cleanup(own.Close)
+
+	if _, detail, err := gitLsRemote(context.Background(), redirecting.URL+"/o/r.git", state.GitAuthToken, "a-token"); err != nil || detail == "" {
+		t.Fatalf("ls-remote through the redirect = %q, %v, want git's failure", detail, err)
+	}
+	if _, _, err := gitLsRemote(context.Background(), own.URL+"/o/r.git", state.GitAuthToken, "a-token"); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	want := "own Basic " + base64.StdEncoding.EncodeToString([]byte(gitTestTokenUser+":a-token"))
+	for _, s := range seen {
+		if !strings.HasPrefix(s, "own ") {
+			t.Errorf("another host was sent a login: %s", s)
+		}
+	}
+	if len(seen) == 0 || seen[len(seen)-1] != want {
+		t.Errorf("logins seen = %q, want the remote's own host to get %q", seen, want)
+	}
+}
