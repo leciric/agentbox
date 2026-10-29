@@ -10,22 +10,24 @@ so no Service, Ingress or inbound rule is needed.
 
 | Works | Not yet |
 | --- | --- |
-| `cluster add`, `list`, `set`, `remove`, `rotate`, `doctor`, `drain`, `undrain`, `upgrade` | a chat with a real login, which no pod has run yet |
-| `registry add`, `list`, `test`, `rotate`, `remove` | the desktop tab, not tried against a pod |
-| `image agent build`, `--push` | Cursor, whose adapter needs the Cursor SDK |
-| the pod lifecycle: create, adopt, stop, pause, resume, destroy | file browsing through the app (it refuses a pod) |
-| `move` between clusters, `cluster drain --move-to` | drain and upgrade clicked through the app |
-| the gateway: commands, files, a terminal, ports, dial | file browsing through the app (it refuses a pod) |
-| `create --cluster <name>`, and the clone on its claim | diff and files while the pod is stopped (no mirror) |
-| the two git profiles: URL, login, clone and push | CSI volume snapshots, as a fast path |
-| diff, file list and file read through the gateway | a fork from a checkpoint of a cluster agent |
-| the desktop and its browser over the gateway, recordings included | placement and a queue, which is Stage 6 |
-| the pod's size and claim, and a cluster's free capacity | a pod's disk use while it is stopped |
-| snapshots, restore and fork, from an archive of the claim | zstd, because the image has no zstd yet |
-| `base save` as a project image, and `recreate` | a project image built by the app, which builds in the CLI only |
-| the in-agent API over the master: `whoami`, connectors, memory, heavy | the tailnet egress check, which needs an operator client |
-| Claude Code, Codex, OpenCode and their adapters in the image | a connector that signs in, not yet called from a pod |
-| | `control`, which agentd answers with exit 2 |
+| `cluster add`, `list`, `set`, `remove`, `rotate`, `doctor`, `drain`, `undrain`, `upgrade` | a chat with a real login: the pod runs an adapter, but no pod has signed one in yet |
+| `registry add`, `list`, `test`, `rotate`, `remove` | Cursor, whose adapter needs the Cursor SDK |
+| `image agent build`, `--push`, `--stage` | file browsing through the app (it refuses a pod) |
+| the pod lifecycle: create, adopt, stop, pause, resume, destroy, recreate | diff and files while the pod is stopped (no mirror) |
+| `move` between clusters, `cluster drain --move-to` | CSI volume snapshots, as a fast path |
+| placement with `auto` and `--label`, and the queue that waits for room | a fork from a checkpoint of a cluster agent |
+| the gateway: commands, files, a terminal, ports, dial | a pod's disk use while it is stopped |
+| `create --cluster <name>`, `create --queue`, and the clone on its claim | zstd, because the image has no zstd yet |
+| the two git profiles: URL, login, clone and push | a project image built by the app, which builds in the CLI only |
+| diff, file list and file read through the gateway | a connector that signs in, not yet called from a pod |
+| the desktop and its browser over the gateway, recordings included | `control`, which agentd answers with exit 2 |
+| the pod's size and claim, and a cluster's free capacity | |
+| snapshots, restore and fork, from an archive of the claim | |
+| `base save` as a project image, and `recreate` | |
+| the tailnet egress Service for the master, and its split DNS, as `cluster doctor` checks them | |
+| the in-agent API over the master: `whoami`, connectors, memory, heavy | |
+| Claude Code, Codex, OpenCode (1 and 2) and their adapters in the image | |
+| the app's Clusters settings: add, edit, doctor, drain, upgrade, rotate, remove, and its detail dialog | |
 
 A daemon with no Incus runs its agents only in its clusters: that is the control plane
 [`packaging/daemon/Dockerfile`](../packaging/daemon/Dockerfile) builds, and [Installing
@@ -33,16 +35,24 @@ AgentBox](install.md#a-control-plane-in-a-cluster) has the container and its com
 Setup page then lists each cluster's own checks instead of Incus's, and a project with no cluster set
 places its new agents with `auto`, because there is no host to run them on.
 
-`cluster add` (`internal/cli/cluster.go`, `internal/k8s`) keeps a namespace-scoped ServiceAccount
-token sealed and never keeps the admin kubeconfig. `cluster doctor` makes a 1Gi canary claim and,
-when an image is configured, a pod of it, and deletes both. Destroy deletes the pod, its token Secret
-and its claim at once, with no retention window. An agent created against a cluster clones its
-project's git profile on its claim, on its branch, from the base commit the master resolved; a claim
-whose workspace another user owns is handed to the agent by an init container first, because git
-refuses a repository its directory's owner doesn't match. The image carries Claude Code, Codex,
-OpenCode and their adapters at the versions `internal/image/tools.txt` pins, and a chat runs its
-adapter by name, since the image has no mise. Cursor is the one tool it cannot run yet: its adapter
-needs the Cursor SDK, which the image does not carry.
+`cluster add` (`internal/cli/cluster.go`, `internal/k8s`) keeps a ServiceAccount token sealed and
+never keeps the admin kubeconfig. The token's Role is namespace-scoped, for the pods and claims
+AgentBox runs; a read-only ClusterRole beside it reads the nodes, storage classes and (for the
+tailnet's split DNS) DNSConfigs that placement and the doctor cannot see through a Role. The
+namespace is `agentbox` unless `--namespace` names another, and a namespace AgentBox did not create
+is never relabelled. `--tailnet` is `none` by default, `operator` when the Tailscale operator's egress
+proxy carries a pod to this machine and the private git host, and `sidecar` when the cluster already
+puts a Tailscale sidecar beside each pod; AgentBox declares nothing for `sidecar`. `cluster doctor`
+makes a 1Gi canary claim and, when an image is configured, a pod of it, and deletes both. Destroy
+deletes the pod, its token Secret and its claim at once, with no retention window. An agent created
+against a cluster clones its project's git profile on its claim, on its branch, from the base commit
+the master resolved; a claim whose workspace another user owns is handed to the agent by an init
+container first, because git refuses a repository its directory's owner doesn't match. The image
+carries Claude Code, Codex, OpenCode 1 and OpenCode 2 and their adapters at the versions
+`internal/image/tools.txt` pins (OpenCode 2 at `image.OpenCode2Version`), and a chat runs its adapter
+by name, since the image has no mise.
+Cursor is the one tool it cannot run yet: its adapter needs the Cursor SDK, which the image does not
+carry.
 
 The image also carries the desktop an Incus agent has: Xvnc, Chromium, openbox, the dock, a file
 manager, a terminal and ffmpeg, with Chromium's flags in `/etc/chromium.d/agentbox-agent`, since the
@@ -97,11 +107,13 @@ stream for each operation the table above lists. That is why a pod needs no Serv
 and no route from the cluster, and why the same code works on any cluster.
 
 - **A local cluster:** `AGENTBOX_GATEWAY_ADDR=0.0.0.0:7782` opens a listener on port 7782 that
-  serves the gateway alone; the master URL is `http://host.k3d.internal:7782`, how a pod reaches this
-  machine on k3d. Plain HTTP is for a local test only, and `cluster doctor` says so. A pod also needs
-  `/v1/self` on that listener, so a local k3d test adds
-  `AGENTBOX_GATEWAY_ALLOW_INSECURE=1`: without it `/v1/self` is not served on a non-loopback address,
-  because that path carries memory, media and the connector relay that adds the user's credentials.
+  serves the gateway, and `/v1/self` as well when it may; the master URL is
+  `http://host.k3d.internal:7782`, how a pod reaches this machine on k3d. On a loopback address
+  `/v1/self` is always served; on a non-loopback one the listener serves the gateway alone, because
+  `/v1/self` carries memory, media and the connector relay that adds the user's credentials, and the
+  listener is plain HTTP. A local k3d pod needs that path too, so the test adds
+  `AGENTBOX_GATEWAY_ALLOW_INSECURE=1`; without it `/v1/self` is not served at `host.k3d.internal`.
+  Plain HTTP is for a local test only, and `cluster doctor` says so.
 - **A remote cluster:** `agentbox tailnet on --allow you@example.com` opens `127.0.0.1:7781` and
   publishes it with `tailscale serve` at `https://<machine>.<tailnet>.ts.net/agentbox`. That address
   is the master URL, the pod appends `/v1/agent-gateway` to it, and the pods reach it through the
@@ -179,6 +191,25 @@ A registry whose certificate a private CA signed takes `--ca <pem>` with that ce
 self-signed one `--insecure`, which the test and the pull secret accept instead of a CA. Both are
 flags of `registry add`, and neither is ever a token.
 
+### Replacing a login or its settings
+
+A token you can no longer see, or a registry that moved, is `agentbox registry rotate`:
+
+```bash
+agentbox registry rotate forgejo --url hub.example.com/other
+agentbox registry rotate forgejo --ca ./new-ca.pem
+agentbox registry rotate forgejo --username you --token-stdin   # then type the new token
+agentbox registry rotate forgejo --no-login
+```
+
+Only the settings you pass move; a change to `--url`, `--ca`, `--insecure` or `--public` alone keeps
+the stored login. The new token is asked for without echoing it, or read from stdin with
+`--token-stdin`, and an empty one is refused. `--no-login` removes the login and deletes every
+cluster's pull secret for that registry. Every cluster that pulls from the registry has its pull
+secret rewritten in the same command, so this is also how a bad pull secret is fixed without adding
+the cluster again. `registry remove` refuses while a cluster still pulls from the registry; point the
+cluster at another one with `agentbox cluster set <name> --registry <name>` first.
+
 ### No registry at all
 
 A local test can skip the registry and import the image:
@@ -197,19 +228,21 @@ With no registry, the image name is the imported one and a pod uses `imagePullPo
 `internal/agentimage/Dockerfile` builds on `debian:trixie-slim` for linux/amd64. Its system packages
 are the list in [`base-packages.txt`](../internal/image/base-packages.txt), which every AgentBox
 runtime installs (the Incus base image, this pod image, the `machines` desktop image and the daemon
-container), then Go, Node, pnpm, Claude Code, Codex and OpenCode, their ACP adapters
-(`claude-agent-acp` and `codex-acp`; OpenCode speaks ACP itself), the GitHub CLI, the Playwright MCP
-server, the desktop (Xvnc, Chromium, openbox, tint2, pcmanfm, xfce4-terminal, xdotool, xwallpaper,
-ffmpeg and the fonts `browser.sh` expects) and the `agentbox` binary. It runs as `agent`, UID and GID
-1000, with `/workspace` and `/home/agent` on the claim, and its entrypoint is `agentbox agentd`;
-there is no systemd. The desktop package list is the one `internal/image/system.sh` installs on an
-Incus base image, because `browser.sh` is the same script in both runtimes; the two lists move
-together. The pod image carries Codex and OpenCode itself, so a cluster agent isn't gated on the
-Incus base image's optional components: it runs whichever tool its project or request names, and
-the session says if the image can't.
+container), then Go, Node, pnpm, Claude Code, Codex, OpenCode 1 and OpenCode 2 (as `opencode2`),
+their ACP adapters (`claude-agent-acp` and `codex-acp`; OpenCode speaks ACP itself), the GitHub CLI,
+the Playwright MCP server, the desktop (Xvnc, Chromium, openbox, tint2, pcmanfm, xfce4-terminal,
+xdotool, xwallpaper, ffmpeg and the fonts `browser.sh` expects) and the `agentbox` binary. It runs
+as `agent`, UID and GID 1000, with `/workspace` and `/home/agent` on the claim, and its entrypoint is
+`agentbox agentd`; there is no systemd. The desktop package list is the one
+`internal/image/system.sh` installs on an Incus base image, because `browser.sh` is the same script
+in both runtimes; the two lists move together. The pod image carries Codex and both OpenCodes
+itself, so a cluster agent isn't gated on the Incus base image's optional components: it runs
+whichever tool its project or request names, and the session says if the image can't.
 
 Every tool is at the version `internal/image/tools.txt` pins, and the Dockerfile reads that file
-during the build: moving one on is its line there and nothing else. The tools go outside
+during the build: moving one on is its line there and nothing else. OpenCode 2 is the exception: it
+is pinned by `image.OpenCode2Version`, not `tools.txt`, because it is a second OpenCode beside the
+first and an installation chooses between them. The tools go outside
 `/home/agent`, because a pod mounts its claim there over whatever the image has. What an agent
 installs itself lands in its own home, and `/home/agent/.local/bin` is on its `PATH`.
 
@@ -225,8 +258,14 @@ The image is about 5.2 GB: the AI tools take 3.65 GB of that, and the desktop la
 scripts/build-agent-image.sh --tag dev                            # this repository's binary, linux/amd64
 agentbox image agent build --tag dev                              # the binary you are running
 agentbox image agent build --tag dev --registry forgejo --push   # tag and push it
+agentbox image agent build --tag dev --stage dev                  # system and binary only, no user
 ```
 
+`--registry` names a registry added with `agentbox registry add`; the image is tagged
+`<registry url>/agentbox-agent:<tag>`, and `--push` requires it. `--stage` is `agent` (the whole
+image a pod runs, the default) or `dev` (the system and the binary, without the user, for a quicker
+build). Neither takes a credential: `--push` signs in with the login Docker already has, and
+refuses a registry added with `--public`, because the image carries Claude Code and the adapters.
 The private image must never go to a public registry. Claude Code and its adapter may not be
 redistributed, no release workflow builds or publishes this image, and a variant for a public
 registry, without Claude Code and the adapters, is not made yet.
@@ -262,10 +301,10 @@ machine, a project with no cluster set starts them here, so name the cluster: `-
 one agent, or `agentbox project cluster demo agentbox` for every agent the project creates from then
 on.
 
-In the app, Settings, Clusters lists each cluster with its image, storage class, last error and a
-Doctor button, and Registries lists each one with or without a login, and a Test button. While a pod
-pulls, `kubectl` is what shows it: `kubectl -n agentbox get pods`, and `kubectl -n agentbox describe
-pod ab-demo-agent-01`.
+In the app, Settings, Clusters is where clusters are added and edited, with a Doctor button, a
+Drain, an Upgrade, a Rotate and a Remove, and Registries lists each one with or without a login, and
+a Test button. While a pod pulls, `kubectl` is what shows it: `kubectl -n agentbox get pods`, and
+`kubectl -n agentbox describe pod ab-demo-agent-01`.
 
 A cluster's Details opens what it holds right now: its pods with their phase, readiness, node, image,
 restarts and the cluster's own reason (`FailedScheduling` on a node with no room, `ImagePullBackOff`
@@ -296,12 +335,31 @@ agentbox cluster set k3d --agent-memory 12Gi     # the next agent starts with mo
 | `--ephemeral-storage` | the local disk it may fill outside the claim, `/tmp` included | 10Gi |
 | `--max-agents` | the ceiling on how many run at once | the nodes' room |
 | `--cpu`, `--memory` | the whole cluster's budget, which capacity also respects | the nodes' room |
+| `--storage-class` | the class an agent's claim asks for | the cluster's default |
+| `--label` | a node label every agent pod asks for, as `name=value` (repeatable) | none |
+
+`--storage-class` is the class a new claim asks for; left out, the claim asks for nothing and the
+cluster's own default class supplies one. An existing claim keeps its class, so changing this reaches
+the next agent, not one already running.
+
+`--label name=value` (repeatable) is a node selector: every agent pod of the cluster asks to run on a
+node that carries all of the labels, and a setting replaces the cluster's labels as a set. `cluster
+set <name> --label ...` changes it for the pods made from then on; an agent already running stays
+where it is until its pod is recreated.
 
 The CPU and memory requests are what the scheduler places the pod by, so a cluster whose nodes have
 4 CPU and 16Gi and whose agents ask for 2 CPU and 8Gi holds two agents. A pod's ephemeral storage is a
 limit, not a request of the same size: Kubernetes counts its writable layer, `/tmp` and `/run`, and a
 pod that crosses it is evicted instead of filling the node every other agent shares. That is what the
 disk guard is on a host with Incus machines, where there is one disk to watch.
+
+Placement is admission, not just a choice: a create that names a full or draining cluster is refused
+with the reason, and `--cluster auto` picks the cluster with the most free capacity, ties going to
+the project's own cluster. A create with `--queue` waits in its project's queue instead of failing;
+the daemon tries the queue every ten seconds, oldest first, and starts each agent once a cluster has
+room. The app and `agentbox list` show the place in line and why it is waiting, and a cluster's
+Details lists its own queue. Without `--queue` a create with no room fails and says so, rather than
+leaving an agent that silently never starts.
 
 `agentbox cluster list` shows the agents each cluster has and how many more fit, from the daemon's
 last look at it, and the app's new-agent dialog shows the same count beside each cluster. The
@@ -339,11 +397,15 @@ asks for nothing more on a pod, because the archive is only ever taken with the 
 is what makes it consistent. Snapshotting a stopped agent starts it for the worktree's git half and
 stops it again.
 
-A restore does not write over the claim the agent has. It creates a new claim, unpacks the archive
-into it with a helper pod, moves the agent's row onto it, and starts the pod on the image the snapshot
-recorded; only after the new machine is up is the old claim deleted. A failure leaves the agent on
-the work it had. The worktree is then reset to the snapshot's ref, and the state it had is kept on
-`refs/agentbox/pre-restore/<agent>/<time>`.
+A restore does not write over the claim the agent has. It saves the current worktree on
+`refs/agentbox/pre-restore/<agent>/<time>`, creates a new claim, unpacks the archive into it with a
+helper pod, moves the agent's row onto it, and starts the pod on the image the snapshot recorded;
+only after the new machine is up is the old claim deleted. A failure before the row moves leaves the
+agent on the claim it had, and the new claim is deleted. A failure after the row moves leaves the
+agent on the new claim: the error names the old claim that is still there, and the pod may not have
+come up, so there is nothing to roll back — start the agent again, or recreate its pod. The worktree
+is then reset to the snapshot's ref; the pre-restore ref is what keeps commits made after the
+snapshot from being lost.
 
 A fork creates a new claim from the same archive and moves the new branch to the snapshot's commit,
 so the copy starts with the home, the ignored files (`node_modules` included) and the uncommitted
@@ -462,8 +524,9 @@ agentbox cluster upgrade k3d --rollback
 An upgrade runs the same image at a new digest. The digest is a full `sha256:` one that a registry
 reported, and the image keeps the tag the cluster was added with, so `agentbox-agent:dev` becomes
 `agentbox-agent:dev@sha256:4f4fb700...`, and only the digest changes from one upgrade to the next. The
-cluster's image, not an agent's, is what its pods run, which is why this is one change rather than one
-per agent.
+cluster's image is what a pod runs when neither the agent nor its project names one, which is why this
+is one change rather than one per agent: a project that saved its own image keeps running that image,
+and a restored pod keeps the image its snapshot pinned until it is recreated or upgraded.
 
 The new image is recorded first, so a pod that starts while the rollout is running is at the new image
 rather than the old one. Then every running agent's pod is recreated at it, one at a time, each keeping
@@ -479,11 +542,26 @@ first eight characters of its digest.
 
 A pod restored from a snapshot keeps the image the snapshot was taken with, which its row pins, until
 it is recreated or upgraded. `agentbox recreate` drops that pin and starts the pod at the cluster's
-current image.
+current image, or at the project's saved image when it has one.
 
 The cluster detail page reads the cluster's events, which a cluster added before this release does not
 have permission for yet. `agentbox cluster rotate <name> --kubeconfig <admin>` applies AgentBox's access
 again, and the events appear after it.
+
+## Removing a cluster
+
+```bash
+agentbox cluster remove k3d
+```
+
+`cluster remove` forgets a cluster once no agent runs there; the error names the agents still in it,
+and each has to be destroyed first. What AgentBox applied in the cluster stays: the namespace, the
+ServiceAccount, its Role and ClusterRole, the token Secret and the NetworkPolicy. The token is
+forgotten on this machine, so nothing here reaches the cluster afterwards. `cluster add` refuses a
+name that already exists, so removing and adding again is not how access is repaired: that is
+`cluster rotate`, which applies AgentBox's namespace, ServiceAccount, Role, ClusterRole and binding
+again, makes a new token, and leaves the agents running there alone. It needs an admin kubeconfig,
+because the old token may be the thing that stopped working.
 
 ## Troubleshooting
 
@@ -493,14 +571,16 @@ again, and the events appear after it.
 | --- | --- |
 | `api` | The daemon's ServiceAccount cannot reach the API server. Its kubeconfig must point at an address the daemon reaches. |
 | `master url` | Not set, or plain `http`. Set it with `agentbox cluster set <name> --master-url <url>`. The `http` note is right for a local cluster only. |
-| `namespace` | The token is refused, or the Role cannot read pods there. `cluster rotate <name>` makes a new token; `cluster remove` and `add` again reapplies the Role and binding. |
+| `namespace` | The token is refused, or the Role cannot read pods there. `cluster rotate <name>` makes a new token and applies the Role and ClusterRole again. |
 | `pod security` | The namespace enforces no Pod Security Admission level, so the credential could start a privileged pod. `cluster rotate <name>` labels a namespace AgentBox created; one it did not create you label yourself with `kubectl label namespace <ns> pod-security.kubernetes.io/enforce=baseline`. A cluster added before the check cannot read its namespace yet: `cluster rotate <name>` grants it. |
 | `network policy` | The namespace has no `agentbox-agents` NetworkPolicy, or has one that no longer selects agent pods or that lets traffic in. `cluster rotate <name>` applies it, and the Role rule it needs. |
 | `nodes` | No node is ready, or the cluster has none. |
 | `storage class` | The named class does not exist. Empty asks for the cluster's default; k3d and k3s have `local-path`. |
 | `workspace claim` | A 1Gi claim could not be made, or a class that binds at once never bound, which usually means no provisioner. A class that binds on first use passes. |
-| `registry` | Skipped when there is no login to apply (no registry, or one that needs none); otherwise the pull secret is missing from the namespace or is not a docker config. Add the cluster again, or rotate the registry. |
+| `registry` | Skipped when there is no login to apply (no registry, or one that needs none); otherwise the pull secret is missing from the namespace or is not a docker config. `agentbox registry rotate <name>` rewrites it, or point the cluster at another registry with `cluster set <name> --registry <name>`. |
 | `image` | Skipped when no image is configured; otherwise the canary pod could not run, and the reason is in the detail, such as `ImagePullBackOff` or a pod that exited at once. |
+| `tailnet <host>` | With `--tailnet operator`, the egress Service declaring the master URL is missing or no longer names it. Apply the access again with `cluster rotate <name> --kubeconfig <admin>`. |
+| `tailnet dns` | The operator's DNSConfig could not be read, or no split DNS sends the tailnet name there. A cluster prepared by `scripts/k3d-up.sh --operator` forwards the name with a CoreDNS stub instead, and the check is skipped. |
 
 The app's Setup page has a check per cluster too, and it reads configuration only: the image the
 cluster is set to, its master URL, and whether the daemon's last attempt to reach it failed. It makes
@@ -513,19 +593,27 @@ events. A pod that stays `Pending` has nowhere to run or a claim that never boun
 registry URL plus the image name, so `--registry local --image agentbox-agent:dev` pulls
 `<registry>/agentbox-agent:dev`.
 
-The `http` note on `master url` is not a failure, and it is right for a local test only. The doctor
-does not check the Tailscale operator, the egress Services or the `DNSConfig` yet; those builders
-are in `internal/k8s/tailnet.go`. With `--tailnet operator`, look at `kubectl -n <namespace> get
-svc,proxygroup`, `kubectl get dnsconfig`, and the operator's pods in `tailscale`.
+The `http` note on `master url` is not a failure, and it is right for a local test only. With
+`--tailnet operator`, `cluster doctor` checks the egress Service AgentBox declares for the master and,
+when it can read the operator's `DNSConfig`, that the name is in its split DNS; a cluster prepared by
+`scripts/k3d-up.sh --operator` forwards the name with a CoreDNS stub instead, so that half is
+skipped. It does not check the operator itself or its proxy pods: look at
+`kubectl -n <namespace> get svc,proxygroup`, `kubectl get dnsconfig`, and the operator's pods in
+`tailscale` when a tailnet name does not resolve. `--tailnet sidecar` declares nothing, because the
+sidecar is the cluster's own.
 
 ## Security
 
-- The pod's token is a Secret, and `state.db` holds only its SHA-256. A token dies with the pod it
-  was minted for; a start mints a new one.
-- The cluster credential is a namespace-scoped ServiceAccount token Secret, sealed with the same key
-  as the agent secrets; the admin kubeconfig is used once by `cluster add` or `cluster rotate` and
-  never stored. The registry's login is sealed here and written into the namespace as its pull
-  secret, and no response from the daemon carries it.
+- The pod's token is a Secret, and `state.db` holds only its SHA-256. A token is good for exactly the
+  pod it was minted for: it is removed with that pod and a start mints a new one. Removing or
+  replacing it also drops the gateway session it opened, at once, so a token read from the Secret
+  cannot outlive the pod it belonged to.
+- The cluster credential is a ServiceAccount token Secret, sealed with the same key as the agent
+  secrets. Its Role is namespace-scoped, for the pods and claims AgentBox runs; a read-only
+  ClusterRole beside it reads nodes, storage classes and the operator's DNSConfigs, which a namespaced
+  Role cannot grant. The admin kubeconfig is used once by `cluster add` or `cluster rotate` and never
+  stored. The registry's login is sealed here and written into the namespace as its pull secret, and
+  no response from the daemon carries it.
 - The credential can create pods, so what keeps it inside its namespace is Pod Security Admission:
   the namespace `cluster add` creates carries `pod-security.kubernetes.io/enforce=baseline`, which
   refuses privileged pods, host namespaces and `hostPath` volumes. Without it the credential could
@@ -549,7 +637,9 @@ svc,proxygroup`, `kubectl get dnsconfig`, and the operator's pods in `tailscale`
   and a workload in another namespace or a compromised pod in this one cannot open a connection
   either. `cluster add`, `cluster set` and `cluster rotate` apply it; a cluster added before the
   policy existed gets it from `cluster rotate <name>`, which also applies the Role rule the policy
-  needs.
+  needs. The short-lived helper pods that archive, restore and move a claim are not agent pods and
+  are not selected by the policy: they carry no agent labels, no token, run only the one `tar`
+  command the daemon executes in them, and are deleted when the operation ends.
 - The policy does not restrict egress, and that is deliberate. A pod dials the public AI APIs, this
   machine and a git host, and none of those addresses is fixed enough to write into a policy that
   would still work tomorrow. The policy names the cluster's resolver and this machine, which is the
