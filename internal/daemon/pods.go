@@ -101,6 +101,7 @@ func (p podLifecycle) Recreate(ctx context.Context, ref gateway.Ref) error {
 	// The row names the pod that just went, and a token is good for exactly the
 	// pod it was minted for: the reconciler mints a new one with the new pod.
 	_ = p.s.store.RemoveAgentToken(ctx, a.Project, a.Name)
+	p.s.dropGatewaySession(a.Project, a.Name)
 	if a.Pod != "" || a.PodUID != "" || a.StatusDetail != "" {
 		if err := p.s.store.SetAgentPod(ctx, a.Project, a.Name, "", "", ""); err != nil {
 			return err
@@ -158,6 +159,7 @@ func (s *Server) destroyMachine(ctx context.Context, a state.Agent) error {
 		return fmt.Errorf("deleting %s's machine in cluster %s: %w", a.Ref(), a.Cluster, err)
 	}
 	err = s.store.RemoveAgentToken(ctx, a.Project, a.Name)
+	s.dropGatewaySession(a.Project, a.Name)
 	if errors.Is(err, state.ErrNotFound) {
 		return nil
 	}

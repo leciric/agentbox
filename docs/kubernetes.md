@@ -98,7 +98,10 @@ and no route from the cluster, and why the same code works on any cluster.
 
 - **A local cluster:** `AGENTBOX_GATEWAY_ADDR=0.0.0.0:7782` opens a listener on port 7782 that
   serves the gateway alone; the master URL is `http://host.k3d.internal:7782`, how a pod reaches this
-  machine on k3d. Plain HTTP is for a local test only, and `cluster doctor` says so.
+  machine on k3d. Plain HTTP is for a local test only, and `cluster doctor` says so. A pod also needs
+  `/v1/self` on that listener, so a local k3d test adds
+  `AGENTBOX_GATEWAY_ALLOW_INSECURE=1`: without it `/v1/self` is not served on a non-loopback address,
+  because that path carries memory, media and the connector relay that adds the user's credentials.
 - **A remote cluster:** `agentbox tailnet on --allow you@example.com` opens `127.0.0.1:7781` and
   publishes it with `tailscale serve` at `https://<machine>.<tailnet>.ts.net/agentbox`. That address
   is the master URL, the pod appends `/v1/agent-gateway` to it, and the pods reach it through the
@@ -534,7 +537,13 @@ svc,proxygroup`, `kubectl get dnsconfig`, and the operator's pods in `tailscale`
 - The pod connects out, so nothing in the cluster listens for the daemon. The listener on 7782 must
   not be exposed beyond a local test. A remote cluster reaches the daemon through the tailnet
   listener, which `tailscale serve` publishes and which checks who asks, except on
-  `/v1/agent-gateway`, where the pod's own bearer token is the check.
+  `/v1/agent-gateway`, where the pod's own bearer token is the check. On a non-loopback address the
+  7782 listener serves the gateway alone; `/v1/self`, which carries memory, media and the connector
+  relay, is there only with `AGENTBOX_GATEWAY_ALLOW_INSECURE=1`, and a local k3d test sets it.
+- A pod's session is bound to the pod that opened it: a second connection carrying the same token is
+  refused while the first session answers, so a token read from the Secret cannot take the session
+  over. Removing or replacing a token closes its session at once, rather than waiting for the pod to
+  disconnect.
 - One NetworkPolicy, `agentbox-agents`, selects the namespace's agent pods and denies every
   connection in. Nothing in the cluster has a reason to reach a pod, so nothing loses a path it had,
   and a workload in another namespace or a compromised pod in this one cannot open a connection
@@ -544,10 +553,11 @@ svc,proxygroup`, `kubectl get dnsconfig`, and the operator's pods in `tailscale`
 - The policy does not restrict egress, and that is deliberate. A pod dials the public AI APIs, this
   machine and a git host, and none of those addresses is fixed enough to write into a policy that
   would still work tomorrow. The policy names the cluster's resolver and this machine, which is the
-  shape a narrow list would have, and then allows every other address. What makes a narrow list
-  possible is a proxy the pod dials instead of the internet, and that is a change to the pod, not to
-  the policy. Until then a list of exceptions would break a chat the day an API moved, without
-  closing the hole it was meant to close.
+  shape a narrow list would have, and then allows every other address except the cloud metadata
+  services: `169.254.0.0/16` and `fd00:ec2::254/128` are left out, so a pod on EKS, GKE or AKS cannot
+  fetch the node's credentials. What makes a narrow list possible is a proxy the pod dials instead of
+  the internet, and that is a change to the pod, not to the policy. Until then excluding the metadata
+  endpoints closes the credential hole without breaking a chat when an API moves.
 - A NetworkPolicy is only as good as the plugin behind it. Calico, Cilium, Antrea and k3s's own
   kube-router enforce one; a CNI without a policy controller accepts the object and silently ignores
   it, and `kubectl get networkpolicy` shows the object either way. `cluster doctor` checks that the

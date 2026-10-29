@@ -70,14 +70,15 @@ func NetPol(namespace, masterURL string) *networkingv1.NetworkPolicy {
 			Ports: []networkingv1.NetworkPolicyPort{tcpPort(port)},
 		})
 	}
-	// Last, and on purpose: see the comment on NetPol. An ipBlock with no
-	// except list, because inventing one (the private ranges, say) would cut
-	// the pod off from the master on a cluster whose addresses happen to fall
-	// in it.
+	// Last, and on purpose: see the comment on NetPol. The only addresses left
+	// out are the cloud metadata services. On EKS, GKE and AKS a pod can
+	// otherwise fetch the node's credentials from 169.254.169.254 (and its
+	// IPv6 endpoint), and no chat needs them. The private ranges stay in: a
+	// cluster whose master or registry lives in one must still be reachable.
 	egress = append(egress, networkingv1.NetworkPolicyEgressRule{
 		To: []networkingv1.NetworkPolicyPeer{
-			{IPBlock: &networkingv1.IPBlock{CIDR: "0.0.0.0/0"}},
-			{IPBlock: &networkingv1.IPBlock{CIDR: "::/0"}},
+			{IPBlock: &networkingv1.IPBlock{CIDR: "0.0.0.0/0", Except: []string{"169.254.0.0/16"}}},
+			{IPBlock: &networkingv1.IPBlock{CIDR: "::/0", Except: []string{"fd00:ec2::254/128"}}},
 		},
 	})
 	return &networkingv1.NetworkPolicy{

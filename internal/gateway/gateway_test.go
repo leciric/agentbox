@@ -244,9 +244,11 @@ func TestATokenTheDaemonDidNotIssueIsRefused(t *testing.T) {
 	}
 }
 
-func TestANewerSessionReplacesTheOlder(t *testing.T) {
-	// Two pods with the same token: the one that connected last is the one
-	// the master talks to, and the earlier connection is closed.
+func TestASecondSessionDoesNotEvictTheFirst(t *testing.T) {
+	// Two connections carrying the same token: the pod that got there first
+	// keeps its session, and the second is refused. A token another process
+	// read, or one sniffed on a plain-HTTP listener, must not let it take the
+	// pod's place and receive every credential the master writes.
 	server := gateway.NewServer(func(ctx context.Context, token string) (gateway.Ref, error) {
 		return agentRef, nil
 	})
@@ -269,21 +271,35 @@ func TestANewerSessionReplacesTheOlder(t *testing.T) {
 		t.Fatal(err)
 	}
 	go func() { _ = (&gateway.Client{URL: second.URL, Token: goodToken, Handle: says("new")}).Run(ctx) }()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		stream, err := server.Dial(ctx, agentRef, gateway.Header{Op: gateway.OpExec})
-		if err != nil {
-			time.Sleep(50 * time.Millisecond)
-			continue
-		}
-		body, code, err := readAll(stream)
-		_ = stream.Close()
-		if err == nil && code == 0 && body == "new" {
-			return
-		}
-		time.Sleep(50 * time.Millisecond)
+	// Give the second connection time to arrive and be refused, then check the
+	// first still serves.
+	time.Sleep(time.Second)
+	stream, err := server.Dial(ctx, agentRef, gateway.Header{Op: gateway.OpExec})
+	if err != nil {
+		t.Fatal(err)
 	}
-	t.Fatal("the newer session never became the agent's")
+	body, code, err := readAll(stream)
+	_ = stream.Close()
+	if err != nil || code != 0 || body != "old" {
+		t.Fatalf("the first session answered %q (exit %d, %v), want \"old\": the second connection evicted it", body, code, err)
+	}
+}
+
+func TestDropEndsTheSession(t *testing.T) {
+	server, cancel := startPair(t)
+	defer cancel()
+	if !server.Connected(agentRef) {
+		t.Fatal("the pod never connected")
+	}
+	server.Drop(agentRef)
+	if server.Connected(agentRef) {
+		t.Error("the session is still there after Drop")
+	}
+	if _, err := server.Dial(context.Background(), agentRef, gateway.Header{Op: gateway.OpExec}); !errors.Is(err, gateway.ErrNotConnected) {
+		t.Errorf("Dial() after Drop = %v, want ErrNotConnected", err)
+	}
+	// Dropping an agent with no session is done, not a panic or an error.
+	server.Drop(agentRef)
 }
 
 // readAll reads a stream to its exit frame.

@@ -78,6 +78,12 @@ type Config struct {
 	// daemon: empty or "off" serves no local listener, which is right when
 	// every cluster reaches this machine through the tailnet instead.
 	GatewayAddr string
+	// GatewayAllowInsecure exposes the in-agent API (/v1/self) on a
+	// non-loopback GatewayAddr, over plain HTTP. Without it that listener
+	// serves the gateway alone, because /v1/self carries memory, media and the
+	// connector relay that adds the user's credentials. A local k3d cluster
+	// sets it so its pods can reach /v1/self at host.k3d.internal.
+	GatewayAllowInsecure bool
 	// ConnectorsLoopback lets connectors reach servers on this machine's
 	// loopback, where only tests' fake MCP servers listen
 	// (connectors.OAuth.Loopback).
