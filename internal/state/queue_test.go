@@ -81,6 +81,39 @@ func TestQueueAgentPutsItInLine(t *testing.T) {
 	}
 }
 
+// TestLeftoverQueueIsFIFOAcrossProjects: scheduling reads one line across every
+// project, oldest first, so a later-named project doesn't starve behind an
+// earlier one; Position stays 1..n within each project for display.
+func TestLeftoverQueueIsFIFOAcrossProjects(t *testing.T) {
+	ctx := context.Background()
+	s := openStore(t)
+	base := time.Now().Unix()
+	for _, row := range []struct {
+		project, name string
+		at            int64
+	}{
+		{"alpha", "a", base + 2},
+		{"zebra", "z", base + 1},
+		{"alpha", "b", base + 3},
+	} {
+		if _, err := s.DB().ExecContext(ctx,
+			`INSERT INTO agent_queue (project, name, position, request, reason, queued_at) VALUES (?, ?, ?, ?, ?, ?)`,
+			row.project, row.name, 1, `{}`, "full", row.at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	q, err := s.LeftoverQueue(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(q) != 3 || q[0].Ref() != "zebra/z" || q[1].Ref() != "alpha/a" || q[2].Ref() != "alpha/b" {
+		t.Fatalf("queue = %+v, want zebra first, then alpha's in order", q)
+	}
+	if q[0].Position != 1 || q[1].Position != 1 || q[2].Position != 2 {
+		t.Errorf("positions = %d, %d, %d, want each project numbered from 1", q[0].Position, q[1].Position, q[2].Position)
+	}
+}
+
 func TestLeftoverQueue(t *testing.T) {
 	ctx := context.Background()
 	s := openStore(t)
