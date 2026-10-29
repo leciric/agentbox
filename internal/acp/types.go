@@ -351,6 +351,9 @@ type SessionUpdate struct {
 
 	// plan
 	Entries []PlanEntry `json:"entries,omitempty"`
+	// plan_update (the plan it replaces) and plan_removed (the planId it removes)
+	Plan   *PlanUpdate `json:"plan,omitempty"`
+	PlanID string      `json:"planId,omitempty"`
 
 	// available_commands_update
 	AvailableCommands []AvailableCommand `json:"availableCommands,omitempty"`
@@ -475,6 +478,16 @@ type PlanEntry struct {
 	Content  string `json:"content"`
 	Priority string `json:"priority"` // high, medium or low
 	Status   string `json:"status"`   // pending, in_progress or completed
+}
+
+// PlanUpdate is ACP v2's plan object: "items" carries entries, "markdown" a
+// whole plan as Markdown, and "file" a URI AgentBox doesn't read.
+type PlanUpdate struct {
+	Type    string      `json:"type"`
+	PlanID  string      `json:"planId,omitempty"`
+	Entries []PlanEntry `json:"entries,omitempty"`
+	Content string      `json:"content,omitempty"`
+	URI     string      `json:"uri,omitempty"`
 }
 
 type AvailableCommand struct {

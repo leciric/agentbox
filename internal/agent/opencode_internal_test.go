@@ -134,4 +134,28 @@ func TestOpenCodeConfigVersionTwo(t *testing.T) {
 	if _, ok := parse(t, false)["permissions"]; ok {
 		t.Error("an agent that asks got a permission ruleset")
 	}
+	experimental, ok := config["experimental"].(map[string]any)
+	if !ok || experimental["todo"] != true {
+		t.Errorf("experimental = %v, want todos offered so AgentBox can show them as the plan", config["experimental"])
+	}
+	if _, ok := parse(t, false)["experimental"]; !ok {
+		t.Error("an agent that asks got no experimental settings")
+	}
+}
+
+// OpenCode 1 exposes todowrite without a setting, and does not read
+// experimental.todo.
+func TestOpenCodeOneDoesNotSetExperimentalTodo(t *testing.T) {
+	t.Parallel()
+	raw, err := openCodeConfig(opencode.V1, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config map[string]any
+	if err := json.Unmarshal(raw, &config); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := config["experimental"]; ok {
+		t.Errorf("OpenCode 1 config = %s, want no experimental settings", raw)
+	}
 }
