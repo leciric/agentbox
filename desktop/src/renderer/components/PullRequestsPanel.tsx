@@ -8,6 +8,7 @@ import { api } from '../lib/api';
 import { useT, type MessageKey } from '../lib/i18n';
 import { useReveal } from '../lib/reveal';
 import { byAuthor, byState, labelHex, labelStyle, labelToggle, matchLabels, readMine, withEdits, withLabels, writeMine, type LabelEdit, type PullsState } from '../lib/pulls';
+import { mergeBlockReason } from '../lib/review';
 import { stackHead, stackOrder } from '../lib/stacks';
 import { cn, errorMessage, githubAccountLabel, githubErrorSentence, timeAgo } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -16,7 +17,7 @@ import { Badge, type BadgeVariant } from './ui/badge';
 import { Button } from './ui/button';
 import { Code, EmptyState, Notice } from './ui/card';
 import { LabelRemoveButton } from './LabelRemoveButton';
-import { PullRequestModal, usePrefetchPull } from './PullRequestModal';
+import { MergeBlocked, PullRequestModal, usePrefetchPull } from './PullRequestModal';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Select, SelectOption } from './ui/select';
 import { Tip } from './ui/tooltip';
@@ -241,6 +242,7 @@ export function PullRequestsPanel({
                     labels={withEdits(pr.labels, pr.number, edits)}
                     onToggleLabel={(label, on) => toggleLabel(pr, label, on)}
                     canMerge={canOfferMerge(pr)}
+                    mergeBlocked={mergeBlockReason(pr, data)}
                     mergeRunning={merge.running.has(pr.number)}
                     mergeError={merge.failed[pr.number]}
                     onOpenAgent={pr.agent ? () => onSelect({ kind: 'agent', ref: `${project}/${pr.agent}` }) : undefined}
@@ -260,6 +262,7 @@ export function PullRequestsPanel({
         pr={viewed}
         onClose={() => setViewing(null)}
         canMerge={!!viewed && canOfferMerge(viewed)}
+        mergeBlocked={viewed ? mergeBlockReason(viewed, data) : undefined}
         mergeRunning={!!viewed && merge.running.has(viewed.number)}
         mergeError={viewed ? merge.failed[viewed.number] : undefined}
         onMerge={() => viewed && merge.request(viewed)}
@@ -457,6 +460,7 @@ function PullRequestRow({
   labels,
   onToggleLabel,
   canMerge,
+  mergeBlocked,
   mergeRunning,
   mergeError,
   onOpenAgent,
@@ -477,6 +481,8 @@ function PullRequestRow({
   labels: T.Label[];
   onToggleLabel: (label: T.Label, on: boolean) => void;
   canMerge: boolean;
+  // mergeBlocked is why Merge can't, said beside it as the review says it.
+  mergeBlocked?: string;
   mergeRunning: boolean;
   mergeError?: string;
   onOpenAgent?: () => void;
@@ -503,20 +509,21 @@ function PullRequestRow({
         }
       }}
     >
-      <div className="flex flex-wrap items-start gap-3">
+      <div className="flex items-start gap-3">
         {depth > 0 && <CornerDownRight aria-hidden className="absolute top-4 -left-6 size-4 text-faint" />}
         <GitPullRequest className="mt-0.5 size-4 shrink-0 text-subtle" />
         <div className="min-w-0 flex-1">
-          <a href={pr.url} target="_blank" rel="noreferrer" className="group flex min-w-0 items-center gap-1.5 text-[14px] font-medium text-primary hover:text-brand-300">
-            <span className="truncate">{pr.title}</span>
-            <ExternalLink data-external className="size-3.5 shrink-0 text-faint group-hover:text-brand-300" />
+          {/* The title comes first: two lines of it before anything beside it gives way. */}
+          <a href={pr.url} target="_blank" rel="noreferrer" className="group flex min-w-0 items-start gap-1.5 text-[14px] font-medium text-primary hover:text-brand-300" title={pr.title}>
+            <span className="line-clamp-2 min-w-0 [overflow-wrap:anywhere]">{pr.title}</span>
+            <ExternalLink data-external className="mt-[3px] size-3.5 shrink-0 text-faint group-hover:text-brand-300" />
           </a>
-          <p className="truncate font-mono text-[11.5px] text-subtle">
+          <p className="truncate font-mono text-[12px] text-subtle">
             #{pr.number} · {pr.headBranch} → {pr.baseBranch}
           </p>
           <PullRequestLabels project={project} labels={labels} onToggle={onToggleLabel} />
         </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+        <div className="flex max-w-[40%] min-w-0 shrink-0 flex-wrap items-center justify-end gap-1" data-pull-pills>
           {pr.draft ? (
             <Badge>{t('memory.pulls.draft')}</Badge>
           ) : (
@@ -543,7 +550,7 @@ function PullRequestRow({
       </div>
       <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12px] text-muted">
         {pr.author && (
-          <span className="flex min-w-0 items-center gap-1.5">
+          <span className="flex max-w-40 min-w-0 items-center gap-1.5" title={pr.author}>
             {pr.authorAvatar ? (
               <img src={pr.authorAvatar} alt="" className="size-4 shrink-0 rounded-full" />
             ) : (
@@ -578,10 +585,13 @@ function PullRequestRow({
         )}
         <span className="ml-auto text-faint">{pr.updatedAt && timeAgo(pr.updatedAt)}</span>
         {canMerge && (
-          <Button size="sm" variant="ghost" disabled={mergeRunning || pr.checks === 'failing'} title={pr.checks === 'failing' ? t('review.mergeBlocked.failing') : undefined} onClick={onMerge} data-merge-running={mergeRunning || undefined}>
-            {mergeRunning ? <LoaderCircle className="size-3.5 animate-spin" /> : <GitMerge className="size-3.5" />}
-            {t('memory.pulls.merge')}
-          </Button>
+          <span className="flex min-w-0 items-center gap-2">
+            {mergeBlocked && <MergeBlocked reason={mergeBlocked} />}
+            <Button size="sm" variant="ghost" disabled={mergeRunning || !!mergeBlocked} title={mergeBlocked} onClick={onMerge} data-merge-running={mergeRunning || undefined}>
+              {mergeRunning ? <LoaderCircle className="size-3.5 animate-spin" /> : <GitMerge className="size-3.5" />}
+              {t('memory.pulls.merge')}
+            </Button>
+          </span>
         )}
       </div>
       {mergeError && (

@@ -124,6 +124,7 @@ export function PullRequestModal({
   pr,
   onClose,
   canMerge,
+  mergeBlocked,
   mergeRunning,
   mergeError,
   onMerge,
@@ -135,6 +136,7 @@ export function PullRequestModal({
   pr: T.PullRequest | null;
   onClose: () => void;
   canMerge: boolean;
+  mergeBlocked?: string;
   mergeRunning: boolean;
   mergeError?: string;
   onMerge: () => void;
@@ -150,6 +152,7 @@ export function PullRequestModal({
             project={project}
             pr={pr}
             canMerge={canMerge}
+            mergeBlocked={mergeBlocked}
             mergeRunning={mergeRunning}
             mergeError={mergeError}
             onMerge={onMerge}
@@ -163,12 +166,22 @@ export function PullRequestModal({
   );
 }
 
+// MergeBlocked is why Merge is greyed out, beside it, as the review's footer says it.
+export function MergeBlocked({ reason }: { reason: string }) {
+  return (
+    <span className="min-w-0 truncate text-[12px] text-amber-200 [:root[data-appearance=light]_&]:text-amber-700" title={reason} data-merge-blocked>
+      {reason}
+    </span>
+  );
+}
+
 // PullRequestView is what the modal shows, also used on its own: as the last
 // slide of "Ready to review" (inline, inside a dialog that has its own title).
 export function PullRequestView({
   project,
   pr: listed,
   canMerge,
+  mergeBlocked,
   mergeRunning,
   mergeError,
   onMerge,
@@ -189,6 +202,7 @@ export function PullRequestView({
   project: string;
   pr: T.PullRequest;
   canMerge: boolean;
+  mergeBlocked?: string;
   mergeRunning: boolean;
   mergeError?: string;
   onMerge: () => void;
@@ -313,10 +327,13 @@ export function PullRequestView({
             {t('pulls.detail.openOnGitHub')}
           </Button>
           {canMerge && (
-            <Button size="sm" disabled={mergeRunning || pr.checks === 'failing'} title={pr.checks === 'failing' ? t('review.mergeBlocked.failing') : undefined} onClick={onMerge} data-merge-running={mergeRunning || undefined}>
-              {mergeRunning ? <LoaderCircle className="size-3.5 animate-spin" /> : <GitMerge className="size-3.5" />}
-              {t('memory.pulls.merge')}
-            </Button>
+            <>
+              {mergeBlocked && <MergeBlocked reason={mergeBlocked} />}
+              <Button size="sm" disabled={mergeRunning || !!mergeBlocked} title={mergeBlocked} onClick={onMerge} data-merge-running={mergeRunning || undefined}>
+                {mergeRunning ? <LoaderCircle className="size-3.5 animate-spin" /> : <GitMerge className="size-3.5" />}
+                {t('memory.pulls.merge')}
+              </Button>
+            </>
           )}
         </footer>
       )}
