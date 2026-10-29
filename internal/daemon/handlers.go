@@ -1683,6 +1683,14 @@ func (s *Server) agentAction(action string) func(http.ResponseWriter, *http.Requ
 			return err
 		}
 		ctx, m := r.Context(), s.manager(s.cfg.Log)
+		if action != "session" {
+			held, release, err := s.holdAgent(ctx, a, action)
+			if err != nil {
+				return err
+			}
+			defer release()
+			ctx = held
+		}
 		if action == "start" || action == "resume" {
 			if err := s.diskPausedRefusal(a.Ref()); err != nil {
 				return err
@@ -1761,7 +1769,12 @@ func (s *Server) takeSnapshot(w http.ResponseWriter, r *http.Request) error {
 	if err := readJSON(r, &req); err != nil {
 		return err
 	}
-	sn, err := s.manager(s.cfg.Log).Snapshot(r.Context(), a, req.Name, req.Consistent)
+	ctx, release, err := s.holdAgent(r.Context(), a, "snapshot")
+	if err != nil {
+		return err
+	}
+	defer release()
+	sn, err := s.manager(s.cfg.Log).Snapshot(ctx, a, req.Name, req.Consistent)
 	if err != nil {
 		return err
 	}
@@ -1790,7 +1803,7 @@ func (s *Server) restore(w http.ResponseWriter, r *http.Request) error {
 	if err := readJSON(r, &req); err != nil {
 		return err
 	}
-	return s.startJob(w, "restore", a.Ref(), func(ctx context.Context, log io.Writer) (any, error) {
+	return s.startAgentJob(r.Context(), w, "restore", a, func(ctx context.Context, log io.Writer) (any, error) {
 		m := s.manager(log)
 		s.chat.Stop(a.Ref(), "the agent is being restored from a snapshot")
 		if err := m.Restore(ctx, a, req.Snapshot); err != nil {
@@ -1824,7 +1837,7 @@ func (s *Server) fork(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
-	return s.startJob(w, "fork", src.Ref(), func(ctx context.Context, log io.Writer) (any, error) {
+	return s.startAgentJob(r.Context(), w, "fork", src, func(ctx context.Context, log io.Writer) (any, error) {
 		a, err := s.manager(log).Fork(ctx, src, agent.ForkOptions{Name: req.Name, Title: req.Title, Snapshot: req.Snapshot, Checkpoint: req.Checkpoint})
 		if err != nil {
 			return nil, err

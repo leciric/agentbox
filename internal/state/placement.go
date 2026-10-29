@@ -2,9 +2,16 @@ package state
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 )
+
+// ErrDestroyed is a write about an agent whose row already asks for it to be
+// destroyed. A destroy is final: a restore, a snapshot or a move that finishes
+// after it must not put the machine back, so the writes they make refuse it
+// instead of overwriting desired_state.
+var ErrDestroyed = errors.New("is being destroyed")
 
 // PlaceAgent records that an agent's machine is a pod in cluster, where its
 // worktree lives inside it, and the state the user asked it to be in. It forgets
@@ -56,9 +63,9 @@ func (s *Store) MoveAgent(ctx context.Context, project, name string, to MovePlac
 	if desired == "" {
 		desired = DesiredRunning
 	}
-	return s.execAgent(ctx, `UPDATE agents SET cluster = ?, runtime = ?, workspace = ?, claim = ?, image = ?,
+	return s.execLiveAgent(ctx, project, name, `UPDATE agents SET cluster = ?, runtime = ?, workspace = ?, claim = ?, image = ?,
 		desired_state = ?, pod = '', pod_uid = '', status_detail = '', destroyed_at = 0
-		WHERE project = ? AND name = ?`,
+		WHERE project = ? AND name = ? AND desired_state != 'destroyed'`,
 		to.Cluster, runtime, to.Workspace, to.Claim, to.Image, desired, project, name)
 }
 
@@ -70,9 +77,12 @@ func (s *Store) SetAgentPod(ctx context.Context, project, name, pod, uid, detail
 		pod, uid, detail, project, name)
 }
 
-// SetAgentDesiredState records what the user asked the agent's machine to do.
+// SetAgentDesiredState records what the user asked the agent's machine to do. A
+// destroyed row stays destroyed (ErrDestroyed): MarkAgentDestroyed is the only
+// write that asks for that, and nothing undoes it.
 func (s *Store) SetAgentDesiredState(ctx context.Context, project, name, desired string) error {
-	return s.execAgent(ctx, `UPDATE agents SET desired_state = ? WHERE project = ? AND name = ?`, desired, project, name)
+	return s.execLiveAgent(ctx, project, name, `UPDATE agents SET desired_state = ?
+		WHERE project = ? AND name = ? AND desired_state != 'destroyed'`, desired, project, name)
 }
 
 // SetAgentClaim moves an agent onto the claim a restore prepared from a
@@ -83,8 +93,8 @@ func (s *Store) SetAgentDesiredState(ctx context.Context, project, name, desired
 // The names are the new ones, not a diff: a caller that only means to pin the
 // image passes the claim the row already names.
 func (s *Store) SetAgentClaim(ctx context.Context, project, name, claim, image string) error {
-	return s.execAgent(ctx, `UPDATE agents SET claim = ?, image = ? WHERE project = ? AND name = ?`,
-		claim, image, project, name)
+	return s.execLiveAgent(ctx, project, name, `UPDATE agents SET claim = ?, image = ?
+		WHERE project = ? AND name = ? AND desired_state != 'destroyed'`, claim, image, project, name)
 }
 
 // SetAgentStatusDetail records the cluster's own reason an agent isn't doing what
@@ -124,6 +134,21 @@ func (s *Store) ClustersInUse(ctx context.Context) ([]string, error) {
 		clusters = append(clusters, cluster)
 	}
 	return clusters, rows.Err()
+}
+
+// execLiveAgent is execAgent for a statement that skips a destroyed row, and
+// says which of the two it was when it touched nothing: no such agent, or one
+// that is being destroyed.
+func (s *Store) execLiveAgent(ctx context.Context, project, name, query string, args ...any) error {
+	err := s.execAgent(ctx, query, args...)
+	if !errors.Is(err, ErrNotFound) {
+		return err
+	}
+	var desired string
+	if s.db.QueryRowContext(ctx, `SELECT desired_state FROM agents WHERE project = ? AND name = ?`, project, name).Scan(&desired) == nil && desired == DesiredDestroyed {
+		return fmt.Errorf("%s/%s %w", project, name, ErrDestroyed)
+	}
+	return err
 }
 
 // execAgent runs a statement about one agent, and says when there is no such

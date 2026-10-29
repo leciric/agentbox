@@ -19,10 +19,16 @@ import (
 type podLifecycle struct{ s *Server }
 
 func (p podLifecycle) Start(ctx context.Context, ref gateway.Ref) error {
+	if err := p.s.checkAgentFree(ctx, ref, "start"); err != nil {
+		return err
+	}
 	return p.s.store.SetAgentDesiredState(ctx, ref.Project, ref.Agent, state.DesiredRunning)
 }
 
 func (p podLifecycle) Stop(ctx context.Context, ref gateway.Ref) error {
+	if err := p.s.checkAgentFree(ctx, ref, "stop"); err != nil {
+		return err
+	}
 	return p.s.store.SetAgentDesiredState(ctx, ref.Project, ref.Agent, state.DesiredStopped)
 }
 
@@ -30,6 +36,9 @@ func (p podLifecycle) Stop(ctx context.Context, ref gateway.Ref) error {
 // pod: the reconciler removes the pod, its token Secret and its claim, with no
 // retention window.
 func (p podLifecycle) Destroy(ctx context.Context, ref gateway.Ref) error {
+	if err := p.s.checkAgentFree(ctx, ref, "destroy"); err != nil {
+		return err
+	}
 	return p.s.store.MarkAgentDestroyed(ctx, ref.Project, ref.Agent, time.Now())
 }
 
@@ -60,6 +69,9 @@ func (p podLifecycle) Info(ctx context.Context, ref gateway.Ref) (machine.Info, 
 // The old pod is waited for before the new one is asked for, so a reconciler
 // round that lands between the two can never adopt the pod this is replacing.
 func (p podLifecycle) Recreate(ctx context.Context, ref gateway.Ref) error {
+	if err := p.s.checkAgentFree(ctx, ref, "recreate"); err != nil {
+		return err
+	}
 	a, err := p.s.store.Agent(ctx, ref.Project, ref.Agent)
 	if err != nil {
 		return err

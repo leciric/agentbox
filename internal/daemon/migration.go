@@ -41,7 +41,7 @@ func (s *Server) recreate(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
-	return s.startJob(w, "recreate", a.Ref(), func(ctx context.Context, log io.Writer) (any, error) {
+	return s.startAgentJob(r.Context(), w, "recreate", a, func(ctx context.Context, log io.Writer) (any, error) {
 		// A chat started before the machine was there has nothing to talk to.
 		s.chat.Stop(a.Ref(), "the agent's machine is being made")
 		if !a.OnCluster() {
