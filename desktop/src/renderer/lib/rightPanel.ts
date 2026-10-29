@@ -336,14 +336,18 @@ let beside = true;
 export const setFitsBeside = (fits: boolean) => void (beside = fits);
 export const fitsBeside = () => beside;
 
-// openAgentChat is opening an agent's chat: its panel shows its Desktop,
-// where there is room for it beside the chat; where there isn't, the strip
-// stays as it is, rather than a drawer over the chat you came to read. The
-// lead's panel keeps what it showed, its list most often, for coming back.
-export function openAgentChat(ref: string): void {
+// openAgentChat is opening an agent's chat: its panel opens on it, where
+// there is room for it beside the chat; where there isn't, the strip stays as
+// it is, rather than a drawer over the chat you came to read. The panel shows
+// its Desktop only when the agent is using it (usingDesktop): an idle display
+// is a blank screen, so then it shows the view last picked, Files at first.
+// The lead's panel keeps what it showed, its list most often, for coming back.
+export function openAgentChat(ref: string, usingDesktop = true): void {
   if (!beside) return;
   const state = panelState();
-  update(ref, () => ({ open: true, target: ref }), { views: { ...state.views, [ref]: 'desktop' } });
+  const shown = state.views[ref];
+  const view: PanelView = usingDesktop ? 'desktop' : shown && shown !== 'desktop' ? shown : 'files';
+  update(ref, () => ({ open: true, target: ref }), { views: { ...state.views, [ref]: view } });
 }
 
 // chaptersOf is a recording's chapters: the titled steps of its agent's

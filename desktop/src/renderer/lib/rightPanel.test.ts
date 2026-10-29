@@ -305,3 +305,17 @@ test('the lead’s panel switches between Agents and Files, remembered per proje
   P.openPanelOn(lead, 'desktop', 'pawly/agent-3');
   assert.equal(P.leadTab(P.panelState(), 'pawly'), 'agents');
 });
+
+test('opening an agent’s chat shows its Desktop only when it is using it, else the view last picked or Files', () => {
+  const ref = 'pawly/agent-2';
+  P.setFitsBeside(true);
+  P.setPanel({ chats: {}, views: { [ref]: 'desktop' }, last: {} });
+  P.openAgentChat(ref, false);
+  assert.equal(P.panelState().views[ref], 'files');
+  assert.equal(P.chatPanel(P.panelState(), ref).open, true);
+  P.setPanel({ chats: {}, views: { [ref]: 'terminal' }, last: {} });
+  P.openAgentChat(ref, false);
+  assert.equal(P.panelState().views[ref], 'terminal');
+  P.openAgentChat(ref, true);
+  assert.equal(P.panelState().views[ref], 'desktop');
+});
