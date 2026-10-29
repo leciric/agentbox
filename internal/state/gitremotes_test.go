@@ -214,6 +214,12 @@ func TestGitRemoteValidation(t *testing.T) {
 		{"an alias with nothing after it", func(r *GitRemote) { r.URL = "forge:" }},
 		{"a credential with a space", func(r *GitRemote) { r.Credential = "two words" }},
 		{"a password in the URL", func(r *GitRemote) { r.URL = "https://user:secret@hub.example.com/a/b.git" }},
+		// git's ls-remote and clone would take these as options: the first
+		// runs its command as upload-pack.
+		{"an option as the URL", func(r *GitRemote) { r.URL = "--upload-pack=touch${IFS}pwned@h:p" }},
+		{"an option as the shorthand's host", func(r *GitRemote) { r.URL = "git@-oProxyCommand=touch${IFS}pwned:p" }},
+		{"an option as the URL's user", func(r *GitRemote) { r.URL = "ssh://-oProxyCommand=x@hub.example.com/a/b.git" }},
+		{"an option as the URL's host", func(r *GitRemote) { r.URL = "ssh://-oProxyCommand=x/a/b.git" }},
 		{"a GitHub account off GitHub", func(r *GitRemote) {
 			r.URL, r.Auth, r.Credential = "https://gitlab.com/a/b.git", GitAuthGitHubAccount, "me"
 		}},

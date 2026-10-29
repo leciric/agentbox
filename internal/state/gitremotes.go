@@ -287,6 +287,11 @@ func checkGitURL(raw string) error {
 	if raw == "" {
 		return errors.New("it needs the URL its agents clone from")
 	}
+	// git reads an argument that starts with a dash as an option, and
+	// --upload-pack=<command> runs that command: a URL is never one.
+	if strings.HasPrefix(raw, "-") {
+		return fmt.Errorf("%q starts with a dash, which git would read as an option: write a URL", raw)
+	}
 	if rest, ok := strings.CutPrefix(raw, gitAlias); ok {
 		if rest == "" || strings.ContainsAny(rest, " \t") {
 			return fmt.Errorf("%q names no repository: write %sowner/repo.git, with no spaces", raw, gitAlias)
@@ -306,6 +311,9 @@ func checkGitURL(raw string) error {
 		if u.Host == "" {
 			return fmt.Errorf("%q has no host", raw)
 		}
+		if strings.HasPrefix(u.Hostname(), "-") || (u.User != nil && strings.HasPrefix(u.User.Username(), "-")) {
+			return fmt.Errorf("%s names a user or host that starts with a dash, which ssh would read as an option", u.Redacted())
+		}
 		if u.User != nil {
 			if _, set := u.User.Password(); set {
 				return fmt.Errorf("%s carries a password: the login belongs in the profile's credential, not in its URL", u.Redacted())
@@ -314,8 +322,12 @@ func checkGitURL(raw string) error {
 		return nil
 	}
 	// git's own ssh shorthand, which names the user: git@hub:owner/repo.git.
-	if user, path, ok := strings.Cut(raw, ":"); ok && path != "" &&
-		strings.Contains(user, "@") && !strings.ContainsAny(user, "/ \t") {
+	if userHost, path, ok := strings.Cut(raw, ":"); ok && path != "" &&
+		strings.Contains(userHost, "@") && !strings.ContainsAny(userHost, "/ \t") {
+		user, host, _ := strings.Cut(userHost, "@")
+		if strings.HasPrefix(user, "-") || strings.HasPrefix(host, "-") {
+			return fmt.Errorf("%q names a user or host that starts with a dash, which git and ssh would read as an option", raw)
+		}
 		return nil
 	}
 	return fmt.Errorf("%q: use an absolute URL like https://host/owner/repo.git, git@host:owner/repo.git, or a %s alias", raw, gitAlias)

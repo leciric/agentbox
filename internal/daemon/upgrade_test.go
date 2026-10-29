@@ -113,7 +113,7 @@ func TestUpgradeRecordsTheImagesAndSkipsAStoppedAgent(t *testing.T) {
 	digest := testDigest("a")
 	old := "agentbox-agent:dev"
 
-	job := finishedJob(t, srv, upgradeRequest(t, srv, "k3d", `{"digest":"`+digest+`"}`))
+	job := finishedClusterJob(t, srv, upgradeRequest(t, srv, "k3d", `{"digest":"`+digest+`"}`))
 	if job.Status != api.JobSucceeded {
 		t.Fatalf("the upgrade job = %s (%s), want it to succeed", job.Status, job.Error)
 	}
@@ -143,7 +143,7 @@ func TestUpgradeRecordsTheImagesAndSkipsAStoppedAgent(t *testing.T) {
 		t.Errorf("the job's result = %+v, want the cluster's new and previous image", result)
 	}
 
-	job = finishedJob(t, srv, upgradeRequest(t, srv, "k3d", `{"rollback":true}`))
+	job = finishedClusterJob(t, srv, upgradeRequest(t, srv, "k3d", `{"rollback":true}`))
 	if job.Status != api.JobSucceeded {
 		t.Fatalf("the rollback job = %s (%s), want it to succeed", job.Status, job.Error)
 	}
@@ -170,7 +170,7 @@ func TestUpgradeFailureNamesTheAgentAndTheRollback(t *testing.T) {
 	reconcilerAgent(t, srv.store, "agent-01")
 	digest := testDigest("a")
 
-	job := finishedJob(t, srv, upgradeRequest(t, srv, "k3d", `{"digest":"`+digest+`"}`))
+	job := finishedClusterJob(t, srv, upgradeRequest(t, srv, "k3d", `{"digest":"`+digest+`"}`))
 	if job.Status != api.JobFailed {
 		t.Fatalf("the upgrade job = %s (%s), want it to fail without a kubeconfig to recreate the pod with", job.Status, job.Error)
 	}
