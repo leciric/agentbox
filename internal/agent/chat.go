@@ -282,6 +282,7 @@ func (m *Manager) SetInterface(ctx context.Context, a state.Agent, iface string)
 	if inst, err := m.Incus.Instance(ctx, a.Instance); err != nil || inst.Status != "Running" {
 		return a, nil // the session starts with the agent
 	}
+	m.prepareToolWindow(ctx, a)
 	window, err := m.toolWindowScript(ctx, a)
 	if err != nil {
 		return a, err
@@ -295,6 +296,22 @@ func (m *Manager) SetInterface(ctx context.Context, a state.Agent, iface string)
 	return a, nil
 }
 
+// prepareToolWindow gives the terminal's OpenCode what a chat's gets from
+// PrepareChatModel before every chat: the config in the shape of the version
+// running now, and OpenCode 2's logins (installing it first with
+// ensureOpenCode2InAgent if the agent doesn't have it), so an agent switched in
+// either direction starts on what its version reads. It is for a tool window
+// about to be opened, and a failure is logged, not returned: the tool reports
+// what it is missing, and a machine without the network still gets its shell.
+func (m *Manager) prepareToolWindow(ctx context.Context, a state.Agent) {
+	if a.AI != "opencode" || a.Interface == state.InterfaceChat {
+		return
+	}
+	if err := m.prepareAgentOpenCodeSettings(ctx, a); err != nil {
+		m.logf("preparing %s's OpenCode: %v", a.Ref(), err)
+	}
+}
+
 // toolWindowScript opens tmux window 1 with the AI tool's command line, for an
 // agent you use from the terminal rather than the chat, started without the
 // credential variables in hide (toolHides).
@@ -303,14 +320,6 @@ func (m *Manager) toolWindowScript(ctx context.Context, a state.Agent) (string, 
 	if a.AI == "opencode" {
 		version, err := m.openCodeVersion(ctx)
 		if err != nil {
-			return "", err
-		}
-		// The terminal's OpenCode reads the same files a chat's does, which
-		// PrepareChatModel rewrites before every chat: the config in the shape
-		// of the version running now, and OpenCode 2's logins (installing it
-		// first with ensureOpenCode2InAgent if the agent doesn't have it). An agent
-		// switched in either direction starts on what its version reads.
-		if err := m.prepareAgentOpenCodeSettings(ctx, a); err != nil {
 			return "", err
 		}
 		tool = Tool{Command: version.Command(), Autonomous: version.Autonomous()}

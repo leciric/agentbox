@@ -316,20 +316,27 @@ func (m *Manager) importOpenCodeAccounts(ctx context.Context, a state.Agent, ver
 // start needs the network. npm retries a registry it can't reach for minutes
 // without a word, so it is held to one retry and its errors are kept, and a
 // machine that can't reach the registry is told so rather than given npm's
-// log. A machine that already has it (installed here before, or on an image
-// that does carry it) does nothing.
+// log. A machine that already has the pinned version does nothing.
 func (m *Manager) ensureOpenCode2InAgent(ctx context.Context, a state.Agent) error {
-	if m.Incus.UserExec(ctx, a.Instance, m.User.Name, "command -v "+opencode.Command2, nil, io.Discard, io.Discard) == nil {
-		return nil
-	}
 	pkg, err := opencode.Package2()
 	if err != nil {
 		return err
 	}
+	// Installed at the pinned version: a bump of image.OpenCode2Version
+	// reaches agents that already have an older one.
+	have := fmt.Sprintf("command -v %[1]s >/dev/null && grep -Fq %[2]s ~/.local/share/opencode2/node_modules/%[3]s/package.json",
+		opencode.Command2, shellQuote(`"version": "`+image.OpenCode2Version+`"`), pkg)
+	if m.Incus.UserExec(ctx, a.Instance, m.User.Name, have, nil, io.Discard, io.Discard) == nil {
+		return nil
+	}
 	ctx, cancel := context.WithTimeout(ctx, installTimeout)
 	defer cancel()
 	spec := shellQuote(pkg + "@" + image.OpenCode2Version)
-	script := fmt.Sprintf("mkdir -p ~/.local/bin ~/.local/share/opencode2 && npm install --loglevel=error --fetch-retries=1 --no-fund --no-audit --prefix ~/.local/share/opencode2 %[1]s && ln -sfn ../share/opencode2/node_modules/%[2]s/bin/opencode ~/.local/bin/opencode2", spec, shellQuote(pkg))
+	// Under a lock, checking again inside it: a terminal opening while a chat
+	// starts must not run two installs into the same directory.
+	install := fmt.Sprintf("grep -Fq %[3]s ~/.local/share/opencode2/node_modules/%[2]s/package.json 2>/dev/null && [ -e ~/.local/bin/opencode2 ] && exit 0; npm install --loglevel=error --fetch-retries=1 --no-fund --no-audit --prefix ~/.local/share/opencode2 %[1]s && ln -sfn ../share/opencode2/node_modules/%[2]s/bin/opencode ~/.local/bin/opencode2",
+		spec, pkg, shellQuote(`"version": "`+image.OpenCode2Version+`"`))
+	script := "mkdir -p ~/.local/bin ~/.local/share/opencode2 && flock ~/.local/share/opencode2.lock sh -c " + shellQuote(install)
 	var out bytes.Buffer
 	if err := m.Incus.UserExec(ctx, a.Instance, m.User.Name, script, nil, &out, &out); err != nil {
 		if reason := npmNetworkError(out.String()); reason != "" || ctx.Err() != nil {

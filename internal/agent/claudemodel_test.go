@@ -330,9 +330,8 @@ exit 0
 	if err := m.Store.SetSetting(t.Context(), state.SettingOpenCodeVersion, "2"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.toolWindowScript(t.Context(), a); err != nil {
-		t.Fatal(err)
-	}
+	a.Interface = state.InterfaceCLI
+	m.prepareToolWindow(t.Context(), a)
 	raw, err := os.ReadFile(filepath.Join(dir, "_home_dev_.config_opencode_opencode.json"))
 	if err != nil {
 		t.Fatal(err)

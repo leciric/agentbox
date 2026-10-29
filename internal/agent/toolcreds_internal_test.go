@@ -445,3 +445,30 @@ func TestNpmNetworkError(t *testing.T) {
 		}
 	}
 }
+
+// TestOpenCode2InstallChecksThePinAndTakesALock: an agent with an older
+// OpenCode 2 than image.OpenCode2Version isn't "installed", and the install
+// runs under a lock so two starts don't write the same directory at once.
+func TestOpenCode2InstallChecksThePinAndTakesALock(t *testing.T) {
+	t.Parallel()
+	log := filepath.Join(t.TempDir(), "calls")
+	m := &Manager{Incus: fakeIncus(t, `printf '%s\n' "$*" >> `+shellQuote(log)+`
+case "$*" in *"command -v"*) exit 1 ;; esac
+exit 0
+`), User: image.User{Name: "dev", UID: 1000, GID: 1000}}
+	a := state.Agent{Project: "hello-stack", Name: "agent-01", AI: "opencode", Instance: "ab-hello-stack-agent-01"}
+	if err := m.ensureOpenCode2InAgent(t.Context(), a); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := string(raw)
+	if !strings.Contains(calls, "package.json") || !strings.Contains(calls, image.OpenCode2Version) {
+		t.Errorf("the installed version isn't compared with the pin: %s", calls)
+	}
+	if !strings.Contains(calls, "flock") {
+		t.Errorf("the install takes no lock: %s", calls)
+	}
+}

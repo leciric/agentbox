@@ -1944,6 +1944,11 @@ func (m *Manager) MoveAgentsGitHubAccount(ctx context.Context, project, from, to
 // tool through the chat.
 func (m *Manager) ensureSession(ctx context.Context, a state.Agent) error {
 	script := fmt.Sprintf("tmux has-session -t %[1]s 2>/dev/null && exit 0\ntmux new-session -d -s %[1]s -n shell -c %[2]s\n", session, shellQuote(a.Worktree))
+	// Only a session about to be made opens the tool's window.
+	hasSession := fmt.Sprintf("tmux has-session -t %s 2>/dev/null", session)
+	if m.Incus.UserExec(ctx, a.Instance, m.User.Name, hasSession, nil, io.Discard, io.Discard) != nil {
+		m.prepareToolWindow(ctx, a)
+	}
 	window, err := m.toolWindowScript(ctx, a)
 	if err != nil {
 		return err
