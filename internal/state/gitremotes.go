@@ -239,7 +239,44 @@ func checkGitRemote(r GitRemote) error {
 	if err := checkGitURL(r.URL); err != nil {
 		return fmt.Errorf("project %q's %s git profile: %w", r.Project, r.Profile, err)
 	}
+	// An alias is checked once it is resolved (agent.ResolveGitProfileURL);
+	// a URL that names its host is refused here, before anything is stored.
+	if r.Auth == GitAuthGitHubAccount && !strings.HasPrefix(strings.TrimSpace(r.URL), gitAlias) {
+		if host := GitHostname(r.URL); host != GitHubHost {
+			return fmt.Errorf("project %q's %s git profile signs in as GitHub account %q, whose token is GitHub's alone, and %s is on %s: use --auth token with a login for that host",
+				r.Project, r.Profile, r.Credential, r.URL, host)
+		}
+	}
 	return nil
+}
+
+// GitHubHost is the one host a GitHub account's token may be sent to.
+const GitHubHost = "github.com"
+
+// GitHostname is the host a git URL or git's ssh shorthand names, without the
+// user or the port and in lower case: github.com for both
+// https://github.com/o/r.git and git@github.com:o/r.git. Empty when raw names
+// none, such as a local path or a forge: alias.
+func GitHostname(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if strings.Contains(raw, "://") {
+		u, err := neturl.Parse(raw)
+		if err != nil {
+			return ""
+		}
+		return strings.ToLower(u.Hostname())
+	}
+	if strings.HasPrefix(raw, gitAlias) {
+		return ""
+	}
+	host, _, ok := strings.Cut(raw, ":")
+	if !ok || strings.ContainsAny(host, "/ \\") {
+		return ""
+	}
+	if at := strings.LastIndex(host, "@"); at >= 0 {
+		host = host[at+1:]
+	}
+	return strings.ToLower(host)
 }
 
 // checkGitURL refuses a remote that isn't one. A project may store an alias,

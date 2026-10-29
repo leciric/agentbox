@@ -283,6 +283,34 @@ func TestAddProjectFillsItsGitProfiles(t *testing.T) {
 	}
 }
 
+// TestAddProjectWithOriginOffGitHub keeps the project's GitHub account off a
+// forge that isn't GitHub: origin there becomes a token profile, whose login
+// the user stores for that host, never the account's token sent to it.
+func TestAddProjectWithOriginOffGitHub(t *testing.T) {
+	ctx := context.Background()
+	srv := newTestServer(t, "")
+	if err := srv.gitCreds().SaveGitHubToken("me", "gh-token"); err != nil {
+		t.Fatal(err)
+	}
+	root := testutil.FixtureRepo(t, "hello-stack")
+	testutil.Git(t, root, "remote", "add", "origin", "https://gitlab.com/leciric/hello-stack.git")
+
+	body, err := json.Marshal(api.AddProjectRequest{Path: root, Name: "hello-stack", GitHubAccount: "me"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec := gitRequest(t, srv, http.MethodPost, "/v1/projects", string(body)); rec.Code != http.StatusCreated {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
+	}
+	remotes, err := srv.store.ProjectGitRemotes(ctx, "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remotes) != 1 || remotes[0].Profile != state.GitProfilePublic || remotes[0].Auth != state.GitAuthToken || remotes[0].Credential != "" {
+		t.Errorf("profiles = %+v, want origin as a token profile with no login", remotes)
+	}
+}
+
 // TestAddProjectWithoutAGitHubAccount checks the public profile a project with
 // no GitHub account gets: origin as a token profile, so a token added later is
 // all a public agent needs.

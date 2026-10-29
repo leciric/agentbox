@@ -146,7 +146,7 @@ func TestResolveGitProfileReadsTheLogin(t *testing.T) {
 
 	// A GitHub account with no token names the login, and the token profile
 	// that avoids needing one.
-	if err := st.SetProjectGitRemote(ctx, gitRemote("proj", state.GitProfilePrivate, "https://hub.example/p.git", state.GitAuthGitHubAccount, "me")); err != nil {
+	if err := st.SetProjectGitRemote(ctx, gitRemote("proj", state.GitProfilePrivate, "https://github.com/o/p.git", state.GitAuthGitHubAccount, "me")); err != nil {
 		t.Fatal(err)
 	}
 	_, err = m.resolveGitProfile(ctx, p)
@@ -183,6 +183,28 @@ func TestResolveGitProfileURLTurnsSSHIntoHTTPSForAToken(t *testing.T) {
 				t.Errorf("ResolveGitProfileURL(%q) = %q, want %q", tc.raw, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestResolveGitProfileURLSendsAGitHubAccountOnlyToGitHub: a GitHub account's
+// token never answers another host, however the URL names it, so neither the
+// pod's helper nor `git test` ever holds it for that host.
+func TestResolveGitProfileURLSendsAGitHubAccountOnlyToGitHub(t *testing.T) {
+	testutil.GitEnv(t)
+	ctx := context.Background()
+	for _, raw := range []string{
+		"https://gitlab.com/o/p.git",
+		"git@gitlab.com:o/p.git",
+		"https://github.com.evil.example/o/p.git",
+		"https://hub.example/o/p.git",
+	} {
+		_, err := ResolveGitProfileURL(ctx, gitRemote("p", state.GitProfilePublic, raw, state.GitAuthGitHubAccount, "me"))
+		if err == nil || !strings.Contains(err.Error(), "sent only to GitHub") {
+			t.Errorf("ResolveGitProfileURL(%q) = %v, want a refusal", raw, err)
+		}
+	}
+	if _, err := ResolveGitProfileURL(ctx, gitRemote("p", state.GitProfilePublic, "https://GitHub.com/o/p.git", state.GitAuthGitHubAccount, "me")); err != nil {
+		t.Errorf("a github.com URL was refused: %v", err)
 	}
 }
 
