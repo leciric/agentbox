@@ -146,7 +146,8 @@ func TestCheckStalls(t *testing.T) {
 		defer mu.Unlock()
 		cpu[instance] += d
 	}
-	d.srv.stallTell = func(_ context.Context, project, note string) {
+	d.srv.stallTell = func(_ context.Context, a state.Agent, note string) {
+		project := a.Project
 		mu.Lock()
 		defer mu.Unlock()
 		told = append(told, project+": "+note)
@@ -277,7 +278,9 @@ func TestAgentLostTellsTheLead(t *testing.T) {
 	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	var told []string
-	d.srv.stallTell = func(_ context.Context, project, note string) { told = append(told, project+": "+note) }
+	d.srv.stallTell = func(_ context.Context, a state.Agent, note string) {
+		told = append(told, a.Project+": "+note)
+	}
 	a := state.Agent{Project: "p", Name: "agent-12", Title: "Import the catalogue"}
 	d.srv.agentLost(a, "Claude Code exited (exit status 143): ...killed.")
 	if len(told) != 1 || !strings.HasPrefix(told[0], `p: [chat lost] agent-12 ("Import the catalogue") stopped in the middle of its turn: Claude Code exited (exit status 143)`) ||

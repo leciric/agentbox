@@ -27,6 +27,7 @@ import { awaitsApproval, type AgentSt } from '../../lib/leadFirst';
 import { pastAgentsKey } from '../../lib/pastAgents';
 import { projectLabel } from '../../lib/projectName';
 import { useAgentCounts } from '../../lib/useAgentCounts';
+import { SessionChip } from '../chat/SessionChip';
 import { cn, humanBytes, timeAgo } from '../../lib/utils';
 import { AgentContextMenu } from '../AgentContextMenu';
 import { RailEmpty, RailSkeleton, useRailAgents } from '../AgentRail';
@@ -223,6 +224,7 @@ function AgentLine({ agent, st, mood, active, live, pr, fleet, at, report, quest
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="flex min-w-0 items-center gap-1.5 leading-[18px]">
             <span className={cn('min-w-0 flex-1 truncate text-[13px] font-medium', active ? 'text-title' : st === 'done' ? 'text-subtle' : 'text-primary', !agent.title && 'font-mono text-[12px]')}>{title}</span>
+            <SessionChip agent={agent} />
             <FrozenBadge agent={agent} />
             {pr && (
               <span className={cn('shrink-0 text-[12px] tabular-nums', pr.state === 'merged' ? 'text-violet-300' : 'text-faint')} data-list-pr={pr.number}>

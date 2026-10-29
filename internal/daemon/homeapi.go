@@ -80,7 +80,8 @@ func (s *Server) homeTellLead(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	m := s.manager(s.cfg.Log)
-	lead, err := m.EnsureLead(ctx, project)
+	// The session most recently active hears it, or one opened for it.
+	lead, err := s.eventLead(ctx, project, eventTopic(text), true)
 	if err != nil {
 		return err
 	}

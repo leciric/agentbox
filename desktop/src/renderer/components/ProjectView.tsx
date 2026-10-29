@@ -14,7 +14,7 @@ import { cn, errorMessage, timeAgo } from '../lib/utils';
 import { ChatStatus, FilesOpen, useChatMenu } from './chat/ChatTab';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ConnectorsTab } from './ConnectorsTab';
-import { leadAgentFrom, ProjectChatPanel } from './ProjectChatPanel';
+import { leadAgentFrom, ProjectChatPanel, useCurrentSession } from './ProjectChatPanel';
 import { WorkList } from './WorkView';
 import { ProjectBasePanel } from './ProjectBasePanel';
 import { ProjectMediaPanel } from './ProjectMediaPanel';
@@ -143,10 +143,13 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
   const [iconOpen, setIconOpen] = useState(false);
   const { tab, section } = projectPlace(where);
   useEffect(() => countFeature(projectTabFeatures[tab === 'settings' ? section : tab]), [tab, section, name]);
-  const leadChat = useQuery({ queryKey: ['projectChat', name], queryFn: () => api.projectChat(name), enabled: tab === 'chat' });
+  // The session its chat shows (ProjectChatPanel's tabs): its status, files
+  // and ⋯ are that session's.
+  const session = useCurrentSession(tab === 'chat' ? name : undefined);
+  const leadChat = useQuery({ queryKey: ['projectChat', name, session?.id], queryFn: () => api.projectChat(name, session!.id), enabled: tab === 'chat' && !!session });
   const project = projects.data?.find((p) => p.name === name);
   // The lead's chat controls join the project's ⋯ while the chat is open.
-  const lead = project && tab === 'chat' && leadChat.data ? leadAgentFrom(project, leadChat.data) : undefined;
+  const lead = project && tab === 'chat' && leadChat.data && session ? leadAgentFrom(project, leadChat.data, session.topic) : undefined;
   const chatMenu = useChatMenu(lead);
   const mine = agents.data?.filter((a) => a.project === name) ?? [];
   const { retire, setFreeing, setRemoving, dialogs: projectDialogs } = useProjectActions(name, onSelect);

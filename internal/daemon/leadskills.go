@@ -26,7 +26,12 @@ var errRefused = errors.New("the user refused")
 
 // approveInChat is Server.approve: a card in the project's chat.
 func (s *Server) approveInChat(ctx context.Context, project string, req api.ChatPermission) (bool, error) {
-	lead, err := s.manager(nil).Lead(ctx, project)
+	// The card goes in the chat session that asked: the one whose turn waits.
+	session := leadSessionOf(ctx)
+	if session == "" {
+		session = state.MigratedSession
+	}
+	lead, err := s.manager(nil).LeadSession(ctx, project, session)
 	if err != nil {
 		return false, err
 	}

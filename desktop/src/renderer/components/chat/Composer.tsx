@@ -13,6 +13,7 @@ import {
   Gauge,
   Hourglass,
   ListTodo,
+  MessageSquarePlus,
   LoaderCircle,
   Lock,
   LockOpen,
@@ -33,7 +34,8 @@ import { Fragment, use, useEffect, useLayoutEffect, useMemo, useRef, useState, t
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
 import { ChatOptionPlan } from '../../../shared/api';
-import { api, isHomeChat, isProjectChat } from '../../lib/api';
+import { api, isHomeChat, isProjectChat, sessionOfRef } from '../../lib/api';
+import { chooseSession, topicFrom } from '../../lib/sessions';
 import { composerSkills, searchSkills, skillMentionAt } from '../../lib/skills';
 import { SkillTile } from '../SkillsPanel';
 import { contextBadge, contextHint, currentPlan, formatTokens, isMessage, pendingPermissions, toolOf, toolsReload } from '../../lib/chat';
@@ -107,7 +109,7 @@ export function Composer({
   // while it asks is held here until you choose; a turn running, or the card
   // going away without a choice, puts it back in the composer.
   const projectChat = isProjectChat(agent.ref);
-  const cache = useQuery({ queryKey: ['chatCache', agent.project], queryFn: () => api.chatCache(agent.project), enabled: projectChat });
+  const cache = useQuery({ queryKey: ['chatCache', agent.ref], queryFn: () => api.chatCache(agent.ref), enabled: projectChat });
   const cacheCard = projectChat && cache.data?.due && !busy && !disabled ? cache.data : undefined;
   const [held, setHeld] = useState<{ text: string; images: Pending[] } | null>(null);
   useEffect(() => {
@@ -520,7 +522,7 @@ export function Composer({
         <PermissionBanner agent={agent} thread={thread} request={requests[0]} count={requests.length} />
       ) : cacheCard ? (
         <CacheCard
-          project={agent.project}
+          chatRef={agent.ref}
           cache={cacheCard}
           held={held}
           draft={() => {
@@ -873,14 +875,14 @@ function PermissionBanner({ agent, thread, request, count }: { agent: T.Agent; t
 // chat's Compact action and then sends the held message, if any, in the fresh
 // session; sending as it is sends it the way it would have gone anyway.
 function CacheCard({
-  project,
+  chatRef,
   cache,
   held,
   draft,
   onChosen,
   onFailed,
 }: {
-  project: string;
+  chatRef: string;
   cache: T.ChatCache;
   held: { text: string; images: Pending[] } | null;
   draft: () => { text: string; images: Pending[] } | null;
@@ -891,7 +893,7 @@ function CacheCard({
   const now = useNow(1000);
   const choose = useMutation({
     mutationFn: ({ compact, message }: { compact: boolean; message: { text: string; images: Pending[] } | null }) =>
-      api.chooseChatCache(project, {
+      api.chooseChatCache(chatRef, {
         compact,
         text: message ? withPicks(message.text, message.images.filter(isElement)) : undefined,
         ...(message ? uploads(message.images) : {}),
@@ -903,12 +905,36 @@ function CacheCard({
     },
   });
   const pick = (compact: boolean) => choose.mutate({ compact, message: draft() });
+  // The third way: leave this session's context where it is, and start the
+  // message in a session of its own (lib/sessions.ts), which the tabs then
+  // show. Only a project's chat has sessions; the Home chat doesn't.
+  const project = chatRef.split('/')[0];
+  const sessions = sessionOfRef(chatRef) !== undefined;
+  const queryClient = useQueryClient();
+  const fresh = useMutation({
+    mutationFn: async (message: { text: string; images: Pending[] } | null) => {
+      const s = await api.newLeadSession(project, (message && topicFrom(message.text)) || t('sessions.untitled'));
+      chooseSession(project, s.id);
+      void queryClient.invalidateQueries({ queryKey: ['leadSessions', project] });
+      if (message) {
+        const u = uploads(message.images);
+        await api.sendChat(s.ref, withPicks(message.text, message.images.filter(isElement)), u.images, u.files);
+      }
+      return s;
+    },
+    onSuccess: (_, message) => onChosen(message),
+    onError: (err, message) => {
+      onFailed(message);
+      toast.error(errorMessage(err));
+    },
+  });
+  const busy = choose.isPending || fresh.isPending;
   const idle = cache.idleSince ? now - Date.parse(cache.idleSince) : 0;
   const left = cache.expiresAt ? Date.parse(cache.expiresAt) - now : 0;
   const expired = left <= 0;
   const tokens = t('chat.cache.tokens', { n: formatTokens(cache.contextUsed ?? 0) });
   const compacting = choose.isPending && choose.variables?.compact;
-  const waiting = held ?? (choose.isPending ? choose.variables?.message : null);
+  const waiting = held ?? (choose.isPending ? choose.variables?.message : fresh.isPending ? fresh.variables : null);
   return (
     <Attached tone="amber">
       <div data-chat-cache={expired ? 'expired' : 'expiring'}>
@@ -928,15 +954,26 @@ function CacheCard({
           </p>
         )}
         <div className="mt-2.5 flex flex-wrap items-center justify-end gap-1.5">
+          {sessions && (
+            <button
+              disabled={busy}
+              onClick={() => fresh.mutate(draft())}
+              className="mr-auto flex h-7 items-center gap-1.5 rounded-lg border border-amber-200/20 px-2.5 text-[12.5px] text-amber-50 transition hover:bg-amber-200/10 disabled:opacity-50"
+              data-chat-cache-new-session
+            >
+              {fresh.isPending ? <LoaderCircle className="size-3.5 animate-spin" /> : <MessageSquarePlus className="size-3.5" />}
+              {t('chat.cache.newSession')}
+            </button>
+          )}
           <button
-            disabled={choose.isPending}
+            disabled={busy}
             onClick={() => pick(false)}
             className="h-7 rounded-lg border border-amber-200/20 px-2.5 text-[12.5px] text-amber-50 transition hover:bg-amber-200/10 disabled:opacity-50"
           >
             {t('chat.cache.sendAnyway')}
           </button>
           <button
-            disabled={choose.isPending}
+            disabled={busy}
             onClick={() => pick(true)}
             className="flex h-7 items-center gap-1.5 rounded-lg bg-amber-300 px-3 text-[12.5px] font-medium text-on-bright transition hover:bg-amber-200 disabled:opacity-60"
           >

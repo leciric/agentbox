@@ -10,7 +10,7 @@ import { ArrowRightLeft, Brain, ChevronRight, CircleAlert, Eye, Globe, Play, Sea
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as T from '../../shared/api.ts';
-import { api, chatImagePath, isLead, mediaSource } from '../../connection/api.ts';
+import { api, chatImagePath, isLead, mediaSource, sessionOf, sessionRef } from '../../connection/api.ts';
 import { can, useSession } from '../../connection/session.ts';
 import { useT } from '../../lib/i18n.tsx';
 import { ErrorBoundary } from '../../ui/ErrorBoundary.tsx';
@@ -20,6 +20,7 @@ import { colors, mono } from '../../ui/theme.ts';
 import { agentStatus, avatarMood, isWaiting, leadMood, leadStatus, liveStatus, workLabel } from './activity.ts';
 import { AgentPermissionCard, PermissionCard, QuestionCard } from './cards.tsx';
 import { Composer } from './Composer.tsx';
+import { SessionBar } from './SessionBar.tsx';
 import { Markdown } from './Markdown.tsx';
 import { timelineRows, type Row } from './timeline.ts';
 import { loadOlder, useThread } from './useThread.ts';
@@ -35,7 +36,22 @@ export function ChatScreen() {
   const queryClient = useQueryClient();
 
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
-  const info = useQuery({ queryKey: ['projectChat', project], queryFn: () => api.projectChat(project), enabled: lead });
+  // A project's chat is one of its sessions: the one the link named
+  // (/chat/web/lead.prod), the one chosen here since, or else the most
+  // recently active.
+  const sessions = useQuery({ queryKey: ['leadSessions', project], queryFn: () => api.leadSessions(project), enabled: lead });
+  const [chosen, setChosen] = useState(() => (parts[1] && parts[1] !== T.LeadName ? sessionOf(parts.join('/')) : undefined));
+  const list = sessions.data ?? [];
+  const shown = list.find((s) => s.id === chosen) ?? [...list].sort((a, b) => b.activeAt.localeCompare(a.activeAt))[0];
+  const openSession = useMutation({
+    mutationFn: (topic: string) => api.newLeadSession(project, topic),
+    onSuccess: (s) => {
+      setChosen(s.id);
+      void queryClient.invalidateQueries({ queryKey: ['leadSessions', project] });
+    },
+    onError: (err) => Alert.alert(t('sessions.new'), err instanceof Error ? err.message : String(err)),
+  });
+  const info = useQuery({ queryKey: ['projectChat', project, shown?.id], queryFn: () => api.projectChat(project, shown!.id), enabled: lead && !!shown });
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents, enabled: !lead });
   const agent = agents.data?.find((a) => a.ref === agentRef);
   const ref = lead ? (info.data?.started ? info.data.ref : undefined) : agent && agent.state !== 'initializing' ? agent.ref : undefined;
@@ -44,7 +60,7 @@ export function ChatScreen() {
   const waiting = (questions.data ?? []).filter((q) => isWaiting(q) && (lead || q.ref === agentRef));
 
   const p = projects.data?.find((x) => x.name === project);
-  const title = lead ? t('web.phone.projectChat') : agent?.title || parts[1];
+  const title = lead ? shown?.topic || t('web.phone.projectChat') : agent?.title || parts[1];
   const subtitle = lead ? p?.displayName || project : agent?.title ? agent.name : undefined;
   const status = lead ? (info.data ? leadStatus(info.data.chat, thread.data) : undefined) : agent ? agentStatus(agent, thread.data) : undefined;
   const live = thread.data ? liveStatus(thread.data) : undefined;
@@ -59,7 +75,7 @@ export function ChatScreen() {
     setLoadingOlder(true);
     await loadOlder(queryClient, ref).finally(() => setLoadingOlder(false));
   };
-  const chatRef = lead ? `${project}/${T.LeadName}` : agentRef!;
+  const chatRef = lead ? (shown ? sessionRef(project, shown.id) : `${project}/${T.LeadName}`) : agentRef!;
 
   const missing = lead ? projects.data && !p : agents.data && !agent;
   return (
@@ -70,7 +86,12 @@ export function ChatScreen() {
         status={status}
         icon={lead ? <LeadAvatar mood={leadMood(info.data?.chat, waiting.length > 0)} size={32} /> : agent ? <AgentAvatar ai={agent.ai} mood={avatarMood(agent, waiting.length > 0)} size={32} /> : undefined}
       />
-      {missing ? (
+      {lead && sessions.data && (
+        <SessionBar sessions={list} current={shown?.id} canAdd={can(session, 'chat')} onChoose={setChosen} onAdd={(topic) => openSession.mutate(topic)} />
+      )}
+      {lead && sessions.data && !shown ? (
+        <Text style={styles.empty}>{t('sessions.none')}</Text>
+      ) : missing ? (
         <Text style={styles.empty}>{lead ? t('web.phone.missingProject', { name: project }) : t('web.phone.missingAgent', { name: agentRef ?? '' })}</Text>
       ) : (
         <FlatList
@@ -115,7 +136,7 @@ export function ChatScreen() {
           {can(session, 'chat') && <Button label={t('mobile.chat.wake')} icon={Play} kind="secondary" busy={wake.isPending} onPress={() => wake.mutate()} />}
         </View>
       )}
-      {!missing && !asleep && (
+      {!missing && !asleep && (!lead || shown) && (
         <Composer
           chatRef={chatRef}
           name={lead ? t('web.phone.projectChat') : agent?.name ?? ''}

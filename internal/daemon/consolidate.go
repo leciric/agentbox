@@ -113,16 +113,12 @@ func (s *Server) consolidateMechanically(ctx context.Context, p state.Project, n
 //
 // It is called from captureLeadTurn's goroutine, which is already off the
 // conversation's lock, and it takes as long as it takes. Nothing waits for it.
-func (s *Server) consolidateAfterLeadTurn(ctx context.Context, project string) {
-	p, err := s.store.Project(ctx, project)
+func (s *Server) consolidateAfterLeadTurn(ctx context.Context, lead state.Agent) {
+	p, err := s.store.Project(ctx, lead.Project)
 	if err != nil || p.Consolidation == state.ConsolidationOff {
 		return
 	}
 	s.consolidateMechanically(ctx, p, time.Now().Add(-consolidationMinGap))
-	lead, err := s.store.Agent(ctx, project, state.LeadName)
-	if err != nil {
-		return
-	}
 	s.distillIfDue(ctx, lead)
 }
 
@@ -164,10 +160,11 @@ func (s *Server) consolidateNow(ctx context.Context, project string, distil bool
 	// distillation needs of it: the pass runs in a session of its own unless
 	// the project asked for the chat's (D78). A project nobody has ever
 	// chatted with has no lead row at all, and nothing to run the tool as.
-	lead, err := s.store.Agent(ctx, project, state.LeadName)
-	if err != nil {
+	leads, err := s.manager(nil).SessionLeads(ctx, project)
+	if err != nil || len(leads) == 0 {
 		return passes, errors.New("this project's chat has never started, so there is nothing to distil its events with")
 	}
+	lead := leads[0]
 	watermark, err := s.memory().Watermark(ctx, project)
 	if err != nil {
 		return passes, err

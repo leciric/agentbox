@@ -220,7 +220,9 @@ func TestRenderLeadGolden(t *testing.T) {
 				ClaudeAccounts:  []string{"personal", "work"},
 				Notes:           "## From the lead\n\n- 2026-09-18: the e2e tests need a Postgres on 5432.\n",
 				Recap:           "**What this project is doing**\n\n- Adding reminders to the pet profile.",
-				NoteSuggestions: suggestionsFor(tc.name == "on"), // offers in one golden file only
+				NoteSuggestions: suggestionsFor(tc.name == "on"),                // offers in one golden file only
+				Session:         sessionIf(tc.name == "on", "Prod: login 500s"), // one of several sessions in one golden file only
+				OtherSessions:   othersIf(tc.name == "on", "Chat", "Docs"),
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -928,6 +930,20 @@ func TestRenderProjectName(t *testing.T) {
 	if err != nil || !strings.Contains(same, "- Project: pawly\n") {
 		t.Errorf("same name: %v", err)
 	}
+}
+
+func sessionIf(on bool, topic string) string {
+	if !on {
+		return ""
+	}
+	return topic
+}
+
+func othersIf(on bool, topics ...string) []string {
+	if !on {
+		return nil
+	}
+	return topics
 }
 
 // TestRenderLeadAgentTool: a project that names a tool for its agents says

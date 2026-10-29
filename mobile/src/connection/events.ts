@@ -22,7 +22,7 @@ import { forget, session } from './session.ts';
 
 export type Connection = 'connecting' | 'connected' | 'disconnected';
 
-const types = [T.EventAgent, T.EventProject, T.EventChat, T.EventQuestion, T.EventPulls, T.EventReview, T.EventAgentEvent, T.EventMedia, T.EventLAN, 'ping'] as const;
+const types = [T.EventAgent, T.EventProject, T.EventChat, T.EventLeadSessions, T.EventQuestion, T.EventPulls, T.EventReview, T.EventAgentEvent, T.EventMedia, T.EventLAN, 'ping'] as const;
 type Type = (typeof types)[number];
 
 const silentAfter = 45_000;
@@ -81,6 +81,9 @@ export function apply(queryClient: QueryClient, type: string, data: unknown): vo
     }
     case T.EventProject:
       void queryClient.invalidateQueries({ queryKey: ['projects'] });
+      break;
+    case T.EventLeadSessions:
+      void queryClient.invalidateQueries({ queryKey: scoped('leadSessions', data) });
       break;
     case T.EventQuestion:
       void queryClient.invalidateQueries({ queryKey: scoped('questions', data) });

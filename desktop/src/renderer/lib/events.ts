@@ -4,7 +4,7 @@ import type { InfiniteData, QueryClient } from '@tanstack/react-query';
 import { useSyncExternalStore } from 'react';
 import type { ConnectionState } from '../../preload';
 import * as T from '../../shared/api.ts';
-import { api } from './api.ts';
+import { api, sessionOfRef, sessionRef } from './api.ts';
 import { questionsKey, withQuestion } from './inboxPages.ts';
 import { applyMediaEvent, setMediaUnseen } from './mediaPages.ts';
 import { pastAgentsKey } from './pastAgents.ts';
@@ -98,6 +98,11 @@ export function connectEvents(queryClient: QueryClient): void {
       case T.EventChat: {
         const chat = event.data as T.ChatEvent;
         applyChatEvent(queryClient, chat);
+        // A session's state, or a new message in it, is what its tab and the
+        // sidebar show.
+        if (sessionOfRef(chat.agent) && (chat.session || (chat.item && (chat.item.kind === 'user' || chat.item.kind === 'assistant')))) {
+          void queryClient.invalidateQueries({ queryKey: ['leadSessions', chat.agent.split('/')[0]] });
+        }
         // A tool call that finished may have changed files the tree shows.
         if (chat.item && changesFiles(chat.item)) refreshFiles(queryClient, chat.agent, api.fileStatus);
         // A page published on Hatch joins the project's pages.
@@ -105,9 +110,18 @@ export function connectEvents(queryClient: QueryClient): void {
         break;
       }
       case T.EventChatCache: {
-        // A project chat's cache card went up or down (see CacheCard).
+        // A project chat's cache card went up or down (see CacheCard): one
+        // session's, or the Home chat's.
         const cache = event.data as T.ChatCache;
-        queryClient.setQueryData(['chatCache', cache.project], cache);
+        queryClient.setQueryData(['chatCache', cache.session ? sessionRef(cache.project, cache.session) : `${cache.project}/${T.LeadName}`], cache);
+        break;
+      }
+      case T.EventLeadSessions: {
+        // A project's chat sessions were opened, renamed or deleted, or an
+        // agent moved between them.
+        const change = event.data as T.LeadSessionsChange;
+        void queryClient.invalidateQueries({ queryKey: ['leadSessions', change.project] });
+        void queryClient.invalidateQueries({ queryKey: ['fleet', change.project] });
         break;
       }
       case T.EventAgentEvent: {

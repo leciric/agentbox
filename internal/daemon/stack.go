@@ -79,7 +79,7 @@ func (s *Server) restack(ctx context.Context, p state.Project, client github.Cli
 	}
 	if parent.State != "merged" {
 		if len(children) > 0 {
-			s.prLead(ctx, p.Name, fmt.Sprintf(
+			s.prLead(ctx, p.Name, childrenSession(children), fmt.Sprintf(
 				"AgentBox: PR #%d (%s) was closed without merging, and %s stand on its branch `%s`. Decide what becomes of them: rebase them onto `%s` with tell_agent, or retire them.",
 				parent.Number, parent.URL, childNames(children), parent.Head, parent.Base), true)
 		}
@@ -161,7 +161,7 @@ func (s *Server) restack(ctx context.Context, p state.Project, client github.Cli
 	if len(untold) == 0 && len(unmoved) == 0 {
 		b.WriteString(" Nothing to do unless they can't.")
 	}
-	s.prLead(ctx, p.Name, b.String(), len(untold) > 0 || len(unmoved) > 0)
+	s.prLead(ctx, p.Name, childrenSession(children), b.String(), len(untold) > 0 || len(unmoved) > 0)
 }
 
 func childNames(children []stackChild) string {
@@ -190,4 +190,13 @@ func restackMessage(parent stackBase, a state.Agent, pr *github.PullRequest) str
 		fmt.Fprintf(&b, "\n\nIf you've pushed `%s` already, push it again with `--force-with-lease`: you're asked to, for this. Then carry on with your task.", a.Branch)
 	}
 	return b.String()
+}
+
+// childrenSession is the chat session a stack's notice goes to: the one that
+// made the first agent standing on it.
+func childrenSession(children []stackChild) string {
+	if len(children) == 0 {
+		return ""
+	}
+	return children[0].agent.Session()
 }

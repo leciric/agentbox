@@ -497,7 +497,7 @@ func (s *Server) prBroken(ctx context.Context, p state.Project, repo github.Repo
 		s.pushChecksFailed(p.Name, row.Agent, a.Title, !gone, pr.Number, failingNames(pr))
 	}
 	if gone {
-		s.prLead(ctx, p.Name, fmt.Sprintf(
+		s.prLead(ctx, p.Name, "", fmt.Sprintf(
 			"AgentBox's pull request watch: PR #%d (%s) %s. The agent that opened it, %s, is gone: decide who fixes it — an agent of its own, or the user — and say so in a line.",
 			pr.Number, pr.URL, what, row.Agent), true)
 		return
@@ -509,7 +509,7 @@ func (s *Server) prBroken(ctx context.Context, p state.Project, repo github.Repo
 	t, err := s.prTell(ctx, a, prFixMessage(pr, problems))
 	if err != nil {
 		s.logf("pull request watch: telling %s: %v", a.Ref(), err)
-		s.prLead(ctx, p.Name, fmt.Sprintf(
+		s.prLead(ctx, p.Name, a.Session(), fmt.Sprintf(
 			"AgentBox's pull request watch: %s's PR #%d (%s) %s, and %s couldn't be told (%v). Get it fixed: tell_agent once it can be reached, or another agent.",
 			a.Name, pr.Number, pr.URL, what, a.Name, err), true)
 		return
@@ -521,7 +521,7 @@ func (s *Server) prBroken(ctx context.Context, p state.Project, repo github.Repo
 	case "resumed":
 		started = ", resuming its machine, which was paused"
 	}
-	s.prLead(ctx, p.Name, fmt.Sprintf(
+	s.prLead(ctx, p.Name, a.Session(), fmt.Sprintf(
 		"AgentBox's pull request watch: %s's PR #%d (%s) %s. AgentBox told %s to fix it%s. Nothing to do unless it can't.",
 		a.Name, pr.Number, pr.URL, what, a.Name, started), false)
 }
