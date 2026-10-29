@@ -263,7 +263,8 @@ func newProjectModelCmd(a *app) *cobra.Command {
             how hard the task is, and says which it chose
 
 Agents that already exist keep the model they have: this is the starting point
-for the next one.`,
+for the next one. When the project pins OpenCode as its tool, the model must be
+an OpenCode provider/model id, like opencode/deepseek-v4.1-flash.`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := a.client(cmd)
@@ -319,7 +320,7 @@ name one, or names no account of its own.
 
 An account or a tool named for one agent still wins over this. Agents that
 already exist keep the tool they have: this is the starting point for the next
-one.`,
+one. Pinning OpenCode needs a model too: set one with agentbox project model.`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := a.client(cmd)

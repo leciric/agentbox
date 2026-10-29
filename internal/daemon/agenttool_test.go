@@ -290,4 +290,47 @@ func TestNewAgentRunsTheProjectsTool(t *testing.T) {
 	if got := checked(t, d, api.CreateAgentRequest{}); got.AI != "cursor" {
 		t.Errorf("with no project tool an agent runs %q, want the chat's cursor", got.AI)
 	}
+	// A project that pins OpenCode names the model too: the lead runs another
+	// tool, so there is no model of its to inherit, and OpenCode has no
+	// default the adapter may pick.
+	if err := d.srv.store.SetProjectAgentDefaults(ctx, "hello-stack", state.ProjectAgentDefaults{Tool: str("opencode")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := (credentials.Store{Dir: d.paths.Credentials()}).SaveToolAccount("opencode", "anthropic", "", []byte(`{"type":"api","key":"sk"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.srv.checkCreate(ctx, api.CreateAgentRequest{Project: "hello-stack", Title: "Reminders page", Task: "add it"}, true); err == nil || !strings.Contains(err.Error(), "needs a model") {
+		t.Errorf("pinning OpenCode without a model: %v, want a refusal saying it needs one", err)
+	}
+	if err := d.srv.store.SetProjectAgentModel(ctx, "hello-stack", "opencode/deepseek-v4.1-flash"); err != nil {
+		t.Fatal(err)
+	}
+	got := checked(t, d, api.CreateAgentRequest{Title: "Reminders page", Task: "add it"})
+	if got.AI != "opencode" || got.Model == nil || *got.Model != "opencode/deepseek-v4.1-flash" || got.ToolNotice != "" {
+		t.Errorf("agent runs %q on model %v (notice %q), want the project's opencode on its pinned model", got.AI, got.Model, got.ToolNotice)
+	}
+}
+
+// TestNewAgentInheritsTheLeadsModel: an agent that follows an OpenCode lead
+// starts on the exact model the lead's session runs, not the adapter default
+// the account may not have enabled.
+func TestNewAgentInheritsTheLeadsModel(t *testing.T) {
+	t.Parallel()
+	d := leadToolDaemon(t, state.Chat{Tool: "opencode", Options: map[string]string{"model": "opencode/deepseek-v4.1-flash"}})
+	if err := d.srv.store.SetFlag(context.Background(), state.SettingImageOpenCode, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := (credentials.Store{Dir: d.paths.Credentials()}).SaveToolAccount("opencode", "anthropic", "", []byte(`{"type":"api","key":"sk"}`)); err != nil {
+		t.Fatal(err)
+	}
+	got := checked(t, d, api.CreateAgentRequest{Title: "Reminders page", Task: "add it"})
+	if got.AI != "opencode" || got.Model == nil || *got.Model != "opencode/deepseek-v4.1-flash" {
+		t.Errorf("agent runs %q on model %v, want opencode on opencode/deepseek-v4.1-flash", got.AI, got.Model)
+	}
+	// An explicit model for this agent still wins over the lead's.
+	chosen := "anthropic/claude-sonnet-5"
+	got = checked(t, d, api.CreateAgentRequest{Title: "Reminders page", Task: "add it", Model: &chosen})
+	if got.Model == nil || *got.Model != chosen {
+		t.Errorf("agent model = %v, want the one in the request %q", got.Model, chosen)
+	}
 }
