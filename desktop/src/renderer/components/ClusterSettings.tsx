@@ -1,9 +1,22 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowUpCircle, Ban, Info, LoaderCircle, Play, Plus, Stethoscope, Trash2 } from 'lucide-react';
+import { ArrowUpCircle, Ban, Info, KeyRound, LoaderCircle, Pencil, Play, Plus, Stethoscope, Trash2 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
+import {
+  clusterConfig,
+  clusterEdit,
+  editChanges,
+  masterURLProblem,
+  maxAgentsProblem,
+  normalizeMasterURL,
+  sizeFields,
+  sizeProblem,
+  tailnets,
+  type ClusterEdit,
+  type SizeField,
+} from '../lib/clusterConfig';
 import { formatDateTime, t, useT } from '../lib/i18n';
 import type { SettingGroup } from '../lib/settingsSearch';
 import { errorMessage, timeAgo } from '../lib/utils';
@@ -111,7 +124,9 @@ function ClusterList() {
         // sentence, aligned with its heading rather than boxed like a row.
         <SettingNote className="px-1">{t('settings.clusters.none')}</SettingNote>
       ) : (
-        <ul className="grid gap-3">
+        // grid-cols-1 is minmax(0, 1fr): a card whose image is a long digest
+        // wraps it rather than widening the column past a narrow window.
+        <ul className="grid grid-cols-1 gap-3">
           {list.map((cluster) => (
             <ClusterCard
               key={cluster.name}
@@ -142,9 +157,9 @@ function ClusterList() {
   );
 }
 
-// ClusterCard is one cluster: what it runs, how much room it has, and the four
-// things that change it: draining it, upgrading its image, reading what it
-// holds now, and forgetting it.
+// ClusterCard is one cluster: what it runs, how much room it has, and the
+// things that change it: editing its address and sizes, draining it, upgrading
+// its image, giving it a new token, reading what it holds now, and forgetting it.
 function ClusterCard({
   cluster,
   others,
@@ -163,6 +178,8 @@ function ClusterCard({
   const t = useT();
   const queryClient = useQueryClient();
   const [details, setDetails] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [rotating, setRotating] = useState(false);
   const [draining, setDraining] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
   // What a drain does with the agents it has. Neither field is the daemon's
@@ -204,7 +221,7 @@ function ClusterCard({
   });
 
   return (
-    <li className="grid gap-1.5 rounded-md border border-line-faint p-3">
+    <li className="grid min-w-0 gap-1.5 rounded-md border border-line-faint p-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-mono text-[13px] text-primary">{cluster.name}</span>
         <Badge>{cluster.namespace}</Badge>
@@ -212,22 +229,32 @@ function ClusterCard({
         {cluster.tailnet !== 'none' && <Badge>{t('settings.clusters.tailnetBadge', { mode: cluster.tailnet })}</Badge>}
         {cluster.draining && <Badge variant="warning">{t('settings.clusters.drainingBadge')}</Badge>}
       </div>
-      <p className="break-words text-[12px] leading-relaxed text-subtle">
+      <p className="[overflow-wrap:anywhere] text-[12px] leading-relaxed text-subtle">
         {cluster.image ? t('settings.clusters.imageLine', { image: cluster.image }) : t('settings.clusters.noImage')}
         {cluster.storageClass ? ` · ${t('settings.clusters.storageClassLine', { class: cluster.storageClass })}` : ''}
         {cluster.previousImage ? ` · ${t('settings.clusters.previousImage', { image: cluster.previousImage })}` : ''}
         {cluster.lastSeen ? ` · ${t('settings.clusters.lastSeen', { when: formatDateTime(new Date(cluster.lastSeen)) })}` : ''}
       </p>
+      {cluster.masterURL && (
+        <p className="break-all text-[12px] leading-relaxed text-subtle">{t('settings.clusters.masterLine', { url: cluster.masterURL })}</p>
+      )}
       <p className="break-words text-[12px] leading-relaxed text-secondary">{capacityLine(cluster)}</p>
+      {/* Placement refuses a cluster with no master URL (placement.go), so one
+          without is said as plainly as a failed doctor. */}
+      {!cluster.masterURL && <Notice>{t('settings.clusters.noMasterURL')}</Notice>}
       {cluster.capacity?.error && <Notice>{cluster.capacity.error}</Notice>}
       {cluster.lastError && <Notice>{cluster.lastError}</Notice>}
-      {/* The five actions never fit beside the name in this column, so they are
+      {/* The actions never fit beside the name in this column, so they are
           the card's footer rather than a second header line with nothing under
           it: read what the cluster is, then what to do with it. */}
       <div className="mt-1 flex flex-wrap items-center justify-end gap-1 border-t border-line-faint pt-2">
         <Button variant="ghost" size="sm" data-cluster-details={cluster.name} onClick={() => setDetails(true)}>
           <Info />
           {t('settings.clusters.details')}
+        </Button>
+        <Button variant="ghost" size="sm" data-cluster-edit={cluster.name} onClick={() => setEditing(true)}>
+          <Pencil />
+          {t('settings.clusters.edit')}
         </Button>
         <Button variant="ghost" size="sm" disabled={checking} onClick={onDoctor}>
           {checking ? <LoaderCircle className="animate-spin" /> : <Stethoscope />}
@@ -250,6 +277,10 @@ function ClusterCard({
             {t('settings.clusters.upgrade')}
           </Button>
         )}
+        <Button variant="ghost" size="sm" data-cluster-rotate={cluster.name} onClick={() => setRotating(true)}>
+          <KeyRound />
+          {t('settings.clusters.rotate')}
+        </Button>
         <Button variant="ghost" size="sm" onClick={onRemove}>
           <Trash2 />
           {t('common.remove')}
@@ -349,6 +380,9 @@ function ClusterCard({
       </Dialog>
 
       <ClusterDetailDialog cluster={cluster} open={details} onOpenChange={setDetails} />
+      {/* Mounted only while open, so each opening starts from what is stored. */}
+      {editing && <ClusterEditDialog cluster={cluster} onClose={() => setEditing(false)} />}
+      {rotating && <ClusterRotateDialog cluster={cluster} onClose={() => setRotating(false)} />}
     </li>
   );
 }
@@ -394,6 +428,8 @@ function ClusterDetailDialog({ cluster, open, onOpenChange }: { cluster: T.Clust
         {data?.error && <Notice>{data.error}</Notice>}
         {data && (
           <div className="grid max-h-[60vh] min-w-0 gap-5 overflow-y-auto pr-1">
+            <ConfigSection cluster={data.cluster ?? cluster} />
+
             <DetailSection title={t('settings.clusters.pods')} empty={t('settings.clusters.noPods')} count={data.pods?.length ?? 0}>
               {(data.pods ?? []).map((pod) => (
                 <li key={pod.name} className="grid min-w-0 gap-1 rounded-md border border-line-faint p-2">
@@ -470,6 +506,309 @@ function DetailSection({ title, empty, count, children }: { title: string; empty
   );
 }
 
+// ConfigSection is how the cluster is set up, as the daemon stores it: where its
+// pods reach this machine, and the sizes and budget its agents get. A size not
+// set is the daemon's default.
+function ConfigSection({ cluster }: { cluster: T.Cluster }) {
+  const t = useT();
+  const rows: [string, string][] = [
+    [t('settings.clusters.masterURL'), cluster.masterURL || t('settings.clusters.notSet')],
+    [t('settings.clusters.tailnet'), cluster.tailnet || 'none'],
+    [t('settings.clusters.maxAgents'), cluster.maxAgents > 0 ? String(cluster.maxAgents) : t('settings.clusters.maxAgentsAny')],
+    ...sizeFields.map((field): [string, string] => [sizeLabel(field), cluster[field] || t('settings.clusters.sizeDefault')]),
+  ];
+  return (
+    <section className="grid min-w-0 gap-1.5">
+      <h3 className="text-[12px] font-medium uppercase tracking-[0.06em] text-faint">{t('settings.clusters.config')}</h3>
+      <dl className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-[12px]">
+        {rows.map(([label, value]) => (
+          <div key={label} className="contents">
+            <dt className="text-subtle">{label}</dt>
+            <dd className="min-w-0 break-all font-mono text-primary">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+function sizeLabel(field: SizeField): string {
+  switch (field) {
+    case 'cpu':
+      return t('settings.clusters.cpu');
+    case 'memory':
+      return t('settings.clusters.memory');
+    case 'agentCPU':
+      return t('settings.clusters.agentCPU');
+    case 'agentMemory':
+      return t('settings.clusters.agentMemory');
+    case 'workspaceSize':
+      return t('settings.clusters.workspaceSize');
+    case 'ephemeralStorage':
+      return t('settings.clusters.ephemeralStorage');
+  }
+}
+
+function sizeHint(field: SizeField): string {
+  switch (field) {
+    case 'cpu':
+      return t('settings.clusters.cpuHint');
+    case 'memory':
+      return t('settings.clusters.memoryHint');
+    case 'agentCPU':
+      return t('settings.clusters.agentCPUHint');
+    case 'agentMemory':
+      return t('settings.clusters.agentMemoryHint');
+    case 'workspaceSize':
+      return t('settings.clusters.workspaceSizeHint');
+    case 'ephemeralStorage':
+      return t('settings.clusters.ephemeralStorageHint');
+  }
+}
+
+// masterURLError is what a master URL's field says under it when the daemon
+// would refuse it, in the words of the daemon's own error.
+function masterURLError(raw: string): string {
+  switch (masterURLProblem(raw)) {
+    case 'scheme':
+      return t('settings.clusters.masterURLScheme');
+    case 'host':
+      return t('settings.clusters.masterURLHost');
+    case 'login':
+      return t('settings.clusters.masterURLLogin');
+    case 'query':
+      return t('settings.clusters.masterURLQuery');
+    case 'fragment':
+      return t('settings.clusters.masterURLFragment');
+    default:
+      return '';
+  }
+}
+
+// FieldError is a field's hint when what it holds would be refused.
+function FieldError({ children }: { children: ReactNode }) {
+  return <span className="text-rose-400">{children}</span>;
+}
+
+// MasterURLField is the master URL's input, with the help the CLI's
+// --master-url gives and the daemon's checks made as it is typed.
+function MasterURLField({ id, value, onChange }: { id: string; value: string; onChange: (value: string) => void }) {
+  const t = useT();
+  const error = masterURLError(value);
+  return (
+    <Field label={t('settings.clusters.masterURL')} htmlFor={id} hint={error ? <FieldError>{error}</FieldError> : t('settings.clusters.masterURLHint')}>
+      <Input
+        id={id}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="https://monster.example.ts.net"
+        spellCheck={false}
+        aria-invalid={error !== ''}
+        className="font-mono"
+      />
+    </Field>
+  );
+}
+
+// TailnetField is how the cluster's pods reach this machine and the git remote.
+function TailnetField({ id, value, onChange }: { id: string; value: string; onChange: (value: string) => void }) {
+  const t = useT();
+  return (
+    <Field label={t('settings.clusters.tailnet')} htmlFor={id} hint={t('settings.clusters.tailnetHint')}>
+      <select
+        id={id}
+        className="h-8 w-full min-w-0 rounded-md border border-line-vivid bg-transparent px-2 text-[13px] text-primary"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {tailnets.map((mode) => (
+          <option key={mode} value={mode}>
+            {mode === 'none'
+              ? t('settings.clusters.tailnetNone')
+              : mode === 'operator'
+                ? t('settings.clusters.tailnetOperator')
+                : t('settings.clusters.tailnetSidecar')}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+}
+
+// ClusterEditDialog changes what `agentbox cluster set` changes from here: the
+// master URL, the tailnet, the budget and the sizes. Image, registry and storage
+// class keep their own paths (upgrade, and the CLI), and go back unchanged.
+function ClusterEditDialog({ cluster, onClose }: { cluster: T.Cluster; onClose: () => void }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [edit, setEdit] = useState<ClusterEdit>(() => clusterEdit(cluster));
+  const [confirming, setConfirming] = useState(false);
+  const set = (key: keyof ClusterEdit) => (value: string) => setEdit((before) => ({ ...before, [key]: value }));
+  const save = useMutation({
+    mutationFn: () => api.updateCluster(cluster.name, clusterConfig(cluster, edit)),
+    onSuccess: async (updated) => {
+      toast(t('settings.clusters.saved', { name: updated.name }));
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['clusters'] }),
+        queryClient.invalidateQueries({ queryKey: ['clusterDetail', cluster.name] }),
+      ]);
+      onClose();
+    },
+  });
+  const changes = editChanges(cluster, edit);
+  const invalid =
+    masterURLProblem(edit.masterURL) !== '' || maxAgentsProblem(edit.maxAgents) !== '' || sizeFields.some((field) => sizeProblem(edit[field]) !== '');
+  // Why Save is off, said beside it rather than left to guess.
+  const blocked = invalid ? t('settings.clusters.editInvalid') : changes.length === 0 ? t('settings.clusters.editUnchanged') : '';
+  // A new address or route is where this cluster's pods find this machine:
+  // worth a second look, and pods already running keep the one they started with.
+  const moves = changes.includes('masterURL') || changes.includes('tailnet');
+  return (
+    <>
+      <Dialog open onOpenChange={(open) => !open && onClose()}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>{t('settings.clusters.editTitle', { name: cluster.name })}</DialogTitle>
+            <DialogDescription>{t('settings.clusters.editDescription')}</DialogDescription>
+          </DialogHeader>
+          <form
+            id={`cluster-edit-${cluster.name}`}
+            className="grid max-h-[60vh] min-w-0 gap-3 overflow-y-auto pr-1"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (blocked) return;
+              if (moves) setConfirming(true);
+              else save.mutate();
+            }}
+          >
+            <MasterURLField id={`cluster-edit-master-${cluster.name}`} value={edit.masterURL} onChange={set('masterURL')} />
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <TailnetField id={`cluster-edit-tailnet-${cluster.name}`} value={edit.tailnet} onChange={set('tailnet')} />
+              <Field
+                label={t('settings.clusters.maxAgents')}
+                htmlFor={`cluster-edit-max-${cluster.name}`}
+                hint={maxAgentsProblem(edit.maxAgents) ? <FieldError>{t('settings.clusters.maxAgentsInvalid')}</FieldError> : t('settings.clusters.maxAgentsHint')}
+              >
+                <Input
+                  id={`cluster-edit-max-${cluster.name}`}
+                  inputMode="numeric"
+                  value={edit.maxAgents}
+                  onChange={(event) => set('maxAgents')(event.target.value)}
+                  aria-invalid={maxAgentsProblem(edit.maxAgents) !== ''}
+                  className="w-24 font-mono"
+                />
+              </Field>
+              {sizeFields.map((field) => {
+                const problem = sizeProblem(edit[field]);
+                return (
+                  <Field
+                    key={field}
+                    label={sizeLabel(field)}
+                    htmlFor={`cluster-edit-${field}-${cluster.name}`}
+                    hint={
+                      problem === 'invalid' ? (
+                        <FieldError>{t('settings.clusters.sizeInvalid')}</FieldError>
+                      ) : problem === 'zero' ? (
+                        <FieldError>{t('settings.clusters.sizeZero')}</FieldError>
+                      ) : (
+                        sizeHint(field)
+                      )
+                    }
+                  >
+                    <Input
+                      id={`cluster-edit-${field}-${cluster.name}`}
+                      value={edit[field]}
+                      onChange={(event) => set(field)(event.target.value)}
+                      placeholder={t('settings.clusters.sizeDefault')}
+                      spellCheck={false}
+                      aria-invalid={problem !== ''}
+                      className="font-mono"
+                    />
+                  </Field>
+                );
+              })}
+            </div>
+          </form>
+          {save.error && <Notice>{errorMessage(save.error)}</Notice>}
+          <DialogFooter className="items-center">
+            {blocked && <SettingNote className="mr-auto">{blocked}</SettingNote>}
+            <Button variant="ghost" onClick={onClose}>
+              {t('common.cancel')}
+            </Button>
+            <Button type="submit" form={`cluster-edit-${cluster.name}`} disabled={blocked !== '' || save.isPending}>
+              {save.isPending && <LoaderCircle className="animate-spin" />}
+              {t('common.save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title={t('settings.clusters.moveTitle', { name: cluster.name })}
+        description={t('settings.clusters.moveDescription', {
+          from: cluster.masterURL || t('settings.clusters.notSet'),
+          to: normalizeMasterURL(edit.masterURL) || t('settings.clusters.notSet'),
+          tailnet: edit.tailnet,
+        })}
+        confirmLabel={t('settings.clusters.moveConfirm')}
+        onConfirm={() => save.mutateAsync()}
+      />
+    </>
+  );
+}
+
+// ClusterRotateDialog is `agentbox cluster rotate`: AgentBox's access applied
+// again and a new token made with an admin kubeconfig, after which the old token
+// reaches nothing. The dialog is its own confirmation: it says that first, and
+// the button is off, with the reason, until there is a kubeconfig to do it with.
+function ClusterRotateDialog({ cluster, onClose }: { cluster: T.Cluster; onClose: () => void }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [kubeconfig, setKubeconfig] = useState('');
+  const rotate = useMutation({
+    mutationFn: () => api.rotateCluster(cluster.name, { kubeconfig }),
+    onSuccess: async () => {
+      toast(t('settings.clusters.rotated', { name: cluster.name }));
+      await queryClient.invalidateQueries({ queryKey: ['clusters'] });
+      onClose();
+    },
+  });
+  const ready = kubeconfig.trim() !== '';
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t('settings.clusters.rotateTitle', { name: cluster.name })}</DialogTitle>
+          <DialogDescription>{t('settings.clusters.rotateDescription')}</DialogDescription>
+        </DialogHeader>
+        <Field label={t('settings.clusters.kubeconfig')} htmlFor={`cluster-rotate-${cluster.name}`} hint={t('settings.clusters.rotateHint')}>
+          <Textarea
+            id={`cluster-rotate-${cluster.name}`}
+            value={kubeconfig}
+            onChange={(event) => setKubeconfig(event.target.value)}
+            rows={6}
+            spellCheck={false}
+            placeholder={'apiVersion: v1\nkind: Config\nclusters: …'}
+            className="font-mono text-[12px]"
+          />
+        </Field>
+        {rotate.error && <Notice>{errorMessage(rotate.error)}</Notice>}
+        <DialogFooter className="items-center">
+          {!ready && <SettingNote className="mr-auto">{t('settings.clusters.rotateNeedsKubeconfig')}</SettingNote>}
+          <Button variant="ghost" onClick={onClose}>
+            {t('common.cancel')}
+          </Button>
+          <Button variant="destructive" disabled={!ready || rotate.isPending} onClick={() => rotate.mutate()}>
+            {rotate.isPending && <LoaderCircle className="animate-spin" />}
+            {t('settings.clusters.rotateConfirm')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // shortImage is the image without its registry prefix: the page has the full
 // reference in its title, and the tag or digest is what changes.
 function shortImage(image: string): string {
@@ -485,6 +824,8 @@ function ClusterForm() {
   const [image, setImage] = useState('');
   const [registry, setRegistry] = useState('');
   const [storageClass, setStorageClass] = useState('');
+  const [masterURL, setMasterURL] = useState('');
+  const [tailnet, setTailnet] = useState('none');
   const [kubeconfig, setKubeconfig] = useState('');
   const add = useMutation({
     mutationFn: () =>
@@ -494,19 +835,23 @@ function ClusterForm() {
         image: image.trim() || undefined,
         registry: registry || undefined,
         storageClass: storageClass.trim() || undefined,
-        tailnet: 'none',
+        masterURL: normalizeMasterURL(masterURL) || undefined,
+        tailnet,
         kubeconfig,
       }),
     onSuccess: async (cluster) => {
       toast(t('settings.clusters.added', { name: cluster.name }));
       setName('');
       setImage('');
+      setMasterURL('');
       setKubeconfig('');
       await queryClient.invalidateQueries({ queryKey: ['clusters'] });
     },
     onError: (err) => toast.error(errorMessage(err)),
   });
-  const ready = name.trim() !== '' && kubeconfig.trim() !== '';
+  // As on the command line, a cluster may be added before its master URL is
+  // known; the form says what that means rather than refusing it.
+  const ready = name.trim() !== '' && kubeconfig.trim() !== '' && masterURLProblem(masterURL) === '';
   return (
     <form
       // The same inset as a row of the panel around it (SettingRow's): these
@@ -566,6 +911,10 @@ function ClusterForm() {
           />
         </Field>
       </div>
+      <div className="grid gap-2.5 sm:grid-cols-[minmax(0,1fr)_auto]">
+        <MasterURLField id="cluster-master" value={masterURL} onChange={setMasterURL} />
+        <TailnetField id="cluster-tailnet" value={tailnet} onChange={setTailnet} />
+      </div>
       <Field label={t('settings.clusters.kubeconfig')} htmlFor="cluster-kubeconfig" hint={t('settings.clusters.kubeconfigHint')}>
         <Textarea
           id="cluster-kubeconfig"
@@ -582,7 +931,17 @@ function ClusterForm() {
           {add.isPending ? <LoaderCircle className="animate-spin" /> : <Plus />}
           {t('settings.clusters.add')}
         </Button>
-        <SettingNote>{t('settings.clusters.addSlow')}</SettingNote>
+        <SettingNote>
+          {name.trim() === ''
+            ? t('settings.clusters.addNeedsName')
+            : kubeconfig.trim() === ''
+              ? t('settings.clusters.addNeedsKubeconfig')
+              : masterURLProblem(masterURL) !== ''
+                ? t('settings.clusters.addFixMasterURL')
+                : masterURL.trim() === ''
+                  ? t('settings.clusters.addNoMasterURL')
+                  : t('settings.clusters.addSlow')}
+        </SettingNote>
       </div>
       {add.error && <Notice>{errorMessage(add.error)}</Notice>}
     </form>
