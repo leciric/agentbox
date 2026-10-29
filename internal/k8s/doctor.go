@@ -19,7 +19,7 @@ import (
 // Check is one thing `agentbox cluster doctor` looked at.
 type Check struct {
 	// Name is what it looked at, short enough for a table: api, master url,
-	// namespace, network policy, nodes, storage class, workspace claim,
+	// namespace, pod security, network policy, nodes, storage class, workspace claim,
 	// registry, image, tailnet.
 	Name string
 	OK   bool
@@ -109,7 +109,7 @@ func (d Doctor) Run(ctx context.Context) Report {
 		return report
 	}
 	report.Checks = append(report.Checks, Check{Name: "api", OK: true, Detail: version.GitVersion})
-	report.Checks = append(report.Checks, d.masterURL(), d.namespace(ctx), d.netPol(ctx), d.nodes(ctx), d.storageClass(ctx),
+	report.Checks = append(report.Checks, d.masterURL(), d.namespace(ctx), d.podSecurity(ctx), d.netPol(ctx), d.nodes(ctx), d.storageClass(ctx),
 		d.workspaceClaim(ctx), d.pullSecret(ctx), d.image(ctx))
 	if len(d.Egress) > 0 {
 		report.Checks = append(report.Checks, d.Cluster.EgressCheck(ctx, d.Egress, true)...)
@@ -143,6 +143,38 @@ func (d Doctor) namespace(ctx context.Context) Check {
 		return Check{Name: "namespace", Detail: fmt.Sprintf("reading pods in %s: %v", d.Cluster.Namespace(), err)}
 	}
 	return Check{Name: "namespace", OK: true, Detail: d.Cluster.Namespace()}
+}
+
+// podSecurity is whether the namespace refuses privileged pods. The Role lets
+// the sealed credential create pods, so a namespace that admits privileged or
+// hostPath ones makes that credential root on a node. A cluster added before
+// the reader ClusterRole could read the namespace says so, rather than pass.
+func (d Doctor) podSecurity(ctx context.Context) Check {
+	const name = "pod security"
+	ctx, cancel := context.WithTimeout(ctx, d.timeout())
+	defer cancel()
+	namespace := d.Cluster.Namespace()
+	live, err := d.Cluster.Client().CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+	if apierrors.IsForbidden(err) {
+		return Check{Name: name, Detail: fmt.Sprintf(
+			"the ServiceAccount can't read the namespace %s to see its pod security label: apply the read rule with agentbox cluster rotate %s",
+			namespace, d.Cluster.Name())}
+	}
+	if err != nil {
+		return Check{Name: name, Detail: fmt.Sprintf("reading the namespace %s: %v", namespace, err)}
+	}
+	if level := live.Labels[LabelPodSecurity]; PodSecurityEnforced(live.Labels) {
+		return Check{Name: name, OK: true, Detail: namespace + " enforces " + level}
+	}
+	fix := fmt.Sprintf("label it with agentbox cluster rotate %s", d.Cluster.Name())
+	if live.Labels[LabelManaged] != "true" {
+		// Not AgentBox's to relabel: other workloads may need what it refuses.
+		fix = fmt.Sprintf("AgentBox didn't create it, so label it yourself with kubectl label namespace %s %s=%s",
+			namespace, LabelPodSecurity, PodSecurityLevel)
+	}
+	return Check{Name: name, Detail: fmt.Sprintf(
+		"%s enforces no pod security, so the cluster credential can create a privileged pod and be root on a node: %s",
+		namespace, fix)}
 }
 
 // netPol is whether the namespace's NetworkPolicy is there and does its job:

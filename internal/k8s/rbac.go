@@ -2,6 +2,7 @@ package k8s
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -22,7 +23,38 @@ const (
 	RoleName = "agentbox"
 	// LabelManaged marks the objects AgentBox owns in a cluster.
 	LabelManaged = "agentbox/managed"
+
+	// LabelPodSecurity is the Pod Security Admission label that decides which
+	// pods a namespace admits. The Role lets the ServiceAccount create pods,
+	// so without it the sealed kubeconfig could create a privileged or
+	// hostPath pod and be root on a node: the label is what keeps the
+	// credential inside its namespace.
+	LabelPodSecurity = "pod-security.kubernetes.io/enforce"
+	// LabelPodSecurityVersion pins the policy to the API server's own version,
+	// so a newer cluster's tightened baseline applies as it ships.
+	LabelPodSecurityVersion = "pod-security.kubernetes.io/enforce-version"
+	// PodSecurityLevel is baseline, not restricted: the init container that
+	// hands a claim's workspace to the agent's user runs as root with CHOWN,
+	// which restricted refuses. Baseline still refuses privileged pods,
+	// host namespaces and hostPath volumes.
+	PodSecurityLevel = "baseline"
 )
+
+// ErrForeignNamespace is `cluster add` targeting a namespace AgentBox didn't
+// create and that admits privileged pods. AgentBox doesn't relabel a
+// namespace it doesn't own, since other workloads there may need what the
+// label would refuse.
+var ErrForeignNamespace = errors.New("the namespace was not created by AgentBox and enforces no pod security")
+
+// PodSecurityEnforced reports whether a namespace's labels refuse privileged
+// pods: baseline or restricted.
+func PodSecurityEnforced(labels map[string]string) bool {
+	switch labels[LabelPodSecurity] {
+	case "baseline", "restricted":
+		return true
+	}
+	return false
+}
 
 // Access is what AgentBox needs in a cluster: the namespace its agents run in,
 // the ServiceAccount the master acts as, a Role and RoleBinding that let it run
@@ -54,8 +86,12 @@ func NewAccess(namespace string) Access {
 	labels := map[string]string{LabelManaged: "true"}
 	return Access{
 		Namespace: &corev1.Namespace{
-			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Namespace"},
-			ObjectMeta: metav1.ObjectMeta{Name: namespace, Labels: labels},
+			TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Namespace"},
+			ObjectMeta: metav1.ObjectMeta{Name: namespace, Labels: map[string]string{
+				LabelManaged:            "true",
+				LabelPodSecurity:        PodSecurityLevel,
+				LabelPodSecurityVersion: "latest",
+			}},
 		},
 		ServiceAccount: &corev1.ServiceAccount{
 			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "ServiceAccount"},
@@ -83,7 +119,7 @@ func NewAccess(namespace string) Access {
 		Reader: &rbacv1.ClusterRole{
 			TypeMeta:   metav1.TypeMeta{APIVersion: "rbac.authorization.k8s.io/v1", Kind: "ClusterRole"},
 			ObjectMeta: metav1.ObjectMeta{Name: ReaderName(namespace), Labels: labels},
-			Rules:      readerRules(),
+			Rules:      readerRules(namespace),
 		},
 		ReaderBinding: &rbacv1.ClusterRoleBinding{
 			TypeMeta:   metav1.TypeMeta{APIVersion: "rbac.authorization.k8s.io/v1", Kind: "ClusterRoleBinding"},
@@ -162,8 +198,16 @@ func agentRules() []rbacv1.PolicyRule {
 // the nodes have, what they are labelled, whether the storage class an agent
 // asks for exists, and the operator's split DNS, which is cluster-scoped and
 // which `cluster doctor` reads to say a tailnet name resolves. Read only.
-func readerRules() []rbacv1.PolicyRule {
+func readerRules(namespace string) []rbacv1.PolicyRule {
 	return []rbacv1.PolicyRule{
+		{
+			// The doctor's pod security check: a namespace is cluster-scoped,
+			// so only this ClusterRole can let it read its own, and only its own.
+			APIGroups:     []string{""},
+			Resources:     []string{"namespaces"},
+			ResourceNames: []string{namespace},
+			Verbs:         []string{"get"},
+		},
 		{
 			APIGroups: []string{""},
 			Resources: []string{"nodes"},
@@ -189,8 +233,8 @@ func readerRules() []rbacv1.PolicyRule {
 // corrects a Role an older AgentBox wrote. The namespace is only created: its
 // finalizers belong to whatever else runs in it.
 func (a Access) Apply(ctx context.Context, client k8sclient.Interface) error {
-	if _, err := client.CoreV1().Namespaces().Create(ctx, a.Namespace, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
-		return fmt.Errorf("creating the namespace %s: %w", a.Namespace.Name, err)
+	if err := a.applyNamespace(ctx, client); err != nil {
+		return err
 	}
 	if err := applyServiceAccount(ctx, client, a.ServiceAccount); err != nil {
 		return err
@@ -205,6 +249,48 @@ func (a Access) Apply(ctx context.Context, client k8sclient.Interface) error {
 		return err
 	}
 	return applyClusterRoleBinding(ctx, client, a.ReaderBinding)
+}
+
+// applyNamespace creates the namespace with its pod security label. One that
+// exists already gets the label only when AgentBox made it and it lacks one, which is how a
+// cluster added before the label gets it from `cluster rotate`. A namespace
+// someone else made is never relabelled: it is accepted when it already
+// enforces baseline or restricted, and refused otherwise, because the Role's
+// pod create would make the credential root on a node there.
+func (a Access) applyNamespace(ctx context.Context, client k8sclient.Interface) error {
+	namespaces := client.CoreV1().Namespaces()
+	name := a.Namespace.Name
+	_, err := namespaces.Create(ctx, a.Namespace, metav1.CreateOptions{})
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsAlreadyExists(err) {
+		return fmt.Errorf("creating the namespace %s: %w", name, err)
+	}
+	live, err := namespaces.Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("reading the namespace %s: %w", name, err)
+	}
+	if live.Labels[LabelManaged] != "true" {
+		if PodSecurityEnforced(live.Labels) {
+			return nil
+		}
+		return fmt.Errorf("%w: %s admits privileged pods, and the ServiceAccount AgentBox makes there can create pods; label it yourself with kubectl label namespace %s %s=%s, or let AgentBox create a namespace of its own with --namespace",
+			ErrForeignNamespace, name, name, LabelPodSecurity, PodSecurityLevel)
+	}
+	if PodSecurityEnforced(live.Labels) {
+		// Baseline already, or restricted by someone who chose it.
+		return nil
+	}
+	if live.Labels == nil {
+		live.Labels = map[string]string{}
+	}
+	live.Labels[LabelPodSecurity] = PodSecurityLevel
+	live.Labels[LabelPodSecurityVersion] = "latest"
+	if _, err := namespaces.Update(ctx, live, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("labelling the namespace %s for pod security: %w", name, err)
+	}
+	return nil
 }
 
 // YAML renders the objects as the documents a user applies by hand, for
