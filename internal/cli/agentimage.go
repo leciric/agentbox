@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"agentbox/internal/agentimage"
+	"agentbox/internal/api"
 )
 
 // addAgentImageCmd puts the container image agents run as under the image
@@ -44,7 +45,8 @@ It carries the agent binary, the desktop an agent's browser and media work runs
 on, and the AI tools and ACP adapters at the pins internal/image/tools.txt
 holds, OpenCode 2 among them at image.OpenCode2Version. It is for your own
 cluster and your own registry, and the publishable variant, which could go to a
-public registry, is not made here yet.`,
+public registry, is not made here yet: --push refuses a registry added with
+--public.`,
 	}
 	cmd.AddCommand(newAgentImageBuildCmd(a))
 	return cmd
@@ -89,6 +91,11 @@ agentbox binary into bin/agentbox first, and tags it agentbox-agent:<tag> or
 				if registry.URL == "" {
 					return fmt.Errorf("registry %s has no address: add it again with agentbox registry add", registryName)
 				}
+				if push {
+					if err := checkPushTo(registry, stage); err != nil {
+						return err
+					}
+				}
 				ref = strings.TrimSuffix(registry.URL, "/") + "/" + ref
 			}
 			root, err := repositoryRoot()
@@ -119,6 +126,31 @@ agentbox binary into bin/agentbox first, and tags it agentbox-agent:<tag> or
 	cmd.Flags().BoolVar(&push, "push", false, "push the image to the registry --registry names")
 	cmd.Flags().StringVar(&registryName, "registry", "", "the registry to name the image under (agentbox registry list), and to push it to with --push")
 	return cmd
+}
+
+// publishableStages are the Dockerfile stages that may go to a registry anyone
+// can pull from. None yet: every stage is built on base, which installs Claude
+// Code and the ACP adapters, and those may not be redistributed. A stage
+// without them is added here once the Dockerfile has one.
+var publishableStages = map[string]bool{}
+
+// checkPushTo refuses to push stage to a public registry unless the stage is
+// one that may be published. A private registry takes any stage: it is the
+// default, and what the image is for.
+func checkPushTo(registry api.Registry, stage string) error {
+	if !registry.Public || publishableStages[stage] {
+		return nil
+	}
+	return fmt.Errorf("registry %s is public, and the %s image carries Claude Code and the ACP adapters, which may not be redistributed: "+
+		"push it to a private registry (agentbox registry add <name> --url <url>, without --public)", registry.Name, stageName(stage))
+}
+
+// stageName is the name --stage gives a stage, agent for the whole file.
+func stageName(stage string) string {
+	if stage == "" {
+		return "agent"
+	}
+	return stage
 }
 
 // imageStage checks --stage and returns the Dockerfile stage to stop at, empty
