@@ -1607,6 +1607,7 @@ let defaultsSettings = {
   enforceAgentDefaults: false,
   defaultLeadModel: '',
   defaultLeadContextWindow: '',
+  cloneFolder: '/home/you/src',
   language: new URLSearchParams(location.search).get('lang') ?? 'en-US',
   timezone: 'Europe/Lisbon',
   mediaRetention: '1d',

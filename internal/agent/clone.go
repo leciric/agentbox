@@ -167,17 +167,20 @@ func gitSaid(out string) string {
 
 // cloneProgress passes git clone's --progress on to a job's log, which keeps
 // whole lines: git redraws "Receiving objects:  42% (…)" with \r hundreds of
-// times, of which a line is kept per phase every tenth of the way and at
-// the end. Everything else git says is kept in said too, for its error.
+// times. What the server does (counting, compressing) keeps only its last
+// line, and what this machine does (receiving, resolving, checking out) a
+// line every quarter of the way too. Everything else git says is kept in said
+// too, for its error.
 type cloneProgress struct {
 	log     io.Writer
 	partial []byte
 	phase   string
 	percent int
+	done    string // the phase whose last line was kept
 	said    bytes.Buffer
 }
 
-var progressLine = regexp.MustCompile(`^(?:remote: )?([A-Za-z ]+):\s+(\d+)%`)
+var progressLine = regexp.MustCompile(`^(remote: )?([A-Za-z ]+):\s+(\d+)%`)
 
 func (p *cloneProgress) Write(b []byte) (int, error) {
 	p.partial = append(p.partial, b...)
@@ -204,14 +207,21 @@ func (p *cloneProgress) line(s string) {
 		return
 	}
 	if m := progressLine.FindStringSubmatch(s); m != nil {
-		percent, _ := strconv.Atoi(m[2])
-		done := strings.HasSuffix(s, "done.") || strings.Contains(s, ", done")
-		if m[1] == p.phase && percent < p.percent+10 && !done {
-			return
+		remote, phase := m[1] != "", m[2]
+		percent, _ := strconv.Atoi(m[3])
+		if phase != p.phase {
+			p.phase, p.percent = phase, 0
 		}
-		p.phase, p.percent = m[1], percent
-		if done {
-			p.percent = 1000 // the phase's last line is kept, and nothing of it after
+		switch {
+		case strings.HasSuffix(s, "done.") || strings.Contains(s, ", done"):
+			if p.done == phase {
+				return
+			}
+			p.done = phase
+		case remote || percent < p.percent+25 || percent == 100:
+			return
+		default:
+			p.percent = percent
 		}
 		_, _ = fmt.Fprintln(p.log, s)
 		return

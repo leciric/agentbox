@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { FolderGit2, FolderOpen, FolderPlus, GitPullRequest, LoaderCircle } from 'lucide-react';
+import { FolderGit2, FolderOpen, FolderPlus, GitPullRequest, Link, LoaderCircle } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import * as T from '../../shared/api';
@@ -11,24 +11,29 @@ import { Button } from './ui/button';
 import { Code, Notice } from './ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { Field, Input } from './ui/input';
+import { JobProgress } from './JobProgress';
 import { Select, SelectOption } from './ui/select';
 import { Tabs, TabsList, TabsTrigger } from './ui/tabs';
 import { ClaudeAccountState, ToolAccountState } from './ProjectAccounts';
 import { AIIcon, aiLabel } from './state';
 import { accountsOf } from './ToolAccounts';
 
-// A project is a repository that's already there, or one AgentBox starts:
-// a new folder, git init on main and an initial commit, so agents have
-// something to branch from (AddProjectRequest.create).
-type Mode = 'existing' | 'new';
+// A project is a repository that's already there, one AgentBox starts (a
+// new folder, git init on main and an initial commit, so agents have
+// something to branch from: AddProjectRequest.create), or one it clones from
+// a link (CloneProjectRequest), in a job whose log the dialog shows.
+export type AddProjectMode = 'existing' | 'new' | 'clone';
+type Mode = AddProjectMode;
 
 export function AddProjectDialog({
   open,
   onOpenChange,
   onAdded,
   onOpenSetup,
+  initialMode = 'existing',
 }: {
   open: boolean;
+  initialMode?: Mode;
   onOpenChange: (open: boolean) => void;
   onAdded: (project: T.Project) => void;
   onOpenSetup: () => void;
@@ -51,6 +56,14 @@ export function AddProjectDialog({
   const [folderName, setFolderName] = useState('');
   const creating = mode === 'new';
   const newPath = joinPath(parent.trim(), folderName.trim());
+  // A clone is a link and the folder it goes in, which starts as the clone
+  // folder (Settings.cloneFolder, ~/src) and becomes it when another is used.
+  const cloning = mode === 'clone';
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings, enabled: open });
+  const [url, setURL] = useState('');
+  const [cloneParent, setCloneParent] = useState('');
+  const [cloneJob, setCloneJob] = useState<string>();
+  const clonePath = joinPath(cloneParent.trim(), repoName(url.trim()));
   // "" is this machine's default account, which is what a project gets until
   // it picks one; the accounts only show up when there is a choice to make.
   const [claudeAccount, setClaudeAccount] = useState('');
@@ -72,34 +85,60 @@ export function AddProjectDialog({
   // On Windows, the picker gives a folder on a Windows drive as /mnt/<drive>/...:
   // the daemon adds a copy of it in the WSL distro's ~/src rather than the
   // folder itself, which git would be slow in there (D91).
-  const onWindowsDrive = !creating && !remote && windowsDrive.test(path.trim());
+  const onWindowsDrive = mode === 'existing' && !remote && windowsDrive.test(path.trim());
+  const accounts = {
+    claudeAccount: claudeAccount || undefined,
+    githubAccount: githubAccount || undefined,
+    codexAccount: codexAccount || undefined,
+    cursorAccount: cursorAccount || undefined,
+    openCodeAccounts: Object.values(openCodeAccounts).some(Boolean) ? openCodeAccounts : undefined,
+  };
+  const added = async (project: T.Project) => {
+    await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    onOpenChange(false);
+    onAdded(project);
+    toast.success(t('project.add.added', { name: project.name }));
+  };
   const add = useMutation({
     // commitFiles is the user's answer to the daemon's saying the new
-    // repository's folder already has files in it.
+    // repository's folder already has files in it. In clone mode, this is
+    // adding the folder that was in the clone's way, as it is.
     mutationFn: (commitFiles: boolean) =>
       api.addProject({
-        path: creating ? newPath : path.trim(),
+        path: cloning ? clonePath : creating ? newPath : path.trim(),
         name: creating ? undefined : name.trim() || undefined,
-        claudeAccount: claudeAccount || undefined,
-        githubAccount: githubAccount || undefined,
-        codexAccount: codexAccount || undefined,
-        cursorAccount: cursorAccount || undefined,
-        openCodeAccounts: Object.values(openCodeAccounts).some(Boolean) ? openCodeAccounts : undefined,
+        ...accounts,
         copyToLinux: onWindowsDrive || undefined,
         create: creating || undefined,
         commitFiles: (creating && commitFiles) || undefined,
       }),
-    onSuccess: async (project) => {
-      await queryClient.invalidateQueries({ queryKey: ['projects'] });
-      onOpenChange(false);
-      onAdded(project);
-      toast.success(t('project.add.added', { name: project.name }));
-    },
+    onSuccess: added,
   });
+  const clone = useMutation({
+    mutationFn: () => api.cloneProject({ url: url.trim(), path: clonePath, name: name.trim() || undefined, ...accounts }),
+    onSuccess: (job) => setCloneJob(job.id),
+  });
+  const cloneDone = async (job: T.Job) => {
+    if (job.status !== 'succeeded') return;
+    const folder = cloneParent.trim();
+    if (settings.data && folder !== settings.data.cloneFolder) {
+      // Not worth failing the clone over: the next one starts in the old folder.
+      await api.updateSettings({ cloneFolder: folder }).then(
+        () => queryClient.invalidateQueries({ queryKey: ['settings'] }),
+        () => {},
+      );
+    }
+    await added(job.result as T.Project);
+  };
+  const cloneRunning = !!cloneJob && clone.isSuccess;
 
   useEffect(() => {
     if (!open) return;
-    setMode('existing');
+    setMode(initialMode);
+    setURL('');
+    setCloneParent('');
+    setCloneJob(undefined);
+    clone.reset();
     setPath('');
     setName('');
     setParent('');
@@ -122,15 +161,27 @@ export function AddProjectDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [creating, projects.data]);
 
+  useEffect(() => {
+    if (cloning && !cloneParent && settings.data) setCloneParent(settings.data.cloneFolder);
+  }, [cloning, cloneParent, settings.data]);
+
   // Another folder is another question: files in the last one say nothing
   // about this one.
   useEffect(() => {
     if (add.error) add.reset();
+    if (clone.error) clone.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [newPath]);
+  }, [newPath, clonePath, url]);
+
+  // A clone that failed is tried again from the start, its log cleared.
+  const cloneJobState = useQuery({ queryKey: ['job', cloneJob], queryFn: () => api.job(cloneJob!), enabled: !!cloneJob });
+  const cloneFailed = !!cloneJob && !!cloneJobState.data && cloneJobState.data.status !== 'running' && cloneJobState.data.status !== 'succeeded';
 
   // The folder has files in it: submitting again commits them.
   const notEmpty = creating && add.error instanceof ApiError && add.error.code === T.ErrorFolderNotEmpty;
+  // The clone's folder is already there: submitting again adds it as it is.
+  const folderExists = cloning && clone.error instanceof ApiError && clone.error.code === T.ErrorFolderExists;
+  const submitting = add.isPending || clone.isPending || (cloneRunning && !cloneFailed);
 
   const browse = async (set: (dir: string) => void) => {
     const dir = await window.agentbox.pickDirectory();
@@ -144,7 +195,7 @@ export function AddProjectDialog({
           <DialogTitle>{t('project.add.title')}</DialogTitle>
           <DialogDescription>
             {t.rich('project.add.description', {
-              kind: creating ? 'new' : 'existing',
+              kind: creating ? 'new' : cloning ? 'clone' : 'existing',
               where: remote ? <span className="text-secondary">{remote}</span> : t('project.add.thisMachine'),
               code: (c) => <Code>{c}</Code>,
               branch: 'agentbox/<agent>',
@@ -154,8 +205,10 @@ export function AddProjectDialog({
         <Tabs
           value={mode}
           onValueChange={(value) => {
+            if (cloneRunning && !cloneFailed) return;
             setMode(value as Mode);
             add.reset();
+            clone.reset();
           }}
         >
           <TabsList aria-label={t('project.add.modeAria')} className="w-full">
@@ -167,16 +220,63 @@ export function AddProjectDialog({
               <FolderPlus />
               {t('project.add.new')}
             </TabsTrigger>
+            <TabsTrigger value="clone" className="flex-1" data-add-project-clone>
+              <Link />
+              {t('project.add.clone')}
+            </TabsTrigger>
           </TabsList>
         </Tabs>
         <form
           className="grid gap-4"
           onSubmit={(event) => {
             event.preventDefault();
-            add.mutate(notEmpty);
+            if (!cloning || folderExists) {
+              add.mutate(notEmpty);
+              return;
+            }
+            setCloneJob(undefined);
+            clone.mutate();
           }}
         >
-          {creating ? (
+          {cloning ? (
+            <fieldset className="grid min-w-0 gap-4" disabled={cloneRunning && !cloneFailed}>
+              <Field label={t('project.add.urlLabel')} htmlFor="project-url" hint={t('project.add.urlHint')}>
+                <Input
+                  id="project-url"
+                  autoFocus
+                  className="font-mono text-[13px]"
+                  placeholder="https://github.com/owner/repo"
+                  spellCheck={false}
+                  value={url}
+                  onChange={(event) => setURL(event.target.value)}
+                />
+              </Field>
+              <Field
+                label={t('project.add.cloneFolderLabel')}
+                htmlFor="project-clone-folder"
+                hint={clonePath ? t.rich('project.add.cloneHint', { code: (c) => <Code>{c}</Code>, path: clonePath }) : t('project.add.cloneHintEmpty')}
+              >
+                <div className="flex gap-2">
+                  <Input
+                    id="project-clone-folder"
+                    className="font-mono text-[13px]"
+                    placeholder="/home/you/src"
+                    value={cloneParent}
+                    onChange={(event) => setCloneParent(event.target.value)}
+                  />
+                  {!remote && (
+                    <Button onClick={() => void browse(setCloneParent)}>
+                      <FolderOpen />
+                      {t('project.add.browse')}
+                    </Button>
+                  )}
+                </div>
+              </Field>
+              <Field label={t('project.add.nameLabel')} htmlFor="project-clone-name" hint={t('project.add.cloneNameHint')}>
+                <Input id="project-clone-name" placeholder={repoName(url.trim()) || 'my-app'} value={name} onChange={(event) => setName(event.target.value)} />
+              </Field>
+            </fieldset>
+          ) : creating ? (
             <>
               <Field label={t('project.add.parentLabel')} htmlFor="project-parent">
                 <div className="flex gap-2">
@@ -234,7 +334,7 @@ export function AddProjectDialog({
               {t.rich('project.add.windowsDrive', { code: (c) => <Code>{c}</Code> })}
             </Notice>
           )}
-          {!creating && (
+          {mode === 'existing' && (
             <Field label={t('project.add.nameLabel')} htmlFor="project-name" hint={t('project.add.nameHint')}>
               <Input id="project-name" placeholder={nameOf(path.trim()) || 'my-app'} value={name} onChange={(event) => setName(event.target.value)} />
             </Field>
@@ -303,21 +403,26 @@ export function AddProjectDialog({
               })}
             </p>
           )}
+          {cloneJob && <JobProgress key={cloneJob} jobId={cloneJob} header={false} logClassName="h-40" onDone={(job) => void cloneDone(job)} />}
           {notEmpty ? (
             <Notice tone="info">
               {t.rich('project.add.notEmpty', { code: (c) => <Code>{c}</Code>, path: newPath })}
             </Notice>
+          ) : folderExists ? (
+            <Notice tone="info">
+              {t.rich('project.add.folderExists', { code: (c) => <Code>{c}</Code>, path: clonePath })}
+            </Notice>
           ) : (
-            add.error && <Notice>{errorMessage(add.error)}</Notice>
+            (add.error || clone.error) && <Notice>{errorMessage(add.error ?? clone.error)}</Notice>
           )}
           {/* Kept in view at the bottom of the dialog, however long the form. */}
           <DialogFooter className="sticky -bottom-6 -mx-6 -mb-6 border-t border-line bg-modal px-6 py-4">
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
               {t('common.cancel')}
             </Button>
-            <Button type="submit" variant="primary" disabled={!(creating ? newPath : path.trim()) || add.isPending}>
-              {add.isPending && <LoaderCircle className="animate-spin" />}
-              {submitLabel({ creating, notEmpty, onWindowsDrive, pending: add.isPending })}
+            <Button type="submit" variant="primary" disabled={!(cloning ? url.trim() && clonePath : creating ? newPath : path.trim()) || submitting}>
+              {submitting && <LoaderCircle className="animate-spin" />}
+              {submitLabel({ mode, notEmpty, folderExists, onWindowsDrive, pending: submitting, retry: cloneFailed })}
             </Button>
           </DialogFooter>
         </form>
@@ -326,13 +431,40 @@ export function AddProjectDialog({
   );
 }
 
-function submitLabel({ creating, notEmpty, onWindowsDrive, pending }: { creating: boolean; notEmpty: boolean; onWindowsDrive: boolean; pending: boolean }) {
-  if (creating) {
+function submitLabel({
+  mode,
+  notEmpty,
+  folderExists,
+  onWindowsDrive,
+  pending,
+  retry,
+}: {
+  mode: Mode;
+  notEmpty: boolean;
+  folderExists: boolean;
+  onWindowsDrive: boolean;
+  pending: boolean;
+  retry: boolean;
+}) {
+  if (mode === 'clone') {
+    if (folderExists) return translate('project.add.addFolder');
+    if (pending) return translate('project.add.cloning');
+    return retry ? translate('project.add.cloneAgain') : translate('project.add.cloneAndAdd');
+  }
+  if (mode === 'new') {
     if (notEmpty) return translate('project.add.commitAndAdd');
     return pending ? translate('project.add.creating') : translate('project.add.createAndAdd');
   }
   if (onWindowsDrive) return pending ? translate('project.add.copying') : translate('project.add.copyAndAdd');
   return translate('project.add.submit');
+}
+
+// repoName is the repository's name in a link, the folder git clone makes
+// for it: https://github.com/acme/my-app.git and git@host:acme/my-app are both
+// my-app. The daemon's repoName does the same.
+export function repoName(url: string): string {
+  const trimmed = url.replace(/\/+$/, '');
+  return trimmed.slice(Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf(':')) + 1).replace(/\.git$/, '');
 }
 
 // windowsDrive is where WSL mounts Windows's drives, as the daemon's
