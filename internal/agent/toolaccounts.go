@@ -309,8 +309,7 @@ func (m *Manager) importOpenCodeAccounts(ctx context.Context, a state.Agent, ver
 	if err := m.ensureOpenCode2InAgent(ctx, a); err != nil {
 		return err
 	}
-	home := "/home/" + m.User.Name
-	marker := home + "/" + openCodeImportMarker
+	marker := m.home(a) + "/" + openCodeImportMarker
 	run := func(ctx context.Context, args []string, stdin io.Reader) error {
 		quoted := make([]string, 0, len(args))
 		for _, arg := range args {
@@ -318,14 +317,15 @@ func (m *Manager) importOpenCodeAccounts(ctx context.Context, a state.Agent, ver
 		}
 		command := strings.Join(append([]string{opencode.Command2}, quoted...), " ")
 		var out bytes.Buffer
-		if err := m.Incus.UserExec(ctx, a.Instance, m.User.Name, command, stdin, &out, &out); err != nil {
+		if err := m.machine(a).UserExec(ctx, m.machineUser(a).Name, command, stdin, &out, &out); err != nil {
 			return fmt.Errorf("%s: %w: %s", command, err, tail(out.String()))
 		}
 		return nil
 	}
 	read := func() ([]byte, error) { return m.readAgentFile(ctx, a, marker), nil }
 	write := func(b []byte) error {
-		return m.Incus.WriteFile(ctx, a.Instance, marker, b, m.User.UID, m.User.GID, 0o600)
+		user := m.machineUser(a)
+		return m.machine(a).WriteFile(ctx, marker, b, user.UID, user.GID, 0o600)
 	}
 	if err := syncOpenCodeImport(ctx, read, write, run, export, used); err != nil {
 		return fmt.Errorf("giving %s its OpenCode login: %w", a.Ref(), err)
@@ -342,6 +342,9 @@ func (m *Manager) importOpenCodeAccounts(ctx context.Context, a state.Agent, ver
 // machine that can't reach the registry is told so rather than given npm's
 // log. A machine that already has the pinned version does nothing.
 func (m *Manager) ensureOpenCode2InAgent(ctx context.Context, a state.Agent) error {
+	if m.machine(a).UserExec(ctx, m.machineUser(a).Name, "command -v "+opencode.Command2, nil, io.Discard, io.Discard) == nil {
+		return nil
+	}
 	pkg, err := opencode.Package2()
 	if err != nil {
 		return err
@@ -362,7 +365,7 @@ func (m *Manager) ensureOpenCode2InAgent(ctx context.Context, a state.Agent) err
 		spec, pkg, shellQuote(`"version": "`+image.OpenCode2Version+`"`))
 	script := "mkdir -p ~/.local/bin ~/.local/share/opencode2 && flock ~/.local/share/opencode2.lock sh -c " + shellQuote(install)
 	var out bytes.Buffer
-	if err := m.Incus.UserExec(ctx, a.Instance, m.User.Name, script, nil, &out, &out); err != nil {
+	if err := m.machine(a).UserExec(ctx, m.machineUser(a).Name, script, nil, &out, &out); err != nil {
 		if reason := npmNetworkError(out.String()); reason != "" || ctx.Err() != nil {
 			return fmt.Errorf("%s has no OpenCode 2 yet, and installing it needs the network, which its machine can't reach (%s): connect it and start it again, or switch back to OpenCode 1", a.Ref(), cmpOr(reason, "timed out"))
 		}

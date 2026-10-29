@@ -599,6 +599,47 @@ func TestWriteSkillsWritesUnderTheMachinesUser(t *testing.T) {
 	}
 }
 
+// TestOpenCode2InstallsThroughThePod checks the seam for OpenCode 2: an agent's
+// machine is a pod here, so the probe for opencode2 and the npm install that
+// follows it go through the pod's machine, never through Incus, and a pod that
+// already has the binary is left alone.
+func TestOpenCode2InstallsThroughThePod(t *testing.T) {
+	f := newClusterFixture(t, nil)
+	ctx := context.Background()
+	a := state.Agent{Project: "hello-stack", Name: "agent-01", Cluster: "k3d", AI: "opencode"}
+
+	f.pod.exec = func(command string) (string, error) {
+		if strings.Contains(command, "command -v") {
+			return "/home/agent/.local/bin/opencode2\n", nil
+		}
+		t.Errorf("a pod that has opencode2 ran %q", command)
+		return "", nil
+	}
+	if err := f.m.ensureOpenCode2InAgent(ctx, a); err != nil {
+		t.Fatalf("ensureOpenCode2InAgent() = %v", err)
+	}
+	if len(f.pod.userExecs) != 1 || !strings.Contains(f.pod.userExecs[0], "command -v opencode2") {
+		t.Fatalf("the pod ran %q, want one probe for opencode2", f.pod.userExecs)
+	}
+
+	f.pod.userExecs = nil
+	f.pod.exec = func(command string) (string, error) {
+		if strings.Contains(command, "command -v") {
+			return "", errors.New("command not found")
+		}
+		return "", nil
+	}
+	if err := f.m.ensureOpenCode2InAgent(ctx, a); err != nil {
+		t.Fatalf("ensureOpenCode2InAgent() = %v", err)
+	}
+	if len(f.pod.userExecs) != 2 || !strings.Contains(f.pod.userExecs[1], "npm install") {
+		t.Fatalf("the pod ran %q, want the probe and the npm install", f.pod.userExecs)
+	}
+	if calls, err := os.ReadFile(f.incusLog); err == nil && len(calls) > 0 {
+		t.Errorf("a pod's OpenCode 2 install reached Incus: %s", calls)
+	}
+}
+
 // clusterRuntime is a cluster in a test: every agent in it gets the same pod.
 type clusterRuntime struct{ m *podMachineStub }
 
