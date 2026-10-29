@@ -114,6 +114,18 @@ func (s *Server) projectChat(w http.ResponseWriter, r *http.Request) error {
 	if session == "" {
 		session = api.ChatOff
 	}
+	// Asked about no session, it is the whole chat's: busy when any of its
+	// sessions is, for what shows a project at work (the sidebar, keeping the
+	// computer awake).
+	if sessionFrom(r) == "" && a.Project != state.HomeProject {
+		if sessions, err := s.store.LeadSessions(r.Context(), a.Project); err == nil {
+			for _, ls := range sessions {
+				if st := s.chat.State(agent.SessionRef(a.Project, ls.ID)); chatRank[st] > chatRank[session] {
+					session = st
+				}
+			}
+		}
+	}
 	info := api.ProjectChat{
 		Project:  a.Project,
 		Session:  sessionIfAny(a),
@@ -198,4 +210,10 @@ func sessionIfAny(a state.Agent) string {
 		return ""
 	}
 	return a.Session()
+}
+
+// chatRank orders a chat's states by how much they say it is doing, for a
+// project's chat across its sessions.
+var chatRank = map[string]int{
+	api.ChatOff: 0, api.ChatError: 1, api.ChatReady: 2, api.ChatStarting: 3, api.ChatWaiting: 4, api.ChatRunning: 5,
 }

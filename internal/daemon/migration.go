@@ -100,7 +100,7 @@ func (s *Server) compareWith(ctx context.Context, from *sql.DB) (api.MigrationCh
 	}
 	out.Found = append(out.Found, fmt.Sprintf("%d project(s): %s", len(projects), listOr(projects, "none")))
 
-	refs, err := names(ctx, from, "SELECT project || '/' || name FROM agents WHERE role != '"+state.RoleLead+"' ORDER BY project, name")
+	refs, err := names(ctx, from, "SELECT project || '/' || name FROM agents WHERE name != '"+state.LeadName+"' AND name NOT LIKE 'lead.%' ORDER BY project, name")
 	if err != nil {
 		return out, err
 	}

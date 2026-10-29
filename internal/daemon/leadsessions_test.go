@@ -67,12 +67,13 @@ func TestEachSessionHearsOnlyItsOwnAgents(t *testing.T) {
 		}
 	}
 	a1 := addAgent(t, d, repo, "hello-stack", "agent-01", "Reminders page")
-	a2 := addAgent(t, d, repo, "hello-stack", "agent-02", "Fix the login 500s")
+	addAgent(t, d, repo, "hello-stack", "agent-02", "Fix the login 500s")
 	a3 := addAgent(t, d, repo, "hello-stack", "agent-03", "The user's own")
 	if err := d.srv.store.SetAgentSession(ctx, "hello-stack", "agent-02", prod.ID); err != nil {
 		t.Fatal(err)
 	}
-	if a2, err = d.srv.store.Agent(ctx, "hello-stack", "agent-02"); err != nil || a2.Session() != prod.ID {
+	a2, err := d.srv.store.Agent(ctx, "hello-stack", "agent-02")
+	if err != nil || a2.Session() != prod.ID {
 		t.Fatalf("agent-02 = %+v, %v; want the prod session's", a2, err)
 	}
 	if a1.Session() != "" || a3.Session() != "" {

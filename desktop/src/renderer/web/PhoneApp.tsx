@@ -30,7 +30,7 @@ import { openAgentEvent } from '../components/chat/AgentPermissionCard';
 import { ChatTab } from '../components/chat/ChatTab';
 import { Elapsed } from '../components/chat/Timeline';
 import { ConfirmDialog } from '../components/ConfirmDialog';
-import { ProjectChatPanel } from '../components/ProjectChatPanel';
+import { ProjectChatPanel, useCurrentSession } from '../components/ProjectChatPanel';
 import { AIIcon, LiveAgentAvatar } from '../components/state';
 import { prChecksText, rank, type StatusTone } from '../lib/agentStatus';
 import { api } from '../lib/api';
@@ -639,7 +639,9 @@ function ProjectChatScreen({ project, merge, header, onOpen }: { project: string
   const t = useT();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const p = projects.data?.find((x) => x.name === project);
-  const chat = useQuery({ queryKey: ['projectChat', project], queryFn: () => api.projectChat(project) });
+  // The session its tabs show (ProjectChatPanel), which the header says.
+  const session = useCurrentSession(project);
+  const chat = useQuery({ queryKey: ['projectChat', project, session?.id], queryFn: () => api.projectChat(project, session!.id), enabled: !!session });
   const ref = chat.data?.started ? chat.data.ref : undefined;
   const thread = useThread(ref);
   useMarkRead(ref, thread.data);
@@ -647,7 +649,7 @@ function ProjectChatScreen({ project, merge, header, onOpen }: { project: string
   return (
     <>
       <ScreenHeader
-        title={t('web.phone.projectChat')}
+        title={session?.topic || t('web.phone.projectChat')}
         subtitle={projectLabel(project, projects.data)}
         status={chat.data ? leadChatStatus(chat.data.chat, thread.data) : undefined}
         header={header}
