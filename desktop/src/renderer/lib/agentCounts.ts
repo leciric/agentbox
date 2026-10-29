@@ -10,7 +10,7 @@
 // lists agents, would be one short of a count that took it in. Leads are
 // counted apart, in leads. useAgentCounts.ts reads the inputs from the daemon.
 import type * as T from '../../shared/api';
-import { agentSt, awaitsApproval, countSt, leadBusy, type Counts, type Row, type StContext } from './leadFirst.ts';
+import { agentSt, awaitsApproval, countSt, leadBusy, type AgentSt, type Counts, type Row, type StContext } from './leadFirst.ts';
 
 export type Tally = Counts & {
   // Of the needs, how many wait on a permission in the agent's chat.
@@ -85,4 +85,17 @@ export function tileLabels(agents: readonly Pick<T.Agent, 'ref' | 'title' | 'nam
     const n = /(\d+)$/.exec(a.name)?.[1];
     return [a.ref, (seen.get(label) ?? 0) > 1 && n ? n.slice(-3) : label];
   }));
+}
+
+// workStatus is a Work row's status (T.WorkItem.status) as the counts read
+// it. The daemon has a finished agent "review" until it has a verdict, but an
+// agent that asks you something, failed again or is back at work is counted
+// in that state everywhere else, not in "N to review": its row says so too,
+// and the To review filter and its count leave it out. st is the agent's
+// state from the counts, undefined for one they don't hold (a past agent);
+// until the counts are loaded (loaded false), the daemon's word stands.
+export function workStatus(w: Pick<T.WorkItem, 'status'>, st: AgentSt | undefined, loaded: boolean): string {
+  if (w.status !== 'review' || !loaded) return w.status;
+  if (st === 'review') return 'review';
+  return st === 'needs' || st === 'error' || st === 'working' ? st : 'done';
 }

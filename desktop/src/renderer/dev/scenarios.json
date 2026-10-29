@@ -2756,5 +2756,21 @@
     "query": "app=project&v2=1&cache=due&theme=dark",
     "width": 1440,
     "height": 900
+  },
+  {
+    "id": "counts-work-review-light",
+    "description": "The Work page on To review: its count and rows are the sidebar's \"N to review\" (lib/agentCounts.ts) — light",
+    "query": "app=work&v2=1&theme=light",
+    "width": 1600,
+    "height": 1000,
+    "click": "[data-work-filter-tab=\"review\"]"
+  },
+  {
+    "id": "counts-work-review-dark",
+    "description": "The Work page on To review: its count and rows are the sidebar's \"N to review\" (lib/agentCounts.ts) — dark",
+    "query": "app=work&v2=1&theme=dark",
+    "width": 1600,
+    "height": 1000,
+    "click": "[data-work-filter-tab=\"review\"]"
   }
 ]

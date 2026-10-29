@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { counted, emptyTally, groupRows, initials, stRows, tally, tallyByProject, tileLabels } from './agentCounts.ts';
+import { counted, emptyTally, groupRows, initials, stRows, tally, tallyByProject, tileLabels, workStatus } from './agentCounts.ts';
 
 const agent = (name: string, over: Partial<T.Agent> = {}) =>
   ({ name, ref: `${over.project ?? 'p'}/${name}`, project: 'p', title: '', branch: `agentbox/${name}`, state: 'running', chat: 'ready', createdAt: '2026-10-15T10:00:00Z', ...over }) as T.Agent;
@@ -93,4 +93,20 @@ test('tileLabels gives agents whose initials match their numbers instead', () =>
     { ref: 'p/agent-41', name: 'agent-41', title: 'Watch CI' },
   ]);
   assert.deepEqual([...labels.values()], ['94', '95', 'WC']);
+});
+
+test('workStatus keeps a Work row in review only while the counts have its agent there', () => {
+  const st = (ref: string) => rows.find((r) => r.agent.ref === ref)?.st;
+  const work = (ref: string, status = 'review') => ({ status, item: { ref } });
+  // Ready and asking: the counts have it asking, and so does its row.
+  assert.equal(workStatus(work('p/a3'), st('p/a3'), true), 'needs');
+  assert.equal(workStatus(work('p/a4'), st('p/a4'), true), 'review');
+  // An agent the counts don't hold isn't counted to review.
+  assert.equal(workStatus(work('p/gone'), st('p/gone'), true), 'done');
+  // Until the counts are in, the daemon's word stands.
+  assert.equal(workStatus(work('p/a3'), undefined, false), 'review');
+  assert.equal(workStatus(work('p/a3', 'reviewed'), 'needs', true), 'reviewed');
+  // The rows the To review filter keeps are exactly the ones counted.
+  const items = ['p/a3', 'p/a4', 'p/a5'].map((ref) => work(ref));
+  assert.equal(items.filter((w) => workStatus(w, st(w.item.ref), true) === 'review').length, tally(rows).review);
 });
