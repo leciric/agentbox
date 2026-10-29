@@ -10,11 +10,12 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"golang.org/x/text/unicode/norm"
-	_ "modernc.org/sqlite"
+	sqlite "modernc.org/sqlite"
 
 	"agentbox/internal/gitrepo"
 	"agentbox/internal/memory"
@@ -1616,7 +1617,25 @@ type Store struct {
 	db *sql.DB
 }
 
-func Open(path string) (*Store, error) {
+const (
+	// busyTimeout is how long a connection waits for another writer's lock
+	// before SQLite returns SQLITE_BUSY. Creating several agents at once made
+	// that lock wait exceed five seconds, which was the old value; the final
+	// status write then failed and took the create down with it. It stays well
+	// under what a user will wait, and SQLite's own wait is backed by the
+	// bounded retry below rather than being the only chance.
+	busyTimeout = 10 * time.Second
+	// busyRetryWindow and busyRetryBackoff bound retryBusy: how long a single
+	// statement may keep retrying a busy writer, and how long it waits between
+	// attempts.
+	busyRetryWindow     = 60 * time.Second
+	busyRetryBackoff    = 50 * time.Millisecond
+	busyRetryBackoffMax = time.Second
+)
+
+func Open(path string) (*Store, error) { return open(path, busyTimeout) }
+
+func open(path string, timeout time.Duration) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
@@ -1628,11 +1647,20 @@ func Open(path string) (*Store, error) {
 	// handler doesn't apply to that one case, so busy_timeout below wouldn't
 	// save it. Taking the lock up front turns two writers racing into one
 	// waiting for the other.
-	dsn := "file:" + path + "?_txlock=immediate&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+	dsn := "file:" + path + "?_txlock=immediate&_pragma=foreign_keys(1)&_pragma=busy_timeout(" +
+		strconv.FormatInt(timeout.Milliseconds(), 10) + ")&_pragma=journal_mode(WAL)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
+	// One connection, so statements that write serialize in database/sql
+	// instead of several SQLite connections racing for the write lock. That
+	// race is what surfaced as SQLITE_BUSY when four clusters' worth of
+	// creates ran beside the reconciler. Anything this package opens while
+	// holding a transaction is a second query on that same transaction (or a
+	// callback that touches no table), never a query on s.db, so one
+	// connection can't deadlock the caller.
+	db.SetMaxOpenConns(1)
 	s := &Store{db: db}
 	if err := s.migrate(context.Background()); err != nil {
 		_ = db.Close()
@@ -1642,6 +1670,41 @@ func Open(path string) (*Store, error) {
 }
 
 func (s *Store) Close() error { return s.db.Close() }
+
+// isBusy reports whether err is SQLite saying another writer holds the lock.
+// Extended result codes share the low byte with their primary code, so this
+// catches SQLITE_BUSY_RECOVERY and the rest as well as plain SQLITE_BUSY.
+func isBusy(err error) bool {
+	var se *sqlite.Error
+	return errors.As(err, &se) && se.Code()&0xff == 5
+}
+
+// retryBusy runs op until it succeeds or returns anything other than a busy
+// error, with a short exponential backoff and a bounded window. It is for a
+// single statement whose failure should not take down the create around it:
+// the write's own busy_timeout has already waited by the time this sees the
+// error, and another writer may still be finishing.
+func retryBusy(ctx context.Context, op func() error) error {
+	deadline := time.Now().Add(busyRetryWindow)
+	backoff := busyRetryBackoff
+	for {
+		err := op()
+		if err == nil || !isBusy(err) {
+			return err
+		}
+		if time.Now().Add(backoff).After(deadline) {
+			return err
+		}
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+		backoff = min(backoff*2, busyRetryBackoffMax)
+	}
+}
 
 // DB is the open database, for the packages that keep their own tables in it
 // rather than their own file: package memory, whose schema is migrated here
@@ -3134,8 +3197,13 @@ func (s *Store) AddAgent(ctx context.Context, a Agent) error {
 }
 
 func (s *Store) SetAgentStatus(ctx context.Context, project, name, status string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE agents SET status = ? WHERE project = ? AND name = ?`, status, project, name)
-	return err
+	// This is the last write of a create: a busy writer here used to throw
+	// away a pod, a claim and the rest of a finished create. Retry it rather
+	// than return SQLITE_BUSY (M12).
+	return retryBusy(ctx, func() error {
+		_, err := s.db.ExecContext(ctx, `UPDATE agents SET status = ? WHERE project = ? AND name = ?`, status, project, name)
+		return err
+	})
 }
 
 func (s *Store) SetAgentTitle(ctx context.Context, project, name, title string) error {
