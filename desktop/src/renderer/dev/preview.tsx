@@ -146,6 +146,7 @@
 //   ?review=1               "Ready to review" in the top bar's inbox, three
 //                           agents waiting, agent-12's carousel
 //   ?review=media           the same with agent-15 (first in the list) holding 6 recordings and 4 screenshots and long check titles
+//   ?review=pairs           the same with agent-15 holding before/after pairs to compare
 //   ?concept=evidence       a mock: agents' recordings and screenshots first, in
 //                           the lead chat's cards and the review modal
 //                           (dev/concepts/evidence.tsx lists its own params)

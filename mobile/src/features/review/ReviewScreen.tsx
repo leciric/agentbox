@@ -1,6 +1,7 @@
 // A project's review, within the phone's scopes: the agents ready to review
 // (#322), each with what it said when it finished, what it changed, its
-// screenshots and recordings, and its pull request, which a phone with the
+// screenshots and recordings (each before/after pair first, one half at a
+// time, a swipe flipping to the other), and its pull request, which a phone with the
 // "merge" scope merges after confirming it here (the daemon refuses a
 // phone's merge that doesn't say so). The method is a choice the phone
 // remembers, as the desktop's split Merge button does (#329). One agent shows
@@ -10,9 +11,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
-import { useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Modal, PanResponder, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import type * as T from '../../shared/api.ts';
+import { pairUp, type Pair, type Side } from '../../shared/pairs.ts';
 import { api, mediaFilePath, mediaSource } from '../../connection/api.ts';
 import { can, useSession } from '../../connection/session.ts';
 import { useT } from '../../lib/i18n.tsx';
@@ -218,7 +220,7 @@ function ReviewCard({ item, pulls, mayMerge }: { item: T.ReviewItem; pulls?: T.P
   const t = useT();
   const router = useRouter();
   const media = useQuery({ queryKey: ['media', item.ref], queryFn: () => api.agentMedia(item.ref) });
-  const shots = (media.data ?? []).filter((m) => !m.removed && (m.kind === 'screenshot' || m.kind === 'recording'));
+  const { pairs, rest: shots } = pairUp((media.data ?? []).filter((m) => !m.removed && (m.kind === 'screenshot' || m.kind === 'recording')));
   return (
     <View style={styles.card}>
       <Pressable onPress={() => router.push(chatPath(item.ref))}>
@@ -233,6 +235,9 @@ function ReviewCard({ item, pulls, mayMerge }: { item: T.ReviewItem; pulls?: T.P
           {t('review.changes', { files: item.changes.files })} <Text style={{ color: colors.emerald }}>+{item.changes.insertions}</Text> <Text style={{ color: colors.rose }}>−{item.changes.deletions}</Text>
         </Text>
       )}
+      {pairs.map((p) => (
+        <PairView key={p.key} pair={p} />
+      ))}
       {shots.length > 0 && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.media}>
           {shots.map((m) => (
@@ -252,6 +257,53 @@ function ReviewCard({ item, pulls, mayMerge }: { item: T.ReviewItem; pulls?: T.P
         </ScrollView>
       )}
       {item.pr && <PullRow project={item.project} pr={item.pr} pulls={pulls} mayMerge={mayMerge} />}
+    </View>
+  );
+}
+
+// PairView is a before/after pair, one half at a time: a swipe across it,
+// or a tap, flips to the other.
+function PairView({ pair }: { pair: Pair }) {
+  const t = useT();
+  const [side, setSide] = useState<Side>('before');
+  const flip = () => setSide((s) => (s === 'before' ? 'after' : 'before'));
+  const flipRef = useRef(flip);
+  flipRef.current = flip;
+  const swipe = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 12 && Math.abs(g.dx) > Math.abs(g.dy),
+      onPanResponderRelease: (_, g) => {
+        if (Math.abs(g.dx) > 40) flipRef.current();
+      },
+    }),
+  ).current;
+  const m = pair[side];
+  const aspect = m.meta.width && m.meta.height ? m.meta.width / m.meta.height : 16 / 10;
+  return (
+    <View style={styles.pair} {...swipe.panHandlers}>
+      <Pressable onPress={flip} accessibilityRole="button" accessibilityLabel={`${pair.name}: ${t(side === 'before' ? 'review.compare.before' : 'review.compare.after')}. ${t('mobile.review.swipeToFlip')}`}>
+        {m.kind === 'screenshot' ? (
+          <Image source={mediaSource(mediaFilePath(m.id))} style={[styles.pairImage, { aspectRatio: aspect }]} contentFit="contain" />
+        ) : (
+          <View style={[styles.pairImage, styles.recording, { aspectRatio: aspect }]}>
+            <Text style={styles.recordingText}>▶</Text>
+          </View>
+        )}
+        <View style={styles.pairSide}>
+          <Text style={styles.pairSideText}>{t(side === 'before' ? 'review.compare.before' : 'review.compare.after')}</Text>
+        </View>
+      </Pressable>
+      <View style={styles.pairFoot}>
+        <Text style={styles.shotName} numberOfLines={1}>
+          {pair.name}
+        </Text>
+        <View style={styles.dots}>
+          {(['before', 'after'] as const).map((s) => (
+            <View key={s} style={[styles.dot, s === side && styles.dotOn]} />
+          ))}
+        </View>
+        <Text style={styles.shotName}>{t('mobile.review.swipeToFlip')}</Text>
+      </View>
     </View>
   );
 }
@@ -332,6 +384,14 @@ const styles = StyleSheet.create({
   recording: { alignItems: 'center', justifyContent: 'center' },
   recordingText: { color: colors.secondary, fontSize: 22 },
   shotName: { color: colors.subtle, fontSize: 11 },
+  pair: { gap: 6 },
+  pairImage: { width: '100%', borderRadius: 10, backgroundColor: colors.raised },
+  pairSide: { position: 'absolute', top: 8, left: 8, borderRadius: 6, backgroundColor: 'rgba(0,0,0,0.7)', paddingHorizontal: 6, paddingVertical: 2 },
+  pairSideText: { color: '#fff', fontSize: 11, fontWeight: '600' },
+  pairFoot: { flexDirection: 'row', alignItems: 'center', gap: 8, justifyContent: 'space-between' },
+  dots: { flexDirection: 'row', gap: 4 },
+  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.faint },
+  dotOn: { backgroundColor: colors.secondary },
   pr: { gap: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line, paddingTop: 10 },
   prHead: { flexDirection: 'row', gap: 8, alignItems: 'baseline' },
   prNumber: { color: colors.subtle, fontSize: 13 },

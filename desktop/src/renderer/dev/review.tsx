@@ -5,7 +5,8 @@
 // agent-41's pull request fails its checks, so it can't. Opening an agent
 // moves it to Reviewed, which the dev bridge remembers (reviewRequest), and
 // two agents are there already. ?review=many has forty more waiting, for the
-// list to load on scroll.
+// list to load on scroll. ?review=pairs gives agent-15 before/after pairs to
+// compare (pairs() below).
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { Suspense } from 'react';
 import type * as T from '../../shared/api';
@@ -166,6 +167,78 @@ function crowded(): T.MediaItem[] {
   return items;
 }
 
+// pairs is ?review=pairs: agent-15's media as agent-635's was, a
+// counts-project-dark-1920-before and its -after with another screenshot
+// taken between them, plus a pair marked with --pair whose halves aren't the
+// same size, which can't be highlighted, and a recording pair, played
+// together. The after moves a badge by a few pixels and changes its count,
+// the kind of change only a highlight shows.
+function pairs(): T.MediaItem[] {
+  const base = { agent: `${PROJECT}/agent-15`, agentName: 'agent-15', source: 'agent', size: 200_000, mime: 'image/png' };
+  const shot = (id: string, name: string, at: number, file: string, w: number, h: number, more: T.MediaMeta = {}): T.MediaItem => {
+    setMediaFile(id, file);
+    return { ...base, id, kind: 'screenshot', name, file: `${name}.png`, meta: { width: w, height: h, ...more }, createdAt: ago(at) };
+  };
+  const video = new URL('./concepts/media/settings.webm', import.meta.url).href;
+  const rec = (id: string, side: 'before' | 'after', at: number): T.MediaItem => {
+    setMediaFile(id, video);
+    return { ...base, id, kind: 'recording', name: `settings walkthrough (${side})`, mime: 'video/webm', meta: { duration: 17, pair: 'settings-walkthrough', side }, createdAt: ago(at) };
+  };
+  return [
+    shot('pr-counts-before', 'counts-project-dark-1920-before', 30 * min, countsScreen(false, 1920, 1080), 1920, 1080),
+    shot('pr-sidebar', 'sidebar-at-1024', 26 * min, new URL('./concepts/media/settings-2.webp', import.meta.url).href, 1280, 800),
+    rec('pr-walk-before', 'before', 24 * min),
+    shot('pr-menu-before', 'menu at 1280', 20 * min, countsScreen(false, 1280, 800), 1280, 800, { pair: 'menu', side: 'before' }),
+    shot('pr-counts-after', 'counts-project-dark-1920-after', 10 * min, countsScreen(true, 1920, 1080), 1920, 1080),
+    rec('pr-walk-after', 'after', 8 * min),
+    shot('pr-menu-after', 'menu at 1440', 6 * min, countsScreen(true, 1440, 900), 1440, 900, { pair: 'menu', side: 'after' }),
+  ];
+}
+
+// countsScreen draws the sidebar's project rows with their "N to review"
+// counts as a PNG, which the highlight can read (an SVG it can't): after,
+// the second count reads 4 instead of 3, and sits 4px further right.
+function countsScreen(after: boolean, w: number, h: number): string {
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const c = canvas.getContext('2d') as CanvasRenderingContext2D;
+  const k = w / 1920;
+  c.scale(k, k);
+  c.fillStyle = '#121216';
+  c.fillRect(0, 0, 1920, 1080 / k);
+  c.fillStyle = '#1b1b21';
+  c.fillRect(0, 0, 360, 1080 / k);
+  c.font = '600 22px Inter, sans-serif';
+  c.fillStyle = '#e7e7ee';
+  c.fillText('Projects', 32, 64);
+  ['agentbox', 'pawly', 'hello-stack', 'docs-site', 'mobile-app', 'infra'].forEach((name, i) => {
+    const y = 120 + i * 64;
+    c.fillStyle = i === 1 ? '#26262e' : 'transparent';
+    c.fillRect(16, y - 30, 328, 48);
+    c.fillStyle = '#c9c9d4';
+    c.font = '20px Inter, sans-serif';
+    c.fillText(name, 40, y);
+    const count = i === 0 ? 2 : i === 1 ? (after ? 4 : 3) : i === 3 ? 1 : 0;
+    if (!count) return;
+    const x = 268 + (i === 1 && after ? 4 : 0);
+    c.strokeStyle = '#4a4a55';
+    c.lineWidth = 2;
+    c.beginPath();
+    c.roundRect(x, y - 22, 60, 30, 15);
+    c.stroke();
+    c.fillStyle = '#c9c9d4';
+    c.font = '16px Inter, sans-serif';
+    c.fillText(`${count} to rev`, x + 8, y - 1);
+  });
+  c.fillStyle = '#e7e7ee';
+  c.font = '600 40px Inter, sans-serif';
+  c.fillText('pawly', 420, 100);
+  c.fillStyle = '#2a2a33';
+  for (let i = 0; i < 6; i++) c.fillRect(420, 160 + i * 110, 1400, 84);
+  return canvas.toDataURL('image/png');
+}
+
 // lots is ?review=lots: agent-15 with 36 pieces of proof, every third a
 // recording and the rest screenshots, for the modal to stay inside the window
 // (the strip scrolls or wraps in a bounded area, the body and footer stay
@@ -279,7 +352,7 @@ export function seedReview(queryClient: QueryClient): void {
     { id: 'rv-ci', agent: `${PROJECT}/agent-41`, agentName: 'agent-41', kind: 'screenshot', name: 'release-workflow', file: 'release-workflow.png', mime: 'image/png', size: 180_000, source: 'agent', meta: { width: 1280, height: 800 }, createdAt: ago(42 * min) },
   ] satisfies T.MediaItem[]);
   for (const agent of ['agent-98', 'agent-07', 'agent-03']) queryClient.setQueryData(['media', `${PROJECT}/${agent}`], []);
-  queryClient.setQueryData(['media', `${PROJECT}/agent-15`], new URLSearchParams(location.search).get('review') === 'media' ? crowded() : new URLSearchParams(location.search).get('review') === 'lots' ? lots() : evidence('agent-15', 'settings', 4 * min, 17, [
+  queryClient.setQueryData(['media', `${PROJECT}/agent-15`], new URLSearchParams(location.search).get('review') === 'pairs' ? pairs() : new URLSearchParams(location.search).get('review') === 'media' ? crowded() : new URLSearchParams(location.search).get('review') === 'lots' ? lots() : evidence('agent-15', 'settings', 4 * min, 17, [
     [0.3, 'General at 1024×640', 'Nothing past the right edge; the search box keeps its width.'],
     [5.2, 'Models in pt-BR', 'The longest labels wrap to two lines instead of clipping.'],
     [9.5, 'Resources, light theme', ''],
