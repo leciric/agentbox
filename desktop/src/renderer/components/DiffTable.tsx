@@ -62,7 +62,7 @@ export function DiffTable({ path, lines, tokens }: { path: string; lines: DiffLi
 
   let code = 0;
   return (
-    <table className={cn('w-full border-collapse font-mono text-[11.5px] leading-[1.55]', drag && 'select-none')}>
+    <table className={cn('w-full border-collapse font-mono text-caption leading-[1.55]', drag && 'select-none')}>
       <tbody>
         {lines.map((line, i) => {
           const lineIsCode = isCode(line);

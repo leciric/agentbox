@@ -13,7 +13,7 @@ export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTex
 }
 
 export function Label({ className, ...props }: LabelHTMLAttributes<HTMLLabelElement>) {
-  return <label className={cn('text-[13px] font-medium text-tertiary', className)} {...props} />;
+  return <label className={cn('text-ui font-medium text-tertiary', className)} {...props} />;
 }
 
 export function Field({ label, htmlFor, hint, children }: { label: string; htmlFor?: string; hint?: ReactNode; children: ReactNode }) {

@@ -87,12 +87,12 @@ export function AndroidTab({ agent, onOpenMedia, onSetup, compact = false }: { a
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-3">
         <span
           className={cn(
-            'flex h-8 min-w-0 items-center gap-2 rounded-full border border-line-strong bg-well px-3 text-[12.5px]',
+            'flex h-8 min-w-0 items-center gap-2 rounded-full border border-line-strong bg-well px-3 text-ui',
             booted ? 'text-secondary' : 'text-subtle',
           )}
           aria-label={t('agent.android.device')}
         >
-          <span className={cn('size-1.5 shrink-0 rounded-full', booted ? 'bg-emerald-400 animate-glow' : starting ? 'bg-amber-400 animate-pulse' : 'bg-faint')} />
+          <span className={cn('size-1.5 shrink-0 rounded-full', booted ? 'bg-emerald-400' : starting ? 'bg-amber-400' : 'bg-faint')} />
           <Smartphone className="size-3.5 shrink-0 text-subtle" />
           <span className="truncate">{booted ? status.data?.device : starting ? t('agent.android.starting') : t('agent.android.off')}</span>
         </span>
@@ -105,7 +105,7 @@ export function AndroidTab({ agent, onOpenMedia, onSetup, compact = false }: { a
         </Tip>
         {recordingHere ? (
           <Button size="sm" className="border-rose-400/30 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25" aria-label={compact ? t('agent.browser.stopRecording') : undefined} disabled={record.isPending} onClick={() => record.mutate()}>
-            {record.isPending ? <LoaderCircle className="animate-spin" /> : <span className="size-2 animate-pulse rounded-[3px] bg-rose-400" />}
+            {record.isPending ? <LoaderCircle className="animate-spin" /> : <span className="size-2 rounded-[3px] bg-rose-400" />}
             <span className="font-mono tabular-nums">{clock(elapsed)}</span>
             {!compact && t('agent.browser.stopRecording')}
           </Button>
@@ -118,7 +118,7 @@ export function AndroidTab({ agent, onOpenMedia, onSetup, compact = false }: { a
           </Tip>
         )}
         <div className="mx-1 h-5 w-px bg-line-strong" />
-        <label className={cn('flex items-center gap-2 rounded-lg px-1.5 py-1 text-[13px] text-tertiary', control && 'text-brand-200')}>
+        <label className={cn('flex items-center gap-2 rounded-lg px-1.5 py-1 text-ui text-tertiary', control && 'text-brand-200')}>
           <Switch id="android-control" checked={control} disabled={!connected} onCheckedChange={setControl} />
           <MousePointer2 className="size-3.5" />
           {compact ? <span className="sr-only">{t('agent.browser.takeControl')}</span> : t('agent.browser.takeControl')}
@@ -222,7 +222,7 @@ export function AndroidTab({ agent, onOpenMedia, onSetup, compact = false }: { a
       </div>
 
       <div className="flex h-8 shrink-0 items-center gap-3 border-t border-line px-4 text-xs text-subtle">
-        <span className="truncate font-mono text-[11px]">{booted ? status.data?.image : ''}</span>
+        <span className="truncate font-mono text-caption">{booted ? status.data?.image : ''}</span>
         {booted && (
           <Tip
             side="top"

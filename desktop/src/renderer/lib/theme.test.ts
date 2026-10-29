@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { lookOf, modeOf, palette } from './theme.ts';
+import { contrast, lookOf, modeOf, palette } from './theme.ts';
 
 const theme = (over: Partial<T.Theme>): T.Theme => ({ available: true, appearance: 'follow', mode: 'dark', accent: '#336699', background: '#111111', ...over }) as T.Theme;
 
@@ -55,3 +55,20 @@ test('Dracula is dark, its own look, and worn whatever the host has', () => {
   assert.equal(lookOf(theme({ appearance: 'follow', mode: 'light' })), 'light');
   assert.equal(palette(dracula)!['--ab-brand-500'], '#bd93f9');
 });
+
+test('a theme\'s text shades read 4.5:1 on its window, and the button text reads on its accent', () => {
+  // Tokyo Night's pale blue: white on it is 2.6:1, and its 300 mixed towards
+  // white the old way read 1.9:1 under the light variant.
+  for (const mode of ['dark', 'light']) {
+    const p = palette(theme({ appearance: 'follow', mode, background: mode === 'light' ? '#e1e2e7' : '#1a1b26', accent: '#7aa2f7' }))!;
+    const ink = hexRgb(p['--ab-ink']);
+    for (const shade of ['100', '200', '300', '400']) assert.ok(contrast(hexRgb(p[`--ab-brand-${shade}`]), ink) >= 4.5, `${mode} ${shade}`);
+    assert.equal(p['--ab-on-brand'], '#09090b');
+  }
+  assert.equal(palette(theme({ appearance: 'follow', accent: '#5b21b6' }))!['--ab-on-brand'], '#ffffff');
+});
+
+function hexRgb(h: string): [number, number, number] {
+  const n = Number.parseInt(h.slice(1), 16);
+  return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
+}

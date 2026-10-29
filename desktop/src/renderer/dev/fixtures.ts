@@ -1898,20 +1898,20 @@ export function seedSettings(queryClient: QueryClient): void {
     queryClient.setQueryData(['host-setup'], {});
     return;
   }
-  // AgentBox's own palette, pinned to the mode asked for; ?palette=tokyo
-  // follows a Tokyo Night host theme instead, to check a theme's accent.
-  const query = new URLSearchParams(location.search);
-  const mode = query.get('theme') === 'light' ? 'light' : 'dark';
+  // AgentBox's own palette, pinned to the mode asked for. ?palette=tokyo
+  // follows Tokyo Night instead, in the mode the page asks for: a light page
+  // given the dark palette's background would paint the window's ink mid-grey.
+  const light = asked === 'light';
   queryClient.setQueryData(['theme'], {
-    appearance: query.get('palette') === 'tokyo' ? 'follow' : mode,
+    appearance: new URLSearchParams(location.search).get('palette') === 'tokyo' ? 'follow' : light ? 'light' : 'dark',
     available: true,
-    name: 'Tokyo Night',
-    mode,
-    background: '#1a1b26',
-    surface: '#24283b',
-    foreground: '#c0caf5',
-    muted: '#565f89',
-    accent: '#7aa2f7',
+    name: light ? 'Tokyo Night Day' : 'Tokyo Night',
+    mode: light ? 'light' : 'dark',
+    background: light ? '#e1e2e7' : '#1a1b26',
+    surface: light ? '#d5d6db' : '#24283b',
+    foreground: light ? '#3760bf' : '#c0caf5',
+    muted: light ? '#848cb5' : '#565f89',
+    accent: light ? '#2e7de9' : '#7aa2f7',
   } satisfies T.Theme);
   queryClient.setQueryData(['host-setup'], {});
 }

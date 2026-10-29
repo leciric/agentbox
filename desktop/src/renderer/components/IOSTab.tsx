@@ -51,11 +51,11 @@ export function IOSTab({ agent, onOpenMedia, compact = false }: { agent: T.Agent
   return (
     <div className="flex h-full flex-col" data-ios-tab={agent.ref}>
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-3">
-        <span className={cn('size-1.5 shrink-0 rounded-full', booted ? 'bg-emerald-400 animate-glow' : booting ? 'bg-amber-400 animate-pulse' : 'bg-faint')} />
+        <span className={cn('size-1.5 shrink-0 rounded-full', booted ? 'bg-emerald-400' : booting ? 'bg-amber-400' : 'bg-faint')} />
         <Select
           data-ios-device
           aria-label={t('agent.ios.device')}
-          className="h-8 w-60 min-w-0 shrink text-[12.5px]"
+          className="h-8 w-60 min-w-0 shrink text-ui"
           disabled={!status.data?.available || devices.length === 0}
           placeholder={status.isPending ? t('common.loading') : t('agent.ios.noDevices')}
           value={udid}
@@ -84,7 +84,7 @@ export function IOSTab({ agent, onOpenMedia, compact = false }: { agent: T.Agent
           </Button>
         </Tip>
         <div className="mx-1 h-5 w-px shrink-0 bg-line-strong" />
-        <label className={cn('flex shrink-0 items-center gap-2 rounded-lg px-1.5 py-1 text-[13px] text-tertiary', control && 'text-brand-200')}>
+        <label className={cn('flex shrink-0 items-center gap-2 rounded-lg px-1.5 py-1 text-ui text-tertiary', control && 'text-brand-200')}>
           <Switch id="ios-control" checked={control} disabled={!booted || !connected} onCheckedChange={setControl} />
           <MousePointer2 className="size-3.5" />
           {compact ? <span className="sr-only">{t('agent.browser.takeControl')}</span> : t('agent.browser.takeControl')}

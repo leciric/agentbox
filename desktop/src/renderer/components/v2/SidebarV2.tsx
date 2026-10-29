@@ -486,7 +486,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   };
 
   return (
-    <aside className="flex w-[288px] shrink-0 flex-col border-r border-line bg-rail backdrop-blur-xl" data-sidebar-v2>
+    <aside className="flex w-[288px] shrink-0 flex-col border-r border-line bg-rail" data-sidebar-v2>
       <div className={cn('flex h-14 shrink-0 items-center gap-2 px-4', nightly && 'nightly-sky')} data-nightly={nightly || undefined}>
         <Logo className="size-7" />
         <span className="text-[14px] font-semibold tracking-tight text-title">AgentBox</span>

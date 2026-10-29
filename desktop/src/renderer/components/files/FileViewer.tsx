@@ -81,12 +81,12 @@ export function FileViewer({
       <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line-faint pl-3 pr-1">
         <FileCode2 className="size-3.5 shrink-0 text-subtle" />
         {/* The name stays whole; the folders before it give way. */}
-        <span className="flex min-w-0 flex-1 font-mono text-[12px]" title={path}>
+        <span className="flex min-w-0 flex-1 font-mono text-caption" title={path}>
           <span className="min-w-0 truncate text-faint">{dir}</span>
           <span className={cn('max-w-full shrink-0 truncate', status ? statusText[status] : 'text-secondary')}>{name}</span>
         </span>
         {status && (
-          <span className={cn('shrink-0 font-mono text-[10.5px]', statusText[status])} title={t(`files.status.${status}`)}>
+          <span className={cn('shrink-0 font-mono text-caption', statusText[status])} title={t(`files.status.${status}`)}>
             {statusLetter[status]}
           </span>
         )}
@@ -112,7 +112,7 @@ export function FileViewer({
             </button>
           </MenuTrigger>
           <MenuContent align="end">
-            {data && <div className="px-2.5 pb-1 pt-1.5 text-[11px] tabular-nums text-faint">{formatSize(data.size)}</div>}
+            {data && <div className="px-2.5 pb-1 pt-1.5 text-caption tabular-nums text-faint">{formatSize(data.size)}</div>}
             <MenuItem icon={Copy} onSelect={() => copy(line ? `${path}:${line}` : path)}>
               {t('files.viewer.copyRelative')}
             </MenuItem>
@@ -160,7 +160,7 @@ export function FileViewer({
         ) : (
           <div className="flex h-full flex-col">
             {data.truncated && (
-              <div className="flex shrink-0 items-center gap-2 border-b border-line-faint bg-amber-400/[0.06] px-3 py-1.5 text-[12px] text-amber-200/90" data-file-truncated>
+              <div className="flex shrink-0 items-center gap-2 border-b border-line-faint bg-amber-400/[0.06] px-3 py-1.5 text-caption text-amber-200/90" data-file-truncated>
                 <span className="min-w-0 flex-1">{t(full ? 'files.viewer.truncatedFull' : 'files.viewer.truncated', { shown: formatSize(data.text?.length ?? 0), size: formatSize(data.size) })}</span>
                 {!full && (
                   <button className="shrink-0 rounded-md px-2 py-0.5 font-medium text-amber-100 hover:bg-amber-400/10" onClick={() => setFull(true)}>
@@ -219,7 +219,7 @@ function DelimitedTable({ text, sep, path, nonce, cut }: { text: string; sep: st
   if (parsed.rows.length === 0 || (parsed.unclosed && !cut)) {
     return (
       <div className="flex h-full flex-col">
-        <div className="shrink-0 border-b border-line-faint bg-amber-400/[0.06] px-3 py-1.5 text-[12px] text-amber-200/90" data-file-not-table>
+        <div className="shrink-0 border-b border-line-faint bg-amber-400/[0.06] px-3 py-1.5 text-caption text-amber-200/90" data-file-not-table>
           {t(parsed.rows.length === 0 ? 'files.csv.empty' : 'files.csv.notTable')}
         </div>
         <div className="min-h-0 flex-1">
@@ -238,7 +238,7 @@ function textCell(text: string): GridCell {
 }
 
 function Note({ children }: { children: ReactNode }) {
-  return <div className="flex h-full items-center justify-center p-6 text-center text-[12.5px] text-subtle">{children}</div>;
+  return <div className="flex h-full items-center justify-center p-6 text-center text-ui text-subtle">{children}</div>;
 }
 
 // widthOf is how many columns the longest line takes, tabs as 4, so the rows
@@ -289,7 +289,7 @@ function CodeLines({ text, path, line, nonce }: { text: string; path: string; li
   const gutter = String(lines.length).length;
 
   return (
-    <div ref={scroller} className="h-full overflow-auto font-mono text-[12px] [tab-size:4]" data-file-code>
+    <div ref={scroller} className="h-full overflow-auto font-mono text-caption [tab-size:4]" data-file-code>
       <div className="relative" style={{ height: lines.length * lineHeight + 16, minWidth: `calc(${columns + gutter + 4}ch + 2rem)` }}>
         {lines.slice(start, end).map((content, i) => {
           const n = start + i + 1;
@@ -332,7 +332,7 @@ function DiffLines({ oldText, newText }: { oldText: string; newText: string }) {
   }, [rows]);
   const gutter = String(Math.max(rows.length, 1)).length;
   return (
-    <div ref={scroller} className="h-full overflow-auto font-mono text-[12px] [tab-size:4]" data-file-diff>
+    <div ref={scroller} className="h-full overflow-auto font-mono text-caption [tab-size:4]" data-file-diff>
       <div className="relative" style={{ height: rows.length * lineHeight + 16, minWidth: `calc(${columns + gutter * 2 + 6}ch + 3rem)` }}>
         {rows.slice(start, end).map((row, i) => {
           const index = start + i;

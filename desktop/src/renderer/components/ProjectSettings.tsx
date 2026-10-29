@@ -563,7 +563,7 @@ function AgentModelPicker({ project }: { project: T.Project }) {
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={(e) => e.stopPropagation()}
                   placeholder={t('common.search')}
-                  className="w-full bg-transparent text-[13px] text-primary placeholder:text-faint focus:outline-none"
+                  className="w-full bg-transparent text-ui text-primary placeholder:text-faint focus:outline-none"
                 />
               </div>
             )}
@@ -571,7 +571,7 @@ function AgentModelPicker({ project }: { project: T.Project }) {
               <MenuItem onSelect={() => save.mutate('')} hint={value === '' ? <Check className="size-3.5 text-brand-300" /> : undefined}>
                 <span className="grid">
                   <span>{homeDefault.name}</span>
-                  <span className="text-[11px] text-subtle">{t('defaults.project.currently', { home })}</span>
+                  <span className="text-caption text-subtle">{t('defaults.project.currently', { home })}</span>
                 </span>
               </MenuItem>
             )}
@@ -579,7 +579,7 @@ function AgentModelPicker({ project }: { project: T.Project }) {
               <MenuItem onSelect={() => save.mutate(AgentModelAuto)} hint={value === AgentModelAuto ? <Check className="size-3.5 text-brand-300" /> : undefined}>
                 <span className="grid">
                   <span>{auto.name}</span>
-                  <span className="text-[11px] text-subtle">{auto.description}</span>
+                  <span className="text-caption text-subtle">{auto.description}</span>
                 </span>
               </MenuItem>
             )}
@@ -592,9 +592,9 @@ function AgentModelPicker({ project }: { project: T.Project }) {
                   <span className="grid">
                     <span className="flex items-center gap-1.5 text-amber-200">
                       {missing}
-                      <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-amber-300">{t('defaults.newAgent.offMenu')}</span>
+                      <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-caption font-semibold uppercase tracking-wide text-amber-300">{t('defaults.newAgent.offMenu')}</span>
                     </span>
-                    <span className="text-[11px] text-subtle">{t('defaults.newAgent.offMenuNote')}</span>
+                    <span className="text-caption text-subtle">{t('defaults.newAgent.offMenuNote')}</span>
                   </span>
                 </MenuItem>
               </>
@@ -613,17 +613,17 @@ function AgentModelPicker({ project }: { project: T.Project }) {
                       <span className="flex items-center gap-1.5">
                         {choiceName(choice)}
                         {isRecommended(choice) && (
-                          <span className="shrink-0 rounded-full bg-brand-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-brand-300">{t('defaults.newAgent.recommended')}</span>
+                          <span className="shrink-0 rounded-full bg-brand-400/15 px-1.5 py-px text-caption font-semibold uppercase tracking-wide text-brand-300">{t('defaults.newAgent.recommended')}</span>
                         )}
                       </span>
-                      {choice.description && <span className="text-[11px] text-subtle">{choice.description}</span>}
+                      {choice.description && <span className="text-caption text-subtle">{choice.description}</span>}
                     </span>
                   </MenuItem>
                 ))}
               </div>
             ))}
             {choices.length === 0 && (
-              <div className="px-2.5 py-3 text-[12px] leading-relaxed text-subtle">
+              <div className="px-2.5 py-3 text-caption leading-relaxed text-subtle">
                 {claude ? t('defaults.project.noMenu') : t('defaults.project.noToolMenu', { tool: aiLabel(tool) })}
               </div>
             )}
@@ -703,7 +703,7 @@ function BranchPrefixField({ project }: { project: T.Project }) {
             <Input
               id="project-branch-prefix"
               data-project-branch-prefix
-              className="pl-9 font-mono text-[12.5px]"
+              className="pl-9 font-mono text-ui"
               placeholder={t('defaults.project.noPrefix')}
               spellCheck={false}
               value={draft}

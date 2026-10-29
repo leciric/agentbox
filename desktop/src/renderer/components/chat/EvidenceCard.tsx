@@ -52,7 +52,7 @@ function SupersededFinish({ agentRef }: { agentRef: string }) {
     cards[cards.length - 1]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
   return (
-    <button type="button" onClick={show} className="flex min-w-0 items-center gap-1.5 px-1 text-left text-[12.5px] text-subtle hover:text-title" data-finished-earlier={agentRef}>
+    <button type="button" onClick={show} className="flex min-w-0 items-center gap-1.5 px-1 text-left text-ui text-subtle hover:text-title" data-finished-earlier={agentRef}>
       <Check className="size-3.5 shrink-0" />
       <span className="min-w-0 truncate">{t('evidence.finishedEarlier', { title })}</span>
     </button>
@@ -123,7 +123,7 @@ function EvidenceCard({ agentRef }: { agentRef: string }) {
                 })}
               </span>
             )}
-            <span className="absolute inset-x-0 bottom-0 flex items-end gap-2 bg-gradient-to-t from-black/85 to-transparent px-3 pb-2 pt-8 text-left text-[11.5px] text-white">
+            <span className="absolute inset-x-0 bottom-0 flex items-end gap-2 bg-gradient-to-t from-black/85 to-transparent px-3 pb-2 pt-8 text-left text-caption text-white">
               <span className="min-w-0 flex-1 truncate">{chapters[at] ? t('evidence.chapter', { title: chapters[at].title }) : readableName(rec.media.name)}</span>
               {length ? <span className="shrink-0 tabular-nums text-white/70">{clock(length)}</span> : null}
             </span>
@@ -138,10 +138,10 @@ function EvidenceCard({ agentRef }: { agentRef: string }) {
             <span className="min-w-0 flex-1 truncate font-medium text-title" title={title}>
               {title}
             </span>
-            <span className="shrink-0 text-[11.5px] text-subtle">{t('evidence.finished', { agent: name })}</span>
+            <span className="shrink-0 text-caption text-subtle">{t('evidence.finished', { agent: name })}</span>
           </div>
           {chapters.length > 0 ? (
-            <ul className="grid gap-1 text-[12.5px]" data-evidence-chapters>
+            <ul className="grid gap-1 text-ui" data-evidence-chapters>
               {chapters.slice(0, 5).map((c, i) => (
                 <li key={`${c.at}-${i}`} className={cn('flex min-w-0 items-center gap-1.5', i === at ? 'text-title' : 'text-secondary')}>
                   <Check className="size-3.5 shrink-0 text-emerald-400" />
@@ -150,15 +150,15 @@ function EvidenceCard({ agentRef }: { agentRef: string }) {
               ))}
             </ul>
           ) : (
-            item?.summary && <p className="line-clamp-3 text-[12.5px] leading-relaxed text-secondary">{item.summary.replace(/[*_`#>]/g, '')}</p>
+            item?.summary && <p className="line-clamp-3 text-ui leading-relaxed text-secondary">{item.summary.replace(/[*_`#>]/g, '')}</p>
           )}
           {proof.pages[0] && (
-            <span className="inline-flex min-w-0 items-center gap-1.5 text-[12px] text-secondary">
+            <span className="inline-flex min-w-0 items-center gap-1.5 text-caption text-secondary">
               <PageIcon className="size-3.5 shrink-0 text-faint" />
               <span className="truncate">{proof.pages[0].title}</span>
             </span>
           )}
-          <div className="mt-auto flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11.5px] text-subtle">
+          <div className="mt-auto flex flex-wrap items-center gap-x-2.5 gap-y-1 text-caption text-subtle">
             {pr && (
               <span className={cn('inline-flex items-center gap-1', pr.state === 'merged' ? 'text-violet-300' : 'text-secondary')}>
                 {pr.state === 'merged' ? <GitMerge className="size-3.5" /> : <GitPullRequest className="size-3.5" />}<PrNumberLink pr={pr} />
@@ -199,7 +199,7 @@ function EvidenceCard({ agentRef }: { agentRef: string }) {
             </button>
           ))}
           {more > 0 && (
-            <button type="button" onClick={review_} className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-line text-[12px] text-subtle hover:text-title">
+            <button type="button" onClick={review_} className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-line text-caption text-subtle hover:text-title">
               {t('evidence.moreShots', { count: more })}
             </button>
           )}
@@ -210,7 +210,7 @@ function EvidenceCard({ agentRef }: { agentRef: string }) {
           </Button>
         )}
         {pr?.state === 'merged' ? (
-          <span className="inline-flex h-8 items-center gap-1.5 px-2 text-[12.5px] text-violet-300" data-evidence-merged>
+          <span className="inline-flex h-8 items-center gap-1.5 px-2 text-ui text-violet-300" data-evidence-merged>
             <GitMerge className="size-4" />
             {t('evidence.merged')}
           </span>

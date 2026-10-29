@@ -54,7 +54,7 @@ function Payload({ title, body, note }: { title: string; body: string; note?: st
   return (
     <section className="min-w-0 space-y-1">
       <h3 className="break-all font-mono text-xs text-secondary">{title}</h3>
-      <pre className="max-h-72 min-w-0 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere] rounded border border-line bg-sunken px-3 py-2 font-mono text-[11px] leading-relaxed text-secondary">
+      <pre className="max-h-72 min-w-0 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere] rounded border border-line bg-sunken px-3 py-2 font-mono text-caption leading-relaxed text-secondary">
         {body}
       </pre>
       {note && <p className="text-xs text-secondary">{note}</p>}

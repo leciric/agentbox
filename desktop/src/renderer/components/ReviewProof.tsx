@@ -134,7 +134,7 @@ const nameOf = (s: Shown) => (s.kind === 'recording' ? readableName(s.take.media
 function StageBar({ shown, n, count, expanded, onStep, onExpand }: { shown: Shown; n: number; count: number; expanded: boolean; onStep: (by: number) => void; onExpand: () => void }) {
   const t = useT();
   return (
-    <div className={cn('flex min-w-0 items-center gap-2 text-[12.5px]', expanded ? 'text-white/80' : 'text-secondary')} data-review-stage-bar>
+    <div className={cn('flex min-w-0 items-center gap-2 text-ui', expanded ? 'text-white/80' : 'text-secondary')} data-review-stage-bar>
       <Button size="icon-sm" variant="ghost" disabled={n === 0} onClick={() => onStep(-1)} aria-label={t('review.previous')} title={`${t('review.previous')} (←)`}>
         <ChevronLeft />
       </Button>
@@ -210,7 +210,7 @@ function Strip({ shown, at, lit, onPick }: { shown: Shown[]; at: number; lit: Re
   if (shown.length < 2) return null;
   return (
     <section className="min-w-0">
-      <h3 className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-subtle">
+      <h3 className="mb-2 flex items-center gap-2 text-caption font-semibold uppercase tracking-wide text-subtle">
         {t('review.media')}
         <span className="font-normal normal-case tracking-normal">{counts.join(' · ')}</span>
         <span className="ml-auto font-normal normal-case tracking-normal max-md:hidden">{t('review.mediaKeys')}</span>
@@ -231,7 +231,7 @@ function Strip({ shown, at, lit, onPick }: { shown: Shown[]; at: number; lit: Re
             data-review-media-kind={s.kind}
           >
             <Thumb shown={s} />
-            <span className="flex min-w-0 items-center gap-1.5 px-2 py-1.5 text-[11.5px] text-secondary">
+            <span className="flex min-w-0 items-center gap-1.5 px-2 py-1.5 text-caption text-secondary">
               <KindIcon shown={s} className="size-3 shrink-0 text-subtle" />
               <span className="min-w-0 truncate">{nameOf(s)}</span>
             </span>
@@ -248,7 +248,7 @@ function Thumb({ shown }: { shown: Shown }) {
     return (
       <span className="relative flex aspect-[16/10] w-full items-center justify-center bg-black text-white/80">
         <Play className="size-6 fill-current" />
-        {shown.take.media.meta.duration ? <span className="absolute bottom-1 right-1.5 rounded bg-black/70 px-1 text-[10.5px] tabular-nums">{clock(shown.take.media.meta.duration)}</span> : null}
+        {shown.take.media.meta.duration ? <span className="absolute bottom-1 right-1.5 rounded bg-black/70 px-1 text-caption tabular-nums">{clock(shown.take.media.meta.duration)}</span> : null}
       </span>
     );
   }
@@ -265,7 +265,7 @@ function Chapters({ take, at, onPick }: { take: Take; at: number; onPick: (secon
   const t = useT();
   return (
     <section className="min-w-0" data-review-chapters>
-      <h3 className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-subtle">
+      <h3 className="mb-2 flex items-center gap-2 text-caption font-semibold uppercase tracking-wide text-subtle">
         {t('review.checked')}
         {take.chapters.length > 1 && (
           <span className="ml-auto flex gap-1 font-normal normal-case max-md:hidden" aria-hidden>
@@ -275,7 +275,7 @@ function Chapters({ take, at, onPick }: { take: Take; at: number; onPick: (secon
         )}
       </h3>
       {take.chapters.length === 0 ? (
-        <p className="text-[12px] leading-relaxed text-subtle">{t('review.noChapters')}</p>
+        <p className="text-caption leading-relaxed text-subtle">{t('review.noChapters')}</p>
       ) : (
         <ol className="grid grid-cols-[minmax(0,1fr)] gap-0.5">
           {take.chapters.map((c, i) => (
@@ -292,10 +292,10 @@ function Chapters({ take, at, onPick }: { take: Take; at: number; onPick: (secon
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-baseline gap-2">
-                    <span className={cn('min-w-0 flex-1 [overflow-wrap:anywhere] text-[13px]', i === at ? 'text-title' : 'text-primary')}>{c.title}</span>
-                    <span className="shrink-0 text-[11px] tabular-nums text-faint">{clock(c.at)}</span>
+                    <span className={cn('min-w-0 flex-1 [overflow-wrap:anywhere] text-ui', i === at ? 'text-title' : 'text-primary')}>{c.title}</span>
+                    <span className="shrink-0 text-caption tabular-nums text-faint">{clock(c.at)}</span>
                   </span>
-                  {c.detail && <span className="mt-0.5 line-clamp-3 block [overflow-wrap:anywhere] text-[12px] leading-snug text-subtle">{c.detail}</span>}
+                  {c.detail && <span className="mt-0.5 line-clamp-3 block [overflow-wrap:anywhere] text-caption leading-snug text-subtle">{c.detail}</span>}
                 </span>
               </button>
             </li>
@@ -377,7 +377,7 @@ function Player({ ref, take, chapter, onTime, expanded }: { ref: Ref<PlayerHandl
           className={cn('block w-full cursor-pointer object-contain', expanded ? 'h-full' : 'aspect-[16/10]')}
         />
         {current && (
-          <span className="pointer-events-none absolute left-3 top-3 max-w-[80%] truncate rounded-md bg-black/65 px-2 py-1 text-[12px] text-white backdrop-blur">
+          <span className="pointer-events-none absolute left-3 top-3 max-w-[80%] truncate rounded-md bg-black/65 px-2 py-1 text-caption text-white backdrop-blur">
             <span className="tabular-nums text-white/60">{t('review.position', { n: chapter + 1, count: take.chapters.length })}</span> {current.title}
           </span>
         )}
@@ -411,7 +411,7 @@ function Player({ ref, take, chapter, onTime, expanded }: { ref: Ref<PlayerHandl
             );
           })}
         </div>
-        <span className="shrink-0 text-[11.5px] tabular-nums text-white/70">
+        <span className="shrink-0 text-caption tabular-nums text-white/70">
           {clock(time)} / {clock(length)}
         </span>
       </div>

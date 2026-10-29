@@ -112,7 +112,7 @@ export function NoteBox({ title, initial = '', saveLabel, onSave, onCancel }: { 
   };
   return (
     <div className="grid max-w-2xl gap-2 rounded-lg border border-brand-400/40 bg-modal p-2.5 font-sans shadow-sm" data-review-note-box>
-      <div className="text-[11.5px] text-muted">{title}</div>
+      <div className="text-caption text-muted">{title}</div>
       <textarea
         autoFocus
         rows={3}
@@ -126,7 +126,7 @@ export function NoteBox({ title, initial = '', saveLabel, onSave, onCancel }: { 
         }}
         placeholder={t('review.notes.placeholder')}
         aria-label={t('review.notes.add')}
-        className="w-full resize-y rounded-md bg-surface-faint px-2.5 py-2 text-[12.5px] whitespace-pre-wrap text-primary outline-none ring-1 ring-line focus:ring-brand-400"
+        className="w-full resize-y rounded-md bg-surface-faint px-2.5 py-2 text-ui whitespace-pre-wrap text-primary outline-none ring-1 ring-line focus:ring-brand-400"
         data-review-note-input
       />
       <div className="flex justify-end gap-2">
@@ -165,7 +165,7 @@ export function NoteCard({ note, withPath, quote }: { note: T.ReviewNote; withPa
   const first = quote ? note.code.split('\n').find((l) => l.trim()) : undefined;
   return (
     <div className={cn('grid max-w-2xl gap-1 rounded-lg border bg-modal px-2.5 py-2 font-sans', note.status === 'resolved' ? 'border-line opacity-75' : 'border-line-strong')} data-review-note={note.id} data-status={note.status}>
-      <div className="flex min-w-0 items-center gap-2 text-[11.5px] text-muted">
+      <div className="flex min-w-0 items-center gap-2 text-caption text-muted">
         <MessageSquarePlus className="size-3.5 shrink-0 text-brand-300" />
         <Where note={note} withPath={withPath} />
         <Badge variant={statusVariants[note.status] ?? 'default'} className="shrink-0">
@@ -179,13 +179,13 @@ export function NoteCard({ note, withPath, quote }: { note: T.ReviewNote; withPa
               </Button>
             )}
             {note.status === 'pending' && (
-              <Button size="sm" variant="ghost" className="h-6 px-1.5 text-[11.5px]" onClick={() => notes.resolve(note.id, true)} data-review-note-resolve>
+              <Button size="sm" variant="ghost" className="h-6 px-1.5 text-caption" onClick={() => notes.resolve(note.id, true)} data-review-note-resolve>
                 <Check />
                 {t('review.notes.resolve')}
               </Button>
             )}
             {note.status === 'resolved' && note.resolvedAt && (
-              <Button size="sm" variant="ghost" className="h-6 px-1.5 text-[11.5px]" onClick={() => notes.resolve(note.id, false)} data-review-note-reopen>
+              <Button size="sm" variant="ghost" className="h-6 px-1.5 text-caption" onClick={() => notes.resolve(note.id, false)} data-review-note-reopen>
                 <RotateCcw />
                 {t('review.notes.reopen')}
               </Button>
@@ -196,8 +196,8 @@ export function NoteCard({ note, withPath, quote }: { note: T.ReviewNote; withPa
           </span>
         )}
       </div>
-      {first && <code className="block truncate font-mono text-[11px] text-subtle">{first}</code>}
-      <p className="whitespace-pre-wrap break-words text-[12.5px] text-primary">{note.body}</p>
+      {first && <code className="block truncate font-mono text-caption text-subtle">{first}</code>}
+      <p className="whitespace-pre-wrap break-words text-ui text-primary">{note.body}</p>
     </div>
   );
 }
@@ -223,7 +223,7 @@ export function NotesList({ notes }: { notes: T.ReviewNote[] }) {
     <div className="grid max-h-[38vh] gap-2 overflow-y-auto" data-review-notes-list>
       {draft.length > 0 && (
         <>
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-subtle">{t('review.notes.toSend', { count: draft.length })}</div>
+          <div className="text-caption font-semibold uppercase tracking-wide text-subtle">{t('review.notes.toSend', { count: draft.length })}</div>
           {draft.map((n) => (
             <NoteCard key={n.id} note={n} withPath quote />
           ))}
@@ -231,7 +231,7 @@ export function NotesList({ notes }: { notes: T.ReviewNote[] }) {
       )}
       {earlier.length > 0 && (
         <details className="group" data-review-notes-earlier>
-          <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-wide text-subtle">
+          <summary className="cursor-pointer text-caption font-semibold uppercase tracking-wide text-subtle">
             {t('review.notes.earlier', { list: counts })}
           </summary>
           <div className="mt-2 grid gap-2">

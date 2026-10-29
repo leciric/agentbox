@@ -59,13 +59,13 @@ export function SessionTabs({
         }
         if (confirming === s.id) {
           return (
-            <div key={s.id} role="alertdialog" aria-label={t('sessions.deleteAsk', { topic: s.topic })} className="flex shrink-0 items-center gap-1.5 rounded-lg border border-rose-500/40 bg-rose-500/10 py-0.5 pl-2.5 pr-1 text-[12.5px]">
+            <div key={s.id} role="alertdialog" aria-label={t('sessions.deleteAsk', { topic: s.topic })} className="flex shrink-0 items-center gap-1.5 rounded-lg border border-rose-500/40 bg-rose-500/10 py-0.5 pl-2.5 pr-1 text-ui">
               <span className="max-w-48 truncate text-secondary">{t('sessions.deleteAsk', { topic: s.topic })}</span>
               <ConfirmKeys onYes={() => onDelete(s.id)} onNo={() => onConfirm(undefined)} />
-              <Button size="sm" variant="destructive" className="h-6 px-2 text-[12px]" onClick={() => onDelete(s.id)}>
+              <Button size="sm" variant="destructive" className="h-6 px-2 text-caption" onClick={() => onDelete(s.id)}>
                 {t('common.delete')}
               </Button>
-              <Button size="sm" variant="ghost" className="h-6 px-2 text-[12px]" onClick={() => onConfirm(undefined)}>
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-caption" onClick={() => onConfirm(undefined)}>
                 {t('sessions.keep')}
               </Button>
             </div>
@@ -85,7 +85,7 @@ export function SessionTabs({
               if (e.key === 'F2') setRenaming(s.id);
             }}
             className={cn(
-              'group flex h-7 max-w-56 shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-lg pl-2.5 pr-1 text-[12.5px] transition-colors',
+              'group flex h-7 max-w-56 shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-lg pl-2.5 pr-1 text-ui transition-colors',
               on ? 'bg-surface-strong text-primary' : 'text-muted hover:bg-surface-raised hover:text-secondary',
             )}
           >
@@ -95,7 +95,7 @@ export function SessionTabs({
               <span aria-label={t('sessions.unread')} className="size-1.5 shrink-0 rounded-full bg-brand-400" />
             ) : null}
             <span className="min-w-0 truncate">{s.topic}</span>
-            {s.agents > 0 && <span className="shrink-0 text-[11px] tabular-nums text-faint">{s.agents}</span>}
+            {s.agents > 0 && <span className="shrink-0 text-caption tabular-nums text-faint">{s.agents}</span>}
             <Tip label={on ? `${t('sessions.delete')} · ${keysHint(sessionKeys.delete)}` : t('sessions.delete')}>
               <button
                 type="button"
@@ -116,7 +116,7 @@ export function SessionTabs({
         <TopicInput label={t('sessions.topic')} placeholder={t('sessions.topicPlaceholder')} onDone={(topic) => (topic ? onAdd(topic) : onAdding(false))} />
       ) : (
         <Tip label={`${t('sessions.new')} · ${keysHint(sessionKeys.new)}`}>
-          <Button variant="ghost" size="sm" className="h-7 shrink-0 gap-1 px-2 text-[12.5px]" onClick={() => onAdding(true)} data-session-new>
+          <Button variant="ghost" size="sm" className="h-7 shrink-0 gap-1 px-2 text-ui" onClick={() => onAdding(true)} data-session-new>
             <Plus className="size-3.5" />
             {sessions.length === 0 && t('sessions.new')}
           </Button>
@@ -149,7 +149,7 @@ export function TopicInput({ initial = '', label, placeholder, onDone }: { initi
         if (e.key === 'Escape') finish('');
       }}
       onBlur={() => finish(value === initial ? '' : value)}
-      className="h-7 w-56 shrink-0 rounded-lg border border-line-strong bg-surface px-2.5 text-[12.5px] text-primary outline-none placeholder:text-faint focus:border-brand-400"
+      className="h-7 w-56 shrink-0 rounded-lg border border-line-strong bg-surface px-2.5 text-ui text-primary outline-none placeholder:text-faint focus:border-brand-400"
     />
   );
 }

@@ -288,10 +288,10 @@ export function NewAgentDialog({
               hint={t('project.newAgent.branchHint')}
             >
               <div className="flex min-w-0 items-center gap-1.5">
-                {selected?.branchPrefix && <span className="shrink-0 font-mono text-[13px] text-subtle">{selected.branchPrefix}</span>}
+                {selected?.branchPrefix && <span className="shrink-0 font-mono text-ui text-subtle">{selected.branchPrefix}</span>}
                 <Input
                   id="agent-branch"
-                  className="min-w-0 font-mono text-[13px]"
+                  className="min-w-0 font-mono text-ui"
                   maxLength={maxBranchSlugLen}
                   pattern={branchSlugPattern}
                   title={t('project.newAgent.branchPattern')}
@@ -330,8 +330,8 @@ export function NewAgentDialog({
                   >
                     <AIIcon ai={tool.ai} className={cn('size-4 text-subtle', form.ai === tool.ai && 'text-brand-300')} />
                     <span className="grid">
-                      <span className="text-[13px] font-medium text-primary">{tool.labelKey ? t(tool.labelKey) : tool.label}</span>
-                      <span className="text-[11px] text-subtle">{tool.hintKey ? t(tool.hintKey) : tool.hint}</span>
+                      <span className="text-ui font-medium text-primary">{tool.labelKey ? t(tool.labelKey) : tool.label}</span>
+                      <span className="text-caption text-subtle">{tool.hintKey ? t(tool.hintKey) : tool.hint}</span>
                     </span>
                   </button>
                 ))}
@@ -359,8 +359,8 @@ export function NewAgentDialog({
                     >
                       <option.icon className={cn('size-4 shrink-0 text-subtle', iface === option.value && 'text-brand-300')} />
                       <span className="grid">
-                        <span className="text-[13px] font-medium text-primary">{t(option.label)}</span>
-                        <span className="text-[11px] text-subtle">
+                        <span className="text-ui font-medium text-primary">{t(option.label)}</span>
+                        <span className="text-caption text-subtle">
                           {option.value === 'chat'
                             ? t('project.newAgent.chatHint')
                             : form.ai === 'cursor'
@@ -376,7 +376,7 @@ export function NewAgentDialog({
 
             <button
               type="button"
-              className="-mt-1 flex items-center gap-1.5 justify-self-start text-[13px] text-muted hover:text-primary"
+              className="-mt-1 flex items-center gap-1.5 justify-self-start text-ui text-muted hover:text-primary"
               aria-expanded={advanced}
               onClick={() => setAdvanced((v) => !v)}
             >
@@ -387,10 +387,10 @@ export function NewAgentDialog({
               <div className="-mt-2 grid animate-slide-up gap-4 rounded-xl border border-line bg-surface-faint p-4">
                 <div className="grid grid-cols-2 gap-4">
                   <Field label={t('project.newAgent.nameLabel')} htmlFor="agent-name" hint={t('project.newAgent.nameHint')}>
-                    <Input id="agent-name" className="font-mono text-[13px]" placeholder="agent-NN" value={form.name} onChange={(event) => set('name', event.target.value)} />
+                    <Input id="agent-name" className="font-mono text-ui" placeholder="agent-NN" value={form.name} onChange={(event) => set('name', event.target.value)} />
                   </Field>
                   <Field label={t('project.newAgent.fromLabel')} htmlFor="agent-from" hint={selected ? t('project.newAgent.fromHint', { branch: selected.branch }) : undefined}>
-                    <Input id="agent-from" className="font-mono text-[13px]" placeholder={selected?.branch ?? 'main'} value={form.from} onChange={(event) => set('from', event.target.value)} />
+                    <Input id="agent-from" className="font-mono text-ui" placeholder={selected?.branch ?? 'main'} value={form.from} onChange={(event) => set('from', event.target.value)} />
                   </Field>
                 </div>
                 {form.ai === 'opencode' && (

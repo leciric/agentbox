@@ -26,20 +26,20 @@ export function RecapView({ onSelect }: { onSelect: (view: View) => void }) {
   return (
     <div className="h-full overflow-y-auto" data-recap-page>
       <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-7">
-        <button type="button" onClick={() => onSelect({ kind: 'work' })} className="mb-3 inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-primary">
+        <button type="button" onClick={() => onSelect({ kind: 'work' })} className="mb-3 inline-flex items-center gap-1.5 text-ui text-muted hover:text-primary">
           <ArrowLeft className="size-3.5" />
           {t('work.title')}
         </button>
         <div className="mb-6 flex flex-wrap items-end gap-3">
           <div className="min-w-0">
-            <h1 className="text-2xl font-semibold tracking-tight text-title">{t('recap.title')}</h1>
+            <h1 className="text-display font-semibold tracking-tight text-title">{t('recap.title')}</h1>
             <p className="mt-1 text-sm text-muted">{t('recap.description')}</p>
           </div>
           <div className="ml-auto flex items-center gap-1 rounded-xl border border-line bg-surface-raised p-1">
             <Button variant="ghost" size="sm" className="size-8 px-0" aria-label={t('recap.previous')} title={t('recap.previous')} onClick={() => setWeeks(weeks + 1)}>
               <ChevronLeft className="size-4" />
             </Button>
-            <span className="min-w-36 px-1 text-center text-[13px] font-medium tabular-nums text-secondary">{r ? weekRange(r) : '…'}</span>
+            <span className="min-w-36 px-1 text-center text-ui font-medium tabular-nums text-secondary">{r ? weekRange(r) : '…'}</span>
             <Button variant="ghost" size="sm" className="size-8 px-0" aria-label={t('recap.next')} title={t('recap.next')} disabled={weeks === 0} onClick={() => setWeeks(weeks - 1)}>
               <ChevronRight className="size-4" />
             </Button>
@@ -97,12 +97,12 @@ function Hero({ recap }: { recap: T.Recap }) {
       <div className="pointer-events-none absolute -bottom-48 -left-24 size-[30rem] rounded-full bg-[radial-gradient(closest-side,rgb(79_70_229/0.35),transparent)]" />
       <div className="relative grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] lg:items-end">
         <div className="min-w-0">
-          <div className="text-[11.5px] font-bold uppercase tracking-[0.18em] text-[#c4b5fd]">{t('recap.title')}</div>
+          <div className="text-caption font-bold uppercase tracking-[0.18em] text-[#c4b5fd]">{t('recap.title')}</div>
           <div className="mt-2 flex flex-wrap items-baseline gap-x-3">
             <span className="bg-gradient-to-b from-white to-[#c4b5fd] bg-clip-text text-7xl font-extrabold tracking-[-0.04em] text-transparent tabular-nums md:text-8xl">{duration(recap.workSeconds)}</span>
-            <span className="text-lg font-semibold">{t('recap.card.agentWork')}</span>
+            <span className="text-heading font-semibold">{t('recap.card.agentWork')}</span>
           </div>
-          <div className="mt-2 flex items-center gap-2 text-[15px] text-[#c4b5fd]" title={t('recap.awayHint')}>
+          <div className="mt-2 flex items-center gap-2 text-heading text-[#c4b5fd]" title={t('recap.awayHint')}>
             <Moon className="size-4 fill-[#fde68a] text-[#fde68a]" />
             {t('recap.awayYou', { hours: duration(recap.awaySeconds), share: Math.round(awayShare(recap) * 100) })}
           </div>
@@ -143,14 +143,14 @@ function Spent({ recap }: { recap: T.Recap }) {
           {spend === 'estimated' || spend === 'partly' ? '≈ ' : ''}
           {usd(recap.costUsd)}
         </span>
-        <span className="text-[15px] font-semibold">{t('recap.spent')}</span>
+        <span className="text-heading font-semibold">{t('recap.spent')}</span>
         {(spend === 'estimated' || spend === 'partly') && (
-          <span className="rounded-full border border-[#fde68a]/30 bg-[#fde68a]/10 px-2 py-0.5 text-[11.5px] font-semibold text-[#fde68a]">
+          <span className="rounded-full border border-[#fde68a]/30 bg-[#fde68a]/10 px-2 py-0.5 text-caption font-semibold text-[#fde68a]">
             {t(spend === 'estimated' ? 'recap.spendEstimated' : 'recap.spendPartly')}
           </span>
         )}
       </div>
-      {recap.unpricedTokens > 0 && <div className="mt-1 text-[12.5px] text-[#8f8ab0]">{t('recap.unpriced', { tokens: compact(recap.unpricedTokens) })}</div>}
+      {recap.unpricedTokens > 0 && <div className="mt-1 text-ui text-[#8f8ab0]">{t('recap.unpriced', { tokens: compact(recap.unpricedTokens) })}</div>}
     </div>
   );
 }
@@ -158,12 +158,12 @@ function Spent({ recap }: { recap: T.Recap }) {
 function Stat({ icon: Icon, label, value, sub, title }: { icon: ComponentType<{ className?: string }>; label: string; value: string; sub: ReactNode; title?: string }) {
   return (
     <div className="min-w-0 rounded-2xl border border-white/[0.09] bg-white/[0.045] px-3.5 py-3" title={title}>
-      <div className="flex items-center gap-1.5 text-[11.5px] font-semibold text-[#a8a3c7]">
+      <div className="flex items-center gap-1.5 text-caption font-semibold text-[#a8a3c7]">
         <Icon className="size-3.5 shrink-0 text-[#a78bfa]" />
         <span className="truncate">{label}</span>
       </div>
-      <div className="mt-1 truncate text-2xl font-bold tracking-tight tabular-nums">{value}</div>
-      <div className="truncate text-[12px] text-[#8f8ab0]">{sub}</div>
+      <div className="mt-1 truncate text-display font-bold tracking-tight tabular-nums">{value}</div>
+      <div className="truncate text-caption text-[#8f8ab0]">{sub}</div>
     </div>
   );
 }
@@ -175,8 +175,8 @@ function Days({ recap }: { recap: T.Recap }) {
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1">
-        <h2 className="text-[13px] font-semibold text-title">{t('recap.eachDay')}</h2>
-        <div className="ml-auto flex items-center gap-3 text-[11.5px] text-muted">
+        <h2 className="text-ui font-semibold text-title">{t('recap.eachDay')}</h2>
+        <div className="ml-auto flex items-center gap-3 text-caption text-muted">
           <span className="flex items-center gap-1.5">
             <span className="size-2 rounded-[2px] bg-brand-500" />
             {t('recap.whileAway')}
@@ -192,7 +192,7 @@ function Days({ recap }: { recap: T.Recap }) {
           const there = d.workSeconds - d.awaySeconds;
           return (
             <div key={d.date} className="group relative flex h-full flex-col items-center justify-end gap-1.5" title={t('recap.dayTip', { work: duration(d.workSeconds), away: duration(d.awaySeconds), count: d.agents })}>
-              <span className="text-[11px] tabular-nums text-subtle opacity-0 transition-opacity group-hover:opacity-100">{d.workSeconds ? duration(d.workSeconds) : ''}</span>
+              <span className="text-caption tabular-nums text-subtle opacity-0 transition-opacity group-hover:opacity-100">{d.workSeconds ? duration(d.workSeconds) : ''}</span>
               <div className="flex w-full max-w-11 flex-col gap-[2px] overflow-hidden rounded-t-md rounded-b-[2px]" style={{ height: `${(d.workSeconds / most) * 100}%`, minHeight: 4 }}>
                 {d.workSeconds === 0 ? (
                   <div className="h-1 bg-surface-strong" />
@@ -203,7 +203,7 @@ function Days({ recap }: { recap: T.Recap }) {
                   </>
                 )}
               </div>
-              <span className={cn('text-[11.5px]', i === recap.days.length - 1 ? 'font-semibold text-primary' : 'text-muted')}>{dayName(d.date)}</span>
+              <span className={cn('text-caption', i === recap.days.length - 1 ? 'font-semibold text-primary' : 'text-muted')}>{dayName(d.date)}</span>
             </div>
           );
         })}
@@ -220,15 +220,15 @@ function Hours({ recap }: { recap: T.Recap }) {
   return (
     <div className="mt-6">
       <div className="mb-2 flex items-center gap-3">
-        <h2 className="text-[13px] font-semibold text-title">{t('recap.byHour')}</h2>
-        {peak && <span className="ml-auto text-[11.5px] text-muted">{t('recap.peak', { hour: peak })}</span>}
+        <h2 className="text-ui font-semibold text-title">{t('recap.byHour')}</h2>
+        {peak && <span className="ml-auto text-caption text-muted">{t('recap.peak', { hour: peak })}</span>}
       </div>
       <div className="grid grid-cols-[repeat(24,minmax(0,1fr))] gap-[3px]">
         {recap.hours.map((s, h) => (
           <div key={h} className="h-7 rounded-[4px] bg-brand-500" style={{ opacity: s ? 0.18 + (0.82 * s) / most : 0.06 }} title={`${String(h).padStart(2, '0')}:00 · ${duration(s)}`} />
         ))}
       </div>
-      <div className="mt-1 flex justify-between text-[10.5px] tabular-nums text-subtle">
+      <div className="mt-1 flex justify-between text-caption tabular-nums text-subtle">
         <span>00</span>
         <span>06</span>
         <span>12</span>
@@ -245,16 +245,16 @@ function Models({ recap }: { recap: T.Recap }) {
   return (
     <div>
       <div className="mb-3 flex items-baseline gap-3">
-        <h2 className="text-[13px] font-semibold text-title">{t('recap.models')}</h2>
-        <span className="ml-auto text-[11.5px] tabular-nums text-muted">{t('recap.tokens', { tokens: compact(recap.tokens) })}</span>
+        <h2 className="text-ui font-semibold text-title">{t('recap.models')}</h2>
+        <span className="ml-auto text-caption tabular-nums text-muted">{t('recap.tokens', { tokens: compact(recap.tokens) })}</span>
       </div>
       {recap.models.length === 0 ? (
-        <p className="text-[13px] text-subtle">{t('recap.noTokens')}</p>
+        <p className="text-ui text-subtle">{t('recap.noTokens')}</p>
       ) : (
         <ul className="grid gap-3">
           {recap.models.slice(0, 7).map((m) => (
             <li key={m.model || 'unnamed'} className="min-w-0">
-              <div className="flex items-baseline justify-between gap-2 text-[13px]">
+              <div className="flex items-baseline justify-between gap-2 text-ui">
                 <span className="truncate font-medium text-primary" title={m.model}>
                   {m.model ? modelLabel(m.model) : t('vm.tokens.unnamedModel')}
                 </span>
@@ -323,11 +323,11 @@ function Share({ recap }: { recap: T.Recap }) {
     <Panel ref={panel} className="p-5">
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <div className="min-w-0">
-          <h2 className="flex items-center gap-1.5 text-[15px] font-semibold text-title">
+          <h2 className="flex items-center gap-1.5 text-heading font-semibold text-title">
             <Sparkles className="size-4 text-brand-400" />
             {t('recap.share.title')}
           </h2>
-          <p className="mt-0.5 text-[12.5px] text-muted">{t('recap.share.description')}</p>
+          <p className="mt-0.5 text-ui text-muted">{t('recap.share.description')}</p>
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <div className="flex rounded-lg border border-line bg-surface p-0.5" role="radiogroup" aria-label={t('recap.share.shape')}>
@@ -338,13 +338,13 @@ function Share({ recap }: { recap: T.Recap }) {
                 role="radio"
                 aria-checked={format === f}
                 onClick={() => setFormat(f)}
-                className={cn('rounded-md px-3 py-1 text-[12.5px] font-medium', format === f ? 'bg-surface-strong text-primary shadow-sm' : 'text-muted hover:text-primary')}
+                className={cn('rounded-md px-3 py-1 text-ui font-medium', format === f ? 'bg-surface-strong text-primary shadow-sm' : 'text-muted hover:text-primary')}
               >
                 {t(f === 'landscape' ? 'recap.share.landscape' : 'recap.share.square')}
               </button>
             ))}
           </div>
-          <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-[12.5px] text-secondary">
+          <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-ui text-secondary">
             <Switch checked={names} onCheckedChange={setNames} />
             {t('recap.share.names')}
           </label>
@@ -358,7 +358,7 @@ function Share({ recap }: { recap: T.Recap }) {
         )}
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        <p className="mr-auto text-[12px] text-subtle">{names ? t('recap.share.namesOn') : t('recap.share.namesOff')}</p>
+        <p className="mr-auto text-caption text-subtle">{names ? t('recap.share.namesOn') : t('recap.share.namesOff')}</p>
         <Button
           size="sm"
           disabled={!card}

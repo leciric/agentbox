@@ -25,13 +25,13 @@ export function ImageWait({ agent }: { agent: T.Agent }) {
       <div className="flex items-start gap-2.5">
         <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin text-sky-400" />
         <div className="grid min-w-0 flex-1 gap-0.5">
-          <span className="text-[13px] font-medium text-title">{t('agent.imageWait.title')}</span>
-          <span className="text-[12px] leading-relaxed text-secondary">{t('agent.imageWait.body', { name: agent.name })}</span>
+          <span className="text-ui font-medium text-title">{t('agent.imageWait.title')}</span>
+          <span className="text-caption leading-relaxed text-secondary">{t('agent.imageWait.body', { name: agent.name })}</span>
         </div>
       </div>
       {data?.build === 'building' && (data.step || data.progress) && (
         <div className="grid min-w-0 gap-1.5 pl-6.5">
-          <span className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-muted">
+          <span className="flex min-w-0 items-center gap-1.5 text-caption text-muted">
             <Layers className="size-3 shrink-0" />
             <span className="truncate font-mono" title={data.step}>{data.step}</span>
             {data.progress && <span className="ml-auto shrink-0 font-mono tabular-nums">{data.progress}</span>}

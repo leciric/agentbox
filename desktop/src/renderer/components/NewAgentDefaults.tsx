@@ -144,7 +144,7 @@ export function DefaultModel({ role }: { role: Role }) {
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={(e) => e.stopPropagation()}
                   placeholder={t('common.search')}
-                  className="w-full bg-transparent text-[13px] text-primary placeholder:text-faint focus:outline-none"
+                  className="w-full bg-transparent text-ui text-primary placeholder:text-faint focus:outline-none"
                 />
               </div>
             )}
@@ -152,7 +152,7 @@ export function DefaultModel({ role }: { role: Role }) {
               <MenuItem onSelect={() => save.mutate('')} hint={value === '' ? <Check className="size-3.5 text-brand-300" /> : undefined}>
                 <span className="grid">
                   <span>{empty.name}</span>
-                  <span className="text-[11px] text-subtle">{empty.description}</span>
+                  <span className="text-caption text-subtle">{empty.description}</span>
                 </span>
               </MenuItem>
             )}
@@ -165,9 +165,9 @@ export function DefaultModel({ role }: { role: Role }) {
                   <span className="grid">
                     <span className="flex items-center gap-1.5 text-amber-200">
                                       {missing}
-                      <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-amber-300">{t('defaults.newAgent.offMenu')}</span>
+                      <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-caption font-semibold uppercase tracking-wide text-amber-300">{t('defaults.newAgent.offMenu')}</span>
                     </span>
-                    <span className="text-[11px] text-subtle">{t('defaults.newAgent.offMenuNote')}</span>
+                    <span className="text-caption text-subtle">{t('defaults.newAgent.offMenuNote')}</span>
                   </span>
                 </MenuItem>
               </>
@@ -186,17 +186,17 @@ export function DefaultModel({ role }: { role: Role }) {
                       <span className="flex items-center gap-1.5">
                         {choiceName(choice)}
                         {isRecommended(choice) && (
-                          <span className="shrink-0 rounded-full bg-brand-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-brand-300">{t('defaults.newAgent.recommended')}</span>
+                          <span className="shrink-0 rounded-full bg-brand-400/15 px-1.5 py-px text-caption font-semibold uppercase tracking-wide text-brand-300">{t('defaults.newAgent.recommended')}</span>
                         )}
                       </span>
-                      {choice.description && <span className="text-[11px] text-subtle">{choice.description}</span>}
+                      {choice.description && <span className="text-caption text-subtle">{choice.description}</span>}
                     </span>
                   </MenuItem>
                 ))}
               </div>
             ))}
             {settings.data && !settings.data.claudeMenuKnown && (
-              <div className="px-2.5 py-3 text-[12px] leading-relaxed text-subtle">
+              <div className="px-2.5 py-3 text-caption leading-relaxed text-subtle">
                 {t('defaults.newAgent.onlyOwnPicks')}
               </div>
             )}
@@ -559,7 +559,7 @@ export function LeadSleep() {
             max={1440}
             aria-label={t('defaults.newAgent.sleepMinutes')}
             data-lead-sleep-minutes
-            className="font-mono text-[13px]"
+            className="font-mono text-ui"
             disabled={save.isPending || settings.data === undefined}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -569,7 +569,7 @@ export function LeadSleep() {
               if (n !== minutes) save.mutate({ leadSleepMinutes: n });
             }}
           />
-          <span className="text-[12.5px] text-subtle">{minutes === leadSleepFallback ? t('defaults.newAgent.minutesDefault') : t('defaults.newAgent.minutes')}</span>
+          <span className="text-ui text-subtle">{minutes === leadSleepFallback ? t('defaults.newAgent.minutesDefault') : t('defaults.newAgent.minutes')}</span>
         </div>
       )}
     </SettingRow>
@@ -658,7 +658,7 @@ function CacheHolds({
   const t = useT();
   return (
     <div className="grid content-start gap-1.5">
-      <span className="text-[13px] font-medium text-tertiary" {...data}>
+      <span className="text-ui font-medium text-tertiary" {...data}>
         {t('defaults.newAgent.holds', { size: humanBytes(held) })}
       </span>
       <Button className="h-9" disabled={disabled || held === 0} onClick={onEmpty}>
@@ -954,12 +954,12 @@ export function RemoveStopped() {
         </div>
         <div className="grid min-w-0 gap-2 rounded-lg border border-line bg-surface px-3 py-2.5" data-remove-stopped-preview aria-busy={machines.isFetching || undefined}>
           {machines.isPending ? (
-            <p className="text-[12px] text-subtle">{t('defaults.newAgent.removeStoppedChecking')}</p>
+            <p className="text-caption text-subtle">{t('defaults.newAgent.removeStoppedChecking')}</p>
           ) : machines.isError ? (
-            <p className="text-[12px] text-rose-300">{errorMessage(machines.error)}</p>
+            <p className="text-caption text-rose-300">{errorMessage(machines.error)}</p>
           ) : (
             <>
-              <p className="text-[12px] text-secondary" data-remove-stopped-summary>
+              <p className="text-caption text-secondary" data-remove-stopped-summary>
                 {removable.length > 0
                   ? t('defaults.newAgent.removeStoppedWould', { count: removable.length, size: humanBytes(bytes) })
                   : t('defaults.newAgent.removeStoppedNone')}
@@ -967,18 +967,18 @@ export function RemoveStopped() {
               {removable.length > 0 && (
                 <ul className="grid min-w-0 gap-1">
                   {removable.map((m) => (
-                    <li key={m.ref} className="flex min-w-0 items-center gap-2 text-[12px]" data-remove-stopped-agent={m.ref}>
+                    <li key={m.ref} className="flex min-w-0 items-center gap-2 text-caption" data-remove-stopped-agent={m.ref}>
                       <span className="min-w-0 flex-1 truncate text-primary" title={m.branch}>
                         {m.title || m.name}
                         <span className="text-faint"> · {m.project}</span>
                       </span>
                       <span className="shrink-0 tabular-nums text-subtle">{t('defaults.newAgent.removeStoppedSince', { ago: timeAgo(m.stoppedSince) })}</span>
-                      {m.machine !== undefined && <span className="w-16 shrink-0 text-right font-mono text-[11px] tabular-nums text-secondary">{humanBytes(m.machine)}</span>}
+                      {m.machine !== undefined && <span className="w-16 shrink-0 text-right font-mono text-caption tabular-nums text-secondary">{humanBytes(m.machine)}</span>}
                     </li>
                   ))}
                 </ul>
               )}
-              {kept > 0 && <p className="text-[11.5px] text-faint">{t('defaults.newAgent.removeStoppedOthers', { count: kept })}</p>}
+              {kept > 0 && <p className="text-caption text-faint">{t('defaults.newAgent.removeStoppedOthers', { count: kept })}</p>}
               {removable.length > 0 && (
                 <div>
                   <Button size="sm" variant="secondary" data-remove-stopped-now disabled={remove.isPending} onClick={() => remove.mutate(removable.map((m) => m.ref))}>
@@ -1071,7 +1071,7 @@ export function LeadRecheck() {
             max={1440}
             aria-label={t('defaults.newAgent.recheckMinutes')}
             data-lead-recheck-minutes
-            className="font-mono text-[13px]"
+            className="font-mono text-ui"
             disabled={save.isPending || settings.data === undefined}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -1081,7 +1081,7 @@ export function LeadRecheck() {
               if (n !== minutes) save.mutate({ leadRecheckMinutes: n });
             }}
           />
-          <span className="text-[12.5px] text-subtle">{minutes === leadRecheckFallback ? t('defaults.newAgent.minutesDefault') : t('defaults.newAgent.minutes')}</span>
+          <span className="text-ui text-subtle">{minutes === leadRecheckFallback ? t('defaults.newAgent.minutesDefault') : t('defaults.newAgent.minutes')}</span>
         </div>
       )}
     </SettingRow>

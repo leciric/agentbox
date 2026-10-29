@@ -69,7 +69,7 @@ export function usePrefetchProjectIcons(projects: Pick<T.Project, 'name' | 'icon
 // default); an emoji and the letter scale with its text size.
 export function ProjectIcon({ project, className }: { project: IconProject; className?: string }) {
   const icon = useProjectIcon(project).data;
-  const box = cn('flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-md bg-surface-strong text-[11px] font-semibold uppercase text-secondary', className);
+  const box = cn('flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-md bg-surface-strong text-caption font-semibold uppercase text-secondary', className);
   if (icon?.image) {
     return (
       <span className={box} data-project-icon="image" aria-hidden>
@@ -145,13 +145,13 @@ export function ProjectIconDialog({ project, open, onOpenChange }: { project: T.
       <DialogContent className="max-w-md" data-project-icon-dialog>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2.5">
-            <ProjectIcon project={project} className="size-8 text-[14px]" />
+            <ProjectIcon project={project} className="size-8 text-body" />
             {t('projectIcon.title', { project: name })}
           </DialogTitle>
           <DialogDescription>{t('projectIcon.description')}</DialogDescription>
         </DialogHeader>
         <div className="grid gap-2">
-          <div className="text-[12px] font-medium text-secondary">{t('projectIcon.emoji')}</div>
+          <div className="text-caption font-medium text-secondary">{t('projectIcon.emoji')}</div>
           <div className="flex flex-wrap gap-1">
             {suggested.map((e) => (
               <button
@@ -159,7 +159,7 @@ export function ProjectIconDialog({ project, open, onOpenChange }: { project: T.
                 type="button"
                 disabled={busy}
                 onClick={() => save.mutate({ emoji: e })}
-                className={cn('flex size-8 items-center justify-center rounded-lg text-[17px] hover:bg-surface-raised', icon?.source === 'chosen' && icon.emoji === e && 'bg-surface-strong ring-1 ring-line-heavy')}
+                className={cn('flex size-8 items-center justify-center rounded-lg text-heading hover:bg-surface-raised', icon?.source === 'chosen' && icon.emoji === e && 'bg-surface-strong ring-1 ring-line-heavy')}
                 data-icon-emoji={e}
               >
                 {e}
@@ -178,7 +178,7 @@ export function ProjectIconDialog({ project, open, onOpenChange }: { project: T.
               onChange={(e) => setEmoji(e.target.value)}
               placeholder={t('projectIcon.emojiPlaceholder')}
               aria-label={t('projectIcon.emoji')}
-              className="h-8 min-w-0 flex-1 rounded-lg border border-line-strong bg-sunken px-2.5 text-[13px] text-primary outline-none placeholder:text-faint focus:border-brand-400/60"
+              className="h-8 min-w-0 flex-1 rounded-lg border border-line-strong bg-sunken px-2.5 text-ui text-primary outline-none placeholder:text-faint focus:border-brand-400/60"
             />
             <Button size="sm" type="submit" disabled={busy || !emoji.trim()}>
               {t('projectIcon.useEmoji')}
@@ -186,7 +186,7 @@ export function ProjectIconDialog({ project, open, onOpenChange }: { project: T.
           </form>
           {candidates && candidates.length > 0 && (
             <>
-              <div className="mt-2 text-[12px] font-medium text-secondary">{t('projectIcon.fromRepo')}</div>
+              <div className="mt-2 text-caption font-medium text-secondary">{t('projectIcon.fromRepo')}</div>
               <div className="flex flex-wrap gap-1" data-icon-candidates>
                 {candidates.map((c) => (
                   <button
@@ -218,7 +218,7 @@ export function ProjectIconDialog({ project, open, onOpenChange }: { project: T.
               {icon.hasDetected ? t('projectIcon.reset') : t('projectIcon.remove')}
             </Button>
           )}
-          {icon?.source === 'detected' && icon.detectedFrom && <span className="text-[11.5px] text-subtle">{t('projectIcon.detectedFrom', { from: icon.detectedFrom })}</span>}
+          {icon?.source === 'detected' && icon.detectedFrom && <span className="text-caption text-subtle">{t('projectIcon.detectedFrom', { from: icon.detectedFrom })}</span>}
         </div>
       </DialogContent>
     </Dialog>

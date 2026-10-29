@@ -24,8 +24,8 @@ export function SettingsGroup({
   return (
     <section className={cn('grid grid-cols-[minmax(0,1fr)] gap-2.5', className)}>
       <header className="px-1">
-        <h2 className="text-[13px] font-semibold text-primary">{title}</h2>
-        {description && <p className="mt-0.5 text-[12px] leading-relaxed text-subtle">{description}</p>}
+        <h2 className="text-ui font-semibold text-primary">{title}</h2>
+        {description && <p className="mt-0.5 text-caption leading-relaxed text-subtle">{description}</p>}
       </header>
       <Panel className="divide-y divide-line-faint">{children}</Panel>
     </section>
@@ -69,11 +69,11 @@ export function SettingRow({
     <div className={cn('@container grid grid-cols-[minmax(0,1fr)] gap-3 px-5 py-4', className)} {...props}>
       <div className="flex flex-col gap-3 @lg:flex-row @lg:items-start @lg:gap-6">
         <div className="min-w-0 flex-1">
-          <Label htmlFor={htmlFor} className="block text-[13px] font-medium text-primary">
+          <Label htmlFor={htmlFor} className="block text-ui font-medium text-primary">
             {label}
           </Label>
           {description && (
-            <div className="mt-1 text-[12px] leading-relaxed text-subtle">
+            <div className="mt-1 text-caption leading-relaxed text-subtle">
               {description}
               {details && (
                 <>
@@ -91,7 +91,7 @@ export function SettingRow({
               )}
             </div>
           )}
-          {details && more && <div className="mt-1.5 grid gap-1.5 text-[12px] leading-relaxed text-subtle">{details}</div>}
+          {details && more && <div className="mt-1.5 grid gap-1.5 text-caption leading-relaxed text-subtle">{details}</div>}
         </div>
         {control && <div className="flex min-w-0 shrink-0 items-center @lg:w-64 @lg:justify-end">{control}</div>}
       </div>
@@ -107,7 +107,7 @@ export function SettingNote({ tone = 'muted', className, children }: { tone?: 'm
     <p
       role={tone === 'error' ? 'alert' : undefined}
       className={cn(
-        'min-w-0 break-words text-[12px] leading-relaxed',
+        'min-w-0 break-words text-caption leading-relaxed',
         { muted: 'text-subtle', warning: 'text-amber-300', error: 'text-rose-300' }[tone],
         className,
       )}

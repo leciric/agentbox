@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as T from '../../shared/api.ts';
-import { bytesOf, duration, errorMessage, githubAccountLabel, githubErrorSentence, humanBytes, humanRate, shortCommit, shortRate, timeAgo, timeUntil } from './utils.ts';
+import { bytesOf, cn, duration, errorMessage, githubAccountLabel, githubErrorSentence, humanBytes, humanRate, shortCommit, shortRate, timeAgo, timeUntil } from './utils.ts';
 
 test('humanBytes picks the largest unit that keeps the number small', () => {
   assert.equal(humanBytes(500), '500 B');
@@ -110,4 +110,9 @@ test('githubErrorSentence explains each kind of GitHub failure', () => {
 test('githubErrorSentence leads with the login when there is one', () => {
   const err = { account: 'acct', login: 'octocat', repo: 'org/repo', message: 'boom', kind: T.GitHubNoAccess } as T.GitHubError;
   assert.equal(githubErrorSentence(err), "The account acct (octocat) can't see org/repo.");
+});
+
+test('cn keeps a size from the type scale beside a colour, and merges two sizes', () => {
+  assert.equal(cn('text-ui font-medium', 'text-title'), 'text-ui font-medium text-title');
+  assert.equal(cn('text-caption text-subtle', 'text-body'), 'text-subtle text-body');
 });

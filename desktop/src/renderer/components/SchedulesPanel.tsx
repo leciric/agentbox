@@ -63,7 +63,7 @@ export function SchedulesPanel({ project, onSelect }: { project: string; onSelec
   return (
     <div className="grid min-w-0 gap-4" data-schedules>
       <div className="flex min-w-0 items-start gap-3">
-        <p className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-subtle">{t('schedules.description')}</p>
+        <p className="min-w-0 flex-1 text-ui leading-relaxed text-subtle">{t('schedules.description')}</p>
         <Button size="sm" variant="primary" onClick={() => setEditing({})} data-schedule-new>
           <Plus /> {t('schedules.new')}
         </Button>
@@ -71,10 +71,10 @@ export function SchedulesPanel({ project, onSelect }: { project: string; onSelec
 
       {schedules.isSuccess && list.length === 0 && (
         <div className="grid gap-3 rounded-xl border border-dashed border-line px-4 py-5" data-schedules-empty>
-          <div className="flex items-center gap-2 text-[13.5px] font-medium text-primary">
+          <div className="flex items-center gap-2 text-body font-medium text-primary">
             <AlarmClock className="size-4 text-brand-300" /> {t('schedules.empty.title')}
           </div>
-          <p className="text-[12.5px] text-subtle">{t('schedules.empty.body')}</p>
+          <p className="text-ui text-subtle">{t('schedules.empty.body')}</p>
           <div className="flex flex-wrap gap-2">
             {templates.map((tpl) => (
               <Button key={tpl.id} size="sm" variant="outline" onClick={() => setEditing({ template: tpl })} data-schedule-template={tpl.id}>
@@ -93,7 +93,7 @@ export function SchedulesPanel({ project, onSelect }: { project: string; onSelec
               <div className="flex min-w-0 items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                    <span className="min-w-0 truncate text-[13.5px] font-medium text-primary">{s.title}</span>
+                    <span className="min-w-0 truncate text-body font-medium text-primary">{s.title}</span>
                     {s.target === 'agent' ? (
                       <Badge variant="brand">
                         <Bot /> {s.session === 'reuse' ? t('schedules.target.reuse') : t('schedules.target.agent')}
@@ -110,10 +110,10 @@ export function SchedulesPanel({ project, onSelect }: { project: string; onSelec
                         </Badge>
                       </Tip>
                     )}
-                    {s.createdBy === 'lead' && <span className="text-[11px] text-faint">{t('schedules.byLead')}</span>}
+                    {s.createdBy === 'lead' && <span className="text-caption text-faint">{t('schedules.byLead')}</span>}
                   </div>
-                  <p className="mt-0.5 line-clamp-2 break-words text-[12.5px] text-tertiary">{s.task}</p>
-                  <p className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 text-[12px] text-subtle">
+                  <p className="mt-0.5 line-clamp-2 break-words text-ui text-tertiary">{s.task}</p>
+                  <p className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 text-caption text-subtle">
                     <span>{whenLabel(s, t)}</span>
                     <span>·</span>
                     {s.paused ? (
@@ -163,7 +163,7 @@ export function SchedulesPanel({ project, onSelect }: { project: string; onSelec
 
       {history.length > 0 && (
         <section className="grid min-w-0 gap-2" data-schedule-runs>
-          <h3 className="text-[12px] font-medium uppercase tracking-wide text-faint">{t('schedules.history.recent')}</h3>
+          <h3 className="text-caption font-medium uppercase tracking-wide text-faint">{t('schedules.history.recent')}</h3>
           <RunList
             runs={history.slice(0, 20)}
             titled
@@ -230,11 +230,11 @@ function RunOutcome({ run }: { run: T.ScheduleRun }) {
 
 function RunList({ runs, titled, onOpen, onRerun }: { runs: T.ScheduleRun[]; titled?: boolean; onOpen: (run: T.ScheduleRun) => void; onRerun: (run: T.ScheduleRun) => void }) {
   const t = useT();
-  if (runs.length === 0) return <p className="text-[12px] text-subtle">{t('schedules.history.empty')}</p>;
+  if (runs.length === 0) return <p className="text-caption text-subtle">{t('schedules.history.empty')}</p>;
   return (
     <ul className="mt-2 grid min-w-0 gap-1">
       {runs.map((run) => (
-        <li key={run.id} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-sunken px-2.5 py-1.5 text-[12px] text-tertiary" data-schedule-run-row={run.id}>
+        <li key={run.id} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-sunken px-2.5 py-1.5 text-caption text-tertiary" data-schedule-run-row={run.id}>
           {titled && <span className="min-w-0 truncate font-medium text-secondary">{run.title}</span>}
           <RunOutcome run={run} />
           {run.trigger === 'manual' && <Badge>{t('schedules.run.manual')}</Badge>}
@@ -245,7 +245,7 @@ function RunList({ runs, titled, onOpen, onRerun }: { runs: T.ScheduleRun[]; tit
               {run.eventUrl && (
                 <button
                   type="button"
-                  className="flex shrink-0 items-center gap-0.5 rounded px-1 text-[11.5px] hover:bg-surface-strong hover:text-primary"
+                  className="flex shrink-0 items-center gap-0.5 rounded px-1 text-caption hover:bg-surface-strong hover:text-primary"
                   onClick={() => void window.agentbox.openExternal(run.eventUrl!)}
                 >
                   {t('schedules.run.event')} <ExternalLink className="size-3" />
@@ -263,11 +263,11 @@ function RunList({ runs, titled, onOpen, onRerun }: { runs: T.ScheduleRun[]; tit
           )}
           <span className="ml-auto flex shrink-0 items-center gap-1">
             {(run.agent || run.chatItem) && (
-              <Button size="sm" variant="ghost" className="h-6 px-2 text-[12px]" onClick={() => onOpen(run)} data-run-open>
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-caption" onClick={() => onOpen(run)} data-run-open>
                 {run.agent ? <Bot /> : <MessageSquare />} {run.agent ?? t('schedules.run.open')}
               </Button>
             )}
-            <Button size="sm" variant="ghost" className="h-6 px-2 text-[12px]" onClick={() => onRerun(run)} data-run-rerun>
+            <Button size="sm" variant="ghost" className="h-6 px-2 text-caption" onClick={() => onRerun(run)} data-run-rerun>
               <RotateCw /> {t('schedules.rerun')}
             </Button>
           </span>

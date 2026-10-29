@@ -83,7 +83,7 @@ function ProjectNotes({ project, className }: { project: string; className?: str
       <Textarea
         aria-label={t('project.notes.title')}
         data-project-notes
-        className="min-h-44 font-mono text-[12.5px]"
+        className="min-h-44 font-mono text-ui"
         spellCheck={false}
         value={text}
         placeholder={t('project.notes.placeholder')}
@@ -203,8 +203,8 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
           {/* It gives way to the actions beside it, cutting a long root short,
               before they wrap under it. */}
           <div className="min-w-0 flex-1 basis-40">
-            <h1 className="truncate text-[15px] font-semibold tracking-tight text-title">{projectLabel(project)}</h1>
-            <p className="truncate font-mono text-[11px] text-subtle">{project.root}</p>
+            <h1 className="truncate text-heading font-semibold tracking-tight text-title">{projectLabel(project)}</h1>
+            <p className="truncate font-mono text-caption text-subtle">{project.root}</p>
           </div>
           <div className="ml-auto flex items-center gap-2">
             <Button onClick={onNewAgent}>
@@ -432,7 +432,7 @@ export function ProjectSettingsBody({ project, section, onSection, onSelect, onO
         <div className="mx-auto w-full max-w-3xl px-4 py-6 md:px-8 md:py-7">
           {v2 && (
             <Card className="mb-4" title={t('projectIcon.label')} icon={Smile} description={t('projectIcon.description')} action={<Button size="sm" onClick={() => setIconOpen(true)} data-project-settings-icon>{t('projectIcon.change')}</Button>}>
-              <ProjectIcon project={project} className="size-10 rounded-xl text-[16px]" />
+              <ProjectIcon project={project} className="size-10 rounded-xl text-heading" />
             </Card>
           )}
           <ProjectSettings project={project} />
@@ -454,7 +454,7 @@ export function ProjectSettingsBody({ project, section, onSection, onSelect, onO
             }
           >
             {showBrief && (
-              <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-xl border border-line-faint bg-sunken p-4 font-mono text-[12px] leading-relaxed text-tertiary">
+              <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-xl border border-line-faint bg-sunken p-4 font-mono text-caption leading-relaxed text-tertiary">
                 {brief.data ?? t('common.loading')}
               </pre>
             )}

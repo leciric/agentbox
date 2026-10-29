@@ -50,7 +50,7 @@ export function DataGrid({
   for (let c = first; c < last; c++) visible.push(c);
 
   return (
-    <div ref={scroller} className="h-full overflow-auto font-mono text-[12px]" role="grid" aria-label={label} aria-rowcount={rowCount + 1} data-file-grid>
+    <div ref={scroller} className="h-full overflow-auto font-mono text-caption" role="grid" aria-label={label} aria-rowcount={rowCount + 1} data-file-grid>
       <div className="sticky top-0 z-10 flex border-b border-line bg-composer" style={{ width: total, height: rowHeight }} role="row">
         <span className="sticky left-0 z-10 shrink-0 bg-composer" style={{ width: gutter }} />
         <span className="relative flex-1">

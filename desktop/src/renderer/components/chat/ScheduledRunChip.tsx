@@ -21,11 +21,11 @@ export function ScheduledRunChip({ item, project }: { item: T.ChatItem; project?
     run.target === 'agent' && (run.agent ? t('chat.scheduled.toAgent', { agent: run.agent }) : t('chat.scheduled.toNewAgent')),
   ].filter(Boolean);
   return (
-    <div className="mb-4 min-w-0 text-[13px]" data-chat-item="scheduled-run" data-schedule={run.schedule} data-chat-id={item.id}>
+    <div className="mb-4 min-w-0 text-ui" data-chat-item="scheduled-run" data-schedule={run.schedule} data-chat-id={item.id}>
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
         <span
           className={cn(
-            'inline-flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[12px] font-medium',
+            'inline-flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-caption font-medium',
             run.late ? 'border-amber-500/30 bg-amber-500/[0.08] text-amber-200' : 'border-sky-500/30 bg-sky-500/[0.08] text-sky-200',
           )}
           data-scheduled-chip
@@ -33,11 +33,11 @@ export function ScheduledRunChip({ item, project }: { item: T.ChatItem; project?
           {run.trigger === 'event' ? <Zap className="size-3.5 shrink-0" /> : <AlarmClock className="size-3.5 shrink-0" />}
           <span className="truncate">{t(run.trigger === 'event' ? 'chat.scheduled.eventTitle' : 'chat.scheduled.title', { title: run.title })}</span>
         </span>
-        {lines.length > 0 && <span className="min-w-0 truncate text-[12px] text-subtle">{lines.join(' · ')}</span>}
+        {lines.length > 0 && <span className="min-w-0 truncate text-caption text-subtle">{lines.join(' · ')}</span>}
         {project && (
           <button
             type="button"
-            className="ml-auto flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] text-subtle transition hover:bg-surface-strong hover:text-primary"
+            className="ml-auto flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-caption text-subtle transition hover:bg-surface-strong hover:text-primary"
             onClick={() => openPanelOn(leadOf(project), 'schedules')}
             data-open-schedules
           >

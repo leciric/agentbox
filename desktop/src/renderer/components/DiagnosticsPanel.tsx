@@ -177,8 +177,8 @@ function OpenFiles() {
   return (
     <section className="grid min-w-0 gap-2" data-diagnostics-files>
       <header className="min-w-0">
-        <h3 className="text-[13px] font-semibold text-title">{t('diagnostics.files.title')}</h3>
-        <p className="text-[12px] text-muted">{t('diagnostics.files.description')}</p>
+        <h3 className="text-ui font-semibold text-title">{t('diagnostics.files.title')}</h3>
+        <p className="text-caption text-muted">{t('diagnostics.files.description')}</p>
       </header>
       {files.error && <Notice>{errorMessage(files.error)}</Notice>}
       {d?.waiting && <Notice tone="warning">{t('diagnostics.files.waiting')}</Notice>}
@@ -192,7 +192,7 @@ function OpenFiles() {
         <Stat label={t('diagnostics.files.system')} value={of(d?.system)} />
       </Panel>
       {share && (
-        <p className="text-[12px] text-muted" data-diagnostics-trims>
+        <p className="text-caption text-muted" data-diagnostics-trims>
           {share.trims > 0 && share.lastTrim
             ? t('diagnostics.files.trims', { count: formatNumber(share.trims), when: timeAgo(share.lastTrim), pinned: formatNumber(share.pinned) })
             : t('diagnostics.files.noTrims')}
@@ -232,7 +232,7 @@ function Segmented<Id extends string>({
           data-segment={o.id}
           onClick={() => onChange(o.id)}
           className={cn(
-            'rounded-md px-2.5 py-1 text-[12px] font-medium tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50',
+            'rounded-md px-2.5 py-1 text-caption font-medium tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50',
             o.id === value ? 'bg-surface-strong text-title shadow-sm' : 'text-muted hover:text-primary',
           )}
         >
@@ -246,10 +246,10 @@ function Segmented<Id extends string>({
 function Stat({ label, value, tone }: { label: string; value: string; tone?: 'warning' | 'danger' }) {
   return (
     <div className="min-w-0 px-4 py-3">
-      <div className="truncate text-[11px] font-medium uppercase tracking-wider text-subtle">{label}</div>
+      <div className="truncate text-caption font-medium uppercase tracking-wider text-subtle">{label}</div>
       <div
         className={cn(
-          'mt-1 truncate font-mono text-lg font-semibold tabular-nums text-title',
+          'mt-1 truncate font-mono text-heading font-semibold tabular-nums text-title',
           tone === 'warning' && 'text-amber-400',
           tone === 'danger' && 'text-rose-400',
         )}
@@ -265,8 +265,8 @@ function Section({ title, description, action, children }: { title: string; desc
     <section className="grid min-w-0 gap-2">
       <header className="flex flex-wrap items-end justify-between gap-2">
         <div className="min-w-0">
-          <h3 className="text-[13px] font-semibold text-title">{title}</h3>
-          {description && <p className="text-[12px] text-muted">{description}</p>}
+          <h3 className="text-ui font-semibold text-title">{title}</h3>
+          {description && <p className="text-caption text-muted">{description}</p>}
         </div>
         {action}
       </header>
@@ -307,8 +307,8 @@ function PackageCacheSize() {
 function Table({ headers, numeric = [], children }: { headers: string[]; numeric?: number[]; children: ReactNode }) {
   return (
     <div className="min-w-0 overflow-x-auto">
-      <table className="w-full text-left text-[12px]">
-        <thead className="border-b border-line-faint text-[11px] uppercase tracking-wider text-subtle">
+      <table className="w-full text-left text-caption">
+        <thead className="border-b border-line-faint text-caption uppercase tracking-wider text-subtle">
           <tr>
             {headers.map((h, i) => (
               <th key={h} className={cn('whitespace-nowrap px-3 py-2 first:pl-4 last:pr-4 font-medium', numeric.includes(i) && 'text-right')}>
@@ -330,7 +330,7 @@ function Cell({ name, num, className, children }: { name?: boolean; num?: boolea
         'px-3 py-2 align-top first:pl-4 last:pr-4',
         // A route name breaks inside a path only when it must, so the table
         // fits its card rather than scrolling sideways.
-        name && '[overflow-wrap:anywhere] font-mono text-[12px] text-primary',
+        name && '[overflow-wrap:anywhere] font-mono text-caption text-primary',
         num && 'whitespace-nowrap text-right font-mono tabular-nums',
         className,
       )}
@@ -353,7 +353,7 @@ function breakable(name: string): ReactNode {
 }
 
 function Empty({ children }: { children: ReactNode }) {
-  return <div className="px-4 py-4 text-[12px] text-muted">{children}</div>;
+  return <div className="px-4 py-4 text-caption text-muted">{children}</div>;
 }
 
 // SpanTable lists spans, the slowest or the latest failures, folded to the
@@ -378,7 +378,7 @@ function SpanTable({ spans, loading, empty, version, errors }: { spans?: T.Trace
         {shown.map((s, i) => (
           <tr key={`${s.id ?? ''}:${s.start}:${i}`} className="group">
             <Cell name>
-              {s.source === T.SpanSourceApp && <span className="mr-1.5 rounded bg-surface-strong px-1 py-px font-sans text-[10px] uppercase text-subtle">{t('diagnostics.source.app')}</span>}
+              {s.source === T.SpanSourceApp && <span className="mr-1.5 rounded bg-surface-strong px-1 py-px font-sans text-caption uppercase text-subtle">{t('diagnostics.source.app')}</span>}
               {breakable(s.name)}
             </Cell>
             {errors ? (
@@ -398,7 +398,7 @@ function SpanTable({ spans, loading, empty, version, errors }: { spans?: T.Trace
         <button
           type="button"
           onClick={() => setAll(!all)}
-          className="w-full border-t border-line-faint px-4 py-2 text-left text-[12px] text-muted hover:bg-surface-raised hover:text-primary"
+          className="w-full border-t border-line-faint px-4 py-2 text-left text-caption text-muted hover:bg-surface-raised hover:text-primary"
         >
           {all ? t('diagnostics.showFewer') : t('diagnostics.showAll', { count: spans.length })}
         </button>
@@ -468,8 +468,8 @@ function ResourceHistory() {
           <Empty>{t('common.loading')}</Empty>
         ) : (
           <div className="grid gap-1 px-4 py-5 text-center" data-diagnostics-resources-empty>
-            <span className="text-[13px] font-medium text-title">{t('diagnostics.resources.empty')}</span>
-            <span className="text-[12px] text-muted">{t('diagnostics.resources.emptyHint')}</span>
+            <span className="text-ui font-medium text-title">{t('diagnostics.resources.empty')}</span>
+            <span className="text-caption text-muted">{t('diagnostics.resources.emptyHint')}</span>
           </div>
         )
       ) : (
@@ -540,9 +540,9 @@ function SeriesRow<S extends { at: string }>({
   return (
     <div className="grid min-w-0 gap-2 px-4 py-3" data-diagnostics-series={id}>
       <div className="flex min-w-0 items-baseline justify-between gap-3">
-        <span className={cn('truncate text-[13px] font-medium text-title', mono && 'font-mono text-[12px]')}>{name}</span>
+        <span className={cn('truncate text-ui font-medium text-title', mono && 'font-mono text-caption')}>{name}</span>
         {last && (
-          <span className="shrink-0 font-mono text-[11px] tabular-nums text-subtle">
+          <span className="shrink-0 font-mono text-caption tabular-nums text-subtle">
             {t('diagnostics.resources.now', { cpu: `${Math.round(cpu(last))}%`, memory: humanBytes(memory(last)) })}
           </span>
         )}
@@ -572,7 +572,7 @@ function Chart({ label, data, max, format, tone }: { label: string; data: Bucket
   const peak = Math.max(0, ...data.map((b) => b.peak));
   return (
     <div className="min-w-0">
-      <div className="mb-1 flex items-baseline justify-between text-[11px] text-subtle">
+      <div className="mb-1 flex items-baseline justify-between text-caption text-subtle">
         <span>{label}</span>
         <span className="font-mono tabular-nums">{t('diagnostics.resources.peak', { value: format(peak) })}</span>
       </div>

@@ -193,7 +193,7 @@ export function ScheduleDialog({
                   <button
                     key={tpl.id}
                     type="button"
-                    className="rounded-full border border-line px-2.5 py-1 text-[12px] text-secondary transition hover:border-line-strong hover:bg-surface-raised"
+                    className="rounded-full border border-line px-2.5 py-1 text-caption text-secondary transition hover:border-line-strong hover:bg-surface-raised"
                     onClick={() => setForm({ ...initial(undefined, tpl, t) })}
                     data-template={tpl.id}
                   >
@@ -219,7 +219,7 @@ export function ScheduleDialog({
                   type="button"
                   role="radio"
                   aria-checked={form.mode === m}
-                  className={cn('rounded-md px-2.5 py-1 text-[12.5px] transition', form.mode === m ? 'bg-surface-raised text-primary shadow-sm' : 'text-subtle hover:text-primary')}
+                  className={cn('rounded-md px-2.5 py-1 text-ui transition', form.mode === m ? 'bg-surface-raised text-primary shadow-sm' : 'text-subtle hover:text-primary')}
                   onClick={() => set('mode', m)}
                   data-schedule-mode={m}
                 >
@@ -243,7 +243,7 @@ export function ScheduleDialog({
                           key={d}
                           type="button"
                           aria-pressed={on}
-                          className={cn('h-8 min-w-10 rounded-md border px-2 text-[12px] transition', on ? 'border-brand-400/50 bg-brand-500/15 text-brand-200' : 'border-line text-subtle hover:text-primary')}
+                          className={cn('h-8 min-w-10 rounded-md border px-2 text-caption transition', on ? 'border-brand-400/50 bg-brand-500/15 text-brand-200' : 'border-line text-subtle hover:text-primary')}
                           onClick={() => set('days', on ? form.days.filter((x) => x !== d) : [...form.days, d])}
                           data-schedule-day={d}
                         >
@@ -293,7 +293,7 @@ export function ScheduleDialog({
                     </Field>
                   )}
                 </div>
-                <p className="text-[12px] text-subtle">{t('schedules.field.eventHint')}</p>
+                <p className="text-caption text-subtle">{t('schedules.field.eventHint')}</p>
               </div>
             )}
             {form.mode !== 'once' && form.mode !== 'event' && (

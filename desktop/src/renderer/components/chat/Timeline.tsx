@@ -172,14 +172,14 @@ const TimelineRow = memo(
         // And one of the project's agents asking permission, answered here.
         if (row.item.agentPermission) return <AgentPermissionCard item={row.item} />;
         return row.item.kind === 'error' ? (
-          <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-rose-500/20 bg-rose-500/[0.06] px-3.5 py-2.5 text-[13px] text-rose-100" role="alert" data-chat-item="error" data-chat-id={row.item.id}>
+          <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-rose-500/20 bg-rose-500/[0.06] px-3.5 py-2.5 text-ui text-rose-100" role="alert" data-chat-item="error" data-chat-id={row.item.id}>
             <CircleAlert className="mt-0.5 size-4 shrink-0 text-rose-300" />
             <p className="min-w-0 break-words leading-relaxed" data-chat-text>
               {row.item.text}
             </p>
           </div>
         ) : (
-          <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-line bg-surface-faint px-3.5 py-2.5 text-[13px] text-muted" data-chat-item="notice" data-chat-id={row.item.id}>
+          <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-line bg-surface-faint px-3.5 py-2.5 text-ui text-muted" data-chat-item="notice" data-chat-id={row.item.id}>
             <Info className="mt-0.5 size-4 shrink-0 text-subtle" />
             <div className="min-w-0 flex-1 leading-relaxed">
               <p className="break-words" data-chat-text>
@@ -189,11 +189,11 @@ const TimelineRow = memo(
                   session is told, in the open rather than slipped into its prompt. */}
               {row.item.handoff && (
                 <details className="group/handoff mt-1" data-chat-handoff>
-                  <summary className="flex cursor-default list-none items-center gap-1 text-[12px] text-subtle hover:text-tertiary">
+                  <summary className="flex cursor-default list-none items-center gap-1 text-caption text-subtle hover:text-tertiary">
                     {t('chat.timeline.handoff')}
                     <ChevronRight className="size-3.5 transition-transform group-open/handoff:rotate-90" />
                   </summary>
-                  <pre className="mt-1.5 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-surface-raised p-2.5 font-mono text-[11.5px] text-tertiary">{row.item.handoff}</pre>
+                  <pre className="mt-1.5 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-surface-raised p-2.5 font-mono text-caption text-tertiary">{row.item.handoff}</pre>
                 </details>
               )}
             </div>
@@ -276,7 +276,7 @@ function CompactionCard({ item }: { item: T.ChatItem }) {
   const waiting = c.waiting ?? 0;
   if (c.state === 'running') {
     return (
-      <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-line bg-surface-faint px-3.5 py-2.5 text-[13px]" role="status" data-chat-item="compaction" data-chat-compaction="running">
+      <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-line bg-surface-faint px-3.5 py-2.5 text-ui" role="status" data-chat-item="compaction" data-chat-compaction="running">
         <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin text-subtle" />
         <div className="min-w-0 leading-relaxed">
           <p className="chat-shine">{t('chat.compaction.running')}</p>
@@ -293,7 +293,7 @@ function CompactionCard({ item }: { item: T.ChatItem }) {
   return (
     <div
       className={cn(
-        'mb-4 flex items-start gap-2.5 rounded-xl border px-3.5 py-2.5 text-[13px]',
+        'mb-4 flex items-start gap-2.5 rounded-xl border px-3.5 py-2.5 text-ui',
         failed ? 'border-amber-500/20 bg-amber-500/[0.06] text-amber-100' : 'border-line bg-surface-faint text-muted',
       )}
       data-chat-item="compaction"
@@ -302,7 +302,7 @@ function CompactionCard({ item }: { item: T.ChatItem }) {
       {failed ? <CircleAlert className="mt-0.5 size-4 shrink-0 text-amber-300" /> : <Archive className="mt-0.5 size-4 shrink-0 text-subtle" />}
       <div className="min-w-0 leading-relaxed">
         <p className="break-words">{item.text}</p>
-        {failed && c.error && <p className="break-words text-[12.5px] text-amber-200/70">{c.error}</p>}
+        {failed && c.error && <p className="break-words text-ui text-amber-200/70">{c.error}</p>}
       </div>
     </div>
   );
@@ -314,7 +314,7 @@ function Delivered({ item }: { item: T.ChatItem }) {
   if (!delivery) return null;
   return (
     // On its way, it says so only if that takes long enough to notice.
-    <span className={cn('pr-1 text-[11.5px]', delivery.className, isSending(item) && 'appear-late')} data-chat-delivery={item.delivery}>
+    <span className={cn('pr-1 text-caption', delivery.className, isSending(item) && 'appear-late')} data-chat-delivery={item.delivery}>
       {t(delivery.label)}
     </span>
   );
@@ -326,7 +326,7 @@ function NotSent({ item }: { item: T.ChatItem }) {
   const t = useT();
   const error = findSending(item.id)?.error ?? '';
   return (
-    <div className="flex max-w-[85%] flex-wrap items-center justify-end gap-x-2 gap-y-1 pr-1 text-[11.5px]" data-chat-not-sent>
+    <div className="flex max-w-[85%] flex-wrap items-center justify-end gap-x-2 gap-y-1 pr-1 text-caption" data-chat-not-sent>
       <CircleAlert className="size-3.5 shrink-0 text-rose-300" />
       <span className="min-w-0 break-words text-rose-300/90">{t('chat.composer.notSent', { error })}</span>
       <button className="rounded-md px-1.5 py-0.5 font-medium text-rose-100 transition hover:bg-rose-400/15" onClick={() => retrySending(item.id)}>

@@ -321,7 +321,7 @@ export function AgentView({
                 {t('agent.tab.chat')}
                 {(agent.chat === 'running' || agent.chat === 'waiting') && (
                   <span
-                    className={cn('size-1.5 rounded-full', agent.chat === 'waiting' ? 'bg-amber-400' : 'animate-pulse bg-sky-400')}
+                    className={cn('size-1.5 rounded-full', agent.chat === 'waiting' ? 'bg-amber-400' : 'animate-working bg-sky-400')}
                     aria-label={agent.chat === 'waiting' ? t('agent.view.waitingForYou') : t('agent.view.working')}
                   />
                 )}
@@ -345,7 +345,7 @@ export function AgentView({
             <TabsTrigger value="media">
               <Images />
               {t('agent.tab.media')}
-              {mediaCount > 0 && <span className="rounded-full bg-brand-500/20 px-1.5 text-[10px] tabular-nums text-brand-200">{mediaCount}</span>}
+              {mediaCount > 0 && <span className="rounded-full bg-brand-500/20 px-1.5 text-caption tabular-nums text-brand-200">{mediaCount}</span>}
             </TabsTrigger>
             <TabsTrigger value="settings">
               <SlidersHorizontal />
@@ -449,13 +449,13 @@ function AgentTitle({ agent, editing, onEditing, onSave }: { agent: T.Agent; edi
           if (event.key === 'Enter') finish(true);
           if (event.key === 'Escape') finish(false);
         }}
-        className="w-full max-w-64 rounded-lg border border-brand-400/40 bg-well px-2 py-0.5 text-[15px] font-semibold tracking-tight text-title outline-none ring-2 ring-brand-400/20 placeholder:text-faint"
+        className="w-full max-w-64 rounded-lg border border-brand-400/40 bg-well px-2 py-0.5 text-heading font-semibold tracking-tight text-title outline-none ring-2 ring-brand-400/20 placeholder:text-faint"
       />
     );
   }
   return (
     <button className="group flex min-w-24 max-w-64 shrink items-center gap-1.5 text-left" onClick={() => onEditing(true)} aria-label={t('agent.view.editTitleLabel')}>
-      <span className="truncate text-[15px] font-semibold tracking-tight text-title">{agent.title || agent.name}</span>
+      <span className="truncate text-heading font-semibold tracking-tight text-title">{agent.title || agent.name}</span>
       {!agent.title && <span className="hidden shrink-0 text-xs text-faint opacity-0 transition group-hover:opacity-100 sm:inline">{t('agent.view.addTitle')}</span>}
       <Pencil className="size-3.5 shrink-0 text-faint opacity-0 transition group-hover:opacity-100" />
     </button>
@@ -476,8 +476,8 @@ function Chip({
   children: ReactNode;
 }) {
   const className = cn(
-    'inline-flex max-w-[280px] items-center gap-1.5 rounded-md border border-line bg-surface-faint px-2 py-0.5 text-[11.5px] text-muted',
-    mono && 'font-mono text-[11px]',
+    'inline-flex max-w-[280px] items-center gap-1.5 rounded-md border border-line bg-surface-faint px-2 py-0.5 text-caption text-muted',
+    mono && 'font-mono text-caption',
     onClick && 'transition hover:bg-surface-raised hover:text-secondary',
   );
   const content = (

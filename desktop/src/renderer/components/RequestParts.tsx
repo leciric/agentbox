@@ -31,14 +31,14 @@ export function useAnswerRequests(questions: readonly T.Question[]) {
 // several asked, since one answer goes to all of them.
 export function RequestReasons({ group }: { group: readonly T.Question[] }) {
   const t = useT();
-  const text = 'whitespace-pre-wrap text-[13px] leading-relaxed text-tertiary [overflow-wrap:anywhere]';
+  const text = 'whitespace-pre-wrap text-ui leading-relaxed text-tertiary [overflow-wrap:anywhere]';
   if (group.length === 1) return <p className={text}>{group[0].question}</p>;
   return (
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1.5" data-request-reasons>
-      <p className="text-[12px] text-subtle">{t('chat.request.oneAnswer', { count: group.length })}</p>
+      <p className="text-caption text-subtle">{t('chat.request.oneAnswer', { count: group.length })}</p>
       {group.map((q) => (
         <p key={q.id} className={text}>
-          <span className="font-mono text-[12px] text-secondary">{q.agent}</span> {q.question}
+          <span className="font-mono text-caption text-secondary">{q.agent}</span> {q.question}
         </p>
       ))}
     </div>
@@ -50,7 +50,7 @@ export function RequestReasons({ group }: { group: readonly T.Question[] }) {
 export function WaitingLabel({ children }: { children?: ReactNode }) {
   const t = useT();
   return (
-    <p className="flex min-w-0 items-center gap-1.5 text-[12px] text-subtle">
+    <p className="flex min-w-0 items-center gap-1.5 text-caption text-subtle">
       <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-amber-400" />
       <span className="shrink-0 font-medium text-amber-300 [:root[data-appearance=light]_&]:text-amber-700">{t('chat.credential.waitingOnYou')}</span>
       {children}

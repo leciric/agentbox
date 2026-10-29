@@ -157,7 +157,7 @@ export function FileBrowser({ fileRef, root, width, split, onClose }: { fileRef:
             onKeyDown={onFilterKey}
             placeholder={t('files.panel.find')}
             aria-label={t('files.panel.findLabel')}
-            className="h-7 w-full rounded-md border border-line bg-well pl-7 pr-2 text-[12.5px] text-primary outline-none placeholder:text-faint focus:border-brand-400/50"
+            className="h-7 w-full rounded-md border border-line bg-well pl-7 pr-2 text-ui text-primary outline-none placeholder:text-faint focus:border-brand-400/50"
             data-file-find
           />
         </div>
@@ -184,7 +184,7 @@ export function FileBrowser({ fileRef, root, width, split, onClose }: { fileRef:
         {query ? (
           <div className="min-h-0 flex-1 overflow-auto py-1" role="listbox" aria-label={t('files.panel.found')} data-file-found>
             {found.length === 0 ? (
-              <p className="px-3 py-2 text-[12.5px] text-subtle">{files.isPending ? t('common.loading') : t('files.panel.noMatch')}</p>
+              <p className="px-3 py-2 text-ui text-subtle">{files.isPending ? t('common.loading') : t('files.panel.noMatch')}</p>
             ) : (
               found.map((item, i) => {
                 const slash = item.insert.lastIndexOf('/');
@@ -193,18 +193,18 @@ export function FileBrowser({ fileRef, root, width, split, onClose }: { fileRef:
                     key={item.insert}
                     role="option"
                     aria-selected={i === picked}
-                    className={cn('flex w-full items-center gap-2 px-3 py-1 text-left text-[12.5px]', i === picked ? 'bg-surface-raised' : 'hover:bg-surface-faint')}
+                    className={cn('flex w-full items-center gap-2 px-3 py-1 text-left text-ui', i === picked ? 'bg-surface-raised' : 'hover:bg-surface-faint')}
                     onMouseEnter={() => setPicked(i)}
                     onClick={() => pick(item.insert)}
                   >
                     <File className="size-3.5 shrink-0 text-subtle" />
                     <span className="shrink-0 text-secondary">{item.insert.slice(slash + 1)}</span>
-                    <span className="min-w-0 truncate font-mono text-[11px] text-faint">{item.insert.slice(0, slash + 1)}</span>
+                    <span className="min-w-0 truncate font-mono text-caption text-faint">{item.insert.slice(0, slash + 1)}</span>
                   </button>
                 );
               })
             )}
-            {files.data?.truncated && <p className="px-3 py-2 text-[11.5px] text-faint">{t('files.panel.findTruncated')}</p>}
+            {files.data?.truncated && <p className="px-3 py-2 text-caption text-faint">{t('files.panel.findTruncated')}</p>}
           </div>
         ) : (
           <>
@@ -234,7 +234,7 @@ export function FileBrowser({ fileRef, root, width, split, onClose }: { fileRef:
                     }}
                   />
                 ) : (
-                  <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-[12.5px] text-subtle" data-file-none>
+                  <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-ui text-subtle" data-file-none>
                     <File className="size-6 text-faint" />
                     {t('files.panel.pick')}
                   </div>
@@ -245,7 +245,7 @@ export function FileBrowser({ fileRef, root, width, split, onClose }: { fileRef:
         )}
       </div>
       {status.data && Object.keys(status.data.changes).length > 0 && !query && (
-        <div className="flex h-6 shrink-0 items-center gap-1 border-t border-line-faint px-3 text-[11px] text-faint" data-file-changes>
+        <div className="flex h-6 shrink-0 items-center gap-1 border-t border-line-faint px-3 text-caption text-faint" data-file-changes>
           {t('files.panel.changes', { count: Object.keys(status.data.changes).length, base: status.data.base })}
         </div>
       )}

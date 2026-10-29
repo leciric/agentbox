@@ -213,7 +213,7 @@ export function RightPanelHost({ view, onSelect, onNewAgent }: { view: View; onS
       )}
       {measured && narrow && chatPanel(state, chat).open && (
         <>
-          <div className="fixed inset-0 z-40 animate-fade-in bg-scrim backdrop-blur-sm" onClick={() => setPanelOpen(chat, false)} data-panel-scrim />
+          <div className="fixed inset-0 z-40 animate-fade-in bg-scrim" onClick={() => setPanelOpen(chat, false)} data-panel-scrim />
           <aside
             style={{ width: drawerWidth }}
             aria-label={t('panel.label')}

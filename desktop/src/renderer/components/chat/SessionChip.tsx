@@ -15,7 +15,7 @@ export function SessionChip({ agent, className }: { agent: T.Agent; className?: 
   const own = list.find((s) => s.id === agent.leadSession);
   if (list.length < 2 || !own) return null;
   return (
-    <span title={t('sessions.owner', { topic: own.topic })} className={cn('inline-flex min-w-0 max-w-28 shrink items-center gap-1 rounded bg-surface-raised px-1 text-[10px] leading-4 text-subtle', className)} data-session-chip={own.id}>
+    <span title={t('sessions.owner', { topic: own.topic })} className={cn('inline-flex min-w-0 max-w-28 shrink items-center gap-1 rounded bg-surface-raised px-1 text-caption leading-4 text-subtle', className)} data-session-chip={own.id}>
       <MessagesSquare className="size-2.5 shrink-0" />
       <span className="min-w-0 truncate">{own.topic}</span>
     </span>

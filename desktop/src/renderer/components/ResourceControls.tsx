@@ -323,9 +323,9 @@ export function FreeResourcesDialog({
             {count > 0 && (
               <ul className="grid max-h-80 gap-1 overflow-y-auto rounded-xl border border-line bg-surface-faint p-1.5" aria-label={t('vm.free.agentsToStop')}>
                 {targets.map((target) => (
-                  <li key={target.ref} className="flex min-w-0 items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-[13px]">
+                  <li key={target.ref} className="flex min-w-0 items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-ui">
                     <span className="min-w-0 truncate text-secondary">{target.label}</span>
-                    <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset', doingTone[target.doing])}>
+                    <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-caption font-medium ring-1 ring-inset', doingTone[target.doing])}>
                       {t(doingText[target.doing])}
                     </span>
                   </li>
@@ -413,7 +413,7 @@ function FreeProgress({ run, agents, onHide }: { run: FreeRun; agents: T.Agent[]
 
 function Step({ done, pending, label, detail }: { done: boolean; pending?: boolean; label: string; detail: string }) {
   return (
-    <li className="flex min-w-0 items-center gap-2.5 rounded-lg px-1.5 py-1 text-[13px]" data-step={done ? 'done' : pending ? 'pending' : 'active'}>
+    <li className="flex min-w-0 items-center gap-2.5 rounded-lg px-1.5 py-1 text-ui" data-step={done ? 'done' : pending ? 'pending' : 'active'}>
       <span className="flex size-4 shrink-0 items-center justify-center">
         {done ? (
           <Check className="size-4 text-emerald-300" />
@@ -424,7 +424,7 @@ function Step({ done, pending, label, detail }: { done: boolean; pending?: boole
         )}
       </span>
       <span className={cn('min-w-0 flex-1 truncate', done ? 'text-muted' : 'text-secondary')}>{label}</span>
-      <span className="shrink-0 text-[11.5px] text-faint">{detail}</span>
+      <span className="shrink-0 text-caption text-faint">{detail}</span>
     </li>
   );
 }
@@ -445,7 +445,7 @@ function FreeResult({ run, onClose, onStartAgain, starting }: { run: FreeRun; on
         <Stat id="cpu" label={t('vm.free.cpuReturned')} value={coresText(got.cpu)} detail={t('vm.free.agentsWereUsing')} />
       </div>
       {got.hostBefore !== undefined && got.hostAfter !== undefined && (
-        <p className="text-[12.5px] text-muted">
+        <p className="text-ui text-muted">
           {t.rich('vm.free.hostMemory', {
             before: humanBytes(got.hostBefore),
             after: humanBytes(got.hostAfter),
@@ -456,12 +456,12 @@ function FreeResult({ run, onClose, onStartAgain, starting }: { run: FreeRun; on
       {stopped.length > 0 && (
         <ul className="grid max-h-64 gap-0.5 overflow-y-auto rounded-xl border border-line bg-surface-faint p-1.5" aria-label={t('vm.free.stoppedAgents')}>
           {stopped.map((a) => (
-            <li key={a.ref} className="flex min-w-0 items-center justify-between gap-3 rounded-lg px-2 py-1 text-[12.5px]">
+            <li key={a.ref} className="flex min-w-0 items-center justify-between gap-3 rounded-lg px-2 py-1 text-ui">
               <span className="min-w-0 truncate text-secondary">
                 {a.title || a.ref.split('/')[1]}
-                {a.working && <span className="ml-1.5 text-[11px] text-faint">{t('vm.free.wasWorking')}</span>}
+                {a.working && <span className="ml-1.5 text-caption text-faint">{t('vm.free.wasWorking')}</span>}
               </span>
-              <span className="shrink-0 font-mono text-[11px] tabular-nums text-faint">
+              <span className="shrink-0 font-mono text-caption tabular-nums text-faint">
                 {humanBytes(a.memory)} · {coresText(a.cpu)}
               </span>
             </li>
@@ -492,9 +492,9 @@ function FreeResult({ run, onClose, onStartAgain, starting }: { run: FreeRun; on
 function Stat({ id, label, value, detail }: { id: string; label: string; value: string; detail: string }) {
   return (
     <div className="grid gap-0.5 rounded-xl border border-emerald-400/20 bg-emerald-400/[0.06] px-3.5 py-3" data-stat={id}>
-      <span className="text-[11px] font-medium uppercase tracking-wider text-emerald-300">{label}</span>
+      <span className="text-caption font-medium uppercase tracking-wider text-emerald-300">{label}</span>
       <span className="font-mono text-xl font-semibold tabular-nums text-emerald-200">{value}</span>
-      <span className="text-[11px] text-muted">{detail}</span>
+      <span className="text-caption text-muted">{detail}</span>
     </div>
   );
 }
@@ -517,21 +517,21 @@ export function VMPanel({ vm, free }: { vm: VMPower; free: FreeResources }) {
   return (
     <div className="grid gap-3" data-vm-popover>
       <div className="flex items-center justify-between">
-        <span className="flex items-center gap-2 text-[13px] font-medium text-primary">
+        <span className="flex items-center gap-2 text-ui font-medium text-primary">
           <MonitorCog className="size-4 text-subtle" />
           {wsl ? t('vm.wslPower.title') : t('vm.agentboxVM')}
         </span>
-        <span className="flex items-center gap-1.5 text-[12px] text-muted">
+        <span className="flex items-center gap-1.5 text-caption text-muted">
           <span className={cn('size-1.5 rounded-full', vmDot(vm))} />
           {t(vmStateText[vm.state])}
         </span>
       </div>
       {wsl ? <WSLMemory vm={vm} /> : <VMMemory vm={vm} />}
-      <p className="text-[11.5px] leading-relaxed text-muted">
+      <p className="text-caption leading-relaxed text-muted">
         {wsl ? t('vm.wslPower.cpus', { cpus: vm.cpus }) : t('vm.indicator.cpus', { cpus: vm.cpus })}
         {vm.state === 'paused' && ` ${t('vm.indicator.pausedNote')}`}
       </p>
-      {vm.error && <Notice className="text-[12px]">{vm.error}</Notice>}
+      {vm.error && <Notice className="text-caption">{vm.error}</Notice>}
       <VMActions free={free} style="shutDown" />
     </div>
   );
@@ -541,12 +541,12 @@ export function vmDot(vm: VMPower): string {
   return vm.error && vm.state === 'off'
     ? 'bg-rose-400'
     : vm.state === 'running'
-      ? 'bg-emerald-400 animate-glow'
+      ? 'bg-emerald-400'
       : vm.state === 'paused'
         ? 'bg-amber-400'
         : vm.state === 'off'
           ? 'bg-faint'
-          : 'bg-brand-400 animate-pulse';
+          : 'bg-brand-400 animate-working';
 }
 
 // VMActions is the machine's controls, under a line saying what the action
@@ -610,7 +610,7 @@ export function VMActions({ free, style }: { free: FreeResources; style: 'shutDo
         )}
       </div>
       {!off && free.mode !== 'busy' && (
-        <span className="text-[11px] leading-relaxed text-faint">
+        <span className="text-caption leading-relaxed text-faint">
           {vm && !wsl && t('vm.free.pauseExplained')} {t('vm.free.explained', { count: free.targets, vm: vm ? 'yes' : 'no' })}
         </span>
       )}
@@ -631,7 +631,7 @@ export function VMMemory({ vm }: { vm: VMPower }) {
         <div className="absolute inset-y-0 left-0 rounded-full bg-brand-400/30" style={{ width: `${granted}%` }} />
         <div className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-brand-400 to-sky-400" style={{ width: `${used}%` }} />
       </div>
-      <div className="grid grid-cols-3 gap-2 text-[11px]">
+      <div className="grid grid-cols-3 gap-2 text-caption">
         <Legend swatch="bg-gradient-to-r from-brand-400 to-sky-400" label={t('vm.indicator.used')} value={humanBytes(vm.memoryUsed)} />
         <Legend swatch="bg-brand-400/30" label={t('vm.indicator.granted')} value={humanBytes(vm.memoryGranted)} />
         <Legend swatch="bg-surface-strong" label={t('vm.indicator.cap')} value={humanBytes(vm.memoryCap)} />
@@ -648,7 +648,7 @@ export function HostFootprint({ vm, className }: { vm: VMPower; className?: stri
   if (!vm.memoryResident) return null;
   const cache = vm.memoryHostCache ?? 0;
   return (
-    <span className={cn('text-[11.5px] leading-relaxed text-muted', className)} data-host-footprint>
+    <span className={cn('text-caption leading-relaxed text-muted', className)} data-host-footprint>
       {t('shell.machine.hostFootprint', {
         resident: humanBytes(vm.memoryResident),
         cache: cache >= 64 * 1024 ** 2 ? 'yes' : 'no',
@@ -668,7 +668,7 @@ function WSLMemory({ vm }: { vm: VMPower }) {
       <div className="relative h-2 overflow-hidden rounded-full bg-surface-strong">
         <div className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-brand-400 to-sky-400" style={{ width: `${used}%` }} />
       </div>
-      <div className="grid grid-cols-3 gap-2 text-[11px]">
+      <div className="grid grid-cols-3 gap-2 text-caption">
         <Legend swatch="bg-gradient-to-r from-brand-400 to-sky-400" label={t('vm.indicator.used')} value={humanBytes(vm.memoryUsed)} />
         <Legend swatch="bg-surface-strong" label={t('vm.wslPower.limit')} value={humanBytes(vm.memoryCap)} />
       </div>

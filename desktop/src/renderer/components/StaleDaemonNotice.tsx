@@ -48,7 +48,7 @@ export function StaleDaemonNotice({ stale }: { stale: StaleDaemon }) {
           ? t('shell.app.daemonStale', { daemon: stale.daemon, app: stale.app, count: stale.jobs })
           : t('shell.app.daemonStaleRestarted', { daemon: stale.daemon, app: stale.app })}
       </div>
-      {error && <div className="text-[12px] text-secondary">{error}</div>}
+      {error && <div className="text-caption text-secondary">{error}</div>}
       <Button size="sm" variant="secondary" className="mt-2" disabled={restarting} onClick={() => void restart()}>
         {restarting
           ? t('shell.app.daemonStaleRestarting')

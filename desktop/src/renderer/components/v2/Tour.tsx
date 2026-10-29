@@ -254,22 +254,22 @@ function TourPlayer({ view, onSelect, onReleaseNotes }: { view: View; onSelect: 
           <div className="h-full bg-brand-400 transition-[width] duration-300" style={{ width: `${((index + 1) / steps.length) * 100}%` }} />
         </div>
         <div className="min-h-0 overflow-y-auto px-5 pb-4 pt-4">
-          <div className="mb-2 flex items-center gap-2 text-[11px] text-subtle">
+          <div className="mb-2 flex items-center gap-2 text-caption text-muted">
             {whatsNew ? <Sparkles className="size-3.5 text-brand-300" /> : <CircleHelp className="size-3.5 text-brand-300" />}
-            <span className="min-w-0 flex-1 truncate font-medium uppercase tracking-[0.08em]">{label}</span>
+            <span className="min-w-0 flex-1 truncate font-medium">{label}</span>
             <span className="shrink-0 tabular-nums" data-tour-progress>
               {t('tour.progress', { step: index + 1, total: steps.length })}
             </span>
           </div>
-          <h2 id="tour-title" className="text-[16px] font-semibold tracking-tight text-title">
+          <h2 id="tour-title" className="text-heading font-semibold tracking-tight text-title">
             {t(step.title)}
           </h2>
-          <p id="tour-body" className="mt-1.5 text-[13px] leading-relaxed text-secondary">
+          <p id="tour-body" className="mt-1.5 text-ui leading-relaxed text-secondary">
             {t.rich(step.body, richTags)}
           </p>
           {showExample && (
             <div className="mt-3.5">
-              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-faint">{t('tour.example')}</div>
+              <div className="mb-1.5 text-caption font-medium text-muted">{t('tour.example')}</div>
               {examples[step.example!](t, !!box)}
             </div>
           )}
@@ -323,7 +323,7 @@ function TourPlayer({ view, onSelect, onReleaseNotes }: { view: View; onSelect: 
 
 const richTags = {
   b: (c: ReactNode) => <strong className="font-semibold text-title">{c}</strong>,
-  k: (c: ReactNode) => <kbd className="rounded border border-line-strong bg-surface-raised px-1 py-px font-mono text-[11px] text-primary">{c}</kbd>,
+  k: (c: ReactNode) => <kbd className="rounded border border-line-strong bg-surface-raised px-1 py-px font-mono text-caption text-primary">{c}</kbd>,
 };
 
 // ——— Made-up examples ———
@@ -331,7 +331,7 @@ const richTags = {
 type Tr = ReturnType<typeof useT>;
 
 function Frame({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn('rounded-xl border border-line bg-surface-faint p-3 text-[12px]', className)} data-tour-example>{children}</div>;
+  return <div className={cn('rounded-xl border border-line bg-surface-faint p-3 text-caption', className)} data-tour-example>{children}</div>;
 }
 
 function Dot({ tone }: { tone: 'working' | 'needs' | 'done' | 'idle' }) {
@@ -339,7 +339,7 @@ function Dot({ tone }: { tone: 'working' | 'needs' | 'done' | 'idle' }) {
 }
 
 function Head({ children }: { children: ReactNode }) {
-  return <div className="px-1 pb-1 text-[9.5px] font-semibold uppercase tracking-[0.08em] text-subtle">{children}</div>;
+  return <div className="px-1 pb-1 text-caption font-medium text-muted">{children}</div>;
 }
 
 // Each is given whether the step's anchor is on screen, to leave out what it shows.
@@ -349,10 +349,10 @@ const examples: Record<Example, (t: Tr, anchored: boolean) => ReactNode> = {
       <div className="relative h-20 overflow-hidden rounded-lg border border-line bg-surface-raised">
         <div className="absolute left-3 right-3 top-3 h-2.5 rounded bg-surface-strong" />
         <div className="absolute left-3 top-8 h-2 w-1/2 rounded bg-surface-strong/70" />
-        <span className="absolute bottom-3 left-3 rounded-md bg-emerald-500/70 px-2.5 py-1 text-[10px] font-medium text-white outline outline-2 outline-offset-2 outline-brand-400">Save</span>
-        <span className="absolute bottom-[38px] left-2 rounded bg-brand-500 px-1 font-mono text-[9px] text-white">button.save</span>
+        <span className="absolute bottom-3 left-3 rounded-md bg-emerald-500/70 px-2.5 py-1 text-caption font-medium text-white outline outline-2 outline-offset-2 outline-brand-400">Save</span>
+        <span className="absolute bottom-[38px] left-2 rounded bg-brand-500 px-1 font-mono text-caption text-white">button.save</span>
       </div>
-      <div className="flex items-center gap-1.5 rounded-xl border border-line-strong bg-surface px-2 py-1.5 text-[11px]">
+      <div className="flex items-center gap-1.5 rounded-xl border border-line-strong bg-surface px-2 py-1.5 text-caption">
         <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-brand-400/40 bg-brand-500/10 px-1.5 py-0.5 font-mono text-primary">
           <SquareDashedMousePointer className="size-3 text-brand-300" />
           button.save
@@ -371,16 +371,16 @@ const examples: Record<Example, (t: Tr, anchored: boolean) => ReactNode> = {
       </Head>
       <div className="rounded-lg bg-surface-raised px-2 py-1.5">
         <div className="font-medium text-title">shop-web</div>
-        <div className="truncate text-[11px] text-subtle">{t('tour.ex.leadLine')}</div>
+        <div className="truncate text-caption text-subtle">{t('tour.ex.leadLine')}</div>
       </div>
       <div className="ml-3 grid gap-0.5 border-l border-line pl-2">
-        <div className="flex items-center gap-1.5 py-0.5 text-secondary"><Dot tone="working" /><span className="font-mono text-[11px]">fix-login-redirect</span><span className="ml-auto text-[10px] text-subtle">{t('tour.ex.working')}</span></div>
-        <div className="flex items-center gap-1.5 py-0.5 text-secondary"><Dot tone="needs" /><span className="font-mono text-[11px]">checkout-tests</span><span className="ml-auto text-[10px] text-amber-300">{t('tour.ex.needsYou')}</span></div>
+        <div className="flex items-center gap-1.5 py-0.5 text-secondary"><Dot tone="working" /><span className="font-mono text-caption">fix-login-redirect</span><span className="ml-auto text-caption text-subtle">{t('tour.ex.working')}</span></div>
+        <div className="flex items-center gap-1.5 py-0.5 text-secondary"><Dot tone="needs" /><span className="font-mono text-caption">checkout-tests</span><span className="ml-auto text-caption text-amber-300">{t('tour.ex.needsYou')}</span></div>
       </div>
-      <div className="mt-1.5 rounded-md border border-dashed border-line px-2 py-1 text-[11px] text-subtle">
+      <div className="mt-1.5 rounded-md border border-dashed border-line px-2 py-1 text-caption text-subtle">
         {t('v2.sidebar.idle')} · 3 · {t('v2.sidebar.idleHint')}
       </div>
-      <div className="flex items-center gap-1 px-2 pt-1 text-[11px] text-subtle">
+      <div className="flex items-center gap-1 px-2 pt-1 text-caption text-subtle">
         <EyeOff className="size-3" />
         {t('v2.sidebar.hidden')} · 1
       </div>
@@ -388,7 +388,7 @@ const examples: Record<Example, (t: Tr, anchored: boolean) => ReactNode> = {
   ),
   prompt: (t) => (
     <Frame className="grid gap-2">
-      <div className="text-[10.5px] text-subtle">{t('tour.ex.toLead', { project: 'shop-web' })}</div>
+      <div className="text-caption text-subtle">{t('tour.ex.toLead', { project: 'shop-web' })}</div>
       <div className="ml-6 rounded-xl rounded-br-sm bg-brand-500/15 px-3 py-2 text-primary">{t('tour.ex.prompt')}</div>
       <div className="mr-6 rounded-xl rounded-bl-sm bg-surface-raised px-3 py-2 text-secondary">{t('tour.ex.reply')}</div>
     </Frame>
@@ -398,13 +398,13 @@ const examples: Record<Example, (t: Tr, anchored: boolean) => ReactNode> = {
       <div className="ml-6 rounded-xl rounded-br-sm bg-brand-500/15 px-3 py-2 text-primary">
         {t.rich('tour.ex.mention', { at: (c) => <span className="rounded bg-brand-500/25 px-1 font-medium text-title">{c}</span> })}
       </div>
-      <div className="text-[11px] text-subtle">{t('tour.ex.mentionHint')}</div>
+      <div className="text-caption text-subtle">{t('tour.ex.mentionHint')}</div>
     </Frame>
   ),
   cards: (t) => (
     <div className="grid gap-2" data-tour-example>
-      <div className="rounded-xl border border-amber-400/30 bg-amber-400/5 p-3 text-[12px]">
-        <div className="flex items-center gap-1.5 text-[11px] font-medium text-amber-300">
+      <div className="rounded-xl border border-amber-400/30 bg-amber-400/5 p-3 text-caption">
+        <div className="flex items-center gap-1.5 text-caption font-medium text-amber-300">
           <MessageCircleQuestion className="size-3.5" />
           {t('tour.ex.asks', { agent: 'fix-login-redirect' })}
         </div>
@@ -414,12 +414,12 @@ const examples: Record<Example, (t: Tr, anchored: boolean) => ReactNode> = {
           <span className="rounded-md bg-surface-raised px-2 py-0.5 text-secondary">{t('tour.ex.answerNo')}</span>
         </div>
       </div>
-      <div className="rounded-xl border border-line bg-surface-faint p-3 text-[12px]">
-        <div className="flex items-center gap-1.5 text-[11px] font-medium text-secondary">
+      <div className="rounded-xl border border-line bg-surface-faint p-3 text-caption">
+        <div className="flex items-center gap-1.5 text-caption font-medium text-secondary">
           <Hand className="size-3.5" />
           {t('tour.ex.wants', { agent: 'checkout-tests' })}
         </div>
-        <code className="mt-1 block truncate font-mono text-[11px] text-primary">npm install --save-dev @playwright/test</code>
+        <code className="mt-1 block truncate font-mono text-caption text-primary">npm install --save-dev @playwright/test</code>
         <div className="mt-2 flex gap-1.5">
           <span className="rounded-md bg-emerald-500/15 px-2 py-0.5 text-emerald-300">{t('tour.ex.allow')}</span>
           <span className="rounded-md bg-surface-raised px-2 py-0.5 text-secondary">{t('tour.ex.deny')}</span>
@@ -429,20 +429,20 @@ const examples: Record<Example, (t: Tr, anchored: boolean) => ReactNode> = {
   ),
   review: (t) => (
     <Frame className="grid gap-2 p-2.5">
-      <div className="flex items-center gap-2 text-[11px]">
+      <div className="flex items-center gap-2 text-caption">
         <span className="rounded-md bg-surface-raised px-1.5 py-0.5 font-medium text-title">{t('tour.ex.toReviewTab', { count: 3 })}</span>
         <span className="px-1.5 py-0.5 text-subtle">{t('tour.ex.reviewedTab')}</span>
         <span className="ml-auto tabular-nums text-subtle">{t('tour.ex.position')}</span>
       </div>
       <div>
-        <div className="font-mono text-[11.5px] text-title">fix-login-redirect</div>
-        <div className="text-[11px] text-subtle">{t('tour.ex.verdict')}</div>
+        <div className="font-mono text-caption text-title">fix-login-redirect</div>
+        <div className="text-caption text-subtle">{t('tour.ex.verdict')}</div>
       </div>
-      <div className="relative flex aspect-[16/8] items-center justify-center overflow-hidden rounded-lg border border-line bg-gradient-to-br from-brand-500/20 via-surface-raised to-emerald-500/10">
+      <div className="relative flex aspect-[16/8] items-center justify-center overflow-hidden rounded-lg border border-line bg-surface-raised">
         <div className="absolute left-3 right-3 top-3 h-2 rounded bg-surface-strong" />
         <div className="absolute left-3 top-7 h-12 w-1/3 rounded bg-surface-strong/70" />
         <span className="flex size-8 items-center justify-center rounded-full bg-black/40 text-white"><Film className="size-4" /></span>
-        <span className="absolute bottom-1.5 left-2 text-[10px] text-secondary">{t('tour.ex.recording')}</span>
+        <span className="absolute bottom-1.5 left-2 text-caption text-secondary">{t('tour.ex.recording')}</span>
       </div>
       <div className="flex gap-1">
         {[Film, ImageIcon, ImageIcon].map((Icon, i) => (
@@ -450,9 +450,9 @@ const examples: Record<Example, (t: Tr, anchored: boolean) => ReactNode> = {
             <Icon className="size-3 text-subtle" />
           </span>
         ))}
-        <span className="ml-1 self-center text-[10.5px] text-subtle">{t('tour.ex.pr')}</span>
+        <span className="ml-1 self-center text-caption text-subtle">{t('tour.ex.pr')}</span>
       </div>
-      <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+      <div className="flex flex-wrap items-center gap-1.5 text-caption">
         <span className="rounded-md border border-line-strong px-2 py-0.5 text-secondary">← {t('common.back')}</span>
         <span className="ml-auto rounded-md border border-line-strong px-2 py-0.5 text-secondary">{t('review.requestChanges')}</span>
         <span className="inline-flex items-center gap-0.5 rounded-md bg-brand-500 px-2 py-0.5 font-medium text-white">
@@ -464,7 +464,7 @@ const examples: Record<Example, (t: Tr, anchored: boolean) => ReactNode> = {
     </Frame>
   ),
   notes: (t) => (
-    <Frame className="grid gap-2 p-2.5 font-mono text-[11px]">
+    <Frame className="grid gap-2 p-2.5 font-mono text-caption">
       <div className="truncate text-secondary">src/save.ts</div>
       <div className="overflow-hidden rounded-md border border-line bg-well">
         {[
@@ -483,8 +483,8 @@ const examples: Record<Example, (t: Tr, anchored: boolean) => ReactNode> = {
         ))}
       </div>
       <div className="rounded-md border border-brand-400/40 bg-modal p-2 font-sans">
-        <div className="text-[10.5px] text-muted">{t('review.notes.lines', { start: 13, end: 14 })}</div>
-        <div className="mt-1 text-[11.5px] text-primary">{t('tour.ex.notePlaceholder')}</div>
+        <div className="text-caption text-muted">{t('review.notes.lines', { start: 13, end: 14 })}</div>
+        <div className="mt-1 text-caption text-primary">{t('tour.ex.notePlaceholder')}</div>
       </div>
       <div className="flex items-center gap-1.5 font-sans">
         <span className="ml-auto inline-flex items-center gap-1 rounded-md border border-line-strong px-2 py-0.5 text-secondary">
@@ -496,12 +496,12 @@ const examples: Record<Example, (t: Tr, anchored: boolean) => ReactNode> = {
   ),
   panel: (t) => (
     <Frame className="flex flex-wrap items-center gap-1.5">
-      <span className="inline-flex min-w-0 items-center gap-1.5 rounded-md bg-surface-raised px-2 py-1 text-[11px] font-semibold text-title">
+      <span className="inline-flex min-w-0 items-center gap-1.5 rounded-md bg-surface-raised px-2 py-1 text-caption font-semibold text-title">
         <span className="size-1.5 rounded-full bg-emerald-400" />
         {t('tour.ex.agentTitle')}
         <ChevronDown className="size-3 text-subtle" />
       </span>
-      <span className="inline-flex rounded-lg border border-line p-0.5 text-[10.5px]">
+      <span className="inline-flex rounded-lg border border-line p-0.5 text-caption">
         {(
           [
             [Monitor, 'panel.view.desktop'],
@@ -521,7 +521,7 @@ const examples: Record<Example, (t: Tr, anchored: boolean) => ReactNode> = {
   layout: (t) => (
     <Frame className="flex flex-wrap items-center gap-2">
       <span className="text-subtle">{t('tour.ex.layoutPath')}</span>
-      <span className="ml-auto inline-flex rounded-lg border border-line-strong p-0.5 text-[11.5px]">
+      <span className="ml-auto inline-flex rounded-lg border border-line-strong p-0.5 text-caption">
         <span className="rounded-md bg-surface-raised px-2 py-0.5 font-medium text-title">{t('settings.layout.new')}</span>
         <span className="rounded-md px-2 py-0.5 text-secondary ring-1 ring-inset ring-brand-400/60">{t('settings.layout.classic')}</span>
       </span>
@@ -590,7 +590,7 @@ export function TourButtons() {
         <CircleHelp />
         {t('tour.help.take')}
       </Button>
-      <span className="ml-1 text-[12px] text-subtle">{t('tour.whatsNew')}:</span>
+      <span className="ml-1 text-caption text-subtle">{t('tour.whatsNew')}:</span>
       {tours.map((tour) => (
         <Button key={tour.id} size="sm" variant="ghost" onClick={() => play(tour.id)}>
           {t(tour.title)}

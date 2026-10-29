@@ -28,9 +28,9 @@ function SiteList({ sites, label }: { sites: T.CookieDomain[]; label: string }) 
   return (
     <ul className="grid max-h-56 gap-1 overflow-y-auto rounded-xl border border-line-faint bg-surface-faint p-2" aria-label={label}>
       {sites.map((s) => (
-        <li key={s.domain} className="flex min-w-0 items-center gap-2.5 px-2 py-1 text-[13px]">
+        <li key={s.domain} className="flex min-w-0 items-center gap-2.5 px-2 py-1 text-ui">
           <span className="min-w-0 truncate font-mono text-primary">{s.domain}</span>
-          <span className="ml-auto shrink-0 text-[11.5px] text-subtle">{s.cookies}</span>
+          <span className="ml-auto shrink-0 text-caption text-subtle">{s.cookies}</span>
         </li>
       ))}
     </ul>
@@ -51,7 +51,7 @@ export function BrowserCookiesCard({ project }: { project: string }) {
       {info.error && <Notice>{errorMessage(info.error)}</Notice>}
       {imported ? (
         <div className="grid gap-3" data-browser-cookies="imported">
-          <p className="text-[12.5px] leading-relaxed text-subtle">
+          <p className="text-ui leading-relaxed text-subtle">
             {imported.importedAt
               ? t('agent.cookies.summary', { count: imported.cookies, when: timeAgo(imported.importedAt), source: imported.source || imported.format })
               : t('agent.cookies.summaryNoTime', { count: imported.cookies, source: imported.source || imported.format })}
@@ -70,7 +70,7 @@ export function BrowserCookiesCard({ project }: { project: string }) {
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-3" data-browser-cookies="none">
-          <p className="text-[12.5px] leading-relaxed text-subtle">{t('agent.cookies.none')}</p>
+          <p className="text-ui leading-relaxed text-subtle">{t('agent.cookies.none')}</p>
           <Button variant="secondary" className="ml-auto" onClick={() => setImporting(true)} disabled={info.isPending}>
             <Upload />
             {t('agent.cookies.import')}
@@ -158,12 +158,12 @@ function ImportCookiesDialog({
         <div className="grid gap-4">
           <Field label={t('agent.cookies.fromBrowser')} htmlFor="cookie-browser" hint={t('agent.cookies.fromBrowserHint')}>
             {profiles.isPending ? (
-              <div className="flex items-center gap-2 text-[13px] text-subtle">
+              <div className="flex items-center gap-2 text-ui text-subtle">
                 <LoaderCircle className="size-4 animate-spin" />
                 {t('agent.cookies.findingBrowsers')}
               </div>
             ) : list.length === 0 ? (
-              <p className="text-[12.5px] leading-relaxed text-subtle">{t('agent.cookies.noBrowsers')}</p>
+              <p className="text-ui leading-relaxed text-subtle">{t('agent.cookies.noBrowsers')}</p>
             ) : (
               <div className="flex items-center gap-2">
                 <Select
@@ -192,7 +192,7 @@ function ImportCookiesDialog({
               </div>
             )}
             {/* Reading an app-bound browser launches it briefly, which needs it closed. */}
-            {chosen?.appBound && <p className="mt-2 text-[12px] leading-relaxed text-subtle" data-appbound-hint>{t('agent.cookies.appBound.hint')}</p>}
+            {chosen?.appBound && <p className="mt-2 text-caption leading-relaxed text-subtle" data-appbound-hint>{t('agent.cookies.appBound.hint')}</p>}
             {profiles.error && <Notice>{errorMessage(profiles.error)}</Notice>}
             {importBrowser.error && <Notice>{errorMessage(importBrowser.error)}</Notice>}
           </Field>
@@ -273,7 +273,7 @@ function FileImport({
 
   if (!open) {
     return (
-      <button type="button" className="justify-self-start text-[12.5px] text-subtle underline-offset-2 hover:underline" onClick={() => setOpen(true)} data-file-import-toggle>
+      <button type="button" className="justify-self-start text-ui text-subtle underline-offset-2 hover:underline" onClick={() => setOpen(true)} data-file-import-toggle>
         {t('agent.cookies.orFromFile')}
       </button>
     );
@@ -286,7 +286,7 @@ function FileImport({
           <Textarea
             id="cookie-export"
             rows={4}
-            className="font-mono text-[12px]"
+            className="font-mono text-caption"
             placeholder={'# Netscape HTTP Cookie File\n.github.com\tTRUE\t/\tTRUE\t1799999999\t_octo\t…'}
             spellCheck={false}
             autoComplete="off"
@@ -324,16 +324,16 @@ function FileImport({
 
       {preview && (
         <div className="grid gap-2">
-          <p className="text-[12.5px] text-subtle">
+          <p className="text-ui text-subtle">
             {t('agent.cookies.preview', { count: preview.cookies, format: preview.format, sites: preview.domains.length })}
           </p>
           <ul className="grid max-h-56 gap-1 overflow-y-auto rounded-xl border border-line-faint bg-surface-faint p-2" aria-label={t('agent.cookies.sites')}>
             {preview.domains.map((d) => (
               <li key={d.domain}>
-                <label className="flex min-w-0 cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13px] hover:bg-surface-raised">
+                <label className="flex min-w-0 cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-ui hover:bg-surface-raised">
                   <input type="checkbox" checked={pickedSites.has(d.domain)} onChange={() => toggle(d.domain)} />
                   <span className="min-w-0 truncate font-mono text-primary">{d.domain}</span>
-                  <span className="ml-auto shrink-0 text-[11.5px] text-subtle">{d.cookies}</span>
+                  <span className="ml-auto shrink-0 text-caption text-subtle">{d.cookies}</span>
                 </label>
               </li>
             ))}
@@ -346,7 +346,7 @@ function FileImport({
       </Field>
 
       {save.error && <Notice>{errorMessage(save.error)}</Notice>}
-      <p className="text-[12px] leading-relaxed text-subtle">{t('agent.cookies.warning')}</p>
+      <p className="text-caption leading-relaxed text-subtle">{t('agent.cookies.warning')}</p>
 
       <Button
         variant="primary"
