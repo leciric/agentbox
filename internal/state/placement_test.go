@@ -162,3 +162,40 @@ func TestPlacementOfAnAgentThatIsGoneSaysSo(t *testing.T) {
 		t.Errorf("SetAgentPod() = %v, want ErrNotFound", err)
 	}
 }
+
+// A destroy is final: a restore, snapshot or move that finishes after it would
+// otherwise ask for its pod again, or name a claim nothing deletes.
+func TestADestroyedAgentStaysDestroyed(t *testing.T) {
+	st := openStore(t)
+	ctx := context.Background()
+	placedAgent(t, st)
+	if err := st.PlaceAgent(ctx, "pawly", "agent-01", "k3d", "/workspace", state.DesiredRunning); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetAgentClaim(ctx, "pawly", "agent-01", "claim-a", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MarkAgentDestroyed(ctx, "pawly", "agent-01", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetAgentDesiredState(ctx, "pawly", "agent-01", state.DesiredRunning); !errors.Is(err, state.ErrDestroyed) {
+		t.Errorf("SetAgentDesiredState() = %v, want ErrDestroyed", err)
+	}
+	if err := st.SetAgentClaim(ctx, "pawly", "agent-01", "claim-b", ""); !errors.Is(err, state.ErrDestroyed) {
+		t.Errorf("SetAgentClaim() = %v, want ErrDestroyed", err)
+	}
+	if err := st.MoveAgent(ctx, "pawly", "agent-01", state.MovePlacement{Cluster: "other", Claim: "claim-c"}); !errors.Is(err, state.ErrDestroyed) {
+		t.Errorf("MoveAgent() = %v, want ErrDestroyed", err)
+	}
+	got, err := st.Agent(ctx, "pawly", "agent-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DesiredState != state.DesiredDestroyed || got.Claim != "claim-a" || got.Cluster != "k3d" {
+		t.Errorf("row = desired %q claim %q cluster %q, want it destroyed on claim-a in k3d", got.DesiredState, got.Claim, got.Cluster)
+	}
+	// A missing agent is still ErrNotFound, not destroyed.
+	if err := st.SetAgentDesiredState(ctx, "pawly", "agent-99", state.DesiredRunning); !errors.Is(err, state.ErrNotFound) {
+		t.Errorf("SetAgentDesiredState() of no agent = %v, want ErrNotFound", err)
+	}
+}

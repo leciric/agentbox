@@ -245,6 +245,9 @@ type Server struct {
 	// is what its last look at each found.
 	clusters   clusterClients
 	capacities clusterCapacities
+	// lifecycles is which cluster agents a start, stop, destroy, snapshot,
+	// restore, fork, move or recreate is working on now (lifecycle.go).
+	lifecycles agentLifecycles
 	// gateway is where every pod dials in, and the sessions they hold once
 	// they have (agentgateway.go); gatewayListener is the local listener a
 	// cluster on this machine dials.
@@ -1279,7 +1282,8 @@ func writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, state.ErrNotFound), errors.Is(err, incus.ErrNotFound), errors.Is(err, memory.ErrNotFound):
 		status = http.StatusNotFound
-	case errors.Is(err, state.ErrExists), errors.Is(err, agent.ErrCloneDestExists), errors.As(err, new(errOtherSession)):
+	case errors.Is(err, state.ErrExists), errors.Is(err, agent.ErrCloneDestExists), errors.As(err, new(errOtherSession)),
+		errors.Is(err, ErrAgentBusy), errors.Is(err, state.ErrDestroyed):
 		status = http.StatusConflict
 	case errors.Is(err, incus.ErrNotAnswering):
 		status = http.StatusServiceUnavailable

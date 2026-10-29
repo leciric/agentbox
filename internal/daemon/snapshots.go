@@ -58,6 +58,9 @@ type snapshotMeta struct {
 // is stopped before a helper mounts it, and started again afterwards when it was
 // running.
 func (p podLifecycle) Snapshot(ctx context.Context, ref gateway.Ref, name string) error {
+	if err := p.s.checkAgentFree(ctx, ref, "snapshot"); err != nil {
+		return err
+	}
 	a, cluster, reg, client, err := p.target(ctx, ref)
 	if err != nil {
 		return err
@@ -80,7 +83,7 @@ func (p podLifecycle) Snapshot(ctx context.Context, ref gateway.Ref, name string
 	}
 	spec.Image = image
 
-	wasRunning := podInfo(a).Running()
+	wasRunning, err := p.stopForClaim(ctx, client, a, "the claim cannot be archived while it is mounted")
 	restarted := false
 	defer func() {
 		if wasRunning && !restarted {
@@ -91,13 +94,8 @@ func (p podLifecycle) Snapshot(ctx context.Context, ref gateway.Ref, name string
 			}
 		}
 	}()
-	if wasRunning {
-		if err := p.s.store.SetAgentDesiredState(ctx, a.Project, a.Name, state.DesiredStopped); err != nil {
-			return err
-		}
-		if err := waitPodGone(ctx, client, a, "the claim cannot be archived while it is mounted"); err != nil {
-			return err
-		}
+	if err != nil {
+		return err
 	}
 
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -147,6 +145,30 @@ func (p podLifecycle) Snapshot(ctx context.Context, ref gateway.Ref, name string
 		restarted = true
 	}
 	return nil
+}
+
+// stopForClaim makes sure no pod has the agent's claim mounted, which is what a
+// snapshot or a restore needs before a helper mounts it or a new claim replaces
+// it. It goes by what the row asks for and what the cluster has, never by the
+// pod the row names: a stopped agent that was just started (a restore of one
+// does that for its pre-restore ref) has a pod the reconciler hasn't adopted
+// yet, and one just stopped may still be there. wasRunning is whether the row
+// asked for a pod, which is whether the caller starts it again afterwards; it
+// is set even with an error, once the row has been asked to stop.
+func (p podLifecycle) stopForClaim(ctx context.Context, client *k8s.Cluster, a state.Agent, why string) (wasRunning bool, err error) {
+	if a.DesiredState != state.DesiredStopped {
+		if err := p.s.store.SetAgentDesiredState(ctx, a.Project, a.Name, state.DesiredStopped); err != nil {
+			return false, err
+		}
+		wasRunning = true
+	}
+	if err := waitPodGone(ctx, client, a, why); err != nil {
+		return wasRunning, err
+	}
+	// A session the deleted pod left behind would answer the WaitFor of the
+	// pod that replaces it.
+	p.s.awaitSessionGone(ctx, a, 30*time.Second)
+	return wasRunning, nil
 }
 
 // restart asks the reconciler for a pod again and waits for its agentd.
@@ -215,6 +237,9 @@ func (p podLifecycle) Snapshots(ctx context.Context, ref gateway.Ref) ([]machine
 // deletes the old claim once the new pod is up. A failure therefore leaves the
 // agent on the work it had.
 func (p podLifecycle) RestoreSnapshot(ctx context.Context, ref gateway.Ref, name string) error {
+	if err := p.s.checkAgentFree(ctx, ref, "restore"); err != nil {
+		return err
+	}
 	a, cluster, reg, client, err := p.target(ctx, ref)
 	if err != nil {
 		return err
@@ -226,7 +251,7 @@ func (p podLifecycle) RestoreSnapshot(ctx context.Context, ref gateway.Ref, name
 	if err != nil {
 		return err
 	}
-	wasRunning := podInfo(a).Running()
+	wasRunning, err := p.stopForClaim(ctx, client, a, "its claim cannot be replaced while it is mounted")
 	done := false
 	defer func() {
 		if wasRunning && !done {
@@ -235,13 +260,8 @@ func (p podLifecycle) RestoreSnapshot(ctx context.Context, ref gateway.Ref, name
 			}
 		}
 	}()
-	if wasRunning {
-		if err := p.s.store.SetAgentDesiredState(ctx, a.Project, a.Name, state.DesiredStopped); err != nil {
-			return err
-		}
-		if err := waitPodGone(ctx, client, a, "the claim cannot be archived while it is mounted"); err != nil {
-			return err
-		}
+	if err != nil {
+		return err
 	}
 	spec := p.s.podSpec(ctx, cluster, reg, a)
 	oldClaim := spec.WorkspaceClaim()

@@ -272,13 +272,23 @@ func (s *Server) reconcileAgents(ctx context.Context, cluster state.Cluster, cli
 		byRef[pod.Ref()] = pod
 	}
 	var problems []string
+	here := make(map[string]bool, len(agents))
 	for _, a := range agents {
+		here[a.Ref()] = true
 		if a.IsLead() {
 			continue
 		}
 		pod, ok := byRef[a.Ref()]
 		if err := s.reconcileAgent(ctx, cluster, client, reg, a, pod, ok); err != nil {
 			problems = append(problems, a.Ref()+": "+err.Error())
+		}
+	}
+	for _, pod := range pods {
+		if pod.Ref() == "" || here[pod.Ref()] {
+			continue
+		}
+		if err := s.removeStrayPod(ctx, cluster, client, pod); err != nil {
+			problems = append(problems, pod.Ref()+": "+err.Error())
 		}
 	}
 	if len(problems) > 0 {
@@ -294,12 +304,30 @@ func (s *Server) reconcileAgent(ctx context.Context, cluster state.Cluster, clie
 		// Destroyed means gone, which is what destroying an Incus machine
 		// does: the pod, its token, and the claim its worktree was on. The
 		// branch is on the remote, and the row is what the app archives.
-		if !found {
-			return nil
-		}
+		//
+		// The claim is deleted whether or not a pod is left: a create or a
+		// fork that failed may have made one before its pod existed, and a
+		// destroy whose own delete failed left one too. DeleteAll finds
+		// nothing the second time, which is what makes asking every round
+		// cheap.
 		if err := client.DeleteAll(ctx, a.Project, a.Name, a.Claim); err != nil {
 			return err
 		}
+		if a.Status == state.AgentCreating {
+			// A create that never finished has nobody to archive it: its
+			// job gave up and left the row asking for this, and a row left
+			// here is an "incomplete" agent for good and a cluster that
+			// can't be removed. Its machine is gone now, so the row goes
+			// too, the way a failed create on this host removes its own.
+			_ = s.store.RemoveAgentToken(ctx, a.Project, a.Name)
+			if err := s.store.RemoveAgent(ctx, a.Project, a.Name); err != nil {
+				return err
+			}
+			s.logf("removed %s, a create that failed in cluster %s, with its pod and claim", a.Ref(), a.Cluster)
+			return nil
+		}
+		// Any other destroyed row is a destroy in progress, or one that
+		// failed and will be asked again: that destroy archives it.
 		return s.clearPod(ctx, a)
 	case a.DesiredState == state.DesiredStopped:
 		// Stopped keeps the claim: the worktree is what starting it again
@@ -324,6 +352,27 @@ func (s *Server) reconcileAgent(ctx context.Context, cluster state.Cluster, clie
 	default:
 		return s.adoptPod(ctx, a, pod)
 	}
+}
+
+// removeStrayPod deletes a pod of this cluster whose agent's row says it runs
+// in another one: a round that read the row before a move or its rollback
+// changed it can have made it. Its token and claim are left alone, since the
+// token row is the agent's live pod's and the claim may be the one it lives
+// on. A pod with no row at all is not judged here: it is nothing this daemon
+// made that it knows of.
+func (s *Server) removeStrayPod(ctx context.Context, cluster state.Cluster, client *k8s.Cluster, pod k8s.Pod) error {
+	row, err := s.store.Agent(ctx, pod.Project, pod.Agent)
+	if err != nil {
+		return nil
+	}
+	if !row.OnCluster() || row.Cluster == cluster.Name {
+		return nil
+	}
+	if err := client.Delete(ctx, pod.Project, pod.Agent); err != nil {
+		return err
+	}
+	s.logf("deleted %s's pod %s from cluster %s: the agent runs in cluster %s", pod.Ref(), pod.Name, cluster.Name, row.Cluster)
+	return nil
 }
 
 // clearPod forgets the pod a row named, once it is gone: a row that names a pod
@@ -357,6 +406,22 @@ func (s *Server) adoptPod(ctx context.Context, a state.Agent, pod k8s.Pod) error
 // is kept on the row as the reason, and tried again next round: a node with no
 // room this minute is not a reason to give up on the agent.
 func (s *Server) startPod(ctx context.Context, cluster state.Cluster, client *k8s.Cluster, reg *state.Registry, a state.Agent) error {
+	// The round's row was read before the cluster was listed, which can be
+	// seconds ago: a move that rolled back or a stop since then means this
+	// cluster must not make a pod, nor write a token over the one the agent's
+	// live pod elsewhere uses. So the row is read again right before both,
+	// and the pod is made from what it says now (its claim, its image).
+	cur, err := s.store.Agent(ctx, a.Project, a.Name)
+	if errors.Is(err, state.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if cur.Cluster != cluster.Name || cur.DesiredState == state.DesiredStopped || cur.DesiredState == state.DesiredDestroyed {
+		return nil
+	}
+	a = cur
 	if cluster.Image == "" {
 		return s.notePodFailure(ctx, a, fmt.Sprintf("cluster %s has no image: set one with agentbox cluster set %s --image <name>:<tag>", cluster.Name, cluster.Name))
 	}

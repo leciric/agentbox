@@ -97,7 +97,7 @@ func (s *Server) moveAgent(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return s.startJob(w, "move", a.Ref(), func(ctx context.Context, log io.Writer) (any, error) {
+	return s.startAgentJob(r.Context(), w, "move", a, func(ctx context.Context, log io.Writer) (any, error) {
 		if err := s.moveAgentRun(ctx, log, a, target); err != nil {
 			return nil, err
 		}
@@ -154,6 +154,12 @@ func (s *Server) moveTarget(ctx context.Context, a state.Agent, requested string
 // The row is re-read: a drain hands over rows it read before it started, and the
 // machine it describes is the one this moves.
 func (s *Server) moveAgentRun(ctx context.Context, log io.Writer, a state.Agent, target string) error {
+	// The endpoint's job already holds the agent; a drain's takes it here.
+	ctx, release, err := s.holdAgent(ctx, a, "move")
+	if err != nil {
+		return err
+	}
+	defer release()
 	row, err := s.store.Agent(ctx, a.Project, a.Name)
 	if err != nil {
 		return err
@@ -375,6 +381,9 @@ func (w *countingWriter) Write(p []byte) (int, error) {
 // is stale and the target's connection replaces it, so the wait is bounded
 // rather than fatal.
 func (s *Server) awaitSessionGone(ctx context.Context, a state.Agent, timeout time.Duration) {
+	if s.gateway == nil {
+		return
+	}
 	ref := gateway.Ref{Project: a.Project, Agent: a.Name}
 	deadline := time.Now().Add(timeout)
 	for s.gateway.Connected(ref) {
