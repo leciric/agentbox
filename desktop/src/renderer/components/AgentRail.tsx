@@ -8,6 +8,7 @@ import { countByAgent, livePages } from '../lib/pages';
 import { useT } from '../lib/i18n';
 import { useProjectName } from '../lib/useProjectName';
 import { avatarMood, chatLabel, isAsking, rank, settled, statusTip, type Mood } from '../lib/agentStatus';
+import { SessionChip } from './chat/SessionChip';
 import { cn, humanBytes, timeAgo } from '../lib/utils';
 import { AgentContextMenu } from './AgentContextMenu';
 import { AgentInfoCard } from './AgentInfoCard';
@@ -499,7 +500,10 @@ function AgentRow({
             {/* The title, or the agent's name (agent-125) when it has none:
                 the name, its IP and what its machine uses are in the card its
                 hover opens (AgentInfoCard). */}
-            <span className={cn('block min-w-0 truncate text-[13px] font-medium', active ? 'text-title' : 'text-secondary')}>{agent.title || agent.name}</span>
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className={cn('block min-w-0 truncate text-[13px] font-medium', active ? 'text-title' : 'text-secondary')}>{agent.title || agent.name}</span>
+              <SessionChip agent={agent} />
+            </span>
             <span className="mt-0.5 flex items-center gap-1.5 text-[11px]">
               {status.tone === 'urgent' && <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-amber-400" />}
               {status.tone === 'error' && <span className="size-1.5 shrink-0 rounded-full bg-rose-400" />}

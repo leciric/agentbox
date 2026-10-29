@@ -141,7 +141,7 @@ func (s *Server) recheckLeads(ctx context.Context, now time.Time) {
 		if !due {
 			continue
 		}
-		if _, err := s.manager(nil).Lead(ctx, p.Name); err != nil {
+		if leads, err := s.manager(nil).SessionLeads(ctx, p.Name); err != nil || len(leads) == 0 {
 			continue // no chat to wake: a project never chatted with costs nothing
 		}
 		in, err := s.recheckInput(ctx, p, now)

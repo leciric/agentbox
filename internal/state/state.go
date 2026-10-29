@@ -1423,6 +1423,25 @@ var migrations = []string{
 	`ALTER TABLE projects ADD COLUMN agent_effort TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE projects ADD COLUMN agent_context_window TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE projects ADD COLUMN agent_mode TEXT NOT NULL DEFAULT ''`,
+	// A project's chat in sessions (leadsessions.go): each a lead conversation
+	// of its own on one topic, as many as the user opens, none at all once
+	// they have all been deleted. A session's lead is an agents row named
+	// LeadSessionName(id) once it is first written to. Every project already
+	// chatted with gets one session, "main", which is that chat: its lead row
+	// is the one named "lead", so its conversation, HOME and socket stay where
+	// they were. created_by_session is the session whose lead made an agent,
+	// which its notices go back to; '' is no session's, as every agent made
+	// before sessions, or by the user, is.
+	`CREATE TABLE lead_sessions (
+		project    TEXT NOT NULL,
+		id         TEXT NOT NULL,
+		topic      TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		PRIMARY KEY (project, id)
+	)`,
+	`INSERT INTO lead_sessions (project, id, topic, created_at)
+		SELECT project, 'main', 'Chat', created_at * 1000 FROM agents WHERE role = 'lead' AND name = 'lead'`,
+	`ALTER TABLE agents ADD COLUMN created_by_session TEXT NOT NULL DEFAULT ''`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -2166,6 +2185,7 @@ var projectOwned = []string{
 	"pr_watches",
 	"peer_agents",
 	"remote_agents",
+	"lead_sessions",
 	"agent_queue",
 	"agent_events",
 	"agent_reviews",
@@ -2741,6 +2761,13 @@ type Agent struct {
 	// given, by name: nil for every one, empty for none. Its own connectors
 	// are always its.
 	Connectors []string
+	// CreatedBySession is the chat session that made this agent, which its
+	// finish and stall notices, questions and pull request watch go back to:
+	// "" for none, as for every agent the user made or whose session was
+	// deleted, whose notices go to the most recently active session
+	// (leadsessions.go). A session's own lead row has none: its session is in
+	// its name.
+	CreatedBySession string
 }
 
 // GetsConnector reports whether a project connector of that name reaches the
@@ -2781,7 +2808,7 @@ func (a Agent) IsHome() bool { return a.Project == HomeProject && a.Role == Role
 
 func (a Agent) Ref() string { return a.Project + "/" + a.Name }
 
-const agentColumns = `project, name, instance, ai, autonomous, branch, base_ref, base_commit, worktree, status, created_at, source, title, claude_account, interface, role, github_account, finish_notice, id, connectors, codex_account, opencode_accounts, cursor_account`
+const agentColumns = `project, name, instance, ai, autonomous, branch, base_ref, base_commit, worktree, status, created_at, source, title, claude_account, interface, role, github_account, finish_notice, id, connectors, codex_account, opencode_accounts, cursor_account, created_by_session`
 
 func (s *Store) AddAgent(ctx context.Context, a Agent) error {
 	if a.Interface == "" {
@@ -2807,9 +2834,9 @@ func (s *Store) AddAgent(ctx context.Context, a Agent) error {
 		return fmt.Errorf("agent %s: a past agent has that name: %w", a.Ref(), ErrExists)
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.Project, a.Name, a.Instance, a.AI, a.Autonomous, a.Branch, a.BaseRef, a.BaseCommit, a.Worktree, a.Status, a.CreatedAt.Unix(), a.Source, a.Title, a.ClaudeAccount, a.Interface, a.Role, a.GitHubAccount, a.FinishNotice, a.ID, connectors,
-		a.CodexAccount, a.OpenCodeAccounts.String(), a.CursorAccount)
+		a.CodexAccount, a.OpenCodeAccounts.String(), a.CursorAccount, a.CreatedBySession)
 	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
 		return fmt.Errorf("agent %s: %w", a.Ref(), ErrExists)
 	}
@@ -3060,7 +3087,7 @@ func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]
 		var opencode string
 		if err := rows.Scan(&a.Project, &a.Name, &a.Instance, &a.AI, &a.Autonomous, &a.Branch,
 			&a.BaseRef, &a.BaseCommit, &a.Worktree, &a.Status, &created, &a.Source, &a.Title, &a.ClaudeAccount, &a.Interface, &a.Role, &a.GitHubAccount, &a.FinishNotice, &a.ID, &connectors,
-			&a.CodexAccount, &opencode, &a.CursorAccount, &pausedAt, &stoppedAt); err != nil {
+			&a.CodexAccount, &opencode, &a.CursorAccount, &a.CreatedBySession, &pausedAt, &stoppedAt); err != nil {
 			return nil, err
 		}
 		a.OpenCodeAccounts = ParseAccountMap(opencode)

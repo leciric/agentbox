@@ -322,7 +322,7 @@ func (s *Server) clearChat(from agentFrom) func(http.ResponseWriter, *http.Reque
 		}
 		// A new chat has no cache to lose.
 		if a.IsLead() {
-			s.settleLeadCache(a.Project, true)
+			s.settleLeadCache(a.Ref(), true)
 		}
 		w.WriteHeader(http.StatusNoContent)
 		return nil

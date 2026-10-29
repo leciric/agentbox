@@ -113,3 +113,9 @@ test('chat and agent events are checked before they reach the queries', () => {
   assert.equal(P.agentChange({ state: 'running' }), undefined);
   assert.deepEqual(P.agentChange({ ref: 'web/a', state: null }), { ref: 'web/a', state: '', removed: false });
 });
+
+test('a project chat’s sessions keep only the ones with an id and a ref', () => {
+  const got = P.leadSessions([{ id: 'main', ref: 'web/lead', topic: 'Chat', agents: 2 }, { id: 'x' }, null, { id: 'prod', ref: 'web/lead.prod', agents: 'two' }]);
+  assert.deepEqual(got.map((s) => [s.id, s.agents, s.topic]), [['main', 2, 'Chat'], ['prod', 0, '']]);
+  assert.deepEqual(P.leadSessions(null), []);
+});

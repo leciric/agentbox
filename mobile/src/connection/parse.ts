@@ -57,6 +57,15 @@ export function projectChat(v: unknown): T.ProjectChat {
   return { ...(o as unknown as T.ProjectChat), project: str(o.project), ref: str(o.ref), started: o.started === true && keyed(o, 'ref'), chat: str(o.chat) };
 }
 
+// leadSessions is a project's chat sessions, each with its id and ref.
+export function leadSessions(v: unknown): T.LeadSession[] {
+  return list(v, (o) =>
+    keyed(o, 'id') && keyed(o, 'ref')
+      ? { ...(o as unknown as T.LeadSession), topic: str(o.topic), chat: str(o.chat), agents: num(o.agents), activeAt: str(o.activeAt), createdAt: str(o.createdAt) }
+      : undefined,
+  );
+}
+
 export function question(o: Obj): T.Question | undefined {
   if (!keyed(o, 'id')) return undefined;
   return {

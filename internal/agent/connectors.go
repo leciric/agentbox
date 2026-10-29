@@ -122,16 +122,17 @@ func (m *Manager) SyncConnectors(ctx context.Context, project, agent string) (ch
 		agents = []state.Agent{a}
 	}
 	var failed []string
-	if agent == "" {
-		lead, err := m.syncLeadConnectors(ctx, project)
-		switch {
-		case err != nil:
-			failed = append(failed, fmt.Sprintf("%s's chat (%v)", project, err))
-		case lead != "":
-			changed = append(changed, lead)
-		}
-	}
 	for _, a := range agents {
+		if agent == "" && a.IsLead() {
+			lead, err := m.syncLeadConnectors(ctx, a)
+			switch {
+			case err != nil:
+				failed = append(failed, fmt.Sprintf("%s's chat (%v)", a.Ref(), err))
+			case lead != "":
+				changed = append(changed, lead)
+			}
+			continue
+		}
 		if a.IsLead() || a.Status != state.AgentReady {
 			continue // one being made gets them from configure
 		}
@@ -309,20 +310,14 @@ func (m *Manager) leadMCPServers(socket string, connectors []string) map[string]
 	return servers
 }
 
-// syncLeadConnectors rewrites a project's chat's mcpServers after a change to
-// its project's connectors, leaving the rest of its ~/.claude.json — Claude
-// Code's own state — as it was. A project never chatted with has nothing to
-// rewrite: configureLead gives the chat its connectors when it is made. It
-// says the lead's name when its MCP servers changed, and nothing otherwise.
-func (m *Manager) syncLeadConnectors(ctx context.Context, project string) (changed string, err error) {
-	a, err := m.Lead(ctx, project)
-	if errors.Is(err, state.ErrNotFound) {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	socket := m.LeadSocket(project)
+// syncLeadConnectors rewrites one of a project's chat sessions' mcpServers
+// after a change to its project's connectors, leaving the rest of its
+// ~/.claude.json — Claude Code's own state — as it was. A project never
+// chatted with has no lead and nothing to rewrite: configureLead gives the
+// chat its connectors when it is made. It says the lead's name when its MCP
+// servers changed, and nothing otherwise.
+func (m *Manager) syncLeadConnectors(ctx context.Context, a state.Agent) (changed string, err error) {
+	socket := m.LeadSocket(a)
 	if socket == "" || m.Binary == "" {
 		return "", nil
 	}
@@ -330,7 +325,7 @@ func (m *Manager) syncLeadConnectors(ctx context.Context, project string) (chang
 	if err != nil {
 		return "", err
 	}
-	path := filepath.Join(m.Paths.LeadHome(project), ".claude.json")
+	path := filepath.Join(m.leadHome(a), ".claude.json")
 	existing, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return "", err

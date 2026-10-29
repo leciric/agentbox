@@ -132,7 +132,7 @@ function followEvents() {
       // not an event we understand
     }
   };
-  const types = [T.EventJob, T.EventJobLog, T.EventAgent, T.EventUsage, T.EventProject, T.EventMedia, T.EventPulls, T.EventTheme, T.EventUpdate, T.EventLAN, T.EventChat, T.EventChatCache, T.EventQuestion, T.EventAgentEvent];
+  const types = [T.EventJob, T.EventJobLog, T.EventAgent, T.EventUsage, T.EventProject, T.EventMedia, T.EventPulls, T.EventTheme, T.EventUpdate, T.EventLAN, T.EventChat, T.EventChatCache, T.EventLeadSessions, T.EventQuestion, T.EventAgentEvent];
   for (const type of types) es.addEventListener(type, deliver as EventListener);
 }
 

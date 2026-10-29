@@ -297,7 +297,13 @@ func (s *Server) deliverProjectMessage(ctx context.Context, t state.ProjectThrea
 	for _, side := range []struct {
 		project, other, direction string
 	}{{from, to, api.ProjectMessageOut}, {to, from, api.ProjectMessageIn}} {
-		lead, err := s.manager(nil).Lead(ctx, side.project)
+		// The sender's own session shows what it sent; the one it went to
+		// is the session most recently active, which the notice wakes.
+		session, topic := leadSessionOf(ctx), "From "+side.other+": "+t.Topic
+		if side.project == to {
+			session = ""
+		}
+		lead, err := s.leadOf(ctx, side.project, session, topic, side.project == to)
 		if err != nil {
 			s.logf("%s's chat: showing a message with %s: %v", side.project, side.other, err)
 		} else {
@@ -317,7 +323,9 @@ func (s *Server) deliverProjectMessage(ctx context.Context, t state.ProjectThrea
 		}, "")
 	}
 	s.logf("%s's lead → %s's lead (thread %s, %s, hop %d)", from, to, t.ID, kind, m.Hop)
-	s.tellLead(ctx, to, projectNotice(t, m, kind), true)
+	if lead, err := s.leadOf(ctx, to, "", "From "+from+": "+t.Topic, true); err == nil {
+		s.tellSession(ctx, to, lead.Session(), projectNotice(t, m, kind), true)
+	}
 }
 
 // projectNotice is what the lead a message went to reads: who it is from, the

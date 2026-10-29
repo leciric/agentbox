@@ -413,7 +413,7 @@ func TestReconfigureLeadRewritesTheBriefForTheProjectsModel(t *testing.T) {
 	f := leadFixture(t)
 	// The lead has the tools to create agents, as it does under the daemon;
 	// nothing in this test reaches the socket, only the brief it implies.
-	f.m.LeadSocketPath = func(project string) string { return filepath.Join(t.TempDir(), project+".sock") }
+	f.m.LeadSocketPath = func(project, _ string) string { return filepath.Join(t.TempDir(), project+".sock") }
 	// A menu a Claude Code chat really advertised, which is the only place the
 	// models named in the brief may come from.
 	if err := f.st.SetSetting(ctx, state.SettingClaudeModelChoices,
@@ -785,7 +785,7 @@ func TestLeadIsGivenItsProjectsConnectors(t *testing.T) {
 	ctx := context.Background()
 	f := leadFixture(t)
 	socket := filepath.Join(t.TempDir(), "lead.sock")
-	f.m.LeadSocketPath = func(string) string { return socket }
+	f.m.LeadSocketPath = func(string, string) string { return socket }
 	f.m.Binary = "/usr/local/bin/agentbox"
 	for _, c := range []state.Connector{
 		{Project: "hello-stack", Name: "notion", URL: "https://mcp.notion.com/mcp", Auth: "oauth", Enabled: true},

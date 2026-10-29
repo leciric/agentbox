@@ -189,7 +189,7 @@ func recordPRWatch(d testDaemon) *prWatchRecorder {
 		rec.agents = append(rec.agents, a.Name+": "+text)
 		return told{woke: rec.woke}, nil
 	}
-	d.srv.prLead = func(_ context.Context, _ string, notice string, act bool) {
+	d.srv.prLead = func(_ context.Context, _, _ string, notice string, act bool) {
 		rec.mu.Lock()
 		defer rec.mu.Unlock()
 		rec.leads = append(rec.leads, leadNotice{notice, act})

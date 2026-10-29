@@ -184,7 +184,7 @@ func (s *Server) diskTellLead(ctx context.Context, project, notice string) {
 	if s.prLead != nil {
 		// A notice in the chat, not a turn: the lead reads it with whatever it
 		// does next, and nothing is spent on it now.
-		s.prLead(ctx, project, notice, false)
+		s.prLead(ctx, project, "", notice, false)
 	}
 }
 

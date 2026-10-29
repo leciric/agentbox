@@ -2,7 +2,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { ChevronDown, ChevronUp, Globe, List, LoaderCircle, Search, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import * as T from '../../../shared/api';
-import { api } from '../../lib/api';
+import { api, isLeadName } from '../../lib/api';
 import { findKinds, hitsByDay, localDay, stepHit, type FindFrom } from '../../lib/chatFind';
 import { useLanguage, useT } from '../../lib/i18n';
 import { openSearch } from '../../lib/searchOpen';
@@ -143,7 +143,7 @@ export function FindBar({
   const total = found.data?.more ? `${hits.length}+` : String(hits.length);
   const status =
     query.trim() === '' ? '' : found.isPending ? '' : hits.length === 0 ? t('chat.find.none') : t('chat.find.count', { current: at < 0 ? 0 : hits.length - at, total });
-  const lead = chatRef.split('/')[1] === T.LeadName;
+  const lead = isLeadName(chatRef.split('/')[1]);
   const who = (kind: string) => (kind === 'user' || kind === 'aside' ? t('chat.find.from.you') : kind === 'assistant' ? (lead ? t('chat.find.from.lead') : t('chat.find.from.agent')) : t('chat.find.notice'));
   const froms: [FindFrom, string][] = [
     ['anyone', t('chat.find.from.anyone')],

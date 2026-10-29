@@ -94,16 +94,41 @@ export const pagePath = (name: string, id: string) =>
 const project = (name: string) => `/v1/projects/${encodeURIComponent(name)}`;
 const agent = (ref: string) => `/v1/agents/${ref.split('/').map(encodeURIComponent).join('/')}`;
 
+// isLeadName says a name is one a session of a project's chat runs under: the
+// lead's, "lead", or "lead.<session>" (internal/state/leadsessions.go).
+export const isLeadName = (name: string | undefined) => !name || name === T.LeadName || name.startsWith(`${T.LeadName}.`);
+
+// sessionOfRef is the session of a project's chat a lead's ref names: "main"
+// for "web/lead", the session every chat had before sessions, and undefined
+// for an agent's ref or the Home chat's.
+export const sessionOfRef = (ref: string): string | undefined => {
+  const [project, name] = ref.split('/');
+  if (!name || project === T.HomeProject) return undefined;
+  if (name === T.LeadName) return 'main';
+  return name.startsWith(`${T.LeadName}.`) ? name.slice(T.LeadName.length + 1) : undefined;
+};
+
+// sessionRef is the ref a session's lead, and its chat, are known by.
+export const sessionRef = (project: string, session: string) => `${project}/${session === 'main' ? T.LeadName : `${T.LeadName}.${session}`}`;
+
+// A project's routes for one chat session: the project's own under
+// /sessions/<id>, and the project's for the Home chat, which has none.
+const projectChatBase = (ref: string) => {
+  const [p] = ref.split('/');
+  const session = sessionOfRef(ref);
+  return session ? `${project(p)}/sessions/${encodeURIComponent(session)}` : project(p);
+};
+
 // A chat belongs to an agent, or to a project. A project's chat is driven by its
 // lead, which has no machine of its own, so it lives under the project.
 const chatBase = (ref: string) => {
-  const [project, name] = ref.split('/');
-  return !name || name === T.LeadName ? `/v1/projects/${encodeURIComponent(project)}/chat` : `${agent(ref)}/chat`;
+  const [, name] = ref.split('/');
+  return isLeadName(name) ? `${projectChatBase(ref)}/chat` : `${agent(ref)}/chat`;
 };
 
 export const isProjectChat = (ref: string) => {
   const [, name] = ref.split('/');
-  return !name || name === T.LeadName;
+  return isLeadName(name);
 };
 export const agentPath = agent;
 // The WebSocket paths of an agent's VNC displays, for lib/vnc.
@@ -121,8 +146,8 @@ export const isHomeChat = (ref: string) => ref.split('/')[0] === T.HomeProject;
 // A past agent's ("past:<ref>", lib/rightPanel.ts) are read from its branch.
 const filesBase = (ref: string) => {
   if (ref.startsWith('past:')) return `/v1/archived-agents/${ref.slice(5).split('/').map(encodeURIComponent).join('/')}/files`;
-  const [project, name] = ref.split('/');
-  return !name || name === T.LeadName ? `/v1/projects/${encodeURIComponent(project)}/files` : `${agent(ref)}/files`;
+  const [, name] = ref.split('/');
+  return isLeadName(name) ? `${projectChatBase(ref)}/files` : `${agent(ref)}/files`;
 };
 
 // A secrets target is a project ("pawly") or one agent ("pawly/agent-01"),
@@ -343,16 +368,17 @@ export const api = {
   // A lead's AI tool and account, chosen in its composer: what it can switch
   // to, and the choice, which applies from its next message. project is the
   // project's name, or T.HomeProject for the Home chat.
-  chatRunners: (name: string) => call<T.LeadRunners>('GET', `${project(name)}/chat/runners`),
-  setChatRunner: (name: string, req: T.LeadRunnerRequest) => call<T.ChatSession>('PUT', `${project(name)}/chat/runner`, req),
+  // ref is the chat's lead's: a session's, or the Home chat's.
+  chatRunners: (ref: string) => call<T.LeadRunners>('GET', `${chatBase(ref)}/runners`),
+  setChatRunner: (ref: string, req: T.LeadRunnerRequest) => call<T.ChatSession>('PUT', `${chatBase(ref)}/runner`, req),
   // An agent's composer moves it to another account of its own tool, at
   // once, in the lead's shapes (an agent's tool can't change).
   agentRunners: (ref: string) => call<T.LeadRunners>('GET', `${chatBase(ref)}/runners`),
   setAgentRunner: (ref: string, req: T.LeadRunnerRequest) => call<T.ChatSession>('PUT', `${chatBase(ref)}/runner`, req),
   // A project chat's prompt cache, and the card that asks before a message
   // re-sends a context whose cache is about to expire (or has).
-  chatCache: (name: string) => call<T.ChatCache>('GET', `${project(name)}/chat/cache`),
-  chooseChatCache: (name: string, choice: T.ChatCacheChoice) => call<T.ChatItem | undefined>('POST', `${project(name)}/chat/cache`, choice),
+  chatCache: (ref: string) => call<T.ChatCache>('GET', `${chatBase(ref)}/cache`),
+  chooseChatCache: (ref: string, choice: T.ChatCacheChoice) => call<T.ChatItem | undefined>('POST', `${chatBase(ref)}/cache`, choice),
   files: (ref: string) => call<T.WorktreeFiles>('GET', filesBase(ref)),
   // The file tree and viewer beside a chat (components/files).
   listFolder: (ref: string, path: string, ignored: boolean) =>
@@ -526,7 +552,14 @@ export const api = {
   renameGitHubAccount: (account: string, name: string) =>
     call<T.RenamedGitHubAccount>('POST', `/v1/auth/github/${encodeURIComponent(account)}/rename`, { name } satisfies T.RenameGitHubAccountRequest),
 
-  projectChat: (project: string) => call<T.ProjectChat>('GET', `/v1/projects/${encodeURIComponent(project)}/lead`),
+  // session undefined is the session most recently active.
+  projectChat: (name: string, session?: string) => call<T.ProjectChat>('GET', session ? `${project(name)}/sessions/${encodeURIComponent(session)}/lead` : `${project(name)}/lead`),
+  leadSessions: (name: string) => call<T.LeadSession[]>('GET', `${project(name)}/sessions`),
+  newLeadSession: (name: string, topic: string) => call<T.LeadSession>('POST', `${project(name)}/sessions`, { topic } satisfies T.NewLeadSessionRequest),
+  renameLeadSession: (name: string, session: string, topic: string) =>
+    call<T.LeadSession>('PATCH', `${project(name)}/sessions/${encodeURIComponent(session)}`, { topic } satisfies T.LeadSessionPatch),
+  deleteLeadSession: (name: string, session: string) => call<void>('DELETE', `${project(name)}/sessions/${encodeURIComponent(session)}`),
+  handOverAgent: (ref: string, session: string) => call<void>('PUT', `${agent(ref)}/session`, { session } satisfies T.AgentSessionRequest),
   resetProjectChat: (project: string) => call<void>('DELETE', `/v1/projects/${encodeURIComponent(project)}/lead`),
 
   // Project memory (D72): what the project knows, over and above any one

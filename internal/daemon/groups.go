@@ -89,6 +89,7 @@ func (s *Server) leadFanOut(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	req.Project = r.PathValue("project")
+	req.LeadSession = sessionFrom(r)
 	out, err := s.fanOut(r.Context(), req, true)
 	if err != nil {
 		return err
@@ -126,6 +127,7 @@ func (s *Server) fanOut(ctx context.Context, req api.FanOutRequest, byLead bool)
 			Task: groupTask(req.Task, label, len(req.Variants)),
 			AI:   v.AI, Model: v.Model, Effort: v.Effort, ContextWindow: v.ContextWindow,
 			ClaudeAccount: v.ClaudeAccount, CodexAccount: v.CodexAccount, OpenCodeAccounts: v.OpenCodeAccounts, CursorAccount: v.CursorAccount,
+			LeadSession: req.LeadSession,
 		}
 		checked, err := s.checkCreate(ctx, one, byLead)
 		if err != nil {
@@ -170,7 +172,7 @@ func (s *Server) fanOut(ctx context.Context, req api.FanOutRequest, byLead bool)
 	if !byLead {
 		who = "The user ran"
 	}
-	s.tellLeadOf(ctx, g.Project, fmt.Sprintf("%s one task on %d agents at once, to compare them and keep one (group %s, %q): %s. "+
+	s.tellSessionOf(ctx, g.Project, req.LeadSession, fmt.Sprintf("%s one task on %d agents at once, to compare them and keep one (group %s, %q): %s. "+
 		"They are told not to open pull requests until one is kept; you'll hear when all of them have finished. Task:\n\n%s",
 		who, len(g.Members), g.ID, g.Title, memberList(g), g.Task), chat.NoticeOptions{Group: g.ID})
 	return out, nil
@@ -294,7 +296,7 @@ func (s *Server) groupMaybeDone(ctx context.Context, g state.Group) {
 	} else if g.ByLead {
 		text += " Tell the user they are ready to compare, in a line; don't keep one yourself."
 	}
-	s.tellLeadOf(ctx, g.Project, text, chat.NoticeOptions{Act: act, Group: g.ID})
+	s.tellSessionOf(ctx, g.Project, s.groupSession(ctx, g), text, chat.NoticeOptions{Act: act, Group: g.ID})
 	if g.Judge {
 		s.publishGroup(g)
 	}
@@ -536,7 +538,7 @@ func (s *Server) settleGroup(ctx context.Context, g state.Group, keep string) (s
 	} else {
 		text += "."
 	}
-	s.tellLeadOf(ctx, g.Project, text, chat.NoticeOptions{Group: g.ID})
+	s.tellSessionOf(ctx, g.Project, s.groupSession(ctx, g), text, chat.NoticeOptions{Group: g.ID})
 	s.countFeature(api.FeatureGroupKeep)
 	g, err := s.store.GroupByID(ctx, g.ID)
 	if err != nil {
@@ -556,8 +558,8 @@ func (s *Server) judgeGroup(w http.ResponseWriter, r *http.Request) error {
 	if g.Settled() {
 		return errors.New("this group was already decided")
 	}
-	if _, err := s.manager(nil).Lead(r.Context(), g.Project); err != nil {
-		return fmt.Errorf("this project has no chat to judge with yet: %w", err)
+	if _, err := s.leadOf(r.Context(), g.Project, s.groupSession(r.Context(), g), "Judge "+g.Title, true); err != nil {
+		return fmt.Errorf("this project has no chat to judge with: %w", err)
 	}
 	if err := s.store.SetGroupJudging(r.Context(), g.ID, true); err != nil {
 		return err
@@ -566,7 +568,7 @@ func (s *Server) judgeGroup(w http.ResponseWriter, r *http.Request) error {
 	if info := groupInfo(g); info.Finished < len(g.Members) {
 		text += fmt.Sprintf(" Only %d of %d have finished: judge what is there, and say which are still working.", info.Finished, len(g.Members))
 	}
-	s.tellLeadOf(r.Context(), g.Project, text, chat.NoticeOptions{Act: true, Group: g.ID})
+	s.tellSessionOf(r.Context(), g.Project, s.groupSession(r.Context(), g), text, chat.NoticeOptions{Act: true, Group: g.ID})
 	if g, err = s.store.GroupByID(r.Context(), g.ID); err != nil {
 		return err
 	}

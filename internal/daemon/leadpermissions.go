@@ -23,8 +23,8 @@ type leadPermissions struct {
 }
 
 type queuedPermission struct {
-	project string
-	p       api.ChatAgentPermission
+	project, session string
+	p                api.ChatAgentPermission
 }
 
 // agentPermission is the chat's PermissionChanged: it queues the change and
@@ -34,7 +34,7 @@ func (s *Server) agentPermission(a state.Agent, p api.ChatAgentPermission) {
 	q := &s.leadPermissions
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	q.queue = append(q.queue, queuedPermission{a.Project, p})
+	q.queue = append(q.queue, queuedPermission{a.Project, a.Session(), p})
 	if !q.running {
 		q.running = true
 		go s.showAgentPermissions()
@@ -55,15 +55,15 @@ func (s *Server) showAgentPermissions() {
 		next := q.queue[0]
 		q.queue = q.queue[1:]
 		q.mu.Unlock()
-		s.showAgentPermission(context.Background(), next.project, next.p)
+		s.showAgentPermission(context.Background(), next.project, next.session, next.p)
 	}
 }
 
-// showAgentPermission puts p in its project's lead chat. A project nobody has
-// chatted with has no lead to show it in: the agent's own chat and the inbox
-// still do.
-func (s *Server) showAgentPermission(ctx context.Context, project string, p api.ChatAgentPermission) {
-	lead, err := s.manager(nil).Lead(ctx, project)
+// showAgentPermission puts p in the chat of the session that made the agent,
+// or of the one most recently active. A project with no session has no chat
+// to show it in: the agent's own chat and the inbox still do.
+func (s *Server) showAgentPermission(ctx context.Context, project, session string, p api.ChatAgentPermission) {
+	lead, err := s.leadOf(ctx, project, session, "", false)
 	if err != nil {
 		return
 	}
