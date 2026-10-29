@@ -177,7 +177,7 @@ func (m *Manager) ensureNode(ctx context.Context, status func(string)) (string, 
 			return filepath.Dir(npm), nil
 		}
 	}
-	status("Installing Node for the project chat, once for this machine")
+	status("Installing Node, once for this machine")
 	if err := os.MkdirAll(m.nodeDir(), 0o700); err != nil {
 		return "", err
 	}

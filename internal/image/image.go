@@ -97,6 +97,13 @@ func CheckHost(u User) error {
 // is shown.
 const Version = "2026.10.20.1"
 
+// OpenCode2Version is the OpenCode 2 each agent installs on demand, beside
+// OpenCode 1 as `opencode2`, the first time it starts on OpenCode 2. The base
+// image carries none of it, so a choice of OpenCode 2 never needs a rebuild. It
+// is not in tools.txt: OpenCode 2 is not a mise tool here, it is the npm
+// platform binary the install links into place.
+const OpenCode2Version = "2.1.4"
+
 // CodexMissing is what Setup and agent creation say about an image built
 // without Codex. Both use the same words, because the fix is the same one.
 // OpenCodeMissing says it for OpenCode, which is optional the same way.

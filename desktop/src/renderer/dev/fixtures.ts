@@ -1622,6 +1622,7 @@ let defaultsSettings = {
   claudeEffortChoices: [],
   openCodeModelChoices: [],
   openCodeReady: false,
+  openCodeVersion: "1",
   cursorModelChoices: [],
   cursorReady: false,
   defaultCursorModel: '',
@@ -1701,6 +1702,7 @@ function removeFixtureStopped(refs: string[]): T.RemoveStoppedResult {
 function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: string; contentType: string } {
   const next = { ...defaultsSettings };
   const window = (v: string) => (/^1m$|^1000000$/i.test(v) ? '1000000' : '');
+  if (req.openCodeVersion !== undefined) next.openCodeVersion = req.openCodeVersion;
   if (req.defaultClaudeModel !== undefined) next.defaultClaudeModel = req.defaultClaudeModel;
   if (req.defaultLeadModel !== undefined) next.defaultLeadModel = req.defaultLeadModel;
   if (req.defaultAgentContextWindow !== undefined) next.defaultAgentContextWindow = window(req.defaultAgentContextWindow);

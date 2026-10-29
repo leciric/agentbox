@@ -239,6 +239,16 @@ func sameMCPServers(ai string, was, now []byte) bool {
 		if json.Unmarshal(b, &config) == nil {
 			_ = json.Unmarshal(config[key], &servers)
 		}
+		// OpenCode 2 nests its servers under "mcp.servers"; OpenCode 1 keeps
+		// them directly under "mcp". Comparing the two shapes by the servers
+		// inside them keeps a version switch from reading as a server change.
+		if ai == "opencode" {
+			if outer, ok := servers.(map[string]any); ok {
+				if inner, ok := outer["servers"].(map[string]any); ok {
+					servers = inner
+				}
+			}
+		}
 		return servers
 	}
 	return reflect.DeepEqual(of(was), of(now))
