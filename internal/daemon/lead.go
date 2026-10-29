@@ -20,49 +20,44 @@ import (
 // agentFrom finds the agent a request is about.
 type agentFrom func(*http.Request) (state.Agent, error)
 
-// sessionFrom is the chat session a request is about: the lead socket's own,
-// or ?session= on the app's routes. None is Main.
-func sessionFrom(r *http.Request) string {
-	if session := r.PathValue("session"); session != "" {
-		return session
-	}
-	if session := r.URL.Query().Get("session"); session != "" {
-		return session
-	}
-	return state.MainSession
-}
-
 // leadFromPath returns a project's lead without creating it: the lead of the
-// session the request names, Main's when it names none. A session you have
-// never written to has no lead yet, and gets one that exists only for this
-// request, so reading its empty conversation makes nothing on disk. A closed
-// session's is the same, and its conversation is still there to read.
+// session the request names, or of the one most recently active when it
+// names none. A session never written to has no lead yet, and gets one that
+// exists only for this request, so reading its empty conversation makes
+// nothing on disk; so does a project with no session at all.
 func (s *Server) leadFromPath(r *http.Request) (state.Agent, error) {
 	project := r.PathValue("project")
 	if project == state.HomeProject {
 		return s.manager(nil).Home(), nil
 	}
-	session := sessionFrom(r)
-	a, err := s.manager(nil).LeadSession(r.Context(), project, session)
+	if _, err := s.store.Project(r.Context(), project); err != nil {
+		return state.Agent{}, err
+	}
+	var ls state.LeadSession
+	var err error
+	if session := sessionFrom(r); session != "" {
+		ls, err = s.store.LeadSession(r.Context(), project, session)
+	} else {
+		ls, err = s.store.LastActiveLeadSession(r.Context(), project)
+		if errors.Is(err, state.ErrNotFound) {
+			return state.Agent{
+				Project: project, Name: state.LeadName, AI: agent.ChatTool,
+				Interface: state.InterfaceChat, Role: state.RoleLead,
+			}, nil
+		}
+	}
+	if err != nil {
+		return state.Agent{}, err
+	}
+	a, err := s.manager(nil).LeadSession(r.Context(), project, ls.ID)
 	if err == nil {
 		return a, nil
 	}
 	if !errors.Is(err, state.ErrNotFound) {
 		return state.Agent{}, err
 	}
-	if _, err := s.store.Project(r.Context(), project); err != nil {
-		return state.Agent{}, err
-	}
-	title := ""
-	if session != state.MainSession {
-		ls, err := s.store.LeadSession(r.Context(), project, session)
-		if err != nil {
-			return state.Agent{}, err
-		}
-		title = ls.Topic
-	}
 	return state.Agent{
-		Project: project, Name: state.LeadSessionName(session), Title: title, AI: agent.ChatTool,
+		Project: project, Name: state.LeadSessionName(ls.ID), Title: ls.Topic, AI: agent.ChatTool,
 		Interface: state.InterfaceChat, Role: state.RoleLead,
 	}, nil
 }
@@ -77,12 +72,10 @@ func (s *Server) ensureLeadFromPath(r *http.Request) (state.Agent, error) {
 		// worktree to move: it is readied, and nothing more.
 		return m.EnsureHome(r.Context())
 	}
-	a, err := m.EnsureLeadSession(r.Context(), r.PathValue("project"), sessionFrom(r))
+	// A message that names no session, from a client that knows none, goes
+	// to the one most recently active, or opens one.
+	a, err := s.leadOf(r.Context(), r.PathValue("project"), sessionFrom(r), "Chat", true)
 	if err != nil {
-		return state.Agent{}, err
-	}
-	// The session's socket, for one opened while the daemon was running.
-	if err := s.serveSessionAPI(a.Project, a.Session()); err != nil {
 		return state.Agent{}, err
 	}
 	// A turn is about to start, which is a moment the session may be replaced
@@ -101,7 +94,7 @@ func (s *Server) ensureLeadFromPath(r *http.Request) (state.Agent, error) {
 // on the commit the turn is reading rather than moving under it.
 func (s *Server) leadForMessage(r *http.Request) (state.Agent, error) {
 	if project := r.PathValue("project"); project != state.HomeProject {
-		if a, err := s.manager(nil).LeadSession(r.Context(), project, sessionFrom(r)); err == nil && s.chat.Busy(a) {
+		if a, err := s.leadFromPath(r); err == nil && a.Status != "" && s.chat.Busy(a) {
 			return a, nil
 		}
 	}
@@ -123,7 +116,7 @@ func (s *Server) projectChat(w http.ResponseWriter, r *http.Request) error {
 	}
 	info := api.ProjectChat{
 		Project:  a.Project,
-		Session:  a.Session(),
+		Session:  sessionIfAny(a),
 		Ref:      a.Ref(),
 		Started:  a.Status != "",
 		Worktree: a.Worktree,
@@ -169,7 +162,7 @@ func (s *Server) resetProjectChat(w http.ResponseWriter, r *http.Request) error 
 	// The whole chat, every session of it.
 	refs := []string{agent.LeadRef(project)}
 	if project != state.HomeProject {
-		sessions, err := s.store.LeadSessions(r.Context(), project, true)
+		sessions, err := s.store.LeadSessions(r.Context(), project)
 		if err != nil {
 			return err
 		}
@@ -177,6 +170,7 @@ func (s *Server) resetProjectChat(w http.ResponseWriter, r *http.Request) error 
 			refs = append(refs, agent.SessionRef(project, ls.ID))
 			s.stopSessionAPI(project, ls.ID)
 		}
+		defer s.sessionsChanged(context.WithoutCancel(r.Context()), project)
 	}
 	for _, ref := range refs {
 		s.chat.Stop(ref, "the project chat was reset")
@@ -195,4 +189,13 @@ func (s *Server) resetProjectChat(w http.ResponseWriter, r *http.Request) error 
 	}
 	w.WriteHeader(http.StatusNoContent)
 	return nil
+}
+
+// sessionIfAny is a lead's session, "" for one standing in for a project
+// that has none.
+func sessionIfAny(a state.Agent) string {
+	if a.Status == "" && a.Title == "" && a.Name == state.LeadName {
+		return ""
+	}
+	return a.Session()
 }

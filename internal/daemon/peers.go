@@ -514,7 +514,7 @@ func (s *Server) servePeer(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	s.leadRoutes(p.Name, state.MainSession).ServeHTTP(w, r)
+	s.leadRoutes(p.Name, "").ServeHTTP(w, r)
 	return nil
 }
 
@@ -597,7 +597,7 @@ func remoteNotice(machine, agent, notice string) string {
 func (s *Server) tellLeadAbout(ctx context.Context, a state.Agent, notice string, opts chat.NoticeOptions, ev peerEvent) {
 	origin, err := s.store.PeerAgent(ctx, a.Project, a.Name)
 	if err != nil {
-		s.tellLeadOf(ctx, a.Project, notice, opts)
+		s.tellOwnerOf(ctx, a, notice, opts)
 		return
 	}
 	ev.Project, ev.Agent, ev.Title, ev.Branch = origin.OriginProject, a.Name, a.Title, a.Branch

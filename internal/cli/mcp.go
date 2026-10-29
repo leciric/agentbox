@@ -898,6 +898,9 @@ func describeFleet(fleet api.Fleet) string {
 		if f.Idle {
 			b.WriteString(" (finished, still holding its machine)")
 		}
+		if f.SessionTopic != "" {
+			fmt.Fprintf(&b, "\n  session: %s", f.SessionTopic)
+		}
 		fmt.Fprintf(&b, "\n  changes: %s", changes(f.Changes))
 		if f.Media > 0 {
 			fmt.Fprintf(&b, ", %d thing(s) shown", f.Media)
@@ -1389,6 +1392,9 @@ func describeWorking(w api.WorkingMemory) string {
 	}
 	if w.CurrentTask != "" {
 		fmt.Fprintf(&b, "Now: %s\n", w.CurrentTask)
+	}
+	for _, id := range slices.Sorted(maps.Keys(w.Sessions)) {
+		fmt.Fprintf(&b, "In the %s session: %s\n", id, w.Sessions[id])
 	}
 	if len(w.ActiveAgents) > 0 {
 		fmt.Fprintf(&b, "On it: %s\n", strings.Join(w.ActiveAgents, ", "))

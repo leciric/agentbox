@@ -476,9 +476,9 @@ type ChatOptionRequest struct {
 // chatted with has nothing on disk, and Started is false.
 type ProjectChat struct {
 	Project string `json:"project"`
-	// Session is which of the chat's sessions this is (LeadSession): "main"
-	// for the one every project has.
-	Session string `json:"session"`
+	// Session is which of the chat's sessions this is (LeadSession.ID); ""
+	// when the project has none.
+	Session string `json:"session,omitempty"`
 	Ref     string `json:"ref"`     // the lead's agent ref, for the chat routes
 	Started bool   `json:"started"` // it has a worktree and a private HOME
 	// Worktree is where the lead reads the project, standing on BaseRef with a
@@ -491,25 +491,33 @@ type ProjectChat struct {
 	Last *ChatLine `json:"last,omitempty"`
 }
 
-// MainSession is the id of the session every project's chat has.
-const MainSession = "main"
-
 // LeadSession is one of the sessions of a project's chat: a lead conversation
-// of its own on one topic, with its own context and its own agents, beside
-// Main, which every project has. Notes, memory, skills, schedules and the
-// agent list are shared by all of them.
+// of its own on one topic, with its own context and the agents it made, whose
+// notices it hears. A project has as many as the user opens, or none. Notes,
+// memory, skills, schedules and the agent list are shared by all of them.
 type LeadSession struct {
 	Project string `json:"project"`
-	ID      string `json:"id"`  // "main" for Main
-	Ref     string `json:"ref"` // its lead's agent ref, for the chat's events
+	ID      string `json:"id"`  // for ?session= on the chat's routes
+	Ref     string `json:"ref"` // its lead's agent ref, which its chat events carry
 	Topic   string `json:"topic"`
 	// Chat is its conversation's state, as in ProjectChat.Chat.
 	Chat string `json:"chat"`
 	// Agents is how many of the project's agents are this session's.
-	Agents    int        `json:"agents"`
-	Last      *ChatLine  `json:"last,omitempty"`
-	CreatedAt time.Time  `json:"createdAt"`
-	ClosedAt  *time.Time `json:"closedAt,omitempty"` // closed: read only
+	Agents    int       `json:"agents"`
+	Last      *ChatLine `json:"last,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+	// ActiveAt is its newest message's time, or CreatedAt: the most recently
+	// active session hears what belongs to no session.
+	ActiveAt time.Time `json:"activeAt"`
+}
+
+// EventLeadSessions carries a LeadSessionsChange when a project's sessions
+// are opened, renamed or deleted, or an agent moves between them.
+const EventLeadSessions = "lead.sessions"
+
+// LeadSessionsChange names the project whose sessions changed.
+type LeadSessionsChange struct {
+	Project string `json:"project"`
 }
 
 // NewLeadSessionRequest opens a session on a topic.
@@ -522,8 +530,8 @@ type LeadSessionPatch struct {
 	Topic string `json:"topic"`
 }
 
-// AgentSessionRequest hands an agent to another session of its project's
-// chat, whose notices it then goes to.
+// AgentSessionRequest hands an agent to a session of its project's chat,
+// whose notices it then goes to; "" leaves it to none.
 type AgentSessionRequest struct {
 	Session string `json:"session"`
 }
@@ -543,7 +551,7 @@ type ChatLine struct {
 // to compact the conversation first. Only a Claude Code lead has one.
 type ChatCache struct {
 	Project string `json:"project"`
-	Session string `json:"session,omitempty"` // which session's; "" is Main's
+	Session string `json:"session,omitempty"` // which session's (LeadSession.ID); "" for the Home chat
 	// IdleSince is when the last turn ended, which is the last time the model
 	// was called; absent when no turn has ended since the daemon started, or
 	// while one runs.

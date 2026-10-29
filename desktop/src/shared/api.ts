@@ -301,6 +301,7 @@ export interface Agent {
   githubAccount: string;
   interface: string;
   chat?: string;
+  leadSession?: string;
   stalledSince?: string;
   background?: string[];
   outcome?: string;
@@ -1884,6 +1885,7 @@ export interface FleetAgent {
   githubAccount: string;
   interface: string;
   chat?: string;
+  leadSession?: string;
   stalledSince?: string;
   background?: string[];
   outcome?: string;
@@ -1896,6 +1898,7 @@ export interface FleetAgent {
   reclaimed?: string;
   ip: string;
   createdAt: string;
+  sessionTopic?: string;
   changes: AgentChanges;
   media: number;
   pr?: PullRequest;
@@ -2748,12 +2751,41 @@ export interface ChatAppend {
 
 export interface ProjectChat {
   project: string;
+  session?: string;
   ref: string;
   started: boolean;
   worktree?: string;
   baseRef?: string;
   chat: string;
   last?: ChatLine;
+}
+
+export interface LeadSession {
+  project: string;
+  id: string;
+  ref: string;
+  topic: string;
+  chat: string;
+  agents: number;
+  last?: ChatLine;
+  createdAt: string;
+  activeAt: string;
+}
+
+export interface NewLeadSessionRequest {
+  topic: string;
+}
+
+export interface LeadSessionPatch {
+  topic: string;
+}
+
+export interface AgentSessionRequest {
+  session: string;
+}
+
+export interface LeadSessionsChange {
+  project: string;
 }
 
 export interface ChatLine {
@@ -2764,6 +2796,7 @@ export interface ChatLine {
 
 export interface ChatCache {
   project: string;
+  session?: string;
   idleSince?: string;
   ttlSeconds?: number;
   ttlSource?: string;
@@ -2882,6 +2915,7 @@ export interface WorkingMemory {
   activeAgents?: string[];
   blockers?: string[];
   notes?: string;
+  sessions?: Record<string, string>;
   updatedAt?: string;
 }
 
@@ -3629,6 +3663,7 @@ export const ConsolidationModelChat = "";
 export const EventGroup = "group";
 export const EventChat = "chat";
 export const EventChatCache = "chat.cache";
+export const EventLeadSessions = "lead.sessions";
 export const EventQuestion = "question";
 export const EventSchedule = "schedule";
 export const EventAgentEvent = "agent.event";

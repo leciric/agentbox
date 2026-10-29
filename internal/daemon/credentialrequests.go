@@ -102,9 +102,9 @@ func (s *Server) requestCredentialFor(ctx context.Context, a state.Agent, req ap
 	// there is nothing it can do about it, unless the secret is its own to
 	// keep fresh.
 	if s.leadManaged(ctx, q) {
-		s.credentialTell(ctx, a.Project, leadManagedNotice(q), true)
+		s.credentialTell(ctx, a, leadManagedNotice(q), true)
 	} else {
-		s.credentialTell(ctx, a.Project, credentialNotice(q), false)
+		s.credentialTell(ctx, a, credentialNotice(q), false)
 	}
 
 	// A request is only waiting while the call behind it is: when the call is

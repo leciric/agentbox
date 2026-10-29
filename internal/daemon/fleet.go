@@ -72,9 +72,16 @@ func (s *Server) fleet(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	changes := agentChanges(agents, polledChanges)
+	topics := map[string]string{}
+	if sessions, err := s.store.LeadSessions(ctx, project); err == nil {
+		for _, ls := range sessions {
+			topics[ls.ID] = ls.Topic
+		}
+	}
 
 	for i, st := range statuses {
 		row := api.FleetAgent{Agent: s.agentInfo(st)}
+		row.SessionTopic = topics[row.LeadSession]
 		row.Changes = changes[i]
 		if items, err := s.store.Media(ctx, st.Project, st.Name); err == nil {
 			row.Media = len(items)

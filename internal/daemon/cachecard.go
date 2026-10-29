@@ -136,7 +136,7 @@ func (s *Server) armLeadCache(a state.Agent, keepalives int, after uint64) {
 	if s.leadCaches == nil {
 		s.leadCaches = map[string]*leadCache{}
 	}
-	was := s.leadCaches[a.Project]
+	was := s.leadCaches[a.Ref()]
 	if after != 0 && (was == nil || was.gen != after) {
 		s.mu.Unlock()
 		return
@@ -148,47 +148,52 @@ func (s *Server) armLeadCache(a state.Agent, keepalives int, after uint64) {
 		}
 		gen = was.gen + 1
 	}
-	s.leadCaches[a.Project] = &leadCache{
+	s.leadCaches[a.Ref()] = &leadCache{
 		gen: gen, idleSince: time.Now(), ttl: ttl, why: why, keepalives: keepalives,
-		timer: schedule(delay, func() { s.cacheDue(a.Project, gen) }),
+		timer: schedule(delay, func() { s.cacheDue(a.Ref(), gen) }),
 	}
 	s.mu.Unlock()
 	if was != nil && was.due {
-		s.publishLeadCache(a.Project)
+		s.publishLeadCache(a.Ref())
 	}
 }
 
 // cacheDue is the timer firing: if nothing has happened since it was set and
-// the context is worth saving, the lead gets a keepalive while its agents
-// work, and the card otherwise.
-func (s *Server) cacheDue(project string, gen uint64) {
-	if !s.leadCacheIs(project, gen) || (s.runCtx != nil && s.runCtx.Err() != nil) {
+// the context is worth saving, the lead gets a keepalive while its session's
+// agents work, and the card otherwise. ref is the session's lead's: each
+// session of a project's chat has its own cache.
+func (s *Server) cacheDue(ref string, gen uint64) {
+	if !s.leadCacheIs(ref, gen) || (s.runCtx != nil && s.runCtx.Err() != nil) {
 		return
 	}
 	gate := s.cacheGate
 	if gate == nil {
 		gate = s.leadCacheWorthSaving
 	}
-	lead, used, ok := gate(project)
+	lead, used, ok := gate(ref)
 	if !ok || !worthACard(used) {
 		return
 	}
 	s.mu.Lock()
-	lc := s.leadCaches[project]
+	lc := s.leadCaches[ref]
 	keep := lc != nil && lc.gen == gen && keepsAlive(lc.ttl, lc.keepalives)
 	s.mu.Unlock()
-	if keep && s.agentsAtWork(project) && s.keepLeadCacheAlive(lead, gen, used) {
+	if keep && s.agentsAtWork(ref) && s.keepLeadCacheAlive(lead, gen, used) {
 		return
 	}
-	s.showCacheCard(project, gen, used)
+	s.showCacheCard(ref, gen, used)
 }
 
-// leadCacheWorthSaving is cacheDue's gate: the project's lead, and its
+// leadCacheWorthSaving is cacheDue's gate: the session's lead, and its
 // context, when there is a cache that a card or a keepalive could save.
-func (s *Server) leadCacheWorthSaving(project string) (state.Agent, int64, bool) {
+func (s *Server) leadCacheWorthSaving(ref string) (state.Agent, int64, bool) {
 	ctx := context.Background()
-	lead, err := s.manager(nil).Lead(ctx, project)
+	project, name, err := agent.ParseRef(ref)
 	if err != nil {
+		return state.Agent{}, 0, false
+	}
+	lead, err := s.store.Agent(ctx, project, name)
+	if err != nil || !lead.IsLead() {
 		return state.Agent{}, 0, false
 	}
 	// A project that turned compaction off doesn't want it offered either.
@@ -199,26 +204,33 @@ func (s *Server) leadCacheWorthSaving(project string) (state.Agent, int64, bool)
 	// Not ready is a turn running, or a session that has already stopped:
 	// the turn ends and sets the timer again, and a stopped session has no
 	// cache left to save.
-	used, _, ready := s.chat.Context(agent.LeadRef(project))
+	used, _, ready := s.chat.Context(ref)
 	if !ready {
 		return state.Agent{}, 0, false
 	}
 	return lead, used, true
 }
 
-// agentsAtWork says whether one of a project's agents is working: in a turn,
-// starting one, waiting on an answer, or with background work that will wake
-// it (chatBusy).
-func (s *Server) agentsAtWork(project string) bool {
+// agentsAtWork says whether one of a chat session's agents is working: in a
+// turn, starting one, waiting on an answer, or with background work that will
+// wake it (chatBusy). Only the session's own: a session whose agents are all
+// idle has nothing to wait on, however busy another session's are, and isn't
+// kept warm for them.
+func (s *Server) agentsAtWork(ref string) bool {
 	if s.projectWorking != nil {
-		return s.projectWorking(project)
+		return s.projectWorking(ref)
 	}
+	project, name, err := agent.ParseRef(ref)
+	if err != nil {
+		return false
+	}
+	session, _ := state.SessionOfLead(name)
 	agents, err := s.store.Agents(context.Background(), project)
 	if err != nil {
 		return false
 	}
 	for _, a := range agents {
-		if !a.IsLead() && s.chatBusy(a.Ref()) {
+		if !a.IsLead() && a.Session() == session && s.chatBusy(a.Ref()) {
 			return true
 		}
 	}
@@ -240,7 +252,7 @@ func (s *Server) keepLeadCacheAlive(lead state.Agent, gen uint64, used int64) bo
 		send = s.chat.Keepalive
 	}
 	s.mu.Lock()
-	lc := s.leadCaches[lead.Project]
+	lc := s.leadCaches[lead.Ref()]
 	if lc == nil || lc.gen != gen {
 		s.mu.Unlock()
 		return true // something replaced it: nothing to do
@@ -263,9 +275,9 @@ func (s *Server) keepLeadCacheAlive(lead state.Agent, gen uint64, used int64) bo
 }
 
 // showCacheCard puts the card up, if the timer that fired is still current.
-func (s *Server) showCacheCard(project string, gen uint64, used int64) {
+func (s *Server) showCacheCard(ref string, gen uint64, used int64) {
 	s.mu.Lock()
-	lc := s.leadCaches[project]
+	lc := s.leadCaches[ref]
 	current := lc != nil && lc.gen == gen
 	if current {
 		lc.due = true
@@ -273,43 +285,47 @@ func (s *Server) showCacheCard(project string, gen uint64, used int64) {
 	s.mu.Unlock()
 	if current {
 		s.logf("the %s chat has been idle for %s of its %s prompt cache (%s), with %d tokens of context: asking whether to compact it",
-			project, time.Since(lc.idleSince).Round(time.Second), lc.ttl, lc.why, used)
-		s.publishLeadCache(project)
+			ref, time.Since(lc.idleSince).Round(time.Second), lc.ttl, lc.why, used)
+		s.publishLeadCache(ref)
 	}
 }
 
-func (s *Server) leadCacheIs(project string, gen uint64) bool {
+func (s *Server) leadCacheIs(ref string, gen uint64) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	lc := s.leadCaches[project]
+	lc := s.leadCaches[ref]
 	return lc != nil && lc.gen == gen
 }
 
 // leadCacheState is a lead's cache as the API shows it.
-func (s *Server) leadCacheState(project string) api.ChatCache {
+func (s *Server) leadCacheState(ref string) api.ChatCache {
+	project, name, _ := agent.ParseRef(ref)
 	out := api.ChatCache{Project: project}
+	if session, ok := state.SessionOfLead(name); ok && project != state.HomeProject {
+		out.Session = session
+	}
 	s.mu.Lock()
-	lc := s.leadCaches[project]
+	lc := s.leadCaches[ref]
 	if lc != nil {
 		idle, due, expires := lc.idleSince, lc.idleSince.Add(cacheCardDelay(lc.ttl)), lc.idleSince.Add(lc.ttl)
 		out.IdleSince, out.DueAt, out.ExpiresAt = &idle, &due, &expires
 		out.TTLSeconds, out.TTLSource, out.Due = int64(lc.ttl/time.Second), lc.why, lc.due
 	}
 	s.mu.Unlock()
-	out.ContextUsed, _, _ = s.chat.Context(agent.LeadRef(project))
+	out.ContextUsed, _, _ = s.chat.Context(ref)
 	return out
 }
 
-func (s *Server) publishLeadCache(project string) {
-	s.events.publish(api.EventChatCache, s.leadCacheState(project))
+func (s *Server) publishLeadCache(ref string) {
+	s.events.publish(api.EventChatCache, s.leadCacheState(ref))
 }
 
 // settleLeadCache takes the card down once the user has chosen. After a
 // compaction there is no cache left to track until the next turn ends, and
 // forget drops what was known of it.
-func (s *Server) settleLeadCache(project string, forget bool) {
+func (s *Server) settleLeadCache(ref string, forget bool) {
 	s.mu.Lock()
-	lc := s.leadCaches[project]
+	lc := s.leadCaches[ref]
 	if lc == nil {
 		s.mu.Unlock()
 		return
@@ -320,23 +336,21 @@ func (s *Server) settleLeadCache(project string, forget bool) {
 		if lc.timer != nil {
 			lc.timer.Stop()
 		}
-		delete(s.leadCaches, project)
+		delete(s.leadCaches, ref)
 	}
 	s.mu.Unlock()
 	if was || forget {
-		s.publishLeadCache(project)
+		s.publishLeadCache(ref)
 	}
 }
 
 // chatCache is the project chat's cache, and whether its card is up.
 func (s *Server) chatCache(w http.ResponseWriter, r *http.Request) error {
-	project := r.PathValue("project")
-	if project != state.HomeProject {
-		if _, err := s.store.Project(r.Context(), project); err != nil {
-			return err
-		}
+	a, err := s.leadFromPath(r)
+	if err != nil {
+		return err
 	}
-	return writeJSON(w, http.StatusOK, s.leadCacheState(project))
+	return writeJSON(w, http.StatusOK, s.leadCacheState(a.Ref()))
 }
 
 // chatCacheChoice is the user answering the card. Compacting runs the same
@@ -357,9 +371,9 @@ func (s *Server) chatCacheChoice(w http.ResponseWriter, r *http.Request) error {
 		if err := s.compactLead(r.Context(), a); err != nil {
 			return err
 		}
-		s.settleLeadCache(a.Project, true)
+		s.settleLeadCache(a.Ref(), true)
 	} else {
-		s.settleLeadCache(a.Project, false)
+		s.settleLeadCache(a.Ref(), false)
 	}
 	if strings.TrimSpace(req.Text) == "" && len(req.Images) == 0 && len(req.Files) == 0 {
 		w.WriteHeader(http.StatusNoContent)

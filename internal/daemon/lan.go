@@ -879,6 +879,9 @@ var lanWrites = []struct {
 	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/(projects/[^/]+|agents/[^/]+/[^/]+)/chat/(start|messages|cancel|reload|resume|permissions/[^/]+)$`), ""},
 	{state.PhoneScopeChat, regexp.MustCompile(`^PUT /v1/(projects/[^/]+|agents/[^/]+/[^/]+)/chat/options/[^/]+$`), ""},
 	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/projects/[^/]+/chat/cache$`), ""},
+	// Opening a session of a project's chat is chatting; renaming or deleting
+	// one is the app's.
+	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/projects/[^/]+/sessions$`), ""},
 	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/agents/[^/]+/[^/]+/(start|resume)$`), ""},
 	{state.PhoneScopeAnswer, regexp.MustCompile(`^POST /v1/projects/[^/]+/questions/[^/]+/answer$`), ""},
 	// Marking an agent's work reviewed, or asking it for changes, is what the

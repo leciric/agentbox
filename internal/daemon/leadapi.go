@@ -1,10 +1,14 @@
 package daemon
 
 import (
+	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -27,40 +31,34 @@ import (
 
 // leadSocketPath is short (a hash of the project name) because unix socket
 // paths are limited to 108 bytes. Each of the chat's sessions has its own
-// socket, which is how the daemon knows which session asked: Main's is the one
-// every project's chat had before sessions.
+// socket, which is how the daemon knows which session asked; the one migrated
+// from the chat before sessions keeps the socket that chat had.
 func (s *Server) sessionSocketPath(project, session string) string {
 	key := "lead:" + project
-	if session != "" && session != state.MainSession {
+	if session != "" && session != state.MigratedSession {
 		key += "/" + session
 	}
 	sum := sha256.Sum256([]byte(key))
 	return filepath.Join(s.cfg.Paths.Data, "run", "leads", hex.EncodeToString(sum[:6])+".sock")
 }
 
-// leadSocketPath is Main's socket.
+// leadSocketPath is the migrated session's socket, and the Home chat's.
 func (s *Server) leadSocketPath(project string) string {
-	return s.sessionSocketPath(project, state.MainSession)
+	return s.sessionSocketPath(project, state.MigratedSession)
 }
 
 // leadAPIKey is how leadAPIs keeps a session's socket.
 func leadAPIKey(project, session string) string {
-	if session == "" {
-		session = state.MainSession
-	}
 	return project + "\x00" + session
 }
 
-// serveLeadAPI starts the socket a project's lead reaches AgentBox through:
-// Main's, and every open session's.
+// serveLeadAPI starts the sockets a project's chat reaches AgentBox through:
+// each session's, or the Home chat's one.
 func (s *Server) serveLeadAPI(project string) error {
-	if err := s.serveSessionAPI(project, state.MainSession); err != nil {
-		return err
-	}
 	if project == state.HomeProject {
-		return nil
+		return s.serveSessionAPI(project, state.MigratedSession)
 	}
-	sessions, err := s.store.LeadSessions(context.Background(), project, false)
+	sessions, err := s.store.LeadSessions(context.Background(), project)
 	if err != nil {
 		return err
 	}
@@ -156,6 +154,7 @@ func (s *Server) leadRoutes(project, session string) http.Handler {
 		return func(w http.ResponseWriter, r *http.Request) {
 			r.SetPathValue("project", project)
 			r.SetPathValue("session", session)
+			r = r.WithContext(withLeadSession(r.Context(), session))
 			if err := fn(w, r); err != nil {
 				writeError(w, err)
 			}
@@ -172,7 +171,7 @@ func (s *Server) leadRoutes(project, session string) http.Handler {
 	mux.HandleFunc("POST /v1/project/groups/{id}/recommend", withProject(s.leadRecommend))
 	mux.HandleFunc("GET /v1/project/accounts", withProject(s.leadAccounts))
 	mux.HandleFunc("GET /v1/project/tool-accounts", withProject(s.leadToolAccounts))
-	mux.HandleFunc("POST /v1/project/retire", withProject(s.retire))
+	mux.HandleFunc("POST /v1/project/retire", withProject(s.leadRetire))
 	mux.HandleFunc("GET /v1/project/agents/{agent}/chat", withProject(s.leadAgentChat))
 	mux.HandleFunc("GET /v1/project/archived-agents", withProject(s.listArchived))
 	mux.HandleFunc("POST /v1/project/agents/{agent}/chat/messages", withProject(s.leadTellAgent))
@@ -284,7 +283,7 @@ func (s *Server) leadCreateAgent(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	req.Project = r.PathValue("project")
-	req.LeadSession = leadSessionColumn(sessionFrom(r))
+	req.LeadSession = sessionFrom(r)
 	return s.createAgentFrom(w, r, req, true)
 }
 
@@ -415,6 +414,9 @@ func (s *Server) leadTellAgent(w http.ResponseWriter, r *http.Request) error {
 	if err := readJSON(r, &req); err != nil {
 		return err
 	}
+	if err := s.crossSession(r.Context(), sessionFrom(r), a, "Tell"); err != nil {
+		return err
+	}
 	s.leadAsked(a)
 	t, err := s.tellAgent(r.Context(), a, req.Text)
 	if err != nil {
@@ -515,4 +517,58 @@ func (s *Server) leadCopyFromHost(w http.ResponseWriter, r *http.Request) error 
 		return err
 	}
 	return writeJSON(w, http.StatusOK, api.LeadCopyResult{Bytes: n})
+}
+
+// leadRetire is retire for a session's lead: the agents it names that another
+// session made wait for the user's yes (crossSession), and one that names
+// none retires only its own and nobody's.
+func (s *Server) leadRetire(w http.ResponseWriter, r *http.Request) error {
+	var req api.RetireRequest
+	if err := readJSON(r, &req); err != nil {
+		return err
+	}
+	session := sessionFrom(r)
+	if session != "" {
+		agents, err := s.store.Agents(r.Context(), r.PathValue("project"))
+		if err != nil {
+			return err
+		}
+		named := req.Agents
+		req.Agents = nil
+		for _, a := range agents {
+			if a.IsLead() || (len(named) > 0 && !slices.Contains(named, a.Name)) {
+				continue
+			}
+			if len(named) == 0 {
+				if owner := a.Session(); owner == "" || owner == session {
+					req.Agents = append(req.Agents, a.Name)
+				}
+				continue
+			}
+			if !req.DryRun {
+				if err := s.crossSession(r.Context(), session, a, "Retire"); err != nil {
+					return err
+				}
+			}
+			req.Agents = append(req.Agents, a.Name)
+		}
+		switch {
+		case len(req.Agents) > 0:
+		case len(named) > 0:
+			req.Agents = named // names nobody has: retire says so
+		default:
+			// Nothing idle of its own to retire.
+			return writeJSON(w, http.StatusOK, api.RetireResult{
+				How: cmp.Or(req.How, api.RetireStop), DryRun: req.DryRun,
+				Retired: []api.RetiredAgent{}, Skipped: []api.RetiredAgent{},
+			})
+		}
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	r.ContentLength = int64(len(body))
+	return s.retire(w, r)
 }

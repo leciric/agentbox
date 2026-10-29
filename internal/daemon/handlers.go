@@ -567,8 +567,12 @@ func (s *Server) checkGitHubAccount(account string) error {
 func (s *Server) removeProject(w http.ResponseWriter, r *http.Request) error {
 	// The project's chat goes with it; only its agents block removal.
 	project := r.PathValue("project")
-	s.chat.Stop(agent.LeadRef(project), "the project was removed")
-	s.chat.Forget(agent.LeadRef(project))
+	if leads, err := s.manager(nil).SessionLeads(r.Context(), project); err == nil {
+		for _, lead := range leads {
+			s.chat.Stop(lead.Ref(), "the project was removed")
+			s.chat.Forget(lead.Ref())
+		}
+	}
 	if err := s.manager(s.cfg.Log).DestroyLead(r.Context(), project); err != nil {
 		return err
 	}

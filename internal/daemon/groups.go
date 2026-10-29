@@ -89,7 +89,7 @@ func (s *Server) leadFanOut(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	req.Project = r.PathValue("project")
-	req.LeadSession = leadSessionColumn(sessionFrom(r))
+	req.LeadSession = sessionFrom(r)
 	out, err := s.fanOut(r.Context(), req, true)
 	if err != nil {
 		return err
@@ -558,8 +558,8 @@ func (s *Server) judgeGroup(w http.ResponseWriter, r *http.Request) error {
 	if g.Settled() {
 		return errors.New("this group was already decided")
 	}
-	if _, err := s.manager(nil).Lead(r.Context(), g.Project); err != nil {
-		return fmt.Errorf("this project has no chat to judge with yet: %w", err)
+	if _, err := s.leadOf(r.Context(), g.Project, s.groupSession(r.Context(), g), "Judge "+g.Title, true); err != nil {
+		return fmt.Errorf("this project has no chat to judge with: %w", err)
 	}
 	if err := s.store.SetGroupJudging(r.Context(), g.ID, true); err != nil {
 		return err

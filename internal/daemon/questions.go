@@ -301,10 +301,12 @@ func toAPIQuestion(q state.Question) api.Question {
 	return out
 }
 
-// tellLead puts something in front of a project's chat. With act it starts a
-// turn too, so the lead reacts on its own; without, the notice waits in the
-// conversation and the lead reads it the next time the user writes — the
-// history still shows what happened, and nothing is spent on it.
+// tellLead puts something in front of a project's chat: of the session most
+// recently active, since it is about no agent a session made (tellOwner is
+// for one that is). With act it starts a turn too, so the lead reacts on its
+// own; without, the notice waits in the conversation and the lead reads it
+// the next time the user writes — the history still shows what happened, and
+// nothing is spent on it.
 //
 // Autonomy governs what the lead then *does* about a notice it acts on — act,
 // or propose and wait — not whether it notices at all: the lead's own brief
@@ -319,23 +321,23 @@ func (s *Server) tellLead(ctx context.Context, project, notice string, act bool)
 // tellLeadOf is tellLead with the notice's options: Finished, say, for the
 // app to show what the agents finished with. It is always hidden.
 func (s *Server) tellLeadOf(ctx context.Context, project, notice string, opts chat.NoticeOptions) {
-	s.tellSessionOf(ctx, project, state.MainSession, notice, opts)
+	s.tellSessionOf(ctx, project, "", notice, opts)
 }
 
 // tellSessionOf is tellLeadOf for one session of the project's chat: the one
-// that made the agent a notice is about (tellOwnerOf). A session that is
-// closed, or has never been written to, hands it to Main.
+// that made the agent a notice is about (tellOwnerOf). One deleted, or ""
+// for none, is the session most recently active (leadOf). A project with no
+// session at all opens one for a notice that starts a turn, titled after it;
+// one that would only wait has nobody to read it.
 func (s *Server) tellSessionOf(ctx context.Context, project, session, notice string, opts chat.NoticeOptions) {
 	if _, err := s.store.Project(ctx, project); err != nil {
 		return
 	}
-	lead, err := s.manager(nil).LeadSession(ctx, project, session)
-	if err != nil && session != state.MainSession && session != "" {
-		lead, err = s.manager(nil).Lead(ctx, project)
-	}
+	lead, err := s.leadOf(ctx, project, session, eventTopic(notice), opts.Act)
 	if err != nil {
-		// No chat yet: the notice would have nowhere to go. The question still
-		// waits, and the user sees it in the project's Questions.
+		if !errors.Is(err, state.ErrNotFound) {
+			s.logf("telling %s's chat: %v", project, err)
+		}
 		return
 	}
 	if opts.Act {
@@ -471,9 +473,9 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, end cha
 		case s.isPeerAgent(ctx, a):
 			s.tellLeadAbout(ctx, a, failedNotice(a, headWords(note, 300)), chat.NoticeOptions{Act: s.leadIsWaiting(a)}, failed)
 		case s.leadIsWaiting(a):
-			s.stallTell(ctx, a.Project, failedNotice(a, headWords(note, 300)))
+			s.stallTell(ctx, a, failedNotice(a, headWords(note, 300)))
 		default:
-			s.tellLead(ctx, a.Project, failedNotice(a, headWords(note, 300)), false)
+			s.tellOwner(ctx, a, failedNotice(a, headWords(note, 300)), false)
 		}
 		return
 	case verdictBackground:

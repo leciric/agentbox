@@ -129,7 +129,7 @@ type Server struct {
 	prTell func(ctx context.Context, a state.Agent, text string) (told, error)
 	// prLead puts the watch's notice in front of a project's chat: tellLead,
 	// or a test's recorder.
-	prLead func(ctx context.Context, project, notice string, act bool)
+	prLead func(ctx context.Context, project, session, notice string, act bool)
 	// restacked are the merged pull requests ("owner/repo#n") whose stack
 	// was moved onto where they merged, so the merge and the watch don't
 	// both move it (stack.go).
@@ -165,9 +165,9 @@ type Server struct {
 	// card's world (cachecard.go): whether the lead has a cache worth saving,
 	// sending it a keepalive, and whether the project's agents are working.
 	// Nil is the real thing; a test puts its own in.
-	cacheGate      func(project string) (lead state.Agent, used int64, ok bool)
+	cacheGate      func(ref string) (lead state.Agent, used int64, ok bool)
 	leadKeepalive  func(ctx context.Context, a state.Agent) error
-	projectWorking func(project string) bool
+	projectWorking func(ref string) bool
 	// dockerPruneTimeout bounds freeing an agent's Docker space as it stops
 	// (dockerprune.go): agent.DockerPruneTimeout, or a test's shorter one.
 	dockerPruneTimeout time.Duration
@@ -379,10 +379,10 @@ type Server struct {
 	// is told of a stall — tellLead acting, or a test's recorder.
 	stalls    map[string]*stallTrack
 	cpuTime   func(instance string) (time.Duration, bool)
-	stallTell func(ctx context.Context, project, note string)
+	stallTell func(ctx context.Context, a state.Agent, note string)
 	// credentialTell tells a lead of an agent's credential request, waking
 	// it for a lead-managed secret: tellLead, or a test's recorder.
-	credentialTell func(ctx context.Context, project, notice string, act bool)
+	credentialTell func(ctx context.Context, a state.Agent, notice string, act bool)
 }
 
 func New(cfg Config) (*Server, error) {
@@ -452,11 +452,11 @@ func New(cfg Config) (*Server, error) {
 	// Lima on a Mac and WSL2 forward the VM's localhost ports on their own.
 	s.loginCallbackUnreachable = hostos.OS() == hostos.Linux
 	s.recheckTell = func(ctx context.Context, project, note string) { s.tellLead(ctx, project, note, true) }
-	s.stallTell = s.recheckTell
-	s.credentialTell = s.tellLead
+	s.stallTell = func(ctx context.Context, a state.Agent, note string) { s.tellOwner(ctx, a, note, true) }
+	s.credentialTell = s.tellOwner
 	s.connectors = s.newConnectors()
 	s.disks = newAgentDiskCache(func(ctx context.Context, a state.Agent) agent.AgentDisk { return s.manager(nil).AgentDisk(ctx, a) })
-	s.prTell, s.prLead = s.prTellAgent, s.tellLead
+	s.prTell, s.prLead = s.prTellAgent, s.tellSession
 	s.approve = s.approveInChat
 	s.chat = &chat.Manager{
 		Store:   store,
@@ -875,6 +875,12 @@ func (s *Server) routes() http.Handler {
 	s.scheduleRoutes("/v1/projects/{project}", "user", h)
 	h("GET /v1/projects/{project}/notes", s.getNotes)
 	h("PUT /v1/projects/{project}/notes", s.setNotes)
+	// The chat's sessions (leadsessions.go): every chat route below takes
+	// ?session=, and without one is the session most recently active.
+	h("GET /v1/projects/{project}/sessions", s.listSessions)
+	h("POST /v1/projects/{project}/sessions", s.newSession)
+	h("PATCH /v1/projects/{project}/sessions/{session}", s.renameSession)
+	h("DELETE /v1/projects/{project}/sessions/{session}", s.deleteSession)
 	h("GET /v1/projects/{project}/chat", s.getChat(s.leadFromPath))
 	h("GET /v1/projects/{project}/chat/search", s.searchChat(s.leadFromPath))
 	h("DELETE /v1/projects/{project}/chat", s.clearChat(s.leadFromPath))
@@ -995,6 +1001,7 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/agents/stop", s.stopAgents)
 	h("GET /v1/agents/{project}/{agent}", s.getAgent)
 	h("PATCH /v1/agents/{project}/{agent}", s.updateAgent)
+	h("PUT /v1/agents/{project}/{agent}/session", s.handOver)
 	h("DELETE /v1/agents/{project}/{agent}", s.destroyAgent)
 	for _, action := range []string{"start", "stop", "pause", "resume", "session"} {
 		h("POST /v1/agents/{project}/{agent}/"+action, s.agentAction(action))

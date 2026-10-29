@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"agentbox/internal/agent"
 	"agentbox/internal/chat"
 	"agentbox/internal/memory"
 	"agentbox/internal/state"
@@ -69,7 +68,7 @@ func (s *Server) rolloverIfNeeded(ctx context.Context, a state.Agent) {
 	// The size is already the room the session really has: the chat measures
 	// a Claude lead against the compact window it started with, not the
 	// model's (D83), and that is the lead's own context window now (D91).
-	used, size, ready := s.chat.Context(agent.LeadRef(a.Project))
+	used, size, ready := s.chat.Context(a.Ref())
 	if !ready || !needsRollover(used, size, p.RolloverThreshold) {
 		return
 	}
@@ -244,6 +243,8 @@ func (s *Server) storeConsolidation(ctx context.Context, a state.Agent, c consol
 		}
 	}
 	if !c.Working.Empty() {
+		// What it is working on is this session's own.
+		c.Working.Session = a.Session()
 		if _, err := s.memory().SetWorkingMemory(ctx, a.Project, c.Working); err != nil {
 			s.logf("compacting the %s chat: what it is doing now: %v", a.Project, err)
 		}
