@@ -245,7 +245,7 @@ agentbox project git set demo private https://hub.example/o/demo.git --auth toke
 agentbox create demo --cluster agentbox --ai none
 ```
 
-The doctor says whether the API, the master URL, the namespace, the nodes, the storage class, the
+The doctor says whether the API, the master URL, the namespace and its pod security, the nodes, the storage class, the
 claim, the registry and the image are all right. A project added from a checkout prefills its private
 profile from `hub` and its public one from `origin`, without a login, so set the private one as above
 before the first cluster agent; the create refuses a project whose profile cannot clone. `agentbox
@@ -491,6 +491,7 @@ again, and the events appear after it.
 | `api` | The daemon's ServiceAccount cannot reach the API server. Its kubeconfig must point at an address the daemon reaches. |
 | `master url` | Not set, or plain `http`. Set it with `agentbox cluster set <name> --master-url <url>`. The `http` note is right for a local cluster only. |
 | `namespace` | The token is refused, or the Role cannot read pods there. `cluster rotate <name>` makes a new token; `cluster remove` and `add` again reapplies the Role and binding. |
+| `pod security` | The namespace enforces no Pod Security Admission level, so the credential could start a privileged pod. `cluster rotate <name>` labels a namespace AgentBox created; one it did not create you label yourself with `kubectl label namespace <ns> pod-security.kubernetes.io/enforce=baseline`. A cluster added before the check cannot read its namespace yet: `cluster rotate <name>` grants it. |
 | `network policy` | The namespace has no `agentbox-agents` NetworkPolicy, or has one that no longer selects agent pods or that lets traffic in. `cluster rotate <name>` applies it, and the Role rule it needs. |
 | `nodes` | No node is ready, or the cluster has none. |
 | `storage class` | The named class does not exist. Empty asks for the cluster's default; k3d and k3s have `local-path`. |
@@ -522,6 +523,14 @@ svc,proxygroup`, `kubectl get dnsconfig`, and the operator's pods in `tailscale`
   as the agent secrets; the admin kubeconfig is used once by `cluster add` or `cluster rotate` and
   never stored. The registry's login is sealed here and written into the namespace as its pull
   secret, and no response from the daemon carries it.
+- The credential can create pods, so what keeps it inside its namespace is Pod Security Admission:
+  the namespace `cluster add` creates carries `pod-security.kubernetes.io/enforce=baseline`, which
+  refuses privileged pods, host namespaces and `hostPath` volumes. Without it the credential could
+  start a privileged pod and be root on a node. Baseline, not restricted, because the init container
+  that hands a claim to the agent's user runs as root to `chown` it. `cluster rotate` labels a
+  namespace AgentBox created before the label. AgentBox never relabels a namespace it did not
+  create: `cluster add --namespace default` is refused unless that namespace already enforces
+  baseline or restricted, and the error gives the `kubectl label` command.
 - The pod connects out, so nothing in the cluster listens for the daemon. The listener on 7782 must
   not be exposed beyond a local test. A remote cluster reaches the daemon through the tailnet
   listener, which `tailscale serve` publishes and which checks who asks, except on

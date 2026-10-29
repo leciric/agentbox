@@ -90,3 +90,20 @@ func TestRoleCanReadTheNamespacesEvents(t *testing.T) {
 		}
 	}
 }
+
+// TestRBACReaderCanReadOnlyItsOwnNamespace is the doctor's pod security check:
+// it reads the namespace's labels, and a namespace is cluster-scoped, so the
+// ClusterRole grants it, named, read only.
+func TestRBACReaderCanReadOnlyItsOwnNamespace(t *testing.T) {
+	access := k8s.NewAccess("agents")
+	for _, rule := range access.Reader.Rules {
+		if !slices.Contains(rule.Resources, "namespaces") {
+			continue
+		}
+		if !slices.Equal(rule.ResourceNames, []string{"agents"}) || !slices.Equal(rule.Verbs, []string{"get"}) {
+			t.Errorf("the namespaces rule = %+v, want get on agents alone", rule)
+		}
+		return
+	}
+	t.Fatalf("the read-only ClusterRole can't read the namespace: %+v", access.Reader.Rules)
+}

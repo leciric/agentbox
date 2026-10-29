@@ -9,6 +9,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	storagev1 "k8s.io/api/storage/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -23,6 +24,8 @@ import (
 func healthyCluster(t *testing.T) *fake.Clientset {
 	t.Helper()
 	client := fake.NewClientset(
+		// The namespace as `cluster add` creates it.
+		k8s.NewAccess("agentbox").Namespace,
 		&corev1.Node{
 			ObjectMeta: metav1.ObjectMeta{Name: "worker-1"},
 			Status: corev1.NodeStatus{
@@ -98,7 +101,7 @@ func TestDoctorPassesAClusterThatCanRunAgents(t *testing.T) {
 	if report.Failed() {
 		t.Errorf("a healthy cluster failed: %+v", report.Checks)
 	}
-	for _, name := range []string{"api", "master url", "namespace", "network policy", "nodes", "storage class", "workspace claim", "registry", "image"} {
+	for _, name := range []string{"api", "master url", "namespace", "pod security", "network policy", "nodes", "storage class", "workspace claim", "registry", "image"} {
 		found := check(t, report, name)
 		if !found.OK || found.Skipped {
 			t.Errorf("%s = %+v, want a pass", name, found)
@@ -324,3 +327,49 @@ func TestDoctorSaysWhenTheNetworkPolicyLetsTrafficIn(t *testing.T) {
 }
 
 func mustQuantity(s string) resource.Quantity { return resource.MustParse(s) }
+
+// TestDoctorFailsANamespaceThatAdmitsPrivilegedPods is the check that keeps the
+// sealed credential inside its namespace: it can create pods, so a namespace
+// with no pod security label lets it be root on a node.
+func TestDoctorFailsANamespaceThatAdmitsPrivilegedPods(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		labels map[string]string
+		fix    string
+	}{
+		// Added before the label: rotate applies it.
+		{"ours", map[string]string{k8s.LabelManaged: "true"}, "agentbox cluster rotate k3d"},
+		// Someone else's: never relabelled, so the doctor says how to.
+		{"foreign", nil, "kubectl label namespace agentbox pod-security.kubernetes.io/enforce=baseline"},
+		{"privileged", map[string]string{k8s.LabelPodSecurity: "privileged"}, "kubectl label"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := healthyCluster(t)
+			namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "agentbox", Labels: tc.labels}}
+			if _, err := client.CoreV1().Namespaces().Update(context.Background(), namespace, metav1.UpdateOptions{}); err != nil {
+				t.Fatal(err)
+			}
+			report := healthyDoctor(t, client).Run(context.Background())
+			got := check(t, report, "pod security")
+			if got.OK || got.Skipped || !report.Failed() {
+				t.Fatalf("pod security = %+v, want a failure", got)
+			}
+			if !strings.Contains(got.Detail, tc.fix) {
+				t.Errorf("pod security detail = %q, want it to say %q", got.Detail, tc.fix)
+			}
+		})
+	}
+}
+
+// TestDoctorSaysWhenItCantReadTheNamespace is a cluster added before the reader
+// ClusterRole could read the namespace: a failure that names the fix, not a pass.
+func TestDoctorSaysWhenItCantReadTheNamespace(t *testing.T) {
+	client := healthyCluster(t)
+	client.PrependReactor("get", "namespaces", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewForbidden(corev1.Resource("namespaces"), "agentbox", nil)
+	})
+	got := check(t, healthyDoctor(t, client).Run(context.Background()), "pod security")
+	if got.OK || !strings.Contains(got.Detail, "agentbox cluster rotate k3d") {
+		t.Errorf("pod security = %+v, want a failure that names cluster rotate", got)
+	}
+}
