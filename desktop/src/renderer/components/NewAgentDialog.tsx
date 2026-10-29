@@ -180,17 +180,7 @@ export function NewAgentDialog({
   });
   const cancel = useMutation({ mutationFn: (id: string) => api.cancelJob(id) });
 
-  // The tool, model and effort the form starts on: the project's tool, else
-  // the last pick, else Claude Code. Applied once for each project the form is
-  // on, as soon as both are known, so a pick made afterwards is kept.
   const startedFor = useRef('');
-  const lastPick = settings.data?.lastAgentPick;
-  useEffect(() => {
-    if (!open || !selected || !settings.isFetched || startedFor.current === selected.name) return;
-    startedFor.current = selected.name;
-    setForm((f) => ({ ...f, ...startingPick(selected, lastPick) }));
-  }, [open, selected, settings.isFetched, lastPick]);
-
   useEffect(() => {
     if (!open) return;
     startedFor.current = '';
@@ -202,6 +192,17 @@ export function NewAgentDialog({
     cancel.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, project]);
+
+  // The tool, model and effort the form starts on: the project's tool, else
+  // the last pick, else Claude Code. Applied once for each project the form is
+  // on, as soon as both are known, so a pick made afterwards is kept. After the
+  // reset above, so that it starts over each time the dialog opens.
+  const lastPick = settings.data?.lastAgentPick;
+  useEffect(() => {
+    if (!open || !selected || !settings.isFetched || startedFor.current === selected.name) return;
+    startedFor.current = selected.name;
+    setForm((f) => ({ ...f, ...startingPick(selected, lastPick) }));
+  }, [open, selected, settings.isFetched, lastPick]);
 
   const firstProject = projects.data?.[0]?.name;
   useEffect(() => {
