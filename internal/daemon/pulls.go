@@ -276,6 +276,9 @@ type pullsEntry struct {
 	listErr pullsErr
 	infoErr pullsErr
 	at      time.Time // when GitHub answered; zero means it never has
+	// listedAt is when prs were read, when that was before at: GitHub's
+	// rate limit refused the read at at, and the list read before is kept.
+	listedAt time.Time
 	// stale is set when a merge made through AgentBox overtook the answer:
 	// it's still served, so no list empties while GitHub is re-read, but
 	// the next request re-reads it whatever its age.
@@ -573,6 +576,14 @@ func laterPR(pr, than *api.PullRequest) bool {
 
 // same reports whether two answers say the same thing, ignoring when they
 // were read: an event is only worth sending when something moved.
+// readAt is when the pull requests e holds were read from GitHub.
+func (e pullsEntry) readAt() time.Time {
+	if !e.listedAt.IsZero() {
+		return e.listedAt
+	}
+	return e.at
+}
+
 func (e pullsEntry) same(o pullsEntry) bool {
 	if e.listErr != o.listErr || e.infoErr != o.infoErr {
 		return false
@@ -721,8 +732,9 @@ func (s *Server) fetchPulls(ctx context.Context, client github.Client, repo gith
 		entry.listErr = newPullsErr(listErr)
 		if errors.Is(listErr, github.ErrRateLimited) {
 			// What was read last is still the best there is, and the app shows
-			// it under the sentence saying when GitHub is read again.
-			entry.prs = before.prs
+			// it under the sentence saying when GitHub is read again, as read
+			// when it was.
+			entry.prs, entry.listedAt = before.prs, before.readAt()
 		}
 	} else {
 		entry.prs = toAPIPullRequests(prs)
@@ -864,8 +876,7 @@ func (s *Server) projectPullRequests(w http.ResponseWriter, r *http.Request) err
 	}
 	out.GitHub = repo.String()
 	out.Refreshing = refreshing
-	if !entry.at.IsZero() {
-		at := entry.at
+	if at := entry.readAt(); !at.IsZero() {
 		out.FetchedAt = &at
 	}
 	// entry.prs is shared with the cache, and with whoever else is reading it,

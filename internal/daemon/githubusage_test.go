@@ -61,8 +61,9 @@ func TestARateLimitKeepsTheListAndSaysWhenItEnds(t *testing.T) {
 	defer stub.Close()
 	d.setGitHub(t, stub.URL)
 
-	if out := pullsOf(t, d, "hello-stack"); len(out.PullRequests) != 1 || out.GitHubError != nil {
-		t.Fatalf("before the limit: %+v", out)
+	read := pullsOf(t, d, "hello-stack")
+	if len(read.PullRequests) != 1 || read.GitHubError != nil || read.FetchedAt == nil {
+		t.Fatalf("before the limit: %+v", read)
 	}
 
 	limited.Store(true)
@@ -73,6 +74,9 @@ func TestARateLimitKeepsTheListAndSaysWhenItEnds(t *testing.T) {
 	}
 	if len(out.PullRequests) != 1 {
 		t.Errorf("the list read before the limit is gone: %+v", out.PullRequests)
+	}
+	if out.FetchedAt == nil || !out.FetchedAt.Equal(*read.FetchedAt) {
+		t.Errorf("FetchedAt = %v, want %v, when the list kept was read", out.FetchedAt, read.FetchedAt)
 	}
 
 	sent := hits.Load()

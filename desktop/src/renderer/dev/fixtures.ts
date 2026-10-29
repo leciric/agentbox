@@ -829,18 +829,24 @@ function stacked(number: number, title: string, headBranch: string, baseBranch: 
 // pullRequests is a project's pull requests list, with a long GitHub login to
 // check the author column doesn't widen the row (#pull-request-author).
 export function pullRequests(): T.ProjectPullRequests {
-  // ?pulls=limited: the account's hourly limit ran out after this was read.
-  const limited =
-    typeof location !== 'undefined' && new URLSearchParams(location.search).get('pulls') === 'limited'
-      ? { githubError: { kind: 'rateLimited', account: 'default', login: 'someone', repo: 'leciric/agentbox', resetAt: new Date(Date.now() + 38 * 60_000).toISOString(), message: "GitHub's rate limit for this account: API rate limit exceeded for user ID 1." } }
-      : {};
+  // ?pulls=limited: the account's hourly limit ran out after this was read,
+  // twelve minutes ago.
+  const limited = typeof location !== 'undefined' && new URLSearchParams(location.search).get('pulls') === 'limited';
+  const error: T.GitHubError = {
+    kind: 'rateLimited',
+    account: 'default',
+    login: 'someone',
+    repo: 'leciric/agentbox',
+    resetAt: new Date(Date.now() + 38 * 60_000).toISOString(),
+    message: "GitHub's rate limit for this account: API rate limit exceeded for user ID 1.",
+  };
   return {
-    ...limited,
+    ...(limited && { githubError: error }),
     project: PROJECT,
     github: 'leciric/agentbox',
     githubAccount: 'default',
     githubLogin: 'someone',
-    fetchedAt: new Date().toISOString(),
+    fetchedAt: new Date(Date.now() - (limited ? 12 * 60_000 : 0)).toISOString(),
     canMerge: true,
     canMergeKnown: true,
     mergeMethods: ['merge', 'squash', 'rebase'],
