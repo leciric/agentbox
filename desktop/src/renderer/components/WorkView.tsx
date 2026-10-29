@@ -17,6 +17,8 @@ import { type Walk } from '../lib/review';
 import { stackOrder } from '../lib/stacks';
 import { useNow } from '../lib/useNow';
 import { byDay, dayLabel, outcomeOf, type WorkFilter, workFilters, workKey, workQuery } from '../lib/work';
+import { workStatus } from '../lib/agentCounts';
+import { useAgentCounts } from '../lib/useAgentCounts';
 import { cn, errorMessage } from '../lib/utils';
 import { MoreMedia } from './MediaTab';
 import { PrChip } from './PrChip';
@@ -113,8 +115,18 @@ export function WorkList({
     placeholderData: keepPreviousData,
     refetchInterval: 60_000,
   });
-  const items = useMemo(() => pageItems(pages.data), [pages.data]);
-  const counts = pages.data?.pages[0]?.counts ?? {};
+  // Whether a row waits for review is the counts' reading (lib/agentCounts.ts
+  // workStatus), as the sidebar's "N to review" that opens this page is: one
+  // that asks you something, failed again or is back at work is counted
+  // there, not here, and To review leaves it out and counts what it keeps.
+  const agentCounts = useAgentCounts();
+  const statusOf = (w: T.WorkItem) => workStatus(w, agentCounts.st(w.item.ref), agentCounts.loaded);
+  const items = useMemo(() => {
+    const all = pageItems(pages.data);
+    return filter === 'review' ? all.filter((w) => workStatus(w, agentCounts.st(w.item.ref), agentCounts.loaded) === 'review') : all;
+  }, [pages.data, filter, agentCounts]);
+  const counts: Partial<Record<WorkFilter, number>> = { ...pages.data?.pages[0]?.counts };
+  if (agentCounts.loaded && counts.review !== undefined) counts.review = (project ? agentCounts.of(project) : agentCounts.all).review;
   const groups = byDay(items);
   const byRef = useMemo(() => new Map(items.map((w) => [w.item.ref, w])), [items]);
   // Work stacked on another agent's: its parent is whichever listed agent's
@@ -126,7 +138,7 @@ export function WorkList({
   const [session, setSession] = useState<Walk | null>(null);
   const reviewPages = useReviewPages(false, session !== null);
   const open = (w: T.WorkItem) => {
-    const waiting = w.status === 'review' ? items.filter((i) => i.status === 'review').map((i) => i.item.ref) : null;
+    const waiting = statusOf(w) === 'review' ? items.filter((i) => statusOf(i) === 'review').map((i) => i.item.ref) : null;
     setSession({ item: w.item, order: waiting, project });
   };
   const openChat = (item: T.ReviewItem, past: boolean) => {
@@ -188,7 +200,7 @@ export function WorkList({
               </h2>
               <ul className="divide-y divide-line-faint">
                 {stackOrder(g.items, (w) => `${w.item.project}\n${w.item.branch ?? ''}`, (w) => (w.item.baseRef ? `${w.item.project}\n${w.item.baseRef}` : undefined)).map(({ item: w, depth }) => (
-                  <WorkRow key={w.item.ref} work={w} depth={depth} stackedOn={parentOf(w)} projectName={project ? undefined : projectLabel(w.item.project, projects.data)} onOpen={() => open(w)} />
+                  <WorkRow key={w.item.ref} work={w} status={statusOf(w)} depth={depth} stackedOn={parentOf(w)} projectName={project ? undefined : projectLabel(w.item.project, projects.data)} onOpen={() => open(w)} />
                 ))}
               </ul>
             </section>
@@ -210,13 +222,15 @@ export function WorkList({
 // WorkRow is one agent's work: what it was, what came of it, its pull
 // request, what it changed and kept, and when it finished.
 // depth is how far down a stack of the day's work it sits, and stackedOn the
-// work whose branch it stands on, listed under any day.
-function WorkRow({ work: w, depth = 0, stackedOn, projectName, onOpen }: { work: T.WorkItem; depth?: number; stackedOn?: T.WorkItem; projectName?: string; onOpen: () => void }) {
+// work whose branch it stands on, listed under any day. status is its
+// status as the counts read it (workStatus): to review, or the state that
+// keeps it out of review.
+function WorkRow({ work: w, status, depth = 0, stackedOn, projectName, onOpen }: { work: T.WorkItem; status: string; depth?: number; stackedOn?: T.WorkItem; projectName?: string; onOpen: () => void }) {
   const t = useT();
   const i = w.item;
   const outcome = outcomeOf(w);
   return (
-    <li className="flex min-w-0 items-start gap-3 px-4 py-2.5 transition-colors hover:bg-surface-faint" data-work-row={i.ref} data-work-status={w.status} data-work-stacked-on={stackedOn?.item.agent}>
+    <li className="flex min-w-0 items-start gap-3 px-4 py-2.5 transition-colors hover:bg-surface-faint" data-work-row={i.ref} data-work-status={status} data-work-stacked-on={stackedOn?.item.agent}>
       <button type="button" className="flex min-w-0 flex-1 items-start gap-3 text-left" onClick={onOpen} style={depth > 0 ? { paddingLeft: `${Math.min(depth, 3) * 1.5}rem` } : undefined}>
         {depth > 0 && <CornerDownRight aria-hidden className="-ml-5 mt-0.5 size-4 shrink-0 text-faint" />}
         <AIIcon ai={i.ai || 'claude'} className={cn('mt-0.5 size-4 shrink-0', w.past && 'opacity-60')} />
@@ -226,9 +240,14 @@ function WorkRow({ work: w, depth = 0, stackedOn, projectName, onOpen }: { work:
               {i.title || i.agent}
             </span>
             {i.title && <span className="shrink-0 font-mono text-[11px] text-subtle">{i.agent}</span>}
-            {w.status === 'review' && (
+            {status === 'review' && (
               <Badge variant="info" className="shrink-0" data-work-to-review>
                 {t('work.toReview')}
+              </Badge>
+            )}
+            {(status === 'needs' || status === 'error' || status === 'working') && (
+              <Badge variant={status === 'needs' ? 'warning' : status === 'error' ? 'danger' : 'default'} className="shrink-0" data-work-st={status}>
+                {t(status === 'needs' ? 'v2.st.needs' : status === 'error' ? 'v2.st.error' : 'v2.st.working')}
               </Badge>
             )}
             {w.status === 'reviewed' && <span className="shrink-0 text-[11px] text-subtle">{t(i.verdict === 'changes' ? 'work.verdict.changes' : i.verdict === 'dismissed' ? 'work.verdict.dismissed' : 'work.verdict.reviewed')}</span>}

@@ -4,8 +4,10 @@ import { useLayoutEffect, useRef, useState, type ComponentProps, type ComponentT
 import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
-import { formatList, formatNumber, useT } from '../lib/i18n';
-import { summarizeStatus, type StatusTone } from '../lib/agentStatus';
+import { formatList, formatNumber, useT, type MessageKey } from '../lib/i18n';
+import { type StatusTone } from '../lib/agentStatus';
+import { useAgentCounts } from '../lib/useAgentCounts';
+import type { AgentSt } from '../lib/leadFirst';
 import { fitCount, meterPercent } from '../lib/meter';
 import { cn, humanBytes, humanRate, shortRate, stallPressure, timeAgo } from '../lib/utils';
 import { AllAgentsPanel } from './AllAgentsPanel';
@@ -89,7 +91,7 @@ export function HomeView({
           </div>
         </div>
 
-        {all.length > 0 && <StatusSummary agents={all} className="mt-4" />}
+        {all.length > 0 && <StatusSummary className="mt-4" />}
 
         {setup.data && !setup.data.ready && (
           <button
@@ -196,11 +198,11 @@ const pillDot: Record<StatusTone, string> = {
   muted: 'bg-faint',
 };
 
-function StatusPill({ item }: { item: ReturnType<typeof summarizeStatus>[number] }) {
+function StatusPill({ item }: { item: { text: string; tone: StatusTone } }) {
   return (
     <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line bg-surface-faint px-2.5 py-1 text-xs font-medium text-secondary" data-status-pill={item.tone}>
       <span className={cn('size-1.5 shrink-0 rounded-full', pillDot[item.tone])} />
-      {item.count} {item.text}
+      {item.text}
     </span>
   );
 }
@@ -212,13 +214,24 @@ function StatusPill({ item }: { item: ReturnType<typeof summarizeStatus>[number]
 // width: what doesn't fit goes behind a "more" button at its end, so the
 // list below it is never pushed off a small window. The chips are neutral,
 // with only their dot in the status's colour.
-function StatusSummary({ agents, className }: { agents: T.Agent[]; className?: string }) {
+// StatusSummary is how many agents are in each state: the counts the sidebar, its filter and the agent panel show
+// (lib/useAgentCounts.ts), so Home never says another number.
+const summaryKeys: { st: AgentSt; tone: StatusTone; key: MessageKey }[] = [
+  { st: 'needs', tone: 'urgent', key: 'v2.count.needs' },
+  { st: 'error', tone: 'error', key: 'v2.count.error' },
+  { st: 'review', tone: 'muted', key: 'v2.count.review' },
+  { st: 'working', tone: 'live', key: 'v2.count.working' },
+  { st: 'done', tone: 'muted', key: 'v2.count.idle' },
+];
+
+function StatusSummary({ className }: { className?: string }) {
   const t = useT();
-  const items = summarizeStatus(agents);
+  const counts = useAgentCounts().all;
+  const items = summaryKeys.filter(({ st }) => counts[st] > 0).map(({ st, tone, key }) => ({ text: t(key, { count: counts[st] }), tone }));
   const row = useRef<HTMLDivElement>(null);
   const measure = useRef<HTMLDivElement>(null);
   const [shown, setShown] = useState(items.length);
-  const key = items.map((i) => `${i.count} ${i.text}`).join('|');
+  const key = items.map((i) => i.text).join('|');
 
   // The chips are measured in a hidden copy of the whole row, so how many
   // fit doesn't depend on how many are showing.

@@ -20,7 +20,7 @@
 // A project's options are on a right-click of its row, its Settings on a
 // gear its row shows on hover. The reading is
 // lib/leadFirst.ts's, lib/projectOrder.ts's and lib/sidebarHidden.ts's.
-import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Briefcase, Check, ChevronRight, CircleArrowUp, Eye, EyeOff, Folder, FolderInput, FolderMinus, FolderPlus, FolderTree, House, Images, ListChecks, ListFilter, LoaderCircle, MoonStar, RefreshCw, Search, Settings, ShieldAlert, SquarePen, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ComponentProps, type DragEvent, type ReactNode } from 'react';
@@ -29,8 +29,9 @@ import type * as T from '../../../shared/api';
 import type { View } from '../../App';
 import { api } from '../../lib/api';
 import { useT, type MessageKey } from '../../lib/i18n';
-import { pageItems, useQuestions, useReviewHead } from '../../lib/inboxPages';
-import { activeProjects, agentSt, countSt, filterCount, leadLine, leadBusy, liveOrder, projectRows, toggle, type AgentSt, type Filters, type ProjectRows, type Row } from '../../lib/leadFirst';
+import { activeProjects, filterCount, leadLine, leadBusy, liveOrder, projectRows, toggle, type AgentSt, type Filters, type ProjectRows, type Row } from '../../lib/leadFirst';
+import type { Tally } from '../../lib/agentCounts';
+import { useAgentCounts } from '../../lib/useAgentCounts';
 import { useGroupIdle } from '../../lib/groupIdle';
 import { movePin, orderProjects, togglePin } from '../../lib/projectOrder';
 import { HelpMenu } from './Tour';
@@ -41,7 +42,6 @@ import { edge, useSectionDrag, useSections } from '../../lib/useSections';
 import { useSidebarLayout } from '../../lib/useSidebarLayout';
 import { useGrace } from '../../lib/grace';
 import { projectLabel } from '../../lib/projectName';
-import { useReviewing } from '../../lib/reviewAlert';
 import { useNow } from '../../lib/useNow';
 import { updateHint } from '../../lib/appUpdate';
 import { isNightly, isUpgrade } from '../../lib/nightly';
@@ -70,27 +70,26 @@ const stLabel: Record<AgentSt, MessageKey> = {
   done: 'v2.st.done',
 };
 
-// The counts on a folded lead, in the order they read.
+// The counts on a lead's row, in the order they read. To review is its "N to
+// review" button (ReviewCount), from the same count, so it isn't here twice.
 const countKeys: { st: AgentSt; key: MessageKey }[] = [
-  { st: 'working', key: 'v2.count.working' },
-  { st: 'review', key: 'v2.count.review' },
   { st: 'needs', key: 'v2.count.needs' },
   { st: 'error', key: 'v2.count.error' },
+  { st: 'working', key: 'v2.count.working' },
 ];
 
 export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: View; onSelect: (view: View) => void; onAddProject: () => void; onNewAgent: (project: string) => void }) {
   const t = useT();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
-  const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
   const activity = useQuery({ queryKey: ['projectActivity'], queryFn: api.projectActivity, refetchInterval: 60_000 });
   const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup, refetchInterval: 15_000 });
   // The same test as Sidebar's: a nightly is one by its version, or by the update check's word.
   const update = useQuery({ queryKey: ['update'], queryFn: api.update, staleTime: Infinity });
   const info = useQuery({ queryKey: ['app-info'], queryFn: () => window.agentbox.info(), staleTime: Infinity });
   const nightly = isNightly(info.data?.version) || !!update.data?.nightly;
-  const reviewing = useReviewing();
-  const head = useReviewHead(reviewing);
-  const questions = useQuestions();
+  // Every agent's state and every count, the same reading the panel, its
+  // Pull requests tab and Home make (lib/useAgentCounts.ts).
+  const counts = useAgentCounts();
   const kept = useV2Projects();
   const [q, setQ] = useState('');
   const filters: Filters = { st: kept.st, projects: kept.projects, q };
@@ -103,33 +102,18 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   const [dragging, setDragging] = useState<string | null>(null);
   const [drop, setDrop] = useState<{ name: string; edge: 'before' | 'after' } | null>(null);
 
-  // Each agent's pull request number, from the fleet the panel's list reads
-  // (the same query), so a search can find an agent by it.
-  const fleets = useQueries({
-    queries: (projects.data ?? []).map((p) => ({ queryKey: ['fleet', p.name], queryFn: () => api.fleet(p.name), staleTime: 30_000 })),
-  });
-  const prKey = fleets.flatMap((f) => (f.data?.agents ?? []).flatMap((a) => (a.pr?.number ? [`${a.ref}\t${a.pr.number}`] : []))).join('\n');
-  const prs = useMemo(() => new Map(prKey ? prKey.split('\n').map((l) => { const [ref, n] = l.split('\t'); return [ref, Number(n)] as const; }) : []), [prKey]);
-  const rows: Row[] = useMemo(() => {
-    const ctx = {
-      review: new Set((reviewing ? (head.data?.items ?? []) : []).map((i) => i.ref)),
-      asking: new Set(pageItems(questions.data).map((n) => n.ref)),
-    };
-    return (agents.data ?? []).map((agent) => ({ agent, st: agentSt(agent, ctx), pr: prs.get(agent.ref) }));
-  }, [agents.data, head.data, questions.data, reviewing, prs]);
+  // Each agent with its state and its pull request's number, which a search
+  // finds it by.
+  const rows: Row[] = counts.rows;
   const label = (p: T.Project) => projectLabel(p);
   const currentAgentProject = view.kind === 'agent' ? view.ref.split('/')[0] : undefined;
 
-  // Each lead's chat, the same queries its row reads: a lead mid-turn counts
-  // as working, for the filter, the counts and the sort, and with one waiting
-  // on the user's permission keeps its project out of the Idle list.
-  const leadChats = useQueries({
-    queries: (projects.data ?? []).map((p) => ({ queryKey: ['projectChat', p.name], queryFn: () => api.projectChat(p.name), refetchInterval: 60_000 })),
-  });
-  const leadKey = (projects.data ?? []).map((p, i) => `${p.name}\t${leadChats[i]?.data?.chat ?? ''}`).join('\n');
-  const leads = useMemo(() => new Map(leadKey ? leadKey.split('\n').map((l) => l.split('\t') as [string, string]) : []), [leadKey]);
+  // Each lead's chat: a lead mid-turn counts as working, for the filter, the
+  // counts and the sort, and with one waiting on the user's permission keeps
+  // its project out of the Idle list.
+  const leads = counts.leads;
   const busyNow = useMemo(() => new Set([...leads].filter(([, chat]) => leadBusy(chat)).map(([name]) => name)), [leads]);
-  const activeNow = useMemo(() => activeProjects(rows, leads, pageItems(questions.data).map((n) => n.ref)), [rows, leads, questions.data]);
+  const activeNow = useMemo(() => activeProjects(rows, leads, counts.asking), [rows, leads, counts.asking]);
   // Both with a grace (lib/grace.ts): a busy project goes through moments
   // with nothing to show for it, between a lead's turns or as an agent
   // finishes, which would drop it to Idle and bring it back.
@@ -184,7 +168,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   const [naming, setNaming] = useState<{ id: string; move?: string } | null>(null); // a section being named: its id, or '' for a new one
   const [deleting, setDeleting] = useState<T.Section | null>(null);
   // Until the agents are in, every project would read idle.
-  const loaded = !!agents.data;
+  const loaded = counts.loaded;
   // With nothing above it, the Idle list is the list: open, and not a fold.
   const idleOnly = lists.pinned.length + lists.rest.length + sectionLists.length === 0;
   // Otherwise it is folded, and a click opens it only until something starts:
@@ -203,7 +187,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
 
   // Review all goes after the first list's label, whichever list is first.
   const openWork = useOpenWork();
-  const toReview = reviewing ? (head.data?.total ?? 0) : 0;
+  const toReview = counts.all.review;
   let reviewPlaced = false;
   const reviewAll = () => {
     if (reviewPlaced || !openWork || toReview === 0) return null;
@@ -213,7 +197,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
         <button
           type="button"
           onClick={() => openWork({ filter: 'review' })}
-          className="ml-1.5 shrink-0 rounded-full border border-line-strong bg-surface px-1.5 py-px text-[10.5px] font-medium normal-case tracking-normal tabular-nums text-secondary transition hover:border-line-heavy hover:bg-surface-strong hover:text-title"
+          className="ml-1.5 shrink-0 rounded-full border border-line-strong bg-surface px-1.5 py-px text-[12px] font-medium tabular-nums text-secondary transition hover:border-line-heavy hover:bg-surface-strong hover:text-title"
           data-v2-review-all={toReview}
         >
           {t('v2.review.all', { count: toReview })}
@@ -276,8 +260,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
     <ProjectLead
       key={p.project.name}
       project={p.project}
-      all={p.all}
-      approvals={p.approvals}
+      counts={counts.of(p.project.name)}
       pinned={pinned.has(p.project.name)}
       hidden={hiddenSet.has(p.project.name)}
       view={view}
@@ -463,7 +446,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
               }
             >
               {t('v2.sidebar.idle')}
-              <span className="ml-1.5 font-normal tabular-nums normal-case tracking-normal text-subtle">{lists.idle.length}</span>
+              <span className="ml-1.5 tabular-nums text-subtle">{lists.idle.length}</span>
             </ListHead>
           ) : (
             <button
@@ -533,7 +516,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
       >
         <NewTaskRow />
         <HomeRow active={view.kind === 'homeChat' || view.kind === 'home'} onClick={() => onSelect({ kind: 'homeChat' })} />
-        <FilterBar filters={filters} onFilters={onFilters} projects={projects.data ?? []} rows={rows} />
+        <FilterBar filters={filters} onFilters={onFilters} projects={projects.data ?? []} counts={counts.all} />
         {projects.data?.length === 0 && (
           <button className="mx-2 mt-1 flex w-[calc(100%-1rem)] items-center gap-2 rounded-lg border border-dashed border-line-strong px-3 py-3 text-left text-[13px] text-subtle hover:border-line-heavy hover:text-tertiary" onClick={onAddProject}>
             <FolderPlus className="size-4" />
@@ -615,7 +598,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
 function ListHead({ children, extra }: { children: ReactNode; extra?: ReactNode }) {
   return (
     <div className="flex h-7 items-center px-2.5 pt-2">
-      <span data-heading className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-subtle">{children}</span>
+      <span data-heading className="text-[12px] text-muted">{children}</span>
       {extra}
     </div>
   );
@@ -623,10 +606,9 @@ function ListHead({ children, extra }: { children: ReactNode; extra?: ReactNode 
 
 // FilterBar is the search box and the filter button beside it, and under
 // them a chip for each filter that's on, each removable, with Reset.
-function FilterBar({ filters, onFilters, projects, rows }: { filters: Filters; onFilters: (f: Filters) => void; projects: T.Project[]; rows: Row[] }) {
+function FilterBar({ filters, onFilters, projects, counts }: { filters: Filters; onFilters: (f: Filters) => void; projects: T.Project[]; counts: Tally }) {
   const t = useT();
   const on = filterCount(filters);
-  const counts = countSt(rows.map((r) => r.st));
   const chips: { key: string; label: string; st?: AgentSt; remove: () => void }[] = [
     ...filters.st.map((st) => ({ key: `st:${st}`, label: t(stLabel[st]), st, remove: () => onFilters({ ...filters, st: filters.st.filter((x) => x !== st) }) })),
     ...filters.projects.map((name) => ({
@@ -717,7 +699,7 @@ function FilterBar({ filters, onFilters, projects, rows }: { filters: Filters; o
 function FilterGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div>
-      <div className="pb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-subtle">{title}</div>
+      <div className="pb-1.5 text-[12px] text-muted">{title}</div>
       <div className="flex flex-wrap gap-1">{children}</div>
     </div>
   );
@@ -851,8 +833,7 @@ type Drag = {
 // A pinned one drags among the pins, any other among the sections.
 function ProjectLead({
   project,
-  all,
-  approvals,
+  counts,
   pinned,
   hidden,
   view,
@@ -865,8 +846,8 @@ function ProjectLead({
   sectionMenu,
 }: {
   project: T.Project;
-  all: Row[];
-  approvals: number;
+  // Its agents' counts (lib/agentCounts.ts); its lead mid-turn is the spinner by its name.
+  counts: Tally;
   pinned: boolean;
   hidden: boolean;
   view: View;
@@ -894,10 +875,7 @@ function ProjectLead({
   // Talk to another project needs another project.
   const others = (useQuery({ queryKey: ['projects'], queryFn: api.projects }).data?.length ?? 0) > 1;
   const line = leadLine(chat.data?.last);
-  const counts = countSt(all.map((r) => r.st));
-  // The lead at work counts as one working.
-  if (leadBusy(chat.data?.chat)) counts.working++;
-  const counted = counts.working + counts.review + counts.needs + counts.error > 0;
+  const anyCount = counts.working + counts.needs + counts.error > 0;
   const name = projectLabel(project);
   const active = (view.kind === 'project' && view.project === project.name) || (view.kind === 'agent' && view.ref.startsWith(`${project.name}/`));
   const open_ = () => onSelect({ kind: 'project', project: project.name });
@@ -987,20 +965,15 @@ function ProjectLead({
                 </span>
                 <ReviewCount project={project.name} variant="button" />
               </span>
-              {/* Its agents' permission requests wait in this chat too, as cards. */}
-              {approvals > 0 && (
-                <span className="mt-1 flex items-center gap-1 text-[10.5px] font-medium tabular-nums text-amber-300" data-v2-approvals={approvals}>
-                  <ShieldAlert className="size-3 shrink-0" />
-                  {t('v2.sidebar.approvals', { count: approvals })}
-                </span>
-              )}
-              {counted && (
-                <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10.5px] tabular-nums" data-v2-counts>
+              {/* Its agents' permission requests wait in this chat too, as
+                  cards: they are some of its asks, said in the same count. */}
+              {anyCount && (
+                <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] tabular-nums" data-v2-counts>
                   {countKeys.map(({ st, key }) =>
                     counts[st] ? (
-                      <span key={st} className={cn('inline-flex items-center gap-1', st === 'needs' ? 'text-amber-300' : st === 'error' ? 'text-rose-300' : 'text-subtle')} data-v2-count={st}>
-                        <StMark st={st} />
-                        {t(key, { count: counts[st] })}
+                      <span key={st} className={cn('inline-flex items-center gap-1', st === 'needs' ? 'font-medium text-amber-300' : st === 'error' ? 'text-rose-300' : 'text-subtle')} data-v2-count={st} data-v2-approvals={st === 'needs' && counts.approvals ? counts.approvals : undefined}>
+                        {st === 'needs' && counts.approvals > 0 ? <ShieldAlert className="size-3 shrink-0" /> : <StMark st={st} />}
+                        {st === 'needs' && counts.approvals > 0 ? t('v2.count.needsApprovals', { count: counts.needs, approvals: counts.approvals }) : t(key, { count: counts[st] })}
                       </span>
                     ) : null,
                   )}

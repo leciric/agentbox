@@ -100,7 +100,7 @@ import { Tip } from '../ui/tooltip';
 import { PanelBrowser } from './PanelBrowser';
 import { AgentList, AgentStrip } from './AgentList';
 import { chatOf } from './PanelButton';
-import { useOpenReview, useProjectReview } from './ReviewV2';
+import { useAgentCounts } from '../../lib/useAgentCounts';
 import { PickButton, usePicker } from '../PickElement';
 import { RichBeside } from '../chat/RichBlock';
 import { titleOf } from '../../lib/rich';
@@ -360,7 +360,7 @@ function RightPanel({ project, chat, width, drawer, onSelect, onNewAgent }: { pr
         ) : (
           !panel.wide && (
             <span className="flex min-w-0 items-center gap-2 pl-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-subtle">{t('agent.rail.agents')}</span>
+              <span className="text-[12px] text-muted">{t('agent.rail.agents')}</span>
               {agents.length > 0 && <span className="rounded-full bg-surface-raised px-1.5 text-[10.5px] tabular-nums text-subtle">{agents.length}</span>}
             </span>
           )
@@ -412,7 +412,9 @@ function RightPanel({ project, chat, width, drawer, onSelect, onNewAgent }: { pr
 // ——— The header ———
 
 // WhoseTitle is whose the panel shows, "● Invoice due dates": its status dot
-// and title; a click opens its chat, unless that's the one beside it.
+// and title; a click opens its chat, unless that's the one beside it, which
+// the top bar's breadcrumb already names: then the dot alone, its title in
+// the tooltip.
 // Beside a switch with a name lit (roomy), it keeps room for a few letters of
 // its title, and the switch goes to icons first.
 function WhoseTitle({ project, chat, whose, roomy, onSelect }: { project: string; chat: string; whose: Whose; roomy: boolean; onSelect: (view: View) => void }) {
@@ -426,11 +428,12 @@ function WhoseTitle({ project, chat, whose, roomy, onSelect }: { project: string
         type="button"
         disabled={here}
         onClick={() => onSelect(target)}
-        className={cn('flex max-w-[45%] shrink items-center gap-1.5 rounded-md px-1.5 py-1 text-left enabled:hover:bg-surface', roomy ? 'min-w-20' : 'min-w-0')}
-        data-panel-whose-title
+        aria-label={title}
+        className={cn('flex max-w-[45%] shrink items-center gap-1.5 rounded-md px-1.5 py-1 text-left enabled:hover:bg-surface', roomy && !here ? 'min-w-20' : 'min-w-0')}
+        data-panel-whose-title={here ? 'here' : 'other'}
       >
         <StatusDot whose={whose} />
-        <span className="min-w-0 truncate text-[12.5px] font-semibold text-title">{title}</span>
+        {!here && <span className="min-w-0 truncate text-[13px] font-semibold text-title">{title}</span>}
       </button>
     </Tip>
   );
@@ -449,7 +452,8 @@ function LeadSwitch({ project, tab, files, count, pullsTab }: { project: string;
   const t = useT();
   const pulls = useQuery({ queryKey: ['pulls', project], queryFn: () => api.projectPullRequests(project), refetchInterval: 60_000, enabled: pullsTab });
   const open = (pulls.data?.pullRequests ?? []).filter((pr) => pr.state === 'open').length;
-  const ready = useProjectReview(project, !!useOpenReview()).data?.items?.length ?? 0;
+  // The sidebar row's "N to review" and the list's group, the same count.
+  const ready = useAgentCounts().of(project).review;
   const tabs: Record<LeadTab, { icon: LucideIcon; label: string; on: boolean; tip?: string }> = {
     agents: { icon: Users, label: t('panel.lead.agents'), on: tab === 'agents' },
     pulls: {
@@ -760,10 +764,13 @@ function PanelDesktop({ chat, agent }: { chat: string; agent: T.Agent }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto" data-panel-desktop={agent.ref}>
       <div className="flex h-9 shrink-0 items-center gap-1.5 px-3">
-        <span className={cn('flex shrink-0 items-center gap-1 rounded px-1.5 py-px text-[10px] font-bold tracking-wider', live ? 'bg-rose-500/90 text-white' : 'bg-surface-raised text-faint')} data-panel-live={live}>
-          <span className={cn('size-1.5 rounded-full', live ? 'animate-pulse bg-white' : 'bg-faint')} />
-          {t('panel.live')}
-        </span>
+        {/* Live only while it is: with the desktop off, the screen says so. */}
+        {live && (
+          <span className="flex shrink-0 items-center gap-1 rounded bg-rose-500/90 px-1.5 py-px text-[10px] font-bold tracking-wider text-white" data-panel-live>
+            <span className="size-1.5 animate-pulse rounded-full bg-white" />
+            {t('panel.live')}
+          </span>
+        )}
         <span className="min-w-0 flex-1 truncate text-[11.5px] text-subtle">{picker.picking ? t('pick.footer') : page?.title || page?.url || ''}</span>
         <PickButton compact picking={picker.picking} disabled={!live || (!standIn && status.data?.running !== true)} onToggle={picker.toggle} />
         <Tip label={t('agent.browser.screenshotTip')}>
@@ -833,28 +840,33 @@ function PanelDesktop({ chat, agent }: { chat: string; agent: T.Agent }) {
 const captureKinds = ['screenshot', 'recording'];
 
 // CaptureStrip is an agent's latest screenshots and recordings, newest first,
-// under its desktop.
+// under its desktop, in the rest of the panel's height: in rows, rather than
+// one row with the panel empty below it, and with none, its empty state
+// fills that space.
 function CaptureStrip({ project, name, onOpen }: { project: string; name: string; onOpen: (id?: string) => void }) {
   const t = useT();
   const media = useMediaPages({ project, agent: name, kinds: captureKinds });
-  const items = loadedItems(media.data).slice(0, 8);
+  const items = loadedItems(media.data).slice(0, 12);
   return (
-    <div className="px-3 pb-3 pt-3" data-panel-captures>
+    <div className="flex min-h-40 flex-1 flex-col px-3 pb-3 pt-3" data-panel-captures>
       <div className="mb-1.5 flex items-center gap-2">
-        <span className="text-[10.5px] font-semibold uppercase tracking-wide text-faint">{t('panel.desktop.latest')}</span>
-        <button type="button" onClick={() => onOpen()} className="ml-auto text-[11.5px] text-subtle hover:text-title" data-panel-all-evidence>
+        <h4 className="text-[12px] font-normal text-muted">{t('panel.desktop.latest')}</h4>
+        <button type="button" onClick={() => onOpen()} className="ml-auto text-[12px] text-subtle hover:text-title" data-panel-all-evidence>
           {t('panel.desktop.all')} →
         </button>
       </div>
       {items.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-line px-3 py-3 text-center text-[11.5px] text-faint">{media.isPending ? t('common.loading') : t('panel.desktop.none')}</p>
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-line px-3 py-3 text-center text-[12px] text-faint" data-panel-captures-empty>
+          <Images className="size-5" />
+          {media.isPending ? t('common.loading') : t('panel.desktop.none')}
+        </div>
       ) : (
-        // One row, of as many as fit: the rest are in Evidence.
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] grid-rows-[auto] auto-rows-[0] gap-x-2 overflow-hidden">
+        // The latest twelve: the rest are in Evidence.
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] content-start gap-x-2 gap-y-3">
           {items.map((item) => (
             <button key={item.id} type="button" onClick={() => onOpen(item.id)} className="group min-w-0 text-left" title={item.name} data-panel-capture={item.id}>
               <Thumb item={item} className="aspect-[16/10] w-full rounded-md border border-line transition group-hover:border-brand-500/60" />
-              <span className="mt-1 block truncate text-[10.5px] text-subtle">
+              <span className="mt-1 block truncate text-[12px] text-subtle">
                 {item.kind === 'recording' && item.meta?.duration ? `${clock(item.meta.duration)} · ` : ''}
                 {timeAgo(item.createdAt)}
               </span>
@@ -923,7 +935,7 @@ function Evidence({ project, whose, focus }: { project: string; whose: Whose; fo
       {featured && <Featured item={featured} agentRef={whose.kind === 'lead' ? undefined : own} label={label(featured)} />}
       {captures.length > 0 && (
         <section className="mt-4" data-panel-evidence-captures>
-          <h4 className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-faint">{t('panel.evidence.captures')}</h4>
+          <h4 className="mb-1.5 text-[12px] font-normal text-muted">{t('panel.evidence.captures')}</h4>
           <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-2">
             {captures.map((item) => (
               <button key={item.id} type="button" onClick={() => (item.kind === 'recording' ? setChosen(item.id) : setOpenId(item.id))} className="group min-w-0 text-left" title={item.name} data-panel-evidence-item={item.id}>
@@ -937,7 +949,7 @@ function Evidence({ project, whose, focus }: { project: string; whose: Whose; fo
       )}
       {rest.length > 0 && (
         <section className="mt-4" data-panel-evidence-pages>
-          <h4 className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-faint">{t('panel.evidence.pagesReports')}</h4>
+          <h4 className="mb-1.5 text-[12px] font-normal text-muted">{t('panel.evidence.pagesReports')}</h4>
           <div className="grid gap-1">
             {rest.map((r) =>
               'page' in r && r.page ? (
@@ -1014,7 +1026,7 @@ function Featured({ item, agentRef, label }: { item: T.MediaItem; agentRef?: str
       </div>
       {chapters.length > 0 && (
         <div className="mt-2" data-panel-chapters>
-          <h4 className="mb-1 text-[10.5px] font-semibold uppercase tracking-wide text-faint">{t('panel.evidence.chapters')}</h4>
+          <h4 className="mb-1 text-[12px] font-normal text-muted">{t('panel.evidence.chapters')}</h4>
           <ol className="grid gap-px">
             {chapters.map((c, i) => (
               <li key={i}>

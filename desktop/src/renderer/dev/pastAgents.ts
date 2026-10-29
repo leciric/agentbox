@@ -61,6 +61,12 @@ function liveWork(): T.WorkItem[] {
   const report = (agent: string, status: string, summary: string, remainingIssues?: string[]): T.AgentReport => ({ id: `rep-${agent}`, project: PROJECT, agent, createdAt: ago(hour / 2), status, summary, remainingIssues });
   return [
     live('agent-40', 'Work page: everything agents did, in place of Today', 'working', 10 * 60_000),
+    // Two of the agents the rest of the preview has ready to review
+    // (fixtures.ts): agent-41, which waits, and agent-98, which also asks a
+    // question, so the counts (lib/agentCounts.ts) have it asking and its row
+    // here says so, out of To review.
+    live('agent-41', 'Watch CI on the release branch', 'review', 30 * 60_000, {}, { pr: { ...pr(404, 'open', 'ci: watch the release branch'), checks: 'passing' } }),
+    live('agent-98', 'Question agent', 'review', 40 * 60_000),
     // A stack: agent-22 was made from agent-21's branch, and is listed first,
     // having finished later.
     live('agent-22', 'Export button on the reminders page', 'working', 20 * 60_000, {}, { branch: 'agentbox/csv-export-button', baseRef: 'agentbox/csv-export', pr: { ...pr(86, 'open', 'feat: an Export button on the reminders page'), baseBranch: 'agentbox/csv-export', checks: 'passing' } }),

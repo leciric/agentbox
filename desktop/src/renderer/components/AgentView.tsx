@@ -35,7 +35,7 @@ import { awaiting, chatLabel, prState, statusTip, type StatusTone } from '../lib
 import { api, type AgentAction } from '../lib/api';
 import { useMediaCounts } from '../lib/mediaPages';
 import { useChatOpenAt } from '../lib/reveal';
-import { useAgentReview, type Wake } from './v2/ReviewV2';
+import { useAgentPr, useAgentReview, type Wake } from './v2/ReviewV2';
 import { useT, type MessageKey } from '../lib/i18n';
 import { agentPlace, type AgentPlaceName, type AgentSection, type AgentTab } from '../lib/tabs';
 import { agentTabFeatures, countFeature } from '../lib/usageStats';
@@ -111,8 +111,9 @@ export function AgentView({
   const android = useQuery({ queryKey: ['android', agentRef], queryFn: () => api.android(agentRef), enabled: agent?.state === 'running' });
   // Only Android projects get the tab, unless an emulator was started anyway.
   const hasAndroid = projects.data?.some((p) => p.name === agent?.project && p.android) || android.data?.running === true;
-  // Its pull request, from the fleet the rail reads too (AgentRail).
-  const fleet = useQuery({ queryKey: ['fleet', refProject], queryFn: () => api.fleet(refProject), refetchInterval: 30_000 });
+  const v2 = useUiV2();
+  // Its pull request, the one its review card and its row in the panel name too.
+  const pr = useAgentPr({ ref: agentRef, project: refProject }, v2);
   const chatMenu = useChatMenu(agent && usesChat(agent) ? agent : undefined);
   const [destroying, setDestroying] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -142,7 +143,6 @@ export function AgentView({
   // In v2 the chat's New chat is the header's icon, and its ⋯ has the
   // agent's own items, five or so, with the copies and Reload tools under
   // More (v1 lists everything, the chat's items first).
-  const v2 = useUiV2();
   const copies = agent && (
     <>
       {agent.ip && (
@@ -250,7 +250,6 @@ export function AgentView({
   // its pull request or else its branch. Of the lifecycle actions only one
   // that brings it back stays in view; the rest are in the ⋯ menu, with the
   // chat's own while the chat is open.
-  const pr = fleet.data?.agents?.find((a) => a.ref === agent.ref)?.pr;
 
   return (
     <div className={cn('flex h-full flex-col', v2 && 'bg-chat')}>
@@ -259,7 +258,9 @@ export function AgentView({
       <div className="flex shrink-0 items-start gap-x-3 px-4 py-2.5 md:px-6">
         <LiveAgentAvatar agent={agent} />
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-2 self-center">
-          <AgentTitle agent={agent} editing={editingTitle} onEditing={setEditingTitle} onSave={(title) => rename.mutate(title)} />
+          {/* v2 names it once, in the top bar's breadcrumb (its h1): here
+              only while it's renamed, from the ⋯. */}
+          {(!v2 || editingTitle) && <AgentTitle agent={agent} editing={editingTitle} onEditing={setEditingTitle} onSave={(title) => rename.mutate(title)} />}
           <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             <StatusDetails agent={agent} pr={pr} />
             {pr ? (

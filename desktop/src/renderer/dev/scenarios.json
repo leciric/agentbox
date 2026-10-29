@@ -2681,6 +2681,62 @@
     "height": 900
   },
   {
+    "id": "counts-project-1920-light",
+    "description": "UI v2 at 1920×1080, the lead's chat, its agents grouped by state in the panel: one count everywhere, the breadcrumb's h1, sentence-case labels — light",
+    "query": "app=project&v2=1&theme=light",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "counts-project-1920-dark",
+    "description": "UI v2 at 1920×1080, the lead's chat, its agents grouped by state in the panel: one count everywhere, the breadcrumb's h1, sentence-case labels — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "counts-project-800-light",
+    "description": "UI v2 at 800×600, the lead's chat, its agents grouped by state in the panel: one count everywhere, the breadcrumb's h1, sentence-case labels — light",
+    "query": "app=project&v2=1&theme=light",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "counts-project-800-dark",
+    "description": "UI v2 at 800×600, the lead's chat, its agents grouped by state in the panel: one count everywhere, the breadcrumb's h1, sentence-case labels — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "counts-agent-99-1920-light",
+    "description": "UI v2 at 1920×1080, agent-99's chat, its Desktop in the panel: one count everywhere, the breadcrumb's h1, sentence-case labels — light",
+    "query": "app=agent-99&v2=1&theme=light",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "counts-agent-99-1920-dark",
+    "description": "UI v2 at 1920×1080, agent-99's chat, its Desktop in the panel: one count everywhere, the breadcrumb's h1, sentence-case labels — dark",
+    "query": "app=agent-99&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "counts-agent-99-800-light",
+    "description": "UI v2 at 800×600, agent-99's chat, its Desktop in the panel: one count everywhere, the breadcrumb's h1, sentence-case labels — light",
+    "query": "app=agent-99&v2=1&theme=light",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "counts-agent-99-800-dark",
+    "description": "UI v2 at 800×600, agent-99's chat, its Desktop in the panel: one count everywhere, the breadcrumb's h1, sentence-case labels — dark",
+    "query": "app=agent-99&v2=1&theme=dark",
+    "width": 800,
+    "height": 600
+  },
+  {
     "id": "requests-v2-1920-dark",
     "description": "UI v2 at 1920×1080, the lead's chat with its agents' pending credential requests: two ask for a GitHub account, one for a secret — dark",
     "query": "app=project&v2=1&theme=dark",
@@ -2728,5 +2784,21 @@
     "query": "app=project&v2=1&cache=due&theme=dark",
     "width": 1440,
     "height": 900
+  },
+  {
+    "id": "counts-work-review-light",
+    "description": "The Work page on To review: its count and rows are the sidebar's \"N to review\" (lib/agentCounts.ts) — light",
+    "query": "app=work&v2=1&theme=light",
+    "width": 1600,
+    "height": 1000,
+    "click": "[data-work-filter-tab=\"review\"]"
+  },
+  {
+    "id": "counts-work-review-dark",
+    "description": "The Work page on To review: its count and rows are the sidebar's \"N to review\" (lib/agentCounts.ts) — dark",
+    "query": "app=work&v2=1&theme=dark",
+    "width": 1600,
+    "height": 1000,
+    "click": "[data-work-filter-tab=\"review\"]"
   }
 ]

@@ -38,7 +38,7 @@ export function InTopBar({ end, children }: { end?: boolean; children: ReactNode
 }
 
 // ProjectCrumb is "Project › Lead" (or the agent): the project's root is in
-// a tooltip and copied on click. With onProject (an agent's chat), a click on
+// a tooltip and copied on click. Its last item is the screen's h1, at 16px. With onProject (an agent's chat), a click on
 // the project opens its lead's chat instead, and the copy icon copies.
 export function ProjectCrumb({ project, then, onProject }: { project: T.Project; then: string; onProject?: () => void }) {
   const t = useT();
@@ -62,7 +62,9 @@ export function ProjectCrumb({ project, then, onProject }: { project: T.Project;
         </button>
       </Tip>
       <ChevronRight className="size-3.5 shrink-0 text-faint" />
-      <span className={`truncate ${then === T.LeadName ? 'text-muted' : 'font-medium text-primary'}`}>{then === T.LeadName ? t('v2.header.lead') : then}</span>
+      <h1 className={`min-w-0 truncate text-[16px] font-semibold ${then === T.LeadName ? 'text-secondary' : 'text-title'}`} data-crumb-title>
+        {then === T.LeadName ? t('v2.header.lead') : then}
+      </h1>
     </span>
   );
 }
