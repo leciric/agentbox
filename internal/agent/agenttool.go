@@ -26,6 +26,10 @@ type ToolDefault struct {
 	// agent takes ("" for the project's own).
 	AI     string
 	Logins Logins
+	// Model is the model the lead's own session runs, when the agent takes the
+	// lead's tool: passing it on keeps an agent off the adapter's default,
+	// which may not be enabled for the account. "" when there is none.
+	Model string
 	// Fallback says why the agent runs Claude Code rather than the lead's
 	// tool; "" when it doesn't.
 	Fallback string
@@ -54,7 +58,7 @@ func (m *Manager) LeadToolDefault(ctx context.Context, p state.Project, onCluste
 	if err != nil {
 		return ToolDefault{AI: "claude", Fallback: fmt.Sprintf("This agent runs Claude Code, not %s like you: %v.", ChatAdapters[tool].Tool, err)}
 	}
-	return ToolDefault{AI: tool, Logins: want}
+	return ToolDefault{AI: tool, Logins: want, Model: choice.Model}
 }
 
 // leadAgentLogins is the account the lead's composer chose for tool, as an

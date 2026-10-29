@@ -25,8 +25,10 @@ The `Agent` row (`internal/state/state.go`) has, among others:
   deletes the pod.
 - `AI` — which tool it runs: `"claude"`, `"codex"`, `"opencode"`, or `"none"`. An agent that
   names none runs its project's `AgentTool` (`agentbox project tool`), or, when that is inherit,
-  the tool the project's chat runs — falling back to Claude Code with the reason when that tool
-  can't run where the agent will.
+  the tool the project's chat runs, on the model that chat runs — falling back to Claude Code
+  with the reason when that tool can't run where the agent will. A project that pins OpenCode
+  must also pin an OpenCode `provider/model` id (`agentbox project model`), never the adapter's
+  default.
 - `Autonomous` — whether its AI tool starts unattended.
 - `Role` — `RoleWorker` for a normal agent, or `RoleLead` for the project's chat, which has no
   Incus instance at all (see [The lead and its MCP tools](lead.md)).

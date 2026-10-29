@@ -25,6 +25,7 @@ import (
 	"agentbox/internal/image"
 	"agentbox/internal/iossim"
 	"agentbox/internal/notes"
+	"agentbox/internal/opencode"
 	"agentbox/internal/state"
 )
 
@@ -1317,7 +1318,10 @@ func (s *Server) checkCreate(ctx context.Context, req api.CreateAgentRequest, by
 		}
 	}
 	if req.AI == "" {
-		req = s.defaultTool(ctx, p, req)
+		var err error
+		if req, err = s.defaultTool(ctx, p, req); err != nil {
+			return fail(err)
+		}
 	}
 	// A model or effort this agent could never run on is a mistake worth
 	// seeing now, in the reply to the request that made it, rather than in a
@@ -1371,7 +1375,8 @@ func (s *Server) checkCreate(ctx context.Context, req api.CreateAgentRequest, by
 // name a tool; a request that doesn't comes from the lead, a schedule, an
 // issue or a group's variant, which follow the lead. Why the agent falls back
 // to Claude Code, when it does, is kept in ToolNotice for the reply.
-func (s *Server) defaultTool(ctx context.Context, p state.Project, req api.CreateAgentRequest) api.CreateAgentRequest {
+func (s *Server) defaultTool(ctx context.Context, p state.Project, req api.CreateAgentRequest) (api.CreateAgentRequest, error) {
+	fail := func(err error) (api.CreateAgentRequest, error) { return api.CreateAgentRequest{}, err }
 	switch {
 	case req.ClaudeAccount != "":
 		req.AI = "claude"
@@ -1387,15 +1392,62 @@ func (s *Server) defaultTool(ctx context.Context, p state.Project, req api.Creat
 		// The project's own word comes before its chat's: it was said for
 		// every agent of the project, the chat's tool only for the chat.
 		req.AI = p.AgentTool
+		if req.Model == nil {
+			// The project's own account, and the model that goes with the
+			// tool it pinned, rather than one meant for another tool.
+			model, err := s.projectToolModel(ctx, p)
+			if err != nil {
+				return fail(err)
+			}
+			if model != "" {
+				req.Model = &model
+			}
+		}
 	default:
 		d := s.manager(nil).LeadToolDefault(ctx, p, s.agentOnCluster(ctx, p, req.Cluster))
 		req.AI, req.ToolNotice = d.AI, d.Fallback
 		req.ClaudeAccount, req.CodexAccount, req.CursorAccount = d.Logins.Claude, d.Logins.Codex, d.Logins.Cursor
+		if req.Model == nil && d.Model != "" {
+			// The lead's tool runs the model its own session runs: an agent
+			// started on the adapter's default may be on a model the account
+			// doesn't enable.
+			model := d.Model
+			req.Model = &model
+		}
 		if d.Fallback != "" {
 			s.logf("A new agent of %s: %s", p.Name, d.Fallback)
 		}
 	}
-	return req
+	return req, nil
+}
+
+// projectToolModel is the model an agent of a project that pins a tool starts
+// on: the project's own AgentModel when it names one, else the lead's when the
+// lead runs the same tool. OpenCode has no usable default here, so a project
+// that pins OpenCode must also name a provider/model id rather than inherit a
+// model meant for another tool or let the adapter pick.
+func (s *Server) projectToolModel(ctx context.Context, p state.Project) (string, error) {
+	model := p.DirectAgentModel()
+	if model == "" {
+		if choice, err := s.manager(nil).LeadChoice(ctx, p.Name); err == nil {
+			tool := choice.Tool
+			if choice.NextTool != "" {
+				tool = choice.NextTool
+			}
+			if tool == p.AgentTool {
+				model = choice.Model
+			}
+		}
+	}
+	if p.AgentTool == "opencode" {
+		if model == "" {
+			return "", fmt.Errorf("%s's agents run OpenCode, which needs a model it names: set one with agentbox project model %s <provider/model> (like opencode/deepseek-v4.1-flash)", p.Name, p.Name)
+		}
+		if !opencode.IsModelID(model) {
+			return "", fmt.Errorf("%s's agents run OpenCode, and %q isn't an OpenCode model: set a provider/model id with agentbox project model %s <provider/model>", p.Name, model, p.Name)
+		}
+	}
+	return model, nil
 }
 
 // agentOnCluster reports whether a create that named requested will make a

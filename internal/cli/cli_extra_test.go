@@ -784,6 +784,15 @@ func TestProjectSettingsShowAndValidate(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustContain(t, out, "OpenCode, on this project's accounts")
+	// The model must be one OpenCode can run when the project pins OpenCode.
+	if _, err := run(t, "", "project", "model", "hello-stack", "sonnet"); err == nil || !strings.Contains(err.Error(), "isn't an OpenCode model") {
+		t.Errorf("project model with a Claude model while pinned to OpenCode: got %v", err)
+	}
+	out, err = run(t, "", "project", "model", "hello-stack", "opencode/deepseek-v4.1-flash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "opencode/deepseek-v4.1-flash")
 	out, err = run(t, "", "project", "tool", "hello-stack", "inherit")
 	if err != nil {
 		t.Fatal(err)
