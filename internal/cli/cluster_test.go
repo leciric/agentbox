@@ -191,3 +191,47 @@ func TestClusterUpgradeRefusesNoChoice(t *testing.T) {
 		t.Errorf("cluster upgrade with both flags = %v, want it to refuse them", err)
 	}
 }
+
+func TestRegistryRotateChangesSettings(t *testing.T) {
+	isolate(t)
+	startDaemon(t)
+	server := fakeRegistry(t, "me", "a-token")
+	url := strings.TrimPrefix(server.URL, "http://") + "/me"
+	if _, err := run(t, "a-token\n", "registry", "add", "local", "--url", url,
+		"--username", "me", "--token-stdin", "--insecure"); err != nil {
+		t.Fatal(err)
+	}
+	// Settings alone keep the login: the test still passes after them.
+	if _, err := run(t, "", "registry", "rotate", "local", "--url", url+"/x", "--public"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, "", "registry", "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, url+"/x", "public", "sealed")
+	if _, err := run(t, "", "registry", "rotate", "local", "--url", url); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, "", "registry", "test", "local")
+	if err != nil {
+		t.Fatalf("the login was lost by a settings change: %v", err)
+	}
+	mustContain(t, out, "accepted the login")
+	// A new token replaces the login, and a username without one is refused.
+	if _, err := run(t, "a-token\n", "registry", "rotate", "local", "--username", "me", "--token-stdin"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, "", "registry", "rotate", "local", "--url", "http://bad"); err == nil {
+		t.Error("a url with a scheme was accepted")
+	}
+}
+
+func TestClusterCapabilityFlagIsRefused(t *testing.T) {
+	isolate(t)
+	startDaemon(t)
+	_, err := run(t, "", "cluster", "set", "k3d", "--capability", "kvm")
+	if err == nil || !strings.Contains(err.Error(), "--capability was removed") {
+		t.Errorf("cluster set --capability = %v, want the removal message", err)
+	}
+}

@@ -61,7 +61,6 @@ func newClusterAddCmd(a *app) *cobra.Command {
 		ephemeralStorage string
 		labels           []string
 		tailnet          string
-		capabilities     []string
 	)
 	cmd := &cobra.Command{
 		Use:   "add NAME",
@@ -125,7 +124,6 @@ which is this cluster while it is the only one. "agentbox project cluster
 				EphemeralStorage: ephemeralStorage,
 				Labels:           named,
 				Tailnet:          tailnet,
-				Capabilities:     capabilities,
 				Kubeconfig:       string(kubeconfig),
 			})
 			if err != nil {
@@ -178,7 +176,7 @@ which is this cluster while it is the only one. "agentbox project cluster
 	cmd.Flags().StringVar(&ephemeralStorage, "ephemeral-storage", "", "the local disk one pod may fill outside its claim (10Gi)")
 	cmd.Flags().StringArrayVar(&labels, "label", nil, "a node label agents are placed on, as name=value (repeatable)")
 	cmd.Flags().StringVar(&tailnet, "tailnet", "none", "how pods reach this machine: operator, sidecar or none")
-	cmd.Flags().StringArrayVar(&capabilities, "capability", nil, "what agents here may ask for: kvm, gpu, privileged, csi-snapshots (repeatable)")
+	removedCapabilityFlag(cmd)
 	return cmd
 }
 
@@ -197,11 +195,10 @@ func newClusterSetCmd(a *app) *cobra.Command {
 		ephemeralStorage string
 		labels           []string
 		tailnet          string
-		capabilities     []string
 	)
 	cmd := &cobra.Command{
 		Use:   "set NAME",
-		Short: "Change a cluster's master address, image, registry, sizes and budget",
+		Short: "Change a cluster's master address, image, registry, storage, sizes, budget, labels and tailnet",
 		Long: `Changes a cluster that is already added. Only the flags you pass are written: the
 rest stays as the cluster has it.
 
@@ -210,6 +207,11 @@ through the tailnet, like https://monster.example.ts.net, or
 http://host.k3d.internal:7782 for a k3d cluster on this machine. A cluster with
 none is one the doctor fails and no agent starts in, because a pod that can't
 reach this machine can't be driven.
+
+Also settable: --storage-class (the class of the next agents' workspace claims;
+an existing claim keeps its own), --label name=value (repeatable; it replaces
+the cluster's labels, and new pods are placed on nodes that carry all of them),
+and --tailnet operator|sidecar|none.
 
   agentbox cluster set k3d --master-url http://host.k3d.internal:7782`,
 		Args: cobra.ExactArgs(1),
@@ -286,9 +288,6 @@ reach this machine can't be driven.
 			if changed("tailnet") {
 				cfg.Tailnet = tailnet
 			}
-			if changed("capability") {
-				cfg.Capabilities = capabilities
-			}
 			updated, err := c.SetClusterConfig(ctx, name, cfg)
 			if err != nil {
 				return err
@@ -315,8 +314,8 @@ reach this machine can't be driven.
 	cmd.Flags().StringVar(&workspaceSize, "workspace-size", "", "an agent's workspace claim, as a Kubernetes quantity (20Gi)")
 	cmd.Flags().StringVar(&ephemeralStorage, "ephemeral-storage", "", "the local disk one pod may fill outside its claim (10Gi)")
 	cmd.Flags().StringArrayVar(&labels, "label", nil, "a node label agents are placed on, as name=value (repeatable)")
-	cmd.Flags().StringVar(&tailnet, "tailnet", "", "how pods reach this machine: operator, sidecar or none")
-	cmd.Flags().StringArrayVar(&capabilities, "capability", nil, "what agents here may ask for: kvm, gpu, privileged, csi-snapshots (repeatable)")
+	cmd.Flags().StringVar(&tailnet, "tailnet", "none", "how pods reach this machine: operator, sidecar or none (unchanged unless passed)")
+	removedCapabilityFlag(cmd)
 	return cmd
 }
 
@@ -860,14 +859,25 @@ func newRegistryRotateCmd(a *app) *cobra.Command {
 	var flags registryFlags
 	cmd := &cobra.Command{
 		Use:   "rotate NAME",
-		Short: "Replace a registry's login, and every pull secret that uses it",
+		Short: "Replace a registry's login or settings, and every pull secret that uses it",
 		Long: `Replaces the sealed login and rewrites the pull secret of every cluster that
 pulls from this registry, so a token you can no longer see can be replaced
-without adding the registry again.`,
+without adding the registry again.
+
+--url, --ca, --insecure and --public change where the registry is and how it is
+reached; only the ones you pass move. When you pass any of them and neither
+--username nor --token-stdin, the stored login is kept. Passing neither login
+flag nor a setting replaces the login with none, as for a registry that needs no
+login. --ca "" takes the registry's CA away. The token is read from stdin or
+asked for, never an argument.
+
+  agentbox registry rotate forgejo --url hub.example.com/other
+  agentbox registry rotate forgejo --ca ./new-ca.pem
+  op read op://work/registry/token | agentbox registry rotate forgejo --username you --token-stdin`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
-			username, token, err := flags.credentials(cmd, name)
+			req, err := flags.rotateRequest(cmd, name)
 			if err != nil {
 				return err
 			}
@@ -875,16 +885,58 @@ without adding the registry again.`,
 			if err != nil {
 				return err
 			}
-			if _, err := c.RotateRegistry(cmd.Context(), name, api.RotateRegistryRequest{Username: username, Token: token}); err != nil {
+			if _, err := c.RotateRegistry(cmd.Context(), name, req); err != nil {
 				return err
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Rotated the login for %s, and every cluster that pulls from it.\n", name)
+			if req.KeepLogin {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Updated %s, and every cluster that pulls from it.\n", name)
+			} else {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Rotated the login for %s, and every cluster that pulls from it.\n", name)
+			}
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&flags.username, "username", "", "the login's username")
 	cmd.Flags().BoolVar(&flags.tokenStdin, "token-stdin", false, "read the token from stdin instead of asking for it")
+	cmd.Flags().StringVar(&flags.url, "url", "", "the repository prefix, like hub.example.com/you")
+	cmd.Flags().StringVar(&flags.caPath, "ca", "", "the registry's PEM certificate file; an empty value removes it")
+	cmd.Flags().BoolVar(&flags.insecure, "insecure", false, "accept http or a certificate no CA can verify (--insecure=false turns it off)")
+	flags.addPublic(cmd)
 	return cmd
+}
+
+// rotateRequest is what rotate sends: the login the flags name, and only the
+// settings that were passed.
+func (f *registryFlags) rotateRequest(cmd *cobra.Command, name string) (api.RotateRegistryRequest, error) {
+	changed := cmd.Flags().Changed
+	var req api.RotateRegistryRequest
+	settings := false
+	if changed("url") {
+		req.URL, settings = &f.url, true
+	}
+	if changed("ca") {
+		ca, err := f.ca()
+		if err != nil {
+			return req, err
+		}
+		req.CA, settings = &ca, true
+	}
+	if changed("insecure") {
+		req.Insecure, settings = &f.insecure, true
+	}
+	if changed("public") {
+		req.Public, settings = &f.public, true
+	}
+	if settings && f.username == "" && !f.tokenStdin {
+		req.KeepLogin = true
+		return req, nil
+	}
+	username, token, err := f.credentials(cmd, name)
+	if err != nil {
+		return req, err
+	}
+	req.Username, req.Token = username, token
+	return req, nil
 }
 
 func newRegistryRemoveCmd(a *app) *cobra.Command {
@@ -1017,4 +1069,21 @@ func freeWord(c api.Cluster) string {
 		return "no limit"
 	}
 	return strconv.Itoa(c.Capacity.Agents)
+}
+
+// removedCapabilityFlag keeps --capability parseable so that a script that
+// passes it is told why it does nothing, instead of "unknown flag".
+func removedCapabilityFlag(cmd *cobra.Command) {
+	cmd.Flags().StringArray("capability", nil, "removed")
+	_ = cmd.Flags().MarkHidden("capability")
+	prev := cmd.PreRunE
+	cmd.PreRunE = func(c *cobra.Command, args []string) error {
+		if c.Flags().Changed("capability") {
+			return errors.New("--capability was removed: nothing read a cluster's capabilities, and agents have no way to ask for one. Use --label to constrain which nodes agents run on")
+		}
+		if prev != nil {
+			return prev(c, args)
+		}
+		return nil
+	}
 }

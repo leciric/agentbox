@@ -131,6 +131,9 @@ type Spec struct {
 	// can be a name only the daemon knows, so the daemon resolves it and hands
 	// the pod the address.
 	HostAliases map[string]string
+	// NodeSelector is the node labels the pod must be placed on, the cluster's
+	// labels. Empty places it on any node.
+	NodeSelector map[string]string
 }
 
 // Labels is what every object AgentBox makes for an agent carries, and what the
@@ -230,6 +233,7 @@ func BuildPod(spec Spec) (*corev1.Pod, error) {
 			RestartPolicy:                 corev1.RestartPolicyAlways,
 			TerminationGracePeriodSeconds: ptr(int64(60)),
 			EnableServiceLinks:            ptr(false),
+			NodeSelector:                  nodeSelector(spec.NodeSelector),
 			SecurityContext: &corev1.PodSecurityContext{
 				RunAsNonRoot:        ptr(true),
 				RunAsUser:           ptr(int64(AgentUser)),
@@ -480,4 +484,17 @@ func pullPolicy(fromRegistry bool) corev1.PullPolicy {
 func quantityPtr(s string) *resource.Quantity {
 	q := resource.MustParse(s)
 	return &q
+}
+
+// nodeSelector copies the labels, nil for none, so the pod never shares the
+// spec's map and an unconstrained pod carries no empty selector.
+func nodeSelector(labels map[string]string) map[string]string {
+	if len(labels) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(labels))
+	for k, v := range labels {
+		out[k] = v
+	}
+	return out
 }

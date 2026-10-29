@@ -4008,6 +4008,11 @@ export interface AddRegistryRequest {
 export interface RotateRegistryRequest {
   username?: string;
   token?: string;
+  keepLogin?: boolean;
+  url?: string;
+  ca?: string;
+  insecure?: boolean;
+  public?: boolean;
 }
 
 export interface RegistryTest {

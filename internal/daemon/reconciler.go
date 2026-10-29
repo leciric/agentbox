@@ -443,6 +443,7 @@ func (s *Server) podSpec(ctx context.Context, cluster state.Cluster, reg *state.
 		FromRegistry: reg != nil,
 		PullSecret:   s.pullSecretName(ctx, cluster),
 		StorageClass: cluster.StorageClass,
+		NodeSelector: cluster.Labels,
 		Claim:        a.Claim,
 		// The sizes are the cluster's, not the pod's: every agent of a
 		// cluster is the same size, which is what makes its capacity a count.

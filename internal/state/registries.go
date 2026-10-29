@@ -155,6 +155,25 @@ func (s *Store) SetRegistryCredential(ctx context.Context, name string, sealedUs
 	return nil
 }
 
+// SetRegistrySettings replaces where a registry is and how it is reached: its
+// url (checked like add's), whether it is public, its CA and whether it is
+// insecure. The login is not touched.
+func (s *Store) SetRegistrySettings(ctx context.Context, reg Registry) error {
+	url, err := registryURL(reg.Name, reg.URL)
+	if err != nil {
+		return err
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE registries SET url = ?, public = ?, ca = ?, insecure = ? WHERE name = ?`,
+		url, reg.Public, emptyBlob(reg.CA), reg.Insecure, reg.Name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("registry %s: %w", reg.Name, ErrNotFound)
+	}
+	return nil
+}
+
 // RemoveRegistry forgets one. A registry a cluster pulls from stays: that
 // cluster's pods would stop starting, and the registry's name is the only thing
 // telling the user where its images come from.

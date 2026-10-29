@@ -99,10 +99,25 @@ func (s *Server) setProjectGit(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	auth := strings.TrimSpace(req.Auth)
+	credential := strings.TrimSpace(req.Credential)
+	// A profile that exists keeps what the request leaves out, so changing its
+	// URL alone doesn't turn an ssh-key profile into a token one or detach a
+	// shared login. A new auth with no credential starts from the default name.
+	if remotes, err := s.store.ProjectGitRemotes(r.Context(), p.Name); err == nil {
+		if old, ok := gitRemoteNamed(remotes, r.PathValue("profile")); ok {
+			if auth == "" {
+				auth = old.Auth
+				if credential == "" {
+					credential = old.Credential
+				}
+			} else if credential == "" && auth == old.Auth {
+				credential = old.Credential
+			}
+		}
+	}
 	if auth == "" {
 		auth = state.GitAuthToken
 	}
-	credential := strings.TrimSpace(req.Credential)
 	if credential == "" && auth != state.GitAuthGitHubAccount {
 		// A token or a key is stored under a name of its own, and the
 		// profile's name is the one to use when the user didn't pick one. A
