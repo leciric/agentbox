@@ -1,11 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, Camera, FolderPlus, Layers, Link, Monitor, Plus, Sparkles, SquareTerminal, TriangleAlert, Wrench } from 'lucide-react';
-import type { ComponentType, ReactNode } from 'react';
+import { ArrowRight, Camera, ChevronDown, FolderPlus, Layers, Link, Monitor, Plus, Sparkles, SquareTerminal, TriangleAlert, Wrench } from 'lucide-react';
+import { useLayoutEffect, useRef, useState, type ComponentProps, type ComponentType, type ReactNode } from 'react';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
 import { formatList, formatNumber, useT } from '../lib/i18n';
 import { summarizeStatus, type StatusTone } from '../lib/agentStatus';
+import { fitCount, meterPercent } from '../lib/meter';
 import { cn, humanBytes, humanRate, shortRate, stallPressure, timeAgo } from '../lib/utils';
 import { AllAgentsPanel } from './AllAgentsPanel';
 import { WorkList } from './WorkView';
@@ -13,6 +14,7 @@ import { JobStatusBadge } from './state';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Panel } from './ui/card';
+import { Menu, MenuContent, MenuTrigger } from './ui/menu';
 import { Skeleton } from './ui/skeleton';
 import { openSettingsSection } from './SettingsPage';
 
@@ -60,7 +62,9 @@ export function HomeView({
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className={cn('max-w-6xl px-4 md:px-8', heading ? 'mx-auto py-6 md:py-8' : 'pb-6 pt-2 md:pb-8')}>
+      {/* v2's Status tab is as wide as Home's tab bar above it; v1's page keeps
+          its centred column. */}
+      <div className={cn('px-4 md:px-8', heading ? 'mx-auto max-w-6xl py-6 md:py-8' : 'pb-6 pt-2 md:pb-8')}>
         <div className={cn('flex flex-wrap gap-4', heading ? 'items-end' : 'items-center')}>
           <div>
             {heading && <h1 className="text-2xl font-semibold tracking-tight text-title">{t('shell.home.title')}</h1>}
@@ -72,7 +76,7 @@ export function HomeView({
               <Skeleton className="mt-2 h-3.5 w-64" />
             )}
           </div>
-          <div className="ml-auto flex gap-2">
+          <div className="ml-auto flex flex-wrap gap-2">
             {filter}
             <Button onClick={onAddProject}>
               <FolderPlus />
@@ -102,17 +106,19 @@ export function HomeView({
 
         {pressure?.stalling && usage.data && <StallBanner usage={usage.data} agents={all} onSelect={onSelect} className="mt-6" />}
 
-        {/* By the width Home actually gets, between the sidebar and the rail,
-            not the window's: five across only where each still fits its value. */}
-        <div className="@container mt-6">
-          <div className="grid grid-cols-2 gap-3 @xl:grid-cols-3 @5xl:grid-cols-5">
+        {/* One strip, its cells divided by lines, that wraps by the width Home
+            actually gets: each cell grows to fill its row, so a short last row
+            never leaves a hole. */}
+        <Panel className="mt-6 overflow-hidden" data-home-stats>
+          <div className="-ml-px -mt-px flex flex-wrap">
             <Stat label={t('shell.home.agentsRunning')} value={agents.data ? String(running) : '—'} detail={agents.data ? t('shell.home.ofCount', { count: all.length }) : ''} />
-            <Stat label={t('shell.home.hostCpu')} value={host ? `${formatNumber(host.cpu, { maximumFractionDigits: 0 })}%` : '—'} detail={host ? t('shell.home.ofCores', { count: host.cores }) : ''} fraction={host ? host.cpu / 100 : undefined} />
+            <Stat label={t('shell.home.hostCpu')} value={host ? `${formatNumber(host.cpu, { maximumFractionDigits: 0 })}%` : '—'} detail={host?.cores ? t('shell.home.ofCores', { count: host.cores }) : ''} percent={host?.cores ? meterPercent(host.cpu, 100) : undefined} meter={!!host} />
             <Stat
               label={t('shell.home.hostMemory')}
-              value={host ? humanBytes(host.memUsed) : '—'}
-              detail={host ? t('shell.home.ofSize', { size: humanBytes(host.memTotal) }) : ''}
-              fraction={host ? host.memUsed / host.memTotal : undefined}
+              value={host?.memTotal ? humanBytes(host.memUsed) : '—'}
+              detail={host ? (host.memTotal ? t('shell.home.ofSize', { size: humanBytes(host.memTotal) }) : t('common.unknown')) : ''}
+              percent={host?.memTotal ? meterPercent(host.memUsed, host.memTotal) : undefined}
+              meter={!!host}
               note={pressure && <Stalled percent={pressure.memoryFull} on="memory" />}
             />
             <Stat
@@ -134,14 +140,14 @@ export function HomeView({
               label={t('shell.home.pool')}
               value={host?.poolTotal ? humanBytes(host.poolUsed) : '—'}
               detail={host?.poolTotal ? t('shell.home.ofSize', { size: humanBytes(host.poolTotal) }) : ''}
-              fraction={host?.poolTotal ? host.poolUsed / host.poolTotal : undefined}
+              percent={host?.poolTotal ? meterPercent(host.poolUsed, host.poolTotal) : undefined}
             />
           </div>
-        </div>
+        </Panel>
 
         <SectionTitle>
           {t('shell.home.agents')}
-          {all.length > 0 && <span className="ml-1.5 rounded-full bg-surface-raised px-1.5 text-[10.5px] normal-case tracking-normal text-subtle">{all.length}</span>}
+          {all.length > 0 && <span className="ml-1.5 rounded-full bg-surface-raised px-1.5 text-xs font-medium text-subtle">{all.length}</span>}
         </SectionTitle>
         <AllAgentsPanel project={project || undefined} onSelect={onSelect} onNewAgent={onNewAgent} />
 
@@ -179,16 +185,8 @@ export function HomeView({
 }
 
 function SectionTitle({ children }: { children: ReactNode }) {
-  return <h2 className="mb-3 mt-8 flex items-center text-[12px] font-semibold uppercase tracking-[0.08em] text-subtle">{children}</h2>;
+  return <h2 className="mb-3 mt-8 flex items-center text-base font-semibold text-title">{children}</h2>;
 }
-
-const pillTone: Record<StatusTone, string> = {
-  urgent: 'border-amber-400/25 bg-amber-400/[0.08] text-amber-200',
-  error: 'border-rose-400/25 bg-rose-400/[0.08] text-rose-200',
-  warning: 'border-amber-400/20 bg-amber-400/[0.05] text-amber-200/80',
-  live: 'border-sky-400/20 bg-sky-400/[0.07] text-sky-200',
-  muted: 'border-line-strong bg-surface-faint text-muted',
-};
 
 const pillDot: Record<StatusTone, string> = {
   urgent: 'bg-amber-400 animate-pulse',
@@ -198,22 +196,88 @@ const pillDot: Record<StatusTone, string> = {
   muted: 'bg-faint',
 };
 
+function StatusPill({ item }: { item: ReturnType<typeof summarizeStatus>[number] }) {
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line bg-surface-faint px-2.5 py-1 text-xs font-medium text-secondary" data-status-pill={item.tone}>
+      <span className={cn('size-1.5 shrink-0 rounded-full', pillDot[item.tone])} />
+      {item.count} {item.text}
+    </span>
+  );
+}
+
 // A one-line breakdown of what the whole fleet is up to, grouped by the same
 // labels lib/agentStatus hands the rail and the sidebar. Ordered by urgency,
 // so whatever needs you is the first thing you see on the page - before you've
-// scrolled to a single row of the list below.
+// scrolled to a single row of the list below. It stays one line whatever the
+// width: what doesn't fit goes behind a "more" button at its end, so the
+// list below it is never pushed off a small window. The chips are neutral,
+// with only their dot in the status's colour.
 function StatusSummary({ agents, className }: { agents: T.Agent[]; className?: string }) {
+  const t = useT();
   const items = summarizeStatus(agents);
+  const row = useRef<HTMLDivElement>(null);
+  const measure = useRef<HTMLDivElement>(null);
+  const [shown, setShown] = useState(items.length);
+  const key = items.map((i) => `${i.count} ${i.text}`).join('|');
 
+  // The chips are measured in a hidden copy of the whole row, so how many
+  // fit doesn't depend on how many are showing.
+  useLayoutEffect(() => {
+    const el = row.current;
+    const copy = measure.current;
+    if (!el || !copy) return;
+    const fit = () => {
+      const chips = Array.from(copy.children) as HTMLElement[];
+      const more = chips.pop();
+      const gap = parseFloat(getComputedStyle(copy).columnGap) || 0;
+      setShown(fitCount(chips.map((c) => c.offsetWidth), el.clientWidth, gap, (more?.offsetWidth ?? 0) + gap));
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [key]);
+
+  const hidden = items.slice(shown);
   return (
-    <div className={cn('flex flex-wrap items-center gap-2', className)}>
-      {items.map((item) => (
-        <span key={item.text} className={cn('inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-medium', pillTone[item.tone])}>
-          <span className={cn('size-1.5 shrink-0 rounded-full', pillDot[item.tone])} />
-          {item.count} {item.text}
-        </span>
+    <div ref={row} className={cn('relative flex min-w-0 items-center gap-2 overflow-hidden', className)} data-status-summary>
+      <div ref={measure} aria-hidden className="pointer-events-none invisible absolute left-0 top-0 flex gap-2">
+        {items.map((item) => (
+          <StatusPill key={item.text} item={item} />
+        ))}
+        <MoreButton count={99} />
+      </div>
+      {items.slice(0, shown).map((item) => (
+        <StatusPill key={item.text} item={item} />
       ))}
+      {hidden.length > 0 && (
+        <Menu>
+          <MenuTrigger asChild>
+            <MoreButton data-status-more count={hidden.length} label={t('shell.home.moreStatuses', { count: hidden.length })} />
+          </MenuTrigger>
+          <MenuContent align="start" className="flex max-w-md flex-wrap gap-2 p-2">
+            {hidden.map((item) => (
+              <StatusPill key={item.text} item={item} />
+            ))}
+          </MenuContent>
+        </Menu>
+      )}
     </div>
+  );
+}
+
+function MoreButton({ count, label, ...props }: ComponentProps<'button'> & { count: number; label?: string }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      className="inline-flex shrink-0 items-center gap-1 rounded-full border border-line bg-surface-faint px-2.5 py-1 text-xs font-medium text-secondary transition hover:bg-surface-raised"
+      {...props}
+    >
+      +{formatNumber(count)}
+      <ChevronDown className="size-3.5 text-subtle" />
+    </button>
   );
 }
 
@@ -264,21 +328,23 @@ function StallBanner({ usage, agents, onSelect, className }: { usage: T.Usage; a
   );
 }
 
-function Stat({ label, value, detail, fraction, note }: { label: string; value: string; detail: string; fraction?: number; note?: ReactNode }) {
+// Stat is one cell of Home's load strip. percent draws its bar; meter
+// without a percent draws the bar's empty track, for a total that isn't known.
+function Stat({ label, value, detail, percent, meter, note }: { label: string; value: string; detail: string; percent?: number; meter?: boolean; note?: ReactNode }) {
   return (
-    <Panel className="p-4">
-      <div className="text-[12px] text-subtle">{label}</div>
+    <div className="min-w-36 flex-1 border-l border-t border-line-faint px-4 py-3" data-stat>
+      <div className="text-xs text-subtle">{label}</div>
       <div className="mt-1.5 flex flex-wrap items-baseline gap-x-1.5">
-        <span className="whitespace-nowrap font-mono text-2xl font-medium tabular-nums tracking-tight text-title">{value}</span>
+        <span className="whitespace-nowrap font-mono text-xl font-medium tabular-nums tracking-tight text-title">{value}</span>
         <span className="text-xs text-subtle">{detail}</span>
       </div>
-      {fraction !== undefined && (
-        <div className="mt-3 h-1 overflow-hidden rounded-full bg-surface-raised">
-          <div className="h-full rounded-full bg-gradient-to-r from-brand-400 to-sky-400" style={{ width: `${Math.max(Math.min(fraction, 1) * 100, 3)}%` }} />
+      {(percent !== undefined || meter) && (
+        <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-surface-raised" data-meter={percent ?? 'unknown'}>
+          {percent !== undefined && <div className="h-full rounded-full bg-gradient-to-r from-brand-400 to-sky-400" style={{ width: `${percent}%` }} />}
         </div>
       )}
-      {note && <div className="mt-2 text-[11.5px] tabular-nums text-subtle">{note}</div>}
-    </Panel>
+      {note && <div className="mt-2 text-xs tabular-nums text-subtle">{note}</div>}
+    </div>
   );
 }
 

@@ -232,6 +232,7 @@ export const enUS = {
   'shell.home.diskNote': '{read} read · {write} write',
   'shell.home.pool': 'Storage pool',
   'shell.home.agents': 'Agents',
+  'shell.home.moreStatuses': '{count, plural, one {# more status} other {# more statuses}}',
   'shell.home.recentJobs': 'Recent jobs',
   'shell.home.noJobs': 'Nothing has run yet.',
   'shell.home.stalledTitle': 'For {percent}% of the last 10 seconds, nothing on the host could run while it waited on {on, select, disk {disk} other {memory}}. Past {limit}%, the desktop starts to freeze.',

@@ -1739,11 +1739,40 @@
     "height": 1080
   },
   {
-    "id": "window-wide-v2-home-status-dark",
+    "id": "window-v2-home-status-wide-dark",
     "description": "UI v2 at 1920×1080 on Home's Status tab, every project's agents with its project filter, Home highlighted in the sidebar — dark",
     "query": "app=home&v2=1&theme=dark",
     "width": 1920,
     "height": 1080
+  },
+  {
+    "id": "window-v2-home-status-wide-light",
+    "description": "UI v2 at 1920×1080 on Home's Status tab: the load strip, neutral status chips and the agents' table using the page's full width — light",
+    "query": "app=home&v2=1&theme=light",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "window-v2-home-status-small-dark",
+    "description": "UI v2 at 800×600 on Home's Status tab: the load strip, neutral status chips and the agents' table using the page's full width — dark",
+    "query": "app=home&v2=1&theme=dark",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "window-v2-home-status-small-light",
+    "description": "UI v2 at 800×600 on Home's Status tab: the load strip, neutral status chips and the agents' table using the page's full width — light",
+    "query": "app=home&v2=1&theme=light",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "window-v2-home-status-more-dark",
+    "description": "UI v2 at 800×600 on Home's Status tab with the status chips' +N menu open, holding the statuses that didn't fit on their one row — dark",
+    "query": "app=home&v2=1&theme=dark",
+    "width": 800,
+    "height": 600,
+    "click": "[data-status-more]"
   },
   {
     "id": "window-760-v2-project-dark",

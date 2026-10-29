@@ -233,6 +233,7 @@ export const ptBR: Messages = {
   'shell.home.diskNote': '{read} leit. · {write} escr.',
   'shell.home.pool': 'Pool de armazenamento',
   'shell.home.agents': 'Agentes',
+  'shell.home.moreStatuses': '{count, plural, one {mais # status} other {mais # status}}',
   'shell.home.recentJobs': 'Jobs recentes',
   'shell.home.noJobs': 'Nada foi executado ainda.',
   'shell.home.stalledTitle': 'Em {percent}% dos últimos 10 segundos, nada no host pôde rodar enquanto esperava por {on, select, disk {disco} other {memória}}. Acima de {limit}%, a área de trabalho começa a travar.',
