@@ -52,3 +52,12 @@ test('takeComposerFocus: the asked-for chat, once, while it is fresh', () => {
   requestComposerFocus('pawly/lead', 1000);
   assert.equal(takeComposerFocus('pawly/lead', 7000), false);
 });
+
+test('a request for a project chat is taken by the session on screen', () => {
+  requestComposerFocus('web/lead', 1000);
+  assert.ok(!takeComposerFocus('api/lead.prod', 1001), 'another project');
+  assert.ok(takeComposerFocus('web/lead.prod', 1002));
+  requestComposerFocus('web/lead.prod', 2000);
+  assert.ok(!takeComposerFocus('web/lead', 2001), 'a session asked for is that one');
+  assert.ok(takeComposerFocus('web/lead.prod', 2002));
+});

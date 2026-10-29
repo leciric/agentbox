@@ -319,7 +319,7 @@ export interface FixtureData {
 // module load.
 export function buildFixtures(): FixtureData {
   const agents: T.Agent[] = [
-    agent({ ref: `${PROJECT}/agent-12`, title: 'Add a "New project" button to the Sidebar', branch: 'agentbox/agent-12', chat: 'running' }),
+    agent({ ref: `${PROJECT}/agent-12`, title: 'Add a "New project" button to the Sidebar', branch: 'agentbox/agent-12', chat: 'running', leadSession: 'prod-login-500s' }),
     agent({ ref: `${PROJECT}/agent-94`, title: 'Needs a GitHub account', chat: 'waiting' }),
     agent({ ref: `${PROJECT}/agent-95`, title: 'Needs a secret', chat: 'waiting' }),
     // An agent in each of the avatars' moods (avatarMood), across the three
@@ -1256,6 +1256,15 @@ export function seedQueryClient(queryClient: QueryClient, data: FixtureData): vo
   queryClient.setQueryData(['tokens', PROJECT, '5h'], projectTokenReport());
   queryClient.setQueryData(['tokenTurns', PROJECT, 'agent-99', '', 15], agent99Turns());
   queryClient.setQueryData(['projectChat', PROJECT], { project: PROJECT, ref: `${PROJECT}/lead`, started: true, chat: 'running' } satisfies T.ProjectChat);
+  // Its chat's sessions (lib/sessions.ts): the one it always had, and one
+  // opened on an incident, which has said something since it was last seen.
+  const at = (ago: number) => new Date(Date.now() - ago).toISOString();
+  queryClient.setQueryData(['leadSessions', PROJECT], [
+    { project: PROJECT, id: 'main', ref: `${PROJECT}/lead`, topic: 'Chat', chat: 'running', agents: 2, createdAt: at(86_400_000), activeAt: at(60_000) },
+    { project: PROJECT, id: 'prod-login-500s', ref: `${PROJECT}/lead.prod-login-500s`, topic: 'Prod: login 500s', chat: 'ready', agents: 1, createdAt: at(3_600_000), activeAt: at(120_000), last: { kind: 'assistant', text: 'agent-41 found it: the session cookie.', at: at(120_000) } },
+  ] satisfies T.LeadSession[]);
+  queryClient.setQueryData(['projectChat', PROJECT, 'main'], { project: PROJECT, session: 'main', ref: `${PROJECT}/lead`, started: true, chat: 'running' } satisfies T.ProjectChat);
+  queryClient.setQueryData(['projectChat', PROJECT, 'prod-login-500s'], { project: PROJECT, session: 'prod-login-500s', ref: `${PROJECT}/lead.prod-login-500s`, started: true, chat: 'ready' } satisfies T.ProjectChat);
   queryClient.setQueryData(['projects'], data.projects);
   queryClient.setQueryData(['sections'], data.sections);
   queryClient.setQueryData(['jobs'], []);

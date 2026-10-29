@@ -63,7 +63,10 @@ func SessionOfLead(name string) (string, bool) {
 		return MigratedSession, true
 	}
 	id, ok := strings.CutPrefix(name, LeadName+".")
-	return id, ok && id != ""
+	if !ok || id == "" {
+		return "", false
+	}
+	return id, true
 }
 
 // IsLeadName reports whether name is one a project's chat runs under.

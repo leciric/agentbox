@@ -3,7 +3,7 @@ import { ChartColumn, ChevronRight, Coins, Gauge, Users } from 'lucide-react';
 import { Fragment, useState } from 'react';
 import type * as T from '../../shared/api';
 import * as A from '../../shared/api';
-import { api, type TokenQuery } from '../lib/api';
+import { api, isLeadName, type TokenQuery } from '../lib/api';
 import { formatDate, formatDateTime, formatTime, t, useT, type MessageKey } from '../lib/i18n';
 import { projectLabel } from '../lib/projectName';
 import { humanTokens, limitTone, share, tps, usd, windowNow } from '../lib/tokens';
@@ -361,7 +361,7 @@ function SpendOverTime({ report }: { report: T.TokenReport }) {
 // out, on a page that is already about one.
 function agentName(a: T.AgentTokens, scoped: boolean, projects?: readonly T.Project[]): { name: string; sub: string } {
   if (a.project === A.HomeProject) return { name: t('vm.tokens.mainChat'), sub: a.ref };
-  if (a.agent === A.LeadName) return { name: scoped ? t('vm.tokens.projectChat') : t('vm.tokens.projectChatOf', { project: projectLabel(a.project, projects) }), sub: a.ref };
+  if (isLeadName(a.agent)) return { name: scoped ? t('vm.tokens.projectChat') : t('vm.tokens.projectChatOf', { project: projectLabel(a.project, projects) }), sub: a.ref };
   return { name: a.title || a.agent, sub: scoped ? a.agent : a.ref };
 }
 
@@ -392,7 +392,7 @@ function AgentsTable({ report, scoped, onOpenAgent }: { report: T.TokenReport; s
             {report.agents.map((a) => {
               const { name, sub } = agentName(a, scoped, projects.data);
               const expanded = open === a.ref;
-              const canOpen = a.exists && a.agent !== A.LeadName && onOpenAgent;
+              const canOpen = a.exists && !isLeadName(a.agent) && onOpenAgent;
               return (
                 <Fragment key={a.ref}>
                   <tr
@@ -423,7 +423,7 @@ function AgentsTable({ report, scoped, onOpenAgent }: { report: T.TokenReport; s
                                 {name}
                               </span>
                             )}
-                            {!a.exists && a.agent !== A.LeadName && <Badge>{t('vm.tokens.retired')}</Badge>}
+                            {!a.exists && !isLeadName(a.agent) && <Badge>{t('vm.tokens.retired')}</Badge>}
                           </div>
                           <div className="truncate text-[10.5px] text-faint">
                             <span className="font-mono">{sub}</span> · {timeAgo(a.lastAt)}
