@@ -2286,7 +2286,7 @@
     "query": "app=project&v2=1&pip=1&theme=dark",
     "width": 1600,
     "height": 1000,
-    "click": "[data-list-live]"
+    "click": "[data-list-live] [data-list-desktop]"
   },
   {
     "id": "pip-mention-chip-dark",
@@ -2735,6 +2735,34 @@
     "query": "app=agent-99&v2=1&theme=dark",
     "width": 800,
     "height": 600
+  },
+  {
+    "id": "requests-v2-1920-dark",
+    "description": "UI v2 at 1920×1080, the lead's chat with its agents' pending credential requests: two ask for a GitHub account, one for a secret — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "requests-v2-1920-light",
+    "description": "UI v2 at 1920×1080, the lead's chat with its agents' pending credential requests: two ask for a GitHub account, one for a secret — light",
+    "query": "app=project&v2=1&theme=light",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "pulls-v2-800-dark",
+    "description": "UI v2 at 800×1200, the Pull requests tab: long titles beside a long login and a row of state pills, and a Merge that can't — dark",
+    "query": "app=pulls&v2=1&theme=dark",
+    "width": 800,
+    "height": 1200
+  },
+  {
+    "id": "pulls-v2-800-light",
+    "description": "UI v2 at 800×1200, the Pull requests tab: long titles beside a long login and a row of state pills, and a Merge that can't — light",
+    "query": "app=pulls&v2=1&theme=light",
+    "width": 800,
+    "height": 1200
   },
   {
     "id": "sessions-v2-dark",
