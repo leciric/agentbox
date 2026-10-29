@@ -93,6 +93,35 @@ func (p Pod) Ref() string {
 	return p.Project + "/" + p.Agent
 }
 
+// heldByAnother says whether a same-named object's labels name a different
+// project or agent. Pod, claim and Secret names are built from the project and
+// the agent, and both parts may contain hyphens, so the refs a-b/c and a/b-c
+// derive one name; the labels, which carry each part whole, are what say whose
+// object it is. An object with neither label is left to the name-based
+// behaviour: it is not one this daemon made for another agent.
+func heldByAnother(labels map[string]string, project, agent string) bool {
+	holderProject, holderAgent := labels[LabelProject], labels[LabelAgent]
+	if holderProject == "" && holderAgent == "" {
+		return false
+	}
+	return holderProject != project || holderAgent != agent
+}
+
+// holderOf is who the labels say an object belongs to, for a collision error.
+func holderOf(labels map[string]string) string {
+	if labels[LabelProject] == "" && labels[LabelAgent] == "" {
+		return "something else"
+	}
+	return labels[LabelProject] + "/" + labels[LabelAgent]
+}
+
+// nameCollision is the error for a same-named object that belongs to another
+// ref: it is refused rather than adopted or deleted, because the other agent's
+// work is on it.
+func nameCollision(kind, name string, labels map[string]string, project, agent string) error {
+	return fmt.Errorf("the %s %s already belongs to %s, not to %s/%s: names are built from the project and the agent, and both may contain hyphens, so two refs can share one; give one of them another name or destroy it", kind, name, holderOf(labels), project, agent)
+}
+
 // Create makes the three objects an agent's pod needs, in the order that leaves
 // nothing behind if a later one fails: the claim its work lives on, the Secret
 // its session token is in, and the pod.
@@ -120,9 +149,18 @@ func (c *Cluster) Create(ctx context.Context, spec Spec, token string) (*Pod, er
 		return nil, err
 	}
 	pod.Namespace = c.namespace
-	made, err := c.client.CoreV1().Pods(c.namespace).Create(ctx, pod, metav1.CreateOptions{})
+	pods := c.client.CoreV1().Pods(c.namespace)
+	made, err := pods.Create(ctx, pod, metav1.CreateOptions{})
 	if apierrors.IsAlreadyExists(err) {
-		return c.Get(ctx, spec.Project, spec.Agent)
+		live, getErr := pods.Get(ctx, pod.Name, metav1.GetOptions{})
+		if getErr != nil {
+			return nil, fmt.Errorf("reading the pod %s that is already there: %w", pod.Name, getErr)
+		}
+		if heldByAnother(live.Labels, spec.Project, spec.Agent) {
+			return nil, nameCollision("pod", pod.Name, live.Labels, spec.Project, spec.Agent)
+		}
+		out := podFrom(live)
+		return &out, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("creating the pod %s: %w", pod.Name, err)
@@ -148,6 +186,9 @@ func (c *Cluster) ensureClaim(ctx context.Context, claim *corev1.PersistentVolum
 	if err != nil {
 		return fmt.Errorf("reading the claim %s: %w", claim.Name, err)
 	}
+	if heldByAnother(live.Labels, claim.Labels[LabelProject], claim.Labels[LabelAgent]) {
+		return nameCollision("claim", claim.Name, live.Labels, claim.Labels[LabelProject], claim.Labels[LabelAgent])
+	}
 	want := claim.Spec.Resources.Requests[corev1.ResourceStorage]
 	have := live.Spec.Resources.Requests[corev1.ResourceStorage]
 	if have.Cmp(want) < 0 {
@@ -171,6 +212,9 @@ func (c *Cluster) applySecret(ctx context.Context, secret *corev1.Secret) error 
 	if err != nil {
 		return fmt.Errorf("reading the secret %s: %w", secret.Name, err)
 	}
+	if heldByAnother(live.Labels, secret.Labels[LabelProject], secret.Labels[LabelAgent]) {
+		return nameCollision("token Secret", secret.Name, live.Labels, secret.Labels[LabelProject], secret.Labels[LabelAgent])
+	}
 	secret.ResourceVersion = live.ResourceVersion
 	if _, err := secrets.Update(ctx, secret, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("updating the secret %s: %w", secret.Name, err)
@@ -187,6 +231,9 @@ func (c *Cluster) Get(ctx context.Context, project, agent string) (*Pod, error) 
 	}
 	if err != nil {
 		return nil, fmt.Errorf("reading the pod %s: %w", name, err)
+	}
+	if heldByAnother(pod.Labels, project, agent) {
+		return nil, fmt.Errorf("%s/%s has no pod in cluster %s: the pod %s belongs to %s: %w", project, agent, c.name, name, holderOf(pod.Labels), ErrNotFound)
 	}
 	out := podFrom(pod)
 	return &out, nil
@@ -212,7 +259,20 @@ func (c *Cluster) List(ctx context.Context) ([]Pod, error) {
 // state being asked for is the state it is in.
 func (c *Cluster) Delete(ctx context.Context, project, agent string) error {
 	name := PodName(project, agent)
-	err := c.client.CoreV1().Pods(c.namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	pods := c.client.CoreV1().Pods(c.namespace)
+	pod, err := pods.Get(ctx, name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("reading the pod %s: %w", name, err)
+	}
+	// A pod of a ref whose name this agent shares is not this agent's to stop.
+	if heldByAnother(pod.Labels, project, agent) {
+		return nil
+	}
+	uid := pod.UID
+	err = pods.Delete(ctx, name, metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &uid}})
 	if apierrors.IsNotFound(err) {
 		return nil
 	}
@@ -234,13 +294,36 @@ func (c *Cluster) DeleteAll(ctx context.Context, project, agent, claim string) e
 	if err := c.Delete(ctx, project, agent); err != nil {
 		return err
 	}
-	err := c.client.CoreV1().Secrets(c.namespace).Delete(ctx, PodTokenSecretName(project, agent), metav1.DeleteOptions{})
-	if err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("deleting the token of %s/%s: %w", project, agent, err)
+	secrets := c.client.CoreV1().Secrets(c.namespace)
+	name := PodTokenSecretName(project, agent)
+	secret, err := secrets.Get(ctx, name, metav1.GetOptions{})
+	switch {
+	case apierrors.IsNotFound(err):
+	case err != nil:
+		return fmt.Errorf("reading the token of %s/%s: %w", project, agent, err)
+	case heldByAnother(secret.Labels, project, agent):
+		// The name is shared with another ref: its token stays its own.
+	default:
+		uid := secret.UID
+		err = secrets.Delete(ctx, name, metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &uid}})
+		if err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("deleting the token of %s/%s: %w", project, agent, err)
+		}
 	}
-	err = c.client.CoreV1().PersistentVolumeClaims(c.namespace).Delete(ctx, claim, metav1.DeleteOptions{})
-	if err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("deleting the claim of %s/%s: %w", project, agent, err)
+	claims := c.client.CoreV1().PersistentVolumeClaims(c.namespace)
+	live, err := claims.Get(ctx, claim, metav1.GetOptions{})
+	switch {
+	case apierrors.IsNotFound(err):
+	case err != nil:
+		return fmt.Errorf("reading the claim of %s/%s: %w", project, agent, err)
+	case heldByAnother(live.Labels, project, agent):
+		// The name is shared with another ref: its work is on this claim.
+	default:
+		uid := live.UID
+		err = claims.Delete(ctx, claim, metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &uid}})
+		if err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("deleting the claim of %s/%s: %w", project, agent, err)
+		}
 	}
 	return nil
 }
