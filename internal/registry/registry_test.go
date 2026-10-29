@@ -3,9 +3,11 @@ package registry_test
 import (
 	"context"
 	"encoding/base64"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"agentbox/internal/registry"
@@ -139,5 +141,39 @@ func TestCheckRefusesWhatIsNotARegistry(t *testing.T) {
 	result := c.Check(context.Background())
 	if result.OK || !strings.Contains(result.Detail, "no url") {
 		t.Errorf("Check() = %+v, want it to say the url is missing", result)
+	}
+}
+
+// TestCheckSendsNoLoginToAnHTTPRealm is a registry on https whose challenge
+// names a token address on http: the stored login must not go there, because
+// only a registry added with --insecure may be spoken to in the clear.
+func TestCheckSendsNoLoginToAnHTTPRealm(t *testing.T) {
+	var asked atomic.Bool
+	realm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked.Store(true)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"token":"a-token"}`))
+	}))
+	t.Cleanup(realm.Close)
+	reg := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="`+realm.URL+`/token",service="fake"`)
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	}))
+	t.Cleanup(reg.Close)
+	ca := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: reg.Certificate().Raw})
+	result := registry.Client{
+		URL:      strings.TrimPrefix(reg.URL, "https://") + "/someone",
+		Username: "someone",
+		Token:    "a-secret",
+		CA:       ca,
+	}.Check(context.Background())
+	if result.OK {
+		t.Fatalf("Check() = %+v, want a refusal", result)
+	}
+	if !strings.Contains(result.Detail, "isn't https") {
+		t.Errorf("detail = %q, want it to say the token address isn't https", result.Detail)
+	}
+	if asked.Load() {
+		t.Error("the http realm was asked for a token, with the login")
 	}
 }
