@@ -34,6 +34,19 @@ test('a message to an idle chat heads a turn that is already working', () => {
   assert.equal(withSending(before, [s]).items[2], shown.items[2]);
 });
 
+test('a message to an agent is a notice of the lead’s chat, tagged, and starts no turn', () => {
+  const before = thread([item({ id: 'u1', turn: 'u1', text: 'hi', result: done }), item({ id: 'a1', turn: 'u1', kind: 'assistant', text: 'hello' })]);
+  const s = pending({ text: 'use the new table', to: 'agent-31' });
+  const shown = withSending(before, [s]);
+  assert.deepEqual([shown.items[2].kind, shown.items[2].to, shown.items[2].turn, shown.items[2].delivery], ['notice', 'agent-31', 'u1', 'waiting']);
+  assert.equal(shown.session.turnStartedAt, undefined);
+  assert.equal(timelineRows(shown, new Set()).at(-1)?.type, 'note');
+  assert.equal(withSending(before, [s]).items[2], shown.items[2]);
+  // The daemon's notice replaces it, by text before it answered.
+  const echoed = thread([...before.items, item({ id: 'n1', turn: 'u1', kind: 'notice', to: 'agent-31', text: 'use the new table' })]);
+  assert.equal(withSending(echoed, [{ ...s, after: 'a1' }]), echoed);
+});
+
 test('a message sent while a turn runs joins it, as an aside', () => {
   const running = thread([item({ id: 'u1', turn: 'u1', text: 'go' }), item({ id: 'a1', turn: 'u1', kind: 'assistant', text: 'on it', streaming: true })], { turnStartedAt: at, state: 'running' });
   const shown = withSending(running, [pending({ text: 'also this' })]);

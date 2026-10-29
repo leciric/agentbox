@@ -49,3 +49,13 @@ test('the sessions keys: Mod+T, Mod+Shift+⌫, Ctrl+Tab and Ctrl+Shift+Tab, not 
   assert.equal(sessionShortcut(key('Tab', { ctrlKey: false, metaKey: true })), undefined);
   assert.equal(sessionShortcut(key('t', { target: { closest: () => ({}) } as unknown as EventTarget })), undefined);
 });
+
+test('the target keys: Mod+. and Mod+Shift+., whatever Shift makes of "."', async () => {
+  const { targetShortcut } = await import('./shortcuts.ts');
+  assert.equal(targetShortcut(key('.')), 'next');
+  assert.equal(targetShortcut(key('.', { ctrlKey: false, metaKey: true })), 'next');
+  assert.equal(targetShortcut(key('>', { shiftKey: true })), 'previous');
+  assert.equal(targetShortcut({ ...key(':', { shiftKey: true }), code: 'Period' }), 'previous');
+  assert.equal(targetShortcut(key('.', { ctrlKey: false })), undefined);
+  assert.equal(targetShortcut(key('.', { target: { closest: () => ({}) } as unknown as EventTarget })), undefined);
+});

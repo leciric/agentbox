@@ -52,6 +52,23 @@ export const sessionKeys = {
   previous: ['Ctrl', 'Shift', 'Tab'],
 } as const;
 
+// The target of a project chat's composer (lib/messageTarget.ts): Mod+. moves
+// it to the next of the lead and the project's agents, Mod+Shift+. to the one
+// before, and Esc in an empty composer back to the lead. Shift turns "." into
+// ">" on most layouts, so the key's place counts as well as its character.
+export function targetShortcut(event: Keyish & { code?: string }): 'next' | 'previous' | undefined {
+  if (!mod(event) || inTerminal(event)) return undefined;
+  if (event.key !== '.' && event.key !== '>' && event.code !== 'Period') return undefined;
+  return event.shiftKey ? 'previous' : 'next';
+}
+
+// targetKeys is how each reads, for the sheet and the chip's hint.
+export const targetKeys = {
+  next: ['Mod', '.'],
+  previous: ['Mod', 'Shift', '.'],
+  lead: ['Esc'],
+} as const;
+
 // The places F6 moves between, in order, each found by its selector; one that
 // isn't on screen (the panel, closed) is skipped. focus is what in it takes
 // the focus, the first that is there.
@@ -121,6 +138,15 @@ export const sheet: { title: MessageKey; rows: { keys: string[]; label: MessageK
       { keys: [...sessionKeys.delete], label: 'keys.sessionDelete' },
       { keys: [...sessionKeys.next], label: 'keys.sessionNext' },
       { keys: [...sessionKeys.previous], label: 'keys.sessionPrevious' },
+    ],
+  },
+  {
+    title: 'keys.group.target',
+    rows: [
+      { keys: [...targetKeys.next], label: 'keys.targetNext' },
+      { keys: [...targetKeys.previous], label: 'keys.targetPrevious' },
+      { keys: [...targetKeys.lead], label: 'keys.targetLead' },
+      { keys: ['@agent'], label: 'keys.targetMention' },
     ],
   },
   {

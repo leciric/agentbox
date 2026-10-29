@@ -1,10 +1,11 @@
-import { AlarmClock, Archive, Brain, Check, ChevronRight, CircleAlert, Copy, Hourglass, Info, LoaderCircle } from 'lucide-react';
+import { AlarmClock, Archive, ArrowRight, Brain, Check, ChevronRight, CircleAlert, Copy, Hourglass, Info, LoaderCircle } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { memo, use, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type * as T from '../../../shared/api';
 import { api, isProjectChat } from '../../lib/api';
 import { formatDuration, timelineRows, type Row } from '../../lib/chat';
 import { editSending, failed, findSending, isSending, retrySending } from '../../lib/sending';
+import { chooseTarget } from '../../lib/messageTarget';
 import { formatDateTime, formatTime, useT, type MessageKey } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
 import { fileLinkOf } from '../../lib/files';
@@ -163,6 +164,8 @@ const TimelineRow = memo(
         // left is an error, and the mark a rollover leaves where the session
         // changed — and a message between this project's lead and another's.
         if (row.item.projectMessage) return <ProjectMessageCard item={row.item} />;
+        // And what you wrote from here to one of the project's agents.
+        if (row.item.to) return <ToldMessage item={row.item} chatRef={chatRef} />;
         // And one of the project's scheduled tasks arriving.
         if (row.item.scheduledRun) return <ScheduledRunChip item={row.item} project={isLeadRef(chatRef) ? chatRef.split('/')[0] : undefined} />;
         // And agents finishing, with what they showed they checked.
@@ -404,6 +407,27 @@ function Mentions({ text }: { text: string }) {
 // UserMessage is what you sent: its pictures and files, the elements you
 // picked in a browser (lib/picks.ts) as chips with their crops rather than
 // the text and pictures the AI tool reads, and what you wrote.
+// ToldMessage is a message you wrote in a project's chat to one of its agents
+// (lib/messageTarget.ts): your bubble, tagged with the agent it went to.
+// Clicking the tag points the composer at that agent again.
+function ToldMessage({ item, chatRef }: { item: T.ChatItem; chatRef: string }) {
+  const t = useT();
+  const to = item.to!;
+  return (
+    <div className="group flex flex-col items-end gap-1 pb-4 pt-1" data-chat-item="told" data-chat-to={to} data-chat-id={item.id}>
+      <Tip label={t('chat.target.toldTip', { name: to })}>
+        <button className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[11.5px] font-medium text-brand-300 transition hover:bg-brand-500/15" onClick={() => chooseTarget(chatRef, to)} data-chat-told-tag>
+          <ArrowRight className="size-3" />
+          {to}
+        </button>
+      </Tip>
+      <UserMessage item={item} chatRef={chatRef} />
+      {item.delivery === failed ? <NotSent item={item} /> : isSending(item) && <Delivered item={item} />}
+      {!isSending(item) && <Meta item={item} className="justify-end pr-1" />}
+    </div>
+  );
+}
+
 function UserMessage({ item, chatRef }: { item: T.ChatItem; chatRef: string }) {
   const split = useMemo(() => splitPicked(item.text ?? ''), [item.text]);
   const images = item.images ?? [];
