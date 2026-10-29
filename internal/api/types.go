@@ -387,6 +387,24 @@ type AddProjectRequest struct {
 	CommitFiles bool `json:"commitFiles,omitempty"`
 }
 
+// CloneProjectRequest is POST /v1/projects/clone: a repository cloned from a
+// link and added as a project, in one job of kind "clone" whose result is the
+// Project. It is cloned with the project's GitHub account (GitHubAccount, or
+// the machine's default) when it is on github.com, and with this machine's own
+// git credentials otherwise or when that fails. A URL that isn't a
+// repository's link is refused with ErrorBadRepoURL, and a Path that is
+// already there with ErrorFolderExists, before anything is cloned.
+type CloneProjectRequest struct {
+	// URL is the repository: https://, ssh:// or git@host:owner/repo, on
+	// GitHub or any other host.
+	URL string `json:"url"`
+	// AddProjectRequest is the project, its Path the folder to clone into,
+	// which must not exist yet: empty is Settings.CloneFolder/<name>. Name
+	// defaults to the repository's. Create, CommitFiles and CopyToLinux mean
+	// nothing here.
+	AddProjectRequest
+}
+
 // HomeAddProjectRequest is the Home chat adding a project: a folder on this
 // machine (Path), or a repository cloned from URL first, into Path when it's
 // given and ~/src/<name> when it isn't. Name defaults to the folder's, or the
@@ -420,6 +438,9 @@ type Settings struct {
 	// DefaultLeadContextWindow is DefaultAgentContextWindow for the lead's
 	// chat, applied the way DefaultLeadModel is.
 	DefaultLeadContextWindow string `json:"defaultLeadContextWindow"`
+	// CloneFolder is where a project added from a link is cloned when its
+	// request names no folder (CloneProjectRequest): ~/src until it is set.
+	CloneFolder string `json:"cloneFolder"`
 	// ClaudeModelChoices is the model menu the Claude Code adapter last
 	// advertised for this account, plus AgentBox's own small pinned list
 	// (D69, marked in each choice's Description). The adapter's part is
@@ -672,6 +693,8 @@ type UpdateSettingsRequest struct {
 	// DefaultLeadModel is "" to go back to Claude Code's own default.
 	DefaultLeadModel         *string `json:"defaultLeadModel,omitempty"`
 	DefaultLeadContextWindow *string `json:"defaultLeadContextWindow,omitempty"`
+	// CloneFolder is a full path, or "" to go back to ~/src.
+	CloneFolder *string `json:"cloneFolder,omitempty"`
 	// DefaultClaudeEffort is "" to go back to AgentBox's own default.
 	DefaultClaudeEffort *string `json:"defaultClaudeEffort,omitempty"`
 	// DefaultCursorModel and DefaultCursorEffort are what new Cursor agents
@@ -1287,7 +1310,7 @@ type StopAgentFailure struct {
 
 type Job struct {
 	ID         string          `json:"id"`
-	Kind       string          `json:"kind"`   // create, fork, restore, base-save, image-build
+	Kind       string          `json:"kind"`   // create, fork, restore, base-save, image-build, clone
 	Target     string          `json:"target"` // project or agent ref
 	Status     string          `json:"status"`
 	Error      string          `json:"error,omitempty"`
@@ -2752,6 +2775,14 @@ type Error struct {
 // ErrorFolderNotEmpty is the Code of AddProjectRequest.Create refusing a
 // folder that has files in it: the same request with CommitFiles gets past it.
 const ErrorFolderNotEmpty = "folder-not-empty"
+
+// ErrorFolderExists is the Code of CloneProjectRequest refusing a folder that
+// is already there: AddProjectRequest with the same Path adds it as it is.
+const ErrorFolderExists = "folder-exists"
+
+// ErrorBadRepoURL is the Code of CloneProjectRequest refusing a URL that isn't
+// a repository's link, such as a path or a host with no repository.
+const ErrorBadRepoURL = "bad-repo-url"
 
 // VersionInfo is what GET /v1/version reports about the daemon.
 type VersionInfo struct {

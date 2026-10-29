@@ -105,7 +105,8 @@ export function App({ initial }: { initial?: View } = {}) {
   const v2 = useUiV2();
   const [view, setView] = useState<View>(initial ?? { kind: "home" });
   const [tabs, setTabs] = useState<Record<string, AgentPlaceName>>({});
-  const [addingProject, setAddingProject] = useState(false);
+  // "clone" opens the dialog on its Clone from link tab.
+  const [addingProject, setAddingProject] = useState<boolean | "clone">(false);
   const [newAgentProject, setNewAgentProject] = useState<string | null>(null);
   const [whatsNew, setWhatsNew] = useState(false);
   // In a narrow window (below lg, 1024px: a small screen, or a phone in the
@@ -656,6 +657,7 @@ export function App({ initial }: { initial?: View } = {}) {
                   <HomeView
                     onSelect={select}
                     onAddProject={() => setAddingProject(true)}
+                    onCloneProject={() => setAddingProject("clone")}
                     onNewAgent={() => setNewAgentProject("")}
                   />
                 )}
@@ -672,6 +674,7 @@ export function App({ initial }: { initial?: View } = {}) {
                               <HomeStatusV2
                                 onSelect={select}
                                 onAddProject={() => setAddingProject(true)}
+                                onCloneProject={() => setAddingProject("clone")}
                                 onNewAgent={() => setNewAgentProject("")}
                               />
                             ),
@@ -745,7 +748,8 @@ export function App({ initial }: { initial?: View } = {}) {
         </div>
       </div>
       <AddProjectDialog
-        open={addingProject}
+        open={!!addingProject}
+        initialMode={addingProject === "clone" ? "clone" : "existing"}
         onOpenChange={setAddingProject}
         onAdded={(project) =>
           select({ kind: "project", project: project.name })

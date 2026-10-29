@@ -7,12 +7,23 @@ import type { View } from '../../App';
 import { HomeView } from '../HomeView';
 import { ProjectFilter } from './ProjectFilter';
 
-export function HomeStatusV2({ onSelect, onAddProject, onNewAgent }: { onSelect: (view: View) => void; onAddProject: () => void; onNewAgent: () => void }) {
+export function HomeStatusV2({
+  onSelect,
+  onAddProject,
+  onCloneProject,
+  onNewAgent,
+}: {
+  onSelect: (view: View) => void;
+  onAddProject: () => void;
+  onCloneProject?: () => void;
+  onNewAgent: () => void;
+}) {
   const [project, setProject] = useState('');
   return (
     <HomeView
       onSelect={onSelect}
       onAddProject={onAddProject}
+      onCloneProject={onCloneProject}
       onNewAgent={onNewAgent}
       heading={false}
       pastAgents={false}

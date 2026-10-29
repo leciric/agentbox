@@ -63,7 +63,7 @@ func startPeerMachines(t *testing.T) peerMachines {
 	m := peerMachines{hub: h, laptop: laptop, vps: vps, vpsID: vpsEnv.Environment.ID, clones: new(int), failClone: new(bool),
 		laptopToken: laptopEnv.Token, laptopEnvID: laptopEnv.Environment.ID}
 	fixture := vps.fixtureRepo(t, "hello-stack")
-	vps.srv.peerClone = func(_ context.Context, repo, dest string) error {
+	vps.srv.cloneHook = func(_ context.Context, repo, dest string) error {
 		*m.clones++
 		if *m.failClone {
 			return errors.New("cloning: repository not found")
@@ -76,7 +76,7 @@ func startPeerMachines(t *testing.T) peerMachines {
 		}
 		return nil
 	}
-	vps.srv.peerCloneRoot = filepath.Join(vps.root, "src")
+	vps.srv.cloneRoot = filepath.Join(vps.root, "src")
 	for _, d := range []struct {
 		d     testDaemon
 		token string

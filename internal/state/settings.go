@@ -27,6 +27,9 @@ const (
 	// always been the agents' — the lead never read it — so splitting the two
 	// moved nothing.
 	SettingDefaultClaudeModel = "default_claude_model"
+	// SettingCloneFolder is where projects added from a link are cloned
+	// (Settings.CloneFolder); empty is ~/src.
+	SettingCloneFolder = "clone_folder"
 	// SettingDefaultAgentContextWindow is the context window (D91) new Claude
 	// Code agents start with: "" for the installation's compact window, which
 	// is what every agent had before this setting, or ClaudeFullWindow as a

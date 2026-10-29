@@ -285,12 +285,13 @@ type Server struct {
 	connectorsGiven map[string]bool
 	remoteStop      context.CancelFunc
 	// peerState is the account's other machines, for leads directing
-	// agents on them (peers.go). A test replaces CloneForHome with
-	// peerClone, and ~/src, where projects are cloned for them, with
-	// peerCloneRoot.
-	peerState     peerState
-	peerClone     func(ctx context.Context, repo, dest string) error
-	peerCloneRoot string
+	// agents on them (peers.go).
+	peerState peerState
+	// A test replaces agent.Manager.Clone with cloneHook, and ~/src, where
+	// projects added from a link are cloned by default, with cloneRoot
+	// (clone.go).
+	cloneHook func(ctx context.Context, repo, dest string) error
+	cloneRoot string
 	// remotePairing is a connection to a hub waiting for approval, and
 	// remotePairStop stops waiting (remote.go).
 	remotePairing  *api.RemotePairing
@@ -847,6 +848,7 @@ func (s *Server) routes() http.Handler {
 
 	h("GET /v1/projects", s.listProjects)
 	h("POST /v1/projects", s.addProject)
+	h("POST /v1/projects/clone", s.cloneProject)
 	// When each project last did anything, for the sidebar's order: polled.
 	h("GET /v1/project-activity", s.projectActivity)
 	// How the sidebar is organised (D79): the sections, and one layout that
@@ -1144,7 +1146,7 @@ func writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, state.ErrNotFound), errors.Is(err, incus.ErrNotFound), errors.Is(err, memory.ErrNotFound):
 		status = http.StatusNotFound
-	case errors.Is(err, state.ErrExists):
+	case errors.Is(err, state.ErrExists), errors.Is(err, agent.ErrCloneDestExists):
 		status = http.StatusConflict
 	case errors.Is(err, incus.ErrNotAnswering):
 		status = http.StatusServiceUnavailable
@@ -1152,8 +1154,13 @@ func writeError(w http.ResponseWriter, err error) {
 		status = http.StatusInsufficientStorage
 	}
 	body := api.Error{Error: err.Error()}
-	if errors.Is(err, gitrepo.ErrNotEmpty) {
+	switch {
+	case errors.Is(err, gitrepo.ErrNotEmpty):
 		body.Code = api.ErrorFolderNotEmpty
+	case errors.Is(err, agent.ErrCloneDestExists):
+		body.Code = api.ErrorFolderExists
+	case errors.As(err, new(badRepoURL)):
+		body.Code = api.ErrorBadRepoURL
 	}
 	_ = writeJSON(w, status, body)
 }
