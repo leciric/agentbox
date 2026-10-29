@@ -137,7 +137,7 @@ func (s *Server) moveTarget(ctx context.Context, a state.Agent, requested string
 	if err != nil {
 		return "", err
 	}
-	target, err := s.placeAgent(ctx, project, requested)
+	target, err := s.placeCheck(ctx, project, requested)
 	if err != nil {
 		return "", err
 	}
@@ -208,10 +208,9 @@ func (s *Server) moveAgentRun(ctx context.Context, log io.Writer, a state.Agent,
 	if err != nil {
 		return err
 	}
-	if _, _, err := s.admit(ctx, project, targetCluster); err != nil {
+	if err := s.admitAndReserve(ctx, project, targetCluster); err != nil {
 		return err
 	}
-	s.reserve(targetCluster)
 
 	// The chat goes before the checkpoint: a turn that lands between the two
 	// would write files the archive has to catch up with.

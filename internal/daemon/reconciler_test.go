@@ -164,7 +164,13 @@ func TestCapacityIsShownBesideTheCluster(t *testing.T) {
 		Status: corev1.PodStatus{Phase: corev1.PodRunning},
 	}
 	kc := k8s.FromClient("k3d", "agentbox", fake.NewClientset(node, pod))
-	srv.measureCapacity(ctx, cluster, kc, []k8s.Pod{{Name: pod.Name, Phase: corev1.PodRunning}})
+	reconcilerProject(t, srv.store)
+	reconcilerAgent(t, srv.store, "agent-01")
+	agents, err := srv.store.AgentsOnCluster(ctx, "k3d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.measureCapacity(ctx, cluster, kc, agents)
 
 	info := srv.clusterInfo(cluster)
 	if info.Capacity == nil {
@@ -176,6 +182,56 @@ func TestCapacityIsShownBesideTheCluster(t *testing.T) {
 	}
 	if info.Capacity.At.IsZero() {
 		t.Error("the capacity has no time it was taken")
+	}
+}
+
+// TestMaxAgentsCountsAnAgentWhosePodIsPending: the ceiling counts the agents
+// whose row asks for a running machine, not only the pods the cluster has
+// adopted, so a slow image pull holds its slot instead of letting another
+// create take it.
+func TestMaxAgentsCountsAnAgentWhosePodIsPending(t *testing.T) {
+	srv := reconcilerServer(t)
+	ctx := context.Background()
+	reconcilerProject(t, srv.store)
+	reconcilerAgent(t, srv.store, "agent-01")
+	cluster := reconcilerCluster()
+	cluster.MaxAgents = 1
+	cluster.CreatedAt = time.Now()
+	cluster.Tailnet = state.TailnetNone
+	cluster.Kubeconfig = []byte("sealed-for-a-test")
+	if err := srv.store.AddCluster(ctx, cluster); err != nil {
+		t.Fatal(err)
+	}
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "node-01"},
+		Status: corev1.NodeStatus{
+			Conditions:  []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}},
+			Allocatable: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4"), corev1.ResourceMemory: resource.MustParse("8Gi")},
+		},
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "ab-pawly-agent-01", Namespace: "agentbox"},
+		Status:     corev1.PodStatus{Phase: corev1.PodPending},
+	}
+	kc := k8s.FromClient("k3d", "agentbox", fake.NewClientset(node, pod))
+	agents, err := srv.store.AgentsOnCluster(ctx, "k3d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.measureCapacity(ctx, cluster, kc, agents)
+
+	info := srv.clusterInfo(cluster)
+	if info.Capacity == nil || info.Capacity.Agents != 0 || info.Capacity.Running != 1 {
+		t.Errorf("capacity = %+v, want the pending agent to hold the only slot", info.Capacity)
+	}
+	// Placement agrees: the slot the pending agent holds is not on offer.
+	project, err := srv.store.Project(ctx, "pawly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var noRoom *NoRoomError
+	if _, err := srv.placeAgent(ctx, project, "k3d"); !errors.As(err, &noRoom) {
+		t.Errorf("placeAgent(k3d) = %v, want a NoRoomError while the pending agent holds the slot", err)
 	}
 }
 
