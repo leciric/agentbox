@@ -69,6 +69,10 @@
 //                           running, so its header and its rail row say Awaiting
 //   ?chat=untracked         agent-97's (OpenCode) chat, whose header warns that
 //                           background work isn't tracked there
+//   ?app=agent-97&activity=before|after
+//                           an OpenCode 2 turn before and after the tool-activity
+//                           fixes: raw metadata and bare titles, then real text,
+//                           file names, a created-file diff and the plan
 //   ?chat=imagewait         agent-100 asked for while the first base image
 //                           downloads: its rail row and its chat say it waits
 //                           for the image, with the download's progress
@@ -351,7 +355,7 @@ import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
 import { Markdown } from '../components/chat/Markdown';
 import { webStreams } from '../web/streams';
 import { chooseSession } from '../lib/sessions';
-import { agent12Chat, asleepChat, buildFixtures, remoteAgents, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedProjectGit, seedClustersAnswer, seedSettings, seedClusterSetup, seedSignedOut, seedNightly, seedCacheCard, seedStaleDaemon, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
+import { agent12Chat, asleepChat, buildFixtures, remoteAgents, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, installDevBridge, openCodeActivityChat, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedProjectGit, seedClustersAnswer, seedSettings, seedClusterSetup, seedSignedOut, seedNightly, seedCacheCard, seedStaleDaemon, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
 import { restoreMode } from '../lib/theme';
 import { seedPastAgents } from './pastAgents';
@@ -686,6 +690,14 @@ if (media === 'all') seedAllMedia();
 else if (media) seedMedia(queryClient);
 if (notify) seedNotifications(queryClient, mockMedia());
 if (review || appView) seedReview(queryClient);
+// &activity=before|after, with ?app=agent-97: an OpenCode 2 turn as the chat
+// drew it before and after its tool-activity fixes.
+const activity = params.get('activity');
+if (activity === 'before' || activity === 'after') {
+  Object.assign(fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-97`)!, { interface: 'chat' });
+  queryClient.setQueryData(['agents'], fixtures.agents);
+  queryClient.setQueryData(['chat', `${PROJECT}/agent-97`], openCodeActivityChat(activity === 'before'));
+}
 // The fixture agents' timelines (dev/timeline.ts), for the right panel's
 // Timeline tab, the review's and Today.
 if (appView) seedTimelines();
