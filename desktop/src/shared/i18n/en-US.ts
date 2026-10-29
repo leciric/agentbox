@@ -75,6 +75,8 @@ export const enUS = {
   'shell.github.badToken': 'GitHub refused the account {account}: its token was revoked, or has expired.',
   'shell.github.accountGone': 'This project\'s GitHub account "{account}" isn\'t stored any more.',
   'shell.github.noAccount': 'No GitHub account is stored, so {repo}\'s pull requests can\'t be read.',
+  'shell.github.rateLimited': "{account} has used up GitHub's hourly limit, shared with its agents' own gh. AgentBox reads GitHub again at {time}; what's shown was read before.",
+  'shell.github.rateLimitedSoon': "{account} has used up GitHub's hourly limit, shared with its agents' own gh. AgentBox reads GitHub again once it resets; what's shown was read before.",
   'shell.github.thisRepository': 'this repository',
   'shell.github.other': 'GitHub: {message}',
   'shell.diskGuard.onlyFree': 'only {size} free',

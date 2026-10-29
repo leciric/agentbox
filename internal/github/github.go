@@ -9,7 +9,6 @@
 package github
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -19,6 +18,7 @@ import (
 	"net/url"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -165,47 +165,11 @@ func apiRoot() string {
 // do sends a request and decodes its JSON response. A nil body sends none; a
 // nil out discards the response instead of decoding it.
 func (c Client) do(ctx context.Context, method, path string, body, out any) error {
-	base := c.BaseURL
-	if base == "" {
-		base = apiRoot()
-	}
-	var reader io.Reader
-	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
-			return err
-		}
-		reader = bytes.NewReader(b)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, base+path, reader)
-	if err != nil {
+	data, _, err := c.send(ctx, method, path, body)
+	if err != nil || out == nil {
 		return err
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	if c.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
-	}
-	client := c.HTTP
-	if client == nil {
-		client = &http.Client{Timeout: 15 * time.Second}
-	}
-	res, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = res.Body.Close() }()
-	if res.StatusCode >= 300 {
-		return apiError(path, res)
-	}
-	if out == nil {
-		_, err := io.Copy(io.Discard, res.Body)
-		return err
-	}
-	return json.NewDecoder(res.Body).Decode(out)
+	return json.Unmarshal(data, out)
 }
 
 // get is do with no body, for the common read.
@@ -219,10 +183,15 @@ func (c Client) get(ctx context.Context, path string, out any) error {
 // also decides which of ErrBadToken and ErrNoAccess it wraps, so a caller can
 // say whose problem it is.
 func apiError(path string, res *http.Response) error {
+	data, _ := io.ReadAll(res.Body)
+	return apiErrorOf(path, res, data)
+}
+
+// apiErrorOf is apiError for a response whose body has been read already.
+func apiErrorOf(path string, res *http.Response, data []byte) error {
 	var body struct {
 		Message string `json:"message"`
 	}
-	data, _ := io.ReadAll(res.Body)
 	if err := json.Unmarshal(data, &body); err != nil {
 		// Not every non-2xx response is JSON (a proxy's error page, for
 		// example); fall back to the raw body as the message.
@@ -234,10 +203,6 @@ func apiError(path string, res *http.Response) error {
 			return fmt.Errorf("%w (%s): %s — check agentbox auth github", ErrBadToken, res.Status, body.Message)
 		}
 		return fmt.Errorf("%w (%s): check agentbox auth github", ErrBadToken, res.Status)
-	case res.StatusCode == http.StatusForbidden && res.Header.Get("X-RateLimit-Remaining") == "0":
-		// Rate-limited, not shut out: the account is fine and waiting fixes it,
-		// so this must not read as "pick another account".
-		return fmt.Errorf("GitHub %s for %s: %s", res.Status, path, body.Message)
 	case res.StatusCode == http.StatusUnprocessableEntity && strings.HasPrefix(body.Message, "No commit found"):
 		return fmt.Errorf("%w: %s", ErrNoCommit, body.Message)
 	case res.StatusCode == http.StatusForbidden, res.StatusCode == http.StatusNotFound:
@@ -344,7 +309,7 @@ func (c Client) openPullRequests(ctx context.Context, repo Repo) ([]rawPR, error
 // first: every open one, however long ago it moved, and the most recently
 // updated closed and merged ones. Open ones are enriched with
 // their checks, comment count and diff size, which the list endpoint doesn't
-// carry and GitHub only gives out one pull request at a time; closed and
+// carry, from one GraphQL query; closed and
 // merged ones keep whatever the list already had, since nobody is about to
 // act on their history.
 func (c Client) PullRequests(ctx context.Context, repo Repo) ([]PullRequest, error) {
@@ -376,32 +341,90 @@ func (c Client) PullRequests(ctx context.Context, repo Repo) ([]PullRequest, err
 	})
 	slices.SortStableFunc(list, func(a, b rawPR) int { return b.UpdatedAt.Compare(a.UpdatedAt) })
 	out := make([]PullRequest, len(list))
-	// Two calls per open pull request, a few hundred milliseconds each: one
-	// after the other, a busy repository took most of a minute to re-read,
-	// and the tab sat on "refreshing" all that time. They go out together.
-	var g errgroup.Group
-	g.SetLimit(pullRequestEnrichers)
+	var numbers []int
 	for i, raw := range list {
 		out[i] = raw.pullRequest()
-		if out[i].State != "open" {
-			continue
+		if out[i].State == "open" {
+			numbers = append(numbers, out[i].Number)
 		}
-		g.Go(func() error {
-			out[i].Checks = c.checks(ctx, repo, raw.Head.SHA)
-			return nil
-		})
-		g.Go(func() error {
-			out[i].Additions, out[i].Deletions, out[i].Comments = c.prStats(ctx, repo, out[i].Number)
-			return nil
-		})
 	}
-	_ = g.Wait()
+	// What the list endpoint leaves out — checks, diff size, comments — was
+	// two more REST calls per open pull request, on every re-read: a project
+	// with twenty open pull requests spent forty-odd of the account's 5,000 an
+	// hour every half a minute the app was open. One GraphQL query reads it
+	// for all of them. It never fails the list: a pull request whose checks
+	// couldn't be read is still worth listing.
+	if stats, err := c.openStats(ctx, repo, numbers); err == nil {
+		for i := range out {
+			if st, ok := stats[out[i].Number]; ok {
+				out[i].Checks, out[i].Additions, out[i].Deletions, out[i].Comments = st.checks, st.additions, st.deletions, st.comments
+			}
+		}
+	}
 	return out, nil
 }
 
-// pullRequestEnrichers is how many of PullRequests' per pull request calls
-// run at once.
-const pullRequestEnrichers = 8
+// statsPerQuery bounds how many pull requests one openStats query asks for.
+const statsPerQuery = 100
+
+type prStats struct {
+	checks                         string
+	additions, deletions, comments int
+}
+
+// openStats reads the checks, diff size and comment count of the pull
+// requests numbered, in one GraphQL query per hundred.
+func (c Client) openStats(ctx context.Context, repo Repo, numbers []int) (map[int]prStats, error) {
+	out := map[int]prStats{}
+	for len(numbers) > 0 {
+		batch := numbers[:min(len(numbers), statsPerQuery)]
+		numbers = numbers[len(batch):]
+		var b strings.Builder
+		b.WriteString("query($owner: String!, $name: String!) {\n  repository(owner: $owner, name: $name) {\n")
+		for _, n := range batch {
+			fmt.Fprintf(&b, "    pr%d: pullRequest(number: %d) { additions deletions comments { totalCount } commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } }\n", n, n)
+		}
+		b.WriteString("  }\n}\n")
+		var res struct {
+			Data struct {
+				Repository map[string]*struct {
+					Additions int `json:"additions"`
+					Deletions int `json:"deletions"`
+					Comments  struct {
+						TotalCount int `json:"totalCount"`
+					} `json:"comments"`
+					Commits struct {
+						Nodes []struct {
+							Commit struct {
+								Rollup *struct {
+									State string `json:"state"`
+								} `json:"statusCheckRollup"`
+							} `json:"commit"`
+						} `json:"nodes"`
+					} `json:"commits"`
+				} `json:"repository"`
+			} `json:"data"`
+		}
+		if _, err := c.graphQL(ctx, map[string]any{
+			"query":     b.String(),
+			"variables": map[string]string{"owner": repo.Owner, "name": repo.Name},
+		}, &res); err != nil {
+			return nil, err
+		}
+		for _, n := range batch {
+			pr := res.Data.Repository["pr"+strconv.Itoa(n)]
+			if pr == nil {
+				continue
+			}
+			st := prStats{additions: pr.Additions, deletions: pr.Deletions, comments: pr.Comments.TotalCount}
+			if nodes := pr.Commits.Nodes; len(nodes) > 0 && nodes[0].Commit.Rollup != nil {
+				st.checks = rollupWord(nodes[0].Commit.Rollup.State)
+			}
+			out[n] = st
+		}
+	}
+	return out, nil
+}
 
 // PullRequestByNumber reads one pull request fresh, for a check right before
 // merging it: whether it's still open, and not a draft.
@@ -416,22 +439,6 @@ func (c Client) PullRequestByNumber(ctx context.Context, repo Repo, number int) 
 		out.Checks = c.checks(ctx, repo, raw.Head.SHA)
 	}
 	return &out, nil
-}
-
-// prStats reads a pull request's diff size and comment count, which only the
-// single pull request endpoint carries. It never fails the call: a pull
-// request whose stats couldn't be read is still worth listing.
-func (c Client) prStats(ctx context.Context, repo Repo, number int) (additions, deletions, comments int) {
-	var pr struct {
-		Additions int `json:"additions"`
-		Deletions int `json:"deletions"`
-		Comments  int `json:"comments"`
-	}
-	path := fmt.Sprintf("/repos/%s/%s/pulls/%d", url.PathEscape(repo.Owner), url.PathEscape(repo.Name), number)
-	if err := c.get(ctx, path, &pr); err != nil {
-		return 0, 0, 0
-	}
-	return pr.Additions, pr.Deletions, pr.Comments
 }
 
 // checks folds a commit's check runs into one word. It never fails the call:

@@ -1,12 +1,10 @@
 package github
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"sort"
 	"strconv"
@@ -132,13 +130,16 @@ type Watch struct {
 
 // RateLimitError is GitHub saying to slow down: the hourly budget is spent,
 // or a secondary limit tripped. Until is when it's worth asking again.
+// Low is AgentBox holding a background read back itself, with the budget
+// not spent but nearly.
 type RateLimitError struct {
 	Until   time.Time
 	Message string
+	Low     bool
 }
 
 func (e *RateLimitError) Error() string {
-	return fmt.Sprintf("GitHub's rate limit: %s (until %s)", e.Message, e.Until.Format(time.RFC3339))
+	return fmt.Sprintf("GitHub's rate limit for this account: %s; AgentBox reads GitHub again at %s", e.Message, e.Until.Local().Format("15:04"))
 }
 
 // ErrRateLimited is what a RateLimitError matches with errors.Is.
@@ -271,14 +272,7 @@ func (c gqlCommit) commit() Commit {
 	if c.Rollup == nil {
 		return out
 	}
-	switch c.Rollup.State {
-	case "SUCCESS":
-		out.Checks = "passing"
-	case "FAILURE", "ERROR":
-		out.Checks = "failing"
-	case "PENDING", "EXPECTED":
-		out.Checks = "pending"
-	}
+	out.Checks = rollupWord(c.Rollup.State)
 	for _, x := range c.Rollup.Contexts.Nodes {
 		switch {
 		case x.Type == "CheckRun" && x.Status == "COMPLETED" && failedConclusion(x.Conclusion):
@@ -288,6 +282,19 @@ func (c gqlCommit) commit() Commit {
 		}
 	}
 	return out
+}
+
+// rollupWord is a commit's check rollup in the one word the app shows.
+func rollupWord(state string) string {
+	switch state {
+	case "SUCCESS":
+		return "passing"
+	case "FAILURE", "ERROR":
+		return "failing"
+	case "PENDING", "EXPECTED":
+		return "pending"
+	}
+	return ""
 }
 
 func failedConclusion(c string) bool {
@@ -435,39 +442,11 @@ func readEvents(viewer string, repo map[string]json.RawMessage) (RepoEvents, err
 // graphQL posts a query and decodes its answer, turning GitHub's rate limits
 // into a RateLimitError that says when to come back.
 func (c Client) graphQL(ctx context.Context, body, out any) (http.Header, error) {
-	base := c.BaseURL
-	if base == "" {
-		base = apiRoot()
-	}
-	b, err := json.Marshal(body)
+	data, header, err := c.send(ctx, http.MethodPost, "/graphql", body)
 	if err != nil {
-		return nil, err
+		return header, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/graphql", bytes.NewReader(b))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if c.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
-	}
-	client := c.HTTP
-	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
-	}
-	res, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = res.Body.Close() }()
-	if limited := rateLimitOf(res); limited != nil {
-		_, _ = io.Copy(io.Discard, res.Body)
-		return res.Header, limited
-	}
-	if res.StatusCode >= 300 {
-		return res.Header, apiError("/graphql", res)
-	}
-	return res.Header, json.NewDecoder(res.Body).Decode(out)
+	return header, json.Unmarshal(data, out)
 }
 
 // rateLimitOf reads a response for GitHub telling the client to slow down:

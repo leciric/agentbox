@@ -60,6 +60,7 @@ type stackChild struct {
 // closed. Once per pull request, whichever of the merge and the watch gets
 // there first.
 func (s *Server) restack(ctx context.Context, p state.Project, client github.Client, repo github.Repo, parent stackBase) {
+	ctx = github.WithCaller(ctx, "restack")
 	if parent.Fork || parent.Head == "" || parent.Base == "" || parent.Head == parent.Base {
 		return
 	}

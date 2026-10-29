@@ -19,6 +19,7 @@ import (
 	"agentbox/internal/api"
 	"agentbox/internal/brief"
 	"agentbox/internal/credentials"
+	"agentbox/internal/github"
 	"agentbox/internal/gitrepo"
 	"agentbox/internal/hostos"
 	"agentbox/internal/image"
@@ -1730,7 +1731,7 @@ func (s *Server) saveGitHubToken(w http.ResponseWriter, r *http.Request) error {
 	if token == "" {
 		return errors.New("no token: paste the one from gh auth token, or a personal access token")
 	}
-	login, err := s.gitHub(token).Login(r.Context())
+	login, err := s.gitHub(token).Login(github.WithCaller(r.Context(), "accounts"))
 	if err != nil {
 		return err
 	}
@@ -1875,7 +1876,7 @@ func (s *Server) authStatus(w http.ResponseWriter, _ *http.Request) error {
 		if token, err := creds.GitHubToken(""); err == nil && token != "" {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			if login, err := s.gitHub(token).Login(ctx); err != nil {
+			if login, err := s.gitHub(token).Login(github.WithCaller(ctx, "accounts")); err != nil {
 				status.GitHubError = err.Error()
 			} else {
 				status.GitHubUser = login

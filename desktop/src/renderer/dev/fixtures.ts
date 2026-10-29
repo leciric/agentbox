@@ -829,7 +829,13 @@ function stacked(number: number, title: string, headBranch: string, baseBranch: 
 // pullRequests is a project's pull requests list, with a long GitHub login to
 // check the author column doesn't widen the row (#pull-request-author).
 export function pullRequests(): T.ProjectPullRequests {
+  // ?pulls=limited: the account's hourly limit ran out after this was read.
+  const limited =
+    typeof location !== 'undefined' && new URLSearchParams(location.search).get('pulls') === 'limited'
+      ? { githubError: { kind: 'rateLimited', account: 'default', login: 'someone', repo: 'leciric/agentbox', resetAt: new Date(Date.now() + 38 * 60_000).toISOString(), message: "GitHub's rate limit for this account: API rate limit exceeded for user ID 1." } }
+      : {};
   return {
+    ...limited,
     project: PROJECT,
     github: 'leciric/agentbox',
     githubAccount: 'default',
@@ -2125,7 +2131,7 @@ function filesRequest(method: string, path: string) {
 const devMerged = new Set<number>();
 async function pullsRequest(method: string, path: string) {
   const query = new URLSearchParams(location.search);
-  if (query.get('pulls') !== '1' && query.get('app') !== 'pulls') return undefined;
+  if (query.get('pulls') !== '1' && query.get('pulls') !== 'limited' && query.get('app') !== 'pulls') return undefined;
   const json = (body: unknown) => ({ status: 200, body: JSON.stringify(body), contentType: 'application/json' });
   const list = pullRequests();
   list.pullRequests = list.pullRequests.map((p) => (devMerged.has(p.number) ? { ...p, state: 'merged' } : p));

@@ -1,7 +1,7 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import * as T from '../../shared/api.ts';
-import { formatNumber, t } from '../../shared/i18n/index.ts';
+import { formatNumber, formatTime, t } from '../../shared/i18n/index.ts';
 
 export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
@@ -131,6 +131,12 @@ export function githubErrorSentence(err: T.GitHubError): string {
       return t('shell.github.noAccess', { account, repo: err.repo });
     case T.GitHubBadToken:
       return t('shell.github.badToken', { account });
+    case T.GitHubRateLimited:
+      // One sentence with the time it ends, not GitHub's 403: waiting is the
+      // fix, and nothing about the account is wrong.
+      return err.resetAt
+        ? t('shell.github.rateLimited', { account, time: formatTime(err.resetAt) })
+        : t('shell.github.rateLimitedSoon', { account });
     case T.GitHubNoAccount:
       return err.account
         ? t('shell.github.accountGone', { account: err.account })

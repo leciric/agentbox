@@ -1857,12 +1857,14 @@ type EditLabelsRequest struct {
 // Why a project's pull requests couldn't be read. The app says a different
 // sentence for each, because the fix is different: no account is stored at
 // all, the account used can't see the repository, GitHub refused its token,
-// or something else GitHub said.
+// the account's hourly budget is spent (waiting fixes it), or something else
+// GitHub said.
 const (
-	GitHubNoAccount = "noAccount"
-	GitHubNoAccess  = "noAccess"
-	GitHubBadToken  = "badToken"
-	GitHubOtherErr  = "other"
+	GitHubNoAccount   = "noAccount"
+	GitHubNoAccess    = "noAccess"
+	GitHubBadToken    = "badToken"
+	GitHubRateLimited = "rateLimited"
+	GitHubOtherErr    = "other"
 )
 
 // GitHubError is a failure to read GitHub, named well enough for the app to
@@ -1870,9 +1872,11 @@ const (
 // much as what went wrong: a repository one account can't see is another
 // account's everyday repository.
 type GitHubError struct {
-	// Kind is one of GitHubNoAccount, GitHubNoAccess, GitHubBadToken or
-	// GitHubOtherErr.
+	// Kind is one of GitHubNoAccount, GitHubNoAccess, GitHubBadToken,
+	// GitHubRateLimited or GitHubOtherErr.
 	Kind string `json:"kind"`
+	// ResetAt is, for GitHubRateLimited, when AgentBox reads GitHub again.
+	ResetAt *time.Time `json:"resetAt,omitempty"`
 	// Message is what went wrong in AgentBox's or GitHub's own words, for the
 	// kinds the app has nothing better to say about.
 	Message string `json:"message,omitempty"`

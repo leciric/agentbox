@@ -27,6 +27,7 @@ import (
 	"agentbox/internal/credentials"
 	"agentbox/internal/cursor"
 	"agentbox/internal/dockerfw"
+	"agentbox/internal/github"
 	"agentbox/internal/gitrepo"
 	"agentbox/internal/hostos"
 	"agentbox/internal/image"
@@ -597,6 +598,11 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 	loops.Go(func() { s.watchUpdates(ctx) })
 	loops.Go(func() { s.watchUsage(ctx, realUsageClock()) })
 	loops.Go(func() { s.watchStalls(ctx) })
+	if os.Getenv("AGENTBOX_GITHUB_DEBUG") != "" {
+		// Every request to GitHub, with who asked and what is left: the
+		// totals are in agentbox github usage either way.
+		github.DebugLog = s.logf
+	}
 	loops.Go(func() { s.watchPullRequests(ctx) })
 	// Scheduled tasks, starting with any that fell due while it was down.
 	loops.Go(func() { s.runSchedules(ctx) })
@@ -843,6 +849,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/recap", s.recap)
 	// What Anthropic last said about each Claude account's usage limits (D85).
 	h("GET /v1/limits", s.claudeLimits)
+	h("GET /v1/github/usage", s.githubUsage)
 
 	// The app's search palette: everything, in every project, in one call.
 	h("GET /v1/search", s.search)
