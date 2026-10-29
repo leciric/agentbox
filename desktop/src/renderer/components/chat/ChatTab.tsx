@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, Archive, Ellipsis, EyeOff, FolderTree, LoaderCircle, MessageSquarePlus, Play, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { ArrowDown, Archive, Ellipsis, EyeOff, FolderTree, Layers, LoaderCircle, MessageSquarePlus, Play, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
@@ -421,7 +421,8 @@ export function ChatTab({
 
 // The chat's controls live in its page's ⋯ menu, not in a row of buttons over
 // it: useChatMenu gives a caller (AgentView, ProjectView, HomeChatPanel) the
-// chat's items for its menu — Find in chat, Files, New chat, Reload tools —
+// chat's items for its menu — Find in chat, Files, New chat, Compact now,
+// Reload tools —
 // and the dialogs they open, which stay mounted outside the menu. What's left
 // in view is ChatStatus, and only when the tool isn't simply ready.
 // It's null without an agent, for a page whose agent is still loading: its
@@ -429,9 +430,10 @@ export function ChatTab({
 // buttons is New chat as the chat header's icon, where UI v2 has it on an
 // agent's page instead of in a menu (its Find is ⌘F, its Files the panel's);
 // newChat is the same as an item, for v2's lead header, whose ⋯ has it
-// (ProjectMenu), with untracked, the warning that stays beside it. reload is
-// Reload tools as an item for the page's ⋯, under More: it's rarely needed.
-export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; buttons: ReactNode; newChat: ReactNode; untracked: ReactNode; reload: ReactNode; dialogs: ReactNode } | null {
+// (ProjectMenu), with untracked, the warning that stays beside it. compact is
+// Compact now, for a project's lead chat, which v2's ⋯ also takes under More,
+// as reload is Reload tools: it's rarely needed.
+export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; buttons: ReactNode; newChat: ReactNode; compact: ReactNode; untracked: ReactNode; reload: ReactNode; dialogs: ReactNode } | null {
   const t = useT();
   const queryClient = useQueryClient();
   const ref = agent?.ref ?? '';
@@ -441,13 +443,40 @@ export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; but
   const empty = (thread.data?.items ?? []).length === 0;
   const [clearing, setClearing] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [compacting, setCompacting] = useState(false);
   const panel = usePanelPrefs();
   const v2 = useUiV2();
   const reload = useMutation({ mutationFn: () => api.reloadChatTools(ref), onError: (err) => toast.error(errorMessage(err)) });
+  const compact = useMutation({
+    mutationFn: () => api.rolloverChat(agent?.project ?? ''),
+    onSuccess: () => {
+      // The daemon writes the compaction's card as the consolidation starts;
+      // read it again in case the stream hasn't caught up.
+      void queryClient.invalidateQueries({ queryKey: chatKey(ref) });
+      toast.success(t('chat.tab.compacted'));
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
   if (!agent) return null;
   const tool = aiLabel(agent.ai);
   const can = toolsReload(session);
   const reloadWhy = can === 'busy' ? t('chat.tab.reloadToolsBusy', { tool }) : can === 'off' ? t('chat.tab.reloadToolsOff', { tool }) : undefined;
+  // A lead's chat is the project's, not the Home chat's: only the former has a
+  // project memory to consolidate into (internal/daemon/rollover.go).
+  const leadChat = isProjectChat(agent.ref) && !isHomeChat(agent.ref);
+  const inTurn = !!session?.turnStartedAt;
+  const compactWhy = inTurn ? t('chat.tab.compactBusy', { tool }) : compact.isPending ? t('chat.cache.compacting') : undefined;
+  const compactItem = (
+    <MenuItem
+      icon={Layers}
+      disabled={inTurn || compact.isPending}
+      title={compactWhy ?? t('chat.tab.compactTip')}
+      onSelect={() => setCompacting(true)}
+      data-chat-compact
+    >
+      {t('chat.tab.compactNow')}
+    </MenuItem>
+  );
   const reloadItem = (
     <MenuItem
       icon={RefreshCw}
@@ -481,6 +510,7 @@ export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; but
         </MenuCheckboxItem>
       )}
       {newChatItem}
+      {leadChat && compactItem}
       {reloadItem}
       {/* Only Claude Code's adapter reports background tasks: elsewhere an
           agent waiting on one reads as finished, and never wakes for it. */}
@@ -533,20 +563,30 @@ export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; but
         confirmLabel={t('chat.tab.reloadToolsConfirm')}
         onConfirm={() => api.reloadChatTools(agent.ref)}
       />
+      {leadChat && (
+        <ConfirmDialog
+          open={compacting}
+          onOpenChange={setCompacting}
+          title={t('chat.tab.compactTitle')}
+          description={t('chat.tab.compactDescription')}
+          confirmLabel={t('chat.tab.compactConfirm')}
+          onConfirm={async () => compact.mutate()}
+        />
+      )}
     </>
   );
-  return { items, buttons, newChat: newChatItem, untracked: untrackedMark, reload: reloadItem, dialogs };
+  return { items, buttons, newChat: newChatItem, compact: compactItem, untracked: untrackedMark, reload: reloadItem, dialogs };
 }
 
 // ChatMenu is a ⋯ of the chat's own, for a page with no menu to fold it into
 // (the Home chat).
-export function ChatMenu({ agent }: { agent: T.Agent }) {
+export function ChatMenu({ agent, defaultOpen }: { agent: T.Agent; defaultOpen?: boolean }) {
   const t = useT();
   const menu = useChatMenu(agent);
   if (!menu) return null;
   return (
     <>
-      <Menu>
+      <Menu defaultOpen={defaultOpen}>
         <MenuTrigger asChild>
           <Button size="icon-sm" variant="ghost" aria-label={t('chat.menu.label')} data-chat-menu>
             <Ellipsis />

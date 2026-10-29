@@ -2206,6 +2206,13 @@ export const enUS = {
   'chat.tab.jumpToLatest': 'Jump to latest',
   'chat.tab.scrollToEnd': 'Scroll to end',
   'chat.tab.newChat': 'New chat',
+  'chat.tab.compactNow': 'Compact now',
+  'chat.tab.compactTip': 'Consolidate this conversation into project memory and carry on in a fresh session',
+  'chat.tab.compactBusy': 'Compact once {tool} finishes its turn',
+  'chat.tab.compactTitle': 'Compact this chat?',
+  'chat.tab.compactDescription': 'The conversation is consolidated into the project’s memory, and the chat starts a fresh session with a recap of it. It carries on here, with a notice where the session changed.',
+  'chat.tab.compactConfirm': 'Compact now',
+  'chat.tab.compacted': 'Conversation consolidated into project memory',
   'chat.menu.label': 'Chat',
   'chat.menu.find': 'Find in chat',
   // pages: what the agents published on Hatch (components/pages/)

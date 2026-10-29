@@ -407,6 +407,9 @@ export const api = {
   setChatOption: (ref: string, option: string, value: string) =>
     call<T.ChatSession>('PUT', `${chatBase(ref)}/options/${encodeURIComponent(option)}`, { value } satisfies T.ChatOptionRequest),
   clearChat: (ref: string) => call<void>('DELETE', chatBase(ref)),
+  // rolloverChat consolidates a project chat's conversation into its memory now,
+  // whatever its rollover threshold says, and carries on in a fresh session.
+  rolloverChat: (projectName: string) => call<void>('POST', `${project(projectName)}/chat/rollover`),
   // A lead's AI tool and account, chosen in its composer: what it can switch
   // to, and the choice, which applies from its next message. project is the
   // project's name, or T.HomeProject for the Home chat.
