@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"agentbox/internal/agent"
@@ -97,9 +98,18 @@ func (s *Server) startQueuedAgent(ctx context.Context, q state.QueuedAgent) erro
 	if err != nil {
 		return err
 	}
-	cluster, err := s.placeAgent(ctx, p, req.Request.Cluster)
-	if err != nil {
-		return err
+	// A cluster the request or the project names may have been removed since
+	// it was queued: nothing will ever make it start, so it leaves the queue
+	// now rather than being retried every pass forever.
+	requested := strings.TrimSpace(req.Request.Cluster)
+	if requested == "" {
+		requested = p.Cluster
+	}
+	if requested != "" && requested != state.ClusterAuto && requested != state.ClusterLocal {
+		if _, err := s.store.Cluster(ctx, requested); errors.Is(err, state.ErrNotFound) {
+			s.logf("queued agent %s: cluster %s is gone; removing it", q.Ref(), requested)
+			return s.store.RemoveAgent(context.WithoutCancel(ctx), q.Project, q.Name)
+		}
 	}
 	a, err := s.store.Agent(ctx, q.Project, q.Name)
 	if err != nil {
@@ -110,10 +120,28 @@ func (s *Server) startQueuedAgent(ctx context.Context, q state.QueuedAgent) erro
 		}
 		return err
 	}
-	// The concrete cluster goes with the job: it was admitted here, and the
-	// job uses a name it is given rather than asking again.
+	// A start job slower than a queue pass must not be started a second time:
+	// the entry stays until the job reaches StartQueued.
+	ref := q.Ref()
+	if _, busy := s.queueStarting.LoadOrStore(ref, struct{}{}); busy {
+		return nil
+	}
+	launched := false
+	defer func() {
+		if !launched {
+			s.queueStarting.Delete(ref)
+		}
+	}()
+	cluster, err := s.placeAgent(ctx, p, req.Request.Cluster)
+	if err != nil {
+		return err
+	}
+	// The concrete cluster goes with the job: it was admitted and its slot
+	// reserved here, and the job uses a name it is given rather than asking
+	// again.
 	req.Request.Cluster = cluster
 	if _, err := s.jobs.start("create", q.Project, func(ctx context.Context, log io.Writer) (any, error) {
+		defer s.queueStarting.Delete(ref)
 		s.logf("starting %s, queued until a cluster had room", q.Ref())
 		out, err := s.createJob(req.Request, req.ByLead, q.Name)(ctx, log)
 		if err != nil {
@@ -135,13 +163,7 @@ func (s *Server) startQueuedAgent(ctx context.Context, q state.QueuedAgent) erro
 	}); err != nil {
 		return err
 	}
-	// Before the pod is there, so the next queued agent doesn't take the same
-	// slot.
-	if cluster != "" {
-		if c, err := s.store.Cluster(ctx, cluster); err == nil {
-			s.reserve(c)
-		}
-	}
+	launched = true
 	s.tellLead(ctx, q.Project, fmt.Sprintf("Queued agent %s%s is starting: %s has room for it now.", q.Name, withTitle(a.Title), cmp.Or(cluster, "this machine")), false)
 	return nil
 }

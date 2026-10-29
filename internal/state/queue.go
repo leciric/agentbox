@@ -33,7 +33,9 @@ type QueuedAgent struct {
 func (q QueuedAgent) Ref() string { return q.Project + "/" + q.Name }
 
 // LeftoverQueue lists the queued agents of one project, or of every project
-// for "", in order: by project, then by place in line.
+// for "", oldest first: scheduling is one line across projects, so a later-named
+// project can't starve. Position is kept for display, numbered 1..n within a
+// project in that same order.
 func (s *Store) LeftoverQueue(ctx context.Context, project string) ([]QueuedAgent, error) {
 	query := `SELECT project, name, position, request, reason, queued_at FROM agent_queue`
 	var args []any
@@ -41,7 +43,7 @@ func (s *Store) LeftoverQueue(ctx context.Context, project string) ([]QueuedAgen
 		query += ` WHERE project = ?`
 		args = append(args, project)
 	}
-	rows, err := s.db.QueryContext(ctx, query+` ORDER BY project, position, queued_at, name`, args...)
+	rows, err := s.db.QueryContext(ctx, query+` ORDER BY queued_at, project, position, name`, args...)
 	if err != nil {
 		return nil, err
 	}
