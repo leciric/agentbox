@@ -1036,6 +1036,8 @@ export interface MediaMeta {
   tests?: TestCounts;
   recorded?: number;
   cuts?: MediaCut[];
+  pair?: string;
+  side?: string;
   raw?: string;
 }
 
@@ -1080,6 +1082,8 @@ export interface ScreenshotRequest {
   target?: string;
   fullPage?: boolean;
   name?: string;
+  pair?: string;
+  side?: string;
 }
 
 export interface RecordRequest {
@@ -1089,6 +1093,8 @@ export interface RecordRequest {
   limitSeconds?: number;
   noTrim?: boolean;
   wholeDisplay?: boolean;
+  pair?: string;
+  side?: string;
   noEdit?: boolean;
 }
 
@@ -1135,6 +1141,8 @@ export interface AddMediaRequest {
   path: string;
   kind?: string;
   name?: string;
+  pair?: string;
+  side?: string;
 }
 
 export interface NoteRequest {

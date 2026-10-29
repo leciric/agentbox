@@ -276,6 +276,9 @@ const keyLabels: Record<ReviewAction, MessageKey> = {
   previousChapter: 'review.key.previousChapter',
   nextChapter: 'review.key.nextChapter',
   expand: 'review.key.expand',
+  compareMode: 'review.key.compareMode',
+  flip: 'review.key.flip',
+  highlight: 'review.key.highlight',
   toggleDetails: 'review.key.toggleDetails',
   openPr: 'review.key.openPr',
   help: 'review.key.help',
@@ -533,6 +536,12 @@ function ReviewCarousel({
         return proofView.current?.chapter(1);
       case 'expand':
         return proofView.current?.toggleExpand();
+      case 'compareMode':
+        return proofView.current?.compareMode();
+      case 'flip':
+        return proofView.current?.flip();
+      case 'highlight':
+        return proofView.current?.highlight();
       case 'help':
         return setHelp((h) => !h);
     }

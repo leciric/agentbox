@@ -3,13 +3,16 @@
 // the review marks it reviewed), and the carousel of everything one of them
 // made.
 import type * as T from '../../shared/api';
+import { pairUp, type Pair } from '../../shared/pairs.ts';
 import { t, type MessageKey } from '../../shared/i18n/index.ts';
 import { recordedFor, videoAt } from './recording.ts';
 
 // Proof is what an agent showed it checked, for the review's Proof tab:
-// its recordings, the latest first, each in chapters; its screenshots,
-// oldest first; and its Hatch pages.
+// its before/after pairs, in the order they were taken, to compare; its
+// other recordings, the latest first, each in chapters; its other
+// screenshots, oldest first; and its Hatch pages.
 export interface Proof {
+  pairs?: Pair[];
   recordings: Take[];
   screenshots: T.MediaItem[];
   pages: T.Artifact[];
@@ -42,22 +45,29 @@ export function proofOf(media: readonly T.MediaItem[], pages: readonly T.Artifac
   const byTime = [...media].sort((a, b) => ms(a.createdAt) - ms(b.createdAt));
   const screenshots = byTime.filter((m) => m.kind === 'screenshot');
   const notes = byTime.filter((m) => m.kind === 'note');
-  const recordings = byTime
+  // A paired screenshot still marks the chapter of a recording it was taken in.
+  const { pairs, rest } = pairUp(byTime.filter((m) => m.kind === 'screenshot' || m.kind === 'recording'));
+  const recordings = rest
     .filter((m) => m.kind === 'recording')
     .reverse()
     .map((rec) => ({ media: rec, chapters: chaptersOf(rec, notes, screenshots) }));
-  return { recordings, screenshots, pages: [...pages].sort((a, b) => ms(a.createdAt) - ms(b.createdAt)) };
+  return { pairs, recordings, screenshots: rest.filter((m) => m.kind === 'screenshot'), pages: [...pages].sort((a, b) => ms(a.createdAt) - ms(b.createdAt)) };
 }
 
 // A shown item is one piece of proof the review's gallery steps through:
-// a recording, a screenshot or a page.
-export type Shown = { kind: 'recording'; take: Take } | { kind: 'screenshot'; media: T.MediaItem } | { kind: 'page'; page: T.Artifact };
+// a before/after pair, a recording, a screenshot or a page.
+export type Shown = { kind: 'pair'; pair: Pair } | { kind: 'recording'; take: Take } | { kind: 'screenshot'; media: T.MediaItem } | { kind: 'page'; page: T.Artifact };
+
+// shownKey is what tells a piece of proof from the others.
+export const shownKey = (s: Shown) => (s.kind === 'pair' ? `pair:${s.pair.key}` : s.kind === 'recording' ? s.take.media.id : s.kind === 'screenshot' ? s.media.id : s.page.id);
 
 // gallery is every piece of proof in the order the review shows it: the
+// before/after pairs, in the order they were taken, then the other
 // recordings, the latest first, then the screenshots and the pages, oldest
 // first. ← → step through it, whatever the kind.
 export function gallery(proof: Proof): Shown[] {
   return [
+    ...(proof.pairs ?? []).map((pair): Shown => ({ kind: 'pair', pair })),
     ...proof.recordings.map((take): Shown => ({ kind: 'recording', take })),
     ...proof.screenshots.map((media): Shown => ({ kind: 'screenshot', media })),
     ...proof.pages.map((page): Shown => ({ kind: 'page', page })),
@@ -211,6 +221,9 @@ export type ReviewAction =
   | 'previousChapter'
   | 'nextChapter'
   | 'expand'
+  | 'compareMode'
+  | 'flip'
+  | 'highlight'
   | 'help';
 
 // The keys, as the review's ? overlay lists them: the verdicts, then the
@@ -230,6 +243,9 @@ export const reviewKeys: readonly { keys: readonly string[]; match?: readonly st
   { keys: ['['], action: 'previousChapter' },
   { keys: [']'], action: 'nextChapter' },
   { keys: ['F'], action: 'expand' },
+  { keys: ['V'], action: 'compareMode' },
+  { keys: ['X'], action: 'flip' },
+  { keys: ['H'], action: 'highlight' },
   { keys: ['D'], action: 'toggleDiff' },
   { keys: ['J'], action: 'nextFile' },
   { keys: ['K'], action: 'previousFile' },
@@ -249,9 +265,18 @@ export function reviewShortcut(e: { key: string; ctrlKey?: boolean; altKey?: boo
 }
 
 // proofKey is whether action works the proof's gallery, which only the proof
-// pane takes: in the diff, the arrows scroll.
+// pane takes: in the diff, the arrows scroll. V, X and H work a pair's
+// comparison.
 export const proofKey = (action: ReviewAction) =>
-  action === 'previousMedia' || action === 'nextMedia' || action === 'play' || action === 'previousChapter' || action === 'nextChapter' || action === 'expand';
+  action === 'previousMedia' ||
+  action === 'nextMedia' ||
+  action === 'play' ||
+  action === 'previousChapter' ||
+  action === 'nextChapter' ||
+  action === 'expand' ||
+  action === 'compareMode' ||
+  action === 'flip' ||
+  action === 'highlight';
 
 // repeatable is whether holding a key down may act again: moving through
 // files and agents may, a verdict or a toggle may not.

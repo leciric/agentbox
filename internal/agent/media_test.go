@@ -350,6 +350,45 @@ func TestScreenshotFallsBackToTheDisplayWhenTheBrowserHasOnlyABlankPage(t *testi
 	}
 }
 
+func TestScreenshotKeepsItsSideOfAPair(t *testing.T) {
+	f, a := screenshotFixture(t, "about:blank")
+	item, err := f.m.Screenshot(context.Background(), a, agent.ScreenshotOptions{MediaPair: agent.MediaPair{Pair: "settings-dark", Side: "before"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.Name != "settings-dark-before" || !strings.Contains(item.Meta, `"pair":"settings-dark","side":"before"`) {
+		t.Errorf("item = %q %s, want settings-dark-before paired as its before", item.Name, item.Meta)
+	}
+}
+
+func TestCheckPair(t *testing.T) {
+	for _, c := range []struct {
+		pair, side, name         string
+		wantPair, wantName, fail string
+	}{
+		{name: "plain", wantName: "plain"},
+		{pair: "settings", side: "after", wantPair: "settings", wantName: "settings-after"},
+		{pair: " settings ", side: "Before", name: "first look", wantPair: "settings", wantName: "first look"},
+		{side: "before", name: "counts-dark-before", wantPair: "counts-dark", wantName: "counts-dark-before"},
+		{side: "after", name: "after_counts", wantPair: "counts", wantName: "after_counts"},
+		{side: "after", name: "counts", wantPair: "counts", wantName: "counts"},
+		{side: "after", fail: "--pair"},
+		{pair: "settings", fail: "--before or --after"},
+		{pair: "settings", side: "during", fail: "unknown side"},
+	} {
+		p, name, err := agent.CheckPair(agent.MediaPair{Pair: c.pair, Side: c.side}, c.name)
+		if c.fail != "" {
+			if err == nil || !strings.Contains(err.Error(), c.fail) {
+				t.Errorf("checkPair(%q, %q, %q) = %v, want an error about %s", c.pair, c.side, c.name, err, c.fail)
+			}
+			continue
+		}
+		if err != nil || p.Pair != c.wantPair || name != c.wantName {
+			t.Errorf("checkPair(%q, %q, %q) = %+v %q %v, want pair %q named %q", c.pair, c.side, c.name, p, name, err, c.wantPair, c.wantName)
+		}
+	}
+}
+
 func TestScreenshotRefusesAnExplicitBrowserTargetOnABlankPage(t *testing.T) {
 	f, a := screenshotFixture(t, "about:blank")
 	_, err := f.m.Screenshot(context.Background(), a, agent.ScreenshotOptions{Target: "browser", Name: "app"})

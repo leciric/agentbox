@@ -1,12 +1,13 @@
-import { Check, ChevronLeft, ChevronRight, CircleAlert, ExternalLink, Film, Image as ImageIcon, Maximize2, Minimize2, Pause, Play } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, CircleAlert, Columns2, ExternalLink, Film, Image as ImageIcon, Maximize2, Minimize2, Pause, Play } from 'lucide-react';
 import { useEffect, useImperativeHandle, useRef, useState, type CSSProperties, type Ref } from 'react';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { useT } from '../lib/i18n';
 import { mediaUrl } from '../lib/media';
-import { chapterAt, gallery, readableName, step, type Proof, type Shown, type Take } from '../lib/review';
+import { chapterAt, gallery, readableName, shownKey, step, type Proof, type Shown, type Take } from '../lib/review';
 import { cn } from '../lib/utils';
 import { PageIcon } from './pages/PageThumb';
+import { ReviewCompare, type CompareHandle } from './ReviewCompare';
 import { Button } from './ui/button';
 import { Kbd } from './ui/card';
 
@@ -14,10 +15,12 @@ import { Kbd } from './ui/card';
 // checked, in one gallery (lib/review.ts gallery). The stage shows one piece
 // of it, a recording, a screenshot or a page, and the strip under it lists
 // all of them, the one on stage lit; a recording's chapters (what it checked
-// at each moment) are beside it, to jump to. ← → step through the gallery
-// whatever the kind, Space plays and pauses, [ ] move through the chapters
-// and F fills the review with the piece on stage (ProofHandle, the keys
-// being the review's: ReviewCarousel).
+// at each moment) are beside it, to jump to. A before/after pair is one
+// piece, its two halves compared on stage (ReviewCompare). ← → step through
+// the gallery whatever the kind, Space plays and pauses, [ ] move through
+// the chapters, F fills the review with the piece on stage, and V, X and H
+// work a pair's comparison (ProofHandle, the keys being the review's:
+// ReviewCarousel).
 
 // clock is seconds as m:ss.
 export const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
@@ -31,6 +34,9 @@ export interface ProofHandle {
   // collapse leaves the expanded view, and says whether it was in it, so
   // Esc does that before it closes the review.
   collapse: () => boolean;
+  compareMode: () => void;
+  flip: () => void;
+  highlight: () => void;
 }
 
 export function ReviewProof({ ref, project, proof }: { ref?: Ref<ProofHandle>; project: string; proof: Proof }) {
@@ -40,6 +46,7 @@ export function ReviewProof({ ref, project, proof }: { ref?: Ref<ProofHandle>; p
   const [time, setTime] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const player = useRef<PlayerHandle>(null);
+  const compare = useRef<CompareHandle>(null);
   const root = useRef<HTMLDivElement>(null);
   const current = shown[Math.min(at, shown.length - 1)];
   const rec = current?.kind === 'recording' ? current.take : undefined;
@@ -59,7 +66,7 @@ export function ReviewProof({ ref, project, proof }: { ref?: Ref<ProofHandle>; p
   };
   useImperativeHandle(ref, () => ({
     step: (by) => shown.length && pick(step(at, shown.length, by)),
-    togglePlay: () => player.current?.toggle(),
+    togglePlay: () => (current?.kind === 'pair' ? compare.current?.togglePlay() : player.current?.toggle()),
     chapter: (by) => player.current?.chapter(by),
     toggleExpand: () => current && expand(!expanded),
     collapse: () => {
@@ -67,6 +74,9 @@ export function ReviewProof({ ref, project, proof }: { ref?: Ref<ProofHandle>; p
       setExpanded(false);
       return true;
     },
+    compareMode: () => compare.current?.cycle(),
+    flip: () => compare.current?.flip(),
+    highlight: () => compare.current?.highlight(),
   }));
 
   if (!current) {
@@ -83,11 +93,12 @@ export function ReviewProof({ ref, project, proof }: { ref?: Ref<ProofHandle>; p
 
   const stage = (
     <Stage
-      key={current.kind === 'recording' ? current.take.media.id : current.kind === 'screenshot' ? current.media.id : current.page.id}
+      key={shownKey(current)}
       shown={current}
       project={project}
       expanded={expanded}
       player={player}
+      compare={compare}
       chapter={chapter}
       onTime={setTime}
       onExpand={() => expand(!expanded)}
@@ -127,7 +138,8 @@ export function ReviewProof({ ref, project, proof }: { ref?: Ref<ProofHandle>; p
 }
 
 // nameOf is what a piece of proof is called.
-const nameOf = (s: Shown) => (s.kind === 'recording' ? readableName(s.take.media.name) : s.kind === 'screenshot' ? readableName(s.media.name) : s.page.title);
+const nameOf = (s: Shown) =>
+  s.kind === 'pair' ? readableName(s.pair.name) : s.kind === 'recording' ? readableName(s.take.media.name) : s.kind === 'screenshot' ? readableName(s.media.name) : s.page.title;
 
 // StageBar is under the stage: where the piece is in the gallery, its name,
 // and Expand.
@@ -162,6 +174,7 @@ function StageBar({ shown, n, count, expanded, onStep, onExpand }: { shown: Show
 }
 
 function KindIcon({ shown, className }: { shown: Shown; className?: string }) {
+  if (shown.kind === 'pair') return <Columns2 className={className} />;
   if (shown.kind === 'recording') return <Film className={className} />;
   if (shown.kind === 'screenshot') return <ImageIcon className={className} />;
   return <PageIcon className={className} />;
@@ -174,6 +187,7 @@ function Stage({
   project,
   expanded,
   player,
+  compare,
   chapter,
   onTime,
   onExpand,
@@ -182,12 +196,14 @@ function Stage({
   project: string;
   expanded: boolean;
   player: Ref<PlayerHandle>;
+  compare: Ref<CompareHandle>;
   chapter: number;
   onTime: (seconds: number) => void;
   onExpand: () => void;
 }) {
   const box = expanded ? 'size-full' : 'mx-auto aspect-[16/10] w-full';
   const width = expanded ? undefined : { maxWidth: 'calc(50vh * 1.6)' };
+  if (shown.kind === 'pair') return <ReviewCompare ref={compare} pair={shown.pair} expanded={expanded} />;
   if (shown.kind === 'recording') return <Player ref={player} take={shown.take} chapter={chapter} onTime={onTime} expanded={expanded} />;
   if (shown.kind === 'screenshot') {
     return (
@@ -203,6 +219,7 @@ function Stage({
 function Strip({ shown, at, lit, onPick }: { shown: Shown[]; at: number; lit: ReadonlySet<string>; onPick: (n: number) => void }) {
   const t = useT();
   const counts = [
+    shown.filter((s) => s.kind === 'pair').length && t('review.count.pairs', { count: shown.filter((s) => s.kind === 'pair').length }),
     shown.filter((s) => s.kind === 'recording').length && t('review.count.recordings', { count: shown.filter((s) => s.kind === 'recording').length }),
     shown.filter((s) => s.kind === 'screenshot').length && t('review.count.screenshots', { count: shown.filter((s) => s.kind === 'screenshot').length }),
     shown.filter((s) => s.kind === 'page').length && t('review.count.pages', { count: shown.filter((s) => s.kind === 'page').length }),
@@ -218,13 +235,14 @@ function Strip({ shown, at, lit, onPick }: { shown: Shown[]; at: number; lit: Re
       <div className="flex max-w-full gap-2 overflow-x-auto overscroll-x-contain p-0.5 pb-1 [scrollbar-width:thin]" data-review-shots>
         {shown.map((s, i) => (
           <button
-            key={s.kind === 'recording' ? s.take.media.id : s.kind === 'screenshot' ? s.media.id : s.page.id}
+            key={shownKey(s)}
             type="button"
             title={nameOf(s)}
             aria-current={i === at || undefined}
             onClick={() => onPick(i)}
             className={cn(
-              'w-36 shrink-0 overflow-hidden rounded-lg border bg-surface text-left transition hover:border-line-heavy',
+              s.kind === 'pair' ? 'w-56' : 'w-36',
+              'shrink-0 overflow-hidden rounded-lg border bg-surface text-left transition hover:border-line-heavy',
               i === at ? 'border-brand-400 ring-1 ring-brand-400' : s.kind === 'screenshot' && lit.has(s.media.id) ? 'border-brand-400/50' : 'border-line-strong',
             )}
             data-review-media={i + 1}
@@ -243,6 +261,22 @@ function Strip({ shown, at, lit, onPick }: { shown: Shown[]; at: number; lit: Re
 }
 
 function Thumb({ shown }: { shown: Shown }) {
+  if (shown.kind === 'pair') {
+    // Its halves, before then after.
+    return (
+      <span className="grid aspect-[32/10] w-full grid-cols-2 gap-px bg-line-strong">
+        {[shown.pair.before, shown.pair.after].map((m) =>
+          m.kind === 'screenshot' ? (
+            <img key={m.id} src={mediaUrl(m)} alt="" draggable={false} className="size-full bg-black object-cover object-top" />
+          ) : (
+            <span key={m.id} className="flex size-full items-center justify-center bg-black text-white/80">
+              <Play className="size-5 fill-current" />
+            </span>
+          ),
+        )}
+      </span>
+    );
+  }
   if (shown.kind === 'screenshot') return <img src={mediaUrl(shown.media)} alt="" draggable={false} className="aspect-[16/10] w-full bg-black object-cover object-top" />;
   if (shown.kind === 'recording') {
     return (

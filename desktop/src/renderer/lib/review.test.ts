@@ -157,9 +157,14 @@ test('reviewShortcut maps keys to actions, and leaves modified ones alone', () =
   assert.equal(reviewShortcut({ key: ']' }), 'nextChapter');
   assert.equal(reviewShortcut({ key: 'f' }), 'expand');
   assert.ok(proofKey('nextMedia') && !proofKey('toggleDiff'));
+  // V, X and H work a before/after pair's comparison.
+  assert.equal(reviewShortcut({ key: 'v' }), 'compareMode');
+  assert.equal(reviewShortcut({ key: 'x' }), 'flip');
+  assert.equal(reviewShortcut({ key: 'h' }), 'highlight');
+  assert.ok(proofKey('flip') && !repeatable('flip'));
   assert.equal(reviewShortcut({ key: 'r', metaKey: true }), null);
   assert.equal(reviewShortcut({ key: 'm', ctrlKey: true }), null);
-  assert.equal(reviewShortcut({ key: 'x' }), null);
+  assert.equal(reviewShortcut({ key: 'z' }), null);
   // Every key the review lists does what it says.
   for (const k of reviewKeys) for (const key of k.match ?? k.keys) assert.equal(reviewShortcut({ key }), k.action, key);
   // A held key moves through files, never merges twice.
@@ -259,4 +264,25 @@ test('a review opened on one agent goes on to the others waiting', () => {
   assert.equal(nextPending(order, 'b', live)?.ref, 'a');
   // A walk keeps its own order.
   assert.deepEqual(walkOrder({ item: live[0], order: ['a', 'c'] }), ['a', 'c']);
+});
+
+// agent-635's counts-project-dark-1920-before showed first and its -after
+// last, with everything else between them.
+test('proofOf shows each before/after pair together, before then after, ahead of the rest', () => {
+  const proof = proofOf(
+    [
+      item('counts-project-dark-1920-before', 'screenshot', '2026-10-28T10:00:00Z'),
+      item('sidebar', 'screenshot', '2026-10-28T10:01:00Z'),
+      item('walk', 'recording', '2026-10-28T10:02:00Z', { meta: { duration: 10 } }),
+      item('first look', 'screenshot', '2026-10-28T10:03:00Z', { meta: { pair: 'menu', side: 'before' } }),
+      item('counts-project-dark-1920-after', 'screenshot', '2026-10-28T10:04:00Z'),
+      item('second look', 'screenshot', '2026-10-28T10:05:00Z', { meta: { pair: 'menu', side: 'after' } }),
+    ],
+    [],
+  );
+  const shown = gallery(proof);
+  assert.deepEqual(
+    shown.map((s) => (s.kind === 'pair' ? `${s.pair.before.id} | ${s.pair.after.id}` : s.kind === 'recording' ? s.take.media.id : s.kind === 'screenshot' ? s.media.id : s.page.id)),
+    ['counts-project-dark-1920-before | counts-project-dark-1920-after', 'first look | second look', 'walk', 'sidebar'],
+  );
 });
