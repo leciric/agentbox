@@ -150,8 +150,13 @@ export function listBox(state: Pick<PanelState, 'listWidth' | 'listFolded'>, roo
 }
 // panelWant is how wide chat's panel would be: the one width beside a lead's
 // chat; beside an agent's own, its desktop is what you came for, so half the
-// room until you drag it.
-export const panelWant = (state: Pick<PanelState, 'width' | 'agentWidth'>, chat: string, room: number): number => (isLeadRef(chat) ? state.width : (state.agentWidth ?? Math.round(room / 2)));
+// room until you drag it, while its file tree, which has less to show, is as
+// narrow as the list.
+export const panelWant = (state: Pick<PanelState, 'width' | 'agentWidth'>, chat: string, room: number, view?: PanelView): number => {
+  if (isLeadRef(chat)) return state.width;
+  if (state.agentWidth !== undefined) return state.agentWidth;
+  return view === 'files' ? listDefault : Math.round(room / 2);
+};
 export function panelBox(want: number, room: number, windowWidth: number): { width: number; drawer: boolean } {
   if (windowWidth < besideMin || room - chatMin < panelMin) return { width: Math.round(Math.min(windowWidth * 0.92, Math.max(want, 420), windowWidth - 24)), drawer: true };
   return { width: Math.round(Math.max(panelMin, Math.min(want, room - chatMin))), drawer: false };
@@ -393,17 +398,18 @@ let beside = true;
 export const setFitsBeside = (fits: boolean) => void (beside = fits);
 export const fitsBeside = () => beside;
 
-// openAgentChat is opening an agent's chat. An agent using its desktop
-// (usingDesktop) opens its panel on the Desktop, where there is room for it
-// beside the chat; where there isn't, the strip stays as it is, rather than a
-// drawer over the chat you came to read. An idle display is a blank screen, so
-// then the panel comes closed, back on its list beside the chat, and the Desktop is a click away.
+// openAgentChat is opening an agent's chat: its panel opens on it, where
+// there is room for it beside the chat; where there isn't, the strip stays as
+// it is, rather than a drawer over the chat you came to read. The panel shows
+// its Desktop only when the agent is using it (usingDesktop): an idle display
+// is a blank screen, so then it shows the view last picked, Files at first.
 // The lead's panel keeps what it showed, its list most often, for coming back.
 export function openAgentChat(ref: string, usingDesktop = true): void {
-  if (!usingDesktop) return update(ref, () => ({ open: false, target: listTarget }));
   if (!beside) return;
   const state = panelState();
-  update(ref, () => ({ open: true, target: ref }), { views: { ...state.views, [ref]: 'desktop' } });
+  const shown = state.views[ref];
+  const view: PanelView = usingDesktop ? 'desktop' : shown && shown !== 'desktop' ? shown : 'files';
+  update(ref, () => ({ open: true, target: ref }), { views: { ...state.views, [ref]: view } });
 }
 
 // chaptersOf is a recording's chapters: the titled steps of its agent's
