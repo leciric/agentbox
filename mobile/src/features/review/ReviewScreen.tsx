@@ -287,9 +287,13 @@ function PairView({ pair }: { pair: Pair }) {
   const flip = () => setSide((s) => (s === 'before' ? 'after' : 'before'));
   const flipRef = useRef(flip);
   flipRef.current = flip;
+  // A sideways swipe is the pair's, taken from the tap under it (capture),
+  // and an up-and-down one is left to the screen's scroll.
+  const across = (g: { dx: number; dy: number }) => Math.abs(g.dx) > 12 && Math.abs(g.dx) > Math.abs(g.dy);
   const swipe = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 12 && Math.abs(g.dx) > Math.abs(g.dy),
+      onMoveShouldSetPanResponder: (_, g) => across(g),
+      onMoveShouldSetPanResponderCapture: (_, g) => across(g),
       onPanResponderRelease: (_, g) => {
         if (Math.abs(g.dx) > 40) flipRef.current();
       },
