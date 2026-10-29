@@ -521,6 +521,14 @@ type Settings struct {
 	// `opencode models` run against AgentBox's own login, and is empty until
 	// one of those has happened.
 	OpenCodeModelChoices []ChatOptionChoice `json:"openCodeModelChoices"`
+	// DefaultOpenCodeEffort is how hard new OpenCode agents think when neither
+	// a request nor their project names an effort. Empty means AgentBox's own
+	// default, like DefaultClaudeEffort.
+	DefaultOpenCodeEffort string `json:"defaultOpenCodeEffort"`
+	// OpenCodeEffortChoices is the effort menu an OpenCode session last
+	// advertised, remembered the way ClaudeEffortChoices is. It is empty
+	// until an OpenCode chat has started and sent one.
+	OpenCodeEffortChoices []ChatOptionChoice `json:"openCodeEffortChoices"`
 	// OpenCodeReady is true when agents can actually run OpenCode: the base
 	// image has it and AgentBox has a login for it. A project's chat reads
 	// this to know whether it may create OpenCode agents at all.
@@ -754,6 +762,8 @@ type UpdateSettingsRequest struct {
 	CloneFolder *string `json:"cloneFolder,omitempty"`
 	// DefaultClaudeEffort is "" to go back to AgentBox's own default.
 	DefaultClaudeEffort *string `json:"defaultClaudeEffort,omitempty"`
+	// DefaultOpenCodeEffort is "" to go back to AgentBox's own default.
+	DefaultOpenCodeEffort *string `json:"defaultOpenCodeEffort,omitempty"`
 	// DefaultCursorModel and DefaultCursorEffort are what new Cursor agents
 	// start on, in Cursor's own names; "" goes back to Cursor's Auto and the
 	// model's own default level.

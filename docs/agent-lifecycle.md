@@ -52,6 +52,30 @@ stateDiagram-v2
 `Status` only ever holds the top row of the diagram (`creating`/`ready`); the container states
 below it (`running`/`stopped`/`paused`) are read from Incus, not from `state.db`.
 
+## What a new agent starts on
+
+An agent that names no AI tool follows its project's chat: it runs the chat's tool and account,
+on the model and effort that chat's session runs. A project can pin either for all its agents
+with `agentbox project model` and `agentbox project effort` (`low`, `medium`, `high`, `xhigh` or
+`max`, or `inherit` for the chat's); a model or effort named for one agent as it is created wins
+over both. When nobody chose an effort — not the request, not the project, and not a chat whose
+tool the agent follows — the installation's default for that tool applies: `medium` for Claude
+Code and OpenCode, and Cursor's own default for a model unless Settings names a Cursor effort.
+No agent is left on an adapter's own low default.
+
+The effort is only offered by tools whose session advertises the option: Claude Code, OpenCode,
+and some Cursor models. A level is checked against the menu that tool last advertised, so one it
+never named is refused rather than silently ignored. `Project.AgentEffort` lives in `state.db`
+(`agent_effort`, an appended migration), is exposed as `Project.AgentEffort` on the API and in
+the app's project settings, and seeds the new agent's chat options exactly like its model.
+
+OpenCode agents run on the Go endpoint (`opencode-go`). An OpenCode account is delivered under
+both the `opencode` and `opencode-go` provider names, with the same key, because the same key
+authenticates both and OpenCode only lists the Go models when its auth names that provider. A new
+OpenCode agent with no model named starts on `opencode-go/deepseek-v4.1-flash`; an `opencode/...`
+id inherited from the lead is passed on as the same model on `opencode-go/...`. The model is
+checked against the OpenCode menu once one has been remembered.
+
 ## `create_agent`, end to end
 
 Creating an agent is triggered from the lead over its `create_agent` MCP tool (see

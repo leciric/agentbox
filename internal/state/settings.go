@@ -76,6 +76,17 @@ const (
 	// either from an OpenCode chat's ACP session or from `opencode models`
 	// (internal/opencode), and its values are OpenCode's "provider/model" ids.
 	SettingOpenCodeModelChoices = "opencode_model_choices"
+	// SettingDefaultOpenCodeEffort is the "effort" chat option new OpenCode
+	// agents are seeded with when neither the request nor their project names
+	// one: empty means DefaultOpenCodeEffort. It is the OpenCode half of
+	// SettingDefaultClaudeEffort, because the two tools name their levels on
+	// their own menus.
+	SettingDefaultOpenCodeEffort = "default_opencode_effort"
+	// SettingOpenCodeEffortChoices is the effort menu an OpenCode session last
+	// advertised (a thought_level option called "effort"), remembered the way
+	// the Claude Code effort menu is and for the same reason: it is the only
+	// honest list of levels this OpenCode offers.
+	SettingOpenCodeEffortChoices = "opencode_effort_choices"
 	// SettingOpenCodeVersion is which OpenCode an installation runs: "1" for
 	// the one the base image pins, "2" for OpenCode 2, installed beside it as
 	// `opencode2`. Empty is "1", which is what every installation ran before
@@ -648,6 +659,16 @@ func (w ClaudeWindows) DefaultContextWindow(model, value string, installation in
 	}
 	return "", fmt.Errorf("a default context window is %s or 1m; %s isn't", FormatContextWindow(windows[0]), FormatContextWindow(n))
 }
+
+// DefaultOpenCodeModel is the model a new OpenCode agent starts on when no
+// request, project or lead names one: the Go endpoint, because that is the
+// provider AgentBox's OpenCode login delivers the key for.
+const DefaultOpenCodeModel = "opencode-go/deepseek-v4.1-flash"
+
+// DefaultOpenCodeEffort is how hard a new OpenCode agent thinks when nobody
+// chose for it, the way DefaultClaudeEffort is for Claude Code. It is a level
+// OpenCode's own menu offers, and never the adapter's low default.
+const DefaultOpenCodeEffort = "medium"
 
 // DefaultClaudeEffort is how hard a new Claude Code agent thinks when you
 // haven't chosen: medium, the setting the installation's owner runs on (it was

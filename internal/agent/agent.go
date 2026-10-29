@@ -200,52 +200,136 @@ func (m *Manager) ChatChoices(ctx context.Context, ai string, model, effort *str
 	if ai == "none" {
 		return errors.New("an agent with no AI tool has no model or effort to run on: leave them out")
 	}
-	if ai == "opencode" {
-		// OpenCode has a model and no effort. Its models are provider/model
-		// ids and, like Claude Code's, they aren't checked here: what a login
-		// can run is OpenCode's answer, given when the session starts, and a
-		// model it refuses is reported in the chat rather than swallowed.
-		if effort != nil {
-			return errors.New("the effort is a Claude Code setting, and OpenCode agents have none: leave it out")
+	switch ai {
+	case "opencode":
+		// OpenCode has a model and, when its session advertises one, an
+		// effort. Its models are provider/model ids; an "opencode/" id is
+		// delivered on the Go endpoint instead, so an explicit choice is
+		// checked against the menu that OpenCode last advertised for it.
+		if model != nil && strings.TrimSpace(*model) == "" {
+			return errors.New("an empty model isn't a choice: leave it out to use the model new OpenCode agents start on")
 		}
-		if strings.TrimSpace(*model) == "" {
-			return errors.New("an empty model isn't a choice: leave it out to let OpenCode use the model its own configuration names")
+		if effort != nil && strings.TrimSpace(*effort) == "" {
+			return errors.New("an empty effort isn't a choice: leave it out to use the effort new OpenCode agents start on")
 		}
-		return nil
-	}
-	if ai == "cursor" {
+		if model != nil && strings.TrimSpace(*model) != "" {
+			if err := m.checkOpenCodeModel(ctx, strings.TrimSpace(*model)); err != nil {
+				return err
+			}
+		}
+	case "cursor":
 		// Cursor has models and, for some of them, effort levels, both its
-		// own names. Neither is checked against a menu here: which models an
-		// account can run is Cursor's answer, and a model's levels differ from
-		// one model to the next, so the adapter falls back to the model's own
-		// default for a level it doesn't have and the chat shows what it runs.
+		// own names. The levels differ from one model to the next, so the
+		// levels checked are the chosen model's (or Settings' when none was
+		// chosen); with no menu for it yet there is nothing true to check.
 		for name, chosen := range map[string]*string{"model": model, "effort": effort} {
 			if chosen != nil && strings.TrimSpace(*chosen) == "" {
 				return fmt.Errorf("an empty %s isn't a choice: leave it out to use the %s Cursor agents start on", name, name)
 			}
 		}
-		return nil
-	}
-	if ai != "claude" {
-		return fmt.Errorf("the model and the effort are Claude Code settings, and %s agents have none: leave them out", ai)
-	}
-	for name, chosen := range map[string]*string{"model": model, "effort": effort} {
-		if chosen != nil && strings.TrimSpace(*chosen) == "" {
-			return fmt.Errorf("an empty %s isn't a choice: leave it out to use the %s new agents start on", name, name)
+	case "claude":
+		for name, chosen := range map[string]*string{"model": model, "effort": effort} {
+			if chosen != nil && strings.TrimSpace(*chosen) == "" {
+				return fmt.Errorf("an empty %s isn't a choice: leave it out to use the %s new agents start on", name, name)
+			}
 		}
+	default:
+		return fmt.Errorf("the model and the effort are settings of Claude Code, OpenCode and Cursor, and %s agents have none: leave them out", ai)
 	}
 	if effort == nil {
 		return nil
 	}
-	raw, err := m.Store.Setting(ctx, state.SettingClaudeEffortChoices)
+	offered, err := m.effortChoices(ctx, ai, model)
+	if err != nil {
+		return err
+	}
+	if want := strings.TrimSpace(*effort); len(offered) > 0 && !slices.Contains(offered, want) {
+		return fmt.Errorf("this agent's %s doesn't offer the effort %q: it offers %s", effortToolName(ai), want, strings.Join(offered, ", "))
+	}
+	return nil
+}
+
+// checkOpenCodeModel refuses a model OpenCode's remembered menu doesn't
+// name, once there is one. An "opencode/" id is checked in its Go form when
+// the menu has Go entries, and as written otherwise, so a menu recorded before
+// the Go provider was delivered doesn't block a model it already named.
+func (m *Manager) checkOpenCodeModel(ctx context.Context, model string) error {
+	raw, err := m.Store.Setting(ctx, state.SettingOpenCodeModelChoices)
 	if err != nil {
 		return err
 	}
 	offered := state.ChoiceValues(raw)
-	if want := strings.TrimSpace(*effort); len(offered) > 0 && !slices.Contains(offered, want) {
-		return fmt.Errorf("this agent's Claude Code doesn't offer the effort %q: it offers %s", want, strings.Join(offered, ", "))
+	if len(offered) == 0 {
+		return nil
+	}
+	goModel := opencode.GoModel(model)
+	check := offered
+	var goOffered []string
+	for _, id := range offered {
+		if provider, _, ok := strings.Cut(id, "/"); ok && provider == opencode.GoProvider {
+			goOffered = append(goOffered, id)
+		}
+	}
+	if len(goOffered) > 0 {
+		check = goOffered
+	}
+	if !slices.Contains(check, goModel) && !slices.Contains(offered, model) {
+		return fmt.Errorf("this agent's OpenCode doesn't offer the model %q: it offers %s", goModel, strings.Join(check, ", "))
 	}
 	return nil
+}
+
+// effortChoices is the effort levels ai last advertised for model, or none
+// when its session has never sent a menu. Claude Code and OpenCode remember
+// one list; Cursor's levels belong to a model, so they are read from the model
+// menu it named.
+func (m *Manager) effortChoices(ctx context.Context, ai string, model *string) ([]string, error) {
+	switch ai {
+	case "claude":
+		raw, err := m.Store.Setting(ctx, state.SettingClaudeEffortChoices)
+		return state.ChoiceValues(raw), err
+	case "opencode":
+		raw, err := m.Store.Setting(ctx, state.SettingOpenCodeEffortChoices)
+		return state.ChoiceValues(raw), err
+	case "cursor":
+		name := ""
+		if model != nil {
+			name = strings.TrimSpace(*model)
+		}
+		if name == "" {
+			var err error
+			if name, err = m.Store.Setting(ctx, state.SettingDefaultCursorModel); err != nil {
+				return nil, err
+			}
+		}
+		raw, err := m.Store.Setting(ctx, state.SettingCursorModelChoices)
+		if err != nil || raw == "" {
+			return nil, err
+		}
+		var choices []api.ChatOptionChoice
+		if json.Unmarshal([]byte(raw), &choices) != nil {
+			return nil, nil
+		}
+		for _, c := range choices {
+			if c.Value == name {
+				return c.Efforts, nil
+			}
+		}
+		return nil, nil
+	}
+	return nil, nil
+}
+
+func effortToolName(ai string) string {
+	switch ai {
+	case "claude":
+		return "Claude Code"
+	case "opencode":
+		return "OpenCode"
+	case "cursor":
+		return "Cursor"
+	}
+	return ai
 }
 
 type Manager struct {
@@ -609,6 +693,17 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 	if err != nil {
 		return state.Agent{}, err
 	}
+	// The project's effort pins it before the lead's, which the daemon has
+	// already put in opts.Effort when this agent follows the lead's tool. A
+	// request that named one wins over both: opts.Effort is only nil here
+	// when nobody did.
+	if opts.Effort == nil && p.AgentEffort != "" {
+		effort := p.AgentEffort
+		opts.Effort = &effort
+		if err := m.ChatChoices(ctx, opts.AI, opts.Model, opts.Effort); err != nil {
+			return state.Agent{}, err
+		}
+	}
 	var queued *state.Agent
 	if opts.Queued {
 		a, err := m.Store.Agent(ctx, project, opts.Name)
@@ -954,19 +1049,28 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 			return fail("chat defaults", err)
 		}
 	}
-	// OpenCode has no installation-wide default model of its own — its models
-	// are a provider's, not a plan's — so only a model chosen for this one
-	// agent, or by its project, is stored. The chat applies it over ACP when
-	// the session starts. Codex has neither: only the project's permission
-	// mode, when it names one.
-	if a.AI == "opencode" || a.AI == "codex" {
-		projectModel, _, _, projectMode := pl.project.AgentDefaults(a.AI)
-		options := map[string]string{}
-		if pl.model != nil {
-			options["model"] = strings.TrimSpace(*pl.model)
-		} else if projectModel != "" && a.AI == "opencode" {
-			options["model"] = projectModel
+	// OpenCode starts on the Go endpoint's default model when nobody chose
+	// one, and on the installation's OpenCode effort default when neither the
+	// request, the project nor the lead named one: an agent never starts on
+	// the adapter's low by accident. The chat applies both over ACP when the
+	// session starts.
+	if a.AI == "opencode" {
+		options, err := m.openCodeChatDefaults(ctx, pl.model, pl.effort)
+		if err != nil {
+			return fail("chat defaults", err)
 		}
+		if len(options) > 0 {
+			if err := m.Store.SaveChat(ctx, a.Project, a.Name, state.Chat{Options: options}); err != nil {
+				return fail("chat defaults", err)
+			}
+		}
+	}
+
+	// Codex has no model of its own: the project's permission mode, when it
+	// names one, is what an agent starts with.
+	if a.AI == "codex" {
+		_, _, _, projectMode := pl.project.AgentDefaults(a.AI)
+		options := map[string]string{}
 		setModeKind(options, projectMode)
 		if len(options) > 0 {
 			if err := m.Store.SaveChat(ctx, a.Project, a.Name, state.Chat{Options: options}); err != nil {
@@ -1317,6 +1421,41 @@ func setModeKind(options map[string]string, kind string) {
 	default:
 		options[state.ChatOptionModeKind] = kind
 	}
+}
+
+// openCodeChatDefaults is the chat options a new OpenCode agent starts with:
+// the model chosen for it, and its effort — the one chosen for it (or its
+// project, or inherited from the lead), else the installation's OpenCode
+// default. An "opencode/" model maps to the same model on the Go endpoint,
+// which is the provider AgentBox delivers the account's key for; a model
+// nobody chose is the Go endpoint's deepseek-v4.1-flash.
+func (m *Manager) openCodeChatDefaults(ctx context.Context, model, effort *string) (map[string]string, error) {
+	options := map[string]string{}
+	chosenModel := ""
+	if model != nil {
+		chosenModel = opencode.GoModel(*model)
+	}
+	if chosenModel == "" {
+		chosenModel = state.DefaultOpenCodeModel
+	}
+	options["model"] = chosenModel
+	chosen := ""
+	if effort != nil {
+		chosen = strings.TrimSpace(*effort)
+	} else {
+		value, err := m.Store.Setting(ctx, state.SettingDefaultOpenCodeEffort)
+		if err != nil {
+			return nil, err
+		}
+		chosen = strings.TrimSpace(value)
+		if chosen == "" {
+			chosen = state.DefaultOpenCodeEffort
+		}
+	}
+	if chosen != "" {
+		options["effort"] = chosen
+	}
+	return options, nil
 }
 
 // cursorChatDefaults is the chat options a new Cursor agent of p starts with.

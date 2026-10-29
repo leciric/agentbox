@@ -63,6 +63,48 @@ func TestOpenCodeImport(t *testing.T) {
 	}
 }
 
+// TestOpenCodeAuthDeliversTheGoProvider: an "opencode" account is also written
+// as opencode-go, with the same key, so the Go endpoint's models are available
+// to an agent whose auth.json would otherwise only name "opencode".
+func TestOpenCodeAuthDeliversTheGoProvider(t *testing.T) {
+	s := store(t)
+	save(t, s, credentials.ToolOpenCode, "opencode", "default", `{"type":"api","key":"sk-go"}`)
+	auth, used, err := s.OpenCodeAuth(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]map[string]string
+	if err := json.Unmarshal(auth, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["opencode"]["key"] != "sk-go" || got["opencode-go"]["key"] != "sk-go" {
+		t.Fatalf("OpenCodeAuth = %s, want the key under both opencode and opencode-go", auth)
+	}
+	if used["opencode-go"] != "default" {
+		t.Fatalf("used = %v, want opencode-go on the opencode account", used)
+	}
+	export, imported, err := s.OpenCodeImport(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var creds []struct {
+		IntegrationID string `json:"integrationID"`
+		Label         string `json:"label"`
+	}
+	if err := json.Unmarshal(export, &creds); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, c := range creds {
+		if c.IntegrationID == credentials.OpenCodeGoProvider {
+			found = c.Label == "default"
+		}
+	}
+	if !found || imported["opencode-go"] != "default" {
+		t.Fatalf("OpenCodeImport = %s, %v, want an opencode-go credential", export, imported)
+	}
+}
+
 // An account captured under OpenCode 2 carries its method and metadata; an
 // OpenCode 1 auth.json takes neither, and takes the account id from metadata.
 func TestOpenCodeAuthProjectsVersionOneEntries(t *testing.T) {

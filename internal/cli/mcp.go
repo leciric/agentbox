@@ -93,7 +93,7 @@ func choiceOf(description string, values ...string) map[string]any {
 // one sentence that agents start on a model already chosen and in the next
 // that choosing is its job.
 func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]any, leadPicksModel bool, ready readyTools) {
-	var models, efforts, openCodeModels []string
+	var models, efforts, openCodeModels, openCodeEfforts []string
 	var openCode, cursorReady bool
 	var cursorModels []api.ChatOptionChoice
 	// The defaults an agent created with none of these gets, named in the
@@ -101,6 +101,7 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 	// under them. The lead's own defaults are another section of Settings and
 	// never reach its agents.
 	defaultModel, defaultWindow := state.DefaultClaudeModel, strings.ToLower(state.FormatContextWindow(state.DefaultClaudeCompactWindow))
+	defaultEffort, defaultOpenCodeEffort := state.DefaultClaudeEffort, state.DefaultOpenCodeEffort
 	var enforced bool
 	if settings, err := c.ProjectSettings(ctx); err == nil {
 		enforced = settings.EnforceAgentDefaults
@@ -120,8 +121,17 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 		for _, choice := range settings.ClaudeEffortChoices {
 			efforts = append(efforts, choice.Value)
 		}
+		if settings.DefaultClaudeEffort != "" {
+			defaultEffort = settings.DefaultClaudeEffort
+		}
 		for _, choice := range settings.OpenCodeModelChoices {
 			openCodeModels = append(openCodeModels, choice.Value)
+		}
+		for _, choice := range settings.OpenCodeEffortChoices {
+			openCodeEfforts = append(openCodeEfforts, choice.Value)
+		}
+		if settings.DefaultOpenCodeEffort != "" {
+			defaultOpenCodeEffort = settings.DefaultOpenCodeEffort
 		}
 		openCode = settings.OpenCodeReady
 		cursorReady, cursorModels = settings.CursorReady, settings.CursorModelChoices
@@ -130,7 +140,7 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 	// thing at greater length; this is what a model reads at the moment it
 	// fills the tool call in.
 	var auto bool
-	var projectTool string
+	var projectTool, projectEffort string
 	defaultFrom := "Settings → Models' default"
 	if p, err := c.ProjectSelf(ctx); err == nil {
 		auto = p.AgentModel == api.AgentModelAuto
@@ -140,6 +150,7 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 		if p.AgentModel != "" && !auto && (projectTool == "" || projectTool == "claude") {
 			defaultModel, defaultFrom = p.AgentModel, "this project's choice"
 		}
+		projectEffort = p.AgentEffort
 	}
 
 	// Before any chat has started there is no remembered menu, and AgentBox
@@ -210,10 +221,22 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 	params["model"] = str(model)
 	params["permissions"] = choiceOf("autonomous (the default) never asks: its machine is the sandbox. ask stops before every change, "+
 		"only for an agent someone is watching", "autonomous", "ask")
-	effort := str("how hard it thinks, as Claude Code names it; an unknown level is refused, and a model with none ignores it. " +
-		"None for OpenCode; a Cursor model's own levels, listed with it. Leave this out for the effort new agents start on in Settings, else medium.")
-	if len(efforts) > 0 {
-		effort["enum"] = efforts
+	effort := str("how hard it thinks, for a tool that exposes an effort: Claude Code, OpenCode, and some Cursor models " +
+		"(a level that model doesn't have is ignored). An unknown Claude Code or OpenCode level is refused. Leave this out for " +
+		"this project's effort, else the one new agents start on in Settings — " + defaultEffort + " for Claude Code and " +
+		defaultOpenCodeEffort + " for OpenCode.")
+	if projectEffort != "" {
+		effort = str("how hard it thinks. This project pins it to " + projectEffort + " for every agent, so leave this out: " +
+			"another level is refused. Claude Code, OpenCode and some Cursor models have one; a model with none ignores it.")
+	}
+	levels := append([]string{}, efforts...)
+	for _, level := range openCodeEfforts {
+		if !slices.Contains(levels, level) {
+			levels = append(levels, level)
+		}
+	}
+	if len(levels) > 0 && projectEffort == "" {
+		effort["enum"] = levels
 	}
 	params["effort"] = effort
 	switch {

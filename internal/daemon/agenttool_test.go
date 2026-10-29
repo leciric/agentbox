@@ -122,6 +122,119 @@ func describeOpenCode(m map[string]string) string {
 	return strings.Join(parts, ",")
 }
 
+// TestNewAgentInheritsTheLeadsEffort: an agent that follows its lead's tool
+// starts on the effort that lead's session runs, and on its model too; a
+// request that names an effort wins, and so does the project's own choice.
+func TestNewAgentInheritsTheLeadsEffort(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d := leadToolDaemon(t, state.Chat{Tool: "opencode", Options: map[string]string{
+		"model": "opencode/deepseek-v4.1-flash", "effort": "high",
+	}})
+	if err := d.srv.store.SetFlag(ctx, state.SettingImageOpenCode, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := (credentials.Store{Dir: d.paths.Credentials()}).SaveToolAccount("opencode", "anthropic", "", []byte(`{"type":"api","key":"sk"}`)); err != nil {
+		t.Fatal(err)
+	}
+	effortOf := func(r api.CreateAgentRequest) string {
+		if r.Effort == nil {
+			return ""
+		}
+		return *r.Effort
+	}
+	modelOf := func(r api.CreateAgentRequest) string {
+		if r.Model == nil {
+			return ""
+		}
+		return *r.Model
+	}
+
+	got := checked(t, d, api.CreateAgentRequest{Title: "Reminders page", Task: "add it"})
+	if got.AI != "opencode" || effortOf(got) != "high" || modelOf(got) != "opencode-go/deepseek-v4.1-flash" {
+		t.Errorf("following the lead: %q on %q at %q, want opencode on its Go model at high", got.AI, modelOf(got), effortOf(got))
+	}
+
+	// A request that names an effort still wins.
+	low := "low"
+	got = checked(t, d, api.CreateAgentRequest{Title: "Reminders page", Task: "add it", Effort: &low})
+	if effortOf(got) != "low" {
+		t.Errorf("with an effort in the request: %q, want low", effortOf(got))
+	}
+
+	// The project's effort wins over the lead's.
+	if err := d.srv.store.SetProjectAgentDefaults(ctx, "hello-stack", state.ProjectAgentDefaults{Effort: str("max")}); err != nil {
+		t.Fatal(err)
+	}
+	got = checked(t, d, api.CreateAgentRequest{Title: "Reminders page", Task: "add it"})
+	if effortOf(got) != "max" {
+		t.Errorf("with a project effort: %q, want max", effortOf(got))
+	}
+}
+
+// TestNewAgentInheritsTheLeadsEffortForClaude: Claude Code is unchanged — it
+// still starts on the lead's model and effort when nobody chose either.
+func TestNewAgentInheritsTheLeadsEffortForClaude(t *testing.T) {
+	t.Parallel()
+	d := leadToolDaemon(t, state.Chat{Tool: "claude", Options: map[string]string{"model": "sonnet", "effort": "high"}})
+	got := checked(t, d, api.CreateAgentRequest{Title: "Reminders page", Task: "add it"})
+	if got.AI != "claude" || got.Effort == nil || *got.Effort != "high" || got.Model == nil || *got.Model != "sonnet" {
+		t.Errorf("a Claude Code agent following its lead: model %v effort %v, want sonnet at high", got.Model, got.Effort)
+	}
+}
+
+// TestLeadEffortReachesTheNewOpencodeAgent is the whole path: a lead whose
+// session runs at high effort creates an OpenCode agent, and the effort its
+// chat starts on is high.
+func TestLeadEffortReachesTheNewOpencodeAgent(t *testing.T) {
+	t.Parallel()
+	const incus = `case "$1" in
+  list) echo '[{"name": "ab-hello-stack-agent-01", "status": "Running", "state": {"network": {"eth0": {"addresses": [{"family": "inet", "address": "10.1.2.3"}]}}}}]' ;;
+  query)
+    case "$2" in
+      */agentbox-base/snapshots) echo '["/1.0/instances/agentbox-base/snapshots/ready"]' ;;
+      */snapshots) echo '[]' ;;
+      *) echo '{"config": {"user.agentbox.with-opencode": "1"}, "devices": {}}' ;;
+    esac ;;
+  delete) echo "$*" >> "$INCUS_LOG" ;;
+esac
+exit 0`
+	ctx := context.Background()
+	d := startTestDaemon(t, t.TempDir(), incus)
+	if err := d.srv.store.SetFlag(ctx, state.SettingImageOpenCode, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := (credentials.Store{Dir: d.paths.Credentials()}).SaveToolAccount("opencode", "anthropic", "", []byte(`{"type":"api","key":"sk"}`)); err != nil {
+		t.Fatal(err)
+	}
+	addProjectAllowingEvery(t, d, d.fixtureRepo(t, "hello-stack"))
+	if err := d.srv.store.SaveChat(ctx, "hello-stack", state.LeadName, state.Chat{Tool: "opencode", Options: map[string]string{"effort": "high"}}); err != nil {
+		t.Fatal(err)
+	}
+	lead := api.NewClient(d.srv.leadSocketPath("hello-stack"))
+	job, err := lead.CreateProjectAgent(ctx, api.CreateAgentRequest{Title: "Reminders page"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the agent to be created", func() bool {
+		j, err := d.client.Job(ctx, job.ID)
+		return err == nil && j.Done()
+	})
+	if j, _ := d.client.Job(ctx, job.ID); j.Status != api.JobSucceeded {
+		t.Fatalf("create = %s: %s", j.Status, j.Error)
+	}
+	stored, err := d.srv.store.Chat(ctx, "hello-stack", "agent-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Options["effort"] != "high" {
+		t.Errorf("the new OpenCode agent keeps %+v, want effort high", stored.Options)
+	}
+	if !strings.HasPrefix(stored.Options["model"], "opencode-go/") {
+		t.Errorf("the new OpenCode agent's model = %q, want an opencode-go/ id", stored.Options["model"])
+	}
+}
+
 // TestNewAgentFallsBackToClaude: a lead's tool that agents can't run here
 // gives Claude Code, with the reason for the reply, rather than a refusal.
 func TestNewAgentFallsBackToClaude(t *testing.T) {

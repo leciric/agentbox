@@ -1679,6 +1679,8 @@ let defaultsSettings = {
   defaultClaudeEffort: '',
   claudeEffortChoices: [],
   openCodeModelChoices: [],
+  defaultOpenCodeEffort: '',
+  openCodeEffortChoices: [],
   openCodeReady: false,
   openCodeVersion: "1",
   cursorModelChoices: [],

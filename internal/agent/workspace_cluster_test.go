@@ -120,7 +120,7 @@ func TestClusterAgentWorkspaceRunsInItsPod(t *testing.T) {
 	}
 
 	// Diff is the pod's, with the checkpoint's uncommitted files in it.
-	diff, err := f.m.Diff(a, true)
+	diff, err := f.m.Diff(a, nil, true)
 	if err != nil {
 		t.Fatalf("Diff() = %v", err)
 	}
