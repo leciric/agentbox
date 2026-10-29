@@ -2650,5 +2650,33 @@
     "query": "chat=imagewait&open=agent-100&theme=dark&lang=pt-BR",
     "width": 1280,
     "height": 900
+  },
+  {
+    "id": "requests-v2-1920-dark",
+    "description": "UI v2 at 1920×1080, the lead's chat with its agents' pending credential requests: two ask for a GitHub account, one for a secret — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "requests-v2-1920-light",
+    "description": "UI v2 at 1920×1080, the lead's chat with its agents' pending credential requests: two ask for a GitHub account, one for a secret — light",
+    "query": "app=project&v2=1&theme=light",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "pulls-v2-800-dark",
+    "description": "UI v2 at 800×900, the Pull requests tab: long titles beside a long login and a row of state pills, and a Merge that can't — dark",
+    "query": "app=pulls&v2=1&theme=dark",
+    "width": 800,
+    "height": 1200
+  },
+  {
+    "id": "pulls-v2-800-light",
+    "description": "UI v2 at 800×900, the Pull requests tab: long titles beside a long login and a row of state pills, and a Merge that can't — light",
+    "query": "app=pulls&v2=1&theme=light",
+    "width": 800,
+    "height": 1200
   }
 ]

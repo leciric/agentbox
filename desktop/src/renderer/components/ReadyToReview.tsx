@@ -9,7 +9,7 @@ import { useT, type MessageKey } from '../lib/i18n';
 import { pagesFor } from '../lib/pages';
 import { projectLabel } from '../lib/projectName';
 import { pageItems, pageTotal, refreshInbox, useReviewPages, withoutAgent } from '../lib/inboxPages';
-import { type Walk, firstLine, goBack, goForward, isTyping, mergeBlock, pressable, proofKey, nextPending, proofOf, remainingAfter, repeatable, reviewPane, wrapWalk, walkItems, walkOrder, queueOf, reviewKeys, reviewShortcut, step, type MergeBlock, type Pane, type ReviewAction } from '../lib/review';
+import { type Walk, firstLine, goBack, goForward, isTyping, mergeBlock, mergeBlockReason, pressable, proofKey, nextPending, proofOf, remainingAfter, repeatable, reviewPane, wrapWalk, walkItems, walkOrder, queueOf, reviewKeys, reviewShortcut, step, type Pane, type ReviewAction } from '../lib/review';
 import { defaultMethod, loadMethodPrefs, rememberMethod } from '../lib/mergeMethod';
 import { isUnseen, markReadySeen, useUnseen } from '../lib/reviewAlert';
 import { useNow } from '../lib/useNow';
@@ -254,13 +254,6 @@ function VerdictText({ item, now }: { item: T.ReviewItem; now?: number }) {
   return <>{t(item.verdict === 'dismissed' ? 'review.verdict.dismissed' : item.verdict === 'changes' ? 'review.verdict.changes' : 'review.verdict.reviewed', { when })}</>;
 }
 
-const blockLabels: Record<Exclude<MergeBlock, 'merged' | 'closed'>, MessageKey> = {
-  draft: 'review.mergeBlocked.draft',
-  failing: 'review.mergeBlocked.failing',
-  conflict: 'review.mergeBlocked.conflict',
-  noPermission: 'review.mergeBlocked.noPermission',
-};
-
 // settleMs is how long after an agent comes up its Merge and Reviewed wait
 // before taking a click.
 const settleMs = 400;
@@ -381,7 +374,7 @@ function ReviewCarousel({
   );
   const blocked = pr ? mergeBlock(pr, pulls.data) : null;
   const canMerge = !!pr && blocked !== 'merged' && blocked !== 'closed';
-  const mergeReason = blocked && blocked !== 'merged' && blocked !== 'closed' ? t(blockLabels[blocked], { base: pr?.baseBranch ?? '' }) : undefined;
+  const mergeReason = pr ? mergeBlockReason(pr, pulls.data) : undefined;
 
   // Opening an agent's work is seeing it, which only leaves the inbox's count.
   useEffect(() => markReadySeen({ ref: item.ref, fingerprint: item.fingerprint }), [item.ref, item.fingerprint]);
