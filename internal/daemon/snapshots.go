@@ -171,12 +171,19 @@ func (p podLifecycle) stopForClaim(ctx context.Context, client *k8s.Cluster, a s
 	return wasRunning, nil
 }
 
-// restart asks the reconciler for a pod again and waits for its agentd.
+// restart asks the reconciler for a pod again, then starts the agent on it with
+// Manager.Start: the row only asks the cluster for a pod, and the agent's env,
+// secrets, git config, brief and tmux session are files and processes inside
+// it that a new pod does not have until Start writes them. The row is re-read
+// first, so this starts the agent as it is now and not as the caller last saw
+// it.
 func (p podLifecycle) restart(ctx context.Context, a state.Agent) error {
-	if err := p.s.store.SetAgentDesiredState(ctx, a.Project, a.Name, state.DesiredRunning); err != nil {
+	row, err := p.s.store.Agent(ctx, a.Project, a.Name)
+	if err != nil {
 		return err
 	}
-	return p.s.gateway.WaitFor(ctx, gateway.Ref{Project: a.Project, Agent: a.Name}, podStopTimeout)
+	_, err = p.s.manager(p.s.cfg.Log).Start(ctx, row)
+	return err
 }
 
 // agentImage is the image the agent's pod runs now, and the digest the node
@@ -277,12 +284,13 @@ func (p podLifecycle) RestoreSnapshot(ctx context.Context, ref gateway.Ref, name
 		_ = client.DeleteClaim(context.WithoutCancel(ctx), newClaim)
 		return err
 	}
-	if err := p.s.store.SetAgentDesiredState(ctx, a.Project, a.Name, state.DesiredRunning); err != nil {
-		return err
-	}
 	done = true
-	if err := p.s.gateway.WaitFor(ctx, ref, podStopTimeout); err != nil {
-		return fmt.Errorf("%s is on the claim from %q, and its pod did not come up: %w (the claim it had is still there as %s)", a.Ref(), name, err, oldClaim)
+	// The claim is the machine's files; the pod that mounts it is new, so its
+	// env, secrets, git config, brief and session have to be written into it
+	// again, which is what Start does after it asks for the pod and waits for
+	// agentd.
+	if err := p.restart(ctx, a); err != nil {
+		return fmt.Errorf("%s is on the claim from %q, and it could not be started on it: %w (the claim it had is still there as %s)", a.Ref(), name, err, oldClaim)
 	}
 	// The gateway says the pod is up; the row is how everything else reads
 	// whether it is. The reconciler writes it on its next round.

@@ -103,7 +103,7 @@ func (m *Manager) takeSnapshot(ctx context.Context, a state.Agent, name string, 
 			}
 		}
 	}
-	head, err := m.snapshotHead(ctx, a, ws, repo, commit)
+	head, err := m.snapshotHead(ctx, a, ws, repo, name, commit)
 	if err != nil {
 		_ = repo.DeleteRef(ref)
 		return Snapshot{}, err
@@ -125,9 +125,17 @@ func (m *Manager) takeSnapshot(ctx context.Context, a state.Agent, name string, 
 }
 
 // snapshotHead is the commit a snapshot was taken on: the parent of the
-// snapshot's own commit. The workspace knows it on both runtimes, because the
-// object is in the git repository the worktree belongs to.
-func (m *Manager) snapshotHead(ctx context.Context, a state.Agent, ws workspace.Workspace, repo gitrepo.Repo, commit string) (string, error) {
+// snapshot's own commit. A pod records it beside the archive, which is the one
+// place it can still be read when the pod is stopped: a stopped pod can't
+// answer git, and its refs never reach this host's repository. For an Incus
+// machine the workspace knows it, because the object is in the git repository
+// the worktree belongs to.
+func (m *Manager) snapshotHead(ctx context.Context, a state.Agent, ws workspace.Workspace, repo gitrepo.Repo, name, commit string) (string, error) {
+	if gs, ok := m.machine(a).(machine.GitSnapshotter); ok {
+		if recorded, head, err := gs.SnapshotGitInfo(ctx, name); err == nil && recorded == commit && head != "" {
+			return head, nil
+		}
+	}
 	head, err := ws.ResolveCommit(ctx, commit+"^")
 	if err == nil {
 		return head, nil
@@ -346,7 +354,7 @@ func (m *Manager) Fork(ctx context.Context, src state.Agent, opts ForkOptions) (
 	if err != nil {
 		return state.Agent{}, fmt.Errorf("%s has no snapshot %q", src.Ref(), name)
 	}
-	head, err := m.snapshotHead(ctx, src, m.workspace(src), repo, tree)
+	head, err := m.snapshotHead(ctx, src, m.workspace(src), repo, name, tree)
 	if err != nil {
 		return state.Agent{}, err
 	}
