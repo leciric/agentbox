@@ -1868,6 +1868,9 @@ func openCodeConfig(version opencode.Release, servers []mcpServer, autonomous bo
 			byName[s.name] = openCodeServer(s.command, s.args, nil)
 		}
 		config["mcp"] = map[string]any{"servers": byName}
+		// Todos are still a tool call in OpenCode 2, and it only offers the
+		// tool when this says so. AgentBox turns that call into the plan.
+		config["experimental"] = map[string]any{"todo": true}
 		if autonomous {
 			config["permissions"] = []map[string]string{{"action": "*", "resource": "*", "effect": "allow"}}
 		}
