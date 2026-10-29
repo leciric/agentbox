@@ -86,6 +86,23 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if req.DefaultOpenCodeEffort != nil {
+		// Checked the way Claude Code's is: OpenCode names its own levels, and
+		// one its menu has never offered can only end in a setting that does
+		// nothing. Nothing is refused before a menu has arrived.
+		want := strings.TrimSpace(*req.DefaultOpenCodeEffort)
+		menu, err := s.store.Setting(r.Context(), state.SettingOpenCodeEffortChoices)
+		if err != nil {
+			return err
+		}
+		offered := state.ChoiceValues(menu)
+		if want != "" && len(offered) > 0 && !slices.Contains(offered, want) {
+			return fmt.Errorf("this agent's OpenCode doesn't offer the effort %q: it offers %s", want, strings.Join(offered, ", "))
+		}
+		if err := s.store.SetSetting(r.Context(), state.SettingDefaultOpenCodeEffort, want); err != nil {
+			return err
+		}
+	}
 	// Cursor's are stored as chosen: its menu is the account's, and a model or
 	// level it doesn't offer is reported by the chat that tries it. Choosing
 	// a model clears an effort it didn't come with, since levels belong to
@@ -545,6 +562,14 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	openCodeEfforts, err := s.rememberedMenu(r, state.SettingOpenCodeEffortChoices)
+	if err != nil {
+		return api.Settings{}, err
+	}
+	openCodeEffort, err := s.store.Setting(r.Context(), state.SettingDefaultOpenCodeEffort)
+	if err != nil {
+		return api.Settings{}, err
+	}
 	openCodeReady, err := s.manager(nil).OpenCodeReady(r.Context())
 	if err != nil {
 		return api.Settings{}, err
@@ -728,9 +753,11 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		DefaultClaudeEffort:       effort,
 		ClaudeEffortChoices:       efforts,
 
-		OpenCodeModelChoices: openCodeModels,
-		OpenCodeReady:        openCodeReady,
-		OpenCodeVersion:      opencode.ReleaseOf(openCodeVersion).String(),
+		OpenCodeModelChoices:  openCodeModels,
+		DefaultOpenCodeEffort: openCodeEffort,
+		OpenCodeEffortChoices: openCodeEfforts,
+		OpenCodeReady:         openCodeReady,
+		OpenCodeVersion:       opencode.ReleaseOf(openCodeVersion).String(),
 
 		CursorModelChoices:  cursorModels,
 		CursorReady:         cursorReady,

@@ -12,12 +12,13 @@ import (
 func TestRegistryRotateAsksForAToken(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetIn(strings.NewReader(""))
-	if _, err := rotateRequest(cmd, "forgejo", registryFlags{}, false); err == nil {
+	flags := registryFlags{}
+	if _, err := flags.rotateRequest(cmd, "forgejo", false); err == nil {
 		t.Fatal("rotate with an empty stdin = nil error, want a refusal")
 	}
 
 	cmd.SetIn(strings.NewReader("new-token\n"))
-	req, err := rotateRequest(cmd, "forgejo", registryFlags{username: "you", tokenStdin: true}, false)
+	req, err := (&registryFlags{username: "you", tokenStdin: true}).rotateRequest(cmd, "forgejo", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,11 +26,11 @@ func TestRegistryRotateAsksForAToken(t *testing.T) {
 		t.Errorf("rotateRequest = %+v, want you/new-token", req)
 	}
 
-	req, err = rotateRequest(cmd, "forgejo", registryFlags{}, true)
+	req, err = flags.rotateRequest(cmd, "forgejo", true)
 	if err != nil || !req.NoLogin || req.Token != "" {
 		t.Errorf("rotateRequest(--no-login) = %+v, %v, want NoLogin and no token", req, err)
 	}
-	if _, err := rotateRequest(cmd, "forgejo", registryFlags{username: "you"}, true); err == nil {
+	if _, err := (&registryFlags{username: "you"}).rotateRequest(cmd, "forgejo", true); err == nil {
 		t.Error("--no-login with --username = nil error, want a refusal")
 	}
 }

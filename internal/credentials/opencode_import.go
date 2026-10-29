@@ -28,10 +28,11 @@ type openCodeCredential struct {
 // OpenCodeAuth's OpenCode 2 counterpart; auth is nil when there is no provider
 // at all.
 func (s Store) OpenCodeImport(chosen map[string]string) (auth []byte, used map[string]string, err error) {
-	providers, err := s.OpenCodeProviders()
+	stored, err := s.OpenCodeProviders()
 	if err != nil {
 		return nil, nil, err
 	}
+	providers := openCodeProvidersWithGo(stored)
 	for provider, name := range chosen {
 		if name != "" && !slices.Contains(providers, provider) {
 			return nil, nil, s.noAccount(ToolOpenCode, provider, name)
@@ -40,20 +41,25 @@ func (s Store) OpenCodeImport(chosen map[string]string) (auth []byte, used map[s
 	used = map[string]string{}
 	creds := make([]openCodeCredential, 0, len(providers))
 	for _, provider := range providers {
-		b, name, err := s.ToolAuth(ToolOpenCode, provider, chosen[provider])
+		source := openCodeSourceProvider(provider, stored)
+		name := chosen[provider]
+		if name == "" && source != provider {
+			name = chosen[source]
+		}
+		b, resolved, err := s.ToolAuth(ToolOpenCode, source, name)
 		if err != nil {
 			return nil, nil, err
 		}
 		if b == nil {
-			return nil, nil, s.noAccount(ToolOpenCode, provider, chosen[provider])
+			return nil, nil, s.noAccount(ToolOpenCode, source, name)
 		}
-		used[provider] = name
+		used[provider] = resolved
 		creds = append(creds, openCodeCredential{
-			ID:            openCodeCredentialID(provider, name),
+			ID:            openCodeCredentialID(provider, resolved),
 			IntegrationID: provider,
-			Label:         name,
+			Label:         resolved,
 			Active:        true,
-			Value:         openCodeV2Entry(provider, b),
+			Value:         openCodeV2Entry(source, b),
 		})
 	}
 	if len(creds) == 0 {

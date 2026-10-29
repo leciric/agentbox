@@ -89,6 +89,23 @@ func ParseModels(out string) []string {
 	return models
 }
 
+// GoProvider is the OpenCode Zen Go endpoint's provider id. The same API key
+// authenticates it as the plain "opencode" provider (credentials.OpenCodeGoProvider).
+const GoProvider = "opencode-go"
+
+// GoModel is the opencode-go form of a model id: an "opencode/<model>" id maps
+// to the same model on the Go endpoint, and anything else is left alone. It is
+// how an agent that follows an OpenCode lead lands on the provider AgentBox
+// delivers the key for.
+func GoModel(id string) string {
+	id = strings.TrimSpace(id)
+	provider, model, ok := strings.Cut(id, "/")
+	if !ok || provider != "opencode" || model == "" {
+		return id
+	}
+	return GoProvider + "/" + model
+}
+
 // Name is how a "provider/model" id reads in a menu: "github-copilot/gpt-5.4"
 // becomes "github-copilot / gpt-5.4". OpenCode's own ACP session sends proper
 // display names, and they replace these as soon as a chat has run; until then

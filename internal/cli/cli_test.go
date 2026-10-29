@@ -362,6 +362,48 @@ func TestProjectModelCmd(t *testing.T) {
 	}
 }
 
+func TestProjectEffortCmd(t *testing.T) {
+	isolate(t)
+	startDaemon(t)
+	repo := testutil.FixtureRepo(t, "hello-stack")
+	if _, err := run(t, "", "add", repo); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := run(t, "", "project", "effort", "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "inherit") // follows the project chat's effort
+
+	out, err = run(t, "", "project", "effort", "hello-stack", "high")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "hello-stack: high")
+
+	out, err = run(t, "", "project", "effort", "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "hello-stack: high") // persisted
+
+	if _, err := run(t, "", "project", "effort", "hello-stack", "ultra"); err == nil || !strings.Contains(err.Error(), "unknown agent effort") {
+		t.Errorf("an unknown effort: got %v", err)
+	}
+
+	// "inherit" on the command line is how an empty value is typed.
+	out, err = run(t, "", "project", "effort", "hello-stack", "inherit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "the project chat's effort")
+
+	if _, err := run(t, "", "project", "effort", "no-such-project"); err == nil {
+		t.Error("the effort of an unknown project succeeded")
+	}
+}
+
 func TestAddRejectsRepoWithoutCommits(t *testing.T) {
 	isolate(t)
 	startDaemon(t)

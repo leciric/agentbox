@@ -496,6 +496,14 @@ func (c *Client) SetAgentTool(ctx context.Context, project, tool string) (Projec
 	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project), UpdateProjectRequest{AgentTool: &tool}, &out)
 }
 
+// SetAgentEffort sets how hard a project's new agents think: "" to follow the
+// project chat's effort when an agent follows its tool, or one of low, medium,
+// high, xhigh and max.
+func (c *Client) SetAgentEffort(ctx context.Context, project, effort string) (Project, error) {
+	var out Project
+	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project), UpdateProjectRequest{AgentEffort: &effort}, &out)
+}
+
 // SetProjectCluster sets where a project's new agents run when the request
 // names no cluster: "" for this machine, a cluster's name, or "auto" to let the
 // daemon place each one where there is room.

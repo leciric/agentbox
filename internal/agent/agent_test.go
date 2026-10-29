@@ -470,7 +470,7 @@ func TestChatChoicesRefusesWhatCouldNotApply(t *testing.T) {
 		wantErr       string
 	}{
 		{name: "nothing chosen", ai: "claude"},
-		{name: "a model for a Codex agent", ai: "codex", model: choice("haiku"), wantErr: "Claude Code settings"},
+		{name: "a model for a Codex agent", ai: "codex", model: choice("haiku"), wantErr: "have none"},
 		{name: "an effort for a shell-only agent", ai: "none", effort: choice("low"), wantErr: "no AI tool"},
 		{name: "an empty model", ai: "claude", model: choice(""), wantErr: "an empty model isn't a choice"},
 		{name: "an empty effort", ai: "claude", effort: choice("  "), wantErr: "an empty effort isn't a choice"},
@@ -931,9 +931,9 @@ func TestOpenCodeReady(t *testing.T) {
 }
 
 // An OpenCode agent's model is its own: stored for the chat to apply when the
-// session starts, and never mixed up with Claude Code's settings. OpenCode has
-// no effort at all, and no installation-wide model either — only what was
-// chosen for this one agent is stored.
+// session starts, and never mixed up with Claude Code's settings. Its effort
+// is the installation's OpenCode default when nobody chose one, and its model
+// is the Go endpoint's default unless somebody chose one.
 func TestOpenCodeAgentModelIsStored(t *testing.T) {
 	f := setup(t, fakeIncus(t, `case "$1" in
   list) echo '[{"name":"ab-hello-stack-agent-01","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.5"}]}}}},{"name":"ab-hello-stack-agent-02","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.6"}]}}}},{"name":"ab-hello-stack-agent-03","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.7"}]}}}},{"name":"ab-hello-stack-agent-04","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.8"}]}}}},{"name":"ab-hello-stack-agent-05","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.9"}]}}}}]' ;;
@@ -962,8 +962,16 @@ exit 0`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := options(chosen); got["model"] != "anthropic/claude-sonnet-5" || got["effort"] != "" {
+	if got := options(chosen); got["model"] != "anthropic/claude-sonnet-5" || got["effort"] != state.DefaultOpenCodeEffort {
 		t.Errorf("with an OpenCode model chosen: %+v", got)
+	}
+	// The plain provider's id is delivered on the Go endpoint instead.
+	mapped, err := f.m.Create(ctx, "hello-stack", agent.CreateOptions{AI: "opencode", Model: choice("opencode/deepseek-v4.1-flash")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := options(mapped); got["model"] != "opencode-go/deepseek-v4.1-flash" {
+		t.Errorf("an opencode/ model was stored as %q, want its opencode-go/ form", got["model"])
 	}
 	// Claude Code's own default model is never seeded into an OpenCode agent:
 	// "opus[1m]" is not a provider/model id and OpenCode would refuse it.
@@ -974,8 +982,11 @@ exit 0`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := options(plain); len(got) != 0 {
-		t.Errorf("with nothing chosen: %+v, want no Claude Code settings at all", got)
+	if got := options(plain); got["model"] != state.DefaultOpenCodeModel || got["effort"] != state.DefaultOpenCodeEffort {
+		t.Errorf("with nothing chosen: %+v, want the OpenCode model and effort defaults", got)
+	}
+	if !strings.HasPrefix(options(plain)["model"], "opencode-go/") {
+		t.Errorf("an OpenCode agent's default model = %q, want an opencode-go/ id", options(plain)["model"])
 	}
 
 	if err := f.m.ChatChoices(ctx, "opencode", choice("anthropic/claude-sonnet-5"), nil); err != nil {
@@ -984,10 +995,9 @@ exit 0`))
 	if err := f.m.ChatChoices(ctx, "opencode", choice(""), nil); err == nil || !strings.Contains(err.Error(), "an empty model isn't a choice") {
 		t.Errorf("an empty OpenCode model: %v", err)
 	}
-	if err := f.m.ChatChoices(ctx, "opencode", nil, choice("high")); err == nil || !strings.Contains(err.Error(), "Claude Code setting") {
+	if err := f.m.ChatChoices(ctx, "opencode", nil, choice("high")); err != nil {
 		t.Errorf("an effort for an OpenCode agent: %v", err)
 	}
-
 	// A project on OpenCode gives its model and mode to its OpenCode agents,
 	// and none of them to a Claude Code one.
 	if err := f.st.SetProjectAgentDefaults(ctx, "hello-stack", state.ProjectAgentDefaults{Tool: choice("opencode"), Model: choice("openrouter/kimi"), Mode: choice("plan")}); err != nil {
@@ -1020,6 +1030,78 @@ exit 0`))
 	}
 	if got := options(claude); got["model"] != "sonnet" || got["effort"] != "low" || got[state.ChatOptionModeKind] != "standard" {
 		t.Errorf("a Claude Code agent of a Claude Code project: %+v", got)
+	}
+	// An OpenCode effort is a value of its own, refused when it is empty or one
+	// the session never named.
+	if err := f.m.ChatChoices(ctx, "opencode", nil, choice("")); err == nil || !strings.Contains(err.Error(), "an empty effort isn't a choice") {
+		t.Errorf("an empty OpenCode effort: %v", err)
+	}
+	if err := f.st.SetSetting(ctx, state.SettingOpenCodeEffortChoices, `[{"value":"low"},{"value":"medium"},{"value":"high"}]`); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.m.ChatChoices(ctx, "opencode", nil, choice("xhigh")); err == nil || !strings.Contains(err.Error(), `doesn't offer the effort "xhigh"`) {
+		t.Errorf("an effort OpenCode never offered: %v", err)
+	}
+}
+
+// TestOpenCodeEffortChoices: an OpenCode effort named for one agent wins over
+// the project's, the project's wins over the installation's OpenCode default,
+// and that default is what an agent nobody chose for gets — never the
+// adapter's low.
+func TestOpenCodeEffortChoices(t *testing.T) {
+	f := setup(t, fakeIncus(t, `case "$1" in
+  list) echo '[{"name":"ab-hello-stack-agent-01","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.5"}]}}}},{"name":"ab-hello-stack-agent-02","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.6"}]}}}},{"name":"ab-hello-stack-agent-03","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.7"}]}}}}]' ;;
+  query)
+    case "$2" in
+      */agentbox-base/snapshots) echo '["/1.0/instances/agentbox-base/snapshots/ready"]' ;;
+      */snapshots) echo '[]' ;;
+      *) echo '{"config": {"user.agentbox.with-opencode": "1"}, "devices": {}}' ;;
+    esac ;;
+esac
+exit 0`))
+	ctx := context.Background()
+	choice := func(v string) *string { return &v }
+	openCodeLogin(t, f)
+	options := func(a state.Agent) map[string]string {
+		t.Helper()
+		chat, err := f.st.Chat(ctx, a.Project, a.Name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return chat.Options
+	}
+
+	// The installation's OpenCode default, not the adapter's low.
+	if err := f.st.SetSetting(ctx, state.SettingDefaultOpenCodeEffort, "xhigh"); err != nil {
+		t.Fatal(err)
+	}
+	plain, err := f.m.Create(ctx, "hello-stack", agent.CreateOptions{AI: "opencode"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := options(plain); got["effort"] != "xhigh" {
+		t.Errorf("with no effort chosen: %+v, want the installation's xhigh", got)
+	}
+
+	// The project's choice wins over the installation's.
+	if err := f.st.SetProjectAgentDefaults(ctx, "hello-stack", state.ProjectAgentDefaults{Effort: choice("high")}); err != nil {
+		t.Fatal(err)
+	}
+	project, err := f.m.Create(ctx, "hello-stack", agent.CreateOptions{AI: "opencode"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := options(project); got["effort"] != "high" {
+		t.Errorf("with a project effort: %+v, want high", got)
+	}
+
+	// And the one named for this agent wins over both.
+	chosen, err := f.m.Create(ctx, "hello-stack", agent.CreateOptions{AI: "opencode", Effort: choice("low")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := options(chosen); got["effort"] != "low" {
+		t.Errorf("with an effort chosen for the agent: %+v, want low", got)
 	}
 }
 

@@ -1323,6 +1323,13 @@ func (s *Server) checkCreate(ctx context.Context, req api.CreateAgentRequest, by
 			return fail(err)
 		}
 	}
+	// The project's effort is applied after the tool is known and before the
+	// lead's, which defaultTool only passes on when the project names none: a
+	// request that named an effort still wins over both.
+	if req.Effort == nil && p.AgentEffort != "" {
+		effort := p.AgentEffort
+		req.Effort = &effort
+	}
 	// A model or effort this agent could never run on is a mistake worth
 	// seeing now, in the reply to the request that made it, rather than in a
 	// job that has already started copying a machine.
@@ -1410,9 +1417,20 @@ func (s *Server) defaultTool(ctx context.Context, p state.Project, req api.Creat
 		if req.Model == nil && d.Model != "" {
 			// The lead's tool runs the model its own session runs: an agent
 			// started on the adapter's default may be on a model the account
-			// doesn't enable.
+			// doesn't enable. An OpenCode lead on an "opencode/" id passes
+			// the same model on the Go endpoint AgentBox delivers the key for.
 			model := d.Model
+			if req.AI == "opencode" {
+				model = opencode.GoModel(model)
+			}
 			req.Model = &model
+		}
+		if req.Effort == nil && d.Effort != "" && p.AgentEffort == "" {
+			// The project's own effort, when it has one, was applied by
+			// checkCreate, which runs before this: the lead's is what an agent
+			// that follows its tool gets otherwise.
+			effort := d.Effort
+			req.Effort = &effort
 		}
 		if d.Fallback != "" {
 			s.logf("A new agent of %s: %s", p.Name, d.Fallback)

@@ -3213,12 +3213,13 @@ func (c *conversation) runningModelName() string {
 	return option.Value
 }
 
-// rememberChoices stores the menus a Claude Code adapter advertised — the
-// models, and the effort levels — so a page with no chat running can offer the
-// real thing. AgentBox never composes these lists itself: what an account may
-// use comes over ACP and differs per account, and inventing an entry only
-// produces a choice that resolves to nothing. Best effort — failing to
-// remember a menu must not stop a session starting.
+// rememberChoices stores the menus an adapter advertised — the models, and
+// the effort levels — so a page with no chat running can offer the real thing.
+// AgentBox never composes these lists itself: what an account may use comes
+// over ACP and differs per account, and inventing an entry only produces a
+// choice that resolves to nothing. Best effort — failing to remember a menu
+// must not stop a session starting. Claude Code and OpenCode each keep their
+// own model and effort menus; Cursor's are left to the daemon.
 //
 // The two menus are not quite alike. The models are the account's, and stay
 // put. The effort levels are the ones "available for this model", and a model
@@ -3240,6 +3241,7 @@ func (c *conversation) rememberChoices() {
 		categories[state.SettingClaudeEffortChoices] = "thought_level"
 	case "opencode":
 		categories[state.SettingOpenCodeModelChoices] = "model"
+		categories[state.SettingOpenCodeEffortChoices] = "thought_level"
 	}
 	// Cursor's menu is left to the daemon, which asks Cursor for it with each
 	// model's effort levels (SettingCursorModelChoices): a session's menu has

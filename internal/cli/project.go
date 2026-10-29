@@ -152,7 +152,7 @@ func newProjectCmd(a *app) *cobra.Command {
 		Short: "Settings of one project",
 		Long:  `Settings that belong to one project, rather than to this installation.`,
 	}
-	cmd.AddCommand(newAddCmd(a), newProjectModelCmd(a), newProjectToolCmd(a), newProjectBranchPrefixCmd(a), newProjectRenameCmd(a), newProjectGitCmd(a), newProjectClusterCmd(a))
+	cmd.AddCommand(newAddCmd(a), newProjectModelCmd(a), newProjectToolCmd(a), newProjectEffortCmd(a), newProjectBranchPrefixCmd(a), newProjectRenameCmd(a), newProjectGitCmd(a), newProjectClusterCmd(a))
 	return cmd
 }
 
@@ -379,6 +379,64 @@ func agentModelWords(model string) string {
 	default:
 		return model + " — every new agent of this project starts on it"
 	}
+}
+
+// newProjectEffortCmd shows or sets how hard this project's agents think, for
+// the tools whose session exposes an effort option.
+func newProjectEffortCmd(a *app) *cobra.Command {
+	return &cobra.Command{
+		Use:   "effort <project> [inherit|low|medium|high|xhigh|max]",
+		Short: "How hard this project's agents think",
+		Long: `Shows or sets how hard this project's new agents think, on the tools whose
+session exposes an effort option (Claude Code, OpenCode, and some Cursor
+models).
+
+  inherit   follow the project chat's effort when an agent follows its tool
+            (this is how a project starts)
+  low, medium, high, xhigh, max
+            every agent of this project starts at that level, unless one is
+            named for a single agent
+
+An effort named for one agent still wins. Agents that already exist keep the
+effort they have: this is the starting point for the next one.`,
+		Args: cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			if len(args) == 1 {
+				projects, err := c.Projects(cmd.Context())
+				if err != nil {
+					return err
+				}
+				for _, p := range projects {
+					if p.Is(args[0]) {
+						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), agentEffortWords(p.AgentEffort))
+						return nil
+					}
+				}
+				return fmt.Errorf("no project named %q", args[0])
+			}
+			effort := strings.TrimSpace(args[1])
+			if effort == "inherit" {
+				effort = ""
+			}
+			p, err := c.SetAgentEffort(cmd.Context(), args[0], effort)
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), agentEffortWords(p.AgentEffort))
+			return nil
+		},
+	}
+}
+
+func agentEffortWords(effort string) string {
+	if effort == "" {
+		return "inherit — the project chat's effort, when an agent follows its tool"
+	}
+	return effort + " — every new agent of this project starts there"
 }
 
 // newProjectBranchPrefixCmd shows or sets what this project's agents' branches

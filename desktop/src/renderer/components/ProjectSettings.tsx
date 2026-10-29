@@ -111,6 +111,13 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
             ]
           : []),
         {
+          id: 'effort',
+          label: t('defaults.project.effortLabel'),
+          keywords: t('defaults.project.effortKeywords'),
+          modified: project.agentEffort !== '',
+          render: () => <AgentEffortPicker project={project} />,
+        },
+        {
           id: 'cluster',
           label: t('defaults.project.clusterLabel'),
           keywords: t('defaults.project.clusterKeywords'),
@@ -701,6 +708,44 @@ function AgentModelPicker({ project }: { project: T.Project }) {
         </SettingNote>
       )}
     </SettingRow>
+  );
+}
+
+// AgentEffortPicker chooses how hard this project's new agents think, for the
+// tools whose sessions expose an effort option. Empty follows the project
+// chat's effort when an agent follows its tool; a level pins every agent.
+function AgentEffortPicker({ project }: { project: T.Project }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (agentEffort: string) => api.updateProject(project.name, { agentEffort }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const levels = ['', 'low', 'medium', 'high', 'xhigh', 'max'];
+  return (
+    <SettingRow
+      label={t('defaults.project.effortLabel')}
+      description={t('defaults.project.effortDescription')}
+      details={t('defaults.project.effortDetails')}
+      control={
+        <Select
+          value={project.agentEffort}
+          onChange={(value) => save.mutate(value)}
+          disabled={save.isPending}
+          aria-label={t('defaults.project.effortLabel')}
+          data-project-effort
+        >
+          {levels.map((level) => (
+            <SelectOption key={level || 'inherit'} value={level}>
+              {level === '' ? t('defaults.project.effortInherit') : level}
+            </SelectOption>
+          ))}
+        </Select>
+      }
+    />
   );
 }
 

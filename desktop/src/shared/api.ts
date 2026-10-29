@@ -179,6 +179,8 @@ export interface Settings {
   defaultClaudeEffort: string;
   claudeEffortChoices: ChatOptionChoice[];
   openCodeModelChoices: ChatOptionChoice[];
+  defaultOpenCodeEffort: string;
+  openCodeEffortChoices: ChatOptionChoice[];
   openCodeReady: boolean;
   openCodeVersion: string;
   cursorModelChoices: ChatOptionChoice[];
@@ -256,6 +258,7 @@ export interface UpdateSettingsRequest {
   defaultLeadContextWindow?: string;
   cloneFolder?: string;
   defaultClaudeEffort?: string;
+  defaultOpenCodeEffort?: string;
   defaultCursorModel?: string;
   defaultCursorEffort?: string;
   lastAgentPick?: AgentPick;

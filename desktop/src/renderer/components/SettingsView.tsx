@@ -83,6 +83,7 @@ import {
   SharedPackageCaches,
   LocalNodeModules,
   NewAgentEffort,
+  OpenCodeEffort,
   OpenCodeInImage,
   ResumeAfterLimit,
   ContinueAfterRestart,
@@ -1355,6 +1356,14 @@ function InstalledSettings({
               keywords: t("settings.entry.agent-effort.keywords"),
               modified: changed((s) => s.defaultClaudeEffort !== ""),
               render: () => <NewAgentEffort />,
+            },
+            {
+              id: "opencode-effort",
+              advanced: true,
+              label: t("settings.entry.opencode-effort.label"),
+              keywords: t("settings.entry.opencode-effort.keywords"),
+              modified: changed((s) => s.defaultOpenCodeEffort !== ""),
+              render: () => <OpenCodeEffort />,
             },
             {
               id: "cursor-model",

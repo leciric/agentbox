@@ -144,8 +144,12 @@ export function NewAgentDialog({
   const effortChoices = settings.data?.claudeEffortChoices ?? [];
   // OpenCode's models are its own provider/model ids, remembered the same way:
   // from a chat that has run, or from `opencode models` against AgentBox's own
-  // login. Its agents have no effort — that is a Claude Code setting.
+  // login. Its effort levels are remembered too, from the sessions that
+  // advertised the option, so the picker exists only once there is a real list.
   const openCodeModels = settings.data?.openCodeModelChoices ?? [];
+  const openCodeEfforts = settings.data?.openCodeEffortChoices ?? [];
+  const projectEffort = selected?.agentEffort ?? '';
+  const fallbackOpenCodeEffort = projectEffort || settingLabel(openCodeEfforts, settings.data?.defaultOpenCodeEffort ?? '', 'medium');
   // Cursor's own model ids, and the effort levels each one takes (most take
   // none). With no model picked, the one Settings names decides the levels.
   const cursorModels = settings.data?.cursorModelChoices ?? [];
@@ -185,7 +189,14 @@ export function NewAgentDialog({
         // Left out when nothing was picked, so the model and effort new agents
         // start on apply. "" would be a choice of no model at all, and is refused.
         model: form.ai === 'claude' || form.ai === 'opencode' || form.ai === 'cursor' ? form.model || undefined : undefined,
-        effort: form.ai === 'claude' ? form.effort || undefined : form.ai === 'cursor' ? cursorEffort || undefined : undefined,
+        effort:
+          form.ai === 'claude'
+            ? form.effort || undefined
+            : form.ai === 'opencode'
+              ? form.effort || undefined
+              : form.ai === 'cursor'
+                ? cursorEffort || undefined
+                : undefined,
         contextWindow: form.ai === 'claude' ? contextWindow || undefined : undefined,
         from: form.from.trim() || undefined,
         clean: form.clean || undefined,
@@ -501,22 +512,36 @@ export function NewAgentDialog({
                   </Field>
                 </div>
                 {form.ai === 'opencode' && (
-                  <Field
-                    label={t('project.newAgent.modelLabel')}
-                    htmlFor="agent-opencode-model"
-                    hint={openCodeModels.length ? t('project.newAgent.openCodeModelHint') : t('project.newAgent.openCodeLoginHint')}
-                  >
-                    <Select id="agent-opencode-model" value={form.model} onChange={(value) => set('model', value)}>
-                      <SelectOption value="">
-                        {projectDefaults.model ? t('project.newAgent.defaultOption', { value: settingLabel(openCodeModels, projectDefaults.model, '') }) : t('project.newAgent.openCodeDefault')}
-                      </SelectOption>
-                      {openCodeModels.map((choice) => (
-                        <SelectOption key={choice.value} value={choice.value}>
-                          {choiceName(choice) || choice.value}
+                  <div className={cn('grid gap-4', openCodeEfforts.length > 0 && 'grid-cols-2')}>
+                    <Field
+                      label={t('project.newAgent.modelLabel')}
+                      htmlFor="agent-opencode-model"
+                      hint={openCodeModels.length ? t('project.newAgent.openCodeModelHint') : t('project.newAgent.openCodeLoginHint')}
+                    >
+                      <Select id="agent-opencode-model" value={form.model} onChange={(value) => set('model', value)}>
+                        <SelectOption value="">
+                          {projectDefaults.model ? t('project.newAgent.defaultOption', { value: settingLabel(openCodeModels, projectDefaults.model, '') }) : t('project.newAgent.openCodeDefault')}
                         </SelectOption>
-                      ))}
-                    </Select>
-                  </Field>
+                        {openCodeModels.map((choice) => (
+                          <SelectOption key={choice.value} value={choice.value}>
+                            {choiceName(choice) || choice.value}
+                          </SelectOption>
+                        ))}
+                      </Select>
+                    </Field>
+                    {openCodeEfforts.length > 0 && (
+                      <Field label={t('project.newAgent.effortLabel')} htmlFor="agent-opencode-effort" hint={t('project.newAgent.effortHint')}>
+                        <Select id="agent-opencode-effort" value={form.effort} onChange={(value) => set('effort', value)}>
+                          <SelectOption value="">{t('project.newAgent.defaultOption', { value: fallbackOpenCodeEffort })}</SelectOption>
+                          {openCodeEfforts.map((choice) => (
+                            <SelectOption key={choice.value} value={choice.value}>
+                              {choiceName(choice) || choice.value}
+                            </SelectOption>
+                          ))}
+                        </Select>
+                      </Field>
+                    )}
+                  </div>
                 )}
                 {form.ai === 'cursor' && (
                   <div className="grid grid-cols-2 gap-4">
