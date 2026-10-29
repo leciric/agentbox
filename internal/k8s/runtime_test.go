@@ -256,3 +256,120 @@ func TestExecNeedsTheAPIServersOwnConfiguration(t *testing.T) {
 func realClient(server string) (k8sclient.Interface, error) {
 	return k8sclient.NewForConfig(&rest.Config{Host: server})
 }
+
+// collidingRefs are two refs whose pod, claim and token Secret names are the
+// same, because both parts of a ref may contain hyphens.
+var collidingRefs = []struct{ name, project, agent, otherProject, otherAgent string }{
+	{"a-b/c", "a-b", "c", "a", "b-c"},
+	{"a/b-c", "a", "b-c", "a-b", "c"},
+}
+
+func refSpec(project, agent string) k8s.Spec {
+	spec := agentSpec()
+	spec.Project, spec.Agent = project, agent
+	return spec
+}
+
+func TestTwoRefsThatShareANameDoNotShareObjects(t *testing.T) {
+	for _, tc := range collidingRefs {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			client := fake.NewClientset()
+			cluster := k8s.FromClient("k3d", "", client)
+			if got, want := k8s.PodName(tc.project, tc.agent), k8s.PodName(tc.otherProject, tc.otherAgent); got != want {
+				t.Fatalf("PodName(%s, %s) = %q and PodName(%s, %s) = %q: the refs do not share a name", tc.project, tc.agent, got, tc.otherProject, tc.otherAgent, want)
+			}
+			first := refSpec(tc.project, tc.agent)
+			second := refSpec(tc.otherProject, tc.otherAgent)
+			made, err := cluster.Create(ctx, first, testToken)
+			if err != nil {
+				t.Fatalf("Create(%s) = %v", tc.name, err)
+			}
+
+			otherToken := strings.Repeat("b", 32)
+			if _, err := cluster.Create(ctx, second, otherToken); err == nil || !strings.Contains(err.Error(), "already belongs to "+tc.project+"/"+tc.agent) {
+				t.Fatalf("Create(%s/%s) = %v, want it to refuse the name %s already holds", tc.otherProject, tc.otherAgent, err, tc.name)
+			}
+
+			// The first ref's pod, claim and token are untouched.
+			pod, err := client.CoreV1().Pods("agentbox").Get(ctx, k8s.PodName(tc.project, tc.agent), metav1.GetOptions{})
+			if err != nil {
+				t.Fatalf("the first pod is gone: %v", err)
+			}
+			if pod.UID != made.UID {
+				t.Errorf("the pod is %s, want the one %s made", pod.UID, tc.name)
+			}
+			secret, err := client.CoreV1().Secrets("agentbox").Get(ctx, k8s.PodTokenSecretName(tc.project, tc.agent), metav1.GetOptions{})
+			if err != nil {
+				t.Fatalf("the first token is gone: %v", err)
+			}
+			if got := string(secret.Data["token"]); got != testToken {
+				t.Errorf("the token = %q, want the first ref's, not the second's", got)
+			}
+			claim, err := client.CoreV1().PersistentVolumeClaims("agentbox").Get(ctx, k8s.ClaimName(tc.project, tc.agent), metav1.GetOptions{})
+			if err != nil {
+				t.Fatalf("the first claim is gone: %v", err)
+			}
+			if got := claim.Labels[k8s.LabelProject] + "/" + claim.Labels[k8s.LabelAgent]; got != tc.project+"/"+tc.agent {
+				t.Errorf("the claim belongs to %s, want %s", got, tc.project+"/"+tc.agent)
+			}
+
+			// Nothing was made for the second ref, and it has no pod to read.
+			pods, err := client.CoreV1().Pods("agentbox").List(ctx, metav1.ListOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(pods.Items) != 1 {
+				t.Errorf("%d pods, want the first ref's one", len(pods.Items))
+			}
+			if _, err := cluster.Get(ctx, tc.otherProject, tc.otherAgent); err == nil || !strings.Contains(err.Error(), "has no pod") {
+				t.Errorf("Get(%s/%s) = %v, want no pod because the name belongs to another ref", tc.otherProject, tc.otherAgent, err)
+			}
+		})
+	}
+}
+
+func TestDestroyingOneOfTwoRefsThatShareANameLeavesTheOtherAlone(t *testing.T) {
+	for _, tc := range collidingRefs {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			client := fake.NewClientset()
+			cluster := k8s.FromClient("k3d", "", client)
+			made, err := cluster.Create(ctx, refSpec(tc.project, tc.agent), testToken)
+			if err != nil {
+				t.Fatalf("Create(%s) = %v", tc.name, err)
+			}
+
+			// The other ref never made these objects, so stopping and
+			// forgetting it must not take them.
+			if err := cluster.Delete(ctx, tc.otherProject, tc.otherAgent); err != nil {
+				t.Fatalf("Delete(%s/%s) = %v", tc.otherProject, tc.otherAgent, err)
+			}
+			if err := cluster.DeleteAll(ctx, tc.otherProject, tc.otherAgent, ""); err != nil {
+				t.Fatalf("DeleteAll(%s/%s) = %v", tc.otherProject, tc.otherAgent, err)
+			}
+
+			pod, err := client.CoreV1().Pods("agentbox").Get(ctx, k8s.PodName(tc.project, tc.agent), metav1.GetOptions{})
+			if err != nil {
+				t.Fatalf("destroying %s/%s took %s's pod: %v", tc.otherProject, tc.otherAgent, tc.name, err)
+			}
+			if pod.UID != made.UID {
+				t.Errorf("the pod is %s, want %s's", pod.UID, tc.name)
+			}
+			claim, err := client.CoreV1().PersistentVolumeClaims("agentbox").Get(ctx, k8s.ClaimName(tc.project, tc.agent), metav1.GetOptions{})
+			if err != nil {
+				t.Fatalf("destroying %s/%s took %s's claim: %v", tc.otherProject, tc.otherAgent, tc.name, err)
+			}
+			if got := claim.Labels[k8s.LabelProject] + "/" + claim.Labels[k8s.LabelAgent]; got != tc.project+"/"+tc.agent {
+				t.Errorf("the claim belongs to %s, want %s", got, tc.project+"/"+tc.agent)
+			}
+			secret, err := client.CoreV1().Secrets("agentbox").Get(ctx, k8s.PodTokenSecretName(tc.project, tc.agent), metav1.GetOptions{})
+			if err != nil {
+				t.Fatalf("destroying %s/%s took %s's token: %v", tc.otherProject, tc.otherAgent, tc.name, err)
+			}
+			if got := string(secret.Data["token"]); got != testToken {
+				t.Errorf("the token = %q, want %s's", got, tc.name)
+			}
+		})
+	}
+}
