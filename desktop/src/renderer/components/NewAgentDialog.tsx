@@ -48,6 +48,8 @@ interface Form {
   // daemon place it where there is room; "" is an Incus machine on this
   // computer, which is what every installation did before clusters.
   cluster: string;
+  // Whether the cluster was picked here: until it is, it follows the project's.
+  clusterTouched: boolean;
   // Queue it when the cluster it would run in is full, rather than failing
   // the create: it is accepted now and started when there is room.
   queue: boolean;
@@ -74,6 +76,7 @@ const emptyForm: Form = {
   claudeAccount: '',
   githubAccount: '',
   cluster: '',
+  clusterTouched: false,
   queue: false,
   notify: '',
 };
@@ -86,6 +89,10 @@ const tools: { ai: string; label?: string; labelKey?: MessageKey; hint?: string;
   { ai: 'cursor', label: 'Cursor', hintKey: 'project.newAgent.tool.cursor' },
   { ai: 'none', labelKey: 'project.newAgent.tool.shellOnly', hintKey: 'project.newAgent.tool.noAI' },
 ];
+
+// The form as "Open Git settings" left it, so opening the dialog again on the
+// same project comes back to the title and prompt rather than an empty form.
+let keptForm: Form | null = null;
 
 const interfaces = [
   { value: 'chat', label: 'project.newAgent.interface.chat', icon: MessageSquare },
@@ -225,7 +232,9 @@ export function NewAgentDialog({
   useEffect(() => {
     if (!open) return;
     startedFor.current = '';
-    setForm({ ...emptyForm, project: project ?? '' });
+    const kept = keptForm && (!project || keptForm.project === project) ? keptForm : null;
+    keptForm = null;
+    setForm(kept ?? { ...emptyForm, project: project ?? '' });
     setAdvanced(false);
     setJob(null);
     setFinished(null);
@@ -255,20 +264,35 @@ export function NewAgentDialog({
   // cluster-only installation has no machine to start on, so a project that
   // names none starts on the daemon's placement instead.
   const projectCluster = projects.data?.find((p) => p.name === form.project)?.cluster ?? '';
-  const clusterNames = (clusters.data ?? []).map((c) => c.name);
-  // Before the list arrives, the project's own choice stands: guessing "auto"
-  // and then changing it back would move the picker under the reader.
-  const startCluster =
-    clusterOnly &&
-    clusters.data !== undefined &&
-    projectCluster !== 'auto' &&
-    !clusterNames.includes(projectCluster)
-      ? 'auto'
-      : projectCluster;
+  const startCluster = clusterOnly && projectCluster === '' ? 'auto' : projectCluster;
   useEffect(() => {
     if (!open) return;
-    setForm((f) => ({ ...f, cluster: startCluster }));
+    setForm((f) => (f.clusterTouched ? f : { ...f, cluster: startCluster }));
   }, [open, form.project, startCluster]);
+
+  // The picker is on screen whenever where the agent runs is a choice, or the
+  // project has made it: while the list loads, when it fails, and when the
+  // project names a cluster the list doesn't have. What it can't show is never
+  // sent: the create waits, or is refused here with the reason (H1). A
+  // draining cluster takes no new agents, so it is listed and not offered (H2).
+  const clusterList = clusters.data ?? [];
+  const showClusters = clusterOnly || projectCluster !== '' || clusterList.length > 0 || clusters.isError;
+  const placeable = new Set(['auto', ...clusterList.filter((c) => !c.draining).map((c) => c.name)]);
+  if (!clusterOnly) placeable.add('');
+  const draining = clusterList.find((c) => c.name === form.cluster)?.draining === true;
+  const clusterProblem = !showClusters
+    ? ''
+    : clusters.isPending
+      ? t('project.newAgent.clustersLoading')
+      : placeable.has(form.cluster)
+        ? ''
+        : clusters.isError
+          ? t('project.newAgent.clusterUnchecked', { name: form.cluster })
+          : draining
+            ? t('project.newAgent.clusterDrainingWhy', { name: form.cluster })
+            : t('project.newAgent.clusterUnknown', { name: form.cluster });
+  // Until the project is read, where it runs its agents isn't known either.
+  const clusterBlocked = clusterProblem !== '' || !selected;
 
   const onDone = useCallback(
     async (done: T.Job) => {
@@ -304,9 +328,13 @@ export function NewAgentDialog({
   const agentProfile = (git.data?.profiles ?? []).find((p) => p.profile === wanted);
   const agentProfileName = gitProfileWord(wanted);
   const gitProblem =
-    form.cluster === '' || !git.data
+    form.cluster === ''
       ? ''
-      : !agentProfile
+      : git.isError
+        ? t('project.newAgent.gitCheckFailed', { error: errorMessage(git.error) })
+        : !git.data
+          ? ''
+          : !agentProfile
         ? t('project.newAgent.gitNoProfile', { profile: agentProfileName })
         : agentProfile.resolveError
           ? t('project.newAgent.gitNoResolve', { profile: agentProfileName, error: agentProfile.resolveError })
@@ -317,8 +345,11 @@ export function NewAgentDialog({
               : '';
   // The answer is on its way: a submit now would be the request the daemon
   // refuses, so the button waits rather than flashing an error.
-  const gitChecking = form.cluster !== '' && git.isPending;
+  const gitChecking = form.cluster !== '' && form.project !== '' && git.isPending;
   const gitBlocked = gitProblem !== '' || gitChecking;
+  // What a disabled Create is waiting for, said beside it rather than left
+  // for the reader to guess.
+  const waiting = gitChecking ? t('project.newAgent.gitChecking') : '';
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
@@ -353,7 +384,7 @@ export function NewAgentDialog({
             className="grid gap-5"
             onSubmit={(event) => {
               event.preventDefault();
-              if (!form.project || gitBlocked) return;
+              if (!form.project || gitBlocked || clusterBlocked) return;
               create.mutate();
             }}
           >
@@ -392,7 +423,7 @@ export function NewAgentDialog({
             </Field>
 
             <Field label={t('project.newAgent.projectLabel')} htmlFor="agent-project">
-              <Select id="agent-project" value={form.project} onChange={(value) => set('project', value)}>
+              <Select id="agent-project" value={form.project} onChange={(value) => setForm((f) => ({ ...f, project: value, clusterTouched: false }))}>
                 {projects.data?.map((p) => (
                   <SelectOption key={p.name} value={p.name}>
                     {projectLabel(p)}
@@ -401,15 +432,22 @@ export function NewAgentDialog({
               </Select>
             </Field>
 
-            {(clusterOnly || (clusters.data?.length ?? 0) > 0) && (
+            {showClusters && (
               <Field label={t('project.newAgent.clusterLabel')} htmlFor="agent-cluster" hint={t('project.newAgent.clusterHint')}>
-                <Select id="agent-cluster" data-new-agent-cluster value={form.cluster} onChange={(value) => set('cluster', value)}>
+                <Select
+                  id="agent-cluster"
+                  data-new-agent-cluster
+                  value={form.cluster}
+                  disabled={clusters.isPending}
+                  placeholder={clusters.isPending ? t('project.newAgent.clustersLoadingShort') : form.cluster}
+                  onChange={(value) => setForm((f) => ({ ...f, cluster: value, clusterTouched: true }))}
+                >
                   {/* A cluster-only daemon has no Incus, so "this machine" is
                       not a place an agent can be created. */}
                   {!clusterOnly && <SelectOption value="">{t('project.newAgent.clusterLocal')}</SelectOption>}
                   <SelectOption value="auto">{t('project.newAgent.clusterAuto')}</SelectOption>
                   {clusters.data?.map((cluster) => (
-                    <SelectOption key={cluster.name} value={cluster.name}>
+                    <SelectOption key={cluster.name} value={cluster.name} disabled={cluster.draining}>
                       {cluster.draining
                         ? t('project.newAgent.clusterDraining', { name: cluster.name })
                         : cluster.capacity
@@ -418,7 +456,24 @@ export function NewAgentDialog({
                     </SelectOption>
                   ))}
                 </Select>
-                {form.cluster !== '' && (
+                {clusters.isError && (
+                  <Notice tone="warning">
+                    <div className="grid justify-items-start gap-2">
+                      <p>{t('project.newAgent.clustersFailed', { error: errorMessage(clusters.error) })}</p>
+                      <Button size="sm" variant="secondary" disabled={clusters.isFetching} onClick={() => void clusters.refetch()}>
+                        {clusters.isFetching && <LoaderCircle className="animate-spin" />}
+                        {t('project.newAgent.clustersRetry')}
+                      </Button>
+                    </div>
+                  </Notice>
+                )}
+                {clusterProblem !== '' && (
+                  <p className={cn('flex items-center gap-1.5 text-xs', clusters.isPending ? 'text-subtle' : 'text-amber-300')} role="status" data-new-agent-cluster-problem>
+                    {clusters.isPending && <LoaderCircle className="size-3.5 shrink-0 animate-spin" />}
+                    {clusterProblem}
+                  </p>
+                )}
+                {form.cluster !== '' && placeable.has(form.cluster) && (
                   <SwitchRow
                     id="agent-queue"
                     label={t('project.newAgent.queueIfFull')}
@@ -705,8 +760,11 @@ export function NewAgentDialog({
                     variant="secondary"
                     data-new-agent-open-git
                     onClick={() => {
+                      // The form is kept for the next time the dialog opens
+                      // on this project, and Settings opens at its Git group.
+                      keptForm = form;
                       onClose();
-                      openSettingsSection(`project:${form.project}`);
+                      openSettingsSection(`project:${form.project}`, 'git-flow');
                     }}
                   >
                     {t('project.newAgent.openGitSettings')}
@@ -720,13 +778,19 @@ export function NewAgentDialog({
               </Notice>
             )}
             {create.error && <Notice>{errorMessage(create.error)}</Notice>}
+            {waiting && (
+              <p className="-mb-2 flex items-center justify-end gap-1.5 text-xs text-subtle" role="status" data-new-agent-waiting>
+                <LoaderCircle className="size-3.5 animate-spin" />
+                {waiting}
+              </p>
+            )}
 
             <DialogFooter>
               {/* The same work on several agents at once, to compare. */}
               <Button
                 variant="ghost"
                 className="mr-auto px-2 text-brand-200"
-                disabled={!form.project}
+                disabled={!form.project || gitBlocked}
                 onClick={() => {
                   const seed = { project: form.project, title: form.title.trim() };
                   onClose();
@@ -740,7 +804,7 @@ export function NewAgentDialog({
               <Button variant="ghost" onClick={onClose}>
                 {t('common.cancel')}
               </Button>
-              <Button type="submit" variant="primary" disabled={!form.project || create.isPending || gitBlocked}>
+              <Button type="submit" variant="primary" disabled={!form.project || create.isPending || gitBlocked || clusterBlocked}>
                 {create.isPending && <LoaderCircle className="animate-spin" />}
                 {t('project.newAgent.create')}
               </Button>

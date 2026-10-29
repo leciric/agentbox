@@ -114,9 +114,13 @@
 //                           that step, its daemon up (fixtures.ts seedFirstRun);
 //                           =machine with ?linux=setup (or ?vm=create,
 //                           ?wsl=create) the VM to make, before there is one
-//   ?git=missing|public     a project's git profiles with the private one gone
-//                           (the create dialog refuses), or with its agents
-//                           pushing to the public one (Settings → Git's flow)
+//   ?git=missing|public|pending
+//                           a project's git profiles with the private one gone
+//                           (the create dialog refuses), with its agents
+//                           pushing to the public one (Settings → Git's flow),
+//                           or never answering
+//   &cluster=<name>         where the project runs its agents (New agent)
+//   &clusters=pending|error the cluster list never answers, or fails
 //   ?setup=updating         Settings while the daemon updates the base image's
 //                           agent tools in place: the image check updating,
 //                           with its job's log (fixtures.ts)
@@ -351,7 +355,7 @@ import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
 import { Markdown } from '../components/chat/Markdown';
 import { webStreams } from '../web/streams';
 import { chooseSession } from '../lib/sessions';
-import { agent12Chat, asleepChat, buildFixtures, remoteAgents, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedProjectGit, seedSettings, seedClusterSetup, seedFirstRun, seedSignedOut, seedNightly, seedCacheCard, seedStaleDaemon, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
+import { agent12Chat, asleepChat, buildFixtures, remoteAgents, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedProjectGit, seedClustersAnswer, seedFirstRun, seedSettings, seedClusterSetup, seedSignedOut, seedNightly, seedCacheCard, seedStaleDaemon, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
 import { restoreMode } from '../lib/theme';
 import { seedPastAgents } from './pastAgents';
@@ -807,6 +811,11 @@ if (clusterSetup) seedClusterSetup(queryClient, clusterSetup === 'cluster-todo')
 // one its agents use, so the create dialog's refusal is on screen; ?git=public
 // has its agents use the public one.
 if (params.get('git')) seedProjectGit(queryClient, params.get('git')!);
+// The New agent dialog's cluster picker: &cluster= is where the project runs
+// its agents, and &clusters=pending|error has the cluster list never answer,
+// or fail.
+if (params.get('cluster') !== null) queryClient.setQueryData<T.Project[]>(['projects'], (ps) => ps?.map((p) => (p.name === PROJECT ? { ...p, cluster: params.get('cluster')! } : p)));
+if (params.get('clusters') === 'pending' || params.get('clusters') === 'error') seedClustersAnswer(params.get('clusters') as 'pending' | 'error');
 if (params.get('signedout') === '1') seedSignedOut(queryClient);
 if (appView && firstRunAt) seedFirstRun(queryClient, firstRunAt);
 if (params.get('drag')) dragBridge(queryClient, params.get('drag') === 'slow' ? 1_500 : 300);

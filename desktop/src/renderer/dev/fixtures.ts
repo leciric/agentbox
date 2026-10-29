@@ -1244,6 +1244,10 @@ const devState: {
   staleDaemon?: { daemon: string; app: string; jobs: number };
   // A project's git profiles, once a scenario changes the fixture (?git=).
   projectGit?: T.ProjectGit;
+  // ?git=pending: the profiles' read never answers.
+  projectGitPending?: boolean;
+  // ?clusters=pending|error: GET /v1/clusters never answers, or fails.
+  clusters?: 'pending' | 'error';
 } = { projects: [] };
 
 // seedQueryClient primes every query AgentRail and Sidebar read, at
@@ -2423,8 +2427,13 @@ export const projectGitFixture: T.ProjectGit = {
 // seedProjectGit is ?git=missing: the project's agents use a profile it no
 // longer has, which is what the create dialog refuses before a pod is made.
 // ?git=public: its agents push straight to the public profile, which Settings →
-// Git's flow draws with the private step skipped.
+// Git's flow draws with the private step skipped. ?git=pending: the read never
+// answers, so the create dialog is still checking.
 export function seedProjectGit(queryClient: QueryClient, state: string): void {
+  if (state === 'pending') {
+    devState.projectGitPending = true;
+    return;
+  }
   const git: T.ProjectGit =
     state === 'missing'
       ? { agentRemote: 'private', profiles: projectGitFixture.profiles.filter((p) => p.profile !== 'private') }
@@ -2433,6 +2442,12 @@ export function seedProjectGit(queryClient: QueryClient, state: string): void {
         : structuredClone(projectGitFixture);
   devState.projectGit = git;
   queryClient.setQueryData(['projectGit', PROJECT], git);
+}
+
+// seedClustersAnswer is &clusters=pending|error: the cluster list never
+// answers, or fails, for the New agent dialog's picker.
+export function seedClustersAnswer(state: 'pending' | 'error'): void {
+  devState.clusters = state;
 }
 
 // projectGitRequest answers a project's git profiles, their test and their
@@ -2446,7 +2461,7 @@ function projectGitRequest(method: string, path: string, body?: unknown) {
     devState.projectGit = next;
     return next;
   };
-  if (method === 'GET') return json(current);
+  if (method === 'GET') return devState.projectGitPending ? new Promise<never>(() => {}) : json(current);
   if (method === 'POST' && at[2] === 'test') {
     const profile = (body as T.TestProjectGitRequest | undefined)?.profile || current.agentRemote;
     const found = current.profiles.find((p) => p.profile === profile);
@@ -2663,7 +2678,11 @@ export function installDevBridge(): void {
   (window as unknown as { agentbox: unknown }).agentbox = {
     request: async (method: string, path: string, body?: unknown) => {
       if (method === 'PATCH' && path === '/v1/settings') return patchDefaults(body as T.UpdateSettingsRequest);
-      if (method === 'GET' && path === '/v1/clusters') return { status: 200, body: JSON.stringify(fixtureClusters), contentType: 'application/json' };
+      if (method === 'GET' && path === '/v1/clusters') {
+        if (devState.clusters === 'pending') return new Promise<never>(() => {});
+        if (devState.clusters === 'error') return { status: 500, body: JSON.stringify({ error: 'listing clusters: database is locked' }), contentType: 'application/json' };
+        return { status: 200, body: JSON.stringify(fixtureClusters), contentType: 'application/json' };
+      }
       const clusterDetail = clusterDetailRequest(method, path);
       if (clusterDetail) return clusterDetail;
       if (method === 'GET' && path === '/v1/registries') return { status: 200, body: JSON.stringify(fixtureRegistries), contentType: 'application/json' };
