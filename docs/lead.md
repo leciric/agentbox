@@ -40,6 +40,8 @@ any other.
 - **Deleting a session** removes its conversation and leaves its agents to no session. Nothing is
   summarised: the lead writes what matters to memory as it goes.
 - **Keeping the cache warm:** a session gets keepalives only while its own agents are working.
+  When its cache is about to expire, the card that offers to compact it also offers to start a
+  new session, which takes the message you were writing as its first.
 
 In the app, the sessions are tabs above the chat and a list under the project in the sidebar. Each
 shows a spinner while its lead works and a dot when it has news you haven't seen. The keys are

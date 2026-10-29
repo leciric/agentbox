@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { afterDelete, byActivity, isUnread, isWorking, neighbour, pickSession } from './sessions.ts';
+import { afterDelete, byActivity, isUnread, isWorking, neighbour, pickSession, topicFrom } from './sessions.ts';
 
 const session = (id: string, activeAt: string, over: Partial<T.LeadSession> = {}): T.LeadSession => ({
   project: 'web',
@@ -50,4 +50,10 @@ test('a session is unread when it said something after it was last seen', () => 
   assert.ok(!isUnread(prod, undefined), 'nothing said, nothing unread');
   assert.ok(isWorking(session('x', '', { chat: 'running' })));
   assert.ok(!isWorking(session('x', '', { chat: 'ready' })));
+});
+
+test('a session started from a message is named after its first line', () => {
+  assert.equal(topicFrom('  Fix the checkout\nand then the cart'), 'Fix the checkout');
+  assert.equal(topicFrom('Look into why the login page returns 500s for users without a session cookie'), 'Look into why the login page returns 500s for users without…');
+  assert.equal(topicFrom('   '), undefined);
 });

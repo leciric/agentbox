@@ -88,6 +88,17 @@ export function isUnread(s: T.LeadSession, seenAt: string | undefined): boolean 
   return new Date(s.last.at).getTime() > since;
 }
 
+// topicFrom is a new session's topic made from the message it starts with: its
+// first line, cut at a word to fit a tab; undefined with no text.
+export function topicFrom(text: string, max = 60): string | undefined {
+  const line = text.trim().split('\n')[0].replace(/\s+/g, ' ').trim();
+  if (!line) return undefined;
+  if (line.length <= max) return line;
+  const cut = line.slice(0, max);
+  const space = cut.lastIndexOf(' ');
+  return `${(space > max / 2 ? cut.slice(0, space) : cut).replace(/[\s,.;:]+$/, '')}…`;
+}
+
 // isWorking says a session's lead is in a turn.
 export const isWorking = (s: T.LeadSession) => s.chat === 'running' || s.chat === 'starting' || s.chat === 'waiting';
 
