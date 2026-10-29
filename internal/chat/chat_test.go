@@ -952,6 +952,42 @@ func TestAutonomousAgentGetsFullAccessWithoutModeKinds(t *testing.T) {
 	}
 }
 
+// TestProjectModeKindIsApplied: a permission mode the agent's project chose
+// by kind becomes the tool's own value, in place of full access for an
+// autonomous agent and of the tool's default for one that asks, and with or
+// without a plan mode beside it.
+func TestProjectModeKindIsApplied(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		kind       string
+		autonomous bool
+		plan       bool
+		want       string
+	}{
+		{kind: "standard", autonomous: true, want: "default"},
+		{kind: "standard", autonomous: true, plan: true, want: "default"},
+		{kind: "full_access", want: "bypassPermissions"},
+		{kind: "full_access", plan: true, want: "bypassPermissions"},
+	} {
+		store := openStore(t)
+		a := testAgent
+		a.Autonomous = c.autonomous
+		if err := store.SaveChat(context.Background(), a.Project, a.Name, state.Chat{Options: map[string]string{state.ChatOptionModeKind: c.kind}}); err != nil {
+			t.Fatal(err)
+		}
+		tool := newFakeTool(answerHello)
+		tool.plan = c.plan
+		m, _ := newManager(t, store, tool)
+		if _, err := m.Start(a); err != nil {
+			t.Fatal(err)
+		}
+		th := waitThread(t, m, a, "the session", func(th api.ChatThread) bool { return th.Session.State == api.ChatReady })
+		if mode := optionValue(th.Session, "mode"); mode != c.want {
+			t.Errorf("%+v: the mode is %q", c, mode)
+		}
+	}
+}
+
 func TestSettingsAreAppliedToEverySession(t *testing.T) {
 	t.Parallel()
 	store := openStore(t)

@@ -27,6 +27,14 @@ const HomeProject = "_home"
 // on, so the chat leaving it out never fails.
 const AgentModelAuto = "auto"
 
+// AgentPick is a tool and what it was picked to run on: "" for a model or an
+// effort left to the defaults.
+type AgentPick struct {
+	AI     string `json:"ai"`
+	Model  string `json:"model"`
+	Effort string `json:"effort"`
+}
+
 // Which model distils a project's events into memories (D78).
 // ConsolidationModelCheap is the cheap model of whichever AI tool the project
 // runs, resolved by the daemon rather than named here, and
@@ -75,6 +83,18 @@ type Project struct {
 	// every agent of this project gets unless one is named for it, and "auto"
 	// asks the project's chat to choose per task.
 	AgentModel string `json:"agentModel"`
+	// AgentTool is the AI tool this project's new agents run when they name
+	// none: "" for Claude Code in the app and on the command line and the
+	// chat's own tool for the agents it creates, as before there was a
+	// choice. AgentModel is a model of this tool's.
+	AgentTool string `json:"agentTool"`
+	// AgentEffort, AgentContextWindow and AgentMode are what an agent on
+	// AgentTool (Claude Code when it is "") starts on unless it is given its
+	// own; "" follows the installation. AgentMode is a permission mode's
+	// kind: standard, auto_review, full_access or plan.
+	AgentEffort        string `json:"agentEffort"`
+	AgentContextWindow string `json:"agentContextWindow"`
+	AgentMode          string `json:"agentMode"`
 	// BranchPrefix comes before the slug in the branch an agent is created
 	// on: "agentbox/" (the default) makes agentbox/fix-login. It may be empty,
 	// or nested like "thiago/agentbox/". Existing agents keep their branches.
@@ -329,6 +349,13 @@ type UpdateProjectRequest struct {
 	// AgentModel is the model the project's new agents are created on: "" to
 	// follow the model new agents start on, a model name, or "auto".
 	AgentModel *string `json:"agentModel,omitempty"`
+	// AgentTool, AgentEffort, AgentContextWindow and AgentMode set the
+	// Project's. The others belong to the tool, so changing the tool clears
+	// whichever of them, the model included, the same request doesn't set.
+	AgentTool          *string `json:"agentTool,omitempty"`
+	AgentEffort        *string `json:"agentEffort,omitempty"`
+	AgentContextWindow *string `json:"agentContextWindow,omitempty"`
+	AgentMode          *string `json:"agentMode,omitempty"`
 	// BranchPrefix is what the project's new agents' branches are named with,
 	// before the agent's name: "" for none. It must make a valid branch name.
 	BranchPrefix *string `json:"branchPrefix,omitempty"`
@@ -502,6 +529,10 @@ type Settings struct {
 	// start on; "" is Cursor's Auto and the model's own default level.
 	DefaultCursorModel  string `json:"defaultCursorModel"`
 	DefaultCursorEffort string `json:"defaultCursorEffort"`
+	// LastAgentPick is the tool, model and effort last picked in the app's
+	// New agent dialog, which it opens on next time in a project that names
+	// no tool of its own; empty before the first pick.
+	LastAgentPick AgentPick `json:"lastAgentPick"`
 	// ResumeAfterLimit says whether a chat whose turn was cut short by a
 	// Claude usage limit carries on by itself once the limit resets. On
 	// unless it was turned off, and unlike the settings above it applies to
@@ -716,6 +747,9 @@ type UpdateSettingsRequest struct {
 	// model's own default level.
 	DefaultCursorModel  *string `json:"defaultCursorModel,omitempty"`
 	DefaultCursorEffort *string `json:"defaultCursorEffort,omitempty"`
+	// LastAgentPick remembers what the New agent dialog just created an agent
+	// with (Settings.LastAgentPick).
+	LastAgentPick *AgentPick `json:"lastAgentPick,omitempty"`
 	// ResumeAfterLimit turns the automatic resume after a Claude usage limit
 	// on or off, for every agent.
 	ResumeAfterLimit *bool `json:"resumeAfterLimit,omitempty"`
