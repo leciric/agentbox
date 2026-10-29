@@ -37,7 +37,7 @@ func TestAPodsTokenReachesTheSelfAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	w := podSelf(d.srv.gatewayListenerHandler(), http.MethodGet, "/v1/self", testGatewayToken)
+	w := podSelf(d.srv.gatewayListenerHandler(true), http.MethodGet, "/v1/self", testGatewayToken)
 	if w.Code != http.StatusOK {
 		t.Fatalf("GET /v1/self with the pod's token = %d %s, want 200", w.Code, strings.TrimSpace(w.Body.String()))
 	}
@@ -57,7 +57,7 @@ func TestTheSelfAPIRefusesWhatItCannotAuthenticate(t *testing.T) {
 	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	addTestAgent(t, d)
-	h := d.srv.gatewayListenerHandler()
+	h := d.srv.gatewayListenerHandler(true)
 
 	for _, c := range []struct {
 		what, token, want string
@@ -126,7 +126,7 @@ func TestTheSelfAPIActsOnTheAgentItsTokenNames(t *testing.T) {
 	if err := d.srv.store.SetAgentToken(ctx, other.Project, other.Name, testGatewayToken, time.Time{}); err != nil {
 		t.Fatal(err)
 	}
-	h := d.srv.gatewayListenerHandler()
+	h := d.srv.gatewayListenerHandler(true)
 
 	w := podSelf(h, http.MethodGet, "/v1/self/tests", testGatewayToken)
 	if w.Code != http.StatusOK {
@@ -152,7 +152,7 @@ func TestTheGatewayListenerServesPodsAndNothingElse(t *testing.T) {
 	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	addTestAgent(t, d)
-	h := d.srv.gatewayListenerHandler()
+	h := d.srv.gatewayListenerHandler(true)
 
 	if w := podSelf(h, http.MethodGet, "/v1/version", ""); w.Code != http.StatusNotFound {
 		t.Errorf("GET /v1/version = %d, want 404: the rest of the daemon isn't a pod's", w.Code)

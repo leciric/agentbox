@@ -16,6 +16,7 @@ import (
 	"agentbox/internal/gateway"
 	"agentbox/internal/incus"
 	"agentbox/internal/paths"
+	"agentbox/internal/state"
 )
 
 // testGatewayToken is the one the store is told about, standing in for the one
@@ -173,6 +174,70 @@ func TestTheLocalGatewayListenerServesPods(t *testing.T) {
 	}
 }
 
+// Removing a token takes away the session that token opened: authentication
+// happens once, at connect, so the reconciler's cleanup has to close it too.
+func TestRevokingATokenEndsItsSession(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	a := addTestAgent(t, d)
+	if err := d.srv.store.SetAgentToken(ctx, a.Project, a.Name, testGatewayToken, time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	startPod(t, d, d.srv.routes(), testGatewayToken)
+	if !d.srv.gateway.Connected(testGatewayRef) {
+		t.Fatal("the pod never connected")
+	}
+
+	// The path the reconciler takes when the pod is gone: it removes the token
+	// and must not leave the session live.
+	if err := d.srv.clearPod(ctx, a); err != nil {
+		t.Fatalf("clearPod() = %v", err)
+	}
+	if d.srv.gateway.Connected(testGatewayRef) {
+		t.Error("the session is still live after its token was removed")
+	}
+	if _, _, err := d.srv.store.AgentForToken(ctx, testGatewayToken); !errors.Is(err, state.ErrNotFound) {
+		t.Errorf("the token still authenticates: %v", err)
+	}
+}
+
+// The plain-HTTP listener serves the in-agent API only on loopback, or on
+// another address when the insecure opt-in asks for it: /v1/self carries the
+// user's credentials through the connector relay, and this listener has no TLS.
+func TestTheSelfAPIIsServedOnlyWhereItIsAllowed(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		addr      string
+		insecure  bool
+		serveSelf bool
+	}{
+		{"127.0.0.1:7782", false, true},
+		{"[::1]:7782", false, true},
+		{"localhost:7782", false, true},
+		{"0.0.0.0:7782", false, false},
+		{":7782", false, false},
+		{"10.0.0.5:7782", false, false},
+		{"0.0.0.0:7782", true, true},
+	}
+	for _, tc := range cases {
+		srv := newTestServer(t, tc.addr, tc.insecure)
+		if got := srv.serveSelfOn(tc.addr); got != tc.serveSelf {
+			t.Errorf("serveSelfOn(%q, insecure=%v) = %v, want %v", tc.addr, tc.insecure, got, tc.serveSelf)
+		}
+		h := srv.gatewayListenerHandler(tc.serveSelf)
+		// A served /v1/self asks for the pod's token (401); one that isn't
+		// served never reaches the in-agent API at all (404).
+		want := http.StatusNotFound
+		if tc.serveSelf {
+			want = http.StatusUnauthorized
+		}
+		if w := podSelf(h, http.MethodGet, "/v1/self", ""); w.Code != want {
+			t.Errorf("GET /v1/self on %q (insecure=%v) = %d, want %d", tc.addr, tc.insecure, w.Code, want)
+		}
+	}
+}
+
 // A port the daemon can't have is recorded and logged rather than ending it:
 // every agent that reaches the daemon another way still works.
 func TestAFailedGatewayListenIsRecordedAndSurvived(t *testing.T) {
@@ -197,13 +262,14 @@ func TestAFailedGatewayListenIsRecordedAndSurvived(t *testing.T) {
 
 // newTestServer is a daemon that is never run, for the listener alone: it opens
 // the real port on a temporary state.db and nothing else of Run's.
-func newTestServer(t *testing.T, gatewayAddr string) *Server {
+func newTestServer(t *testing.T, gatewayAddr string, allowInsecure ...bool) *Server {
 	t.Helper()
 	root := t.TempDir()
 	srv, err := New(Config{
-		Paths:       paths.Paths{Config: filepath.Join(root, "config"), Data: filepath.Join(root, "data")},
-		Incus:       incus.Client{Bin: "false"},
-		GatewayAddr: gatewayAddr,
+		Paths:                paths.Paths{Config: filepath.Join(root, "config"), Data: filepath.Join(root, "data")},
+		Incus:                incus.Client{Bin: "false"},
+		GatewayAddr:          gatewayAddr,
+		GatewayAllowInsecure: len(allowInsecure) > 0 && allowInsecure[0],
 	})
 	if err != nil {
 		t.Fatal(err)

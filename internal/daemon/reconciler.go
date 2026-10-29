@@ -386,6 +386,7 @@ func (s *Server) removeStrayPod(ctx context.Context, cluster state.Cluster, clie
 // daemon made, so the error is not one to report.
 func (s *Server) clearPod(ctx context.Context, a state.Agent) error {
 	_ = s.store.RemoveAgentToken(ctx, a.Project, a.Name)
+	s.dropGatewaySession(a.Project, a.Name)
 	if a.Pod == "" && a.PodUID == "" && a.StatusDetail == "" {
 		return nil
 	}
@@ -440,6 +441,9 @@ func (s *Server) startPod(ctx context.Context, cluster state.Cluster, client *k8
 	if err := s.store.SetAgentToken(ctx, a.Project, a.Name, token, time.Time{}); err != nil {
 		return err
 	}
+	// The token is new, so a session the old one opened is not this pod's:
+	// it goes before the pod that will use the new token connects.
+	s.dropGatewaySession(a.Project, a.Name)
 	pod, err := client.Create(ctx, s.podSpec(ctx, cluster, reg, a), token)
 	if err != nil {
 		// A create the API server completed can still come back as an error: a
@@ -458,6 +462,7 @@ func (s *Server) startPod(ctx context.Context, cluster state.Cluster, client *k8
 		}
 		// The row keeps the reason; the round goes on with its other agents.
 		_ = s.store.RemoveAgentToken(ctx, a.Project, a.Name)
+		s.dropGatewaySession(a.Project, a.Name)
 		_ = s.notePodFailure(ctx, a, "the pod couldn't be created: "+err.Error())
 		return err
 	}

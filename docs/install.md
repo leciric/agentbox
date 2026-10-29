@@ -133,13 +133,16 @@ cluster](kubernetes.md) has the cluster's side; this is the daemon's.
 go build -o bin/agentbox ./cmd/agentbox
 docker build -f packaging/daemon/Dockerfile -t hub.example.com/you/agentbox-daemon:dev .
 docker run -d --name agentbox --network host -e AGENTBOX_FRONT_END=host \
-  -e AGENTBOX_GATEWAY_ADDR=0.0.0.0:7782 \
+  -e AGENTBOX_GATEWAY_ADDR=0.0.0.0:7782 -e AGENTBOX_GATEWAY_ALLOW_INSECURE=1 \
   -e XDG_DATA_HOME=/state -v /srv/agentbox:/state hub.example.com/you/agentbox-daemon:dev
 ```
 
 `AGENTBOX_FRONT_END=host` is what makes the container serve instead of asking for the VM a desktop
 install runs in, `AGENTBOX_GATEWAY_ADDR` is the listener a pod dials, and `XDG_DATA_HOME` on a volume
-keeps `state.db`, the sealed logins and the daemon's socket across restarts. `--network host` is what
+keeps `state.db`, the sealed logins and the daemon's socket across restarts.
+`AGENTBOX_GATEWAY_ALLOW_INSECURE=1` lets that non-loopback listener also serve `/v1/self`, which a
+pod needs for memory, media and the connector relay; leave it off when no pod of a local cluster
+reaches this listener. `--network host` is what
 lets `tailscale serve` publish the daemon's tailnet listener, and what puts the gateway on the host's
 own port 7782.
 

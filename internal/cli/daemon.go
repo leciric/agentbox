@@ -46,9 +46,13 @@ func newDaemonCmd(a *app) *cobra.Command {
 				// Where the pods of a cluster on this machine dial the
 				// daemon; empty turns the listener off, as it is by default.
 				GatewayAddr: os.Getenv("AGENTBOX_GATEWAY_ADDR"),
-				TraceDir:    filepath.Dir(a.paths.StateDB()),
-				FetchImage:  hostos.InVM(),
-				CrashOutput: true,
+				// A local cluster reaches /v1/self over the same plain-HTTP
+				// listener, which is off for a non-loopback address unless
+				// this says otherwise.
+				GatewayAllowInsecure: os.Getenv("AGENTBOX_GATEWAY_ALLOW_INSECURE") != "",
+				TraceDir:             filepath.Dir(a.paths.StateDB()),
+				FetchImage:           hostos.InVM(),
+				CrashOutput:          true,
 			})
 			if err != nil {
 				return err

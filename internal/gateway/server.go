@@ -14,6 +14,11 @@ import (
 	"github.com/hashicorp/yamux"
 )
 
+// sessionPingTimeout bounds the health check a new connection makes of the
+// session already holding its agent. A healthy pod answers in a round trip; a
+// stale session is replaced rather than left in place.
+const sessionPingTimeout = 2 * time.Second
+
 // Ref is the agent a session belongs to.
 type Ref struct {
 	Project string
@@ -81,7 +86,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := &session{ref: ref, mux: mux, when: time.Now()}
-	s.replace(sess)
+	if !s.claim(sess) {
+		// The pod's token names the agent, but that agent already has a
+		// session that answers: a second connection with the same token
+		// (another process that read the Secret, or one that sniffed the
+		// plain-HTTP listener) must not take its place and receive every
+		// credential the master writes over it.
+		s.logf("gateway: %s already has a session; refused another", ref)
+		_ = mux.Close()
+		return
+	}
 	defer func() {
 		s.forget(sess)
 		_ = mux.Close()
@@ -91,19 +105,83 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.logf("gateway: %s disconnected", ref)
 }
 
-// replace makes sess the agent's session, closing the one it had: a pod that
-// reconnects is the one to talk to, and a half-dead earlier session is not.
-func (s *Server) replace(sess *session) {
+// claim makes sess the agent's session, unless it already has one that answers.
+// A session that has closed, or that no longer answers a ping, is stale and is
+// replaced: a pod whose previous connection half-died reconnects without
+// waiting for yamux's own keepalive to notice. A healthy session keeps its
+// place, so the session stays bound to the pod that opened it.
+func (s *Server) claim(sess *session) bool {
+	key := sess.ref.String()
 	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return false
+	}
 	if s.sessions == nil {
 		s.sessions = map[string]*session{}
 	}
-	old := s.sessions[sess.ref.String()]
-	s.sessions[sess.ref.String()] = sess
+	old := s.sessions[key]
+	if old == nil {
+		s.sessions[key] = sess
+		s.mu.Unlock()
+		return true
+	}
 	s.mu.Unlock()
-	if old != nil && old != sess {
-		_ = old.mux.Close()
-		s.logf("gateway: %s replaced by a newer session", sess.ref)
+
+	if sessionAnswers(old) {
+		return false
+	}
+
+	// Replace it, but only if nobody else did in the meantime: two stale
+	// connections racing here must not leave one of them unreachable.
+	s.mu.Lock()
+	if s.sessions[key] != old {
+		s.mu.Unlock()
+		return false
+	}
+	s.sessions[key] = sess
+	s.mu.Unlock()
+	_ = old.mux.Close()
+	s.logf("gateway: %s replaced a session that stopped answering", sess.ref)
+	return true
+}
+
+// sessionAnswers is whether the session still responds to a ping. It is a
+// short check: a healthy peer answers in a round trip, and one that doesn't is
+// treated as gone rather than being allowed to keep the agent's place.
+func sessionAnswers(sess *session) bool {
+	select {
+	case <-sess.mux.CloseChan():
+		return false
+	default:
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := sess.mux.Ping()
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		return err == nil
+	case <-time.After(sessionPingTimeout):
+		return false
+	}
+}
+
+// Drop ends the agent's session, if it has one. It is what removing the agent's
+// token does: authentication happens once, when a pod connects, so a token that
+// was deleted must also take away the session that token opened, rather than
+// leaving it live until the pod happens to disconnect.
+func (s *Server) Drop(ref Ref) {
+	s.mu.Lock()
+	sess := s.sessions[ref.String()]
+	if sess != nil {
+		delete(s.sessions, ref.String())
+	}
+	s.mu.Unlock()
+	if sess != nil {
+		_ = sess.mux.Close()
+		s.logf("gateway: %s dropped", ref)
 	}
 }
 

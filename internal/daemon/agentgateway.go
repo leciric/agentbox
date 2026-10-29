@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -43,6 +44,15 @@ func (s *Server) newAgentGateway() *gateway.Server {
 	return g
 }
 
+// dropGatewaySession ends the agent's gateway session, if it has one. It goes
+// with removing or replacing the agent's token: the token is checked once, when
+// the pod connects, so a session that token opened has to be taken away too.
+func (s *Server) dropGatewaySession(project, agent string) {
+	if s.gateway != nil {
+		s.gateway.Drop(gateway.Ref{Project: project, Agent: agent})
+	}
+}
+
 // gatewayState is the local listener: open while the daemon serves one, and the
 // reason it couldn't be, when it couldn't.
 type gatewayState struct {
@@ -73,10 +83,10 @@ func (s *Server) serveAgentGateway(ctx context.Context) {
 		return
 	}
 	srv := &http.Server{
-		// The gateway and the in-agent API a pod reaches with its token, not
-		// routes(): a pod's token names one agent, and nothing else this
-		// daemon serves is a pod's to reach.
-		Handler:           s.gatewayListenerHandler(),
+		// The gateway and, when this address may carry it, the in-agent API a
+		// pod reaches with its token; never routes(), because a pod's token
+		// names one agent and nothing else this daemon serves is a pod's.
+		Handler:           s.gatewayListenerHandler(s.serveSelfOn(addr)),
 		ReadHeaderTimeout: 10 * time.Second,
 		BaseContext:       func(net.Listener) context.Context { return ctx },
 		// No write timeout: the connection is a WebSocket that lives as long
@@ -88,20 +98,48 @@ func (s *Server) serveAgentGateway(ctx context.Context) {
 	g.addr, g.srv, g.err = listening, srv, ""
 	g.mu.Unlock()
 	go func() { _ = srv.Serve(ln) }()
-	s.logf("serving the agent gateway on %s", listening)
+	if s.serveSelfOn(addr) {
+		s.logf("serving the agent gateway and /v1/self on %s", listening)
+	} else {
+		s.logf("serving the agent gateway on %s; /v1/self is off on this address (AGENTBOX_GATEWAY_ALLOW_INSECURE turns it on)", listening)
+	}
+}
+
+// serveSelfOn reports whether the local listener serves the in-agent API as
+// well as the gateway. On loopback it always does. On another address it does
+// only when Config.GatewayAllowInsecure asks: /v1/self carries memory, media
+// and the connector relay that adds the user's credentials, and this listener
+// is plain HTTP.
+func (s *Server) serveSelfOn(addr string) bool {
+	return s.cfg.GatewayAllowInsecure || isLoopbackAddr(addr)
+}
+
+// isLoopbackAddr reports whether addr binds only the loopback interface.
+func isLoopbackAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	host = strings.TrimSpace(host)
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // gatewayListenerHandler is what the local listener serves: the gateway's
-// WebSocket at agentGatewayPath, and the in-agent API at /v1/self, which a pod
-// reaches with its bearer token, having no socket to arrive on. Nothing else,
-// because a pod's token names one agent and this port exists for pods.
-func (s *Server) gatewayListenerHandler() http.Handler {
+// WebSocket at agentGatewayPath, and, when serveSelf says so, the in-agent API
+// at /v1/self, which a pod reaches with its bearer token, having no socket to
+// arrive on. Nothing else, because a pod's token names one agent and this port
+// exists for pods.
+func (s *Server) gatewayListenerHandler(serveSelf bool) http.Handler {
 	self := s.podInAgentRoutes()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == agentGatewayPath:
 			s.gateway.ServeHTTP(w, r)
-		case selfPath(r.URL.Path):
+		case serveSelf && selfPath(r.URL.Path):
 			self.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)

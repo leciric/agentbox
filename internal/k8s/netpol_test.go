@@ -108,13 +108,19 @@ func TestNetPolAllowsDNSTheMasterAndEveryAddress(t *testing.T) {
 	}
 	var cidrs []string
 	for _, peer := range allow.To {
-		if peer.IPBlock == nil || len(peer.IPBlock.Except) != 0 {
-			t.Fatalf("the allow-all peer = %+v, want a CIDR with no exception", peer)
+		if peer.IPBlock == nil {
+			t.Fatalf("the allow-all peer = %+v, want a CIDR", peer)
 		}
 		cidrs = append(cidrs, peer.IPBlock.CIDR)
 	}
 	if want := []string{"0.0.0.0/0", "::/0"}; !reflect.DeepEqual(cidrs, want) {
 		t.Errorf("the allow-all addresses = %v, want %v", cidrs, want)
+	}
+	// The cloud metadata services stay out, so a pod can't fetch the node's
+	// credentials on EKS, GKE or AKS.
+	excepts := [][]string{allow.To[0].IPBlock.Except, allow.To[1].IPBlock.Except}
+	if want := [][]string{{"169.254.0.0/16"}, {"fd00:ec2::254/128"}}; !reflect.DeepEqual(excepts, want) {
+		t.Errorf("the allow-all exceptions = %v, want %v", excepts, want)
 	}
 }
 
