@@ -27,6 +27,22 @@ export function parsePairingLink(raw: string): PairingLink | null {
   return { origin: url.origin, secret: decodeURIComponent(secret) };
 }
 
+// isTailnet says origin is an address in a tailnet, where a hub on Tailscale
+// puts its machines (internal/tunnel/tailscale.go): a MagicDNS name under
+// ts.net, or a Tailscale address, 100.64.0.0/10. A phone reaches it only with
+// Tailscale on, in that tailnet.
+export function isTailnet(origin: string): boolean {
+  let host: string;
+  try {
+    host = new URL(origin).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  if (host.endsWith('.ts.net')) return true;
+  const ip = /^100\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/.exec(host);
+  return !!ip && Number(ip[1]) >= 64 && Number(ip[1]) <= 127;
+}
+
 // isPlainHTTP says the phone talks to the daemon unencrypted: on the local
 // network, where the daemon has no certificate. The tunnel is https.
 export const isPlainHTTP = (origin: string) => origin.startsWith('http:');

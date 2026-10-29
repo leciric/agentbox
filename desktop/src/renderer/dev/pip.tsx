@@ -169,7 +169,7 @@ export function sayInPip(item: T.ChatItem): T.ChatThread {
 const load: Record<string, [number, number]> = { 'agent-24': [38, 1.4], 'agent-25': [72, 2.1], 'agent-26': [140, 3.6], 'agent-27': [9, 0.8], 'agent-28': [55, 1.9], 'agent-12': [3, 0.6], 'agent-41': [1, 0.4] };
 const GiB = 1024 ** 3;
 const cpuUsage = (): T.CPUUsage => ({ hostCPU: 0, hostCores: 8, otherCPU: 0, agents: Object.entries(load).map(([name, [cpu]]) => ({ ref: `${PROJECT}/${name}`, state: 'running', cpu })) });
-const memoryUsage = (): T.MemoryUsage => ({ hostTotal: 32 * GiB, agentsUsed: 0, otherUsed: 0, swapTotal: 0, swapUsed: 0, agentsSwap: 0, agents: Object.entries(load).map(([name, [, gib]]) => ({ ref: `${PROJECT}/${name}`, state: 'running', memory: gib * GiB, swap: 0 })) });
+const memoryUsage = (): T.MemoryUsage => ({ hostTotal: 32 * GiB, agentsUsed: 0, otherUsed: 0, used: 0, fileCache: 0, leads: 0, agentbox: 0, kernel: 0, swapTotal: 0, swapUsed: 0, agentsSwap: 0, agents: Object.entries(load).map(([name, [, gib]]) => ({ ref: `${PROJECT}/${name}`, state: 'running', memory: gib * GiB, swap: 0 })) });
 
 // The end of each agent's terminal, for the rows without a desktop: agent-28
 // watches a CI run that moves on a step every two seconds, the finished ones

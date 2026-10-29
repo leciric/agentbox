@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"agentbox/internal/acp"
 	"agentbox/internal/agent"
 	"agentbox/internal/api"
+	"agentbox/internal/chat"
 	"agentbox/internal/state"
 )
 
@@ -35,6 +37,30 @@ import (
 // whoever started it — an agent's notice waking the chat included, which gets
 // no card of its own and warms the cache like any other turn.
 //
+// A lead that is idle because its agents are working is waiting on them, not
+// on the user: their notices will wake it, and that turn would re-send the
+// whole context cold. So when the timer fires and one of the project's agents
+// is still working, the lead's session is sent a keepalive instead of the card
+// (chat.Keepalive): a hidden prompt that reads the cache back and restarts its
+// TTL, for a few thousand tokens against the 100k a cold re-send writes. It
+// shows nothing, wakes no one and doesn't make the chat read busy. Only on an
+// hour's cache: on five minutes a ping every four and a half costs more than
+// the rewrite it saves. At most maxKeepalives in a row, then the card, so an
+// agent stuck working all night isn't paid for by the hour; any turn that
+// really runs — the user's message, an agent's notice — starts the count again.
+//
+// By then the lead has usually slept (DefaultLeadSleep is 15 minutes), and the
+// keepalive wakes it: a fresh Claude Code resuming the same session. That reads
+// the cache back rather than writing it, because nothing in the prefix moves
+// on a wake. The resume asks for nothing of its own (no MCP servers or system
+// prompt: the lead's HOME gives those, and the wake doesn't write it), no turn
+// runs, so nothing re-renders the brief or moves the worktree, and Claude Code
+// keeps the context it announced in the transcript (CLAUDE.md, git status,
+// the date) and appends what changed since rather than re-rendering it. A
+// brief rewritten by a message the lead read while awake lands as such a
+// delta, at the end. What does move the prefix — a newer Claude Code, a
+// connector added — moves it for the notice's turn that wakes it too.
+//
 // Claude Code only. Codex and OpenCode don't expose a cache TTL to plan
 // around, so their leads are left to rolloverIfNeeded.
 
@@ -57,6 +83,19 @@ func cacheCardDelay(ttl time.Duration) time.Duration {
 	return ttl - min(ttl/10, cacheCardMargin)
 }
 
+// maxKeepalives is how many keepalives a lead's cache gets in a row before
+// the card: four hours of waiting on an hour's cache.
+const maxKeepalives = 4
+
+// keepaliveTimeout bounds a keepalive's round trip.
+const keepaliveTimeout = 2 * time.Minute
+
+// keepsAlive reports whether a cache that lasts ttl, with sent keepalives in a
+// row already, gets another one rather than the card.
+func keepsAlive(ttl time.Duration, sent int) bool {
+	return ttl >= time.Hour && sent < maxKeepalives
+}
+
 // leadCache is what the daemon knows of a lead's prompt cache since its last
 // turn ended. gen tells a timer that fires after it has been replaced that it
 // is stale, since Stop can lose that race.
@@ -67,6 +106,9 @@ type leadCache struct {
 	ttl       time.Duration
 	why       string
 	due       bool // the card is up
+	// keepalives is how many keepalives in a row the cache has had since a
+	// turn last ran.
+	keepalives int
 }
 
 // leadCacheIdle is a lead that has just finished a turn: its cache starts
@@ -76,17 +118,29 @@ func (s *Server) leadCacheIdle(a state.Agent) {
 	if a.Role != state.RoleLead || a.AI != "claude" || a.IsHome() {
 		return
 	}
+	s.armLeadCache(a, 0, 0)
+}
+
+// armLeadCache sets the timer for a lead's cache, with keepalives in a row
+// behind it. A keepalive's re-arm passes the generation it fired on, after,
+// and arms nothing if anything has happened since: a turn that ended in the
+// meantime has armed it already, and counts from nought.
+func (s *Server) armLeadCache(a state.Agent, keepalives int, after uint64) {
 	ttl, why := s.leadCacheTTL(a)
 	delay := cacheCardDelay(ttl)
-	after := s.idleAfter
-	if after == nil {
-		after = func(d time.Duration, f func()) interface{ Stop() bool } { return time.AfterFunc(d, f) }
+	schedule := s.idleAfter
+	if schedule == nil {
+		schedule = func(d time.Duration, f func()) interface{ Stop() bool } { return time.AfterFunc(d, f) }
 	}
 	s.mu.Lock()
 	if s.leadCaches == nil {
 		s.leadCaches = map[string]*leadCache{}
 	}
 	was := s.leadCaches[a.Project]
+	if after != 0 && (was == nil || was.gen != after) {
+		s.mu.Unlock()
+		return
+	}
 	gen := uint64(1)
 	if was != nil {
 		if was.timer != nil {
@@ -95,8 +149,8 @@ func (s *Server) leadCacheIdle(a state.Agent) {
 		gen = was.gen + 1
 	}
 	s.leadCaches[a.Project] = &leadCache{
-		gen: gen, idleSince: time.Now(), ttl: ttl, why: why,
-		timer: after(delay, func() { s.cacheDue(a.Project, gen) }),
+		gen: gen, idleSince: time.Now(), ttl: ttl, why: why, keepalives: keepalives,
+		timer: schedule(delay, func() { s.cacheDue(a.Project, gen) }),
 	}
 	s.mu.Unlock()
 	if was != nil && was.due {
@@ -104,28 +158,112 @@ func (s *Server) leadCacheIdle(a state.Agent) {
 	}
 }
 
-// cacheDue is the timer firing: the card goes up if nothing has happened
-// since it was set and the context is worth compacting.
+// cacheDue is the timer firing: if nothing has happened since it was set and
+// the context is worth saving, the lead gets a keepalive while its agents
+// work, and the card otherwise.
 func (s *Server) cacheDue(project string, gen uint64) {
 	if !s.leadCacheIs(project, gen) || (s.runCtx != nil && s.runCtx.Err() != nil) {
 		return
 	}
-	ctx := context.Background()
-	if _, err := s.manager(nil).Lead(ctx, project); err != nil {
+	gate := s.cacheGate
+	if gate == nil {
+		gate = s.leadCacheWorthSaving
+	}
+	lead, used, ok := gate(project)
+	if !ok || !worthACard(used) {
 		return
+	}
+	s.mu.Lock()
+	lc := s.leadCaches[project]
+	keep := lc != nil && lc.gen == gen && keepsAlive(lc.ttl, lc.keepalives)
+	s.mu.Unlock()
+	if keep && s.agentsAtWork(project) && s.keepLeadCacheAlive(lead, gen, used) {
+		return
+	}
+	s.showCacheCard(project, gen, used)
+}
+
+// leadCacheWorthSaving is cacheDue's gate: the project's lead, and its
+// context, when there is a cache that a card or a keepalive could save.
+func (s *Server) leadCacheWorthSaving(project string) (state.Agent, int64, bool) {
+	ctx := context.Background()
+	lead, err := s.manager(nil).Lead(ctx, project)
+	if err != nil {
+		return state.Agent{}, 0, false
 	}
 	// A project that turned compaction off doesn't want it offered either.
 	p, err := s.store.Project(ctx, project)
 	if err != nil || p.RolloverThreshold == state.RolloverOff {
-		return
+		return state.Agent{}, 0, false
 	}
 	// Not ready is a turn running, or a session that has already stopped:
 	// the turn ends and sets the timer again, and a stopped session has no
 	// cache left to save.
 	used, _, ready := s.chat.Context(agent.LeadRef(project))
-	if !ready || !worthACard(used) {
-		return
+	if !ready {
+		return state.Agent{}, 0, false
 	}
+	return lead, used, true
+}
+
+// agentsAtWork says whether one of a project's agents is working: in a turn,
+// starting one, waiting on an answer, or with background work that will wake
+// it (chatBusy).
+func (s *Server) agentsAtWork(project string) bool {
+	if s.projectWorking != nil {
+		return s.projectWorking(project)
+	}
+	agents, err := s.store.Agents(context.Background(), project)
+	if err != nil {
+		return false
+	}
+	for _, a := range agents {
+		if !a.IsLead() && s.chatBusy(a.Ref()) {
+			return true
+		}
+	}
+	return false
+}
+
+// keepLeadCacheAlive sends the lead a keepalive and sets the timer again,
+// counting it. It reports whether the cache was kept, and false when the
+// card should go up instead.
+func (s *Server) keepLeadCacheAlive(lead state.Agent, gen uint64, used int64) bool {
+	ctx := s.runCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, keepaliveTimeout)
+	defer cancel()
+	send := s.leadKeepalive
+	if send == nil {
+		send = s.chat.Keepalive
+	}
+	s.mu.Lock()
+	lc := s.leadCaches[lead.Project]
+	if lc == nil || lc.gen != gen {
+		s.mu.Unlock()
+		return true // something replaced it: nothing to do
+	}
+	n := lc.keepalives + 1
+	s.mu.Unlock()
+	if err := send(ctx, lead); err != nil {
+		// Busy with a turn that started since: its end sets the timer
+		// again. Busy with a hidden prompt, nothing will, so the card.
+		if _, _, ready := s.chat.Context(lead.Ref()); errors.Is(err, chat.ErrBusy) && !ready {
+			return true
+		}
+		s.logf("keeping the %s chat's prompt cache warm: %v", lead.Project, err)
+		return false
+	}
+	s.logf("the %s chat has been idle for %s while its agents work, with %d tokens of context: sent keepalive %d of %d",
+		lead.Project, time.Since(lc.idleSince).Round(time.Second), used, n, maxKeepalives)
+	s.armLeadCache(lead, n, gen)
+	return true
+}
+
+// showCacheCard puts the card up, if the timer that fired is still current.
+func (s *Server) showCacheCard(project string, gen uint64, used int64) {
 	s.mu.Lock()
 	lc := s.leadCaches[project]
 	current := lc != nil && lc.gen == gen

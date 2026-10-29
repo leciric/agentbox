@@ -163,6 +163,13 @@ func (c *Client) StartHeavy(ctx context.Context, req HeavyRequest) (HeavyStart, 
 	return out, c.do(ctx, http.MethodPost, "/v1/self/heavy", req, &out)
 }
 
+// TestPolicy says, inside an agent, whether its whole test suites are
+// refused, and what its branch started from.
+func (c *Client) TestPolicy(ctx context.Context) (TestPolicy, error) {
+	var out TestPolicy
+	return out, c.do(ctx, http.MethodGet, "/v1/self/tests", nil, &out)
+}
+
 // JoinHeavy puts a process of the agent's in a started heavy command's
 // cgroup, so pausing the command pauses it and what it starts.
 func (c *Client) JoinHeavy(ctx context.Context, key string, pid int) error {
@@ -539,6 +546,12 @@ func (c *Client) ProjectPullRequests(ctx context.Context, project string) (Proje
 	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/pulls", nil, &out)
 }
 
+// ProjectIssues lists a project repository's open issues.
+func (c *Client) ProjectIssues(ctx context.Context, project string) (ProjectIssues, error) {
+	var out ProjectIssues
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/issues", nil, &out)
+}
+
 // MergePullRequest merges one of a project repository's pull requests with
 // the given method: "merge", "squash" or "rebase".
 func (c *Client) MergePullRequest(ctx context.Context, project string, number int, method string) (PullRequest, error) {
@@ -740,11 +753,21 @@ func (c *Client) MediaItem(ctx context.Context, id string) (MediaItem, error) {
 // checked there by the caller), and only the caller's own on the in-agent API
 // (ref ""). The caller closes it.
 func (c *Client) MediaFile(ctx context.Context, ref, id string) (io.ReadCloser, error) {
+	return c.mediaFile(ctx, ref, id, "")
+}
+
+// RawMediaFile opens an edited recording's original, unedited, as
+// MediaFile opens its file.
+func (c *Client) RawMediaFile(ctx context.Context, ref, id string) (io.ReadCloser, error) {
+	return c.mediaFile(ctx, ref, id, "?raw=1")
+}
+
+func (c *Client) mediaFile(ctx context.Context, ref, id, query string) (io.ReadCloser, error) {
 	path := "/v1/media/" + url.PathEscape(id) + "/file"
 	if ref == "" {
 		path = "/v1/self/media/" + url.PathEscape(id) + "/file"
 	}
-	resp, err := c.request(ctx, http.MethodGet, path, nil)
+	resp, err := c.request(ctx, http.MethodGet, path+query, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -913,6 +936,59 @@ func (c *Client) InstallAPK(ctx context.Context, ref string, req AndroidInstallR
 	return result, c.androidDo(ctx, http.MethodPost, ref, "/install", req, &result)
 }
 
+// IOSPath is where an agent's iOS Simulator endpoints are: /v1/self/ios for
+// an agent's own (ref ""), and under the agent otherwise.
+func IOSPath(ref string) (string, error) {
+	if ref == "" {
+		return "/v1/self/ios", nil
+	}
+	path, err := AgentPath(ref)
+	return path + "/ios", err
+}
+
+func (c *Client) iosDo(ctx context.Context, method, ref, suffix string, body, out any) error {
+	path, err := IOSPath(ref)
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, method, path+suffix, body, out)
+}
+
+func (c *Client) IOS(ctx context.Context, ref string) (IOSStatus, error) {
+	var status IOSStatus
+	return status, c.iosDo(ctx, http.MethodGet, ref, "", nil, &status)
+}
+
+// OpenIOS boots a simulator, waits until it has, and makes it the agent's.
+func (c *Client) OpenIOS(ctx context.Context, ref string, req IOSDeviceRequest) (IOSStatus, error) {
+	var status IOSStatus
+	return status, c.iosDo(ctx, http.MethodPost, ref, "/open", req, &status)
+}
+
+// CloseIOS shuts a simulator down.
+func (c *Client) CloseIOS(ctx context.Context, ref string, req IOSDeviceRequest) (IOSStatus, error) {
+	var status IOSStatus
+	return status, c.iosDo(ctx, http.MethodPost, ref, "/close", req, &status)
+}
+
+func (c *Client) IOSInput(ctx context.Context, ref string, in IOSInput) error {
+	return c.iosDo(ctx, http.MethodPost, ref, "/input", in, nil)
+}
+
+func (c *Client) InstallIOSApp(ctx context.Context, ref string, req IOSInstallRequest) (IOSResult, error) {
+	var result IOSResult
+	return result, c.iosDo(ctx, http.MethodPost, ref, "/install", req, &result)
+}
+
+func (c *Client) LaunchIOSApp(ctx context.Context, ref string, req IOSLaunchRequest) (IOSResult, error) {
+	var result IOSResult
+	return result, c.iosDo(ctx, http.MethodPost, ref, "/launch", req, &result)
+}
+
+func (c *Client) OpenIOSURL(ctx context.Context, ref string, req IOSOpenURLRequest) error {
+	return c.iosDo(ctx, http.MethodPost, ref, "/openurl", req, nil)
+}
+
 func (c *Client) Preview(ctx context.Context) (PreviewInfo, error) {
 	var info PreviewInfo
 	return info, c.do(ctx, http.MethodGet, "/v1/preview", nil, &info)
@@ -938,6 +1014,11 @@ func (c *Client) Update(ctx context.Context) (UpdateStatus, error) {
 func (c *Client) UsageStatsPending(ctx context.Context) (UsageStatsPending, error) {
 	var out UsageStatsPending
 	return out, c.do(ctx, http.MethodGet, "/v1/usage-stats/pending", nil, &out)
+}
+
+// ReportSetupFunnel hands the daemon the steps of Setup taken before it was up.
+func (c *Client) ReportSetupFunnel(ctx context.Context, r SetupFunnelReport) error {
+	return c.do(ctx, http.MethodPost, "/v1/usage-events/setup", r, nil)
 }
 
 // LatestRelease is the update channel's latest release, as the release list has it now.
@@ -1169,9 +1250,37 @@ func (c *Client) AgentDisk(ctx context.Context, project, name string) (AgentDisk
 	return out, c.do(ctx, http.MethodGet, "/v1/agents/"+url.PathEscape(project)+"/"+url.PathEscape(name)+"/disk", nil, &out)
 }
 
+// StoppedMachines lists the agents holding a stopped machine, in project or
+// in every project when it is "". check adds what "remove stopped agents'
+// machines" would do with each, which reads git and GitHub.
+func (c *Client) StoppedMachines(ctx context.Context, project string, check bool) (StoppedMachines, error) {
+	q := url.Values{}
+	if project != "" {
+		q.Set("project", project)
+	}
+	if check {
+		q.Set("check", "1")
+	}
+	var out StoppedMachines
+	return out, c.do(ctx, http.MethodGet, "/v1/stopped-machines?"+q.Encode(), nil, &out)
+}
+
+// RemoveStopped removes the stopped machines of the agents in req that are
+// still safe to remove.
+func (c *Client) RemoveStopped(ctx context.Context, req RemoveStoppedRequest) (RemoveStoppedResult, error) {
+	var out RemoveStoppedResult
+	return out, c.do(ctx, http.MethodPost, "/v1/stopped-machines/remove", req, &out)
+}
+
 func (c *Client) MemoryUsage(ctx context.Context) (MemoryUsage, error) {
 	var out MemoryUsage
 	return out, c.do(ctx, http.MethodGet, "/v1/usage/memory", nil, &out)
+}
+
+// HostMemory is the daemon's machine's memory and CPUs, from /proc/meminfo.
+func (c *Client) HostMemory(ctx context.Context) (HostMemory, error) {
+	var out HostMemory
+	return out, c.do(ctx, http.MethodGet, "/v1/usage/host", nil, &out)
 }
 
 func (c *Client) CPUUsage(ctx context.Context, interval time.Duration) (CPUUsage, error) {
@@ -1271,6 +1380,14 @@ func (c *Client) ConnectRemote(ctx context.Context, req RemoteConnectRequest) (R
 	return out, c.do(ctx, http.MethodPut, "/v1/remote", req, &out)
 }
 
+// PairRemote asks a hub to approve this machine as an environment, and
+// answers at once: the pairing is in RemoteStatus.Pairing, and the machine
+// connects by itself when it's approved.
+func (c *Client) PairRemote(ctx context.Context, req RemotePairRequest) (RemoteStatus, error) {
+	var out RemoteStatus
+	return out, c.do(ctx, http.MethodPost, "/v1/remote/pair", req, &out)
+}
+
 func (c *Client) DisconnectRemote(ctx context.Context) error {
 	return c.do(ctx, http.MethodDelete, "/v1/remote", nil, nil)
 }
@@ -1324,4 +1441,21 @@ func (c *Client) TerminalTails(ctx context.Context, project string, agents []str
 		path += "&lines=" + strconv.Itoa(lines)
 	}
 	return out, c.do(ctx, http.MethodGet, path, nil, &out)
+}
+
+// Profile copies one of the daemon's Go profiles (net/http/pprof, served on
+// its socket only) to w: "heap", "goroutine", "allocs"; query is pprof's own,
+// "gc=1" or "debug=1".
+func (c *Client) Profile(ctx context.Context, name, query string, w io.Writer) error {
+	path := "/debug/pprof/" + url.PathEscape(name)
+	if query != "" {
+		path += "?" + query
+	}
+	resp, err := c.request(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	_, err = io.Copy(w, resp.Body)
+	return err
 }

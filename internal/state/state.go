@@ -1309,6 +1309,105 @@ var migrations = []string{
 		resolved_at INTEGER NOT NULL DEFAULT 0
 	)`,
 	`CREATE INDEX review_notes_agent ON review_notes (project, agent)`,
+	// Whether this project's agents may run a whole test suite while the
+	// installation blocks them (SettingBlockFullSuite, Project.FullTestSuite).
+	`ALTER TABLE projects ADD COLUMN full_test_suite INTEGER NOT NULL DEFAULT 0`,
+	// StoppedAt, for "remove stopped agents' machines": when the agent's
+	// machine was last stopped through AgentBox; 0 when never, or not since
+	// this column exists.
+	`ALTER TABLE agents ADD COLUMN stopped_at INTEGER NOT NULL DEFAULT 0`,
+	// A project secret the lead keeps fresh (a token its own script refreshes):
+	// a credential request for it wakes the lead, which may fulfil it from the
+	// stored value by name (questions fulfil). Agents' own secrets stay 0.
+	`ALTER TABLE secrets ADD COLUMN lead_managed INTEGER NOT NULL DEFAULT 0`,
+	// Whether this project hands its GitHub issues labelled agentbox to new
+	// agents by itself (Project.PickUpIssues, issues.go). Off by default.
+	`ALTER TABLE projects ADD COLUMN pick_up_issues INTEGER NOT NULL DEFAULT 0`,
+	// The agent each of a project's GitHub issues was handed to, and the pull
+	// request it opened once one is seen, which stays after the agent is
+	// retired. job is the create job until the agent is named; one row per
+	// issue, the latest hand-off winning.
+	`CREATE TABLE issue_agents (
+		project    TEXT NOT NULL,
+		repo       TEXT NOT NULL,
+		number     INTEGER NOT NULL,
+		title      TEXT NOT NULL DEFAULT '',
+		agent      TEXT NOT NULL DEFAULT '',
+		job        TEXT NOT NULL DEFAULT '',
+		auto       INTEGER NOT NULL DEFAULT 0,
+		created_at INTEGER NOT NULL,
+		pr_number  INTEGER NOT NULL DEFAULT 0,
+		pr_url     TEXT NOT NULL DEFAULT '',
+		pr_state   TEXT NOT NULL DEFAULT '',
+		PRIMARY KEY (project, repo, number)
+	)`,
+	// Detected icons no longer fall back to the GitHub owner's avatar
+	// (projecticon): drop the ones already kept, so those projects show their
+	// first letter instead. detected_at 0 makes the next read look again, which
+	// still finds an icon the repository has; updated_at moves so the app's
+	// cache doesn't keep the old image. A chosen icon is untouched.
+	`UPDATE project_icons SET detected = NULL, detected_mime = '', detected_from = '', detected_at = 0,
+		updated_at = max(updated_at + 1, CAST(strftime('%s','now') AS INTEGER) * 1000)
+		WHERE detected_from LIKE 'github.com/%'`,
+	// Event triggers (schedules.go, kind 'event'): the event a schedule runs
+	// on and, for issue_labeled, the label; on each run, the event it ran
+	// for, in a line (event) and where to see it (event_url). schedule_events
+	// is every event a trigger has seen, by a key naming it (ci:<sha>,
+	// review:<number>, issue:<number>, pr:<number>), so one event fires once:
+	// fired is 0 for what was already there when the trigger first looked.
+	`ALTER TABLE schedules ADD COLUMN event TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE schedules ADD COLUMN event_label TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE schedule_runs ADD COLUMN event TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE schedule_runs ADD COLUMN event_url TEXT NOT NULL DEFAULT ''`,
+	`CREATE TABLE schedule_events (
+		schedule TEXT NOT NULL,
+		key      TEXT NOT NULL,
+		project  TEXT NOT NULL,
+		fired    INTEGER NOT NULL DEFAULT 0,
+		seen_at  INTEGER NOT NULL,
+		PRIMARY KEY (schedule, key)
+	)`,
+	// A paired phone's push notifications (phonepush.go): its Expo push
+	// token, what it wants pushed, and its quiet hours, in minutes after
+	// midnight in its own time zone. Gone with the phone.
+	`CREATE TABLE phone_push (
+		phone_id   TEXT PRIMARY KEY REFERENCES phones(id) ON DELETE CASCADE,
+		token      TEXT NOT NULL,
+		kinds      TEXT NOT NULL,
+		quiet_from INTEGER NOT NULL DEFAULT 0,
+		quiet_to   INTEGER NOT NULL DEFAULT 0,
+		time_zone  TEXT NOT NULL DEFAULT '',
+		updated_at INTEGER NOT NULL
+	)`,
+	// Leads directing agents on another machine through the hub (peers.go).
+	// peer_agents are this machine's agents a lead elsewhere made, and which
+	// machine and project its notices go back to; remote_agents are the
+	// agents this machine's leads made elsewhere, as their notices last
+	// described them, for the app and list_agents.
+	`CREATE TABLE peer_agents (
+		project        TEXT NOT NULL,
+		agent          TEXT NOT NULL,
+		origin_id      TEXT NOT NULL,
+		origin_name    TEXT NOT NULL,
+		origin_project TEXT NOT NULL,
+		created_at     INTEGER NOT NULL,
+		PRIMARY KEY (project, agent)
+	)`,
+	`CREATE TABLE remote_agents (
+		project      TEXT NOT NULL,
+		machine_id   TEXT NOT NULL,
+		machine_name TEXT NOT NULL,
+		agent        TEXT NOT NULL,
+		title        TEXT NOT NULL DEFAULT '',
+		branch       TEXT NOT NULL DEFAULT '',
+		status       TEXT NOT NULL DEFAULT '',
+		summary      TEXT NOT NULL DEFAULT '',
+		pr_url       TEXT NOT NULL DEFAULT '',
+		updated_at   INTEGER NOT NULL,
+		PRIMARY KEY (project, machine_id, agent)
+	)`, // Whether this project's Pull requests tab, and the reads that keep its
+	// counts, are off (Project.PullsOff). On by default.
+	`ALTER TABLE projects ADD COLUMN pulls_off INTEGER NOT NULL DEFAULT 0`,
 	// The other icons a look for a project's found in its repository, best
 	// first, for the icon picker: their repository-relative paths, one per
 	// line, the detected icon's first. Every project looks again once, since
@@ -1507,6 +1606,18 @@ type Project struct {
 	// never a branch with commits of its own, and a checked-out one only when
 	// nothing in its checkout is changed.
 	BaseSyncOff bool
+	// FullTestSuite is whether this project's agents may run a whole test
+	// suite (`go test ./...`, a bare `npm test`) while the installation
+	// blocks them (SettingBlockFullSuite); it means nothing otherwise.
+	FullTestSuite bool
+	// PickUpIssues is whether the project hands its open GitHub issues
+	// labelled agentbox to new agents by itself (daemon/issues.go).
+	PickUpIssues bool
+	// PullsOff is whether the app leaves out this project's Pull requests
+	// tab, and with it the reads of GitHub that keep the tab's counts. Off,
+	// so on by default: a project that doesn't use pull requests, or whose
+	// remote isn't GitHub, turns it off so as not to pay for them.
+	PullsOff bool
 }
 
 // A project's PRWatch.
@@ -1664,7 +1775,7 @@ func (p Project) DirectAgentModel() string {
 // LeadPicksModel reports whether this project's chat chooses each agent's model.
 func (p Project) LeadPicksModel() bool { return p.AgentModel == AgentModelAuto }
 
-const projectColumns = `name, display_name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off, codex_account, opencode_accounts, cursor_account`
+const projectColumns = `name, display_name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off, codex_account, opencode_accounts, cursor_account, full_test_suite, pick_up_issues, pulls_off`
 
 // projectPlacement is where the project sits in the sidebar (D79), read
 // beside the columns above rather than with them: it is written by the
@@ -1752,11 +1863,11 @@ func (s *Store) AddProject(ctx context.Context, p Project) error {
 		p.BranchPrefix = DefaultBranchPrefix
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.DisplayName, p.Root, p.CreatedAt.Unix(), p.ClaudeAccount, p.Autonomy, p.GitHubAccount, p.MediaRetentionDays,
 		p.FinishNotices, p.AgentModel, p.RolloverThreshold, p.ContextBudget, p.Consolidation, p.ConsolidationModel,
 		strings.Join(p.ClaudeAccounts, ","), p.BranchPrefix, p.Nesting, p.AgentPRs, p.PRWatch, p.BaseSyncOff,
-		p.CodexAccount, p.OpenCodeAccounts.String(), p.CursorAccount)
+		p.CodexAccount, p.OpenCodeAccounts.String(), p.CursorAccount, p.FullTestSuite, p.PickUpIssues, p.PullsOff)
 	return err
 }
 
@@ -1877,7 +1988,7 @@ func (s *Store) Projects(ctx context.Context) ([]Project, error) {
 		if err := rows.Scan(&p.Name, &p.DisplayName, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
 			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff,
-			&p.CodexAccount, &opencode, &p.CursorAccount, &p.Section, &p.Position); err != nil {
+			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.Section, &p.Position); err != nil {
 			return nil, err
 		}
 		p.CreatedAt = time.Unix(created, 0)
@@ -1944,10 +2055,13 @@ var projectOwned = []string{
 	"agent_group_members",
 	"agent_groups",
 	"pr_watches",
+	"peer_agents",
+	"remote_agents",
 	"agent_queue",
 	"agent_events",
 	"agent_reviews",
 	"review_notes",
+	"issue_agents",
 	"checkpoints",
 	"questions",
 	"notifications",
@@ -1978,6 +2092,7 @@ var projectOwned = []string{
 	// Its scheduled tasks and what they did (schedules.go).
 	"schedules",
 	"schedule_runs",
+	"schedule_events",
 }
 
 // peerOwned is the tables that also name a project as peer: the other side
@@ -2243,6 +2358,19 @@ func (s *Store) SetProjectNesting(ctx context.Context, name string, on bool) err
 	return nil
 }
 
+// SetProjectFullTestSuite sets whether this project's agents may run a whole
+// test suite while the installation blocks them.
+func (s *Store) SetProjectFullTestSuite(ctx context.Context, name string, on bool) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE projects SET full_test_suite = ? WHERE name = ?`, on, name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("project %q: %w", name, ErrNotFound)
+	}
+	return nil
+}
+
 // SetProjectAgentPRs sets whether this project's agents push their own branch
 // and open their own pull request.
 func (s *Store) SetProjectAgentPRs(ctx context.Context, name string, on bool) error {
@@ -2260,6 +2388,18 @@ func (s *Store) SetProjectAgentPRs(ctx context.Context, name string, on bool) er
 // up to date with its remote.
 func (s *Store) SetProjectBaseSync(ctx context.Context, name string, on bool) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE projects SET base_sync_off = ? WHERE name = ?`, !on, name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("project %q: %w", name, ErrNotFound)
+	}
+	return nil
+}
+
+// SetProjectPulls sets whether the app shows this project's Pull requests tab.
+func (s *Store) SetProjectPulls(ctx context.Context, name string, on bool) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE projects SET pulls_off = ? WHERE name = ?`, !on, name)
 	if err != nil {
 		return err
 	}
@@ -2405,7 +2545,7 @@ func (s *Store) projectWhere(ctx context.Context, where string, arg any) (Projec
 		Scan(&p.Name, &p.DisplayName, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
 			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff,
-			&p.CodexAccount, &opencode, &p.CursorAccount, &p.Section, &p.Position)
+			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.Section, &p.Position)
 	p.ClaudeAccounts = splitAccounts(allowed)
 	p.OpenCodeAccounts = ParseAccountMap(opencode)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -2479,6 +2619,11 @@ type Agent struct {
 	// whatever it was last doing before it was paused. Zero when it has never
 	// been paused, or was resumed or started since.
 	PausedAt time.Time
+	// StoppedAt is when this agent's machine was last stopped through
+	// AgentBox (agent.Manager.Stop), for "remove stopped agents' machines".
+	// It isn't cleared on start: a start after it (the machine's last use)
+	// makes it stale, which the reader checks. Zero when never recorded.
+	StoppedAt time.Time
 	// ID is an identity distinct from Name, set once at AddAgent and never
 	// reused: what tells this agent apart from a different one that later
 	// gets its name, for a row that outlives it on purpose (token_usage).
@@ -2793,7 +2938,7 @@ func (s *Store) RemoveAgent(ctx context.Context, project, name string) error {
 }
 
 func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]Agent, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+agentColumns+`, paused_at FROM agents `+clause, args...)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+agentColumns+`, paused_at, stopped_at FROM agents `+clause, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -2801,12 +2946,12 @@ func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]
 	var agents []Agent
 	for rows.Next() {
 		var a Agent
-		var created, pausedAt int64
+		var created, pausedAt, stoppedAt int64
 		var connectors sql.NullString
 		var opencode string
 		if err := rows.Scan(&a.Project, &a.Name, &a.Instance, &a.AI, &a.Autonomous, &a.Branch,
 			&a.BaseRef, &a.BaseCommit, &a.Worktree, &a.Status, &created, &a.Source, &a.Title, &a.ClaudeAccount, &a.Interface, &a.Role, &a.GitHubAccount, &a.FinishNotice, &a.ID, &connectors,
-			&a.CodexAccount, &opencode, &a.CursorAccount, &pausedAt); err != nil {
+			&a.CodexAccount, &opencode, &a.CursorAccount, &pausedAt, &stoppedAt); err != nil {
 			return nil, err
 		}
 		a.OpenCodeAccounts = ParseAccountMap(opencode)
@@ -2820,9 +2965,18 @@ func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]
 		if pausedAt != 0 {
 			a.PausedAt = time.Unix(pausedAt, 0)
 		}
+		if stoppedAt != 0 {
+			a.StoppedAt = time.Unix(stoppedAt, 0)
+		}
 		agents = append(agents, a)
 	}
 	return agents, rows.Err()
+}
+
+// SetStoppedAt records when an agent's machine was stopped.
+func (s *Store) SetStoppedAt(ctx context.Context, project, name string, at time.Time) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE agents SET stopped_at = ? WHERE project = ? AND name = ?`, at.Unix(), project, name)
+	return err
 }
 
 // SetPausedAt records when an agent was paused, or clears it (a zero at) when

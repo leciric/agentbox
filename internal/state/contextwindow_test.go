@@ -3,6 +3,7 @@ package state_test
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 
 	"agentbox/internal/state"
@@ -92,6 +93,8 @@ func TestLaunch(t *testing.T) {
 	}{
 		{"nothing chosen", long, "opus", "", 200_000, "opus", 200_000},
 		{"1M chosen", long, "opus", "1000000", 200_000, "opus", 1_000_000},
+		{"200k chosen on a 500k installation", long, "opus", "200000", 500_000, "opus", 200_000},
+		{"500k chosen", long, "opus", "500000", 200_000, "opus", 500_000},
 		// agent-167's chat: plain "opus", 1M chosen, on a store that has seen
 		// nothing run yet. Plain "opus" at autoCompactWindow 1000000 is a 1M
 		// session (/context "/ 1m" on Claude Code 2.1.280): no "[1m]" needed.
@@ -175,10 +178,14 @@ func TestCompactWindowIsTheChosenOne(t *testing.T) {
 		{"opus", "", 200_000, 200_000},
 		{"opus", "1000000", 200_000, 1_000_000},
 		{"opus", "200000", 200_000, 200_000},
-		{"haiku", "1000000", 200_000, 200_000}, // a window the model doesn't have falls back to its whole
-		{"opus", "500000", 200_000, 200_000},   // not a choice any more: the installation's
-		{"opus", "", 0, 0},                     // the installation's "whole window" leaves the key out
-		{"opus", "200000", 150_000, 150_000},   // the installation moved: the short choice follows it
+		{"haiku", "1000000", 200_000, 200_000}, // a window above the model's whole falls back to it
+		{"opus", "500000", 200_000, 500_000},   // any window up to the model's whole is a choice now
+		{"opus", "300k", 200_000, 300_000},
+		{"opus", "2m", 200_000, 1_000_000},   // above the whole window: the whole one
+		{"opus", "50000", 200_000, 200_000},  // below the shortest: the installation's
+		{"opus", "", 0, 0},                   // the installation's "whole window" leaves the key out
+		{"opus", "200000", 150_000, 200_000}, // the chosen window, not the installation's
+		{"opus", "200000", 0, 200_000},       // the installation's whole window, unless one is chosen
 	} {
 		if got := w.CompactWindow(tc.model, tc.chosen, tc.installation); got != tc.want {
 			t.Errorf("CompactWindow(%q, %q, %d) = %d, want %d", tc.model, tc.chosen, tc.installation, got, tc.want)
@@ -188,17 +195,33 @@ func TestCompactWindowIsTheChosenOne(t *testing.T) {
 
 func TestContextWindowChoiceIsValidatedAgainstTheModel(t *testing.T) {
 	var w state.ClaudeWindows
-	if got, err := w.ContextWindowChoice("opus", "1m", 200_000); err != nil || got != "1000000" {
-		t.Errorf("ContextWindowChoice(opus, 1m) = %q, %v", got, err)
+	for _, tc := range []struct{ model, chosen, want string }{
+		{"opus", "1m", "1000000"},
+		{"opus", "200K", "200000"},
+		{"opus", "200k", "200000"},
+		{"opus", "300k", "300000"},
+		{"opus", "500k", "500000"},
+		{"haiku", "200k", "200000"},
+	} {
+		if got, err := w.ContextWindowChoice(tc.model, tc.chosen, 200_000); err != nil || got != tc.want {
+			t.Errorf("ContextWindowChoice(%q, %q) = %q, %v; want %q", tc.model, tc.chosen, got, err, tc.want)
+		}
 	}
-	if got, err := w.ContextWindowChoice("opus", "200K", 200_000); err != nil || got != "200000" {
-		t.Errorf("ContextWindowChoice(opus, 200K) = %q, %v", got, err)
+	for _, tc := range []struct{ model, chosen string }{
+		{"haiku", "1m"},
+		{"opus", "2m"},
+		{"opus", "50000"},
+		{"opus", "lots"},
+	} {
+		if got, err := w.ContextWindowChoice(tc.model, tc.chosen, 200_000); err == nil {
+			t.Errorf("ContextWindowChoice(%q, %q) = %q, want it refused", tc.model, tc.chosen, got)
+		}
 	}
-	if _, err := w.ContextWindowChoice("haiku", "1m", 200_000); err == nil {
-		t.Error("Haiku was given a 1M window")
+	if _, err := w.ContextWindowChoice("opus", "2m", 200_000); err == nil || !strings.Contains(err.Error(), "1M") {
+		t.Errorf("a window above opus's whole one = %v, want the error to name 1M", err)
 	}
-	if _, err := w.ContextWindowChoice("opus", "lots", 200_000); err == nil {
-		t.Error("a window that isn't one was accepted")
+	if _, err := w.ContextWindowChoice("haiku", "1m", 200_000); err == nil || !strings.Contains(err.Error(), "200k") {
+		t.Errorf("a window above haiku's whole one = %v, want the error to name 200k", err)
 	}
 }
 

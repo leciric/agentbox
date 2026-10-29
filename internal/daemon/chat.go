@@ -49,7 +49,10 @@ func (s *Server) agentInfo(st agent.Status) api.Agent {
 	if st.State == "initializing" || st.State == state.AgentQueued {
 		// Still being made: whatever its chat, outcome or memory says is
 		// noise from the machine coming up, not news. It reads as starting
-		// in every client until the create job is done.
+		// in every client until the create job is done, or as waiting for
+		// the memory to boot its machine.
+		info.Memory = s.machineHold(info.Ref)
+		info.WaitingForImage = s.waitingOnImage(info.Ref)
 		return info
 	}
 	info.Chat = s.chat.State(info.Ref)
@@ -62,6 +65,7 @@ func (s *Server) agentInfo(st agent.Status) api.Agent {
 	}
 	info.ChangesRequested = s.changesRequested(context.Background(), info.Project, info.Name, info.Chat)
 	info.Memory = s.memoryHold(info.Ref)
+	info.Reclaimed = s.reclaimedOf(info.Ref, info.State)
 	if p, ok := s.chat.Progress(info.Ref); ok {
 		info.StalledSince = p.Stalled
 	}

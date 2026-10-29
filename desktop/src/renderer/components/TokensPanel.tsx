@@ -39,6 +39,7 @@ const kindLabel: Record<string, MessageKey> = {
   [A.TokensBackground]: 'vm.tokens.kind.background',
   [A.TokensCompaction]: 'vm.tokens.kind.compaction',
   [A.TokensConsolidation]: 'vm.tokens.kind.consolidation',
+  [A.TokensKeepalive]: 'vm.tokens.kind.keepalive',
 };
 
 const kindVariant: Record<string, BadgeVariant> = {
@@ -46,6 +47,7 @@ const kindVariant: Record<string, BadgeVariant> = {
   [A.TokensBackground]: 'info',
   [A.TokensCompaction]: 'brand',
   [A.TokensConsolidation]: 'brand',
+  [A.TokensKeepalive]: 'info',
 };
 
 // TokensPanel is the ledger for one project, or for every project when none is

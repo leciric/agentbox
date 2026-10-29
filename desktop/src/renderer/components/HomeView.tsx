@@ -8,7 +8,7 @@ import { formatList, formatNumber, useT } from '../lib/i18n';
 import { summarizeStatus, type StatusTone } from '../lib/agentStatus';
 import { cn, humanBytes, humanRate, shortRate, stallPressure, timeAgo } from '../lib/utils';
 import { AllAgentsPanel } from './AllAgentsPanel';
-import { PastAgentsList } from './PastAgents';
+import { WorkList } from './WorkView';
 import { JobStatusBadge } from './state';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -143,11 +143,11 @@ export function HomeView({
         </SectionTitle>
         <AllAgentsPanel project={project || undefined} onSelect={onSelect} onNewAgent={onNewAgent} />
 
-        {/* Every project's agents whose machine was removed, with their chats. */}
+        {/* The latest work, live agents' and past ones' (WorkView). */}
         {pastAgents && (
           <>
-            <SectionTitle>{t('pastAgents.title')}</SectionTitle>
-            <PastAgentsList key={project ?? ''} project={project || undefined} limit={8} onOpen={(ref) => onSelect({ kind: 'pastAgents', ref })} onShowAll={() => onSelect({ kind: 'pastAgents' })} />
+            <SectionTitle>{t('work.title')}</SectionTitle>
+            <WorkList key={project ?? ''} project={project || undefined} limit={8} onSelect={onSelect} onShowAll={() => onSelect({ kind: 'work', project: project || undefined })} />
           </>
         )}
 

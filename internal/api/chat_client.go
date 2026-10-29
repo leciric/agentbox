@@ -181,6 +181,28 @@ func (c *Client) SetChatRunner(ctx context.Context, project string, req LeadRunn
 	return out, c.do(ctx, http.MethodPut, "/v1/projects/"+url.PathEscape(project)+"/chat/runner", req, &out)
 }
 
+// AgentRunners lists the accounts of its own AI tool an agent's chat can move
+// to, in ChatRunners' shape.
+func (c *Client) AgentRunners(ctx context.Context, ref string) (LeadRunners, error) {
+	var out LeadRunners
+	path, err := AgentPath(ref)
+	if err != nil {
+		return out, err
+	}
+	return out, c.do(ctx, http.MethodGet, path+"/chat/runners", nil, &out)
+}
+
+// SetAgentRunner moves an agent to another account of its AI tool at once,
+// resuming its chat on it. Its tool can't change.
+func (c *Client) SetAgentRunner(ctx context.Context, ref string, req LeadRunnerRequest) (ChatSession, error) {
+	var out ChatSession
+	path, err := AgentPath(ref)
+	if err != nil {
+		return out, err
+	}
+	return out, c.do(ctx, http.MethodPut, path+"/chat/runner", req, &out)
+}
+
 // ListFolder lists one folder of an agent's or a project lead's worktree, for
 // the file tree; withIgnored includes what .gitignore leaves out.
 func (c *Client) ListFolder(ctx context.Context, ref, dir string, withIgnored bool) (FileList, error) {
@@ -205,6 +227,17 @@ func (c *Client) ReadFile(ctx context.Context, ref, file string, full, base bool
 		q.Set("base", "1")
 	}
 	return out, c.filesDo(ctx, ref, "/read?"+q.Encode(), &out)
+}
+
+// SQLite reads a database in a chat's worktree, read-only: its tables, and
+// with table, up to limit of its rows from offset.
+func (c *Client) SQLite(ctx context.Context, ref, file, table string, offset, limit int) (SQLiteQuery, error) {
+	var out SQLiteQuery
+	q := url.Values{"path": {file}, "offset": {strconv.Itoa(offset)}, "limit": {strconv.Itoa(limit)}}
+	if table != "" {
+		q.Set("table", table)
+	}
+	return out, c.filesDo(ctx, ref, "/sqlite?"+q.Encode(), &out)
 }
 
 // FileStatus is what changed in a worktree since its base; fresh reads it

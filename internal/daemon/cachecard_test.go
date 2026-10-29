@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -228,5 +229,172 @@ func TestCacheCardComesAndGoes(t *testing.T) {
 	d.srv.settleLeadCache("p", true)
 	if c := cards(); len(c) != 0 {
 		t.Errorf("settling a cache nobody tracks published %+v", c)
+	}
+}
+
+// keepaliveWorld is a daemon whose lead has a cache worth saving and whose
+// timers, keepalives and agents a test drives by hand.
+type keepaliveWorld struct {
+	d       testDaemon
+	lead    state.Agent
+	timers  []*fakeTimer
+	used    int64
+	working bool
+	sent    int
+	err     error
+	during  func()
+}
+
+func newKeepaliveWorld(t *testing.T, hour bool) *keepaliveWorld {
+	t.Helper()
+	w := &keepaliveWorld{
+		d:    startTestDaemon(t, t.TempDir(), fakeIncus),
+		lead: state.Agent{Project: "p", Name: state.LeadName, AI: "claude", Role: state.RoleLead},
+		used: 150_000,
+	}
+	if hour {
+		// A subscription within its limits: an hour's cache.
+		if err := w.d.srv.manager(nil).Creds.SaveClaudeToken("default", "sk-ant-oat01-test"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w.d.srv.idleAfter = func(delay time.Duration, f func()) interface{ Stop() bool } {
+		timer := &fakeTimer{delay: delay, fire: f}
+		w.timers = append(w.timers, timer)
+		return timer
+	}
+	w.d.srv.cacheGate = func(string) (state.Agent, int64, bool) { return w.lead, w.used, true }
+	w.d.srv.projectWorking = func(string) bool { return w.working }
+	w.d.srv.leadKeepalive = func(_ context.Context, a state.Agent) error {
+		if a.Ref() != w.lead.Ref() {
+			t.Errorf("the keepalive went to %s", a.Ref())
+		}
+		w.sent++
+		if w.during != nil {
+			w.during()
+		}
+		return w.err
+	}
+	return w
+}
+
+// fire fires the timer set last, as the clock reaching it would.
+func (w *keepaliveWorld) fire() { w.timers[len(w.timers)-1].fire() }
+
+func (w *keepaliveWorld) card() bool { return w.d.srv.leadCacheState("p").Due }
+
+func (w *keepaliveWorld) count() int {
+	w.d.srv.mu.Lock()
+	defer w.d.srv.mu.Unlock()
+	return w.d.srv.leadCaches["p"].keepalives
+}
+
+// While an agent works, an hour's cache that comes due gets a keepalive
+// rather than the card, and its timer is set again for another hour.
+func TestAWorkingAgentKeepsTheLeadsCacheWarm(t *testing.T) {
+	w := newKeepaliveWorld(t, true)
+	w.working = true
+	w.d.srv.leadCacheIdle(w.lead)
+	w.fire()
+	if w.sent != 1 || w.card() {
+		t.Fatalf("an agent working: %d keepalives, card %v; want 1 and no card", w.sent, w.card())
+	}
+	if len(w.timers) != 2 || w.timers[1].delay != 55*time.Minute {
+		t.Fatalf("after a keepalive the timers are %+v, want a second at 55m", w.timers)
+	}
+	if w.count() != 1 {
+		t.Errorf("the count is %d after one keepalive", w.count())
+	}
+	if got := w.d.srv.leadCacheState("p"); got.TTLSeconds != 3600 {
+		t.Errorf("after a keepalive the cache is %+v", got)
+	}
+}
+
+// With nobody working the lead waits on the user: the card, as before.
+func TestAnIdleProjectGetsTheCardNotAKeepalive(t *testing.T) {
+	w := newKeepaliveWorld(t, true)
+	w.d.srv.leadCacheIdle(w.lead)
+	w.fire()
+	if w.sent != 0 || !w.card() {
+		t.Errorf("nobody working: %d keepalives, card %v; want none and the card", w.sent, w.card())
+	}
+}
+
+// On a five-minute cache a ping every four and a half minutes costs more
+// than the cold re-send it would save: the card.
+func TestAFiveMinuteCacheGetsTheCardNotAKeepalive(t *testing.T) {
+	w := newKeepaliveWorld(t, false)
+	w.working = true
+	w.d.srv.leadCacheIdle(w.lead)
+	if w.timers[0].delay != 4*time.Minute+30*time.Second {
+		t.Fatalf("the timer is set for %s, want a five-minute cache's", w.timers[0].delay)
+	}
+	w.fire()
+	if w.sent != 0 || !w.card() {
+		t.Errorf("five minutes: %d keepalives, card %v; want none and the card", w.sent, w.card())
+	}
+}
+
+// A context below the card's floor is cheap to re-send: neither.
+func TestASmallContextGetsNoKeepalive(t *testing.T) {
+	w := newKeepaliveWorld(t, true)
+	w.working, w.used = true, cacheCardFloor-1
+	w.d.srv.leadCacheIdle(w.lead)
+	w.fire()
+	if w.sent != 0 || w.card() || len(w.timers) != 1 {
+		t.Errorf("below the floor: %d keepalives, card %v, %d timers", w.sent, w.card(), len(w.timers))
+	}
+}
+
+// Four keepalives in a row, then the card; a turn that really runs starts
+// the count again, and a keepalive's own doesn't.
+func TestKeepalivesStopAtTheCapUntilATurnRuns(t *testing.T) {
+	w := newKeepaliveWorld(t, true)
+	w.working = true
+	w.d.srv.leadCacheIdle(w.lead)
+	w.fire()
+	w.fire()
+	if w.sent != 2 {
+		t.Fatalf("%d keepalives, want 2", w.sent)
+	}
+	// The user writes, or an agent's notice wakes the lead: the turn ends.
+	w.d.srv.leadCacheIdle(w.lead)
+	if w.count() != 0 {
+		t.Fatalf("a turn left the count at %d", w.count())
+	}
+	for range maxKeepalives {
+		w.fire()
+	}
+	if w.sent != 2+maxKeepalives || w.card() {
+		t.Fatalf("after the reset: %d keepalives, card %v; want %d and no card", w.sent, w.card(), 2+maxKeepalives)
+	}
+	w.fire()
+	if w.sent != 2+maxKeepalives || !w.card() {
+		t.Errorf("past the cap: %d keepalives, card %v; want no more and the card", w.sent, w.card())
+	}
+}
+
+// A turn that ends while a keepalive is in flight has set the timer itself:
+// the keepalive doesn't set it again over it, nor count against the new one.
+func TestATurnDuringAKeepaliveWins(t *testing.T) {
+	w := newKeepaliveWorld(t, true)
+	w.working = true
+	w.d.srv.leadCacheIdle(w.lead)
+	w.during = func() { w.d.srv.leadCacheIdle(w.lead) }
+	w.fire()
+	if len(w.timers) != 2 || w.count() != 0 {
+		t.Errorf("%d timers, count %d; want the turn's timer only, counting from nought", len(w.timers), w.count())
+	}
+}
+
+// A keepalive that fails puts the card up instead, so the cache isn't lost
+// without the user hearing of it.
+func TestAFailedKeepaliveShowsTheCard(t *testing.T) {
+	w := newKeepaliveWorld(t, true)
+	w.working, w.err = true, errors.New("the session stopped")
+	w.d.srv.leadCacheIdle(w.lead)
+	w.fire()
+	if w.sent != 1 || !w.card() || len(w.timers) != 1 {
+		t.Errorf("a failed keepalive: %d sent, card %v, %d timers", w.sent, w.card(), len(w.timers))
 	}
 }

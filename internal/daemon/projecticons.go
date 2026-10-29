@@ -12,7 +12,6 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"agentbox/internal/api"
-	"agentbox/internal/github"
 	"agentbox/internal/projecticon"
 	"agentbox/internal/state"
 )
@@ -23,29 +22,12 @@ import (
 const redetectAfter = 24 * time.Hour
 
 // projectIcons is what the icon routes share: one look per project at a
-// time, however many reads are waiting on it, and the avatar fetcher.
+// time, however many reads are waiting on it.
 type projectIcons struct {
 	detecting singleflight.Group
-	// fetch gets the GitHub avatar: the network, or a test's fake.
-	fetch projecticon.Fetcher
-	// owner is the GitHub owner of a checkout's origin, "" for none: from
-	// git, or a test's fake.
-	owner func(root string) string
 }
 
-func newProjectIcons() *projectIcons {
-	return &projectIcons{fetch: projecticon.HTTPFetcher(5 * time.Second), owner: githubOwner}
-}
-
-// githubOwner is the owner of the GitHub repository root's origin points at,
-// https or ssh, "" when it isn't one.
-func githubOwner(root string) string {
-	repo, err := github.RepoOf(root)
-	if err != nil {
-		return ""
-	}
-	return repo.Owner
-}
+func newProjectIcons() *projectIcons { return &projectIcons{} }
 
 // projectActivity answers GET /v1/project-activity.
 func (s *Server) projectActivity(w http.ResponseWriter, r *http.Request) error {
@@ -216,7 +198,7 @@ func (s *Server) writeProjectIcon(w http.ResponseWriter, r *http.Request, projec
 
 // detectProjectIcon looks for a project's icon, keeps what it found (or
 // that it found nothing) and returns the row as it now is. The look reads
-// the repository and may fetch the avatar, so it holds no transaction and
+// the repository, so it holds no transaction and
 // runs once per project however many reads ask at once; other projects'
 // looks run beside it. The look outlives a read that gives up on it, so
 // what it finds is kept for the next.
@@ -225,19 +207,14 @@ func (s *Server) detectProjectIcon(ctx context.Context, p state.Project) (state.
 	ch := icons.detecting.DoChan(p.Name, func() (any, error) {
 		lookCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
-		found := projecticon.Detect(lookCtx, p.Root, projecticon.Options{
-			Owner: func() string { return icons.owner(p.Root) },
-			Fetch: icons.fetch,
-		})
+		found := projecticon.Candidates(p.Root)
 		var icon projecticon.Icon
 		var candidates []string
 		for i, f := range found {
 			if i == 0 {
 				icon = f
 			}
-			if !f.Avatar {
-				candidates = append(candidates, f.From)
-			}
+			candidates = append(candidates, f.From)
 		}
 		return nil, s.store.SaveDetectedProjectIcon(lookCtx, p.Name, icon.Data, icon.MIME, icon.From, candidates, time.Now())
 	})
