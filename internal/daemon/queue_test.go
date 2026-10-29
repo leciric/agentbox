@@ -128,6 +128,58 @@ func TestCreateQueuesWhenNoClusterHasRoom(t *testing.T) {
 	srv.jobs.wait()
 }
 
+// TestConcurrentCreatesTakeOneSlotOnce: two creates that run at the same time
+// for a cluster with one slot left can't both be admitted, however the daemon
+// interleaves them.
+func TestConcurrentCreatesTakeOneSlotOnce(t *testing.T) {
+	srv, _ := queueTestServer(t, "k3d", map[string]api.ClusterCapacity{"k3d": {Agents: 1, Running: 0}})
+	ctx := context.Background()
+	names := []string{"agent-01", "agent-02"}
+	results := make([]error, len(names))
+	start := make(chan struct{})
+	done := make(chan struct{})
+	for i, name := range names {
+		go func(i int, name string) {
+			defer func() { done <- struct{}{} }()
+			<-start
+			_, results[i] = srv.createAgentJob(ctx, api.CreateAgentRequest{Project: "pawly", Name: name, AI: "none"}, false)
+		}(i, name)
+	}
+	close(start)
+	for range names {
+		<-done
+	}
+
+	var admitted, refused int
+	for _, err := range results {
+		var noRoom *NoRoomError
+		switch {
+		case err == nil:
+			admitted++
+		case errors.As(err, &noRoom):
+			refused++
+		default:
+			t.Fatalf("create = %v, want it admitted or refused for room", err)
+		}
+	}
+	if admitted != 1 || refused != 1 {
+		t.Errorf("%d admitted and %d refused, want exactly one of each for one slot", admitted, refused)
+	}
+	if room, _ := srv.clusterCapacity("k3d"); room.Agents != 0 {
+		t.Errorf("capacity after the two creates = %+v, want the one slot reserved once", room)
+	}
+
+	// Nothing here can make the machine (there is no repository), so the
+	// admitted create's job is stopped rather than left running behind the
+	// test.
+	srv.jobs.mu.Lock()
+	for _, j := range srv.jobs.byID {
+		j.cancel()
+	}
+	srv.jobs.mu.Unlock()
+	srv.jobs.wait()
+}
+
 // TestCreateWithoutQueueSaysWhatIsFull: the same create without asking to wait
 // fails with the reason and the way to wait, and nothing is queued.
 func TestCreateWithoutQueueSaysWhatIsFull(t *testing.T) {

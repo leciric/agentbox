@@ -1278,13 +1278,18 @@ func (s *Server) createAgentJob(ctx context.Context, req api.CreateAgentRequest,
 	if err != nil {
 		return api.Job{}, err
 	}
-	if _, err := s.placeAgent(ctx, p, req.Cluster); err != nil {
+	cluster, err := s.placeAgent(ctx, p, req.Cluster)
+	if err != nil {
 		var noRoom *NoRoomError
 		if errors.As(err, &noRoom) && req.Queue != nil && *req.Queue {
 			return s.queueCreate(ctx, req, byLead, noRoom.Reason)
 		}
 		return api.Job{}, err
 	}
+	// The slot is taken, and the concrete cluster goes with the job: it was
+	// admitted here, so the job uses the name it was given instead of asking
+	// again (and taking another slot).
+	req.Cluster = cluster
 	create := s.createJob(req, byLead, "")
 	j, err := s.launchJob("create", req.Project, create)
 	return withTool(j, req), err

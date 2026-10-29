@@ -56,6 +56,38 @@ func (e *NoRoomError) Error() string { return e.Reason }
 // nothing can take is a *NoRoomError, like a full cluster named outright, so a
 // create that asked to wait can queue instead of failing.
 func (s *Server) placeAgent(ctx context.Context, p state.Project, requested string) (string, error) {
+	s.placeMu.Lock()
+	defer s.placeMu.Unlock()
+	cluster, err := s.placeAgentLocked(ctx, p, requested)
+	if err != nil {
+		return "", err
+	}
+	s.reserve(cluster)
+	return cluster, nil
+}
+
+// placeCheck is placeAgent without taking the slot: a move asks once before its
+// job starts, and the job admits and reserves again when it runs.
+func (s *Server) placeCheck(ctx context.Context, p state.Project, requested string) (string, error) {
+	s.placeMu.Lock()
+	defer s.placeMu.Unlock()
+	return s.placeAgentLocked(ctx, p, requested)
+}
+
+// admitAndReserve admits an agent to a cluster already chosen and takes its
+// slot, as one step under the same lock placement uses.
+func (s *Server) admitAndReserve(ctx context.Context, p state.Project, cluster state.Cluster) error {
+	s.placeMu.Lock()
+	defer s.placeMu.Unlock()
+	if _, _, err := s.admit(ctx, p, cluster); err != nil {
+		return err
+	}
+	s.reserve(cluster.Name)
+	return nil
+}
+
+// placeAgentLocked is placeAgent's decision, with the caller holding placeMu.
+func (s *Server) placeAgentLocked(ctx context.Context, p state.Project, requested string) (string, error) {
 	requested = strings.TrimSpace(requested)
 	if requested == state.ClusterLocal {
 		return "", nil
@@ -261,12 +293,7 @@ func (s *Server) roomFor(ctx context.Context, cluster state.Cluster) (api.Cluste
 	if err != nil {
 		return api.ClusterCapacity{}, false
 	}
-	running := 0
-	for _, a := range agents {
-		if podInfo(a).Running() {
-			running++
-		}
-	}
+	running := desiredRunning(agents)
 	capacity := capacityOf(cluster, room, running, time.Now().UTC())
 	s.setClusterCapacity(cluster.Name, capacity)
 	return capacity, true
@@ -274,15 +301,18 @@ func (s *Server) roomFor(ctx context.Context, cluster state.Cluster) (api.Cluste
 
 // reserve takes the room one starting agent needs out of the daemon's copy of a
 // cluster's capacity, so a queue of agents waiting for the last slot doesn't
-// all start into it before the next capacity round sees the first one's pod.
-func (s *Server) reserve(cluster state.Cluster) {
-	room, ok := s.clusterCapacity(cluster.Name)
+// all start into it before the next capacity round sees the first one's row.
+func (s *Server) reserve(name string) {
+	if name == "" {
+		return
+	}
+	room, ok := s.clusterCapacity(name)
 	if !ok || room.Agents <= 0 {
 		return
 	}
 	room.Agents--
 	room.Running++
-	s.setClusterCapacity(cluster.Name, room)
+	s.setClusterCapacity(name, room)
 }
 
 // plural is "n thing" or "n things", for the reasons placement gives.

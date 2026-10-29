@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	"agentbox/internal/agent"
@@ -100,13 +99,7 @@ func (s *Server) measureClusterCapacities(ctx context.Context) {
 		if agentsErr != nil {
 			err = errors.Join(err, agentsErr)
 		}
-		running := 0
-		for _, a := range agents {
-			if podInfo(a).Running() {
-				running++
-			}
-		}
-		s.recordClusterCapacity(cluster, room, running, err)
+		s.recordClusterCapacity(cluster, room, desiredRunning(agents), err)
 	}
 }
 
@@ -163,22 +156,30 @@ func (s *Server) reconcileCluster(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
-	s.measureCapacity(round, cluster, client, pods)
+	s.measureCapacity(round, cluster, client, agents)
 	return s.reconcileAgents(round, cluster, client, pods, agents)
 }
 
 // measureCapacity takes the cluster's room for the app and `agentbox cluster
 // list`, and never fails the round: an agent that can't be placed is a problem
 // the pod's own status says, and a capacity read is for showing, not deciding.
-func (s *Server) measureCapacity(ctx context.Context, cluster state.Cluster, client *k8s.Cluster, pods []k8s.Pod) {
+func (s *Server) measureCapacity(ctx context.Context, cluster state.Cluster, client *k8s.Cluster, agents []state.Agent) {
+	room, err := client.Capacity(ctx)
+	s.recordClusterCapacity(cluster, room, desiredRunning(agents), err)
+}
+
+// desiredRunning counts the agents whose row asks for a running machine, whether
+// the pod exists yet or is still Pending. The max_agents ceiling counts that,
+// not the pods the cluster has adopted: a slow image pull must hold its slot.
+// CPU and memory room still come from the pods that really request them.
+func desiredRunning(agents []state.Agent) int {
 	running := 0
-	for _, pod := range pods {
-		if pod.Phase == corev1.PodRunning && !pod.Deleting {
+	for _, a := range agents {
+		if a.DesiredState == state.DesiredRunning {
 			running++
 		}
 	}
-	room, err := client.Capacity(ctx)
-	s.recordClusterCapacity(cluster, room, running, err)
+	return running
 }
 
 // recordClusterCapacity keeps what a look at a cluster found. A cluster that

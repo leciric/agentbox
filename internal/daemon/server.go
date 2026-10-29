@@ -257,6 +257,14 @@ type Server struct {
 	// is what its last look at each found.
 	clusters   clusterClients
 	capacities clusterCapacities
+	// placeMu serializes admission with the slot it takes: a create reads a
+	// cluster's room and reserves it as one step, so two callers can't both
+	// take the last slot (placement.go).
+	placeMu sync.Mutex
+	// queueStarting holds the refs of queued agents whose start job is
+	// running, so a start slower than a queue pass isn't started twice
+	// (queue.go).
+	queueStarting sync.Map
 	// lifecycles is which cluster agents a start, stop, destroy, snapshot,
 	// restore, fork, move or recreate is working on now (lifecycle.go).
 	lifecycles agentLifecycles
