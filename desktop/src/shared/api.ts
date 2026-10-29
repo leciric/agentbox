@@ -227,6 +227,12 @@ export interface Settings {
   claudeCodeUpdate: ToolAutoUpdate;
 }
 
+export interface AgentPick {
+  ai: string;
+  model: string;
+  effort: string;
+}
+
 export interface ToolAutoUpdate {
   on: boolean;
   installed: string;

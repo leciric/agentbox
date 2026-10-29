@@ -72,6 +72,9 @@ export function AddProjectDialog({
   const [codexAccount, setCodexAccount] = useState('');
   const [cursorAccount, setCursorAccount] = useState('');
   const [openCodeAccounts, setOpenCodeAccounts] = useState<Record<string, string>>({});
+  // The AI tool the project's agents run when they name none; "" keeps what
+  // every project does without one (Project.agentTool).
+  const [agentTool, setAgentTool] = useState('');
   const codexAccounts = accountsOf(auth.data, 'codex');
   const cursorAccounts = accountsOf(auth.data, 'cursor');
   const openCodeAll = accountsOf(auth.data, 'opencode');
@@ -95,6 +98,14 @@ export function AddProjectDialog({
     openCodeAccounts: Object.values(openCodeAccounts).some(Boolean) ? openCodeAccounts : undefined,
   };
   const added = async (project: T.Project) => {
+    if (agentTool) {
+      // Set once the project is there, for the add and the clone alike. Not
+      // worth losing the project over: Project settings → Agents has it too.
+      project = await api.updateProject(project.name, { agentTool }).catch((err) => {
+        toast.error(errorMessage(err));
+        return project;
+      });
+    }
     await queryClient.invalidateQueries({ queryKey: ['projects'] });
     onOpenChange(false);
     onAdded(project);
@@ -345,6 +356,16 @@ export function AddProjectDialog({
               <Input id="project-name" placeholder={nameOf(path.trim()) || 'my-app'} value={name} onChange={(event) => setName(event.target.value)} />
             </Field>
           )}
+          <Field label={t('project.add.toolLabel')} htmlFor="project-agent-tool" hint={t('project.add.toolHint')}>
+            <Select id="project-agent-tool" value={agentTool} onChange={setAgentTool}>
+              <SelectOption value="">{t('defaults.project.toolNone')}</SelectOption>
+              {['claude', 'codex', 'opencode', 'cursor'].map((tool) => (
+                <SelectOption key={tool} value={tool}>
+                  {aiLabel(tool)}
+                </SelectOption>
+              ))}
+            </Select>
+          </Field>
           {auth.data && (
             <fieldset className="grid min-w-0 gap-2" data-project-accounts>
               <legend className="mb-1 text-[13px] font-medium text-secondary">{t('project.add.accountsLabel')}</legend>

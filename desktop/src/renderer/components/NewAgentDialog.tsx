@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, LoaderCircle, MessageSquare, Split, SquareTerminal } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { projectLabel } from '../lib/projectName';
 import { branchSlug, branchSlugPattern, maxBranchSlugLen } from '../lib/branch';
 import { formatTokens } from '../lib/chat';
 import { openFanOut } from '../lib/groups';
+import { projectAgentDefaults, startingPick } from '../lib/agentPick';
 import { choiceName } from '../lib/modelChoices';
 import { useT, type MessageKey } from '../lib/i18n';
 import { cn, errorMessage } from '../lib/utils';
@@ -124,24 +125,26 @@ export function NewAgentDialog({
   // Cursor's own model ids, and the effort levels each one takes (most take
   // none). With no model picked, the one Settings names decides the levels.
   const cursorModels = settings.data?.cursorModelChoices ?? [];
-  const cursorModel = form.model || settings.data?.defaultCursorModel || '';
+  // What the project names for agents on the tool picked, which the daemon
+  // applies to whatever is left on its default (Project.agentTool).
+  const projectDefaults = selected ? projectAgentDefaults(selected, form.ai) : { model: '', effort: '', window: '' };
+  const cursorModel = form.model || projectDefaults.model || settings.data?.defaultCursorModel || '';
   const cursorEfforts = cursorModels.find((c) => c.value === cursorModel)?.efforts ?? [];
   const cursorEffort = cursorEfforts.includes(form.effort) ? form.effort : '';
   // Cursor has no command-line interface to work with: only its chat.
   const iface = form.ai === 'cursor' ? 'chat' : form.iface;
-  const fallbackModel = settingLabel(modelChoices, settings.data?.defaultClaudeModel ?? '', 'opus');
+  const fallbackModel = settingLabel(modelChoices, projectDefaults.model || settings.data?.defaultClaudeModel || '', 'opus');
   // The windows the model it will run on has: the one picked, else the
   // project's, else the installation's default. "Default" is the window new
   // agents start with in Settings when that model has it, else the first, the
   // installation's compact window — what the daemon gives an agent nobody
   // chose a window for (claudeChatDefaults).
-  const projectModel = selected?.agentModel && selected.agentModel !== 'auto' ? selected.agentModel : '';
-  const runsOn = form.model || projectModel || settings.data?.defaultClaudeModel || 'opus';
+  const runsOn = form.model || projectDefaults.model || settings.data?.defaultClaudeModel || 'opus';
   const contextWindows = settings.data?.claudeContextWindows?.[runsOn] ?? [];
   const contextWindow = contextWindows.includes(Number(form.contextWindow)) ? form.contextWindow : '';
-  const settingsWindow = Number(settings.data?.defaultAgentContextWindow || 0);
+  const settingsWindow = Number(projectDefaults.window || settings.data?.defaultAgentContextWindow || 0);
   const defaultWindow = contextWindows.includes(settingsWindow) ? settingsWindow : contextWindows[0];
-  const fallbackEffort = settingLabel(effortChoices, settings.data?.defaultClaudeEffort ?? '', 'medium');
+  const fallbackEffort = settingLabel(effortChoices, projectDefaults.effort || settings.data?.defaultClaudeEffort || '', 'medium');
 
   const create = useMutation({
     mutationFn: () =>
@@ -166,12 +169,31 @@ export function NewAgentDialog({
         githubAccount: form.githubAccount || undefined,
         finishNotice: form.notify || undefined,
       }),
-    onSuccess: setJob,
+    onSuccess: (started) => {
+      setJob(started);
+      // The next agent starts where this one did, in a project that names
+      // no tool of its own (startingPick).
+      const model = form.ai === 'none' || form.ai === 'codex' ? '' : form.model;
+      const effort = form.ai === 'claude' ? form.effort : form.ai === 'cursor' ? cursorEffort : '';
+      void api.updateSettings({ lastAgentPick: { ai: form.ai, model, effort } }).then((updated) => queryClient.setQueryData(['settings'], updated), () => undefined);
+    },
   });
   const cancel = useMutation({ mutationFn: (id: string) => api.cancelJob(id) });
 
+  // The tool, model and effort the form starts on: the project's tool, else
+  // the last pick, else Claude Code. Applied once for each project the form is
+  // on, as soon as both are known, so a pick made afterwards is kept.
+  const startedFor = useRef('');
+  const lastPick = settings.data?.lastAgentPick;
+  useEffect(() => {
+    if (!open || !selected || !settings.isFetched || startedFor.current === selected.name) return;
+    startedFor.current = selected.name;
+    setForm((f) => ({ ...f, ...startingPick(selected, lastPick) }));
+  }, [open, selected, settings.isFetched, lastPick]);
+
   useEffect(() => {
     if (!open) return;
+    startedFor.current = '';
     setForm({ ...emptyForm, project: project ?? '' });
     setAdvanced(false);
     setJob(null);
@@ -377,7 +399,9 @@ export function NewAgentDialog({
                     hint={openCodeModels.length ? t('project.newAgent.openCodeModelHint') : t('project.newAgent.openCodeLoginHint')}
                   >
                     <Select id="agent-opencode-model" value={form.model} onChange={(value) => set('model', value)}>
-                      <SelectOption value="">{t('project.newAgent.openCodeDefault')}</SelectOption>
+                      <SelectOption value="">
+                        {projectDefaults.model ? t('project.newAgent.defaultOption', { value: settingLabel(openCodeModels, projectDefaults.model, '') }) : t('project.newAgent.openCodeDefault')}
+                      </SelectOption>
                       {openCodeModels.map((choice) => (
                         <SelectOption key={choice.value} value={choice.value}>
                           {choiceName(choice) || choice.value}
@@ -390,7 +414,9 @@ export function NewAgentDialog({
                   <div className="grid grid-cols-2 gap-4">
                     <Field label={t('project.newAgent.modelLabel')} htmlFor="agent-cursor-model" hint={t('project.newAgent.cursorModelHint')}>
                       <Select id="agent-cursor-model" value={form.model} onChange={(value) => setForm((f) => ({ ...f, model: value, effort: '' }))}>
-                        <SelectOption value="">{t('project.newAgent.cursorDefault')}</SelectOption>
+                        <SelectOption value="">
+                          {projectDefaults.model ? t('project.newAgent.defaultOption', { value: settingLabel(cursorModels, projectDefaults.model, '') }) : t('project.newAgent.cursorDefault')}
+                        </SelectOption>
                         {cursorModels.map((choice) => (
                           <SelectOption key={choice.value} value={choice.value}>
                             {choiceName(choice) || choice.value}
