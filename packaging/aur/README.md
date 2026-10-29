@@ -8,9 +8,15 @@ older and the app doesn't use it.
 ## Build and install
 
 ```bash
-cd packaging/aur
-makepkg -si
+packaging/aur/dev-install.sh
 ```
+
+It copies the version from `desktop/package.json` into `pkgver` for the run and
+gives `pkgrel` a timestamp, so the build sorts above whatever is installed, then
+puts the PKGBUILD back. Afterwards it stops the daemon, because a running one
+keeps the binary it started with; `--restart-app` also reopens the desktop app
+when the renderer changed, and `--build-only` leaves the package file for you to
+install by hand.
 
 `makepkg` builds from the working tree, so commit or stash what you want in the
 package: only what is on disk is copied, but the build does not touch your tree
