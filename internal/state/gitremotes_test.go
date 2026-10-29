@@ -220,6 +220,12 @@ func TestGitRemoteValidation(t *testing.T) {
 		{"an option as the shorthand's host", func(r *GitRemote) { r.URL = "git@-oProxyCommand=touch${IFS}pwned:p" }},
 		{"an option as the URL's user", func(r *GitRemote) { r.URL = "ssh://-oProxyCommand=x@hub.example.com/a/b.git" }},
 		{"an option as the URL's host", func(r *GitRemote) { r.URL = "ssh://-oProxyCommand=x/a/b.git" }},
+		{"a token over plain http", func(r *GitRemote) {
+			r.URL, r.Credential = "http://host.k3d.internal:3000/a/b.git", "forgejo"
+		}},
+		{"a GitHub account over plain http", func(r *GitRemote) {
+			r.URL, r.Auth, r.Credential = "http://github.com/a/b.git", GitAuthGitHubAccount, "me"
+		}},
 		{"a GitHub account off GitHub", func(r *GitRemote) {
 			r.URL, r.Auth, r.Credential = "https://gitlab.com/a/b.git", GitAuthGitHubAccount, "me"
 		}},
