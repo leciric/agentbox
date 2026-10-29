@@ -84,8 +84,8 @@ func TestHelperPodMountsTheClaimAndRunsNothing(t *testing.T) {
 	}
 	// It belongs to no agent: the reconciler selects managed=true, and a helper
 	// that answered it would be adopted as one.
-	if len(pod.Labels) != 2 || pod.Labels["agentbox/helper"] != "archive" ||
-		pod.Labels["app.kubernetes.io/name"] != "agentbox-archive" {
+	if len(pod.Labels) != 2 || pod.Labels[LabelHelper] != HelperArchive ||
+		pod.Labels[LabelApp] != AppArchive {
 		t.Errorf("labels = %v, want the helper's own two and nothing else", pod.Labels)
 	}
 	if pod.Labels[LabelManaged] != "" || pod.Labels[LabelProject] != "" || pod.Labels[LabelAgent] != "" {
@@ -100,6 +100,12 @@ func TestHelperPodMountsTheClaimAndRunsNothing(t *testing.T) {
 	}
 	if pod.Spec.EnableServiceLinks == nil || *pod.Spec.EnableServiceLinks {
 		t.Errorf("service links = %v, want off", pod.Spec.EnableServiceLinks)
+	}
+	if pod.Spec.AutomountServiceAccountToken == nil || *pod.Spec.AutomountServiceAccountToken {
+		t.Errorf("the ServiceAccount token is mounted = %v, want it not to be", pod.Spec.AutomountServiceAccountToken)
+	}
+	if pod.Spec.ActiveDeadlineSeconds == nil || *pod.Spec.ActiveDeadlineSeconds != int64(helperDeadline.Seconds()) {
+		t.Errorf("active deadline = %v, want %s", pod.Spec.ActiveDeadlineSeconds, helperDeadline)
 	}
 	if len(pod.Spec.ImagePullSecrets) != 1 || pod.Spec.ImagePullSecrets[0].Name != "agentbox-forgejo-pull" {
 		t.Errorf("pull secrets = %+v, want the registry's", pod.Spec.ImagePullSecrets)
@@ -483,5 +489,53 @@ func TestWaitForHelperStopsWhenTheOperationIsCancelled(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "after 1m0s") {
 		t.Errorf("waitForHelper() = %v, want the cancel named rather than the timeout", err)
+	}
+}
+
+// TestSweepHelpersDeletesWhatNoOperationUses is the reconciler's half of the
+// garbage collection: a helper a crashed daemon left, or one the cluster has
+// stopped, holds its ReadWriteOnce claim until it goes, and a live operation's
+// young helper must stay.
+func TestSweepHelpersDeletesWhatNoOperationUses(t *testing.T) {
+	now := time.Now()
+	helper := func(name string, phase corev1.PodPhase, created time.Time) *corev1.Pod {
+		return &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:              name,
+				Namespace:         "agentbox",
+				Labels:            map[string]string{LabelHelper: HelperArchive, LabelApp: AppArchive},
+				CreationTimestamp: metav1.NewTime(created),
+			},
+			Status: corev1.PodStatus{Phase: phase},
+		}
+	}
+	client := fake.NewClientset(
+		helper("ab-pawly-agent-01-archive-old", corev1.PodRunning, now.Add(-helperDeadline-time.Minute)),
+		helper("ab-pawly-agent-01-archive-fresh", corev1.PodRunning, now.Add(-time.Minute)),
+		helper("ab-pawly-agent-01-archive-failed", corev1.PodFailed, now.Add(-time.Minute)),
+		helper("ab-pawly-agent-01-archive-done", corev1.PodSucceeded, now.Add(-time.Minute)),
+		&corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "not-a-helper",
+				Namespace: "agentbox",
+				Labels:    map[string]string{LabelApp: AppArchive},
+			},
+			Status: corev1.PodStatus{Phase: corev1.PodRunning},
+		},
+	)
+	cluster := FromClient("k3d", "agentbox", client)
+	if err := cluster.SweepHelpers(context.Background()); err != nil {
+		t.Fatalf("SweepHelpers() = %v", err)
+	}
+	pods := client.CoreV1().Pods("agentbox")
+	for _, name := range []string{"ab-pawly-agent-01-archive-old", "ab-pawly-agent-01-archive-failed", "ab-pawly-agent-01-archive-done"} {
+		if _, err := pods.Get(context.Background(), name, metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+			t.Errorf("the helper %s survived the sweep: %v", name, err)
+		}
+	}
+	for _, name := range []string{"ab-pawly-agent-01-archive-fresh", "not-a-helper"} {
+		if _, err := pods.Get(context.Background(), name, metav1.GetOptions{}); err != nil {
+			t.Errorf("%s was deleted, and it is not a stale helper: %v", name, err)
+		}
 	}
 }

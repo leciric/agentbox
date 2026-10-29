@@ -196,10 +196,10 @@ func (d Doctor) netPol(ctx context.Context) Check {
 		return Check{Name: name, Detail: fmt.Sprintf("reading the %s NetworkPolicy in %s: %v",
 			NetPolName, d.Cluster.Namespace(), err)}
 	}
-	if got := policy.Spec.PodSelector.MatchLabels[LabelApp]; got != AppAgent {
+	if !netPolSelects(policy.Spec.PodSelector) {
 		return Check{Name: name, Detail: fmt.Sprintf(
-			"the %s NetworkPolicy selects %s=%q, so it doesn't apply to agent pods: apply it again with agentbox cluster rotate %s",
-			NetPolName, LabelApp, got, d.Cluster.Name())}
+			"the %s NetworkPolicy doesn't select agent and helper pods, so it doesn't apply to them: apply it again with agentbox cluster rotate %s",
+			NetPolName, d.Cluster.Name())}
 	}
 	// A policy that lists no ingress rule denies ingress only when it also
 	// says so in its types: an empty list alone would allow everything.

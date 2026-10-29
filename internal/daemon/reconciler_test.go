@@ -517,3 +517,40 @@ func podEnv(t *testing.T, client *fake.Clientset, project, agent, name string) s
 	}
 	return ""
 }
+
+// TestReconcilerSweepsAHelperLeftBehind is the garbage collection a crashed
+// daemon leaves to the next one: a helper older than its deadline holds the
+// agent's ReadWriteOnce claim until the round deletes it.
+func TestReconcilerSweepsAHelperLeftBehind(t *testing.T) {
+	srv := reconcilerServer(t)
+	ctx := context.Background()
+	reconcilerProject(t, srv.store)
+	reconcilerAgent(t, srv.store, "agent-01")
+	cluster := reconcilerCluster()
+	cluster.Kubeconfig = []byte("sealed-for-the-test")
+	cluster.Tailnet = state.TailnetNone
+	if err := srv.store.AddCluster(ctx, cluster); err != nil {
+		t.Fatal(err)
+	}
+	stale := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "ab-pawly-agent-01-archive-old",
+			Namespace:         "agentbox",
+			UID:               "uid-helper",
+			Labels:            map[string]string{k8s.LabelHelper: k8s.HelperArchive, k8s.LabelApp: k8s.AppArchive},
+			CreationTimestamp: metav1.NewTime(time.Now().Add(-2 * time.Hour)),
+		},
+		Status: corev1.PodStatus{Phase: corev1.PodRunning},
+	}
+	kc := k8s.FromClient("k3d", "agentbox", fake.NewClientset(stale))
+	// The client is the one clusterClient would hand back for that kubeconfig.
+	key := cluster.Name + "\x00" + cluster.Namespace + "\x00" + string(cluster.Kubeconfig)
+	srv.clusters.byKey = map[string]*k8s.Cluster{key: kc}
+
+	if err := srv.reconcileCluster(ctx, cluster.Name); err != nil {
+		t.Fatalf("the round = %v", err)
+	}
+	if _, err := kc.Client().CoreV1().Pods("agentbox").Get(ctx, stale.Name, metav1.GetOptions{}); err == nil {
+		t.Error("the helper left behind survived the reconciler's round")
+	}
+}

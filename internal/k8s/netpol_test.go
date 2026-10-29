@@ -8,6 +8,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes/fake"
 
 	"agentbox/internal/k8s"
@@ -29,6 +30,21 @@ func netPolWrites(client *fake.Clientset) []string {
 	return writes
 }
 
+// selectorNames reports whether a pod selector selects every one of the
+// application label's values it is given.
+func selectorNames(selector metav1.LabelSelector, values ...string) bool {
+	sel, err := metav1.LabelSelectorAsSelector(&selector)
+	if err != nil {
+		return false
+	}
+	for _, value := range values {
+		if !sel.Matches(labels.Set{k8s.LabelApp: value}) {
+			return false
+		}
+	}
+	return true
+}
+
 // policyPort is one port of a rule, for a comparison a reader can follow.
 func policyPort(t *testing.T, port networkingv1.NetworkPolicyPort) (corev1.Protocol, int32) {
 	t.Helper()
@@ -46,8 +62,8 @@ func TestNetPolSelectsAgentPodsAndDeniesIngress(t *testing.T) {
 	if policy.Labels[k8s.LabelManaged] != "true" || policy.Labels[k8s.LabelNetPol] != "true" {
 		t.Errorf("labels = %v, want the managed and netpol ones", policy.Labels)
 	}
-	if got := policy.Spec.PodSelector.MatchLabels[k8s.LabelApp]; got != k8s.AppAgent {
-		t.Errorf("the selector = %v, want %s=%s", policy.Spec.PodSelector.MatchLabels, k8s.LabelApp, k8s.AppAgent)
+	if !selectorNames(policy.Spec.PodSelector, k8s.AppAgent, k8s.AppArchive) {
+		t.Errorf("the selector = %+v, want it to name both an agent and a helper pod", policy.Spec.PodSelector)
 	}
 	want := []networkingv1.PolicyType{networkingv1.PolicyTypeIngress, networkingv1.PolicyTypeEgress}
 	if !reflect.DeepEqual(policy.Spec.PolicyTypes, want) {
@@ -174,8 +190,8 @@ func TestNetPolIsCreatedWithTheCluster(t *testing.T) {
 	if len(policy.Spec.Ingress) != 0 {
 		t.Errorf("ingress rules = %+v, want none", policy.Spec.Ingress)
 	}
-	if got := policy.Spec.PodSelector.MatchLabels[k8s.LabelApp]; got != k8s.AppAgent {
-		t.Errorf("the selector = %v, want the agent one", policy.Spec.PodSelector.MatchLabels)
+	if !selectorNames(policy.Spec.PodSelector, k8s.AppAgent, k8s.AppArchive) {
+		t.Errorf("the selector = %+v, want the agent and helper pods", policy.Spec.PodSelector)
 	}
 }
 

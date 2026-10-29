@@ -118,13 +118,39 @@ func (a *Admin) Token(ctx context.Context, namespace string) ([]byte, error) {
 	}
 }
 
-// RotateToken replaces the ServiceAccount's token: the old Secret is deleted and
-// a new one made. Anything holding the old token stops being able to reach the
-// cluster, which is the point.
+// RotateToken replaces the ServiceAccount's credentials: its token Secrets go,
+// and the ServiceAccount itself is deleted and made again, so that every token
+// it ever issued is invalid. Deleting only the Secret AgentBox made left two
+// ways to keep a credential: the ServiceAccount can make another
+// kubernetes.io/service-account-token Secret of its own, and a pod run as it
+// gets one mounted. Both carry the ServiceAccount's UID, and a new UID is what
+// takes them away.
 func (a *Admin) RotateToken(ctx context.Context, namespace string) ([]byte, error) {
-	err := a.client.CoreV1().Secrets(namespace).Delete(ctx, ServiceAccountTokenSecret, metav1.DeleteOptions{})
-	if err != nil && !apierrors.IsNotFound(err) {
-		return nil, fmt.Errorf("deleting the old token Secret %s/%s: %w", namespace, ServiceAccountTokenSecret, err)
+	// Every token Secret pointing at the ServiceAccount, not just the named
+	// one: a Secret it made for itself would otherwise be adopted by the new
+	// ServiceAccount, which shares its name.
+	secrets := a.client.CoreV1().Secrets(namespace)
+	list, err := secrets.List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("listing the token Secrets of %s: %w", namespace, err)
+	}
+	for i := range list.Items {
+		secret := &list.Items[i]
+		if secret.Type != corev1.SecretTypeServiceAccountToken || secret.Annotations[corev1.ServiceAccountNameKey] != ServiceAccountName {
+			continue
+		}
+		if err := secrets.Delete(ctx, secret.Name, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+			return nil, fmt.Errorf("deleting the token Secret %s/%s: %w", namespace, secret.Name, err)
+		}
+	}
+	// The new UID invalidates every token already handed out, whether or not
+	// its Secret survived the sweep above.
+	accounts := a.client.CoreV1().ServiceAccounts(namespace)
+	if err := accounts.Delete(ctx, ServiceAccountName, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+		return nil, fmt.Errorf("deleting the ServiceAccount %s/%s: %w", namespace, ServiceAccountName, err)
+	}
+	if err := applyServiceAccount(ctx, a.client, NewAccess(namespace).ServiceAccount); err != nil {
+		return nil, fmt.Errorf("making the ServiceAccount %s/%s again after rotation: %w", namespace, ServiceAccountName, err)
 	}
 	return a.Token(ctx, namespace)
 }

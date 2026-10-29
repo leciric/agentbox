@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
@@ -92,9 +93,9 @@ func NetPol(namespace, masterURL string) *networkingv1.NetworkPolicy {
 			},
 		},
 		Spec: networkingv1.NetworkPolicySpec{
-			// Only agent pods: the namespace's other objects are not this
-			// policy's business.
-			PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{LabelApp: AppAgent}},
+			// An agent's pods and the helper pods that mount its claim: the
+			// namespace's other objects are not this policy's business.
+			PodSelector: netPolSelector(),
 			PolicyTypes: []networkingv1.PolicyType{
 				networkingv1.PolicyTypeIngress,
 				networkingv1.PolicyTypeEgress,
@@ -106,6 +107,29 @@ func NetPol(namespace, masterURL string) *networkingv1.NetworkPolicy {
 			Egress: egress,
 		},
 	}
+}
+
+// netPolSelector is the pods the policy covers: an agent's pod, and the helper
+// pod that archives or restores its claim. Both carry the application label
+// with one of two values, which is one matchExpressions entry rather than two
+// selectors a LabelSelector can't join.
+func netPolSelector() metav1.LabelSelector {
+	return metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
+		Key:      LabelApp,
+		Operator: metav1.LabelSelectorOpIn,
+		Values:   []string{AppAgent, AppArchive},
+	}}}
+}
+
+// netPolSelects reports whether a live policy's selector covers an agent's pod
+// and a helper pod. The doctor uses it to tell a policy from an older release,
+// which selected only the agent's, from one that is right.
+func netPolSelects(selector metav1.LabelSelector) bool {
+	sel, err := metav1.LabelSelectorAsSelector(&selector)
+	if err != nil {
+		return false
+	}
+	return sel.Matches(labels.Set{LabelApp: AppAgent}) && sel.Matches(labels.Set{LabelApp: AppArchive})
 }
 
 // dnsEgress is the rule a pod needs to resolve anything at all: the cluster's

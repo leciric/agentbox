@@ -103,6 +103,11 @@ func TestPodIsOneAgentsMachine(t *testing.T) {
 	if *pod.Spec.TerminationGracePeriodSeconds != 60 {
 		t.Errorf("the grace period = %d, want 60", *pod.Spec.TerminationGracePeriodSeconds)
 	}
+	// Its own token is the Secret it is given; the namespace's default
+	// ServiceAccount token would only be one more credential to read.
+	if pod.Spec.AutomountServiceAccountToken == nil || *pod.Spec.AutomountServiceAccountToken {
+		t.Errorf("the ServiceAccount token is mounted = %v, want it not to be", pod.Spec.AutomountServiceAccountToken)
+	}
 	if len(pod.Spec.ImagePullSecrets) != 1 || pod.Spec.ImagePullSecrets[0].Name != "agentbox-forgejo-pull" {
 		t.Errorf("pull secrets = %+v, want the registry's", pod.Spec.ImagePullSecrets)
 	}
