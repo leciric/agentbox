@@ -625,6 +625,14 @@ type podMachineStub struct {
 	userExecs []string
 	// execs are the commands ExecInput ran, as it was given them.
 	execs [][]string
+	// exec, when set, answers UserExec's command with what the pod prints.
+	exec func(command string) (string, error)
+	// snapshotCommit and snapshotHead are what SnapshotGitInfo recorded: the
+	// worktree half of a snapshot a stopped pod can still answer.
+	snapshotCommit string
+	snapshotHead   string
+	// claimPrepared is the claim PrepareClaim was asked for.
+	claimPrepared string
 }
 
 func (m *podMachineStub) Ref() string     { return m.ref }
@@ -696,8 +704,34 @@ func (m *podMachineStub) WriteFile(_ context.Context, path string, _ []byte, _, 
 	return nil
 }
 
-func (m *podMachineStub) UserExec(_ context.Context, _, command string, _ io.Reader, _, _ io.Writer) error {
+func (m *podMachineStub) UserExec(_ context.Context, _, command string, _ io.Reader, stdout, _ io.Writer) error {
 	m.userExecs = append(m.userExecs, command)
+	if m.exec == nil {
+		return nil
+	}
+	out, err := m.exec(command)
+	if out != "" && stdout != nil {
+		_, _ = io.WriteString(stdout, out)
+	}
+	return err
+}
+
+// SnapshotGit and SnapshotGitInfo are the worktree half of a pod's snapshot,
+// which lives beside its archive rather than in this host's repository.
+func (m *podMachineStub) SnapshotGit(context.Context, string, string, string, string) error {
+	return nil
+}
+
+func (m *podMachineStub) SnapshotGitInfo(context.Context, string) (string, string, error) {
+	if m.snapshotCommit == "" {
+		return "", "", errors.New("no worktree recorded")
+	}
+	return m.snapshotCommit, m.snapshotHead, nil
+}
+
+// PrepareClaim is the archive being unpacked into a fork's claim.
+func (m *podMachineStub) PrepareClaim(_ context.Context, claim, _ string) error {
+	m.claimPrepared = claim
 	return nil
 }
 
@@ -731,5 +765,129 @@ func TestCreateMakesAnOpenCodePodWithoutTheBaseImage(t *testing.T) {
 	}
 	if a.AI != "opencode" || a.Cluster != "k3d" {
 		t.Errorf("Create() = tool %q in cluster %q, want opencode in k3d", a.AI, a.Cluster)
+	}
+}
+
+// M9: a cluster agent's tree is on a claim the destroy deletes at once, so a
+// dirty worktree is read in the pod and refused without --force, exactly as a
+// host worktree is.
+func TestDestroyOfARunningClusterAgentRefusesDirtyWork(t *testing.T) {
+	f := newClusterFixture(t, nil)
+	ctx := context.Background()
+	if _, err := f.m.build(ctx, f.plan(t)); err != nil {
+		t.Fatalf("build() = %v", err)
+	}
+	a, err := f.st.Agent(ctx, "hello-stack", "agent-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.pod.exec = func(command string) (string, error) {
+		switch {
+		case strings.Contains(command, "rev-parse"):
+			return "head-1\n", nil
+		case strings.Contains(command, "--porcelain"):
+			return " M work.txt\n", nil
+		}
+		return "", nil
+	}
+
+	err = f.m.Destroy(ctx, a, DestroyOptions{})
+	if err == nil || !strings.Contains(err.Error(), "uncommitted changes") {
+		t.Fatalf("Destroy() = %v, want it refused for the pod's dirty worktree", err)
+	}
+	if f.pod.destroyed {
+		t.Error("the pod was destroyed after the dirty refusal")
+	}
+	if _, err := f.st.Agent(ctx, a.Project, a.Name); err != nil {
+		t.Errorf("the row went with the refused destroy: %v", err)
+	}
+
+	if err := f.m.Destroy(ctx, a, DestroyOptions{Force: true}); err != nil {
+		t.Fatalf("Destroy(Force) = %v", err)
+	}
+	if !f.pod.destroyed {
+		t.Error("the forced destroy never asked the pod to go")
+	}
+	if _, err := f.st.Agent(ctx, a.Project, a.Name); !errors.Is(err, state.ErrNotFound) {
+		t.Errorf("the forced destroy left the row (%v), want it archived", err)
+	}
+}
+
+// M9: a stopped pod has no gateway session to ask git, so its destroy needs
+// --force rather than deleting its claim and any uncommitted work unread.
+func TestDestroyOfAStoppedClusterAgentNeedsForce(t *testing.T) {
+	f := newClusterFixture(t, nil)
+	ctx := context.Background()
+	if _, err := f.m.build(ctx, f.plan(t)); err != nil {
+		t.Fatalf("build() = %v", err)
+	}
+	a, err := f.st.Agent(ctx, "hello-stack", "agent-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.pod.state = "Stopped"
+
+	err = f.m.Destroy(ctx, a, DestroyOptions{})
+	if err == nil || !strings.Contains(err.Error(), "is stopped") {
+		t.Fatalf("Destroy() = %v, want it refused while the pod can't be checked", err)
+	}
+	if f.pod.destroyed {
+		t.Error("the stopped pod was destroyed without --force")
+	}
+	if _, err := f.st.Agent(ctx, a.Project, a.Name); err != nil {
+		t.Errorf("the row went with the refused destroy: %v", err)
+	}
+}
+
+// M10: a fork of a stopped cluster agent reads the head its snapshot recorded
+// beside the archive. The pod can't answer git while it is down, and its refs
+// never reach this host's repository, so meta.Head is the only copy.
+func TestForkOfAStoppedClusterAgentUsesTheSnapshotsHead(t *testing.T) {
+	f := newClusterFixture(t, nil)
+	ctx := context.Background()
+	src := state.Agent{
+		Project: "hello-stack", Name: "agent-01", Cluster: "k3d",
+		Runtime: state.RuntimeKubernetes, Workspace: "/workspace", AI: "none",
+		Branch: "agentbox/agent-01", BaseRef: "main", BaseCommit: "base-old",
+		DesiredState: state.DesiredStopped, Status: state.AgentReady, CreatedAt: time.Now(),
+	}
+	if err := f.st.AddAgent(ctx, src); err != nil {
+		t.Fatal(err)
+	}
+	src, err := f.st.Agent(ctx, "hello-stack", "agent-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := f.m.Paths.SnapshotsOf("hello-stack", "agent-01")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "snap.tar.gz"), []byte("an archive"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	meta := `{"name":"snap","ref":"refs/agentbox/snapshots/agent-01/snap","commit":"snap-commit","head":"base-commit","image":"agentbox-agent:dev","bytes":10,"createdAt":"2026-10-29T00:00:00Z"}`
+	if err := os.WriteFile(filepath.Join(dir, "snap.json"), []byte(meta), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.pod.state = "Stopped"
+	f.pod.snapshotCommit, f.pod.snapshotHead = "snap-commit", "base-commit"
+	// The pod is down: any git the fork asks it fails, which is why the head
+	// has to come from the archive's metadata.
+	f.pod.exec = func(command string) (string, error) {
+		if strings.Contains(command, "rev-parse") {
+			return "", errors.New("the pod isn't connected")
+		}
+		return "", nil
+	}
+
+	fork, err := f.m.Fork(ctx, src, ForkOptions{Name: "agent-02", Snapshot: "snap"})
+	if err != nil {
+		t.Fatalf("Fork() = %v, want it to start from the stopped agent's snapshot", err)
+	}
+	if fork.BaseCommit != "base-commit" {
+		t.Errorf("the fork starts at %q, want the snapshot's recorded head %q", fork.BaseCommit, "base-commit")
+	}
+	if fork.Cluster != "k3d" || fork.Runtime != state.RuntimeKubernetes {
+		t.Errorf("the fork is on cluster %q, runtime %q; want k3d and kubernetes", fork.Cluster, fork.Runtime)
 	}
 }

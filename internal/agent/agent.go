@@ -2817,19 +2817,31 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 	if err != nil {
 		return err
 	}
-	if !opts.Force && !a.OnCluster() {
+	if !opts.Force {
+		if a.OnCluster() {
+			// A pod's tree is on a claim the destroy deletes at once, with no
+			// retention window, so the same check the host makes has to run
+			// in the pod. A stopped pod can't answer git, and starting one
+			// just to look would make destroy fail for a cluster that is
+			// temporarily away, so it asks for --force rather than guess.
+			inst, err := m.machine(a).Info(ctx)
+			if err != nil {
+				return fmt.Errorf("%s: can't tell whether it has uncommitted changes (%v): try again, or use --force to discard any", a.Ref(), err)
+			}
+			if inst.State != "Running" && inst.State != "Frozen" {
+				return fmt.Errorf("%s is stopped, so its uncommitted changes can't be checked: start it and try again, or use --force to discard any", a.Ref())
+			}
+		}
 		// A status git couldn't read is no proof of a clean worktree: the
 		// machine out of files (ENFILE) once read that way about agents with
 		// thousands of lines of work. Only a worktree that isn't there is.
-		//
-		// A cluster agent's tree is inside its pod, which this host can't read,
-		// so there is no clean-worktree check to make: its claim is what holds
-		// the work, and the cluster keeps it for the retention window.
 		switch st, err := m.workspace(a).Status(ctx); {
 		case err != nil && st.Exists:
 			return fmt.Errorf("%s: can't tell whether it has uncommitted changes (%v): try again, or use --force to discard any", a.Ref(), err)
 		case err == nil && st.Dirty:
 			return fmt.Errorf("%s has uncommitted changes: commit them in the agent, or use --force to discard them", a.Ref())
+		case a.OnCluster() && err != nil:
+			return fmt.Errorf("%s: can't tell whether it has uncommitted changes (%v): start it and try again, or use --force to discard any", a.Ref(), err)
 		}
 	}
 
