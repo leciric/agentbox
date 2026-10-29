@@ -139,6 +139,7 @@ export function ChatScreen() {
       {!missing && !asleep && (!lead || shown) && (
         <Composer
           chatRef={chatRef}
+          lead={lead && shown ? { project, session: shown.id, sessions: list } : undefined}
           name={lead ? t('web.phone.projectChat') : agent?.name ?? ''}
           running={!!live}
           start={lead && info.data && !info.data.started ? () => api.startChat(chatRef).then(() => queryClient.invalidateQueries({ queryKey: ['projectChat', project] })) : undefined}
@@ -153,6 +154,7 @@ function TimelineRow({ row, chatRef, tools }: { row: Row; chatRef: string; tools
     case 'user':
       return (
         <View style={styles.userRow}>
+          {row.item.to ? <Text style={styles.toldTag}>→ {row.item.to}</Text> : null}
           <View style={styles.userBubble}>
             {row.item.images?.map((img) => (
               <Image key={img.id} source={mediaSource(chatImagePath(chatRef, img.id))} style={styles.image} contentFit="cover" />
@@ -248,6 +250,7 @@ const styles = StyleSheet.create({
   flip: { transform: [{ scaleY: -1 }] },
   empty: { color: colors.subtle, fontSize: 14, textAlign: 'center', padding: 24 },
   userRow: { alignItems: 'flex-end', marginVertical: 8 },
+  toldTag: { color: colors.brand300, fontSize: 11.5, fontWeight: '600', marginBottom: 3, marginRight: 4 },
   userBubble: { maxWidth: '85%', backgroundColor: colors.brandSoft, borderRadius: 18, borderBottomRightRadius: 6, paddingHorizontal: 14, paddingVertical: 9, gap: 6 },
   userText: { color: colors.title, fontSize: 15, lineHeight: 21 },
   image: { width: 180, height: 120, borderRadius: 10 },
