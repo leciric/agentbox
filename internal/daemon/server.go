@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -875,40 +876,46 @@ func (s *Server) routes() http.Handler {
 	s.scheduleRoutes("/v1/projects/{project}", "user", h)
 	h("GET /v1/projects/{project}/notes", s.getNotes)
 	h("PUT /v1/projects/{project}/notes", s.setNotes)
-	// The chat's sessions (leadsessions.go): every chat route below takes
-	// ?session=, and without one is the session most recently active.
+	// The chat's sessions (leadsessions.go). Every route of the project's
+	// chat is also under /sessions/{session}/, for one session; without one,
+	// or ?session=, it is the session most recently active.
+	sessionRoute := func(pattern string, fn func(http.ResponseWriter, *http.Request) error) {
+		h(pattern, fn)
+		method, path, _ := strings.Cut(pattern, " ")
+		h(method+" "+strings.Replace(path, "/{project}/", "/{project}/sessions/{session}/", 1), fn)
+	}
 	h("GET /v1/projects/{project}/sessions", s.listSessions)
 	h("POST /v1/projects/{project}/sessions", s.newSession)
 	h("PATCH /v1/projects/{project}/sessions/{session}", s.renameSession)
 	h("DELETE /v1/projects/{project}/sessions/{session}", s.deleteSession)
-	h("GET /v1/projects/{project}/chat", s.getChat(s.leadFromPath))
-	h("GET /v1/projects/{project}/chat/search", s.searchChat(s.leadFromPath))
-	h("DELETE /v1/projects/{project}/chat", s.clearChat(s.leadFromPath))
-	h("POST /v1/projects/{project}/chat/start", s.startChat(s.ensureLeadFromPath))
-	h("POST /v1/projects/{project}/chat/messages", s.sendChat(s.leadForMessage))
-	h("GET /v1/projects/{project}/chat/images/{image}", s.chatImage(s.leadFromPath))
-	h("GET /v1/projects/{project}/chat/files/{file}", s.chatFile(s.leadFromPath))
-	h("POST /v1/projects/{project}/chat/cancel", s.cancelChat(s.leadFromPath))
-	h("POST /v1/projects/{project}/chat/reload", s.reloadChatTools(s.leadFromPath))
-	h("POST /v1/projects/{project}/chat/rollover", s.rolloverChat)
+	sessionRoute("GET /v1/projects/{project}/chat", s.getChat(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/chat/search", s.searchChat(s.leadFromPath))
+	sessionRoute("DELETE /v1/projects/{project}/chat", s.clearChat(s.leadFromPath))
+	sessionRoute("POST /v1/projects/{project}/chat/start", s.startChat(s.ensureLeadFromPath))
+	sessionRoute("POST /v1/projects/{project}/chat/messages", s.sendChat(s.leadForMessage))
+	sessionRoute("GET /v1/projects/{project}/chat/images/{image}", s.chatImage(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/chat/files/{file}", s.chatFile(s.leadFromPath))
+	sessionRoute("POST /v1/projects/{project}/chat/cancel", s.cancelChat(s.leadFromPath))
+	sessionRoute("POST /v1/projects/{project}/chat/reload", s.reloadChatTools(s.leadFromPath))
+	sessionRoute("POST /v1/projects/{project}/chat/rollover", s.rolloverChat)
 	// The pages the project's chats published on Hatch (artifacts.go).
 	h("GET /v1/projects/{project}/artifacts", s.listArtifacts)
 	h("GET /v1/projects/{project}/artifacts/{id}", s.previewArtifact)
 	h("GET /v1/projects/{project}/artifacts/{id}/page", s.artifactPage)
-	h("POST /v1/projects/{project}/chat/publish", s.publishRender(s.leadFromPath))
-	h("GET /v1/projects/{project}/chat/cache", s.chatCache)
-	h("POST /v1/projects/{project}/chat/cache", s.chatCacheChoice)
-	h("POST /v1/projects/{project}/chat/permissions/{item}", s.answerChat(s.leadFromPath))
-	h("PUT /v1/projects/{project}/chat/options/{option}", s.setChatOption(s.leadFromPath))
-	h("GET /v1/projects/{project}/chat/runners", s.chatRunners)
-	h("PUT /v1/projects/{project}/chat/runner", s.setChatRunner)
-	h("GET /v1/projects/{project}/files", s.listFiles(s.leadFromPath))
-	h("GET /v1/projects/{project}/files/list", s.listFolder(s.leadFromPath))
-	h("GET /v1/projects/{project}/files/read", s.readFile(s.leadFromPath))
-	h("GET /v1/projects/{project}/files/status", s.fileStatus(s.leadFromPath))
-	h("GET /v1/projects/{project}/files/sqlite", s.readSQLite(s.leadFromPath))
-	h("GET /v1/projects/{project}/lead", s.projectChat)
-	h("DELETE /v1/projects/{project}/lead", s.resetProjectChat)
+	sessionRoute("POST /v1/projects/{project}/chat/publish", s.publishRender(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/chat/cache", s.chatCache)
+	sessionRoute("POST /v1/projects/{project}/chat/cache", s.chatCacheChoice)
+	sessionRoute("POST /v1/projects/{project}/chat/permissions/{item}", s.answerChat(s.leadFromPath))
+	sessionRoute("PUT /v1/projects/{project}/chat/options/{option}", s.setChatOption(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/chat/runners", s.chatRunners)
+	sessionRoute("PUT /v1/projects/{project}/chat/runner", s.setChatRunner)
+	sessionRoute("GET /v1/projects/{project}/files", s.listFiles(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/files/list", s.listFolder(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/files/read", s.readFile(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/files/status", s.fileStatus(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/files/sqlite", s.readSQLite(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/lead", s.projectChat)
+	sessionRoute("DELETE /v1/projects/{project}/lead", s.resetProjectChat)
 	h("GET /v1/projects/{project}/fleet", s.fleet)
 	h("GET /v1/projects/{project}/desktops", s.projectDesktops)
 	h("GET /v1/projects/{project}/credentials", s.projectCredentials)

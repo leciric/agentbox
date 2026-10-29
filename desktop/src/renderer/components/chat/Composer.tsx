@@ -107,7 +107,7 @@ export function Composer({
   // while it asks is held here until you choose; a turn running, or the card
   // going away without a choice, puts it back in the composer.
   const projectChat = isProjectChat(agent.ref);
-  const cache = useQuery({ queryKey: ['chatCache', agent.project], queryFn: () => api.chatCache(agent.project), enabled: projectChat });
+  const cache = useQuery({ queryKey: ['chatCache', agent.ref], queryFn: () => api.chatCache(agent.ref), enabled: projectChat });
   const cacheCard = projectChat && cache.data?.due && !busy && !disabled ? cache.data : undefined;
   const [held, setHeld] = useState<{ text: string; images: Pending[] } | null>(null);
   useEffect(() => {
@@ -520,7 +520,7 @@ export function Composer({
         <PermissionBanner agent={agent} thread={thread} request={requests[0]} count={requests.length} />
       ) : cacheCard ? (
         <CacheCard
-          project={agent.project}
+          chatRef={agent.ref}
           cache={cacheCard}
           held={held}
           draft={() => {
@@ -873,14 +873,14 @@ function PermissionBanner({ agent, thread, request, count }: { agent: T.Agent; t
 // chat's Compact action and then sends the held message, if any, in the fresh
 // session; sending as it is sends it the way it would have gone anyway.
 function CacheCard({
-  project,
+  chatRef,
   cache,
   held,
   draft,
   onChosen,
   onFailed,
 }: {
-  project: string;
+  chatRef: string;
   cache: T.ChatCache;
   held: { text: string; images: Pending[] } | null;
   draft: () => { text: string; images: Pending[] } | null;
@@ -891,7 +891,7 @@ function CacheCard({
   const now = useNow(1000);
   const choose = useMutation({
     mutationFn: ({ compact, message }: { compact: boolean; message: { text: string; images: Pending[] } | null }) =>
-      api.chooseChatCache(project, {
+      api.chooseChatCache(chatRef, {
         compact,
         text: message ? withPicks(message.text, message.images.filter(isElement)) : undefined,
         ...(message ? uploads(message.images) : {}),

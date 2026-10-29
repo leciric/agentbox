@@ -243,7 +243,13 @@ func (s *Server) registerProject(ctx context.Context, p state.Project) (state.Pr
 		return p, err
 	}
 	p = stored
-	// Its chat's socket, so the project can be talked to straight away.
+	// A new project's chat has a session to start in (the id the chats from
+	// before sessions have, so it is known by the same paths), and its
+	// socket, so the project can be talked to straight away. It costs a row
+	// until it is written to, and can be deleted like any session.
+	if err := s.store.AddLeadSessionID(ctx, p.Name, state.MigratedSession, "Chat", time.Now()); err != nil && !errors.Is(err, state.ErrExists) {
+		s.logf("the first session of %s's chat: %v", p.Name, err)
+	}
 	if err := s.serveLeadAPI(p.Name); err != nil {
 		s.logf("lead API socket for %s: %v", p.Name, err)
 	}

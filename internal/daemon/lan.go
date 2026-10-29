@@ -876,9 +876,9 @@ var lanWrites = []struct {
 	// the card its lead's chat shows (leadpermissions.go): what the agent
 	// asks, like a question.
 	{state.PhoneScopeAnswer, regexp.MustCompile(`^POST /v1/agents/[^/]+/[^/]+/chat/permissions/[^/]+$`), state.PhoneScopeChat},
-	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/(projects/[^/]+|agents/[^/]+/[^/]+)/chat/(start|messages|cancel|reload|resume|permissions/[^/]+)$`), ""},
-	{state.PhoneScopeChat, regexp.MustCompile(`^PUT /v1/(projects/[^/]+|agents/[^/]+/[^/]+)/chat/options/[^/]+$`), ""},
-	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/projects/[^/]+/chat/cache$`), ""},
+	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/(projects/[^/]+(/sessions/[^/]+)?|agents/[^/]+/[^/]+)/chat/(start|messages|cancel|reload|resume|permissions/[^/]+)$`), ""},
+	{state.PhoneScopeChat, regexp.MustCompile(`^PUT /v1/(projects/[^/]+(/sessions/[^/]+)?|agents/[^/]+/[^/]+)/chat/options/[^/]+$`), ""},
+	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/projects/[^/]+(/sessions/[^/]+)?/chat/cache$`), ""},
 	// Opening a session of a project's chat is chatting; renaming or deleting
 	// one is the app's.
 	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/projects/[^/]+/sessions$`), ""},

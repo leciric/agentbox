@@ -96,6 +96,16 @@ func (s *Server) sessionLead(ctx context.Context, project, session string) (stat
 // one titled topic. Without open, a project with none is state.ErrNotFound.
 func (s *Server) eventLead(ctx context.Context, project, topic string, open bool) (state.Agent, error) {
 	ls, err := s.store.LastActiveLeadSession(ctx, project)
+	if errors.Is(err, state.ErrNotFound) {
+		// A lead from before sessions that the migration didn't see is the
+		// session it would have made.
+		if _, leadErr := s.manager(nil).Lead(ctx, project); leadErr == nil {
+			if err := s.store.AddLeadSessionID(ctx, project, state.MigratedSession, "Chat", time.Now()); err != nil && !errors.Is(err, state.ErrExists) {
+				return state.Agent{}, err
+			}
+			ls, err = s.store.LeadSession(ctx, project, state.MigratedSession)
+		}
+	}
 	if errors.Is(err, state.ErrNotFound) && open {
 		if ls, err = s.store.AddLeadSession(ctx, project, topic, time.Now()); err == nil {
 			s.logf("%s's chat had no session: opened %q for %s", project, ls.Topic, firstWords(topic))

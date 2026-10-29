@@ -1,12 +1,10 @@
 // ShortcutSheet is v2's list of keyboard shortcuts, Ctrl+/ (⌘/ on a Mac)
 // from anywhere: lib/shortcuts.ts has the list.
 import { useT } from '../../lib/i18n';
-import { setSheetOpen, sheet, useSheetOpen } from '../../lib/shortcuts';
-import { onMac, shortcut } from '../../lib/utils';
+import { keyName, setSheetOpen, sheet, useSheetOpen } from '../../lib/shortcuts';
+import { shortcut } from '../../lib/utils';
 import { TourButtons } from './Tour';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
-
-const keyName = (k: string) => (k === 'Mod' ? (onMac ? '⌘' : 'Ctrl') : k === 'Shift' && onMac ? '⇧' : k === 'Alt' && onMac ? '⌥' : k);
 
 export function ShortcutSheet() {
   const t = useT();
