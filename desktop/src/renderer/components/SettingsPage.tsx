@@ -45,9 +45,12 @@ export function keepScroll(): void {
 }
 
 // openSettingsSection takes the app to a section of Settings from anywhere in
-// it; App listens for the event.
+// it; App listens for the event. entry is a setting's id to scroll to, its
+// group's title on top: the page opens at the section's top otherwise.
 export const openSettingsEvent = 'agentbox:open-settings';
-export function openSettingsSection(id: string): void {
+let landOnEntry = '';
+export function openSettingsSection(id: string, entry?: string): void {
+  landOnEntry = entry ?? '';
   window.dispatchEvent(new CustomEvent(openSettingsEvent, { detail: id }));
 }
 
@@ -75,6 +78,24 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
   };
   const found = useMemo(() => search(sections, query), [sections, query]);
   const searching = query.trim() !== '';
+
+  // The setting a link asked for, once the section has drawn it. It is
+  // forgotten only once found, so an effect run twice still lands there.
+  useEffect(() => {
+    if (!landOnEntry) return;
+    let tries = 0;
+    let frame = 0;
+    const land = () => {
+      const entry = document.querySelector(`[data-setting-id="${CSS.escape(landOnEntry)}"]`);
+      if (entry) {
+        landOnEntry = '';
+        (entry.closest('section') ?? entry).scrollIntoView({ block: 'start' });
+      } else if (++tries < 60) frame = requestAnimationFrame(land);
+      else landOnEntry = '';
+    };
+    frame = requestAnimationFrame(land);
+    return () => cancelAnimationFrame(frame);
+  }, []);
 
   useEffect(() => {
     const kept = Number(sessionStorage.getItem(scrollKey));

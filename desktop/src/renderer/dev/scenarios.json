@@ -1180,6 +1180,35 @@
     "click": ["[data-new-agent-cluster]", "[role=menuitem]:has-text('nas')", "#agent-queue"]
   },
   {
+    "id": "newagent-clusters-pending-dark",
+    "description": "The New agent dialog for a project that runs its agents on k3d while the cluster list hasn't answered: the picker says it is loading and Create waits, saying why, in the dark theme",
+    "query": "newagent=1&cluster=k3d&clusters=pending&theme=dark",
+    "width": 900,
+    "height": 1200
+  },
+  {
+    "id": "newagent-clusters-error-dark",
+    "description": "The same dialog when the cluster list fails: the error, and Create refused rather than sending the project's k3d the picker can't show, in the dark theme",
+    "query": "newagent=1&cluster=k3d&clusters=error&theme=dark",
+    "width": 900,
+    "height": 1200
+  },
+  {
+    "id": "newagent-draining-dark",
+    "description": "The New agent dialog for a project whose cluster, hetzner, is draining: the picker open, hetzner marked as taking no new agents and not selectable, in the dark theme",
+    "query": "newagent=1&cluster=hetzner&theme=dark",
+    "width": 900,
+    "height": 1200,
+    "click": "[data-new-agent-cluster]"
+  },
+  {
+    "id": "newagent-git-pending-dark",
+    "description": "The New agent dialog on k3d while the project's git profiles are still being checked: Create waits and says so, in the dark theme",
+    "query": "newagent=1&cluster=k3d&git=pending&theme=dark",
+    "width": 900,
+    "height": 1200
+  },
+  {
     "id": "agents-queued-dark",
     "description": "Home's all-agents list with an agent queued for the full k3d: its cluster badge, its place in line and the reason, in the dark theme",
     "query": "app=home&theme=dark",
