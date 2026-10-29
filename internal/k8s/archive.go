@@ -35,6 +35,17 @@ const (
 	// how often it is read again while it does.
 	helperTimeout = 5 * time.Minute
 	helperPoll    = 2 * time.Second
+	// helperDeadline is how long a helper pod may exist. It runs `sleep
+	// infinity`, so a daemon that crashes mid-snapshot would otherwise leave it
+	// holding a ReadWriteOnce claim for good, keeping the agent's pod from
+	// mounting it on another node. The cluster stops it after this, and the
+	// reconciler sweeps one that is older than this even if the cluster's own
+	// deadline didn't fire.
+	helperDeadline = time.Hour
+	// LabelHelper marks a helper pod, and HelperArchive is its value: the
+	// reconciler sweeps the pods that carry it.
+	LabelHelper   = "agentbox/helper"
+	HelperArchive = "archive"
 	// stderrLimit is how much of tar's own words an error keeps: enough to say
 	// what it failed on, not a listing of every file it could not write.
 	stderrLimit = 8 << 10
@@ -74,10 +85,11 @@ func BuildHelperPod(spec Spec, name, image string) (*corev1.Pod, error) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 			// The two labels and nothing else: a helper is not an agent, and
-			// the reconciler must not find it.
+			// the reconciler must not adopt it. The helper label is what the
+			// reconciler's own sweep selects.
 			Labels: map[string]string{
-				"agentbox/helper":        "archive",
-				"app.kubernetes.io/name": "agentbox-archive",
+				LabelHelper: HelperArchive,
+				LabelApp:    AppArchive,
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -86,6 +98,12 @@ func BuildHelperPod(spec Spec, name, image string) (*corev1.Pod, error) {
 			RestartPolicy:                 corev1.RestartPolicyNever,
 			TerminationGracePeriodSeconds: ptr(int64(0)),
 			EnableServiceLinks:            ptr(false),
+			// The namespace's default ServiceAccount token is no use to a
+			// helper, and nothing should be able to read one out of it.
+			AutomountServiceAccountToken: ptr(false),
+			// A helper a crashed daemon left behind is stopped rather than
+			// kept: it holds the claim it mounted until it goes.
+			ActiveDeadlineSeconds: ptr(int64(helperDeadline.Seconds())),
 			SecurityContext: &corev1.PodSecurityContext{
 				RunAsNonRoot:        ptr(true),
 				RunAsUser:           ptr(int64(AgentUser)),
@@ -116,6 +134,51 @@ func BuildHelperPod(spec Spec, name, image string) (*corev1.Pod, error) {
 			}},
 		},
 	}, nil
+}
+
+// SweepHelpers deletes helper pods a daemon left behind. A helper is created
+// for one operation and deleted when it ends, so one that outlived its deadline,
+// or that the cluster has already stopped, is holding its ReadWriteOnce claim
+// for nothing: the agent's next pod can't mount it until this one goes. A helper
+// that is still running and younger than the deadline may be one an operation is
+// using, so it stays.
+func (c *Cluster) SweepHelpers(ctx context.Context) error {
+	pods := c.client.CoreV1().Pods(c.namespace)
+	live, err := pods.List(ctx, metav1.ListOptions{LabelSelector: LabelHelper + "=" + HelperArchive})
+	if err != nil {
+		return fmt.Errorf("listing the helper pods of cluster %s: %w", c.name, err)
+	}
+	now := time.Now()
+	var problems []string
+	for i := range live.Items {
+		pod := &live.Items[i]
+		if !staleHelper(pod, now) {
+			continue
+		}
+		uid := pod.UID
+		err := pods.Delete(ctx, pod.Name, metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &uid}})
+		if err != nil && !apierrors.IsNotFound(err) {
+			problems = append(problems, fmt.Sprintf("deleting the helper pod %s: %v", pod.Name, err))
+		}
+	}
+	if len(problems) > 0 {
+		return errors.New(strings.Join(problems, "; "))
+	}
+	return nil
+}
+
+// staleHelper is whether a helper pod has outlived what a helper is for: the
+// cluster stopped it, or it has been there longer than helperDeadline. A pod
+// already being deleted is left to finish.
+func staleHelper(pod *corev1.Pod, now time.Time) bool {
+	switch pod.Status.Phase {
+	case corev1.PodFailed, corev1.PodSucceeded:
+		return true
+	}
+	if pod.DeletionTimestamp != nil {
+		return false
+	}
+	return now.Sub(pod.CreationTimestamp.Time) >= helperDeadline
 }
 
 // ArchiveClaim streams the claim's contents as a gzipped tar to w: a pod runs

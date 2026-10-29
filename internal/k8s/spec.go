@@ -192,6 +192,10 @@ const (
 	// one.
 	LabelApp = "app.kubernetes.io/name"
 	AppAgent = "agentbox-agent"
+	// AppArchive is what a helper pod is called by. The NetworkPolicy selects
+	// it next to an agent's, because a helper holds the same claim and must not
+	// be reachable either.
+	AppArchive = "agentbox-archive"
 	// AnnotationRef is <project>/<agent>, the ref every command uses.
 	AnnotationRef = "agentbox/ref"
 	// AnnotationPodUID is the UID of the pod an agent's row was adopted from:
@@ -233,7 +237,12 @@ func BuildPod(spec Spec) (*corev1.Pod, error) {
 			RestartPolicy:                 corev1.RestartPolicyAlways,
 			TerminationGracePeriodSeconds: ptr(int64(60)),
 			EnableServiceLinks:            ptr(false),
-			NodeSelector:                  nodeSelector(spec.NodeSelector),
+			// The pod reads its own token from a Secret it is given, and the
+			// namespace's default ServiceAccount token is no use to it: an AI
+			// tool that reaches the mounted one could act as the cluster
+			// credential.
+			AutomountServiceAccountToken: ptr(false),
+			NodeSelector:                 nodeSelector(spec.NodeSelector),
 			SecurityContext: &corev1.PodSecurityContext{
 				RunAsNonRoot:        ptr(true),
 				RunAsUser:           ptr(int64(AgentUser)),

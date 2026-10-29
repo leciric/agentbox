@@ -10,6 +10,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
 	k8stesting "k8s.io/client-go/testing"
@@ -191,6 +192,98 @@ func TestRotateTokenReplacesTheOneTheDaemonHolds(t *testing.T) {
 	}
 	if string(second) != "token-2" {
 		t.Errorf("rotated token = %q, want %q", second, "token-2")
+	}
+}
+
+// TestRotateTokenInvalidatesEveryCredentialOfTheServiceAccount is the point of
+// rotation: not just the Secret AgentBox made, but the ServiceAccount itself and
+// every token Secret pointing at it, including one the ServiceAccount created
+// for itself.
+func TestRotateTokenInvalidatesEveryCredentialOfTheServiceAccount(t *testing.T) {
+	client, admin := fakeAdmin(t)
+	// A real API server gives each ServiceAccount its own UID, and that UID is
+	// what a token carries: a new one is what makes the old tokens invalid.
+	var uids int
+	client.PrependReactor("create", "serviceaccounts", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		account := action.(k8stesting.CreateAction).GetObject().(*corev1.ServiceAccount)
+		uids++
+		account.UID = types.UID(fmt.Sprintf("uid-%d", uids))
+		return false, nil, nil
+	})
+	ctx := context.Background()
+	if err := admin.AddAccess(ctx, "agentbox"); err != nil {
+		t.Fatal(err)
+	}
+	before, err := client.CoreV1().ServiceAccounts("agentbox").Get(ctx, k8s.ServiceAccountName, getOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := admin.Token(ctx, "agentbox")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A second token Secret the ServiceAccount made for itself: the old
+	// rotation left it, and the new ServiceAccount would have adopted it.
+	ownToken := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "agentbox-own-token",
+			Namespace:   "agentbox",
+			Annotations: map[string]string{corev1.ServiceAccountNameKey: k8s.ServiceAccountName},
+		},
+		Type: corev1.SecretTypeServiceAccountToken,
+		Data: map[string][]byte{corev1.ServiceAccountTokenKey: []byte("a-token-the-account-made")},
+	}
+	if _, err := client.CoreV1().Secrets("agentbox").Create(ctx, ownToken, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	// Another ServiceAccount's token is not this one's to rotate.
+	otherToken := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "another-account-token",
+			Namespace:   "agentbox",
+			Annotations: map[string]string{corev1.ServiceAccountNameKey: "someone-else"},
+		},
+		Type: corev1.SecretTypeServiceAccountToken,
+	}
+	if _, err := client.CoreV1().Secrets("agentbox").Create(ctx, otherToken, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := admin.RotateToken(ctx, "agentbox")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(first) == string(second) {
+		t.Errorf("rotating kept the same token %q", first)
+	}
+
+	after, err := client.CoreV1().ServiceAccounts("agentbox").Get(ctx, k8s.ServiceAccountName, getOptions())
+	if err != nil {
+		t.Fatalf("the ServiceAccount was not made again: %v", err)
+	}
+	if before.UID == after.UID {
+		t.Errorf("the ServiceAccount kept UID %q, so an old token is still valid", after.UID)
+	}
+
+	secrets, err := client.CoreV1().Secrets("agentbox").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range secrets.Items {
+		secret := &secrets.Items[i]
+		if secret.Annotations[corev1.ServiceAccountNameKey] != k8s.ServiceAccountName {
+			continue
+		}
+		if secret.Name == k8s.ServiceAccountTokenSecret {
+			continue
+		}
+		t.Errorf("the token Secret %q of the old ServiceAccount survived rotation", secret.Name)
+	}
+	if _, err := client.CoreV1().Secrets("agentbox").Get(ctx, k8s.ServiceAccountTokenSecret, getOptions()); err != nil {
+		t.Errorf("the new token Secret is missing: %v", err)
+	}
+	if _, err := client.CoreV1().Secrets("agentbox").Get(ctx, "another-account-token", getOptions()); err != nil {
+		t.Errorf("rotation deleted another ServiceAccount's token: %v", err)
 	}
 }
 

@@ -147,6 +147,13 @@ func (s *Server) reconcileCluster(ctx context.Context, name string) error {
 	}
 	round, cancel := context.WithTimeout(ctx, reconcileTimeout)
 	defer cancel()
+	// A helper pod a crashed daemon left behind holds its agent's
+	// ReadWriteOnce claim. Sweeping it is part of keeping the cluster in the
+	// state the rows ask for, but a failure here must not stop the round: the
+	// agents' own pods still have to be reconciled.
+	if err := client.SweepHelpers(round); err != nil {
+		s.logf("cluster %s: %v", name, err)
+	}
 	pods, err := client.List(round)
 	if err != nil {
 		s.recordClusterCapacity(cluster, k8s.Capacity{}, 0, err)
