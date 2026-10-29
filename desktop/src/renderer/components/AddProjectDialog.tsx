@@ -63,7 +63,8 @@ export function AddProjectDialog({
   const [url, setURL] = useState('');
   const [cloneParent, setCloneParent] = useState('');
   const [cloneJob, setCloneJob] = useState<string>();
-  const clonePath = joinPath(cloneParent.trim(), repoName(url.trim()));
+  // Only a link has a folder to show; anything else is the daemon's to refuse.
+  const clonePath = looksLikeLink(url.trim()) ? joinPath(cloneParent.trim(), repoName(url.trim())) : '';
   // "" is this machine's default account, which is what a project gets until
   // it picks one; the accounts only show up when there is a choice to make.
   const [claudeAccount, setClaudeAccount] = useState('');
@@ -181,6 +182,8 @@ export function AddProjectDialog({
   const notEmpty = creating && add.error instanceof ApiError && add.error.code === T.ErrorFolderNotEmpty;
   // The clone's folder is already there: submitting again adds it as it is.
   const folderExists = cloning && clone.error instanceof ApiError && clone.error.code === T.ErrorFolderExists;
+  // A link that isn't one is said under the link, where the eye is.
+  const badLink = cloning && clone.error instanceof ApiError && clone.error.code === T.ErrorBadRepoURL;
   const submitting = add.isPending || clone.isPending || (cloneRunning && !cloneFailed);
 
   const browse = async (set: (dir: string) => void) => {
@@ -190,7 +193,9 @@ export function AddProjectDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      {/* overflow-x-hidden: once the form scrolls, the footer's full bleed
+          (-mx-6) is wider than the scrollbar leaves, by the scrollbar. */}
+      <DialogContent className="overflow-x-hidden">
         <DialogHeader>
           <DialogTitle>{t('project.add.title')}</DialogTitle>
           <DialogDescription>
@@ -250,6 +255,7 @@ export function AddProjectDialog({
                   value={url}
                   onChange={(event) => setURL(event.target.value)}
                 />
+                {badLink && <Notice>{errorMessage(clone.error)}</Notice>}
               </Field>
               <Field
                 label={t('project.add.cloneFolderLabel')}
@@ -413,14 +419,14 @@ export function AddProjectDialog({
               {t.rich('project.add.folderExists', { code: (c) => <Code>{c}</Code>, path: clonePath })}
             </Notice>
           ) : (
-            (add.error || clone.error) && <Notice>{errorMessage(add.error ?? clone.error)}</Notice>
+            (add.error || (clone.error && !badLink)) && <Notice>{errorMessage(add.error ?? clone.error)}</Notice>
           )}
           {/* Kept in view at the bottom of the dialog, however long the form. */}
           <DialogFooter className="sticky -bottom-6 -mx-6 -mb-6 border-t border-line bg-modal px-6 py-4">
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
               {t('common.cancel')}
             </Button>
-            <Button type="submit" variant="primary" disabled={!(cloning ? url.trim() && clonePath : creating ? newPath : path.trim()) || submitting}>
+            <Button type="submit" variant="primary" disabled={!(cloning ? url.trim() : creating ? newPath : path.trim()) || submitting}>
               {submitting && <LoaderCircle className="animate-spin" />}
               {submitLabel({ mode, notEmpty, folderExists, onWindowsDrive, pending: submitting, retry: cloneFailed })}
             </Button>
@@ -465,6 +471,12 @@ function submitLabel({
 export function repoName(url: string): string {
   const trimmed = url.replace(/\/+$/, '');
   return trimmed.slice(Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf(':')) + 1).replace(/\.git$/, '');
+}
+
+// looksLikeLink is whether text could be a repository's link, as the
+// daemon's cloneable has it: scheme://… or user@host:path.
+function looksLikeLink(url: string): boolean {
+  return /^[a-z][a-z0-9+.-]*:\/\/\S+\/\S/i.test(url) || /^[^\s/:\\]{2,}:[^\s]+\/?[^\s]*$/.test(url);
 }
 
 // windowsDrive is where WSL mounts Windows's drives, as the daemon's

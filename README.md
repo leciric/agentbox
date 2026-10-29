@@ -181,6 +181,7 @@ Everything in the app has an `agentbox` equivalent, for servers and scripts:
 
 ```bash
 agentbox add ~/src/my-app                               # a git repository becomes a project
+agentbox add --clone https://github.com/acme/my-app      # or one cloned from a link, private ones too
 agentbox chat my-app "Paginate the reminders list"      # ask its chat, which creates the agents it needs
 agentbox diff my-app/agent-01                           # what an agent changed
 agentbox media list my-app/agent-01                     # what it kept to show its work
