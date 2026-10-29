@@ -222,7 +222,7 @@ func hostAgents(p paths.Paths) []string {
 			continue
 		}
 		for _, agent := range entries {
-			if agent.IsDir() && agent.Name() != state.LeadName {
+			if agent.IsDir() && !state.IsLeadName(agent.Name()) {
 				agents = append(agents, project.Name()+"/"+agent.Name())
 			}
 		}

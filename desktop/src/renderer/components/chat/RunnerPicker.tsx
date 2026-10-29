@@ -31,16 +31,16 @@ import { MenuItem, MenuLabel, MenuSeparator } from '../ui/menu';
 export function useRunner(agent: T.Agent, session?: T.ChatSession, enabled = true) {
   const queryClient = useQueryClient();
   const lead = isProjectChat(agent.ref);
-  const key = lead ? ['chatRunners', agent.project] : ['agentRunners', agent.ref];
+  const key = lead ? ['chatRunners', agent.ref] : ['agentRunners', agent.ref];
   const runners = useQuery({
     queryKey: key,
-    queryFn: () => (lead ? api.chatRunners(agent.project) : api.agentRunners(agent.ref)),
+    queryFn: () => (lead ? api.chatRunners(agent.ref) : api.agentRunners(agent.ref)),
     refetchInterval: 30_000,
     enabled,
   });
   const choose = useMutation({
     mutationFn: (c: RunnerChoice) =>
-      lead ? api.setChatRunner(agent.project, { tool: c.tool, account: c.account }) : api.setAgentRunner(agent.ref, { tool: c.tool, account: c.account }),
+      lead ? api.setChatRunner(agent.ref, { tool: c.tool, account: c.account }) : api.setAgentRunner(agent.ref, { tool: c.tool, account: c.account }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: key });
       void queryClient.invalidateQueries({ queryKey: ['agents'] });

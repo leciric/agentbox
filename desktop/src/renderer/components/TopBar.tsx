@@ -18,6 +18,7 @@ import { openSettingsSection } from './SettingsPage';
 import { ImageBuildChip } from './ImageBuildChip';
 import { MachineStatus } from './MachineStatus';
 import { Inbox } from './Inbox';
+import { useCurrentSession } from './ProjectChatPanel';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 
 const backToLeadKeys = onMac ? '⌥←' : 'Alt+←';
@@ -230,7 +231,8 @@ function ClaudeUsage({ view, agents }: { view: View; agents: T.Agent[] }) {
   const project = projectName ? projects.data?.find((p) => p.name === projectName) : undefined;
   // On a project's page, or Home, its chat's own tool and account: what the
   // composer chose spends there (RunnerPicker).
-  const chatOf = view.kind === 'project' ? project?.name : view.kind === 'home' || view.kind === 'homeChat' ? '_home' : undefined;
+  const session = useCurrentSession(view.kind === 'project' ? project?.name : undefined);
+  const chatOf = view.kind === 'project' ? session?.ref : view.kind === 'home' || view.kind === 'homeChat' ? `${T.HomeProject}/${T.LeadName}` : undefined;
   const runners = useQuery({ queryKey: ['chatRunners', chatOf], queryFn: () => api.chatRunners(chatOf!), enabled: !!chatOf, refetchInterval: 30_000 });
   const pick = pickMeter({ limits: limits.data ?? [], codexLimits: codexLimits.data ?? [], project, agent, lead: chatOf ? runners.data : undefined });
   const account = pick.reading;

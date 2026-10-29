@@ -1739,11 +1739,40 @@
     "height": 1080
   },
   {
-    "id": "window-wide-v2-home-status-dark",
+    "id": "window-v2-home-status-wide-dark",
     "description": "UI v2 at 1920×1080 on Home's Status tab, every project's agents with its project filter, Home highlighted in the sidebar — dark",
     "query": "app=home&v2=1&theme=dark",
     "width": 1920,
     "height": 1080
+  },
+  {
+    "id": "window-v2-home-status-wide-light",
+    "description": "UI v2 at 1920×1080 on Home's Status tab: the load strip, neutral status chips and the agents' table using the page's full width — light",
+    "query": "app=home&v2=1&theme=light",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "window-v2-home-status-small-dark",
+    "description": "UI v2 at 800×600 on Home's Status tab: the load strip, neutral status chips and the agents' table using the page's full width — dark",
+    "query": "app=home&v2=1&theme=dark",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "window-v2-home-status-small-light",
+    "description": "UI v2 at 800×600 on Home's Status tab: the load strip, neutral status chips and the agents' table using the page's full width — light",
+    "query": "app=home&v2=1&theme=light",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "window-v2-home-status-more-dark",
+    "description": "UI v2 at 800×600 on Home's Status tab with the status chips' +N menu open, holding the statuses that didn't fit on their one row — dark",
+    "query": "app=home&v2=1&theme=dark",
+    "width": 800,
+    "height": 600,
+    "click": "[data-status-more]"
   },
   {
     "id": "window-760-v2-project-dark",
@@ -2678,5 +2707,26 @@
     "query": "app=pulls&v2=1&theme=light",
     "width": 800,
     "height": 1200
+  },
+  {
+    "id": "sessions-v2-dark",
+    "description": "UI v2 on a project's chat with two sessions: the tabs above it, the sessions under the project in the sidebar, an unread dot on the one not shown, and the session chip on its agent — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "sessions-v2-narrow-light",
+    "description": "The same at 480×800, where the tabs have to scroll rather than widen the page — light",
+    "query": "app=project&v2=1&theme=light",
+    "width": 480,
+    "height": 800
+  },
+  {
+    "id": "sessions-cache-card-dark",
+    "description": "A session idle to within minutes of its prompt cache's expiry: the card offers to start a new session, send anyway, or compact and send — dark",
+    "query": "app=project&v2=1&cache=due&theme=dark",
+    "width": 1440,
+    "height": 900
   }
 ]

@@ -898,6 +898,11 @@ type Agent struct {
 	// or cli, its own command line in the terminal.
 	Interface string `json:"interface"`
 	Chat      string `json:"chat,omitempty"` // the chat session's state, while this daemon has one
+	// LeadSession is the session of its project's chat that made it, and
+	// that its notices go to (LeadSession.ID): absent for nobody's, as an
+	// agent the user made is, whose notices go to the session most recently
+	// active.
+	LeadSession string `json:"leadSession,omitempty"`
 	// StalledSince is set while its chat's running turn has stalled
 	// (ChatSession.StalledSince): its chat still says running, but nothing
 	// has come of it since then.
@@ -1094,6 +1099,10 @@ type CreateAgentRequest struct {
 	OriginID      string `json:"-"`
 	OriginName    string `json:"-"`
 	OriginProject string `json:"-"`
+	// LeadSession is the session of the project's chat that asked for it,
+	// whose notices it goes to: set by the daemon from the lead socket the
+	// request came in on, never sent. "" is Main.
+	LeadSession string `json:"-"`
 }
 
 // MemoryHold is what the daemon holds of an agent's heavy commands (test
@@ -2042,9 +2051,12 @@ type PullFileDiff struct {
 // has shown, and where its branch stands on GitHub.
 type FleetAgent struct {
 	Agent
-	Changes AgentChanges `json:"changes"`
-	Media   int          `json:"media"` // items it has kept
-	PR      *PullRequest `json:"pr,omitempty"`
+	// SessionTopic is the topic of the chat session it is (LeadSession),
+	// while that session exists.
+	SessionTopic string       `json:"sessionTopic,omitempty"`
+	Changes      AgentChanges `json:"changes"`
+	Media        int          `json:"media"` // items it has kept
+	PR           *PullRequest `json:"pr,omitempty"`
 	// Busy is true while its AI tool is working or waiting for an answer.
 	Busy bool `json:"busy,omitempty"`
 	// Idle is true when it has finished what it was doing and is holding a

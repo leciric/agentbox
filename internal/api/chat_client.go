@@ -11,23 +11,70 @@ import (
 
 // chatPath is where a chat lives. A ref with no slash, like "pawly", is a
 // project's own chat, driven by its lead; "pawly/agent-01" is that agent's.
+// "pawly/lead.prod" is the prod session of pawly's chat (SessionRef), whose
+// routes are the project chat's with ?session=: chatDo adds it.
 func chatPath(ref string) (string, error) {
 	project, name, ok := strings.Cut(ref, "/")
 	if project == "" {
 		return "", errors.New("name a project, like pawly, or an agent, like pawly/agent-01")
 	}
 	// "pawly" and "pawly/lead" are both the project's chat.
-	if !ok || name == LeadName {
+	if !ok || isLeadName(name) {
 		return "/v1/projects/" + url.PathEscape(project) + "/chat", nil
 	}
 	path, err := AgentPath(ref)
 	return path + "/chat", err
 }
 
+// isLeadName is state.IsLeadName: a name a session of a project's chat runs.
+func isLeadName(name string) bool {
+	return name == LeadName || strings.HasPrefix(name, LeadName+".")
+}
+
+// SessionRef is the chat ref of one session of a project's chat: a ref the
+// project chat's routes, and its chat events, know it by.
+func SessionRef(project, session string) string {
+	if session == "" || session == "main" {
+		return project + "/" + LeadName
+	}
+	return project + "/" + LeadName + "." + session
+}
+
+// SessionOfRef is the session a project chat's ref names: "" for "pawly",
+// which the daemon reads as the session most recently active, and for an
+// agent's.
+func SessionOfRef(ref string) string {
+	_, name, ok := strings.Cut(ref, "/")
+	switch {
+	case !ok:
+		return ""
+	case name == LeadName:
+		return "main"
+	}
+	session, _ := strings.CutPrefix(name, LeadName+".")
+	if session == name {
+		return ""
+	}
+	return session
+}
+
+// withSession adds the session ref names to a project chat's route.
+func withSession(path, ref string) string {
+	session := SessionOfRef(ref)
+	if session == "" {
+		return path
+	}
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	return path + sep + "session=" + url.QueryEscape(session)
+}
+
 // IsProjectChat reports whether a chat ref names a project rather than an agent.
 func IsProjectChat(ref string) bool {
 	_, name, ok := strings.Cut(ref, "/")
-	return !ok || name == LeadName
+	return !ok || isLeadName(name)
 }
 
 func (c *Client) chatDo(ctx context.Context, method, ref, suffix string, body, out any) error {
@@ -35,7 +82,41 @@ func (c *Client) chatDo(ctx context.Context, method, ref, suffix string, body, o
 	if err != nil {
 		return err
 	}
-	return c.do(ctx, method, path+suffix, body, out)
+	return c.do(ctx, method, withSession(path+suffix, ref), body, out)
+}
+
+// LeadSessions lists the sessions of a project's chat.
+func (c *Client) LeadSessions(ctx context.Context, project string) ([]LeadSession, error) {
+	var out []LeadSession
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/sessions", nil, &out)
+}
+
+// NewLeadSession opens a session of a project's chat on a topic.
+func (c *Client) NewLeadSession(ctx context.Context, project, topic string) (LeadSession, error) {
+	var out LeadSession
+	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(project)+"/sessions", NewLeadSessionRequest{Topic: topic}, &out)
+}
+
+// RenameLeadSession changes a session's topic.
+func (c *Client) RenameLeadSession(ctx context.Context, project, session, topic string) (LeadSession, error) {
+	var out LeadSession
+	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project)+"/sessions/"+url.PathEscape(session), LeadSessionPatch{Topic: topic}, &out)
+}
+
+// DeleteLeadSession deletes a session with its conversation; its agents are
+// left to no session.
+func (c *Client) DeleteLeadSession(ctx context.Context, project, session string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/projects/"+url.PathEscape(project)+"/sessions/"+url.PathEscape(session), nil, nil)
+}
+
+// HandOverAgent moves an agent to a session of its project's chat, "" to
+// none: its notices go there from now on.
+func (c *Client) HandOverAgent(ctx context.Context, ref, session string) error {
+	path, err := AgentPath(ref)
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, http.MethodPut, path+"/session", AgentSessionRequest{Session: session}, nil)
 }
 
 // ProjectChat describes a project's chat, and whether it has been used yet.
@@ -149,7 +230,7 @@ func filesPath(ref string) (string, error) {
 	if project == "" {
 		return "", errors.New("name a project, like pawly, or an agent, like pawly/agent-01")
 	}
-	if !ok || name == LeadName {
+	if !ok || isLeadName(name) {
 		return "/v1/projects/" + url.PathEscape(project) + "/files", nil
 	}
 	path, err := AgentPath(ref)
@@ -256,5 +337,5 @@ func (c *Client) filesDo(ctx context.Context, ref, rest string, out any) error {
 	if err != nil {
 		return err
 	}
-	return c.do(ctx, http.MethodGet, path+rest, nil, out)
+	return c.do(ctx, http.MethodGet, withSession(path+rest, ref), nil, out)
 }

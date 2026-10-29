@@ -21,9 +21,10 @@ import (
 
 func newChatCmd(a *app) *cobra.Command {
 	var (
-		clear bool
-		stop  bool
-		set   []string
+		clear   bool
+		stop    bool
+		set     []string
+		session string
 	)
 	cmd := &cobra.Command{
 		Use:   "chat <project>|<project/agent> [message]",
@@ -34,6 +35,11 @@ Name a project, like pawly, for the project's own chat. It directs the project's
 agents and does none of the work itself: it has no machine, costs nothing until
 you write to it, and cannot run or change anything.
 
+A project's chat has sessions, each a conversation of its own on one topic:
+--session names one (agentbox chat session list shows them). Without it, chat
+uses the session most recently active, and a message to a project with none
+opens one.
+
 Name an agent, like pawly/agent-01, for that agent's AI tool inside its machine.
 
 Without a message, chat prints the conversation. With one, it sends the message
@@ -43,10 +49,19 @@ chat asks you here if this is a terminal; otherwise, answer in the app.`,
 		Example: `  agentbox chat pawly "What does the reminders page do?"
   agentbox chat pawly/agent-01 "Add a page that lists reminders"
   agentbox chat pawly/agent-01 --set model=haiku --set mode=bypassPermissions
-  agentbox chat pawly/agent-01 --new "Start over: fix the login test"`,
+  agentbox chat pawly/agent-01 --new "Start over: fix the login test"
+  agentbox chat pawly --session prod-login-500s "Is the fix deployed?"
+  agentbox chat session new pawly "Prod: login 500s"`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ref, message := args[0], strings.TrimSpace(strings.Join(args[1:], " "))
+			if session != "" {
+				if !api.IsProjectChat(ref) {
+					return errors.New("--session is for a project's chat: name the project, like pawly")
+				}
+				project, _, _ := strings.Cut(ref, "/")
+				ref = api.SessionRef(project, session)
+			}
 			c, err := a.client(cmd)
 			if err != nil {
 				return err
@@ -95,6 +110,125 @@ chat asks you here if this is a terminal; otherwise, answer in the app.`,
 	f.BoolVar(&clear, "new", false, "start a new conversation first; the AI tool forgets this one")
 	f.BoolVar(&stop, "stop", false, "stop the running turn")
 	f.StringArrayVar(&set, "set", nil, "change a setting of the session, like model=haiku (repeat for more)")
+	f.StringVar(&session, "session", "", "the session of the project's chat, by id (agentbox chat session list)")
+	cmd.AddCommand(newChatSessionCmd(a))
+	return cmd
+}
+
+// newChatSessionCmd manages the sessions of a project's chat.
+func newChatSessionCmd(a *app) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "session",
+		Short: "List, open, rename and close the sessions of a project's chat",
+		Long: `A project's chat has sessions: each a conversation of its own on one topic, with
+its own context and the agents it made, whose notices it hears. Notes, memory,
+skills, schedules and the agent list are shared by all of them.`,
+	}
+	list := &cobra.Command{
+		Use:   "list <project>",
+		Short: "List a project's chat sessions",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			sessions, err := c.LeadSessions(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			if len(sessions) == 0 {
+				_, _ = fmt.Fprintf(out, "%s's chat has no sessions. Open one with: agentbox chat session new %s \"<topic>\"\n", args[0], args[0])
+				return nil
+			}
+			for _, ls := range sessions {
+				line := fmt.Sprintf("%-24s %s  (%s", ls.ID, ls.Topic, ls.Chat)
+				if ls.Agents > 0 {
+					line += fmt.Sprintf(", %d agent(s)", ls.Agents)
+				}
+				line += ", active " + ago(ls.ActiveAt) + ")"
+				_, _ = fmt.Fprintln(out, line)
+			}
+			return nil
+		},
+	}
+	open := &cobra.Command{
+		Use:   "new <project> <topic>",
+		Short: "Open a new session of a project's chat",
+		Args:  cobra.MinimumNArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			ls, err := c.NewLeadSession(cmd.Context(), args[0], strings.Join(args[1:], " "))
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Opened %q: agentbox chat %s --session %s \"<message>\"\n", ls.Topic, args[0], ls.ID)
+			return nil
+		},
+	}
+	rename := &cobra.Command{
+		Use:   "rename <project> <session> <topic>",
+		Short: "Change a session's topic",
+		Args:  cobra.MinimumNArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			ls, err := c.RenameLeadSession(cmd.Context(), args[0], args[1], strings.Join(args[2:], " "))
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Renamed %s to %q\n", ls.ID, ls.Topic)
+			return nil
+		},
+	}
+	closeCmd := &cobra.Command{
+		Use:     "close <project> <session>",
+		Aliases: []string{"delete"},
+		Short:   "Close a session: its conversation goes, and its agents belong to no session",
+		Args:    cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			if err := c.DeleteLeadSession(cmd.Context(), args[0], args[1]); err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Closed %s\n", args[1])
+			return nil
+		},
+	}
+	hand := &cobra.Command{
+		Use:   "hand <project/agent> [session]",
+		Short: "Hand an agent to a session, whose notices it goes to; no session leaves it to none",
+		Args:  cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			session := ""
+			if len(args) == 2 {
+				session = args[1]
+			}
+			if err := c.HandOverAgent(cmd.Context(), args[0], session); err != nil {
+				return err
+			}
+			if session == "" {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s belongs to no session now\n", args[0])
+			} else {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s is the %s session's now\n", args[0], session)
+			}
+			return nil
+		},
+	}
+	cmd.AddCommand(list, open, rename, closeCmd, hand)
 	return cmd
 }
 

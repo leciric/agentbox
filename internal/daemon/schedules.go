@@ -183,7 +183,7 @@ func (s *Server) scheduleRan(ctx context.Context, sc state.Schedule, run state.S
 // precheck runs a schedule's precheck in its lead's checkout, and returns
 // what it printed.
 func (s *Server) precheck(ctx context.Context, sc state.Schedule) (string, error) {
-	lead, err := s.manager(nil).EnsureLead(ctx, sc.Project)
+	lead, err := s.eventLead(ctx, sc.Project, eventTopic(sc.Task), true)
 	if err != nil {
 		return "", err
 	}
@@ -225,7 +225,9 @@ func chatRun(sc state.Schedule, run state.ScheduleRun) api.ChatScheduledRun {
 
 // scheduleToLead wakes the project's lead with the task.
 func (s *Server) scheduleToLead(ctx context.Context, sc state.Schedule, run *state.ScheduleRun) error {
-	lead, err := s.manager(nil).EnsureLead(ctx, sc.Project)
+	// A schedule is no session's: the one most recently active runs it, or
+	// one opened for it.
+	lead, err := s.eventLead(ctx, sc.Project, eventTopic(sc.Task), true)
 	if err != nil {
 		return err
 	}
@@ -234,7 +236,7 @@ func (s *Server) scheduleToLead(ctx context.Context, sc state.Schedule, run *sta
 		return err
 	}
 	run.ChatItem, run.Outcome = item.ID, state.ScheduleRunSent
-	s.tellLead(ctx, sc.Project, scheduleNotice(sc, *run, s.describeSchedule(ctx, sc)), true)
+	s.tellSession(ctx, sc.Project, lead.Session(), scheduleNotice(sc, *run, s.describeSchedule(ctx, sc)), true)
 	return nil
 }
 
@@ -272,14 +274,14 @@ func (s *Server) scheduleToAgent(ctx context.Context, sc state.Schedule, run *st
 // showAgentRun puts a run that went to an agent in the lead's chat, and lets
 // the lead know without starting a turn: the agent's finish will.
 func (s *Server) showAgentRun(ctx context.Context, sc state.Schedule, run *state.ScheduleRun) {
-	lead, err := s.manager(nil).EnsureLead(ctx, sc.Project)
+	lead, err := s.eventLead(ctx, sc.Project, eventTopic(sc.Task), true)
 	if err != nil {
 		return
 	}
 	if item, err := s.chat.ShowScheduledRun(lead, sc.Task, chatRun(sc, *run)); err == nil {
 		run.ChatItem = item.ID
 	}
-	s.tellLead(ctx, sc.Project, scheduleNotice(sc, *run, s.describeSchedule(ctx, sc)), false)
+	s.tellSession(ctx, sc.Project, lead.Session(), scheduleNotice(sc, *run, s.describeSchedule(ctx, sc)), false)
 }
 
 // lastScheduleAgent is the agent the schedule's last run went to, if it is

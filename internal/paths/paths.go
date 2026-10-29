@@ -96,6 +96,17 @@ func (p Paths) LeadHome(project string) string {
 	return filepath.Join(p.Data, "projects", project, "lead-home")
 }
 
+// LeadSessionHome is the private HOME of one of a project's chat sessions,
+// so its AI tool's session state and the lead socket its MCP server is given
+// are its own. The session migrated from the chat before sessions ("main")
+// keeps LeadHome.
+func (p Paths) LeadSessionHome(project, session string) string {
+	if session == "" || session == "main" {
+		return p.LeadHome(project)
+	}
+	return filepath.Join(p.Data, "projects", project, "lead-sessions", session)
+}
+
 // HomeChat is the Home chat's working directory: ~/.agentbox, made the first
 // time the chat is opened. Paths made without Home (a test's) keep it under
 // Data instead.

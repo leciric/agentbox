@@ -319,7 +319,7 @@ export interface FixtureData {
 // module load.
 export function buildFixtures(): FixtureData {
   const agents: T.Agent[] = [
-    agent({ ref: `${PROJECT}/agent-12`, title: 'Add a "New project" button to the Sidebar', branch: 'agentbox/agent-12', chat: 'running' }),
+    agent({ ref: `${PROJECT}/agent-12`, title: 'Add a "New project" button to the Sidebar', branch: 'agentbox/agent-12', chat: 'running', leadSession: 'prod-login-500s' }),
     agent({ ref: `${PROJECT}/agent-94`, title: 'Needs a GitHub account', chat: 'waiting' }),
     agent({ ref: `${PROJECT}/agent-95`, title: 'Needs a secret', chat: 'waiting' }),
     // An agent in each of the avatars' moods (avatarMood), across the three
@@ -1264,6 +1264,11 @@ export function seedQueryClient(queryClient: QueryClient, data: FixtureData): vo
   queryClient.setQueryData(['tokens', PROJECT, '5h'], projectTokenReport());
   queryClient.setQueryData(['tokenTurns', PROJECT, 'agent-99', '', 15], agent99Turns());
   queryClient.setQueryData(['projectChat', PROJECT], { project: PROJECT, ref: `${PROJECT}/lead`, started: true, chat: 'running' } satisfies T.ProjectChat);
+  // Its chat's sessions (lib/sessions.ts): the one it always had, and one
+  // opened on an incident, which has said something since it was last seen.
+  queryClient.setQueryData(['leadSessions', PROJECT], devSessions(PROJECT));
+  queryClient.setQueryData(['projectChat', PROJECT, 'main'], { project: PROJECT, session: 'main', ref: `${PROJECT}/lead`, started: true, chat: 'running' } satisfies T.ProjectChat);
+  queryClient.setQueryData(['projectChat', PROJECT, 'prod-login-500s'], { project: PROJECT, session: 'prod-login-500s', ref: `${PROJECT}/lead.prod-login-500s`, started: true, chat: 'ready' } satisfies T.ProjectChat);
   queryClient.setQueryData(['projects'], data.projects);
   queryClient.setQueryData(['sections'], data.sections);
   queryClient.setQueryData(['jobs'], []);
@@ -2259,6 +2264,8 @@ export function installDevBridge(): void {
       if (method === 'GET' && path === '/v1/settings' && defaultsSettings.claudeCodeUpdate) return { status: 200, body: JSON.stringify(defaultsSettings), contentType: 'application/json' };
       const page = pageRequest(method, path);
       if (page) return page;
+      const sessions = sessionsRequest(method, path, body);
+      if (sessions) return sessions;
       // No project has a saved base: Settings' Repository says so.
       if (method === 'GET' && /^\/v1\/projects\/[^/]+\/base$/.test(path)) return { status: 404, body: JSON.stringify({ error: 'no base' }), contentType: 'application/json' };
       // Files first: a past agent's are under /v1/archived-agents too.
@@ -2485,4 +2492,64 @@ export function remoteAgents(): T.RemoteAgent[] {
     { machine: 'home-workstation-with-gpu', machineId: 'env_3', name: 'agent-01', title: 'Move every scheduled reminder to the new background queue without losing the ones already due', status: 'done', summary: 'Opened #412', prUrl: 'https://github.com/acme/hello/pull/412', updatedAt: at(40) },
     { machine: 'vps', machineId: 'env_2', name: 'agent-02', title: 'CSV export', status: 'failed', summary: 'create_agent failed: the disk is full', updatedAt: at(90) },
   ];
+}
+
+// The chats' sessions, by project, as the dev bridge keeps them: the
+// fixtures' project has the one it always had and an incident's; any other
+// has its chat alone. A session opened here joins them.
+const sessionsByProject = new Map<string, T.LeadSession[]>();
+function devSessions(project: string): T.LeadSession[] {
+  let list = sessionsByProject.get(project);
+  if (!list) {
+    const at = (ago: number) => new Date(Date.now() - ago).toISOString();
+    list =
+      project === PROJECT
+        ? [
+            { project, id: 'main', ref: `${project}/lead`, topic: 'Chat', chat: 'running', agents: 2, createdAt: at(86_400_000), activeAt: at(60_000) },
+            { project, id: 'prod-login-500s', ref: `${project}/lead.prod-login-500s`, topic: 'Prod: login 500s', chat: 'ready', agents: 1, createdAt: at(3_600_000), activeAt: at(120_000), last: { kind: 'assistant', text: 'agent-41 found it: the session cookie.', at: at(120_000) } },
+          ]
+        : [{ project, id: 'main', ref: `${project}/lead`, topic: 'Chat', chat: 'ready', agents: 0, createdAt: at(3_600_000), activeAt: at(3_600_000) }];
+    sessionsByProject.set(project, list);
+  }
+  return list;
+}
+
+function sessionsRequest(method: string, path: string, body: unknown) {
+  const json = (v: unknown) => ({ status: 200, body: JSON.stringify(v), contentType: 'application/json' });
+  const list = /^\/v1\/projects\/([^/]+)\/sessions$/.exec(path);
+  if (list && method === 'GET') return json(devSessions(decodeURIComponent(list[1])));
+  if (list && method === 'POST') {
+    const project = decodeURIComponent(list[1]);
+    const topic = (body as T.NewLeadSessionRequest).topic;
+    const id = topic.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'session';
+    const now = new Date().toISOString();
+    const s: T.LeadSession = { project, id, ref: `${project}/lead.${id}`, topic, chat: 'starting', agents: 0, createdAt: now, activeAt: now };
+    sessionsByProject.set(project, [...devSessions(project), s]);
+    return json(s);
+  }
+  const lead = /^\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/lead$/.exec(path);
+  if (lead && method === 'GET') {
+    const [project, id] = [decodeURIComponent(lead[1]), decodeURIComponent(lead[2])];
+    const s = devSessions(project).find((x) => x.id === id);
+    return json({ project, session: id, ref: s?.ref ?? `${project}/lead`, started: true, chat: s?.chat ?? 'ready' } satisfies T.ProjectChat);
+  }
+  const send = /^\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/chat\/messages$/.exec(path);
+  if (send && method === 'POST') {
+    const now = new Date().toISOString();
+    return json({ id: `u-${Date.now()}`, turn: '', kind: 'user', text: (body as T.ChatMessageRequest).text, createdAt: now, updatedAt: now } satisfies T.ChatItem);
+  }
+  return undefined;
+}
+
+// seedCacheCard leaves the incident's session idle to within a minute of its
+// prompt cache's expiry, shown, with its card up (?cache=due).
+export function seedCacheCard(queryClient: QueryClient): void {
+  const ref = `${PROJECT}/lead.prod-login-500s`;
+  const now = Date.now();
+  const iso = (ms: number) => new Date(ms).toISOString();
+  queryClient.setQueryData(['chatCache', ref], {
+    project: PROJECT, session: 'prod-login-500s', idleSince: iso(now - 56 * 60_000), ttlSeconds: 3600, ttlSource: 'subscription',
+    dueAt: iso(now - 60_000), expiresAt: iso(now + 4 * 60_000), contextUsed: 184_000, due: true,
+  } satisfies T.ChatCache);
+  queryClient.setQueryData(['chat', ref], { ...leadChat(), agent: ref, session: { ...leadChat().session, state: 'ready' } });
 }

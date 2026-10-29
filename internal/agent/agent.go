@@ -271,7 +271,7 @@ type Manager struct {
 	IOSScreenshot func(ctx context.Context, a state.Agent) ([]byte, error)
 	// LeadSocketPath, when set, returns the socket a project's chat reaches
 	// AgentBox through. Its tools are registered against it.
-	LeadSocketPath func(project string) string
+	LeadSocketPath func(project, session string) string
 	// DesktopTheme, when set, is the palette each agent's desktop is painted
 	// in — the host's Omarchy theme, when AgentBox is following one. Unset is
 	// BrandDesktopTheme, which is what the command-line tool gets.
@@ -378,6 +378,9 @@ type CreateOptions struct {
 	// project's chat when it genuinely finishes: state.FinishNoticesChat,
 	// state.FinishNoticesOff, or "" to leave it unsaid. It only matters when
 	// the project's own FinishNotices is state.FinishNoticesLead.
+	// LeadSession is the session of the project's chat that asked for the
+	// agent, whose notices it goes to; "" is Main, as for the user's own.
+	LeadSession  string
 	FinishNotice string
 	// Connectors limits which of the project's connectors the agent is
 	// given, by name: nil for every one, empty for none. Each must be one
@@ -529,6 +532,7 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 		baseCommit:    commit,
 		copyEnv:       opts.CopyEnv,
 		finishNotice:  opts.FinishNotice,
+		leadSession:   opts.LeadSession,
 		connectors:    opts.Connectors,
 		task:          opts.Task,
 		queued:        queued,
@@ -607,6 +611,7 @@ type plan struct {
 	tree          string // optional snapshot commit whose files are applied on top
 	copyEnv       bool
 	finishNotice  string                                   // this agent's own choice; see CreateOptions.FinishNotice
+	leadSession   string                                   // see CreateOptions.LeadSession
 	connectors    []string                                 // see CreateOptions.Connectors
 	task          string                                   // what it is about to be asked to do; see CreateOptions.Task
 	queued        *state.Agent                             // the queued agent this makes, when it isn't a new one
@@ -654,6 +659,7 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		Interface:        pl.iface,
 		FinishNotice:     pl.finishNotice,
 		Connectors:       pl.connectors,
+		CreatedBySession: pl.leadSession,
 	}
 	if _, err := os.Stat(a.Worktree); err == nil {
 		return state.Agent{}, fmt.Errorf("%s already exists: remove it or choose another --name", a.Worktree)
@@ -1795,7 +1801,7 @@ func (m *Manager) RewriteBriefs(ctx context.Context, project string) error {
 		}
 		if a.IsLead() {
 			// The lead has no machine: its brief is a file in its private HOME.
-			if err := m.configureLead(ctx, a, p, repo.Root, m.LeadSocket(a.Project)); err != nil {
+			if err := m.configureLead(ctx, a, p, repo.Root, m.LeadSocket(a)); err != nil {
 				failed = append(failed, a.Ref())
 			}
 			continue

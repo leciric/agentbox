@@ -26,6 +26,7 @@ import { useT } from '../../lib/i18n';
 import { agentSt, type AgentSt } from '../../lib/leadFirst';
 import { pastAgentsKey } from '../../lib/pastAgents';
 import { projectLabel } from '../../lib/projectName';
+import { SessionChip } from '../chat/SessionChip';
 import { cn, humanBytes, timeAgo } from '../../lib/utils';
 import { AgentContextMenu } from '../AgentContextMenu';
 import { FinishedSection, RailEmpty, RailSkeleton, StoppedSection, useRailAgents } from '../AgentRail';
@@ -322,6 +323,7 @@ function AgentLine({ agent, st, mood, active, live, ready, pr, fleet, at, report
         <span className="flex min-w-0 flex-1 flex-col self-stretch" title={[statusTip(agent), loadTip, context].filter(Boolean).join('\n')}>
           <span className="flex min-w-0 items-center gap-1.5">
             <span title={title} className={cn('min-w-0 flex-1 truncate text-[12.5px] font-medium leading-[18px]', active ? 'text-title' : st === 'done' ? 'text-subtle' : 'text-primary', !agent.title && 'font-mono text-[11.5px]')}>{title}</span>
+            <SessionChip agent={agent} />
             {number && (
               <span className="shrink-0 text-[10.5px] tabular-nums leading-4 text-faint/70" data-list-number>
                 #{number}

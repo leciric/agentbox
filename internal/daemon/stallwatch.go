@@ -185,7 +185,7 @@ func (s *Server) agentStalled(ctx context.Context, a state.Agent, p chat.Progres
 		Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title,
 		Kind: api.AgentStalled, Summary: "No progress for " + shortDuration(quiet), At: now,
 	})
-	s.stallTell(ctx, a.Project, stallNotice(a, p, from, now))
+	s.stallTell(ctx, a, stallNotice(a, p, from, now))
 }
 
 // stallNotice is what the project's chat is told about a stalled agent.
@@ -223,7 +223,7 @@ func (s *Server) agentLost(a state.Agent, why string) {
 		Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title,
 		Kind: api.AgentChatLost, Outcome: api.AgentOutcomeFailed, Summary: headWords(why, 200), At: time.Now(),
 	})
-	s.stallTell(ctx, a.Project, lostNotice(a, why))
+	s.stallTell(ctx, a, lostNotice(a, why))
 }
 
 // lostNotice is what the project's chat is told about an agent whose AI tool

@@ -243,7 +243,13 @@ func (s *Server) registerProject(ctx context.Context, p state.Project) (state.Pr
 		return p, err
 	}
 	p = stored
-	// Its chat's socket, so the project can be talked to straight away.
+	// A new project's chat has a session to start in (the id the chats from
+	// before sessions have, so it is known by the same paths), and its
+	// socket, so the project can be talked to straight away. It costs a row
+	// until it is written to, and can be deleted like any session.
+	if err := s.store.AddLeadSessionID(ctx, p.Name, state.MigratedSession, "Chat", time.Now()); err != nil && !errors.Is(err, state.ErrExists) {
+		s.logf("the first session of %s's chat: %v", p.Name, err)
+	}
 	if err := s.serveLeadAPI(p.Name); err != nil {
 		s.logf("lead API socket for %s: %v", p.Name, err)
 	}
@@ -591,8 +597,12 @@ func (s *Server) checkGitHubAccount(account string) error {
 func (s *Server) removeProject(w http.ResponseWriter, r *http.Request) error {
 	// The project's chat goes with it; only its agents block removal.
 	project := r.PathValue("project")
-	s.chat.Stop(agent.LeadRef(project), "the project was removed")
-	s.chat.Forget(agent.LeadRef(project))
+	if leads, err := s.manager(nil).SessionLeads(r.Context(), project); err == nil {
+		for _, lead := range leads {
+			s.chat.Stop(lead.Ref(), "the project was removed")
+			s.chat.Forget(lead.Ref())
+		}
+	}
 	if err := s.manager(s.cfg.Log).DestroyLead(r.Context(), project); err != nil {
 		return err
 	}
@@ -960,6 +970,7 @@ func toAPIAgent(st agent.Status) api.Agent {
 		Worktree:   a.Worktree,
 		Source:     a.Source,
 
+		LeadSession:      a.Session(),
 		ClaudeAccount:    a.ClaudeAccount,
 		CodexAccount:     a.CodexAccount,
 		OpenCodeAccounts: accountMap(a.OpenCodeAccounts),
@@ -1276,6 +1287,7 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 			Clean:   req.Clean,
 
 			FinishNotice: req.FinishNotice,
+			LeadSession:  req.LeadSession,
 			Connectors:   connectors,
 			Task:         strings.TrimSpace(req.Task),
 			Queued:       queued != "",
@@ -1299,7 +1311,7 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 						Status: state.RemoteFailed, Summary: failed, Notice: failed, Act: true,
 					})
 				} else {
-					s.tellLead(ctx, req.Project, failed, true)
+					s.tellSession(ctx, req.Project, req.LeadSession, failed, true)
 				}
 			}
 			// One the job's cancel stopped didn't fail.

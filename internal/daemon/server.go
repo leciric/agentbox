@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -129,7 +130,7 @@ type Server struct {
 	prTell func(ctx context.Context, a state.Agent, text string) (told, error)
 	// prLead puts the watch's notice in front of a project's chat: tellLead,
 	// or a test's recorder.
-	prLead func(ctx context.Context, project, notice string, act bool)
+	prLead func(ctx context.Context, project, session, notice string, act bool)
 	// restacked are the merged pull requests ("owner/repo#n") whose stack
 	// was moved onto where they merged, so the merge and the watch don't
 	// both move it (stack.go).
@@ -165,9 +166,9 @@ type Server struct {
 	// card's world (cachecard.go): whether the lead has a cache worth saving,
 	// sending it a keepalive, and whether the project's agents are working.
 	// Nil is the real thing; a test puts its own in.
-	cacheGate      func(project string) (lead state.Agent, used int64, ok bool)
+	cacheGate      func(ref string) (lead state.Agent, used int64, ok bool)
 	leadKeepalive  func(ctx context.Context, a state.Agent) error
-	projectWorking func(project string) bool
+	projectWorking func(ref string) bool
 	// dockerPruneTimeout bounds freeing an agent's Docker space as it stops
 	// (dockerprune.go): agent.DockerPruneTimeout, or a test's shorter one.
 	dockerPruneTimeout time.Duration
@@ -379,10 +380,10 @@ type Server struct {
 	// is told of a stall — tellLead acting, or a test's recorder.
 	stalls    map[string]*stallTrack
 	cpuTime   func(instance string) (time.Duration, bool)
-	stallTell func(ctx context.Context, project, note string)
+	stallTell func(ctx context.Context, a state.Agent, note string)
 	// credentialTell tells a lead of an agent's credential request, waking
 	// it for a lead-managed secret: tellLead, or a test's recorder.
-	credentialTell func(ctx context.Context, project, notice string, act bool)
+	credentialTell func(ctx context.Context, a state.Agent, notice string, act bool)
 }
 
 func New(cfg Config) (*Server, error) {
@@ -452,11 +453,11 @@ func New(cfg Config) (*Server, error) {
 	// Lima on a Mac and WSL2 forward the VM's localhost ports on their own.
 	s.loginCallbackUnreachable = hostos.OS() == hostos.Linux
 	s.recheckTell = func(ctx context.Context, project, note string) { s.tellLead(ctx, project, note, true) }
-	s.stallTell = s.recheckTell
-	s.credentialTell = s.tellLead
+	s.stallTell = func(ctx context.Context, a state.Agent, note string) { s.tellOwner(ctx, a, note, true) }
+	s.credentialTell = s.tellOwner
 	s.connectors = s.newConnectors()
 	s.disks = newAgentDiskCache(func(ctx context.Context, a state.Agent) agent.AgentDisk { return s.manager(nil).AgentDisk(ctx, a) })
-	s.prTell, s.prLead = s.prTellAgent, s.tellLead
+	s.prTell, s.prLead = s.prTellAgent, s.tellSession
 	s.approve = s.approveInChat
 	s.chat = &chat.Manager{
 		Store:   store,
@@ -763,7 +764,7 @@ func (s *Server) manager(log io.Writer) *agent.Manager {
 		BrowserSocket:    s.browserSocketPath,
 		AndroidSDK:       findAndroidSDK,
 		IOSScreenshot:    s.iosScreenshot,
-		LeadSocketPath:   s.leadSocketPath,
+		LeadSocketPath:   s.sessionSocketPath,
 		DesktopTheme:     s.desktopTheme,
 		ImageCacheSocket: s.imageCacheSocket,
 		PackageCacheDir:  s.packageCacheDir,
@@ -875,34 +876,46 @@ func (s *Server) routes() http.Handler {
 	s.scheduleRoutes("/v1/projects/{project}", "user", h)
 	h("GET /v1/projects/{project}/notes", s.getNotes)
 	h("PUT /v1/projects/{project}/notes", s.setNotes)
-	h("GET /v1/projects/{project}/chat", s.getChat(s.leadFromPath))
-	h("GET /v1/projects/{project}/chat/search", s.searchChat(s.leadFromPath))
-	h("DELETE /v1/projects/{project}/chat", s.clearChat(s.leadFromPath))
-	h("POST /v1/projects/{project}/chat/start", s.startChat(s.ensureLeadFromPath))
-	h("POST /v1/projects/{project}/chat/messages", s.sendChat(s.leadForMessage))
-	h("GET /v1/projects/{project}/chat/images/{image}", s.chatImage(s.leadFromPath))
-	h("GET /v1/projects/{project}/chat/files/{file}", s.chatFile(s.leadFromPath))
-	h("POST /v1/projects/{project}/chat/cancel", s.cancelChat(s.leadFromPath))
-	h("POST /v1/projects/{project}/chat/reload", s.reloadChatTools(s.leadFromPath))
-	h("POST /v1/projects/{project}/chat/rollover", s.rolloverChat)
+	// The chat's sessions (leadsessions.go). Every route of the project's
+	// chat is also under /sessions/{session}/, for one session; without one,
+	// or ?session=, it is the session most recently active.
+	sessionRoute := func(pattern string, fn func(http.ResponseWriter, *http.Request) error) {
+		h(pattern, fn)
+		method, path, _ := strings.Cut(pattern, " ")
+		h(method+" "+strings.Replace(path, "/{project}/", "/{project}/sessions/{session}/", 1), fn)
+	}
+	h("GET /v1/projects/{project}/sessions", s.listSessions)
+	h("POST /v1/projects/{project}/sessions", s.newSession)
+	h("PATCH /v1/projects/{project}/sessions/{session}", s.renameSession)
+	h("DELETE /v1/projects/{project}/sessions/{session}", s.deleteSession)
+	sessionRoute("GET /v1/projects/{project}/chat", s.getChat(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/chat/search", s.searchChat(s.leadFromPath))
+	sessionRoute("DELETE /v1/projects/{project}/chat", s.clearChat(s.leadFromPath))
+	sessionRoute("POST /v1/projects/{project}/chat/start", s.startChat(s.ensureLeadFromPath))
+	sessionRoute("POST /v1/projects/{project}/chat/messages", s.sendChat(s.leadForMessage))
+	sessionRoute("GET /v1/projects/{project}/chat/images/{image}", s.chatImage(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/chat/files/{file}", s.chatFile(s.leadFromPath))
+	sessionRoute("POST /v1/projects/{project}/chat/cancel", s.cancelChat(s.leadFromPath))
+	sessionRoute("POST /v1/projects/{project}/chat/reload", s.reloadChatTools(s.leadFromPath))
+	sessionRoute("POST /v1/projects/{project}/chat/rollover", s.rolloverChat)
 	// The pages the project's chats published on Hatch (artifacts.go).
 	h("GET /v1/projects/{project}/artifacts", s.listArtifacts)
 	h("GET /v1/projects/{project}/artifacts/{id}", s.previewArtifact)
 	h("GET /v1/projects/{project}/artifacts/{id}/page", s.artifactPage)
-	h("POST /v1/projects/{project}/chat/publish", s.publishRender(s.leadFromPath))
-	h("GET /v1/projects/{project}/chat/cache", s.chatCache)
-	h("POST /v1/projects/{project}/chat/cache", s.chatCacheChoice)
-	h("POST /v1/projects/{project}/chat/permissions/{item}", s.answerChat(s.leadFromPath))
-	h("PUT /v1/projects/{project}/chat/options/{option}", s.setChatOption(s.leadFromPath))
-	h("GET /v1/projects/{project}/chat/runners", s.chatRunners)
-	h("PUT /v1/projects/{project}/chat/runner", s.setChatRunner)
-	h("GET /v1/projects/{project}/files", s.listFiles(s.leadFromPath))
-	h("GET /v1/projects/{project}/files/list", s.listFolder(s.leadFromPath))
-	h("GET /v1/projects/{project}/files/read", s.readFile(s.leadFromPath))
-	h("GET /v1/projects/{project}/files/status", s.fileStatus(s.leadFromPath))
-	h("GET /v1/projects/{project}/files/sqlite", s.readSQLite(s.leadFromPath))
-	h("GET /v1/projects/{project}/lead", s.projectChat)
-	h("DELETE /v1/projects/{project}/lead", s.resetProjectChat)
+	sessionRoute("POST /v1/projects/{project}/chat/publish", s.publishRender(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/chat/cache", s.chatCache)
+	sessionRoute("POST /v1/projects/{project}/chat/cache", s.chatCacheChoice)
+	sessionRoute("POST /v1/projects/{project}/chat/permissions/{item}", s.answerChat(s.leadFromPath))
+	sessionRoute("PUT /v1/projects/{project}/chat/options/{option}", s.setChatOption(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/chat/runners", s.chatRunners)
+	sessionRoute("PUT /v1/projects/{project}/chat/runner", s.setChatRunner)
+	sessionRoute("GET /v1/projects/{project}/files", s.listFiles(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/files/list", s.listFolder(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/files/read", s.readFile(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/files/status", s.fileStatus(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/files/sqlite", s.readSQLite(s.leadFromPath))
+	sessionRoute("GET /v1/projects/{project}/lead", s.projectChat)
+	sessionRoute("DELETE /v1/projects/{project}/lead", s.resetProjectChat)
 	h("GET /v1/projects/{project}/fleet", s.fleet)
 	h("GET /v1/projects/{project}/desktops", s.projectDesktops)
 	h("GET /v1/projects/{project}/credentials", s.projectCredentials)
@@ -995,6 +1008,7 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/agents/stop", s.stopAgents)
 	h("GET /v1/agents/{project}/{agent}", s.getAgent)
 	h("PATCH /v1/agents/{project}/{agent}", s.updateAgent)
+	h("PUT /v1/agents/{project}/{agent}/session", s.handOver)
 	h("DELETE /v1/agents/{project}/{agent}", s.destroyAgent)
 	for _, action := range []string{"start", "stop", "pause", "resume", "session"} {
 		h("POST /v1/agents/{project}/{agent}/"+action, s.agentAction(action))
