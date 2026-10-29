@@ -2,10 +2,8 @@ package daemon
 
 import (
 	"errors"
+	"io"
 	"net/http"
-	"os"
-	"path"
-	"path/filepath"
 	"strings"
 
 	"agentbox/internal/api"
@@ -110,33 +108,13 @@ func (s *Server) homeAddProject(w http.ResponseWriter, r *http.Request) error {
 		}
 		return s.addProjectFrom(w, r, add)
 	}
-	add.Name = strings.TrimSpace(add.Name)
-	if add.Name == "" {
-		add.Name = strings.TrimSuffix(path.Base(strings.TrimRight(req.URL, "/")), ".git")
-	}
-	if err := s.projectNameFree(r.Context(), add.Name); err != nil {
+	add, err := s.cloneRequest(r.Context(), strings.TrimSpace(req.URL), add)
+	if err != nil {
 		return err
 	}
-	add.Path = req.Path
-	if add.Path == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return err
-		}
-		slug, err := s.store.ProjectSlug(r.Context(), add.Name)
-		if err != nil {
-			return err
-		}
-		add.Path = filepath.Join(home, "src", slug)
-	}
-	if err := s.manager(s.cfg.Log).CloneForHome(r.Context(), req.URL, add.Path); err != nil {
+	p, err := s.cloneAndAdd(r.Context(), strings.TrimSpace(req.URL), add, io.Discard)
+	if err != nil {
 		return err
 	}
-	// What was cloned here goes again if it can't be added, so asking twice
-	// doesn't find the folder in the way.
-	if err := s.addProjectFrom(w, r, add); err != nil {
-		_ = os.RemoveAll(add.Path)
-		return err
-	}
-	return nil
+	return writeJSON(w, http.StatusCreated, s.projectInfo(r.Context(), p))
 }

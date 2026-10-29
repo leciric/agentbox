@@ -13,8 +13,6 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
-	"path"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -191,21 +189,6 @@ func repoKey(u string) string {
 	return strings.ToLower(u)
 }
 
-// cloneable refuses a repository URL another machine can't mean to clone: a
-// path on the machine that asked.
-func cloneable(u string) error {
-	if i := strings.Index(u, "://"); i > 0 {
-		switch strings.ToLower(u[:i]) {
-		case "https", "http", "ssh", "git":
-			return nil
-		}
-	} else if host, _, ok := strings.Cut(u, ":"); ok && len(host) > 1 && !strings.ContainsAny(host, `/\`) {
-		// scp-like, git@github.com:owner/repo, and not a Windows drive (C:)
-		return nil
-	}
-	return fmt.Errorf("%s is a path on the other machine, which this one can't clone: give the project a remote on a git host", u)
-}
-
 // peerProjectFor is this machine's project for a repository, found by its
 // origin remote. With clone, a repository no project has is cloned into
 // ~/src and added, and cloned reports it; without, it is state.ErrNotFound.
@@ -232,52 +215,26 @@ func (s *Server) peerProjectFor(ctx context.Context, repo string, clone bool) (p
 		return state.Project{}, false, fmt.Errorf("this machine has no project cloned from %s: create an agent on it first, which clones it: %w", repo, state.ErrNotFound)
 	}
 	if err := cloneable(repo); err != nil {
-		return state.Project{}, false, err
+		return state.Project{}, false, fmt.Errorf("%w. A path on the other machine can't be cloned here: give the project a remote on a git host", err)
 	}
 	s.peerState.cloning.Lock()
 	defer s.peerState.cloning.Unlock()
 	if p, ok, err := find(); err != nil || ok {
 		return p, false, err
 	}
-	base := strings.TrimSuffix(path.Base(strings.TrimRight(repoKey(repo), "/")), ".git")
-	name := base
-	for n := 2; s.projectNameFree(ctx, name) != nil; n++ {
-		if n > 50 {
-			return state.Project{}, false, fmt.Errorf("every name like %s is taken by another project here", base)
-		}
-		name = fmt.Sprintf("%s-%d", base, n)
-	}
-	root := s.peerCloneRoot
-	if root == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return state.Project{}, false, err
-		}
-		root = filepath.Join(home, "src")
-	}
-	slug, err := s.store.ProjectSlug(ctx, name)
+	name, err := s.projectNameOf(ctx, repo)
 	if err != nil {
 		return state.Project{}, false, err
 	}
-	dest := filepath.Join(root, slug)
-	if err := s.cloneForPeer(ctx, repo, dest); err != nil {
-		return state.Project{}, false, err
-	}
-	p, err = s.addProjectRepo(ctx, api.AddProjectRequest{Path: dest, Name: name})
+	add, err := s.cloneRequest(ctx, repo, api.AddProjectRequest{Name: name})
 	if err != nil {
-		_ = os.RemoveAll(dest)
 		return state.Project{}, false, err
 	}
-	s.logf("peers: cloned %s into %s as the project %s, for another machine's lead", repo, dest, p.Name)
+	if p, err = s.cloneAndAdd(ctx, repo, add, io.Discard); err != nil {
+		return state.Project{}, false, err
+	}
+	s.logf("peers: cloned %s for another machine's lead", repo)
 	return p, true, nil
-}
-
-// cloneForPeer clones a repository; tests replace it.
-func (s *Server) cloneForPeer(ctx context.Context, repo, dest string) error {
-	if s.peerClone != nil {
-		return s.peerClone(ctx, repo, dest)
-	}
-	return s.manager(s.cfg.Log).CloneForHome(ctx, repo, dest)
 }
 
 // forgetPeerProject takes back a project cloned for a request that then
