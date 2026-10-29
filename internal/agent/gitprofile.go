@@ -113,6 +113,11 @@ func ResolveGitProfileURL(ctx context.Context, r state.GitRemote) (string, error
 	if err != nil {
 		return "", fmt.Errorf("project %q's %s git profile: %w", r.Project, r.Profile, err)
 	}
+	// state refuses such a URL when it is stored; a row from before that, or
+	// a rewrite rule, could still hand git an option where a URL belongs.
+	if strings.HasPrefix(resolved, "-") {
+		return "", fmt.Errorf("project %q's %s git profile: %q starts with a dash, which git would read as an option", r.Project, r.Profile, resolved)
+	}
 	if r.Auth == state.GitAuthToken || r.Auth == state.GitAuthGitHubAccount {
 		https, changed, err := httpsURL(resolved)
 		if err != nil {
@@ -390,7 +395,7 @@ func (m *Manager) clonePodGitSteps(ctx context.Context, a state.Agent, p *gitPro
 	case section.Helper != "":
 		config = []string{"-c", "credential.helper=" + shellQuote(section.Helper)}
 	}
-	clone := "cd " + shellQuote(dir) + " && GIT_TERMINAL_PROMPT=0 git " + strings.Join(config, " ") + " clone --quiet " + shellQuote(p.URL) + " ."
+	clone := "cd " + shellQuote(dir) + " && GIT_TERMINAL_PROMPT=0 git " + strings.Join(config, " ") + " clone --quiet -- " + shellQuote(p.URL) + " ."
 	if err := m.runPodGit(ctx, a, user, clone); err != nil {
 		return fmt.Errorf("%s's pod could not clone the %s git profile: %w", a.Ref(), p.Profile, err)
 	}

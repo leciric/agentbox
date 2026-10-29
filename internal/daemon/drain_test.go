@@ -29,9 +29,9 @@ func drainRequest(t *testing.T, srv *Server, name, body string) api.Job {
 	return j
 }
 
-// finishedJob waits for a job and reads what it recorded, which is where its
-// log and result are once the daemon has let it go.
-func finishedJob(t *testing.T, srv *Server, j api.Job) state.Job {
+// finishedClusterJob waits for a job and reads what it recorded, which is where
+// its log and result are once the daemon has let it go.
+func finishedClusterJob(t *testing.T, srv *Server, j api.Job) state.Job {
 	t.Helper()
 	srv.jobs.wait()
 	job, err := srv.store.Job(context.Background(), j.ID)
@@ -56,7 +56,7 @@ func TestDrainKeepRunningMarksTheClusterAndLeavesTheAgents(t *testing.T) {
 	if j.Kind != "drain" || j.Target != "k3d" {
 		t.Errorf("the job is %s %s, want drain k3d", j.Kind, j.Target)
 	}
-	job := finishedJob(t, srv, j)
+	job := finishedClusterJob(t, srv, j)
 	if job.Status != api.JobSucceeded {
 		t.Fatalf("the drain job = %s (%s), want it to succeed", job.Status, job.Error)
 	}
@@ -107,7 +107,7 @@ func TestDrainStopsEveryRunningAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	job := finishedJob(t, srv, drainRequest(t, srv, "k3d", `{}`))
+	job := finishedClusterJob(t, srv, drainRequest(t, srv, "k3d", `{}`))
 	if job.Status != api.JobSucceeded {
 		t.Fatalf("the drain job = %s (%s), want it to succeed", job.Status, job.Error)
 	}

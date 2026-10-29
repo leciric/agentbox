@@ -434,7 +434,7 @@ func TestPreparePodGitDeliversTheCredentialAndClones(t *testing.T) {
 	for _, want := range []string{
 		"cd '/workspace' && GIT_TERMINAL_PROMPT=0 git",
 		"-c credential.helper='!sh /run/agentbox/git-credential'",
-		"clone --quiet 'https://hub.example/hello-stack.git' .",
+		"clone --quiet -- 'https://hub.example/hello-stack.git' .",
 	} {
 		if !strings.Contains(clone, want) {
 			t.Errorf("the clone command doesn't have %q:\n%s", want, clone)
@@ -483,7 +483,7 @@ func TestPreparePodGitDeliversAnSSHKey(t *testing.T) {
 		t.Error("an ssh profile also wrote a token helper")
 	}
 	clone := pod.commandWith("clone --quiet")
-	for _, want := range []string{"core.sshCommand=ssh -i", "clone --quiet 'ssh://git@hub.example/hello-stack.git' ."} {
+	for _, want := range []string{"core.sshCommand=ssh -i", "clone --quiet -- 'ssh://git@hub.example/hello-stack.git' ."} {
 		if !strings.Contains(clone, want) {
 			t.Errorf("the clone command doesn't have %q:\n%s", want, clone)
 		}

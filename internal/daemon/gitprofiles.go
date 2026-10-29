@@ -348,7 +348,9 @@ func gitLsRemote(ctx context.Context, resolved, auth, secret string) (refs int, 
 		}
 		args = append(args, "-c", "credential.helper=", "-c", "credential.helper=!sh "+helper)
 	}
-	args = append(args, "ls-remote", resolved)
+	// "--" ends the options: a URL that starts with a dash is a URL to git,
+	// never --upload-pack=<command>.
+	args = append(args, "ls-remote", "--", resolved)
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Env = env
 	var stdout, stderr bytes.Buffer

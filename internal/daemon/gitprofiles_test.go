@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -361,5 +363,32 @@ func TestProjectGitSetKeepsWhatTheRequestLeavesOut(t *testing.T) {
 	got = put(`{"url":"https://example.com/o/b.git","auth":"token"}`)
 	if got.Auth != state.GitAuthToken || got.Credential != "private" {
 		t.Errorf("after --auth token: %+v, want token on the profile's own login", got)
+	}
+}
+
+// TestGitLsRemoteTakesTheURLAsAURL is the payload a URL starting with a dash
+// carried: without "--", git ls-remote read it as --upload-pack=<command> and
+// ran that command against the working directory's own origin. state refuses
+// such a URL when it is stored; this is the second wall.
+func TestGitLsRemoteTakesTheURLAsAURL(t *testing.T) {
+	testutil.GitEnv(t)
+	t.Setenv("GIT_SSH_COMMAND", "false")
+	bare := t.TempDir()
+	testutil.Git(t, bare, "init", "--quiet", "--bare")
+	work := t.TempDir()
+	testutil.Git(t, work, "init", "--quiet")
+	testutil.Git(t, work, "remote", "add", "origin", bare)
+	t.Chdir(work)
+
+	const payload = "--upload-pack=touch${IFS}pwned;git-upload-pack@h:p"
+	_, detail, err := gitLsRemote(context.Background(), payload, state.GitAuthToken, "a-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, statErr := os.Stat(filepath.Join(work, "pwned")); statErr == nil {
+		t.Fatal("git ran the URL's --upload-pack command")
+	}
+	if detail == "" {
+		t.Error("ls-remote of the payload succeeded, want git's refusal")
 	}
 }
