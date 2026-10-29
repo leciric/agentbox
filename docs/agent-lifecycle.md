@@ -23,7 +23,10 @@ The `Agent` row (`internal/state/state.go`) has, among others:
   `Resume`) act on the Incus instance directly (`incus stop`/`pause`/`resume`) and don't change
   this column. For a cluster agent they write `DesiredState` instead, and the reconciler makes or
   deletes the pod.
-- `AI` — which tool it runs: `"claude"`, `"codex"`, `"opencode"`, or `"none"`.
+- `AI` — which tool it runs: `"claude"`, `"codex"`, `"opencode"`, or `"none"`. An agent that
+  names none runs its project's `AgentTool` (`agentbox project tool`), or, when that is inherit,
+  the tool the project's chat runs — falling back to Claude Code with the reason when that tool
+  can't run where the agent will.
 - `Autonomous` — whether its AI tool starts unattended.
 - `Role` — `RoleWorker` for a normal agent, or `RoleLead` for the project's chat, which has no
   Incus instance at all (see [The lead and its MCP tools](lead.md)).

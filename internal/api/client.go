@@ -488,6 +488,14 @@ func (c *Client) SetAgentModel(ctx context.Context, project, model string) (Proj
 	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project), UpdateProjectRequest{AgentModel: &model}, &out)
 }
 
+// SetAgentTool sets the AI tool a project's new agents run when a request
+// names none: "" to follow the project chat's tool, or claude, codex, opencode
+// or cursor.
+func (c *Client) SetAgentTool(ctx context.Context, project, tool string) (Project, error) {
+	var out Project
+	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project), UpdateProjectRequest{AgentTool: &tool}, &out)
+}
+
 // SetProjectCluster sets where a project's new agents run when the request
 // names no cluster: "" for this machine, a cluster's name, or "auto" to let the
 // daemon place each one where there is room.
