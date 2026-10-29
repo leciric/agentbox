@@ -304,7 +304,7 @@ export function PipFinish() {
     using.add('agent-28');
     void queryClient.invalidateQueries({ queryKey: ['desktops'] });
   };
-  const button = 'rounded-lg border border-line-strong bg-overlay px-3 py-1.5 text-[12px] text-secondary shadow-md hover:text-title';
+  const button = 'rounded-lg border border-line-strong bg-overlay px-3 py-1.5 text-caption text-secondary shadow-md hover:text-title';
   return (
     <div className="fixed bottom-3 left-[300px] z-40 flex gap-2">
       <button type="button" onClick={open} data-pip-use className={button}>

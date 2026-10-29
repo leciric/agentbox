@@ -64,7 +64,7 @@ export function VMSetup({ vm }: { vm: VMStatus }) {
       <div className="flex items-start gap-3">
         <MonitorCog className="mt-0.5 size-5 shrink-0 text-brand-400" />
         <div className="grid min-w-0 gap-1">
-          <h2 className="flex flex-wrap items-center gap-2 text-[15px] font-medium text-primary">
+          <h2 className="flex flex-wrap items-center gap-2 text-heading font-medium text-primary">
             {t('vm.setup.title')}
             {vz && (
               <Badge variant="warning">
@@ -73,7 +73,7 @@ export function VMSetup({ vm }: { vm: VMStatus }) {
               </Badge>
             )}
           </h2>
-          <p className="text-[13px] text-muted">
+          <p className="text-ui text-muted">
             {t('vm.setup.description')}
           </p>
         </div>
@@ -94,11 +94,11 @@ export function VMSetup({ vm }: { vm: VMStatus }) {
                 chosen === d.driver && 'border-brand-400/50 bg-brand-500/10 shadow-[0_0_0_3px_rgb(139_92_246/0.12)]',
               )}
             >
-              <span className="flex flex-wrap items-center gap-2 text-[13px] font-medium text-primary">
+              <span className="flex flex-wrap items-center gap-2 text-ui font-medium text-primary">
                 {d.label ? t(d.label) : 'Lima'}
                 {d.driver === 'vz' && <Badge variant="warning">{t('vm.setup.experimental')}</Badge>}
               </span>
-              <span className="text-[11px] text-subtle">{t(d.hint)}</span>
+              <span className="text-caption text-subtle">{t(d.hint)}</span>
             </button>
           ))}
         </div>
@@ -108,7 +108,7 @@ export function VMSetup({ vm }: { vm: VMStatus }) {
           {t('vm.setup.vzNotice')}
         </Notice>
       )}
-      {noLima && <p className="text-[13px] text-muted">{t('vm.setup.noLima')}</p>}
+      {noLima && <p className="text-ui text-muted">{t('vm.setup.noLima')}</p>}
       {krunkit && <KrunkitNote plan={krunkit} />}
       <div className="flex flex-wrap items-center gap-2">
         {brew ? (
@@ -134,7 +134,7 @@ export function VMSetup({ vm }: { vm: VMStatus }) {
       {run.error && <Notice>{errorMessage(run.error)}</Notice>}
       {!noLima && otherProblem && !run.isPending && !run.error && lines.length === 0 && <Notice tone="warning">{otherProblem}</Notice>}
       <div className="grid gap-2">
-        <p className="text-[13px] text-muted">{t('vm.setup.orTerminal')}</p>
+        <p className="text-ui text-muted">{t('vm.setup.orTerminal')}</p>
         <CommandBox command={command} />
       </div>
     </Panel>
@@ -150,14 +150,14 @@ function KrunkitNote({ plan }: { plan: KrunkitPlan }) {
   const t = useT();
   if (plan.kind === 'ready')
     return (
-      <p className="text-[13px] text-muted" data-krunkit="available">
+      <p className="text-ui text-muted" data-krunkit="available">
         {t('vm.setup.krunkitAvailable')}
       </p>
     );
   if (plan.kind === 'brew')
     return (
       <div className="grid gap-2" data-krunkit={`brew-${plan.missing}`}>
-        <p className="text-[13px] text-muted">
+        <p className="text-ui text-muted">
           {plan.missing === 'driver' ? t('vm.setup.krunkitDriverBrew') : t('vm.setup.krunkitBrew')}
         </p>
         <p className="text-xs text-subtle">{t('vm.setup.brewRuns')}</p>
@@ -166,13 +166,13 @@ function KrunkitNote({ plan }: { plan: KrunkitPlan }) {
     );
   if (plan.missing === 'driver')
     return (
-      <p className="text-[13px] text-muted" data-krunkit="driver">
+      <p className="text-ui text-muted" data-krunkit="driver">
         {t('vm.setup.krunkitDriver')}
       </p>
     );
   return (
     <div className="grid gap-2" data-krunkit="missing">
-      <p className="text-[13px] text-muted">
+      <p className="text-ui text-muted">
         {t('vm.setup.krunkitMissing')}
       </p>
       <CommandBox command={plan.command} />

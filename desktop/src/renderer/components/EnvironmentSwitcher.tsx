@@ -24,7 +24,7 @@ function hostOf(url: string): string {
 
 function OnlineDot({ online }: { online?: boolean }) {
   const t = useT();
-  return <span className={cn('size-2 shrink-0 rounded-full', online ? 'bg-emerald-400 animate-glow' : 'bg-faint')} aria-label={online ? t('shell.env.online') : t('shell.env.offline')} />;
+  return <span className={cn('size-2 shrink-0 rounded-full', online ? 'bg-emerald-400' : 'bg-faint')} aria-label={online ? t('shell.env.online') : t('shell.env.offline')} />;
 }
 
 // EnvironmentSwitcher picks what the app manages: this machine, or an
@@ -83,8 +83,8 @@ export function EnvironmentSwitcher() {
               {remote ? <Server className="size-3.5" /> : <Laptop className="size-3.5" />}
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-[13px] font-medium text-primary">{remote ? current.environmentName : t('shell.env.thisMachine')}</span>
-              <span className="block truncate text-[11px] text-subtle">{remote ? hostOf(current.hub ?? '') : t('shell.env.local')}</span>
+              <span className="block truncate text-ui font-medium text-primary">{remote ? current.environmentName : t('shell.env.thisMachine')}</span>
+              <span className="block truncate text-caption text-subtle">{remote ? hostOf(current.hub ?? '') : t('shell.env.local')}</span>
             </span>
             {remote && <OnlineDot online={currentEnvironment?.online} />}
             <ChevronsUpDown className="size-3.5 shrink-0 text-subtle" />
@@ -117,7 +117,7 @@ export function EnvironmentSwitcher() {
                   >
                     <span className="flex flex-col">
                       <span>{env.name}</span>
-                      <span className="text-[11px] text-subtle">{env.online ? `${t('shell.env.online')}${env.hostname ? ` · ${env.hostname}` : ''}` : t('shell.env.offline')}</span>
+                      <span className="text-caption text-subtle">{env.online ? `${t('shell.env.online')}${env.hostname ? ` · ${env.hostname}` : ''}` : t('shell.env.offline')}</span>
                     </span>
                   </MenuItem>
                 );
@@ -248,7 +248,7 @@ function ConnectHubDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
             }}
           >
             <Field label={t('shell.env.hubAddress')} htmlFor="hub-url" hint={t('shell.env.hubAddressHint')}>
-              <Input id="hub-url" autoFocus className="font-mono text-[13px]" placeholder="https://hub.example.com" value={input} onChange={(event) => setInput(event.target.value)} />
+              <Input id="hub-url" autoFocus className="font-mono text-ui" placeholder="https://hub.example.com" value={input} onChange={(event) => setInput(event.target.value)} />
             </Field>
             {error && <Notice>{error}</Notice>}
             <DialogFooter>
@@ -266,12 +266,12 @@ function ConnectHubDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
             <div className="flex flex-col items-center gap-4 rounded-2xl border border-line bg-surface-faint p-5 sm:flex-row sm:items-start">
               {pairing.qr.length > 0 && <QRCode rows={pairing.qr} size={148} />}
               <div className="grid min-w-0 gap-2">
-                <div className="text-[12px] text-subtle">{t('shell.env.code')}</div>
-                <div className="font-mono text-2xl font-semibold tracking-[0.08em] text-title" data-hub-pairing-code>
+                <div className="text-caption text-subtle">{t('shell.env.code')}</div>
+                <div className="font-mono text-display font-semibold tracking-[0.08em] text-title" data-hub-pairing-code>
                   {pairing.code}
                 </div>
-                <p className="text-[13px] text-tertiary">{t('shell.env.pairHow')}</p>
-                <div className="flex items-center gap-2 text-[12px] text-subtle">
+                <p className="text-ui text-tertiary">{t('shell.env.pairHow')}</p>
+                <div className="flex items-center gap-2 text-caption text-subtle">
                   <LoaderCircle className="size-3.5 animate-spin" />
                   {t('shell.env.waiting')}
                 </div>
@@ -301,7 +301,7 @@ function ConnectHubDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
               login.mutate();
             }}
           >
-            <p className="text-[13px] text-tertiary">{t('shell.env.passwordBody')}</p>
+            <p className="text-ui text-tertiary">{t('shell.env.passwordBody')}</p>
             <Field label={t('shell.env.email')} htmlFor="hub-email">
               <Input id="hub-email" type="email" autoFocus autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} />
             </Field>
@@ -337,7 +337,7 @@ function PairingDetails({ info }: { info: HubPairingInfo }) {
   if (info.version) rows.push([t('shell.env.agentboxVersion'), info.version]);
   if (info.address) rows.push([t('shell.env.from'), info.address]);
   return (
-    <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1.5 rounded-xl border border-line bg-surface-faint px-4 py-3 text-[13px]" data-hub-pairing-info>
+    <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1.5 rounded-xl border border-line bg-surface-faint px-4 py-3 text-ui" data-hub-pairing-info>
       {rows.map(([k, v]) => (
         <Fragment key={k}>
           <dt className="text-subtle">{k}</dt>
@@ -394,7 +394,7 @@ function ApproveDeviceDialog({ hub, onClose }: { hub: string | null; onClose: ()
                 autoFocus
                 autoComplete="off"
                 spellCheck={false}
-                className="font-mono text-[15px] uppercase tracking-[0.08em]"
+                className="font-mono text-heading uppercase tracking-[0.08em]"
                 placeholder="BCDF-GHJK"
                 value={code}
                 onChange={(event) => setCode(event.target.value)}
@@ -458,16 +458,16 @@ function DevicesDialog({ hub, onClose }: { hub: string | null; onClose: () => vo
           <DialogDescription>{t('shell.env.devicesBody', { host: hostOf(hub ?? '') })}</DialogDescription>
         </DialogHeader>
         {devices.error && <Notice>{errorMessage(devices.error)}</Notice>}
-        {devices.isPending && <div className="text-[13px] text-subtle">{t('common.loading')}</div>}
+        {devices.isPending && <div className="text-ui text-subtle">{t('common.loading')}</div>}
         <ul className="grid divide-y divide-line rounded-xl border border-line" data-hub-device-list>
           {devices.data?.map((d) => (
             <li key={d.id} className="flex items-center gap-3 px-3.5 py-2.5" data-hub-device={d.label}>
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 text-[13px] text-primary">
+                <div className="flex items-center gap-2 text-ui text-primary">
                   <span className="truncate">{d.label}</span>
-                  {d.current && <span className="shrink-0 rounded-full border border-brand-400/40 px-1.5 text-[10px] text-brand-300">{t('shell.env.thisApp')}</span>}
+                  {d.current && <span className="shrink-0 rounded-full border border-brand-400/40 px-1.5 text-caption text-brand-300">{t('shell.env.thisApp')}</span>}
                 </div>
-                <div className="truncate text-[11px] text-subtle">
+                <div className="truncate text-caption text-subtle">
                   {t('shell.env.deviceSeen', { connected: timeAgo(d.createdAt), seen: d.lastSeenAt ? timeAgo(d.lastSeenAt) : t('shell.env.never') })}
                 </div>
               </div>
@@ -558,7 +558,7 @@ function ConnectThisDialog({ hub, onClose }: { hub: string | null; onClose: () =
           <DialogTitle>{t('shell.env.connectThisTitle')}</DialogTitle>
           <DialogDescription>{t('shell.env.connectThisBody', { host: hostOf(hub ?? '') })}</DialogDescription>
         </DialogHeader>
-        <ol className="grid gap-2 text-[13px]" data-connect-this-steps>
+        <ol className="grid gap-2 text-ui" data-connect-this-steps>
           {steps.map((s) => {
             const done = order.indexOf(step) > order.indexOf(s.key);
             const active = step === s.key && !connect.error;

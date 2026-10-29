@@ -593,11 +593,11 @@ export function Composer({
         </Attached>
       ) : signedOut ? (
         <Attached tone="amber" className={nudged ? 'bg-amber-400/25 ring-2 ring-amber-300/80' : undefined}>
-          <div className="flex items-center gap-2 text-[12.5px]" data-chat-signed-out data-nudged={nudged || undefined}>
+          <div className="flex items-center gap-2 text-ui" data-chat-signed-out data-nudged={nudged || undefined}>
             <LogIn className="size-3.5 shrink-0 text-amber-300" />
             <p className="min-w-0 flex-1 break-words leading-relaxed text-amber-100/90">{t('chat.composer.signedOut')}</p>
             <button
-              className="flex h-6 shrink-0 items-center gap-1 rounded-md bg-brand-500/90 px-2.5 text-[12px] font-medium text-white transition hover:bg-brand-500"
+              className="flex h-6 shrink-0 items-center gap-1 rounded-md bg-brand-500/90 px-2.5 text-caption font-medium text-white transition hover:bg-brand-500"
               onClick={() => openSettingsSection('accounts')}
             >
               {t('chat.composer.logIn')}
@@ -606,11 +606,11 @@ export function Composer({
         </Attached>
       ) : asleep && reviewCard ? null : asleep ? (
         <Attached tone="neutral">
-          <div className="flex items-center gap-2 text-[12.5px]" data-chat-asleep={asleep.state}>
+          <div className="flex items-center gap-2 text-ui" data-chat-asleep={asleep.state}>
             {asleep.starting || inFlight ? <LoaderCircle className="size-3.5 shrink-0 animate-spin text-muted" /> : <Moon className="size-3.5 shrink-0 text-muted" />}
             <p className="min-w-0 flex-1 break-words leading-relaxed text-tertiary">{t('chat.composer.asleep', { state: asleep.state, name: agent.name })}</p>
             <button
-              className="flex h-6 shrink-0 items-center gap-1 rounded-md bg-brand-500/90 px-2.5 text-[12px] font-medium text-white transition hover:bg-brand-500 disabled:opacity-60"
+              className="flex h-6 shrink-0 items-center gap-1 rounded-md bg-brand-500/90 px-2.5 text-caption font-medium text-white transition hover:bg-brand-500 disabled:opacity-60"
               disabled={asleep.starting || inFlight}
               onClick={asleep.onStart}
             >
@@ -648,12 +648,12 @@ export function Composer({
         />
       ) : session?.limited && !busy ? (
         <Attached tone="amber">
-          <div className="flex items-start gap-2 text-[12.5px]">
+          <div className="flex items-start gap-2 text-ui">
             <Hourglass className="mt-0.5 size-3.5 shrink-0 text-amber-300" />
             <p className="min-w-0 flex-1 break-words leading-relaxed text-amber-100/90">{limitMessage(session)}</p>
             {spare && (
               <button
-                className="h-6 shrink-0 rounded-md px-2 text-[12px] font-medium text-amber-100 transition hover:bg-amber-400/15"
+                className="h-6 shrink-0 rounded-md px-2 text-caption font-medium text-amber-100 transition hover:bg-amber-400/15"
                 disabled={limitRunner.choose.isPending}
                 onClick={() => limitRunner.choose.mutate(spare)}
                 title={t('chat.limit.switchTip', { tool: aiLabel(spare.tool), account: spare.account })}
@@ -663,7 +663,7 @@ export function Composer({
               </button>
             )}
             <button
-              className="h-6 shrink-0 rounded-md px-2 text-[12px] font-medium text-amber-100 transition hover:bg-amber-400/15"
+              className="h-6 shrink-0 rounded-md px-2 text-caption font-medium text-amber-100 transition hover:bg-amber-400/15"
               disabled={resumeNow.isPending}
               onClick={() => resumeNow.mutate()}
             >
@@ -673,17 +673,17 @@ export function Composer({
         </Attached>
       ) : session?.state === 'error' && !busy ? (
         <Attached tone="rose">
-          <div className="flex items-start gap-2 text-[12.5px]">
+          <div className="flex items-start gap-2 text-ui">
             <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-rose-300" />
             <p className="min-w-0 flex-1 break-words leading-relaxed text-rose-100/90">{session.error}</p>
-            <button className="h-6 shrink-0 rounded-md px-2 text-[12px] font-medium text-rose-100 transition hover:bg-rose-400/15" disabled={retry.isPending} onClick={() => retry.mutate()}>
+            <button className="h-6 shrink-0 rounded-md px-2 text-caption font-medium text-rose-100 transition hover:bg-rose-400/15" disabled={retry.isPending} onClick={() => retry.mutate()}>
               {retry.isPending ? t('chat.composer.starting') : t('chat.composer.startAgain')}
             </button>
           </div>
         </Attached>
       ) : session?.state === 'starting' && !busy ? (
         <Attached tone="neutral">
-          <div className="flex items-center gap-2 text-[12.5px] text-muted">
+          <div className="flex items-center gap-2 text-ui text-muted">
             <LoaderCircle className="size-3.5 animate-spin" />
             {session.detail || t('chat.composer.startingTool', { tool })}
           </div>
@@ -693,13 +693,13 @@ export function Composer({
         // MCP servers only then. The daemon restarts it before the next
         // message when it can resume the session; "Reload now" doesn't wait.
         <Attached tone="neutral">
-          <div className="flex items-start gap-2 text-[12.5px]" data-chat-tools-changed>
+          <div className="flex items-start gap-2 text-ui" data-chat-tools-changed>
             <Plug className="mt-0.5 size-3.5 shrink-0 text-muted" />
             <p className="min-w-0 flex-1 break-words leading-relaxed text-tertiary">
               {t(session.noResume ? 'chat.composer.toolsChangedNoResume' : 'chat.composer.toolsChanged', { tool })}
             </p>
             <button
-              className="h-6 shrink-0 rounded-md px-2 text-[12px] font-medium text-title transition hover:bg-white/10 disabled:opacity-50"
+              className="h-6 shrink-0 rounded-md px-2 text-caption font-medium text-title transition hover:bg-white/10 disabled:opacity-50"
               disabled={reloadTools.isPending || toolsReload(session) !== 'ready'}
               onClick={() => reloadTools.mutate()}
             >
@@ -721,7 +721,7 @@ export function Composer({
         )}
       >
         {dragging && (
-          <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[22px] text-[12.5px] font-medium text-primary">
+          <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[22px] text-ui font-medium text-primary">
             <span className="rounded-full bg-overlay px-3 py-1.5 shadow">{t('chat.composer.drop')}</span>
           </div>
         )}
@@ -730,7 +730,7 @@ export function Composer({
             {commands.map((item, i) => (
               <Fragment key={item.kind === 'skill' ? `skill:${item.skill.name}` : item.command.name}>
                 {(i === 0 || commands[i - 1].kind !== item.kind) && commands.some((c) => c.kind === 'skill') && (
-                  <p className={cn('px-3 pb-1 text-[10.5px] font-medium uppercase tracking-wide text-faint', i === 0 ? 'pt-1.5' : 'pt-2.5')}>
+                  <p className={cn('px-3 pb-1 text-caption font-medium uppercase tracking-wide text-faint', i === 0 ? 'pt-1.5' : 'pt-2.5')}>
                     {item.kind === 'skill' ? t('chat.composer.skills') : t('chat.composer.commandsGroup')}
                   </p>
                 )}
@@ -747,9 +747,9 @@ export function Composer({
                     }}
                     onMouseEnter={() => setHighlighted(i)}
                   >
-                    <span className="shrink-0 font-mono text-[12.5px] text-primary">/{item.command.name}</span>
-                    {item.command.hint && <span className="shrink-0 font-mono text-[11.5px] text-faint">{item.command.hint}</span>}
-                    <span className="min-w-0 truncate text-[12px] text-subtle">{item.command.description}</span>
+                    <span className="shrink-0 font-mono text-ui text-primary">/{item.command.name}</span>
+                    {item.command.hint && <span className="shrink-0 font-mono text-caption text-faint">{item.command.hint}</span>}
+                    <span className="min-w-0 truncate text-caption text-subtle">{item.command.description}</span>
                   </button>
                 )}
               </Fragment>
@@ -758,7 +758,7 @@ export function Composer({
         )}
         {dollarItems.length > 0 && (
           <div className="absolute inset-x-2 bottom-full mb-2 overflow-hidden rounded-2xl border border-line-strong bg-overlay p-1 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur-xl" role="listbox" aria-label={t('chat.composer.skills')}>
-            <p className="px-3 pb-1 pt-1.5 text-[10.5px] font-medium uppercase tracking-wide text-faint">{t('chat.composer.skills')}</p>
+            <p className="px-3 pb-1 pt-1.5 text-caption font-medium uppercase tracking-wide text-faint">{t('chat.composer.skills')}</p>
             {dollarItems.map((skill, i) => (
               <SkillOption key={skill.name} skill={skill} active={i === dollarHighlighted} onPick={() => pickSkill(skill)} onHover={() => setDollarHighlighted(i)} />
             ))}
@@ -766,7 +766,7 @@ export function Composer({
         )}
         {mentionItems.length > 0 && (
           <div className="absolute inset-x-2 bottom-full mb-2 overflow-hidden rounded-2xl border border-line-strong bg-overlay p-1 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur-xl" role="listbox" aria-label={t('chat.composer.mentions')}>
-            <p className="px-3 pb-1 pt-1.5 text-[11.5px] text-subtle" data-mention-hint>
+            <p className="px-3 pb-1 pt-1.5 text-caption text-subtle" data-mention-hint>
               {t('chat.composer.mentionHint')}
             </p>
             <div className="max-h-72 overflow-y-auto">
@@ -785,11 +785,11 @@ export function Composer({
                   }}
                 >
                   {item.kind === 'project' ? <FolderGit2 className="size-3.5 shrink-0 text-subtle" /> : item.kind === 'agent' ? <Bot className="size-3.5 shrink-0 text-subtle" /> : <File className="size-3.5 shrink-0 text-subtle" />}
-                  <span className="min-w-0 truncate font-mono text-[12.5px] text-primary">{item.label}</span>
+                  <span className="min-w-0 truncate font-mono text-ui text-primary">{item.label}</span>
                 </button>
                 {item.kind === 'file' && fileLinks && (
                   <button
-                    className={cn('mr-1.5 flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-[11px] text-subtle transition hover:bg-surface-strong hover:text-primary', i !== mentionHighlighted && 'invisible')}
+                    className={cn('mr-1.5 flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-caption text-subtle transition hover:bg-surface-strong hover:text-primary', i !== mentionHighlighted && 'invisible')}
                     aria-label={t('files.link.open', { path: item.insert })}
                     onMouseDown={(event) => {
                       event.preventDefault();
@@ -901,7 +901,7 @@ export function Composer({
                 disabled={!canSend && !signedOut}
                 aria-disabled={!canSend || undefined}
                 onClick={submit}
-                className={cn('flex size-8 items-center justify-center rounded-full bg-gradient-to-b from-brand-500 to-indigo-600 text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.2),0_8px_20px_-8px_rgb(99_102_241/0.8)] transition hover:scale-105 hover:brightness-110 disabled:scale-100 disabled:opacity-30 disabled:shadow-none', signedOut && 'opacity-30 shadow-none hover:scale-100')}
+                className={cn('flex size-8 items-center justify-center rounded-full bg-brand-500 text-on-brand transition-colors hover:bg-brand-600 active:bg-brand-700 disabled:opacity-30', signedOut && 'opacity-30')}
               >
                 <ArrowUp className="size-4" strokeWidth={2.2} />
               </button>
@@ -945,17 +945,17 @@ function PermissionBanner({ agent, thread, request, count }: { agent: T.Agent; t
   return (
     <Attached tone="amber">
       <div data-chat-permission={request.id}>
-        <div className="flex items-center gap-2 text-[12px]">
+        <div className="flex items-center gap-2 text-caption">
           <ShieldAlert className="size-3.5 shrink-0 text-amber-300" />
           <span className="font-medium text-amber-100">
             {approval ? t(permission.approval === 'project' ? 'chat.permission.projectApproval' : 'chat.permission.approval') : t('chat.permission.asks', { tool: aiLabel(agent.ai), action: tool?.kind ?? '' })}
           </span>
-          {count > 1 && <span className="ml-auto text-[10.5px] tabular-nums text-amber-200/60">{t('chat.permission.oneOf', { count })}</span>}
+          {count > 1 && <span className="ml-auto text-caption tabular-nums text-amber-200/60">{t('chat.permission.oneOf', { count })}</span>}
         </div>
-        <p className="mt-1 break-words text-[13px] text-primary">{permission.title}</p>
-        {detail && approval && <p className="mt-0.5 break-words text-[12px] text-muted">{detail}</p>}
+        <p className="mt-1 break-words text-ui text-primary">{permission.title}</p>
+        {detail && approval && <p className="mt-0.5 break-words text-caption text-muted">{detail}</p>}
         {detail && !approval && !permission.title.includes(detail) && (
-          <code className="mt-1 block max-h-20 overflow-auto whitespace-pre-wrap break-all font-mono text-[11.5px] text-muted">{detail}</code>
+          <code className="mt-1 block max-h-20 overflow-auto whitespace-pre-wrap break-all font-mono text-caption text-muted">{detail}</code>
         )}
         {diffs?.length ? (
           <div className="mt-2 overflow-hidden rounded-lg border border-line bg-well">
@@ -1050,18 +1050,18 @@ function CacheCard({
   return (
     <Attached tone="amber">
       <div data-chat-cache={expired ? 'expired' : 'expiring'}>
-        <div className="flex items-center gap-2 text-[12px]">
+        <div className="flex items-center gap-2 text-caption">
           <Hourglass className="size-3.5 shrink-0 text-amber-300" />
           <span className="font-medium text-amber-100">
             {expired ? t('chat.cache.expired') : t('chat.cache.expires', { span: formatSpan(left) })}
           </span>
-          <span className="ml-auto shrink-0 tabular-nums text-[11px] text-amber-200/60">{t('chat.cache.idle', { span: formatSpan(idle) })}</span>
+          <span className="ml-auto shrink-0 tabular-nums text-caption text-amber-200/60">{t('chat.cache.idle', { span: formatSpan(idle) })}</span>
         </div>
-        <p className="mt-1 break-words text-[12.5px] leading-relaxed text-amber-100/85">
+        <p className="mt-1 break-words text-ui leading-relaxed text-amber-100/85">
           {t('chat.cache.resend', { expired: expired ? 'yes' : 'no', tokens })}
         </p>
         {waiting && (
-          <p className="mt-1.5 line-clamp-2 break-words rounded-lg bg-black/10 px-2.5 py-1.5 text-[12.5px] text-primary" data-chat-cache-held>
+          <p className="mt-1.5 line-clamp-2 break-words rounded-lg bg-black/10 px-2.5 py-1.5 text-ui text-primary" data-chat-cache-held>
             {waiting.text || t('chat.cache.attachments', { count: waiting.images.length })}
           </p>
         )}
@@ -1070,7 +1070,7 @@ function CacheCard({
             <button
               disabled={busy}
               onClick={() => fresh.mutate(draft())}
-              className="mr-auto flex h-7 items-center gap-1.5 rounded-lg border border-amber-200/20 px-2.5 text-[12.5px] text-amber-50 transition hover:bg-amber-200/10 disabled:opacity-50"
+              className="mr-auto flex h-7 items-center gap-1.5 rounded-lg border border-amber-200/20 px-2.5 text-ui text-amber-50 transition hover:bg-amber-200/10 disabled:opacity-50"
               data-chat-cache-new-session
             >
               {fresh.isPending ? <LoaderCircle className="size-3.5 animate-spin" /> : <MessageSquarePlus className="size-3.5" />}
@@ -1080,14 +1080,14 @@ function CacheCard({
           <button
             disabled={busy}
             onClick={() => pick(false)}
-            className="h-7 rounded-lg border border-amber-200/20 px-2.5 text-[12.5px] text-amber-50 transition hover:bg-amber-200/10 disabled:opacity-50"
+            className="h-7 rounded-lg border border-amber-200/20 px-2.5 text-ui text-amber-50 transition hover:bg-amber-200/10 disabled:opacity-50"
           >
             {t('chat.cache.sendAnyway')}
           </button>
           <button
             disabled={busy}
             onClick={() => pick(true)}
-            className="flex h-7 items-center gap-1.5 rounded-lg bg-amber-300 px-3 text-[12.5px] font-medium text-on-bright transition hover:bg-amber-200 disabled:opacity-60"
+            className="flex h-7 items-center gap-1.5 rounded-lg bg-amber-300 px-3 text-ui font-medium text-on-bright transition hover:bg-amber-200 disabled:opacity-60"
           >
             {compacting && <LoaderCircle className="size-3.5 animate-spin" />}
             {compacting ? t('chat.cache.compacting') : t('chat.cache.compactAndSend')}
@@ -1115,7 +1115,7 @@ function TasksBadge({ plan }: { plan: T.ChatPlanEntry[] }) {
   const current = plan.find((e) => e.status === 'in_progress') ?? plan.find((e) => e.status === 'pending');
   return (
     <Attached tone="neutral">
-      <button className="flex w-full items-center gap-2 text-left text-[12px]" aria-expanded={open} onClick={() => setOpen(!open)} data-chat-tasks>
+      <button className="flex w-full items-center gap-2 text-left text-caption" aria-expanded={open} onClick={() => setOpen(!open)} data-chat-tasks>
         <ListTodo className="size-3.5 shrink-0 text-muted" />
         <span className="shrink-0 text-subtle">{t('chat.tasks.label')}</span>
         <span className="min-w-0 flex-1 truncate font-medium text-secondary">{finished ? t('chat.tasks.allDone') : current?.content}</span>
@@ -1132,7 +1132,7 @@ function TasksBadge({ plan }: { plan: T.ChatPlanEntry[] }) {
       {open && (
         <ol className="mt-2 grid max-h-56 gap-1 overflow-y-auto">
           {plan.map((entry, i) => (
-            <li key={i} className="flex items-start gap-2 text-[12.5px] leading-relaxed">
+            <li key={i} className="flex items-start gap-2 text-ui leading-relaxed">
               <span className={cn('mt-[3px] flex size-3.5 shrink-0 items-center justify-center', entry.status === 'completed' ? 'text-emerald-400' : entry.status === 'in_progress' ? 'text-brand-300' : 'text-faint')}>
                 {entry.status === 'completed' ? <Check className="size-3.5" /> : <span className={cn('size-1.5 rounded-full', entry.status === 'in_progress' ? 'bg-brand-300' : 'border border-faint')} />}
               </span>
@@ -1184,7 +1184,7 @@ function SessionOptions({ agent, session }: { agent: T.Agent; session?: T.ChatSe
   const loading = session?.state === 'starting' && !options.some((o) => o.category === 'thought_level' || o.category === 'mode');
   const loadingMark = loading && (
     <Tip label={t('chat.options.loadingTip', { tool: aiLabel(agent.ai) })} side="top">
-      <span role="status" aria-label={t('chat.options.loading')} className="flex h-7 items-center gap-1.5 px-1.5 text-[12px] text-subtle">
+      <span role="status" aria-label={t('chat.options.loading')} className="flex h-7 items-center gap-1.5 px-1.5 text-caption text-subtle">
         <LoaderCircle className="size-3.5 animate-spin" />
         {t('common.settings')}
       </span>
@@ -1265,7 +1265,7 @@ function SetupChip({
   const label = t('chat.setup.label', { setup: parts });
   const nothing = !runner && !model && !contextWindow && others.length === 0;
   const chip = (
-    <span className={cn('flex h-7 min-w-0 items-center gap-1.5 rounded-lg px-2 text-[12.5px] [&_svg]:size-4 [&_svg]:shrink-0', missing ? 'text-amber-300' : 'text-muted')}>
+    <span className={cn('flex h-7 min-w-0 items-center gap-1.5 rounded-lg px-2 text-ui [&_svg]:size-4 [&_svg]:shrink-0', missing ? 'text-amber-300' : 'text-muted')}>
       {missing ? <CircleAlert className="text-amber-400" /> : <ToolMark ai={tool} />}
       {runner?.next && <NextTool next={runner.next} />}
       <span className="min-w-0 truncate" data-chat-setup-text>
@@ -1352,7 +1352,7 @@ const toolMarks: Record<string, ComponentType<{ className?: string }>> = Object.
 // (see contextHint) or, for the model actually running, the size the adapter
 // reported after a turn — never invented. Only the model menu carries one.
 function ContextBadge({ hint }: { hint: string }) {
-  return <span className="shrink-0 rounded-full bg-surface-raised px-1.5 py-px text-[9.5px] font-semibold tabular-nums text-muted">{hint}</span>;
+  return <span className="shrink-0 rounded-full bg-surface-raised px-1.5 py-px text-caption font-semibold tabular-nums text-muted">{hint}</span>;
 }
 
 // modelHint is a choice's context-window badge. The adapter doesn't advertise
@@ -1379,7 +1379,7 @@ function PlanToggle({ option, onPick }: { option: T.ChatOption; onPick: (value: 
         data-chat-option={option.id}
         onClick={() => onPick(on ? 'false' : 'true')}
         className={cn(
-          'flex h-7 items-center gap-1.5 rounded-lg px-2 text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 [&_svg]:size-4 [&_svg]:shrink-0',
+          'flex h-7 items-center gap-1.5 rounded-lg px-2 text-ui transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 [&_svg]:size-4 [&_svg]:shrink-0',
           on ? 'bg-brand-500/15 text-brand-200 hover:bg-brand-500/25' : 'text-muted hover:bg-surface hover:text-primary',
         )}
       >
@@ -1413,7 +1413,7 @@ function OptionMenu({
           data-chat-option={option.id}
           title={option.description || option.name}
           className={cn(
-            'flex h-7 min-w-0 items-center gap-1.5 rounded-lg px-2 text-[12.5px] transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 data-[state=open]:bg-surface-raised data-[state=open]:text-primary [&_svg]:size-4 [&_svg]:shrink-0',
+            'flex h-7 min-w-0 items-center gap-1.5 rounded-lg px-2 text-ui transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 data-[state=open]:bg-surface-raised data-[state=open]:text-primary [&_svg]:size-4 [&_svg]:shrink-0',
             missing ? 'text-amber-300' : 'text-muted',
           )}
         >
@@ -1474,7 +1474,7 @@ function OptionChoices({
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.stopPropagation()}
             placeholder={t('common.search')}
-            className="w-full bg-transparent text-[13px] text-primary placeholder:text-faint focus:outline-none"
+            className="w-full bg-transparent text-ui text-primary placeholder:text-faint focus:outline-none"
           />
         </div>
       )}
@@ -1483,9 +1483,9 @@ function OptionChoices({
           <span className="grid">
             <span className="flex items-center gap-1.5 text-amber-200">
               {missing}
-              <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-amber-300">{t('chat.options.offMenu')}</span>
+              <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-caption font-semibold uppercase tracking-wide text-amber-300">{t('chat.options.offMenu')}</span>
             </span>
-            <span className="text-[11px] text-subtle">{t('chat.options.offMenuHint')}</span>
+            <span className="text-caption text-subtle">{t('chat.options.offMenuHint')}</span>
           </span>
         </MenuItem>
       )}
@@ -1507,14 +1507,14 @@ function OptionChoices({
                     {isRecommended(choice) && <RecommendedBadge />}
                     {sizeHint && <ContextBadge hint={sizeHint} />}
                   </span>
-                  {choice.description && <span className="text-[11px] text-subtle">{choice.description}</span>}
+                  {choice.description && <span className="text-caption text-subtle">{choice.description}</span>}
                 </span>
               </MenuItem>
             );
           })}
         </div>
       ))}
-      {groups.length === 0 && <div className="px-2.5 py-3 text-center text-[12px] text-subtle">{t('chat.options.noMatch', { query: query.trim() })}</div>}
+      {groups.length === 0 && <div className="px-2.5 py-3 text-center text-caption text-subtle">{t('chat.options.noMatch', { query: query.trim() })}</div>}
       {allowNaming && isModel && <ModelByName onPick={onPick} />}
     </>
   );
@@ -1524,7 +1524,7 @@ function OptionChoices({
 // doesn't have to carry "(recommended)" everywhere it appears.
 function RecommendedBadge() {
   const t = useT();
-  return <span className="shrink-0 rounded-full bg-brand-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-brand-300">{t('chat.options.recommended')}</span>;
+  return <span className="shrink-0 rounded-full bg-brand-400/15 px-1.5 py-px text-caption font-semibold uppercase tracking-wide text-brand-300">{t('chat.options.recommended')}</span>;
 }
 
 // ContextMeter shows how full the context window is, once that starts to matter:
@@ -1577,8 +1577,8 @@ function SkillOption({ skill, active, onPick, onHover }: { skill: T.Skill; activ
       onMouseEnter={onHover}
     >
       <SkillTile name={skill.name} size="sm" />
-      <span className="shrink-0 font-mono text-[12.5px] text-primary">${skill.name}</span>
-      <span className="min-w-0 truncate text-[12px] text-subtle">{skill.description}</span>
+      <span className="shrink-0 font-mono text-ui text-primary">${skill.name}</span>
+      <span className="min-w-0 truncate text-caption text-subtle">{skill.description}</span>
     </button>
   );
 }

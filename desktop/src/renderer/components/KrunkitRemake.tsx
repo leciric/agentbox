@@ -42,10 +42,10 @@ export function KrunkitRemake({ vm }: { vm: VMStatus }) {
         : t('settings.agentGPU.krunkit.install');
   return (
     <div className="grid gap-2" data-krunkit-remake={plan.kind}>
-      <p className="text-[13px] text-muted">{t('settings.agentGPU.krunkit.intro')}</p>
+      <p className="text-ui text-muted">{t('settings.agentGPU.krunkit.intro')}</p>
       {manual ? (
         <>
-          <p className="text-[13px] text-muted">
+          <p className="text-ui text-muted">
             {plan.missing === 'driver' ? t('settings.agentGPU.krunkit.manualDriver') : t('settings.agentGPU.krunkit.manual')}
           </p>
           <CommandBox command={plan.command ? `${plan.command} && agentbox vm krunkit --remake --yes` : 'agentbox vm krunkit --remake --yes'} />

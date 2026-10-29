@@ -11,7 +11,7 @@
 //
 // A feature declares its tour in `tours` with the version it shipped in.
 // After an update, the tours not seen yet play once, one after another; a
-// first run plays the welcome tour instead, which covers them all, and they
+// first run plays the welcome tour instead, the essentials, and they
 // count as seen. Help → What's new replays any of them.
 import { useSyncExternalStore } from 'react';
 import type { MessageKey } from './i18n';
@@ -207,7 +207,10 @@ export const welcomeTour: Tour = {
   id: 'welcome',
   version: v013,
   title: 'tour.welcome.name',
-  steps: [S.welcome, S.sidebar, S.computer, S.home, S.groups, S.hide, S.lead, S.mention, S.cards, S.reviewButton, S.review, S.panel, S.switch, S.pick, S.places, S.classic, S.help],
+  // The essentials only, seven of them: where the projects are, talking to a
+  // lead, what comes back to you, a review, and the way back. Every other
+  // step is in its feature's own tour, which Help replays.
+  steps: [S.welcome, S.sidebar, S.lead, S.cards, S.review, S.classic, S.help],
 };
 
 // tours is What's new: each big feature's own short tour, oldest first.

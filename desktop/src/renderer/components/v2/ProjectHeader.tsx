@@ -52,7 +52,7 @@ export function ProjectCrumb({ project, then, onProject }: { project: T.Project;
     <span className="group flex min-w-0 items-center gap-1.5">
       <Tip label={onProject ? t('v2.header.openLead') : project.root}>
         <button type="button" onClick={onProject ?? copy} className="-mx-1 flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-primary hover:bg-surface-raised" data-project-crumb={onProject ? 'lead' : 'copy'}>
-          <ProjectIcon project={project} className="size-5 shrink-0 rounded-md text-[11px]" />
+          <ProjectIcon project={project} className="size-5 shrink-0 rounded-md text-caption" />
           <span className="max-w-[16rem] truncate font-medium">{projectLabel(project)}</span>
         </button>
       </Tip>
@@ -62,7 +62,7 @@ export function ProjectCrumb({ project, then, onProject }: { project: T.Project;
         </button>
       </Tip>
       <ChevronRight className="size-3.5 shrink-0 text-faint" />
-      <h1 className={`min-w-0 truncate text-[16px] font-semibold ${then === T.LeadName ? 'text-secondary' : 'text-title'}`} data-crumb-title>
+      <h1 className={`min-w-0 truncate text-heading font-semibold ${then === T.LeadName ? 'text-secondary' : 'text-title'}`} data-crumb-title>
         {then === T.LeadName ? t('v2.header.lead') : then}
       </h1>
     </span>

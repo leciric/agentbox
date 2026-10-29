@@ -16,7 +16,7 @@ import { pageTheme, type PageTheme } from './rich.ts';
 
 // The properties styles.css declares defaults for. Setting one here overrides
 // that default for the whole window; clearing it puts AgentBox's own back.
-const properties = ['--ab-brand-300', '--ab-brand-400', '--ab-brand-500', '--ab-brand-600', '--ab-ink', '--ab-wash-near', '--ab-wash-far', '--ab-selection', '--ab-brand-mid', '--ab-brand-deep', '--ab-brand-far'] as const;
+const properties = ['--ab-brand-100', '--ab-brand-200', '--ab-brand-300', '--ab-brand-400', '--ab-brand-500', '--ab-brand-600', '--ab-brand-700', '--ab-on-brand', '--ab-ink', '--ab-wash-near', '--ab-wash-far', '--ab-selection', '--ab-brand-mid', '--ab-brand-deep', '--ab-brand-far'] as const;
 
 type Rgb = [number, number, number];
 
@@ -39,6 +39,32 @@ const alpha = ([r, g, b]: Rgb, a: number) => `rgb(${r} ${g} ${b} / ${a})`;
 
 const white: Rgb = [255, 255, 255];
 const black: Rgb = [0, 0, 0];
+const nearBlack: Rgb = [9, 9, 11];
+
+// contrast is WCAG's contrast ratio between two colours, 1 to 21.
+export function contrast(a: Rgb, b: Rgb): number {
+  const lum = (c: Rgb) => {
+    const [r, g, b] = c.map((v) => {
+      const s = v / 255;
+      return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+// readable is c moved towards toward until it reads 4.5:1 on background, the
+// bar styles.css holds every text role to: a theme's accent is whatever its
+// author liked, and the shades of it the app sets text in have to be legible
+// on the window whatever it is.
+function readable(c: Rgb, background: Rgb, toward: Rgb): Rgb {
+  for (let amount = 0; amount < 1; amount += 0.05) {
+    const next = mix(c, toward, amount);
+    if (contrast(next, background) >= 4.5) return next;
+  }
+  return toward;
+}
 
 // Mode is which way round the window is painted. It is not the same question
 // as which theme the accent comes from: the app can be light while following a
@@ -87,13 +113,27 @@ export function palette(theme: T.Theme | undefined): Record<string, string> | nu
   // under a light one.
   const light = theme.mode === 'light';
   const background = parse(theme.background);
-  const ink = background ? hex(mix(background, light ? white : black, 0.35)) : null;
+  const ground = background ? mix(background, light ? white : black, 0.35) : null;
+  const ink = ground ? hex(ground) : null;
+
+  // The shades text is set in run towards the text's own end — paler on a
+  // dark window, deeper on a light one — and then as far again as legibility
+  // needs. Styles.css's own window stands in when the theme gives none.
+  const behind = ground ?? (light ? ([0xf4, 0xf4, 0xf6] as Rgb) : ([0x07, 0x07, 0x0b] as Rgb));
+  const text = light ? black : white;
+  const shade = (amount: number) => hex(readable(mix(accent, text, amount), behind, text));
 
   return {
-    '--ab-brand-300': hex(mix(accent, white, 0.35)),
-    '--ab-brand-400': hex(mix(accent, white, 0.18)),
+    '--ab-brand-100': shade(0.7),
+    '--ab-brand-200': shade(0.5),
+    '--ab-brand-300': shade(0.35),
+    '--ab-brand-400': shade(0.18),
     '--ab-brand-500': hex(accent),
     '--ab-brand-600': hex(mix(accent, black, 0.18)),
+    '--ab-brand-700': hex(mix(accent, black, 0.32)),
+    // White on the accent when it reads there, else whichever of white and
+    // the near-black of a bright fill reads better.
+    '--ab-on-brand': contrast(white, accent) >= 4.5 || contrast(white, accent) >= contrast(nearBlack, accent) ? '#ffffff' : hex(nearBlack),
     ...(ink ? { '--ab-ink': ink } : {}),
     '--ab-wash-near': alpha(accent, light ? 0.12 : 0.16),
     '--ab-wash-far': alpha(mix(accent, light ? black : white, 0.3), light ? 0.08 : 0.07),

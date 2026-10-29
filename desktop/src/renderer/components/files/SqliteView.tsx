@@ -46,14 +46,14 @@ export function SqliteView({ chatRef, path, fallback }: { chatRef: string; path:
 
   if (tables.isPending) return <div className="skeleton m-4 h-3.5 w-1/2 rounded" />;
   if (tables.error) return fallback(errorMessage(tables.error));
-  if (list.length === 0) return <div className="flex h-full items-center justify-center p-6 text-[12.5px] text-subtle">{t('files.sqlite.empty')}</div>;
+  if (list.length === 0) return <div className="flex h-full items-center justify-center p-6 text-ui text-subtle">{t('files.sqlite.empty')}</div>;
 
   const total = data?.total ?? -1;
   const shown = data?.rows.length ?? 0;
   const more = total >= 0 ? offset + shown < total : shown === pageSize;
   return (
     <div className="flex h-full flex-col" data-file-sqlite>
-      <div className="flex h-8 shrink-0 items-center gap-1.5 border-b border-line-faint px-2 text-[12px] text-subtle">
+      <div className="flex h-8 shrink-0 items-center gap-1.5 border-b border-line-faint px-2 text-caption text-subtle">
         <select
           className="min-w-0 max-w-[60%] truncate rounded-md border border-line bg-transparent px-1.5 py-0.5 text-secondary outline-none focus:border-line-vivid"
           value={chosen}
@@ -86,7 +86,7 @@ export function SqliteView({ chatRef, path, fallback }: { chatRef: string; path:
       </div>
       <div className="min-h-0 flex-1">
         {rows.error ? (
-          <div className="flex h-full items-center justify-center p-6 text-center text-[12.5px] text-subtle">{t('files.sqlite.failed', { error: errorMessage(rows.error) })}</div>
+          <div className="flex h-full items-center justify-center p-6 text-center text-ui text-subtle">{t('files.sqlite.failed', { error: errorMessage(rows.error) })}</div>
         ) : !data ? (
           <div className="skeleton m-4 h-3.5 w-2/3 rounded" />
         ) : (

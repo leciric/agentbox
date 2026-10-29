@@ -31,10 +31,10 @@ import { Tip } from './ui/tooltip';
 // urgent agent tone, and how to draw it as a single dot.
 const toneLabel: Record<StatusTone, MessageKey | null> = { urgent: 'shell.sidebar.needsYou', error: 'shell.sidebar.needsAttention', warning: 'shell.sidebar.memoryHeld', live: 'shell.sidebar.working', muted: null };
 const toneDot: Record<StatusTone, string> = {
-  urgent: 'bg-amber-400 animate-pulse',
+  urgent: 'bg-amber-400',
   error: 'bg-rose-400',
   warning: 'bg-amber-400/70',
-  live: 'bg-sky-400 animate-pulse',
+  live: 'bg-sky-400 animate-working',
   muted: '',
 };
 
@@ -127,7 +127,7 @@ export function Sidebar({
         >
           <button
             data-project={project.name}
-            className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-2.5 text-left text-[13px] font-medium text-tertiary hover:text-title"
+            className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-2.5 text-left text-ui font-medium text-tertiary hover:text-title"
             onClick={() => onSelect({ kind: 'project', project: project.name })}
             onKeyDown={moveKeys((delta) => apply(moveProject(lists, project.name, delta), project.name))}
             aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
@@ -139,7 +139,7 @@ export function Sidebar({
               </Tip>
             )}
             {agents.data ? (
-              <span className="ml-auto rounded-full bg-surface-raised px-1.5 text-[10.5px] tabular-nums text-subtle">{mine.length}</span>
+              <span className="ml-auto rounded-full bg-surface-raised px-1.5 text-caption tabular-nums text-subtle">{mine.length}</span>
             ) : (
               <Skeleton className="ml-auto h-3.5 w-5 rounded-full" />
             )}
@@ -170,7 +170,7 @@ export function Sidebar({
     return (
       <div
         className={cn(
-          'mx-2 rounded-lg border border-dashed border-line-strong px-2.5 py-1.5 text-[11.5px] text-faint transition-colors',
+          'mx-2 rounded-lg border border-dashed border-line-strong px-2.5 py-1.5 text-caption text-faint transition-colors',
           isTarget({ kind: 'list', section: id }) && 'border-brand-400/60 bg-brand-400/10 text-brand-300',
         )}
         {...dropZone(() => (draggingRef.current?.kind === 'project' ? { kind: 'list', section: id } : null))}
@@ -185,7 +185,7 @@ export function Sidebar({
       <div className={cn('flex h-14 shrink-0 items-center px-4', nightly && 'nightly-sky')} data-nightly={nightly || undefined}>
         <button className="flex items-center gap-2.5 rounded-lg focus-visible:outline-none" aria-label={t('shell.sidebar.home')} onClick={() => onSelect({ kind: 'home' })}>
           <Logo />
-          <span className="text-[15px] font-semibold tracking-tight text-title">AgentBox</span>
+          <span className="text-heading font-semibold tracking-tight text-title">AgentBox</span>
         </button>
         {nightly && (
           <Tip label={t('shell.sidebar.nightlyTip', { version: info.data?.version ? `, ${info.data.version}` : '' })}>
@@ -227,7 +227,7 @@ export function Sidebar({
         }}
       >
         <div className="flex items-center gap-1 px-2.5 pb-1.5">
-          <span data-heading className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-subtle">{t('shell.sidebar.projects')}</span>
+          <span data-heading className="text-caption font-semibold uppercase tracking-[0.08em] text-subtle">{t('shell.sidebar.projects')}</span>
           <Tip label={t('shell.sidebar.newProject')}>
             <button
               aria-label={t('shell.sidebar.newProject')}
@@ -261,7 +261,7 @@ export function Sidebar({
           </div>
         )}
         {projects.data?.length === 0 && (
-          <button className="mx-2 mt-1 flex w-[calc(100%-1rem)] items-center gap-2 rounded-lg border border-dashed border-line-strong px-3 py-3 text-left text-[13px] text-subtle hover:border-line-heavy hover:text-tertiary" onClick={onAddProject}>
+          <button className="mx-2 mt-1 flex w-[calc(100%-1rem)] items-center gap-2 rounded-lg border border-dashed border-line-strong px-3 py-3 text-left text-ui text-subtle hover:border-line-heavy hover:text-tertiary" onClick={onAddProject}>
             <FolderPlus className="size-4" />
             {t('shell.sidebar.addFirst')}
           </button>
@@ -358,7 +358,7 @@ export function Sidebar({
         </NavItem>
         <NavItem nav="jobs" icon={ListChecks} active={view.kind === 'jobs'} onClick={() => onSelect({ kind: 'jobs' })}>
           {t('shell.nav.jobs')}
-          {running > 0 && <span className="ml-auto rounded-full bg-sky-400/15 px-1.5 text-[10.5px] text-sky-300">{t('shell.sidebar.running', { count: running })}</span>}
+          {running > 0 && <span className="ml-auto rounded-full bg-sky-400/15 px-1.5 text-caption text-sky-300">{t('shell.sidebar.running', { count: running })}</span>}
         </NavItem>
         <NavItem nav="add" icon={FolderPlus} onClick={onAddProject}>
           {t('shell.home.addProject')}
@@ -442,7 +442,7 @@ export function SectionHeader({
     >
       <GripVertical className="size-3 shrink-0 text-ghost opacity-0 transition group-hover/section:opacity-100" />
       <button
-        className="flex min-w-0 flex-1 items-center gap-1 py-1 text-left text-[11px] font-semibold uppercase tracking-[0.06em] text-muted hover:text-primary"
+        className="flex min-w-0 flex-1 items-center gap-1 py-1 text-left text-caption font-semibold uppercase tracking-[0.06em] text-muted hover:text-primary"
         aria-expanded={!section.collapsed}
         onClick={onToggle}
         onKeyDown={(e) => {
@@ -454,7 +454,7 @@ export function SectionHeader({
       >
         <ChevronRight className={cn('size-3 shrink-0 text-faint transition-transform', !section.collapsed && 'rotate-90')} />
         <span className="truncate">{section.name}</span>
-        <span className="ml-auto rounded-full px-1 text-[10px] tabular-nums text-faint">{count}</span>
+        <span className="ml-auto rounded-full px-1 text-caption tabular-nums text-faint">{count}</span>
       </button>
       <Menu>
         <MenuTrigger asChild>
@@ -492,7 +492,7 @@ export function NameSection({ onSave, onCancel }: { onSave: (name: string) => vo
       maxLength={40}
       aria-label={t('shell.sidebar.newSectionName')}
       placeholder={t('shell.sidebar.sectionName')}
-      className="mb-1 h-8 text-[12px]"
+      className="mb-1 h-8 text-caption"
       onBlur={onCancel}
       onKeyDown={(e) => {
         if (e.key === 'Escape') onCancel();
@@ -571,7 +571,7 @@ function MediaNavItem({ active, onClick }: { active: boolean; onClick: () => voi
     <NavItem nav="media" icon={Images} active={active} onClick={onClick}>
       {t('shell.nav.media')}
       {unseen > 0 && (
-        <span className="ml-auto rounded-full bg-brand-500/15 px-1.5 text-[11px] tabular-nums text-brand-300 [:root[data-appearance=light]_&]:text-brand-600" data-media-unseen={unseen}>
+        <span className="ml-auto rounded-full bg-brand-500/15 px-1.5 text-caption tabular-nums text-brand-300" data-media-unseen={unseen}>
           {unseen}
         </span>
       )}
@@ -606,7 +606,7 @@ function NavItem({
       data-nav={nav}
       data-active={active || undefined}
       className={cn(
-        'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-muted transition-colors hover:bg-surface hover:text-primary disabled:cursor-progress',
+        'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-ui text-muted transition-colors hover:bg-surface hover:text-primary disabled:cursor-progress',
         active && 'bg-surface-raised text-title',
       )}
     >

@@ -283,8 +283,8 @@ function PhoneTunnel() {
                       tunnel.mode === m ? 'border-brand-500/60 bg-brand-500/10' : 'border-line bg-surface-faint enabled:hover:bg-surface-raised',
                     )}
                   >
-                    <span className="text-[13px] font-medium text-title">{t(`defaults.phone.mode.${m}`)}</span>
-                    <span className="min-w-0 break-words text-[12px] text-muted">
+                    <span className="text-ui font-medium text-title">{t(`defaults.phone.mode.${m}`)}</span>
+                    <span className="min-w-0 break-words text-caption text-muted">
                       {m === 'hub'
                         ? !tunnel.hub
                           ? t('defaults.phone.mode.hub.noHub')
@@ -380,10 +380,10 @@ function PairingCode({ pairing, onAgain, onDone }: { pairing: T.LANPairing; onAg
       <div className={expired ? 'opacity-20' : ''}>
         <QRCode rows={pairing.qr} size={184} />
       </div>
-      <div className="grid min-w-0 flex-1 gap-2 text-[13px] leading-relaxed text-muted">
+      <div className="grid min-w-0 flex-1 gap-2 text-ui leading-relaxed text-muted">
         <p className="font-medium text-primary">{t('defaults.phone.scan')}</p>
         <p>{expired ? t('defaults.phone.codeExpired') : t('defaults.phone.codeValid', { minutes: Math.ceil(left / 60_000) })}</p>
-        <p className="break-all font-mono text-[11px] text-subtle" data-phone-url>{pairing.urls[0]}</p>
+        <p className="break-all font-mono text-caption text-subtle" data-phone-url>{pairing.urls[0]}</p>
         <div className="flex flex-wrap gap-2 pt-1">
           <Button
             size="sm"
@@ -481,8 +481,8 @@ function PhoneRow({ phone: p }: { phone: T.LANPhone }) {
       <div className="flex items-center gap-3">
         <Smartphone className="size-4 shrink-0 text-subtle" />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[13px] font-medium text-primary">{p.name}</p>
-          <p className="truncate text-[11px] text-subtle">
+          <p className="truncate text-ui font-medium text-primary">{p.name}</p>
+          <p className="truncate text-caption text-subtle">
             {t('defaults.phone.pairedOn', { date: formatDate(new Date(p.paired)) })}
             {p.lastSeen && ` · ${t('defaults.phone.lastSeen', { when: formatDateTime(new Date(p.lastSeen)) })}`}
             {p.lastAddr && ` · ${t('defaults.phone.fromAddr', { addr: p.lastAddr })}`}
@@ -493,7 +493,7 @@ function PhoneRow({ phone: p }: { phone: T.LANPhone }) {
         </Button>
       </div>
       <div className="flex min-w-0 flex-wrap items-center gap-1.5 pl-7" data-phone-scopes>
-        <span className="mr-1 text-[11px] text-subtle">{t('defaults.phone.mayLabel')}</span>
+        <span className="mr-1 text-caption text-subtle">{t('defaults.phone.mayLabel')}</span>
         {plainScopes.map((scope) => (
           <button
             key={scope}
@@ -503,7 +503,7 @@ function PhoneRow({ phone: p }: { phone: T.LANPhone }) {
             disabled={scopes.isPending}
             onClick={() => void toggle(scope, !has(scope))}
             className={cn(
-              'rounded-full border px-2.5 py-0.5 text-[11px] transition-colors disabled:opacity-60',
+              'rounded-full border px-2.5 py-0.5 text-caption transition-colors disabled:opacity-60',
               has(scope) ? 'border-brand-400/50 bg-brand-500/15 text-primary' : 'border-line text-subtle line-through decoration-faint hover:text-secondary',
             )}
           >
@@ -513,8 +513,8 @@ function PhoneRow({ phone: p }: { phone: T.LANPhone }) {
       </div>
       <div className="flex min-w-0 items-start gap-3 pl-7">
         <div className="min-w-0 flex-1">
-          <p className="text-[12px] text-primary">{t('defaults.phone.mergeLabel')}</p>
-          <p className="text-[11px] leading-relaxed text-subtle">{t('defaults.phone.mergeDescription')}</p>
+          <p className="text-caption text-primary">{t('defaults.phone.mergeLabel')}</p>
+          <p className="text-caption leading-relaxed text-subtle">{t('defaults.phone.mergeDescription')}</p>
         </div>
         <Switch
           data-phone-merge
@@ -525,7 +525,7 @@ function PhoneRow({ phone: p }: { phone: T.LANPhone }) {
         />
       </div>
       <div className="pl-7">
-        <button type="button" data-phone-audit-toggle className="text-[11px] text-secondary underline-offset-2 hover:underline" onClick={() => setShowAudit((v) => !v)}>
+        <button type="button" data-phone-audit-toggle className="text-caption text-secondary underline-offset-2 hover:underline" onClick={() => setShowAudit((v) => !v)}>
           {showAudit ? t('defaults.phone.hideAudit') : t('defaults.phone.showAudit')}
         </button>
         {showAudit && <PhoneAudit phone={p} />}
@@ -561,7 +561,7 @@ function PhoneAudit({ phone }: { phone: T.LANPhone }) {
     <div className="grid gap-1 pt-2" data-phone-audit>
       <ul className="grid max-h-64 gap-0.5 overflow-y-auto rounded-lg border border-line bg-surface-faint p-1.5">
         {entries.map((e) => (
-          <li key={e.id} className="flex min-w-0 items-baseline gap-2 px-1 py-0.5 text-[11px]" data-audit-result={e.result}>
+          <li key={e.id} className="flex min-w-0 items-baseline gap-2 px-1 py-0.5 text-caption" data-audit-result={e.result}>
             <span className={cn('w-14 shrink-0 font-medium', { ok: 'text-emerald-300', refused: 'text-rose-300', failed: 'text-amber-300' }[e.result] ?? 'text-subtle')}>
               {e.result === 'ok' ? t('defaults.phone.auditOk') : e.result === 'refused' ? t('defaults.phone.auditRefused') : t('defaults.phone.auditFailed')}
             </span>

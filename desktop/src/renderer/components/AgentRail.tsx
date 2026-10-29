@@ -135,7 +135,7 @@ export function AgentRail({ view, onSelect, onNewAgent, onClose, folded: foldedH
                 aria-label={finishedOpen ? t('agent.rail.hideFinished') : t('agent.rail.showFinished', { count: done.length })}
                 aria-expanded={finishedOpen}
                 data-rail-finished={finishedOpen ? 'open' : 'closed'}
-                className="flex h-6 items-center gap-0.5 rounded-md px-1 text-[10.5px] tabular-nums text-subtle transition hover:bg-surface-strong hover:text-primary"
+                className="flex h-6 items-center gap-0.5 rounded-md px-1 text-caption tabular-nums text-subtle transition hover:bg-surface-strong hover:text-primary"
                 onClick={() => setShowFinished(!finishedOpen)}
               >
                 <ChevronRight className={cn('size-3 transition-transform', finishedOpen && 'rotate-90')} />
@@ -171,8 +171,8 @@ export function AgentRail({ view, onSelect, onNewAgent, onClose, folded: foldedH
           </div>
         ) : (
           <>
-            <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-subtle">{t('agent.rail.agents')}</span>
-            {mine.length > 0 && <span className="rounded-full bg-surface-raised px-1.5 text-[10.5px] tabular-nums text-subtle">{mine.length}</span>}
+            <span className="text-caption font-medium text-subtle">{t('agent.rail.agents')}</span>
+            {mine.length > 0 && <span className="rounded-full bg-surface-raised px-1.5 text-caption tabular-nums text-subtle">{mine.length}</span>}
           </>
         )}
         <Tip label={t('agent.rail.newAgentIn', { project: projectName })}>
@@ -208,8 +208,8 @@ export function AgentRail({ view, onSelect, onNewAgent, onClose, folded: foldedH
               {onLead && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-brand-400" />}
               <AgentAvatar ai="claude" mood={leadMood} seed={`${project}/lead`} />
               <span className="min-w-0 flex-1">
-                <span className={cn('block truncate text-[13px] font-medium', onLead ? 'text-title' : 'text-secondary')}>{t('agent.rail.projectChat')}</span>
-                <span className="block truncate text-[11px] text-subtle">{t('agent.rail.leadConversation')}</span>
+                <span className={cn('block truncate text-ui font-medium', onLead ? 'text-title' : 'text-secondary')}>{t('agent.rail.projectChat')}</span>
+                <span className="block truncate text-caption text-subtle">{t('agent.rail.leadConversation')}</span>
               </span>
             </button>
             {leadPages > 0 && <PagesBadge count={leadPages} onClick={() => openPages(leadRef)} />}
@@ -348,13 +348,13 @@ export function RemoteRow({ agent: a }: { agent: T.RemoteAgent }) {
         <AgentAvatar ai="claude" mood={remoteMood(a.status)} seed={`${a.machineId}/${a.name}`} />
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate text-[13px] font-medium text-secondary">{a.title || a.name}</span>
-            <span className="flex max-w-[45%] shrink-0 items-center gap-1 rounded-md bg-surface-raised px-1.5 text-[10.5px] text-subtle">
+            <span className="truncate text-ui font-medium text-secondary">{a.title || a.name}</span>
+            <span className="flex max-w-[45%] shrink-0 items-center gap-1 rounded-md bg-surface-raised px-1.5 text-caption text-subtle">
               <Server className="size-3 shrink-0" />
               <span className="truncate">{a.machine}</span>
             </span>
           </span>
-          <span className="block truncate text-[11px] text-subtle">
+          <span className="block truncate text-caption text-subtle">
             {statusText[a.status] ?? a.status} · {timeAgo(a.updatedAt)}
           </span>
         </span>
@@ -388,12 +388,12 @@ export function FinishedSection({ count, open, onToggle, children }: { count: nu
     <section className="mt-1.5 border-t border-line-faint pt-1.5" data-rail-finished={open ? 'open' : 'closed'}>
       <button
         aria-expanded={open}
-        className="flex w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-subtle transition hover:bg-surface hover:text-primary"
+        className="flex w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-left text-caption font-medium text-subtle transition hover:bg-surface hover:text-primary"
         onClick={() => onToggle(!open)}
       >
         <ChevronRight className={cn('size-3.5 shrink-0 transition-transform', open && 'rotate-90')} />
         {t('agent.rail.finished')}
-        <span className="rounded-full bg-surface-raised px-1.5 text-[10.5px] font-normal normal-case tracking-normal tabular-nums">{count}</span>
+        <span className="rounded-full bg-surface-raised px-1.5 text-caption font-normal tabular-nums">{count}</span>
       </button>
       {open && children}
     </section>
@@ -409,11 +409,11 @@ export function StoppedSection({ agents, disk, children }: { agents: T.Agent[]; 
   const total = agents.reduce((sum, a) => sum + (disk.get(a.ref) ?? 0), 0);
   return (
     <section className="mt-1.5 border-t border-line-faint pt-1.5" data-rail-stopped={agents.length}>
-      <div className="flex min-w-0 items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-subtle" title={t('agent.rail.stoppedTip')}>
+      <div className="flex min-w-0 items-center gap-1.5 px-2.5 py-1.5 text-caption font-medium text-subtle" title={t('agent.rail.stoppedTip')}>
         <HardDrive className="size-3.5 shrink-0" />
         <span className="min-w-0 truncate">{t('agent.rail.stopped')}</span>
-        <span className="rounded-full bg-surface-raised px-1.5 text-[10.5px] font-normal normal-case tracking-normal tabular-nums">{agents.length}</span>
-        {total > 0 && <span className="ml-auto shrink-0 text-[10.5px] font-normal normal-case tracking-normal tabular-nums" data-rail-stopped-bytes>{humanBytes(total)}</span>}
+        <span className="rounded-full bg-surface-raised px-1.5 text-caption font-normal tabular-nums">{agents.length}</span>
+        {total > 0 && <span className="ml-auto shrink-0 text-caption font-normal tabular-nums" data-rail-stopped-bytes>{humanBytes(total)}</span>}
       </div>
       {children}
     </section>
@@ -425,8 +425,8 @@ export function RailEmpty({ project, onNewAgent }: { project: string; onNewAgent
   const t = useT();
   return (
     <div className="mt-2 grid justify-items-center gap-2 px-2 py-8 text-center">
-      <p className="text-[12.5px] leading-relaxed text-subtle">{t('agent.rail.empty', { project })}</p>
-      <button className="flex items-center gap-1.5 rounded-lg border border-line-strong px-2.5 py-1.5 text-[12.5px] text-tertiary transition hover:bg-surface-raised" onClick={onNewAgent}>
+      <p className="text-ui leading-relaxed text-subtle">{t('agent.rail.empty', { project })}</p>
+      <button className="flex items-center gap-1.5 rounded-lg border border-line-strong px-2.5 py-1.5 text-ui text-tertiary transition hover:bg-surface-raised" onClick={onNewAgent}>
         <Plus className="size-3.5" />
         {t('agent.rail.newAgent')}
       </button>
@@ -442,13 +442,13 @@ function RailTab({ active, count, onClick, children, ...rest }: { active: boolea
       aria-selected={active}
       onClick={onClick}
       className={cn(
-        'flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] transition-colors',
+        'flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-caption font-medium transition-colors',
         active ? 'bg-surface-strong text-secondary' : 'text-subtle hover:bg-surface hover:text-primary',
       )}
       {...rest}
     >
       <span className="truncate">{children}</span>
-      {count > 0 && <span className="rounded-full bg-surface-raised px-1.5 text-[10.5px] font-normal normal-case tracking-normal tabular-nums text-subtle">{count}</span>}
+      {count > 0 && <span className="rounded-full bg-surface-raised px-1.5 text-caption font-normal tabular-nums text-subtle">{count}</span>}
     </button>
   );
 }
@@ -501,11 +501,11 @@ function AgentRow({
                 the name, its IP and what its machine uses are in the card its
                 hover opens (AgentInfoCard). */}
             <span className="flex min-w-0 items-center gap-1.5">
-              <span className={cn('block min-w-0 truncate text-[13px] font-medium', active ? 'text-title' : 'text-secondary')}>{agent.title || agent.name}</span>
+              <span className={cn('block min-w-0 truncate text-ui font-medium', active ? 'text-title' : 'text-secondary')}>{agent.title || agent.name}</span>
               <SessionChip agent={agent} />
             </span>
-            <span className="mt-0.5 flex items-center gap-1.5 text-[11px]">
-              {status.tone === 'urgent' && <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-amber-400" />}
+            <span className="mt-0.5 flex items-center gap-1.5 text-caption">
+              {status.tone === 'urgent' && <span className="size-1.5 shrink-0 rounded-full bg-amber-400" />}
               {status.tone === 'error' && <span className="size-1.5 shrink-0 rounded-full bg-rose-400" />}
               <span
                 title={statusTip(agent)}
@@ -530,7 +530,7 @@ function AgentRow({
             </span>
             {/* Its branch, or its pull request in the badge over the row. */}
             {!pr && (
-              <span className={cn('mt-1 flex items-center gap-1 font-mono text-[10.5px] text-faint', pages > 0 && 'pr-9')} data-rail-branch>
+              <span className={cn('mt-1 flex items-center gap-1 font-mono text-caption text-faint', pages > 0 && 'pr-9')} data-rail-branch>
                 <GitBranch className="size-3 shrink-0" />
                 <span className="min-w-0 truncate">{agent.branch}</span>
               </span>
@@ -585,7 +585,7 @@ function PagesBadge({ count, onClick }: { count: number; onClick: () => void }) 
         data-rail-pages-badge={count}
         aria-label={t('pages.rail.agentPages', { count })}
         onClick={onClick}
-        className="absolute bottom-2 right-2 flex items-center gap-0.5 rounded-md px-1 py-0.5 text-[10.5px] tabular-nums text-subtle transition hover:bg-surface-vivid hover:text-primary xl:bottom-2.5"
+        className="absolute bottom-2 right-2 flex items-center gap-0.5 rounded-md px-1 py-0.5 text-caption tabular-nums text-subtle transition hover:bg-surface-vivid hover:text-primary xl:bottom-2.5"
       >
         <PageIcon className="size-3.5" />
         {count > 1 && count}

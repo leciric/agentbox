@@ -67,8 +67,8 @@ export function ReviewSection({ pages, shown, open, onBegin }: { pages: ReviewPa
   return (
     <section className="border-b border-line-faint pb-1" data-review-list>
       <div className="flex items-center gap-2 px-2.5 pb-1 pt-2">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-subtle">{t('review.button')}</span>
-        {items.length > 0 && <span className="text-[11px] text-subtle">{t('review.waiting', { count: pageTotal(pages.data) })}</span>}
+        <span className="text-caption font-medium uppercase tracking-wide text-subtle">{t('review.button')}</span>
+        {items.length > 0 && <span className="text-caption text-subtle">{t('review.waiting', { count: pageTotal(pages.data) })}</span>}
         {items.length > 0 && (
           <Button size="sm" variant="primary" className="ml-auto h-7" data-review-all onClick={() => onBegin({ item: items[0], order })}>
             <Play />
@@ -77,7 +77,7 @@ export function ReviewSection({ pages, shown, open, onBegin }: { pages: ReviewPa
         )}
       </div>
       {items.length === 0 ? (
-        <div className="px-3 py-3 text-[12.5px] text-muted">{pages.isPending ? t('common.loading') : t('review.empty')}</div>
+        <div className="px-3 py-3 text-ui text-muted">{pages.isPending ? t('common.loading') : t('review.empty')}</div>
       ) : (
         <>
           {items.map((item) => (
@@ -92,7 +92,7 @@ export function ReviewSection({ pages, shown, open, onBegin }: { pages: ReviewPa
           aria-expanded={showReviewed}
           data-reviewed-toggle
           onClick={() => setShowReviewed((s) => !s)}
-          className="flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-[12px] font-medium text-muted transition hover:bg-surface-raised hover:text-primary"
+          className="flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-caption font-medium text-muted transition hover:bg-surface-raised hover:text-primary"
         >
           <ChevronDown className={cn('size-3.5 transition-transform', !showReviewed && '-rotate-90')} />
           {t('review.reviewedSection')}
@@ -107,7 +107,7 @@ export function ReviewSection({ pages, shown, open, onBegin }: { pages: ReviewPa
               <MoreMedia pages={reviewed} />
             </>
           ) : (
-            <div className="px-4 py-3 text-[12px] text-subtle">{reviewed.isPending ? t('common.loading') : t('review.reviewedEmpty')}</div>
+            <div className="px-4 py-3 text-caption text-subtle">{reviewed.isPending ? t('common.loading') : t('review.reviewedEmpty')}</div>
           ))}
       </div>
     </section>
@@ -200,11 +200,11 @@ export function ReviewRow({ item, isNew, now, projects, onOpen }: { item: T.Revi
         <AIIcon ai={item.ai || 'claude'} className={cn('mt-0.5 size-4 shrink-0', done && 'opacity-60')} />
         <span className="grid min-w-0 flex-1 gap-0.5">
           <span className="flex min-w-0 items-baseline gap-2">
-            <span className={cn('truncate text-[13px] font-medium', done ? 'text-secondary' : 'text-primary', !item.title && 'font-mono')}>{item.title || item.agent}</span>
-            {isNew && <span className="shrink-0 rounded-full bg-brand-500 px-1.5 text-[9.5px] font-semibold uppercase leading-4 text-white">{t('review.new')}</span>}
-            <span className="ml-auto shrink-0 text-[11px] text-subtle">{done && item.reviewedAt ? <VerdictText item={item} now={now} /> : timeAgo(item.finishedAt, now)}</span>
+            <span className={cn('truncate text-ui font-medium', done ? 'text-secondary' : 'text-primary', !item.title && 'font-mono')}>{item.title || item.agent}</span>
+            {isNew && <span className="shrink-0 rounded-full bg-brand-500 px-1.5 text-caption font-semibold uppercase leading-4 text-white">{t('review.new')}</span>}
+            <span className="ml-auto shrink-0 text-caption text-subtle">{done && item.reviewedAt ? <VerdictText item={item} now={now} /> : timeAgo(item.finishedAt, now)}</span>
           </span>
-          <span className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-muted">
+          <span className="flex min-w-0 items-center gap-1.5 text-caption text-muted">
             <span className="shrink-0 truncate">{projectLabel(item.project, projects)}</span>
             {item.branch && (
               <>
@@ -212,10 +212,10 @@ export function ReviewRow({ item, isNew, now, projects, onOpen }: { item: T.Revi
                   ·
                 </span>
                 <GitBranch className="size-3 shrink-0 text-faint" />
-                <span className="min-w-0 truncate font-mono text-[11px]">{item.branch}</span>
+                <span className="min-w-0 truncate font-mono text-caption">{item.branch}</span>
               </>
             )}
-            {item.pr && <span className="ml-auto shrink-0 font-mono text-[11px] text-secondary">#{item.pr.number}</span>}
+            {item.pr && <span className="ml-auto shrink-0 font-mono text-caption text-secondary">#{item.pr.number}</span>}
           </span>
         </span>
       </button>
@@ -610,7 +610,7 @@ function ReviewCarousel({
           <header className="grid gap-1 border-b border-line px-5 py-3 pr-14" inert={help}>
             <div className="flex min-w-0 items-center gap-3">
               <AIIcon ai={item.ai || 'claude'} className="size-5 shrink-0" />
-              <DialogTitle className={cn('min-w-0 truncate text-[16px] leading-snug', !item.title && 'font-mono')} title={item.title || item.agent}>
+              <DialogTitle className={cn('min-w-0 truncate text-heading leading-snug', !item.title && 'font-mono')} title={item.title || item.agent}>
                 {item.title || item.agent}
               </DialogTitle>
               {item.verdict && (
@@ -624,7 +624,7 @@ function ReviewCarousel({
                     <Button size="icon-sm" variant="ghost" disabled={!canBack} onClick={onBack} title={`${t('review.backTitle')} (P)`} aria-label={t('review.key.previousItem')} data-review-back>
                       <ChevronLeft />
                     </Button>
-                    <span className="text-[12px] tabular-nums text-subtle" data-review-agent-position={`${position.n}/${position.count}`}>
+                    <span className="text-caption tabular-nums text-subtle" data-review-agent-position={`${position.n}/${position.count}`}>
                       {t('review.position', { n: position.n, count: position.count })}
                     </span>
                     <Button size="icon-sm" variant="ghost" disabled={!next} onClick={onNext} title={next ? `${t('review.nextIs', { agent: next.title || next.agent })} (N)` : undefined} aria-label={t('review.key.nextItem')} data-review-next>
@@ -640,7 +640,7 @@ function ReviewCarousel({
                 )}
               </div>
             </div>
-            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 pl-8 text-[12.5px]">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 pl-8 text-ui">
               <p className={cn('min-w-0 flex-1 basis-[320px] truncate', summary ? 'text-secondary' : 'italic text-subtle')} title={item.summary || undefined} data-review-summary-line>
                 {summary || t('review.noSummary')}
               </p>
@@ -659,7 +659,7 @@ function ReviewCarousel({
                     <FileDiff />
                     {t('review.diff')}
                     {item.changes && item.changes.files > 0 && (
-                      <span className="font-mono text-[11.5px]">
+                      <span className="font-mono text-caption">
                         <span className="text-emerald-400">+{item.changes.insertions}</span> <span className="text-rose-400">−{item.changes.deletions}</span>
                       </span>
                     )}
@@ -686,7 +686,7 @@ function ReviewCarousel({
           {report && <ReportStrip report={report} inert={help} />}
           <section ref={body} className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden" inert={help} data-review-body>
             {pane === 'proof' &&
-              (media.isPending ? <div className="p-6 text-[13px] text-subtle">{t('common.loading')}</div> : <ReviewProof ref={proofView} key={item.ref} project={item.project} proof={proof} />)}
+              (media.isPending ? <div className="p-6 text-ui text-subtle">{t('common.loading')}</div> : <ReviewProof ref={proofView} key={item.ref} project={item.project} proof={proof} />)}
             {pane === 'diff' &&
               (pr ? (
                 <div className="flex min-h-0 flex-1 flex-col bg-modal" data-review-slide="changes">
@@ -709,12 +709,12 @@ function ReviewCarousel({
               ))}
             {pane === 'details' && (
               <div className="mx-auto grid w-full max-w-4xl content-start gap-6 p-5" data-review-details>
-                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-muted">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-ui text-muted">
                   <span className="font-medium text-secondary">{projectLabel(item.project, projects.data)}</span>
                   {item.branch && (
                     <span className="flex min-w-0 items-center gap-1">
                       <GitBranch className="size-3 shrink-0 text-faint" />
-                      <span className="truncate font-mono text-[11.5px]">{item.branch}</span>
+                      <span className="truncate font-mono text-caption">{item.branch}</span>
                     </span>
                   )}
                   <span className="text-faint">· {t('review.finished', { when: timeAgo(item.finishedAt) })}</span>
@@ -725,12 +725,12 @@ function ReviewCarousel({
                   )}
                 </div>
                 <section data-review-summary>
-                  <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-subtle">{t('review.summary')}</h3>
-                  {item.summary ? <Markdown text={item.summary} className="text-[13px]" /> : <p className="text-[12.5px] italic text-subtle">{t('review.noSummary')}</p>}
+                  <h3 className="mb-2 text-caption font-semibold uppercase tracking-wide text-subtle">{t('review.summary')}</h3>
+                  {item.summary ? <Markdown text={item.summary} className="text-ui" /> : <p className="text-ui italic text-subtle">{t('review.noSummary')}</p>}
                 </section>
                 {pr && (
                   <section className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-line" data-review-slide="pr">
-                    <h3 className="flex min-w-0 items-center gap-2 border-b border-line-faint px-4 py-2 text-[12.5px] font-medium text-primary">
+                    <h3 className="flex min-w-0 items-center gap-2 border-b border-line-faint px-4 py-2 text-ui font-medium text-primary">
                       <GitPullRequest className="size-3.5 shrink-0 text-subtle" />
                       <span className="min-w-0 truncate">{pr.title}</span>
                       <span className="shrink-0 font-mono text-subtle">#{pr.number}</span>
@@ -755,7 +755,7 @@ function ReviewCarousel({
           </section>
           {changing && (
             <div className="mx-4 mb-3 grid gap-2 rounded-xl border border-line-strong bg-well p-3" inert={help} data-review-changes-box>
-              <div className="text-[12px] text-muted">{t('review.changesTo', { agent: item.agent })}</div>
+              <div className="text-caption text-muted">{t('review.changesTo', { agent: item.agent })}</div>
               <NotesList notes={notes.notes} />
               <textarea
                 ref={changesBox}
@@ -771,7 +771,7 @@ function ReviewCarousel({
                 }}
                 placeholder={pendingNotes.length > 0 ? t('review.notes.extra') : t('review.changesPlaceholder')}
                 aria-label={t('review.requestChanges')}
-                className="w-full resize-none rounded-lg bg-surface-faint px-2.5 py-2 text-[13px] text-primary outline-none ring-1 ring-line focus:ring-brand-400"
+                className="w-full resize-none rounded-lg bg-surface-faint px-2.5 py-2 text-ui text-primary outline-none ring-1 ring-line focus:ring-brand-400"
                 data-review-changes-input
               />
               <div className="flex justify-end gap-2">
@@ -816,7 +816,7 @@ function ReviewCarousel({
                   <Hint k="R" />
                 </Button>
                 {/* Why Merge can't, beside it; narrow, on a line of its own under the actions. */}
-                <span className={cn('ml-auto min-w-0 flex-1 truncate text-right text-[12px] text-amber-200 [:root[data-appearance=light]_&]:text-amber-700', footerNote && 'max-sm:order-last max-sm:basis-full max-sm:text-left')} data-merge-blocked title={footerReason}>
+                <span className={cn('ml-auto min-w-0 flex-1 truncate text-right text-caption text-amber-200 [:root[data-appearance=light]_&]:text-amber-700', footerNote && 'max-sm:order-last max-sm:basis-full max-sm:text-left')} data-merge-blocked title={footerReason}>
                   {armed && pr && !mergeDisabled ? <span className="text-primary" data-review-merge-armed>{t('review.mergeArmed', { number: pr.number })}</span> : footerNote}
                 </span>
                 <div className="flex shrink-0 items-stretch" data-review-merge-split>
@@ -842,7 +842,7 @@ function ReviewCarousel({
                 </div>
               </>
             ) : (
-              <span className="ml-auto min-w-0 truncate text-[12px] text-subtle" data-review-looked>
+              <span className="ml-auto min-w-0 truncate text-caption text-subtle" data-review-looked>
                 {t(past ? 'review.lookOnly.past' : item.verdict ? 'review.lookOnly.reviewed' : item.fingerprint ? 'review.lookOnly.done' : 'review.lookOnly.working')}
               </span>
             )}
@@ -874,7 +874,7 @@ function Hint({ k, onPrimary }: { k: string; onPrimary?: boolean }) {
 // NotesCount is how many line notes wait to go with Request changes.
 function NotesCount({ n }: { n: number }) {
   return (
-    <span className="rounded-full bg-amber-400/20 px-1.5 text-[11px] font-semibold tabular-nums text-amber-200 [:root[data-appearance=light]_&]:text-amber-700" data-review-notes-count>
+    <span className="rounded-full bg-amber-400/20 px-1.5 text-caption font-semibold tabular-nums text-amber-200 [:root[data-appearance=light]_&]:text-amber-700" data-review-notes-count>
       {n}
     </span>
   );
@@ -888,7 +888,7 @@ function PaneTab({ on, onClick, pane, children }: { on: boolean; onClick: () => 
       aria-selected={on}
       onClick={onClick}
       className={cn(
-        'inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-[12px] font-medium transition [&_svg]:size-3.5',
+        'inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-caption font-medium transition [&_svg]:size-3.5',
         on ? 'bg-surface-strong text-title' : 'text-subtle hover:text-primary',
       )}
       data-review-toggle={pane}
@@ -930,17 +930,17 @@ function ReportStrip({ report, inert }: { report: T.AgentReport; inert: boolean 
   return (
     <section className="grid min-w-0 gap-1.5 border-b border-line bg-surface-faint px-5 py-2.5" inert={inert} data-review-report={report.status}>
       <div className="flex min-w-0 items-start gap-2.5">
-        <span className="mt-0.5 shrink-0 text-[11px] font-semibold uppercase tracking-wide text-subtle">{t('review.report')}</span>
+        <span className="mt-0.5 shrink-0 text-caption font-semibold uppercase tracking-wide text-subtle">{t('review.report')}</span>
         <OutcomeBadge outcome={report.status} />
-        <div className={cn('min-w-0 flex-1 text-[12.5px] text-secondary [overflow-wrap:anywhere]', !open && 'line-clamp-2')}>
-          <Markdown text={report.summary} className="text-[12.5px]" />
+        <div className={cn('min-w-0 flex-1 text-ui text-secondary [overflow-wrap:anywhere]', !open && 'line-clamp-2')}>
+          <Markdown text={report.summary} className="text-ui" />
         </div>
-        <button type="button" className="shrink-0 rounded-md px-1.5 py-0.5 text-[12px] font-medium text-subtle hover:bg-surface-strong hover:text-primary" aria-expanded={open} onClick={() => setOpen((o) => !o)} data-review-report-toggle>
+        <button type="button" className="shrink-0 rounded-md px-1.5 py-0.5 text-caption font-medium text-subtle hover:bg-surface-strong hover:text-primary" aria-expanded={open} onClick={() => setOpen((o) => !o)} data-review-report-toggle>
           {open ? t('review.reportLess') : remaining.length ? t('review.reportMoreOpen', { count: remaining.length }) : t('review.reportMore')}
         </button>
       </div>
       {open && remaining.length > 0 && (
-        <div className="grid min-w-0 gap-1 pl-[4.5rem] text-[12px]">
+        <div className="grid min-w-0 gap-1 pl-[4.5rem] text-caption">
           <span className="font-medium text-amber-200 [:root[data-appearance=light]_&]:text-amber-700">{t('review.remaining')}</span>
           <ul className="grid list-disc gap-0.5 pl-4 text-secondary [overflow-wrap:anywhere]">
             {remaining.map((r) => (
@@ -960,7 +960,7 @@ function AgentDiff({ agent, past }: { agent: string; past?: boolean }) {
   const t = useT();
   const diff = useQuery({ queryKey: ['diff', agent, !!past], queryFn: () => (past ? api.archivedDiff(agent) : api.diff(agent)) });
   if (diff.error) return <Notice className="m-5">{t('review.diffUnavailable', { error: errorMessage(diff.error) })}</Notice>;
-  if (!diff.data) return <div className="p-6 text-[13px] text-subtle">{t('common.loading')}</div>;
+  if (!diff.data) return <div className="p-6 text-ui text-subtle">{t('common.loading')}</div>;
   return (
     <div className="grid min-w-0 flex-1 content-start gap-3 bg-sunken p-4" data-review-diff>
       {splitGitDiff(diff.data).map((f) => (
@@ -976,7 +976,7 @@ function AgentFileDiff({ path, patch }: { path: string; patch: string }) {
   const tokens = useHighlighted(lines, languageOfPath(path));
   return (
     <div className="min-w-0 overflow-hidden rounded-xl border border-line-faint" data-pull-file={path}>
-      <div className="truncate bg-surface-raised/40 px-3 py-2 font-mono text-[12.5px] text-secondary" title={path}>
+      <div className="truncate bg-surface-raised/40 px-3 py-2 font-mono text-ui text-secondary" title={path}>
         {path}
       </div>
       {lines.length > 0 ? (
@@ -984,7 +984,7 @@ function AgentFileDiff({ path, patch }: { path: string; patch: string }) {
           <DiffTable path={path} lines={lines} tokens={tokens} />
         </div>
       ) : (
-        <p className="px-3 py-2 text-[12px] text-subtle">{t('pulls.detail.noDiff')}</p>
+        <p className="px-3 py-2 text-caption text-subtle">{t('pulls.detail.noDiff')}</p>
       )}
     </div>
   );
@@ -997,7 +997,7 @@ function PrStatus({ pr }: { pr: T.PullRequest }) {
   return (
     <span className="flex shrink-0 items-center gap-1.5" data-review-pr-state={pr.state}>
       <GitPullRequest className="size-3.5 shrink-0 text-faint" />
-      <PrNumberLink pr={pr} className="font-mono text-[12px]" />
+      <PrNumberLink pr={pr} className="font-mono text-caption" />
       {pr.draft ? <Badge>{t('memory.pulls.draft')}</Badge> : pr.state !== 'open' && <Badge variant={stateVariants[pr.state] ?? 'default'}>{stateLabels[pr.state] ? t(stateLabels[pr.state]) : pr.state}</Badge>}
       {pr.state === 'open' && pr.checks && (
         <Badge variant={checksVariants[pr.checks] ?? 'default'} data-review-checks={pr.checks}>
@@ -1033,19 +1033,19 @@ function KeysHelp({ onClose }: { onClose: () => void }) {
       <div role="dialog" aria-modal aria-labelledby="review-keys-title" className="grid w-full max-w-md gap-4 rounded-2xl border border-line-strong bg-modal p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2">
           <Keyboard className="size-4 text-subtle" />
-          <h2 id="review-keys-title" className="flex-1 text-[14px] font-semibold text-title">
+          <h2 id="review-keys-title" className="flex-1 text-body font-semibold text-title">
             {t('review.keys.title')}
           </h2>
           <button ref={close} type="button" onClick={onClose} aria-label={t('common.close')} className="rounded-md p-1 text-subtle transition-colors hover:bg-surface-raised hover:text-primary">
             <X className="size-4" />
           </button>
         </div>
-        <ul className="grid gap-2 text-[12.5px]">
+        <ul className="grid gap-2 text-ui">
           {reviewKeys.map((k) => row(k.keys, t(keyLabels[k.action])))}
           {row([isMac ? '⌘ Enter' : 'Ctrl Enter'], t('review.key.send'))}
           {row(['Esc'], t('review.key.close'))}
         </ul>
-        <p className="text-[12px] text-subtle">{t('review.keys.typing')}</p>
+        <p className="text-caption text-subtle">{t('review.keys.typing')}</p>
       </div>
     </div>
   );

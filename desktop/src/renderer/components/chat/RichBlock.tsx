@@ -82,7 +82,7 @@ export function GeneratingCard({ kind, lines, bytes }: { kind: RichKind; lines: 
   const size = bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
   return (
     <div className="chat-codeblock" data-rich-generating={kind} role="status">
-      <div className="flex h-14 items-center gap-3 px-3 text-[12px] text-subtle">
+      <div className="flex h-14 items-center gap-3 px-3 text-caption text-subtle">
         <Icon className="size-4 shrink-0" />
         <span className="min-w-0 flex-1 truncate">{t(`chat.rich.generating.${kind}`)}</span>
         <span className="shrink-0 tabular-nums text-faint">{t('chat.rich.generatingSoFar', { lines, size })}</span>
@@ -117,7 +117,7 @@ function DrawnBlock({ kind, code, onCode }: { kind: RichKind; code: string; onCo
   };
   return (
     <div className="chat-codeblock" data-rich={kind}>
-      <div className="flex h-8 items-center justify-between gap-2 border-b border-line-faint pl-3 pr-1 text-[11px] text-subtle">
+      <div className="flex h-8 items-center justify-between gap-2 border-b border-line-faint pl-3 pr-1 text-caption text-subtle">
         <span className="flex min-w-0 items-center gap-1.5">
           <span className="truncate">{t(`chat.rich.${kind}`)}</span>
           {kind === 'html' && <span className={cn('shrink-0 truncate', network ? 'text-amber-400' : 'text-faint')}>· {t(network ? 'chat.rich.online' : 'chat.rich.offline')}</span>}
@@ -174,7 +174,7 @@ function ProblemBar({ problem, network, onNetwork, onCode }: { problem: PageProb
   const t = useT();
   const blocked = problem.kind === 'blocked' && !network;
   return (
-    <div className="flex items-start gap-2 border-b border-line-faint px-3 py-1.5 text-[11.5px] text-amber-300" role="status" data-rich-problem={problem.kind}>
+    <div className="flex items-start gap-2 border-b border-line-faint px-3 py-1.5 text-caption text-amber-300" role="status" data-rich-problem={problem.kind}>
       <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
       <span className="min-w-0 flex-1 break-words">{problem.kind === 'blocked' ? t('chat.rich.blocked', { host: problem.host }) : t('chat.rich.scriptFailed', { error: problem.message })}</span>
       {blocked ? (
@@ -206,7 +206,7 @@ function Picture({ kind, code, large, onOpen, onCode }: { kind: RichKind; code: 
   const drawn = useSvg(kind, code);
   if (drawn.error) {
     return (
-      <div className="flex items-start gap-2 px-3 py-2.5 text-[12px] text-rose-300" role="alert">
+      <div className="flex items-start gap-2 px-3 py-2.5 text-caption text-rose-300" role="alert">
         <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
         <span className="min-w-0 break-words">
           {t(drawn.retry ? 'chat.rich.loadFailed' : 'chat.rich.drawFailed', { error: drawn.error })}{' '}
@@ -461,7 +461,7 @@ function Publish({ kind, code }: { kind: RichKind; code: string }) {
   const [url, setUrl] = useState('');
   if (!enabled) return null;
   if (!pages.data?.connector) {
-    return <span className="text-[12px] text-faint">{t('chat.rich.noHatch')}</span>;
+    return <span className="text-caption text-faint">{t('chat.rich.noHatch')}</span>;
   }
   if (url) {
     return (
@@ -494,7 +494,7 @@ function Publish({ kind, code }: { kind: RichKind; code: string }) {
         if (!busy) void publish();
       }}
     >
-      <Input aria-label={t('chat.rich.title')} placeholder={t('chat.rich.title')} value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} className="h-8 w-64 min-w-0 text-[13px]" />
+      <Input aria-label={t('chat.rich.title')} placeholder={t('chat.rich.title')} value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} className="h-8 w-64 min-w-0 text-ui" />
       <Button size="sm" variant="primary" type="submit" disabled={busy}>
         {busy && <LoaderCircle className="size-3.5 animate-spin" />}
         {t(busy ? 'chat.rich.publishing' : 'chat.rich.publish')}

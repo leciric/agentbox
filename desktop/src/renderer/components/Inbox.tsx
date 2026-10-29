@@ -108,10 +108,7 @@ export function Inbox({ onOpen, onSelect, defaultOpen = false }: { onOpen: (n: T
             {needs.count > 0 && (
               <span
                 data-inbox-badge
-                className={cn(
-                  'absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-500 px-1 text-[10px] font-semibold tabular-nums text-white ring-2 ring-[var(--color-ink)]',
-                  fresh > 0 && 'animate-pulse',
-                )}
+                className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-500 px-1 text-caption font-semibold tabular-nums text-on-brand ring-2 ring-[var(--color-ink)]"
               >
                 {countLabel(needs.count)}
               </span>
@@ -121,11 +118,11 @@ export function Inbox({ onOpen, onSelect, defaultOpen = false }: { onOpen: (n: T
         {/* No focus on a button when it opens: Enter would press it. */}
         <PopoverContent className="w-[min(440px,calc(100vw-2rem))] p-0" data-inbox-panel onOpenAutoFocus={(e) => e.preventDefault()}>
           <div className="flex items-center gap-2 border-b border-line px-4 py-2.5">
-            <span className="text-[14px] font-medium text-title">{t('inbox.title')}</span>
+            <span className="text-body font-medium text-title">{t('inbox.title')}</span>
             {quiet && (
               <button
                 type="button"
-                className="flex items-center gap-1 rounded-full bg-amber-400/10 px-2 py-0.5 text-[11px] text-amber-200 transition hover:bg-amber-400/15 [:root[data-appearance=light]_&]:text-amber-700"
+                className="flex items-center gap-1 rounded-full bg-amber-400/10 px-2 py-0.5 text-caption text-amber-200 transition hover:bg-amber-400/15 [:root[data-appearance=light]_&]:text-amber-700"
                 data-inbox-dnd
                 onClick={() => {
                   setOpen(false);
@@ -163,7 +160,7 @@ export function Inbox({ onOpen, onSelect, defaultOpen = false }: { onOpen: (n: T
                   data-inbox-filter-option={f}
                   aria-pressed={filter === f}
                   onClick={() => setFilter(f)}
-                  className={cn('rounded-full px-2.5 py-0.5 text-[11.5px] transition', filter === f ? 'bg-surface-raised text-primary' : 'text-muted hover:text-primary')}
+                  className={cn('rounded-full px-2.5 py-0.5 text-caption transition', filter === f ? 'bg-surface-raised text-primary' : 'text-muted hover:text-primary')}
                 >
                   {t(`inbox.filter.${f}`)}
                 </button>
@@ -204,7 +201,7 @@ export function Inbox({ onOpen, onSelect, defaultOpen = false }: { onOpen: (n: T
                 }}
               />
             ) : (
-              !showNeeds && <div className="px-3 py-6 text-center text-[12.5px] text-muted">{t('inbox.empty')}</div>
+              !showNeeds && <div className="px-3 py-6 text-center text-ui text-muted">{t('inbox.empty')}</div>
             )}
           </div>
         </PopoverContent>
@@ -217,7 +214,7 @@ export function Inbox({ onOpen, onSelect, defaultOpen = false }: { onOpen: (n: T
 function Section({ title, data, children }: { title: string; data: string; children: ReactNode }) {
   return (
     <section className="border-b border-line-faint pb-1 last:border-b-0" data-inbox-section={data}>
-      <div className="px-2.5 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-subtle">{title}</div>
+      <div className="px-2.5 pb-1 pt-2 text-caption font-medium uppercase tracking-wide text-subtle">{title}</div>
       {children}
     </section>
   );
@@ -247,18 +244,18 @@ function NeedRowView({ row, projectName, onOpen }: { row: NeedRow; projectName: 
     >
       <Icon className={cn('mt-0.5 size-4 shrink-0', row.kind === 'error' ? 'text-rose-300' : 'text-muted')} />
       <span className="grid min-w-0 flex-1 gap-0.5">
-        <span className="flex min-w-0 items-baseline gap-1.5 text-[13px]">
+        <span className="flex min-w-0 items-baseline gap-1.5 text-ui">
           <span className={cn('truncate font-medium text-primary', row.title.startsWith('agent-') && 'font-mono')}>{row.title}</span>
           <span aria-hidden className="text-faint">
             ·
           </span>
-          <span className="min-w-0 truncate text-[11.5px] text-muted">{projectName}</span>
+          <span className="min-w-0 truncate text-caption text-muted">{projectName}</span>
         </span>
-        <span className={cn('truncate text-[12px]', row.kind === 'error' ? 'text-rose-300' : 'text-secondary')}>{text}</span>
+        <span className={cn('truncate text-caption', row.kind === 'error' ? 'text-rose-300' : 'text-secondary')}>{text}</span>
       </span>
-      <span className="flex shrink-0 flex-col items-end gap-0.5 text-[11px]">
+      <span className="flex shrink-0 flex-col items-end gap-0.5 text-caption">
         {row.at && <span className="tabular-nums text-subtle">{timeAgo(row.at)}</span>}
-        <span className="text-brand-300 [:root[data-appearance=light]_&]:text-brand-600">{t('inbox.open')}</span>
+        <span className="text-brand-300">{t('inbox.open')}</span>
       </span>
     </button>
   );

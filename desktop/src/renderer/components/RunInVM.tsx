@@ -63,8 +63,8 @@ export function LinuxVMSetup({ linux }: { linux: LinuxSetup }) {
       <div className="flex items-start gap-3">
         <Monitor className="mt-0.5 size-5 shrink-0 text-brand-400" />
         <div className="grid min-w-0 gap-1">
-          <h2 className="text-[15px] font-medium text-primary">{t('vm.run.setupTitle')}</h2>
-          <p className="text-[13px] text-muted">
+          <h2 className="text-heading font-medium text-primary">{t('vm.run.setupTitle')}</h2>
+          <p className="text-ui text-muted">
             {t('vm.run.setupIntro', { summary: vmSummary() })}
           </p>
         </div>
@@ -88,7 +88,7 @@ export function LinuxVMSetup({ linux }: { linux: LinuxSetup }) {
       {/* KVMAccess has its own command first: vm init comes after it. */}
       {!kvmFixable(linux) && (
         <div className="grid gap-2">
-          <p className="text-[13px] text-muted">{t('vm.run.orTerminal')}</p>
+          <p className="text-ui text-muted">{t('vm.run.orTerminal')}</p>
           <CommandBox command={sized ? `agentbox vm init --cpus ${sized.cpus} --memory-cap ${sized.memoryCap}` : 'agentbox vm init'} />
         </div>
       )}
@@ -135,7 +135,7 @@ export function KVMAccess({ linux }: { linux: LinuxSetup }) {
       {lines.length > 0 && <SetupLog lines={lines} label={t('vm.kvm.log')} />}
       {grant.error && <Notice>{errorMessage(grant.error)}</Notice>}
       <div className="grid gap-2">
-        <p className="text-[13px] text-muted">{t('vm.kvm.orTerminal')}</p>
+        <p className="text-ui text-muted">{t('vm.kvm.orTerminal')}</p>
         <CommandBox command="sudo agentbox host kvm" />
       </div>
     </div>
@@ -192,7 +192,7 @@ export function VMSizeFields({ linux, form, disabled, onChange }: { linux: Linux
             min={1}
             max={linux.cores}
             step={1}
-            className="h-8 pl-8 font-mono text-[12.5px]"
+            className="h-8 pl-8 font-mono text-ui"
             disabled={disabled}
             value={form.cpus}
             onChange={(e) => onChange({ ...form, cpus: e.target.value })}
@@ -217,7 +217,7 @@ export function VMSizeFields({ linux, form, disabled, onChange }: { linux: Linux
             min={4}
             max={most}
             step={1}
-            className="h-8 pl-8 font-mono text-[12.5px]"
+            className="h-8 pl-8 font-mono text-ui"
             disabled={disabled}
             value={form.memory}
             onChange={(e) => onChange({ ...form, memory: e.target.value })}
@@ -240,9 +240,9 @@ export function MoveToVM({ kvm, linux, command, action }: { kvm: boolean; linux?
     <Panel className="grid gap-3 p-4" data-move-to-vm>
       <div className="flex items-center gap-2">
         <Monitor className="size-4 text-brand-300" />
-        <h3 className="text-[14px] font-semibold text-primary">{t('vm.run.moveTitle')}</h3>
+        <h3 className="text-body font-semibold text-primary">{t('vm.run.moveTitle')}</h3>
       </div>
-      <p className="text-[13px] leading-relaxed text-muted">
+      <p className="text-ui leading-relaxed text-muted">
         {t('vm.run.moveDescription')}
       </p>
       {!kvm && (linux ? <KVMAccess linux={linux} /> : <Notice tone="warning">{noKVM()}</Notice>)}
@@ -250,7 +250,7 @@ export function MoveToVM({ kvm, linux, command, action }: { kvm: boolean; linux?
         action
       ) : kvm ? (
         <div className="grid gap-2">
-          <p className="text-[13px] text-muted">
+          <p className="text-ui text-muted">
             {t('vm.run.moveCommand')}
           </p>
           {command}
@@ -303,7 +303,7 @@ export function MovePrompt({ version, onOpen }: { version: string | undefined; o
               : t('vm.run.promptAvailable')}
           </DialogDescription>
         </DialogHeader>
-        <div className="grid gap-2 text-[13px] leading-relaxed text-muted">
+        <div className="grid gap-2 text-ui leading-relaxed text-muted">
           <p>
             {t('vm.run.promptStill')}
           </p>

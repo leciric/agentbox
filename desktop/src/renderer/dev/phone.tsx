@@ -288,7 +288,7 @@ export function startPhonePreview(mode: string, params: URLSearchParams): void {
           <div style={{ position: 'fixed', right: 8, bottom: 92, zIndex: 80, display: 'grid', gap: 6 }}>
             <button
               data-dev-drop
-              className="rounded-lg border border-line-strong bg-overlay px-2.5 py-1 text-[11px] text-secondary shadow-md"
+              className="rounded-lg border border-line-strong bg-overlay px-2.5 py-1 text-caption text-secondary shadow-md"
               onClick={toggle}
             >
               Drop / restore

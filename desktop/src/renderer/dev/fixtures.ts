@@ -1901,10 +1901,7 @@ export function seedSettings(queryClient: QueryClient): void {
   queryClient.setQueryData(['auth'], devState.auth);
   queryClient.setQueryData(['settings'], defaultsSettings);
   queryClient.setQueryData(['update'], devState.update ?? ({ current: '0.7.0', enabled: true, channel: 'stable' } satisfies T.UpdateStatus));
-  // Tokyo Night in the mode the page asks for: a light page given the dark
-  // palette's background would paint the window's ink mid-grey.
   const asked = new URLSearchParams(location.search).get('theme');
-  const light = asked === 'light';
   if (asked === 'dracula') {
     queryClient.setQueryData(['theme'], {
       appearance: 'dracula',
@@ -1920,8 +1917,12 @@ export function seedSettings(queryClient: QueryClient): void {
     queryClient.setQueryData(['host-setup'], {});
     return;
   }
+  // AgentBox's own palette, pinned to the mode asked for. ?palette=tokyo
+  // follows Tokyo Night instead, in the mode the page asks for: a light page
+  // given the dark palette's background would paint the window's ink mid-grey.
+  const light = asked === 'light';
   queryClient.setQueryData(['theme'], {
-    appearance: 'follow',
+    appearance: new URLSearchParams(location.search).get('palette') === 'tokyo' ? 'follow' : light ? 'light' : 'dark',
     available: true,
     name: light ? 'Tokyo Night Day' : 'Tokyo Night',
     mode: light ? 'light' : 'dark',

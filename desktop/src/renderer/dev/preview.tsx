@@ -9,6 +9,7 @@
 // State comes from the URL, not clicks, so a scenario is a link both a
 // person and scripts/preview.mjs can go straight to:
 //   ?theme=light            the light appearance (default: dark); dracula, Dracula
+//   ?palette=tokyo          a Tokyo Night host theme followed (default: AgentBox's own)
 //   ?concept=timeline       a mock idea, on its own (dev/concepts): timeline is
 //                           agents' work as a timeline over their recording
 //   ?app=recap              Your week with AgentBox (components/RecapView), from
@@ -1381,7 +1382,7 @@ function GitHubPreview() {
   return (
     <div style={{ maxWidth: 720, padding: 24, font: '13px var(--font-sans)', display: 'grid', gap: 24 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-        <span className="text-[13px] text-muted">GitHub account</span>
+        <span className="text-ui text-muted">GitHub account</span>
         {project && <GitHubAccountPicker project={project} />}
       </div>
       <GitHubAccounts accounts={auth.data?.githubAccounts ?? []} />
@@ -1654,7 +1655,7 @@ if (phoneMode === 'frame') {
             onClick={() => publishOne(queryClient)}
             data-dev-publish
             style={{ position: 'fixed', left: 12, bottom: 12, zIndex: 60 }}
-            className="rounded-lg border border-line-strong bg-overlay px-3 py-1.5 text-[12px] text-secondary shadow-md hover:text-title"
+            className="rounded-lg border border-line-strong bg-overlay px-3 py-1.5 text-caption text-secondary shadow-md hover:text-title"
           >
             Publish a page
           </button>

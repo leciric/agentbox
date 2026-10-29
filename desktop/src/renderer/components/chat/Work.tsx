@@ -122,7 +122,7 @@ function ThoughtPreview({ text }: { text: string }) {
       data-chat-thought="live"
     >
       {/* Paragraphs a little apart, not a blank line each: more of the thought fits. */}
-      <div ref={body} className="space-y-1 text-[12.5px] leading-relaxed text-muted">
+      <div ref={body} className="space-y-1 text-ui leading-relaxed text-muted">
         {text
           .split(/\n\s*\n/)
           .filter((para) => para.trim())
@@ -218,7 +218,7 @@ function ToolEntry({ item, root }: { item: T.ChatItem; root: string }) {
 
 function detailOf(it: T.ChatItem, root: string): ReactNode {
   if (it.kind === 'thought') {
-    return it.text ? <p className="max-h-72 overflow-auto whitespace-pre-wrap px-3 py-2 text-[12.5px] leading-relaxed text-subtle">{it.text}</p> : null;
+    return it.text ? <p className="max-h-72 overflow-auto whitespace-pre-wrap px-3 py-2 text-ui leading-relaxed text-subtle">{it.text}</p> : null;
   }
   const tool = it.tool;
   if (!tool) return null;
@@ -226,7 +226,7 @@ function detailOf(it: T.ChatItem, root: string): ReactNode {
     return tool.diffs.map((diff, i) => (
       <div key={i} className={cn(i > 0 && 'border-t border-line-faint')}>
         <div className="flex min-w-0 items-center gap-1 pl-3 pr-1 pt-1">
-          <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-subtle">{diff.path.startsWith(`${root}/`) ? diff.path.slice(root.length + 1) : diff.path}</span>
+          <span className="min-w-0 flex-1 truncate font-mono text-caption text-subtle">{diff.path.startsWith(`${root}/`) ? diff.path.slice(root.length + 1) : diff.path}</span>
           <OpenFileButton path={diff.path} />
         </div>
         <DiffView diff={diff} />
@@ -236,7 +236,7 @@ function detailOf(it: T.ChatItem, root: string): ReactNode {
   const command = tool.kind === 'execute' ? tool.command : undefined;
   if (!command && !tool.output) return null;
   return (
-    <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words px-3 py-2 font-mono text-[11.5px] leading-relaxed text-muted">
+    <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words px-3 py-2 font-mono text-caption leading-relaxed text-muted">
       {command && (
         <span className="text-tertiary">
           <span className="select-none text-faint">$ </span>
@@ -275,20 +275,20 @@ export const SubagentCard = memo(
                 {/* Open, the task is written out in full below instead. */}
                 {sub.task && !open && <span className="min-w-0 truncate text-subtle">{sub.task}</span>}
               </span>
-              <span className={cn('block min-w-0 truncate text-[12.5px]', running ? 'chat-shine' : 'text-faint')}>{summary}</span>
+              <span className={cn('block min-w-0 truncate text-ui', running ? 'chat-shine' : 'text-faint')}>{summary}</span>
             </span>
             <SubagentState state={sub.state} />
             <ChevronRight className={cn('mt-1.5 size-3 shrink-0 text-faint transition-transform', open && 'rotate-90')} />
           </button>
           {open && (
             <div className="mx-2 mb-2 border-t border-line-faint pt-1.5">
-              {sub.task && <p className="mb-1.5 whitespace-pre-wrap break-words px-1 text-[12.5px] leading-relaxed text-subtle">{sub.task}</p>}
+              {sub.task && <p className="mb-1.5 whitespace-pre-wrap break-words px-1 text-ui leading-relaxed text-subtle">{sub.task}</p>}
               <div className="ml-3 border-l border-line pl-2.5">
-                {children.length === 0 && <p className="py-1 text-[12.5px] text-faint">{t('chat.subagent.nothingYet')}</p>}
+                {children.length === 0 && <p className="py-1 text-ui text-faint">{t('chat.subagent.nothingYet')}</p>}
                 {children.map((it) =>
                   it.kind === 'assistant' ? (
                     <div key={it.id} className="py-1 pl-1" data-chat-entry="subagent-message">
-                      <Markdown rich text={it.text ?? ''} streaming={it.streaming} className="text-[13px] leading-relaxed text-muted" />
+                      <Markdown rich text={it.text ?? ''} streaming={it.streaming} className="text-ui leading-relaxed text-muted" />
                     </div>
                   ) : it.kind === 'subagent' ? (
                     <div key={it.id} className={cn(rowClass, 'cursor-default')} data-chat-entry="subagent">
@@ -317,8 +317,8 @@ export const SubagentCard = memo(
 
 function SubagentState({ state }: { state: string }) {
   const t = useT();
-  if (state === 'running') return <span className="mt-1 shrink-0 text-[11.5px] text-subtle">{t('chat.subagent.working')}</span>;
+  if (state === 'running') return <span className="mt-1 shrink-0 text-caption text-subtle">{t('chat.subagent.working')}</span>;
   if (state === 'completed') return <Check className="mt-1 size-3.5 shrink-0 text-emerald-400/80" aria-label={t('chat.subagent.finished')} />;
   if (state === 'failed') return <CircleAlert className="mt-1 size-3.5 shrink-0 text-rose-400/80" aria-label={t('chat.subagent.failed')} />;
-  return <span className="mt-1 shrink-0 text-[11.5px] text-faint">{t('chat.work.stopped')}</span>;
+  return <span className="mt-1 shrink-0 text-caption text-faint">{t('chat.work.stopped')}</span>;
 }

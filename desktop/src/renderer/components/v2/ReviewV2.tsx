@@ -137,17 +137,17 @@ export function AgentReviewCard({ agent, wake }: { agent: T.Agent; wake?: Wake }
     <div className={cn(dock, 'flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2')} data-review-card={agent.ref}>
       <span className="flex min-w-0 items-center gap-2">
         {asked ? <LoaderCircle className="size-4 shrink-0 animate-spin text-subtle" /> : <CircleCheck className="size-4 shrink-0 text-subtle" />}
-        <span className="shrink-0 text-[12.5px] font-medium text-title">
+        <span className="shrink-0 text-ui font-medium text-title">
           {asked ? t('v2.card.requested') : item?.verdict ? t('v2.card.reviewed') : t('v2.card.ready')}
         </span>
         {wake && (
-          <span className="inline-flex shrink-0 items-center gap-1 text-[12px] text-muted" data-review-card-asleep={wake.state}>
+          <span className="inline-flex shrink-0 items-center gap-1 text-caption text-muted" data-review-card-asleep={wake.state}>
             <Moon className="size-3.5" />
             {t('v2.card.asleep', { state: wake.state })}
           </span>
         )}
       </span>
-      <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1 text-[11.5px] text-subtle">
+      <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1 text-caption text-subtle">
         {made.map(({ icon: Icon, text }) => (
           <span key={text} className="inline-flex items-center gap-1">
             <Icon className="size-3.5 text-faint" />
@@ -210,7 +210,7 @@ export function ReviewCount({ project, variant }: { project: string; variant: 'b
       <button
         type="button"
         onClick={open}
-        className="shrink-0 rounded-full border border-line-strong bg-surface px-1.5 py-px text-[12px] font-medium tabular-nums text-secondary transition hover:border-line-heavy hover:bg-surface-strong hover:text-title"
+        className="shrink-0 rounded-full border border-line-strong bg-surface px-1.5 py-px text-caption font-medium tabular-nums text-secondary transition hover:border-line-heavy hover:bg-surface-strong hover:text-title"
         data-v2-review-button={project}
       >
         {t('v2.review.toReview', { count })}
@@ -218,7 +218,7 @@ export function ReviewCount({ project, variant }: { project: string; variant: 'b
     );
   }
   return (
-    <div className={cn(dock, 'flex items-center gap-2 px-3 py-1.5 text-[12.5px]')} data-v2-review-banner={project}>
+    <div className={cn(dock, 'flex items-center gap-2 px-3 py-1.5 text-ui')} data-v2-review-banner={project}>
       <span className="size-1.5 shrink-0 rounded-full ring-1 ring-inset ring-secondary" aria-hidden />
       <span className="min-w-0 flex-1 truncate text-secondary">{t('v2.review.readyBanner', { count })}</span>
       <button type="button" onClick={open} className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 font-medium text-title hover:bg-surface-strong" data-v2-review-banner-open>

@@ -60,14 +60,14 @@ export function WorkView({ project, filter: initial = '', projectFilter, onSelec
       <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-7">
         <div className="mb-5 flex flex-wrap items-end gap-3">
           <div className="min-w-0">
-            <h1 className="text-2xl font-semibold tracking-tight text-title">{t('work.title')}</h1>
+            <h1 className="text-display font-semibold tracking-tight text-title">{t('work.title')}</h1>
             <p className="mt-1 text-sm text-muted">{t('work.description')}</p>
           </div>
           <div className="ml-auto flex items-center gap-2">
             <button
               type="button"
               onClick={() => onSelect({ kind: 'recap' })}
-              className="group inline-flex h-9 items-center gap-1.5 rounded-xl border border-brand-500/30 bg-gradient-to-b from-brand-500/15 to-brand-600/10 px-3 text-[13px] font-medium text-primary hover:border-brand-400/50 hover:from-brand-500/25"
+              className="group inline-flex h-9 items-center gap-1.5 rounded-xl border border-brand-500/30 bg-gradient-to-b from-brand-500/15 to-brand-600/10 px-3 text-ui font-medium text-primary hover:border-brand-400/50 hover:from-brand-500/25"
             >
               <Sparkles className="size-3.5 text-brand-400 transition-transform group-hover:rotate-12" />
               {t('recap.open')}
@@ -150,7 +150,7 @@ export function WorkList({
   return (
     <div className="grid min-w-0 gap-3" data-work={project ?? ''} data-work-filter={filter}>
       <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <div role="tablist" aria-label={t('work.filters')} className="flex min-w-0 flex-wrap items-center gap-0.5 rounded-lg border border-line bg-surface-faint p-0.5 text-[12.5px]" data-work-filters>
+        <div role="tablist" aria-label={t('work.filters')} className="flex min-w-0 flex-wrap items-center gap-0.5 rounded-lg border border-line bg-surface-faint p-0.5 text-ui" data-work-filters>
           {workFilters.map((f) => (
             <button
               key={f || 'all'}
@@ -188,14 +188,14 @@ export function WorkList({
             <Notice>{errorMessage(pages.error)}</Notice>
           </div>
         ) : items.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 px-4 py-8 text-center text-[13px] text-subtle" data-work-empty>
+          <div className="flex flex-col items-center gap-2 px-4 py-8 text-center text-ui text-subtle" data-work-empty>
             <Briefcase className="size-5 text-faint" />
             {q || filter ? t('work.noMatch') : t('work.empty')}
           </div>
         ) : (
           groups.map((g) => (
             <section key={g.day} data-work-day={g.day}>
-              <h2 className="border-b border-line-faint bg-surface-faint px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-subtle">
+              <h2 className="border-b border-line-faint bg-surface-faint px-4 py-1.5 text-caption font-semibold uppercase tracking-wide text-subtle">
                 {dayLabel(g.day, new Date(now), language, words)}
               </h2>
               <ul className="divide-y divide-line-faint">
@@ -209,7 +209,7 @@ export function WorkList({
         {!onShowAll && <MoreMedia pages={pages} />}
       </Panel>
       {onShowAll && (pages.data?.pages[0]?.total ?? 0) > items.length && (
-        <button className="flex items-center gap-1 justify-self-start text-[13px] font-medium text-brand-300 hover:text-brand-200" onClick={onShowAll} data-work-show-all>
+        <button className="flex items-center gap-1 justify-self-start text-ui font-medium text-brand-300 hover:text-brand-200" onClick={onShowAll} data-work-show-all>
           {t('work.showAll')}
           <ArrowRight className="size-3.5" />
         </button>
@@ -236,10 +236,10 @@ function WorkRow({ work: w, status, depth = 0, stackedOn, projectName, onOpen }:
         <AIIcon ai={i.ai || 'claude'} className={cn('mt-0.5 size-4 shrink-0', w.past && 'opacity-60')} />
         <span className="grid min-w-0 flex-1 gap-1">
           <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-            <span className={cn('min-w-0 truncate text-[13px] font-medium text-primary', !i.title && 'font-mono')} title={i.title || i.agent}>
+            <span className={cn('min-w-0 truncate text-ui font-medium text-primary', !i.title && 'font-mono')} title={i.title || i.agent}>
               {i.title || i.agent}
             </span>
-            {i.title && <span className="shrink-0 font-mono text-[11px] text-subtle">{i.agent}</span>}
+            {i.title && <span className="shrink-0 font-mono text-caption text-subtle">{i.agent}</span>}
             {status === 'review' && (
               <Badge variant="info" className="shrink-0" data-work-to-review>
                 {t('work.toReview')}
@@ -250,10 +250,10 @@ function WorkRow({ work: w, status, depth = 0, stackedOn, projectName, onOpen }:
                 {t(status === 'needs' ? 'v2.st.needs' : status === 'error' ? 'v2.st.error' : 'v2.st.working')}
               </Badge>
             )}
-            {w.status === 'reviewed' && <span className="shrink-0 text-[11px] text-subtle">{t(i.verdict === 'changes' ? 'work.verdict.changes' : i.verdict === 'dismissed' ? 'work.verdict.dismissed' : 'work.verdict.reviewed')}</span>}
+            {w.status === 'reviewed' && <span className="shrink-0 text-caption text-subtle">{t(i.verdict === 'changes' ? 'work.verdict.changes' : i.verdict === 'dismissed' ? 'work.verdict.dismissed' : 'work.verdict.reviewed')}</span>}
             <OutcomeBadge outcome={outcome} />
           </span>
-          <span className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-[11.5px] text-subtle">
+          <span className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-caption text-subtle">
             {projectName && <span className="max-w-[40%] shrink-0 truncate">{projectName}</span>}
             {stackedOn && (
               <span className="flex min-w-0 max-w-full items-center gap-1 text-sky-300" title={i.baseRef}>
@@ -268,7 +268,7 @@ function WorkRow({ work: w, status, depth = 0, stackedOn, projectName, onOpen }:
               </span>
             )}
             {i.changes && i.changes.files > 0 && (
-              <span className="shrink-0 font-mono text-[11px]" data-work-changes>
+              <span className="shrink-0 font-mono text-caption" data-work-changes>
                 {t('work.files', { count: i.changes.files })} <span className="text-emerald-400">+{i.changes.insertions}</span> <span className="text-rose-400">−{i.changes.deletions}</span>
               </span>
             )}
@@ -287,8 +287,8 @@ function WorkRow({ work: w, status, depth = 0, stackedOn, projectName, onOpen }:
           </span>
         </span>
       </button>
-      {i.pr && i.pr.number > 0 ? <PrChip pr={i.pr} className="mt-0.5" dataAttr="data-work-pr" /> : <span className="mt-0.5 shrink-0 text-[11px] text-faint">{t('work.noPr')}</span>}
-      <span className="mt-0.5 shrink-0 whitespace-nowrap text-right text-[11.5px] tabular-nums text-subtle" title={new Date(w.at).toLocaleString()}>
+      {i.pr && i.pr.number > 0 ? <PrChip pr={i.pr} className="mt-0.5" dataAttr="data-work-pr" /> : <span className="mt-0.5 shrink-0 text-caption text-faint">{t('work.noPr')}</span>}
+      <span className="mt-0.5 shrink-0 whitespace-nowrap text-right text-caption tabular-nums text-subtle" title={new Date(w.at).toLocaleString()}>
         {clockTime(w.at)}
       </span>
     </li>

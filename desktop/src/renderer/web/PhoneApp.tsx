@@ -226,7 +226,7 @@ function ConnectionBar() {
   const lost = connection.state === 'disconnected' || (ever.current && connection.state === 'connecting');
   if (lost) {
     return (
-      <div className="flex min-h-9 items-center gap-2 bg-amber-500/15 px-4 py-1 text-[12px] text-amber-200" role="status" data-phone-offline={connection.state}>
+      <div className="flex min-h-9 items-center gap-2 bg-amber-500/15 px-4 py-1 text-caption text-amber-200" role="status" data-phone-offline={connection.state}>
         <WifiOff className="size-3.5 shrink-0" />
         <span className="min-w-0 flex-1 truncate font-medium" title={connection.error || t('web.phone.unreachable')}>
           {t('web.phone.reconnecting')}
@@ -242,7 +242,7 @@ function ConnectionBar() {
   }
   if (back) {
     return (
-      <div className="flex min-h-9 animate-fade-in items-center gap-2 bg-emerald-500/15 px-4 py-1 text-[12px] text-emerald-200" role="status" data-phone-online>
+      <div className="flex min-h-9 animate-fade-in items-center gap-2 bg-emerald-500/15 px-4 py-1 text-caption text-emerald-200" role="status" data-phone-online>
         <Wifi className="size-3.5 shrink-0" />
         <span className="truncate font-medium">{t('web.phone.backOnline')}</span>
       </div>
@@ -377,13 +377,13 @@ function ChatSections({ chats, first, here, onOpen }: { chats: Chats; first?: st
     <>
       {urgent.length > 0 && (
         <section className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1" data-phone-needs-you>
-          <h2 className="px-2 pb-1 text-[12px] font-semibold uppercase tracking-[0.12em] text-amber-300">{t('web.phone.needsYou')}</h2>
+          <h2 className="px-2 pb-1 text-caption font-semibold uppercase tracking-[0.12em] text-amber-300">{t('web.phone.needsYou')}</h2>
           {urgent.map((r) => row(r, projectLabel(r.project)))}
         </section>
       )}
       {groups.map(({ project, rows }) => (
         <section key={project.name} className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1" data-phone-project={project.name}>
-          <h2 className="px-2 pb-1 text-[12px] font-semibold uppercase tracking-[0.12em] text-subtle">{projectLabel(project)}</h2>
+          <h2 className="px-2 pb-1 text-caption font-semibold uppercase tracking-[0.12em] text-subtle">{projectLabel(project)}</h2>
           {rows.filter((r) => !urgent.includes(r)).map((r) => row(r))}
         </section>
       ))}
@@ -408,7 +408,7 @@ function ChatList({ phone, chats, onOpen }: { phone: T.LANPhone; chats: Chats; o
     <div className="min-h-0 flex-1 overflow-y-auto">
       <header className="sticky top-0 z-10 flex items-center gap-2.5 border-b border-line bg-overlay/90 px-4 py-3 backdrop-blur">
         <MessagesSquare className="size-5 text-brand-300" />
-        <h1 className="text-[17px] font-semibold tracking-tight text-title">{t('web.phone.chats')}</h1>
+        <h1 className="text-heading font-semibold tracking-tight text-title">{t('web.phone.chats')}</h1>
       </header>
       <div className="grid grid-cols-[minmax(0,1fr)] gap-6 px-3 py-4">
         {projects.isPending && <p className="px-2 text-sm text-subtle">{t('common.loading')}</p>}
@@ -426,12 +426,12 @@ function ChatList({ phone, chats, onOpen }: { phone: T.LANPhone; chats: Chats; o
         {projects.data?.length === 0 && <p className="px-2 text-sm text-subtle">{t('web.phone.noProjects')}</p>}
         <ChatSections chats={chats} onOpen={onOpen} />
         <footer className="grid gap-2 border-t border-line px-2 pt-4">
-          <p className="text-[12px] text-subtle">
+          <p className="text-caption text-subtle">
             {t.rich('web.phone.pairedAs', { name: <span className="text-secondary">{phone.name}</span> })}
           </p>
           <PlainHTTPNote />
           <div>
-            <button type="button" className="-mx-2 min-h-11 rounded-full px-2 text-[13px] text-rose-300 active:bg-rose-500/10" disabled={unpair.isPending} onClick={() => unpair.mutate()}>
+            <button type="button" className="-mx-2 min-h-11 rounded-full px-2 text-ui text-rose-300 active:bg-rose-500/10" disabled={unpair.isPending} onClick={() => unpair.mutate()}>
               {t('web.phone.unpair')}
             </button>
           </div>
@@ -481,11 +481,11 @@ function ChatRow({
     >
       <div className="shrink-0">{icon}</div>
       <div className="min-w-0 flex-1">
-        <p className={cn('truncate text-[15px] text-primary', unread ? 'font-semibold text-title' : 'font-medium')}>{title}</p>
-        {plain ? <p className="truncate text-[12px] text-subtle">{status.text}</p> : <StatusLine status={status} after={subtitle} className="text-[12px]" />}
+        <p className={cn('truncate text-heading text-primary', unread ? 'font-semibold text-title' : 'font-medium')}>{title}</p>
+        {plain ? <p className="truncate text-caption text-subtle">{status.text}</p> : <StatusLine status={status} after={subtitle} className="text-caption" />}
       </div>
       {unread && (
-        <span className="flex shrink-0 items-center gap-1 rounded-full bg-brand-500/15 px-2 py-0.5 text-[11px] font-semibold text-brand-200" data-phone-new>
+        <span className="flex shrink-0 items-center gap-1 rounded-full bg-brand-500/15 px-2 py-0.5 text-caption font-semibold text-brand-200" data-phone-new>
           <span className="size-1.5 rounded-full bg-brand-400" />
           {t('web.phone.unread')}
         </span>
@@ -530,8 +530,8 @@ function Switcher({
         >
           <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-line-strong" />
           <div className="flex shrink-0 items-center gap-2 px-4 pb-2 pt-2">
-            <DialogPrimitive.Title className="min-w-0 flex-1 truncate text-[17px] font-semibold text-title">{t('web.phone.switch')}</DialogPrimitive.Title>
-            <button type="button" onClick={() => onPick({ kind: 'list' })} className="flex min-h-11 items-center gap-1.5 rounded-full px-3 text-[14px] font-medium text-brand-300 active:bg-surface-raised" data-phone-all>
+            <DialogPrimitive.Title className="min-w-0 flex-1 truncate text-heading font-semibold text-title">{t('web.phone.switch')}</DialogPrimitive.Title>
+            <button type="button" onClick={() => onPick({ kind: 'list' })} className="flex min-h-11 items-center gap-1.5 rounded-full px-3 text-body font-medium text-brand-300 active:bg-surface-raised" data-phone-all>
               <MessagesSquare className="size-4" />
               {t('web.phone.allChats')}
             </button>
@@ -552,8 +552,7 @@ export function StatusLine({ status, after, className }: { status: ChatStatus; a
   return (
     <p className={cn('flex min-w-0 items-center gap-1.5', className)} data-phone-status={status.tone}>
       <span className="relative flex size-2 shrink-0 items-center justify-center">
-        {status.live && <span className={cn('absolute inline-flex size-full animate-ping rounded-full opacity-60', toneDot[status.tone])} />}
-        <span className={cn('relative inline-flex size-1.5 rounded-full', toneDot[status.tone])} />
+        <span className={cn('relative inline-flex size-1.5 rounded-full', toneDot[status.tone], status.live && 'animate-working')} />
       </span>
       <span className="flex min-w-0 items-baseline gap-1 truncate">
         <span className={cn('shrink-0', toneText[status.tone])}>{status.text}</span>
@@ -592,16 +591,16 @@ function ScreenHeader({ title, subtitle, status, header, action }: { title: stri
         data-phone-switch
       >
         <div className="min-w-0 flex-1">
-          <p className="flex min-w-0 items-center gap-1 text-[15px] font-semibold text-title">
+          <p className="flex min-w-0 items-center gap-1 text-heading font-semibold text-title">
             <span className="truncate">{title}</span>
             <ChevronDown className="size-4 shrink-0 text-subtle" />
           </p>
-          {status ? <StatusLine status={status} after={subtitle} className="text-[11.5px]" /> : subtitle && <p className="truncate text-[11px] text-subtle">{subtitle}</p>}
+          {status ? <StatusLine status={status} after={subtitle} className="text-caption" /> : subtitle && <p className="truncate text-caption text-subtle">{subtitle}</p>}
         </div>
         {header.waiting > 0 && (
           <span
             className={cn(
-              'flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full px-1.5 text-[12px] font-semibold tabular-nums',
+              'flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full px-1.5 text-caption font-semibold tabular-nums',
               header.urgent ? 'bg-amber-400 text-black' : 'bg-brand-500 text-white',
             )}
             aria-label={t('web.phone.waitingElsewhere', { count: header.waiting })}
@@ -628,7 +627,7 @@ const checksTone = (checks: string) => (checks === 'failing' ? 'text-rose-300' :
 // a 44 px target with the icon, the number or count, and the checks' colour.
 function PullChip({ label, text, checks, onClick }: { label: string; text: string; checks?: string; onClick: () => void }) {
   return (
-    <button type="button" aria-label={label} onClick={onClick} className="flex min-h-11 shrink-0 items-center gap-1 rounded-full px-2.5 text-[13px] font-medium text-secondary active:bg-surface-raised" data-phone-pull-chip>
+    <button type="button" aria-label={label} onClick={onClick} className="flex min-h-11 shrink-0 items-center gap-1 rounded-full px-2.5 text-ui font-medium text-secondary active:bg-surface-raised" data-phone-pull-chip>
       <GitPullRequest className={cn('size-4', checks ? checksTone(checks) : 'text-secondary')} />
       <span className="tabular-nums">{text}</span>
     </button>
@@ -737,8 +736,8 @@ function PullsScreen({ project, highlight, header, onOpen }: { project: string; 
           {open.map((pr) => {
             const details = (
               <>
-                <p className="line-clamp-2 break-words text-[14px] font-medium text-primary">{pr.title}</p>
-                <p className="flex min-w-0 items-center gap-1 text-[12px] text-subtle">
+                <p className="line-clamp-2 break-words text-body font-medium text-primary">{pr.title}</p>
+                <p className="flex min-w-0 items-center gap-1 text-caption text-subtle">
                   <span className="truncate">
                     #{pr.number}
                     {pr.baseBranch && ` → ${pr.baseBranch}`}
@@ -780,7 +779,7 @@ function PullsScreen({ project, highlight, header, onOpen }: { project: string; 
                   type="button"
                   disabled={pr.draft}
                   onClick={() => setMerging(pr)}
-                  className="min-h-11 shrink-0 rounded-full bg-brand-500/20 px-4 text-[14px] font-medium text-brand-200 active:bg-brand-500/30 disabled:opacity-40"
+                  className="min-h-11 shrink-0 rounded-full bg-brand-500/20 px-4 text-body font-medium text-brand-200 active:bg-brand-500/30 disabled:opacity-40"
                   data-phone-merge
                 >
                   {t('web.phone.merge')}

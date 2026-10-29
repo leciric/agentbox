@@ -71,8 +71,8 @@ export function RunnerItems({ runner }: { runner: Runner }) {
   return (
     <>
       <MenuLabel>{t(runner.lead ? 'chat.runner.title' : 'chat.runner.titleAgent')}</MenuLabel>
-      {runners.isPending && <p className="px-2.5 py-2 text-[12px] text-subtle">{t('common.loading')}</p>}
-      {runners.isError && <p className="px-2.5 py-2 text-[12px] text-rose-300">{errorMessage(runners.error)}</p>}
+      {runners.isPending && <p className="px-2.5 py-2 text-caption text-subtle">{t('common.loading')}</p>}
+      {runners.isError && <p className="px-2.5 py-2 text-caption text-rose-300">{errorMessage(runners.error)}</p>}
       {choices.map((c) => (
         <MenuItem
           key={c.tool + '/' + c.account}
@@ -89,13 +89,13 @@ export function RunnerItems({ runner }: { runner: Runner }) {
               <span className="truncate">{c.name}</span>
               {several(c.tool) && c.account && <span className="truncate text-subtle">· {c.account}</span>}
             </span>
-            {c.note && <span className={cn('text-[11px]', c.ready ? 'text-subtle' : 'text-amber-300')}>{c.note}</span>}
+            {c.note && <span className={cn('text-caption', c.ready ? 'text-subtle' : 'text-amber-300')}>{c.note}</span>}
             {c.reading && <AccountUsage reading={c.reading} clock={clock} />}
           </div>
         </MenuItem>
       ))}
       <MenuSeparator />
-      <p className="px-2.5 pb-1.5 pt-1 text-[11px] leading-snug text-subtle">{t(runner.lead ? 'chat.runner.applies' : 'chat.runner.appliesAgent')}</p>
+      <p className="px-2.5 pb-1.5 pt-1 text-caption leading-snug text-subtle">{t(runner.lead ? 'chat.runner.applies' : 'chat.runner.appliesAgent')}</p>
     </>
   );
 }
@@ -103,7 +103,7 @@ export function RunnerItems({ runner }: { runner: Runner }) {
 // NextTool is the mark that the chat switches tool at the next message.
 export function NextTool({ next }: { next: string }) {
   return (
-    <span className="flex items-center gap-1 rounded-full bg-brand-400/15 px-1.5 py-px text-[11px] text-brand-200">
+    <span className="flex items-center gap-1 rounded-full bg-brand-400/15 px-1.5 py-px text-caption text-brand-200">
       <ArrowRight className="!size-3" />
       <ToolMark ai={next} className="!size-3.5" />
     </span>

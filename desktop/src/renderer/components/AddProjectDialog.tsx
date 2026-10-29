@@ -260,7 +260,7 @@ export function AddProjectDialog({
                 <Input
                   id="project-url"
                   autoFocus
-                  className="font-mono text-[13px]"
+                  className="font-mono text-ui"
                   placeholder="https://github.com/owner/repo"
                   spellCheck={false}
                   value={url}
@@ -276,7 +276,7 @@ export function AddProjectDialog({
                 <div className="flex gap-2">
                   <Input
                     id="project-clone-folder"
-                    className="font-mono text-[13px]"
+                    className="font-mono text-ui"
                     placeholder="/home/you/src"
                     value={cloneParent}
                     onChange={(event) => setCloneParent(event.target.value)}
@@ -299,7 +299,7 @@ export function AddProjectDialog({
                 <div className="flex gap-2">
                   <Input
                     id="project-parent"
-                    className="font-mono text-[13px]"
+                    className="font-mono text-ui"
                     placeholder="/home/you/code"
                     value={parent}
                     onChange={(event) => setParent(event.target.value)}
@@ -332,7 +332,7 @@ export function AddProjectDialog({
                 <Input
                   id="project-path"
                   autoFocus
-                  className="font-mono text-[13px]"
+                  className="font-mono text-ui"
                   placeholder="/home/you/code/my-app"
                   value={path}
                   onChange={(event) => setPath(event.target.value)}
@@ -368,7 +368,7 @@ export function AddProjectDialog({
           </Field>
           {auth.data && (
             <fieldset className="grid min-w-0 gap-2" data-project-accounts>
-              <legend className="mb-1 text-[13px] font-medium text-secondary">{t('project.add.accountsLabel')}</legend>
+              <legend className="mb-1 text-ui font-medium text-secondary">{t('project.add.accountsLabel')}</legend>
               <p className="-mt-1 text-xs text-subtle">{t('project.add.accountsHint')}</p>
               {claudeAccounts.length > 0 && (
                 <AccountRow tool="claude" label={aiLabel('claude')} accounts={claudeAccounts} value={claudeAccount} onChange={setClaudeAccount}>
@@ -412,7 +412,7 @@ export function AddProjectDialog({
               {/* The tools with no login at all are one line, not a row each
                   saying so. */}
               {signedOut.length > 0 && (
-                <p className="flex min-w-0 items-start gap-1.5 text-[12px] leading-snug text-subtle" data-accounts-signed-out>
+                <p className="flex min-w-0 items-start gap-1.5 text-caption leading-snug text-subtle" data-accounts-signed-out>
                   <span className="mt-[5px] size-1.5 shrink-0 rounded-full bg-faint" />
                   <span className="min-w-0 break-words">{t('project.add.notSignedIn', { tools: formatList(signedOut) })}</span>
                 </p>
@@ -527,7 +527,7 @@ function AccountRow({
   const id = `project-${label.replace(/\W+/g, '-').toLowerCase()}-account`;
   return (
     <div className="grid min-w-0 grid-cols-[9rem_minmax(0,1fr)] items-start gap-x-3 gap-y-0.5" data-account-row={tool}>
-      <label htmlFor={id} className="flex min-w-0 items-start gap-1.5 pt-1.5 text-[13px] leading-snug text-secondary">
+      <label htmlFor={id} className="flex min-w-0 items-start gap-1.5 pt-1.5 text-ui leading-snug text-secondary">
         {tool === 'github' ? <GitPullRequest className="mt-0.5 size-3.5 shrink-0 text-subtle" /> : <AIIcon ai={tool} className="mt-0.5 size-3.5 shrink-0 text-subtle" />}
         <span className="min-w-0 break-words">{label}</span>
       </label>

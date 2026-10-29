@@ -1,7 +1,12 @@
 import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import { extendTailwindMerge } from 'tailwind-merge';
 import * as T from '../../shared/api.ts';
 import { formatNumber, t } from '../../shared/i18n/index.ts';
+
+// tailwind-merge knows Tailwind's own sizes, not ours: told nothing, it reads
+// text-ui as a colour and drops it for the text-title after it. These are the
+// type scale in styles.css.
+const twMerge = extendTailwindMerge({ extend: { theme: { text: ['caption', 'ui', 'body', 'heading', 'display'] } } });
 
 export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));

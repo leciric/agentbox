@@ -70,7 +70,7 @@ export function HomeChatPanel({ home }: { home?: HomeTabs }) {
       <div className="shrink-0 px-4 pb-3 pt-5 md:px-8">
         <div className="min-w-0">
           <h1 className="text-xl font-semibold tracking-tight text-title">{t(home ? 'shell.nav.home' : 'chat.home.title')}</h1>
-          <p className="mt-0.5 text-[13px] text-muted">{t('chat.home.subtitle')}</p>
+          <p className="mt-0.5 text-ui text-muted">{t('chat.home.subtitle')}</p>
         </div>
         <div className="mt-3 flex items-center gap-3">
           <TabsList className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none]">
@@ -113,7 +113,7 @@ export function HomeChatPanel({ home }: { home?: HomeTabs }) {
       )}
       <TabsContent value="memory" className="overflow-y-auto">
         <div className="mx-auto max-w-4xl px-4 py-2 md:px-8 md:pb-7">
-          <p className="mb-3 text-[13px] text-muted">{t('chat.home.memoryIntro')}</p>
+          <p className="mb-3 text-ui text-muted">{t('chat.home.memoryIntro')}</p>
           <GlobalMemoryPanel />
         </div>
       </TabsContent>

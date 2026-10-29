@@ -95,7 +95,7 @@ export function IssuesPanel({ project, onSelect, onOpenAccount }: { project: str
   return (
     <div className="flex flex-col gap-3" data-issues>
       {data.github && (
-        <p className="flex flex-wrap items-center gap-x-1.5 px-1 text-[12px] text-subtle">
+        <p className="flex flex-wrap items-center gap-x-1.5 px-1 text-caption text-subtle">
           <span className="font-mono text-muted">{data.github}</span>
           {data.githubAccount && (
             <>
@@ -116,11 +116,11 @@ export function IssuesPanel({ project, onSelect, onOpenAccount }: { project: str
         <label className="panel flex cursor-pointer items-center gap-3 rounded-2xl px-4 py-3" data-issues-pickup={data.pickUpIssues || undefined}>
           <Sparkles className="size-4 shrink-0 text-subtle" />
           <span className="min-w-0 flex-1">
-            <span className="block text-[13px] font-medium text-primary">{t('issues.pickupSwitch')}</span>
-            <span className="block text-[12px] text-subtle">
+            <span className="block text-ui font-medium text-primary">{t('issues.pickupSwitch')}</span>
+            <span className="block text-caption text-subtle">
               {t.rich(data.pickUpIssues ? 'issues.pickupOn' : 'issues.pickupOff', {
                 label: (
-                  <span className="inline-flex h-[18px] items-center rounded-full border px-1.5 align-middle text-[11px] font-medium leading-none" style={labelStyle('0e8a16')}>
+                  <span className="inline-flex h-[18px] items-center rounded-full border px-1.5 align-middle text-caption font-medium leading-none" style={labelStyle('0e8a16')}>
                     {data.label}
                   </span>
                 ),
@@ -151,7 +151,7 @@ export function IssuesPanel({ project, onSelect, onOpenAccount }: { project: str
             <FilterChip active={filter === 'all'} count={data.issues.length} onClick={() => setFilter('all')}>
               {t('issues.filter.all')}
             </FilterChip>
-            <span className="ml-auto flex items-center gap-1.5 pr-1 text-[11.5px] text-faint">
+            <span className="ml-auto flex items-center gap-1.5 pr-1 text-caption text-faint">
               {refreshing ? (
                 <>
                   <LoaderCircle className="size-3 animate-spin" />
@@ -174,7 +174,7 @@ export function IssuesPanel({ project, onSelect, onOpenAccount }: { project: str
             </span>
           </div>
           {visible.length === 0 ? (
-            <p className="px-1 text-[13px] text-subtle">{t('issues.noMatch')}</p>
+            <p className="px-1 text-ui text-subtle">{t('issues.noMatch')}</p>
           ) : (
             <div className="flex flex-col gap-2">
               {visible.map((issue) => (
@@ -203,15 +203,15 @@ function IssueRow({ issue, handing, onHand, onOpenAgent }: { issue: T.Issue; han
       <div className="flex min-w-0 items-start gap-3">
         <CircleDot className="mt-0.5 size-4 shrink-0 text-emerald-400" />
         <div className="min-w-0 flex-1">
-          <a href={issue.url} target="_blank" rel="noreferrer" className="group flex min-w-0 items-center gap-1.5 text-[14px] font-medium text-primary hover:text-brand-300">
+          <a href={issue.url} target="_blank" rel="noreferrer" className="group flex min-w-0 items-center gap-1.5 text-body font-medium text-primary hover:text-brand-300">
             <span className="truncate">{issue.title}</span>
             <ExternalLink className="size-3.5 shrink-0 text-faint group-hover:text-brand-300" />
           </a>
-          <p className="truncate font-mono text-[11.5px] text-subtle">#{issue.number}</p>
+          <p className="truncate font-mono text-caption text-subtle">#{issue.number}</p>
           {issue.labels && issue.labels.length > 0 && (
             <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1">
               {issue.labels.map((l) => (
-                <span key={l.name} className="inline-flex h-5 max-w-48 items-center rounded-full border px-2 text-[11px] font-medium leading-none" style={labelStyle(l.color)} title={l.description}>
+                <span key={l.name} className="inline-flex h-5 max-w-48 items-center rounded-full border px-2 text-caption font-medium leading-none" style={labelStyle(l.color)} title={l.description}>
                   <span className="truncate">{l.name}</span>
                 </span>
               ))}
@@ -219,7 +219,7 @@ function IssueRow({ issue, handing, onHand, onOpenAgent }: { issue: T.Issue; han
           )}
         </div>
       </div>
-      <div className="mt-2.5 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1.5 text-[12px] text-muted">
+      <div className="mt-2.5 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1.5 text-caption text-muted">
         {issue.author && (
           <span className="flex min-w-0 items-center gap-1.5">
             {issue.authorAvatar ? <img src={issue.authorAvatar} alt="" className="size-4 shrink-0 rounded-full" /> : <User className="size-3.5 shrink-0" />}

@@ -60,7 +60,7 @@ export function AllAgentsPanel({ project, onSelect, onNewAgent }: { project?: st
   if (agents.data && all.length === 0) {
     return (
       <div className="panel grid justify-items-center gap-3 rounded-2xl px-4 py-10 text-center">
-        <p className="text-[13px] text-muted">{t('project.all.empty')}</p>
+        <p className="text-ui text-muted">{t('project.all.empty')}</p>
         <Button size="sm" onClick={onNewAgent}>
           <Plus />
           {t('project.view.newAgent')}
@@ -193,13 +193,13 @@ function AgentFleetRow({
       <LiveAgentAvatar agent={agent} />
       {columns.project && (
         <span className="hidden w-24 shrink-0 items-center gap-1.5 truncate text-xs text-subtle sm:flex md:w-32 lg:w-40" title={projectName}>
-          {project ? <ProjectIcon project={project} className="size-4 rounded text-[9px]" /> : <FolderGit2 className="size-3.5 shrink-0 text-faint" />}
+          {project ? <ProjectIcon project={project} className="size-4 rounded text-caption" /> : <FolderGit2 className="size-3.5 shrink-0 text-faint" />}
           <span className="truncate">{projectName}</span>
         </span>
       )}
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-[13px] font-medium text-primary">{agent.title || agent.name}</span>
+          <span className="truncate text-ui font-medium text-primary">{agent.title || agent.name}</span>
           {agent.title && <span className="hidden shrink-0 font-mono text-xs text-faint lg:inline">{agent.name}</span>}
         </span>
         {columns.project && (
@@ -210,7 +210,7 @@ function AgentFleetRow({
         )}
       </span>
       <span className="flex w-[124px] shrink-0 items-center gap-1.5 text-xs">
-        {status.tone === 'urgent' && <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-amber-400" />}
+        {status.tone === 'urgent' && <span className="size-1.5 shrink-0 rounded-full bg-amber-400" />}
         {status.tone === 'error' && <span className="size-1.5 shrink-0 rounded-full bg-rose-400" />}
         <span
           title={memoryHold(agent)?.tip}

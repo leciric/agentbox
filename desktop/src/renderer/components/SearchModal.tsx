@@ -195,7 +195,7 @@ function Searching({ scope, onOpen }: { scope: SearchScope; onOpen: (target: Sea
           ref={input}
           autoFocus
           aria-label={t('search.label')}
-          className="h-14 min-w-0 flex-1 bg-transparent text-[15px] text-primary outline-none placeholder:text-faint"
+          className="h-14 min-w-0 flex-1 bg-transparent text-heading text-primary outline-none placeholder:text-faint"
           placeholder={t('search.placeholder')}
           value={query}
           spellCheck={false}
@@ -213,7 +213,7 @@ function Searching({ scope, onOpen }: { scope: SearchScope; onOpen: (target: Sea
             }
           }}
         />
-        <kbd className="hidden rounded-md border border-line px-1.5 py-0.5 font-mono text-[10.5px] text-subtle sm:block">Esc</kbd>
+        <kbd className="hidden rounded-md border border-line px-1.5 py-0.5 font-mono text-caption text-subtle sm:block">Esc</kbd>
       </div>
 
       <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-line px-3 py-2" data-search-filters>
@@ -264,17 +264,17 @@ function Searching({ scope, onOpen }: { scope: SearchScope; onOpen: (target: Sea
       <div className="flex min-h-0 flex-1">
         <div ref={list} className="min-w-0 flex-1 overflow-y-auto overscroll-contain p-2" role="listbox" aria-label={t('search.results')}>
           {asked === '' ? (
-            <p className="px-3 py-8 text-center text-[13px] text-muted">{t('search.hint')}</p>
+            <p className="px-3 py-8 text-center text-ui text-muted">{t('search.hint')}</p>
           ) : results.error ? (
-            <p className="px-3 py-8 text-center text-[13px] text-rose-300">{errorMessage(results.error)}</p>
+            <p className="px-3 py-8 text-center text-ui text-rose-300">{errorMessage(results.error)}</p>
           ) : shown && items.length === 0 && !pending ? (
-            <p className="px-3 py-8 text-center text-[13px] text-muted" data-search-empty>
+            <p className="px-3 py-8 text-center text-ui text-muted" data-search-empty>
               {t('search.nothing', { query: asked })}
             </p>
           ) : (
             items.length > 0 && (
               <>
-                <div className="flex items-center justify-between px-3 pb-1 pt-1 text-[11px] text-subtle">
+                <div className="flex items-center justify-between px-3 pb-1 pt-1 text-caption text-subtle">
                   <span>{kind ? t('search.showing', { n: items.length, total: count(groups.find((g) => g.kind === kind) ?? { total: 0 }) }) : t('search.bestOfEach')}</span>
                   <button type="button" className="flex items-center gap-1 rounded px-1 hover:text-title" onClick={() => setNewest((n) => !n)} data-search-sort>
                     <ArrowDownUp className="size-3" />
@@ -303,18 +303,18 @@ function Searching({ scope, onOpen }: { scope: SearchScope; onOpen: (target: Sea
                       <k.icon className={cn('mt-0.5 size-4 shrink-0', i === active ? 'text-brand-300' : 'text-subtle')} />
                       <span className="grid min-w-0 flex-1 gap-0.5">
                         <span className="flex min-w-0 items-baseline gap-2">
-                          <span className={cn('truncate text-[13px] text-primary', item.kind === T.SearchEvents && 'font-mono text-[12px]')}>
+                          <span className={cn('truncate text-ui text-primary', item.kind === T.SearchEvents && 'font-mono text-caption')}>
                             <Marked text={plainText(hit.title)} query={asked} />
                           </span>
-                          {hit.tag && <span className="max-w-[40%] shrink-0 truncate font-mono text-[10.5px] text-subtle">{hit.tag}</span>}
+                          {hit.tag && <span className="max-w-[40%] shrink-0 truncate font-mono text-caption text-subtle">{hit.tag}</span>}
                         </span>
                         {hit.detail && (
-                          <span className="line-clamp-2 break-words text-[12px] leading-snug text-muted">
+                          <span className="line-clamp-2 break-words text-caption leading-snug text-muted">
                             <Marked text={plainText(hit.detail)} query={asked} />
                           </span>
                         )}
                       </span>
-                      <span className="flex max-w-[34%] shrink-0 flex-col items-end gap-0.5 pt-0.5 text-[11px] text-subtle">
+                      <span className="flex max-w-[34%] shrink-0 flex-col items-end gap-0.5 pt-0.5 text-caption text-subtle">
                         {where.length > 0 && <span className="max-w-full truncate">{where.join(' · ')}</span>}
                         {hit.at && <span className="text-faint">{timeAgo(hit.at)}</span>}
                       </span>
@@ -330,7 +330,7 @@ function Searching({ scope, onOpen }: { scope: SearchScope; onOpen: (target: Sea
         )}
       </div>
 
-      <div className="flex shrink-0 items-center gap-4 border-t border-line px-4 py-2 text-[11px] text-subtle">
+      <div className="flex shrink-0 items-center gap-4 border-t border-line px-4 py-2 text-caption text-subtle">
         <span className="flex items-center gap-1.5">
           <kbd className="rounded border border-line px-1 font-mono">↑</kbd>
           <kbd className="rounded border border-line px-1 font-mono">↓</kbd>
@@ -372,14 +372,14 @@ function Preview({
   const k = kindOf(kind);
   return (
     <aside className="hidden w-[42%] min-w-0 shrink-0 flex-col border-l border-line bg-surface-faint md:flex" data-search-preview={kind}>
-      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-2.5 text-[12px] text-subtle">
+      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-2.5 text-caption text-subtle">
         <span className="flex min-w-0 items-center gap-1.5">
           <k.icon className="size-3.5 shrink-0" />
           <span className="truncate">{where.join(' · ') || t(k.label)}</span>
         </span>
         {hit.at && <span className="shrink-0 text-faint">{new Date(hit.at).toLocaleString(language, { dateStyle: 'medium', timeStyle: 'short' })}</span>}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 text-[13px] leading-relaxed">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 text-ui leading-relaxed">
         {kind === T.SearchChats ? (
           <ChatAround hit={hit} query={query} agentTitle={agentTitle} />
         ) : kind === T.SearchReports && hit.report ? (
@@ -390,7 +390,7 @@ function Preview({
               <span className="font-medium text-title">
                 <Marked text={hit.memory.title} query={query} />
               </span>
-              <span className="font-mono text-[10.5px] text-subtle">{hit.memory.kind}</span>
+              <span className="font-mono text-caption text-subtle">{hit.memory.kind}</span>
             </div>
             <p className="whitespace-pre-wrap break-words text-primary">
               <Marked text={hit.memory.content} query={query} />
@@ -410,7 +410,7 @@ function Preview({
           </div>
         ) : (
           <div className="grid gap-2">
-            <span className={cn('font-medium text-title', kind === T.SearchEvents && 'font-mono text-[12px]')}>
+            <span className={cn('font-medium text-title', kind === T.SearchEvents && 'font-mono text-caption')}>
               <Marked text={hit.title} query={query} />
             </span>
             {hit.detail && (
@@ -422,14 +422,14 @@ function Preview({
         )}
       </div>
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-line px-4 py-2.5">
-        <button type="button" className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-2.5 py-1 text-[12px] font-medium text-white hover:bg-brand-400" onClick={() => onOpen(false)} data-search-open>
+        <button type="button" className="flex items-center gap-1.5 rounded-lg bg-brand-500 px-2.5 py-1 text-caption font-medium text-white hover:bg-brand-400" onClick={() => onOpen(false)} data-search-open>
           {kind === T.SearchChats ? t('search.openInChat') : t('search.open.item')}
-          <kbd className="font-mono text-[10.5px] opacity-80">↵</kbd>
+          <kbd className="font-mono text-caption opacity-80">↵</kbd>
         </button>
         {kind === T.SearchChats && (
-          <button type="button" className="flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-[12px] text-muted hover:text-title" onClick={() => onOpen(true)} data-search-find>
+          <button type="button" className="flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-caption text-muted hover:text-title" onClick={() => onOpen(true)} data-search-find>
             {t('search.findInChat')}
-            <kbd className="font-mono text-[10.5px] text-subtle">⇧↵</kbd>
+            <kbd className="font-mono text-caption text-subtle">⇧↵</kbd>
           </button>
         )}
       </div>
@@ -463,7 +463,7 @@ function ChatAround({ hit, query, agentTitle }: { hit: T.SearchHit; query: strin
         const here = it.id === hit.id;
         return (
           <div key={it.id} ref={here ? found : undefined} className={cn('grid gap-1', mine && 'justify-items-end')} data-search-around={here || undefined}>
-            <span className="px-1 text-[10.5px] text-subtle">{mine ? t('chat.find.from.you') : it.kind === 'assistant' ? ai : t('chat.find.notice')}</span>
+            <span className="px-1 text-caption text-subtle">{mine ? t('chat.find.from.you') : it.kind === 'assistant' ? ai : t('chat.find.notice')}</span>
             <div
               className={cn(
                 'max-w-[92%] whitespace-pre-wrap break-words rounded-xl px-3 py-2',
@@ -506,7 +506,7 @@ function ReportPreview({ report, query }: { report: T.AgentReport; query: string
         <span className="font-medium text-title">
           <Marked text={report.task || report.summary} query={query} />
         </span>
-        <span className="font-mono text-[10.5px] text-subtle">{report.status}</span>
+        <span className="font-mono text-caption text-subtle">{report.status}</span>
       </div>
       <p className="whitespace-pre-wrap break-words text-primary">
         <Marked text={report.summary} query={query} />
@@ -516,7 +516,7 @@ function ReportPreview({ report, query }: { report: T.AgentReport; query: string
           lines &&
           lines.length > 0 && (
             <div key={label} className="grid gap-1">
-              <h4 className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-subtle">{t(label)}</h4>
+              <h4 className="text-caption font-semibold uppercase tracking-[0.08em] text-subtle">{t(label)}</h4>
               <ul className="grid list-disc gap-1 pl-4 text-muted">
                 {lines.map((line) => (
                   <li key={line}>
@@ -538,7 +538,7 @@ function Chip({ on, onClick, children, ...rest }: { on: boolean; onClick: () => 
       aria-pressed={on}
       onClick={onClick}
       className={cn(
-        'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] transition-colors',
+        'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-caption transition-colors',
         on ? 'border-brand-400/40 bg-brand-400/15 text-brand-200' : 'border-line text-muted hover:border-line-strong hover:text-title',
       )}
       {...rest}
@@ -562,7 +562,7 @@ function Pick({ icon: Icon, value, onChange, label, options }: { icon: LucideIco
           type="button"
           aria-label={label}
           className={cn(
-            'inline-flex max-w-52 shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] transition-colors',
+            'inline-flex max-w-52 shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-caption transition-colors',
             value ? 'border-brand-400/40 bg-brand-400/15 text-brand-200' : 'border-line text-muted hover:border-line-strong hover:text-title',
           )}
         >

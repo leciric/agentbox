@@ -516,7 +516,7 @@ function reviewRequest(method: string, path: string, body?: unknown): { status: 
       '+++ b/desktop/src/renderer/components/v2/SidebarV2.tsx',
       '@@ -12,7 +12,8 @@ import { cn } from "../../lib/utils";',
       '+import { InlineMarkdown } from "../chat/Markdown";',
-      '   <span className="line-clamp-2 text-[12px] text-subtle">',
+      '   <span className="line-clamp-2 text-caption text-subtle">',
       '-    {plain(preview)}',
       '+    <InlineMarkdown text={preview} />',
       '   </span>',

@@ -372,7 +372,7 @@ export function SettingsView({
     // this machine, so this step only says how to run it again.
     host: (
       <div className="grid gap-2">
-        <p className="text-[13px] text-muted">{t("settings.setup.hostBodyAfterIncus")}</p>
+        <p className="text-ui text-muted">{t("settings.setup.hostBodyAfterIncus")}</p>
         <CommandBox command={check("host")?.fix ?? `sudo ${agentbox} host setup`} />
       </div>
     ),
@@ -435,7 +435,7 @@ export function SettingsView({
         {check("codex")?.fix !== "agentbox image build --codex" && (
           <ToolKeyForm tool="codex" accounts={auth.data?.codexAccounts ?? []} />
         )}
-        <p className="text-[13px] text-muted">
+        <p className="text-ui text-muted">
           {check("codex")?.fix === "agentbox image build --codex" ? (
             t("settings.setup.codexNoImage")
           ) : (
@@ -453,7 +453,7 @@ export function SettingsView({
         {check("opencode")?.fix !== "agentbox image build --opencode" && (
           <ToolKeyForm tool="opencode" accounts={auth.data?.openCodeAccounts ?? []} />
         )}
-        <p className="text-[13px] text-muted">
+        <p className="text-ui text-muted">
           {check("opencode")?.fix === "agentbox image build --opencode" ? (
             t("settings.setup.opencodeNoImage")
           ) : (
@@ -470,7 +470,7 @@ export function SettingsView({
     cursor: <CursorAccount command={check("cursor")?.fix ?? "agentbox auth cursor"} />,
     android: check("android")?.fix ? (
       <div className="grid gap-2">
-        <p className="text-[13px] text-muted">
+        <p className="text-ui text-muted">
           {t.rich("settings.setup.androidBody", {
             code: (c) => <Code>{c}</Code>,
           })}
@@ -596,7 +596,7 @@ function SetupWizard({
       <div className="mx-auto max-w-4xl px-4 py-6 md:px-8 md:py-9">
         <div className="flex flex-wrap items-end gap-4">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-title">
+            <h1 className="text-display font-semibold tracking-tight text-title">
               {t("settings.setup.heading")}
             </h1>
             <p className="mt-1 text-sm text-muted">
@@ -620,7 +620,7 @@ function SetupWizard({
             aria-label={t("settings.setup.steps")}
             className="md:sticky md:top-0 md:self-start"
           >
-            <p className="px-2 pb-2 text-[11px] uppercase tracking-wider text-faint">
+            <p className="px-2 pb-2 text-caption uppercase tracking-wider text-faint">
               {t("settings.setup.progress", { done: doneCount, total: steps.length })}
             </p>
             <ol className="grid gap-0.5">
@@ -658,7 +658,7 @@ function SetupWizard({
               {step ? (
                 <>
                   <div className="flex items-center gap-2">
-                    <span className="text-[11px] tabular-nums text-faint">
+                    <span className="text-caption tabular-nums text-faint">
                       {t("settings.setup.stepOf", { n: at + 1, total: steps.length })}
                     </span>
                     <StepBadge step={step} />
@@ -666,7 +666,7 @@ function SetupWizard({
                       <StepIcon status={step.status} />
                     </span>
                   </div>
-                  <h2 className="mt-2 text-lg font-semibold text-title">
+                  <h2 className="mt-2 text-heading font-semibold text-title">
                     {step.title}
                   </h2>
                   <p className="mt-1 text-sm text-muted">{step.description}</p>
@@ -752,7 +752,7 @@ function RailItem({
         data-status={step.status}
         aria-current={active ? "step" : undefined}
         className={cn(
-          "flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-[13px] transition",
+          "flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-ui transition",
           active
             ? "bg-surface-raised text-primary"
             : "text-muted hover:bg-surface hover:text-secondary",
@@ -796,7 +796,7 @@ function Finished({
           className={cn("size-5", ready ? "text-emerald-400" : "text-subtle")}
         />
       </span>
-      <h2 className="text-lg font-semibold text-title">
+      <h2 className="text-heading font-semibold text-title">
         {ready ? t("settings.setup.complete") : t("settings.setup.almost")}
       </h2>
       <p className="max-w-md text-sm leading-relaxed text-muted">
@@ -1122,7 +1122,7 @@ function InstalledSettings({
         },
       ],
       footer: info && (
-        <p className="text-center font-mono text-[11px] text-faint">
+        <p className="text-center font-mono text-caption text-faint">
           AgentBox {isNightly(info.version) ? `Nightly ${info.version}` : info.version} · Electron {info.electron} · {info.socket}
         </p>
       ),
@@ -1373,7 +1373,7 @@ function InstalledSettings({
       footer: (
         <p
           data-lead-preference-tip
-          className="flex items-start gap-2 px-1 text-[12px] leading-relaxed text-subtle"
+          className="flex items-start gap-2 px-1 text-caption leading-relaxed text-subtle"
         >
           <Lightbulb className="mt-0.5 size-3.5 shrink-0 text-brand-300" />
           <span>
@@ -1895,7 +1895,7 @@ function ClaudeCodeAutoUpdate() {
       }
     >
       {u && (
-        <div data-claude-code-versions className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12px] text-muted">
+        <div data-claude-code-versions className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-caption text-muted">
           <span className="font-mono">{t("settings.claudeCodeUpdate.installed", { version: installed })}</span>
           {u.on && u.latest && <span className="font-mono">{t("settings.claudeCodeUpdate.latest", { version: u.latest })}</span>}
           {u.on && (
@@ -1981,7 +1981,7 @@ function UpdateChannel() {
             disabled={set.isPending || update.data === undefined || !!update.data.blocked}
             onClick={() => set.mutate(value)}
             className={cn(
-              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-[12.5px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 disabled:opacity-50",
+              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-ui font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 disabled:opacity-50",
               current === value
                 ? "bg-surface-strong text-title shadow-[inset_0_1px_0_rgb(255_255_255/0.08)]"
                 : "text-muted hover:text-primary",
@@ -2299,7 +2299,7 @@ function LayoutSetting() {
             data-layout={v2 ? "v2" : "classic"}
             onClick={() => choose(v2)}
             className={cn(
-              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-[12.5px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50",
+              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-ui font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50",
               on === v2 ? "bg-surface-strong text-title shadow-[inset_0_1px_0_rgb(255_255_255/0.08)]" : "text-muted hover:text-primary",
             )}
           >
@@ -2311,7 +2311,7 @@ function LayoutSetting() {
       {on && (
         <button
           type="button"
-          className="w-fit text-[12px] text-subtle underline-offset-2 hover:text-primary hover:underline"
+          className="w-fit text-caption text-subtle underline-offset-2 hover:text-primary hover:underline"
           onClick={() => startTour(welcomeTour.id)}
           data-layout-tour
         >
@@ -2411,7 +2411,7 @@ function PagesStackSetting() {
             data-pages-stack={m}
             onClick={() => setPageStackMode(m)}
             className={cn(
-              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-[12.5px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50",
+              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-ui font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50",
               mode === m
                 ? "bg-surface-strong text-title shadow-[inset_0_1px_0_rgb(255_255_255/0.08)]"
                 : "text-muted hover:text-primary",
@@ -2645,7 +2645,7 @@ function LanguageSetting() {
             disabled={set.isPending || settings.data === undefined}
             onClick={() => set.mutate(tag)}
             className={cn(
-              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-[12.5px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 disabled:opacity-50",
+              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-ui font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 disabled:opacity-50",
               current === tag
                 ? "bg-surface-strong text-title shadow-[inset_0_1px_0_rgb(255_255_255/0.08)]"
                 : "text-muted hover:text-primary",
@@ -2721,7 +2721,7 @@ function Appearance() {
             disabled={set.isPending || theme.data === undefined}
             onClick={() => set.mutate(value)}
             className={cn(
-              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-[12.5px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 disabled:opacity-50",
+              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-ui font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 disabled:opacity-50",
               current === value
                 ? "bg-surface-strong text-title shadow-[inset_0_1px_0_rgb(255_255_255/0.08)]"
                 : "text-muted hover:text-primary",
@@ -2734,7 +2734,7 @@ function Appearance() {
       </div>
       {theme.data !== undefined &&
         (found ? (
-          <div className="flex items-center gap-2 text-[12px] text-subtle">
+          <div className="flex items-center gap-2 text-caption text-subtle">
             <span
               className="size-3 rounded-full border border-line-vivid"
               style={{ background: theme.data.accent }}
@@ -2845,7 +2845,7 @@ export function ClaudeAccounts({ accounts }: { accounts: T.ClaudeAccount[] }) {
   return (
     <div className="grid gap-3">
       {accounts.length > 0 && (
-        <p className="text-[12.5px] text-subtle">
+        <p className="text-ui text-subtle">
           {t("settings.accounts.defaultReaches")}
           {notDefault.length > 0 &&
             ` ${t("settings.accounts.theRest", { names: notDefault.map((p) => p.name).join(", ") })}`}
@@ -2879,7 +2879,7 @@ export function ClaudeAccounts({ accounts }: { accounts: T.ClaudeAccount[] }) {
                     }}
                     disabled={rename.isPending}
                     autoFocus
-                    className="h-7 w-32 font-mono text-[12.5px]"
+                    className="h-7 w-32 font-mono text-ui"
                   />
                   <Button
                     type="submit"
@@ -2899,7 +2899,7 @@ export function ClaudeAccounts({ accounts }: { accounts: T.ClaudeAccount[] }) {
                   </Button>
                 </form>
               ) : (
-                <span className="truncate font-mono text-[12.5px] text-secondary">
+                <span className="truncate font-mono text-ui text-secondary">
                   {acc.name}
                 </span>
               )}
@@ -2908,7 +2908,7 @@ export function ClaudeAccounts({ accounts }: { accounts: T.ClaudeAccount[] }) {
                 <Badge variant="danger">{t("settings.accounts.badgeRejected")}</Badge>
               )}
               {acc.valid === "valid" && <Badge variant="success">{t("settings.accounts.badgeValid")}</Badge>}
-              <span className="truncate text-[11.5px] text-subtle">
+              <span className="truncate text-caption text-subtle">
                 {savedAtLabel(acc.savedAt)}
               </span>
               <div className="ml-auto flex items-center gap-1">
@@ -3042,7 +3042,7 @@ function ClaudeLogin({
       className="grid gap-3"
       data-claude-login={login.data?.status ?? (job ? "running" : "idle")}
     >
-      <p className="text-[13px] text-muted">
+      <p className="text-ui text-muted">
         {t.rich("settings.claudeLogin.intro", { code: (c) => <Code>{c}</Code> })}
       </p>
       <div className="flex flex-wrap items-end gap-2">
@@ -3082,7 +3082,7 @@ function ClaudeLogin({
 
       {job && (
         <div className="grid gap-3 rounded-xl border border-line bg-surface-faint p-3.5">
-          <div className="flex flex-wrap items-center gap-2 text-[13px]">
+          <div className="flex flex-wrap items-center gap-2 text-ui">
             {running ? (
               <LoaderCircle className="size-4 animate-spin text-brand-400" />
             ) : (
@@ -3213,7 +3213,7 @@ function ClaudeTokenForm({
         save.mutate();
       }}
     >
-      <p className="text-[13px] text-muted">
+      <p className="text-ui text-muted">
         {t.rich("settings.claudeToken.intro", { code: (c) => <Code>{c}</Code> })}
       </p>
       <div className="flex flex-wrap items-end gap-2">
@@ -3330,7 +3330,7 @@ function CursorAccount({ command }: { command: string }) {
 
   return (
     <div className="grid gap-3">
-      <div className="flex flex-wrap items-center gap-2 text-[13px]">
+      <div className="flex flex-wrap items-center gap-2 text-ui">
         <StepIcon status={signedIn ? "ok" : "optional"} small />
         <span className="text-secondary">
           {signedIn
@@ -3396,7 +3396,7 @@ function CursorAccount({ command }: { command: string }) {
         {state === "waiting" && url && (
           <button
             type="button"
-            className="inline-flex items-center gap-1 text-[13px] text-brand-300 underline-offset-2 hover:underline"
+            className="inline-flex items-center gap-1 text-ui text-brand-300 underline-offset-2 hover:underline"
             onClick={() => void window.agentbox.openExternal(url)}
           >
             <ExternalLink className="size-3.5" />
@@ -3416,7 +3416,7 @@ function CursorAccount({ command }: { command: string }) {
       )}
       {save.error && <Notice>{errorMessage(save.error)}</Notice>}
       {start.error && <Notice>{errorMessage(start.error)}</Notice>}
-      <p className="text-[13px] text-muted">
+      <p className="text-ui text-muted">
         {t.rich("settings.cursor.cliBody", { code: (c) => <Code>{c}</Code> })}
       </p>
       <CommandBox command={command} />
@@ -3508,7 +3508,7 @@ export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
   return (
     <div className="grid gap-3">
       {accounts.length > 0 && (
-        <p className="text-[12.5px] text-subtle">
+        <p className="text-ui text-subtle">
           {t("settings.accounts.defaultReaches")}
           {notDefault.length > 0 &&
             ` ${t("settings.accounts.theRest", { names: notDefault.map((p) => p.name).join(", ") })}`}
@@ -3542,7 +3542,7 @@ export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
                     }}
                     disabled={rename.isPending}
                     autoFocus
-                    className="h-7 w-32 font-mono text-[12.5px]"
+                    className="h-7 w-32 font-mono text-ui"
                   />
                   <Button
                     type="submit"
@@ -3562,12 +3562,12 @@ export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
                   </Button>
                 </form>
               ) : (
-                <span className="truncate font-mono text-[12.5px] text-secondary">
+                <span className="truncate font-mono text-ui text-secondary">
                   {acc.name}
                 </span>
               )}
               {acc.login && (
-                <span className="truncate text-[12px] text-subtle">
+                <span className="truncate text-caption text-subtle">
                   {acc.login}
                 </span>
               )}
@@ -3613,7 +3613,7 @@ export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
           save.mutate();
         }}
       >
-        <p className="text-[13px] text-muted">
+        <p className="text-ui text-muted">
           {t.rich("settings.github.intro", { code: (c) => <Code>{c}</Code> })}
         </p>
         <div className="flex flex-wrap items-end gap-2">
@@ -3741,7 +3741,7 @@ function HostSetup({
   if (linux?.mode === "host" && !linux.kvm && !kvmFixable(linux)) {
     return (
       <div className="grid gap-2" data-host-setup="no-kvm">
-        <p className="text-[13px] text-muted">{t("settings.hostSetup.noKVMHere")}</p>
+        <p className="text-ui text-muted">{t("settings.hostSetup.noKVMHere")}</p>
         <CommandBox command={`sudo ${agentbox} host setup`} />
         <details className="text-xs text-subtle">
           <summary className="w-fit cursor-pointer hover:text-secondary">{t("settings.hostSetup.whyNotVM")}</summary>
@@ -3753,7 +3753,7 @@ function HostSetup({
   if (linux?.mode === "host") {
     return (
       <div className="grid gap-2" data-host-setup="moving">
-        <p className="text-[13px] text-muted">
+        <p className="text-ui text-muted">
           {t("settings.hostSetup.moving")}
         </p>
         <CommandBox command={`sudo ${agentbox} host setup`} />
@@ -3767,7 +3767,7 @@ function HostSetup({
       className="grid gap-2"
       data-host-setup={noDialog ? "terminal" : "button"}
     >
-      <p className="text-[13px] text-muted">
+      <p className="text-ui text-muted">
         {mac
           ? t("settings.hostSetup.introVM")
           : wsl
@@ -3801,7 +3801,7 @@ function HostSetup({
       {run.error && <Notice>{errorMessage(run.error)}</Notice>}
       {(noDialog || run.error) && (
         <div className="grid gap-2">
-          <p className="text-[13px] text-muted">
+          <p className="text-ui text-muted">
             {noDialog
               ? t("settings.hostSetup.noPkexec")
               : mac || wsl
@@ -3835,7 +3835,7 @@ export function SetupLog({ lines, label }: { lines: string[]; label: string }) {
       ref={log}
       data-host-setup-log
       aria-label={label}
-      className="h-64 overflow-auto rounded-xl border border-line bg-well p-3.5 font-mono text-[11.5px] leading-relaxed text-subtle"
+      className="h-64 overflow-auto rounded-xl border border-line bg-well p-3.5 font-mono text-caption leading-relaxed text-subtle"
     >
       {lines.map((line = "", i) => (
         <div
@@ -3863,7 +3863,7 @@ export function CommandBox({ command }: { command: string }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
   return (
-    <div className="flex items-center gap-2 rounded-xl border border-line-strong bg-well py-1.5 pl-3.5 pr-1.5 font-mono text-[12.5px] text-secondary">
+    <div className="flex items-center gap-2 rounded-xl border border-line-strong bg-well py-1.5 pl-3.5 pr-1.5 font-mono text-ui text-secondary">
       <span className="select-none text-faint">$</span>
       <span className="min-w-0 flex-1 truncate" title={command}>
         {command}
@@ -3918,7 +3918,7 @@ function SetupChecklist({
     <div className="grid gap-3" data-setup-checklist>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1">
         <span
-          className="text-[13px] tabular-nums text-muted"
+          className="text-ui tabular-nums text-muted"
           data-setup-progress={`${done}/${steps.length}`}
         >
           {t("settings.checklist.progress", { done, total: steps.length })}
@@ -3958,7 +3958,7 @@ function SetupChecklist({
                 onClick={toggle}
                 aria-expanded={step.body ? expanded : undefined}
                 className={cn(
-                  "flex w-full min-w-0 items-center gap-3 px-4 py-3 text-left text-[13px] transition enabled:hover:bg-surface",
+                  "flex w-full min-w-0 items-center gap-3 px-4 py-3 text-left text-ui transition enabled:hover:bg-surface",
                   after && "opacity-60",
                 )}
               >
@@ -3976,7 +3976,7 @@ function SetupChecklist({
                   {isNext ? t("settings.checklist.next", { step: step.title }) : step.title}
                 </span>
                 {isNext ? (
-                  <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-amber-300">
+                  <span className="shrink-0 text-caption font-semibold uppercase tracking-wider text-amber-300">
                     {t("settings.checklist.nextBadge")}
                   </span>
                 ) : after ? (
@@ -3999,7 +3999,7 @@ function SetupChecklist({
               </button>
               {expanded && !after && (
                 <div className="grid gap-3 px-4 pb-4 pl-11">
-                  <p className="text-[13px] text-muted">{step.description}</p>
+                  <p className="text-ui text-muted">{step.description}</p>
                   {isNext && step.detail && (
                     <p className="break-words text-xs text-subtle">{step.detail}</p>
                   )}
@@ -4010,7 +4010,7 @@ function SetupChecklist({
           );
         })}
       </ol>
-      <p className="px-1 text-[13px] text-muted">
+      <p className="px-1 text-ui text-muted">
         {next || done < steps.length
           ? t("settings.checklist.leadMeanwhile")
           : t("settings.checklist.allDone")}
@@ -4066,12 +4066,12 @@ function ChecklistStep({
           </span>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <h3 className="text-[14px] font-semibold text-primary">
+              <h3 className="text-body font-semibold text-primary">
                 {step.title}
               </h3>
               <StepBadge step={step} />
             </div>
-            <p className="mt-0.5 text-[13px] text-muted">{step.description}</p>
+            <p className="mt-0.5 text-ui text-muted">{step.description}</p>
             {step.detail && (
               <p
                 className={cn(

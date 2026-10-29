@@ -67,8 +67,8 @@ export function SignIn({ signedIn: initiallySignedIn, onReady }: { signedIn: boo
         <div className="mb-8 flex items-center gap-3">
           <Logo className="size-10" />
           <div>
-            <div className="text-lg font-semibold tracking-tight text-title">AgentBox</div>
-            <div className="text-[13px] text-subtle">{location.host}</div>
+            <div className="text-heading font-semibold tracking-tight text-title">AgentBox</div>
+            <div className="text-ui text-subtle">{location.host}</div>
           </div>
         </div>
 
@@ -76,7 +76,7 @@ export function SignIn({ signedIn: initiallySignedIn, onReady }: { signedIn: boo
           <div className="panel grid gap-4 rounded-2xl p-5">
             <div>
               <h1 className="text-xl font-semibold tracking-tight text-title">{t('web.signIn.title')}</h1>
-              <p className="mt-1 text-[13px] text-muted">{t('web.signIn.subtitle')}</p>
+              <p className="mt-1 text-ui text-muted">{t('web.signIn.subtitle')}</p>
             </div>
             <Button variant="primary" onClick={() => location.assign(`/hub/connect?next=${encodeURIComponent(location.pathname + location.search)}`)}>
               <LogIn />
@@ -90,7 +90,7 @@ export function SignIn({ signedIn: initiallySignedIn, onReady }: { signedIn: boo
                   void signIn();
                 }}
               >
-                <p className="text-[13px] text-muted">{t('web.signIn.passwordAccounts')}</p>
+                <p className="text-ui text-muted">{t('web.signIn.passwordAccounts')}</p>
                 <Field label={t('web.signIn.email')} htmlFor="web-email">
                   <Input id="web-email" type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} />
                 </Field>
@@ -109,7 +109,7 @@ export function SignIn({ signedIn: initiallySignedIn, onReady }: { signedIn: boo
           <div className="grid gap-3">
             <h1 className="text-xl font-semibold tracking-tight text-title">{t('web.signIn.environments')}</h1>
             {error && <Notice>{error}</Notice>}
-            {!environments && !error && <div className="text-[13px] text-subtle">{t('common.loading')}</div>}
+            {!environments && !error && <div className="text-ui text-subtle">{t('common.loading')}</div>}
             {environments?.length === 0 && (
               <Notice tone="info">{t.rich('web.signIn.noEnvironments', { code: (c) => <code className="font-mono">{c}</code> })}</Notice>
             )}
@@ -125,7 +125,7 @@ export function SignIn({ signedIn: initiallySignedIn, onReady }: { signedIn: boo
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block font-medium text-primary">{env.name}</span>
-                  <span className="flex items-center gap-1.5 text-[12px] text-subtle">
+                  <span className="flex items-center gap-1.5 text-caption text-subtle">
                     <span className={cn('size-1.5 rounded-full', env.online ? 'bg-emerald-400' : 'bg-faint')} />
                     {env.online ? (env.hostname ? t('web.signIn.onlineHost', { hostname: env.hostname }) : t('web.signIn.online')) : t('web.signIn.offline')}
                   </span>
