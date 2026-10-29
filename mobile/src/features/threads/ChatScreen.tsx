@@ -6,6 +6,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams } from 'expo-router';
 import { Image } from 'expo-image';
+import { ArrowRightLeft, Brain, ChevronRight, CircleAlert, Eye, Globe, Play, Search, ShieldCheck, ShieldX, SquarePen, SquareTerminal, Trash2, Wrench, type LucideIcon } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as T from '../../shared/api.ts';
@@ -13,9 +14,10 @@ import { api, chatImagePath, isLead, mediaSource } from '../../connection/api.ts
 import { can, useSession } from '../../connection/session.ts';
 import { useT } from '../../lib/i18n.tsx';
 import { ErrorBoundary } from '../../ui/ErrorBoundary.tsx';
+import { AgentAvatar, LeadAvatar } from '../../ui/icons.tsx';
 import { Button, Dot, ScreenHeader } from '../../ui/parts.tsx';
 import { colors, mono } from '../../ui/theme.ts';
-import { agentStatus, isWaiting, leadStatus, liveStatus, workLabel } from './activity.ts';
+import { agentStatus, avatarMood, isWaiting, leadMood, leadStatus, liveStatus, workLabel } from './activity.ts';
 import { AgentPermissionCard, PermissionCard, QuestionCard } from './cards.tsx';
 import { Composer } from './Composer.tsx';
 import { Markdown } from './Markdown.tsx';
@@ -62,7 +64,12 @@ export function ChatScreen() {
   const missing = lead ? projects.data && !p : agents.data && !agent;
   return (
     <View style={styles.root}>
-      <ScreenHeader title={title} subtitle={subtitle} status={status} />
+      <ScreenHeader
+        title={title}
+        subtitle={subtitle}
+        status={status}
+        icon={lead ? <LeadAvatar mood={leadMood(info.data?.chat, waiting.length > 0)} size={32} /> : agent ? <AgentAvatar ai={agent.ai} mood={avatarMood(agent, waiting.length > 0)} size={32} /> : undefined}
+      />
       {missing ? (
         <Text style={styles.empty}>{lead ? t('web.phone.missingProject', { name: project }) : t('web.phone.missingAgent', { name: agentRef ?? '' })}</Text>
       ) : (
@@ -105,7 +112,7 @@ export function ChatScreen() {
       {asleep && (
         <View style={styles.asleep}>
           <Text style={styles.asleepText}>{t('mobile.chat.asleep', { name: agent?.name ?? '', state: asleep })}</Text>
-          {can(session, 'chat') && <Button label={t('mobile.chat.wake')} kind="secondary" busy={wake.isPending} onPress={() => wake.mutate()} />}
+          {can(session, 'chat') && <Button label={t('mobile.chat.wake')} icon={Play} kind="secondary" busy={wake.isPending} onPress={() => wake.mutate()} />}
         </View>
       )}
       {!missing && !asleep && (
@@ -162,27 +169,54 @@ function TimelineRow({ row, chatRef, tools }: { row: Row; chatRef: string; tools
   }
 }
 
+// Each step's icon by what it does, the desktop's (chat/Work.tsx).
+const toolIcons: Record<string, LucideIcon> = {
+  read: Eye,
+  edit: SquarePen,
+  delete: Trash2,
+  move: ArrowRightLeft,
+  search: Search,
+  execute: SquareTerminal,
+  think: Brain,
+  fetch: Globe,
+};
+
+function iconOf(it: T.ChatItem): LucideIcon {
+  if (it.kind === 'thought') return Brain;
+  if (it.kind === 'permission') return it.permission?.options.find((o) => o.id === it.permission?.outcome)?.kind.startsWith('allow') ? ShieldCheck : ShieldX;
+  if (it.tool?.status === 'failed') return CircleAlert;
+  return toolIcons[it.tool?.kind ?? ''] ?? Wrench;
+}
+
 // WorkRow is a run of work folded into one line, what it did last; tapped,
 // every step.
 function WorkRow({ items, live }: { items: T.ChatItem[]; live: boolean }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const last = items.at(-1)!;
+  const Icon = iconOf(last);
   return (
     <Pressable onPress={() => setOpen((o) => !o)} style={styles.work} accessibilityRole="button" accessibilityState={{ expanded: open }}>
       <View style={styles.workHead}>
-        <Dot status={{ tone: live ? 'live' : 'muted', live }} />
+        <Icon size={15} color={live ? colors.secondary : colors.subtle} strokeWidth={1.8} />
         <Text style={[styles.workText, live && { color: colors.secondary }]} numberOfLines={1}>
           {workLabel(last)}
         </Text>
         {items.length > 1 && <Text style={styles.workCount}>{t('mobile.chat.steps', { count: items.length })}</Text>}
+        <ChevronRight size={13} color={colors.faint} style={open ? { transform: [{ rotate: '90deg' }] } : undefined} />
       </View>
       {open &&
-        items.map((it) => (
-          <Text key={it.id} style={[styles.workStep, it.kind === 'tool' && it.tool?.kind === 'execute' && mono]} numberOfLines={2}>
-            {workLabel(it)}
-          </Text>
-        ))}
+        items.map((it) => {
+          const StepIcon = iconOf(it);
+          return (
+            <View key={it.id} style={styles.workStepRow}>
+              <StepIcon size={13} color={colors.faint} strokeWidth={1.8} />
+              <Text style={[styles.workStep, it.kind === 'tool' && it.tool?.kind === 'execute' && mono]} numberOfLines={2}>
+                {workLabel(it)}
+              </Text>
+            </View>
+          );
+        })}
     </Pressable>
   );
 }
@@ -201,7 +235,8 @@ const styles = StyleSheet.create({
   workHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   workText: { flex: 1, color: colors.subtle, fontSize: 13 },
   workCount: { color: colors.faint, fontSize: 12 },
-  workStep: { color: colors.subtle, fontSize: 12, paddingLeft: 16 },
+  workStepRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, paddingLeft: 2 },
+  workStep: { flex: 1, color: colors.subtle, fontSize: 12 },
   error: { borderRadius: 12, backgroundColor: colors.roseSoft, padding: 10, marginVertical: 6 },
   errorText: { color: colors.rose, fontSize: 13, lineHeight: 18 },
   note: { color: colors.subtle, fontSize: 12.5, textAlign: 'center', marginVertical: 6 },
