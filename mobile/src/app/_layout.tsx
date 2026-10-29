@@ -14,6 +14,7 @@ import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-quer
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useMemo, useState } from 'react';
+import { CircleAlert, RotateCw, Unplug } from 'lucide-react-native';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { api } from '../connection/api.ts';
@@ -107,6 +108,7 @@ function Crashed({ crashes, error, onRetry }: { crashes?: number; error?: string
   const t = useT();
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.crashed}>
+      <CircleAlert size={28} color={colors.rose} />
       <Text style={styles.crashedTitle}>{t('mobile.crash.title')}</Text>
       <Text style={styles.crashedBody}>{crashes ? t('mobile.crash.onStart', { count: crashes }) : t('mobile.crash.body')}</Text>
       {error ? (
@@ -114,8 +116,8 @@ function Crashed({ crashes, error, onRetry }: { crashes?: number; error?: string
           <Text style={mono}>{error}</Text>
         </Note>
       ) : null}
-      <Button label={t('mobile.crash.retry')} onPress={onRetry} />
-      <Button label={t('web.phone.unpair')} kind="danger" onPress={() => void unpair().then(onRetry)} />
+      <Button label={t('mobile.crash.retry')} icon={RotateCw} onPress={onRetry} />
+      <Button label={t('web.phone.unpair')} icon={Unplug} kind="danger" onPress={() => void unpair().then(onRetry)} />
     </ScrollView>
   );
 }
