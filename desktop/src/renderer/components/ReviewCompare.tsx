@@ -69,7 +69,7 @@ export function ReviewCompare({ ref, pair, expanded }: { ref?: Ref<CompareHandle
   const hint = t(mode === 'side' ? 'review.compare.sideHint' : mode === 'slider' ? 'review.compare.sliderHint' : 'review.compare.flipHint');
 
   return (
-    <div className={cn('grid min-w-0 gap-2', expanded && 'h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto]')} data-review-compare={mode} data-review-compare-side={mode === 'flip' ? side : undefined}>
+    <div className={cn('grid min-w-0 gap-2', expanded && 'h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]')} data-review-compare={mode} data-review-compare-side={mode === 'flip' ? side : undefined}>
       <div className={cn('flex min-w-0 flex-wrap items-center gap-2 text-[12px]', expanded ? 'text-white/80' : 'text-secondary')}>
         <div role="radiogroup" aria-label={t('review.compare.modes')} className="flex items-center gap-0.5 rounded-lg border border-line bg-surface-faint p-0.5">
           {compareModes.map((m) => {
@@ -116,14 +116,22 @@ export function ReviewCompare({ ref, pair, expanded }: { ref?: Ref<CompareHandle
             {recordings ? t('review.compare.onlyShots') : differenceNote(t, difference)}
           </span>
         )}
-        {zoom.scale > 1 && (
-          <button type="button" onClick={() => setZoom(noZoom)} className="ml-auto rounded-md px-1.5 tabular-nums text-subtle hover:text-primary" data-review-zoom={zoom.scale.toFixed(1)}>
-            {Math.round(zoom.scale * 10) / 10}× · {t('review.compare.fit')}
+        {recordings && (
+          <button type="button" onClick={togglePlay} aria-label={t(playing ? 'review.pause' : 'review.play')} title={`${t(playing ? 'review.pause' : 'review.play')} (Space)`} className="text-subtle hover:text-primary">
+            {playing ? <Pause className="size-4 fill-current" /> : <Play className="size-4 fill-current" />}
           </button>
         )}
+        <span className="ml-auto flex min-w-0 items-center gap-2 text-[11.5px] text-subtle">
+          {zoom.scale > 1 && (
+            <button type="button" onClick={() => setZoom(noZoom)} className="shrink-0 rounded-md px-1.5 tabular-nums hover:text-primary" data-review-zoom={zoom.scale.toFixed(1)}>
+              {Math.round(zoom.scale * 10) / 10}× · {t('review.compare.fit')}
+            </button>
+          )}
+          <span className="min-w-0 truncate max-lg:hidden">{hint}</span>
+        </span>
       </div>
 
-      <div className={cn('min-w-0', expanded ? 'min-h-0' : 'h-[min(58vh,640px)]', mode === 'side' && 'grid grid-cols-2 gap-2')}>
+      <div className={cn('min-w-0', expanded ? 'min-h-0' : 'h-[min(46vh,600px)]', mode === 'side' && 'grid grid-cols-2 gap-2')}>
         {mode === 'side' ? (
           (['before', 'after'] as const).map((s) => (
             <Frame key={s} aspect={aspect} zoom={zoom} onZoom={setZoom}>
@@ -147,15 +155,6 @@ export function ReviewCompare({ ref, pair, expanded }: { ref?: Ref<CompareHandle
             ))}
           </Frame>
         )}
-      </div>
-
-      <div className={cn('flex min-w-0 items-center gap-3 text-[11.5px]', expanded ? 'text-white/60' : 'text-subtle')}>
-        {recordings && (
-          <button type="button" onClick={togglePlay} aria-label={t(playing ? 'review.pause' : 'review.play')} title={`${t(playing ? 'review.pause' : 'review.play')} (Space)`} className="hover:text-primary">
-            {playing ? <Pause className="size-4 fill-current" /> : <Play className="size-4 fill-current" />}
-          </button>
-        )}
-        <span className="min-w-0 truncate max-md:hidden">{hint}</span>
       </div>
     </div>
   );
