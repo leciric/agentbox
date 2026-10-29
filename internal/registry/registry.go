@@ -147,6 +147,13 @@ func (c Client) bearerToken(ctx context.Context, client *http.Client, params map
 	if err != nil {
 		return "", fmt.Errorf("the registry's token address %q isn't a URL: %w", realm, err)
 	}
+	// The login goes to whatever address the challenge names, which may be
+	// another host (Docker Hub's is auth.docker.io): over http it would cross
+	// the network in the clear, so only a registry the user marked insecure
+	// may name one.
+	if tokenURL.Scheme != "https" && !(c.Insecure && tokenURL.Scheme == "http") {
+		return "", fmt.Errorf("the registry wants a token from %s, which isn't https: AgentBox sends the login only over https, unless the registry is added with --insecure", tokenURL.Redacted())
+	}
 	query := tokenURL.Query()
 	for _, name := range []string{"service", "scope"} {
 		if value := params[name]; value != "" {
