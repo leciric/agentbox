@@ -2257,7 +2257,7 @@
     "query": "app=project&v2=1&pip=1&theme=dark",
     "width": 1600,
     "height": 1000,
-    "click": "[data-list-live] [data-list-desktop]"
+    "click": "[data-list-live]"
   },
   {
     "id": "pip-mention-chip-dark",
@@ -2650,5 +2650,61 @@
     "query": "chat=imagewait&open=agent-100&theme=dark&lang=pt-BR",
     "width": 1280,
     "height": 900
+  },
+  {
+    "id": "counts-project-1920-light",
+    "description": "UI v2 at 1920×1080, the lead's chat, its agents grouped by state in the panel: one count everywhere, the breadcrumb's h1, sentence-case labels — light",
+    "query": "app=project&v2=1&theme=light",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "counts-project-1920-dark",
+    "description": "UI v2 at 1920×1080, the lead's chat, its agents grouped by state in the panel: one count everywhere, the breadcrumb's h1, sentence-case labels — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "counts-project-800-light",
+    "description": "UI v2 at 800×600, the lead's chat, its agents grouped by state in the panel: one count everywhere, the breadcrumb's h1, sentence-case labels — light",
+    "query": "app=project&v2=1&theme=light",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "counts-project-800-dark",
+    "description": "UI v2 at 800×600, the lead's chat, its agents grouped by state in the panel: one count everywhere, the breadcrumb's h1, sentence-case labels — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "counts-agent-99-1920-light",
+    "description": "UI v2 at 1920×1080, agent-99's chat, its Desktop in the panel: one count everywhere, the breadcrumb's h1, sentence-case labels — light",
+    "query": "app=agent-99&v2=1&theme=light",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "counts-agent-99-1920-dark",
+    "description": "UI v2 at 1920×1080, agent-99's chat, its Desktop in the panel: one count everywhere, the breadcrumb's h1, sentence-case labels — dark",
+    "query": "app=agent-99&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "counts-agent-99-800-light",
+    "description": "UI v2 at 800×600, agent-99's chat, its Desktop in the panel: one count everywhere, the breadcrumb's h1, sentence-case labels — light",
+    "query": "app=agent-99&v2=1&theme=light",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "counts-agent-99-800-dark",
+    "description": "UI v2 at 800×600, agent-99's chat, its Desktop in the panel: one count everywhere, the breadcrumb's h1, sentence-case labels — dark",
+    "query": "app=agent-99&v2=1&theme=dark",
+    "width": 800,
+    "height": 600
   }
 ]

@@ -4,8 +4,10 @@ import type { ComponentType, ReactNode } from 'react';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
-import { formatList, formatNumber, useT } from '../lib/i18n';
-import { summarizeStatus, type StatusTone } from '../lib/agentStatus';
+import { formatList, formatNumber, useT, type MessageKey } from '../lib/i18n';
+import { type StatusTone } from '../lib/agentStatus';
+import { useAgentCounts } from '../lib/useAgentCounts';
+import type { AgentSt } from '../lib/leadFirst';
 import { cn, humanBytes, humanRate, shortRate, stallPressure, timeAgo } from '../lib/utils';
 import { AllAgentsPanel } from './AllAgentsPanel';
 import { WorkList } from './WorkView';
@@ -85,7 +87,7 @@ export function HomeView({
           </div>
         </div>
 
-        {all.length > 0 && <StatusSummary agents={all} className="mt-4" />}
+        {all.length > 0 && <StatusSummary className="mt-4" />}
 
         {setup.data && !setup.data.ready && (
           <button
@@ -202,15 +204,27 @@ const pillDot: Record<StatusTone, string> = {
 // labels lib/agentStatus hands the rail and the sidebar. Ordered by urgency,
 // so whatever needs you is the first thing you see on the page - before you've
 // scrolled to a single row of the list below.
-function StatusSummary({ agents, className }: { agents: T.Agent[]; className?: string }) {
-  const items = summarizeStatus(agents);
+// StatusSummary is how many agents are in each state: the counts the sidebar, its filter and the agent panel show
+// (lib/useAgentCounts.ts), so Home never says another number.
+const summaryKeys: { st: AgentSt; tone: StatusTone; key: MessageKey }[] = [
+  { st: 'needs', tone: 'urgent', key: 'v2.count.needs' },
+  { st: 'error', tone: 'error', key: 'v2.count.error' },
+  { st: 'review', tone: 'muted', key: 'v2.count.review' },
+  { st: 'working', tone: 'live', key: 'v2.count.working' },
+  { st: 'done', tone: 'muted', key: 'v2.count.idle' },
+];
+
+function StatusSummary({ className }: { className?: string }) {
+  const t = useT();
+  const counts = useAgentCounts().all;
+  const items = summaryKeys.filter(({ st }) => counts[st] > 0).map(({ st, tone, key }) => ({ text: t(key, { count: counts[st] }), tone }));
 
   return (
     <div className={cn('flex flex-wrap items-center gap-2', className)}>
       {items.map((item) => (
         <span key={item.text} className={cn('inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-medium', pillTone[item.tone])}>
           <span className={cn('size-1.5 shrink-0 rounded-full', pillDot[item.tone])} />
-          {item.count} {item.text}
+          {item.text}
         </span>
       ))}
     </div>

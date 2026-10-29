@@ -16,6 +16,7 @@ import { agentReviewPrefix, useReviewPages } from '../../lib/inboxPages';
 import { changesPending } from '../../lib/leadFirst';
 import { startWalk } from '../../lib/review';
 import { useMediaCounts } from '../../lib/mediaPages';
+import { useAgentCounts } from '../../lib/useAgentCounts';
 import type { WorkFilter } from '../../lib/work';
 import { cn } from '../../lib/utils';
 import { ReviewDialog, type ReviewSession } from '../ReadyToReview';
@@ -62,8 +63,19 @@ async function agentReview(ref: string): Promise<T.ReviewItem | null> {
 
 // useAgentReview is an agent's review item, or null while it has none: it
 // hasn't finished, or is at work again.
-export function useAgentReview(ref: string) {
-  return useQuery({ queryKey: agentReviewKey(ref), queryFn: () => agentReview(ref) });
+export function useAgentReview(ref: string, enabled = true) {
+  return useQuery({ queryKey: agentReviewKey(ref), queryFn: () => agentReview(ref), enabled });
+}
+
+// useAgentPr is an agent's pull request, one answer for its header's pill,
+// its review card and its row in the panel, which had each read their own
+// and could name different ones: the fleet's (D54, matched against the
+// repository's pull requests as they are now), else the one its review item
+// recorded when it finished. review: whether to read the review item (v2).
+export function useAgentPr(agent: Pick<T.Agent, 'ref' | 'project'>, review = true): T.PullRequest | undefined {
+  const fleet = useQuery({ queryKey: ['fleet', agent.project], queryFn: () => api.fleet(agent.project), refetchInterval: 30_000 });
+  const item = useAgentReview(agent.ref, review);
+  return fleet.data?.agents?.find((a) => a.ref === agent.ref)?.pr ?? (review ? item.data?.pr : undefined);
 }
 
 // ReviewV2 gives what's under it a way to open the carousel on any agent,
@@ -111,6 +123,7 @@ export function AgentReviewCard({ agent, wake }: { agent: T.Agent; wake?: Wake }
   const review = useAgentReview(agent.ref);
   const counts = useMediaCounts({ project: agent.project, agent: agent.name });
   const item = review.data;
+  const pr = useAgentPr(agent);
   const asked = changesPending(agent);
   if (!open || (!item && !asked)) return null;
   const kinds = counts.data?.kinds ?? {};
@@ -119,7 +132,6 @@ export function AgentReviewCard({ agent, wake }: { agent: T.Agent; wake?: Wake }
     kinds.recording ? { icon: Film, text: t('v2.card.recordings', { count: kinds.recording }) } : null,
     kinds.page ? { icon: Globe, text: t('v2.card.pages', { count: kinds.page }) } : null,
   ].filter((x) => x !== null);
-  const pr = item?.pr;
   const prTone = !pr ? '' : pr.state === 'merged' ? 'text-violet-300' : pr.checks === 'failing' || pr.conflict ? 'text-rose-300' : 'text-secondary';
   return (
     <div className={cn(dock, 'flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2')} data-review-card={agent.ref}>
@@ -185,8 +197,9 @@ function prLabel(t: ReturnType<typeof useT>, pr: T.PullRequest): string {
 export function ReviewCount({ project, variant }: { project: string; variant: 'button' | 'banner' }) {
   const t = useT();
   const openWork = useOpenWork();
-  const ready = useProjectReview(project, !!openWork);
-  const count = ready.data?.items?.length ?? 0;
+  // The sidebar row's and the panel's count, not this project's review page:
+  // an agent that asks you something is counted there, once (useAgentCounts).
+  const count = useAgentCounts().of(project).review;
   if (!openWork || count === 0) return null;
   const open = (e: { stopPropagation: () => void }) => {
     e.stopPropagation();
@@ -197,7 +210,7 @@ export function ReviewCount({ project, variant }: { project: string; variant: 'b
       <button
         type="button"
         onClick={open}
-        className="shrink-0 rounded-full border border-line-strong bg-surface px-1.5 py-px text-[10.5px] font-medium tabular-nums text-secondary transition hover:border-line-heavy hover:bg-surface-strong hover:text-title"
+        className="shrink-0 rounded-full border border-line-strong bg-surface px-1.5 py-px text-[12px] font-medium tabular-nums text-secondary transition hover:border-line-heavy hover:bg-surface-strong hover:text-title"
         data-v2-review-button={project}
       >
         {t('v2.review.toReview', { count })}
