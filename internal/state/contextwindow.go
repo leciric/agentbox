@@ -26,6 +26,12 @@ import (
 // compact window.
 const ChatOptionContextWindow = "context_window"
 
+// ChatOptionModeKind is the key, in a chat's stored options, of the permission
+// mode it starts on by kind (ModeKinds), which its project chose without
+// knowing the value the tool calls it: the chat turns it into that value
+// once the session names its modes, unless a mode of its own was chosen.
+const ChatOptionModeKind = "mode_kind"
+
 // ClaudeFullWindow is the window of every Claude model with a long one.
 const ClaudeFullWindow int64 = 1_000_000
 

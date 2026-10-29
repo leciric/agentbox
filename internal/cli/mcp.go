@@ -130,10 +130,14 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 	// thing at greater length; this is what a model reads at the moment it
 	// fills the tool call in.
 	var auto bool
+	var projectTool string
 	defaultFrom := "Settings → Models' default"
 	if p, err := c.ProjectSelf(ctx); err == nil {
 		auto = p.AgentModel == api.AgentModelAuto
-		if p.AgentModel != "" && !auto {
+		projectTool = p.AgentTool
+		// The project's model is its tool's: a Claude Code name only while
+		// that tool is Claude Code.
+		if p.AgentModel != "" && !auto && (projectTool == "" || projectTool == "claude") {
 			defaultModel, defaultFrom = p.AgentModel, "this project's choice"
 		}
 	}
@@ -192,6 +196,9 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 		tools = append(tools, "cursor")
 		aiDescription += "; cursor (Cursor's and other vendors' models on the user's Cursor account: chat only, and it never asks permission)"
 	}
+	if projectTool != "" {
+		aiDescription = strings.Replace(aiDescription, ", the default", "", 1) + ". Left out, it runs " + projectTool + ", the tool this project's settings name for its agents"
+	}
 	if len(tools) > 1 {
 		params["ai"] = choiceOf(aiDescription+". Another than claude only when the task or the user asks for it; say which and why.", tools...)
 	}
@@ -245,8 +252,9 @@ func cursorMenu(models []api.ChatOptionChoice) string {
 }
 
 // leadAI reads create_agent's "ai": the AI tool the agent runs. Empty stays
-// empty, for the daemon to give the agent the tool its lead runs, on the
-// lead's account (agent.LeadToolDefault), or Claude Code when agents can't run
+// empty, for the daemon to give the agent the tool its project names for its
+// agents (Project.AgentTool), else the tool its lead runs, on the lead's
+// account (agent.LeadToolDefault), or Claude Code when agents can't run
 // that tool here. A named tool is checked here rather than in the daemon, so the refusal can say why the tool
 // isn't on offer — the lead is told about OpenCode only when an agent could
 // really run it, and a lead working from an older brief would otherwise get an

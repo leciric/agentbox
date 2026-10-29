@@ -45,7 +45,7 @@ func (s *Server) projectInfo(ctx context.Context, p state.Project) api.Project {
 	info := api.Project{PRWatch: p.PRWatch, PRWatching: s.prWatchOn(ctx, p), Name: p.Name, DisplayName: p.DisplayName, Root: p.Root, EnvFiles: []string{}, Android: android.IsProject(p.Root), IOS: iossim.IsProject(p.Root),
 		ClaudeAccount: p.ClaudeAccount, ClaudeAccounts: nonNil(p.ClaudeAccounts), GitHubAccount: p.GitHubAccount, Autonomy: p.Autonomy,
 		CodexAccount: p.CodexAccount, OpenCodeAccounts: accountMap(p.OpenCodeAccounts), CursorAccount: p.CursorAccount,
-		AgentModel: p.AgentModel, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
+		AgentModel: p.AgentModel, AgentTool: p.AgentTool, AgentEffort: p.AgentEffort, AgentContextWindow: p.AgentContextWindow, AgentMode: p.AgentMode, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
 		RolloverThreshold: p.RolloverThreshold, ContextBudget: p.ContextBudget,
 		Consolidation: p.Consolidation, ConsolidationModel: p.ConsolidationModel,
 		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, FullTestSuite: p.FullTestSuite, PickUpIssues: p.PickUpIssues, PullRequests: !p.PullsOff, CreatedAt: p.CreatedAt}
@@ -298,7 +298,31 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 		p.Autonomy = autonomy
 		rewriteBrief()
 	}
-	if req.AgentModel != nil {
+	if req.AgentTool != nil || req.AgentEffort != nil || req.AgentContextWindow != nil || req.AgentMode != nil {
+		// The tool and its defaults are set together, the model with them:
+		// they belong to the tool, and the store clears what a new tool
+		// leaves unsaid.
+		trim := func(v *string) *string {
+			if v == nil {
+				return nil
+			}
+			t := strings.TrimSpace(*v)
+			return &t
+		}
+		if err := s.store.SetProjectAgentDefaults(r.Context(), p.Name, state.ProjectAgentDefaults{
+			Tool: trim(req.AgentTool), Model: trim(req.AgentModel), Effort: trim(req.AgentEffort),
+			ContextWindow: trim(req.AgentContextWindow), Mode: trim(req.AgentMode),
+		}); err != nil {
+			return err
+		}
+		updated, err := s.store.Project(r.Context(), p.Name)
+		if err != nil {
+			return err
+		}
+		p.AgentModel, p.AgentTool, p.AgentEffort, p.AgentContextWindow, p.AgentMode = updated.AgentModel, updated.AgentTool, updated.AgentEffort, updated.AgentContextWindow, updated.AgentMode
+		rewriteBrief()
+		s.events.publish(api.EventProject, api.ProjectChange{Name: p.Name})
+	} else if req.AgentModel != nil {
 		model := strings.TrimSpace(*req.AgentModel)
 		if err := s.store.SetProjectAgentModel(r.Context(), p.Name, model); err != nil {
 			return err
@@ -1172,8 +1196,9 @@ func (s *Server) checkCreate(ctx context.Context, req api.CreateAgentRequest, by
 
 // defaultTool fills in the AI tool of a request that names none: the one the
 // account it names belongs to, else Claude Code for a model only Claude Code
-// calls by that name, else the project's lead's tool on the lead's account for
-// it (agent.LeadToolDefault). The app's dialog and the command line always
+// calls by that name, else the tool the project names for its agents
+// (Project.AgentTool), else the project's lead's tool on the lead's account
+// for it (agent.LeadToolDefault). The app's dialog and the command line always
 // name a tool; a request that doesn't comes from the lead, a schedule, an
 // issue or a group's variant, which follow the lead. Why the agent falls back
 // to Claude Code, when it does, is kept in ToolNotice for the reply.
@@ -1189,6 +1214,10 @@ func (s *Server) defaultTool(ctx context.Context, p state.Project, req api.Creat
 		req.AI = "opencode"
 	case req.Model != nil && s.manager(nil).NamesClaudeModel(ctx, *req.Model):
 		req.AI = "claude"
+	case p.AgentTool != "":
+		// The project's own word comes before its chat's: it was said for
+		// every agent of the project, the chat's tool only for the chat.
+		req.AI = p.AgentTool
 	default:
 		d := s.manager(nil).LeadToolDefault(ctx, p)
 		req.AI, req.ToolNotice = d.AI, d.Fallback

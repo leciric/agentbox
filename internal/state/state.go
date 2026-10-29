@@ -1415,6 +1415,14 @@ var migrations = []string{
 	// places, such as desktop/build/icon.svg.
 	`ALTER TABLE project_icons ADD COLUMN candidates TEXT NOT NULL DEFAULT ''`,
 	`UPDATE project_icons SET detected_at = 0`,
+	// The AI tool this project's new agents run when they name none, and the
+	// effort, context window and permission mode they start on with it
+	// (Project.AgentTool). Empty is what every project did before: Claude Code
+	// for the app and the command line, the chat's tool for the chat.
+	`ALTER TABLE projects ADD COLUMN agent_tool TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE projects ADD COLUMN agent_effort TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE projects ADD COLUMN agent_context_window TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE projects ADD COLUMN agent_mode TEXT NOT NULL DEFAULT ''`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -1539,7 +1547,23 @@ type Project struct {
 	// project starts on unless one is named for it, or AgentModelAuto to let
 	// the project's chat choose per task. See DirectAgentModel and
 	// LeadPicksModel, which say what each of the three means where it is read.
+	// It is a model of the project's tool (ModelTool): a Claude Code name
+	// while AgentTool is empty or "claude", an OpenCode or Cursor id when
+	// AgentTool names that tool.
 	AgentModel string
+	// AgentTool is the AI tool this project's new agents run when they name
+	// none: "" for what agents always got (Claude Code in the app and on the
+	// command line, the chat's own tool for what the chat creates), or
+	// claude, codex, opencode or cursor.
+	AgentTool string
+	// AgentEffort, AgentContextWindow and AgentMode are what an agent on the
+	// project's tool starts on unless it was given its own: an effort (Claude
+	// Code and Cursor), a context window (Claude Code, D91), and a permission
+	// mode as its kind (ModeKinds), which every tool names differently. Empty
+	// follows the installation's settings, then the tool's own default.
+	AgentEffort        string
+	AgentContextWindow string
+	AgentMode          string
 	// BranchPrefix comes before the slug in the branch an agent is created on
 	// (agent.branchFor): agentbox/ makes agentbox/fix-login. It may be empty, or have several
 	// components, like thiago/agentbox/. Agents keep the branch they were
@@ -1775,7 +1799,92 @@ func (p Project) DirectAgentModel() string {
 // LeadPicksModel reports whether this project's chat chooses each agent's model.
 func (p Project) LeadPicksModel() bool { return p.AgentModel == AgentModelAuto }
 
-const projectColumns = `name, display_name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off, codex_account, opencode_accounts, cursor_account, full_test_suite, pick_up_issues, pulls_off`
+// ModelTool is the tool AgentModel, AgentEffort, AgentContextWindow and
+// AgentMode are settings of: AgentTool, or Claude Code for a project that
+// names none, which is what AgentModel always meant.
+func (p Project) ModelTool() string {
+	if p.AgentTool == "" {
+		return "claude"
+	}
+	return p.AgentTool
+}
+
+// AgentDefaults is what this project says an agent on ai starts on: its
+// model (DirectAgentModel), effort, context window and permission mode kind,
+// or nothing at all for an agent on another tool, since each is a setting of
+// ModelTool's.
+func (p Project) AgentDefaults(ai string) (model, effort, window, mode string) {
+	if ai != p.ModelTool() {
+		return "", "", "", ""
+	}
+	return p.DirectAgentModel(), p.AgentEffort, p.AgentContextWindow, p.AgentMode
+}
+
+// AgentTools are the tools a project may name as AgentTool.
+var AgentTools = []string{"claude", "codex", "opencode", "cursor"}
+
+// ModeKinds are the permission modes a project may start its agents on, by
+// kind, the one name every tool's menu shares (acp's modeKinds): its standard
+// mode, which asks, auto review, full access, and plan, which is the chat's
+// Plan toggle rather than a level.
+var ModeKinds = []string{"standard", "auto_review", "full_access", "plan"}
+
+// ProjectAgentDefaults are the settings SetProjectAgentDefaults changes; a nil
+// one is left as it is.
+type ProjectAgentDefaults struct {
+	Tool, Model, Effort, ContextWindow, Mode *string
+}
+
+// SetProjectAgentDefaults sets the tool this project's new agents run when
+// they name none, and what they start on with it. The model, effort, window
+// and mode belong to the tool, so changing the tool clears the ones this call
+// doesn't set at the same time, rather than leave a Claude Code effort on a
+// project that now runs OpenCode.
+func (s *Store) SetProjectAgentDefaults(ctx context.Context, name string, d ProjectAgentDefaults) error {
+	p, err := s.Project(ctx, name)
+	if err != nil {
+		return err
+	}
+	if d.Tool != nil && *d.Tool != p.AgentTool {
+		if *d.Tool != "" && !slices.Contains(AgentTools, *d.Tool) {
+			return fmt.Errorf("%q isn't an AI tool a project's agents can run: choose one of %s, or none", *d.Tool, strings.Join(AgentTools, ", "))
+		}
+		empty := ""
+		for _, v := range []**string{&d.Model, &d.Effort, &d.ContextWindow, &d.Mode} {
+			if *v == nil {
+				*v = &empty
+			}
+		}
+		p.AgentTool = *d.Tool
+	}
+	if d.Mode != nil && *d.Mode != "" && !slices.Contains(ModeKinds, *d.Mode) {
+		return fmt.Errorf("%q isn't a permission mode: choose one of %s, or none", *d.Mode, strings.Join(ModeKinds, ", "))
+	}
+	tool := p.ModelTool()
+	if d.Effort != nil && *d.Effort != "" && tool != "claude" && tool != "cursor" {
+		return fmt.Errorf("the effort is a Claude Code and Cursor setting, and %s has none", tool)
+	}
+	if d.ContextWindow != nil && *d.ContextWindow != "" && tool != "claude" {
+		return fmt.Errorf("the context window is a Claude Code setting, and %s has none", tool)
+	}
+	if d.Model != nil {
+		if err := s.SetProjectAgentModel(ctx, name, *d.Model); err != nil {
+			return err
+		}
+	}
+	for column, v := range map[string]*string{"agent_effort": d.Effort, "agent_context_window": d.ContextWindow, "agent_mode": d.Mode} {
+		if v == nil {
+			continue
+		}
+		if _, err := s.db.ExecContext(ctx, `UPDATE projects SET `+column+` = ? WHERE name = ?`, *v, p.Name); err != nil {
+			return err
+		}
+	}
+	_, err = s.db.ExecContext(ctx, `UPDATE projects SET agent_tool = ? WHERE name = ?`, p.AgentTool, p.Name)
+	return err
+}
+
+const projectColumns = `name, display_name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off, codex_account, opencode_accounts, cursor_account, full_test_suite, pick_up_issues, pulls_off, agent_tool, agent_effort, agent_context_window, agent_mode`
 
 // projectPlacement is where the project sits in the sidebar (D79), read
 // beside the columns above rather than with them: it is written by the
@@ -1863,11 +1972,11 @@ func (s *Store) AddProject(ctx context.Context, p Project) error {
 		p.BranchPrefix = DefaultBranchPrefix
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.DisplayName, p.Root, p.CreatedAt.Unix(), p.ClaudeAccount, p.Autonomy, p.GitHubAccount, p.MediaRetentionDays,
 		p.FinishNotices, p.AgentModel, p.RolloverThreshold, p.ContextBudget, p.Consolidation, p.ConsolidationModel,
 		strings.Join(p.ClaudeAccounts, ","), p.BranchPrefix, p.Nesting, p.AgentPRs, p.PRWatch, p.BaseSyncOff,
-		p.CodexAccount, p.OpenCodeAccounts.String(), p.CursorAccount, p.FullTestSuite, p.PickUpIssues, p.PullsOff)
+		p.CodexAccount, p.OpenCodeAccounts.String(), p.CursorAccount, p.FullTestSuite, p.PickUpIssues, p.PullsOff, p.AgentTool, p.AgentEffort, p.AgentContextWindow, p.AgentMode)
 	return err
 }
 
@@ -1988,7 +2097,7 @@ func (s *Store) Projects(ctx context.Context) ([]Project, error) {
 		if err := rows.Scan(&p.Name, &p.DisplayName, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
 			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff,
-			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.Section, &p.Position); err != nil {
+			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.Section, &p.Position); err != nil {
 			return nil, err
 		}
 		p.CreatedAt = time.Unix(created, 0)
@@ -2545,7 +2654,7 @@ func (s *Store) projectWhere(ctx context.Context, where string, arg any) (Projec
 		Scan(&p.Name, &p.DisplayName, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
 			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff,
-			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.Section, &p.Position)
+			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.Section, &p.Position)
 	p.ClaudeAccounts = splitAccounts(allowed)
 	p.OpenCodeAccounts = ParseAccountMap(opencode)
 	if errors.Is(err, sql.ErrNoRows) {

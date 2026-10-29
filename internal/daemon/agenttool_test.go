@@ -233,3 +233,44 @@ func TestFanOutVariantsFollowTheLead(t *testing.T) {
 		t.Errorf("members %+v, notices %q; want A on Cursor, B on Claude Code", out.Group.Members, out.Notices)
 	}
 }
+
+// TestNewAgentRunsTheProjectsTool: a project that names a tool for its agents
+// gives it to one that names none before its chat's, and setting it through
+// the API clears the defaults that belonged to the tool before.
+func TestNewAgentRunsTheProjectsTool(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d := leadToolDaemon(t, state.Chat{Tool: "cursor", ToolAccounts: state.AccountMap{"cursor": "team"}})
+	signInCursor(t, d, "")
+	str := func(v string) *string { return &v }
+	if _, err := d.client.UpdateProject(ctx, "hello-stack", api.UpdateProjectRequest{AgentEffort: str("low"), AgentMode: str("auto_review")}); err != nil {
+		t.Fatal(err)
+	}
+	p, err := d.client.UpdateProject(ctx, "hello-stack", api.UpdateProjectRequest{AgentTool: str("claude"), AgentModel: str("sonnet")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.AgentTool != "claude" || p.AgentModel != "sonnet" || p.AgentEffort != "" || p.AgentMode != "" {
+		t.Errorf("after choosing the tool: %+v, want claude on sonnet and nothing else", p)
+	}
+	if got := checked(t, d, api.CreateAgentRequest{}); got.AI != "claude" || got.CursorAccount != "" {
+		t.Errorf("an agent that names no tool runs %q on %q, want the project's claude", got.AI, got.CursorAccount)
+	}
+	// What the agent names still comes first.
+	if got := checked(t, d, api.CreateAgentRequest{AI: "cursor"}); got.AI != "cursor" {
+		t.Errorf("an agent that names cursor runs %q", got.AI)
+	}
+	if _, err := d.client.UpdateProject(ctx, "hello-stack", api.UpdateProjectRequest{AgentTool: str("opencode"), AgentEffort: str("high")}); err == nil || !strings.Contains(err.Error(), "has none") {
+		t.Errorf("an effort for OpenCode: %v", err)
+	}
+	if _, err := d.client.UpdateProject(ctx, "hello-stack", api.UpdateProjectRequest{AgentTool: str("vim")}); err == nil {
+		t.Error("a tool that doesn't exist was accepted")
+	}
+	// And none is the chat's tool again.
+	if _, err := d.client.UpdateProject(ctx, "hello-stack", api.UpdateProjectRequest{AgentTool: str("")}); err != nil {
+		t.Fatal(err)
+	}
+	if got := checked(t, d, api.CreateAgentRequest{}); got.AI != "cursor" {
+		t.Errorf("with no project tool an agent runs %q, want the chat's cursor", got.AI)
+	}
+}

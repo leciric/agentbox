@@ -95,6 +95,11 @@ const (
 	// Cursor's "Auto" and the model's own default level.
 	SettingDefaultCursorModel  = "default_cursor_model"
 	SettingDefaultCursorEffort = "default_cursor_effort"
+	// SettingLastAgentPick is the tool, model and effort the app's New agent
+	// dialog last created an agent with, as JSON ({"ai", "model", "effort"}),
+	// which the dialog opens on in a project that names no tool. It is the
+	// installation's, like the Settings → Models defaults it comes before.
+	SettingLastAgentPick = "last_agent_pick"
 	// SettingImageAndroid, SettingImageCodex, SettingImageOpenCode and
 	// SettingImageDevCaches are the
 	// optional components the base image is built with, stored as flags. They

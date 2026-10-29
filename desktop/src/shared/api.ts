@@ -16,6 +16,10 @@ export interface Project {
   cursorAccount: string;
   autonomy: string;
   agentModel: string;
+  agentTool: string;
+  agentEffort: string;
+  agentContextWindow: string;
+  agentMode: string;
   branchPrefix: string;
   finishNotices: string;
   rolloverThreshold: number;
@@ -101,6 +105,10 @@ export interface UpdateProjectRequest {
   moveGitHubAgents?: boolean;
   autonomy?: string;
   agentModel?: string;
+  agentTool?: string;
+  agentEffort?: string;
+  agentContextWindow?: string;
+  agentMode?: string;
   branchPrefix?: string;
   finishNotices?: string;
   rolloverThreshold?: number;
@@ -175,6 +183,7 @@ export interface Settings {
   cursorReady: boolean;
   defaultCursorModel: string;
   defaultCursorEffort: string;
+  lastAgentPick: AgentPick;
   resumeAfterLimit: boolean;
   continueAfterRestart: boolean;
   creditAITool: boolean;
@@ -219,6 +228,12 @@ export interface Settings {
   claudeCodeUpdate: ToolAutoUpdate;
 }
 
+export interface AgentPick {
+  ai: string;
+  model: string;
+  effort: string;
+}
+
 export interface ToolAutoUpdate {
   on: boolean;
   installed: string;
@@ -240,6 +255,7 @@ export interface UpdateSettingsRequest {
   defaultClaudeEffort?: string;
   defaultCursorModel?: string;
   defaultCursorEffort?: string;
+  lastAgentPick?: AgentPick;
   openCodeVersion?: string;
   resumeAfterLimit?: boolean;
   continueAfterRestart?: boolean;

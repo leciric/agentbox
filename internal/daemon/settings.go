@@ -105,6 +105,19 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if req.LastAgentPick != nil {
+		pick := *req.LastAgentPick
+		if pick.AI != "" && pick.AI != "none" && !slices.Contains(state.AgentTools, pick.AI) {
+			return fmt.Errorf("%q isn't an AI tool", pick.AI)
+		}
+		raw, err := json.Marshal(pick)
+		if err != nil {
+			return err
+		}
+		if err := s.store.SetSetting(r.Context(), state.SettingLastAgentPick, string(raw)); err != nil {
+			return err
+		}
+	}
 	// OpenCode's version is one choice for the installation: the agents and
 	// their chat all read it, so a change reaches them the next time their
 	// tool starts. A menu belongs to a version's providers, so a switch
@@ -560,6 +573,13 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	var lastPick api.AgentPick
+	if raw, err := s.store.Setting(r.Context(), state.SettingLastAgentPick); err != nil {
+		return api.Settings{}, err
+	} else if raw != "" {
+		// A pick that no longer reads is only a start value lost.
+		_ = json.Unmarshal([]byte(raw), &lastPick)
+	}
 	resumeAfterLimit, err := s.store.FlagOn(r.Context(), state.SettingResumeAfterLimit)
 	if err != nil {
 		return api.Settings{}, err
@@ -707,6 +727,7 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		CursorReady:         cursorReady,
 		DefaultCursorModel:  cursorModel,
 		DefaultCursorEffort: cursorEffort,
+		LastAgentPick:       lastPick,
 
 		ResumeAfterLimit:     resumeAfterLimit,
 		ContinueAfterRestart: continueAfterRestart,
