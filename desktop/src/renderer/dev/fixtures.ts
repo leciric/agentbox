@@ -1232,6 +1232,24 @@ export function seedQueryClient(queryClient: QueryClient, data: FixtureData): vo
   queryClient.setQueryData(['agentEvents', PROJECT], data.events);
   queryClient.setQueryData(['questions', PROJECT], data.questions);
   queryClient.setQueryData(['chat', `${PROJECT}/lead`], leadChat());
+  // What the session's own agents said last, for their cards above the
+  // composer (components/chat/SessionAgents.tsx).
+  for (const [name, said, state] of [
+    ['agent-39', 'Paginated the reminders page: 25 a page, with the cursor in the URL. PR #402 is green.', 'ready'],
+    ['agent-96', 'The rail wraps long branch names now; checking the 480px preview next.', 'running'],
+    ['agent-99', 'Opened #405. Waiting on CI before asking for review.', 'running'],
+  ] as const) {
+    const at = new Date(Date.now() - 90_000).toISOString();
+    queryClient.setQueryData<T.ChatThread>(['chat', `${PROJECT}/${name}`], {
+      agent: `${PROJECT}/${name}`,
+      seq: 1,
+      session: { state, tool: 'claude', options: [], commands: [] } as unknown as T.ChatSession,
+      items: [
+        { id: `${name}-u`, turn: `${name}-u`, kind: 'user', text: 'Carry on with the task.', createdAt: at, updatedAt: at, ...(state === 'ready' && { result: { state: 'completed', stopReason: 'end_turn', endedAt: at } }) },
+        { id: `${name}-a`, turn: `${name}-u`, kind: 'assistant', text: said, createdAt: at, updatedAt: at },
+      ],
+    });
+  }
   // The composer's slash menu reads them; the dev bridge's {} isn't a list.
   queryClient.setQueryData(['skills', PROJECT], []);
   queryClient.setQueryData(['chat', `${PROJECT}/agent-99`], agent99Chat());
@@ -2542,11 +2560,12 @@ function sessionsRequest(method: string, path: string, body: unknown) {
   if (send && method === 'POST') {
     const now = new Date().toISOString();
     const { text, to } = body as T.ChatMessageRequest;
+    // In the turn the thread ends in: the fixtures add to an older one.
     if (to) {
       const id = decodeURIComponent(send[2]);
       const ref = `${decodeURIComponent(send[1])}/${id === 'main' ? 'lead' : `lead.${id}`}`;
       const told: T.ChatItem = { id: `n-${Date.now()}`, turn: '', kind: 'notice', to, text, createdAt: now, updatedAt: now };
-      seeded?.setQueryData<T.ChatThread>(['chat', ref], (thread) => thread && { ...thread, items: [...thread.items, { ...told, turn: thread.items.findLast((it) => it.kind === 'user')?.turn ?? '' }] });
+      seeded?.setQueryData<T.ChatThread>(['chat', ref], (thread) => thread && { ...thread, items: [...thread.items, { ...told, turn: thread.items.at(-1)?.turn ?? '' }] });
       return json(told);
     }
     return json({ id: `u-${Date.now()}`, turn: '', kind: 'user', text: (body as T.ChatMessageRequest).text, createdAt: now, updatedAt: now } satisfies T.ChatItem);

@@ -52,7 +52,7 @@ export function TargetChip({ targets, target, once, onChoose }: { targets: Targe
           <button
             type="button"
             className={cn(
-              'flex h-8 min-w-0 max-w-44 shrink items-center gap-1 rounded-full px-2.5 text-[12px] transition',
+              'flex h-8 max-w-44 shrink-0 items-center gap-1 rounded-full px-2.5 text-[12px] transition',
               target ? 'bg-brand-500/15 text-brand-200 ring-1 ring-brand-400/40 hover:bg-brand-500/25' : 'text-subtle hover:bg-surface-raised hover:text-primary',
               once && 'italic',
             )}
