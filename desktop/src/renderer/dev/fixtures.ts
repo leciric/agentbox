@@ -2335,9 +2335,15 @@ export const projectGitFixture: T.ProjectGit = {
 
 // seedProjectGit is ?git=missing: the project's agents use a profile it no
 // longer has, which is what the create dialog refuses before a pod is made.
+// ?git=public: its agents push straight to the public profile, which Settings →
+// Git's flow draws with the private step skipped.
 export function seedProjectGit(queryClient: QueryClient, state: string): void {
   const git: T.ProjectGit =
-    state === 'missing' ? { agentRemote: 'private', profiles: projectGitFixture.profiles.filter((p) => p.profile !== 'private') } : structuredClone(projectGitFixture);
+    state === 'missing'
+      ? { agentRemote: 'private', profiles: projectGitFixture.profiles.filter((p) => p.profile !== 'private') }
+      : state === 'public'
+        ? { ...structuredClone(projectGitFixture), agentRemote: 'public' }
+        : structuredClone(projectGitFixture);
   devState.projectGit = git;
   queryClient.setQueryData(['projectGit', PROJECT], git);
 }

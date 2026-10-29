@@ -553,6 +553,30 @@
     "fill": ["[data-settings-search]", "credential"]
   },
   {
+    "id": "git-flow-dark",
+    "description": "Settings → Git's first entry, found by searching: a branch's flow from the agent through the private remote, marked as the one agents use, to the public one, in the dark theme",
+    "query": "settings=project:agentbox&theme=dark",
+    "width": 1280,
+    "height": 900,
+    "fill": ["[data-settings-search]", "branch moves"]
+  },
+  {
+    "id": "git-flow-public-light",
+    "description": "The same flow when the project's agents push to the public profile: the private step dashed and skipped, the public one marked, in the light theme",
+    "query": "settings=project:agentbox&git=public&theme=light",
+    "width": 1280,
+    "height": 900,
+    "fill": ["[data-settings-search]", "branch moves"]
+  },
+  {
+    "id": "git-flow-narrow-dark",
+    "description": "The flow in a narrow window: its steps stacked by the settings column's width, with arrows down, not overflowing, in the dark theme",
+    "query": "settings=project:agentbox&theme=dark",
+    "width": 560,
+    "height": 1000,
+    "fill": ["[data-settings-search]", "branch moves"]
+  },
+  {
     "id": "settings-search-narrow-dark",
     "description": "Settings searched for \"memory\" in a narrow window, where the sections are a row of chips — dark",
     "query": "settings=models&theme=dark",

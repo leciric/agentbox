@@ -109,6 +109,9 @@
 //                           that limits its Claude Code accounts, beside
 //                           Settings' GitHub accounts with a rename the dev
 //                           bridge answers
+//   ?git=missing|public     a project's git profiles with the private one gone
+//                           (the create dialog refuses), or with its agents
+//                           pushing to the public one (Settings → Git's flow)
 //   ?setup=updating         Settings while the daemon updates the base image's
 //                           agent tools in place: the image check updating,
 //                           with its job's log (fixtures.ts)
@@ -786,7 +789,8 @@ if (settingsPage || appView) seedSettings(queryClient);
 // cluster, which replaces what seedSettings wrote.
 if (clusterSetup) seedClusterSetup(queryClient, clusterSetup === 'cluster-todo');
 // A project's git profiles as a scenario needs them: ?git=missing removes the
-// one its agents use, so the create dialog's refusal is on screen.
+// one its agents use, so the create dialog's refusal is on screen; ?git=public
+// has its agents use the public one.
 if (params.get('git')) seedProjectGit(queryClient, params.get('git')!);
 if (params.get('signedout') === '1') seedSignedOut(queryClient);
 if (params.get('drag')) dragBridge(queryClient, params.get('drag') === 'slow' ? 1_500 : 300);

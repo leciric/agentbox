@@ -1,12 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { GitBranch, LoaderCircle, Pencil, Plus, Stethoscope, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowRight, GitBranch, LoaderCircle, Pencil, Plus, Stethoscope, Trash2 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { t, useT } from '../lib/i18n';
 import type { SettingGroup } from '../lib/settingsSearch';
-import { errorMessage } from '../lib/utils';
+import { cn, errorMessage } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -43,6 +43,12 @@ export function gitProfileGroups(project: T.Project): SettingGroup[] {
       description: t('settings.git.description'),
       entries: [
         {
+          id: 'git-flow',
+          label: t('settings.git.flowLabel'),
+          keywords: t('settings.git.flowKeywords'),
+          render: () => <GitFlow project={project.name} />,
+        },
+        {
           id: 'git-private',
           label: t('settings.git.privateLabel'),
           keywords: t('settings.git.privateKeywords'),
@@ -61,6 +67,72 @@ export function gitProfileGroups(project: T.Project): SettingGroup[] {
 
 function useProjectGit(project: string) {
   return useQuery({ queryKey: projectGitKey(project), queryFn: () => api.projectGit(project) });
+}
+
+// GitFlow draws how an agent's branch moves through the two remotes: pushed to
+// the private one while it is work in progress, published to the public one
+// when it is finished, with the step agents push to marked. The words carry
+// what the colours show (the step agents push to says so, and a skipped step
+// says it is skipped), and it draws nothing until the profiles are read: the
+// cards below say loading and errors. It stacks by the settings column's
+// width, which a wide window can still leave narrow.
+function GitFlow({ project }: { project: string }) {
+  const t = useT();
+  const git = useProjectGit(project);
+  if (!git.data) return null;
+  const agentRemote = git.data.agentRemote || 'private';
+  const has = (profile: GitProfile) => (git.data.profiles ?? []).some((p) => p.profile === profile);
+  const steps: { id: string; title: string; hint: string; used?: boolean; skipped?: boolean }[] = [
+    { id: 'agent', title: t('settings.git.flowAgent'), hint: t('settings.git.flowAgentHint') },
+    {
+      id: 'private',
+      title: gitProfileName('private'),
+      hint: agentRemote === 'public' ? t('settings.git.flowPrivateSkipped') : has('private') ? t('settings.git.flowPrivateHint') : t('settings.git.flowNotSetUp'),
+      used: agentRemote === 'private',
+      skipped: agentRemote === 'public',
+    },
+    {
+      id: 'public',
+      title: gitProfileName('public'),
+      hint: !has('public') ? t('settings.git.flowNotSetUp') : agentRemote === 'public' ? t('settings.git.flowPublicDirect') : t('settings.git.flowPublicHint'),
+      used: agentRemote === 'public',
+    },
+  ];
+  return (
+    <div className="@container grid gap-3 px-5 py-4" data-git-flow={agentRemote}>
+      <p className="text-[12px] leading-relaxed text-subtle">{t('settings.git.flowHint')}</p>
+      <ol className="flex flex-col gap-1.5 @lg:flex-row @lg:items-stretch" aria-label={t('settings.git.flowLabel')}>
+        {steps.map((step, i) => (
+          <li
+            key={step.id}
+            aria-current={step.used ? 'step' : undefined}
+            data-git-flow-step={step.id}
+            className="flex min-w-0 flex-col items-stretch gap-1.5 @lg:flex-1 @lg:flex-row @lg:items-center"
+          >
+            {i > 0 && (
+              <>
+                <ArrowDown aria-hidden className="size-3.5 shrink-0 self-center text-subtle @lg:hidden" />
+                <ArrowRight aria-hidden className="hidden size-3.5 shrink-0 text-subtle @lg:block" />
+              </>
+            )}
+            <div
+              className={cn(
+                'grid min-w-0 flex-1 gap-0.5 self-stretch rounded-lg border border-line bg-surface-faint px-3 py-2',
+                step.used && 'border-brand-500 bg-brand-500/10',
+                step.skipped && 'border-dashed bg-transparent',
+              )}
+            >
+              <span className="flex flex-wrap items-center gap-1.5">
+                <span className={cn('text-[12.5px] font-medium text-primary', step.skipped && 'text-muted')}>{step.title}</span>
+                {step.used && <Badge>{t('settings.git.inUse')}</Badge>}
+              </span>
+              <span className="text-[11.5px] leading-snug text-subtle">{step.hint}</span>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
 }
 
 // gitProfileName is the card's own name for a profile: the heading it shows.
