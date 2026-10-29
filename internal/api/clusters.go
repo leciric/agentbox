@@ -286,9 +286,12 @@ type RotateRegistryRequest struct {
 	Username string `json:"username,omitempty"`
 	Token    string `json:"token,omitempty"`
 	// KeepLogin leaves the stored login as it is, for a request that only
-	// changes the settings below. Without it an empty Username and Token mean a
-	// registry that needs no login.
+	// changes the settings below.
 	KeepLogin bool `json:"keepLogin,omitempty"`
+	// NoLogin removes the login instead of replacing it, and every cluster's
+	// pull secret with it. Without it, and without KeepLogin, a rotation needs
+	// a token: an empty one is refused rather than taken to mean "no login".
+	NoLogin bool `json:"noLogin,omitempty"`
 	// URL, CA, Insecure and Public change the registry's settings when set and
 	// leave them alone when absent. An empty CA takes the registry's CA away.
 	URL      *string `json:"url,omitempty"`
