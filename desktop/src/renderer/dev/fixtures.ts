@@ -2340,6 +2340,18 @@ export function installDevBridge(): void {
         project.githubAccount = req.githubAccount;
         return { status: 200, body: JSON.stringify(project), contentType: 'application/json' };
       }
+      // And the tool its agents run and what they start on with it, which a
+      // new tool clears unless it is given too (SetProjectAgentDefaults).
+      if (patched && (req?.agentTool !== undefined || req?.agentModel !== undefined || req?.agentEffort !== undefined || req?.agentContextWindow !== undefined || req?.agentMode !== undefined)) {
+        const project = devState.projects.find((p) => p.name === decodeURIComponent(patched[1]))!;
+        if (req.agentTool !== undefined && req.agentTool !== project.agentTool) {
+          Object.assign(project, { agentTool: req.agentTool, agentModel: '', agentEffort: '', agentContextWindow: '', agentMode: '' });
+        }
+        for (const key of ['agentModel', 'agentEffort', 'agentContextWindow', 'agentMode'] as const) {
+          if (req[key] !== undefined) project[key] = req[key]!;
+        }
+        return { status: 200, body: JSON.stringify(project), contentType: 'application/json' };
+      }
       // And so does turning the project's Pull requests tab off or on.
       if (patched && req?.pullRequests !== undefined) {
         const project = devState.projects.find((p) => p.name === decodeURIComponent(patched[1]))!;
