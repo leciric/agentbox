@@ -433,7 +433,7 @@ func TestPreparePodGitDeliversTheCredentialAndClones(t *testing.T) {
 	clone := pod.commandWith("clone --quiet")
 	for _, want := range []string{
 		"cd '/workspace' && GIT_TERMINAL_PROMPT=0 git",
-		"-c credential.helper='!sh /run/agentbox/git-credential'",
+		"-c credential.helper= -c 'credential.https://hub.example.helper=!sh /run/agentbox/git-credential'",
 		"clone --quiet -- 'https://hub.example/hello-stack.git' .",
 	} {
 		if !strings.Contains(clone, want) {

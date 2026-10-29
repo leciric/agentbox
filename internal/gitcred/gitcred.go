@@ -92,11 +92,16 @@ func Resolve(ctx context.Context, raw string, cfg Config) (string, error) {
 // CredentialHelper is the content of the file a pod writes under /run/agentbox
 // and git is pointed at for host, with
 //
-//	git config credential.helper '!sh /run/agentbox/<name>'
+//	git config credential.https://<host>.helper '!sh /run/agentbox/<name>'
 //
 // so that `get` is answered with this username and this token, and `store` and
 // `erase` are answered with nothing: a token git was handed is not written
 // back anywhere.
+//
+// `get` answers only when the protocol and host git asks about are this
+// protocol and this host, and with nothing otherwise: a helper configured
+// for every URL, or a redirect to another host, must not hand that host the
+// token. host is as git sends it, with the port when the URL names one.
 //
 // The file is mode 0600, holds the token as a shell variable, and lives in the
 // pod's tmpfs, so it goes away when the pod stops. Its content must never be
@@ -104,19 +109,38 @@ func Resolve(ctx context.Context, raw string, cfg Config) (string, error) {
 // shell's command line, where the token would sit in the pod's process list.
 // Run by path, with only the file's name in that command line, it can't be
 // read there.
-func CredentialHelper(host, username, token string) string {
+func CredentialHelper(protocol, host, username, token string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "#!/bin/sh\n")
-	fmt.Fprintf(&b, "# git credential helper for %s, written by AgentBox in this pod while it runs.\n", oneLine(host))
+	fmt.Fprintf(&b, "# git credential helper for %s://%s, written by AgentBox in this pod while it runs.\n", oneLine(protocol), oneLine(host))
 	b.WriteString("# The token below is a shell variable, never an argument to a command, so it\n")
 	b.WriteString("# stays out of the process list; git runs this file through sh, by name.\n")
 	fmt.Fprintf(&b, "username=%s\n", shellQuote(username))
 	fmt.Fprintf(&b, "password=%s\n", shellQuote(token))
 	b.WriteString("case \"$1\" in\n")
-	b.WriteString("get) printf 'username=%s\\npassword=%s\\n' \"$username\" \"$password\" ;;\n")
+	b.WriteString("get)\n")
+	b.WriteString("\tprotocol= host=\n")
+	b.WriteString("\twhile IFS= read -r line && [ -n \"$line\" ]; do\n")
+	b.WriteString("\t\tcase $line in\n")
+	b.WriteString("\t\tprotocol=*) protocol=${line#protocol=} ;;\n")
+	b.WriteString("\t\thost=*) host=${line#host=} ;;\n")
+	b.WriteString("\t\tesac\n")
+	b.WriteString("\tdone\n")
+	fmt.Fprintf(&b, "\tif [ \"$protocol\" = %s ] && [ \"$host\" = %s ]; then\n", shellQuote(protocol), shellQuote(host))
+	b.WriteString("\t\tprintf 'username=%s\\npassword=%s\\n' \"$username\" \"$password\"\n")
+	b.WriteString("\tfi\n")
+	b.WriteString("\t;;\n")
 	b.WriteString("store | erase) ;;\n")
 	b.WriteString("esac\n")
 	return b.String()
+}
+
+// HelperKey is the git config key that sets a credential helper for one
+// protocol and host only, such as credential.https://hub.example.helper: git
+// asks it about that URL and no other, so a redirect to another host is never
+// answered from it.
+func HelperKey(protocol, host string) string {
+	return "credential." + protocol + "://" + host + ".helper"
 }
 
 // SSHCommand is what GIT_SSH_COMMAND is set to in a pod whose key is keyFile:

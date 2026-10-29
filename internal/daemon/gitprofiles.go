@@ -337,16 +337,18 @@ func gitLsRemote(ctx context.Context, resolved, auth, secret string) (refs int, 
 	default:
 		// A token answers an https URL, which is what ResolveGitProfileURL
 		// leaves for this auth kind.
-		host := ""
-		if u, err := neturl.Parse(resolved); err == nil {
-			host = u.Host
+		u, err := neturl.Parse(resolved)
+		if err != nil || u.Host == "" {
+			return 0, fmt.Sprintf("%s names no host to sign in to", resolved), nil
 		}
 		helper := filepath.Join(dir, "credential")
-		content := gitcred.CredentialHelper(host, gitTestTokenUser, secret)
+		content := gitcred.CredentialHelper(u.Scheme, u.Host, gitTestTokenUser, secret)
 		if err := os.WriteFile(helper, []byte(content), 0o600); err != nil {
 			return 0, "", err
 		}
-		args = append(args, "-c", "credential.helper=", "-c", "credential.helper=!sh "+helper)
+		// Every other helper is reset, and this one answers the URL's own
+		// scheme and host only: a redirect elsewhere gets no token.
+		args = append(args, "-c", "credential.helper=", "-c", gitcred.HelperKey(u.Scheme, u.Host)+"=!sh "+helper)
 	}
 	// "--" ends the options: a URL that starts with a dash is a URL to git,
 	// never --upload-pack=<command>.
