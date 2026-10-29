@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"agentbox/internal/agent"
+	"agentbox/internal/credentials"
 	"agentbox/internal/state"
 )
 
@@ -81,6 +82,55 @@ exit 0`))
 	}
 	if !f.repo.HasWorktree(a.Worktree) {
 		t.Error("the failed Recreate removed the agent's worktree")
+	}
+}
+
+// TestRecreateUpdatesALegacyOpencodeProvider: an agent row from before the Go
+// switch says opencode=h4ad while the store now holds that account under
+// opencode-go. Recreating it resolves the provider and writes the corrected
+// row, so its machine gets the opencode-go auth instead of failing.
+func TestRecreateUpdatesALegacyOpencodeProvider(t *testing.T) {
+	log := filepath.Join(t.TempDir(), "incus.log")
+	t.Setenv("INCUS_LOG", log)
+	f := setup(t, fakeIncus(t, `case "$1" in
+  list) if [ -e "$INCUS_LOG.copied" ]; then echo '[{"name":"ab-hello-stack-agent-01","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.5"}]}}}}]'; else echo '[]'; fi ;;
+  copy) touch "$INCUS_LOG.copied" ;;
+  query)
+    case "$2" in
+      */agentbox-base/snapshots) echo '["/1.0/instances/agentbox-base/snapshots/ready"]' ;;
+      */snapshots) echo '[]' ;;
+      *) echo '{"config": {"user.agentbox.with-opencode": "1"}, "devices": {}}' ;;
+    esac ;;
+  delete) echo "$*" >> "$INCUS_LOG" ;;
+esac
+exit 0`))
+	if err := f.m.Creds.SaveToolAccount("opencode", credentials.OpenCodeGoProvider, "h4ad", []byte(`{"type":"api","key":"sk"}`)); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	a := state.Agent{Project: "hello-stack", Name: "agent-01", Instance: "ab-hello-stack-agent-01", AI: "opencode",
+		OpenCodeAccounts: state.AccountMap{"opencode": "h4ad"},
+		Branch:           "agentbox/agent-01", BaseRef: "main", Worktree: filepath.Join(t.TempDir(), "agent-01"),
+		Status: state.AgentReady, CreatedAt: time.Now()}
+	commit, err := f.repo.ResolveCommit("HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.repo.AddWorktree(a.Worktree, a.Branch, commit, "agentbox: "+a.Ref()); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.st.AddAgent(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.m.Recreate(ctx, a, agent.RecreateOptions{Stopped: true}); err != nil {
+		t.Fatalf("Recreate of a legacy OpenCode agent: %v", err)
+	}
+	got, err := f.st.Agent(ctx, a.Project, a.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.OpenCodeAccounts[credentials.OpenCodeGoProvider] != "h4ad" || got.OpenCodeAccounts["opencode"] != "" {
+		t.Errorf("the agent's OpenCode accounts = %v, want opencode-go=h4ad", got.OpenCodeAccounts)
 	}
 }
 

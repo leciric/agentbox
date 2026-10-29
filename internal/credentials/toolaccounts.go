@@ -515,6 +515,63 @@ func openCodeProvidersWithGo(providers []string) []string {
 	return out
 }
 
+// ResolveOpenCodeAccounts corrects a stored provider→account map whose
+// provider no longer exists: an account that now lives under another provider
+// (opencode-go is preferred, because an "opencode" account moved there in the
+// Go switch) is moved to it, and the legacy "opencode" provider is dropped
+// when its account is gone, so the provider default resolves. Other unknown
+// providers are left for OpenCodeAuth to refuse. changed says whether the map
+// differs from the one given.
+func (s Store) ResolveOpenCodeAccounts(chosen map[string]string) (map[string]string, bool, error) {
+	providers, err := s.OpenCodeProviders()
+	if err != nil {
+		return nil, false, err
+	}
+	current := map[string]bool{}
+	for _, provider := range providers {
+		current[provider] = true
+	}
+	out := map[string]string{}
+	changed := false
+	for provider, name := range chosen {
+		provider, name = strings.TrimSpace(provider), strings.TrimSpace(name)
+		if provider == "" || name == "" {
+			changed = true
+			continue
+		}
+		if current[provider] {
+			out[provider] = name
+			continue
+		}
+		changed = true
+		if target := s.openCodeProviderForAccount(name, providers); target != "" {
+			out[target] = name
+			continue
+		}
+		if provider != "opencode" {
+			// A name that is really wrong is still refused by OpenCodeAuth.
+			out[provider] = name
+		}
+	}
+	return out, changed, nil
+}
+
+// openCodeProviderForAccount is the current provider holding account name,
+// preferring opencode-go: the Go endpoint is where the old opencode account
+// was moved.
+func (s Store) openCodeProviderForAccount(name string, providers []string) string {
+	order := append([]string{OpenCodeGoProvider}, providers...)
+	for _, provider := range order {
+		if !slices.Contains(providers, provider) {
+			continue
+		}
+		if ok, _ := s.HasToolAccount(ToolOpenCode, provider, name); ok {
+			return provider
+		}
+	}
+	return ""
+}
+
 // openCodeSourceProvider is the stored provider an auth entry is read from:
 // opencode-go falls back to the opencode account when it has none of its own.
 func openCodeSourceProvider(provider string, providers []string) string {
@@ -536,6 +593,9 @@ func openCodeSourceProvider(provider string, providers []string) string {
 func (s Store) OpenCodeAuth(chosen map[string]string) (auth []byte, used map[string]string, err error) {
 	stored, err := s.OpenCodeProviders()
 	if err != nil {
+		return nil, nil, err
+	}
+	if chosen, _, err = s.ResolveOpenCodeAccounts(chosen); err != nil {
 		return nil, nil, err
 	}
 	providers := openCodeProvidersWithGo(stored)

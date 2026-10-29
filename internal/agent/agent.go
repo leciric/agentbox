@@ -1648,6 +1648,16 @@ set -g mode-style "bg=#7c3aed,fg=#ffffff"
 // Logins are AgentBox's own (see package credentials), and every file is
 // written inside the agent; nothing from the host's home is mounted.
 func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFiles []string, task string) error {
+	// An agent made before the OpenCode account moved to the Go provider can
+	// still name a provider that no longer exists. Resolve it before its
+	// logins are written, and keep the corrected map on its row so the next
+	// recreate, switch or account read doesn't have to guess again.
+	if a.AI == "opencode" {
+		var err error
+		if a, err = m.resolveAgentOpenCodeAccounts(ctx, a); err != nil {
+			return err
+		}
+	}
 	home := m.home(a)
 	user := m.machineUser(a)
 	// A pod's tree is a clone of its project's git profile, and its login is

@@ -105,6 +105,40 @@ func TestOpenCodeAuthDeliversTheGoProvider(t *testing.T) {
 	}
 }
 
+// TestOpenCodeResolveLegacyProvider: a row written before the Go switch says
+// opencode=h4ad, while the store now holds that account under opencode-go.
+// The provider is moved; an account that is gone is dropped so the default
+// resolves.
+func TestOpenCodeResolveLegacyProvider(t *testing.T) {
+	s := store(t)
+	save(t, s, credentials.ToolOpenCode, credentials.OpenCodeGoProvider, "h4ad", `{"type":"api","key":"sk"}`)
+	got, changed, err := s.ResolveOpenCodeAccounts(map[string]string{"opencode": "h4ad"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed || got["opencode-go"] != "h4ad" || len(got) != 1 {
+		t.Fatalf("ResolveOpenCodeAccounts = %v, %v; want opencode-go=h4ad", got, changed)
+	}
+	got, changed, err = s.ResolveOpenCodeAccounts(map[string]string{"opencode": "gone"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed || len(got) != 0 {
+		t.Fatalf("a legacy provider whose account is gone = %v, %v; want it dropped", got, changed)
+	}
+	auth, used, err := s.OpenCodeAuth(map[string]string{"opencode": "h4ad"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entries map[string]map[string]string
+	if err := json.Unmarshal(auth, &entries); err != nil {
+		t.Fatal(err)
+	}
+	if entries[credentials.OpenCodeGoProvider]["key"] != "sk" || used[credentials.OpenCodeGoProvider] != "h4ad" {
+		t.Fatalf("OpenCodeAuth from a legacy row = %s, %v", auth, used)
+	}
+}
+
 // An account captured under OpenCode 2 carries its method and metadata; an
 // OpenCode 1 auth.json takes neither, and takes the account id from metadata.
 func TestOpenCodeAuthProjectsVersionOneEntries(t *testing.T) {

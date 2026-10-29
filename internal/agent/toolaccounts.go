@@ -181,6 +181,30 @@ func openCodeChosen(p state.Project, a state.Agent) state.AccountMap {
 	return chosen
 }
 
+// resolveAgentOpenCodeAccounts corrects an existing agent's stored OpenCode
+// provider map when a provider it names has gone, and writes the corrected
+// map back to the row. An agent with no accounts of its own follows its
+// project and is left alone.
+func (m *Manager) resolveAgentOpenCodeAccounts(ctx context.Context, a state.Agent) (state.Agent, error) {
+	own := a.OpenCodeAccounts.Clean()
+	if len(own) == 0 {
+		return a, nil
+	}
+	resolved, _, err := m.Creds.ResolveOpenCodeAccounts(own)
+	if err != nil {
+		return a, err
+	}
+	used := state.AccountMap(resolved).Clean()
+	if maps.Equal(used, own) {
+		return a, nil
+	}
+	a.OpenCodeAccounts = used
+	if err := m.Store.SetAgentToolAccounts(ctx, a.Project, a.Name, a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount); err != nil && !errors.Is(err, state.ErrNotFound) {
+		return a, err
+	}
+	return a, nil
+}
+
 // openCodeImportMarker is where a machine keeps the accounts last imported
 // into it: a hash of the export, the label each provider was imported under,
 // and a hash of each provider's credential. It holds no credential, only what
