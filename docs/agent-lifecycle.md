@@ -74,7 +74,10 @@ both the `opencode` and `opencode-go` provider names, with the same key, because
 authenticates both and OpenCode only lists the Go models when its auth names that provider. A new
 OpenCode agent with no model named starts on `opencode-go/deepseek-v4.1-flash`; an `opencode/...`
 id inherited from the lead is passed on as the same model on `opencode-go/...`. The model is
-checked against the OpenCode menu once one has been remembered.
+checked against the OpenCode menu once one has been remembered. An agent row written before the
+switch that still names the old `opencode` provider is resolved to `opencode-go` when that account
+now lives there (or the stale entry is dropped so the default resolves), and the corrected map is
+written back when the agent is recreated, configured or switched to another account.
 
 ## `create_agent`, end to end
 

@@ -32,6 +32,9 @@ func (s Store) OpenCodeImport(chosen map[string]string) (auth []byte, used map[s
 	if err != nil {
 		return nil, nil, err
 	}
+	if chosen, _, err = s.ResolveOpenCodeAccounts(chosen); err != nil {
+		return nil, nil, err
+	}
 	providers := openCodeProvidersWithGo(stored)
 	for provider, name := range chosen {
 		if name != "" && !slices.Contains(providers, provider) {
