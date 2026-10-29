@@ -2800,5 +2800,33 @@
     "width": 1600,
     "height": 1000,
     "click": "[data-work-filter-tab=\"review\"]"
+  },
+  {
+    "id": "window-1440-project-dark",
+    "description": "The whole app at 1440×900, on the project's chat, in AgentBox's own palette — dark",
+    "query": "app=project&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-project-light",
+    "description": "The whole app at 1440×900, on the project's chat, in AgentBox's own palette — light",
+    "query": "app=project&theme=light",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-project-tokyo-dark",
+    "description": "The whole app at 1440×900, on the project's chat, following a Tokyo Night host theme — dark",
+    "query": "app=project&theme=dark&palette=tokyo",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-project-tokyo-light",
+    "description": "The whole app at 1440×900, on the project's chat, following a Tokyo Night host theme — light",
+    "query": "app=project&theme=light&palette=tokyo",
+    "width": 1440,
+    "height": 900
   }
 ]

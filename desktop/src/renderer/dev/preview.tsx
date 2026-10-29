@@ -9,6 +9,7 @@
 // State comes from the URL, not clicks, so a scenario is a link both a
 // person and scripts/preview.mjs can go straight to:
 //   ?theme=light            the light appearance (default: dark); dracula, Dracula
+//   ?palette=tokyo          a Tokyo Night host theme followed (default: AgentBox's own)
 //   ?concept=timeline       a mock idea, on its own (dev/concepts): timeline is
 //                           agents' work as a timeline over their recording
 //   ?app=recap              Your week with AgentBox (components/RecapView), from
