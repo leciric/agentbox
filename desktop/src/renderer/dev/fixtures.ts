@@ -2257,6 +2257,13 @@ export function installDevBridge(): void {
       if (method === 'GET' && path === '/v1/settings' && defaultsSettings.claudeCodeUpdate) return { status: 200, body: JSON.stringify(defaultsSettings), contentType: 'application/json' };
       const page = pageRequest(method, path);
       if (page) return page;
+      // A project other than the fixtures' has one session, its chat.
+      const sessions = method === 'GET' && /^\/v1\/projects\/([^/]+)\/sessions$/.exec(path);
+      if (sessions) {
+        const name = decodeURIComponent(sessions[1]);
+        const at = new Date(Date.now() - 3_600_000).toISOString();
+        return { status: 200, body: JSON.stringify([{ project: name, id: 'main', ref: `${name}/lead`, topic: 'Chat', chat: 'ready', agents: 0, createdAt: at, activeAt: at }] satisfies T.LeadSession[]), contentType: 'application/json' };
+      }
       // No project has a saved base: Settings' Repository says so.
       if (method === 'GET' && /^\/v1\/projects\/[^/]+\/base$/.test(path)) return { status: 404, body: JSON.stringify({ error: 'no base' }), contentType: 'application/json' };
       // Files first: a past agent's are under /v1/archived-agents too.
