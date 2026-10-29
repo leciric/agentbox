@@ -38,6 +38,8 @@
 //                           ?media=project|all|agent, that Media view's Pages tab
 //   ?chat=lead              the project's chat, with the credential requests
 //                           its agents are waiting on at its end
+//   ?chat=lead-menu         the project's chat with its ⋯ menu open: Find in
+//                           chat, Files, New chat, Compact now and Reload tools
 //   ?vm=create|lima|vz      a Mac's first screen in the middle: the VM to set up,
 //                           or Lima to install first, or the experimental vz
 //                           driver's VM, made and not finished (no Lima needed)
@@ -1289,6 +1291,18 @@ function Preview() {
               <ChatMenu agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/${chat === 'awaiting' ? 'agent-41' : 'agent-97'}`)!} />
             </div>
             <ChatTab agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/${chat === 'awaiting' ? 'agent-41' : 'agent-97'}`)!} starting={false} autoStart={false} onStart={() => {}} />
+          </div>
+        ) : chat === 'lead-menu' ? (
+          <div style={{ height: '100%', margin: -24 }}>
+            <div className="flex h-11 items-center justify-end gap-3 border-b border-line px-4">
+              <ChatMenu agent={leadAgentFrom(fixtures.projects.find((p) => p.name === PROJECT)!, { ref: `${PROJECT}/lead`, started: true } as T.ProjectChat)} defaultOpen />
+            </div>
+            <ChatTab
+              agent={leadAgentFrom(fixtures.projects.find((p) => p.name === PROJECT)!, { ref: `${PROJECT}/lead`, started: true } as T.ProjectChat)}
+              starting={false}
+              autoStart={false}
+              onStart={() => {}}
+            />
           </div>
         ) : artifacts ? (
           <div style={{ height: '100%', margin: -24 }}>

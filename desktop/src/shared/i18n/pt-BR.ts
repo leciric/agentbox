@@ -2225,6 +2225,13 @@ export const ptBR: Messages = {
   'chat.tab.jumpToLatest': 'Ir para as mais recentes',
   'chat.tab.scrollToEnd': 'Ir para o fim',
   'chat.tab.newChat': 'Novo chat',
+  'chat.tab.compactNow': 'Compactar agora',
+  'chat.tab.compactTip': 'Consolidar esta conversa na memória do projeto e continuar numa sessão nova',
+  'chat.tab.compactBusy': 'Compacte assim que o {tool} terminar o turno',
+  'chat.tab.compactTitle': 'Compactar este chat?',
+  'chat.tab.compactDescription': 'A conversa é consolidada na memória do projeto, e o chat inicia uma nova sessão com um resumo dela. Ele continua aqui, com um aviso onde a sessão mudou.',
+  'chat.tab.compactConfirm': 'Compactar agora',
+  'chat.tab.compacted': 'Conversa consolidada na memória do projeto',
   'chat.menu.label': 'Chat',
   'chat.menu.find': 'Buscar no chat',
   // pages: what the agents published on Hatch (components/pages/)

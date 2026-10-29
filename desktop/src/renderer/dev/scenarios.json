@@ -168,6 +168,13 @@
     "height": 900
   },
   {
+    "id": "chat-lead-menu-dark",
+    "description": "The project chat's ⋯ menu open: Find in chat, Files, New chat, Compact now and Reload tools, with Compact now still enabled — dark",
+    "query": "chat=lead-menu&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
     "id": "chat-thinking-live-dark",
     "description": "A Claude Code turn thinking, phase live: the summarized thought still arriving — dark",
     "query": "chat=thinking&phase=live&theme=dark",
