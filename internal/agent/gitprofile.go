@@ -131,6 +131,14 @@ func ResolveGitProfileURL(ctx context.Context, r state.GitRemote) (string, error
 			resolved = https
 		}
 	}
+	// A token is answered over https only: over http, or an alias that
+	// resolves to it, it would cross the network in the clear.
+	if r.Auth == state.GitAuthToken || r.Auth == state.GitAuthGitHubAccount {
+		if scheme := gitScheme(resolved); scheme != "https" {
+			return "", fmt.Errorf("project %q's %s git profile signs in with a token, which is sent only over https, and %s is %s: use the https URL, or --auth ssh-key",
+				r.Project, r.Profile, resolved, scheme)
+		}
+	}
 	// A GitHub account's token is sent only to GitHub: an alias, or a
 	// public profile prefilled from an origin on another forge, must not
 	// hand it to whichever host the URL names.
@@ -507,7 +515,13 @@ func gitConfigFor(helper, hooksPath string, pod *gitConfigSection) string {
 		case pod.SSHCommand != "":
 			fmt.Fprintf(&b, "[core]\n\tsshCommand = %s\n", pod.SSHCommand)
 		case pod.Helper != "":
-			fmt.Fprintf(&b, "[credential %s]\n\thelper =\n\thelper = %s\n", gitQuote("https://"+pod.Host), gitQuote(pod.Helper))
+			// Keyed on the URL's own scheme: a section for another scheme is
+			// one git never asks, and a push would find no login.
+			scheme := pod.Scheme
+			if scheme == "" {
+				scheme = "https"
+			}
+			fmt.Fprintf(&b, "[credential %s]\n\thelper =\n\thelper = %s\n", gitQuote(scheme+"://"+pod.Host), gitQuote(pod.Helper))
 		}
 	}
 	return b.String()

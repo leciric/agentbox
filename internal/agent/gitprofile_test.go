@@ -186,6 +186,24 @@ func TestResolveGitProfileURLTurnsSSHIntoHTTPSForAToken(t *testing.T) {
 	}
 }
 
+// TestResolveGitProfileURLRefusesATokenOverHTTP: a token is sent only over
+// https, whatever the stored URL was, and an ssh key may still use any URL.
+func TestResolveGitProfileURLRefusesATokenOverHTTP(t *testing.T) {
+	testutil.GitEnv(t)
+	ctx := context.Background()
+	for _, auth := range []string{state.GitAuthToken, state.GitAuthGitHubAccount} {
+		for _, raw := range []string{"http://host.k3d.internal:3000/o/p.git", "http://github.com/o/p.git", "git://hub.example/o/p.git"} {
+			_, err := ResolveGitProfileURL(ctx, gitRemote("p", state.GitProfilePrivate, raw, auth, "login"))
+			if err == nil || !strings.Contains(err.Error(), "only over https") {
+				t.Errorf("ResolveGitProfileURL(%s, %q) = %v, want it refused", auth, raw, err)
+			}
+		}
+	}
+	if _, err := ResolveGitProfileURL(ctx, gitRemote("p", state.GitProfilePrivate, "ssh://git@hub.example/o/p.git", state.GitAuthSSHKey, "deploy")); err != nil {
+		t.Errorf("an ssh key was refused: %v", err)
+	}
+}
+
 // TestResolveGitProfileURLSendsAGitHubAccountOnlyToGitHub: a GitHub account's
 // token never answers another host, however the URL names it, so neither the
 // pod's helper nor `git test` ever holds it for that host.
@@ -287,13 +305,23 @@ func TestPodGitConfig(t *testing.T) {
 
 	// A pod with a token profile answers that host with the helper file the
 	// master delivered, after the github.com helper, which is reset first.
-	token := gitConfig(true, hooks, &gitConfigSection{Host: "hub.example", Helper: "!sh " + podGitCredential})
+	token := gitConfig(true, hooks, &gitConfigSection{Scheme: "https", Host: "hub.example", Helper: "!sh " + podGitCredential})
 	wantToken := wantIncus + `[credential "https://hub.example"]
 	helper =
 	helper = "!sh /run/agentbox/git-credential"
 `
 	if token != wantToken {
 		t.Errorf("pod's .gitconfig:\n%s\nwant:\n%s", token, wantToken)
+	}
+	// The section is keyed on the scheme the clone used, so a later push
+	// over the same URL finds its login: a host on a port of its own included.
+	port := gitConfig(true, hooks, &gitConfigSection{Scheme: "https", Host: "hub.example:8443", Helper: "!sh " + podGitCredential})
+	if want := `[credential "https://hub.example:8443"]`; !strings.Contains(port, want) {
+		t.Errorf("pod's .gitconfig:\n%s\nwant the section %s", port, want)
+	}
+	other := gitConfig(true, hooks, &gitConfigSection{Scheme: "http", Host: "hub.example", Helper: "!sh " + podGitCredential})
+	if want := `[credential "http://hub.example"]`; !strings.Contains(other, want) {
+		t.Errorf("pod's .gitconfig:\n%s\nwant the section keyed on its own scheme, %s", other, want)
 	}
 
 	// An ssh profile names the key instead, and keeps github.com on ssh: the
@@ -412,7 +440,7 @@ func TestPreparePodGitDeliversTheCredentialAndClones(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if section == nil || section.Helper != "!sh "+podGitCredential || section.Host != "hub.example" {
+	if section == nil || section.Helper != "!sh "+podGitCredential || section.Scheme != "https" || section.Host != "hub.example" {
 		t.Fatalf("section = %+v, want the credential helper for hub.example", section)
 	}
 	// The credential file is the helper script, owned by the pod's agent, and

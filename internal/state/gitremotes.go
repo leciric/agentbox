@@ -239,6 +239,14 @@ func checkGitRemote(r GitRemote) error {
 	if err := checkGitURL(r.URL); err != nil {
 		return fmt.Errorf("project %q's %s git profile: %w", r.Project, r.Profile, err)
 	}
+	// A token over plain http crosses the network in the clear. A token
+	// profile with no login yet sends nothing, so only one with a login, or a
+	// GitHub account, is refused; a pod refuses the other once it has one.
+	signsIn := r.Auth == GitAuthGitHubAccount || (r.Auth == GitAuthToken && r.Credential != "")
+	if signsIn && strings.HasPrefix(strings.ToLower(strings.TrimSpace(r.URL)), "http://") {
+		return fmt.Errorf("project %q's %s git profile would send its token over plain http to %s: use the https URL, or --auth ssh-key",
+			r.Project, r.Profile, r.URL)
+	}
 	// An alias is checked once it is resolved (agent.ResolveGitProfileURL);
 	// a URL that names its host is refused here, before anything is stored.
 	if r.Auth == GitAuthGitHubAccount && !strings.HasPrefix(strings.TrimSpace(r.URL), gitAlias) {

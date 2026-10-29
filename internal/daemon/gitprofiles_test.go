@@ -59,7 +59,7 @@ func gitTestServer(t *testing.T) (*Server, state.Project) {
 	return srv, p
 }
 
-// gitFakeRemote is an HTTP git remote that challenges for a login and records
+// gitFakeRemote is an HTTPS git remote that challenges for a login and records
 // the one it was given: enough to prove the profile's credential is what git
 // sends, without a real git server.
 type gitFakeRemote struct {
@@ -70,8 +70,11 @@ type gitFakeRemote struct {
 
 func newGitFakeRemote(t *testing.T) *gitFakeRemote {
 	t.Helper()
+	// https, because a token is never sent over plain http; git takes the
+	// test server's own certificate.
+	t.Setenv("GIT_SSL_NO_VERIFY", "true")
 	f := &gitFakeRemote{}
-	f.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	f.server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if auth := r.Header.Get("Authorization"); auth != "" {
 			f.mu.Lock()
 			f.auth = auth
