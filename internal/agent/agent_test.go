@@ -936,7 +936,7 @@ func TestOpenCodeReady(t *testing.T) {
 // chosen for this one agent is stored.
 func TestOpenCodeAgentModelIsStored(t *testing.T) {
 	f := setup(t, fakeIncus(t, `case "$1" in
-  list) echo '[{"name":"ab-hello-stack-agent-01","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.5"}]}}}},{"name":"ab-hello-stack-agent-02","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.6"}]}}}}]' ;;
+  list) echo '[{"name":"ab-hello-stack-agent-01","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.5"}]}}}},{"name":"ab-hello-stack-agent-02","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.6"}]}}}},{"name":"ab-hello-stack-agent-03","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.7"}]}}}},{"name":"ab-hello-stack-agent-04","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.8"}]}}}},{"name":"ab-hello-stack-agent-05","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.9"}]}}}}]' ;;
   query)
     case "$2" in
       */agentbox-base/snapshots) echo '["/1.0/instances/agentbox-base/snapshots/ready"]' ;;
@@ -986,6 +986,40 @@ exit 0`))
 	}
 	if err := f.m.ChatChoices(ctx, "opencode", nil, choice("high")); err == nil || !strings.Contains(err.Error(), "Claude Code setting") {
 		t.Errorf("an effort for an OpenCode agent: %v", err)
+	}
+
+	// A project on OpenCode gives its model and mode to its OpenCode agents,
+	// and none of them to a Claude Code one.
+	if err := f.st.SetProjectAgentDefaults(ctx, "hello-stack", state.ProjectAgentDefaults{Tool: choice("opencode"), Model: choice("openrouter/kimi"), Mode: choice("plan")}); err != nil {
+		t.Fatal(err)
+	}
+	project, err := f.m.Create(ctx, "hello-stack", agent.CreateOptions{AI: "opencode"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := options(project); got["model"] != "openrouter/kimi" || got["plan"] != "true" {
+		t.Errorf("on the project's defaults: %+v", got)
+	}
+	if err := f.m.Creds.SaveClaudeToken("dev", "sk-ant-oat01-dev"); err != nil {
+		t.Fatal(err)
+	}
+	claude, err := f.m.Create(ctx, "hello-stack", agent.CreateOptions{AI: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := options(claude); got["model"] != "sonnet" || got["plan"] != "" {
+		t.Errorf("a Claude Code agent of an OpenCode project: %+v", got)
+	}
+	// And on Claude Code, the project's effort and mode come before Settings'.
+	if err := f.st.SetProjectAgentDefaults(ctx, "hello-stack", state.ProjectAgentDefaults{Tool: choice("claude"), Effort: choice("low"), Mode: choice("standard")}); err != nil {
+		t.Fatal(err)
+	}
+	claude, err = f.m.Create(ctx, "hello-stack", agent.CreateOptions{AI: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := options(claude); got["model"] != "sonnet" || got["effort"] != "low" || got[state.ChatOptionModeKind] != "standard" {
+		t.Errorf("a Claude Code agent of a Claude Code project: %+v", got)
 	}
 }
 

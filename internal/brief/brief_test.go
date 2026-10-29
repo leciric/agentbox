@@ -945,3 +945,22 @@ func othersIf(on bool, topics ...string) []string {
 	}
 	return topics
 }
+
+// TestRenderLeadAgentTool: a project that names a tool for its agents says
+// so in place of "the tool you run on yourself".
+func TestRenderLeadAgentTool(t *testing.T) {
+	for tool, want := range map[string]string{"OpenCode": "runs OpenCode**", "": "runs the tool you run on yourself**"} {
+		got, err := brief.RenderLead(brief.LeadData{
+			Project: "pawly", Root: "/src/pawly",
+			Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/lead",
+			BaseRef:  "main", Autonomy: "ask", AgentTool: tool, CanSpawn: true,
+			AgentDefaultModel: "opus", AgentDefaultWindow: "200k",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(got, want) {
+			t.Errorf("with AgentTool %q the brief doesn't say %q", tool, want)
+		}
+	}
+}

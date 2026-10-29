@@ -242,8 +242,9 @@ settings), so AgentBox tells the agent itself the next time.
 {{end}}
 ### Which AI tool each agent runs
 
-**An agent you create without `ai` runs the tool you run on yourself**, on your account for it: switch
-yourself to Cursor and your agents run Cursor. When agents can't run your tool here (no login for
+{{if .AgentTool}}**An agent you create without `ai` runs {{.AgentTool}}**, the tool this project's settings name for its
+agents, and starts on the model, effort and mode they name for it.{{else}}**An agent you create without `ai` runs the tool you run on yourself**, on your account for it: switch
+yourself to Cursor and your agents run Cursor.{{end}} When agents can't run your tool here (no login for
 agents, or not in the base image), it runs Claude Code, and `create_agent`'s reply says why. Name a
 tool only when the task or the user asks for one. The model names and defaults below are Claude
 Code's: an agent on another tool starts on that tool's own default, and one of Claude Code's names

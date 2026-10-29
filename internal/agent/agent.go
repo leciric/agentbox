@@ -85,15 +85,17 @@ var Tools = map[string]Tool{
 // tool's own default instead of failing, which is why an effort is checked
 // here, at creation, where saying no is still visible (see ChatChoices).
 func (m *Manager) claudeChatDefaults(ctx context.Context, p state.Project, model, effort, window *string) (map[string]string, error) {
-	chosenModel, err := m.chosenSetting(ctx, model, p.DirectAgentModel(), state.SettingDefaultClaudeModel, state.DefaultClaudeModel)
+	projectModel, projectEffort, projectWindow, projectMode := p.AgentDefaults("claude")
+	chosenModel, err := m.chosenSetting(ctx, model, projectModel, state.SettingDefaultClaudeModel, state.DefaultClaudeModel)
 	if err != nil {
 		return nil, err
 	}
-	chosenEffort, err := m.chosenSetting(ctx, effort, "", state.SettingDefaultClaudeEffort, state.DefaultClaudeEffort)
+	chosenEffort, err := m.chosenSetting(ctx, effort, projectEffort, state.SettingDefaultClaudeEffort, state.DefaultClaudeEffort)
 	if err != nil {
 		return nil, err
 	}
 	options := map[string]string{"model": chosenModel, "effort": chosenEffort}
+	setModeKind(options, projectMode)
 	w, err := m.Store.ClaudeWindows(ctx)
 	if err != nil {
 		return nil, err
@@ -118,9 +120,12 @@ func (m *Manager) claudeChatDefaults(ctx context.Context, p state.Project, model
 	// run on another — the project's, or one the lead picked — and a model
 	// without that window gets the compact window instead of a refusal, since
 	// nobody asked for this one.
-	def, err := m.Store.Setting(ctx, state.SettingDefaultAgentContextWindow)
-	if err != nil {
-		return nil, err
+	// The project's window comes first, read the same forgiving way.
+	def := projectWindow
+	if def == "" {
+		if def, err = m.Store.Setting(ctx, state.SettingDefaultAgentContextWindow); err != nil {
+			return nil, err
+		}
 	}
 	if def != "" {
 		if chosen, err := w.ContextWindowChoice(w.NormalizeClaudeModel(chosenModel), def, installation); err == nil {
@@ -694,19 +699,30 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 	}
 	// OpenCode has no installation-wide default model of its own — its models
 	// are a provider's, not a plan's — so only a model chosen for this one
-	// agent is stored. The chat applies it over ACP when the session starts.
-	if a.AI == "opencode" && pl.model != nil {
-		options := map[string]string{"model": strings.TrimSpace(*pl.model)}
-		if err := m.Store.SaveChat(ctx, a.Project, a.Name, state.Chat{Options: options}); err != nil {
-			return fail("chat defaults", err)
+	// agent, or by its project, is stored. The chat applies it over ACP when
+	// the session starts. Codex has neither: only the project's permission
+	// mode, when it names one.
+	if a.AI == "opencode" || a.AI == "codex" {
+		projectModel, _, _, projectMode := pl.project.AgentDefaults(a.AI)
+		options := map[string]string{}
+		if pl.model != nil {
+			options["model"] = strings.TrimSpace(*pl.model)
+		} else if projectModel != "" && a.AI == "opencode" {
+			options["model"] = projectModel
+		}
+		setModeKind(options, projectMode)
+		if len(options) > 0 {
+			if err := m.Store.SaveChat(ctx, a.Project, a.Name, state.Chat{Options: options}); err != nil {
+				return fail("chat defaults", err)
+			}
 		}
 	}
 
 	// Cursor's model and effort: the ones chosen for this agent, else the
-	// ones Settings → Models names for new Cursor agents, else none, which is
-	// Cursor's own Auto.
+	// project's, else the ones Settings → Models names for new Cursor agents,
+	// else none, which is Cursor's own Auto.
 	if a.AI == "cursor" {
-		options, err := m.cursorChatDefaults(ctx, pl.model, pl.effort)
+		options, err := m.cursorChatDefaults(ctx, pl.project, pl.model, pl.effort)
 		if err != nil {
 			return fail("chat defaults", err)
 		}
@@ -975,30 +991,47 @@ func (m *Manager) OpenCodeReady(ctx context.Context) (bool, error) {
 // in a machine that still lacks it), so only the sign-in decides.
 func (m *Manager) CursorReady() bool { return m.Creds.HasCursorLogin("") }
 
-// cursorChatDefaults is the chat options a new Cursor agent starts with.
-func (m *Manager) cursorChatDefaults(ctx context.Context, model, effort *string) (map[string]string, error) {
+// setModeKind stores the permission mode a project starts its agents on, by
+// kind: plan is the chat's Plan toggle (chat/plan.go), on beside whatever
+// level the agent would have had, and any other kind is turned into its tool's
+// own value once the session names its modes.
+func setModeKind(options map[string]string, kind string) {
+	switch kind {
+	case "":
+	case "plan":
+		options[api.ChatOptionPlan] = "true"
+	default:
+		options[state.ChatOptionModeKind] = kind
+	}
+}
+
+// cursorChatDefaults is the chat options a new Cursor agent of p starts with.
+// The project's model and effort, when it names either, take the place of the
+// pair Settings → Models names: an effort belongs to a model, so the two are
+// never mixed. For the same reason an effort isn't carried over to a model
+// chosen for this one agent.
+func (m *Manager) cursorChatDefaults(ctx context.Context, p state.Project, model, effort *string) (map[string]string, error) {
 	options := map[string]string{}
-	for id, chosen := range map[string]*string{"model": model, "effort": effort} {
-		if chosen != nil {
-			options[id] = strings.TrimSpace(*chosen)
-			continue
-		}
-		key := state.SettingDefaultCursorModel
-		if id == "effort" {
-			key = state.SettingDefaultCursorEffort
-		}
-		value, err := m.Store.Setting(ctx, key)
-		if err != nil {
+	defModel, defEffort, _, mode := p.AgentDefaults("cursor")
+	setModeKind(options, mode)
+	if defModel == "" && defEffort == "" {
+		var err error
+		if defModel, err = m.Store.Setting(ctx, state.SettingDefaultCursorModel); err != nil {
 			return nil, err
 		}
-		if value = strings.TrimSpace(value); value != "" {
-			options[id] = value
+		if defEffort, err = m.Store.Setting(ctx, state.SettingDefaultCursorEffort); err != nil {
+			return nil, err
 		}
 	}
-	// An effort belongs to a model: Settings' effort is the one for Settings'
-	// model, so it isn't carried over to a model chosen for this one agent.
-	if model != nil && effort == nil {
-		delete(options, "effort")
+	if model != nil {
+		options["model"] = strings.TrimSpace(*model)
+	} else if v := strings.TrimSpace(defModel); v != "" {
+		options["model"] = v
+	}
+	if effort != nil {
+		options["effort"] = strings.TrimSpace(*effort)
+	} else if v := strings.TrimSpace(defEffort); v != "" && model == nil {
+		options["effort"] = v
 	}
 	return options, nil
 }

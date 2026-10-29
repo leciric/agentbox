@@ -164,6 +164,9 @@ type LeadData struct {
 	// follow the model new agents start on, a model name they all get, or
 	// state.AgentModelAuto, which asks the lead to choose one per task.
 	AgentModel string
+	// AgentTool is the tool the project's agents run when the lead names
+	// none, as the brief names it ("OpenCode"); "" for the lead's own tool.
+	AgentTool string
 	// AgentDefaultModel and AgentDefaultWindow are what a Claude Code agent
 	// the lead creates starts on when it passes neither — Settings → Models,
 	// or the model the project names — with the window written the way

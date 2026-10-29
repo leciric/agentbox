@@ -539,7 +539,8 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 		Worktree:             a.Worktree,
 		BaseRef:              a.BaseRef,
 		Autonomy:             p.Autonomy,
-		AgentModel:           p.AgentModel,
+		AgentModel:           leadAgentModel(p),
+		AgentTool:            agentToolName(p.AgentTool),
 		AgentDefaultModel:    defModel,
 		AgentDefaultWindow:   strings.ToLower(state.FormatContextWindow(defWindow)),
 		EnforceAgentDefaults: enforced,
@@ -735,3 +736,24 @@ func leadSettings() map[string]any {
 // brief carries: enough to judge it by, since the brief is resent with every
 // call the lead makes. search_memory has the rest.
 const noteSuggestionExcerpt = 200
+
+// leadAgentModel is the project's model as the lead's brief reads it, which is
+// a Claude Code one: none for a project whose agents run another tool, unless
+// it leaves the model to the lead.
+func leadAgentModel(p state.Project) string {
+	if p.ModelTool() != "claude" && !p.LeadPicksModel() {
+		return ""
+	}
+	return p.AgentModel
+}
+
+// agentToolName is a project's AgentTool as a brief names it.
+func agentToolName(tool string) string {
+	if tool == "" {
+		return ""
+	}
+	if a, ok := ChatAdapters[tool]; ok && a.Tool != "" {
+		return a.Tool
+	}
+	return tool
+}
