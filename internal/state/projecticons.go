@@ -24,8 +24,7 @@ type ProjectIcon struct {
 	DetectedMIME string
 	DetectedFrom string
 	// Candidates is the repository-relative paths of every icon the last
-	// look found in the repository, best first: the detected one's first,
-	// unless that is the avatar.
+	// look found in the repository, best first: the detected one's first.
 	Candidates []string
 	// DetectedAt is when it was last looked for; zero when it never was.
 	DetectedAt time.Time

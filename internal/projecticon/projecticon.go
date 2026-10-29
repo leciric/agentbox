@@ -31,8 +31,8 @@ const MaxBytes = 512 << 10
 type Icon struct {
 	Data []byte
 	MIME string
-	// From is the repository-relative file or the URL's host and path it
-	// came from, e.g. "public/favicon.svg" or "github.com/leciric".
+	// From is the repository-relative file it came from, e.g.
+	// "public/favicon.svg".
 	From string
 }
 

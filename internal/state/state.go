@@ -1411,8 +1411,8 @@ var migrations = []string{
 	// The other icons a look for a project's found in its repository, best
 	// first, for the icon picker: their repository-relative paths, one per
 	// line, the detected icon's first. Every project looks again once, since
-	// the look now walks the tree and finds an app's icon where it used to
-	// settle for its GitHub owner's avatar.
+	// the look now walks the tree and finds an app's icon past the usual
+	// places, such as desktop/build/icon.svg.
 	`ALTER TABLE project_icons ADD COLUMN candidates TEXT NOT NULL DEFAULT ''`,
 	`UPDATE project_icons SET detected_at = 0`,
 }

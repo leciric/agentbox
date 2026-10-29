@@ -171,8 +171,8 @@ type ProjectIcon struct {
 	Emoji  string `json:"emoji,omitempty"`
 	// Image is a data: URL (data:image/png;base64,...).
 	Image string `json:"image,omitempty"`
-	// DetectedFrom is the file or URL a detected icon came from, e.g.
-	// "public/favicon.svg" or "github.com/leciric".
+	// DetectedFrom is the repository file a detected icon came from, e.g.
+	// "public/favicon.svg".
 	DetectedFrom string `json:"detectedFrom,omitempty"`
 	// HasDetected is whether there is a detected icon to go back to.
 	HasDetected bool `json:"hasDetected,omitempty"`

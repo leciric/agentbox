@@ -210,11 +210,11 @@ func (s *Server) detectProjectIcon(ctx context.Context, p state.Project) (state.
 		found := projecticon.Candidates(p.Root)
 		var icon projecticon.Icon
 		var candidates []string
-		for i, f := range found {
-			if i == 0 {
-				icon = f
-			}
+		for _, f := range found {
 			candidates = append(candidates, f.From)
+		}
+		if len(found) > 0 {
+			icon = found[0]
 		}
 		return nil, s.store.SaveDetectedProjectIcon(lookCtx, p.Name, icon.Data, icon.MIME, icon.From, candidates, time.Now())
 	})
