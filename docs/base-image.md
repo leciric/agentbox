@@ -23,8 +23,7 @@ Every agent's container starts life as a clone of a shared Incus snapshot, `agen
   [`provision.sh`](../internal/image/provision.sh) applied and every tool in `tools.txt` except
   Claude Code, its ACP adapter and Cursor's SDK, which AgentBox may not redistribute: the machine
   installs those itself, at their `tools.txt` versions, before making the image its own.
-- **With a component** (Codex, OpenCode, the Android tools, the development caches,
-  Incus), with
+- **With a component** (Codex, OpenCode, the Android tools, the development caches, Incus), with
   `agentbox image build --local`, with `AGENTBOX_IMAGES_URL=off` in the daemon's environment, or
   when the download or its checksum fails, it builds the image here instead, from
   `images:debian/13`, by running `provision.sh` against a fresh container, which takes a few

@@ -155,8 +155,9 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 		}
 		adapter = openCodeAdapter(adapter, version)
 		if version == opencode.V2 {
-			// A machine made before its image carried OpenCode 2 gets it
-			// here, so the switch doesn't break the agents already running.
+			// OpenCode 2 is not in the image: the agent installs it here, at
+			// its first start on it (pinned by image.OpenCode2Version), so a
+			// switch doesn't break the agents already running.
 			if err := m.ensureOpenCode2InAgent(ctx, a); err != nil {
 				return nil, err
 			}
@@ -169,7 +170,7 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 	// The adapter at the version agents run now: the pin, or the newer one
 	// "Keep Claude Code up to date" moved the base image to, which an agent
 	// made before that gets here, before its next turn (chat.ToolUpdated).
-	// OpenCode 2 is not a mise tool: the image links it by name.
+	// OpenCode 2 is not a mise tool: ensureOpenCode2InAgent installs it.
 	var spec, pkg string
 	if adapter.Package != "" {
 		spec = image.Overrides(overrides).Apply([]image.Tool{{Spec: adapter.Package}})[0].Spec
@@ -307,7 +308,7 @@ func (m *Manager) toolWindowScript(ctx context.Context, a state.Agent) (string, 
 		// The terminal's OpenCode reads the same files a chat's does, which
 		// PrepareChatModel rewrites before every chat: the config in the shape
 		// of the version running now, and OpenCode 2's logins (installing it
-		// first in a machine made before its image carried it). An agent
+		// first with ensureOpenCode2InAgent if the agent doesn't have it). An agent
 		// switched in either direction starts on what its version reads.
 		if err := m.prepareAgentOpenCodeSettings(ctx, a); err != nil {
 			return "", err

@@ -10,7 +10,7 @@ import (
 //
 // OpenCode 1 and OpenCode 2 both install a command called "opencode" and cannot
 // sit side by side under it, so the base image keeps OpenCode 1 where it always
-// was and puts OpenCode 2 beside it as Command2. An installation chooses
+// was and each agent installs OpenCode 2 beside it as Command2. An installation chooses
 // between them with state.SettingOpenCodeVersion, which is the transition: an
 // installation that has not moved runs exactly what it ran before.
 type Release int
@@ -18,15 +18,15 @@ type Release int
 const (
 	// V1 is OpenCode 1, the `opencode` command the base image pins.
 	V1 Release = 1
-	// V2 is OpenCode 2, installed beside it as Command2 and chosen only by an
-	// image built with the OpenCode 2 component.
+	// V2 is OpenCode 2, installed beside it as Command2 by each agent at its
+	// first start on it (ensureOpenCode2InAgent, pinned by image.OpenCode2Version).
 	V2 Release = 2
 )
 
 // Command2 is the name OpenCode 2 runs as beside OpenCode 1. OpenCode 2's npm
-// platform package declares no `bin` entry, so the base image links its binary
-// under this name itself (provision.sh); the lead's copy is linked the same way
-// from AgentBox's tools directory.
+// platform package declares no `bin` entry, so ensureOpenCode2InAgent links its
+// binary under this name; the lead's copy is linked the same way from
+// AgentBox's tools directory.
 const Command2 = "opencode2"
 
 // Command is the command line this release runs as.

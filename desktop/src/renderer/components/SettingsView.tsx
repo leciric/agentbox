@@ -449,11 +449,11 @@ export function SettingsView({
     opencode: (
       <div className="grid gap-3">
         <ToolAccountList tool="opencode" accounts={auth.data?.openCodeAccounts ?? []} />
-        {check("opencode")?.fix?.startsWith("agentbox image build --opencode") !== true && (
+        {check("opencode")?.fix !== "agentbox image build --opencode" && (
           <ToolKeyForm tool="opencode" accounts={auth.data?.openCodeAccounts ?? []} />
         )}
         <p className="text-[13px] text-muted">
-          {check("opencode")?.fix?.startsWith("agentbox image build --opencode") === true ? (
+          {check("opencode")?.fix === "agentbox image build --opencode" ? (
             t("settings.setup.opencodeNoImage")
           ) : (
             t.rich("settings.setup.opencodeBody", {

@@ -133,14 +133,13 @@ func (s *Server) setupStatus(ctx context.Context) (api.SetupStatus, error) {
 		opencodeVersion = opencode.ReleaseOf(raw)
 	}
 	openCodeComponent := installed.Components.OpenCode
-	openCodeFix := "agentbox image build --opencode"
 	if opencodeVersion == opencode.V2 {
 		openCodeComponent = true
 	}
 	opencodeCheck := api.SetupCheck{ID: "opencode", Title: "OpenCode login", Status: api.SetupOptional,
 		Detail: "optional: agents can't run OpenCode yet", Fix: "agentbox auth opencode"}
 	if built && !openCodeComponent {
-		opencodeCheck.Detail, opencodeCheck.Fix = "optional: "+image.OpenCodeMissing, openCodeFix
+		opencodeCheck.Detail, opencodeCheck.Fix = "optional: "+image.OpenCodeMissing, "agentbox image build --opencode"
 		checks = append(checks, opencodeCheck)
 	} else {
 		check(opencodeCheck, creds.HasOpenCodeLogin(nil), "AgentBox has its own OpenCode login for agents")
