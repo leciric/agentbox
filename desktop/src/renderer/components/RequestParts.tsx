@@ -3,7 +3,6 @@ import type { ReactNode } from 'react';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { useT } from '../lib/i18n';
-import { cn } from '../lib/utils';
 
 // What CredentialCard and ConnectorRequestCard share: answering one request
 // or several asking for the same thing, and saying why each agent asked.
@@ -38,7 +37,7 @@ export function RequestReasons({ group }: { group: readonly T.Question[] }) {
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1.5" data-request-reasons>
       <p className="text-[12px] text-subtle">{t('chat.request.oneAnswer', { count: group.length })}</p>
       {group.map((q) => (
-        <p key={q.id} className={cn(text, 'line-clamp-4')} title={q.question}>
+        <p key={q.id} className={text}>
           <span className="font-mono text-[12px] text-secondary">{q.agent}</span> {q.question}
         </p>
       ))}
