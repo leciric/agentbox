@@ -137,6 +137,11 @@ func (s *Server) setProjectGit(w http.ResponseWriter, r *http.Request) error {
 		Auth:       auth,
 		Credential: credential,
 	}
+	// Checked before the login is written: a profile the store then refuses
+	// would leave its secret stored under a name nothing uses.
+	if err := state.CheckGitRemote(remote); err != nil {
+		return err
+	}
 	// The login is written first, so a profile never names one a failed write
 	// left unstored. A login whose profile write then fails is invisible and
 	// harmless: nothing names it.

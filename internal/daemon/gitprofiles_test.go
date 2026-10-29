@@ -446,3 +446,19 @@ func TestGitLsRemoteSendsTheTokenOnlyToItsHost(t *testing.T) {
 		t.Errorf("logins seen = %q, want the remote's own host to get %q", seen, want)
 	}
 }
+
+// TestProjectGitSetChecksBeforeStoringTheLogin: a profile the store refuses
+// leaves no secret behind under a name nothing uses.
+func TestProjectGitSetChecksBeforeStoringTheLogin(t *testing.T) {
+	ctx := context.Background()
+	srv, p := gitTestServer(t)
+	for _, url := range []string{"./relative.git", "http://hub.example/pawly.git", "--upload-pack=x@h:p"} {
+		body := `{"url":"` + url + `","auth":"token","credential":"private","secret":"the-token"}`
+		if rec := gitRequest(t, srv, http.MethodPut, "/v1/projects/"+p.Name+"/git/private", body); rec.Code < 400 {
+			t.Fatalf("set %s = %d %s, want it refused", url, rec.Code, rec.Body.String())
+		}
+		if kind, secret, err := srv.gitCreds().ProjectGitCredential(ctx, p.Name, "private"); err != nil || kind != "" || secret != "" {
+			t.Errorf("set %s was refused and still stored the login: %q %q %v", url, kind, secret, err)
+		}
+	}
+}

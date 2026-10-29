@@ -74,7 +74,7 @@ func (s *Store) SetProjectGitRemote(ctx context.Context, r GitRemote) error {
 	// has to survive a change to what the project is called, and RemoveProject
 	// deletes by slug.
 	r.Project = p.Name
-	if err := checkGitRemote(r); err != nil {
+	if err := CheckGitRemote(r); err != nil {
 		return err
 	}
 	_, err = s.db.ExecContext(ctx, `INSERT INTO project_git_remotes (project, profile, url, auth, credential)
@@ -215,10 +215,10 @@ func otherGitProfile(profile string) string {
 	return GitProfilePrivate
 }
 
-// checkGitRemote refuses what no pod could clone from: a profile that isn't
+// CheckGitRemote refuses what no pod could clone from: a profile that isn't
 // one, a way of signing in that doesn't exist, a remote without a URL, or a
 // login written into the URL where a credential belongs.
-func checkGitRemote(r GitRemote) error {
+func CheckGitRemote(r GitRemote) error {
 	if err := checkGitProfile(r.Profile); err != nil {
 		return fmt.Errorf("project %q: %w", r.Project, err)
 	}
