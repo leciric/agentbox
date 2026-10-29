@@ -17,6 +17,7 @@
     "expo-router": "~57.0.28",
     "expo-secure-store": "~57.0.4",
     "expo-status-bar": "~57.0.1",
+    "lucide-react-native": "1.60.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.3",
@@ -29,10 +30,10 @@
     "react-native-webview": "13.16.1"
   },
   "devDependencies": {
+    "@types/node": "^24.19.1",
     "@types/react": "~19.2.2",
     "oxlint": "^1.88.0",
-    "typescript": "~6.0.3",
-    "@types/node": "^24.19.1"
+    "typescript": "~6.0.3"
   },
   "scripts": {
     "start": "expo start",
