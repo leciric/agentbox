@@ -124,8 +124,20 @@ function ImportCookiesDialog({
   const list = profiles.data?.profiles ?? [];
   const chosen = list.find((p) => p.id === picked);
   const importBrowser = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       if (!chosen) throw new Error(t('agent.cookies.pickBrowser'));
+      // Chrome, Edge and Brave on Windows seal their cookies so only the
+      // browser can open them: the host reads them by launching the browser
+      // itself, then we seal the decrypted cookies here. Every other browser
+      // the daemon reads itself in the VM.
+      if (chosen.appBound) {
+        const result = await window.agentbox.extractBrowserCookies(chosen.browser, chosen.profileDir ?? '');
+        if ('error' in result) {
+          throw new Error(t(`agent.cookies.appBound.${result.error}` as Parameters<typeof t>[0]));
+        }
+        const source = chosen.name && chosen.name !== chosen.browserName ? `${chosen.browserName} — ${chosen.name}` : chosen.browserName;
+        return api.importDecryptedCookies(project, source, result.cookies);
+      }
       return api.importFromBrowser(project, chosen);
     },
     onSuccess: async (result) => {
@@ -179,6 +191,8 @@ function ImportCookiesDialog({
                 </Button>
               </div>
             )}
+            {/* Reading an app-bound browser launches it briefly, which needs it closed. */}
+            {chosen?.appBound && <p className="mt-2 text-[12px] leading-relaxed text-subtle" data-appbound-hint>{t('agent.cookies.appBound.hint')}</p>}
             {profiles.error && <Notice>{errorMessage(profiles.error)}</Notice>}
             {importBrowser.error && <Notice>{errorMessage(importBrowser.error)}</Notice>}
           </Field>
@@ -198,17 +212,32 @@ function ImportCookiesDialog({
 
 // FileImport is the fallback: an export the user made, pasted or picked as a
 // file, with the sites it holds ticked (or typed) before importing. It stays
-// for browsers AgentBox can't read (Chrome on Windows), and for exports of a
-// browser not installed here.
-function FileImport({ project, onImported, onClose }: { project: string; onImported: () => Promise<unknown>; onClose: () => void }) {
+// for a browser not installed here, and for when reading one directly doesn't
+// work out.
+function FileImport({
+  project,
+  onImported,
+  onClose,
+  startOpen = false,
+}: {
+  project: string;
+  onImported: () => Promise<unknown>;
+  onClose: () => void;
+  startOpen?: boolean;
+}) {
   const t = useT();
   const [exported, setExported] = useState('');
   const [fileName, setFileName] = useState('');
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(startOpen);
   const [preview, setPreview] = useState<T.BrowserCookiesPreview | null>(null);
   const [pickedSites, setPickedSites] = useState<Set<string>>(new Set());
   const [typed, setTyped] = useState('');
   const fileInput = useRef<HTMLInputElement>(null);
+
+  // The browsers are found after the dialog opens, so this can turn true late.
+  useEffect(() => {
+    if (startOpen) setOpen(true);
+  }, [startOpen]);
 
   const read = useMutation({
     mutationFn: (text: string) => api.previewBrowserCookies(project, text),

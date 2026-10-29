@@ -45,7 +45,7 @@ func (s *Server) chatRunners(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	m := s.manager(nil)
-	choice, err := m.LeadChoice(ctx, a.Project)
+	choice, err := m.LeadChoiceOf(ctx, a)
 	if err != nil {
 		return err
 	}
@@ -59,7 +59,7 @@ func (s *Server) chatRunners(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	for _, tool := range agent.LeadTools {
-		row := api.LeadRunner{Tool: tool, Name: agent.ChatAdapters[tool].Tool, Installed: m.LeadToolInstalled(tool)}
+		row := api.LeadRunner{Tool: tool, Name: agent.ChatAdapters[tool].Tool, Installed: m.LeadToolInstalled(ctx, tool)}
 		if err := m.LeadToolLogin(p, tool); err != nil {
 			row.Reason = err.Error()
 		} else {

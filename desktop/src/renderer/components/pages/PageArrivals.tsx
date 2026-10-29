@@ -2,7 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
-import { arrivals, onScreenChats, openPage, showsArrival } from '../../lib/pages';
+import { arrivals, isLeadRef, onScreenChats, openPage, showsArrival } from '../../lib/pages';
 import { useT } from '../../lib/i18n';
 import { t as tNow } from '../../../shared/i18n/index.ts';
 import { projectLabel } from '../../lib/projectName';
@@ -46,7 +46,7 @@ function announce(queryClient: ReturnType<typeof useQueryClient>, project: strin
   const projects = queryClient.getQueryData<T.Project[]>(['projects']);
   const agents = queryClient.getQueryData<T.Agent[]>(['agents']);
   const agent = agents?.find((a) => a.ref === page.agent);
-  const who = page.agent.endsWith('/lead') ? tNow('chat.project.agentTitle') : agent?.title || page.agent.split('/')[1];
+  const who = isLeadRef(page.agent) ? tNow('chat.project.agentTitle') : agent?.title || page.agent.split('/')[1];
   const open = () => {
     toast.dismiss(id);
     openPage(project, page);

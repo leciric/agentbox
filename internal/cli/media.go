@@ -279,7 +279,7 @@ func newMediaScreenshotCmd(a *app) *cobra.Command {
 func newRecordStartCmd(a *app) *cobra.Command {
 	var name, input, target string
 	var limit time.Duration
-	var noTrim, wholeDisplay bool
+	var noTrim, wholeDisplay, noEdit bool
 	var pair pairFlags
 	cmd := &cobra.Command{
 		Use:   "start [agent]",
@@ -302,10 +302,16 @@ A recording of the display with the browser in front makes the browser fullscree
 first, so it shows the page as a screenshot does, and puts the window back after.
 --whole-display films the desktop as it is: tab strip, taskbar and all.
 
-A stretch where the screen stands still for more than a second plays as 0.4s
-of it, so the video shows the action and not the waiting between steps; the
-notes made meanwhile still mark the moments they were made at. --no-trim
-keeps every frame. Android recordings are always kept whole.`,
+A stretch where the screen stands still for more than two seconds plays as
+1.2s of it, so the video shows the action and not the waiting between steps;
+the notes made meanwhile still mark the moments they were made at. --no-trim
+keeps every frame. Android recordings are always kept whole.
+
+Stopping a recording edits it, in the agent and with no model: the camera
+zooms in on where it is clicked and backs out between chapters, each note made
+meanwhile is a caption on it, numbered like 2/5, and it opens on a title card.
+The original stays beside it: agentbox media save --raw copies it out.
+--no-edit keeps the recording as it was recorded.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ref := optionalRef(args)
@@ -313,7 +319,7 @@ keeps every frame. Android recordings are always kept whole.`,
 			if err != nil {
 				return err
 			}
-			status, err := c.StartRecording(cmd.Context(), ref, api.RecordRequest{Target: target, Input: input, Name: name, LimitSeconds: int(limit.Seconds()), NoTrim: noTrim, WholeDisplay: wholeDisplay, Pair: pair.pair, Side: pair.side()})
+			status, err := c.StartRecording(cmd.Context(), ref, api.RecordRequest{Target: target, Input: input, Name: name, LimitSeconds: int(limit.Seconds()), NoTrim: noTrim, WholeDisplay: wholeDisplay, NoEdit: noEdit, Pair: pair.pair, Side: pair.side()})
 			if err != nil {
 				return err
 			}
@@ -329,7 +335,15 @@ keeps every frame. Android recordings are always kept whole.`,
 	cmd.Flags().BoolVar(&wholeDisplay, "whole-display", false, "film the desktop as it is, without making the browser fullscreen first")
 	cmd.Flags().BoolVar(&noTrim, "no-trim", false, "keep every frame, where the screen standing still otherwise plays as a moment of it")
 	pair.add(cmd)
+	cmd.Flags().BoolVar(&noEdit, "no-edit", false, "keep it as recorded, without zooming in on the clicks or captioning the notes")
 	return cmd
+}
+
+// printEdited says that a recording was edited, and where its original is.
+func printEdited(cmd *cobra.Command, item api.MediaItem) {
+	if item.Meta.Raw != "" {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Edited: zoomed in on the clicks, with the notes as captions. The original: agentbox media save --raw %s <path>\n", item.ID)
+	}
 }
 
 // recordTarget says what is being recorded, when it's the browser's page.
@@ -372,6 +386,7 @@ func newRecordStopCmd(a *app) *cobra.Command {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "It plays in %s of the %s recorded: %d still stretches cut\n",
 					roundSeconds(m.Duration), roundSeconds(m.Recorded), len(m.Cuts))
 			}
+			printEdited(cmd, item)
 			return nil
 		},
 	}

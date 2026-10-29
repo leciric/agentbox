@@ -284,7 +284,7 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
 }
 
 function NavLabel({ className, children }: { className?: string; children: ReactNode }) {
-  return <span className={cn('hidden px-2.5 pb-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-subtle @3xl:block', className)}>{children}</span>;
+  return <span data-heading className={cn('hidden px-2.5 pb-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-subtle @3xl:block', className)}>{children}</span>;
 }
 
 function SectionView({ section, icon: Icon }: { section: SettingSection; icon: LucideIcon }) {

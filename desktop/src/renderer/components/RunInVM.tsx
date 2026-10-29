@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Cpu, LoaderCircle, MemoryStick, Monitor } from 'lucide-react';
+import { ArrowRight, Cpu, KeyRound, LoaderCircle, MemoryStick, Monitor } from 'lucide-react';
 import type { LinuxSetup } from '../../preload';
 import { useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
@@ -30,6 +30,13 @@ import { Field, Input } from './ui/input';
 // same thing.
 const vmSummary = () => t('vm.run.summary');
 const noKVM = () => t('vm.run.noKVM');
+
+// kvmFixable says whether what keeps this user from /dev/kvm is something
+// `agentbox host kvm` fixes: a device they can't open, or KVM's module not
+// loaded. Without virtualization in the CPU, only the firmware's settings can.
+export function kvmFixable(linux: LinuxSetup | null | undefined): boolean {
+  return linux?.kvmProblem === 'denied' || linux?.kvmProblem === 'module';
+}
 
 // LinuxVMSetup is a Linux machine's first screen, before AgentBox's VM is
 // made: there's no daemon until then, so the setup is the page, as a Mac's
@@ -74,15 +81,64 @@ export function LinuxVMSetup({ linux }: { linux: LinuxSetup }) {
           </div>
         </>
       ) : (
-        <Notice tone="warning">{noKVM()}</Notice>
+        <KVMAccess linux={linux} />
       )}
       {(lines.length > 0 || run.isPending) && <SetupLog lines={lines} label={t('vm.run.log')} />}
       {run.error && <Notice>{errorMessage(run.error)}</Notice>}
-      <div className="grid gap-2">
-        <p className="text-[13px] text-muted">{t('vm.run.orTerminal')}</p>
-        <CommandBox command={sized ? `agentbox vm init --cpus ${sized.cpus} --memory-cap ${sized.memoryCap}` : 'agentbox vm init'} />
-      </div>
+      {/* KVMAccess has its own command first: vm init comes after it. */}
+      {!kvmFixable(linux) && (
+        <div className="grid gap-2">
+          <p className="text-[13px] text-muted">{t('vm.run.orTerminal')}</p>
+          <CommandBox command={sized ? `agentbox vm init --cpus ${sized.cpus} --memory-cap ${sized.memoryCap}` : 'agentbox vm init'} />
+        </div>
+      )}
     </Panel>
+  );
+}
+
+// KVMAccess is what Setup shows while this user can't use /dev/kvm. When it's
+// a permission (Debian and Ubuntu give /dev/kvm to the kvm group, which counts
+// only from the next login) or KVM's module isn't loaded, one button fixes it
+// with the desktop's password dialog: `agentbox host kvm` through pkexec, which
+// adds an ACL for this user that counts at once, so nobody logs in again
+// (internal/kvm). The status Setup polls turns kvm true by itself afterwards.
+// Without virtualization in the CPU it says what to turn on.
+export function KVMAccess({ linux }: { linux: LinuxSetup }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [lines, setLines] = useState<string[]>([]);
+  useEffect(() => window.agentbox.hostSetup.onOutput((text) => setLines((prev) => appendOutput(prev, text))), []);
+  const grant = useMutation({
+    mutationFn: () => window.agentbox.hostSetup.grantKVM(),
+    onMutate: () => setLines([]),
+    onSuccess: async () => {
+      toast(t('vm.kvm.toast'), { description: t('vm.kvm.toastDescription') });
+      await queryClient.invalidateQueries({ queryKey: ['host-setup'] });
+    },
+  });
+  if (!kvmFixable(linux))
+    return (
+      <div data-kvm-access="novirt">
+        <Notice tone="warning">{noKVM()}</Notice>
+      </div>
+    );
+  return (
+    <div className="grid gap-3" data-kvm-access={linux.kvmProblem}>
+      <Notice tone="warning">{linux.kvmProblem === 'module' ? t('vm.kvm.module') : t('vm.kvm.denied')}</Notice>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="primary" disabled={grant.isPending} onClick={() => grant.mutate()} data-kvm-grant>
+          {grant.isPending ? <LoaderCircle className="animate-spin" /> : <KeyRound />}
+          {t('vm.kvm.grant')}
+        </Button>
+        <span className="text-xs text-subtle">{grant.isPending ? t('vm.kvm.granting') : t('vm.kvm.onePrompt')}</span>
+      </div>
+      {lines.length > 0 && <SetupLog lines={lines} label={t('vm.kvm.log')} />}
+      {grant.error && <Notice>{errorMessage(grant.error)}</Notice>}
+      <div className="grid gap-2">
+        <p className="text-[13px] text-muted">{t('vm.kvm.orTerminal')}</p>
+        <CommandBox command="sudo agentbox host kvm" />
+      </div>
+    </div>
   );
 }
 
@@ -178,7 +234,7 @@ export function VMSizeFields({ linux, form, disabled, onChange }: { linux: Linux
 // `agentbox vm migrate`, which takes this installation into AgentBox's VM;
 // this is where the app runs it. action is the move itself, in the app
 // (VMMigrate); without it, command is the command, in a box to copy.
-export function MoveToVM({ kvm, command, action }: { kvm: boolean; command: ReactNode; action?: ReactNode }) {
+export function MoveToVM({ kvm, linux, command, action }: { kvm: boolean; linux?: LinuxSetup | null; command: ReactNode; action?: ReactNode }) {
   const t = useT();
   return (
     <Panel className="grid gap-3 p-4" data-move-to-vm>
@@ -189,6 +245,7 @@ export function MoveToVM({ kvm, command, action }: { kvm: boolean; command: Reac
       <p className="text-[13px] leading-relaxed text-muted">
         {t('vm.run.moveDescription')}
       </p>
+      {!kvm && (linux ? <KVMAccess linux={linux} /> : <Notice tone="warning">{noKVM()}</Notice>)}
       {action ? (
         action
       ) : kvm ? (
@@ -198,9 +255,7 @@ export function MoveToVM({ kvm, command, action }: { kvm: boolean; command: Reac
           </p>
           {command}
         </div>
-      ) : (
-        <Notice tone="warning">{noKVM()}</Notice>
-      )}
+      ) : null}
     </Panel>
   );
 }
@@ -255,7 +310,7 @@ export function MovePrompt({ version, onOpen }: { version: string | undefined; o
           <p>
             {t('vm.run.promptTakes', { projects, agents })}
           </p>
-          {!kvm && <Notice tone="warning">{noKVM()}</Notice>}
+          {!kvm && <Notice tone="warning">{kvmFixable(status.data?.linux) ? t('vm.kvm.beforeMove') : noKVM()}</Notice>}
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={putOff}>

@@ -4,6 +4,7 @@
 // made.
 import type * as T from '../../shared/api';
 import { pairUp, type Pair } from '../../shared/pairs.ts';
+import { t, type MessageKey } from '../../shared/i18n/index.ts';
 import { recordedFor, videoAt } from './recording.ts';
 
 // Proof is what an agent showed it checked, for the review's Proof tab:
@@ -73,6 +74,19 @@ export function gallery(proof: Proof): Shown[] {
   ];
 }
 
+// A pane is what the review's body shows: the proof, the diff or the details.
+export type Pane = 'proof' | 'diff' | 'details';
+
+// reviewPane is the pane the review opens on: the proof when there is any to
+// show, else Details, since an agent with no media still has something to
+// read. Until the proof has loaded it opens on the proof; and a pane the user
+// picked by hand for this item always wins.
+export function reviewPane(proof: Proof, picked: Pane | undefined, loaded: boolean): Pane {
+  if (picked) return picked;
+  if (!loaded) return 'proof';
+  return gallery(proof).length === 0 ? 'details' : 'proof';
+}
+
 function chaptersOf(rec: T.MediaItem, notes: readonly T.MediaItem[], screenshots: readonly T.MediaItem[]): Chapter[] {
   const start = ms(rec.createdAt);
   const length = recordedFor(rec.meta) * 1000;
@@ -137,6 +151,20 @@ export function mergeBlock(pr: T.PullRequest, pulls?: Pick<T.ProjectPullRequests
   if (pr.conflict) return 'conflict';
   if (pr.checks === 'failing') return 'failing';
   return null;
+}
+
+const blockLabels: Record<Exclude<MergeBlock, 'merged' | 'closed'>, MessageKey> = {
+  draft: 'review.mergeBlocked.draft',
+  failing: 'review.mergeBlocked.failing',
+  conflict: 'review.mergeBlocked.conflict',
+  noPermission: 'review.mergeBlocked.noPermission',
+};
+
+// mergeBlockReason is why an open pull request can't be merged, in a
+// sentence shown beside its Merge, or undefined when it can.
+export function mergeBlockReason(pr: T.PullRequest, pulls?: Pick<T.ProjectPullRequests, 'canMergeKnown' | 'canMerge'>): string | undefined {
+  const blocked = mergeBlock(pr, pulls);
+  return blocked && blocked !== 'merged' && blocked !== 'closed' ? t(blockLabels[blocked], { base: pr.baseBranch ?? '' }) : undefined;
 }
 
 // queueOf is the order "Review all" walks: the agents waiting when it began,

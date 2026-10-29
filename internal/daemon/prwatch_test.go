@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,7 +31,15 @@ type fakeGraphQL struct {
 	// remaining is what rateLimit.remaining says; 5000 when unset.
 	remaining int
 	resetAt   time.Time
+	// What an event trigger's look reads besides (eventtriggers_test.go):
+	// the account's login, the default branch's head, and every issue,
+	// filtered by the labels the query names.
+	viewer string
+	head   map[string]any
+	issues []map[string]any
 }
+
+var askedLabels = regexp.MustCompile(`issues\(states: OPEN, labels: (\[[^\]]*\])`)
 
 var askedNumber = regexp.MustCompile(`pr(\d+): pullRequest\(number: (\d+)\)`)
 
@@ -83,10 +92,32 @@ func newFakeGraphQL(t *testing.T, d testDaemon) *fakeGraphQL {
 		if reset.IsZero() {
 			reset = time.Now().Add(time.Hour)
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+		data := map[string]any{
 			"rateLimit":  map[string]any{"remaining": f.remaining, "resetAt": reset.UTC().Format(time.RFC3339)},
 			"repository": repo,
-		}})
+		}
+		if strings.Contains(body.Query, "viewer { login }") {
+			data["viewer"] = map[string]any{"login": f.viewer}
+		}
+		if strings.Contains(body.Query, "defaultBranchRef") {
+			repo["defaultBranchRef"] = map[string]any{"name": "main", "target": f.head}
+		}
+		if m := askedLabels.FindStringSubmatch(body.Query); m != nil {
+			var labels []string
+			_ = json.Unmarshal([]byte(m[1]), &labels)
+			var nodes []any
+			for _, is := range f.issues {
+				for _, l := range is["labels"].(map[string]any)["nodes"].([]any) {
+					name := l.(map[string]any)["name"].(string)
+					if slices.ContainsFunc(labels, func(x string) bool { return strings.EqualFold(x, name) }) {
+						nodes = append(nodes, is)
+						break
+					}
+				}
+			}
+			repo["issues"] = map[string]any{"nodes": nodes}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
 	}))
 	t.Cleanup(stub.Close)
 	d.setGitHub(t, stub.URL)
@@ -158,7 +189,7 @@ func recordPRWatch(d testDaemon) *prWatchRecorder {
 		rec.agents = append(rec.agents, a.Name+": "+text)
 		return told{woke: rec.woke}, nil
 	}
-	d.srv.prLead = func(_ context.Context, _ string, notice string, act bool) {
+	d.srv.prLead = func(_ context.Context, _, _ string, notice string, act bool) {
 		rec.mu.Lock()
 		defer rec.mu.Unlock()
 		rec.leads = append(rec.leads, leadNotice{notice, act})

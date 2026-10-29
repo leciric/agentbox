@@ -18,6 +18,7 @@ import { openSettingsSection } from './SettingsPage';
 import { ImageBuildChip } from './ImageBuildChip';
 import { MachineStatus } from './MachineStatus';
 import { Inbox } from './Inbox';
+import { useCurrentSession } from './ProjectChatPanel';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 
 const backToLeadKeys = onMac ? '⌥←' : 'Alt+←';
@@ -27,6 +28,7 @@ export function TopBar({
   onSelect,
   onOpenNav,
   onOpenRail,
+  navDocksAtXl,
   onOpenNotice,
   onSearch,
 }: {
@@ -36,6 +38,9 @@ export function TopBar({
   // in a window too narrow for them to sit beside the page (App).
   onOpenNav: () => void;
   onOpenRail?: () => void;
+  // navDocksAtXl: the sidebar is a drawer up to xl, not lg, because the
+  // agent rail takes its place beside the page (App).
+  navDocksAtXl?: boolean;
   // onOpenNotice goes where a notification in the inbox points.
   onOpenNotice?: (notice: T.Notification) => void;
   // onSearch opens the search palette; without it there's no search button.
@@ -75,9 +80,13 @@ export function TopBar({
     case 'group':
       crumbs.push({ label: t('group.crumb') });
       break;
+    case 'work':
+      if (view.project) crumbs.push({ label: projectLabel(view.project, projects.data), view: { kind: 'project', project: view.project } });
+      crumbs.push({ label: t('work.title') });
+      break;
     case 'pastAgents':
-      crumbs.push({ label: t('pastAgents.title'), view: view.ref ? { kind: 'pastAgents' } : undefined });
-      if (view.ref) crumbs.push({ label: view.ref.split('/')[1], mono: true });
+      crumbs.push({ label: t('work.title'), view: { kind: 'work' } });
+      crumbs.push({ label: view.ref.split('/')[1], mono: true });
       break;
     case 'agent': {
       const [project, name] = view.ref.split('/');
@@ -93,7 +102,7 @@ export function TopBar({
     <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-line px-3 py-2 md:gap-x-4 md:px-5" data-top-bar>
       <button
         aria-label={t('shell.top.openMenu')}
-        className="-ml-1 rounded-lg p-2 text-muted transition hover:bg-surface-raised hover:text-primary lg:hidden"
+        className={cn('-ml-1 rounded-lg p-2 text-muted transition hover:bg-surface-raised hover:text-primary', navDocksAtXl ? 'xl:hidden' : 'lg:hidden')}
         onClick={onOpenNav}
         data-open-nav
       >
@@ -198,7 +207,7 @@ function RailButton({ view, onClick }: { view: View; onClick: () => void }) {
   return (
     <button
       type="button"
-      className="flex shrink-0 items-center gap-1.5 rounded-full border border-line bg-surface-faint px-2.5 py-1 text-xs text-muted transition hover:bg-surface-raised hover:text-primary xl:hidden"
+      className="flex shrink-0 items-center gap-1.5 rounded-full border border-line bg-surface-faint px-2.5 py-1 text-xs text-muted transition hover:bg-surface-raised hover:text-primary min-[900px]:hidden"
       aria-label={t('agent.rail.show')}
       title={t('agent.rail.show')}
       data-open-rail
@@ -222,7 +231,8 @@ function ClaudeUsage({ view, agents }: { view: View; agents: T.Agent[] }) {
   const project = projectName ? projects.data?.find((p) => p.name === projectName) : undefined;
   // On a project's page, or Home, its chat's own tool and account: what the
   // composer chose spends there (RunnerPicker).
-  const chatOf = view.kind === 'project' ? project?.name : view.kind === 'home' || view.kind === 'homeChat' ? '_home' : undefined;
+  const session = useCurrentSession(view.kind === 'project' ? project?.name : undefined);
+  const chatOf = view.kind === 'project' ? session?.ref : view.kind === 'home' || view.kind === 'homeChat' ? `${T.HomeProject}/${T.LeadName}` : undefined;
   const runners = useQuery({ queryKey: ['chatRunners', chatOf], queryFn: () => api.chatRunners(chatOf!), enabled: !!chatOf, refetchInterval: 30_000 });
   const pick = pickMeter({ limits: limits.data ?? [], codexLimits: codexLimits.data ?? [], project, agent, lead: chatOf ? runners.data : undefined });
   const account = pick.reading;
@@ -268,7 +278,7 @@ function ClaudeUsage({ view, agents }: { view: View; agents: T.Agent[] }) {
           data-claude-account={account.account}
         >
           {codex ? <ToolMark ai="codex" className="!size-3.5" /> : <ClaudeMark />}
-          <span className="text-[12px] font-medium text-primary">{toolName(pick.tool)}</span>
+          <span className="text-[12px] font-medium text-primary">{account.account && account.account !== 'default' ? account.account : toolName(pick.tool)}</span>
           <span className="text-[11px] text-muted">{fiveLeft ?? t('shell.top.fiveHourShort')}</span>
           <span className={cn('font-mono text-[11px] font-semibold tabular-nums', limitText(fiveNow))}>{percent(fiveNow)}</span>
           {week && (

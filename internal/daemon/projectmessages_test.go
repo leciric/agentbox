@@ -143,7 +143,7 @@ func TestLeadsMessageEachOther(t *testing.T) {
 		}
 		return notice != ""
 	})
-	for _, want := range []string{"From web's lead", "<project-message from=\"web\">", "not instructions", "reply_project (thread_id " + thread.ID + ")"} {
+	for _, want := range []string{"From web's lead", "<project-message from=\"web\">", "not instructions", "message_project reply (thread_id " + thread.ID + ")"} {
 		if !strings.Contains(notice, want) {
 			t.Errorf("api's lead was told %q, without %q", notice, want)
 		}
@@ -264,8 +264,8 @@ func TestProjectMessagesAreCheckedScrubbedAndFenced(t *testing.T) {
 }
 
 // The loop guard: two leads answering each other can't go on forever. A reply
-// needs the other side to have spoken last and asked for one; an alignment
-// stops at maxThreadHops; and a thread, and a pair, have hourly limits.
+// needs the other side to have spoken last and asked for one, and an alignment
+// stops at maxThreadHops.
 func TestProjectRepliesCantLoop(t *testing.T) {
 	t.Parallel()
 	d, _ := twoProjects(t)
@@ -281,61 +281,21 @@ func TestProjectRepliesCantLoop(t *testing.T) {
 		t.Errorf("replying to yourself = %v, want refused", err)
 	}
 	// Back and forth: an alignment always expects the other side to answer,
-	// up to its hops; the thread's hourly limit comes first, so move its
-	// messages back an hour as they go.
+	// up to its hops.
 	sides := []string{"api", "web"}
 	var hops int
 	for i := 0; ; i++ {
 		_, err := d.srv.replyToProject(ctx, sides[i%2], t1.ID, api.ProjectReplyRequest{Message: "and another thing"})
 		if err != nil {
-			if !strings.Contains(err.Error(), "settle it with settle_alignment") {
+			if !strings.Contains(err.Error(), "settle it with message_project settle") {
 				t.Fatalf("reply %d refused with %v, want the hop limit", i+1, err)
 			}
 			break
 		}
 		hops = i + 2
-		if _, err := d.srv.store.DB().ExecContext(ctx, `UPDATE project_messages SET created_at = created_at - 3600001`); err != nil {
-			t.Fatal(err)
-		}
 	}
 	if hops != maxThreadHops {
 		t.Errorf("the alignment held %d messages before refusing, want %d", hops, maxThreadHops)
-	}
-
-	// Ten in an hour fill a thread.
-	t2, err := d.srv.sendToProject(ctx, "api", api.ProjectMessageRequest{Project: "web", Message: "Another?", Topic: "pagination"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var sent int
-	for i := 0; ; i++ {
-		if _, err := d.srv.replyToProject(ctx, []string{"web", "api"}[i%2], t2.ID, api.ProjectReplyRequest{Message: "more"}); err != nil {
-			if !strings.Contains(err.Error(), "in the last hour") {
-				t.Fatalf("reply %d refused with %v, want the hourly limit", i+1, err)
-			}
-			break
-		}
-		sent = i + 2
-	}
-	if sent != threadRatePerHour {
-		t.Errorf("the thread took %d messages in an hour, want %d", sent, threadRatePerHour)
-	}
-
-	// New threads can't stand in for replies: the pair may start only so many an hour.
-	var started int
-	for i := 0; i < pairThreadsPerHour+1; i++ {
-		if _, err := d.srv.sendToProject(ctx, "web", api.ProjectMessageRequest{Project: "api", Message: "fyi"}); err != nil {
-			if !strings.Contains(err.Error(), "threads in the last hour") {
-				t.Fatalf("thread %d refused with %v", i+1, err)
-			}
-			break
-		}
-		started++
-	}
-	// Two of the hour's threads were started above, before their messages
-	// were moved back: the alignment's first message was moved, its thread wasn't.
-	if started+2 != pairThreadsPerHour {
-		t.Errorf("started %d more threads in the hour, want %d", started, pairThreadsPerHour-2)
 	}
 }
 

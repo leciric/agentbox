@@ -180,7 +180,7 @@ func readInstall(ctx context.Context, path string) (hostInstall, error) {
 		inst.Projects = append(inst.Projects, name)
 	}
 	_ = rows.Close()
-	rows, err = db.QueryContext(ctx, "SELECT project, name, instance, ai, status FROM agents WHERE name != ? ORDER BY project, name", state.LeadName)
+	rows, err = db.QueryContext(ctx, "SELECT project, name, instance, ai, status FROM agents WHERE name != ? AND name NOT LIKE 'lead.%' ORDER BY project, name", state.LeadName)
 	if err != nil {
 		return inst, fmt.Errorf("reading %s: %w", path, err)
 	}

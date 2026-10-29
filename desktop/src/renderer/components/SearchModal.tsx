@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import * as T from '../../shared/api';
-import { api } from '../lib/api';
+import { api, isLeadName } from '../lib/api';
 import { matchesIn } from '../lib/chatFind';
 import { plainText } from '../lib/plainText';
 import { useUiV2 } from '../lib/uiV2';
@@ -167,7 +167,7 @@ function Searching({ scope, onOpen }: { scope: SearchScope; onOpen: (target: Sea
     if (items[0]) onOpen(searchTarget(items[0]));
   }, [openWhenAnswered, pending, results.isFetching, items, onOpen]);
 
-  const agentTitle = (project: string, name: string) => (name === T.LeadName ? t('chat.find.from.lead') : agents.data?.find((a) => a.ref === `${project}/${name}`)?.title || name);
+  const agentTitle = (project: string, name: string) => (isLeadName(name) ? t('chat.find.from.lead') : agents.data?.find((a) => a.ref === `${project}/${name}`)?.title || name);
   const whereOf = ({ kind, hit }: SearchItem) =>
     [
       hit.project === T.HomeProject ? homeName : hit.project ? projectLabel(hit.project, projects.data) : kind === T.SearchSkills || kind === T.SearchConnectors ? t('search.agentboxWide') : '',

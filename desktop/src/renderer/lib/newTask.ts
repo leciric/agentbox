@@ -76,8 +76,12 @@ export function onComposerFocus(fn: () => void): () => void {
 }
 // takeComposerFocus says whether the composer of ref should take the focus,
 // once: asking again is false until the next request.
+// A request for a project's chat ("web/lead") is the session's on screen,
+// whichever it is ("web/lead.prod").
 export function takeComposerFocus(ref: string, now = Date.now()): boolean {
-  if (!wanted || wanted.ref !== ref || now - wanted.at > focusWaitMs) return false;
+  const project = wanted?.ref.endsWith('/lead') ? wanted.ref.slice(0, -'/lead'.length) : undefined;
+  const same = wanted?.ref === ref || (project !== undefined && ref.startsWith(`${project}/lead.`));
+  if (!wanted || !same || now - wanted.at > focusWaitMs) return false;
   wanted = undefined;
   return true;
 }

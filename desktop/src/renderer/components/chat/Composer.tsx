@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowUp,
   Brain,
@@ -13,6 +13,7 @@ import {
   Gauge,
   Hourglass,
   ListTodo,
+  MessageSquarePlus,
   LoaderCircle,
   Lock,
   LockOpen,
@@ -27,13 +28,14 @@ import {
   ShieldAlert,
   Sparkles,
   SquareArrowOutUpRight,
-  X,
   type LucideIcon,
 } from 'lucide-react';
 import { Fragment, use, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type ComponentType, type DragEvent, type KeyboardEvent, type ReactNode, type SyntheticEvent } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
-import { api, isHomeChat, isProjectChat } from '../../lib/api';
+import { ChatOptionPlan } from '../../../shared/api';
+import { api, isHomeChat, isProjectChat, sessionOfRef } from '../../lib/api';
+import { chooseSession, topicFrom } from '../../lib/sessions';
 import { composerSkills, searchSkills, skillMentionAt } from '../../lib/skills';
 import { SkillTile } from '../SkillsPanel';
 import { contextBadge, contextHint, currentPlan, formatTokens, isMessage, pendingPermissions, toolOf, toolsReload } from '../../lib/chat';
@@ -43,10 +45,13 @@ import { mentionAt, matchAgents, matchFiles, matchProjects, mentionLimit, type M
 import { onComposerFocus, takeComposerFocus } from '../../lib/newTask';
 import { composeEvent, getDraft, setDraft } from '../../lib/drafts';
 import { formatTime, t as translate, useT } from '../../lib/i18n';
+import { accountTools, roomiest } from '../../lib/leadRunner';
 import { useNow } from '../../lib/useNow';
+import { useReviewCardShown } from '../v2/ReviewV2';
 import { previewUrl } from '../../lib/chatImages';
 import { droppedFiles, isElement, isFile, prepareAttachment, room, uploads, type Pending } from '../../lib/chatFiles';
 import { splitPicked, takePicks, useWaitingPicks, withPicks } from '../../lib/picks';
+import { sendMessage, unsentEvent, useSending } from '../../lib/sending';
 import { ModelByName } from '../ModelByName';
 import { cn, errorMessage } from '../../lib/utils';
 import { aiLabel, ToolMark } from '../state';
@@ -77,6 +82,8 @@ export function Composer({
   onSent: () => void;
 }) {
   const t = useT();
+  // The review card carries the wake button itself while it shows.
+  const reviewCard = useReviewCardShown(agent);
   const fileLinks = use(FileLinks);
   const [text, setText] = useState(() => getDraft(agent.ref));
   const [dismissed, setDismissed] = useState<string | null>(null);
@@ -102,7 +109,7 @@ export function Composer({
   // while it asks is held here until you choose; a turn running, or the card
   // going away without a choice, puts it back in the composer.
   const projectChat = isProjectChat(agent.ref);
-  const cache = useQuery({ queryKey: ['chatCache', agent.project], queryFn: () => api.chatCache(agent.project), enabled: projectChat });
+  const cache = useQuery({ queryKey: ['chatCache', agent.ref], queryFn: () => api.chatCache(agent.ref), enabled: projectChat });
   const cacheCard = projectChat && cache.data?.due && !busy && !disabled ? cache.data : undefined;
   const [held, setHeld] = useState<{ text: string; images: Pending[] } | null>(null);
   useEffect(() => {
@@ -112,27 +119,42 @@ export function Composer({
     setHeld(null);
   }, [held, cacheCard]);
 
-  const send = useMutation({
-    mutationFn: (message: { text: string; images: Pending[] }) => {
-      const { images, files } = uploads(message.images, !session?.noImages);
-      return api.sendChat(agent.ref, withPicks(message.text, message.images.filter(isElement)), images, files);
-    },
-    onMutate: () => {
-      setSendError(null);
-      setText('');
-      setImages([]);
-      onSent();
-    },
-    // A message that didn't go comes back to the composer, and why stays
-    // above it until the next one is sent or it's dismissed: a toast is gone
-    // before it's read.
-    onError: (err, message) => {
-      setText((current) => current || message.text);
-      setImages((current) => (current.length ? current : message.images));
-      setSendError(errorMessage(err));
-    },
-  });
-  const [sendError, setSendError] = useState<string | null>(null);
+  // A message shows in the chat the moment it's sent, the turn it starts
+  // already working (lib/sending.ts); one that doesn't go stays there, marked,
+  // to send again or take back into the composer.
+  const queryClient = useQueryClient();
+  const sending = useSending(agent.ref);
+  const inFlight = sending.some((s) => !s.error);
+  const send = (message: { text: string; images: Pending[] }) => {
+    const { images, files } = uploads(message.images, !session?.noImages);
+    const text = withPicks(message.text, message.images.filter(isElement));
+    setText('');
+    setImages([]);
+    onSent();
+    // The rail and the sidebar show it working now too; the session's own
+    // state replaces this as it arrives, or a send that failed reads it again.
+    const project = agent.ref.split('/')[0];
+    queryClient.setQueryData<T.Agent[]>(['agents'], (list) => list?.map((a) => (a.ref === agent.ref && a.chat !== 'running' ? { ...a, chat: 'running' } : a)));
+    queryClient.setQueryData<T.ProjectChat>(['projectChat', project], (info) => (info && info.ref === agent.ref ? { ...info, chat: 'running' } : info));
+    void sendMessage(agent.ref, { text: text.trim(), attachments: message.images, after: thread?.items.at(-1)?.id }, () => api.sendChat(agent.ref, text, images, files)).then((sent) => {
+      if (sent) return;
+      void queryClient.invalidateQueries({ queryKey: ['agents'] });
+      void queryClient.invalidateQueries({ queryKey: ['projectChat', project] });
+    });
+  };
+  // Send again's way back in: what didn't go, into the composer, unless
+  // something new was written there since.
+  useEffect(() => {
+    const back = (e: Event) => {
+      const { ref, text: was, attachments } = (e as CustomEvent<{ ref: string; text: string; attachments: Pending[] }>).detail;
+      if (ref !== agent.ref) return;
+      setText((current) => current || was);
+      setImages((current) => (current.length ? current : attachments));
+      area.current?.focus();
+    };
+    window.addEventListener(unsentEvent, back);
+    return () => window.removeEventListener(unsentEvent, back);
+  }, [agent.ref]);
 
   // Elements picked in a browser whose chat this is (picks.ts) join what
   // waits here, as they arrive or when the composer comes back into view.
@@ -240,6 +262,10 @@ export function Composer({
   const stop = useMutation({ mutationFn: () => api.cancelChat(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
   const retry = useMutation({ mutationFn: () => api.startChat(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
   const resumeNow = useMutation({ mutationFn: () => api.resumeChat(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
+  // A chat stopped on its account's usage limit is offered another account
+  // of its tool with room, which carries the turn on there at once.
+  const limitRunner = useRunner(agent, session, !!session?.limited && accountTools.includes(session?.tool || agent.ai));
+  const spare = session?.limited ? roomiest(limitRunner.choices, limitRunner.tool) : undefined;
   const reloadTools = useMutation({ mutationFn: () => api.reloadChatTools(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
 
   useEffect(() => {
@@ -329,7 +355,7 @@ export function Composer({
 
   // Sending while the tool works is the point of the placeholder below: the
   // message joins the running turn and the model decides what it's worth.
-  const canSend = !disabled && !signedOut && (text.trim() !== '' || images.length > 0) && !send.isPending && !held;
+  const canSend = !disabled && !signedOut && (text.trim() !== '' || images.length > 0) && !held;
   // Enter or Send while signed out can't send: the banner pulses instead, so
   // the click isn't silent. The draft stays.
   const [nudged, setNudged] = useState(false);
@@ -350,7 +376,7 @@ export function Composer({
       setImages([]);
       return;
     }
-    send.mutate({ text: text.trim(), images });
+    send({ text: text.trim(), images });
   };
   const pick = (item: SlashItem) => {
     setText(item.kind === 'skill' ? `$${item.skill.name} ` : `/${item.command.name} `);
@@ -477,30 +503,14 @@ export function Composer({
             </button>
           </div>
         </Attached>
-      ) : sendError ? (
-        <Attached tone="rose">
-          <div className="flex items-start gap-2 text-[12.5px]" data-chat-send-error>
-            <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-rose-300" />
-            <p className="min-w-0 flex-1 break-words leading-relaxed text-rose-100/90">
-              {t('chat.composer.notSent', { error: sendError })}
-            </p>
-            <button
-              className="flex size-6 shrink-0 items-center justify-center rounded-md text-rose-100 transition hover:bg-rose-400/15"
-              aria-label={t('common.close')}
-              onClick={() => setSendError(null)}
-            >
-              <X className="size-3.5" />
-            </button>
-          </div>
-        </Attached>
-      ) : asleep ? (
+      ) : asleep && reviewCard ? null : asleep ? (
         <Attached tone="neutral">
           <div className="flex items-center gap-2 text-[12.5px]" data-chat-asleep={asleep.state}>
-            {asleep.starting || send.isPending ? <LoaderCircle className="size-3.5 shrink-0 animate-spin text-muted" /> : <Moon className="size-3.5 shrink-0 text-muted" />}
+            {asleep.starting || inFlight ? <LoaderCircle className="size-3.5 shrink-0 animate-spin text-muted" /> : <Moon className="size-3.5 shrink-0 text-muted" />}
             <p className="min-w-0 flex-1 break-words leading-relaxed text-tertiary">{t('chat.composer.asleep', { state: asleep.state, name: agent.name })}</p>
             <button
               className="flex h-6 shrink-0 items-center gap-1 rounded-md bg-brand-500/90 px-2.5 text-[12px] font-medium text-white transition hover:bg-brand-500 disabled:opacity-60"
-              disabled={asleep.starting || send.isPending}
+              disabled={asleep.starting || inFlight}
               onClick={asleep.onStart}
             >
               <Play className="size-3" />
@@ -512,7 +522,7 @@ export function Composer({
         <PermissionBanner agent={agent} thread={thread} request={requests[0]} count={requests.length} />
       ) : cacheCard ? (
         <CacheCard
-          project={agent.project}
+          chatRef={agent.ref}
           cache={cacheCard}
           held={held}
           draft={() => {
@@ -540,6 +550,17 @@ export function Composer({
           <div className="flex items-start gap-2 text-[12.5px]">
             <Hourglass className="mt-0.5 size-3.5 shrink-0 text-amber-300" />
             <p className="min-w-0 flex-1 break-words leading-relaxed text-amber-100/90">{limitMessage(session)}</p>
+            {spare && (
+              <button
+                className="h-6 shrink-0 rounded-md px-2 text-[12px] font-medium text-amber-100 transition hover:bg-amber-400/15"
+                disabled={limitRunner.choose.isPending}
+                onClick={() => limitRunner.choose.mutate(spare)}
+                title={t('chat.limit.switchTip', { tool: aiLabel(spare.tool), account: spare.account })}
+                data-limit-switch={spare.account}
+              >
+                {t('chat.limit.switch', { account: spare.account })}
+              </button>
+            )}
             <button
               className="h-6 shrink-0 rounded-md px-2 text-[12px] font-medium text-amber-100 transition hover:bg-amber-400/15"
               disabled={resumeNow.isPending}
@@ -770,7 +791,7 @@ export function Composer({
                 onClick={submit}
                 className={cn('flex size-8 items-center justify-center rounded-full bg-gradient-to-b from-brand-500 to-indigo-600 text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.2),0_8px_20px_-8px_rgb(99_102_241/0.8)] transition hover:scale-105 hover:brightness-110 disabled:scale-100 disabled:opacity-30 disabled:shadow-none', signedOut && 'opacity-30 shadow-none hover:scale-100')}
               >
-                {send.isPending ? <LoaderCircle className="size-3.5 animate-spin" /> : <ArrowUp className="size-4" strokeWidth={2.2} />}
+                <ArrowUp className="size-4" strokeWidth={2.2} />
               </button>
             </Tip>
           </div>
@@ -840,6 +861,7 @@ function PermissionBanner({ agent, thread, request, count }: { agent: T.Agent; t
           onAnswer={(id) => answer.mutate(id)}
           approveLabel={t('chat.permission.allow')}
           denyLabel={t('chat.permission.deny')}
+          planApprove={permission.planApprove}
           keys
         />
       </div>
@@ -853,14 +875,14 @@ function PermissionBanner({ agent, thread, request, count }: { agent: T.Agent; t
 // chat's Compact action and then sends the held message, if any, in the fresh
 // session; sending as it is sends it the way it would have gone anyway.
 function CacheCard({
-  project,
+  chatRef,
   cache,
   held,
   draft,
   onChosen,
   onFailed,
 }: {
-  project: string;
+  chatRef: string;
   cache: T.ChatCache;
   held: { text: string; images: Pending[] } | null;
   draft: () => { text: string; images: Pending[] } | null;
@@ -871,7 +893,7 @@ function CacheCard({
   const now = useNow(1000);
   const choose = useMutation({
     mutationFn: ({ compact, message }: { compact: boolean; message: { text: string; images: Pending[] } | null }) =>
-      api.chooseChatCache(project, {
+      api.chooseChatCache(chatRef, {
         compact,
         text: message ? withPicks(message.text, message.images.filter(isElement)) : undefined,
         ...(message ? uploads(message.images) : {}),
@@ -883,12 +905,36 @@ function CacheCard({
     },
   });
   const pick = (compact: boolean) => choose.mutate({ compact, message: draft() });
+  // The third way: leave this session's context where it is, and start the
+  // message in a session of its own (lib/sessions.ts), which the tabs then
+  // show. Only a project's chat has sessions; the Home chat doesn't.
+  const project = chatRef.split('/')[0];
+  const sessions = sessionOfRef(chatRef) !== undefined;
+  const queryClient = useQueryClient();
+  const fresh = useMutation({
+    mutationFn: async (message: { text: string; images: Pending[] } | null) => {
+      const s = await api.newLeadSession(project, (message && topicFrom(message.text)) || t('sessions.untitled'));
+      chooseSession(project, s.id);
+      void queryClient.invalidateQueries({ queryKey: ['leadSessions', project] });
+      if (message) {
+        const u = uploads(message.images);
+        await api.sendChat(s.ref, withPicks(message.text, message.images.filter(isElement)), u.images, u.files);
+      }
+      return s;
+    },
+    onSuccess: (_, message) => onChosen(message),
+    onError: (err, message) => {
+      onFailed(message);
+      toast.error(errorMessage(err));
+    },
+  });
+  const busy = choose.isPending || fresh.isPending;
   const idle = cache.idleSince ? now - Date.parse(cache.idleSince) : 0;
   const left = cache.expiresAt ? Date.parse(cache.expiresAt) - now : 0;
   const expired = left <= 0;
   const tokens = t('chat.cache.tokens', { n: formatTokens(cache.contextUsed ?? 0) });
   const compacting = choose.isPending && choose.variables?.compact;
-  const waiting = held ?? (choose.isPending ? choose.variables?.message : null);
+  const waiting = held ?? (choose.isPending ? choose.variables?.message : fresh.isPending ? fresh.variables : null);
   return (
     <Attached tone="amber">
       <div data-chat-cache={expired ? 'expired' : 'expiring'}>
@@ -908,15 +954,26 @@ function CacheCard({
           </p>
         )}
         <div className="mt-2.5 flex flex-wrap items-center justify-end gap-1.5">
+          {sessions && (
+            <button
+              disabled={busy}
+              onClick={() => fresh.mutate(draft())}
+              className="mr-auto flex h-7 items-center gap-1.5 rounded-lg border border-amber-200/20 px-2.5 text-[12.5px] text-amber-50 transition hover:bg-amber-200/10 disabled:opacity-50"
+              data-chat-cache-new-session
+            >
+              {fresh.isPending ? <LoaderCircle className="size-3.5 animate-spin" /> : <MessageSquarePlus className="size-3.5" />}
+              {t('chat.cache.newSession')}
+            </button>
+          )}
           <button
-            disabled={choose.isPending}
+            disabled={busy}
             onClick={() => pick(false)}
             className="h-7 rounded-lg border border-amber-200/20 px-2.5 text-[12.5px] text-amber-50 transition hover:bg-amber-200/10 disabled:opacity-50"
           >
             {t('chat.cache.sendAnyway')}
           </button>
           <button
-            disabled={choose.isPending}
+            disabled={busy}
             onClick={() => pick(true)}
             className="flex h-7 items-center gap-1.5 rounded-lg bg-amber-300 px-3 text-[12.5px] font-medium text-on-bright transition hover:bg-amber-200 disabled:opacity-60"
           >
@@ -1005,7 +1062,10 @@ function SessionOptions({ agent, session }: { agent: T.Agent; session?: T.ChatSe
   if (modelValue && session?.contextSize && !session.turnStartedAt) confirmed.current.set(modelValue, session.contextSize);
   const options = session?.options ?? [];
   const lead = isProjectChat(agent.ref);
-  const runner = useRunner(agent, session, lead);
+  // An agent's tool is fixed: its picker is the accounts of that tool, when
+  // it has more than one to choose from.
+  const runner = useRunner(agent, session, lead || accountTools.includes(agent.ai));
+  const picks = lead || runner.choices.length > 1;
   // While the tool starts, its menus haven't arrived: at most the model menu
   // remembered from an earlier chat is here. Say the rest is on its way,
   // rather than leaving a composer that looks like it has nothing to set.
@@ -1023,7 +1083,10 @@ function SessionOptions({ agent, session }: { agent: T.Agent; session?: T.ChatSe
   const contextWindow = find('context_window');
   const effort = find('thought_level');
   const mode = find('mode');
-  const others = options.filter((o) => o !== model && o !== contextWindow && o !== effort && o !== mode);
+  // Plan is a toggle beside the mode, not one of its choices (internal/chat/plan.go):
+  // the chat plans, then runs on the mode chosen beside it.
+  const plan = options.find((o) => o.id === ChatOptionPlan && o.type === 'boolean');
+  const others = options.filter((o) => o !== model && o !== contextWindow && o !== effort && o !== mode && o !== plan);
   const pick = (option: T.ChatOption) => (value: string) => value !== option.value && set.mutate({ id: option.id, value });
   const contextSize = model ? confirmed.current.get(model.value) : undefined;
   // Before the session has ever started, the model shown is a stored default
@@ -1037,7 +1100,7 @@ function SessionOptions({ agent, session }: { agent: T.Agent; session?: T.ChatSe
     <div className="flex min-w-0 items-center gap-0.5">
       <SetupChip
         agent={agent}
-        runner={lead ? runner : undefined}
+        runner={picks ? runner : undefined}
         model={model}
         contextWindow={contextWindow}
         others={others}
@@ -1046,7 +1109,8 @@ function SessionOptions({ agent, session }: { agent: T.Agent; session?: T.ChatSe
         pick={pick}
       />
       {effort && <OptionMenu option={effort} icon={<Brain />} label={effort.value === 'default' ? t('chat.options.effort') : undefined} onPick={pick(effort)} />}
-      {mode && <OptionMenu option={mode} icon={(() => { const Icon = modeIcon(mode); return <Icon />; })()} onPick={pick(mode)} />}
+      {plan && <PlanToggle option={plan} onPick={pick(plan)} />}
+      {mode && (!plan || mode.choices.length > 1) && <OptionMenu option={mode} icon={(() => { const Icon = modeIcon(mode); return <Icon />; })()} onPick={pick(mode)} />}
       {loadingMark}
     </div>
   );
@@ -1056,7 +1120,7 @@ function SessionOptions({ agent, session }: { agent: T.Agent; session?: T.ChatSe
 // sentence: "Claude Code · Opus · 200k", the tool, its model and its context
 // window (the v2 UX audit's finding 9: a bare tool icon, and a "200k" that
 // read like a model). Its menu has a submenu for each: the AI tool and
-// account (a lead's only: an agent's tool is fixed), the model, the context
+// account (an agent's only its account: its tool is fixed), the model, the context
 // window, and the tool's other settings, which had a ⋯ of their own.
 function SetupChip({
   agent,
@@ -1187,6 +1251,31 @@ function ContextBadge({ hint }: { hint: string }) {
 function modelHint(choice: T.ChatOptionChoice, isCurrent: boolean, contextSize?: number): string | undefined {
   if (isCurrent && contextSize) return contextBadge(contextSize);
   return contextHint(choice);
+}
+
+// PlanToggle turns plan mode on and off. The permission mode beside it stays
+// what it is: with bypass permissions, planning asks nothing plan mode allows,
+// and the approved plan runs on bypass.
+function PlanToggle({ option, onPick }: { option: T.ChatOption; onPick: (value: string) => void }) {
+  const t = useT();
+  const on = option.value === 'true';
+  return (
+    <Tip label={on ? t('chat.options.planOnTip') : t('chat.options.planTip')} side="top">
+      <button
+        type="button"
+        aria-pressed={on}
+        data-chat-option={option.id}
+        onClick={() => onPick(on ? 'false' : 'true')}
+        className={cn(
+          'flex h-7 items-center gap-1.5 rounded-lg px-2 text-[12.5px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 [&_svg]:size-4 [&_svg]:shrink-0',
+          on ? 'bg-brand-500/15 text-brand-200 hover:bg-brand-500/25' : 'text-muted hover:bg-surface hover:text-primary',
+        )}
+      >
+        <PencilRuler />
+        <span className="max-sm:hidden">{t('chat.options.plan')}</span>
+      </button>
+    </Tip>
+  );
 }
 
 // OptionMenu picks one of a setting's choices, the effort or the mode: the

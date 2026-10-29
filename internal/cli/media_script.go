@@ -29,7 +29,7 @@ const (
 func addRecordScript(a *app, record *cobra.Command) {
 	var script, name, target string
 	var limit time.Duration
-	var whole bool
+	var whole, noEdit bool
 	var pair pairFlags
 	record.Use = "record --script <file> --name <name>"
 	record.Long = `Record the agent's display as a video.
@@ -69,7 +69,7 @@ Without --script, use start and stop around a walkthrough driven by hand.`
 		if err != nil {
 			return err
 		}
-		return replay(cmd, c, s, script, api.RecordRequest{Target: target, Input: "desktop", Name: name, LimitSeconds: int(limit.Seconds()), WholeDisplay: whole, Pair: pair.pair, Side: pair.side()})
+		return replay(cmd, c, s, script, api.RecordRequest{Target: target, Input: "desktop", Name: name, LimitSeconds: int(limit.Seconds()), WholeDisplay: whole, NoEdit: noEdit, Pair: pair.pair, Side: pair.side()})
 	}
 	record.Flags().StringVar(&script, "script", "", "a walkthrough to replay, as the steps tool takes it")
 	record.Flags().StringVar(&name, "name", "", `with --script: a name, like "settings-after"`)
@@ -77,6 +77,7 @@ Without --script, use start and stop around a walkthrough driven by hand.`
 	record.Flags().BoolVar(&whole, "whole-display", false, "film the desktop as it is, without making the browser fullscreen first")
 	record.Flags().DurationVar(&limit, "limit", 10*time.Minute, "with --script: stop after this long")
 	pair.add(record)
+	record.Flags().BoolVar(&noEdit, "no-edit", false, "with --script: keep it as recorded, without zooming in on the clicks or captioning the notes")
 }
 
 func replay(cmd *cobra.Command, c *api.Client, s desktop.Script, script string, req api.RecordRequest) error {
@@ -110,6 +111,7 @@ func replay(cmd *cobra.Command, c *api.Client, s desktop.Script, script string, 
 		return fmt.Errorf("%w; the recording stopped there. Fix the script and replay it, or record the rest by hand with agentbox media record start", runErr)
 	}
 	_, _ = fmt.Fprintf(out, "Recorded %q%s: %d steps in %s, kept as %s\n", status.Name, recordTarget(status.Target), len(s.Steps), took.Round(100*time.Millisecond), item.ID)
+	printEdited(cmd, item)
 	if err := keepScript(ctx, c, script, name); err != nil {
 		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "The script wasn't kept beside it: %v\n", err)
 	}

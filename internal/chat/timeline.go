@@ -156,6 +156,12 @@ func (m *Manager) Rewind(a state.Agent, turn, intro, notice string) error {
 		}
 	}
 	c.appends = kept
+	// What is still to be stored of the items kept goes first, so nothing
+	// written after the cut puts back what it dropped.
+	c.queueUnsaved()
+	if err := c.writeBehind(c.agent); err != nil {
+		return err
+	}
 	if err := m.Store.TruncateChatItems(context.Background(), a.Project, a.Name, int64(end)); err != nil {
 		return err
 	}

@@ -66,6 +66,8 @@ type MediaMeta struct {
 	// review shows together, to compare (MediaPair).
 	Pair string `json:"pair,omitempty"`
 	Side string `json:"side,omitempty"`
+	// Raw is an edited recording's original, unedited, as a file beside it.
+	Raw string `json:"raw,omitempty"`
 }
 
 // MediaPair marks a screenshot, recording or file as the before or the after
@@ -227,7 +229,7 @@ func (m *Manager) saveMedia(ctx context.Context, p *pendingMedia, file string, m
 }
 
 type ScreenshotOptions struct {
-	Target   string // "browser" (the current page; the default), "display" (the whole screen) or "android" (the emulator)
+	Target   string // "browser" (the current page; the default), "display" (the whole screen), "android" (the emulator) or "ios" (the simulator)
 	FullPage bool   // the whole page, not just what's visible (browser only)
 	Name     string
 	Source   string
@@ -248,8 +250,8 @@ func (m *Manager) Screenshot(ctx context.Context, a state.Agent, opts Screenshot
 			target = "display"
 		}
 	}
-	if target != "browser" && target != "display" && target != "android" {
-		return state.Media{}, fmt.Errorf("unknown screenshot target %q: use browser, display or android", target)
+	if target != "browser" && target != "display" && target != "android" && target != "ios" {
+		return state.Media{}, fmt.Errorf("unknown screenshot target %q: use browser, display, android or ios", target)
 	}
 	pair, name, err := checkPair(opts.MediaPair, opts.Name)
 	if err != nil {
@@ -268,6 +270,8 @@ func (m *Manager) Screenshot(ctx context.Context, a state.Agent, opts Screenshot
 		err = m.displayScreenshot(ctx, a, file, p.item.ID)
 	case "android":
 		err = m.androidScreenshot(ctx, a, file, p.item.ID)
+	case "ios":
+		err = m.iosScreenshot(ctx, a, file)
 	}
 	if err != nil {
 		p.discard()
@@ -275,6 +279,19 @@ func (m *Manager) Screenshot(ctx context.Context, a state.Agent, opts Screenshot
 	}
 	meta.Width, meta.Height = pngSize(file)
 	return m.saveMedia(ctx, p, file, meta)
+}
+
+// iosScreenshot saves a PNG of the agent's iOS Simulator, which runs on the
+// Mac, not in the agent.
+func (m *Manager) iosScreenshot(ctx context.Context, a state.Agent, file string) error {
+	if m.IOSScreenshot == nil {
+		return errors.New("the iOS Simulator is only on a Mac")
+	}
+	png, err := m.IOSScreenshot(ctx, a)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(file, png, 0o644)
 }
 
 func (m *Manager) browserScreenshot(ctx context.Context, a state.Agent, file string, fullPage bool) (string, error) {
@@ -374,6 +391,9 @@ type recordingState struct {
 	Limit        int       `json:"limit"` // seconds
 	NoTrim       bool      `json:"noTrim,omitempty"`
 	WholeDisplay bool      `json:"wholeDisplay,omitempty"`
+	// NoEdit keeps the recording as it was recorded, without the zoom and
+	// captions StopRecording otherwise edits into it (editRecordingScript).
+	NoEdit bool `json:"noEdit,omitempty"`
 	// Staged is a recording written straight into the agent's media, through
 	// the recordings device, rather than inside the agent and copied out.
 	Staged bool   `json:"staged,omitempty"`
@@ -383,9 +403,10 @@ type recordingState struct {
 
 // StartRecording records until StopRecording, or until limit: the agent's
 // display or its browser's page, with the recorder in the agentbox binary
-// (desktop.Record), or its Android emulator's screen with scrcpy. The target
+// (desktop.Record), or its Android emulator's screen, with the same binary's
+// devicestream.Record (android.sh record). The target
 // "auto", the default, takes the page when the browser is all there is to see.
-func (m *Manager) StartRecording(ctx context.Context, a state.Agent, target, input, name string, limit time.Duration, noTrim, wholeDisplay bool, source string, pair MediaPair) (RecordingStatus, error) {
+func (m *Manager) StartRecording(ctx context.Context, a state.Agent, target, input, name string, limit time.Duration, noTrim, wholeDisplay, noEdit bool, source string, pair MediaPair) (RecordingStatus, error) {
 	if err := m.requireRunning(ctx, a); err != nil {
 		return RecordingStatus{}, err
 	}
@@ -397,7 +418,7 @@ func (m *Manager) StartRecording(ctx context.Context, a state.Agent, target, inp
 		limit = DefaultRecordLimit
 	}
 	limit = min(limit, maxRecordLimit)
-	st := recordingState{Target: cmpOr(target, desktop.RecordAuto), Input: cmpOr(input, RecordInputPlaywright), Name: cmpOr(strings.TrimSpace(name), "recording"), Source: cmpOr(source, "user"), StartedAt: time.Now().UTC(), Limit: int(limit.Seconds()), NoTrim: noTrim, WholeDisplay: wholeDisplay, Pair: pair.Pair, Side: pair.Side}
+	st := recordingState{Target: cmpOr(target, desktop.RecordAuto), Input: cmpOr(input, RecordInputPlaywright), Name: cmpOr(strings.TrimSpace(name), "recording"), Source: cmpOr(source, "user"), StartedAt: time.Now().UTC(), Limit: int(limit.Seconds()), NoTrim: noTrim, WholeDisplay: wholeDisplay, NoEdit: noEdit, Pair: pair.Pair, Side: pair.Side}
 	if st.Input != RecordInputPlaywright && st.Input != RecordInputDesktop {
 		return RecordingStatus{}, fmt.Errorf("unknown recording input %q: use playwright or desktop", st.Input)
 	}
@@ -477,14 +498,14 @@ func startRecordingScript(st recordingState) (string, error) {
 	// started waits until the recorder is running, so a recorder that can't
 	// start is caught here rather than at stop. The desktop recorder says so
 	// once ffmpeg has written its first frames, about 150 ms in (more for the
-	// browser, which waits for the page's first frame); scrcpy may take
-	// longer to connect to the device before it writes anything, so it keeps
+	// browser, which waits for the page's first frame); the emulator's recorder
+	// waits for the device's first frame before it starts ffmpeg, so it keeps
 	// a second.
 	var recorder, started string
 	switch st.Target {
 	case desktop.RecordAuto, desktop.RecordDisplay, desktop.RecordBrowser:
 		recorder = fmt.Sprintf(`command -v agentbox >/dev/null || { echo "agentbox isn't installed in this machine" >&2; exit 1; }
-setsid agentbox desktop record --target %s --input %s --limit %ds --bottom %d%s --ready "$dir/recording.ready" --cuts "$dir/recording.cuts" "$out" >"$dir/recording.log" 2>&1 </dev/null &`,
+setsid agentbox desktop record --target %s --input %s --limit %ds --bottom %d%s --ready "$dir/recording.ready" --cuts "$dir/recording.cuts" --events "$dir/recording.events" "$out" >"$dir/recording.log" 2>&1 </dev/null &`,
 			st.Target, st.Input, st.Limit, dockMargin+dockHeight/2, noTrimFlag(st.NoTrim)+wholeDisplayFlag(st.WholeDisplay))
 		started = `i=0
 while [ ! -s "$dir/recording.ready" ] && kill -0 "$(cat "$dir/recording.pid")" 2>/dev/null && [ "$i" -lt 200 ]; do sleep 0.05; i=$((i + 1)); done
@@ -510,7 +531,7 @@ dir="$HOME/%[1]s"
 out=%[2]s
 mkdir -p "$dir"
 if [ -f "$dir/recording.pid" ] && kill -0 "$(cat "$dir/recording.pid")" 2>/dev/null; then echo "a recording is already running: stop it first" >&2; exit 1; fi
-rm -f "$dir"/recording.* "$out" "$out.part"
+rm -f "$dir"/recording.* "$out" "$out.part" "${out%%.mp4}.edited.mp4"
 %[3]s
 echo $! >"$dir/recording.pid"
 %[5]s
@@ -583,8 +604,8 @@ pid=$(cat "$dir/recording.pid" 2>/dev/null || true)
 running=no
 if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
   running=yes
-  # Both finish the file when told to stop. scrcpy ignores INT, which a
-  # background process starts out ignoring, so it gets TERM.
+  # Both finish the file when told to stop. The emulator's recorder gets
+  # TERM: INT is what a background process starts out ignoring.
   if grep -q '"target":"android"' "$dir/recording.json"; then kill -TERM "$pid"; else kill -INT "$pid"; fi
   i=0
   while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 500 ]; do sleep 0.05; i=$((i + 1)); done
@@ -646,6 +667,19 @@ func (m *Manager) StopRecording(ctx context.Context, a state.Agent) (state.Media
 	if st.Staged {
 		inAgent = remote + "/out/recording.mp4"
 	}
+	// The edit is made in the agent, beside the recording, and kept in its
+	// place, the recording beside it as its original. One that fails leaves
+	// the recording as it was.
+	edited := ""
+	if !st.NoEdit && meta.Target != "android" {
+		began := time.Now()
+		if _, err := m.agentShell(ctx, a, editRecordingScript(st, m.recordingNotes(ctx, a, st.StartedAt), m.recordingTitle(a, st.Name))); err != nil {
+			m.logf("recording %s: kept unedited: %v", a.Ref(), err)
+		} else {
+			edited = strings.TrimSuffix(inAgent, ".mp4") + ".edited.mp4"
+			m.logf("recording %s: edited in %s", a.Ref(), time.Since(began).Round(100*time.Millisecond))
+		}
+	}
 	// Until the recording is kept, nothing captured is removed: a failure
 	// below leaves it where the error says it is.
 	p, err := m.startMedia(a, MediaRecording, st.Name, st.Source)
@@ -655,8 +689,11 @@ func (m *Manager) StopRecording(ctx context.Context, a state.Agent) (state.Media
 	p.item.CreatedAt = st.StartedAt
 	p.keep = true
 	file := filepath.Join(p.dir, fileName(st.Name, "recording", ".mp4"))
-	if st.Staged {
-		err = takeStaged(filepath.Join(m.recordingStage(a), "recording.mp4"), file)
+	take := func(inAgent, file string) error {
+		if !st.Staged {
+			return m.Incus.PullFile(ctx, a.Instance, inAgent, file)
+		}
+		err := takeStaged(filepath.Join(m.recordingStage(a), filepath.Base(inAgent)), file)
 		if err != nil && !errors.Is(err, errStagedNotFile) {
 			// The stage wasn't mounted when it started (it isn't required),
 			// so the agent wrote to its own disk instead.
@@ -666,8 +703,17 @@ func (m *Manager) StopRecording(ctx context.Context, a state.Agent) (state.Media
 				err = fmt.Errorf("%w, nor could it be copied out of the agent: %w", err, pullErr)
 			}
 		}
+		return err
+	}
+	if edited == "" {
+		err = take(inAgent, file)
+	} else if raw := strings.TrimSuffix(file, ".mp4") + ".unedited.mp4"; take(inAgent, raw) != nil {
+		err = take(inAgent, file) // says why, and where it still is
+	} else if editErr := take(edited, file); editErr != nil {
+		m.logf("recording %s: the edit couldn't be taken, keeping it unedited: %v", a.Ref(), editErr)
+		err = os.Rename(raw, file)
 	} else {
-		err = m.Incus.PullFile(ctx, a.Instance, inAgent, file)
+		meta.Raw = filepath.Base(raw)
 	}
 	if err != nil {
 		p.discard()

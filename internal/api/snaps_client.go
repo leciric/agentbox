@@ -63,3 +63,11 @@ func (c *Client) ImportFromBrowser(ctx context.Context, project, profileID, keyr
 	return out, c.do(ctx, http.MethodPost, browserCookiesPath(project)+"/from-browser",
 		ImportFromBrowserRequest{ProfileID: profileID, KeyringSecret: keyringSecret}, &out)
 }
+
+// ImportDecryptedCookies seals cookies the caller already read and decrypted
+// on the host (a Windows app-bound browser the daemon in the VM can't open).
+func (c *Client) ImportDecryptedCookies(ctx context.Context, project, source string, cookies []ImportedCookie) (BrowserCookies, error) {
+	var out BrowserCookies
+	return out, c.do(ctx, http.MethodPost, browserCookiesPath(project)+"/from-browser-decrypted",
+		ImportDecryptedCookiesRequest{Source: source, Cookies: cookies}, &out)
+}

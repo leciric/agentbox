@@ -34,8 +34,8 @@ import (
 //   - keepGroup settles it on one: the others are retired (stopped, their
 //     branches and worktrees kept) and the kept one is told to open its pull
 //     request, after which it goes to review like any agent.
-//   - judgeGroup asks the lead to compare them and recommend one with
-//     recommend_agent; the user still decides.
+//   - judgeGroup asks the lead to compare them and recommend one
+//     (compare_group's recommend); the user still decides.
 
 // groupLetters label a group's agents in the order it asked for them.
 const groupLetters = "ABCDEF"
@@ -89,6 +89,7 @@ func (s *Server) leadFanOut(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	req.Project = r.PathValue("project")
+	req.LeadSession = sessionFrom(r)
 	out, err := s.fanOut(r.Context(), req, true)
 	if err != nil {
 		return err
@@ -126,6 +127,7 @@ func (s *Server) fanOut(ctx context.Context, req api.FanOutRequest, byLead bool)
 			Task: groupTask(req.Task, label, len(req.Variants)),
 			AI:   v.AI, Model: v.Model, Effort: v.Effort, ContextWindow: v.ContextWindow,
 			ClaudeAccount: v.ClaudeAccount, CodexAccount: v.CodexAccount, OpenCodeAccounts: v.OpenCodeAccounts, CursorAccount: v.CursorAccount,
+			LeadSession: req.LeadSession,
 		}
 		checked, err := s.checkCreate(ctx, one, byLead)
 		if err != nil {
@@ -139,6 +141,11 @@ func (s *Server) fanOut(ctx context.Context, req api.FanOutRequest, byLead bool)
 		return api.FanOutResult{}, err
 	}
 	out := api.FanOutResult{Jobs: []api.Job{}}
+	for i, one := range reqs {
+		if one.ToolNotice != "" {
+			out.Notices = append(out.Notices, "Agent "+groupLabel(i+1)+": "+one.ToolNotice)
+		}
+	}
 	for i, one := range reqs {
 		position := i + 1
 		j, err := s.launchJob("create", one.Project, s.groupCreateJob(g.ID, position, one, byLead))
@@ -165,7 +172,7 @@ func (s *Server) fanOut(ctx context.Context, req api.FanOutRequest, byLead bool)
 	if !byLead {
 		who = "The user ran"
 	}
-	s.tellLeadOf(ctx, g.Project, fmt.Sprintf("%s one task on %d agents at once, to compare them and keep one (group %s, %q): %s. "+
+	s.tellSessionOf(ctx, g.Project, req.LeadSession, fmt.Sprintf("%s one task on %d agents at once, to compare them and keep one (group %s, %q): %s. "+
 		"They are told not to open pull requests until one is kept; you'll hear when all of them have finished. Task:\n\n%s",
 		who, len(g.Members), g.ID, g.Title, memberList(g), g.Task), chat.NoticeOptions{Group: g.ID})
 	return out, nil
@@ -289,7 +296,7 @@ func (s *Server) groupMaybeDone(ctx context.Context, g state.Group) {
 	} else if g.ByLead {
 		text += " Tell the user they are ready to compare, in a line; don't keep one yourself."
 	}
-	s.tellLeadOf(ctx, g.Project, text, chat.NoticeOptions{Act: act, Group: g.ID})
+	s.tellSessionOf(ctx, g.Project, s.groupSession(ctx, g), text, chat.NoticeOptions{Act: act, Group: g.ID})
 	if g.Judge {
 		s.publishGroup(g)
 	}
@@ -314,8 +321,8 @@ func memberList(g state.Group) string {
 // judgeAsk is what asks the lead to judge a group. Where the agents agree is
 // worth saying: the same change made independently is likely right.
 func judgeAsk(g state.Group) string {
-	return fmt.Sprintf("You were asked to judge them: read compare_group %s, look at their diffs (agent_diff) and what they showed, "+
-		"and call recommend_agent with the one you would keep and why, in two or three sentences: what it got right that the others "+
+	return fmt.Sprintf("You were asked to judge them: read compare_group(group %s), look at their diffs (read_agent, show diff) and what they showed, "+
+		"and call compare_group with recommend, the one you would keep, and why, in two or three sentences: what it got right that the others "+
 		"didn't, what they all agree on, and anything the pick still lacks. Then say the same to the user in a line. Don't keep or retire "+
 		"any of them: the user decides.", g.ID)
 }
@@ -390,7 +397,7 @@ func (s *Server) compareGroup(ctx context.Context, g state.Group) (api.Group, er
 			prs = entry.byAgent(heads)
 		}
 	}
-	changes := agentChanges(agents, changesOf)
+	changes := agentChanges(agents, polledChanges)
 	changed := map[string]api.AgentChanges{}
 	for i, a := range agents {
 		changed[a.Name] = changes[i]
@@ -531,7 +538,7 @@ func (s *Server) settleGroup(ctx context.Context, g state.Group, keep string) (s
 	} else {
 		text += "."
 	}
-	s.tellLeadOf(ctx, g.Project, text, chat.NoticeOptions{Group: g.ID})
+	s.tellSessionOf(ctx, g.Project, s.groupSession(ctx, g), text, chat.NoticeOptions{Group: g.ID})
 	s.countFeature(api.FeatureGroupKeep)
 	g, err := s.store.GroupByID(ctx, g.ID)
 	if err != nil {
@@ -551,8 +558,8 @@ func (s *Server) judgeGroup(w http.ResponseWriter, r *http.Request) error {
 	if g.Settled() {
 		return errors.New("this group was already decided")
 	}
-	if _, err := s.manager(nil).Lead(r.Context(), g.Project); err != nil {
-		return fmt.Errorf("this project has no chat to judge with yet: %w", err)
+	if _, err := s.leadOf(r.Context(), g.Project, s.groupSession(r.Context(), g), "Judge "+g.Title, true); err != nil {
+		return fmt.Errorf("this project has no chat to judge with: %w", err)
 	}
 	if err := s.store.SetGroupJudging(r.Context(), g.ID, true); err != nil {
 		return err
@@ -561,7 +568,7 @@ func (s *Server) judgeGroup(w http.ResponseWriter, r *http.Request) error {
 	if info := groupInfo(g); info.Finished < len(g.Members) {
 		text += fmt.Sprintf(" Only %d of %d have finished: judge what is there, and say which are still working.", info.Finished, len(g.Members))
 	}
-	s.tellLeadOf(r.Context(), g.Project, text, chat.NoticeOptions{Act: true, Group: g.ID})
+	s.tellSessionOf(r.Context(), g.Project, s.groupSession(r.Context(), g), text, chat.NoticeOptions{Act: true, Group: g.ID})
 	if g, err = s.store.GroupByID(r.Context(), g.ID); err != nil {
 		return err
 	}
