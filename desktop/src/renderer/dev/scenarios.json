@@ -2664,5 +2664,12 @@
     "query": "app=project&v2=1&theme=light",
     "width": 480,
     "height": 800
+  },
+  {
+    "id": "sessions-cache-card-dark",
+    "description": "A session idle to within minutes of its prompt cache's expiry: the card offers to start a new session, send anyway, or compact and send — dark",
+    "query": "app=project&v2=1&cache=due&theme=dark",
+    "width": 1440,
+    "height": 900
   }
 ]
