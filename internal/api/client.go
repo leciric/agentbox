@@ -1076,7 +1076,15 @@ func (c *Client) ProjectIcon(ctx context.Context, project string) (ProjectIcon, 
 	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/icon", nil, &out)
 }
 
-// SetProjectIcon chooses a project's icon: an emoji or an image.
+// ProjectIconCandidates returns the icons found in a project's repository,
+// best first, to choose from.
+func (c *Client) ProjectIconCandidates(ctx context.Context, project string) ([]ProjectIconCandidate, error) {
+	var out []ProjectIconCandidate
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/icon/candidates", nil, &out)
+}
+
+// SetProjectIcon chooses a project's icon: an emoji, an image, or one of
+// its candidates.
 func (c *Client) SetProjectIcon(ctx context.Context, project string, req SetProjectIconRequest) (ProjectIcon, error) {
 	var out ProjectIcon
 	return out, c.do(ctx, http.MethodPut, "/v1/projects/"+url.PathEscape(project)+"/icon", req, &out)

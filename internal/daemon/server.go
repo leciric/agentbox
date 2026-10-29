@@ -866,6 +866,7 @@ func (s *Server) routes() http.Handler {
 	h("DELETE /v1/projects/{project}", s.removeProject)
 	// Each project's icon: the one chosen, or the one its repository has.
 	h("GET /v1/projects/{project}/icon", s.getProjectIcon)
+	h("GET /v1/projects/{project}/icon/candidates", s.projectIconCandidates)
 	h("GET /v1/projects/{project}/terminals", s.terminalTails)
 	h("PUT /v1/projects/{project}/icon", s.setProjectIcon)
 	h("DELETE /v1/projects/{project}/icon", s.deleteProjectIcon)

@@ -3,16 +3,21 @@
 // icon), else its first letter. The daemon
 // keeps both (GET /v1/projects/{project}/icon); Project.iconVersion changes
 // when either does, so the cache here is keyed by it and never refetched
-// otherwise. v2 draws it on the lead rows, the project's header and Overview,
-// and anything else that names a project can: <ProjectIcon project={p} />.
+// otherwise. Every project's is fetched as soon as the projects are
+// (usePrefetchProjectIcons), never dropped, and drawn from the last one it
+// showed while a new version loads (lib/projectIcons.ts): a project's icon
+// is there on the first frame it is shown. v2 draws it on the lead rows, the
+// project's header and Overview, and anything else that names a project
+// can: <ProjectIcon project={p} />.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ImageUp, RotateCcw } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { useT } from '../lib/i18n';
 import { projectLabel } from '../lib/projectName';
+import { decodeIcon, keepIcon, keptIcon } from '../lib/projectIcons';
 import { cn, errorMessage } from '../lib/utils';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
@@ -21,8 +26,43 @@ type IconProject = Pick<T.Project, 'name' | 'displayName' | 'iconVersion'>;
 
 export const projectIconKey = (p: Pick<T.Project, 'name' | 'iconVersion'>) => ['projectIcon', p.name, p.iconVersion ?? 0] as const;
 
+// projectIconQuery is one project's icon: an icon kept at this very version
+// is the answer, with no fetch; at another, it shows until the daemon's
+// arrives. Version 0 is "never looked for", whose first read moves it.
+function projectIconQuery(p: Pick<T.Project, 'name' | 'iconVersion'>) {
+  const v = p.iconVersion ?? 0;
+  return {
+    queryKey: projectIconKey(p),
+    queryFn: async () => {
+      const icon = await api.projectIcon(p.name);
+      keepIcon(p.name, v, icon, undefined, await decodeIcon(p.name, icon));
+      return icon;
+    },
+    staleTime: Infinity,
+    gcTime: Infinity,
+    retry: false,
+    initialData: () => {
+      const k = keptIcon(p.name);
+      return k && v !== 0 && k.v === v ? k.icon : undefined;
+    },
+  };
+}
+
 export function useProjectIcon(p: Pick<T.Project, 'name' | 'iconVersion'>) {
-  return useQuery({ queryKey: projectIconKey(p), queryFn: () => api.projectIcon(p.name), staleTime: Infinity, retry: false });
+  return useQuery({ ...projectIconQuery(p), placeholderData: () => keptIcon(p.name)?.icon });
+}
+
+// usePrefetchProjectIcons fetches every project's icon once the projects
+// are known, so none waits on the daemon when it is first shown: a hidden
+// or idle project's row isn't drawn until it is opened.
+export function usePrefetchProjectIcons(projects: Pick<T.Project, 'name' | 'iconVersion'>[] | undefined) {
+  const queryClient = useQueryClient();
+  const keys = projects?.map((p) => `${p.name}@${p.iconVersion ?? 0}`).join(' ') ?? '';
+  useEffect(() => {
+    for (const p of projects ?? []) void queryClient.prefetchQuery(projectIconQuery(p));
+    // keys stands for projects: only a new project or version fetches.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keys, queryClient]);
 }
 
 // ProjectIcon is the icon in a rounded square of className's size (size-6 by
@@ -62,12 +102,20 @@ export function ProjectIconDialog({ project, open, onOpenChange }: { project: T.
   const t = useT();
   const queryClient = useQueryClient();
   const icon = useProjectIcon(project).data;
+  const candidates = useQuery({
+    queryKey: ['projectIconCandidates', project.name, project.iconVersion ?? 0],
+    queryFn: () => api.projectIconCandidates(project.name),
+    enabled: open,
+    staleTime: Infinity,
+    retry: false,
+  }).data;
   const [emoji, setEmoji] = useState('');
   const file = useRef<HTMLInputElement>(null);
   // The new iconVersion keys the new icon; the old key is dropped too.
   const done = async () => {
     await queryClient.invalidateQueries({ queryKey: ['projects'] });
     await queryClient.invalidateQueries({ queryKey: ['projectIcon', project.name] });
+    await queryClient.invalidateQueries({ queryKey: ['projectIconCandidates', project.name] });
     onOpenChange(false);
   };
   const save = useMutation({
@@ -136,6 +184,27 @@ export function ProjectIconDialog({ project, open, onOpenChange }: { project: T.
               {t('projectIcon.useEmoji')}
             </Button>
           </form>
+          {candidates && candidates.length > 0 && (
+            <>
+              <div className="mt-2 text-[12px] font-medium text-secondary">{t('projectIcon.fromRepo')}</div>
+              <div className="flex flex-wrap gap-1" data-icon-candidates>
+                {candidates.map((c) => (
+                  <button
+                    key={c.from}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => save.mutate({ candidate: c.from })}
+                    title={c.from}
+                    aria-label={t('projectIcon.useFile', { from: c.from })}
+                    className={cn('flex size-8 items-center justify-center rounded-lg p-1 hover:bg-surface-raised', c.chosen && 'bg-surface-strong ring-1 ring-line-heavy')}
+                    data-icon-candidate={c.from}
+                  >
+                    <img src={c.image} alt="" className="size-full object-contain" draggable={false} />
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2 border-t border-line pt-4">
           <input ref={file} type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml,image/x-icon,.ico" className="hidden" onChange={(e) => upload(e.target.files?.[0])} />

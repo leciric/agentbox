@@ -222,6 +222,7 @@ export const api = {
   projectActivity: () => call<T.ProjectActivity[]>('GET', '/v1/project-activity'),
   // A project's icon: the user's choice, else the one found in its repository.
   projectIcon: (name: string) => call<T.ProjectIcon>('GET', `${project(name)}/icon`),
+  projectIconCandidates: (name: string) => call<T.ProjectIconCandidate[]>('GET', `${project(name)}/icon/candidates`),
   setProjectIcon: (name: string, req: T.SetProjectIconRequest) => call<T.ProjectIcon>('PUT', `${project(name)}/icon`, req),
   resetProjectIcon: (name: string) => call<T.ProjectIcon>('DELETE', `${project(name)}/icon`),
   // How the projects list is organised (D79): the sections, and one call that

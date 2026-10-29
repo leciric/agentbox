@@ -50,8 +50,15 @@ export interface ProjectIcon {
   hasDetected?: boolean;
 }
 
+export interface ProjectIconCandidate {
+  from: string;
+  image: string;
+  chosen?: boolean;
+}
+
 export interface SetProjectIconRequest {
   emoji?: string;
+  candidate?: string;
   image?: string;
 }
 

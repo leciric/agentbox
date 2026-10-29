@@ -1405,9 +1405,16 @@ var migrations = []string{
 		pr_url       TEXT NOT NULL DEFAULT '',
 		updated_at   INTEGER NOT NULL,
 		PRIMARY KEY (project, machine_id, agent)
-	)`,	// Whether this project's Pull requests tab, and the reads that keep its
+	)`, // Whether this project's Pull requests tab, and the reads that keep its
 	// counts, are off (Project.PullsOff). On by default.
 	`ALTER TABLE projects ADD COLUMN pulls_off INTEGER NOT NULL DEFAULT 0`,
+	// The other icons a look for a project's found in its repository, best
+	// first, for the icon picker: their repository-relative paths, one per
+	// line, the detected icon's first. Every project looks again once, since
+	// the look now walks the tree and finds an app's icon past the usual
+	// places, such as desktop/build/icon.svg.
+	`ALTER TABLE project_icons ADD COLUMN candidates TEXT NOT NULL DEFAULT ''`,
+	`UPDATE project_icons SET detected_at = 0`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

@@ -128,6 +128,58 @@ func TestProjectIconRemembersFindingNothing(t *testing.T) {
 	}
 }
 
+// The picker lists what the look found in the repository, best first, and
+// choosing one keeps it as the user's icon, above whatever is detected
+// later; a file the look didn't find can't be chosen this way.
+func TestProjectIconCandidates(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	root := d.fixtureRepo(t, "hello-stack")
+	appPNG := append(append([]byte{}, testPNG...), 1)
+	for name, data := range map[string][]byte{
+		"app/package.json":   []byte(`{"build":{"icon":"build/icon.png"}}`),
+		"app/build/icon.png": appPNG,
+		"app/build/icon.svg": []byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`),
+		"secret.png":         testPNG,
+	} {
+		p := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: root}); err != nil {
+		t.Fatal(err)
+	}
+	// Asked before any read, the candidates are looked for first.
+	got, err := d.client.ProjectIconCandidates(ctx, "hello-stack")
+	if err != nil || len(got) != 2 || got[0].From != "app/build/icon.svg" || got[1].From != "app/build/icon.png" || got[0].Chosen {
+		t.Fatalf("ProjectIconCandidates() = %+v, %v", got, err)
+	}
+	if ic, _ := d.client.ProjectIcon(ctx, "hello-stack"); ic.Source != "detected" || ic.DetectedFrom != "app/build/icon.svg" {
+		t.Errorf("ProjectIcon() = %+v", ic)
+	}
+	ic, err := d.client.SetProjectIcon(ctx, "hello-stack", api.SetProjectIconRequest{Candidate: "app/build/icon.png"})
+	if err != nil || ic.Source != "chosen" || ic.Image != "data:image/png;base64,"+base64.StdEncoding.EncodeToString(appPNG) {
+		t.Fatalf("SetProjectIcon(candidate) = %+v, %v", ic, err)
+	}
+	if got, _ = d.client.ProjectIconCandidates(ctx, "hello-stack"); len(got) != 2 || got[0].Chosen || !got[1].Chosen {
+		t.Errorf("after choosing, ProjectIconCandidates() = %+v", got)
+	}
+	for name, req := range map[string]api.SetProjectIconRequest{
+		"a file the look didn't find": {Candidate: "secret.png"},
+		"out of the repository":       {Candidate: "../x.png"},
+		"a candidate and an emoji":    {Candidate: "app/build/icon.png", Emoji: "🐶"},
+	} {
+		if _, err := d.client.SetProjectIcon(ctx, "hello-stack", req); err == nil {
+			t.Errorf("SetProjectIcon(%s) succeeded", name)
+		}
+	}
+}
+
 func TestProjectActivityRoute(t *testing.T) {
 	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
@@ -152,4 +204,3 @@ func TestProjectActivityRoute(t *testing.T) {
 		t.Errorf("ProjectActivity() = activity %s, message %s", a, m)
 	}
 }
-

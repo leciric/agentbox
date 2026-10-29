@@ -3,6 +3,7 @@ package projecticon
 import (
 	"bytes"
 	"encoding/base64"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,7 +50,7 @@ func TestFindInRepoOrder(t *testing.T) {
 		{"a named logo, not a folder's", map[string][]byte{"assets/logos/x.svg": svg, "assets/my_logo.png": png}, "assets/my_logo.png"},
 		{"package.json's icon", map[string][]byte{"package.json": []byte(`{"icon":"./res/app.png"}`), "res/app.png": png}, "res/app.png"},
 		{"electron-builder's build.icon", map[string][]byte{"package.json": []byte(`{"build":{"icon":"build/icon.ico"}}`), "build/icon.ico": ico}, "build/icon.ico"},
-		{"build.icon with no extension is a folder", map[string][]byte{"package.json": []byte(`{"build":{"icon":"build"}}`), "build/icon.png": png}, ""},
+		{"build.icon with no extension is a folder, found by its name", map[string][]byte{"package.json": []byte(`{"build":{"icon":"build"}}`), "build/icon.png": png}, "build/icon.png"},
 		{"a manifest's svg before its png", map[string][]byte{
 			"public/manifest.json": []byte(`{"icons":[{"src":"/i/192.png","sizes":"192x192"},{"src":"/i/any.svg","sizes":"any"}]}`),
 			"public/i/192.png":     png, "public/i/any.svg": svg}, "public/i/any.svg"},
@@ -84,6 +85,63 @@ func TestFindInRepoStaysInside(t *testing.T) {
 	write(t, root, map[string][]byte{"package.json": []byte(`{"icon":"../` + filepath.Base(outside) + `/secret.png"}`)})
 	if icon, ok := FindInRepo(root); ok {
 		t.Errorf("FindInRepo() = %q, want nothing", icon.From)
+	}
+}
+
+// distinct is a png unlike any other made by it, so Candidates doesn't take
+// two for the same icon.
+func distinct(i byte) []byte { return append(bytes.Clone(png), i) }
+
+// Past the usual places, the walk finds an app's icon however deep its
+// package keeps it, ranks what a package names first and an svg beside it
+// above that, and passes over dependencies, build output, tests' files and
+// Android's adaptive layers. This is the shape of AgentBox's own repository.
+func TestCandidatesWalk(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	write(t, root, map[string][]byte{
+		"desktop/package.json":                      []byte(`{"build":{"mac":{"icon":"build/icon.png"},"linux":{"icon":"build/icon.png"}}}`),
+		"desktop/build/icon.png":                    distinct(1),
+		"desktop/build/icon.svg":                    svg,
+		"mobile/app.json":                           []byte(`{"expo":{"icon":"./assets/icon.png"}}`),
+		"mobile/assets/icon.png":                    distinct(2),
+		"mobile/assets/favicon.png":                 distinct(3),
+		"mobile/assets/splash-icon.png":             distinct(4),
+		"mobile/assets/android-icon-foreground.png": distinct(5),
+		"desktop/node_modules/x/logo.svg":           []byte(`<svg id="dep"/>`),
+		"desktop/out/icon.png":                      distinct(6),
+		"internal/x/testdata/logo.png":              distinct(7),
+		".cache/logo.png":                           distinct(8),
+		"a/b/c/d/e/logo.png":                        distinct(9),
+		"docs/README.md":                            []byte("# hi"),
+		"mobile/assets/same-icon.png":               distinct(2),
+	})
+	var got []string
+	for _, c := range Candidates(root) {
+		got = append(got, c.From)
+	}
+	want := []string{"desktop/build/icon.svg", "desktop/build/icon.png", "mobile/assets/icon.png", "mobile/assets/favicon.png", "mobile/assets/android-icon-foreground.png", "mobile/assets/splash-icon.png"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("Candidates() =\n%q\nwant\n%q", got, want)
+	}
+	// The usual places still come first.
+	write(t, root, map[string][]byte{"public/favicon.ico": ico})
+	if icon, _ := FindInRepo(root); icon.From != "public/favicon.ico" {
+		t.Errorf("FindInRepo() = %q, want public/favicon.ico", icon.From)
+	}
+}
+
+// However many icons a repository has, Candidates returns MaxCandidates.
+func TestCandidatesCapped(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	files := map[string][]byte{}
+	for i := range 20 {
+		files[fmt.Sprintf("img/logo-%02d.png", i)] = distinct(byte(i))
+	}
+	write(t, root, files)
+	if got := Candidates(root); len(got) != MaxCandidates || got[0].From != "img/logo-00.png" {
+		t.Errorf("Candidates() = %d, first %q", len(got), got[0].From)
 	}
 }
 

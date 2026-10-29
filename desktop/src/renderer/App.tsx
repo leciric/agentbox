@@ -26,6 +26,7 @@ import type * as T from "../shared/api";
 import { JobsView } from "./components/JobsView";
 import { NewAgentDialog } from "./components/NewAgentDialog";
 import { ProjectView } from "./components/ProjectView";
+import { usePrefetchProjectIcons } from "./components/ProjectIcon";
 import { PastAgentView } from "./components/PastAgents";
 import { SettingsView } from "./components/SettingsView";
 import { Sidebar } from "./components/Sidebar";
@@ -131,6 +132,7 @@ export function App({ initial }: { initial?: View } = {}) {
     return () => window.removeEventListener("keydown", close);
   }, [navOpen, railOpen]);
   const agents = useQuery({ queryKey: ["agents"], queryFn: api.agents });
+  usePrefetchProjectIcons(useQuery({ queryKey: ["projects"], queryFn: api.projects }).data);
   useKeepAwake();
   const connection = useConnection();
   const stale = useStaleDaemon();

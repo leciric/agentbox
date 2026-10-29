@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 
 	"agentbox/internal/trace"
@@ -22,6 +23,9 @@ type ProjectIcon struct {
 	Detected     []byte
 	DetectedMIME string
 	DetectedFrom string
+	// Candidates is the repository-relative paths of every icon the last
+	// look found in the repository, best first: the detected one's first.
+	Candidates []string
 	// DetectedAt is when it was last looked for; zero when it never was.
 	DetectedAt time.Time
 	// UpdatedAt changes whenever what the project shows does.
@@ -32,14 +36,18 @@ type ProjectIcon struct {
 func (s *Store) ProjectIcon(ctx context.Context, project string) (ProjectIcon, bool, error) {
 	var ic ProjectIcon
 	var detectedAt, updatedAt int64
-	err := s.db.QueryRowContext(ctx, `SELECT chosen, emoji, image, mime, detected, detected_mime, detected_from, detected_at, updated_at
+	var candidates string
+	err := s.db.QueryRowContext(ctx, `SELECT chosen, emoji, image, mime, detected, detected_mime, detected_from, candidates, detected_at, updated_at
 		FROM project_icons WHERE project = ?`, project).Scan(&ic.Chosen, &ic.Emoji, &ic.Image, &ic.MIME,
-		&ic.Detected, &ic.DetectedMIME, &ic.DetectedFrom, &detectedAt, &updatedAt)
+		&ic.Detected, &ic.DetectedMIME, &ic.DetectedFrom, &candidates, &detectedAt, &updatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ProjectIcon{}, false, nil
 	}
 	if err != nil {
 		return ProjectIcon{}, false, err
+	}
+	if candidates != "" {
+		ic.Candidates = strings.Split(candidates, "\n")
 	}
 	if detectedAt != 0 {
 		ic.DetectedAt = time.UnixMilli(detectedAt)
@@ -73,9 +81,10 @@ func (s *Store) ChooseProjectIcon(ctx context.Context, project, chosen, emoji st
 }
 
 // SaveDetectedProjectIcon keeps what a look for a project's icon found, data
-// nil for nothing. updated_at moves only when the detected icon changed: a
+// nil for nothing, and the paths of all it found in the repository
+// (ProjectIcon.Candidates). updated_at moves only when the detected icon changed: a
 // look that finds the same icon again leaves the app's copy good.
-func (s *Store) SaveDetectedProjectIcon(ctx context.Context, project string, data []byte, mime, from string, now time.Time) error {
+func (s *Store) SaveDetectedProjectIcon(ctx context.Context, project string, data []byte, mime, from string, candidates []string, now time.Time) error {
 	tx, err := trace.BeginTx(ctx, s.db)
 	if err != nil {
 		return err
@@ -93,20 +102,21 @@ func (s *Store) SaveDetectedProjectIcon(ctx context.Context, project string, dat
 	}
 	changed := !exists || !bytes.Equal(old, data) || oldMIME != mime
 	ms := now.UnixMilli()
+	list := strings.Join(candidates, "\n")
 	if !exists {
-		_, err = tx.ExecContext(ctx, `INSERT INTO project_icons (project, detected, detected_mime, detected_from, detected_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?)`, project, data, mime, from, ms, ms)
+		_, err = tx.ExecContext(ctx, `INSERT INTO project_icons (project, detected, detected_mime, detected_from, candidates, detected_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`, project, data, mime, from, list, ms, ms)
 	} else {
 		// Never backwards, and never the same value twice for two different
 		// icons, which the app's cache would mistake for one.
 		update := `updated_at`
-		args := []any{data, mime, from, ms}
+		args := []any{data, mime, from, list, ms}
 		if changed {
 			update = `max(?, updated_at + 1)`
 			args = append(args, ms)
 		}
 		args = append(args, project)
-		_, err = tx.ExecContext(ctx, `UPDATE project_icons SET detected = ?, detected_mime = ?, detected_from = ?, detected_at = ?,
+		_, err = tx.ExecContext(ctx, `UPDATE project_icons SET detected = ?, detected_mime = ?, detected_from = ?, candidates = ?, detected_at = ?,
 			updated_at = `+update+` WHERE project = ?`, args...)
 	}
 	if err != nil {
