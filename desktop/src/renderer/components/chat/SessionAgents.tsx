@@ -10,6 +10,7 @@ import { useT } from '../../lib/i18n';
 import { chooseTarget, useChosenTarget } from '../../lib/messageTarget';
 import { requestComposerFocus } from '../../lib/newTask';
 import { cn } from '../../lib/utils';
+import { Tip } from '../ui/tooltip';
 import { TargetDot } from './TargetChip';
 
 // How many of an agent's latest messages its card shows, opened.
@@ -71,17 +72,28 @@ function AgentCard({ agent, targeted, open, onTarget, onToggle }: { agent: T.Age
   return (
     <div
       className={cn(
-        'group relative flex w-64 shrink-0 flex-col gap-0.5 rounded-xl border bg-surface-faint px-3 py-2 text-left transition',
+        'group relative flex w-64 shrink-0 flex-col gap-0.5 rounded-xl border bg-surface-faint px-3 py-1.5 text-left transition',
         targeted ? 'border-brand-400/60 bg-brand-500/10' : 'border-line hover:border-line-strong hover:bg-surface-raised',
       )}
       data-session-agent={agent.name}
       data-targeted={targeted || undefined}
     >
       <button className="absolute inset-0 rounded-xl" aria-label={t('chat.agents.target', { name: agent.name })} onClick={onTarget} />
-      <div className="pointer-events-none flex min-w-0 items-center gap-1.5 text-[12.5px]">
-        <TargetDot agent={agent} />
-        <span className="shrink-0 font-medium text-primary">{agent.name}</span>
-        <span className="min-w-0 flex-1 truncate text-subtle">{agent.title}</span>
+      <div className="flex min-w-0 items-center gap-1.5 text-[12.5px]">
+        <TargetDot agent={agent} className="pointer-events-none" />
+        <span className="pointer-events-none shrink-0 font-medium text-primary">{agent.name}</span>
+        <span className="pointer-events-none min-w-0 flex-1 truncate text-subtle">{agent.title}</span>
+        <Tip label={open ? t('chat.agents.less') : t('chat.agents.more')}>
+          <button
+            className="relative -mr-1 flex size-5 shrink-0 items-center justify-center rounded text-faint transition hover:bg-surface-raised hover:text-tertiary"
+            onClick={onToggle}
+            aria-expanded={open}
+            aria-label={open ? t('chat.agents.less') : t('chat.agents.more')}
+            data-session-agent-open
+          >
+            {open ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+          </button>
+        </Tip>
       </div>
       <p className={cn('pointer-events-none truncate text-[11.5px]', status.tone === 'urgent' ? 'text-amber-300' : status.tone === 'error' ? 'text-rose-300' : 'text-secondary')} data-session-agent-status>
         {status.command ? (
@@ -92,18 +104,9 @@ function AgentCard({ agent, targeted, open, onTarget, onToggle }: { agent: T.Age
           status.text
         )}
       </p>
-      <p className="pointer-events-none line-clamp-2 min-h-8 break-words text-[11.5px] leading-4 text-muted" data-session-agent-said>
+      <p className="pointer-events-none truncate text-[11.5px] text-muted" data-session-agent-said>
         {said || t('chat.agents.nothingYet')}
       </p>
-      <button
-        className="relative ml-auto flex items-center gap-0.5 rounded px-1 text-[11px] text-faint transition hover:bg-surface-raised hover:text-tertiary"
-        onClick={onToggle}
-        aria-expanded={open}
-        data-session-agent-open
-      >
-        {open ? t('chat.agents.less') : t('chat.agents.more')}
-        {open ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
-      </button>
     </div>
   );
 }
