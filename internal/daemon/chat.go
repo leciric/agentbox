@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -168,6 +169,16 @@ func (s *Server) sendChat(from agentFrom) func(http.ResponseWriter, *http.Reques
 		var req api.ChatMessageRequest
 		if err := readJSON(r, &req); err != nil {
 			return err
+		}
+		if req.To != "" {
+			if !a.IsLead() {
+				return errors.New("to is for a project's chat: write in the agent's own chat")
+			}
+			item, err := s.sendToAgent(r.Context(), a, req)
+			if err != nil {
+				return err
+			}
+			return writeJSON(w, http.StatusAccepted, item)
 		}
 		t, err := s.tellAgentMessage(r.Context(), a, req)
 		if err != nil {

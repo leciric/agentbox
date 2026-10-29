@@ -2518,6 +2518,7 @@ export interface ChatItem {
   delivery?: string;
   woken?: boolean;
   hidden?: boolean;
+  to?: string;
   streaming?: boolean;
   tool?: ChatTool;
   plan?: ChatPlanEntry[];
@@ -2714,6 +2715,8 @@ export interface ChatMessageRequest {
   text: string;
   images?: ChatImageUpload[];
   files?: ChatFileUpload[];
+  to?: string;
+  anySession?: boolean;
 }
 
 export interface ChatImage {
@@ -3668,6 +3671,7 @@ export const InAgentSocket = "/run/agentbox.sock";
 export const ErrorFolderNotEmpty = "folder-not-empty";
 export const ErrorFolderExists = "folder-exists";
 export const ErrorBadRepoURL = "bad-repo-url";
+export const ErrorOtherSession = "other-session";
 export const DefaultLanguage = "en-US";
 export const PRStateOpen = "open";
 export const PRStateMerged = "merged";

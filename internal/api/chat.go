@@ -171,7 +171,12 @@ type ChatItem struct {
 	// and the turn that prose starts. The app leaves these out of the
 	// timeline and shows the AgentEvent recorded beside them instead; the
 	// lead's own answer, an ordinary assistant message, is what stays.
-	Hidden     bool            `json:"hidden,omitempty"`
+	Hidden bool `json:"hidden,omitempty"`
+	// To, on a notice in a project's chat, is the agent the user wrote Text to
+	// from its composer (ChatMessageRequest.To): the app shows it as the
+	// user's message to that agent, and the lead reads it as "User told
+	// agent-31: …" at the start of its next turn.
+	To         string          `json:"to,omitempty"`
 	Streaming  bool            `json:"streaming,omitempty"` // more text is coming
 	Tool       *ChatTool       `json:"tool,omitempty"`
 	Plan       []ChatPlanEntry `json:"plan,omitempty"`
@@ -405,6 +410,15 @@ type ChatMessageRequest struct {
 	Text   string            `json:"text"`
 	Images []ChatImageUpload `json:"images,omitempty"`
 	Files  []ChatFileUpload  `json:"files,omitempty"`
+	// To, on a message to a project's chat, is one of the project's agents by
+	// name: the message goes to that agent's chat instead, as its own chat or
+	// tell_agent sends it, and the project's chat keeps it as a notice with
+	// ChatItem.To that the lead reads at its next turn, starting none. The
+	// answer is that notice.
+	To string `json:"to,omitempty"`
+	// AnySession sends a message To another session's agent: without it, that
+	// is refused with ErrorOtherSession, for the client to ask first.
+	AnySession bool `json:"anySession,omitempty"`
 }
 
 // ChatImage is a picture sent with a message. Its bytes are kept in a file

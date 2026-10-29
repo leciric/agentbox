@@ -2205,6 +2205,9 @@ func (c *conversation) prompt(ad *adapter, t *turn) {
 	if note := c.permissionNote(); note != "" {
 		text = note + "\n\n" + text
 	}
+	if note := c.toldNote(t); note != "" {
+		text = note + "\n\n" + text
+	}
 	if len(sent.images) > 0 && !ad.images {
 		// Attached before this tool's adapter had ever said whether it reads
 		// images, and it turned out not to: the text still goes, and the

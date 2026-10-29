@@ -2851,6 +2851,10 @@ const ErrorFolderExists = "folder-exists"
 // a repository's link, such as a path or a host with no repository.
 const ErrorBadRepoURL = "bad-repo-url"
 
+// ErrorOtherSession is the Code of a message To an agent that another session
+// of the project's chat made: the same message with AnySession sends it.
+const ErrorOtherSession = "other-session"
+
 // VersionInfo is what GET /v1/version reports about the daemon.
 type VersionInfo struct {
 	Version string `json:"version"`
