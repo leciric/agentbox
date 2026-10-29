@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"agentbox/internal/api"
+	"agentbox/internal/opencode"
 	"agentbox/internal/schedule"
 	"agentbox/internal/state"
 )
@@ -102,6 +103,52 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 	if req.DefaultCursorEffort != nil {
 		if err := s.store.SetSetting(r.Context(), state.SettingDefaultCursorEffort, strings.TrimSpace(*req.DefaultCursorEffort)); err != nil {
 			return err
+		}
+	}
+	// OpenCode's version is one choice for the installation: the agents and
+	// their chat all read it, so a change reaches them the next time their
+	// tool starts. A menu belongs to a version's providers, so a switch
+	// forgets it and the next read asks the version now in effect.
+	if req.OpenCodeVersion != nil {
+		want := strings.TrimSpace(*req.OpenCodeVersion)
+		switch want {
+		case opencode.V1.String(), opencode.V2.String():
+		default:
+			return fmt.Errorf("unknown OpenCode version %q: use 1 or 2", want)
+		}
+		was, err := s.store.Setting(r.Context(), state.SettingOpenCodeVersion)
+		if err != nil {
+			return err
+		}
+		if opencode.ReleaseOf(was) != opencode.ReleaseOf(want) {
+			// The menu belongs to the version that named it. Dropped first,
+			// so a failed write below can't leave the version moved with the
+			// old menu still answering for it.
+			if err := s.store.DeleteSetting(r.Context(), state.SettingOpenCodeModelChoices); err != nil {
+				return err
+			}
+		}
+		if err := s.store.SetSetting(r.Context(), state.SettingOpenCodeVersion, want); err != nil {
+			return err
+		}
+		if opencode.ReleaseOf(was) != opencode.ReleaseOf(want) {
+			// The hourly limit was for one version's answers; the other one's
+			// menu has never been asked for.
+			s.mu.Lock()
+			s.openCodeModels.last = time.Time{}
+			s.mu.Unlock()
+			// A project's chat reads opencode.json from its HOME, and the two
+			// versions read different shapes: rewrite it now rather than at
+			// some later change to the project.
+			s.reconfigureLeads(r.Context())
+			// A chat already running is on the old release: it starts its
+			// adapter again before its next message, on the one in effect now.
+			s.chat.ToolsChanged("", "")
+			if projects, err := s.store.Projects(r.Context()); err == nil {
+				for _, p := range projects {
+					s.chat.ToolsChanged(p.Name, "")
+				}
+			}
 		}
 	}
 	if req.ResumeAfterLimit != nil {
@@ -484,6 +531,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	openCodeVersion, err := s.store.Setting(r.Context(), state.SettingOpenCodeVersion)
+	if err != nil {
+		return api.Settings{}, err
+	}
 	// Asked for in the background, and only when there is nothing true to show
 	// yet: the answer lands in the setting for the next read rather than
 	// holding this one up behind another process.
@@ -650,6 +701,7 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 
 		OpenCodeModelChoices: openCodeModels,
 		OpenCodeReady:        openCodeReady,
+		OpenCodeVersion:      opencode.ReleaseOf(openCodeVersion).String(),
 
 		CursorModelChoices:  cursorModels,
 		CursorReady:         cursorReady,

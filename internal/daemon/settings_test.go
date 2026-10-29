@@ -302,3 +302,51 @@ func TestLanguageIsStoredAndChecked(t *testing.T) {
 		t.Errorf("clearing it: %q, %v; want the default", out.Language, err)
 	}
 }
+
+// Which OpenCode an installation runs is one choice, "1" until it chooses. "2"
+// needs nothing from the base image, since each agent installs it on demand.
+// A switch forgets the model menu, which belongs to the version that named it.
+func TestOpenCodeVersionDefaultsToOne(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+
+	r := httptest.NewRequest(http.MethodGet, "/v1/settings", nil)
+	out, err := d.srv.currentSettings(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.OpenCodeVersion != "1" {
+		t.Fatalf("an installation that has never chosen runs OpenCode %q", out.OpenCodeVersion)
+	}
+	if _, err := patchSettings(t, d, `{"openCodeVersion":"3"}`); err == nil {
+		t.Fatal("an OpenCode version that doesn't exist was accepted")
+	}
+	if err := d.srv.store.SetSetting(ctx, state.SettingOpenCodeModelChoices, `[{"value":"opencode/x","name":"opencode / x"}]`); err != nil {
+		t.Fatal(err)
+	}
+	out, err = patchSettings(t, d, `{"openCodeVersion":"2"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.OpenCodeVersion != "2" {
+		t.Fatalf("after switching: %+v", out)
+	}
+	if menu, err := d.srv.store.Setting(ctx, state.SettingOpenCodeModelChoices); err != nil || menu != "" {
+		t.Fatalf("the model menu of the old version survived the switch: %q, %v", menu, err)
+	}
+	// Choosing the version already in effect keeps its menu.
+	if err := d.srv.store.SetSetting(ctx, state.SettingOpenCodeModelChoices, `[{"value":"opencode/x","name":"opencode / x"}]`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := patchSettings(t, d, `{"openCodeVersion":"2"}`); err != nil {
+		t.Fatal(err)
+	}
+	if menu, err := d.srv.store.Setting(ctx, state.SettingOpenCodeModelChoices); err != nil || menu == "" {
+		t.Fatalf("choosing the same version dropped its menu: %q, %v", menu, err)
+	}
+	// And back.
+	if out, err := patchSettings(t, d, `{"openCodeVersion":"1"}`); err != nil || out.OpenCodeVersion != "1" {
+		t.Fatalf("switching back: %+v, %v", out, err)
+	}
+}

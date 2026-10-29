@@ -169,6 +169,11 @@ release-please and the update check never see it), and
   (`image.UpdateTools`, `internal/daemon/imagetools.go`), swapping the copy in only when every tool
   checks out (`image.UseBase`); on failure the base stays and Setup offers a rebuild.
   `internal/agent/chat.go` takes the ACP adapters' versions from the same file.
+- **OpenCode 2 is the exception**: it is not in `tools.txt` nor in the image. Each agent installs its
+  npm platform package at its first OpenCode 2 start (`ensureOpenCode2InAgent`,
+  `internal/agent/toolaccounts.go`), pinned by `image.OpenCode2Version` and linked as `opencode2`
+  (needs the network then); the host's lead installs it the first time it needs it. An installation
+  chooses with `state.SettingOpenCodeVersion`; OpenCode 1 is the default.
 - **Anything in `provision.sh`** means bumping `image.Version` in
   [`image.go`](internal/image/image.go), which makes Setup ask for a rebuild, as does turning an
   optional component on or off. The [Base image](.github/workflows/base-image.yml) workflow builds it

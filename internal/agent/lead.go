@@ -19,6 +19,7 @@ import (
 	"agentbox/internal/hostos"
 	"agentbox/internal/memory"
 	"agentbox/internal/notes"
+	"agentbox/internal/opencode"
 	"agentbox/internal/state"
 )
 
@@ -559,7 +560,11 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 	if err != nil {
 		return err
 	}
-	if err := m.writeLeadHome(home, a.Worktree, text, socket, nil, connectors, m.leadGitHubToken(p) != ""); err != nil {
+	version, err := m.openCodeVersion(ctx)
+	if err != nil {
+		return err
+	}
+	if err := m.writeLeadHome(home, a.Worktree, text, socket, nil, connectors, m.leadGitHubToken(p) != "", version); err != nil {
 		return err
 	}
 	return m.WriteSkills(ctx, a)
@@ -590,7 +595,7 @@ func (m *Manager) sessionTopics(ctx context.Context, a state.Agent) (string, []s
 // in their brief, in mcpEnv (added to the MCP server's environment) and in
 // connectors, the project's enabled connectors (leadMCPServers); the Home chat
 // spans every project rather than one, so it is given none.
-func (m *Manager) writeLeadHome(home, worktree, text, socket string, mcpEnv map[string]string, connectors []string, github bool) error {
+func (m *Manager) writeLeadHome(home, worktree, text, socket string, mcpEnv map[string]string, connectors []string, github bool, version opencode.Release) error {
 	policy := leadSettings()
 	// The policy is rewritten whole, so a lead made by an older AgentBox gets
 	// what a newer one denies. The model isn't policy: it's what the user
@@ -642,7 +647,7 @@ func (m *Manager) writeLeadHome(home, worktree, text, socket string, mcpEnv map[
 	// The other tools' brief, MCP servers and login, so a chat switched to one
 	// of them finds them (leadtools.go).
 	servers, _ := claude["mcpServers"].(map[string]any)
-	others, stale, err := m.leadToolFiles(home, worktree, text, servers)
+	others, stale, err := m.leadToolFiles(home, worktree, text, servers, version)
 	if err != nil {
 		return err
 	}
