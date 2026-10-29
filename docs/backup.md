@@ -4,7 +4,8 @@ AgentBox keeps its own state in two directories, resolved by
 [`internal/paths`](../internal/paths/paths.go):
 
 - the data directory, `~/.local/share/agentbox` (`$XDG_DATA_HOME/agentbox`), holding `state.db`:
-  projects, agents, chats, memory, tasks, tokens and settings;
+  projects, agents, chats, memory, tasks, tokens and settings, including the clusters and
+  registries agents run in and their sealed credentials;
 - the config directory, `~/.config/agentbox` (`$XDG_CONFIG_HOME/agentbox`), holding `secrets.key`
   and `credentials/`: the Claude Code, Codex, OpenCode, Cursor and GitHub logins, and each
   project's git credentials.
@@ -93,17 +94,24 @@ These are separate, they are much bigger, and most of them are rebuildable:
 
 - the agents' worktrees (`paths.Worktrees`, `~/.local/share/agentbox/worktrees`, or
   `$AGENTBOX_WORKTREES`), which hold the agents' checkouts;
-- the agents' machines, which are Incus containers or cluster pods, not files;
+- the agents' machines: an Incus container on this host, or a cluster agent's claim, which holds its
+  `/workspace` and `/home/agent` in the cluster and is not copied here;
+- the cluster's own objects (its namespace, ServiceAccount, token Secret, pull secret and
+  NetworkPolicy), which are applied there and are not in `state.db`;
 - media (`paths.Media`, `$AGENTBOX_MEDIA`) and the pictures sent in chats (`paths.ChatImages`);
-- the cluster agents' machine snapshots (`paths.Snapshots`, `$AGENTBOX_SNAPSHOTS`);
+- the cluster agents' machine snapshots (`paths.Snapshots`, `$AGENTBOX_SNAPSHOTS`), the archives a
+  restore and a fork read back into a claim;
 - the Home chat's working directory (`paths.HomeChat`, `~/.agentbox`);
 - the VM and its disk (`paths.VM`), the image and package caches, the agents' `node_modules`, the AI
   tools installed for leads (`paths.Tools`), each lead's home directory, and `daemon.log`.
 
 So a restored database brings back the projects, chats, memory and settings, and names worktrees and
 machines that are not there. The work itself is in each project's git remote, and in the branches
-that were pushed; give an agent its machine back with `agentbox recreate <project/agent>`, and check
-its branch out again in the project when its worktree is gone.
+that were pushed; give an agent on this host its machine back with `agentbox recreate
+<project/agent>`, and check its branch out again in the project when its worktree is gone. A cluster
+agent's work comes back with `recreate` only while its claim is still in the cluster; if the claim is
+gone, its snapshot archive (which a backup does not hold) is the only way back, or else it starts
+again from its branch.
 
 ## Why the key matters
 

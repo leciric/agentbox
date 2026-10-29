@@ -18,8 +18,9 @@ The `Agent` row (`internal/state/state.go`) has, among others:
 - `Branch` — the git branch: the project's branch prefix (`agentbox/` unless it was changed) and the agent's name.
 - `Worktree` — the host path, `~/.local/share/agentbox/worktrees/<project>/<agent>`
   (`internal/paths`). Empty for a cluster agent, whose tree is on its claim, in `Workspace`.
-- `Status` — `AgentCreating` or `AgentReady` (`state.go`). This is not the container's power
-  state: `agentbox stop`/`pause`/`resume` (`internal/agent/agent.go`, `Manager.Stop`/`Pause`/
+- `Status` — `AgentCreating`, `AgentQueued`, `AgentReady`, or `AgentDestroying` while it is going
+  (`state.go`). A queued agent waits for room in its project's queue. This is not the container's
+  power state: `agentbox stop`/`pause`/`resume` (`internal/agent/agent.go`, `Manager.Stop`/`Pause`/
   `Resume`) act on the Incus instance directly (`incus stop`/`pause`/`resume`) and don't change
   this column. For a cluster agent they write `DesiredState` instead, and the reconciler makes or
   deletes the pod.
@@ -38,6 +39,8 @@ The `Agent` row (`internal/state/state.go`) has, among others:
 stateDiagram-v2
     [*] --> creating: agentbox create
     creating --> ready: build() succeeds
+    creating --> queued: no room, --queue
+    queued --> creating: a cluster has room
     creating --> [*]: build() fails, undo functions unwind
     ready --> running: incus start (default after create)
     running --> stopped: agentbox stop
@@ -47,27 +50,32 @@ stateDiagram-v2
     ready --> destroyed: agentbox destroy
     running --> destroyed: agentbox destroy
     stopped --> destroyed: agentbox destroy
+    queued --> destroyed: agentbox destroy
 ```
 
-`Status` only ever holds the top row of the diagram (`creating`/`ready`); the container states
-below it (`running`/`stopped`/`paused`) are read from Incus, not from `state.db`.
+`Status` holds the rows above (`creating`/`queued`/`ready`, and `destroying` while a destroy runs);
+the container states below it (`running`/`stopped`/`paused`) are read from Incus, not from
+`state.db`.
 
 ## What a new agent starts on
 
 An agent that names no AI tool follows its project's chat: it runs the chat's tool and account,
 on the model and effort that chat's session runs. A project can pin either for all its agents
 with `agentbox project model` and `agentbox project effort` (`low`, `medium`, `high`, `xhigh` or
-`max`, or `inherit` for the chat's); a model or effort named for one agent as it is created wins
-over both. When nobody chose an effort — not the request, not the project, and not a chat whose
-tool the agent follows — the installation's default for that tool applies: `medium` for Claude
-Code and OpenCode, and Cursor's own default for a model unless Settings names a Cursor effort.
-No agent is left on an adapter's own low default.
+`max`, or `inherit` for the chat's); it pins the tool itself with `agentbox project tool`
+(`inherit`, `claude`, `codex`, `opencode` or `cursor`). A model, effort, tool or account named for
+one agent as it is created wins over all of these. When nobody chose an effort — not the request,
+not the project, and not a chat whose tool the agent follows — the installation's default for that
+tool applies: `medium` for Claude Code and OpenCode, and Cursor's own default for a model unless
+Settings names a Cursor effort. No agent is left on an adapter's own low default.
 
 The effort is only offered by tools whose session advertises the option: Claude Code, OpenCode,
 and some Cursor models. A level is checked against the menu that tool last advertised, so one it
 never named is refused rather than silently ignored. `Project.AgentEffort` lives in `state.db`
 (`agent_effort`, an appended migration), is exposed as `Project.AgentEffort` on the API and in
-the app's project settings, and seeds the new agent's chat options exactly like its model.
+the app's project settings, and seeds the new agent's chat options exactly like its model. In the
+app, the project's Settings, under New agents, holds the AI tool, the model and the effort; the
+same three are `agentbox project tool`, `agentbox project model` and `agentbox project effort`.
 
 OpenCode agents run on the Go endpoint (`opencode-go`). An OpenCode account is delivered under
 both the `opencode` and `opencode-go` provider names, with the same key, because the same key
@@ -78,6 +86,12 @@ checked against the OpenCode menu once one has been remembered. An agent row wri
 switch that still names the old `opencode` provider is resolved to `opencode-go` when that account
 now lives there (or the stale entry is dropped so the default resolves), and the corrected map is
 written back when the agent is recreated, configured or switched to another account.
+
+A project also decides with `agentbox project agent-prs on|off` (off by default) whether its agents
+push their own branch and open their own pull request when they finish, rather than leaving both to
+you or the project's chat, which then only retires an agent once its PR is open. They still never
+push to the base branch, merge, close, or force-push someone else's branch; a push publishes with
+your GitHub token.
 
 ## `create_agent`, end to end
 
@@ -208,8 +222,13 @@ operations below keep the agent's work:
   target pod, and the move is done when that pod answers the gateway and `Start` has configured it.
   Only then are the source pod, its token and its claim removed.
 
-The token is minted per pod and dies with it. `startPod` (`internal/daemon/reconciler.go`) makes 32
-random bytes, writes them to `agent_tokens` as a SHA-256 and puts the plaintext in the pod's Secret
-before the pod is made, so a token the daemon never issued is refused. A stop deletes the pod and
-its token (`clearPod`), and a recreate removes the old token before the new pod is asked for
-(`podLifecycle.Recreate`), so every start has a new one.
+The token is minted per pod and is good for exactly that pod. `startPod`
+(`internal/daemon/reconciler.go`) makes 32 random bytes, writes them to `agent_tokens` as a SHA-256
+and puts the plaintext in the pod's Secret before the pod is made, so a token the daemon never issued
+is refused. A stop deletes the pod and its token (`clearPod`), and a recreate removes the old token
+before the new pod is asked for (`podLifecycle.Recreate`), so every start has a new one.
+
+The gateway binds an agent to the session its pod opened: a second connection carrying the same token
+is refused while the first session answers, so a token read from the Secret cannot take the session
+over. Removing or replacing a token drops the session it opened at once, rather than waiting for the
+pod to disconnect, which is why a stop or a recreate closes it before the next pod connects.
