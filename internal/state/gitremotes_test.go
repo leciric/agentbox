@@ -214,6 +214,12 @@ func TestGitRemoteValidation(t *testing.T) {
 		{"an alias with nothing after it", func(r *GitRemote) { r.URL = "forge:" }},
 		{"a credential with a space", func(r *GitRemote) { r.Credential = "two words" }},
 		{"a password in the URL", func(r *GitRemote) { r.URL = "https://user:secret@hub.example.com/a/b.git" }},
+		{"a GitHub account off GitHub", func(r *GitRemote) {
+			r.URL, r.Auth, r.Credential = "https://gitlab.com/a/b.git", GitAuthGitHubAccount, "me"
+		}},
+		{"a GitHub account in shorthand off GitHub", func(r *GitRemote) {
+			r.URL, r.Auth, r.Credential = "git@gitlab.com:a/b.git", GitAuthGitHubAccount, "me"
+		}},
 	} {
 		r := good
 		tc.edit(&r)
@@ -237,6 +243,25 @@ func TestGitRemoteValidation(t *testing.T) {
 	} {
 		if err := st.SetProjectGitRemote(ctx, GitRemote{Project: "pawly", Profile: GitProfilePrivate, URL: url, Auth: GitAuthToken}); err != nil {
 			t.Errorf("%s was refused: %v", url, err)
+		}
+	}
+}
+
+func TestGitHostname(t *testing.T) {
+	for raw, want := range map[string]string{
+		"https://GitHub.com/o/r.git":       "github.com",
+		"https://github.com:443/o/r.git":   "github.com",
+		"ssh://git@github.com/o/r.git":     "github.com",
+		"git@github.com:o/r.git":           "github.com",
+		"github.com:o/r.git":               "github.com",
+		"https://github.com.evil.test/o/r": "github.com.evil.test",
+		"https://user@gitlab.com/o/r.git":  "gitlab.com",
+		"forge:o/r.git":                    "",
+		"./o/r.git":                        "",
+		"/srv/git/o/r.git":                 "",
+	} {
+		if got := GitHostname(raw); got != want {
+			t.Errorf("GitHostname(%q) = %q, want %q", raw, got, want)
 		}
 	}
 }

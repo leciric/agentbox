@@ -122,6 +122,15 @@ func ResolveGitProfileURL(ctx context.Context, r state.GitRemote) (string, error
 			resolved = https
 		}
 	}
+	// A GitHub account's token is sent only to GitHub: an alias, or a
+	// public profile prefilled from an origin on another forge, must not
+	// hand it to whichever host the URL names.
+	if r.Auth == state.GitAuthGitHubAccount {
+		if host := state.GitHostname(resolved); host != state.GitHubHost {
+			return "", fmt.Errorf("project %q's %s git profile signs in as GitHub account %q, and %s is on %s, not %s: the account's token is sent only to GitHub, so set the profile with --auth token and a login for that host",
+				r.Project, r.Profile, r.Credential, resolved, host, state.GitHubHost)
+		}
+	}
 	return resolved, nil
 }
 

@@ -391,7 +391,9 @@ func gitCredentialNamed(remotes []state.GitRemote, removed, credential string) b
 }
 
 // prefillGitProfiles fills a new project's two profiles from the remotes its
-// checkout has: hub is where work in progress goes, origin is GitHub. A
+// checkout has: hub is where work in progress goes, origin is where finished
+// work is published, signed in as the project's GitHub account when origin is
+// on github.com. A
 // missing remote is not a problem, and a profile the project already has is
 // never overwritten, so this is safe to run again.
 func (s *Server) prefillGitProfiles(ctx context.Context, p state.Project) {
@@ -415,6 +417,12 @@ func (s *Server) prefillGitProfiles(ctx context.Context, p state.Project) {
 		if err != nil {
 			s.logf("%s: reading its %s remote: %v", p.Name, remote, err)
 			return
+		}
+		// The project's GitHub account signs in to GitHub only: an origin on
+		// another forge gets a token profile, whose login the user adds for
+		// that host, rather than the account's token sent to it.
+		if auth == state.GitAuthGitHubAccount && state.GitHostname(url) != state.GitHubHost {
+			auth, credential = state.GitAuthToken, ""
 		}
 		if err := s.store.SetProjectGitRemote(ctx, state.GitRemote{
 			Project: p.Name, Profile: profile, URL: url, Auth: auth, Credential: credential,
