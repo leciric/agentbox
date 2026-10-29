@@ -3,6 +3,7 @@
 // the review marks it reviewed), and the carousel of everything one of them
 // made.
 import type * as T from '../../shared/api';
+import { t, type MessageKey } from '../../shared/i18n/index.ts';
 import { recordedFor, videoAt } from './recording.ts';
 
 // Proof is what an agent showed it checked, for the review's Proof tab:
@@ -140,6 +141,20 @@ export function mergeBlock(pr: T.PullRequest, pulls?: Pick<T.ProjectPullRequests
   if (pr.conflict) return 'conflict';
   if (pr.checks === 'failing') return 'failing';
   return null;
+}
+
+const blockLabels: Record<Exclude<MergeBlock, 'merged' | 'closed'>, MessageKey> = {
+  draft: 'review.mergeBlocked.draft',
+  failing: 'review.mergeBlocked.failing',
+  conflict: 'review.mergeBlocked.conflict',
+  noPermission: 'review.mergeBlocked.noPermission',
+};
+
+// mergeBlockReason is why an open pull request can't be merged, in a
+// sentence shown beside its Merge, or undefined when it can.
+export function mergeBlockReason(pr: T.PullRequest, pulls?: Pick<T.ProjectPullRequests, 'canMergeKnown' | 'canMerge'>): string | undefined {
+  const blocked = mergeBlock(pr, pulls);
+  return blocked && blocked !== 'merged' && blocked !== 'closed' ? t(blockLabels[blocked], { base: pr.baseBranch ?? '' }) : undefined;
 }
 
 // queueOf is the order "Review all" walks: the agents waiting when it began,
