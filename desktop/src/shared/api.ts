@@ -178,6 +178,7 @@ export interface Settings {
   claudeEffortChoices: ChatOptionChoice[];
   openCodeModelChoices: ChatOptionChoice[];
   openCodeReady: boolean;
+  openCodeVersion: string;
   cursorModelChoices: ChatOptionChoice[];
   cursorReady: boolean;
   defaultCursorModel: string;
@@ -255,6 +256,7 @@ export interface UpdateSettingsRequest {
   defaultCursorModel?: string;
   defaultCursorEffort?: string;
   lastAgentPick?: AgentPick;
+  openCodeVersion?: string;
   resumeAfterLimit?: boolean;
   continueAfterRestart?: boolean;
   creditAITool?: boolean;

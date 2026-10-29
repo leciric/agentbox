@@ -517,6 +517,10 @@ type Settings struct {
 	// image has it and AgentBox has a login for it. A project's chat reads
 	// this to know whether it may create OpenCode agents at all.
 	OpenCodeReady bool `json:"openCodeReady"`
+	// OpenCodeVersion is which OpenCode the installation runs, "1" or "2".
+	// "1" is the one the base image pins and what every installation ran
+	// before this setting existed.
+	OpenCodeVersion string `json:"openCodeVersion"`
 	// CursorModelChoices is the model menu Cursor named for AgentBox's
 	// sign-in, each with the effort levels it takes: asked of Cursor on this
 	// machine (internal/cursor) in the background, and empty until that has
@@ -750,6 +754,9 @@ type UpdateSettingsRequest struct {
 	// LastAgentPick remembers what the New agent dialog just created an agent
 	// with (Settings.LastAgentPick).
 	LastAgentPick *AgentPick `json:"lastAgentPick,omitempty"`
+	// OpenCodeVersion switches the installation between OpenCode 1 ("1", the
+	// default) and OpenCode 2 ("2"), when the base image carries both.
+	OpenCodeVersion *string `json:"openCodeVersion,omitempty"`
 	// ResumeAfterLimit turns the automatic resume after a Claude usage limit
 	// on or off, for every agent.
 	ResumeAfterLimit *bool `json:"resumeAfterLimit,omitempty"`
@@ -3293,7 +3300,7 @@ type SetupStatus struct {
 	Image ImageBuild `json:"image"`
 }
 
-// ImageComponents are the optional parts of the base image. Both are off by
+// ImageComponents are the optional parts of the base image. Each is off by
 // default: each is a download most agents never need.
 type ImageComponents struct {
 	// Android adds scrcpy, which mirrors an agent's Android emulator.

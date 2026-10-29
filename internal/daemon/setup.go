@@ -21,6 +21,7 @@ import (
 	"agentbox/internal/hostsetup"
 	"agentbox/internal/image"
 	"agentbox/internal/incus"
+	"agentbox/internal/opencode"
 	"agentbox/internal/state"
 )
 
@@ -124,9 +125,20 @@ func (s *Server) setupStatus(ctx context.Context) (api.SetupStatus, error) {
 
 	// OpenCode is optional in the image and in the credentials too, and reads
 	// the same way as Codex above: the image first, then the login.
+	// Which OpenCode build counts is the one the installation chose. OpenCode 2
+	// is not in the image at all: each agent installs it when it first starts
+	// on it, so under it the image has nothing to be missing.
+	opencodeVersion := opencode.V1
+	if raw, err := s.store.Setting(ctx, state.SettingOpenCodeVersion); err == nil {
+		opencodeVersion = opencode.ReleaseOf(raw)
+	}
+	openCodeComponent := installed.Components.OpenCode
+	if opencodeVersion == opencode.V2 {
+		openCodeComponent = true
+	}
 	opencodeCheck := api.SetupCheck{ID: "opencode", Title: "OpenCode login", Status: api.SetupOptional,
 		Detail: "optional: agents can't run OpenCode yet", Fix: "agentbox auth opencode"}
-	if built && !installed.Components.OpenCode {
+	if built && !openCodeComponent {
 		opencodeCheck.Detail, opencodeCheck.Fix = "optional: "+image.OpenCodeMissing, "agentbox image build --opencode"
 		checks = append(checks, opencodeCheck)
 	} else {

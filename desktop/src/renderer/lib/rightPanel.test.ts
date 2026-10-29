@@ -347,6 +347,27 @@ test('the lead’s panel switches between Agents, Pull requests and Files, remem
   assert.equal(P.leadTab(P.panelState(), 'pawly'), 'agents');
 });
 
+test('opening an agent’s chat shows its Desktop only when it is using it, else the view last picked or Files', () => {
+  const ref = 'pawly/agent-2';
+  P.setFitsBeside(true);
+  P.setPanel({ chats: {}, views: { [ref]: 'desktop' }, last: {} });
+  P.openAgentChat(ref, false);
+  assert.equal(P.panelState().views[ref], 'files');
+  assert.equal(P.chatPanel(P.panelState(), ref).open, true);
+  P.setPanel({ chats: {}, views: { [ref]: 'terminal' }, last: {} });
+  P.openAgentChat(ref, false);
+  assert.equal(P.panelState().views[ref], 'terminal');
+  P.openAgentChat(ref, true);
+  assert.equal(P.panelState().views[ref], 'desktop');
+});
+
+test('an agent’s file tree is as narrow as the list until the panel is dragged; its desktop keeps half the room', () => {
+  assert.equal(P.panelWant({ width: 560 }, 'pawly/agent-2', 1600, 'files'), P.listDefault);
+  assert.equal(P.panelWant({ width: 560 }, 'pawly/agent-2', 1600, 'desktop'), 800);
+  assert.equal(P.panelWant({ width: 560, agentWidth: 700 }, 'pawly/agent-2', 1600, 'files'), 700);
+  assert.equal(P.panelWant({ width: 560 }, 'pawly/lead', 1600, 'files'), 560);
+});
+
 test('a rich block opened beside the chat goes over what the panel showed until ✕ or back, and isn’t remembered', () => {
   P.setPanel({ chats: {}, views: {}, last: {}, listFolded: true });
   const lead = 'pawly/lead';

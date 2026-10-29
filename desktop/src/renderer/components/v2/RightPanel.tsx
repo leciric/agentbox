@@ -185,7 +185,9 @@ export function RightPanelHost({ view, onSelect, onNewAgent }: { view: View; onS
   // opens over the chat as a drawer, from the strip or the header's button.
   const list = onList(state, chat);
   const lead = isLeadRef(chat);
-  const box = list ? listBox(state, room, windowWidth) : panelBox(panelWant(state, chat, room), room, windowWidth);
+  const target = panelTarget(state, chat);
+  const shownView = target ? state.views[target] : undefined;
+  const box = list ? listBox(state, room, windowWidth) : panelBox(panelWant(state, chat, room, shownView), room, windowWidth);
   const narrow = box.drawer || (list && state.listFolded && listBox({ ...state, listFolded: false }, room, windowWidth).drawer);
   const drawerWidth = list ? listBox({ ...state, listFolded: false }, room, windowWidth).width : box.width;
   const measured = room > 0;

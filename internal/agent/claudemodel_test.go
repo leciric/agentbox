@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"agentbox/internal/credentials"
 	"agentbox/internal/image"
 	"agentbox/internal/incus"
 	"agentbox/internal/paths"
@@ -265,6 +266,78 @@ exit 0
 	}
 	if !strings.Contains(string(opencode), `"subagent_depth":1`) {
 		t.Errorf("opencode.json = %s, want the subagent depth cap", opencode)
+	}
+}
+
+// TestAnOpenCodeAgentFollowsAVersionSwitch: an agent made under one OpenCode
+// gets the other's config shape at its next chat after the installation
+// switches, in both directions, since OpenCode 1 refuses OpenCode 2's shape.
+func TestAnOpenCodeAgentFollowsAVersionSwitch(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	// Every write lands in dir, named after its path; anything else succeeds.
+	script := `
+if [ "$1" = "exec" ] && [ "$4" = "--" ] && [ "$5" = "sh" ]; then
+  n=$#
+  eval path=\${$((n-2))}
+  cat > "` + dir + `/$(echo "$path" | tr '/' '_')"
+fi
+exit 0
+`
+	m := &Manager{
+		Store: openTestStore(t),
+		Creds: credentials.Store{Dir: t.TempDir()},
+		Paths: paths.Paths{Data: t.TempDir()},
+		Incus: fakeIncus(t, script),
+		User:  image.User{Name: "dev", UID: 1000, GID: 1000},
+	}
+	a := state.Agent{Project: "hello-stack", Name: "agent-01", AI: "opencode", Instance: "ab-hello-stack-agent-01", Worktree: "/worktree", Autonomous: true}
+	config := func(version string) map[string]any {
+		t.Helper()
+		if err := m.Store.SetSetting(t.Context(), state.SettingOpenCodeVersion, version); err != nil {
+			t.Fatal(err)
+		}
+		if err := m.PrepareChatModel(t.Context(), a, "", 0); err != nil {
+			t.Fatal(err)
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, "_home_dev_.config_opencode_opencode.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var c map[string]any
+		if err := json.Unmarshal(raw, &c); err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+
+	if c := config("1"); c["permission"] != "allow" || c["permissions"] != nil {
+		t.Fatalf("OpenCode 1's opencode.json = %v", c)
+	}
+	c := config("2")
+	if _, ok := c["permissions"]; !ok || c["permission"] != nil {
+		t.Fatalf("after the switch to OpenCode 2, opencode.json = %v", c)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "_home_dev_"+strings.ReplaceAll(openCodeImportMarker, "/", "_"))); err != nil {
+		t.Errorf("OpenCode 2's logins weren't imported: %v", err)
+	}
+	if c := config("1"); c["permission"] != "allow" || c["permissions"] != nil {
+		t.Fatalf("after switching back to OpenCode 1, opencode.json = %v", c)
+	}
+
+	// An agent used from its terminal has no chat to prepare it: opening the
+	// tool's window rewrites the config the same way.
+	if err := m.Store.SetSetting(t.Context(), state.SettingOpenCodeVersion, "2"); err != nil {
+		t.Fatal(err)
+	}
+	a.Interface = state.InterfaceCLI
+	m.prepareToolWindow(t.Context(), a)
+	raw, err := os.ReadFile(filepath.Join(dir, "_home_dev_.config_opencode_opencode.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"permissions"`) {
+		t.Errorf("the terminal's OpenCode 2 starts on opencode.json = %s", raw)
 	}
 }
 

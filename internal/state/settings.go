@@ -76,6 +76,13 @@ const (
 	// either from an OpenCode chat's ACP session or from `opencode models`
 	// (internal/opencode), and its values are OpenCode's "provider/model" ids.
 	SettingOpenCodeModelChoices = "opencode_model_choices"
+	// SettingOpenCodeVersion is which OpenCode an installation runs: "1" for
+	// the one the base image pins, "2" for OpenCode 2, installed beside it as
+	// `opencode2`. Empty is "1", which is what every installation ran before
+	// the setting existed, so an installation that does not choose stays
+	// exactly where it was. "2" needs nothing from the image: each agent installs
+	// OpenCode 2 itself the first time it starts on it.
+	SettingOpenCodeVersion = "opencode_version"
 	// SettingCursorModelChoices is Cursor's model menu, as JSON, remembered
 	// for the same reason: which models a Cursor account can run is Cursor's
 	// answer. It arrives from a Cursor chat's ACP session or from the
