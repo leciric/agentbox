@@ -140,6 +140,20 @@
     "height": 900
   },
   {
+    "id": "opencode-activity-before-dark",
+    "description": "An OpenCode 2 turn before the activity fixes: raw metadata as the read's output, bare tool titles, no plan badge and no created file",
+    "query": "app=agent-97&activity=before&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "opencode-activity-after-dark",
+    "description": "The same OpenCode 2 turn after the activity fixes: the file's text, file-named rows, a created file in changed files and the Tasks plan",
+    "query": "app=agent-97&activity=after&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
     "id": "credential-agent-12-chat-dark",
     "description": "agent-12's own chat, blocked in request_credential: the card under the spinning call — dark, 1280x800",
     "query": "chat=agent-12&theme=dark",

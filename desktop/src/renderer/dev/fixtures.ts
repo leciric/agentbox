@@ -968,6 +968,54 @@ export function agent12Chat(): T.ChatThread {
   };
 }
 
+// openCodeActivityChat is an OpenCode 2 turn as the chat drew it before and
+// after the activity fixes: rawOutput metadata replacing the read's text, bare
+// read/edit titles, a created file missing from changed files, and todowrite as
+// generic tool rows — then the same turn with its real text, file names,
+// created-file diff and plan.
+export function openCodeActivityChat(before: boolean): T.ChatThread {
+  const at = (ago: number) => new Date(Date.now() - ago).toISOString();
+  const tool = (id: string, ago: number, t: T.ChatTool): T.ChatItem => ({ id, turn: 'u1', kind: 'tool', tool: t, createdAt: at(ago), updatedAt: at(ago) });
+  const edit: T.ChatDiff = { path: '/home/user/project/foo.txt', oldText: 'hello world\nsecond line\n', newText: 'hi world\nsecond line\n' };
+  const created: T.ChatDiff = { path: '/home/user/project/new.txt', oldText: '', newText: 'hello\n', created: true };
+  const items: T.ChatItem[] = [
+    { id: 'u1', turn: 'u1', kind: 'user', text: 'Read foo.txt, greet it, and create new.txt.', result: { state: 'completed', stopReason: 'end_turn', endedAt: at(40_000) }, createdAt: at(90_000), updatedAt: at(40_000) },
+    { id: 'a1', turn: 'u1', kind: 'assistant', text: "I'll read it, edit the greeting, and add the new file.", createdAt: at(85_000), updatedAt: at(85_000) },
+    before
+      ? tool('t0', 80_000, { callId: 't0', name: 'todowrite', title: 'todowrite', kind: 'other', status: 'completed' })
+      : { id: 'p1', turn: 'u1', kind: 'plan', plan: [{ content: 'Read foo.txt', status: 'completed' }, { content: 'Edit the greeting', status: 'completed' }, { content: 'Create new.txt', status: 'completed' }], createdAt: at(80_000), updatedAt: at(80_000) },
+    tool('t1', 70_000, {
+      callId: 't1',
+      name: 'read',
+      title: before ? 'read' : 'foo.txt',
+      kind: 'read',
+      status: 'completed',
+      paths: ['/home/user/project/foo.txt'],
+      output: before ? '{"metadata":{"truncated":false}}' : 'Read file foo.txt, lines 1-2\n1: hello world\n2: second line',
+    }),
+    tool('t2', 60_000, {
+      callId: 't2',
+      name: 'edit',
+      title: before ? 'edit' : 'foo.txt',
+      kind: 'edit',
+      status: 'completed',
+      paths: ['/home/user/project/foo.txt'],
+      diffs: before ? undefined : [edit],
+    }),
+    tool('t3', 50_000, {
+      callId: 't3',
+      name: 'write',
+      title: before ? 'write' : 'new.txt',
+      kind: 'edit',
+      status: 'completed',
+      paths: ['/home/user/project/new.txt'],
+      diffs: before ? undefined : [created],
+    }),
+    { id: 'a2', turn: 'u1', kind: 'assistant', text: 'Done: foo.txt greets you, and new.txt is created.', createdAt: at(40_000), updatedAt: at(40_000) },
+  ];
+  return { agent: `${PROJECT}/agent-97`, seq: 1, session: { state: 'ready', tool: 'opencode', options: [], commands: [] }, items };
+}
+
 // asleepChat is a conversation stored for an agent whose machine is now
 // stopped or paused: several finished turns, long enough to scroll, read from
 // the database without its AI tool running.
