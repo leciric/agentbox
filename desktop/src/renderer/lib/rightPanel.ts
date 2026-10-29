@@ -397,10 +397,10 @@ export const fitsBeside = () => beside;
 // (usingDesktop) opens its panel on the Desktop, where there is room for it
 // beside the chat; where there isn't, the strip stays as it is, rather than a
 // drawer over the chat you came to read. An idle display is a blank screen, so
-// then the panel comes closed, on the agent, and the Desktop is a tab away.
+// then the panel comes closed, back on its list beside the chat, and the Desktop is a click away.
 // The lead's panel keeps what it showed, its list most often, for coming back.
 export function openAgentChat(ref: string, usingDesktop = true): void {
-  if (!usingDesktop) return update(ref, () => ({ open: false, target: ref }));
+  if (!usingDesktop) return update(ref, () => ({ open: false, target: listTarget }));
   if (!beside) return;
   const state = panelState();
   update(ref, () => ({ open: true, target: ref }), { views: { ...state.views, [ref]: 'desktop' } });

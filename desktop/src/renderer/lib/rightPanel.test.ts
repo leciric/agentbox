@@ -353,6 +353,7 @@ test('opening an agent’s chat opens its panel on the Desktop only when it is u
   P.setPanel({ chats: {}, views: { [ref]: 'terminal' }, last: {} });
   P.openAgentChat(ref, false);
   assert.equal(P.chatPanel(P.panelState(), ref).open, false);
+  assert.equal(P.onList(P.panelState(), ref), true);
   assert.equal(P.panelState().views[ref], 'terminal');
   P.openAgentChat(ref, true);
   assert.equal(P.chatPanel(P.panelState(), ref).open, true);
