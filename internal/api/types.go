@@ -166,10 +166,24 @@ type ProjectIcon struct {
 	HasDetected bool `json:"hasDetected,omitempty"`
 }
 
-// SetProjectIconRequest chooses a project's icon: exactly one of Emoji and
-// Image.
+// ProjectIconCandidate is one of the icons found in a project's repository
+// (GET /v1/projects/{project}/icon/candidates), to choose from.
+type ProjectIconCandidate struct {
+	// From is its repository-relative path, e.g. "desktop/build/icon.svg":
+	// what SetProjectIconRequest.Candidate names.
+	From string `json:"from"`
+	// Image is a data: URL.
+	Image string `json:"image"`
+	// Chosen is whether it is the icon the user chose.
+	Chosen bool `json:"chosen,omitempty"`
+}
+
+// SetProjectIconRequest chooses a project's icon: exactly one of Emoji,
+// Image and Candidate.
 type SetProjectIconRequest struct {
 	Emoji string `json:"emoji,omitempty"`
+	// Candidate is the From of one of the project's ProjectIconCandidates.
+	Candidate string `json:"candidate,omitempty"`
 	// Image is a data: URL; png, jpeg, gif, webp, svg+xml or x-icon
 	// (vnd.microsoft.icon), at most 512 KiB decoded.
 	Image string `json:"image,omitempty"`

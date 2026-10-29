@@ -1,9 +1,12 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"slices"
 	"time"
 
 	"golang.org/x/sync/singleflight"
@@ -98,9 +101,23 @@ func (s *Server) setProjectIcon(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	given := 0
+	for _, v := range []string{req.Emoji, req.Image, req.Candidate} {
+		if v != "" {
+			given++
+		}
+	}
 	switch {
-	case (req.Emoji == "") == (req.Image == ""):
-		return errors.New("choose an emoji or an image, one of them")
+	case given != 1:
+		return errors.New("choose an emoji, an image or one of the repository's icons, one of them")
+	case req.Candidate != "":
+		icon, err := s.projectIconCandidate(ctx, p, req.Candidate)
+		if err != nil {
+			return err
+		}
+		if err := s.store.ChooseProjectIcon(ctx, p.Name, "image", "", icon.Data, icon.MIME, time.Now()); err != nil {
+			return err
+		}
 	case req.Emoji != "":
 		emoji, err := projecticon.ParseEmoji(req.Emoji)
 		if err != nil {
@@ -120,6 +137,55 @@ func (s *Server) setProjectIcon(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 	return s.writeProjectIcon(w, r, p.Name)
+}
+
+// projectIconCandidates answers GET /v1/projects/{project}/icon/candidates:
+// the icons the last look found in the repository, read again from it, so
+// one since removed or changed is left out or shown as it now is. A project
+// never looked at is looked at first.
+func (s *Server) projectIconCandidates(w http.ResponseWriter, r *http.Request) error {
+	ctx := r.Context()
+	p, err := s.store.Project(ctx, r.PathValue("project"))
+	if err != nil {
+		return err
+	}
+	ic, ok, err := s.store.ProjectIcon(ctx, p.Name)
+	if err != nil {
+		return err
+	}
+	if !ok || ic.DetectedAt.IsZero() {
+		if ic, err = s.detectProjectIcon(ctx, p); err != nil {
+			return err
+		}
+	}
+	out := []api.ProjectIconCandidate{}
+	for _, from := range ic.Candidates {
+		icon, ok := projecticon.Read(p.Root, from)
+		if !ok {
+			continue
+		}
+		chosen := ic.Chosen == "image" && bytes.Equal(ic.Image, icon.Data)
+		out = append(out, api.ProjectIconCandidate{From: from, Image: projecticon.DataURL(icon.MIME, icon.Data), Chosen: chosen})
+	}
+	return writeJSON(w, http.StatusOK, out)
+}
+
+// projectIconCandidate reads the candidate from names, refusing a path the
+// last look didn't find: a request names one of the repository's icons, not
+// any file in it.
+func (s *Server) projectIconCandidate(ctx context.Context, p state.Project, from string) (projecticon.Icon, error) {
+	ic, _, err := s.store.ProjectIcon(ctx, p.Name)
+	if err != nil {
+		return projecticon.Icon{}, err
+	}
+	if !slices.Contains(ic.Candidates, from) {
+		return projecticon.Icon{}, fmt.Errorf("%s isn't one of the icons found in the repository", from)
+	}
+	icon, ok := projecticon.Read(p.Root, from)
+	if !ok {
+		return projecticon.Icon{}, fmt.Errorf("%s is no longer an image in the repository", from)
+	}
+	return icon, nil
 }
 
 // deleteProjectIcon goes back to the detected icon, looking for it again:
@@ -159,14 +225,21 @@ func (s *Server) detectProjectIcon(ctx context.Context, p state.Project) (state.
 	ch := icons.detecting.DoChan(p.Name, func() (any, error) {
 		lookCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
-		icon, found := projecticon.Detect(lookCtx, p.Root, projecticon.Options{
+		found := projecticon.Detect(lookCtx, p.Root, projecticon.Options{
 			Owner: func() string { return icons.owner(p.Root) },
 			Fetch: icons.fetch,
 		})
-		if !found {
-			icon = projecticon.Icon{}
+		var icon projecticon.Icon
+		var candidates []string
+		for i, f := range found {
+			if i == 0 {
+				icon = f
+			}
+			if !f.Avatar {
+				candidates = append(candidates, f.From)
+			}
 		}
-		return nil, s.store.SaveDetectedProjectIcon(lookCtx, p.Name, icon.Data, icon.MIME, icon.From, time.Now())
+		return nil, s.store.SaveDetectedProjectIcon(lookCtx, p.Name, icon.Data, icon.MIME, icon.From, candidates, time.Now())
 	})
 	select {
 	case res := <-ch:

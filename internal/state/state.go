@@ -1309,6 +1309,13 @@ var migrations = []string{
 		resolved_at INTEGER NOT NULL DEFAULT 0
 	)`,
 	`CREATE INDEX review_notes_agent ON review_notes (project, agent)`,
+	// The other icons a look for a project's found in its repository, best
+	// first, for the icon picker: their repository-relative paths, one per
+	// line, the detected icon's first. Every project looks again once, since
+	// the look now walks the tree and finds an app's icon where it used to
+	// settle for its GitHub owner's avatar.
+	`ALTER TABLE project_icons ADD COLUMN candidates TEXT NOT NULL DEFAULT ''`,
+	`UPDATE project_icons SET detected_at = 0`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
