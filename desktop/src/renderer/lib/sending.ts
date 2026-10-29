@@ -16,6 +16,9 @@ export interface Sending {
   ref: string;
   text: string;
   attachments: Pending[];
+  // to is the agent a message written in a project's chat goes to instead
+  // of its lead (shared/messageTarget.ts): it starts no turn of the lead's.
+  to?: string;
   // at is when it was sent: the stand-in's time, and the turn's start.
   at: string;
   // after is the last item the chat held when it was sent: the daemon's copy
@@ -66,10 +69,10 @@ export function findSending(key: string): Sending | undefined {
 // error that stopped it, which the stand-in then shows.
 export function sendMessage(
   ref: string,
-  message: { text: string; attachments: Pending[]; after?: string },
+  message: { text: string; attachments: Pending[]; after?: string; to?: string },
   send: () => Promise<T.ChatItem>,
 ): Promise<T.ChatItem | undefined> {
-  const entry: Sending = { key: `${sendingPrefix}${++next}`, ref, text: message.text, attachments: message.attachments, at: new Date().toISOString(), after: message.after, send };
+  const entry: Sending = { key: `${sendingPrefix}${++next}`, ref, text: message.text, attachments: message.attachments, at: new Date().toISOString(), after: message.after, to: message.to, send };
   set(ref, [...(sending.get(ref) ?? []), entry]);
   return deliver(entry);
 }
@@ -128,7 +131,7 @@ function echoed(thread: T.ChatThread, s: Sending): boolean {
   if (s.error) return false;
   if (s.item) return thread.items.some((it) => it.id === s.item);
   const from = s.after ? thread.items.findIndex((it) => it.id === s.after) + 1 : 0;
-  return thread.items.slice(from).some((it) => (it.kind === 'user' || it.kind === 'aside') && (it.text ?? '').trim() === s.text);
+  return thread.items.slice(from).some((it) => (s.to ? it.kind === 'notice' && it.to === s.to : it.kind === 'user' || it.kind === 'aside') && (it.text ?? '').trim() === s.text);
 }
 
 // useSending is what is on its way to ref's chat, as it changes.
@@ -148,23 +151,26 @@ const standIns = new WeakMap<Sending, T.ChatItem>();
 
 // withSending is thread with what is on its way to it at the end, as the
 // timeline shows it: a message to an idle chat heads a turn that is already
-// working, one sent while a turn runs joins that turn. One that failed doesn't
-// start anything.
+// working, one sent while a turn runs joins that turn. One that failed, or
+// that goes to an agent rather than the lead, doesn't start anything.
 export function withSending(thread: T.ChatThread, list: Sending[]): T.ChatThread {
   const shown = list.filter((s) => !echoed(thread, s));
   if (shown.length === 0) return thread;
   const items = [...thread.items];
   let session = thread.session;
   let turn = session.turnStartedAt ? items.findLast((it) => it.kind === 'user')?.turn : undefined;
+  // A message to an agent is a notice of the lead's chat, in the turn the
+  // daemon will put it in: the running one, or the last.
+  const last = items.findLast((it) => it.kind === 'user')?.turn ?? '';
   for (const s of shown) {
-    const into = s.error ? undefined : turn;
+    const into = s.to ? (turn ?? last) : s.error ? undefined : turn;
     let item = standIns.get(s);
     if (!item || item.turn !== (into ?? s.key)) {
       item = standIn(s, into);
       standIns.set(s, item);
     }
     items.push(item);
-    if (!turn && !s.error) {
+    if (!turn && !s.error && !s.to) {
       turn = item.turn;
       session = { ...session, turnStartedAt: s.at };
     }
@@ -177,6 +183,7 @@ export function withSending(thread: T.ChatThread, list: Sending[]): T.ChatThread
 // the daemon will make them. One that failed heads a turn that has ended.
 function standIn(s: Sending, turn: string | undefined): T.ChatItem {
   const base = { id: s.key, text: s.text, createdAt: s.at, updatedAt: s.at };
+  if (s.to) return { ...base, turn: turn ?? '', kind: 'notice', to: s.to, delivery: s.error ? failed : 'waiting' };
   if (s.error) return { ...base, turn: s.key, kind: 'user', delivery: failed, result: { state: failed, endedAt: s.at } };
   if (turn) return { ...base, turn, kind: 'aside', delivery: 'waiting' };
   return { ...base, turn: s.key, kind: 'user', delivery: 'waiting' };

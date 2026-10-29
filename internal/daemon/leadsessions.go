@@ -335,16 +335,9 @@ func (s *Server) handOver(w http.ResponseWriter, r *http.Request) error {
 // session's agent: a card in the asking session's chat. Its own agents, and
 // those nobody owns, it acts on freely.
 func (s *Server) crossSession(ctx context.Context, from string, a state.Agent, what string) error {
-	owner := a.Session()
-	if from == "" || owner == "" || owner == from {
+	topic, other := s.otherSession(ctx, from, a)
+	if !other {
 		return nil
-	}
-	if _, err := s.store.LeadSession(ctx, a.Project, owner); errors.Is(err, state.ErrNotFound) {
-		return nil // its session is gone: it is nobody's
-	}
-	topic := owner
-	if ls, err := s.store.LeadSession(ctx, a.Project, owner); err == nil {
-		topic = ls.Topic
 	}
 	ok, err := s.approve(ctx, a.Project, api.ChatPermission{
 		Approval: "session",

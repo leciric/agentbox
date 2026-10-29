@@ -32,3 +32,19 @@ test('work between messages folds into one row, live while any of it runs', () =
   assert.ok(settled.kind === 'work' && settled.items.length === 2 && !settled.live);
   assert.ok(running.kind === 'work' && running.live);
 });
+
+test('a message written from the project’s chat to an agent is your bubble, tagged', () => {
+  const rows = timelineRows({
+    agent: 'web/lead',
+    seq: 1,
+    session: { state: 'ready', tool: 'claude', options: [], commands: [] },
+    items: [item('n1', 'notice', { text: 'use the new table', to: 'agent-31' }), item('n2', 'notice', { text: 'Model set to haiku.' })],
+  } as T.ChatThread);
+  assert.deepEqual(
+    rows.map((r) => [r.kind, 'item' in r ? r.item.to : undefined]),
+    [
+      ['user', 'agent-31'],
+      ['note', undefined],
+    ],
+  );
+});

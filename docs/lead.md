@@ -60,6 +60,32 @@ agentbox chat session hand pawly/agent-07 prod-login-500s
 
 `agentbox chat pawly`, without `--session`, uses the session most recently active.
 
+## Writing to an agent from the chat
+
+The **To:** chip at the left of the chat's composer says who a message goes to: the lead, which
+is the default, or any agent of the project. It lists the session's own agents first, then the
+project's others, each with a dot for its state.
+
+- A message to an agent goes straight to that agent's chat, the same as typing in it. It shows
+  in the lead's chat as your message tagged "→ agent-31". The lead isn't woken: it reads
+  "User told agent-31: …" at the start of its next turn, so it stays in sync and spends nothing.
+- A message to **another session's** agent asks first, in place of the send: "agent-12 belongs
+  to “Prod incident”. Send anyway?"
+- <kbd>Ctrl</kbd>+<kbd>.</kbd> and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>.</kbd> move the
+  target to the next and the previous agent (<kbd>⌘</kbd> on a Mac), and <kbd>Esc</kbd> in an
+  empty composer goes back to the lead. Starting a message with `@agent-31 ` sends just that
+  message to agent-31.
+- Each session remembers its target. If that agent is retired, the target goes back to the lead.
+- Above the composer, each agent the session made has a card showing its state, what it is
+  doing and what it said last. The card updates as the agent works. **Recent** opens its latest
+  messages, and clicking the card points the composer at that agent.
+
+The phone has the same chip and `@agent-31 `. From the command line:
+
+```bash
+agentbox chat pawly --to agent-31 "Use the new reminders table"
+```
+
 ## Its MCP tools
 
 The lead's AI tool is given an MCP server, `agentbox`, registered from

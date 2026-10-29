@@ -325,10 +325,10 @@ export function buildFixtures(): FixtureData {
     // An agent in each of the avatars' moods (avatarMood), across the three
     // AI tools: working, asking (the escalated questions below), idle,
     // stopped and broken.
-    agent({ ref: `${PROJECT}/agent-96`, title: 'Fix the agent rail overflowing on wide text', ai: 'cursor', chat: 'running' }),
+    agent({ ref: `${PROJECT}/agent-96`, title: 'Fix the agent rail overflowing on wide text', ai: 'cursor', chat: 'running', leadSession: 'main' }),
     agent({ ref: `${PROJECT}/agent-97`, title: 'Long path agent', ai: 'opencode', chat: 'ready' }),
     agent({ ref: `${PROJECT}/agent-98`, title: 'Question agent', ai: 'codex', chat: 'waiting' }),
-    agent({ ref: `${PROJECT}/agent-99`, title: 'PR agent', chat: 'running' }),
+    agent({ ref: `${PROJECT}/agent-99`, title: 'PR agent', chat: 'running', leadSession: 'main' }),
     // Its turn ended on a CI watch it left running in the background: awaiting,
     // not idle, and kept out of Finished until the watch ends and it reports.
     agent({ ref: `${PROJECT}/agent-41`, title: 'Watch CI on the release branch', chat: 'ready', background: ['Watch CI run 42'], interface: 'chat' }),
@@ -337,7 +337,7 @@ export function buildFixtures(): FixtureData {
     // finished with a pull request, one is carried on after a restart.
     agent({ ref: `${PROJECT}/agent-37`, title: 'Landing page', ai: 'codex', chat: 'ready', outcome: 'asking', outcomeNote: 'What do you want me to do next: launch, change, or stop?' }),
     agent({ ref: `${PROJECT}/agent-38`, title: 'Migrate the reminders table', chat: 'ready', outcome: 'failed', outcomeNote: 'API Error: WebSocket closed with code 1006 (abnormal closure)' }),
-    agent({ ref: `${PROJECT}/agent-39`, title: 'Paginate the reminders page', chat: 'ready', outcome: 'done' }),
+    agent({ ref: `${PROJECT}/agent-39`, title: 'Paginate the reminders page', chat: 'ready', outcome: 'done', leadSession: 'main' }),
     // Idle reclaim holds their memory (T.Agent.reclaimed): one's dev server
     // and browser frozen in swap, one's machine stopped after it finished.
     agent({ ref: `${PROJECT}/agent-35`, title: 'Dark mode for settings', chat: 'ready', outcome: 'idle', reclaimed: 'frozen' }),
@@ -1223,6 +1223,7 @@ const devState: {
 // staleTime: Infinity (set by the caller's QueryClient), so nothing refetches
 // through the stub bridge below.
 export function seedQueryClient(queryClient: QueryClient, data: FixtureData): void {
+  seeded = queryClient;
   devState.projects = structuredClone(data.projects);
   queryClient.setQueryData(['agents'], data.agents);
   devState.agents = data.agents;
@@ -1231,6 +1232,24 @@ export function seedQueryClient(queryClient: QueryClient, data: FixtureData): vo
   queryClient.setQueryData(['agentEvents', PROJECT], data.events);
   queryClient.setQueryData(['questions', PROJECT], data.questions);
   queryClient.setQueryData(['chat', `${PROJECT}/lead`], leadChat());
+  // What the session's own agents said last, for their cards above the
+  // composer (components/chat/SessionAgents.tsx).
+  for (const [name, said, state] of [
+    ['agent-39', 'Paginated the reminders page: 25 a page, with the cursor in the URL. PR #402 is green.', 'ready'],
+    ['agent-96', 'The rail wraps long branch names now; checking the 480px preview next.', 'running'],
+    ['agent-99', 'Opened #405. Waiting on CI before asking for review.', 'running'],
+  ] as const) {
+    const at = new Date(Date.now() - 90_000).toISOString();
+    queryClient.setQueryData<T.ChatThread>(['chat', `${PROJECT}/${name}`], {
+      agent: `${PROJECT}/${name}`,
+      seq: 1,
+      session: { state, tool: 'claude', options: [], commands: [] } as unknown as T.ChatSession,
+      items: [
+        { id: `${name}-u`, turn: `${name}-u`, kind: 'user', text: 'Carry on with the task.', createdAt: at, updatedAt: at, ...(state === 'ready' && { result: { state: 'completed', stopReason: 'end_turn', endedAt: at } }) },
+        { id: `${name}-a`, turn: `${name}-u`, kind: 'assistant', text: said, createdAt: at, updatedAt: at },
+      ],
+    });
+  }
   // The composer's slash menu reads them; the dev bridge's {} isn't a list.
   queryClient.setQueryData(['skills', PROJECT], []);
   queryClient.setQueryData(['chat', `${PROJECT}/agent-99`], agent99Chat());
@@ -2505,7 +2524,7 @@ function devSessions(project: string): T.LeadSession[] {
     list =
       project === PROJECT
         ? [
-            { project, id: 'main', ref: `${project}/lead`, topic: 'Chat', chat: 'running', agents: 2, createdAt: at(86_400_000), activeAt: at(60_000) },
+            { project, id: 'main', ref: `${project}/lead`, topic: 'Chat', chat: 'running', agents: 3, createdAt: at(86_400_000), activeAt: at(60_000) },
             { project, id: 'prod-login-500s', ref: `${project}/lead.prod-login-500s`, topic: 'Prod: login 500s', chat: 'ready', agents: 1, createdAt: at(3_600_000), activeAt: at(120_000), last: { kind: 'assistant', text: 'agent-41 found it: the session cookie.', at: at(120_000) } },
           ]
         : [{ project, id: 'main', ref: `${project}/lead`, topic: 'Chat', chat: 'ready', agents: 0, createdAt: at(3_600_000), activeAt: at(3_600_000) }];
@@ -2513,6 +2532,10 @@ function devSessions(project: string): T.LeadSession[] {
   }
   return list;
 }
+
+// seeded is the preview's query client, which a message sent from the
+// project's chat to an agent joins as the daemon's notice would.
+let seeded: QueryClient | undefined;
 
 function sessionsRequest(method: string, path: string, body: unknown) {
   const json = (v: unknown) => ({ status: 200, body: JSON.stringify(v), contentType: 'application/json' });
@@ -2536,6 +2559,15 @@ function sessionsRequest(method: string, path: string, body: unknown) {
   const send = /^\/v1\/projects\/([^/]+)\/sessions\/([^/]+)\/chat\/messages$/.exec(path);
   if (send && method === 'POST') {
     const now = new Date().toISOString();
+    const { text, to } = body as T.ChatMessageRequest;
+    // In the turn the thread ends in: the fixtures add to an older one.
+    if (to) {
+      const id = decodeURIComponent(send[2]);
+      const ref = `${decodeURIComponent(send[1])}/${id === 'main' ? 'lead' : `lead.${id}`}`;
+      const told: T.ChatItem = { id: `n-${Date.now()}`, turn: '', kind: 'notice', to, text, createdAt: now, updatedAt: now };
+      seeded?.setQueryData<T.ChatThread>(['chat', ref], (thread) => thread && { ...thread, items: [...thread.items, { ...told, turn: thread.items.at(-1)?.turn ?? '' }] });
+      return json(told);
+    }
     return json({ id: `u-${Date.now()}`, turn: '', kind: 'user', text: (body as T.ChatMessageRequest).text, createdAt: now, updatedAt: now } satisfies T.ChatItem);
   }
   return undefined;

@@ -52,6 +52,10 @@ import { previewUrl } from '../../lib/chatImages';
 import { droppedFiles, isElement, isFile, prepareAttachment, room, uploads, type Pending } from '../../lib/chatFiles';
 import { splitPicked, takePicks, useWaitingPicks, withPicks } from '../../lib/picks';
 import { sendMessage, unsentEvent, useSending } from '../../lib/sending';
+import { atTarget, cycleTarget, liveTarget, otherSession, targetOrder, targetsOf } from '../../../shared/messageTarget';
+import { chooseTarget, useChosenTarget } from '../../lib/messageTarget';
+import { targetShortcut } from '../../lib/shortcuts';
+import { TargetChip } from './TargetChip';
 import { ModelByName } from '../ModelByName';
 import { cn, errorMessage } from '../../lib/utils';
 import { aiLabel, ToolMark } from '../state';
@@ -104,13 +108,53 @@ export function Composer({
   const plan = thread ? currentPlan(thread) : undefined;
   const tool = aiLabel(agent.ai);
 
+  // Who the message goes to (shared/messageTarget.ts): in a project's chat,
+  // its lead or one of the project's agents, as the To: chip at the left of
+  // the composer says; "@agent-31 " at the start of a message for that
+  // message alone. A message to an agent starts no turn of the lead's.
+  const leadChat = isProjectChat(agent.ref) && !isHomeChat(agent.ref);
+  const chatSession = sessionOfRef(agent.ref);
+  const allAgents = useQuery({ queryKey: ['agents'], queryFn: api.agents, enabled: leadChat });
+  const leadSessions = useQuery({ queryKey: ['leadSessions', agent.project], queryFn: () => api.leadSessions(agent.project), enabled: leadChat });
+  const targets = useMemo(() => targetsOf(leadChat ? (allAgents.data ?? []) : [], agent.project, chatSession), [leadChat, allAgents.data, agent.project, chatSession]);
+  const chosenTarget = useChosenTarget(agent.ref);
+  const target = liveTarget(chosenTarget, targets);
+  // An agent retired since it was chosen: back to the lead, for good.
+  useEffect(() => {
+    if (chosenTarget && allAgents.data && !target) chooseTarget(agent.ref, undefined);
+  }, [chosenTarget, allAgents.data, target, agent.ref]);
+  const targetNames = useMemo(() => [...targets.own, ...targets.others].map((a) => a.name), [targets]);
+  const at = leadChat ? atTarget(text, targetNames) : undefined;
+  const sendTo = at?.to ?? target;
+  // A message to another session's agent asks first, in place of the send.
+  const [confirmTo, setConfirmTo] = useState<{ to: string; topic: string; text: string; images: Pending[]; raw: string } | null>(null);
+  // Mod+. and Mod+Shift+. move the target on, from anywhere in the window
+  // while this chat is on screen.
+  const order = useMemo(() => targetOrder(targets), [targets]);
+  const cycling = useRef({ order, target });
+  cycling.current = { order, target };
+  useEffect(() => {
+    if (!leadChat) return;
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      const step = targetShortcut(event);
+      if (!step) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const { order, target } = cycling.current;
+      chooseTarget(agent.ref, cycleTarget(order, target, step === 'next' ? 1 : -1));
+      area.current?.focus();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [leadChat, agent.ref]);
+
   // A project chat idle long enough for its prompt cache to be about to
   // expire asks before the next message re-sends it all. A message written
   // while it asks is held here until you choose; a turn running, or the card
   // going away without a choice, puts it back in the composer.
   const projectChat = isProjectChat(agent.ref);
   const cache = useQuery({ queryKey: ['chatCache', agent.ref], queryFn: () => api.chatCache(agent.ref), enabled: projectChat });
-  const cacheCard = projectChat && cache.data?.due && !busy && !disabled ? cache.data : undefined;
+  const cacheCard = projectChat && cache.data?.due && !busy && !disabled && !sendTo ? cache.data : undefined;
   const [held, setHeld] = useState<{ text: string; images: Pending[] } | null>(null);
   useEffect(() => {
     if (!held || cacheCard) return;
@@ -125,12 +169,17 @@ export function Composer({
   const queryClient = useQueryClient();
   const sending = useSending(agent.ref);
   const inFlight = sending.some((s) => !s.error);
-  const send = (message: { text: string; images: Pending[] }) => {
+  const send = (message: { text: string; images: Pending[] }, to?: { to: string; anySession?: boolean }) => {
     const { images, files } = uploads(message.images, !session?.noImages);
     const text = withPicks(message.text, message.images.filter(isElement));
     setText('');
     setImages([]);
     onSent();
+    if (to) {
+      // The agent's chat takes it; the lead's keeps a notice, and no turn.
+      void sendMessage(agent.ref, { text: text.trim(), attachments: message.images, after: thread?.items.at(-1)?.id, to: to.to }, () => api.sendChat(agent.ref, text, images, files, to));
+      return;
+    }
     // The rail and the sidebar show it working now too; the session's own
     // state replaces this as it arrives, or a send that failed reads it again.
     const project = agent.ref.split('/')[0];
@@ -355,7 +404,7 @@ export function Composer({
 
   // Sending while the tool works is the point of the placeholder below: the
   // message joins the running turn and the model decides what it's worth.
-  const canSend = !disabled && !signedOut && (text.trim() !== '' || images.length > 0) && !held;
+  const canSend = !disabled && !signedOut && (text.trim() !== '' || images.length > 0) && !held && !confirmTo;
   // Enter or Send while signed out can't send: the banner pulses instead, so
   // the click isn't silent. The draft stays.
   const [nudged, setNudged] = useState(false);
@@ -370,6 +419,19 @@ export function Composer({
       return;
     }
     if (!canSend) return;
+    if (sendTo) {
+      const body = at ? at.text : text.trim();
+      if (body === '' && images.length === 0) return;
+      const other = otherSession(targets.others.find((a) => a.name === sendTo), chatSession, leadSessions.data ?? []);
+      if (other) {
+        setConfirmTo({ to: sendTo, topic: other.topic, text: body, images, raw: text });
+        setText('');
+        setImages([]);
+        return;
+      }
+      send({ text: body, images }, { to: sendTo });
+      return;
+    }
     if (cacheCard) {
       setHeld({ text: text.trim(), images });
       setText('');
@@ -397,6 +459,18 @@ export function Composer({
     area.current?.focus();
   };
   const syncCursor = (event: SyntheticEvent<HTMLTextAreaElement>) => setCursor(event.currentTarget.selectionStart);
+  const confirmSend = () => {
+    if (!confirmTo) return;
+    setConfirmTo(null);
+    send({ text: confirmTo.text, images: confirmTo.images }, { to: confirmTo.to, anySession: true });
+  };
+  const cancelSend = () => {
+    if (!confirmTo) return;
+    setConfirmTo(null);
+    setText((current) => current || confirmTo.raw);
+    setImages((current) => (current.length ? current : confirmTo.images));
+    area.current?.focus();
+  };
 
   // What was typed of it: the elements it was sent with are picked again.
   const lastMine = splitPicked(thread?.items.findLast((it) => it.kind === 'user' && !it.parent && !it.hidden)?.text ?? '').text;
@@ -404,6 +478,12 @@ export function Composer({
   const empty = !!thread && !thread.older && !thread.items.some(isMessage);
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing) return;
+    if (confirmTo && (event.key === 'Enter' || event.key === 'Escape')) {
+      event.preventDefault();
+      if (event.key === 'Enter') confirmSend();
+      else cancelSend();
+      return;
+    }
     if (commands.length > 0) {
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault();
@@ -459,6 +539,12 @@ export function Composer({
         return;
       }
     }
+    // Esc in an empty composer points it back at the lead.
+    if (event.key === 'Escape' && text === '' && target) {
+      event.preventDefault();
+      chooseTarget(agent.ref, undefined);
+      return;
+    }
     // Up in an empty composer brings your last message back, to send again
     // or fix, as a shell's history does.
     if (event.key === 'ArrowUp' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey && text === '' && lastMine) {
@@ -479,6 +565,8 @@ export function Composer({
       ? t('chat.composer.wakeToChat', { state: asleep.state, name: agent.name })
     : held
       ? t('chat.composer.held')
+      : sendTo
+      ? t('chat.composer.placeholderTo', { name: sendTo })
       : requests.length > 0
       ? t('chat.composer.answerRequest')
       : busy
@@ -490,7 +578,20 @@ export function Composer({
   return (
     <div className="relative" data-chat-composer>
       {plan && <TasksBadge plan={plan} />}
-      {signedOut ? (
+      {confirmTo ? (
+        <Attached tone="amber">
+          <div className="flex flex-wrap items-center gap-2 text-[12.5px]" data-target-confirm={confirmTo.to}>
+            <CircleAlert className="size-3.5 shrink-0 text-amber-300" />
+            <p className="min-w-0 flex-1 break-words leading-relaxed text-amber-100/90">{t('chat.target.otherSession', { name: confirmTo.to, topic: confirmTo.topic })}</p>
+            <button className="flex h-6 shrink-0 items-center rounded-md px-2.5 text-[12px] text-amber-100/80 transition hover:bg-amber-400/15" onClick={cancelSend}>
+              {t('common.cancel')}
+            </button>
+            <button className="flex h-6 shrink-0 items-center gap-1 rounded-md bg-brand-500/90 px-2.5 text-[12px] font-medium text-white transition hover:bg-brand-500" onClick={confirmSend} data-target-send-anyway>
+              {t('chat.target.sendAnyway')}
+            </button>
+          </div>
+        </Attached>
+      ) : signedOut ? (
         <Attached tone="amber" className={nudged ? 'bg-amber-400/25 ring-2 ring-amber-300/80' : undefined}>
           <div className="flex items-center gap-2 text-[12.5px]" data-chat-signed-out data-nudged={nudged || undefined}>
             <LogIn className="size-3.5 shrink-0 text-amber-300" />
@@ -741,6 +842,17 @@ export function Composer({
           />
         </div>
         <div className="flex items-center gap-1 px-2 pb-2">
+          {leadChat && (
+            <TargetChip
+              targets={targets}
+              target={sendTo}
+              once={!!at}
+              onChoose={(name) => {
+                chooseTarget(agent.ref, name);
+                area.current?.focus();
+              }}
+            />
+          )}
           <input
             ref={picker}
             type="file"
@@ -782,7 +894,7 @@ export function Composer({
                 </button>
               </Tip>
             )}
-            <Tip label={signedOut ? t('chat.composer.signInFirst', { tool }) : busy ? t('chat.composer.sendWhileWorking', { tool }) : t('chat.composer.send')}>
+            <Tip label={signedOut ? t('chat.composer.signInFirst', { tool }) : sendTo ? t('chat.target.sendTo', { name: sendTo }) : busy ? t('chat.composer.sendWhileWorking', { tool }) : t('chat.composer.send')}>
               <button
                 aria-label={t('chat.composer.send')}
                 // Signed out it stays clickable (dimmed), to say why it can't.
