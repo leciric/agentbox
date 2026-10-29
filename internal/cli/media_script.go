@@ -30,6 +30,7 @@ func addRecordScript(a *app, record *cobra.Command) {
 	var script, name, target string
 	var limit time.Duration
 	var whole bool
+	var pair pairFlags
 	record.Use = "record --script <file> --name <name>"
 	record.Long = `Record the agent's display as a video.
 
@@ -46,6 +47,9 @@ Without --script, use start and stop around a walkthrough driven by hand.`
 	record.RunE = func(cmd *cobra.Command, _ []string) error {
 		if script == "" {
 			return cmd.Help()
+		}
+		if name == "" && pair.pair != "" && pair.side() != "" {
+			name = pair.pair + "-" + pair.side()
 		}
 		if name == "" {
 			return errors.New("name the recording, like --name settings-after")
@@ -65,19 +69,21 @@ Without --script, use start and stop around a walkthrough driven by hand.`
 		if err != nil {
 			return err
 		}
-		return replay(cmd, c, s, script, name, target, limit, whole)
+		return replay(cmd, c, s, script, api.RecordRequest{Target: target, Input: "desktop", Name: name, LimitSeconds: int(limit.Seconds()), WholeDisplay: whole, Pair: pair.pair, Side: pair.side()})
 	}
 	record.Flags().StringVar(&script, "script", "", "a walkthrough to replay, as the steps tool takes it")
 	record.Flags().StringVar(&name, "name", "", `with --script: a name, like "settings-after"`)
 	record.Flags().StringVar(&target, "target", "auto", "with --script: auto, display or browser")
 	record.Flags().BoolVar(&whole, "whole-display", false, "film the desktop as it is, without making the browser fullscreen first")
 	record.Flags().DurationVar(&limit, "limit", 10*time.Minute, "with --script: stop after this long")
+	pair.add(record)
 }
 
-func replay(cmd *cobra.Command, c *api.Client, s desktop.Script, script, name, target string, limit time.Duration, whole bool) error {
+func replay(cmd *cobra.Command, c *api.Client, s desktop.Script, script string, req api.RecordRequest) error {
 	ctx := cmd.Context()
 	out := cmd.OutOrStdout()
-	status, err := c.StartRecording(ctx, "", api.RecordRequest{Target: target, Input: "desktop", Name: name, LimitSeconds: int(limit.Seconds()), WholeDisplay: whole})
+	name := req.Name
+	status, err := c.StartRecording(ctx, "", req)
 	if err != nil {
 		return err
 	}

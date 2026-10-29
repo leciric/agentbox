@@ -98,7 +98,7 @@ func (s *Server) media(action string, agentOf func(*http.Request) (state.Agent, 
 			if err := readJSON(r, &req); err != nil {
 				return err
 			}
-			status, err := m.StartRecording(ctx, a, req.Target, req.Input, req.Name, time.Duration(req.LimitSeconds)*time.Second, req.NoTrim, req.WholeDisplay, source)
+			status, err := m.StartRecording(ctx, a, req.Target, req.Input, req.Name, time.Duration(req.LimitSeconds)*time.Second, req.NoTrim, req.WholeDisplay, source, agent.MediaPair{Pair: req.Pair, Side: req.Side})
 			if err != nil {
 				return err
 			}
@@ -130,12 +130,12 @@ func (s *Server) media(action string, agentOf func(*http.Request) (state.Agent, 
 		case "screenshot":
 			var req api.ScreenshotRequest
 			if err = readJSON(r, &req); err == nil {
-				item, err = m.Screenshot(ctx, a, agent.ScreenshotOptions{Target: req.Target, FullPage: req.FullPage, Name: req.Name, Source: source})
+				item, err = m.Screenshot(ctx, a, agent.ScreenshotOptions{Target: req.Target, FullPage: req.FullPage, Name: req.Name, Source: source, MediaPair: agent.MediaPair{Pair: req.Pair, Side: req.Side}})
 			}
 		case "add":
 			var req api.AddMediaRequest
 			if err = readJSON(r, &req); err == nil {
-				item, err = m.AddMedia(ctx, a, agent.AddMediaOptions{Path: req.Path, Kind: req.Kind, Name: req.Name, Source: source})
+				item, err = m.AddMedia(ctx, a, agent.AddMediaOptions{Path: req.Path, Kind: req.Kind, Name: req.Name, Source: source, MediaPair: agent.MediaPair{Pair: req.Pair, Side: req.Side}})
 			}
 		case "note":
 			var req api.NoteRequest

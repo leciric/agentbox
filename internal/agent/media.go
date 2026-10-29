@@ -62,6 +62,51 @@ type MediaMeta struct {
 	// took, and what its video leaves out.
 	Recorded float64       `json:"recorded,omitempty"`
 	Cuts     []desktop.Cut `json:"cuts,omitempty"`
+	// Pair and Side make the item one half of a before/after pair, which the
+	// review shows together, to compare (MediaPair).
+	Pair string `json:"pair,omitempty"`
+	Side string `json:"side,omitempty"`
+}
+
+// MediaPair marks a screenshot, recording or file as the before or the after
+// of a change, so the review shows the two side by side: Pair names what both
+// show, like "settings-dark", and Side is "before" or "after".
+type MediaPair struct {
+	Pair string
+	Side string
+}
+
+// pairSide is the before or after at either end of a paired item's name.
+var pairSide = regexp.MustCompile(`(?i)^(before|after)[-_ ]+|[-_ ]+(before|after)$`)
+
+// checkPair is p made whole, or why it can't be: a side alone takes its pair
+// from the item's name ("settings-before" pairs as "settings"), and a pair
+// needs a side. With no name, a paired item is called <pair>-<side>.
+func checkPair(p MediaPair, name string) (MediaPair, string, error) {
+	p.Pair, p.Side = strings.TrimSpace(p.Pair), strings.ToLower(strings.TrimSpace(p.Side))
+	name = strings.TrimSpace(name)
+	if p.Pair == "" && p.Side == "" {
+		return p, name, nil
+	}
+	if p.Side != "before" && p.Side != "after" {
+		if p.Side == "" {
+			return p, name, fmt.Errorf("say which side of %q this is: --before or --after", p.Pair)
+		}
+		return p, name, fmt.Errorf("unknown side %q: use before or after", p.Side)
+	}
+	if p.Pair == "" {
+		p.Pair = strings.TrimSpace(pairSide.ReplaceAllString(name, ""))
+		if p.Pair == "" {
+			return p, name, errors.New("name the pair this belongs to: --pair <name>")
+		}
+	}
+	if len(p.Pair) > 200 {
+		return p, name, errors.New("the pair's name is longer than 200 characters")
+	}
+	if name == "" {
+		name = p.Pair + "-" + p.Side
+	}
+	return p, name, nil
 }
 
 type TestCounts struct {
@@ -186,6 +231,7 @@ type ScreenshotOptions struct {
 	FullPage bool   // the whole page, not just what's visible (browser only)
 	Name     string
 	Source   string
+	MediaPair
 }
 
 // Screenshot captures the agent's browser page, or its whole display.
@@ -205,12 +251,16 @@ func (m *Manager) Screenshot(ctx context.Context, a state.Agent, opts Screenshot
 	if target != "browser" && target != "display" && target != "android" {
 		return state.Media{}, fmt.Errorf("unknown screenshot target %q: use browser, display or android", target)
 	}
-	p, err := m.startMedia(a, MediaScreenshot, cmpOr(strings.TrimSpace(opts.Name), target+" screenshot"), opts.Source)
+	pair, name, err := checkPair(opts.MediaPair, opts.Name)
 	if err != nil {
 		return state.Media{}, err
 	}
-	file := filepath.Join(p.dir, fileName(opts.Name, "screenshot", ".png"))
-	meta := MediaMeta{Target: target}
+	p, err := m.startMedia(a, MediaScreenshot, cmpOr(name, target+" screenshot"), opts.Source)
+	if err != nil {
+		return state.Media{}, err
+	}
+	file := filepath.Join(p.dir, fileName(name, "screenshot", ".png"))
+	meta := MediaMeta{Target: target, Pair: pair.Pair, Side: pair.Side}
 	switch target {
 	case "browser":
 		meta.URL, err = m.browserScreenshot(ctx, a, file, opts.FullPage)
@@ -326,22 +376,28 @@ type recordingState struct {
 	WholeDisplay bool      `json:"wholeDisplay,omitempty"`
 	// Staged is a recording written straight into the agent's media, through
 	// the recordings device, rather than inside the agent and copied out.
-	Staged bool `json:"staged,omitempty"`
+	Staged bool   `json:"staged,omitempty"`
+	Pair   string `json:"pair,omitempty"`
+	Side   string `json:"side,omitempty"`
 }
 
 // StartRecording records until StopRecording, or until limit: the agent's
 // display or its browser's page, with the recorder in the agentbox binary
 // (desktop.Record), or its Android emulator's screen with scrcpy. The target
 // "auto", the default, takes the page when the browser is all there is to see.
-func (m *Manager) StartRecording(ctx context.Context, a state.Agent, target, input, name string, limit time.Duration, noTrim, wholeDisplay bool, source string) (RecordingStatus, error) {
+func (m *Manager) StartRecording(ctx context.Context, a state.Agent, target, input, name string, limit time.Duration, noTrim, wholeDisplay bool, source string, pair MediaPair) (RecordingStatus, error) {
 	if err := m.requireRunning(ctx, a); err != nil {
+		return RecordingStatus{}, err
+	}
+	pair, name, err := checkPair(pair, name)
+	if err != nil {
 		return RecordingStatus{}, err
 	}
 	if limit <= 0 {
 		limit = DefaultRecordLimit
 	}
 	limit = min(limit, maxRecordLimit)
-	st := recordingState{Target: cmpOr(target, desktop.RecordAuto), Input: cmpOr(input, RecordInputPlaywright), Name: cmpOr(strings.TrimSpace(name), "recording"), Source: cmpOr(source, "user"), StartedAt: time.Now().UTC(), Limit: int(limit.Seconds()), NoTrim: noTrim, WholeDisplay: wholeDisplay}
+	st := recordingState{Target: cmpOr(target, desktop.RecordAuto), Input: cmpOr(input, RecordInputPlaywright), Name: cmpOr(strings.TrimSpace(name), "recording"), Source: cmpOr(source, "user"), StartedAt: time.Now().UTC(), Limit: int(limit.Seconds()), NoTrim: noTrim, WholeDisplay: wholeDisplay, Pair: pair.Pair, Side: pair.Side}
 	if st.Input != RecordInputPlaywright && st.Input != RecordInputDesktop {
 		return RecordingStatus{}, fmt.Errorf("unknown recording input %q: use playwright or desktop", st.Input)
 	}
@@ -567,7 +623,7 @@ func (m *Manager) StopRecording(ctx context.Context, a state.Agent) (state.Media
 	if err := json.Unmarshal([]byte(lines[0]), &st); err != nil {
 		return state.Media{}, fmt.Errorf("reading the recording's details: %w", err)
 	}
-	meta := MediaMeta{Target: cmpOr(st.Target, "display")}
+	meta := MediaMeta{Target: cmpOr(st.Target, "display"), Pair: st.Pair, Side: st.Side}
 	for _, line := range lines[1:] {
 		if c, ok := strings.CutPrefix(line, "cuts "); ok {
 			var cuts desktop.Cuts
@@ -648,6 +704,7 @@ type AddMediaOptions struct {
 	Kind   string // default: guessed from the file
 	Name   string
 	Source string
+	MediaPair
 }
 
 // AddMedia copies a file or directory out of the agent: a report, a log, an image.
@@ -683,7 +740,11 @@ else echo file; stat -c %%s "$p"; fi`, shellQuote(path)))
 
 	base := filepath.Base(path)
 	kind := cmpOr(opts.Kind, guessKind(base, isDir, hasIndex))
-	p, err := m.startMedia(a, kind, cmpOr(strings.TrimSpace(opts.Name), base), opts.Source)
+	pair, name, err := checkPair(opts.MediaPair, opts.Name)
+	if err != nil {
+		return state.Media{}, err
+	}
+	p, err := m.startMedia(a, kind, cmpOr(name, base), opts.Source)
 	if err != nil {
 		return state.Media{}, err
 	}
@@ -697,7 +758,7 @@ else echo file; stat -c %%s "$p"; fi`, shellQuote(path)))
 		p.discard()
 		return state.Media{}, err
 	}
-	var meta MediaMeta
+	meta := MediaMeta{Pair: pair.Pair, Side: pair.Side}
 	switch {
 	case isDir && hasIndex:
 		meta.Entry = "index.html"

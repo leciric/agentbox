@@ -2556,6 +2556,11 @@ type MediaMeta struct {
 	// placed in the video by taking out what was cut before it.
 	Recorded float64    `json:"recorded,omitempty"`
 	Cuts     []MediaCut `json:"cuts,omitempty"`
+	// Pair and Side make the item one half of a before/after pair: Pair
+	// names what both halves show, Side is "before" or "after". The review
+	// shows a pair together, to compare.
+	Pair string `json:"pair,omitempty"`
+	Side string `json:"side,omitempty"`
 }
 
 type MediaCut struct {
@@ -2573,6 +2578,11 @@ type ScreenshotRequest struct {
 	Target   string `json:"target,omitempty"` // browser (default), display or android
 	FullPage bool   `json:"fullPage,omitempty"`
 	Name     string `json:"name,omitempty"`
+	// Pair and Side make it one half of a before/after pair (MediaMeta).
+	// A side alone takes its pair from Name; a pair without Name is named
+	// <pair>-<side>.
+	Pair string `json:"pair,omitempty"`
+	Side string `json:"side,omitempty"`
 }
 
 type RecordRequest struct {
@@ -2586,6 +2596,10 @@ type RecordRequest struct {
 	// WholeDisplay films the desktop as it is, where a display recording
 	// otherwise makes the browser in front fullscreen first.
 	WholeDisplay bool `json:"wholeDisplay,omitempty"`
+	// Pair and Side make it one half of a before/after pair, as
+	// ScreenshotRequest's do.
+	Pair string `json:"pair,omitempty"`
+	Side string `json:"side,omitempty"`
 }
 
 type RecordingStatus struct {
@@ -2602,6 +2616,10 @@ type AddMediaRequest struct {
 	Path string `json:"path"`
 	Kind string `json:"kind,omitempty"`
 	Name string `json:"name,omitempty"`
+	// Pair and Side make it one half of a before/after pair, as
+	// ScreenshotRequest's do.
+	Pair string `json:"pair,omitempty"`
+	Side string `json:"side,omitempty"`
 }
 
 type NoteRequest struct {
