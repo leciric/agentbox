@@ -608,6 +608,102 @@
     "click": "[data-cluster-details=k3d]"
   },
   {
+    "id": "settings-clusters-light",
+    "description": "Settings open at Clusters: k3d's master URL under its image, hetzner's no-master-URL notice, and each card's Edit and Rotate, light theme",
+    "query": "settings=clusters&theme=light",
+    "width": 1100,
+    "height": 1200
+  },
+  {
+    "id": "settings-clusters-narrow-dark",
+    "description": "Settings open at Clusters in a 480px window: the cards, their seven actions wrapping, and the master URL notice, dark theme",
+    "query": "app=settings&settings=clusters&theme=dark",
+    "width": 480,
+    "height": 1400
+  },
+  {
+    "id": "settings-clusters-add-light",
+    "description": "The add-cluster form with its master URL and tailnet fields, the note saying a cluster with no master URL runs nothing, light theme",
+    "query": "settings=clusters&theme=light",
+    "width": 1280,
+    "height": 1700,
+    "click": "text=Advanced"
+  },
+  {
+    "id": "settings-clusters-add-narrow-dark",
+    "description": "The add-cluster form in a 480px window: the master URL field and the tailnet picker stacked, dark theme",
+    "query": "app=settings&settings=clusters&theme=dark",
+    "width": 480,
+    "height": 2200,
+    "click": "text=Advanced"
+  },
+  {
+    "id": "settings-clusters-add-badurl-dark",
+    "description": "The add-cluster form with a master URL that has a query: the daemon's reason under the field and Add cluster off with why, dark theme",
+    "query": "settings=clusters&theme=dark",
+    "width": 1280,
+    "height": 1700,
+    "click": "text=Advanced",
+    "fill": ["#cluster-master", "https://monster.example.ts.net/?x=1"]
+  },
+  {
+    "id": "settings-clusters-detail-light",
+    "description": "k3d's Details dialog opening on its Configuration: master URL, tailnet, budget and sizes, light theme",
+    "query": "settings=clusters&theme=light",
+    "width": 1280,
+    "height": 1000,
+    "click": "[data-cluster-details=k3d]"
+  },
+  {
+    "id": "settings-clusters-edit-dark",
+    "description": "k3d's Edit dialog: master URL, tailnet, max agents and the six sizes, Save off because nothing changed, dark theme",
+    "query": "settings=clusters&theme=dark",
+    "width": 1280,
+    "height": 1000,
+    "click": "[data-cluster-edit=k3d]"
+  },
+  {
+    "id": "settings-clusters-edit-light",
+    "description": "k3d's Edit dialog, light theme",
+    "query": "settings=clusters&theme=light",
+    "width": 1280,
+    "height": 1000,
+    "click": "[data-cluster-edit=k3d]"
+  },
+  {
+    "id": "settings-clusters-edit-narrow-dark",
+    "description": "k3d's Edit dialog in a 480px window: the sizes in one column, dark theme",
+    "query": "app=settings&settings=clusters&theme=dark",
+    "width": 480,
+    "height": 900,
+    "click": "[data-cluster-edit=k3d]"
+  },
+  {
+    "id": "settings-clusters-edit-badsize-dark",
+    "description": "k3d's Edit dialog with a memory of 4GB: the field's reason in red and Save off with why, dark theme",
+    "query": "settings=clusters&theme=dark",
+    "width": 1280,
+    "height": 1000,
+    "click": "[data-cluster-edit=k3d]",
+    "fill": ["#cluster-edit-agentMemory-k3d", "4GB"]
+  },
+  {
+    "id": "settings-clusters-rotate-dark",
+    "description": "k3d's Rotate dialog: what rotating does to the old token, the admin kubeconfig field, and Rotate off until one is pasted, dark theme",
+    "query": "settings=clusters&theme=dark",
+    "width": 1280,
+    "height": 1000,
+    "click": "[data-cluster-rotate=k3d]"
+  },
+  {
+    "id": "settings-clusters-rotate-light",
+    "description": "k3d's Rotate dialog, light theme",
+    "query": "settings=clusters&theme=light",
+    "width": 1280,
+    "height": 1000,
+    "click": "[data-cluster-rotate=k3d]"
+  },
+  {
     "id": "settings-phone-whole-dark",
     "description": "Settings open at Phone, tall enough to show every row of the section, to read its labels and descriptions — dark",
     "query": "settings=phone&theme=dark",

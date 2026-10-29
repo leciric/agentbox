@@ -2253,7 +2253,8 @@ export const devRequests: ((method: string, path: string, body?: unknown) => { s
 // fixtureClusters and fixtureRegistries are what GET /v1/clusters and
 // /v1/registries answer: a k3d cluster whose image is in a Forgejo registry,
 // with room for two more; a full nas, which the create dialog queues on; and a
-// draining hetzner, which ran an upgrade and has the image before it.
+// draining hetzner, which ran an upgrade and has the image before it, and has no
+// master URL, so its card says no agent starts there.
 // Settings draws them, and the create dialog's picker reads the cluster.
 export const fixtureClusters: T.Cluster[] = [
   {
@@ -2261,8 +2262,12 @@ export const fixtureClusters: T.Cluster[] = [
     namespace: 'agentbox',
     storageClass: 'local-path',
     image: 'agentbox-agent:dev',
+    masterURL: 'https://monster.example.ts.net',
     registry: 'forgejo',
     maxAgents: 4,
+    agentCPU: '2',
+    agentMemory: '4Gi',
+    workspaceSize: '20Gi',
     tailnet: 'operator',
     createdAt: '2026-10-20T10:00:00Z',
     lastSeen: '2026-10-27T09:12:00Z',
@@ -2274,6 +2279,7 @@ export const fixtureClusters: T.Cluster[] = [
     storageClass: 'longhorn',
     image: 'agentbox-agent:dev',
     registry: 'forgejo',
+    masterURL: 'https://monster.example.ts.net',
     maxAgents: 4,
     tailnet: 'operator',
     createdAt: '2026-10-18T08:00:00Z',
