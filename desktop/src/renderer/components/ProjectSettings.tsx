@@ -151,11 +151,25 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
       description: t('defaults.project.groupPullsDescription'),
       entries: [
         {
+          id: 'pulls-tab',
+          label: t('defaults.project.pullsTabLabel'),
+          keywords: t('defaults.project.pullsTabKeywords'),
+          modified: !project.pullRequests,
+          render: () => <PullsTabToggle project={project} />,
+        },
+        {
           id: 'agent-prs',
           label: t('defaults.project.agentPRsLabel'),
           keywords: t('defaults.project.agentPRsKeywords'),
           modified: project.agentPRs,
           render: () => <AgentPRsToggle project={project} />,
+        },
+        {
+          id: 'pick-up-issues',
+          label: t('defaults.project.pickUpLabel'),
+          keywords: t('defaults.project.pickUpKeywords'),
+          modified: project.pickUpIssues,
+          render: () => <PickUpIssuesToggle project={project} />,
         },
         {
           id: 'pr-watch',
@@ -184,6 +198,19 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
           keywords: t('defaults.project.finishKeywords'),
           modified: project.finishNotices !== 'lead',
           render: () => <FinishNoticesPicker project={project} />,
+        },
+      ],
+    },
+    {
+      id: 'tests',
+      title: t('defaults.project.groupTests'),
+      entries: [
+        {
+          id: 'full-test-suite',
+          label: t('defaults.project.fullSuiteLabel'),
+          keywords: t('defaults.project.fullSuiteKeywords'),
+          modified: project.fullTestSuite,
+          render: () => <FullTestSuiteToggle project={project} />,
         },
       ],
     },
@@ -605,8 +632,112 @@ function AgentPRsToggle({ project }: { project: T.Project }) {
         <Switch
           id="project-agent-prs"
           data-project-agent-prs
-          checked={project.agentPRs}
+          checked={save.isPending ? save.variables : project.agentPRs}
+          onCheckedChange={(on) => save.mutate(on)}
+        />
+      }
+    />
+  );
+}
+
+// PickUpIssuesToggle has the project hand its open GitHub issues labelled
+// agentbox to new agents by itself (daemon/issues.go); the Issues view has the
+// same switch.
+function PickUpIssuesToggle({ project }: { project: T.Project }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (pickUpIssues: boolean) => api.updateProject(project.name, { pickUpIssues }),
+    onSuccess: async (updated) => {
+      toast(updated.pickUpIssues ? t('defaults.project.pickUpOnToast', { name: updated.name }) : t('defaults.project.pickUpOffToast', { name: updated.name }));
+      await Promise.all([queryClient.invalidateQueries({ queryKey: ['projects'] }), queryClient.invalidateQueries({ queryKey: ['issues', project.name] })]);
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  return (
+    <SettingRow
+      label={t('defaults.project.pickUpLabel')}
+      htmlFor="project-pick-up-issues"
+      description={project.pickUpIssues ? t('defaults.project.pickUpOnDescription') : t('defaults.project.pickUpOffDescription')}
+      details={t('defaults.project.pickUpDetails')}
+      control={
+        <Switch id="project-pick-up-issues" data-project-pick-up-issues checked={project.pickUpIssues} disabled={save.isPending} onCheckedChange={(on) => save.mutate(on)} />
+      }
+    />
+  );
+}
+
+// FullTestSuiteToggle lets this project's agents run a whole test suite while
+// Settings → Experimental blocks them (internal/cli/fullsuite.go): the one
+// setting decides for every project, and this only matters while it's on.
+function FullTestSuiteToggle({ project }: { project: T.Project }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const save = useMutation({
+    mutationFn: (fullTestSuite: boolean) => api.updateProject(project.name, { fullTestSuite }),
+    onSuccess: async (updated) => {
+      toast(updated.fullTestSuite ? t('defaults.project.fullSuiteOnToast', { name: updated.name }) : t('defaults.project.fullSuiteOffToast', { name: updated.name }));
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const blocking = settings.data?.blockFullSuite ?? false;
+
+  return (
+    <SettingRow
+      label={t('defaults.project.fullSuiteLabel')}
+      htmlFor="project-full-test-suite"
+      description={project.fullTestSuite ? t('defaults.project.fullSuiteOnDescription') : t('defaults.project.fullSuiteOffDescription')}
+      details={t('defaults.project.fullSuiteDetails')}
+      control={
+        <Switch
+          id="project-full-test-suite"
+          data-project-full-test-suite
+          checked={project.fullTestSuite}
           disabled={save.isPending}
+          onCheckedChange={(on) => save.mutate(on)}
+        />
+      }
+    >
+      {settings.data && !blocking && (
+        <SettingNote>
+          {t('defaults.project.fullSuiteInactive')}{' '}
+          <button type="button" data-open-experimental className="underline underline-offset-2" onClick={() => openSettingsSection('experimental')}>
+            {t('defaults.project.fullSuiteOpenExperimental')}
+          </button>
+        </SettingNote>
+      )}
+    </SettingRow>
+  );
+}
+
+// PullsTabToggle turns the lead's Pull requests tab on or off for this
+// project, and with it the minute's poll of GitHub that keeps its counts
+// (RightPanel's LeadSwitch). On by default.
+function PullsTabToggle({ project }: { project: T.Project }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (pullRequests: boolean) => api.updateProject(project.name, { pullRequests }),
+    onSuccess: async (updated) => {
+      toast(updated.pullRequests ? t('defaults.project.pullsTabOnToast', { name: updated.name }) : t('defaults.project.pullsTabOffToast', { name: updated.name }));
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  return (
+    <SettingRow
+      label={t('defaults.project.pullsTabLabel')}
+      htmlFor="project-pulls-tab"
+      description={project.pullRequests ? t('defaults.project.pullsTabOnDescription') : t('defaults.project.pullsTabOffDescription')}
+      details={t('defaults.project.pullsTabDetails')}
+      control={
+        <Switch
+          id="project-pulls-tab"
+          data-project-pulls-tab
+          checked={save.isPending ? save.variables : project.pullRequests}
           onCheckedChange={(on) => save.mutate(on)}
         />
       }
@@ -641,8 +772,7 @@ function SyncBaseToggle({ project }: { project: T.Project }) {
         <Switch
           id="project-sync-base"
           data-project-sync-base
-          checked={project.syncBase}
-          disabled={save.isPending}
+          checked={save.isPending ? save.variables : project.syncBase}
           onCheckedChange={(on) => save.mutate(on)}
         />
       }
@@ -679,8 +809,8 @@ function NestingToggle({ project }: { project: T.Project }) {
         <Switch
           id="project-nesting"
           data-project-nesting
-          checked={project.nesting}
-          disabled={save.isPending || (!hasIncus && !project.nesting)}
+          checked={save.isPending ? save.variables : project.nesting}
+          disabled={!hasIncus && !project.nesting}
           onCheckedChange={(on) => save.mutate(on)}
         />
       }

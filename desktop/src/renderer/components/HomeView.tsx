@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, Camera, FolderPlus, Layers, Monitor, Plus, Sparkles, SquareTerminal, TriangleAlert, Wrench } from 'lucide-react';
+import { ArrowRight, Camera, FolderPlus, Layers, Link, Monitor, Plus, Sparkles, SquareTerminal, TriangleAlert, Wrench } from 'lucide-react';
 import type { ComponentType, ReactNode } from 'react';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
@@ -8,7 +8,7 @@ import { formatList, formatNumber, useT } from '../lib/i18n';
 import { summarizeStatus, type StatusTone } from '../lib/agentStatus';
 import { cn, humanBytes, humanRate, shortRate, stallPressure, timeAgo } from '../lib/utils';
 import { AllAgentsPanel } from './AllAgentsPanel';
-import { PastAgentsList } from './PastAgents';
+import { WorkList } from './WorkView';
 import { JobStatusBadge } from './state';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -23,6 +23,7 @@ import { openSettingsSection } from './SettingsPage';
 export function HomeView({
   onSelect,
   onAddProject,
+  onCloneProject,
   onNewAgent,
   heading = true,
   project,
@@ -31,6 +32,7 @@ export function HomeView({
 }: {
   onSelect: (view: View) => void;
   onAddProject: () => void;
+  onCloneProject?: () => void;
   onNewAgent: () => void;
   heading?: boolean;
   project?: string;
@@ -45,7 +47,7 @@ export function HomeView({
   const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup, refetchInterval: 15_000 });
 
   if (projects.data?.length === 0) {
-    return <Welcome onAddProject={onAddProject} onSetup={() => openSettingsSection('setup')} setupReady={setup.data?.ready} />;
+    return <Welcome onAddProject={onAddProject} onCloneProject={onCloneProject ?? onAddProject} onSetup={() => openSettingsSection('setup')} setupReady={setup.data?.ready} />;
   }
 
   const all = agents.data ?? [];
@@ -143,11 +145,11 @@ export function HomeView({
         </SectionTitle>
         <AllAgentsPanel project={project || undefined} onSelect={onSelect} onNewAgent={onNewAgent} />
 
-        {/* Every project's agents whose machine was removed, with their chats. */}
+        {/* The latest work, live agents' and past ones' (WorkView). */}
         {pastAgents && (
           <>
-            <SectionTitle>{t('pastAgents.title')}</SectionTitle>
-            <PastAgentsList key={project ?? ''} project={project || undefined} limit={8} onOpen={(ref) => onSelect({ kind: 'pastAgents', ref })} onShowAll={() => onSelect({ kind: 'pastAgents' })} />
+            <SectionTitle>{t('work.title')}</SectionTitle>
+            <WorkList key={project ?? ''} project={project || undefined} limit={8} onSelect={onSelect} onShowAll={() => onSelect({ kind: 'work', project: project || undefined })} />
           </>
         )}
 
@@ -280,7 +282,17 @@ function Stat({ label, value, detail, fraction, note }: { label: string; value: 
   );
 }
 
-function Welcome({ onAddProject, onSetup, setupReady }: { onAddProject: () => void; onSetup: () => void; setupReady?: boolean }) {
+function Welcome({
+  onAddProject,
+  onCloneProject,
+  onSetup,
+  setupReady,
+}: {
+  onAddProject: () => void;
+  onCloneProject: () => void;
+  onSetup: () => void;
+  setupReady?: boolean;
+}) {
   const t = useT();
   return (
     <div className="h-full overflow-y-auto">
@@ -298,6 +310,10 @@ function Welcome({ onAddProject, onSetup, setupReady }: { onAddProject: () => vo
             <Button variant="primary" size="lg" onClick={onAddProject}>
               <FolderPlus />
               {t('shell.home.addProject')}
+            </Button>
+            <Button size="lg" onClick={onCloneProject} data-welcome-clone>
+              <Link />
+              {t('shell.home.cloneProject')}
             </Button>
             <Button size="lg" onClick={onSetup}>
               {setupReady === false ? <TriangleAlert className="text-amber-300" /> : <Wrench />}

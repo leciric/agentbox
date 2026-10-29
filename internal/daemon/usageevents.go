@@ -1,13 +1,10 @@
 package daemon
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -26,10 +23,14 @@ import (
 // the update check (sendUsage) to agentbox.linting.dev's /api/v1/events. Each
 // is a name and fixed fields, every one a number, a yes or no, or a value from
 // a fixed list here: never a prompt, a path, a name, a branch, or anything
-// typed. The server refuses an event with any other name or field
+// typed. The one exception is an error's reason, the error's own wording
+// with all of those taken out (errorreason.go). Every event also carries the
+// installation's UTC offset in whole hours (usageUTCOffset). The server refuses an event with any other name or field
 // (agentbox-landing's functions/api/v1/events.ts), so the two lists change
 // together. The same rules as the counts decide whether one is kept at all
 // (usageStatsOn), and turning the stats off forgets those not sent.
+// The VM's health (healthevent.go) and the setup funnel (setupevent.go) are
+// sent in batches of their own.
 
 const (
 	eventTurn          = "turn.completed"
@@ -81,17 +82,14 @@ type agentFinishedEvent struct {
 	PRMerged bool   `json:"pr_merged"`
 }
 
-// errorEvent is something that failed, by a fixed code.
+// errorEvent is something that failed, by a fixed code, with why: a class
+// from a fixed list (errorClasses) and the error's redacted wording
+// (errorReason), "" when there is none.
 type errorEvent struct {
-	Code string `json:"code"`
-	Tool string `json:"tool"`
-}
-
-// setupEvent is a step of a new installation's setup, the first time it
-// happens, with how long after the setup began.
-type setupEvent struct {
-	Step  string `json:"step"`
-	Since string `json:"since"`
+	Code   string `json:"code"`
+	Tool   string `json:"tool"`
+	Class  string `json:"class"`
+	Reason string `json:"reason"`
 }
 
 // The error codes. vm_start_failed is the front end's, which runs outside the
@@ -103,15 +101,6 @@ const (
 	errAdapterCrashed   = "adapter_crashed"
 	errAuthFailed       = "auth_failed"
 	errPRMergeFailed    = "pr_merge_failed"
-)
-
-// The setup steps, in the order a new installation usually reaches them.
-const (
-	setupStarted      = "setup_started"
-	setupImageBuilt   = "image_built"
-	setupFirstProject = "first_project"
-	setupFirstAgent   = "first_agent"
-	setupFirstPR      = "first_pr"
 )
 
 // The settings the events keep between days: when the setup began, which of
@@ -132,9 +121,15 @@ func (s *Server) recordEvent(name string, props any) {
 		return
 	}
 	raw, err := json.Marshal(props)
-	if err != nil {
+	if err != nil || len(raw) < 2 || raw[len(raw)-1] != '}' {
 		return
 	}
+	offset, _ := json.Marshal(s.usageUTCOffset(ctx, time.Now()))
+	sep := ","
+	if len(raw) == 2 {
+		sep = ""
+	}
+	raw = append(append(raw[:len(raw)-1], sep+`"utc_offset":`...), append(offset, '}')...)
 	e := state.UsageEvent{ID: uuid.NewString(), Day: usageDay(time.Now()), Name: name, Props: raw}
 	if err := s.store.AddUsageEvent(ctx, e); err != nil {
 		s.logf("recording %s: %v", name, err)
@@ -211,13 +206,22 @@ func usageSpan(d time.Duration) string {
 	return "gt_1w"
 }
 
-// recordError keeps an error event, with the agent's tool when there is one.
-func (s *Server) recordError(code, ai string) {
+// recordError keeps an error event, with the agent's tool when there is one,
+// and why (errorClass, errorReason).
+func (s *Server) recordError(code, ai, class, reason string) {
 	tool := "none"
 	if ai == "claude" || ai == "codex" || ai == "opencode" || ai == "cursor" {
 		tool = ai
 	}
-	s.recordEvent(eventError, errorEvent{Code: code, Tool: tool})
+	if !slices.Contains(errorClasses, class) {
+		class = classOther
+	}
+	s.recordEvent(eventError, errorEvent{Code: code, Tool: tool, Class: class, Reason: reason})
+}
+
+// recordErr is recordError for err, whose text is redacted of names too.
+func (s *Server) recordErr(code, ai string, err error, names ...string) {
+	s.recordError(code, ai, errorClass(err, ""), s.errorReason(err.Error(), names...))
 }
 
 // recordAgentFinished keeps an agent.finished for a, which was just destroyed
@@ -253,53 +257,6 @@ func (s *Server) recordAgentFinished(ctx context.Context, a state.Agent, how str
 		}
 	}
 	s.recordEvent(eventAgentFinished, e)
-}
-
-// beginSetupFunnel decides, once, whether this installation's setup is still
-// ahead of it: one with no projects yet starts it now, and one already in use
-// never sends a step.
-func (s *Server) beginSetupFunnel(ctx context.Context) {
-	if at, err := s.store.Setting(ctx, settingUsageSetupAt); err != nil || at != "" {
-		return
-	}
-	projects, err := s.store.Projects(ctx)
-	if err != nil {
-		return
-	}
-	if len(projects) > 0 {
-		_ = s.store.SetSetting(ctx, settingUsageSetupAt, "existing")
-		return
-	}
-	_ = s.store.SetSetting(ctx, settingUsageSetupAt, strconv.FormatInt(time.Now().Unix(), 10))
-	s.setupStep(ctx, setupStarted)
-}
-
-// setupStep keeps a setup event the first time this installation reaches
-// step, with how long after its setup began.
-func (s *Server) setupStep(ctx context.Context, step string) {
-	if !s.usageStatsOn(ctx) {
-		return
-	}
-	at, err := s.store.Setting(ctx, settingUsageSetupAt)
-	if err != nil {
-		return
-	}
-	began, err := strconv.ParseInt(at, 10, 64)
-	if err != nil {
-		return // never begun here, or "existing"
-	}
-	steps, err := s.store.Setting(ctx, settingUsageSetupSteps)
-	if err != nil {
-		return
-	}
-	done := strings.Split(steps, ",")
-	if slices.Contains(done, step) {
-		return
-	}
-	if err := s.store.SetSetting(ctx, settingUsageSetupSteps, strings.Trim(steps+","+step, ",")); err != nil {
-		return
-	}
-	s.recordEvent(eventSetup, setupEvent{Step: step, Since: usageSpan(time.Since(time.Unix(began, 0)))})
 }
 
 // usagePeak is the most agents there were at once: the day it was for, and
@@ -453,24 +410,7 @@ func usageMemory(bytes int64) string {
 
 // memTotal is the memory this machine has, in bytes, 0 when unknown: in
 // AgentBox's VM, the VM's.
-func memTotal() int64 {
-	f, err := os.Open("/proc/meminfo")
-	if err != nil {
-		return 0
-	}
-	defer func() { _ = f.Close() }()
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		if rest, ok := strings.CutPrefix(sc.Text(), "MemTotal:"); ok {
-			kb, err := strconv.ParseInt(strings.TrimSuffix(strings.TrimSpace(rest), " kB"), 10, 64)
-			if err != nil {
-				return 0
-			}
-			return kb << 10
-		}
-	}
-	return 0
-}
+func memTotal() int64 { return readMemInfo()["MemTotal"] }
 
 func usageLanguage(language string) string {
 	switch strings.ToLower(language) {
@@ -485,17 +425,39 @@ func usageLanguage(language string) string {
 }
 
 // pendingEvents is what the next report sends, oldest first, and the seq of
-// the last.
+// the last: the oldest events of one batch (eventBatch), all health events or
+// none.
 func (s *Server) pendingEvents(ctx context.Context) ([]update.UsageEvent, int64, error) {
 	rows, err := s.store.UsageEvents(ctx, update.MaxEventsPerReport)
 	if err != nil || len(rows) == 0 {
 		return nil, 0, err
 	}
+	n := 1
+	for n < len(rows) && eventBatch(rows[n].Name) == eventBatch(rows[0].Name) {
+		n++
+	}
+	return usageEvents(rows[:n]), rows[n-1].Seq, nil
+}
+
+// eventBatch is the batch an event goes in: "" for the usual one, or the
+// health or setup event's own. A server that doesn't know an event's fields
+// yet refuses a whole batch with one in it, so those go apart from the
+// others until agentbox-landing takes them.
+func eventBatch(name string) string {
+	switch name {
+	case eventHealth, eventSetup:
+		return name
+	}
+	return ""
+}
+
+// usageEvents is rows as they are sent.
+func usageEvents(rows []state.UsageEvent) []update.UsageEvent {
 	out := make([]update.UsageEvent, len(rows))
 	for i, r := range rows {
 		out[i] = update.UsageEvent{ID: r.ID, Day: r.Day, Name: r.Name, Props: r.Props}
 	}
-	return out, rows[len(rows)-1].Seq, nil
+	return out
 }
 
 // sendEvents sends what events are waiting, a report at a time, and forgets

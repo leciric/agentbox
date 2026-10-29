@@ -2,8 +2,10 @@
 import type { ApiResponse } from '../../preload';
 import * as T from '../../shared/api.ts';
 import { recordRequest, clientSpansPath } from './appTiming.ts';
+import { recapQuery } from './recap.ts';
 import type * as D from './diagnostics.ts';
 import { errorMessage } from './utils.ts';
+import { t } from '../../shared/i18n/index.ts';
 import { ensureVMRunning } from './vm.ts';
 
 export class ApiError extends Error {
@@ -31,15 +33,37 @@ async function call<R>(method: string, path: string, body?: unknown): Promise<R>
   if (res.status >= 400) {
     let message = res.body.trim();
     let code: string | undefined;
+    let json = false;
     try {
       ({ error: message, code } = JSON.parse(res.body) as T.Error);
+      json = true;
     } catch {
       // not JSON
+    }
+    if (!json && (res.status === 404 || res.status === 405)) {
+      const outdated = await outdatedDaemon();
+      if (outdated) throw new ApiError(t('shell.app.daemonOutdated', outdated), res.status, 'daemon_outdated');
     }
     throw new ApiError(message || `HTTP ${res.status}`, res.status, code);
   }
   if (res.status === 204 || res.body === '') return undefined as R;
   return (res.contentType.includes('application/json') ? JSON.parse(res.body) : res.body) as R;
+}
+
+// outdatedDaemon is the daemon's version and the app's when they differ. A
+// request the daemon has no route for is answered by Go's own plain-text
+// "404 page not found" (or 405), never the daemon's JSON errors: it's a
+// request newer than the daemon, which is still the version from before the
+// app updated (main/daemon.ts restarts it once its jobs are done).
+async function outdatedDaemon(): Promise<{ daemon: string; app: string } | undefined> {
+  try {
+    const [info, version] = await Promise.all([window.agentbox.info(), window.agentbox.request('GET', '/v1/version')]);
+    const daemon = (JSON.parse(version.body) as { version?: string }).version;
+    if (!info.packaged || !daemon || daemon === 'dev' || daemon === info.version) return undefined;
+    return { daemon, app: info.version };
+  } catch {
+    return undefined;
+  }
 }
 
 // page is call for a list read a page at a time (?limit=), whose answer is
@@ -84,7 +108,10 @@ export const isProjectChat = (ref: string) => {
 export const agentPath = agent;
 // The WebSocket paths of an agent's VNC displays, for lib/vnc.
 export const browserViewPath = (ref: string) => `${agent(ref)}/browser/view`;
-export const androidViewPath = (ref: string) => `${agent(ref)}/android/view`;
+// The WebSocket of an iOS simulator's screen, which the agent drives from
+// its panel (internal/iossim): H.264 frames and input, not VNC.
+export const iosViewPath = (ref: string, device: string) => `${agent(ref)}/ios/view?device=${encodeURIComponent(device)}`;
+export const androidStreamPath = (ref: string) => `${agent(ref)}/android/stream`;
 
 // The Home chat is a lead kept under T.HomeProject rather than a project.
 export const isHomeChat = (ref: string) => ref.split('/')[0] === T.HomeProject;
@@ -157,6 +184,9 @@ function providerQuery(provider?: string): string {
 export const api = {
   settings: () => call<T.Settings>('GET', '/v1/settings'),
   // Chatting from a phone on the local network.
+  // This machine's connection to a hub, as an environment.
+  remote: () => call<T.RemoteStatus>('GET', '/v1/remote'),
+  pairRemote: (req: T.RemotePairRequest) => call<T.RemoteStatus>('POST', '/v1/remote/pair', req),
   lan: () => call<T.LANStatus>('GET', '/v1/lan'),
   updateLAN: (req: T.UpdateLANRequest) => call<T.LANStatus>('PATCH', '/v1/lan', req),
   pairLAN: () => call<T.LANPairing>('POST', '/v1/lan/pairings'),
@@ -173,6 +203,8 @@ export const api = {
   reportDraft: (req: T.ReportDraftRequest) => call<T.ReportDraft>('POST', '/v1/reports/draft', req),
   sendReport: (req: T.ReportRequest) => call<T.ReportSent>('POST', '/v1/reports', req),
   tokens: (q: TokenQuery) => call<T.TokenReport>('GET', `/v1/tokens${tokenParams(q)}`),
+  // The user's week with AgentBox (components/RecapView): this one, or weeks before.
+  recap: (weeks: number) => call<T.Recap>('GET', recapQuery(weeks)),
   claudeLimits: () => call<T.ClaudeLimit[]>('GET', '/v1/limits'),
   codexLimits: () => call<T.ClaudeLimit[]>('GET', '/v1/limits?tool=codex'),
   tokenTurns: (q: TokenQuery, limit = 100) => call<T.TokenTurn[]>('GET', `/v1/tokens/turns${tokenParams(q, { limit: String(limit) })}`),
@@ -180,6 +212,9 @@ export const api = {
   updateTheme: (req: T.UpdateThemeRequest) => call<T.Theme>('PATCH', '/v1/theme', req),
   projects: () => call<T.Project[]>('GET', '/v1/projects'),
   addProject: (req: T.AddProjectRequest) => call<T.Project>('POST', '/v1/projects', req),
+  // cloneProject starts the job that clones a repository and adds it: the
+  // finished job's result is the Project.
+  cloneProject: (req: T.CloneProjectRequest) => call<T.Job>('POST', '/v1/projects/clone', req),
   updateProject: (name: string, req: T.UpdateProjectRequest) => call<T.Project>('PATCH', project(name), req),
   removeProject: (name: string) => call<void>('DELETE', project(name)),
   // When the user last wrote to each project and when anything last happened
@@ -239,6 +274,11 @@ export const api = {
   destroyAgent: (ref: string, force: boolean, deleteBranch: boolean, deleteMedia: boolean) =>
     call<void>('DELETE', `${agent(ref)}?force=${force}&deleteBranch=${deleteBranch}&deleteMedia=${deleteMedia}`),
   agentDisk: (ref: string) => call<T.AgentDisk>('GET', `${agent(ref)}/disk`),
+  // The agents holding a stopped machine, in project or every project; check
+  // adds what "remove stopped agents' machines" would do with each.
+  stoppedMachines: (project: string, check: boolean) =>
+    call<T.StoppedMachines>('GET', `/v1/stopped-machines?${new URLSearchParams({ ...(project && { project }), ...(check && { check: '1' }) })}`),
+  removeStopped: (agents: string[]) => call<T.RemoveStoppedResult>('POST', '/v1/stopped-machines/remove', { agents } satisfies T.RemoveStoppedRequest),
   agentCredential: (ref: string) => call<T.ToolCredential>('GET', `${agent(ref)}/credential`),
   agentAction: async (ref: string, action: AgentAction) => {
     if (action === 'start' || action === 'resume') await ensureVMRunning();
@@ -262,6 +302,8 @@ export const api = {
     return call<T.ArchivedAgent[]>('GET', `/v1/archived-agents${query ? `?${query}` : ''}`);
   },
   archivedAgent: (ref: string) => call<T.ArchivedAgent>('GET', archived(ref)),
+  // archivedDiff is a past agent's whole diff, its kept branch against where it started.
+  archivedDiff: (ref: string) => text('GET', `${archived(ref)}/diff`),
   deleteArchived: (ref: string) => call<void>('DELETE', archived(ref)),
   deleteArchivedMany: (refs: string[]) => call<T.DeleteArchivedResult>('POST', '/v1/archived-agents/delete', { refs } satisfies T.DeleteArchivedRequest),
   continueArchived: async (ref: string, req: T.ContinueArchivedRequest) => {
@@ -302,6 +344,10 @@ export const api = {
   // project's name, or T.HomeProject for the Home chat.
   chatRunners: (name: string) => call<T.LeadRunners>('GET', `${project(name)}/chat/runners`),
   setChatRunner: (name: string, req: T.LeadRunnerRequest) => call<T.ChatSession>('PUT', `${project(name)}/chat/runner`, req),
+  // An agent's composer moves it to another account of its own tool, at
+  // once, in the lead's shapes (an agent's tool can't change).
+  agentRunners: (ref: string) => call<T.LeadRunners>('GET', `${chatBase(ref)}/runners`),
+  setAgentRunner: (ref: string, req: T.LeadRunnerRequest) => call<T.ChatSession>('PUT', `${chatBase(ref)}/runner`, req),
   // A project chat's prompt cache, and the card that asks before a message
   // re-sends a context whose cache is about to expire (or has).
   chatCache: (name: string) => call<T.ChatCache>('GET', `${project(name)}/chat/cache`),
@@ -312,6 +358,9 @@ export const api = {
     call<T.FileList>('GET', `${filesBase(ref)}/list?${new URLSearchParams({ path, ...(ignored ? { ignored: '1' } : {}) })}`),
   readFile: (ref: string, path: string, full = false) =>
     call<T.FileContent>('GET', `${filesBase(ref)}/read?${new URLSearchParams({ path, base: '1', ...(full ? { full: '1' } : {}) })}`),
+  // A database in the worktree, read-only: its tables, and with table a page of its rows.
+  sqlite: (ref: string, path: string, table = '', offset = 0, limit = 0) =>
+    call<T.SQLiteQuery>('GET', `${filesBase(ref)}/sqlite?${new URLSearchParams({ path, ...(table ? { table, offset: String(offset), limit: String(limit) } : {}) })}`),
   fileStatus: (ref: string, fresh = false) => call<T.FileStatus>('GET', `${filesBase(ref)}/status${fresh ? '?fresh=1' : ''}`),
 
   // Scheduled tasks (internal/daemon/schedules.go): a project's, and their runs.
@@ -342,6 +391,8 @@ export const api = {
   secrets: (target: string) => call<T.Secret[]>('GET', secretsBase(target)),
   setSecret: (target: string, name: string, value: string) =>
     call<T.Secret>('PUT', `${secretsBase(target)}/${encodeURIComponent(name)}`, { value } satisfies T.SetSecretRequest),
+  setSecretLeadManaged: (project: string, name: string, leadManaged: boolean) =>
+    call<T.Secret>('PATCH', `${secretsBase(project)}/${encodeURIComponent(name)}`, { leadManaged } satisfies T.SecretSettingsRequest),
   removeSecret: (target: string, name: string) => call<void>('DELETE', `${secretsBase(target)}/${encodeURIComponent(name)}`),
 
   // A project's browser cookies, imported from an export the user made: the
@@ -365,6 +416,14 @@ export const api = {
       keyringSecret,
     } satisfies T.ImportFromBrowserRequest);
   },
+  // Seal cookies read and decrypted on the host (a Windows app-bound browser
+  // the daemon in the VM can't open; the host read them by launching the
+  // browser itself). source names the browser and profile for the card.
+  importDecryptedCookies: (name: string, source: string, cookies: T.ImportedCookie[]) =>
+    call<T.BrowserCookies>('POST', `${project(name)}/browser-cookies/from-browser-decrypted`, {
+      source,
+      cookies,
+    } satisfies T.ImportDecryptedCookiesRequest),
 
   // SnapShots waiting for the composer (agentbox snap), and sending one.
   snaps: () => call<T.Snap[]>('GET', '/v1/snaps'),
@@ -413,6 +472,9 @@ export const api = {
   readyToReviewPage: (query: URLSearchParams, name?: string) => page<T.ReviewPage>(`${name ? `${project(name)}/review` : '/v1/review'}?${query}`),
   // Reviewed: the agents already looked at or dismissed, the latest first.
   reviewedPage: (query: URLSearchParams, name?: string) => page<T.ReviewPage>(`${name ? `${project(name)}/review` : '/v1/review'}?reviewed=1&${query}`),
+  // Work: every agent's work, live and past, of a project or every one,
+  // newest first, a page at a time (query: filter, q, limit, cursor).
+  workPage: (query: URLSearchParams, name?: string) => page<T.WorkPage>(`${name ? `${project(name)}/work` : '/v1/work'}?${query}`),
   review: (ref: string, req: T.ReviewRequest) => call<void>('POST', `${agent(ref)}/review`, req),
   requestChanges: (ref: string, req: T.RequestChangesRequest) => call<T.ChatItem>('POST', `${agent(ref)}/request-changes`, req),
   // Notes on lines of an agent's diff, drafts until Request changes sends them.
@@ -437,6 +499,10 @@ export const api = {
   // daemon's cache: the tab's refresh button.
   projectPullRequests: (project: string, refresh = false) =>
     call<T.ProjectPullRequests>('GET', `/v1/projects/${encodeURIComponent(project)}/pulls${refresh ? '?refresh=1' : ''}`),
+  // A project repository's open issues, each with the agent it was handed to;
+  // refresh reads GitHub now. Handing one over is createAgent with its issue.
+  projectIssues: (project: string, refresh = false) =>
+    call<T.ProjectIssues>('GET', `/v1/projects/${encodeURIComponent(project)}/issues${refresh ? '?refresh=1' : ''}`),
   projectLabels: (project: string) => call<T.ProjectLabels>('GET', `/v1/projects/${encodeURIComponent(project)}/labels`),
   editPullRequestLabels: (project: string, number: number, edit: T.EditLabelsRequest) =>
     call<T.Label[]>('POST', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}/labels`, edit satisfies T.EditLabelsRequest),
@@ -518,10 +584,19 @@ export const api = {
   startAndroid: (ref: string, req: T.AndroidStartRequest = {}) => call<T.AndroidStatus>('POST', `${agent(ref)}/android/start`, req),
   stopAndroid: (ref: string) => call<T.AndroidStatus>('POST', `${agent(ref)}/android/stop`),
 
+  // The Mac's iOS Simulator, as an agent sees it (internal/iossim).
+  ios: (ref: string) => call<T.IOSStatus>('GET', `${agent(ref)}/ios`),
+  openIOS: (ref: string, device: string) => call<T.IOSStatus>('POST', `${agent(ref)}/ios/open`, { device } satisfies T.IOSDeviceRequest),
+  closeIOS: (ref: string, device: string) => call<T.IOSStatus>('POST', `${agent(ref)}/ios/close`, { device } satisfies T.IOSDeviceRequest),
+  iosInput: (ref: string, input: T.IOSInput) => call<void>('POST', `${agent(ref)}/ios/input`, input),
+
   media: (ref: string) => call<T.MediaItem[]>('GET', `${agent(ref)}/media`),
   // What an agent did, as steps read out of its chat (internal/timeline); a
   // past agent's too.
   timeline: (ref: string) => call<T.Timeline>('GET', `${agent(ref)}/timeline`),
+  // saveShare saves what the agent did as one page to send anyone, where the
+  // user picks (a browser downloads it): where it went, or '' for nowhere.
+  saveShare: (ref: string) => window.agentbox.saveShare(`${agent(ref)}/share`, `${ref.replace(/[^A-Za-z0-9_-]/g, '-')}.html`),
   deleteMedia: (id: string) => call<void>('DELETE', `/v1/media/${encodeURIComponent(id)}`),
   setMediaFavorite: (id: string, favorite: boolean) =>
     call<T.MediaItem>('PATCH', `/v1/media/${encodeURIComponent(id)}`, { favorite } satisfies T.UpdateMediaRequest),
@@ -563,7 +638,9 @@ export const api = {
   // ("30m"), resource samples over a window ("1h"), and the app's own spans.
   diagnosticSpans: (since: string) => call<T.DiagnosticsSpans>('GET', `/v1/diagnostics/spans?since=${encodeURIComponent(since)}`),
   diagnosticStalls: (since: string) => call<T.DiagnosticsStalls>('GET', `/v1/diagnostics/stalls?since=${encodeURIComponent(since)}`),
+  diagnosticFiles: () => call<T.DiagnosticsFiles>('GET', '/v1/diagnostics/files'),
   diagnosticResources: (span: D.ResourceWindow) => call<T.DiagnosticsResources>('GET', `/v1/diagnostics/resources?window=${span}`),
+  diagnosticPackageCache: () => call<T.DiagnosticsPackageCache>('GET', '/v1/diagnostics/package-cache'),
   sendClientSpans: (spans: T.TraceSpan[]) => call<void>('POST', clientSpansPath, { spans } satisfies T.ClientSpansRequest),
   diskUsage: () => call<T.DiskUsage>('GET', '/v1/usage/disk'),
   diskGuard: () => call<T.DiskGuard>('GET', '/v1/disk'),

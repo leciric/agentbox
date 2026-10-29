@@ -39,7 +39,10 @@ container of its own.
 AgentBox runs in a VM, and the `agentbox` on the user's machine is that VM's front end
 (`internal/hostvm`): `agentbox vm …` manages the VM, and every other command runs inside it.
 
-- **Linux**: Cloud Hypervisor (`agentbox vm init`, `internal/hostvm/chv`). Host mode (Incus on the
+- **Linux**: Cloud Hypervisor (`agentbox vm init`, `internal/hostvm/chv`), booting a ready-made
+  disk with its packages installed (`vmdisk.go`, the `vmdisk-<version>` release the
+  [Published VM disk](.github/workflows/published-vm-disk.yml) workflow makes), or Debian's cloud
+  image when there's none, whose first boot installs them. Host mode (Incus on the
   machine itself) is no longer offered, but still runs for installs from earlier releases until
   `agentbox vm migrate` moves them (`MovePrompt` in `desktop/src/renderer/components/RunInVM.tsx`),
   for root, inside agents, and with `AGENTBOX_FRONT_END=host` (CI); `hostvm.Front` decides.
@@ -66,13 +69,17 @@ AgentBox runs in a VM, and the `agentbox` on the user's machine is that VM's fro
 ## Build and test
 
 ```bash
-go test ./...
+go test ./internal/cli ./internal/brief   # the packages you changed
 go build -o bin/agentbox ./cmd/agentbox   # "agentbox version dev"; bin/ is gitignored
 npm --prefix desktop start                # build and launch the app unpacked, in seconds
 npm --prefix desktop run dist             # installers in desktop/dist/: minutes, only when packaging changed
 ```
 
-Test the packages you changed while you work, and `go test ./...` once before you finish. The slow
+Run only the tests your change touches: `go test` on the packages you changed (and on those that use
+an exported API you changed), and for the app the test files of what you changed (`cd desktop && node
+--test src/…/x.test.ts`), plus `typecheck` and `lint`. Don't run `go test ./...` or a bare
+`npm --prefix desktop test`: CI runs the whole suite, and on an agent's VM it takes every other agent's
+memory. Run it only when your task, or a message from the lead or the user, asks for it by name. The slow
 packages (`internal/daemon`, `internal/chat`, `internal/agent`) run tests in parallel, and
 `internal/state`/`internal/memory` migrate a template database once per binary.
 
@@ -102,7 +109,7 @@ and Windows included. A new push cancels the run it supersedes.
 - **macOS** (cgo, signed, the vz driver) and **Windows** (the WSL front end): on pushes to `main`,
   and on a PR labelled `ci:full` (adding the label runs just these two, whatever changed), when the
   change reaches what they test: `go.mod`/`go.sum`, `mise.toml`, `cmd/`, a package their tests
-  import (`go list -deps -test` of `internal/hostvm/...`, `internal/paths` and `internal/api` for
+  import (`go list -deps -test` of `internal/hostvm/...`, `internal/paths`, `internal/api` and `internal/iossim` for
   darwin; `internal/hostos` and `internal/hostwsl/...` for Windows), a file only that OS builds,
   and for macOS `scripts/mac-sign.sh` and the entitlements.
 - **govulncheck**: weekly, on `main`, and on PRs that change `go.mod`/`go.sum`.
@@ -139,9 +146,11 @@ screenshot` of the preview in the agent's display, made by the desktop subagent.
 
 Setup downloads it (`internal/image/published.go`), adding the Codex and OpenCode tools on top when they
 are on, unless Android, dev caches or Incus are (`Components.NeedsLocalBuild`), from the
-`image-<version>` prerelease on this repository's GitHub releases, split in parts under GitHub's 2 GiB
-asset cap and joined and checked by Setup (`scripts/github-images.sh` publishes it, and keeps only the
-newest image release; app releases, release-please and the update check never see it), and
+`image-<version>` prerelease on this repository's GitHub releases, or first from its copy on the CDN
+(`downloads.agentbox.linting.dev/images/`, `scripts/r2-images.sh`), compressed with zstd and split in
+128 MiB parts that Setup downloads at once, resumes, joins and checks (`internal/image/download.go`;
+`scripts/github-images.sh` publishes it, and keeps only the newest image release; app releases,
+release-please and the update check never see it), and
 `agentbox image build` makes it on the user's machine from Debian and
 [`internal/image/provision.sh`](internal/image/provision.sh) otherwise, or when the download fails.
 
@@ -185,12 +194,24 @@ there, against fakes. **Nesting** gives an agent a real Incus of its own:
 - Inside, `go test -tags integration ./internal/incus/...`, `sudo agentbox host setup` (idempotent),
   and `agentbox image build` then `agentbox create` work as on a real host.
 
-## The hub is in another repository
+## The hub
 
-The hub, the server half, is the private [leciric/agentbox-hub](https://github.com/leciric/agentbox-hub)
-(D44). The two share [`hubapi/`](hubapi/), the protocol, of which the hub keeps a byte-identical
-copy: when you change `hubapi/`, copy it to the hub (its README says how). `hubapi/` must never
-import `internal/` or the rest of this module, and `internal/` must never import the hub.
+The hub, the server half (D44), is its own program in [`hub/`](hub/), in this module:
+`hub/cmd/agentbox-hub` and `hub/internal/hub`, with the npm launcher `npx agentbox-hub` in
+`hub/npm/` (`hub/scripts/npm-build.sh` builds it, `hub/npm/PUBLISHING.md` publishes it). It was
+lintingdotdev/agentbox-hub until #547 brought it back. The two halves share only
+[`hubapi/`](hubapi/), the protocol: the hub imports it, and nothing else of AgentBox
+(`TestHubImportsOnlyHubapi`). `internal/` can't import the hub, which Go's `internal/` rule
+enforces, and `hubapi/` must never import `internal/` or the rest of this module.
+
+```bash
+go test ./hub/... ./hubapi/...
+go build -o bin/agentbox-hub ./hub/cmd/agentbox-hub
+hub/scripts/npm-build.sh 0.0.0-dev     # the npm packages, in hub/npm/dist/
+```
+
+CI runs the hub's Go tests with everyone else's; a change to `hub/`, `hubapi/` or `go.mod` also
+builds its npm packages and runs `npx agentbox-hub --version` from them (the Hub job).
 
 ## Commits
 

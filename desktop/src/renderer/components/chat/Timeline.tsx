@@ -4,6 +4,7 @@ import { memo, use, useCallback, useEffect, useMemo, useRef, useState, type Reac
 import type * as T from '../../../shared/api';
 import { api, isProjectChat } from '../../lib/api';
 import { formatDuration, timelineRows, type Row } from '../../lib/chat';
+import { editSending, failed, findSending, isSending, retrySending } from '../../lib/sending';
 import { formatDateTime, formatTime, useT, type MessageKey } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
 import { fileLinkOf } from '../../lib/files';
@@ -75,8 +76,8 @@ const TimelineRow = memo(
         return (
           <div className="group flex flex-col items-end gap-1 pb-4 pt-1" data-chat-item={row.item.kind === 'aside' ? 'aside' : 'user'} data-chat-id={row.item.id}>
             <UserMessage item={row.item} chatRef={chatRef} />
-            {row.item.kind === 'aside' && <Delivered item={row.item} />}
-            <Meta item={row.item} className="justify-end pr-1" />
+            {row.item.delivery === failed ? <NotSent item={row.item} /> : (row.item.kind === 'aside' || isSending(row.item)) && <Delivered item={row.item} />}
+            {!isSending(row.item) && <Meta item={row.item} className="justify-end pr-1" />}
           </div>
         );
       case 'assistant':
@@ -312,9 +313,29 @@ function Delivered({ item }: { item: T.ChatItem }) {
   const delivery = item.delivery ? deliveries[item.delivery] : undefined;
   if (!delivery) return null;
   return (
-    <span className={cn('pr-1 text-[11.5px]', delivery.className)} data-chat-delivery={item.delivery}>
+    // On its way, it says so only if that takes long enough to notice.
+    <span className={cn('pr-1 text-[11.5px]', delivery.className, isSending(item) && 'appear-late')} data-chat-delivery={item.delivery}>
       {t(delivery.label)}
     </span>
+  );
+}
+
+// NotSent is a message that didn't reach the daemon (lib/sending.ts): why,
+// with the ways to send it again as it was or after changing it.
+function NotSent({ item }: { item: T.ChatItem }) {
+  const t = useT();
+  const error = findSending(item.id)?.error ?? '';
+  return (
+    <div className="flex max-w-[85%] flex-wrap items-center justify-end gap-x-2 gap-y-1 pr-1 text-[11.5px]" data-chat-not-sent>
+      <CircleAlert className="size-3.5 shrink-0 text-rose-300" />
+      <span className="min-w-0 break-words text-rose-300/90">{t('chat.composer.notSent', { error })}</span>
+      <button className="rounded-md px-1.5 py-0.5 font-medium text-rose-100 transition hover:bg-rose-400/15" onClick={() => retrySending(item.id)}>
+        {t('chat.sending.retry')}
+      </button>
+      <button className="rounded-md px-1.5 py-0.5 text-tertiary transition hover:bg-surface-raised" onClick={() => editSending(item.id)}>
+        {t('chat.sending.edit')}
+      </button>
+    </div>
   );
 }
 

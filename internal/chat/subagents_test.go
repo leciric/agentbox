@@ -173,10 +173,12 @@ func TestASubagentSentToTheBackgroundIsNotAToolStillRunning(t *testing.T) {
 					t.Errorf("the launched Agent call is %q, want completed", it.Tool.Status)
 				}
 			}
-			// The subagent's own tool call is still running, under its card, and
-			// isn't the turn's: the turn has no tool call of its own running.
-			if p, ok := m.Progress(testAgent.Ref()); !ok || p.ToolRunning {
-				t.Errorf("progress = %+v, %t; want a running turn with no tool call running", p, ok)
+			// The subagent's own tool call is still running, under its card: the
+			// turn has none of its own running, but the stall watch counts the
+			// subagent's, and names it.
+			want := `python3 -c 'import time; time.sleep(60)', in its subagent "Sleep, then report"`
+			if p, ok := m.Progress(testAgent.Ref()); !ok || !p.ToolRunning || p.RunningTool != want {
+				t.Errorf("progress = %+v, %t; want a running turn with the subagent's call running, %s", p, ok, want)
 			}
 			close(release)
 			th = waitThread(t, m, testAgent, "the turn to end", turnsEnded(1))

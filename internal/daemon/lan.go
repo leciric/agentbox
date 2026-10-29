@@ -83,7 +83,7 @@ type lanState struct {
 	seen      map[string]time.Time                        // when each phone's last visit was recorded
 	api       http.Handler                                // routes(), as phones reach it
 	limiter   *lan.Limiter                                // wrong pairing codes and tokens, by address
-	tunnel    *lanTunnel                                  // the Cloudflare Tunnel, when it runs (lantunnel.go)
+	tunnel    *lanTunnel                                  // the tunnel, when it runs (lantunnel.go)
 
 	// The tunnel the hub makes for this machine (lantunnel.go), by hubKey:
 	// which hub and environment it was last asked of this run, and the one
@@ -98,6 +98,9 @@ type lanState struct {
 	// port). Fields for tests: nil is tunnel.Installer's.
 	cloudflared func(ctx context.Context, status func(string)) (string, error)
 	tunnelPort  int
+	// tailscale finds the directory of tailscale and tailscaled, for a hub
+	// that gives out tailnet addresses; nil is tunnel.TailscaleInstaller's.
+	tailscale func(ctx context.Context, status func(string)) (string, error)
 
 	// own says the daemon opens the port itself: everywhere but in the
 	// Linux host's VM, whose supervisor opens it on the host. addresses are
@@ -427,10 +430,18 @@ func (s *Server) lanWebVersion() string {
 		return ""
 	}
 	v := strings.TrimSpace(string(b))
-	if !lanWebVersionRe.MatchString(v) {
+	if !lanWebVersionRe.MatchString(v) || !hasLANWebPage(filepath.Join(s.lanWebDir(), v)) {
 		return ""
 	}
 	return v
+}
+
+// hasLANWebPage says dir has a web.html with something in it. An empty one
+// came of an install cut short by the daemon restarting, and is installed
+// again by the app, which installs whatever version the daemon hasn't.
+func hasLANWebPage(dir string) bool {
+	st, err := os.Stat(filepath.Join(dir, "web.html"))
+	return err == nil && st.Size() > 0
 }
 
 // maxLANWebFile bounds one file of the web app: the largest, the app's main
@@ -475,7 +486,7 @@ func (s *Server) installLANWeb(w http.ResponseWriter, r *http.Request) error {
 	}
 	dir := s.lanWebDir()
 	staging := filepath.Join(dir, ".staging-"+version)
-	if _, err := os.Stat(filepath.Join(staging, "web.html")); err != nil {
+	if !hasLANWebPage(staging) {
 		return fmt.Errorf("version %s has no web.html: put its files first", version)
 	}
 	final := filepath.Join(dir, version)
@@ -539,6 +550,10 @@ func (s *Server) lanHandler(via lanVia) http.Handler {
 			}
 		case via == lanViaTunnel && r.Header.Get("Cf-Connecting-IP") != "":
 			addr = r.Header.Get("Cf-Connecting-IP")
+		case via == lanViaTunnel && r.Header.Get("X-Forwarded-For") != "":
+			// tailscale serve, from a device in the tailnet.
+			parts := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+			addr = strings.TrimSpace(parts[len(parts)-1])
 		default:
 			if host, _, err := net.SplitHostPort(addr); err == nil {
 				addr = host
@@ -568,6 +583,8 @@ func (s *Server) lanHandler(via lanVia) http.Handler {
 			http.SetCookie(w, &http.Cookie{Name: lanCookie, Path: "/", MaxAge: -1, HttpOnly: true, Secure: via == lanViaTunnel, SameSite: http.SameSiteStrictMode})
 			s.publishLAN(r.Context())
 			w.WriteHeader(http.StatusNoContent)
+		case r.URL.Path == "/lan/push" || r.URL.Path == "/lan/push/test":
+			s.lanPush(w, r, addr)
 		case strings.HasPrefix(r.URL.Path, "/api/"):
 			s.lanAPI(w, r, addr)
 		default:

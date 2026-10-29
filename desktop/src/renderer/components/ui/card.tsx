@@ -1,10 +1,10 @@
 import { CircleAlert, Info, TriangleAlert } from 'lucide-react';
-import type { ComponentType, HTMLAttributes, ReactNode } from 'react';
+import type { ComponentProps, ComponentType, ReactNode } from 'react';
 import { cn } from '../../lib/utils';
 
 type Icon = ComponentType<{ className?: string }>;
 
-export function Panel({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
+export function Panel({ className, ...props }: ComponentProps<'div'>) {
   return <div className={cn('panel rounded-2xl', className)} {...props} />;
 }
 
