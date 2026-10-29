@@ -19,7 +19,7 @@ func TestLeadSessionsMigrationKeepsEachChat(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	before := len(migrations) - 2
+	before := len(migrations) - 3
 	for i, m := range migrations[:before] {
 		if _, err := db.ExecContext(ctx, m); err != nil {
 			t.Fatalf("migration %d: %v", i+1, err)
