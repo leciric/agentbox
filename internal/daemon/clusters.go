@@ -643,22 +643,42 @@ func (s *Server) rotateRegistry(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	username, token := req.Username, req.Token
-	if token == "" && username != "" {
-		return errors.New("a registry login needs a token: pipe one in with --token-file, or leave the username out for a registry that needs no login")
+	if req.URL != nil {
+		reg.URL = *req.URL
 	}
-	sealedUsername, err := s.sealValue(username)
-	if err != nil {
-		return err
+	if req.CA != nil {
+		reg.CA = []byte(*req.CA)
 	}
-	sealedToken, err := s.sealValue(token)
-	if err != nil {
-		return err
+	if req.Insecure != nil {
+		reg.Insecure = *req.Insecure
 	}
-	if err := s.store.SetRegistryCredential(ctx, reg.Name, sealedUsername, sealedToken); err != nil {
-		return err
+	if req.Public != nil {
+		reg.Public = *req.Public
 	}
-	reg.SealedUsername, reg.SealedSecret = sealedUsername, sealedToken
+	if req.URL != nil || req.CA != nil || req.Insecure != nil || req.Public != nil {
+		if err := s.store.SetRegistrySettings(ctx, reg); err != nil {
+			return err
+		}
+		reg.URL = strings.TrimSuffix(strings.TrimSpace(reg.URL), "/")
+	}
+	if !req.KeepLogin {
+		username, token := req.Username, req.Token
+		if token == "" && username != "" {
+			return errors.New("a registry login needs a token: pipe one in with --token-stdin, or leave the username out for a registry that needs no login")
+		}
+		sealedUsername, err := s.sealValue(username)
+		if err != nil {
+			return err
+		}
+		sealedToken, err := s.sealValue(token)
+		if err != nil {
+			return err
+		}
+		if err := s.store.SetRegistryCredential(ctx, reg.Name, sealedUsername, sealedToken); err != nil {
+			return err
+		}
+		reg.SealedUsername, reg.SealedSecret = sealedUsername, sealedToken
+	}
 	clusters, err := s.store.ClustersOfRegistry(ctx, reg.Name)
 	if err != nil {
 		return err
@@ -670,7 +690,7 @@ func (s *Server) rotateRegistry(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 	if len(failed) > 0 {
-		return fmt.Errorf("the registry's login is rotated, but the pull secret couldn't be written for %s", strings.Join(failed, "; "))
+		return fmt.Errorf("the registry's login is updated, but the pull secret couldn't be written for %s", strings.Join(failed, "; "))
 	}
 	return writeJSON(w, http.StatusOK, registryInfo(reg))
 }

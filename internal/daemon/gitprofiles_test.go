@@ -311,3 +311,27 @@ func TestAddProjectWithoutAGitHubAccount(t *testing.T) {
 		t.Errorf("profiles = %+v, want origin as a token profile", remotes)
 	}
 }
+
+// TestProjectGitSetKeepsWhatTheRequestLeavesOut is the URL-only edit: an
+// ssh-key profile stays ssh-key, and a shared login stays attached.
+func TestProjectGitSetKeepsWhatTheRequestLeavesOut(t *testing.T) {
+	srv, p := gitTestServer(t)
+	put := func(body string) api.ProjectGitProfile {
+		t.Helper()
+		pg := gitResponse(t, gitRequest(t, srv, http.MethodPut, "/v1/projects/"+p.Name+"/git/private", body))
+		if len(pg.Profiles) != 1 {
+			t.Fatalf("profiles = %+v", pg.Profiles)
+		}
+		return pg.Profiles[0]
+	}
+	put(`{"url":"git@example.com:o/a.git","auth":"ssh-key","credential":"shared","secret":"-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-----\n"}`)
+	got := put(`{"url":"git@example.com:o/b.git"}`)
+	if got.URL != "git@example.com:o/b.git" || got.Auth != state.GitAuthSSHKey || got.Credential != "shared" {
+		t.Errorf("after a URL-only set: %+v, want ssh-key on the shared login", got)
+	}
+	// Naming another auth starts from that auth's default credential.
+	got = put(`{"url":"https://example.com/o/b.git","auth":"token"}`)
+	if got.Auth != state.GitAuthToken || got.Credential != "private" {
+		t.Errorf("after --auth token: %+v, want token on the profile's own login", got)
+	}
+}

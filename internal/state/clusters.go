@@ -82,8 +82,8 @@ type Cluster struct {
 	Labels map[string]string
 	// Tailnet is TailnetOperator, TailnetSidecar or TailnetNone.
 	Tailnet string
-	// Capabilities are what agents in this cluster may ask for: kvm, gpu,
-	// privileged, csi-snapshots. Placement reads them.
+	// Capabilities is kept for the API and the stored rows, but nothing asks
+	// for one per agent and nothing reads them: the CLI no longer sets them.
 	Capabilities []string
 	// Kubeconfig is the sealed kubeconfig of the namespace's ServiceAccount.
 	Kubeconfig []byte
@@ -92,16 +92,6 @@ type Cluster struct {
 	CreatedAt time.Time
 	LastSeen  time.Time
 	LastError string
-}
-
-// HasCapability reports whether agents here may ask for one of those things.
-func (c Cluster) HasCapability(name string) bool {
-	for _, capability := range c.Capabilities {
-		if capability == name {
-			return true
-		}
-	}
-	return false
 }
 
 const clusterColumns = `name, namespace, storage_class, image, master_url, registry, max_agents, cpu, memory,

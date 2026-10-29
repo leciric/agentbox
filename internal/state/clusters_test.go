@@ -78,9 +78,6 @@ func TestClusterRoundTrips(t *testing.T) {
 	if !got.LastSeen.IsZero() {
 		t.Errorf("last seen = %v, want never", got.LastSeen)
 	}
-	if !got.HasCapability("kvm") || got.HasCapability("gpu-off") {
-		t.Errorf("HasCapability disagrees with %v", got.Capabilities)
-	}
 	clusters, err := st.Clusters(ctx)
 	if err != nil {
 		t.Fatal(err)

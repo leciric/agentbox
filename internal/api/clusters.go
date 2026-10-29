@@ -285,6 +285,16 @@ type AddRegistryRequest struct {
 type RotateRegistryRequest struct {
 	Username string `json:"username,omitempty"`
 	Token    string `json:"token,omitempty"`
+	// KeepLogin leaves the stored login as it is, for a request that only
+	// changes the settings below. Without it an empty Username and Token mean a
+	// registry that needs no login.
+	KeepLogin bool `json:"keepLogin,omitempty"`
+	// URL, CA, Insecure and Public change the registry's settings when set and
+	// leave them alone when absent. An empty CA takes the registry's CA away.
+	URL      *string `json:"url,omitempty"`
+	CA       *string `json:"ca,omitempty"`
+	Insecure *bool   `json:"insecure,omitempty"`
+	Public   *bool   `json:"public,omitempty"`
 }
 
 // RegistryTest is POST /v1/registries/{name}/test: whether the registry answers

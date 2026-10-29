@@ -997,7 +997,15 @@ The secret is read here, sent once, and never printed.
 		Args: cobra.ExactArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			project, profile, url := args[0], args[1], args[2]
-			req := api.SetProjectGitProfileRequest{URL: url, Auth: auth, Credential: credential}
+			// Only what was passed is sent: an existing profile keeps its auth
+			// and credential when just the URL changes.
+			req := api.SetProjectGitProfileRequest{URL: url}
+			if cmd.Flags().Changed("auth") {
+				req.Auth = auth
+			}
+			if cmd.Flags().Changed("credential") {
+				req.Credential = credential
+			}
 			if fromFile != "" {
 				secret, err := readGitCredential(cmd, fromFile)
 				if err != nil {
@@ -1017,7 +1025,7 @@ The secret is read here, sent once, and never printed.
 			return writeProjectGit(cmd.OutOrStdout(), pg)
 		},
 	}
-	cmd.Flags().StringVar(&auth, "auth", "token", "how the URL signs in: token, ssh-key or github-account")
+	cmd.Flags().StringVar(&auth, "auth", "token", "how the URL signs in: token, ssh-key or github-account (default: token for a new profile, else unchanged)")
 	cmd.Flags().StringVar(&credential, "credential", "", "the stored login's name (default: the profile's name, for token and ssh-key)")
 	cmd.Flags().StringVar(&fromFile, "from-file", "", "read the token or private key from this file, or from stdin with -")
 	return cmd

@@ -385,3 +385,27 @@ func TestTokenSecretIsTheAgentsSession(t *testing.T) {
 		t.Error("a token too short to be one was accepted")
 	}
 }
+
+func TestPodIsPlacedOnTheClustersLabels(t *testing.T) {
+	spec := agentSpec()
+	pod, err := k8s.BuildPod(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pod.Spec.NodeSelector != nil {
+		t.Errorf("a cluster with no labels got nodeSelector %v, want none", pod.Spec.NodeSelector)
+	}
+	spec.NodeSelector = map[string]string{"arch": "amd64", "gpu": "true"}
+	pod, err = k8s.BuildPod(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := pod.Spec.NodeSelector
+	if len(got) != 2 || got["arch"] != "amd64" || got["gpu"] != "true" {
+		t.Errorf("nodeSelector = %v, want arch=amd64 and gpu=true", got)
+	}
+	got["arch"] = "arm64"
+	if spec.NodeSelector["arch"] != "amd64" {
+		t.Error("the pod shares the spec's label map")
+	}
+}
