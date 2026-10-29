@@ -212,6 +212,9 @@ export const api = {
   updateTheme: (req: T.UpdateThemeRequest) => call<T.Theme>('PATCH', '/v1/theme', req),
   projects: () => call<T.Project[]>('GET', '/v1/projects'),
   addProject: (req: T.AddProjectRequest) => call<T.Project>('POST', '/v1/projects', req),
+  // cloneProject starts the job that clones a repository and adds it: the
+  // finished job's result is the Project.
+  cloneProject: (req: T.CloneProjectRequest) => call<T.Job>('POST', '/v1/projects/clone', req),
   updateProject: (name: string, req: T.UpdateProjectRequest) => call<T.Project>('PATCH', project(name), req),
   removeProject: (name: string) => call<void>('DELETE', project(name)),
   // When the user last wrote to each project and when anything last happened

@@ -18,7 +18,7 @@ import EventSource from 'react-native-sse';
 import * as T from '../shared/api.ts';
 import { applyChatEvent } from '../features/threads/thread.ts';
 import * as P from './parse.ts';
-import { session } from './session.ts';
+import { forget, session } from './session.ts';
 
 export type Connection = 'connecting' | 'connected' | 'disconnected';
 
@@ -123,10 +123,16 @@ function follow() {
     // What was sent while it was away: read everything again.
     void queryClient.invalidateQueries();
   });
-  es.addEventListener('error', () => {
+  es.addEventListener('error', (ev) => {
     if (source !== es) return;
     setState('disconnected');
     es.close();
+    // Unpaired on the computer: the pairing is gone for good, so back to
+    // pairing rather than reconnecting to no end, as a refused request does.
+    if ('xhrStatus' in ev && ev.xhrStatus === 401) {
+      void forget();
+      return;
+    }
     const delay = Math.min(1000 * 2 ** failures, maxBackoff);
     failures++;
     timer = setTimeout(follow, delay);
@@ -144,6 +150,11 @@ function follow() {
     });
   }
 }
+
+// ended says the stream finished without an error, as when the daemon
+// restarts: react-native-sse then only stops (pollingInterval 0), with no
+// event, and the stream would look connected until it went silent.
+const ended = (es: EventSource<Type>) => (es as unknown as { _xhr?: XMLHttpRequest })._xhr?.readyState === XMLHttpRequest.DONE;
 
 let started = false;
 
@@ -164,7 +175,7 @@ export function connect(queryClient: QueryClient): () => void {
     if (away || state !== 'connected' || Date.now() - lastHeard > silentAfter) reconnectNow();
   });
   setInterval(() => {
-    if (source && state === 'connected' && AppState.currentState === 'active' && Date.now() - lastHeard > silentAfter) follow();
+    if (source && state === 'connected' && AppState.currentState === 'active' && (Date.now() - lastHeard > silentAfter || ended(source))) follow();
   }, 5_000);
   return stop;
 }

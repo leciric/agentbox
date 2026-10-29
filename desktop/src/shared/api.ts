@@ -75,6 +75,20 @@ export interface AddProjectRequest {
   commitFiles?: boolean;
 }
 
+export interface CloneProjectRequest {
+  url: string;
+  path: string;
+  name?: string;
+  claudeAccount?: string;
+  githubAccount?: string;
+  codexAccount?: string;
+  openCodeAccounts?: Record<string, string>;
+  cursorAccount?: string;
+  copyToLinux?: boolean;
+  create?: boolean;
+  commitFiles?: boolean;
+}
+
 export interface UpdateProjectRequest {
   displayName?: string;
   claudeAccount?: string;
@@ -148,6 +162,7 @@ export interface Settings {
   enforceAgentDefaults: boolean;
   defaultLeadModel: string;
   defaultLeadContextWindow: string;
+  cloneFolder: string;
   claudeModelChoices: ChatOptionChoice[];
   claudeContextWindows: Record<string, number[]>;
   claudeMenuKnown: boolean;
@@ -220,6 +235,7 @@ export interface UpdateSettingsRequest {
   enforceAgentDefaults?: boolean;
   defaultLeadModel?: string;
   defaultLeadContextWindow?: string;
+  cloneFolder?: string;
   defaultClaudeEffort?: string;
   defaultCursorModel?: string;
   defaultCursorEffort?: string;
@@ -3598,6 +3614,8 @@ export const ImageBuilding = "building";
 export const ImageBuildFailed = "failed";
 export const InAgentSocket = "/run/agentbox.sock";
 export const ErrorFolderNotEmpty = "folder-not-empty";
+export const ErrorFolderExists = "folder-exists";
+export const ErrorBadRepoURL = "bad-repo-url";
 export const DefaultLanguage = "en-US";
 export const PRStateOpen = "open";
 export const PRStateMerged = "merged";

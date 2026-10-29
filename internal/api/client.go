@@ -1041,6 +1041,13 @@ func (c *Client) AddProject(ctx context.Context, req AddProjectRequest) (Project
 	return out, c.do(ctx, http.MethodPost, "/v1/projects", req, &out)
 }
 
+// CloneProject starts the job that clones a repository and adds it as a
+// project: the finished job's Result is the Project.
+func (c *Client) CloneProject(ctx context.Context, req CloneProjectRequest) (Job, error) {
+	var out Job
+	return out, c.do(ctx, http.MethodPost, "/v1/projects/clone", req, &out)
+}
+
 func (c *Client) Project(ctx context.Context, name string) (Project, error) {
 	var out Project
 	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(name), nil, &out)

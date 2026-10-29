@@ -49,6 +49,18 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 	}); err != nil {
 		return err
 	}
+	if req.CloneFolder != nil {
+		dir := ""
+		if strings.TrimSpace(*req.CloneFolder) != "" {
+			var err error
+			if dir, err = fullPath(*req.CloneFolder); err != nil {
+				return err
+			}
+		}
+		if err := s.store.SetSetting(r.Context(), state.SettingCloneFolder, dir); err != nil {
+			return err
+		}
+	}
 	if req.EnforceAgentDefaults != nil {
 		if err := s.store.SetFlag(r.Context(), state.SettingEnforceAgentDefaults, *req.EnforceAgentDefaults); err != nil {
 			return err
@@ -619,7 +631,12 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	cloneFolder, err := s.cloneFolder(r.Context())
+	if err != nil {
+		return api.Settings{}, err
+	}
 	return api.Settings{
+		CloneFolder:               cloneFolder,
 		DefaultClaudeModel:        model,
 		DefaultAgentContextWindow: agentWindow,
 		EnforceAgentDefaults:      enforce,
