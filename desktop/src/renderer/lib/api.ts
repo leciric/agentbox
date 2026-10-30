@@ -607,6 +607,12 @@ export const api = {
   image: () => call<T.ImageStatus>('GET', '/v1/image'),
   buildImage: (req: T.BuildImageRequest = {}) => call<T.Job>('POST', '/v1/image/build', req),
 
+  // Export and import of this instance's data (Settings → Export / Import).
+  exportPreview: () => call<T.InstanceExportPreview>('GET', '/v1/transfer/export'),
+  exportInstance: (req: T.InstanceExportRequest) => call<T.Job>('POST', '/v1/transfer/export', req),
+  inspectImport: (req: T.InstanceImportInspectRequest) => call<T.InstanceImportContents>('POST', '/v1/transfer/import/inspect', req),
+  importInstance: (req: T.InstanceImportRequest) => call<T.Job>('POST', '/v1/transfer/import', req),
+
   jobs: () => call<T.Job[]>('GET', '/v1/jobs'),
   job: (id: string) => call<T.Job>('GET', `/v1/jobs/${id}`),
   jobLog: (id: string) => text('GET', `/v1/jobs/${id}/log`),

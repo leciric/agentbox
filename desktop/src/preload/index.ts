@@ -280,6 +280,10 @@ const bridge = {
     openLogs: (): Promise<string> => ipcRenderer.invoke('report:openLogs'),
   },
   pickDirectory: (): Promise<string | null> => ipcRenderer.invoke('dialog:directory'),
+  // pickFile and pickSaveFile choose a file to open, or where to write one
+  // (Settings → Export / Import), as the daemon names it; null when cancelled.
+  pickFile: (title: string): Promise<string | null> => ipcRenderer.invoke('dialog:file', title),
+  pickSaveFile: (title: string, name: string): Promise<string | null> => ipcRenderer.invoke('dialog:saveFile', title, name),
   openPath: (path: string): Promise<string> => ipcRenderer.invoke('shell:openPath', path),
   // openChatFile opens a file sent in a chat, given its daemon path
   // (.../chat/files/<id>), with the system's default app: main/chatfiles.ts

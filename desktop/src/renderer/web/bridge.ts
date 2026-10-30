@@ -244,6 +244,8 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
     openLogs: unavailable('web.bridge.openLogs'),
   },
   pickDirectory: () => Promise.resolve(null),
+  pickFile: () => Promise.resolve(null),
+  pickSaveFile: () => Promise.resolve(null),
   setLanguage: () => {},
   openPath: unavailable('web.bridge.openPath'),
   // A browser saves a file sent in a chat, for the phone to open as it opens downloads.

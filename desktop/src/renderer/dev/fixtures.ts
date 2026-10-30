@@ -1933,6 +1933,8 @@ export function installDevBridge(): void {
     renderUrl: async () => null,
     report: { sections: async () => [], windowError: () => {}, onAppError: () => () => {}, openLogs: async () => '' },
     pickDirectory: async () => null,
+    pickFile: async () => null,
+    pickSaveFile: async () => null,
     setLanguage: () => {},
     openPath: async () => '',
     openChatFile: async () => '',
