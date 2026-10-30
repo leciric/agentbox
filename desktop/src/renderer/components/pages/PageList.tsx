@@ -26,7 +26,7 @@ export function PageSearch({ value, onChange, className, autoFocus }: { value: s
             onChange('');
           }
         }}
-        className="h-7 min-w-0 pl-8 pr-7 text-[12.5px] [&::-webkit-search-cancel-button]:hidden"
+        className="h-7 min-w-0 pl-8 pr-7 text-ui [&::-webkit-search-cancel-button]:hidden"
         data-page-search
       />
       {value && (
@@ -59,9 +59,9 @@ export function PageRow({ project, page, showAgent, now, onOpen }: { project: st
       <span className="grid min-w-0 flex-1 gap-0.5">
         <span className="flex min-w-0 items-center gap-1.5">
           {fresh && <span className="size-1.5 shrink-0 rounded-full bg-brand-400" />}
-          <span className={cn('truncate text-[12.5px] leading-tight', fresh ? 'font-semibold text-title' : 'font-medium text-secondary')}>{page.title}</span>
+          <span className={cn('truncate text-ui leading-tight', fresh ? 'font-semibold text-title' : 'font-medium text-secondary')}>{page.title}</span>
         </span>
-        <span className="flex min-w-0 items-center gap-1 text-[11px] leading-tight text-subtle">
+        <span className="flex min-w-0 items-center gap-1 text-caption leading-tight text-subtle">
           {showAgent && (
             <>
               <span className="min-w-0 truncate">

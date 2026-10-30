@@ -84,7 +84,8 @@ func (s *Server) repaintAgents(ctx context.Context, theme api.Theme) {
 }
 
 // theme is what AgentBox should wear: the theme this machine is running, and
-// the appearance setting, which says whether to follow it. Any failure reading
+// the appearance setting, which says whether to follow it — or Dracula's
+// palette in its place, when that is the setting. Any failure reading
 // the setting is reported as "following", because that is the default and a
 // setting that can't be read is not a reason to change how anything looks.
 func (s *Server) theme(ctx context.Context) api.Theme {
@@ -92,6 +93,9 @@ func (s *Server) theme(ctx context.Context) api.Theme {
 	if err != nil {
 		s.logf("the appearance setting couldn't be read: %v", err)
 		appearance = api.AppearanceFollow
+	}
+	if appearance == api.AppearanceDracula {
+		return api.DraculaTheme
 	}
 	out := api.Theme{Appearance: appearance}
 	if s.themes == nil {
@@ -109,7 +113,7 @@ func (s *Server) theme(ctx context.Context) api.Theme {
 }
 
 // desktopTheme is the palette agents' desktops are painted in: the host's when
-// it is being followed, and AgentBox's own otherwise — including on every
+// it is being followed, Dracula's when that is chosen, and AgentBox's own otherwise — including on every
 // machine that isn't running a desktop AgentBox can read.
 func (s *Server) desktopTheme() agent.DesktopTheme {
 	t := s.theme(context.Background())
@@ -138,9 +142,9 @@ func (s *Server) updateTheme(w http.ResponseWriter, r *http.Request) error {
 	}
 	if req.Appearance != nil {
 		switch *req.Appearance {
-		case api.AppearanceFollow, api.AppearanceLight, api.AppearanceDark:
+		case api.AppearanceFollow, api.AppearanceLight, api.AppearanceDark, api.AppearanceDracula:
 		default:
-			return fmt.Errorf("appearance is %q: it must be follow, light or dark", *req.Appearance)
+			return fmt.Errorf("appearance is %q: it must be follow, light, dark or dracula", *req.Appearance)
 		}
 		if err := s.store.SetSetting(r.Context(), state.SettingAppearance, *req.Appearance); err != nil {
 			return err

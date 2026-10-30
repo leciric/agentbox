@@ -17,3 +17,13 @@ func (m *Manager) EnsureRecordingStage(ctx context.Context, a state.Agent) (bool
 
 // KeepTurnCheckpoints is how many turns' checkpoints are kept.
 const KeepTurnCheckpoints = keepTurnCheckpoints
+
+// CheckPair is checkPair, which makes a before/after pair whole.
+var CheckPair = checkPair
+
+func (m *Manager) EnsureNodeModules(ctx context.Context, a state.Agent) { m.ensureNodeModules(ctx, a) }
+
+// KeepNodeModules is what Destroy does with a's node_modules.
+func (m *Manager) KeepNodeModules(a state.Agent) {
+	m.keepNodeModules(a, m.nodeModulesInstalls(context.Background(), a, false))
+}

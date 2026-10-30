@@ -1,7 +1,8 @@
 # Builds the base image a new machine downloads instead of building its own
 # (internal/image/published.go), and publishes it as a GitHub release tagged
 # image-<version>: a prerelease, never latest, so app releases, release-please
-# and the app's update check don't see it. Only what AgentBox may
+# and the app's update check don't see it. Its zstd archive is copied to the R2
+# bucket behind downloads.agentbox.linting.dev, which Setup tries first. Only what AgentBox may
 # redistribute is in it: Debian, provision.sh and the agent tools in tools.txt
 # but Claude Code, its ACP adapter and Cursor's SDK, which each machine installs
 # itself. Next to the image go its Debian packages with their exact versions and
@@ -22,6 +23,7 @@ on:
       - '!internal/image/**_test.go'
       - .github/workflows/published-image.yml
       - scripts/github-images.sh
+      - scripts/r2-images.sh
 
 permissions:
   contents: read
@@ -72,6 +74,10 @@ jobs:
       - name: Set the host up, the way a new machine does
         run: sudo "$PWD/bin/agentbox" host setup
 
+      # BuildForPublishing compresses the image with the zstd command.
+      - name: Install zstd
+        run: command -v zstd || { sudo apt-get update -q && sudo apt-get install -y -q zstd; }
+
       - name: Build the image and what goes with it
         env:
           AGENTBOX_FRONT_END: host
@@ -83,7 +89,7 @@ jobs:
           cat out/${{ matrix.arch }}/image-${{ matrix.arch }}.json out/${{ matrix.arch }}/SHA256SUMS
           grep -vc '^#' out/${{ matrix.arch }}/packages-${{ matrix.arch }}.txt
 
-      # Already gzipped and split: zipping it again would only cost time.
+      # Already compressed and split: zipping it again would only cost time.
       - uses: actions/upload-artifact@v7
         with:
           name: image-${{ matrix.arch }}
@@ -94,7 +100,7 @@ jobs:
   # Only when every architecture built: a half-failed run publishes nothing and
   # deletes nothing, so the release and R2 stay as they were.
   publish:
-    name: Publish to GitHub releases
+    name: Publish to GitHub releases and R2
     needs: build
     if: needs.build.result == 'success' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
@@ -124,16 +130,14 @@ jobs:
           # shellcheck disable=SC2086
           scripts/github-images.sh $dirs
 
-      # Images were once published to the R2 bucket, under images/. Nothing
-      # reads them any more: delete whatever is left, once the release above
-      # is up. Harmless to run again.
-      - name: Empty images/ in R2
+      # The CDN copy, once the release above is up: Setup falls back to the
+      # release whenever the CDN hasn't a file, so a failure here costs only
+      # speed. Harmless to run again.
+      - name: Copy the zstd image to R2
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-          AWS_ENDPOINT_URL: https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
-          # R2 rejects the checksums newer AWS CLIs send by default.
-          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
-          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
-        run: aws s3 rm "s3://agentbox-releases/images/" --recursive --only-show-errors
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          # shellcheck disable=SC2046
+          scripts/r2-images.sh $(ls -d out/image-*)

@@ -16,7 +16,8 @@ import { Tip } from '../ui/tooltip';
 // chatOf is the chat a view has in the middle, and its project: the lead's
 // for a project, the agent's for an agent.
 export function chatOf(view: View): { project: string; chat: string } | null {
-  if (view.kind === 'project' || view.kind === 'today') return { project: view.project, chat: `${view.project}/${A.LeadName}` };
+  if (view.kind === 'project') return { project: view.project, chat: `${view.project}/${A.LeadName}` };
+  if (view.kind === 'work' && view.project) return { project: view.project, chat: `${view.project}/${A.LeadName}` };
   if (view.kind === 'agent') return { project: view.ref.split('/')[0], chat: view.ref };
   return null;
 }

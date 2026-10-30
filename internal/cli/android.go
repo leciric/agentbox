@@ -28,6 +28,8 @@ func newAndroidCmd(a *app) *cobra.Command {
 		newAndroidScreenshotCmd(a),
 		record,
 		newAndroidLogsCmd(a),
+		newAndroidServeCmd(),
+		newAndroidCaptureCmd(),
 	)
 	return cmd
 }
@@ -37,6 +39,14 @@ func printAndroid(cmd *cobra.Command, st api.AndroidStatus) {
 	switch {
 	case st.Booted:
 		_, _ = fmt.Fprintf(out, "The emulator is running: %s\n", st.Device)
+		switch {
+		case st.GPU:
+			_, _ = fmt.Fprintln(out, "It renders on the GPU")
+		case st.GPUProblem != "":
+			_, _ = fmt.Fprintf(out, "It renders in software (SwiftShader): it didn't start on the GPU (%s)\n", st.GPUProblem)
+		default:
+			_, _ = fmt.Fprintln(out, "It renders in software (SwiftShader): this agent has no GPU it can use")
+		}
 	case st.Running:
 		_, _ = fmt.Fprintln(out, "The emulator is starting")
 	default:
@@ -153,6 +163,7 @@ paths are relative to the current directory; on the host, to the agent's worktre
 
 func newAndroidScreenshotCmd(a *app) *cobra.Command {
 	var name string
+	var pair pairFlags
 	cmd := &cobra.Command{
 		Use:   "screenshot [agent]",
 		Short: "Take a screenshot of the emulator's screen",
@@ -163,7 +174,7 @@ func newAndroidScreenshotCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			item, err := c.Screenshot(cmd.Context(), ref, api.ScreenshotRequest{Target: "android", Name: name})
+			item, err := c.Screenshot(cmd.Context(), ref, api.ScreenshotRequest{Target: "android", Name: name, Pair: pair.pair, Side: pair.side()})
 			if err != nil {
 				return err
 			}
@@ -172,11 +183,13 @@ func newAndroidScreenshotCmd(a *app) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", `a name, like "medication-list"`)
+	pair.add(cmd)
 	return cmd
 }
 
 func newAndroidRecordStartCmd(a *app) *cobra.Command {
 	var name string
+	var pair pairFlags
 	var limit time.Duration
 	cmd := &cobra.Command{
 		Use:   "start [agent]",
@@ -188,7 +201,7 @@ func newAndroidRecordStartCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			status, err := c.StartRecording(cmd.Context(), ref, api.RecordRequest{Target: "android", Name: name, LimitSeconds: int(limit.Seconds())})
+			status, err := c.StartRecording(cmd.Context(), ref, api.RecordRequest{Target: "android", Name: name, LimitSeconds: int(limit.Seconds()), Pair: pair.pair, Side: pair.side()})
 			if err != nil {
 				return err
 			}
@@ -198,6 +211,7 @@ func newAndroidRecordStartCmd(a *app) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", `a name, like "create-medication"`)
+	pair.add(cmd)
 	cmd.Flags().DurationVar(&limit, "limit", 10*time.Minute, "stop by itself after this long (at most 1h)")
 	return cmd
 }

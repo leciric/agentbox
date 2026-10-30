@@ -122,7 +122,7 @@ export function FileTree({
   };
 
   if (rootError) {
-    return <div className="p-3 text-[12.5px] text-subtle">{t('files.tree.unavailable')}</div>;
+    return <div className="p-3 text-ui text-subtle">{t('files.tree.unavailable')}</div>;
   }
   return (
     <div
@@ -140,7 +140,7 @@ export function FileTree({
           const style = { top: index * rowHeight, height: rowHeight, paddingLeft: 8 + row.depth * 12 };
           if (!row.entry) {
             return (
-              <div key={row.key} className="absolute inset-x-0 flex items-center gap-1.5 text-[12px] text-faint" style={style}>
+              <div key={row.key} className="absolute inset-x-0 flex items-center gap-1.5 text-caption text-faint" style={style}>
                 {row.loading ? <LoaderCircle className="ml-4 size-3 animate-spin" /> : <span className="ml-4">{t('files.tree.more')}</span>}
               </div>
             );
@@ -158,7 +158,7 @@ export function FileTree({
               tabIndex={-1}
               title={entry.path}
               className={cn(
-                'absolute inset-x-0 flex items-center gap-1 pr-2 text-left text-[12.5px] transition-colors hover:bg-surface-faint',
+                'absolute inset-x-0 flex items-center gap-1 pr-2 text-left text-ui transition-colors hover:bg-surface-faint',
                 entry.path === selected && 'bg-brand-500/15 hover:bg-brand-500/20',
                 index === focused && 'ring-1 ring-inset ring-brand-400/40',
                 entry.ignored && 'opacity-50',
@@ -175,7 +175,7 @@ export function FileTree({
               <Icon className={cn('size-3.5 shrink-0', entry.dir ? 'text-brand-300/80' : 'text-subtle')} />
               <span className={cn('min-w-0 flex-1 truncate', status ? statusText[status] : 'text-tertiary')}>{entry.name}</span>
               {status && (
-                <span className={cn('shrink-0 font-mono text-[10.5px]', statusText[status])} aria-label={t(`files.status.${status}`)}>
+                <span className={cn('shrink-0 font-mono text-caption', statusText[status])} aria-label={t(`files.status.${status}`)}>
                   {entry.dir ? '•' : statusLetter[status]}
                 </span>
               )}

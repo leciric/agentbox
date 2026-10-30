@@ -46,7 +46,7 @@ export function StatusDot({ state, className }: { state: string; className?: str
   return (
     <span
       title={stateLabel(state)}
-      className={cn('inline-block size-2 shrink-0 rounded-full', dotColors[state] ?? 'bg-faint', state === 'running' && 'animate-glow', className)}
+      className={cn('inline-block size-2 shrink-0 rounded-full', dotColors[state] ?? 'bg-faint', className)}
     />
   );
 }

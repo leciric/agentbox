@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { avatarMood, awaiting, chatLabel, isAsking, memoryHold, projectTone, rank, settled, statusTip, summarizeStatus } from './agentStatus.ts';
+import { avatarMood, awaiting, chatLabel, isAsking, frozenTip, memoryHold, projectTone, rank, settled, statusTip, summarizeStatus } from './agentStatus.ts';
 
 const agent = (state: string, chat?: string): T.Agent => ({ state, chat }) as T.Agent;
 
@@ -17,6 +17,12 @@ test('a broken machine needs attention even mid-chat', () => {
 
 test('initializing shows as live, not as needing attention', () => {
   assert.deepEqual(chatLabel(agent('initializing')), { text: 'Initializing', tone: 'live' });
+});
+
+test('an agent waiting for the base image says so, and reads as on its way', () => {
+  const waiting = { ...agent('initializing'), waitingForImage: true } as T.Agent;
+  assert.deepEqual(chatLabel(waiting), { text: 'Waiting for the base image', tone: 'live' });
+  assert.equal(avatarMood(waiting), 'sleeping');
 });
 
 test('a running chat is Working, an idle one is Idle or Starting', () => {
@@ -65,9 +71,46 @@ test('memory pressure holding back a running agent’s commands shows as a warni
   assert.equal(projectTone([agent('running'), waiting]), 'warning');
 });
 
+test('a whole machine paused or waiting for memory says how many are ahead, in its row and its chat', () => {
+  const since = '2026-10-22T10:00:00Z';
+  const gib = 1024 ** 3;
+  // Frozen mid-turn: its chat still says running, and the machine paused.
+  const frozen = { ...agent('paused', 'running'), memory: { machine: 'paused', ahead: 2, since, why: 'stalling', stalled: 40 } } as T.Agent;
+  assert.deepEqual(chatLabel(frozen), { text: 'Paused: waiting for memory, 2 ahead', tone: 'warning' });
+  assert.match(statusTip(frozen) ?? '', /resumes by itself, oldest first.*stalled on it 40%/);
+  assert.deepEqual(memoryHold(frozen), { text: 'Paused: waiting for memory, 2 ahead', tip: statusTip(frozen) });
+  // Waiting to boot, while it is being made.
+  const booting = { ...agent('initializing'), memory: { machine: 'waiting', since, why: 'low', available: gib, total: 16 * gib } } as T.Agent;
+  assert.deepEqual(chatLabel(booting), { text: 'Waiting for memory, 0 ahead', tone: 'warning' });
+  assert.match(statusTip(booting) ?? '', /memory to boot it/);
+});
+
+test('a machine or a command paused with swap full says pausing it frees nothing', () => {
+  const since = '2026-10-23T01:14:00Z';
+  const frozen = { ...agent('paused', 'running'), memory: { machine: 'paused', ahead: 1, since, why: 'low', swapFull: true } } as T.Agent;
+  assert.deepEqual(chatLabel(frozen), { text: 'Paused, swap full: waiting for memory, 1 ahead', tone: 'warning' });
+  assert.match(statusTip(frozen) ?? '', /swap is full.*frees nothing/);
+  const build = { ...agent('running', 'running'), memory: { paused: 1, since, why: 'low', swapFull: true } } as T.Agent;
+  assert.equal(memoryHold(build)?.text, 'Paused for memory, swap full');
+  assert.match(memoryHold(build)?.tip ?? '', /frees nothing/);
+});
+
 test('paused and stopped machines show their own state', () => {
   assert.deepEqual(chatLabel(agent('paused')), { text: 'Paused', tone: 'muted' });
   assert.deepEqual(chatLabel(agent('stopped')), { text: 'Stopped', tone: 'muted' });
+});
+
+test('an agent idle reclaim holds reads as idle with its memory reclaimed, until it works again', () => {
+  const frozen = { ...agent('running', 'ready'), outcome: 'done', reclaimed: 'frozen' } as T.Agent;
+  assert.deepEqual(chatLabel(frozen), { text: 'Idle, memory reclaimed', tone: 'muted' });
+  assert.match(statusTip(frozen) ?? '', /frozen/);
+  const stopped = { ...agent('stopped'), reclaimed: 'stopped' } as T.Agent;
+  assert.deepEqual(chatLabel(stopped), { text: 'Idle, memory reclaimed', tone: 'muted' });
+  assert.match(statusTip(stopped) ?? '', /message starts it again/);
+  // A turn that started before the daemon caught up is working, and a
+  // question it asked still needs you.
+  assert.equal(chatLabel({ ...frozen, chat: 'running' }).text, 'Working');
+  assert.equal(chatLabel({ ...frozen, outcome: 'asking' }).text, 'Waiting for an answer');
 });
 
 test('rank puts what needs you first, then running, paused, then the rest', () => {
@@ -210,4 +253,15 @@ test('an agent being made is starting whatever its chat says, and never needs yo
       assert.equal(rank(a), 1, `${state}/${chat}`);
     }
   }
+});
+
+test('frozen: a machine paused for memory says its place in line, idle reclaim says it is idle', () => {
+  const paused = { ...agent('running', 'ready'), memory: { machine: 'paused', ahead: 2 } } as T.Agent;
+  assert.match(frozenTip(paused)!, /number 3 in line to resume/);
+  const idle = { ...agent('running', 'ready'), reclaimed: 'frozen' } as T.Agent;
+  assert.match(frozenTip(idle)!, /Frozen while idle/);
+  // Working again, waiting to boot, or untouched: not frozen.
+  assert.equal(frozenTip({ ...idle, chat: 'running' } as T.Agent), undefined);
+  assert.equal(frozenTip({ ...agent('running', 'ready'), memory: { machine: 'waiting', ahead: 1 } } as T.Agent), undefined);
+  assert.equal(frozenTip(agent('running', 'ready')), undefined);
 });

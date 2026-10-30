@@ -56,7 +56,7 @@ func (m *Manager) WriteSkills(ctx context.Context, a state.Agent) error {
 		return err
 	}
 	if a.IsLead() {
-		return skills.InstallLocal(m.Paths.LeadHome(a.Project), list)
+		return skills.InstallLocal(m.leadHome(a), list)
 	}
 	archive, err := skills.Tar(list)
 	if err != nil {

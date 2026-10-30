@@ -4,6 +4,14 @@
 // between its toolbar and the page.
 import { useSyncExternalStore } from 'react';
 import type { MessageKey } from './i18n';
+import { onMac } from './utils.ts';
+
+// keyName is how a key of the sheet reads on this computer: "Mod" is Ctrl, ⌘
+// on a Mac, where Shift and Alt are ⇧ and ⌥.
+export const keyName = (k: string) => (k === 'Mod' ? (onMac ? '⌘' : 'Ctrl') : k === 'Shift' && onMac ? '⇧' : k === 'Alt' && onMac ? '⌥' : k);
+
+// keysHint is keys as one hint on a button: "Ctrl+T", or "⌘T" on a Mac.
+export const keysHint = (keys: readonly string[]) => keys.map(keyName).join(onMac ? '' : '+');
 
 type Keyish = Pick<KeyboardEvent, 'altKey' | 'shiftKey' | 'ctrlKey' | 'metaKey' | 'key' | 'target'>;
 
@@ -23,6 +31,46 @@ export const isSettingsShortcut = (event: Keyish) => mod(event) && !event.shiftK
 const closest = (event: Keyish, selector: string) => !!(event.target as { closest?: (s: string) => unknown } | null)?.closest?.(selector);
 export const isBackToLeadShortcut = (event: Keyish, mac: boolean) =>
   event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.key === 'ArrowLeft' && !closest(event, '.xterm, canvas') && !(mac && closest(event, 'input, textarea, [contenteditable="true"]'));
+
+// The sessions of a project's chat (lib/sessions.ts), from anywhere on its
+// page but a terminal: Mod+T opens one, Mod+W or Mod+Shift+⌫ closes the one
+// shown into the chat's history, and Ctrl+Tab and Ctrl+Shift+Tab move to
+// the next and the previous, as a browser's tabs. The listener's
+// preventDefault keeps Mod+W from reaching the window menu's Close.
+export function sessionShortcut(event: Keyish): 'new' | 'close' | 'next' | 'previous' | undefined {
+  if (inTerminal(event)) return undefined;
+  if (mod(event) && !event.shiftKey && event.key.toLowerCase() === 't') return 'new';
+  if (mod(event) && event.shiftKey && event.key === 'Backspace') return 'close';
+  if (mod(event) && !event.shiftKey && event.key.toLowerCase() === 'w') return 'close';
+  if (event.ctrlKey && !event.altKey && !event.metaKey && event.key === 'Tab') return event.shiftKey ? 'previous' : 'next';
+  return undefined;
+}
+
+// sessionKeys is how each reads, for the sheet and the buttons' hints.
+export const sessionKeys = {
+  new: ['Mod', 'T'],
+  close: ['Mod', 'W'],
+  closeToo: ['Mod', 'Shift', '⌫'],
+  next: ['Ctrl', 'Tab'],
+  previous: ['Ctrl', 'Shift', 'Tab'],
+} as const;
+
+// The target of a project chat's composer (lib/messageTarget.ts): Mod+. moves
+// it to the next of the lead and the project's agents, Mod+Shift+. to the one
+// before, and Esc in an empty composer back to the lead. Shift turns "." into
+// ">" on most layouts, so the key's place counts as well as its character.
+export function targetShortcut(event: Keyish & { code?: string }): 'next' | 'previous' | undefined {
+  if (!mod(event) || inTerminal(event)) return undefined;
+  if (event.key !== '.' && event.key !== '>' && event.code !== 'Period') return undefined;
+  return event.shiftKey ? 'previous' : 'next';
+}
+
+// targetKeys is how each reads, for the sheet and the chip's hint.
+export const targetKeys = {
+  next: ['Mod', '.'],
+  previous: ['Mod', 'Shift', '.'],
+  lead: ['Esc'],
+} as const;
 
 // The places F6 moves between, in order, each found by its selector; one that
 // isn't on screen (the panel, closed) is skipped. focus is what in it takes
@@ -84,6 +132,25 @@ export const sheet: { title: MessageKey; rows: { keys: string[]; label: MessageK
       { keys: ['@'], label: 'keys.mention' },
       { keys: ['/'], label: 'keys.commands' },
       { keys: ['Mod', 'F'], label: 'keys.find' },
+    ],
+  },
+  {
+    title: 'keys.group.sessions',
+    rows: [
+      { keys: [...sessionKeys.new], label: 'keys.sessionNew' },
+      { keys: [...sessionKeys.close], label: 'keys.sessionClose' },
+      { keys: [...sessionKeys.closeToo], label: 'keys.sessionClose' },
+      { keys: [...sessionKeys.next], label: 'keys.sessionNext' },
+      { keys: [...sessionKeys.previous], label: 'keys.sessionPrevious' },
+    ],
+  },
+  {
+    title: 'keys.group.target',
+    rows: [
+      { keys: [...targetKeys.next], label: 'keys.targetNext' },
+      { keys: [...targetKeys.previous], label: 'keys.targetPrevious' },
+      { keys: [...targetKeys.lead], label: 'keys.targetLead' },
+      { keys: ['@agent'], label: 'keys.targetMention' },
     ],
   },
   {

@@ -332,7 +332,8 @@ cd %s
 rm -rf .config/agentbox/env .config/agentbox/secrets.env .codex/auth.json .claude.json .gitconfig AGENTBOX.md \
   .claude/CLAUDE.md .claude/projects .claude/sessions .claude/todos .claude/shell-snapshots \
   .codex/AGENTS.md .codex/sessions .codex/history.jsonl .bash_history \
-  .config/agentbox/browser .local/state/agentbox .android .local/share/android-sdk
+  .config/agentbox/browser .local/state/agentbox .config/opencode .local/share/opencode \
+  .android .local/share/android-sdk
 truncate -s0 /etc/machine-id
 rm -f /var/lib/dbus/machine-id`, shellQuote("/home/"+user))
 }

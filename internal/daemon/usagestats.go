@@ -69,6 +69,7 @@ func (s *Server) sendUsage(ctx context.Context, install string) {
 		return
 	}
 	s.recordHeartbeat(ctx)
+	s.recordHealth(ctx, healthDaily)
 	s.sendPendingUsage(ctx, install, time.Now())
 }
 
@@ -152,7 +153,7 @@ func (s *Server) countChatOption(session api.ChatSession, id string) {
 		s.countFeature(api.FeatureChatEffort)
 	case "context_window":
 		s.countFeature(api.FeatureChatWindow)
-	case "mode":
+	case "mode", api.ChatOptionPlan:
 		s.countFeature(api.FeatureChatMode)
 	}
 }
@@ -179,18 +180,26 @@ func (s *Server) usageStatsPending(w http.ResponseWriter, r *http.Request) error
 	if len(days) > 0 {
 		out.Usage = indentJSON(update.NewUsageBody(req, days))
 	}
-	events, _, err := s.pendingEvents(ctx)
-	if err != nil {
-		return err
-	}
-	if len(events) > 0 {
-		out.Events = indentJSON(update.NewEventsBody(req, events))
-	}
 	waiting, err := s.store.UsageEvents(ctx, state.MaxUsageEvents)
 	if err != nil {
 		return err
 	}
 	out.EventsWaiting = len(waiting)
+	// The health and setup events go in batches of their own (eventBatch):
+	// each kind is shown as its first report.
+	batches := map[string][]state.UsageEvent{}
+	for _, r := range waiting {
+		if b := eventBatch(r.Name); len(batches[b]) < update.MaxEventsPerReport {
+			batches[b] = append(batches[b], r)
+		}
+	}
+	body := func(rows []state.UsageEvent) string {
+		if len(rows) == 0 {
+			return ""
+		}
+		return indentJSON(update.NewEventsBody(req, usageEvents(rows)))
+	}
+	out.Events, out.Health, out.Setup = body(batches[""]), body(batches[eventHealth]), body(batches[eventSetup])
 	return writeJSON(w, http.StatusOK, out)
 }
 

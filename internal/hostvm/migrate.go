@@ -180,7 +180,7 @@ func readInstall(ctx context.Context, path string) (hostInstall, error) {
 		inst.Projects = append(inst.Projects, name)
 	}
 	_ = rows.Close()
-	rows, err = db.QueryContext(ctx, "SELECT project, name, instance, ai, status FROM agents WHERE name != ? ORDER BY project, name", state.LeadName)
+	rows, err = db.QueryContext(ctx, "SELECT project, name, instance, ai, status FROM agents WHERE name != ? AND name NOT LIKE 'lead.%' ORDER BY project, name", state.LeadName)
 	if err != nil {
 		return inst, fmt.Errorf("reading %s: %w", path, err)
 	}
@@ -578,7 +578,7 @@ mkdir -p "$data" "$config"
 chmod 700 "$data" "$config"
 for f in "$src_data"/* "$src_data"/.[!.]*; do
   [ -e "$f" ] || [ -L "$f" ] || continue
-  case "${f##*/}" in worktrees|media|vm|run|tools|backups|migration|daemon.log*|state.db*) continue ;; esac
+  case "${f##*/}" in worktrees|worktrees-trash|media|vm|run|tools|backups|migration|daemon.log*|state.db*) continue ;; esac
   cp -a "$f" "$data/"
 done
 for f in "$src_config"/* "$src_config"/.[!.]*; do

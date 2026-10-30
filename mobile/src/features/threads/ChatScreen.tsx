@@ -6,17 +6,21 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams } from 'expo-router';
 import { Image } from 'expo-image';
+import { ArrowRightLeft, Brain, ChevronRight, CircleAlert, Eye, Globe, Play, Search, ShieldCheck, ShieldX, SquarePen, SquareTerminal, Trash2, Wrench, type LucideIcon } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as T from '../../shared/api.ts';
-import { api, chatImagePath, isLead, mediaSource } from '../../connection/api.ts';
+import { api, chatImagePath, isLead, mediaSource, sessionOf, sessionRef } from '../../connection/api.ts';
 import { can, useSession } from '../../connection/session.ts';
 import { useT } from '../../lib/i18n.tsx';
+import { ErrorBoundary } from '../../ui/ErrorBoundary.tsx';
+import { AgentAvatar, LeadAvatar } from '../../ui/icons.tsx';
 import { Button, Dot, ScreenHeader } from '../../ui/parts.tsx';
 import { colors, mono } from '../../ui/theme.ts';
-import { agentStatus, isWaiting, leadStatus, liveStatus, workLabel } from './activity.ts';
+import { agentStatus, avatarMood, isWaiting, leadMood, leadStatus, liveStatus, workLabel } from './activity.ts';
 import { AgentPermissionCard, PermissionCard, QuestionCard } from './cards.tsx';
 import { Composer } from './Composer.tsx';
+import { SessionBar } from './SessionBar.tsx';
 import { Markdown } from './Markdown.tsx';
 import { timelineRows, type Row } from './timeline.ts';
 import { loadOlder, useThread } from './useThread.ts';
@@ -27,22 +31,41 @@ export function ChatScreen() {
   const parts = (Array.isArray(params.ref) ? params.ref : [params.ref]).filter(Boolean).map(decodeURIComponent);
   const project = parts[0];
   const lead = isLead(parts.join('/'));
+  // The Home chat (T.HomeProject) is a lead's chat in sessions too, of no
+  // project.
+  const home = project === T.HomeProject;
   const agentRef = lead ? undefined : `${parts[0]}/${parts[1]}`;
   const session = useSession();
   const queryClient = useQueryClient();
 
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
-  const info = useQuery({ queryKey: ['projectChat', project], queryFn: () => api.projectChat(project), enabled: lead });
+  // A project's chat is one of its sessions: the one the link named
+  // (/chat/web/lead.prod), the one chosen here since, or else the most
+  // recently active.
+  const sessions = useQuery({ queryKey: ['leadSessions', project], queryFn: () => api.leadSessions(project), enabled: lead });
+  const [chosen, setChosen] = useState(() => (parts[1] && parts[1] !== T.LeadName ? sessionOf(parts.join('/')) : undefined));
+  const list = sessions.data ?? [];
+  const shown = list.find((s) => s.id === chosen) ?? [...list].sort((a, b) => b.activeAt.localeCompare(a.activeAt))[0];
+  const openSession = useMutation({
+    // Untitled, on the settings of the session shown (NewLeadSessionRequest.from).
+    mutationFn: () => api.newLeadSession(project, { from: shown?.id }),
+    onSuccess: (s) => {
+      setChosen(s.id);
+      void queryClient.invalidateQueries({ queryKey: ['leadSessions', project] });
+    },
+    onError: (err) => Alert.alert(t('sessions.new'), err instanceof Error ? err.message : String(err)),
+  });
+  const info = useQuery({ queryKey: ['projectChat', project, shown?.id], queryFn: () => api.projectChat(project, shown!.id), enabled: lead && !!shown });
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents, enabled: !lead });
   const agent = agents.data?.find((a) => a.ref === agentRef);
   const ref = lead ? (info.data?.started ? info.data.ref : undefined) : agent && agent.state !== 'initializing' ? agent.ref : undefined;
   const thread = useThread(ref);
-  const questions = useQuery({ queryKey: ['questions', project], queryFn: () => api.questions(project) });
+  const questions = useQuery({ queryKey: ['questions', project], queryFn: () => api.questions(project), enabled: !home });
   const waiting = (questions.data ?? []).filter((q) => isWaiting(q) && (lead || q.ref === agentRef));
 
   const p = projects.data?.find((x) => x.name === project);
-  const title = lead ? t('web.phone.projectChat') : agent?.title || parts[1];
-  const subtitle = lead ? p?.displayName || project : agent?.title ? agent.name : undefined;
+  const title = lead ? shown?.topic || t(home ? 'chat.home.title' : 'web.phone.projectChat') : agent?.title || parts[1];
+  const subtitle = home ? t('chat.home.title') : lead ? p?.displayName || project : agent?.title ? agent.name : undefined;
   const status = lead ? (info.data ? leadStatus(info.data.chat, thread.data) : undefined) : agent ? agentStatus(agent, thread.data) : undefined;
   const live = thread.data ? liveStatus(thread.data) : undefined;
   const asleep = agent && (agent.state === 'stopped' || agent.state === 'paused') ? agent.state : undefined;
@@ -56,20 +79,34 @@ export function ChatScreen() {
     setLoadingOlder(true);
     await loadOlder(queryClient, ref).finally(() => setLoadingOlder(false));
   };
-  const chatRef = lead ? `${project}/${T.LeadName}` : agentRef!;
+  const chatRef = lead ? (shown ? sessionRef(project, shown.id) : `${project}/${T.LeadName}`) : agentRef!;
 
-  const missing = lead ? projects.data && !p : agents.data && !agent;
+  const missing = home ? false : lead ? projects.data && !p : agents.data && !agent;
   return (
-    <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScreenHeader title={title} subtitle={subtitle} status={status} />
-      {missing ? (
+    <View style={styles.root}>
+      <ScreenHeader
+        title={title}
+        subtitle={subtitle}
+        status={status}
+        icon={lead ? <LeadAvatar mood={leadMood(info.data?.chat, waiting.length > 0)} size={32} /> : agent ? <AgentAvatar ai={agent.ai} mood={avatarMood(agent, waiting.length > 0)} size={32} /> : undefined}
+      />
+      {lead && sessions.data && (
+        <SessionBar sessions={list} current={shown?.id} canAdd={can(session, 'chat')} onChoose={setChosen} onAdd={() => openSession.mutate()} />
+      )}
+      {lead && sessions.data && !shown ? (
+        <Text style={styles.empty}>{t('sessions.none')}</Text>
+      ) : missing ? (
         <Text style={styles.empty}>{lead ? t('web.phone.missingProject', { name: project }) : t('web.phone.missingAgent', { name: agentRef ?? '' })}</Text>
       ) : (
         <FlatList
           inverted
           data={rows}
           keyExtractor={(row) => row.id}
-          renderItem={({ item: row }) => <TimelineRow row={row} chatRef={chatRef} tools={tools} />}
+          renderItem={({ item: row }) => (
+            <ErrorBoundary label={t('mobile.error.row')} resetKey={row}>
+              <TimelineRow row={row} chatRef={chatRef} tools={tools} />
+            </ErrorBoundary>
+          )}
           contentContainerStyle={styles.list}
           onEndReached={() => void older()}
           onEndReachedThreshold={0.3}
@@ -87,7 +124,9 @@ export function ChatScreen() {
                 </View>
               )}
               {waiting.map((q) => (
-                <QuestionCard key={q.id} question={q} />
+                <ErrorBoundary key={q.id} label={t('mobile.error.row')} resetKey={q}>
+                  <QuestionCard question={q} />
+                </ErrorBoundary>
               ))}
             </View>
           }
@@ -98,18 +137,19 @@ export function ChatScreen() {
       {asleep && (
         <View style={styles.asleep}>
           <Text style={styles.asleepText}>{t('mobile.chat.asleep', { name: agent?.name ?? '', state: asleep })}</Text>
-          {can(session, 'chat') && <Button label={t('mobile.chat.wake')} kind="secondary" busy={wake.isPending} onPress={() => wake.mutate()} />}
+          {can(session, 'chat') && <Button label={t('mobile.chat.wake')} icon={Play} kind="secondary" busy={wake.isPending} onPress={() => wake.mutate()} />}
         </View>
       )}
-      {!missing && !asleep && (
+      {!missing && !asleep && (!lead || shown) && (
         <Composer
           chatRef={chatRef}
+          lead={lead && shown ? { project, session: shown.id, sessions: list } : undefined}
           name={lead ? t('web.phone.projectChat') : agent?.name ?? ''}
           running={!!live}
           start={lead && info.data && !info.data.started ? () => api.startChat(chatRef).then(() => queryClient.invalidateQueries({ queryKey: ['projectChat', project] })) : undefined}
         />
       )}
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
@@ -118,6 +158,7 @@ function TimelineRow({ row, chatRef, tools }: { row: Row; chatRef: string; tools
     case 'user':
       return (
         <View style={styles.userRow}>
+          {row.item.to ? <Text style={styles.toldTag}>→ {row.item.to}</Text> : null}
           <View style={styles.userBubble}>
             {row.item.images?.map((img) => (
               <Image key={img.id} source={mediaSource(chatImagePath(chatRef, img.id))} style={styles.image} contentFit="cover" />
@@ -155,27 +196,54 @@ function TimelineRow({ row, chatRef, tools }: { row: Row; chatRef: string; tools
   }
 }
 
+// Each step's icon by what it does, the desktop's (chat/Work.tsx).
+const toolIcons: Record<string, LucideIcon> = {
+  read: Eye,
+  edit: SquarePen,
+  delete: Trash2,
+  move: ArrowRightLeft,
+  search: Search,
+  execute: SquareTerminal,
+  think: Brain,
+  fetch: Globe,
+};
+
+function iconOf(it: T.ChatItem): LucideIcon {
+  if (it.kind === 'thought') return Brain;
+  if (it.kind === 'permission') return it.permission?.options.find((o) => o.id === it.permission?.outcome)?.kind.startsWith('allow') ? ShieldCheck : ShieldX;
+  if (it.tool?.status === 'failed') return CircleAlert;
+  return toolIcons[it.tool?.kind ?? ''] ?? Wrench;
+}
+
 // WorkRow is a run of work folded into one line, what it did last; tapped,
 // every step.
 function WorkRow({ items, live }: { items: T.ChatItem[]; live: boolean }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const last = items.at(-1)!;
+  const Icon = iconOf(last);
   return (
     <Pressable onPress={() => setOpen((o) => !o)} style={styles.work} accessibilityRole="button" accessibilityState={{ expanded: open }}>
       <View style={styles.workHead}>
-        <Dot status={{ tone: live ? 'live' : 'muted', live }} />
+        <Icon size={15} color={live ? colors.secondary : colors.subtle} strokeWidth={1.8} />
         <Text style={[styles.workText, live && { color: colors.secondary }]} numberOfLines={1}>
           {workLabel(last)}
         </Text>
         {items.length > 1 && <Text style={styles.workCount}>{t('mobile.chat.steps', { count: items.length })}</Text>}
+        <ChevronRight size={13} color={colors.faint} style={open ? { transform: [{ rotate: '90deg' }] } : undefined} />
       </View>
       {open &&
-        items.map((it) => (
-          <Text key={it.id} style={[styles.workStep, it.kind === 'tool' && it.tool?.kind === 'execute' && mono]} numberOfLines={2}>
-            {workLabel(it)}
-          </Text>
-        ))}
+        items.map((it) => {
+          const StepIcon = iconOf(it);
+          return (
+            <View key={it.id} style={styles.workStepRow}>
+              <StepIcon size={13} color={colors.faint} strokeWidth={1.8} />
+              <Text style={[styles.workStep, it.kind === 'tool' && it.tool?.kind === 'execute' && mono]} numberOfLines={2}>
+                {workLabel(it)}
+              </Text>
+            </View>
+          );
+        })}
     </Pressable>
   );
 }
@@ -186,6 +254,7 @@ const styles = StyleSheet.create({
   flip: { transform: [{ scaleY: -1 }] },
   empty: { color: colors.subtle, fontSize: 14, textAlign: 'center', padding: 24 },
   userRow: { alignItems: 'flex-end', marginVertical: 8 },
+  toldTag: { color: colors.brand300, fontSize: 11.5, fontWeight: '600', marginBottom: 3, marginRight: 4 },
   userBubble: { maxWidth: '85%', backgroundColor: colors.brandSoft, borderRadius: 18, borderBottomRightRadius: 6, paddingHorizontal: 14, paddingVertical: 9, gap: 6 },
   userText: { color: colors.title, fontSize: 15, lineHeight: 21 },
   image: { width: 180, height: 120, borderRadius: 10 },
@@ -194,7 +263,8 @@ const styles = StyleSheet.create({
   workHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   workText: { flex: 1, color: colors.subtle, fontSize: 13 },
   workCount: { color: colors.faint, fontSize: 12 },
-  workStep: { color: colors.subtle, fontSize: 12, paddingLeft: 16 },
+  workStepRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, paddingLeft: 2 },
+  workStep: { flex: 1, color: colors.subtle, fontSize: 12 },
   error: { borderRadius: 12, backgroundColor: colors.roseSoft, padding: 10, marginVertical: 6 },
   errorText: { color: colors.rose, fontSize: 13, lineHeight: 18 },
   note: { color: colors.subtle, fontSize: 12.5, textAlign: 'center', marginVertical: 6 },
