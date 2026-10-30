@@ -1424,37 +1424,6 @@ var migrations = []string{
 	`ALTER TABLE projects ADD COLUMN agent_effort TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE projects ADD COLUMN agent_context_window TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE projects ADD COLUMN agent_mode TEXT NOT NULL DEFAULT ''`,
-	// A project's chat in sessions (leadsessions.go): each a lead conversation
-	// of its own on one topic, as many as the user opens, none at all once
-	// they have all been deleted. A session's lead is an agents row named
-	// LeadSessionName(id) once it is first written to. Every project already
-	// chatted with gets one session, "main", which is that chat: its lead row
-	// is the one named "lead", so its conversation, HOME and socket stay where
-	// they were. created_by_session is the session whose lead made an agent,
-	// which its notices go back to; '' is no session's, as every agent made
-	// before sessions, or by the user, is.
-	`CREATE TABLE lead_sessions (
-		project    TEXT NOT NULL,
-		id         TEXT NOT NULL,
-		topic      TEXT NOT NULL,
-		created_at INTEGER NOT NULL,
-		PRIMARY KEY (project, id)
-	)`,
-	`INSERT INTO lead_sessions (project, id, topic, created_at)
-		SELECT project, 'main', 'Chat', created_at * 1000 FROM agents WHERE role = 'lead' AND name = 'lead'`,
-	`ALTER TABLE agents ADD COLUMN created_by_session TEXT NOT NULL DEFAULT ''`,
-	// A session opened with no topic (AddUntitledLeadSession) is named from
-	// its conversation after its lead's first turn, unless the user names it
-	// first: untitled is 1 until one of them does.
-	`ALTER TABLE lead_sessions ADD COLUMN untitled INTEGER NOT NULL DEFAULT 0`,
-	// The Home chat has sessions too, kept under HomeProject. It gets "main",
-	// its chat as it was: "Chat" when it has a conversation, and untitled, to
-	// be named by its first turn, when it has none, so a new installation's
-	// Home opens on a session to write in.
-	`INSERT INTO lead_sessions (project, id, topic, created_at, untitled)
-		SELECT '_home', 'main', CASE WHEN used THEN 'Chat' ELSE 'New session' END, CAST(strftime('%s', 'now') AS INTEGER) * 1000, NOT used
-		FROM (SELECT EXISTS (SELECT 1 FROM chat_items WHERE project = '_home' AND agent = 'lead') AS used)`,
-
 	// The clusters agents can run in, and the OCI registries their images come
 	// from (internal/k8s, internal/agentimage). Which registry is used is
 	// configuration, not a product choice: a Forgejo, a Docker Hub account, a
@@ -1606,6 +1575,36 @@ var migrations = []string{
 	// The image a cluster ran before its last upgrade, so `cluster upgrade
 	// --rollback` has one to go back to. Empty until an upgrade happens.
 	`ALTER TABLE clusters ADD COLUMN previous_image TEXT NOT NULL DEFAULT ''`,
+	// A project's chat in sessions (leadsessions.go): each a lead conversation
+	// of its own on one topic, as many as the user opens, none at all once
+	// they have all been deleted. A session's lead is an agents row named
+	// LeadSessionName(id) once it is first written to. Every project already
+	// chatted with gets one session, "main", which is that chat: its lead row
+	// is the one named "lead", so its conversation, HOME and socket stay where
+	// they were. created_by_session is the session whose lead made an agent,
+	// which its notices go back to; '' is no session's, as every agent made
+	// before sessions, or by the user, is.
+	`CREATE TABLE lead_sessions (
+		project    TEXT NOT NULL,
+		id         TEXT NOT NULL,
+		topic      TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		PRIMARY KEY (project, id)
+	)`,
+	`INSERT INTO lead_sessions (project, id, topic, created_at)
+		SELECT project, 'main', 'Chat', created_at * 1000 FROM agents WHERE role = 'lead' AND name = 'lead'`,
+	`ALTER TABLE agents ADD COLUMN created_by_session TEXT NOT NULL DEFAULT ''`,
+	// A session opened with no topic (AddUntitledLeadSession) is named from
+	// its conversation after its lead's first turn, unless the user names it
+	// first: untitled is 1 until one of them does.
+	`ALTER TABLE lead_sessions ADD COLUMN untitled INTEGER NOT NULL DEFAULT 0`,
+	// The Home chat has sessions too, kept under HomeProject. It gets "main",
+	// its chat as it was: "Chat" when it has a conversation, and untitled, to
+	// be named by its first turn, when it has none, so a new installation's
+	// Home opens on a session to write in.
+	`INSERT INTO lead_sessions (project, id, topic, created_at, untitled)
+		SELECT '_home', 'main', CASE WHEN used THEN 'Chat' ELSE 'New session' END, CAST(strftime('%s', 'now') AS INTEGER) * 1000, NOT used
+		FROM (SELECT EXISTS (SELECT 1 FROM chat_items WHERE project = '_home' AND agent = 'lead') AS used)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
