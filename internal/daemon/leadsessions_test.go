@@ -483,12 +483,23 @@ func TestAClosedSessionGoesToTheHistory(t *testing.T) {
 	if err != nil || cont.ID == first.ID || cont.ID == fresh.ID {
 		t.Fatalf("a session continued from the closed one = %+v, %v", cont, err)
 	}
-	contLead, err := d.srv.sessionLead(ctx, "hello-stack", cont.ID)
+	// Shown before its lead is made, which needs a login: the app reads it
+	// at once.
+	if _, err := d.srv.store.Agent(ctx, "hello-stack", state.LeadSessionName(cont.ID)); !errors.Is(err, state.ErrNotFound) {
+		t.Errorf("continuing made the new session's lead: %v", err)
+	}
+	th, err := d.client.Chat(ctx, cont.Ref)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(noticesOf(t, d, contLead), "\n"); !strings.Contains(got, "The cookie is the culprit.") || !strings.Contains(got, first.ID) {
-		t.Errorf("the continued session was told %q; want where %s left off", got, first.ID)
+	var told string
+	for _, it := range th.Items {
+		if it.Kind == "notice" && !it.Hidden {
+			told += it.Text
+		}
+	}
+	if !strings.Contains(told, "The cookie is the culprit.") || !strings.Contains(told, first.ID) {
+		t.Errorf("the continued session shows %q; want where %s left off", told, first.ID)
 	}
 	if a1, err = d.srv.store.Agent(ctx, "hello-stack", "agent-01"); err != nil || a1.Session() != first.ID {
 		t.Errorf("agent-01 = %+v, %v; want it still the closed session's", a1, err)

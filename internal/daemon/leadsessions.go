@@ -393,9 +393,15 @@ func (s *Server) seedSession(ctx context.Context, project, to string, from state
 		b.WriteString(strings.Join(lines, "\n\n"))
 	}
 	b.WriteString("\n\nIts agents still belong to it; what it learned is in the project's memory.")
-	lead, err := s.sessionLead(ctx, project, to)
-	if err != nil {
-		return err
+	// Its lead as leadFromPath reads a session never written to: the notice
+	// waits in its conversation, and makes nothing, needs no login, until the
+	// first message does.
+	lead := state.Agent{
+		Project: project, Name: state.LeadSessionName(to), AI: agent.ChatTool,
+		Interface: state.InterfaceChat, Role: state.RoleLead,
+	}
+	if project == state.HomeProject {
+		lead = s.manager(nil).HomeSession(to)
 	}
 	return s.chat.Notice(lead, b.String(), chat.NoticeOptions{})
 }
