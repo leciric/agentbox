@@ -2046,7 +2046,7 @@ export function seedClusterSetup(queryClient: QueryClient, todo = false): void {
       check('cursor', 'Cursor sign-in', 'optional', 'not signed in', false, 'agentbox auth cursor'),
       check('opencode', 'OpenCode', 'optional', 'not in the image', false, 'agentbox image build --opencode'),
     ],
-    image: { version: '2026.09.25.1', components: { android: false, codex: false, opencode: false, opencodeV2: false, devCaches: false, incus: false }, installed: { android: false, codex: false, opencode: false, opencodeV2: false, devCaches: false, incus: false }, downloads: [], hint: '' },
+    image: { version: '2026.09.25.1', components: { android: false, codex: false, opencode: false, devCaches: false, incus: false }, installed: { android: false, codex: false, opencode: false, devCaches: false, incus: false }, downloads: [], hint: '' },
   };
   devState.setup = setup;
   queryClient.setQueryData(['setup'], setup);
