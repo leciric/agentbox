@@ -1524,12 +1524,11 @@ html[data-blurred] .ab-monitor * {
 
 /* A chat session's colour (components/chat/sessionColor.ts): a pastel per
    name in SESSION_COLORS (lib/sessions.ts), lighter on dark and deeper on light, its wash
-   a little stronger on dark (--ab-session-wash) to read the same on both.
+   a 10% wash (--ab-session-wash) on both.
    [data-session-color] sets --session from it; a name this app doesn't know
    leaves it unset, and nothing tinted. .session-tint washes an agent's card
-   with it and draws a 2px edge at its left, under the card's content and over
-   its own hover and selected backgrounds, without touching its box-shadow
-   (the focus ring). */
+   with it, under the card's content and over its own hover and selected
+   backgrounds, with no edge: on a rounded card it curves. */
 :root {
   --ab-session-rose: #f5a3b5;
   --ab-session-peach: #f7b98b;
@@ -1539,7 +1538,7 @@ html[data-blurred] .ab-monitor * {
   --ab-session-sky: #8cc4f2;
   --ab-session-lime: #c4e27e;
   --ab-session-lilac: #e4a8e8;
-  --ab-session-wash: 9%;
+  --ab-session-wash: 10%;
 }
 :root[data-appearance="light"] {
   --ab-session-rose: #e26d8a;
@@ -1550,7 +1549,7 @@ html[data-blurred] .ab-monitor * {
   --ab-session-sky: #4b97dc;
   --ab-session-lime: #7fa52a;
   --ab-session-lilac: #c25fc6;
-  --ab-session-wash: 7%;
+  --ab-session-wash: 10%;
 }
 [data-session-color="rose"] { --session: var(--ab-session-rose); }
 [data-session-color="peach"] { --session: var(--ab-session-peach); }
@@ -1576,5 +1575,4 @@ html[data-blurred] .ab-monitor * {
   border-radius: inherit;
   pointer-events: none;
   background-color: color-mix(in oklab, var(--session, transparent) var(--ab-session-wash), transparent);
-  box-shadow: inset 2px 0 0 color-mix(in oklab, var(--session, transparent) 60%, transparent);
 }
