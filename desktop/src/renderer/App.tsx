@@ -12,6 +12,7 @@ import { openSearch, toggleSearch } from "./lib/searchOpen";
 import { ErrorReports } from "./components/ErrorReports";
 import { SnapComposer } from "./components/SnapComposer";
 import { HomeChatPanel } from "./components/HomeChatPanel";
+import { openHomeChatEvent } from "./lib/doctor";
 import { HomeView } from "./components/HomeView";
 import { AllMediaView } from "./components/AllMediaView";
 import { ConfirmDialog } from "./components/ConfirmDialog";
@@ -245,6 +246,17 @@ export function App({ initial }: { initial?: View } = {}) {
     };
     window.addEventListener(openProjectEvent, open);
     return () => window.removeEventListener(openProjectEvent, open);
+  }, []);
+
+  // Setup handing a failing check to the Home chat (DoctorPanel), whose
+  // session it chose already.
+  useEffect(() => {
+    const open = () => {
+      setView({ kind: "homeChat" });
+      setNavOpen(false);
+    };
+    window.addEventListener(openHomeChatEvent, open);
+    return () => window.removeEventListener(openHomeChatEvent, open);
   }, []);
 
   // A link from a project's chat to one of its agents, on its permission request.

@@ -55,6 +55,9 @@ func (m *Manager) WriteSkills(ctx context.Context, a state.Agent) error {
 	if err != nil {
 		return err
 	}
+	if a.IsHome() {
+		list = skills.WithBuiltin(list)
+	}
 	if a.IsLead() {
 		return skills.InstallLocal(m.leadHome(a), list)
 	}
