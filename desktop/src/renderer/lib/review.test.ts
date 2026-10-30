@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { countLabel, remainingAfter, wrapWalk, goBack, goForward, mergeBlock, nextPending, startWalk, walkItems, walkOrder, queueOf, reviewKeys, reviewShortcut, repeatable, isTyping, firstLine, pressable, proofKey, gallery, chapterAt, proofOf, readableName, reviewPane, step } from './review.ts';
+import { countLabel, remainingAfter, wrapWalk, goBack, goForward, mergeBlock, nextPending, startWalk, walkItems, walkOrder, queueOf, reviewKeys, reviewShortcut, repeatable, isTyping, firstLine, pressable, proofKey, seeking, gallery, chapterAt, proofOf, readableName, reviewPane, step } from './review.ts';
 
 const page = (id: string, createdAt: string) => ({ id, createdAt }) as T.Artifact;
 const pr = { number: 12, title: 'feat: dark mode', state: 'open', checks: 'passing', url: '' } as T.PullRequest;
@@ -157,11 +157,12 @@ test('reviewShortcut maps keys to actions, and leaves modified ones alone', () =
   assert.equal(reviewShortcut({ key: ']' }), 'nextChapter');
   assert.equal(reviewShortcut({ key: 'f' }), 'expand');
   assert.ok(proofKey('nextMedia') && !proofKey('toggleDiff'));
-  // V, X and H work a before/after pair's comparison.
-  assert.equal(reviewShortcut({ key: 'v' }), 'compareMode');
-  assert.equal(reviewShortcut({ key: 'x' }), 'flip');
+  // Q and H work a before/after pair's comparison; X and V, beside C, do nothing.
+  assert.equal(reviewShortcut({ key: 'q' }), 'compareMode');
   assert.equal(reviewShortcut({ key: 'h' }), 'highlight');
-  assert.ok(proofKey('flip') && !repeatable('flip'));
+  assert.ok(proofKey('compareMode') && !repeatable('compareMode'));
+  assert.equal(reviewShortcut({ key: 'x' }), null);
+  assert.equal(reviewShortcut({ key: 'v' }), null);
   assert.equal(reviewShortcut({ key: 'r', metaKey: true }), null);
   assert.equal(reviewShortcut({ key: 'm', ctrlKey: true }), null);
   assert.equal(reviewShortcut({ key: 'z' }), null);
@@ -285,4 +286,30 @@ test('proofOf shows each before/after pair together, before then after, ahead of
     shown.map((s) => (s.kind === 'pair' ? `${s.pair.before.id} | ${s.pair.after.id}` : s.kind === 'recording' ? s.take.media.id : s.kind === 'screenshot' ? s.media.id : s.page.id)),
     ['counts-project-dark-1920-before | counts-project-dark-1920-after', 'first look | second look', 'walk', 'sidebar'],
   );
+});
+
+// Each letter's neighbours on a QWERTY keyboard.
+const qwerty = ['1234567890', 'qwertyuiop', 'asdfghjkl', 'zxcvbnm'];
+function neighbours(key: string): string[] {
+  const row = qwerty.findIndex((r) => r.includes(key));
+  const col = qwerty[row].indexOf(key);
+  // Each row sits about half a key right of the one above.
+  const near = (r: number, cols: number[]) => cols.map((c) => qwerty[r]?.[c]).filter((k): k is string => !!k);
+  return [...near(row, [col - 1, col + 1]), ...near(row - 1, [col, col + 1]), ...near(row + 1, [col - 1, col])];
+}
+
+test('no compare key sits next to a verdict', () => {
+  assert.deepEqual(neighbours('c').sort(), ['d', 'f', 'v', 'x']);
+  const verdicts = reviewKeys.filter((k) => k.action === 'merge' || k.action === 'requestChanges' || k.action === 'reviewed').map((k) => k.keys[0].toLowerCase());
+  for (const action of ['compareMode', 'highlight'] as const) {
+    const key = reviewKeys.find((k) => k.action === action)?.keys[0].toLowerCase() ?? '';
+    for (const verdict of verdicts) assert.ok(!neighbours(key).includes(verdict), `${key} is next to ${verdict}`);
+  }
+});
+
+test('a player with focus takes Space and the arrows', () => {
+  assert.ok(seeking('nextMedia', { tagName: 'VIDEO' }));
+  assert.ok(seeking('play', { tagName: 'video' }));
+  assert.ok(!seeking('merge', { tagName: 'VIDEO' }));
+  assert.ok(!seeking('nextMedia', { tagName: 'DIV' }));
 });

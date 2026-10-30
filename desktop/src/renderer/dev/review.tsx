@@ -177,8 +177,8 @@ function crowded(): T.MediaItem[] {
 // pairs is ?review=pairs: agent-15's media as agent-635's was, a
 // counts-project-dark-1920-before and its -after with another screenshot
 // taken between them, plus a pair marked with --pair whose halves aren't the
-// same size, which can't be highlighted, and a recording pair, played
-// together. The after moves a badge by a few pixels and changes its count,
+// same size, which can't be highlighted, and a recording pair, played one
+// after the other. The after moves a badge by a few pixels and changes its count,
 // the kind of change only a highlight shows.
 function pairs(): T.MediaItem[] {
   const base = { agent: `${PROJECT}/agent-15`, agentName: 'agent-15', source: 'agent', size: 200_000, mime: 'image/png' };
