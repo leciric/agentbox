@@ -1010,6 +1010,8 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/projects/{project}/sessions", s.newSession)
 	h("PATCH /v1/projects/{project}/sessions/{session}", s.renameSession)
 	h("DELETE /v1/projects/{project}/sessions/{session}", s.deleteSession)
+	h("POST /v1/projects/{project}/sessions/{session}/close", s.closeSession)
+	h("POST /v1/projects/{project}/sessions/{session}/reopen", s.reopenSession)
 	sessionRoute("GET /v1/projects/{project}/chat", s.getChat(s.leadFromPath))
 	sessionRoute("GET /v1/projects/{project}/chat/search", s.searchChat(s.leadFromPath))
 	sessionRoute("DELETE /v1/projects/{project}/chat", s.clearChat(s.leadFromPath))
@@ -1297,7 +1299,7 @@ func writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, state.ErrNotFound), errors.Is(err, incus.ErrNotFound), errors.Is(err, memory.ErrNotFound):
 		status = http.StatusNotFound
 	case errors.Is(err, state.ErrExists), errors.Is(err, agent.ErrCloneDestExists), errors.As(err, new(errOtherSession)),
-		errors.Is(err, ErrAgentBusy), errors.Is(err, state.ErrDestroyed):
+		errors.Is(err, ErrAgentBusy), errors.Is(err, state.ErrDestroyed), errors.Is(err, errSessionClosed):
 		status = http.StatusConflict
 	case errors.Is(err, incus.ErrNotAnswering):
 		status = http.StatusServiceUnavailable

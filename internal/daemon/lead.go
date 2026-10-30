@@ -72,6 +72,12 @@ func (s *Server) leadFromPath(r *http.Request) (state.Agent, error) {
 // reads what is on that branch now.
 func (s *Server) ensureLeadFromPath(r *http.Request) (state.Agent, error) {
 	m := s.manager(s.cfg.Log)
+	// A closed session would hand the message on to another (leadOf).
+	if session := sessionFrom(r); session != "" {
+		if ls, err := s.store.LeadSession(r.Context(), r.PathValue("project"), session); err == nil && ls.Closed() {
+			return state.Agent{}, errSessionClosed
+		}
+	}
 	// A message that names no session, from a client that knows none, goes
 	// to the one most recently active, or opens one.
 	a, err := s.leadOf(r.Context(), r.PathValue("project"), sessionFrom(r), "Chat", true)
@@ -173,7 +179,7 @@ func (s *Server) resetProjectChat(w http.ResponseWriter, r *http.Request) error 
 	project := r.PathValue("project")
 	// The whole chat, every session of it.
 	refs := []string{agent.LeadRef(project)}
-	sessions, err := s.store.LeadSessions(r.Context(), project)
+	sessions, err := s.store.AllLeadSessions(r.Context(), project)
 	if err != nil {
 		return err
 	}

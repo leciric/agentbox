@@ -608,6 +608,14 @@ export const api = {
     call<T.LeadSession>('POST', `${project(name)}/sessions`, req satisfies T.NewLeadSessionRequest).then(untitledTopic),
   renameLeadSession: (name: string, session: string, topic: string) =>
     call<T.LeadSession>('PATCH', `${project(name)}/sessions/${encodeURIComponent(session)}`, { topic } satisfies T.LeadSessionPatch),
+  // The sessions in the chat's history (closeLeadSession), the most recently
+  // closed first; reopenLeadSession brings one back, deleteLeadSession removes
+  // one, open or closed, for good.
+  closedLeadSessions: (name: string) => call<T.LeadSession[]>('GET', `${project(name)}/sessions?closed=true`).then((list) => list.map(untitledTopic)),
+  closeLeadSession: (name: string, session: string) =>
+    call<T.LeadSession>('POST', `${project(name)}/sessions/${encodeURIComponent(session)}/close`).then(untitledTopic),
+  reopenLeadSession: (name: string, session: string) =>
+    call<T.LeadSession>('POST', `${project(name)}/sessions/${encodeURIComponent(session)}/reopen`).then(untitledTopic),
   deleteLeadSession: (name: string, session: string) => call<void>('DELETE', `${project(name)}/sessions/${encodeURIComponent(session)}`),
   handOverAgent: (ref: string, session: string) => call<void>('PUT', `${agent(ref)}/session`, { session } satisfies T.AgentSessionRequest),
   resetProjectChat: (project: string) => call<void>('DELETE', `/v1/projects/${encodeURIComponent(project)}/lead`),

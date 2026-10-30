@@ -532,6 +532,9 @@ type LeadSession struct {
 	// ActiveAt is its newest message's time, or CreatedAt: the most recently
 	// active session hears what belongs to no session.
 	ActiveAt time.Time `json:"activeAt"`
+	// ClosedAt is when a session in the chat's history was closed: it is read,
+	// reopened or continued from there, and starts no turn until reopened.
+	ClosedAt *time.Time `json:"closedAt,omitempty"`
 }
 
 // EventLeadSessions carries a LeadSessionsChange when a project's sessions
@@ -550,6 +553,10 @@ type NewLeadSessionRequest struct {
 	// From is the session it is opened from, whose AI tool, model, permission
 	// mode and effort it starts on; absent, the one most recently active.
 	From string `json:"from,omitempty"`
+	// ContinueFrom is a session, usually one in the chat's history, that the
+	// new one picks up from: it is opened on that one's topic and settings,
+	// under an id of its own, with a notice of where that one left off.
+	ContinueFrom string `json:"continueFrom,omitempty"`
 }
 
 // LeadSessionPatch renames a session.

@@ -42,10 +42,10 @@ test('the sessions keys: Mod+T, Mod+W, Mod+Shift+⌫, Ctrl+Tab and Ctrl+Shift+Ta
   const { sessionShortcut } = await import('./shortcuts.ts');
   assert.equal(sessionShortcut(key('t')), 'new');
   assert.equal(sessionShortcut(key('T', { ctrlKey: false, metaKey: true })), 'new');
-  assert.equal(sessionShortcut(key('Backspace', { shiftKey: true })), 'delete');
+  assert.equal(sessionShortcut(key('Backspace', { shiftKey: true })), 'close');
   assert.equal(sessionShortcut(key('Backspace')), undefined);
-  assert.equal(sessionShortcut(key('w')), 'delete');
-  assert.equal(sessionShortcut(key('W', { ctrlKey: false, metaKey: true })), 'delete');
+  assert.equal(sessionShortcut(key('w')), 'close');
+  assert.equal(sessionShortcut(key('W', { ctrlKey: false, metaKey: true })), 'close');
   assert.equal(sessionShortcut(key('w', { shiftKey: true })), undefined);
   assert.equal(sessionShortcut(key('w', { target: { closest: () => ({}) } as unknown as EventTarget })), undefined);
   assert.equal(sessionShortcut(key('Tab')), 'next');

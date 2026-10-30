@@ -2939,11 +2939,13 @@ export interface LeadSession {
   last?: ChatLine;
   createdAt: string;
   activeAt: string;
+  closedAt?: string;
 }
 
 export interface NewLeadSessionRequest {
   topic?: string;
   from?: string;
+  continueFrom?: string;
 }
 
 export interface LeadSessionPatch {

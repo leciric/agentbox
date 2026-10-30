@@ -845,4 +845,18 @@ func TestHomeChatSessions(t *testing.T) {
 	if strings.Contains(out, "weekly-planning") {
 		t.Errorf("the closed session is still listed:\n%s", out)
 	}
+	out, err = run(t, "", "chat", "session", "list", "--home", "--closed")
+	if err != nil {
+		t.Fatalf("chat session list --home --closed: %v\n%s", err, out)
+	}
+	mustContain(t, out, "weekly-planning", "closed")
+	if out, err = run(t, "", "chat", "session", "reopen", "--home", "weekly-planning"); err != nil {
+		t.Fatalf("chat session reopen --home: %v\n%s", err, out)
+	}
+	mustContain(t, out, `Reopened "Weekly planning"`)
+	if out, err = run(t, "", "chat", "session", "delete", "--home", "weekly-planning"); err != nil {
+		t.Fatalf("chat session delete --home: %v\n%s", err, out)
+	}
+	out, _ = run(t, "", "chat", "session", "list", "--home", "--closed")
+	mustContain(t, out, "No closed sessions.")
 }
