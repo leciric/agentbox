@@ -41,6 +41,9 @@ import { drop as dropOn, listEnd, sectionsAside, stepTarget, type DropTarget, ty
 import { edge, useSectionDrag, useSections } from '../../lib/useSections';
 import { useSidebarLayout } from '../../lib/useSidebarLayout';
 import { useGrace } from '../../lib/grace';
+import { askOf, attentionOf, byAttention, markProjectSeen, unseenFinished, useKeepOnScreen, useProjectSeen, useWindowFocused, type Attention } from '../../lib/attention';
+import { useReviewHead } from '../../lib/inboxPages';
+import { useReviewing } from '../../lib/reviewAlert';
 import { projectLabel } from '../../lib/projectName';
 import { useNow } from '../../lib/useNow';
 import { updateHint } from '../../lib/appUpdate';
@@ -124,6 +127,34 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   const onScreen = view.kind === 'project' ? view.project : currentAgentProject;
   const active = useMemo(() => (onScreen && !activeGrace.has(onScreen) ? new Set([...activeGrace, onScreen]) : activeGrace), [activeGrace, onScreen]);
 
+  // Each project's attention level (lib/attention.ts): what needs you, and
+  // what finished since you last had it on screen, the window focused. The
+  // project you're looking at has nothing unseen.
+  const projectSeen = useProjectSeen();
+  const focused = useWindowFocused();
+  const looking = focused ? onScreen : undefined;
+  const head = useReviewHead(useReviewing()).data;
+  const attention = useMemo(() => {
+    const finishedAt = new Map((head?.items ?? []).map((i) => [i.ref, i.finishedAt]));
+    const out = new Map<string, Attention>();
+    for (const p of projects.data ?? []) {
+      const finished = p.name === looking ? 0 : unseenFinished(rows, p.name, projectSeen.seen[p.name] ?? projectSeen.since, finishedAt).length;
+      out.set(p.name, attentionOf(counts.of(p.name), leads.get(p.name) === 'waiting', finished));
+    }
+    return out;
+  }, [projects.data, rows, head, projectSeen, counts, leads, looking]);
+  // Marked again as what it shows changes, so what finishes while you look
+  // is seen too.
+  useEffect(() => {
+    if (looking) markProjectSeen(looking);
+  }, [looking, rows, head]);
+  // The sort reads the levels with the same grace as active, and the project
+  // on screen keeps its place until you leave it.
+  const needsNow = useMemo(() => new Set([...attention].filter(([, a]) => a.level === 'needs').map(([n]) => n)), [attention]);
+  const finishedNow = useMemo(() => new Set([...attention].filter(([, a]) => a.level === 'finished').map(([n]) => n)), [attention]);
+  const needsSort = useKeepOnScreen(useGrace(needsNow), onScreen);
+  const finishedSort = useKeepOnScreen(useGrace(finishedNow), onScreen);
+
   const grouping = useGroupIdle();
   const order = useMemo(() => {
     return orderProjects({
@@ -143,7 +174,10 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   const hiddenSet = new Set(layout.hidden);
   // A hidden project comes back while it has something going on, which the
   // project on screen alone doesn't count as: opened from Hidden, it stays there.
-  const arranged = arrange(order, layout, activeGrace);
+  // What needs you, then what finished, come first among the projects in
+  // no list of the user's own order: the pins and the sections keep theirs.
+  const placed = arrange(order, layout, activeGrace);
+  const arranged = { ...placed, rest: byAttention(placed.rest, needsSort, finishedSort) };
   // The user's sections, each with the projects in it that aren't with the
   // pins or the hidden; the rest of the lists are the projects in none.
   const sec = useSections();
@@ -261,6 +295,8 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
       key={p.project.name}
       project={p.project}
       counts={counts.of(p.project.name)}
+      attention={attention.get(p.project.name) ?? { count: 0 }}
+      rows={rows}
       pinned={pinned.has(p.project.name)}
       hidden={hiddenSet.has(p.project.name)}
       view={view}
@@ -744,7 +780,7 @@ export function StMark({ st, className }: { st: AgentSt; className?: string }) {
 // Mac) is for the row's menu only, where it has one, and opens nothing. The
 // rest of props is ContextMenuTrigger's, as its asChild child.
 // With onMove, Alt+↑/↓ moves it, Classic's keys (Sidebar.tsx).
-function Lead({ active, onClick, onMove, children, data, ...props }: { active: boolean; onClick: () => void; onMove?: (delta: -1 | 1) => void; children: ReactNode; data?: Record<string, string> } & Omit<ComponentProps<'div'>, 'onClick'>) {
+function Lead({ active, onClick, onMove, children, data, className, ...props }: { active: boolean; onClick: () => void; onMove?: (delta: -1 | 1) => void; children: ReactNode; data?: Record<string, string> } & Omit<ComponentProps<'div'>, 'onClick'>) {
   return (
     <div
       {...props}
@@ -762,7 +798,7 @@ function Lead({ active, onClick, onMove, children, data, ...props }: { active: b
         onClick();
       }}
       aria-keyshortcuts={onMove ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
-      className={cn('group relative flex min-w-0 cursor-pointer items-start gap-2 rounded-lg px-2 py-2 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400', active ? 'bg-surface-raised' : 'hover:bg-surface')}
+      className={cn('group relative flex min-w-0 cursor-pointer items-start gap-2 rounded-lg px-2 py-2 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400', active ? 'bg-surface-raised' : 'hover:bg-surface', className)}
       {...data}
     >
       {children}
@@ -834,6 +870,8 @@ type Drag = {
 function ProjectLead({
   project,
   counts,
+  attention,
+  rows,
   pinned,
   hidden,
   view,
@@ -848,6 +886,10 @@ function ProjectLead({
   project: T.Project;
   // Its agents' counts (lib/agentCounts.ts); its lead mid-turn is the spinner by its name.
   counts: Tally;
+  // How loudly it calls for you (lib/attention.ts), and every agent's row,
+  // for what the first one that needs you asks.
+  attention: Attention;
+  rows: readonly Row[];
   pinned: boolean;
   hidden: boolean;
   view: View;
@@ -881,10 +923,15 @@ function ProjectLead({
   // Talk to another project needs another project.
   const others = (useQuery({ queryKey: ['projects'], queryFn: api.projects }).data?.length ?? 0) > 1;
   const line = leadLine(chat.data?.last);
+  const questions = useQuery({ queryKey: ['questions', project.name], queryFn: () => api.questions(project.name) }).data;
+  // Needing you, the row says what was asked in place of the lead's last line.
+  const ask = attention.level === 'needs' ? askOf(rows, project.name, Array.isArray(questions) ? questions : undefined) : undefined;
   const anyCount = counts.working + counts.needs + counts.error > 0;
   const name = projectLabel(project);
   const active = (view.kind === 'project' && view.project === project.name) || (view.kind === 'agent' && view.ref.startsWith(`${project.name}/`));
   const sessionUnread = !active && sessions.some((s) => isUnread(s, seen[s.ref]));
+  const needs = attention.level === 'needs';
+  const dot = attention.level === 'finished' || sessionUnread;
   const open_ = () => onSelect({ kind: 'project', project: project.name });
   const openSettings = () => {
     open_();
@@ -950,15 +997,38 @@ function ProjectLead({
               else requestComposerFocus(leadRef);
             }}
             data={{ 'data-v2-lead': project.name }}
+            // Needing you, a faint amber wash.
+            className={needs && !active ? 'bg-amber-400/5 hover:bg-amber-400/10' : undefined}
           >
-            <ProjectIcon project={project} className="mt-px" />
+            {/* The icon's corner says it at any width: amber for what needs
+                you, the brand's for what finished or a session's unread line. */}
+            <span className="relative mt-px shrink-0">
+              <ProjectIcon project={project} />
+              {(needs || dot) && (
+                <span
+                  className={cn('absolute -right-0.5 -top-0.5 size-2 rounded-full ring-2 ring-rail', needs ? 'bg-amber-400' : 'bg-brand-400')}
+                  aria-label={needs ? t('shell.sidebar.needsYou') : attention.level === 'finished' ? t('v2.attention.finished', { count: attention.count }) : t('sessions.unread')}
+                  data-v2-attention-dot={needs ? 'needs' : attention.level === 'finished' ? 'finished' : 'unread'}
+                />
+              )}
+            </span>
             <span className="min-w-0 flex-1">
               <span className="flex min-w-0 items-center gap-1.5">
                 <span className="truncate text-[13px] font-medium text-title">{name}</span>
                 {(chat.data?.chat === 'running' || sessionWorking) && <LoaderCircle className="size-3 shrink-0 animate-spin text-subtle" />}
-                {chat.data?.chat === 'waiting' && <span className="size-1.5 shrink-0 rounded-full bg-amber-400" aria-label={t('shell.sidebar.needsYou')} />}
-                {sessionUnread && <span className="size-1.5 shrink-0 rounded-full bg-brand-400" aria-label={t('sessions.unread')} />}
-                {chat.data?.last && <span className={cn('ml-auto shrink-0 text-[11px] text-faint group-hover/lead:hidden', active && 'hidden')}>{timeAgo(chat.data.last.at, now)}</span>}
+                {/* What needs you, or what finished, in place of the time, which
+                    makes way for the gear on hover as the time does; on the
+                    project open, the two share the line. */}
+                {attention.level ? (
+                  <span
+                    className={cn('ml-auto shrink-0 whitespace-nowrap rounded-full px-1.5 py-px text-[11px] font-medium tabular-nums', !active && 'group-hover/lead:hidden', needs ? 'bg-amber-400/15 text-amber-300' : 'bg-brand-400/10 text-brand-300')}
+                    data-v2-attention={attention.level}
+                  >
+                    {t(needs ? 'v2.attention.needs' : 'v2.attention.finished', { count: attention.count })}
+                  </span>
+                ) : (
+                  chat.data?.last && <span className={cn('ml-auto shrink-0 text-[11px] text-faint group-hover/lead:hidden', active && 'hidden')}>{timeAgo(chat.data.last.at, now)}</span>
+                )}
                 <Tip label={t('v2.sidebar.projectSettings')}>
                   <button
                     type="button"
@@ -967,7 +1037,7 @@ function ProjectLead({
                       e.stopPropagation();
                       openSettings();
                     }}
-                    className={cn('-my-1 ml-auto hidden size-5 shrink-0 items-center justify-center rounded text-subtle hover:bg-surface-strong hover:text-title focus-visible:flex group-hover/lead:flex', active && 'flex')}
+                    className={cn('-my-1 hidden size-5 shrink-0 items-center justify-center rounded text-subtle hover:bg-surface-strong hover:text-title focus-visible:flex group-hover/lead:flex', active && 'flex', !(active && attention.level) && 'ml-auto')}
                     data-v2-project-settings={project.name}
                   >
                     <Settings className="size-3.5" />
@@ -976,9 +1046,15 @@ function ProjectLead({
               </span>
               {/* "N to review" ends this line, not the name's: there it left the name a few letters. */}
               <span className="flex min-w-0 items-center gap-2">
-                <span className="min-w-0 flex-1 truncate text-[11.5px] text-subtle" data-v2-lead-line>
-                  {line ? (line.mine ? t('v2.sidebar.you', { text: line.text }) : line.text) : t('v2.sidebar.leadHint')}
-                </span>
+                {ask ? (
+                  <span className="min-w-0 flex-1 truncate text-[11.5px] text-secondary" data-v2-lead-line="ask" title={t('v2.attention.ask', ask)}>
+                    {t('v2.attention.ask', ask)}
+                  </span>
+                ) : (
+                  <span className="min-w-0 flex-1 truncate text-[11.5px] text-subtle" data-v2-lead-line>
+                    {line ? (line.mine ? t('v2.sidebar.you', { text: line.text }) : line.text) : t('v2.sidebar.leadHint')}
+                  </span>
+                )}
                 <ReviewCount project={project.name} variant="button" />
               </span>
               {/* Its agents' permission requests wait in this chat too, as
