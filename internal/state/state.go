@@ -1442,6 +1442,10 @@ var migrations = []string{
 	`INSERT INTO lead_sessions (project, id, topic, created_at)
 		SELECT project, 'main', 'Chat', created_at * 1000 FROM agents WHERE role = 'lead' AND name = 'lead'`,
 	`ALTER TABLE agents ADD COLUMN created_by_session TEXT NOT NULL DEFAULT ''`,
+	// A session opened with no topic (AddUntitledLeadSession) is named from
+	// its conversation after its lead's first turn, unless the user names it
+	// first: untitled is 1 until one of them does.
+	`ALTER TABLE lead_sessions ADD COLUMN untitled INTEGER NOT NULL DEFAULT 0`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

@@ -39,11 +39,18 @@ const maxTopic = 200
 
 // LeadSession is one of a project's chat sessions.
 type LeadSession struct {
-	Project   string
-	ID        string
-	Topic     string
+	Project string
+	ID      string
+	Topic   string
+	// Untitled says the session still has the topic it was opened with,
+	// UntitledTopic, for want of one: its conversation names it (NameLeadSession)
+	// unless the user does first (RenameLeadSession).
+	Untitled  bool
 	CreatedAt time.Time
 }
+
+// UntitledTopic is the topic of a session opened with none, until it is named.
+const UntitledTopic = "New session"
 
 // LeadSessionName is the agent name a session's lead runs under: LeadName for
 // the migrated session, so a project's chat from before sessions is that
@@ -112,6 +119,17 @@ func (s *Store) AddLeadSession(ctx context.Context, project, topic string, at ti
 	if len(base) > maxSessionID-4 {
 		base = strings.TrimRight(base[:maxSessionID-4], "-")
 	}
+	return s.addLeadSession(ctx, project, topic, base, false, at)
+}
+
+// AddUntitledLeadSession opens a new session with no topic yet: it reads
+// UntitledTopic until its first turn names it, and its id is "session",
+// numbered, since a topic that comes later can't change it.
+func (s *Store) AddUntitledLeadSession(ctx context.Context, project string, at time.Time) (LeadSession, error) {
+	return s.addLeadSession(ctx, project, UntitledTopic, "", true, at)
+}
+
+func (s *Store) addLeadSession(ctx context.Context, project, topic, base string, untitled bool, at time.Time) (LeadSession, error) {
 	if base == "" {
 		base = "session"
 	}
@@ -132,15 +150,15 @@ func (s *Store) AddLeadSession(ctx context.Context, project, topic string, at ti
 			continue
 		}
 		_, err := s.db.ExecContext(ctx,
-			`INSERT INTO lead_sessions (project, id, topic, created_at) VALUES (?, ?, ?, ?)`,
-			project, id, topic, at.UnixMilli())
+			`INSERT INTO lead_sessions (project, id, topic, created_at, untitled) VALUES (?, ?, ?, ?, ?)`,
+			project, id, topic, at.UnixMilli(), untitled)
 		if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			continue
 		}
 		if err != nil {
 			return LeadSession{}, err
 		}
-		return LeadSession{Project: project, ID: id, Topic: topic, CreatedAt: time.UnixMilli(at.UnixMilli())}, nil
+		return LeadSession{Project: project, ID: id, Topic: topic, Untitled: untitled, CreatedAt: time.UnixMilli(at.UnixMilli())}, nil
 	}
 	return LeadSession{}, fmt.Errorf("session %q: %w", base, ErrExists)
 }
@@ -163,7 +181,7 @@ func (s *Store) AddLeadSessionID(ctx context.Context, project, id, topic string,
 // LeadSessions lists a project's sessions, oldest first.
 func (s *Store) LeadSessions(ctx context.Context, project string) ([]LeadSession, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT project, id, topic, created_at FROM lead_sessions WHERE project = ? ORDER BY created_at, id`, project)
+		`SELECT project, id, topic, created_at, untitled FROM lead_sessions WHERE project = ? ORDER BY created_at, id`, project)
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +200,7 @@ func (s *Store) LeadSessions(ctx context.Context, project string) ([]LeadSession
 // LeadSession is one session of a project's chat.
 func (s *Store) LeadSession(ctx context.Context, project, id string) (LeadSession, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT project, id, topic, created_at FROM lead_sessions WHERE project = ? AND id = ?`, project, id)
+		`SELECT project, id, topic, created_at, untitled FROM lead_sessions WHERE project = ? AND id = ?`, project, id)
 	ls, err := scanLeadSession(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return LeadSession{}, fmt.Errorf("session %s of %s: %w", id, project, ErrNotFound)
@@ -193,7 +211,7 @@ func (s *Store) LeadSession(ctx context.Context, project, id string) (LeadSessio
 func scanLeadSession(row interface{ Scan(...any) error }) (LeadSession, error) {
 	var ls LeadSession
 	var created int64
-	if err := row.Scan(&ls.Project, &ls.ID, &ls.Topic, &created); err != nil {
+	if err := row.Scan(&ls.Project, &ls.ID, &ls.Topic, &created, &ls.Untitled); err != nil {
 		return LeadSession{}, err
 	}
 	ls.CreatedAt = time.UnixMilli(created)
@@ -257,14 +275,15 @@ func (s *Store) LastActiveLeadSession(ctx context.Context, project string) (Lead
 	return best, nil
 }
 
-// RenameLeadSession changes a session's topic. Its id stays.
+// RenameLeadSession changes a session's topic, the user's: nothing names it
+// after that. Its id stays.
 func (s *Store) RenameLeadSession(ctx context.Context, project, id, topic string) error {
 	topic, err := cleanTopic(topic)
 	if err != nil {
 		return err
 	}
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE lead_sessions SET topic = ? WHERE project = ? AND id = ?`, topic, project, id)
+		`UPDATE lead_sessions SET topic = ?, untitled = 0 WHERE project = ? AND id = ?`, topic, project, id)
 	if err != nil {
 		return err
 	}
@@ -272,6 +291,24 @@ func (s *Store) RenameLeadSession(ctx context.Context, project, id, topic string
 		return fmt.Errorf("session %s of %s: %w", id, project, ErrNotFound)
 	}
 	return nil
+}
+
+// NameLeadSession gives an untitled session the topic its conversation was
+// found to be about. It reports false, and changes nothing, for a session
+// already named, by the user or before: a name the user typed is never
+// overwritten, even one typed while this topic was being worked out.
+func (s *Store) NameLeadSession(ctx context.Context, project, id, topic string) (bool, error) {
+	topic, err := cleanTopic(topic)
+	if err != nil {
+		return false, err
+	}
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE lead_sessions SET topic = ?, untitled = 0 WHERE project = ? AND id = ? AND untitled = 1`, topic, project, id)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
 }
 
 // DeleteLeadSession deletes a session: its row, its lead's, and its

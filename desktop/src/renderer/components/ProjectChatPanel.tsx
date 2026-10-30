@@ -6,12 +6,13 @@ import * as T from '../../shared/api';
 import { api, sessionOfRef } from '../lib/api';
 import { t, useT } from '../lib/i18n';
 import { useChatOpenAt } from '../lib/reveal';
+import { requestComposerFocus } from '../lib/newTask';
 import { afterDelete, chooseSession, markSessionSeen, neighbour, pickSession, useChosenSession } from '../lib/sessions';
 import { keysHint, sessionKeys, sessionShortcut } from '../lib/shortcuts';
 import { errorMessage } from '../lib/utils';
 import { ChatTab } from './chat/ChatTab';
 import { SessionAgents } from './chat/SessionAgents';
-import { SessionTabs, TopicInput } from './chat/SessionTabs';
+import { SessionTabs } from './chat/SessionTabs';
 import { Button } from './ui/button';
 import { EmptyState } from './ui/card';
 import { useUiV2 } from '../lib/uiV2';
@@ -71,6 +72,10 @@ export function useCurrentSession(project: string | undefined): T.LeadSession | 
 // Opening it starts the lead's AI tool, with no turn, so its settings can be
 // chosen before the first message. A session whose chat is never opened costs
 // nothing; a project with no session shows an empty state that opens one.
+//
+// A new session asks for nothing: it opens untitled, on the tool, model, mode
+// and effort of the session shown, with its composer focused, and its first
+// turn names it (internal/daemon/sessionname.go).
 export function ProjectChatPanel({ project }: { project: T.Project }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -78,7 +83,6 @@ export function ProjectChatPanel({ project }: { project: T.Project }) {
   const chosen = useChosenSession(project.name);
   const list = sessions.data ?? [];
   const current = pickSession(list, chosen);
-  const [adding, setAdding] = useState(false);
   const [confirming, setConfirming] = useState<string>();
   const chat = useQuery({
     queryKey: ['projectChat', project.name, current?.id],
@@ -91,10 +95,10 @@ export function ProjectChatPanel({ project }: { project: T.Project }) {
 
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ['leadSessions', project.name] });
   const add = useMutation({
-    mutationFn: (topic: string) => api.newLeadSession(project.name, topic),
+    mutationFn: (from: string | undefined) => api.newLeadSession(project.name, { from }),
     onSuccess: (s) => {
-      setAdding(false);
       chooseSession(project.name, s.id);
+      requestComposerFocus(s.ref);
       refresh();
     },
     onError: (err) => toast.error(errorMessage(err)),
@@ -126,19 +130,19 @@ export function ProjectChatPanel({ project }: { project: T.Project }) {
   }, [project.name, shownId, shownLast]);
 
   // The sessions' keys (lib/shortcuts.ts), while this chat is on screen.
-  const keys = useRef({ list, current, adding });
-  keys.current = { list, current, adding };
+  const keys = useRef({ list, current, open: add.mutate });
+  keys.current = { list, current, open: add.mutate };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const command = sessionShortcut(event);
       if (!command) return;
-      const { list, current } = keys.current;
+      const { list, current, open } = keys.current;
       event.preventDefault();
       event.stopPropagation();
       switch (command) {
         case 'new':
           setConfirming(undefined);
-          setAdding(true);
+          open(current?.id);
           return;
         case 'delete':
           if (current) setConfirming(current.id);
@@ -162,14 +166,13 @@ export function ProjectChatPanel({ project }: { project: T.Project }) {
     <SessionTabs
       sessions={list}
       current={current?.id}
-      adding={adding}
+      adding={add.isPending}
       confirming={confirming}
       onChoose={(id) => {
         setConfirming(undefined);
         chooseSession(project.name, id);
       }}
-      onAdd={(topic) => add.mutate(topic)}
-      onAdding={setAdding}
+      onAdd={() => add.mutate(current?.id)}
       onConfirm={setConfirming}
       onDelete={(id) => remove.mutate(id)}
       onRename={(id, topic) => rename.mutate({ id, topic })}
@@ -183,14 +186,10 @@ export function ProjectChatPanel({ project }: { project: T.Project }) {
           icon={MessagesSquare}
           title={t('sessions.none')}
           action={
-            adding ? (
-              <TopicInput label={t('sessions.topic')} placeholder={t('sessions.topicPlaceholder')} onDone={(topic) => (topic ? add.mutate(topic) : setAdding(false))} />
-            ) : (
-              <Button variant="primary" onClick={() => setAdding(true)} data-session-new title={keysHint(sessionKeys.new)}>
-                <Plus className="size-4" />
-                {t('sessions.new')}
-              </Button>
-            )
+            <Button variant="primary" onClick={() => add.mutate(undefined)} disabled={add.isPending} data-session-new title={keysHint(sessionKeys.new)}>
+              <Plus className="size-4" />
+              {t('sessions.new')}
+            </Button>
           }
         >
           {t('sessions.noneHint')}

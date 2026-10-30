@@ -108,6 +108,10 @@ export const sessionOfRef = (ref: string): string | undefined => {
   return name.startsWith(`${T.LeadName}.`) ? name.slice(T.LeadName.length + 1) : undefined;
 };
 
+// untitledTopic shows an untitled session's placeholder topic in the app's
+// language.
+const untitledTopic = (s: T.LeadSession): T.LeadSession => (s.untitled ? { ...s, topic: t('sessions.untitled') } : s);
+
 // sessionRef is the ref a session's lead, and its chat, are known by.
 export const sessionRef = (project: string, session: string) => `${project}/${session === 'main' ? T.LeadName : `${T.LeadName}.${session}`}`;
 
@@ -556,8 +560,13 @@ export const api = {
 
   // session undefined is the session most recently active.
   projectChat: (name: string, session?: string) => call<T.ProjectChat>('GET', session ? `${project(name)}/sessions/${encodeURIComponent(session)}/lead` : `${project(name)}/lead`),
-  leadSessions: (name: string) => call<T.LeadSession[]>('GET', `${project(name)}/sessions`),
-  newLeadSession: (name: string, topic: string) => call<T.LeadSession>('POST', `${project(name)}/sessions`, { topic } satisfies T.NewLeadSessionRequest),
+  // An untitled session's topic is the daemon's placeholder, in English: it
+  // reads in the app's language until its first turn names it.
+  leadSessions: (name: string) => call<T.LeadSession[]>('GET', `${project(name)}/sessions`).then((list) => list.map(untitledTopic)),
+  // With no topic the session is untitled, and named after its first turn;
+  // from is the session whose tool, model, mode and effort it starts on.
+  newLeadSession: (name: string, req: T.NewLeadSessionRequest = {}) =>
+    call<T.LeadSession>('POST', `${project(name)}/sessions`, req satisfies T.NewLeadSessionRequest).then(untitledTopic),
   renameLeadSession: (name: string, session: string, topic: string) =>
     call<T.LeadSession>('PATCH', `${project(name)}/sessions/${encodeURIComponent(session)}`, { topic } satisfies T.LeadSessionPatch),
   deleteLeadSession: (name: string, session: string) => call<void>('DELETE', `${project(name)}/sessions/${encodeURIComponent(session)}`),

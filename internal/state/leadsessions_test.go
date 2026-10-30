@@ -131,3 +131,47 @@ func TestDeletingASessionLeavesItsAgentsToNobody(t *testing.T) {
 		t.Errorf("reopened = %+v, %v", again, err)
 	}
 }
+
+// A session opened with no topic is untitled until its conversation names it,
+// and a name the user gives it is never overwritten by that.
+func TestAnUntitledSessionKeepsTheUsersName(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := openStore(t)
+	addProject(t, st, "web")
+	now := time.Now()
+	ls, err := st.AddUntitledLeadSession(ctx, "web", now)
+	if err != nil || ls.ID != "session" || ls.Topic != state.UntitledTopic || !ls.Untitled {
+		t.Fatalf("AddUntitledLeadSession() = %+v, %v", ls, err)
+	}
+	if again, err := st.AddUntitledLeadSession(ctx, "web", now); err != nil || again.ID != "session-2" {
+		t.Errorf("a second untitled session = %+v, %v", again, err)
+	}
+	if named, err := st.NameLeadSession(ctx, "web", ls.ID, "Prod: login 500s"); err != nil || !named {
+		t.Fatalf("NameLeadSession() = %v, %v", named, err)
+	}
+	if got, err := st.LeadSession(ctx, "web", ls.ID); err != nil || got.Topic != "Prod: login 500s" || got.Untitled {
+		t.Errorf("after naming = %+v, %v", got, err)
+	}
+	if named, err := st.NameLeadSession(ctx, "web", ls.ID, "Something else"); err != nil || named {
+		t.Errorf("naming a named session = %v, %v; want it left alone", named, err)
+	}
+
+	// Renamed by the user before its first turn ended: theirs stays.
+	mine, err := st.AddUntitledLeadSession(ctx, "web", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RenameLeadSession(ctx, "web", mine.ID, "Mine"); err != nil {
+		t.Fatal(err)
+	}
+	if named, err := st.NameLeadSession(ctx, "web", mine.ID, "Not mine"); err != nil || named {
+		t.Errorf("naming a session the user named = %v, %v", named, err)
+	}
+	if got, _ := st.LeadSession(ctx, "web", mine.ID); got.Topic != "Mine" || got.Untitled {
+		t.Errorf("the user's session = %+v", got)
+	}
+	if sessions, err := st.LeadSessions(ctx, "web"); err != nil || len(sessions) != 3 || !sessions[1].Untitled {
+		t.Errorf("LeadSessions() = %+v, %v; want the second still untitled", sessions, err)
+	}
+}

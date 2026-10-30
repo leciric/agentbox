@@ -1025,7 +1025,8 @@ function CacheCard({
   const queryClient = useQueryClient();
   const fresh = useMutation({
     mutationFn: async (message: { text: string; images: Pending[] } | null) => {
-      const s = await api.newLeadSession(project, (message && topicFrom(message.text)) || t('sessions.untitled'));
+      const topic = message ? topicFrom(message.text) : undefined;
+      const s = await api.newLeadSession(project, { topic, from: sessionOfRef(chatRef) });
       chooseSession(project, s.id);
       void queryClient.invalidateQueries({ queryKey: ['leadSessions', project] });
       if (message) {

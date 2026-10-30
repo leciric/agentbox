@@ -198,9 +198,9 @@ skills, schedules and the agent list are shared by all of them.`,
 		},
 	}
 	open := &cobra.Command{
-		Use:   "new <project> <topic>",
-		Short: "Open a new session of a project's chat",
-		Args:  cobra.MinimumNArgs(2),
+		Use:   "new <project> [topic]",
+		Short: "Open a new session of a project's chat, named after its first turn when no topic is given",
+		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := a.client(cmd)
 			if err != nil {
