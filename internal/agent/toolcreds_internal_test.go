@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"agentbox/internal/credentials"
+	"agentbox/internal/image"
 	"agentbox/internal/state"
 )
 
@@ -29,7 +31,7 @@ func TestAToolOnAnAccountStartsWithoutItsCredentialVariables(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	window, err := m.toolWindowScript(claudeAgent("work"))
+	window, err := m.toolWindowScript(context.Background(), claudeAgent("work"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +42,7 @@ func TestAToolOnAnAccountStartsWithoutItsCredentialVariables(t *testing.T) {
 	}
 
 	// No account stored for it: an API key secret is how it signs in.
-	window, err = m.toolWindowScript(claudeAgent("personal"))
+	window, err = m.toolWindowScript(context.Background(), claudeAgent("personal"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +85,7 @@ esac`), Store: openInternalStore(t)}
 		t.Fatal(err)
 	}
 	script := cmd.Args[len(cmd.Args)-1]
-	if !strings.Contains(script, "&& exec env -u ANTHROPIC_API_KEY -u ") || !strings.Contains(script, " BASH_ENV='/home/dev/.config/agentbox/bash_env' mise exec 'npm:@agentclientprotocol/claude-agent-acp@") {
+	if !strings.Contains(script, "exec env -u ANTHROPIC_API_KEY -u ") || !strings.Contains(script, " BASH_ENV='/home/dev/.config/agentbox/bash_env' mise exec 'npm:@agentclientprotocol/claude-agent-acp@") {
 		t.Errorf("the chat's command doesn't drop the credential variables just before mise:\n%s", script)
 	}
 }
@@ -282,5 +284,191 @@ func TestIsTool(t *testing.T) {
 		if got := isTool(tc.tool, tc.argv); got != tc.want {
 			t.Errorf("isTool(%s, %q) = %v", tc.tool, tc.argv, got)
 		}
+	}
+}
+
+// The chat says its own name, which bills the 5-hour window like the VS Code
+// extension and well under the Agent SDK's default; the terminal interface and
+// other tools say nothing.
+func TestClaudeChatsReportTheAgentboxEntrypoint(t *testing.T) {
+	t.Parallel()
+	m := &Manager{Creds: credentials.Store{Dir: t.TempDir()}, Incus: fakeIncus(t, `case "$1" in
+  list) echo '[{"name":"ab-sai-agent-01","status":"Running"}]' ;;
+esac`), Store: openInternalStore(t)}
+	m.User.Name = "dev"
+	script := func(ai string) string {
+		a := claudeAgent("")
+		a.AI, a.Interface = ai, state.InterfaceChat
+		cmd, err := m.ChatCommand(context.Background(), a, func(string) {})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cmd.Args[len(cmd.Args)-1]
+	}
+	if s := script("claude"); !strings.Contains(s, "&& CLAUDE_CODE_ENTRYPOINT=agentbox exec ") {
+		t.Errorf("the Claude chat doesn't set the entrypoint:\n%s", s)
+	}
+	for _, ai := range []string{"codex", "opencode"} {
+		if s := script(ai); strings.Contains(s, "CLAUDE_CODE_ENTRYPOINT") {
+			t.Errorf("the %s chat sets the entrypoint:\n%s", ai, s)
+		}
+	}
+	window, err := m.toolWindowScript(context.Background(), claudeAgent(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(window, "CLAUDE_CODE_ENTRYPOINT") {
+		t.Errorf("the terminal interface sets the entrypoint:\n%s", window)
+	}
+}
+
+// OpenCode 2 keeps every credential it is given, and `auth import` skips one
+// it already has: a sync gives it exactly the accounts asked for, logging out
+// the ones it replaced so a removed or renamed account can't keep answering.
+// An export that didn't change touches nothing.
+func TestSyncOpenCodeImportLogsOutWhatItReplaced(t *testing.T) {
+	t.Parallel()
+	var marker []byte
+	var ran []string
+	run := func(_ context.Context, args []string, stdin io.Reader) error {
+		ran = append(ran, strings.Join(args, " "))
+		return nil
+	}
+	read := func() ([]byte, error) { return marker, nil }
+	write := func(b []byte) error { marker = b; return nil }
+	ctx := context.Background()
+	export := []byte(`[{"id":"a"}]`)
+
+	if err := syncOpenCodeImport(ctx, read, write, run, export, map[string]string{"openai": "work"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(ran) != 1 || !strings.HasPrefix(ran[0], "auth import") {
+		t.Fatalf("the first sync ran %q, want only an import", ran)
+	}
+	ran = nil
+	if err := syncOpenCodeImport(ctx, read, write, run, export, map[string]string{"openai": "work"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(ran) != 0 {
+		t.Fatalf("an unchanged export ran %q", ran)
+	}
+
+	// The same provider under another label: the new one is imported, then
+	// the old label taken out.
+	ran = nil
+	if err := syncOpenCodeImport(ctx, read, write, run, []byte(`[{"id":"b"}]`), map[string]string{"openai": "personal"}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"auth import --standalone", "auth logout --standalone openai work"}
+	if strings.Join(ran, "|") != strings.Join(want, "|") {
+		t.Fatalf("a renamed account ran %q, want %q", ran, want)
+	}
+
+	// Every account removed: an empty export imports nothing and out goes the
+	// label that was there.
+	ran = nil
+	if err := syncOpenCodeImport(ctx, read, write, run, []byte("[]"), map[string]string{}); err != nil {
+		t.Fatal(err)
+	}
+	want = []string{"auth import --standalone", "auth logout --standalone openai personal"}
+	if strings.Join(ran, "|") != strings.Join(want, "|") {
+		t.Fatalf("removing every account ran %q, want %q", ran, want)
+	}
+}
+
+// TestSyncOpenCodeImportReplacesARotatedKey: a new key under the same label has
+// the same credential id, which `auth import` skips, so the old one is logged
+// out first. A provider whose credential didn't change is left alone, since
+// the machine may hold a token OpenCode refreshed since.
+func TestSyncOpenCodeImportReplacesARotatedKey(t *testing.T) {
+	t.Parallel()
+	var marker []byte
+	var ran []string
+	run := func(_ context.Context, args []string, stdin io.Reader) error {
+		ran = append(ran, strings.Join(args, " "))
+		return nil
+	}
+	read := func() ([]byte, error) { return marker, nil }
+	write := func(b []byte) error { marker = b; return nil }
+	ctx := context.Background()
+	used := map[string]string{"anthropic": "work", "openai": "work"}
+	export := func(key string) []byte {
+		return []byte(`[{"id":"cred_agentbox_anthropic_work","integrationID":"anthropic","label":"work","active":true,"value":{"type":"key","key":"` + key + `"}},` +
+			`{"id":"cred_agentbox_openai_work","integrationID":"openai","label":"work","active":true,"value":{"type":"oauth","refresh":"r"}}]`)
+	}
+
+	if err := syncOpenCodeImport(ctx, read, write, run, export("one"), used); err != nil {
+		t.Fatal(err)
+	}
+	ran = nil
+	if err := syncOpenCodeImport(ctx, read, write, run, export("two"), used); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"auth logout --standalone anthropic work", "auth import --standalone"}
+	if strings.Join(ran, "|") != strings.Join(want, "|") {
+		t.Fatalf("a rotated key ran %q, want %q", ran, want)
+	}
+}
+
+// TestOpenCode2InstallSaysWhenThereIsNoNetwork: OpenCode 2 isn't in the image,
+// so an agent's first start under it installs it, and a machine that can't
+// reach npm's registry is told that, not handed npm's log.
+func TestOpenCode2InstallSaysWhenThereIsNoNetwork(t *testing.T) {
+	t.Parallel()
+	m := &Manager{Incus: fakeIncus(t, `
+case "$*" in
+  *"command -v"*) exit 1 ;;
+  *"npm install"*) printf 'npm error code ENOTFOUND\nnpm error network request failed\n'; exit 1 ;;
+esac
+exit 0
+`), User: image.User{Name: "dev", UID: 1000, GID: 1000}}
+	a := state.Agent{Project: "hello-stack", Name: "agent-01", AI: "opencode", Instance: "ab-hello-stack-agent-01"}
+	err := m.ensureOpenCode2InAgent(t.Context(), a)
+	if err == nil {
+		t.Fatal("an install with no network succeeded")
+	}
+	if !strings.Contains(err.Error(), "needs the network") || !strings.Contains(err.Error(), "ENOTFOUND") || !strings.Contains(err.Error(), "switch back to OpenCode 1") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestNpmNetworkError(t *testing.T) {
+	t.Parallel()
+	for out, want := range map[string]string{
+		"npm error code ECONNREFUSED\nnpm error errno ECONNREFUSED": "ECONNREFUSED",
+		"npm error code EAI_AGAIN":                                  "EAI_AGAIN",
+		"npm error code E404\nnpm error 404 Not Found":              "",
+		"": "",
+	} {
+		if got := npmNetworkError(out); got != want {
+			t.Errorf("npmNetworkError(%q) = %q, want %q", out, got, want)
+		}
+	}
+}
+
+// TestOpenCode2InstallChecksThePinAndTakesALock: an agent with an older
+// OpenCode 2 than image.OpenCode2Version isn't "installed", and the install
+// runs under a lock so two starts don't write the same directory at once.
+func TestOpenCode2InstallChecksThePinAndTakesALock(t *testing.T) {
+	t.Parallel()
+	log := filepath.Join(t.TempDir(), "calls")
+	m := &Manager{Incus: fakeIncus(t, `printf '%s\n' "$*" >> `+shellQuote(log)+`
+case "$*" in *"command -v"*) exit 1 ;; esac
+exit 0
+`), User: image.User{Name: "dev", UID: 1000, GID: 1000}}
+	a := state.Agent{Project: "hello-stack", Name: "agent-01", AI: "opencode", Instance: "ab-hello-stack-agent-01"}
+	if err := m.ensureOpenCode2InAgent(t.Context(), a); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := string(raw)
+	if !strings.Contains(calls, "package.json") || !strings.Contains(calls, image.OpenCode2Version) {
+		t.Errorf("the installed version isn't compared with the pin: %s", calls)
+	}
+	if !strings.Contains(calls, "flock") {
+		t.Errorf("the install takes no lock: %s", calls)
 	}
 }

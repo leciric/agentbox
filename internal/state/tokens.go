@@ -28,6 +28,9 @@ const (
 	// TokensConsolidation is distilling a project's events into memories
 	// (D76, D78).
 	TokensConsolidation = api.TokensConsolidation
+	// TokensKeepalive is a hidden prompt that only reads a lead's prompt
+	// cache back, so it doesn't expire while the lead waits on its agents.
+	TokensKeepalive = api.TokensKeepalive
 )
 
 // TokenRow is one line of the ledger: what one model spent in one turn.
@@ -163,7 +166,8 @@ func (s *Store) TokenTotals(ctx context.Context, f TokenFilter) ([]TokenTotal, e
 	return out, rows.Err()
 }
 
-// TokenRows lists the ledger itself, newest first, at most limit rows.
+// TokenRows lists the ledger itself, newest first, at most limit rows, or
+// every row for a negative limit.
 func (s *Store) TokenRows(ctx context.Context, f TokenFilter, limit int) ([]TokenRow, error) {
 	where, args := f.where()
 	rows, err := s.db.QueryContext(ctx, `SELECT project, agent, agent_id, ai, session_id, turn, kind, model, at,

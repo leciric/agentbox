@@ -94,7 +94,7 @@ export function SnapComposer({ project: current, onSent }: { project?: string; o
                 alt={snap.title || t('chat.snap.alt')}
                 className="max-h-72 w-full rounded-xl border border-line-strong bg-sunken object-contain"
               />
-              <figcaption className="min-w-0 truncate text-[12.5px] text-subtle">
+              <figcaption className="min-w-0 truncate text-ui text-subtle">
                 {snap.app && <Code>{snap.app}</Code>} {snap.title || (snap.window ? t('chat.snap.untitledWindow') : t('chat.snap.wholeScreen'))}
               </figcaption>
             </figure>
@@ -141,21 +141,21 @@ export function SnapComposer({ project: current, onSent }: { project?: string; o
 
             {snap.accessibility ? (
               <div className="grid gap-2">
-                <label className="flex items-center gap-3 text-[13px] text-secondary">
+                <label className="flex items-center gap-3 text-ui text-secondary">
                   <Switch checked={tree} onCheckedChange={setTree} aria-label={t('chat.snap.includeTree')} />
                   {t('chat.snap.includeTreeLines', { count: snap.accessibility.split('\n').length })}
-                  <button type="button" className="ml-auto text-[12px] text-brand-400 hover:underline" onClick={() => setShowTree((v) => !v)}>
+                  <button type="button" className="ml-auto text-caption text-brand-400 hover:underline" onClick={() => setShowTree((v) => !v)}>
                     {showTree ? t('chat.snap.hide') : t('chat.snap.show')}
                   </button>
                 </label>
                 {showTree && (
-                  <pre className="max-h-40 min-w-0 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-line-faint bg-sunken p-2.5 font-mono text-[11.5px] text-subtle">
+                  <pre className="max-h-40 min-w-0 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-line-faint bg-sunken p-2.5 font-mono text-caption text-subtle">
                     {snap.accessibility}
                   </pre>
                 )}
               </div>
             ) : (
-              <p className="text-[12px] text-subtle">{t('chat.snap.noTree')}</p>
+              <p className="text-caption text-subtle">{t('chat.snap.noTree')}</p>
             )}
 
             {send.error && <Notice>{errorMessage(send.error)}</Notice>}

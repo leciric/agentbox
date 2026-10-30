@@ -16,7 +16,7 @@ export function ProjectFilter({ value, onChange }: { value: string; onChange: (p
       {(projects.data ?? []).map((p) => (
         <SelectOption key={p.name} value={p.name}>
           <span className="flex min-w-0 items-center gap-2">
-            <ProjectIcon project={p} className="size-4 rounded text-[9px]" />
+            <ProjectIcon project={p} className="size-4 rounded text-caption" />
             <span className="truncate">{projectLabel(p)}</span>
           </span>
         </SelectOption>

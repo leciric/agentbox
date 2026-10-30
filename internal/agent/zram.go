@@ -21,12 +21,18 @@ import (
 // daemon never gets to make them wait or pause the newest (package
 // pressure). And a paused run's memory has nowhere to go but swap. The VM has
 // no swap unless `agentbox vm swap on` made a swapfile, so the daemon gives it
-// a zram device as it starts: a quarter of the VM's memory, compressed with
-// zstd, used before any swapfile. It costs nothing until something is
-// swapped to it, and then less than it holds.
+// a zram device as it starts: half the VM's memory, compressed with zstd,
+// used before any swapfile. It costs nothing until something is swapped to
+// it, and then less than it holds.
+//
+// Half, not a quarter: on 2026-10-23 a quarter (4.6 GB of an 18 GB VM) was
+// full when two type checks ran the VM short, so the machines frozen for
+// memory kept their ~7 GB in RAM and freezing them freed nothing. zstd
+// compressed those pages about 4:1, so half the VM's memory as zram costs
+// about an eighth of it once full.
 
-// ZramShare is the part of the VM's memory its zram swap may hold.
-const ZramShare = 4
+// ZramShare is the part of the VM's memory its zram swap may hold: 1/ZramShare.
+const ZramShare = 2
 
 // zramPriority is above a swapfile's, which swapon gives a negative one.
 const zramPriority = "100"
@@ -42,8 +48,11 @@ type zramHost struct {
 	output func(name string, args ...string) ([]byte, error)
 }
 
-// EnsureZram gives the VM a zram swap device of size bytes, unless it has one
-// already, and says what it did. It fails when the kernel has no zram module.
+// EnsureZram gives the VM size bytes of zram swap, unless it has that much
+// already, and says what it did: a device of size, or, when the VM has a
+// smaller one (made by an earlier daemon, at a quarter), another for the
+// rest, as a zram device in use can't be resized. It fails when the kernel
+// has no zram module.
 func EnsureZram(size int64) (string, error) {
 	return ensureZram(zramHost{root: "/", write: writeCgroup, run: sudoRun, output: sudoOutput}, size)
 }
@@ -54,11 +63,20 @@ func ensureZram(h zramHost, size int64) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	var have int64
+	var devs []string
 	for _, line := range strings.Split(string(swaps), "\n")[1:] {
-		if f := strings.Fields(line); len(f) > 0 && strings.HasPrefix(f[0], "/dev/zram") {
-			return "the VM has zram swap already (" + f[0] + ")", nil
+		if f := strings.Fields(line); len(f) > 2 && strings.HasPrefix(f[0], "/dev/zram") {
+			kib, _ := strconv.ParseInt(f[2], 10, 64)
+			have += kib << 10
+			devs = append(devs, f[0])
 		}
 	}
+	// What the kernel reports is a page or so under what was asked for.
+	if len(devs) > 0 && have >= size-size/16 {
+		return "the VM has zram swap already (" + strings.Join(devs, ", ") + ")", nil
+	}
+	size -= have
 	if size < 64<<20 {
 		return "", fmt.Errorf("a zram device of %d bytes is too small to be worth it", size)
 	}
@@ -82,6 +100,9 @@ func ensureZram(h zramHost, size int64) (string, error) {
 	}
 	if err := h.run("swapon", "-p", zramPriority, "/dev/"+dev); err != nil {
 		return "", err
+	}
+	if len(devs) > 0 {
+		return fmt.Sprintf("gave the VM %s more zram swap (/dev/%s, beside %s)", HumanBytes(size), dev, strings.Join(devs, ", ")), nil
 	}
 	return fmt.Sprintf("gave the VM %s of zram swap (/dev/%s)", HumanBytes(size), dev), nil
 }

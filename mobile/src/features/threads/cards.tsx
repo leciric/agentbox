@@ -7,7 +7,8 @@
 // PendingUserInputCard.tsx.
 import { useMutation } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { Check, ChevronRight, MessageCircleQuestion, ShieldAlert, ShieldCheck, ShieldOff, ShieldX, X, type LucideIcon } from 'lucide-react-native';
+import { useState, type ReactNode } from 'react';
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type * as T from '../../shared/api.ts';
 import { api, isLead } from '../../connection/api.ts';
@@ -35,12 +36,26 @@ function Options({ permission, onAnswer, busy }: { permission: T.ChatPermission;
         <Button
           key={o.id}
           label={t(o.kind.startsWith('reject') ? 'chat.permission.deny' : o.kind === 'allow_always' ? 'chat.permission.alwaysAllow' : 'chat.permission.allow')}
+          icon={o.kind.startsWith('reject') ? X : o.kind === 'allow_always' ? ShieldCheck : Check}
           kind={o.kind === 'allow_once' ? 'primary' : o.kind.startsWith('reject') ? 'danger' : 'secondary'}
           disabled={busy}
           onPress={() => onAnswer(o.id)}
           style={styles.option}
         />
       ))}
+    </View>
+  );
+}
+
+// Head is a card's first line: its icon, then what it is, in the colour of
+// its state.
+function Head({ icon: Icon, color, children }: { icon: LucideIcon; color: string; children: ReactNode }) {
+  return (
+    <View style={styles.head}>
+      <Icon size={16} color={color} strokeWidth={2} />
+      <Text style={[styles.cardHead, { color }]} numberOfLines={1}>
+        {children}
+      </Text>
     </View>
   );
 }
@@ -65,7 +80,9 @@ export function PermissionCard({ chatRef, item, tool }: { chatRef: string; item:
   const allowed = can(session, 'chat') || (!isLead(chatRef) && can(session, 'answer'));
   return (
     <View style={[styles.card, styles.waiting]}>
-      <Text style={styles.cardHead}>{t('chat.activity.permission')}</Text>
+      <Head icon={ShieldAlert} color={colors.amber}>
+        {t('chat.activity.permission')}
+      </Head>
       <Text style={styles.cardBody}>{perm.title}</Text>
       <Detail tool={tool} title={perm.title} />
       {allowed ? <Options permission={perm} busy={answer.isPending} onAnswer={(id) => answer.mutate(id)} /> : <Text style={styles.cant}>{t('mobile.chat.cantAnswer')}</Text>}
@@ -85,14 +102,18 @@ export function AgentPermissionCard({ item }: { item: T.ChatItem }) {
   const kind = p.outcome ? p.options.find((o) => o.id === p.outcome)?.kind : undefined;
   const state = !p.outcome ? 'waiting' : !kind ? 'gone' : kind.startsWith('reject') ? 'denied' : kind === 'allow_always' ? 'approvedAlways' : 'approved';
   const waiting = state === 'waiting';
+  const [Icon, tone] = waiting ? [ShieldAlert, colors.amber] : state === 'denied' ? [ShieldX, colors.rose] : state === 'gone' ? [ShieldOff, colors.subtle] : [ShieldCheck, colors.emerald];
   return (
     <View style={[styles.card, waiting && styles.waiting]}>
       <View style={styles.cardTop}>
-        <Text style={[styles.cardHead, !waiting && { color: colors.secondary }]} numberOfLines={1}>
-          {t('chat.agentPermission.asks', { agent: ap.title || ap.agent, action: ap.tool?.kind ?? '' })}
-        </Text>
-        <Pressable onPress={() => router.push(`/chat/${ap.ref.split('/').map(encodeURIComponent).join('/')}`)} hitSlop={8}>
+        <View style={styles.flex}>
+          <Head icon={Icon} color={waiting ? colors.amber : tone}>
+            <Text style={!waiting && { color: colors.secondary }}>{t('chat.agentPermission.asks', { agent: ap.title || ap.agent, action: ap.tool?.kind ?? '' })}</Text>
+          </Head>
+        </View>
+        <Pressable onPress={() => router.push(`/chat/${ap.ref.split('/').map(encodeURIComponent).join('/')}`)} hitSlop={8} style={styles.open}>
           <Text style={styles.link}>{t('chat.agentPermission.open')}</Text>
+          <ChevronRight size={13} color={colors.subtle} />
         </Pressable>
       </View>
       <Text style={[styles.cardBody, !waiting && { color: colors.muted }]}>{p.title}</Text>
@@ -118,7 +139,9 @@ export function QuestionCard({ question }: { question: T.Question }) {
   const answer = useMutation({ mutationFn: () => api.answerQuestion(question.project, question.id, text.trim()), onError: fail, onSuccess: () => setText('') });
   return (
     <View style={[styles.card, styles.waiting]}>
-      <Text style={styles.cardHead}>{t('mobile.question.asks', { agent: question.agent })}</Text>
+      <Head icon={MessageCircleQuestion} color={colors.amber}>
+        {t('mobile.question.asks', { agent: question.agent })}
+      </Head>
       <Text style={styles.cardBody}>{question.question}</Text>
       {question.context ? <Text style={styles.context}>{question.context}</Text> : null}
       {can(session, 'answer') ? (
@@ -137,6 +160,9 @@ const styles = StyleSheet.create({
   card: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.lineStrong, backgroundColor: colors.surface, padding: 12, gap: 6, marginVertical: 6 },
   waiting: { borderColor: 'rgba(252,211,77,0.3)', backgroundColor: 'rgba(251,191,36,0.07)' },
   cardTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  head: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  flex: { flex: 1, minWidth: 0 },
+  open: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   cardHead: { flex: 1, color: colors.amber, fontSize: 13, fontWeight: '600' },
   cardBody: { color: colors.primary, fontSize: 14, lineHeight: 20 },
   context: { color: colors.muted, fontSize: 13, lineHeight: 18 },

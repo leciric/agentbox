@@ -64,15 +64,27 @@ func (s *Server) readyVMGPU(ctx context.Context, retry bool) {
 }
 
 // vmGPU is the VM's GPU for Settings, with how far readying it has got in a
-// krunkit VM whose GPU isn't ready.
-func (s *Server) vmGPU() api.VMGPU {
+// krunkit VM whose GPU isn't ready. A krunkit VM whose driver is there still
+// says, while "GPU for agents" is on, when it's building a newer one and when
+// that failed: agents keep the old one, without the fixes the new one carries.
+func (s *Server) vmGPU(on bool) api.VMGPU {
 	gpu := agent.FindVMGPU()
 	out := api.VMGPU{Kind: gpu.Kind, Node: gpu.Node, Reason: gpu.Reason}
-	if gpu.Kind != agent.GPUNone || !agent.VenusVM() {
+	if !agent.VenusVM() {
 		return out
 	}
 	s.vgpu.mu.Lock()
 	defer s.vgpu.mu.Unlock()
+	if gpu.Kind != agent.GPUNone {
+		switch {
+		case !on:
+		case s.vgpu.running:
+			out.Setup = api.VMGPUSetupRunning
+		case s.vgpu.err != "":
+			out.Setup, out.Reason = api.VMGPUSetupFailed, s.vgpu.err
+		}
+		return out
+	}
 	switch {
 	case s.vgpu.running:
 		out.Setup = api.VMGPUSetupRunning

@@ -56,9 +56,9 @@ export function ProjectToolCredentials({ project }: { project: string }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const creds = useQuery({ queryKey: ['toolCredentials', project], queryFn: () => api.projectCredentials(project), staleTime: 15_000 });
-  if (creds.isPending) return <p className="text-[12px] text-subtle">{t('common.loading')}</p>;
+  if (creds.isPending) return <p className="text-caption text-subtle">{t('common.loading')}</p>;
   const list = creds.data ?? [];
-  if (list.length === 0) return <p className="text-[12px] text-subtle">{t('project.accounts.runningOnNone')}</p>;
+  if (list.length === 0) return <p className="text-caption text-subtle">{t('project.accounts.runningOnNone')}</p>;
   const summary = summarizeCredentials(list);
   const groups = summary.groups.map(({ on, count }) =>
     on === 'idle'
@@ -69,7 +69,7 @@ export function ProjectToolCredentials({ project }: { project: string }) {
     <div className="grid min-w-0 gap-2" data-project-tool-credentials={project}>
       <button
         type="button"
-        className="flex min-w-0 items-baseline gap-1.5 text-left text-[12px] text-secondary transition hover:text-primary"
+        className="flex min-w-0 items-baseline gap-1.5 text-left text-caption text-secondary transition hover:text-primary"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
         data-tool-credentials-summary
@@ -89,8 +89,8 @@ export function ProjectToolCredentials({ project }: { project: string }) {
       {open && (
         <ul className="grid min-w-0 gap-1 pl-5">
           {list.map((cred) => (
-            <li key={cred.agent} className="flex min-w-0 items-baseline justify-between gap-3 text-[12px]">
-              <span className="shrink-0 font-mono text-[11.5px] text-secondary">
+            <li key={cred.agent} className="flex min-w-0 items-baseline justify-between gap-3 text-caption">
+              <span className="shrink-0 font-mono text-caption text-secondary">
                 {cred.agent.split('/')[1]} <span className="font-sans text-faint">· {aiLabel(cred.tool)}</span>
               </span>
               <ToolCredentialText cred={cred} className="truncate text-right" />
@@ -110,7 +110,7 @@ export function AIToolSecretWarning({ name, className }: { name: string; classNa
   const tools = aiToolsReading(name);
   if (tools.length === 0) return null;
   return (
-    <p className={cn('flex min-w-0 gap-1.5 text-[12px] leading-relaxed text-amber-300', className)} data-ai-tool-secret-warning={name.trim()}>
+    <p className={cn('flex min-w-0 gap-1.5 text-caption leading-relaxed text-amber-300', className)} data-ai-tool-secret-warning={name.trim()}>
       <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
       <span className="min-w-0 break-words">{t('agent.secrets.aiToolWarning', { name: name.trim(), tools: tools.map(aiLabel).join(t('agent.secrets.toolsAnd')) })}</span>
     </p>

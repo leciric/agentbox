@@ -3,9 +3,11 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -116,13 +118,18 @@ func TestUsageEventsAreRecordedShownAndSent(t *testing.T) {
 	// A new installation begins its setup, and says how it is, once a day.
 	waitFor(t, "the first events", func() bool {
 		sent := fake.sentEvents()
-		return len(sent[eventHeartbeat]) == 1 && len(sent[eventSetup]) == 1
+		return len(sent[eventHeartbeat]) == 1 && len(sent[eventSetup]) == 1 && len(sent[eventHealth]) == 1
 	})
+	// The day's health went too, and the setup's first step, each in a batch
+	// of its own: a server that doesn't know them yet refuses the whole batch.
+	if n := fake.mixedBatches(); n != 0 {
+		t.Errorf("%d batches mix health or setup with other events", n)
+	}
 	if step := fake.sentEvents()[eventSetup][0]["step"]; step != setupStarted {
 		t.Errorf("first setup step = %v", step)
 	}
 	hb := fake.sentEvents()[eventHeartbeat][0]
-	if len(hb) != 11 || hb["front_end"] == "" || hb["projects"] != float64(0) {
+	if len(hb) != 12 || hb["front_end"] == "" || hb["projects"] != float64(0) {
 		t.Errorf("heartbeat = %v", hb)
 	}
 
@@ -131,7 +138,7 @@ func TestUsageEventsAreRecordedShownAndSent(t *testing.T) {
 		Model: "acme/secret-finetune-v2", Effort: "high", Mode: "bypassPermissions", Window: 1_000_000,
 		State: "completed", Duration: 90 * time.Second, Input: 10, Cached: 20, CacheCreation: 3, Output: 4, Reasoning: 1, Subagents: true,
 	})
-	d.srv.recordError(errCreateFailed, "codex")
+	d.srv.recordErr(errCreateFailed, "codex", errors.New(`creating p/a: worktree: open /home/lint/src/p/.git: no such file or directory`), "p")
 	// What is shown is what is sent, and never the model's own name.
 	pending := pendingUsage(t, d)
 	if !pending.On || pending.EventsWaiting != 2 || !strings.HasSuffix(pending.EventsURL, "/api/v1/events") {
@@ -139,6 +146,11 @@ func TestUsageEventsAreRecordedShownAndSent(t *testing.T) {
 	}
 	if strings.Contains(pending.Events, "secret") || !strings.Contains(pending.Events, `"turn.completed"`) {
 		t.Errorf("pending events = %s", pending.Events)
+	}
+	// Health is shown apart, as it is sent.
+	d.srv.recordEvent(eventHealth, d.srv.healthNow(ctx, healthEpisode, time.Now()))
+	if p := pendingUsage(t, d); strings.Contains(p.Events, `"health"`) || !strings.Contains(p.Health, `"trigger": "episode"`) || p.EventsWaiting != 3 {
+		t.Errorf("with a health event waiting, pending = %+v", p)
 	}
 	// The counts went in beside the event.
 	_, counts, _ := d.srv.store.FeatureUsage(ctx, "9999-12-31")
@@ -149,7 +161,7 @@ func TestUsageEventsAreRecordedShownAndSent(t *testing.T) {
 	// The day's heartbeat was sent: the next check sends only what's new.
 	d.sendNow(t)
 	sent := fake.sentEvents()
-	if len(sent[eventHeartbeat]) != 1 || len(sent[eventTurn]) != 1 || len(sent[eventError]) != 1 {
+	if len(sent[eventHeartbeat]) != 1 || len(sent[eventTurn]) != 1 || len(sent[eventError]) != 1 || len(sent[eventHealth]) != 2 || fake.mixedBatches() != 0 {
 		t.Fatalf("sent = %v", sent)
 	}
 	turn := sent[eventTurn][0]
@@ -163,8 +175,17 @@ func TestUsageEventsAreRecordedShownAndSent(t *testing.T) {
 			t.Errorf("turn.completed %s = %v, want %v", k, turn[k], v)
 		}
 	}
-	if len(turn) != len(want) {
-		t.Errorf("turn.completed has %d fields, want %d: %v", len(turn), len(want), turn)
+	// Every event carries the UTC offset too, the only field not compared.
+	if o, _ := turn["utc_offset"].(string); !slices.Contains(utcOffsets, o) {
+		t.Errorf("turn.completed utc_offset = %v", turn["utc_offset"])
+	}
+	if len(turn) != len(want)+1 {
+		t.Errorf("turn.completed has %d fields, want %d: %v", len(turn), len(want)+1, turn)
+	}
+	// An error says why, in its own words with the path and names gone.
+	if e := sent[eventError][0]; e["code"] != errCreateFailed || e["class"] != classNotFound ||
+		e["reason"] != "creating [path]: worktree: open [path]: no such file or directory" || len(e) != 5 {
+		t.Errorf("error = %v", e)
 	}
 	if left := pendingUsage(t, d); left.EventsWaiting != 0 || left.Events != "" {
 		t.Errorf("after sending, waiting %+v", left)
@@ -173,7 +194,7 @@ func TestUsageEventsAreRecordedShownAndSent(t *testing.T) {
 	// A server that's down keeps them for the next check; one that refuses
 	// them would refuse them again, so they go.
 	fake.answerEvents(http.StatusServiceUnavailable)
-	d.srv.recordError(errAuthFailed, "claude")
+	d.srv.recordError(errAuthFailed, "claude", classAuth, "")
 	d.sendNow(t)
 	if n := pendingUsage(t, d).EventsWaiting; n != 1 {
 		t.Errorf("after a 503, %d waiting, want 1", n)
@@ -185,11 +206,11 @@ func TestUsageEventsAreRecordedShownAndSent(t *testing.T) {
 	}
 
 	// Off forgets what wasn't sent, and keeps nothing more.
-	d.srv.recordError(errAuthFailed, "claude")
+	d.srv.recordError(errAuthFailed, "claude", classAuth, "")
 	if _, err := patchSettings(t, d, `{"usageStats": false}`); err != nil {
 		t.Fatal(err)
 	}
-	d.srv.recordError(errAuthFailed, "claude")
+	d.srv.recordError(errAuthFailed, "claude", classAuth, "")
 	if rows, _ := d.srv.store.UsageEvents(ctx, 10); len(rows) != 0 {
 		t.Errorf("with the stats off, kept %d events", len(rows))
 	}
