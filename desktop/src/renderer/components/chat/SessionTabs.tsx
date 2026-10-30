@@ -95,7 +95,7 @@ export function SessionTabs({
             ) : null}
             <span className="min-w-0 truncate">{s.topic}</span>
             {s.agents > 0 && <span className="shrink-0 text-caption tabular-nums text-faint">{s.agents}</span>}
-            <Tip label={on ? `${t('sessions.delete')} · ${keysHint(sessionKeys.delete)}` : t('sessions.delete')}>
+            <Tip label={on ? `${t('sessions.delete')} · ${keysHint(sessionKeys.close)} / ${keysHint(sessionKeys.delete)}` : t('sessions.delete')}>
               <button
                 type="button"
                 aria-label={t('sessions.deleteNamed', { topic: s.topic })}
