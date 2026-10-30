@@ -10,7 +10,6 @@ import { afterDelete, chooseSession, markSessionSeen, neighbour, pickSession, us
 import { keysHint, sessionKeys, sessionShortcut } from '../lib/shortcuts';
 import { errorMessage } from '../lib/utils';
 import { ChatTab } from './chat/ChatTab';
-import { SessionAgents } from './chat/SessionAgents';
 import { SessionTabs, TopicInput } from './chat/SessionTabs';
 import { Button } from './ui/button';
 import { EmptyState } from './ui/card';
@@ -207,20 +206,14 @@ export function ProjectChatPanel({ project }: { project: T.Project }) {
       {tabs}
       <div className="relative flex min-h-0 flex-1 flex-col">
         {ready ? (
-          // Above the composer: a live card for each of the session's agents,
-          // and in v2 how many of its agents wait for review.
+          // Above the composer: in v2, how many of its agents wait for review.
           <ChatTab
             key={info.ref}
             agent={leadAgentFrom(project, info, current.topic)}
             starting={false}
             onStart={() => {}}
             openAt={openAt}
-            aboveComposer={
-              <>
-                <SessionAgents project={project.name} session={current.id} leadRef={info.ref} />
-                {v2 && <ReviewCount project={project.name} variant="banner" />}
-              </>
-            }
+            aboveComposer={v2 && <ReviewCount project={project.name} variant="banner" />}
           />
         ) : (
           <div className="flex h-full items-center justify-center text-sm text-subtle">{chat.error ? t('chat.unavailable') : t('common.loading')}</div>
