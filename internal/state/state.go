@@ -1453,6 +1453,24 @@ var migrations = []string{
 	`INSERT INTO lead_sessions (project, id, topic, created_at, untitled)
 		SELECT '_home', 'main', CASE WHEN used THEN 'Chat' ELSE 'New session' END, CAST(strftime('%s', 'now') AS INTEGER) * 1000, NOT used
 		FROM (SELECT EXISTS (SELECT 1 FROM chat_items WHERE project = '_home' AND agent = 'lead') AS used)`,
+	// A session closed (CloseLeadSession) is kept, with its conversation, in
+	// the chat's history until it is reopened or deleted: closed_at is when, 0
+	// while it is open. lead_session_ids is every id a project's sessions ever
+	// had, so a new session never takes a closed or deleted one's id, and with
+	// it its lead's name, conversation, memory and agents. It is filled from
+	// what the sessions deleted before it left behind: their leads' rows, their
+	// conversations and what their turns spent.
+	`ALTER TABLE lead_sessions ADD COLUMN closed_at INTEGER NOT NULL DEFAULT 0`,
+	`CREATE TABLE lead_session_ids (
+		project TEXT NOT NULL,
+		id      TEXT NOT NULL,
+		PRIMARY KEY (project, id)
+	)`,
+	`INSERT OR IGNORE INTO lead_session_ids (project, id)
+		SELECT project, id FROM lead_sessions
+		UNION SELECT project, substr(name, 6) FROM agents WHERE role = 'lead' AND name LIKE 'lead.%'
+		UNION SELECT project, substr(agent, 6) FROM chat_items WHERE agent LIKE 'lead.%'
+		UNION SELECT project, substr(agent, 6) FROM token_usage WHERE agent LIKE 'lead.%'`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -2197,6 +2215,7 @@ var projectOwned = []string{
 	"peer_agents",
 	"remote_agents",
 	"lead_sessions",
+	"lead_session_ids",
 	"agent_queue",
 	"agent_events",
 	"agent_reviews",

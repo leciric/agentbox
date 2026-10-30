@@ -126,9 +126,91 @@ func TestDeletingASessionLeavesItsAgentsToNobody(t *testing.T) {
 	if _, err := st.DeleteLeadSession(ctx, "web", ls.ID); !errors.Is(err, state.ErrNotFound) {
 		t.Errorf("deleting it again: %v", err)
 	}
-	// Its id is free again, its conversation gone with it.
-	if again, err := st.AddLeadSession(ctx, "web", "Prod", time.Now()); err != nil || again.ID != ls.ID {
-		t.Errorf("reopened = %+v, %v", again, err)
+	// Its id is never handed out again: a new session that took it would be
+	// shown what the app still holds under its name.
+	if again, err := st.AddLeadSession(ctx, "web", "Prod", time.Now()); err != nil || again.ID != "prod-2" {
+		t.Errorf("a new Prod session = %+v, %v; want prod-2, not the deleted one's id", again, err)
+	}
+}
+
+// Closing a session keeps it, its conversation, lead and agents, in the
+// chat's history, out of the open ones; reopening puts it back as it was. No
+// new session ever takes the id of one closed, deleted, or reset away.
+func TestClosedSessionsGoToTheHistoryAndKeepTheirIDs(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := openStore(t)
+	addProject(t, st, "web")
+	now := time.Now()
+	first, err := st.AddUntitledLeadSession(ctx, "web", now)
+	if err != nil || first.ID != "session" {
+		t.Fatalf("AddUntitledLeadSession() = %+v, %v", first, err)
+	}
+	lead := state.LeadSessionName(first.ID)
+	if err := st.SaveChatItems(ctx, "web", lead, []state.ChatItem{{ID: "u1", Position: 0, Data: []byte(`{"text":"hello"}`)}}); err != nil {
+		t.Fatal(err)
+	}
+	a := state.Agent{Project: "web", Name: "agent-01", Instance: "ab-web-agent-01", AI: "claude", Status: state.AgentReady, CreatedAt: now, CreatedBySession: first.ID}
+	if err := st.AddAgent(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CloseLeadSession(ctx, "web", first.ID, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CloseLeadSession(ctx, "web", first.ID, now); err == nil {
+		t.Error("a closed session was closed again")
+	}
+	if open, err := st.LeadSessions(ctx, "web"); err != nil || len(open) != 0 {
+		t.Errorf("open sessions = %+v, %v; want none", open, err)
+	}
+	if _, err := st.LastActiveLeadSession(ctx, "web"); !errors.Is(err, state.ErrNotFound) {
+		t.Errorf("a closed session is the most recently active: %v", err)
+	}
+	closed, err := st.ClosedLeadSessions(ctx, "web")
+	if err != nil || len(closed) != 1 || closed[0].ID != first.ID || !closed[0].Closed() || closed[0].ClosedAt.UnixMilli() != now.Add(time.Minute).UnixMilli() {
+		t.Fatalf("ClosedLeadSessions() = %+v, %v", closed, err)
+	}
+	if rows, err := st.ChatItems(ctx, "web", lead); err != nil || len(rows) != 1 {
+		t.Errorf("its conversation = %d rows, %v; want it kept", len(rows), err)
+	}
+	if got, err := st.Agent(ctx, "web", "agent-01"); err != nil || got.Session() != first.ID {
+		t.Errorf("its agent = %+v, %v; want it still the closed session's", got, err)
+	}
+
+	// Ctrl+T now: a session of its own, never the closed one's id.
+	second, err := st.AddUntitledLeadSession(ctx, "web", now)
+	if err != nil || second.ID != "session-2" {
+		t.Fatalf("a new session after closing = %+v, %v; want session-2", second, err)
+	}
+	if rows, err := st.ChatItems(ctx, "web", state.LeadSessionName(second.ID)); err != nil || len(rows) != 0 {
+		t.Errorf("the new session's conversation = %d rows, %v; want it empty", len(rows), err)
+	}
+
+	if err := st.ReopenLeadSession(ctx, "web", first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ReopenLeadSession(ctx, "web", first.ID); err == nil {
+		t.Error("an open session was reopened")
+	}
+	if open, err := st.LeadSessions(ctx, "web"); err != nil || len(open) != 2 || open[0].Closed() {
+		t.Errorf("open sessions after reopening = %+v, %v; want both", open, err)
+	}
+
+	// Deleted, and reset away: their ids stay taken.
+	if _, err := st.DeleteLeadSession(ctx, "web", second.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CloseLeadSession(ctx, "web", first.ID, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RemoveLeadSessions(ctx, "web"); err != nil {
+		t.Fatal(err)
+	}
+	if all, err := st.AllLeadSessions(ctx, "web"); err != nil || len(all) != 0 {
+		t.Errorf("after the reset = %+v, %v; want the closed one gone too", all, err)
+	}
+	if third, err := st.AddUntitledLeadSession(ctx, "web", now); err != nil || third.ID != "session-3" {
+		t.Errorf("a new session after the reset = %+v, %v; want session-3", third, err)
 	}
 }
 

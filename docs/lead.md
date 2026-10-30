@@ -24,29 +24,33 @@ You reach the lead through the app's chat tab (backed by the daemon's
 
 A project's chat has sessions: each is a lead conversation of its own on one topic ("Prod: login
 500s"), with its own context, compaction and prompt cache. A project has as many as you open, and
-can have none. The chat you had before sessions is the first one, "Chat", and can be deleted like
-any other.
+can have none open. The chat you had before sessions is the first one, "Chat", and can be closed
+like any other.
 
 - **Shared by every session:** notes, memory, skills, schedules, the repository and the agent list.
 - **Each session's own:** its conversation, what it is working on in `project_state`, and the
   agents it made. Their finish, stall and failure notices, their questions and their pull request
   watch go to that session only.
-- **Notices about nobody's agent** (one you made, or one whose session was deleted), schedules,
-  other projects' leads and CI go to the session most recently active. A project with no session
-  opens one for an event that needs a turn, titled after it.
+- **Notices about nobody's agent** (one you made, or one whose session was closed or deleted),
+  schedules, other projects' leads and CI go to the open session most recently active. A project
+  with no open session opens one for an event that needs a turn, titled after it.
 - **Another session's agent:** a lead may read it freely. Telling it something or retiring it asks
   you first, on a card in that lead's chat. To move an agent for good, use "Move to session" in its
   menu, or `agentbox chat session hand`.
-- **Deleting a session** removes its conversation and leaves its agents to no session. Nothing is
-  summarised: the lead writes what matters to memory as it goes.
+- **Closing a session** moves it to the chat's history with its conversation and its agents. From
+  History, next to the tabs, you can read it, reopen it as it was, or start a new session from it,
+  which begins with where the old one left off. A new session never takes a closed or deleted
+  one's place: it always starts empty.
+- **Deleting a session**, from History, removes its conversation for good and leaves its agents to
+  no session. Nothing is summarised: the lead writes what matters to memory as it goes.
 - **Keeping the cache warm:** a session gets keepalives only while its own agents are working.
   When its cache is about to expire, the card that offers to compact it also offers to start a
   new session, which takes the message you were writing as its first.
 
 In the app, the sessions are tabs above the chat and a list under the project in the sidebar. Each
 shows a spinner while its lead works and a dot when it has news you haven't seen. The keys are
-<kbd>Ctrl</kbd>+<kbd>T</kbd> for a new session and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>⌫</kbd> to
-delete the one shown (it asks first, in the tab). <kbd>Ctrl</kbd>+<kbd>Tab</kbd> and
+<kbd>Ctrl</kbd>+<kbd>T</kbd> for a new session and <kbd>Ctrl</kbd>+<kbd>W</kbd> to close the one
+shown into the history. <kbd>Ctrl</kbd>+<kbd>Tab</kbd> and
 <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Tab</kbd> move between sessions. The phone shows them as
 chips above the chat.
 
@@ -55,6 +59,8 @@ agentbox chat session list pawly
 agentbox chat session new pawly "Prod: login 500s"
 agentbox chat pawly --session prod-login-500s "Is the fix deployed?"
 agentbox chat session close pawly prod-login-500s
+agentbox chat session list pawly --closed
+agentbox chat session reopen pawly prod-login-500s
 agentbox chat session hand pawly/agent-07 prod-login-500s
 ```
 

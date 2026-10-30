@@ -93,7 +93,7 @@ func (m *Manager) EnsureHomeSession(ctx context.Context, session string) (state.
 // HOME and pictures, and the sessions themselves. Its working directory is
 // AgentBox's own folder, and stays.
 func (m *Manager) DestroyHome(ctx context.Context) error {
-	sessions, err := m.Store.LeadSessions(ctx, state.HomeProject)
+	sessions, err := m.Store.AllLeadSessions(ctx, state.HomeProject)
 	if err != nil {
 		return err
 	}

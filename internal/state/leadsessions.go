@@ -14,10 +14,16 @@ import (
 
 // A project's chat in sessions: each a lead conversation of its own on one
 // topic ("Prod: login 500s"), with its own context, compaction and prompt
-// cache. A project has as many as the user opens, and none once they have all
-// been deleted. A session's lead is an agents row like any lead's, named
-// LeadSessionName(id), made the first time it is written to, so a session
-// nobody has written in costs a row here and nothing else.
+// cache. A project has as many open as the user opens, and none once they
+// have all been closed. A session's lead is an agents row like any lead's,
+// named LeadSessionName(id), made the first time it is written to, so a
+// session nobody has written in costs a row here and nothing else.
+//
+// Closing a session keeps it, conversation and all, in the chat's history
+// (ClosedLeadSessions), to be read, reopened or continued from in a new
+// session; only deleting it removes it. Either way its id is never handed out
+// again (lead_session_ids): a new session that took it would take its lead's
+// name, and with it the conversation, memory and agents kept under it.
 //
 // What a project knows is shared by every session: notes, memory, skills,
 // schedules, the repository and the agents. What isn't is the conversation,
@@ -47,7 +53,13 @@ type LeadSession struct {
 	// unless the user does first (RenameLeadSession).
 	Untitled  bool
 	CreatedAt time.Time
+	// ClosedAt is when the session was closed, into the chat's history; zero
+	// while it is open.
+	ClosedAt time.Time
 }
+
+// Closed reports whether the session is in the chat's history.
+func (ls LeadSession) Closed() bool { return !ls.ClosedAt.IsZero() }
 
 // UntitledTopic is the topic of a session opened with none, until it is named.
 const UntitledTopic = "New session"
@@ -108,8 +120,8 @@ func cleanTopic(topic string) (string, error) {
 }
 
 // AddLeadSession opens a new session on topic, with an id made from it: the
-// topic's slug, numbered when the project has a session by that id, or had
-// one whose conversation is still kept.
+// topic's slug, numbered when any session the project ever had, open, closed
+// or deleted, had that id.
 func (s *Store) AddLeadSession(ctx context.Context, project, topic string, at time.Time) (LeadSession, error) {
 	topic, err := cleanTopic(topic)
 	if err != nil {
@@ -138,29 +150,53 @@ func (s *Store) addLeadSession(ctx context.Context, project, topic, base string,
 		if n > 1 {
 			id = fmt.Sprintf("%s-%d", base, n)
 		}
-		// A lead row left by a session deleted while its chat was being made
-		// would hand its name on; so would its conversation.
-		var used int
-		if err := s.db.QueryRowContext(ctx,
-			`SELECT (SELECT count(*) FROM agents WHERE project = ? AND name = ?) + (SELECT count(*) FROM chat_items WHERE project = ? AND agent = ?)`,
-			project, LeadSessionName(id), project, LeadSessionName(id)).Scan(&used); err != nil {
-			return LeadSession{}, err
-		}
-		if used > 0 {
-			continue
-		}
-		_, err := s.db.ExecContext(ctx,
-			`INSERT INTO lead_sessions (project, id, topic, created_at, untitled) VALUES (?, ?, ?, ?, ?)`,
-			project, id, topic, at.UnixMilli(), untitled)
-		if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
-			continue
-		}
+		ok, err := s.claimLeadSessionID(ctx, project, id, topic, untitled, at)
 		if err != nil {
 			return LeadSession{}, err
+		}
+		if !ok {
+			continue
 		}
 		return LeadSession{Project: project, ID: id, Topic: topic, Untitled: untitled, CreatedAt: time.UnixMilli(at.UnixMilli())}, nil
 	}
 	return LeadSession{}, fmt.Errorf("session %q: %w", base, ErrExists)
+}
+
+// claimLeadSessionID opens a session with id, unless any session of the
+// project ever had it, or a lead or conversation is still kept under its name
+// (a lead row left by a session deleted while its chat was being made).
+func (s *Store) claimLeadSessionID(ctx context.Context, project, id, topic string, untitled bool, at time.Time) (bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var used int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT (SELECT count(*) FROM lead_session_ids WHERE project = ? AND id = ?)
+			+ (SELECT count(*) FROM agents WHERE project = ? AND name = ?)
+			+ (SELECT count(*) FROM chat_items WHERE project = ? AND agent = ?)`,
+		project, id, project, LeadSessionName(id), project, LeadSessionName(id)).Scan(&used); err != nil {
+		return false, err
+	}
+	if used > 0 {
+		return false, nil
+	}
+	for _, q := range []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO lead_session_ids (project, id) VALUES (?, ?)`, []any{project, id}},
+		{`INSERT INTO lead_sessions (project, id, topic, created_at, untitled) VALUES (?, ?, ?, ?, ?)`, []any{project, id, topic, at.UnixMilli(), untitled}},
+	} {
+		if _, err := tx.ExecContext(ctx, q.sql, q.args...); err != nil {
+			if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+				return false, nil
+			}
+			return false, err
+		}
+	}
+	return true, tx.Commit()
 }
 
 // AddLeadSessionID opens a session with an id of the caller's: the migrated
@@ -175,13 +211,29 @@ func (s *Store) AddLeadSessionID(ctx context.Context, project, id, topic string,
 	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
 		return fmt.Errorf("session %s of %s: %w", id, project, ErrExists)
 	}
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `INSERT OR IGNORE INTO lead_session_ids (project, id) VALUES (?, ?)`, project, id)
 	return err
 }
 
-// LeadSessions lists a project's sessions, oldest first.
+// leadSessionColumns is what scanLeadSession reads.
+const leadSessionColumns = `project, id, topic, created_at, untitled, closed_at`
+
+// LeadSessions lists a project's open sessions, oldest first.
 func (s *Store) LeadSessions(ctx context.Context, project string) ([]LeadSession, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT project, id, topic, created_at, untitled FROM lead_sessions WHERE project = ? ORDER BY created_at, id`, project)
+	return s.leadSessions(ctx, `SELECT `+leadSessionColumns+` FROM lead_sessions WHERE project = ? AND closed_at = 0 ORDER BY created_at, id`, project)
+}
+
+// ClosedLeadSessions lists the sessions in a project's history, the most
+// recently closed first.
+func (s *Store) ClosedLeadSessions(ctx context.Context, project string) ([]LeadSession, error) {
+	return s.leadSessions(ctx, `SELECT `+leadSessionColumns+` FROM lead_sessions WHERE project = ? AND closed_at != 0 ORDER BY closed_at DESC, id`, project)
+}
+
+func (s *Store) leadSessions(ctx context.Context, query, project string) ([]LeadSession, error) {
+	rows, err := s.db.QueryContext(ctx, query, project)
 	if err != nil {
 		return nil, err
 	}
@@ -197,10 +249,10 @@ func (s *Store) LeadSessions(ctx context.Context, project string) ([]LeadSession
 	return out, rows.Err()
 }
 
-// LeadSession is one session of a project's chat.
+// LeadSession is one session of a project's chat, open or closed.
 func (s *Store) LeadSession(ctx context.Context, project, id string) (LeadSession, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT project, id, topic, created_at, untitled FROM lead_sessions WHERE project = ? AND id = ?`, project, id)
+		`SELECT `+leadSessionColumns+` FROM lead_sessions WHERE project = ? AND id = ?`, project, id)
 	ls, err := scanLeadSession(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return LeadSession{}, fmt.Errorf("session %s of %s: %w", id, project, ErrNotFound)
@@ -210,22 +262,39 @@ func (s *Store) LeadSession(ctx context.Context, project, id string) (LeadSessio
 
 func scanLeadSession(row interface{ Scan(...any) error }) (LeadSession, error) {
 	var ls LeadSession
-	var created int64
-	if err := row.Scan(&ls.Project, &ls.ID, &ls.Topic, &created, &ls.Untitled); err != nil {
+	var created, closed int64
+	if err := row.Scan(&ls.Project, &ls.ID, &ls.Topic, &created, &ls.Untitled, &closed); err != nil {
 		return LeadSession{}, err
 	}
 	ls.CreatedAt = time.UnixMilli(created)
+	if closed != 0 {
+		ls.ClosedAt = time.UnixMilli(closed)
+	}
 	return ls, nil
 }
 
-// LeadSessionActivity is when each of a project's sessions was last active,
-// by id: its conversation's newest message, or when it was opened when it
-// has none.
+// LeadSessionActivity is when each of a project's open sessions was last
+// active, by id: its conversation's newest message, or when it was opened
+// when it has none.
 func (s *Store) LeadSessionActivity(ctx context.Context, project string) (map[string]time.Time, error) {
 	sessions, err := s.LeadSessions(ctx, project)
 	if err != nil {
 		return nil, err
 	}
+	return s.leadSessionActivity(ctx, project, sessions)
+}
+
+// ClosedLeadSessionActivity is LeadSessionActivity for the sessions in the
+// project's history.
+func (s *Store) ClosedLeadSessionActivity(ctx context.Context, project string) (map[string]time.Time, error) {
+	sessions, err := s.ClosedLeadSessions(ctx, project)
+	if err != nil {
+		return nil, err
+	}
+	return s.leadSessionActivity(ctx, project, sessions)
+}
+
+func (s *Store) leadSessionActivity(ctx context.Context, project string, sessions []LeadSession) (map[string]time.Time, error) {
 	out := make(map[string]time.Time, len(sessions))
 	for _, ls := range sessions {
 		at := ls.CreatedAt
@@ -252,8 +321,8 @@ func (s *Store) LeadSessionActivity(ctx context.Context, project string) (map[st
 	return out, nil
 }
 
-// LastActiveLeadSession is the project's session most recently active, the
-// one a notice nobody owns goes to; ErrNotFound when it has none.
+// LastActiveLeadSession is the project's open session most recently active,
+// the one a notice nobody owns goes to; ErrNotFound when it has none open.
 func (s *Store) LastActiveLeadSession(ctx context.Context, project string) (LeadSession, error) {
 	sessions, err := s.LeadSessions(ctx, project)
 	if err != nil {
@@ -311,9 +380,42 @@ func (s *Store) NameLeadSession(ctx context.Context, project, id, topic string) 
 	return n > 0, nil
 }
 
-// DeleteLeadSession deletes a session: its row, its lead's, and its
-// conversation, in one transaction. The agents it made are left to nobody,
-// and it returns them.
+// CloseLeadSession moves an open session to the chat's history, its
+// conversation, lead and agents kept as they are: the agents' notices go to
+// the session most recently active while it is closed (daemon.leadOf), and
+// back to it once it is reopened.
+func (s *Store) CloseLeadSession(ctx context.Context, project, id string, at time.Time) error {
+	return s.setLeadSessionClosed(ctx, project, id, at.UnixMilli(), `closed_at = 0`)
+}
+
+// ReopenLeadSession moves a closed session from the history back among the
+// open ones.
+func (s *Store) ReopenLeadSession(ctx context.Context, project, id string) error {
+	return s.setLeadSessionClosed(ctx, project, id, 0, `closed_at != 0`)
+}
+
+func (s *Store) setLeadSessionClosed(ctx context.Context, project, id string, closedAt int64, was string) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE lead_sessions SET closed_at = ? WHERE project = ? AND id = ? AND `+was, closedAt, project, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		return nil
+	}
+	ls, err := s.LeadSession(ctx, project, id)
+	if err != nil {
+		return err
+	}
+	if ls.Closed() {
+		return fmt.Errorf("session %s of %s is already closed", id, project)
+	}
+	return fmt.Errorf("session %s of %s is open", id, project)
+}
+
+// DeleteLeadSession deletes a session, open or closed: its row, its lead's,
+// and its conversation, in one transaction. Its id stays taken. The agents it
+// made are left to nobody, and it returns them.
 func (s *Store) DeleteLeadSession(ctx context.Context, project, id string) ([]string, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -379,9 +481,10 @@ func (s *Store) SetAgentSession(ctx context.Context, project, name, session stri
 }
 
 // RemoveLeadSessions forgets every session of a project with their
-// conversations: the project's chat was reset.
+// conversations, the closed ones too: the project's chat was reset. Their ids
+// stay taken.
 func (s *Store) RemoveLeadSessions(ctx context.Context, project string) error {
-	sessions, err := s.LeadSessions(ctx, project)
+	sessions, err := s.AllLeadSessions(ctx, project)
 	if err != nil {
 		return err
 	}
@@ -391,4 +494,9 @@ func (s *Store) RemoveLeadSessions(ctx context.Context, project string) error {
 		}
 	}
 	return nil
+}
+
+// AllLeadSessions is every session of a project, open or closed.
+func (s *Store) AllLeadSessions(ctx context.Context, project string) ([]LeadSession, error) {
+	return s.leadSessions(ctx, `SELECT `+leadSessionColumns+` FROM lead_sessions WHERE project = ? ORDER BY created_at, id`, project)
 }

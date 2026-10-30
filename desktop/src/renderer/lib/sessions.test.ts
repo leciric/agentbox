@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { afterDelete, byActivity, isUnread, isWorking, neighbour, openSession, pickSession, topicFrom, withSession } from './sessions.ts';
+import { afterClose, byActivity, isUnread, isWorking, neighbour, openSession, pickSession, topicFrom, withSession } from './sessions.ts';
 
 const session = (id: string, activeAt: string, over: Partial<T.LeadSession> = {}): T.LeadSession => ({
   project: 'web',
@@ -43,7 +43,7 @@ test('clicking a project opens the session its agents wait in', () => {
 
 test('a question no session owns waits in the one most recently active', () => {
   assert.equal(openSession(all, 'docs', [question('agent-3', '2026-10-29T10:00:00Z')], agents)?.id, 'prod', "an agent nobody's");
-  assert.equal(openSession(all, 'docs', [question('agent-4', '2026-10-29T10:00:00Z')], agents)?.id, 'prod', 'its session deleted');
+  assert.equal(openSession(all, 'docs', [question('agent-4', '2026-10-29T10:00:00Z')], agents)?.id, 'prod', 'its session closed or deleted');
 });
 
 test('answered questions, and gone agents', () => {
@@ -61,10 +61,21 @@ test('next and previous go round the tabs', () => {
   assert.equal(neighbour([], 'main', 1), undefined);
 });
 
-test('deleting a session shows the one beside it', () => {
-  assert.equal(afterDelete(all, 'prod')?.id, 'docs');
-  assert.equal(afterDelete(all, 'docs')?.id, 'prod');
-  assert.equal(afterDelete([main], 'main'), undefined);
+test('closing a session shows the one beside it', () => {
+  assert.equal(afterClose(all, 'prod')?.id, 'docs');
+  assert.equal(afterClose(all, 'docs')?.id, 'prod');
+  assert.equal(afterClose([main], 'main'), undefined);
+});
+
+test('a new session never shows a closed one: its id is its own', () => {
+  // The daemon hands out an id no session ever had (state.AddLeadSession), so
+  // the session Ctrl+T opens after closing "session" is "session-2", and the
+  // tabs show it, not the closed one the choice may still name.
+  const closed = session('session', '2026-10-29T10:00:00Z');
+  const fresh = session('session-2', '2026-10-30T09:00:00Z');
+  const open = withSession(all.filter((s) => s.id !== closed.id), fresh);
+  assert.equal(pickSession(open, 'session-2')?.ref, 'web/lead.session-2');
+  assert.equal(pickSession(open, 'session')?.id, 'session-2', 'a closed choice falls back to the most recently active');
 });
 
 test('a session just made opens before the list is read again', () => {

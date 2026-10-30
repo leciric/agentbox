@@ -410,3 +410,104 @@ func TestANewSessionStartsOnTheSettingsItWasOpenedFrom(t *testing.T) {
 	}
 	check(last)
 }
+
+// Closing a session (the tab's close) keeps it in the chat's history: its
+// conversation stays, a new session never takes its id or what is kept under
+// it, its agents' notices go to the open session most recently active while
+// it is closed, a turn in it is refused, and reopening it brings all of that
+// back. A session continued from it is a new one, told where it left off.
+func TestAClosedSessionGoesToTheHistory(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	repo := d.fixtureRepo(t, "hello-stack")
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
+		t.Fatal(err)
+	}
+	main := leadReadyToChat(t, d, "hello-stack")
+	first, err := d.client.OpenLeadSession(ctx, "hello-stack", api.NewLeadSessionRequest{})
+	if err != nil || first.ID != "session" {
+		t.Fatalf("a new session = %+v, %v", first, err)
+	}
+	firstLead := state.Agent{Project: "hello-stack", Name: state.LeadSessionName(first.ID)}
+	saidLast(t, d, firstLead, "The cookie is the culprit.")
+	addAgent(t, d, repo, "hello-stack", "agent-01", "Fix the cookie")
+	if err := d.srv.store.SetAgentSession(ctx, "hello-stack", "agent-01", first.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	closed, err := d.client.CloseLeadSession(ctx, "hello-stack", first.ID)
+	if err != nil || closed.ClosedAt == nil {
+		t.Fatalf("CloseLeadSession() = %+v, %v", closed, err)
+	}
+	open, err := d.client.LeadSessions(ctx, "hello-stack")
+	if err != nil || len(open) != 1 || open[0].ID != state.MigratedSession {
+		t.Errorf("open sessions = %+v, %v; want main alone", open, err)
+	}
+	history, err := d.client.ClosedLeadSessions(ctx, "hello-stack")
+	if err != nil || len(history) != 1 || history[0].ID != first.ID || history[0].Last == nil || history[0].Agents != 1 {
+		t.Fatalf("the history = %+v, %v; want the closed session, with what it said and its agent", history, err)
+	}
+	if th, err := d.client.Chat(ctx, first.Ref); err != nil || len(th.Items) == 0 {
+		t.Errorf("the closed session's chat = %d items, %v; want it readable", len(th.Items), err)
+	}
+	if _, err := d.client.SendChat(ctx, first.Ref, "Still there?"); err == nil || !strings.Contains(err.Error(), "closed") {
+		t.Errorf("a message to a closed session: %v; want it refused", err)
+	}
+	if err := d.client.HandOverAgent(ctx, "hello-stack/agent-01", first.ID); err == nil {
+		t.Error("an agent was handed to a closed session")
+	}
+
+	// Ctrl+T: an empty session under an id of its own.
+	fresh, err := d.client.OpenLeadSession(ctx, "hello-stack", api.NewLeadSessionRequest{})
+	if err != nil || fresh.ID == first.ID || fresh.Ref == first.Ref {
+		t.Fatalf("a new session after closing = %+v, %v; want an id of its own", fresh, err)
+	}
+	if th, err := d.client.Chat(ctx, fresh.Ref); err != nil || len(th.Items) != 0 {
+		t.Errorf("the new session's chat = %d items, %v; want it empty", len(th.Items), err)
+	}
+
+	// agent-01's notices go to the open session most recently active.
+	saidLast(t, d, main, "Here.")
+	a1, err := d.srv.store.Agent(ctx, "hello-stack", "agent-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.srv.tellOwner(ctx, a1, "agent-01 has a question", false)
+	if got := strings.Join(noticesOf(t, d, main), "\n"); !strings.Contains(got, "agent-01 has a question") {
+		t.Errorf("main heard %q; want the closed session's agent's notice", got)
+	}
+
+	// Continued from: a new session on its topic, told where it left off.
+	cont, err := d.client.OpenLeadSession(ctx, "hello-stack", api.NewLeadSessionRequest{ContinueFrom: first.ID})
+	if err != nil || cont.ID == first.ID || cont.ID == fresh.ID {
+		t.Fatalf("a session continued from the closed one = %+v, %v", cont, err)
+	}
+	contLead, err := d.srv.sessionLead(ctx, "hello-stack", cont.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(noticesOf(t, d, contLead), "\n"); !strings.Contains(got, "The cookie is the culprit.") || !strings.Contains(got, first.ID) {
+		t.Errorf("the continued session was told %q; want where %s left off", got, first.ID)
+	}
+	if a1, err = d.srv.store.Agent(ctx, "hello-stack", "agent-01"); err != nil || a1.Session() != first.ID {
+		t.Errorf("agent-01 = %+v, %v; want it still the closed session's", a1, err)
+	}
+
+	// Reopened, it is open again with its conversation, and hears its agent.
+	reopened, err := d.client.ReopenLeadSession(ctx, "hello-stack", first.ID)
+	if err != nil || reopened.ClosedAt != nil {
+		t.Fatalf("ReopenLeadSession() = %+v, %v", reopened, err)
+	}
+	if history, err := d.client.ClosedLeadSessions(ctx, "hello-stack"); err != nil || len(history) != 0 {
+		t.Errorf("the history after reopening = %+v, %v; want it empty", history, err)
+	}
+	firstLead, err = d.srv.sessionLead(ctx, "hello-stack", first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.srv.tellOwner(ctx, a1, "agent-01 is done", false)
+	if got := strings.Join(noticesOf(t, d, firstLead), "\n"); !strings.Contains(got, "agent-01 is done") {
+		t.Errorf("the reopened session heard %q; want its agent's notice", got)
+	}
+}

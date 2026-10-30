@@ -2,9 +2,11 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -22,7 +24,8 @@ import (
 //     its finish, stall and failure, its questions, its pull request.
 //   - One about no agent, or about an agent nobody owns — a schedule, another
 //     project's lead, the user's Home chat, CI on main, an agent the user made
-//     or whose session was deleted — goes to the session most recently active
+//     or whose session was closed or deleted — goes to the open session most
+//     recently active
 //     (tellSessionOf with no session). A project with no session at all gets
 //     one, titled after the notice, when the notice starts a turn; one that
 //     only waits to be read has nobody to read it, and is dropped, as it was
@@ -112,6 +115,9 @@ func (s *Server) eventLead(ctx context.Context, project, topic string, open bool
 				return state.Agent{}, err
 			}
 			ls, err = s.store.LeadSession(ctx, project, state.MigratedSession)
+			if err == nil && ls.Closed() {
+				err = fmt.Errorf("%s's chat has no open session: %w", project, state.ErrNotFound)
+			}
 		}
 	}
 	if errors.Is(err, state.ErrNotFound) && open {
@@ -145,17 +151,24 @@ func (s *Server) tellSession(ctx context.Context, project, session, notice strin
 }
 
 // leadOf is the lead a notice for session goes to: that session's, while it
-// exists, and otherwise eventLead's.
+// is open, and otherwise eventLead's. A closed session's agents are heard by
+// the open session most recently active until it is reopened.
 func (s *Server) leadOf(ctx context.Context, project, session, topic string, open bool) (state.Agent, error) {
 	if session != "" {
-		if _, err := s.store.LeadSession(ctx, project, session); err == nil {
+		ls, err := s.store.LeadSession(ctx, project, session)
+		switch {
+		case err == nil && !ls.Closed():
 			return s.sessionLead(ctx, project, session)
-		} else if !errors.Is(err, state.ErrNotFound) {
+		case err != nil && !errors.Is(err, state.ErrNotFound):
 			return state.Agent{}, err
 		}
 	}
 	return s.eventLead(ctx, project, topic, open)
 }
+
+// errSessionClosed refuses a turn in a session of the chat's history: it is
+// reopened, or continued from in a new one, first.
+var errSessionClosed = errors.New("the session is closed: reopen it, or start a new session from it, to write in it")
 
 // groupSession is the session a group's notices go to: the one that made
 // its agents.
@@ -217,13 +230,18 @@ func (s *Server) rewriteBriefs(project string) {
 	})
 }
 
-// apiSessions describes a project's sessions for the app.
-func (s *Server) apiSessions(ctx context.Context, project string) ([]api.LeadSession, error) {
-	sessions, err := s.store.LeadSessions(ctx, project)
+// apiSessions describes a project's open sessions for the app, or with
+// closed those in its history.
+func (s *Server) apiSessions(ctx context.Context, project string, closed bool) ([]api.LeadSession, error) {
+	list, activityOf := s.store.LeadSessions, s.store.LeadSessionActivity
+	if closed {
+		list, activityOf = s.store.ClosedLeadSessions, s.store.ClosedLeadSessionActivity
+	}
+	sessions, err := list(ctx, project)
 	if err != nil {
 		return nil, err
 	}
-	activity, err := s.store.LeadSessionActivity(ctx, project)
+	activity, err := activityOf(ctx, project)
 	if err != nil {
 		return nil, err
 	}
@@ -245,11 +263,15 @@ func (s *Server) apiSessions(ctx context.Context, project string) ([]api.LeadSes
 		if chatState == "" {
 			chatState = api.ChatOff
 		}
-		out = append(out, api.LeadSession{
+		row := api.LeadSession{
 			Project: project, ID: ls.ID, Ref: ref, Topic: ls.Topic, Untitled: ls.Untitled, Chat: chatState,
 			Agents: owned[ls.ID], Last: s.lastChatLine(ctx, lead),
 			CreatedAt: ls.CreatedAt, ActiveAt: activity[ls.ID],
-		})
+		}
+		if ls.Closed() {
+			row.ClosedAt = &ls.ClosedAt
+		}
+		out = append(out, row)
 	}
 	return out, nil
 }
@@ -264,13 +286,14 @@ func (s *Server) chatProject(ctx context.Context, project string) error {
 	return err
 }
 
-// listSessions answers GET /v1/projects/{project}/sessions.
+// listSessions answers GET /v1/projects/{project}/sessions: the open ones, or
+// with ?closed=true the chat's history.
 func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) error {
 	project := r.PathValue("project")
 	if err := s.chatProject(r.Context(), project); err != nil {
 		return err
 	}
-	out, err := s.apiSessions(r.Context(), project)
+	out, err := s.apiSessions(r.Context(), project, r.URL.Query().Get("closed") == "true")
 	if err != nil {
 		return err
 	}
@@ -287,6 +310,19 @@ func (s *Server) newSession(w http.ResponseWriter, r *http.Request) error {
 	var req api.NewLeadSessionRequest
 	if err := readJSON(r, &req); err != nil {
 		return err
+	}
+	var continued state.LeadSession
+	if req.ContinueFrom != "" {
+		var err error
+		if continued, err = s.store.LeadSession(r.Context(), project, req.ContinueFrom); err != nil {
+			return err
+		}
+		if req.From == "" {
+			req.From = continued.ID
+		}
+		if strings.TrimSpace(req.Topic) == "" && !continued.Untitled {
+			req.Topic = continued.Topic
+		}
 	}
 	// Asked before the new one exists, which would be the most recent.
 	from := req.From
@@ -310,8 +346,69 @@ func (s *Server) newSession(w http.ResponseWriter, r *http.Request) error {
 			s.logf("starting %s's %s session on %s's settings: %v", project, ls.ID, from, err)
 		}
 	}
+	if continued.ID != "" {
+		if err := s.seedSession(r.Context(), project, ls.ID, continued); err != nil {
+			s.logf("starting %s's %s session from %s: %v", project, ls.ID, continued.ID, err)
+		}
+	}
 	s.sessionsChanged(r.Context(), project)
 	return writeJSON(w, http.StatusCreated, s.apiSession(r.Context(), project, ls.ID))
+}
+
+// seedLines is how many of the old session's last messages a session
+// continued from it starts with, and seedLineMax how much of each.
+const (
+	seedLines   = 6
+	seedLineMax = 600
+)
+
+// seedSession starts session to where session from left off: a notice in its
+// chat, which the user sees and its lead reads with its first message, naming
+// from and quoting its last exchanges. Nothing of from's is reused: to has an
+// id, lead, conversation and memory of its own, and from's agents stay
+// from's. What mattered in from, its lead wrote to the project's memory.
+func (s *Server) seedSession(ctx context.Context, project, to string, from state.LeadSession) error {
+	items, err := s.store.ChatItems(ctx, project, state.LeadSessionName(from.ID))
+	if err != nil {
+		return err
+	}
+	var lines []string
+	for i := len(items) - 1; i >= 0 && len(lines) < seedLines; i-- {
+		var item api.ChatItem
+		if json.Unmarshal(items[i].Data, &item) != nil || item.Hidden {
+			continue
+		}
+		who := map[string]string{"user": "The user", "assistant": "The lead"}[item.Kind]
+		text := strings.TrimSpace(item.Text)
+		if who == "" || text == "" {
+			continue
+		}
+		lines = append(lines, who+": "+cutText(text, seedLineMax))
+	}
+	slices.Reverse(lines)
+	var b strings.Builder
+	fmt.Fprintf(&b, "This session continues the session %q (%s), which is closed and kept in this chat's history.", from.Topic, from.ID)
+	if len(lines) > 0 {
+		b.WriteString(" Where it left off:\n\n")
+		b.WriteString(strings.Join(lines, "\n\n"))
+	}
+	b.WriteString("\n\nIts agents still belong to it; what it learned is in the project's memory.")
+	lead, err := s.sessionLead(ctx, project, to)
+	if err != nil {
+		return err
+	}
+	return s.chat.Notice(lead, b.String(), chat.NoticeOptions{})
+}
+
+// cutText is text cut to at most max bytes, at a rune, marked when cut.
+func cutText(text string, max int) string {
+	if len(text) <= max {
+		return text
+	}
+	for max > 0 && !utf8.RuneStart(text[max]) {
+		max--
+	}
+	return text[:max] + "…"
 }
 
 // inheritSessionSettings starts session to on what session from runs on: its
@@ -348,12 +445,14 @@ func (s *Server) inheritSessionSettings(ctx context.Context, project, from, to s
 	return s.store.SaveChat(ctx, project, state.LeadSessionName(to), inherited)
 }
 
-// apiSession is one session as listSessions shows it.
+// apiSession is one session as listSessions shows it, open or closed.
 func (s *Server) apiSession(ctx context.Context, project, id string) api.LeadSession {
-	all, _ := s.apiSessions(ctx, project)
-	for _, ls := range all {
-		if ls.ID == id {
-			return ls
+	for _, closed := range []bool{false, true} {
+		all, _ := s.apiSessions(ctx, project, closed)
+		for _, ls := range all {
+			if ls.ID == id {
+				return ls
+			}
 		}
 	}
 	return api.LeadSession{Project: project, ID: id, Ref: agent.SessionRef(project, id)}
@@ -378,9 +477,49 @@ func (s *Server) renameSession(w http.ResponseWriter, r *http.Request) error {
 	return writeJSON(w, http.StatusOK, s.apiSession(r.Context(), project, id))
 }
 
+// closeSession answers POST /v1/projects/{project}/sessions/{session}/close:
+// the tab's close. Its conversation stops and is kept, with its HOME and its
+// agents, in the chat's history, from where it can be read, reopened or
+// continued from; its agents' notices go to the open session most recently
+// active meanwhile (leadOf). What it was working on is forgotten, as a task
+// put down.
+func (s *Server) closeSession(w http.ResponseWriter, r *http.Request) error {
+	project, id := r.PathValue("project"), r.PathValue("session")
+	// Closed first, so that a message arriving now is refused rather than
+	// starting the turn the stop below would cut.
+	if err := s.store.CloseLeadSession(r.Context(), project, id, time.Now()); err != nil {
+		return err
+	}
+	ref := agent.SessionRef(project, id)
+	s.chat.Stop(ref, "the session was closed")
+	s.chat.Forget(ref)
+	s.settleLeadCache(ref, true)
+	s.stopSessionAPI(project, id)
+	if err := s.memory().ForgetSession(r.Context(), project, id); err != nil {
+		s.logf("forgetting what %s's %s session was working on: %v", project, id, err)
+	}
+	s.logf("Closed %s's %s session into its history", project, id)
+	s.sessionsChanged(r.Context(), project)
+	return writeJSON(w, http.StatusOK, s.apiSession(r.Context(), project, id))
+}
+
+// reopenSession answers POST /v1/projects/{project}/sessions/{session}/reopen:
+// a session from the chat's history open again as it was, its agents' notices
+// coming back to it.
+func (s *Server) reopenSession(w http.ResponseWriter, r *http.Request) error {
+	project, id := r.PathValue("project"), r.PathValue("session")
+	if err := s.store.ReopenLeadSession(r.Context(), project, id); err != nil {
+		return err
+	}
+	s.logf("Reopened %s's %s session", project, id)
+	s.sessionsChanged(r.Context(), project)
+	return writeJSON(w, http.StatusOK, s.apiSession(r.Context(), project, id))
+}
+
 // deleteSession answers DELETE /v1/projects/{project}/sessions/{session}:
-// its conversation stops and goes, with its HOME and socket, and its agents
-// are left to nobody. Nothing of it is summarised: what mattered, its lead
+// a session, open or in the history, goes for good. Its conversation stops and
+// goes, with its HOME and socket, and its agents are left to nobody; its id
+// is never used again. Nothing of it is summarised: what mattered, its lead
 // wrote to the project's memory as it went.
 func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) error {
 	project, id := r.PathValue("project"), r.PathValue("session")
@@ -425,8 +564,12 @@ func (s *Server) handOver(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	if req.Session != "" {
-		if _, err := s.store.LeadSession(r.Context(), project, req.Session); err != nil {
+		ls, err := s.store.LeadSession(r.Context(), project, req.Session)
+		if err != nil {
 			return err
+		}
+		if ls.Closed() {
+			return errSessionClosed
 		}
 	}
 	if err := s.store.SetAgentSession(r.Context(), project, name, req.Session); err != nil {
