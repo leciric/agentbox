@@ -2348,6 +2348,10 @@ var authSigns = []string{
 	"oauth access token is invalid",
 	"oauth token expired",
 	"oauth token has expired",
+	// The CLI's own refresh failing: "OAuth session expired and could not be
+	// refreshed", with its machine-readable kind as the error's data.
+	"oauth session expired",
+	`"errorkind":"authentication_failed"`,
 	"authentication_error",
 	"invalid api key",
 	"please run /login",
