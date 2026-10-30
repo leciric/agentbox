@@ -264,7 +264,7 @@ func (s *Server) apiSessions(ctx context.Context, project string, closed bool) (
 			chatState = api.ChatOff
 		}
 		row := api.LeadSession{
-			Project: project, ID: ls.ID, Ref: ref, Topic: ls.Topic, Untitled: ls.Untitled, Chat: chatState,
+			Project: project, ID: ls.ID, Ref: ref, Topic: ls.Topic, Untitled: ls.Untitled, Color: ls.Color, Chat: chatState,
 			Agents: owned[ls.ID], Last: s.lastChatLine(ctx, lead),
 			CreatedAt: ls.CreatedAt, ActiveAt: activity[ls.ID],
 		}

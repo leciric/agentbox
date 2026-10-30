@@ -8,7 +8,7 @@ import { countByAgent, livePages } from '../lib/pages';
 import { useT } from '../lib/i18n';
 import { useProjectName } from '../lib/useProjectName';
 import { avatarMood, chatLabel, isAsking, rank, settled, statusTip, type Mood } from '../lib/agentStatus';
-import { SessionChip } from './chat/SessionChip';
+import { useAgentSession } from './chat/sessionColor';
 import { cn, humanBytes, timeAgo } from '../lib/utils';
 import { AgentContextMenu } from './AgentContextMenu';
 import { AgentInfoCard } from './AgentInfoCard';
@@ -483,6 +483,7 @@ function AgentRow({
   // not only by the avatar: the agent is usually mid-turn, blocked on it, so
   // its chat alone would call it working. Opening the agent shows a credential
   // request's card; a question comes back in the lead's reply.
+  const owner = useAgentSession(agent);
   const status: ReturnType<typeof chatLabel> = asking && agent.chat !== 'waiting' ? { text: t('agent.rail.asks'), tone: 'urgent' } : chatLabel(agent);
   // The row is a button that opens the agent, with the pull request badge over
   // it: a link inside a button is neither valid HTML nor clickable on its own.
@@ -492,7 +493,8 @@ function AgentRow({
         <button
           data-agent={agent.ref}
           onClick={onSelect}
-          className={cn('group relative flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors xl:py-2.5', active ? 'bg-surface-strong' : 'hover:bg-surface')}
+          data-session-color={owner?.color}
+          className={cn('group relative flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors xl:py-2.5', active ? 'bg-surface-strong' : 'hover:bg-surface', owner && 'session-tint')}
         >
           {active && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-brand-400" />}
           <AgentAvatar ai={agent.ai} mood={mood} state={agent.state} seed={agent.ref} />
@@ -500,10 +502,7 @@ function AgentRow({
             {/* The title, or the agent's name (agent-125) when it has none:
                 the name, its IP and what its machine uses are in the card its
                 hover opens (AgentInfoCard). */}
-            <span className="flex min-w-0 items-center gap-1.5">
-              <span className={cn('block min-w-0 truncate text-ui font-medium', active ? 'text-title' : 'text-secondary')}>{agent.title || agent.name}</span>
-              <SessionChip agent={agent} />
-            </span>
+            <span className={cn('block min-w-0 truncate text-ui font-medium', active ? 'text-title' : 'text-secondary')}>{agent.title || agent.name}</span>
             <span className="mt-0.5 flex items-center gap-1.5 text-caption">
               {status.tone === 'urgent' && <span className="size-1.5 shrink-0 rounded-full bg-amber-400" />}
               {status.tone === 'error' && <span className="size-1.5 shrink-0 rounded-full bg-rose-400" />}

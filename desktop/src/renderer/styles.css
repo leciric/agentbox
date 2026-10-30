@@ -1521,3 +1521,59 @@ html[data-blurred] .ab-monitor * {
   align-items: center;
   justify-content: center;
 }
+
+/* A chat session's colour (components/chat/sessionColor.ts): a pastel per
+   name in state.SessionColors, lighter on dark and deeper on light, its wash
+   a little stronger on dark (--ab-session-wash) to read the same on both. [data-session-color] sets --session from it; a name this
+   app doesn't know leaves it unset, and nothing tinted. .session-tint washes an
+   agent's card with it and draws a 2px edge at its left, under the card's
+   content and over its own hover and selected backgrounds, without touching
+   its box-shadow (the focus ring). */
+:root {
+  --ab-session-rose: #f5a3b5;
+  --ab-session-peach: #f7b98b;
+  --ab-session-lemon: #ecd77a;
+  --ab-session-mint: #8fdcb0;
+  --ab-session-teal: #7fd3d0;
+  --ab-session-sky: #8cc4f2;
+  --ab-session-periwinkle: #a9b2f5;
+  --ab-session-lilac: #d6a8ef;
+  --ab-session-wash: 9%;
+}
+:root[data-appearance="light"] {
+  --ab-session-rose: #e26d8a;
+  --ab-session-peach: #e58b52;
+  --ab-session-lemon: #c9a227;
+  --ab-session-mint: #43ad75;
+  --ab-session-teal: #2fa3a1;
+  --ab-session-sky: #4b97dc;
+  --ab-session-periwinkle: #6f7de3;
+  --ab-session-lilac: #ad6bd6;
+  --ab-session-wash: 7%;
+}
+[data-session-color="rose"] { --session: var(--ab-session-rose); }
+[data-session-color="peach"] { --session: var(--ab-session-peach); }
+[data-session-color="lemon"] { --session: var(--ab-session-lemon); }
+[data-session-color="mint"] { --session: var(--ab-session-mint); }
+[data-session-color="teal"] { --session: var(--ab-session-teal); }
+[data-session-color="sky"] { --session: var(--ab-session-sky); }
+[data-session-color="periwinkle"] { --session: var(--ab-session-periwinkle); }
+[data-session-color="lilac"] { --session: var(--ab-session-lilac); }
+
+.session-dot {
+  background-color: var(--session, transparent);
+}
+.session-tint {
+  position: relative;
+  isolation: isolate;
+}
+.session-tint::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background-color: color-mix(in oklab, var(--session, transparent) var(--ab-session-wash), transparent);
+  box-shadow: inset 2px 0 0 color-mix(in oklab, var(--session, transparent) 60%, transparent);
+}

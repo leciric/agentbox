@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -255,5 +256,48 @@ func TestAnUntitledSessionKeepsTheUsersName(t *testing.T) {
 	}
 	if sessions, err := st.LeadSessions(ctx, "web"); err != nil || len(sessions) != 3 || !sessions[1].Untitled {
 		t.Errorf("LeadSessions() = %+v, %v; want the second still untitled", sessions, err)
+	}
+}
+
+// Each new session gets a colour none of the open ones has, until all of them
+// are taken; a closed session's colour is free again.
+func TestSessionsGetColoursNoOpenSessionHas(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := openStore(t)
+	addProject(t, st, "web")
+	now := time.Now()
+	seen := map[string]bool{}
+	var first state.LeadSession
+	for i := range state.SessionColors {
+		ls, err := st.AddUntitledLeadSession(ctx, "web", now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Contains(state.SessionColors, ls.Color) || seen[ls.Color] {
+			t.Fatalf("session %d got %q, after %v", i, ls.Color, seen)
+		}
+		seen[ls.Color] = true
+		if i == 0 {
+			first = ls
+		}
+		if got, err := st.LeadSession(ctx, "web", ls.ID); err != nil || got.Color != ls.Color {
+			t.Errorf("LeadSession(%s) = %+v, %v; want its colour kept", ls.ID, got, err)
+		}
+	}
+	if err := st.CloseLeadSession(ctx, "web", first.ID, now); err != nil {
+		t.Fatal(err)
+	}
+	if ls, err := st.AddLeadSession(ctx, "web", "Ninth", now); err != nil || ls.Color != first.Color {
+		t.Errorf("with %s closed, a new session = %+v, %v; want its colour, the only one free", first.ID, ls, err)
+	}
+	if ls, err := st.AddLeadSession(ctx, "web", "Tenth", now); err != nil || !slices.Contains(state.SessionColors, ls.Color) {
+		t.Errorf("with every colour taken, a new session = %+v, %v; want one of them anyway", ls, err)
+	}
+	if err := st.AddLeadSessionID(ctx, "other", state.MigratedSession, "Chat", now); err != nil {
+		t.Fatal(err)
+	}
+	if ls, err := st.LeadSession(ctx, "other", state.MigratedSession); err != nil || ls.Color == "" {
+		t.Errorf("a session opened by id = %+v, %v; want a colour", ls, err)
 	}
 }

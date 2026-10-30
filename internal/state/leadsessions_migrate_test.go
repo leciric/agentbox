@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -145,5 +146,52 @@ func TestSessionIDsMigrationKeepsDeletedSessionsIDs(t *testing.T) {
 	open, err := st.LeadSessions(ctx, "web")
 	if err != nil || len(open) != 3 || open[0].Closed() {
 		t.Errorf("web's sessions = %+v, %v; want all three open", open, err)
+	}
+}
+
+// Sessions from before colours get them in the order each project opened
+// them, so a chat's sessions start out different.
+func TestSessionColoursMigrationColoursEachSession(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "state.db")
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	before := migrationIndex(t, "ADD COLUMN color")
+	for i, m := range migrations[:before] {
+		if _, err := db.ExecContext(ctx, m); err != nil {
+			t.Fatalf("migration %d: %v", i+1, err)
+		}
+	}
+	var values []string
+	for i := range 9 {
+		values = append(values, fmt.Sprintf("('web', 's%d', 'S', %d)", i, 100-i))
+	}
+	for _, q := range []string{
+		`INSERT INTO lead_sessions (project, id, topic, created_at) VALUES ` + strings.Join(values, ", ") + `, ('api', 'main', 'Chat', 5)`,
+		fmt.Sprintf("PRAGMA user_version = %d", before),
+	} {
+		if _, err := db.ExecContext(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	st, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	web, err := st.LeadSessions(ctx, "web")
+	if err != nil || len(web) != 9 {
+		t.Fatalf("web's sessions = %+v, %v", web, err)
+	}
+	for i, ls := range web {
+		if want := SessionColors[i%len(SessionColors)]; ls.Color != want {
+			t.Errorf("web's session %d (%s) = %q, want %q", i, ls.ID, ls.Color, want)
+		}
+	}
+	if api, err := st.LeadSession(ctx, "api", "main"); err != nil || api.Color != SessionColors[0] {
+		t.Errorf("api's session = %+v, %v; want the first colour", api, err)
 	}
 }

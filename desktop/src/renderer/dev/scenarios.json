@@ -2773,7 +2773,7 @@
   },
   {
     "id": "sessions-v2-dark",
-    "description": "UI v2 on a project's chat with two sessions: the tabs above it, an unread dot on the project row for the one not shown, and the session chip on its agent — dark",
+    "description": "UI v2 on a project's chat with two sessions: the tabs above it, an unread dot on the project row for the one not shown, and its agents tinted with its colour — dark",
     "query": "app=project&v2=1&theme=dark",
     "width": 1440,
     "height": 900
@@ -2784,6 +2784,34 @@
     "query": "app=project&v2=1&theme=light",
     "width": 480,
     "height": 800
+  },
+  {
+    "id": "session-colours-v2-dark",
+    "description": "A project's chat with three sessions, each in its colour: a dot on its tab, and its agents' cards in the rail tinted with it, status still the loudest thing on them — dark",
+    "query": "app=project&v2=1&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "session-colours-v2-light",
+    "description": "The same — light",
+    "query": "app=project&v2=1&theme=light",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "session-colours-dark",
+    "description": "The same in the classic rail (AgentRail) — dark",
+    "query": "app=project&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "session-colours-light",
+    "description": "The same in the classic rail — light",
+    "query": "app=project&theme=light",
+    "width": 1440,
+    "height": 900
   },
   {
     "id": "composer-target-v2-dark",

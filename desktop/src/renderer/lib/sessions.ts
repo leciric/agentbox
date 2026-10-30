@@ -111,6 +111,13 @@ export function afterClose(sessions: readonly T.LeadSession[], id: string): T.Le
   return rest[Math.min(Math.max(i, 0), rest.length - 1)];
 }
 
+// sessionColor is the colour a chat of sessions shows for s (LeadSession.Color,
+// styles.css' [data-session-color]): none while the chat has one session, for
+// a session from before colours, or for no session.
+export function sessionColor(sessions: readonly T.LeadSession[], s: T.LeadSession | undefined): string | undefined {
+  return sessions.length >= 2 && s?.color ? s.color : undefined;
+}
+
 // isUnread says a session has a message newer than when it was last seen.
 // One never seen counts from when it was opened, so a new session isn't
 // unread for being new.

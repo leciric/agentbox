@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand/v2"
+	"slices"
 	"strings"
 	"time"
 
@@ -51,7 +53,10 @@ type LeadSession struct {
 	// Untitled says the session still has the topic it was opened with,
 	// UntitledTopic, for want of one: its conversation names it (NameLeadSession)
 	// unless the user does first (RenameLeadSession).
-	Untitled  bool
+	Untitled bool
+	// Color is the session's pastel, one of SessionColors, which the app tints
+	// its tab and its agents with.
+	Color     string
 	CreatedAt time.Time
 	// ClosedAt is when the session was closed, into the chat's history; zero
 	// while it is open.
@@ -60,6 +65,41 @@ type LeadSession struct {
 
 // Closed reports whether the session is in the chat's history.
 func (ls LeadSession) Closed() bool { return !ls.ClosedAt.IsZero() }
+
+// SessionColors are the colours a session can have, by name: the app holds
+// what each looks like in its light and dark themes. Appending is safe;
+// renaming or removing one leaves the sessions that have it uncoloured.
+var SessionColors = []string{"rose", "peach", "lemon", "mint", "teal", "sky", "periwinkle", "lilac"}
+
+// pickSessionColor is a colour none of the open sessions has, at random, or
+// any at random once they all do.
+func pickSessionColor(taken []string) string {
+	free := slices.DeleteFunc(slices.Clone(SessionColors), func(c string) bool { return slices.Contains(taken, c) })
+	if len(free) == 0 {
+		free = SessionColors
+	}
+	return free[rand.IntN(len(free))]
+}
+
+// openSessionColors is the colours of a project's open sessions.
+func openSessionColors(ctx context.Context, q interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}, project string) ([]string, error) {
+	rows, err := q.QueryContext(ctx, `SELECT color FROM lead_sessions WHERE project = ? AND closed_at = 0`, project)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []string
+	for rows.Next() {
+		var c string
+		if err := rows.Scan(&c); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
 
 // UntitledTopic is the topic of a session opened with none, until it is named.
 const UntitledTopic = "New session"
@@ -150,25 +190,26 @@ func (s *Store) addLeadSession(ctx context.Context, project, topic, base string,
 		if n > 1 {
 			id = fmt.Sprintf("%s-%d", base, n)
 		}
-		ok, err := s.claimLeadSessionID(ctx, project, id, topic, untitled, at)
+		color, ok, err := s.claimLeadSessionID(ctx, project, id, topic, untitled, at)
 		if err != nil {
 			return LeadSession{}, err
 		}
 		if !ok {
 			continue
 		}
-		return LeadSession{Project: project, ID: id, Topic: topic, Untitled: untitled, CreatedAt: time.UnixMilli(at.UnixMilli())}, nil
+		return LeadSession{Project: project, ID: id, Topic: topic, Untitled: untitled, Color: color, CreatedAt: time.UnixMilli(at.UnixMilli())}, nil
 	}
 	return LeadSession{}, fmt.Errorf("session %q: %w", base, ErrExists)
 }
 
 // claimLeadSessionID opens a session with id, unless any session of the
 // project ever had it, or a lead or conversation is still kept under its name
-// (a lead row left by a session deleted while its chat was being made).
-func (s *Store) claimLeadSessionID(ctx context.Context, project, id, topic string, untitled bool, at time.Time) (bool, error) {
+// (a lead row left by a session deleted while its chat was being made). It
+// returns the colour the session got.
+func (s *Store) claimLeadSessionID(ctx context.Context, project, id, topic string, untitled bool, at time.Time) (string, bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return false, err
+		return "", false, err
 	}
 	defer func() { _ = tx.Rollback() }()
 	var used int
@@ -177,26 +218,31 @@ func (s *Store) claimLeadSessionID(ctx context.Context, project, id, topic strin
 			+ (SELECT count(*) FROM agents WHERE project = ? AND name = ?)
 			+ (SELECT count(*) FROM chat_items WHERE project = ? AND agent = ?)`,
 		project, id, project, LeadSessionName(id), project, LeadSessionName(id)).Scan(&used); err != nil {
-		return false, err
+		return "", false, err
 	}
 	if used > 0 {
-		return false, nil
+		return "", false, nil
 	}
+	taken, err := openSessionColors(ctx, tx, project)
+	if err != nil {
+		return "", false, err
+	}
+	color := pickSessionColor(taken)
 	for _, q := range []struct {
 		sql  string
 		args []any
 	}{
 		{`INSERT INTO lead_session_ids (project, id) VALUES (?, ?)`, []any{project, id}},
-		{`INSERT INTO lead_sessions (project, id, topic, created_at, untitled) VALUES (?, ?, ?, ?, ?)`, []any{project, id, topic, at.UnixMilli(), untitled}},
+		{`INSERT INTO lead_sessions (project, id, topic, created_at, untitled, color) VALUES (?, ?, ?, ?, ?, ?)`, []any{project, id, topic, at.UnixMilli(), untitled, color}},
 	} {
 		if _, err := tx.ExecContext(ctx, q.sql, q.args...); err != nil {
 			if strings.Contains(err.Error(), "UNIQUE constraint failed") {
-				return false, nil
+				return "", false, nil
 			}
-			return false, err
+			return "", false, err
 		}
 	}
-	return true, tx.Commit()
+	return color, true, tx.Commit()
 }
 
 // AddLeadSessionID opens a session with an id of the caller's: the migrated
@@ -206,8 +252,12 @@ func (s *Store) AddLeadSessionID(ctx context.Context, project, id, topic string,
 	if err != nil {
 		return err
 	}
+	taken, err := openSessionColors(ctx, s.db, project)
+	if err != nil {
+		return err
+	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO lead_sessions (project, id, topic, created_at) VALUES (?, ?, ?, ?)`, project, id, topic, at.UnixMilli())
+		`INSERT INTO lead_sessions (project, id, topic, created_at, color) VALUES (?, ?, ?, ?, ?)`, project, id, topic, at.UnixMilli(), pickSessionColor(taken))
 	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
 		return fmt.Errorf("session %s of %s: %w", id, project, ErrExists)
 	}
@@ -219,7 +269,7 @@ func (s *Store) AddLeadSessionID(ctx context.Context, project, id, topic string,
 }
 
 // leadSessionColumns is what scanLeadSession reads.
-const leadSessionColumns = `project, id, topic, created_at, untitled, closed_at`
+const leadSessionColumns = `project, id, topic, created_at, untitled, closed_at, color`
 
 // LeadSessions lists a project's open sessions, oldest first.
 func (s *Store) LeadSessions(ctx context.Context, project string) ([]LeadSession, error) {
@@ -263,7 +313,7 @@ func (s *Store) LeadSession(ctx context.Context, project, id string) (LeadSessio
 func scanLeadSession(row interface{ Scan(...any) error }) (LeadSession, error) {
 	var ls LeadSession
 	var created, closed int64
-	if err := row.Scan(&ls.Project, &ls.ID, &ls.Topic, &created, &ls.Untitled, &closed); err != nil {
+	if err := row.Scan(&ls.Project, &ls.ID, &ls.Topic, &created, &ls.Untitled, &closed, &ls.Color); err != nil {
 		return LeadSession{}, err
 	}
 	ls.CreatedAt = time.UnixMilli(created)

@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { afterClose, byActivity, isUnread, isWorking, neighbour, openSession, pickSession, topicFrom, withSession } from './sessions.ts';
+import { afterClose, byActivity, isUnread, isWorking, neighbour, openSession, pickSession, sessionColor, topicFrom, withSession } from './sessions.ts';
 
 const session = (id: string, activeAt: string, over: Partial<T.LeadSession> = {}): T.LeadSession => ({
   project: 'web',
   id,
   ref: id === 'main' ? 'web/lead' : `web/lead.${id}`,
   topic: id,
+  color: '',
   chat: 'off',
   agents: 0,
   createdAt: '2026-10-01T00:00:00Z',
@@ -100,4 +101,14 @@ test('a session started from a message is named after its first line', () => {
   assert.equal(topicFrom('  Fix the checkout\nand then the cart'), 'Fix the checkout');
   assert.equal(topicFrom('Look into why the login page returns 500s for users without a session cookie'), 'Look into why the login page returns 500s for users without…');
   assert.equal(topicFrom('   '), undefined);
+});
+
+test('sessions show their colours only once the chat has more than one', () => {
+  const main = session('main', '2026-01-01T00:00:00Z', { color: 'lilac' });
+  const prod = session('prod', '2026-01-01T00:00:00Z', { color: 'peach' });
+  const old = session('old', '2026-01-01T00:00:00Z');
+  assert.equal(sessionColor([main], main), undefined);
+  assert.equal(sessionColor([main, prod], prod), 'peach');
+  assert.equal(sessionColor([main, prod, old], old), undefined, 'a session with no colour shows none');
+  assert.equal(sessionColor([main, prod], undefined), undefined, 'an agent no session owns stays neutral');
 });

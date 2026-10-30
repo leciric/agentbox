@@ -29,7 +29,7 @@ import { awaitsApproval, type AgentSt } from '../../lib/leadFirst';
 import { pastAgentsKey } from '../../lib/pastAgents';
 import { projectLabel } from '../../lib/projectName';
 import { useAgentCounts } from '../../lib/useAgentCounts';
-import { SessionChip } from '../chat/SessionChip';
+import { useAgentSession } from '../chat/sessionColor';
 import { cn, humanBytes, timeAgo } from '../../lib/utils';
 import { AgentContextMenu } from '../AgentContextMenu';
 import { RailEmpty, RailSkeleton, useRailAgents } from '../AgentRail';
@@ -260,7 +260,8 @@ function AgentLine({ agent, st, active, live, pr, fleet, at, report, question, u
   const context = session?.contextSize ? t('panel.list.contextTip', { percent: Math.round(((session.contextUsed ?? 0) / session.contextSize) * 100), size: humanTokens(session.contextSize).replace(/\.0(?=[KMB])/, '') }) : undefined;
   const changes = fleet?.changes && fleet.changes.files > 0 ? fleet.changes : undefined;
   const when = fleet?.lastActive ?? at;
-  const tip = [title, statusTip(agent), pr && `#${pr.number} ${pr.title}`, live && t('panel.list.desktopLive'), loadTip, model, context, changes && `+${changes.insertions} −${changes.deletions} · ${t('panel.list.files', { count: changes.files })}`, disk !== undefined && `${t('agent.rail.machineDisk')}: ${humanBytes(disk)}`].filter(Boolean).join('\n');
+  const owner = useAgentSession(agent);
+  const tip = [title, owner && t('sessions.owner', { topic: owner.session.topic }), statusTip(agent), pr && `#${pr.number} ${pr.title}`, live && t('panel.list.desktopLive'), loadTip, model, context, changes && `+${changes.insertions} −${changes.deletions} · ${t('panel.list.files', { count: changes.files })}`, disk !== undefined && `${t('agent.rail.machineDisk')}: ${humanBytes(disk)}`].filter(Boolean).join('\n');
   const screen = monitorScreen(st, { live, running: agent.state === 'running' });
   const pace = typingPace((thread.data?.items ?? []).filter((it) => it.tool).map((it) => it.createdAt));
   const monitor = (
@@ -278,7 +279,8 @@ function AgentLine({ agent, st, active, live, pr, fleet, at, report, question, u
           onOpen({ kind: 'agent', ref: agent.ref });
         }}
         aria-current={active ? 'true' : undefined}
-        className={cn('group flex w-full min-w-0 items-start gap-2.5 rounded-lg px-2 py-1.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400', active ? 'bg-surface-raised' : 'hover:bg-surface')}
+        className={cn('group flex w-full min-w-0 items-start gap-2.5 rounded-lg px-2 py-1.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400', active ? 'bg-surface-raised' : 'hover:bg-surface', owner && 'session-tint')}
+        data-session-color={owner?.color}
         data-list-agent={agent.ref}
         data-list-st={st}
         data-list-live={live || undefined}
@@ -287,7 +289,6 @@ function AgentLine({ agent, st, active, live, pr, fleet, at, report, question, u
         <span className="flex min-w-0 flex-1 flex-col self-stretch" title={tip}>
           <span className="flex min-w-0 items-center gap-1.5 leading-[18px]">
             <span className={cn('min-w-0 flex-1 truncate text-[13px] font-medium', active ? 'text-title' : st === 'done' ? 'text-subtle' : 'text-primary', !agent.title && 'font-mono text-[12px]')}>{title}</span>
-            <SessionChip agent={agent} />
             <FrozenBadge agent={agent} />
             {number && (
               <span className="shrink-0 text-[12px] tabular-nums text-faint" data-list-number>

@@ -523,6 +523,10 @@ type LeadSession struct {
 	// and is named from its conversation once its lead's first turn ends,
 	// unless renamed first. The app shows its own word for it meanwhile.
 	Untitled bool `json:"untitled,omitempty"`
+	// Color is its pastel's name (rose, peach, lemon, mint, teal, sky,
+	// periwinkle, lilac), which the app tints its tab and its agents with
+	// while the chat has more than one session; "" for none.
+	Color string `json:"color"`
 	// Chat is its conversation's state, as in ProjectChat.Chat.
 	Chat string `json:"chat"`
 	// Agents is how many of the project's agents are this session's.
