@@ -79,9 +79,17 @@ func eventTopic(text string) string {
 }
 
 // sessionLead is the lead of one of a project's sessions, made when it has
-// never been written to, its socket served.
+// never been written to, its socket served. A Home session's is readied
+// (agent.EnsureHomeSession), which makes no row.
 func (s *Server) sessionLead(ctx context.Context, project, session string) (state.Agent, error) {
-	a, err := s.manager(s.cfg.Log).EnsureLeadSession(ctx, project, session)
+	m := s.manager(s.cfg.Log)
+	ensure := m.EnsureLeadSession
+	if project == state.HomeProject {
+		ensure = func(ctx context.Context, _, session string) (state.Agent, error) {
+			return m.EnsureHomeSession(ctx, session)
+		}
+	}
+	a, err := ensure(ctx, project, session)
 	if err != nil {
 		return state.Agent{}, err
 	}
@@ -246,10 +254,20 @@ func (s *Server) apiSessions(ctx context.Context, project string) ([]api.LeadSes
 	return out, nil
 }
 
+// chatProject checks that project names a chat with sessions: a project's,
+// or the Home chat's, state.HomeProject, which has no projects row.
+func (s *Server) chatProject(ctx context.Context, project string) error {
+	if project == state.HomeProject {
+		return nil
+	}
+	_, err := s.store.Project(ctx, project)
+	return err
+}
+
 // listSessions answers GET /v1/projects/{project}/sessions.
 func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) error {
 	project := r.PathValue("project")
-	if _, err := s.store.Project(r.Context(), project); err != nil {
+	if err := s.chatProject(r.Context(), project); err != nil {
 		return err
 	}
 	out, err := s.apiSessions(r.Context(), project)
@@ -263,7 +281,7 @@ func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) error {
 // topic, which makes nothing until it is first written to.
 func (s *Server) newSession(w http.ResponseWriter, r *http.Request) error {
 	project := r.PathValue("project")
-	if _, err := s.store.Project(r.Context(), project); err != nil {
+	if err := s.chatProject(r.Context(), project); err != nil {
 		return err
 	}
 	var req api.NewLeadSessionRequest

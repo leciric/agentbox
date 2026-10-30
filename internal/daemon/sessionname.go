@@ -41,7 +41,7 @@ const sessionOpeningMax = 3000
 // nameSession names a's session, a lead's whose turn has just ended, when it
 // is untitled and has been written to. One naming at a time per session.
 func (s *Server) nameSession(ctx context.Context, a state.Agent) {
-	if !a.IsLead() || a.IsHome() {
+	if !a.IsLead() {
 		return
 	}
 	id := a.Session()

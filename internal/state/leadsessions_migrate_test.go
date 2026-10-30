@@ -19,7 +19,7 @@ func TestLeadSessionsMigrationKeepsEachChat(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	before := len(migrations) - 3
+	before := len(migrations) - 4
 	for i, m := range migrations[:before] {
 		if _, err := db.ExecContext(ctx, m); err != nil {
 			t.Fatalf("migration %d: %v", i+1, err)
@@ -56,5 +56,47 @@ func TestLeadSessionsMigrationKeepsEachChat(t *testing.T) {
 	a, err := st.Agent(ctx, "web", "agent-01")
 	if err != nil || a.Session() != "" {
 		t.Errorf("web's agent = %+v, %v; want it nobody's", a, err)
+	}
+}
+
+// The Home chat gets "main" too: its chat, titled, when it has a
+// conversation, and an untitled one to write in when it has none.
+func TestHomeSessionMigration(t *testing.T) {
+	ctx := context.Background()
+	for name, used := range map[string]bool{"chatted": true, "new": false} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "state.db")
+			db, err := sql.Open("sqlite", "file:"+path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = db.Close() }()
+			before := len(migrations) - 1
+			for i, m := range migrations[:before] {
+				if _, err := db.ExecContext(ctx, m); err != nil {
+					t.Fatalf("migration %d: %v", i+1, err)
+				}
+			}
+			if used {
+				if _, err := db.ExecContext(ctx, `INSERT INTO chat_items (project, agent, id, position, data) VALUES ('_home', 'lead', 'u1', 0, '{}')`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := db.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", before)); err != nil {
+				t.Fatal(err)
+			}
+			st, err := Open(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = st.Close() }()
+			home, err := st.LeadSessions(ctx, HomeProject)
+			if err != nil || len(home) != 1 || home[0].ID != MigratedSession || home[0].Untitled == used {
+				t.Fatalf("Home's sessions = %+v, %v; want main, untitled only when it had no conversation", home, err)
+			}
+			if want := map[bool]string{true: "Chat", false: UntitledTopic}[used]; home[0].Topic != want {
+				t.Errorf("Home's session is %q, want %q", home[0].Topic, want)
+			}
+		})
 	}
 }

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MessagesSquare, Plus } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import * as T from '../../shared/api';
 import { api, sessionOfRef } from '../lib/api';
@@ -46,30 +46,30 @@ export function leadAgentFrom(project: T.Project, info: T.ProjectChat, topic?: s
   };
 }
 
-// useLeadSessions is a project's chat sessions, kept current by its events
-// (lib/events.ts).
+// useLeadSessions is a project's chat sessions, or the Home chat's
+// (T.HomeProject), kept current by their events (lib/events.ts).
 export function useLeadSessions(project: string) {
   return useQuery({ queryKey: ['leadSessions', project], queryFn: () => api.leadSessions(project) });
 }
 
-// useCurrentSession is the session a project's chat shows, the one its tabs
-// have chosen; undefined while they load, or with none.
+// useCurrentSession is the session a project's chat, or the Home chat, shows,
+// the one its tabs have chosen; undefined while they load, or with none.
 export function useCurrentSession(project: string | undefined): T.LeadSession | undefined {
   const sessions = useQuery({ queryKey: ['leadSessions', project], queryFn: () => api.leadSessions(project!), enabled: !!project });
   const chosen = useChosenSession(project ?? '');
   return project ? pickSession(sessions.data ?? [], chosen) : undefined;
 }
 
-// showSession shows a session of a project's chat, opened or moved to, to
-// write in: its composer takes the focus once it shows.
+// showSession shows a session of a chat, opened or moved to, to write in: its
+// composer takes the focus once it shows.
 function showSession(project: string, s: T.LeadSession) {
   chooseSession(project, s.id);
   requestSessionFocus(s.ref);
 }
 
 // The project's chat, driven by its leads: one per session, the one shown
-// picked in the tabs above it. ChatTab is shared with the agents' chats, so
-// the lead is handed to it as an agent.
+// picked in the tabs above it (SessionChatPanel). ChatTab is shared with the
+// agents' chats, so the lead is handed to it as an agent.
 //
 // The conversation is what you and the lead said to each other, and only that.
 // What the project's agents reported is a thread per agent in the rail beside
@@ -83,45 +83,67 @@ function showSession(project: string, s: T.LeadSession) {
 // and effort of the session shown, with its composer focused, and its first
 // turn names it (internal/daemon/sessionname.go).
 export function ProjectChatPanel({ project }: { project: T.Project }) {
+  const openAt = useChatOpenAt(project.name);
+  const v2 = useUiV2();
+  return (
+    <SessionChatPanel project={project.name}>
+      {(info, current) => (
+        // Above the composer: in v2, how many of its agents wait for review.
+        <ChatTab
+          key={info.ref}
+          agent={leadAgentFrom(project, info, current.topic)}
+          starting={false}
+          onStart={() => {}}
+          openAt={openAt}
+          aboveComposer={v2 && <ReviewCount project={project.name} variant="banner" />}
+        />
+      )}
+    </SessionChatPanel>
+  );
+}
+
+// SessionChatPanel is a chat in sessions, a project's or the Home chat's
+// (project T.HomeProject): the tabs above it, their keys, and the empty state
+// of a chat with none. children draws the session shown, once its chat has
+// answered.
+export function SessionChatPanel({ project, children }: { project: string; children: (info: T.ProjectChat, current: T.LeadSession) => ReactNode }) {
   const t = useT();
   const queryClient = useQueryClient();
-  const sessions = useLeadSessions(project.name);
-  const chosen = useChosenSession(project.name);
+  const sessions = useLeadSessions(project);
+  const chosen = useChosenSession(project);
   const list = sessions.data ?? [];
   const current = pickSession(list, chosen);
   const [confirming, setConfirming] = useState<string>();
   const chat = useQuery({
-    queryKey: ['projectChat', project.name, current?.id],
-    queryFn: () => api.projectChat(project.name, current!.id),
+    queryKey: ['projectChat', project, current?.id],
+    queryFn: () => api.projectChat(project, current!.id),
     enabled: !!current,
   });
   const info = chat.data;
-  const openAt = useChatOpenAt(project.name);
-  const v2 = useUiV2();
 
-  const refresh = () => void queryClient.invalidateQueries({ queryKey: ['leadSessions', project.name] });
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: ['leadSessions', project] });
   const add = useMutation({
-    mutationFn: (from: string | undefined) => api.newLeadSession(project.name, { from }),
+    mutationFn: (from: string | undefined) => api.newLeadSession(project, { from }),
     onSuccess: (s) => {
       // The session opens on what its creation answered, rather than after
       // the sessions and then its chat are read again: until then the tabs
       // showed another session, and the composer wasn't there. Its AI tool
       // starts now, not once the chat has mounted and read its thread, and
       // what you send before it is ready waits for it (chat.Manager).
-      queryClient.setQueryData<T.LeadSession[]>(['leadSessions', project.name], (list) => withSession(list ?? [], s));
-      queryClient.setQueryData<T.ProjectChat>(['projectChat', project.name, s.id], (had) => had ?? { project: project.name, session: s.id, ref: s.ref, started: false, chat: s.chat });
-      showSession(project.name, s);
+      queryClient.setQueryData<T.LeadSession[]>(['leadSessions', project], (list) => withSession(list ?? [], s));
+      queryClient.setQueryData<T.ProjectChat>(['projectChat', project, s.id], (had) => had ?? { project: project, session: s.id, ref: s.ref, started: false, chat: s.chat });
+      showSession(project, s);
       void api.startChat(s.ref).catch(() => {}); // ChatTab starts it again, and says why it can't
       refresh();
     },
     onError: (err) => toast.error(errorMessage(err)),
   });
   const remove = useMutation({
-    mutationFn: (id: string) => api.deleteLeadSession(project.name, id),
+    mutationFn: (id: string) => api.deleteLeadSession(project, id),
     onMutate: (id) => {
       setConfirming(undefined);
       const next = afterDelete(list, id);
-      if (next && id === current?.id) chooseSession(project.name, next.id);
+      if (next && id === current?.id) chooseSession(project, next.id);
     },
     onSuccess: () => {
       refresh();
@@ -130,7 +152,7 @@ export function ProjectChatPanel({ project }: { project: T.Project }) {
     onError: (err) => toast.error(errorMessage(err)),
   });
   const rename = useMutation({
-    mutationFn: ({ id, topic }: { id: string; topic: string }) => api.renameLeadSession(project.name, id, topic),
+    mutationFn: ({ id, topic }: { id: string; topic: string }) => api.renameLeadSession(project, id, topic),
     onSuccess: refresh,
     onError: (err) => toast.error(errorMessage(err)),
   });
@@ -139,8 +161,8 @@ export function ProjectChatPanel({ project }: { project: T.Project }) {
   const shownId = current?.id;
   const shownLast = current?.last?.at;
   useEffect(() => {
-    if (shownId) markSessionSeen(project.name, shownId);
-  }, [project.name, shownId, shownLast]);
+    if (shownId) markSessionSeen(project, shownId);
+  }, [project, shownId, shownLast]);
 
   // The sessions' keys (lib/shortcuts.ts), while this chat is on screen.
   const keys = useRef({ list, current, open: add.mutate });
@@ -163,13 +185,13 @@ export function ProjectChatPanel({ project }: { project: T.Project }) {
         case 'next':
         case 'previous': {
           const to = neighbour(list, current?.id, command === 'next' ? 1 : -1);
-          if (to) showSession(project.name, to);
+          if (to) showSession(project, to);
         }
       }
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [project.name]);
+  }, [project]);
 
   if (!sessions.data) {
     return <div className="flex h-full items-center justify-center text-sm text-subtle">{sessions.error ? t('chat.unavailable') : t('common.loading')}</div>;
@@ -184,7 +206,7 @@ export function ProjectChatPanel({ project }: { project: T.Project }) {
       onChoose={(id) => {
         setConfirming(undefined);
         const s = list.find((x) => x.id === id);
-        if (s) showSession(project.name, s);
+        if (s) showSession(project, s);
       }}
       onAdd={() => add.mutate(current?.id)}
       onConfirm={setConfirming}
@@ -220,15 +242,7 @@ export function ProjectChatPanel({ project }: { project: T.Project }) {
       {tabs}
       <div className="relative flex min-h-0 flex-1 flex-col">
         {ready ? (
-          // Above the composer: in v2, how many of its agents wait for review.
-          <ChatTab
-            key={info.ref}
-            agent={leadAgentFrom(project, info, current.topic)}
-            starting={false}
-            onStart={() => {}}
-            openAt={openAt}
-            aboveComposer={v2 && <ReviewCount project={project.name} variant="banner" />}
-          />
+          children(info, current)
         ) : (
           <div className="flex h-full items-center justify-center text-sm text-subtle">{chat.error ? t('chat.unavailable') : t('common.loading')}</div>
         )}

@@ -42,7 +42,7 @@ func (s *Server) sessionSocketPath(project, session string) string {
 	return filepath.Join(s.cfg.Paths.Data, "run", "leads", hex.EncodeToString(sum[:6])+".sock")
 }
 
-// leadSocketPath is the migrated session's socket, and the Home chat's.
+// leadSocketPath is the migrated session's socket.
 func (s *Server) leadSocketPath(project string) string {
 	return s.sessionSocketPath(project, state.MigratedSession)
 }
@@ -52,12 +52,9 @@ func leadAPIKey(project, session string) string {
 	return project + "\x00" + session
 }
 
-// serveLeadAPI starts the sockets a project's chat reaches AgentBox through:
-// each session's, or the Home chat's one.
+// serveLeadAPI starts the sockets a project's chat, or the Home chat, reaches
+// AgentBox through: each session's.
 func (s *Server) serveLeadAPI(project string) error {
-	if project == state.HomeProject {
-		return s.serveSessionAPI(project, state.MigratedSession)
-	}
 	sessions, err := s.store.LeadSessions(context.Background(), project)
 	if err != nil {
 		return err

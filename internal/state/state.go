@@ -1446,6 +1446,13 @@ var migrations = []string{
 	// its conversation after its lead's first turn, unless the user names it
 	// first: untitled is 1 until one of them does.
 	`ALTER TABLE lead_sessions ADD COLUMN untitled INTEGER NOT NULL DEFAULT 0`,
+	// The Home chat has sessions too, kept under HomeProject. It gets "main",
+	// its chat as it was: "Chat" when it has a conversation, and untitled, to
+	// be named by its first turn, when it has none, so a new installation's
+	// Home opens on a session to write in.
+	`INSERT INTO lead_sessions (project, id, topic, created_at, untitled)
+		SELECT '_home', 'main', CASE WHEN used THEN 'Chat' ELSE 'New session' END, CAST(strftime('%s', 'now') AS INTEGER) * 1000, NOT used
+		FROM (SELECT EXISTS (SELECT 1 FROM chat_items WHERE project = '_home' AND agent = 'lead') AS used)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

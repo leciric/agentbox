@@ -31,6 +31,9 @@ export function ChatScreen() {
   const parts = (Array.isArray(params.ref) ? params.ref : [params.ref]).filter(Boolean).map(decodeURIComponent);
   const project = parts[0];
   const lead = isLead(parts.join('/'));
+  // The Home chat (T.HomeProject) is a lead's chat in sessions too, of no
+  // project.
+  const home = project === T.HomeProject;
   const agentRef = lead ? undefined : `${parts[0]}/${parts[1]}`;
   const session = useSession();
   const queryClient = useQueryClient();
@@ -57,12 +60,12 @@ export function ChatScreen() {
   const agent = agents.data?.find((a) => a.ref === agentRef);
   const ref = lead ? (info.data?.started ? info.data.ref : undefined) : agent && agent.state !== 'initializing' ? agent.ref : undefined;
   const thread = useThread(ref);
-  const questions = useQuery({ queryKey: ['questions', project], queryFn: () => api.questions(project) });
+  const questions = useQuery({ queryKey: ['questions', project], queryFn: () => api.questions(project), enabled: !home });
   const waiting = (questions.data ?? []).filter((q) => isWaiting(q) && (lead || q.ref === agentRef));
 
   const p = projects.data?.find((x) => x.name === project);
-  const title = lead ? shown?.topic || t('web.phone.projectChat') : agent?.title || parts[1];
-  const subtitle = lead ? p?.displayName || project : agent?.title ? agent.name : undefined;
+  const title = lead ? shown?.topic || t(home ? 'chat.home.title' : 'web.phone.projectChat') : agent?.title || parts[1];
+  const subtitle = home ? t('chat.home.title') : lead ? p?.displayName || project : agent?.title ? agent.name : undefined;
   const status = lead ? (info.data ? leadStatus(info.data.chat, thread.data) : undefined) : agent ? agentStatus(agent, thread.data) : undefined;
   const live = thread.data ? liveStatus(thread.data) : undefined;
   const asleep = agent && (agent.state === 'stopped' || agent.state === 'paused') ? agent.state : undefined;
@@ -78,7 +81,7 @@ export function ChatScreen() {
   };
   const chatRef = lead ? (shown ? sessionRef(project, shown.id) : `${project}/${T.LeadName}`) : agentRef!;
 
-  const missing = lead ? projects.data && !p : agents.data && !agent;
+  const missing = home ? false : lead ? projects.data && !p : agents.data && !agent;
   return (
     <View style={styles.root}>
       <ScreenHeader

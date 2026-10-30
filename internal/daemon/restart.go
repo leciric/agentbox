@@ -85,7 +85,7 @@ func (s *Server) continueLead(ctx context.Context, rt state.RunningTurn) {
 	var a state.Agent
 	var err error
 	if rt.Kind == state.TurnOfHome {
-		a, err = m.EnsureHome(ctx)
+		a, err = m.EnsureHomeSession(ctx, sessionOfName(rt.Agent))
 	} else if a, err = m.LeadSession(ctx, rt.Project, sessionOfName(rt.Agent)); err == nil {
 		// What a turn's start does (ensureLeadFromPath): the lead reads its
 		// branch as it is now.
@@ -189,7 +189,7 @@ func (s *Server) notResumed(ctx context.Context, rt state.RunningTurn, why strin
 	var err error
 	switch rt.Kind {
 	case state.TurnOfHome:
-		a = s.manager(nil).Home()
+		a = s.manager(nil).HomeSession(sessionOfName(rt.Agent))
 	default:
 		a, err = s.store.Agent(ctx, rt.Project, rt.Agent)
 	}
