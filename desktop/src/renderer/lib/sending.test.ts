@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type * as T from '../../shared/api';
 import { timelineRows } from './chat.ts';
-import { editSending, failed, findSending, retrySending, sendMessage, settleSending, unsentEvent, withSending, type Sending } from './sending.ts';
+import { editSending, failed, findSending, retrySending, sendingImageUrl, sendMessage, settleSending, unsentEvent, withSending, type Sending } from './sending.ts';
 
 const at = '2026-10-28T10:00:00Z';
 const item = (over: Partial<T.ChatItem>): T.ChatItem => ({ id: 'i', turn: 'i', kind: 'user', createdAt: at, updatedAt: at, ...over });
@@ -60,6 +60,29 @@ test('a message sent while a turn runs joins it, as an aside', () => {
       ['aside', true],
     ],
   );
+});
+
+test('a message on its way shows its pictures from what was attached, until the chat has them', async () => {
+  const picture = { key: 'img-1', name: 'image.png', mimeType: 'image/png', size: 3, data: 'iVBO' };
+  const file = { key: 'file-1', name: 'notes.txt', mimeType: 'text/plain', size: 3, data: 'AAAA', file: true as const };
+  const reply = later();
+  const sent = sendMessage('p/pictures', { text: 'look', attachments: [picture, file] }, () => reply.promise);
+  const mine = () => Array.from({ length: 1000 }, (_, i) => findSending(`sending-${i}`)).find((s) => s?.ref === 'p/pictures');
+  const standIn = withSending(thread([]), [mine()!]).items[0];
+  assert.equal(standIn.images?.length, 1, 'the picture, not the file');
+  assert.deepEqual([standIn.images?.[0].name, standIn.images?.[0].mimeType], ['image.png', 'image/png']);
+  const id = standIn.images![0].id;
+  assert.equal(sendingImageUrl(id), 'data:image/png;base64,iVBO');
+  // One the daemon keeps is loaded from the daemon.
+  assert.equal(sendingImageUrl('0123456789abcdef'), undefined);
+  reply.resolve(item({ id: 'u9', turn: 'u9', text: 'look' }));
+  await sent;
+  assert.equal(withSending(thread([]), [mine()!]).items[0].images?.[0].id, id);
+  assert.equal(sendingImageUrl(id), 'data:image/png;base64,iVBO');
+  // Once the chat holds the daemon's copy the stand-in goes, and its pictures with it.
+  settleSending('p/pictures', thread([item({ id: 'u9', turn: 'u9', text: 'look' })]));
+  assert.equal(mine(), undefined);
+  assert.equal(sendingImageUrl(id), undefined);
 });
 
 test("the daemon's copy replaces the stand-in, by id or, before it answered, by text after the last item", () => {
