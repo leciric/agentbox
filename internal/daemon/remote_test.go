@@ -80,3 +80,56 @@ func TestRemoteThroughAHub(t *testing.T) {
 		t.Errorf("remote.json after disconnecting: %v", err)
 	}
 }
+
+// TestRemotePairing connects this machine to a hub with no token: the daemon
+// asks the hub to approve it, and connects once a device does.
+func TestRemotePairing(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	h := hubtest.New(t)
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+
+	if _, err := d.client.PairRemote(ctx, api.RemotePairRequest{Hub: "not a url at all"}); err == nil {
+		t.Error("paired with something that isn't a hub's address")
+	}
+	st, err := d.client.PairRemote(ctx, api.RemotePairRequest{Hub: h.URL + "/hub/approve?code=x", Name: "vps"})
+	if err != nil || st.Configured || st.Pairing == nil || st.Pairing.Hub != h.URL || st.Pairing.Code == "" || st.Pairing.ApproveURL == "" {
+		t.Fatalf("PairRemote = %+v, %v", st, err)
+	}
+	// A device signed in to the hub approves it.
+	if !h.Approve(st.Pairing.Code) {
+		t.Fatalf("no pairing %s on the hub: %v", st.Pairing.Code, h.Pairings())
+	}
+	waitFor(t, "the approved machine to connect", func() bool {
+		st, err := d.client.RemoteStatus(ctx)
+		return err == nil && st.Connected && st.Pairing == nil && st.Hub == h.URL
+	})
+	hc := api.HubClient{URL: h.URL, Token: h.Token()}
+	envs, err := hc.Environments(ctx)
+	if err != nil || len(envs) != 1 || envs[0].Name != "vps" || !envs[0].Online {
+		t.Fatalf("environments = %+v, %v", envs, err)
+	}
+	// Through the hub, nobody can pair it with another one.
+	if _, err := hc.Environment(envs[0].ID).PairRemote(ctx, api.RemotePairRequest{Hub: "https://other.example"}); err == nil || !strings.Contains(err.Error(), "works only on the machine itself") {
+		t.Errorf("pairing with another hub, through the hub: %v", err)
+	}
+
+	// A denied pairing says so, and disconnecting forgets it.
+	st, err = d.client.PairRemote(ctx, api.RemotePairRequest{Hub: h.URL})
+	if err != nil || st.Pairing == nil {
+		t.Fatalf("PairRemote again = %+v, %v", st, err)
+	}
+	if _, err := hc.DenyPairing(ctx, st.Pairing.Code); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the denial", func() bool {
+		st, err := d.client.RemoteStatus(ctx)
+		return err == nil && st.Pairing != nil && strings.Contains(st.Pairing.Error, "denied")
+	})
+	if err := d.client.DisconnectRemote(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := d.client.RemoteStatus(ctx); st.Configured || st.Pairing != nil {
+		t.Errorf("after disconnecting: %+v", st)
+	}
+}

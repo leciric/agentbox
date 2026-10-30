@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Archive, Brain, Clapperboard, Wand2, Coins, Ellipsis, FileText, FolderGit2, FolderOpen, GitPullRequest, Image, KeyRound, MessagesSquare, Moon, NotebookPen, Plug, Plus, SlidersHorizontal, Smile, Trash } from 'lucide-react';
+import { Briefcase, Brain, Wand2, CircleDot, Coins, Ellipsis, FileText, FolderGit2, FolderOpen, GitPullRequest, Image, KeyRound, MessagesSquare, Moon, NotebookPen, Plug, Plus, SlidersHorizontal, Smile, Trash } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import * as T from '../../shared/api';
@@ -10,30 +10,30 @@ import { useProjectName } from '../lib/useProjectName';
 import { projectLabel } from '../lib/projectName';
 import { projectPlace, type ProjectPlaceName, type ProjectSection } from '../lib/tabs';
 import { countFeature, projectTabFeatures } from '../lib/usageStats';
-import { errorMessage, timeAgo } from '../lib/utils';
+import { cn, errorMessage, timeAgo } from '../lib/utils';
 import { ChatStatus, FilesOpen, useChatMenu } from './chat/ChatTab';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ConnectorsTab } from './ConnectorsTab';
-import { leadAgentFrom, ProjectChatPanel } from './ProjectChatPanel';
-import { PastAgents } from './PastAgents';
+import { leadAgentFrom, ProjectChatPanel, useCurrentSession } from './ProjectChatPanel';
+import { WorkList } from './WorkView';
 import { ProjectBasePanel } from './ProjectBasePanel';
 import { ProjectMediaPanel } from './ProjectMediaPanel';
 import { ScopedMediaPages } from './pages/MediaPages';
 import { ProjectMemoryPanel } from './ProjectMemoryPanel';
 import { ProjectSettings } from './ProjectSettings';
 import { PullRequestsPanel } from './PullRequestsPanel';
+import { IssuesPanel } from './IssuesPanel';
 import { SecretsTab } from './SecretsTab';
 import { SettingsSections, type SettingsSection } from './SettingsSections';
 import { SkillsPanel } from './SkillsPanel';
 import { TokensPanel } from './TokensPanel';
 import { Button } from './ui/button';
-import { Tip } from './ui/tooltip';
 import { Card, Row } from './ui/card';
 import { Textarea } from './ui/input';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from './ui/menu';
 import { useUiV2 } from '../lib/uiV2';
 import { ProjectIcon, ProjectIconDialog } from './ProjectIcon';
-import { InTopBar, ProjectMenu, ProjectPlaces } from './v2/ProjectHeader';
+import { InTopBar, ProjectMenu } from './v2/ProjectHeader';
 import { AgentMentionsProvider } from './pip/Mentions';
 import { PanelButton } from './v2/PanelButton';
 import { openPanelOn, setPanel } from '../lib/rightPanel';
@@ -83,7 +83,7 @@ function ProjectNotes({ project, className }: { project: string; className?: str
       <Textarea
         aria-label={t('project.notes.title')}
         data-project-notes
-        className="min-h-44 font-mono text-[12.5px]"
+        className="min-h-44 font-mono text-ui"
         spellCheck={false}
         value={text}
         placeholder={t('project.notes.placeholder')}
@@ -134,7 +134,7 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
   useEffect(() => {
     if (!v2 || !opensAt) return;
     const place = projectPlace(opensAt);
-    if (place.tab === 'pulls') openPanelOn(`${name}/${T.LeadName}`, 'pulls');
+    if (place.tab === 'pulls' || place.tab === 'issues') openPanelOn(`${name}/${T.LeadName}`, place.tab);
     else if (place.tab === 'settings') {
       setPanel({ section: place.section });
       openPanelOn(`${name}/${T.LeadName}`, 'settings');
@@ -142,13 +142,14 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
   }, [v2, opensAt, name]);
   const [iconOpen, setIconOpen] = useState(false);
   const { tab, section } = projectPlace(where);
-  // The past agent read in the Past agents tab, if one is.
-  const [past, setPast] = useState<string | null>(null);
   useEffect(() => countFeature(projectTabFeatures[tab === 'settings' ? section : tab]), [tab, section, name]);
-  const leadChat = useQuery({ queryKey: ['projectChat', name], queryFn: () => api.projectChat(name), enabled: tab === 'chat' });
+  // The session its chat shows (ProjectChatPanel's tabs): its status, files
+  // and ⋯ are that session's.
+  const session = useCurrentSession(tab === 'chat' ? name : undefined);
+  const leadChat = useQuery({ queryKey: ['projectChat', name, session?.id], queryFn: () => api.projectChat(name, session!.id), enabled: tab === 'chat' && !!session });
   const project = projects.data?.find((p) => p.name === name);
   // The lead's chat controls join the project's ⋯ while the chat is open.
-  const lead = project && tab === 'chat' && leadChat.data ? leadAgentFrom(project, leadChat.data) : undefined;
+  const lead = project && tab === 'chat' && leadChat.data && session ? leadAgentFrom(project, leadChat.data, session.topic) : undefined;
   const chatMenu = useChatMenu(lead);
   const mine = agents.data?.filter((a) => a.project === name) ?? [];
   const { retire, setFreeing, setRemoving, dialogs: projectDialogs } = useProjectActions(name, onSelect);
@@ -189,12 +190,6 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
           {chatMenu?.dialogs}
           {chatMenu?.untracked}
           <InTopBar end>
-            <ProjectPlaces project={name} leadRef={`${name}/${T.LeadName}`} />
-            <Tip label={t('today.open')}>
-              <Button size="icon-sm" variant="ghost" aria-label={t('today.open')} onClick={() => onSelect({ kind: 'today', project: name })} data-open-today>
-                <Clapperboard />
-              </Button>
-            </Tip>
             {lead && <ProjectMenu project={project} leadRef={lead.ref} onNewAgent={onNewAgent} onChangeIcon={() => setIconOpen(true)} newChat={chatMenu?.newChat} more={chatMenu?.reload} />}
             <PanelButton project={name} chat={`${name}/${T.LeadName}`} />
           </InTopBar>
@@ -208,8 +203,8 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
           {/* It gives way to the actions beside it, cutting a long root short,
               before they wrap under it. */}
           <div className="min-w-0 flex-1 basis-40">
-            <h1 className="truncate text-[15px] font-semibold tracking-tight text-title">{projectLabel(project)}</h1>
-            <p className="truncate font-mono text-[11px] text-subtle">{project.root}</p>
+            <h1 className="truncate text-heading font-semibold tracking-tight text-title">{projectLabel(project)}</h1>
+            <p className="truncate font-mono text-caption text-subtle">{project.root}</p>
           </div>
           <div className="ml-auto flex items-center gap-2">
             <Button onClick={onNewAgent}>
@@ -235,17 +230,23 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
                 <MessagesSquare />
                 {t('project.view.tab.chat')}
               </TabsTrigger>
-              <TabsTrigger value="pulls">
-                <GitPullRequest />
-                {t('project.view.tab.pulls')}
+              {project?.pullRequests && (
+                <TabsTrigger value="pulls">
+                  <GitPullRequest />
+                  {t('project.view.tab.pulls')}
+                </TabsTrigger>
+              )}
+              <TabsTrigger value="issues">
+                <CircleDot />
+                {t('project.view.tab.issues')}
               </TabsTrigger>
               <TabsTrigger value="media">
                 <Image />
                 {t('project.view.tab.media')}
               </TabsTrigger>
               <TabsTrigger value="past" data-project-tab="past">
-                <Archive />
-                {t('project.view.tab.past')}
+                <Briefcase />
+                {t('work.title')}
               </TabsTrigger>
               <TabsTrigger value="settings">
                 <SlidersHorizontal />
@@ -264,7 +265,7 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
       )}
 
       <TabsContent value="chat" className="flex flex-col">
-        <div className="relative mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line md:mx-6 md:mb-6">
+        <div className={cn('relative flex min-h-0 flex-1 flex-col overflow-hidden', !v2 && 'mx-2 mb-2 rounded-2xl border border-line md:mx-6 md:mb-6')}>
           {v2 ? (
             // UI v2's lead links its agents' names in the chat (components/pip);
             // the desktops they're using are in the right-hand panel's list.
@@ -279,7 +280,13 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
 
       <TabsContent value="pulls" className="overflow-y-auto">
         <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-7">
-          <PullRequestsPanel project={name} onSelect={onSelect} onOpenAccount={() => setWhere('general')} />
+          {project?.pullRequests && <PullRequestsPanel project={name} onSelect={onSelect} onOpenAccount={() => setWhere('general')} />}
+        </div>
+      </TabsContent>
+
+      <TabsContent value="issues" className="overflow-y-auto">
+        <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-7">
+          <IssuesPanel project={name} onSelect={onSelect} onOpenAccount={() => setWhere('general')} />
         </div>
       </TabsContent>
 
@@ -291,9 +298,10 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
         </div>
       </TabsContent>
 
-      <TabsContent value="past" className="flex flex-col">
-        <div className="min-h-0 flex-1">
-          <PastAgents project={name} open={past ?? undefined} onOpen={setPast} onSelect={onSelect} />
+      {/* The project's Work (WorkView), what was its Past agents tab. */}
+      <TabsContent value="past" className="overflow-y-auto">
+        <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-7">
+          <WorkList project={name} onSelect={onSelect} />
         </div>
       </TabsContent>
 
@@ -424,7 +432,7 @@ export function ProjectSettingsBody({ project, section, onSection, onSelect, onO
         <div className="mx-auto w-full max-w-3xl px-4 py-6 md:px-8 md:py-7">
           {v2 && (
             <Card className="mb-4" title={t('projectIcon.label')} icon={Smile} description={t('projectIcon.description')} action={<Button size="sm" onClick={() => setIconOpen(true)} data-project-settings-icon>{t('projectIcon.change')}</Button>}>
-              <ProjectIcon project={project} className="size-10 rounded-xl text-[16px]" />
+              <ProjectIcon project={project} className="size-10 rounded-xl text-heading" />
             </Card>
           )}
           <ProjectSettings project={project} />
@@ -446,7 +454,7 @@ export function ProjectSettingsBody({ project, section, onSection, onSelect, onO
             }
           >
             {showBrief && (
-              <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-xl border border-line-faint bg-sunken p-4 font-mono text-[12px] leading-relaxed text-tertiary">
+              <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-xl border border-line-faint bg-sunken p-4 font-mono text-caption leading-relaxed text-tertiary">
                 {brief.data ?? t('common.loading')}
               </pre>
             )}

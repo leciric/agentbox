@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -62,7 +63,10 @@ func (s *Server) agentInfo(st agent.Status) api.Agent {
 	if st.State == "initializing" || st.State == state.AgentQueued {
 		// Still being made: whatever its chat, outcome or memory says is
 		// noise from the machine coming up, not news. It reads as starting
-		// in every client until the create job is done.
+		// in every client until the create job is done, or as waiting for
+		// the memory to boot its machine.
+		info.Memory = s.machineHold(info.Ref)
+		info.WaitingForImage = s.waitingOnImage(info.Ref)
 		return info
 	}
 	info.Chat = s.chat.State(info.Ref)
@@ -75,6 +79,7 @@ func (s *Server) agentInfo(st agent.Status) api.Agent {
 	}
 	info.ChangesRequested = s.changesRequested(context.Background(), info.Project, info.Name, info.Chat)
 	info.Memory = s.memoryHold(info.Ref)
+	info.Reclaimed = s.reclaimedOf(info.Ref, info.State)
 	if p, ok := s.chat.Progress(info.Ref); ok {
 		info.StalledSince = p.Stalled
 	}
@@ -177,6 +182,16 @@ func (s *Server) sendChat(from agentFrom) func(http.ResponseWriter, *http.Reques
 		var req api.ChatMessageRequest
 		if err := readJSON(r, &req); err != nil {
 			return err
+		}
+		if req.To != "" {
+			if !a.IsLead() {
+				return errors.New("to is for a project's chat: write in the agent's own chat")
+			}
+			item, err := s.sendToAgent(r.Context(), a, req)
+			if err != nil {
+				return err
+			}
+			return writeJSON(w, http.StatusAccepted, item)
 		}
 		t, err := s.tellAgentMessage(r.Context(), a, req)
 		if err != nil {
@@ -331,7 +346,7 @@ func (s *Server) clearChat(from agentFrom) func(http.ResponseWriter, *http.Reque
 		}
 		// A new chat has no cache to lose.
 		if a.IsLead() {
-			s.settleLeadCache(a.Project, true)
+			s.settleLeadCache(a.Ref(), true)
 		}
 		w.WriteHeader(http.StatusNoContent)
 		return nil

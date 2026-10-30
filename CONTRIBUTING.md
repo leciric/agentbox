@@ -155,13 +155,11 @@ before and after in your pull request.
 
 ## The hub
 
-The hub, the server half behind remote environments, is a separate program in a **private**
-repository, [leciric/agentbox-hub](https://github.com/leciric/agentbox-hub). Everything that
-connects to a hub is here.
-
-The protocol between the two, [`hubapi/`](hubapi/), is shared: the hub keeps a byte-identical copy.
-Nothing checks the copies against each other, so a pull request that changes `hubapi/` needs a
-matching change in the hub, which a maintainer makes. `internal/` never imports anything from the hub.
+The hub, the server half behind remote environments, is a separate program in [`hub/`](hub/)
+(`npx agentbox-hub`), built and tested with the rest. The protocol between the two halves is
+[`hubapi/`](hubapi/): the hub imports it and nothing else of AgentBox, and `internal/` never
+imports anything from the hub. A change to `hubapi/` is checked against both sides by the same
+`go test`.
 
 ## Pull requests
 

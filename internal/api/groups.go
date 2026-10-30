@@ -23,6 +23,9 @@ type FanOutRequest struct {
 	// Judge asks the project's chat to compare the agents' work and
 	// recommend one once they have all finished.
 	Judge bool `json:"judge,omitempty"`
+	// LeadSession is the chat session that asked, set by the daemon (see
+	// CreateAgentRequest.LeadSession).
+	LeadSession string `json:"-"`
 }
 
 // FanOutVariant is what one agent of a group runs: CreateAgentRequest's
@@ -42,6 +45,9 @@ type FanOutVariant struct {
 type FanOutResult struct {
 	Group Group `json:"group"`
 	Jobs  []Job `json:"jobs"`
+	// Notices say which agents run Claude Code rather than the lead's tool,
+	// and why (Job.Notice).
+	Notices []string `json:"notices,omitempty"`
 }
 
 // Group is one task given to several agents.

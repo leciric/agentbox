@@ -18,9 +18,14 @@ import (
 // between steps; replayed, it is as long as the walkthrough itself.
 
 const (
-	// StepPause is the gap between two steps of a script: long enough to see
-	// what a step did before the next one starts, short enough not to drag.
-	StepPause = 300 * time.Millisecond
+	// StepPause is the gap between two steps of a script: long enough for a
+	// reviewer to see what a step did before the next one starts, short
+	// enough not to drag.
+	StepPause = 900 * time.Millisecond
+	// ChapterPause is held after a note, which starts a chapter, and after the
+	// last step: long enough to read the note and take in the result before
+	// the recording moves on.
+	ChapterPause = 1500 * time.Millisecond
 	// maxStepWait is the longest one wait step waits, for text or not. A
 	// script waits for a page to load or a dialog to open, not for a build.
 	maxStepWait = 30 * time.Second
@@ -234,7 +239,9 @@ func (s Script) Run(ctx context.Context, opts RunOptions) (int, error) {
 	}
 	r := runner{sc: sc, devtools: devtoolsOf(s.DevTools), note: opts.Note}
 	for i, st := range s.Steps {
-		if i > 0 && st.Do != "note" {
+		// A note already holds ChapterPause after itself, so the step it
+		// introduces starts without another gap.
+		if i > 0 && st.Do != "note" && s.Steps[i-1].Do != "note" {
 			select {
 			case <-time.After(opts.Pause):
 			case <-ctx.Done():
@@ -243,6 +250,13 @@ func (s Script) Run(ctx context.Context, opts RunOptions) (int, error) {
 		}
 		if err := r.do(ctx, st); err != nil {
 			return i, &StepError{Index: i + 1, Step: st, Err: err}
+		}
+		if st.Do == "note" || i == len(s.Steps)-1 {
+			select {
+			case <-time.After(ChapterPause):
+			case <-ctx.Done():
+				return i + 1, ctx.Err()
+			}
 		}
 	}
 	return len(s.Steps), nil

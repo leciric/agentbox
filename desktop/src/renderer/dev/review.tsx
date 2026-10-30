@@ -5,7 +5,8 @@
 // agent-41's pull request fails its checks, so it can't. Opening an agent
 // moves it to Reviewed, which the dev bridge remembers (reviewRequest), and
 // two agents are there already. ?review=many has forty more waiting, for the
-// list to load on scroll.
+// list to load on scroll. ?review=pairs gives agent-15 before/after pairs to
+// compare (pairs() below).
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { Suspense } from 'react';
 import type * as T from '../../shared/api';
@@ -66,6 +67,13 @@ function items(): T.ReviewItem[] {
       ai: 'codex',
       summary: 'Previews now go through the inline Markdown renderer, clamped to two lines. Not pushed yet: waiting on your look before opening a PR.',
       changes: { files: 1, insertions: 3, deletions: 2, dirty: true },
+    }),
+    // agent-18's pull request is merged: its finished card is hidden in the lead
+    // chat behind "1 merged hidden" (lib/finished.ts).
+    item('agent-18', 'Sidebar remembers its width', 'agentbox/sidebar-width', 40 * min, {
+      pr: { ...pr, number: 366, title: 'feat: the sidebar remembers its width', state: 'merged', headBranch: 'agentbox/sidebar-width' },
+      summary: 'Dragging the sidebar edge is kept across restarts.',
+      changes: { files: 3, insertions: 31, deletions: 2, dirty: false },
     }),
     item('agent-12', 'Add a "New project" button to the Sidebar', 'agentbox/new-project-button', 3 * min, {
       pr,
@@ -166,6 +174,78 @@ function crowded(): T.MediaItem[] {
   return items;
 }
 
+// pairs is ?review=pairs: agent-15's media as agent-635's was, a
+// counts-project-dark-1920-before and its -after with another screenshot
+// taken between them, plus a pair marked with --pair whose halves aren't the
+// same size, which can't be highlighted, and a recording pair, played one
+// after the other. The after moves a badge by a few pixels and changes its count,
+// the kind of change only a highlight shows.
+function pairs(): T.MediaItem[] {
+  const base = { agent: `${PROJECT}/agent-15`, agentName: 'agent-15', source: 'agent', size: 200_000, mime: 'image/png' };
+  const shot = (id: string, name: string, at: number, file: string, w: number, h: number, more: T.MediaMeta = {}): T.MediaItem => {
+    setMediaFile(id, file);
+    return { ...base, id, kind: 'screenshot', name, file: `${name}.png`, meta: { width: w, height: h, ...more }, createdAt: ago(at) };
+  };
+  const video = new URL('./concepts/media/settings.webm', import.meta.url).href;
+  const rec = (id: string, side: 'before' | 'after', at: number): T.MediaItem => {
+    setMediaFile(id, video);
+    return { ...base, id, kind: 'recording', name: `settings walkthrough (${side})`, mime: 'video/webm', meta: { duration: 17, pair: 'settings-walkthrough', side }, createdAt: ago(at) };
+  };
+  return [
+    shot('pr-counts-before', 'counts-project-dark-1920-before', 30 * min, countsScreen(false, 1920, 1080), 1920, 1080),
+    shot('pr-sidebar', 'sidebar-at-1024', 26 * min, new URL('./concepts/media/settings-2.webp', import.meta.url).href, 1280, 800),
+    rec('pr-walk-before', 'before', 24 * min),
+    shot('pr-menu-before', 'menu at 1280', 20 * min, countsScreen(false, 1280, 800), 1280, 800, { pair: 'menu', side: 'before' }),
+    shot('pr-counts-after', 'counts-project-dark-1920-after', 10 * min, countsScreen(true, 1920, 1080), 1920, 1080),
+    rec('pr-walk-after', 'after', 8 * min),
+    shot('pr-menu-after', 'menu at 1440', 6 * min, countsScreen(true, 1440, 900), 1440, 900, { pair: 'menu', side: 'after' }),
+  ];
+}
+
+// countsScreen draws the sidebar's project rows with their "N to review"
+// counts as a PNG, which the highlight can read (an SVG it can't): after,
+// the second count reads 4 instead of 3, and sits 4px further right.
+function countsScreen(after: boolean, w: number, h: number): string {
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const c = canvas.getContext('2d') as CanvasRenderingContext2D;
+  const k = w / 1920;
+  c.scale(k, k);
+  c.fillStyle = '#121216';
+  c.fillRect(0, 0, 1920, 1080 / k);
+  c.fillStyle = '#1b1b21';
+  c.fillRect(0, 0, 360, 1080 / k);
+  c.font = '600 22px Inter, sans-serif';
+  c.fillStyle = '#e7e7ee';
+  c.fillText('Projects', 32, 64);
+  ['agentbox', 'pawly', 'hello-stack', 'docs-site', 'mobile-app', 'infra'].forEach((name, i) => {
+    const y = 120 + i * 64;
+    c.fillStyle = i === 1 ? '#26262e' : 'transparent';
+    c.fillRect(16, y - 30, 328, 48);
+    c.fillStyle = '#c9c9d4';
+    c.font = '20px Inter, sans-serif';
+    c.fillText(name, 40, y);
+    const count = i === 0 ? 2 : i === 1 ? (after ? 4 : 3) : i === 3 ? 1 : 0;
+    if (!count) return;
+    const x = 268 + (i === 1 && after ? 4 : 0);
+    c.strokeStyle = '#4a4a55';
+    c.lineWidth = 2;
+    c.beginPath();
+    c.roundRect(x, y - 22, 60, 30, 15);
+    c.stroke();
+    c.fillStyle = '#c9c9d4';
+    c.font = '16px Inter, sans-serif';
+    c.fillText(`${count} to rev`, x + 8, y - 1);
+  });
+  c.fillStyle = '#e7e7ee';
+  c.font = '600 40px Inter, sans-serif';
+  c.fillText('pawly', 420, 100);
+  c.fillStyle = '#2a2a33';
+  for (let i = 0; i < 6; i++) c.fillRect(420, 160 + i * 110, 1400, 84);
+  return canvas.toDataURL('image/png');
+}
+
 // lots is ?review=lots: agent-15 with 36 pieces of proof, every third a
 // recording and the rest screenshots, for the modal to stay inside the window
 // (the strip scrolls or wraps in a bounded area, the body and footer stay
@@ -219,6 +299,7 @@ export function seedEvidence(queryClient: QueryClient): void {
     ...thread,
     items: [
       ...thread.items,
+      notice('ev18', ['agent-18'], 40 * min),
       notice('ev17', ['agent-17'], 8 * min),
       said('ev17a', 'agent-17 finished the markdown previews. It hasn’t opened a PR yet: its diff is on the review’s Changes tab.', 8 * min - 5_000),
       notice('ev15', ['agent-15'], 4 * min),
@@ -279,12 +360,13 @@ export function seedReview(queryClient: QueryClient): void {
     { id: 'rv-ci', agent: `${PROJECT}/agent-41`, agentName: 'agent-41', kind: 'screenshot', name: 'release-workflow', file: 'release-workflow.png', mime: 'image/png', size: 180_000, source: 'agent', meta: { width: 1280, height: 800 }, createdAt: ago(42 * min) },
   ] satisfies T.MediaItem[]);
   for (const agent of ['agent-98', 'agent-07', 'agent-03']) queryClient.setQueryData(['media', `${PROJECT}/${agent}`], []);
-  queryClient.setQueryData(['media', `${PROJECT}/agent-15`], new URLSearchParams(location.search).get('review') === 'media' ? crowded() : new URLSearchParams(location.search).get('review') === 'lots' ? lots() : evidence('agent-15', 'settings', 4 * min, 17, [
+  queryClient.setQueryData(['media', `${PROJECT}/agent-15`], new URLSearchParams(location.search).get('review') === 'pairs' ? pairs() : new URLSearchParams(location.search).get('review') === 'media' ? crowded() : new URLSearchParams(location.search).get('review') === 'lots' ? lots() : evidence('agent-15', 'settings', 4 * min, 17, [
     [0.3, 'General at 1024×640', 'Nothing past the right edge; the search box keeps its width.'],
     [5.2, 'Models in pt-BR', 'The longest labels wrap to two lines instead of clipping.'],
     [9.5, 'Resources, light theme', ''],
     [13.5, 'Accounts at 800×600', 'The narrowest window the app allows: no horizontal scroll.'],
   ]));
+  queryClient.setQueryData(['media', `${PROJECT}/agent-18`], []);
   queryClient.setQueryData(['media', `${PROJECT}/agent-17`], evidence('agent-17', 'markdown', 10 * min, 14, [
     [0.3, 'Rich blocks in the lead chat', ''],
     [5.7, 'The same in a 340px column', 'Long code lines scroll inside their block.'],
@@ -443,7 +525,7 @@ function reviewRequest(method: string, path: string, body?: unknown): { status: 
       '+++ b/desktop/src/renderer/components/v2/SidebarV2.tsx',
       '@@ -12,7 +12,8 @@ import { cn } from "../../lib/utils";',
       '+import { InlineMarkdown } from "../chat/Markdown";',
-      '   <span className="line-clamp-2 text-[12px] text-subtle">',
+      '   <span className="line-clamp-2 text-caption text-subtle">',
       '-    {plain(preview)}',
       '+    <InlineMarkdown text={preview} />',
       '   </span>',
@@ -528,7 +610,7 @@ export function seedV2(queryClient: QueryClient, pins: string | null): void {
   const idleCount = Number(new URLSearchParams(location.search).get('idle') ?? 0);
   const idleLines = ['**Merged** #214: the `retry` loop backs off now.', 'Done. | file | change |\n|---|---|\n| a.ts | b |', 'You: can you look at the flaky e2e test on CI?', '- Bumped the SDK\n- Fixed the lint', 'Opened https://github.com/example/a-very-long-repository-name/pull/1234 for review.'];
   for (let i = 1; i <= idleCount; i++) extra.push([`idle-${i}`, `Idle project ${i}`, (i + 2) * day]);
-  const projects: T.Project[] = [...base, ...extra.map(([name, displayName], i) => ({ ...base[0], name, displayName, root: `/home/me/src/${name}`, iconVersion: 1, position: base.length + i + 1, createdAt: ago(60 * day) }))];
+  let projects: T.Project[] = [...base, ...extra.map(([name, displayName], i) => ({ ...base[0], name, displayName, root: `/home/me/src/${name}`, iconVersion: 1, position: base.length + i + 1, createdAt: ago(60 * day) }))];
   const lastSaid: Record<string, number> = { [PROJECT]: 3 * min, 'a-project-with-a-name-so-long-it-should-never-be-allowed-to-widen-the-sidebar': 3 * 60 * min, ...Object.fromEntries(extra.map(([n, , ms]) => [n, ms])) };
   const logo = `data:image/svg+xml;base64,${btoa('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#6d5dfc"/><path d="M9 22 16 8l7 14z" fill="#fff"/></svg>')}`;
   const icons: Record<string, T.ProjectIcon> = {
@@ -538,7 +620,27 @@ export function seedV2(queryClient: QueryClient, pins: string | null): void {
     courier: { source: 'chosen', emoji: '📦', hasDetected: false },
     'old-blog': { source: 'chosen', emoji: '📝', hasDetected: false },
   };
+  // &sections=1: the user's sections (lib/sidebar.ts, Classic's), Work, Side
+  // projects and an empty Later, kept as the daemon keeps them until the page
+  // reloads: moves, renames, folds, new ones and deletes. Without it, none.
+  const createdAt = ago(30 * day);
+  let sections: T.Section[] =
+    new URLSearchParams(location.search).get('sections') === '1'
+      ? [
+          { id: 'work', name: 'Work', position: 1, collapsed: false, createdAt },
+          { id: 'side', name: 'Side projects', position: 2, collapsed: false, createdAt },
+          { id: 'later', name: 'Later', position: 3, collapsed: false, createdAt },
+        ]
+      : [];
+  const placed: Record<string, [string, number]> = sections.length ? { [PROJECT]: ['work', 1], quill: ['work', 2], courier: ['work', 3], 'old-blog': ['side', 1], dotfiles: ['side', 2] } : {};
+  projects = projects.map((p, i) => ({ ...p, section: placed[p.name]?.[0] ?? '', position: placed[p.name]?.[1] ?? i + 1 }));
+  const daemonOrder = () => {
+    const rank = (p: T.Project) => (p.section ? sections.findIndex((x) => x.id === p.section) : sections.length);
+    projects = [...projects].sort((a, b) => rank(a) - rank(b) || a.position - b.position);
+  };
+  daemonOrder();
   queryClient.setQueryData(['projects'], projects);
+  queryClient.setQueryData(['sections'], sections);
   if (pins) localStorage.setItem('agentbox.v2.projects', JSON.stringify({ pins: pins.split(',') }));
   const json = (v: unknown) => ({ status: 200, body: JSON.stringify(v), contentType: 'application/json' });
   // The sidebar's hidden projects (&hidden=a,b), kept as the daemon would
@@ -552,6 +654,38 @@ export function seedV2(queryClient: QueryClient, pins: string | null): void {
       return json(sidebar);
     }
     if (method === 'GET' && path === '/v1/projects') return json(projects);
+    // Turning a project's Pull requests tab off or on, kept the same way.
+    const patched = method === 'PATCH' && /^\/v1\/projects\/([^/]+)$/.exec(path)?.[1];
+    const pulls = (body as T.UpdateProjectRequest | undefined)?.pullRequests;
+    if (patched && pulls !== undefined) {
+      projects = projects.map((p) => (p.name === decodeURIComponent(patched) ? { ...p, pullRequests: pulls } : p));
+      return json(projects.find((p) => p.name === decodeURIComponent(patched)));
+    }
+    if (method === 'GET' && path === '/v1/sections') return json(sections);
+    if (method === 'POST' && path === '/v1/sections') {
+      const made: T.Section = { id: `s${Date.now()}`, name: (body as T.AddSectionRequest).name, position: sections.length + 1, collapsed: false, createdAt: new Date().toISOString() };
+      sections = [...sections, made];
+      return json(made);
+    }
+    const sectionId = /^\/v1\/sections\/([^/]+)$/.exec(path)?.[1];
+    if (sectionId && method === 'PATCH') {
+      sections = sections.map((x) => (x.id === decodeURIComponent(sectionId) ? { ...x, ...(body as T.UpdateSectionRequest) } : x));
+      return json(sections.find((x) => x.id === decodeURIComponent(sectionId)));
+    }
+    if (sectionId && method === 'DELETE') {
+      sections = sections.filter((x) => x.id !== decodeURIComponent(sectionId)).map((x, i) => ({ ...x, position: i + 1 }));
+      projects = projects.map((p) => (p.section === decodeURIComponent(sectionId) ? { ...p, section: '' } : p));
+      daemonOrder();
+      return json(null);
+    }
+    if (method === 'PUT' && path === '/v1/projects/layout') {
+      const order = body as T.ProjectLayout;
+      const named = new Map(projects.map((p) => [p.name, p]));
+      const lists: [string, string[]][] = [...order.sections.map((x): [string, string[]] => [x.id, x.projects]), ['', order.loose]];
+      projects = lists.flatMap(([section, names]) => names.flatMap((name, i) => (named.has(name) ? [{ ...named.get(name)!, section, position: i + 1 }] : [])));
+      sections = order.sections.flatMap((x, i) => sections.filter((y) => y.id === x.id).map((y) => ({ ...y, position: i + 1 })));
+      return json(projects);
+    }
     // Only agentbox has agents waiting; the other projects' lists are empty pages.
     if (method === 'GET' && /^\/v1\/projects\/[^/]+\/review/.test(path) && !path.startsWith(`/v1/projects/${PROJECT}/`)) return json(pageOf([]));
     // The extra projects' leads and lists, which no other fixture answers.

@@ -35,7 +35,7 @@ export function ImageThumb({ src, name, onRemove, contain, className }: { src: s
       )}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="w-auto max-w-[min(92vw,1400px)] gap-3 p-3 pt-10">
-          <DialogTitle className="absolute left-4 top-3 max-w-[70%] truncate text-[12.5px] font-normal text-muted">{label}</DialogTitle>
+          <DialogTitle className="absolute left-4 top-3 max-w-[70%] truncate text-ui font-normal text-muted">{label}</DialogTitle>
           <img src={src} alt={label} className="max-h-[80vh] w-auto max-w-full rounded-lg object-contain" />
         </DialogContent>
       </Dialog>

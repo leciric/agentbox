@@ -8,15 +8,24 @@
 //
 // State comes from the URL, not clicks, so a scenario is a link both a
 // person and scripts/preview.mjs can go straight to:
-//   ?theme=light            the light appearance (default: dark)
+//   ?theme=light            the light appearance (default: dark); dracula, Dracula
+//   ?palette=tokyo          a Tokyo Night host theme followed (default: AgentBox's own)
 //   ?concept=timeline       a mock idea, on its own (dev/concepts): timeline is
 //                           agents' work as a timeline over their recording
-//   ?app=today&v2=1         the project's Today page (components/timeline), from
-//                           dev/timeline.ts; any ?app= has the fixture timelines
+//   ?app=recap              Your week with AgentBox (components/RecapView), from
+//                           dev/recap.ts; &recap=empty a week with nothing,
+//                           &recap=estimated one whose cost is estimated
+//   ?app=work               the Work page (components/WorkView), of every
+//                           project, from dev/pastAgents.ts; any ?app= has the
+//                           fixture timelines
+//   ?badge=offer            the one-time offer of "Built with AgentBox" on pull
+//                           requests, shown over the page (dismissed it stays off)
 //   ?lang=pt-BR             the app in another language (default: en-US), for
 //                           strings longer than English's
 //   ?folded=1               the rail folded to 56px (default: open)
 //   ?open=agent-99          the named agent open, its row active (ref suffix only)
+//   ?remote=1               agents the lead runs on other machines of the hub
+//                           account, among the rail's own (dev/fixtures.ts)
 //   ?finished=1             the rail's Finished section open (default: closed,
 //                           unless ?open names an agent in it)
 //   ?chat=agent-12          agent-12's conversation in the middle, blocked on a
@@ -34,22 +43,43 @@
 //                           driver's VM, made and not finished (no Lima needed)
 //   ?vm=krunkit|nokrunkit   the VM to set up on Apple Silicon, with krunkit
 //                           installed (it gives memory back), or without it
+//   ?vm=brew|brewdriver|nodriver
+//                           without krunkit, which Homebrew installs, or without
+//                           Lima's krunkit driver, which a newer Homebrew Lima
+//                           has, or a Lima Homebrew can't upgrade
+//   ?gpu=vz&mac=brew|driver|manual|nodriver|ready
+//                           Settings' GPU for agents on a Mac whose VM was made
+//                           with vz: remake it with krunkit, which Homebrew
+//                           installs first (or a Lima with its driver), or by
+//                           hand without Homebrew, or krunkit installed already
 //   ?gpu=none               Settings' GPU for agents with no GPU in the VM; =host
 //                           a Linux host's the VM gets at its next start,
 //                           =hostrestart turned on and waiting, =nvidia one it
-//                           can't have, =vm the no-GPU VM of before
-//   ?gpu=krunkit|running|restart|failed
+//                           can't have, =vm the no-GPU VM of before, =vz a
+//                           Mac's VM made without krunkit
+//   ?gpu=krunkit|running|restart|failed|updating|updatefailed
 //                           a Mac's krunkit VM whose GPU turning it on readies,
-//                           being readied, waiting for a restart, or failed
+//                           being readied, waiting for a restart, failed, or
+//                           whose driver is updating or failed to update
 //   ?vm=resize              Settings' panel for the VM's CPUs and memory, whose
 //                           resize streams made-up output
 //   ?chat=awaiting          agent-41's chat: its turn ended on a CI watch still
 //                           running, so its header and its rail row say Awaiting
 //   ?chat=untracked         agent-97's (OpenCode) chat, whose header warns that
 //                           background work isn't tracked there
+//   ?chat=imagewait         agent-100 asked for while the first base image
+//                           downloads: its rail row and its chat say it waits
+//                           for the image, with the download's progress
 //   ?chat=stopped|paused    a stopped (or paused) agent's stored conversation,
 //                           readable, with Start (Resume) on the composer.
 //                           Start, or sending a message, wakes it after 1.5s
+//   ?chat=limited           a running agent's chat stopped on its Claude Code
+//                           account's usage limit, with another account that
+//                           has room; "Continue on work" moves it there
+//   ?app=agent-15&v2=1&review=1&sleep=stopped  a finished agent awaiting review whose machine sleeps: one bar
+//   ?chat=thinking          a Claude Code turn thinking: &phase=live the thought
+//                           still arriving, =answer the reply after it, =done
+//                           the turn settled
 //   ?chat=richstream        a rich block still arriving (a card); &done=1 the stream ended
 //                           unclosed (its code); &tall=1 a closed page taller than the frame
 //   ?chat=rich              a project chat's answer with each kind of rich block
@@ -91,7 +121,8 @@
 //                           project's model picker warns that Settings' model wins
 //   ?tunnel=hub             with ?settings=phone: chatting from a phone on, reached
 //                           from anywhere at the hub's stable address; the address
-//                           choice switches, as the daemon would (?tunnel=nohub: no hub)
+//                           choice switches, as the daemon would (?tunnel=nohub: no hub;
+//                           ?tunnel=tailscale: a hub on Tailscale, the address in its tailnet)
 //   ?topbar=detailed        the top bar's machine as the detailed strip
 //                           (Settings' "Detailed top bar") rather than the bubble
 //   ?conn=connecting|disconnected
@@ -106,10 +137,13 @@
 //                           memories (the filter box narrows them)
 //   ?pulls=1                a project's pull requests list, with a long
 //                           GitHub login on one row
-//   ?past=list              every project's past agents (dev/pastAgents.ts),
-//                           which the search box and filters narrow, and which
-//                           delete; a click opens one's read-only chat
-//   ?past=chat              the same, open on agent-31's read-only chat
+//   ?pulls=limited          the same, read before the account's GitHub rate
+//                           limit ran out, under the sentence saying when
+//                           AgentBox reads GitHub again
+//   ?past=list              the Work page alone: live and past agents' work
+//                           (dev/pastAgents.ts), which the filters and the
+//                           search narrow; a click opens one's review
+//   ?past=chat              agent-31, a past agent, read in its chat
 //   ?tokens=1               a project's Settings → Tokens: headline (with average
 //                           TPS), by agent and by model, and spend over time
 //   ?tokens=1&account=work
@@ -117,6 +151,7 @@
 //                           Claude account: its limits card shows only that one
 //   ?tokens=agent           agent-99's own "What it spent" card, on its
 //                           Settings → AI tool
+//   ?meters=memory          the top bar's memory popover (click [data-meter=memory] with ?topbar=detailed), where its used memory goes
 //   ?meters=cpu|disk|pool   the top bar's "Host CPU", or its disk meter in VM mode or host mode
 //                           popover, against a CPU-capped agent, a paused
 //                           one and a plain one —
@@ -130,6 +165,8 @@
 //                           nightly out: the sidebar's starry header and badge,
 //                           and with ?settings=general the Update channel row
 //                           and the About line (fixtures.ts)
+//   ?olddaemon=1            the app updated while its daemon ran jobs: the
+//                           banner saying the daemon is still the old version
 //   ?loading=hold           the first launch before the daemon has answered:
 //                           the sidebar, Home and the rail with no lists yet.
 //                           ?loading=3000 answers them from the fixtures after
@@ -146,6 +183,7 @@
 //   ?review=1               "Ready to review" in the top bar's inbox, three
 //                           agents waiting, agent-12's carousel
 //   ?review=media           the same with agent-15 (first in the list) holding 6 recordings and 4 screenshots and long check titles
+//   ?review=pairs           the same with agent-15 holding before/after pairs to compare
 //   ?concept=evidence       a mock: agents' recordings and screenshots first, in
 //                           the lead chat's cards and the review modal
 //                           (dev/concepts/evidence.tsx lists its own params)
@@ -164,7 +202,7 @@
 //                           dev bridge (fixtures.ts)
 //   ?power=wsl-running|wsl-off
 //                           the same on Windows, for AgentBox's WSL distro
-//   ?app=home|project|pulls|agent-99|settings
+//   ?app=home|project|pulls|issues|agent-99|settings
 //                           the whole App, sidebar, top bar, page and rail, as
 //                           the window shows it, open on Home, the project's
 //                           chat, agent-99 or Settings: for narrow and portrait
@@ -174,8 +212,13 @@
 //   &pins=a,b               with &v2=1, those projects pinned, in that order
 //   &stale=1                with &v2=1 and &idle=1, idle-1 has unseen questions from destroyed agents
 //   &hidden=a,b             with &v2=1, those projects hidden from the sidebar
+//   &sections=1             with &v2=1, the user's sections (Classic's): Work, Side
+//                           projects and an empty Later, kept as the daemon would
+//   &groupidle=1            with &v2=1, "Group idle projects and sort by activity" on
+//                           (lib/groupIdle.ts; off otherwise)
 //   &idle=12                with &v2=1, that many more projects with nothing going on, for Idle
 //   &signedout=1            Claude Code with no login: the composer's banner, and Send's tooltip
+//   &thread=rich            with ?app=project, the project's chat is ?chat=rich's
 //   &v2=1                   with ?app=, UI v2, the lead-first layout (Settings → General
 //                           → Layout): leads with their last lines
 //                           and agents folded under them, filters, and the
@@ -186,6 +229,19 @@
 //   &tour=welcome           with &v2=1, that tour playing (lib/tours.ts: welcome,
 //                           v2, review, panel, groups, cross-project, places; several
 //                           comma-separated), from &step=n (default 0)
+//   &panelwidth=340         with &v2=1, the right-hand panel that wide
+//   &android=1              the project is an Android one and its agents' emulators
+//                           have booted: the v2 panel's Android view, with its dot
+//   &stream=ws://localhost:5902
+//                           streams (terminals, views) are WebSockets to that
+//                           server, by path, and agents' desktops are up: with
+//                           &android=1, the Android view plays a real emulator,
+//                           from `agentbox android serve`
+//   &ios=shutdown|booted|noxcode|nohelper
+//                           the app on a Mac, and the project an iOS one, so its
+//                           agents' v2 panels have iOS: the Mac's simulators shut
+//                           down, one booted, Xcode not installed, or the
+//                           simulator helper not running
 //   &pick=1                 with &pip=1&panel=desktop:agent-25, the element picker:
 //                           Pick element, a click on agent-25's page, and the
 //                           element in the lead's composer (dev/pick.tsx)
@@ -207,9 +263,13 @@
 //                           Free resources' dialog part-way through stopping
 //                           the agents, with what it freed, with one agent
 //                           that wouldn't stop, or failed
-//   ?linux=setup|nokvm      a Linux machine's first screen, before AgentBox's
+//   ?linux=setup|nokvm|kvm-denied|kvm-module
+//                           a Linux machine's first screen, before AgentBox's
 //                           VM is made: the VM to set up, at the size picked,
-//                           or what's missing without /dev/kvm
+//                           or what's missing without /dev/kvm: virtualization
+//                           off, or the button that gives this user /dev/kvm
+//                           (it works here: it prints what agentbox host kvm
+//                           would, then the VM's form shows)
 //   ?linux=move             a Linux machine set up to run agents itself before
 //                           AgentBox ran in a VM on Linux: the prompt to move
 //                           into the VM, whose button opens Settings' Setup at
@@ -222,6 +282,8 @@
 //                           open at a tab or a section of its Settings tab
 //                           (?page=tokens, ?page=general…); with ?open=agent-99,
 //                           that agent's page (?page=secrets, ?page=machine…)
+//   &secrets=1              with ?page=secrets, the project's Secrets with two
+//                           secrets in it, one managed by the lead
 //   ?phone=list|chat|lead|frame
 //                           the phone's web app against chats in every live
 //                           state, one running a turn over and over (dev/phone.tsx)
@@ -272,13 +334,17 @@ import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
 import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
 import { Markdown } from '../components/chat/Markdown';
-import { agent12Chat, asleepChat, buildFixtures, claudeLimits, dropDevAgent, compactionThread, richChat, richStreamText, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedSignedOut, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, setNotifications } from './fixtures';
+import { webStreams } from '../web/streams';
+import { chooseSession } from '../lib/sessions';
+import { agent12Chat, asleepChat, buildFixtures, remoteAgents, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedSignedOut, seedNightly, seedCacheCard, seedStaleDaemon, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
+import { restoreMode } from '../lib/theme';
 import { seedPastAgents } from './pastAgents';
-import { openPanelOn, pickTarget, setPanel, setPanelOpen, setView, type PanelView } from '../lib/rightPanel';
+import { openPanelOn, panelDefault, pickTarget, setPanel, setPanelOpen, setView, type PanelView } from '../lib/rightPanel';
 import type { ProjectSection } from '../lib/tabs';
 import { openFile } from '../lib/files';
-import { PastAgents } from '../components/PastAgents';
+import { PastAgentView } from '../components/PastAgents';
+import { WorkView } from '../components/WorkView';
 import { PageArrivals } from '../components/pages/PageArrivals';
 import { PagePreviewHost } from '../components/pages/PagePreview';
 import { ScopedMediaPages } from '../components/pages/MediaPages';
@@ -288,13 +354,18 @@ import { ReviewPreview, seedEvidence, seedLeadLines, seedReview, seedV2 } from '
 import { PipFinish, seedPip } from './pip';
 import { seedPick } from './pick';
 import { seedTimelines } from './timeline';
+import { seedIssues } from './issues';
 import { setUiV2 } from '../lib/uiV2';
+import { setGroupIdle } from '../lib/groupIdle';
 import { setTourState, tours, welcomeTour } from '../lib/tours';
 
 installDevBridge();
 
 const params = new URLSearchParams(location.search);
-document.documentElement.dataset.appearance = params.get('theme') === 'light' ? 'light' : '';
+// Through lib/theme, as the app turns over, so what draws in JavaScript (a
+// chat's diagrams and framed pages, the terminal) is light too, not only CSS.
+localStorage.setItem('agentbox.appearance', params.get('theme') === 'light' || params.get('theme') === 'dracula' ? params.get('theme')! : 'dark');
+restoreMode();
 applyLanguage(params.get('lang'));
 localStorage.setItem('agentbox.rail.folded', params.get('folded') === '1' ? '1' : '0');
 localStorage.setItem('agentbox.rail.finished', params.get('finished') === '1' ? '1' : '0');
@@ -310,7 +381,7 @@ const defaults = params.get('defaults') === '1';
 const github = params.get('github') === '1';
 const usage = params.get('usage') === '1';
 const topbar = params.get('topbar');
-const pulls = params.get('pulls') === '1';
+const pulls = params.get('pulls') === '1' || params.get('pulls') === 'limited';
 const home = params.get('home') === '1';
 const review = params.get('review'); // "Ready to review" (dev/review.tsx)
 const concept = params.get('concept'); // a mock concept (dev/concepts)
@@ -327,10 +398,11 @@ const loading = params.get('loading'); // 'hold' | 'refetch' | milliseconds | nu
 const io = params.get('io'); // "1" | "stalling" | "agent" | null
 const imageUpdate = params.get('setup') === 'updating';
 const settingsPage = params.get('settings'); // a section of Settings, or a project's name
-const linuxHost = params.get('linux'); // 'setup' | 'nokvm' | 'move' | null
+const linuxHost = params.get('linux'); // 'setup' | 'nokvm' | 'kvm-denied' | 'kvm-module' | 'move' | null
 const chvSize = params.get('chv'); // 'live' | 'old' | 'off' | null
 if (chvSize) localStorage.setItem('agentbox.settings.section', 'resources');
 if (settingsPage) localStorage.setItem('agentbox.settings.section', settingsPage);
+if (params.get('mac')) localStorage.setItem('agentbox.settings.section', 'agents');
 
 const windowsBeforeSetup: HostSetupStatus = {
   pkexec: null,
@@ -378,7 +450,7 @@ function windowsBeforeSetupBridge(): void {
 // linuxBeforeSetup makes the dev bridge a Linux machine on first launch, the
 // way windowsBeforeSetupBridge makes it Windows: AgentBox's VM not made yet,
 // so no daemon.
-function linuxBeforeSetupBridge(kvm: boolean): void {
+function linuxBeforeSetupBridge(kvmProblem: 'denied' | 'module' | 'novirt' | null): void {
   const bridge = (window as unknown as { agentbox: Record<string, unknown> }).agentbox;
   const error = "AgentBox's Linux VM isn't set up: run agentbox vm init";
   const status: HostSetupStatus = {
@@ -388,7 +460,7 @@ function linuxBeforeSetupBridge(kvm: boolean): void {
     resizing: false,
     vm: null,
     wsl: null,
-    linux: { mode: 'vm', kvm, cores: 16, memory: 32 * 1024 ** 3, defaultCpus: 8, defaultMemoryCap: 24 * 1024 ** 3 },
+    linux: { mode: 'vm', kvm: kvmProblem === null, ...(kvmProblem ? { kvmProblem } : {}), cores: 16, memory: 32 * 1024 ** 3, defaultCpus: 8, defaultMemoryCap: 24 * 1024 ** 3 },
     chv: { mode: 'vm', driver: 'cloud-hypervisor', name: 'agentbox', state: 'missing', since: '0001-01-01T00:00:00Z', problem: error } as T.VMStatus,
   };
   bridge.info = async () => ({ socket: '', version: 'preview', electron: '', packaged: false, platform: 'linux' });
@@ -400,12 +472,31 @@ function linuxBeforeSetupBridge(kvm: boolean): void {
     const timer = setInterval(() => fn({ state: 'disconnected', error }), 1_000);
     return () => clearInterval(timer);
   };
-  bridge.hostSetup = { status: async () => status, run: async () => ({ restarted: false }), onOutput: () => () => {} };
+  const listeners = new Set<(text: string) => void>();
+  bridge.hostSetup = {
+    status: async () => status,
+    run: async () => ({ restarted: false }),
+    // What `pkexec agentbox host kvm` prints on Debian, after the password.
+    grantKVM: async () => {
+      const say = (text: string) => listeners.forEach((fn) => fn(text));
+      say('$ pkexec /usr/bin/agentbox host kvm --user leandro\n');
+      await new Promise((r) => setTimeout(r, 1_500));
+      if (kvmProblem === 'module') say('==> Loading kvm_intel, now and at every boot (/etc/modules-load.d/agentbox-kvm.conf)\n');
+      say('==> Giving leandro /dev/kvm now, with no new login (an ACL)\n==> Adding leandro to the kvm group, for later logins\nleandro can use /dev/kvm.\n');
+      await new Promise((r) => setTimeout(r, 1_500));
+      status.linux = { ...status.linux!, kvm: true, kvmProblem: undefined };
+    },
+    onOutput: (fn: (text: string) => void) => {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+  };
 }
 
 const chat = params.get('chat');
 const asleepRef = `${PROJECT}/asleep`;
 const fixtures = buildFixtures();
+if (params.get('remote') === '1') fixtures.fleet.remote = remoteAgents();
 if (github) {
   // Two GitHub accounts, and a project that picked the second one while it
   // limits its Claude Code accounts to one called "work".
@@ -418,6 +509,47 @@ if (usage) {
   fixtures.projects.find((p) => p.name === PROJECT)!.claudeAccount = 'work';
   fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-99`)!.claudeAccount = 'work';
 }
+// &ios=…: the app runs on a Mac, whose iOS Simulator its agents drive.
+const iosScenario = params.get('ios');
+const iosStatus = (): T.IOSStatus => {
+  const devices: T.IOSDevice[] = [
+    { udid: '6F3A2C1E-8B4D-4E2A-9C7F-1D2E3F4A5B6C', name: 'iPhone 17 Pro', runtime: 'iOS 26.0', state: iosScenario === 'booted' ? 'Booted' : 'Shutdown' },
+    { udid: '0B9C8D7E-6F5A-4B3C-2D1E-0F9A8B7C6D5E', name: 'iPhone 17', runtime: 'iOS 26.0', state: 'Shutdown' },
+    { udid: '1C2D3E4F-5A6B-4C7D-8E9F-0A1B2C3D4E5F', name: 'iPad Air 11-inch (M3)', runtime: 'iOS 26.0', state: 'Shutdown' },
+    { udid: '2D3E4F5A-6B7C-4D8E-9F0A-1B2C3D4E5F6A', name: 'iPhone 16', runtime: 'iOS 18.6', state: 'Shutdown' },
+  ];
+  switch (iosScenario) {
+    case 'noxcode':
+      return { available: false, devices: [], problem: 'Xcode isn’t installed, or the Command Line Tools are selected instead: install Xcode from the App Store, open it once, then run sudo xcode-select -s /Applications/Xcode.app' };
+    case 'nohelper':
+      return { available: false, devices: [], problem: "AgentBox's simulator helper isn't running on your Mac. Run any agentbox command on the Mac (agentbox vm start) to start it." };
+  }
+  return { available: true, xcode: 'Xcode 26.1', devices, device: iosScenario === 'booted' ? devices[0].udid : undefined };
+};
+if (iosScenario) {
+  // An iOS project, so its agents have iOS without Xcode too; before
+  // seedQueryClient, which the bridge answers /v1/projects from.
+  fixtures.projects.find((p) => p.name === PROJECT)!.ios = true;
+  const bridge = (window as unknown as { agentbox: { info: () => Promise<Record<string, unknown>> } }).agentbox;
+  const info = bridge.info;
+  bridge.info = async () => ({ ...(await info()), platform: 'darwin' });
+}
+
+// &android=1: the project is an Android one, so its agents' panels have Android.
+const androidProject = params.get('android') === '1';
+if (androidProject) fixtures.projects.find((p) => p.name === PROJECT)!.android = true;
+// &stream=ws://…: the bridge's streams are the browser's own WebSockets
+// there, and agents' desktops are up, so their views connect to it too.
+const streamServer = params.get('stream');
+if (streamServer) {
+  type Bridge = { stream: unknown; request: (method: string, path: string, body?: unknown) => Promise<unknown> };
+  const bridge = (window as unknown as { agentbox: Bridge }).agentbox;
+  bridge.stream = webStreams((path) => streamServer + path).stream;
+  const inner = bridge.request;
+  const up: T.BrowserStatus = { display: true, running: false, pages: [] };
+  bridge.request = async (method, path, body) =>
+    method === 'GET' && /^\/v1\/agents\/[^/]+\/[^/]+\/browser$/.test(path) ? { status: 200, body: JSON.stringify(up), contentType: 'application/json' } : inner(method, path, body);
+}
 const chatAgent = chat ? fixtures.agents.find((a) => a.ref === `${PROJECT}/${chat}`) : undefined;
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false, refetchOnWindowFocus: false } } });
@@ -425,9 +557,40 @@ if (params.get('gpu')) {
   // Restarting the VM invalidates every query; the bridge has no answer for
   // most of them, so only Settings (which it does answer) is refetched.
   const invalidate = queryClient.invalidateQueries.bind(queryClient);
-  queryClient.invalidateQueries = ((filters?: Parameters<typeof invalidate>[0]) => invalidate(filters ?? { queryKey: ['settings'] })) as typeof invalidate;
+  // A remade VM (?mac=) changes the VM's status too.
+  queryClient.invalidateQueries = ((filters?: Parameters<typeof invalidate>[0]) =>
+    invalidate(filters ?? { predicate: (q) => q.queryKey[0] === 'settings' || q.queryKey[0] === 'host-setup' })) as typeof invalidate;
+}
+// An agent asked for while the first base image downloads (?chat=imagewait).
+const imageWaitRef = `${PROJECT}/agent-100`;
+const signedIn: T.ClaudeAccount = { name: 'default', default: true, savedAt: '2026-10-26T10:00:00Z', valid: 'valid' };
+const imageDownloading: T.ImageStatus = {
+  ready: false,
+  snapshot: 'agentbox-base/ready',
+  build: 'building',
+  job: 'job-image-build',
+  step: 'Downloading the published base image (2026.10.20.1, 3 parts)',
+  progress: '40% of 1843 MB',
+  waiting: 1,
+};
+if (chat === 'imagewait') {
+  const like = fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-99`)!;
+  fixtures.agents.unshift({ ...like, ref: imageWaitRef, name: 'agent-100', title: 'Add CSV export to the reports page', branch: 'agentbox/csv-export', state: 'initializing', waitingForImage: true, chat: undefined, outcome: undefined, ip: '', createdAt: new Date().toISOString() });
+  api.image = async () => imageDownloading;
+  // Signed in, as by the time Setup is behind you.
+  const auth = api.auth;
+  api.auth = async () => ({ ...(await auth()), claudeAccounts: [signedIn] });
 }
 seedQueryClient(queryClient, fixtures);
+if (chat === 'imagewait') {
+  queryClient.setQueryData(['image'], imageDownloading);
+  queryClient.setQueryData<T.AuthStatus>(['auth'], (a) => a && { ...a, claudeAccounts: [signedIn] });
+  queryClient.setQueryData<T.ChatThread>(['chat', imageWaitRef], { agent: imageWaitRef, seq: 1, session: { state: 'off', tool: 'claude', options: [], commands: [] }, items: [] });
+}
+// The project chat's runner answers with the account it spends, "work" here.
+if (usage) {
+  queryClient.setQueryData<T.LeadRunners>(['chatRunners', PROJECT], { tool: 'claude', account: 'work', runners: [{ tool: 'claude', name: 'Claude Code', ready: true, installed: true }] });
+}
 if (defaults) seedDefaults(queryClient);
 // The project's chat can switch tool and account from its composer: Claude Code
 // on two accounts with their quota, Codex, and Cursor signed out.
@@ -444,15 +607,50 @@ if (chat === 'lead') {
     ],
   });
 }
+// An agent stopped on its account's limit, with the composer's accounts.
+const limitedRef = `${PROJECT}/limited`;
+if (chat === 'limited') {
+  const [personal, work] = claudeLimits();
+  const spent = { ...personal, status: 'rejected', windows: personal.windows.map((w) => (w.name === 'five_hour' ? { ...w, utilization: 1 } : w)) };
+  queryClient.setQueryData<T.LeadRunners>(['agentRunners', limitedRef], {
+    tool: 'claude',
+    account: 'personal',
+    runners: [{ tool: 'claude', name: 'Claude Code', ready: true, installed: true, accounts: [{ name: 'personal', default: true, project: true, agents: 3, limit: spent }, { name: 'work', default: false, project: false, agents: 0, limit: work }] }],
+  });
+  // Signed in, on both accounts, so the composer isn't the signed-out one.
+  queryClient.setQueryData<T.AuthStatus>(['auth'], (auth) => ({
+    ...(auth ?? { claude: true, codex: false, opencode: false, cursor: false, codexAccounts: [], openCodeAccounts: [], cursorAccounts: [], github: false, githubAccounts: [] }),
+    claude: true,
+    claudeAccounts: [{ name: 'personal', default: true, savedAt: personal.at }, { name: 'work', default: false, savedAt: work.at }],
+  }));
+  // The bridge has no chat or accounts to refetch after the switch: the
+  // preview's own copies, which the switch updates, stay.
+  const invalidate = queryClient.invalidateQueries.bind(queryClient);
+  queryClient.invalidateQueries = ((filters?: Parameters<typeof invalidate>[0]) =>
+    ['chat', 'agentRunners'].includes(String(filters?.queryKey?.[0])) ? Promise.resolve() : invalidate(filters)) as typeof invalidate;
+  const resumeAt = new Date(Date.now() + 3 * 3600_000).toISOString();
+  const thread = asleepChat(limitedRef);
+  queryClient.setQueryData<T.ChatThread>(['chat', limitedRef], { ...thread, session: { ...thread.session, state: 'ready', limited: true, limitedUntil: resumeAt, resumeAt } });
+}
 // Before the first render, so the chat reads it rather than the dev bridge.
 if (chat === 'stopped' || chat === 'paused') queryClient.setQueryData(['chat', asleepRef], asleepChat(asleepRef));
+// &sleep=stopped|paused, with ?app=agent-15&v2=1&review=1: that agent has
+// finished awaiting review and its machine is asleep, so the review card and
+// the wake button share one bar.
+const sleep = params.get('sleep');
+if (sleep && appView?.startsWith('agent-')) {
+  const sleeper = fixtures.agents.find((a) => a.ref === `${PROJECT}/${appView}`);
+  if (sleeper) Object.assign(sleeper, { state: sleep === 'paused' ? 'paused' : 'stopped', interface: 'chat' });
+  queryClient.setQueryData(['agents'], fixtures.agents);
+  queryClient.setQueryData(['chat', `${PROJECT}/${appView}`], asleepChat(`${PROJECT}/${appView}`));
+}
 const artifacts = params.get('pages');
 if (artifacts) {
   seedPages(queryClient);
   if (artifacts !== 'lead') queryClient.setQueryData(['chat', `${PROJECT}/${artifacts}`], { ...agent12Chat(), agent: `${PROJECT}/${artifacts}` });
 }
 if (pulls || appView === 'pulls') queryClient.setQueryData(['pulls', PROJECT], pullRequests());
-if (past) seedPastAgents(queryClient);
+if (past || appView === 'work') seedPastAgents(queryClient);
 if (home) {
   const at = new Date().toISOString();
   const memory = (id: string, title: string, content: string, origin: string): T.Memory => ({ id, project: '', global: true, origin, kind: 'preference', title, content, importance: 4, createdAt: at, updatedAt: at });
@@ -472,6 +670,7 @@ if (review || appView) seedReview(queryClient);
 // The fixture agents' timelines (dev/timeline.ts), for the right panel's
 // Timeline tab, the review's and Today.
 if (appView) seedTimelines();
+if (appView === 'issues') seedIssues(queryClient);
 // UI v2 only where asked for: the flag is the preview origin's, kept between pages.
 setUiV2(params.get('v2') === '1');
 // No tour plays over a scenario unless &tour= asks for one.
@@ -483,6 +682,9 @@ setUiV2(params.get('v2') === '1');
 if (appView && params.get('v2') === '1') {
   seedLeadLines(queryClient);
   seedV2(queryClient, params.get('pins'));
+  // &ios=…, after seedV2's projects: the project is an iOS one.
+  if (iosScenario) queryClient.setQueryData<T.Project[]>(['projects'], (ps) => ps?.map((p) => (p.name === PROJECT ? { ...p, ios: true } : p)));
+  setGroupIdle(params.get('groupidle') === '1');
   seedEvidence(queryClient);
   // &stale=1: idle-1 has unseen questions from agents that no longer exist.
   if (params.get('stale') === '1') {
@@ -498,6 +700,10 @@ if (appView && params.get('v2') === '1') {
   if (params.get('pick') === '1') seedPick(queryClient);
   // Each page starts with no panel open, whatever the last one left.
   setPanel({ chats: {}, views: {}, last: {}, listFolded: false, listWidth: undefined });
+  // &panelwidth=340: the panel that wide beside a lead's chat and an agent's;
+  // its default widths otherwise, whatever an earlier page left.
+  const panelWidth = Number(params.get('panelwidth') ?? 0);
+  setPanel(panelWidth > 0 ? { width: panelWidth, agentWidth: panelWidth } : { width: panelDefault, agentWidth: undefined });
   // &panel=<view>[:<whose>]: the panel open on a view (desktop, terminal,
   // files, evidence, browser, timeline, pulls, settings) of whose (lead,
   // agent-41, past:agent-31; &whose= for all), or just open (&panel=open),
@@ -533,6 +739,14 @@ if (appView) {
     const lead = method === 'GET' && /^\/v1\/projects\/([^/]+)\/lead$/.exec(path);
     const seeded = lead && queryClient.getQueryData(['projectChat', decodeURIComponent(lead[1])]);
     if (seeded) return { status: 200, body: JSON.stringify(seeded), contentType: 'application/json' };
+    // With &android=1, every agent's emulator has booted: Android's green dot.
+    if (androidProject && method === 'GET' && /^\/v1\/agents\/[^/]+\/[^/]+\/android$/.test(path)) {
+      const booted: T.AndroidStatus = { available: true, images: ['android-35'], running: true, booted: true, image: 'android-35', device: 'emulator-5554', gpu: true };
+      return { status: 200, body: JSON.stringify(booted), contentType: 'application/json' };
+    }
+    if (iosScenario && method === 'GET' && /^\/v1\/agents\/[^/]+\/[^/]+\/ios$/.test(path)) {
+      return { status: 200, body: JSON.stringify(iosStatus()), contentType: 'application/json' };
+    }
     const answer = (await inner(method, path, body)) as { status: number; body: string };
     // The skills, and the desktops in use (unless &pip=1 says who), are lists.
     if (method === 'GET' && /\/(skills|desktops|groups)(\?|$)/.test(path) && answer.body === '{}') return { ...answer, body: '[]' };
@@ -562,7 +776,14 @@ if (params.get('signedout') === '1') seedSignedOut(queryClient);
 if (params.get('drag')) dragBridge(queryClient, params.get('drag') === 'slow' ? 1_500 : 300);
 if (params.get('enforce') === '1') { seedDefaults(queryClient); queryClient.setQueryData<T.Settings>(['settings'], (s) => s && { ...s, enforceAgentDefaults: true }); }
 if (params.get('nightly') === '1') seedNightly(queryClient);
+if (params.get('cache') === 'due') {
+  seedCacheCard(queryClient);
+  chooseSession(PROJECT, 'prod-login-500s');
+}
+if (params.get('olddaemon') === '1') seedStaleDaemon();
 if (chvSize) seedLinuxVM(queryClient, chvSize);
+const macVZ = params.get('mac'); // 'brew' | 'driver' | 'manual' | 'nodriver' | 'ready' | null
+if (macVZ) seedMacVZ(queryClient, macVZ);
 // ?page= shows whole pages, and their sections ask for what no other
 // scenario seeds: no limits read yet, and no secrets or
 // connectors.
@@ -573,13 +794,21 @@ if (page) {
     queryClient.setQueryData(['connectors', target], []);
   }
 }
+if (page && params.get('secrets') === '1') {
+  const updatedAt = new Date(Date.now() - 40 * 60_000).toISOString();
+  const agents = [`${PROJECT}/agent-01`, `${PROJECT}/agent-02`];
+  queryClient.setQueryData<T.Secret[]>(['secrets', PROJECT], [
+    { name: 'AZURE_ACCESS_TOKEN', scope: 'project', project: PROJECT, updatedAt, agents, leadManaged: true },
+    { name: 'STRIPE_SECRET_KEY', scope: 'project', project: PROJECT, updatedAt, agents, leadManaged: false },
+  ]);
+}
 if (linuxHost === 'move') {
   seedLinuxHost(queryClient, true);
   localStorage.removeItem(laterKey);
 }
 if (meters) {
   const GiB = 1024 ** 3;
-  queryClient.setQueryData(['usage'], { host: { cpu: 62, cores: 8, memUsed: 15 * GiB, memTotal: 32 * GiB, poolUsed: 15.5 * GiB, poolTotal: 100 * GiB, diskRead: 0, diskWrite: 0 }, agents: [] });
+  queryClient.setQueryData(['usage'], { host: { cpu: 62, cores: 8, memUsed: 16.8 * GiB, memTotal: 17.8 * GiB, poolUsed: 15.5 * GiB, poolTotal: 100 * GiB, diskRead: 0, diskWrite: 0 }, agents: [] });
   queryClient.setQueryData(['claudeLimits'], []);
   seedMeterUsage(queryClient);
   if (meters === 'disk' || meters === 'disk-unmeasured') seedVMDisk(queryClient, meters === 'disk-unmeasured');
@@ -678,7 +907,7 @@ if (usage || account) {
   const at = new Date(Date.now() - 12 * 60_000).toISOString();
   const resets = (hours: number) => new Date(Date.now() + hours * 3_600_000).toISOString();
   queryClient.setQueryData(['claudeLimits'], [
-    { account: 'personal', default: true, at, status: 'allowed', windows: [
+    { account: 'default', default: true, at, status: 'allowed', windows: [
       { name: 'five_hour', label: '5-hour', utilization: 0.23, resetsAt: resets(3) },
       { name: 'seven_day', label: 'Weekly', utilization: 0.41, resetsAt: resets(80) },
     ] },
@@ -687,6 +916,18 @@ if (usage || account) {
       { name: 'seven_day', label: 'Weekly', utilization: 0.52, resetsAt: resets(40) },
     ] },
   ] satisfies T.ClaudeLimit[]);
+  // Codex: the default account (the pill says "Codex") and "atlan" (it says "atlan").
+  queryClient.setQueryData(['codexLimits'], [
+    { tool: 'codex', account: 'default', default: true, at, status: 'allowed', windows: [
+      { name: 'five_hour', label: '5-hour', utilization: 0.31, resetsAt: resets(2) },
+      { name: 'seven_day', label: 'Weekly', utilization: 0.18, resetsAt: resets(90) },
+    ] },
+    { tool: 'codex', account: 'atlan', default: false, at, status: 'allowed', windows: [
+      { name: 'five_hour', label: '5-hour', utilization: 0.54, resetsAt: resets(1.5) },
+      { name: 'seven_day', label: 'Weekly', utilization: 0.27, resetsAt: resets(60) },
+    ] },
+  ] satisfies T.ClaudeLimit[]);
+  queryClient.setQueryData<T.Agent[]>(['agents'], (as) => as?.map((a) => (a.ref === `${PROJECT}/agent-98` ? { ...a, codexAccount: 'atlan' } : a)));
 }
 
 if (account) {
@@ -704,6 +945,8 @@ function UsagePreview() {
     [`Project ${PROJECT}, on "work"`, { kind: 'project', project: PROJECT }],
     ['Claude agent-99, on "work"', { kind: 'agent', ref: `${PROJECT}/agent-99` }],
     ['Codex agent-96: nothing known, no meter', { kind: 'agent', ref: `${PROJECT}/agent-96` }],
+    ['Codex agent-98, on "atlan"', { kind: 'agent', ref: `${PROJECT}/agent-98` }],
+    ['Codex agent-37, on the default account', { kind: 'agent', ref: `${PROJECT}/agent-37` }],
   ];
   return (
     <div style={{ minHeight: '100vh', background: 'var(--color-ink)', font: '13px var(--font-sans)' }}>
@@ -954,6 +1197,14 @@ function Preview() {
                 </section>
               ))}
           </div>
+        ) : chat === 'imagewait' ? (
+          <div style={{ height: '100%', margin: -24 }} data-image-wait-preview>
+            <ChatTab agent={fixtures.agents.find((a) => a.ref === imageWaitRef)!} starting={false} autoStart={false} onStart={() => {}} />
+          </div>
+        ) : chat === 'limited' ? (
+          <div style={{ height: '100%', margin: -24 }}>
+            <LimitedChatPreview agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-99`)!} />
+          </div>
         ) : chat === 'stopped' || chat === 'paused' ? (
           <div style={{ height: '100%', margin: -24 }}>
             <AsleepChatPreview state={chat} agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-99`)!} />
@@ -976,6 +1227,10 @@ function Preview() {
         ) : chat === 'richstream' ? (
           <div style={{ maxWidth: 720 }} data-rich-preview>
             <Markdown rich streaming={params.get('done') ? false : true} text={richStreamText(params.get('tall') ? 'tall' : 'open')} />
+          </div>
+        ) : chat === 'thinking' ? (
+          <div style={{ maxWidth: 720 }}>
+            <Timeline agent={{ ...fixtures.agents[0], ref: `${PROJECT}/lead`, name: 'lead' }} thread={thinkingThread(params.get('phase') ?? 'live')} />
           </div>
         ) : chat === 'compaction' ? (
           <div style={{ maxWidth: 720 }}>
@@ -1036,7 +1291,7 @@ function Preview() {
           <VMSetup
             vm={
               vm === 'lima'
-                ? { lima: '', name: 'agentbox', exists: false, problem: "AgentBox runs in a Linux VM made with Lima, which isn't installed: brew install lima" }
+                ? { lima: '', name: 'agentbox', exists: false, problem: "AgentBox runs in a Linux VM made with Lima, which isn't on this Mac yet: agentbox vm init downloads it (Lima 2.2.1)" }
                 : vm === 'vz'
                   ? { driver: 'vz', lima: '', name: 'agentbox', exists: true, status: 'Stopped', cpus: 4, memory: 8 * 1024 ** 3 }
                   : {
@@ -1044,7 +1299,18 @@ function Preview() {
                       name: 'agentbox',
                       exists: false,
                       problem: "AgentBox's Linux VM isn't set up: run agentbox vm init",
-                      krunkit: vm === 'krunkit' ? { available: true } : vm === 'nokrunkit' ? { available: false, missing: 'krunkit' } : undefined,
+                      krunkit:
+                        vm === 'krunkit'
+                          ? { available: true }
+                          : vm === 'nokrunkit'
+                            ? { available: false, missing: 'krunkit' }
+                            : vm === 'brew'
+                              ? { available: false, missing: 'krunkit', brew: true }
+                              : vm === 'brewdriver'
+                                ? { available: false, missing: 'driver', brew: true }
+                                : vm === 'nodriver'
+                                  ? { available: false, missing: 'driver' }
+                                  : undefined,
                     }
             }
           />
@@ -1055,6 +1321,34 @@ function Preview() {
       <AgentRail view={view} onSelect={() => {}} onNewAgent={() => {}} />
     </div>
   );
+}
+
+// LimitedChatPreview moves its agent to another account the way the daemon
+// does: the limit clears and the turn carries on, saying so in a notice.
+function LimitedChatPreview({ agent }: { agent: T.Agent }) {
+  useEffect(() => {
+    api.setAgentRunner = async (_ref, req) => {
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      const now = new Date().toISOString();
+      const notice: T.ChatItem = {
+        id: `moved-${now}`,
+        turn: 's3',
+        kind: 'notice',
+        text: `This chat moved to the Claude Code account "${req.account}": Claude Code restarts on it, resumes this conversation and carries on without waiting for the old account's limit.`,
+        createdAt: now,
+        updatedAt: now,
+      };
+      let session: T.ChatSession = { state: 'ready', tool: 'claude', options: [], commands: [] };
+      queryClient.setQueryData<T.ChatThread>(['chat', limitedRef], (thread) => {
+        if (!thread) return thread;
+        session = { ...thread.session, limited: false, limitedUntil: undefined, resumeAt: undefined };
+        return { ...thread, session, items: [...thread.items, notice] };
+      });
+      queryClient.setQueryData<T.LeadRunners>(['agentRunners', limitedRef], (r) => r && { ...r, account: req.account });
+      return session;
+    };
+  }, []);
+  return <ChatTab agent={{ ...agent, ref: limitedRef, name: 'agent-97', title: 'Add a dark mode toggle', state: 'running', ai: 'claude', claudeAccount: 'personal' }} starting={false} onStart={() => {}} autoStart={false} />;
 }
 
 // AsleepChatPreview wakes its agent the way the daemon does: Start, or a
@@ -1091,7 +1385,7 @@ function GitHubPreview() {
   return (
     <div style={{ maxWidth: 720, padding: 24, font: '13px var(--font-sans)', display: 'grid', gap: 24 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-        <span className="text-[13px] text-muted">GitHub account</span>
+        <span className="text-ui text-muted">GitHub account</span>
         {project && <GitHubAccountPicker project={project} />}
       </div>
       <GitHubAccounts accounts={auth.data?.githubAccounts ?? []} />
@@ -1109,10 +1403,10 @@ function settingsBridge(): void {
   const answer = (value: unknown) => ({ status: 200, body: JSON.stringify(value), contentType: 'application/json' });
   let lan: T.LANStatus = { enabled: false, port: 7780, listening: false, urls: [], tunnel: { enabled: false, mode: 'quick', named: false, state: 'off', origin: 'http://localhost:7781' }, phones: [] };
   const phone = params.get('tunnel');
-  const hub = phone === 'hub' ? 'https://hub.agentbox.dev' : undefined;
+  const hub = phone === 'hub' || phone === 'tailscale' ? 'https://hub.agentbox.dev' : undefined;
   // What the tunnel runs on in each mode, once it's up.
   const tunnelURL: Record<string, string> = {
-    hub: 'https://3fa9c0e1d2b4a5968778695a.agentbox.dev/',
+    hub: phone === 'tailscale' ? 'https://agentbox-vps-3fa9c0.tail1234.ts.net/' : 'https://3fa9c0e1d2b4a5968778695a.agentbox.dev/',
     quick: 'https://quiet-river-1234.trycloudflare.com/',
     named: 'https://chat.example.com/',
   };
@@ -1123,8 +1417,9 @@ function settingsBridge(): void {
       ...lan.tunnel,
       mode,
       named: mode === 'named',
-      hostname: mode === 'quick' ? undefined : new URL(tunnelURL[mode]).hostname,
+      hostname: mode === 'quick' ? undefined : phone === 'tailscale' && mode === 'hub' ? 'agentbox-vps-3fa9c0' : new URL(tunnelURL[mode]).hostname,
       url: tunnelURL[mode],
+      ...(phone === 'tailscale' && mode === 'hub' ? { transport: 'tailscale', tailnet: 'example.com' } : { transport: undefined, tailnet: undefined }),
     },
   });
   if (phone) {
@@ -1315,9 +1610,9 @@ if (phoneMode === 'frame') {
       </TooltipProvider>
     </QueryClientProvider>,
   );
-} else if (wsl || linuxHost === 'setup' || linuxHost === 'nokvm') {
+} else if (wsl || linuxHost === 'setup' || linuxHost === 'nokvm' || linuxHost === 'kvm-denied' || linuxHost === 'kvm-module') {
   if (wsl) windowsBeforeSetupBridge();
-  else linuxBeforeSetupBridge(linuxHost === 'setup');
+  else linuxBeforeSetupBridge(({ setup: null, nokvm: 'novirt', 'kvm-denied': 'denied', 'kvm-module': 'module' } as const)[linuxHost as 'setup' | 'nokvm' | 'kvm-denied' | 'kvm-module']);
   // After the bridge: some of what App imports reaches for it as it loads.
   const { App } = await import('../App');
   const appClient = new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 5_000 } } });
@@ -1331,12 +1626,15 @@ if (phoneMode === 'frame') {
   );
 } else if (appView) {
   const { App } = await import('../App');
+  // Last, over the chat any scenario above seeded.
+  if (params.get('thread') === 'rich') queryClient.setQueryData(['chat', `${PROJECT}/lead`], richChat());
   const initial: View =
     appView === 'home' ? { kind: 'home' }
-    : appView === 'today' ? { kind: 'today', project: PROJECT }
+    : appView === 'work' ? { kind: 'work' }
+    : appView === 'recap' ? { kind: 'recap' }
     : appView === 'settings' ? { kind: 'settings' }
     : appView === 'homeChat' ? { kind: 'homeChat' }
-    : appView === 'project' || appView === 'pulls' ? { kind: 'project', project: PROJECT, tab: appView === 'pulls' ? 'pulls' : 'chat' }
+    : appView === 'project' || appView === 'pulls' || appView === 'issues' ? { kind: 'project', project: PROJECT, tab: appView === 'pulls' || appView === 'issues' ? appView : 'chat' }
     : { kind: 'agent', ref: `${PROJECT}/${appView}` };
   createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={queryClient}>
@@ -1360,7 +1658,7 @@ if (phoneMode === 'frame') {
             onClick={() => publishOne(queryClient)}
             data-dev-publish
             style={{ position: 'fixed', left: 12, bottom: 12, zIndex: 60 }}
-            className="rounded-lg border border-line-strong bg-overlay px-3 py-1.5 text-[12px] text-secondary shadow-md hover:text-title"
+            className="rounded-lg border border-line-strong bg-overlay px-3 py-1.5 text-caption text-secondary shadow-md hover:text-title"
           >
             Publish a page
           </button>
@@ -1370,13 +1668,12 @@ if (phoneMode === 'frame') {
   </QueryClientProvider>,
 );
 
-// PastAgentsPreview is the AgentBox-wide Past agents page, or one past agent
-// read in it (?past=chat), at the height the app gives it.
+// PastAgentsPreview is the Work page of every project, or one past agent
+// read in its chat (?past=chat), at the height the app gives it.
 function PastAgentsPreview() {
-  const [open, setOpen] = useState<string | null>(past === 'chat' ? `${PROJECT}/agent-31` : null);
   return (
     <div style={{ height: '100vh', font: '13px var(--font-sans)' }}>
-      <PastAgents open={open ?? undefined} onOpen={setOpen} onSelect={() => {}} />
+      {past === 'chat' ? <PastAgentView agentRef={`${PROJECT}/agent-31`} onBack={() => {}} onSelect={() => {}} /> : <WorkView onSelect={() => {}} />}
     </div>
   );
 }

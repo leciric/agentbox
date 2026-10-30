@@ -1,6 +1,7 @@
 package gitrepo_test
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -277,6 +279,41 @@ func TestRemoveWorktreeGitForgot(t *testing.T) {
 	}
 }
 
+// A locked worktree whose files are already gone (emptied from inside its
+// agent's machine, or deleted by hand) is forgotten for good: prune alone
+// skips a locked entry, which then kept the branch "checked out" and refused
+// a new worktree at the same path ("a missing but locked worktree").
+func TestRemoveWorktreeWhoseFilesAreGone(t *testing.T) {
+	root := testutil.FixtureRepo(t, "hello-stack")
+	repo, _ := gitrepo.Open(root)
+	wt := filepath.Join(t.TempDir(), "worktrees", "agent-01")
+	if err := repo.AddWorktree(wt, "agentbox/agent-01", "main", "agentbox: proj/agent-01"); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if err := os.RemoveAll(filepath.Join(wt, e.Name())); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := repo.RemoveWorktree(wt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(wt); !os.IsNotExist(err) {
+		t.Errorf("worktree directory still exists: %v", err)
+	}
+	if err := repo.DeleteBranch("agentbox/agent-01"); err != nil {
+		t.Errorf("DeleteBranch() after the worktree went: %v", err)
+	}
+	if err := repo.AddWorktree(wt, "agentbox/agent-01", "main", "agentbox: proj/agent-01"); err != nil {
+		t.Errorf("AddWorktree() at the same path: %v", err)
+	}
+}
+
 // TestLockedWorktreeSurvivesPrune is the bug this locking exists to fix: one
 // agent running `git worktree prune` inside its own machine, where every
 // other agent's worktree path doesn't exist, must not unregister them.
@@ -481,7 +518,7 @@ func TestCheckedOutSince(t *testing.T) {
 	if err := repo.AddWorktree(wt, "agentbox/agent-01", base, "test"); err != nil {
 		t.Fatal(err)
 	}
-	if got := gitrepo.CheckedOutSince(wt, since); !slices.Equal(got, []string{"agentbox/agent-01"}) {
+	if got, _ := gitrepo.CheckedOutSince(wt, since); !slices.Equal(got, []string{"agentbox/agent-01"}) {
 		t.Errorf("a fresh worktree has checked out %q, want only its own branch", got)
 	}
 	testutil.Git(t, wt, "switch", "--quiet", "-c", "feat/two")
@@ -489,10 +526,124 @@ func TestCheckedOutSince(t *testing.T) {
 	testutil.Git(t, wt, "checkout", "--quiet", "-b", "three")
 	testutil.Git(t, wt, "switch", "--quiet", "--detach")
 	want := []string{"three", "feat/two", "agentbox/agent-01"}
-	if got := gitrepo.CheckedOutSince(wt, since); !slices.Equal(got, want) {
+	if got, _ := gitrepo.CheckedOutSince(wt, since); !slices.Equal(got, want) {
 		t.Errorf("CheckedOutSince = %q, want %q", got, want)
 	}
-	if got := gitrepo.CheckedOutSince(filepath.Join(t.TempDir(), "gone"), since); got != nil {
-		t.Errorf("a missing worktree has checked out %q", got)
+	if got, err := gitrepo.CheckedOutSince(filepath.Join(t.TempDir(), "gone"), since); got != nil || err != nil {
+		t.Errorf("a missing worktree has checked out %q (%v)", got, err)
+	}
+	// The ENFILE of 21 Oct 2026: .git/worktrees/*/commondir couldn't be
+	// opened. That is no answer, not "no other branches".
+	for _, fault := range readFaults {
+		undo := gitrepo.FailUnder(filepath.Join(root, ".git", "worktrees"), fault)
+		got, err := gitrepo.CheckedOutSince(wt, since)
+		undo()
+		if err == nil {
+			t.Errorf("with %v, CheckedOutSince = %q and no error", fault, got)
+		}
+	}
+}
+
+// readFaults are the failures a read is put through: the system's file table
+// full, this process's, and git failing for a reason of its own.
+var readFaults = []error{syscall.ENFILE, syscall.EMFILE, errors.New("fatal: unable to read index")}
+
+// TestReadFailuresAreNotAnswers checks that what callers decide from — a
+// branch's tip and commits, a worktree's dirt and diff — fails when git does,
+// and that a branch that doesn't exist is still an answer.
+func TestReadFailuresAreNotAnswers(t *testing.T) {
+	root := testutil.FixtureRepo(t, "hello-stack")
+	repo, _ := gitrepo.Open(root)
+	if tip, err := repo.BranchTip("no-such-branch"); tip != "" || err != nil {
+		t.Errorf("a missing branch: BranchTip = %q, %v; want none, no error", tip, err)
+	}
+	if tip, own, err := gitrepo.BranchCommits(root, "no-such-branch", 10); tip != "" || own != nil || err != nil {
+		t.Errorf("a missing branch: BranchCommits = %q, %q, %v; want none, no error", tip, own, err)
+	}
+	if tip, err := repo.BranchTip("main"); tip == "" || err != nil {
+		t.Fatalf("BranchTip(main) = %q, %v", tip, err)
+	}
+	for _, fault := range readFaults {
+		undo := gitrepo.FailUnder(root, fault)
+		if _, err := repo.BranchTip("main"); err == nil || gitrepo.NotFound(err) {
+			t.Errorf("with %v, BranchTip(main) = %v, want a failure that isn't \"not found\"", fault, err)
+		}
+		if _, _, err := gitrepo.BranchCommits(root, "main", 10); err == nil {
+			t.Errorf("with %v, BranchCommits succeeded", fault)
+		}
+		if _, err := gitrepo.Dirty(root); err == nil {
+			t.Errorf("with %v, Dirty succeeded", fault)
+		}
+		if _, err := gitrepo.DiffWorktree(root, "HEAD", true); err == nil {
+			t.Errorf("with %v, DiffWorktree succeeded", fault)
+		}
+		undo()
+	}
+}
+
+// TestDiffBaseAfterMainMoves is the agent made from "HEAD" while the main
+// checkout had a side branch out, one commit off an old main, whose main then
+// moved on origin (the local main left behind) and which took it in: measured
+// from where it started, it owned everything merged to main since (#587's
+// 940 files, where GitHub showed 57).
+func TestDiffBaseAfterMainMoves(t *testing.T) {
+	testutil.GitEnv(t)
+	root := testutil.FixtureRepo(t, "hello-stack")
+	old := testutil.Git(t, root, "rev-parse", "main")
+	testutil.Git(t, root, "checkout", "-q", "-b", "side")
+	write(t, root, "side.txt", "side\n")
+	testutil.Git(t, root, "add", "side.txt")
+	testutil.Git(t, root, "commit", "-qm", "side")
+	start := testutil.Git(t, root, "rev-parse", "HEAD")
+	wt := filepath.Join(t.TempDir(), "wt")
+	testutil.Git(t, root, "worktree", "add", "-q", "-b", "agentbox/w", wt, start)
+	write(t, wt, "mine.txt", "mine\n")
+	testutil.Git(t, wt, "add", "mine.txt")
+	testutil.Git(t, wt, "commit", "-qm", "mine")
+
+	if got := gitrepo.DiffBase(wt, "HEAD", start); got != start {
+		t.Errorf("before main moves, DiffBase = %.7s, want where it started, %.7s", got, start)
+	}
+
+	// main moves on origin only; the local main stays where it was.
+	testutil.Git(t, root, "checkout", "-q", "main")
+	for _, f := range []string{"m1.txt", "m2.txt", "m3.txt"} {
+		write(t, root, f, f+"\n")
+		testutil.Git(t, root, "add", f)
+		testutil.Git(t, root, "commit", "-qm", f)
+	}
+	moved := testutil.Git(t, root, "rev-parse", "main")
+	testutil.Git(t, root, "update-ref", "refs/remotes/origin/main", moved)
+	testutil.Git(t, root, "update-ref", "refs/heads/main", old)
+	testutil.Git(t, root, "checkout", "-q", "side")
+
+	if got := gitrepo.DiffBase(wt, "HEAD", start); got != start {
+		t.Errorf("main moved but not taken in: DiffBase = %.7s, want %.7s", got, start)
+	}
+	testutil.Git(t, wt, "merge", "-q", "-m", "take in main", "origin/main")
+	write(t, wt, "dirty.txt", "dirty\n")
+
+	got := gitrepo.DiffBase(wt, "HEAD", start)
+	if got != moved {
+		t.Fatalf("after taking in origin's main, DiffBase = %.7s, want origin/main %.7s", got, moved)
+	}
+	// What GitHub shows for a pull request into main: its own commit, the
+	// side commit main never had, and the uncommitted file.
+	stat, err := gitrepo.DiffWorktree(wt, got, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stat, "3 files changed") || strings.Contains(stat, "m1.txt") {
+		t.Errorf("diff from DiffBase:\n%s", stat)
+	}
+	if got := gitrepo.DiffBase(wt, "main", start); got != moved {
+		t.Errorf("made from main: DiffBase = %.7s, want origin's copy %.7s", got, moved)
+	}
+	// A pull request into side is measured onto side alone.
+	if got := gitrepo.DiffBase(wt, "HEAD", start, "side"); got != start {
+		t.Errorf("onto side: DiffBase = %.7s, want %.7s", got, start)
+	}
+	if got := gitrepo.DiffBase(wt, "HEAD", start, "gone"); got != start {
+		t.Errorf("onto a branch nobody has: DiffBase = %.7s, want the fallback %.7s", got, start)
 	}
 }

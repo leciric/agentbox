@@ -17,7 +17,7 @@ export function NotificationKinds() {
   const prefs = usePrefs();
   return (
     <div className="grid gap-3 px-5 py-4" data-notify-kinds>
-      <div className="grid grid-cols-[minmax(0,1fr)_5rem_5rem] items-end gap-3 text-[11px] uppercase tracking-wider text-faint">
+      <div className="grid grid-cols-[minmax(0,1fr)_5rem_5rem] items-end gap-3 text-caption uppercase tracking-wider text-faint">
         <span />
         {channels.map((c) => (
           <span key={c} className="text-center">
@@ -28,8 +28,8 @@ export function NotificationKinds() {
       {kinds.map((k) => (
         <div key={k} className="grid grid-cols-[minmax(0,1fr)_5rem_5rem] items-center gap-3" data-notify-kind={k}>
           <div className="min-w-0">
-            <div className="text-[13px] font-medium text-primary">{t(`notify.kind.${k}.label` as MessageKey)}</div>
-            <div className="text-[12px] leading-relaxed text-subtle">{t(`notify.kind.${k}.description` as MessageKey)}</div>
+            <div className="text-ui font-medium text-primary">{t(`notify.kind.${k}.label` as MessageKey)}</div>
+            <div className="text-caption leading-relaxed text-subtle">{t(`notify.kind.${k}.description` as MessageKey)}</div>
           </div>
           {channels.map((c) => (
             <span key={c} className="flex justify-center">
@@ -104,8 +104,8 @@ export function NotificationModeChoice() {
             mode === m ? 'border-brand-500/60 bg-brand-500/10' : 'border-line bg-surface-faint hover:bg-surface-raised',
           )}
         >
-          <span className="text-[13px] font-medium text-title">{t(`notify.mode.${m}`)}</span>
-          <span className="text-[12px] text-muted">{t(`notify.mode.${m}.hint`)}</span>
+          <span className="text-ui font-medium text-title">{t(`notify.mode.${m}`)}</span>
+          <span className="text-caption text-muted">{t(`notify.mode.${m}.hint`)}</span>
         </button>
       ))}
     </div>

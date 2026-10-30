@@ -447,6 +447,13 @@ export function sessionShown(session: Pick<T.ChatSession, 'state' | 'background'
 export const asleep = (agent: Pick<T.Agent, 'ref' | 'state'>): 'stopped' | 'paused' | undefined =>
   isProjectChat(agent.ref) ? undefined : agent.state === 'stopped' || agent.state === 'paused' ? agent.state : undefined;
 
+// takesMessages says whether a chat's composer sends: never blocked because
+// something is still starting. A machine being made or queued has no AI tool
+// yet, and the daemon holds what you send until it has (tellAgentMessage); a
+// session still starting queues it the same way; a sleeping one wakes to it.
+export const takesMessages = (agent: Pick<T.Agent, 'ref' | 'state'>): boolean =>
+  agent.state === 'running' || agent.state === 'initializing' || agent.state === 'queued' || asleep(agent) !== undefined;
+
 export function isActive(it: T.ChatItem | undefined): boolean {
   return (
     !!it &&

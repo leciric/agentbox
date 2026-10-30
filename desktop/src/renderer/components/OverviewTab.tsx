@@ -122,11 +122,11 @@ export function OverviewTab({ agent, section = 'machine' }: { agent: T.Agent; se
                 </Tip>
               </Row>
               <div className="mt-4">
-                <div className="mb-2 flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-subtle">
+                <div className="mb-2 flex items-center gap-1.5 text-caption uppercase tracking-wider text-subtle">
                   <FileDiff className="size-3.5" />
                   {t('agent.overview.changesSince', { ref: agent.baseRef })}
                 </div>
-                <pre className="overflow-x-auto rounded-xl border border-line-faint bg-sunken p-3.5 font-mono text-[12px] leading-relaxed text-tertiary" aria-label={t('agent.overview.diffSummary')}>
+                <pre className="overflow-x-auto rounded-xl border border-line-faint bg-sunken p-3.5 font-mono text-caption leading-relaxed text-tertiary" aria-label={t('agent.overview.diffSummary')}>
                   {diff.isPending ? t('common.loading') : diff.data?.trim() || t('agent.overview.noChanges')}
                 </pre>
               </div>
@@ -184,7 +184,7 @@ function ClaudeAccountPicker({ agent }: { agent: T.Agent }) {
   });
 
   if (accounts.length < 2) {
-    return <span className="font-mono text-[12.5px]">{agent.claudeAccount || '—'}</span>;
+    return <span className="font-mono text-ui">{agent.claudeAccount || '—'}</span>;
   }
   return (
     <span className="flex min-w-0 flex-wrap items-center gap-2">
@@ -233,7 +233,7 @@ function InterfacePicker({ agent }: { agent: T.Agent }) {
             aria-checked={agent.interface === value}
             disabled={change.isPending}
             onClick={() => agent.interface !== value && change.mutate(value)}
-            className={cn('h-7 rounded-md px-2.5 text-[12.5px] text-muted transition hover:text-primary', agent.interface === value && 'bg-surface-strong text-title')}
+            className={cn('h-7 rounded-md px-2.5 text-ui text-muted transition hover:text-primary', agent.interface === value && 'bg-surface-strong text-title')}
           >
             {label}
           </button>
@@ -247,9 +247,9 @@ function InterfacePicker({ agent }: { agent: T.Agent }) {
 function Metric({ label, value, detail, fraction, hint }: { label: string; value: string; detail?: ReactNode; fraction?: number; hint?: string }) {
   return (
     <div className="min-w-0 rounded-xl border border-line-faint bg-surface-faint p-3" title={hint}>
-      <div className="text-[11px] uppercase tracking-wider text-subtle">{label}</div>
-      <div className="mt-1 font-mono text-lg tabular-nums text-primary">{value}</div>
-      {detail && <div className="mt-1 font-mono text-[10.5px] tabular-nums text-subtle">{detail}</div>}
+      <div className="text-caption uppercase tracking-wider text-subtle">{label}</div>
+      <div className="mt-1 font-mono text-heading tabular-nums text-primary">{value}</div>
+      {detail && <div className="mt-1 font-mono text-caption tabular-nums text-subtle">{detail}</div>}
       {fraction !== undefined && (
         <div className="mt-2 h-1 overflow-hidden rounded-full bg-surface-raised">
           <div className="h-full rounded-full bg-gradient-to-r from-brand-400 to-sky-400" style={{ width: `${Math.max(fraction * 100, 3)}%` }} />
@@ -272,7 +272,7 @@ function PreviewLink({ agent }: { agent: T.Agent }) {
     <>
       <input
         aria-label={t('agent.overview.previewPort')}
-        className="w-14 rounded-md border border-line-strong bg-well px-1.5 py-0.5 text-[12px] text-primary outline-none focus:border-brand-400/50"
+        className="w-14 rounded-md border border-line-strong bg-well px-1.5 py-0.5 text-caption text-primary outline-none focus:border-brand-400/50"
         value={port}
         onChange={(event) => setPort(event.target.value.replace(/\D/g, '').slice(0, 5))}
       />
