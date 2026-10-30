@@ -503,6 +503,8 @@ function AgentRow({
                 the name, its IP and what its machine uses are in the card its
                 hover opens (AgentInfoCard). */}
             <span className={cn('block min-w-0 truncate text-ui font-medium', active ? 'text-title' : 'text-secondary')}>{agent.title || agent.name}</span>
+            {/* Its session is its tint, and named in its hover card; said here for screen readers. */}
+            {owner && <span className="sr-only">{t('sessions.owner', { topic: owner.session.topic })}</span>}
             <span className="mt-0.5 flex items-center gap-1.5 text-caption">
               {status.tone === 'urgent' && <span className="size-1.5 shrink-0 rounded-full bg-amber-400" />}
               {status.tone === 'error' && <span className="size-1.5 shrink-0 rounded-full bg-rose-400" />}

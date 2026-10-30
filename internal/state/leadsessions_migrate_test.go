@@ -167,10 +167,12 @@ func TestSessionColoursMigrationColoursEachSession(t *testing.T) {
 	}
 	var values []string
 	for i := range 9 {
-		values = append(values, fmt.Sprintf("('web', 's%d', 'S', %d)", i, 100-i))
+		values = append(values, fmt.Sprintf("('web', 's%d', 'S', %d, 0)", i, 100-i))
 	}
+	// Closed sessions between and before them count after the open ones.
+	values = append(values, "('web', 'closed-1', 'S', 1, 7)", "('web', 'closed-2', 'S', 95, 7)")
 	for _, q := range []string{
-		`INSERT INTO lead_sessions (project, id, topic, created_at) VALUES ` + strings.Join(values, ", ") + `, ('api', 'main', 'Chat', 5)`,
+		`INSERT INTO lead_sessions (project, id, topic, created_at, closed_at) VALUES ` + strings.Join(values, ", ") + `, ('api', 'main', 'Chat', 5, 0)`,
 		fmt.Sprintf("PRAGMA user_version = %d", before),
 	} {
 		if _, err := db.ExecContext(ctx, q); err != nil {
@@ -190,6 +192,9 @@ func TestSessionColoursMigrationColoursEachSession(t *testing.T) {
 		if want := SessionColors[i%len(SessionColors)]; ls.Color != want {
 			t.Errorf("web's session %d (%s) = %q, want %q", i, ls.ID, ls.Color, want)
 		}
+	}
+	if closed, err := st.LeadSession(ctx, "web", "closed-1"); err != nil || closed.Color != SessionColors[9%len(SessionColors)] {
+		t.Errorf("web's first closed session = %+v, %v; want the colour after the open ones'", closed, err)
 	}
 	if api, err := st.LeadSession(ctx, "api", "main"); err != nil || api.Color != SessionColors[0] {
 		t.Errorf("api's session = %+v, %v; want the first colour", api, err)

@@ -67,9 +67,12 @@ type LeadSession struct {
 func (ls LeadSession) Closed() bool { return !ls.ClosedAt.IsZero() }
 
 // SessionColors are the colours a session can have, by name: the app holds
-// what each looks like in its light and dark themes. Appending is safe;
+// what each looks like in its light and dark themes (SESSION_COLORS in
+// desktop/src/renderer/lib/sessions.ts, and styles.css). Appending is safe;
 // renaming or removing one leaves the sessions that have it uncoloured.
-var SessionColors = []string{"rose", "peach", "lemon", "mint", "teal", "sky", "periwinkle", "lilac"}
+// The first few are the furthest apart, for the sessions from before colours,
+// which get them in order.
+var SessionColors = []string{"rose", "sky", "lemon", "mint", "lilac", "peach", "teal", "lime"}
 
 // pickSessionColor is a colour none of the open sessions has, at random, or
 // any at random once they all do.
@@ -252,11 +255,16 @@ func (s *Store) AddLeadSessionID(ctx context.Context, project, id, topic string,
 	if err != nil {
 		return err
 	}
-	taken, err := openSessionColors(ctx, s.db, project)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx,
+	defer func() { _ = tx.Rollback() }()
+	taken, err := openSessionColors(ctx, tx, project)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx,
 		`INSERT INTO lead_sessions (project, id, topic, created_at, color) VALUES (?, ?, ?, ?, ?)`, project, id, topic, at.UnixMilli(), pickSessionColor(taken))
 	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
 		return fmt.Errorf("session %s of %s: %w", id, project, ErrExists)
@@ -264,8 +272,61 @@ func (s *Store) AddLeadSessionID(ctx context.Context, project, id, topic string,
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT OR IGNORE INTO lead_session_ids (project, id) VALUES (?, ?)`, project, id)
-	return err
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO lead_session_ids (project, id) VALUES (?, ?)`, project, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// ColorLeadSessions gives a colour to each of a project's sessions that has
+// none, as one imported from an archive made before colours has, the open
+// ones first, each one no open session has while any is free.
+func (s *Store) ColorLeadSessions(ctx context.Context, project string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	rows, err := tx.QueryContext(ctx,
+		`SELECT id, closed_at FROM lead_sessions WHERE project = ? AND color = '' ORDER BY closed_at != 0, created_at, id`, project)
+	if err != nil {
+		return err
+	}
+	type bare struct {
+		id   string
+		open bool
+	}
+	var todo []bare
+	for rows.Next() {
+		var b bare
+		var closed int64
+		if err := rows.Scan(&b.id, &closed); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		b.open = closed == 0
+		todo = append(todo, b)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return err
+	}
+	if len(todo) == 0 {
+		return nil
+	}
+	taken, err := openSessionColors(ctx, tx, project)
+	if err != nil {
+		return err
+	}
+	for _, b := range todo {
+		color := pickSessionColor(taken)
+		if _, err := tx.ExecContext(ctx, `UPDATE lead_sessions SET color = ? WHERE project = ? AND id = ?`, color, project, b.id); err != nil {
+			return err
+		}
+		if b.open {
+			taken = append(taken, color)
+		}
+	}
+	return tx.Commit()
 }
 
 // leadSessionColumns is what scanLeadSession reads.
@@ -439,9 +500,45 @@ func (s *Store) CloseLeadSession(ctx context.Context, project, id string, at tim
 }
 
 // ReopenLeadSession moves a closed session from the history back among the
-// open ones.
+// open ones, with its colour unless an open session has taken it since: then
+// with one none has, while any is free.
 func (s *Store) ReopenLeadSession(ctx context.Context, project, id string) error {
-	return s.setLeadSessionClosed(ctx, project, id, 0, `closed_at != 0`)
+	if err := s.setLeadSessionClosed(ctx, project, id, 0, `closed_at != 0`); err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var own string
+	if err := tx.QueryRowContext(ctx, `SELECT color FROM lead_sessions WHERE project = ? AND id = ?`, project, id).Scan(&own); err != nil {
+		return err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT color FROM lead_sessions WHERE project = ? AND closed_at = 0 AND id != ?`, project, id)
+	if err != nil {
+		return err
+	}
+	var others []string
+	for rows.Next() {
+		var c string
+		if err := rows.Scan(&c); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		others = append(others, c)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return err
+	}
+	// With every colour taken, it may as well keep its own.
+	if own != "" && (!slices.Contains(others, own) || len(others) >= len(SessionColors)) {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE lead_sessions SET color = ? WHERE project = ? AND id = ?`, pickSessionColor(others), project, id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) setLeadSessionClosed(ctx context.Context, project, id string, closedAt int64, was string) error {

@@ -111,6 +111,10 @@ export function afterClose(sessions: readonly T.LeadSession[], id: string): T.Le
   return rest[Math.min(Math.max(i, 0), rest.length - 1)];
 }
 
+// SESSION_COLORS are the colours a session can have (state.SessionColors),
+// each with a [data-session-color] rule in styles.css.
+export const SESSION_COLORS = ['rose', 'sky', 'lemon', 'mint', 'lilac', 'peach', 'teal', 'lime'] as const;
+
 // sessionColor is the colour a chat of sessions shows for s (LeadSession.Color,
 // styles.css' [data-session-color]): none while the chat has one session, for
 // a session from before colours, or for no session.

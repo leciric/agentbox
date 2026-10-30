@@ -1473,14 +1473,15 @@ var migrations = []string{
 		UNION SELECT project, substr(agent, 6) FROM token_usage WHERE agent LIKE 'lead.%'`,
 	// Each session has a pastel colour (SessionColors), which the app tints its
 	// tab and its agents with. A new one gets one none of the open sessions
-	// has; those from before get them in the order they were opened.
+	// has; those from before get them in the order they were opened, the open
+	// ones first, so they start out different.
 	`ALTER TABLE lead_sessions ADD COLUMN color TEXT NOT NULL DEFAULT ''`,
 	`UPDATE lead_sessions SET color = (
-		SELECT json_extract('["rose","peach","lemon","mint","teal","sky","periwinkle","lilac"]',
+		SELECT json_extract('["rose","sky","lemon","mint","lilac","peach","teal","lime"]',
 			'$[' || ((count(*) - 1) % 8) || ']')
 		FROM lead_sessions o
-		WHERE o.project = lead_sessions.project AND (o.created_at < lead_sessions.created_at
-			OR (o.created_at = lead_sessions.created_at AND o.id <= lead_sessions.id)))`,
+		WHERE o.project = lead_sessions.project
+			AND (o.closed_at != 0, o.created_at, o.id) <= (lead_sessions.closed_at != 0, lead_sessions.created_at, lead_sessions.id))`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

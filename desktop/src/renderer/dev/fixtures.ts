@@ -15,6 +15,7 @@ import { inScope, type MediaScope } from '../lib/mediaPages';
 import { pagePageUrl, pageRequest, pageThumbUrl } from './pages';
 import { pastRequest } from './pastAgents';
 import { recapRequest } from './recap';
+import { SESSION_COLORS } from '../lib/sessions';
 
 export const PROJECT = 'agentbox';
 
@@ -2566,7 +2567,7 @@ function sessionsRequest(method: string, path: string, body: unknown) {
     for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
     const now = new Date().toISOString();
     const used = new Set(devSessions(project).map((x) => x.color));
-    const color = ['rose', 'peach', 'lemon', 'mint', 'teal', 'sky', 'periwinkle', 'lilac'].find((c) => !used.has(c)) ?? 'rose';
+    const color = SESSION_COLORS.find((c) => !used.has(c)) ?? 'rose';
     const s: T.LeadSession = { project, id, ref: `${project}/lead.${id}`, topic: topic || 'New session', untitled: !topic, color, chat: 'starting', agents: 0, createdAt: now, activeAt: now };
     sessionsByProject.set(project, [...devSessions(project), s]);
     return json(s);

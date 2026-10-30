@@ -301,3 +301,92 @@ func TestSessionsGetColoursNoOpenSessionHas(t *testing.T) {
 		t.Errorf("a session opened by id = %+v, %v; want a colour", ls, err)
 	}
 }
+
+// A reopened session keeps its colour unless an open one took it meanwhile.
+func TestAReopenedSessionGivesUpAColourTakenSince(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := openStore(t)
+	addProject(t, st, "web")
+	now := time.Now()
+	var all []state.LeadSession
+	for range state.SessionColors {
+		ls, err := st.AddUntitledLeadSession(ctx, "web", now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		all = append(all, ls)
+	}
+	// Two closed, and one of their colours taken by a new session.
+	for _, ls := range all[:2] {
+		if err := st.CloseLeadSession(ctx, "web", ls.ID, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	taker, err := st.AddLeadSession(ctx, "web", "Taker", now)
+	if err != nil || (taker.Color != all[0].Color && taker.Color != all[1].Color) {
+		t.Fatalf("a new session = %+v, %v; want one of the closed ones' colours", taker, err)
+	}
+	loser, keeper := all[0], all[1]
+	if taker.Color == keeper.Color {
+		loser, keeper = keeper, loser
+	}
+	for _, ls := range []state.LeadSession{keeper, loser} {
+		if err := st.ReopenLeadSession(ctx, "web", ls.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, _ := st.LeadSession(ctx, "web", keeper.ID); got.Color != keeper.Color {
+		t.Errorf("reopened with its colour free, %s = %q, want %q", keeper.ID, got.Color, keeper.Color)
+	}
+	// Every colour is open now: the one that lost its colour has to share one.
+	if got, _ := st.LeadSession(ctx, "web", loser.ID); !slices.Contains(state.SessionColors, got.Color) {
+		t.Errorf("reopened with every colour taken, %s = %q", loser.ID, got.Color)
+	}
+	// With colours free, it takes one of them instead.
+	addProject(t, st, "api")
+	a, _ := st.AddLeadSession(ctx, "api", "A", now)
+	b, _ := st.AddLeadSession(ctx, "api", "B", now)
+	if err := st.CloseLeadSession(ctx, "api", a.ID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().ExecContext(ctx, `UPDATE lead_sessions SET color = ? WHERE project = 'api' AND id = ?`, a.Color, b.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ReopenLeadSession(ctx, "api", a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := st.LeadSession(ctx, "api", a.ID); got.Color == a.Color || got.Color == "" {
+		t.Errorf("reopened while B has its colour, A = %q, want another", got.Color)
+	}
+}
+
+// Sessions with no colour, as imported ones from before colours, get them:
+// the open ones different colours.
+func TestColorLeadSessionsColoursTheUncoloured(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st := openStore(t)
+	addProject(t, st, "web")
+	now := time.Now()
+	for _, topic := range []string{"One", "Two", "Three"} {
+		if _, err := st.AddLeadSession(ctx, "web", topic, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := st.DB().ExecContext(ctx, `UPDATE lead_sessions SET color = '' WHERE project = 'web' AND id != 'one'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ColorLeadSessions(ctx, "web"); err != nil {
+		t.Fatal(err)
+	}
+	open, _ := st.LeadSessions(ctx, "web")
+	seen := map[string]bool{}
+	for _, ls := range open {
+		if ls.Color == "" || seen[ls.Color] {
+			t.Errorf("after ColorLeadSessions, %+v", open)
+			break
+		}
+		seen[ls.Color] = true
+	}
+}

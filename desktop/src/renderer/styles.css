@@ -1523,7 +1523,7 @@ html[data-blurred] .ab-monitor * {
 }
 
 /* A chat session's colour (components/chat/sessionColor.ts): a pastel per
-   name in state.SessionColors, lighter on dark and deeper on light, its wash
+   name in SESSION_COLORS (lib/sessions.ts), lighter on dark and deeper on light, its wash
    a little stronger on dark (--ab-session-wash) to read the same on both.
    [data-session-color] sets --session from it; a name this app doesn't know
    leaves it unset, and nothing tinted. .session-tint washes an agent's card
@@ -1537,8 +1537,8 @@ html[data-blurred] .ab-monitor * {
   --ab-session-mint: #8fdcb0;
   --ab-session-teal: #7fd3d0;
   --ab-session-sky: #8cc4f2;
-  --ab-session-periwinkle: #a9b2f5;
-  --ab-session-lilac: #d6a8ef;
+  --ab-session-lime: #c4e27e;
+  --ab-session-lilac: #e4a8e8;
   --ab-session-wash: 9%;
 }
 :root[data-appearance="light"] {
@@ -1548,8 +1548,8 @@ html[data-blurred] .ab-monitor * {
   --ab-session-mint: #43ad75;
   --ab-session-teal: #2fa3a1;
   --ab-session-sky: #4b97dc;
-  --ab-session-periwinkle: #6f7de3;
-  --ab-session-lilac: #ad6bd6;
+  --ab-session-lime: #7fa52a;
+  --ab-session-lilac: #c25fc6;
   --ab-session-wash: 7%;
 }
 [data-session-color="rose"] { --session: var(--ab-session-rose); }
@@ -1558,7 +1558,7 @@ html[data-blurred] .ab-monitor * {
 [data-session-color="mint"] { --session: var(--ab-session-mint); }
 [data-session-color="teal"] { --session: var(--ab-session-teal); }
 [data-session-color="sky"] { --session: var(--ab-session-sky); }
-[data-session-color="periwinkle"] { --session: var(--ab-session-periwinkle); }
+[data-session-color="lime"] { --session: var(--ab-session-lime); }
 [data-session-color="lilac"] { --session: var(--ab-session-lilac); }
 
 .session-dot {
