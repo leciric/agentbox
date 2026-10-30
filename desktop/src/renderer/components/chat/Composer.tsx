@@ -38,7 +38,7 @@ import { api, isHomeChat, isProjectChat, sessionOfRef } from '../../lib/api';
 import { chooseSession, topicFrom } from '../../lib/sessions';
 import { composerSkills, searchSkills, skillMentionAt } from '../../lib/skills';
 import { SkillTile } from '../SkillsPanel';
-import { contextBadge, contextHint, currentPlan, formatTokens, isMessage, pendingPermissions, toolOf, toolsReload } from '../../lib/chat';
+import { contextBadge, contextHint, currentPlan, forgetThread, formatTokens, isMessage, pendingPermissions, toolOf, toolsReload } from '../../lib/chat';
 import { choiceName, currentFirst, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../../lib/modelChoices';
 import { FileLinks } from '../files/FilePanel';
 import { mentionAt, matchAgents, matchFiles, matchProjects, mentionLimit, type MentionItem } from '../../lib/mentions';
@@ -1027,6 +1027,8 @@ function CacheCard({
     mutationFn: async (message: { text: string; images: Pending[] } | null) => {
       const topic = message ? topicFrom(message.text) : undefined;
       const s = await api.newLeadSession(project, { topic, from: sessionOfRef(chatRef) });
+      // Its id may be a deleted session's, whose thread is still held.
+      forgetThread(queryClient, s.ref);
       chooseSession(project, s.id);
       requestSessionFocus(s.ref);
       void queryClient.invalidateQueries({ queryKey: ['leadSessions', project] });

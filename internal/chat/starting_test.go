@@ -82,3 +82,48 @@ func TestAMessageHeldWhileTheMachineIsMadeGoesInOnRelease(t *testing.T) {
 		t.Errorf("released turn = %q, delivery %q; want the held message, delivered", got.Text, got.Delivery)
 	}
 }
+
+// A deleted session's id goes to the next new one, so its ref is used again,
+// and the app still holds the old thread under it: the new conversation's
+// events are numbered on from the old one's, past a gap, so the app reads it
+// again rather than skipping them as events it has seen (lib/chat.ts advance),
+// which lost the new session's first message and its answer.
+func TestAConversationMadeAgainUnderAForgottenRefNumbersItsEventsOn(t *testing.T) {
+	store := openStore(t)
+	lead := state.Agent{Project: "hello", Name: state.LeadSessionName("session"), Role: state.RoleLead, AI: "claude", Worktree: "/work/hello"}
+	f := newFakeTool(answerHello)
+	m, rec := newManager(t, store, f)
+	if _, err := m.Send(lead, "hello there"); err != nil {
+		t.Fatal(err)
+	}
+	old := waitThread(t, m, lead, "the first session's turn", turnsEnded(1)).Seq
+	m.Forget(lead.Ref())
+	last := rec.all()[len(rec.all())-1].Seq
+	if last < old {
+		t.Fatalf("last event %d before the thread's %d", last, old)
+	}
+
+	from := len(rec.all())
+	if _, err := m.Send(lead, "a new session"); err != nil {
+		t.Fatal(err)
+	}
+	evs := rec.all()[from:]
+	if len(evs) == 0 {
+		t.Fatal("the new conversation published nothing")
+	}
+	if evs[0].Seq <= last+1 {
+		t.Errorf("the new conversation's first event is %d after the forgotten one's last %d: want past a gap, so the app reads it again", evs[0].Seq, last)
+	}
+	for i := 1; i < len(evs); i++ {
+		if evs[i].Seq != evs[i-1].Seq+1 {
+			t.Fatalf("events %d then %d: want them numbered one after the other", evs[i-1].Seq, evs[i].Seq)
+		}
+	}
+	th, err := m.Thread(lead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if th.Seq <= last+1 {
+		t.Errorf("the new thread's seq %d, want past the forgotten %d", th.Seq, last)
+	}
+}

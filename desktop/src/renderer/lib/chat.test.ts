@@ -22,6 +22,7 @@ import {
   isSilent,
   isWork,
   fetchThread,
+  forgetThread,
   lineCounts,
   liveLabel,
   loadOlder,
@@ -45,6 +46,7 @@ import {
   toolsReload,
   workSummary,
 } from './chat.ts';
+import { withSending, type Sending } from './sending.ts';
 
 let seq = 0;
 const item = (over: Partial<T.ChatItem>): T.ChatItem =>
@@ -715,4 +717,50 @@ test('agentPermissionState reads an agent request a lead shows as its outcome fo
   assert.equal(agentPermissionState(p('always')), 'approvedAlways');
   assert.equal(agentPermissionState(p('reject')), 'denied');
   assert.equal(agentPermissionState(p('cancelled')), 'gone');
+});
+
+// A deleted session's id goes to the next new one. The app held the deleted
+// session's thread under that ref, at its last event's number, and the new
+// conversation counted from 1 again: every event up to that number was
+// skipped as one already seen, the first message, queued while the tool
+// started, among them. Its later changes then landed after the answer, and
+// the message on its way stayed pending at the end until they did.
+test('the first message of a session that reuses a deleted one\'s id is in the chat before its answer', async (t) => {
+  const ref = 'p/lead.session-3';
+  const at = '2026-10-30T12:00:00Z';
+  const session = (state: string) => ({ state, tool: 'claude', options: [], commands: [] }) as unknown as T.ChatSession;
+  const deleted: T.ChatThread = { agent: ref, seq: 14, session: session('ready'), items: [item({ id: 'old-u', kind: 'user', turn: 'old-u', text: 'about cats' }), item({ id: 'old-a', turn: 'old-u', text: 'Cats sleep a lot.' })] };
+
+  // Held, the old thread takes the new conversation's events, numbered on
+  // past a gap by the daemon, as a gap: it is read again, not added to.
+  const held = new QueryClient();
+  held.setQueryData(chatKey(ref), deleted);
+  applyChatEvent(held, { agent: ref, seq: 16, session: session('starting') });
+  assert.equal(held.getQueryData<T.ChatThread>(chatKey(ref)), deleted);
+  assert.equal(held.getQueryState(chatKey(ref))!.isInvalidated, true);
+
+  // Made, the session forgets it, and opens on its own chat.
+  const queryClient = new QueryClient();
+  queryClient.setQueryData(chatKey(ref), deleted);
+  forgetThread(queryClient, ref);
+  assert.equal(queryClient.getQueryData(chatKey(ref)), undefined);
+
+  const user = item({ id: 'u1', kind: 'user', turn: 'u1', text: 'about dogs', createdAt: at, delivery: 'starting' });
+  t.mock.method(api, 'chat', async () => ({ agent: ref, seq: 17, session: session('starting'), items: [user] }));
+  queryClient.setQueryData(chatKey(ref), await fetchThread(queryClient, ref));
+  // The message waits for the tool, then goes in, and the answer follows it.
+  applyChatEvent(queryClient, { agent: ref, seq: 18, item: { ...user, delivery: undefined } });
+  applyChatEvent(queryClient, { agent: ref, seq: 19, session: session('running') });
+  applyChatEvent(queryClient, { agent: ref, seq: 20, item: item({ id: 'a1', turn: 'u1', text: 'Dogs know words.', createdAt: at, streaming: true }) });
+  const live = queryClient.getQueryData<T.ChatThread>(chatKey(ref))!;
+  assert.deepEqual(live.items.map((it) => it.id), ['u1', 'a1']);
+
+  // What the composer showed while it was on its way is gone: the chat has it.
+  const onItsWay: Sending = { key: 'sending-1', ref, text: 'about dogs', attachments: [], at, send: async () => user };
+  const shown = withSending(live, [onItsWay]);
+  assert.deepEqual(shown.items.map((it) => it.id), ['u1', 'a1']);
+  assert.deepEqual(
+    timelineRows(shown, new Set()).filter((r) => r.type === 'user' || r.type === 'assistant').map((r) => r.key),
+    ['u1', 'a1'],
+  );
 });
