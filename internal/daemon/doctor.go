@@ -111,6 +111,9 @@ func (s *Server) doctorReport(ctx context.Context) (api.DoctorReport, error) {
 	// button does: safe whenever there's Incus to build it with and none runs.
 	imageCheck.AutoFix = imageCheck.Status == api.DoctorFail && incusErr == nil && imageCheck.Job == ""
 	if incusErr != nil {
+		// Incus failing is the failure: the image only waits for it, and
+		// isn't a second one to fix or hand over.
+		imageCheck.Status, imageCheck.Message = api.DoctorWarn, "waits for Incus"
 		imageCheck.Fix = "fix Incus first, then agentbox doctor --fix"
 	}
 	checks = append(checks, imageCheck)

@@ -219,6 +219,14 @@ func TestDoctorHomeOpensASessionToldWhatFailed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The image waits for Incus: one failure, not two to hand over.
+	report, err := d.client.Doctor(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := doctorCheck(t, report, "image"); c.Status != api.DoctorWarn || c.AutoFix || !strings.Contains(c.Fix, "Incus first") {
+		t.Errorf("the image, with Incus failing = %+v; want a warning that waits for Incus", c)
+	}
 	// Not logged in, the Home chat couldn't run: nothing is opened.
 	if _, err := d.client.DoctorHome(ctx, api.DoctorHomeRequest{Check: "incus"}); err == nil || !strings.Contains(err.Error(), "agentbox auth claude") {
 		t.Errorf("handing over with no login: %v; want it refused, saying to log in", err)
