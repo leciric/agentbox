@@ -111,13 +111,6 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
             ]
           : []),
         {
-          id: 'effort',
-          label: t('defaults.project.effortLabel'),
-          keywords: t('defaults.project.effortKeywords'),
-          modified: project.agentEffort !== '',
-          render: () => <AgentEffortPicker project={project} />,
-        },
-        {
           id: 'cluster',
           label: t('defaults.project.clusterLabel'),
           keywords: t('defaults.project.clusterKeywords'),
