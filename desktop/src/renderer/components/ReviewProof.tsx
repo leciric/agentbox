@@ -7,7 +7,7 @@ import { mediaUrl } from '../lib/media';
 import { chapterAt, gallery, readableName, shownKey, step, type Proof, type Shown, type Take } from '../lib/review';
 import { cn } from '../lib/utils';
 import { PageIcon } from './pages/PageThumb';
-import { ReviewCompare, type CompareHandle } from './ReviewCompare';
+import { ReviewCompare, ReviewVideos, type CompareHandle } from './ReviewCompare';
 import { Button } from './ui/button';
 import { Kbd } from './ui/card';
 
@@ -16,11 +16,12 @@ import { Kbd } from './ui/card';
 // of it, a recording, a screenshot or a page, and the strip under it lists
 // all of them, the one on stage lit; a recording's chapters (what it checked
 // at each moment) are beside it, to jump to. A before/after pair is one
-// piece, its two halves compared on stage (ReviewCompare). ← → step through
-// the gallery whatever the kind, Space plays and pauses, [ ] move through
-// the chapters, F fills the review with the piece on stage, and V, X and H
-// work a pair's comparison (ProofHandle, the keys being the review's:
-// ReviewCarousel).
+// piece: two screenshots compared on stage (ReviewCompare), two recordings
+// played one after the other (ReviewVideos). ← → step through the gallery
+// whatever the kind, Space plays and pauses (or flips a pair in Flip), [ ]
+// move through the chapters, F fills the review with the piece on stage,
+// and Q and H work a pair's comparison (ProofHandle, the keys being the
+// review's: ReviewCarousel).
 
 // clock is seconds as m:ss.
 export const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
@@ -35,7 +36,6 @@ export interface ProofHandle {
   // Esc does that before it closes the review.
   collapse: () => boolean;
   compareMode: () => void;
-  flip: () => void;
   highlight: () => void;
 }
 
@@ -66,7 +66,7 @@ export function ReviewProof({ ref, project, proof }: { ref?: Ref<ProofHandle>; p
   };
   useImperativeHandle(ref, () => ({
     step: (by) => shown.length && pick(step(at, shown.length, by)),
-    togglePlay: () => (current?.kind === 'pair' ? compare.current?.togglePlay() : player.current?.toggle()),
+    togglePlay: () => (current?.kind === 'pair' ? compare.current?.space() : player.current?.toggle()),
     chapter: (by) => player.current?.chapter(by),
     toggleExpand: () => current && expand(!expanded),
     collapse: () => {
@@ -75,7 +75,6 @@ export function ReviewProof({ ref, project, proof }: { ref?: Ref<ProofHandle>; p
       return true;
     },
     compareMode: () => compare.current?.cycle(),
-    flip: () => compare.current?.flip(),
     highlight: () => compare.current?.highlight(),
   }));
 
@@ -203,7 +202,10 @@ function Stage({
 }) {
   const box = expanded ? 'size-full' : 'mx-auto aspect-[16/10] w-full';
   const width = expanded ? undefined : { maxWidth: 'calc(50vh * 1.6)' };
-  if (shown.kind === 'pair') return <ReviewCompare ref={compare} pair={shown.pair} expanded={expanded} />;
+  if (shown.kind === 'pair') {
+    const Halves = shown.pair.before.kind === 'recording' ? ReviewVideos : ReviewCompare;
+    return <Halves ref={compare} pair={shown.pair} expanded={expanded} />;
+  }
   if (shown.kind === 'recording') return <Player ref={player} take={shown.take} chapter={chapter} onTime={onTime} expanded={expanded} />;
   if (shown.kind === 'screenshot') {
     return (

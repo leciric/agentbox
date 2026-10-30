@@ -222,7 +222,6 @@ export type ReviewAction =
   | 'nextChapter'
   | 'expand'
   | 'compareMode'
-  | 'flip'
   | 'highlight'
   | 'help';
 
@@ -243,8 +242,7 @@ export const reviewKeys: readonly { keys: readonly string[]; match?: readonly st
   { keys: ['['], action: 'previousChapter' },
   { keys: [']'], action: 'nextChapter' },
   { keys: ['F'], action: 'expand' },
-  { keys: ['V'], action: 'compareMode' },
-  { keys: ['X'], action: 'flip' },
+  { keys: ['Q'], action: 'compareMode' },
   { keys: ['H'], action: 'highlight' },
   { keys: ['D'], action: 'toggleDiff' },
   { keys: ['J'], action: 'nextFile' },
@@ -265,8 +263,9 @@ export function reviewShortcut(e: { key: string; ctrlKey?: boolean; altKey?: boo
 }
 
 // proofKey is whether action works the proof's gallery, which only the proof
-// pane takes: in the diff, the arrows scroll. V, X and H work a pair's
-// comparison.
+// pane takes: in the diff, the arrows scroll. Q and H work a pair's
+// comparison, and sit away from the verdicts' M, C and R, so a slip of the
+// finger on them can't merge or ask for changes (review.test.ts).
 export const proofKey = (action: ReviewAction) =>
   action === 'previousMedia' ||
   action === 'nextMedia' ||
@@ -275,7 +274,6 @@ export const proofKey = (action: ReviewAction) =>
   action === 'nextChapter' ||
   action === 'expand' ||
   action === 'compareMode' ||
-  action === 'flip' ||
   action === 'highlight';
 
 // repeatable is whether holding a key down may act again: moving through
@@ -298,6 +296,12 @@ export function isTyping(target: { tagName?: string; isContentEditable?: boolean
 export function pressable(target: { tagName?: string; closest?: (selector: string) => unknown } | null): boolean {
   return !!target?.closest?.('button,a[href],summary,[role="button"],[role="tab"],[role="radio"],[role="checkbox"],[role="switch"]');
 }
+
+// seeking is whether a key press belongs to a player that has focus: a
+// recording pair's players take Space and the arrows to play and seek, as
+// players do, instead of the review stepping through its gallery.
+export const seeking = (action: ReviewAction, target: { tagName?: string } | null) =>
+  target?.tagName?.toUpperCase() === 'VIDEO' && (action === 'play' || action === 'previousMedia' || action === 'nextMedia');
 
 // firstLine is a summary cut to its first line, without Markdown's heading
 // and list marks, for the review's header.

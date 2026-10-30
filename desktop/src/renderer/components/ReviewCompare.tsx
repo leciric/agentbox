@@ -1,4 +1,4 @@
-import { Columns2, FlipHorizontal2, Highlighter, Pause, Play, SplitSquareHorizontal } from 'lucide-react';
+import { Columns2, FlipHorizontal2, Highlighter, SplitSquareHorizontal } from 'lucide-react';
 import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react';
 import type * as T from '../../shared/api';
 import type { Pair, Side } from '../../shared/pairs';
@@ -8,22 +8,26 @@ import { mediaUrl } from '../lib/media';
 import { cn, errorMessage } from '../lib/utils';
 import { Kbd } from './ui/card';
 
-// The review's stage for a before/after pair (shared/pairs.ts): the two
-// side by side, zoomed and panned together; one over the other with a
-// divider to drag; or one at a time, X flipping between them. Highlight
-// marks the pixels that changed, for two screenshots of the same size. V,
-// X and H are the review's keys (ReviewProof's handle), and the mode is
-// remembered (lib/compare.ts).
+// The review's stage for a before/after pair of screenshots
+// (shared/pairs.ts): the two side by side, zoomed and panned together; one
+// over the other with a divider to drag; or one at a time, a click or Space
+// flipping between them. Highlight marks the pixels that changed, for two
+// of the same size. Q cycles the modes and H highlights (ReviewProof's
+// handle, the keys being the review's), and the mode is remembered
+// (lib/compare.ts). A pair of recordings isn't compared: two walkthroughs
+// rarely show the same screen at the same moment, so ReviewVideos plays
+// them one after the other, each with its own controls.
 
 export interface CompareHandle {
   cycle: () => void;
-  flip: () => void;
   highlight: () => void;
-  togglePlay: () => void;
+  // space is the review's Space: Flip flips, the other modes do nothing; a
+  // pair of recordings plays or pauses the one last used.
+  space: () => void;
 }
 
 const modeIcon: Record<CompareMode, typeof Columns2> = { side: Columns2, slider: SplitSquareHorizontal, flip: FlipHorizontal2 };
-const modeKey: Record<CompareMode, string> = { side: 'V', slider: 'V', flip: 'X' };
+const modeLabel = { side: 'review.compare.side', slider: 'review.compare.slider', flip: 'review.compare.flip' } as const;
 
 export function ReviewCompare({ ref, pair, expanded }: { ref?: Ref<CompareHandle>; pair: Pair; expanded: boolean }) {
   const t = useT();
@@ -31,40 +35,18 @@ export function ReviewCompare({ ref, pair, expanded }: { ref?: Ref<CompareHandle
   const [side, setSide] = useState<Side>('after');
   const [split, setSplit] = useState(0.5);
   const [zoom, setZoom] = useState<Zoom>(noZoom);
-  const videos = useRef<Record<Side, HTMLVideoElement | null>>({ before: null, after: null });
-  const [playing, setPlaying] = useState(true);
-  const recordings = pair.before.kind === 'recording';
-  const difference = useDifference(pair, highlight && !recordings);
-  const flip = () => {
-    if (mode !== 'flip') setComparePrefs({ mode: 'flip' });
-    setSide((s) => (s === 'after' ? 'before' : 'after'));
-  };
-  const togglePlay = () => {
-    const lead = videos.current.before;
-    if (!lead) return;
-    const play = lead.paused;
-    for (const v of [videos.current.before, videos.current.after]) if (v) void (play ? v.play().catch(() => {}) : v.pause());
-    setPlaying(play);
-  };
+  const difference = useDifference(pair, highlight);
+  const flip = () => setSide((s) => (s === 'after' ? 'before' : 'after'));
   useImperativeHandle(ref, () => ({
     cycle: () => setComparePrefs({ mode: nextMode(mode) }),
-    flip,
     highlight: () => setComparePrefs({ highlight: !highlight }),
-    togglePlay,
+    space: () => mode === 'flip' && flip(),
   }));
 
   const aspect = aspectOf(pair.after.meta) ?? aspectOf(pair.before.meta) ?? 16 / 10;
   const overlay = highlight && difference.status === 'ready' ? difference.url : undefined;
   const picture = (s: Side) => (
-    <Picture
-      item={pair[s]}
-      label={t(s === 'before' ? 'review.compare.before' : 'review.compare.after')}
-      overlay={overlay}
-      video={(v) => {
-        videos.current[s] = v;
-      }}
-      onTime={s === 'before' ? (time) => syncVideo(videos.current.after, time) : undefined}
-    />
+    <Picture item={pair[s]} label={t(s === 'before' ? 'review.compare.before' : 'review.compare.after')} overlay={overlay} />
   );
   const hint = t(mode === 'side' ? 'review.compare.sideHint' : mode === 'slider' ? 'review.compare.sliderHint' : 'review.compare.flipHint');
 
@@ -81,24 +63,24 @@ export function ReviewCompare({ ref, pair, expanded }: { ref?: Ref<CompareHandle
                 role="radio"
                 aria-checked={mode === m}
                 onClick={() => setComparePrefs({ mode: m })}
+                title={t('review.compare.modeTitle', { mode: t(modeLabel[m]) })}
                 className={cn('inline-flex h-6 items-center gap-1.5 rounded-md px-2 font-medium transition', mode === m ? 'bg-surface-strong text-title' : 'text-subtle hover:text-primary')}
                 data-review-compare-mode={m}
               >
                 <Icon className="size-3.5" />
-                {t(m === 'side' ? 'review.compare.side' : m === 'slider' ? 'review.compare.slider' : 'review.compare.flip')}
-                {(m === 'flip' || mode !== m) && (
-                  <span className="max-md:hidden" aria-hidden>
-                    <Kbd>{modeKey[m]}</Kbd>
-                  </span>
-                )}
+                {t(modeLabel[m])}
               </button>
             );
           })}
+          <span className="px-1 max-md:hidden" aria-hidden>
+            <Kbd>Q</Kbd>
+          </span>
         </div>
         <button
           type="button"
           aria-pressed={highlight}
           onClick={() => setComparePrefs({ highlight: !highlight })}
+          title={t('review.compare.highlightTitle')}
           className={cn(
             'inline-flex h-7 items-center gap-1.5 rounded-lg border px-2 font-medium transition',
             highlight ? 'border-fuchsia-400/60 bg-fuchsia-500/15 text-fuchsia-200' : 'border-line text-subtle hover:text-primary',
@@ -113,13 +95,8 @@ export function ReviewCompare({ ref, pair, expanded }: { ref?: Ref<CompareHandle
         </button>
         {highlight && (
           <span className="min-w-0 truncate text-[11.5px] text-subtle" data-review-highlight-note={difference.status}>
-            {recordings ? t('review.compare.onlyShots') : differenceNote(t, difference)}
+            {differenceNote(t, difference)}
           </span>
-        )}
-        {recordings && (
-          <button type="button" onClick={togglePlay} aria-label={t(playing ? 'review.pause' : 'review.play')} title={`${t(playing ? 'review.pause' : 'review.play')} (Space)`} className="text-subtle hover:text-primary">
-            {playing ? <Pause className="size-4 fill-current" /> : <Play className="size-4 fill-current" />}
-          </button>
         )}
         <span className="ml-auto flex min-w-0 items-center gap-2 text-[11.5px] text-subtle">
           {zoom.scale > 1 && (
@@ -158,12 +135,6 @@ export function ReviewCompare({ ref, pair, expanded }: { ref?: Ref<CompareHandle
       </div>
     </div>
   );
-}
-
-// syncVideo keeps the after playing where the before is, both being the
-// same walkthrough.
-function syncVideo(v: HTMLVideoElement | null, time: number) {
-  if (v && Math.abs(v.currentTime - time) > 0.25 && time <= (v.duration || Infinity)) v.currentTime = time;
 }
 
 const aspectOf = (meta: T.MediaMeta) => (meta.width && meta.height ? meta.width / meta.height : undefined);
@@ -248,14 +219,10 @@ function Frame({ aspect, zoom, onZoom, onDrag, onClick, children }: { aspect: nu
 
 // Picture is one half of a pair, filling its frame, labelled with its side,
 // the highlight over it.
-function Picture({ item, label, overlay, video, onTime }: { item: T.MediaItem; label: string; overlay?: string; video: (v: HTMLVideoElement | null) => void; onTime?: (seconds: number) => void }) {
+function Picture({ item, label, overlay }: { item: T.MediaItem; label: string; overlay?: string }) {
   return (
     <div className="absolute inset-0" data-review-picture={item.id}>
-      {item.kind === 'recording' ? (
-        <video ref={video} src={mediaUrl(item)} autoPlay muted loop playsInline onTimeUpdate={(e) => onTime?.(e.currentTarget.currentTime)} className="size-full object-fill" />
-      ) : (
-        <img src={mediaUrl(item)} alt={item.name} draggable={false} className="size-full object-fill" />
-      )}
+      <img src={mediaUrl(item)} alt={item.name} draggable={false} className="size-full object-fill" />
       {overlay && <img src={overlay} alt="" draggable={false} className="pointer-events-none absolute inset-0 size-full object-fill [image-rendering:pixelated]" data-review-overlay />}
       <span className="pointer-events-none absolute left-2 top-2 rounded-md bg-black/70 px-1.5 py-0.5 text-[11px] font-medium text-white backdrop-blur">{label}</span>
     </div>
@@ -328,4 +295,49 @@ async function diffPair(pair: Pair): Promise<Difference> {
   (canvas.getContext('2d') as OffscreenCanvasRenderingContext2D).putImageData(new ImageData(diff.overlay, a.width, a.height), 0, 0);
   const url = URL.createObjectURL(await canvas.convertToBlob({ type: 'image/png' }));
   return { status: 'ready', url, changed: diff.changed, total: diff.total };
+}
+
+// ReviewVideos is a pair of recordings: the before, then the after, each a
+// player of its own with the browser's controls (seek, speed, full screen),
+// neither following the other. Space plays or pauses the one last used, the
+// before until then.
+export function ReviewVideos({ ref, pair, expanded }: { ref?: Ref<CompareHandle>; pair: Pair; expanded: boolean }) {
+  const t = useT();
+  const videos = useRef<Record<Side, HTMLVideoElement | null>>({ before: null, after: null });
+  const used = useRef<Side>('before');
+  useImperativeHandle(ref, () => ({
+    cycle: () => {},
+    highlight: () => {},
+    space: () => {
+      const v = videos.current[used.current];
+      if (v) void (v.paused ? v.play().catch(() => {}) : v.pause());
+    },
+  }));
+  return (
+    <div className={cn('grid min-w-0 gap-3', expanded && 'h-full min-h-0 grid-rows-2')} data-review-videos>
+      {(['before', 'after'] as const).map((s) => (
+        <figure key={s} className={cn('mx-auto grid w-full min-w-0 gap-1.5', expanded && 'h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]')} style={expanded ? undefined : { maxWidth: 'calc(50vh * 1.6)' }}>
+          <figcaption className={cn('text-[12px] font-medium', expanded ? 'text-white/80' : 'text-secondary')}>{t(s === 'before' ? 'review.compare.before' : 'review.compare.after')}</figcaption>
+          <video
+            ref={(v) => {
+              videos.current[s] = v;
+            }}
+            src={mediaUrl(pair[s])}
+            controls
+            muted
+            playsInline
+            preload="metadata"
+            onPlay={() => {
+              used.current = s;
+            }}
+            onPointerDown={() => {
+              used.current = s;
+            }}
+            className={cn('block w-full min-w-0 rounded-xl border border-line-strong bg-black object-contain', expanded ? 'h-full min-h-0' : 'aspect-[16/10]')}
+            data-review-video={s}
+          />
+        </figure>
+      ))}
+    </div>
+  );
 }
