@@ -25,6 +25,7 @@ import (
 	"agentbox/internal/credentials"
 	"agentbox/internal/cursor"
 	"agentbox/internal/dockerfw"
+	"agentbox/internal/github"
 	"agentbox/internal/gitrepo"
 	"agentbox/internal/hostos"
 	"agentbox/internal/image"
@@ -191,6 +192,8 @@ type Server struct {
 	previewAddr  string                   // where the preview proxy listens; empty when it's off
 	previewIPs   map[string]previewTarget // agents' addresses, cached for the preview proxy
 	claudeLogins map[string]*claudeLogin  // in-app Claude Code logins, by job
+	githubLogins map[string]*githubLogin  // device-flow GitHub sign-ins, by job
+	githubDevice github.DeviceFlow        // where they sign in (githublogin.go)
 	distilling   map[string]bool          // projects with a distillation running, by name
 	leadCaches   map[string]*leadCache    // leads' prompt caches and their cards, by project (cachecard.go)
 	snaps        snapStore                // SnapShots waiting for the app's composer (snaps.go)
@@ -321,6 +324,8 @@ func New(cfg Config) (*Server, error) {
 		lastStates:       map[string]api.AgentChange{},
 		previewIPs:       map[string]previewTarget{},
 		claudeLogins:     map[string]*claudeLogin{},
+		githubLogins:     map[string]*githubLogin{},
+		githubDevice:     github.DeviceFlow{ClientID: github.ClientID()},
 		distilling:       map[string]bool{},
 		leadWaits:        map[string]bool{},
 		toldWaiting:      map[string]bool{},
@@ -943,6 +948,8 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/auth/cursor/login", s.startCursorLogin)
 	h("GET /v1/auth/cursor/login", s.cursorLoginStatus)
 	h("POST /v1/auth/github", s.saveGitHubToken)
+	h("POST /v1/auth/github/login", s.startGitHubLogin)
+	h("GET /v1/auth/github/login/{job}", s.githubLoginStatus)
 	h("DELETE /v1/auth/github/{account}", s.removeGitHubAccount)
 	h("POST /v1/auth/github/{account}/default", s.setDefaultGitHubAccount)
 	h("POST /v1/auth/github/{account}/rename", s.renameGitHubAccount)

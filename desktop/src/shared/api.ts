@@ -1178,6 +1178,22 @@ export interface GitHubTokenRequest {
   account?: string;
 }
 
+export interface GitHubLoginRequest {
+  account?: string;
+}
+
+export interface GitHubLogin {
+  job: string;
+  account: string;
+  status: string;
+  error?: string;
+  userCode?: string;
+  verificationUri?: string;
+  expiresAt?: string;
+  outcome?: string;
+  user?: string;
+}
+
 export interface CursorKeyRequest {
   apiKey: string;
   account?: string;

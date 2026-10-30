@@ -3143,6 +3143,224 @@ function CursorAccount({ command }: { command: string }) {
   );
 }
 
+// GitHubLogin signs in with GitHub's device flow, through the daemon: it
+// shows a code, opens github.com/login/device, and the token arrives once the
+// code is entered there. Nothing is pasted, and the host needs no gh.
+function GitHubLogin({
+  accounts,
+  onSaved,
+}: {
+  accounts: T.GitHubAccount[];
+  onSaved: () => Promise<void>;
+}) {
+  const t = useT();
+  const [account, setAccount] = useState("");
+  const [job, setJob] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const opened = useRef<string | null>(null);
+  const announced = useRef<string | null>(null);
+
+  const start = useMutation({
+    mutationFn: () => api.startGitHubLogin(account.trim() || undefined),
+    onSuccess: (started) => {
+      opened.current = null;
+      setCopied(false);
+      setJob(started.id);
+    },
+  });
+  const login = useQuery({
+    queryKey: ["github-login", job],
+    queryFn: () => api.githubLogin(job!),
+    enabled: job !== null,
+    // The code appears a moment after the job starts, and the sign-in ends
+    // whenever you get round to entering it.
+    refetchInterval: (query) =>
+      query.state.data && query.state.data.status !== "running" ? false : 1_000,
+  });
+  const cancel = useMutation({ mutationFn: () => api.cancelJob(job!) });
+  // A sign-in outlives this component, as ClaudeLogin's does: pick a running
+  // one back up rather than leave "already running" a dead end.
+  const jobs = useQuery({
+    queryKey: ["jobs"],
+    queryFn: api.jobs,
+    enabled: job === null,
+  });
+  useEffect(() => {
+    if (job !== null) return;
+    const running = jobs.data?.find(
+      (j) => j.kind === "github-login" && j.status === "running",
+    );
+    if (running) setJob(running.id);
+  }, [job, jobs.data]);
+
+  const data = login.data;
+  const code = data?.userCode;
+  const verificationUri = data?.verificationUri;
+  const copyCode = () => {
+    if (!code) return;
+    window.agentbox.copyText(code);
+    setCopied(true);
+  };
+  // Copy the code and open GitHub's page as soon as there is a code, once: the
+  // page asks for exactly what is on the clipboard.
+  useEffect(() => {
+    if (!code || !verificationUri || opened.current === code) return;
+    opened.current = code;
+    window.agentbox.copyText(code);
+    setCopied(true);
+    void window.agentbox.openExternal(verificationUri);
+  }, [code, verificationUri]);
+  // Say so once when it is saved, and refresh the accounts above.
+  useEffect(() => {
+    if (!job || data?.status !== "succeeded" || announced.current === job) return;
+    announced.current = job;
+    toast(t("settings.github.saved", { account: data.account, user: data.user ?? "" }));
+    setAccount("");
+    void onSaved();
+  }, [job, data, onSaved, t]);
+
+  const running = job !== null && (!data || data.status === "running");
+  const error = start.error ?? cancel.error;
+  const ended =
+    data?.status === "succeeded"
+      ? t("settings.github.saved", { account: data.account, user: data.user ?? "" })
+      : data?.status === "cancelled"
+        ? t("settings.githubLogin.cancelled")
+        : data?.outcome === "expired"
+          ? t("settings.githubLogin.expired")
+          : data?.outcome === "denied"
+            ? t("settings.githubLogin.denied")
+            : data?.status === "failed"
+              ? t("settings.githubLogin.failed")
+              : null;
+
+  return (
+    <div
+      className="grid gap-3"
+      data-github-login={data?.outcome ?? data?.status ?? (job ? "running" : "idle")}
+    >
+      <p className="text-[13px] text-muted">{t("settings.github.intro")}</p>
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="grid gap-1.5">
+          <Label htmlFor="github-login-account">{t("settings.accounts.account")}</Label>
+          <Input
+            id="github-login-account"
+            placeholder={accounts.length === 0 ? "default" : "work"}
+            value={account}
+            onChange={(event) => setAccount(event.target.value)}
+            disabled={running}
+            className="w-32 font-mono"
+          />
+        </div>
+        <Button
+          variant="primary"
+          disabled={running || start.isPending}
+          onClick={() => start.mutate()}
+        >
+          {running || start.isPending ? (
+            <LoaderCircle className="animate-spin" />
+          ) : (
+            <LogIn />
+          )}
+          {accounts.length === 0
+            ? t("settings.githubLogin.signIn")
+            : t("settings.githubLogin.addAccount")}
+        </Button>
+        {running && (
+          <Button
+            variant="ghost"
+            disabled={cancel.isPending}
+            onClick={() => cancel.mutate()}
+          >
+            {t("common.cancel")}
+          </Button>
+        )}
+      </div>
+
+      {job && (
+        <div className="grid gap-3 rounded-xl border border-line bg-surface-faint p-3.5">
+          {running && code && (
+            <div className="grid gap-2">
+              <p className="text-[13px] text-secondary">
+                {t("settings.githubLogin.enterCode")}
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <span
+                  className="select-all rounded-lg border border-line-strong bg-well px-3 py-1.5 font-mono text-2xl font-semibold tracking-[0.15em] text-primary"
+                  data-github-code
+                >
+                  {code}
+                </span>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={copyCode}
+                >
+                  {copied ? <Check className="text-emerald-400" /> : <Copy />}
+                  {copied ? t("settings.githubLogin.copied") : t("settings.githubLogin.copy")}
+                </Button>
+                {verificationUri && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void window.agentbox.openExternal(verificationUri)}
+                  >
+                    <ExternalLink />
+                    {t("settings.githubLogin.open")}
+                  </Button>
+                )}
+              </div>
+              {verificationUri && (
+                <p className="break-all text-xs text-subtle">
+                  {t("settings.githubLogin.where", { url: verificationUri })}
+                </p>
+              )}
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-2 text-[13px]">
+            {running ? (
+              <LoaderCircle className="size-4 animate-spin text-brand-400" />
+            ) : (
+              <StepIcon
+                status={data?.status === "succeeded" ? "ok" : "missing"}
+                small
+              />
+            )}
+            <span className="min-w-0 text-secondary">
+              {ended ??
+                (code
+                  ? t("settings.githubLogin.waiting")
+                  : t("settings.githubLogin.starting"))}
+            </span>
+            {!running && data?.status !== "succeeded" && (
+              <Button
+                size="sm"
+                variant="secondary"
+                className="ml-auto"
+                disabled={start.isPending}
+                onClick={() => start.mutate()}
+              >
+                <RefreshCw />
+                {data?.outcome === "expired"
+                  ? t("settings.githubLogin.newCode")
+                  : t("settings.githubLogin.tryAgain")}
+              </Button>
+            )}
+          </div>
+          {data?.status === "failed" && data.outcome !== "expired" && (
+            <p className="text-xs text-subtle">
+              {data.outcome === "denied"
+                ? t("settings.githubLogin.deniedHint")
+                : data.error}
+            </p>
+          )}
+        </div>
+      )}
+      {error && <Notice>{errorMessage(error)}</Notice>}
+    </div>
+  );
+}
+
 // GitHubAccounts lists the stored GitHub logins and adds more. A project uses
 // the account it picked on its own page; agents of the other projects use the
 // default one.
@@ -3153,6 +3371,7 @@ export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
   const notDefault = (projects.data ?? []).filter((p) => p.githubAccount);
   const [token, setToken] = useState("");
   const [account, setAccount] = useState("");
+  const [pasting, setPasting] = useState(false);
   const refresh = async () => {
     await queryClient.invalidateQueries({ queryKey: ["setup"] });
     await queryClient.invalidateQueries({ queryKey: ["auth"] });
@@ -3325,55 +3544,74 @@ export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
           ))}
         </ul>
       )}
-      <form
-        className="grid gap-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          save.mutate();
-        }}
-      >
-        <p className="text-[13px] text-muted">
-          {t.rich("settings.github.intro", { code: (c) => <Code>{c}</Code> })}
-        </p>
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="grid gap-1.5">
-            <Label htmlFor="github-account-name">{t("settings.accounts.account")}</Label>
-            <Input
-              id="github-account-name"
-              placeholder={accounts.length === 0 ? "default" : "work"}
-              value={account}
-              onChange={(event) => setAccount(event.target.value)}
-              className="w-32 font-mono"
-            />
-          </div>
-          <div className="grid min-w-48 flex-1 gap-1.5">
-            <Label htmlFor="github-account-token">{t("settings.accounts.token")}</Label>
-            <Input
-              id="github-account-token"
-              type="password"
-              placeholder={t("settings.github.tokenPlaceholder")}
-              value={token}
-              onChange={(event) => setToken(event.target.value)}
-              className="font-mono"
-            />
-          </div>
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={!token.trim() || save.isPending}
-          >
-            {save.isPending ? (
-              <LoaderCircle className="animate-spin" />
-            ) : (
-              <KeyRound />
+      <GitHubLogin accounts={accounts} onSaved={refresh} />
+      <div className="grid gap-2">
+        <button
+          type="button"
+          onClick={() => setPasting((open) => !open)}
+          aria-expanded={pasting}
+          className="flex w-fit items-center gap-1.5 text-xs text-subtle transition hover:text-tertiary"
+        >
+          <ChevronDown
+            className={cn(
+              "size-3.5 transition-transform",
+              pasting && "rotate-180",
             )}
-            {t("common.save")}
-          </Button>
-        </div>
-        <p className="text-xs text-subtle">
-          {t("settings.github.note")}
-        </p>
-      </form>
+          />
+          {t("settings.github.useToken")}
+        </button>
+        {pasting && (
+          <form
+            className="grid gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              save.mutate();
+            }}
+          >
+            <p className="text-[13px] text-muted">
+              {t.rich("settings.github.tokenIntro", { code: (c) => <Code>{c}</Code> })}
+            </p>
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="grid gap-1.5">
+                <Label htmlFor="github-account-name">{t("settings.accounts.account")}</Label>
+                <Input
+                  id="github-account-name"
+                  placeholder={accounts.length === 0 ? "default" : "work"}
+                  value={account}
+                  onChange={(event) => setAccount(event.target.value)}
+                  className="w-32 font-mono"
+                />
+              </div>
+              <div className="grid min-w-48 flex-1 gap-1.5">
+                <Label htmlFor="github-account-token">{t("settings.accounts.token")}</Label>
+                <Input
+                  id="github-account-token"
+                  type="password"
+                  placeholder={t("settings.github.tokenPlaceholder")}
+                  value={token}
+                  onChange={(event) => setToken(event.target.value)}
+                  className="font-mono"
+                />
+              </div>
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={!token.trim() || save.isPending}
+              >
+                {save.isPending ? (
+                  <LoaderCircle className="animate-spin" />
+                ) : (
+                  <KeyRound />
+                )}
+                {t("common.save")}
+              </Button>
+            </div>
+          </form>
+        )}
+      </div>
+      <p className="text-xs text-subtle">
+        {t("settings.github.note")}
+      </p>
       {error && <Notice>{errorMessage(error)}</Notice>}
     </div>
   );

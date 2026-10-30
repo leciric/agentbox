@@ -435,7 +435,7 @@ func TestLANNever(t *testing.T) {
 		"secrets and credentials": {
 			"GET /v1/projects/p/secrets", "PUT /v1/projects/p/secrets/K", "DELETE /v1/agents/p/a/secrets/K",
 			"GET /v1/projects/p/credentials", "GET /v1/agents/p/a/credential", "POST /v1/projects/p/questions/q1/credential",
-			"GET /v1/auth", "POST /v1/auth/claude/login", "POST /v1/auth/github", "DELETE /v1/auth/cursor",
+			"GET /v1/auth", "POST /v1/auth/claude/login", "POST /v1/auth/github", "POST /v1/auth/github/login", "GET /v1/auth/github/login/j", "DELETE /v1/auth/cursor",
 			"GET /v1/projects/p/browser-cookies", "PUT /v1/projects/p/browser-cookies",
 		},
 		"connectors": {

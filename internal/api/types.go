@@ -1468,6 +1468,39 @@ type CursorLogin struct {
 	Error   string `json:"error,omitempty"`
 }
 
+// GitHubLoginRequest starts a GitHub sign-in with OAuth's device flow for an
+// account; empty means the account called "default".
+type GitHubLoginRequest struct {
+	Account string `json:"account,omitempty"`
+}
+
+// How a GitHub sign-in that ended without a token ended (GitHubLogin.Outcome).
+const (
+	GitHubLoginExpired = "expired" // the code timed out before it was entered
+	GitHubLoginDenied  = "denied"  // the user cancelled on GitHub's page
+)
+
+// GitHubLogin is how far a device-flow sign-in has got (POST
+// /v1/auth/github/login starts it as a job, GET /v1/auth/github/login/{job}
+// is polled while it runs). The code appears a moment after it starts: the
+// user types it in at VerificationURI, in any browser, and the token is
+// stored under Account like a pasted one.
+type GitHubLogin struct {
+	Job     string `json:"job"`
+	Account string `json:"account"`
+	// Status is the job's: running, succeeded, failed or cancelled.
+	Status          string     `json:"status"`
+	Error           string     `json:"error,omitempty"`
+	UserCode        string     `json:"userCode,omitempty"`
+	VerificationURI string     `json:"verificationUri,omitempty"`
+	ExpiresAt       *time.Time `json:"expiresAt,omitempty"`
+	// Outcome is expired or denied for a failed sign-in that ended so, and
+	// empty for any other ending.
+	Outcome string `json:"outcome,omitempty"`
+	// User is the GitHub login the token belongs to, once it is stored.
+	User string `json:"user,omitempty"`
+}
+
 // RenameGitHubAccountRequest gives a stored GitHub account another name.
 type RenameGitHubAccountRequest struct {
 	Name string `json:"name"`

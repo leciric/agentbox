@@ -1572,23 +1572,34 @@ func (s *Server) saveGitHubToken(w http.ResponseWriter, r *http.Request) error {
 	if token == "" {
 		return errors.New("no token: paste the one from gh auth token, or a personal access token")
 	}
-	login, err := s.gitHub(token).Login(r.Context())
+	login, err := s.storeGitHubToken(r.Context(), req.Account, token)
 	if err != nil {
 		return err
 	}
+	return writeJSON(w, http.StatusOK, map[string]string{"user": login})
+}
+
+// storeGitHubToken asks GitHub whose token it is and stores it under the
+// account, the first account becoming the default. It is how a pasted token
+// and a device-flow sign-in (githublogin.go) both end.
+func (s *Server) storeGitHubToken(ctx context.Context, account, token string) (string, error) {
+	login, err := s.gitHub(token).Login(ctx)
+	if err != nil {
+		return "", err
+	}
 	creds := s.manager(nil).Creds
-	if err := creds.SaveGitHubToken(req.Account, token); err != nil {
-		return err
+	if err := creds.SaveGitHubToken(account, token); err != nil {
+		return "", err
 	}
 	// Remember who the token belongs to: the app says which GitHub user a
 	// project reads pull requests as, and asking GitHub on every poll to find
 	// out would cost a call per account.
-	if err := creds.SaveGitHubLogin(req.Account, login); err != nil {
-		return err
+	if err := creds.SaveGitHubLogin(account, login); err != nil {
+		return "", err
 	}
 	s.pulls.reset()
-	s.reconfigureLeads(r.Context())
-	return writeJSON(w, http.StatusOK, map[string]string{"user": login})
+	s.reconfigureLeads(ctx)
+	return login, nil
 }
 
 // reconfigureLeads writes every project's chat again, for a change to the

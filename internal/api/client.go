@@ -571,6 +571,18 @@ func (c *Client) SaveGitHubToken(ctx context.Context, account, token string) (st
 	return out.User, err
 }
 
+// StartGitHubLogin starts a device-flow GitHub sign-in for an account, as a job.
+func (c *Client) StartGitHubLogin(ctx context.Context, account string) (Job, error) {
+	var out Job
+	return out, c.do(ctx, http.MethodPost, "/v1/auth/github/login", GitHubLoginRequest{Account: account}, &out)
+}
+
+// GitHubLogin is how far the device-flow sign-in running as job has got.
+func (c *Client) GitHubLogin(ctx context.Context, job string) (GitHubLogin, error) {
+	var out GitHubLogin
+	return out, c.do(ctx, http.MethodGet, "/v1/auth/github/login/"+url.PathEscape(job), nil, &out)
+}
+
 // SaveCursorKey signs agents in to Cursor with an API key, once Cursor says
 // whose it is, and returns the account's email when Cursor gave one.
 func (c *Client) SaveCursorKey(ctx context.Context, account, key string) (string, error) {
