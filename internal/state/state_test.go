@@ -96,6 +96,7 @@ func TestProjects(t *testing.T) {
 	p.ConsolidationModel = state.DefaultConsolidationModel // filled in by AddProject
 	p.BranchPrefix = state.DefaultBranchPrefix             // filled in by AddProject
 	p.DisplayName = "pawly"                                // filled in by AddProject
+	p.AgentRemote = state.GitProfilePrivate                // the column's default
 	if !reflect.DeepEqual(got, p) {
 		t.Errorf("Project() = %+v, want %+v", got, p)
 	}

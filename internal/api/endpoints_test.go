@@ -321,6 +321,17 @@ func TestClientMethodsEncodeRequestsAndDecodeResponses(t *testing.T) {
 			},
 		},
 		{
+			name: "SetAgentTool", method: http.MethodPatch, path: "/v1/projects/pawly",
+			body: `{"agentTool":"opencode"}`,
+			resp: `{"name":"pawly","agentTool":"opencode"}`,
+			run: func(t *testing.T, c *Client) {
+				p, err := c.SetAgentTool(context.Background(), "pawly", "opencode")
+				if err != nil || p.AgentTool != "opencode" {
+					t.Errorf("SetAgentTool() = %+v, %v; want opencode, nil", p, err)
+				}
+			},
+		},
+		{
 			name: "SetBranchPrefix", method: http.MethodPatch, path: "/v1/projects/pawly",
 			body: `{"branchPrefix":"thiago/"}`,
 			resp: `{"name":"pawly","branchPrefix":"thiago/"}`,
@@ -954,6 +965,58 @@ func TestClientMethodsEncodeRequestsAndDecodeResponses(t *testing.T) {
 				base, err := c.RevertBase(context.Background(), "pawly")
 				if err != nil || base.Snapshot != "snap-1" {
 					t.Errorf("RevertBase() = %+v, %v; want snapshot snap-1, nil", base, err)
+				}
+			},
+		},
+		{
+			name: "SetProjectImage", method: http.MethodPut, path: "/v1/projects/pawly/base/image",
+			body: `{"image":"hub.example/pawly-agent:1","digest":"sha256:abc","agent":"agent-01"}`,
+			resp: `{"image":"hub.example/pawly-agent:1","digest":"sha256:abc","savedFrom":"pawly/agent-01","savedAt":"2026-01-02T03:04:05Z"}`,
+			run: func(t *testing.T, c *Client) {
+				img, err := c.SetProjectImage(context.Background(), "pawly", ProjectImageRequest{
+					Image: "hub.example/pawly-agent:1", Digest: "sha256:abc", Agent: "agent-01",
+				})
+				if err != nil || img.Image != "hub.example/pawly-agent:1" || img.Digest != "sha256:abc" {
+					t.Errorf("SetProjectImage() = %+v, %v", img, err)
+				}
+			},
+		},
+		{
+			name: "RevertProjectImage", method: http.MethodPost, path: "/v1/projects/pawly/base/image/revert",
+			resp: `{"image":"hub.example/pawly-agent:0","savedFrom":"pawly/agent-01","savedAt":"2026-01-02T03:04:05Z"}`,
+			run: func(t *testing.T, c *Client) {
+				img, err := c.RevertProjectImage(context.Background(), "pawly")
+				if err != nil || img.Image != "hub.example/pawly-agent:0" {
+					t.Errorf("RevertProjectImage() = %+v, %v", img, err)
+				}
+			},
+		},
+		{
+			name: "RemoveProjectImage", method: http.MethodDelete, path: "/v1/projects/pawly/base/image",
+			resp: ``,
+			run: func(t *testing.T, c *Client) {
+				if err := c.RemoveProjectImage(context.Background(), "pawly", false); err != nil {
+					t.Errorf("RemoveProjectImage() = %v", err)
+				}
+			},
+		},
+		{
+			name: "RemovePreviousProjectImage", method: http.MethodDelete, path: "/v1/projects/pawly/base/image?previous=1",
+			resp: ``,
+			run: func(t *testing.T, c *Client) {
+				if err := c.RemoveProjectImage(context.Background(), "pawly", true); err != nil {
+					t.Errorf("RemoveProjectImage(previous) = %v", err)
+				}
+			},
+		},
+		{
+			name: "Recreate", method: http.MethodPost, path: "/v1/agents/pawly/agent-01/recreate",
+			body: `{"stopped":true}`,
+			resp: `{"id":"job-3","status":"pending"}`,
+			run: func(t *testing.T, c *Client) {
+				job, err := c.Recreate(context.Background(), "pawly/agent-01", RecreateRequest{Stopped: true})
+				if err != nil || job.ID != "job-3" {
+					t.Errorf("Recreate() = %+v, %v; want ID job-3, nil", job, err)
 				}
 			},
 		},

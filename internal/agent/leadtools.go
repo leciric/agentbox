@@ -64,10 +64,12 @@ func leadNPMTool(tool string, version opencode.Release) (pkg, bin string, ok boo
 
 // LeadChoice is what a lead's composer chose: the tool in effect, the one
 // chosen for the next message ("" for none), the Claude Code account (""
-// for the project's), and the Codex and Cursor accounts (tool → account).
+// for the project's), the Codex and Cursor accounts (tool → account), and the
+// model and effort its session runs ("" when it uses the tool's own default).
 type LeadChoice struct {
 	Tool, NextTool, Account string
 	ToolAccounts            state.AccountMap
+	Model, Effort           string
 }
 
 // LeadChoice reads a lead's choice from its chat. A chat never switched runs
@@ -78,7 +80,8 @@ func (m *Manager) LeadChoice(ctx context.Context, project string) (LeadChoice, e
 	if err != nil {
 		return LeadChoice{Tool: "claude"}, err
 	}
-	return LeadChoice{Tool: m.chatTool(ctx, c), NextTool: c.NextTool, Account: c.Account, ToolAccounts: c.ToolAccounts}, nil
+	return LeadChoice{Tool: m.chatTool(ctx, c), NextTool: c.NextTool, Account: c.Account, ToolAccounts: c.ToolAccounts,
+		Model: c.Options["model"], Effort: c.Options["effort"]}, nil
 }
 
 // LeadChoiceOf reads the choice of one chat session's composer. A session

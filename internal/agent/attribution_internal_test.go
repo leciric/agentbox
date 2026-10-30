@@ -149,10 +149,10 @@ func TestClaudeAttributionFollowsTheSetting(t *testing.T) {
 }
 
 func TestGitConfigNamesTheHooksOnlyWhenGiven(t *testing.T) {
-	if got := gitConfig(true, "/home/dev/"+gitHooksDir); !strings.Contains(got, "[core]\n\thooksPath = \"/home/dev/.config/agentbox/git-hooks\"\n") {
+	if got := gitConfig(true, "/home/dev/"+gitHooksDir, nil); !strings.Contains(got, "[core]\n\thooksPath = \"/home/dev/.config/agentbox/git-hooks\"\n") {
 		t.Errorf("gitConfig with hooks:\n%s", got)
 	}
-	if got := gitConfig(true, ""); strings.Contains(got, "hooksPath") {
+	if got := gitConfig(true, "", nil); strings.Contains(got, "hooksPath") {
 		t.Errorf("gitConfig without hooks:\n%s", got)
 	}
 }

@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"agentbox/internal/api"
+	"agentbox/internal/state"
 )
 
 // baseIncus stands in for a project that has a base and, beside it, the base
@@ -82,6 +84,71 @@ func TestBaseAPIReportsAndRevertsTheSaveBefore(t *testing.T) {
 	}
 	if _, err := d.client.RevertBase(ctx, "hello-stack"); !api.IsNotFound(err) {
 		t.Errorf("reverting twice: got %v, want 404", err)
+	}
+}
+
+// A cluster project's base is its own image, built by the CLI and recorded
+// here: the project has one, the one before it, and a way back.
+func TestProjectImageAPI(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Truncate(time.Second)
+	if err := d.srv.store.AddAgent(ctx, state.Agent{
+		Project: "hello-stack", Name: "agent-01", Instance: "ab-hello-stack-agent-01", AI: "claude",
+		Branch: "agentbox/agent-01", BaseRef: "main", BaseCommit: "abc", Status: state.AgentReady, CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.srv.store.PlaceAgent(ctx, "hello-stack", "agent-01", "k3d", "/workspace", state.DesiredRunning); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := d.client.SetProjectImage(ctx, "hello-stack", api.ProjectImageRequest{
+		Image: "hub.example/hello-stack-agent:20261027-100000", Digest: "sha256:1111", Agent: "agent-01",
+	})
+	if err != nil {
+		t.Fatalf("SetProjectImage() = %v", err)
+	}
+	if first.Image != "hub.example/hello-stack-agent:20261027-100000" || first.SavedFrom != "hello-stack/agent-01" {
+		t.Errorf("SetProjectImage() = %+v", first)
+	}
+	second, err := d.client.SetProjectImage(ctx, "hello-stack", api.ProjectImageRequest{
+		Image: "hub.example/hello-stack-agent:20261027-110000", Digest: "@sha256:2222", Agent: "agent-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Digest != "sha256:2222" {
+		t.Errorf("the second save's digest = %q, want the @ trimmed", second.Digest)
+	}
+
+	base, ok, err := d.client.Base(ctx, "hello-stack")
+	if err != nil || !ok {
+		t.Fatalf("Base() = %+v, %v, %v", base, ok, err)
+	}
+	if base.Project == nil || base.Project.Image != second.Image {
+		t.Fatalf("Base().Project = %+v, want the second save", base.Project)
+	}
+	if base.Project.Previous == nil || base.Project.Previous.Image != first.Image {
+		t.Errorf("Base().Project.Previous = %+v, want the first save", base.Project.Previous)
+	}
+
+	back, err := d.client.RevertProjectImage(ctx, "hello-stack")
+	if err != nil || back.Image != first.Image {
+		t.Fatalf("RevertProjectImage() = %+v, %v", back, err)
+	}
+	if _, err := d.client.RevertProjectImage(ctx, "hello-stack"); !api.IsNotFound(err) {
+		t.Errorf("reverting twice = %v, want 404", err)
+	}
+	if err := d.client.RemoveProjectImage(ctx, "hello-stack", false); err != nil {
+		t.Fatalf("RemoveProjectImage() = %v", err)
+	}
+	if _, ok, err := d.client.Base(ctx, "hello-stack"); err != nil || ok {
+		t.Errorf("Base() after removing the image = %v, %v; want none", ok, err)
 	}
 }
 

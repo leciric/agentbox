@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 
+	"agentbox/internal/image"
 	"agentbox/internal/state"
 )
 
@@ -27,3 +28,12 @@ func (m *Manager) EnsureNodeModules(ctx context.Context, a state.Agent) { m.ensu
 func (m *Manager) KeepNodeModules(a state.Agent) {
 	m.keepNodeModules(a, m.nodeModulesInstalls(context.Background(), a, false))
 }
+
+// The paths a machine's user and tree live at, for machinepaths_test.go,
+// which checks the seam from outside the package as the daemon uses it.
+func (m *Manager) MachineUser(a state.Agent) image.User { return m.machineUser(a) }
+func (m *Manager) MachineHome(a state.Agent) string     { return m.home(a) }
+func (m *Manager) EnvPathFor(a state.Agent) string      { return m.envPath(a) }
+func (m *Manager) BashEnvPathFor(a state.Agent) string  { return m.bashEnvPath(a) }
+func (m *Manager) SecretsPathFor(a state.Agent) string  { return m.secretsPath(a) }
+func (m *Manager) AttachArgv(a state.Agent) []string    { return m.attachArgv(a) }

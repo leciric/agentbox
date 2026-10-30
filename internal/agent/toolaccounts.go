@@ -181,6 +181,30 @@ func openCodeChosen(p state.Project, a state.Agent) state.AccountMap {
 	return chosen
 }
 
+// resolveAgentOpenCodeAccounts corrects an existing agent's stored OpenCode
+// provider map when a provider it names has gone, and writes the corrected
+// map back to the row. An agent with no accounts of its own follows its
+// project and is left alone.
+func (m *Manager) resolveAgentOpenCodeAccounts(ctx context.Context, a state.Agent) (state.Agent, error) {
+	own := a.OpenCodeAccounts.Clean()
+	if len(own) == 0 {
+		return a, nil
+	}
+	resolved, _, err := m.Creds.ResolveOpenCodeAccounts(own)
+	if err != nil {
+		return a, err
+	}
+	used := state.AccountMap(resolved).Clean()
+	if maps.Equal(used, own) {
+		return a, nil
+	}
+	a.OpenCodeAccounts = used
+	if err := m.Store.SetAgentToolAccounts(ctx, a.Project, a.Name, a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount); err != nil && !errors.Is(err, state.ErrNotFound) {
+		return a, err
+	}
+	return a, nil
+}
+
 // openCodeImportMarker is where a machine keeps the accounts last imported
 // into it: a hash of the export, the label each provider was imported under,
 // and a hash of each provider's credential. It holds no credential, only what
@@ -285,8 +309,7 @@ func (m *Manager) importOpenCodeAccounts(ctx context.Context, a state.Agent, ver
 	if err := m.ensureOpenCode2InAgent(ctx, a); err != nil {
 		return err
 	}
-	home := "/home/" + m.User.Name
-	marker := home + "/" + openCodeImportMarker
+	marker := m.home(a) + "/" + openCodeImportMarker
 	run := func(ctx context.Context, args []string, stdin io.Reader) error {
 		quoted := make([]string, 0, len(args))
 		for _, arg := range args {
@@ -294,14 +317,15 @@ func (m *Manager) importOpenCodeAccounts(ctx context.Context, a state.Agent, ver
 		}
 		command := strings.Join(append([]string{opencode.Command2}, quoted...), " ")
 		var out bytes.Buffer
-		if err := m.Incus.UserExec(ctx, a.Instance, m.User.Name, command, stdin, &out, &out); err != nil {
+		if err := m.machine(a).UserExec(ctx, m.machineUser(a).Name, command, stdin, &out, &out); err != nil {
 			return fmt.Errorf("%s: %w: %s", command, err, tail(out.String()))
 		}
 		return nil
 	}
 	read := func() ([]byte, error) { return m.readAgentFile(ctx, a, marker), nil }
 	write := func(b []byte) error {
-		return m.Incus.WriteFile(ctx, a.Instance, marker, b, m.User.UID, m.User.GID, 0o600)
+		user := m.machineUser(a)
+		return m.machine(a).WriteFile(ctx, marker, b, user.UID, user.GID, 0o600)
 	}
 	if err := syncOpenCodeImport(ctx, read, write, run, export, used); err != nil {
 		return fmt.Errorf("giving %s its OpenCode login: %w", a.Ref(), err)
@@ -318,27 +342,25 @@ func (m *Manager) importOpenCodeAccounts(ctx context.Context, a state.Agent, ver
 // machine that can't reach the registry is told so rather than given npm's
 // log. A machine that already has the pinned version does nothing.
 func (m *Manager) ensureOpenCode2InAgent(ctx context.Context, a state.Agent) error {
+	if m.machine(a).UserExec(ctx, m.machineUser(a).Name, "command -v "+opencode.Command2, nil, io.Discard, io.Discard) == nil {
+		return nil
+	}
 	pkg, err := opencode.Package2()
 	if err != nil {
 		return err
 	}
-	// Installed at the pinned version: a bump of image.OpenCode2Version
-	// reaches agents that already have an older one.
-	have := fmt.Sprintf("command -v %[1]s >/dev/null && grep -Fq %[2]s ~/.local/share/opencode2/node_modules/%[3]s/package.json",
-		opencode.Command2, shellQuote(`"version": "`+image.OpenCode2Version+`"`), pkg)
-	if m.Incus.UserExec(ctx, a.Instance, m.User.Name, have, nil, io.Discard, io.Discard) == nil {
-		return nil
-	}
 	ctx, cancel := context.WithTimeout(ctx, installTimeout)
 	defer cancel()
 	spec := shellQuote(pkg + "@" + image.OpenCode2Version)
-	// Under a lock, checking again inside it: a terminal opening while a chat
-	// starts must not run two installs into the same directory.
+	// Installed at the pinned version: a bump of image.OpenCode2Version
+	// reaches agents that already have an older one. Under a lock, checking
+	// again inside it: a terminal opening while a chat starts must not run two
+	// installs into the same directory.
 	install := fmt.Sprintf("grep -Fq %[3]s ~/.local/share/opencode2/node_modules/%[2]s/package.json 2>/dev/null && [ -e ~/.local/bin/opencode2 ] && exit 0; npm install --loglevel=error --fetch-retries=1 --no-fund --no-audit --prefix ~/.local/share/opencode2 %[1]s && ln -sfn ../share/opencode2/node_modules/%[2]s/bin/opencode ~/.local/bin/opencode2",
 		spec, pkg, shellQuote(`"version": "`+image.OpenCode2Version+`"`))
 	script := "mkdir -p ~/.local/bin ~/.local/share/opencode2 && flock ~/.local/share/opencode2.lock sh -c " + shellQuote(install)
 	var out bytes.Buffer
-	if err := m.Incus.UserExec(ctx, a.Instance, m.User.Name, script, nil, &out, &out); err != nil {
+	if err := m.machine(a).UserExec(ctx, m.machineUser(a).Name, script, nil, &out, &out); err != nil {
 		if reason := npmNetworkError(out.String()); reason != "" || ctx.Err() != nil {
 			return fmt.Errorf("%s has no OpenCode 2 yet, and installing it needs the network, which its machine can't reach (%s): connect it and start it again, or switch back to OpenCode 1", a.Ref(), cmpOr(reason, "timed out"))
 		}
@@ -543,19 +565,20 @@ func (m *Manager) SetAccount(ctx context.Context, a state.Agent, want Logins) (s
 		return a, err
 	}
 	a.CodexAccount, a.OpenCodeAccounts, a.CursorAccount = logins.Codex, logins.OpenCode, logins.Cursor
-	inst, err := m.Incus.Instance(ctx, a.Instance)
+	inst, err := m.machine(a).Info(ctx)
 	if err != nil {
 		return a, err
 	}
-	if inst.Status != "Running" {
-		return a, fmt.Errorf("%s is %s: start it first, since %s's login is a file in its machine", a.Ref(), strings.ToLower(inst.Status), ChatAdapters[a.AI].Tool)
+	if inst.State != "Running" {
+		return a, fmt.Errorf("%s is %s: start it first, since %s's login is a file in its machine", a.Ref(), strings.ToLower(inst.State), ChatAdapters[a.AI].Tool)
 	}
 	auth, err := m.toolLoginFile(p, a, a.AI)
 	if err != nil {
 		return a, err
 	}
-	home := "/home/" + m.User.Name
-	if err := m.Incus.WriteFile(ctx, a.Instance, home+"/"+toolAuthFile(a.AI), auth, m.User.UID, m.User.GID, 0o600); err != nil {
+	home := m.home(a)
+	user := m.machineUser(a)
+	if err := m.machine(a).WriteFile(ctx, home+"/"+toolAuthFile(a.AI), auth, user.UID, user.GID, 0o600); err != nil {
 		return a, err
 	}
 	if a.AI == "opencode" {

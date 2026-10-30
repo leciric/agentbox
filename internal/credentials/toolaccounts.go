@@ -498,16 +498,117 @@ func (s Store) OpenCodeProviders() ([]string, error) {
 	return out, nil
 }
 
+// OpenCodeGoProvider is the OpenCode Zen Go endpoint's provider id. The same
+// key authenticates it as the plain "opencode" provider, so when only an
+// "opencode" account is stored AgentBox also writes it under this name: an
+// agent whose auth.json lacks it cannot run the opencode-go/ models.
+const OpenCodeGoProvider = "opencode-go"
+
+// openCodeProvidersWithGo is the providers an agent's auth gets: the stored
+// ones, plus opencode-go when an "opencode" account is the only source for it.
+func openCodeProvidersWithGo(providers []string) []string {
+	out := slices.Clone(providers)
+	if slices.Contains(out, "opencode") && !slices.Contains(out, OpenCodeGoProvider) {
+		out = append(out, OpenCodeGoProvider)
+		sort.Strings(out)
+	}
+	return out
+}
+
+// ResolveOpenCodeAccounts corrects a stored provider→account map whose
+// provider no longer exists: an account that now lives under another provider
+// (opencode-go is preferred, because an "opencode" account moved there in the
+// Go switch) is moved to it, and the legacy "opencode" provider is dropped
+// when its account is gone, so the provider default resolves. Other unknown
+// providers are left for OpenCodeAuth to refuse. changed says whether the map
+// differs from the one given.
+func (s Store) ResolveOpenCodeAccounts(chosen map[string]string) (map[string]string, bool, error) {
+	providers, err := s.OpenCodeProviders()
+	if err != nil {
+		return nil, false, err
+	}
+	current := map[string]bool{}
+	for _, provider := range providers {
+		current[provider] = true
+	}
+	out := map[string]string{}
+	changed := false
+	// The providers that exist now come first: an account named for one of them
+	// is what was asked for, and a legacy provider moved onto the same name
+	// must not overwrite it.
+	for provider, name := range chosen {
+		provider, name = strings.TrimSpace(provider), strings.TrimSpace(name)
+		if provider == "" || name == "" {
+			changed = true
+			continue
+		}
+		if current[provider] {
+			out[provider] = name
+		}
+	}
+	for provider, name := range chosen {
+		provider, name = strings.TrimSpace(provider), strings.TrimSpace(name)
+		if provider == "" || name == "" || current[provider] {
+			continue
+		}
+		changed = true
+		if target := s.openCodeProviderForAccount(name, providers); target != "" {
+			if _, taken := out[target]; !taken {
+				out[target] = name
+			}
+			continue
+		}
+		if provider != "opencode" {
+			// A name that is really wrong is still refused by OpenCodeAuth.
+			out[provider] = name
+		}
+	}
+	return out, changed, nil
+}
+
+// openCodeProviderForAccount is the current provider holding account name,
+// preferring opencode-go: the Go endpoint is where the old opencode account
+// was moved.
+func (s Store) openCodeProviderForAccount(name string, providers []string) string {
+	order := append([]string{OpenCodeGoProvider}, providers...)
+	for _, provider := range order {
+		if !slices.Contains(providers, provider) {
+			continue
+		}
+		if ok, _ := s.HasToolAccount(ToolOpenCode, provider, name); ok {
+			return provider
+		}
+	}
+	return ""
+}
+
+// openCodeSourceProvider is the stored provider an auth entry is read from:
+// opencode-go falls back to the opencode account when it has none of its own.
+func openCodeSourceProvider(provider string, providers []string) string {
+	if provider == OpenCodeGoProvider && !slices.Contains(providers, OpenCodeGoProvider) && slices.Contains(providers, "opencode") {
+		return "opencode"
+	}
+	return provider
+}
+
 // OpenCodeAuth puts together the auth.json an OpenCode agent gets: for every
 // provider with an account, the one chosen names (provider → account), else
 // that provider's default. used is the account each provider got. A chosen
 // account that doesn't exist is an error rather than a quiet fallback, as an
 // unknown Claude Code account is. auth is nil when there is no provider at all.
+//
+// An "opencode" account is also delivered as opencode-go, with the same key:
+// the Go endpoint signs in with the same key, and OpenCode only lists its
+// models when an auth entry names that provider.
 func (s Store) OpenCodeAuth(chosen map[string]string) (auth []byte, used map[string]string, err error) {
-	providers, err := s.OpenCodeProviders()
+	stored, err := s.OpenCodeProviders()
 	if err != nil {
 		return nil, nil, err
 	}
+	if chosen, _, err = s.ResolveOpenCodeAccounts(chosen); err != nil {
+		return nil, nil, err
+	}
+	providers := openCodeProvidersWithGo(stored)
 	for provider, name := range chosen {
 		if name != "" && !slices.Contains(providers, provider) {
 			return nil, nil, s.noAccount(ToolOpenCode, provider, name)
@@ -516,14 +617,19 @@ func (s Store) OpenCodeAuth(chosen map[string]string) (auth []byte, used map[str
 	merged := map[string]json.RawMessage{}
 	used = map[string]string{}
 	for _, provider := range providers {
-		b, name, err := s.ToolAuth(ToolOpenCode, provider, chosen[provider])
+		source := openCodeSourceProvider(provider, stored)
+		name := chosen[provider]
+		if name == "" && source != provider {
+			name = chosen[source]
+		}
+		b, resolved, err := s.ToolAuth(ToolOpenCode, source, name)
 		if err != nil {
 			return nil, nil, err
 		}
 		if b == nil {
-			return nil, nil, s.noAccount(ToolOpenCode, provider, chosen[provider])
+			return nil, nil, s.noAccount(ToolOpenCode, source, name)
 		}
-		merged[provider], used[provider] = openCodeV1Entry(b), name
+		merged[provider], used[provider] = openCodeV1Entry(b), resolved
 	}
 	if len(merged) == 0 {
 		return nil, used, nil

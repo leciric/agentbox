@@ -485,7 +485,7 @@ func OwnMachineFreezer(instance string) error {
 		}
 		return err
 	}
-	if st, ok := info.Sys().(*syscall.Stat_t); ok && int(st.Uid) == os.Getuid() {
+	if ownedByUser(info, os.Getuid()) {
 		return nil
 	}
 	if !hostos.InVM() {

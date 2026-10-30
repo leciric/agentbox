@@ -197,6 +197,7 @@ func newCreateCmd(a *app) *cobra.Command {
 			req.Project = args[0]
 			f := cmd.Flags()
 			req.Autonomous = &autonomous
+			req.Queue = &queue
 			if f.Changed("model") {
 				req.Model = &model
 			}
@@ -244,15 +245,28 @@ func newCreateCmd(a *app) *cobra.Command {
 	f.StringVar(&req.CursorAccount, "cursor-account", "", "with --ai cursor, a stored Cursor account for this agent (default: the project's, then this machine's default)")
 	f.StringToStringVar(&req.OpenCodeAccounts, "opencode-account", nil, "with --ai opencode, a stored OpenCode account for a provider, as provider=account; repeat it for several (default: the project's, then each provider's default)")
 	f.StringVar(&req.GitHubAccount, "github-account", "", "a stored GitHub account for this agent (default: the project's, then this machine's default, then none)")
-	f.BoolVar(&queue, "queue", false, "accepted and ignored: every agent starts at once")
+	f.BoolVar(&queue, "queue", false, "wait in the project's queue when no cluster has room, instead of failing")
 	f.StringVar(&req.Size, "size", "", "accepted and ignored: the VM's memory pressure, not a size, decides when an agent's tests and builds run")
-	_ = f.MarkHidden("queue")
+	f.StringVar(&req.Cluster, "cluster", "", "run its machine as a pod in this Kubernetes cluster, auto to place it where there is room, or local for this machine (default: the project's choice)")
 	_ = f.MarkHidden("size")
 	f.StringVar(&req.Task, "task", "", "its first message, sent once it's ready: what to do")
 	f.BoolVar(&req.NoEnv, "no-env", false, "don't copy gitignored env files from the project")
 	f.BoolVar(&req.Clean, "clean", false, "start from the base image even if the project has a saved base")
 	f.BoolVar(&req.CatchUp, "catch-up", false, "bring the machine up to the current base image's packages and agent tools before its task: how a project base is refreshed")
 	return cmd
+}
+
+// queuePlace is where a queued agent stands in its project's line, as a
+// parenthetical, or "" when the queue didn't say.
+func queuePlace(position int) string {
+	switch {
+	case position <= 0:
+		return ""
+	case position == 1:
+		return " (next in line)"
+	default:
+		return fmt.Sprintf(" (%d in line)", position)
+	}
 }
 
 // finishAgentJob waits for a job that makes an agent, then describes the agent.
@@ -271,6 +285,13 @@ func finishAgentJob(cmd *cobra.Command, c *api.Client, j api.Job, start time.Tim
 
 func printAgent(cmd *cobra.Command, ag api.Agent, took time.Duration) {
 	out := cmd.OutOrStdout()
+	if ag.State == "queued" {
+		// Accepted, not made: the queue starts it when a cluster has room,
+		// and the reason says what is full.
+		_, _ = fmt.Fprintf(out, "\nAgent %s is queued%s: %s\n", ag.Ref, queuePlace(ag.QueuePosition), ag.QueueReason)
+		_, _ = fmt.Fprintf(out, "\nIt starts by itself when a cluster has room. Agentbox list shows the queue.\n")
+		return
+	}
 	_, _ = fmt.Fprintf(out, "\nAgent %s ready in %s\n\n", ag.Ref, took.Round(100*time.Millisecond))
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	if ag.Title != "" {
@@ -289,10 +310,21 @@ func printAgent(cmd *cobra.Command, ag api.Agent, took time.Duration) {
 	if ag.GitHubAccount != "" {
 		_, _ = fmt.Fprintf(w, "  account\t%s (GitHub)\n", ag.GitHubAccount)
 	}
-	_, _ = fmt.Fprintf(w, "  machine\tcopy of %s\n", ag.Source)
+	// A cluster agent has no worktree or address on this host: its machine is a
+	// pod, and the row says which cluster it is in.
+	if ag.Cluster != "" {
+		_, _ = fmt.Fprintf(w, "  cluster\t%s\n", ag.Cluster)
+	}
+	if ag.Source != "" {
+		_, _ = fmt.Fprintf(w, "  machine\tcopy of %s\n", ag.Source)
+	}
 	_, _ = fmt.Fprintf(w, "  branch\t%s (from %s)\n", ag.Branch, ag.BaseRef)
-	_, _ = fmt.Fprintf(w, "  worktree\t%s\n", ag.Worktree)
-	_, _ = fmt.Fprintf(w, "  ip\t%s\n", ag.IP)
+	if ag.Worktree != "" {
+		_, _ = fmt.Fprintf(w, "  worktree\t%s\n", ag.Worktree)
+	}
+	if ag.IP != "" {
+		_, _ = fmt.Fprintf(w, "  ip\t%s\n", ag.IP)
+	}
 	_ = w.Flush()
 	if ag.Interface == "chat" {
 		_, _ = fmt.Fprintf(out, "\nChat with it in the app, or: agentbox chat %s \"<message>\"", ag.Ref)
@@ -335,7 +367,19 @@ func newListCmd(a *app) *cobra.Command {
 				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 					ag.Ref, describeAI(ag.AI, ag.Autonomous), ag.State, ag.Branch, orDash(ag.IP), ago(ag.CreatedAt), orDash(ag.Title))
 			}
-			return w.Flush()
+			if err := w.Flush(); err != nil {
+				return err
+			}
+			// A queued agent's row says it is queued; the line under the table
+			// says where it stands and what was full, which doesn't fit a
+			// column everything else would leave empty.
+			for _, ag := range agents {
+				if ag.State != "queued" {
+					continue
+				}
+				_, _ = fmt.Fprintf(out, "\nQueued %s%s: %s", ag.Ref, queuePlace(ag.QueuePosition), ag.QueueReason)
+			}
+			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&archived, "archived", false, "list past agents instead, as agentbox past list does")
@@ -381,6 +425,11 @@ func newShellCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// A cluster agent's machine is a pod on another machine, reached
+			// over the daemon; there is no Incus here to open its terminal.
+			if ag.Cluster != "" {
+				return clusterTerminal(cmd.Context(), cmd, c, ag)
+			}
 			u, err := hostUser()
 			if err != nil {
 				return err
@@ -415,6 +464,11 @@ func newExecCmd(a *app) *cobra.Command {
 			}
 			if ag.State != "running" {
 				return notRunning(ag)
+			}
+			// The daemon runs it on the pod over its own machine, and answers
+			// with the status the command exited with.
+			if ag.Cluster != "" {
+				return clusterExec(cmd.Context(), cmd, c, ag, command)
 			}
 			u, err := hostUser()
 			if err != nil {
@@ -495,6 +549,52 @@ func newActionCmd(a *app, action, short, done string) *cobra.Command {
 		cmd.Flags().BoolVar(&now, "now", false, "accepted and ignored: nothing waits to start")
 		_ = cmd.Flags().MarkHidden("now")
 	}
+	return cmd
+}
+
+// newRecreateCmd replaces an agent's machine and keeps its work. On this host
+// that is only for a machine that is gone: an agent that has one is refused,
+// because recreating it would throw away what was installed in it. A cluster
+// agent has a claim for its machine rather than an instance, so its pod is
+// replaced and its files stay.
+func newRecreateCmd(a *app) *cobra.Command {
+	var stopped bool
+	cmd := &cobra.Command{
+		Use:   "recreate <project/agent>",
+		Short: "Replace an agent's machine, keeping its worktree and branch",
+		Long: `Gives an agent a new machine where its old one is gone, from the base image: the
+agent keeps its record (title, model, accounts, chat), its worktree with whatever
+is uncommitted in it, and its branch. What was only inside the old machine, such
+as packages installed in it and its home directory outside the worktree, does not
+come back. An agent whose machine is still there is refused; this is not a
+restart.
+
+In a Kubernetes cluster the machine is the claim rather than the pod, so its pod
+is replaced and everything in its home and worktree stays. The new pod runs the
+image the cluster points at now, which is how an agent picks up a new image.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			j, err := c.Recreate(cmd.Context(), args[0], api.RecreateRequest{Stopped: stopped})
+			if err != nil {
+				return err
+			}
+			final, err := waitJob(cmd, c, j)
+			if err != nil {
+				return err
+			}
+			var ag api.Agent
+			if err := json.Unmarshal(final.Result, &ag); err != nil {
+				return fmt.Errorf("reading the job result: %w", err)
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Recreated %s.\n", ag.Ref)
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&stopped, "stopped", false, "leave the new machine stopped")
 	return cmd
 }
 

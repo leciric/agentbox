@@ -39,6 +39,47 @@ func newAutoStopIdleTest(t *testing.T, status string, createdAt time.Time) (test
 	return d, a
 }
 
+// TestAutoStopIdleStopsAPod: an idle agent in a cluster is stopped the same way
+// an Incus one is, and stopping it is the pod's desired state: the reconciler
+// deletes it, and the claim with the worktree stays.
+func TestAutoStopIdleStopsAPod(t *testing.T) {
+	srv := reconcilerServer(t)
+	ctx := context.Background()
+	reconcilerProject(t, srv.store)
+	now := time.Now()
+	err := srv.store.AddAgent(ctx, state.Agent{
+		Project: "pawly", Name: "agent-01", Instance: "ab-pawly-agent-01", AI: "none",
+		Branch: "agentbox/agent-01", BaseRef: "main", BaseCommit: "abc",
+		Status: state.AgentReady, CreatedAt: now.Add(-3 * time.Hour),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.store.PlaceAgent(ctx, "pawly", "agent-01", "k3d", "/workspace", state.DesiredRunning); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.store.SetAgentPod(ctx, "pawly", "agent-01", "ab-pawly-agent-01", "uid-1", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.store.SetFlag(ctx, state.SettingAutoStopIdle, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.store.SetSetting(ctx, state.SettingIdleTime, fmt.Sprint(int(2*time.Hour/time.Second))); err != nil {
+		t.Fatal(err)
+	}
+
+	if stopped := srv.stopIdleIn(ctx, "pawly", 2*time.Hour, now); stopped != 1 {
+		t.Fatalf("stopIdleIn = %d, want the one idle pod stopped", stopped)
+	}
+	a, err := srv.store.Agent(ctx, "pawly", "agent-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.DesiredState != state.DesiredStopped {
+		t.Errorf("desired state = %q, want the pod stopped and its claim kept", a.DesiredState)
+	}
+}
+
 func setAutoStopIdle(t *testing.T, d testDaemon, on bool, idleTime time.Duration) {
 	t.Helper()
 	ctx := context.Background()

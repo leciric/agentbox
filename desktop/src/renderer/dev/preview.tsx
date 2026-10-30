@@ -38,6 +38,8 @@
 //                           ?media=project|all|agent, that Media view's Pages tab
 //   ?chat=lead              the project's chat, with the credential requests
 //                           its agents are waiting on at its end
+//   ?chat=lead-menu         the project's chat with its ⋯ menu open: Find in
+//                           chat, Files, New chat, Compact now and Reload tools
 //   ?vm=create|lima|vz      a Mac's first screen in the middle: the VM to set up,
 //                           or Lima to install first, or the experimental vz
 //                           driver's VM, made and not finished (no Lima needed)
@@ -67,6 +69,10 @@
 //                           running, so its header and its rail row say Awaiting
 //   ?chat=untracked         agent-97's (OpenCode) chat, whose header warns that
 //                           background work isn't tracked there
+//   ?app=agent-97&activity=before|after
+//                           an OpenCode 2 turn before and after the tool-activity
+//                           fixes: raw metadata and bare titles, then real text,
+//                           file names, a created-file diff and the plan
 //   ?chat=imagewait         agent-100 asked for while the first base image
 //                           downloads: its rail row and its chat say it waits
 //                           for the image, with the download's progress
@@ -114,9 +120,22 @@
 //                           that step, its daemon up (fixtures.ts seedFirstRun);
 //                           =machine with ?linux=setup (or ?vm=create,
 //                           ?wsl=create) the VM to make, before there is one
+//   ?git=missing|public|pending
+//                           a project's git profiles with the private one gone
+//                           (the create dialog refuses), with its agents
+//                           pushing to the public one (Settings → Git's flow),
+//                           or never answering
+//   &cluster=<name>         where the project runs its agents (New agent)
+//   &clusters=pending|error the cluster list never answers, or fails
 //   ?setup=updating         Settings while the daemon updates the base image's
 //                           agent tools in place: the image check updating,
 //                           with its job's log (fixtures.ts)
+//   ?setup=cluster          Setup of an installation whose agents run in
+//                           Kubernetes clusters and nowhere else: no Incus step,
+//                           no user mapping, no storage pool, no base image, one
+//                           step per cluster (?setup=cluster-todo: the same with
+//                           a cluster whose image is not set, which the wizard
+//                           stops at)
 //   ?settings=models        the whole Settings page on a set-up machine, open
 //                           at a section (general, models, agents, resources,
 //                           accounts, machine) or at a project's settings
@@ -342,7 +361,7 @@ import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
 import { Markdown } from '../components/chat/Markdown';
 import { webStreams } from '../web/streams';
 import { chooseSession } from '../lib/sessions';
-import { agent12Chat, asleepChat, buildFixtures, remoteAgents, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedFirstRun, seedSignedOut, seedNightly, seedCacheCard, seedStaleDaemon, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
+import { agent12Chat, asleepChat, buildFixtures, remoteAgents, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, installDevBridge, openCodeActivityChat, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedProjectGit, seedClustersAnswer, seedFirstRun, seedSettings, seedClusterSetup, seedSignedOut, seedNightly, seedCacheCard, seedStaleDaemon, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
 import { restoreMode } from '../lib/theme';
 import { seedPastAgents } from './pastAgents';
@@ -412,6 +431,10 @@ const appView = params.get('app'); // 'home' | 'homeChat' | 'project' | 'setting
 const loading = params.get('loading'); // 'hold' | 'refetch' | milliseconds | null
 const io = params.get('io'); // "1" | "stalling" | "agent" | null
 const imageUpdate = params.get('setup') === 'updating';
+// ?setup=cluster | cluster-todo: an installation whose agents run in Kubernetes
+// clusters only, with no Incus, on the tabbed page or stopped at a cluster's
+// missing image in the wizard (fixtures.ts).
+const clusterSetup = params.get('setup')?.startsWith('cluster') ? params.get('setup')! : null;
 const settingsPage = params.get('settings'); // a section of Settings, or a project's name
 const linuxHost = params.get('linux'); // 'setup' | 'nokvm' | 'kvm-denied' | 'kvm-module' | 'move' | null
 const chvSize = params.get('chv'); // 'live' | 'old' | 'off' | null
@@ -682,6 +705,14 @@ if (media === 'all') seedAllMedia();
 else if (media) seedMedia(queryClient);
 if (notify) seedNotifications(queryClient, mockMedia());
 if (review || appView) seedReview(queryClient);
+// &activity=before|after, with ?app=agent-97: an OpenCode 2 turn as the chat
+// drew it before and after its tool-activity fixes.
+const activity = params.get('activity');
+if (activity === 'before' || activity === 'after') {
+  Object.assign(fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-97`)!, { interface: 'chat' });
+  queryClient.setQueryData(['agents'], fixtures.agents);
+  queryClient.setQueryData(['chat', `${PROJECT}/agent-97`], openCodeActivityChat(activity === 'before'));
+}
 // The fixture agents' timelines (dev/timeline.ts), for the right panel's
 // Timeline tab, the review's and Today.
 if (appView) seedTimelines();
@@ -787,6 +818,18 @@ if (imageUpdate) seedImageUpdate(queryClient);
 // The whole app can open Settings from its sidebar, which needs Setup's
 // checks: the bare { ready: true } the lists answer with has none.
 if (settingsPage || appView) seedSettings(queryClient);
+// A control plane's Setup, after that: no Incus anywhere and one step per
+// cluster, which replaces what seedSettings wrote.
+if (clusterSetup) seedClusterSetup(queryClient, clusterSetup === 'cluster-todo');
+// A project's git profiles as a scenario needs them: ?git=missing removes the
+// one its agents use, so the create dialog's refusal is on screen; ?git=public
+// has its agents use the public one.
+if (params.get('git')) seedProjectGit(queryClient, params.get('git')!);
+// The New agent dialog's cluster picker: &cluster= is where the project runs
+// its agents, and &clusters=pending|error has the cluster list never answer,
+// or fail.
+if (params.get('cluster') !== null) queryClient.setQueryData<T.Project[]>(['projects'], (ps) => ps?.map((p) => (p.name === PROJECT ? { ...p, cluster: params.get('cluster')! } : p)));
+if (params.get('clusters') === 'pending' || params.get('clusters') === 'error') seedClustersAnswer(params.get('clusters') as 'pending' | 'error');
 if (params.get('signedout') === '1') seedSignedOut(queryClient);
 if (appView && firstRunAt) seedFirstRun(queryClient, firstRunAt);
 if (params.get('drag')) dragBridge(queryClient, params.get('drag') === 'slow' ? 1_500 : 300);
@@ -1261,6 +1304,18 @@ function Preview() {
             </div>
             <ChatTab agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/${chat === 'awaiting' ? 'agent-41' : 'agent-97'}`)!} starting={false} autoStart={false} onStart={() => {}} />
           </div>
+        ) : chat === 'lead-menu' ? (
+          <div style={{ height: '100%', margin: -24 }}>
+            <div className="flex h-11 items-center justify-end gap-3 border-b border-line px-4">
+              <ChatMenu agent={leadAgentFrom(fixtures.projects.find((p) => p.name === PROJECT)!, { ref: `${PROJECT}/lead`, started: true } as T.ProjectChat)} defaultOpen />
+            </div>
+            <ChatTab
+              agent={leadAgentFrom(fixtures.projects.find((p) => p.name === PROJECT)!, { ref: `${PROJECT}/lead`, started: true } as T.ProjectChat)}
+              starting={false}
+              autoStart={false}
+              onStart={() => {}}
+            />
+          </div>
         ) : artifacts ? (
           <div style={{ height: '100%', margin: -24 }}>
             <ChatTab
@@ -1445,6 +1500,8 @@ function settingsBridge(): void {
   // The lists Skills, Connectors, Memory and a project's accounts and
   // credentials read, empty.
   const lists = /^\/v1\/(skills|connectors|global\/memory\/memories|limits)(\?|$)|^\/v1\/projects\/[^/]+\/(skills|connectors|credentials)(\?|$)/;
+
+  // The LAN status Settings polls, and the pairing a phone would scan.
   bridge.request = async (method, path, body) => {
     if (method === 'GET' && /^\/v1\/usage(\?|$)/.test(path) && queryClient.getQueryData(['usage'])) return answer(queryClient.getQueryData(['usage']));
     if (method === 'GET' && path === '/v1/lan') return answer(lan);

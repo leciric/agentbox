@@ -11,7 +11,9 @@ import { projectAgentDefaults, startingPick } from '../lib/agentPick';
 import { choiceName } from '../lib/modelChoices';
 import { useT, type MessageKey } from '../lib/i18n';
 import { cn, errorMessage } from '../lib/utils';
+import { gitProfileWord, projectGitKey } from './GitProfiles';
 import { JobProgress } from './JobProgress';
+import { openSettingsSection } from './SettingsPage';
 import { AIIcon, aiLabel } from './state';
 import { Button } from './ui/button';
 import { Code, Notice } from './ui/card';
@@ -42,6 +44,15 @@ interface Form {
   clean: boolean;
   claudeAccount: string; // "" is the project's account
   githubAccount: string; // "" is the project's account
+  // The Kubernetes cluster its pod runs in, by name, or "auto" to let the
+  // daemon place it where there is room; "" is an Incus machine on this
+  // computer, which is what every installation did before clusters.
+  cluster: string;
+  // Whether the cluster was picked here: until it is, it follows the project's.
+  clusterTouched: boolean;
+  // Queue it when the cluster it would run in is full, rather than failing
+  // the create: it is accepted now and started when there is room.
+  queue: boolean;
   // What this agent does to the project's chat when it finishes: "" follows
   // the project's own setting, "chat" wakes it and "off" only records the
   // finish. Only matters when the project's setting is "lead".
@@ -64,6 +75,9 @@ const emptyForm: Form = {
   clean: false,
   claudeAccount: '',
   githubAccount: '',
+  cluster: '',
+  clusterTouched: false,
+  queue: false,
   notify: '',
 };
 
@@ -75,6 +89,10 @@ const tools: { ai: string; label?: string; labelKey?: MessageKey; hint?: string;
   { ai: 'cursor', label: 'Cursor', hintKey: 'project.newAgent.tool.cursor' },
   { ai: 'none', labelKey: 'project.newAgent.tool.shellOnly', hintKey: 'project.newAgent.tool.noAI' },
 ];
+
+// The form as "Open Git settings" left it, so opening the dialog again on the
+// same project comes back to the title and prompt rather than an empty form.
+let keptForm: Form | null = null;
 
 const interfaces = [
   { value: 'chat', label: 'project.newAgent.interface.chat', icon: MessageSquare },
@@ -103,10 +121,23 @@ export function NewAgentDialog({
   const auth = useQuery({ queryKey: ['auth'], queryFn: api.auth, enabled: open });
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings, enabled: open });
   const image = useQuery({ queryKey: ['image'], queryFn: api.image, enabled: open });
-  // Only for the tools that are optional in the base image: an image built
-  // without OpenCode can't run an OpenCode agent, whatever logins there are.
-  const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup, enabled: open && form.ai === 'opencode' });
+  // The base image's installed tools, for the one tool that is optional in it;
+  // and where this installation runs agents, which decides whether "this
+  // machine" is a place an agent can be created.
+  const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup, enabled: open });
+  // Exactly ["cluster"]: a daemon with no Incus, where nothing can run but a
+  // pod. Both backends keep the machine as an option.
+  const backends = setup.data?.backends ?? [];
+  const clusterOnly = backends.length === 1 && backends[0] === 'cluster';
   const base = useQuery({ queryKey: ['base', form.project], queryFn: () => api.base(form.project), enabled: open && form.project !== '' });
+  // Where a project's cluster agents clone from. Read only once a cluster is
+  // chosen, so the Incus path asks for nothing new.
+  const clusters = useQuery({ queryKey: ['clusters'], queryFn: api.clusters, enabled: open });
+  const git = useQuery({
+    queryKey: projectGitKey(form.project),
+    queryFn: () => api.projectGit(form.project),
+    enabled: open && form.project !== '' && form.cluster !== '',
+  });
   const selected = projects.data?.find((p) => p.name === form.project);
   const allowedAccounts = selected?.claudeAccounts ?? [];
   const accounts = (auth.data?.claudeAccounts ?? []).filter((a) => allowedAccounts.length === 0 || allowedAccounts.includes(a.name));
@@ -120,8 +151,12 @@ export function NewAgentDialog({
   const effortChoices = settings.data?.claudeEffortChoices ?? [];
   // OpenCode's models are its own provider/model ids, remembered the same way:
   // from a chat that has run, or from `opencode models` against AgentBox's own
-  // login. Its agents have no effort — that is a Claude Code setting.
+  // login. Its effort levels are remembered too, from the sessions that
+  // advertised the option, so the picker exists only once there is a real list.
   const openCodeModels = settings.data?.openCodeModelChoices ?? [];
+  const openCodeEfforts = settings.data?.openCodeEffortChoices ?? [];
+  const projectEffort = selected?.agentEffort ?? '';
+  const fallbackOpenCodeEffort = projectEffort || settingLabel(openCodeEfforts, settings.data?.defaultOpenCodeEffort ?? '', 'medium');
   // Cursor's own model ids, and the effort levels each one takes (most take
   // none). With no model picked, the one Settings names decides the levels.
   const cursorModels = settings.data?.cursorModelChoices ?? [];
@@ -161,12 +196,25 @@ export function NewAgentDialog({
         // Left out when nothing was picked, so the model and effort new agents
         // start on apply. "" would be a choice of no model at all, and is refused.
         model: form.ai === 'claude' || form.ai === 'opencode' || form.ai === 'cursor' ? form.model || undefined : undefined,
-        effort: form.ai === 'claude' ? form.effort || undefined : form.ai === 'cursor' ? cursorEffort || undefined : undefined,
+        effort:
+          form.ai === 'claude'
+            ? form.effort || undefined
+            : form.ai === 'opencode'
+              ? form.effort || undefined
+              : form.ai === 'cursor'
+                ? cursorEffort || undefined
+                : undefined,
         contextWindow: form.ai === 'claude' ? contextWindow || undefined : undefined,
         from: form.from.trim() || undefined,
         clean: form.clean || undefined,
         claudeAccount: form.ai === 'claude' ? form.claudeAccount || undefined : undefined,
         githubAccount: form.githubAccount || undefined,
+        // "local" and not an absent field: a project that runs its agents on a
+        // cluster would otherwise take an explicit "this machine" as its own
+        // choice. A cluster-only daemon has no machine to name, and it places
+        // by itself until the picker has filled in.
+        cluster: form.cluster || (clusterOnly ? 'auto' : 'local'),
+        queue: form.queue || undefined,
         finishNotice: form.notify || undefined,
       }),
     onSuccess: (started) => {
@@ -184,7 +232,9 @@ export function NewAgentDialog({
   useEffect(() => {
     if (!open) return;
     startedFor.current = '';
-    setForm({ ...emptyForm, project: project ?? '' });
+    const kept = keptForm && (!project || keptForm.project === project) ? keptForm : null;
+    keptForm = null;
+    setForm(kept ?? { ...emptyForm, project: project ?? '' });
     setAdvanced(false);
     setJob(null);
     setFinished(null);
@@ -209,6 +259,41 @@ export function NewAgentDialog({
     if (open && form.project === '' && firstProject) setForm((f) => ({ ...f, project: firstProject }));
   }, [open, form.project, firstProject]);
 
+  // Where this project's agents run unless one is given a cluster of its own:
+  // the picker starts on that, and moving to another project moves it too. A
+  // cluster-only installation has no machine to start on, so a project that
+  // names none starts on the daemon's placement instead.
+  const projectCluster = projects.data?.find((p) => p.name === form.project)?.cluster ?? '';
+  const startCluster = clusterOnly && projectCluster === '' ? 'auto' : projectCluster;
+  useEffect(() => {
+    if (!open) return;
+    setForm((f) => (f.clusterTouched ? f : { ...f, cluster: startCluster }));
+  }, [open, form.project, startCluster]);
+
+  // The picker is on screen whenever where the agent runs is a choice, or the
+  // project has made it: while the list loads, when it fails, and when the
+  // project names a cluster the list doesn't have. What it can't show is never
+  // sent: the create waits, or is refused here with the reason (H1). A
+  // draining cluster takes no new agents, so it is listed and not offered (H2).
+  const clusterList = clusters.data ?? [];
+  const showClusters = clusterOnly || projectCluster !== '' || clusterList.length > 0 || clusters.isError;
+  const placeable = new Set(['auto', ...clusterList.filter((c) => !c.draining).map((c) => c.name)]);
+  if (!clusterOnly) placeable.add('');
+  const draining = clusterList.find((c) => c.name === form.cluster)?.draining === true;
+  const clusterProblem = !showClusters
+    ? ''
+    : clusters.isPending
+      ? t('project.newAgent.clustersLoading')
+      : placeable.has(form.cluster)
+        ? ''
+        : clusters.isError
+          ? t('project.newAgent.clusterUnchecked', { name: form.cluster })
+          : draining
+            ? t('project.newAgent.clusterDrainingWhy', { name: form.cluster })
+            : t('project.newAgent.clusterUnknown', { name: form.cluster });
+  // Until the project is read, where it runs its agents isn't known either.
+  const clusterBlocked = clusterProblem !== '' || !selected;
+
   const onDone = useCallback(
     async (done: T.Job) => {
       setFinished(done);
@@ -231,6 +316,40 @@ export function NewAgentDialog({
   // has it: saying so here is the same answer the daemon would give, before
   // the form is filled in rather than after it is sent.
   const missingFromImage = form.ai === 'opencode' && setup.data?.image.installed.opencode === false;
+
+  // A pod clones its project's git profile, so a profile that can't clone or
+  // push is refused here, before the request: the daemon refuses it too, with
+  // the command that fixes it (agent.Create, gitprofile.go). The profile the
+  // project names is the one a pod gets. The daemon falls back to the other
+  // when the named one was removed, and this does not: an agent quietly
+  // cloning from the public remote where the project asked for the private one
+  // is worse than refusing the create.
+  const wanted = git.data?.agentRemote || 'private';
+  const agentProfile = (git.data?.profiles ?? []).find((p) => p.profile === wanted);
+  const agentProfileName = gitProfileWord(wanted);
+  const gitProblem =
+    form.cluster === ''
+      ? ''
+      : git.isError
+        ? t('project.newAgent.gitCheckFailed', { error: errorMessage(git.error) })
+        : !git.data
+          ? ''
+          : !agentProfile
+        ? t('project.newAgent.gitNoProfile', { profile: agentProfileName })
+        : agentProfile.resolveError
+          ? t('project.newAgent.gitNoResolve', { profile: agentProfileName, error: agentProfile.resolveError })
+          : agentProfile.url.trim() === ''
+            ? t('project.newAgent.gitNoURL', { profile: agentProfileName })
+            : !agentProfile.hasCredential
+              ? t('project.newAgent.gitNoLogin', { profile: agentProfileName, credential: agentProfile.credential || agentProfile.profile })
+              : '';
+  // The answer is on its way: a submit now would be the request the daemon
+  // refuses, so the button waits rather than flashing an error.
+  const gitChecking = form.cluster !== '' && form.project !== '' && git.isPending;
+  const gitBlocked = gitProblem !== '' || gitChecking;
+  // What a disabled Create is waiting for, said beside it rather than left
+  // for the reader to guess.
+  const waiting = gitChecking ? t('project.newAgent.gitChecking') : '';
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
@@ -265,6 +384,7 @@ export function NewAgentDialog({
             className="grid gap-5"
             onSubmit={(event) => {
               event.preventDefault();
+              if (!form.project || gitBlocked || clusterBlocked) return;
               create.mutate();
             }}
           >
@@ -303,7 +423,7 @@ export function NewAgentDialog({
             </Field>
 
             <Field label={t('project.newAgent.projectLabel')} htmlFor="agent-project">
-              <Select id="agent-project" value={form.project} onChange={(value) => set('project', value)}>
+              <Select id="agent-project" value={form.project} onChange={(value) => setForm((f) => ({ ...f, project: value, clusterTouched: false }))}>
                 {projects.data?.map((p) => (
                   <SelectOption key={p.name} value={p.name}>
                     {projectLabel(p)}
@@ -311,6 +431,59 @@ export function NewAgentDialog({
                 ))}
               </Select>
             </Field>
+
+            {showClusters && (
+              <Field label={t('project.newAgent.clusterLabel')} htmlFor="agent-cluster" hint={t('project.newAgent.clusterHint')}>
+                <Select
+                  id="agent-cluster"
+                  data-new-agent-cluster
+                  value={form.cluster}
+                  disabled={clusters.isPending}
+                  placeholder={clusters.isPending ? t('project.newAgent.clustersLoadingShort') : form.cluster}
+                  onChange={(value) => setForm((f) => ({ ...f, cluster: value, clusterTouched: true }))}
+                >
+                  {/* A cluster-only daemon has no Incus, so "this machine" is
+                      not a place an agent can be created. */}
+                  {!clusterOnly && <SelectOption value="">{t('project.newAgent.clusterLocal')}</SelectOption>}
+                  <SelectOption value="auto">{t('project.newAgent.clusterAuto')}</SelectOption>
+                  {clusters.data?.map((cluster) => (
+                    <SelectOption key={cluster.name} value={cluster.name} disabled={cluster.draining}>
+                      {cluster.draining
+                        ? t('project.newAgent.clusterDraining', { name: cluster.name })
+                        : cluster.capacity
+                          ? t('project.newAgent.clusterOption', { name: cluster.name, agents: cluster.capacity.agents })
+                          : cluster.name}
+                    </SelectOption>
+                  ))}
+                </Select>
+                {clusters.isError && (
+                  <Notice tone="warning">
+                    <div className="grid justify-items-start gap-2">
+                      <p>{t('project.newAgent.clustersFailed', { error: errorMessage(clusters.error) })}</p>
+                      <Button size="sm" variant="secondary" disabled={clusters.isFetching} onClick={() => void clusters.refetch()}>
+                        {clusters.isFetching && <LoaderCircle className="animate-spin" />}
+                        {t('project.newAgent.clustersRetry')}
+                      </Button>
+                    </div>
+                  </Notice>
+                )}
+                {clusterProblem !== '' && (
+                  <p className={cn('flex items-center gap-1.5 text-xs', clusters.isPending ? 'text-subtle' : 'text-amber-300')} role="status" data-new-agent-cluster-problem>
+                    {clusters.isPending && <LoaderCircle className="size-3.5 shrink-0 animate-spin" />}
+                    {clusterProblem}
+                  </p>
+                )}
+                {form.cluster !== '' && placeable.has(form.cluster) && (
+                  <SwitchRow
+                    id="agent-queue"
+                    label={t('project.newAgent.queueIfFull')}
+                    hint={t('project.newAgent.queueIfFullHint')}
+                    checked={form.queue}
+                    onChange={(value) => set('queue', value)}
+                  />
+                )}
+              </Field>
+            )}
 
             <div className="grid gap-1.5">
               <Label>{t('project.newAgent.aiTool')}</Label>
@@ -394,22 +567,36 @@ export function NewAgentDialog({
                   </Field>
                 </div>
                 {form.ai === 'opencode' && (
-                  <Field
-                    label={t('project.newAgent.modelLabel')}
-                    htmlFor="agent-opencode-model"
-                    hint={openCodeModels.length ? t('project.newAgent.openCodeModelHint') : t('project.newAgent.openCodeLoginHint')}
-                  >
-                    <Select id="agent-opencode-model" value={form.model} onChange={(value) => set('model', value)}>
-                      <SelectOption value="">
-                        {projectDefaults.model ? t('project.newAgent.defaultOption', { value: settingLabel(openCodeModels, projectDefaults.model, '') }) : t('project.newAgent.openCodeDefault')}
-                      </SelectOption>
-                      {openCodeModels.map((choice) => (
-                        <SelectOption key={choice.value} value={choice.value}>
-                          {choiceName(choice) || choice.value}
+                  <div className={cn('grid gap-4', openCodeEfforts.length > 0 && 'grid-cols-2')}>
+                    <Field
+                      label={t('project.newAgent.modelLabel')}
+                      htmlFor="agent-opencode-model"
+                      hint={openCodeModels.length ? t('project.newAgent.openCodeModelHint') : t('project.newAgent.openCodeLoginHint')}
+                    >
+                      <Select id="agent-opencode-model" value={form.model} onChange={(value) => set('model', value)}>
+                        <SelectOption value="">
+                          {projectDefaults.model ? t('project.newAgent.defaultOption', { value: settingLabel(openCodeModels, projectDefaults.model, '') }) : t('project.newAgent.openCodeDefault')}
                         </SelectOption>
-                      ))}
-                    </Select>
-                  </Field>
+                        {openCodeModels.map((choice) => (
+                          <SelectOption key={choice.value} value={choice.value}>
+                            {choiceName(choice) || choice.value}
+                          </SelectOption>
+                        ))}
+                      </Select>
+                    </Field>
+                    {openCodeEfforts.length > 0 && (
+                      <Field label={t('project.newAgent.effortLabel')} htmlFor="agent-opencode-effort" hint={t('project.newAgent.effortHint')}>
+                        <Select id="agent-opencode-effort" value={form.effort} onChange={(value) => set('effort', value)}>
+                          <SelectOption value="">{t('project.newAgent.defaultOption', { value: fallbackOpenCodeEffort })}</SelectOption>
+                          {openCodeEfforts.map((choice) => (
+                            <SelectOption key={choice.value} value={choice.value}>
+                              {choiceName(choice) || choice.value}
+                            </SelectOption>
+                          ))}
+                        </Select>
+                      </Field>
+                    )}
+                  </div>
                 )}
                 {form.ai === 'cursor' && (
                   <div className="grid grid-cols-2 gap-4">
@@ -564,19 +751,46 @@ export function NewAgentDialog({
                 {t.rich('project.newAgent.noOpenCode', { code: (c) => <Code>{c}</Code> })}
               </Notice>
             )}
+            {gitProblem !== '' && (
+              <Notice tone="warning">
+                <div className="grid justify-items-start gap-2">
+                  <p>{gitProblem}</p>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    data-new-agent-open-git
+                    onClick={() => {
+                      // The form is kept for the next time the dialog opens
+                      // on this project, and Settings opens at its Git group.
+                      keptForm = form;
+                      onClose();
+                      openSettingsSection(`project:${form.project}`, 'git-flow');
+                    }}
+                  >
+                    {t('project.newAgent.openGitSettings')}
+                  </Button>
+                </div>
+              </Notice>
+            )}
             {image.data?.ready === false && (
               <Notice tone="info">
                 {image.data.build === 'building' ? t('project.newAgent.imageBuilding') : t('project.newAgent.noImage')}
               </Notice>
             )}
             {create.error && <Notice>{errorMessage(create.error)}</Notice>}
+            {waiting && (
+              <p className="-mb-2 flex items-center justify-end gap-1.5 text-xs text-subtle" role="status" data-new-agent-waiting>
+                <LoaderCircle className="size-3.5 animate-spin" />
+                {waiting}
+              </p>
+            )}
 
             <DialogFooter>
               {/* The same work on several agents at once, to compare. */}
               <Button
                 variant="ghost"
                 className="mr-auto px-2 text-brand-200"
-                disabled={!form.project}
+                disabled={!form.project || gitBlocked}
                 onClick={() => {
                   const seed = { project: form.project, title: form.title.trim() };
                   onClose();
@@ -590,7 +804,7 @@ export function NewAgentDialog({
               <Button variant="ghost" onClick={onClose}>
                 {t('common.cancel')}
               </Button>
-              <Button type="submit" variant="primary" disabled={!form.project || create.isPending}>
+              <Button type="submit" variant="primary" disabled={!form.project || create.isPending || gitBlocked || clusterBlocked}>
                 {create.isPending && <LoaderCircle className="animate-spin" />}
                 {t('project.newAgent.create')}
               </Button>

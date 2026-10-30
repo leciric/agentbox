@@ -10,11 +10,12 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"golang.org/x/text/unicode/norm"
-	_ "modernc.org/sqlite"
+	sqlite "modernc.org/sqlite"
 
 	"agentbox/internal/gitrepo"
 	"agentbox/internal/memory"
@@ -1488,6 +1489,158 @@ var migrations = []string{
 	// session that ran before is held to the Claude Code it ran, so no
 	// conversation changes tool under anyone; the other sessions follow it.
 	`UPDATE chats SET tool = 'claude' WHERE tool = '' AND agent = 'lead'`,
+
+	// The clusters agents can run in, and the OCI registries their images come
+	// from (internal/k8s, internal/agentimage). Which registry is used is
+	// configuration, not a product choice: a Forgejo, a Docker Hub account, a
+	// GHCR namespace and a local registry:2 are all a url and a credential.
+	//
+	// A cluster's kubeconfig is sealed by package secrets and is a
+	// namespace-scoped ServiceAccount's, never the admin's: `cluster add` takes
+	// the admin kubeconfig for one request and keeps none of it. labels and
+	// capabilities are JSON, empty when unset; max_agents, cpu and memory are
+	// the budget the admission check reads, zero or empty for "what the nodes
+	// have, less a reserve".
+	`CREATE TABLE clusters (
+		name          TEXT PRIMARY KEY,
+		namespace     TEXT NOT NULL,
+		storage_class TEXT NOT NULL DEFAULT '',
+		image         TEXT NOT NULL DEFAULT '',
+		registry      TEXT NOT NULL DEFAULT '',
+		max_agents    INTEGER NOT NULL DEFAULT 0,
+		cpu           TEXT NOT NULL DEFAULT '',
+		memory        TEXT NOT NULL DEFAULT '',
+		labels        TEXT NOT NULL DEFAULT '',
+		tailnet       TEXT NOT NULL DEFAULT '',
+		capabilities  TEXT NOT NULL DEFAULT '',
+		kubeconfig    BLOB NOT NULL,
+		created_at    INTEGER NOT NULL,
+		last_seen     INTEGER NOT NULL DEFAULT 0,
+		last_error    TEXT NOT NULL DEFAULT ''
+	)`,
+	// A registry's login is sealed like an agent secret's, and empty for a
+	// public one: public is 1 only when the user said so, because the private
+	// agent image must never be pushed where anyone can pull it. ca is the
+	// registry's PEM when a private CA signed it; insecure allows http or an
+	// unverifiable certificate, for a local cluster only.
+	`CREATE TABLE registries (
+		name            TEXT PRIMARY KEY,
+		url             TEXT NOT NULL,
+		sealed_username BLOB NOT NULL DEFAULT X'',
+		sealed_secret   BLOB NOT NULL DEFAULT X'',
+		public          INTEGER NOT NULL,
+		ca              BLOB NOT NULL DEFAULT X'',
+		insecure        INTEGER NOT NULL,
+		created_at      INTEGER NOT NULL,
+		last_seen       INTEGER NOT NULL DEFAULT 0,
+		last_error      TEXT NOT NULL DEFAULT ''
+	)`,
+	// Where an agent's machine runs, for the agents that don't run on this
+	// host. runtime '' and cluster '' are an Incus instance here, which is
+	// every row written before this. pod and pod_uid are the pod the agent was
+	// last adopted from, so a pod the cluster recreated isn't mistaken for the
+	// one an agent's session lives in; desired_state is what the user asked
+	// for (running, stopped, destroyed) and what the reconciler works towards;
+	// status_detail is the cluster's own reason the pod isn't doing it;
+	// destroyed_at is when the row was marked destroyed, which nothing reads
+	// yet (there is no retention window); workspace is the directory its
+	// worktree is in, which inside a pod is
+	// not this host's path for it.
+	`ALTER TABLE agents ADD COLUMN cluster TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE agents ADD COLUMN runtime TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE agents ADD COLUMN pod TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE agents ADD COLUMN pod_uid TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE agents ADD COLUMN workspace TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE agents ADD COLUMN desired_state TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE agents ADD COLUMN status_detail TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE agents ADD COLUMN destroyed_at INTEGER NOT NULL DEFAULT 0`,
+	// The bearer token a pod authenticates to the Kubernetes gateway with,
+	// one per agent. The token itself is never stored: hash is its SHA-256
+	// hex, so a copy of state.db hands nobody a working token, and the
+	// plaintext exists only in the pod's Secret. expires_at is unix seconds,
+	// 0 for "as long as the pod"; the reconciler deletes the row with the pod,
+	// and PruneAgentTokens sweeps the ones that carried a deadline. The unique
+	// index is what SetAgentToken replaces on, so an agent never holds two.
+	`CREATE TABLE agent_tokens (
+		hash       TEXT PRIMARY KEY,
+		project    TEXT NOT NULL,
+		agent      TEXT NOT NULL,
+		expires_at INTEGER NOT NULL DEFAULT 0,
+		created_at INTEGER NOT NULL
+	)`,
+	`CREATE UNIQUE INDEX agent_tokens_agent ON agent_tokens (project, agent)`,
+	// Where this daemon's gateway is reachable from a cluster's pods, as the
+	// user set it: the MagicDNS name through the tailnet, or
+	// http://host.k3d.internal:7782 for a local k3d cluster on this machine.
+	// Empty until the user sets it, and an agent can't start in that cluster
+	// until they do.
+	`ALTER TABLE clusters ADD COLUMN master_url TEXT NOT NULL DEFAULT ''`,
+	// The remotes a project's agents clone and push with, one row per profile:
+	// private is the server their work-in-progress branches stay on, public the
+	// one a finished change is published to. url may be an alias (forge:) that
+	// the master resolves before a pod sees it; auth is how the profile signs
+	// in (token, ssh-key or a stored GitHub account), and credential names that
+	// login without holding it, so a copy of state.db is no way to push.
+	`CREATE TABLE project_git_remotes (
+		project    TEXT NOT NULL,
+		profile    TEXT NOT NULL,
+		url        TEXT NOT NULL,
+		auth       TEXT NOT NULL,
+		credential TEXT NOT NULL DEFAULT '',
+		PRIMARY KEY (project, profile)
+	)`,
+	// Which of those profiles a project's agents use. Private by default,
+	// because an agent branch is unfinished work and must not reach the public
+	// remote unasked.
+	`ALTER TABLE projects ADD COLUMN agent_remote TEXT NOT NULL DEFAULT 'private'`,
+	// The claim an agent's pod lives on and the image it runs. Both are empty
+	// for a fresh agent, which reads as the names the cluster and the agent's
+	// identity derive. A restore moves the row onto a claim prepared from a
+	// snapshot and pins the image that snapshot was taken with, and a fork
+	// starts there too.
+	`ALTER TABLE agents ADD COLUMN claim TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE agents ADD COLUMN image TEXT NOT NULL DEFAULT ''`,
+	// A project's own container image: the base its cluster agents start
+	// from, where an agent on this host is copied from an Incus base. The
+	// previous columns are the image the last save replaced, kept for one
+	// revert, like the Incus base's base-previous instance.
+	`CREATE TABLE project_images (
+		project             TEXT PRIMARY KEY,
+		image               TEXT NOT NULL,
+		digest              TEXT NOT NULL DEFAULT '',
+		saved_from          TEXT NOT NULL DEFAULT '',
+		saved_at            INTEGER NOT NULL DEFAULT 0,
+		previous_image      TEXT NOT NULL DEFAULT '',
+		previous_digest     TEXT NOT NULL DEFAULT '',
+		previous_saved_from TEXT NOT NULL DEFAULT '',
+		previous_saved_at   INTEGER NOT NULL DEFAULT 0
+	)`,
+	// What one agent's pod asks of a cluster, so a pod is a size the user
+	// chose rather than whatever the node had left. agent_cpu and agent_memory
+	// are one pod's requests (empty asks for nothing in particular);
+	// workspace_size is its claim (empty is k8s.DefaultWorkspaceSize); and
+	// ephemeral_storage is the local disk it may fill, its /tmp included
+	// (empty is k8s.DefaultEphemeralStorage).
+	`ALTER TABLE clusters ADD COLUMN agent_cpu TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE clusters ADD COLUMN agent_memory TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE clusters ADD COLUMN workspace_size TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE clusters ADD COLUMN ephemeral_storage TEXT NOT NULL DEFAULT ''`,
+	// Where a project's new agents run when the request doesn't name a
+	// cluster: '' is this host (an Incus instance), a cluster's name is that
+	// cluster, and 'auto' lets the daemon place each agent where there is
+	// room (state.ClusterAuto).
+	`ALTER TABLE projects ADD COLUMN cluster TEXT NOT NULL DEFAULT ''`,
+	// Why a queued agent is waiting, in the words of the clusters that were
+	// full when it was asked for: it is what the app and `agentbox list` show
+	// beside the agent until it starts.
+	`ALTER TABLE agent_queue ADD COLUMN reason TEXT NOT NULL DEFAULT ''`,
+	// Whether a cluster takes new agents. 1 is a cluster on its way out: it
+	// keeps the agents it has, and admission refuses new ones with that
+	// reason until its user drains it back in.
+	`ALTER TABLE clusters ADD COLUMN draining INTEGER NOT NULL DEFAULT 0`,
+	// The image a cluster ran before its last upgrade, so `cluster upgrade
+	// --rollback` has one to go back to. Empty until an upgrade happens.
+	`ALTER TABLE clusters ADD COLUMN previous_image TEXT NOT NULL DEFAULT ''`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -1499,7 +1652,25 @@ type Store struct {
 	db *sql.DB
 }
 
-func Open(path string) (*Store, error) {
+const (
+	// busyTimeout is how long a connection waits for another writer's lock
+	// before SQLite returns SQLITE_BUSY. Creating several agents at once made
+	// that lock wait exceed five seconds, which was the old value; the final
+	// status write then failed and took the create down with it. It stays well
+	// under what a user will wait, and SQLite's own wait is backed by the
+	// bounded retry below rather than being the only chance.
+	busyTimeout = 10 * time.Second
+	// busyRetryWindow and busyRetryBackoff bound retryBusy: how long a single
+	// statement may keep retrying a busy writer, and how long it waits between
+	// attempts.
+	busyRetryWindow     = 60 * time.Second
+	busyRetryBackoff    = 50 * time.Millisecond
+	busyRetryBackoffMax = time.Second
+)
+
+func Open(path string) (*Store, error) { return open(path, busyTimeout) }
+
+func open(path string, timeout time.Duration) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
@@ -1511,11 +1682,17 @@ func Open(path string) (*Store, error) {
 	// handler doesn't apply to that one case, so busy_timeout below wouldn't
 	// save it. Taking the lock up front turns two writers racing into one
 	// waiting for the other.
-	dsn := "file:" + path + "?_txlock=immediate&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+	dsn := "file:" + path + "?_txlock=immediate&_pragma=foreign_keys(1)&_pragma=busy_timeout(" +
+		strconv.FormatInt(timeout.Milliseconds(), 10) + ")&_pragma=journal_mode(WAL)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
+	// Several connections, so a writer waiting for the write lock doesn't hold
+	// every reader behind it: WAL lets a read run beside a write, and
+	// _txlock=immediate plus busy_timeout make the writers take turns rather
+	// than race (retryBusy covers the one statement that can still lose).
+	db.SetMaxOpenConns(8)
 	s := &Store{db: db}
 	if err := s.migrate(context.Background()); err != nil {
 		_ = db.Close()
@@ -1525,6 +1702,41 @@ func Open(path string) (*Store, error) {
 }
 
 func (s *Store) Close() error { return s.db.Close() }
+
+// isBusy reports whether err is SQLite saying another writer holds the lock.
+// Extended result codes share the low byte with their primary code, so this
+// catches SQLITE_BUSY_RECOVERY and the rest as well as plain SQLITE_BUSY.
+func isBusy(err error) bool {
+	var se *sqlite.Error
+	return errors.As(err, &se) && se.Code()&0xff == 5
+}
+
+// retryBusy runs op until it succeeds or returns anything other than a busy
+// error, with a short exponential backoff and a bounded window. It is for a
+// single statement whose failure should not take down the create around it:
+// the write's own busy_timeout has already waited by the time this sees the
+// error, and another writer may still be finishing.
+func retryBusy(ctx context.Context, op func() error) error {
+	deadline := time.Now().Add(busyRetryWindow)
+	backoff := busyRetryBackoff
+	for {
+		err := op()
+		if err == nil || !isBusy(err) {
+			return err
+		}
+		if time.Now().Add(backoff).After(deadline) {
+			return err
+		}
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+		backoff = min(backoff*2, busyRetryBackoffMax)
+	}
+}
 
 // DB is the open database, for the packages that keep their own tables in it
 // rather than their own file: package memory, whose schema is migrated here
@@ -1597,6 +1809,12 @@ type Project struct {
 	// GitHubAccount is the GitHub account this project's new agents use;
 	// empty means the machine's default account.
 	GitHubAccount string
+	// AgentRemote is which of the project's two git profiles its agents clone
+	// and push with: GitProfilePrivate or GitProfilePublic (gitremotes.go). A
+	// project reads GitProfilePrivate until SetProjectAgentRemote picks the
+	// other one, whether or not it has either profile yet, so what a pod
+	// clones from is ProjectGitRemotes' answer rather than this alone.
+	AgentRemote string
 	// CodexAccount and CursorAccount are the Codex and Cursor accounts this
 	// project's new agents and its lead use; empty means the machine's
 	// default. OpenCodeAccounts is OpenCode's, one per provider (provider →
@@ -1707,7 +1925,24 @@ type Project struct {
 	// so on by default: a project that doesn't use pull requests, or whose
 	// remote isn't GitHub, turns it off so as not to pay for them.
 	PullsOff bool
+	// Cluster is where this project's new agents run when the request doesn't
+	// name a cluster: "" is this host (an Incus instance), a cluster's name is
+	// that cluster, and ClusterAuto lets the daemon place each agent where
+	// there is room. It is what a create that names no cluster follows, so it
+	// is also what the app preselects in its picker.
+	Cluster string
 }
+
+// ClusterAuto is the Project.Cluster that asks the daemon to place each new
+// agent where it fits, rather than on a cluster the user names: the cluster
+// with the most room that can run it, which is the project's own default when
+// that is one of them.
+const ClusterAuto = "auto"
+
+// ClusterLocal is how a create asks for this host when leaving the field out
+// would follow a project that runs its agents on a cluster: "" is the project's
+// choice, and "local" overrides it.
+const ClusterLocal = "local"
 
 // A project's PRWatch.
 const (
@@ -1888,6 +2123,11 @@ func (p Project) AgentDefaults(ai string) (model, effort, window, mode string) {
 // AgentTools are the tools a project may name as AgentTool.
 var AgentTools = []string{"claude", "codex", "opencode", "cursor"}
 
+// AgentEfforts are the levels a project may pin for its agents: the names the
+// tools' effort options share. A tool that offers only some of them refuses a
+// pinned level it doesn't offer when the agent is created (agent.ChatChoices).
+var AgentEfforts = []string{"low", "medium", "high", "xhigh", "max"}
+
 // ModeKinds are the permission modes a project may start its agents on, by
 // kind, the one name every tool's menu shares (acp's modeKinds): its standard
 // mode, which asks, auto review, full access, and plan, which is the chat's
@@ -1949,13 +2189,18 @@ func (s *Store) SetProjectAgentDefaults(ctx context.Context, name string, d Proj
 	return err
 }
 
-const projectColumns = `name, display_name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off, codex_account, opencode_accounts, cursor_account, full_test_suite, pick_up_issues, pulls_off, agent_tool, agent_effort, agent_context_window, agent_mode`
+const projectColumns = `name, display_name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off, codex_account, opencode_accounts, cursor_account, full_test_suite, pick_up_issues, pulls_off, agent_tool, agent_effort, agent_context_window, agent_mode, cluster`
 
 // projectPlacement is where the project sits in the sidebar (D79), read
 // beside the columns above rather than with them: it is written by the
 // layout, never by AddProject, which is what projectColumns is also the
 // argument list of.
 const projectPlacement = `section, position`
+
+// projectAgentRemote is which git profile a project's agents use, read beside
+// the columns above for the same reason: a profile is something the project is
+// given after it exists (SetProjectAgentRemote), so AddProject has no opinion.
+const projectAgentRemote = `agent_remote`
 
 // projectSelect is projectColumns qualified, for the one query that joins the
 // sections in to order by them. One source of truth for the column list, so
@@ -2037,11 +2282,11 @@ func (s *Store) AddProject(ctx context.Context, p Project) error {
 		p.BranchPrefix = DefaultBranchPrefix
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.DisplayName, p.Root, p.CreatedAt.Unix(), p.ClaudeAccount, p.Autonomy, p.GitHubAccount, p.MediaRetentionDays,
 		p.FinishNotices, p.AgentModel, p.RolloverThreshold, p.ContextBudget, p.Consolidation, p.ConsolidationModel,
 		strings.Join(p.ClaudeAccounts, ","), p.BranchPrefix, p.Nesting, p.AgentPRs, p.PRWatch, p.BaseSyncOff,
-		p.CodexAccount, p.OpenCodeAccounts.String(), p.CursorAccount, p.FullTestSuite, p.PickUpIssues, p.PullsOff, p.AgentTool, p.AgentEffort, p.AgentContextWindow, p.AgentMode)
+		p.CodexAccount, p.OpenCodeAccounts.String(), p.CursorAccount, p.FullTestSuite, p.PickUpIssues, p.PullsOff, p.AgentTool, p.AgentEffort, p.AgentContextWindow, p.AgentMode, p.Cluster)
 	return err
 }
 
@@ -2148,7 +2393,7 @@ func (s *Store) SetProjectDisplayName(ctx context.Context, name, display string)
 
 // Projects lists every project in the order the sidebar shows them (D79).
 func (s *Store) Projects(ctx context.Context) ([]Project, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+projectSelect+`, p.section, p.position
+	rows, err := s.db.QueryContext(ctx, `SELECT `+projectSelect+`, p.section, p.position, p.`+projectAgentRemote+`
 		FROM projects p LEFT JOIN project_sections s ON s.id = p.section `+projectOrder)
 	if err != nil {
 		return nil, err
@@ -2162,12 +2407,14 @@ func (s *Store) Projects(ctx context.Context) ([]Project, error) {
 		if err := rows.Scan(&p.Name, &p.DisplayName, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
 			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff,
-			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.Section, &p.Position); err != nil {
+			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.Cluster, &p.Section, &p.Position,
+			&p.AgentRemote); err != nil {
 			return nil, err
 		}
 		p.CreatedAt = time.Unix(created, 0)
 		p.ClaudeAccounts = splitAccounts(allowed)
 		p.OpenCodeAccounts = ParseAccountMap(opencode)
+		p.AgentRemote = agentRemoteOrPrivate(p.AgentRemote)
 		projects = append(projects, p)
 	}
 	return projects, rows.Err()
@@ -2245,11 +2492,17 @@ var projectOwned = []string{
 	"chat_items",
 	"chats",
 	"archived_agents",
+	// A pod's token is worthless once its project is gone, and the pod it
+	// authenticated is deleted with the agents above.
+	"agent_tokens",
 	// Its secrets and connectors can't be read by anything once it's gone.
 	"secrets",
 	"connectors",
 	"connector_projects",
 	"skill_projects",
+	// And the remotes its agents cloned from: a project added again under the
+	// same name must not start out pointing at somebody else's server.
+	"project_git_remotes",
 	// Project memory (D72).
 	"memory_serves",
 	"memory_anchors",
@@ -2265,6 +2518,8 @@ var projectOwned = []string{
 	"project_messages",
 	"project_links",
 	"project_icons",
+	// Its own container image, which no project but it may run.
+	"project_images",
 	// Its scheduled tasks and what they did (schedules.go).
 	"schedules",
 	"schedule_runs",
@@ -2447,6 +2702,34 @@ func splitAccounts(s string) []string {
 // An empty name falls back to the machine's default account.
 func (s *Store) SetProjectGitHubAccount(ctx context.Context, name, account string) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE projects SET github_account = ? WHERE name = ?`, account, name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("project %q: %w", name, ErrNotFound)
+	}
+	return nil
+}
+
+// SetProjectCluster sets where this project's new agents run when the request
+// names no cluster: "" for this host, a cluster's name, or ClusterAuto. A
+// cluster it names must exist: a default nothing can reach would turn every
+// create into a failure the user didn't ask for, and the error names the way to
+// list the ones there are.
+func (s *Store) SetProjectCluster(ctx context.Context, name, cluster string) error {
+	cluster = strings.TrimSpace(cluster)
+	if cluster == ClusterLocal {
+		cluster = ""
+	}
+	if cluster != "" && cluster != ClusterAuto {
+		if _, err := s.Cluster(ctx, cluster); err != nil {
+			if errors.Is(err, ErrNotFound) {
+				return fmt.Errorf("no cluster named %q: add it with agentbox cluster add %s, or list the ones there are with agentbox cluster list", cluster, cluster)
+			}
+			return err
+		}
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE projects SET cluster = ? WHERE name = ?`, cluster, name)
 	if err != nil {
 		return err
 	}
@@ -2717,13 +3000,14 @@ func (s *Store) projectWhere(ctx context.Context, where string, arg any) (Projec
 	var p Project
 	var created int64
 	var allowed, opencode string
-	err := s.db.QueryRowContext(ctx, `SELECT `+projectColumns+`, `+projectPlacement+` FROM projects WHERE `+where, arg).
+	err := s.db.QueryRowContext(ctx, `SELECT `+projectColumns+`, `+projectPlacement+`, `+projectAgentRemote+` FROM projects WHERE `+where, arg).
 		Scan(&p.Name, &p.DisplayName, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
 			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff,
-			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.Section, &p.Position)
+			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.Cluster, &p.Section, &p.Position, &p.AgentRemote)
 	p.ClaudeAccounts = splitAccounts(allowed)
 	p.OpenCodeAccounts = ParseAccountMap(opencode)
+	p.AgentRemote = agentRemoteOrPrivate(p.AgentRemote)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Project{}, ErrNotFound
 	}
@@ -2815,6 +3099,40 @@ type Agent struct {
 	// (leadsessions.go). A session's own lead row has none: its session is in
 	// its name.
 	CreatedBySession string
+	// Cluster is the cluster its machine runs in, "" for one on this host.
+	// Runtime says which kind of machine that is; both are empty for an Incus
+	// instance here, which is what every row written before clusters existed
+	// is, and that reading must not change.
+	Cluster string
+	Runtime string
+	// Pod and PodUID are the pod it runs in as the cluster last had it. The
+	// UID is what tells a pod the cluster recreated apart from the one the
+	// agent's session was opened in.
+	Pod    string
+	PodUID string
+	// Workspace is the directory its worktree is in inside that machine,
+	// which on a cluster is not this host's path for it.
+	Workspace string
+	// Claim is the persistent volume the pod's workspace and home live on, ""
+	// for the name the agent's identity derives (k8s.ClaimName). A restore
+	// prepares a new claim and moves the agent onto it, so a row that has been
+	// restored names the claim it lives on now.
+	Claim string
+	// Image is the image the pod runs, "" for the cluster's current one. A
+	// restore and a fork pin the image the snapshot was taken with, so the
+	// machine that comes back is the one that was saved rather than whatever
+	// the cluster's tag points at today.
+	Image string
+	// DesiredState is what the user asked the machine to do: DesiredRunning,
+	// DesiredStopped or DesiredDestroyed. Empty means running, which is what
+	// creating an agent asks for.
+	DesiredState string
+	// StatusDetail is the cluster's own reason the machine isn't doing what
+	// was asked: an image it can't pull, a pod it can't schedule.
+	StatusDetail string
+	// DestroyedAt is when the row was marked destroyed, and is zero for an
+	// agent that has never been destroyed. Nothing reads it yet.
+	DestroyedAt time.Time
 }
 
 // GetsConnector reports whether a project connector of that name reaches the
@@ -2826,6 +3144,22 @@ func (a Agent) GetsConnector(name string) bool {
 // IsLead reports whether the agent is a project's lead, which runs on the host
 // rather than in a machine of its own.
 func (a Agent) IsLead() bool { return a.Role == RoleLead }
+
+// OnCluster reports whether the agent's machine is a pod rather than an Incus
+// instance on this host.
+func (a Agent) OnCluster() bool { return a.Cluster != "" }
+
+// RuntimeKubernetes is agents.runtime for an agent whose machine is a pod. Empty
+// is an Incus instance on this host, the only runtime before clusters existed.
+const RuntimeKubernetes = "kubernetes"
+
+// What the user asked an agent's machine to do. Empty asks for running, which is
+// what creating an agent means; the reconciler works towards these.
+const (
+	DesiredRunning   = "running"
+	DesiredStopped   = "stopped"
+	DesiredDestroyed = "destroyed"
+)
 
 // Agent interfaces.
 const (
@@ -2855,7 +3189,7 @@ func (a Agent) IsHome() bool { return a.Project == HomeProject && a.Role == Role
 
 func (a Agent) Ref() string { return a.Project + "/" + a.Name }
 
-const agentColumns = `project, name, instance, ai, autonomous, branch, base_ref, base_commit, worktree, status, created_at, source, title, claude_account, interface, role, github_account, finish_notice, id, connectors, codex_account, opencode_accounts, cursor_account, created_by_session`
+const agentColumns = `project, name, instance, ai, autonomous, branch, base_ref, base_commit, worktree, status, created_at, source, title, claude_account, interface, role, github_account, finish_notice, id, connectors, codex_account, opencode_accounts, cursor_account, created_by_session, cluster, runtime, pod, pod_uid, workspace, desired_state, status_detail, destroyed_at, claim, image`
 
 func (s *Store) AddAgent(ctx context.Context, a Agent) error {
 	if a.Interface == "" {
@@ -2880,10 +3214,16 @@ func (s *Store) AddAgent(ctx context.Context, a Agent) error {
 	if archived > 0 {
 		return fmt.Errorf("agent %s: a past agent has that name: %w", a.Ref(), ErrExists)
 	}
+	// A server that has never destroyed an agent has a zero time here, and a
+	// zero time's Unix() is a number in the year 1, not 0.
+	destroyedAt := int64(0)
+	if !a.DestroyedAt.IsZero() {
+		destroyedAt = a.DestroyedAt.Unix()
+	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.Project, a.Name, a.Instance, a.AI, a.Autonomous, a.Branch, a.BaseRef, a.BaseCommit, a.Worktree, a.Status, a.CreatedAt.Unix(), a.Source, a.Title, a.ClaudeAccount, a.Interface, a.Role, a.GitHubAccount, a.FinishNotice, a.ID, connectors,
-		a.CodexAccount, a.OpenCodeAccounts.String(), a.CursorAccount, a.CreatedBySession)
+		a.CodexAccount, a.OpenCodeAccounts.String(), a.CursorAccount, a.CreatedBySession, a.Cluster, a.Runtime, a.Pod, a.PodUID, a.Workspace, a.DesiredState, a.StatusDetail, destroyedAt, a.Claim, a.Image)
 	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
 		return fmt.Errorf("agent %s: %w", a.Ref(), ErrExists)
 	}
@@ -2895,8 +3235,13 @@ func (s *Store) AddAgent(ctx context.Context, a Agent) error {
 }
 
 func (s *Store) SetAgentStatus(ctx context.Context, project, name, status string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE agents SET status = ? WHERE project = ? AND name = ?`, status, project, name)
-	return err
+	// This is the last write of a create: a busy writer here used to throw
+	// away a pod, a claim and the rest of a finished create. Retry it rather
+	// than return SQLITE_BUSY (M12).
+	return retryBusy(ctx, func() error {
+		_, err := s.db.ExecContext(ctx, `UPDATE agents SET status = ? WHERE project = ? AND name = ?`, status, project, name)
+		return err
+	})
 }
 
 func (s *Store) SetAgentTitle(ctx context.Context, project, name, title string) error {
@@ -3129,13 +3474,19 @@ func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]
 	var agents []Agent
 	for rows.Next() {
 		var a Agent
-		var created, pausedAt, stoppedAt int64
+		var created, pausedAt, stoppedAt, destroyedAt int64
 		var connectors sql.NullString
 		var opencode string
 		if err := rows.Scan(&a.Project, &a.Name, &a.Instance, &a.AI, &a.Autonomous, &a.Branch,
 			&a.BaseRef, &a.BaseCommit, &a.Worktree, &a.Status, &created, &a.Source, &a.Title, &a.ClaudeAccount, &a.Interface, &a.Role, &a.GitHubAccount, &a.FinishNotice, &a.ID, &connectors,
-			&a.CodexAccount, &opencode, &a.CursorAccount, &a.CreatedBySession, &pausedAt, &stoppedAt); err != nil {
+			&a.CodexAccount, &opencode, &a.CursorAccount, &a.CreatedBySession,
+			&a.Cluster, &a.Runtime, &a.Pod, &a.PodUID, &a.Workspace, &a.DesiredState, &a.StatusDetail, &destroyedAt,
+			&a.Claim, &a.Image,
+			&pausedAt, &stoppedAt); err != nil {
 			return nil, err
+		}
+		if destroyedAt != 0 {
+			a.DestroyedAt = time.Unix(destroyedAt, 0)
 		}
 		a.OpenCodeAccounts = ParseAccountMap(opencode)
 		if connectors.Valid {

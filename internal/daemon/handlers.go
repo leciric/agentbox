@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +26,7 @@ import (
 	"agentbox/internal/image"
 	"agentbox/internal/iossim"
 	"agentbox/internal/notes"
+	"agentbox/internal/opencode"
 	"agentbox/internal/state"
 )
 
@@ -49,7 +51,7 @@ func (s *Server) projectInfo(ctx context.Context, p state.Project) api.Project {
 		AgentModel: p.AgentModel, AgentTool: p.AgentTool, AgentEffort: p.AgentEffort, AgentContextWindow: p.AgentContextWindow, AgentMode: p.AgentMode, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
 		RolloverThreshold: p.RolloverThreshold, ContextBudget: p.ContextBudget,
 		Consolidation: p.Consolidation, ConsolidationModel: p.ConsolidationModel,
-		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, FullTestSuite: p.FullTestSuite, PickUpIssues: p.PickUpIssues, PullRequests: !p.PullsOff, CreatedAt: p.CreatedAt}
+		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, FullTestSuite: p.FullTestSuite, PickUpIssues: p.PickUpIssues, PullRequests: !p.PullsOff, Cluster: p.Cluster, CreatedAt: p.CreatedAt}
 	// One primary-key lookup: listProjects runs this for every project.
 	if v, err := s.store.ProjectIconVersion(ctx, p.Name); err == nil {
 		info.IconVersion = v
@@ -154,8 +156,16 @@ func (s *Server) addProjectRepo(ctx context.Context, req api.AddProjectRequest) 
 	if err != nil {
 		return fail(err)
 	}
-	return s.registerProject(ctx, state.Project{DisplayName: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now(),
+	p, err := s.registerProject(ctx, state.Project{DisplayName: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now(),
 		CodexAccount: tools.CodexAccount, OpenCodeAccounts: tools.OpenCodeAccounts, CursorAccount: tools.CursorAccount})
+	if err != nil {
+		return state.Project{}, err
+	}
+	// What the repository says its remotes are becomes the project's two git
+	// profiles, unless the user has since set them: hub is where work in
+	// progress goes (gitprofiles.go).
+	s.prefillGitProfiles(ctx, p)
+	return p, nil
 }
 
 // createProject is addProject for AddProjectRequest.Create: everything that
@@ -316,6 +326,21 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 			t := strings.TrimSpace(*v)
 			return &t
 		}
+		tool := p.AgentTool
+		if req.AgentTool != nil {
+			tool = strings.TrimSpace(*req.AgentTool)
+			if tool != "" && !slices.Contains(state.AgentTools, tool) {
+				return fmt.Errorf("unknown agent tool %q: choose %s, or none", tool, strings.Join(state.AgentTools, ", "))
+			}
+		}
+		if effort := trim(req.AgentEffort); effort != nil && *effort != "" && !slices.Contains(state.AgentEfforts, *effort) {
+			return fmt.Errorf("unknown agent effort %q: choose %s, or none", *effort, strings.Join(state.AgentEfforts, ", "))
+		}
+		if req.AgentModel != nil {
+			if err := checkProjectToolModel(tool, strings.TrimSpace(*req.AgentModel)); err != nil {
+				return err
+			}
+		}
 		if err := s.store.SetProjectAgentDefaults(r.Context(), p.Name, state.ProjectAgentDefaults{
 			Tool: trim(req.AgentTool), Model: trim(req.AgentModel), Effort: trim(req.AgentEffort),
 			ContextWindow: trim(req.AgentContextWindow), Mode: trim(req.AgentMode),
@@ -331,6 +356,9 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 		s.events.publish(api.EventProject, api.ProjectChange{Name: p.Name})
 	} else if req.AgentModel != nil {
 		model := strings.TrimSpace(*req.AgentModel)
+		if err := checkProjectToolModel(p.AgentTool, model); err != nil {
+			return err
+		}
 		if err := s.store.SetProjectAgentModel(r.Context(), p.Name, model); err != nil {
 			return err
 		}
@@ -354,6 +382,20 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		p.BranchPrefix = prefix
+		s.events.publish(api.EventProject, api.ProjectChange{Name: p.Name})
+	}
+	if req.Cluster != nil {
+		// The store checks a named cluster exists, and leaves "auto" and the
+		// empty string alone: one asks the daemon to place each agent, the
+		// other is this host. "local" is how a request says this host when
+		// saying nothing would follow the project.
+		if err := s.store.SetProjectCluster(r.Context(), p.Name, strings.TrimSpace(*req.Cluster)); err != nil {
+			return err
+		}
+		if stored, err := s.store.Project(r.Context(), p.Name); err == nil {
+			p = stored
+		}
+		rewriteBrief()
 		s.events.publish(api.EventProject, api.ProjectChange{Name: p.Name})
 	}
 	if req.ClaudeAccount != nil || req.ClaudeAccounts != nil {
@@ -608,9 +650,40 @@ func (s *Server) removeProject(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	defer s.stopLeadAPI(project)
+	// The pods of the project's cluster agents are not the store's to delete:
+	// archiving and removing only drop rows, and the reconciler finds a pod by
+	// its row. Delete them here, while the rows still name them; a failure
+	// stops the removal with the rows in place, so it can be tried again.
+	//
+	// The store's own refusal comes first, because it is the one that keeps a
+	// project with live agents: deleting their pods and claims and then
+	// refusing would throw away work for a removal that did not happen.
+	if agents, err := s.store.Agents(r.Context(), project); err != nil {
+		return err
+	} else if len(agents) > 0 {
+		return fmt.Errorf("project %q still has %d agent(s): destroy them first", project, len(agents))
+	}
+	if err := s.destroyProjectMachines(r.Context(), project); err != nil {
+		return err
+	}
 	name := r.PathValue("project")
+	// A profile's login is a file beside the database, and the rows naming it
+	// go with the project: read them before the removal, and delete the files
+	// it would otherwise leave behind.
+	remotes, err := s.store.ProjectGitRemotes(r.Context(), name)
+	if err != nil {
+		return err
+	}
 	if err := s.store.RemoveProject(r.Context(), name); err != nil {
 		return err
+	}
+	for _, remote := range remotes {
+		if remote.Auth == state.GitAuthGitHubAccount || remote.Credential == "" {
+			continue
+		}
+		if err := s.gitCreds().RemoveProjectGitCredential(r.Context(), name, remote.Credential); err != nil {
+			s.logf("%s: removing git credential %s: %v", name, remote.Credential, err)
+		}
 	}
 	s.events.publish(api.EventProject, api.ProjectChange{Name: name, Removed: true})
 	w.WriteHeader(http.StatusNoContent)
@@ -847,29 +920,56 @@ func (s *Server) getBase(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	m := s.manager(nil)
+	out := api.Base{}
+	found := false
 	base, ok, err := m.ProjectBase(r.Context(), project)
 	if err != nil {
 		return err
 	}
-	if !ok {
-		return fmt.Errorf("project %s has no saved base: %w", project, state.ErrNotFound)
+	if ok {
+		out = apiBase(base)
+		// How far it is behind the image is worth showing but not worth failing
+		// over: a machine whose base image is being rebuilt has none to compare
+		// with for a while.
+		if behind, err := m.BaseBehind(r.Context(), base); err == nil && behind.Any() {
+			out.Behind = apiBaseBehind(behind)
+		}
+		// What the last save replaced, when it kept one: the app offers going back
+		// to it, and says so beside the base that replaced it.
+		if previous, ok, err := m.PreviousBase(r.Context(), project); err != nil {
+			return err
+		} else if ok {
+			was := apiBase(previous)
+			out.Previous = &was
+		}
+		found = true
 	}
-	out := apiBase(base)
-	// How far it is behind the image is worth showing but not worth failing
-	// over: a machine whose base image is being rebuilt has none to compare
-	// with for a while.
-	if behind, err := m.BaseBehind(r.Context(), base); err == nil && behind.Any() {
-		out.Behind = apiBaseBehind(behind)
-	}
-	// What the last save replaced, when it kept one: the app offers going back
-	// to it, and says so beside the base that replaced it.
-	if previous, ok, err := m.PreviousBase(r.Context(), project); err != nil {
+	// The project's own container image is a second base, for its cluster
+	// agents: a project that has agents of both kinds has both.
+	if image, ok, err := s.store.ProjectImage(r.Context(), project); err != nil {
 		return err
 	} else if ok {
-		was := apiBase(previous)
-		out.Previous = &was
+		current := apiProjectImage(image)
+		if previous, ok, err := s.store.PreviousProjectImage(r.Context(), project); err != nil {
+			return err
+		} else if ok {
+			was := apiProjectImage(previous)
+			current.Previous = &was
+		}
+		out.Project = &current
+		found = true
+	}
+	if !found {
+		return fmt.Errorf("project %s has no saved base: %w", project, state.ErrNotFound)
 	}
 	return writeJSON(w, http.StatusOK, out)
+}
+
+// apiProjectImage is a saved project image as the API shows it.
+func apiProjectImage(image state.ProjectImage) api.BaseProjectImage {
+	return api.BaseProjectImage{
+		Image: image.Image, Digest: image.Digest, SavedFrom: image.SavedFrom, SavedAt: image.SavedAt,
+	}
 }
 
 func apiBase(base agent.Base) api.Base {
@@ -953,6 +1053,68 @@ func (s *Server) revertBase(w http.ResponseWriter, r *http.Request) error {
 	return writeJSON(w, http.StatusOK, apiBase(base))
 }
 
+// putProjectImage records a project image the CLI has built and pushed. The
+// build happens where Docker and the project's checkout are, which is the CLI's
+// machine; the daemon only records what the registry stored, so every pod the
+// project starts can run it.
+func (s *Server) putProjectImage(w http.ResponseWriter, r *http.Request) error {
+	var req api.ProjectImageRequest
+	if err := readJSON(r, &req); err != nil {
+		return err
+	}
+	project := r.PathValue("project")
+	if _, err := s.store.Project(r.Context(), project); err != nil {
+		return err
+	}
+	image := strings.TrimSpace(req.Image)
+	if image == "" {
+		return errors.New("an image is needed: the reference the registry holds, tag or digest and all")
+	}
+	a, err := s.store.Agent(r.Context(), project, req.Agent)
+	if err != nil {
+		return err
+	}
+	if !a.OnCluster() {
+		return fmt.Errorf("%s runs on this host, where a project base is its machine saved with agentbox base save: a project image is what a cluster agent starts from", a.Ref())
+	}
+	err = s.store.SetProjectImage(r.Context(), state.ProjectImage{
+		Project: project, Image: image, Digest: strings.TrimPrefix(strings.TrimSpace(req.Digest), "@"),
+		SavedFrom: a.Ref(), SavedAt: time.Now().UTC().Truncate(time.Second),
+	})
+	if err != nil {
+		return err
+	}
+	s.events.publish(api.EventProject, api.ProjectChange{Name: project})
+	saved, _, err := s.store.ProjectImage(r.Context(), project)
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, http.StatusOK, apiProjectImage(saved))
+}
+
+// removeProjectImage drops the project's image, so new agents run the cluster's
+// image again. ?previous=1 drops only what the last save kept.
+func (s *Server) removeProjectImage(w http.ResponseWriter, r *http.Request) error {
+	project := r.PathValue("project")
+	if err := s.store.RemoveProjectImage(r.Context(), project, r.URL.Query().Get("previous") != ""); err != nil {
+		return err
+	}
+	s.events.publish(api.EventProject, api.ProjectChange{Name: project})
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+// revertProjectImage puts back the image the last save replaced.
+func (s *Server) revertProjectImage(w http.ResponseWriter, r *http.Request) error {
+	project := r.PathValue("project")
+	image, err := s.store.RevertProjectImage(r.Context(), project)
+	if err != nil {
+		return err
+	}
+	s.events.publish(api.EventProject, api.ProjectChange{Name: project})
+	return writeJSON(w, http.StatusOK, apiProjectImage(image))
+}
+
 // Agents
 
 func toAPIAgent(st agent.Status) api.Agent {
@@ -962,6 +1124,7 @@ func toAPIAgent(st agent.Status) api.Agent {
 		Project:    a.Project,
 		Name:       a.Name,
 		Title:      a.Title,
+		Cluster:    a.Cluster,
 		Instance:   a.Instance,
 		AI:         a.AI,
 		Autonomous: a.Autonomous,
@@ -1127,6 +1290,25 @@ func (s *Server) createAgentJob(ctx context.Context, req api.CreateAgentRequest,
 	if err != nil {
 		return api.Job{}, err
 	}
+	// Where it would run, and whether there is room for it now. A caller that
+	// asked to wait gets a queued agent instead of an error; one that didn't
+	// gets the reason, before a job that would only fail in the background.
+	p, err := s.store.Project(ctx, req.Project)
+	if err != nil {
+		return api.Job{}, err
+	}
+	cluster, err := s.placeAgent(ctx, p, req.Cluster)
+	if err != nil {
+		var noRoom *NoRoomError
+		if errors.As(err, &noRoom) && req.Queue != nil && *req.Queue {
+			return s.queueCreate(ctx, req, byLead, noRoom.Reason)
+		}
+		return api.Job{}, err
+	}
+	// The slot is taken, and the concrete cluster goes with the job: it was
+	// admitted here, so the job uses the name it was given instead of asking
+	// again (and taking another slot).
+	req.Cluster = cluster
 	create := s.createJob(req, byLead, "")
 	j, err := s.launchJob("create", req.Project, create)
 	return withTool(j, req), err
@@ -1160,7 +1342,17 @@ func (s *Server) checkCreate(ctx context.Context, req api.CreateAgentRequest, by
 		}
 	}
 	if req.AI == "" {
-		req = s.defaultTool(ctx, p, req)
+		var err error
+		if req, err = s.defaultTool(ctx, p, req); err != nil {
+			return fail(err)
+		}
+	}
+	// The project's effort is applied after the tool is known and before the
+	// lead's, which defaultTool only passes on when the project names none: a
+	// request that named an effort still wins over both.
+	if req.Effort == nil && p.AgentEffort != "" {
+		effort := p.AgentEffort
+		req.Effort = &effort
 	}
 	// A model or effort this agent could never run on is a mistake worth
 	// seeing now, in the reply to the request that made it, rather than in a
@@ -1214,7 +1406,8 @@ func (s *Server) checkCreate(ctx context.Context, req api.CreateAgentRequest, by
 // name a tool; a request that doesn't comes from the lead, a schedule, an
 // issue or a group's variant, which follow the lead. Why the agent falls back
 // to Claude Code, when it does, is kept in ToolNotice for the reply.
-func (s *Server) defaultTool(ctx context.Context, p state.Project, req api.CreateAgentRequest) api.CreateAgentRequest {
+func (s *Server) defaultTool(ctx context.Context, p state.Project, req api.CreateAgentRequest) (api.CreateAgentRequest, error) {
+	fail := func(err error) (api.CreateAgentRequest, error) { return api.CreateAgentRequest{}, err }
 	switch {
 	case req.ClaudeAccount != "":
 		req.AI = "claude"
@@ -1230,15 +1423,116 @@ func (s *Server) defaultTool(ctx context.Context, p state.Project, req api.Creat
 		// The project's own word comes before its chat's: it was said for
 		// every agent of the project, the chat's tool only for the chat.
 		req.AI = p.AgentTool
+		if req.Model == nil {
+			// The project's own account, and the model that goes with the
+			// tool it pinned, rather than one meant for another tool.
+			model, err := s.projectToolModel(ctx, p)
+			if err != nil {
+				return fail(err)
+			}
+			if model != "" {
+				req.Model = &model
+			}
+		}
 	default:
-		d := s.manager(nil).LeadToolDefault(ctx, p)
+		d := s.manager(nil).LeadToolDefault(ctx, p, s.agentOnCluster(ctx, p, req.Cluster))
 		req.AI, req.ToolNotice = d.AI, d.Fallback
 		req.ClaudeAccount, req.CodexAccount, req.CursorAccount = d.Logins.Claude, d.Logins.Codex, d.Logins.Cursor
+		if req.Model == nil && d.Model != "" {
+			// The lead's tool runs the model its own session runs: an agent
+			// started on the adapter's default may be on a model the account
+			// doesn't enable. An OpenCode lead on an "opencode/" id passes the
+			// same model on the Go endpoint AgentBox delivers the key for.
+			model := d.Model
+			if req.AI == "opencode" {
+				model = opencode.GoModel(model)
+			}
+			req.Model = &model
+		}
+		if req.Effort == nil && d.Effort != "" && p.AgentEffort == "" {
+			// The project's own effort, when it has one, was applied by
+			// checkCreate, which runs before this: the lead's is what an agent
+			// that follows its tool gets otherwise.
+			effort := d.Effort
+			req.Effort = &effort
+		}
 		if d.Fallback != "" {
 			s.logf("A new agent of %s: %s", p.Name, d.Fallback)
 		}
 	}
-	return req
+	return req, nil
+}
+
+// checkProjectToolModel refuses a model a project's pinned tool can't run, so
+// `agentbox project model` says so before an agent is ever created.
+func checkProjectToolModel(tool, model string) error {
+	model = strings.TrimSpace(model)
+	if model == "" || model == state.AgentModelAuto {
+		return nil
+	}
+	switch tool {
+	case "opencode":
+		if !opencode.IsModelID(model) {
+			return fmt.Errorf("%q isn't an OpenCode model: OpenCode names its models provider/model, like opencode/deepseek-v4.1-flash", model)
+		}
+	case "codex":
+		return fmt.Errorf("Codex agents have no model setting: leave the project's model empty")
+	}
+	return nil
+}
+
+// projectToolModel is the model an agent of a project that pins a tool starts
+// on: the project's own AgentModel when it names one, else the lead's when the
+// lead runs the same tool. OpenCode has no usable default here, so a project
+// that pins OpenCode must also name a provider/model id rather than inherit a
+// model meant for another tool or let the adapter pick.
+func (s *Server) projectToolModel(ctx context.Context, p state.Project) (string, error) {
+	model := p.DirectAgentModel()
+	if model == "" {
+		if choice, err := s.manager(nil).LeadChoice(ctx, p.Name); err == nil {
+			tool := choice.Tool
+			if choice.NextTool != "" {
+				tool = choice.NextTool
+			}
+			if tool == p.AgentTool {
+				model = choice.Model
+			}
+		}
+	}
+	if p.AgentTool == "opencode" {
+		if model == "" {
+			return "", fmt.Errorf("%s's agents run OpenCode, which needs a model it names: set one with agentbox project model %s <provider/model> (like opencode/deepseek-v4.1-flash)", p.Name, p.Name)
+		}
+		if !opencode.IsModelID(model) {
+			return "", fmt.Errorf("%s's agents run OpenCode, and %q isn't an OpenCode model: set a provider/model id with agentbox project model %s <provider/model>", p.Name, model, p.Name)
+		}
+	}
+	return model, nil
+}
+
+// agentOnCluster reports whether a create that named requested will make a
+// pod rather than an Incus instance, following the project when it names
+// nothing. "auto" counts as a cluster here: on a host install placement may
+// still choose this machine, and Create's own base-image check refuses a tool
+// it lacks then, while a control plane has nowhere else to put it.
+func (s *Server) agentOnCluster(ctx context.Context, p state.Project, requested string) bool {
+	switch strings.TrimSpace(requested) {
+	case state.ClusterLocal:
+		return false
+	case "":
+		// Follow the project's own choice below.
+	default:
+		return true
+	}
+	switch p.Cluster {
+	case state.ClusterLocal:
+		return false
+	case "":
+		only, err := s.runsOnlyInClusters(ctx)
+		return err == nil && only
+	default:
+		return true
+	}
 }
 
 // createJob is the job that makes an agent from req: a new one, or, when
@@ -1258,6 +1552,22 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 	}
 	return func(ctx context.Context, log io.Writer) (any, error) {
 		began := time.Now()
+		// Where it runs. A name the caller gave is used as it is: admission
+		// happened before the job started (and the queue reserved the slot),
+		// so asking again here would refuse an agent that was just accepted.
+		// Anything else — "auto", or nothing at all, which follows the
+		// project — is resolved and admitted now, which is the path a group,
+		// an issue or an earlier release's queue comes through.
+		p, err := s.store.Project(ctx, req.Project)
+		if err != nil {
+			return nil, err
+		}
+		cluster := strings.TrimSpace(req.Cluster)
+		if cluster == "" || cluster == state.ClusterAuto {
+			if cluster, err = s.placeAgent(ctx, p, cluster); err != nil {
+				return nil, err
+			}
+		}
 		// What a catch-up ran is kept too, so a failed one can show the agent
 		// its last lines.
 		var ran *tailWriter
@@ -1286,6 +1596,8 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 
 			CopyEnv: !req.NoEnv,
 			Clean:   req.Clean,
+			// The concrete cluster placeAgent chose, "" for this host.
+			Cluster: cluster,
 
 			FinishNotice: req.FinishNotice,
 			LeadSession:  req.LeadSession,
@@ -1413,6 +1725,14 @@ func (s *Server) agentAction(action string) func(http.ResponseWriter, *http.Requ
 			return err
 		}
 		ctx, m := r.Context(), s.manager(s.cfg.Log)
+		if action != "session" {
+			held, release, err := s.holdAgent(ctx, a, action)
+			if err != nil {
+				return err
+			}
+			defer release()
+			ctx = held
+		}
 		if action == "start" || action == "resume" {
 			if err := s.diskPausedRefusal(a.Ref()); err != nil {
 				return err
@@ -1491,7 +1811,12 @@ func (s *Server) takeSnapshot(w http.ResponseWriter, r *http.Request) error {
 	if err := readJSON(r, &req); err != nil {
 		return err
 	}
-	sn, err := s.manager(s.cfg.Log).Snapshot(r.Context(), a, req.Name, req.Consistent)
+	ctx, release, err := s.holdAgent(r.Context(), a, "snapshot")
+	if err != nil {
+		return err
+	}
+	defer release()
+	sn, err := s.manager(s.cfg.Log).Snapshot(ctx, a, req.Name, req.Consistent)
 	if err != nil {
 		return err
 	}
@@ -1520,7 +1845,7 @@ func (s *Server) restore(w http.ResponseWriter, r *http.Request) error {
 	if err := readJSON(r, &req); err != nil {
 		return err
 	}
-	return s.startJob(w, "restore", a.Ref(), func(ctx context.Context, log io.Writer) (any, error) {
+	return s.startAgentJob(r.Context(), w, "restore", a, func(ctx context.Context, log io.Writer) (any, error) {
 		m := s.manager(log)
 		s.chat.Stop(a.Ref(), "the agent is being restored from a snapshot")
 		if err := m.Restore(ctx, a, req.Snapshot); err != nil {
@@ -1554,7 +1879,7 @@ func (s *Server) fork(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
-	return s.startJob(w, "fork", src.Ref(), func(ctx context.Context, log io.Writer) (any, error) {
+	return s.startAgentJob(r.Context(), w, "fork", src, func(ctx context.Context, log io.Writer) (any, error) {
 		a, err := s.manager(log).Fork(ctx, src, agent.ForkOptions{Name: req.Name, Title: req.Title, Snapshot: req.Snapshot, Checkpoint: req.Checkpoint})
 		if err != nil {
 			return nil, err

@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -159,6 +160,10 @@ type Manager struct {
 	// ImageDir is the directory that keeps the pictures sent in an agent's
 	// chat (images.go). With none, a message can't carry any.
 	ImageDir func(project, agent string) string
+	// Worktree, when set, is where an agent's session runs, for a machine
+	// whose tree the row doesn't name: a pod's mount is inside the pod, and
+	// only the daemon knows it (agent.Manager.Worktree). Without it, a.Worktree.
+	Worktree func(a state.Agent) string
 
 	mu    sync.Mutex
 	convs map[string]*conversation
@@ -196,6 +201,15 @@ func (m *Manager) now() time.Time {
 		return m.Now()
 	}
 	return time.Now()
+}
+
+// dir is where a's session runs, which an adapter needs as an absolute path:
+// the machine's worktree when the daemon can say, else the agent's own column.
+func (m *Manager) dir(a state.Agent) string {
+	if m.Worktree != nil {
+		return m.Worktree(a)
+	}
+	return a.Worktree
 }
 
 func (m *Manager) after(d time.Duration, f func()) Timer {
@@ -1520,6 +1534,7 @@ type conversation struct {
 	open        *api.ChatItem
 	openMessage string
 	tools       map[string]*api.ChatItem
+	todoCalls   map[string]bool // tool call IDs that became the plan
 	plan        *api.ChatItem
 	pending     map[string]func(result any, err error)
 
@@ -2017,7 +2032,7 @@ func (c *conversation) connect(ad *adapter) error {
 
 	// The agent's own configuration gives the tools their MCP servers, unless
 	// the adapter runs where that configuration isn't (sessionMCP).
-	mcp, cwd := sessionMCP(proc), sessionCwd(proc, a)
+	mcp, cwd := sessionMCP(proc), sessionCwd(proc, c.m.dir(a))
 	var meta map[string]any
 	if a.AI == "claude" {
 		// Prompt suggestions off (nothing shows them), and Claude's thinking,
@@ -2720,6 +2735,13 @@ func (h handler) Notify(method string, params json.RawMessage) {
 		c.updateTool(u)
 	case "plan":
 		c.updatePlan(u.Entries)
+	case "plan_update":
+		c.updatePlanUpdate(u)
+	case "plan_removed":
+		if c.plan != nil && c.plan.Turn == c.turn.id {
+			c.plan.Plan = nil
+			c.touch(c.plan)
+		}
 	}
 }
 
@@ -2835,6 +2857,19 @@ func (c *conversation) updateTool(u acp.SessionUpdate) {
 	if u.ToolCallID == "" {
 		return
 	}
+	// OpenCode reports its todos as an ordinary todowrite tool call, not as an
+	// ACP plan. Turn it into the plan the chat already shows, and keep its call
+	// ID so a later update for it doesn't become a generic tool row.
+	if todo, ok := todoUpdate(u, c.todoCalls[u.ToolCallID]); ok {
+		if c.todoCalls == nil {
+			c.todoCalls = map[string]bool{}
+		}
+		c.todoCalls[u.ToolCallID] = true
+		if todo != nil {
+			c.updatePlan(todo)
+		}
+		return
+	}
 	it := c.tools[u.ToolCallID]
 	if it == nil {
 		c.closeOpen()
@@ -2845,6 +2880,39 @@ func (c *conversation) updateTool(u acp.SessionUpdate) {
 	applyTool(it.Tool, u)
 	c.sawTool(it.Tool)
 	c.touch(it)
+}
+
+// todoUpdate reports whether u is (or belongs to) a todowrite call, and the
+// plan its rawInput.todos describe, if this update carries them.
+func todoUpdate(u acp.SessionUpdate, known bool) ([]acp.PlanEntry, bool) {
+	name := u.Name
+	if name == "" && u.Title != nil {
+		name = *u.Title
+	}
+	if !known && !strings.EqualFold(name, "todowrite") {
+		return nil, false
+	}
+	if len(u.RawInput) == 0 {
+		return nil, true
+	}
+	var in struct {
+		Todos []struct {
+			Content  string `json:"content"`
+			Status   string `json:"status"`
+			Priority string `json:"priority"`
+		} `json:"todos"`
+	}
+	if json.Unmarshal(u.RawInput, &in) != nil {
+		return nil, true
+	}
+	if in.Todos == nil {
+		return nil, true
+	}
+	entries := make([]acp.PlanEntry, 0, len(in.Todos))
+	for _, todo := range in.Todos {
+		entries = append(entries, acp.PlanEntry{Content: todo.Content, Status: todo.Status, Priority: todo.Priority})
+	}
+	return entries, true
 }
 
 // applyTool copies what a tool_call or tool_call_update says into a tool call.
@@ -2890,6 +2958,7 @@ func applyTool(t *api.ChatTool, u acp.SessionUpdate) {
 			t.Page = page
 		}
 	}
+	contentText := false
 	if content, ok := u.ToolContent(); ok {
 		var texts []string
 		var diffs []api.ChatDiff
@@ -2908,23 +2977,108 @@ func applyTool(t *api.ChatTool, u acp.SessionUpdate) {
 		}
 		if len(texts) > 0 {
 			t.Output = tailText(strings.Join(texts, "\n"), maxOutput)
+			contentText = true
 		}
 	}
-	if out := rawText(u.RawOutput); out != "" && (t.Output == "" || t.Status == "completed" || t.Status == "failed") {
-		t.Output = tailText(out, maxOutput)
+	// rawOutput is the readable answer for some tools (OpenCode 1's shell
+	// output), but OpenCode 2 only puts metadata there while the text is in the
+	// content blocks above. Never let it replace that text.
+	if !contentText {
+		if out := rawText(u.RawOutput); out != "" && (t.Output == "" || t.Status == "completed" || t.Status == "failed") {
+			t.Output = tailText(out, maxOutput)
+		}
+	}
+	addWriteDiff(t, u)
+	if t.Title == t.Name && len(t.Paths) > 0 {
+		switch t.Kind {
+		case "read", "edit", "move", "delete":
+			// OpenCode keeps the bare tool name as the title; a row that names
+			// the file is the one a reader can follow.
+			t.Title = filepath.Base(t.Paths[0])
+		}
 	}
 }
 
-func (c *conversation) updatePlan(entries []acp.PlanEntry) {
-	if c.plan == nil {
+// writeDiff adds the diff a write makes: OpenCode reports a created file only
+// as its content, so changed files would otherwise miss it.
+func addWriteDiff(t *api.ChatTool, u acp.SessionUpdate) {
+	if t.Kind != "edit" || t.Status != "completed" || len(t.Diffs) > 0 || len(t.Paths) == 0 || len(u.RawInput) == 0 {
+		return
+	}
+	var in struct {
+		Path     string `json:"path"`
+		FilePath string `json:"filePath"`
+		Content  string `json:"content"`
+		NewText  string `json:"newText"`
+	}
+	if json.Unmarshal(u.RawInput, &in) != nil {
+		return
+	}
+	text := in.Content
+	if text == "" {
+		text = in.NewText
+	}
+	if text == "" {
+		return
+	}
+	t.Diffs = []api.ChatDiff{{Path: t.Paths[0], NewText: text, Created: true}}
+}
+
+// currentPlan is the plan item of this turn, making one if it has none yet.
+func (c *conversation) currentPlan() *api.ChatItem {
+	if c.plan == nil || c.plan.Turn != c.turn.id {
 		c.plan = c.add("plan", c.turn.id)
 	}
+	return c.plan
+}
+
+func (c *conversation) updatePlan(entries []acp.PlanEntry) {
 	plan := make([]api.ChatPlanEntry, 0, len(entries))
 	for _, e := range entries {
 		plan = append(plan, api.ChatPlanEntry{Content: e.Content, Status: e.Status})
 	}
+	c.plan = c.currentPlan()
 	c.plan.Plan = plan
 	c.touch(c.plan)
+}
+
+// updatePlanUpdate handles ACP v2's plan_update, whose plan is either a list
+// of items or a block of Markdown (an approved ExitPlanMode plan).
+func (c *conversation) updatePlanUpdate(u acp.SessionUpdate) {
+	if u.Plan == nil {
+		return
+	}
+	switch u.Plan.Type {
+	case "items":
+		c.updatePlan(u.Plan.Entries)
+	case "markdown":
+		c.updatePlan(markdownPlan(u.Plan.Content))
+	default:
+		// A file plan names a URI AgentBox doesn't read; leave the plan alone.
+	}
+}
+
+// markdownPlan turns a plan's Markdown into the checklist the chat shows, one
+// entry for each line that says something.
+func markdownPlan(markdown string) []acp.PlanEntry {
+	var entries []acp.PlanEntry
+	for _, line := range strings.Split(markdown, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		status := "pending"
+		if strings.HasPrefix(line, "- [x]") || strings.HasPrefix(line, "* [x]") {
+			status = "completed"
+		}
+		line = strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(line, "- [x]"), "- [ ]"), "* [x]"), "* [ ]"))
+		line = strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(line, "-"), "*"), "+"))
+		if line == "" {
+			continue
+		}
+		entries = append(entries, acp.PlanEntry{Content: line, Status: status})
+	}
+	return entries
 }
 
 // add appends a new item to the conversation.
@@ -3200,12 +3354,13 @@ func (c *conversation) runningModelName() string {
 	return option.Value
 }
 
-// rememberChoices stores the menus a Claude Code adapter advertised — the
-// models, and the effort levels — so a page with no chat running can offer the
-// real thing. AgentBox never composes these lists itself: what an account may
-// use comes over ACP and differs per account, and inventing an entry only
-// produces a choice that resolves to nothing. Best effort — failing to
-// remember a menu must not stop a session starting.
+// rememberChoices stores the menus an adapter advertised — the models, and
+// the effort levels — so a page with no chat running can offer the real thing.
+// AgentBox never composes these lists itself: what an account may use comes
+// over ACP and differs per account, and inventing an entry only produces a
+// choice that resolves to nothing. Best effort — failing to remember a menu
+// must not stop a session starting. Claude Code and OpenCode each keep their
+// own model and effort menus; Cursor's are left to the daemon.
 //
 // The two menus are not quite alike. The models are the account's, and stay
 // put. The effort levels are the ones "available for this model", and a model
@@ -3227,6 +3382,7 @@ func (c *conversation) rememberChoices() {
 		categories[state.SettingClaudeEffortChoices] = "thought_level"
 	case "opencode":
 		categories[state.SettingOpenCodeModelChoices] = "model"
+		categories[state.SettingOpenCodeEffortChoices] = "thought_level"
 	}
 	// Cursor's menu is left to the daemon, which asks Cursor for it with each
 	// model's effort levels (SettingCursorModelChoices): a session's menu has
@@ -3348,7 +3504,9 @@ func rawText(raw json.RawMessage) string {
 			}
 		}
 	}
-	return string(raw)
+	// An object with nothing readable in it (OpenCode 2's
+	// {"metadata":{"truncated":false}}) is not output.
+	return ""
 }
 
 // unfence takes the text out of a Markdown code fence that wraps all of it.

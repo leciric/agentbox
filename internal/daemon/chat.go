@@ -30,15 +30,14 @@ func (s *Server) launchChat(ctx context.Context, a state.Agent, status func(stri
 			return proc, nil
 		}
 	}
-	launch := m.ChatCommand
 	if a.IsLead() {
-		launch = m.LeadChatCommand
+		cmd, err := m.LeadChatCommand(ctx, a, status)
+		if err != nil {
+			return nil, err
+		}
+		return chat.StartCommand(cmd)
 	}
-	cmd, err := launch(ctx, a, status)
-	if err != nil {
-		return nil, err
-	}
-	proc, err := chat.StartCommand(cmd)
+	proc, err := m.ChatProcess(ctx, a, status)
 	if err != nil {
 		return nil, err
 	}
@@ -67,6 +66,7 @@ func (s *Server) agentInfo(st agent.Status) api.Agent {
 		// the memory to boot its machine.
 		info.Memory = s.machineHold(info.Ref)
 		info.WaitingForImage = s.waitingOnImage(info.Ref)
+		s.queuedInfo(context.Background(), &info)
 		return info
 	}
 	info.Chat = s.chat.State(info.Ref)

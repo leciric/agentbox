@@ -346,6 +346,13 @@ func (s *Server) lastFinished(ctx context.Context, project string) (map[string]t
 // up mustn't stop it between deleting the machine and archiving the agent.
 func (s *Server) destroyAgentNow(ctx context.Context, m *agent.Manager, a state.Agent, opts agent.DestroyOptions) error {
 	ctx = context.WithoutCancel(ctx)
+	// A destroy that lands mid-restore or mid-move is refused, rather than
+	// deleting the claim the other is about to name.
+	ctx, release, err := s.holdAgent(ctx, a, "destroy")
+	if err != nil {
+		return err
+	}
+	defer release()
 	// The app moves it to Past agents when it hears it was removed, which is
 	// the moment it is archived, not once its worktree is deleted too.
 	opts.Archived = func() { s.agentRemoved(a.Ref()) }

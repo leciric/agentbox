@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -187,15 +186,17 @@ func newMemoryMCPCmd(_ *app) *cobra.Command {
 		Hidden: true, // started by the agent's AI tool, not by people
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			// The memory is the project's, reached over the agent's own
-			// socket. On the host there is no agent this would mean, and no
+			// The memory is the project's, reached as the agent reaches its
+			// daemon. On the host there is no agent this would mean, and no
 			// project it would be about.
-			socket := inAgentSocket()
-			if _, err := os.Stat(socket); err != nil {
-				return errors.New("agentbox memory mcp runs inside an agent, on its own project's memory; " +
-					"from here, a project's memory is on its page in AgentBox")
+			c, err := inAgentClient()
+			if err != nil {
+				if errors.Is(err, errNotInAgent) {
+					return errors.New("agentbox memory mcp runs inside an agent, on its own project's memory; " +
+						"from here, a project's memory is on its page in AgentBox")
+				}
+				return err
 			}
-			c := api.NewClient(socket)
 			srv := &mcp.Server{Name: "agentbox-memory", Version: version, Tools: agentMemoryTools(cmd.Context(), c)}
 			return srv.Serve(cmd.InOrStdin(), cmd.OutOrStdout())
 		},

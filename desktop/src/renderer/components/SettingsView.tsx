@@ -9,6 +9,7 @@ import {
   Languages,
   ArrowRight,
   Bot,
+  Boxes,
   Brain,
   Check,
   ChevronDown,
@@ -37,6 +38,7 @@ import {
   Smartphone,
   Sparkles,
   SquareTerminal,
+  Stethoscope,
   Sun,
   Trash2,
   TriangleAlert,
@@ -81,6 +83,7 @@ import {
   SharedPackageCaches,
   LocalNodeModules,
   NewAgentEffort,
+  OpenCodeEffort,
   OpenCodeInImage,
   ResumeAfterLimit,
   ContinueAfterRestart,
@@ -93,6 +96,7 @@ import { Code, Notice, Panel } from "./ui/card";
 import { projectSection } from "./ProjectSettings";
 import { SkillsPanel } from "./SkillsPanel";
 import { ConnectorsTab } from "./ConnectorsTab";
+import { clusterGroups } from "./ClusterSettings";
 import { DiagnosticsPanel } from "./DiagnosticsPanel";
 import { IdleReclaim } from "./IdleReclaim";
 import { GlobalMemoryPanel } from "./GlobalMemoryPanel";
@@ -145,6 +149,9 @@ export type Step = {
   title: string;
   description: string;
   status: Status;
+  // backend is where the step's work is: this machine (Incus, its image) or one
+  // Kubernetes cluster. Empty for what every backend needs, such as a login.
+  backend?: "host" | "cluster";
   // required: AgentBox can't run agents at all without it, which is what the
   // daemon's SetupStatus.Ready is about, and what the wizard counts.
   required: boolean;
@@ -184,6 +191,17 @@ const descriptions: Record<string, MessageKey> = {
   preview: "settings.setup.desc.preview",
 };
 
+// A cluster's step is about the cluster, not this machine: one cluster's image
+// and master URL are not another's (the daemon names each check after its
+// cluster, so no id here).
+const clusterDescription: MessageKey = "settings.setup.desc.cluster";
+
+// fixCommand is whether a check's fix is something to run. A cluster's fix is
+// normally a command (`agentbox cluster set k3d --image …`), but the daemon may
+// also explain a case in a sentence, and a sentence is not a CommandBox.
+const fixCommand = (fix: string) =>
+  /^(agentbox|sudo|kubectl|curl|cd)\b/.test(fix);
+
 // checkTitles name the daemon's checks by id; one the app doesn't know keeps
 // the daemon's own title.
 const checkTitles: Record<string, MessageKey> = {
@@ -201,6 +219,8 @@ const checkTitles: Record<string, MessageKey> = {
 
 // The two groups the tabbed page sorts steps into, once the wizard is behind
 // you. Everything else (Agents) is the app's own defaults, not a daemon check.
+// A cluster's checks are environment steps by their backend rather than by id,
+// since the daemon names each one after its cluster (`cluster/<name>`).
 const environmentIds = new Set([
   "cli",
   "incus",
@@ -272,6 +292,12 @@ export function useSetupSteps() {
     setup.data?.checks.find((c) => c.id === id);
   const statusOf = (id: string): Status =>
     (check(id)?.status as Status | undefined) ?? "checking";
+  // Where this installation runs agents, as the daemon reports it. A daemon in
+  // a cluster has no Incus, so this is what keeps Setup from asking for one.
+  // Empty is a daemon that couldn't decide, which leaves today's assumption:
+  // this machine.
+  const backends = setup.data?.backends ?? [];
+  const hostBackend = backends.length === 0 || backends.includes("host");
   const cliStatus: Status = !cli.data
     ? "checking"
     : cli.data.path
@@ -382,7 +408,7 @@ export function useSetupSteps() {
             variant={statusOf("image") === "ok" ? "secondary" : "primary"}
             disabled={
               build.isPending ||
-              statusOf("incus") !== "ok" ||
+              (hostBackend && statusOf("incus") !== "ok") ||
               background(statusOf("image"))
             }
             onClick={() => build.mutate()}
@@ -484,21 +510,36 @@ export function useSetupSteps() {
   // step is a command you run with it, and GitHub next to the other logins.
   const steps: Step[] = [cliStep];
   for (const c of setup.data?.checks ?? []) {
+    // A cluster's check is one step per cluster, named by the daemon
+    // (`cluster/<name>`), so its description and its body come from the cluster
+    // rather than from a table here.
+    const cluster = c.backend === "cluster" ? (c.cluster ?? "") : "";
     steps.push({
       id: c.id,
       title: checkTitles[c.id] ? t(checkTitles[c.id]) : c.title,
       status: c.status as Status,
+      backend:
+        c.backend === "host" || c.backend === "cluster" ? c.backend : undefined,
       required: c.required,
       optional: skippable(c),
       detail: c.detail,
-      description: descriptions[c.id] ? t(descriptions[c.id]) : "",
+      description: descriptions[c.id]
+        ? t(descriptions[c.id])
+        : cluster
+          ? t(clusterDescription)
+          : "",
       body:
-        bodies[c.id] ?? (c.fix ? <CommandBox command={c.fix} /> : undefined),
+        bodies[c.id] ??
+        (cluster ? (
+          <ClusterStep check={c} name={cluster} />
+        ) : c.fix && fixCommand(c.fix) ? (
+          <CommandBox command={c.fix} />
+        ) : undefined),
     });
     if (c.id === "opencode") steps.push(githubStep);
   }
   steps.push(notificationsStep);
-  return { steps, setup, cli, info, imageJob, hostSetupRan };
+  return { steps, backends, hostBackend, setup, cli, info, imageJob, hostSetupRan };
 }
 
 export function SettingsView({
@@ -510,16 +551,12 @@ export function SettingsView({
   // (openSettingsSection).
   linked?: string;
 }) {
-  const { steps, setup, cli, info, imageJob, hostSetupRan } = useSetupSteps();
+  const { steps, backends, hostBackend, setup, cli, info, imageJob, hostSetupRan } = useSetupSteps();
 
   // Which page: the wizard while there is setting up left to do, the tabbed
   // page once there isn't. It waits for both answers — the daemon's checks and
   // the app's own command-line tool — and then decides once, so that finishing
   // the last required step doesn't pull the wizard out from under you.
-  //
-  // A Linux machine that runs agents itself, set up before AgentBox ran in a
-  // VM on Linux, gets the tabbed page whatever is left: its way on is Setup's
-  // Move to a VM, not the host setup the wizard would walk it through.
   const [page, setPage] = useState<"wizard" | "tabs" | null>(null);
   const hostSetup = useQuery({
     queryKey: ["host-setup"],
@@ -529,9 +566,14 @@ export function SettingsView({
     setup.data !== undefined &&
     cli.data !== undefined &&
     (hostSetup.data !== undefined || hostSetup.isError);
+  // A Linux machine that runs agents itself, set up before AgentBox ran in a
+  // VM on Linux, gets the tabbed page whatever is left: its way on is Setup's
+  // Move to a VM, not the host setup the wizard would walk it through. It is
+  // the host backend's case only: a daemon that runs agents in clusters has no
+  // such machine, so its wizard still stops at the step that isn't done.
   const settled =
     loaded &&
-    (hostSetup.data?.linux?.mode === "host" ||
+    ((hostBackend && hostSetup.data?.linux?.mode === "host") ||
       steps.every((s) => s.optional || usable(s.status)));
   // A link from elsewhere in the app to another section (the composer's Log in
   // opens Accounts) opens past the wizard. A link to Setup is the wizard's
@@ -556,6 +598,7 @@ export function SettingsView({
     return (
       <SetupWizard
         steps={steps}
+        backends={backends}
         error={setup.error ? errorMessage(setup.error) : undefined}
         onSettings={() => setPage("tabs")}
         onHome={onHome}
@@ -580,16 +623,21 @@ export function SettingsView({
 // nothing after it would work, and the rail says how much is left.
 function SetupWizard({
   steps,
+  backends,
   error,
   onSettings,
   onHome,
 }: {
   steps: Step[];
+  backends: string[];
   error?: string;
   onSettings: () => void;
   onHome?: () => void;
 }) {
   const t = useT();
+  // A cluster-only installation has no Incus to set up and no machine to do it
+  // on, so its intro says so rather than reading as a machine's first run.
+  const clusterOnly = backends.includes("cluster") && !backends.includes("host");
   const blocked = steps.findIndex((s) => !s.optional && !usable(s.status));
   const ready = blocked === -1;
   // The last screen is the wizard's own: everything required is done.
@@ -612,7 +660,11 @@ function SetupWizard({
               {t("settings.setup.heading")}
             </h1>
             <p className="mt-1 text-sm text-muted">
-              {t("settings.setup.intro")}
+              {t(
+                clusterOnly
+                  ? "settings.setup.intro.cluster"
+                  : "settings.setup.intro",
+              )}
             </p>
           </div>
           <Button
@@ -918,6 +970,17 @@ function InstalledSettings({
   // changed is undefined until settings arrive, so nothing is marked on a
   // guess.
   const changed = (test: (s: T.Settings) => boolean) => (s ? test(s) : undefined);
+  // Where this installation's agents run, for the copy that names it and for
+  // the move to a VM: a cluster-only installation has no machine to move from.
+  // Empty backends mean the daemon couldn't decide, which leaves this machine.
+  const backends = setup.data?.backends ?? [];
+  const clusterOnly = backends.includes("cluster") && !backends.includes("host");
+  const hostBackend = !clusterOnly;
+  // Moving to a VM is offered where it can happen, or can once this user is
+  // given /dev/kvm (MoveToVM offers that first): without virtualization, the
+  // Incus step says why not instead.
+  const canMove =
+    hostBackend && ((hostMode && (linux?.kvm || kvmFixable(linux))) || moving !== null);
 
   const stepEntry = (step: Step, alwaysShow = false) => ({
     id: step.id,
@@ -929,7 +992,9 @@ function InstalledSettings({
   });
   const needsLook = (list: Step[]) =>
     list.filter((step) => ["missing", "outdated", "warn"].includes(step.status)).length;
-  const machineSteps = steps.filter((step) => environmentIds.has(step.id));
+  const machineSteps = steps.filter(
+    (step) => step.backend === "cluster" || environmentIds.has(step.id),
+  );
   const accountSteps = steps.filter((step) => accountIds.has(step.id));
   const aiSteps = accountSteps.filter((step) => step.id !== "github");
   // Setup's checklist: what agents can't run without, in the order it has to
@@ -1293,6 +1358,14 @@ function InstalledSettings({
               render: () => <NewAgentEffort />,
             },
             {
+              id: "opencode-effort",
+              advanced: true,
+              label: t("settings.entry.opencode-effort.label"),
+              keywords: t("settings.entry.opencode-effort.keywords"),
+              modified: changed((s) => s.defaultOpenCodeEffort !== ""),
+              render: () => <OpenCodeEffort />,
+            },
+            {
               id: "cursor-model",
               advanced: true,
               label: t("settings.entry.cursor-model.label"),
@@ -1638,21 +1711,30 @@ function InstalledSettings({
     {
       id: "setup",
       title: t("settings.section.setup.title"),
-      description: t("settings.section.setup.description"),
+      description: t(
+        clusterOnly
+          ? "settings.section.setup.description.cluster"
+          : "settings.section.setup.description",
+      ),
       scope: "installation",
       nav: t("settings.nav.machine"),
       attention: needsLook(machineSteps),
       groups: [
-        // Moving to a VM is offered where it can happen, or can once this
-        // user is given /dev/kvm (MoveToVM offers that first): without
-        // virtualization, the Incus step says why not instead.
-        ...((hostMode && (linux?.kvm || kvmFixable(linux))) || moving
-          ? [
-              {
-                id: "where",
-                title: t("settings.group.where.title"),
-                cards: true,
-                entries: [
+        // Where agents run comes first: it answers the group's title for the
+        // installation as it is, before any change to it.
+        {
+          id: "where",
+          title: t("settings.group.where.title"),
+          cards: true,
+          entries: [
+            {
+              id: "where-agents-run",
+              label: t("settings.entry.where-agents-run.label"),
+              keywords: t("settings.entry.where-agents-run.keywords"),
+              render: () => <WhereAgentsRun backends={backends} />,
+            },
+            ...(canMove
+              ? [
                   {
                     id: "move-to-vm",
                     label: t("settings.entry.move-to-vm.label"),
@@ -1671,10 +1753,10 @@ function InstalledSettings({
                         />
                       ),
                   },
-                ],
-              },
-            ]
-          : []),
+                ]
+              : []),
+          ],
+        },
         {
           id: "doctor",
           title: t("settings.doctor.title"),
@@ -1788,6 +1870,14 @@ function InstalledSettings({
         },
       ],
     },
+    {
+      id: "clusters",
+      title: t("settings.section.clusters.title"),
+      description: t("settings.section.clusters.description"),
+      scope: "installation",
+      nav: t("settings.nav.machine"),
+      groups: clusterGroups(),
+    },
     ...(projects.data ?? []).map(projectSection),
   ];
 
@@ -1817,6 +1907,7 @@ const sectionIcons: SectionIcons = {
   notifications: Bell,
   transfer: ArrowLeftRight,
   diagnostics: Activity,
+  clusters: Boxes,
   experimental: FlaskConical,
 };
 
@@ -3969,6 +4060,148 @@ export function appendOutput(lines: string[], text: string): string[] {
   return next.concat(parts.slice(1));
 }
 
+// WhereAgentsRun answers the group's title for the installation as it is: this
+// machine, the clusters it has, or both. Adding a cluster, and changing one,
+// is Settings > Clusters, which the button opens; the command there is for a
+// terminal, where the kubeconfig is already a file.
+function WhereAgentsRun({ backends }: { backends: string[] }) {
+  const t = useT();
+  const clusters = useQuery({ queryKey: ["clusters"], queryFn: api.clusters });
+  const list = clusters.data ?? [];
+  // Empty backends mean the daemon couldn't decide, which leaves this machine.
+  const clusterOnly =
+    backends.includes("cluster") && !backends.includes("host");
+  return (
+    <Panel
+      className="grid gap-3 p-4"
+      data-where-agents-run={clusterOnly ? "cluster" : "host"}
+    >
+      <div className="flex items-start gap-3">
+        <Boxes className="mt-0.5 size-5 shrink-0 text-brand-400" />
+        <div className="grid min-w-0 gap-1">
+          <h2 className="text-[15px] font-medium text-primary">
+            {t(
+              clusterOnly
+                ? "settings.where.clusterOnly"
+                : "settings.where.hostAndCluster",
+            )}
+          </h2>
+          {clusterOnly && list.length === 0 && (
+            <p className="text-[13px] text-muted">
+              {t("settings.where.clusterNone")}
+            </p>
+          )}
+        </div>
+      </div>
+      {list.length > 0 && (
+        <ul className="grid gap-2">
+          {list.map((cluster) => (
+            <li
+              key={cluster.name}
+              className="grid gap-1 rounded-md border border-line-faint p-2.5"
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-mono text-[13px] text-primary">
+                  {cluster.name}
+                </span>
+                {cluster.draining && (
+                  <Badge variant="warning">
+                    {t("settings.clusters.drainingBadge")}
+                  </Badge>
+                )}
+              </div>
+              <p className="break-words text-[12px] leading-relaxed text-subtle">
+                {cluster.image
+                  ? t("settings.clusters.imageLine", { image: cluster.image })
+                  : t("settings.clusters.noImage")}
+              </p>
+              {cluster.lastError && <Notice>{cluster.lastError}</Notice>}
+            </li>
+          ))}
+        </ul>
+      )}
+      <div>
+        <Button
+          variant="secondary"
+          onClick={() => openSettingsSection("clusters")}
+        >
+          <Boxes />
+          {t("settings.setup.clusterSettings")}
+        </Button>
+      </div>
+      <CommandBox command="agentbox cluster add <name>" />
+    </Panel>
+  );
+}
+
+// ClusterStep is Setup's step for one cluster: the doctor, what it found, and
+// the command that fixes what the daemon reports. Adding a cluster and setting
+// its image or registries is Settings > Clusters, which this links to rather
+// than repeating here.
+function ClusterStep({ check, name }: { check: T.SetupCheck; name: string }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  // The report of a doctor run from here, if one has been: the daemon's check
+  // is the summary, and this is the detail of asking.
+  const [report, setReport] = useState<T.ClusterReport | null>(null);
+  const doctor = useMutation({
+    mutationFn: () => api.doctorCluster(name),
+    onSuccess: (result) => {
+      setReport(result);
+      toast(
+        result.ok
+          ? t("settings.clusters.doctorOK")
+          : t("settings.clusters.doctorFailed"),
+      );
+      // A doctor changes what the cluster says about itself, and the step is the
+      // daemon's check of the same thing.
+      void queryClient.invalidateQueries({ queryKey: ["clusters"] });
+      void queryClient.invalidateQueries({ queryKey: ["setup"] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const failing = (report?.checks ?? []).filter((c) => !c.ok && !c.skipped);
+  const doctorCommand = `agentbox cluster doctor ${name}`;
+  return (
+    <div className="grid gap-3" data-cluster-step={name}>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          variant="secondary"
+          disabled={doctor.isPending}
+          onClick={() => doctor.mutate()}
+        >
+          {doctor.isPending ? (
+            <LoaderCircle className="animate-spin" />
+          ) : (
+            <Stethoscope />
+          )}
+          {t("settings.clusters.doctor")}
+        </Button>
+        <Button variant="ghost" onClick={() => openSettingsSection("clusters")}>
+          <Boxes />
+          {t("settings.setup.clusterSettings")}
+        </Button>
+      </div>
+      {failing.length > 0 && (
+        <ul className="grid gap-1 text-[13px] text-muted" data-cluster-report>
+          {failing.map((c) => (
+            <li key={c.name} className="break-words">
+              <span className="font-mono text-secondary">{c.name}</span>
+              {c.detail ? `: ${c.detail}` : ""}
+            </li>
+          ))}
+        </ul>
+      )}
+      <CommandBox command={doctorCommand} />
+      {/* A cluster whose last error is what the doctor answers with gives the
+          doctor as its fix: one box is enough. */}
+      {check.fix && fixCommand(check.fix) && check.fix !== doctorCommand && (
+        <CommandBox command={check.fix} />
+      )}
+    </div>
+  );
+}
+
 // HostSetup runs `agentbox host setup` as root, from the app: pkexec asks for
 // the password in the desktop's own dialog, and the output arrives here as it
 // is printed. The command for a terminal stays, for a machine with no password
@@ -4185,7 +4418,9 @@ export function CommandBox({ command }: { command: string }) {
 }
 
 // dependsOn is the step each one can't start before: the daemon checks the
-// user mapping and the base image only once Incus answers.
+// user mapping and the base image only once Incus answers. A cluster's step
+// waits on nothing here: a cluster is a machine of its own, and the daemon puts
+// one check per cluster with its own id.
 const dependsOn: Record<string, string> = { host: "incus", image: "incus" };
 
 // SetupChecklist is Setup's one list of what's left, in order: the steps done

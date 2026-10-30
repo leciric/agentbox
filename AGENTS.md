@@ -66,6 +66,26 @@ AgentBox runs in a VM, and the `agentbox` on the user's machine is that VM's fro
   titles, so a PR's title is its changelog line: write it for a user. `feat:` is Added, `fix:`/`perf:`
   Fixed, `refactor:` Changed; `test:`, `ci:`, `docs:` and `chore:` don't appear.
 
+## Delegation
+
+The main session keeps the plan, the decisions and the final check, and a long
+session depends on it staying small. Work that can be stated as a goal goes to a
+subagent.
+
+- Split before the first edit. Three or more independent areas, or ten or more
+  files, means subagents first, each with a disjoint file list.
+- A file over about 800 lines is read by an `explore` subagent, never inline. Ask
+  for the map of the sections, the call sites and the tests, not the text.
+- Write each brief as a self-contained goal: the repo, the files it owns, what
+  done means, and the command that proves it. A child session starts with none of
+  this session's context.
+- Verify the report and the diff in the main session before committing. The main
+  session owns the tree and the claim that it works.
+- When the user says to use agents or to keep the context low, spawn them now.
+  The 2026-10-27 build session made more than 900 tool calls and spawned its first
+  subagent at call 790, only because a 4,048-line file forced it. After the user
+  named the missing behaviour, the same model spawned eleven in nine minutes.
+
 ## Build and test
 
 ```bash
@@ -82,6 +102,32 @@ an exported API you changed), and for the app the test files of what you changed
 memory. Run it only when your task, or a message from the lead or the user, asks for it by name. The slow
 packages (`internal/daemon`, `internal/chat`, `internal/agent`) run tests in parallel, and
 `internal/state`/`internal/memory` migrate a template database once per binary.
+
+### What has cost time here
+
+The two Kubernetes sessions on 2026-10-26/27 ran 129 minutes of wall clock, 63 of them waiting on
+a tool, and 40 of those in `go test`. The expensive parts were whole packages, a hung test, and
+rerunning a failure that had already answered.
+
+- Time-box a test that starts a daemon. `go test ./internal/cli -run TestX` can hang past the
+  harness's 600s cap, which is ten minutes for no answer. Run it as `timeout 120s go test ...
+  -timeout 90s`, so Go dumps the goroutines before the shell kills it.
+- A failure is not a reason to run the same command again. `TestRegistryTestSaysWhenTheLoginIsWrong`
+  failed in 11s with "the daemon didn't start"; the next run repeated it unchanged and the harness
+  killed it at 600s.
+- On the VM (`monsterdev`), `go test ./internal/daemon` cannot pass: `/t` is missing, so the
+  test directories push the daemon's unix socket past 107 bytes, `/etc/subuid` has no
+  `root:1000:1`, and some tests wait on timings. It takes about six minutes to fail. Run the
+  focused `-run` cases and leave the package to CI.
+- `./internal/agent` takes about 150 seconds. Run it once before the commit, not after every
+  edit. `./internal/cli` starts a daemon per test and was still running when one session ended.
+  Start with `-run` on the cases you touched.
+- `go build ./internal/agent` while iterating, and the whole tree plus the darwin/Windows builds
+  once before the push. One combined call of those took 103 seconds.
+- `/dev/shm` is longer than `/tmp`, not shorter, so it makes the socket problem worse. Use
+  `TMPDIR=/t` when `/t` exists, or keep test and subtest names short, as
+  `internal/cli/cluster_test.go` and `internal/daemon/pulls_test.go` do.
+- Start a 150-second test in the background and keep editing. Read its result before the commit.
 
 [CI](.github/workflows/ci.yml) is billed by the minute (the repository is private; macOS 10x,
 Windows 2x), so a run runs only what its files can break. A first job checks the PR title as a

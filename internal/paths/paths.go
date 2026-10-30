@@ -37,6 +37,11 @@ func (p Paths) StateDB() string     { return filepath.Join(p.Data, "state.db") }
 func (p Paths) Credentials() string { return filepath.Join(p.Config, "credentials") }
 func (p Paths) DaemonLog() string   { return filepath.Join(p.Data, "daemon.log") }
 
+// Profiles is the daemons the command line can act on, and which one it acts on
+// (cli/profiles.go). It holds addresses, never a credential, so it is mode 0644
+// like the rest of the machine's configuration rather than 0600.
+func (p Paths) Profiles() string { return filepath.Join(p.Config, "profiles.json") }
+
 // SecretsKey is the AES key the secrets you hand to agents are sealed under
 // (package secrets). It is created on first use, mode 0600, and lives beside
 // the logins rather than beside the state, so a copy of state.db is a copy of
@@ -162,4 +167,21 @@ func (p Paths) WorktreeTrash() string {
 
 func (p Paths) Worktree(project, agent string) string {
 	return filepath.Join(p.Worktrees(), project, agent)
+}
+
+// Snapshots is where a cluster agent's machine snapshots are streamed to: an
+// archive per snapshot, with a small JSON file of what it was taken from beside
+// it. They are on this host because a pod's claim is read through the cluster
+// and the archive is what makes a snapshot outlive the claim.
+func (p Paths) Snapshots() string {
+	if d := os.Getenv("AGENTBOX_SNAPSHOTS"); filepath.IsAbs(d) {
+		return d
+	}
+	return filepath.Join(p.Data, "snapshots")
+}
+
+// SnapshotsOf is one agent's snapshot directory, which is made when a snapshot
+// is taken rather than when an agent is created.
+func (p Paths) SnapshotsOf(project, agent string) string {
+	return filepath.Join(p.Snapshots(), project, agent)
 }

@@ -3,6 +3,7 @@ package daemon
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"net/http"
@@ -174,8 +175,9 @@ func (s *Server) followAllToolAccounts(ctx context.Context) {
 }
 
 // saveToolAccount answers POST /v1/auth/accounts/{tool}: a Codex or OpenCode
-// login from an API key. Cursor's key is checked with Cursor first
-// (saveCursorKey).
+// login from an API key, or one `agentbox auth codex|opencode` captured with
+// the tool itself on a machine that has it. Cursor's key is checked with Cursor
+// first (saveCursorKey).
 func (s *Server) saveToolAccount(w http.ResponseWriter, r *http.Request) error {
 	tool := r.PathValue("tool")
 	if tool == credentials.ToolCursor {
@@ -190,15 +192,12 @@ func (s *Server) saveToolAccount(w http.ResponseWriter, r *http.Request) error {
 	var auth []byte
 	var err error
 	switch tool {
-	case credentials.ToolCodex:
-		auth, err = credentials.CodexAPIKeyAuth(req.APIKey)
-	case credentials.ToolOpenCode:
-		auth, err = credentials.OpenCodeAPIKeyAuth(req.APIKey)
+	case credentials.ToolCodex, credentials.ToolOpenCode:
+		if auth, err = toolAccountAuth(tool, req); err != nil {
+			return err
+		}
 	default:
 		return fmt.Errorf("%q has no accounts: use codex, opencode or cursor", tool)
-	}
-	if err != nil {
-		return err
 	}
 	if err := s.manager(nil).Creds.SaveToolAccount(tool, provider, account, auth); err != nil {
 		return err
@@ -207,6 +206,22 @@ func (s *Server) saveToolAccount(w http.ResponseWriter, r *http.Request) error {
 	s.followAllToolAccounts(r.Context())
 	w.WriteHeader(http.StatusNoContent)
 	return nil
+}
+
+// toolAccountAuth is the login a save request carries: the one the command line
+// captured with the tool itself, when it did, and otherwise the file that
+// tool writes for an API key.
+func toolAccountAuth(tool string, req api.ToolAccountRequest) ([]byte, error) {
+	if len(req.Auth) == 0 {
+		if tool == credentials.ToolCodex {
+			return credentials.CodexAPIKeyAuth(req.APIKey)
+		}
+		return credentials.OpenCodeAPIKeyAuth(req.APIKey)
+	}
+	if req.APIKey != "" {
+		return nil, errors.New("a login carries either an API key or a captured sign-in, not both")
+	}
+	return req.Auth, nil
 }
 
 // toolAccountFromPath is the tool, OpenCode's provider and the account a path

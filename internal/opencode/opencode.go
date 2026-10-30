@@ -57,6 +57,16 @@ func Models(ctx context.Context, command, dataHome string, standalone bool) ([]s
 	return ParseModels(out.String()), nil
 }
 
+// IsModelID reports whether id is an OpenCode model id: a non-empty provider
+// and model joined by a slash, with no whitespace. It is the same rule
+// ParseModels applies to what `opencode models` prints, for a model named by a
+// person or a project.
+func IsModelID(id string) bool {
+	id = strings.TrimSpace(id)
+	provider, model, ok := strings.Cut(id, "/")
+	return ok && provider != "" && model != "" && !strings.ContainsAny(id, " \t")
+}
+
 // ParseModels reads the ids out of what `opencode models` printed: one
 // "provider/model" per line. Anything else on a line — a heading, a warning,
 // an empty line — is not an id and is dropped, so a future release that prints
@@ -77,6 +87,23 @@ func ParseModels(out string) []string {
 		models = append(models, id)
 	}
 	return models
+}
+
+// GoProvider is the OpenCode Zen Go endpoint's provider id. The same API key
+// authenticates it as the plain "opencode" provider (credentials.OpenCodeGoProvider).
+const GoProvider = "opencode-go"
+
+// GoModel is the opencode-go form of a model id: an "opencode/<model>" id maps
+// to the same model on the Go endpoint, and anything else is left alone. It is
+// how an agent that follows an OpenCode lead lands on the provider AgentBox
+// delivers the key for.
+func GoModel(id string) string {
+	id = strings.TrimSpace(id)
+	provider, model, ok := strings.Cut(id, "/")
+	if !ok || provider != "opencode" || model == "" {
+		return id
+	}
+	return GoProvider + "/" + model
 }
 
 // Name is how a "provider/model" id reads in a menu: "github-copilot/gpt-5.4"

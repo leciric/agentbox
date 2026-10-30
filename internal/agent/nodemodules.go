@@ -219,12 +219,12 @@ func (m *Manager) handBackNodeModules(ctx context.Context, a state.Agent) {
 		return
 	}
 	m.logf("Starting %s to hand its node_modules back to you", a.Ref())
-	if err := m.Incus.Start(ctx, a.Instance); err != nil {
+	if err := m.machine(a).Start(ctx); err != nil {
 		m.logf("Starting %s: %v; what root made in its node_modules stays", a.Ref(), err)
 		return
 	}
 	args := append([]string{"chown", "-R", fmt.Sprintf("%d:%d", m.User.UID, m.User.GID)}, mounts...)
-	if _, err := m.Incus.Exec(ctx, a.Instance, args...); err != nil {
+	if _, err := m.machine(a).Exec(ctx, args...); err != nil {
 		m.logf("Handing %s's node_modules back: %v", a.Ref(), err)
 	}
 }
@@ -245,7 +245,7 @@ func (m *Manager) nodeABI(ctx context.Context, a state.Agent) string {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	cmd := "cd " + shellQuote(a.Worktree) + " && node -p process.versions.modules 2>/dev/null"
-	if err := m.Incus.UserExec(ctx, a.Instance, m.User.Name, cmd, nil, &out, nil); err != nil {
+	if err := m.machine(a).UserExec(ctx, m.User.Name, cmd, nil, &out, nil); err != nil {
 		return ""
 	}
 	return strings.TrimSpace(out.String())

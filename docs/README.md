@@ -53,6 +53,8 @@ flowchart LR
 - [Installing AgentBox](install.md) — the install script and what it checks, KVM access, AgentBox's
   VM on Linux and how its agents share memory, moving an installation from before the VM, and macOS
   and Windows.
+- [Backups and restoring](backup.md): what a backup of AgentBox's own state holds, how to take one,
+  the restore script for a fresh machine, and what stays out of it.
 - [What AgentBox sends](privacy.md) — the update check, anonymous usage stats and events, and
   problem reports: every field, and how to turn each off.
 - [Architecture](architecture.md) — the daemon, the API over a unix socket, the CLI, the desktop
@@ -60,6 +62,9 @@ flowchart LR
 - [An agent's lifecycle](agent-lifecycle.md) — `agentbox create` end to end: the Incus container,
   the worktree, the branch, the network, the tmux session, and the states an agent and a job pass
   through.
+- [Agents in a Kubernetes cluster](kubernetes.md), an agent's machine as a pod: the cluster commands
+  and their doctor, the gateway a pod dials, the registry its image comes from, and a local k3d
+  cluster.
 - [The lead and its MCP tools](lead.md) — what the lead is, how it's chatted with, and every MCP
   tool it can call.
 - [Chat over ACP](chat.md) — how AgentBox drives Claude Code, Codex and OpenCode through the

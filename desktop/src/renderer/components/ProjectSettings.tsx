@@ -18,6 +18,7 @@ import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } fr
 import { Select, SelectOption, selectTrigger } from './ui/select';
 import type { SettingGroup, SettingSection } from '../lib/settingsSearch';
 import { ClaudeAccountPicker, ClaudeAccountsPicker, GitHubAccountPicker, OpenCodeAccountsPicker, ToolAccountPicker } from './ProjectAccounts';
+import { gitProfileGroups } from './GitProfiles';
 import { openSettingsSection, SettingGroups } from './SettingsPage';
 import { SettingNote, SettingRow } from './ui/settings';
 import { Switch } from './ui/switch';
@@ -110,6 +111,13 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
             ]
           : []),
         {
+          id: 'cluster',
+          label: t('defaults.project.clusterLabel'),
+          keywords: t('defaults.project.clusterKeywords'),
+          modified: project.cluster !== '',
+          render: () => <ProjectClusterPicker project={project} />,
+        },
+        {
           id: 'branch-prefix',
           label: t('defaults.project.prefixLabel'),
           keywords: t('defaults.project.prefixKeywords'),
@@ -194,6 +202,7 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
         },
       ],
     },
+    ...gitProfileGroups(project),
     {
       id: 'pulls',
       title: t('defaults.project.groupPulls'),
@@ -488,6 +497,57 @@ const autoModelOf = () => ({ value: AgentModelAuto, name: t('defaults.project.au
 // AgentBox's own small pinned list (Fable, chief among them — D69 in
 // decisions.md), so there's something worth offering even before any chat has
 // run.
+// ProjectClusterPicker is where this project's new agents run: this machine,
+// one cluster, or wherever there is room. It is what a create that names no
+// cluster follows, which is why the app's new-agent dialog starts on it.
+function ProjectClusterPicker({ project }: { project: T.Project }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const clusters = useQuery({ queryKey: ['clusters'], queryFn: api.clusters });
+  // Where this installation runs its agents: a cluster-only daemon has no Incus,
+  // so "this machine" is not a place to offer.
+  const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup });
+  const backends = setup.data?.backends ?? [];
+  const clusterOnly = backends.length === 1 && backends[0] === 'cluster';
+  const save = useMutation({
+    mutationFn: (cluster: string) => api.updateProject(project.name, { cluster }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const list = clusters.data ?? [];
+  // A cluster the project still names and that is gone from the list (removed
+  // elsewhere) is shown as it is rather than silently reading as this machine.
+  // This machine itself is the same case on an installation that has none.
+  const missing = project.cluster !== '' && project.cluster !== 'auto' && !list.some((c) => c.name === project.cluster);
+  const local = project.cluster === '' && clusterOnly;
+  return (
+    <SettingRow
+      label={t('defaults.project.clusterLabel')}
+      description={t('defaults.project.clusterDescription')}
+      control={
+        <Select
+          value={project.cluster}
+          onChange={(value) => save.mutate(value)}
+          disabled={save.isPending}
+          aria-label={t('defaults.project.clusterLabel')}
+        >
+          {!clusterOnly && <SelectOption value="">{t('defaults.project.clusterLocal')}</SelectOption>}
+          {local && <SelectOption value="">{t('defaults.project.clusterLocalMissing')}</SelectOption>}
+          <SelectOption value="auto">{t('defaults.project.clusterAuto')}</SelectOption>
+          {missing && <SelectOption value={project.cluster}>{project.cluster}</SelectOption>}
+          {list.map((cluster) => (
+            <SelectOption key={cluster.name} value={cluster.name}>
+              {cluster.name}
+            </SelectOption>
+          ))}
+        </Select>
+      }
+    />
+  );
+}
+
 function AgentModelPicker({ project }: { project: T.Project }) {
   const t = useT();
   const homeDefault = homeDefaultOf();

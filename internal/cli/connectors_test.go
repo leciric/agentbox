@@ -92,38 +92,43 @@ func fakeConnectorSocket(t *testing.T) string {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /v1/self/connectors/notion/mcp", func(w http.ResponseWriter, r *http.Request) {
-		var m struct {
-			ID     json.RawMessage `json:"id"`
-			Method string          `json:"method"`
-			Params struct {
-				Name      string            `json:"name"`
-				Arguments map[string]string `json:"arguments"`
-			} `json:"params"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&m)
-		var result any
-		switch m.Method {
-		case "initialize":
-			w.Header().Set("Mcp-Session-Id", "s1")
-			result = map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}}
-		case "tools/list":
-			result = map[string]any{"tools": []map[string]any{{"name": "notion-search", "description": "Search the workspace",
-				"inputSchema": map[string]any{"type": "object", "properties": map[string]any{"query": map[string]any{"type": "string"}}}}}}
-		case "tools/call":
-			q := m.Params.Arguments["query"]
-			result = map[string]any{"content": []map[string]any{{"type": "text", "text": "found: " + q}}, "isError": q == "boom"}
-		default:
-			w.WriteHeader(http.StatusAccepted)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": m.ID, "result": result})
-	})
+	mux.HandleFunc("POST /v1/self/connectors/notion/mcp", connectorMCPHandler)
 	srv := &http.Server{Handler: mux}
 	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(func() { _ = srv.Close() })
 	return socket
+}
+
+// connectorMCPHandler answers a connector's relay like a small MCP server: one
+// tool, which fails on "boom". It is what a connector's relay sees on the
+// other side, whichever way the agent reaches it.
+func connectorMCPHandler(w http.ResponseWriter, r *http.Request) {
+	var m struct {
+		ID     json.RawMessage `json:"id"`
+		Method string          `json:"method"`
+		Params struct {
+			Name      string            `json:"name"`
+			Arguments map[string]string `json:"arguments"`
+		} `json:"params"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&m)
+	var result any
+	switch m.Method {
+	case "initialize":
+		w.Header().Set("Mcp-Session-Id", "s1")
+		result = map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}}
+	case "tools/list":
+		result = map[string]any{"tools": []map[string]any{{"name": "notion-search", "description": "Search the workspace",
+			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{"query": map[string]any{"type": "string"}}}}}}
+	case "tools/call":
+		q := m.Params.Arguments["query"]
+		result = map[string]any{"content": []map[string]any{{"type": "text", "text": "found: " + q}}, "isError": q == "boom"}
+	default:
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": m.ID, "result": result})
 }
 
 // Inside an agent, a connector connected while it worked is reached from the

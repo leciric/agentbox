@@ -63,6 +63,82 @@ func TestOpenCodeImport(t *testing.T) {
 	}
 }
 
+// TestOpenCodeAuthDeliversTheGoProvider: an "opencode" account is also written
+// as opencode-go, with the same key, so the Go endpoint's models are available
+// to an agent whose auth.json would otherwise only name "opencode".
+func TestOpenCodeAuthDeliversTheGoProvider(t *testing.T) {
+	s := store(t)
+	save(t, s, credentials.ToolOpenCode, "opencode", "default", `{"type":"api","key":"sk-go"}`)
+	auth, used, err := s.OpenCodeAuth(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]map[string]string
+	if err := json.Unmarshal(auth, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["opencode"]["key"] != "sk-go" || got["opencode-go"]["key"] != "sk-go" {
+		t.Fatalf("OpenCodeAuth = %s, want the key under both opencode and opencode-go", auth)
+	}
+	if used["opencode-go"] != "default" {
+		t.Fatalf("used = %v, want opencode-go on the opencode account", used)
+	}
+	export, imported, err := s.OpenCodeImport(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var creds []struct {
+		IntegrationID string `json:"integrationID"`
+		Label         string `json:"label"`
+	}
+	if err := json.Unmarshal(export, &creds); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, c := range creds {
+		if c.IntegrationID == credentials.OpenCodeGoProvider {
+			found = c.Label == "default"
+		}
+	}
+	if !found || imported["opencode-go"] != "default" {
+		t.Fatalf("OpenCodeImport = %s, %v, want an opencode-go credential", export, imported)
+	}
+}
+
+// TestOpenCodeResolveLegacyProvider: a row written before the Go switch says
+// opencode=h4ad, while the store now holds that account under opencode-go.
+// The provider is moved; an account that is gone is dropped so the default
+// resolves.
+func TestOpenCodeResolveLegacyProvider(t *testing.T) {
+	s := store(t)
+	save(t, s, credentials.ToolOpenCode, credentials.OpenCodeGoProvider, "h4ad", `{"type":"api","key":"sk"}`)
+	got, changed, err := s.ResolveOpenCodeAccounts(map[string]string{"opencode": "h4ad"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed || got["opencode-go"] != "h4ad" || len(got) != 1 {
+		t.Fatalf("ResolveOpenCodeAccounts = %v, %v; want opencode-go=h4ad", got, changed)
+	}
+	got, changed, err = s.ResolveOpenCodeAccounts(map[string]string{"opencode": "gone"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed || len(got) != 0 {
+		t.Fatalf("a legacy provider whose account is gone = %v, %v; want it dropped", got, changed)
+	}
+	auth, used, err := s.OpenCodeAuth(map[string]string{"opencode": "h4ad"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entries map[string]map[string]string
+	if err := json.Unmarshal(auth, &entries); err != nil {
+		t.Fatal(err)
+	}
+	if entries[credentials.OpenCodeGoProvider]["key"] != "sk" || used[credentials.OpenCodeGoProvider] != "h4ad" {
+		t.Fatalf("OpenCodeAuth from a legacy row = %s, %v", auth, used)
+	}
+}
+
 // An account captured under OpenCode 2 carries its method and metadata; an
 // OpenCode 1 auth.json takes neither, and takes the account id from metadata.
 func TestOpenCodeAuthProjectsVersionOneEntries(t *testing.T) {

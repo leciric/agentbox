@@ -98,16 +98,17 @@ func (m *Manager) writeGitHooks(ctx context.Context, a state.Agent) (string, err
 	if m.creditAITool(ctx) {
 		return "", nil
 	}
-	dir := "/home/" + m.User.Name + "/" + gitHooksDir
-	if err := m.Incus.WriteFile(ctx, a.Instance, dir+"/commit-msg", []byte(commitMsgHook), m.User.UID, m.User.GID, 0o755); err != nil {
+	dir := m.home(a) + "/" + gitHooksDir
+	user := m.machineUser(a)
+	if err := m.machine(a).WriteFile(ctx, dir+"/commit-msg", []byte(commitMsgHook), user.UID, user.GID, 0o755); err != nil {
 		return "", err
 	}
-	if err := m.Incus.WriteFile(ctx, a.Instance, dir+"/chain", []byte(chainHook), m.User.UID, m.User.GID, 0o755); err != nil {
+	if err := m.machine(a).WriteFile(ctx, dir+"/chain", []byte(chainHook), user.UID, user.GID, 0o755); err != nil {
 		return "", err
 	}
 	// The rest are links to chain, made in one exec rather than a write each.
 	link := "cd " + shellQuote(dir) + " && for h in " + strings.Join(chainedHooks, " ") + "; do ln -sfn chain \"$h\"; done"
-	if err := m.Incus.UserExec(ctx, a.Instance, m.User.Name, link, nil, io.Discard, io.Discard); err != nil {
+	if err := m.machine(a).UserExec(ctx, user.Name, link, nil, io.Discard, io.Discard); err != nil {
 		return "", err
 	}
 	return dir, nil

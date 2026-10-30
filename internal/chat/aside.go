@@ -97,7 +97,7 @@ func (m *Manager) AskAside(ctx context.Context, a state.Agent, model, ask string
 	// do is read, or add to, the conversation the user is having.
 	var session acp.SessionResponse
 	if err := conn.Call(start, acp.MethodSessionNew, acp.NewSessionRequest{
-		Cwd: sessionCwd(proc, a), McpServers: []acp.McpServer{},
+		Cwd: sessionCwd(proc, m.dir(a)), McpServers: []acp.McpServer{},
 	}, &session); err != nil {
 		return "", "", explain(err)
 	}

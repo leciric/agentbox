@@ -162,6 +162,10 @@ type Project struct {
 	// tab, and reads the project's pull requests to keep its counts. On by
 	// default; off, the tab and its polling are gone.
 	PullRequests bool `json:"pullRequests"`
+	// Cluster is where this project's new agents run when the request names
+	// none: "" for this host, a cluster's name, or "auto" to let the daemon
+	// place each agent where it has room.
+	Cluster string `json:"cluster"`
 	// PRWatching is what that comes to: whether they are watched now.
 	PRWatching bool      `json:"prWatching"`
 	CreatedAt  time.Time `json:"createdAt"`
@@ -387,6 +391,10 @@ type UpdateProjectRequest struct {
 	// SyncBase turns on or off keeping this project's base branch up to date
 	// with its remote.
 	SyncBase *bool `json:"syncBase,omitempty"`
+	// Cluster is where the project's new agents run when the request names no
+	// cluster: "" for this host, a cluster's name, or "auto" to let the daemon
+	// place each agent where it has room.
+	Cluster *string `json:"cluster,omitempty"`
 	// FullTestSuite turns on or off whether this project's agents may run a
 	// whole test suite while Settings.BlockFullSuite refuses them.
 	FullTestSuite *bool `json:"fullTestSuite,omitempty"`
@@ -513,6 +521,14 @@ type Settings struct {
 	// `opencode models` run against AgentBox's own login, and is empty until
 	// one of those has happened.
 	OpenCodeModelChoices []ChatOptionChoice `json:"openCodeModelChoices"`
+	// DefaultOpenCodeEffort is how hard new OpenCode agents think when neither
+	// a request nor their project names an effort. Empty means AgentBox's own
+	// default, like DefaultClaudeEffort.
+	DefaultOpenCodeEffort string `json:"defaultOpenCodeEffort"`
+	// OpenCodeEffortChoices is the effort menu an OpenCode session last
+	// advertised, remembered the way ClaudeEffortChoices is. It is empty
+	// until an OpenCode chat has started and sent one.
+	OpenCodeEffortChoices []ChatOptionChoice `json:"openCodeEffortChoices"`
 	// OpenCodeReady is true when agents can actually run OpenCode: the base
 	// image has it and AgentBox has a login for it. A project's chat reads
 	// this to know whether it may create OpenCode agents at all.
@@ -750,6 +766,8 @@ type UpdateSettingsRequest struct {
 	CloneFolder *string `json:"cloneFolder,omitempty"`
 	// DefaultClaudeEffort is "" to go back to AgentBox's own default.
 	DefaultClaudeEffort *string `json:"defaultClaudeEffort,omitempty"`
+	// DefaultOpenCodeEffort is "" to go back to AgentBox's own default.
+	DefaultOpenCodeEffort *string `json:"defaultOpenCodeEffort,omitempty"`
 	// DefaultCursorModel and DefaultCursorEffort are what new Cursor agents
 	// start on, in Cursor's own names; "" goes back to Cursor's Auto and the
 	// model's own default level.
@@ -877,10 +895,13 @@ const (
 )
 
 type Agent struct {
-	Ref        string `json:"ref"`
-	Project    string `json:"project"`
-	Name       string `json:"name"`
-	Title      string `json:"title"` // what the user calls the agent; may be empty
+	Ref     string `json:"ref"`
+	Project string `json:"project"`
+	Name    string `json:"name"`
+	Title   string `json:"title"` // what the user calls the agent; may be empty
+	// Cluster is the Kubernetes cluster its machine is a pod in; empty for an
+	// agent on this host.
+	Cluster    string `json:"cluster,omitempty"`
 	Instance   string `json:"instance"`
 	AI         string `json:"ai"`
 	Autonomous bool   `json:"autonomous"`
@@ -935,7 +956,12 @@ type Agent struct {
 	// (RequestChangesRequest), while it works on that: set from the request
 	// until its chat's turn ends.
 	ChangesRequested string `json:"changesRequested,omitempty"`
-	State            string `json:"state"` // running, stopped, paused, initializing, incomplete or missing; queued only for one an earlier release left queued, as the daemon starts it
+	State            string `json:"state"` // running, stopped, paused, initializing or missing; queued for one waiting for room in its project's queue
+	// QueuePosition and QueueReason are the queue's own: the agent's place in
+	// its project's line, from 1, and why the clusters refused it when it was
+	// queued. They are set only while its state is queued.
+	QueuePosition int    `json:"queuePosition,omitempty"`
+	QueueReason   string `json:"queueReason,omitempty"`
 	// WaitingForImage is set while an initializing agent waits for the base
 	// image, which is being downloaded or built (ImageStatus says how far):
 	// its worktree and branch are there, and its machine is made as soon as
@@ -1073,6 +1099,12 @@ type CreateAgentRequest struct {
 	GitHubAccount string `json:"githubAccount,omitempty"`
 	NoEnv         bool   `json:"noEnv,omitempty"`
 	Clean         bool   `json:"clean,omitempty"`
+	// Cluster is the Kubernetes cluster this agent's machine is a pod in, by
+	// name, "auto" to let the daemon place it where there is room, or "local"
+	// for this machine. Omitted follows the project's own choice
+	// (Project.Cluster), which is an Incus instance on this machine for a
+	// project that never set one.
+	Cluster string `json:"cluster,omitempty"`
 	// CatchUp brings the new agent's machine up to the base image AgentBox
 	// makes now, before it is given its task: the system packages and the
 	// agent tools its project's base is behind on. It is how refreshing a
@@ -1086,11 +1118,15 @@ type CreateAgentRequest struct {
 	// agent and this is ignored. Empty defers to the project, which for
 	// "lead" means the same as "chat".
 	FinishNotice string `json:"finishNotice,omitempty"`
-	// Queue and Size are accepted for the callers that still send them,
-	// and do nothing: every agent starts at once, and the VM's memory
-	// pressure, not a size, decides when its heavy commands run.
-	Queue *bool  `json:"queue,omitempty"`
-	Size  string `json:"size,omitempty"`
+	// Queue makes a create that has no room wait in its project's queue
+	// instead of failing: the agent is accepted, listed as queued with the
+	// reason, and started when a cluster has room. Without it, a full cluster
+	// is an error that says what is full and how to wait.
+	Queue *bool `json:"queue,omitempty"`
+	// Size is accepted for the callers that still send it, and does nothing:
+	// the VM's memory pressure, not a size, decides when an agent's heavy
+	// commands run.
+	Size string `json:"size,omitempty"`
 	// Connectors limits which of the project's connectors the agent is
 	// given, by name; absent gives it every one, and an empty list none. An
 	// agent's own connectors, added to it later, aren't limited by it.
@@ -1307,6 +1343,35 @@ type Base struct {
 	// undone; nil when there is nothing to go back to. It is one step only:
 	// the next save keeps this base and drops that one.
 	Previous *Base `json:"previous,omitempty"`
+	// Project is the project's own container image, which is what a cluster
+	// agent's base is: an image built from .agentbox/agent.Dockerfile rather
+	// than a machine copied from a snapshot. A project can have both, for
+	// agents on this host and agents in a cluster. Snapshot is empty when it
+	// has only this.
+	Project *BaseProjectImage `json:"project,omitempty"`
+}
+
+// BaseProjectImage is a project's own container image, built from its
+// .agentbox/agent.Dockerfile on top of the agent image its cluster runs.
+type BaseProjectImage struct {
+	Image  string `json:"image"`
+	Digest string `json:"digest,omitempty"`
+	// SavedFrom is the agent whose project it was built for, and SavedAt when.
+	SavedFrom string    `json:"savedFrom"`
+	SavedAt   time.Time `json:"savedAt"`
+	// Previous is the image this one replaced, kept by the save for one
+	// revert; nil when there is nothing to go back to.
+	Previous *BaseProjectImage `json:"previous,omitempty"`
+}
+
+// ProjectImageRequest is PUT /v1/projects/{project}/base/image: an image the
+// CLI has already built and pushed, recorded so the project's agents run it.
+type ProjectImageRequest struct {
+	Image string `json:"image"`
+	// Digest is what the registry reported, "sha256:..." or "@sha256:...";
+	// empty for an image a local runtime imported and never pushed.
+	Digest string `json:"digest,omitempty"`
+	Agent  string `json:"agent"`
 }
 
 // BaseBehind is how far a project base is behind the base image.
@@ -1712,14 +1777,20 @@ type ToolAccount struct {
 	Expiry  *time.Time `json:"expiry,omitempty"`
 }
 
-// ToolAccountRequest stores a Codex or OpenCode login under an account, from
-// an API key: Codex's from OpenAI, OpenCode's from Provider. A ChatGPT or
-// OAuth sign-in is `agentbox auth codex|opencode --account <name>`.
+// ToolAccountRequest stores a Codex or OpenCode login under an account: from
+// an API key (Codex's from OpenAI, OpenCode's from Provider), or from a login
+// the command line captured with the tool itself.
 type ToolAccountRequest struct {
 	// Account names the login; empty means the account called "default".
 	Account  string `json:"account,omitempty"`
 	Provider string `json:"provider,omitempty"` // OpenCode's only
-	APIKey   string `json:"apiKey"`
+	APIKey   string `json:"apiKey,omitempty"`
+	// Auth is a login `agentbox auth codex|opencode` captured on a machine
+	// with the tool installed: the tool's own auth.json, or OpenCode's entry
+	// for the provider. It is stored as it is, in place of APIKey, so a
+	// ChatGPT or OAuth sign-in reaches the daemon that holds the accounts
+	// without running its login there, where a browser could not finish it.
+	Auth json.RawMessage `json:"auth,omitempty"`
 }
 
 // RenameToolAccountRequest gives a stored Codex, OpenCode or Cursor account
@@ -3358,7 +3429,19 @@ const (
 	EventNotificationsSeen = "notification.seen"
 )
 
-// SetupCheck is one thing AgentBox needs, or can use, on this machine.
+// Where a setup check's requirement lives, which is what decides whether it
+// blocks an installation that runs its agents elsewhere.
+const (
+	// SetupBackendHost is the machine this daemon runs on: Incus, its user
+	// mapping, its storage pool and its base image. It is a backend only while
+	// this machine runs agents itself (see SetupStatus.Backends).
+	SetupBackendHost = "host"
+	// SetupBackendCluster is one Kubernetes cluster the daemon drives, and its
+	// own way of being wrong: an image, a master URL, a namespace it can't reach.
+	SetupBackendCluster = "cluster"
+)
+
+// SetupCheck is one thing AgentBox needs, or can use, for one of its backends.
 type SetupCheck struct {
 	ID       string `json:"id"`
 	Title    string `json:"title"`
@@ -3369,11 +3452,26 @@ type SetupCheck struct {
 	// Job is the background job the daemon is fixing it with by itself, whose
 	// log the app can follow: only while one runs.
 	Job string `json:"job,omitempty"`
+	// Backend is where this check belongs: SetupBackendHost for this machine,
+	// SetupBackendCluster for a cluster, and empty for what every backend needs
+	// (a login, the preview listener).
+	Backend string `json:"backend,omitempty"`
+	// Cluster is the cluster a SetupBackendCluster check is about, so the app
+	// can name it and run its doctor.
+	Cluster string `json:"cluster,omitempty"`
 }
 
 type SetupStatus struct {
 	Ready  bool         `json:"ready"` // every required check is ok
 	Checks []SetupCheck `json:"checks"`
+	// Backends is where this installation runs its agents, as the ones Setup
+	// checks: SetupBackendHost when this machine runs them itself,
+	// SetupBackendCluster when it has clusters and no Incus to run them with.
+	// Both when it has the two. Empty backends mean no check could decide.
+	//
+	// It is what the app reads to know whether Incus is part of setting this
+	// installation up at all: a daemon in a container in a cluster has none.
+	Backends []string `json:"backends"`
 	// Image is what building the base image would fetch, so the app can show
 	// it before the build starts rather than only a spinner while it runs.
 	Image ImageBuild `json:"image"`

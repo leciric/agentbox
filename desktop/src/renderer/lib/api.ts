@@ -212,6 +212,28 @@ function providerQuery(provider?: string): string {
 
 export const api = {
   settings: () => call<T.Settings>('GET', '/v1/settings'),
+  // Where agents run when they don't run on this machine: Kubernetes clusters,
+  // and the registries their images come from.
+  clusters: () => call<T.Cluster[]>('GET', '/v1/clusters'),
+  addCluster: (req: T.AddClusterRequest) => call<T.Cluster>('POST', '/v1/clusters', req),
+  updateCluster: (name: string, req: T.ClusterConfig) => call<T.Cluster>('PUT', `/v1/clusters/${encodeURIComponent(name)}`, req),
+  removeCluster: (name: string) => call<void>('DELETE', `/v1/clusters/${encodeURIComponent(name)}`),
+  doctorCluster: (name: string) => call<T.ClusterReport>('POST', `/v1/clusters/${encodeURIComponent(name)}/doctor`),
+  rotateCluster: (name: string, req: T.RotateClusterRequest) => call<T.Cluster>('POST', `/v1/clusters/${encodeURIComponent(name)}/rotate`, req),
+  // What a cluster holds right now, for its page: its pods, claims, recent
+  // events and the agents waiting for room there.
+  clusterDetail: (name: string) => call<T.ClusterDetail>('GET', `/v1/clusters/${encodeURIComponent(name)}/detail`),
+  // Draining stops a cluster taking new agents; neither field stops the ones
+  // it has, keepRunning leaves them, and moveTo sends them elsewhere. Both
+  // draining and upgrading are jobs, so the answer says they started.
+  drainCluster: (name: string, req: T.DrainClusterRequest) => call<T.Job>('POST', `/v1/clusters/${encodeURIComponent(name)}/drain`, req),
+  undrainCluster: (name: string) => call<T.Cluster>('POST', `/v1/clusters/${encodeURIComponent(name)}/undrain`),
+  upgradeCluster: (name: string, req: T.UpgradeClusterRequest) => call<T.Job>('POST', `/v1/clusters/${encodeURIComponent(name)}/upgrade`, req),
+  registries: () => call<T.Registry[]>('GET', '/v1/registries'),
+  addRegistry: (req: T.AddRegistryRequest) => call<T.Registry>('POST', '/v1/registries', req),
+  removeRegistry: (name: string) => call<void>('DELETE', `/v1/registries/${encodeURIComponent(name)}`),
+  testRegistry: (name: string) => call<T.RegistryTest>('POST', `/v1/registries/${encodeURIComponent(name)}/test`),
+  rotateRegistry: (name: string, req: T.RotateRegistryRequest) => call<T.Registry>('POST', `/v1/registries/${encodeURIComponent(name)}/rotate`, req),
   // Chatting from a phone on the local network.
   // This machine's connection to a hub, as an environment.
   remote: () => call<T.RemoteStatus>('GET', '/v1/remote'),
@@ -282,6 +304,20 @@ export const api = {
   revertBase: (name: string) => call<T.Base>('POST', `${project(name)}/base/revert`),
   removeBase: (name: string) => call<void>('DELETE', `${project(name)}/base`),
   removePreviousBase: (name: string) => call<void>('DELETE', `${project(name)}/base?previous=1`),
+
+  // A project's git profiles: where its cluster agents clone and push, and how
+  // each one signs in. No answer carries a credential, only its name and
+  // whether it is stored; a value only ever goes in (internal/daemon/gitprofiles.go).
+  projectGit: (name: string) => call<T.ProjectGit>('GET', `${project(name)}/git`),
+  setProjectGitProfile: (name: string, profile: string, req: T.SetProjectGitProfileRequest) =>
+    call<T.ProjectGit>('PUT', `${project(name)}/git/${encodeURIComponent(profile)}`, req),
+  removeProjectGitProfile: (name: string, profile: string) => call<T.ProjectGit>('DELETE', `${project(name)}/git/${encodeURIComponent(profile)}`),
+  // Which profile its agents clone with from now on.
+  selectProjectGitProfile: (name: string, profile: string) =>
+    call<T.ProjectGit>('POST', `${project(name)}/git/use`, { profile } satisfies T.UseProjectGitRequest),
+  // An empty profile tests the one the project's agents use.
+  testProjectGitProfile: (name: string, profile = '') =>
+    call<T.ProjectGitTest>('POST', `${project(name)}/git/test`, { profile } satisfies T.TestProjectGitRequest),
 
   agents: () => call<T.Agent[]>('GET', '/v1/agents'),
   // Making or starting an agent in VM mode brings the VM up first, so the
@@ -371,6 +407,9 @@ export const api = {
   setChatOption: (ref: string, option: string, value: string) =>
     call<T.ChatSession>('PUT', `${chatBase(ref)}/options/${encodeURIComponent(option)}`, { value } satisfies T.ChatOptionRequest),
   clearChat: (ref: string) => call<void>('DELETE', chatBase(ref)),
+  // rolloverChat consolidates a project chat's conversation into its memory now,
+  // whatever its rollover threshold says, and carries on in a fresh session.
+  rolloverChat: (projectName: string) => call<void>('POST', `${project(projectName)}/chat/rollover`),
   // A lead's AI tool and account, chosen in its composer: what it can switch
   // to, and the choice, which applies from its next message. project is the
   // project's name, or T.HomeProject for the Home chat.

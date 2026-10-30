@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"agentbox/internal/state"
 )
 
 // TestDesktopAgentDefinition checks the frontmatter Claude Code reads: a name,
@@ -13,7 +15,7 @@ import (
 // ("expected exactly one key").
 func TestDesktopAgentDefinition(t *testing.T) {
 	t.Parallel()
-	def, err := desktopAgent(displayServers(agentMCPServers("/home/u", []string{"notion"}))...)
+	def, err := desktopAgent(displayServers(agentMCPServers(state.Agent{}, "/home/u", []string{"notion"}))...)
 	if err != nil {
 		t.Fatal(err)
 	}

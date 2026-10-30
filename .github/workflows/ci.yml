@@ -6,8 +6,9 @@ name: CI
 # which of Go, the desktop app and the phone app a change touches, and the
 # jobs for the rest skip. macOS and Windows run on a push to main, or on a PR
 # labelled ci:full, when the change reaches what they test. govulncheck runs
-# weekly, on main, and on a PR that changes go.mod or go.sum. A change to this
-# file or to scripts/ci-changes.sh runs everything.
+# weekly, on main, and on a PR that changes go.mod or go.sum. The Kubernetes
+# end-to-end job runs where the pod's own packages change, and weekly. A change
+# to this file or to scripts/ci-changes.sh runs everything.
 on:
   push:
     branches: [main]
@@ -59,6 +60,7 @@ jobs:
       mobile: ${{ steps.paths.outputs.mobile }}
       hub: ${{ steps.paths.outputs.hub }}
       vuln: ${{ steps.paths.outputs.vuln }}
+      k8s: ${{ steps.paths.outputs.k8s }}
       macos: ${{ steps.paths.outputs.macos }}
       windows: ${{ steps.paths.outputs.windows }}
     steps:
@@ -132,7 +134,7 @@ jobs:
           esac
           if ! $ok || [ ! -s "$files" ]; then
             echo "Can't tell what changed: running everything"
-            go=true desktop=true mobile=true hub=true vuln=true macos=true windows=true
+            go=true desktop=true mobile=true hub=true vuln=true k8s=true macos=true windows=true
           else
             sed 's/^/  /' "$files"
             # Lines of key=true|false.
@@ -144,7 +146,7 @@ jobs:
           if [ "$EVENT/$ACTION" = pull_request/labeled ] || { [ "$EVENT" = workflow_dispatch ] && [ -z "$PR" ]; }; then
             macos=true windows=true
           fi
-          printf '%s\n' "go=$go" "desktop=$desktop" "mobile=$mobile" "hub=$hub" "vuln=$vuln" "macos=$macos" "windows=$windows" | tee -a "$GITHUB_OUTPUT"
+          printf '%s\n' "go=$go" "desktop=$desktop" "mobile=$mobile" "hub=$hub" "vuln=$vuln" "k8s=$k8s" "macos=$macos" "windows=$windows" | tee -a "$GITHUB_OUTPUT"
 
   # The Go test suite, once, with coverage: scripts/check-coverage.sh fails
   # below the floor in .github/coverage-floor.txt. This includes
@@ -322,6 +324,36 @@ jobs:
             go-test-${{ runner.os }}-
 
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  # The Kubernetes path, end to end: scripts/k8s-e2e.sh makes a throwaway k3d
+  # cluster, runs the daemon against it from a container, adds the cluster,
+  # passes the doctor, and creates, execs into, stops, starts and destroys one
+  # agent's pod. It proves the pod path against a real API server, which no unit
+  # test can. It bills about ten minutes, so it runs only where a change can
+  # reach the k8s code (the paths are in scripts/ci-changes.sh) and weekly on
+  # schedule, and never on a label: labelling a PR runs macOS and Windows alone.
+  k8s-e2e:
+    name: Kubernetes end to end
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name == 'schedule' || (needs.changes.result == 'success' && needs.changes.outputs.k8s == 'true' && github.event.action != 'labeled')) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: go
+
+      # Docker and kubectl are on ubuntu-24.04's image; k3d is not, and its
+      # installer checks the release's checksum. The version is pinned because
+      # this job is the only place a new k3d would show up.
+      - name: Install k3d
+        run: |
+          curl -sfL https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | TAG=v5.9.0 bash
+          k3d version
+
+      - run: scripts/k8s-e2e.sh
 
   desktop:
     name: Desktop

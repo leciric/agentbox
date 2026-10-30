@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -12,9 +13,19 @@ import (
 	"time"
 
 	"agentbox/internal/agent"
+	"agentbox/internal/api"
 	"agentbox/internal/memory"
 	"agentbox/internal/pressure"
+	"agentbox/internal/state"
 )
+
+// agentOfInstance is the resolver the in-agent routes take, for a test that
+// hands a handler one directly: the agent behind a named machine.
+func agentOfInstance(srv *Server, instance string) func(*http.Request) (state.Agent, error) {
+	return func(r *http.Request) (state.Agent, error) {
+		return srv.store.AgentByInstance(r.Context(), instance)
+	}
+}
 
 // fakeRunCgroups is the runs' cgroups, as a test sees them: what was placed,
 // frozen, reclaimed and removed, and whether each still has processes.
@@ -287,7 +298,7 @@ func TestHeavyJoin(t *testing.T) {
 	join := func(key string, pid int) error {
 		r := httptest.NewRequest(http.MethodPost, "/v1/self/heavy/"+key+"/join", strings.NewReader(`{"pid":`+strconv.Itoa(pid)+`}`))
 		r.SetPathValue("key", key)
-		return p.srv.joinHeavy(p.instance)(httptest.NewRecorder(), r)
+		return p.srv.joinHeavy(agentOfInstance(p.srv, p.instance))(httptest.NewRecorder(), r)
 	}
 	if err := join("never-asked", 7); err == nil {
 		t.Error("a run that never started was joined")
@@ -307,6 +318,48 @@ func TestHeavyJoin(t *testing.T) {
 	}
 	if err := join("other", 8); err == nil || p.srv.heavy.g.Get(p.ref, "other").Placed {
 		t.Error("a run whose join failed counts as placed")
+	}
+}
+
+// A pod's heavy command is not queued for this machine's memory: the pod has
+// its own cgroup and the cluster its own limits, so there is no pressure here
+// to wait for and no cgroup here to hold it in. It starts at once, even on a
+// machine under pressure, and joining it has nothing to do.
+func TestHeavyInAPodStartsAtOnce(t *testing.T) {
+	t.Parallel()
+	p := newPressureTest(t)
+	ctx := context.Background()
+	a := state.Agent{Project: "hello-stack", Name: "agent-02", Cluster: "e2e", AI: "none",
+		Branch: "agentbox/agent-02", Status: state.AgentReady, CreatedAt: time.Now()}
+	if err := p.srv.store.AddAgent(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	agentOf := func(r *http.Request) (state.Agent, error) {
+		return p.srv.store.Agent(r.Context(), a.Project, a.Name)
+	}
+	p.set(90, 60)
+	start := httptest.NewRequest(http.MethodPost, "/v1/self/heavy", strings.NewReader(`{"key":"pod-build","command":"go build ./..."}`))
+	rec := httptest.NewRecorder()
+	if err := p.srv.startHeavy(agentOf)(rec, start); err != nil {
+		t.Fatal(err)
+	}
+	var out api.HeavyStart
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !out.Started {
+		t.Fatalf("a pod's heavy command waited: %+v", out)
+	}
+	if h := p.srv.memoryHold(a.Ref()); h != nil {
+		t.Errorf("a pod shows as held for memory: %+v", h)
+	}
+	join := httptest.NewRequest(http.MethodPost, "/v1/self/heavy/pod-build/join", strings.NewReader(`{"pid":7}`))
+	join.SetPathValue("key", "pod-build")
+	if err := p.srv.joinHeavy(agentOf)(httptest.NewRecorder(), join); err != nil {
+		t.Fatalf("joining a pod's heavy command: %v", err)
+	}
+	if len(p.cg.placed) != 0 {
+		t.Errorf("a pod's process was placed in this machine's cgroups: %v", p.cg.placed)
 	}
 }
 

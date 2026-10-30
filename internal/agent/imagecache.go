@@ -56,6 +56,11 @@ func (m *Manager) EnsureImageCache(ctx context.Context, a state.Agent) {
 }
 
 func (m *Manager) applyImageCache(ctx context.Context, a state.Agent) error {
+	if a.OnCluster() {
+		// A pod has no Incus devices: its Docker cache would be a volume, and
+		// the image cache belongs to this host's Incus.
+		return nil
+	}
 	socket := ""
 	if m.ImageCacheSocket != nil {
 		socket = m.ImageCacheSocket(ctx)

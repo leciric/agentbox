@@ -34,6 +34,11 @@ func isolate(t *testing.T) string {
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
 	t.Setenv("AGENTBOX_SOCKET", "")
 	t.Setenv("AGENTBOX_NO_AUTOSTART", "1")
+	// A test process that is itself a Kubernetes pod carries the master's
+	// address and its token. Clear them, or every test that checks "not
+	// inside an agent" would find one.
+	t.Setenv("AGENTBOX_MASTER_URL", "")
+	t.Setenv("AGENTBOX_TOKEN_FILE", "")
 	// Nothing here asks Anthropic whether a made-up token is real. A test that
 	// wants an answer points this at a server of its own.
 	t.Setenv("ANTHROPIC_BASE_URL", unreachableAPI)
@@ -62,7 +67,9 @@ func startDaemon(t *testing.T) {
 	go func() { done <- srv.Run(ctx) }()
 	t.Cleanup(func() {
 		cancel()
-		<-done
+		if err := <-done; err != nil {
+			t.Logf("the daemon ended with %v", err)
+		}
 	})
 	c := api.NewClient(p.Socket())
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
@@ -70,7 +77,14 @@ func startDaemon(t *testing.T) {
 			return
 		}
 	}
-	t.Fatal("the daemon didn't start")
+	select {
+	case err := <-done:
+		// Put it back: the cleanup waits for Run to have returned.
+		done <- err
+		t.Fatalf("the daemon didn't start: %v", err)
+	default:
+		t.Fatal("the daemon didn't start")
+	}
 }
 
 func run(t *testing.T, stdin string, args ...string) (string, error) {
@@ -348,6 +362,48 @@ func TestProjectModelCmd(t *testing.T) {
 	}
 }
 
+func TestProjectEffortCmd(t *testing.T) {
+	isolate(t)
+	startDaemon(t)
+	repo := testutil.FixtureRepo(t, "hello-stack")
+	if _, err := run(t, "", "add", repo); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := run(t, "", "project", "effort", "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "inherit") // follows the project chat's effort
+
+	out, err = run(t, "", "project", "effort", "hello-stack", "high")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "hello-stack: high")
+
+	out, err = run(t, "", "project", "effort", "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "hello-stack: high") // persisted
+
+	if _, err := run(t, "", "project", "effort", "hello-stack", "ultra"); err == nil || !strings.Contains(err.Error(), "unknown agent effort") {
+		t.Errorf("an unknown effort: got %v", err)
+	}
+
+	// "inherit" on the command line is how an empty value is typed.
+	out, err = run(t, "", "project", "effort", "hello-stack", "inherit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "the project chat's effort")
+
+	if _, err := run(t, "", "project", "effort", "no-such-project"); err == nil {
+		t.Error("the effort of an unknown project succeeded")
+	}
+}
+
 func TestAddRejectsRepoWithoutCommits(t *testing.T) {
 	isolate(t)
 	startDaemon(t)
@@ -455,6 +511,7 @@ func TestWhoamiOutsideAnAgent(t *testing.T) {
 
 func TestAuthClaudeTokenFromStdin(t *testing.T) {
 	home := isolate(t)
+	startDaemon(t)
 
 	out, err := run(t, "", "auth", "status")
 	if err != nil {
@@ -487,6 +544,7 @@ func TestAuthClaudeTokenFromStdin(t *testing.T) {
 
 func TestAuthClaudeAccounts(t *testing.T) {
 	home := isolate(t)
+	startDaemon(t)
 
 	out, err := run(t, "", "auth", "claude", "list")
 	if err != nil {
@@ -580,6 +638,7 @@ func TestAuthGitHubAccounts(t *testing.T) {
 // An AgentBox set up before named accounts keeps its token: it becomes "default".
 func TestAuthClaudeMigratesTheOldTokenFile(t *testing.T) {
 	home := isolate(t)
+	startDaemon(t)
 	dir := filepath.Join(home, ".config", "agentbox", "credentials")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
@@ -606,6 +665,7 @@ func TestAuthClaudeMigratesTheOldTokenFile(t *testing.T) {
 // The single shared token used before named accounts becomes "default".
 func TestAuthGitHubMigratesTheOldTokenFile(t *testing.T) {
 	home := isolate(t)
+	startDaemon(t)
 	dir := filepath.Join(home, ".config", "agentbox", "credentials")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
@@ -696,6 +756,7 @@ func fakeAnthropic(t *testing.T, accepts ...string) {
 // a 401 that explains nothing, hours later.
 func TestAuthStatusChecksTheStoredTokens(t *testing.T) {
 	isolate(t)
+	startDaemon(t)
 	fakeAnthropic(t, "sk-ant-oat01-good")
 	if _, err := run(t, "sk-ant-oat01-good\n", "auth", "claude", "--token-stdin"); err != nil {
 		t.Fatal(err)
@@ -717,8 +778,9 @@ func TestAuthStatusChecksTheStoredTokens(t *testing.T) {
 
 // A token stored before AgentBox recorded the date keeps working, and says
 // outright that it doesn't know how old it is.
-func TestAuthStatusOnATokenStoredBeforeTheDateWasKept(t *testing.T) {
+func TestAuthStatusOfAnUndatedToken(t *testing.T) {
 	home := isolate(t)
+	startDaemon(t)
 	fakeAnthropic(t, "sk-ant-oat01-old")
 	dir := filepath.Join(home, ".config", "agentbox", "credentials", "claude")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -742,6 +804,7 @@ func TestAuthStatusOnATokenStoredBeforeTheDateWasKept(t *testing.T) {
 // must not send anyone off to log in again.
 func TestAuthStatusSaysWhenItCouldNotCheck(t *testing.T) {
 	isolate(t) // points the check at a port nothing listens on
+	startDaemon(t)
 	if _, err := run(t, "sk-ant-oat01-fine\n", "auth", "claude", "--token-stdin"); err != nil {
 		t.Fatal(err)
 	}
@@ -749,7 +812,7 @@ func TestAuthStatusSaysWhenItCouldNotCheck(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mustContain(t, out, "couldn't be checked, saved "+time.Now().Format(time.DateOnly))
+	mustContain(t, out, "not checked, saved "+time.Now().Format(time.DateOnly))
 	if strings.Contains(out, "rejected") {
 		t.Errorf("a token nobody could check was called rejected:\n%s", out)
 	}

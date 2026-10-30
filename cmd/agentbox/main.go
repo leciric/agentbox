@@ -28,6 +28,13 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == iossim.HelperCommand {
 		os.Exit(iossim.Main(os.Args[2:], cli.Version()))
 	}
+	// `agentbox agentd` runs inside an agent's pod, where there is no VM: it
+	// is the pod's own half of the gateway, and the master reaches it over the
+	// network. Treating it as the front end would ask for a VM that the
+	// container does not have.
+	if len(os.Args) > 1 && os.Args[1] == "agentd" {
+		os.Exit(cli.Execute())
+	}
 	// `agentbox snap` and `agentbox browser-cookies` are the user's machine's
 	// too, VM or not: the window they capture and the export they read are
 	// here. They reach the daemon in the VM through its socket, forwarded to

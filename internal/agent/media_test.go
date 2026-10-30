@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -426,6 +427,41 @@ esac`))
 	log, _ := os.ReadFile(calls)
 	if !strings.Contains(string(log), "/.local/state/agentbox/out/recording.mp4") {
 		t.Errorf("not pulled from the agent's out directory:\n%s", log)
+	}
+}
+
+// A recording in a pod is written inside it, since a pod has no Incus device to
+// mount the stage with, so stopping it names the pod's own user and home: this
+// host's have nothing to do with its disk.
+func TestStopRecordingInAPodUsesItsOwnUserAndHome(t *testing.T) {
+	pod := &podMachine{
+		ref:    "ab-hello-stack-agent-01",
+		output: `{"name":"flow","target":"display"}` + "\n1280,720\n12.5\n",
+		pull:   "frames",
+	}
+	f := setup(t, fakeIncus(t, "exit 0"))
+	f.m.Kubernetes = podRuntime{m: pod}
+	a := logsFixture(t, f, "none")
+	a.Cluster = "prod"
+
+	item, err := f.m.StopRecording(context.Background(), a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pod.user != "agent" {
+		t.Errorf("the recording was stopped as %q, want the pod's own agent user", pod.user)
+	}
+	want := "/home/agent/.local/state/agentbox/recording.mp4"
+	if !slices.Contains(pod.pulled, want) {
+		t.Errorf("the recording was copied from %v, want %s", pod.pulled, want)
+	}
+	if content, err := os.ReadFile(f.m.MediaPath(item)); err != nil || string(content) != "frames" {
+		t.Errorf("the recording kept = %q, %v", content, err)
+	}
+	for _, ran := range pod.execs {
+		if strings.Contains(ran, "/home/"+f.m.User.Name) {
+			t.Errorf("a pod's recording was cleaned up in this host's home: %s", ran)
+		}
 	}
 }
 

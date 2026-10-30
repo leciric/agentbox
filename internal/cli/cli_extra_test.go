@@ -66,7 +66,7 @@ func TestBaseShowWithNoSavedBase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mustContain(t, out, "hello-stack has no saved base: new agents start from")
+	mustContain(t, out, "hello-stack has no saved base: agents on this host start from")
 
 	if _, err := run(t, "", "base", "show", "no-such-project"); err == nil {
 		t.Error("base show of an unknown project succeeded")
@@ -443,12 +443,26 @@ func TestEnvFlagRefusesLocalOnlyCommands(t *testing.T) {
 	isolate(t)
 	for _, args := range [][]string{
 		{"--env", "prod", "shell", "pawly/agent-01"},
-		{"--env", "prod", "auth", "status"},
 		{"--env", "prod", "host", "check"},
 	} {
 		if _, err := run(t, "", args...); err == nil || !strings.Contains(err.Error(), "works on this machine only, not with --env") {
 			t.Errorf("agentbox %s: got %v, want a local-only error", strings.Join(args, " "), err)
 		}
+	}
+}
+
+func TestServerFlagRefusesLocalOnlyCommands(t *testing.T) {
+	isolate(t)
+	for _, args := range [][]string{
+		{"--server", "https://machine.example.ts.net/agentbox", "shell", "pawly/agent-01"},
+		{"--server", "https://machine.example.ts.net/agentbox", "host", "check"},
+	} {
+		if _, err := run(t, "", args...); err == nil || !strings.Contains(err.Error(), "works on this machine only, not with --server") {
+			t.Errorf("agentbox %s: got %v, want a local-only error", strings.Join(args, " "), err)
+		}
+	}
+	if _, err := run(t, "", "--server", "https://machine.example.ts.net/agentbox", "--env", "prod", "projects"); err == nil || !strings.Contains(err.Error(), "alternatives") {
+		t.Errorf("--server with --env: got %v, want it refused", err)
 	}
 }
 
@@ -494,6 +508,7 @@ func TestAgentCmdsOnAnEmptyOrUnknownAgent(t *testing.T) {
 		{"stop", "hello-stack/agent-01"},
 		{"pause", "hello-stack/agent-01"},
 		{"resume", "hello-stack/agent-01"},
+		{"recreate", "hello-stack/agent-01"},
 		{"destroy", "hello-stack/agent-01"},
 		{"diff", "hello-stack/agent-01"},
 		{"share", "hello-stack/agent-01"},
@@ -756,6 +771,49 @@ func TestProjectSettingsShowAndValidate(t *testing.T) {
 
 	if _, err := run(t, "", "project", "model", "no-such-project"); err == nil {
 		t.Error("project model of an unknown project succeeded")
+	}
+
+	// The tool its agents run: the chat's until it says otherwise.
+	out, err = run(t, "", "project", "tool", "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "inherit — the tool this project's chat runs")
+	out, err = run(t, "", "project", "tool", "hello-stack", "opencode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "OpenCode, on this project's accounts")
+	// The model must be one OpenCode can run when the project pins OpenCode.
+	if _, err := run(t, "", "project", "model", "hello-stack", "sonnet"); err == nil || !strings.Contains(err.Error(), "isn't an OpenCode model") {
+		t.Errorf("project model with a Claude model while pinned to OpenCode: got %v", err)
+	}
+	out, err = run(t, "", "project", "model", "hello-stack", "opencode/deepseek-v4.1-flash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "opencode/deepseek-v4.1-flash")
+	out, err = run(t, "", "project", "tool", "hello-stack", "inherit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "inherit — the tool this project's chat runs")
+	if _, err := run(t, "", "project", "tool", "hello-stack", "gemini"); err == nil || !strings.Contains(err.Error(), "unknown agent tool") {
+		t.Errorf("project tool with an unknown tool: got %v", err)
+	}
+	if _, err := run(t, "", "project", "tool", "no-such-project"); err == nil {
+		t.Error("project tool of an unknown project succeeded")
+	}
+
+	// Where its agents run: this machine until it says otherwise, and a
+	// cluster that isn't there is refused with how to see the ones there are.
+	out, err = run(t, "", "project", "cluster", "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "local — an Incus instance on this machine for each new agent")
+	if _, err := run(t, "", "project", "cluster", "hello-stack", "no-such-cluster"); err == nil || !strings.Contains(err.Error(), "no cluster named") {
+		t.Errorf("project cluster with an unknown cluster: got %v", err)
 	}
 }
 

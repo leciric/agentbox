@@ -19,7 +19,7 @@ out() { echo "$1=$2"; }
 
 # A change to how CI decides, or to the tools' versions, runs everything.
 if has '^(\.github/workflows/ci\.yml|scripts/ci-changes\.sh)$'; then
-  for k in go desktop mobile hub vuln macos windows; do out "$k" true; done
+  for k in go desktop mobile hub vuln k8s macos windows; do out "$k" true; done
   exit 0
 fi
 
@@ -50,6 +50,12 @@ if has '^(hub/(cmd|internal|npm|scripts)/|hubapi/|go\.(mod|sum)$|mise\.toml$)'; 
 
 vuln=false
 if has '^go\.(mod|sum)$'; then vuln=true; fi
+
+# The Kubernetes path, which only a real cluster proves: the packages a pod's
+# machine is made of, the desktop's connection to the daemon (it is the k8s
+# client), and the end-to-end script itself. Everything else runs no cluster.
+k8s=false
+if has '^(internal/(k8s|machine|gateway|agentd|workspace|agentimage|gitcred)/|desktop/src/main/connection\.ts|scripts/k8s-e2e\.(sh|Dockerfile))'; then k8s=true; fi
 
 # macOS and Windows run a few packages' tests, build cmd/agentbox and run
 # it. Go vet, lint, tidy builds and vets for both on Linux, so what only they
@@ -108,5 +114,6 @@ out desktop "$desktop"
 out mobile "$mobile"
 out hub "$hub"
 out vuln "$vuln"
+out k8s "$k8s"
 out macos "$macos"
 out windows "$windows"

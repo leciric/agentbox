@@ -35,6 +35,7 @@ export interface Project {
   fullTestSuite: boolean;
   pickUpIssues: boolean;
   pullRequests: boolean;
+  cluster: string;
   prWatching: boolean;
   createdAt: string;
   iconVersion: number;
@@ -119,6 +120,7 @@ export interface UpdateProjectRequest {
   agentPRs?: boolean;
   prWatch?: string;
   syncBase?: boolean;
+  cluster?: string;
   fullTestSuite?: boolean;
   pickUpIssues?: boolean;
   pullRequests?: boolean;
@@ -177,6 +179,8 @@ export interface Settings {
   defaultClaudeEffort: string;
   claudeEffortChoices: ChatOptionChoice[];
   openCodeModelChoices: ChatOptionChoice[];
+  defaultOpenCodeEffort: string;
+  openCodeEffortChoices: ChatOptionChoice[];
   openCodeReady: boolean;
   openCodeVersion: string;
   cursorModelChoices: ChatOptionChoice[];
@@ -254,6 +258,7 @@ export interface UpdateSettingsRequest {
   defaultLeadContextWindow?: string;
   cloneFolder?: string;
   defaultClaudeEffort?: string;
+  defaultOpenCodeEffort?: string;
   defaultCursorModel?: string;
   defaultCursorEffort?: string;
   lastAgentPick?: AgentPick;
@@ -306,6 +311,7 @@ export interface Agent {
   project: string;
   name: string;
   title: string;
+  cluster?: string;
   instance: string;
   ai: string;
   autonomous: boolean;
@@ -329,6 +335,8 @@ export interface Agent {
   outcomeUntil?: string;
   changesRequested?: string;
   state: string;
+  queuePosition?: number;
+  queueReason?: string;
   waitingForImage?: boolean;
   memory?: MemoryHold;
   reclaimed?: string;
@@ -454,6 +462,7 @@ export interface CreateAgentRequest {
   githubAccount?: string;
   noEnv?: boolean;
   clean?: boolean;
+  cluster?: string;
   catchUp?: boolean;
   finishNotice?: string;
   queue?: boolean;
@@ -517,6 +526,7 @@ export interface Base {
   tools?: string;
   behind?: BaseBehind;
   previous?: Base;
+  project?: BaseProjectImage;
 }
 
 export interface BaseBehind {
@@ -540,6 +550,20 @@ export interface BaseToolChange {
 }
 
 export interface SaveBaseRequest {
+  agent: string;
+}
+
+export interface BaseProjectImage {
+  image: string;
+  digest?: string;
+  savedFrom: string;
+  savedAt: string;
+  previous?: BaseProjectImage;
+}
+
+export interface ProjectImageRequest {
+  image: string;
+  digest?: string;
   agent: string;
 }
 
@@ -1257,11 +1281,14 @@ export interface SetupCheck {
   detail?: string;
   fix?: string;
   job?: string;
+  backend?: string;
+  cluster?: string;
 }
 
 export interface SetupStatus {
   ready: boolean;
   checks: SetupCheck[];
+  backends: string[];
   image: ImageBuild;
 }
 
@@ -1406,7 +1433,8 @@ export interface ToolAccount {
 export interface ToolAccountRequest {
   account?: string;
   provider?: string;
-  apiKey: string;
+  apiKey?: string;
+  auth?: unknown;
 }
 
 export interface RenameToolAccountRequest {
@@ -2030,6 +2058,7 @@ export interface FleetAgent {
   project: string;
   name: string;
   title: string;
+  cluster?: string;
   instance: string;
   ai: string;
   autonomous: boolean;
@@ -2053,6 +2082,8 @@ export interface FleetAgent {
   outcomeUntil?: string;
   changesRequested?: string;
   state: string;
+  queuePosition?: number;
+  queueReason?: string;
   waitingForImage?: boolean;
   memory?: MemoryHold;
   reclaimed?: string;
@@ -3808,6 +3839,227 @@ export interface DoctorHomeRequest {
 
 export interface DoctorHomeResult {
   session: string;
+}
+
+export interface Cluster {
+  name: string;
+  namespace: string;
+  storageClass?: string;
+  image?: string;
+  previousImage?: string;
+  draining?: boolean;
+  masterURL?: string;
+  registry?: string;
+  maxAgents: number;
+  cpu?: string;
+  memory?: string;
+  labels?: Record<string, string>;
+  agentCPU?: string;
+  agentMemory?: string;
+  workspaceSize?: string;
+  ephemeralStorage?: string;
+  tailnet: string;
+  capabilities?: string[];
+  createdAt: string;
+  lastSeen?: string;
+  lastError?: string;
+  capacity?: ClusterCapacity;
+}
+
+export interface ClusterConfig {
+  storageClass?: string;
+  image?: string;
+  masterURL?: string;
+  registry?: string;
+  maxAgents: number;
+  cpu?: string;
+  memory?: string;
+  labels?: Record<string, string>;
+  agentCPU?: string;
+  agentMemory?: string;
+  workspaceSize?: string;
+  ephemeralStorage?: string;
+  tailnet: string;
+  capabilities?: string[];
+}
+
+export interface ClusterCapacity {
+  agents: number;
+  running: number;
+  cpu?: string;
+  memory?: string;
+  at: string;
+  error?: string;
+}
+
+export interface AddClusterRequest {
+  name: string;
+  namespace?: string;
+  storageClass?: string;
+  image?: string;
+  masterURL?: string;
+  registry?: string;
+  maxAgents?: number;
+  cpu?: string;
+  memory?: string;
+  labels?: Record<string, string>;
+  agentCPU?: string;
+  agentMemory?: string;
+  workspaceSize?: string;
+  ephemeralStorage?: string;
+  tailnet?: string;
+  capabilities?: string[];
+  kubeconfig: string;
+}
+
+export interface RotateClusterRequest {
+  kubeconfig: string;
+}
+
+export interface ClusterReport {
+  server?: string;
+  ok: boolean;
+  checks: ClusterCheck[];
+}
+
+export interface ClusterCheck {
+  name: string;
+  ok: boolean;
+  skipped?: boolean;
+  detail?: string;
+}
+
+export interface ClusterDetail {
+  cluster: Cluster;
+  error?: string;
+  pods?: ClusterPod[];
+  claims?: ClusterClaim[];
+  events?: ClusterEvent[];
+  queue?: ClusterQueue[];
+}
+
+export interface ClusterPod {
+  name: string;
+  project?: string;
+  agent?: string;
+  phase: string;
+  ready: boolean;
+  node?: string;
+  image?: string;
+  restarts?: number;
+  createdAt: string;
+  reason?: string;
+  message?: string;
+}
+
+export interface ClusterClaim {
+  name: string;
+  project?: string;
+  agent?: string;
+  storage?: string;
+  createdAt: string;
+}
+
+export interface ClusterEvent {
+  type: string;
+  reason: string;
+  object: string;
+  message: string;
+  count?: number;
+  at: string;
+}
+
+export interface ClusterQueue {
+  project: string;
+  agent: string;
+  position: number;
+  reason?: string;
+}
+
+export interface DrainClusterRequest {
+  moveTo?: string;
+  keepRunning?: boolean;
+}
+
+export interface UpgradeClusterRequest {
+  digest?: string;
+  rollback?: boolean;
+}
+
+export interface Registry {
+  name: string;
+  url: string;
+  public: boolean;
+  hasCa: boolean;
+  hasCredential: boolean;
+  insecure: boolean;
+  createdAt: string;
+  lastSeen?: string;
+  lastError?: string;
+}
+
+export interface AddRegistryRequest {
+  name: string;
+  url: string;
+  username?: string;
+  token?: string;
+  public?: boolean;
+  ca?: string;
+  insecure?: boolean;
+}
+
+export interface RotateRegistryRequest {
+  username?: string;
+  token?: string;
+  keepLogin?: boolean;
+  noLogin?: boolean;
+  url?: string;
+  ca?: string;
+  insecure?: boolean;
+  public?: boolean;
+}
+
+export interface RegistryTest {
+  ok: boolean;
+  detail: string;
+}
+
+export interface ProjectGit {
+  profiles: ProjectGitProfile[];
+  agentRemote: string;
+}
+
+export interface ProjectGitProfile {
+  profile: string;
+  url: string;
+  auth: string;
+  credential: string;
+  hasCredential: boolean;
+  resolvedURL?: string;
+  resolveError?: string;
+}
+
+export interface SetProjectGitProfileRequest {
+  url: string;
+  auth?: string;
+  credential?: string;
+  secret?: string;
+}
+
+export interface UseProjectGitRequest {
+  profile: string;
+}
+
+export interface TestProjectGitRequest {
+  profile?: string;
+}
+
+export interface ProjectGitTest {
+  profile: string;
+  url: string;
+  ok: boolean;
+  refs: number;
+  detail?: string;
 }
 
 export const JobRunning = "running";

@@ -140,6 +140,20 @@
     "height": 900
   },
   {
+    "id": "opencode-activity-before-dark",
+    "description": "An OpenCode 2 turn before the activity fixes: raw metadata as the read's output, bare tool titles, no plan badge and no created file",
+    "query": "app=agent-97&activity=before&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "opencode-activity-after-dark",
+    "description": "The same OpenCode 2 turn after the activity fixes: the file's text, file-named rows, a created file in changed files and the Tasks plan",
+    "query": "app=agent-97&activity=after&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
     "id": "credential-agent-12-chat-dark",
     "description": "agent-12's own chat, blocked in request_credential: the card under the spinning call — dark, 1280x800",
     "query": "chat=agent-12&theme=dark",
@@ -164,6 +178,13 @@
     "id": "credential-project-chat-light",
     "description": "The same, light",
     "query": "chat=lead&theme=light",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "chat-lead-menu-dark",
+    "description": "The project chat's ⋯ menu open: Find in chat, Files, New chat, Compact now and Reload tools, with Compact now still enabled — dark",
+    "query": "chat=lead-menu&theme=dark",
     "width": 1280,
     "height": 900
   },
@@ -522,6 +543,61 @@
     "height": 900
   },
   {
+    "id": "git-project-dark",
+    "description": "A project's Settings → Git: the private profile with its login stored and its resolved URL, and the public one with no login and an alias that does not resolve, in the dark theme",
+    "query": "settings=project:agentbox&theme=dark",
+    "width": 1280,
+    "height": 2400
+  },
+  {
+    "id": "git-project-edit-light",
+    "description": "The same Git section with the private profile's edit form open: URL, auth, credential name and the write-only login, in the light theme",
+    "query": "settings=project:agentbox&theme=light",
+    "width": 1280,
+    "height": 2400,
+    "click": "[data-git-edit=private]"
+  },
+  {
+    "id": "git-create-missing-dark",
+    "description": "The create-agent dialog on k3d for a project whose private git profile is gone: the refusal, a disabled Create and the way to its Git settings, in the dark theme",
+    "query": "newagent=1&git=missing&theme=dark",
+    "width": 900,
+    "height": 1400,
+    "click": ["[data-new-agent-cluster]", "[role=menuitem]:has-text('k3d')"]
+  },
+  {
+    "id": "git-search-narrow-dark",
+    "description": "Settings searched for \"credential\" in a narrow window: the project's Git section found by the word, its cards wrapped, not overflowing, in the dark theme",
+    "query": "settings=project:agentbox&theme=dark",
+    "width": 560,
+    "height": 1200,
+    "fill": ["[data-settings-search]", "credential"]
+  },
+  {
+    "id": "git-flow-dark",
+    "description": "Settings → Git's first entry, found by searching: a branch's flow from the agent through the private remote, marked as the one agents use, to the public one, in the dark theme",
+    "query": "settings=project:agentbox&theme=dark",
+    "width": 1280,
+    "height": 900,
+    "fill": ["[data-settings-search]", "branch moves"]
+  },
+  {
+    "id": "git-flow-public-light",
+    "description": "The same flow when the project's agents push to the public profile: the private step dashed and skipped, the public one marked, in the light theme",
+    "query": "settings=project:agentbox&git=public&theme=light",
+    "width": 1280,
+    "height": 900,
+    "fill": ["[data-settings-search]", "branch moves"]
+  },
+  {
+    "id": "git-flow-narrow-dark",
+    "description": "The flow in a narrow window: its steps stacked by the settings column's width, with arrows down, not overflowing, in the dark theme",
+    "query": "settings=project:agentbox&theme=dark",
+    "width": 560,
+    "height": 1000,
+    "fill": ["[data-settings-search]", "branch moves"]
+  },
+  {
     "id": "settings-search-narrow-dark",
     "description": "Settings searched for \"memory\" in a narrow window, where the sections are a row of chips — dark",
     "query": "settings=models&theme=dark",
@@ -538,6 +614,139 @@
     "query": "settings=general&theme=dark",
     "width": 1280,
     "height": 1500
+  },
+  {
+    "id": "settings-clusters-whole-dark",
+    "description": "Settings open at Clusters, tall enough to show every row of the section, to read its labels and descriptions, dark theme",
+    "query": "settings=clusters&theme=dark",
+    "width": 1280,
+    "height": 1200
+  },
+  {
+    "id": "settings-clusters-add-whole-dark",
+    "description": "Settings open at Clusters with the advanced settings open, to read the two forms that add a cluster and a registry, dark theme",
+    "query": "settings=clusters&theme=dark",
+    "width": 1280,
+    "height": 1700,
+    "click": "text=Advanced"
+  },
+  {
+    "id": "settings-clusters-full-dark",
+    "description": "Settings open at Clusters: k3d's capacity line over its room, and the full nas at 0 free, dark theme",
+    "query": "settings=clusters&theme=dark",
+    "width": 1100,
+    "height": 1200
+  },
+  {
+    "id": "settings-clusters-draining-dark",
+    "description": "Settings open at Clusters: the draining hetzner with its previous image, Undrain in place of Drain, and its Details and Upgrade buttons, dark theme",
+    "query": "settings=clusters&theme=dark",
+    "width": 1100,
+    "height": 1200
+  },
+  {
+    "id": "settings-clusters-detail-dark",
+    "description": "k3d's Details dialog: capacity, two pods (one Pending with the scheduler's reason), claims, the agent waiting for room, and the cluster's recent events, dark theme",
+    "query": "settings=clusters&theme=dark",
+    "width": 1280,
+    "height": 1000,
+    "click": "[data-cluster-details=k3d]"
+  },
+  {
+    "id": "settings-clusters-light",
+    "description": "Settings open at Clusters: k3d's master URL under its image, hetzner's no-master-URL notice, and each card's Edit and Rotate, light theme",
+    "query": "settings=clusters&theme=light",
+    "width": 1100,
+    "height": 1200
+  },
+  {
+    "id": "settings-clusters-narrow-dark",
+    "description": "Settings open at Clusters in a 480px window: the cards, their seven actions wrapping, and the master URL notice, dark theme",
+    "query": "app=settings&settings=clusters&theme=dark",
+    "width": 480,
+    "height": 1400
+  },
+  {
+    "id": "settings-clusters-add-light",
+    "description": "The add-cluster form with its master URL and tailnet fields, the note saying a cluster with no master URL runs nothing, light theme",
+    "query": "settings=clusters&theme=light",
+    "width": 1280,
+    "height": 1700,
+    "click": "text=Advanced"
+  },
+  {
+    "id": "settings-clusters-add-narrow-dark",
+    "description": "The add-cluster form in a 480px window: the master URL field and the tailnet picker stacked, dark theme",
+    "query": "app=settings&settings=clusters&theme=dark",
+    "width": 480,
+    "height": 2200,
+    "click": "text=Advanced"
+  },
+  {
+    "id": "settings-clusters-add-badurl-dark",
+    "description": "The add-cluster form with a master URL that has a query: the daemon's reason under the field and Add cluster off with why, dark theme",
+    "query": "settings=clusters&theme=dark",
+    "width": 1280,
+    "height": 1700,
+    "click": "text=Advanced",
+    "fill": ["#cluster-master", "https://monster.example.ts.net/?x=1"]
+  },
+  {
+    "id": "settings-clusters-detail-light",
+    "description": "k3d's Details dialog opening on its Configuration: master URL, tailnet, budget and sizes, light theme",
+    "query": "settings=clusters&theme=light",
+    "width": 1280,
+    "height": 1000,
+    "click": "[data-cluster-details=k3d]"
+  },
+  {
+    "id": "settings-clusters-edit-dark",
+    "description": "k3d's Edit dialog: master URL, tailnet, max agents and the six sizes, Save off because nothing changed, dark theme",
+    "query": "settings=clusters&theme=dark",
+    "width": 1280,
+    "height": 1000,
+    "click": "[data-cluster-edit=k3d]"
+  },
+  {
+    "id": "settings-clusters-edit-light",
+    "description": "k3d's Edit dialog, light theme",
+    "query": "settings=clusters&theme=light",
+    "width": 1280,
+    "height": 1000,
+    "click": "[data-cluster-edit=k3d]"
+  },
+  {
+    "id": "settings-clusters-edit-narrow-dark",
+    "description": "k3d's Edit dialog in a 480px window: the sizes in one column, dark theme",
+    "query": "app=settings&settings=clusters&theme=dark",
+    "width": 480,
+    "height": 900,
+    "click": "[data-cluster-edit=k3d]"
+  },
+  {
+    "id": "settings-clusters-edit-badsize-dark",
+    "description": "k3d's Edit dialog with a memory of 4GB: the field's reason in red and Save off with why, dark theme",
+    "query": "settings=clusters&theme=dark",
+    "width": 1280,
+    "height": 1000,
+    "click": "[data-cluster-edit=k3d]",
+    "fill": ["#cluster-edit-agentMemory-k3d", "4GB"]
+  },
+  {
+    "id": "settings-clusters-rotate-dark",
+    "description": "k3d's Rotate dialog: what rotating does to the old token, the admin kubeconfig field, and Rotate off until one is pasted, dark theme",
+    "query": "settings=clusters&theme=dark",
+    "width": 1280,
+    "height": 1000,
+    "click": "[data-cluster-rotate=k3d]"
+  },
+  {
+    "id": "settings-clusters-rotate-light",
+    "description": "k3d's Rotate dialog, light theme",
+    "query": "settings=clusters&theme=light",
+    "width": 1280,
+    "height": 1000,
+    "click": "[data-cluster-rotate=k3d]"
   },
   {
     "id": "settings-phone-whole-dark",
@@ -981,7 +1190,51 @@
     "description": "The New agent dialog, with its Size picker under the Queue switch — dark",
     "query": "newagent=1&theme=dark",
     "width": 1100,
-    "height": 900
+    "height": 1200
+  },
+  {
+    "id": "newagent-full-dark",
+    "description": "The New agent dialog with the full nas cluster picked: the picker says full, 0 free, and Queue if full is there to wait for room, dark theme",
+    "query": "newagent=1&theme=dark",
+    "width": 1100,
+    "height": 1300,
+    "click": ["[data-new-agent-cluster]", "[role=menuitem]:has-text('nas')", "#agent-queue"]
+  },
+  {
+    "id": "newagent-clusters-pending-dark",
+    "description": "The New agent dialog for a project that runs its agents on k3d while the cluster list hasn't answered: the picker says it is loading and Create waits, saying why, in the dark theme",
+    "query": "newagent=1&cluster=k3d&clusters=pending&theme=dark",
+    "width": 900,
+    "height": 1200
+  },
+  {
+    "id": "newagent-clusters-error-dark",
+    "description": "The same dialog when the cluster list fails: the error, and Create refused rather than sending the project's k3d the picker can't show, in the dark theme",
+    "query": "newagent=1&cluster=k3d&clusters=error&theme=dark",
+    "width": 900,
+    "height": 1200
+  },
+  {
+    "id": "newagent-draining-dark",
+    "description": "The New agent dialog for a project whose cluster, hetzner, is draining: the picker open, hetzner marked as taking no new agents and not selectable, in the dark theme",
+    "query": "newagent=1&cluster=hetzner&theme=dark",
+    "width": 900,
+    "height": 1200,
+    "click": "[data-new-agent-cluster]"
+  },
+  {
+    "id": "newagent-git-pending-dark",
+    "description": "The New agent dialog on k3d while the project's git profiles are still being checked: Create waits and says so, in the dark theme",
+    "query": "newagent=1&cluster=k3d&git=pending&theme=dark",
+    "width": 900,
+    "height": 1200
+  },
+  {
+    "id": "agents-queued-dark",
+    "description": "Home's all-agents list with an agent queued for the full k3d: its cluster badge, its place in line and the reason, in the dark theme",
+    "query": "app=home&theme=dark",
+    "width": 1280,
+    "height": 1800
   },
   {
     "id": "notify-bell-dark",
@@ -2898,5 +3151,26 @@
   {"id": "first-run-check-dark", "description": "The first run's last step, the doctor: a failure with no fix of its own offers Ask Home to fix it — dark", "query": "app=home&firstrun=check&theme=dark", "width": 1280, "height": 900},
   {"id": "first-run-tool-light", "description": "Same as first-run-tool-dark, light", "query": "app=home&firstrun=tool&theme=light", "width": 1280, "height": 900},
   {"id": "first-run-project-pt-BR-dark", "description": "Same as first-run-project-dark, in Brazilian Portuguese", "query": "app=home&firstrun=project&lang=pt-BR&theme=dark", "width": 1280, "height": 900},
-  {"id": "first-run-tool-narrow-dark", "description": "The first run's first step at a phone-narrow 480px window — dark", "query": "app=home&firstrun=tool&theme=dark", "width": 480, "height": 900}
+  {"id": "first-run-tool-narrow-dark", "description": "The first run's first step at a phone-narrow 480px window — dark", "query": "app=home&firstrun=tool&theme=dark", "width": 480, "height": 900},
+  {
+    "id": "setup-cluster-dark",
+    "description": "Setup of an installation whose agents run in Kubernetes clusters only, no Incus anywhere: the cluster steps, the where-agents-run card and the checklist - dark, xl width",
+    "query": "settings=setup&setup=cluster&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "setup-cluster-todo-dark",
+    "description": "The same installation in the wizard, stopped at a cluster with no agent image - dark",
+    "query": "settings=setup&setup=cluster-todo&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "setup-cluster-light-narrow",
+    "description": "The same Setup below the xl breakpoint, where the rail is a drawer - light",
+    "query": "settings=setup&setup=cluster&theme=light",
+    "width": 900,
+    "height": 800
+  }
 ]

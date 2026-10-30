@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"agentbox/internal/image"
-	"agentbox/internal/incus"
+	"agentbox/internal/machine"
 	"agentbox/internal/state"
 )
 
@@ -45,9 +45,19 @@ var ErrHasMachine = errors.New("it has its machine already")
 // interrupted Recreate made it: the agent is marked creating while Recreate
 // runs, so that machine is replaced. A failure removes the half-made machine
 // and leaves the agent as it was, to try again.
+//
+// A cluster agent's machine is its claim, not its pod: Recreate deletes the pod,
+// keeps the claim, and lets the cluster make a new pod from it at the image the
+// cluster runs now. Its home and its worktree are both on the claim, so its chat
+// sessions and its files come back; the pod's processes and its container
+// filesystem do not. There is no ErrHasMachine on that path: replacing a pod
+// that is there is the whole point.
 func (m *Manager) Recreate(ctx context.Context, a state.Agent, opts RecreateOptions) error {
 	if a.IsLead() {
 		return fmt.Errorf("%s is its project's chat, which has no machine", a.Ref())
+	}
+	if a.OnCluster() {
+		return m.recreatePod(ctx, a, opts)
 	}
 	p, repo, err := m.project(ctx, a.Project)
 	if err != nil {
@@ -56,15 +66,15 @@ func (m *Manager) Recreate(ctx context.Context, a state.Agent, opts RecreateOpti
 	if !repo.HasWorktree(a.Worktree) {
 		return fmt.Errorf("%s's worktree %s isn't there, so there's nothing to make its machine for", a.Ref(), a.Worktree)
 	}
-	switch _, err := m.Incus.Instance(ctx, a.Instance); {
+	switch _, err := m.machine(a).Info(ctx); {
 	case err == nil && a.Status == state.AgentReady:
 		return fmt.Errorf("%s: %w (%s)", a.Ref(), ErrHasMachine, a.Instance)
 	case err == nil:
 		m.logf("Removing %s, which an interrupted run left half-made", a.Instance)
-		if err := m.Incus.Delete(ctx, a.Instance); err != nil {
+		if err := m.machine(a).Destroy(ctx); err != nil {
 			return err
 		}
-	case !errors.Is(err, incus.ErrNotFound):
+	case !errors.Is(err, machine.ErrNotFound):
 		return err
 	}
 	ready, err := image.Ready(ctx, m.Incus)
@@ -95,7 +105,7 @@ func (m *Manager) Recreate(ctx context.Context, a state.Agent, opts RecreateOpti
 	// the old machine, and went with it; their worktree halves stay on their
 	// refs.
 	if _, err := repo.ResolveRef(snapshotRef(a.Name, initialSnapshot)); err == nil {
-		if err := m.Incus.CreateSnapshot(ctx, a.Instance, initialSnapshot); err != nil {
+		if err := m.machine(a).Snapshot(ctx, initialSnapshot); err != nil {
 			return fail("snapshot", err)
 		}
 	}
@@ -116,6 +126,59 @@ func (m *Manager) Recreate(ctx context.Context, a state.Agent, opts RecreateOpti
 	return nil
 }
 
+// recreatePod replaces a cluster agent's pod. The claim is the machine, so its
+// files stay and the new pod runs the image the cluster points at now; the
+// pod's configuration and its tmux session are written again, because neither is
+// on the claim: they were processes and files in the pod that just went.
+func (m *Manager) recreatePod(ctx context.Context, a state.Agent, opts RecreateOptions) error {
+	mach := m.machine(a)
+	rec, ok := mach.(machine.Recreator)
+	if !ok {
+		return fmt.Errorf("%s runs on cluster %s, and this daemon has no cluster runtime to recreate its pod with", a.Ref(), a.Cluster)
+	}
+	if err := m.Store.SetAgentStatus(ctx, a.Project, a.Name, state.AgentCreating); err != nil {
+		return err
+	}
+	cleanup := context.WithoutCancel(ctx)
+	fail := func(step string, err error) error {
+		m.logf("%s failed", step)
+		_ = m.Store.SetAgentStatus(cleanup, a.Project, a.Name, state.AgentReady)
+		return fmt.Errorf("recreating %s's pod: %s: %w", a.Ref(), step, err)
+	}
+	m.logf("Replacing %s's pod, keeping its claim", a.Ref())
+	if err := rec.Recreate(ctx); err != nil {
+		return fail("delete", err)
+	}
+	if _, err := mach.WaitReady(ctx, podReadyTimeout); err != nil {
+		return fail("wait", err)
+	}
+	if opts.Home != "" {
+		m.logf("Copying what the old machine's chats need into the new one")
+		if err := m.pushHome(ctx, a, opts.Home); err != nil {
+			return fail("home", err)
+		}
+	}
+	m.logf("Configuring git, AI tool logins and the agent brief")
+	if err := m.configure(ctx, a, "", m.projectEnvFiles(ctx, a.Project), ""); err != nil {
+		return fail("configure", err)
+	}
+	m.logf("Starting the tmux session")
+	if err := m.ensureSession(ctx, a); err != nil {
+		return fail("session", err)
+	}
+	if err := m.Store.SetPausedAt(ctx, a.Project, a.Name, time.Time{}); err != nil {
+		return fail("state", err)
+	}
+	if err := m.Store.SetAgentStatus(ctx, a.Project, a.Name, state.AgentReady); err != nil {
+		return fail("state", err)
+	}
+	if opts.Stopped {
+		m.logf("Stopping it, as it was")
+		return m.Stop(ctx, a)
+	}
+	return nil
+}
+
 // pushHome copies the contents of dir into the agent user's home, as that
 // user, keeping what the home has that dir doesn't.
 func (m *Manager) pushHome(ctx context.Context, a state.Agent, dir string) error {
@@ -124,7 +187,7 @@ func (m *Manager) pushHome(ctx context.Context, a state.Agent, dir string) error
 		return err
 	}
 	var out bytes.Buffer
-	if err := m.Incus.UserExec(ctx, a.Instance, m.User.Name, "tar -x -C \"$HOME\" -f -", &archive, &out, &out); err != nil {
+	if err := m.machine(a).UserExec(ctx, m.User.Name, "tar -x -C \"$HOME\" -f -", &archive, &out, &out); err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(out.String()))
 	}
 	return nil

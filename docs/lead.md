@@ -120,7 +120,8 @@ is kept short: a family of operations on one thing is one tool, with an `action`
 
 **Agents**
 - `create_agent` — create a new agent (title, task, branch, AI tool, model, effort, account,
-  connectors). See [An agent's lifecycle](agent-lifecycle.md).
+  connectors). The model and effort it leaves out follow the project's, then the lead's chat when
+  the agent follows its tool. See [An agent's lifecycle](agent-lifecycle.md).
 - `list_agents` — list the project's agents and their status, or its past (archived) ones.
 - `tell_agent` — send a message into a running agent's chat.
 - `read_agent` — read an agent's chat transcript, or (`show`) its diff or the diff's summary.

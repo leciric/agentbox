@@ -3,6 +3,8 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -150,8 +152,72 @@ func newProjectCmd(a *app) *cobra.Command {
 		Short: "Settings of one project",
 		Long:  `Settings that belong to one project, rather than to this installation.`,
 	}
-	cmd.AddCommand(newAddCmd(a), newProjectModelCmd(a), newProjectBranchPrefixCmd(a), newProjectRenameCmd(a))
+	cmd.AddCommand(newAddCmd(a), newProjectModelCmd(a), newProjectToolCmd(a), newProjectEffortCmd(a), newProjectBranchPrefixCmd(a), newProjectRenameCmd(a), newProjectGitCmd(a), newProjectClusterCmd(a))
 	return cmd
+}
+
+// newProjectClusterCmd shows or sets where a project's agents run when a
+// request names no cluster.
+func newProjectClusterCmd(a *app) *cobra.Command {
+	return &cobra.Command{
+		Use:   "cluster <project> [<cluster>|auto|local]",
+		Short: "Where this project's new agents run: a cluster, auto, or this machine",
+		Long: `Shows or sets where this project's new agents run when an agent doesn't name
+a cluster of its own.
+
+  local       this machine, an Incus instance for each agent (this is how a
+              project starts)
+  <cluster>   that Kubernetes cluster, by name
+  auto        the daemon picks the cluster with the most room for each agent,
+              which is this project's own default cluster when that is one of
+              them
+
+Agents that already exist stay where they are: this is where the next one
+runs.`,
+		Args: cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			if len(args) == 1 {
+				projects, err := c.Projects(cmd.Context())
+				if err != nil {
+					return err
+				}
+				for _, p := range projects {
+					if p.Is(args[0]) {
+						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), projectClusterWords(p.Cluster))
+						return nil
+					}
+				}
+				return fmt.Errorf("no project named %q", args[0])
+			}
+			// "local" is how you ask for this machine on a command line, where
+			// an empty argument can't be typed.
+			cluster := strings.TrimSpace(args[1])
+			if cluster == "local" {
+				cluster = ""
+			}
+			p, err := c.SetProjectCluster(cmd.Context(), args[0], cluster)
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), projectClusterWords(p.Cluster))
+			return nil
+		},
+	}
+}
+
+func projectClusterWords(cluster string) string {
+	switch cluster {
+	case "":
+		return "local — an Incus instance on this machine for each new agent"
+	case "auto":
+		return "auto — whichever cluster has the most room for each new agent"
+	default:
+		return cluster + " — every new agent of this project runs there"
+	}
 }
 
 // newProjectRenameCmd changes what a project is called. Its id, the slug in
@@ -197,7 +263,8 @@ func newProjectModelCmd(a *app) *cobra.Command {
             how hard the task is, and says which it chose
 
 Agents that already exist keep the model they have: this is the starting point
-for the next one.`,
+for the next one. When the project pins OpenCode as its tool, the model must be
+an OpenCode provider/model id, like opencode/deepseek-v4.1-flash.`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := a.client(cmd)
@@ -235,6 +302,74 @@ for the next one.`,
 	}
 }
 
+// newProjectToolCmd shows or sets the AI tool this project's agents run,
+// in newProjectModelCmd's show-or-set shape.
+func newProjectToolCmd(a *app) *cobra.Command {
+	return &cobra.Command{
+		Use:   "tool <project> [inherit|claude|codex|opencode|cursor]",
+		Short: "The AI tool this project's agents run",
+		Long: `Shows or sets the AI tool this project's new agents run when the agent doesn't
+name one, or names no account of its own.
+
+  inherit   follow the tool this project's chat runs (this is how a
+            project starts)
+  claude    Claude Code, on the project's Claude Code account
+  codex     Codex, on the project's Codex account
+  opencode  OpenCode, on the project's OpenCode accounts
+  cursor    Cursor, on the project's Cursor account
+
+An account or a tool named for one agent still wins over this. Agents that
+already exist keep the tool they have: this is the starting point for the next
+one. Pinning OpenCode needs a model too: set one with agentbox project model.`,
+		Args: cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			if len(args) == 1 {
+				projects, err := c.Projects(cmd.Context())
+				if err != nil {
+					return err
+				}
+				for _, p := range projects {
+					if p.Is(args[0]) {
+						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), agentToolWords(p.AgentTool))
+						return nil
+					}
+				}
+				return fmt.Errorf("no project named %q", args[0])
+			}
+			tool := strings.TrimSpace(args[1])
+			if tool == "inherit" {
+				tool = ""
+			}
+			p, err := c.SetAgentTool(cmd.Context(), args[0], tool)
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), agentToolWords(p.AgentTool))
+			return nil
+		},
+	}
+}
+
+func agentToolWords(tool string) string {
+	switch tool {
+	case "":
+		return "inherit — the tool this project's chat runs"
+	case "claude":
+		return "Claude Code, on this project's account"
+	case "codex":
+		return "Codex, on this project's account"
+	case "opencode":
+		return "OpenCode, on this project's accounts"
+	case "cursor":
+		return "Cursor, on this project's account"
+	}
+	return tool
+}
+
 func agentModelWords(model string) string {
 	switch model {
 	case "":
@@ -244,6 +379,64 @@ func agentModelWords(model string) string {
 	default:
 		return model + " — every new agent of this project starts on it"
 	}
+}
+
+// newProjectEffortCmd shows or sets how hard this project's agents think, for
+// the tools whose session exposes an effort option.
+func newProjectEffortCmd(a *app) *cobra.Command {
+	return &cobra.Command{
+		Use:   "effort <project> [inherit|low|medium|high|xhigh|max]",
+		Short: "How hard this project's agents think",
+		Long: `Shows or sets how hard this project's new agents think, on the tools whose
+session exposes an effort option (Claude Code, OpenCode, and some Cursor
+models).
+
+  inherit   follow the project chat's effort when an agent follows its tool
+            (this is how a project starts)
+  low, medium, high, xhigh, max
+            every agent of this project starts at that level, unless one is
+            named for a single agent
+
+An effort named for one agent still wins. Agents that already exist keep the
+effort they have: this is the starting point for the next one.`,
+		Args: cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			if len(args) == 1 {
+				projects, err := c.Projects(cmd.Context())
+				if err != nil {
+					return err
+				}
+				for _, p := range projects {
+					if p.Is(args[0]) {
+						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), agentEffortWords(p.AgentEffort))
+						return nil
+					}
+				}
+				return fmt.Errorf("no project named %q", args[0])
+			}
+			effort := strings.TrimSpace(args[1])
+			if effort == "inherit" {
+				effort = ""
+			}
+			p, err := c.SetAgentEffort(cmd.Context(), args[0], effort)
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), agentEffortWords(p.AgentEffort))
+			return nil
+		},
+	}
+}
+
+func agentEffortWords(effort string) string {
+	if effort == "" {
+		return "inherit — the project chat's effort, when an agent follows its tool"
+	}
+	return effort + " — every new agent of this project starts there"
 }
 
 // newProjectBranchPrefixCmd shows or sets what this project's agents' branches
@@ -858,4 +1051,242 @@ func newBriefCmd(a *app) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&agentName, "agent", "agent-01", "agent name to preview")
 	return cmd
+}
+
+// newProjectGitCmd is "agentbox project git": the two remotes a project's
+// cluster agents clone and push with, and the login each signs in with. A
+// credential's value goes in once, with --from-file, and is never printed.
+func newProjectGitCmd(a *app) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "git",
+		Short: "The git profiles a project's cluster agents clone and push with",
+		Long: `Where a project's agents clone from, and how they sign in there.
+
+An agent in a cluster has no host checkout and no host identity: its pod clones
+one of its project's two git profiles. Private is where work in progress goes,
+and is what agents use unless the project says otherwise; public is where a
+finished change is published. A project added from a repository gets private
+from its hub remote and public from its origin, without a login: set one before
+its first cluster agent.
+
+  agentbox project git set myapp private https://hub.example/o/myapp.git --from-file ~/.config/token
+  agentbox project git use myapp public
+  agentbox project git test myapp
+
+A URL may be the alias this machine already uses (forge:h4ad/myapp.git): it is
+resolved here, and the pod is given a real URL. A token profile clones over
+https, which is what a token answers; --auth ssh-key keeps ssh and needs the
+private key itself, also read with --from-file.`,
+	}
+	cmd.AddCommand(newProjectGitShowCmd(a), newProjectGitSetCmd(a), newProjectGitUseCmd(a),
+		newProjectGitTestCmd(a), newProjectGitRemoveCmd(a))
+	return cmd
+}
+
+func newProjectGitShowCmd(a *app) *cobra.Command {
+	return &cobra.Command{
+		Use:   "show <project>",
+		Short: "Show a project's git profiles",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			pg, err := c.ProjectGit(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s uses its %s profile for cluster agents.\n\n", args[0], pg.AgentRemote)
+			return writeProjectGit(cmd.OutOrStdout(), pg)
+		},
+	}
+}
+
+func newProjectGitSetCmd(a *app) *cobra.Command {
+	var auth, credential, fromFile string
+	cmd := &cobra.Command{
+		Use:   "set <project> <private|public> <url>",
+		Short: "Set one of a project's git profiles, and its login",
+		Long: `Set one of a project's two git profiles.
+
+--auth says how the URL signs in: token (the default), ssh-key, or
+github-account, which uses a login already stored with "agentbox auth github".
+--credential names the stored login, and defaults to the profile's own name.
+
+--from-file stores the secret too: a token, or the private key itself for
+--auth ssh-key. For a token profile, a token is one line and answers over https,
+which is what a token can answer, so an ssh URL becomes https on the same host.
+The secret is read here, sent once, and never printed.
+
+  op read op://work/forgejo/token | agentbox project git set myapp private https://hub.example/o/myapp.git --from-file -
+  agentbox project git set myapp private git@github.com:o/myapp.git --auth ssh-key --from-file ~/.ssh/id_ed25519`,
+		Args: cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			project, profile, url := args[0], args[1], args[2]
+			// Only what was passed is sent: an existing profile keeps its auth
+			// and credential when just the URL changes.
+			req := api.SetProjectGitProfileRequest{URL: url}
+			if cmd.Flags().Changed("auth") {
+				req.Auth = auth
+			}
+			if cmd.Flags().Changed("credential") {
+				req.Credential = credential
+			}
+			if fromFile != "" {
+				secret, err := readGitCredential(cmd, fromFile)
+				if err != nil {
+					return err
+				}
+				req.Secret = secret
+			}
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			pg, err := c.SetProjectGitProfile(cmd.Context(), project, profile, req)
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Set %s's %s git profile.\n\n", project, profile)
+			return writeProjectGit(cmd.OutOrStdout(), pg)
+		},
+	}
+	cmd.Flags().StringVar(&auth, "auth", "token", "how the URL signs in: token, ssh-key or github-account (default: token for a new profile, else unchanged)")
+	cmd.Flags().StringVar(&credential, "credential", "", "the stored login's name (default: the profile's name, for token and ssh-key)")
+	cmd.Flags().StringVar(&fromFile, "from-file", "", "read the token or private key from this file, or from stdin with -")
+	return cmd
+}
+
+func newProjectGitUseCmd(a *app) *cobra.Command {
+	return &cobra.Command{
+		Use:   "use <project> <private|public>",
+		Short: "Choose the profile a project's cluster agents clone with",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			pg, err := c.UseProjectGitProfile(cmd.Context(), args[0], args[1])
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s now uses its %s profile for cluster agents.\n", args[0], pg.AgentRemote)
+			return nil
+		},
+	}
+}
+
+func newProjectGitTestCmd(a *app) *cobra.Command {
+	return &cobra.Command{
+		Use:   "test <project> [private|public]",
+		Short: "Ask a profile's remote for its refs with the stored login",
+		Long: `Ask a profile's remote for its refs, with the login the profile stores.
+
+The check runs where the login is kept, in a temporary directory only that
+account can read, so the login is never an argument to a command. Without a
+profile it tests the one the project's agents use. It says how many refs
+answered, or a reason with the login taken out of it.`,
+		Args: cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			profile := ""
+			if len(args) > 1 {
+				profile = args[1]
+			}
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			out, err := c.TestProjectGitProfile(cmd.Context(), args[0], profile)
+			if err != nil {
+				return err
+			}
+			if !out.OK {
+				return fmt.Errorf("%s's %s git profile (%s) didn't answer: %s", args[0], out.Profile, out.URL, out.Detail)
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s's %s git profile accepted the login: %d refs from %s\n", args[0], out.Profile, out.Refs, out.URL)
+			return nil
+		},
+	}
+}
+
+func newProjectGitRemoveCmd(a *app) *cobra.Command {
+	return &cobra.Command{
+		Use:   "remove <project> <private|public>",
+		Short: "Forget one of a project's git profiles",
+		Long: `Forget one of a project's two git profiles.
+
+Its login goes with it, unless the other profile names the same one. A project
+whose agents were using it moves to the profile that is left.`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			pg, err := c.RemoveProjectGitProfile(cmd.Context(), args[0], args[1])
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Removed %s's %s git profile.\n\n", args[0], args[1])
+			return writeProjectGit(cmd.OutOrStdout(), pg)
+		},
+	}
+}
+
+// writeProjectGit is a project's profiles as a table: which is in use, where it
+// points, and which login it means. A credential's value is not in the API's
+// answer, so there is nothing here to leave out.
+func writeProjectGit(out io.Writer, pg api.ProjectGit) error {
+	if len(pg.Profiles) == 0 {
+		_, _ = fmt.Fprintln(out, "No git profiles yet. Set one with:")
+		_, _ = fmt.Fprintln(out, "  agentbox project git set <project> private <url> --from-file <file>")
+		return nil
+	}
+	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(w, "PROFILE\tUSE\tURL\tAUTH\tLOGIN\tRESOLVED")
+	for _, p := range pg.Profiles {
+		use := ""
+		if p.Profile == pg.AgentRemote {
+			use = "yes"
+		}
+		login := p.Credential + " (not stored)"
+		if p.HasCredential {
+			login = p.Credential + " (stored)"
+		}
+		if p.Credential == "" {
+			login = "none yet"
+		}
+		resolved := p.ResolvedURL
+		if p.ResolveError != "" {
+			resolved = "not resolvable: " + p.ResolveError
+		}
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", p.Profile, use, p.URL, p.Auth, login, resolved)
+	}
+	return w.Flush()
+}
+
+// readGitCredential reads a token or a private key the user points at. "-" is
+// stdin, which is how a password manager's output is piped in; the value is
+// never echoed, printed or put on a command line.
+func readGitCredential(cmd *cobra.Command, path string) (string, error) {
+	var data []byte
+	var err error
+	if path == "-" {
+		data, err = io.ReadAll(cmd.InOrStdin())
+		if err != nil {
+			return "", err
+		}
+	} else {
+		data, err = os.ReadFile(path)
+		if err != nil {
+			return "", err
+		}
+	}
+	secret := strings.TrimSpace(string(data))
+	if secret == "" {
+		return "", fmt.Errorf("no credential in %s: it is empty", path)
+	}
+	return secret, nil
 }

@@ -34,11 +34,43 @@ func NewClient(socket string) *Client {
 	return &Client{socket: socket, base: "http://agentbox", http: &http.Client{Transport: transport}}
 }
 
-// NewRemoteClient talks to a daemon through a hub. base is the environment's
-// API on the hub, https://<hub>/v1/environments/<id>/api, and token a session
-// on that hub.
+// NewRemoteClient talks to a daemon that isn't on this machine: through a hub,
+// where base is the environment's API on the hub
+// (https://<hub>/v1/environments/<id>/api) and token a session on that hub, or
+// over the daemon's own https address on the tailnet, where token is empty and
+// Tailscale Serve says who is asking.
 func NewRemoteClient(base, token string) *Client {
-	return &Client{base: strings.TrimRight(base, "/"), token: token, http: &http.Client{}}
+	base = strings.TrimRight(base, "/")
+	c := &Client{base: base, token: token, http: &http.Client{}}
+	if token != "" {
+		// HTTPClient's callers build their own requests (a connector's MCP
+		// relay, a terminal's WebSocket), so the session goes on the
+		// transport: everything through this client carries it, not only what
+		// this client builds itself.
+		host := ""
+		if u, err := url.Parse(base); err == nil {
+			host = u.Host
+		}
+		c.http.Transport = bearerTransport{token: token, host: host, base: http.DefaultTransport}
+	}
+	return c
+}
+
+// bearerTransport sends token as the Authorization header of every request
+// through it, and only to the host the client was made for: a redirect
+// somewhere else must not carry it.
+type bearerTransport struct {
+	token string
+	host  string
+	base  http.RoundTripper
+}
+
+func (t bearerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.host == "" || strings.EqualFold(req.URL.Host, t.host) {
+		req = req.Clone(req.Context())
+		req.Header.Set("Authorization", "Bearer "+t.token)
+	}
+	return t.base.RoundTrip(req)
 }
 
 // Socket is the daemon's socket, or its URL through a hub.
@@ -454,6 +486,30 @@ func (c *Client) RolloverChat(ctx context.Context, project string) error {
 func (c *Client) SetAgentModel(ctx context.Context, project, model string) (Project, error) {
 	var out Project
 	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project), UpdateProjectRequest{AgentModel: &model}, &out)
+}
+
+// SetAgentTool sets the AI tool a project's new agents run when a request
+// names none: "" to follow the project chat's tool, or claude, codex, opencode
+// or cursor.
+func (c *Client) SetAgentTool(ctx context.Context, project, tool string) (Project, error) {
+	var out Project
+	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project), UpdateProjectRequest{AgentTool: &tool}, &out)
+}
+
+// SetAgentEffort sets how hard a project's new agents think: "" to follow the
+// project chat's effort when an agent follows its tool, or one of low, medium,
+// high, xhigh and max.
+func (c *Client) SetAgentEffort(ctx context.Context, project, effort string) (Project, error) {
+	var out Project
+	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project), UpdateProjectRequest{AgentEffort: &effort}, &out)
+}
+
+// SetProjectCluster sets where a project's new agents run when the request
+// names no cluster: "" for this machine, a cluster's name, or "auto" to let the
+// daemon place each one where there is room.
+func (c *Client) SetProjectCluster(ctx context.Context, project, cluster string) (Project, error) {
+	var out Project
+	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project), UpdateProjectRequest{Cluster: &cluster}, &out)
 }
 
 // SetBranchPrefix sets what a project's new agents' branches are named with,
@@ -1160,6 +1216,29 @@ func (c *Client) RevertBase(ctx context.Context, project string) (Base, error) {
 // RemovePreviousBase drops what the last save kept, giving its disk back.
 func (c *Client) RemovePreviousBase(ctx context.Context, project string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/projects/"+url.PathEscape(project)+"/base?previous=1", nil, nil)
+}
+
+// SetProjectImage records an image the caller has built and pushed as the
+// project's own: what its cluster agents start from.
+func (c *Client) SetProjectImage(ctx context.Context, project string, req ProjectImageRequest) (BaseProjectImage, error) {
+	var out BaseProjectImage
+	return out, c.do(ctx, http.MethodPut, "/v1/projects/"+url.PathEscape(project)+"/base/image", req, &out)
+}
+
+// RevertProjectImage puts back the image the last save replaced.
+func (c *Client) RevertProjectImage(ctx context.Context, project string) (BaseProjectImage, error) {
+	var out BaseProjectImage
+	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(project)+"/base/image/revert", nil, &out)
+}
+
+// RemoveProjectImage deletes the project's image, or with previous, only what
+// the last save kept.
+func (c *Client) RemoveProjectImage(ctx context.Context, project string, previous bool) error {
+	path := "/v1/projects/" + url.PathEscape(project) + "/base/image"
+	if previous {
+		path += "?previous=1"
+	}
+	return c.do(ctx, http.MethodDelete, path, nil, nil)
 }
 
 func (c *Client) Agents(ctx context.Context, project string) ([]Agent, error) {

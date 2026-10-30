@@ -94,6 +94,38 @@ func TestSetAccountLaysOpenCodeProvidersOverTheAgents(t *testing.T) {
 	}
 }
 
+// TestSetAccountMovesALegacyOpencodeProvider: an agent row that still says
+// opencode=h4ad can be switched to the account now stored under opencode-go,
+// and the stale provider is gone from the row afterwards.
+func TestSetAccountMovesALegacyOpencodeProvider(t *testing.T) {
+	inc, files := recordingIncus(t, oneRunningAgent)
+	f := setup(t, inc)
+	ctx := context.Background()
+	for _, name := range []string{"h4ad", "work"} {
+		if err := f.m.Creds.SaveToolAccount("opencode", "opencode-go", name, []byte(`{"type":"api","key":"sk-`+name+`"}`)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := toolAgentFixture(t, f, "opencode", func(a *state.Agent) {
+		a.OpenCodeAccounts = state.AccountMap{"opencode": "h4ad"}
+	})
+	got, err := f.m.SetAccount(ctx, a, agent.Logins{OpenCode: state.AccountMap{"opencode-go": "work"}})
+	if err != nil {
+		t.Fatalf("SetAccount = %v", err)
+	}
+	if got.OpenCodeAccounts["opencode-go"] != "work" || got.OpenCodeAccounts["opencode"] != "" || len(got.OpenCodeAccounts) != 1 {
+		t.Errorf("OpenCode accounts = %v, want only opencode-go=work", got.OpenCodeAccounts)
+	}
+	auth := inAgent(t, files, a.Instance, "/home/dev/.local/share/opencode/auth.json")
+	if !strings.Contains(auth, "sk-work") || strings.Contains(auth, "sk-h4ad") {
+		t.Errorf("OpenCode's auth.json = %s, want only work's key", auth)
+	}
+	stored, err := f.st.Agent(ctx, a.Project, a.Name)
+	if err != nil || stored.OpenCodeAccounts["opencode-go"] != "work" || stored.OpenCodeAccounts["opencode"] != "" {
+		t.Errorf("stored accounts = %v, %v; want only opencode-go=work", stored.OpenCodeAccounts, err)
+	}
+}
+
 // TestSetAccountRefusesWhatItCantDeliver: a stopped Codex agent, whose login
 // file can't be written; a lead; an account of a tool the agent doesn't run.
 func TestSetAccountRefusesWhatItCantDeliver(t *testing.T) {

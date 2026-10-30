@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"slices"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -23,6 +25,12 @@ func newHostCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "host",
 		Short: "Set up this machine for AgentBox, and check what's missing",
+		Long: `Sets this machine up to run the agents itself, and says what's missing.
+
+An installation whose agents are pods in a Kubernetes cluster needs none of the
+setup: it has no Incus here and no base image, and "agentbox cluster add" is
+what it does instead. "agentbox host check" answers there too, with its clusters'
+checks rather than Incus's.`,
 		// AgentBox's own VM runs these, and so does a Linux machine that ran
 		// AgentBox itself before it ran in the VM on Linux too, until it moves
 		// (internal/hostvm's Front). Nobody else is offered them: on a Linux
@@ -43,6 +51,9 @@ func newHostSetupCmd() *cobra.Command {
 which needs no password and changes nothing on your system. This is the other way:
 agents run directly on this computer's Incus, sharing its kernel, memory and disk,
 so heavy agent work can freeze your desktop.
+
+A control plane needs none of it: a daemon with no Incus runs its agents in the
+Kubernetes clusters it drives, and "agentbox cluster add" is its setup.
 
 Installs Incus (Arch, Debian/Ubuntu or Fedora), gives your user access to it — in the
 session running now, not only the next login — creates its storage pool and network,
@@ -219,10 +230,39 @@ func newHostCheckCmd(a *app) *cobra.Command {
 			if err := w.Flush(); err != nil {
 				return err
 			}
+			if hint := clusterDoctorHint(status); hint != "" {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n  %s\n", hint)
+			}
 			if !status.Ready {
 				return exitCodeError(1)
 			}
 			return nil
 		},
 	}
+}
+
+// clusterDoctorHint is the line after the checks of an installation that runs
+// its agents in clusters and not here. Its cluster check reads configuration
+// only (a master URL, an image, the last error reaching the cluster), so the
+// doctor is what says whether an agent can really start there.
+func clusterDoctorHint(status api.SetupStatus) string {
+	// No backends at all is a daemon that couldn't decide, which may well be
+	// running agents here: only a decided cluster-only answer is the one worth
+	// naming the doctor for.
+	if len(status.Backends) == 0 || slices.Contains(status.Backends, api.SetupBackendHost) {
+		return ""
+	}
+	var names []string
+	for _, check := range status.Checks {
+		if check.Cluster != "" && !slices.Contains(names, check.Cluster) {
+			names = append(names, check.Cluster)
+		}
+	}
+	switch len(names) {
+	case 0:
+		return ""
+	case 1:
+		return fmt.Sprintf("agents run in a Kubernetes cluster: agentbox cluster doctor %s is the deeper check", names[0])
+	}
+	return fmt.Sprintf("agents run in a Kubernetes cluster: agentbox cluster doctor <name> is the deeper check (%s)", strings.Join(names, ", "))
 }

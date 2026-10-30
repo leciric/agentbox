@@ -346,6 +346,16 @@ export function buildFixtures(): FixtureData {
     agent({ ref: `${PROJECT}/agent-36`, title: 'Search the docs', ai: 'opencode', state: 'stopped', outcome: 'resuming' }),
     agent({ ref: `${PROJECT}/agent-92`, title: 'Lost its machine', ai: 'claude', state: 'incomplete' }),
     agent({ ref: `${PROJECT}/agent-89`, title: 'Still being created', ai: 'claude', state: 'initializing' }),
+    // Accepted with no machine yet: k3d is full, so the list says where it is
+    // in the queue and why (Stage 6).
+    agent({
+      ref: `${PROJECT}/agent-101`,
+      title: 'Add the billing screens',
+      state: 'queued',
+      cluster: 'k3d',
+      queuePosition: 1,
+      queueReason: 'it is at its ceiling of 4 agents',
+    }),
     // Its turn still running, but the stall watch found no progress on it for
     // 22 minutes; and one whose AI tool exited mid-turn (exit status 143).
     agent({ ref: `${PROJECT}/agent-88`, title: 'Import the product catalogue', chat: 'running', stalledSince: new Date(Date.now() - 22 * 60_000).toISOString() }),
@@ -594,6 +604,7 @@ export function buildFixtures(): FixtureData {
       syncBase: true,
       fullTestSuite: false,
       pickUpIssues: false,
+      cluster: '',
       prWatch: '',
       prWatching: true,
       pullRequests: true,
@@ -633,6 +644,7 @@ export function buildFixtures(): FixtureData {
       syncBase: true,
       fullTestSuite: false,
       pickUpIssues: false,
+      cluster: '',
       prWatch: '',
       prWatching: true,
       pullRequests: true,
@@ -956,6 +968,54 @@ export function agent12Chat(): T.ChatThread {
   };
 }
 
+// openCodeActivityChat is an OpenCode 2 turn as the chat drew it before and
+// after the activity fixes: rawOutput metadata replacing the read's text, bare
+// read/edit titles, a created file missing from changed files, and todowrite as
+// generic tool rows — then the same turn with its real text, file names,
+// created-file diff and plan.
+export function openCodeActivityChat(before: boolean): T.ChatThread {
+  const at = (ago: number) => new Date(Date.now() - ago).toISOString();
+  const tool = (id: string, ago: number, t: T.ChatTool): T.ChatItem => ({ id, turn: 'u1', kind: 'tool', tool: t, createdAt: at(ago), updatedAt: at(ago) });
+  const edit: T.ChatDiff = { path: '/home/user/project/foo.txt', oldText: 'hello world\nsecond line\n', newText: 'hi world\nsecond line\n' };
+  const created: T.ChatDiff = { path: '/home/user/project/new.txt', oldText: '', newText: 'hello\n', created: true };
+  const items: T.ChatItem[] = [
+    { id: 'u1', turn: 'u1', kind: 'user', text: 'Read foo.txt, greet it, and create new.txt.', result: { state: 'completed', stopReason: 'end_turn', endedAt: at(40_000) }, createdAt: at(90_000), updatedAt: at(40_000) },
+    { id: 'a1', turn: 'u1', kind: 'assistant', text: "I'll read it, edit the greeting, and add the new file.", createdAt: at(85_000), updatedAt: at(85_000) },
+    before
+      ? tool('t0', 80_000, { callId: 't0', name: 'todowrite', title: 'todowrite', kind: 'other', status: 'completed' })
+      : { id: 'p1', turn: 'u1', kind: 'plan', plan: [{ content: 'Read foo.txt', status: 'completed' }, { content: 'Edit the greeting', status: 'completed' }, { content: 'Create new.txt', status: 'completed' }], createdAt: at(80_000), updatedAt: at(80_000) },
+    tool('t1', 70_000, {
+      callId: 't1',
+      name: 'read',
+      title: before ? 'read' : 'foo.txt',
+      kind: 'read',
+      status: 'completed',
+      paths: ['/home/user/project/foo.txt'],
+      output: before ? '{"metadata":{"truncated":false}}' : 'Read file foo.txt, lines 1-2\n1: hello world\n2: second line',
+    }),
+    tool('t2', 60_000, {
+      callId: 't2',
+      name: 'edit',
+      title: before ? 'edit' : 'foo.txt',
+      kind: 'edit',
+      status: 'completed',
+      paths: ['/home/user/project/foo.txt'],
+      diffs: before ? undefined : [edit],
+    }),
+    tool('t3', 50_000, {
+      callId: 't3',
+      name: 'write',
+      title: before ? 'write' : 'new.txt',
+      kind: 'edit',
+      status: 'completed',
+      paths: ['/home/user/project/new.txt'],
+      diffs: before ? undefined : [created],
+    }),
+    { id: 'a2', turn: 'u1', kind: 'assistant', text: 'Done: foo.txt greets you, and new.txt is created.', createdAt: at(40_000), updatedAt: at(40_000) },
+  ];
+  return { agent: `${PROJECT}/agent-97`, seq: 1, session: { state: 'ready', tool: 'opencode', options: [], commands: [] }, items };
+}
+
 // asleepChat is a conversation stored for an agent whose machine is now
 // stopped or paused: several finished turns, long enough to scroll, read from
 // the database without its AI tool running.
@@ -1230,6 +1290,12 @@ const devState: {
   update?: T.UpdateStatus;
   appVersion?: string;
   staleDaemon?: { daemon: string; app: string; jobs: number };
+  // A project's git profiles, once a scenario changes the fixture (?git=).
+  projectGit?: T.ProjectGit;
+  // ?git=pending: the profiles' read never answers.
+  projectGitPending?: boolean;
+  // ?clusters=pending|error: GET /v1/clusters never answers, or fails.
+  clusters?: 'pending' | 'error';
 } = { projects: [] };
 
 // seedQueryClient primes every query AgentRail and Sidebar read, at
@@ -1666,6 +1732,8 @@ let defaultsSettings = {
   defaultClaudeEffort: '',
   claudeEffortChoices: [],
   openCodeModelChoices: [],
+  defaultOpenCodeEffort: '',
+  openCodeEffortChoices: [],
   openCodeReady: false,
   openCodeVersion: "1",
   cursorModelChoices: [],
@@ -1852,6 +1920,7 @@ export function seedImageUpdate(queryClient: QueryClient): void {
       ok('claude', 'Claude Code', 'signed in as default', false),
       ok('github', 'GitHub', 'signed in as leciric', false),
     ],
+    backends: ['host'],
     image: { version: '2026.09.25.1', components: none, installed: none, downloads: [], hint: '' },
   } as T.SetupStatus;
   // Setup and the command-line tool's status are polled, so the bridge answers
@@ -1897,6 +1966,7 @@ export function seedFirstRun(queryClient: QueryClient, step: string): void {
       check('cursor', 'Cursor sign-in', 'optional', "optional: agents can't run Cursor yet", false, 'agentbox auth cursor'),
     ],
     image: { version: '2026.10.28.1', components: none, installed: none, downloads: [], hint: '' },
+    backends: ['host'],
   } as T.SetupStatus;
   devState.setup = setup;
   devState.cli = { linkPath: '~/.local/bin/agentbox', linked: true, path: '~/.local/bin/agentbox', version: 'preview', onPath: true, bundled: true, binary: null };
@@ -1983,6 +2053,7 @@ export function seedSettings(queryClient: QueryClient): void {
       check('android', 'Android', 'optional', 'no Android SDK found', false),
       check('preview', 'Preview proxy', 'ok', 'http://<port>.<agent>.agentbox.localhost:7777', false),
     ],
+    backends: ['host'],
     image: { version: '2026.09.25.1', components: { ...none, incus: true }, installed: { ...none, incus: true }, downloads: [], hint: '' },
   } as T.SetupStatus;
   devState.setup = setup;
@@ -2032,6 +2103,46 @@ export function seedSettings(queryClient: QueryClient): void {
     accent: light ? '#2e7de9' : '#7aa2f7',
   } satisfies T.Theme);
   queryClient.setQueryData(['host-setup'], {});
+}
+
+// seedClusterSetup is the Setup page of an installation that runs its agents in
+// Kubernetes clusters and nowhere else (?setup=cluster): the daemon in a
+// container in a cluster, with no Incus on the machine at all, so the page has
+// no Incus step, no user mapping, no storage pool and no base image to ask for,
+// and one step per cluster instead. ?setup=cluster-todo is the same page with a
+// cluster whose image is not set, which is what the wizard stops at.
+export function seedClusterSetup(queryClient: QueryClient, todo = false): void {
+  seedSettings(queryClient);
+  const check = (id: string, title: string, status: string, detail: string, required = true, fix?: string): T.SetupCheck => ({ id, title, status, detail, required, fix });
+  const cluster = (name: string, status: string, detail: string, fix?: string): T.SetupCheck => ({
+    ...check(`cluster/${name}`, `Cluster ${name}`, status, detail, true, fix),
+    backend: 'cluster',
+    cluster: name,
+  });
+  const today = new Date().toISOString();
+  const setup: T.SetupStatus = {
+    ready: !todo,
+    backends: ['cluster'],
+    checks: [
+      todo
+        ? cluster('k3d', 'missing', 'no agent image: build one with `agentbox image agent build --push`, then `agentbox cluster set k3d --image <name>:<tag>`', 'agentbox cluster set k3d --image <name>:<tag>')
+        : cluster('k3d', 'ok', 'agentbox, image agentbox-agent:dev, last seen 4m ago'),
+      cluster('nas', 'ok', 'agentbox, image agentbox-agent:dev, last seen 12m ago'),
+      cluster('hetzner', 'warn', 'the last check found "dial tcp: i/o timeout": the cluster may have recovered since, and the doctor looks again', 'agentbox cluster doctor hetzner'),
+      check('claude', 'Claude Code', 'ok', 'signed in as default', false),
+      check('codex', 'Codex', 'optional', 'not signed in', false, 'agentbox auth codex'),
+      check('cursor', 'Cursor sign-in', 'optional', 'not signed in', false, 'agentbox auth cursor'),
+      check('opencode', 'OpenCode', 'optional', 'not in the image', false, 'agentbox image build --opencode'),
+    ],
+    image: { version: '2026.09.25.1', components: { android: false, codex: false, opencode: false, devCaches: false, incus: false }, installed: { android: false, codex: false, opencode: false, devCaches: false, incus: false }, downloads: [], hint: '' },
+  };
+  devState.setup = setup;
+  queryClient.setQueryData(['setup'], setup);
+  // The clusters' own rows, so the page's cards and the where-agents-run group
+  // name the same three the checks do.
+  queryClient.setQueryData<T.Cluster[]>(['clusters'], (list) =>
+    (list ?? fixtureClusters).map((c) => ({ ...c, lastSeen: today, lastError: c.name === 'hetzner' ? 'dial tcp: i/o timeout' : undefined })),
+  );
 }
 
 // seedLinuxHost is a Linux machine that runs AgentBox itself (?linux=move),
@@ -2193,6 +2304,245 @@ export function seedVMDisk(queryClient: QueryClient, unmeasured = false): void {
 // devRequests are more answers for the dev bridge, added by a scenario's
 // own file (dev/review.tsx), which can't be imported here without a cycle.
 export const devRequests: ((method: string, path: string, body?: unknown) => { status: number; body: string; contentType: string } | undefined)[] = [];
+
+// fixtureClusters and fixtureRegistries are what GET /v1/clusters and
+// /v1/registries answer: a k3d cluster whose image is in a Forgejo registry,
+// with room for two more; a full nas, which the create dialog queues on; and a
+// draining hetzner, which ran an upgrade and has the image before it, and has no
+// master URL, so its card says no agent starts there.
+// Settings draws them, and the create dialog's picker reads the cluster.
+export const fixtureClusters: T.Cluster[] = [
+  {
+    name: 'k3d',
+    namespace: 'agentbox',
+    storageClass: 'local-path',
+    image: 'agentbox-agent:dev',
+    masterURL: 'https://monster.example.ts.net',
+    registry: 'forgejo',
+    maxAgents: 4,
+    agentCPU: '2',
+    agentMemory: '4Gi',
+    workspaceSize: '20Gi',
+    tailnet: 'operator',
+    createdAt: '2026-10-20T10:00:00Z',
+    lastSeen: '2026-10-27T09:12:00Z',
+    capacity: { agents: 2, running: 1, cpu: '6', memory: '18Gi', at: '2026-10-27T09:12:00Z' },
+  },
+  {
+    name: 'nas',
+    namespace: 'agentbox',
+    storageClass: 'longhorn',
+    image: 'agentbox-agent:dev',
+    registry: 'forgejo',
+    masterURL: 'https://monster.example.ts.net',
+    maxAgents: 4,
+    tailnet: 'operator',
+    createdAt: '2026-10-18T08:00:00Z',
+    lastSeen: '2026-10-27T09:11:00Z',
+    capacity: { agents: 0, running: 4, cpu: '0', memory: '512Mi', at: '2026-10-27T09:11:00Z' },
+  },
+  {
+    name: 'hetzner',
+    namespace: 'agentbox',
+    storageClass: 'longhorn',
+    image: 'agentbox-agent:0.6.0@sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1',
+    previousImage: 'agentbox-agent:0.5.0',
+    registry: 'forgejo',
+    maxAgents: 3,
+    draining: true,
+    tailnet: 'operator',
+    createdAt: '2026-10-12T14:00:00Z',
+    lastSeen: '2026-10-27T09:10:00Z',
+    capacity: { agents: 0, running: 2, cpu: '2', memory: '6Gi', at: '2026-10-27T09:10:00Z' },
+  },
+];
+export const fixtureRegistries: T.Registry[] = [
+  {
+    name: 'forgejo',
+    url: 'hub.example.com/h4ad',
+    public: false,
+    hasCa: false,
+    hasCredential: true,
+    insecure: false,
+    createdAt: '2026-10-19T18:00:00Z',
+  },
+];
+
+// fixtureClusterDetail is what GET /v1/clusters/{name}/detail answers. k3d has
+// a pod of each mood, the claims their work lives on, an agent waiting for
+// room, and the events that explain the one that didn't schedule; the other
+// clusters hold nothing, so their page shows every empty state.
+export function fixtureClusterDetail(cluster: T.Cluster): T.ClusterDetail {
+  if (cluster.name !== 'k3d') return { cluster, pods: [], claims: [], events: [], queue: [] };
+  const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
+  return {
+    cluster,
+    pods: [
+      {
+        name: 'ab-agentbox-agent-12',
+        project: PROJECT,
+        agent: 'agent-12',
+        phase: 'Running',
+        ready: true,
+        node: 'k3d-agentbox-server-0',
+        image: 'hub.example.com/h4ad/agentbox-agent:dev',
+        createdAt: ago(190),
+      },
+      {
+        name: 'ab-agentbox-agent-88',
+        project: PROJECT,
+        agent: 'agent-88',
+        phase: 'Pending',
+        ready: false,
+        image: 'hub.example.com/h4ad/agentbox-agent:dev',
+        createdAt: ago(6),
+        reason: 'FailedScheduling',
+        message:
+          '0/1 nodes are available: 1 Insufficient memory. preemption: 0/1 nodes are available: 1 No preemption victims found for incoming pod.',
+      },
+    ],
+    claims: [
+      { name: 'ab-agentbox-agent-12-workspace', project: PROJECT, agent: 'agent-12', storage: '40Gi', createdAt: ago(190) },
+      { name: 'ab-agentbox-agent-88-workspace', project: PROJECT, agent: 'agent-88', storage: '40Gi', createdAt: ago(6) },
+    ],
+    queue: [{ project: PROJECT, agent: 'agent-101', position: 1, reason: 'it is at its ceiling of 4 agents' }],
+    events: [
+      {
+        type: 'Warning',
+        reason: 'FailedScheduling',
+        object: 'Pod/ab-agentbox-agent-88',
+        message:
+          '0/1 nodes are available: 1 Insufficient memory. preemption: 0/1 nodes are available: 1 No preemption victims found for incoming pod.',
+        count: 7,
+        at: ago(2),
+      },
+      {
+        type: 'Normal',
+        reason: 'Pulled',
+        object: 'Pod/ab-agentbox-agent-12',
+        message: 'Container image "hub.example.com/h4ad/agentbox-agent:dev" already present on machine',
+        at: ago(188),
+      },
+      {
+        type: 'Normal',
+        reason: 'SuccessfulCreate',
+        object: 'Pod/ab-agentbox-agent-12',
+        message: 'Created pod: ab-agentbox-agent-12',
+        at: ago(190),
+      },
+    ],
+  };
+}
+
+// clusterDetailRequest answers GET /v1/clusters/{name}/detail, which the
+// cluster's Details dialog reads when it opens.
+function clusterDetailRequest(method: string, path: string) {
+  if (method !== 'GET') return undefined;
+  const at = /^\/v1\/clusters\/([^/]+)\/detail$/.exec(path);
+  if (!at) return undefined;
+  const name = decodeURIComponent(at[1]);
+  const cluster = fixtureClusters.find((c) => c.name === name);
+  if (!cluster) return { status: 404, body: JSON.stringify({ error: `no cluster named ${name}` }), contentType: 'application/json' };
+  return { status: 200, body: JSON.stringify(fixtureClusterDetail(cluster)), contentType: 'application/json' };
+}
+
+// projectGitFixture is what GET /v1/projects/{project}/git answers: a private
+// profile whose token is stored, and a public one signing in as a GitHub
+// account with no token stored. The public profile's URL is a forge: alias
+// nothing here resolves, which is the state the card's inline error shows.
+export const projectGitFixture: T.ProjectGit = {
+  agentRemote: 'private',
+  profiles: [
+    {
+      profile: 'private',
+      url: 'forge:h4ad/agentbox.git',
+      auth: 'token',
+      credential: 'hub-forgejo',
+      hasCredential: true,
+      resolvedURL: 'https://hub.example.ts.net/h4ad/agentbox.git',
+    },
+    {
+      profile: 'public',
+      url: 'forge:leciric/agentbox.git',
+      auth: 'github-account',
+      credential: 'personal-account-with-a-long-name',
+      hasCredential: false,
+      resolveError:
+        'project "agentbox"\'s public git profile: nothing on this machine turns forge:leciric/agentbox.git into a real URL: set the rule once, then it works for every project, with\ngit config --global url.<https base>.insteadof forge:',
+    },
+  ],
+};
+
+// seedProjectGit is ?git=missing: the project's agents use a profile it no
+// longer has, which is what the create dialog refuses before a pod is made.
+// ?git=public: its agents push straight to the public profile, which Settings →
+// Git's flow draws with the private step skipped. ?git=pending: the read never
+// answers, so the create dialog is still checking.
+export function seedProjectGit(queryClient: QueryClient, state: string): void {
+  if (state === 'pending') {
+    devState.projectGitPending = true;
+    return;
+  }
+  const git: T.ProjectGit =
+    state === 'missing'
+      ? { agentRemote: 'private', profiles: projectGitFixture.profiles.filter((p) => p.profile !== 'private') }
+      : state === 'public'
+        ? { ...structuredClone(projectGitFixture), agentRemote: 'public' }
+        : structuredClone(projectGitFixture);
+  devState.projectGit = git;
+  queryClient.setQueryData(['projectGit', PROJECT], git);
+}
+
+// seedClustersAnswer is &clusters=pending|error: the cluster list never
+// answers, or fails, for the New agent dialog's picker.
+export function seedClustersAnswer(state: 'pending' | 'error'): void {
+  devState.clusters = state;
+}
+
+// projectGitRequest answers a project's git profiles, their test and their
+// use, changing what later reads answer the way the daemon's own routes do.
+function projectGitRequest(method: string, path: string, body?: unknown) {
+  const at = /^\/v1\/projects\/([^/]+)\/git(?:\/(private|public|use|test))?$/.exec(path);
+  if (!at) return undefined;
+  const json = (value: unknown) => ({ status: 200, body: JSON.stringify(value), contentType: 'application/json' });
+  const current: T.ProjectGit = devState.projectGit ?? structuredClone(projectGitFixture);
+  const save = (next: T.ProjectGit) => {
+    devState.projectGit = next;
+    return next;
+  };
+  if (method === 'GET') return devState.projectGitPending ? new Promise<never>(() => {}) : json(current);
+  if (method === 'POST' && at[2] === 'test') {
+    const profile = (body as T.TestProjectGitRequest | undefined)?.profile || current.agentRemote;
+    const found = current.profiles.find((p) => p.profile === profile);
+    if (!found) return json({ profile, url: '', ok: false, refs: 0, detail: `project "${PROJECT}" has no ${profile} git profile` } satisfies T.ProjectGitTest);
+    if (found.resolveError) return json({ profile, url: found.url, ok: false, refs: 0, detail: found.resolveError } satisfies T.ProjectGitTest);
+    if (!found.hasCredential)
+      return json({ profile, url: found.resolvedURL ?? found.url, ok: false, refs: 0, detail: `credential "${found.credential || found.profile}" is not stored` } satisfies T.ProjectGitTest);
+    return json({ profile, url: found.resolvedURL ?? found.url, ok: true, refs: 42 } satisfies T.ProjectGitTest);
+  }
+  if (method === 'PUT' && (at[2] === 'private' || at[2] === 'public')) {
+    const req = body as T.SetProjectGitProfileRequest;
+    const profile = at[2];
+    const found = current.profiles.find((p) => p.profile === profile);
+    const updated: T.ProjectGitProfile = {
+      profile,
+      url: req.url,
+      auth: req.auth || 'token',
+      credential: req.credential || (req.auth === 'github-account' ? '' : profile),
+      hasCredential: req.secret ? true : !!found?.hasCredential,
+      resolvedURL: req.url,
+    };
+    const profiles = [...current.profiles.filter((p) => p.profile !== profile), updated].sort((a, b) =>
+      a.profile === b.profile ? 0 : a.profile === 'private' ? -1 : b.profile === 'private' ? 1 : 0,
+    );
+    return json(save({ ...current, profiles }));
+  }
+  if (method === 'DELETE' && (at[2] === 'private' || at[2] === 'public')) {
+    return json(save({ ...current, profiles: current.profiles.filter((p) => p.profile !== at[2]) }));
+  }
+  if (method === 'POST' && at[2] === 'use') return json(save({ ...current, agentRemote: (body as T.UseProjectGitRequest).profile }));
+  return undefined;
+}
 
 // filesRequest answers the file panel beside a chat (components/files) with a
 // small worktree, the same for every chat, so Files opens in the preview.
@@ -2377,6 +2727,16 @@ export function installDevBridge(): void {
   (window as unknown as { agentbox: unknown }).agentbox = {
     request: async (method: string, path: string, body?: unknown) => {
       if (method === 'PATCH' && path === '/v1/settings') return patchDefaults(body as T.UpdateSettingsRequest);
+      if (method === 'GET' && path === '/v1/clusters') {
+        if (devState.clusters === 'pending') return new Promise<never>(() => {});
+        if (devState.clusters === 'error') return { status: 500, body: JSON.stringify({ error: 'listing clusters: database is locked' }), contentType: 'application/json' };
+        return { status: 200, body: JSON.stringify(fixtureClusters), contentType: 'application/json' };
+      }
+      const clusterDetail = clusterDetailRequest(method, path);
+      if (clusterDetail) return clusterDetail;
+      if (method === 'GET' && path === '/v1/registries') return { status: 200, body: JSON.stringify(fixtureRegistries), contentType: 'application/json' };
+      const git = projectGitRequest(method, path, body);
+      if (git) return git;
       if (method === 'GET' && path === '/v1/usage-stats/pending') return { status: 200, body: JSON.stringify(usageStatsPending), contentType: 'application/json' };
       if (method === 'GET' && path.startsWith('/v1/stopped-machines')) return { status: 200, body: JSON.stringify(fixtureStoppedMachines(path)), contentType: 'application/json' };
       if (method === 'POST' && path === '/v1/stopped-machines/remove') return { status: 200, body: JSON.stringify(removeFixtureStopped((body as T.RemoveStoppedRequest).agents)), contentType: 'application/json' };
@@ -2536,6 +2896,7 @@ export function installDevBridge(): void {
       revokeDevice: async () => {},
     },
     target: { get: async () => ({ kind: 'local' }), set: async (t: unknown) => t, onChange: () => () => {} },
+    server: { test: async (address: string) => ({ url: address, version: 'dev' }), saved: async () => '', forget: async () => {} },
     mediaUrl: (id: string) => mediaFiles.get(id) ?? '',
     chatImageUrl: (path: string) => pagePageUrl(path) ?? '',
     pageThumb: (path: string) => pageThumbUrl(path),

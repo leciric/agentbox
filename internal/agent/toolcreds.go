@@ -67,7 +67,7 @@ func (m *Manager) toolHides(a state.Agent) ([]string, error) {
 // hide removed from its environment and BASH_ENV pointing at bash_env, or ""
 // when there is nothing to remove. What follows it must be the program to exec,
 // never a shell (see above).
-func (m *Manager) withoutCredentials(hide []string) string {
+func (m *Manager) withoutCredentials(a state.Agent, hide []string) string {
 	if len(hide) == 0 {
 		return ""
 	}
@@ -75,15 +75,15 @@ func (m *Manager) withoutCredentials(hide []string) string {
 	for _, name := range hide {
 		s += " -u " + name
 	}
-	return s + " BASH_ENV=" + shellQuote(m.BashEnvPath()) + " "
+	return s + " BASH_ENV=" + shellQuote(m.bashEnvPath(a)) + " "
 }
 
 // bashEnvSecrets is the part of bash_env that gives a command's shell back
 // the secrets its AI tool was started without.
-func (m *Manager) bashEnvSecrets() string {
+func (m *Manager) bashEnvSecrets(a state.Agent) string {
 	return "# The secrets, for the shells the AI tool starts to run a command: it was\n" +
 		"# started without the ones that would replace its account (toolcreds).\n" +
-		"if [ -n \"${BASH_EXECUTION_STRING-}\" ] && [ -r " + shellQuote(m.SecretsPath()) + " ]; then . " + shellQuote(m.SecretsPath()) + "; fi\n"
+		"if [ -n \"${BASH_EXECUTION_STRING-}\" ] && [ -r " + shellQuote(m.secretsPath(a)) + " ]; then . " + shellQuote(m.secretsPath(a)) + "; fi\n"
 }
 
 // ToolCredential is what an agent's AI tool really runs on, read from the
@@ -197,7 +197,7 @@ func (m *Manager) ToolCredential(ctx context.Context, a state.Agent) (ToolCreden
 	if len(watched) == 0 {
 		return cred, nil
 	}
-	if inst, err := m.Incus.Instance(ctx, a.Instance); err != nil || inst.Status != "Running" {
+	if inst, err := m.machine(a).Info(ctx); err != nil || inst.State != "Running" {
 		return cred, err
 	}
 	if a.AI == "claude" {
@@ -205,9 +205,9 @@ func (m *Manager) ToolCredential(ctx context.Context, a state.Agent) (ToolCreden
 	}
 	authFile := ""
 	if a.AI == "codex" || a.AI == "opencode" {
-		authFile = "/home/" + m.User.Name + "/" + toolAuthFile(a.AI)
+		authFile = m.home(a) + "/" + toolAuthFile(a.AI)
 	}
-	out, err := m.Incus.Exec(ctx, a.Instance, "bash", "-c", credentialScript(m.User.UID, watched, authFile))
+	out, err := m.machine(a).Exec(ctx, "bash", "-c", credentialScript(m.machineUser(a).UID, watched, authFile))
 	if err != nil {
 		return cred, fmt.Errorf("reading %s's processes: %w", a.Ref(), err)
 	}

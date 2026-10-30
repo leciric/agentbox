@@ -25,6 +25,95 @@ func leaveQueued(t *testing.T, s *state.Store, project, name string, position in
 	}
 }
 
+// TestQueueAgentPutsItInLine: accepting an agent that has no room writes its
+// row and its place in line together, keeps why it is waiting, and starting it
+// takes it out of line with the machine it was made on.
+func TestQueueAgentPutsItInLine(t *testing.T) {
+	ctx := context.Background()
+	s := openStore(t)
+	if err := s.AddProject(ctx, state.Project{Name: "p", Root: t.TempDir(), CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	for i, name := range []string{"agent-01", "agent-02"} {
+		a := state.Agent{
+			Project: "p", Name: name, Instance: "ab-p-" + name, AI: "claude",
+			Status: state.AgentQueued, Title: "Reminders", CreatedAt: time.Now(),
+		}
+		if err := s.QueueAgent(ctx, a, []byte(`{"request":{"name":"`+name+`"}}`), "all 2 of its agents are running"); err != nil {
+			t.Fatalf("queueing %s: %v", name, err)
+		}
+		if q, err := s.LeftoverQueue(ctx, "p"); err != nil || len(q) != i+1 {
+			t.Fatalf("after queueing %s: %+v, %v", name, q, err)
+		}
+	}
+	q, err := s.LeftoverQueue(ctx, "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q[0].Position != 1 || q[1].Position != 2 || q[0].Reason != "all 2 of its agents are running" || q[1].Reason == "" || q[1].QueuedAt.IsZero() {
+		t.Fatalf("queue = %+v", q)
+	}
+	// It is an ordinary agent of its project the moment it is accepted: it is
+	// listed, and it has no machine.
+	if a, err := s.Agent(ctx, "p", "agent-01"); err != nil || a.Status != state.AgentQueued || a.Cluster != "" {
+		t.Fatalf("queued agent = %+v, %v", a, err)
+	}
+
+	// Starting it writes the machine it was made on, which for a pod is the
+	// cluster, its workspace there and the state the user asked for.
+	started := state.Agent{
+		Project: "p", Name: "agent-01", Instance: "ab-p-agent-01", AI: "claude",
+		Branch: "agentbox/reminders", Worktree: "", Status: state.AgentCreating,
+		Cluster: "k3d", Runtime: state.RuntimeKubernetes, Workspace: "/workspace", DesiredState: state.DesiredRunning,
+	}
+	if err := s.StartQueued(ctx, started); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Agent(ctx, "p", "agent-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != state.AgentCreating || got.Cluster != "k3d" || got.Workspace != "/workspace" || got.DesiredState != state.DesiredRunning {
+		t.Errorf("started agent = %+v, want it on k3d at /workspace, asked to run", got)
+	}
+	if q, _ := s.LeftoverQueue(ctx, "p"); len(q) != 1 || q[0].Name != "agent-02" || q[0].Position != 1 {
+		t.Errorf("queue after starting agent-01: %+v, want agent-02 next", q)
+	}
+}
+
+// TestLeftoverQueueIsFIFOAcrossProjects: scheduling reads one line across every
+// project, oldest first, so a later-named project doesn't starve behind an
+// earlier one; Position stays 1..n within each project for display.
+func TestLeftoverQueueIsFIFOAcrossProjects(t *testing.T) {
+	ctx := context.Background()
+	s := openStore(t)
+	base := time.Now().Unix()
+	for _, row := range []struct {
+		project, name string
+		at            int64
+	}{
+		{"alpha", "a", base + 2},
+		{"zebra", "z", base + 1},
+		{"alpha", "b", base + 3},
+	} {
+		if _, err := s.DB().ExecContext(ctx,
+			`INSERT INTO agent_queue (project, name, position, request, reason, queued_at) VALUES (?, ?, ?, ?, ?, ?)`,
+			row.project, row.name, 1, `{}`, "full", row.at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	q, err := s.LeftoverQueue(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(q) != 3 || q[0].Ref() != "zebra/z" || q[1].Ref() != "alpha/a" || q[2].Ref() != "alpha/b" {
+		t.Fatalf("queue = %+v, want zebra first, then alpha's in order", q)
+	}
+	if q[0].Position != 1 || q[1].Position != 1 || q[2].Position != 2 {
+		t.Errorf("positions = %d, %d, %d, want each project numbered from 1", q[0].Position, q[1].Position, q[2].Position)
+	}
+}
+
 func TestLeftoverQueue(t *testing.T) {
 	ctx := context.Background()
 	s := openStore(t)

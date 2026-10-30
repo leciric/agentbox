@@ -255,7 +255,7 @@ func (m *Manager) PrepareChatModel(ctx context.Context, a state.Agent, model str
 		// creation, so a running agent's next chat follows the setting
 		// without waiting for its machine to restart.
 		return m.prepareAgentClaudeSettings(ctx, a, func(b []byte) ([]byte, error) {
-			return withClaudeSettings(b, merge, m.withBashEnv, withClaudeAttribution(m.creditAITool(ctx)))
+			return withClaudeSettings(b, merge, func(b []byte) ([]byte, error) { return m.withBashEnv(a, b) }, withClaudeAttribution(m.creditAITool(ctx)))
 		})
 	case "codex":
 		return m.prepareAgentCodexSettings(ctx, a, compactWindow)
@@ -273,18 +273,19 @@ func (m *Manager) PrepareChatModel(ctx context.Context, a state.Agent, model str
 // there is no permission policy or other AgentBox-external state inside it,
 // so there is nothing a merge would need to preserve.
 func (m *Manager) prepareAgentCodexSettings(ctx context.Context, a state.Agent, compactWindow int64) error {
-	home := "/home/" + m.User.Name
+	home := m.home(a)
 	connectors, err := m.connectorNames(ctx, a)
 	if err != nil {
 		return err
 	}
-	config := codexConfigFor(a.Worktree, agentMCPServers(home, connectors), compactWindow)
-	return m.Incus.WriteFile(ctx, a.Instance, home+"/.codex/config.toml", []byte(config), m.User.UID, m.User.GID, 0o600)
+	config := codexConfigFor(m.Worktree(a), agentMCPServers(a, home, connectors), compactWindow)
+	user := m.machineUser(a)
+	return m.machine(a).WriteFile(ctx, home+"/.codex/config.toml", []byte(config), user.UID, user.GID, 0o600)
 }
 
 // prepareAgentOpenCodeSettings does the same for OpenCode's opencode.json.
 func (m *Manager) prepareAgentOpenCodeSettings(ctx context.Context, a state.Agent) error {
-	home := "/home/" + m.User.Name
+	home := m.home(a)
 	connectors, err := m.connectorNames(ctx, a)
 	if err != nil {
 		return err
@@ -293,11 +294,12 @@ func (m *Manager) prepareAgentOpenCodeSettings(ctx context.Context, a state.Agen
 	if err != nil {
 		return err
 	}
-	config, err := openCodeConfig(version, agentMCPServers(home, connectors), a.Autonomous)
+	config, err := openCodeConfig(version, agentMCPServers(a, home, connectors), a.Autonomous)
 	if err != nil {
 		return err
 	}
-	if err := m.Incus.WriteFile(ctx, a.Instance, home+"/.config/opencode/opencode.json", config, m.User.UID, m.User.GID, 0o600); err != nil {
+	user := m.machineUser(a)
+	if err := m.machine(a).WriteFile(ctx, home+"/.config/opencode/opencode.json", config, user.UID, user.GID, 0o600); err != nil {
 		return err
 	}
 	return m.importOpenCodeAccounts(ctx, a, version)
@@ -306,17 +308,18 @@ func (m *Manager) prepareAgentOpenCodeSettings(ctx context.Context, a state.Agen
 // prepareAgentClaudeSettings merges into the settings of the agent's own user,
 // inside the agent's machine. merge returns nil when there is nothing to write.
 func (m *Manager) prepareAgentClaudeSettings(ctx context.Context, a state.Agent, merge func([]byte) ([]byte, error)) error {
-	path := "/home/" + m.User.Name + "/" + claudeSettingsFile
+	path := m.home(a) + "/" + claudeSettingsFile
+	user := m.machineUser(a)
 	var existing bytes.Buffer
 	// A machine with no settings file yet is not an error: the merge starts
 	// from nothing. Anything else that went wrong shows up as unparseable
 	// content, which the merge refuses rather than overwrites.
-	_ = m.Incus.UserExec(ctx, a.Instance, m.User.Name, "cat "+shellQuote(path)+" 2>/dev/null", nil, &existing, io.Discard)
+	_ = m.machine(a).UserExec(ctx, user.Name, "cat "+shellQuote(path)+" 2>/dev/null", nil, &existing, io.Discard)
 	merged, err := merge(existing.Bytes())
 	if err != nil || merged == nil {
 		return err
 	}
-	return m.Incus.WriteFile(ctx, a.Instance, path, merged, m.User.UID, m.User.GID, 0o600)
+	return m.machine(a).WriteFile(ctx, path, merged, user.UID, user.GID, 0o600)
 }
 
 // prepareLeadClaudeSettings does the same for a project's lead, whose Claude

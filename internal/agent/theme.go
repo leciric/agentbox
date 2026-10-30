@@ -53,9 +53,6 @@ var BrandDesktopTheme = DesktopTheme{
 	Accent:     "#8b5cf6",
 }
 
-// themePath is where browser.sh looks for the palette, beside the wallpaper.
-const themePath = "/usr/local/share/agentbox/theme.conf"
-
 // hexColor is what may be written into the file. browser.sh pastes these
 // straight into a tint2 config and an openbox theme, so this is the boundary
 // where a colour that came off the host's disk stops being arbitrary text.
@@ -115,13 +112,14 @@ func (m *Manager) installTheme(ctx context.Context, a state.Agent) {
 	file := m.desktopTheme().File()
 	sum := sha256.Sum256(file)
 	want := hex.EncodeToString(sum[:])
-	out, err := m.Incus.Exec(ctx, a.Instance, "sh",
+	path := m.desktopShare(a) + "/theme.conf"
+	out, err := m.machine(a).Exec(ctx, "sh",
 		"-c",
-		"sha256sum "+themePath+" 2>/dev/null | cut -d' ' -f1")
+		"sha256sum "+path+" 2>/dev/null | cut -d' ' -f1")
 	if err == nil && strings.TrimSpace(out) == want {
 		return
 	}
-	if err := m.Incus.WriteFile(ctx, a.Instance, themePath, file, 0, 0, 0o644); err != nil {
+	if err := m.machine(a).WriteFile(ctx, path, file, 0, 0, 0o644); err != nil {
 		m.logf("The desktop's colours weren't installed: %v", err)
 	}
 }
@@ -136,7 +134,7 @@ func (m *Manager) ApplyTheme(ctx context.Context, a state.Agent) error {
 		return err
 	}
 	m.installTheme(ctx, a)
-	if err := m.Incus.WriteFile(ctx, a.Instance, browserScriptPath, browserScript, 0, 0, 0o755); err != nil {
+	if err := m.machine(a).WriteFile(ctx, m.browserScriptPath(a), browserScript, 0, 0, 0o755); err != nil {
 		return err
 	}
 	return m.runBrowserScript(ctx, a, "theme")

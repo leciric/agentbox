@@ -20,7 +20,7 @@ const tsFile = "../../desktop/src/shared/api.ts"
 var tsTypes = []any{
 	Project{}, ProjectActivity{}, ProjectIcon{}, ProjectIconCandidate{}, SetProjectIconRequest{}, AddProjectRequest{}, CloneProjectRequest{}, UpdateProjectRequest{}, Section{}, AddSectionRequest{}, UpdateSectionRequest{},
 	ProjectLayout{}, SectionProjects{}, SidebarLayout{}, Notes{}, NotesRequest{}, Settings{}, AgentPick{}, ToolAutoUpdate{}, UpdateSettingsRequest{}, Agent{}, WorktreeFiles{}, FileEntry{}, FileList{}, FileStatus{}, FileContent{}, SQLiteTable{}, SQLiteQuery{}, FilesChange{}, ArchivedAgent{}, DeleteArchivedRequest{}, DeleteArchivedResult{}, ContinueArchivedRequest{}, CreateAgentRequest{}, ForkRequest{}, UpdateAgentRequest{},
-	Snapshot{}, SnapshotRequest{}, RestoreRequest{}, Checkpoint{}, RollbackRequest{}, RollbackResult{}, Base{}, BaseBehind{}, BaseImageChange{}, BaseToolChange{}, SaveBaseRequest{},
+	Snapshot{}, SnapshotRequest{}, RestoreRequest{}, Checkpoint{}, RollbackRequest{}, RollbackResult{}, Base{}, BaseBehind{}, BaseImageChange{}, BaseToolChange{}, SaveBaseRequest{}, BaseProjectImage{}, ProjectImageRequest{},
 	StopAgentsRequest{}, StopAgentsResult{}, StoppedAgent{}, StopAgentFailure{},
 	MemoryHold{}, PressureStatus{}, HeavyRun{},
 	Job{}, HostUsage{}, HostPressure{}, AgentUsage{}, Usage{}, DiskUsageItem{}, DiskUsageCategory{}, DiskUsage{}, AgentDisk{}, StoppedMachine{}, StoppedMachines{}, RemoveStoppedRequest{}, RemoveStoppedResult{}, ToolCredential{}, DiskGuard{}, DiskGuardDisk{},
@@ -64,6 +64,10 @@ var tsTypes = []any{
 	TraceSpan{}, SpanStats{}, DiagnosticsSpans{}, DiagnosticsStalls{}, VMResourceSample{}, AgentResourceSample{}, AgentResources{}, DiagnosticsResources{}, PackageCachePart{}, DiagnosticsPackageCache{}, ClientSpansRequest{},
 	ShareReport{}, FileCount{}, DiagnosticsFiles{},
 	DoctorCheck{}, DoctorReport{}, DoctorFixRequest{}, DoctorFix{}, DoctorFixResult{}, DoctorHomeRequest{}, DoctorHomeResult{},
+	Cluster{}, ClusterConfig{}, ClusterCapacity{}, AddClusterRequest{}, RotateClusterRequest{}, ClusterReport{}, ClusterCheck{},
+	ClusterDetail{}, ClusterPod{}, ClusterClaim{}, ClusterEvent{}, ClusterQueue{}, DrainClusterRequest{}, UpgradeClusterRequest{},
+	Registry{}, AddRegistryRequest{}, RotateRegistryRequest{}, RegistryTest{},
+	ProjectGit{}, ProjectGitProfile{}, SetProjectGitProfileRequest{}, UseProjectGitRequest{}, TestProjectGitRequest{}, ProjectGitTest{},
 }
 
 var tsConstants = [][2]string{

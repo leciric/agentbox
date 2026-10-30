@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"agentbox/internal/gitrepo"
 	"agentbox/internal/state"
 )
 
@@ -54,7 +53,7 @@ func (m *Manager) Checkpoint(ctx context.Context, a state.Agent, turn string, nu
 	if err != nil {
 		return state.Checkpoint{}, err
 	}
-	head, _ := gitrepo.Repo{Root: a.Worktree}.ResolveCommit(commit + "^")
+	head, _ := m.workspace(a).ResolveCommit(ctx, commit+"^")
 	cp := state.Checkpoint{
 		Project: a.Project, Agent: a.Name, ID: id, Kind: state.CheckpointTurn,
 		Turn: turn, Number: number, Prompt: clip(prompt, 200),
@@ -71,10 +70,13 @@ func (m *Manager) Checkpoint(ctx context.Context, a state.Agent, turn string, nu
 // machine wrote can be its user's alone, so a refusal is retried once they
 // are handed back, as Snapshot does.
 func (m *Manager) snapshotWorktree(ctx context.Context, a state.Agent, ref, message string) (string, error) {
-	commit, err := gitrepo.SnapshotWorktree(a.Worktree, ref, message)
+	save := func() (string, error) {
+		return m.workspace(a).Checkpoint(ctx, ref, message)
+	}
+	commit, err := save()
 	if err != nil && strings.Contains(err.Error(), "ermission denied") {
 		m.handBackFiles(ctx, a)
-		commit, err = gitrepo.SnapshotWorktree(a.Worktree, ref, message)
+		commit, err = save()
 	}
 	if err != nil {
 		return "", fmt.Errorf("checkpointing the worktree: %w", err)
@@ -137,7 +139,7 @@ func oldestTurns(turns []state.Checkpoint, keep int) []state.Checkpoint {
 }
 
 func (m *Manager) dropCheckpoint(ctx context.Context, a state.Agent, cp state.Checkpoint) {
-	_ = gitrepo.Repo{Root: a.Worktree}.DeleteRef(cp.Ref)
+	_ = m.workspace(a).DeleteRef(ctx, cp.Ref)
 	_ = m.Store.DeleteCheckpoint(ctx, a.Project, a.Name, cp.ID)
 }
 
@@ -151,8 +153,8 @@ func (m *Manager) RollBack(ctx context.Context, a state.Agent, cp state.Checkpoi
 	if cp.Kind != state.CheckpointTurn {
 		return state.Checkpoint{}, fmt.Errorf("%s is what %s had before a rollback, not a turn: fork from it instead", cp.ID, a.Ref())
 	}
-	repo := gitrepo.Repo{Root: a.Worktree}
-	if _, err := repo.ResolveRef(cp.Ref); err != nil {
+	ws := m.workspace(a)
+	if _, err := ws.ResolveCommit(ctx, cp.Ref); err != nil {
 		return state.Checkpoint{}, fmt.Errorf("%s's checkpoint %s is gone from the repository", a.Ref(), cp.ID)
 	}
 	all, err := m.Store.Checkpoints(ctx, a.Project, a.Name)
@@ -174,7 +176,7 @@ func (m *Manager) RollBack(ctx context.Context, a state.Agent, cp state.Checkpoi
 	if err != nil {
 		return state.Checkpoint{}, err
 	}
-	head, _ := repo.ResolveCommit(commit + "^")
+	head, _ := ws.ResolveCommit(ctx, commit+"^")
 	saved := state.Checkpoint{
 		Project: a.Project, Agent: a.Name, ID: id, Kind: state.CheckpointSaved,
 		Number: last, Prompt: "Before rolling back to turn " + strconv.Itoa(cp.Number),
@@ -184,7 +186,7 @@ func (m *Manager) RollBack(ctx context.Context, a state.Agent, cp state.Checkpoi
 		return state.Checkpoint{}, err
 	}
 	m.logf("Rolling %s back to %s (what it had is saved as %s)", a.Ref(), cp.ID, id)
-	if err := gitrepo.RestoreWorktree(a.Worktree, cp.Commit); err != nil {
+	if err := ws.Restore(ctx, cp.Commit); err != nil {
 		return state.Checkpoint{}, fmt.Errorf("restoring the worktree: %w", err)
 	}
 	for _, other := range all {

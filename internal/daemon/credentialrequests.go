@@ -33,10 +33,12 @@ import (
 // knows it: ~/.config/agentbox/env, which sources the secrets file after it.
 const envFile = "~/.config/agentbox/env"
 
-// requestCredential is the in-agent route: the agent asks, and waits.
-func (s *Server) requestCredential(instance string) func(http.ResponseWriter, *http.Request) error {
+// requestCredential is the in-agent route: the agent asks, and waits. agentOf
+// names the agent asking: the one behind the socket the call arrived on, or the
+// one a pod's token names.
+func (s *Server) requestCredential(agentOf func(*http.Request) (state.Agent, error)) func(http.ResponseWriter, *http.Request) error {
 	return func(w http.ResponseWriter, r *http.Request) error {
-		a, err := s.store.AgentByInstance(r.Context(), instance)
+		a, err := agentOf(r)
 		if err != nil {
 			return err
 		}

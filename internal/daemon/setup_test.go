@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"agentbox/internal/api"
 	"agentbox/internal/image"
@@ -18,6 +20,168 @@ import (
 const unusableIncus = `echo "Error: Get \"http://unix.socket/1.0\": dial unix /var/lib/incus/unix.socket: connect: permission denied" >&2
 exit 1
 `
+
+// noIncusBin is a command that isn't on $PATH, which is what makes Ping answer
+// exec.ErrNotFound: exec looks a bare name up in $PATH, while a path that
+// doesn't exist fails with ENOENT and would read as a different problem.
+const noIncusBin = "agentbox-test-no-such-incus"
+
+// noIncusDaemon is a daemon on a machine with no incus binary at all: the
+// control plane packaging/daemon/Dockerfile makes, with no Incus and no Docker
+// in it.
+func noIncusDaemon(t *testing.T, root string) testDaemon {
+	t.Helper()
+	return startTestDaemon(t, root, "exit 0\n", testConfig{setup: func(s *Server) {
+		s.cfg.Incus.Bin = noIncusBin
+	}})
+}
+
+// testCluster records a cluster in a test daemon's store, as `cluster add`
+// leaves one: reached a moment ago, with an image to run and the master URL
+// its pods dial.
+func testCluster(t *testing.T, srv *Server, name string) state.Cluster {
+	t.Helper()
+	cluster := state.Cluster{
+		Name: name, Namespace: "agentbox", Image: "agentbox-agent:dev",
+		MasterURL: "https://master.example.test", Tailnet: state.TailnetNone,
+		MaxAgents: 4, Kubeconfig: []byte("sealed-for-a-test"),
+		CreatedAt: time.Now(), LastSeen: time.Now(),
+	}
+	if err := srv.store.AddCluster(context.Background(), cluster); err != nil {
+		t.Fatal(err)
+	}
+	return cluster
+}
+
+// TestSetupOnAControlPlane: a daemon in a cluster with no Incus on its machine
+// has no host to set up, so Setup leaves those checks out rather than holding
+// the installation up over something it cannot have, and its clusters are what
+// Ready follows.
+func TestSetupOnAControlPlane(t *testing.T) {
+	t.Parallel()
+	d := noIncusDaemon(t, t.TempDir())
+	ctx := context.Background()
+	cluster := testCluster(t, d.srv, "k3d")
+
+	status, err := d.client.Setup(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{api.SetupBackendCluster}; !slices.Equal(status.Backends, want) {
+		t.Errorf("Backends = %v, want %v", status.Backends, want)
+	}
+	for _, id := range []string{"incus", "host", "storage", "image"} {
+		for _, c := range status.Checks {
+			if c.ID == id {
+				t.Errorf("a control plane reported the %q check, which it could never pass: %+v", id, c)
+			}
+		}
+	}
+	if c := setupCheck(t, d, "cluster/k3d"); c.Status != api.SetupOK || !c.Required ||
+		c.Backend != api.SetupBackendCluster || c.Cluster != "k3d" {
+		t.Errorf("cluster check = %+v, want an ok, required check of k3d", c)
+	}
+	if !status.Ready {
+		t.Errorf("Ready = false with a cluster that can start an agent: %+v", status.Checks)
+	}
+	// The image manifest is still what the app shows before a build, even
+	// though this installation builds no image of its own.
+	if status.Image.Version != image.Version || status.Image.Hint == "" || len(status.Image.Downloads) != len(image.Downloads) {
+		t.Errorf("Image = %+v, want the version, hint and downloads", status.Image)
+	}
+
+	// The image is what a pod runs, and a cluster without one can't start an
+	// agent: it is missing, and it holds the installation up.
+	cluster.Image = ""
+	if err := d.srv.store.SetClusterConfig(ctx, cluster); err != nil {
+		t.Fatal(err)
+	}
+	status, err = d.client.Setup(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := setupCheck(t, d, "cluster/k3d"); c.Status != api.SetupMissing ||
+		!strings.Contains(c.Detail, "no agent image") || !strings.Contains(c.Fix, "--image") {
+		t.Errorf("cluster check without an image = %+v, want SetupMissing with the command that sets one", c)
+	}
+	if status.Ready {
+		t.Errorf("Ready = true with a cluster that has no image")
+	}
+
+	// And the master URL is the other half of a pod that can start: no pod of
+	// this cluster reaches the daemon without it.
+	cluster.Image = "agentbox-agent:dev"
+	cluster.MasterURL = ""
+	if err := d.srv.store.SetClusterConfig(ctx, cluster); err != nil {
+		t.Fatal(err)
+	}
+	if c := setupCheck(t, d, "cluster/k3d"); c.Status != api.SetupMissing ||
+		!strings.Contains(c.Detail, "master URL") || !strings.Contains(c.Fix, "--master-url") {
+		t.Errorf("cluster check without a master URL = %+v, want SetupMissing with the command that sets one", c)
+	}
+	if status, err := d.client.Setup(ctx); err != nil {
+		t.Fatal(err)
+	} else if status.Ready {
+		t.Errorf("Ready = true with a cluster whose pods can't reach the daemon")
+	}
+}
+
+// TestSetupWithoutIncusOrClustersIsStillTheHost: a machine with no Incus and
+// nothing else either is a first run, not a control plane, so Setup still asks
+// for host setup: only a cluster makes the host something this daemon can do
+// without.
+func TestSetupWithoutIncusOrClustersIsStillTheHost(t *testing.T) {
+	t.Parallel()
+	d := noIncusDaemon(t, t.TempDir())
+	status, err := d.client.Setup(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{api.SetupBackendHost}; !slices.Equal(status.Backends, want) {
+		t.Errorf("Backends = %v, want %v", status.Backends, want)
+	}
+	if c := setupCheck(t, d, "incus"); c.Status != api.SetupMissing || !c.Required || !strings.Contains(c.Detail, "Incus isn't installed") {
+		t.Errorf("incus check = %+v, want a required SetupMissing saying Incus isn't installed", c)
+	}
+}
+
+// TestSetupReportsClustersBesideTheHost: a host that also has clusters keeps
+// every host check it had, and gains one check per cluster after them.
+func TestSetupReportsClustersBesideTheHost(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), imageIncus(image.Version, image.Components{}))
+	testCluster(t, d.srv, "k3d")
+
+	status, err := d.client.Setup(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{api.SetupBackendHost, api.SetupBackendCluster}; !slices.Equal(status.Backends, want) {
+		t.Errorf("Backends = %v, want %v", status.Backends, want)
+	}
+	for _, id := range []string{"incus", "host", "image"} {
+		if c := setupCheck(t, d, id); !c.Required {
+			t.Errorf("%q check = %+v, want it still required on a host that runs agents", id, c)
+		}
+	}
+	// No project names it, so it is worth reporting and not worth blocking on.
+	if c := setupCheck(t, d, "cluster/k3d"); c.Required || c.Status != api.SetupOK || c.Backend != api.SetupBackendCluster {
+		t.Errorf("cluster check = %+v, want an ok check no project makes required", c)
+	}
+
+	// A project that runs its agents there is what makes it required: an agent
+	// of that project can't be created until the cluster can take one.
+	ctx := context.Background()
+	if err := d.srv.store.AddProject(ctx, state.Project{Name: "pawly", Root: t.TempDir(), CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.srv.store.SetProjectCluster(ctx, "pawly", "k3d"); err != nil {
+		t.Fatal(err)
+	}
+	if c := setupCheck(t, d, "cluster/k3d"); !c.Required {
+		t.Errorf("cluster check = %+v, want it required while a project runs its agents there", c)
+	}
+}
 
 func setupCheck(t *testing.T, d testDaemon, id string) api.SetupCheck {
 	t.Helper()

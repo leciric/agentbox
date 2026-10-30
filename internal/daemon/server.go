@@ -28,6 +28,7 @@ import (
 	"agentbox/internal/credentials"
 	"agentbox/internal/cursor"
 	"agentbox/internal/dockerfw"
+	"agentbox/internal/gateway"
 	"agentbox/internal/github"
 	"agentbox/internal/gitrepo"
 	"agentbox/internal/homehost"
@@ -35,6 +36,7 @@ import (
 	"agentbox/internal/image"
 	"agentbox/internal/imagecache"
 	"agentbox/internal/incus"
+	"agentbox/internal/machine"
 	"agentbox/internal/memory"
 	"agentbox/internal/nodemods"
 	"agentbox/internal/omarchy"
@@ -72,6 +74,16 @@ type Config struct {
 	// PreviewAddr is where the preview proxy listens: empty is
 	// defaultPreviewAddr, and "off" turns the proxy off.
 	PreviewAddr string
+	// GatewayAddr is where the pods of a cluster on this machine dial the
+	// daemon: empty or "off" serves no local listener, which is right when
+	// every cluster reaches this machine through the tailnet instead.
+	GatewayAddr string
+	// GatewayAllowInsecure exposes the in-agent API (/v1/self) on a
+	// non-loopback GatewayAddr, over plain HTTP. Without it that listener
+	// serves the gateway alone, because /v1/self carries memory, media and the
+	// connector relay that adds the user's credentials. A local k3d cluster
+	// sets it so its pods can reach /v1/self at host.k3d.internal.
+	GatewayAllowInsecure bool
 	// ConnectorsLoopback lets connectors reach servers on this machine's
 	// loopback, where only tests' fake MCP servers listen
 	// (connectors.OAuth.Loopback).
@@ -240,6 +252,28 @@ type Server struct {
 	// sweep's or the user's (removestopped.go).
 	removingStopped sync.Mutex
 
+	// clusters are the Kubernetes clients the daemon holds, by cluster and by
+	// the sealed kubeconfig they were built from (clusters.go), and capacities
+	// is what its last look at each found.
+	clusters   clusterClients
+	capacities clusterCapacities
+	// placeMu serializes admission with the slot it takes: a create reads a
+	// cluster's room and reserves it as one step, so two callers can't both
+	// take the last slot (placement.go).
+	placeMu sync.Mutex
+	// queueStarting holds the refs of queued agents whose start job is
+	// running, so a start slower than a queue pass isn't started twice
+	// (queue.go).
+	queueStarting sync.Map
+	// lifecycles is which cluster agents a start, stop, destroy, snapshot,
+	// restore, fork, move or recreate is working on now (lifecycle.go).
+	lifecycles agentLifecycles
+	// gateway is where every pod dials in, and the sessions they hold once
+	// they have (agentgateway.go); gatewayListener is the local listener a
+	// cluster on this machine dials.
+	gateway         *gateway.Server
+	gatewayListener gatewayState
+
 	mu           sync.Mutex
 	agentAPIs    map[string]*http.Server // in-agent API servers, by instance
 	retired      map[string]bool         // agents a stop-retire stopped, by ref (markRetired)
@@ -296,6 +330,7 @@ type Server struct {
 	agentsOnImage   map[string]bool   // agents, by ref, being made once the base image is ready (imagebuild.go)
 	remote          *remote.Connector // the connection to a hub, when this machine is an environment
 	lan             *lanState         // phones chatting from the local network or a tunnel (lan.go)
+	tailnet         tailnetState      // the desktop app on another machine, through `tailscale serve` (tailnet.go)
 	// firstImage is how fetchFirstImage checks the user mapping and starts
 	// the build: image.CheckHost and startImageBuild, unless a test says.
 	firstImage struct {
@@ -477,6 +512,9 @@ func New(cfg Config) (*Server, error) {
 		connectorsGiven:  map[string]bool{},
 	}
 	s.fileWatches = newFileWatches(func(c api.FilesChange) { s.events.publish(api.EventFiles, c) })
+	// A pod authenticates with the token it was made with, which is the one
+	// thing it can carry to this machine (agentgateway.go).
+	s.gateway = s.newAgentGateway()
 	// Lima on a Mac and WSL2 forward the VM's localhost ports on their own.
 	s.loginCallbackUnreachable = hostos.OS() == hostos.Linux
 	s.recheckTell = func(ctx context.Context, project, note string) { s.tellLead(ctx, project, note, true) }
@@ -513,6 +551,9 @@ func New(cfg Config) (*Server, error) {
 		StayUp:            s.leadDueSoon,
 		Version:           Version,
 		ImageDir:          cfg.Paths.ChatImages,
+		// A pod's tree is inside the pod, so its row has no path for the
+		// adapter's session to run in: the machine says where it is.
+		Worktree: func(a state.Agent) string { return s.manager(nil).Worktree(a) },
 	}
 	s.askLead, s.askAside = s.askLeadSession, s.askAsideSession
 	s.incus = s.newIncusWatch()
@@ -594,6 +635,10 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 	s.serveImageCache(ctx)
 	s.applyLAN(ctx)
 	defer s.closeLAN()
+	s.applyTailnet(ctx)
+	defer s.closeTailnet()
+	s.serveAgentGateway(ctx)
+	defer s.closeAgentGateway()
 	s.watchTheme(ctx)
 	defer s.fileWatches.closeAll()
 	// Run's own loops end with it, and it waits for them: deferred after the
@@ -641,6 +686,10 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 	loops.Go(func() { s.syncBases(ctx) })
 	// Incus is asked only from here on: nothing before Serve may wait on it.
 	loops.Go(func() { s.watchIncus(ctx) })
+	// And every cluster an agent runs in, which is where those agents' machines
+	// are, plus what room each configured cluster has (reconciler.go).
+	loops.Go(func() { s.reconcileClusters(ctx) })
+	loops.Go(func() { s.watchCapacities(ctx) })
 	loops.Go(func() { s.dropOldLimits(ctx) })
 	// Docker's firewall drops what the Incus bridge forwards, and a Docker
 	// Desktop that starts after this daemon rebuilds the chain without our rules.
@@ -659,8 +708,9 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 	loops.Go(func() { s.continueTurns(ctx) })
 	loops.Go(func() { s.rearmLimits(ctx) })
 	loops.Go(func() { s.unloadChats(ctx) })
-	// What an earlier release left queued starts now (leftoverqueue.go).
-	loops.Go(func() { s.startLeftoverQueue(ctx) })
+	// What an earlier release left queued, and what this one queued for a
+	// cluster with no room, starts as a cluster has room (queue.go).
+	loops.Go(func() { s.runQueue(ctx) })
 	s.startRemote(ctx)
 	// A new AgentBox may pin newer agent tools than the base image has: they
 	// are moved on in the background, while agents go on being made from it.
@@ -790,6 +840,8 @@ func (s *Server) manager(log io.Writer) *agent.Manager {
 	return &agent.Manager{
 		Store:            s.store,
 		Incus:            s.cfg.Incus,
+		Runtime:          machine.NewIncus(s.cfg.Incus),
+		Kubernetes:       machine.NewKubernetes(s.gateway, podLifecycle{s: s}),
 		Paths:            s.cfg.Paths,
 		Creds:            credentials.Store{Dir: s.cfg.Paths.Credentials()},
 		Secrets:          s.secrets(),
@@ -797,6 +849,7 @@ func (s *Server) manager(log io.Writer) *agent.Manager {
 		Log:              log,
 		AgentSocket:      s.agentSocketPath,
 		Binary:           s.cfg.Binary,
+		DestroyMachine:   s.destroyMachine,
 		BrowserSocket:    s.browserSocketPath,
 		AndroidSDK:       findAndroidSDK,
 		IOSScreenshot:    s.iosScreenshot,
@@ -870,6 +923,36 @@ func (s *Server) routes() http.Handler {
 	h("GET "+homehost.Path, s.attachHomeHost)
 	h("GET "+homehost.MCPPath, s.homeHostMCP)
 	h("POST /v1/shutdown", s.shutdown)
+	h("GET /v1/tailnet", s.getTailnet)
+	h("PATCH /v1/tailnet", s.updateTailnet)
+	// Where an agent's pod keeps its one connection to this daemon. It is not
+	// wrapped in h: there is no project in the path to slug, and a failed
+	// handshake is answered as the gateway answers it rather than as this
+	// API's JSON. The gateway authenticates the pod's bearer token itself,
+	// because a pod has neither of the other listeners' credentials: no
+	// socket on this machine, and no Tailscale login, which is a person's.
+	mux.Handle(agentGatewayPath, s.gateway)
+
+	// Where agents run when they don't run here, and where their images come
+	// from (clusters.go).
+	h("GET /v1/clusters", s.listClusters)
+	h("POST /v1/clusters", s.addCluster)
+	h("GET /v1/clusters/{name}", s.getCluster)
+	h("PUT /v1/clusters/{name}", s.setClusterConfig)
+	h("DELETE /v1/clusters/{name}", s.removeCluster)
+	h("POST /v1/clusters/{name}/doctor", s.doctorCluster)
+	h("POST /v1/clusters/{name}/rotate", s.rotateCluster)
+	// What a cluster holds now, and what is being done to it (6.3).
+	h("GET /v1/clusters/{name}/detail", s.clusterDetail)
+	h("POST /v1/clusters/{name}/drain", s.drainCluster)
+	h("POST /v1/clusters/{name}/undrain", s.undrainCluster)
+	h("POST /v1/clusters/{name}/upgrade", s.upgradeCluster)
+	h("GET /v1/registries", s.listRegistries)
+	h("POST /v1/registries", s.addRegistry)
+	h("GET /v1/registries/{name}", s.getRegistry)
+	h("DELETE /v1/registries/{name}", s.removeRegistry)
+	h("POST /v1/registries/{name}/test", s.testRegistry)
+	h("POST /v1/registries/{name}/rotate", s.rotateRegistry)
 
 	h("GET /v1/theme", s.themeStatus)
 	h("PATCH /v1/theme", s.updateTheme)
@@ -908,6 +991,13 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/projects/{project}", s.getProject)
 	h("PATCH /v1/projects/{project}", s.updateProject)
 	h("DELETE /v1/projects/{project}", s.removeProject)
+	// Where a project's cluster agents clone and push, and with which login
+	// (gitprofiles.go). A response names a credential and never carries it.
+	h("GET /v1/projects/{project}/git", s.projectGit)
+	h("PUT /v1/projects/{project}/git/{profile}", s.setProjectGit)
+	h("DELETE /v1/projects/{project}/git/{profile}", s.removeProjectGit)
+	h("POST /v1/projects/{project}/git/use", s.useProjectGit)
+	h("POST /v1/projects/{project}/git/test", s.testProjectGit)
 	// Each project's icon: the one chosen, or the one its repository has.
 	h("GET /v1/projects/{project}/icon", s.getProjectIcon)
 	h("GET /v1/projects/{project}/icon/candidates", s.projectIconCandidates)
@@ -1021,6 +1111,9 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/projects/{project}/base", s.saveBase)
 	h("DELETE /v1/projects/{project}/base", s.removeBase)
 	h("POST /v1/projects/{project}/base/revert", s.revertBase)
+	h("PUT /v1/projects/{project}/base/image", s.putProjectImage)
+	h("DELETE /v1/projects/{project}/base/image", s.removeProjectImage)
+	h("POST /v1/projects/{project}/base/image/revert", s.revertProjectImage)
 
 	h("GET /v1/pressure", s.getPressure)
 	h("GET /v1/diagnostics/spans", s.diagnosticsSpans)
@@ -1076,12 +1169,17 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/agents/{project}/{agent}/checkpoints", s.listCheckpoints)
 	h("POST /v1/agents/{project}/{agent}/rollback", s.rollback)
 	h("POST /v1/agents/{project}/{agent}/recreate", s.recreate)
+	// Moving an agent's machine to another cluster (move.go).
+	h("POST /v1/agents/{project}/{agent}/move", s.moveAgent)
 	h("POST /v1/migration/check", s.checkMigration)
 	s.connectorRoutes(h)
 	h("GET /v1/agents/{project}/{agent}/secrets", s.listAgentSecrets)
 	h("PUT /v1/agents/{project}/{agent}/secrets/{name}", s.setAgentSecret)
 	h("DELETE /v1/agents/{project}/{agent}/secrets/{name}", s.removeAgentSecret)
 	h("GET /v1/agents/{project}/{agent}/terminal", s.terminal)
+	// One command on the agent's machine, streamed (exec.go): what `agentbox
+	// exec` uses on a cluster agent, where the CLI has no Incus of its own.
+	h("GET /v1/agents/{project}/{agent}/exec", s.execStream)
 	h("GET /v1/agents/{project}/{agent}/chat", s.getChat(s.agentOrArchivedFromPath))
 	h("GET /v1/agents/{project}/{agent}/chat/search", s.searchChat(s.agentOrArchivedFromPath))
 	h("GET /v1/agents/{project}/{agent}/timeline", s.agentTimeline)
@@ -1216,7 +1314,8 @@ func writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, state.ErrNotFound), errors.Is(err, incus.ErrNotFound), errors.Is(err, memory.ErrNotFound):
 		status = http.StatusNotFound
-	case errors.Is(err, state.ErrExists), errors.Is(err, agent.ErrCloneDestExists), errors.As(err, new(errOtherSession)), errors.Is(err, errSessionClosed):
+	case errors.Is(err, state.ErrExists), errors.Is(err, agent.ErrCloneDestExists), errors.As(err, new(errOtherSession)),
+		errors.Is(err, ErrAgentBusy), errors.Is(err, state.ErrDestroyed), errors.Is(err, errSessionClosed):
 		status = http.StatusConflict
 	case errors.Is(err, incus.ErrNotAnswering):
 		status = http.StatusServiceUnavailable

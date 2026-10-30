@@ -101,6 +101,11 @@ func (m *Manager) EnsurePackageCache(ctx context.Context, a state.Agent) {
 }
 
 func (m *Manager) applyPackageCache(ctx context.Context, a state.Agent) error {
+	if a.OnCluster() {
+		// A pod has no Incus devices to hang a host directory on; its caches
+		// live on its claim.
+		return nil
+	}
 	source := ""
 	if m.PackageCacheDir != nil {
 		source = m.PackageCacheDir(ctx)
@@ -126,6 +131,6 @@ func (m *Manager) applyPackageCache(ctx context.Context, a state.Agent) error {
 			return err
 		}
 	}
-	_, err = m.Incus.Exec(ctx, a.Instance, "sh", "-c", m.packageCacheSetup())
+	_, err = m.machine(a).Exec(ctx, "sh", "-c", m.packageCacheSetup())
 	return err
 }

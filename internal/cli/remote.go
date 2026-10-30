@@ -421,8 +421,30 @@ func (a *app) findEnvironment(ctx context.Context, name string) (savedHub, api.H
 	return savedHub{}, api.HubEnvironment{}, fmt.Errorf("several hubs have an environment named %s", name)
 }
 
-// localOnly are commands that work on this machine only, so --env can't apply.
-var localOnly = map[string]bool{"shell": true, "exec": true, "auth": true, "host": true, "daemon": true, "server": true, "remote": true, "login": true, "logout": true, "env": true, "path": true, "machines": true, "debug": true, "doctor": true}
+// localOnly are commands that work on this machine only, so --env and --server
+// can't apply, and the active profile doesn't either: they act here and say so.
+// `auth` is not one of them: logging in to a tool runs here, where the terminal
+// and the browser are, but the login is stored on the daemon the profile names
+// (`agentbox auth codex|opencode`), or the daemon does the login itself
+// (`auth claude`, `auth cursor --login`).
+var localOnly = []string{
+	"agentbox shell", "agentbox exec",
+	"agentbox host", "agentbox daemon", "agentbox agentd", "agentbox server",
+	"agentbox remote", "agentbox tailnet", "agentbox login", "agentbox logout",
+	"agentbox env", "agentbox path", "agentbox machines", "agentbox debug",
+	"agentbox backup", "agentbox profile", "agentbox use", "agentbox doctor",
+}
+
+// localOnlyCommand is whether cmd is one of them, by its whole path.
+func localOnlyCommand(cmd *cobra.Command) bool {
+	path := cmd.CommandPath()
+	for _, p := range localOnly {
+		if path == p || strings.HasPrefix(path, p+" ") {
+			return true
+		}
+	}
+	return false
+}
 
 func topCommand(cmd *cobra.Command) string {
 	for cmd.HasParent() && cmd.Parent().HasParent() {

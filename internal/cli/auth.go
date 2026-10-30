@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"text/tabwriter"
 	"time"
 
@@ -53,36 +52,33 @@ accounts: run this once per account, with --account. An agent uses its project's
 account (agentbox claude-account), and otherwise the default one.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			var token string
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			if account == "" {
+				account = credentials.DefaultAccount
+			}
 			if fromStdin {
 				b, err := io.ReadAll(cmd.InOrStdin())
 				if err != nil {
 					return err
 				}
-				token = string(b)
-			} else {
-				t, err := setupToken(cmd, a)
-				if err != nil {
+				if err := c.SaveClaudeToken(cmd.Context(), api.ClaudeTokenRequest{Token: string(b), Account: account}); err != nil {
 					return err
 				}
-				token = t
-			}
-			creds := a.credentials()
-			if account == "" {
-				account = credentials.DefaultAccount
-			}
-			if err := creds.SaveClaudeToken(account, token); err != nil {
+			} else if err := claudeLogin(cmd, c, account, a.target.where()); err != nil {
 				return err
 			}
 			out := cmd.OutOrStdout()
-			_, _ = fmt.Fprintf(out, "Saved the Claude Code account %q for agents in %s\n", account, creds.ClaudeTokenPath(account))
-			def, err := creds.DefaultClaudeAccount()
+			_, _ = fmt.Fprintf(out, "Saved the Claude Code account %q for agents on %s\n", account, a.target.describe())
+			def, err := defaultClaudeAccountName(cmd, c)
 			if err != nil {
 				return err
 			}
 			if def == account {
-				_, _ = fmt.Fprintf(out, "Agents use it unless their project picks another one.\n")
-			} else {
+				_, _ = fmt.Fprintln(out, "Agents use it unless their project picks another one.")
+			} else if def != "" {
 				_, _ = fmt.Fprintf(out, "Agents still use %q by default: change that with agentbox auth claude default %s, or give it to one project with agentbox claude-account <project> %s\n", def, account, account)
 			}
 			return nil
@@ -100,30 +96,30 @@ func newAuthClaudeListCmd(a *app) *cobra.Command {
 		Short: "List the stored Claude Code accounts",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			accounts, err := a.credentials().ClaudeAccounts()
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			status, err := c.Auth(cmd.Context())
 			if err != nil {
 				return err
 			}
 			out := cmd.OutOrStdout()
-			if len(accounts) == 0 {
+			if len(status.ClaudeAccounts) == 0 {
 				_, _ = fmt.Fprintln(out, "No Claude Code accounts yet. Add one with: agentbox auth claude")
 				return nil
 			}
 			w := tabwriter.NewWriter(out, 0, 0, 3, ' ', 0)
 			_, _ = fmt.Fprintln(w, "ACCOUNT\tDEFAULT\tSAVED")
-			for _, acc := range accounts {
-				def := ""
-				if acc.Default {
-					def = "yes"
-				}
+			for _, acc := range status.ClaudeAccounts {
 				// A token stored before AgentBox recorded the date has none,
 				// and the file's own timestamp isn't one: copying a
 				// credentials directory rewrites it.
 				saved := "unknown"
-				if acc.SavedAtKnown {
+				if !acc.SavedAt.IsZero() {
 					saved = acc.SavedAt.Local().Format(time.DateTime)
 				}
-				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", acc.Name, orDash(def), saved)
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", acc.Name, orDash(boolWord(acc.Default)), saved)
 			}
 			return w.Flush()
 		},
@@ -136,7 +132,11 @@ func newAuthClaudeDefaultCmd(a *app) *cobra.Command {
 		Short: "Pick the Claude Code account agents use when their project doesn't name one",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := a.credentials().SetDefaultClaudeAccount(args[0]); err != nil {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			if err := c.SetDefaultClaudeAccount(cmd.Context(), args[0]); err != nil {
 				return err
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "New agents use the Claude Code account %q unless their project picks another one\n", args[0])
@@ -185,13 +185,16 @@ func newAuthClaudeRemoveCmd(a *app) *cobra.Command {
 the token was written into them when they were created.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			creds := a.credentials()
-			if err := creds.RemoveClaudeAccount(args[0]); err != nil {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			if err := c.RemoveClaudeAccount(cmd.Context(), args[0]); err != nil {
 				return err
 			}
 			out := cmd.OutOrStdout()
 			_, _ = fmt.Fprintf(out, "Removed the Claude Code account %q\n", args[0])
-			def, err := creds.DefaultClaudeAccount()
+			def, err := defaultClaudeAccountName(cmd, c)
 			if err != nil {
 				return err
 			}
@@ -215,6 +218,11 @@ func newAuthCodexCmd(a *app) *cobra.Command {
 separate from your host's ~/.codex, and keeps it as a named account. New agents
 get a copy of their project's account, or the default one.
 
+The sign-in runs here, where your browser can finish it, and is stored on the
+daemon the active profile names, which is the one holding the accounts and giving
+them to agents: this machine's, or another's on your tailnet. --local stores it on
+this machine instead.
+
 Run it once per account, with --account, to keep several.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -228,6 +236,13 @@ Run it once per account, with --account, to keep several.`,
 				return err
 			}
 			if err := os.MkdirAll(creds.Dir, 0o700); err != nil {
+				return err
+			}
+			// The sign-in runs here, where the browser can finish it, and is
+			// stored on the daemon that holds the accounts: the one the active
+			// profile names, whose agents get it.
+			c, err := a.client(cmd)
+			if err != nil {
 				return err
 			}
 			home, err := os.MkdirTemp(creds.Dir, ".codex-login-")
@@ -248,10 +263,10 @@ Run it once per account, with --account, to keep several.`,
 			if err != nil {
 				return fmt.Errorf("codex stored no login: run agentbox auth codex again and finish it (%w)", err)
 			}
-			if err := creds.SaveToolAccount(credentials.ToolCodex, "", account, auth); err != nil {
+			if err := c.SaveToolAccount(cmd.Context(), credentials.ToolCodex, api.ToolAccountRequest{Account: account, Auth: auth}); err != nil {
 				return err
 			}
-			return savedToolAccount(cmd, a, credentials.ToolCodex, "", account)
+			return savedToolAccount(cmd, a, c, credentials.ToolCodex, "", account)
 		},
 	}
 	cmd.Flags().BoolVar(&apiKey, "api-key-stdin", false, "read an OpenAI API key from stdin instead of logging in with ChatGPT")
@@ -280,6 +295,11 @@ own, the version agents run, downloaded the first time: OpenCode 2 (when the
 installation chose it) keeps credentials in its database, so they are read back
 with its own 'auth export'.
 
+The login runs here, where your terminal and browser are, and is stored on the
+daemon the active profile names, which is the one giving the accounts to agents:
+this machine's, or another's on your tailnet. --local stores it on this machine
+instead.
+
 The version is the installation's setting (Settings → Run OpenCode 2). Pass
 --opencode2 to sign in to OpenCode 2 anyway, without moving the agents to it:
 the account is stored the same way, and both versions can use it.
@@ -304,13 +324,18 @@ per account, with --account, to keep several for a provider.`,
 			if err := os.MkdirAll(creds.Dir, 0o700); err != nil {
 				return err
 			}
-			// Which OpenCode this installation runs is the daemon's setting. It
-			// is asked rather than guessed: the two write credentials in
-			// different places, and a login captured in the wrong one is no use
-			// to the agents. A daemon that isn't reachable leaves OpenCode 1,
-			// which is what an installation that never chose runs.
+			// Which OpenCode this installation runs is the daemon's setting, and
+			// the daemon is the one the profile names. It is asked rather than
+			// guessed: the two write credentials in different places, and a
+			// login captured in the wrong one is no use to the agents. A daemon
+			// that isn't reachable leaves OpenCode 1, which is what an
+			// installation that never chose runs.
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
 			version := opencode.V1
-			if settings, err := api.NewClient(a.paths.Socket()).Settings(cmd.Context()); err == nil {
+			if settings, err := c.Settings(cmd.Context()); err == nil {
 				version = opencode.ReleaseOf(settings.OpenCodeVersion)
 			}
 			if openCodeV2 {
@@ -318,7 +343,7 @@ per account, with --account, to keep several for a provider.`,
 			}
 			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Signing in to OpenCode %s\n", version)
 			if version == opencode.V2 {
-				return openCode2Login(cmd, a, creds, provider, method, account)
+				return openCode2Login(cmd, a, c, creds, provider, method, account)
 			}
 			dataHome, err := os.MkdirTemp(creds.Dir, ".opencode-login-")
 			if err != nil {
@@ -353,15 +378,7 @@ per account, with --account, to keep several for a provider.`,
 			if len(providers) == 0 {
 				return errors.New("opencode stored no provider login: run agentbox auth opencode again and finish the login")
 			}
-			for _, p := range slices.Sorted(maps.Keys(providers)) {
-				if err := creds.SaveToolAccount(credentials.ToolOpenCode, p, account, providers[p]); err != nil {
-					return err
-				}
-				if err := savedToolAccount(cmd, a, credentials.ToolOpenCode, p, account); err != nil {
-					return err
-				}
-			}
-			return nil
+			return saveOpenCodeLogins(cmd, a, c, providers, account)
 		},
 	}
 	cmd.Flags().StringVar(&provider, "provider", "", "provider id to log in to, skipping OpenCode's own list")
@@ -376,7 +393,7 @@ per account, with --account, to keep several for a provider.`,
 // own, then asks it to export what it stored. OpenCode 2 keeps credentials in a
 // database rather than an auth.json, so this is the only way to read them back;
 // the entry it exports is the same shape AgentBox stores for OpenCode 1.
-func openCode2Login(cmd *cobra.Command, a *app, creds credentials.Store, provider, method, account string) error {
+func openCode2Login(cmd *cobra.Command, a *app, c *api.Client, creds credentials.Store, provider, method, account string) error {
 	m := &agent.Manager{Paths: a.paths}
 	command, err := m.EnsureOpenCode2(cmd.Context(), func(s string) {
 		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), s)
@@ -416,11 +433,19 @@ func openCode2Login(cmd *cobra.Command, a *app, creds credentials.Store, provide
 	if len(providers) == 0 {
 		return errors.New("opencode stored no provider login: run agentbox auth opencode again and finish the login")
 	}
+	return saveOpenCodeLogins(cmd, a, c, providers, account)
+}
+
+// saveOpenCodeLogins stores each provider's captured login on the daemon this
+// command acts on, and says where it went. OpenCode's accounts are per provider,
+// so a sign-in that named several is several accounts.
+func saveOpenCodeLogins(cmd *cobra.Command, a *app, c *api.Client, providers map[string][]byte, account string) error {
 	for _, p := range slices.Sorted(maps.Keys(providers)) {
-		if err := creds.SaveToolAccount(credentials.ToolOpenCode, p, account, providers[p]); err != nil {
+		req := api.ToolAccountRequest{Provider: p, Account: account, Auth: providers[p]}
+		if err := c.SaveToolAccount(cmd.Context(), credentials.ToolOpenCode, req); err != nil {
 			return err
 		}
-		if err := savedToolAccount(cmd, a, credentials.ToolOpenCode, p, account); err != nil {
+		if err := savedToolAccount(cmd, a, c, credentials.ToolOpenCode, p, account); err != nil {
 			return err
 		}
 	}
@@ -433,62 +458,75 @@ func newAuthStatusCmd(a *app) *cobra.Command {
 		Short: "Show which agent logins are configured",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			creds := a.credentials()
-			accounts, err := creds.ClaudeAccounts()
+			c, err := a.client(cmd)
 			if err != nil {
 				return err
 			}
-			claude := "not configured (run: agentbox auth claude)"
-			tools := map[string][]credentials.ToolAccount{}
-			for _, tool := range credentials.AccountTools {
-				if tools[tool], err = creds.ToolAccounts(tool); err != nil {
-					return err
-				}
-			}
-			if len(accounts) > 0 {
-				names := make([]string, 0, len(accounts))
-				for _, acc := range accounts {
-					if acc.Default {
-						names = append(names, acc.Name+" (default)")
-						continue
-					}
-					names = append(names, acc.Name)
-				}
-				claude = fmt.Sprintf("%d account(s): %s", len(accounts), strings.Join(names, ", "))
-			}
-			ghAccounts, err := creds.GitHubAccounts()
+			// The daemon answers for the installation it is, which is the one
+			// the profile names: the accounts it holds, whether Anthropic still
+			// takes each Claude token, and whose the default GitHub token is.
+			status, err := c.Auth(cmd.Context())
 			if err != nil {
 				return err
 			}
-			gh := "not configured (run: agentbox auth github)"
-			if len(ghAccounts) > 0 {
-				names := make([]string, 0, len(ghAccounts))
-				for _, acc := range ghAccounts {
-					if acc.Default {
-						names = append(names, acc.Name+" (default)")
-						continue
+			// The daemon checks a token it has no fresh answer for in the
+			// background, so the app can poll without waiting on Anthropic.
+			// One command should still answer with what that check found, so
+			// it waits a moment for the answer the next poll would have.
+			if uncheckedClaude(status) {
+				deadline := time.Now().Add(3 * time.Second)
+				for time.Now().Before(deadline) {
+					select {
+					case <-cmd.Context().Done():
+						return cmd.Context().Err()
+					case <-time.After(300 * time.Millisecond):
 					}
-					names = append(names, acc.Name)
+					next, err := c.Auth(cmd.Context())
+					if err != nil {
+						break
+					}
+					status = next
+					if !uncheckedClaude(status) {
+						break
+					}
 				}
-				gh = fmt.Sprintf("%d account(s): %s", len(ghAccounts), strings.Join(names, ", "))
 			}
-			// What Anthropic makes of each stored token. An answer stands for
-			// an hour and is shared with the daemon, so asking twice in a row
-			// costs one round trip.
-			checked := checkClaudeAccounts(cmd.Context(), creds, accounts)
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 3, ' ', 0)
+			claude := "not configured (run: agentbox auth claude)"
+			if len(status.ClaudeAccounts) > 0 {
+				names := make([]string, 0, len(status.ClaudeAccounts))
+				for _, acc := range status.ClaudeAccounts {
+					names = append(names, accountName(acc.Name, acc.Default))
+				}
+				claude = fmt.Sprintf("%d account(s): %s", len(status.ClaudeAccounts), strings.Join(names, ", "))
+			}
 			_, _ = fmt.Fprintf(w, "Claude Code\t%s\n", claude)
-			for _, acc := range accounts {
-				_, _ = fmt.Fprintf(w, "  %s\t%s\n", acc.Name, claudeAccountStatus(acc, checked[acc.Name]))
+			for _, acc := range status.ClaudeAccounts {
+				_, _ = fmt.Fprintf(w, "  %s\t%s\n", acc.Name, apiClaudeStatus(acc))
 			}
 			for _, tool := range credentials.AccountTools {
-				if len(tools[tool]) == 0 {
+				accounts := accountsOf(status, tool)
+				if len(accounts) == 0 {
 					_, _ = fmt.Fprintf(w, "%s\tnot configured (run: agentbox auth %s)\n", credentials.ToolName(tool), tool)
 					continue
 				}
-				_, _ = fmt.Fprintf(w, "%s\t%d account(s)\n", credentials.ToolName(tool), len(tools[tool]))
-				for _, acc := range tools[tool] {
-					_, _ = fmt.Fprintf(w, "  %s\t%s\n", toolAccountLabel(acc), toolAccountStatus(acc))
+				_, _ = fmt.Fprintf(w, "%s\t%d account(s)\n", credentials.ToolName(tool), len(accounts))
+				for _, acc := range accounts {
+					_, _ = fmt.Fprintf(w, "  %s\t%s\n", apiToolLabel(acc), apiToolStatus(acc))
+				}
+			}
+			gh := "not configured (run: agentbox auth github)"
+			if len(status.GitHubAccounts) > 0 {
+				names := make([]string, 0, len(status.GitHubAccounts))
+				for _, acc := range status.GitHubAccounts {
+					names = append(names, accountName(acc.Name, acc.Default))
+				}
+				gh = fmt.Sprintf("%d account(s): %s", len(status.GitHubAccounts), strings.Join(names, ", "))
+				switch {
+				case status.GitHubUser != "":
+					gh += ", signed in as " + status.GitHubUser
+				case status.GitHubError != "":
+					gh += ", which GitHub couldn't be asked about right now"
 				}
 			}
 			_, _ = fmt.Fprintf(w, "GitHub\t%s\n", gh)
@@ -497,55 +535,111 @@ func newAuthStatusCmd(a *app) *cobra.Command {
 	}
 }
 
-// checkClaudeAccounts asks Anthropic about every stored token, all at once so
-// several accounts cost one wait rather than one each.
-func checkClaudeAccounts(ctx context.Context, creds credentials.Store, accounts []credentials.ClaudeAccount) map[string]credentials.Validity {
-	out := make(map[string]credentials.Validity, len(accounts))
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-	for _, acc := range accounts {
-		wg.Add(1)
-		go func(name string) {
-			defer wg.Done()
-			v, err := creds.CheckClaudeAccount(ctx, name)
-			if err != nil {
-				v = credentials.Validity{Detail: err.Error()}
-			}
-			mu.Lock()
-			defer mu.Unlock()
-			out[name] = v
-		}(acc.Name)
+// uncheckedClaude is whether a stored token has no answer from Anthropic yet:
+// the daemon's background check hasn't landed, or couldn't ask.
+func uncheckedClaude(st api.AuthStatus) bool {
+	for _, acc := range st.ClaudeAccounts {
+		if acc.Valid == "" {
+			return true
+		}
 	}
-	wg.Wait()
-	return out
+	return false
 }
 
-// claudeAccountStatus is the line under a Claude Code account: whether
-// Anthropic still takes its token, when it was stored, and what to do when it
-// is dead. A token nobody could check is never called dead — an offline
-// machine mustn't read as a revoked login.
-func claudeAccountStatus(acc credentials.ClaudeAccount, v credentials.Validity) string {
+// defaultClaudeAccountName is the account new agents get when nothing else
+// names one, as the daemon that holds the accounts answers it.
+func defaultClaudeAccountName(cmd *cobra.Command, c *api.Client) (string, error) {
+	status, err := c.Auth(cmd.Context())
+	if err != nil {
+		return "", err
+	}
+	for _, acc := range status.ClaudeAccounts {
+		if acc.Default {
+			return acc.Name, nil
+		}
+	}
+	return "", nil
+}
+
+// accountsOf is one tool's accounts in the daemon's answer.
+func accountsOf(st api.AuthStatus, tool string) []api.ToolAccount {
+	switch tool {
+	case credentials.ToolCodex:
+		return st.CodexAccounts
+	case credentials.ToolOpenCode:
+		return st.OpenCodeAccounts
+	case credentials.ToolCursor:
+		return st.CursorAccounts
+	}
+	return nil
+}
+
+// accountName is "work (default)".
+func accountName(name string, def bool) string {
+	if def {
+		return name + " (default)"
+	}
+	return name
+}
+
+// boolWord fills a table's yes column.
+func boolWord(b bool) string {
+	if b {
+		return "yes"
+	}
+	return ""
+}
+
+// apiClaudeStatus is the line under a Claude Code account: whether Anthropic
+// still takes its token, and when it was stored. A token nobody could check is
+// never called dead, since an offline machine mustn't read as a revoked login.
+func apiClaudeStatus(acc api.ClaudeAccount) string {
 	saved := "saved on an unknown date"
-	if acc.SavedAtKnown {
+	if !acc.SavedAt.IsZero() {
 		saved = "saved " + acc.SavedAt.Format(time.DateOnly)
 	}
-	switch v.State {
-	case credentials.TokenValid:
+	switch acc.Valid {
+	case "valid":
 		return "valid, " + saved
-	case credentials.TokenRejected:
+	case "rejected":
 		login := "agentbox auth claude"
-		if acc.Name != credentials.DefaultAccount {
+		if !acc.Default {
 			login += " --account " + acc.Name
 		}
 		return fmt.Sprintf("rejected, run %s (%s)", login, saved)
 	default:
-		// Whatever went wrong — no connection, a rate limit, an outage — says
-		// nothing about the token, and the daemon's log has the detail.
-		if v.Detail != "" {
-			return "couldn't be checked, " + saved
-		}
-		return "not checked yet, " + saved
+		return "not checked, " + saved
 	}
+}
+
+// apiToolLabel and apiToolStatus are the words the accounts page uses, read from
+// the daemon's answer rather than from this machine's store.
+func apiToolLabel(acc api.ToolAccount) string {
+	label := acc.Name
+	if acc.Provider != "" {
+		label = acc.Provider + "/" + acc.Name
+	}
+	if acc.Default {
+		label += " (default)"
+	}
+	return label
+}
+
+func apiToolStatus(acc api.ToolAccount) string {
+	if acc.Expired {
+		return "expired: sign in again (agentbox auth cursor --login --account " + acc.Name + ")"
+	}
+	kind := map[string]string{"apikey": "API key", "chatgpt": "ChatGPT", "oauth": "OAuth", "wellknown": "well-known"}[acc.Kind]
+	if kind == "" {
+		kind = "login stored"
+	}
+	if acc.Email != "" {
+		kind += " (" + acc.Email + ")"
+	}
+	if acc.Expiry != nil {
+		kind += ", until " + acc.Expiry.Format("2 January 2006")
+	}
+	return kind
 }
 
 func readSecret(prompt string) (string, error) {
@@ -634,23 +728,23 @@ func newAuthGitHubListCmd(a *app) *cobra.Command {
 		Short: "List the stored GitHub accounts",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			accounts, err := a.credentials().GitHubAccounts()
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			status, err := c.Auth(cmd.Context())
 			if err != nil {
 				return err
 			}
 			out := cmd.OutOrStdout()
-			if len(accounts) == 0 {
+			if len(status.GitHubAccounts) == 0 {
 				_, _ = fmt.Fprintln(out, "No GitHub accounts yet. Add one with: agentbox auth github")
 				return nil
 			}
 			w := tabwriter.NewWriter(out, 0, 0, 3, ' ', 0)
 			_, _ = fmt.Fprintln(w, "ACCOUNT\tDEFAULT\tSAVED")
-			for _, acc := range accounts {
-				def := ""
-				if acc.Default {
-					def = "yes"
-				}
-				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", acc.Name, orDash(def), acc.SavedAt.Local().Format(time.DateTime))
+			for _, acc := range status.GitHubAccounts {
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", acc.Name, orDash(boolWord(acc.Default)), acc.SavedAt.Local().Format(time.DateTime))
 			}
 			return w.Flush()
 		},

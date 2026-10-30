@@ -1,9 +1,10 @@
 # Maintainer: AgentBox
 #
 # Built from this checkout, not a release tarball: run makepkg from this
-# directory, after bumping pkgver to match desktop/package.json.
+# directory, after bumping pkgver to match desktop/package.json, or run
+# dev-install.sh next to it, which does both.
 #
-#   cd packaging/aur && makepkg -si
+#   packaging/aur/dev-install.sh
 #
 # The desktop app is electron-builder's unpacked output with its own Electron,
 # so the package is large but has no relationship to Arch's `electron`.

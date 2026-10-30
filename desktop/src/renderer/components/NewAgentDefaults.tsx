@@ -312,6 +312,48 @@ export function NewAgentEffort() {
   );
 }
 
+// OpenCodeEffort chooses how hard new OpenCode agents think when no request
+// or project names an effort. Its levels are the ones an OpenCode session
+// advertised; until one has, the installation's own default is shown alone.
+export function OpenCodeEffort() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (defaultOpenCodeEffort: string) => api.updateSettings({ defaultOpenCodeEffort }),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const choices = settings.data?.openCodeEffortChoices ?? [];
+  const value = settings.data?.defaultOpenCodeEffort ?? '';
+
+  return (
+    <SettingRow
+      label={t('defaults.newAgent.openCodeEffortLabel')}
+      description={t('defaults.newAgent.openCodeEffortDescription')}
+      details={t('defaults.newAgent.openCodeEffortDetails')}
+      control={
+        <Select
+          data-default-opencode-effort
+          aria-label={t('defaults.newAgent.openCodeEffortLabel')}
+          disabled={save.isPending || settings.data === undefined}
+          value={value}
+          onChange={(next) => save.mutate(next)}
+        >
+          <SelectOption value="">{t('defaults.newAgent.effortDefault')}</SelectOption>
+          {choices.map((choice) => (
+            <SelectOption key={choice.value} value={choice.value}>
+              {choiceName(choice) || choice.value}
+            </SelectOption>
+          ))}
+          {value !== '' && !choices.some((c) => c.value === value) && <SelectOption value={value}>{t('defaults.newAgent.unavailable', { value })}</SelectOption>}
+        </Select>
+      }
+    />
+  );
+}
+
 // CursorDefaults is the model, or the effort, new Cursor agents start on. The
 // list is Cursor's own, as the daemon fetched it with the sign-in; "" is
 // Cursor's Auto. An effort row shows only when the model has levels at all.
