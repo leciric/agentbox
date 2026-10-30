@@ -1287,6 +1287,163 @@ body[data-touring] [data-sonner-toaster] {
   }
 }
 
+/* The agent cards' tiny monitors (components/v2/AgentMonitor.tsx). A working
+   screen's column of lines steps up one line per --ab-pace (its recent tool
+   calls set it), while the bottom line types out behind the cursor in the
+   same beat; a "?" pops from the screen of one that needs you, over a frame
+   whose amber glow breathes; a failed one's screen glitches now and then; a
+   ready one's ✓ pops in once; an idle one's "z" floats up. Transform and
+   opacity only, none of it under prefers-reduced-motion, and paused for a
+   card off screen ([data-paused], AgentList's useSeenRows) or a window that
+   isn't looked at (html[data-blurred], above). */
+.ab-monitor[data-paused] *,
+html[data-blurred] .ab-monitor * {
+  animation-play-state: paused !important;
+}
+.ab-monitor-glow {
+  opacity: 0.55;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ab-monitor-scroll {
+    animation: ab-monitor-scroll calc(var(--ab-pace) * 4) infinite;
+  }
+  .ab-monitor-type {
+    transform-origin: left center;
+    animation: ab-monitor-type var(--ab-pace) linear infinite;
+  }
+  .ab-monitor-caret {
+    animation: ab-monitor-caret var(--ab-pace) linear infinite;
+  }
+  .ab-monitor-cursor {
+    animation: term-cursor 1.1s steps(1, end) infinite;
+  }
+  .ab-monitor-ask {
+    animation:
+      ab-monitor-pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both,
+      ab-monitor-bob 2.4s ease-in-out 420ms infinite;
+  }
+  .ab-monitor-glow {
+    animation: ab-monitor-glow 2.4s ease-in-out infinite;
+  }
+  .ab-monitor-glitch {
+    animation: ab-monitor-glitch 4s steps(1, end) infinite;
+  }
+  .ab-monitor-pop {
+    animation: ab-monitor-pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  .ab-monitor-z {
+    animation: ab-monitor-z 3.6s ease-in-out infinite;
+  }
+}
+/* Each quarter holds a line in place for as long as the bottom one types,
+   then slides up one: 3px of bar and 4px of gap. The column holds its bars
+   twice, so -28px looks like 0. */
+@keyframes ab-monitor-scroll {
+  0%,
+  20% {
+    transform: translateY(0);
+  }
+  25%,
+  45% {
+    transform: translateY(-7px);
+  }
+  50%,
+  70% {
+    transform: translateY(-14px);
+  }
+  75%,
+  95% {
+    transform: translateY(-21px);
+  }
+  100% {
+    transform: translateY(-28px);
+  }
+}
+@keyframes ab-monitor-type {
+  0% {
+    transform: scaleX(0);
+    opacity: 1;
+  }
+  80% {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleX(1);
+    opacity: 0;
+  }
+}
+@keyframes ab-monitor-caret {
+  0% {
+    transform: translateX(-100%);
+  }
+  80%,
+  100% {
+    transform: translateX(0);
+  }
+}
+@keyframes ab-monitor-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.3) translateY(4px);
+  }
+}
+@keyframes ab-monitor-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+@keyframes ab-monitor-glow {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+@keyframes ab-monitor-glitch {
+  0%,
+  10%,
+  100% {
+    transform: none;
+    opacity: 1;
+  }
+  2% {
+    transform: translateX(-2px) skewX(8deg);
+    opacity: 0.7;
+  }
+  4% {
+    transform: translateX(2px);
+    opacity: 1;
+  }
+  6% {
+    transform: translateX(-1px) skewX(-6deg);
+    opacity: 0.6;
+  }
+  8% {
+    transform: translateX(1px);
+  }
+}
+@keyframes ab-monitor-z {
+  0% {
+    opacity: 0;
+    transform: translate(0, 3px);
+  }
+  30%,
+  60% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(3px, -6px);
+  }
+}
+
 /* The phone's web app (web/PhoneApp.tsx) wraps the desktop's chat: what a
    finger and a phone's browser need from it, and nothing the desktop sees.
    Unlayered, so it wins over the utilities it adjusts; on the root, which
