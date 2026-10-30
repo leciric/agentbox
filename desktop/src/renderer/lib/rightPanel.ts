@@ -402,13 +402,13 @@ export const fitsBeside = () => beside;
 // there is room for it beside the chat; where there isn't, the strip stays as
 // it is, rather than a drawer over the chat you came to read. The panel shows
 // its Desktop only when the agent is using it (usingDesktop): an idle display
-// is a blank screen, so then it shows the view last picked, Files at first.
+// is a blank screen, so then it shows the view last picked, Timeline at first.
 // The lead's panel keeps what it showed, its list most often, for coming back.
 export function openAgentChat(ref: string, usingDesktop = true): void {
   if (!beside) return;
   const state = panelState();
   const shown = state.views[ref];
-  const view: PanelView = usingDesktop ? 'desktop' : shown && shown !== 'desktop' ? shown : 'files';
+  const view: PanelView = usingDesktop ? 'desktop' : shown && shown !== 'desktop' ? shown : 'timeline';
   update(ref, () => ({ open: true, target: ref }), { views: { ...state.views, [ref]: view } });
 }
 
