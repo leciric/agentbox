@@ -533,6 +533,9 @@ func (s Store) ResolveOpenCodeAccounts(chosen map[string]string) (map[string]str
 	}
 	out := map[string]string{}
 	changed := false
+	// The providers that exist now come first: an account named for one of them
+	// is what was asked for, and a legacy provider moved onto the same name
+	// must not overwrite it.
 	for provider, name := range chosen {
 		provider, name = strings.TrimSpace(provider), strings.TrimSpace(name)
 		if provider == "" || name == "" {
@@ -541,11 +544,18 @@ func (s Store) ResolveOpenCodeAccounts(chosen map[string]string) (map[string]str
 		}
 		if current[provider] {
 			out[provider] = name
+		}
+	}
+	for provider, name := range chosen {
+		provider, name = strings.TrimSpace(provider), strings.TrimSpace(name)
+		if provider == "" || name == "" || current[provider] {
 			continue
 		}
 		changed = true
 		if target := s.openCodeProviderForAccount(name, providers); target != "" {
-			out[target] = name
+			if _, taken := out[target]; !taken {
+				out[target] = name
+			}
 			continue
 		}
 		if provider != "opencode" {

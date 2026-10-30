@@ -951,6 +951,10 @@ func (f *registryFlags) rotateRequest(cmd *cobra.Command, name string, noLogin b
 	if err != nil {
 		return req, err
 	}
+	if token == "" && username == "" {
+		// Not a registry that needs no login: that is said with --no-login.
+		return req, fmt.Errorf("rotating %s's login needs the new token: pipe one in with --token-stdin or type it when asked, or pass --no-login to remove the login", name)
+	}
 	req.Username, req.Token = username, token
 	return req, nil
 }
