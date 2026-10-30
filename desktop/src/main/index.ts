@@ -379,6 +379,25 @@ ipcMain.handle('dialog:directory', async () => {
   if (!path) throw new Error(t('main.notInDistro', { picked, distro }));
   return path;
 });
+// A file to import, or where to write an export: like the folder picker, in
+// the distro's terms on Windows.
+const daemonPath = (picked: string) => {
+  if (!onWindows) return picked;
+  const path = linuxPath(picked);
+  if (!path) throw new Error(t('main.notInDistro', { picked, distro }));
+  return path;
+};
+const inDistro = onWindows ? `\\\\wsl.localhost\\${distro}\\home` : undefined;
+ipcMain.handle('dialog:file', async (_event, title: string) => {
+  const options = { title, properties: ['openFile' as const], ...(inDistro ? { defaultPath: inDistro } : {}) };
+  const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+  return result.canceled ? null : daemonPath(result.filePaths[0]);
+});
+ipcMain.handle('dialog:saveFile', async (_event, title: string, name: string) => {
+  const options = { title, defaultPath: inDistro ? `${inDistro}\\${name}` : name };
+  const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
+  return result.canceled || !result.filePath ? null : daemonPath(result.filePath);
+});
 // The daemon's paths are the distro's; Explorer opens them through \\wsl.localhost.
 const hostPath = (path: string) => (onWindows ? windowsPath(path) : path);
 ipcMain.handle('shell:openPath', (_event, path: string) => shell.openPath(hostPath(path)));

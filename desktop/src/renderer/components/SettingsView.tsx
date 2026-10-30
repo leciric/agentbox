@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
+  ArrowLeftRight,
   Columns3,
   PanelLeft,
   Bell,
@@ -112,6 +113,7 @@ import { VMMigrate } from "./VMMigrate";
 import { CHVSize, VMSize } from "./VMSize";
 import { VMSwap } from "./VMSwap";
 import { kvmFixable, MoveToVM, moveToVMKeywords } from "./RunInVM";
+import { ExportSettings, ImportSettings } from "./TransferSettings";
 
 type Status =
   | "ok"
@@ -1706,6 +1708,33 @@ function InstalledSettings({
       ],
     },
     {
+      id: "transfer",
+      title: t("settings.section.transfer.title"),
+      description: t("settings.section.transfer.description"),
+      scope: "installation",
+      nav: t("settings.nav.machine"),
+      groups: [
+        {
+          id: "transfer",
+          title: t("settings.section.transfer.title"),
+          entries: [
+            {
+              id: "export",
+              label: t("transfer.export.title"),
+              keywords: t("settings.entry.transfer.keywords"),
+              render: () => <ExportSettings />,
+            },
+            {
+              id: "import",
+              label: t("transfer.import.title"),
+              keywords: t("settings.entry.transfer.keywords"),
+              render: () => <ImportSettings />,
+            },
+          ],
+        },
+      ],
+    },
+    {
       id: "diagnostics",
       title: t("settings.section.diagnostics.title"),
       description: t("settings.section.diagnostics.description"),
@@ -1754,6 +1783,7 @@ const sectionIcons: SectionIcons = {
   accounts: KeyRound,
   setup: Wrench,
   notifications: Bell,
+  transfer: ArrowLeftRight,
   diagnostics: Activity,
   experimental: FlaskConical,
 };

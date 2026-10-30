@@ -269,6 +269,8 @@ func NewRootCmd() *cobra.Command {
 		newRemoveCmd(a),
 		newBriefCmd(a),
 		newNotesCmd(a),
+		newExportCmd(a),
+		newImportCmd(a),
 		newScheduleCmd(a),
 		newAuthCmd(a),
 		newClaudeAccountCmd(a),

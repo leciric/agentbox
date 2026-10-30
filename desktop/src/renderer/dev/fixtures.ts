@@ -2460,6 +2460,8 @@ export function installDevBridge(): void {
     },
     report: { sections: async () => [], windowError: () => {}, onAppError: () => () => {}, openLogs: async () => '', send: async () => 'sent' as const },
     pickDirectory: async () => null,
+    pickFile: async () => null,
+    pickSaveFile: async () => null,
     setLanguage: () => {},
     openPath: async () => '',
     openChatFile: async () => '',

@@ -1597,6 +1597,113 @@ export interface SnapSendRequest {
   accessibility: boolean;
 }
 
+export interface TransferCategory {
+  kind: string;
+  items: number;
+  size: number;
+}
+
+export interface InstanceExportPreview {
+  projects: InstanceExportProjectPreview[];
+  logins: InstanceExportLoginPreview[];
+}
+
+export interface InstanceExportProjectPreview {
+  name: string;
+  displayName: string;
+  categories: TransferCategory[];
+  remote: string;
+  branch: string;
+  bundleSize: number;
+}
+
+export interface InstanceExportLoginPreview {
+  kind: string;
+  accounts: string[];
+}
+
+export interface InstanceExportRequest {
+  path: string;
+  passphrase?: string;
+  noEncrypt?: boolean;
+  projects: InstanceExportProjectChoice[];
+  logins: string[];
+}
+
+export interface InstanceExportProjectChoice {
+  name: string;
+  categories: string[];
+  bundle?: boolean;
+}
+
+export interface InstanceExportResult {
+  path: string;
+  size: number;
+  encrypted: boolean;
+  entries: number;
+}
+
+export interface InstanceImportInspectRequest {
+  path: string;
+  passphrase?: string;
+}
+
+export interface InstanceImportContents {
+  path: string;
+  encrypted: boolean;
+  schema: number;
+  app: string;
+  id: string;
+  createdAt: string;
+  projects: InstanceImportProjectContents[];
+  logins: TransferCategory[];
+}
+
+export interface InstanceImportProjectContents {
+  name: string;
+  displayName: string;
+  exists: boolean;
+  categories: TransferCategory[];
+  remote: string;
+  branch: string;
+  bundled: boolean;
+  path: string;
+  plan: string;
+  planError?: string;
+}
+
+export interface InstanceImportRequest {
+  path: string;
+  passphrase?: string;
+  projects: InstanceImportProjectChoice[];
+  logins: string[];
+}
+
+export interface InstanceImportProjectChoice {
+  name: string;
+  categories: string[];
+  path?: string;
+}
+
+export interface InstanceImportReport {
+  entries: InstanceImportEntryReport[];
+  added: number;
+  skipped: number;
+  conflicted: number;
+  projectsAdded: string[];
+  reportPath: string;
+}
+
+export interface InstanceImportEntryReport {
+  id: string;
+  kind: string;
+  project?: string;
+  added: number;
+  skipped: number;
+  conflicted: number;
+  notes?: string[];
+}
+
 export interface Connector {
   name: string;
   scope: string;
@@ -3683,6 +3790,9 @@ export const ErrorFolderNotEmpty = "folder-not-empty";
 export const ErrorFolderExists = "folder-exists";
 export const ErrorBadRepoURL = "bad-repo-url";
 export const ErrorOtherSession = "other-session";
+export const ErrorPassphraseNeeded = "passphrase-needed";
+export const ErrorWrongPassphrase = "wrong-passphrase";
+export const ErrorNewerExport = "newer-export";
 export const DefaultLanguage = "en-US";
 export const PRStateOpen = "open";
 export const PRStateMerged = "merged";

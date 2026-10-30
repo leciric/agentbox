@@ -3,6 +3,7 @@ module agentbox
 go 1.27.3
 
 require (
+	filippo.io/age v1.2.1
 	github.com/Code-Hex/vz/v3 v3.8.0
 	github.com/Microsoft/go-winio v0.6.4
 	github.com/coder/websocket v1.8.15

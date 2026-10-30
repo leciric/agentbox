@@ -5,6 +5,7 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1173,6 +1174,11 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/snaps/{id}/image", s.snapImage)
 	h("POST /v1/snaps/{id}/send", s.sendSnap)
 	h("DELETE /v1/snaps/{id}", s.dropSnap)
+	h("GET /v1/transfer/export", s.previewExport)
+	h("POST /v1/transfer/export", s.exportInstance)
+	h("POST /v1/transfer/import/inspect", s.inspectImport)
+	h("POST /v1/transfer/import", s.importInstance)
+
 	h("GET /v1/jobs", s.listJobs)
 	h("GET /v1/jobs/{id}", s.getJob)
 	h("GET /v1/jobs/{id}/log", s.jobLog)
@@ -1210,6 +1216,7 @@ func writeError(w http.ResponseWriter, err error) {
 	case errors.As(err, new(errOtherSession)):
 		body.Code = api.ErrorOtherSession
 	}
+	body.Code = cmp.Or(transferCode(err), body.Code)
 	_ = writeJSON(w, status, body)
 }
 
