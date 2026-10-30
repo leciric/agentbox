@@ -492,7 +492,7 @@ export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; but
       {reloadItem}
       {/* Only Claude Code's adapter reports background tasks: elsewhere an
           agent waiting on one reads as finished, and never wakes for it. */}
-      {(agent.ai === 'codex' || agent.ai === 'opencode' || agent.ai === 'cursor') && (
+      {(agent.ai === 'codex' || agent.ai === 'opencode' || agent.ai === 'cursor' || agent.ai === 'gemini') && (
         <p className="flex max-w-64 gap-2 px-2.5 py-1.5 text-caption leading-snug text-amber-300/80" data-chat-background-untracked>
           <EyeOff className="mt-0.5 size-3.5 shrink-0" />
           {t('chat.background.untrackedTip', { tool })}
@@ -500,7 +500,7 @@ export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; but
       )}
     </>
   );
-  const untracked = agent.ai === 'codex' || agent.ai === 'opencode' || agent.ai === 'cursor';
+  const untracked = agent.ai === 'codex' || agent.ai === 'opencode' || agent.ai === 'cursor' || agent.ai === 'gemini';
   const untrackedMark = untracked && (
     <Tip label={t('chat.background.untrackedTip', { tool })}>
       <span className="flex size-8 items-center justify-center text-amber-300/80" data-chat-background-untracked>

@@ -72,6 +72,7 @@ import {
   CompactWindow,
   DefaultContextWindow,
   CursorDefaults,
+  GeminiDefaults,
   DefaultModel,
   DefaultTool,
   LeadRecheck,
@@ -179,6 +180,7 @@ const descriptions: Record<string, MessageKey> = {
   codex: "settings.setup.desc.codex",
   opencode: "settings.setup.desc.opencode",
   cursor: "settings.setup.desc.cursor",
+  gemini: "settings.setup.desc.gemini",
   github: "settings.setup.desc.github",
   android: "settings.setup.desc.android",
   preview: "settings.setup.desc.preview",
@@ -195,6 +197,7 @@ const checkTitles: Record<string, MessageKey> = {
   codex: "settings.setup.title.codex",
   opencode: "settings.setup.title.opencode",
   cursor: "settings.setup.title.cursor",
+  gemini: "settings.setup.title.gemini",
   android: "settings.setup.title.android",
   preview: "settings.setup.title.preview",
 };
@@ -210,7 +213,7 @@ const environmentIds = new Set([
   "android",
   "preview",
 ]);
-const accountIds = new Set(["claude", "codex", "opencode", "cursor", "github"]);
+const accountIds = new Set(["claude", "codex", "opencode", "cursor", "gemini", "github"]);
 
 // githubDetail says who the default account's token belongs to, or why it
 // can't be used.
@@ -467,6 +470,7 @@ export function useSetupSteps() {
       </div>
     ),
     cursor: <CursorAccount command={check("cursor")?.fix ?? "agentbox auth cursor"} />,
+    gemini: <GeminiAccount command={check("gemini")?.fix ?? "agentbox auth gemini"} />,
     android: check("android")?.fix ? (
       <div className="grid gap-2">
         <p className="text-ui text-muted">
@@ -1242,7 +1246,7 @@ function InstalledSettings({
           cards: true,
           // Every tool's accounts are managed here even once they're done:
           // accounts to add, rename or remove, a key to change.
-          entries: aiSteps.map((step) => stepEntry(step, ["claude", "codex", "opencode", "cursor"].includes(step.id))),
+          entries: aiSteps.map((step) => stepEntry(step, ["claude", "codex", "opencode", "cursor", "gemini"].includes(step.id))),
         },
         {
           id: "github",
@@ -1307,6 +1311,14 @@ function InstalledSettings({
               keywords: t("settings.entry.cursor-effort.keywords"),
               modified: changed((s) => s.defaultCursorEffort !== ""),
               render: () => <CursorDefaults part="effort" />,
+            },
+            {
+              id: "gemini-model",
+              advanced: true,
+              label: t("settings.entry.gemini-model.label"),
+              keywords: t("settings.entry.gemini-model.keywords"),
+              modified: changed((s) => s.defaultGeminiModel !== ""),
+              render: () => <GeminiDefaults />,
             },
             {
               id: "enforce",
@@ -3030,15 +3042,63 @@ export function ClaudeAccounts({ accounts }: { accounts: T.ClaudeAccount[] }) {
   );
 }
 
+// LoginFlow is a sign-in the daemon runs as a job that opens a page and may
+// end on a code to paste back: Claude Code's `claude setup-token`, or Gemini
+// CLI's Google sign-in. ClaudeLogin shows either, with its own endpoints and
+// words; the controls are the same.
+interface LoginFlow {
+  id: string; // the job's kind, and the prefix of the form's ids
+  start: (account?: string) => Promise<T.Job>;
+  status: (job: string) => Promise<T.ClaudeLogin>;
+  sendCode: (job: string, code: string) => Promise<void>;
+  // openCodeUrl opens the code page by itself: for a flow whose only page is
+  // the one that ends on a code.
+  openCodeUrl: boolean;
+  intro: MessageKey;
+  logIn: MessageKey;
+  addAccount: MessageKey;
+  saved: MessageKey;
+  starting: MessageKey;
+}
+
+const claudeLoginFlow: LoginFlow = {
+  id: "claude-login",
+  start: api.startClaudeLogin,
+  status: api.claudeLogin,
+  sendCode: api.claudeLoginCode,
+  openCodeUrl: false,
+  intro: "settings.claudeLogin.intro",
+  logIn: "settings.claudeLogin.logIn",
+  addAccount: "settings.claudeLogin.addAccount",
+  saved: "settings.claudeLogin.saved",
+  starting: "settings.claudeLogin.starting",
+};
+
+const geminiLoginFlow: LoginFlow = {
+  id: "gemini-login",
+  start: api.startGeminiLogin,
+  status: api.geminiLogin,
+  sendCode: api.geminiLoginCode,
+  openCodeUrl: true,
+  intro: "settings.geminiLogin.intro",
+  logIn: "settings.geminiLogin.logIn",
+  addAccount: "settings.geminiLogin.addAccount",
+  saved: "settings.geminiLogin.saved",
+  starting: "settings.geminiLogin.starting",
+};
+
 // ClaudeLogin runs `claude setup-token` on this machine, through the daemon,
 // and opens the page it asks for in your browser. Approving it there is the
-// whole login: nothing is copied, and no terminal is involved (D59).
+// whole login: nothing is copied, and no terminal is involved (D59). With
+// geminiLoginFlow it runs Gemini CLI's Google sign-in the same way.
 function ClaudeLogin({
   accounts,
   onSaved,
+  flow = claudeLoginFlow,
 }: {
-  accounts: T.ClaudeAccount[];
+  accounts: readonly unknown[];
   onSaved: () => Promise<void>;
+  flow?: LoginFlow;
 }) {
   const t = useT();
   const [account, setAccount] = useState("");
@@ -3047,7 +3107,7 @@ function ClaudeLogin({
   const opened = useRef<string | null>(null);
 
   const start = useMutation({
-    mutationFn: () => api.startClaudeLogin(account.trim() || undefined),
+    mutationFn: () => flow.start(account.trim() || undefined),
     onSuccess: (started) => {
       opened.current = null;
       setCode("");
@@ -3055,8 +3115,8 @@ function ClaudeLogin({
     },
   });
   const login = useQuery({
-    queryKey: ["claude-login", job],
-    queryFn: () => api.claudeLogin(job!),
+    queryKey: [flow.id, job],
+    queryFn: () => flow.status(job!),
     enabled: job !== null,
     // The page to approve appears a moment after the job starts, and the login
     // ends whenever you get round to approving it.
@@ -3075,12 +3135,12 @@ function ClaudeLogin({
   useEffect(() => {
     if (job !== null) return;
     const running = jobs.data?.find(
-      (j) => j.kind === "claude-login" && j.status === "running",
+      (j) => j.kind === flow.id && j.status === "running",
     );
     if (running) setJob(running.id);
-  }, [job, jobs.data]);
+  }, [job, jobs.data, flow.id]);
   const sendCode = useMutation({
-    mutationFn: () => api.claudeLoginCode(job!, code.trim()),
+    mutationFn: () => flow.sendCode(job!, code.trim()),
     onSuccess: () => setCode(""),
   });
 
@@ -3089,11 +3149,13 @@ function ClaudeLogin({
   // itself — it is a second, parallel login, and only one is worth finishing.
   const url = login.data?.url;
   const codeUrl = login.data?.codeUrl;
+  // A flow whose only page ends on a code opens that one instead.
+  const first = url ?? (flow.openCodeUrl ? codeUrl : undefined);
   useEffect(() => {
-    if (!url || opened.current === url) return;
-    opened.current = url;
-    void window.agentbox.openExternal(url);
-  }, [url]);
+    if (!first || opened.current === first) return;
+    opened.current = first;
+    void window.agentbox.openExternal(first);
+  }, [first]);
 
   const running =
     job !== null && (!login.data || login.data.status === "running");
@@ -3103,15 +3165,16 @@ function ClaudeLogin({
     <div
       className="grid gap-3"
       data-claude-login={login.data?.status ?? (job ? "running" : "idle")}
+      data-login-flow={flow.id}
     >
       <p className="text-ui text-muted">
-        {t.rich("settings.claudeLogin.intro", { code: (c) => <Code>{c}</Code> })}
+        {t.rich(flow.intro, { code: (c) => <Code>{c}</Code> })}
       </p>
       <div className="flex flex-wrap items-end gap-2">
         <div className="grid gap-1.5">
-          <Label htmlFor="claude-login-account">{t("settings.accounts.account")}</Label>
+          <Label htmlFor={`${flow.id}-account`}>{t("settings.accounts.account")}</Label>
           <Input
-            id="claude-login-account"
+            id={`${flow.id}-account`}
             placeholder={accounts.length === 0 ? "default" : "work"}
             value={account}
             onChange={(event) => setAccount(event.target.value)}
@@ -3129,7 +3192,7 @@ function ClaudeLogin({
           ) : (
             <LogIn />
           )}
-          {accounts.length === 0 ? t("settings.claudeLogin.logIn") : t("settings.claudeLogin.addAccount")}
+          {accounts.length === 0 ? t(flow.logIn) : t(flow.addAccount)}
         </Button>
         {running && (
           <Button
@@ -3155,7 +3218,7 @@ function ClaudeLogin({
             )}
             <span className="text-secondary">
               {login.data?.status === "succeeded"
-                ? t("settings.claudeLogin.saved", { account: login.data.account })
+                ? t(flow.saved, { account: login.data.account })
                 : login.data?.status === "cancelled"
                   ? t("settings.claudeLogin.cancelled")
                   : login.data?.status === "failed"
@@ -3164,7 +3227,7 @@ function ClaudeLogin({
                       ? t("settings.claudeLogin.waiting")
                       : codeUrl
                         ? t("settings.claudeLogin.approveThenCode")
-                        : t("settings.claudeLogin.starting")}
+                        : t(flow.starting)}
             </span>
             {url && running && (
               <Button
@@ -3227,7 +3290,7 @@ function ClaudeLogin({
             onDone={(finished) => {
               if (finished.status !== "succeeded") return;
               toast(
-                t("settings.claudeLogin.saved", {
+                t(flow.saved, {
                   account: login.data?.account ?? "default",
                 }),
               );
@@ -3700,6 +3763,45 @@ function GitHubLogin({
         </div>
       )}
       {error && <Notice>{errorMessage(error)}</Notice>}
+    </div>
+  );
+}
+
+// GeminiAccount is Gemini CLI's accounts: a Google sign-in, run by the daemon
+// as Claude Code's login is (ClaudeLogin with geminiLoginFlow), or a Gemini
+// API key pasted here, as Codex's is.
+function GeminiAccount({ command }: { command: string }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const auth = useQuery({ queryKey: ["auth"], queryFn: api.auth });
+  const accounts = auth.data?.geminiAccounts ?? [];
+  const signedIn = auth.data?.gemini === true;
+  const refresh = async () => {
+    await Promise.all(
+      ["auth", "setup", "settings", "chatRunners"].map((k) =>
+        queryClient.invalidateQueries({ queryKey: [k] }),
+      ),
+    );
+  };
+  return (
+    <div className="grid gap-3">
+      <div className="flex flex-wrap items-center gap-2 text-ui">
+        <StepIcon status={signedIn ? "ok" : "optional"} small />
+        <span className="text-secondary">
+          {signedIn
+            ? auth.data?.geminiEmail
+              ? t("settings.gemini.signedInAs", { email: auth.data.geminiEmail })
+              : t("settings.gemini.signedInPlain")
+            : t("settings.gemini.notSignedIn")}
+        </span>
+      </div>
+      <ToolAccountList tool="gemini" accounts={accounts} />
+      <ClaudeLogin accounts={accounts} onSaved={refresh} flow={geminiLoginFlow} />
+      <ToolKeyForm tool="gemini" accounts={accounts} />
+      <p className="text-ui text-muted">
+        {t.rich("settings.gemini.cliBody", { code: (c) => <Code>{c}</Code> })}
+      </p>
+      <CommandBox command={command} />
     </div>
   );
 }

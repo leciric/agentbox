@@ -1364,7 +1364,7 @@ function SetupChip({
 
 const toolIcon = (ai: string) => toolMarks[ai] ?? toolMarks.claude;
 const toolMarks: Record<string, ComponentType<{ className?: string }>> = Object.fromEntries(
-  ['claude', 'codex', 'opencode', 'cursor'].map((ai) => [ai, ({ className }: { className?: string }) => <ToolMark ai={ai} className={className} />]),
+  ['claude', 'codex', 'opencode', 'cursor', 'gemini'].map((ai) => [ai, ({ className }: { className?: string }) => <ToolMark ai={ai} className={className} />]),
 );
 
 // A model's context window, e.g. "1M": read from the tool's own option data

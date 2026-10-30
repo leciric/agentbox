@@ -16,8 +16,8 @@ import { aiLabel } from './state';
 import { accountKind, accountsOf } from './ToolAccounts';
 
 // The accounts a project's new agents get, from the ones stored in Settings:
-// its Claude Code login, the logins it may use at all, its Codex, OpenCode and
-// Cursor accounts, and its GitHub account.
+// its Claude Code login, the logins it may use at all, its Codex, OpenCode,
+// Cursor and Gemini CLI accounts, and its GitHub account.
 // They're project settings like the rest, so they're drawn with them
 // (ProjectSettings), in Settings and on the project's Overview alike.
 
@@ -337,22 +337,24 @@ export function GitHubAccountPicker({ project }: { project: T.Project }) {
   );
 }
 
-// The project's accounts for the other tools: Codex's and Cursor's, one each,
+// The project's accounts for the other tools: Codex's, Cursor's and Gemini
+// CLI's, one each,
 // and OpenCode's, one per provider. New agents on the tool get it, and the
 // project's chat moves to it as its tool next starts (the daemon restarts a
 // chat running that tool on it at once).
 
-// ToolAccountPicker chooses the project's Codex or Cursor account.
-export function ToolAccountPicker({ project, tool }: { project: T.Project; tool: 'codex' | 'cursor' }) {
+// ToolAccountPicker chooses the project's Codex, Cursor or Gemini CLI account.
+export function ToolAccountPicker({ project, tool }: { project: T.Project; tool: 'codex' | 'cursor' | 'gemini' }) {
   const t = useT();
   const queryClient = useQueryClient();
   const auth = useQuery({ queryKey: ['auth'], queryFn: api.auth });
   const accounts = accountsOf(auth.data, tool);
-  const chosen = tool === 'codex' ? project.codexAccount : project.cursorAccount;
+  const chosen = tool === 'codex' ? project.codexAccount : tool === 'gemini' ? project.geminiAccount : project.cursorAccount;
   const fallback = accounts.find((a) => a.default)?.name;
-  const label = t(tool === 'codex' ? 'project.accounts.codexLabel' : 'project.accounts.cursorLabel');
+  const label = t(tool === 'codex' ? 'project.accounts.codexLabel' : tool === 'gemini' ? 'project.accounts.geminiLabel' : 'project.accounts.cursorLabel');
   const pick = useMutation({
-    mutationFn: (account: string) => api.updateProject(project.name, tool === 'codex' ? { codexAccount: account } : { cursorAccount: account }),
+    mutationFn: (account: string) =>
+      api.updateProject(project.name, tool === 'codex' ? { codexAccount: account } : tool === 'gemini' ? { geminiAccount: account } : { cursorAccount: account }),
     onSuccess: async (updated, account) => {
       toast(
         account
@@ -366,7 +368,7 @@ export function ToolAccountPicker({ project, tool }: { project: T.Project; tool:
   return (
     <SettingRow
       label={label}
-      description={auth.isPending ? t('common.loading') : t(tool === 'codex' ? 'project.accounts.codexDescription' : 'project.accounts.cursorDescription')}
+      description={auth.isPending ? t('common.loading') : t(tool === 'codex' ? 'project.accounts.codexDescription' : tool === 'gemini' ? 'project.accounts.geminiDescription' : 'project.accounts.cursorDescription')}
       details={accounts.length > 0 && t('project.accounts.toolDetails')}
       control={
         accounts.length > 0 && (
