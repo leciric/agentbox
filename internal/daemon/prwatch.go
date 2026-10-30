@@ -277,7 +277,7 @@ func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo, w
 	for i, row := range rows {
 		numbers[i] = row.Number
 	}
-	watch, err := client.WatchRepository(ctx, repo, numbers, opts)
+	watch, err := client.WatchRepository(github.InBackground(ctx, "watch"), repo, numbers, opts)
 	if err != nil {
 		var limited *github.RateLimitError
 		if errors.As(err, &limited) {
@@ -387,7 +387,9 @@ func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo, w
 	if len(triggers) > 0 {
 		interval = min(interval, eventTriggerEvery)
 	}
-	next := now.Add(interval)
+	// Under a fifth of the account's budget left, the looks spread out, up
+	// to eight times as far apart near the floor.
+	next := now.Add(time.Duration(float64(interval) * client.Slowdown()))
 	if watch.Remaining >= 0 && watch.Remaining < prWatchLowBudget && watch.Reset.After(next) {
 		// Little left of the account's budget: leave it to the user and their
 		// agents until it fills up again.

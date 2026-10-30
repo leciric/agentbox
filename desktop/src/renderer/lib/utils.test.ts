@@ -104,6 +104,13 @@ test('githubErrorSentence explains each kind of GitHub failure', () => {
     githubErrorSentence({ ...base, account: '', kind: T.GitHubNoAccount } as T.GitHubError),
     "No GitHub account is stored, so org/repo's pull requests can't be read.",
   );
+  assert.equal(
+    githubErrorSentence({ ...base, kind: T.GitHubRateLimited, message: "GitHub's rate limit for this account: API rate limit exceeded" } as T.GitHubError),
+    "acct has used up GitHub's hourly limit, shared with its agents' own gh. AgentBox reads GitHub again once it resets; what's shown was read before.",
+  );
+  const limited = githubErrorSentence({ ...base, kind: T.GitHubRateLimited, resetAt: '2026-10-29T15:42:00Z' } as T.GitHubError);
+  assert.match(limited, /^acct has used up GitHub's hourly limit, .* again at \S.*; what's shown was read before\.$/);
+  assert.doesNotMatch(limited, /403|API rate limit/);
   assert.equal(githubErrorSentence({ ...base, kind: 'other' } as unknown as T.GitHubError), 'GitHub: boom');
 });
 

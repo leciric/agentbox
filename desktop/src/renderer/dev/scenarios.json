@@ -7,6 +7,13 @@
     "height": 700
   },
   {
+    "id": "pulls-rate-limited-dark",
+    "description": "The pull requests list read before the account's GitHub rate limit ran out, under the one sentence saying when AgentBox reads GitHub again — dark",
+    "query": "pulls=limited&theme=dark",
+    "width": 420,
+    "height": 700
+  },
+  {
     "id": "pr-agent-dark",
     "description": "agent-99 open, its row active: a long title, a long branch and a PR badge — dark, xl width (312px rail)",
     "query": "open=agent-99&theme=dark",

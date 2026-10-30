@@ -1755,6 +1755,7 @@ export interface EditLabelsRequest {
 
 export interface GitHubError {
   kind: string;
+  resetAt?: string;
   message?: string;
   account?: string;
   login?: string;
@@ -3732,6 +3733,7 @@ export const ArtifactUnavailable = "unavailable";
 export const GitHubNoAccount = "noAccount";
 export const GitHubNoAccess = "noAccess";
 export const GitHubBadToken = "badToken";
+export const GitHubRateLimited = "rateLimited";
 export const GitHubOtherErr = "other";
 export const ChatOff = "off";
 export const ChatStarting = "starting";

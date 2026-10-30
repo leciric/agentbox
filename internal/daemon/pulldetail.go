@@ -42,6 +42,9 @@ type pullFilesEntry struct {
 	files     []github.PullFile
 	truncated bool
 	at        time.Time
+	// head is the commit the pull request's head was at when they were read,
+	// as far as the list knew: while it hasn't moved, neither have they.
+	head string
 }
 
 func pullFilesKey(repo github.Repo, number int) string {
@@ -81,6 +84,11 @@ func (c *pullFiles) put(key string, e pullFilesEntry) {
 // and so does a merge or a label edit made through the app.
 const pullDetailTTL = 30 * time.Second
 
+// pullDetailEndedTTL is pullDetailTTL for a merged or closed pull request,
+// which hardly moves again: the view of one left open, re-read every minute,
+// was a GitHub call each time for nothing.
+const pullDetailEndedTTL = 10 * time.Minute
+
 // pullDetails keeps the pull requests the view read recently, and shares a
 // read in flight: the hover's read and the click's are one GitHub call.
 type pullDetails struct {
@@ -103,7 +111,11 @@ func (c *pullDetails) get(key string, now time.Time, listed *api.PullRequest) (g
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	e, ok := c.byPR[key]
-	if !ok || now.Sub(e.at) >= pullDetailTTL {
+	ttl := pullDetailTTL
+	if e.pr.State != "open" {
+		ttl = pullDetailEndedTTL
+	}
+	if !ok || now.Sub(e.at) >= ttl {
 		return github.PullRequestDetail{}, false
 	}
 	if listed != nil && (listed.HeadSHA != e.pr.HeadSHA || listed.State != e.pr.State ||
@@ -216,7 +228,7 @@ func (s *Server) readPullDetail(ctx context.Context, client github.Client, repo 
 	// Shared, so not cut short when the request that started it goes.
 	shared := context.WithoutCancel(ctx)
 	v, err, _ := s.pullDetails.flights.Do(key+"@"+strconv.Itoa(gen), func() (any, error) {
-		pr, err := client.PullRequestDetailAt(shared, repo, number, head)
+		pr, err := client.PullRequestDetailAt(github.WithCaller(shared, "pull request view"), repo, number, head)
 		if err == nil {
 			s.pullDetails.put(key, gen, pullDetailEntry{pr: pr, at: time.Now()})
 		}
@@ -241,8 +253,9 @@ func (s *Server) listedPull(repo github.Repo, number int) *api.PullRequest {
 }
 
 // pullRequestFiles lists the files a pull request changes, without their
-// diffs, and keeps the diffs for pullFileDiff. A listing younger than
-// pullDetailTTL is served again.
+// diffs, and keeps the diffs for pullFileDiff. A listing read at the head the
+// list cache says the pull request is at is served again, as is any younger
+// than pullDetailTTL.
 func (s *Server) pullRequestFiles(w http.ResponseWriter, r *http.Request) error {
 	_, client, repo, number, err := s.pullRequestOf(r)
 	if err != nil {
@@ -252,7 +265,11 @@ func (s *Server) pullRequestFiles(w http.ResponseWriter, r *http.Request) error 
 	// pointer reaches a row, are the ones to show; older ones are read again.
 	key := pullFilesKey(repo, number)
 	e, ok := s.pullFiles.get(key, time.Now())
-	if !ok || time.Since(e.at) >= pullDetailTTL {
+	head := ""
+	if listed := s.listedPull(repo, number); listed != nil {
+		head = listed.HeadSHA
+	}
+	if !ok || time.Since(e.at) >= pullDetailTTL && (head == "" || e.head != head) {
 		v, err, _ := s.pullDetails.flights.Do("files:"+key, func() (any, error) {
 			return s.readPullFiles(context.WithoutCancel(r.Context()), client, repo, number)
 		})
@@ -272,11 +289,15 @@ func (s *Server) pullRequestFiles(w http.ResponseWriter, r *http.Request) error 
 }
 
 func (s *Server) readPullFiles(ctx context.Context, client github.Client, repo github.Repo, number int) (pullFilesEntry, error) {
-	files, truncated, err := client.PullRequestFiles(ctx, repo, number)
+	head := ""
+	if listed := s.listedPull(repo, number); listed != nil {
+		head = listed.HeadSHA
+	}
+	files, truncated, err := client.PullRequestFiles(github.WithCaller(ctx, "pull request files"), repo, number)
 	if err != nil {
 		return pullFilesEntry{}, err
 	}
-	e := pullFilesEntry{files: files, truncated: truncated, at: time.Now()}
+	e := pullFilesEntry{files: files, truncated: truncated, at: time.Now(), head: head}
 	s.pullFiles.put(pullFilesKey(repo, number), e)
 	return e, nil
 }

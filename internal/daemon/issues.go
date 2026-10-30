@@ -166,7 +166,7 @@ func (s *Server) listIssues(ctx context.Context, p state.Project, fresh bool) ap
 	}
 	issues, at, ok := s.issues.get(key, time.Now())
 	if !ok {
-		read, err := client.Issues(ctx, repo, "")
+		read, err := client.Issues(github.WithCaller(ctx, "issues"), repo, "")
 		if err != nil {
 			out.GitHubError = s.githubErrorFor(p, repo, err)
 			return out
@@ -265,7 +265,7 @@ func (s *Server) issueAgentJob(ctx context.Context, req api.CreateAgentRequest, 
 	if err := s.issueFree(ctx, p, repo, req.Issue); err != nil {
 		return api.Job{}, err
 	}
-	issue, comments, err := client.Issue(ctx, repo, req.Issue)
+	issue, comments, err := client.Issue(github.WithCaller(ctx, "issues"), repo, req.Issue)
 	if err != nil {
 		return api.Job{}, fmt.Errorf("reading issue #%d of %s: %w", req.Issue, repo, err)
 	}
@@ -476,7 +476,7 @@ func (s *Server) pickUpProjectIssues(ctx context.Context, p state.Project) {
 	if err != nil {
 		return
 	}
-	labelled, err := client.Issues(ctx, repo, api.IssueLabel)
+	labelled, err := client.Issues(github.InBackground(ctx, "issue pickup"), repo, api.IssueLabel)
 	if err != nil {
 		s.logf("picking up %s's issues: %v", p.Name, err)
 		return

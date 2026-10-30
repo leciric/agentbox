@@ -62,8 +62,7 @@ func (s *Server) fleet(w http.ResponseWriter, r *http.Request) error {
 		out.GitHub = repo.String()
 		out.GitHubError = s.githubErrorFrom(p, repo, entry.listErr)
 		out.PullsRefreshing = refreshing
-		if !entry.at.IsZero() {
-			at := entry.at
+		if at := entry.readAt(); !at.IsZero() {
 			out.PullsFetchedAt = &at
 		}
 		prs = entry.byAgent(heads)

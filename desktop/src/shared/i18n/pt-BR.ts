@@ -76,6 +76,8 @@ export const ptBR: Messages = {
   'shell.github.badToken': 'O GitHub recusou a conta {account}: o token foi revogado ou expirou.',
   'shell.github.accountGone': 'A conta do GitHub deste projeto, "{account}", não está mais guardada.',
   'shell.github.noAccount': 'Nenhuma conta do GitHub está guardada, então não dá para ler os pull requests de {repo}.',
+  'shell.github.rateLimited': '{account} esgotou o limite por hora do GitHub, dividido com o gh dos próprios agentes. O AgentBox volta a ler o GitHub às {time}; o que aparece foi lido antes.',
+  'shell.github.rateLimitedSoon': '{account} esgotou o limite por hora do GitHub, dividido com o gh dos próprios agentes. O AgentBox volta a ler o GitHub quando ele renovar; o que aparece foi lido antes.',
   'shell.github.thisRepository': 'este repositório',
   'shell.github.other': 'GitHub: {message}',
   'shell.diskGuard.onlyFree': 'só {size} livres',

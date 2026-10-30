@@ -137,6 +137,9 @@
 //                           memories (the filter box narrows them)
 //   ?pulls=1                a project's pull requests list, with a long
 //                           GitHub login on one row
+//   ?pulls=limited          the same, read before the account's GitHub rate
+//                           limit ran out, under the sentence saying when
+//                           AgentBox reads GitHub again
 //   ?past=list              the Work page alone: live and past agents' work
 //                           (dev/pastAgents.ts), which the filters and the
 //                           search narrow; a click opens one's review
@@ -378,7 +381,7 @@ const defaults = params.get('defaults') === '1';
 const github = params.get('github') === '1';
 const usage = params.get('usage') === '1';
 const topbar = params.get('topbar');
-const pulls = params.get('pulls') === '1';
+const pulls = params.get('pulls') === '1' || params.get('pulls') === 'limited';
 const home = params.get('home') === '1';
 const review = params.get('review'); // "Ready to review" (dev/review.tsx)
 const concept = params.get('concept'); // a mock concept (dev/concepts)
