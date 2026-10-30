@@ -2787,14 +2787,14 @@
   },
   {
     "id": "composer-target-v2-dark",
-    "description": "A project's chat whose session made three agents: a live card for each above the composer, and the To: chip at its left, on the lead — dark",
+    "description": "A project's chat whose session made three agents: the To: chip at its left, on the lead — dark",
     "query": "app=project&v2=1&theme=dark",
     "width": 1440,
     "height": 900
   },
   {
     "id": "composer-target-narrow-light",
-    "description": "The same at 480×800, where the cards scroll sideways rather than widen the page — light",
+    "description": "The same at 480×800 — light",
     "query": "app=project&v2=1&theme=light",
     "width": 480,
     "height": 800
