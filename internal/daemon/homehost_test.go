@@ -105,3 +105,31 @@ func TestHomeChatRunsOnTheHost(t *testing.T) {
 		t.Fatalf("after the app closed launchHome = %v, %+v", proc, where)
 	}
 }
+
+// The MCP server the host's tool starts carries its stdio to `agentbox mcp`
+// here, pointed at the Home chat's own API.
+func TestHomeHostMCPRunsHere(t *testing.T) {
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	bin := filepath.Join(t.TempDir(), "agentbox")
+	script := "#!/bin/sh\necho \"$1 $AGENTBOX_CHAT $AGENTBOX_SOCKET\"\ncat\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	d.srv.cfg.Binary = bin
+	conn, err := homehost.Dial(context.Background(), d.paths.Socket(), homehost.MCPPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	out := bufio.NewReader(conn)
+	line, _ := out.ReadString('\n')
+	if want := "mcp home " + d.srv.leadSocketPath("_home") + "\n"; line != want {
+		t.Fatalf("the MCP server started as %q, want %q", line, want)
+	}
+	if _, err := conn.Write([]byte("{\"jsonrpc\":\"2.0\"}\n")); err != nil {
+		t.Fatal(err)
+	}
+	if line, _ := out.ReadString('\n'); line != "{\"jsonrpc\":\"2.0\"}\n" {
+		t.Fatalf("echo = %q", line)
+	}
+}

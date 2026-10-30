@@ -187,3 +187,23 @@ func TestHasLogin(t *testing.T) {
 		t.Fatal("codex's auth.json isn't a login")
 	}
 }
+
+// PATH comes from the user's login shell, whatever its profile prints.
+func TestLoginShellPath(t *testing.T) {
+	shell := filepath.Join(t.TempDir(), "shell")
+	if err := os.WriteFile(shell, []byte("#!/bin/sh\necho 'Welcome back!'\nprintf '\\n@@PATH@@/opt/one:/usr/bin@@PATH@@\\n'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SHELL", shell)
+	t.Setenv("PATH", "/usr/bin:/bin")
+	got := loginShellPath()
+	if len(got) == 0 || got[0] != "/opt/one" {
+		t.Fatalf("loginShellPath() = %q", got)
+	}
+	t.Setenv("HOME", "/home/someone")
+	WidenPath()
+	path := os.Getenv("PATH")
+	if !strings.HasPrefix(path, "/opt/one:") || !strings.Contains(path, "/home/someone/.local/bin") || strings.Count(path, "/opt/one") != 1 {
+		t.Fatalf("WidenPath() = %q", path)
+	}
+}
