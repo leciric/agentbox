@@ -93,8 +93,14 @@ func (c *Client) LeadSessions(ctx context.Context, project string) ([]LeadSessio
 
 // NewLeadSession opens a session of a project's chat on a topic.
 func (c *Client) NewLeadSession(ctx context.Context, project, topic string) (LeadSession, error) {
+	return c.OpenLeadSession(ctx, project, NewLeadSessionRequest{Topic: topic})
+}
+
+// OpenLeadSession opens a session as req says: untitled with no topic, on
+// the settings of the session it names in From.
+func (c *Client) OpenLeadSession(ctx context.Context, project string, req NewLeadSessionRequest) (LeadSession, error) {
 	var out LeadSession
-	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(project)+"/sessions", NewLeadSessionRequest{Topic: topic}, &out)
+	return out, c.do(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(project)+"/sessions", req, &out)
 }
 
 // RenameLeadSession changes a session's topic.

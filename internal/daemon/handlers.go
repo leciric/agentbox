@@ -1451,7 +1451,7 @@ func (s *Server) diff(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	stat, _ := strconv.ParseBool(r.URL.Query().Get("stat"))
-	text, err := s.manager(nil).Diff(a, stat)
+	text, err := s.manager(nil).Diff(a, prBase(s.cachedPR(r.Context(), a)), stat)
 	if err != nil {
 		return err
 	}

@@ -519,6 +519,10 @@ type LeadSession struct {
 	ID      string `json:"id"`  // for ?session= on the chat's routes
 	Ref     string `json:"ref"` // its lead's agent ref, which its chat events carry
 	Topic   string `json:"topic"`
+	// Untitled says Topic is a placeholder: the session was opened with none,
+	// and is named from its conversation once its lead's first turn ends,
+	// unless renamed first. The app shows its own word for it meanwhile.
+	Untitled bool `json:"untitled,omitempty"`
 	// Chat is its conversation's state, as in ProjectChat.Chat.
 	Chat string `json:"chat"`
 	// Agents is how many of the project's agents are this session's.
@@ -539,9 +543,13 @@ type LeadSessionsChange struct {
 	Project string `json:"project"`
 }
 
-// NewLeadSessionRequest opens a session on a topic.
+// NewLeadSessionRequest opens a session on a topic, or with none: then it is
+// untitled (LeadSession.Untitled) until its first turn names it.
 type NewLeadSessionRequest struct {
-	Topic string `json:"topic"`
+	Topic string `json:"topic,omitempty"`
+	// From is the session it is opened from, whose AI tool, model, permission
+	// mode and effort it starts on; absent, the one most recently active.
+	From string `json:"from,omitempty"`
 }
 
 // LeadSessionPatch renames a session.

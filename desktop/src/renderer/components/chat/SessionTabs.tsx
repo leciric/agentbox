@@ -10,7 +10,8 @@ import { Tip } from '../ui/tooltip';
 
 // SessionTabs is the row above a project's chat: one tab per session, with a
 // spinner while its lead works and a dot when it has said something since you
-// last looked; + opens a new one, on a topic typed in place. A tab's × asks
+// last looked; + opens a new one at once, untitled until its first turn
+// names it (ProjectChatPanel). A tab's × asks
 // in place before it deletes the session, and so does its shortcut
 // (lib/shortcuts.ts): no dialog. Double-clicking a tab renames it.
 export function SessionTabs({
@@ -20,7 +21,6 @@ export function SessionTabs({
   confirming,
   onChoose,
   onAdd,
-  onAdding,
   onConfirm,
   onDelete,
   onRename,
@@ -30,8 +30,7 @@ export function SessionTabs({
   adding: boolean;
   confirming?: string;
   onChoose: (id: string) => void;
-  onAdd: (topic: string) => void;
-  onAdding: (adding: boolean) => void;
+  onAdd: () => void;
   onConfirm: (id: string | undefined) => void;
   onDelete: (id: string) => void;
   onRename: (id: string, topic: string) => void;
@@ -96,7 +95,7 @@ export function SessionTabs({
             ) : null}
             <span className="min-w-0 truncate">{s.topic}</span>
             {s.agents > 0 && <span className="shrink-0 text-caption tabular-nums text-faint">{s.agents}</span>}
-            <Tip label={on ? `${t('sessions.delete')} · ${keysHint(sessionKeys.delete)}` : t('sessions.delete')}>
+            <Tip label={on ? `${t('sessions.delete')} · ${keysHint(sessionKeys.close)} / ${keysHint(sessionKeys.delete)}` : t('sessions.delete')}>
               <button
                 type="button"
                 aria-label={t('sessions.deleteNamed', { topic: s.topic })}
@@ -112,16 +111,12 @@ export function SessionTabs({
           </div>
         );
       })}
-      {adding ? (
-        <TopicInput label={t('sessions.topic')} placeholder={t('sessions.topicPlaceholder')} onDone={(topic) => (topic ? onAdd(topic) : onAdding(false))} />
-      ) : (
-        <Tip label={`${t('sessions.new')} · ${keysHint(sessionKeys.new)}`}>
-          <Button variant="ghost" size="sm" className="h-7 shrink-0 gap-1 px-2 text-ui" onClick={() => onAdding(true)} data-session-new>
-            <Plus className="size-3.5" />
-            {sessions.length === 0 && t('sessions.new')}
-          </Button>
-        </Tip>
-      )}
+      <Tip label={`${t('sessions.new')} · ${keysHint(sessionKeys.new)}`}>
+        <Button variant="ghost" size="sm" className="h-7 shrink-0 gap-1 px-2 text-ui" onClick={onAdd} disabled={adding} data-session-new>
+          <Plus className="size-3.5" />
+          {sessions.length === 0 && t('sessions.new')}
+        </Button>
+      </Tip>
     </div>
   );
 }

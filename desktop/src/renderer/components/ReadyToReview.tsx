@@ -9,7 +9,7 @@ import { useT, type MessageKey } from '../lib/i18n';
 import { pagesFor } from '../lib/pages';
 import { projectLabel } from '../lib/projectName';
 import { pageItems, pageTotal, refreshInbox, useReviewPages, withoutAgent } from '../lib/inboxPages';
-import { type Walk, firstLine, goBack, goForward, isTyping, mergeBlock, mergeBlockReason, pressable, proofKey, nextPending, proofOf, remainingAfter, repeatable, reviewPane, wrapWalk, walkItems, walkOrder, queueOf, reviewKeys, reviewShortcut, step, type Pane, type ReviewAction } from '../lib/review';
+import { type Walk, firstLine, goBack, goForward, isTyping, mergeBlock, mergeBlockReason, pressable, proofKey, nextPending, proofOf, remainingAfter, repeatable, reviewPane, seeking, wrapWalk, walkItems, walkOrder, queueOf, reviewKeys, reviewShortcut, step, type Pane, type ReviewAction } from '../lib/review';
 import { defaultMethod, loadMethodPrefs, rememberMethod } from '../lib/mergeMethod';
 import { isUnseen, markReadySeen, useUnseen } from '../lib/reviewAlert';
 import { useNow } from '../lib/useNow';
@@ -277,7 +277,6 @@ const keyLabels: Record<ReviewAction, MessageKey> = {
   nextChapter: 'review.key.nextChapter',
   expand: 'review.key.expand',
   compareMode: 'review.key.compareMode',
-  flip: 'review.key.flip',
   highlight: 'review.key.highlight',
   toggleDetails: 'review.key.toggleDetails',
   openPr: 'review.key.openPr',
@@ -538,8 +537,6 @@ function ReviewCarousel({
         return proofView.current?.toggleExpand();
       case 'compareMode':
         return proofView.current?.compareMode();
-      case 'flip':
-        return proofView.current?.flip();
       case 'highlight':
         return proofView.current?.highlight();
       case 'help':
@@ -551,9 +548,10 @@ function ReviewCarousel({
     if (e.defaultPrevented || isTyping(e.target as HTMLElement)) return;
     const action = reviewShortcut(e);
     if (!action || (e.repeat && !repeatable(action))) return;
-    // The gallery's keys are the proof's: in the diff the arrows scroll, and
-    // Space presses the button that has focus.
-    if (proofKey(action) && (pane !== 'proof' || (action === 'play' && pressable(e.target as HTMLElement)))) return;
+    // The gallery's keys are the proof's: in the diff the arrows scroll,
+    // Space presses the button that has focus, and a player with focus plays
+    // and seeks itself.
+    if (proofKey(action) && (pane !== 'proof' || (action === 'play' && pressable(e.target as HTMLElement)) || seeking(action, e.target as HTMLElement))) return;
     // With the keys listed, only ? (or Esc) does anything: it closes them.
     if (help && action !== 'help') return;
     e.preventDefault();

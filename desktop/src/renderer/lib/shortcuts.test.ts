@@ -38,12 +38,16 @@ test('F6 goes round the places on screen, and back with Shift', () => {
   assert.equal(nextRegion(-1, [false, false, false], false), -1);
 });
 
-test('the sessions keys: Mod+T, Mod+Shift+⌫, Ctrl+Tab and Ctrl+Shift+Tab, not in a terminal', async () => {
+test('the sessions keys: Mod+T, Mod+W, Mod+Shift+⌫, Ctrl+Tab and Ctrl+Shift+Tab, not in a terminal', async () => {
   const { sessionShortcut } = await import('./shortcuts.ts');
   assert.equal(sessionShortcut(key('t')), 'new');
   assert.equal(sessionShortcut(key('T', { ctrlKey: false, metaKey: true })), 'new');
   assert.equal(sessionShortcut(key('Backspace', { shiftKey: true })), 'delete');
   assert.equal(sessionShortcut(key('Backspace')), undefined);
+  assert.equal(sessionShortcut(key('w')), 'delete');
+  assert.equal(sessionShortcut(key('W', { ctrlKey: false, metaKey: true })), 'delete');
+  assert.equal(sessionShortcut(key('w', { shiftKey: true })), undefined);
+  assert.equal(sessionShortcut(key('w', { target: { closest: () => ({}) } as unknown as EventTarget })), undefined);
   assert.equal(sessionShortcut(key('Tab')), 'next');
   assert.equal(sessionShortcut(key('Tab', { shiftKey: true })), 'previous');
   assert.equal(sessionShortcut(key('Tab', { ctrlKey: false, metaKey: true })), undefined);

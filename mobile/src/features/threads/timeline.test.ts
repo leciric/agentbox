@@ -48,3 +48,13 @@ test('a message written from the project’s chat to an agent is your bubble, ta
     ],
   );
 });
+
+test('an agent finishing leaves no card on the phone, merged or not: its notice is hidden', () => {
+  const rows = timelineRows({
+    agent: 'web/lead',
+    seq: 1,
+    session: { state: 'running', tool: 'claude', options: [], commands: [] },
+    items: [item('n1', 'notice', { hidden: true, finished: ['web/a'], text: 'a finished.' }), item('a1', 'assistant', { text: 'a is done.' })],
+  } as T.ChatThread);
+  assert.deepEqual(rows.map((r) => r.id), ['a1']);
+});

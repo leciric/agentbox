@@ -2557,9 +2557,12 @@ function sessionsRequest(method: string, path: string, body: unknown) {
   if (list && method === 'POST') {
     const project = decodeURIComponent(list[1]);
     const topic = (body as T.NewLeadSessionRequest).topic;
-    const id = topic.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'session';
+    const base = topic?.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'session';
+    const taken = new Set(devSessions(project).map((x) => x.id));
+    let id = base;
+    for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
     const now = new Date().toISOString();
-    const s: T.LeadSession = { project, id, ref: `${project}/lead.${id}`, topic, chat: 'starting', agents: 0, createdAt: now, activeAt: now };
+    const s: T.LeadSession = { project, id, ref: `${project}/lead.${id}`, topic: topic || 'New session', untitled: !topic, chat: 'starting', agents: 0, createdAt: now, activeAt: now };
     sessionsByProject.set(project, [...devSessions(project), s]);
     return json(s);
   }

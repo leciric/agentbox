@@ -42,7 +42,7 @@ import { contextBadge, contextHint, currentPlan, formatTokens, isMessage, pendin
 import { choiceName, currentFirst, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../../lib/modelChoices';
 import { FileLinks } from '../files/FilePanel';
 import { mentionAt, matchAgents, matchFiles, matchProjects, mentionLimit, type MentionItem } from '../../lib/mentions';
-import { onComposerFocus, takeComposerFocus } from '../../lib/newTask';
+import { onComposerFocus, requestSessionFocus, takeComposerFocus } from '../../lib/newTask';
 import { composeEvent, getDraft, setDraft } from '../../lib/drafts';
 import { formatTime, t as translate, useT } from '../../lib/i18n';
 import { accountTools, roomiest } from '../../lib/leadRunner';
@@ -1025,8 +1025,10 @@ function CacheCard({
   const queryClient = useQueryClient();
   const fresh = useMutation({
     mutationFn: async (message: { text: string; images: Pending[] } | null) => {
-      const s = await api.newLeadSession(project, (message && topicFrom(message.text)) || t('sessions.untitled'));
+      const topic = message ? topicFrom(message.text) : undefined;
+      const s = await api.newLeadSession(project, { topic, from: sessionOfRef(chatRef) });
       chooseSession(project, s.id);
+      requestSessionFocus(s.ref);
       void queryClient.invalidateQueries({ queryKey: ['leadSessions', project] });
       if (message) {
         const u = uploads(message.images);

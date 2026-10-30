@@ -68,6 +68,13 @@ function items(): T.ReviewItem[] {
       summary: 'Previews now go through the inline Markdown renderer, clamped to two lines. Not pushed yet: waiting on your look before opening a PR.',
       changes: { files: 1, insertions: 3, deletions: 2, dirty: true },
     }),
+    // agent-18's pull request is merged: its finished card is hidden in the lead
+    // chat behind "1 merged hidden" (lib/finished.ts).
+    item('agent-18', 'Sidebar remembers its width', 'agentbox/sidebar-width', 40 * min, {
+      pr: { ...pr, number: 366, title: 'feat: the sidebar remembers its width', state: 'merged', headBranch: 'agentbox/sidebar-width' },
+      summary: 'Dragging the sidebar edge is kept across restarts.',
+      changes: { files: 3, insertions: 31, deletions: 2, dirty: false },
+    }),
     item('agent-12', 'Add a "New project" button to the Sidebar', 'agentbox/new-project-button', 3 * min, {
       pr,
       summary:
@@ -170,8 +177,8 @@ function crowded(): T.MediaItem[] {
 // pairs is ?review=pairs: agent-15's media as agent-635's was, a
 // counts-project-dark-1920-before and its -after with another screenshot
 // taken between them, plus a pair marked with --pair whose halves aren't the
-// same size, which can't be highlighted, and a recording pair, played
-// together. The after moves a badge by a few pixels and changes its count,
+// same size, which can't be highlighted, and a recording pair, played one
+// after the other. The after moves a badge by a few pixels and changes its count,
 // the kind of change only a highlight shows.
 function pairs(): T.MediaItem[] {
   const base = { agent: `${PROJECT}/agent-15`, agentName: 'agent-15', source: 'agent', size: 200_000, mime: 'image/png' };
@@ -292,6 +299,7 @@ export function seedEvidence(queryClient: QueryClient): void {
     ...thread,
     items: [
       ...thread.items,
+      notice('ev18', ['agent-18'], 40 * min),
       notice('ev17', ['agent-17'], 8 * min),
       said('ev17a', 'agent-17 finished the markdown previews. It hasn’t opened a PR yet: its diff is on the review’s Changes tab.', 8 * min - 5_000),
       notice('ev15', ['agent-15'], 4 * min),
@@ -358,6 +366,7 @@ export function seedReview(queryClient: QueryClient): void {
     [9.5, 'Resources, light theme', ''],
     [13.5, 'Accounts at 800×600', 'The narrowest window the app allows: no horizontal scroll.'],
   ]));
+  queryClient.setQueryData(['media', `${PROJECT}/agent-18`], []);
   queryClient.setQueryData(['media', `${PROJECT}/agent-17`], evidence('agent-17', 'markdown', 10 * min, 14, [
     [0.3, 'Rich blocks in the lead chat', ''],
     [5.7, 'The same in a 340px column', 'Long code lines scroll inside their block.'],

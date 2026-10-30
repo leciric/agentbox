@@ -238,7 +238,7 @@ func (s *Server) apiSessions(ctx context.Context, project string) ([]api.LeadSes
 			chatState = api.ChatOff
 		}
 		out = append(out, api.LeadSession{
-			Project: project, ID: ls.ID, Ref: ref, Topic: ls.Topic, Chat: chatState,
+			Project: project, ID: ls.ID, Ref: ref, Topic: ls.Topic, Untitled: ls.Untitled, Chat: chatState,
 			Agents: owned[ls.ID], Last: s.lastChatLine(ctx, lead),
 			CreatedAt: ls.CreatedAt, ActiveAt: activity[ls.ID],
 		})
@@ -270,12 +270,64 @@ func (s *Server) newSession(w http.ResponseWriter, r *http.Request) error {
 	if err := readJSON(r, &req); err != nil {
 		return err
 	}
-	ls, err := s.store.AddLeadSession(r.Context(), project, req.Topic, time.Now())
+	// Asked before the new one exists, which would be the most recent.
+	from := req.From
+	if from == "" {
+		if last, err := s.store.LastActiveLeadSession(r.Context(), project); err == nil {
+			from = last.ID
+		}
+	}
+	var ls state.LeadSession
+	var err error
+	if strings.TrimSpace(req.Topic) == "" {
+		ls, err = s.store.AddUntitledLeadSession(r.Context(), project, time.Now())
+	} else {
+		ls, err = s.store.AddLeadSession(r.Context(), project, req.Topic, time.Now())
+	}
 	if err != nil {
 		return err
 	}
+	if from != "" {
+		if err := s.inheritSessionSettings(r.Context(), project, from, ls.ID); err != nil {
+			s.logf("starting %s's %s session on %s's settings: %v", project, ls.ID, from, err)
+		}
+	}
 	s.sessionsChanged(r.Context(), project)
 	return writeJSON(w, http.StatusCreated, s.apiSession(r.Context(), project, ls.ID))
+}
+
+// inheritSessionSettings starts session to on what session from runs on: its
+// AI tool and accounts, and the settings chosen on them (model, permission
+// mode, effort, context window), so a new session is the last ones chosen
+// rather than the tool's defaults. They are stored as to's own chat settings,
+// as if chosen in its composer, which its session applies when it starts.
+// Planning isn't carried: it is a task's, and from's plan isn't to's.
+func (s *Server) inheritSessionSettings(ctx context.Context, project, from, to string) error {
+	if _, err := s.store.LeadSession(ctx, project, from); err != nil {
+		return err
+	}
+	src, err := s.store.Chat(ctx, project, state.LeadSessionName(from))
+	if err != nil {
+		return err
+	}
+	if len(src.Options) == 0 && src.Tool == "" && src.Account == "" && len(src.ToolAccounts) == 0 {
+		return nil // nothing chosen: to starts where from did, on the defaults
+	}
+	// The tool from runs, which is what its settings are for: its own choice,
+	// or the project's when it made none (agent.LeadChoiceOf).
+	choice, err := s.manager(nil).LeadChoiceOf(ctx, state.Agent{Project: project, Name: state.LeadSessionName(from)})
+	if err != nil {
+		return err
+	}
+	inherited := state.Chat{Tool: choice.Tool, Account: choice.Account, ToolAccounts: choice.ToolAccounts, Options: map[string]string{}}
+	for k, v := range src.Options {
+		// "plan", and "<tool>/plan" put aside for another tool (chat.applyTool).
+		if k == api.ChatOptionPlan || strings.HasSuffix(k, "/"+api.ChatOptionPlan) {
+			continue
+		}
+		inherited.Options[k] = v
+	}
+	return s.store.SaveChat(ctx, project, state.LeadSessionName(to), inherited)
 }
 
 // apiSession is one session as listSessions shows it.

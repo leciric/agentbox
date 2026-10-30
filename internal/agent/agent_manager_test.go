@@ -279,14 +279,14 @@ func TestDiffShowsWhatTheAgentChangedSinceItWasCreated(t *testing.T) {
 	}
 	testutil.Git(t, a.Worktree, "add", "work.txt")
 
-	diff, err := f.m.Diff(a, false)
+	diff, err := f.m.Diff(a, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(diff, "work.txt") {
 		t.Errorf("Diff() = %q, want it to mention work.txt", diff)
 	}
-	stat, err := f.m.Diff(a, true)
+	stat, err := f.m.Diff(a, nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}

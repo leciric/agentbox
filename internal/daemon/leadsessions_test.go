@@ -274,3 +274,139 @@ func TestANewSessionIsNamedInTheOthersBriefs(t *testing.T) {
 		}
 	}
 }
+
+// A session opened with no topic is named after its lead's first turn, by
+// the cheap model reading the conversation's opening, and only while the user
+// hasn't named it.
+func TestAnUntitledSessionIsNamedAfterItsFirstTurn(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	repo := d.fixtureRepo(t, "hello-stack")
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
+		t.Fatal(err)
+	}
+	var asked []string
+	answer, answerErr := `Title: "Prod: login 500s"`, error(nil)
+	d.srv.askAside = func(_ context.Context, a state.Agent, model, ask string) (string, string, error) {
+		if model != state.CheapModelFor("claude") {
+			t.Errorf("named on %q, want the cheap model", model)
+		}
+		asked = append(asked, ask)
+		return answer, model, answerErr
+	}
+	open := func() (api.LeadSession, state.Agent) {
+		t.Helper()
+		ls, err := d.client.OpenLeadSession(ctx, "hello-stack", api.NewLeadSessionRequest{})
+		if err != nil || !ls.Untitled || ls.Topic != state.UntitledTopic {
+			t.Fatalf("OpenLeadSession() = %+v, %v; want an untitled one", ls, err)
+		}
+		return ls, state.Agent{Project: "hello-stack", Name: state.LeadSessionName(ls.ID), Role: state.RoleLead, AI: "claude"}
+	}
+	topic := func(id string) api.LeadSession {
+		t.Helper()
+		sessions, err := d.client.LeadSessions(ctx, "hello-stack")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, ls := range sessions {
+			if ls.ID == id {
+				return ls
+			}
+		}
+		t.Fatalf("no session %s in %+v", id, sessions)
+		return api.LeadSession{}
+	}
+
+	ls, lead := open()
+	// A turn that ends before the user said anything (an agent's notice) has
+	// nothing to name it after.
+	d.srv.leadIdle(lead)
+	if got := topic(ls.ID); !got.Untitled || len(asked) != 0 {
+		t.Fatalf("named with nothing said: %+v, asked %q", got, asked)
+	}
+	saidLast(t, d, lead, "The 500s come from the session cookie.")
+	d.srv.leadIdle(lead)
+	if got := topic(ls.ID); got.Topic != "Prod: login 500s" || got.Untitled {
+		t.Errorf("after the first turn = %+v; want it named", got)
+	}
+	if len(asked) != 1 || !strings.Contains(asked[0], "Developer: Do the thing.") || !strings.Contains(asked[0], "AI: The 500s come from the session cookie.") {
+		t.Errorf("the cheap model was asked %q; want the conversation's opening", asked)
+	}
+	// Named once: later turns leave it.
+	answer = "Something else"
+	d.srv.leadIdle(lead)
+	if got := topic(ls.ID); got.Topic != "Prod: login 500s" || len(asked) != 1 {
+		t.Errorf("a later turn renamed it: %+v, asked %d times", got, len(asked))
+	}
+
+	// One the user renamed before its first turn ended keeps their name.
+	mine, mineLead := open()
+	if _, err := d.client.RenameLeadSession(ctx, "hello-stack", mine.ID, "Mine"); err != nil {
+		t.Fatal(err)
+	}
+	saidLast(t, d, mineLead, "Done.")
+	d.srv.leadIdle(mineLead)
+	if got := topic(mine.ID); got.Topic != "Mine" || got.Untitled {
+		t.Errorf("the user's session = %+v; want their name", got)
+	}
+
+	// Without an answer, the user's first line names it.
+	answerErr = errors.New("no cheap model today")
+	plain, plainLead := open()
+	saidLast(t, d, plainLead, "Done.")
+	d.srv.leadIdle(plainLead)
+	if got := topic(plain.ID); got.Topic != "Do the thing." || got.Untitled {
+		t.Errorf("named without the cheap model = %+v; want the first line", got)
+	}
+}
+
+// A new session starts on the AI tool, model, permission mode and effort of
+// the session it was opened from, kept as its own chat settings so they
+// survive a restart; planning stays with the session that was planning.
+func TestANewSessionStartsOnTheSettingsItWasOpenedFrom(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	repo := d.fixtureRepo(t, "hello-stack")
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
+		t.Fatal(err)
+	}
+	chosen := state.Chat{
+		SessionID: "the-main-session",
+		Options:   map[string]string{"mode": "bypassPermissions", "effort": "high", "model": "opus", api.ChatOptionPlan: "true", "codex/plan": "true", "codex/model": "gpt-5"},
+		Account:   "work",
+	}
+	if err := d.srv.store.SaveChat(ctx, "hello-stack", state.LeadName, chosen); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"mode": "bypassPermissions", "effort": "high", "model": "opus", "codex/model": "gpt-5"}
+	check := func(ls api.LeadSession) {
+		t.Helper()
+		got, err := d.srv.store.Chat(ctx, "hello-stack", state.LeadSessionName(ls.ID))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got.Options) != len(want) || got.Tool != "claude" || got.Account != "work" || got.SessionID != "" {
+			t.Errorf("%s's settings = %+v; want %v on account work, and no session of its own yet", ls.ID, got, want)
+		}
+		for k, v := range want {
+			if got.Options[k] != v {
+				t.Errorf("%s's %s = %q, want %q", ls.ID, k, got.Options[k], v)
+			}
+		}
+	}
+	from, err := d.client.OpenLeadSession(ctx, "hello-stack", api.NewLeadSessionRequest{From: state.MigratedSession})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check(from)
+	// Naming no session, it is the one most recently active: main, whose
+	// conversation is the newest.
+	saidLast(t, d, state.Agent{Project: "hello-stack", Name: state.LeadName}, "Hi.")
+	last, err := d.client.OpenLeadSession(ctx, "hello-stack", api.NewLeadSessionRequest{Topic: "Prod"})
+	if err != nil || last.Untitled || last.Topic != "Prod" {
+		t.Fatalf("OpenLeadSession(Prod) = %+v, %v", last, err)
+	}
+	check(last)
+}
