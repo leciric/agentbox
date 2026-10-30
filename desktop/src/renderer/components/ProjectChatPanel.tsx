@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import * as T from '../../shared/api';
 import { api, sessionOfRef } from '../lib/api';
+import { forgetThread } from '../lib/chat';
 import { t, useT } from '../lib/i18n';
 import { useChatOpenAt } from '../lib/reveal';
 import { afterDelete, chooseSession, markSessionSeen, neighbour, pickSession, useChosenSession, withSession } from '../lib/sessions';
@@ -130,6 +131,8 @@ export function SessionChatPanel({ project, children }: { project: string; child
       // showed another session, and the composer wasn't there. Its AI tool
       // starts now, not once the chat has mounted and read its thread, and
       // what you send before it is ready waits for it (chat.Manager).
+      // Its id may be a deleted session's, whose thread is still held.
+      forgetThread(queryClient, s.ref);
       queryClient.setQueryData<T.LeadSession[]>(['leadSessions', project], (list) => withSession(list ?? [], s));
       queryClient.setQueryData<T.ProjectChat>(['projectChat', project, s.id], (had) => had ?? { project: project, session: s.id, ref: s.ref, started: false, chat: s.chat });
       showSession(project, s);
@@ -145,7 +148,9 @@ export function SessionChatPanel({ project, children }: { project: string; child
       const next = afterDelete(list, id);
       if (next && id === current?.id) chooseSession(project, next.id);
     },
-    onSuccess: () => {
+    onSuccess: (_, id) => {
+      const gone = list.find((s) => s.id === id);
+      if (gone) forgetThread(queryClient, gone.ref);
       refresh();
       void queryClient.invalidateQueries({ queryKey: ['agents'] });
     },

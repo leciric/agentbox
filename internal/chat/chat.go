@@ -162,6 +162,14 @@ type Manager struct {
 
 	mu    sync.Mutex
 	convs map[string]*conversation
+	// forgot is where the next conversation of a ref Forget dropped starts
+	// numbering its events: one past the old one's last. A ref can be used again: a deleted session's id goes to the next new
+	// one, and a reset project chat keeps its lead's. The app holds the old
+	// thread under that ref, and skips every event numbered at or below
+	// what it holds as one it has seen (lib/chat.ts advance): a conversation
+	// counting from 1 again lost the new session's first message and answer
+	// to it. Numbering on from here, with a gap, has the app read it again.
+	forgot map[string]int64
 	// closing is set once Close has begun: the turns ending from then on
 	// were cut short by AgentBox stopping.
 	closing  atomic.Bool
@@ -217,22 +225,31 @@ func (m *Manager) conversation(a state.Agent) (*conversation, error) {
 	if _, ok := ToolNames[a.AI]; !ok {
 		return nil, fmt.Errorf("%s runs no AI tool to chat with", a.Ref())
 	}
-	m.mu.Lock()
-	if m.convs == nil {
-		m.convs = map[string]*conversation{}
-	}
-	c := m.convs[a.Ref()]
-	if c == nil {
-		c = &conversation{
-			m: m, agent: a,
-			byID: map[string]*api.ChatItem{}, dirty: map[string]bool{}, unsaved: map[string]bool{},
-			tools: map[string]*api.ChatItem{}, pending: map[string]func(any, error){},
-			session: api.ChatSession{State: api.ChatOff, Tool: a.AI, Options: []api.ChatOption{}, Commands: []api.ChatCommand{}},
+	var c *conversation
+	for {
+		m.mu.Lock()
+		if m.convs == nil {
+			m.convs = map[string]*conversation{}
 		}
-		m.convs[a.Ref()] = c
+		c = m.convs[a.Ref()]
+		if c == nil {
+			c = &conversation{
+				m: m, agent: a, seq: m.forgot[a.Ref()],
+				byID: map[string]*api.ChatItem{}, dirty: map[string]bool{}, unsaved: map[string]bool{},
+				tools: map[string]*api.ChatItem{}, pending: map[string]func(any, error){},
+				session: api.ChatSession{State: api.ChatOff, Tool: a.AI, Options: []api.ChatOption{}, Commands: []api.ChatCommand{}},
+			}
+			m.convs[a.Ref()] = c
+		}
+		m.mu.Unlock()
+		c.mu.Lock()
+		if !c.gone {
+			break
+		}
+		// Forgotten while this waited for it: the ref's next conversation
+		// is a new one, numbered on from where that one ended.
+		c.mu.Unlock()
 	}
-	m.mu.Unlock()
-	c.mu.Lock()
 	// Take the caller's record, not the one the conversation was made with. A
 	// project's chat is first read before its lead exists, with no worktree yet,
 	// and the first message is what creates it; an agent can also change its
@@ -1321,9 +1338,6 @@ func (m *Manager) Forget(ref string) {
 	if c == nil {
 		return
 	}
-	m.mu.Lock()
-	delete(m.convs, ref)
-	m.mu.Unlock()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.gone = true
@@ -1336,6 +1350,18 @@ func (m *Manager) Forget(ref string) {
 	}
 	c.stopAdapter()
 	c.flush(false)
+	// Gone from the map only now, with the number of its last event: what
+	// asks for the ref meanwhile waits for this, and then makes the new one
+	// (conversation). One more than that is the gap.
+	m.mu.Lock()
+	if m.convs[ref] == c {
+		delete(m.convs, ref)
+	}
+	if m.forgot == nil {
+		m.forgot = map[string]int64{}
+	}
+	m.forgot[ref] = c.seq + 1
+	m.mu.Unlock()
 }
 
 // State is the state of an agent's chat session, or "" if it hasn't chatted

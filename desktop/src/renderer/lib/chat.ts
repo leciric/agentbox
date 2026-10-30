@@ -43,6 +43,14 @@ export async function fetchThread(queryClient: QueryClient, ref: string, from?: 
   return keepHeld(next === 'gap' ? thread : next, now);
 }
 
+// forgetThread lets go of what the app holds of ref's chat, for a session
+// just made or deleted: a deleted session's id goes to the next new one, and
+// its old thread, held under the same ref, would open in its place.
+export function forgetThread(queryClient: QueryClient, ref: string): void {
+  queryClient.removeQueries({ queryKey: chatKey(ref), exact: true });
+  queryClient.removeQueries({ queryKey: chatWindowKey(ref), exact: true });
+}
+
 // peekThread reads only a chat's latest message, with its turn — what it is
 // doing now, and when it last answered — for a list of chats that shows each
 // one's live state without reading every conversation (the phone's,
