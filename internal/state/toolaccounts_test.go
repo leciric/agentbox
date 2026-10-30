@@ -22,7 +22,7 @@ func TestToolAccountsMigrationKeepsTheDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Up to just before the seven statements the tool accounts added.
-	before := len(migrations) - 7
+	before := migrationIndex(t, "ALTER TABLE projects ADD COLUMN codex_account")
 	for i, m := range migrations[:before] {
 		if _, err := db.ExecContext(ctx, m); err != nil {
 			t.Fatalf("migration %d: %v", i+1, err)

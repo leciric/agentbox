@@ -19,7 +19,7 @@ func TestLeadSessionsMigrationKeepsEachChat(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	before := len(migrations) - 4
+	before := migrationIndex(t, "SELECT project, 'main', 'Chat'")
 	for i, m := range migrations[:before] {
 		if _, err := db.ExecContext(ctx, m); err != nil {
 			t.Fatalf("migration %d: %v", i+1, err)
@@ -71,7 +71,7 @@ func TestHomeSessionMigration(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer func() { _ = db.Close() }()
-			before := len(migrations) - 1
+			before := migrationIndex(t, "SELECT '_home', 'main'")
 			for i, m := range migrations[:before] {
 				if _, err := db.ExecContext(ctx, m); err != nil {
 					t.Fatalf("migration %d: %v", i+1, err)
