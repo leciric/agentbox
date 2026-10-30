@@ -2654,6 +2654,7 @@ export const enUS = {
   'agent.info.aiTool': 'AI tool',
   'agent.info.model': 'Model',
   'agent.info.effort': 'Effort',
+  'agent.info.session': 'Session',
   'agent.info.context': 'Context',
   'agent.info.contextOf': '{used} of {size}',
   'agent.info.avgTps': 'Avg TPS',

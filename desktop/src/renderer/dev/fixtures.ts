@@ -15,6 +15,7 @@ import { inScope, type MediaScope } from '../lib/mediaPages';
 import { pagePageUrl, pageRequest, pageThumbUrl } from './pages';
 import { pastRequest } from './pastAgents';
 import { recapRequest } from './recap';
+import { SESSION_COLORS } from '../lib/sessions';
 
 export const PROJECT = 'agentbox';
 
@@ -326,8 +327,8 @@ export function buildFixtures(): FixtureData {
     // AI tools: working, asking (the escalated questions below), idle,
     // stopped and broken.
     agent({ ref: `${PROJECT}/agent-96`, title: 'Fix the agent rail overflowing on wide text', ai: 'cursor', chat: 'running', leadSession: 'main' }),
-    agent({ ref: `${PROJECT}/agent-97`, title: 'Long path agent', ai: 'opencode', chat: 'ready' }),
-    agent({ ref: `${PROJECT}/agent-98`, title: 'Question agent', ai: 'codex', chat: 'waiting' }),
+    agent({ ref: `${PROJECT}/agent-97`, title: 'Long path agent', ai: 'opencode', chat: 'ready', leadSession: 'onboarding-copy' }),
+    agent({ ref: `${PROJECT}/agent-98`, title: 'Question agent', ai: 'codex', chat: 'waiting', leadSession: 'prod-login-500s' }),
     agent({ ref: `${PROJECT}/agent-99`, title: 'PR agent', chat: 'running', leadSession: 'main' }),
     // Its turn ended on a CI watch it left running in the background: awaiting,
     // not idle, and kept out of Finished until the watch ends and it reports.
@@ -336,7 +337,7 @@ export function buildFixtures(): FixtureData {
     // question in its own words, one died mid-turn on a dropped websocket, one
     // finished with a pull request, one is carried on after a restart.
     agent({ ref: `${PROJECT}/agent-37`, title: 'Landing page', ai: 'codex', chat: 'ready', outcome: 'asking', outcomeNote: 'What do you want me to do next: launch, change, or stop?' }),
-    agent({ ref: `${PROJECT}/agent-38`, title: 'Migrate the reminders table', chat: 'ready', outcome: 'failed', outcomeNote: 'API Error: WebSocket closed with code 1006 (abnormal closure)' }),
+    agent({ ref: `${PROJECT}/agent-38`, title: 'Migrate the reminders table', chat: 'ready', leadSession: 'onboarding-copy', outcome: 'failed', outcomeNote: 'API Error: WebSocket closed with code 1006 (abnormal closure)' }),
     agent({ ref: `${PROJECT}/agent-39`, title: 'Paginate the reminders page', chat: 'ready', outcome: 'done', leadSession: 'main' }),
     // Idle reclaim holds their memory (T.Agent.reclaimed): one's dev server
     // and browser frozen in swap, one's machine stopped after it finished.
@@ -2889,8 +2890,8 @@ export function remoteAgents(): T.RemoteAgent[] {
 }
 
 // The chats' sessions, by project, as the dev bridge keeps them: the
-// fixtures' project has the one it always had and an incident's; any other
-// has its chat alone. A session opened here joins them.
+// fixtures' project has the one it always had, an incident's and a quiet
+// one's, each in its colour; any other has its chat alone. A session opened here joins them.
 const sessionsByProject = new Map<string, T.LeadSession[]>();
 function devSessions(project: string): T.LeadSession[] {
   let list = sessionsByProject.get(project);
@@ -2899,10 +2900,11 @@ function devSessions(project: string): T.LeadSession[] {
     list =
       project === PROJECT
         ? [
-            { project, id: 'main', ref: `${project}/lead`, topic: 'Chat', chat: 'running', agents: 3, createdAt: at(86_400_000), activeAt: at(60_000) },
-            { project, id: 'prod-login-500s', ref: `${project}/lead.prod-login-500s`, topic: 'Prod: login 500s', chat: 'ready', agents: 1, createdAt: at(3_600_000), activeAt: at(120_000), last: { kind: 'assistant', text: 'agent-41 found it: the session cookie.', at: at(120_000) } },
+            { project, id: 'main', ref: `${project}/lead`, topic: 'Chat', color: 'lilac', chat: 'running', agents: 3, createdAt: at(86_400_000), activeAt: at(60_000) },
+            { project, id: 'prod-login-500s', ref: `${project}/lead.prod-login-500s`, topic: 'Prod: login 500s', color: 'peach', chat: 'ready', agents: 2, createdAt: at(3_600_000), activeAt: at(120_000), last: { kind: 'assistant', text: 'agent-41 found it: the session cookie.', at: at(120_000) } },
+            { project, id: 'onboarding-copy', ref: `${project}/lead.onboarding-copy`, topic: 'Onboarding copy', color: 'mint', chat: 'ready', agents: 2, createdAt: at(1_800_000), activeAt: at(900_000) },
           ]
-        : [{ project, id: 'main', ref: `${project}/lead`, topic: 'Chat', chat: 'ready', agents: 0, createdAt: at(3_600_000), activeAt: at(3_600_000) }];
+        : [{ project, id: 'main', ref: `${project}/lead`, topic: 'Chat', color: 'sky', chat: 'ready', agents: 0, createdAt: at(3_600_000), activeAt: at(3_600_000) }];
     sessionsByProject.set(project, list);
   }
   return list;
@@ -2924,7 +2926,9 @@ function sessionsRequest(method: string, path: string, body: unknown) {
     let id = base;
     for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
     const now = new Date().toISOString();
-    const s: T.LeadSession = { project, id, ref: `${project}/lead.${id}`, topic: topic || 'New session', untitled: !topic, chat: 'starting', agents: 0, createdAt: now, activeAt: now };
+    const used = new Set(devSessions(project).map((x) => x.color));
+    const color = SESSION_COLORS.find((c) => !used.has(c)) ?? 'rose';
+    const s: T.LeadSession = { project, id, ref: `${project}/lead.${id}`, topic: topic || 'New session', untitled: !topic, color, chat: 'starting', agents: 0, createdAt: now, activeAt: now };
     sessionsByProject.set(project, [...devSessions(project), s]);
     return json(s);
   }

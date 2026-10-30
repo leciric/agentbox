@@ -2655,6 +2655,7 @@ export const ptBR: Messages = {
   'agent.info.aiTool': 'Ferramenta de IA',
   'agent.info.model': 'Modelo',
   'agent.info.effort': 'Esforço',
+  'agent.info.session': 'Sessão',
   'agent.info.context': 'Contexto',
   'agent.info.contextOf': '{used} de {size}',
   'agent.info.avgTps': 'TPS médio',

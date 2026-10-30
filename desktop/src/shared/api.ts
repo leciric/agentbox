@@ -2934,6 +2934,7 @@ export interface LeadSession {
   ref: string;
   topic: string;
   untitled?: boolean;
+  color: string;
   chat: string;
   agents: number;
   last?: ChatLine;
