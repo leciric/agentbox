@@ -571,8 +571,11 @@ func newAuthGitHubCmd(a *app) *cobra.Command {
 the GitHub API work inside them without logging in. AgentBox also uses it to
 show which pull request each agent's branch has, and whether its checks pass.
 
-Without --token-stdin, the token comes from 'gh auth token' on this machine.
-It is checked against GitHub before it is stored.
+Without --token-stdin, it signs in with GitHub's device flow: it prints a
+code and opens github.com/login/device, where you enter it, in any browser.
+Neither gh nor a token is needed. With --token-stdin, it reads a token from
+stdin instead, for an organization that blocks OAuth apps. A token is checked
+against GitHub before it is stored.
 
 Tokens are stored under a name, so this machine can hold several GitHub
 accounts: run this once per account, with --account. A project picks which
@@ -585,16 +588,20 @@ Agents are told to read pull requests, not to push or merge.`,
   agentbox auth github remove personal`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			token, err := githubToken(cmd, fromStdin)
-			if err != nil {
-				return err
-			}
 			c, err := a.client(cmd)
 			if err != nil {
 				return err
 			}
-			user, err := c.SaveGitHubToken(cmd.Context(), account, token)
-			if err != nil {
+			var user string
+			if fromStdin {
+				token, err := githubTokenFromStdin(cmd)
+				if err != nil {
+					return err
+				}
+				if user, err = c.SaveGitHubToken(cmd.Context(), account, token); err != nil {
+					return err
+				}
+			} else if user, err = githubDeviceLogin(cmd, c, account); err != nil {
 				return err
 			}
 			if account == "" {
@@ -615,7 +622,7 @@ Agents are told to read pull requests, not to push or merge.`,
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&fromStdin, "token-stdin", false, "read the token from stdin instead of asking gh for it")
+	cmd.Flags().BoolVar(&fromStdin, "token-stdin", false, "read a token from stdin instead of signing in with the browser")
 	cmd.Flags().StringVar(&account, "account", "", `store it under this name (default "`+credentials.DefaultAccount+`")`)
 	cmd.AddCommand(newAuthGitHubListCmd(a), newAuthGitHubDefaultCmd(a), newAuthGitHubRenameCmd(a), newAuthGitHubRemoveCmd(a))
 	return cmd
@@ -684,30 +691,66 @@ func defaultGitHubAccountName(cmd *cobra.Command, c *api.Client) (string, error)
 }
 
 // githubToken reads the token from stdin, or borrows the one the host's gh has.
-func githubToken(cmd *cobra.Command, fromStdin bool) (string, error) {
-	if fromStdin {
-		data, err := io.ReadAll(cmd.InOrStdin())
+func githubTokenFromStdin(cmd *cobra.Command) (string, error) {
+	data, err := io.ReadAll(cmd.InOrStdin())
+	if err != nil {
+		return "", err
+	}
+	token := strings.TrimSpace(string(data))
+	if token == "" {
+		return "", errors.New("no token on stdin")
+	}
+	return token, nil
+}
+
+// githubDeviceLogin signs in with the daemon's device flow and returns whose
+// account it was: it prints the code, opens the page to enter it on, and
+// waits. Interrupting it cancels the sign-in, so the daemon stops polling.
+func githubDeviceLogin(cmd *cobra.Command, c *api.Client, account string) (string, error) {
+	ctx := cmd.Context()
+	job, err := c.StartGitHubLogin(ctx, account)
+	if err != nil {
+		return "", err
+	}
+	out := cmd.ErrOrStderr()
+	shown := false
+	tick := time.NewTicker(time.Second)
+	defer tick.Stop()
+	for {
+		login, err := c.GitHubLogin(ctx, job.ID)
+		if ctx.Err() != nil {
+			cancelCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			_, _ = c.CancelJob(cancelCtx, job.ID)
+			cancel()
+			return "", ctx.Err()
+		}
 		if err != nil {
 			return "", err
 		}
-		token := strings.TrimSpace(string(data))
-		if token == "" {
-			return "", errors.New("no token on stdin")
+		if !shown && login.UserCode != "" {
+			shown = true
+			_, _ = fmt.Fprintf(out, "\nEnter this code on GitHub:\n\n    %s\n\nat %s (opening it in your browser)\n\nWaiting for you to enter it…\n", login.UserCode, login.VerificationURI)
+			openBrowser(cmd, login.VerificationURI)
 		}
-		return token, nil
+		switch login.Status {
+		case api.JobSucceeded:
+			return login.User, nil
+		case api.JobCancelled:
+			return "", errors.New("the GitHub sign-in was cancelled")
+		case api.JobFailed:
+			switch login.Outcome {
+			case api.GitHubLoginExpired:
+				return "", errors.New("the code expired before it was entered: run agentbox auth github again for a new one")
+			case api.GitHubLoginDenied:
+				return "", errors.New("the sign-in was denied on GitHub: run agentbox auth github again, or pipe a token in with --token-stdin")
+			}
+			return "", errors.New(login.Error)
+		}
+		select {
+		case <-tick.C:
+		case <-ctx.Done():
+		}
 	}
-	out, err := exec.CommandContext(cmd.Context(), "gh", "auth", "token").Output()
-	if errors.Is(err, exec.ErrNotFound) {
-		return "", errors.New("gh isn't installed on this machine: install the GitHub CLI and run 'gh auth login', or pipe a token in with --token-stdin")
-	}
-	if err != nil {
-		return "", errors.New("gh has no token on this machine: run 'gh auth login', or pipe a token in with --token-stdin")
-	}
-	token := strings.TrimSpace(string(out))
-	if token == "" {
-		return "", errors.New("gh returned no token: run 'gh auth login', or pipe a token in with --token-stdin")
-	}
-	return token, nil
 }
 
 func newAuthGitHubRenameCmd(a *app) *cobra.Command {
