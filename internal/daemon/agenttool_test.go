@@ -437,8 +437,8 @@ func TestNewAgentInheritsTheLeadsModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := checked(t, d, api.CreateAgentRequest{Title: "Reminders page", Task: "add it"})
-	if got.AI != "opencode" || got.Model == nil || *got.Model != "opencode/deepseek-v4.1-flash" {
-		t.Errorf("agent runs %q on model %v, want opencode on opencode/deepseek-v4.1-flash", got.AI, got.Model)
+	if got.AI != "opencode" || got.Model == nil || *got.Model != "opencode-go/deepseek-v4.1-flash" {
+		t.Errorf("agent runs %q on model %v, want opencode on its Go model opencode-go/deepseek-v4.1-flash", got.AI, got.Model)
 	}
 	// An explicit model for this agent still wins over the lead's.
 	chosen := "anthropic/claude-sonnet-5"
