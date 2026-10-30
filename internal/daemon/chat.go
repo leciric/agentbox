@@ -17,11 +17,19 @@ import (
 
 // The chat: each agent's AI tool behind its ACP adapter, run by package chat.
 
-// launchChat starts an ACP adapter: inside the agent, or on the host for a
-// project's lead, which has no machine of its own.
+// launchChat starts an ACP adapter: inside the agent, beside the daemon for a
+// project's lead, which has no machine of its own, and for the Home chat on
+// the user's computer when it can (launchHome).
 func (s *Server) launchChat(ctx context.Context, a state.Agent, status func(string)) (*chat.Process, error) {
 	// The daemon's log, so what a failing chat did is recoverable afterwards.
 	m := s.manager(s.cfg.Log)
+	var where placed
+	if a.IsHome() {
+		var proc *chat.Process
+		if proc, where = s.launchHome(ctx, m, a, status); proc != nil {
+			return proc, nil
+		}
+	}
 	launch := m.ChatCommand
 	if a.IsLead() {
 		launch = m.LeadChatCommand
@@ -30,7 +38,12 @@ func (s *Server) launchChat(ctx context.Context, a state.Agent, status func(stri
 	if err != nil {
 		return nil, err
 	}
-	return chat.StartCommand(cmd)
+	proc, err := chat.StartCommand(cmd)
+	if err != nil {
+		return nil, err
+	}
+	proc.Notice, proc.Moved = where.notice, where.moved
+	return proc, nil
 }
 
 // prepareChatModel writes the model a chat should start on, and the context it

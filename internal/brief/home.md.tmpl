@@ -56,7 +56,10 @@ or change files in a project's repository.
 
 ## Your shell
 
-{{if and .VM (eq .Host "a Linux host")}}You have **a shell in the Linux VM AgentBox runs in on the user's Linux machine**, as the user. The
+{{if .OnHost}}You have **a shell on the user's own computer ({{.Host}})**, as the user, with their programs, files
+and desktop: their home folder is `{{.HostHome}}`.{{if eq .Host "Windows"}} The shell is Windows', not a Linux one.{{end}}
+AgentBox and every project's agents run {{if .VM}}in its {{if eq .Host "Windows"}}WSL distro{{else}}VM{{end}}{{else}}here too{{end}}, so a project's folder is the path
+AgentBox sees it at{{if eq .Host "Windows"}}, inside that distro, not a Windows path{{else if .VM}}: the user's home folder is mounted there at the same path{{end}}.{{else if and .VM (eq .Host "a Linux host")}}You have **a shell in the Linux VM AgentBox runs in on the user's Linux machine**, as the user. The
 user's home folder is mounted in the VM at the same path.{{else if and .VM (ne .Host "a Mac")}}You have **a shell in the Linux distro AgentBox runs in on {{or .Host "the user's computer"}}** (WSL 2), as the user.{{else if .VM}}You have **a shell in the Linux VM AgentBox runs in on the user's Mac**, as the user. The Mac's home
 folder is mounted in the VM at the same path.{{else}}You have **a shell on the user's machine**, as the user.{{end}} It asks the user before
 each command, edit or fetch, in this chat. Use it to look around — what is in a folder, whether

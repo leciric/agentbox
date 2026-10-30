@@ -29,6 +29,7 @@ import (
 	"agentbox/internal/dockerfw"
 	"agentbox/internal/github"
 	"agentbox/internal/gitrepo"
+	"agentbox/internal/homehost"
 	"agentbox/internal/hostos"
 	"agentbox/internal/image"
 	"agentbox/internal/imagecache"
@@ -238,6 +239,11 @@ type Server struct {
 	reviewHeld   map[string]bool         // projects whose review list waits for the startup look at GitHub (prreconcile.go)
 	reviewKnown  map[string]knownReview  // each finished agent's review item as last read in full, by ref (review.go)
 	leadAPIs     map[string]*http.Server // per-project lead API servers
+	// homeHost is the desktop app's helper on the user's computer, which the
+	// Home chat runs through when it is there, and homePlace where its adapter
+	// last started, by session (homehost.go). homePlace is under mu.
+	homeHost     homehost.Hub
+	homePlace    map[string]string // by session ref
 	lastStates   map[string]api.AgentChange
 	previewAddr  string                   // where the preview proxy listens; empty when it's off
 	previewIPs   map[string]previewTarget // agents' addresses, cached for the preview proxy
@@ -466,6 +472,7 @@ func New(cfg Config) (*Server, error) {
 	s.disks = newAgentDiskCache(func(ctx context.Context, a state.Agent) agent.AgentDisk { return s.manager(nil).AgentDisk(ctx, a) })
 	s.prTell, s.prLead = s.prTellAgent, s.tellSession
 	s.approve = s.approveInChat
+	s.homeHost.OnChange = s.homeHostChanged
 	s.chat = &chat.Manager{
 		Store:   store,
 		Launch:  s.launchChat,
@@ -841,6 +848,10 @@ func (s *Server) routes() http.Handler {
 		})
 	}
 	h("GET /v1/version", s.version)
+	// The Home chat on the user's computer: the app's helper there, and the
+	// stdio of the MCP server it starts (homehost.go).
+	h("GET "+homehost.Path, s.attachHomeHost)
+	h("GET "+homehost.MCPPath, s.homeHostMCP)
 	h("POST /v1/shutdown", s.shutdown)
 
 	h("GET /v1/theme", s.themeStatus)

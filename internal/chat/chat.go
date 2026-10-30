@@ -1956,6 +1956,10 @@ func (c *conversation) connect(ad *adapter) error {
 			c.mu.Unlock()
 			return errStopped
 		}
+		if proc.Notice != "" {
+			c.add("notice", c.lastTurn()).Text = proc.Notice
+			c.flush(true)
+		}
 		ad.conn = acp.NewConn(proc.Stdout, proc.Stdin, handler{c: c, ad: ad})
 		c.mu.Unlock()
 		ctx, cancel := context.WithTimeout(context.Background(), startTimeout)
@@ -1979,7 +1983,9 @@ func (c *conversation) connect(ad *adapter) error {
 	ctx, cancel := context.WithTimeout(context.Background(), startTimeout)
 	defer cancel()
 
-	mcp := []acp.McpServer{} // the agent's own configuration gives the tools their MCP servers
+	// The agent's own configuration gives the tools their MCP servers, unless
+	// the adapter runs where that configuration isn't (sessionMCP).
+	mcp, cwd := sessionMCP(proc), sessionCwd(proc, a)
 	var meta map[string]any
 	if a.AI == "claude" {
 		// Prompt suggestions off (nothing shows them), and Claude's thinking,
@@ -1989,8 +1995,11 @@ func (c *conversation) connect(ad *adapter) error {
 	}
 	var resp acp.SessionResponse
 	var resumeErr error
-	if previous != "" {
-		req := acp.ResumeSessionRequest{SessionID: previous, Cwd: a.Worktree, McpServers: mcp, Meta: meta}
+	if previous != "" && proc.Moved {
+		// Its sessions are kept on the machine it ran on before.
+		resumeErr = errors.New("it runs on another machine now")
+	} else if previous != "" {
+		req := acp.ResumeSessionRequest{SessionID: previous, Cwd: cwd, McpServers: mcp, Meta: meta}
 		switch caps := init.AgentCapabilities; {
 		case caps.SessionCapabilities.Resume != nil:
 			resumeErr = ad.conn.Call(ctx, acp.MethodSessionResume, req, &resp)
@@ -2005,7 +2014,7 @@ func (c *conversation) connect(ad *adapter) error {
 	}
 	if previous == "" || resumeErr != nil {
 		resp = acp.SessionResponse{}
-		if err := ad.conn.Call(ctx, acp.MethodSessionNew, acp.NewSessionRequest{Cwd: a.Worktree, McpServers: mcp, Meta: meta}, &resp); err != nil {
+		if err := ad.conn.Call(ctx, acp.MethodSessionNew, acp.NewSessionRequest{Cwd: cwd, McpServers: mcp, Meta: meta}, &resp); err != nil {
 			return explain(err)
 		}
 		if resp.SessionID == "" {
@@ -2027,9 +2036,10 @@ func (c *conversation) connect(ad *adapter) error {
 	c.setImageSupport(ad.images)
 	if resumeErr != nil && c.conversed() {
 		it := c.add("notice", c.lastTurn())
-		if c.turn != nil && c.turn.resumes > 0 && c.stored.Handoff == "" {
-			// Carrying on a turn a restart cut short (restart.go): a session
-			// that doesn't remember it can't, unless it is told what it was.
+		if (c.turn != nil && c.turn.resumes > 0 || proc.Moved) && c.stored.Handoff == "" {
+			// Carrying on a turn a restart cut short (restart.go), or a
+			// conversation on another machine: a session that doesn't
+			// remember it can't, unless it is told what it was.
 			c.stored.Handoff = c.handoffBefore(tool)
 			it.Handoff = c.stored.Handoff
 			it.Text = fmt.Sprintf("This is a new %s session: the earlier one couldn't be resumed (%v), so it is told the conversation above.", tool, explain(resumeErr))
