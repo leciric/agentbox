@@ -754,3 +754,32 @@ func TestAuthStatusSaysWhenItCouldNotCheck(t *testing.T) {
 		t.Errorf("a token nobody could check was called rejected:\n%s", out)
 	}
 }
+
+// The Home chat's sessions, from the command line: --home stands in for the
+// project.
+func TestHomeChatSessions(t *testing.T) {
+	isolate(t)
+	startDaemon(t)
+	out, err := run(t, "", "chat", "session", "new", "--home", "Weekly planning")
+	if err != nil {
+		t.Fatalf("chat session new --home: %v\n%s", err, out)
+	}
+	mustContain(t, out, `Opened "Weekly planning": agentbox chat --home --session weekly-planning`)
+	out, err = run(t, "", "chat", "session", "list", "--home")
+	if err != nil {
+		t.Fatalf("chat session list --home: %v\n%s", err, out)
+	}
+	mustContain(t, out, "main", "weekly-planning", "Weekly planning")
+	out, err = run(t, "", "chat", "--home", "--session", "weekly-planning")
+	if err != nil {
+		t.Fatalf("chat --home --session: %v\n%s", err, out)
+	}
+	mustContain(t, out, "agentbox chat --home --session weekly-planning")
+	if out, err = run(t, "", "chat", "session", "close", "--home", "weekly-planning"); err != nil {
+		t.Fatalf("chat session close --home: %v\n%s", err, out)
+	}
+	out, _ = run(t, "", "chat", "session", "list", "--home")
+	if strings.Contains(out, "weekly-planning") {
+		t.Errorf("the closed session is still listed:\n%s", out)
+	}
+}

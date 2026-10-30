@@ -163,7 +163,7 @@ func accountNote(session api.ChatSession) string {
 func (s *Server) leadOnAccount(ctx context.Context, a state.Agent, p state.Project) (state.Agent, error) {
 	m := s.manager(s.cfg.Log)
 	if a.IsHome() {
-		home := m.Home()
+		home := m.HomeSession(a.Session())
 		if home.AI != "claude" {
 			return s.leadToolLogins(home)
 		}

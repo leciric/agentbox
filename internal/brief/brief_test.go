@@ -882,12 +882,16 @@ func TestRenderLeadRecheck(t *testing.T) {
 
 // TestRenderHome checks the Home chat's brief, with projects and without.
 func TestRenderHome(t *testing.T) {
-	for name, projects := range map[string][]brief.HomeProject{
-		"home":       {{Name: "pawly", Root: "/home/dev/www/pawly"}, {Name: "agentbox", Root: "/home/dev/www/agentbox"}},
-		"home-empty": nil,
+	pawly := []brief.HomeProject{{Name: "pawly", Root: "/home/dev/www/pawly"}, {Name: "agentbox", Root: "/home/dev/www/agentbox"}}
+	for name, d := range map[string]brief.HomeData{
+		"home":       {Projects: pawly},
+		"home-empty": {},
+		// One of several sessions: the brief names the others.
+		"home-sessions": {Projects: pawly, Session: "Weekly planning", OtherSessions: []string{"Chat", "Prod: login 500s"}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			got, err := brief.RenderHome(brief.HomeData{Dir: "/home/dev/.agentbox", Projects: projects, VM: true, Host: "a Linux host"})
+			d.Dir, d.VM, d.Host = "/home/dev/.agentbox", true, "a Linux host"
+			got, err := brief.RenderHome(d)
 			if err != nil {
 				t.Fatal(err)
 			}

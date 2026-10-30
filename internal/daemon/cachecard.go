@@ -301,7 +301,7 @@ func (s *Server) leadCacheIs(ref string, gen uint64) bool {
 func (s *Server) leadCacheState(ref string) api.ChatCache {
 	project, name, _ := agent.ParseRef(ref)
 	out := api.ChatCache{Project: project}
-	if session, ok := state.SessionOfLead(name); ok && project != state.HomeProject {
+	if session, ok := state.SessionOfLead(name); ok {
 		out.Session = session
 	}
 	s.mu.Lock()

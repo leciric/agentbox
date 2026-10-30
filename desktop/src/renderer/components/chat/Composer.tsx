@@ -1019,7 +1019,7 @@ function CacheCard({
   const pick = (compact: boolean) => choose.mutate({ compact, message: draft() });
   // The third way: leave this session's context where it is, and start the
   // message in a session of its own (lib/sessions.ts), which the tabs then
-  // show. Only a project's chat has sessions; the Home chat doesn't.
+  // show. A project's chat has sessions, and so does the Home chat.
   const project = chatRef.split('/')[0];
   const sessions = sessionOfRef(chatRef) !== undefined;
   const queryClient = useQueryClient();

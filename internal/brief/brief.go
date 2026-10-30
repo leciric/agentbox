@@ -23,7 +23,7 @@ var homeSource string
 var (
 	tmpl     = template.Must(template.New("brief").Parse(source))
 	leadTmpl = template.Must(template.New("lead").Funcs(template.FuncMap{"join": strings.Join}).Parse(leadSource))
-	homeTmpl = template.Must(template.New("home").Parse(homeSource))
+	homeTmpl = template.Must(template.New("home").Funcs(template.FuncMap{"join": strings.Join}).Parse(homeSource))
 )
 
 type Data struct {
@@ -240,6 +240,10 @@ func RenderLead(d LeadData) (string, error) {
 type HomeData struct {
 	Dir      string // its working directory, ~/.agentbox
 	Projects []HomeProject
+	// Session is the topic of the Home chat's session this runs, and
+	// OtherSessions its other sessions' topics; both empty when it has one.
+	Session       string
+	OtherSessions []string
 	// VM and Host are LeadData's: where the chat's shell is.
 	VM   bool
 	Host string

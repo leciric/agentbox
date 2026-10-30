@@ -27,9 +27,10 @@ func newChatCmd(a *app) *cobra.Command {
 		session string
 		to      string
 		anyOne  bool
+		home    bool
 	)
 	cmd := &cobra.Command{
-		Use:   "chat <project>|<project/agent> [message]",
+		Use:   "chat <project>|<project/agent>|--home [message]",
 		Short: "Talk to a project, or to one of its agents",
 		Long: `Talk to a project or to one of its agents through the chat the app shows.
 
@@ -41,6 +42,9 @@ A project's chat has sessions, each a conversation of its own on one topic:
 --session names one (agentbox chat session list shows them). Without it, chat
 uses the session most recently active, and a message to a project with none
 opens one.
+
+--home is the Home chat, the one across every project, in place of a project;
+it has sessions too.
 
 Name an agent, like pawly/agent-01, for that agent's AI tool inside its machine.
 
@@ -59,13 +63,15 @@ chat asks you here if this is a terminal; otherwise, answer in the app.`,
   agentbox chat pawly/agent-01 --new "Start over: fix the login test"
   agentbox chat pawly --session prod-login-500s "Is the fix deployed?"
   agentbox chat pawly --to agent-31 "Use the new reminders table"
-  agentbox chat session new pawly "Prod: login 500s"`,
-		Args: cobra.MinimumNArgs(1),
+  agentbox chat session new pawly "Prod: login 500s"
+  agentbox chat --home --session weekly-planning "What is every project doing?"`,
+		Args: homeArgs(&home, cobra.MinimumNArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			args = withHome(home, args)
 			ref, message := args[0], strings.TrimSpace(strings.Join(args[1:], " "))
 			if session != "" {
 				if !api.IsProjectChat(ref) {
-					return errors.New("--session is for a project's chat: name the project, like pawly")
+					return errors.New("--session is for a project's chat or the Home chat: name the project, like pawly, or give --home")
 				}
 				project, _, _ := strings.Cut(ref, "/")
 				ref = api.SessionRef(project, session)
@@ -113,7 +119,7 @@ chat asks you here if this is a terminal; otherwise, answer in the app.`,
 				return err
 			}
 			if len(thread.Items) == 0 {
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "No messages yet. Send one with: agentbox chat %s \"<message>\"\n", ref)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "No messages yet. Send one with: agentbox chat %s \"<message>\"\n", chatArg(ref))
 				return nil
 			}
 			p := newChatPrinter(cmd.OutOrStdout())
@@ -130,6 +136,7 @@ chat asks you here if this is a terminal; otherwise, answer in the app.`,
 	f.StringVar(&session, "session", "", "the session of the project's chat, by id (agentbox chat session list)")
 	f.StringVar(&to, "to", "", "send the message to this agent of the project, like agent-31, telling the lead without a turn")
 	f.BoolVar(&anyOne, "any-session", false, "with --to, send to another session's agent without asking")
+	f.BoolVar(&home, "home", false, "the Home chat, across every project, in place of a project")
 	cmd.AddCommand(newChatSessionCmd(a))
 	return cmd
 }
@@ -159,20 +166,54 @@ func sendTo(cmd *cobra.Command, c *api.Client, ref, to, message string, anySessi
 	return nil
 }
 
-// newChatSessionCmd manages the sessions of a project's chat.
+// homeArgs checks a command's arguments with the project --home stands for
+// counted among them.
+func homeArgs(home *bool, check cobra.PositionalArgs) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error { return check(cmd, withHome(*home, args)) }
+}
+
+// withHome is args with the Home chat's key as the project, under --home.
+func withHome(home bool, args []string) []string {
+	if !home {
+		return args
+	}
+	return append([]string{api.HomeProject}, args...)
+}
+
+// chatArg is how a chat ref is named on the command line: the project, or
+// --home for the Home chat, with --session for a session other than the first.
+func chatArg(ref string) string {
+	project, _, _ := strings.Cut(ref, "/")
+	arg := project
+	if project == api.HomeProject {
+		arg = "--home"
+	}
+	if session := api.SessionOfRef(ref); session != "" && session != "main" {
+		arg += " --session " + session
+	}
+	return arg
+}
+
+// newChatSessionCmd manages the sessions of a project's chat, or of the Home
+// chat with --home.
 func newChatSessionCmd(a *app) *cobra.Command {
+	var home bool
 	cmd := &cobra.Command{
 		Use:   "session",
-		Short: "List, open, rename and close the sessions of a project's chat",
+		Short: "List, open, rename and close the sessions of a project's chat, or of the Home chat",
 		Long: `A project's chat has sessions: each a conversation of its own on one topic, with
 its own context and the agents it made, whose notices it hears. Notes, memory,
-skills, schedules and the agent list are shared by all of them.`,
+skills, schedules and the agent list are shared by all of them.
+
+The Home chat has sessions too: --home names it in place of the project.`,
 	}
+	cmd.PersistentFlags().BoolVar(&home, "home", false, "the Home chat's sessions, in place of a project's")
 	list := &cobra.Command{
-		Use:   "list <project>",
+		Use:   "list <project>|--home",
 		Short: "List a project's chat sessions",
-		Args:  cobra.ExactArgs(1),
+		Args:  homeArgs(&home, cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			args = withHome(home, args)
 			c, err := a.client(cmd)
 			if err != nil {
 				return err
@@ -183,7 +224,11 @@ skills, schedules and the agent list are shared by all of them.`,
 			}
 			out := cmd.OutOrStdout()
 			if len(sessions) == 0 {
-				_, _ = fmt.Fprintf(out, "%s's chat has no sessions. Open one with: agentbox chat session new %s \"<topic>\"\n", args[0], args[0])
+				owner := args[0] + "'s chat"
+				if home {
+					owner = "The Home chat"
+				}
+				_, _ = fmt.Fprintf(out, "%s has no sessions. Open one with: agentbox chat session new %s \"<topic>\"\n", owner, chatArg(args[0]))
 				return nil
 			}
 			for _, ls := range sessions {
@@ -198,10 +243,11 @@ skills, schedules and the agent list are shared by all of them.`,
 		},
 	}
 	open := &cobra.Command{
-		Use:   "new <project> [topic]",
+		Use:   "new <project>|--home [topic]",
 		Short: "Open a new session of a project's chat, named after its first turn when no topic is given",
-		Args:  cobra.MinimumNArgs(1),
+		Args:  homeArgs(&home, cobra.MinimumNArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			args = withHome(home, args)
 			c, err := a.client(cmd)
 			if err != nil {
 				return err
@@ -210,15 +256,16 @@ skills, schedules and the agent list are shared by all of them.`,
 			if err != nil {
 				return err
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Opened %q: agentbox chat %s --session %s \"<message>\"\n", ls.Topic, args[0], ls.ID)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Opened %q: agentbox chat %s \"<message>\"\n", ls.Topic, chatArg(api.SessionRef(args[0], ls.ID)))
 			return nil
 		},
 	}
 	rename := &cobra.Command{
-		Use:   "rename <project> <session> <topic>",
+		Use:   "rename <project>|--home <session> <topic>",
 		Short: "Change a session's topic",
-		Args:  cobra.MinimumNArgs(3),
+		Args:  homeArgs(&home, cobra.MinimumNArgs(3)),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			args = withHome(home, args)
 			c, err := a.client(cmd)
 			if err != nil {
 				return err
@@ -232,11 +279,12 @@ skills, schedules and the agent list are shared by all of them.`,
 		},
 	}
 	closeCmd := &cobra.Command{
-		Use:     "close <project> <session>",
+		Use:     "close <project>|--home <session>",
 		Aliases: []string{"delete"},
 		Short:   "Close a session: its conversation goes, and its agents belong to no session",
-		Args:    cobra.ExactArgs(2),
+		Args:    homeArgs(&home, cobra.ExactArgs(2)),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			args = withHome(home, args)
 			c, err := a.client(cmd)
 			if err != nil {
 				return err

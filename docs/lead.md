@@ -60,6 +60,16 @@ agentbox chat session hand pawly/agent-07 prod-login-500s
 
 `agentbox chat pawly`, without `--session`, uses the session most recently active.
 
+The Home chat, the one across every project, has sessions the same way: tabs above it, the same
+keys, and chips on the phone. Its sessions share what Home remembers; anything addressed to the
+Home chat goes to the session it came from, else to the one most recently active. On the command
+line, `--home` takes the project's place:
+
+```bash
+agentbox chat session new --home "Weekly planning"
+agentbox chat --home --session weekly-planning "What is every project doing?"
+```
+
 ## Writing to an agent from the chat
 
 The **To:** chip at the left of the chat's composer says who a message goes to: the lead, which

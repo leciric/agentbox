@@ -1,6 +1,7 @@
-// Projects first, each led by its chat, as UI v2 is: the lead's row with its
-// live state, then its agents in the rail's order (what needs you first), and
-// the project's review. Each row's line says what that chat is doing now
+// The Home chat first, the one across every project, whose sessions its
+// screen shows as chips. Then projects, each led by its chat, as UI v2 is:
+// the lead's row with its live state, then its agents in the rail's order
+// (what needs you first), and the project's review. Each row's line says what that chat is doing now
 // (#303's states), from its latest turn only (peekThread). After t3code's
 // features/home/HomeScreen.tsx, a list of threads under a header.
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -39,12 +40,14 @@ export function HomeScreen() {
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
   const list = (projects.data ?? []).filter((p) => p.name !== T.HomeProject);
+  const home = useQuery({ queryKey: ['projectChat', T.HomeProject], queryFn: () => api.projectChat(T.HomeProject) });
+  const homeRef = home.data?.started ? home.data.ref : undefined;
   const leads = useQueries({ queries: list.map((p) => ({ queryKey: ['projectChat', p.name], queryFn: () => api.projectChat(p.name) })) });
   const questions = useQueries({ queries: list.map((p) => ({ queryKey: ['questions', p.name], queryFn: () => api.questions(p.name) })) });
   const reviews = useQueries({ queries: list.map((p) => ({ queryKey: ['review', p.name], queryFn: () => api.readyToReview(p.name) })) });
   // For the agents' pull request chips, as the desktop's rows have.
   const pulls = useQueries({ queries: list.map((p) => ({ queryKey: ['pulls', p.name], queryFn: () => api.pulls(p.name) })) });
-  const refs = [...leads.flatMap((c) => (c.data?.started ? [c.data.ref] : [])), ...(agents.data ?? []).filter(readable).map((a) => a.ref)];
+  const refs = [...(homeRef ? [homeRef] : []), ...leads.flatMap((c) => (c.data?.started ? [c.data.ref] : [])), ...(agents.data ?? []).filter(readable).map((a) => a.ref)];
   const threads = useQueries({ queries: refs.map((ref) => ({ queryKey: chatKey(ref), queryFn: () => peekThread(queryClient, ref), staleTime: Infinity })) });
   const threadOf = (ref: string | undefined) => (ref ? threads[refs.indexOf(ref)]?.data : undefined);
   // A row that failed renders again when what it shows is read again.
@@ -71,6 +74,14 @@ export function HomeScreen() {
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={colors.muted} />}
       >
+        <View style={styles.section}>
+          <Row
+            icon={<LeadAvatar mood={leadMood(home.data?.chat, false)} />}
+            title={t('chat.home.title')}
+            status={leadStatus(home.data?.chat, threadOf(homeRef))}
+            onPress={() => router.push(chatPath(T.HomeProject))}
+          />
+        </View>
         {projects.isPending && <ActivityIndicator color={colors.muted} style={{ marginTop: 24 }} />}
         {projects.error && <Text style={styles.error}>{projects.error.message}</Text>}
         {projects.data && list.length === 0 && <Text style={styles.empty}>{t('web.phone.noProjects')}</Text>}

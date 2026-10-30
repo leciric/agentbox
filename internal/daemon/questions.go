@@ -329,8 +329,11 @@ func (s *Server) tellLeadOf(ctx context.Context, project, notice string, opts ch
 // for none, is the session most recently active (leadOf). A project with no
 // session at all opens one for a notice that starts a turn, titled after it;
 // one that would only wait has nobody to read it.
+//
+// The Home chat's notices go the same way: to the session that caused them,
+// else the one most recently active.
 func (s *Server) tellSessionOf(ctx context.Context, project, session, notice string, opts chat.NoticeOptions) {
-	if _, err := s.store.Project(ctx, project); err != nil {
+	if err := s.chatProject(ctx, project); err != nil {
 		return
 	}
 	lead, err := s.leadOf(ctx, project, session, eventTopic(notice), opts.Act)

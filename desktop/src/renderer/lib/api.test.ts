@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as T from '../../shared/api.ts';
 import { addFetchedLog } from './events.ts';
-import { agentPath, api, isProjectChat } from './api.ts';
+import { agentPath, api, isProjectChat, sessionOfRef } from './api.ts';
 
 test('isProjectChat is true for a bare project ref and for the lead', () => {
   assert.equal(isProjectChat('myproject'), true);
@@ -12,6 +12,15 @@ test('isProjectChat is true for a bare project ref and for the lead', () => {
 
 test('isProjectChat is false for an agent ref', () => {
   assert.equal(isProjectChat('myproject/agent-01'), false);
+});
+
+test('sessionOfRef reads the session of a project chat, and of the Home chat', () => {
+  assert.equal(sessionOfRef(`web/${T.LeadName}`), 'main');
+  assert.equal(sessionOfRef(`web/${T.LeadName}.prod`), 'prod');
+  assert.equal(sessionOfRef(`${T.HomeProject}/${T.LeadName}`), 'main');
+  assert.equal(sessionOfRef(`${T.HomeProject}/${T.LeadName}.weekly-planning`), 'weekly-planning');
+  assert.equal(sessionOfRef('web/agent-01'), undefined);
+  assert.equal(sessionOfRef('web'), undefined);
 });
 
 test('agentPath encodes the project and agent into the API path', () => {

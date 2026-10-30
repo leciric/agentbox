@@ -98,12 +98,12 @@ const agent = (ref: string) => `/v1/agents/${ref.split('/').map(encodeURICompone
 // lead's, "lead", or "lead.<session>" (internal/state/leadsessions.go).
 export const isLeadName = (name: string | undefined) => !name || name === T.LeadName || name.startsWith(`${T.LeadName}.`);
 
-// sessionOfRef is the session of a project's chat a lead's ref names: "main"
-// for "web/lead", the session every chat had before sessions, and undefined
-// for an agent's ref or the Home chat's.
+// sessionOfRef is the session of a project's chat, or of the Home chat, a
+// lead's ref names: "main" for "web/lead", the session every chat had before
+// sessions, and undefined for an agent's ref.
 export const sessionOfRef = (ref: string): string | undefined => {
-  const [project, name] = ref.split('/');
-  if (!name || project === T.HomeProject) return undefined;
+  const [, name] = ref.split('/');
+  if (!name) return undefined;
   if (name === T.LeadName) return 'main';
   return name.startsWith(`${T.LeadName}.`) ? name.slice(T.LeadName.length + 1) : undefined;
 };
@@ -115,8 +115,8 @@ const untitledTopic = (s: T.LeadSession): T.LeadSession => (s.untitled ? { ...s,
 // sessionRef is the ref a session's lead, and its chat, are known by.
 export const sessionRef = (project: string, session: string) => `${project}/${session === 'main' ? T.LeadName : `${T.LeadName}.${session}`}`;
 
-// A project's routes for one chat session: the project's own under
-// /sessions/<id>, and the project's for the Home chat, which has none.
+// A chat's routes for one of its sessions: the project's own, or the Home
+// chat's (T.HomeProject), under /sessions/<id>.
 const projectChatBase = (ref: string) => {
   const [p] = ref.split('/');
   const session = sessionOfRef(ref);
