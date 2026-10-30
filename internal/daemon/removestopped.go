@@ -138,7 +138,9 @@ func stoppedVerdict(f stoppedFacts, now time.Time, days int) (remove, keep strin
 		return "", fmt.Sprintf("its pull request #%d is open", pr.Number)
 	}
 	if f.Changed {
-		return "", "it has changes and no pull request"
+		// Pushed with no pull request of its own: often to another agent's
+		// branch, or to one opened by hand.
+		return "its commits are all on a remote", ""
 	}
 	return "it changed nothing", ""
 }
@@ -223,6 +225,14 @@ func (j *stoppedJudge) facts(ctx context.Context, st agent.Status) (stoppedFacts
 	if err != nil {
 		return stoppedFacts{}, fmt.Errorf("its branch can't be read: %w", err)
 	}
+	if !out {
+		// Commits on a detached HEAD are on none of its branches.
+		head, err := gitrepo.Head(st.Worktree)
+		if err != nil {
+			return stoppedFacts{}, fmt.Errorf("its HEAD can't be read: %w", err)
+		}
+		out = !j.repo.OnABranch(head)
+	}
 	return stoppedFacts{
 		Ready:        st.Status == state.AgentReady,
 		State:        st.State,
@@ -239,6 +249,14 @@ func (j *stoppedJudge) facts(ctx context.Context, st agent.Status) (stoppedFacts
 // verdict is stoppedVerdict for st from fresh facts, an unreadable fact
 // keeping it.
 func (j *stoppedJudge) verdict(ctx context.Context, st agent.Status, now time.Time, days int) (f stoppedFacts, remove, keep string) {
+	// What needs no git first: reading a worktree in a folder shared with the
+	// host takes seconds, wasted on an agent kept anyway.
+	if since, err := j.s.stoppedSince(ctx, st); err == nil {
+		quick := stoppedFacts{Ready: st.Status == state.AgentReady, State: st.State, Busy: j.s.chatBusy(st.Ref()), StoppedSince: since}
+		if _, keep := stoppedVerdict(quick, now, days); keep != "" {
+			return quick, "", keep
+		}
+	}
 	f, err := j.facts(ctx, st)
 	if err != nil {
 		return f, "", err.Error()

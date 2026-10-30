@@ -358,6 +358,18 @@ func (r Repo) Pushed(commit string) bool {
 	return err == nil && out != ""
 }
 
+// OnABranch reports whether commit is in some branch, here or on a remote:
+// what a removed worktree's detached HEAD would otherwise take with it.
+func (r Repo) OnABranch(commit string) bool {
+	out, err := run(r.Root, "for-each-ref", "--count=1", "--format=%(refname)", "--contains", commit, "refs/heads", "refs/remotes")
+	return err == nil && out != ""
+}
+
+// Head is the commit worktree's HEAD is at.
+func Head(worktree string) (string, error) {
+	return run(worktree, "rev-parse", "HEAD")
+}
+
 // EnvFiles lists gitignored env files in the main checkout, like .env or
 // apps/api/.env.local. New worktrees don't have them, so agents need copies.
 func (r Repo) EnvFiles() ([]string, error) {

@@ -1441,7 +1441,7 @@ export const ptBR: Messages = {
   'defaults.newAgent.idleDetails': 'Nada quer dizer nenhuma resposta no chat, job, pergunta ou pedido de credencial sem resposta, digitação no terminal ou gravação. É o mesmo que pará-lo você mesmo, e vale também para agentes pausados.',
   'defaults.newAgent.removeStoppedLabel': 'Remover as máquinas de agentes parados depois de',
   'defaults.newAgent.removeStoppedDescription': 'Remove a máquina e a worktree de um agente parado há {days, plural, one {# dia} other {# dias}}, quando nada se perderia. Ele fica em Agentes anteriores com a branch, o pull request e o chat.',
-  'defaults.newAgent.removeStoppedDetails': 'Nada se perder quer dizer que a branch dele foi enviada sem nada pendente, a worktree não tem arquivos sem commit ou não rastreados, e o pull request foi mesclado ou fechado, ou ele não mudou nada. Um agente do qual o AgentBox não consegue ler tudo isso é mantido.',
+  'defaults.newAgent.removeStoppedDetails': 'Nada se perder quer dizer que todo commit dele foi enviado ou mesclado, a worktree não tem arquivos sem commit ou não rastreados, e ele não tem pull request aberto. Um agente do qual o AgentBox não consegue ler tudo isso é mantido.',
   'defaults.newAgent.removeStoppedDays': 'Dias parado',
   'defaults.newAgent.days': '{count, plural, one {# dia} other {# dias}}',
   'defaults.newAgent.removeStoppedChecking': 'Verificando os agentes parados…',

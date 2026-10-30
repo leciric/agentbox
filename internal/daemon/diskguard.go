@@ -343,6 +343,7 @@ func (s *Server) measureDisks(ctx context.Context) []agent.DiskSpace {
 		dir{"media", s.cfg.Paths.Media(), adviceMedia},
 		data,
 		// Wherever they are: with the data, or on the agents' disk.
+		dir{"agents' node_modules", s.cfg.Paths.NodeModules(), adviceAgents},
 		dir{"the shared caches", s.cfg.Paths.PackageCache(), adviceCaches},
 		dir{"the shared caches", s.cfg.Paths.ImageCache(), adviceCaches},
 	)

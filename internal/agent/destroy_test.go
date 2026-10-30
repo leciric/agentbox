@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -421,5 +422,41 @@ esac`))
 	}
 	if got := listed(t, f); got != "stopped" {
 		t.Errorf("after a failed destroy, List() shows agent-01 as %q, want stopped", got)
+	}
+}
+
+// With a daemon to delete it, a destroy moves the worktree into the trash and
+// unregisters it, without waiting for its files to go.
+func TestDestroyTrashesTheWorktree(t *testing.T) {
+	f := setup(t, fakeIncus(t, `case "$1" in
+  list) echo '[]' ;;
+esac`))
+	a := destroyFixture(t, f)
+	// Where a machine's node_modules were mounted: empty, and unreadable.
+	mount := filepath.Join(a.Worktree, "app", "node_modules")
+	if err := os.MkdirAll(mount, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(mount, 0); err != nil {
+		t.Fatal(err)
+	}
+	trashed := 0
+	f.m.WorktreeTrashed = func() { trashed++ }
+
+	err := f.m.Destroy(context.Background(), a, agent.DestroyOptions{Force: true})
+	assertGone(t, f, err)
+	if _, err := os.Stat(a.Worktree); !errors.Is(err, os.ErrNotExist) || trashed != 1 {
+		t.Fatalf("worktree stat = %v, trashed %d times; want it moved, once", err, trashed)
+	}
+	if list := testutil.Git(t, f.repo.Root, "worktree", "list"); strings.Contains(list, "agent-01") {
+		t.Errorf("git still lists the worktree: %s", list)
+	}
+	if entries, _ := os.ReadDir(f.m.Paths.WorktreeTrash()); len(entries) != 1 {
+		t.Fatalf("trash holds %d entries, want the worktree", len(entries))
+	}
+
+	agent.EmptyWorktreeTrash(context.Background(), f.m.Paths, func(context.Context, string) {}, t.Logf)
+	if entries, _ := os.ReadDir(f.m.Paths.WorktreeTrash()); len(entries) != 0 {
+		t.Errorf("trash still holds %d entries after emptying", len(entries))
 	}
 }

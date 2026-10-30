@@ -465,6 +465,28 @@ func TestMergedIntoOnRemoteAndPushed(t *testing.T) {
 	}
 }
 
+// A commit made on a detached HEAD is on no branch until one takes it in.
+func TestOnABranchAndHead(t *testing.T) {
+	root := testutil.FixtureRepo(t, "hello-stack")
+	repo, _ := gitrepo.Open(root)
+	testutil.Git(t, root, "checkout", "--quiet", "--detach")
+	write(t, root, "detached.txt", "x")
+	testutil.Git(t, root, "add", "detached.txt")
+	testutil.Git(t, root, "commit", "--quiet", "-m", "detached")
+	head, err := gitrepo.Head(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	main, _ := repo.ResolveCommit("main")
+	if !repo.OnABranch(main) || repo.OnABranch(head) {
+		t.Errorf("OnABranch(main, detached) = %v, %v; want true, false", repo.OnABranch(main), repo.OnABranch(head))
+	}
+	testutil.Git(t, root, "update-ref", "refs/remotes/origin/kept", head)
+	if !repo.OnABranch(head) {
+		t.Error("OnABranch(detached) = false once a remote branch has it")
+	}
+}
+
 // TestAddWorktreeConcurrently adds worktrees to one repository from several
 // goroutines at once, as a lead creating agents together does. git reads the
 // other worktrees' entries as it adds one, and fails on an entry another add

@@ -181,6 +181,9 @@ type Server struct {
 	// (pkgcache.go), and packageCacheKick asks for a trim now.
 	packageCache     *pkgcache.Cache
 	packageCacheKick chan struct{}
+	// worktreeTrash says a destroyed agent's worktree is in the trash
+	// (emptyWorktreeTrash).
+	worktreeTrash chan struct{}
 	// nodeModules is agents' node_modules on the VM's disk (nodemodules.go),
 	// and sharedWorktrees whether worktrees are in a shared folder, found once.
 	nodeModules         *nodemods.Store
@@ -507,6 +510,7 @@ func New(cfg Config) (*Server, error) {
 	s.packageCache = s.newPackageCache()
 	s.nodeModules = s.newNodeModules()
 	s.packageCacheKick = make(chan struct{}, 1)
+	s.worktreeTrash = make(chan struct{}, 1)
 	s.dockerPruneTimeout = agent.DockerPruneTimeout
 	return s, nil
 }
@@ -599,6 +603,7 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 	s.firstSweeps.Add(4)
 	loops.Go(func() { s.watch(ctx) })
 	loops.Go(func() { s.sweepMedia(ctx) })
+	loops.Go(func() { s.emptyWorktreeTrash(ctx) })
 	loops.Go(func() { s.sweepFinishedAgents(ctx) })
 	loops.Go(func() { s.sweepStoppedMachines(ctx) })
 	loops.Go(func() { s.sweepMemories(ctx) })
@@ -793,6 +798,7 @@ func (s *Server) manager(log io.Writer) *agent.Manager {
 		NodeModulesOn:    s.nodeModulesOn,
 		ShareRoom:        s.shareRoom,
 		ShareBusy:        s.shareBusy,
+		WorktreeTrashed:  s.worktreeTrashed,
 	}
 }
 
