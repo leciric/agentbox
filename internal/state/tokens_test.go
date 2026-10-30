@@ -93,22 +93,30 @@ func TestTokenLedger(t *testing.T) {
 	}
 }
 
-// TestTokenLedgerTPS: TokenTotals and TokenBuckets sum a duration's output
-// tokens and milliseconds only from rows that timed themselves, so an old row
-// with no duration is left out of the average rather than dragging it down.
+// TestTokenLedgerTPS: TokenTotals and TokenBuckets sum timed output and time
+// only from rows that timed themselves believably, a row counting in both
+// sums or in neither: an old row with only generation_ms, one with time and
+// no output, one timed under a second or faster than MaxTPS are left out.
 func TestTokenLedgerTPS(t *testing.T) {
 	ctx := context.Background()
 	st := open(t, filepath.Join(t.TempDir(), "state.db"))
 	base := time.Date(2026, 9, 21, 18, 0, 0, 0, time.UTC)
+	row := func(turn string, output, timedOutput, timedMS int64) state.TokenRow {
+		return state.TokenRow{Project: "acme", Agent: "agent-24", AI: "claude", Turn: turn, Kind: state.TokensTurn,
+			Model: "claude-opus-5-5", At: base, Output: output, GenerationMS: 60_000, TimedOutput: timedOutput, TimedMS: timedMS}
+	}
 	rows := []state.TokenRow{
-		{Project: "acme", Agent: "agent-24", AI: "claude", Turn: "t1", Kind: state.TokensTurn,
-			Model: "claude-sonnet-5", At: base, Output: 200, GenerationMS: 2_000},
-		{Project: "acme", Agent: "agent-24", AI: "claude", Turn: "t2", Kind: state.TokensTurn,
-			Model: "claude-sonnet-5", At: base.Add(time.Minute), Output: 300, GenerationMS: 3_000},
-		// No duration, as an old row written before this column existed would
-		// have none: its output isn't counted either.
-		{Project: "acme", Agent: "agent-24", AI: "claude", Turn: "t3", Kind: state.TokensTurn,
-			Model: "claude-sonnet-5", At: base.Add(2 * time.Minute), Output: 1_000},
+		row("t1", 400, 200, 2_000),
+		row("t2", 300, 300, 3_000),
+		// From before the timed columns: generation_ms alone.
+		row("t3", 1_000, 0, 0),
+		// Time with no output: a turn that failed, or a subagent's model.
+		row("t4", 0, 0, 5_000),
+		// 665 tokens over a millisecond, and 100 over half a second.
+		row("t5", 665, 665, 1),
+		row("t6", 100, 100, 500),
+		// 5,000 tokens in two seconds: 2,500 t/s.
+		row("t7", 5_000, 5_000, 2_000),
 	}
 	for _, r := range rows {
 		if err := st.AddTokenRows(ctx, []state.TokenRow{r}); err != nil {
@@ -121,7 +129,7 @@ func TestTokenLedgerTPS(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(totals) != 1 || totals[0].TPSOutput != 500 || totals[0].TPSGenerationMS != 5_000 {
-		t.Errorf("agent-24's totals = %+v, want 500 output over 5000ms, the undurationed row left out", totals)
+		t.Errorf("agent-24's totals = %+v, want 500 timed output over 5000ms, every other row left out", totals)
 	}
 
 	buckets, err := st.TokenBuckets(ctx, state.TokenFilter{Project: "acme", Agent: "agent-24"}, time.Hour)

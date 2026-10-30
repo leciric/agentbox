@@ -125,11 +125,13 @@ func (m *Manager) AskAside(ctx context.Context, a state.Agent, model, ask string
 	// A session nothing else will use still spent its tokens on this project:
 	// a distillation is billed to the account like any turn, so it goes in
 	// the ledger under the chat that asked for it. It heads no turn, so its
-	// whole round trip is what's timed.
+	// whole round trip is what's timed, and with no tools to run, all of it
+	// is the model answering: its average TPS too.
+	took := time.Since(started).Milliseconds()
 	if rows := tokenRows(state.TokenRow{
 		Project: a.Project, Agent: a.Name, AgentID: a.ID, AI: a.AI, Session: session.SessionID,
 		Turn: newID(), Kind: state.TokensConsolidation, At: m.now(),
-	}, res.ByModel(ranOn), ranOn, h.cost(), time.Since(started).Milliseconds()); len(rows) > 0 {
+	}, res.ByModel(ranOn), ranOn, h.cost(), took, timing{output: res.MainOutput(), ms: took}); len(rows) > 0 {
 		go m.recordTokens(rows)
 	}
 	if err != nil {

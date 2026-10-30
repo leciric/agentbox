@@ -1488,6 +1488,16 @@ var migrations = []string{
 	// session that ran before is held to the Claude Code it ran, so no
 	// conversation changes tool under anyone; the other sessions follow it.
 	`UPDATE chats SET tool = 'claude' WHERE tool = '' AND agent = 'lead'`,
+
+	// What average TPS is measured on: the output tokens of a turn's main
+	// loop and the time its model spent streaming them, tools and
+	// permissions left out (chat's turn.generated). generation_ms, from the
+	// first to the last streamed text, also spans the turn's tools and
+	// misses what the model said around them, so the average no longer reads
+	// it. 0 for every row before this column: they can't be timed again, and
+	// TokenTotals and TokenBuckets leave them out.
+	`ALTER TABLE token_usage ADD COLUMN timed_output INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE token_usage ADD COLUMN timed_ms INTEGER NOT NULL DEFAULT 0`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
