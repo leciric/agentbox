@@ -7,13 +7,14 @@
 // without the desktop's loops: a list of them never stops animating otherwise.
 import { useQuery } from '@tanstack/react-query';
 import { Image } from 'expo-image';
-import { Bot, Crown, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, MousePointer2, Sparkles, SquareTerminal, Terminal, type LucideIcon } from 'lucide-react-native';
+import { Bot, Check, Crown, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, MousePointer2, Sparkles, SquareTerminal, Terminal, X, type LucideIcon } from 'lucide-react-native';
 import { useId, type ReactNode } from 'react';
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Defs, G, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
 import type * as T from '../shared/api.ts';
 import { api } from '../connection/api.ts';
 import type { Mood } from '../features/threads/activity.ts';
+import type { MonitorScreen } from '../shared/monitor.ts';
 import { colors, mono } from './theme.ts';
 
 // Softened a shade from the brands' own, as on the desktop.
@@ -178,6 +179,57 @@ export function AgentAvatar({ ai, mood, size = 40, badge }: { ai: string; mood: 
   );
 }
 
+// AgentMonitor is an agent as the desktop's agent cards draw it
+// (renderer/components/v2/AgentMonitor.tsx), small and still: a monitor on a
+// stand with its AI tool on the screen, holding its screen's pose (shared/
+// monitor.ts): working, lines of light beside it; needing you, a "?" on an
+// amber frame; failed, a red screen with an ✕; ready to review, a green ✓;
+// idle, dim with a "z"; using its desktop, a green dot.
+const screenMood: Record<MonitorScreen, Mood> = { working: 'idle', needs: 'asking', error: 'error', review: 'idle', idle: 'sleeping', desktop: 'idle' };
+
+export function AgentMonitor({ ai, screen, size = 40 }: { ai: string; screen: MonitorScreen; size?: number }) {
+  const h = Math.round(size * 0.62);
+  const mark = Math.round(h * 0.62);
+  const mood = screenMood[screen];
+  const tool = hasCharacter(ai) ? <AgentCharacter ai={ai} mood={mood} size={mark} /> : <ToolIcon ai={ai} size={mark * 0.8} color={screen === 'idle' ? colors.muted : '#ddd6fe'} />;
+  const badge = Math.round(size * 0.36);
+  return (
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+      <View
+        style={[
+          styles.frame,
+          { width: size, borderRadius: size * 0.12 },
+          screen === 'needs' && { borderColor: 'rgba(251,191,36,0.7)', shadowColor: '#fbbf24', shadowOpacity: 0.6, shadowRadius: 5, shadowOffset: { width: 0, height: 0 } },
+          screen === 'error' && { borderColor: 'rgba(251,113,133,0.6)' },
+          screen === 'review' && { borderColor: 'rgba(52,211,153,0.45)' },
+        ]}
+      >
+        <View style={[styles.screen, { height: h, borderRadius: size * 0.07, gap: size * 0.06 }, screen === 'error' && { backgroundColor: 'rgba(251,113,133,0.25)' }, screen === 'review' && { backgroundColor: 'rgba(52,211,153,0.1)' }]}>
+          <View style={screen === 'idle' ? { opacity: 0.4 } : screen === 'error' || screen === 'review' ? { opacity: 0.65 } : undefined}>{tool}</View>
+          {screen === 'working' && (
+            <View style={{ gap: 2, width: size * 0.3 }}>
+              {['80%', '55%', '95%', '65%'].map((w, i) => (
+                <View key={i} style={{ width: w as `${number}%`, height: 2, borderRadius: 1, backgroundColor: i === 3 ? 'rgba(196,181,253,0.8)' : 'rgba(167,139,250,0.45)' }} />
+              ))}
+            </View>
+          )}
+          {screen === 'error' && <X size={h * 0.5} color={colors.rose} strokeWidth={3} />}
+          {screen === 'review' && <Check size={h * 0.5} color={colors.emerald} strokeWidth={3} />}
+          {screen === 'idle' && <Text style={[styles.z, { right: size * 0.08, top: size * 0.02, fontSize: size * 0.2 }]}>z</Text>}
+          {screen === 'desktop' && <View style={{ position: 'absolute', left: 3, top: 3, width: 5, height: 5, borderRadius: 3, backgroundColor: '#34d399' }} />}
+        </View>
+        {screen === 'needs' && (
+          <View style={[styles.ask, { width: badge, height: badge, borderRadius: badge / 2, top: -badge * 0.45, right: -badge * 0.35 }]}>
+            <Text style={{ color: colors.amber, fontWeight: '800', fontSize: badge * 0.62, lineHeight: badge * 0.8 }}>?</Text>
+          </View>
+        )}
+      </View>
+      <View style={{ width: size * 0.16, height: size * 0.08, backgroundColor: colors.lineStrong }} />
+      <View style={{ width: size * 0.4, height: Math.max(1, size * 0.05), borderRadius: 2, backgroundColor: colors.lineStrong }} />
+    </View>
+  );
+}
+
 // LeadAvatar is a project's lead: Claude Code, as the desktop's rail draws
 // it, crowned (its repository row's crown), so it reads apart from the agents.
 export function LeadAvatar({ mood, size = 40 }: { mood: Mood; size?: number }) {
@@ -241,6 +293,9 @@ export function PrChip({ pr }: { pr: Pick<T.PullRequest, 'number' | 'url' | 'sta
 const styles = StyleSheet.create({
   tile: { flex: 1, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', borderWidth: StyleSheet.hairlineWidth, borderColor: colors.lineStrong },
   z: { position: 'absolute', color: colors.subtle, fontWeight: '700' },
+  frame: { padding: 2, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.lineStrong, backgroundColor: colors.raised },
+  screen: { flexDirection: 'row', overflow: 'hidden', alignItems: 'center', justifyContent: 'center', backgroundColor: colors.screen },
+  ask: { position: 'absolute', alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(251,191,36,0.7)' },
   crown: { position: 'absolute', alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(251,191,36,0.45)' },
   project: { alignItems: 'center', justifyContent: 'center', overflow: 'hidden', backgroundColor: colors.raised },
   letter: { color: colors.secondary, fontWeight: '600' },

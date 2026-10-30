@@ -15,9 +15,10 @@ import { useSession } from '../../connection/session.ts';
 import { useT } from '../../lib/i18n.tsx';
 import { bootState } from '../../connection/boot.ts';
 import { ErrorBoundary } from '../../ui/ErrorBoundary.tsx';
-import { AgentAvatar, LeadAvatar, PrChip, ProjectIcon } from '../../ui/icons.tsx';
+import { AgentMonitor, LeadAvatar, PrChip, ProjectIcon } from '../../ui/icons.tsx';
 import { Note, StatusLine, useTopInset } from '../../ui/parts.tsx';
 import { colors } from '../../ui/theme.ts';
+import { monitorScreen, moodSt } from '../../shared/monitor.ts';
 import { agentStatus, avatarMood, isWaiting, leadMood, leadStatus, rank, type ChatStatus } from '../threads/activity.ts';
 import { chatKey } from '../threads/thread.ts';
 import { peekThread } from '../threads/useThread.ts';
@@ -78,7 +79,7 @@ export function HomeScreen() {
         {list.map((p, i) => (
           // A project that can't be shown is a line saying so; the rest show.
           <ErrorBoundary key={p.name} label={`${t('mobile.error.row')} (${projectLabel(p)})`} resetKey={updatedAt}>
-            <ProjectSection project={p} lead={leads[i]?.data} agents={agents.data ?? []} questions={questions[i]?.data ?? []} toReview={reviews[i]?.data?.total ?? 0} pulls={pulls[i]?.data?.pullRequests ?? []} threadOf={threadOf} />
+            <ProjectSection project={p} lead={leads[i]?.data} agents={agents.data ?? []} questions={questions[i]?.data ?? []} toReview={reviews[i]?.data?.total ?? 0} reviewing={reviews[i]?.data?.items.map((r) => r.ref) ?? []} pulls={pulls[i]?.data?.pullRequests ?? []} threadOf={threadOf} />
           </ErrorBoundary>
         ))}
       </ScrollView>
@@ -92,6 +93,7 @@ function ProjectSection({
   agents,
   questions,
   toReview,
+  reviewing,
   pulls,
   threadOf,
 }: {
@@ -100,6 +102,7 @@ function ProjectSection({
   agents: T.Agent[];
   questions: T.Question[];
   toReview: number;
+  reviewing: string[];
   pulls: T.PullRequest[];
   threadOf: (ref: string | undefined) => T.ChatThread | undefined;
 }) {
@@ -136,7 +139,7 @@ function ProjectSection({
       {own.map(({ a, status }) => (
         <ErrorBoundary key={a.ref} label={`${t('mobile.error.row')} (${a.name})`} resetKey={status}>
           <Row
-            icon={<AgentAvatar ai={a.ai} mood={avatarMood(a, questions.some((q) => q.ref === a.ref && isWaiting(q)))} />}
+            icon={<AgentMonitor ai={a.ai} screen={monitorScreen(moodSt(avatarMood(a, questions.some((q) => q.ref === a.ref && isWaiting(q))), reviewing.includes(a.ref)))} />}
             title={a.title || a.name}
             subtitle={a.title ? a.name : undefined}
             status={status ?? { text: t('mobile.error.row'), tone: 'error', live: false }}
