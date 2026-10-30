@@ -3550,7 +3550,7 @@ function GitHubLogin({
       className="grid gap-3"
       data-github-login={data?.outcome ?? data?.status ?? (job ? "running" : "idle")}
     >
-      <p className="text-[13px] text-muted">{t("settings.github.intro")}</p>
+      <p className="text-ui text-muted">{t("settings.github.intro")}</p>
       <div className="flex flex-wrap items-end gap-2">
         <div className="grid gap-1.5">
           <Label htmlFor="github-login-account">{t("settings.accounts.account")}</Label>
@@ -3592,7 +3592,7 @@ function GitHubLogin({
         <div className="grid gap-3 rounded-xl border border-line bg-surface-faint p-3.5">
           {running && code && (
             <div className="grid gap-2">
-              <p className="text-[13px] text-secondary">
+              <p className="text-ui text-secondary">
                 {t("settings.githubLogin.enterCode")}
               </p>
               <div className="flex flex-wrap items-center gap-2">
@@ -3628,7 +3628,7 @@ function GitHubLogin({
               )}
             </div>
           )}
-          <div className="flex flex-wrap items-center gap-2 text-[13px]">
+          <div className="flex flex-wrap items-center gap-2 text-ui">
             {running ? (
               <LoaderCircle className="size-4 animate-spin text-brand-400" />
             ) : (
