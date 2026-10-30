@@ -2773,7 +2773,7 @@
   },
   {
     "id": "sessions-v2-dark",
-    "description": "UI v2 on a project's chat with two sessions: the tabs above it, the sessions under the project in the sidebar, an unread dot on the one not shown, and the session chip on its agent — dark",
+    "description": "UI v2 on a project's chat with two sessions: the tabs above it, an unread dot on the project row for the one not shown, and the session chip on its agent — dark",
     "query": "app=project&v2=1&theme=dark",
     "width": 1440,
     "height": 900
