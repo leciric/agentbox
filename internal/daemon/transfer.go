@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"agentbox/internal/api"
 	"agentbox/internal/credentials"
@@ -47,21 +46,6 @@ func transferCode(err error) string {
 		return api.ErrorNewerExport
 	}
 	return ""
-}
-
-func fullPath(path string) (string, error) {
-	path = strings.TrimSpace(path)
-	if rest, ok := strings.CutPrefix(path, "~/"); ok {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		path = filepath.Join(home, rest)
-	}
-	if !filepath.IsAbs(path) {
-		return "", fmt.Errorf("%q isn't a full path", path)
-	}
-	return filepath.Clean(path), nil
 }
 
 func (s *Server) previewExport(w http.ResponseWriter, r *http.Request) error {
