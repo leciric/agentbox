@@ -10,7 +10,8 @@ import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
 import type * as T from '../shared/api.ts';
-import { parsePairingLink } from './pairing.ts';
+import { t } from '../shared/i18n.ts';
+import { isTailnet, parsePairingLink } from './pairing.ts';
 
 export interface Session {
   origin: string;
@@ -83,6 +84,8 @@ export async function pair(link: string): Promise<Session> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ secret: parsed.secret, name: phoneName(), bearer: true } satisfies T.LANPairRequest),
+  }).catch(() => {
+    throw unreachable(parsed.origin);
   });
   if (!res.ok) throw new Error(await errorOf(res));
   const out = (await res.json()) as T.LANSession;
@@ -91,6 +94,16 @@ export async function pair(link: string): Promise<Session> {
   await storage.set(JSON.stringify(next));
   set(next);
   return next;
+}
+
+// unreachable is why fetching from origin failed, in the user's words: on an
+// address in a tailnet, that this phone isn't on it.
+export function unreachable(origin: string): Error {
+  const host = new URL(origin).hostname;
+  if (isTailnet(origin)) return new Error(t('mobile.notOnTailnet', { host }));
+  // fetch fails only when nothing answered: its own words are the platform's
+  // ("java.net.ConnectException: …"), which say nothing to the user.
+  return new Error(t('mobile.unreachable', { host }));
 }
 
 // forget drops the pairing on this phone only: the daemon revoked it, or it
@@ -112,7 +125,9 @@ export async function unpair(): Promise<void> {
 export async function refreshPhone(): Promise<void> {
   const s = current;
   if (!s) return;
-  const res = await fetch(`${s.origin}/lan/session`, { headers: { Authorization: `Bearer ${s.token}` } });
+  // Unreachable (offline, the computer asleep): read again on the next start.
+  const res = await fetch(`${s.origin}/lan/session`, { headers: { Authorization: `Bearer ${s.token}` } }).catch(() => null);
+  if (!res) return;
   if (res.status === 401) return forget();
   if (!res.ok) return;
   const { phone } = (await res.json()) as T.LANSession;

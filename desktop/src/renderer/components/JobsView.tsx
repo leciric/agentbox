@@ -32,7 +32,7 @@ export function JobsView() {
             <button
               key={job.id}
               className={cn(
-                'flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[13px] transition hover:bg-surface',
+                'flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-ui transition hover:bg-surface',
                 job.id === selected && 'bg-surface-raised shadow-[inset_0_1px_0_rgb(255_255_255/0.05)]',
               )}
               onClick={() => setSelected(job.id)}
@@ -41,7 +41,7 @@ export function JobsView() {
               <span className="font-medium text-secondary">{job.kind}</span>
               <span className="truncate text-subtle">{job.target}</span>
               <span className="ml-auto shrink-0 text-xs text-subtle">{timeAgo(job.createdAt)}</span>
-              <span className="w-14 shrink-0 text-right font-mono text-[11px] tabular-nums text-faint">{duration(job.createdAt, job.finishedAt)}</span>
+              <span className="w-14 shrink-0 text-right font-mono text-caption tabular-nums text-faint">{duration(job.createdAt, job.finishedAt)}</span>
             </button>
           ))}
         </div>

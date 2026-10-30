@@ -3,12 +3,8 @@ package agent
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
-	"time"
 
 	"agentbox/internal/brief"
 	"agentbox/internal/hostos"
@@ -106,33 +102,10 @@ func (m *Manager) configureHome(ctx context.Context, a state.Agent) error {
 	if err := m.WriteSkills(ctx, a); err != nil {
 		return err
 	}
-	return m.writeLeadHome(home, a.Worktree, text, m.LeadSocket(state.HomeProject),
-		map[string]string{"AGENTBOX_CHAT": "home"}, nil, m.leadGitHubToken(homeProject) != "")
-}
-
-// CloneForHome clones a repository from a URL into dest, for the Home chat's
-// add_project, with the machine's default GitHub account for a private one on
-// github.com (the lead's credential helper, leadGitConfig). dest must not exist
-// yet; a clone that fails leaves nothing behind.
-func (m *Manager) CloneForHome(ctx context.Context, url, dest string) error {
-	if _, err := os.Lstat(dest); err == nil {
-		return fmt.Errorf("%s already exists: add it as it is, or clone into another folder", dest)
-	}
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+	version, err := m.openCodeVersion(ctx)
+	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
-	defer cancel()
-	m.logf("Cloning %s into %s for the Home chat", url, dest)
-	cmd := exec.CommandContext(ctx, "git", "-c", "credential.helper=", "-c", "credential.helper="+leadCredentialHelper,
-		"clone", "--quiet", "--", url, dest)
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
-	if gh := m.leadGitHubToken(homeProject); gh != "" {
-		cmd.Env = append(cmd.Env, "GH_TOKEN="+gh)
-	}
-	if out, err := cmd.CombinedOutput(); err != nil {
-		_ = os.RemoveAll(dest)
-		return fmt.Errorf("cloning %s: %w: %s", url, err, strings.TrimSpace(string(out)))
-	}
-	return nil
+	return m.writeLeadHome(home, a.Worktree, text, m.LeadSocket(a),
+		map[string]string{"AGENTBOX_CHAT": "home"}, nil, m.leadGitHubToken(homeProject) != "", version)
 }

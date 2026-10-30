@@ -244,3 +244,52 @@ func TestProjectAgentModel(t *testing.T) {
 		t.Errorf("agent model = %q after clearing it", p.AgentModel)
 	}
 }
+
+// TestProjectAgentDefaults: a project's tool and what its agents start on with
+// it, which belong to that tool alone.
+func TestProjectAgentDefaults(t *testing.T) {
+	ctx := context.Background()
+	st := open(t, filepath.Join(t.TempDir(), "state.db"))
+	if err := st.AddProject(ctx, state.Project{Name: "pawly", Root: "/src/pawly", CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	str := func(v string) *string { return &v }
+	p, _ := st.Project(ctx, "pawly")
+	if p.AgentTool != "" || p.ModelTool() != "claude" {
+		t.Errorf("a new project's tool = %q (model tool %q)", p.AgentTool, p.ModelTool())
+	}
+	if err := st.SetProjectAgentDefaults(ctx, "pawly", state.ProjectAgentDefaults{Model: str("haiku"), Effort: str("low"), ContextWindow: str("200k"), Mode: str("standard")}); err != nil {
+		t.Fatal(err)
+	}
+	p, _ = st.Project(ctx, "pawly")
+	if m, e, w, mode := p.AgentDefaults("claude"); m != "haiku" || e != "low" || w != "200k" || mode != "standard" {
+		t.Errorf("a Claude Code agent starts on %q %q %q %q", m, e, w, mode)
+	}
+	if m, e, w, mode := p.AgentDefaults("cursor"); m+e+w+mode != "" {
+		t.Errorf("a Cursor agent of a Claude Code project got its settings: %q %q %q %q", m, e, w, mode)
+	}
+	// A new tool clears what was the old one's, but keeps what it is given.
+	if err := st.SetProjectAgentDefaults(ctx, "pawly", state.ProjectAgentDefaults{Tool: str("opencode"), Mode: str("plan")}); err != nil {
+		t.Fatal(err)
+	}
+	p, _ = st.Project(ctx, "pawly")
+	if p.AgentTool != "opencode" || p.AgentModel != "" || p.AgentEffort != "" || p.AgentContextWindow != "" || p.AgentMode != "plan" {
+		t.Errorf("after moving to OpenCode: %+v", p)
+	}
+	for name, d := range map[string]state.ProjectAgentDefaults{
+		"an OpenCode effort":     {Effort: str("high")},
+		"an OpenCode window":     {ContextWindow: str("1m")},
+		"an unknown mode":        {Mode: str("yolo")},
+		"an unknown tool":        {Tool: str("vim")},
+		"a project not there":    {Tool: str("claude")},
+		"the menu's own default": {Model: str("default")},
+	} {
+		project := "pawly"
+		if d.Tool != nil && *d.Tool == "claude" {
+			project = "nowhere"
+		}
+		if err := st.SetProjectAgentDefaults(ctx, project, d); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+}

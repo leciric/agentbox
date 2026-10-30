@@ -6,7 +6,7 @@
 import { FolderTree, Images, Monitor, SquareTerminal, type LucideIcon } from 'lucide-react';
 import type * as T from '../../../shared/api';
 import { useT, type MessageKey } from '../../lib/i18n';
-import { chatPanel, fitsBeside, hasView, openPanelOn, panelTarget, switchViews, usePanel, viewOf, type PanelView } from '../../lib/rightPanel';
+import { chatPanel, fitsBeside, hasView, openPanelOn, panelTarget, machineBarViews, usePanel, viewOf, type PanelView } from '../../lib/rightPanel';
 import { cn } from '../../lib/utils';
 import { deskLine, DesktopPeek, DeskGlyph, useDesk, useDeskUp } from './DesktopPeek';
 
@@ -29,14 +29,14 @@ export function AgentMachineBar({ agent }: { agent: T.Agent }) {
         <DesktopPeek agent={agent} desk={desk} caption={false} />
       </button>
       <span className="flex min-w-0 flex-1 flex-col">
-        <span className="flex min-w-0 items-center gap-1.5 text-[12.5px] font-medium text-title">
+        <span className="flex min-w-0 items-center gap-1.5 text-ui font-medium text-title">
           <DeskGlyph desk={desk} />
           <span className="truncate">{t('desk.ownComputer', { name: agent.name })}</span>
         </span>
-        <span className="truncate pl-5 text-[11.5px] text-subtle">{t(deskLine(desk, up))}</span>
+        <span className="truncate pl-5 text-caption text-subtle">{t(deskLine(desk, up))}</span>
       </span>
       <span className="flex shrink-0 items-center gap-1">
-        {switchViews.map((v) => {
+        {machineBarViews.map((v) => {
           const Icon = icon[v]!;
           return (
             <button
@@ -44,7 +44,7 @@ export function AgentMachineBar({ agent }: { agent: T.Agent }) {
               type="button"
               disabled={!hasView(whose, v)}
               onClick={() => openPanelOn(agent.ref, v, agent.ref)}
-              className={cn('flex h-7 items-center gap-1.5 rounded-md border px-2 text-[12px] font-medium transition-colors disabled:opacity-40', last === v ? 'border-brand-500/50 bg-brand-500/10 text-title' : 'border-line text-secondary', 'hover:border-brand-500/60 hover:text-title')}
+              className={cn('flex h-7 items-center gap-1.5 rounded-md border px-2 text-caption font-medium transition-colors disabled:opacity-40', last === v ? 'border-brand-500/50 bg-brand-500/10 text-title' : 'border-line text-secondary', 'hover:border-brand-500/60 hover:text-title')}
               data-agent-machine-view={v}
             >
               <Icon className="size-3.5" />

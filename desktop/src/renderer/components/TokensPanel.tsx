@@ -3,7 +3,7 @@ import { ChartColumn, ChevronRight, Coins, Gauge, Users } from 'lucide-react';
 import { Fragment, useState } from 'react';
 import type * as T from '../../shared/api';
 import * as A from '../../shared/api';
-import { api, type TokenQuery } from '../lib/api';
+import { api, isLeadName, type TokenQuery } from '../lib/api';
 import { formatDate, formatDateTime, formatTime, t, useT, type MessageKey } from '../lib/i18n';
 import { projectLabel } from '../lib/projectName';
 import { humanTokens, limitTone, share, tps, usd, windowNow } from '../lib/tokens';
@@ -39,6 +39,7 @@ const kindLabel: Record<string, MessageKey> = {
   [A.TokensBackground]: 'vm.tokens.kind.background',
   [A.TokensCompaction]: 'vm.tokens.kind.compaction',
   [A.TokensConsolidation]: 'vm.tokens.kind.consolidation',
+  [A.TokensKeepalive]: 'vm.tokens.kind.keepalive',
 };
 
 const kindVariant: Record<string, BadgeVariant> = {
@@ -46,6 +47,7 @@ const kindVariant: Record<string, BadgeVariant> = {
   [A.TokensBackground]: 'info',
   [A.TokensCompaction]: 'brand',
   [A.TokensConsolidation]: 'brand',
+  [A.TokensKeepalive]: 'info',
 };
 
 // TokensPanel is the ledger for one project, or for every project when none is
@@ -76,7 +78,7 @@ export function TokensPanel({ project, onOpenAgent }: { project?: string; onOpen
             ))}
           </TabsList>
         </Tabs>
-        <p className="min-w-0 flex-1 basis-64 text-[12px] leading-relaxed text-subtle">
+        <p className="min-w-0 flex-1 basis-64 text-caption leading-relaxed text-subtle">
           {t('vm.tokens.intro')}
         </p>
       </div>
@@ -84,13 +86,13 @@ export function TokensPanel({ project, onOpenAgent }: { project?: string; onOpen
       <ClaudeLimits project={project} />
 
       {report.error && <Notice>{errorMessage(report.error)}</Notice>}
-      {report.isPending && <p className="text-[13px] text-subtle">{t('common.loading')}</p>}
+      {report.isPending && <p className="text-ui text-subtle">{t('common.loading')}</p>}
 
       {data && data.agents.length === 0 && (
         <Panel className="p-6 text-center">
           <Coins className="mx-auto size-5 text-faint" />
-          <p className="mt-2 text-[13px] font-medium text-secondary">{t('vm.tokens.nothingSpent', { period: chosen.id })}</p>
-          <p className="mx-auto mt-1 max-w-md text-[12px] leading-relaxed text-subtle">
+          <p className="mt-2 text-ui font-medium text-secondary">{t('vm.tokens.nothingSpent', { period: chosen.id })}</p>
+          <p className="mx-auto mt-1 max-w-md text-caption leading-relaxed text-subtle">
             {t('vm.tokens.emptyDescription')}
           </p>
         </Panel>
@@ -128,7 +130,7 @@ function ClaudeLimits({ project }: { project?: string }) {
       <div className="grid gap-4">
         {shown.map((l) => (
           <div key={l.account} className="min-w-0" data-claude-limit={l.account}>
-            <div className="mb-2 flex flex-wrap items-baseline gap-x-2 text-[12px]">
+            <div className="mb-2 flex flex-wrap items-baseline gap-x-2 text-caption">
               <span className="font-medium text-secondary">{l.account}</span>
               {l.default && <span className="text-faint">{t('vm.tokens.default')}</span>}
               {l.status && l.status !== 'allowed' && <Badge variant={l.status === 'rejected' ? 'danger' : 'warning'}>{l.status.replace('_', ' ')}</Badge>}
@@ -140,7 +142,7 @@ function ClaudeLimits({ project }: { project?: string }) {
                 const tone = limitTone(now);
                 return (
                   <div key={w.name} className="min-w-0">
-                    <div className="flex items-baseline justify-between gap-2 text-[12px]">
+                    <div className="flex items-baseline justify-between gap-2 text-caption">
                       <span className="text-muted">{w.label}</span>
                       <span className="tabular-nums text-secondary">{now === null ? t('vm.tokens.resetSince') : `${Math.round(now * 100)}%`}</span>
                     </div>
@@ -150,7 +152,7 @@ function ClaudeLimits({ project }: { project?: string }) {
                         style={{ width: `${now === null ? 0 : Math.max(Math.min(now, 1) * 100, 2)}%` }}
                       />
                     </div>
-                    <div className="mt-1 text-[11px] text-faint">{now === null ? t('vm.tokens.resetNoChat', { ago: timeAgo(w.resetsAt) }) : t('vm.tokens.resetsIn', { time: timeUntil(w.resetsAt) })}</div>
+                    <div className="mt-1 text-caption text-faint">{now === null ? t('vm.tokens.resetNoChat', { ago: timeAgo(w.resetsAt) }) : t('vm.tokens.resetsIn', { time: timeUntil(w.resetsAt) })}</div>
                   </div>
                 );
               })}
@@ -188,9 +190,9 @@ function Headline({ report }: { report: T.TokenReport }) {
 export function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className="min-w-0 rounded-xl border border-line-faint bg-surface-faint p-3">
-      <div className="text-[11px] uppercase tracking-wider text-subtle">{label}</div>
+      <div className="text-caption uppercase tracking-wider text-subtle">{label}</div>
       <div className="mt-1 text-xl font-semibold tracking-tight text-title">{value}</div>
-      {hint && <div className="mt-0.5 line-clamp-2 text-[11.5px] leading-snug text-faint">{hint}</div>}
+      {hint && <div className="mt-0.5 line-clamp-2 text-caption leading-snug text-faint">{hint}</div>}
     </div>
   );
 }
@@ -268,9 +270,9 @@ function SpendOverTime({ report }: { report: T.TokenReport }) {
     >
       {asTable ? (
         <div className="max-h-72 overflow-auto rounded-xl border border-line-faint">
-          <table className="w-full text-[12px]">
+          <table className="w-full text-caption">
             <thead className="sticky top-0 bg-surface">
-              <tr className="whitespace-nowrap border-b border-line text-left text-[10.5px] uppercase tracking-[0.06em] text-subtle">
+              <tr className="whitespace-nowrap border-b border-line text-left text-caption uppercase tracking-[0.06em] text-subtle">
                 <th className="py-1.5 pl-3 pr-2 font-medium">{t('vm.tokens.when')}</th>
                 <th className="px-2 py-1.5 text-right font-medium">{t('vm.tokens.tokens')}</th>
                 <th className="px-2 py-1.5 text-right font-medium">{t('vm.tokens.cacheRead')}</th>
@@ -300,7 +302,7 @@ function SpendOverTime({ report }: { report: T.TokenReport }) {
           <div className="relative h-40">
             {ticks.map((f) => (
               <div key={f} className="absolute left-12 right-0 border-t border-line-faint" style={{ bottom: `${f * 100}%` }}>
-                <span className="absolute -left-12 w-10 -translate-y-1/2 text-right text-[10.5px] tabular-nums text-faint">{axisTokens(peak * f)}</span>
+                <span className="absolute -left-12 w-10 -translate-y-1/2 text-right text-caption tabular-nums text-faint">{axisTokens(peak * f)}</span>
               </div>
             ))}
             <div className="absolute inset-y-0 left-12 right-0 flex items-end gap-[2px]" role="list" aria-label={t('vm.tokens.overTime')}>
@@ -339,7 +341,7 @@ function SpendOverTime({ report }: { report: T.TokenReport }) {
               })}
             </div>
           </div>
-          <div className="ml-12 mt-1.5 flex justify-between gap-2 text-[10.5px] tabular-nums text-faint">
+          <div className="ml-12 mt-1.5 flex justify-between gap-2 text-caption tabular-nums text-faint">
             {labelled.map((s, i) => (
               <span key={`${s.start}-${i}`} className="truncate">
                 {slotLabel(s.start, report.bucketSeconds).split('–')[0]}
@@ -359,7 +361,7 @@ function SpendOverTime({ report }: { report: T.TokenReport }) {
 // out, on a page that is already about one.
 function agentName(a: T.AgentTokens, scoped: boolean, projects?: readonly T.Project[]): { name: string; sub: string } {
   if (a.project === A.HomeProject) return { name: t('vm.tokens.mainChat'), sub: a.ref };
-  if (a.agent === A.LeadName) return { name: scoped ? t('vm.tokens.projectChat') : t('vm.tokens.projectChatOf', { project: projectLabel(a.project, projects) }), sub: a.ref };
+  if (isLeadName(a.agent)) return { name: scoped ? t('vm.tokens.projectChat') : t('vm.tokens.projectChatOf', { project: projectLabel(a.project, projects) }), sub: a.ref };
   return { name: a.title || a.agent, sub: scoped ? a.agent : a.ref };
 }
 
@@ -373,9 +375,9 @@ function AgentsTable({ report, scoped, onOpenAgent }: { report: T.TokenReport; s
   return (
     <Card title={t('vm.tokens.byAgent')} icon={Users} description={t('vm.tokens.byAgentDescription')}>
       <div className="overflow-x-auto rounded-xl border border-line-faint">
-        <table className="w-full min-w-[38rem] text-[12px]">
+        <table className="w-full min-w-[38rem] text-caption">
           <thead>
-            <tr className="whitespace-nowrap border-b border-line text-left text-[10.5px] uppercase tracking-[0.06em] text-subtle">
+            <tr className="whitespace-nowrap border-b border-line text-left text-caption uppercase tracking-[0.06em] text-subtle">
               <th className="py-1.5 pl-3 pr-2 font-medium">{t('vm.tokens.agent')}</th>
               <th className="px-2 py-1.5 font-medium">{t('vm.tokens.tokens')}</th>
               <th className="px-2 py-1.5 text-right font-medium">{t('vm.tokens.cacheRead')}</th>
@@ -390,7 +392,7 @@ function AgentsTable({ report, scoped, onOpenAgent }: { report: T.TokenReport; s
             {report.agents.map((a) => {
               const { name, sub } = agentName(a, scoped, projects.data);
               const expanded = open === a.ref;
-              const canOpen = a.exists && a.agent !== A.LeadName && onOpenAgent;
+              const canOpen = a.exists && !isLeadName(a.agent) && onOpenAgent;
               return (
                 <Fragment key={a.ref}>
                   <tr
@@ -421,9 +423,9 @@ function AgentsTable({ report, scoped, onOpenAgent }: { report: T.TokenReport; s
                                 {name}
                               </span>
                             )}
-                            {!a.exists && a.agent !== A.LeadName && <Badge>{t('vm.tokens.retired')}</Badge>}
+                            {!a.exists && !isLeadName(a.agent) && <Badge>{t('vm.tokens.retired')}</Badge>}
                           </div>
-                          <div className="truncate text-[10.5px] text-faint">
+                          <div className="truncate text-caption text-faint">
                             <span className="font-mono">{sub}</span> · {timeAgo(a.lastAt)}
                           </div>
                         </div>
@@ -469,7 +471,7 @@ function AgentDetail({ agent, since }: { agent: T.AgentTokens; since?: string })
   const t = useT();
   return (
     <div className="grid grid-cols-1 gap-3">
-      <p className="text-[11.5px] tabular-nums text-muted">
+      <p className="text-caption tabular-nums text-muted">
         {t('vm.tokens.turnsLine', {
           turns: agent.turns,
           output: humanTokens(agent.output),
@@ -490,12 +492,12 @@ export function ModelBreakdown({ models }: { models: T.ModelTokens[] }) {
   const total = models.reduce((sum, m) => sum + m.total, 0);
   return (
     <div className="min-w-0">
-      <div className="mb-1.5 text-[10.5px] font-medium uppercase tracking-[0.06em] text-subtle">{t('vm.tokens.byModel')}</div>
+      <div className="mb-1.5 text-caption font-medium uppercase tracking-[0.06em] text-subtle">{t('vm.tokens.byModel')}</div>
       <ul className="grid gap-x-6 gap-y-1.5 sm:grid-cols-2">
         {models.map((m) => (
           <li key={m.model || 'unnamed'} className="min-w-0">
-            <div className="flex items-baseline justify-between gap-2 text-[12px]">
-              <span className="truncate font-mono text-[11.5px] text-secondary">{m.model || t('vm.tokens.unnamedModel')}</span>
+            <div className="flex items-baseline justify-between gap-2 text-caption">
+              <span className="truncate font-mono text-caption text-secondary">{m.model || t('vm.tokens.unnamedModel')}</span>
               <span className="shrink-0 tabular-nums text-muted">
                 {humanTokens(m.total)} · {tps(m.avgTPS ?? 0)}
               </span>
@@ -520,14 +522,14 @@ export function RecentTurns({ query, limit }: { query: TokenQuery; limit: number
   });
   return (
     <div className="min-w-0">
-      <div className="mb-1.5 text-[10.5px] font-medium uppercase tracking-[0.06em] text-subtle">{t('vm.tokens.lastTurns')}</div>
+      <div className="mb-1.5 text-caption font-medium uppercase tracking-[0.06em] text-subtle">{t('vm.tokens.lastTurns')}</div>
       {turns.error && <Notice>{errorMessage(turns.error)}</Notice>}
-      {turns.data && turns.data.length === 0 && <p className="text-[12px] text-subtle">{t('vm.tokens.noneInStretch')}</p>}
+      {turns.data && turns.data.length === 0 && <p className="text-caption text-subtle">{t('vm.tokens.noneInStretch')}</p>}
       {turns.data && turns.data.length > 0 && (
         <div className="overflow-x-auto rounded-lg border border-line-faint bg-surface">
-          <table className="w-full text-[11.5px]">
+          <table className="w-full text-caption">
             <thead>
-              <tr className="whitespace-nowrap border-b border-line text-left text-[10px] uppercase tracking-[0.06em] text-subtle">
+              <tr className="whitespace-nowrap border-b border-line text-left text-caption uppercase tracking-[0.06em] text-subtle">
                 <th className="py-1 pl-2.5 pr-2 font-medium">{t('vm.tokens.when')}</th>
                 <th className="px-2 py-1 font-medium">{t('vm.tokens.kind')}</th>
                 <th className="px-2 py-1 font-medium">{t('vm.tokens.model')}</th>
@@ -546,7 +548,7 @@ export function RecentTurns({ query, limit }: { query: TokenQuery; limit: number
                   <td className="px-2 py-1">
                     <Badge variant={kindVariant[turn.kind] ?? 'default'}>{kindLabel[turn.kind] ? t(kindLabel[turn.kind]) : turn.kind}</Badge>
                   </td>
-                  <td className="max-w-[9rem] truncate px-2 py-1 font-mono text-[11px] text-tertiary" title={turn.model}>
+                  <td className="max-w-[9rem] truncate px-2 py-1 font-mono text-caption text-tertiary" title={turn.model}>
                     {turn.model || '—'}
                   </td>
                   <td className="px-2 py-1 text-right tabular-nums text-secondary" title={t('vm.tokens.turnTip', { cacheRead: humanTokens(turn.cacheRead), cacheWrite: humanTokens(turn.cacheWrite), input: humanTokens(turn.input), output: humanTokens(turn.output) })}>
@@ -586,8 +588,8 @@ export function AgentTokensCard({ agent }: { agent: T.Agent }) {
       description={t('vm.tokens.whatItSpentDescription')}
     >
       {all.error && <Notice>{errorMessage(all.error)}</Notice>}
-      {all.isPending && <p className="text-[13px] text-subtle">{t('common.loading')}</p>}
-      {all.data && !mine && <p className="text-[13px] text-subtle">{t('vm.tokens.nothingYet')}</p>}
+      {all.isPending && <p className="text-ui text-subtle">{t('common.loading')}</p>}
+      {all.data && !mine && <p className="text-ui text-subtle">{t('vm.tokens.nothingYet')}</p>}
       {mine && (
         <div className="grid grid-cols-1 gap-4" data-agent-tokens={agent.ref}>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-5">

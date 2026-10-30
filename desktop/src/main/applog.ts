@@ -15,7 +15,7 @@ import { describeError } from '../shared/errors.ts';
 
 export interface AppError {
   at: string; // ISO time
-  where: 'main' | 'window';
+  where: 'main' | 'window' | 'process'; // 'process': one of Chromium's that died (processgone.ts)
   name: string;
   message: string;
   stack?: string;
@@ -75,6 +75,11 @@ export class AppLog {
     this.record({ at: new Date().toISOString(), where: 'window', name: String(e.name), message: String(e.message), stack: e.stack ? String(e.stack) : undefined });
   }
 
+  // processGone records one of Chromium's processes dying.
+  processGone(line: string): void {
+    this.record({ at: new Date().toISOString(), where: 'process', name: 'ProcessGone', message: line });
+  }
+
   private record(e: AppError): void {
     this.errors.push(e);
     if (this.errors.length > maxErrors) this.errors.shift();
@@ -100,7 +105,7 @@ export class AppLog {
 // errorsText is the recent uncaught errors, newest last, as a report shows them.
 export function errorsText(errors: AppError[]): string {
   return errors
-    .map((e) => `${e.at} in the ${e.where === 'main' ? 'main process' : 'window'}: ${e.name}: ${e.message}${e.stack ? `\n  ${e.stack.split('\n').join('\n  ')}` : ''}`)
+    .map((e) => `${e.at} in ${{ main: 'the main process', window: 'the window', process: "Chromium's processes" }[e.where]}: ${e.name}: ${e.message}${e.stack ? `\n  ${e.stack.split('\n').join('\n  ')}` : ''}`)
     .join('\n\n');
 }
 
