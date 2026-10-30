@@ -16,6 +16,7 @@ import { AgentRail } from '../components/AgentRail';
 import { ProjectView } from '../components/ProjectView';
 import { Sidebar } from '../components/Sidebar';
 import { TopBar } from '../components/TopBar';
+import { resetProjectSeenForTest } from '../lib/attention';
 import { buildFixtures, devRequests, pageOf, patchDevAgent, PROJECT, setMediaFile } from './fixtures';
 import { useReadyAlerts } from '../lib/useReadyAlerts';
 import { screen } from './notifications';
@@ -718,8 +719,11 @@ export function seedV2(queryClient: QueryClient, pins: string | null): void {
   // agentbox's asks need you, storefront has two agents finished that you
   // haven't seen, and courier has one at work.
   if (new URLSearchParams(location.search).get('attention') === '1') {
-    // This computer has kept what it saw since yesterday, before they finished.
+    // This computer has kept what it saw since yesterday, before they
+    // finished, and has seen none of the projects since: each load starts so.
     localStorage.setItem('agentbox.v2.projectSeenSince', ago(day));
+    localStorage.removeItem('agentbox.v2.projectSeen');
+    resetProjectSeenForTest(localStorage);
     const first = buildFixtures().agents[0];
     const agent = (project: string, name: string, title: string, over: Partial<T.Agent>): T.Agent => ({ ...first, ref: `${project}/${name}`, project, name, title, branch: `agentbox/${name}`, state: 'running', chat: 'ready', outcome: 'done', stalledSince: undefined, ...over });
     const mine = [agent('storefront', 'agent-41', 'Checkout copy', {}), agent('storefront', 'agent-42', 'Address format', {}), agent('courier', 'agent-7', 'Retry the webhooks', { chat: 'running', outcome: undefined })];
