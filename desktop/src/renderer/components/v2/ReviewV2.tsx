@@ -62,8 +62,11 @@ async function agentReview(ref: string): Promise<T.ReviewItem | null> {
 // useAgentReview is an agent's review item, or null while it has none: it
 // hasn't finished, or is at work again.
 export function useAgentReview(ref: string) {
-  return useQuery({ queryKey: agentReviewKey(ref), queryFn: () => agentReview(ref) });
+  return useQuery(agentReviewQuery(ref));
 }
+
+// agentReviewQuery is the same query as options, for useQueries over several agents.
+export const agentReviewQuery = (ref: string) => ({ queryKey: agentReviewKey(ref), queryFn: () => agentReview(ref) });
 
 // reviewedKey is the agents already reviewed, of one project or ('') all:
 // under ['reviewed'], so refreshInbox refreshes it.

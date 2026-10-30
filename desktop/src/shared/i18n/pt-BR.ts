@@ -413,6 +413,8 @@ export const ptBR: Messages = {
   'evidence.review': 'Revisar provas',
   'evidence.merge': 'Merge',
   'evidence.merged': 'Mesclado',
+  'evidence.mergedHidden': '{count} mesclado(s) oculto(s)',
+  'evidence.hideMerged': 'Ocultar mesclados',
   'evidence.chapter': 'Verificando: {title}',
   'evidence.moreShots': '+{count}',
   'review.key.merge': 'Fazer merge do pull request (duas vezes) e ir ao próximo',

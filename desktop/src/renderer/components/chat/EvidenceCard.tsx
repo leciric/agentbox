@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { PrNumberLink } from '../PrNumberLink';
 import { Check, CircleAlert, CircleCheck, GitMerge, GitPullRequest, Play } from 'lucide-react';
 import { useState } from 'react';
@@ -18,7 +18,8 @@ import { useProjectPages } from '../pages/usePages';
 import { clock } from '../ReviewProof';
 import { AIIcon } from '../state';
 import { Button } from '../ui/button';
-import { useAgentReview, useOpenReview } from '../v2/ReviewV2';
+import { mergedFinishes, visibleFinishes } from '../../lib/finished';
+import { agentReviewQuery, useAgentReview, useOpenReview } from '../v2/ReviewV2';
 
 // What an agent finished with, in its lead's chat, where the lead tells of it
 // (api.ChatItem.Finished on the notice the daemon writes the lead): its latest
@@ -33,13 +34,50 @@ import { useAgentReview, useOpenReview } from '../v2/ReviewV2';
 // its current state, so only the notice that is its latest (`latest`, from
 // lib/finished) shows the card; the earlier ones are a line that scrolls to it.
 export function FinishedCards({ item, latest }: { item: T.ChatItem; latest: Map<string, string> }) {
+  const t = useT();
+  const refs = item.finished ?? [];
+  const [showMerged, setShowMerged] = useState(false);
+  const merged = useMergedAgents(refs);
+  const { shown, hidden } = visibleFinishes(refs, merged, showMerged);
+  if (shown.length === 0 && hidden === 0) return null;
   return (
     <div className="mb-4 grid gap-3" data-chat-item="finished" data-chat-id={item.id}>
-      {(item.finished ?? []).map((ref) =>
-        latest.get(ref) === item.id ? <EvidenceCard key={ref} agentRef={ref} /> : <SupersededFinish key={ref} agentRef={ref} />,
+      {shown.map((ref) => (latest.get(ref) === item.id ? <EvidenceCard key={ref} agentRef={ref} /> : <SupersededFinish key={ref} agentRef={ref} />))}
+      {(hidden > 0 || (showMerged && merged.size > 0)) && (
+        <button
+          type="button"
+          onClick={() => setShowMerged((v) => !v)}
+          className="flex min-w-0 items-center gap-1.5 px-1 text-left text-[12.5px] text-subtle hover:text-title"
+          data-finished-merged-toggle
+        >
+          <GitMerge className="size-3.5 shrink-0" />
+          <span className="min-w-0 truncate">{showMerged ? t('evidence.hideMerged') : t('evidence.mergedHidden', { count: hidden })}</span>
+        </button>
       )}
     </div>
   );
+}
+
+// useMergedAgents is which of `refs` have their pull request merged, as the app
+// sees it now: the Pull requests list's read where it has the PR (kept fresh by
+// the pulls event, so a merge seen hides the card live), else the review item's.
+function useMergedAgents(refs: string[]): Set<string> {
+  const reviews = useQueries({ queries: refs.map(agentReviewQuery) });
+  const projects = [...new Set(refs.map((ref) => ref.split('/')[0]))];
+  const lists = useQueries({
+    queries: projects.map((project) => ({
+      queryKey: ['pulls', project],
+      queryFn: () => api.projectPullRequests(project),
+      enabled: refs.some((ref, i) => ref.split('/')[0] === project && !!reviews[i]?.data?.pr),
+    })),
+  });
+  const prs = new Map<string, T.PullRequest | null | undefined>();
+  refs.forEach((ref, i) => {
+    const pr = reviews[i]?.data?.pr;
+    const list = lists[projects.indexOf(ref.split('/')[0])]?.data;
+    prs.set(ref, (pr && list?.pullRequests.find((p) => p.number === pr.number)) || pr);
+  });
+  return mergedFinishes(refs, prs);
 }
 
 function SupersededFinish({ agentRef }: { agentRef: string }) {
