@@ -94,6 +94,12 @@ type Config struct {
 
 type Server struct {
 	cfg Config
+	// probe is how the doctor asks whether a URL answers (doctor.go); nil is
+	// probeURL, a test's stub otherwise.
+	probe func(ctx context.Context, url string) error
+	// doctorFixes is the job fixing each check the doctor was asked to,
+	// under mu.
+	doctorFixes map[string]string
 	// crashSend is held while crash records are sent, crashesSent how many
 	// this daemon sent (crashes.go).
 	crashSend   sync.Mutex
@@ -1160,6 +1166,9 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/auth/github/{account}/default", s.setDefaultGitHubAccount)
 	h("POST /v1/auth/github/{account}/rename", s.renameGitHubAccount)
 	h("GET /v1/setup", s.setup)
+	h("GET /v1/doctor", s.doctor)
+	h("POST /v1/doctor/fix", s.doctorFix)
+	h("POST /v1/doctor/home", s.doctorHome)
 	h("GET /v1/remote", s.getRemote)
 	h("PUT /v1/remote", s.connectRemote)
 	h("DELETE /v1/remote", s.disconnectRemote)

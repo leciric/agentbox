@@ -230,6 +230,44 @@ func (m *Manager) ensureNPMTool(ctx context.Context, tool string, version openco
 	return own, nodeBin, nil
 }
 
+// InstallLeadTool installs what a lead on tool runs, as its first message
+// would: for `agentbox doctor --fix`, which does it ahead of that message.
+// Installed already, it returns at once.
+func (m *Manager) InstallLeadTool(ctx context.Context, tool string, status func(string)) error {
+	ctx, cancel := context.WithTimeout(ctx, hostInstallTimeout)
+	defer cancel()
+	switch tool {
+	case "claude":
+		_, err := m.hostTools(ctx, status)
+		return err
+	case "cursor":
+		_, err := m.CursorHelper(ctx, status)
+		return err
+	case "codex", "opencode":
+		version := opencode.V1
+		if tool == "opencode" {
+			v, err := m.openCodeVersion(ctx)
+			if err != nil {
+				return err
+			}
+			version = v
+		}
+		_, _, err := m.ensureNPMTool(ctx, tool, version, status)
+		return err
+	}
+	return fmt.Errorf("a project's chat can't run %q", tool)
+}
+
+// GHInstalled reports whether the lead has a GitHub CLI to run without
+// downloading one: AgentBox's own, or the host's.
+func (m *Manager) GHInstalled() bool { return usable(m.ghPath()) || onPath("gh") != "" }
+
+// EnsureGH is ensureGH, for `agentbox doctor --fix`.
+func (m *Manager) EnsureGH(ctx context.Context, status func(string)) error {
+	_, err := m.ensureGH(ctx, status)
+	return err
+}
+
 // EnsureOpenCode2 installs OpenCode 2 in AgentBox's tools directory and returns
 // its command. Its binary is the npm platform package, which declares no bin
 // entry, so it sits beside OpenCode 1 rather than replacing it; the daemon asks

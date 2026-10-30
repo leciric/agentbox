@@ -45,23 +45,8 @@ func (s *Server) setupStatus(ctx context.Context) (api.SetupStatus, error) {
 		checks = append(checks, c)
 	}
 
-	incusErr := s.cfg.Incus.Ping(ctx)
-	incusCheck := api.SetupCheck{ID: "incus", Title: "Incus", Required: true, Status: api.SetupMissing, Detail: firstLine(incusErr), Fix: hostsetup.Command}
-	if errors.Is(incusErr, exec.ErrNotFound) {
-		incusCheck.Detail = "Incus isn't installed"
-	}
-	// Host setup puts an ACL for this user on the Incus socket, which applies
-	// to processes already running, so joining incus-admin is the fallback
-	// rather than the route. Only when that ACL isn't there — no setfacl, or a
-	// filesystem without ACLs — is logging in again what's left to do.
-	if incusErr != nil && !incus.CanOpenSocket() && joinedButInactive(s.cfg.User.Name, "incus-admin") {
-		incusCheck.Detail = "you're in incus-admin, but this session started before that: log out and back in, then open AgentBox again"
-		incusCheck.Fix = "log out and back in"
-	}
-	if st := s.incusStatus(); !st.Answering && st.Detail != "" {
-		incusCheck.Detail, incusCheck.Fix = st.Detail, "sudo systemctl restart incus.service"
-	}
-	check(incusCheck, incusErr == nil, "installed, and your user can use it")
+	incusCheck, incusErr := s.incusSetupCheck(ctx)
+	checks = append(checks, incusCheck)
 
 	hostErr := image.CheckHost(s.cfg.User)
 	check(api.SetupCheck{ID: "host", Title: "User mapping", Required: true, Status: api.SetupMissing, Detail: firstLine(hostErr), Fix: hostsetup.Command},
@@ -78,16 +63,10 @@ func (s *Server) setupStatus(ctx context.Context) (api.SetupStatus, error) {
 		return api.SetupStatus{}, err
 	}
 	installed, _ := image.InstalledBuild(ctx, s.cfg.Incus)
-	overrides, err := s.store.ToolOverrides(ctx)
+	built, _ := image.Ready(ctx, s.cfg.Incus)
+	base, err := s.imageSetupCheck(ctx, incusErr == nil, built, installed, wanted)
 	if err != nil {
 		return api.SetupStatus{}, err
-	}
-
-	built, _ := image.Ready(ctx, s.cfg.Incus)
-
-	base := api.SetupCheck{ID: "image", Title: "Base image", Required: true, Status: api.SetupMissing, Detail: "needs Incus first", Fix: "agentbox image build"}
-	if incusErr == nil {
-		base = s.baseImageCheck(image.PlanFor(built, installed, wanted, overrides), installed, wanted)
 	}
 	checks = append(checks, base)
 
@@ -195,6 +174,42 @@ func (s *Server) setupStatus(ctx context.Context) (api.SetupStatus, error) {
 			Hint:       image.DownloadsHint,
 		},
 	}, nil
+}
+
+// incusSetupCheck is Setup's check of Incus, and why it can't be used.
+func (s *Server) incusSetupCheck(ctx context.Context) (api.SetupCheck, error) {
+	incusErr := s.cfg.Incus.Ping(ctx)
+	incusCheck := api.SetupCheck{ID: "incus", Title: "Incus", Required: true, Status: api.SetupMissing, Detail: firstLine(incusErr), Fix: hostsetup.Command}
+	if errors.Is(incusErr, exec.ErrNotFound) {
+		incusCheck.Detail = "Incus isn't installed"
+	}
+	// Host setup puts an ACL for this user on the Incus socket, which applies
+	// to processes already running, so joining incus-admin is the fallback
+	// rather than the route. Only when that ACL isn't there — no setfacl, or a
+	// filesystem without ACLs — is logging in again what's left to do.
+	if incusErr != nil && !incus.CanOpenSocket() && joinedButInactive(s.cfg.User.Name, "incus-admin") {
+		incusCheck.Detail = "you're in incus-admin, but this session started before that: log out and back in, then open AgentBox again"
+		incusCheck.Fix = "log out and back in"
+	}
+	if st := s.incusStatus(); !st.Answering && st.Detail != "" {
+		incusCheck.Detail, incusCheck.Fix = st.Detail, "sudo systemctl restart incus.service"
+	}
+	if incusErr == nil {
+		incusCheck.Status, incusCheck.Detail = api.SetupOK, "installed, and your user can use it"
+	}
+	return incusCheck, incusErr
+}
+
+// imageSetupCheck is Setup's check of the base image, which needs Incus first.
+func (s *Server) imageSetupCheck(ctx context.Context, incusOK, built bool, installed image.Installed, wanted image.Components) (api.SetupCheck, error) {
+	if !incusOK {
+		return api.SetupCheck{ID: "image", Title: "Base image", Required: true, Status: api.SetupMissing, Detail: "needs Incus first", Fix: "agentbox image build"}, nil
+	}
+	overrides, err := s.store.ToolOverrides(ctx)
+	if err != nil {
+		return api.SetupCheck{}, err
+	}
+	return s.baseImageCheck(image.PlanFor(built, installed, wanted, overrides), installed, wanted), nil
 }
 
 // storagePoolCheck warns when the "default" storage pool isn't btrfs or zfs:

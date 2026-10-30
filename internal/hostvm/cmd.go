@@ -34,6 +34,11 @@ func Main(args []string, version string) int {
 		return 1
 	}
 	frontVersion = version
+	if len(args) > 0 && args[0] == "doctor" {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return runDoctor(ctx, args[1:])
+	}
 	if len(args) == 0 || args[0] != "vm" {
 		vm, err := New()
 		if err == nil {

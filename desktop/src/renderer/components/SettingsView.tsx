@@ -54,6 +54,7 @@ import { updateHint } from "../lib/appUpdate";
 import { useAppUpdate } from "../lib/useAppUpdate";
 import { useConnection } from "../lib/events";
 import { RestartVM } from "./RestartVM";
+import { DoctorPanel } from "./DoctorPanel";
 import { KrunkitRemake } from "./KrunkitRemake";
 import { offersRemake } from "../lib/krunkit";
 import type { SettingSection } from "../lib/settingsSearch";
@@ -616,6 +617,9 @@ function SetupWizard({
           </Button>
         </div>
         {error && <Notice className="mt-4">{error}</Notice>}
+        <div className="mt-6 empty:hidden">
+          <DoctorPanel compact />
+        </div>
 
         <div className="mt-6 grid gap-5 md:grid-cols-[13rem_minmax(0,1fr)]">
           <nav
@@ -1655,6 +1659,18 @@ function InstalledSettings({
               },
             ]
           : []),
+        {
+          id: "doctor",
+          title: t("settings.doctor.title"),
+          entries: [
+            {
+              id: "doctor",
+              label: t("settings.doctor.title"),
+              keywords: "agentbox doctor",
+              render: () => <DoctorPanel />,
+            },
+          ],
+        },
         {
           id: "required",
           title: t("settings.checklist.title"),

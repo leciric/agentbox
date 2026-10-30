@@ -738,6 +738,11 @@ export const api = {
   renameClaudeAccount: (account: string, name: string) =>
     call<T.RenamedClaudeAccount>('POST', `/v1/auth/claude/${encodeURIComponent(account)}/rename`, { name } satisfies T.RenameClaudeAccountRequest),
   setup: () => call<T.SetupStatus>('GET', '/v1/setup'),
+  // The doctor: Setup's checks as what's wrong and what fixes it, the fixes
+  // that fix themselves, and a hand-off of a failure to the Home chat.
+  doctor: () => call<T.DoctorReport>('GET', '/v1/doctor'),
+  doctorFix: (req: T.DoctorFixRequest = {}) => call<T.DoctorFixResult>('POST', '/v1/doctor/fix', req),
+  doctorHome: (req: T.DoctorHomeRequest) => call<T.DoctorHomeResult>('POST', '/v1/doctor/home', req),
   image: () => call<T.ImageStatus>('GET', '/v1/image'),
   buildImage: (req: T.BuildImageRequest = {}) => call<T.Job>('POST', '/v1/image/build', req),
 

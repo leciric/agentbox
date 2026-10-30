@@ -144,6 +144,31 @@ If the processor shows no virtualization at all, it's off in the firmware's sett
 AMD-V, often under CPU or Advanced), or, in a virtual machine, nested virtualization is off. Only
 you can turn that on; Setup says so.
 
+## When something doesn't work
+
+```bash
+agentbox doctor          # every check, in order, each ok, warn or FAIL, with its fix
+agentbox doctor --fix    # first fix what's safe to try again
+agentbox doctor --json   # the same, for a script
+```
+
+It checks that this computer can run a VM (KVM, or Lima on a Mac), that the VM runs and its daemon
+answers with this command's version, disk space, that downloads of the base image and GitHub are
+reachable, the base image, the Home chat's AI tool and its login, the GitHub CLI and your GitHub
+account. It exits 1 when a check fails.
+
+`--fix` starts the VM or the daemon, restarts a daemon older than the command, downloads the base
+image (building it when the download fails), and installs the chat's AI tool and the GitHub CLI.
+Everything else has a command to run, or a step only you can take, such as turning on
+virtualization in the firmware.
+
+Setup in the app shows the same list at the top, with **Fix it** on what fixes itself. A check that
+fails with no such fix also has **Ask Home to fix it**: it opens a new session of the Home chat,
+told what failed and the end of the daemon's log, on the Home chat's own AI tool and account. It
+looks into it from where the daemon runs, fixes what it can there, and gives you as commands what
+only you can do on your computer. It isn't offered for a warning, or when the failing check is
+the AI tool's login, which the Home chat needs to run at all.
+
 ## macOS and Windows (alpha)
 
 AgentBox also runs on a **Mac**, in a Linux VM it makes for you with [Lima](https://lima-vm.io)

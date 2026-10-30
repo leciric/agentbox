@@ -3762,6 +3762,44 @@ export interface DiagnosticsFiles {
   waiting: boolean;
 }
 
+export interface DoctorCheck {
+  id: string;
+  title: string;
+  status: string;
+  message: string;
+  fix?: string;
+  autoFix?: boolean;
+  job?: string;
+}
+
+export interface DoctorReport {
+  version: string;
+  checks: DoctorCheck[];
+}
+
+export interface DoctorFixRequest {
+  checks?: string[];
+}
+
+export interface DoctorFix {
+  id: string;
+  job?: string;
+  error?: string;
+}
+
+export interface DoctorFixResult {
+  fixes: DoctorFix[];
+  report: DoctorReport;
+}
+
+export interface DoctorHomeRequest {
+  check: string;
+}
+
+export interface DoctorHomeResult {
+  session: string;
+}
+
 export const JobRunning = "running";
 export const JobSucceeded = "succeeded";
 export const JobFailed = "failed";
@@ -3795,6 +3833,10 @@ export const FileModified = "modified";
 export const FileAdded = "added";
 export const FileDeleted = "deleted";
 export const FileUntracked = "untracked";
+export const DoctorOK = "ok";
+export const DoctorWarn = "warn";
+export const DoctorFail = "fail";
+export const DoctorAILogin = "ai-login";
 export const SetupOK = "ok";
 export const SetupMissing = "missing";
 export const SetupOutdated = "outdated";
