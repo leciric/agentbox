@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import * as T from '../../shared/api';
 import { api } from '../lib/api';
-import { chatLoadRetry, loadErrorMessage } from '../lib/chat';
+import { chatLoadRetry } from '../lib/chat';
 import { t, useT } from '../lib/i18n';
 import { useChatOpenAt } from '../lib/reveal';
 import { ChatMenu, ChatStatus, ChatTab } from './chat/ChatTab';
