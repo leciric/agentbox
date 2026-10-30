@@ -60,7 +60,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuMore, Cont
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Tip } from '../ui/tooltip';
 import { GroupChips } from '../groups/GroupChip';
-import { chooseSession, chosenSession, isUnread, isWorking, openSession, pickSession, useChosenSession, useSeenAt } from '../../lib/sessions';
+import { chooseSession, chosenSession, isUnread, isWorking, openSession, useSeenAt } from '../../lib/sessions';
 
 const stLabel: Record<AgentSt, MessageKey> = {
   needs: 'v2.st.needs',
@@ -864,6 +864,11 @@ function ProjectLead({
   const t = useT();
   const queryClient = useQueryClient();
   const chat = useQuery({ queryKey: ['projectChat', project.name], queryFn: () => api.projectChat(project.name), refetchInterval: 60_000 });
+  // The chat's sessions are listed above the chat, not here: the row's spinner
+  // and dot say that any of them is working or has said something unseen.
+  const sessions = useQuery({ queryKey: ['leadSessions', project.name], queryFn: () => api.leadSessions(project.name) }).data ?? [];
+  const seen = useSeenAt();
+  const sessionWorking = sessions.some(isWorking);
   const now = useNow(60_000);
   const [iconOpen, setIconOpen] = useState(false);
   const [talk, setTalk] = useState(false);
@@ -879,6 +884,7 @@ function ProjectLead({
   const anyCount = counts.working + counts.needs + counts.error > 0;
   const name = projectLabel(project);
   const active = (view.kind === 'project' && view.project === project.name) || (view.kind === 'agent' && view.ref.startsWith(`${project.name}/`));
+  const sessionUnread = !active && sessions.some((s) => isUnread(s, seen[s.ref]));
   const open_ = () => onSelect({ kind: 'project', project: project.name });
   const openSettings = () => {
     open_();
@@ -949,8 +955,9 @@ function ProjectLead({
             <span className="min-w-0 flex-1">
               <span className="flex min-w-0 items-center gap-1.5">
                 <span className="truncate text-[13px] font-medium text-title">{name}</span>
-                {chat.data?.chat === 'running' && <LoaderCircle className="size-3 shrink-0 animate-spin text-subtle" />}
+                {(chat.data?.chat === 'running' || sessionWorking) && <LoaderCircle className="size-3 shrink-0 animate-spin text-subtle" />}
                 {chat.data?.chat === 'waiting' && <span className="size-1.5 shrink-0 rounded-full bg-amber-400" aria-label={t('shell.sidebar.needsYou')} />}
+                {sessionUnread && <span className="size-1.5 shrink-0 rounded-full bg-brand-400" aria-label={t('sessions.unread')} />}
                 {chat.data?.last && <span className={cn('ml-auto shrink-0 text-[11px] text-faint group-hover/lead:hidden', active && 'hidden')}>{timeAgo(chat.data.last.at, now)}</span>}
                 <Tip label={t('v2.sidebar.projectSettings')}>
                   <button
@@ -1042,59 +1049,11 @@ function ProjectLead({
         <TalkToProject project={project.name} leadRef={leadRef} open={talk} onOpenChange={setTalk} onPicked={open_} anchor={<span className="block size-0" />} />
       </span>
       <ProjectIconDialog project={project} open={iconOpen} onOpenChange={setIconOpen} />
-      {/* The chat's sessions, once there is more than one: the one shown is
-          the project's row itself. */}
-      <SidebarSessions project={project.name} active={view.kind === 'project' && view.project === project.name} onOpen={open_} />
       {/* A group of agents given one task shows as a chip under its lead
           until it is decided. */}
       <div className="ml-[15px] mr-1 flex flex-col gap-px pl-[7px] empty:hidden" data-v2-groups={project.name}>
         <GroupChips project={project.name} activeId={view.kind === 'group' ? view.id : undefined} />
       </div>
-    </div>
-  );
-}
-
-// SidebarSessions lists a project's chat sessions under its row, when it has
-// more than one: each one's topic, a spinner while its lead works and a dot
-// when it said something you haven't seen. Clicking one opens it.
-function SidebarSessions({ project, active, onOpen }: { project: string; active: boolean; onOpen: () => void }) {
-  const t = useT();
-  const sessions = useQuery({ queryKey: ['leadSessions', project], queryFn: () => api.leadSessions(project) });
-  const chosen = useChosenSession(project);
-  const seen = useSeenAt();
-  const list = sessions.data ?? [];
-  if (list.length < 2) return null;
-  const current = pickSession(list, chosen);
-  return (
-    <div className="ml-[15px] mr-1 flex flex-col gap-px pb-0.5 pl-[7px]" data-v2-sessions={project} aria-label={t('sessions.label')}>
-      {list.map((s) => {
-        const on = active && s.id === current?.id;
-        const unread = !on && isUnread(s, seen[s.ref]);
-        return (
-          <button
-            key={s.id}
-            type="button"
-            aria-current={on ? 'page' : undefined}
-            data-v2-session={s.id}
-            onClick={() => {
-              chooseSession(project, s.id);
-              onOpen();
-              requestSessionFocus(s.ref);
-            }}
-            className={cn(
-              'flex h-6 min-w-0 items-center gap-1.5 rounded-md border-l border-line px-2 text-left text-[12px] transition-colors',
-              on ? 'bg-surface-strong text-primary' : 'text-subtle hover:bg-surface-raised hover:text-secondary',
-            )}
-          >
-            <span className="min-w-0 flex-1 truncate">{s.topic}</span>
-            {isWorking(s) ? (
-              <LoaderCircle aria-label={t('sessions.working')} className="size-3 shrink-0 animate-spin text-subtle" />
-            ) : unread ? (
-              <span aria-label={t('sessions.unread')} className="size-1.5 shrink-0 rounded-full bg-brand-400" />
-            ) : null}
-          </button>
-        );
-      })}
     </div>
   );
 }

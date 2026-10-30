@@ -33,7 +33,9 @@ func TestWorkListsLiveAndPastAgents(t *testing.T) {
 	ready := addAgent(t, d, repo, "hello-stack", "agent-01", "Reminders page")
 	working := addAgent(t, d, repo, "hello-stack", "agent-02", "Still at it")
 	d.srv.record(ctx, createdEvent(working, "Do the thing", now))
-	d.srv.record(ctx, finishedEvent(ready, api.AgentChanges{Files: 2, Insertions: 10, Deletions: 1}, &api.PullRequest{Number: 7, State: "open"}, "Paginated the reminders list.", now.Add(-time.Minute)))
+	commitOn(t, ready, "a.txt")
+	commitOn(t, ready, "b.txt")
+	d.srv.record(ctx, finishedEvent(ready, api.AgentChanges{Files: 2, Insertions: 2}, &api.PullRequest{Number: 7, State: "open"}, "Paginated the reminders list.", now.Add(-time.Minute)))
 	if _, err := d.srv.memory().AddReport(ctx, memory.Report{Project: "hello-stack", Agent: "agent-01", Status: memory.StatusPartial, Summary: "Paged it; sorting is left."}); err != nil {
 		t.Fatal(err)
 	}

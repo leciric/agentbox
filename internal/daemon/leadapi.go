@@ -432,7 +432,7 @@ func (s *Server) leadAgentDiff(w http.ResponseWriter, r *http.Request) error {
 	}
 	// ?path= narrows it to files or directories, so a chat looking at one
 	// part of a large change needn't read all of it (D87).
-	diff, err := s.manager(nil).Diff(a, r.URL.Query().Get("stat") == "true", r.URL.Query()["path"]...)
+	diff, err := s.manager(nil).Diff(a, prBase(s.cachedPR(r.Context(), a)), r.URL.Query().Get("stat") == "true", r.URL.Query()["path"]...)
 	if err != nil {
 		return err
 	}
