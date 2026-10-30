@@ -1,11 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, Archive, Ellipsis, EyeOff, FolderTree, LoaderCircle, MessageSquarePlus, Play, RefreshCw, Search, Trash2 } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
 import { api, isHomeChat, isProjectChat } from '../../lib/api';
+import type { Wake } from '../v2/ReviewV2';
 import { asleep, chatKey, dropWindow, fetchThread, isSilent, loadOlder, loadWindowNewer, loadWindowOlder, sessionShown, toolsReload } from '../../lib/chat';
 import { useT, type MessageKey } from '../../lib/i18n';
+import { settleSending, useSending, withSending } from '../../lib/sending';
 import { useProjectName } from '../../lib/useProjectName';
 import { cn, errorMessage, shortcut } from '../../lib/utils';
 import { ConfirmDialog } from '../ConfirmDialog';
@@ -25,6 +27,7 @@ import { openPanelOn } from '../../lib/rightPanel';
 import { useUiV2 } from '../../lib/uiV2';
 import { useChatWindow, useRevealItem, type ChatOpenAt } from './reveal';
 import { Timeline } from './Timeline';
+import { ImageWait } from '../ImageWait';
 
 // requestChatFind opens the find bar on a chat, as Ctrl+F (⌘F) does, for its
 // ⋯ menu: after the menu has closed and handed focus back to its trigger, so
@@ -60,7 +63,9 @@ export function ChatTab({
   openAt?: ChatOpenAt;
   readOnly?: { onContinue: () => void; onDelete: () => void };
   // Something to show over the composer, such as UI v2's review card.
-  aboveComposer?: ReactNode;
+  // A function gets the wake button's state while the agent sleeps, to merge
+  // it into its own bar.
+  aboveComposer?: ReactNode | ((wake?: Wake) => ReactNode);
 }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -77,7 +82,14 @@ export function ChatTab({
   // which the timeline shows instead of the chat's end until you go back
   // there (lib/chat's openWindow). The session is the chat's own, as of now.
   const win = useChatWindow(agent.ref);
-  const view = win && thread.data ? { ...win, session: thread.data.session } : thread.data;
+  // What you sent shows at the chat's end before the daemon has it
+  // (lib/sending.ts), until the chat's own copy arrives.
+  const sending = useSending(agent.ref);
+  useEffect(() => {
+    if (thread.data) settleSending(agent.ref, thread.data);
+  }, [agent.ref, thread.data]);
+  const live = useMemo(() => thread.data && withSending(thread.data, sending), [thread.data, sending]);
+  const view = win && live ? { ...win, session: live.session } : live;
   useEffect(() => () => dropWindow(queryClient, agent.ref), [queryClient, agent.ref]);
   const start = useMutation({
     mutationFn: () => api.startChat(agent.ref),
@@ -327,14 +339,14 @@ export function ChatTab({
           ) : (
             <>
               {view.older && (
-                <div className="flex h-8 items-center justify-center gap-1.5 pb-4 text-[12px] text-subtle" data-chat-older>
+                <div className="flex h-8 items-center justify-center gap-1.5 pb-4 text-caption text-subtle" data-chat-older>
                   {loadingOlder && <LoaderCircle className="size-3.5 animate-spin" />}
                   {loadingOlder ? t('chat.tab.loadingOlder') : ''}
                 </div>
               )}
               <Timeline agent={agent} thread={view} onOpenAgent={onOpenAgent} />
               {view.newer && (
-                <div className="flex h-8 items-center justify-center gap-1.5 pt-4 text-[12px] text-subtle" data-chat-newer>
+                <div className="flex h-8 items-center justify-center gap-1.5 pt-4 text-caption text-subtle" data-chat-newer>
                   {loadingNewer && <LoaderCircle className="size-3.5 animate-spin" />}
                   {loadingNewer ? t('chat.tab.loadingNewer') : ''}
                 </div>
@@ -349,7 +361,7 @@ export function ChatTab({
 
       {(win || !atEnd) && (
         <button
-          className="absolute left-1/2 z-20 flex -translate-x-1/2 animate-fade-in items-center gap-1.5 rounded-full border border-line-strong bg-overlay px-3 py-1.5 text-[12px] text-tertiary shadow-lg backdrop-blur-xl transition hover:text-title"
+          className="absolute left-1/2 z-20 flex -translate-x-1/2 animate-fade-in items-center gap-1.5 rounded-full border border-line-strong bg-overlay px-3 py-1.5 text-caption text-tertiary shadow-lg backdrop-blur-xl transition hover:text-title"
           style={{ bottom: composerHeight + 18 }}
           onClick={scrollToEnd}
           data-chat-to-end={win ? 'latest' : 'end'}
@@ -373,7 +385,7 @@ export function ChatTab({
               </Button>
               <span className="h-5 w-px shrink-0 bg-line" aria-hidden />
               <Archive className="size-4 shrink-0 text-subtle" />
-              <span className="min-w-0 flex-1 text-[12.5px] text-muted">{t('pastAgents.readOnly')}</span>
+              <span className="min-w-0 flex-1 text-ui text-muted">{t('pastAgents.readOnly')}</span>
               <Button size="sm" variant="primary" className="shrink-0" onClick={readOnly.onContinue} data-past-continue>
                 <Play />
                 {t('pastAgents.continue')}
@@ -381,7 +393,8 @@ export function ChatTab({
             </div>
           ) : (
             <>
-              {aboveComposer}
+              {agent.waitingForImage && <ImageWait agent={agent} />}
+              {typeof aboveComposer === 'function' ? aboveComposer(sleeping ? { state: sleeping, starting, onStart } : undefined) : aboveComposer}
               <PageStack agent={agent} />
               <Composer
                 agent={agent}
@@ -472,7 +485,7 @@ export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; but
       {/* Only Claude Code's adapter reports background tasks: elsewhere an
           agent waiting on one reads as finished, and never wakes for it. */}
       {(agent.ai === 'codex' || agent.ai === 'opencode' || agent.ai === 'cursor') && (
-        <p className="flex max-w-64 gap-2 px-2.5 py-1.5 text-[11.5px] leading-snug text-amber-300/80" data-chat-background-untracked>
+        <p className="flex max-w-64 gap-2 px-2.5 py-1.5 text-caption leading-snug text-amber-300/80" data-chat-background-untracked>
           <EyeOff className="mt-0.5 size-3.5 shrink-0" />
           {t('chat.background.untrackedTip', { tool })}
         </p>
@@ -575,11 +588,11 @@ function Hero({ agent }: { agent: T.Agent }) {
           <AIIcon ai={agent.ai} className="size-5 text-brand-300" />
         </div>
       </div>
-      <h2 className="text-balance text-2xl font-normal tracking-tight text-primary">{t('chat.hero.title', { project: projectName })}</h2>
+      <h2 className="text-balance text-display font-normal tracking-tight text-primary">{t('chat.hero.title', { project: projectName })}</h2>
       <p className="mt-2 max-w-md text-balance text-sm leading-relaxed text-subtle">
         {t.rich('chat.hero.project', {
           project: projectName,
-          branch: <span className="font-mono text-[12.5px] text-muted">{agent.baseRef || t('chat.hero.itsBranch')}</span>,
+          branch: <span className="font-mono text-ui text-muted">{agent.baseRef || t('chat.hero.itsBranch')}</span>,
         })}
       </p>
     </div>
@@ -596,7 +609,7 @@ function HomeHero({ agent }: { agent: T.Agent }) {
           <AIIcon ai={agent.ai} className="size-5 text-brand-300" />
         </div>
       </div>
-      <h2 className="text-balance text-2xl font-normal tracking-tight text-primary">{t('chat.hero.homeTitle')}</h2>
+      <h2 className="text-balance text-display font-normal tracking-tight text-primary">{t('chat.hero.homeTitle')}</h2>
       <p className="mt-2 max-w-md text-balance text-sm leading-relaxed text-subtle">
         {t('chat.hero.home')}
       </p>
@@ -615,9 +628,9 @@ function AgentHero({ agent }: { agent: T.Agent }) {
           <AIIcon ai={agent.ai} className="size-5 text-brand-300" />
         </div>
       </div>
-      <h2 className="text-balance text-2xl font-normal tracking-tight text-primary">{t('chat.hero.title', { project: projectName })}</h2>
+      <h2 className="text-balance text-display font-normal tracking-tight text-primary">{t('chat.hero.title', { project: projectName })}</h2>
       <p className="mt-2 max-w-md text-balance text-sm leading-relaxed text-subtle">
-        {t.rich('chat.hero.agent', { tool: aiLabel(agent.ai), branch: <span className="font-mono text-[12.5px] text-muted">{agent.branch}</span> })}
+        {t.rich('chat.hero.agent', { tool: aiLabel(agent.ai), branch: <span className="font-mono text-ui text-muted">{agent.branch}</span> })}
       </p>
     </div>
   );
@@ -627,11 +640,11 @@ const statusStyles: Record<string, { dot: string; label: MessageKey }> = {
   off: { dot: 'bg-faint', label: 'chat.status.off' },
   starting: { dot: 'bg-muted', label: 'chat.status.starting' },
   ready: { dot: 'bg-emerald-400', label: 'chat.status.ready' },
-  running: { dot: 'bg-sky-400 animate-pulse', label: 'chat.status.running' },
-  waiting: { dot: 'bg-amber-400 animate-pulse', label: 'chat.status.waiting' },
+  running: { dot: 'bg-sky-400 animate-working', label: 'chat.status.running' },
+  waiting: { dot: 'bg-amber-400', label: 'chat.status.waiting' },
   // Ready, with work it left running in the background: not the session's own
   // state, but what a ready session with ChatSession.background is.
-  awaiting: { dot: 'bg-violet-400 animate-pulse', label: 'chat.status.awaiting' },
+  awaiting: { dot: 'bg-violet-400', label: 'chat.status.awaiting' },
   error: { dot: 'bg-rose-400', label: 'chat.status.error' },
 };
 
@@ -651,7 +664,7 @@ export function ChatStatus({ agent }: { agent: T.Agent }) {
   const tip = state === 'awaiting' ? t('chat.status.awaitingTip', { tasks: background.join(', ') }) : session?.error || session?.detail || session?.adapter || t('chat.status.adapter', { tool });
   return (
     <Tip label={tip}>
-      <span className="flex min-w-0 items-center gap-2 text-[12.5px] text-muted" data-chat-state={state}>
+      <span className="flex min-w-0 items-center gap-2 text-ui text-muted" data-chat-state={state}>
         {state === 'starting' ? <LoaderCircle className="size-3 animate-spin text-muted" /> : <span className={cn('size-1.5 shrink-0 rounded-full', style.dot)} />}
         <span className="hidden truncate sm:inline">{t(style.label, { tool })}</span>
       </span>

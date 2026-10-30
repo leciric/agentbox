@@ -174,6 +174,7 @@ func TestAnchorsAreExtractedFromWhatAnOpenItemSays(t *testing.T) {
 		{"branch agentbox/fix-memory-stale-issues needs a rebase", []string{"branch:agentbox/fix-memory-stale-issues"}},
 		{"agent-12's PR #12 on feat/one-account-per-project", []string{"pr:12", "branch:feat/one-account-per-project"}},
 		{"agent-07 asks: which port? answer_question (id 1a2b3c4d)", []string{"question:1a2b3c4d"}},
+		{"agent-07 asks: which port? questions answer (id 1a2b3c4d)", []string{"question:1a2b3c4d"}},
 		{"internal/agent/recap.go feeds them back via memory.BuildContext",
 			[]string{"path:internal/agent/recap.go", "symbol:memory.BuildContext"}},
 		// An import path is not a branch, and an agent's number is not a PR.

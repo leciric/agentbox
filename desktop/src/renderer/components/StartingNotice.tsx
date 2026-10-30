@@ -19,8 +19,8 @@ export function StartingNotice({ starting, windows }: { starting: NonNullable<Co
   return (
     <Notice tone="info">
       <div className="tabular-nums">{t('shell.app.daemonStarting', { elapsed: elapsed(took) })}</div>
-      {starting.step && <div className="truncate font-mono text-[12px] text-secondary">{starting.step}</div>}
-      {windows && took > 20_000 && <div className="text-[12px] text-secondary">{t('shell.app.daemonStartingSlow')}</div>}
+      {starting.step && <div className="truncate font-mono text-caption text-secondary">{starting.step}</div>}
+      {windows && took > 20_000 && <div className="text-caption text-secondary">{t('shell.app.daemonStartingSlow')}</div>}
     </Notice>
   );
 }

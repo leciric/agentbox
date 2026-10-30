@@ -149,6 +149,8 @@ type Instance struct {
 	ExpandedConfig map[string]string `json:"expanded_config"`
 	// Devices are the instance's own devices, without its profiles'.
 	Devices map[string]map[string]string `json:"devices"`
+	// LastUsedAt is when the instance was last started.
+	LastUsedAt time.Time `json:"last_used_at"`
 }
 
 type InstanceState struct {
@@ -257,6 +259,7 @@ func instanceOf(full *api.InstanceFull) Instance {
 		Config:         full.Config,
 		ExpandedConfig: full.ExpandedConfig,
 		Devices:        full.Devices,
+		LastUsedAt:     full.LastUsedAt,
 	}
 	if st := full.State; st != nil {
 		inst.State = &InstanceState{}

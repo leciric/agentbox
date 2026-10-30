@@ -17,6 +17,12 @@ export function docked(project: string, agents: T.Agent[], uses: T.DesktopUse[],
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
+// usingDesktop is whether the agent used its desktop within inUse.
+export function usingDesktop(ref: string, agents: T.Agent[], uses: T.DesktopUse[], now: number): boolean {
+  const agent = agents.find((a) => a.ref === ref);
+  return !!agent && docked(agent.project, [agent], uses, now).length > 0;
+}
+
 // mentionHref is the link a mention becomes in a message's markdown: a
 // fragment, so react-markdown's URL filter keeps it.
 export const mentionPrefix = '#agentbox-agent=';

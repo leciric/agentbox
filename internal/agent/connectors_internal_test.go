@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"agentbox/internal/connectors"
+	"agentbox/internal/opencode"
 )
 
 // A connector named like one of the servers AgentBox gives every agent would
@@ -36,7 +37,7 @@ func TestAgentMCPServersIncludeConnectors(t *testing.T) {
 	if codex := codexConfigFor("/w", servers, 0); !strings.Contains(codex, "[mcp_servers.linear]\ncommand = \"/usr/local/bin/agentbox\"\nargs = [\"connector\", \"mcp\", \"linear\"]\n") {
 		t.Errorf("Codex's config:\n%s", codex)
 	}
-	opencode, err := openCodeConfig(servers, false)
+	opencode, err := openCodeConfig(opencode.V1, servers, false)
 	if err != nil || !strings.Contains(string(opencode), `"notion"`) {
 		t.Errorf("OpenCode's config = %s, %v", opencode, err)
 	}
@@ -74,8 +75,15 @@ func TestSameMCPServers(t *testing.T) {
 		}
 		return b
 	}
-	opencode := func(s []mcpServer, autonomous bool) []byte {
-		b, err := openCodeConfig(s, autonomous)
+	opencode1 := func(s []mcpServer, autonomous bool) []byte {
+		b, err := openCodeConfig(opencode.V1, s, autonomous)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	opencode2 := func(s []mcpServer) []byte {
+		b, err := openCodeConfig(opencode.V2, s, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -91,8 +99,10 @@ func TestSameMCPServers(t *testing.T) {
 		{"claude, no file before", "claude", nil, claude(`{}`, servers), false},
 		{"codex, the compact window changed", "codex", []byte(codexConfigFor("/w", servers, 100)), []byte(codexConfigFor("/w", servers, 200) + "\n[notice]\nhide = true\n"), true},
 		{"codex, a connector added", "codex", []byte(codexConfigFor("/w", servers, 100)), []byte(codexConfigFor("/w", more, 100)), false},
-		{"opencode, permissions changed", "opencode", opencode(servers, false), opencode(servers, true), true},
-		{"opencode, a connector added", "opencode", opencode(servers, false), opencode(more, false), false},
+		{"opencode, permissions changed", "opencode", opencode1(servers, false), opencode1(servers, true), true},
+		{"opencode, a connector added", "opencode", opencode1(servers, false), opencode1(more, false), false},
+		{"opencode, the version changed shape", "opencode", opencode1(servers, false), opencode2(servers), true},
+		{"opencode 2, a connector added", "opencode", opencode2(servers), opencode2(more), false},
 		{"cursor, unchanged", "cursor", cursorMCPConfig(servers), cursorMCPConfig(servers), true},
 		{"cursor, a connector added", "cursor", cursorMCPConfig(servers), cursorMCPConfig(more), false},
 	} {
@@ -100,4 +110,22 @@ func TestSameMCPServers(t *testing.T) {
 			t.Errorf("%s: sameMCPServers = %v, want %v", c.name, got, c.same)
 		}
 	}
+}
+
+// The Playwright server runs behind `agentbox desktop guard`, so a call that
+// never returns (browser_evaluate on a stuck page) fails back to the agent.
+func TestPlaywrightRunsBehindTheGuard(t *testing.T) {
+	t.Parallel()
+	for _, s := range agentMCPServers("/home/dev", nil) {
+		if s.name != "playwright" {
+			continue
+		}
+		got := s.command + " " + strings.Join(s.args, " ")
+		want := "/usr/local/bin/agentbox desktop guard --name Playwright --timeout 3m0s -- /home/dev/.local/share/mise/shims/playwright-mcp --cdp-endpoint"
+		if !strings.HasPrefix(got, want) {
+			t.Errorf("the Playwright server is started as %q, want it to start with %q", got, want)
+		}
+		return
+	}
+	t.Fatal("no Playwright server")
 }

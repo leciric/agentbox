@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { countLabel, remainingAfter, wrapWalk, goBack, goForward, mergeBlock, nextPending, startWalk, walkItems, walkOrder, queueOf, reviewKeys, reviewShortcut, repeatable, isTyping, firstLine, pressable, proofKey, gallery, chapterAt, proofOf, readableName, step } from './review.ts';
+import { countLabel, remainingAfter, wrapWalk, goBack, goForward, mergeBlock, nextPending, startWalk, walkItems, walkOrder, queueOf, reviewKeys, reviewShortcut, repeatable, isTyping, firstLine, pressable, proofKey, gallery, chapterAt, proofOf, readableName, reviewPane, step } from './review.ts';
 
 const page = (id: string, createdAt: string) => ({ id, createdAt }) as T.Artifact;
 const pr = { number: 12, title: 'feat: dark mode', state: 'open', checks: 'passing', url: '' } as T.PullRequest;
@@ -22,6 +22,18 @@ test('proofOf puts the latest recording first, screenshots and pages oldest firs
   assert.deepEqual(proof.recordings.map((r) => r.media.id), ['rec2', 'rec1']);
   assert.deepEqual(proof.screenshots.map((s) => s.id), ['shot1', 'shot2']);
   assert.deepEqual(proof.pages.map((p) => p.id), ['pg1', 'pg2']);
+});
+
+test('a review opens on the proof, or on the details when the agent showed no media', () => {
+  const empty = proofOf([], []);
+  const withMedia = proofOf([item('shot', 'screenshot', '2026-10-14T10:00:00Z')], []);
+  const withPage = proofOf([], [page('pg1', '2026-10-14T10:00:00Z')]);
+  assert.equal(reviewPane(empty, undefined, false), 'proof', 'it waits for the proof before deciding');
+  assert.equal(reviewPane(empty, undefined, true), 'details');
+  assert.equal(reviewPane(withMedia, undefined, true), 'proof');
+  assert.equal(reviewPane(withPage, undefined, true), 'proof', 'a page is proof too');
+  assert.equal(reviewPane(withMedia, 'details', true), 'details', 'a pane picked by hand wins');
+  assert.equal(reviewPane(empty, 'proof', true), 'proof', 'even the proof, though it is empty');
 });
 
 test('the notes saved while a recording ran are its chapters, each with the screenshots taken in it', () => {
@@ -145,9 +157,14 @@ test('reviewShortcut maps keys to actions, and leaves modified ones alone', () =
   assert.equal(reviewShortcut({ key: ']' }), 'nextChapter');
   assert.equal(reviewShortcut({ key: 'f' }), 'expand');
   assert.ok(proofKey('nextMedia') && !proofKey('toggleDiff'));
+  // V, X and H work a before/after pair's comparison.
+  assert.equal(reviewShortcut({ key: 'v' }), 'compareMode');
+  assert.equal(reviewShortcut({ key: 'x' }), 'flip');
+  assert.equal(reviewShortcut({ key: 'h' }), 'highlight');
+  assert.ok(proofKey('flip') && !repeatable('flip'));
   assert.equal(reviewShortcut({ key: 'r', metaKey: true }), null);
   assert.equal(reviewShortcut({ key: 'm', ctrlKey: true }), null);
-  assert.equal(reviewShortcut({ key: 'x' }), null);
+  assert.equal(reviewShortcut({ key: 'z' }), null);
   // Every key the review lists does what it says.
   for (const k of reviewKeys) for (const key of k.match ?? k.keys) assert.equal(reviewShortcut({ key }), k.action, key);
   // A held key moves through files, never merges twice.
@@ -247,4 +264,25 @@ test('a review opened on one agent goes on to the others waiting', () => {
   assert.equal(nextPending(order, 'b', live)?.ref, 'a');
   // A walk keeps its own order.
   assert.deepEqual(walkOrder({ item: live[0], order: ['a', 'c'] }), ['a', 'c']);
+});
+
+// agent-635's counts-project-dark-1920-before showed first and its -after
+// last, with everything else between them.
+test('proofOf shows each before/after pair together, before then after, ahead of the rest', () => {
+  const proof = proofOf(
+    [
+      item('counts-project-dark-1920-before', 'screenshot', '2026-10-28T10:00:00Z'),
+      item('sidebar', 'screenshot', '2026-10-28T10:01:00Z'),
+      item('walk', 'recording', '2026-10-28T10:02:00Z', { meta: { duration: 10 } }),
+      item('first look', 'screenshot', '2026-10-28T10:03:00Z', { meta: { pair: 'menu', side: 'before' } }),
+      item('counts-project-dark-1920-after', 'screenshot', '2026-10-28T10:04:00Z'),
+      item('second look', 'screenshot', '2026-10-28T10:05:00Z', { meta: { pair: 'menu', side: 'after' } }),
+    ],
+    [],
+  );
+  const shown = gallery(proof);
+  assert.deepEqual(
+    shown.map((s) => (s.kind === 'pair' ? `${s.pair.before.id} | ${s.pair.after.id}` : s.kind === 'recording' ? s.take.media.id : s.kind === 'screenshot' ? s.media.id : s.page.id)),
+    ['counts-project-dark-1920-before | counts-project-dark-1920-after', 'first look | second look', 'walk', 'sidebar'],
+  );
 });

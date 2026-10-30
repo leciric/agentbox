@@ -75,3 +75,41 @@ test('paged lists read a page with no items as empty', async () => {
   body = '';
   assert.deepEqual((await api.mediaPage(new URLSearchParams())).items, []);
 });
+
+// The app updated, but its daemon is still the version before: a request
+// newer than that daemon got Go's plain "404 page not found", which the Work
+// page and the review list showed as is. It says which versions differ
+// instead; a 404 the daemon itself answers (JSON) is left as it is.
+test('a route the daemon lacks says the daemon is older than the app', async () => {
+  (globalThis as unknown as { window: unknown }).window = {
+    agentbox: {
+      info: async () => ({ socket: '', version: '0.17.0-nightly.20261028.152', electron: '', packaged: true, platform: 'linux' }),
+      request: async (_method: string, path: string) => {
+        if (path === '/v1/version') return { status: 200, body: '{"version":"0.15.0"}', contentType: 'application/json' };
+        if (path.startsWith('/v1/work')) return { status: 404, body: '404 page not found\n', contentType: 'text/plain; charset=utf-8' };
+        return { status: 404, body: '{"error":"project \\"p\\" not found"}', contentType: 'application/json' };
+      },
+    },
+  };
+  await assert.rejects(api.workPage(new URLSearchParams()), (err: Error & { code?: string; status?: number }) => {
+    assert.equal(err.code, 'daemon_outdated');
+    assert.equal(err.status, 404);
+    assert.match(err.message, /0\.15\.0/);
+    assert.match(err.message, /0\.17\.0-nightly\.20261028\.152/);
+    return true;
+  });
+  await assert.rejects(api.readyToReviewPage(new URLSearchParams(), 'p'), /project "p" not found/);
+});
+
+test('a 404 from a daemon of the app’s own version is left as it is', async () => {
+  (globalThis as unknown as { window: unknown }).window = {
+    agentbox: {
+      info: async () => ({ socket: '', version: '0.16.0', electron: '', packaged: true, platform: 'linux' }),
+      request: async (_method: string, path: string) =>
+        path === '/v1/version'
+          ? { status: 200, body: '{"version":"0.16.0"}', contentType: 'application/json' }
+          : { status: 404, body: '404 page not found\n', contentType: 'text/plain; charset=utf-8' },
+    },
+  };
+  await assert.rejects(api.workPage(new URLSearchParams()), (err: Error & { code?: string }) => err.code === undefined && /404 page not found/.test(err.message));
+});

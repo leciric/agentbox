@@ -171,7 +171,13 @@ func (s *Store) Memory(ctx context.Context, project, id string) (Memory, error) 
 // the next session starts with has to find that narrative, and "the newest
 // memory this writer wrote" is the only thing that identifies it: a title can
 // be written by anyone, and a kind is shared with every other episodic memory.
-func (s *Store) LatestFrom(ctx context.Context, project, kind, eventType string) (Memory, error) {
+//
+// lead is the chat session's lead whose events count (state.LeadSessionName):
+// each session of a project's chat has its own narrative. "lead" is the
+// session migrated from the chat before sessions, whose events are every one
+// no other session wrote, those from before sessions included; "" is any
+// session's, the newest.
+func (s *Store) LatestFrom(ctx context.Context, project, lead, kind, eventType string) (Memory, error) {
 	if err := requireProject(project); err != nil {
 		return Memory{}, err
 	}
@@ -181,9 +187,17 @@ func (s *Store) LatestFrom(ctx context.Context, project, kind, eventType string)
 	if eventType == "" {
 		return Memory{}, errNoType
 	}
+	byLead, args := `1`, []any{project, kind, eventType}
+	switch lead {
+	case "":
+	case "lead":
+		byLead = `e.agent NOT LIKE 'lead.%'`
+	default:
+		byLead, args = `e.agent = ?`, append(args, lead)
+	}
 	rows, err := s.queryMemories(ctx, `JOIN events e ON e.id = m.source_event_id
-		WHERE m.project = ? AND m.kind = ? AND e.type = ? AND `+live+`
-		ORDER BY m.created_at DESC, m.rowid DESC LIMIT 1`, project, kind, eventType)
+		WHERE m.project = ? AND m.kind = ? AND e.type = ? AND `+byLead+` AND `+live+`
+		ORDER BY m.created_at DESC, m.rowid DESC LIMIT 1`, args...)
 	if err != nil {
 		return Memory{}, err
 	}

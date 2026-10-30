@@ -18,6 +18,15 @@
 # (check-published.sh). workflow_dispatch is the same as a push, as an extra.
 # Docker's layers are cached in GitHub's cache, so a run whose inputs barely
 # changed rebuilds little.
+#
+# Secret CHV_PIN_TOKEN (optional, but set it): a fine-grained personal access
+# token, or a GitHub App's token, for leciric/agentbox with Contents and Pull
+# requests read and write. The pin branch is pushed and its pull request
+# opened with it, so the PR's own runs start by themselves and count toward
+# main's required checks. Without it the workflow uses GITHUB_TOKEN, whose PRs
+# GitHub holds at "action_required" until someone approves their runs: CI is
+# dispatched on the branch instead (which doesn't count toward the ruleset)
+# and a warning says so.
 name: Cloud Hypervisor
 
 on:
@@ -88,11 +97,11 @@ jobs:
           fi
 
       - if: steps.published.outputs.published != 'true'
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       # The cache backend's token and URL, for buildx's type=gha.
       - if: steps.published.outputs.published != 'true'
-        uses: crazy-max/ghaction-github-runtime@v3
+        uses: crazy-max/ghaction-github-runtime@v4
 
       - name: Build (Docker, layers cached in GitHub's cache)
         if: steps.published.outputs.published != 'true'
@@ -152,12 +161,16 @@ jobs:
           url=https://github.com/$GITHUB_REPOSITORY/releases/download/$(basename "$tarball" -x86_64.tar.gz)/$(basename "$tarball")
           [ "$(curl -fsSL --retry 5 "$url.sha256" | cut -d' ' -f1)" = "$(sha256sum "$tarball" | cut -d' ' -f1)" ]
 
-      # A pull request opened with GITHUB_TOKEN runs no workflows, so CI is
-      # dispatched on its branch, for that pull request (ci.yml's `pr`): its
-      # checks land on the branch's head commit, which the PR shows. Until
-      # it's merged, main pins the build before, which is published, so
-      # nightlies keep building.
+      # A pull request opened with GITHUB_TOKEN gets its runs held at
+      # "action_required", so with CHV_PIN_TOKEN (see the header) the branch
+      # is pushed and the PR opened as its owner, and its CI starts by itself.
+      # Without it, CI is dispatched on the branch for that pull request
+      # (ci.yml's `pr`): its checks land on the branch's head commit, but
+      # don't satisfy the ruleset. Until it's merged, main pins the build
+      # before, which is published, so nightlies keep building.
       - name: Open a pull request pinning it
+        env:
+          CHV_PIN_TOKEN: ${{ secrets.CHV_PIN_TOKEN }}
         run: |
           out=$(scripts/chv-gpu/pin.sh "${{ steps.publish.outputs.tarball }}")
           echo "$out"
@@ -167,11 +180,22 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$branch"
           git commit -qm "chore: pin Cloud Hypervisor build $HASH" internal/hostvm/chv/tools.go
-          git push -f origin "$branch"
+          if [ -n "$CHV_PIN_TOKEN" ]; then
+            export GH_TOKEN=$CHV_PIN_TOKEN
+            # checkout left GITHUB_TOKEN's credentials in the config: push with ours.
+            git config --unset-all http.https://github.com/.extraheader || true
+            git push -f "https://x-access-token:$CHV_PIN_TOKEN@github.com/$GITHUB_REPOSITORY.git" "$branch"
+          else
+            git push -f origin "$branch"
+          fi
           if [ -z "$(gh pr list --head "$branch" --state open --json number -q '.[].number')" ]; then
             gh pr create --head "$branch" --base main --title "chore: pin Cloud Hypervisor build $HASH" \
-              --body "Pins the Cloud Hypervisor build the Cloud Hypervisor workflow published from $GITHUB_SHA (release \`chv-*-$HASH\`) in \`internal/hostvm/chv/tools.go\`: the tarball's SHA256 and its files'. Opened by the workflow, which also dispatches CI on this branch."
+              --body "Pins the Cloud Hypervisor build the Cloud Hypervisor workflow published from $GITHUB_SHA (release \`chv-*-$HASH\`) in \`internal/hostvm/chv/tools.go\`: the tarball's SHA256 and its files'. Opened by the workflow."
           fi
+          if [ -n "$CHV_PIN_TOKEN" ]; then
+            exit 0
+          fi
+          echo "::warning title=CHV_PIN_TOKEN is not set::The pin PR was opened with GITHUB_TOKEN, so its own runs wait at action_required until approved; CI was dispatched on the branch, which doesn't count toward main's required checks. Add the CHV_PIN_TOKEN secret."
           # Also when the PR already exists: a force-push of the branch
           # starts no run of its own either.
           pr=$(gh pr list --head "$branch" --state open --json number -q '.[0].number')

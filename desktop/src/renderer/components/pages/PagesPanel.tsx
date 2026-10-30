@@ -27,7 +27,7 @@ export function PagesPanel({ project, pages, agents, agent, onAgent }: { project
         <PageSearch value={query} onChange={setQuery} />
         {agent && (
           <span
-            className="flex min-w-0 items-center gap-1 self-start rounded-full border border-line-strong bg-surface-raised py-0.5 pl-2 pr-1 text-[11.5px] text-secondary"
+            className="flex min-w-0 items-center gap-1 self-start rounded-full border border-line-strong bg-surface-raised py-0.5 pl-2 pr-1 text-caption text-secondary"
             data-rail-pages-agent={agent}
           >
             <span className="min-w-0 truncate">{label(agent)}</span>
@@ -50,8 +50,8 @@ export function PagesPanel({ project, pages, agents, agent, onAgent }: { project
                 <span className="flex size-5 shrink-0 items-center justify-center rounded-md border border-line-strong bg-surface-raised text-brand-200">
                   <AIIcon ai={a?.ai ?? 'claude'} className="size-3" />
                 </span>
-                <span className="min-w-0 truncate text-[12px] font-medium text-secondary">{label(ref)}</span>
-                <span className="rounded-full bg-surface-raised px-1.5 text-[10.5px] tabular-nums text-subtle">{list.length}</span>
+                <span className="min-w-0 truncate text-caption font-medium text-secondary">{label(ref)}</span>
+                <span className="rounded-full bg-surface-raised px-1.5 text-caption tabular-nums text-subtle">{list.length}</span>
               </h3>
               {list.map((page) => (
                 <PageRow key={page.id} project={project} page={page} showAgent={false} now={now} onOpen={() => openPage(project, page)} />
@@ -59,7 +59,7 @@ export function PagesPanel({ project, pages, agents, agent, onAgent }: { project
             </section>
           );
         })}
-        {groups.length === 0 && <p className="px-2 py-8 text-center text-[12.5px] text-subtle">{t('pages.noMatch')}</p>}
+        {groups.length === 0 && <p className="px-2 py-8 text-center text-ui text-subtle">{t('pages.noMatch')}</p>}
       </div>
     </div>
   );

@@ -16,7 +16,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"agentbox/hubapi"
 	"agentbox/internal/api"
+	"agentbox/internal/lan"
 )
 
 // Environments: this machine connecting to a hub (agentbox remote), and this
@@ -27,12 +29,20 @@ func newRemoteCmd(a *app) *cobra.Command {
 		Use:   "remote",
 		Short: "Connect this machine to a hub as an environment, so you can use it from anywhere",
 	}
-	var token string
+	var token, name string
 	var tokenStdin bool
 	connect := &cobra.Command{
 		Use:   "connect <hub URL>",
-		Short: "Connect to a hub with an environment's token (from agentbox env add, or the app)",
-		Args:  cobra.ExactArgs(1),
+		Short: "Connect this machine to a hub, once a device signed in to it approves",
+		Long: `Connects this machine to a hub as an environment. It shows a code, and
+connects once a device signed in to the hub approves it: open the link it
+prints in a browser signed in to the hub, scan its QR code with a phone that
+is, or type the code into the AgentBox app (Approve a device…).
+
+In the app, "Connect this AgentBox to the hub" does all of this in one click.
+With --token, it connects with an environment's token instead, from
+agentbox env add.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if tokenStdin {
 				line, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
@@ -41,12 +51,41 @@ func newRemoteCmd(a *app) *cobra.Command {
 				}
 				token = line
 			}
-			if strings.TrimSpace(token) == "" {
-				return errors.New("pass the environment's token with --token or --token-stdin")
-			}
 			c, err := a.client(cmd)
 			if err != nil {
 				return err
+			}
+			out := cmd.OutOrStdout()
+			if strings.TrimSpace(token) == "" {
+				st, err := c.PairRemote(cmd.Context(), api.RemotePairRequest{Hub: args[0], Name: name})
+				if err != nil {
+					return err
+				}
+				if st.Pairing == nil {
+					return errors.New("the daemon didn't start pairing")
+				}
+				printPairing(out, st.Pairing.Code, st.Pairing.ApproveURL, st.Pairing.QR)
+				for {
+					select {
+					case <-cmd.Context().Done():
+						return cmd.Context().Err()
+					case <-time.After(time.Second):
+					}
+					st, err = c.RemoteStatus(cmd.Context())
+					if err != nil {
+						return err
+					}
+					if st.Pairing != nil && st.Pairing.Error != "" {
+						return errors.New(st.Pairing.Error)
+					}
+					if st.Pairing == nil && st.Connected {
+						_, _ = fmt.Fprintf(out, "Approved: connected to %s. This machine reconnects by itself, also after restarts.\n", st.Hub)
+						return nil
+					}
+					if st.Pairing == nil && st.Configured && st.Error != "" {
+						return fmt.Errorf("approved, but couldn't connect yet: %s (it keeps trying)", st.Error)
+					}
+				}
 			}
 			st, err := c.ConnectRemote(cmd.Context(), api.RemoteConnectRequest{Hub: args[0], Token: token})
 			if err != nil {
@@ -55,11 +94,12 @@ func newRemoteCmd(a *app) *cobra.Command {
 			if !st.Connected {
 				return fmt.Errorf("saved the hub, but couldn't connect yet: %s (it keeps trying)", cmp.Or(st.Error, "no answer in 10 seconds"))
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Connected to %s. This machine reconnects by itself, also after restarts.\n", st.Hub)
+			_, _ = fmt.Fprintf(out, "Connected to %s. This machine reconnects by itself, also after restarts.\n", st.Hub)
 			return nil
 		},
 	}
-	connect.Flags().StringVar(&token, "token", "", "the environment's token, abx_e_…")
+	connect.Flags().StringVar(&name, "name", "", "the environment's name on the hub (default: this machine's hostname)")
+	connect.Flags().StringVar(&token, "token", "", "connect with an environment's token, abx_e_…, instead of asking for approval")
 	connect.Flags().BoolVar(&tokenStdin, "token-stdin", false, "read the token from stdin")
 
 	status := &cobra.Command{
@@ -78,7 +118,11 @@ func newRemoteCmd(a *app) *cobra.Command {
 			out := cmd.OutOrStdout()
 			switch {
 			case !st.Configured:
-				_, _ = fmt.Fprintln(out, "Not connected to a hub. Connect with: agentbox remote connect <hub URL> --token <token>")
+				if st.Pairing != nil && st.Pairing.Error == "" {
+					_, _ = fmt.Fprintf(out, "Waiting for %s to approve the code %s\n", st.Pairing.Hub, st.Pairing.Code)
+					return nil
+				}
+				_, _ = fmt.Fprintln(out, "Not connected to a hub. Connect with: agentbox remote connect <hub URL>")
 			case st.Connected:
 				_, _ = fmt.Fprintf(out, "Connected to %s since %s\n", st.Hub, st.Since.Local().Format(time.DateTime))
 			default:
@@ -163,25 +207,50 @@ func newLoginCmd(a *app) *cobra.Command {
 	var email string
 	var passwordStdin bool
 	cmd := &cobra.Command{
-		Use:   "login <hub URL>",
-		Short: "Sign in to a hub, to use its environments with --env",
-		Args:  cobra.ExactArgs(1),
+		Use:   "login <hub URL or setup link>",
+		Short: "Connect this CLI to a hub, to use its environments with --env",
+		Long: `Connects this CLI to a hub as a device. It shows a code, and is connected
+once a device signed in to the hub approves it: in a browser on the link it
+prints, by scanning its QR code with a phone, or by typing the code into the
+AgentBox app (Approve a device…).
+
+Given the hub's setup link instead (https://…/hub/setup#abx_l_…), it uses it:
+on a hub with no owner, that makes you its owner.
+
+Accounts made on a hub before pairing can still sign in with --email and
+their password.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			url := strings.TrimRight(args[0], "/")
-			if email == "" {
-				_, _ = fmt.Fprint(cmd.ErrOrStderr(), "Email: ")
-				line, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
-				if err != nil && !errors.Is(err, io.EOF) {
-					return err
-				}
-				email = strings.TrimSpace(line)
-			}
-			password, err := readPassword(cmd, passwordStdin, false)
+			url, secret, err := api.ParseHubLink(args[0])
 			if err != nil {
 				return err
 			}
 			host, _ := os.Hostname()
-			session, err := api.HubClient{URL: url}.Login(cmd.Context(), api.HubLoginRequest{Email: email, Password: password, Label: "cli on " + host})
+			label := "agentbox CLI on " + cmp.Or(host, "a machine")
+			hc := api.HubClient{URL: url}
+			var session api.HubSession
+			switch {
+			case secret != "":
+				session, err = hc.Setup(cmd.Context(), api.HubSetupRequest{Secret: secret, Label: label})
+			case email != "" || passwordStdin:
+				var password string
+				if password, err = readPassword(cmd, passwordStdin, false); err == nil {
+					session, err = hc.Login(cmd.Context(), api.HubLoginRequest{Email: email, Password: password, Label: label})
+				}
+			default:
+				var p api.HubPairing
+				if p, err = hc.Pair(cmd.Context(), api.HubPairRequest{Kind: hubapi.PairDevice, Label: label, Hostname: host}); err != nil {
+					return err
+				}
+				printPairing(cmd.OutOrStdout(), p.Code, p.ApproveURL, p.QR)
+				var r api.HubPairResult
+				if r, err = hc.WaitForPairing(cmd.Context(), p); err == nil {
+					if r.Session == nil {
+						return errors.New("the hub approved it, but sent no token")
+					}
+					session = *r.Session
+				}
+			}
 			if err != nil {
 				return err
 			}
@@ -198,13 +267,22 @@ func newLoginCmd(a *app) *cobra.Command {
 			if err := a.saveHubs(kept); err != nil {
 				return err
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Signed in to %s as %s\n", url, session.User.Email)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Connected to %s as %s\n", url, cmp.Or(session.User.Email, session.User.Name, "its owner"))
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&email, "email", "", "your account's email")
-	cmd.Flags().BoolVar(&passwordStdin, "password-stdin", false, "read the password from stdin")
+	cmd.Flags().StringVar(&email, "email", "", "sign in with the email and password of an account made before pairing")
+	cmd.Flags().BoolVar(&passwordStdin, "password-stdin", false, "with --email, read the password from stdin")
 	return cmd
+}
+
+// printPairing shows what a device signed in to the hub approves.
+func printPairing(out io.Writer, code, approveURL string, qr []string) {
+	_, _ = fmt.Fprintf(out, "Approve the code %s from a device signed in to the hub: open\n\n  %s\n\nin a browser there, type the code into the AgentBox app (Approve a device…),\nor scan this with a phone that's signed in:\n\n", code, approveURL)
+	if len(qr) > 0 {
+		_, _ = fmt.Fprint(out, lan.Terminal(qr))
+	}
+	_, _ = fmt.Fprintln(out, "\nWaiting for approval…")
 }
 
 func newLogoutCmd(a *app) *cobra.Command {
@@ -276,7 +354,7 @@ func newEnvCmd(a *app) *cobra.Command {
 	var hubURL string
 	add := &cobra.Command{
 		Use:   "add <name>",
-		Short: "Add an environment, and print the command that connects a machine to it",
+		Short: "Add an environment, and print the command that connects a machine to it with its token",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			h, err := a.pickHub(hubURL)
@@ -344,7 +422,7 @@ func (a *app) findEnvironment(ctx context.Context, name string) (savedHub, api.H
 }
 
 // localOnly are commands that work on this machine only, so --env can't apply.
-var localOnly = map[string]bool{"shell": true, "exec": true, "auth": true, "host": true, "daemon": true, "server": true, "remote": true, "login": true, "logout": true, "env": true, "path": true, "machines": true}
+var localOnly = map[string]bool{"shell": true, "exec": true, "auth": true, "host": true, "daemon": true, "server": true, "remote": true, "login": true, "logout": true, "env": true, "path": true, "machines": true, "debug": true}
 
 func topCommand(cmd *cobra.Command) string {
 	for cmd.HasParent() && cmd.Parent().HasParent() {

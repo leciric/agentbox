@@ -39,7 +39,7 @@ taken as an argument: that would leave it in your shell history and in ps.`,
 }
 
 func newSecretsSetCmd(a *app) *cobra.Command {
-	var fromStdin bool
+	var fromStdin, leadManaged bool
 	cmd := &cobra.Command{
 		Use:   "set <project | project/agent> NAME",
 		Short: "Store a secret and write it into the agents that get it",
@@ -52,7 +52,14 @@ for it without echoing it. --value-stdin always reads stdin.
 
 Setting a secret again replaces the value. Running agents get the new one
 written in straight away; their shells and their AI tool see it the next time
-they start.`,
+they start.
+
+--lead-managed lets the project's lead answer agents' requests for a project
+secret it keeps fresh itself (a token its own script refreshes), with the value
+stored here, without ever seeing it; --lead-managed=false stops that. Left out,
+setting the value again keeps the secret as it was.
+
+  azure-token | agentbox secrets set pawly AZURE_TOKEN --value-stdin --lead-managed`,
 		// A third argument is someone trying to pass the value. Saying why it
 		// isn't taken matters more than a usage line: by the time this runs,
 		// that value is already in the shell's history.
@@ -75,7 +82,11 @@ they start.`,
 			if err != nil {
 				return err
 			}
-			secret, err := c.SetSecret(cmd.Context(), target, name, value)
+			req := api.SetSecretRequest{Value: value}
+			if cmd.Flags().Changed("lead-managed") {
+				req.LeadManaged = &leadManaged
+			}
+			secret, err := c.SetSecretWith(cmd.Context(), target, name, req)
 			if err != nil {
 				return err
 			}
@@ -91,6 +102,9 @@ they start.`,
 				_, _ = fmt.Fprintf(out, "Written into %s: %s\n", agentsWord(len(secret.Agents)), strings.Join(secret.Agents, ", "))
 			}
 			_, _ = fmt.Fprintf(out, "Agents read it as $%s; the value can't be read back, here or in the app.\n", secret.Name)
+			if secret.LeadManaged {
+				_, _ = fmt.Fprintf(out, "Managed by the lead: it may fulfil agents' requests for $%s with the stored value.\n", secret.Name)
+			}
 			if secret.Warning != "" {
 				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Note: %s\n", secret.Warning)
 			}
@@ -98,6 +112,7 @@ they start.`,
 		},
 	}
 	cmd.Flags().BoolVar(&fromStdin, "value-stdin", false, "read the value from stdin, even when stdin is a terminal")
+	cmd.Flags().BoolVar(&leadManaged, "lead-managed", false, "let the project's lead fulfil agents' requests for this project secret (=false to stop)")
 	// Deliberately no --value flag: see the package comment above.
 	return cmd
 }
@@ -128,7 +143,11 @@ project's secrets and its own, with the scope of each.`,
 			w := tabwriter.NewWriter(out, 0, 0, 3, ' ', 0)
 			_, _ = fmt.Fprintln(w, "NAME\tSCOPE\tUPDATED\tIN")
 			for _, s := range secrets {
-				_, _ = fmt.Fprintf(w, "$%s\t%s\t%s\t%s\n", s.Name, s.Scope, ago(s.UpdatedAt), agentsIn(s))
+				scope := s.Scope
+				if s.LeadManaged {
+					scope += ", lead-managed"
+				}
+				_, _ = fmt.Fprintf(w, "$%s\t%s\t%s\t%s\n", s.Name, scope, ago(s.UpdatedAt), agentsIn(s))
 			}
 			return w.Flush()
 		},

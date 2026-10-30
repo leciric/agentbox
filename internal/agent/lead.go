@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"agentbox/internal/brief"
@@ -17,6 +19,7 @@ import (
 	"agentbox/internal/hostos"
 	"agentbox/internal/memory"
 	"agentbox/internal/notes"
+	"agentbox/internal/opencode"
 	"agentbox/internal/state"
 )
 
@@ -26,21 +29,41 @@ import (
 // user's machine, the way the user's own Claude Code in a terminal does: a
 // shell, and every tool, asking before it uses them (see leadSettings).
 
-// LeadSocket returns the path of a project's lead socket, or "" when the
-// manager has none (a preview, or a test).
-func (m *Manager) LeadSocket(project string) string {
+// LeadSocket returns the path of the socket a project's chat session reaches
+// AgentBox through, or "" when the manager has none (a preview, or a test).
+// Each session has its own, which is how the daemon knows which session made
+// an agent or asked for anything.
+func (m *Manager) LeadSocket(a state.Agent) string {
 	if m.LeadSocketPath == nil {
 		return ""
 	}
-	return m.LeadSocketPath(project)
+	return m.LeadSocketPath(a.Project, a.Session())
 }
 
-// LeadRef is the agent ref of a project's lead.
+// leadHome is a lead's private HOME: its session's (paths.LeadSessionHome).
+func (m *Manager) leadHome(a state.Agent) string {
+	return m.Paths.LeadSessionHome(a.Project, a.Session())
+}
+
+// LeadRef is the agent ref of a project's lead: Main's.
 func LeadRef(project string) string { return project + "/" + state.LeadName }
 
-// Lead returns a project's lead, or state.ErrNotFound if it has never been used.
+// SessionRef is the agent ref of one of a project's chat sessions.
+func SessionRef(project, session string) string {
+	return project + "/" + state.LeadSessionName(session)
+}
+
+// Lead returns the lead of a project's first session, the one migrated from
+// its chat before sessions (state.MigratedSession), or state.ErrNotFound if
+// it has never been used.
 func (m *Manager) Lead(ctx context.Context, project string) (state.Agent, error) {
-	a, err := m.Store.Agent(ctx, project, state.LeadName)
+	return m.LeadSession(ctx, project, state.MigratedSession)
+}
+
+// LeadSession returns the lead of one of a project's chat sessions, or
+// state.ErrNotFound if it has never been written to.
+func (m *Manager) LeadSession(ctx context.Context, project, session string) (state.Agent, error) {
+	a, err := m.Store.Agent(ctx, project, state.LeadSessionName(session))
 	if err != nil {
 		return state.Agent{}, err
 	}
@@ -50,11 +73,47 @@ func (m *Manager) Lead(ctx context.Context, project string) (state.Agent, error)
 	return a, nil
 }
 
-// EnsureLead returns a project's lead, creating it the first time the project
-// is chatted with. Creating one makes no machine: a detached worktree on the
-// project's branch, a private HOME, and a row.
+// EnsureLead is EnsureLeadSession for the project's first session
+// (state.MigratedSession), opened as "Chat" when the project doesn't have it.
 func (m *Manager) EnsureLead(ctx context.Context, project string) (state.Agent, error) {
-	switch a, err := m.Lead(ctx, project); {
+	if _, err := m.Store.LeadSession(ctx, project, state.MigratedSession); errors.Is(err, state.ErrNotFound) {
+		if err := m.Store.AddLeadSessionID(ctx, project, state.MigratedSession, "Chat", time.Now()); err != nil && !errors.Is(err, state.ErrExists) {
+			return state.Agent{}, err
+		}
+	} else if err != nil {
+		return state.Agent{}, err
+	}
+	return m.EnsureLeadSession(ctx, project, state.MigratedSession)
+}
+
+// leadWorktree is where every session of a project's chat reads the project:
+// one detached worktree, which no lead ever writes to.
+func (m *Manager) leadWorktree(project string) string {
+	return m.Paths.Worktree(project, state.LeadName)
+}
+
+// EnsureLeadSession returns the lead of one of a project's chat sessions,
+// creating it the first time the session is written to. Creating one makes no
+// machine: a private HOME and a row, and the chat's worktree, detached on the
+// project's branch, when no other session has made it.
+//
+// One call at a time per lead (#454): opening a new chat and its first
+// message both reach here, and a create can take a minute, so without the
+// lock both would find no lead and the second insert would fail on the
+// UNIQUE name. The one that waits gets the lead the first one made.
+func (m *Manager) EnsureLeadSession(ctx context.Context, project, session string) (state.Agent, error) {
+	ls, err := m.Store.LeadSession(ctx, project, session)
+	if err != nil {
+		return state.Agent{}, err
+	}
+	name := state.LeadSessionName(session)
+	unlock, err := lockLead(ctx, m.Paths.Worktree(project, name))
+	if err != nil {
+		return state.Agent{}, err
+	}
+	defer unlock()
+
+	switch a, err := m.LeadSession(ctx, project, session); {
 	case err == nil:
 		return m.repairLead(ctx, a)
 	case !errors.Is(err, state.ErrNotFound):
@@ -70,55 +129,42 @@ func (m *Manager) EnsureLead(ctx context.Context, project string) (state.Agent, 
 	}
 	// Before anything is written: the lead needs a login, like any agent, on
 	// the tool and account its composer chose before its first message.
-	choice, err := m.LeadChoice(ctx, project)
-	if err != nil {
-		return state.Agent{}, err
-	}
-	account, err := m.leadAccount(p, choice)
-	if err != nil {
-		return state.Agent{}, err
-	}
-	baseRef := repo.CurrentBranch()
-	commit, err := repo.ResolveCommit(baseRef)
-	if err != nil {
-		return state.Agent{}, err
-	}
-
 	a := state.Agent{
 		Project: p.Name,
-		Name:    state.LeadName,
-		Title:   "Project chat",
+		Name:    name,
+		Title:   ls.Topic,
 		// The name is reserved, and the column is UNIQUE. No such machine exists.
-		Instance:   InstanceName(p.Name, state.LeadName),
-		AI:         choice.Tool,
-		Branch:     "", // detached: the lead commits nothing
-		BaseRef:    baseRef,
-		BaseCommit: commit,
-		Worktree:   m.Paths.Worktree(p.Name, state.LeadName),
-		Status:     state.AgentCreating,
-		CreatedAt:  time.Now(),
+		Instance:  InstanceName(p.Name, name),
+		Branch:    "", // detached: the lead commits nothing
+		Worktree:  m.leadWorktree(p.Name),
+		Status:    state.AgentCreating,
+		CreatedAt: time.Now(),
 
-		ClaudeAccount: account,
-		Interface:     state.InterfaceChat,
-		Role:          state.RoleLead,
+		Interface: state.InterfaceChat,
+		Role:      state.RoleLead,
 	}
-	if _, err := os.Stat(a.Worktree); err == nil {
-		// Left by an interrupted create, or by a lead destroyed without git.
-		_ = repo.RemoveWorktree(a.Worktree)
+	choice, err := m.LeadChoiceOf(ctx, a)
+	if err != nil {
+		return state.Agent{}, err
+	}
+	a.AI = choice.Tool
+	if a.ClaudeAccount, err = m.leadAccount(p, choice); err != nil {
+		return state.Agent{}, err
+	}
+	a.BaseRef = repo.CurrentBranch()
+	if a.BaseCommit, err = repo.ResolveCommit(a.BaseRef); err != nil {
+		return state.Agent{}, err
 	}
 	if err := m.Store.AddAgent(ctx, a); err != nil {
 		return state.Agent{}, err
 	}
-	undo := func() {
-		_ = repo.RemoveWorktree(a.Worktree)
-		_ = m.Store.RemoveAgent(context.WithoutCancel(ctx), a.Project, a.Name)
-	}
-	m.logf("Creating the %s chat: a worktree on %s, detached", p.Name, baseRef)
-	if err := repo.AddWorktreeDetached(a.Worktree, commit, "agentbox: "+a.Ref()); err != nil {
+	undo := func() { _ = m.Store.RemoveAgent(context.WithoutCancel(ctx), a.Project, a.Name) }
+	if err := m.ensureLeadWorktree(ctx, repo, a); err != nil {
 		undo()
 		return state.Agent{}, fmt.Errorf("creating the %s chat: worktree: %w", p.Name, err)
 	}
-	if err := m.configureLead(ctx, a, p, repo.Root, m.LeadSocket(a.Project)); err != nil {
+	m.logf("Creating the %s chat's %q session", p.Name, ls.Topic)
+	if err := m.configureLead(ctx, a, p, repo.Root, m.LeadSocket(a)); err != nil {
 		undo()
 		return state.Agent{}, fmt.Errorf("creating the %s chat: %w", p.Name, err)
 	}
@@ -128,6 +174,63 @@ func (m *Manager) EnsureLead(ctx context.Context, project string) (state.Agent, 
 	}
 	a.Status = state.AgentReady
 	return a, nil
+}
+
+// ensureLeadWorktree makes the chat's worktree when git doesn't know it,
+// detached at the lead's commit, which every session shares. A directory left
+// by an interrupted create, or by a chat destroyed without git, goes first.
+func (m *Manager) ensureLeadWorktree(ctx context.Context, repo gitrepo.Repo, a state.Agent) error {
+	unlock, err := lockLead(ctx, "worktree:"+a.Worktree)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if repo.HasWorktree(a.Worktree) {
+		return nil
+	}
+	_ = repo.RemoveWorktree(a.Worktree)
+	_ = os.RemoveAll(a.Worktree)
+	m.logf("Creating the %s chat's worktree on %s, detached", a.Project, a.BaseRef)
+	return repo.AddWorktreeDetached(a.Worktree, a.BaseCommit, "agentbox: "+a.Project+" chat")
+}
+
+// DeleteLeadSession removes what a deleted session's lead had on disk: its
+// HOME and its chat's images, and the chat's worktree once no session is
+// left to read it. Its rows went with Store.DeleteLeadSession.
+func (m *Manager) DeleteLeadSession(ctx context.Context, project, session string) {
+	_ = os.RemoveAll(m.Paths.LeadSessionHome(project, session))
+	_ = os.RemoveAll(m.Paths.ChatImages(project, state.LeadSessionName(session)))
+	if leads, err := m.SessionLeads(ctx, project); err == nil && len(leads) == 0 {
+		if _, repo, err := m.project(ctx, project); err == nil {
+			_ = repo.RemoveWorktree(m.leadWorktree(project))
+		}
+	}
+}
+
+// leadLocks keeps one EnsureLead per lead in flight. The daemon makes a
+// Manager for every request, and schedules make their own, so the locks live
+// with the package, keyed by the lead's worktree, which is unique to the
+// installation and the project. Each is a channel so that a request that gives
+// up stops waiting.
+var (
+	leadLocksMu sync.Mutex
+	leadLocks   = map[string]chan struct{}{}
+)
+
+func lockLead(ctx context.Context, key string) (unlock func(), err error) {
+	leadLocksMu.Lock()
+	l := leadLocks[key]
+	if l == nil {
+		l = make(chan struct{}, 1)
+		leadLocks[key] = l
+	}
+	leadLocksMu.Unlock()
+	select {
+	case l <- struct{}{}:
+		return func() { <-l }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 // repairLead rebuilds what a lead needs but no longer has: its worktree, if the
@@ -149,12 +252,11 @@ func (m *Manager) repairLead(ctx context.Context, a state.Agent) (state.Agent, e
 		if a, err = m.rebaseLead(ctx, a, repo); err != nil {
 			return a, err
 		}
-		_ = repo.RemoveWorktree(a.Worktree)
-		if err := repo.AddWorktreeDetached(a.Worktree, a.BaseCommit, "agentbox: "+a.Ref()); err != nil {
+		if err := m.ensureLeadWorktree(ctx, repo, a); err != nil {
 			return a, fmt.Errorf("recreating the %s chat's worktree: %w", a.Project, err)
 		}
 	}
-	return a, m.configureLead(ctx, a, p, repo.Root, m.LeadSocket(a.Project))
+	return a, m.configureLead(ctx, a, p, repo.Root, m.LeadSocket(a))
 }
 
 // rebaseLead finds a commit to rebuild the lead's worktree on when the one it
@@ -191,23 +293,53 @@ func (m *Manager) rebaseLead(ctx context.Context, a state.Agent, repo gitrepo.Re
 // (syncLeadAccount). A project that has never been chatted with has no lead and
 // nothing to rewrite, which is not an error: EnsureLead renders the brief, and
 // resolves the account, from the settings as they are then.
+//
+// Every session of the chat is rewritten: they share the project's settings,
+// and each one's brief names the others.
 func (m *Manager) ReconfigureLead(ctx context.Context, project string) error {
-	a, err := m.Lead(ctx, project)
-	if errors.Is(err, state.ErrNotFound) {
-		return nil
-	}
-	if err != nil {
+	leads, err := m.SessionLeads(ctx, project)
+	if err != nil || len(leads) == 0 {
 		return err
 	}
 	p, repo, err := m.project(ctx, project)
 	if err != nil {
 		return err
 	}
-	// An account the project no longer resolves to doesn't stop the brief
-	// from being rewritten: the chat's next start fails on it instead
-	// (repairLead), which is where the user can see why.
-	_, accountErr := m.syncLeadAccount(ctx, a, p)
-	return errors.Join(m.configureLead(ctx, a, p, repo.Root, m.LeadSocket(a.Project)), accountErr)
+	var errs []error
+	for _, a := range leads {
+		// An account the project no longer resolves to doesn't stop the brief
+		// from being rewritten: the chat's next start fails on it instead
+		// (repairLead), which is where the user can see why.
+		_, accountErr := m.syncLeadAccount(ctx, a, p)
+		errs = append(errs, m.configureLead(ctx, a, p, repo.Root, m.LeadSocket(a)), accountErr)
+	}
+	return errors.Join(errs...)
+}
+
+// SessionLeads are the leads of a project's chat sessions that have been
+// written to, the migrated session's first.
+func (m *Manager) SessionLeads(ctx context.Context, project string) ([]state.Agent, error) {
+	agents, err := m.Store.Agents(ctx, project)
+	if err != nil {
+		return nil, err
+	}
+	var out []state.Agent
+	for _, a := range agents {
+		if a.IsLead() {
+			out = append(out, a)
+		}
+	}
+	slices.SortStableFunc(out, func(x, y state.Agent) int {
+		return cmp.Compare(boolInt(x.Session() != state.MigratedSession), boolInt(y.Session() != state.MigratedSession))
+	})
+	return out, nil
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // syncLeadAccount moves the lead to the AI tool its chat runs and the Claude
@@ -224,7 +356,7 @@ func (m *Manager) ReconfigureLead(ctx context.Context, project string) error {
 // A project whose account no longer resolves (removed, or not on its allow
 // list) is refused rather than left on an account it may not use.
 func (m *Manager) syncLeadAccount(ctx context.Context, a state.Agent, p state.Project) (state.Agent, error) {
-	choice, err := m.LeadChoice(ctx, a.Project)
+	choice, err := m.LeadChoiceOf(ctx, a)
 	if err != nil {
 		return a, err
 	}
@@ -277,24 +409,34 @@ func (m *Manager) SyncLead(ctx context.Context, a state.Agent) (state.Agent, err
 	return a, nil
 }
 
-// DestroyLead removes a project's chat: its worktree, its private HOME and its
-// conversation. The project's agents are untouched.
+// DestroyLead removes a project's chat: every session's private HOME and
+// conversation, and the worktree they read. The project's agents are
+// untouched, and belong to no session after it.
 func (m *Manager) DestroyLead(ctx context.Context, project string) error {
-	a, err := m.Lead(ctx, project)
-	if errors.Is(err, state.ErrNotFound) {
-		return nil
+	leads, err := m.SessionLeads(ctx, project)
+	if err != nil {
+		return err
 	}
+	sessions, err := m.Store.LeadSessions(ctx, project)
 	if err != nil {
 		return err
 	}
 	if _, repo, err := m.project(ctx, project); err == nil {
-		_ = repo.RemoveWorktree(a.Worktree)
+		_ = repo.RemoveWorktree(m.leadWorktree(project))
 	} else {
-		_ = os.RemoveAll(a.Worktree)
+		_ = os.RemoveAll(m.leadWorktree(project))
 	}
-	_ = os.RemoveAll(m.Paths.LeadHome(project))
-	_ = os.RemoveAll(m.Paths.ChatImages(project, a.Name))
-	return m.Store.RemoveAgent(ctx, a.Project, a.Name)
+	for _, a := range leads {
+		_ = os.RemoveAll(m.leadHome(a))
+		_ = os.RemoveAll(m.Paths.ChatImages(project, a.Name))
+		if err := m.Store.RemoveAgent(ctx, a.Project, a.Name); err != nil {
+			return err
+		}
+	}
+	for _, ls := range sessions {
+		_ = os.RemoveAll(m.Paths.LeadSessionHome(project, ls.ID))
+	}
+	return m.Store.RemoveLeadSessions(ctx, project)
 }
 
 // configureLead writes the lead's private HOME: the settings that take its
@@ -304,7 +446,7 @@ func (m *Manager) DestroyLead(ctx context.Context, project string) error {
 // server's environment here, in a file the lead cannot change, so the only way
 // it can act is through those tools and only on its own project.
 func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Project, root, socket string) error {
-	home := m.Paths.LeadHome(a.Project)
+	home := m.leadHome(a)
 	// The models are the ones a Claude Code adapter really advertised, plus
 	// AgentBox's own small pinned list (D69), so a lead told to choose one
 	// names a model worth naming even before any chat has run.
@@ -349,7 +491,7 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 	// compacted away (D73). It is rendered on every configureLead rather than
 	// only by the rollover, so a daemon restart, or any other rewrite of this
 	// brief, doesn't quietly drop what the session was started with.
-	recap, err := m.leadRecap(ctx, a.Project)
+	recap, err := m.leadRecap(ctx, a)
 	if err != nil {
 		return err
 	}
@@ -380,7 +522,13 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 		return err
 	}
 	recheck, _, _ := m.Store.LeadRecheck(ctx)
+	session, others, err := m.sessionTopics(ctx, a)
+	if err != nil {
+		return err
+	}
 	text, err := brief.RenderLead(brief.LeadData{
+		Session:              session,
+		OtherSessions:        others,
 		Recheck:              recheck,
 		PRWatch:              prWatch,
 		VM:                   hostos.InVM(),
@@ -391,7 +539,8 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 		Worktree:             a.Worktree,
 		BaseRef:              a.BaseRef,
 		Autonomy:             p.Autonomy,
-		AgentModel:           p.AgentModel,
+		AgentModel:           leadAgentModel(p),
+		AgentTool:            agentToolName(p.AgentTool),
 		AgentDefaultModel:    defModel,
 		AgentDefaultWindow:   strings.ToLower(state.FormatContextWindow(defWindow)),
 		EnforceAgentDefaults: enforced,
@@ -412,10 +561,33 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 	if err != nil {
 		return err
 	}
-	if err := m.writeLeadHome(home, a.Worktree, text, socket, nil, connectors, m.leadGitHubToken(p) != ""); err != nil {
+	version, err := m.openCodeVersion(ctx)
+	if err != nil {
+		return err
+	}
+	if err := m.writeLeadHome(home, a.Worktree, text, socket, nil, connectors, m.leadGitHubToken(p) != "", version); err != nil {
 		return err
 	}
 	return m.WriteSkills(ctx, a)
+}
+
+// sessionTopics is the topic of the session a lead runs, and the project's
+// other sessions' topics, for its brief: neither when it is the only one.
+func (m *Manager) sessionTopics(ctx context.Context, a state.Agent) (string, []string, error) {
+	sessions, err := m.Store.LeadSessions(ctx, a.Project)
+	if err != nil || len(sessions) < 2 {
+		return "", nil, err
+	}
+	var own string
+	var others []string
+	for _, ls := range sessions {
+		if ls.ID == a.Session() {
+			own = ls.Topic
+		} else {
+			others = append(others, ls.Topic)
+		}
+	}
+	return own, others, nil
 }
 
 // writeLeadHome writes what a lead's private HOME holds: its policy, its brief,
@@ -424,7 +596,7 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 // in their brief, in mcpEnv (added to the MCP server's environment) and in
 // connectors, the project's enabled connectors (leadMCPServers); the Home chat
 // spans every project rather than one, so it is given none.
-func (m *Manager) writeLeadHome(home, worktree, text, socket string, mcpEnv map[string]string, connectors []string, github bool) error {
+func (m *Manager) writeLeadHome(home, worktree, text, socket string, mcpEnv map[string]string, connectors []string, github bool, version opencode.Release) error {
 	policy := leadSettings()
 	// The policy is rewritten whole, so a lead made by an older AgentBox gets
 	// what a newer one denies. The model isn't policy: it's what the user
@@ -476,7 +648,7 @@ func (m *Manager) writeLeadHome(home, worktree, text, socket string, mcpEnv map[
 	// The other tools' brief, MCP servers and login, so a chat switched to one
 	// of them finds them (leadtools.go).
 	servers, _ := claude["mcpServers"].(map[string]any)
-	others, stale, err := m.leadToolFiles(home, worktree, text, servers)
+	others, stale, err := m.leadToolFiles(home, worktree, text, servers, version)
 	if err != nil {
 		return err
 	}
@@ -514,14 +686,7 @@ func (m *Manager) writeLeadHome(home, worktree, text, socket string, mcpEnv map[
 // GitHub is optional, so an account that no longer resolves leaves the lead
 // without one rather than without a chat.
 func (m *Manager) leadGitHubToken(p state.Project) string {
-	account, err := m.GitHubAccountFor(p, "")
-	if err == nil && account == "" {
-		return ""
-	}
-	var token string
-	if err == nil {
-		token, err = m.Creds.GitHubToken(account)
-	}
+	token, err := m.GitHubToken(p)
 	if err != nil {
 		m.logf("The %s chat has no GitHub account: %v", p.Name, err)
 		return ""
@@ -529,10 +694,20 @@ func (m *Manager) leadGitHubToken(p state.Project) string {
 	return token
 }
 
+// GitHubToken is the token of the GitHub account the project's agents get
+// (GitHubAccountFor), or "" when there is none.
+func (m *Manager) GitHubToken(p state.Project) (string, error) {
+	account, err := m.GitHubAccountFor(p, "")
+	if err != nil || account == "" {
+		return "", err
+	}
+	return m.Creds.GitHubToken(account)
+}
+
 // leadCredentialHelper answers git's credential requests for github.com with
-// GH_TOKEN, as `gh auth git-credential` would, without needing gh: the lead
-// runs on the host (or AgentBox's VM), which need not have it.
-const leadCredentialHelper = `!f() { test "$1" = get && test -n "$GH_TOKEN" || return 0; echo username=x-access-token; echo "password=$GH_TOKEN"; }; f`
+// GH_TOKEN, without needing gh: the lead runs on the host (or AgentBox's
+// VM), which need not have it.
+const leadCredentialHelper = gitrepo.GitHubCredentialHelper
 
 // leadGitConfig is the lead's ~/.gitconfig: an agent's (gitConfig), with a
 // credential helper of its own. The lead's git would otherwise reach
@@ -561,3 +736,24 @@ func leadSettings() map[string]any {
 // brief carries: enough to judge it by, since the brief is resent with every
 // call the lead makes. search_memory has the rest.
 const noteSuggestionExcerpt = 200
+
+// leadAgentModel is the project's model as the lead's brief reads it, which is
+// a Claude Code one: none for a project whose agents run another tool, unless
+// it leaves the model to the lead.
+func leadAgentModel(p state.Project) string {
+	if p.ModelTool() != "claude" && !p.LeadPicksModel() {
+		return ""
+	}
+	return p.AgentModel
+}
+
+// agentToolName is a project's AgentTool as a brief names it.
+func agentToolName(tool string) string {
+	if tool == "" {
+		return ""
+	}
+	if a, ok := ChatAdapters[tool]; ok && a.Tool != "" {
+		return a.Tool
+	}
+	return tool
+}

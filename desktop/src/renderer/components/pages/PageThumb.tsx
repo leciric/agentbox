@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import * as T from '../../../shared/api';
-import { api } from '../../lib/api';
+import { api, isLeadName } from '../../lib/api';
 import { thumbKey, tileHue } from '../../lib/pages';
 import { useT } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
@@ -40,7 +40,7 @@ export function useAgentLabel(): (ref: string) => string {
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents, staleTime: 30_000 });
   return (ref) => {
     const name = ref.split('/')[1] ?? ref;
-    if (name === T.LeadName) return t('chat.project.agentTitle');
+    if (isLeadName(name)) return t('chat.project.agentTitle');
     return agents.data?.find((a) => a.ref === ref)?.title || name;
   };
 }

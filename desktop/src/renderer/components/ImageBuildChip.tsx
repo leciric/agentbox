@@ -66,18 +66,18 @@ export function ImageBuildChip({ onSelect }: { onSelect: (view: View) => void })
           {failed ? <TriangleAlert className="size-3.5 shrink-0" /> : <LoaderCircle className="size-3.5 shrink-0 animate-spin" />}
           <span className="hidden sm:inline">{label}</span>
           {!failed && data.waiting > 0 && (
-            <span className="rounded-full bg-sky-400/20 px-1.5 text-[10.5px] tabular-nums">{data.waiting}</span>
+            <span className="rounded-full bg-sky-400/20 px-1.5 text-caption tabular-nums">{data.waiting}</span>
           )}
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-[34rem] max-w-[calc(100vw-2rem)]">
         <div className="grid gap-3">
           <div className="grid gap-1">
-            <span className={cn('flex items-center gap-1.5 text-[13px] font-medium', failed ? 'text-rose-200' : 'text-sky-200')}>
+            <span className={cn('flex items-center gap-1.5 text-ui font-medium', failed ? 'text-rose-200' : 'text-sky-200')}>
               <Layers className="size-3.5" />
               {label}
             </span>
-            <span className="text-[12px] leading-relaxed text-secondary">
+            <span className="text-caption leading-relaxed text-secondary">
               {failed
                 ? data.ready
                   ? t('shell.imageChip.failedKeeps')
@@ -86,9 +86,9 @@ export function ImageBuildChip({ onSelect }: { onSelect: (view: View) => void })
                   ? t('shell.imageChip.rebuildingBody')
                   : t('shell.imageChip.buildingBody')}
             </span>
-            {!failed && data.step && <span className="truncate font-mono text-[11.5px] text-muted" title={data.step}>{data.step}</span>}
+            {!failed && data.step && <span className="truncate font-mono text-caption text-muted" title={data.step}>{data.step}</span>}
             {!failed && data.waiting > 0 && (
-              <span className="text-[12px] text-secondary">{t('shell.imageChip.waiting', { count: data.waiting })}</span>
+              <span className="text-caption text-secondary">{t('shell.imageChip.waiting', { count: data.waiting })}</span>
             )}
           </div>
           <JobProgress key={data.job} jobId={data.job} header={false} logClassName="h-56" />
@@ -96,7 +96,7 @@ export function ImageBuildChip({ onSelect }: { onSelect: (view: View) => void })
           <div className="flex items-center justify-between gap-3 border-t border-line pt-2.5">
             <button
               type="button"
-              className="rounded-md px-2 py-1 text-[12px] font-medium text-brand-300 transition hover:bg-surface-raised"
+              className="rounded-md px-2 py-1 text-caption font-medium text-brand-300 transition hover:bg-surface-raised"
               onClick={() => onSelect({ kind: 'jobs' })}
             >
               {t('shell.imageChip.allJobs')}

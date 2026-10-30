@@ -86,7 +86,7 @@ func (s *Server) continueLead(ctx context.Context, rt state.RunningTurn) {
 	var err error
 	if rt.Kind == state.TurnOfHome {
 		a, err = m.EnsureHome(ctx)
-	} else if a, err = m.Lead(ctx, rt.Project); err == nil {
+	} else if a, err = m.LeadSession(ctx, rt.Project, sessionOfName(rt.Agent)); err == nil {
 		// What a turn's start does (ensureLeadFromPath): the lead reads its
 		// branch as it is now.
 		a, err = m.SyncLead(ctx, a)

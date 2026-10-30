@@ -5,7 +5,7 @@ import type { View } from '../App';
 import { api } from '../lib/api';
 import { projectLabel } from '../lib/projectName';
 import { useT, type MessageKey } from '../lib/i18n';
-import { cn, timeAgo } from '../lib/utils';
+import { timeAgo } from '../lib/utils';
 import { Badge, type BadgeVariant } from './ui/badge';
 
 const prStates: Record<string, MessageKey> = { open: 'memory.pulls.state.open', merged: 'memory.pulls.state.merged', closed: 'memory.pulls.state.closed' };
@@ -27,7 +27,7 @@ export function MediaPlace({ item, fromNotice, onSelect }: { item: T.MediaItem; 
   const projectName = projectLabel(project, projects.data);
   const variant = !pr || pr.draft ? 'default' : (prVariant[pr.state] ?? 'default');
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 border-b border-line bg-surface-faint px-5 py-2 text-[12.5px]" data-viewer-links>
+    <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 border-b border-line bg-surface-faint px-5 py-2 text-ui" data-viewer-links>
       <button
         className="flex min-w-0 max-w-[30%] items-center gap-1.5 rounded-md px-1.5 py-0.5 text-muted transition hover:bg-surface-raised hover:text-primary"
         onClick={() => onSelect({ kind: 'project', project })}
@@ -39,7 +39,7 @@ export function MediaPlace({ item, fromNotice, onSelect }: { item: T.MediaItem; 
       <ChevronRight className="size-3.5 shrink-0 text-faint" />
       {item.agentGone ? (
         <span className="flex min-w-0 max-w-[45%] items-center gap-1.5 px-1.5 py-0.5 text-muted">
-          <span className="font-mono text-[12px]">{name}</span>
+          <span className="font-mono text-caption">{name}</span>
           <span className="truncate">{t('shell.mediaPlace.agentRemoved')}</span>
         </span>
       ) : (
@@ -48,7 +48,7 @@ export function MediaPlace({ item, fromNotice, onSelect }: { item: T.MediaItem; 
           onClick={() => onSelect({ kind: 'agent', ref: item.agent, tab: 'chat' })}
           title={t('shell.mediaPlace.open', { name })}
         >
-          <span className="font-mono text-[12px]">{name}</span>
+          <span className="font-mono text-caption">{name}</span>
           {title && <span className="truncate text-muted">· {title}</span>}
         </button>
       )}
@@ -60,13 +60,13 @@ export function MediaPlace({ item, fromNotice, onSelect }: { item: T.MediaItem; 
         >
           <GitPullRequest className="size-3.5" />#{pr.number}
           {/* brand-300 is too faint on light surfaces. */}
-          <Badge variant={variant} className={cn('ml-0.5', variant === 'brand' && '[:root[data-appearance=light]_&]:text-brand-600')}>
+          <Badge variant={variant} className="ml-0.5">
             {pr.draft ? t('memory.pulls.draft') : prStates[pr.state] ? t(prStates[pr.state]) : pr.state}
           </Badge>
           <ExternalLink className="size-3 text-subtle" />
         </button>
       )}
-      {fromNotice && <span className="ml-auto shrink-0 text-[11.5px] text-subtle">{t('shell.mediaPlace.fromNotice', { when: timeAgo(fromNotice) })}</span>}
+      {fromNotice && <span className="ml-auto shrink-0 text-caption text-subtle">{t('shell.mediaPlace.fromNotice', { when: timeAgo(fromNotice) })}</span>}
     </div>
   );
 }

@@ -198,3 +198,55 @@ export function flatten(lists: SidebarList[]): { projects: T.Project[]; sections
     sections: lists.filter((l) => l.section).map((l, i) => ({ ...l.section!, position: i + 1 })),
   };
 }
+
+// listEnd is where a project dragged over a list but none of its rows (the
+// space between two sections) lands: after its last row, or onto the
+// section's header when there are no rows to go after.
+export function listEnd(list: SidebarList): DropTarget {
+  const last = list.section?.collapsed ? undefined : list.projects.at(-1);
+  if (last) return { kind: 'project', name: last.name, edge: 'after' };
+  return list.section ? { kind: 'section', id: list.section.id } : { kind: 'list', section: null };
+}
+
+// UI v2's sidebar (components/v2/SidebarV2.tsx) draws the same sections, but
+// not every project in one is in it there: a pinned project is with the pins
+// and a hidden one with the hidden, and the projects in no section are in
+// v2's own order, by name or by activity, not this one. So v2 works on the
+// lists it shows and moves on the whole of them, through drop, which finds a
+// project wherever it is.
+
+// sectionsAside is the sections as v2 shows them, without the projects shown
+// elsewhere (aside), and the names of the projects they do show.
+export function sectionsAside(lists: SidebarList[], aside: ReadonlySet<string>): { sections: SidebarList[]; shown: Set<string> } {
+  const sections = lists.filter((l) => l.section).map((l) => ({ section: l.section, projects: l.projects.filter((p) => !aside.has(p.name)) }));
+  return { sections, shown: new Set(sections.flatMap((l) => l.projects.map((p) => p.name))) };
+}
+
+// stepTarget is moveProject as v2 shows the lists: where one step up or down
+// puts a project, as a drop target for drop over the whole lists. In a
+// section a step passes the next project shown (not one shown elsewhere),
+// and past its end or its top goes into the next section or the one before;
+// down past the last section is out of any. The projects in no section have
+// no order of their own in v2, so from there the only step is up, to the end
+// of the last section.
+export function stepTarget(shown: SidebarList[], name: string, delta: -1 | 1): DropTarget | null {
+  const at = locate(shown, name);
+  if (!at) return null;
+  const [i, j] = at;
+  const sections = shown.filter((l) => l.section);
+  if (shown[i].section) {
+    const next = shown[i].projects[j + delta];
+    if (next) return { kind: 'project', name: next.name, edge: delta === -1 ? 'before' : 'after' };
+  } else if (delta === 1) return null;
+  const k = shown[i].section ? sections.indexOf(shown[i]) + delta : sections.length - 1;
+  if (k >= sections.length) return { kind: 'list', section: null };
+  const into = sections[k];
+  if (!into) return null; // the top of the sidebar
+  const id = into.section!.id;
+  if (delta === 1) {
+    const first = into.projects[0];
+    return first ? { kind: 'project', name: first.name, edge: 'before' } : { kind: 'section', id };
+  }
+  const last = into.projects.at(-1);
+  return last ? { kind: 'project', name: last.name, edge: 'after' } : { kind: 'list', section: id };
+}
