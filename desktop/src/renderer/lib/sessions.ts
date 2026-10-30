@@ -63,6 +63,31 @@ export function pickSession(sessions: readonly T.LeadSession[], chosen: string |
   return sessions.find((s) => s.id === chosen) ?? byActivity(sessions)[0];
 }
 
+// openSession is the session clicking a project opens: the one an agent's
+// question waits in (the oldest question's, when several wait), and otherwise
+// pickSession's. A question waits in its agent's session (Agent.leadSession),
+// or, for an agent no session owns or whose session was deleted, in the one
+// most recently active, as the daemon routes it (daemon/leadsessions.go). A
+// question from an agent not in agents is left out: it's gone.
+export function openSession(
+  sessions: readonly T.LeadSession[],
+  chosen: string | undefined,
+  questions: readonly T.Question[],
+  agents: readonly T.Agent[],
+): T.LeadSession | undefined {
+  const owners = new Map(agents.map((a) => [a.ref, a.leadSession ?? '']));
+  const waiting = questions
+    .filter((q) => (q.status === 'pending' || q.status === 'escalated') && owners.has(q.ref))
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  const oldest = waiting[0];
+  if (oldest) {
+    const owner = owners.get(oldest.ref);
+    const s = sessions.find((x) => x.id === owner) ?? byActivity(sessions)[0];
+    if (s) return s;
+  }
+  return pickSession(sessions, chosen);
+}
+
 // neighbour is the session after (or before, with step -1) id in the tabs'
 // order, wrapping round.
 export function neighbour(sessions: readonly T.LeadSession[], id: string | undefined, step: 1 | -1): T.LeadSession | undefined {
