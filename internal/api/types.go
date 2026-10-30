@@ -2241,7 +2241,9 @@ type RetiredAgent struct {
 	Reason string `json:"reason,omitempty"` // why it was skipped, or what failed
 }
 
-// AgentChanges is the size of an agent's diff against the commit it started from.
+// AgentChanges is the size of an agent's diff against its base: where it left
+// its pull request's base branch, or without one the branch it was made from
+// and the project's base branch, as they are now (gitrepo.DiffBase).
 type AgentChanges struct {
 	Files      int  `json:"files"`
 	Insertions int  `json:"insertions"`

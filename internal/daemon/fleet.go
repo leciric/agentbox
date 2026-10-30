@@ -70,7 +70,7 @@ func (s *Server) fleet(w http.ResponseWriter, r *http.Request) error {
 		out.GitHubError = s.githubErrorFor(p, repo, err)
 	}
 
-	changes := agentChanges(agents, polledChanges)
+	changes := agentChanges(agents, prs, polledChanges)
 	topics := map[string]string{}
 	if sessions, err := s.store.LeadSessions(ctx, project); err == nil {
 		for _, ls := range sessions {
@@ -110,14 +110,15 @@ func (s *Server) fleet(w http.ResponseWriter, r *http.Request) error {
 // agentChanges measures every agent's diff at once. Each one is a git process
 // or two against a different worktree, so they run concurrently: a project
 // with fifteen agents took as long as fifteen diffs in a row before, on every
-// poll of a tab that polls.
-func agentChanges(agents []state.Agent, measure func(state.Agent) api.AgentChanges) []api.AgentChanges {
+// poll of a tab that polls. Each is measured onto its pull request's base,
+// from prs, when it has one.
+func agentChanges(agents []state.Agent, prs map[string]*api.PullRequest, measure func(state.Agent, ...string) api.AgentChanges) []api.AgentChanges {
 	out := make([]api.AgentChanges, len(agents))
 	var g errgroup.Group
 	g.SetLimit(changesConcurrency)
 	for i, a := range agents {
 		g.Go(func() error {
-			out[i] = measure(a)
+			out[i] = measure(a, prBase(prs[a.Name])...)
 			return nil
 		})
 	}
@@ -125,12 +126,36 @@ func agentChanges(agents []state.Agent, measure func(state.Agent) api.AgentChang
 	return out
 }
 
-// changesOf is an agent's diff against the commit it started from, for
-// showing: when git can't read it now, the last it could, so a fleet doesn't
+// prBase is the branch an agent's pull request would merge into, which its
+// changes are measured onto as GitHub measures the pull request's, or none
+// without one (gitrepo.DiffBase).
+func prBase(pr *api.PullRequest) []string {
+	if pr == nil || pr.BaseBranch == "" {
+		return nil
+	}
+	return []string{pr.BaseBranch}
+}
+
+// cachedPR is a's pull request as the project's cache has it, without
+// waiting on GitHub, or nil.
+func (s *Server) cachedPR(ctx context.Context, a state.Agent) *api.PullRequest {
+	p, err := s.store.Project(ctx, a.Project)
+	if err != nil {
+		return nil
+	}
+	_, entry, heads, _, err := s.projectPulls(p, []state.Agent{a})
+	if err != nil {
+		return nil
+	}
+	return entry.byAgent(heads)[a.Name]
+}
+
+// changesOf is an agent's diff against its base (gitrepo.DiffBase), onto its
+// pull request's base branch when given one (prBase), for showing: when git can't read it now, the last it could, so a fleet doesn't
 // flash every agent to "no changes" while the machine is out of files. What
 // decides anything from the changes uses measureChanges, and its error.
-func changesOf(a state.Agent) api.AgentChanges {
-	out, err := measureChanges(a)
+func changesOf(a state.Agent, onto ...string) api.AgentChanges {
+	out, err := measureChanges(a, onto...)
 	if err != nil {
 		if last, ok := knownChanges.Load(a.Worktree); ok {
 			return last.(api.AgentChanges)
@@ -147,7 +172,7 @@ func changesOf(a state.Agent) api.AgentChanges {
 // measured, by a poll whose git hasn't returned yet, isn't measured again
 // alongside it but shown as last read: polls stacking up on a slow disk kept
 // git running nonstop.
-func polledChanges(a state.Agent) api.AgentChanges {
+func polledChanges(a state.Agent, onto ...string) api.AgentChanges {
 	if a.Worktree != "" {
 		if _, busy := measuring.LoadOrStore(a.Worktree, true); busy {
 			if last, ok := knownChanges.Load(a.Worktree); ok {
@@ -157,7 +182,7 @@ func polledChanges(a state.Agent) api.AgentChanges {
 			defer measuring.Delete(a.Worktree)
 		}
 	}
-	return changesOf(a)
+	return changesOf(a, onto...)
 }
 
 // knownChanges is the last changes measureChanges read for each worktree.
@@ -166,12 +191,12 @@ var knownChanges sync.Map // worktree -> api.AgentChanges
 // measuring is the worktrees polledChanges is measuring now.
 var measuring sync.Map // worktree -> true
 
-// measureChanges measures an agent's diff against the commit it started
-// from, and whether it has uncommitted work. A worktree that has been
+// measureChanges measures an agent's diff against its base, onto the
+// branches in onto when given (gitrepo.DiffBase), and whether it has uncommitted work. A worktree that has been
 // removed, or an agent still being created, has none. An error is git
 // failing to read it (ENFILE, say), and the changes are then unknown: never
 // "none", and never "clean".
-func measureChanges(a state.Agent) (api.AgentChanges, error) {
+func measureChanges(a state.Agent, onto ...string) (api.AgentChanges, error) {
 	var out api.AgentChanges
 	if a.Worktree == "" || a.BaseCommit == "" {
 		return out, nil
@@ -179,7 +204,7 @@ func measureChanges(a state.Agent) (api.AgentChanges, error) {
 	if _, err := os.Stat(a.Worktree); errors.Is(err, fs.ErrNotExist) {
 		return out, nil
 	}
-	stat, err := gitrepo.DiffWorktree(a.Worktree, gitrepo.DiffBase(a.Worktree, a.BaseRef, a.BaseCommit), true)
+	stat, err := gitrepo.DiffWorktree(a.Worktree, gitrepo.DiffBase(a.Worktree, a.BaseRef, a.BaseCommit, onto...), true)
 	if err != nil {
 		return out, err
 	}
