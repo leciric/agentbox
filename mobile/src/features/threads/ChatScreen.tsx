@@ -44,7 +44,8 @@ export function ChatScreen() {
   const list = sessions.data ?? [];
   const shown = list.find((s) => s.id === chosen) ?? [...list].sort((a, b) => b.activeAt.localeCompare(a.activeAt))[0];
   const openSession = useMutation({
-    mutationFn: (topic: string) => api.newLeadSession(project, topic),
+    // Untitled, on the settings of the session shown (NewLeadSessionRequest.from).
+    mutationFn: () => api.newLeadSession(project, { from: shown?.id }),
     onSuccess: (s) => {
       setChosen(s.id);
       void queryClient.invalidateQueries({ queryKey: ['leadSessions', project] });
@@ -87,7 +88,7 @@ export function ChatScreen() {
         icon={lead ? <LeadAvatar mood={leadMood(info.data?.chat, waiting.length > 0)} size={32} /> : agent ? <AgentAvatar ai={agent.ai} mood={avatarMood(agent, waiting.length > 0)} size={32} /> : undefined}
       />
       {lead && sessions.data && (
-        <SessionBar sessions={list} current={shown?.id} canAdd={can(session, 'chat')} onChoose={setChosen} onAdd={(topic) => openSession.mutate(topic)} />
+        <SessionBar sessions={list} current={shown?.id} canAdd={can(session, 'chat')} onChoose={setChosen} onAdd={() => openSession.mutate()} />
       )}
       {lead && sessions.data && !shown ? (
         <Text style={styles.empty}>{t('sessions.none')}</Text>

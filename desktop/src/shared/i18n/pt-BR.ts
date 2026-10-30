@@ -1974,8 +1974,6 @@ export const ptBR: Messages = {
   'chat.project.agentTitle': 'Chat do projeto',
   'sessions.label': 'Sessões deste chat',
   'sessions.new': 'Nova sessão',
-  'sessions.topic': 'Assunto da nova sessão',
-  'sessions.topicPlaceholder': 'Sobre o quê? Como “Produção: erros 500 no login”',
   'sessions.rename': 'Renomear a sessão',
   'sessions.delete': 'Apagar a sessão',
   'sessions.deleteNamed': 'Apagar a sessão {topic}',

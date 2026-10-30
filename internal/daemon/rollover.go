@@ -91,11 +91,13 @@ func (s *Server) rolloverIfNeeded(ctx context.Context, a state.Agent) {
 }
 
 // leadIdle is the chat's Idle hook: a turn has ended and nothing followed it.
+// A full chat is compacted, and an untitled session named (sessionname.go).
 func (s *Server) leadIdle(a state.Agent) {
 	if !a.IsLead() {
 		return
 	}
 	s.rolloverIfNeeded(context.Background(), a)
+	s.nameSession(context.Background(), a)
 }
 
 // needsRollover reports whether a context this full is worth compacting, for a

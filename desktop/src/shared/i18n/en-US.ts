@@ -1973,8 +1973,6 @@ export const enUS = {
   'chat.project.agentTitle': 'Project chat',
   'sessions.label': 'Sessions of this chat',
   'sessions.new': 'New session',
-  'sessions.topic': 'Topic of the new session',
-  'sessions.topicPlaceholder': 'What is it about? Like “Prod: login 500s”',
   'sessions.rename': 'Rename the session',
   'sessions.delete': 'Delete the session',
   'sessions.deleteNamed': 'Delete the session {topic}',

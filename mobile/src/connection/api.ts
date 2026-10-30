@@ -89,7 +89,7 @@ export const api = {
   projectChat: (name: string, session?: string) =>
     call<unknown>('GET', session ? `${project(name)}/sessions/${encodeURIComponent(session)}/lead` : `${project(name)}/lead`).then(P.projectChat),
   leadSessions: (name: string) => call<unknown>('GET', `${project(name)}/sessions`).then(P.leadSessions),
-  newLeadSession: (name: string, topic: string) => call<T.LeadSession>('POST', `${project(name)}/sessions`, { topic } satisfies T.NewLeadSessionRequest),
+  newLeadSession: (name: string, req: T.NewLeadSessionRequest = {}) => call<T.LeadSession>('POST', `${project(name)}/sessions`, req satisfies T.NewLeadSessionRequest),
   chat: (ref: string, page: ChatPage = {}) => {
     const q = new URLSearchParams();
     if (page.limit) q.set('limit', String(page.limit));

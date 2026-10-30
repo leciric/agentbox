@@ -2795,6 +2795,7 @@ export interface LeadSession {
   id: string;
   ref: string;
   topic: string;
+  untitled?: boolean;
   chat: string;
   agents: number;
   last?: ChatLine;
@@ -2803,7 +2804,8 @@ export interface LeadSession {
 }
 
 export interface NewLeadSessionRequest {
-  topic: string;
+  topic?: string;
+  from?: string;
 }
 
 export interface LeadSessionPatch {

@@ -33,13 +33,15 @@ export const isBackToLeadShortcut = (event: Keyish, mac: boolean) =>
   event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && event.key === 'ArrowLeft' && !closest(event, '.xterm, canvas') && !(mac && closest(event, 'input, textarea, [contenteditable="true"]'));
 
 // The sessions of a project's chat (lib/sessions.ts), from anywhere on its
-// page but a terminal: Mod+T opens one, Mod+Shift+⌫ deletes the one shown (it
-// asks first, in the tab), and Ctrl+Tab and Ctrl+Shift+Tab move to the next
-// and the previous, as a browser's tabs.
+// page but a terminal: Mod+T opens one, Mod+W or Mod+Shift+⌫ deletes the one
+// shown (it asks first, in the tab), and Ctrl+Tab and Ctrl+Shift+Tab move to
+// the next and the previous, as a browser's tabs. The listener's
+// preventDefault keeps Mod+W from reaching the window menu's Close.
 export function sessionShortcut(event: Keyish): 'new' | 'delete' | 'next' | 'previous' | undefined {
   if (inTerminal(event)) return undefined;
   if (mod(event) && !event.shiftKey && event.key.toLowerCase() === 't') return 'new';
   if (mod(event) && event.shiftKey && event.key === 'Backspace') return 'delete';
+  if (mod(event) && !event.shiftKey && event.key.toLowerCase() === 'w') return 'delete';
   if (event.ctrlKey && !event.altKey && !event.metaKey && event.key === 'Tab') return event.shiftKey ? 'previous' : 'next';
   return undefined;
 }
@@ -47,6 +49,7 @@ export function sessionShortcut(event: Keyish): 'new' | 'delete' | 'next' | 'pre
 // sessionKeys is how each reads, for the sheet and the buttons' hints.
 export const sessionKeys = {
   new: ['Mod', 'T'],
+  close: ['Mod', 'W'],
   delete: ['Mod', 'Shift', '⌫'],
   next: ['Ctrl', 'Tab'],
   previous: ['Ctrl', 'Shift', 'Tab'],
@@ -135,6 +138,7 @@ export const sheet: { title: MessageKey; rows: { keys: string[]; label: MessageK
     title: 'keys.group.sessions',
     rows: [
       { keys: [...sessionKeys.new], label: 'keys.sessionNew' },
+      { keys: [...sessionKeys.close], label: 'keys.sessionDelete' },
       { keys: [...sessionKeys.delete], label: 'keys.sessionDelete' },
       { keys: [...sessionKeys.next], label: 'keys.sessionNext' },
       { keys: [...sessionKeys.previous], label: 'keys.sessionPrevious' },
