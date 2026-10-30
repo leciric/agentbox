@@ -557,6 +557,9 @@ export const api = {
   // says which code to enter while it waits for you to enter it.
   startGitHubLogin: (account?: string) => call<T.Job>('POST', '/v1/auth/github/login', { account } satisfies T.GitHubLoginRequest),
   githubLogin: (job: string) => call<T.GitHubLogin>('GET', `/v1/auth/github/login/${encodeURIComponent(job)}`),
+  // githubRepos lists what the default GitHub account can push to, newest
+  // first: the first run's first project is cloned from it.
+  githubRepos: () => call<T.GitHubRepo[]>('GET', '/v1/github/repos'),
   removeGitHubAccount: (account: string) => call<void>('DELETE', `/v1/auth/github/${encodeURIComponent(account)}`),
   setDefaultGitHubAccount: (account: string) => call<void>('POST', `/v1/auth/github/${encodeURIComponent(account)}/default`),
   renameGitHubAccount: (account: string, name: string) =>

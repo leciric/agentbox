@@ -73,6 +73,7 @@ import {
   DefaultContextWindow,
   CursorDefaults,
   DefaultModel,
+  DefaultTool,
   LeadRecheck,
   MediaRetention,
   DiskFloor,
@@ -116,7 +117,7 @@ import { VMSwap } from "./VMSwap";
 import { kvmFixable, MoveToVM, moveToVMKeywords } from "./RunInVM";
 import { ExportSettings, ImportSettings } from "./TransferSettings";
 
-type Status =
+export type Status =
   | "ok"
   | "missing"
   | "outdated"
@@ -130,7 +131,7 @@ type Status =
 // the daemon is updating in the background, or failed to, is still the one
 // agents use, a first image being built is one agents wait for, and a
 // warning is a caveat, never a reason to stop.
-const usable = (status: Status) =>
+export const usable = (status: Status) =>
   status === "ok" || status === "updating" || status === "building" || status === "warn";
 
 // background is a step whose work runs on by itself: nothing to do but wait.
@@ -139,7 +140,7 @@ const background = (status: Status) =>
 
 // A step is one thing to get right, whether the daemon checks it (Incus, the
 // base image) or the app does (its own command-line tool, GitHub).
-type Step = {
+export type Step = {
   id: string;
   title: string;
   description: string;
@@ -221,15 +222,10 @@ function githubDetail(auth?: T.AuthStatus): string | undefined {
     : t("settings.setup.githubOwn");
 }
 
-export function SettingsView({
-  onHome,
-  linked,
-}: {
-  onHome?: () => void;
-  // linked is the section a link elsewhere in the app opened Settings at
-  // (openSettingsSection).
-  linked?: string;
-}) {
+// useSetupSteps is Setup's steps, each with what it offers to do about
+// itself: the wizard's and the Settings page's, and the first run's
+// (FirstRun), which shows a few of them in its own order.
+export function useSetupSteps() {
   const t = useT();
   const queryClient = useQueryClient();
   const setup = useQuery({
@@ -502,6 +498,19 @@ export function SettingsView({
     if (c.id === "opencode") steps.push(githubStep);
   }
   steps.push(notificationsStep);
+  return { steps, setup, cli, info, imageJob, hostSetupRan };
+}
+
+export function SettingsView({
+  onHome,
+  linked,
+}: {
+  onHome?: () => void;
+  // linked is the section a link elsewhere in the app opened Settings at
+  // (openSettingsSection).
+  linked?: string;
+}) {
+  const { steps, setup, cli, info, imageJob, hostSetupRan } = useSetupSteps();
 
   // Which page: the wizard while there is setting up left to do, the tabbed
   // page once there isn't. It waits for both answers — the daemon's checks and
@@ -772,7 +781,7 @@ function RailItem({
   );
 }
 
-function StepIcon({ status, small }: { status: Status; small?: boolean }) {
+export function StepIcon({ status, small }: { status: Status; small?: boolean }) {
   const size = small ? "size-4" : "size-5";
   if (status === "checking")
     return <LoaderCircle className={cn(size, "animate-spin text-subtle")} />;
@@ -1255,6 +1264,13 @@ function InstalledSettings({
           title: t("settings.group.new-agents.title"),
           description: t("settings.group.new-agents.description"),
           entries: [
+            {
+              id: "default-tool",
+              label: t("defaults.tool.label"),
+              keywords: t("defaults.tool.keywords"),
+              modified: changed((s) => s.lastAgentPick.ai !== "" && s.lastAgentPick.ai !== "claude"),
+              render: () => <DefaultTool />,
+            },
             {
               id: "agent-model",
               label: t("settings.entry.agent-model.label"),

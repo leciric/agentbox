@@ -1673,6 +1673,12 @@ func (c *conversation) load() error {
 		c.byID[it.ID] = it
 	}
 	c.stored = stored
+	// A chat that has never run starts on the installation's default tool
+	// (agent.LeadChoice): kept as its own from here, so changing the default
+	// later doesn't move a conversation once it has begun.
+	if c.agent.IsLead() && c.stored.Tool == "" && c.stored.SessionID == "" && c.agent.AI != "" {
+		c.stored.Tool = c.agent.AI
+	}
 	c.loaded = true
 	// Agents' requests already in the chat were shown before this daemon
 	// started, and are settled below: only new ones are worth telling.

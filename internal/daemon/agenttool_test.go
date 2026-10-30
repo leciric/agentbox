@@ -22,7 +22,7 @@ func leadToolDaemon(t *testing.T, choice state.Chat) testDaemon {
 		}
 	}
 	addProjectAllowingEvery(t, d, d.fixtureRepo(t, "hello-stack"))
-	if choice.Tool != "" || choice.NextTool != "" || choice.Account != "" {
+	if choice.Tool != "" || choice.NextTool != "" || choice.Account != "" || choice.SessionID != "" {
 		if err := d.srv.store.SaveChat(context.Background(), "hello-stack", state.LeadName, choice); err != nil {
 			t.Fatal(err)
 		}
@@ -94,6 +94,15 @@ func TestNewAgentRunsTheLeadsTool(t *testing.T) {
 		{name: "pending switch to cursor", choice: state.Chat{Tool: "claude", NextTool: "cursor"},
 			setup: func(t *testing.T, d testDaemon) { signInCursor(t, d, "") }, ai: "cursor",
 			account: func(r api.CreateAgentRequest) string { return r.CursorAccount }},
+		// A chat that has never run starts on the installation's default
+		// tool, which the first run chose, and its agents with it.
+		{name: "default cursor",
+			setup: func(t *testing.T, d testDaemon) { signInCursor(t, d, ""); defaultTool(t, d, "cursor") }, ai: "cursor",
+			account: func(r api.CreateAgentRequest) string { return r.CursorAccount }},
+		// One that ran without choosing ran Claude Code, and keeps it.
+		{name: "ran on claude", choice: state.Chat{SessionID: "s1"},
+			setup: func(t *testing.T, d testDaemon) { signInCursor(t, d, ""); defaultTool(t, d, "cursor") }, ai: "claude",
+			account: func(r api.CreateAgentRequest) string { return r.ClaudeAccount }},
 		// The lead's own account for its tool was removed: the project's.
 		{name: "cursor, its account gone", choice: state.Chat{Tool: "cursor", ToolAccounts: state.AccountMap{"cursor": "gone"}},
 			setup: func(t *testing.T, d testDaemon) { signInCursor(t, d, "") }, ai: "cursor",
@@ -111,6 +120,14 @@ func TestNewAgentRunsTheLeadsTool(t *testing.T) {
 				t.Errorf("agent runs %q on %q (notice %q), want %q on %q", got.AI, c.account(got), got.ToolNotice, c.ai, c.want)
 			}
 		})
+	}
+}
+
+// defaultTool makes tool the installation's default, as the first run does.
+func defaultTool(t *testing.T, d testDaemon, tool string) {
+	t.Helper()
+	if err := d.srv.store.SetSetting(context.Background(), state.SettingLastAgentPick, `{"ai":"`+tool+`","model":"","effort":""}`); err != nil {
+		t.Fatal(err)
 	}
 }
 

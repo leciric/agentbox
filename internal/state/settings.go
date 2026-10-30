@@ -100,6 +100,11 @@ const (
 	// which the dialog opens on in a project that names no tool. It is the
 	// installation's, like the Settings → Models defaults it comes before.
 	SettingLastAgentPick = "last_agent_pick"
+	// SettingFirstRun is "1" while the app's first-run screen is still to be
+	// gone through: written only into a database made just now
+	// (freshInstallSettings), so an installation that already existed never
+	// shows it, and removed once it is finished or skipped.
+	SettingFirstRun = "first_run"
 	// SettingImageAndroid, SettingImageCodex, SettingImageOpenCode and
 	// SettingImageDevCaches are the
 	// optional components the base image is built with, stored as flags. They
@@ -622,6 +627,7 @@ var freshInstallSettings = [][2]string{
 	{SettingDefaultAgentContextWindow, strconv.FormatInt(ClaudeFullWindow, 10)},
 	{SettingDefaultLeadModel, DefaultLeadModel},
 	{SettingDefaultLeadContextWindow, strconv.FormatInt(ClaudeFullWindow, 10)},
+	{SettingFirstRun, "1"},
 }
 
 // DefaultContextWindow checks a context window chosen as a default in

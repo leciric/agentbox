@@ -3,6 +3,7 @@ package agent
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -31,9 +32,43 @@ type ToolDefault struct {
 	Fallback string
 }
 
+// DefaultTool is the installation's AI tool: the one the app's first run
+// chose, or the New agent dialog last created an agent with, both kept as
+// state.SettingLastAgentPick, which the dialog opens on; Claude Code when
+// neither has said, or said a tool no chat runs ("none", a shell). A chat that
+// has never run starts on it (chatTool).
+func (m *Manager) DefaultTool(ctx context.Context) string {
+	raw, err := m.Store.Setting(ctx, state.SettingLastAgentPick)
+	if err != nil {
+		m.logf("Reading the default AI tool: %v; it is Claude Code", err)
+		return "claude"
+	}
+	var pick struct {
+		AI string `json:"ai"`
+	}
+	if raw == "" || json.Unmarshal([]byte(raw), &pick) != nil || !slices.Contains(LeadTools, pick.AI) {
+		return "claude"
+	}
+	return pick.AI
+}
+
+// chatTool is the tool a chat runs: the one it chose, else the installation's
+// default for a chat that has never run, else Claude Code, which a chat that
+// ran without choosing ran on. A chat stores the tool it starts on (the chat
+// package's load), so a default changed later moves only chats yet to start.
+func (m *Manager) chatTool(ctx context.Context, c state.Chat) string {
+	switch {
+	case c.Tool != "":
+		return c.Tool
+	case c.SessionID != "":
+		return "claude"
+	}
+	return m.DefaultTool(ctx)
+}
+
 // LeadToolDefault is the tool and accounts a new agent of p gets when it
 // names none: its lead's. A project whose chat never chose a tool, or has no
-// chat, gets Claude Code, as it always has.
+// chat, gets the installation's default (DefaultTool).
 func (m *Manager) LeadToolDefault(ctx context.Context, p state.Project) ToolDefault {
 	choice, err := m.LeadChoice(ctx, p.Name)
 	if err != nil {

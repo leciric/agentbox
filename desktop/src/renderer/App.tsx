@@ -74,6 +74,8 @@ import type { AgentPlaceName, ProjectPlaceName } from "./lib/tabs";
 import { requestReveal } from "./lib/reveal";
 import type { SearchTarget } from "./lib/search";
 import { setupCard } from "./lib/setup";
+import { showFirstRun } from "./lib/firstRun";
+import { FirstRun, firstRunMark, setFirstRunMark } from "./components/FirstRun";
 import { useHostTheme } from "./lib/theme";
 import { markSeen, shouldShowAutomatically } from "./lib/whatsnew";
 import { WorkPage } from "./components/WorkView";
@@ -167,6 +169,30 @@ export function App({ initial }: { initial?: View } = {}) {
     refetchInterval: 3_000,
   });
   const setup = setupCard(connection, hostSetup.data);
+  // A new installation's first run is the page until it's finished
+  // (components/FirstRun). One set up before it existed says so in its
+  // settings, and this app remembers that, so a VM removed later never
+  // brings it back.
+  const appSettings = useQuery({
+    queryKey: ["settings"],
+    queryFn: api.settings,
+    enabled: connection.state === "connected",
+  });
+  const [firstRunEnded, setFirstRunEnded] = useState(false);
+  useEffect(() => {
+    if (appSettings.data?.firstRun === false && firstRunMark() !== "done") setFirstRunMark("done");
+  }, [appSettings.data?.firstRun]);
+  const firstRun =
+    !firstRunEnded &&
+    showFirstRun({
+      connected: connection.state === "connected",
+      settings: appSettings.data,
+      host: hostSetup.data,
+      mark: firstRunMark(),
+    });
+  // fullPage: the first run or the setup is the page, with nothing of the
+  // app's own beside it.
+  const fullPage = firstRun || !!setup;
   const seen = useRef<string | null>(null);
   const queryClient = useQueryClient();
   // AgentBox wears the theme of the desktop it runs on, unless that is turned
@@ -558,7 +584,7 @@ export function App({ initial }: { initial?: View } = {}) {
 
   const hasRail = !v2 && (view.kind === "project" || view.kind === "agent");
   // v2's panel, beside the chat unless folded to its strip of agents.
-  const panelChat = v2 && !setup ? chatOf(view)?.chat : undefined;
+  const panelChat = v2 && !fullPage ? chatOf(view)?.chat : undefined;
   const panelBeside = !!panelChat && !(onList(panel, panelChat) && panel.listFolded);
   const navDocksAtXl = (hasRail && !railFolded) || panelBeside;
   const shell = (
@@ -632,7 +658,18 @@ export function App({ initial }: { initial?: View } = {}) {
             {/* Until the VM or the distro exists there's no daemon behind
                 any page, so the setup is the page, not a card over an empty
                 dashboard whose buttons can't do anything yet. */}
-            {setup ? (
+            {firstRun ? (
+              <FirstRun
+                connection={connection}
+                setup={setup}
+                windows={info.data?.platform === "win32"}
+                onFinish={(project) => {
+                  setFirstRunMark("done");
+                  setFirstRunEnded(true);
+                  select(project ? { kind: "project", project } : { kind: "home" });
+                }}
+              />
+            ) : setup ? (
               <div className="flex min-h-0 flex-1 justify-center overflow-y-auto px-4 py-10 md:px-6">
                 <div className="w-full max-w-2xl">
                   {setup.kind === "vm" ? (
@@ -662,13 +699,13 @@ export function App({ initial }: { initial?: View } = {}) {
                 </div>
               )
             )}
-            {!setup && connection.state === "connected" && stale && (
+            {!fullPage && connection.state === "connected" && stale && (
               <div className="px-4 pt-4 md:px-6">
                 <StaleDaemonNotice stale={stale} />
               </div>
             )}
-            {!setup && connection.state !== "disconnected" && <BuiltWithBadgeOffer />}
-            {!setup && (
+            {!fullPage && connection.state !== "disconnected" && <BuiltWithBadgeOffer />}
+            {!fullPage && (
               <div key={viewKey} className="min-h-0 flex-1 animate-fade-in">
                 {view.kind === "home" && !v2 && (
                   <HomeView
@@ -731,7 +768,7 @@ export function App({ initial }: { initial?: View } = {}) {
           </main>
           {/* v2's right-hand panel: files, desktop, terminal, browser,
               pages and media, beside the chat or over it. */}
-          {v2 && !setup && <RightPanelHost view={view} onSelect={select} onNewAgent={setNewAgentProject} />}
+          {v2 && !fullPage && <RightPanelHost view={view} onSelect={select} onNewAgent={setNewAgentProject} />}
           {hasRail && (
             <div className="hidden min-[900px]:flex">
               <AgentRail
@@ -827,7 +864,7 @@ export function App({ initial }: { initial?: View } = {}) {
       <FanOutDialog onSelect={select} />
       {v2 && <ShortcutSheet />}
       {/* The first-run tour, and What's new after an update (lib/tours.ts). */}
-      {v2 && !setup && connection.state === "connected" && <TourHost view={view} onSelect={select} onReleaseNotes={() => setWhatsNew(true)} />}
+      {v2 && !fullPage && connection.state === "connected" && <TourHost view={view} onSelect={select} onReleaseNotes={() => setWhatsNew(true)} />}
       <ErrorReports />
       <SnapComposer
         project={view.kind === "project" ? view.project : view.kind === "agent" ? view.ref.split("/")[0] : undefined}

@@ -1673,6 +1673,7 @@ let defaultsSettings = {
   defaultCursorModel: '',
   defaultCursorEffort: '',
   lastAgentPick: { ai: '', model: '', effort: '' },
+  firstRun: false,
   resumeAfterLimit: true,
   continueAfterRestart: true,
   creditAITool: false,
@@ -1749,6 +1750,8 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   const next = { ...defaultsSettings };
   const window = (v: string) => (/^1m$|^1000000$/i.test(v) ? '1000000' : '');
   if (req.openCodeVersion !== undefined) next.openCodeVersion = req.openCodeVersion;
+  if (req.lastAgentPick !== undefined) next.lastAgentPick = req.lastAgentPick;
+  if (req.firstRunDone) next.firstRun = false;
   if (req.defaultClaudeModel !== undefined) next.defaultClaudeModel = req.defaultClaudeModel;
   if (req.defaultLeadModel !== undefined) next.defaultLeadModel = req.defaultLeadModel;
   if (req.defaultAgentContextWindow !== undefined) next.defaultAgentContextWindow = window(req.defaultAgentContextWindow);
@@ -1867,6 +1870,89 @@ export function seedImageUpdate(queryClient: QueryClient): void {
   devState.jobLog = imageToolsLog;
   queryClient.setQueryData(['job', imageToolsJob], devState.job);
 }
+
+// seedFirstRun is a new installation's first run (?firstrun=<step>), with the
+// daemon up and as far along as the step: tool (nothing chosen yet), image
+// (the base image downloading), login (Claude Code not signed in), github, project
+// (a GitHub account and its repositories to clone) and check (the doctor,
+// with a failure only the Home chat can look into). Before the daemon, the
+// VM steps are ?linux=setup, ?vm=create and ?wsl=create.
+export function seedFirstRun(queryClient: QueryClient, step: string): void {
+  const at = ['tool', 'image', 'login', 'github', 'project', 'check'].indexOf(step);
+  const check = (id: string, title: string, status: string, detail: string, required = true, fix?: string, job?: string): T.SetupCheck => ({ id, title, status, detail, required, fix, job });
+  const none: T.ImageComponents = { android: false, codex: false, opencode: false, devCaches: false, incus: false };
+  const imageJob = 'job-first-image';
+  const setup = {
+    ready: at > 1,
+    checks: [
+      check('incus', 'Incus', 'ok', 'installed, and you can use it'),
+      check('host', 'User mapping', 'ok', "your files in agents' worktrees are yours"),
+      at === 1
+        ? check('image', 'Base image', 'building', 'Downloading the published image (2026.10.28.1)…', true, 'agentbox image build', imageJob)
+        : check('image', 'Base image', at < 1 ? 'missing' : 'ok', at < 1 ? 'not built yet' : 'agentbox-base 2026.10.28.1', true, 'agentbox image build'),
+      check('storage', 'Storage', 'ok', 'btrfs: agents are created with an instant snapshot', false),
+      at > 2 ? check('claude', 'Claude Code', 'ok', 'signed in as default', false) : check('claude', 'Claude Code login', 'missing', "agents can't run Claude Code yet", false, 'agentbox auth claude'),
+      check('codex', 'Codex login', 'optional', "optional: agents can't run Codex yet", false, 'agentbox auth codex'),
+      check('opencode', 'OpenCode login', 'optional', "optional: agents can't run OpenCode yet", false, 'agentbox auth opencode'),
+      check('cursor', 'Cursor sign-in', 'optional', "optional: agents can't run Cursor yet", false, 'agentbox auth cursor'),
+    ],
+    image: { version: '2026.10.28.1', components: none, installed: none, downloads: [], hint: '' },
+  } as T.SetupStatus;
+  devState.setup = setup;
+  devState.cli = { linkPath: '~/.local/bin/agentbox', linked: true, path: '~/.local/bin/agentbox', version: 'preview', onPath: true, bundled: true, binary: null };
+  const github = at > 3;
+  devState.auth = {
+    ...devState.auth!,
+    claude: at > 2,
+    claudeAccounts: at > 2 ? [{ name: 'default', default: true, savedAt: '2026-10-30T10:00:00Z', valid: 'valid' }] : [],
+    github,
+    githubUser: github ? 'leciric' : undefined,
+    githubAccounts: github ? [{ name: 'default', default: true, savedAt: '2026-10-30T10:02:00Z', login: 'leciric' }] : [],
+  };
+  devState.projects = at > 4 ? devState.projects.slice(0, 1) : [];
+  if (at === 1) {
+    devState.job = { id: imageJob, kind: 'image-build', target: 'agentbox-base', status: 'running', createdAt: new Date(Date.now() - 95_000).toISOString() };
+    devState.jobLog = [
+      'Downloading the published base image 2026.10.28.1 (1.4 GB, 11 parts)',
+      'part 1 of 11: done',
+      'part 2 of 11: done',
+      'part 3 of 11: done',
+      'part 4 of 11: 61 of 128 MiB',
+      'part 5 of 11: 48 of 128 MiB',
+    ].join('\n');
+    queryClient.setQueryData(['job', imageJob], devState.job);
+  }
+  defaultsSettings = { ...defaultsSettings, firstRun: true, lastAgentPick: { ai: at > 0 ? 'claude' : '', model: '', effort: '' } };
+  queryClient.setQueryData(['settings'], defaultsSettings);
+  queryClient.setQueryData(['setup'], setup);
+  queryClient.setQueryData(['cli'], devState.cli);
+  queryClient.setQueryData(['auth'], devState.auth);
+  queryClient.setQueryData(['projects'], devState.projects);
+  queryClient.setQueryData(['jobs'], at === 1 ? [devState.job] : []);
+  firstRunRepos = [
+    { fullName: 'leciric/pawly', description: 'Reminders for pet care: vet visits, walks and meds', private: true, pushedAt: new Date(Date.now() - 2 * 3600_000).toISOString(), cloneUrl: 'https://github.com/leciric/pawly.git' },
+    { fullName: 'leciric/agentbox', description: 'Run several AI coding agents against one project at once', private: false, pushedAt: new Date(Date.now() - 5 * 3600_000).toISOString(), cloneUrl: 'https://github.com/leciric/agentbox.git' },
+    { fullName: 'linting/site', description: 'linting.dev', private: false, pushedAt: new Date(Date.now() - 3 * 86400_000).toISOString(), cloneUrl: 'https://github.com/linting/site.git' },
+    { fullName: 'linting/hatch', description: 'Publish HTML pages and get a link', private: true, pushedAt: new Date(Date.now() - 9 * 86400_000).toISOString(), cloneUrl: 'https://github.com/linting/hatch.git' },
+    { fullName: 'leciric/dotfiles', private: false, pushedAt: new Date(Date.now() - 40 * 86400_000).toISOString(), cloneUrl: 'https://github.com/leciric/dotfiles.git' },
+  ];
+  queryClient.setQueryData(['githubRepos'], firstRunRepos);
+  firstRunDoctor = {
+    version: 'preview',
+    checks: [
+      { id: 'daemon', title: 'Daemon', status: 'ok', message: 'running AgentBox preview' },
+      { id: 'image', title: 'Base image', status: 'ok', message: 'agentbox-base 2026.10.28.1' },
+      { id: 'disk', title: 'Disk space', status: 'ok', message: '212 GB free' },
+      { id: 'network-github', title: 'GitHub', status: 'fail', message: "can't reach api.github.com: the connection was reset", fix: "check this machine's connection to GitHub" },
+      { id: 'gh', title: 'GitHub CLI', status: 'warn', message: "not installed yet: a chat's first message installs it", fix: 'agentbox doctor --fix', autoFix: true },
+    ],
+  };
+  queryClient.setQueryData(['doctor'], firstRunDoctor);
+}
+
+// What the dev bridge answers the first run with (seedFirstRun).
+let firstRunRepos: T.GitHubRepo[] | undefined;
+let firstRunDoctor: T.DoctorReport | undefined;
 
 // seedSignedOut is Claude Code with no login: the composer's banner, and Send
 // saying why it won't. The dev bridge answers the same, so the refetch keeps it.
@@ -2294,6 +2380,8 @@ export function installDevBridge(): void {
       if (method === 'GET' && path === '/v1/usage-stats/pending') return { status: 200, body: JSON.stringify(usageStatsPending), contentType: 'application/json' };
       if (method === 'GET' && path.startsWith('/v1/stopped-machines')) return { status: 200, body: JSON.stringify(fixtureStoppedMachines(path)), contentType: 'application/json' };
       if (method === 'POST' && path === '/v1/stopped-machines/remove') return { status: 200, body: JSON.stringify(removeFixtureStopped((body as T.RemoveStoppedRequest).agents)), contentType: 'application/json' };
+      if (method === 'GET' && path === '/v1/github/repos' && firstRunRepos) return { status: 200, body: JSON.stringify(firstRunRepos), contentType: 'application/json' };
+      if (method === 'GET' && path === '/v1/doctor' && firstRunDoctor) return { status: 200, body: JSON.stringify(firstRunDoctor), contentType: 'application/json' };
       if (method === 'GET' && path === '/v1/settings' && defaultsSettings.claudeCodeUpdate) return { status: 200, body: JSON.stringify(defaultsSettings), contentType: 'application/json' };
       const page = pageRequest(method, path);
       if (page) return page;
