@@ -63,6 +63,14 @@ export async function fetchThread(queryClient: QueryClient, ref: string, from?: 
   return keepHeld(next === 'gap' ? thread : next, now);
 }
 
+// forgetThread lets go of what the app holds of ref's chat, for a session
+// just made or deleted: a deleted session's id goes to the next new one, and
+// its old thread, held under the same ref, would open in its place.
+export function forgetThread(queryClient: QueryClient, ref: string): void {
+  queryClient.removeQueries({ queryKey: chatKey(ref), exact: true });
+  queryClient.removeQueries({ queryKey: chatWindowKey(ref), exact: true });
+}
+
 // peekThread reads only a chat's latest message, with its turn — what it is
 // doing now, and when it last answered — for a list of chats that shows each
 // one's live state without reading every conversation (the phone's,
@@ -466,6 +474,13 @@ export function sessionShown(session: Pick<T.ChatSession, 'state' | 'background'
 
 export const asleep = (agent: Pick<T.Agent, 'ref' | 'state'>): 'stopped' | 'paused' | undefined =>
   isProjectChat(agent.ref) ? undefined : agent.state === 'stopped' || agent.state === 'paused' ? agent.state : undefined;
+
+// takesMessages says whether a chat's composer sends: never blocked because
+// something is still starting. A machine being made or queued has no AI tool
+// yet, and the daemon holds what you send until it has (tellAgentMessage); a
+// session still starting queues it the same way; a sleeping one wakes to it.
+export const takesMessages = (agent: Pick<T.Agent, 'ref' | 'state'>): boolean =>
+  agent.state === 'running' || agent.state === 'initializing' || agent.state === 'queued' || asleep(agent) !== undefined;
 
 export function isActive(it: T.ChatItem | undefined): boolean {
   return (

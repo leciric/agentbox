@@ -15,11 +15,11 @@ export function WhatsNewDialog({ open, onOpenChange, version }: { open: boolean;
         </DialogHeader>
         <div className="grid gap-6">
           {sections.length === 0 ? (
-            <p className="text-[13px] text-subtle">{t('shell.whatsNew.empty')}</p>
+            <p className="text-ui text-subtle">{t('shell.whatsNew.empty')}</p>
           ) : (
             sections.map((section) => (
               <div key={section.version}>
-                <h3 className="mb-1 font-mono text-[12px] font-semibold text-faint">{section.version}</h3>
+                <h3 className="mb-1 font-mono text-caption font-semibold text-faint">{section.version}</h3>
                 <Markdown text={section.body} />
               </div>
             ))

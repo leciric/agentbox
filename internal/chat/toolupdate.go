@@ -20,3 +20,18 @@ func (m *Manager) ToolUpdated(tool string) {
 		c.mu.Unlock()
 	}
 }
+
+// Relaunch has the chat ref restart its adapter before its next turn, which
+// resumes the conversation: the launcher would now start it somewhere else,
+// as the Home chat's moves between the user's computer and the VM.
+func (m *Manager) Relaunch(ref string) {
+	c := m.existing(ref)
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.gone && c.adapter != nil {
+		c.versionRestart = true
+	}
+}

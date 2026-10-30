@@ -188,10 +188,8 @@ func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
 // the pipe belongs to host root.
 //
 // Incus occasionally fails a fresh exec with "Failed to retrieve PID of
-// executing child process" — a race in its own exec bridge, seen
-// intermittently in production, gone on the next try. WriteFile's steps are
-// idempotent, so it retries that exact error a few times with a short
-// backoff; any other error returns at once.
+// executing child process" (see RetryPIDFailure). WriteFile's steps are
+// idempotent, so it retries that.
 func (c Client) WriteFile(ctx context.Context, name, path string, content []byte, uid, gid int, mode os.FileMode) error {
 	// The parent directories this creates belong to uid:gid too, not to root
 	// (who runs this): the file's owner must be able to add to its directory.
@@ -199,33 +197,46 @@ func (c Client) WriteFile(ctx context.Context, name, path string, content []byte
 		`mkdir -p "$(dirname "$1")"; if [ -n "$top" ]; then find "$top" -type d -exec chown "$2" {} +; fi; ` +
 		`(umask 077 && cat >"$1"); chown "$2" "$1"; chmod "$3" "$1"`
 	args := []string{"sh", "-c", script, "sh", path, fmt.Sprintf("%d:%d", uid, gid), strconv.FormatUint(uint64(mode.Perm()), 8)}
+	return RetryPIDFailure(ctx, func() error {
+		_, err := c.ExecInput(ctx, bytes.NewReader(content), name, args...)
+		return err
+	})
+}
+
+// RetryPIDFailure runs start, and again after a growing pause when it fails
+// with Incus' "Failed to retrieve PID of executing child process": a race in
+// its own exec bridge, seen intermittently in production, gone on the next
+// try. It gives up after pidRetries tries in all and returns the last error;
+// any other error returns at once. start must be safe to run again: a
+// command that failed this way never ran.
+func RetryPIDFailure(ctx context.Context, start func() error) error {
 	var err error
 	for attempt := 0; attempt < pidRetries; attempt++ {
 		if attempt > 0 {
 			select {
-			case <-time.After(pidRetryBackoff):
+			case <-time.After(pidRetryBackoff << (attempt - 1)):
 			case <-ctx.Done():
 				return ctx.Err()
 			}
 		}
-		_, err = c.ExecInput(ctx, bytes.NewReader(content), name, args...)
-		if !isPIDRetrieveFailure(err) {
+		err = start()
+		if !IsPIDRetrieveFailure(err) {
 			return err
 		}
 	}
 	return err
 }
 
-// pidRetries is how many times WriteFile tries a write in total before
-// giving up on repeated "Failed to retrieve PID" failures.
+// pidRetries is how many times RetryPIDFailure tries in total before giving
+// up on repeated "Failed to retrieve PID" failures.
 const pidRetries = 3
 
-// pidRetryBackoff is the pause before each retry.
+// pidRetryBackoff is the pause before the first retry, doubled for each after.
 const pidRetryBackoff = 300 * time.Millisecond
 
-// isPIDRetrieveFailure reports whether err is Incus' own "Failed to retrieve
+// IsPIDRetrieveFailure reports whether err is Incus' own "Failed to retrieve
 // PID of executing child process": a transient hiccup in its exec bridge,
 // not a problem with the command or the instance.
-func isPIDRetrieveFailure(err error) bool {
+func IsPIDRetrieveFailure(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "Failed to retrieve PID of executing child process")
 }

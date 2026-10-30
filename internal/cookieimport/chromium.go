@@ -55,6 +55,16 @@ func deriveChromiumKeys(keyringSecret, goos string) chromiumKeys {
 	key := func(pass string) []byte {
 		return pbkdf2.Key([]byte(pass), []byte(chromiumSalt), iter, chromiumKeyLen, sha1.New)
 	}
+	if goos == "darwin" {
+		// macOS has one scheme: "v10" values are sealed with the Keychain
+		// passphrase, and there is no "peanuts" fallback. Without the
+		// passphrase (a denied Keychain prompt) nothing opens.
+		var keys chromiumKeys
+		if keyringSecret != "" {
+			keys.v10 = key(keyringSecret)
+		}
+		return keys
+	}
 	keys := chromiumKeys{v10: key(chromiumV10Pass)}
 	if keyringSecret != "" {
 		keys.v11 = key(keyringSecret)

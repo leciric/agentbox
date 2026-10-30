@@ -1309,6 +1309,168 @@ var migrations = []string{
 		resolved_at INTEGER NOT NULL DEFAULT 0
 	)`,
 	`CREATE INDEX review_notes_agent ON review_notes (project, agent)`,
+	// Whether this project's agents may run a whole test suite while the
+	// installation blocks them (SettingBlockFullSuite, Project.FullTestSuite).
+	`ALTER TABLE projects ADD COLUMN full_test_suite INTEGER NOT NULL DEFAULT 0`,
+	// StoppedAt, for "remove stopped agents' machines": when the agent's
+	// machine was last stopped through AgentBox; 0 when never, or not since
+	// this column exists.
+	`ALTER TABLE agents ADD COLUMN stopped_at INTEGER NOT NULL DEFAULT 0`,
+	// A project secret the lead keeps fresh (a token its own script refreshes):
+	// a credential request for it wakes the lead, which may fulfil it from the
+	// stored value by name (questions fulfil). Agents' own secrets stay 0.
+	`ALTER TABLE secrets ADD COLUMN lead_managed INTEGER NOT NULL DEFAULT 0`,
+	// Whether this project hands its GitHub issues labelled agentbox to new
+	// agents by itself (Project.PickUpIssues, issues.go). Off by default.
+	`ALTER TABLE projects ADD COLUMN pick_up_issues INTEGER NOT NULL DEFAULT 0`,
+	// The agent each of a project's GitHub issues was handed to, and the pull
+	// request it opened once one is seen, which stays after the agent is
+	// retired. job is the create job until the agent is named; one row per
+	// issue, the latest hand-off winning.
+	`CREATE TABLE issue_agents (
+		project    TEXT NOT NULL,
+		repo       TEXT NOT NULL,
+		number     INTEGER NOT NULL,
+		title      TEXT NOT NULL DEFAULT '',
+		agent      TEXT NOT NULL DEFAULT '',
+		job        TEXT NOT NULL DEFAULT '',
+		auto       INTEGER NOT NULL DEFAULT 0,
+		created_at INTEGER NOT NULL,
+		pr_number  INTEGER NOT NULL DEFAULT 0,
+		pr_url     TEXT NOT NULL DEFAULT '',
+		pr_state   TEXT NOT NULL DEFAULT '',
+		PRIMARY KEY (project, repo, number)
+	)`,
+	// Detected icons no longer fall back to the GitHub owner's avatar
+	// (projecticon): drop the ones already kept, so those projects show their
+	// first letter instead. detected_at 0 makes the next read look again, which
+	// still finds an icon the repository has; updated_at moves so the app's
+	// cache doesn't keep the old image. A chosen icon is untouched.
+	`UPDATE project_icons SET detected = NULL, detected_mime = '', detected_from = '', detected_at = 0,
+		updated_at = max(updated_at + 1, CAST(strftime('%s','now') AS INTEGER) * 1000)
+		WHERE detected_from LIKE 'github.com/%'`,
+	// Event triggers (schedules.go, kind 'event'): the event a schedule runs
+	// on and, for issue_labeled, the label; on each run, the event it ran
+	// for, in a line (event) and where to see it (event_url). schedule_events
+	// is every event a trigger has seen, by a key naming it (ci:<sha>,
+	// review:<number>, issue:<number>, pr:<number>), so one event fires once:
+	// fired is 0 for what was already there when the trigger first looked.
+	`ALTER TABLE schedules ADD COLUMN event TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE schedules ADD COLUMN event_label TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE schedule_runs ADD COLUMN event TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE schedule_runs ADD COLUMN event_url TEXT NOT NULL DEFAULT ''`,
+	`CREATE TABLE schedule_events (
+		schedule TEXT NOT NULL,
+		key      TEXT NOT NULL,
+		project  TEXT NOT NULL,
+		fired    INTEGER NOT NULL DEFAULT 0,
+		seen_at  INTEGER NOT NULL,
+		PRIMARY KEY (schedule, key)
+	)`,
+	// A paired phone's push notifications (phonepush.go): its Expo push
+	// token, what it wants pushed, and its quiet hours, in minutes after
+	// midnight in its own time zone. Gone with the phone.
+	`CREATE TABLE phone_push (
+		phone_id   TEXT PRIMARY KEY REFERENCES phones(id) ON DELETE CASCADE,
+		token      TEXT NOT NULL,
+		kinds      TEXT NOT NULL,
+		quiet_from INTEGER NOT NULL DEFAULT 0,
+		quiet_to   INTEGER NOT NULL DEFAULT 0,
+		time_zone  TEXT NOT NULL DEFAULT '',
+		updated_at INTEGER NOT NULL
+	)`,
+	// Leads directing agents on another machine through the hub (peers.go).
+	// peer_agents are this machine's agents a lead elsewhere made, and which
+	// machine and project its notices go back to; remote_agents are the
+	// agents this machine's leads made elsewhere, as their notices last
+	// described them, for the app and list_agents.
+	`CREATE TABLE peer_agents (
+		project        TEXT NOT NULL,
+		agent          TEXT NOT NULL,
+		origin_id      TEXT NOT NULL,
+		origin_name    TEXT NOT NULL,
+		origin_project TEXT NOT NULL,
+		created_at     INTEGER NOT NULL,
+		PRIMARY KEY (project, agent)
+	)`,
+	`CREATE TABLE remote_agents (
+		project      TEXT NOT NULL,
+		machine_id   TEXT NOT NULL,
+		machine_name TEXT NOT NULL,
+		agent        TEXT NOT NULL,
+		title        TEXT NOT NULL DEFAULT '',
+		branch       TEXT NOT NULL DEFAULT '',
+		status       TEXT NOT NULL DEFAULT '',
+		summary      TEXT NOT NULL DEFAULT '',
+		pr_url       TEXT NOT NULL DEFAULT '',
+		updated_at   INTEGER NOT NULL,
+		PRIMARY KEY (project, machine_id, agent)
+	)`, // Whether this project's Pull requests tab, and the reads that keep its
+	// counts, are off (Project.PullsOff). On by default.
+	`ALTER TABLE projects ADD COLUMN pulls_off INTEGER NOT NULL DEFAULT 0`,
+	// The other icons a look for a project's found in its repository, best
+	// first, for the icon picker: their repository-relative paths, one per
+	// line, the detected icon's first. Every project looks again once, since
+	// the look now walks the tree and finds an app's icon past the usual
+	// places, such as desktop/build/icon.svg.
+	`ALTER TABLE project_icons ADD COLUMN candidates TEXT NOT NULL DEFAULT ''`,
+	`UPDATE project_icons SET detected_at = 0`,
+	// The AI tool this project's new agents run when they name none, and the
+	// effort, context window and permission mode they start on with it
+	// (Project.AgentTool). Empty is what every project did before: Claude Code
+	// for the app and the command line, the chat's tool for the chat.
+	`ALTER TABLE projects ADD COLUMN agent_tool TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE projects ADD COLUMN agent_effort TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE projects ADD COLUMN agent_context_window TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE projects ADD COLUMN agent_mode TEXT NOT NULL DEFAULT ''`,
+	// A project's chat in sessions (leadsessions.go): each a lead conversation
+	// of its own on one topic, as many as the user opens, none at all once
+	// they have all been deleted. A session's lead is an agents row named
+	// LeadSessionName(id) once it is first written to. Every project already
+	// chatted with gets one session, "main", which is that chat: its lead row
+	// is the one named "lead", so its conversation, HOME and socket stay where
+	// they were. created_by_session is the session whose lead made an agent,
+	// which its notices go back to; '' is no session's, as every agent made
+	// before sessions, or by the user, is.
+	`CREATE TABLE lead_sessions (
+		project    TEXT NOT NULL,
+		id         TEXT NOT NULL,
+		topic      TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		PRIMARY KEY (project, id)
+	)`,
+	`INSERT INTO lead_sessions (project, id, topic, created_at)
+		SELECT project, 'main', 'Chat', created_at * 1000 FROM agents WHERE role = 'lead' AND name = 'lead'`,
+	`ALTER TABLE agents ADD COLUMN created_by_session TEXT NOT NULL DEFAULT ''`,
+	// A session opened with no topic (AddUntitledLeadSession) is named from
+	// its conversation after its lead's first turn, unless the user names it
+	// first: untitled is 1 until one of them does.
+	`ALTER TABLE lead_sessions ADD COLUMN untitled INTEGER NOT NULL DEFAULT 0`,
+	// The Home chat has sessions too, kept under HomeProject. It gets "main",
+	// its chat as it was: "Chat" when it has a conversation, and untitled, to
+	// be named by its first turn, when it has none, so a new installation's
+	// Home opens on a session to write in.
+	`INSERT INTO lead_sessions (project, id, topic, created_at, untitled)
+		SELECT '_home', 'main', CASE WHEN used THEN 'Chat' ELSE 'New session' END, CAST(strftime('%s', 'now') AS INTEGER) * 1000, NOT used
+		FROM (SELECT EXISTS (SELECT 1 FROM chat_items WHERE project = '_home' AND agent = 'lead') AS used)`,
+	// A session closed (CloseLeadSession) is kept, with its conversation, in
+	// the chat's history until it is reopened or deleted: closed_at is when, 0
+	// while it is open. lead_session_ids is every id a project's sessions ever
+	// had, so a new session never takes a closed or deleted one's id, and with
+	// it its lead's name, conversation, memory and agents. It is filled from
+	// what the sessions deleted before it left behind: their leads' rows, their
+	// conversations and what their turns spent.
+	`ALTER TABLE lead_sessions ADD COLUMN closed_at INTEGER NOT NULL DEFAULT 0`,
+	`CREATE TABLE lead_session_ids (
+		project TEXT NOT NULL,
+		id      TEXT NOT NULL,
+		PRIMARY KEY (project, id)
+	)`,
+	`INSERT OR IGNORE INTO lead_session_ids (project, id)
+		SELECT project, id FROM lead_sessions
+		UNION SELECT project, substr(name, 6) FROM agents WHERE role = 'lead' AND name LIKE 'lead.%'
+		UNION SELECT project, substr(agent, 6) FROM chat_items WHERE agent LIKE 'lead.%'
+		UNION SELECT project, substr(agent, 6) FROM token_usage WHERE agent LIKE 'lead.%'`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -1433,7 +1595,23 @@ type Project struct {
 	// project starts on unless one is named for it, or AgentModelAuto to let
 	// the project's chat choose per task. See DirectAgentModel and
 	// LeadPicksModel, which say what each of the three means where it is read.
+	// It is a model of the project's tool (ModelTool): a Claude Code name
+	// while AgentTool is empty or "claude", an OpenCode or Cursor id when
+	// AgentTool names that tool.
 	AgentModel string
+	// AgentTool is the AI tool this project's new agents run when they name
+	// none: "" for what agents always got (Claude Code in the app and on the
+	// command line, the chat's own tool for what the chat creates), or
+	// claude, codex, opencode or cursor.
+	AgentTool string
+	// AgentEffort, AgentContextWindow and AgentMode are what an agent on the
+	// project's tool starts on unless it was given its own: an effort (Claude
+	// Code and Cursor), a context window (Claude Code, D91), and a permission
+	// mode as its kind (ModeKinds), which every tool names differently. Empty
+	// follows the installation's settings, then the tool's own default.
+	AgentEffort        string
+	AgentContextWindow string
+	AgentMode          string
 	// BranchPrefix comes before the slug in the branch an agent is created on
 	// (agent.branchFor): agentbox/ makes agentbox/fix-login. It may be empty, or have several
 	// components, like thiago/agentbox/. Agents keep the branch they were
@@ -1500,6 +1678,18 @@ type Project struct {
 	// never a branch with commits of its own, and a checked-out one only when
 	// nothing in its checkout is changed.
 	BaseSyncOff bool
+	// FullTestSuite is whether this project's agents may run a whole test
+	// suite (`go test ./...`, a bare `npm test`) while the installation
+	// blocks them (SettingBlockFullSuite); it means nothing otherwise.
+	FullTestSuite bool
+	// PickUpIssues is whether the project hands its open GitHub issues
+	// labelled agentbox to new agents by itself (daemon/issues.go).
+	PickUpIssues bool
+	// PullsOff is whether the app leaves out this project's Pull requests
+	// tab, and with it the reads of GitHub that keep the tab's counts. Off,
+	// so on by default: a project that doesn't use pull requests, or whose
+	// remote isn't GitHub, turns it off so as not to pay for them.
+	PullsOff bool
 }
 
 // A project's PRWatch.
@@ -1657,7 +1847,92 @@ func (p Project) DirectAgentModel() string {
 // LeadPicksModel reports whether this project's chat chooses each agent's model.
 func (p Project) LeadPicksModel() bool { return p.AgentModel == AgentModelAuto }
 
-const projectColumns = `name, display_name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off, codex_account, opencode_accounts, cursor_account`
+// ModelTool is the tool AgentModel, AgentEffort, AgentContextWindow and
+// AgentMode are settings of: AgentTool, or Claude Code for a project that
+// names none, which is what AgentModel always meant.
+func (p Project) ModelTool() string {
+	if p.AgentTool == "" {
+		return "claude"
+	}
+	return p.AgentTool
+}
+
+// AgentDefaults is what this project says an agent on ai starts on: its
+// model (DirectAgentModel), effort, context window and permission mode kind,
+// or nothing at all for an agent on another tool, since each is a setting of
+// ModelTool's.
+func (p Project) AgentDefaults(ai string) (model, effort, window, mode string) {
+	if ai != p.ModelTool() {
+		return "", "", "", ""
+	}
+	return p.DirectAgentModel(), p.AgentEffort, p.AgentContextWindow, p.AgentMode
+}
+
+// AgentTools are the tools a project may name as AgentTool.
+var AgentTools = []string{"claude", "codex", "opencode", "cursor"}
+
+// ModeKinds are the permission modes a project may start its agents on, by
+// kind, the one name every tool's menu shares (acp's modeKinds): its standard
+// mode, which asks, auto review, full access, and plan, which is the chat's
+// Plan toggle rather than a level.
+var ModeKinds = []string{"standard", "auto_review", "full_access", "plan"}
+
+// ProjectAgentDefaults are the settings SetProjectAgentDefaults changes; a nil
+// one is left as it is.
+type ProjectAgentDefaults struct {
+	Tool, Model, Effort, ContextWindow, Mode *string
+}
+
+// SetProjectAgentDefaults sets the tool this project's new agents run when
+// they name none, and what they start on with it. The model, effort, window
+// and mode belong to the tool, so changing the tool clears the ones this call
+// doesn't set at the same time, rather than leave a Claude Code effort on a
+// project that now runs OpenCode.
+func (s *Store) SetProjectAgentDefaults(ctx context.Context, name string, d ProjectAgentDefaults) error {
+	p, err := s.Project(ctx, name)
+	if err != nil {
+		return err
+	}
+	if d.Tool != nil && *d.Tool != p.AgentTool {
+		if *d.Tool != "" && !slices.Contains(AgentTools, *d.Tool) {
+			return fmt.Errorf("%q isn't an AI tool a project's agents can run: choose one of %s, or none", *d.Tool, strings.Join(AgentTools, ", "))
+		}
+		empty := ""
+		for _, v := range []**string{&d.Model, &d.Effort, &d.ContextWindow, &d.Mode} {
+			if *v == nil {
+				*v = &empty
+			}
+		}
+		p.AgentTool = *d.Tool
+	}
+	if d.Mode != nil && *d.Mode != "" && !slices.Contains(ModeKinds, *d.Mode) {
+		return fmt.Errorf("%q isn't a permission mode: choose one of %s, or none", *d.Mode, strings.Join(ModeKinds, ", "))
+	}
+	tool := p.ModelTool()
+	if d.Effort != nil && *d.Effort != "" && tool != "claude" && tool != "cursor" {
+		return fmt.Errorf("the effort is a Claude Code and Cursor setting, and %s has none", tool)
+	}
+	if d.ContextWindow != nil && *d.ContextWindow != "" && tool != "claude" {
+		return fmt.Errorf("the context window is a Claude Code setting, and %s has none", tool)
+	}
+	if d.Model != nil {
+		if err := s.SetProjectAgentModel(ctx, name, *d.Model); err != nil {
+			return err
+		}
+	}
+	for column, v := range map[string]*string{"agent_effort": d.Effort, "agent_context_window": d.ContextWindow, "agent_mode": d.Mode} {
+		if v == nil {
+			continue
+		}
+		if _, err := s.db.ExecContext(ctx, `UPDATE projects SET `+column+` = ? WHERE name = ?`, *v, p.Name); err != nil {
+			return err
+		}
+	}
+	_, err = s.db.ExecContext(ctx, `UPDATE projects SET agent_tool = ? WHERE name = ?`, p.AgentTool, p.Name)
+	return err
+}
+
+const projectColumns = `name, display_name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off, codex_account, opencode_accounts, cursor_account, full_test_suite, pick_up_issues, pulls_off, agent_tool, agent_effort, agent_context_window, agent_mode`
 
 // projectPlacement is where the project sits in the sidebar (D79), read
 // beside the columns above rather than with them: it is written by the
@@ -1745,11 +2020,11 @@ func (s *Store) AddProject(ctx context.Context, p Project) error {
 		p.BranchPrefix = DefaultBranchPrefix
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.DisplayName, p.Root, p.CreatedAt.Unix(), p.ClaudeAccount, p.Autonomy, p.GitHubAccount, p.MediaRetentionDays,
 		p.FinishNotices, p.AgentModel, p.RolloverThreshold, p.ContextBudget, p.Consolidation, p.ConsolidationModel,
 		strings.Join(p.ClaudeAccounts, ","), p.BranchPrefix, p.Nesting, p.AgentPRs, p.PRWatch, p.BaseSyncOff,
-		p.CodexAccount, p.OpenCodeAccounts.String(), p.CursorAccount)
+		p.CodexAccount, p.OpenCodeAccounts.String(), p.CursorAccount, p.FullTestSuite, p.PickUpIssues, p.PullsOff, p.AgentTool, p.AgentEffort, p.AgentContextWindow, p.AgentMode)
 	return err
 }
 
@@ -1870,7 +2145,7 @@ func (s *Store) Projects(ctx context.Context) ([]Project, error) {
 		if err := rows.Scan(&p.Name, &p.DisplayName, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
 			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff,
-			&p.CodexAccount, &opencode, &p.CursorAccount, &p.Section, &p.Position); err != nil {
+			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.Section, &p.Position); err != nil {
 			return nil, err
 		}
 		p.CreatedAt = time.Unix(created, 0)
@@ -1937,10 +2212,15 @@ var projectOwned = []string{
 	"agent_group_members",
 	"agent_groups",
 	"pr_watches",
+	"peer_agents",
+	"remote_agents",
+	"lead_sessions",
+	"lead_session_ids",
 	"agent_queue",
 	"agent_events",
 	"agent_reviews",
 	"review_notes",
+	"issue_agents",
 	"checkpoints",
 	"questions",
 	"notifications",
@@ -1971,6 +2251,7 @@ var projectOwned = []string{
 	// Its scheduled tasks and what they did (schedules.go).
 	"schedules",
 	"schedule_runs",
+	"schedule_events",
 }
 
 // peerOwned is the tables that also name a project as peer: the other side
@@ -2236,6 +2517,19 @@ func (s *Store) SetProjectNesting(ctx context.Context, name string, on bool) err
 	return nil
 }
 
+// SetProjectFullTestSuite sets whether this project's agents may run a whole
+// test suite while the installation blocks them.
+func (s *Store) SetProjectFullTestSuite(ctx context.Context, name string, on bool) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE projects SET full_test_suite = ? WHERE name = ?`, on, name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("project %q: %w", name, ErrNotFound)
+	}
+	return nil
+}
+
 // SetProjectAgentPRs sets whether this project's agents push their own branch
 // and open their own pull request.
 func (s *Store) SetProjectAgentPRs(ctx context.Context, name string, on bool) error {
@@ -2253,6 +2547,18 @@ func (s *Store) SetProjectAgentPRs(ctx context.Context, name string, on bool) er
 // up to date with its remote.
 func (s *Store) SetProjectBaseSync(ctx context.Context, name string, on bool) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE projects SET base_sync_off = ? WHERE name = ?`, !on, name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("project %q: %w", name, ErrNotFound)
+	}
+	return nil
+}
+
+// SetProjectPulls sets whether the app shows this project's Pull requests tab.
+func (s *Store) SetProjectPulls(ctx context.Context, name string, on bool) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE projects SET pulls_off = ? WHERE name = ?`, !on, name)
 	if err != nil {
 		return err
 	}
@@ -2398,7 +2704,7 @@ func (s *Store) projectWhere(ctx context.Context, where string, arg any) (Projec
 		Scan(&p.Name, &p.DisplayName, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
 			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff,
-			&p.CodexAccount, &opencode, &p.CursorAccount, &p.Section, &p.Position)
+			&p.CodexAccount, &opencode, &p.CursorAccount, &p.FullTestSuite, &p.PickUpIssues, &p.PullsOff, &p.AgentTool, &p.AgentEffort, &p.AgentContextWindow, &p.AgentMode, &p.Section, &p.Position)
 	p.ClaudeAccounts = splitAccounts(allowed)
 	p.OpenCodeAccounts = ParseAccountMap(opencode)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -2472,6 +2778,11 @@ type Agent struct {
 	// whatever it was last doing before it was paused. Zero when it has never
 	// been paused, or was resumed or started since.
 	PausedAt time.Time
+	// StoppedAt is when this agent's machine was last stopped through
+	// AgentBox (agent.Manager.Stop), for "remove stopped agents' machines".
+	// It isn't cleared on start: a start after it (the machine's last use)
+	// makes it stale, which the reader checks. Zero when never recorded.
+	StoppedAt time.Time
 	// ID is an identity distinct from Name, set once at AddAgent and never
 	// reused: what tells this agent apart from a different one that later
 	// gets its name, for a row that outlives it on purpose (token_usage).
@@ -2480,6 +2791,13 @@ type Agent struct {
 	// given, by name: nil for every one, empty for none. Its own connectors
 	// are always its.
 	Connectors []string
+	// CreatedBySession is the chat session that made this agent, which its
+	// finish and stall notices, questions and pull request watch go back to:
+	// "" for none, as for every agent the user made or whose session was
+	// deleted, whose notices go to the most recently active session
+	// (leadsessions.go). A session's own lead row has none: its session is in
+	// its name.
+	CreatedBySession string
 }
 
 // GetsConnector reports whether a project connector of that name reaches the
@@ -2520,7 +2838,7 @@ func (a Agent) IsHome() bool { return a.Project == HomeProject && a.Role == Role
 
 func (a Agent) Ref() string { return a.Project + "/" + a.Name }
 
-const agentColumns = `project, name, instance, ai, autonomous, branch, base_ref, base_commit, worktree, status, created_at, source, title, claude_account, interface, role, github_account, finish_notice, id, connectors, codex_account, opencode_accounts, cursor_account`
+const agentColumns = `project, name, instance, ai, autonomous, branch, base_ref, base_commit, worktree, status, created_at, source, title, claude_account, interface, role, github_account, finish_notice, id, connectors, codex_account, opencode_accounts, cursor_account, created_by_session`
 
 func (s *Store) AddAgent(ctx context.Context, a Agent) error {
 	if a.Interface == "" {
@@ -2546,9 +2864,9 @@ func (s *Store) AddAgent(ctx context.Context, a Agent) error {
 		return fmt.Errorf("agent %s: a past agent has that name: %w", a.Ref(), ErrExists)
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.Project, a.Name, a.Instance, a.AI, a.Autonomous, a.Branch, a.BaseRef, a.BaseCommit, a.Worktree, a.Status, a.CreatedAt.Unix(), a.Source, a.Title, a.ClaudeAccount, a.Interface, a.Role, a.GitHubAccount, a.FinishNotice, a.ID, connectors,
-		a.CodexAccount, a.OpenCodeAccounts.String(), a.CursorAccount)
+		a.CodexAccount, a.OpenCodeAccounts.String(), a.CursorAccount, a.CreatedBySession)
 	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
 		return fmt.Errorf("agent %s: %w", a.Ref(), ErrExists)
 	}
@@ -2786,7 +3104,7 @@ func (s *Store) RemoveAgent(ctx context.Context, project, name string) error {
 }
 
 func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]Agent, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+agentColumns+`, paused_at FROM agents `+clause, args...)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+agentColumns+`, paused_at, stopped_at FROM agents `+clause, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -2794,12 +3112,12 @@ func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]
 	var agents []Agent
 	for rows.Next() {
 		var a Agent
-		var created, pausedAt int64
+		var created, pausedAt, stoppedAt int64
 		var connectors sql.NullString
 		var opencode string
 		if err := rows.Scan(&a.Project, &a.Name, &a.Instance, &a.AI, &a.Autonomous, &a.Branch,
 			&a.BaseRef, &a.BaseCommit, &a.Worktree, &a.Status, &created, &a.Source, &a.Title, &a.ClaudeAccount, &a.Interface, &a.Role, &a.GitHubAccount, &a.FinishNotice, &a.ID, &connectors,
-			&a.CodexAccount, &opencode, &a.CursorAccount, &pausedAt); err != nil {
+			&a.CodexAccount, &opencode, &a.CursorAccount, &a.CreatedBySession, &pausedAt, &stoppedAt); err != nil {
 			return nil, err
 		}
 		a.OpenCodeAccounts = ParseAccountMap(opencode)
@@ -2813,9 +3131,18 @@ func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]
 		if pausedAt != 0 {
 			a.PausedAt = time.Unix(pausedAt, 0)
 		}
+		if stoppedAt != 0 {
+			a.StoppedAt = time.Unix(stoppedAt, 0)
+		}
 		agents = append(agents, a)
 	}
 	return agents, rows.Err()
+}
+
+// SetStoppedAt records when an agent's machine was stopped.
+func (s *Store) SetStoppedAt(ctx context.Context, project, name string, at time.Time) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE agents SET stopped_at = ? WHERE project = ? AND name = ?`, at.Unix(), project, name)
+	return err
 }
 
 // SetPausedAt records when an agent was paused, or clears it (a zero at) when

@@ -137,12 +137,24 @@ func (s *Server) setSecret(w http.ResponseWriter, r *http.Request, project, agen
 	if err := readJSON(r, &req); err != nil {
 		return err
 	}
+	if agent != "" && req.LeadManaged != nil && *req.LeadManaged {
+		return errLeadManagedAgentSecret
+	}
 	stored, err := s.secrets().Set(r.Context(), project, agent, name, req.Value)
 	if err != nil {
 		return err
 	}
 	// Nothing is logged about the value, and the event carries only the name.
 	s.logf("secret %s set for %s", stored.Name, secretScope(project, agent))
+	if agent == "" && req.LeadManaged != nil {
+		if err := s.setLeadManaged(r.Context(), project, name, *req.LeadManaged); err != nil {
+			return err
+		}
+	}
+	// Setting a value leaves the flag as it was, so the answer reads it back.
+	if row, err := s.store.Secret(r.Context(), project, agent, name); err == nil {
+		stored.LeadManaged = row.LeadManaged
+	}
 	if err := s.deliver(r.Context(), project, agent); err != nil {
 		return err
 	}
@@ -152,6 +164,48 @@ func (s *Server) setSecret(w http.ResponseWriter, r *http.Request, project, agen
 	}
 	s.countFeature(api.FeatureSecretSet)
 	return writeJSON(w, http.StatusOK, info)
+}
+
+var errLeadManagedAgentSecret = errors.New("only a project's own secrets can be managed by its lead: an agent's own secret is the user's to set")
+
+// patchProjectSecret changes what can change about a project secret without
+// its value: whether the lead keeps it fresh.
+func (s *Server) patchProjectSecret(w http.ResponseWriter, r *http.Request) error {
+	p, err := s.store.Project(r.Context(), r.PathValue("project"))
+	if err != nil {
+		return err
+	}
+	name := strings.TrimSpace(r.PathValue("name"))
+	var req api.SecretSettingsRequest
+	if err := readJSON(r, &req); err != nil {
+		return err
+	}
+	if err := s.setLeadManaged(r.Context(), p.Name, name, req.LeadManaged); err != nil {
+		return err
+	}
+	row, err := s.store.Secret(r.Context(), p.Name, "", name)
+	if err != nil {
+		return err
+	}
+	info, err := s.secretInfo(r.Context(), p.Name, secrets.Secret{
+		Project: row.Project, Name: row.Name, UpdatedAt: row.UpdatedAt, LeadManaged: row.LeadManaged,
+	})
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, http.StatusOK, info)
+}
+
+func (s *Server) setLeadManaged(ctx context.Context, project, name string, managed bool) error {
+	if err := s.secrets().SetLeadManaged(ctx, project, name, managed); err != nil {
+		return err
+	}
+	if managed {
+		s.logf("secret %s of %s is managed by its lead now", name, project)
+	} else {
+		s.logf("secret %s of %s is no longer managed by its lead", name, project)
+	}
+	return nil
 }
 
 func (s *Server) removeSecret(w http.ResponseWriter, r *http.Request, project, agent string) error {
@@ -227,13 +281,14 @@ func (s *Server) secretsInfo(ctx context.Context, project string, stored []secre
 // predict them.
 func (s *Server) secretInfo(ctx context.Context, project string, sec secrets.Secret) (api.Secret, error) {
 	info := api.Secret{
-		Name:      sec.Name,
-		Scope:     sec.Scope(),
-		Project:   sec.Project,
-		Agent:     sec.Agent,
-		UpdatedAt: sec.UpdatedAt,
-		Agents:    []string{},
-		Warning:   toolcreds.Warning(sec.Name),
+		Name:        sec.Name,
+		Scope:       sec.Scope(),
+		Project:     sec.Project,
+		Agent:       sec.Agent,
+		UpdatedAt:   sec.UpdatedAt,
+		Agents:      []string{},
+		Warning:     toolcreds.Warning(sec.Name),
+		LeadManaged: sec.LeadManaged,
 	}
 	if sec.Agent != "" {
 		info.Agents = append(info.Agents, sec.Project+"/"+sec.Agent)

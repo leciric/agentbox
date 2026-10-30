@@ -127,7 +127,7 @@ export function MediaTab({ agent }: { agent: T.Agent }) {
                 {k.label}
               </FilterChip>
             ))}
-          {bytes > 0 && <span className="pl-1.5 text-[12px] tabular-nums text-subtle">{humanBytes(bytes)}</span>}
+          {bytes > 0 && <span className="pl-1.5 text-caption tabular-nums text-subtle">{humanBytes(bytes)}</span>}
         </div>
         {total > 0 && <MediaSearch value={query} onChange={setQuery} />}
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
@@ -144,7 +144,7 @@ export function MediaTab({ agent }: { agent: T.Agent }) {
                   disabled={record.isPending}
                   onClick={() => record.mutate()}
                 >
-                  {record.isPending ? <LoaderCircle className="animate-spin" /> : <span className="size-2 animate-pulse rounded-[3px] bg-rose-400" />}
+                  {record.isPending ? <LoaderCircle className="animate-spin" /> : <span className="size-2 rounded-[3px] bg-rose-400" />}
                   {recording.data?.input === 'desktop' ? t('agent.mediaTab.stopRecordingInput') : t('agent.browser.stopRecording')}
                 </Button>
               ) : (
@@ -227,7 +227,7 @@ export function MediaTab({ agent }: { agent: T.Agent }) {
             }
           >
             <p>{t('agent.mediaTab.emptyBody')}</p>
-            <pre className="mt-4 rounded-xl border border-line bg-well p-3.5 text-left font-mono text-[12px] leading-relaxed text-muted">
+            <pre className="mt-4 rounded-xl border border-line bg-well p-3.5 text-left font-mono text-caption leading-relaxed text-muted">
               <span className="text-faint">$ </span>agentbox media screenshot --name checkout{'\n'}
               <span className="text-faint">$ </span>agentbox media record start --name demo{'\n'}
               <span className="text-faint">$ </span>agentbox media add playwright-report/
@@ -296,7 +296,7 @@ export function MoreMedia({ pages }: { pages: { hasNextPage: boolean; isFetching
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
   if (!hasNextPage) return null;
   return (
-    <div ref={ref} data-media-more className="flex h-12 items-center justify-center gap-2 text-[12.5px] text-subtle">
+    <div ref={ref} data-media-more className="flex h-12 items-center justify-center gap-2 text-ui text-subtle">
       {isFetchingNextPage && (
         <>
           <LoaderCircle className="size-3.5 animate-spin" />
@@ -335,7 +335,7 @@ export function MediaSearch({ value, onChange, className }: { value: string; onC
             onChange('');
           }
         }}
-        className="h-7 min-w-0 pl-8 pr-7 text-[12.5px] [&::-webkit-search-cancel-button]:hidden"
+        className="h-7 min-w-0 pl-8 pr-7 text-ui [&::-webkit-search-cancel-button]:hidden"
       />
       {value && (
         <button aria-label={t('agent.mediaTab.clearSearch')} onClick={() => onChange('')} className="absolute right-1.5 flex size-5 items-center justify-center rounded-md text-subtle hover:bg-surface hover:text-primary">
@@ -351,7 +351,7 @@ export function MediaSearch({ value, onChange, className }: { value: string; onC
 export function NoMatch({ query, onClear }: { query: string; onClear: () => void }) {
   const t = useT();
   return (
-    <p className="flex min-w-0 items-center gap-2 px-1 text-[13px] text-subtle">
+    <p className="flex min-w-0 items-center gap-2 px-1 text-ui text-subtle">
       <span className="min-w-0 truncate">{query.trim() ? t('agent.mediaTab.noMatchQuery', { query: query.trim() }) : t('agent.mediaTab.noMatch')}</span>
       {query.trim() && (
         <Button size="sm" variant="ghost" className="shrink-0" onClick={onClear}>
@@ -490,7 +490,7 @@ export function FilterChip({
       aria-pressed={active}
       onClick={onClick}
       className={cn(
-        'flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] text-muted transition hover:bg-surface hover:text-primary',
+        'flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-ui text-muted transition hover:bg-surface hover:text-primary',
         active && 'bg-surface-strong text-title shadow-[inset_0_1px_0_rgb(255_255_255/0.06)]',
       )}
     >
@@ -571,12 +571,12 @@ export function MediaCard({
             )}
           </span>
           {item.kind === 'recording' && item.meta.duration ? (
-            <span className="absolute bottom-2 right-2 rounded-md bg-black/70 px-1.5 py-0.5 font-mono text-[10.5px] tabular-nums text-white">{clock(item.meta.duration)}</span>
+            <span className="absolute bottom-2 right-2 rounded-md bg-black/70 px-1.5 py-0.5 font-mono text-caption tabular-nums text-white">{clock(item.meta.duration)}</span>
           ) : null}
         </div>
         <div className="px-3 py-2.5">
-          <div className="truncate text-[13px] font-medium text-primary">{item.name}</div>
-          <div className="mt-1 flex items-center gap-1.5 text-[11px] text-subtle">
+          <div className="truncate text-ui font-medium text-primary">{item.name}</div>
+          <div className="mt-1 flex items-center gap-1.5 text-caption text-subtle">
             {item.source === 'agent' ? <Bot className="size-3" /> : <User className="size-3" />}
             <span>{item.source === 'agent' ? t('agent.mediaTab.sourceAgent') : t('agent.mediaTab.sourceYou')}</span>
             <span>·</span>
@@ -669,10 +669,10 @@ function Thumbnail({ item }: { item: T.MediaItem }) {
         </>
       );
     case 'note':
-      return <div className="line-clamp-6 size-full whitespace-pre-wrap bg-gradient-to-br from-amber-300/[0.07] to-transparent p-3 pt-10 text-[12.5px] leading-relaxed text-tertiary">{item.text}</div>;
+      return <div className="line-clamp-6 size-full whitespace-pre-wrap bg-gradient-to-br from-amber-300/[0.07] to-transparent p-3 pt-10 text-ui leading-relaxed text-tertiary">{item.text}</div>;
     case 'log':
       return (
-        <pre ref={ref} className="size-full overflow-hidden whitespace-pre p-3 pt-10 font-mono text-[10.5px] leading-snug text-subtle">
+        <pre ref={ref} className="size-full overflow-hidden whitespace-pre p-3 pt-10 font-mono text-caption leading-snug text-subtle">
           {log.data ?? ''}
         </pre>
       );
@@ -805,7 +805,7 @@ export function MediaViewer({
           <>
             <div className="flex items-center gap-3 border-b border-line px-5 py-3 pr-14">
               <Badge variant={kindVariant[item.kind]}>{kindInfo(item.kind).one}</Badge>
-              <DialogTitle className="truncate text-[15px]">{item.name}</DialogTitle>
+              <DialogTitle className="truncate text-heading">{item.name}</DialogTitle>
               <span className="shrink-0 text-xs text-subtle">
                 {item.source === 'agent' ? t('agent.mediaTab.fromAgent') : t('agent.mediaTab.fromYou')} · {formatDateTime(item.createdAt)}
                 {item.agentGone &&
@@ -884,7 +884,7 @@ function ViewerBody({ item }: { item: T.MediaItem }) {
     case 'recording':
       return <Recording key={item.id} item={item} />;
     case 'note':
-      return <div className="w-full max-w-3xl self-start whitespace-pre-wrap p-8 text-[15px] leading-relaxed text-secondary">{item.text}</div>;
+      return <div className="w-full max-w-3xl self-start whitespace-pre-wrap p-8 text-heading leading-relaxed text-secondary">{item.text}</div>;
     case 'report':
       if (item.meta.entry) {
         return <iframe title={item.name} src={mediaUrl(item, item.meta.entry)} sandbox="allow-scripts allow-same-origin" className="h-[76vh] w-full bg-white" />;
@@ -892,7 +892,7 @@ function ViewerBody({ item }: { item: T.MediaItem }) {
       break;
   }
   return (
-    <pre className="w-full self-start whitespace-pre-wrap break-all p-5 font-mono text-[12px] leading-relaxed text-tertiary">
+    <pre className="w-full self-start whitespace-pre-wrap break-all p-5 font-mono text-caption leading-relaxed text-tertiary">
       {text.isPending ? t('common.loading') : text.error ? errorMessage(text.error) : text.data}
     </pre>
   );
