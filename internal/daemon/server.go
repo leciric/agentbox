@@ -241,9 +241,9 @@ type Server struct {
 	leadAPIs     map[string]*http.Server // per-project lead API servers
 	// homeHost is the desktop app's helper on the user's computer, which the
 	// Home chat runs through when it is there, and homePlace where its adapter
-	// last started (homehost.go). homePlace is under mu.
+	// last started, by session (homehost.go). homePlace is under mu.
 	homeHost     homehost.Hub
-	homePlace    string
+	homePlace    map[string]string // by session ref
 	lastStates   map[string]api.AgentChange
 	previewAddr  string                   // where the preview proxy listens; empty when it's off
 	previewIPs   map[string]previewTarget // agents' addresses, cached for the preview proxy

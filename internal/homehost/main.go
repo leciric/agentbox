@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -128,7 +129,7 @@ func Dial(ctx context.Context, socket, path string) (net.Conn, error) {
 // carryMCP carries this process's stdio to `agentbox mcp` in the daemon's
 // machine, as the Home chat's.
 func carryMCP(ctx context.Context, socket string) error {
-	conn, err := Dial(ctx, socket, MCPPath)
+	conn, err := Dial(ctx, socket, MCPPath+"?session="+url.QueryEscape(os.Getenv(SessionEnv)))
 	if err != nil {
 		return err
 	}

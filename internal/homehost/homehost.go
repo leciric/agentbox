@@ -45,6 +45,9 @@ const (
 // path, or on Windows the app's relay pipe. Unset, it is the usual socket.
 const SocketEnv = "AGENTBOX_HOST_SOCKET"
 
+// SessionEnv names the Home chat session an MCP server serves.
+const SessionEnv = "AGENTBOX_HOME_SESSION"
+
 const (
 	opProbe = "probe"
 	opSpawn = "spawn"
@@ -55,6 +58,9 @@ const (
 // Spec is what the daemon asks the host to run.
 type Spec struct {
 	Tool string `json:"tool"` // claude, codex or opencode
+	// Session is the Home chat session it runs: each but the first has a
+	// folder of its own, as its brief differs, and its own MCP server.
+	Session string `json:"session,omitempty"`
 	// Package is the adapter's npm package at the version AgentBox pins
 	// (npm:@agentclientprotocol/claude-agent-acp@1.2.3), installed on the host
 	// when it has none; empty for a tool that speaks ACP itself.

@@ -27,7 +27,10 @@ func (m *Manager) HostHomeSpec(ctx context.Context, a state.Agent, info homehost
 	if err != nil {
 		return homehost.Spec{}, err
 	}
-	d := brief.HomeData{Dir: info.Dir, VM: hostos.InVM(), Host: hostName(info.OS), OnHost: true, HostHome: info.Home}
+	d := brief.HomeData{Dir: hostSessionDir(info, a.Session()), VM: hostos.InVM(), Host: hostName(info.OS), OnHost: true, HostHome: info.Home}
+	if d.Session, d.OtherSessions, err = m.sessionTopics(ctx, a); err != nil {
+		return homehost.Spec{}, err
+	}
 	for _, p := range projects {
 		d.Projects = append(d.Projects, brief.HomeProject{Name: p.DisplayName, Root: p.Root})
 	}
@@ -35,13 +38,13 @@ func (m *Manager) HostHomeSpec(ctx context.Context, a state.Agent, info homehost
 	if err != nil {
 		return homehost.Spec{}, err
 	}
-	spec := homehost.Spec{Tool: a.AI, Files: map[string]string{"CLAUDE.md": text, "AGENTS.md": text}}
+	spec := homehost.Spec{Tool: a.AI, Session: a.Session(), Files: map[string]string{"CLAUDE.md": text, "AGENTS.md": text}}
 	switch a.AI {
 	case "claude":
 		spec.Package = ChatAdapters["claude"].Package
 		// Project settings, which win over the user's own: ask before each
 		// command and edit (leadSettings), on the model the composer chose.
-		settings, err := os.ReadFile(filepath.Join(m.Paths.LeadHome(state.HomeProject), claudeSettingsFile))
+		settings, err := os.ReadFile(filepath.Join(m.leadHome(a), claudeSettingsFile))
 		if err != nil {
 			if settings, err = json.Marshal(leadSettings()); err != nil {
 				return homehost.Spec{}, err
@@ -64,6 +67,19 @@ func (m *Manager) HostHomeSpec(ctx context.Context, a state.Agent, info homehost
 		return homehost.Spec{}, fmt.Errorf("%s runs only in AgentBox's VM", ChatAdapters[a.AI].Tool)
 	}
 	return spec, nil
+}
+
+// hostSessionDir is where homehost runs a session on the host info describes
+// (homehost.Host.sessionDir), in its own separators.
+func hostSessionDir(info homehost.Info, session string) string {
+	if session == state.MigratedSession {
+		return info.Dir
+	}
+	sep := "/"
+	if info.OS == "windows" {
+		sep = `\`
+	}
+	return info.Dir + sep + "sessions" + sep + session
 }
 
 // hostName is hostos.Name for a GOOS the host reported.

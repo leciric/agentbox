@@ -180,7 +180,7 @@ func (h *Host) spawn(ctx context.Context, s net.Conn, br *bufio.Reader, spec Spe
 		}
 		close(p.done)
 	}()
-	if err := writeLine(s, reply{ID: id, Cwd: h.Dir, MCP: h.mcp()}); err != nil {
+	if err := writeLine(s, reply{ID: id, Cwd: cmd.Dir, MCP: h.mcp(spec.Session)}); err != nil {
 		_ = cmd.Process.Kill()
 		return
 	}
@@ -198,11 +198,23 @@ func (h *Host) spawn(ctx context.Context, s net.Conn, br *bufio.Reader, spec Spe
 
 // mcp is the session's MCP server: AgentBox's own tools, by way of this
 // binary, which carries its stdio to `agentbox mcp` in the VM.
-func (h *Host) mcp() []MCPServer {
+func (h *Host) mcp(session string) []MCPServer {
 	return []MCPServer{{
 		Name: "agentbox", Command: h.Self, Args: []string{"home-host", "mcp"},
-		Env: []string{SocketEnv + "=" + h.Socket},
+		Env: []string{SocketEnv + "=" + h.Socket, SessionEnv + "=" + session},
 	}}
+}
+
+// sessionDir is where a Home chat session runs: the folder itself for the
+// first, which the chat had before sessions, and one of its own for another.
+func (h *Host) sessionDir(session string) (string, error) {
+	if session == "" || session == "main" {
+		return h.Dir, nil
+	}
+	if strings.ContainsAny(session, `/\.:`) {
+		return "", fmt.Errorf("%q isn't a session", session)
+	}
+	return filepath.Join(h.Dir, "sessions", session), nil
 }
 
 // command is the adapter for spec, its working directory filled in.
@@ -216,7 +228,11 @@ func (h *Host) command(ctx context.Context, spec Spec, status func(string)) (*ex
 	if !ok || tool.Path == "" {
 		return nil, fmt.Errorf("%s isn't installed on this computer", or(name, spec.Tool))
 	}
-	if err := h.writeFiles(spec.Files); err != nil {
+	dir, err := h.sessionDir(spec.Session)
+	if err != nil {
+		return nil, err
+	}
+	if err := writeFiles(dir, spec.Files); err != nil {
 		return nil, err
 	}
 	env := append(os.Environ(), spec.Env...)
@@ -247,15 +263,15 @@ func (h *Host) command(ctx context.Context, spec Spec, status func(string)) (*ex
 	}
 	status("Starting " + name + " on your computer")
 	cmd := exec.CommandContext(ctx, command, args...)
-	cmd.Dir = h.Dir
+	cmd.Dir = dir
 	cmd.Env = env
 	return cmd, nil
 }
 
 // writeFiles writes what the daemon sent into the working directory, inside
 // it only.
-func (h *Host) writeFiles(files map[string]string) error {
-	if err := os.MkdirAll(h.Dir, 0o700); err != nil {
+func writeFiles(dir string, files map[string]string) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	for rel, content := range files {
@@ -263,7 +279,7 @@ func (h *Host) writeFiles(files map[string]string) error {
 		if filepath.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || clean == ".." {
 			return fmt.Errorf("%q isn't inside the chat's folder", rel)
 		}
-		path := filepath.Join(h.Dir, clean)
+		path := filepath.Join(dir, clean)
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			return err
 		}

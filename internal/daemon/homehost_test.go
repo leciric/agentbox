@@ -132,4 +132,15 @@ func TestHomeHostMCPRunsHere(t *testing.T) {
 	if line, _ := out.ReadString('\n'); line != "{\"jsonrpc\":\"2.0\"}\n" {
 		t.Fatalf("echo = %q", line)
 	}
+
+	// Another session's server reaches that session's socket.
+	other, err := homehost.Dial(context.Background(), d.paths.Socket(), homehost.MCPPath+"?session=s2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = other.Close() }()
+	line, _ = bufio.NewReader(other).ReadString('\n')
+	if want := "mcp home " + d.srv.sessionSocketPath("_home", "s2") + "\n"; line != want {
+		t.Fatalf("another session's MCP server started as %q, want %q", line, want)
+	}
 }

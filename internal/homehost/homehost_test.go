@@ -63,7 +63,7 @@ func TestSpawnCarriesTheAdaptersStdio(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Cwd != dir || len(p.MCP) != 1 || p.MCP[0].Command != "/bin/agentbox" || p.MCP[0].Env[0] != SocketEnv+"=/run/sock" {
+	if p.Cwd != dir || len(p.MCP) != 1 || p.MCP[0].Command != "/bin/agentbox" || p.MCP[0].Env[0] != SocketEnv+"=/run/sock" || p.MCP[0].Env[1] != SessionEnv+"=" {
 		t.Fatalf("proc = cwd %q, mcp %+v", p.Cwd, p.MCP)
 	}
 	out := bufio.NewReader(p.Stdout)
@@ -119,12 +119,20 @@ func TestSpawnRefusesAMissingTool(t *testing.T) {
 func TestFilesStayInTheChatsFolder(t *testing.T) {
 	h := &Host{Dir: t.TempDir()}
 	for _, rel := range []string{"../escape", "/etc/passwd", ".."} {
-		if err := h.writeFiles(map[string]string{rel: "x"}); err == nil {
+		if err := writeFiles(h.Dir, map[string]string{rel: "x"}); err == nil {
 			t.Errorf("%q was written", rel)
 		}
 	}
-	if err := h.writeFiles(map[string]string{".claude/settings.json": "{}"}); err != nil {
+	if err := writeFiles(h.Dir, map[string]string{".claude/settings.json": "{}"}); err != nil {
 		t.Fatal(err)
+	}
+	for session, want := range map[string]string{"": h.Dir, "main": h.Dir, "s2": filepath.Join(h.Dir, "sessions", "s2")} {
+		if got, err := h.sessionDir(session); err != nil || got != want {
+			t.Errorf("sessionDir(%q) = %q, %v; want %q", session, got, err, want)
+		}
+	}
+	if _, err := h.sessionDir("../x"); err == nil {
+		t.Error("a session named ../x has a folder")
 	}
 }
 

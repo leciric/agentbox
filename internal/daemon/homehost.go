@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"net/http"
@@ -57,8 +58,10 @@ func (s *Server) homeHostMCP(w http.ResponseWriter, r *http.Request) error {
 	defer func() { _ = conn.CloseNow() }()
 	ctx := r.Context()
 	stream := websocket.NetConn(ctx, conn, websocket.MessageBinary)
+	// The session's own socket, which is how the daemon tells sessions apart.
+	session := cmp.Or(r.URL.Query().Get("session"), state.MigratedSession)
 	cmd := exec.CommandContext(ctx, bin, "mcp")
-	cmd.Env = append(os.Environ(), "AGENTBOX_SOCKET="+s.leadSocketPath(state.HomeProject),
+	cmd.Env = append(os.Environ(), "AGENTBOX_SOCKET="+s.sessionSocketPath(state.HomeProject, session),
 		"AGENTBOX_NO_AUTOSTART=1", "AGENTBOX_CHAT=home")
 	cmd.Stdin, cmd.Stdout = stream, stream
 	cmd.WaitDelay = time.Second
@@ -68,15 +71,25 @@ func (s *Server) homeHostMCP(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// homeHostChanged follows the helper connecting or going: the Home chat's
-// adapter starts again before its next turn, on the host or here.
+// homeHostChanged follows the helper connecting or going: each Home chat
+// session's adapter starts again before its next turn, on the host or here.
 func (s *Server) homeHostChanged(connected bool) {
 	if connected {
 		s.logf("The desktop app's home-host connected: the Home chat runs on the user's computer")
 	} else {
 		s.logf("The desktop app's home-host went: the Home chat runs in this machine")
 	}
-	s.chat.Relaunch(agent.HomeRef)
+	refs := []string{agent.HomeRef}
+	sessions, err := s.store.LeadSessions(context.Background(), state.HomeProject)
+	if err != nil {
+		s.logf("The Home chat's sessions: %v", err)
+	}
+	for _, ls := range sessions {
+		refs = append(refs, agent.SessionRef(state.HomeProject, ls.ID))
+	}
+	for _, ref := range refs {
+		s.chat.Relaunch(ref)
+	}
 }
 
 // launchHome starts the Home chat's adapter on the user's computer when it
@@ -85,7 +98,7 @@ func (s *Server) homeHostChanged(connected bool) {
 func (s *Server) launchHome(ctx context.Context, m *agent.Manager, a state.Agent, status func(string)) (*chat.Process, placed) {
 	r := s.homeHost.Runner()
 	if r == nil {
-		return nil, s.homePlaced("vm:app",
+		return nil, s.homePlaced(a.Ref(), "vm:app",
 			"The AgentBox app isn't open on your computer, so the Home chat runs in AgentBox's VM until it is, without your computer's programs and files.")
 	}
 	tool := chat.ToolNames[a.AI]
@@ -93,33 +106,33 @@ func (s *Server) launchHome(ctx context.Context, m *agent.Manager, a state.Agent
 	info, err := r.Probe(pctx)
 	cancel()
 	if err != nil {
-		return nil, s.homePlaced("vm:probe", fmt.Sprintf("AgentBox couldn't reach your computer (%v), so the Home chat runs in AgentBox's VM.", err))
+		return nil, s.homePlaced(a.Ref(), "vm:probe", fmt.Sprintf("AgentBox couldn't reach your computer (%v), so the Home chat runs in AgentBox's VM.", err))
 	}
 	host := info.Tools[a.AI]
 	switch {
 	case a.AI == "cursor":
-		return nil, s.homePlaced("vm:cursor", "Cursor runs only in AgentBox's VM, so the Home chat runs there while it is on Cursor.")
+		return nil, s.homePlaced(a.Ref(), "vm:cursor", "Cursor runs only in AgentBox's VM, so the Home chat runs there while it is on Cursor.")
 	case host.Path == "":
-		return nil, s.homePlaced("vm:missing:"+a.AI, fmt.Sprintf(
+		return nil, s.homePlaced(a.Ref(), "vm:missing:"+a.AI, fmt.Sprintf(
 			"%s isn't installed on your computer, so the Home chat runs in AgentBox's VM, without your computer's programs and files. Install it there and the chat moves to your computer when it next starts.", tool))
 	case a.AI == "codex" && !host.Login:
-		return nil, s.homePlaced("vm:login:codex",
+		return nil, s.homePlaced(a.Ref(), "vm:login:codex",
 			"Codex isn't signed in on your computer (codex login), so the Home chat runs in AgentBox's VM.")
 	}
 	spec, err := m.HostHomeSpec(ctx, a, info)
 	if err != nil {
-		return nil, s.homePlaced("vm:spec", fmt.Sprintf("The Home chat couldn't be readied for your computer (%v), so it runs in AgentBox's VM.", err))
+		return nil, s.homePlaced(a.Ref(), "vm:spec", fmt.Sprintf("The Home chat couldn't be readied for your computer (%v), so it runs in AgentBox's VM.", err))
 	}
 	p, err := r.Spawn(ctx, spec, status)
 	if err != nil {
 		s.logf("The Home chat couldn't start %s on the host: %v", tool, err)
-		return nil, s.homePlaced("vm:spawn", fmt.Sprintf("The Home chat couldn't start %s on your computer (%v), so it runs in AgentBox's VM.", tool, err))
+		return nil, s.homePlaced(a.Ref(), "vm:spawn", fmt.Sprintf("The Home chat couldn't start %s on your computer (%v), so it runs in AgentBox's VM.", tool, err))
 	}
 	login := "its own login there"
 	if !host.Login && a.AI == "claude" {
 		login = "AgentBox's Claude Code account, as it has no login of its own there"
 	}
-	here := s.homePlaced("host", fmt.Sprintf(
+	here := s.homePlaced(a.Ref(), "host", fmt.Sprintf(
 		"The Home chat runs on your computer (%s), as you: %s with %s. It asks before each command and edit.",
 		hostOf(info), tool, login))
 	return &chat.Process{
@@ -136,15 +149,18 @@ type placed struct {
 	moved bool
 }
 
-// homePlaced records where the Home chat's adapter starts. It says so when
+// homePlaced records where a Home chat session's adapter, ref, starts. It says so when
 // that changed, but not for the VM when the app has never been open since the
 // daemon started, which is the CLI's and the phone's usual case rather than
 // news.
-func (s *Server) homePlaced(place, text string) placed {
+func (s *Server) homePlaced(ref, place, text string) placed {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	prev := s.homePlace
-	s.homePlace = place
+	if s.homePlace == nil {
+		s.homePlace = map[string]string{}
+	}
+	prev := s.homePlace[ref]
+	s.homePlace[ref] = place
 	if prev == place || (place == "vm:app" && prev == "") {
 		return placed{}
 	}
