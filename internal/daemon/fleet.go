@@ -151,9 +151,10 @@ func (s *Server) cachedPR(ctx context.Context, a state.Agent) *api.PullRequest {
 }
 
 // changesOf is an agent's diff against its base (gitrepo.DiffBase), onto its
-// pull request's base branch when given one (prBase), for showing: when git can't read it now, the last it could, so a fleet doesn't
-// flash every agent to "no changes" while the machine is out of files. What
-// decides anything from the changes uses measureChanges, and its error.
+// pull request's base branch when given one (prBase), for showing: when git
+// can't read it now, the last it could, so a fleet doesn't flash every agent
+// to "no changes" while the machine is out of files. What decides anything
+// from the changes uses measureChanges, and its error.
 func changesOf(a state.Agent, onto ...string) api.AgentChanges {
 	out, err := measureChanges(a, onto...)
 	if err != nil {
@@ -192,10 +193,10 @@ var knownChanges sync.Map // worktree -> api.AgentChanges
 var measuring sync.Map // worktree -> true
 
 // measureChanges measures an agent's diff against its base, onto the
-// branches in onto when given (gitrepo.DiffBase), and whether it has uncommitted work. A worktree that has been
-// removed, or an agent still being created, has none. An error is git
-// failing to read it (ENFILE, say), and the changes are then unknown: never
-// "none", and never "clean".
+// branches in onto when given (gitrepo.DiffBase), and whether it has
+// uncommitted work. A worktree that has been removed, or an agent still
+// being created, has none. An error is git failing to read it (ENFILE, say),
+// and the changes are then unknown: never "none", and never "clean".
 func measureChanges(a state.Agent, onto ...string) (api.AgentChanges, error) {
 	var out api.AgentChanges
 	if a.Worktree == "" || a.BaseCommit == "" {
