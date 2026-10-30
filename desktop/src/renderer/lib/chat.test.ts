@@ -20,6 +20,9 @@ import {
   isMessage,
   isSilent,
   isWork,
+  retryLoad,
+  retryLoadDelay,
+  loadErrorMessage,
   fetchThread,
   lineCounts,
   liveLabel,
@@ -708,4 +711,18 @@ test('agentPermissionState reads an agent request a lead shows as its outcome fo
   assert.equal(agentPermissionState(p('always')), 'approvedAlways');
   assert.equal(agentPermissionState(p('reject')), 'denied');
   assert.equal(agentPermissionState(p('cancelled')), 'gone');
+});
+
+test('a load is retried a few times when the daemon could not be reached, and never for other errors', () => {
+  const unreachable = { status: 503 };
+  assert.equal(retryLoad(0, unreachable), true);
+  assert.equal(retryLoad(3, { status: 0 }), true);
+  assert.equal(retryLoad(4, unreachable), false);
+  assert.equal(retryLoad(0, { status: 404 }), false);
+  assert.ok(retryLoadDelay(0) < retryLoadDelay(2) && retryLoadDelay(10) <= 4000);
+});
+
+test('a chat that could not load says the connection was lost, not the errno', () => {
+  assert.equal(loadErrorMessage({ status: 503, message: 'read ECONNRESET' }, 'other'), 'Lost the connection to AgentBox. Trying again…');
+  assert.equal(loadErrorMessage({ status: 500 }, 'other'), 'other');
 });

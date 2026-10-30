@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { chatLoadRetry, loadErrorMessage } from '../lib/chat';
 import { t, useT } from '../lib/i18n';
 import { useChatOpenAt } from '../lib/reveal';
 import { ChatMenu, ChatStatus, ChatTab } from './chat/ChatTab';
@@ -48,7 +49,7 @@ export type HomeTabs = { status: ReactNode; onStatus: boolean; onTab: (status: b
 
 export function HomeChatPanel({ home }: { home?: HomeTabs }) {
   const t = useT();
-  const chat = useQuery({ queryKey: ['projectChat', T.HomeProject], queryFn: () => api.projectChat(T.HomeProject) });
+  const chat = useQuery({ queryKey: ['projectChat', T.HomeProject], queryFn: () => api.projectChat(T.HomeProject), ...chatLoadRetry });
   const info = chat.data;
   const openAt = useChatOpenAt(T.HomeProject);
   // Chat or Memory, whichever was last open beside Status.
@@ -99,7 +100,7 @@ export function HomeChatPanel({ home }: { home?: HomeTabs }) {
           {info ? (
             <ChatTab agent={homeAgentFrom(info)} starting={false} onStart={() => {}} openAt={openAt} />
           ) : (
-            <div className="flex h-full items-center justify-center text-sm text-subtle">{chat.error ? t('chat.unavailable') : t('common.loading')}</div>
+            <div className="flex h-full items-center justify-center text-sm text-subtle">{chat.error ? loadErrorMessage(chat.error, t('chat.unavailable')) : t('common.loading')}</div>
           )}
         </div>
       </TabsContent>

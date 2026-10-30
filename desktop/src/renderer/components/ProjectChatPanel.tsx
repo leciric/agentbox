@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { chatLoadRetry, loadErrorMessage } from '../lib/chat';
 import { t, useT } from '../lib/i18n';
 import { useChatOpenAt } from '../lib/reveal';
 import { ChatTab } from './chat/ChatTab';
@@ -48,13 +49,13 @@ export function leadAgentFrom(project: T.Project, info: T.ProjectChat): T.Agent 
 // costs nothing: adding one makes no lead.
 export function ProjectChatPanel({ project }: { project: T.Project }) {
   const t = useT();
-  const chat = useQuery({ queryKey: ['projectChat', project.name], queryFn: () => api.projectChat(project.name) });
+  const chat = useQuery({ queryKey: ['projectChat', project.name], queryFn: () => api.projectChat(project.name), ...chatLoadRetry });
   const info = chat.data;
   const openAt = useChatOpenAt(project.name);
   const v2 = useUiV2();
 
   if (!info) {
-    return <div className="flex h-full items-center justify-center text-sm text-subtle">{chat.error ? t('chat.unavailable') : t('common.loading')}</div>;
+    return <div className="flex h-full items-center justify-center text-sm text-subtle">{chat.error ? loadErrorMessage(chat.error, t('chat.unavailable')) : t('common.loading')}</div>;
   }
 
   // v2 says above the composer how many of its agents wait for review.

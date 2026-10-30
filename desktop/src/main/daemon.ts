@@ -7,6 +7,7 @@ import { agentboxBin } from './cli';
 import { isLocal, requestOptions } from './connection';
 import { canUseIncus, vmInitDone } from './hostsetup';
 import { socketPath } from './paths';
+import { staleSocketRetry } from './staleSocket';
 import { progressStep, startFailure } from './startfailure';
 import { t } from '../shared/i18n/index.ts';
 import { NotListeningError, onWindows, relayRefused, startRelay } from './relay';
@@ -23,7 +24,7 @@ export interface ApiResponse {
 
 // request sends an API request to the current environment: this machine's
 // daemon, or one on a hub.
-export function request(method: string, path: string, body?: unknown): Promise<ApiResponse> {
+export function request(method: string, path: string, body?: unknown, retried = false): Promise<ApiResponse> {
   const payload = body === undefined ? undefined : JSON.stringify(body);
   const { module, options } = requestOptions(path);
   const headers: Record<string, string | number> = {
@@ -53,7 +54,11 @@ export function request(method: string, path: string, body?: unknown): Promise<A
         });
       });
     });
-    req.on('error', reject);
+    req.on('error', (err) => {
+      // A pooled socket the far end closed while idle: once more, on a new one.
+      if (!retried && staleSocketRetry(method, err, req.reusedSocket)) resolve(request(method, path, body, true));
+      else reject(err);
+    });
     req.end(payload);
   });
 }
