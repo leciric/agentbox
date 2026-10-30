@@ -8,6 +8,7 @@ import {
   agentPermissionState,
   applyChatEvent,
   asleep,
+  takesMessages,
   changedFiles,
   chatKey,
   contextHint,
@@ -636,6 +637,12 @@ test('asleep is a stopped or paused agent, whose chat stays readable and wakes i
   // A project's chat has no machine to start.
   assert.equal(asleep({ ref: 'p', state: 'stopped' }), undefined);
   assert.equal(asleep({ ref: 'p/lead', state: 'stopped' }), undefined);
+});
+
+test('the composer sends while anything is still starting, and only a machine that is gone refuses', () => {
+  for (const state of ['running', 'initializing', 'queued', 'stopped', 'paused']) assert.equal(takesMessages({ ref: 'p/a', state }), true, state);
+  for (const state of ['incomplete', 'missing']) assert.equal(takesMessages({ ref: 'p/a', state }), false, state);
+  assert.equal(takesMessages({ ref: 'p/lead', state: 'running' }), true);
 });
 
 test('toolsReload is ready only for an idle running session', () => {

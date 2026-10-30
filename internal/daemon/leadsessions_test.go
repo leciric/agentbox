@@ -3,12 +3,15 @@ package daemon
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"agentbox/internal/agent"
 	"agentbox/internal/api"
 	"agentbox/internal/chat"
+	"agentbox/internal/credentials"
 	"agentbox/internal/state"
 )
 
@@ -234,5 +237,40 @@ func TestSessionChatRoutes(t *testing.T) {
 	}
 	if renamed, err := d.client.RenameLeadSession(ctx, "hello-stack", prod.ID, "Prod: fixed"); err != nil || renamed.Topic != "Prod: fixed" || renamed.ID != prod.ID {
 		t.Errorf("RenameLeadSession() = %+v, %v", renamed, err)
+	}
+}
+
+// A new session answers before every other session's brief is rewritten to
+// name it, which a project with many sessions and a real memory took most of
+// a second over; the rewrite still happens, aside.
+func TestANewSessionIsNamedInTheOthersBriefs(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	repo := d.fixtureRepo(t, "hello-stack")
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
+		t.Fatal(err)
+	}
+	creds := credentials.Store{Dir: d.paths.Credentials()}
+	if err := creds.SaveClaudeToken("default", "sk-ant-oat01-default"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.srv.manager(nil).EnsureLead(ctx, "hello-stack"); err != nil {
+		t.Fatal(err)
+	}
+	for _, topic := range []string{"Prod", "Docs", "Billing"} {
+		if _, err := d.client.NewLeadSession(ctx, "hello-stack", topic); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d.srv.briefRewrites.Wait()
+	brief, err := os.ReadFile(filepath.Join(d.paths.LeadSessionHome("hello-stack", state.MigratedSession), ".claude", "CLAUDE.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, topic := range []string{"Prod", "Docs", "Billing"} {
+		if !strings.Contains(string(brief), topic) {
+			t.Errorf("the first session's brief doesn't name %q, made after it:\n%s", topic, brief)
+		}
 	}
 }

@@ -307,11 +307,19 @@ func (m *Manager) ReconfigureLead(ctx context.Context, project string) error {
 	}
 	var errs []error
 	for _, a := range leads {
+		// Under the lead's own lock: a session being made writes its HOME in
+		// EnsureLeadSession, and the daemon rewrites briefs in the background
+		// as that happens (sessionsChanged).
+		unlock, err := lockLead(ctx, m.Paths.Worktree(a.Project, a.Name))
+		if err != nil {
+			return errors.Join(append(errs, err)...)
+		}
 		// An account the project no longer resolves to doesn't stop the brief
 		// from being rewritten: the chat's next start fails on it instead
 		// (repairLead), which is where the user can see why.
 		_, accountErr := m.syncLeadAccount(ctx, a, p)
 		errs = append(errs, m.configureLead(ctx, a, p, repo.Root, m.LeadSocket(a)), accountErr)
+		unlock()
 	}
 	return errors.Join(errs...)
 }

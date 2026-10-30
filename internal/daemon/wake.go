@@ -28,8 +28,9 @@ type told struct {
 }
 
 // tellAgent sends a message to an agent's chat, starting or resuming its
-// machine first when it isn't running. A lead has no machine of its own, and an agent that
-// isn't ready (queued, being made) has none yet: the chat has those as ever.
+// machine first when it isn't running. A lead has no machine of its own: the
+// chat has its messages as ever. An agent that isn't ready (queued, being made)
+// has no machine yet: its chat holds them until it has.
 func (s *Server) tellAgent(ctx context.Context, a state.Agent, text string, images ...api.ChatImageUpload) (told, error) {
 	return s.tellAgentMessage(ctx, a, api.ChatMessageRequest{Text: text, Images: images})
 }
@@ -37,6 +38,13 @@ func (s *Server) tellAgent(ctx context.Context, a state.Agent, text string, imag
 // tellAgentMessage is tellAgent for a message with files as well as pictures.
 func (s *Server) tellAgentMessage(ctx context.Context, a state.Agent, msg api.ChatMessageRequest) (told, error) {
 	s.wakeIdle(a.Ref())
+	if !a.IsLead() && (a.Status == state.AgentCreating || a.Status == state.AgentQueued) {
+		// Its machine is still being made, and its AI tool can't start in it:
+		// the message waits in the chat, marked starting, and createJob
+		// releases it once the agent is ready.
+		item, err := s.chat.HoldStarting(a, msg)
+		return told{item: item}, err
+	}
 	if a.IsLead() || a.Status != state.AgentReady {
 		item, err := s.chat.SendMessage(a, msg)
 		return told{item: item}, err

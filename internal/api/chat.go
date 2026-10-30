@@ -158,7 +158,8 @@ type ChatItem struct {
 	Images []ChatImage `json:"images,omitempty"`
 	// Files, on a user message or an aside, are the other files sent with it.
 	Files []ChatFile `json:"files,omitempty"`
-	// Delivery, on an aside, is how that message reached the AI tool.
+	// Delivery, on an aside, is how that message reached the AI tool; on a
+	// user item, only ChatAsideStarting, while its turn waits for the tool.
 	Delivery string `json:"delivery,omitempty"`
 	// Woken, on a user item, marks a turn nobody prompted: the AI tool's
 	// session started it by itself, because a background task or a monitor it
@@ -257,6 +258,10 @@ const (
 	ChatAsideLost     = "lost"     // the session ended before it could be delivered
 	ChatAsideHeld     = "held"     // sent while the chat compacted: it starts the fresh session's first turn
 	ChatAsideWaking   = "waking"   // sent to a stopped agent that waits for memory: it starts the turn once its machine does
+	// ChatAsideStarting is a message sent before the AI tool could take it:
+	// on a user item, its turn waits for the tool's session to start; on an
+	// aside, the agent's machine is still being made. It goes in once ready.
+	ChatAsideStarting = "starting"
 )
 
 // ChatCompaction is a compaction's card (D73). While it runs, the chat is

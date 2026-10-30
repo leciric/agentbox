@@ -1857,6 +1857,7 @@ export const ptBR: Messages = {
   'chat.delivery.lost': 'Nunca chegou à ferramenta',
   'chat.delivery.held': 'Aguardando o fim da compactação',
   'chat.delivery.waking': 'Aguardando a memória iniciar a máquina',
+  'chat.delivery.starting': 'Aguardando a ferramenta de IA iniciar',
   'chat.sending.retry': 'Enviar de novo',
   'chat.sending.edit': 'Editar',
   'chat.compaction.running': 'Compactando o contexto — salvando na memória do projeto…',

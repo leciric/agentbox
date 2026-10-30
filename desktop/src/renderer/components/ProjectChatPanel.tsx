@@ -6,7 +6,7 @@ import * as T from '../../shared/api';
 import { api, sessionOfRef } from '../lib/api';
 import { t, useT } from '../lib/i18n';
 import { useChatOpenAt } from '../lib/reveal';
-import { afterDelete, chooseSession, markSessionSeen, neighbour, pickSession, useChosenSession } from '../lib/sessions';
+import { afterDelete, chooseSession, markSessionSeen, neighbour, pickSession, useChosenSession, withSession } from '../lib/sessions';
 import { keysHint, sessionKeys, sessionShortcut } from '../lib/shortcuts';
 import { errorMessage } from '../lib/utils';
 import { ChatTab } from './chat/ChatTab';
@@ -94,7 +94,15 @@ export function ProjectChatPanel({ project }: { project: T.Project }) {
     mutationFn: (topic: string) => api.newLeadSession(project.name, topic),
     onSuccess: (s) => {
       setAdding(false);
+      // The session opens on what its creation answered, rather than after
+      // the sessions and then its chat are read again: until then the tabs
+      // showed another session, and the composer wasn't there. Its AI tool
+      // starts now, not once the chat has mounted and read its thread, and
+      // what you send before it is ready waits for it (chat.Manager).
+      queryClient.setQueryData<T.LeadSession[]>(['leadSessions', project.name], (list) => withSession(list ?? [], s));
+      queryClient.setQueryData<T.ProjectChat>(['projectChat', project.name, s.id], (had) => had ?? { project: project.name, session: s.id, ref: s.ref, started: false, chat: s.chat });
       chooseSession(project.name, s.id);
+      void api.startChat(s.ref).catch(() => {}); // ChatTab starts it again, and says why it can't
       refresh();
     },
     onError: (err) => toast.error(errorMessage(err)),

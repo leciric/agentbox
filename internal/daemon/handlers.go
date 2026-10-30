@@ -1371,6 +1371,11 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 				_, _ = fmt.Fprintf(log, "the agent was made, but its task couldn't be sent: %v\n", err)
 			}
 		}
+		// What you wrote while it was being made (tellAgentMessage), after
+		// its task: as a turn now, or once the task's turn ends.
+		if err := s.chat.Release(a); err != nil {
+			_, _ = fmt.Fprintf(log, "the agent was made, but what was written to it meanwhile couldn't be sent: %v\n", err)
+		}
 		// The thread in the project chat's rail opens on this, so an agent the
 		// chat made is there from the start rather than at its first finish.
 		s.record(ctx, createdEvent(a, task, time.Now()))
