@@ -1653,14 +1653,11 @@ func open(path string, timeout time.Duration) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	// One connection, so statements that write serialize in database/sql
-	// instead of several SQLite connections racing for the write lock. That
-	// race is what surfaced as SQLITE_BUSY when four clusters' worth of
-	// creates ran beside the reconciler. Anything this package opens while
-	// holding a transaction is a second query on that same transaction (or a
-	// callback that touches no table), never a query on s.db, so one
-	// connection can't deadlock the caller.
-	db.SetMaxOpenConns(1)
+	// Several connections, so a writer waiting for the write lock doesn't hold
+	// every reader behind it: WAL lets a read run beside a write, and
+	// _txlock=immediate plus busy_timeout make the writers take turns rather
+	// than race (retryBusy covers the one statement that can still lose).
+	db.SetMaxOpenConns(8)
 	s := &Store{db: db}
 	if err := s.migrate(context.Background()); err != nil {
 		_ = db.Close()
@@ -2090,6 +2087,11 @@ func (p Project) AgentDefaults(ai string) (model, effort, window, mode string) {
 
 // AgentTools are the tools a project may name as AgentTool.
 var AgentTools = []string{"claude", "codex", "opencode", "cursor"}
+
+// AgentEfforts are the levels a project may pin for its agents: the names the
+// tools' effort options share. A tool that offers only some of them refuses a
+// pinned level it doesn't offer when the agent is created (agent.ChatChoices).
+var AgentEfforts = []string{"low", "medium", "high", "xhigh", "max"}
 
 // ModeKinds are the permission modes a project may start its agents on, by
 // kind, the one name every tool's menu shares (acp's modeKinds): its standard
