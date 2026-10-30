@@ -498,6 +498,8 @@ export const enUS = {
   'evidence.review': 'Review proof',
   'evidence.merge': 'Merge',
   'evidence.merged': 'Merged',
+  'evidence.mergedHidden': '{count} merged hidden',
+  'evidence.hideMerged': 'Hide merged',
   'evidence.chapter': 'Checking: {title}',
   'evidence.moreShots': '+{count}',
   'review.key.merge': 'Merge the pull request (press twice), then the next',
