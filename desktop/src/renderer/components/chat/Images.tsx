@@ -2,6 +2,7 @@ import { X } from 'lucide-react';
 import { useState } from 'react';
 import type * as T from '../../../shared/api';
 import { api } from '../../lib/api';
+import { sendingImageUrl } from '../../lib/sending';
 import { useT } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
 import { Dialog, DialogContent, DialogTitle } from '../ui/dialog';
@@ -48,7 +49,7 @@ export function SentImages({ chatRef, images }: { chatRef: string; images: T.Cha
   return (
     <div className="flex max-w-[85%] flex-wrap justify-end gap-1.5">
       {images.map((image) => (
-        <ImageThumb key={image.id} src={api.chatImageUrl(chatRef, image.id)} name={image.name} className="size-24" />
+        <ImageThumb key={image.id} src={sendingImageUrl(image.id) ?? api.chatImageUrl(chatRef, image.id)} name={image.name} className="size-24" />
       ))}
     </div>
   );

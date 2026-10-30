@@ -8,7 +8,8 @@
 // or take back into the composer.
 import { useSyncExternalStore } from 'react';
 import type * as T from '../../shared/api';
-import type { Pending } from './chatFiles';
+import { isElement, isFile, type Pending } from './chatFiles.ts';
+import { previewUrl } from './chatImages.ts';
 
 export interface Sending {
   // key is the stand-in item's id, never one the daemon gives.
@@ -41,6 +42,7 @@ const queues = new Map<string, Promise<unknown>>();
 let next = 0;
 
 function set(ref: string, list: Sending[]): void {
+  for (const gone of (sending.get(ref) ?? []).filter((s) => !list.includes(s))) forgetPictures(gone);
   if (list.length) sending.set(ref, list);
   else sending.delete(ref);
   for (const l of listeners) l();
@@ -182,12 +184,34 @@ export function withSending(thread: T.ChatThread, list: Sending[]): T.ChatThread
 // heads its own turn is the user's, one inside a running turn an aside, as
 // the daemon will make them. One that failed heads a turn that has ended.
 function standIn(s: Sending, turn: string | undefined): T.ChatItem {
-  const base = { id: s.key, text: s.text, createdAt: s.at, updatedAt: s.at };
+  const images = pictures(s);
+  const base = { id: s.key, text: s.text, createdAt: s.at, updatedAt: s.at, ...(images.length ? { images } : {}) };
   if (s.to) return { ...base, turn: turn ?? '', kind: 'notice', to: s.to, delivery: s.error ? failed : 'waiting' };
   if (s.error) return { ...base, turn: s.key, kind: 'user', delivery: failed, result: { state: failed, endedAt: s.at } };
   if (turn) return { ...base, turn, kind: 'aside', delivery: 'waiting' };
   return { ...base, turn: s.key, kind: 'user', delivery: 'waiting' };
 }
+
+// A stand-in's pictures are shown from what the composer read, by ids of
+// their own (sendingImageUrl): the daemon has none of them yet.
+const pictureUrls = new Map<string, string>();
+
+function pictures(s: Sending): T.ChatImage[] {
+  return s.attachments.flatMap((a, i) => {
+    if (isFile(a) || isElement(a)) return [];
+    const id = `${s.key}-${i}`;
+    pictureUrls.set(id, previewUrl(a));
+    return [{ id, mimeType: a.mimeType, name: a.name, size: a.size }];
+  });
+}
+
+function forgetPictures(s: Sending): void {
+  s.attachments.forEach((_, i) => pictureUrls.delete(`${s.key}-${i}`));
+}
+
+// sendingImageUrl is where a picture of a message on its way is shown from,
+// or undefined for one the daemon keeps.
+export const sendingImageUrl = (id: string): string | undefined => pictureUrls.get(id);
 
 // failed is a stand-in's delivery, and its turn's end, when it didn't go.
 export const failed = 'failed';

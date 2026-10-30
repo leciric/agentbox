@@ -43,7 +43,7 @@ import { choiceName, currentFirst, groupChoices, isRecommended, matchesQuery, se
 import { FileLinks } from '../files/FilePanel';
 import { mentionAt, matchAgents, matchFiles, matchProjects, mentionLimit, type MentionItem } from '../../lib/mentions';
 import { onComposerFocus, requestSessionFocus, takeComposerFocus } from '../../lib/newTask';
-import { composeEvent, getDraft, setDraft } from '../../lib/drafts';
+import { composeEvent, draftAttachmentsLoaded, getDraft, getDraftAttachments, setDraft, setDraftAttachments } from '../../lib/drafts';
 import { formatTime, t as translate, useT } from '../../lib/i18n';
 import { accountTools, roomiest } from '../../lib/leadRunner';
 import { useNow } from '../../lib/useNow';
@@ -97,7 +97,7 @@ export function Composer({
   const [mentionHighlighted, setMentionHighlighted] = useState(0);
   const [dollarDismissed, setDollarDismissed] = useState<string | null>(null);
   const [dollarHighlighted, setDollarHighlighted] = useState(0);
-  const [images, setImages] = useState<Pending[]>([]);
+  const [images, setImages] = useState<Pending[]>(() => getDraftAttachments(agent.ref));
   const [dragging, setDragging] = useState(false);
   const area = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
@@ -320,6 +320,21 @@ export function Composer({
   useEffect(() => {
     setDraft(agent.ref, text);
   }, [agent.ref, text]);
+
+  // What is attached stays with the draft too, and comes back with it: on
+  // returning to this chat, or once a restart's are read back.
+  useEffect(() => {
+    setDraftAttachments(agent.ref, images);
+  }, [agent.ref, images]);
+  useEffect(() => {
+    let live = true;
+    void draftAttachmentsLoaded().then(() => {
+      if (live) setImages((current) => (current.length ? current : getDraftAttachments(agent.ref)));
+    });
+    return () => {
+      live = false;
+    };
+  }, [agent.ref]);
 
   // A chat opened from UI v2's New task, or its sidebar's project, is opened
   // to write in, on screen already or not.
