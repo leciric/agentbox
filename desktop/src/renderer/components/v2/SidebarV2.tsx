@@ -48,7 +48,7 @@ import { isNightly, isUpgrade } from '../../lib/nightly';
 import { useStaleDaemon } from '../StaleDaemonNotice';
 import { useAppUpdate } from '../../lib/useAppUpdate';
 import { cn, errorMessage, shortcut, timeAgo } from '../../lib/utils';
-import { openNewTask, requestComposerFocus } from '../../lib/newTask';
+import { openNewTask, requestComposerFocus, requestSessionFocus } from '../../lib/newTask';
 import { openPanelOn, setPanel } from '../../lib/rightPanel';
 import { describeDelete, dropLine, Logo, moveKeys, NameSection, RenameSection, SectionHeader } from '../Sidebar';
 import { ConfirmDialog } from '../ConfirmDialog';
@@ -60,7 +60,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuMore, Cont
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Tip } from '../ui/tooltip';
 import { GroupChips } from '../groups/GroupChip';
-import { isUnread, isWorking, useSeenAt } from '../../lib/sessions';
+import { chooseSession, chosenSession, isUnread, isWorking, openSession, useSeenAt } from '../../lib/sessions';
 
 const stLabel: Record<AgentSt, MessageKey> = {
   needs: 'v2.st.needs',
@@ -862,6 +862,7 @@ function ProjectLead({
   sectionMenu?: { sections: T.Section[]; current: string; onMove: (id: string | null) => void; onNew: () => void };
 }) {
   const t = useT();
+  const queryClient = useQueryClient();
   const chat = useQuery({ queryKey: ['projectChat', project.name], queryFn: () => api.projectChat(project.name), refetchInterval: 60_000 });
   // The chat's sessions are listed above the chat, not here: the row's spinner
   // and dot say that any of them is working or has said something unseen.
@@ -937,8 +938,16 @@ function ProjectLead({
             active={active}
             onMove={onMove}
             onClick={() => {
+              // The session an agent's question waits in, when one does;
+              // otherwise the one shown last.
+              const sessions = queryClient.getQueryData<T.LeadSession[]>(['leadSessions', project.name]) ?? [];
+              const questions = queryClient.getQueryData<T.Question[]>(['questions', project.name]) ?? [];
+              const agents = queryClient.getQueryData<T.Agent[]>(['agents']) ?? [];
+              const to = openSession(sessions, chosenSession(project.name), questions, agents);
+              if (to) chooseSession(project.name, to.id);
               onSelect({ kind: 'project', project: project.name });
-              requestComposerFocus(leadRef);
+              if (to) requestSessionFocus(to.ref);
+              else requestComposerFocus(leadRef);
             }}
             data={{ 'data-v2-lead': project.name }}
           >

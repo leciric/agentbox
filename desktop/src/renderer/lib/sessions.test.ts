@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { afterDelete, byActivity, isUnread, isWorking, neighbour, pickSession, topicFrom } from './sessions.ts';
+import { afterDelete, byActivity, isUnread, isWorking, neighbour, openSession, pickSession, topicFrom } from './sessions.ts';
 
 const session = (id: string, activeAt: string, over: Partial<T.LeadSession> = {}): T.LeadSession => ({
   project: 'web',
@@ -26,6 +26,31 @@ test('the chat shows the session chosen last, else the most recently active', ()
   assert.equal(pickSession(all, 'gone')?.id, 'prod', 'a deleted choice falls back');
   assert.equal(pickSession([], 'main'), undefined);
   assert.deepEqual(byActivity(all).map((s) => s.id), ['prod', 'main', 'docs']);
+});
+
+const agent = (name: string, leadSession?: string) => ({ ref: `web/${name}`, leadSession }) as T.Agent;
+const question = (name: string, createdAt: string, status = 'pending') => ({ id: `${name}-${createdAt}`, project: 'web', agent: name, ref: `web/${name}`, question: '?', status, createdAt }) as T.Question;
+const agents = [agent('agent-1', 'docs'), agent('agent-2', 'main'), agent('agent-3'), agent('agent-4', 'deleted')];
+
+test('clicking a project opens the session its agents wait in', () => {
+  assert.equal(openSession(all, 'main', [], agents)?.id, 'main', 'none waiting: the one chosen last');
+  assert.equal(openSession(all, undefined, [], agents)?.id, 'prod');
+  assert.equal(openSession(all, 'main', [question('agent-1', '2026-10-29T10:00:00Z')], agents)?.id, 'docs');
+  assert.equal(openSession(all, 'docs', [question('agent-2', '2026-10-29T10:00:00Z', 'escalated')], agents)?.id, 'main', 'one escalated to you waits too');
+  const several = [question('agent-2', '2026-10-29T11:00:00Z'), question('agent-1', '2026-10-29T10:00:00Z'), question('agent-2', '2026-10-29T12:00:00Z')];
+  assert.equal(openSession(all, 'prod', several, agents)?.id, 'docs', 'the oldest one');
+});
+
+test('a question no session owns waits in the one most recently active', () => {
+  assert.equal(openSession(all, 'docs', [question('agent-3', '2026-10-29T10:00:00Z')], agents)?.id, 'prod', "an agent nobody's");
+  assert.equal(openSession(all, 'docs', [question('agent-4', '2026-10-29T10:00:00Z')], agents)?.id, 'prod', 'its session deleted');
+});
+
+test('answered questions, and gone agents', () => {
+  const done = [question('agent-1', '2026-10-29T10:00:00Z', 'answered'), question('agent-1', '2026-10-29T10:00:00Z', 'cancelled'), question('agent-9', '2026-10-29T09:00:00Z')];
+  assert.equal(openSession(all, 'main', done, agents)?.id, 'main');
+  assert.equal(openSession(all, 'main', [question('agent-9', '2026-10-29T09:00:00Z'), question('agent-1', '2026-10-29T10:00:00Z')], agents)?.id, 'docs', 'a gone agent is skipped, not the oldest');
+  assert.equal(openSession([], 'main', [question('agent-1', '2026-10-29T10:00:00Z')], agents), undefined);
 });
 
 test('next and previous go round the tabs', () => {
