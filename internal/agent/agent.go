@@ -1055,7 +1055,7 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 	// the adapter's low by accident. The chat applies both over ACP when the
 	// session starts.
 	if a.AI == "opencode" {
-		options, err := m.openCodeChatDefaults(ctx, pl.model, pl.effort)
+		options, err := m.openCodeChatDefaults(ctx, pl.project, pl.model, pl.effort)
 		if err != nil {
 			return fail("chat defaults", err)
 		}
@@ -1423,22 +1423,26 @@ func setModeKind(options map[string]string, kind string) {
 	}
 }
 
-// openCodeChatDefaults is the chat options a new OpenCode agent starts with:
-// the model chosen for it, and its effort — the one chosen for it (or its
-// project, or inherited from the lead), else the installation's OpenCode
-// default. An "opencode/" model maps to the same model on the Go endpoint,
-// which is the provider AgentBox delivers the account's key for; a model
-// nobody chose is the Go endpoint's deepseek-v4.1-flash.
-func (m *Manager) openCodeChatDefaults(ctx context.Context, model, effort *string) (map[string]string, error) {
+// openCodeChatDefaults is the chat options a new OpenCode agent of p starts
+// with: the model chosen for it, else the project's, and its effort — the one
+// chosen for it (or its project, or inherited from the lead), else the
+// installation's OpenCode default. An "opencode/" model maps to the same model
+// on the Go endpoint, which is the provider AgentBox delivers the account's key
+// for; a model nobody chose is the Go endpoint's deepseek-v4.1-flash.
+func (m *Manager) openCodeChatDefaults(ctx context.Context, p state.Project, model, effort *string) (map[string]string, error) {
 	options := map[string]string{}
+	projectModel, _, _, projectMode := p.AgentDefaults("opencode")
 	chosenModel := ""
 	if model != nil {
 		chosenModel = opencode.GoModel(*model)
+	} else if projectModel != "" {
+		chosenModel = opencode.GoModel(projectModel)
 	}
 	if chosenModel == "" {
 		chosenModel = state.DefaultOpenCodeModel
 	}
 	options["model"] = chosenModel
+	setModeKind(options, projectMode)
 	chosen := ""
 	if effort != nil {
 		chosen = strings.TrimSpace(*effort)
@@ -2492,7 +2496,7 @@ func (m *Manager) ensureSession(ctx context.Context, a state.Agent) error {
 	script := fmt.Sprintf("tmux has-session -t %[1]s 2>/dev/null && exit 0\ntmux new-session -d -s %[1]s -n shell -c %[2]s\n", session, shellQuote(m.Worktree(a)))
 	// Only a session about to be made opens the tool's window.
 	hasSession := fmt.Sprintf("tmux has-session -t %s 2>/dev/null", session)
-	if m.Incus.UserExec(ctx, a.Instance, m.User.Name, hasSession, nil, io.Discard, io.Discard) != nil {
+	if m.machine(a).UserExec(ctx, m.machineUser(a).Name, hasSession, nil, io.Discard, io.Discard) != nil {
 		m.prepareToolWindow(ctx, a)
 	}
 	window, err := m.toolWindowScript(ctx, a)
@@ -2957,9 +2961,9 @@ func (m *Manager) removeLeftovers(ctx context.Context, repo gitrepo.Repo, a stat
 			m.WorktreeTrashed()
 		} else {
 			m.shareRoom(ctx, "removing "+a.Ref()+"'s worktree")
-			if err := m.workspace(a).Destroy(ctx, repo); err != nil {
-				m.logf("Removing worktree %s: %v", a.Worktree, err)
-			}
+		}
+		if err := m.workspace(a).Destroy(ctx, repo); err != nil {
+			m.logf("Removing worktree %s: %v", a.Worktree, err)
 		}
 		deleteAgentRefs(repo, a.Name)
 		if a.Branch != "" && repo.BranchExists(a.Branch) {
