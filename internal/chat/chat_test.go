@@ -2181,6 +2181,7 @@ func TestAuthFailure(t *testing.T) {
 		"OAuth token has expired. Please obtain a new token or refresh your existing token.",
 		"Invalid API key · Please run /login",
 		"the agent exited: 401 Unauthorized",
+		`Internal error: Failed to authenticate: OAuth session expired and could not be refreshed: {"errorKind":"authentication_failed"}`,
 	}
 	fine := []string{
 		"Claude Code didn't start: exec: \"claude-agent-acp\": executable file not found in $PATH",
