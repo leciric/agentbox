@@ -1681,6 +1681,13 @@
     "height": 1080
   },
   {
+    "id": "window-v2-draft-dark",
+    "description": "UI v2 at 1920×1080 with group idle on: idle-1 has an unsent draft, so it shows the pencil and sits above the folded Idle list with the active projects, while idle-2 folds into Idle — dark",
+    "query": "app=project&v2=1&idle=3&groupidle=1&draft=idle-1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
     "id": "window-wide-v2-idle-dark",
     "description": "UI v2 at 1920×1080, no state filter and the Idle list open: the projects with nothing going on — dark",
     "query": "app=project&v2=1&pins=agentbox,storefront&theme=dark",

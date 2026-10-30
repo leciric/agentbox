@@ -4130,6 +4130,7 @@ export const ptBR: Messages = {
   'common.scrollBack': 'Rolar para trás',
   'common.scrollMore': 'Rolar para ver mais',
   'v2.sidebar.idleHint': 'nada rodando',
+  'v2.sidebar.draft': 'Rascunho não enviado no chat',
   'v2.sidebar.hide': 'Ocultar',
   'v2.sidebar.unhide': 'Mostrar de novo',
   'v2.sidebar.hideFailed': 'Não foi possível salvar os projetos ocultos',

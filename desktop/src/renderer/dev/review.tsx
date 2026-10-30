@@ -18,6 +18,7 @@ import { Sidebar } from '../components/Sidebar';
 import { TopBar } from '../components/TopBar';
 import { resetProjectSeenForTest } from '../lib/attention';
 import { buildFixtures, devRequests, pageOf, patchDevAgent, PROJECT, setMediaFile } from './fixtures';
+import { setDraft } from '../lib/drafts';
 import { useReadyAlerts } from '../lib/useReadyAlerts';
 import { screen } from './notifications';
 import { seedPages } from './pages';
@@ -641,6 +642,9 @@ export function seedV2(queryClient: QueryClient, pins: string | null): void {
   };
   daemonOrder();
   queryClient.setQueryData(['projects'], projects);
+  // &draft=a,b: those projects' leads have an unsent draft (with &groupidle=1
+  // a drafted project stays out of the Idle list).
+  for (const name of new URLSearchParams(location.search).get('draft')?.split(',') ?? []) setDraft(`${name}/lead`, 'Can you also check the flaky e2e test');
   queryClient.setQueryData(['sections'], sections);
   if (pins) localStorage.setItem('agentbox.v2.projects', JSON.stringify({ pins: pins.split(',') }));
   const json = (v: unknown) => ({ status: 200, body: JSON.stringify(v), contentType: 'application/json' });

@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { PendingImage } from './chatImages.ts';
-import { composed, draftAttachmentsLoaded, getDraft, getDraftAttachments, setAttachmentStore, setDraft, setDraftAttachments, type AttachmentStore, type StoredAttachments } from './drafts.ts';
+import { composed, draftAttachmentsLoaded, draftProjects, getDraft, getDraftAttachments, leadProject, projectsWithDraft, setAttachmentStore, setDraft, setDraftAttachments, type AttachmentStore, type StoredAttachments } from './drafts.ts';
 
 test('a ref with nothing typed has an empty draft', () => {
   assert.equal(getDraft('agent-never-seen'), '');
@@ -31,6 +31,40 @@ test('text composed into a chat goes before what was typed there, not over it', 
 });
 
 const picture = (key: string): PendingImage => ({ key, name: 'image.png', mimeType: 'image/png', size: 3, data: 'iVBO' });
+
+test('a draft maps to its project only for a lead chat, and whitespace or nothing does not count', () => {
+  assert.equal(leadProject('pawly'), 'pawly');
+  assert.equal(leadProject('pawly/lead'), 'pawly');
+  assert.equal(leadProject('pawly/lead.second'), 'pawly');
+  assert.equal(leadProject('pawly/agent-01'), undefined);
+  const out = projectsWithDraft([
+    ['a/lead', 'hello'],
+    ['b/lead', '  \n '],
+    ['c/agent-01', 'for an agent'],
+    ['d', ''],
+    ['e', 'bare project ref'],
+  ]);
+  assert.deepEqual([...out].sort(), ['a', 'e']);
+});
+
+test('an attachment alone is a draft', () => {
+  assert.deepEqual([...projectsWithDraft([['a/lead', '']], new Map([['a/lead', 1], ['b/lead', 0], ['c/agent-01', 2]]))], ['a']);
+});
+
+test('draftProjects follows typing, clearing and attaching, and is stable between changes', () => {
+  setDraft('live/lead', 'hi');
+  const first = draftProjects();
+  assert.ok(first.has('live'));
+  assert.equal(draftProjects(), first);
+  setDraft('live/lead', 'hi there');
+  assert.equal(draftProjects(), first);
+  setDraft('live/lead', '   ');
+  assert.ok(!draftProjects().has('live'));
+  setDraftAttachments('live/lead', [picture('img-live')]);
+  assert.ok(draftProjects().has('live'));
+  setDraftAttachments('live/lead', []);
+  assert.ok(!draftProjects().has('live'));
+});
 
 test("a draft's attachments come back with it, apart from its text", () => {
   assert.deepEqual(getDraftAttachments('p/lead.a'), []);

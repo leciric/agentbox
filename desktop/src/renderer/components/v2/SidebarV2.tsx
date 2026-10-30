@@ -22,7 +22,7 @@
 // lib/leadFirst.ts's, lib/projectOrder.ts's and lib/sidebarHidden.ts's.
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Briefcase, Check, ChevronRight, CircleArrowUp, Eye, EyeOff, Folder, FolderInput, FolderMinus, FolderPlus, FolderTree, House, Images, ListChecks, ListFilter, LoaderCircle, MoonStar, RefreshCw, Search, Settings, ShieldAlert, SquarePen, X } from 'lucide-react';
+import { Briefcase, Check, ChevronRight, CircleArrowUp, Eye, EyeOff, Folder, FolderInput, FolderMinus, FolderPlus, FolderTree, House, Images, ListChecks, ListFilter, LoaderCircle, MoonStar, Pencil, RefreshCw, Search, Settings, ShieldAlert, SquarePen, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ComponentProps, type DragEvent, type ReactNode } from 'react';
 import * as A from '../../../shared/api';
 import type * as T from '../../../shared/api';
@@ -32,6 +32,7 @@ import { useT, type MessageKey } from '../../lib/i18n';
 import { activeProjects, filterCount, leadLine, leadBusy, liveOrder, projectRows, toggle, type AgentSt, type Filters, type ProjectRows, type Row } from '../../lib/leadFirst';
 import type { Tally } from '../../lib/agentCounts';
 import { useAgentCounts } from '../../lib/useAgentCounts';
+import { useDraftProjects } from '../../lib/drafts';
 import { useGroupIdle } from '../../lib/groupIdle';
 import { movePin, orderProjects, togglePin } from '../../lib/projectOrder';
 import { HelpMenu } from './Tour';
@@ -156,6 +157,7 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   const finishedSort = useKeepOnScreen(useGrace(finishedNow), onScreen);
 
   const grouping = useGroupIdle();
+  const drafts = useDraftProjects();
   const order = useMemo(() => {
     return orderProjects({
       groupIdle: grouping,
@@ -163,11 +165,12 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
       pins: kept.pins,
       activity: new Map((activity.data ?? []).map((a) => [a.project, a])),
       active,
+      drafts,
       label,
     });
     // label is projectLabel's, the same each render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects.data, activity.data, active, kept.pins, grouping]);
+  }, [projects.data, activity.data, active, drafts, kept.pins, grouping]);
   const pinned = new Set(kept.pins);
   const ctx = { busy, keep: pinned };
   const { layout, save } = useSidebarLayout();
@@ -904,6 +907,7 @@ function ProjectLead({
   sectionMenu?: { sections: T.Section[]; current: string; onMove: (id: string | null) => void; onNew: () => void };
 }) {
   const t = useT();
+  const drafted = useDraftProjects().has(project.name);
   const queryClient = useQueryClient();
   const chat = useQuery({ queryKey: ['projectChat', project.name], queryFn: () => api.projectChat(project.name), refetchInterval: 60_000 });
   // The chat's sessions are listed above the chat, not here: the row's spinner
@@ -1016,6 +1020,11 @@ function ProjectLead({
               <span className="flex min-w-0 items-center gap-1.5">
                 <span className="truncate text-[13px] font-medium text-title">{name}</span>
                 {(chat.data?.chat === 'running' || sessionWorking) && <LoaderCircle className="size-3 shrink-0 animate-spin text-subtle" />}
+                {drafted && (
+                  <Tip label={t('v2.sidebar.draft')}>
+                    <Pencil className="size-3 shrink-0 text-subtle" data-v2-draft aria-label={t('v2.sidebar.draft')} />
+                  </Tip>
+                )}
                 {/* What needs you, or what finished, in place of the time, which
                     makes way for the gear on hover as the time does; on the
                     project open, the two share the line. */}

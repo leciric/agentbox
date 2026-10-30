@@ -2,6 +2,8 @@
 // restarts. localStorage already backs the environment choice (see
 // web/bridge.ts) and survives in the Electron renderer the same way, so
 // drafts use it too rather than adding an IPC round trip to the main process.
+import { useSyncExternalStore } from 'react';
+import { LeadName } from '../../shared/api.ts';
 import type { Pending } from './chatFiles.ts';
 
 const storageKey = 'agentbox.drafts';
@@ -47,11 +49,52 @@ function evictOverflow(): void {
   }
 }
 
+const listeners = new Set<() => void>();
+let drafted: ReadonlySet<string> | undefined;
+
+function changed(): void {
+  drafted = undefined;
+  for (const l of listeners) l();
+}
+
+// leadProject is the project a lead's chat ref belongs to, undefined for an
+// agent's ("pawly", "pawly/lead" or "pawly/lead.<session>" are the lead's).
+export function leadProject(ref: string): string | undefined {
+  const [project, name] = ref.split('/');
+  return !name || name === LeadName || name.startsWith(`${LeadName}.`) ? project : undefined;
+}
+
+// projectsWithDraft is the projects whose lead chat has an unsent draft:
+// text beyond whitespace, or an attachment.
+export function projectsWithDraft(texts: Iterable<[string, string]>, files: ReadonlyMap<string, number> = new Map()): Set<string> {
+  const out = new Set<string>();
+  const refs = new Map<string, boolean>();
+  for (const [ref, text] of texts) refs.set(ref, text.trim() !== '');
+  for (const [ref, n] of files) if (n > 0) refs.set(ref, true);
+  for (const [ref, has] of refs) {
+    const project = leadProject(ref);
+    if (has && project) out.add(project);
+  }
+  return out;
+}
+
+// draftProjects is the same of the drafts kept now; the same set until one changes.
+export function draftProjects(): ReadonlySet<string> {
+  return (drafted ??= projectsWithDraft(cache, new Map([...attachments].map(([ref, d]) => [ref, d.items.length]))));
+}
+
+export const useDraftProjects = () =>
+  useSyncExternalStore((l) => {
+    listeners.add(l);
+    return () => listeners.delete(l);
+  }, draftProjects);
+
 export function getDraft(ref: string): string {
   return cache.get(ref) ?? '';
 }
 
 export function setDraft(ref: string, text: string): void {
+  const before = cache.get(ref) ?? '';
   cache.set(ref, text);
   if (text === '') {
     delete store[ref];
@@ -60,6 +103,8 @@ export function setDraft(ref: string, text: string): void {
     evictOverflow();
   }
   scheduleWrite();
+  // Only when whether it counts changes would a row read differently.
+  if ((before.trim() !== '') !== (text.trim() !== '')) changed();
 }
 
 // composeIn puts text at the start of a chat's composer, before what was
@@ -109,6 +154,7 @@ export function setAttachmentStore(next: AttachmentStore | null): Promise<void> 
       const refs = Object.keys(stored).sort((a, b) => stored[b].updatedAt - stored[a].updatedAt);
       for (const ref of refs.slice(maxEntries)) void next?.delete(ref).catch(() => {});
       for (const ref of refs.slice(0, maxEntries)) if (!attachments.has(ref) && stored[ref].items.length) attachments.set(ref, stored[ref]);
+      changed();
     })
     .catch(() => {});
   return hydrated;
@@ -128,12 +174,14 @@ export function setDraftAttachments(ref: string, items: Pending[]): void {
   if (items.length === 0) {
     if (!attachments.delete(ref)) return;
     void attachmentStore?.delete(ref).catch(() => {});
+    changed();
     return;
   }
   if (attachments.get(ref)?.items === items) return;
   const draft = { items, updatedAt: Date.now() };
   attachments.set(ref, draft);
   void attachmentStore?.put(ref, draft).catch(() => {});
+  changed();
 }
 
 // indexedDBStore keeps attachments in this renderer's IndexedDB, one record

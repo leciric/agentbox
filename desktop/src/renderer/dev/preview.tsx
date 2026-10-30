@@ -212,6 +212,7 @@
 //   &pins=a,b               with &v2=1, those projects pinned, in that order
 //   &stale=1                with &v2=1 and &idle=1, idle-1 has unseen questions from destroyed agents
 //   &hidden=a,b             with &v2=1, those projects hidden from the sidebar
+//   &draft=a,b              with &v2=1, those projects' leads have an unsent draft
 //   &sections=1             with &v2=1, the user's sections (Classic's): Work, Side
 //                           projects and an empty Later, kept as the daemon would
 //   &groupidle=1            with &v2=1, "Group idle projects and sort by activity" on
