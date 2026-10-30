@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -90,6 +91,13 @@ func (a *egressAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *egressAPI) serveGet(w http.ResponseWriter, r *http.Request) {
+	if strings.Contains(r.URL.Path, "/secrets") {
+		// Rotating a cluster's token lists the ServiceAccount's Secrets first;
+		// this stub has none, which is what a cluster added before AgentBox
+		// made one looks like.
+		writeStubJSON(w, http.StatusOK, corev1.SecretList{TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "SecretList"}})
+		return
+	}
 	name := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
 	a.mu.Lock()
 	service, ok := a.services[name]
@@ -200,8 +208,8 @@ func TestClusterAddDeclaresTheEgressService(t *testing.T) {
 	if len(policy.Spec.Ingress) != 0 {
 		t.Errorf("the NetworkPolicy's ingress = %+v, want none", policy.Spec.Ingress)
 	}
-	if got := policy.Spec.PodSelector.MatchLabels[k8s.LabelApp]; got != k8s.AppAgent {
-		t.Errorf("the NetworkPolicy selects %s=%q, want %s", k8s.LabelApp, got, k8s.AppAgent)
+	if got := policy.Spec.PodSelector.MatchExpressions; len(got) != 1 || got[0].Key != k8s.LabelApp || !slices.Contains(got[0].Values, k8s.AppAgent) || !slices.Contains(got[0].Values, k8s.AppArchive) {
+		t.Errorf("the NetworkPolicy selects %+v, want %s in (%s, %s)", got, k8s.LabelApp, k8s.AppAgent, k8s.AppArchive)
 	}
 }
 

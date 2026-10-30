@@ -254,7 +254,7 @@ func TestPodIsHandedTheNamesItCannotResolve(t *testing.T) {
 	spec := agentSpec()
 	spec.HostAliases = map[string]string{
 		"hub.example.ts.net": "203.0.113.7",
-		"a.example":             "10.0.0.2",
+		"a.example":          "10.0.0.2",
 	}
 	pod, err := k8s.BuildPod(spec)
 	if err != nil {
