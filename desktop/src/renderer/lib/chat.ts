@@ -8,6 +8,26 @@ import { api, isProjectChat } from './api.ts';
 
 export const chatKey = (ref: string) => ['chat', ref];
 
+// A load that failed because the daemon couldn't be reached (the app's own
+// answer, status 503 or 0) is tried again a few times, slowing down, rather
+// than kept as the chat's error: it's usually a connection that was dropped
+// and is back a moment later. The connection coming back reloads everything
+// anyway (connectEvents).
+const loadAttempts = 4;
+export function retryLoad(failures: number, err: unknown): boolean {
+  const status = (err as { status?: number } | undefined)?.status;
+  return failures < loadAttempts && (status === 503 || status === 0);
+}
+export const retryLoadDelay = (failures: number) => Math.min(500 * 2 ** failures, 4000);
+export const chatLoadRetry = { retry: retryLoad, retryDelay: retryLoadDelay };
+
+// loadErrorMessage is what a chat that couldn't load says: a readable line for
+// a daemon that couldn't be reached, instead of the errno it came with.
+export function loadErrorMessage(err: unknown, fallback: string): string {
+  const status = (err as { status?: number } | undefined)?.status;
+  return status === 503 || status === 0 ? t('chat.connectionLost') : fallback;
+}
+
 // The latest chat events of each agent. A thread that was being fetched while
 // they arrived applies the ones it doesn't include yet.
 const recent = new Map<string, T.ChatEvent[]>();

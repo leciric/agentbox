@@ -2039,6 +2039,7 @@ export const enUS = {
   'chat.home.agentTitle': 'Home',
   'chat.home.title': 'Main chat',
   'chat.home.subtitle': 'Your main chat, across every project.',
+  'chat.connectionLost': 'Lost the connection to AgentBox. Trying again…',
   'chat.unavailable': 'The chat is unavailable.',
   'chat.project.agentTitle': 'Project chat',
   'sessions.label': 'Sessions of this chat',

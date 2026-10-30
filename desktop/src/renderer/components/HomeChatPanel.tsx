@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { chatLoadRetry } from '../lib/chat';
 import { t, useT } from '../lib/i18n';
 import { useChatOpenAt } from '../lib/reveal';
 import { ChatMenu, ChatStatus, ChatTab } from './chat/ChatTab';
@@ -60,6 +61,7 @@ export function HomeChatPanel({ home }: { home?: HomeTabs }) {
     queryKey: ['projectChat', T.HomeProject, current?.id],
     queryFn: () => api.projectChat(T.HomeProject, current!.id),
     enabled: !!current,
+    ...chatLoadRetry,
   });
   const info = current && chat.data?.ref === current.ref ? chat.data : undefined;
   const openAt = useChatOpenAt(T.HomeProject);

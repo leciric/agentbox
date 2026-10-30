@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
 import { api, isHomeChat, isProjectChat } from '../../lib/api';
 import type { Wake } from '../v2/ReviewV2';
-import { asleep, chatKey, dropWindow, fetchThread, isSilent, loadOlder, loadWindowNewer, loadWindowOlder, sessionShown, takesMessages, toolsReload } from '../../lib/chat';
+import { asleep, chatKey, chatLoadRetry, loadErrorMessage, dropWindow, fetchThread, isSilent, loadOlder, loadWindowNewer, loadWindowOlder, sessionShown, takesMessages, toolsReload } from '../../lib/chat';
 import { useT, type MessageKey } from '../../lib/i18n';
 import { settleSending, useSending, withSending } from '../../lib/sending';
 import { useProjectName } from '../../lib/useProjectName';
@@ -71,7 +71,7 @@ export function ChatTab({
 }) {
   const t = useT();
   const queryClient = useQueryClient();
-  const thread = useQuery({ queryKey: chatKey(given.ref), queryFn: () => fetchThread(queryClient, given.ref) });
+  const thread = useQuery({ queryKey: chatKey(given.ref), queryFn: () => fetchThread(queryClient, given.ref), ...chatLoadRetry });
   const session = thread.data?.session;
   // A lead runs the tool and account its composer chose, which its session
   // says (RunnerPicker).
@@ -335,7 +335,7 @@ export function ChatTab({
               <div className="skeleton h-4 w-2/3 rounded-md" />
             </div>
           ) : thread.error ? (
-            <Notice>{errorMessage(thread.error)}</Notice>
+            <Notice>{loadErrorMessage(thread.error, errorMessage(thread.error))}</Notice>
           ) : empty || !view ? (
             <Hero agent={agent} />
           ) : (

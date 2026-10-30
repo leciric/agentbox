@@ -2040,6 +2040,7 @@ export const ptBR: Messages = {
   'chat.home.agentTitle': 'Início',
   'chat.home.title': 'Chat principal',
   'chat.home.subtitle': 'Seu chat principal, em todos os projetos.',
+  'chat.connectionLost': 'A conexão com o AgentBox foi perdida. Tentando novamente…',
   'chat.unavailable': 'O chat não está disponível.',
   'chat.project.agentTitle': 'Chat do projeto',
   'sessions.label': 'Sessões deste chat',

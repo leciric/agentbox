@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import * as T from '../../shared/api';
 import { api, sessionOfRef } from '../lib/api';
-import { forgetThread } from '../lib/chat';
+import { chatLoadRetry, forgetThread, loadErrorMessage } from '../lib/chat';
 import { t, useT } from '../lib/i18n';
 import { useChatOpenAt } from '../lib/reveal';
 import { afterClose, chooseSession, markSessionSeen, neighbour, pickSession, useChosenSession, withSession } from '../lib/sessions';
@@ -122,6 +122,7 @@ export function SessionChatPanel({ project, children }: { project: string; child
     queryKey: ['projectChat', project, current?.id],
     queryFn: () => api.projectChat(project, current!.id),
     enabled: !!current,
+    ...chatLoadRetry,
   });
   const info = chat.data;
 
@@ -288,7 +289,7 @@ export function SessionChatPanel({ project, children }: { project: string; child
         {ready ? (
           children(info, current)
         ) : (
-          <div className="flex h-full items-center justify-center text-sm text-subtle">{chat.error ? t('chat.unavailable') : t('common.loading')}</div>
+          <div className="flex h-full items-center justify-center text-sm text-subtle">{chat.error ? loadErrorMessage(chat.error, t('chat.unavailable')) : t('common.loading')}</div>
         )}
       </div>
     </div>
