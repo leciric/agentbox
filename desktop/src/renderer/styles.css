@@ -1524,11 +1524,12 @@ html[data-blurred] .ab-monitor * {
 
 /* A chat session's colour (components/chat/sessionColor.ts): a pastel per
    name in state.SessionColors, lighter on dark and deeper on light, its wash
-   a little stronger on dark (--ab-session-wash) to read the same on both. [data-session-color] sets --session from it; a name this
-   app doesn't know leaves it unset, and nothing tinted. .session-tint washes an
-   agent's card with it and draws a 2px edge at its left, under the card's
-   content and over its own hover and selected backgrounds, without touching
-   its box-shadow (the focus ring). */
+   a little stronger on dark (--ab-session-wash) to read the same on both.
+   [data-session-color] sets --session from it; a name this app doesn't know
+   leaves it unset, and nothing tinted. .session-tint washes an agent's card
+   with it and draws a 2px edge at its left, under the card's content and over
+   its own hover and selected backgrounds, without touching its box-shadow
+   (the focus ring). */
 :root {
   --ab-session-rose: #f5a3b5;
   --ab-session-peach: #f7b98b;
