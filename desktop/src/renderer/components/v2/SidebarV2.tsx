@@ -997,8 +997,8 @@ function ProjectLead({
               else requestComposerFocus(leadRef);
             }}
             data={{ 'data-v2-lead': project.name }}
-            // Needing you, a faint amber wash and a line down its left edge.
-            className={needs ? cn('shadow-[inset_2px_0_0_var(--color-amber-400)]', !active && 'bg-amber-400/5 hover:bg-amber-400/10') : undefined}
+            // Needing you, a faint amber wash.
+            className={needs && !active ? 'bg-amber-400/5 hover:bg-amber-400/10' : undefined}
           >
             {/* The icon's corner says it at any width: amber for what needs
                 you, the brand's for what finished or a session's unread line. */}
