@@ -77,7 +77,7 @@ const TimelineRow = memo(
         return (
           <div className="group flex flex-col items-end gap-1 pb-4 pt-1" data-chat-item={row.item.kind === 'aside' ? 'aside' : 'user'} data-chat-id={row.item.id}>
             <UserMessage item={row.item} chatRef={chatRef} />
-            {row.item.delivery === failed ? <NotSent item={row.item} /> : (row.item.kind === 'aside' || isSending(row.item)) && <Delivered item={row.item} />}
+            {row.item.delivery === failed ? <NotSent item={row.item} /> : (row.item.kind === 'aside' || isSending(row.item) || row.item.delivery === 'starting') && <Delivered item={row.item} />}
             {!isSending(row.item) && <Meta item={row.item} className="justify-end pr-1" />}
           </div>
         );
@@ -267,6 +267,9 @@ const deliveries: Record<string, { label: MessageKey; className: string }> = {
   lost: { label: 'chat.delivery.lost', className: 'text-rose-300/80' },
   held: { label: 'chat.delivery.held', className: 'text-amber-300/70' },
   waking: { label: 'chat.delivery.waking', className: 'text-amber-300/70' },
+  // Sent before the AI tool could take it: its session, or the agent's
+  // machine, is still starting. It goes in once that is done.
+  starting: { label: 'chat.delivery.starting', className: 'text-subtle' },
 };
 
 // CompactionCard is the chat saving its conversation to the project's memory

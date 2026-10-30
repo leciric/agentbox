@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { afterDelete, byActivity, isUnread, isWorking, neighbour, openSession, pickSession, topicFrom } from './sessions.ts';
+import { afterDelete, byActivity, isUnread, isWorking, neighbour, openSession, pickSession, topicFrom, withSession } from './sessions.ts';
 
 const session = (id: string, activeAt: string, over: Partial<T.LeadSession> = {}): T.LeadSession => ({
   project: 'web',
@@ -65,6 +65,14 @@ test('deleting a session shows the one beside it', () => {
   assert.equal(afterDelete(all, 'prod')?.id, 'docs');
   assert.equal(afterDelete(all, 'docs')?.id, 'prod');
   assert.equal(afterDelete([main], 'main'), undefined);
+});
+
+test('a session just made opens before the list is read again', () => {
+  const fresh = session('fresh', '2026-10-30T09:00:00Z');
+  assert.deepEqual(withSession(all, fresh).map((s) => s.id), ['main', 'prod', 'docs', 'fresh']);
+  assert.equal(pickSession(withSession(all, fresh), 'fresh')?.id, 'fresh');
+  const renamed = { ...prod, topic: 'production' };
+  assert.deepEqual(withSession(all, renamed).map((s) => s.topic), ['main', 'production', 'docs'], 'one already listed is replaced, not added twice');
 });
 
 test('a session is unread when it said something after it was last seen', () => {

@@ -212,6 +212,11 @@ type Server struct {
 	// connectors starts in the background (connectors.go), for the same
 	// reason, and so a test can wait for one to have marked the chats.
 	connectorSyncs sync.WaitGroup
+	// briefRewrites tracks the rewrites of chat briefs sessionsChanged starts
+	// in the background, for the same reason; briefsAgain, under mu, is the
+	// projects one runs for, true when another change came in meanwhile.
+	briefRewrites sync.WaitGroup
+	briefsAgain   map[string]bool
 	// mergeFrees tracks the agents a merge through the app frees after it
 	// has answered (mergePullRequest), for the same reason: one may still be
 	// deleting a machine and a worktree.
@@ -580,6 +585,7 @@ func (s *Server) serve(ctx context.Context, socket string) error {
 		s.bgChecks.Wait()
 		s.skillSyncs.Wait()
 		s.connectorSyncs.Wait()
+		s.briefRewrites.Wait()
 		s.mergeFrees.Wait()
 		s.vgpu.wg.Wait()
 	}()

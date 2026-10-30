@@ -732,6 +732,12 @@ func (c *conversation) beginResumedTurn(it *api.ChatItem, text string, sent atta
 	c.reloadBeforeTurn()
 	c.restartAccountBeforeTurn()
 	ad := c.startAdapter()
+	if !ad.ready {
+		// Taken, and waiting for the tool to start: said on the message, so
+		// a session still starting never looks like one that ignored it.
+		it.Delivery = api.ChatAsideStarting
+		c.touch(it)
+	}
 	c.session.State = c.stateNow()
 	c.markSession()
 	// The app hears of the message and the turn before anything is written
@@ -2177,6 +2183,7 @@ func (c *conversation) prompt(ad *adapter, t *turn) {
 		c.mu.Unlock()
 		return
 	}
+	c.started(t)
 	if ad.err != nil {
 		err := ad.err
 		if !errors.Is(err, errStopped) {
@@ -2249,6 +2256,15 @@ func (c *conversation) prompt(ad *adapter, t *turn) {
 			}
 		}
 		c.finishTurn(t, &res, nil)
+	}
+}
+
+// started takes ChatAsideStarting off the message heading t: the tool has
+// started, or the turn is over without it. Caller holds c.mu.
+func (c *conversation) started(t *turn) {
+	if it := c.byID[t.id]; it != nil && it.Delivery == api.ChatAsideStarting {
+		it.Delivery = ""
+		c.touch(it)
 	}
 }
 
@@ -2341,6 +2357,7 @@ func (c *conversation) finishTurn(t *turn, res *acp.PromptResponse, err error) {
 	if c.turn != t {
 		return
 	}
+	c.started(t)
 	c.closeOpen()
 	// The tool calls still running as the turn ends: Codex and OpenCode don't
 	// report background work, but a command they left going shows here.
