@@ -109,6 +109,11 @@
 //                           that limits its Claude Code accounts, beside
 //                           Settings' GitHub accounts with a rename the dev
 //                           bridge answers
+//   ?firstrun=tool|image|login|github|project|check
+//                           with ?app=home, a new installation's first run at
+//                           that step, its daemon up (fixtures.ts seedFirstRun);
+//                           =machine with ?linux=setup (or ?vm=create,
+//                           ?wsl=create) the VM to make, before there is one
 //   ?setup=updating         Settings while the daemon updates the base image's
 //                           agent tools in place: the image check updating,
 //                           with its job's log (fixtures.ts)
@@ -337,7 +342,7 @@ import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
 import { Markdown } from '../components/chat/Markdown';
 import { webStreams } from '../web/streams';
 import { chooseSession } from '../lib/sessions';
-import { agent12Chat, asleepChat, buildFixtures, remoteAgents, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedSignedOut, seedNightly, seedCacheCard, seedStaleDaemon, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
+import { agent12Chat, asleepChat, buildFixtures, remoteAgents, claudeLimits, dropDevAgent, compactionThread, thinkingThread, richChat, richStreamText, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedFirstRun, seedSignedOut, seedNightly, seedCacheCard, seedStaleDaemon, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, seedMacVZ, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
 import { restoreMode } from '../lib/theme';
 import { seedPastAgents } from './pastAgents';
@@ -368,6 +373,15 @@ const params = new URLSearchParams(location.search);
 localStorage.setItem('agentbox.appearance', params.get('theme') === 'light' || params.get('theme') === 'dracula' ? params.get('theme')! : 'dark');
 restoreMode();
 applyLanguage(params.get('lang'));
+// ?firstrun=<step> is a new installation's first run at that step
+// (seedFirstRun): with ?app= the daemon is up; with ?linux=setup, ?vm=create
+// or ?wsl=create it isn't yet, and machine is the VM to make. Without it, the
+// first run is behind this browser, as it is behind every installation set up
+// before it, though those screens show it anyway: they are a new machine's.
+const firstRunAt = params.get('firstrun');
+localStorage.removeItem('agentbox.firstRun');
+if (firstRunAt && firstRunAt !== 'tool') localStorage.setItem('agentbox.firstRun.tool', 'claude');
+else localStorage.removeItem('agentbox.firstRun.tool');
 localStorage.setItem('agentbox.rail.folded', params.get('folded') === '1' ? '1' : '0');
 localStorage.setItem('agentbox.rail.finished', params.get('finished') === '1' ? '1' : '0');
 const openAgent = params.get('open'); // e.g. "agent-99"
@@ -774,6 +788,7 @@ if (imageUpdate) seedImageUpdate(queryClient);
 // checks: the bare { ready: true } the lists answer with has none.
 if (settingsPage || appView) seedSettings(queryClient);
 if (params.get('signedout') === '1') seedSignedOut(queryClient);
+if (appView && firstRunAt) seedFirstRun(queryClient, firstRunAt);
 if (params.get('drag')) dragBridge(queryClient, params.get('drag') === 'slow' ? 1_500 : 300);
 if (params.get('enforce') === '1') { seedDefaults(queryClient); queryClient.setQueryData<T.Settings>(['settings'], (s) => s && { ...s, enforceAgentDefaults: true }); }
 if (params.get('nightly') === '1') seedNightly(queryClient);

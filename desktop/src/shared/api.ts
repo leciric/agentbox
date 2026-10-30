@@ -184,6 +184,7 @@ export interface Settings {
   defaultCursorModel: string;
   defaultCursorEffort: string;
   lastAgentPick: AgentPick;
+  firstRun: boolean;
   resumeAfterLimit: boolean;
   continueAfterRestart: boolean;
   creditAITool: boolean;
@@ -256,6 +257,7 @@ export interface UpdateSettingsRequest {
   defaultCursorModel?: string;
   defaultCursorEffort?: string;
   lastAgentPick?: AgentPick;
+  firstRunDone?: boolean;
   openCodeVersion?: string;
   resumeAfterLimit?: boolean;
   continueAfterRestart?: boolean;
@@ -1358,6 +1360,14 @@ export interface GitHubLogin {
   expiresAt?: string;
   outcome?: string;
   user?: string;
+}
+
+export interface GitHubRepo {
+  fullName: string;
+  description?: string;
+  private: boolean;
+  pushedAt?: string;
+  cloneUrl: string;
 }
 
 export interface CursorKeyRequest {

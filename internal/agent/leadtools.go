@@ -2,7 +2,6 @@ package agent
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -72,13 +71,14 @@ type LeadChoice struct {
 }
 
 // LeadChoice reads a lead's choice from its chat. A chat never switched runs
-// Claude Code.
+// the installation's default tool until it first runs, and keeps it then
+// (chatTool).
 func (m *Manager) LeadChoice(ctx context.Context, project string) (LeadChoice, error) {
 	c, err := m.Store.Chat(ctx, project, state.LeadName)
 	if err != nil {
 		return LeadChoice{Tool: "claude"}, err
 	}
-	return LeadChoice{Tool: cmp.Or(c.Tool, "claude"), NextTool: c.NextTool, Account: c.Account, ToolAccounts: c.ToolAccounts}, nil
+	return LeadChoice{Tool: m.chatTool(ctx, c), NextTool: c.NextTool, Account: c.Account, ToolAccounts: c.ToolAccounts}, nil
 }
 
 // LeadChoiceOf reads the choice of one chat session's composer. A session
@@ -92,7 +92,7 @@ func (m *Manager) LeadChoiceOf(ctx context.Context, a state.Agent) (LeadChoice, 
 	if c.Tool == "" && a.Name != state.LeadName {
 		return m.LeadChoice(ctx, a.Project)
 	}
-	return LeadChoice{Tool: cmp.Or(c.Tool, "claude"), NextTool: c.NextTool, Account: c.Account, ToolAccounts: c.ToolAccounts}, nil
+	return LeadChoice{Tool: m.chatTool(ctx, c), NextTool: c.NextTool, Account: c.Account, ToolAccounts: c.ToolAccounts}, nil
 }
 
 // LeadToolLogin says why a lead can't run tool: nil when AgentBox has a login

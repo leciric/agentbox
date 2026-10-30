@@ -593,3 +593,43 @@ func (c Client) Retarget(ctx context.Context, repo Repo, number int, base string
 	}{Base: base}
 	return c.do(ctx, http.MethodPatch, path, body, nil)
 }
+
+// UserRepo is a repository the token's account can push to (UserRepos).
+type UserRepo struct {
+	FullName    string    `json:"full_name"`
+	Description string    `json:"description"`
+	Private     bool      `json:"private"`
+	PushedAt    time.Time `json:"pushed_at"`
+	CloneURL    string    `json:"clone_url"`
+	Permissions struct {
+		Push bool `json:"push"`
+	} `json:"permissions"`
+}
+
+// userRepoPages is how many pages of a hundred UserRepos reads: the
+// repositories someone works on are the recently pushed ones, and a list
+// longer than this is searched by name, not scrolled.
+const userRepoPages = 3
+
+// UserRepos lists the repositories the token's account owns, collaborates on
+// or reaches through an organisation and can push to, most recently pushed
+// first: what someone might make their first project of.
+func (c Client) UserRepos(ctx context.Context) ([]UserRepo, error) {
+	var out []UserRepo
+	for page := 1; page <= userRepoPages; page++ {
+		var batch []UserRepo
+		path := fmt.Sprintf("/user/repos?affiliation=owner,collaborator,organization_member&sort=pushed&per_page=100&page=%d", page)
+		if err := c.get(ctx, path, &batch); err != nil {
+			return nil, err
+		}
+		for _, r := range batch {
+			if r.Permissions.Push {
+				out = append(out, r)
+			}
+		}
+		if len(batch) < 100 {
+			break
+		}
+	}
+	return out, nil
+}

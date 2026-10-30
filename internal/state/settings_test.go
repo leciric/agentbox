@@ -70,6 +70,7 @@ func TestFreshInstallSettingsAreSeededOnce(t *testing.T) {
 		state.SettingDefaultAgentContextWindow: "1000000",
 		state.SettingDefaultLeadModel:          "opus",
 		state.SettingDefaultLeadContextWindow:  "1000000",
+		state.SettingFirstRun:                  "1",
 	} {
 		if got, err := st.Setting(ctx, key); err != nil || got != want {
 			t.Errorf("a fresh database's %s = %q, %v; want %q", key, got, err, want)

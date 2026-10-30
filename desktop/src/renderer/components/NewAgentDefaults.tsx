@@ -9,6 +9,7 @@ import { useT } from '../lib/i18n';
 import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../lib/modelChoices';
 import { cn, errorMessage, humanBytes, parseBytes, timeAgo } from '../lib/utils';
 import { JobProgress } from './JobProgress';
+import { aiLabel } from './state';
 import { Button } from './ui/button';
 import { ModelByName } from './ModelByName';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from './ui/menu';
@@ -1156,6 +1157,48 @@ const mediaRetentions = [
 // outlive it. It belongs to the installation rather than to a project: it is
 // about this machine's disk, and every project's removed agents fill it the
 // same way — more so now that finished agents are removed on their own.
+// DefaultTool is the installation's AI tool: what the Home chat and each
+// project's chat start on before they choose, and the New agent dialog opens
+// on in a project that names none. The first run chose it; it is the same
+// setting as the dialog's last pick (Settings.lastAgentPick), so picking a
+// tool there moves it too. A chat that has started keeps its tool.
+export function DefaultTool() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (ai: string) => api.updateSettings({ lastAgentPick: { ai, model: '', effort: '' } }),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const current = settings.data?.lastAgentPick.ai;
+
+  return (
+    <SettingRow
+      label={t('defaults.tool.label')}
+      description={t('defaults.tool.description')}
+      details={t('defaults.tool.details')}
+      control={
+        <Select
+          data-default-tool
+          aria-label={t('defaults.tool.label')}
+          disabled={save.isPending || settings.data === undefined}
+          value={current && defaultTools.includes(current) ? current : 'claude'}
+          onChange={(next) => save.mutate(next)}
+        >
+          {defaultTools.map((ai) => (
+            <SelectOption key={ai} value={ai}>
+              {aiLabel(ai)}
+            </SelectOption>
+          ))}
+        </Select>
+      }
+    />
+  );
+}
+
+const defaultTools = ['claude', 'codex', 'opencode', 'cursor'];
+
 export function MediaRetention() {
   const t = useT();
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });

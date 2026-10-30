@@ -1482,6 +1482,12 @@ var migrations = []string{
 		FROM lead_sessions o
 		WHERE o.project = lead_sessions.project
 			AND (o.closed_at != 0, o.created_at, o.id) <= (lead_sessions.closed_at != 0, lead_sessions.created_at, lead_sessions.id))`,
+
+	// A chat that has never run starts on the installation's default tool
+	// now (agent.LeadChoice), not always on Claude Code. Every chat's first
+	// session that ran before is held to the Claude Code it ran, so no
+	// conversation changes tool under anyone; the other sessions follow it.
+	`UPDATE chats SET tool = 'claude' WHERE tool = '' AND agent = 'lead'`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

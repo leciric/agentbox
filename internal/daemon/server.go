@@ -885,6 +885,7 @@ func (s *Server) routes() http.Handler {
 	// What Anthropic last said about each Claude account's usage limits (D85).
 	h("GET /v1/limits", s.claudeLimits)
 	h("GET /v1/github/usage", s.githubUsage)
+	h("GET /v1/github/repos", s.githubRepos)
 
 	// The app's search palette: everything, in every project, in one call.
 	h("GET /v1/search", s.search)

@@ -590,6 +590,12 @@ func (c *Client) StartGitHubLogin(ctx context.Context, account string) (Job, err
 	return out, c.do(ctx, http.MethodPost, "/v1/auth/github/login", GitHubLoginRequest{Account: account}, &out)
 }
 
+// GitHubRepos lists the repositories the default GitHub account can push to.
+func (c *Client) GitHubRepos(ctx context.Context) ([]GitHubRepo, error) {
+	var out []GitHubRepo
+	return out, c.do(ctx, http.MethodGet, "/v1/github/repos", nil, &out)
+}
+
 // GitHubLogin is how far the device-flow sign-in running as job has got.
 func (c *Client) GitHubLogin(ctx context.Context, job string) (GitHubLogin, error) {
 	var out GitHubLogin

@@ -537,6 +537,10 @@ type Settings struct {
 	// New agent dialog, which it opens on next time in a project that names
 	// no tool of its own; empty before the first pick.
 	LastAgentPick AgentPick `json:"lastAgentPick"`
+	// FirstRun is true while the app's first-run screen is still to be gone
+	// through: on an installation made after it existed, until it is finished
+	// or skipped (FirstRunDone). One that existed before never shows it.
+	FirstRun bool `json:"firstRun"`
 	// ResumeAfterLimit says whether a chat whose turn was cut short by a
 	// Claude usage limit carries on by itself once the limit resets. On
 	// unless it was turned off, and unlike the settings above it applies to
@@ -754,6 +758,8 @@ type UpdateSettingsRequest struct {
 	// LastAgentPick remembers what the New agent dialog just created an agent
 	// with (Settings.LastAgentPick).
 	LastAgentPick *AgentPick `json:"lastAgentPick,omitempty"`
+	// FirstRunDone, true, ends the first run for good (Settings.FirstRun).
+	FirstRunDone *bool `json:"firstRunDone,omitempty"`
 	// OpenCodeVersion switches the installation between OpenCode 1 ("1", the
 	// default) and OpenCode 2 ("2"), when the base image carries both.
 	OpenCodeVersion *string `json:"openCodeVersion,omitempty"`
@@ -3989,4 +3995,18 @@ type GPUReport struct {
 type VulkanDevice struct {
 	Name string `json:"name"`
 	Type string `json:"type"`
+}
+
+// GitHubRepo is one of the repositories the default GitHub account can push
+// to, as the first run lists them to clone one as the first project.
+type GitHubRepo struct {
+	// FullName is owner/name.
+	FullName    string `json:"fullName"`
+	Description string `json:"description,omitempty"`
+	Private     bool   `json:"private"`
+	// PushedAt is when it was last pushed to, RFC 3339; the list is newest
+	// first.
+	PushedAt string `json:"pushedAt,omitempty"`
+	// CloneURL is its https:// URL, what CloneProjectRequest.URL takes.
+	CloneURL string `json:"cloneUrl"`
 }

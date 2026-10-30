@@ -118,6 +118,11 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if req.FirstRunDone != nil && *req.FirstRunDone {
+		if err := s.store.DeleteSetting(r.Context(), state.SettingFirstRun); err != nil {
+			return err
+		}
+	}
 	// OpenCode's version is one choice for the installation: the agents and
 	// their chat all read it, so a change reaches them the next time their
 	// tool starts. A menu belongs to a version's providers, so a switch
@@ -580,6 +585,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		// A pick that no longer reads is only a start value lost.
 		_ = json.Unmarshal([]byte(raw), &lastPick)
 	}
+	firstRun, err := s.store.Flag(r.Context(), state.SettingFirstRun)
+	if err != nil {
+		return api.Settings{}, err
+	}
 	resumeAfterLimit, err := s.store.FlagOn(r.Context(), state.SettingResumeAfterLimit)
 	if err != nil {
 		return api.Settings{}, err
@@ -728,6 +737,7 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		DefaultCursorModel:  cursorModel,
 		DefaultCursorEffort: cursorEffort,
 		LastAgentPick:       lastPick,
+		FirstRun:            firstRun,
 
 		ResumeAfterLimit:     resumeAfterLimit,
 		ContinueAfterRestart: continueAfterRestart,
