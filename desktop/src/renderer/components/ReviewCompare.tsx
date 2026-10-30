@@ -72,10 +72,11 @@ export function ReviewCompare({ ref, pair, expanded }: { ref?: Ref<CompareHandle
               </button>
             );
           })}
-          <span className="px-1 max-md:hidden" aria-hidden>
-            <Kbd>Q</Kbd>
-          </span>
         </div>
+        <span className="-ml-0.5 flex items-center gap-1 text-[11.5px] text-subtle max-md:hidden" aria-hidden title={t('review.key.compareMode')}>
+          <Kbd>Q</Kbd>
+          {t('review.compare.cycle')}
+        </span>
         <button
           type="button"
           aria-pressed={highlight}

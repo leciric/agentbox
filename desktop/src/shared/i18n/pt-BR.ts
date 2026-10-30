@@ -553,6 +553,7 @@ export const ptBR: Messages = {
   'review.compare.flip': 'Alternar',
   'review.compare.modeTitle': '{mode} (Q troca de modo)',
   'review.compare.highlightTitle': 'Destacar os pixels que mudaram (H)',
+  'review.compare.cycle': 'próximo modo',
   'review.compare.highlight': 'Destacar mudanças',
   'review.compare.before': 'Antes',
   'review.compare.after': 'Depois',

@@ -552,6 +552,7 @@ export const enUS = {
   'review.compare.flip': 'Flip',
   'review.compare.modeTitle': '{mode} (Q cycles the modes)',
   'review.compare.highlightTitle': 'Highlight the pixels that changed (H)',
+  'review.compare.cycle': 'next mode',
   'review.compare.highlight': 'Highlight changes',
   'review.compare.before': 'Before',
   'review.compare.after': 'After',
