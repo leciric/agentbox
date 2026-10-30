@@ -1903,6 +1903,7 @@ export function seedFirstRun(queryClient: QueryClient, step: string): void {
       check('codex', 'Codex login', 'optional', "optional: agents can't run Codex yet", false, 'agentbox auth codex'),
       check('opencode', 'OpenCode login', 'optional', "optional: agents can't run OpenCode yet", false, 'agentbox auth opencode'),
       check('cursor', 'Cursor sign-in', 'optional', "optional: agents can't run Cursor yet", false, 'agentbox auth cursor'),
+      check('gemini', 'Gemini CLI sign-in', 'optional', "optional: agents can't run Gemini CLI yet", false, 'agentbox auth gemini'),
     ],
     image: { version: '2026.10.28.1', components: none, installed: none, downloads: [], hint: '' },
   } as T.SetupStatus;
@@ -1987,6 +1988,7 @@ export function seedSettings(queryClient: QueryClient): void {
       check('claude', 'Claude Code', 'ok', 'signed in as default', false),
       check('codex', 'Codex', 'optional', 'not signed in', false, 'agentbox auth codex'),
       check('cursor', 'Cursor sign-in', 'optional', 'not signed in', false, 'agentbox auth cursor'),
+      check('gemini', 'Gemini CLI sign-in', 'optional', 'not signed in', false, 'agentbox auth gemini'),
       check('opencode', 'OpenCode', 'optional', 'not in the base image', false, 'agentbox image build --opencode'),
       check('android', 'Android', 'optional', 'no Android SDK found', false),
       check('preview', 'Preview proxy', 'ok', 'http://<port>.<agent>.agentbox.localhost:7777', false),

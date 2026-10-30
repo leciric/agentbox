@@ -4255,7 +4255,7 @@ export const enUS = {
   'defaults.tool.label': 'AI tool',
   'defaults.tool.description': 'What the Home chat, each project\'s chat and new agents start on.',
   'defaults.tool.details': 'A chat that has already started keeps its tool, and a project that names a tool for its agents keeps it. The New agent dialog changes this to the tool it last created an agent with.',
-  'defaults.tool.keywords': 'default tool claude code codex opencode cursor ai',
+  'defaults.tool.keywords': 'default tool claude code codex opencode cursor gemini ai',
   // first run (components/FirstRun)
   'firstRun.heading': 'Welcome to AgentBox',
   'firstRun.intro': 'A few steps get your first agents running. Each one is skipped when it is done already.',
@@ -4268,6 +4268,7 @@ export const enUS = {
   'firstRun.tool.needs.codex': 'Needs a ChatGPT plan, or an OpenAI API key.',
   'firstRun.tool.needs.opencode': 'Needs an API key from a provider it supports, such as Anthropic, OpenAI or OpenRouter.',
   'firstRun.tool.needs.cursor': 'Needs a Cursor account, signed in with an API key from its dashboard.',
+  'firstRun.tool.needs.gemini': 'Needs a Google account, or a Gemini API key from Google AI Studio.',
   'firstRun.tool.use': 'Use {tool}',
   'firstRun.tool.later': 'Change it later in Settings → Models.',
   'firstRun.machine.title': 'Machine and base image',

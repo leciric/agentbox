@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { HostSetupStatus } from '../../preload';
 import type * as T from '../../shared/api';
-import { filterRepos, firstRunStep, neverSetUp, showFirstRun, stepDone, type FirstRunProgress } from './firstRun.ts';
+import { filterRepos, firstRunStep, firstRunTools, isFirstRunTool, neverSetUp, showFirstRun, stepDone, type FirstRunProgress } from './firstRun.ts';
 
 const none: FirstRunProgress = { machine: false, login: false, github: false, project: false };
 
@@ -51,4 +51,10 @@ test('a search keeps the repositories with every word, in GitHub\'s order', () =
   assert.deepEqual(filterRepos(repos, '').map((r) => r.fullName), ['acme/pawly', 'acme/site', 'me/pawly-api']);
   assert.deepEqual(filterRepos(repos, 'PAWLY').map((r) => r.fullName), ['acme/pawly', 'me/pawly-api']);
   assert.deepEqual(filterRepos(repos, 'acme reminders').map((r) => r.fullName), ['acme/pawly']);
+});
+
+test('the first run offers every AI tool, Claude Code first', () => {
+  assert.deepEqual(firstRunTools, ['claude', 'codex', 'opencode', 'cursor', 'gemini']);
+  assert.ok(isFirstRunTool('gemini'));
+  assert.ok(!isFirstRunTool('aider'));
 });

@@ -1237,7 +1237,7 @@ export function DefaultTool() {
   );
 }
 
-const defaultTools = ['claude', 'codex', 'opencode', 'cursor'];
+const defaultTools = ['claude', 'codex', 'opencode', 'cursor', 'gemini'];
 
 export function MediaRetention() {
   const t = useT();

@@ -4256,7 +4256,7 @@ export const ptBR: Messages = {
   'defaults.tool.label': 'Ferramenta de IA',
   'defaults.tool.description': 'Com o que o chat Início, o chat de cada projeto e os novos agentes começam.',
   'defaults.tool.details': 'Um chat que já começou mantém sua ferramenta, e um projeto que define uma ferramenta para seus agentes a mantém. O diálogo Novo agente muda isto para a ferramenta com que criou um agente por último.',
-  'defaults.tool.keywords': 'ferramenta padrão claude code codex opencode cursor ia',
+  'defaults.tool.keywords': 'ferramenta padrão claude code codex opencode cursor gemini ia',
   // first run (components/FirstRun)
   'firstRun.heading': 'Boas-vindas ao AgentBox',
   'firstRun.intro': 'Alguns passos deixam seus primeiros agentes rodando. Cada um é pulado quando já está feito.',
@@ -4269,6 +4269,7 @@ export const ptBR: Messages = {
   'firstRun.tool.needs.codex': 'Precisa de um plano do ChatGPT, ou de uma chave de API da OpenAI.',
   'firstRun.tool.needs.opencode': 'Precisa de uma chave de API de um provedor que ele aceite, como Anthropic, OpenAI ou OpenRouter.',
   'firstRun.tool.needs.cursor': 'Precisa de uma conta do Cursor, conectada com uma chave de API do painel dele.',
+  'firstRun.tool.needs.gemini': 'Precisa de uma conta Google, ou de uma chave de API do Gemini do Google AI Studio.',
   'firstRun.tool.use': 'Usar {tool}',
   'firstRun.tool.later': 'Mude depois em Configurações → Modelos.',
   'firstRun.machine.title': 'Máquina e imagem base',
