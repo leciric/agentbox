@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
 import { api, isHomeChat, isProjectChat } from '../../lib/api';
 import type { Wake } from '../v2/ReviewV2';
-import { asleep, chatKey, dropWindow, fetchThread, isSilent, loadOlder, loadWindowNewer, loadWindowOlder, sessionShown, toolsReload } from '../../lib/chat';
+import { asleep, chatKey, dropWindow, fetchThread, isSilent, loadOlder, loadWindowNewer, loadWindowOlder, sessionShown, takesMessages, toolsReload } from '../../lib/chat';
 import { useT, type MessageKey } from '../../lib/i18n';
 import { settleSending, useSending, withSending } from '../../lib/sending';
 import { useProjectName } from '../../lib/useProjectName';
@@ -399,7 +399,7 @@ export function ChatTab({
               <Composer
                 agent={agent}
                 thread={thread.data}
-                disabled={!running && !sleeping}
+                disabled={!takesMessages(agent)}
                 asleep={sleeping ? { state: sleeping, starting, onStart } : undefined}
                 onSent={scrollToEnd}
               />

@@ -1859,6 +1859,7 @@ export const enUS = {
   'chat.delivery.lost': 'Never reached the tool',
   'chat.delivery.held': 'Waiting for the compaction to finish',
   'chat.delivery.waking': 'Waiting for memory to start its machine',
+  'chat.delivery.starting': 'Waiting for the AI tool to start',
   'chat.sending.retry': 'Send again',
   'chat.sending.edit': 'Edit',
   'chat.compaction.running': 'Compacting context — saving to project memory…',

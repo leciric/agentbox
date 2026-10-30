@@ -63,6 +63,12 @@ export function pickSession(sessions: readonly T.LeadSession[], chosen: string |
   return sessions.find((s) => s.id === chosen) ?? byActivity(sessions)[0];
 }
 
+// withSession is sessions with s in it, replacing the one with its id: a
+// session just made, before the list is read again.
+export function withSession(sessions: readonly T.LeadSession[], s: T.LeadSession): T.LeadSession[] {
+  return sessions.some((x) => x.id === s.id) ? sessions.map((x) => (x.id === s.id ? s : x)) : [...sessions, s];
+}
+
 // openSession is the session clicking a project opens: the one an agent's
 // question waits in (the oldest question's, when several wait), and otherwise
 // pickSession's. A question waits in its agent's session (Agent.leadSession),

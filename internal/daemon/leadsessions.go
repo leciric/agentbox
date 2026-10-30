@@ -164,12 +164,49 @@ func (s *Server) groupSession(ctx context.Context, g state.Group) string {
 }
 
 // sessionsChanged tells the app a project's sessions changed, and rewrites
-// every session's brief, which names the others.
+// every session's brief, which names the others, in the background: that is
+// a memory recap per session (leadRecap), which a project with dozens of
+// sessions and a real memory took most of a second over, and a new session
+// waited on it before it could open. Each running session reads its brief
+// again at its next start, so nothing waits on it.
 func (s *Server) sessionsChanged(ctx context.Context, project string) {
 	s.events.publish(api.EventLeadSessions, api.LeadSessionsChange{Project: project})
-	if err := s.manager(nil).ReconfigureLead(context.WithoutCancel(ctx), project); err != nil {
-		s.logf("rewriting %s's chat briefs: %v", project, err)
+	s.rewriteBriefs(project)
+}
+
+// rewriteBriefs rewrites a project's chat briefs aside, one rewrite at a time
+// for each project: a change while one runs makes one more after it, however
+// many arrive, since each rewrite reads the sessions as they are then.
+func (s *Server) rewriteBriefs(project string) {
+	s.mu.Lock()
+	if _, running := s.briefsAgain[project]; running {
+		s.briefsAgain[project] = true
+		s.mu.Unlock()
+		return
 	}
+	if s.briefsAgain == nil {
+		s.briefsAgain = map[string]bool{}
+	}
+	s.briefsAgain[project] = false
+	s.mu.Unlock()
+	s.briefRewrites.Go(func() {
+		for {
+			if err := s.manager(nil).ReconfigureLead(context.Background(), project); err != nil {
+				s.logf("rewriting %s's chat briefs: %v", project, err)
+			}
+			s.mu.Lock()
+			again := s.briefsAgain[project]
+			if !again {
+				delete(s.briefsAgain, project)
+			} else {
+				s.briefsAgain[project] = false
+			}
+			s.mu.Unlock()
+			if !again {
+				return
+			}
+		}
+	})
 }
 
 // apiSessions describes a project's sessions for the app.
