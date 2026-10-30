@@ -2849,5 +2849,9 @@
     "query": "app=project&v2=1&theme=light&palette=tokyo",
     "width": 1440,
     "height": 900
-  }
+  },
+  {"id": "sidebar-attention-dark", "description": "UI v2's sidebar levels: agentbox's asks need you (amber pill, wash, left line, the ask as its subtitle), storefront has two agents finished unseen (purple pill), courier and quill working (grey) — dark", "query": "app=home&v2=1&attention=1&theme=dark", "width": 1440, "height": 900},
+  {"id": "window-min-sidebar-attention-dark", "description": "The same at 480×800, the sidebar's drawer open from the top bar — dark", "query": "app=home&v2=1&attention=1&theme=dark", "width": 480, "height": 800, "click": "[data-open-nav]"},
+  {"id": "sidebar-attention-light", "description": "UI v2's sidebar levels: agentbox's asks need you (amber pill, wash, left line, the ask as its subtitle), storefront has two agents finished unseen (purple pill), courier and quill working (grey) — light", "query": "app=home&v2=1&attention=1&theme=light", "width": 1440, "height": 900},
+  {"id": "window-min-sidebar-attention-light", "description": "The same at 480×800, the sidebar's drawer open from the top bar — light", "query": "app=home&v2=1&attention=1&theme=light", "width": 480, "height": 800, "click": "[data-open-nav]"}
 ]

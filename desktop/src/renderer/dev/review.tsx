@@ -714,6 +714,23 @@ export function seedV2(queryClient: QueryClient, pins: string | null): void {
     const text = idleLines[(i - 1) % idleLines.length];
     queryClient.setQueryData<T.ProjectChat>(['projectChat', `idle-${i}`], { project: `idle-${i}`, ref: `idle-${i}/lead`, started: true, chat: 'ready', last: { kind: text.startsWith('You: ') ? 'user' : 'assistant', text: text.replace(/^You: /, ''), at: ago((i + 2) * day) } });
   }
+  // &attention=1: the sidebar's three levels (lib/attention.ts) at once:
+  // agentbox's asks need you, storefront has two agents finished that you
+  // haven't seen, and courier has one at work.
+  if (new URLSearchParams(location.search).get('attention') === '1') {
+    // This computer has kept what it saw since yesterday, before they finished.
+    localStorage.setItem('agentbox.v2.projectSeenSince', ago(day));
+    const first = buildFixtures().agents[0];
+    const agent = (project: string, name: string, title: string, over: Partial<T.Agent>): T.Agent => ({ ...first, ref: `${project}/${name}`, project, name, title, branch: `agentbox/${name}`, state: 'running', chat: 'ready', outcome: 'done', stalledSince: undefined, ...over });
+    const mine = [agent('storefront', 'agent-41', 'Checkout copy', {}), agent('storefront', 'agent-42', 'Address format', {}), agent('courier', 'agent-7', 'Retry the webhooks', { chat: 'running', outcome: undefined })];
+    queryClient.setQueryData<T.Agent[]>(['agents'], (as) => [...(as ?? []), ...mine]);
+    const done = mine.slice(0, 2).map((a): T.ReviewItem => ({ project: a.project, agent: a.name, ref: a.ref, title: a.title, finishedAt: ago(5 * min), fingerprint: a.ref }));
+    devRequests.unshift((method, path) => {
+      if (method === 'GET' && path === '/v1/agents') return json([...(queryClient.getQueryData<T.Agent[]>(['agents']) ?? []).filter((a) => !mine.some((m) => m.ref === a.ref)), ...mine]);
+      if (method === 'GET' && path.startsWith('/v1/review') && !path.includes('reviewed')) return json(pageOf(done));
+      return undefined;
+    });
+  }
   queryClient.setQueryData<T.ProjectChat>(['projectChat', 'quill'], { project: 'quill', ref: 'quill/lead', started: true, chat: 'running', last: { kind: 'assistant', text: 'Reading the editor’s undo stack before I split it.', at: ago(1 * min) } });
   queryClient.setQueryData<T.ProjectChat>(['projectChat', 'storefront'], { project: 'storefront', ref: 'storefront/lead', started: true, chat: 'ready', last: { kind: 'user', text: 'Ship the checkout copy once courier agrees on the address format', at: ago(2 * 60 * min) } });
 }
