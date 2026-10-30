@@ -174,6 +174,7 @@
 //   &pins=a,b               with &v2=1, those projects pinned, in that order
 //   &stale=1                with &v2=1 and &idle=1, idle-1 has unseen questions from destroyed agents
 //   &hidden=a,b             with &v2=1, those projects hidden from the sidebar
+//   &draft=a,b              with &v2=1, those projects' leads have an unsent draft; &grouped=1 groups idle projects
 //   &idle=12                with &v2=1, that many more projects with nothing going on, for Idle
 //   &signedout=1            Claude Code with no login: the composer's banner, and Send's tooltip
 //   &v2=1                   with ?app=, UI v2, the lead-first layout (Settings → General

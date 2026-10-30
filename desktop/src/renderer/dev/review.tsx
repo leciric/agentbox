@@ -16,6 +16,8 @@ import { ProjectView } from '../components/ProjectView';
 import { Sidebar } from '../components/Sidebar';
 import { TopBar } from '../components/TopBar';
 import { buildFixtures, devRequests, pageOf, patchDevAgent, PROJECT, setMediaFile } from './fixtures';
+import { setDraft } from '../lib/drafts';
+import { setGroupIdle } from '../lib/groupIdle';
 import { useReadyAlerts } from '../lib/useReadyAlerts';
 import { screen } from './notifications';
 import { seedPages } from './pages';
@@ -539,6 +541,11 @@ export function seedV2(queryClient: QueryClient, pins: string | null): void {
     'old-blog': { source: 'chosen', emoji: '📝', hasDetected: false },
   };
   queryClient.setQueryData(['projects'], projects);
+  // &draft=a,b: those projects' leads have an unsent draft; &grouped=1 turns
+  // "group idle" on, where a drafted project stays out of the Idle list.
+  const search = new URLSearchParams(location.search);
+  for (const name of search.get('draft')?.split(',') ?? []) setDraft(`${name}/lead`, 'Can you also check the flaky e2e test');
+  if (search.get('grouped') === '1') setGroupIdle(true);
   if (pins) localStorage.setItem('agentbox.v2.projects', JSON.stringify({ pins: pins.split(',') }));
   const json = (v: unknown) => ({ status: 200, body: JSON.stringify(v), contentType: 'application/json' });
   // The sidebar's hidden projects (&hidden=a,b), kept as the daemon would

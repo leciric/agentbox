@@ -3541,6 +3541,7 @@ export const enUS = {
   'common.scrollBack': 'Scroll back',
   'common.scrollMore': 'Scroll for more',
   'v2.sidebar.idleHint': 'nothing running',
+  'v2.sidebar.draft': 'Unsent draft in the chat',
   'v2.sidebar.hide': 'Hide',
   'v2.sidebar.unhide': 'Unhide',
   'v2.sidebar.hideFailed': 'Couldn’t save the hidden projects',

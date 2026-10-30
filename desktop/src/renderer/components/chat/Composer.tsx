@@ -41,7 +41,7 @@ import { choiceName, currentFirst, groupChoices, isRecommended, matchesQuery, se
 import { FileLinks } from '../files/FilePanel';
 import { mentionAt, matchAgents, matchFiles, matchProjects, mentionLimit, type MentionItem } from '../../lib/mentions';
 import { onComposerFocus, takeComposerFocus } from '../../lib/newTask';
-import { composeEvent, getDraft, setDraft } from '../../lib/drafts';
+import { composeEvent, getDraft, setDraft, setDraftAttachments } from '../../lib/drafts';
 import { formatTime, t as translate, useT } from '../../lib/i18n';
 import { useNow } from '../../lib/useNow';
 import { previewUrl } from '../../lib/chatImages';
@@ -245,6 +245,10 @@ export function Composer({
   useEffect(() => {
     setDraft(agent.ref, text);
   }, [agent.ref, text]);
+  useEffect(() => {
+    setDraftAttachments(agent.ref, images.length);
+    return () => setDraftAttachments(agent.ref, 0);
+  }, [agent.ref, images.length]);
 
   // A chat opened from UI v2's New task, or its sidebar's project, is opened
   // to write in, on screen already or not.
